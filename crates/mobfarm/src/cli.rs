@@ -2001,6 +2001,12 @@ pub enum MobfarmCmd {
         /// A,B,C: the three releases' offsets in the batch, in merge order (default 0, S, 2S).
         #[arg(long, value_delimiter = ',')]
         offsets: Vec<i64>,
+        /// One release-time shift per cart (batch-major, merge order), added to its offset (the
+        /// ± 2 corners); `--jitter-sweep` runs every ±2/0 pattern of batches 0 and 1 (729 rows).
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        jitter: Vec<i64>,
+        #[arg(long)]
+        jitter_sweep: bool,
         /// The lift one lower (water to 21) and the split flat at the exit's level (y 22), the
         /// branches with it.
         #[arg(long)]
@@ -2025,9 +2031,15 @@ pub enum MobfarmCmd {
         /// A seeded misroute: cart K finds J(-1) the other way once.
         #[arg(long)]
         seed_miss: Option<usize>,
-        /// A save, stop and start between two ticks at tick T (the lead's L1 rows).
+        /// A save, stop and start between two ticks (the lead's L1 rows) through cc767b78's
+        /// `liveness::restart`: `T,ORDER` (ORDER save, reverse or seed:K).
         #[arg(long)]
-        restart: Option<i64>,
+        restart: Option<String>,
+        /// The restart sweep: `FROM,TO` runs the bench once per tick T in FROM..=TO and per order in
+        /// `Restart::rows()` (save, reverse, seed:1..8), on 16 threads, and prints the rows that fail
+        /// (a wrong lane, a push, a napper off its route, a hurt, eye-in-wall or dismounted rider).
+        #[arg(long, value_delimiter = ',')]
+        restart_sweep: Vec<i64>,
         /// 9fc3155f's z 7 shift (ironspec 01:02): the merge row, the shared lift (shaft (-5,y,7),
         /// entry (-4,0,7)) and the hold one cell north; the split unchanged.
         #[arg(long)]
@@ -2037,6 +2049,20 @@ pub enum MobfarmCmd {
         /// the lift's water to 24, the exit at 25.
         #[arg(long)]
         row10: bool,
+        /// The in-chunk split (ironspec 02:13): the row along z 9 at y 25 (a booster after the exit
+        /// curve), each lane's branch one detector slope (x,24,8) down to the merge curve (x,24,7).
+        #[arg(long)]
+        row9: bool,
+        /// `--row9`: the booster on the exit's cell (-5,25,8) instead of the row's first cell.
+        #[arg(long)]
+        boost_exit: bool,
+        /// `--row9 --boost-exit`: the lift's water to 22 and the exit at 23, the cart climbing two
+        /// slopes to the row at 25 (the delivery mid-band).
+        #[arg(long)]
+        climb2: bool,
+        /// `--climb2`: the first climbing slope a powered rail (the booster) instead of the exit's cell.
+        #[arg(long)]
+        boost_slope: bool,
         /// The station's real departure: three boosters (on) on each lane's last three cells
         /// before the merge row (dfb89499); the arming detector at the station's exit detector.
         #[arg(long)]
@@ -6055,9 +6081,16 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             println!("{}", crate::queue::golem_spots(&spec, o.as_ref(), &extra, with_entities, list, pad_box, &stand_cells).map_err(|e| anyhow::anyhow!(e))?);
         }
-        MobfarmCmd::ReturnBench { batches, spacing, speed, ticks, login, boost, trace, reverse, offsets, flat, game_ticks, napper_delay, dip, resync, seed_miss, restart, z7, row10, boosters, row_boost, out } => {
-            let o = crate::returnbench::ReturnOpts { batches, spacing, speed, ticks, login: (login.len() == 2).then(|| (login[0], login[1])), boost, trace, reverse, offsets, flat, game_ticks, napper_delay, dip, resync, seed_miss, restart, z7, row10, boosters, row_boost, out };
-            println!("{}", crate::returnbench::return_bench(&o).map_err(|e| anyhow::anyhow!(e))?);
+        MobfarmCmd::ReturnBench { batches, spacing, speed, ticks, login, boost, trace, reverse, offsets, jitter, jitter_sweep, flat, game_ticks, napper_delay, dip, resync, seed_miss, restart, restart_sweep, z7, row10, boosters, row_boost, out, row9, boost_exit, climb2, boost_slope } => {
+            let restart = restart.as_deref().map(crate::liveness::parse_restart).transpose().map_err(|e| anyhow::anyhow!(e))?;
+            let o = crate::returnbench::ReturnOpts { batches, spacing, speed, ticks, login: (login.len() == 2).then(|| (login[0], login[1])), boost, trace, reverse, offsets, jitter, flat, game_ticks, napper_delay, dip, resync, seed_miss, restart, z7, row10, boosters, row_boost, out, row9, boost_exit, climb2, boost_slope };
+            if restart_sweep.len() == 2 {
+                println!("{}", crate::returnbench::restart_sweep(&o, restart_sweep[0], restart_sweep[1]).map_err(|e| anyhow::anyhow!(e))?);
+            } else if jitter_sweep {
+                println!("{}", crate::returnbench::jitter_sweep(&o).map_err(|e| anyhow::anyhow!(e))?);
+            } else {
+                println!("{}", crate::returnbench::return_bench(&o).map_err(|e| anyhow::anyhow!(e))?);
+            }
         }
         MobfarmCmd::LiftBench { height, entry_len, entry_h, speed, carts, spacing, ticks, exit, trace, ceiling, freeze, exit_slope, merge3, split3, pane_walls, reach_dy, detector_at, napper_at, stopper, game_ticks } => {
             let o = crate::liftbench::LiftOpts { height, entry_len, entry_h, speed, carts, spacing, ticks, exit, trace, ceiling, freeze: (freeze.len() == 2).then(|| (freeze[0], freeze[1])), exit_slope, merge3, split3, pane_walls, reach_dy, detector_at, napper_at, stopper, game_ticks };
