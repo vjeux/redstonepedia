@@ -1682,10 +1682,39 @@ pub enum MobfarmCmd {
         /// having risen after that pocket's release, instead of on its string.
         #[arg(long)]
         exit_gate: bool,
-        /// Scarers for the night-panic coverage print: "z:x,y,z;p:x,y,z" (a zombie's or a pillager's
-        /// feet, the design's frame).
+        /// Scarers for the night-panic coverage print: "z:x,y,z;p:x,y,z;P:x,y,z" (a zombie's or a
+        /// pillager's feet, the design's frame; `P` a pillager pinned in a 1 x 1 cell: checked from
+        /// its centre and its four corners +-0.2).
         #[arg(long, default_value = "")]
         scarers: String,
+        /// Extra blocks set in the design last, each "x,y,z,STATE" (repeatable): a scarer's cell and
+        /// its sight openings, to check against the layout.
+        #[arg(long)]
+        block: Vec<String>,
+        /// A zombie post at its boat's cell x,y,z (the brief's: glass under, a persistent zombie in
+        /// an oak boat, leaves 3 above; repeatable): a scarer in the coverage print, and in the
+        /// design for `mobfarm exit`'s golem check.
+        #[arg(long = "post", allow_hyphen_values = true)]
+        posts: Vec<String>,
+        /// (the station) The hold's north stop a bottom slab (stops the cart off R_1, passes the
+        /// hold rider's sight north) instead of a glass block.
+        #[arg(long)]
+        slab_stop: bool,
+        /// The trapdoor opens this long after its gate is met (G1: the hold's release at stage 3,
+        /// 4 gt after stage 1).
+        #[arg(long, default_value_t = 0)]
+        open_delay: i64,
+        /// L1 (the lead): the controller and its timers on game ticks through a freeze or login
+        /// (default: L2, the live clock).
+        #[arg(long)]
+        l1: bool,
+        /// A save/stop/start at these ticks after T in every run (every chunk saved, unloaded and
+        /// loaded again between two ticks, no game time passing).
+        #[arg(long, value_delimiter = ',')]
+        reload_at: Vec<i64>,
+        /// One run per save/stop/start tick "FROM,TO,STEP" (the reload at every phase).
+        #[arg(long, value_delimiter = ',')]
+        reload_sweep: Vec<i64>,
         /// (the station) The R line: the lanes' R_1 cells with the next batch on them, powered from
         /// the side "D,L": D gt after the last trapdoor shut again (needs --pulse), for L gt.
         #[arg(long, default_value = "")]
@@ -5561,7 +5590,25 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             }
         }
-        MobfarmCmd::DropBench { layout, login, hold_y, rel, stagger, rebrake, release, pulse, occupancy, exit_gate, release_world, pad, rebrake_each, scarers, refill, dep_riders, arr_riders, freezes, freeze_sweep, ticks, seed, seeds, summary, out, trace } => {
+        MobfarmCmd::DropBench { layout, login, hold_y, rel, stagger, rebrake, release, pulse, occupancy, exit_gate, release_world, pad, rebrake_each, scarers, block, posts, slab_stop, open_delay, l1, reload_at, reload_sweep, refill, dep_riders, arr_riders, freezes, freeze_sweep, ticks, seed, seeds, summary, out, trace } => {
+            let posts_v: Vec<(i32, i32, i32)> = posts
+                .iter()
+                .map(|s| -> anyhow::Result<(i32, i32, i32)> {
+                    let v: Vec<i32> = s.split(',').map(|x| x.trim().parse::<i32>()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(v.len() == 3, "--post x,y,z");
+                    Ok((v[0], v[1], v[2]))
+                })
+                .collect::<anyhow::Result<_>>()?;
+            // (extra blocks "x,y,z,STATE": the state may hold commas)
+            let blocks_v: Vec<(i32, i32, i32, String)> = block
+                .iter()
+                .map(|s| -> anyhow::Result<(i32, i32, i32, String)> {
+                    let mut it = s.splitn(4, ',');
+                    let (x, y, z, st) = (it.next(), it.next(), it.next(), it.next());
+                    let (Some(x), Some(y), Some(z), Some(st)) = (x, y, z, st) else { anyhow::bail!("--block x,y,z,STATE") };
+                    Ok((x.trim().parse()?, y.trim().parse()?, z.trim().parse()?, st.trim().to_string()))
+                })
+                .collect::<anyhow::Result<_>>()?;
             let logins_v: Vec<(i64, i64)> = login
                 .iter()
                 .map(|s| -> anyhow::Result<(i64, i64)> {
@@ -5583,17 +5630,23 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 .map(|s| -> anyhow::Result<(char, redsim::entity::Vec3)> {
                     let (k, v) = s.trim().split_once(':').ok_or_else(|| anyhow::anyhow!("--scarers z:x,y,z;p:x,y,z"))?;
                     let c: Vec<f64> = v.split(',').map(|x| x.trim().parse::<f64>()).collect::<Result<_, _>>()?;
-                    anyhow::ensure!(c.len() == 3 && (k == "z" || k == "p"), "--scarers z:x,y,z;p:x,y,z");
+                    anyhow::ensure!(c.len() == 3 && (k == "z" || k == "p" || k == "P"), "--scarers z:x,y,z;p:x,y,z;P:x,y,z");
                     Ok((k.chars().next().unwrap(), redsim::entity::Vec3::new(c[0], c[1], c[2])))
                 })
                 .collect::<anyhow::Result<_>>()?;
             let list = |s: &str| s.split(',').map(|x| x.trim().parse::<i64>()).collect::<Result<Vec<_>, _>>();
-            let r3 = |s: &str| -> anyhow::Result<[bool; 3]> {
+            let r3 = |s: &str| -> anyhow::Result<([bool; 3], [bool; 3])> {
                 let v: Vec<&str> = s.split(',').map(|x| x.trim()).collect();
-                anyhow::ensure!(v.len() == 3, "riders take three of 1 or 0");
-                Ok([v[0] == "1", v[1] == "1", v[2] == "1"])
+                anyhow::ensure!(v.len() == 3, "riders take three of 1, 0 or x (absent)");
+                Ok(([v[0] == "1", v[1] == "1", v[2] == "1"], [v[0] == "x", v[1] == "x", v[2] == "x"]))
             };
-            let (dep, arr) = (r3(&dep_riders)?, r3(&arr_riders)?);
+            let ((dep, dep_x), (arr, _)) = (r3(&dep_riders)?, r3(&arr_riders)?);
+            // (save/stop/start rows: --reload-at in every run, or one run per tick of --reload-sweep)
+            let mut reload_sets: Vec<Vec<i64>> = vec![reload_at.clone()];
+            if !reload_sweep.is_empty() {
+                anyhow::ensure!(reload_sweep.len() == 3 && reload_sweep[2] > 0, "--reload-sweep FROM,TO,STEP");
+                reload_sets = (reload_sweep[0]..=reload_sweep[1]).step_by(reload_sweep[2] as usize).map(|t| vec![t]).collect();
+            }
             let st = list(&stagger)?;
             anyhow::ensure!(st.len() == 3, "--stagger A,B,C");
             let (rels, rebrakes, releases, holds) = (list(&rel)?, list(&rebrake)?, list(&release)?, list(&hold_y)?);
@@ -5627,22 +5680,24 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     _ => anyhow::bail!("--layout series, parallel:P or station"),
                 };
                 for h in &holds {
-                    let text = crate::drop::design_full(lo, *h as i32, dep, arr, pad, refill_v.is_some());
+                    let ex = crate::drop::Extras { blocks: blocks_v.clone(), posts: posts_v.clone(), slab_stop };
+                    let text = crate::drop::design_extra(lo, *h as i32, dep, arr, pad, refill_v.is_some(), &ex);
                     let path = out.clone().unwrap_or_else(|| std::env::temp_dir().join(format!("drop-bench-{}.txt", std::process::id())));
                     std::fs::write(&path, &text)?;
                     let (_c, fspec) = load(version, &path)?;
                     println!("drop bench {lo:?}, hold y {h}: {}", crate::drop::footprint(lo, *h as i32));
                     let mut runs: Vec<crate::drop::DropStats> = Vec::new();
                     for f in &frz {
+                    for rset in &reload_sets {
                         for r in &rels {
                             for rb in &rebrakes {
                                 for rl in &releases {
                                     for s in seed..seed + seeds {
-                                        let o = crate::drop::DropOpts { layout: lo, hold_y: *h as i32, rel: *r, stagger: [st[0], st[1], st[2]], rebrake: *rb, release: *rl, pulse, occupancy, exit_gate, release_world, rebrake_each, scarers: scarers_v.clone(), refill: refill_v, ticks, seed: s, freeze: *f, logins: logins_v.clone(), trace };
+                                        let o = crate::drop::DropOpts { layout: lo, hold_y: *h as i32, rel: *r, stagger: [st[0], st[1], st[2]], rebrake: *rb, release: *rl, pulse, occupancy, exit_gate, open_delay, l1, dep_absent: dep_x, reloads: rset.clone(), release_world, rebrake_each, scarers: scarers_v.clone(), refill: refill_v, ticks, seed: s, freeze: *f, logins: logins_v.clone(), trace };
                                         let (lines, stats) = crate::drop::bench(&fspec, &o).map_err(|e| anyhow::anyhow!(e))?;
                                         runs.push(stats);
                                         if !summary {
-                                            println!("== freeze {}, REL T+{r}, re-brake REL+{rb}, trapdoors T+{rl}, seed {s}", f.map_or("-".to_string(), |(a, b)| format!("T+{a}..T+{}", a + b)));
+                                            println!("== freeze {}{}, REL T+{r}, re-brake REL+{rb}, trapdoors T+{rl}, seed {s}", f.map_or("-".to_string(), |(a, b)| format!("T+{a}..T+{}", a + b)), if rset.is_empty() { String::new() } else { format!(", save/stop/start at {}", rset.iter().map(|t| format!("T+{t}")).collect::<Vec<_>>().join(",")) });
                                             for l in lines {
                                                 println!("{l}");
                                             }
@@ -5652,7 +5707,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             }
                         }
                     }
-                    println!("{}", crate::drop::summary(&format!("SUMMARY {lo:?}, hold y {h}, REL {rel}, re-brake {rebrake}, trapdoors {release}{}, {} freezes", if occupancy { ", gated on the strings" } else { "" }, frz.len()), &runs));
+                    }
+                    println!("{}", crate::drop::summary(&format!("SUMMARY {lo:?}, hold y {h}, REL {rel}, re-brake {rebrake}, trapdoors {release}{}{}, {} freezes, {} reload sets", if occupancy { ", gated on the strings" } else { "" }, if l1 { ", L1" } else { ", L2" }, frz.len(), reload_sets.len()), &runs));
                 }
             }
         }
