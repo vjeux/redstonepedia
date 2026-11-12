@@ -436,6 +436,12 @@ struct Draw {
 
 /// A dwell's draws from its agent lines (`t0`: the dwell's first tick less one).
 fn draw_seq(ev: &[(u32, String)], t0: u32, origin: [i32; 3]) -> Vec<Draw> {
+    draw_seq_moving(ev, t0, origin, &std::collections::BTreeMap::new())
+}
+
+/// As [`draw_seq`], each landed cell relative to the rider's block at its draw tick where `moving`
+/// has one (the departure: the rider rolling out), else to `origin`.
+fn draw_seq_moving(ev: &[(u32, String)], t0: u32, origin: [i32; 3], moving: &std::collections::BTreeMap<u32, [i32; 3]>) -> Vec<Draw> {
     let mut out: Vec<Draw> = Vec::new();
     let mut branch = "";
     let mut open: Option<usize> = None;
@@ -460,7 +466,8 @@ fn draw_seq(ev: &[(u32, String)], t0: u32, origin: [i32; 3]) -> Vec<Draw> {
                 branch = "land";
             }
         } else if l.starts_with("set minecraft:walk_target") && by.starts_with("VillageBoundRandomStroll") {
-            let cell = target_cell(l).map(|c| [c[0] - origin[0], c[1] - origin[1], c[2] - origin[2]]);
+            let o = moving.get(t).copied().unwrap_or(origin);
+            let cell = target_cell(l).map(|c| [c[0] - o[0], c[1] - o[1], c[2] - o[2]]);
             out.push(Draw { t: t - t0, branch: if branch.is_empty() { "?" } else { branch }, cell, outcome: "open", hold: None, cleared: false });
             open = Some(out.len() - 1);
             branch = "";
@@ -548,6 +555,7 @@ fn pocket_lane(version: &str, module: &std::path::Path, x: i32, dwells: u32, dwe
         let (mut first, mut first_landed, mut cause) = (None, None, "");
         let mut departed_clear = None;
         let mut panic_in_pocket = 0u32;
+        let mut moving: std::collections::BTreeMap<u32, [i32; 3]> = std::collections::BTreeMap::new();
         for i in 0..dwell + depart {
             if depart > 0 && i == dwell {
                 // the real departure: the pocket's support powered, the cart launched south
@@ -557,6 +565,12 @@ fn pocket_lane(version: &str, module: &std::path::Path, x: i32, dwells: u32, dwe
             r.tick(&mut c)?;
             if r.panicking && i < dwell {
                 panic_in_pocket += 1;
+            }
+            if i >= dwell {
+                // the departure: the rider's block each tick, for its draws' cells
+                if let Some(p) = rider_pos(&mut r.srv)? {
+                    moving.insert(r.t, [p[0].floor() as i32, p[1].floor() as i32, p[2].floor() as i32]);
+                }
             }
             if first.is_none() && c.erased() > e0 {
                 first = Some(r.t - t0);
@@ -570,7 +584,7 @@ fn pocket_lane(version: &str, module: &std::path::Path, x: i32, dwells: u32, dwe
             }
         }
         let ev = r.events.take().unwrap_or_default();
-        let seq = draw_seq(&ev, t0, [x, 0, 0]);
+        let seq = draw_seq_moving(&ev, t0, [x, 0, 0], &moving);
         // the panic onset, and what held WALK_TARGET then (a REST bed walk on a partial path keeps
         // it while MoveToTargetSink runs, so no stroll can draw until it's released)
         let onset = ev.iter().find(|(_, l)| l.starts_with("activity panic")).map(|(t, _)| *t);
@@ -725,7 +739,7 @@ fn pocket_lane(version: &str, module: &std::path::Path, x: i32, dwells: u32, dwe
     let (ql, qh) = wilson95(reach, draws);
     let (ll, lh) = wilson95(total.stroll, draws);
     println!(
-        "  lane x {x} totals: draws {draws}, landed {} ({:.4}, 95% {:.4}..{:.4}), reachable {reach} (q = {:.4}, 95% {ql:.4}..{qh:.4}: reached {}, complete path {}); the fewest draws in a dwell n_min = {draws_min}; (1 - q_low)^n_min = {:.3e}",
+        "  lane x {x} totals: draws {draws}, landed {} ({:.4}, 95% {:.4}..{:.4}), reachable {reach} (q = {:.4}, 95% {ql:.4}..{qh:.4}: reached {}, complete path {}); the non-clear rate (null and landed unreached) {:.4}; the fewest draws in a dwell n_min = {draws_min}; (1 - q_low)^n_min = {:.3e}",
         total.stroll,
         total.stroll as f64 / draws.max(1) as f64,
         ll,
@@ -733,6 +747,7 @@ fn pocket_lane(version: &str, module: &std::path::Path, x: i32, dwells: u32, dwe
         reach as f64 / draws.max(1) as f64,
         total.reach_reached,
         total.reach_path,
+        (draws - reach) as f64 / draws.max(1) as f64,
         (1.0 - ql).powi(draws_min as i32)
     );
     println!(
@@ -784,6 +799,122 @@ fn pocket_lane(version: &str, module: &std::path::Path, x: i32, dwells: u32, dwe
             .join("; ")
     );
     println!("  lane x {x}: scarers alive at the end (S1, S2, the bed stop's zombie): {:?}; dwells with the lane's scarer dead (invalid): {invalid}", scarers(&mut r.srv)?);
+    let _ = std::fs::remove_dir_all(&r.srv.dir);
+    Ok(())
+}
+
+/// The rider's position (loop frame).
+fn rider_pos(srv: &mut VanillaServer) -> Result<Option<[f64; 3]>> {
+    let out = srv.cmd_long("data get entity @e[tag=rider,limit=1] Pos")?;
+    let Some(rest) = out.split("entity data: ").nth(1) else { return Ok(None) };
+    let v: Vec<f64> = rest.trim().trim_matches(|c| c == '[' || c == ']').split(',').filter_map(|s| s.trim().trim_end_matches('d').parse().ok()).collect();
+    Ok((v.len() == 3).then(|| [v[0], v[1] - DY as f64, v[2]]))
+}
+
+/// (tickexact 2026-11-12, ironspec's F3) F3's napper post: a pillager seated in a boat at
+/// (1.5,24,-4.5) in a glass box open south (9fc3155f's cells: floor (1,23,-5), roof (1,26,-5),
+/// walls (1,24..25,-6), (2,24..25,-5), (0,24..25,-5)).
+fn f3_post(srv: &mut VanillaServer) -> Result<()> {
+    let g = |srv: &mut VanillaServer, x: i32, y: i32, z: i32| srv.cmd_ok(&format!("setblock {x} {} {z} minecraft:glass", y + DY)).map(|_| ());
+    g(srv, 1, 23, -5)?;
+    g(srv, 1, 26, -5)?;
+    for y in 24..=25 {
+        g(srv, 1, y, -6)?;
+        g(srv, 2, y, -5)?;
+        g(srv, 0, y, -5)?;
+    }
+    srv.cmd_ok(&format!("summon minecraft:oak_boat {} {{Passengers:[{{id:\"minecraft:pillager\",PersistenceRequired:1b,Tags:[\"f3\"],equipment:{{mainhand:{{id:\"minecraft:crossbow\",count:1}}}}}}]}}", at(1.5, 24.0, -4.5)))?;
+    Ok(())
+}
+
+/// (tickexact 2026-11-12, ironspec's F3 inputs) A seat measured with the design's scarers (the
+/// lead pair and, with `post`, F3's napper post) and `glow` glowstone floors: a rider at rest in a
+/// cart at `seat` (the lane's pressed queue filled first by empty carts at `fill`, from the front),
+/// `rail_glow`: the seat rail's floor glowstone. Until `draws` stroll draws: P_null, q, the landed
+/// cells by branch and outcome, MoveToTargetSink's state at the panic onset, the pillagers'
+/// charged ticks.
+pub fn f3_seat(version: &str, module: &std::path::Path, name: &str, seat: [i32; 3], fill: &[[i32; 3]], post: bool, glow: &[[i32; 3]], rail_glow: bool, draws: u32) -> Result<()> {
+    println!(
+        "== seat {name} ({},{},{}){}: the lead pair{}, {} glowstone floors; the queue filled at {fill:?}",
+        seat[0],
+        seat[1],
+        seat[2],
+        if rail_glow { ", its rail's floor glowstone" } else { "" },
+        if post { " and F3's napper post (1,24,-5)" } else { "" },
+        glow.len()
+    );
+    let (mut r, bed) = start(version, module)?;
+    posts(&mut r.srv)?;
+    if post {
+        f3_post(&mut r.srv)?;
+    }
+    for f in glow {
+        r.srv.cmd_ok(&format!("setblock {} {} {} minecraft:glowstone", f[0], f[1] + DY, f[2]))?;
+    }
+    if rail_glow {
+        r.srv.cmd_ok(&format!("setblock {} {} {} minecraft:glowstone", seat[0], seat[1] - 1 + DY, seat[2]))?;
+    }
+    let floor = ["minecraft:glass", "minecraft:glowstone", "minecraft:stone", "minecraft:cobblestone"]
+        .into_iter()
+        .find(|b| r.srv.test_block([seat[0], seat[1] - 1 + DY, seat[2]], b).unwrap_or(false))
+        .unwrap_or("other");
+    println!("  the seat rail's floor: {floor}");
+    for f in fill {
+        r.srv.cmd_ok(&format!("summon minecraft:minecart {} {{Tags:[\"queue\"]}}", at(f[0] as f64 + 0.5, f[1] as f64 + 0.5, f[2] as f64 + 0.5)))?;
+        r.srv.step(10)?;
+    }
+    rider_summon(&mut r.srv, [seat[0] as f64 + 0.5, seat[1] as f64 + 0.5, seat[2] as f64 + 0.5], bed, "seat")?;
+    r.srv.step(40)?;
+    // every cart of the queue after settling (where a pressed queue really rests)
+    let carts = r.srv.cmd_long(&format!("execute as @e[type=minecraft:minecart,x={},y={},z=-2,dx=1,dy=10,dz=12] run data get entity @s Pos", seat[0], 15 + DY))?;
+    let mut ps: Vec<String> = carts
+        .split("entity data: ")
+        .skip(1)
+        .filter_map(|s| {
+            let v: Vec<f64> = s.split(']').next()?.trim_start_matches('[').split(',').filter_map(|t| t.trim().trim_end_matches('d').parse().ok()).collect();
+            (v.len() == 3).then(|| format!("({:.2},{:.2},{:.2})", v[0], v[1] - DY as f64, v[2]))
+        })
+        .collect();
+    ps.sort();
+    println!("  the queue's carts at rest (the rider's included): {}", ps.join(" "));
+    r.verbose = false;
+    let mut c = Counts { origin: seat, ..Counts::default() };
+    r.events = Some(Vec::new());
+    let t0 = r.t;
+    let (mut guard, mut charged) = (0u32, 0u32);
+    while c.stroll + c.stroll_null < draws && guard < 6000 {
+        r.tick(&mut c)?;
+        guard += 1;
+        for tag in ["s1", "f3"] {
+            if r.srv.cmd_long(&format!("data get entity @e[tag={tag},limit=1] equipment.mainhand"))?.contains("charged_projectiles") {
+                charged += 1;
+            }
+        }
+    }
+    let ev = r.events.take().unwrap_or_default();
+    let seq = draw_seq(&ev, t0, seat);
+    let onsets: Vec<String> = ev.iter().filter(|(_, l)| l.starts_with("activity panic")).map(|(t, l)| format!("+{} {}", t - t0, l.split(" (").nth(1).map(|s| format!("({s}")).unwrap_or_default())).collect();
+    let n = c.stroll + c.stroll_null;
+    let reach = c.reach_reached + c.reach_path;
+    let (pl, ph) = wilson95(c.stroll_null, n);
+    let (ql, qh) = wilson95(reach, n);
+    let mut cells: std::collections::BTreeMap<([i32; 3], &'static str, &'static str), u32> = std::collections::BTreeMap::new();
+    for d in &seq {
+        if let Some(cl) = d.cell {
+            *cells.entry((cl, d.branch, d.outcome)).or_default() += 1;
+        }
+    }
+    println!("  {name}: the rider at {:?} after {guard} gt; panic onsets {}", rider_pos(&mut r.srv)?, onsets.join("; "));
+    println!(
+        "  {name}: {n} draws over {guard} gt ({} panic ticks): P_null {}/{n} = {:.4} (95% {pl:.4}..{ph:.4}); q = {reach}/{n} = {:.4} (95% {ql:.4}..{qh:.4}: reached {}, complete path {}); landed cells relative to the seat (cell, branch, outcome: draws): {}; pillager ticks charged (S1, F3's): {charged}",
+        c.panic_ticks,
+        c.stroll_null,
+        c.stroll_null as f64 / n.max(1) as f64,
+        reach as f64 / n.max(1) as f64,
+        c.reach_reached,
+        c.reach_path,
+        cells.iter().map(|((cl, b, o), k)| format!("({},{},{}) {b} {o}: {k}", cl[0], cl[1], cl[2])).collect::<Vec<_>>().join(", ")
+    );
     let _ = std::fs::remove_dir_all(&r.srv.dir);
     Ok(())
 }

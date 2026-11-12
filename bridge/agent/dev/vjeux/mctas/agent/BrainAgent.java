@@ -199,7 +199,30 @@ public final class BrainAgent {
         } catch (ReflectiveOperationException e) {
             // print it anyway
         }
-        System.err.println("mctas brain agent: activity " + activity + " by " + source());
+        System.err.println("mctas brain agent: activity " + activity + " by " + source() + sink(brain));
+    }
+
+    /** MoveToTargetSink's state (its status, remainingCooldown), read from the brain's behaviours. */
+    private static String sink(Object brain) {
+        try {
+            java.lang.reflect.Field f = brain.getClass().getDeclaredField("availableBehaviorsByPriority");
+            f.setAccessible(true);
+            for (Object byActivity : ((java.util.Map<?, ?>) f.get(brain)).values()) {
+                for (Object set : ((java.util.Map<?, ?>) byActivity).values()) {
+                    for (Object b : (java.util.Set<?>) set) {
+                        if (b.getClass().getSimpleName().equals("MoveToTargetSink")) {
+                            java.lang.reflect.Field cd = b.getClass().getDeclaredField("remainingCooldown");
+                            cd.setAccessible(true);
+                            Object status = b.getClass().getMethod("getStatus").invoke(b);
+                            return " (MoveToTargetSink " + status + ", remainingCooldown " + cd.get(b) + ")";
+                        }
+                    }
+                }
+            }
+        } catch (Throwable t) {
+            return " (MoveToTargetSink unread: " + t + ")";
+        }
+        return " (no MoveToTargetSink)";
     }
 
     private static void hook(CodeBuilder b, String key, int a, int c) {

@@ -386,6 +386,29 @@ pub enum MobaiCmd {
         #[arg(long, default_value_t = 1100)]
         preage: u32,
     },
+    /// (tickexact 2026-11-12, ironspec's F3 inputs) Seats measured on the official server with
+    /// the design's scarers (the lead pair, F3's napper post with `--post`) and glowstone floors:
+    /// per seat name:x,y,z (a slope seat of lane x fills its pressed queue from R_1 (x,17,1)), until
+    /// `--draws` stroll draws: P_null, q, the landed cells, MoveToTargetSink at the panic onset, the
+    /// pillagers' charged ticks; `--rail-glow`: each seat rail's floor glowstone too
+    SeatF3 {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        #[arg(long, default_value = "designs/farms/iron/carousel-assembly/wip/onechunk/module/f1q2-module-first-assembly.txt")]
+        module: std::path::PathBuf,
+        /// name:x,y,z;name:x,y,z...
+        #[arg(long, allow_hyphen_values = true)]
+        seats: String,
+        #[arg(long)]
+        post: bool,
+        /// Glowstone floors, x,y,z;...
+        #[arg(long, default_value = "", allow_hyphen_values = true)]
+        glow: String,
+        #[arg(long)]
+        rail_glow: bool,
+        #[arg(long, default_value_t = 200)]
+        draws: u32,
+    },
     /// (tickexact 2026-11-12, ironspec: the rail-T rule) On the official server: 7b90c3f1's
     /// in-chunk branch (a replica): J's shape through carts, a restart and a stone beside it, and
     /// T2 (face-adjacent to the detector) the positive control that re-settles
@@ -664,6 +687,27 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
                     .collect()
             };
             crate::seatclear::seat_clear(&version, &module, &rows, &lanes, dwells, preage, depart, drift, &cells(&floors)?, &cells(&glass)?)
+        }
+        MobaiCmd::SeatF3 { version, module, seats, post, glow, rail_glow, draws } => {
+            let cells = |s: &str| -> anyhow::Result<Vec<[i32; 3]>> {
+                s.split(';')
+                    .filter(|f| !f.trim().is_empty())
+                    .map(|f| {
+                        let v: Vec<i32> = f.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+                        anyhow::ensure!(v.len() == 3, "x,y,z;..., got {f}");
+                        Ok([v[0], v[1], v[2]])
+                    })
+                    .collect()
+            };
+            let glow = cells(&glow)?;
+            for s in seats.split(';').filter(|s| !s.trim().is_empty()) {
+                let (name, c) = s.split_once(':').ok_or_else(|| anyhow::anyhow!("--seats name:x,y,z, got {s}"))?;
+                let seat = cells(c)?.first().copied().ok_or_else(|| anyhow::anyhow!("--seats name:x,y,z, got {s}"))?;
+                // a lane slope seat (x,17+i,1+i): its queue from R_1 up to the cell ahead of it
+                let fill: Vec<[i32; 3]> = if (17..=22).contains(&seat[1]) && seat[2] == seat[1] - 16 { (17..seat[1]).map(|y| [seat[0], y, y - 16]).collect() } else { Vec::new() };
+                crate::seatclear::f3_seat(&version, &module, name, seat, &fill, post, &glow, rail_glow, draws)?;
+            }
+            Ok(())
         }
         MobaiCmd::RailT { version } => crate::railt::rail_t(&version),
         MobaiCmd::ThreeBeds { version } => crate::threebeds::three_beds(&version),
