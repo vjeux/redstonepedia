@@ -360,6 +360,11 @@ pub struct Row {
     /// (the trip) The cart onto the tier's entry, gt after the start.
     pub entry_at: Option<i64>,
     pub entry_speed: Option<f64>,
+    /// The entry rider check: the cart arrived with a rider.
+    pub entry_ridden: Option<bool>,
+    /// The hold released a riderless cart: it arrived empty, or (a stranded napper) RIDER_ALARM
+    /// was clear and is now set.
+    pub released_empty: Option<&'static str>,
     /// Whether the cart left with the napper seated.
     pub seated_out: bool,
     pub problems: Vec<String>,
@@ -382,6 +387,9 @@ pub struct Faults {
     /// The trip: the cart starts on the switch flat heading west up the divert, and the visit ends
     /// at the re-entry's waiting cell past the return.
     pub trip: bool,
+    /// RIDER_ALARM already set (a stranded napper's empty cart released earlier): a second
+    /// riderless departure is held.
+    pub alarm: bool,
 }
 
 fn block(s: &str) -> Block {
@@ -476,6 +484,11 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, f_at_in: i64, release_after
             && live <= s + d
         {
             f_at = s + d;
+        }
+        // (day-1's final rule: the entry rider check saw no rider, so the give-up comes at once:
+        // F as soon as the cart is parked)
+        if row.entry_ridden == Some(false) && row.parked.is_some() && !f_fired && live < f_at {
+            f_at = live;
         }
         if !frozen && !f_fired && live == f_at {
             f_fired = true;
@@ -574,8 +587,39 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, f_at_in: i64, release_after
         if on_exit_row && c.pos.x > EXIT_DET[0] as f64 + 0.5 && row.r_at.is_none() {
             row.r_at = Some(t);
         }
-        // the rider check's hold: the cart still on HOLD for 40 gt after the release is the alarm
+        // the entry rider check (day-1's final rule; its string and latch emulated): at the entry,
+        // with a rider or not
+        let at_entry = (c.pos.z - (ENTRY[2] as f64 + 0.5)).abs() < 0.3 && c.pos.x < ENTRY[0] as f64 + 0.9 && c.pos.y > 1.5;
+        if row.entry_ridden.is_none() && (at_entry || (!f.trip && t == 1)) {
+            row.entry_ridden = Some(riding);
+        }
+        // the hold's other input (emulated: a redstone block beside the hold while the cart is on
+        // the flat before it): a riderless cart is released when it arrived empty, or, a stranded
+        // napper's, when RIDER_ALARM is clear (which it then sets); else the hold holds it
         let ccell = [c.pos.x.floor() as i32, (c.pos.y + 0.01).floor() as i32, c.pos.z.floor() as i32];
+        if row.release_at.is_some() && !riding && ccell == [HOLD[0] - 1, HOLD[1], HOLD[2]] && row.released_empty.is_none() {
+            let why = if row.entry_ridden == Some(false) {
+                Some("arrived empty")
+            } else if !f.alarm {
+                Some("stranded napper, RIDER_ALARM was clear (now set)")
+            } else {
+                None
+            };
+            if let Some(w) = why {
+                row.released_empty = Some(w);
+                set(&mut run.world, [HOLD[0], HOLD[1], HOLD[2] - 1], "redstone_block");
+            }
+        }
+        if row.released_empty.is_some() && row.r_at.is_some() {
+            set(&mut run.world, [HOLD[0], HOLD[1], HOLD[2] - 1], "air");
+        }
+        let w = &run.world;
+        let Some(ci) = idx(w, cart_id) else {
+            row.problems.push(format!("t {t}: the cart is gone"));
+            break;
+        };
+        let c = &w.entities.list[ci];
+        // the rider check's hold: the cart still on HOLD for 40 gt after the release is the alarm
         if row.release_at.is_some() && still >= 40 && ccell == HOLD {
             row.held = Some(t - 40);
             break;
@@ -599,7 +643,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, f_at_in: i64, release_after
     if row.out_at.is_none() && row.held.is_none() {
         row.problems.push("the cart neither out nor held in 1200 gt".into());
     }
-    if row.out_at.is_some() && !row.seated_out {
+    if row.out_at.is_some() && !row.seated_out && row.released_empty.is_none() {
         row.problems.push("a riderless cart left the tier (not held)".into());
     }
     let expect_seated = !f.empty && !f.no_home && !f.hide_after_wake;
