@@ -26,6 +26,7 @@ pub mod standlab;
 pub mod climb;
 pub mod liveness;
 pub mod stack;
+pub mod lockrisk;
 pub mod spawnrules;
 pub mod station;
 pub mod siding;

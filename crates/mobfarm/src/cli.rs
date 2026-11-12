@@ -1340,6 +1340,41 @@ pub enum MobfarmCmd {
         #[arg(long, default_value_t = 1)]
         jobs: usize,
     },
+    /// (cc767b78; farmopt 2026-11-11 21:27, the design-space doc's F5) The lock risk of riders
+    /// waiting inside the golem sensor's box of golems that live only `--life` ticks: riders on
+    /// rails in a grid (`--xs` sideways from the golem spot, `--zs` rows, `--y` above it), a golem
+    /// placed at the spot every `--every` gt and taken out `--life` gt later; each rider's
+    /// `GolemSeen` events (its 200-gt golem sensor reading a 20-gt list that held a golem) over
+    /// `--ticks`, over `--seeds` (each seed new sensor phases); the fraction locked against the
+    /// model's life/100, by distance, and the golems lost a day for W riders waiting in range with
+    /// `--batches` batches. A long `--life` (≥ 200) maps the sensor's box: every rider in range sees it.
+    LockRisk {
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true, default_value = "11,12,13,14,15,16,17,18,19,20")]
+        xs: Vec<i32>,
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true, default_value = "-6,-4,-2,0,2,4,6")]
+        zs: Vec<i32>,
+        #[arg(long, default_value_t = 0, allow_hyphen_values = true)]
+        y: i32,
+        #[arg(long, value_delimiter = ',', default_value = "1,2")]
+        life: Vec<i64>,
+        #[arg(long, default_value_t = 100)]
+        every: i64,
+        #[arg(long, default_value_t = 2000)]
+        ticks: i64,
+        #[arg(long, default_value_t = 1)]
+        seed: i64,
+        #[arg(long, default_value_t = 8)]
+        seeds: i64,
+        #[arg(long, default_value_t = 8)]
+        jobs: usize,
+        /// The model table's batches (B): each batch's turn every 100·B gt.
+        #[arg(long, default_value_t = 7)]
+        batches: usize,
+        #[arg(long, default_value_t = 236.0)]
+        golems_per_day: f64,
+        #[arg(long)]
+        trace: bool,
+    },
     /// (cc767b78; farmopt 2026-11-11 21:06, vjeux's primitive (f), tick-exact's physics 21:10) The
     /// vertical cart stack queue: ridden carts stacked in a 1x1 glass shaft (the pitch 1.95: each
     /// cart on the head of the rider below), the bottom one on the foot (a powered rail with a solid
@@ -5004,6 +5039,72 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         }
                     }
                 }
+            }
+        }
+        MobfarmCmd::LockRisk { xs, zs, y, life, every, ticks, seed, seeds, jobs, batches, golems_per_day, trace } => {
+            let text = crate::lockrisk::design(&xs, &zs, y);
+            let path = std::env::temp_dir().join(format!("lock-risk-{}.txt", std::process::id()));
+            std::fs::write(&path, &text)?;
+            let (_c, fspec) = load(version, &path)?;
+            let _ = std::fs::remove_file(&path);
+            println!("lock-risk bench (cc767b78, bench): {} riders a run ({} x {} at y {} from the golem's feet), golems every {every} gt, {ticks} gt after a 400-gt warm-up, seeds {seed}..{}", xs.len() * zs.len(), xs.len(), zs.len(), y, seed + seeds - 1);
+            let mut p_of: Vec<(i64, f64)> = Vec::new();
+            for &l in &life {
+                let combos: Vec<i64> = (seed..seed + seeds).collect();
+                let mut all: Vec<(f64, f64, usize)> = Vec::new();
+                let mut placed = 0usize;
+                for chunk in combos.chunks(jobs.max(1)) {
+                    let got: Vec<Result<(Vec<(f64, f64, usize)>, usize), String>> = std::thread::scope(|sc| {
+                        let hs: Vec<_> = chunk
+                            .iter()
+                            .map(|&s| {
+                                let o = crate::lockrisk::LockOpts { life: l, every, ticks, seed: s, trace };
+                                let fspec = &fspec;
+                                sc.spawn(move || crate::lockrisk::bench(fspec, &o))
+                            })
+                            .collect();
+                        hs.into_iter().map(|h| h.join().expect("a bench thread panicked")).collect()
+                    });
+                    for r in got {
+                        let (v, n) = r.map_err(|e| anyhow::anyhow!(e))?;
+                        all.extend(v);
+                        placed += n;
+                    }
+                }
+                let n = all.len();
+                let locked = all.iter().filter(|(_, _, c)| *c > 0).count();
+                let mut hist: std::collections::BTreeMap<usize, usize> = Default::default();
+                for (_, _, c) in &all {
+                    *hist.entry(*c).or_default() += 1;
+                }
+                let p = locked as f64 / n.max(1) as f64;
+                p_of.push((l, p));
+                let se = (p * (1.0 - p) / n.max(1) as f64).sqrt();
+                println!(
+                    "life {l} gt: {n} riders, {placed} golems placed; riders that saw a golem {locked} ({:.2}% ± {:.2}; the model life/100 = {:.2}%); GolemSeen counts per rider {}",
+                    100.0 * p,
+                    100.0 * se,
+                    l as f64,
+                    hist.iter().map(|(k, v)| format!("{k}:{v}")).collect::<Vec<_>>().join(" ")
+                );
+                let by_x: Vec<String> = xs
+                    .iter()
+                    .map(|&x| {
+                        let at: Vec<&(f64, f64, usize)> = all.iter().filter(|(px, _, _)| px.floor() as i32 == x).collect();
+                        format!("x {x}: {}/{}", at.iter().filter(|(_, _, c)| *c > 0).count(), at.len())
+                    })
+                    .collect();
+                println!("  by the distance sideways from the golem's spot (the cell's x; the rider at x + 0.5): {}", by_x.join(", "));
+            }
+            // (the model: each rider locked for good with p while it waits in range; a batch's summon
+            // lost when one of its 3 is locked at its turn: W riders exposed of 3B, a fraction p·W/B
+            // of the summons lost)
+            for (l, p) in &p_of {
+                let row: Vec<String> = [3usize, 6, 9, 12, 15, 18, 21, 24]
+                    .iter()
+                    .map(|&w| format!("W {w}: {:.1}", golems_per_day * (1.0 - (1.0 - p).powf(w as f64 / batches as f64 * 1.0)).min(1.0)))
+                    .collect();
+                println!("golems lost a day (life {l} gt, p {:.2}%, {batches} batches, {golems_per_day} golems a day; W = the riders in range through the 200 gt or more before their turn): {}", 100.0 * p, row.join(", "));
             }
         }
         MobfarmCmd::StackBench { carts, exit, run, headroom, release, cut, first, every, releases, refill_y, refill_after, refill_every, freeze, reload_at, ticks, seed, seeds, plane, zombie, golem_spot, bed, compare, first_sweep, freeze_sweep, jobs, out, trace } => {
