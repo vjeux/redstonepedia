@@ -1,17 +1,16 @@
-# The gravity hold for onechunk's v4 (explore/farmopt-onechunk 84f23d5d0, skeleton-v4-inverted.txt): three of the STAND'S OWN POCKETS (P a flat detector on top, R the plain rest slope, G a powered slope under its oak fence gate powered with the gate, U a slope back up), net -1 a pocket, a flat cell in each valley (pitch 5 and 5). WRITTEN in v4's frame (loop + 6,0,6); paste at 0,0,0 with --keep part (it covers v4's descent sketch cell (7,15,0)).
-# Loop frame: corner 1 (-4,19,-5) (the release exit one higher than v4's 18); flats (-3..3,19,-5); P_c (4,19,-5); R_c (5,18,-5); G_c (6,17,-5) + gate (6,18,-5) facing east; corner 2 (7,17,-5) = the c-b valley flat; U (7,17,-4); P_b (7,18,-3); R_b (7,17,-2); G_b (7,16,-1) + gate (7,17,-1) facing south; flat (7,16,0); U (7,16,1); P_a (7,17,2); R_a (7,16,3); G_a (7,15,4) + Ga (7,16,4) facing south; the descent from (7,15,5).
-# Riders rest on R_a / R_b / R_c at cart y 16.18 / 17.18 / 18.18 (rule >= 15.54); every top is a flat cell (borders: peaks 0); no detector shares a face with a gate or a powered rail; P's supports must be glass (non-conductive), R's plain.
-# Hand-off (gq-bench --hold-only, explore/farmopt-c3-p1): all three gates and G's opened together: exits a +10/11, gaps 13..15 over 8 rider mixes (b-a 14/15, c-b 13/14); window >= 40 gt.
+# The gravity hold for onechunk's v4 (skeleton-v4-inverted.txt): three of the STAND'S OWN POCKETS (P a flat detector on top, R the rest slope, G a powered slope under its oak fence gate powered with the gate, U a slope back up), net -1 a pocket, a flat cell in each valley (pitch 5 and 5). R* (ironspec Nov 11 20:27, the evidence-keyed stagger's geometry): the MIDDLE and REAR rest slopes R_b, R_c are POWERED rails, powered with their gates (each takes its power along the line from its own G); the front R_a stays plain. WRITTEN in v4's frame (loop + 6,0,6); paste at 0,0,0 with --keep part (it covers v4's descent sketch cell (7,15,0)).
+# Loop frame: corner 1 (-4,19,-5) (the release exit one higher than v4's 18); flats (-3..3,19,-5); P_c (4,19,-5); R*_c (5,18,-5); G_c (6,17,-5) + gate (6,18,-5) facing east; corner 2 (7,17,-5) = the c-b valley flat; U (7,17,-4); P_b (7,18,-3); R*_b (7,17,-2); G_b (7,16,-1) + gate (7,17,-1) facing south; flat (7,16,0); U (7,16,1); P_a (7,17,2); R_a (7,16,3); G_a (7,15,4) + Ga (7,16,4) facing south; Ds (7,14,5) (v4's sloped detector on glass) and the descent from (7,15,5).
+# Riders rest at cart y 16.18 (R_a) / 17.66 (R*_b) / 18.66 (R*_c) (the unpowered R* brakes them on the upper slope; rule >= 15.54); every top is a flat cell (borders: peaks 0); no detector shares a face with a gate or a powered rail (P_b, P_c sit diagonally above R*_b, R*_c); P's supports must be glass (non-conductive).
+# The stagger (gq-bench --hold-only --stagger-ds, explore/farmopt-c3-p1 d78cf8a24b; all ridden): Ga opens (G_a powered) at the release; Gb and Gc open (G_b, G_c and R*_b, R*_c powered) on cart 0's rising edge at Ds through a latch: b-a 23 (same-tick wiring) / 24 (+1 gt) / 25 (+2 gt), c-b 12; Ga's close keys on the rear cart's own evidence (its P_b rise; it clears Ga 21 gt later; ironfarm sets the close's ring or chain).
 name: onechunk-hold-tail-v3
 circuit: mob-farm iron_ingot
 origin: 2 0 1
 palette:
-  A minecraft:rail[shape=ascending_west,waterlogged=false]
-  B minecraft:rail[shape=east_west,waterlogged=false]
-  C minecraft:rail[shape=north_south,waterlogged=false]
+  A minecraft:rail[shape=east_west,waterlogged=false]
+  B minecraft:rail[shape=north_south,waterlogged=false]
+  C minecraft:rail[shape=south_east,waterlogged=false]
   D minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]
-  E minecraft:rail[shape=south_east,waterlogged=false]
-  F minecraft:rail[shape=south_west,waterlogged=false]
+  E minecraft:rail[shape=south_west,waterlogged=false]
   G minecraft:glass
   O minecraft:oak_fence_gate[facing=east,in_wall=false,open=false,powered=false]
   P minecraft:powered_rail[powered=false,shape=ascending_north,waterlogged=false]
@@ -48,16 +47,16 @@ layer 16:
   .
   ...........G
   ...........P
-  ...........C
+  ...........B
   ...........r
   ...........G
   ...........R
   ...........o
 layer 17:
-  .........GpF
+  .........GpE
   ...........r
   ...........G
-  ...........R
+  ...........P
   ...........o
   .
   .
@@ -65,7 +64,7 @@ layer 17:
   .
   .
 layer 18:
-  GGGGGGGGGAO
+  GGGGGGGGGpO
   .
   ...........d
   .
@@ -76,7 +75,7 @@ layer 18:
   .
   .
 layer 19:
-  EBBBBBBBD
+  CAAAAAAAD
   .
   .
   .
