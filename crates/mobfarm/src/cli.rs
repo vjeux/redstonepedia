@@ -1193,6 +1193,39 @@ pub enum MobfarmCmd {
     /// the cell above its rest slope; one ridden cart launched down a descent comes to rest at the
     /// pocket's gate under the string (the gate opens `--hold` gt after it stops) or passes it
     /// (`--pass`); prints the hook's powered ticks against the rider's box over the string's cell.
+    /// The shared-release lanes bench (Q2): parallel pressed lanes, one release line opening every
+    /// front gate together; per opening and lane the carts through (exactly 1), gate shuts onto a
+    /// cart, the batch's spread across lanes, arrivals at the backs, the pressed spacing.
+    LanesBench {
+        #[arg(long, default_value_t = 3)]
+        lanes: usize,
+        #[arg(long, default_value_t = 2)]
+        spacing: i32,
+        #[arg(long, default_value_t = 8)]
+        run: i32,
+        #[arg(long, default_value_t = 7)]
+        per_lane: usize,
+        #[arg(long, default_value_t = 100)]
+        period: i64,
+        #[arg(long, default_value_t = 12)]
+        width: i64,
+        #[arg(long, default_value_t = 20)]
+        cycles: i64,
+        #[arg(long, default_value_t = 150)]
+        ret: i64,
+        #[arg(long, default_value_t = 0, allow_hyphen_values = true)]
+        corner: i64,
+        #[arg(long, default_value_t = 0)]
+        ring_q: i64,
+        /// Emulated freezes T,D (repeatable).
+        #[arg(long)]
+        freeze: Vec<String>,
+        /// Real level-32 freezes T,D (repeatable).
+        #[arg(long)]
+        freeze32: Vec<String>,
+        #[arg(long)]
+        empty: bool,
+    },
     StringBench {
         #[arg(long, default_value_t = 3)]
         descent: i32,
@@ -4013,6 +4046,19 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             if !ok {
                 anyhow::bail!("frame-check failed");
             }
+        }
+        MobfarmCmd::LanesBench { lanes, spacing, run, per_lane, period, width, cycles, ret, corner, ring_q, freeze, freeze32, empty } => {
+            let pair = |s: &String| -> anyhow::Result<(i64, i64)> {
+                let mut it = s.split(',');
+                let a = it.next().unwrap_or("").trim().parse::<i64>()?;
+                let d = it.next().unwrap_or("").trim().parse::<i64>()?;
+                Ok((a, d))
+            };
+            let freeze: Vec<(i64, i64)> = freeze.iter().map(pair).collect::<anyhow::Result<_>>()?;
+            let freeze32: Vec<(i64, i64)> = freeze32.iter().map(pair).collect::<anyhow::Result<_>>()?;
+            let o = crate::lanesbench::LanesOpts { lanes, spacing, run, per_lane, period, width, cycles, ret, corner, ring_q, freeze, freeze32, riders: !empty };
+            println!("{}", crate::lanesbench::lanes_bench(&o).map_err(|e| anyhow::anyhow!(e))?);
+            return Ok(());
         }
         MobfarmCmd::StringBench { descent, v0, pass, hold, ticks, empty } => {
             println!("{}", crate::stringbench::string_bench(descent, v0, pass, hold, ticks, !empty).map_err(|e| anyhow::anyhow!(e))?);
