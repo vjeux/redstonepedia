@@ -2405,8 +2405,8 @@ pub enum MobfarmCmd {
         /// The RELs (T+3..9 around the adopted REL = golem + 4: G1 2026-11-12 05:15).
         #[arg(long, value_delimiter = ',', default_value = "3,4,5,6,7,8,9")]
         rel: Vec<i64>,
-        /// The launch offsets (dfb89499's run line at 4bce82b85: 0/14/28, ironspec's provisional s 14).
-        #[arg(long, value_delimiter = ',', default_value = "0,14,28")]
+        /// The launch offsets (s 12 adopted, farmopt 2026-11-12 06:05: 0/12/24; the station's run line).
+        #[arg(long, value_delimiter = ',', default_value = "0,12,24")]
         stagger: Vec<i64>,
         #[arg(long, default_value_t = 16)]
         rebrake: i64,
