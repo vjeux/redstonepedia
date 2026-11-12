@@ -20,7 +20,7 @@
 //!
 //! The bench drives ARM3 through a repeater for 20 gt every 100 gt (a repeater's output, like a detector
 //! rail's, turns on inside a game tick), in one of two geometries: `Line` (the hold, then a straight line
-//! east under a string) or `Real` (7b90c3f1's cells: the hold (9,0,8) against the slime stop (9,0,9), the T
+//! east under a string) or `Real` (7b90c3f1's cells: the hold (9,0,8) against the module's stone stop (9,0,9), the T
 //! (9,0,7), the booster (8,0,7) on its redstone block, lane 7's merge T (7,0,7) and track, the merge row
 //! west, the string and hooks above, the 12-gt chain laid into (7,-1,8)). It prints: the input cell's and
 //! the rail's pulses after ARM3 at every phase; a ridden cart at rest placed at every gt between two
@@ -181,8 +181,10 @@ fn spec_real(extra: i64) -> Result<FarmSpec, String> {
     // repeater (8,-1,8) powers the rail through it; the fired-pulse read comes off it)
     put(9, -1, 8, "minecraft:slime_block")?;
     put(9, 0, 8, "minecraft:powered_rail[powered=false,shape=north_south,waterlogged=false]")?;
-    // the stop (ironspec 10:41: slime) and the glass over it
-    put(9, 0, 9, "minecraft:slime_block")?;
+    // the stop and the glass over it: stone, as the composed module has it (onechunk's stop-9-down
+    // f52f712d7, 7b90c3f1's return-bench and tick-exact's official napper-ride; ironspec's 10:41 slime is
+    // not what the module lays: a slime stop bounces the arriving cart, ~4 gt later to rest)
+    put(9, 0, 9, "minecraft:stone")?;
     put(9, 1, 9, "minecraft:glass")?;
     // the T (9,0,7): arms N, S, W at its placement-order shape south_west (a cart from the hold turns west)
     put(9, -1, 7, "minecraft:glass")?;
@@ -369,8 +371,18 @@ fn gate_run_file(f: &GateFile, live: bool, cycles: i64, spawn: Option<(i64, f64,
             let (x, y, z) = (e.pos.x, e.pos.y, crate::mirror::zf(e.pos.z));
             let in_hold = x.floor() as i32 == c.hold[0] && z.floor() as i32 == c.hold[2] && (y - 0.0625).abs() < 0.2;
             let still = last_pos.is_some_and(|(px, _, pz)| (px - x).abs() < 0.001 && (pz - z).abs() < 0.001);
-            if in_hold && still && rec.rest.is_none() {
+            // (tick-exact's official rest, napper-ride cd070f992: in the hold cell, horizontal speed under
+            // 0.005; `still` (moved under 0.001) kept for the late placements' bookkeeping only)
+            let hs = (e.delta_movement.x.powi(2) + e.delta_movement.z.powi(2)).sqrt();
+            let _ = still;
+            if in_hold && hs < 0.005 && rec.rest.is_none() {
                 rec.rest = Some(t);
+            }
+            if in_hold && rec.entered.is_none() {
+                rec.entered = Some(t);
+            }
+            if rec.entered.is_some() && !in_hold && rec.left.is_none() {
+                rec.left = Some(t);
             }
             if rec.rest.is_some() && !in_hold && rec.off.is_none() {
                 rec.off = Some(t);
@@ -479,7 +491,7 @@ fn spec(g: Geo, extra: i64) -> Result<FarmSpec, String> {
 /// string dropped): the lift's exit rail (7,-3,4) becomes the approach detector; its read repeater (7,-3,3)
 /// sets a loop latch (a repeater R1 into a subtract comparator C whose output dust loops back to R1; the
 /// fired pulse, tapped off the hold's stone (9,-1,8), resets it through C's side); the latch's Q runs
-/// through the settle delay (4 delay-4 repeaters + one of `settle_rt` redstone ticks) into the rear of a
+/// through the settle delay (the chain sized for k gt from the detector to H2) into the rear of a
 /// subtract comparator P whose side is NOT Q (a torch on a block the live Q powers through a repeater):
 /// P = the delayed bit AND the live bit (`live` false: the torch left out, the control); H2 samples P,
 /// locked by L2 from E's line at E + 2; the AND (7,-1,9) (subtract: rear E through E_d, side NOT H2)
@@ -490,13 +502,21 @@ thread_local! {
     /// (ironspec 14:15) A restart (every chunk saved and loaded) before this tick in this order, for the
     /// next `gate_run`.
     static GATE_RESTART: std::cell::Cell<Option<(i64, crate::liveness::Restart)>> = const { std::cell::Cell::new(None) };
+    /// (G1 on ed3a09628) The napper lift laid below the exit rail at this extra depth (0: none, the cart
+    /// starts on the exit rail): 7b90c3f1's return-bench napper lift (R (4,-19-d,4) and its entry on glass,
+    /// the soul sand under the column (6,-19-d..-4,4) with its glass walls, the top's water source (5,-3,4)
+    /// pushing the cart east onto the exit rail (7,-3,4)), the napper summoned at R heading east.
+    static GATE_LIFT: std::cell::Cell<i32> = const { std::cell::Cell::new(0) };
+    /// (ironspec 14:41) The ungated control: the AND's side (NOT H2) left out, so the pulse fires every
+    /// cycle whatever the hold holds.
+    static GATE_UNGATED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 const GATE_ARM3: [i32; 3] = [19, -1, 13];
 const GATE_BIT: [i32; 3] = [10, -1, 11];
 const GATE_Q: [i32; 3] = [15, -1, 5];
 const GATE_DET: [i32; 3] = [7, -3, 4];
 
-fn spec_gate(extra: i64, live: bool, settle_rt: i64) -> Result<FarmSpec, String> {
+fn spec_gate(extra: i64, live: bool, k: i64) -> Result<FarmSpec, String> {
     let b = |s: &str| Block::parse(s).map_err(|e| e.to_string());
     let mut cells: std::collections::BTreeMap<[i32; 3], String> = std::collections::BTreeMap::new();
     // the Real geometry's track (its cells as spec_real lays them, without the ungated chain and the string)
@@ -523,6 +543,36 @@ fn spec_gate(extra: i64, live: bool, settle_rt: i64) -> Result<FarmSpec, String>
                 put(x, -2, z, "minecraft:stone");
             }
         }
+    }
+    // (G1 on ed3a09628) the napper lift below the exit rail, as 7b90c3f1's return-bench lays it
+    let lift = GATE_LIFT.with(|c| c.get());
+    if lift > 0 {
+        let rb_y = -19 - lift;
+        put(4, rb_y, 4, "minecraft:rail[shape=east_west,waterlogged=false]");
+        put(4, rb_y - 1, 4, "minecraft:glass");
+        put(5, rb_y, 4, "minecraft:rail[shape=east_west,waterlogged=false]");
+        put(5, rb_y - 1, 4, "minecraft:glass");
+        put(6, rb_y - 1, 4, "minecraft:soul_sand");
+        for y in rb_y..=-4 {
+            put(6, y, 4, "minecraft:water[level=0]");
+            put(7, y, 4, "minecraft:glass");
+            put(6, y, 3, "minecraft:glass");
+            put(6, y, 5, "minecraft:glass");
+            if y > rb_y {
+                put(5, y, 4, "minecraft:glass");
+            }
+        }
+        put(7, rb_y - 1, 4, "minecraft:glass");
+        put(6, rb_y - 1, 3, "minecraft:glass");
+        put(6, rb_y - 1, 5, "minecraft:glass");
+        put(6, -3, 3, "minecraft:glass");
+        put(6, -3, 5, "minecraft:glass");
+        put(6, -2, 4, "minecraft:glass");
+        put(5, -3, 4, "minecraft:water[level=0]");
+        put(4, -3, 4, "minecraft:glass");
+        put(5, -3, 3, "minecraft:glass");
+        put(5, -3, 5, "minecraft:glass");
+        put(5, -2, 4, "minecraft:glass");
     }
     // the approach detector and its read repeater (north), the SET line along z 1 at y -3, climbing to y -1
     put(GATE_DET[0], GATE_DET[1], GATE_DET[2], "minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]");
@@ -556,17 +606,19 @@ fn spec_gate(extra: i64, live: bool, settle_rt: i64) -> Result<FarmSpec, String>
         put(x, -1, z, DUST);
     }
     // the settle delay: the tap (19,-1,6), dust to (18,-1,10), the chain (17..13,-1,10) into P's rear: a
-    // delay-`settle_rt` repeater, 3 delay-4, a 1-tick (with the read, SET, tap and P repeaters, the
-    // detector to H2 in 34 + 2 x settle_rt gt: 38 at settle_rt 2, ironspec 11:49)
+    // delay-a repeater, 3 delay-4, a delay-b (with the read, SET, tap and P repeaters, the detector to H2
+    // in 32 + 2 (a + b) gt; ironspec 14:36: k = R_max + F + 2 at even widths, a repeater delay; k 36..48)
+    let n = ((k - 32) / 2).max(2);
+    let (ra, rb) = ((n - 1).clamp(1, 4), (n - (n - 1).clamp(1, 4)).clamp(1, 4));
     put(19, -1, 6, &rep(1, "north"));
     for (x, z) in [(19, 7), (19, 8), (19, 9), (19, 10), (18, 10)] {
         put(x, -1, z, DUST);
     }
-    put(17, -1, 10, &rep(settle_rt.clamp(1, 4), "east"));
+    put(17, -1, 10, &rep(ra, "east"));
     for x in 14..=16 {
         put(x, -1, 10, &rep(4, "east"));
     }
-    put(13, -1, 10, &rep(1, "east"));
+    put(13, -1, 10, &rep(rb, "east"));
     // P (12,-1,10): rear the delay, side NOT Q (the live term), output west into H2's input dust
     // (12-1,10)->(11,-1,10)->(11,-1,11)->(10,-1,11). (A comparator's side reads only dust, diodes and
     // redstone blocks: a torch beside it gives nothing (its direct signal is upward only); each NOT
@@ -595,7 +647,10 @@ fn spec_gate(extra: i64, live: bool, settle_rt: i64) -> Result<FarmSpec, String>
     put(9, -1, 11, &rep(1, "east"));
     put(8, -1, 11, "minecraft:stone");
     put(9, -1, 12, &rep(1, "south"));
-    put(8, -1, 10, "minecraft:redstone_wall_torch[facing=north,lit=true]");
+    // (ironspec 14:41, the ungated control: no NOT H2, the AND passes E_d every cycle)
+    if !GATE_UNGATED.with(|c| c.get()) {
+        put(8, -1, 10, "minecraft:redstone_wall_torch[facing=north,lit=true]");
+    }
     put(8, -1, 9, DUST);
     // the AND (7,-1,9) into the input cell; E_d (7,-1,10) delay 2 behind a 1-tick repeater (7,-1,11) (a
     // repeater, not dust, beside B2)
@@ -623,7 +678,7 @@ fn spec_gate(extra: i64, live: bool, settle_rt: i64) -> Result<FarmSpec, String>
         }
         blocks.push((BlockPos::new(p[0], p[1], p[2]), b(&s)?));
     }
-    Ok(farm(blocks, BlockPos::new(-4, 0, 7), BlockPos::new(-5, -5, 0), BlockPos::new(22, 4, 18)))
+    Ok(farm(blocks, BlockPos::new(-4, 0, 7), BlockPos::new(-5, if GATE_LIFT.with(|c| c.get()) > 0 { -23 - GATE_LIFT.with(|c| c.get()) } else { -5 }, 0), BlockPos::new(22, 4, 18)))
 }
 
 /// One (c′) run's record.
@@ -643,6 +698,10 @@ struct GateRec {
     off_powered: bool,
     /// the latch's Q at the end of the run.
     q_end: bool,
+    /// (ironspec 14:41, the ungated control) the cart's first tick in the hold cell and its first tick out
+    /// of it after (rest or not).
+    entered: Option<i64>,
+    left: Option<i64>,
 }
 
 /// One (c′) run: the drive at every cycle start (phase 0) for 20 gt over `cycles` cycles; a ridden cart
@@ -650,9 +709,9 @@ struct GateRec {
 /// frozen over `freeze`; with `napper_arm3` the departing cart's contact with ARM3's cell (5,0,7) drives
 /// ARM3 for 20 gt (the second rise).
 #[allow(clippy::too_many_arguments)]
-fn gate_run(extra: i64, live: bool, settle_rt: i64, cycles: i64, spawn: Option<(i64, f64, f64)>, freeze: Option<(i64, i64)>, napper_arm3: bool) -> Result<GateRec, String> {
+fn gate_run(extra: i64, live: bool, k: i64, cycles: i64, spawn: Option<(i64, f64, f64)>, freeze: Option<(i64, i64)>, napper_arm3: bool) -> Result<GateRec, String> {
     let c = cells(Geo::Real);
-    let sp = crate::mirror::checked(&spec_gate(extra, live, settle_rt)?)?;
+    let sp = crate::mirror::checked(&spec_gate(extra, live, k)?)?;
     let ro = RunOpts { ai: false, ..RunOpts::steady(1, 0, WalkMode::Random) };
     let mut run = Run::start(&sp, &ro)?;
     while run.settle_tick() {}
@@ -689,7 +748,11 @@ fn gate_run(extra: i64, live: bool, settle_rt: i64, cycles: i64, spawn: Option<(
         if let Some((ts, x0, v)) = spawn
             && t == ts
         {
-            id = Some(redsim::entity::spawn(&mut run.world, "minecraft:minecart", [x0, -2.9375, crate::mirror::zf(4.5)], Some(&format!("{{Motion:[{v}d,0.0d,0.0d],Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b}}]}}")))?);
+            let lift = GATE_LIFT.with(|c| c.get());
+            // (with the lift: the napper summoned at R heading east at v, as the return-bench and
+            // tick-exact's napper-ride do; else on the exit rail at x0)
+            let at = if lift > 0 { [4.5, -18.9375 - lift as f64, crate::mirror::zf(4.5)] } else { [x0, -2.9375, crate::mirror::zf(4.5)] };
+            id = Some(redsim::entity::spawn(&mut run.world, "minecraft:minecart", at, Some(&format!("{{Motion:[{v}d,0.0d,0.0d],Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b}}]}}")))?);
         }
         if let Some((f, len)) = freeze {
             if t == f {
@@ -720,8 +783,18 @@ fn gate_run(extra: i64, live: bool, settle_rt: i64, cycles: i64, spawn: Option<(
             let (x, y, z) = (e.pos.x, e.pos.y, crate::mirror::zf(e.pos.z));
             let in_hold = x.floor() as i32 == c.hold[0] && z.floor() as i32 == c.hold[2] && (y - 0.0625).abs() < 0.2;
             let still = last_pos.is_some_and(|(px, _, pz)| (px - x).abs() < 0.001 && (pz - z).abs() < 0.001);
-            if in_hold && still && rec.rest.is_none() {
+            // (tick-exact's official rest, napper-ride cd070f992: in the hold cell, horizontal speed under
+            // 0.005; `still` (moved under 0.001) kept for the late placements' bookkeeping only)
+            let hs = (e.delta_movement.x.powi(2) + e.delta_movement.z.powi(2)).sqrt();
+            let _ = still;
+            if in_hold && hs < 0.005 && rec.rest.is_none() {
                 rec.rest = Some(t);
+            }
+            if in_hold && rec.entered.is_none() {
+                rec.entered = Some(t);
+            }
+            if rec.entered.is_some() && !in_hold && rec.left.is_none() {
+                rec.left = Some(t);
             }
             if rec.rest.is_some() && !in_hold && rec.off.is_none() {
                 rec.off = Some(t);
@@ -748,16 +821,16 @@ fn gate_run(extra: i64, live: bool, settle_rt: i64, cycles: i64, spawn: Option<(
 /// cart's rest, the fired pulses (exactly one per rest), the departure on the fired pulse (relative to
 /// E's rise, the brief's criterion), the napper's own second ARM3 rise firing nothing; a 3-gt freeze at
 /// every offset around the fired pulse; the control with the live term removed (the phantom pulse).
-pub fn gate_bench(extra: i64, settle_rt: i64, freeze: i64) -> Result<Vec<String>, String> {
+pub fn gate_bench(extra: i64, k: i64, freeze: i64) -> Result<Vec<String>, String> {
     let mut lines = Vec::new();
     // (the pulse and the delay, from a run with one arrival)
-    let base = gate_run(extra, true, settle_rt, 4, Some((5, 7.3, 0.3)), None, true)?;
+    let base = gate_run(extra, true, k, 4, Some((5, 7.3, 0.3)), None, true)?;
     let delay = match (base.det, base.bit) {
         (Some(d), Some(b)) => (b - d).to_string(),
         _ => "-".into(),
     };
     lines.push(format!(
-        "(c′) the presence-gated hold release as blocks (ironspec 11:43 / 11:49: the approach detector (7,-3,4) -> a loop latch -> the settle delay -> P = delayed AND live -> H2 sampled at E + 2 (L2) -> the AND (7,-1,9) into the input cell; the fired pulse resets the latch) in the Real geometry with the T's north arm: one arrival's detector-to-H2 delay {delay} gt (the settle delay: a delay-{settle_rt}, 3 delay-4 and a 1-tick repeater + the read, SET, tap and P); every run's spec checked: 0 cells outside its world's box"
+        "(c′) the presence-gated hold release as blocks (ironspec 11:43 / 11:49: the approach detector (7,-3,4) -> a loop latch -> the settle delay -> P = delayed AND live -> H2 sampled at E + 2 (L2) -> the AND (7,-1,9) into the input cell; the fired pulse resets the latch) in the Real geometry with the T's north arm: one arrival's detector-to-H2 delay {delay} gt (the settle lock k {k}: ironspec 14:36, k = R_max + F + 2 at even widths, a repeater delay); every run's spec checked: 0 cells outside its world's box"
     ));
     lines.push(tsnap_line()?);
     let (mut n, mut margin_min, mut margin_max) = (0u32, i64::MAX, i64::MIN);
@@ -767,7 +840,7 @@ pub fn gate_bench(extra: i64, settle_rt: i64, freeze: i64) -> Result<Vec<String>
     for v in [0.1, 0.25, 0.4] {
         for k in 0..CYCLE {
             let ts = 110 + k;
-            let r = gate_run(extra, true, settle_rt, 5, Some((ts, 7.3, v)), None, true)?;
+            let r = gate_run(extra, true, k, 5, Some((ts, 7.3, v)), None, true)?;
             n += 1;
             if let (Some(rest), Some(bit)) = (r.rest, r.bit) {
                 margin_min = margin_min.min(bit - rest);
@@ -806,7 +879,7 @@ pub fn gate_bench(extra: i64, settle_rt: i64, freeze: i64) -> Result<Vec<String>
         if dep_e.1 == i64::MIN { "-".to_string() } else { dep_e.1.to_string() }
     ));
     // a freeze at every offset around the fired pulse (a cart that rested)
-    let r0 = gate_run(extra, true, settle_rt, 5, Some((110, 7.3, 0.3)), None, false)?;
+    let r0 = gate_run(extra, true, k, 5, Some((110, 7.3, 0.3)), None, false)?;
     let Some(&(f0, _)) = r0.fired.iter().find(|&&(f, _)| r0.det.is_some_and(|d| f > d)) else {
         lines.push("  the freeze sweep: the reference arrival fired nothing (FAIL)".into());
         return Ok(lines);
@@ -814,7 +887,7 @@ pub fn gate_bench(extra: i64, settle_rt: i64, freeze: i64) -> Result<Vec<String>
     let (mut fl, mut fok, mut fmiss) = (0u32, 0u32, 0u32);
     let mut fdep = (i64::MAX, i64::MIN);
     for off in -5..=16 {
-        let r = gate_run(extra, true, settle_rt, 5, Some((110, 7.3, 0.3)), Some((f0 + off, freeze)), false)?;
+        let r = gate_run(extra, true, k, 5, Some((110, 7.3, 0.3)), Some((f0 + off, freeze)), false)?;
         match (r.off, r.fired.iter().find(|&&(f, _)| r.det.is_some_and(|d| f > d))) {
             (Some(o), Some(&(f, _))) if r.off_powered => {
                 fok += 1;
@@ -831,11 +904,11 @@ pub fn gate_bench(extra: i64, settle_rt: i64, freeze: i64) -> Result<Vec<String>
     ));
     // (G1's note 4 on 9c30d6dc3) a freeze during the approach (redstone running, the cart frozen: ironspec's
     // + 3 in 38): at every offset from the detector's rise - 3 to the cart's rest, at the slowest exit speed
-    let r1 = gate_run(extra, true, settle_rt, 5, Some((110, 7.3, 0.1)), None, false)?;
+    let r1 = gate_run(extra, true, k, 5, Some((110, 7.3, 0.1)), None, false)?;
     if let (Some(d1), Some(rs1)) = (r1.det, r1.rest) {
         let (mut ok, mut bad_n, mut least, mut most) = (0u32, Vec::new(), i64::MAX, i64::MIN);
         for off in -3..=(rs1 - d1) {
-            let r = gate_run(extra, true, settle_rt, 5, Some((110, 7.3, 0.1)), Some((d1 + off, freeze)), false)?;
+            let r = gate_run(extra, true, k, 5, Some((110, 7.3, 0.1)), Some((d1 + off, freeze)), false)?;
             let fires = r.fired.iter().filter(|&&(f, _)| r.det.is_some_and(|d| f > d)).count();
             if let (Some(rest), Some(bit)) = (r.rest, r.bit) {
                 least = least.min(bit - rest);
@@ -862,7 +935,7 @@ pub fn gate_bench(extra: i64, settle_rt: i64, freeze: i64) -> Result<Vec<String>
         for rt in (d1 - 3)..=rs1 {
             for how in crate::liveness::Restart::rows() {
                 GATE_RESTART.with(|c| c.set(Some((rt, how))));
-                let r = gate_run(extra, true, settle_rt, 5, Some((110, 7.3, 0.1)), None, false);
+                let r = gate_run(extra, true, k, 5, Some((110, 7.3, 0.1)), None, false);
                 GATE_RESTART.with(|c| c.set(None));
                 let r = r?;
                 n += 1;
@@ -888,15 +961,144 @@ pub fn gate_bench(extra: i64, settle_rt: i64, freeze: i64) -> Result<Vec<String>
         ));
     }
     // the control: the live term removed (P = the delayed bit alone): the napper's second ARM3 rise
-    let ctl = gate_run(extra, false, settle_rt, 5, Some((110, 7.3, 0.3)), None, true)?;
+    let ctl = gate_run(extra, false, k, 5, Some((110, 7.3, 0.3)), None, true)?;
     let ctl_fires = ctl.fired.iter().filter(|&&(f, _)| ctl.det.is_some_and(|d| f > d)).count();
-    let live = gate_run(extra, true, settle_rt, 5, Some((110, 7.3, 0.3)), None, true)?;
+    let live = gate_run(extra, true, k, 5, Some((110, 7.3, 0.3)), None, true)?;
     let live_fires = live.fired.iter().filter(|&&(f, _)| live.det.is_some_and(|d| f > d)).count();
     lines.push(format!(
         "  the napper's own second ARM3 rise: with the live term {live_fires} fired pulse(s) for one rest ({}); the control without it {ctl_fires} ({})",
         if live_fires == 1 { "pass" } else { "FAIL" },
         if ctl_fires > 1 { "the phantom pulse, as ironspec predicts: the control fails the row" } else { "NO phantom: the control does not show the hole" }
     ));
+    // (G1 on ed3a09628, ironspec 14:36) the lift laid: the arrivals from R, and a restart at every tick of
+    // the ride, alone and with a login's freeze at the restart
+    GATE_LIFT.with(|c| c.set(9));
+    let lift = gate_lift_rows(extra, k);
+    GATE_LIFT.with(|c| c.set(0));
+    lines.extend(lift?);
+    // (ironspec 14:41/14:42) the new positive control: the ungated pulse (the AND passes E_d every cycle)
+    // must fail the late rows; and E rises within k of a fired pulse (a permanent bar, 0)
+    GATE_UNGATED.with(|c| c.set(true));
+    let ung = (|| -> Result<(u32, u32, u32, u32), String> {
+        let (mut runs, mut empty, mut before, mut both) = (0u32, 0u32, 0u32, 0u32);
+        for &v in &[0.1, 0.25, 0.4] {
+            for ph in 0..CYCLE {
+                let r = gate_run(extra, true, k, 5, Some((110 + ph, 7.3, v)), None, false)?;
+                runs += 1;
+                let resting_at = |f: i64| r.rest.is_some_and(|rs| rs <= f) && r.left.is_none_or(|l| l > f);
+                let e = r.fired.iter().filter(|&&(f, _)| !resting_at(f)).count() as u32;
+                let b = (r.left.is_some() && r.rest.is_none_or(|rs| r.left.is_some_and(|l| l <= rs))) as u32;
+                empty += e;
+                before += b;
+                both += (e > 0 || b > 0) as u32;
+            }
+        }
+        Ok((runs, empty, before, both))
+    })();
+    GATE_UNGATED.with(|c| c.set(false));
+    let (runs, empty, before, both) = ung?;
+    lines.push(format!(
+        "  the positive control (ironspec 14:41: an ungated pulse, the AND's NOT H2 left out, must fail the late rows), over the 300 arrivals: pulses onto an empty hold {empty}; launches before rest (the cart off the hold cell without having come to rest) {before}; runs failing at least one {both} of {runs} ({})",
+        if both > 0 { "the control bites" } else { "the control does NOT bite: the rows cannot see the gate" }
+    ));
+    let (mut within, mut least, mut fires) = (0u32, i64::MAX, 0u32);
+    for &v in &[0.1, 0.25, 0.4] {
+        for ph in 0..CYCLE {
+            let r = gate_run(extra, true, k, 5, Some((110 + ph, 7.3, v)), None, false)?;
+            for &(f, _) in &r.fired {
+                fires += 1;
+                for &a in &r.arm3 {
+                    if a > f {
+                        least = least.min(a - f);
+                        if a - f <= k {
+                            within += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    lines.push(format!(
+        "  E rises within k {k} gt after a fired pulse over the 300 arrivals ({fires} fired pulses): {within} (the permanent bar 0; the least gap from a fired pulse to the next E rise {} gt; the bench drives E once per 100-gt cycle: the release chain's own interval under restarts and logins is the controller's row)",
+        if least == i64::MAX { "-".to_string() } else { least.to_string() }
+    ));
+    Ok(lines)
+}
+
+/// (G1 on ed3a09628; ironspec 14:36: k = R_max + F + 2) The lift-top rows with the napper lift laid (the
+/// stop 9 down, `GATE_LIFT`): the napper summoned at R east at 0.2 at every gt of a cycle; then a restart
+/// (every chunk saved and loaded) before every tick from the summon to the rest, in every reload order,
+/// alone and with a 1..3-gt freeze starting at the restart (a login coinciding with it); detector -> rest,
+/// the bit at H2 after the cart's rest, one fired pulse, the departure on the powered rail.
+fn gate_lift_rows(extra: i64, k: i64) -> Result<Vec<String>, String> {
+    let depth = GATE_LIFT.with(|c| c.get());
+    let nf = |r: &GateRec| r.fired.iter().filter(|&&(x, _)| r.det.is_some_and(|d| x > d)).count();
+    let m = |x: i64, none: i64| if x == none { "-".to_string() } else { x.to_string() };
+    let ts = 110;
+    let r0 = gate_run(extra, true, k, 5, Some((ts, 0.0, 0.2)), None, false)?;
+    let (Some(d0), Some(rs0)) = (r0.det, r0.rest) else {
+        return Ok(vec![format!("  the lift-top rows (the napper lift laid, the stop {depth} down): the reference ride from R did not come to rest on the hold (detector {:?}, rest {:?}): FAIL", r0.det, r0.rest)]);
+    };
+    let mut lines = vec![format!(
+        "  (G1 on ed3a09628; ironspec 14:36) the napper lift laid (the stop {depth} down: R (4,{},4) and its entry on glass, the soul sand under the bubble column (6,{}..-4,4), the top's water source (5,-3,4); 7b90c3f1's return-bench cells), the napper summoned at R east at 0.2: detector -> rest {} gt with no restart (tick-exact's official ride: 32); the bit at H2 after rest {} gt; fired {}",
+        -19 - depth,
+        -19 - depth,
+        rs0 - d0,
+        r0.bit.map(|b| (b - rs0).to_string()).unwrap_or_else(|| "-".into()),
+        nf(&r0)
+    )];
+    // every summon phase across a cycle
+    let (mut one, mut late, mut dr, mut br) = (0u32, 0u32, (i64::MAX, i64::MIN), (i64::MAX, i64::MIN));
+    for ph in 0..CYCLE {
+        let r = gate_run(extra, true, k, 5, Some((ts + ph, 0.0, 0.2)), None, false)?;
+        if let (Some(d), Some(rs)) = (r.det, r.rest) {
+            dr = (dr.0.min(rs - d), dr.1.max(rs - d));
+            if let Some(b) = r.bit {
+                br = (br.0.min(b - rs), br.1.max(b - rs));
+            }
+        }
+        one += (nf(&r) == 1) as u32;
+        late += (r.off.is_some() && !r.off_powered) as u32;
+    }
+    lines.push(format!(
+        "  the lift's arrivals at every summon phase of a cycle ({CYCLE} runs): detector -> rest {}..{} gt; the bit at H2 after rest {}..{} gt; exactly one fired pulse {one}; late {late}",
+        m(dr.0, i64::MAX),
+        m(dr.1, i64::MIN),
+        m(br.0, i64::MAX),
+        m(br.1, i64::MIN)
+    ));
+    // a restart at every tick of the ride, alone and with a login's 1..3-gt freeze at it
+    for f in [0i64, 1, 2, 3] {
+        let (mut n, mut one, mut dr, mut least, mut worst) = (0u32, 0u32, (i64::MAX, i64::MIN), i64::MAX, String::new());
+        for rt in ts..=(rs0 + 1) {
+            for how in crate::liveness::Restart::rows() {
+                GATE_RESTART.with(|c| c.set(Some((rt, how))));
+                let r = gate_run(extra, true, k, 5, Some((ts, 0.0, 0.2)), if f > 0 { Some((rt, f)) } else { None }, false);
+                GATE_RESTART.with(|c| c.set(None));
+                let r = r?;
+                n += 1;
+                if let (Some(d), Some(rs)) = (r.det, r.rest) {
+                    if rs - d > dr.1 {
+                        worst = format!("restart before t{rt} ({} after the summon), {}", rt - ts, how.label());
+                    }
+                    dr = (dr.0.min(rs - d), dr.1.max(rs - d));
+                    if let Some(b) = r.bit {
+                        least = least.min(b - rs);
+                    }
+                }
+                one += (nf(&r) == 1 && r.off.is_some() && r.off_powered) as u32;
+            }
+        }
+        lines.push(format!(
+            "  a restart before every tick from the summon to the rest, every reload order{} ({n} runs): detector -> rest {}..{} gt (redsim's worst {}, at {worst}; tick-exact's official: 36 with a restart at the lift's top; rest as tick-exact's: in the hold cell under 0.005 b/gt); launched on one fired pulse {one} of {n}; the bit at H2 after rest at least {} gt (k {k} - the measured worst = {})",
+            if f > 0 { format!(", with a {f}-gt login freeze starting at the restart") } else { String::new() },
+            m(dr.0, i64::MAX),
+            m(dr.1, i64::MIN),
+            m(dr.1, i64::MIN),
+            m(least, i64::MAX),
+            if dr.1 == i64::MIN { "-".to_string() } else { (k - dr.1).to_string() }
+        ));
+    }
     Ok(lines)
 }
 
@@ -1307,7 +1509,7 @@ pub fn bench(step: i64, extra: i64, freeze: i64, g: Geo) -> Result<Vec<String>, 
     let width = 8 + 2 * extra;
     let geo = match g {
         Geo::Line => "the Line geometry (the hold, a straight line east under the string)",
-        Geo::Real => "the Real geometry (7b90c3f1's hold (9,0,8), slime stop (9,0,9), T (9,0,7), booster (8,0,7), lane 7's T (7,0,7); the string (8,1,7), hooks (8,1,6) / (8,1,8) on glass)",
+        Geo::Real => "the Real geometry (7b90c3f1's hold (9,0,8), the module's stone stop (9,0,9), T (9,0,7), booster (8,0,7), lane 7's T (7,0,7); the string (8,1,7), hooks (8,1,6) / (8,1,8) on glass)",
     };
     let mut lines = vec![
         format!(

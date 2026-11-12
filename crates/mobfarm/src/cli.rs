@@ -154,10 +154,10 @@ pub enum MobfarmCmd {
         /// phantom-pulse control.
         #[arg(long)]
         gate: bool,
-        /// (c′) the settle delay's last repeater (redstone ticks): the detector to H2 in 34 + 2 x this gt
-        /// (ironspec 14:15: k = 40).
-        #[arg(long, default_value_t = 3)]
-        settle_rt: i64,
+        /// (c′) the settle lock k, the detector to H2 in gt (ironspec 14:37: 42; even, 36..48: the settle
+        /// chain's two end repeaters' delays).
+        #[arg(long, default_value_t = 42)]
+        k: i64,
         /// (ironspec 12:59, the box item) A (c′) layout in real in-chunk cells from this file (see
         /// `holdpulse::read_gate_file`), laid over the Real track with rev 3's hazards; its rows.
         #[arg(long)]
@@ -10079,7 +10079,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
         }
-        MobfarmCmd::HoldPulseBench { step, mirror_z, extra, freeze, real, gate, settle_rt, gate_cells, quick } => {
+        MobfarmCmd::HoldPulseBench { step, mirror_z, extra, freeze, real, gate, k, gate_cells, quick } => {
             crate::mirror::set(mirror_z);
             if mirror_z {
                 println!("hold-pulse-bench{}", crate::mirror::tag());
@@ -10089,7 +10089,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     println!("{l}");
                 }
             } else if gate {
-                for l in crate::holdpulse::gate_bench(extra, settle_rt, freeze).map_err(|e| anyhow::anyhow!(e))? {
+                for l in crate::holdpulse::gate_bench(extra, k, freeze).map_err(|e| anyhow::anyhow!(e))? {
                     println!("{l}");
                 }
             } else {
