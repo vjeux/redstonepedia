@@ -486,8 +486,14 @@ fn pane_attach_lanes() -> Vec<(&'static str, bool)> {
 /// the crawl control; `plain`: R a plain slope, its cart from rest 0.188 into the cell, the hang
 /// control), and the tick the pulse starts and ends (None: no pulse).
 fn handoff_lanes() -> Vec<(i32, &'static str, Option<(u32, u32)>)> {
-    vec![(3, "r30", Some((20, 50))), (8, "r4", Some((20, 24))), (13, "plain", None), (18, "plain-alone", None)]
+    vec![(3, "r30", Some((20, 50))), (8, "r4", Some((20, 24))), (13, "plain", None), (18, "plain-alone", None), (23, "release", Some((20, 50)))]
 }
+
+/// (tickexact 2026-11-12, G1 and ironspec: the whole cycle) The release lane's D trapdoor opens
+/// for drop_w (20 gt) from this tick (a redstone block in place of the glass north of it), and its
+/// R pulses again for 30 gt at HANDOFF_PULSE2.
+const HANDOFF_DROP: (u32, u32) = (80, 100);
+const HANDOFF_PULSE2: (u32, u32) = (130, 160);
 
 /// The lane-handoff scene's cells along x: the run's plain slopes x 1..=4 (rail at y 70 - x), R at
 /// x 5 (y 65), D at x 6 (its trapdoor floor at y 64, the far wall at x 7).
@@ -735,10 +741,18 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
         // north of R at its pulse's start, air at its end
         "lane-handoff" => {
             let mut by: std::collections::BTreeMap<u32, Vec<([i32; 3], String)>> = std::collections::BTreeMap::new();
-            for (z, _, pulse) in handoff_lanes() {
+            for (z, kind, pulse) in handoff_lanes() {
                 if let Some((on, off)) = pulse {
                     by.entry(on).or_default().push(([HANDOFF_R, 65, z - 1], "minecraft:redstone_block".to_string()));
                     by.entry(off).or_default().push(([HANDOFF_R, 65, z - 1], "minecraft:air".to_string()));
+                }
+                // the release lane: D's trapdoor opened for drop_w by a redstone block north of
+                // it, then R's second pulse
+                if kind == "release" {
+                    by.entry(HANDOFF_DROP.0).or_default().push(([HANDOFF_R + 1, 64, z - 1], "minecraft:redstone_block".to_string()));
+                    by.entry(HANDOFF_DROP.1).or_default().push(([HANDOFF_R + 1, 64, z - 1], "minecraft:glass".to_string()));
+                    by.entry(HANDOFF_PULSE2.0).or_default().push(([HANDOFF_R, 65, z - 1], "minecraft:redstone_block".to_string()));
+                    by.entry(HANDOFF_PULSE2.1).or_default().push(([HANDOFF_R, 65, z - 1], "minecraft:air".to_string()));
                 }
             }
             by.into_iter().collect()
@@ -5508,7 +5522,9 @@ fn scenes_raw() -> Vec<Scene> {
     // glass beside the trapdoor (z +-1), the rider string at (6, 65) with its hooks (z +-1) on
     // stone (z +-2); 4 ridden carts, the front one mid-R (the control's from rest 0.188 into R),
     // the rest 0.79 apart up the run; R powered by a redstone block placed north of it at the
-    // lane's pulse
+    // lane's pulse. (G1 and ironspec: the whole cycle) The release lane is r30's, with D's floor
+    // stone gone (a shaft under its trapdoor to a stone landing at (6, 58)): D's trapdoor opens for
+    // drop_w at HANDOFF_DROP (cart 1 drops), and R pulses again at HANDOFF_PULSE2 (cart 2 restages)
     {
         let mut b = Vec::new();
         floor(&mut b, 0, 16, 0, 32, 63, stone);
@@ -5516,6 +5532,10 @@ fn scenes_raw() -> Vec<Scene> {
         let ridden = "{Motion:[0.0d,0.0d,0.0d],Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}".to_string();
         let r = HANDOFF_R;
         for (z, kind, _) in handoff_lanes() {
+            if kind == "release" {
+                b.retain(|(p, _)| *p != [r + 1, 63, z]);
+                b.push(([r + 1, 58, z], stone.into()));
+            }
             for x in 1..r {
                 b.push(([x, 70 - x, z], "minecraft:rail[shape=ascending_west,waterlogged=false]".into()));
                 b.push(([x, 69 - x, z], "minecraft:glass".into()));
@@ -5555,7 +5575,7 @@ fn scenes_raw() -> Vec<Scene> {
             day_time: 6000,
             difficulty: Difficulty::Normal,
             mob_griefing: true,
-            watch: ([0, 62, 0], [15, 72, 31]),
+            watch: ([0, 56, 0], [15, 72, 31]),
             player: None,
             player_creative: false,
             random_tick_speed: 0,
@@ -9368,6 +9388,43 @@ pub fn rec_handoff(path: &std::path::Path) -> Result<()> {
                 eye.unwrap_or("-".into())
             );
             ahead_rider = rider;
+        }
+        // (G1 and ironspec: the whole cycle) the release lane: D's trapdoor over time, cart 1's
+        // fall, cart 2 held braked on R between the drop and R's second pulse
+        if kind == "release" {
+            let d = [(HANDOFF_R + 1) as i64, 64, z as i64];
+            let mut states = Vec::new();
+            for (i, f) in frames.iter().enumerate() {
+                for c in f["blocks"].as_array().into_iter().flatten() {
+                    if [c[0].as_i64().unwrap_or(0), c[1].as_i64().unwrap_or(0), c[2].as_i64().unwrap_or(0)] == d {
+                        let s = c[3].as_str().unwrap_or("?");
+                        states.push(format!("t{} open={}", i + 1, s.contains("open=true")));
+                    }
+                }
+            }
+            println!("    D's trapdoor: {}", if states.is_empty() { "unchanged".to_string() } else { states.join(", ") });
+            if let Some(&(c1, _)) = carts.first() {
+                let ys: Vec<Option<f64>> = frames.iter().map(|f| find(f, c1).map(|e| v3(&e, "pos")[1])).collect();
+                let from = (HANDOFF_DROP.0 as usize).max(1);
+                let leave = (from..ys.len()).find(|&i| matches!((ys[i - 1], ys[i]), (Some(a), Some(b)) if b < a - 1e-6));
+                let land = leave.and_then(|l| (l + 1..ys.len()).find(|&i| matches!((ys[i - 1], ys[i]), (Some(a), Some(b)) if (a - b).abs() < 1e-9)));
+                println!(
+                    "    cart 1's fall: leaves y {:.4} at t{}, lands at y {:.4} from t{}",
+                    leave.and_then(|l| ys[l - 1]).unwrap_or(f64::NAN),
+                    leave.map(|l| l + 1).unwrap_or(0),
+                    land.and_then(|l| ys[l]).unwrap_or(f64::NAN),
+                    land.map(|l| l).unwrap_or(0)
+                );
+            }
+            if let Some(&(c2, _)) = carts.get(1) {
+                let (a, b) = (HANDOFF_DROP.0 as usize, HANDOFF_PULSE2.0 as usize);
+                let ps: Vec<([f64; 3], [f64; 3])> = frames[a.min(frames.len())..b.min(frames.len())].iter().filter_map(|f| find(f, c2).map(|e| (v3(&e, "pos"), v3(&e, "motion")))).collect();
+                if let (Some(first), Some(_)) = (ps.first(), ps.last()) {
+                    let moved = ps.iter().map(|(p, _)| (p[0] - first.0[0]).abs() + (p[1] - first.0[1]).abs()).fold(0.0f64, f64::max);
+                    let vmax = ps.iter().map(|(_, m)| (m[0] * m[0] + m[2] * m[2]).sqrt()).fold(0.0f64, f64::max);
+                    println!("    cart 2 from t{} to t{} (the drop to R's second pulse): at x {:.4}, moves at most {moved:.6}, speed at most {vmax:.6}", a + 1, b, first.0[0]);
+                }
+            }
         }
     }
     Ok(())
