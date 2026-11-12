@@ -1076,6 +1076,21 @@ pub fn fire_can_reach(w: &World, own: &[BlockPos], occupied: &[BlockPos], start:
     r.start(start).0
 }
 
+/// [`fire_can_reach`] for many fires at once (one spread search, its cells remembered): the
+/// starts whose fire can reach `own` (site-check's surface strikes: each strike's block and the 27
+/// cells around it, `LightningBolt.spawnFire`).
+pub fn fires_reaching(w: &World, own: &[BlockPos], starts: &[BlockPos]) -> Vec<BlockPos> {
+    let mut r = FireReach {
+        w,
+        own: own.iter().copied().filter(|p| w.contains(*p) && super::fire::burn_odds(&w.get(*p)) > 0).collect(),
+        occupied: Default::default(),
+        reach: Default::default(),
+        rained: Default::default(),
+        natural: Default::default(),
+    };
+    starts.iter().copied().filter(|s| r.start(*s).0).collect()
+}
+
 /// [`Measure`] of a built farm: `golems` the blocks a living golem is in with the chance it is
 /// there at a tick, `iron` the blocks a drop is in with the iron there at a tick on average. A sky
 /// the model cannot decide (at a villager, the zombie, a golem's block or a bolt's) is an error:

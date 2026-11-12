@@ -426,13 +426,20 @@ pub fn sample_world_shared(sample: &Sample) -> Result<std::sync::Arc<std::sync::
     if let Some(w) = m.get(sample.file) {
         return Ok(w.clone());
     }
-    let bytes = std::fs::read(sample.file).map_err(|e| format!("terrain sample {}: {e}", sample.file))?;
+    let bytes = sample_bytes(sample.file).map_err(|e| format!("terrain sample {}: {e}", sample.file))?;
     let t = crate::terrain::format::Terrain::decode(&bytes)?;
     let mut world = crate::terrain::land::build_world(&t)?;
     world.ticking_sections = Some(crate::crops::TickingSections::build(&world));
     let w: Shared = std::sync::Arc::new(std::sync::RwLock::new(world));
     m.insert(sample.file.to_string(), w.clone());
     Ok(w)
+}
+
+/// A sample's committed file, read relative to the working directory (the repository root, where
+/// every tool runs), else relative to the workspace root this crate sits in (a crate's tests run
+/// from the crate's own directory: G1 2026-11-11, no `set_current_dir` in a test).
+fn sample_bytes(file: &str) -> std::io::Result<Vec<u8>> {
+    std::fs::read(file).or_else(|e| std::fs::read(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").join(file)).map_err(|_| e))
 }
 
 /// The villagers a sample's world holds (its village's: village-edge has 8), from its saved
@@ -444,7 +451,7 @@ pub fn sample_villagers(sample: &Sample) -> Result<usize, String> {
 /// A sample's saved entities (the village's villagers, golem, cats...): (type without the
 /// `minecraft:` prefix, position).
 pub fn sample_entities(sample: &Sample) -> Result<Vec<(String, [f64; 3])>, String> {
-    let bytes = std::fs::read(sample.file).map_err(|e| format!("terrain sample {}: {e}", sample.file))?;
+    let bytes = sample_bytes(sample.file).map_err(|e| format!("terrain sample {}: {e}", sample.file))?;
     let t = crate::terrain::format::Terrain::decode(&bytes)?;
     Ok(t.entities.iter().map(|e| (e.id.trim_start_matches("minecraft:").to_string(), e.pos)).collect())
 }

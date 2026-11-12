@@ -1281,10 +1281,22 @@ pub enum MobfarmCmd {
     /// that does not bite.
     SiteCheck {
         design: PathBuf,
-        /// Built into this terrain sample at the judge's cheapest spot (village-edge, plains,
-        /// forest); without it, the void.
+        /// Built into this terrain sample (village-edge, plains, forest) at the judge's cheapest
+        /// spot, or at `--at` / `--dug-in`; without it, the void.
         #[arg(long)]
         terrain: Option<String>,
+        /// A fixed spot in the terrain sample, a control: the footprint's min column at world
+        /// X,Z, its ground layer on the highest surface over it, no flatness rule ("fixed spot,
+        /// not the judge's"; the relief and the dig printed).
+        #[arg(long, allow_hyphen_values = true, conflicts_with = "dug_in")]
+        at: Option<String>,
+        /// The dug-in spot finder (the parent's ruling 2026-11-11): every farm block under the
+        /// natural surface with `--cover`, the cheapest spot by the bill's minutes clear of village
+        /// POIs; `--cover b` (default) the lightning rule (b)'s depth, `--cover 1` one block.
+        #[arg(long)]
+        dug_in: bool,
+        #[arg(long, default_value = "b")]
+        cover: String,
         /// More villager positions: files of `x y z` lines in design cells (`queue-loop-run
         /// --record-positions` over a full bench night), as queue-loop-spots reads them.
         #[arg(long, value_delimiter = ',')]
@@ -1292,10 +1304,6 @@ pub enum MobfarmCmd {
         /// Every rail cell of the design is a villager position too.
         #[arg(long)]
         rails: bool,
-        /// A lightning rod the site guide adds, at design column X,Z: a stone pillar from the
-        /// column's top to 1 above the farm's top, the rod on it (repeatable).
-        #[arg(long, allow_hyphen_values = true)]
-        rod: Vec<String>,
         /// The verdicts alone, no controls.
         #[arg(long)]
         no_controls: bool,
@@ -4674,7 +4682,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("approach column x {} (loop z:y, B booster, D detector), the head slot at z {}{}: {}", -o.row_gap, head - o.shift[1], if crate::queue::hump_pad(&o) > 0 { format!(" (moved north {} by the hump)", crate::queue::hump_pad(&o)) } else { String::new() }, col.join(" "));
             }
         }
-        MobfarmCmd::SiteCheck { design, terrain, positions, rails, rod, no_controls, afk, speeds } => {
+        MobfarmCmd::SiteCheck { design, terrain, at, dug_in, cover, positions, rails, no_controls, afk, speeds } => {
             let (c, spec) = load(version, &design)?;
             let mut extra: Vec<redsim::pos::BlockPos> = Vec::new();
             for f in &positions {
@@ -4684,12 +4692,21 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     extra.push(redsim::pos::BlockPos::new(v[0], v[1], v[2]));
                 }
             }
-            let mut rods: Vec<(i32, i32)> = Vec::new();
-            for t in &rod {
-                let v: Vec<i32> = t.split(',').map(|n| n.trim().parse::<i32>()).collect::<Result<_, _>>()?;
-                anyhow::ensure!(v.len() == 2, "--rod takes X,Z (a design column): {t}");
-                rods.push((v[0], v[1]));
-            }
+            let cover = match cover.as_str() {
+                "b" | "B" => crate::sitecheck::Cover::B,
+                "1" => crate::sitecheck::Cover::OneBlock,
+                other => anyhow::bail!("--cover {other}: b (the lightning rule (b)'s depth) or 1 (one block)"),
+            };
+            let spot = match (at.as_deref(), dug_in) {
+                (Some(t), _) => {
+                    let v: Vec<i32> = t.split(',').map(|n| n.trim().parse::<i32>()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(v.len() == 2, "--at takes X,Z (the footprint's min world column): {t}");
+                    crate::sitecheck::Spot::At(v[0], v[1])
+                }
+                (None, true) => crate::sitecheck::Spot::DugIn(cover),
+                (None, false) => crate::sitecheck::Spot::Judge,
+            };
+            anyhow::ensure!(terrain.is_some() || spot == crate::sitecheck::Spot::Judge, "--at and --dug-in place the farm in a terrain sample: give --terrain");
             let afk = match afk.as_deref() {
                 Some(t) => {
                     let v: Vec<f64> = t.split(',').map(|n| n.trim().parse::<f64>()).collect::<Result<_, _>>()?;
@@ -4710,7 +4727,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
                 None => None,
             };
-            let placed = crate::sitecheck::place(&c, &spec, terrain.as_deref(), &extra, rails, &rods, afk, speeds.as_deref()).map_err(|e| anyhow::anyhow!(e))?;
+            let placed = crate::sitecheck::place(&c, &spec, terrain.as_deref().map(|t| (t, spot)), &extra, rails, afk, speeds.as_deref()).map_err(|e| anyhow::anyhow!(e))?;
             let (text, ok) = crate::sitecheck::report(&placed, !no_controls);
             print!("{text}");
             if !ok {
