@@ -3746,6 +3746,27 @@ pub enum MobfarmCmd {
         /// waiting, behind whichever cart passed.
         #[arg(long)]
         nap_any_pass: bool,
+        /// The siding: day-1's ring (option (ii)'s windows): ring positions (0: off; day-1's 10).
+        #[arg(long, default_value_t = 0)]
+        nap_ring: i64,
+        /// The siding: the napper's pick position on the ring.
+        #[arg(long, default_value_t = 0)]
+        nap_pick_u: i64,
+        /// The siding: the window's position after the pick (day-1: 8).
+        #[arg(long, default_value_t = 8)]
+        nap_win_du: i64,
+        /// The siding: the window opens this long after its release, for one beat.
+        #[arg(long, default_value_t = 0)]
+        nap_win_tap: i64,
+        /// The siding: the riders' AI on at night, HOME the bed stop's bed (the napper's calm-REST age,
+        /// CANT_REACH stamp, HOME kept over its siding wait).
+        #[arg(long)]
+        nap_ai: bool,
+        /// The siding (with --nap-ai): the napper's CANT_REACH stamp pre-aged this many gt at its
+        /// siding arrival (its leg from the bed's exit R in REST); default: armed by its own first
+        /// failed path on the siding.
+        #[arg(long)]
+        nap_stamp_at_arrival: Option<i64>,
         /// The siding's distance west of the lane (1: adjacent to the branch, as laid).
         #[arg(long, default_value_t = 1)]
         siding_dx: i32,
@@ -8245,7 +8266,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 anyhow::bail!("frame-check failed");
             }
         }
-        MobfarmCmd::EscapeBench { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, login_matrix, restart, restart_matrix, phase_step, intake_flat, v_in, siding, nap_k, nap_every, nap_ret, nap_pulse, merge_curve, slopes, nap_guard, nap_early, nap_any_pass, siding_dx, siding_dy, ns_merge, guard_det, guard_dz, drop_entry, no_top_support, side_real, side_ctl, siding_matrix, rets, v_ins, nap_rets, corners, nap_ks, jobs, emit_lanes_design, r_boost, floor_bottom, empty, freeze32 } => {
+        MobfarmCmd::EscapeBench { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, login_matrix, restart, restart_matrix, phase_step, intake_flat, v_in, siding, nap_k, nap_every, nap_ret, nap_pulse, merge_curve, slopes, nap_guard, nap_early, nap_any_pass, nap_ring, nap_pick_u, nap_win_du, nap_win_tap, nap_ai, nap_stamp_at_arrival, siding_dx, siding_dy, ns_merge, guard_det, guard_dz, drop_entry, no_top_support, side_real, side_ctl, siding_matrix, rets, v_ins, nap_rets, corners, nap_ks, jobs, emit_lanes_design, r_boost, floor_bottom, empty, freeze32 } => {
             if let Some(path) = emit_lanes_design {
                 let text = crate::sidingbench::lanes_design(slopes).map_err(|e| anyhow::anyhow!(e))?;
                 if let Some(dir) = std::path::Path::new(&path).parent() {
@@ -8266,7 +8287,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let restart: Vec<(i64, crate::liveness::Restart)> = restart.iter().map(|s| crate::liveness::parse_restart(s)).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!(e))?;
             let o = crate::dropbench::DropOpts { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, intake_flat, v_in, r_boost, floor_bottom, riders: !empty, freeze32, restart };
             if siding {
-                let so = crate::sidingbench::SidingOpts { k: nap_k, nap_every, nap_ret, nap_pulse, merge_curve, slopes, guard: nap_guard, early_only: nap_early, any_pass: nap_any_pass, siding_dx, siding_dy, ns_merge, guard_det, guard_dz, drop_entry, no_top_support, side_real, side_ctl: side_ctl.clone() };
+                let so = crate::sidingbench::SidingOpts { k: nap_k, nap_every, nap_ret, nap_pulse, merge_curve, slopes, guard: nap_guard, early_only: nap_early, any_pass: nap_any_pass, ring: nap_ring, pick_u: nap_pick_u, win_du: nap_win_du, win_tap: nap_win_tap, ai: nap_ai, stamp_at_arrival: nap_stamp_at_arrival, siding_dx, siding_dy, ns_merge, guard_det, guard_dz, drop_entry, no_top_support, side_real, side_ctl: side_ctl.clone() };
                 if restart_matrix {
                     // (ironspec's L1‴ rows on the siding: every restart row at every phase of the third
                     // cycle; a row fails on any failure count, or on more arrivals above 0.46 than the
@@ -8297,7 +8318,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         worst = worst.max(row.arrival_max);
                         let bad = row.empty_releases + row.not_one + row.wrong + row.knocked + row.touching + row.order_broken + row.off_rail + row.eyes + row.landing_over + row.popped + row.stray_power + row.stuck as usize;
                         if bad > 0 || row.arrivals_over > ctl.arrivals_over {
-                            fails.entry(r.label()).or_default().push(format!("phase {p}: lost {} not-1 {} wrong {} knocked {} touching {} order {} off-rail {} eyes {} landings over 0.46 {} over 0.46 {} (control {}){}", row.empty_releases, row.not_one, row.wrong, row.knocked, row.touching, row.order_broken, row.off_rail, row.eyes, row.landing_over, row.arrivals_over, ctl.arrivals_over, if row.stuck { " napper stuck" } else { "" }));
+                            fails.entry(r.label()).or_default().push(format!("phase {p}: lost {} not-1 {} wrong {} knocked {} touching {} order {} off-rail {} eyes {} landings over 0.46 {} popped {} stray power {} over 0.46 {} (control {}){}", row.empty_releases, row.not_one, row.wrong, row.knocked, row.touching, row.order_broken, row.off_rail, row.eyes, row.landing_over, row.popped, row.stray_power, row.arrivals_over, ctl.arrivals_over, if row.stuck { " napper stuck" } else { "" }));
                         }
                     }
                     println!(
@@ -8355,7 +8376,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         }
                         let nmax = row.nap_contacts.iter().copied().fold(0.0f64, f64::max);
                         worst_nap = worst_nap.max(nmax);
-                        let bad = row.empty_releases + row.not_one + row.wrong + row.knocked + row.touching + row.arrivals_over + row.order_broken + row.off_rail + row.eyes + row.landing_over + row.popped + row.stray_power + row.stuck as usize;
+                        let bad = row.empty_releases + row.not_one + row.wrong + row.knocked + row.touching + row.arrivals_over + row.order_broken + row.off_rail + row.eyes + row.landing_over + row.popped + row.stray_power + row.home_lost + row.stuck as usize;
                         fails += (bad > 0) as usize;
                         println!(
                             "ret {r} v_in {v:.2} nap_ret {nr} corner {c:+} K {kk}: arrivals by q {}; over 0.46 {} (max {:.3}); landings meeting a cart {} ({} over 0.46), the landing cell held at q {}; top cell {}; nappers {} (late {}; curve rule {}; the longest wait on the siding {} gt); lost {} not-1 {} wrong {} knocked {} touching {} order {} off-rail {} eyes {} health {} restage {} gt{}",
@@ -8382,6 +8403,12 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             row.restage_max,
                             if row.stuck { " NAPPER STUCK" } else { "" }
                         );
+                        if nap_ai {
+                            println!(
+                                "    brains: the oldest CANT_REACH stamp at a waiting napper's calm REST tick {} gt (above 1,000: {}), the longest calm-REST run {} gt, HOME lost on the siding {}",
+                                row.stamp_calm_max, row.stamp_over_1000, row.calm_rest_max, row.home_lost
+                            );
+                        }
                     }
                     println!(
                         "siding matrix: {} rows, {fails} with a failing count; the hardest arrival by q over all rows: {}; the hardest napper {worst_nap:.3}",
