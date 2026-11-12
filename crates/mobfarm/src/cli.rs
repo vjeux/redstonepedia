@@ -1406,6 +1406,14 @@ pub enum MobfarmCmd {
         /// post; ironspec 22:20: the riders must see a scarer in the lift too).
         #[arg(long)]
         pane_walls: bool,
+        /// The rider-height mark: the rider's feet this far over the entry's (17.2: clear of 17
+        /// from the bed for a shaft at the budget's (-5, y, 8)).
+        #[arg(long, default_value_t = 11.95)]
+        reach_dy: f64,
+        /// A detector rail on the entry line at this x (the napper-only leg's evidence detector);
+        /// prints each cart's rise and the gt from it to the rider-height mark.
+        #[arg(long)]
+        detector_at: Option<i32>,
     },
     ClimbBench {
         #[arg(long, default_value_t = 14)]
@@ -4808,8 +4816,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             println!("{}", crate::queue::golem_spots(&spec, o.as_ref(), &extra, with_entities, list, pad_box, &stand_cells).map_err(|e| anyhow::anyhow!(e))?);
         }
-        MobfarmCmd::LiftBench { height, entry_len, entry_h, speed, carts, spacing, ticks, exit, trace, ceiling, freeze, exit_slope, merge3, split3, pane_walls } => {
-            let o = crate::liftbench::LiftOpts { height, entry_len, entry_h, speed, carts, spacing, ticks, exit, trace, ceiling, freeze: (freeze.len() == 2).then(|| (freeze[0], freeze[1])), exit_slope, merge3, split3, pane_walls };
+        MobfarmCmd::LiftBench { height, entry_len, entry_h, speed, carts, spacing, ticks, exit, trace, ceiling, freeze, exit_slope, merge3, split3, pane_walls, reach_dy, detector_at } => {
+            let o = crate::liftbench::LiftOpts { height, entry_len, entry_h, speed, carts, spacing, ticks, exit, trace, ceiling, freeze: (freeze.len() == 2).then(|| (freeze[0], freeze[1])), exit_slope, merge3, split3, pane_walls, reach_dy, detector_at };
             println!("{}", crate::liftbench::lift_bench(&o).map_err(|e| anyhow::anyhow!(e))?);
         }
         MobfarmCmd::ClimbBench { cells, crest, h_open, h_for, h_every, pattern, route, folded, gravity, v3, crest6, v4, v5, v4r, plain_flats, plain_c, speed, speeds, gate_shut, carts, close_at, ticks, seed, seeds, riders, golem_box, freeze, out, trace } => {
