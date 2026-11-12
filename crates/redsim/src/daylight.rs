@@ -227,8 +227,9 @@ fn props(b: &Block) -> Result<Props, String> {
         // farmland: column(16, 0, 15), useShapeForLightOcclusion: the bottom face full, the sides
         // 15 px high, the top open
         Block::Farmland { .. } => Props { dampening: 0, faces: Some(&FARMLAND_FACES) },
-        // a fluid inside: light block 1
-        Block::Water { .. } | Block::Kelp { .. } | Block::KelpPlant => Props { dampening: 1, faces: None },
+        // a fluid inside: light block 1 (a bubble column is a water source: `BubbleColumnBlock`'s
+        // fluid state is water's, the same light block)
+        Block::Water { .. } | Block::Kelp { .. } | Block::KelpPlant | Block::BubbleColumn { .. } => Props { dampening: 1, faces: None },
         // column(16, 0, 6), useShapeForLightOcclusion: the bottom face full, the sides 6 px high
         Block::DaylightDetector { .. } => Props { dampening: 0, faces: Some(&DETECTOR_FACES) },
         // any other state (mobinfra 2026-11-08: tripwire, open fence gates, hoppers... under a

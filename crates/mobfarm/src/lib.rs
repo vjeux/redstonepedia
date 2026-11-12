@@ -12,6 +12,8 @@ pub mod column;
 pub mod columnrun;
 pub mod l1bench;
 pub mod l1items;
+pub mod f1q2run;
+pub mod ticketcheck;
 pub mod portallinks;
 pub mod comb;
 pub mod components;

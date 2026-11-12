@@ -1784,6 +1784,62 @@ pub enum MobfarmCmd {
         design: PathBuf,
         #[arg(long)]
         glass: bool,
+        /// The positive control: every portal block glass (unlit), the targets kept; the spaces
+        /// beside them must be flagged.
+        #[arg(long)]
+        unlit_control: bool,
+    },
+    /// (onechunk Nov 12; ironspec's freeze ruling) Whether every farm chunk sits at entity-ticking
+    /// level from the loader loop's portal ticket (26.3: level 30 at the exit portal's chunk in the
+    /// destination level; best level 30 + the Chebyshev distance, >= 32 a violation), the module
+    /// copies placed by the budget's tiling around the loader's gap chunk (`mobfarm::ticketcheck`).
+    TicketCheck {
+        #[arg(long)]
+        module: PathBuf,
+        #[arg(long)]
+        loader: PathBuf,
+        #[arg(long, default_value_t = 4)]
+        tiling: usize,
+        /// The southern modules not mirrored (flag (a)'s open case).
+        #[arg(long)]
+        no_mirror: bool,
+        /// Also print the pad portals' random-tick piglins a copy (difficulty id: 1 easy, 2
+        /// normal, 3 hard) over a season of this many game days.
+        #[arg(long)]
+        piglins: Option<f64>,
+        #[arg(long, default_value_t = 2)]
+        difficulty: i32,
+    },
+    /// (onechunk Nov 12; ironspec's deciding test for every rider's bed) The assembled F1 + Q2
+    /// module run with REAL brains: every villager's stamp at each calm REST tick with no walk
+    /// target, every clear and its cause, HOME tracked every tick and at dawn (`mobfarm::f1q2run`).
+    /// Phase 1: every cart at rest, no drive yet.
+    F1q2Run {
+        design: PathBuf,
+        #[arg(long, default_value_t = 1)]
+        seed: i64,
+        /// Game ticks to run (default: a full night from day time 11,000 to past dawn).
+        #[arg(long, default_value_t = 13500)]
+        ticks: i64,
+        #[arg(long, default_value_t = 11000)]
+        day0: i64,
+        /// Add the lanes' stored carts (R_1 and the 5 slopes of each lane, a rider in each).
+        #[arg(long)]
+        lane_carts: bool,
+        /// Restarts (liveness::restart) every N gt (0: none).
+        #[arg(long, default_value_t = 0)]
+        restart_every: i64,
+        #[arg(long, default_value = "save")]
+        restart_order: String,
+        /// The positive control: the N-th villager's clears undone (it must release HOME).
+        #[arg(long)]
+        control_rider: Option<usize>,
+        #[arg(long, default_value_t = 0)]
+        trace: i64,
+        /// Phase 2: drive the station, the lanes' R line and the split's latches (EMULATED, day-1's
+        /// table v6 at s 12: the golem pulse starts a cycle, REL = golem + 4).
+        #[arg(long)]
+        drive: bool,
     },
     /// Where a stand's zombie can stand under the 6-8 rule (ironspec 2026-11-11): every candidate
     /// cell of `--region` (a zombie's feet at its centre, y as given), scored against every rider
@@ -6608,9 +6664,29 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 std::process::exit(1);
             }
         }
-        MobfarmCmd::CreeperCheck { design, glass } => {
+        MobfarmCmd::TicketCheck { module, loader, tiling, no_mirror, piglins, difficulty } => {
+            let m = mctas::design::Design::parse(&std::fs::read_to_string(&module)?)?;
+            let l = mctas::design::Design::parse(&std::fs::read_to_string(&loader)?)?;
+            let (rep, ok) = crate::ticketcheck::report(&m, &l, tiling, !no_mirror).map_err(|e| anyhow::anyhow!(e))?;
+            print!("{}: {rep}", module.display());
+            if let Some(days) = piglins {
+                print!("{}", crate::ticketcheck::piglin_season(&m, difficulty, days, 3.0, 211.0));
+            }
+            if !ok {
+                std::process::exit(1);
+            }
+        }
+        MobfarmCmd::F1q2Run { design, seed, ticks, day0, lane_carts, restart_every, restart_order, control_rider, trace, drive } => {
+            let (c, spec) = load(version, &design)?;
+            let bed = *c.clock.design.ports.get("home").ok_or_else(|| anyhow::anyhow!("{}: no `home` port (the shared bed's head)", design.display()))?;
+            let restart = crate::liveness::Restart::parse(&restart_order).ok_or_else(|| anyhow::anyhow!("--restart-order {restart_order}: save, reverse or seed:K"))?;
+            let restarts: Vec<i64> = if restart_every > 0 { (1..).map(|k| k * restart_every).take_while(|t| *t < ticks).collect() } else { Vec::new() };
+            let o = crate::f1q2run::Opts { seed, ticks, day0, lane_carts, restarts, restart, control_rider, trace, bed, drive };
+            print!("{}", crate::f1q2run::run(&spec, &o).map_err(|e| anyhow::anyhow!(e))?);
+        }
+        MobfarmCmd::CreeperCheck { design, glass, unlit_control } => {
             let (_c, spec) = load(version, &design)?;
-            let (rep, ok) = crate::column::creeper_report(&spec, glass).map_err(|e| anyhow::anyhow!(e))?;
+            let (rep, ok) = crate::column::creeper_report(&spec, glass, unlit_control).map_err(|e| anyhow::anyhow!(e))?;
             print!("{}: {rep}", design.display());
             if !ok {
                 std::process::exit(1);
