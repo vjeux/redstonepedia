@@ -789,6 +789,9 @@ pub struct LaneOpts {
     /// A napper held at the bed queue (D, IN_DAY, ADD): the first pick at or after day D's IN_DAY
     /// gets +ADD gt on its trip (a skip's daylight napper waiting for dusk behind the NOT-DAY gate).
     pub hold_at: Option<(usize, i64, i64)>,
+    /// Rule 2 (ironfarm, ironspec 03:09): a napper rejoins only at a pass of its predecessor it was
+    /// already waiting for; a late one waits a lane lap for the next.
+    pub rule2: bool,
     /// Strict rhythm: the controller's siding rule (ironspec Nov 11 23:54): a napper rejoins only at
     /// its lane's phase window (its pick's offset + lanes' length - 1, mod k) behind the cart passing
     /// then; a late napper waits a whole window (one period) and rejoins behind that period's cart.
@@ -870,6 +873,7 @@ pub fn simulate_lanes_scored(o: &LaneOpts) -> (String, LaneStats) {
     // (the largest LAST_SLEPT age any villager reaches over the scored days, ironspec Nov 12 02:10)
     let mut max_age = 0i64;
     let mut hold_used = false;
+    let mut busy_skips = 0u32;
     let (mut least_distinct, mut short_nights, mut min_lane, mut ticks_below) = (usize::MAX, 0usize, usize::MAX, 0usize);
     let mut scored_ticks = 0usize;
     let cycles_per_day = o.day_gt / 100;
@@ -996,10 +1000,16 @@ pub fn simulate_lanes_scored(o: &LaneOpts) -> (String, LaneStats) {
                 // length - 1) places: k must make that coprime with the lane length (8: k 8, 10))
                 let lane_free = away.iter().all(|a| lane_of(a.0) != l);
                 let period = o.k as i64;
-                in_night && lane_free && lane_picks[l] < o.per_lane && (c - night_c0).rem_euclid(period) == (l * o.k / o.lanes) as i64
+                let due = in_night && lane_picks[l] < o.per_lane && (c - night_c0).rem_euclid(period) == (l * o.k / o.lanes) as i64
                     // (the window after a skip cut to its first N releases: a daytime thunderstorm
                     // skip leaves the count a day off, so only the window's tail is at night)
-                    && !(lag_day == Some(day) && o.truncate_after_skip.is_some_and(|n| c - night_c0 >= n))
+                    && !(lag_day == Some(day) && o.truncate_after_skip.is_some_and(|n| c - night_c0 >= n));
+                // (a pick due while the lane's previous napper is still away (in the bed or waiting on
+                // its siding) is skipped: one napper per lane, the siding never double-occupied)
+                if due && !lane_free && scored {
+                    busy_skips += 1;
+                }
+                due && lane_free
             } else if per_bed {
                 let lane_free = away.iter().all(|a| lane_of(a.0) != l);
                 // (one bed shared by turns: nobody in it, and this lane's turn)
@@ -1121,7 +1131,26 @@ pub fn simulate_lanes_scored(o: &LaneOpts) -> (String, LaneStats) {
                 }
                 // (lane-exact: a napper back from the bed re-enters right behind this cart, the one
                 // that went before it in its lane)
-                if o.lane_exact && o.siding_window {
+                if o.lane_exact && o.siding_window && o.rule2 {
+                    // (rule 2, ironspec 03:09/03:27: a napper rejoins K gt after its predecessor's merge
+                    // pass only if it was already on its siding at that pass; one that arrives later
+                    // waits for the predecessor's next pass, a lane lap later. The predecessor (released
+                    // just before the pick) comes round at the pick + the lane's length - 1 releases
+                    // (the napper's own release still in that lap), then every lane length - 1 (7 carts))
+                    let lap = o.per_lane as i64 - 1;
+                    while let Some(i) = away.iter().position(|a| {
+                        a.1 <= t && lane_of(a.0) == l && pick_cycle.get(&a.0).is_some_and(|pc| {
+                            let dd = c - pc;
+                            dd >= lap && (dd - lap) % lap == 0
+                        })
+                    }) {
+                        let (id, _, _) = away.remove(i);
+                        if scored && pick_cycle.get(&id).is_some_and(|pc| c > pc + lap) {
+                            late_nappers += 1;
+                        }
+                        lanes[l].push_back(id);
+                    }
+                } else if o.lane_exact && o.siding_window {
                     // (the controller's rule: only at the lane's phase window (the pick's offset + the
                     // lane's length - 1, mod k), behind whichever cart passes then)
                     let win = ((l * o.k / o.lanes) as i64 + o.per_lane as i64 - 1).rem_euclid(o.k as i64);
@@ -1182,9 +1211,10 @@ pub fn simulate_lanes_scored(o: &LaneOpts) -> (String, LaneStats) {
             window_gt as i64,
             100.0 * (1.0 - util_max)
         ) + &format!(
-            "; re-entry: {}; late nappers (rejoined a window late) {}; the most nappers away at once {} (picked, not yet rejoined: one a lane at most, each in its own siding), the most not yet back at the merge level {} (the lane FIFO's slots: a lane id held from the pick to the split pass); a lane's lowest occupancy when a cart arrives at its back {} (carts queued in the lane, the hold's included; `ret` {} gt from a release to the lane's back)",
-            if o.siding_window { "the controller's siding rule (the lane's phase window AND the passing cart)" } else { "lane-exact (behind its predecessor's next pass)" },
+            "; re-entry: {}; late nappers (rejoined a window late) {}; picks skipped because the lane's previous napper was still away (in the bed or on its siding: one a lane, never two on a siding) {}; the most nappers away at once {} (picked, not yet rejoined: one a lane at most, each in its own siding), the most not yet back at the merge level {} (the lane FIFO's slots: a lane id held from the pick to the split pass); a lane's lowest occupancy when a cart arrives at its back {} (carts queued in the lane, the hold's included; `ret` {} gt from a release to the lane's back)",
+            if o.siding_window && o.rule2 { "rule 2 (a napper rejoins at a pass of its predecessor it was already waiting for; a late one waits a lane lap)" } else if o.siding_window { "the controller's siding rule (the lane's phase window AND the passing cart)" } else { "lane-exact (behind its predecessor's next pass)" },
             late_nappers,
+            busy_skips,
             max_inflight,
             max_fifo,
             if min_occ == usize::MAX { 0 } else { min_occ },

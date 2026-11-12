@@ -10,9 +10,12 @@
 //! - no-reset: the units free-run; at the first wrap (u 9 -> 0) after the trigger the tens take the
 //!   load's tens instead of counting (the clear riding that wrap's carry, the carry suppressed).
 //! A logic model at the gt level over scripted days: every release phase against the day, detector
-//! update phases, every units phase at the trigger, normal days, skips and rain; the bars: the night
-//! margin at the worst trip, the first napper's arrival against clear beds, trigger 2's gate margins,
-//! the ring's pulse spacing, a count error after every re-phase.
+//! update phases, every units phase at the trigger, normal days, skips and weather; the detector's
+//! level is redsim's exact curve (`det_level`: tick-exact's table to the tick) with vanilla's rain and
+//! thunder levels ramping 0.01 a gt toward their flags (thunder counts as thunder x rain; a skip clears
+//! the flags and the levels ramp down after it). The bars: the night margin at the worst trip, the
+//! first napper's arrival against clear beds, trigger 2's gate margins, the ring's pulse spacing, a
+//! count error after every re-phase, false arms.
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Variant {
@@ -36,11 +39,7 @@ pub struct CounterOpts {
     /// multiple of 10, loaded at the first wrap).
     pub load1: i64,
     pub load2: i64,
-    /// The detector in a clear day: RISE (0 -> 1) at `rise_day`, 0 again from `fall_day`, the
-    /// 8-crossing rising at `eight_day` (and falling at 12,000 - it).
-    pub rise_day: i64,
-    pub fall_day: i64,
-    pub eight_day: i64,
+    /// The detector updates every `det_period` gt (vanilla: game time % 20 == 0).
     pub det_period: i64,
     /// The first napper at the bed stop's entry this long after the window's first release (the lane
     /// model: the divert 60 gt after the release, the stop's entry 60 gt after that).
@@ -53,38 +52,20 @@ pub struct CounterOpts {
     pub last_nap: i64,
     pub night_end: i64,
     pub night_len: i64,
-    /// Picks also need the daylight level < this (None: no inhibit); the level from a linear model
-    /// (1 at `rise_day`, 8 at `eight_day`, mirrored at dusk), rounded at each detector update.
+    /// Picks also need the daylight level < this (None: no inhibit; ironspec ruled L 6 from
+    /// tick-exact's table), the level as read at the last detector update.
     /// Applied at the divert (the picked cart at the split's 4th route, `to_divert` gt after its
     /// release: the detector has updated since any skip by then), where the FIFO push also sits.
     pub day_inhibit: Option<i64>,
     pub to_divert: i64,
-    /// The skip arm (ironspec 01:57): a falling 8-crossing with C in `arm_band` arms trigger 2's
-    /// acceptance for `arm` gt (a skip from daylight drops the level through 8 and its rising
-    /// crossing follows ~150..210 gt later; weather spells last >= 3,600 gt).
+    /// The falling-8 arm (ironspec 01:57): a falling 8-crossing with C in `arm_band` arms trigger
+    /// 2's acceptance for `arm` gt.
     pub arm: Option<i64>,
     pub arm_band: (i64, i64),
-    /// The arm as a latch set only by a drop of >= 2 levels through 8 in one detector update (from
-    /// >= 9 to <= 7: a skip from daylight; weather ramps and the sun move < 2 levels an update),
-    /// cleared by trigger 2's acceptance, RISE and the window's opening (no timer).
-    pub arm_drop2: bool,
-}
-
-/// The linear daylight-level model (day time mod 24,000): 0 at night, 1 at RISE rising to 8 at the
-/// 8-crossing, 8 or more by day, mirrored at dusk.
-pub fn level(o: &CounterOpts, dm: i64) -> f64 {
-    let ramp = (24_000 + o.eight_day - o.rise_day) as f64; // 1 -> 8 over this
-    let dusk8 = 12_000 - o.eight_day;
-    if dm >= o.eight_day && dm < dusk8 {
-        8.0 + 7.0 * ((dm.min(12_000 - dm) - o.eight_day).max(0) as f64 / (6_000 - o.eight_day) as f64)
-    } else if dm >= dusk8 && dm < o.fall_day {
-        8.0 - 7.0 * (dm - dusk8) as f64 / ramp
-    } else if dm >= o.fall_day && dm < o.rise_day {
-        0.0
-    } else {
-        let since = if dm >= o.rise_day { dm - o.rise_day } else { dm + 24_000 - o.rise_day };
-        1.0 + 7.0 * since as f64 / ramp
-    }
+    /// The drop latch (ironspec 02:46): set by a fall of >= `drop_min` levels between two detector
+    /// updates (tick-exact: the sun and every weather ramp change the level by at most 2 between
+    /// readings, so 3 is a skip), cleared by trigger 2's acceptance, RISE and the window's opening.
+    pub drop_min: Option<i64>,
 }
 
 impl Default for CounterOpts {
@@ -97,9 +78,6 @@ impl Default for CounterOpts {
             gate: (136, 15),
             load1: 0,
             load2: 19,
-            rise_day: 22_331,
-            fall_day: 13_669,
-            eight_day: 170,
             det_period: 20,
             to_bed: 120,
             bed_clear: 12_523,
@@ -111,19 +89,18 @@ impl Default for CounterOpts {
             to_divert: 60,
             arm: None,
             arm_band: (0, 999),
-            arm_drop2: false,
+            drop_min: None,
         }
     }
 }
 
-/// A scripted event: a night skip (at the event's game time, after the 100 gt asleep), a rain spell
-/// from the event's game time for `len` gt (the level held under 8; its end a rising crossing when
-/// the sky is bright), or weather darkening the level by `dark` for `len` gt (a skip clears it).
+/// A scripted event: a night skip (at the event's game time, after the 100 gt asleep: the day jumps
+/// to the next 24,000 and the weather flags clear), or the weather flags set (vanilla `raining` /
+/// `thundering`; the levels ramp 0.01 a gt toward them, thunder darkening only times rain).
 #[derive(Clone, Copy, Debug)]
 pub enum Ev {
     Skip,
-    Rain { len: i64 },
-    Weather { len: i64, dark: i64 },
+    Wx { rain: bool, thunder: bool },
 }
 
 /// What one run saw.
@@ -156,9 +133,14 @@ pub struct RunOut {
     /// night's dusk day number; nights a skip cut short are listed in `cut_nights`.
     pub night_picks: std::collections::BTreeMap<i64, u32>,
     pub cut_nights: std::collections::BTreeSet<i64>,
-    /// Trigger 2 accepted through the arm; and those with no skip in the arm's span before it.
+    /// Trigger 2 accepted through an arm; and those with no skip in the 340 gt before it.
     pub arm_accepts: u32,
     pub false_arms: u32,
+    /// Drop-latch sets; and those with no skip since the previous detector update (a natural drop).
+    pub latch_sets: u32,
+    pub false_latches: u32,
+    /// The DAY level's (>= L) falls to off, as day times (the coupling to the window's opening).
+    pub day_off: Vec<i64>,
     /// The absolute day time at the run's end (for the complete nights).
     pub end_day: i64,
 }
@@ -173,8 +155,9 @@ pub fn run(o: &CounterOpts, days: i64, d0: i64, phase: i64, det_phase: i64, c0: 
     let c_of = |u: i64, tens: i64| tens * 10 + u;
     let (mut level_hi, mut eight_hi) = (true, false);
     let mut level_int = 0i64;
-    let mut dark_until = -1i64;
-    let mut dark = 0i64;
+    // the weather (vanilla: flags, and levels ramping 0.01 a gt toward them)
+    let (mut rain_on, mut thunder_on) = (false, false);
+    let (mut rain_lv, mut thunder_lv) = (0f32, 0f32);
     let mut day_hi = false; // level >= the inhibit's L, as last updated
     let mut day_changed_t = -1_000i64;
     let mut diverts: Vec<i64> = Vec::new(); // pending divert decisions (game times)
@@ -194,7 +177,6 @@ pub fn run(o: &CounterOpts, days: i64, d0: i64, phase: i64, det_phase: i64, c0: 
     let mut rephase: Option<i64> = None; // the load being checked
     let mut releases_since = 0i64;
     let mut ev_i = 0usize;
-    let mut rain_until = -1i64;
     let mut rephased_once = false;
     let mut last_pulse = -1_000i64;
     let mut pulse = |t: i64, out: &mut RunOut| {
@@ -202,47 +184,60 @@ pub fn run(o: &CounterOpts, days: i64, d0: i64, phase: i64, det_phase: i64, c0: 
         last_pulse = t;
     };
     for t in 0..horizon {
+        // (vanilla's tick: the weather flags change and the levels ramp (advanceWeatherCycle), then
+        // the sleep check (the day jumps, the flags clear), then tickTime, then the block entities
+        // (the detector reads the day time after the jump + 1 and the levels before they fall))
+        let mut skip_now = false;
         while ev_i < evs.len() && evs[ev_i].0 <= t {
             match evs[ev_i].1 {
-                Ev::Skip => {
-                    // (a skip at night cuts that night short; keyed by its dusk's day number)
-                    if day.rem_euclid(24_000) >= 12_000 {
-                        out.cut_nights.insert(day.div_euclid(24_000));
-                    } else if day.rem_euclid(24_000) < 1_000 {
-                        out.cut_nights.insert(day.div_euclid(24_000) - 1);
-                    }
-                    last_skip_t = t;
-                    day = (day.div_euclid(24_000) + 1) * 24_000;
-                    // (sleeping through the night clears the weather)
-                    dark_until = -1;
-                    rain_until = -1;
-                }
-                Ev::Rain { len } => rain_until = t + len,
-                Ev::Weather { len, dark: d } => {
-                    dark_until = t + len;
-                    dark = d;
+                Ev::Skip => skip_now = true,
+                Ev::Wx { rain, thunder } => {
+                    rain_on = rain;
+                    thunder_on = thunder;
                 }
             }
             ev_i += 1;
         }
+        thunder_lv = (thunder_lv + if thunder_on { 0.01 } else { -0.01 }).clamp(0.0, 1.0);
+        rain_lv = (rain_lv + if rain_on { 0.01 } else { -0.01 }).clamp(0.0, 1.0);
+        if skip_now {
+            // (a skip at night cuts that night short; keyed by its dusk's day number)
+            if day.rem_euclid(24_000) >= 12_000 {
+                out.cut_nights.insert(day.div_euclid(24_000));
+            } else if day.rem_euclid(24_000) < 1_000 {
+                out.cut_nights.insert(day.div_euclid(24_000) - 1);
+            }
+            last_skip_t = t;
+            day = (day.div_euclid(24_000) + 1) * 24_000 + 1;
+            rain_on = false;
+            thunder_on = false;
+        }
         let dm = day.rem_euclid(24_000);
         // the detector
         if (t - det_phase).rem_euclid(o.det_period) == 0 {
-            let d = if t < dark_until { dark } else { 0 };
             let prev_level = level_int;
-            level_int = (level(o, dm).round() as i64 - d).max(0);
-            if o.arm_drop2 && prev_level >= 9 && level_int <= 7 {
+            level_int = det_level(dm, rain_lv, thunder_lv * rain_lv);
+            if let Some(k) = o.drop_min
+                && prev_level - level_int >= k
+            {
                 arm_latch = true;
+                out.latch_sets += 1;
+                if t - last_skip_t >= o.det_period {
+                    out.false_latches += 1;
+                }
             }
             if let Some(l) = o.day_inhibit {
                 let hi_now = level_int >= l;
                 if hi_now != day_hi {
                     day_hi = hi_now;
                     day_changed_t = t;
+                    if !hi_now {
+                        out.day_off.push(dm);
+                    }
                 }
             }
-            let hi = !(dm >= o.fall_day && dm < o.rise_day);
-            let eight = dm >= o.eight_day && dm < 12_000 - o.eight_day && t >= rain_until;
+            let hi = level_int >= 1;
+            let eight = level_int >= 8;
             if hi && !level_hi {
                 rise_pend = true;
                 arm_latch = false;
@@ -250,11 +245,11 @@ pub fn run(o: &CounterOpts, days: i64, d0: i64, phase: i64, det_phase: i64, c0: 
             if eight && !eight_hi {
                 let c = c_of(u, tens);
                 let by_gate = c >= o.gate.0 || c <= o.gate.1;
-                let by_arm = (o.arm.is_some() && t < armed_until) || (o.arm_drop2 && arm_latch);
+                let by_arm = (o.arm.is_some() && t < armed_until) || (o.drop_min.is_some() && arm_latch);
                 let acc = by_gate || by_arm;
                 if by_arm && !by_gate {
                     out.arm_accepts += 1;
-                    if t - last_skip_t > o.arm.unwrap_or(300) + 40 {
+                    if t - last_skip_t > 340 {
                         out.false_arms += 1;
                     }
                 }
@@ -468,6 +463,12 @@ pub struct ScenOut {
     /// The fewest good naps over the complete nights no skip cut (G1 on 100874aa8: 24 a night).
     pub min_night: u32,
     pub false_arms: u32,
+    pub arm_accepts: u32,
+    pub latch_sets: u32,
+    pub false_latches: u32,
+    /// The least gap from the DAY level's last fall (L) to the window's opening, day times (ironspec:
+    /// >= 20 gt before the first scheduled napper can reach the queue).
+    pub day_off_margin: i64,
 }
 
 /// A scenario over release phases (every `phase_step`), the given detector phases and every units
@@ -477,7 +478,7 @@ pub fn scenario(o: &CounterOpts, evs: &[(i64, Ev)]) -> ScenOut {
 }
 
 pub fn scenario_with(o: &CounterOpts, evs: &[(i64, Ev)], phase_step: usize, det_phases: &[i64]) -> ScenOut {
-    let mut s = ScenOut { open_min: i64::MAX, open_max: i64::MIN, hi: (0, i64::MAX), lo: (0, i64::MAX), rej: (0, i64::MAX), min_spacing: i64::MAX, edge_gap: i64::MAX, min_night: u32::MAX, ..Default::default() };
+    let mut s = ScenOut { open_min: i64::MAX, open_max: i64::MIN, hi: (0, i64::MAX), lo: (0, i64::MAX), rej: (0, i64::MAX), min_spacing: i64::MAX, edge_gap: i64::MAX, min_night: u32::MAX, day_off_margin: i64::MAX, ..Default::default() };
     for phase in (0..100).step_by(phase_step) {
         for &det_phase in det_phases {
             for c0 in 100i64..110 {
@@ -485,6 +486,14 @@ pub fn scenario_with(o: &CounterOpts, evs: &[(i64, Ev)], phase_step: usize, det_
                 let r = run(o, 3, 20_000, phase, det_phase, c0, evs);
                 s.edge_gap = s.edge_gap.min(r.inhibit_edge_gap);
                 s.false_arms += r.false_arms;
+                s.arm_accepts += r.arm_accepts;
+                s.latch_sets += r.latch_sets;
+                s.false_latches += r.false_latches;
+                for (dm_open, _c) in &r.opens {
+                    if let Some(off) = r.day_off.iter().filter(|&&d| d >= 9_000 && d <= *dm_open).max() {
+                        s.day_off_margin = s.day_off_margin.min(dm_open - off);
+                    }
+                }
                 // (complete nights from key 1 (the run starts inside key 0's night) whose end the run
                 // reached, none cut by a skip)
                 let last_complete = (r.end_day - 23_850).div_euclid(24_000);
@@ -591,39 +600,219 @@ pub fn sidings(window_open: i64, t_pb: [i64; 3], a_max: i64) -> Vec<String> {
 }
 
 /// One skip at day time `d` (on the run's second calendar day): the naps (min, max over release
-/// phases x units phases) that night and the night after. "That night" is the night after the jump
-/// for a skip by day (d < 12,000), the cut night for a skip at night.
-pub fn skip_naps(o: &CounterOpts, d: i64) -> ((u32, u32), (u32, u32), u32) {
+/// phases x detector phases) that night and the night after, the daylight picks, and the detector
+/// phases (the first reading's tick after the skip, 0..19) at which every release phase gave that
+/// night all 24 naps (a bit mask). "That night" is the night after the jump for a skip by day (d <
+/// 12,000: a thunderstorm, the only weather a day skip happens in, on from d - 2,000), the cut night
+/// for a skip at night (`rain_at_night`: rain from 11,000, the rain-dusk bed time; else clear).
+pub fn skip_naps(o: &CounterOpts, d: i64, rain_at_night: bool) -> ((u32, u32), (u32, u32), u32, u32) {
     // (the run starts at day time 20,000 (key 0); key 1's day time d is game time 4,000 + d)
-    let evs = vec![(4_000 + d, Ev::Skip)];
+    let t_skip = 4_000 + d;
+    let mut evs = Vec::new();
+    if d < 12_000 {
+        evs.push((t_skip - 2_000, Ev::Wx { rain: true, thunder: true }));
+    } else if rain_at_night {
+        evs.push((4_000 + 11_000, Ev::Wx { rain: true, thunder: false }));
+    }
+    evs.push((t_skip, Ev::Skip));
     let that_key = if d < 12_000 { 2 } else { 1 };
     let (mut that, mut after) = ((u32::MAX, 0u32), (u32::MAX, 0u32));
     let mut daylight = 0u32;
-    for phase in (0..100).step_by(10) {
-        for c0 in [100i64, 103, 106, 109] {
-            let r = run(o, 4, 20_000, phase, 0, c0, evs.as_slice());
+    let mut covered = 0u32;
+    for k in 0..o.det_period {
+        // (the detector phase whose first reading after the skip lands k gt after it)
+        let det_phase = (t_skip + k).rem_euclid(o.det_period);
+        let mut all = true;
+        for phase in (0..100).step_by(20) {
+            let r = run(o, 4, 20_000, phase, det_phase, 100, evs.as_slice());
             let a = r.night_picks.get(&that_key).copied().unwrap_or(0);
             let b = r.night_picks.get(&(that_key + 1)).copied().unwrap_or(0);
             that = (that.0.min(a), that.1.max(a));
             after = (after.0.min(b), after.1.max(b));
             daylight += r.daylight_picks;
+            all &= a >= 24;
+        }
+        if all {
+            covered |= 1 << k;
         }
     }
-    (that, after, daylight)
+    (that, after, daylight, covered)
+}
+
+/// The detector's reading at every tick for `len` gt after a thunderstorm skip at day time `d`
+/// (the levels at 1.0 before it, falling 0.01 a gt after it): (gt after the skip, level) changes.
+pub fn post_skip_levels(d: i64, len: i64) -> Vec<(i64, i64)> {
+    let _ = d;
+    let mut v = Vec::new();
+    let mut last = -1;
+    for k in 0..len {
+        // (the skip tick reads day 1 with the levels still at 1.0; each tick after, both fall 0.01)
+        let lv = (1.0f32 - 0.01 * k as f32).max(0.0);
+        let l = det_level(k + 1, lv, lv * lv);
+        if l != last {
+            v.push((k, l));
+            last = l;
+        }
+    }
+    v
+}
+
+/// The daylight detector's power under the open sky at day time `day` with these weather levels
+/// (`getRainLevel(1)`, `getThunderLevel(1)` = thunder x rain): redsim's
+/// `DaylightDetectorBlock.updateSignalStrength` (sky light 15 - getSkyDarken, times the cosine of
+/// the sun's angle eased 20% toward 0 / 2 pi, rounded).
+pub fn det_level(day: i64, rain: f32, thunder: f32) -> i64 {
+    let target = (15 - redsim::weather::sky_darken_at(day, rain, thunder)).max(0);
+    if target <= 0 {
+        return 0;
+    }
+    let mut sun = redsim::daylight::sun_angle(day) * (std::f64::consts::PI / 180.0) as f32;
+    let offset = if sun < std::f64::consts::PI as f32 { 0.0f32 } else { (std::f64::consts::PI * 2.0) as f32 };
+    sun += (offset - sun) * 0.2f32;
+    let v = target as f32 * redsim::entity::mth::cos(sun as f64);
+    ((v as f64 + 0.5).floor() as i64).clamp(0, 15)
+}
+
+/// The detector's curve per weather: every change of level over a day (day time -> level), and the
+/// levels where the controller's thresholds sit.
+pub fn daylight_table() -> Vec<String> {
+    let mut lines = Vec::new();
+    for (name, rain, thunder) in [("clear", 0.0f32, 0.0f32), ("rain", 1.0, 0.0), ("thunder", 1.0, 1.0)] {
+        let mut changes = Vec::new();
+        let mut last = det_level(0, rain, thunder);
+        changes.push(format!("0:{last}"));
+        for day in 1..24_000 {
+            let l = det_level(day, rain, thunder);
+            if l != last {
+                changes.push(format!("{day}:{l}"));
+                last = l;
+            }
+        }
+        let range = |a: i64, b: i64| {
+            let v: Vec<i64> = (a..=b).map(|d| det_level(d, rain, thunder)).collect();
+            (*v.iter().min().unwrap(), *v.iter().max().unwrap())
+        };
+        let (w_lo, w_hi) = range(12_370, 12_550);
+        let (m_lo, m_hi) = range(0, 290);
+        let (n_lo, n_hi) = range(3_000, 9_000);
+        lines.push(format!(
+            "{name}: changes (day:level) {}; at the window's opening (12,370..12,550) {w_lo}..{w_hi}; the morning after a skip (0..290) {m_lo}..{m_hi}; mid-day (3,000..9,000) {n_lo}..{n_hi}",
+            changes.join(" ")
+        ));
+    }
+    // the largest one-update (20 gt) drop of the level while the weather ramps (rain and thunder
+    // levels move 0.01 a gt; thunder counts as thunder x rain), at every day time
+    let mut worst = (0i64, 0i64, "");
+    for day in (0..24_000).step_by(20) {
+        for (kind, r0, t0, dr, dt) in [("rain onset", 0.0f32, 0.0f32, 0.2f32, 0.0f32), ("thunder onset with rain", 1.0, 0.0, 0.0, 0.2), ("rain + thunder onset together", 0.0, 0.0, 0.2, 0.2)] {
+            let mut r = r0;
+            let mut th = t0;
+            for _ in 0..6 {
+                let a = det_level(day, r, th * r);
+                let r2 = (r + dr).min(1.0);
+                let t2 = (th + dt).min(1.0);
+                let b = det_level(day + 20, r2, t2 * r2);
+                if a - b > worst.0 {
+                    worst = (a - b, day, kind);
+                }
+                r = r2;
+                th = t2;
+            }
+        }
+    }
+    lines.push(format!("the largest drop in one detector update from weather ramping (0.01/gt, thunder x rain): {} levels (day {}, {})", worst.0, worst.1, worst.2));
+    let seq: Vec<String> = post_skip_levels(0, 200).iter().map(|(k, l)| format!("{k}:{l}")).collect();
+    lines.push(format!("after a thunderstorm skip (the skip tick reads day 1 with the levels at 1.0, both falling 0.01 a gt after it): gt after the skip:level {}", seq.join(" ")));
+    lines
+}
+
+/// G1's weather sweep (Nov 12 02:43): every rain / thunder onset and end at every day time d (step
+/// `step`) on day 2, the vanilla ramps; per kind: trigger 2 accepted through an arm with no skip
+/// (false arms), the drop latch set with no skip (false latches) — bar 0 — and the naps a night left
+/// (the least over the complete nights, against 24). Runs: release phases 0/50 x detector phases
+/// 0/5/10/15 at every d.
+pub fn weather_sweep(o: &CounterOpts, step: i64) -> Vec<String> {
+    let mut lines = Vec::new();
+    // (kind, (gt from the transition, rain flag, thunder flag))
+    let kinds: Vec<(&str, Vec<(i64, bool, bool)>)> = vec![
+        ("rain onset", vec![(0, true, false), (12_000, false, false)]),
+        ("rain end", vec![(-12_000, true, false), (0, false, false)]),
+        ("rain onset with the thunder flag on (a storm starting)", vec![(-1_000, false, true), (0, true, true), (12_000, false, false)]),
+        ("rain end with the thunder flag on (a storm ending)", vec![(-12_000, true, true), (0, false, true), (1_000, false, false)]),
+        ("thunder onset in rain", vec![(-6_000, true, false), (0, true, true), (6_000, false, false)]),
+        ("thunder end in rain", vec![(-6_000, true, true), (0, true, false), (6_000, false, false)]),
+    ];
+    let mut total = 0u32;
+    for (kname, rel) in &kinds {
+        let (mut fa, mut fl, mut runs) = (0u32, 0u32, 0usize);
+        let mut least = u32::MAX;
+        let mut bad_d: Vec<i64> = Vec::new();
+        for d in (0..24_000).step_by(step.max(1) as usize) {
+            // (day 2's day time d is game time 28,000 + d: the runs start at day 20,000)
+            let t0 = 28_000 + d;
+            let evs: Vec<(i64, Ev)> = rel.iter().map(|&(dt, r, th)| (t0 + dt, Ev::Wx { rain: r, thunder: th })).collect();
+            let mut bad = false;
+            for phase in [0i64, 50] {
+                for det_phase in [0i64, 5, 10, 15] {
+                    let r = run(o, 3, 20_000, phase, det_phase, 100, &evs);
+                    runs += 1;
+                    fa += r.false_arms;
+                    fl += r.false_latches;
+                    bad |= r.false_arms + r.false_latches > 0;
+                    let last_complete = (r.end_day - 23_850).div_euclid(24_000);
+                    for k in 1..=last_complete {
+                        least = least.min(r.night_picks.get(&k).copied().unwrap_or(0));
+                    }
+                }
+            }
+            if bad {
+                bad_d.push(d);
+            }
+        }
+        total += fa + fl;
+        let bands = {
+            // (contiguous d runs with a false arm or latch)
+            let mut v: Vec<String> = Vec::new();
+            let mut i = 0;
+            while i < bad_d.len() {
+                let mut j = i;
+                while j + 1 < bad_d.len() && bad_d[j + 1] == bad_d[j] + step {
+                    j += 1;
+                }
+                v.push(if i == j { format!("{}", bad_d[i]) } else { format!("{}..{}", bad_d[i], bad_d[j]) });
+                i = j + 1;
+            }
+            if v.is_empty() { "none".to_string() } else { v.join(", ") }
+        };
+        lines.push(format!(
+            "  {kname} at every d (0..24,000 step {step}; {runs} runs): false arms {fa}, false latches {fl} (at d {bands}); naps a night least {} of 24",
+            if least == u32::MAX { "-".to_string() } else { least.to_string() }
+        ));
+    }
+    lines.insert(0, format!(
+        "weather sweep (G1 Nov 12 02:43; the arm: {}; the latch: {}; L {}): every rain or thunder onset and end at every day time, the vanilla ramps (0.01/gt, thunder x rain), the detector on redsim's exact curve; bar: 0 false arms",
+        o.arm.map_or("off".to_string(), |s| format!("falling 8 for {s} gt")),
+        o.drop_min.map_or("off".to_string(), |k| format!("a fall >= {k} between readings")),
+        o.day_inhibit.map_or("off".to_string(), |l| l.to_string())
+    ));
+    lines.push(format!("  => false arms + latches {total} ({})", if total == 0 { "pass" } else { "FAIL" }));
+    lines
 }
 
 /// The bench: both variants, the scripted scenarios, ironspec's bars per variant.
 pub fn bench(base: &CounterOpts) -> Vec<String> {
     let mut lines = Vec::new();
     // day 2's day time X is game time 4,000 + X (the runs start at day 20,000, before RISE)
+    let wx = |rain: bool, thunder: bool| Ev::Wx { rain, thunder };
     let scen: Vec<(&str, Vec<(i64, Ev)>)> = vec![
         ("normal days", vec![]),
         ("a bed-time clear skip (12,623)", vec![(4_000 + 12_623, Ev::Skip)]),
-        ("a bed-time rain skip (12,102)", vec![(4_000 + 12_102, Ev::Skip)]),
+        ("a bed-time rain skip (rain from 11,000, the skip at 12,102)", vec![(4_000 + 11_000, wx(true, false)), (4_000 + 12_102, Ev::Skip)]),
         ("a skip at 16,000", vec![(4_000 + 16_000, Ev::Skip)]),
         ("the latest clear skip (23,585)", vec![(4_000 + 23_585, Ev::Skip)]),
-        ("rain 4,000..6,000 (a mid-day clearing)", vec![(4_000 + 4_000, Ev::Rain { len: 2_000 })]),
-        ("rain 9,000..11,800 (a dusk clearing)", vec![(4_000 + 9_000, Ev::Rain { len: 2_800 })]),
+        ("rain 4,000..6,000 (a mid-day clearing)", vec![(4_000 + 4_000, wx(true, false)), (4_000 + 6_000, wx(false, false))]),
+        ("rain 9,000..11,800 (a dusk clearing)", vec![(4_000 + 9_000, wx(true, false)), (4_000 + 11_800, wx(false, false))]),
+        ("a storm 9,000..11,800 (a dusk clearing)", vec![(4_000 + 9_000, wx(true, true)), (4_000 + 11_800, wx(false, false))]),
     ];
     let variants: Vec<(&str, CounterOpts)> = vec![
         ("FF + pending latch", CounterOpts { variant: Variant::Ff, ..base.clone() }),
@@ -645,6 +834,9 @@ pub fn bench(base: &CounterOpts) -> Vec<String> {
         let mut night_inh_total = 0u32;
         let mut worst_edge = i64::MAX;
         let mut normal_min_night = 0u32;
+        let mut false_total = 0u32;
+        let mut worst_coupling = i64::MAX;
+        let mut daylight_held = 0u32;
         for (label, evs) in &scen {
             let s = scenario(o, evs);
             let m = |x: i64| if x == i64::MAX { "-".to_string() } else { x.to_string() };
@@ -665,29 +857,40 @@ pub fn bench(base: &CounterOpts) -> Vec<String> {
             worst_spacing = worst_spacing.min(s.min_spacing);
             bad_counts += s.cerr_bad;
             lines.push(format!(
-                "  {label}: the window opens at day {}..{} (night margin at the worst trip {:.1}%; the first napper {} gt {} the bar); naps a night (complete nights no skip cut) least {} of 24; picks whose napper reaches the bed before the stop takes it {} (of {} runs); trigger 2 accepted high {} (least {} gt inside), accepted low {} (least {} gt inside), rejected {} (least {} gt outside); FF longest {} gt ({} steps, {} held), overflows {}, absorbed {}; ring pulses at least {} gt apart; count errors {} of {}",
+                "  {label}: the window opens at day {}..{} (night margin at the worst trip {:.1}%; the first napper {} gt {} the bar); naps a night (complete nights no skip cut) least {} of 24; picks whose napper reaches the bed before the stop takes it {} (of {} runs); trigger 2 accepted high {} (least {} gt inside), accepted low {} (least {} gt inside), rejected {} (least {} gt outside); FF longest {} gt ({} steps, {} held), overflows {}, absorbed {}; ring pulses at least {} gt apart; count errors {} of {}; arm accepts {} (false {}), latch sets {} (false {}); DAY off {} gt before the window opens",
                 m(s.open_min), if s.open_max == i64::MIN { "-".to_string() } else { s.open_max.to_string() },
                 night, early.abs(), if early >= 0 { "inside" } else { "BEFORE" },
                 if s.min_night == u32::MAX { "-".to_string() } else { s.min_night.to_string() },
                 s.daylight, s.runs,
                 s.hi.0, m(s.hi.1), s.lo.0, m(s.lo.1), s.rej.0, m(s.rej.1),
-                s.ff_max, s.ff_steps_max, s.held_max, s.ovf, s.absorbed, m(s.min_spacing), s.cerr_bad, s.cerr_n
+                s.ff_max, s.ff_steps_max, s.held_max, s.ovf, s.absorbed, m(s.min_spacing), s.cerr_bad, s.cerr_n,
+                s.arm_accepts, s.false_arms, s.latch_sets, s.false_latches, m(s.day_off_margin)
             ));
             daylight_total += s.daylight;
             night_inh_total += s.night_inh;
+            false_total += s.false_arms + s.false_latches;
+            if o.day_inhibit.is_some() {
+                worst_coupling = worst_coupling.min(s.day_off_margin);
+                worst_edge = worst_edge.min(s.edge_gap);
+            }
             if *label == "normal days" {
                 normal_min_night = s.min_night;
             }
         }
         // (ironspec 01:38: every skip time inside the window x weather; the FF variant only)
         if o.variant == Variant::Ff {
-            for dark in [0i64, 3, 5] {
+            for (wname, w) in [("clear", None), ("rain", Some((true, false))), ("a thunderstorm", Some((true, true)))] {
                 let (mut dl, mut ni, mut eg, mut runs) = (0u32, 0u32, i64::MAX, 0usize);
                 let (mut omin, mut omax) = (i64::MAX, i64::MIN);
                 let mut gate_min = i64::MAX;
+                let mut fa = 0u32;
                 for skip_day in (12_500..=20_500).step_by(250) {
-                    // weather from day 11,500 until the skip (a skip clears it)
-                    let evs = vec![(4_000 + 11_500, Ev::Weather { len: skip_day - 11_500, dark }), (4_000 + skip_day, Ev::Skip)];
+                    // the weather from day 11,500 until the skip (a skip clears it)
+                    let mut evs = Vec::new();
+                    if let Some((r, th)) = w {
+                        evs.push((4_000 + 11_500, wx(r, th)));
+                    }
+                    evs.push((4_000 + skip_day, Ev::Skip));
                     let s = scenario_with(o, &evs, 5, &[0, 13]);
                     dl += s.daylight;
                     ni += s.night_inh;
@@ -695,30 +898,30 @@ pub fn bench(base: &CounterOpts) -> Vec<String> {
                     runs += s.runs;
                     omin = omin.min(s.open_min);
                     omax = omax.max(s.open_max);
+                    fa += s.false_arms + s.false_latches;
                     for g in [s.hi.1, s.lo.1, s.rej.1] {
                         gate_min = gate_min.min(g);
                     }
                 }
-                daylight_total += dl;
+                daylight_held += dl;
                 night_inh_total += ni;
+                false_total += fa;
                 worst_gate = worst_gate.min(gate_min);
                 let night = (o.night_end - (omax + o.last_nap)) as f64 / o.night_len as f64 * 100.0;
                 worst_night = worst_night.min(night);
                 lines.push(format!(
-                    "  a skip at every 250 gt of the window (12,500..20,500), weather darkening {dark} until the skip ({runs} runs: 20 release phases x 2 detector phases x 10 units phases x 33 skip times): picks reaching the bed early {dl}; night picks inhibited {ni}; the least gap from a divert to the inhibit's last change {}; the window opens at day {}..{} (night margin {:.1}%); gate margins least {} gt",
+                    "  a skip at every 250 gt of the window (12,500..20,500), {wname} from day 11,500 until the skip ({runs} runs: 20 release phases x 2 detector phases x 10 units phases x 33 skip times): picks reaching the bed early {dl} ({:.1}%; each held at the queue's NOT-DAY gate until dusk, ironspec 02:28: +10..21 golems a held napper); night picks inhibited {ni}; the least gap from a divert to the inhibit's last change {} (a divert in the skip's own update: the held case); the window opens at day {}..{} (night margin {:.1}%); gate margins least {} gt; false arms + latches {fa}",
+                    dl as f64 / runs.max(1) as f64 * 100.0,
                     if eg == i64::MAX { "-".to_string() } else { eg.to_string() }, omin, omax, night, gate_min
                 ));
-                if o.day_inhibit.is_some() {
-                    worst_edge = worst_edge.min(eg);
-                }
             }
-            // a daytime thunderstorm skip (players may sleep in thunder by day): the gate rejects its
-            // trigger 2 (C ~ 79), so the count stays a day's phase off until the next RISE
-            let evs = vec![(4_000 + 3_000, Ev::Weather { len: 3_000, dark: 5 }), (4_000 + 6_000, Ev::Skip)];
+            // a daytime thunderstorm skip (a day skip happens only in thunder): with no arm the gate
+            // rejects its trigger 2 (C ~ 79), so the count stays a day's phase off until the next RISE
+            let evs = vec![(4_000 + 3_000, wx(true, true)), (4_000 + 6_000, Ev::Skip)];
             let s = scenario_with(o, &evs, 5, &[0, 13]);
             lines.push(format!(
-                "  a daytime thunderstorm skip (6,000): picks reaching the bed early {}; night picks inhibited {}; the window opens at day {}..{}",
-                s.daylight, s.night_inh, s.open_min, s.open_max
+                "  a daytime thunderstorm skip (6,000; the storm from 3,000): picks reaching the bed early {}; night picks inhibited {}; the window opens at day {}..{}; arm accepts {} (false {}), latch sets {} (false {})",
+                s.daylight, s.night_inh, s.open_min, s.open_max, s.arm_accepts, s.false_arms, s.latch_sets, s.false_latches
             ));
             daylight_total += s.daylight;
         }
@@ -729,22 +932,24 @@ pub fn bench(base: &CounterOpts) -> Vec<String> {
         let pass_spacing = worst_spacing >= o.ff_period;
         let pass_counts = bad_counts == 0;
         lines.push(format!(
-            "  => bars: every normal night 24 naps: least {normal_min_night} ({}); night margin {:.1}% ({}); the first napper's arrival {} gt ({}); picks before the beds take them {} ({}); {}gate margins >= 1 release: least {} gt ({}); ring pulses >= {} gt apart: least {} ({}); count errors {} ({})",
+            "  => bars (normal operation: the scripted scenarios): every normal night 24 naps: least {normal_min_night} ({}); night margin {:.1}% ({}); the first napper's arrival {} gt ({}); picks before the beds take them {} ({}); {}gate margins >= 1 release: least {} gt ({}); ring pulses >= {} gt apart: least {} ({}); count errors {} ({}); false arms + latches {false_total} ({}); skips inside the window: {daylight_held} picks held at the queue until dusk (priced)",
             if normal_min_night >= 24 { "pass" } else { "FAIL" },
             worst_night, if pass_night { "pass" } else { "FAIL" },
             worst_early, if pass_early { "pass" } else { "FAIL" },
             daylight_total, if daylight_total == 0 { "pass" } else { "FAIL" },
             match o.day_inhibit {
                 Some(l) => format!(
-                    "night picks the level < {l} inhibit removed {} ({}); the inhibit's edge >= 3 gt + 1 tick from a divert: least {} ({}); ",
+                    "night picks the level < {l} inhibit removed {} ({}); the inhibit's edge >= 3 gt + 1 tick from a divert: least {} ({}); DAY off >= 20 gt before the window opens: least {} ({}); ",
                     night_inh_total, if night_inh_total == 0 { "pass" } else { "FAIL" },
-                    if worst_edge == i64::MAX { "-".to_string() } else { worst_edge.to_string() }, if pass_edge { "pass" } else { "FAIL" }
+                    if worst_edge == i64::MAX { "-".to_string() } else { worst_edge.to_string() }, if pass_edge { "pass" } else { "FAIL" },
+                    if worst_coupling == i64::MAX { "-".to_string() } else { worst_coupling.to_string() }, if worst_coupling >= 20 { "pass" } else { "FAIL" }
                 ),
                 None => String::new(),
             },
             worst_gate, if pass_gate { "pass" } else { "FAIL" },
             o.ff_period, worst_spacing, if pass_spacing { "pass" } else { "FAIL" },
-            bad_counts, if pass_counts { "pass" } else { "FAIL" }
+            bad_counts, if pass_counts { "pass" } else { "FAIL" },
+            if false_total == 0 { "pass" } else { "FAIL" }
         ));
     }
     lines
