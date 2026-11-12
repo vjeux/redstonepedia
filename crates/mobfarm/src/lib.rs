@@ -43,6 +43,7 @@ pub mod combine;
 pub mod holdbench;
 pub mod pocketbench;
 pub mod gqbench;
+pub mod climb;
 pub mod liveness;
 pub mod postsearch;
 pub mod yard;

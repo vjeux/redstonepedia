@@ -921,6 +921,10 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
             if per.is_empty() { "-".to_string() } else { per.join(", ") }
         ));
         let (gl, _gp) = gate.lines();
+        // (the consequence row, ironspec: a golem event's release refused at T+3 with ALIVE low,
+        // during a freeze's latency-free tail or the post-thaw window before the ring's next edge)
+        let lost: Vec<String> = gate.refused.iter().filter(|(_, w)| w == "cycle +3").map(|(t, _)| format!("t {t}")).collect();
+        l.push(format!("releases lost (a golem event's T+3 refused with ALIVE low; a consequence row): {}{}", lost.len(), if lost.is_empty() { String::new() } else { format!(" ({})", lost.join(", ")) }));
         l.extend(gl);
     }
     Ok(l.join("\n"))
