@@ -620,6 +620,28 @@ mod tests {
         assert!(sky_light(&w, BlockPos::new(0, 1, 0)).unwrap() < 15);
     }
 
+    /// (onechunk 2026-11-12) A bubble column dampens light by 1 like the water source it is
+    /// (`BubbleColumnBlock`'s fluid state is water's): under a whole layer of it open to the sky the
+    /// cell reads 13 as under water (the layer's cells 15 - 1 = 14, no longer sky sources; the cell
+    /// under them a step more), where an undampened layer would leave it a sky source (15) and a
+    /// stone layer dark (a layer, so no light reaches the cell around it).
+    #[test]
+    fn a_bubble_column_dampens_like_water() {
+        let layer = |b: Block| -> Vec<(BlockPos, Block)> { (-2..=2).flat_map(|x| (-2..=2).map(move |z| (x, z))).map(|(x, z)| (BlockPos::new(x, 2, z), b.clone())).collect() };
+        for state in ["minecraft:bubble_column[drag=false]", "minecraft:bubble_column[drag=true]", "minecraft:water[level=0]"] {
+            let mut w = World::new(BlockPos::new(-2, -2, -2), [5, 8, 5]);
+            w.place_raw(&layer(Block::parse(state).unwrap()));
+            assert_eq!(sky_light(&w, BlockPos::new(0, 2, 0)), Ok(14), "{state}: the layer's cell");
+            assert_eq!(sky_light(&w, BlockPos::new(0, 1, 0)), Ok(13), "{state}: the cell under the layer");
+        }
+        let mut w = World::new(BlockPos::new(-2, -2, -2), [5, 8, 5]);
+        w.place_raw(&layer(Block::Air));
+        assert_eq!(sky_light(&w, BlockPos::new(0, 1, 0)), Ok(15), "an air layer: a sky source");
+        let mut w = World::new(BlockPos::new(-2, -2, -2), [5, 8, 5]);
+        w.place_raw(&layer(Block::Simple(crate::block::Simple::Stone)));
+        assert!(sky_light(&w, BlockPos::new(0, 1, 0)).unwrap() < 13);
+    }
+
     #[test]
     fn judge_time_values() {
         // the judge's facts: a normal detector reads 7 under the open sky and under a 1-block
