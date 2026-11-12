@@ -1189,6 +1189,25 @@ pub enum MobfarmCmd {
     /// the queue's first slope); carts launched at the descent's top at the given stored speeds,
     /// `--gap` gt apart: each one's speed leaving the brake, its stored speed at any contact with a
     /// cart ahead (the brief's 0.2 bar), where it rests, any left on the brake.
+    /// The rider-height string bench (ironspec 21:27): a generic pocket cell with a tripwire string in
+    /// the cell above its rest slope; one ridden cart launched down a descent comes to rest at the
+    /// pocket's gate under the string (the gate opens `--hold` gt after it stops) or passes it
+    /// (`--pass`); prints the hook's powered ticks against the rider's box over the string's cell.
+    StringBench {
+        #[arg(long, default_value_t = 3)]
+        descent: i32,
+        #[arg(long, default_value_t = 0.0)]
+        v0: f64,
+        #[arg(long)]
+        pass: bool,
+        #[arg(long, default_value_t = 40)]
+        hold: i64,
+        #[arg(long, default_value_t = 200)]
+        ticks: i64,
+        /// An empty cart (default ridden).
+        #[arg(long)]
+        empty: bool,
+    },
     BrakeBench {
         #[arg(long, value_delimiter = ',', default_values_t = [0.4, 0.8, 1.2])]
         speeds: Vec<f64>,
@@ -1387,6 +1406,9 @@ pub enum MobfarmCmd {
         /// The first fill after a release is admitted this many ring-gt after cart 0's Ds rise (0: off).
         #[arg(long, default_value_t = 0)]
         admit_ds: i64,
+        /// Pocket occupancy from a sensor that sees the cart at rest for N gt (a tripwire at rider height).
+        #[arg(long, default_value_t = 0)]
+        rest_sense: i64,
         /// Edge escapement: G_P only after no hold sensor edge for this many gt.
         #[arg(long, default_value_t = 0)]
         fill_quiet: i64,
@@ -3992,6 +4014,10 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 anyhow::bail!("frame-check failed");
             }
         }
+        MobfarmCmd::StringBench { descent, v0, pass, hold, ticks, empty } => {
+            println!("{}", crate::stringbench::string_bench(descent, v0, pass, hold, ticks, !empty).map_err(|e| anyhow::anyhow!(e))?);
+            return Ok(());
+        }
         MobfarmCmd::BrakeBench { speeds, empty, riders, descent, post, flats, gap, ticks, no_brake, window } => {
             if window {
                 println!("{}", crate::holdbench::brake_window(&speeds, !empty, descent, post, flats, ticks).map_err(|e| anyhow::anyhow!(e))?);
@@ -4007,7 +4033,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let rep = crate::pocketbench::pocket_bench(&o).map_err(|e| anyhow::anyhow!(e))?;
             println!("{}", rep.text);
         }
-        MobfarmCmd::GqBench { carts, riders, tail, run, cap, cycles, corner, pulse, wire, spacer, ret, ret_gap, ret_speed, freeze, hold_pulse, hold_ripple, settle, overfill, adm_settle, intake_admit, ideal_tail, no_intake_flat, back_at, edge_esc, stage_delay, fill_after, esc_gap, esc_sensor, fill_count, reset_at, hold_close_ds, hold_close_pb, hold_stagger_ds, ds_slope, merged_intake, gp_retry, pb_locked, ring_q, release_full, settled, gc_pb, admit_ds, fill_quiet, start_fill, gentle, gentle_no_seat, gentle_seated, alive_gate, freeze32, freeze_matrix, jobs, hold_v, tail_v, hold_bb, hold_line, esc_at, hold_only } => {
+        MobfarmCmd::GqBench { carts, riders, tail, run, cap, cycles, corner, pulse, wire, spacer, ret, ret_gap, ret_speed, freeze, hold_pulse, hold_ripple, settle, overfill, adm_settle, intake_admit, ideal_tail, no_intake_flat, back_at, edge_esc, stage_delay, fill_after, esc_gap, esc_sensor, fill_count, reset_at, hold_close_ds, hold_close_pb, hold_stagger_ds, ds_slope, merged_intake, gp_retry, pb_locked, ring_q, release_full, settled, gc_pb, admit_ds, rest_sense, fill_quiet, start_fill, gentle, gentle_no_seat, gentle_seated, alive_gate, freeze32, freeze_matrix, jobs, hold_v, tail_v, hold_bb, hold_line, esc_at, hold_only } => {
             let pairs = |v: &[String], what: &str| -> anyhow::Result<Vec<(i64, i64)>> {
                 v.iter()
                     .map(|s| {
@@ -4018,7 +4044,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             };
             let fr = pairs(&freeze, "freeze")?;
             let fr32 = pairs(&freeze32, "freeze32")?;
-            let o = crate::gqbench::GqOpts { carts, riders: riders.iter().map(|r| *r != 0).collect(), tail, run, cap, cycles, corner, pulse, wire, spacer, ret, ret_gap, ret_speed, freeze: fr, hold_pulse, hold_ripple, settle, overfill, adm_settle, intake_admit, ideal_tail, no_intake_flat, back_at, edge_esc, stage_delay, fill_after, esc_gap, esc_sensor, fill_count, reset_at, hold_close_ds, hold_close_pb, hold_stagger_ds, ds_slope, merged_intake, gp_retry, pb_locked, ring_q, release_full, settled, gc_pb, admit_ds, fill_quiet, start_fill, gentle, gentle_no_seat, gentle_seated, alive: alive_gate, freeze32: fr32, hold_v, tail_v, hold_bb, hold_line, esc_at, hold_only };
+            let o = crate::gqbench::GqOpts { carts, riders: riders.iter().map(|r| *r != 0).collect(), tail, run, cap, cycles, corner, pulse, wire, spacer, ret, ret_gap, ret_speed, freeze: fr, hold_pulse, hold_ripple, settle, overfill, adm_settle, intake_admit, ideal_tail, no_intake_flat, back_at, edge_esc, stage_delay, fill_after, esc_gap, esc_sensor, fill_count, reset_at, hold_close_ds, hold_close_pb, hold_stagger_ds, ds_slope, merged_intake, gp_retry, pb_locked, ring_q, release_full, settled, gc_pb, admit_ds, rest_sense, fill_quiet, start_fill, gentle, gentle_no_seat, gentle_seated, alive: alive_gate, freeze32: fr32, hold_v, tail_v, hold_bb, hold_line, esc_at, hold_only };
             if !freeze_matrix.is_empty() {
                 let parts: Vec<&str> = freeze_matrix.split(';').collect();
                 let sv: Vec<i64> = parts.first().unwrap_or(&"").split(',').filter_map(|x| x.trim().parse().ok()).collect();

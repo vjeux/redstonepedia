@@ -109,6 +109,8 @@ pub struct GqOpts {
     pub gc_pb: bool,
     /// The first fill after a release is admitted this many ring-gt after cart 0's Ds rise (0: off).
     pub admit_ds: i64,
+    /// Pocket occupancy from a sensor that sees the cart at rest for N gt (a tripwire at rider height).
+    pub rest_sense: i64,
     /// Edge escapement: G_P only after no hold sensor edge for this many gt (the hold settled).
     pub fill_quiet: i64,
     /// The start state: the run empty, carts admitted seated one at a time until N are on it.
@@ -647,6 +649,10 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
     let mut skipped_releases: Vec<(i64, usize)> = Vec::new();
     let mut in_transit = false;
     let mut release_active = false;
+    let mut occ_rest = [false; 3];
+    let mut rest_run = [0i64; 3];
+    let mut transit_k: Option<usize> = None;
+    let mut transit_rest: i64 = 0;
     let mut ds_first_ct: i64 = 0;
     let mut fill_in_c = false;
     let mut was_settled = false;
@@ -918,6 +924,32 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
             }
         }
         let now: Vec<Option<(f64, f64, f64)>> = ids.iter().map(|id| id.and_then(|id| cart_state(&run.world, id))).collect();
+        // (--rest-sense N: each pocket's occupancy from a sensor that sees the cart at rest (a tripwire
+        // at rider height over the rest cell): a cart within 0.35 of the pocket's rest point, its stored
+        // speed under 0.02, for N gt running; a passing cart never holds it that long)
+        if o.rest_sense > 0 {
+            for j in 0..3 {
+                let rx = g.gates.iter().find(|x| x.0 == Role::Hold(j)).map_or(f64::NAN, |x| x.1 as f64 + 0.375 - 0.49);
+                let resting = now.iter().any(|c| c.is_some_and(|(x, _, v)| (x - rx).abs() < 0.35 && v < 0.02));
+                rest_run[j] = if resting { rest_run[j] + 1 } else { 0 };
+                occ_rest[j] = rest_run[j] >= o.rest_sense;
+            }
+            // (the in-transit latch clears when the admitted cart's own pocket sensor holds)
+            if let Some(k) = transit_k
+                && let Some((x, _, v)) = now[k]
+            {
+                let at_rest = (0..3).any(|j| {
+                    let rx = g.gates.iter().find(|x| x.0 == Role::Hold(j)).map_or(f64::NAN, |x| x.1 as f64 + 0.375 - 0.49);
+                    (x - rx).abs() < 0.35 && v < 0.02
+                });
+                transit_rest = if at_rest { transit_rest + 1 } else { 0 };
+                if transit_rest >= o.rest_sense {
+                    in_transit = false;
+                    transit_k = None;
+                    transit_rest = 0;
+                }
+            }
+        }
         if let Ok(tr) = std::env::var("MCTAS_GQ_TRACE") {
             let p: Vec<i64> = tr.split(',').filter_map(|x| x.parse().ok()).collect();
             if p.len() == 3 && t >= p[1] && t < p[2] {
@@ -947,7 +979,7 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                     last_hold_edge = t;
                     // (--settled: the in-transit latch, set by G_P's opening, clears on the next pocket
                     // latch rising: the admitted cart has reached the hold's pockets)
-                    if h < 3 {
+                    if h < 3 && o.rest_sense == 0 {
                         in_transit = false;
                     }
                     if h == 3 {
@@ -1099,7 +1131,7 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
         // start (one, refractory); the release fires when a start is pending AND the hold is settled:
         // all three pocket latches set, nothing in transit, G_P and G0 shut. A late start shifts the
         // cycle; the next golem event re-phases it)
-        let latched_now = occ_h.iter().filter(|b| **b).count();
+        let latched_now = if o.rest_sense > 0 { occ_rest.iter().filter(|b| **b).count() } else { occ_h.iter().filter(|b| **b).count() };
         // (a release in progress: from its start until its gates' close (the rear cart's P_b + D, or
         // the cap))
         if release_active {
@@ -1405,7 +1437,7 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                 // (the fill drives toward settled on its own: admit while fewer than 3 pocket latches
                 // are set and nothing is in transit; during a release the batch's own latches don't
                 // count (it is leaving): only the fills admitted since the release)
-                (if release_active { fills_since } else { occ_h.iter().filter(|b| **b).count() }) < 3 && !in_transit
+                (if o.rest_sense > 0 { occ_rest.iter().filter(|b| **b).count() } else if release_active { fills_since } else { occ_h.iter().filter(|b| **b).count() }) < 3 && !in_transit
             } else if o.fill_count { fills_since < 3 } else { !occ_h[0] };
             // (--fill-quiet: the hold settled: no hold sensor edge in the last Q gt, so a fill never
             // follows a cart shifting between pockets through a gate that is about to shut)
@@ -1488,9 +1520,9 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                     } else if o.hold_stagger_ds && hold_release_at >= 0 && t >= hold_release_at && t < until && ds_first_at.is_none() {
                         // (before cart 0's edge at Ds the middle and rear gates keep the fill rule: shut
                         // while the pocket ahead is latched, so nothing shuts at the release itself)
-                        !occ_h[j + 1]
+                        if o.rest_sense > 0 { false } else { !occ_h[j + 1] }
                     } else {
-                        !occ_h[j + 1] && !(hold_release_at >= 0 && t >= hold_release_at && t < until)
+                        (if o.rest_sense > 0 { !occ_rest[j + 1] } else { !occ_h[j + 1] }) && !(hold_release_at >= 0 && t >= hold_release_at && t < until)
                     }
                 }
             };
@@ -1508,6 +1540,10 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
             if px < g.gp_plane && x >= g.gp_plane {
                 if let Some(c) = gp_open_count.as_mut() {
                     *c += 1;
+                }
+                if o.rest_sense > 0 && in_transit && transit_k.is_none() {
+                    transit_k = Some(k);
+                    transit_rest = 0;
                 }
             }
             if x >= g.run_x.0 && x < g.run_x.1 + 0.5 {
