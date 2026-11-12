@@ -1841,6 +1841,18 @@ pub fn headers_of(meta: &std::collections::BTreeMap<String, String>) -> Result<H
     })
 }
 
+/// (ironspec Nov 11 16:03, a runner default) A check that can't run fails the run: it never prints
+/// "not run" and passes. A part that truly lacks the checked element declares so in its file by
+/// name (`lacks: <check> ...`), and the line then prints that declaration and passes.
+pub fn cant_run(check: &str, name: &str, why: &str, design_text: &str) -> (String, bool) {
+    let declared = design_text.lines().find_map(|l| l.strip_prefix("lacks:")).is_some_and(|s| s.split([' ', ',']).any(|t| t.trim() == name));
+    if declared {
+        (format!("{check}: not applicable: the file declares `lacks: {name}` ({why})"), false)
+    } else {
+        (format!("{check}: CAN'T RUN ({why}): a check that can't run fails the run (a part that truly lacks it declares `lacks: {name}`)"), true)
+    }
+}
+
 /// (ironspec Nov 11 15:56, for `mobfarm paste`) Every plain-rail junction whose stored shape the
 /// game wouldn't keep at its first update, with the shape it settles to for its signal at rest
 /// (`junction_gate`'s settle): (cell, stored, settled, signal on). A file with no bed is built
@@ -1869,11 +1881,13 @@ pub fn settled_junctions(spec: &FarmSpec) -> Result<Vec<([i32; 3], redsim::block
 /// would at its first update, for its signal at rest; a stored shape the game would not keep fails
 /// the file (a part turned or mirrored from where it was designed: the settle order is fixed).
 /// Both power states are printed for each junction.
-pub fn junction_gate(spec: &FarmSpec) -> (String, bool) {
+pub fn junction_gate(spec: &FarmSpec, design_text: &str) -> (String, bool) {
     let o = RunOpts { ai: false, ..RunOpts::steady(1, 0, WalkMode::Random) };
-    let w = match Run::new(spec, &o) {
+    // (a part with no bed is built homeless, so its junctions are checked too, ironspec Nov 11 16:03)
+    let built = if spec.has_bed() { Run::new(spec, &o) } else { Run::new_homeless(spec, &o) };
+    let w = match built {
         Ok(r) => r.world,
-        Err(e) => return (format!("rail junctions: not run ({e})"), false),
+        Err(e) => return cant_run("rail junctions", "junctions", &e, design_text),
     };
     let letter = |d: &redsim::pos::Dir| match d {
         redsim::pos::Dir::North => 'N',
@@ -1989,7 +2003,7 @@ pub fn flee_gate(spec: &FarmSpec, design_text: &str) -> (String, bool) {
                 inside + uncovered > 0 || flee > 0,
             )
         }
-        Err(e) => (format!("walk targets (mobfarm flee-check): not run ({e})"), false),
+        Err(e) => cant_run("walk targets (mobfarm flee-check)", "walk-targets", &e, design_text),
     }
 }
 

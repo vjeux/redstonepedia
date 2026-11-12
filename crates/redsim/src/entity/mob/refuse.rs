@@ -32,9 +32,21 @@ pub fn static_checks(spec: &FarmSpec) -> Vec<String> {
 /// farm built into the sample, natural rock for its walls. Only the farm's own entities are
 /// checked (the sample's village and the natural mobs are not the farm's).
 pub fn static_checks_in(spec: &FarmSpec, site: Option<&'static super::site::Site>) -> Vec<String> {
+    static_checks_built(spec, site, false)
+}
+
+/// [`static_checks`] for a part file that holds no bed (ironspec Nov 11 16:03: a check that can't
+/// run never passes silently): the build arrives homeless ([`super::farm::Run::new_homeless`]), so
+/// the zombie, villager and gossip checks run on the part's riders and posts.
+pub fn static_checks_homeless(spec: &FarmSpec) -> Vec<String> {
+    static_checks_built(spec, None, true)
+}
+
+fn static_checks_built(spec: &FarmSpec, site: Option<&'static super::site::Site>, homeless: bool) -> Vec<String> {
     // the build's static checks (no tick runs: the mob AI off)
     let o = RunOpts { seed: 1, ticks: 0, day0: 6000, walk: WalkMode::Random, slept: true, slept_rest: false, site, weather: crate::weather::Plan::Off, ai: false, raw: false };
-    let mut w = match super::farm::Run::new(spec, &o) {
+    let built = if homeless { super::farm::Run::new_homeless(spec, &o) } else { super::farm::Run::new(spec, &o) };
+    let mut w = match built {
         Ok(r) => {
             let own = r.own;
             let mut w = r.world;

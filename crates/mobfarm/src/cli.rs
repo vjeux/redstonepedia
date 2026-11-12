@@ -2611,7 +2611,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let (c, spec) = load(version, &design)?;
             let part = !spec.has_bed();
             if part {
-                println!("static checks: not run (they pair every villager with its bed, and this file holds none)");
+                // (a part's riders and posts checked on a homeless build: a check that can't run
+                // never passes silently, ironspec Nov 11 16:03)
+                for r in &redsim::entity::mob::refuse::static_checks_homeless(&spec) {
+                    println!("refused (a part, built homeless): {r}");
+                }
             } else {
                 anyhow::ensure!(positions.is_empty(), "--positions adds summoners to a part's flood (a file with no bed); this file holds a bed");
                 let refused = redsim::entity::mob::refuse::static_checks(&spec);
@@ -3565,7 +3569,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             // (the rail-junction check, a default gate (ironspec Nov 11 12:50): a stored junction
             // shape the game would not keep fails the run; the opt-out says so)
             if !no_junction_check {
-                let g = crate::queue::junction_gate(&spec);
+                let g = crate::queue::junction_gate(&spec, &std::fs::read_to_string(&design)?);
                 if !sweep.is_empty() || phase_sweep.is_some() {
                     println!("{}{}", g.0, if g.1 { " -- the static gate FAILS" } else { "" });
                 }
@@ -4189,7 +4193,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
         }
         MobfarmCmd::JunctionCheck { design } => {
             let (_c, spec) = load(version, &design)?;
-            let (text, failed) = crate::queue::junction_gate(&spec);
+            let (text, failed) = crate::queue::junction_gate(&spec, &std::fs::read_to_string(&design)?);
             println!("{text}");
             if failed {
                 std::process::exit(1);
