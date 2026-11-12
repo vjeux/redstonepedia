@@ -788,6 +788,42 @@ pub enum MobfarmCmd {
         /// neither) and its draws' reachable shares.
         #[arg(long)]
         path_trace: Option<String>,
+        /// The scarer search (ironspec Nov 11 22:53): candidate post cells in this box
+        /// x0,y0,z0,x1,y1,z1 (an air cell with air above and a block below), each scored on the rider
+        /// points it covers (a zombie in a boat 6.05..7.95 in sight, refused with a rider point
+        /// inside 6.05; a pillager 8..15 in sight, refused when it sees a rider point within 8);
+        /// prints a greedy cover and its entity lines.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        scarer_search: Vec<i32>,
+        /// The scarer --scarer-search places: zombie (in a boat) or pillager.
+        #[arg(long, default_value = "zombie")]
+        scarer: String,
+        /// With --scarer-search: an extra rider's feet x,y,z (repeatable; a hold's or a fall's cart
+        /// position, seat 0).
+        #[arg(long, allow_hyphen_values = true)]
+        scarer_rider: Vec<String>,
+        /// With --scarer-search: at most this many posts.
+        #[arg(long, default_value_t = 12)]
+        scarer_max: usize,
+        /// With --scarer-search: a post brings its own floor (any air cell with air above is a
+        /// candidate; the added floor block is left out of the sight test).
+        #[arg(long)]
+        scarer_any_floor: bool,
+        /// With --scarer-search: a box x0,y0,z0,x1,y1,z1 no post (with its floor and its head
+        /// cell) may touch (repeatable: other parts' space, the pad's spawn columns, rider cells).
+        #[arg(long, allow_hyphen_values = true)]
+        scarer_exclude: Vec<String>,
+        /// A declared pillager's feet x,y,z (repeatable; redsim does not spawn pillagers): a panic
+        /// source within 15 of a rider point when seen (eye 1.62 up), fled from within 6.
+        #[arg(long, allow_hyphen_values = true)]
+        pillager: Vec<String>,
+        /// Instead: whether an iron golem standing on any cell of --golem-pad has a path to this
+        /// cell x,y,z (within 2: close enough to strike a scarer seated there).
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        golem_reach: Vec<i32>,
+        /// With --golem-reach: the golems' feet cells x0,y0,z0,x1,y1,z1 (the pad).
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        golem_pad: Vec<i32>,
         /// The floor block --fix-search places, refused unless golem-proof (LEGACY_IRON_GOLEM's
         /// excluded list: glass, stained or tinted glass, panes, glowstone, sea lantern, leaves,
         /// ice...); default glass (not a stroll destination, which needs a solid-render block below;
@@ -8290,8 +8326,48 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 std::process::exit(1);
             }
         }
-        MobfarmCmd::FleeCheck { design, home, show, foot, clearing, eye_control, pickup_control, sampled, claim, classes, fix_search, fix_pairs, fix_block, path_watch, path_trace } => {
+        MobfarmCmd::FleeCheck { design, home, show, foot, clearing, eye_control, pickup_control, sampled, claim, classes, fix_search, fix_pairs, fix_block, path_watch, path_trace, scarer_search, scarer, scarer_rider, scarer_max, scarer_any_floor, scarer_exclude, pillager, golem_reach, golem_pad } => {
             let (_c, spec) = load(version, &design)?;
+            if !golem_reach.is_empty() {
+                anyhow::ensure!(golem_reach.len() == 3 && golem_pad.len() == 6, "--golem-reach x,y,z --golem-pad x0,y0,z0,x1,y1,z1");
+                let g = &golem_pad;
+                let lo = [g[0].min(g[3]), g[1].min(g[4]), g[2].min(g[5])];
+                let hi = [g[0].max(g[3]), g[1].max(g[4]), g[2].max(g[5])];
+                let t = redsim::pos::BlockPos::new(golem_reach[0], golem_reach[1], golem_reach[2]);
+                for l in crate::fleecheck::golem_reach(&spec, lo, hi, t).map_err(|e| anyhow::anyhow!(e))? {
+                    println!("{l}");
+                }
+                return Ok(());
+            }
+            let mut pills = Vec::new();
+            for r in &pillager {
+                let v: Vec<f64> = r.split(',').map(|t| t.trim().parse::<f64>()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(v.len() == 3, "--pillager x,y,z");
+                pills.push(redsim::entity::Vec3::new(v[0], v[1], v[2]));
+            }
+            if !scarer_search.is_empty() {
+                anyhow::ensure!(scarer_search.len() == 6, "--scarer-search x0,y0,z0,x1,y1,z1");
+                anyhow::ensure!(scarer == "zombie" || scarer == "pillager", "--scarer zombie|pillager");
+                let mut extra = Vec::new();
+                for r in &scarer_rider {
+                    let v: Vec<f64> = r.split(',').map(|t| t.trim().parse::<f64>()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(v.len() == 3, "--scarer-rider x,y,z");
+                    extra.push(redsim::entity::Vec3::new(v[0], v[1], v[2]));
+                }
+                let s = &scarer_search;
+                let lo = [s[0].min(s[3]), s[1].min(s[4]), s[2].min(s[5])];
+                let hi = [s[0].max(s[3]), s[1].max(s[4]), s[2].max(s[5])];
+                let mut excl = Vec::new();
+                for e in &scarer_exclude {
+                    let v: Vec<i32> = e.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(v.len() == 6, "--scarer-exclude x0,y0,z0,x1,y1,z1");
+                    excl.push(([v[0].min(v[3]), v[1].min(v[4]), v[2].min(v[5])], [v[0].max(v[3]), v[1].max(v[4]), v[2].max(v[5])]));
+                }
+                for l in crate::fleecheck::scarer_search(&spec, &extra, lo, hi, &scarer, scarer_max, scarer_any_floor, &excl).map_err(|e| anyhow::anyhow!(e))? {
+                    println!("{l}");
+                }
+                return Ok(());
+            }
             // (the bed: --home, else the design's `port home:` line)
             let text = std::fs::read_to_string(&design)?;
             let port = text.lines().find_map(|l| l.strip_prefix("port home:")).map(|r| r.split_whitespace().filter_map(|t| t.parse::<i32>().ok()).collect::<Vec<_>>());
@@ -8310,7 +8386,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     if v.len() == 3 { Ok(redsim::pos::BlockPos::new(v[0], v[1], v[2])) } else { Err(anyhow::anyhow!("--claim x,y,z")) }
                 })
                 .collect::<Result<_, _>>()?;
-            let places = crate::fleecheck::check_claims(&spec, bed, &foot, &panic_boxes, !sampled, &claims).map_err(|e| anyhow::anyhow!(e))?;
+            let places = crate::fleecheck::check_pillagers(&spec, bed, &foot, &panic_boxes, !sampled, &claims, &pills).map_err(|e| anyhow::anyhow!(e))?;
             if !claims.is_empty() {
                 println!("POI tickets taken first: {}", claims.iter().map(|c| format!("{},{},{}", c.x, c.y, c.z)).collect::<Vec<_>>().join(" "));
             }
