@@ -9871,6 +9871,21 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             };
             if let Some(st) = settled.as_ref() {
                 let file = crate::pushscan::file_states(&spec);
+                // (only fluids may differ after the settle (G1, 10:09): a rail re-shaped, a powered
+                // flag or a dust connection the game recomputes is a stale state to fix in the file,
+                // never absorbed into the hash)
+                let fluid = |s: &str| ["minecraft:air", "minecraft:water", "minecraft:lava", "minecraft:bubble_column"].iter().any(|f| s.split('[').next() == Some(*f));
+                let mut stale: Vec<String> = Vec::new();
+                for (a, b, label) in &pairs {
+                    let air = "minecraft:air".to_string();
+                    for p in crate::pushscan::pair_cells(*a, *b) {
+                        let (f, s) = (file.get(&p).unwrap_or(&air), st.get(&p).unwrap_or(&air));
+                        if f != s && !(fluid(f) && fluid(s)) {
+                            stale.push(format!("{label}: {},{},{} {f} -> {s}", p.x, p.y, p.z));
+                        }
+                    }
+                }
+                anyhow::ensure!(stale.is_empty(), "the settle changed non-fluid states (fix them in the files; only fluids may differ): {}", stale.join("; "));
                 for (a, b, label) in &pairs {
                     let diffs = crate::pushscan::settle_diffs(&file, st, *a, *b);
                     let shown = bridge_hash.contains(label);
