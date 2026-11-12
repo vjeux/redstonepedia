@@ -41,6 +41,31 @@ fn search_meets(a: &Cart, b: &Cart) -> bool {
     gap(a, b, 0) < 0.2 && gap(a, b, 2) < 0.2 && gap(a, b, 1) < 0.0
 }
 
+/// The napper summoned at `napper` with motion z `arrive` (its rider tagged `napperv`), then held
+/// until it stands still (at least 20 gt): (where it rests, the gt it took).
+fn arrive_napper(srv: &mut VanillaServer, napper: [f64; 3], arrive: f64) -> Result<(Cart, u32)> {
+    srv.cmd_ok(&format!(
+        "summon minecraft:minecart {} {} {} {{Tags:[\"napper\"],Motion:[0.0d,0.0d,{}d],Passengers:[{{id:\"minecraft:villager\",NoAI:1b,Tags:[\"napperv\"]}}]}}",
+        napper[0],
+        napper[1] + DY as f64,
+        napper[2],
+        arrive
+    ))?;
+    let mut settle = 0;
+    let mut last: Option<[f64; 3]> = None;
+    while settle < 400 {
+        srv.step(5)?;
+        settle += 5;
+        let now = read(srv, "napper")?.map(|c| c.pos);
+        if settle >= 20 && now.is_some() && now == last {
+            break;
+        }
+        last = now;
+    }
+    let n = read(srv, "napper")?.ok_or_else(|| anyhow::anyhow!("the napper cart is gone"))?;
+    Ok((n, settle))
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn crossing(version: &str, module: &std::path::Path, parts: &[std::path::PathBuf], air: &[[i32; 3]], nappers: &[([f64; 3], f64)], through: [f64; 3], offsets: &[f64], speeds: &[f64], ticks: u32) -> Result<()> {
     for (napper, arrive) in nappers {
@@ -77,26 +102,14 @@ fn crossing_one(version: &str, module: &std::path::Path, parts: &[std::path::Pat
         let m = module_mismatches(&mut srv, f)?;
         println!("  module-check {}: {} cells differ{}", f.display(), m.len(), if m.is_empty() { String::new() } else { format!(" (first: {})", m.iter().take(6).cloned().collect::<Vec<_>>().join("; ")) });
     }
-    srv.cmd_ok(&format!(
-        "summon minecraft:minecart {} {} {} {{Tags:[\"napper\"],Motion:[0.0d,0.0d,{}d],Passengers:[{{id:\"minecraft:villager\",NoAI:1b}}]}}",
-        napper[0],
-        napper[1] + DY as f64,
-        napper[2],
-        arrive
-    ))?;
-    // at rest: settled where it stands, or after its arrival (rolling in from K's cell)
-    let mut settle = 0;
-    let mut last: Option<[f64; 3]> = None;
-    while settle < 400 {
-        srv.step(5)?;
-        settle += 5;
-        let now = read(&mut srv, "napper")?.map(|c| c.pos);
-        if settle >= 20 && now.is_some() && now == last {
-            break;
-        }
-        last = now;
+    // push-scan's neighbourhood hash of each lane's K-R pair in this composed world (ironfarm's
+    // definition, `bridgehash`), before any cart is placed
+    let mut comp = crate::bridgehash::composed(module, parts)?;
+    for a in air {
+        comp.insert(*a, "minecraft:air".to_string());
     }
-    let n0 = read(&mut srv, "napper")?.ok_or_else(|| anyhow::anyhow!("the napper cart is gone"))?;
+    crate::bridgehash::print_kr(&mut srv, &comp)?;
+    let (n0, settle) = arrive_napper(&mut srv, napper, arrive)?;
     println!("  the napper {}settled at ({:.4},{:.4},{:.4}) after {settle} gt", if arrive != 0.0 { format!("(arriving at {:.3} b/gt) ", -arrive) } else { String::new() }, n0.pos[0], n0.pos[1], n0.pos[2]);
     let passes: Vec<(f64, f64)> = speeds.iter().flat_map(|v| offsets.iter().map(move |o| (*v, *o))).collect();
     let mut worst: (f64, f64, f64, u32, f64) = (f64::MAX, 0.0, 0.0, 0, 0.0);
@@ -145,11 +158,26 @@ fn crossing_one(version: &str, module: &std::path::Path, parts: &[std::path::Pat
         srv.cmd_ok(&format!("kill @e[tag={tag}]"))?;
         srv.cmd_ok(&format!("kill @e[tag={tag}v]"))?;
         srv.step(5)?;
-        // the napper must still be where it rested
+        // the napper must still be where it rested: a pass that moved it leaves every later pass
+        // a different napper (the 0.10 control shoves it 0.027 north), so it arrives again
         if let Some(n) = read(&mut srv, "napper")? {
             let shift = (n.pos[0] - n0.pos[0]).abs() + (n.pos[1] - n0.pos[1]).abs() + (n.pos[2] - n0.pos[2]).abs();
             if shift > 1e-4 {
-                println!("  the napper moved {shift:.4} by pass {i}: it now rests at ({:.4},{:.4},{:.4})", n.pos[0], n.pos[1], n.pos[2]);
+                srv.cmd_ok("kill @e[tag=napper]")?;
+                srv.cmd_ok("kill @e[tag=napperv]")?;
+                srv.step(5)?;
+                let (again, _) = arrive_napper(&mut srv, napper, arrive)?;
+                let off0 = (again.pos[0] - n0.pos[0]).abs() + (again.pos[1] - n0.pos[1]).abs() + (again.pos[2] - n0.pos[2]).abs();
+                println!(
+                    "  the napper moved {shift:.4} by pass {i} (to ({:.4},{:.4},{:.4})): it arrived again and rests at ({:.4},{:.4},{:.4}){}",
+                    n.pos[0],
+                    n.pos[1],
+                    n.pos[2],
+                    again.pos[0],
+                    again.pos[1],
+                    again.pos[2],
+                    if off0 > 1e-4 { format!(", {off0:.4} off its first rest") } else { String::new() }
+                );
             }
         }
     }

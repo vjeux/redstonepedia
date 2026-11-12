@@ -102,38 +102,56 @@ pub fn row_draws(version: &str, module: &std::path::Path, parts: &[std::path::Pa
         }
     }
     let mut log: Vec<String> = Vec::new();
-    let mut summary: BTreeMap<String, (u32, u32, u32, u32)> = BTreeMap::new();
+    let mut summary: BTreeMap<String, (u32, u32, u32, u32, u32, u32)> = BTreeMap::new();
     for g in 0..k {
         let seq: Vec<Draw> = draw_seq_moving(&ev[g], 0, [0, 0, 0], &blocks[g]);
         for (j, d) in seq.iter().enumerate() {
             let b = blocks[g].get(&d.t).copied().unwrap_or([0, 0, 0]);
+            // a rider whose cart has left the module's frame (x -6..9, z -7..9; nothing laid past
+            // its east edge, the cart falls): its draws are not the farm's
+            let outside = b[0] < -6 || b[0] > 9 || b[2] < -7 || b[2] > 9;
             let next_t = seq.get(j + 1).map(|n| n.t).unwrap_or(u32::MAX);
-            let path = ev[g].iter().find(|(t, l)| *t >= d.t && *t < next_t && l.starts_with("set minecraft:path")).map(|(t, l)| {
-                let p = l.split(" = ").nth(1).unwrap_or("").split(" by ").next().unwrap_or("");
-                (t - d.t, p.contains("reach true"), p.to_string())
+            // the draw's own path: the first path set to the drawn cell before the next draw (a
+            // path to anything else, the REST bed walk taking WALK_TARGET over, is not this draw's)
+            let want = d.cell.map(|c| format!("BlockPos{{x={}, y={}, z={}}}", b[0] + c[0], b[1] + c[1] + DY, b[2] + c[2]));
+            let path = want.as_ref().and_then(|want| {
+                ev[g].iter().find(|(t, l)| *t >= d.t && *t < next_t && l.starts_with("set minecraft:path") && l.contains(want.as_str())).map(|(t, l)| {
+                    let p = l.split(" = ").nth(1).unwrap_or("").split(" by ").next().unwrap_or("");
+                    (t - d.t, p.contains("reach true"), p.to_string())
+                })
             });
+            // when it never pathed to its cell: the first other path set in its window (what took over)
+            let other = ev[g].iter().find(|(t, l)| *t >= d.t && *t < next_t && l.starts_with("set minecraft:path")).map(|(t, l)| format!("+{} {}", t - d.t, l.split(" = ").nth(1).unwrap_or("").split(" by ").next().unwrap_or("")));
             let e = summary.entry(groups[g].0.clone()).or_default();
             e.0 += 1;
+            if outside {
+                e.5 += 1;
+            }
             match d.cell {
                 None => {
                     e.1 += 1;
-                    log.push(format!("t{} {} rider cell ({},{},{}) | null", d.t, groups[g].0, b[0], b[1], b[2]));
+                    log.push(format!("t{} {} rider cell ({},{},{}){} | null", d.t, groups[g].0, b[0], b[1], b[2], if outside { " OUTSIDE the module" } else { "" }));
                 }
                 Some(c) => {
-                    if let Some((_, whole, _)) = &path {
+                    if outside {
+                        // counted apart, whatever its path
+                    } else if let Some((_, whole, _)) = &path {
                         if *whole {
                             e.2 += 1;
                         } else {
                             e.3 += 1;
                         }
+                    } else if other.is_some() {
+                        e.4 += 1;
                     }
                     log.push(format!(
-                        "t{} {} rider cell ({},{},{}) | target ({},{},{}) {} hold {} | path {}",
+                        "t{} {} rider cell ({},{},{}){} | target ({},{},{}) {} hold {} | path {}",
                         d.t,
                         groups[g].0,
                         b[0],
                         b[1],
                         b[2],
+                        if outside { " OUTSIDE the module" } else { "" },
                         b[0] + c[0],
                         b[1] + c[1],
                         b[2] + c[2],
@@ -141,18 +159,24 @@ pub fn row_draws(version: &str, module: &std::path::Path, parts: &[std::path::Pa
                         d.hold.map(|h| format!("{h} gt")).unwrap_or_else(|| "open".into()),
                         match &path {
                             Some((dt, whole, p)) => format!("+{dt} {} ({p})", if *whole { "complete" } else { "PARTIAL" }),
-                            None => "never pathed".into(),
+                            None => match &other {
+                                Some(o) => format!("never pathed to its cell; replaced by another path {o}"),
+                                None => "never pathed".into(),
+                            },
                         }
                     ));
                 }
             }
         }
     }
-    for (g, (n, nulls, whole, partial)) in &summary {
-        println!("  {g}: {n} draws, {nulls} null, {whole} landed with a complete first path, {partial} with a PARTIAL one");
+    for (g, (n, nulls, whole, partial, replaced, outside)) in &summary {
+        println!(
+            "  {g}: {n} draws, {nulls} null, {whole} landed with a complete path to the drawn cell, {partial} with a PARTIAL one, {replaced} replaced before pathing to it (another walk target's path came first){}",
+            if *outside > 0 { format!("; {outside} drawn after the cart left the module's frame (not counted)") } else { String::new() }
+        );
     }
-    for l in log.iter().filter(|l| l.contains("PARTIAL")).take(40) {
-        println!("  partial: {l}");
+    for l in log.iter().filter(|l| l.contains("PARTIAL") || l.contains("replaced by")).take(40) {
+        println!("  {}: {l}", if l.contains("PARTIAL") { "partial" } else { "replaced" });
     }
     if let Some(o) = out {
         std::fs::write(o, log.join("\n") + "\n")?;

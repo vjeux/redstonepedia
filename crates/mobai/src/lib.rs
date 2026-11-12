@@ -22,6 +22,8 @@ pub mod crossing;
 pub mod rowdraws;
 pub mod mirrorc;
 pub mod napperrelease;
+pub mod bridgehash;
+pub mod carttrace;
 pub mod threebeds;
 pub mod daylight;
 pub mod cli;

@@ -932,7 +932,35 @@ fn f3_post(srv: &mut VanillaServer) -> Result<()> {
 /// cells by branch and outcome, MoveToTargetSink's state at the panic onset, the pillagers'
 /// charged ticks.
 pub fn f3_seat(version: &str, module: &std::path::Path, name: &str, seat: [i32; 3], fill: &[[i32; 3]], post: bool, glow: &[[i32; 3]], rail_glow: bool, draws: u32) -> Result<()> {
-    f3_seat_parts(version, module, name, seat, fill, post, glow, rail_glow, draws, &[], None, &[])
+    f3_seat_parts(version, module, name, seat, fill, post, glow, rail_glow, draws, &[], None, &[], &SeatExtra::default())
+}
+
+/// (tickexact 2026-11-12, b8949c96's queue post) More for a seat run: entities summoned after the
+/// parts ("kind x y z {nbt}", y in the design's frame), a point whose nearest zombie's distance to
+/// the rider is printed (the post), and the run's tick cap.
+pub struct SeatExtra {
+    pub summon: Vec<String>,
+    pub watch: Option<[f64; 3]>,
+    pub max_ticks: u32,
+}
+
+impl Default for SeatExtra {
+    fn default() -> Self {
+        SeatExtra { summon: Vec::new(), watch: None, max_ticks: 6000 }
+    }
+}
+
+/// The zombie nearest `p` and the seat rider: both positions and their distance (feet to feet).
+fn post_distance(srv: &mut VanillaServer, p: [f64; 3]) -> Result<String> {
+    let z = ent_pos(srv, &format!("@e[type=minecraft:zombie,sort=nearest,limit=1,x={},y={},z={}]", p[0], p[1] + DY as f64, p[2]))?;
+    let r = rider_pos(srv)?;
+    Ok(match (r, z) {
+        (Some(r), Some(z)) => {
+            let d = ((r[0] - z[0]).powi(2) + (r[1] - z[1]).powi(2) + (r[2] - z[2]).powi(2)).sqrt();
+            format!("the rider ({:.4},{:.4},{:.4}), the zombie ({:.4},{:.4},{:.4}): distance {d:.4}", r[0], r[1], r[2], z[0], z[1], z[2])
+        }
+        _ => format!("the rider {r:?}, the zombie {z:?}"),
+    })
 }
 
 /// As [`f3_seat`], with part files laid over the module in order (blocks as stated, entities
@@ -940,7 +968,7 @@ pub fn f3_seat(version: &str, module: &std::path::Path, name: &str, seat: [i32; 
 /// seat cell's centre 0.5 up); each file's cells checked against the world after everything is
 /// placed (module-check).
 #[allow(clippy::too_many_arguments)]
-pub fn f3_seat_parts(version: &str, module: &std::path::Path, name: &str, seat: [i32; 3], fill: &[[i32; 3]], post: bool, glow: &[[i32; 3]], rail_glow: bool, draws: u32, parts: &[std::path::PathBuf], cart: Option<[f64; 3]>, air: &[[i32; 3]]) -> Result<()> {
+pub fn f3_seat_parts(version: &str, module: &std::path::Path, name: &str, seat: [i32; 3], fill: &[[i32; 3]], post: bool, glow: &[[i32; 3]], rail_glow: bool, draws: u32, parts: &[std::path::PathBuf], cart: Option<[f64; 3]>, air: &[[i32; 3]], extra: &SeatExtra) -> Result<()> {
     println!(
         "== seat {name} ({},{},{}){}: the lead pair{}, {} glowstone floors{}; the queue filled at {fill:?}",
         seat[0],
@@ -967,6 +995,13 @@ pub fn f3_seat_parts(version: &str, module: &std::path::Path, name: &str, seat: 
     }
     for f in glow {
         r.srv.cmd_ok(&format!("setblock {} {} {} minecraft:glowstone", f[0], f[1] + DY, f[2]))?;
+    }
+    for s in &extra.summon {
+        let w: Vec<&str> = s.trim().splitn(5, ' ').collect();
+        anyhow::ensure!(w.len() >= 4, "--summon \"kind x y z [nbt]\", got {s}");
+        let (x, y, z): (f64, f64, f64) = (w[1].parse()?, w[2].parse()?, w[3].parse()?);
+        r.srv.cmd_ok(&format!("summon {} {} {}", w[0], at(x, y, z), w.get(4).copied().unwrap_or("")))?;
+        println!("  summoned: {s}");
     }
     if !parts.is_empty() {
         r.srv.step(20)?;
@@ -1014,12 +1049,15 @@ pub fn f3_seat_parts(version: &str, module: &std::path::Path, name: &str, seat: 
         .collect();
     ps.sort();
     println!("  the queue's carts at rest (the rider's included): {}", ps.join(" "));
+    if let Some(p) = extra.watch {
+        println!("  {name} at the start: {}", post_distance(&mut r.srv, p)?);
+    }
     r.verbose = false;
     let mut c = Counts { origin: seat, ..Counts::default() };
     r.events = Some(Vec::new());
     let t0 = r.t;
     let (mut guard, mut charged) = (0u32, 0u32);
-    while c.stroll + c.stroll_null < draws && guard < 6000 {
+    while c.stroll + c.stroll_null < draws && guard < extra.max_ticks {
         r.tick(&mut c)?;
         guard += 1;
         for tag in ["s1", "f3"] {
@@ -1042,6 +1080,9 @@ pub fn f3_seat_parts(version: &str, module: &std::path::Path, name: &str, seat: 
         }
     }
     println!("  {name}: the rider at {:?} after {guard} gt; panic onsets {}", rider_pos(&mut r.srv)?, onsets.join("; "));
+    if let Some(p) = extra.watch {
+        println!("  {name} at the end: {}; flee targets (SetWalkTargetAwayFrom: set {}, erased {})", post_distance(&mut r.srv, p)?, c.flee, c.flee_null);
+    }
     println!(
         "  {name}: {n} draws over {guard} gt ({} panic ticks): P_null {}/{n} = {:.4} (95% {pl:.4}..{ph:.4}); q = {reach}/{n} = {:.4} (95% {ql:.4}..{qh:.4}: reached {}, complete path {}); landed cells relative to the seat (cell, branch, outcome: draws): {}; pillager ticks charged (S1, F3's): {charged}",
         c.panic_ticks,

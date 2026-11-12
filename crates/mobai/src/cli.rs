@@ -427,6 +427,28 @@ pub enum MobaiCmd {
         #[arg(long)]
         draws_out: Option<std::path::PathBuf>,
     },
+    /// (tickexact 2026-11-12, the row-draws run's out-of-frame riders) A ridden cart through the
+    /// composition: every tick its position and motion, its rider, whether it still rides
+    CartTrace {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        #[arg(long)]
+        module: std::path::PathBuf,
+        #[arg(long, default_value = "")]
+        parts: String,
+        #[arg(long, allow_hyphen_values = true)]
+        start: String,
+        #[arg(long, allow_hyphen_values = true, default_value = "0,0,0")]
+        motion: String,
+        #[arg(long, default_value_t = 200)]
+        ticks: u32,
+        /// Stop after both have stood still this many gt
+        #[arg(long, default_value_t = 20)]
+        still: u32,
+        /// Cells whose composed block is printed and tested in the game, "x,y,z;..."
+        #[arg(long, allow_hyphen_values = true, default_value = "")]
+        probe: String,
+    },
     /// (tickexact 2026-11-12, ironspec: the row fix's napper release) A ridden napper arriving into
     /// a siding from K's cell at each speed, then the siding's switch pulsed; every tick until it
     /// leaves the siding: the rest z, R powered, the cart moving, K reached and its speed there
@@ -639,8 +661,18 @@ pub enum MobaiCmd {
         /// Cells cleared to air after the parts, x,y,z;... (a part re-laid elsewhere)
         #[arg(long, default_value = "", allow_hyphen_values = true)]
         air: String,
+        /// Entities summoned after the parts, "kind x y z {nbt}" separated by ';;' (y in the
+        /// design's frame)
+        #[arg(long, default_value = "", allow_hyphen_values = true)]
+        summon: String,
+        /// The post: the zombie nearest x,y,z, its distance to the rider printed at the start and
+        /// the end, with the rider's flee targets (SetWalkTargetAwayFrom)
+        #[arg(long, allow_hyphen_values = true)]
+        watch: Option<String>,
+        /// The run's tick cap (it also ends at --draws)
+        #[arg(long, default_value_t = 6000)]
+        max_ticks: u32,
     },
-    /// (tickexact 2026-11-12, ironspec: the rail-T rule) On the official server: 7b90c3f1's
     /// in-chunk branch (a replica): J's shape through carts, a restart and a stone beside it, and
     /// T2 (face-adjacent to the detector) the positive control that re-settles
     RailT {
@@ -931,6 +963,24 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
                 .collect::<anyhow::Result<_>>()?;
             crate::lanerun::lane_run(&version, &module, x, riders, ticks, every, post, &glow, part.as_deref(), draws_out.as_deref())
         }
+        MobaiCmd::CartTrace { version, module, parts, start, motion, ticks, still, probe } => {
+            let f3v = |s: &str, what: &str| -> anyhow::Result<[f64; 3]> {
+                let v: Vec<f64> = s.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(v.len() == 3, "--{what} x,y,z, got {s}");
+                Ok([v[0], v[1], v[2]])
+            };
+            let parts: Vec<std::path::PathBuf> = parts.split(',').filter(|p| !p.trim().is_empty()).map(std::path::PathBuf::from).collect();
+            let probe: Vec<[i32; 3]> = probe
+                .split(';')
+                .filter(|s| !s.trim().is_empty())
+                .map(|s| {
+                    let v: Vec<i32> = s.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(v.len() == 3, "--probe x,y,z;..., got {s}");
+                    Ok([v[0], v[1], v[2]])
+                })
+                .collect::<anyhow::Result<_>>()?;
+            crate::carttrace::cart_trace(&version, &module, &parts, f3v(&start, "start")?, f3v(&motion, "motion")?, ticks, still, &probe)
+        }
         MobaiCmd::NapperRelease { version, module, parts, k, switch, arrivals, wait, pulse, phases, ticks } => {
             let i3 = |s: &str, what: &str| -> anyhow::Result<[i32; 3]> {
                 let v: Vec<i32> = s.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
@@ -993,7 +1043,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         MobaiCmd::SeatOffset { version } => crate::seatoffset::seat_offset(&version),
         MobaiCmd::ModuleCheck { version, module } => crate::seatclear::module_check(&version, &module),
         MobaiCmd::PadPiglins { version, station, ticks } => crate::padpiglin::pad_piglins(&version, &station, ticks),
-        MobaiCmd::SeatF3 { version, module, seats, post, glow, rail_glow, draws, parts, cart, air } => {
+        MobaiCmd::SeatF3 { version, module, seats, post, glow, rail_glow, draws, parts, cart, air, summon, watch, max_ticks } => {
             let cells = |s: &str| -> anyhow::Result<Vec<[i32; 3]>> {
                 s.split(';')
                     .filter(|f| !f.trim().is_empty())
@@ -1015,11 +1065,32 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
                 None => None,
             };
             for s in seats.split(';').filter(|s| !s.trim().is_empty()) {
-                let (name, c) = s.split_once(':').ok_or_else(|| anyhow::anyhow!("--seats name:x,y,z, got {s}"))?;
+                let (name, c) = s.split_once(':').ok_or_else(|| anyhow::anyhow!("--seats name:x,y,z[@cx,cy,cz], got {s}"))?;
+                // a seat may carry its own cart position: name:x,y,z@cx,cy,cz
+                let (c, own_cart) = match c.split_once('@') {
+                    Some((cell, at)) => {
+                        let v: Vec<f64> = at.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+                        anyhow::ensure!(v.len() == 3, "--seats name:x,y,z@cx,cy,cz, got {s}");
+                        (cell, Some([v[0], v[1], v[2]]))
+                    }
+                    None => (c, None),
+                };
                 let seat = cells(c)?.first().copied().ok_or_else(|| anyhow::anyhow!("--seats name:x,y,z, got {s}"))?;
                 // a lane slope seat (x,17+i,1+i): its queue from R_1 up to the cell ahead of it
                 let fill: Vec<[i32; 3]> = if (17..=22).contains(&seat[1]) && seat[2] == seat[1] - 16 { (17..seat[1]).map(|y| [seat[0], y, y - 16]).collect() } else { Vec::new() };
-                crate::seatclear::f3_seat_parts(&version, &module, name, seat, &fill, post, &glow, rail_glow, draws, &parts, cart, &cells(&air)?)?;
+                let extra = crate::seatclear::SeatExtra {
+                    summon: summon.split(";;").map(str::trim).filter(|s| !s.is_empty()).map(String::from).collect(),
+                    watch: match &watch {
+                        Some(w) => {
+                            let v: Vec<f64> = w.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+                            anyhow::ensure!(v.len() == 3, "--watch x,y,z, got {w}");
+                            Some([v[0], v[1], v[2]])
+                        }
+                        None => None,
+                    },
+                    max_ticks,
+                };
+                crate::seatclear::f3_seat_parts(&version, &module, name, seat, &fill, post, &glow, rail_glow, draws, &parts, own_cart.or(cart), &cells(&air)?, &extra)?;
             }
             Ok(())
         }
