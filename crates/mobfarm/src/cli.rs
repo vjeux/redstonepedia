@@ -1200,6 +1200,36 @@ pub enum MobfarmCmd {
         #[arg(long)]
         trace: bool,
     },
+    /// (farmopt 2026-11-12 03:38, ironspec's guard row on the kill room's design line) The kill
+    /// room's guard bench in redsim (`mobfarm::killguard`): iron golems put through the pad
+    /// portal (one every --every gt) into the Nether kill room with --piglins zombified piglins
+    /// seeded in its chamber; every golem must die inside its 300-gt portal cooldown and none cross
+    /// back. --hold, the positive control: the chamber's lava taken out (a golem held out of the
+    /// lava past 300 gt crosses back). --close: the chamber's top and the portal's west side closed
+    /// (onechunk's group layout).
+    KillGuard {
+        /// The carousel design with its Nether kill room (default: the assembly v0a).
+        #[arg(long)]
+        design: Option<PathBuf>,
+        #[arg(long, default_value_t = 20)]
+        golems: usize,
+        #[arg(long, default_value_t = 100)]
+        every: i64,
+        #[arg(long, default_value_t = 24)]
+        piglins: usize,
+        #[arg(long, default_value_t = 4000)]
+        ticks: i64,
+        #[arg(long)]
+        hold: bool,
+        #[arg(long)]
+        close: bool,
+        /// Also fill the portal's west-side column right beside its plane (the hazard row: an
+        /// arriving golem reaches 0.2 into it).
+        #[arg(long)]
+        close_adjacent: bool,
+        #[arg(long, default_value_t = 1)]
+        seed: i64,
+    },
     /// (onechunk 2026-11-11; farmopt 22:07, ironspec's self-contained loaders) L1′, the cart-loop
     /// loader, benched in redsim (`mobfarm::l1bench`): writes its design (--design-out) or runs it:
     /// the overworld portal and its Nether twin, each side an exit track into a 2-pocket queue, 3
@@ -5380,6 +5410,23 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
                 print!("{}", crate::l1items::bench(&spec, &o).map_err(|e| anyhow::anyhow!(e))?);
             }
+        }
+        MobfarmCmd::KillGuard { design, golems, every, piglins, ticks, hold, close, close_adjacent, seed } => {
+            let path = design.unwrap_or_else(|| PathBuf::from("designs/farms/iron/carousel-assembly/carousel-v0a.txt"));
+            let d = mctas::design::Design::load(&path)?;
+            let c = crate::killguard::cells(&d).map_err(|e| anyhow::anyhow!(e))?;
+            let (_c, spec) = load(version, &path)?;
+            let o = crate::killguard::Opts { golems, every, piglins, ticks, hold, close, close_adjacent, seed };
+            println!(
+                "{}: the pad's {} portal bottom cell(s), the Nether portal's {} cell(s), the chamber's {} cell(s) ({} lava), --close's {} cell(s)",
+                path.display(),
+                c.pad.len(),
+                c.nether_portal.len(),
+                c.chamber.len(),
+                c.lava.len(),
+                c.close.len()
+            );
+            print!("{}", crate::killguard::bench(&spec, &c, &o).map_err(|e| anyhow::anyhow!(e))?);
         }
         MobfarmCmd::L1Bench { design_out, ticks, hold, pulse, stagger, freeze, piglin, trace } => {
             let path = design_out.unwrap_or_else(|| std::env::temp_dir().join(format!("l1-bench-{}.txt", std::process::id())));
