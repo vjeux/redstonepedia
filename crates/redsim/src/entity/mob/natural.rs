@@ -1188,9 +1188,14 @@ fn spawn_category_for_position(w: &mut World, nat: &Natural, st: &mut State, cat
             if matches!(k.finalize, Finalize::Salmon | Finalize::Cod) {
                 super::ai::fish::join_pack(w, id, &mut group.school_leader);
             }
-            if k.finalize == Finalize::Zombie {
+            if matches!(k.finalize, Finalize::Zombie | Finalize::Drowned) {
+                // (mob-AI 2026-11-11) a drowned's Zombie.finalizeSpawn runs handleAttributes too,
+                // and 26.3's Drowned no longer overrides randomizeReinforcementsChance (its draw
+                // comes first; the zombified piglin's override still sets 0 without one): a
+                // leader's full health x (1 + 1..4) (dust-pulse-out-of-sight village-edge b9
+                // t104350: a natural drowned at 99.9)
                 let special = special_multiplier(w, nat);
-                zombie_handle_attributes(w, id, ctor, special, k.id != "minecraft:drowned");
+                zombie_handle_attributes(w, id, ctor, special, k.id != "minecraft:zombified_piglin");
             }
             st.counts[cat as usize] += 1;
             for pi in players_near_chunk(nat, pos.x.div_euclid(16), pos.z.div_euclid(16)) {
@@ -1922,9 +1927,9 @@ pub fn zombie_reinforcements(w: &mut World, i: usize, attacker: Option<u32>) {
         let f = finalize_spawn(w, &nat, k, &mut group, cell);
         // no snap: the yaw stays the constructor's (the head's)
         let rid = spawn_mob(w, k, &f, at, f32::NAN);
-        if k.finalize == Finalize::Zombie {
+        if matches!(k.finalize, Finalize::Zombie | Finalize::Drowned) {
             let special = special_multiplier(w, &nat);
-            zombie_handle_attributes(w, rid, ctor, special, k.id != "minecraft:drowned");
+            zombie_handle_attributes(w, rid, ctor, special, k.id != "minecraft:zombified_piglin");
         }
         if let Some(j) = crate::entity::index_of(w, rid) {
             if super::ai::has_ai(w, j) {
@@ -1984,6 +1989,9 @@ fn zombie_handle_attributes(w: &mut World, id: u32, ctor: Option<crate::rng::Leg
     let follow = own.next_double() * 1.5 * special as f64;
     let roll = own.next_float();
     let leader = roll < special * 0.05;
+    if std::env::var("MCTAS_TRACE_ADD").ok().and_then(|v| v.parse::<u32>().ok()) == Some(id) {
+        eprintln!("handle_attributes t{} #{id}: special {special} follow {follow} roll {roll} leader {leader} ctor {}", w.time, reinforcements_draw);
+    }
     let (bonus, health) = if leader {
         // LEADER_ZOMBIE_BONUS: nextDouble() x 0.25 + 0.5 on the reinforcement chance
         let b = own.next_double() * 0.25 + 0.5;

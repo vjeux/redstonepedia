@@ -60,7 +60,10 @@ pub fn check_fall_damage(w: &mut World, i: usize, ya: f64, on_ground: bool) {
                 // onPos = getOnPosLegacy() (getOnPos(0.2F)), its state passed to fallOn
                 let on = super::collide::get_on_pos(w, &w.entities.list[i], 0.2);
                 let on_state = w.get(on);
-                if matches!(on_state, Block::Farmland { .. }) {
+                // farmland's trampling roll (the level random) for any entity; (mob-AI
+                // 2026-11-11) a terrain sample's farmland too (Block::Terrain: an item landing on
+                // a village's field, dust-pulse-dug10 village-edge b11 t54326)
+                if super::mob::living::fall_on_factors(&on_state).0 {
                     crate::stems::fall_on(w);
                 }
                 // (mob-AI 2026-11-11) Block.fallOn's causeFallDamage: Entity's passes the fall on

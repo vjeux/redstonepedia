@@ -202,7 +202,11 @@ fn selects(t: TargetType, ty: MobType) -> bool {
 
 /// `Enemy` among the modeled mobs, creepers aside (the iron golem's and the zombie's selectors).
 pub fn is_enemy(ty: MobType) -> bool {
-    ty.def().monster && ty.def().id != "creeper"
+    // (mob-AI 2026-11-11) `instanceof Enemy`: every modeled monster but the sulfur cube
+    // (SulfurCube extends AbstractCubeMob, Bucketable and Shearable only; its row's monster flag
+    // is its spawn category): an iron golem never targets or provokes one (cross-4-underground
+    // plains b9 t366, b5 t367)
+    ty.def().monster && ty.def().id != "creeper" && ty.def().game_id != "minecraft:sulfur_cube"
 }
 
 /// `canUse()`.
@@ -251,6 +255,10 @@ fn find_target(w: &mut World, i: usize, g: &mut NearestAttackableTarget) {
 
 /// `start()`.
 pub fn nearest_start(w: &mut World, i: usize, g: &mut NearestAttackableTarget) {
+    if std::env::var("MCTAS_TRACE_TARGET").is_ok_and(|v| v.parse::<u32>().ok() == Some(w.entities.list[i].id)) {
+        let ty = g.found.and_then(|id| target::who(w, id)).and_then(|t| target::type_of(w, t));
+        eprintln!("target t{} #{}: {:?} found {:?} type {:?} enemy {:?}", w.time, w.entities.list[i].id, g.target_type, g.found, ty.map(|t| t.def().id), ty.map(is_enemy));
+    }
     target::set_target(w, i, g.found);
     target_start(&mut g.base);
 }
