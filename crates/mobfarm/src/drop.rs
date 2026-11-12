@@ -63,7 +63,7 @@ impl DropLayout {
         match self {
             DropLayout::Series => p.x > 17.5,
             DropLayout::Parallel(_) => p.x > 3.5,
-            DropLayout::Station => p.z > 10.5,
+            DropLayout::Station => p.z > 12.9,
         }
     }
 }
@@ -346,13 +346,13 @@ pub fn station_design(hold_y: i32, dep: [bool; 3], arr: [bool; 3], pad: bool, re
         b.set(x, y - 1, z + 2, "glass");
         b.set(x, y, z + 3, "rail[shape=north_south,waterlogged=false]");
         b.set(x, y - 1, z + 3, "glass");
-        for dz in 4..=7 {
+        // (three boosters to loop z 6, the station's last cell; loop z 7 is the merge row
+        // (7b90c3f1's, shifted from z 8 for the strict pitch 32): the bench takes the cart out at
+        // loop z 6.9, still on z 6's rail, its speed the merge row's entry speed)
+        for dz in 4..=6 {
             b.set(x, y, z + dz, "powered_rail[powered=true,shape=north_south,waterlogged=false]");
             b.set(x, y - 1, z + dz, "redstone_block");
         }
-        b.set(x, y, z + 8, "rail[shape=north_south,waterlogged=false]");
-        b.set(x, y - 1, z + 8, "glass");
-        b.set(x, y, z + 9, "glass");
     }
     if pad {
         for zr in [1, 4] {
@@ -449,10 +449,11 @@ pub struct DropOpts {
     /// empty); with --exit-gate an empty pocket at its release (its string off) is the trapdoor's
     /// evidence.
     pub dep_absent: [bool; 3],
-    /// A save/stop/start at each of these ticks (after T): every chunk saved and unloaded and
-    /// loaded again between two ticks with no game time passing (`reload::unload_all` +
-    /// `load_all`: entities back as new objects with new ids, scheduled ticks renumbered).
-    pub reloads: Vec<i64>,
+    /// Restarts (cc767b78's `liveness::restart`, ironspec's reload-order rule): at tick T (between
+    /// ticks T - 1 and T) a save/stop/start in that entity order (save, reverse, seed:K); the carts
+    /// and riders followed by their new ids (`liveness::follow`). The cold start is the fresh
+    /// design's row (`dep_absent`, G1).
+    pub restarts: Vec<(i64, crate::liveness::Restart)>,
     /// The trapdoors' timer on world ticks (a plain redstone clock running through a freeze), not
     /// the live clock: the positive control for the strings.
     pub release_world: bool,
@@ -581,7 +582,7 @@ pub fn bench(spec: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats), 
     let mut frozen_hist: Vec<bool> = Vec::new();
     let mut opened: [Option<i64>; 3] = [None; 3];
     let mut opened_live: [i64; 3] = [0; 3];
-    let mut reloaded: Vec<i64> = Vec::new();
+    let mut reloaded: Vec<String> = Vec::new();
     let mut empty_at_release = [false; 3];
     let mut was_frozen = false;
     let mut shut_onto: Vec<String> = Vec::new();
@@ -627,6 +628,18 @@ pub fn bench(spec: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats), 
     let mut unseated = 0usize;
     let mut out: Vec<String> = Vec::new();
     for dt in 0..o.ticks {
+        // (a restart between ticks dt - 1 and dt, before the controller acts in tick dt: the
+        // shared helper, its entities back under new ids, followed)
+        for (_, how) in o.restarts.iter().filter(|(t, _)| *t == dt) {
+            crate::liveness::restart(&mut run.world, *how)?;
+            for c in carts.iter_mut().chain(next_carts.iter_mut()) {
+                *c = crate::liveness::follow(&run.world, *c);
+            }
+            for r in riders.iter_mut().chain(next_riders.iter_mut()).flatten() {
+                *r = crate::liveness::follow(&run.world, *r);
+            }
+            reloaded.push(format!("T+{dt} {}", how.label()));
+        }
         let frozen_now = o.freeze.iter().chain(o.logins.iter()).any(|(f, l)| dt >= *f && dt < f + l);
         let live = dt - frozen_ticks;
         // (the controller's clock: L1 (G1/ironspec 00:18, the lead) runs the controller and its
@@ -742,35 +755,6 @@ pub fn bench(spec: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats), 
         }
         was_frozen = frozen_now;
         frozen_hist.push(frozen_now);
-        // (a save/stop/start between two ticks: every entity back as a new object, matched to its
-        // old id by its exact position; the riders re-read from the carts' passengers)
-        if o.reloads.contains(&dt) {
-            let tracked: Vec<(u32, Vec3)> = carts.iter().chain(next_carts.iter()).filter_map(|id| pos(&run.world, *id).map(|(p, _)| (*id, p))).collect();
-            redsim::reload::unload_all(&mut run.world);
-            redsim::reload::load_all(&mut run.world);
-            let remap = |old: u32, w: &redsim::world::World| -> u32 {
-                let Some((_, p)) = tracked.iter().find(|(id, _)| *id == old) else { return old };
-                w.entities.list.iter().find(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && (e.pos.x - p.x).abs() < 1e-9 && (e.pos.y - p.y).abs() < 1e-9 && (e.pos.z - p.z).abs() < 1e-9).map_or(old, |e| e.id)
-            };
-            for c in carts.iter_mut() {
-                *c = remap(*c, &run.world);
-            }
-            for c in next_carts.iter_mut() {
-                *c = remap(*c, &run.world);
-            }
-            let passenger = |w: &redsim::world::World, id: u32| w.entities.list.iter().find(|e| e.id == id && !e.removed).and_then(|e| e.passengers.first().copied());
-            for n in 0..6 {
-                if riders[n].is_some() {
-                    riders[n] = passenger(&run.world, carts[n]).or(riders[n]);
-                }
-            }
-            for j in 0..next_carts.len() {
-                if next_riders[j].is_some() {
-                    next_riders[j] = passenger(&run.world, next_carts[j]).or(next_riders[j]);
-                }
-            }
-            reloaded.push(dt);
-        }
         run.tick();
         let live_after = dt + 1 - frozen_ticks;
         let clock_after = if o.l1 { dt + 1 } else { live_after };
@@ -1089,7 +1073,7 @@ pub fn bench(spec: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats), 
         if shut_onto.is_empty() { String::new() } else { format!(" ({})", shut_onto.join(", ")) },
         r_switch_frozen.len(),
         if r_switch_frozen.is_empty() { String::new() } else { format!(" ({})", r_switch_frozen.join(", ")) },
-        if reloaded.is_empty() { String::new() } else { format!("; save/stop/start at {}", reloaded.iter().map(|t| format!("T+{t}")).collect::<Vec<_>>().join(", ")) },
+        if reloaded.is_empty() { String::new() } else { format!("; restarts {}", reloaded.join(", ")) },
         if run.world.errors.is_empty() { String::new() } else { format!("; the world's model errors: {}", run.world.errors.join("; ")) }
     ));
     out.push(format!(

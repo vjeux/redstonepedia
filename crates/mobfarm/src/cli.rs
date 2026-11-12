@@ -1851,13 +1851,15 @@ pub enum MobfarmCmd {
         /// (default: L2, the live clock).
         #[arg(long)]
         l1: bool,
-        /// A save/stop/start at these ticks after T in every run (every chunk saved, unloaded and
-        /// loaded again between two ticks, no game time passing).
+        /// A restart T,ORDER in every run (cc767b78's `liveness::restart`; repeatable): between
+        /// ticks T - 1 and T a save/stop/start in that entity order (save, reverse, seed:K). The
+        /// cold start is the fresh design's row (--dep-riders x,x,x).
+        #[arg(long)]
+        restart: Vec<String>,
+        /// The restart at every phase "FROM,TO,STEP": one run per tick and per order of the
+        /// reload-order rule (save, reverse, seed:1..8).
         #[arg(long, value_delimiter = ',')]
-        reload_at: Vec<i64>,
-        /// One run per save/stop/start tick "FROM,TO,STEP" (the reload at every phase).
-        #[arg(long, value_delimiter = ',')]
-        reload_sweep: Vec<i64>,
+        restart_sweep: Vec<i64>,
         /// (the station) The R line: the lanes' R_1 cells with the next batch on them, powered from
         /// the side "D,L": D gt after the last trapdoor shut again (needs --pulse), for L gt.
         #[arg(long, default_value = "")]
@@ -5733,7 +5735,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             }
         }
-        MobfarmCmd::DropBench { layout, login, hold_y, rel, stagger, rebrake, release, pulse, occupancy, exit_gate, release_world, pad, rebrake_each, scarers, block, posts, slab_stop, open_delay, l1, reload_at, reload_sweep, refill, dep_riders, arr_riders, freezes, freeze_sweep, ticks, seed, seeds, summary, out, trace } => {
+        MobfarmCmd::DropBench { layout, login, hold_y, rel, stagger, rebrake, release, pulse, occupancy, exit_gate, release_world, pad, rebrake_each, scarers, block, posts, slab_stop, open_delay, l1, restart, restart_sweep, refill, dep_riders, arr_riders, freezes, freeze_sweep, ticks, seed, seeds, summary, out, trace } => {
             let posts_v: Vec<(i32, i32, i32)> = posts
                 .iter()
                 .map(|s| -> anyhow::Result<(i32, i32, i32)> {
@@ -5784,11 +5786,15 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 Ok(([v[0] == "1", v[1] == "1", v[2] == "1"], [v[0] == "x", v[1] == "x", v[2] == "x"]))
             };
             let ((dep, dep_x), (arr, _)) = (r3(&dep_riders)?, r3(&arr_riders)?);
-            // (save/stop/start rows: --reload-at in every run, or one run per tick of --reload-sweep)
-            let mut reload_sets: Vec<Vec<i64>> = vec![reload_at.clone()];
-            if !reload_sweep.is_empty() {
-                anyhow::ensure!(reload_sweep.len() == 3 && reload_sweep[2] > 0, "--reload-sweep FROM,TO,STEP");
-                reload_sets = (reload_sweep[0]..=reload_sweep[1]).step_by(reload_sweep[2] as usize).map(|t| vec![t]).collect();
+            // (restart rows: --restart in every run, or one run per tick and order of --restart-sweep;
+            // the cold start is the fresh design's --dep-riders row, G1)
+            let fixed: Vec<(i64, crate::liveness::Restart)> = restart.iter().map(|s| crate::liveness::parse_restart(s).map_err(|e| anyhow::anyhow!(e))).collect::<anyhow::Result<_>>()?;
+            anyhow::ensure!(!fixed.iter().any(|(_, h)| *h == crate::liveness::Restart::Cold), "--restart T,cold: the station's cold start is the fresh design's row (--dep-riders x,x,x; G1)");
+            let mut reload_sets: Vec<Vec<(i64, crate::liveness::Restart)>> = vec![fixed];
+            if !restart_sweep.is_empty() {
+                anyhow::ensure!(restart_sweep.len() == 3 && restart_sweep[2] > 0, "--restart-sweep FROM,TO,STEP");
+                let orders: Vec<crate::liveness::Restart> = crate::liveness::Restart::rows().into_iter().filter(|h| *h != crate::liveness::Restart::Cold).collect();
+                reload_sets = (restart_sweep[0]..=restart_sweep[1]).step_by(restart_sweep[2] as usize).flat_map(|t| orders.iter().map(move |h| vec![(t, *h)])).collect();
             }
             let st = list(&stagger)?;
             anyhow::ensure!(st.len() == 3, "--stagger A,B,C");
@@ -5836,11 +5842,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             for rb in &rebrakes {
                                 for rl in &releases {
                                     for s in seed..seed + seeds {
-                                        let o = crate::drop::DropOpts { layout: lo, hold_y: *h as i32, rel: *r, stagger: [st[0], st[1], st[2]], rebrake: *rb, release: *rl, pulse, occupancy, exit_gate, open_delay, l1, dep_absent: dep_x, reloads: rset.clone(), release_world, rebrake_each, scarers: scarers_v.clone(), refill: refill_v, ticks, seed: s, freeze: *f, logins: logins_v.clone(), trace };
+                                        let o = crate::drop::DropOpts { layout: lo, hold_y: *h as i32, rel: *r, stagger: [st[0], st[1], st[2]], rebrake: *rb, release: *rl, pulse, occupancy, exit_gate, open_delay, l1, dep_absent: dep_x, restarts: rset.clone(), release_world, rebrake_each, scarers: scarers_v.clone(), refill: refill_v, ticks, seed: s, freeze: *f, logins: logins_v.clone(), trace };
                                         let (lines, stats) = crate::drop::bench(&fspec, &o).map_err(|e| anyhow::anyhow!(e))?;
                                         runs.push(stats);
                                         if !summary {
-                                            println!("== freeze {}{}, REL T+{r}, re-brake REL+{rb}, trapdoors T+{rl}, seed {s}", f.map_or("-".to_string(), |(a, b)| format!("T+{a}..T+{}", a + b)), if rset.is_empty() { String::new() } else { format!(", save/stop/start at {}", rset.iter().map(|t| format!("T+{t}")).collect::<Vec<_>>().join(",")) });
+                                            println!("== freeze {}{}, REL T+{r}, re-brake REL+{rb}, trapdoors T+{rl}, seed {s}", f.map_or("-".to_string(), |(a, b)| format!("T+{a}..T+{}", a + b)), if rset.is_empty() { String::new() } else { format!(", restart {}", rset.iter().map(|(t, h)| format!("T+{t} {}", h.label())).collect::<Vec<_>>().join(",")) });
                                             for l in lines {
                                                 println!("{l}");
                                             }
@@ -5851,7 +5857,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         }
                     }
                     }
-                    println!("{}", crate::drop::summary(&format!("SUMMARY {lo:?}, hold y {h}, REL {rel}, re-brake {rebrake}, trapdoors {release}{}{}, {} freezes, {} reload sets", if occupancy { ", gated on the strings" } else { "" }, if l1 { ", L1" } else { ", L2" }, frz.len(), reload_sets.len()), &runs));
+                    println!("{}", crate::drop::summary(&format!("SUMMARY {lo:?}, hold y {h}, REL {rel}, re-brake {rebrake}, trapdoors {release}{}{}, {} freezes, {} restart rows", if occupancy { ", gated on the strings" } else { "" }, if l1 { ", L1" } else { ", L2" }, frz.len(), reload_sets.len()), &runs));
                 }
             }
         }
