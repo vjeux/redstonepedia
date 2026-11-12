@@ -1888,6 +1888,75 @@ pub enum MobfarmCmd {
         #[arg(long)]
         trace: bool,
     },
+    /// (cc767b78; ironspec's L1‴ rows) The judge of the F1 + Q2 station in the L1 mode: per `--rel`
+    /// its control, a save/stop/start at every phase `--starts A,B` (bench ticks from T), the cold
+    /// start (the departing carts absent) and, for the pearl alternative, logins of `--ds` gt at every
+    /// phase; the pass: every cart landed on a braked pocket and at rest before the next summon, 0
+    /// wrong pockets, contacts, hurt, unseated, stuck, refill failures, trapdoors shut onto their cart,
+    /// every launch >= `--launch-min` gt after the one before. `--rebrakes`, `--pulses`,
+    /// `--open-delays`, `--refill-delays`, `--refill-lens`, `--staggers A:B:C,..`: the same matrix at
+    /// other widths of one timed edge each (the thresholds).
+    StationJudge {
+        #[arg(long, default_value_t = 16)]
+        hold_y: i32,
+        #[arg(long, value_delimiter = ',', default_value = "3,4,5,6,7")]
+        rel: Vec<i64>,
+        #[arg(long, value_delimiter = ',', default_value = "0,6,12")]
+        stagger: Vec<i64>,
+        #[arg(long, default_value_t = 16)]
+        rebrake: i64,
+        #[arg(long, default_value_t = 3)]
+        release: i64,
+        #[arg(long, default_value_t = 4)]
+        open_delay: i64,
+        /// The trapdoor pulse (ironspec 2026-11-12 01:35: 12, past the lead rows' threshold by the L1
+        /// bar and clear of the pearl alternative's logins).
+        #[arg(long, default_value_t = 12)]
+        pulse: i64,
+        #[arg(long, value_delimiter = ',', default_value = "2,10")]
+        refill: Vec<i64>,
+        #[arg(long = "post", allow_hyphen_values = true, default_value = "8,16,0")]
+        posts: Vec<String>,
+        #[arg(long)]
+        no_slab_stop: bool,
+        #[arg(long, default_value = "P:10.5,10,15.5")]
+        scarers: String,
+        /// The L2 mode instead (the controller on the live clock, paused with the entities).
+        #[arg(long)]
+        l2: bool,
+        #[arg(long, default_value_t = 200)]
+        ticks: i64,
+        #[arg(long, default_value_t = 1)]
+        seed: i64,
+        #[arg(long, value_delimiter = ',', default_value = "0,150")]
+        starts: Vec<i64>,
+        /// Login lengths for the pearl alternative's load window (empty: none).
+        #[arg(long, value_delimiter = ',', default_value = "1,2,3,4")]
+        ds: Vec<i64>,
+        #[arg(long)]
+        no_restarts: bool,
+        #[arg(long)]
+        no_cold: bool,
+        /// The launch-spacing bar (gt; 0: reported only: with the lift's merge offsets 0/6/12 its bar is
+        /// the shaft-entry gap, the lift judge's).
+        #[arg(long, default_value_t = 0)]
+        launch_min: i64,
+        #[arg(long, value_delimiter = ',')]
+        rebrakes: Vec<i64>,
+        #[arg(long, value_delimiter = ',')]
+        pulses: Vec<i64>,
+        #[arg(long, value_delimiter = ',')]
+        open_delays: Vec<i64>,
+        #[arg(long, value_delimiter = ',')]
+        refill_delays: Vec<i64>,
+        #[arg(long, value_delimiter = ',')]
+        refill_lens: Vec<i64>,
+        /// Staggers to try, each A:B:C.
+        #[arg(long, value_delimiter = ',')]
+        staggers: Vec<String>,
+        #[arg(long, default_value_t = 8)]
+        jobs: usize,
+    },
     /// One-chunk's stand cycle (farmopt 18:52): the departing batch leaves today's pockets at REL
     /// (the meter's slope power) up the S3 departure and v4's climb back while the arriving batch
     /// comes down onechunk's re-laid descent from the hold's release into the same pockets; the
@@ -5733,6 +5802,89 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     }
                 }
             }
+            }
+        }
+        MobfarmCmd::StationJudge { hold_y, rel, stagger, rebrake, release, open_delay, pulse, refill, posts, no_slab_stop, scarers, l2, ticks, seed, starts, ds, no_restarts, no_cold, launch_min, rebrakes, pulses, open_delays, refill_delays, refill_lens, staggers, jobs } => {
+            anyhow::ensure!(starts.len() == 2, "--starts A,B");
+            anyhow::ensure!(stagger.len() == 3, "--stagger A,B,C");
+            anyhow::ensure!(refill.len() == 2, "--refill D,L");
+            let posts_v: Vec<(i32, i32, i32)> = posts
+                .iter()
+                .map(|s| -> anyhow::Result<(i32, i32, i32)> {
+                    let v: Vec<i32> = s.split(',').map(|x| x.trim().parse::<i32>()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(v.len() == 3, "--post x,y,z");
+                    Ok((v[0], v[1], v[2]))
+                })
+                .collect::<anyhow::Result<_>>()?;
+            let scarers_v: Vec<(char, redsim::entity::Vec3)> = scarers
+                .split(';')
+                .filter(|s| !s.trim().is_empty())
+                .map(|s| -> anyhow::Result<(char, redsim::entity::Vec3)> {
+                    let (k, v) = s.trim().split_once(':').ok_or_else(|| anyhow::anyhow!("--scarers z:x,y,z;p:x,y,z;P:x,y,z"))?;
+                    let c: Vec<f64> = v.split(',').map(|x| x.trim().parse::<f64>()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(c.len() == 3 && (k == "z" || k == "p" || k == "P"), "--scarers z:x,y,z;p:x,y,z;P:x,y,z");
+                    Ok((k.chars().next().unwrap(), redsim::entity::Vec3::new(c[0], c[1], c[2])))
+                })
+                .collect::<anyhow::Result<_>>()?;
+            let lo = crate::drop::DropLayout::Station;
+            let ex = crate::drop::Extras { blocks: Vec::new(), posts: posts_v, slab_stop: !no_slab_stop };
+            let spec_of = |dep: [bool; 3]| -> anyhow::Result<redsim::entity::mob::farm::FarmSpec> {
+                let text = crate::drop::design_extra(lo, hold_y, dep, [true; 3], true, true, &ex);
+                let path = std::env::temp_dir().join(format!("station-judge-{}-{}.txt", std::process::id(), dep[0] as u8));
+                std::fs::write(&path, &text)?;
+                let (_c, fspec) = load(version, &path)?;
+                let _ = std::fs::remove_file(&path);
+                Ok(fspec)
+            };
+            let (spec, cold_spec) = (spec_of([true; 3])?, spec_of([false; 3])?);
+            let base = crate::drop::DropOpts { layout: lo, hold_y, rel: rel[0], stagger: [stagger[0], stagger[1], stagger[2]], rebrake, release, pulse, occupancy: false, exit_gate: true, open_delay, l1: !l2, dep_absent: [false; 3], restarts: Vec::new(), release_world: false, rebrake_each: true, scarers: scarers_v, refill: Some((refill[0], refill[1])), ticks, seed, freeze: None, logins: Vec::new(), trace: false };
+            let o = crate::stationjudge::StationJudgeOpts { rels: rel.clone(), starts: (starts[0], starts[1]), ds: ds.clone(), restarts: !no_restarts, cold: !no_cold, launch_min, jobs };
+            println!(
+                "station judge (cc767b78, bench, tool unreviewed; the {} mode: per REL {rel:?} the control, {}the cold start{}): drop-bench --layout station --pad --hold-y {hold_y} --stagger {},{},{} --rebrake {rebrake} --rebrake-each --release {release} --exit-gate --open-delay {open_delay} --pulse {pulse} --refill {},{} --post {:?} {}--scarers {scarers}, {ticks} ticks; the launch bar {}",
+                if l2 { "L2" } else { "L1" },
+                if no_restarts { String::new() } else { format!("a save/stop/start at every phase T+{}..T+{} in each of the 10 orders (save, reverse, seed:1..8), ", starts[0], starts[1]) },
+                if ds.is_empty() { String::new() } else { format!(", logins of {ds:?} gt at every phase (the pearl alternative)") },
+                stagger[0],
+                stagger[1],
+                stagger[2],
+                refill[0],
+                refill[1],
+                posts,
+                if no_slab_stop { "" } else { "--slab-stop " },
+                if launch_min > 0 { format!("{launch_min} gt") } else { "none (reported only)".to_string() }
+            );
+            let (lines, fails) = crate::stationjudge::judge(&spec, &cold_spec, &base, &o).map_err(|e| anyhow::anyhow!(e))?;
+            for l in lines {
+                println!("{l}");
+            }
+            println!("over the matrix: {fails} failing runs in the lead's rows (controls included; the pearl alternative's logins reported above)");
+            let mut rows: Vec<(String, crate::drop::DropOpts)> = Vec::new();
+            for v in &rebrakes {
+                rows.push((format!("the re-brake {v}"), crate::drop::DropOpts { rebrake: *v, ..base.clone() }));
+            }
+            for v in &pulses {
+                rows.push((format!("the trapdoor pulse {v}"), crate::drop::DropOpts { pulse: *v, ..base.clone() }));
+            }
+            for v in &open_delays {
+                rows.push((format!("the open delay {v}"), crate::drop::DropOpts { open_delay: *v, ..base.clone() }));
+            }
+            for v in &refill_delays {
+                rows.push((format!("the R line's delay {v}"), crate::drop::DropOpts { refill: Some((*v, refill[1])), ..base.clone() }));
+            }
+            for v in &refill_lens {
+                rows.push((format!("the R line's length {v}"), crate::drop::DropOpts { refill: Some((refill[0], *v)), ..base.clone() }));
+            }
+            for s in &staggers {
+                let v: Vec<i64> = s.split(':').map(|x| x.trim().parse::<i64>()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(v.len() == 3, "--staggers A:B:C,...");
+                rows.push((format!("the stagger {s}"), crate::drop::DropOpts { stagger: [v[0], v[1], v[2]], ..base.clone() }));
+            }
+            for (label, b) in rows {
+                let (lines, fails) = crate::stationjudge::judge(&spec, &cold_spec, &b, &o).map_err(|e| anyhow::anyhow!(e))?;
+                println!("threshold row, {label}: {fails} failing runs");
+                for l in lines {
+                    println!("  {l}");
+                }
             }
         }
         MobfarmCmd::DropBench { layout, login, hold_y, rel, stagger, rebrake, release, pulse, occupancy, exit_gate, release_world, pad, rebrake_each, scarers, block, posts, slab_stop, open_delay, l1, restart, restart_sweep, refill, dep_riders, arr_riders, freezes, freeze_sweep, ticks, seed, seeds, summary, out, trace } => {
