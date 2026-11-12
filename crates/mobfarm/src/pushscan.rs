@@ -453,15 +453,24 @@ pub fn parse_bridge(entry: &str) -> Result<Bridge, String> {
 
 /// The design with parts laid over it in order, each with no move (G1's CHANGES 3 on 54fb5abe4:
 /// a bridge's hash covers the module plus its parts as the official run composes them): a part's
-/// blocks replace the design's at their cells. Returns the cells replaced.
-pub fn compose(spec: &mut FarmSpec, parts: &[String]) -> Result<usize, String> {
+/// blocks replace the design's at their cells. The farm's box grows to hold every part cell (the
+/// composer builds its world from that box: a cell outside it would be dropped by the world's raw
+/// placement, ironspec's 11:05 audit). Returns the cells replaced and the part cells that grew the
+/// box.
+pub fn compose(spec: &mut FarmSpec, parts: &[String]) -> Result<(usize, usize), String> {
     let mut map: HashMap<BlockPos, redsim::block::Block> = spec.blocks.drain(..).collect();
-    let mut replaced = 0usize;
+    let (mut replaced, mut grew) = (0usize, 0usize);
     for text in parts {
         let d = mctas::design::Design::parse(text).map_err(|e| e.to_string())?;
         for (p, s) in &d.blocks {
             let b = redsim::block::Block::parse(s)?;
-            if map.insert(BlockPos::new(p[0], p[1], p[2]), b).is_some() {
+            let bp = BlockPos::new(p[0], p[1], p[2]);
+            if bp.x < spec.lo.x || bp.y < spec.lo.y || bp.z < spec.lo.z || bp.x > spec.hi.x || bp.y > spec.hi.y || bp.z > spec.hi.z {
+                grew += 1;
+                spec.lo = BlockPos::new(spec.lo.x.min(bp.x), spec.lo.y.min(bp.y), spec.lo.z.min(bp.z));
+                spec.hi = BlockPos::new(spec.hi.x.max(bp.x), spec.hi.y.max(bp.y), spec.hi.z.max(bp.z));
+            }
+            if map.insert(bp, b).is_some() {
                 replaced += 1;
             }
         }
@@ -469,7 +478,7 @@ pub fn compose(spec: &mut FarmSpec, parts: &[String]) -> Result<usize, String> {
     let mut v: Vec<(BlockPos, redsim::block::Block)> = map.into_iter().collect();
     v.sort_by_key(|(p, _)| (p.x, p.y, p.z));
     spec.blocks = v;
-    Ok(replaced)
+    Ok((replaced, grew))
 }
 
 /// A bridged range as written: "lo..hi", or "lo.." / "..hi" for an open end.

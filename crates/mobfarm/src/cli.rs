@@ -9823,8 +9823,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 part_texts.push(std::fs::read_to_string(p)?);
             }
             if !part_texts.is_empty() {
-                let replaced = crate::pushscan::compose(&mut spec, &part_texts).map_err(|e| anyhow::anyhow!(e))?;
-                println!("composition: {} with {} parts laid over it ({}), {replaced} of its cells replaced", design.display(), part.len(), part.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", "));
+                let (replaced, grew) = crate::pushscan::compose(&mut spec, &part_texts).map_err(|e| anyhow::anyhow!(e))?;
+                println!("composition: {} with {} parts laid over it ({}), {replaced} of its cells replaced; {grew} part cells outside the design's box (the box grown to hold them: 0 dropped)", design.display(), part.len(), part.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", "));
             }
             if controls {
                 let cl = crate::pushscan::tee_controls();
