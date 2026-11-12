@@ -1435,6 +1435,74 @@ pub enum MobfarmCmd {
     /// current onto (-5,23,9)) and the split along z 9 at y 23 (J(-1), J(3) on rise-keyed latches
     /// in the budget's merge order, lane 7 at the end) to each lane's branch flat (x,22,6), where
     /// the intake takes it; per cart its lane, branch speed, riders; the junctions' least gaps.
+    /// (cc767b78; ironspec's L1‴ rows, the bars farmopt set 03:22 with ironspec's amendments 03:23) The
+    /// judge of the return (`return-bench`): the controls at every corner (`--offsets` with each offset
+    /// `--offset-pm` gt either way, `--speeds`, the napper's `--napper-ds`), the restarts at every 1-gt
+    /// phase `--starts A,B` at the nominal corners (`--restart-napper`), logins of `--ds` gt reported as
+    /// unverified; the bars `--branch-band`, `--napper-band`, `--shaft-min`, `--napper-behind`,
+    /// `--napper-ahead`, `--junction-min J:G` (repeatable; the latch's switching time + 4), `--pushes-max`.
+    ReturnJudge {
+        #[arg(long, default_value_t = 3)]
+        batches: usize,
+        #[arg(long, default_value_t = 450)]
+        ticks: i64,
+        #[arg(long)]
+        boost: bool,
+        #[arg(long)]
+        reverse: bool,
+        #[arg(long)]
+        flat: bool,
+        #[arg(long)]
+        game_ticks: bool,
+        #[arg(long)]
+        dip: bool,
+        #[arg(long, default_value_t = 0)]
+        resync: i64,
+        #[arg(long)]
+        z7: bool,
+        #[arg(long)]
+        row10: bool,
+        #[arg(long)]
+        boosters: bool,
+        #[arg(long)]
+        row_boost: bool,
+        #[arg(long, value_delimiter = ',', default_value = "0,12,24")]
+        offsets: Vec<i64>,
+        #[arg(long, default_value_t = 2)]
+        offset_pm: i64,
+        #[arg(long, value_delimiter = ',', default_value = "0.2,0.4")]
+        speeds: Vec<f64>,
+        /// The napper's delays at the controls (empty: no napper).
+        #[arg(long, value_delimiter = ',', default_value = "10,11,12,13,14,15,16,17,18,19")]
+        napper_ds: Vec<i64>,
+        /// The napper's delay at the phase corners (negative: none).
+        #[arg(long, default_value_t = 14, allow_hyphen_values = true)]
+        restart_napper: i64,
+        #[arg(long, value_delimiter = ',', default_value = "0,350")]
+        starts: Vec<i64>,
+        #[arg(long)]
+        no_restarts: bool,
+        /// Login lengths at every phase (the pearl alternative; reported, unverified).
+        #[arg(long, value_delimiter = ',')]
+        ds: Vec<i64>,
+        #[arg(long, value_delimiter = ',', default_value = "0.30,0.48")]
+        branch_band: Vec<f64>,
+        #[arg(long, value_delimiter = ',', default_value = "0.1,0.3")]
+        napper_band: Vec<f64>,
+        #[arg(long, default_value_t = 21)]
+        shaft_min: i64,
+        #[arg(long, default_value_t = 28)]
+        napper_behind: i64,
+        #[arg(long, default_value_t = 21)]
+        napper_ahead: i64,
+        /// A junction's least gap, J:G (its latch's switching time + 4); repeatable.
+        #[arg(long, allow_hyphen_values = true)]
+        junction_min: Vec<String>,
+        #[arg(long, default_value_t = 0)]
+        pushes_max: usize,
+        #[arg(long, default_value_t = 8)]
+        jobs: usize,
+    },
     ReturnBench {
         /// Batches of three, a batch every 100 gt.
         #[arg(long, default_value_t = 3)]
@@ -5054,6 +5122,74 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
             println!("{}", crate::queue::golem_spots(&spec, o.as_ref(), &extra, with_entities, list, pad_box, &stand_cells).map_err(|e| anyhow::anyhow!(e))?);
+        }
+        MobfarmCmd::ReturnJudge { batches, ticks, boost, reverse, flat, game_ticks, dip, resync, z7, row10, boosters, row_boost, offsets, offset_pm, speeds, napper_ds, restart_napper, starts, no_restarts, ds, branch_band, napper_band, shaft_min, napper_behind, napper_ahead, junction_min, pushes_max, jobs } => {
+            anyhow::ensure!(starts.len() == 2, "--starts A,B");
+            anyhow::ensure!(offsets.len() == 3, "--offsets A,B,C");
+            anyhow::ensure!(branch_band.len() == 2 && napper_band.len() == 2, "--branch-band LO,HI and --napper-band LO,HI");
+            let jm: std::collections::BTreeMap<i32, i64> = junction_min
+                .iter()
+                .map(|s| -> anyhow::Result<(i32, i64)> {
+                    let (j, g) = s.split_once(':').ok_or_else(|| anyhow::anyhow!("--junction-min J:G"))?;
+                    Ok((j.trim().parse()?, g.trim().parse()?))
+                })
+                .collect::<anyhow::Result<_>>()?;
+            let base = crate::returnbench::ReturnOpts { batches, spacing: 14, speed: 0.4, ticks, login: None, boost, trace: None, reverse, offsets: offsets.clone(), flat, game_ticks, napper_delay: None, dip, resync, seed_miss: None, restart: None, z7, row10, boosters, row_boost, out: None };
+            // (the corners: each offset either way by offset_pm, x the speeds, x the napper's delays)
+            let mut offs: Vec<Vec<i64>> = Vec::new();
+            for da in [-offset_pm, 0, offset_pm] {
+                for db in [-offset_pm, 0, offset_pm] {
+                    for dc in [-offset_pm, 0, offset_pm] {
+                        let o3 = vec![offsets[0] + da, offsets[1] + db, offsets[2] + dc];
+                        if !offs.contains(&o3) {
+                            offs.push(o3);
+                        }
+                    }
+                }
+            }
+            let naps: Vec<Option<i64>> = if napper_ds.is_empty() { vec![None] } else { napper_ds.iter().map(|d| Some(*d)).collect() };
+            let mut corners = Vec::new();
+            for o3 in &offs {
+                for &sp in &speeds {
+                    for n in &naps {
+                        corners.push(crate::returnjudge::Corner { offsets: o3.clone(), speed: sp, napper: *n });
+                    }
+                }
+            }
+            let phase_corners: Vec<crate::returnjudge::Corner> = speeds.iter().map(|&sp| crate::returnjudge::Corner { offsets: offsets.clone(), speed: sp, napper: (restart_napper >= 0).then_some(restart_napper) }).collect();
+            let bars = crate::returnjudge::ReturnBars { branch_band: (branch_band[0], branch_band[1]), napper_band: (napper_band[0], napper_band[1]), shaft_min, napper_behind, napper_ahead, junction_min: jm.clone(), pushes_max };
+            let o = crate::returnjudge::ReturnJudgeOpts { corners, phase_corners, starts: (starts[0], starts[1]), restarts: !no_restarts, ds: ds.clone(), bars, jobs };
+            println!(
+                "return judge (cc767b78, bench, tool unreviewed; the lead's rows: the controls at {} corners (offsets {:?} each ±{offset_pm}, releases {speeds:?}, napper {}), the restarts at every phase t {}..{} at the nominal corners (save order: the bench's --restart takes no order yet), the cold start = the control{}): return-bench {}{}{}{}{}{}{}{}, {batches} batches, {ticks} ticks",
+                o.corners.len(),
+                offsets,
+                if napper_ds.is_empty() { "none".to_string() } else { format!("D {napper_ds:?}") },
+                starts[0],
+                starts[1],
+                if ds.is_empty() { String::new() } else { format!("; logins of {ds:?} gt at every phase (reported, unverified)") },
+                if z7 { "--z7 " } else { "" },
+                if row10 { "--row10 " } else { "" },
+                if boosters { "--boosters " } else { "" },
+                if row_boost { "--row-boost " } else { "" },
+                if reverse { "--reverse " } else { "" },
+                if game_ticks { "--game-ticks " } else { "(L2!) " },
+                if flat { "--flat " } else { "" },
+                if dip { "--dip " } else { "" }
+            );
+            let mut pending = vec![
+                "every rider's head under the roof at 28 (the bench does not print it)",
+                "the static gates on the emitted split file: would-pop 0, the rail-T / switched-cell scan (each T's verdict), the detector slope's neighbours and below-block, parse(write()) (the tools are not on main)",
+                "the restarts in the 10 orders (the bench's --restart is the save order until it calls liveness::restart)",
+            ];
+            if jm.is_empty() {
+                pending.push("the junction bars (each latch's switching time + 4: 7b90c3f1's numbers)");
+            }
+            let (lines, fails, more) = crate::returnjudge::judge(&base, &o).map_err(|e| anyhow::anyhow!(e))?;
+            pending.extend(more);
+            for l in lines {
+                println!("{l}");
+            }
+            println!("over the matrix: {fails} failing runs in the lead's rows; PENDING ({}, so the verdict is not final): {}", pending.len(), pending.join("; "));
         }
         MobfarmCmd::ReturnBench { batches, spacing, speed, ticks, login, boost, trace, reverse, offsets, flat, game_ticks, napper_delay, dip, resync, seed_miss, restart, z7, row10, boosters, row_boost, out } => {
             let o = crate::returnbench::ReturnOpts { batches, spacing, speed, ticks, login: (login.len() == 2).then(|| (login[0], login[1])), boost, trace, reverse, offsets, flat, game_ticks, napper_delay, dip, resync, seed_miss, restart, z7, row10, boosters, row_boost, out };
