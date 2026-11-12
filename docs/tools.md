@@ -161,6 +161,21 @@ A design's Nether part as a design of its own: `mctas mobfarm nether-part <desig
 its `nether layer` blocks, `nether nbt:` data and `port nether-<name>` ports as the blocks, data and
 ports of F, so `web shot F` pictures the Nether side (the kill, the collection); the viewer draws a
 design's overworld blocks only.
+The one-chunk column's skeleton (onechunk, farmopt's lane: vjeux's "Can we have the system in one
+chunk?"): `mctas mobfarm column --part NAME=FILE[@fx,fy,fz][^tx,ty,tz][#x0,y0,z0,x1,y1,z1]...
+[--reserve NAME=x0,y0,z0,x1,y1,z1...] [--column -6,-6,9,9] [--chunk-phase -6,-6] [--plan] [--port
+NAME=x,y,z] [--ground Y] [--out-shift dx,dy,dz] [--no-riders] [--no-settle] [--out F]` moves each
+part's committed design (`#`: only its cells in that box, the file's frame) from its file's frame
+into the column's (`@`) and from its committed place into its tier (`^`); a reserved box stands for
+a part not laid out yet. It prints each part's committed and placed box, the chunk lines each
+crosses (`--chunk-phase`: lines at x, z = PX + 16k; the loop frame's -6), where it leaves the
+column, the cells two parts hold, reserved boxes over a part or each other, cells declared two
+ways, the tiers top down and the column's blocks³. `--out` writes the skeleton (the first part's
+ports, a later part's shared-bed `home`, one Nether part, `positions:` and `declared:` joined),
+its junctions settled as `mobfarm paste` settles them; `--ground` so `mobfarm bill --terrain` digs
+it in, `--out-shift` to write it in the farm's aligned frame (loop + 6,0,6), `--no-riders` so
+`mobfarm exit --positions` sets the summoners one pocket at a time
+(designs/farms/iron/carousel-assembly/NOTES.md, "One chunk").
 A run's tick-level timing view (the carousel's parts and assembly): `mctas mobfarm timeline
 <design> --seed S --days D [--terrain <sample> | --build K] [--tag '<tag>'...] [--from T --to T]
 [--out DIR]` replays `mobfarm run`'s run (its counters printed beside the judge's: the same run tick

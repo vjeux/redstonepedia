@@ -32,3 +32,37 @@ once-a-night LAST_SLEPT (the real-game gate has no stand-in: it runs once the ro
 - v0a: 1,321 overworld blocks + 122 Nether, box x -4..14 y -11..9 z -6..25 = 12,768.
 - v0b WIP: 1,978 + 122, box x -4..13 y -5..9 z -6..42 = 13,230 (day-1's counter + scheduler block
   under the yard replaces v7 and the hold delivery cells; ironfarm's yard sets z to 48).
+
+## One chunk (onechunk, WIP, Nov 11)
+
+vjeux: "Can we have the system in one chunk?" Paper: ironspec's v0 (artifact 1105169452432266), the
+gravity queue v0 (2098083320824660), day-1's fold plan v1 (1017115541419820). The skeletons in
+`wip/onechunk/` are sketches: the committed parts placed as they are (`mctas mobfarm column`), no
+wiring, nothing benched, everything else a reserved box; both are written in the aligned frame
+(loop + 6,0,6); cells below are in the loop frame, y = the stand's rails.
+
+- Committed boxes (loop frame): stand A + pad (S3 92d039c02) x -3..9 y -6..6 z -6..7 (its posts down
+  to -6); R1 (d10a339bb, r1-combine's tail box + post columns) x 0..9 y -1..15 z 21..34 (its post at
+  y 12 over its rails); C24's register 17 x 16 x 47 (1,586 blocks) and controller 17 x 27 x 55
+  (1,185): neither fits 16 x 16 as committed (day-1's fold re-generates them); the turned bed stop
+  (e5737dbb7) 14 x 18 x 14.
+- The pad's golem spots (`mobfarm exit`, the 3 riders): all 44 at feet y 3 (the trench row at 2),
+  every run into a portal; per pocket alone 40 / 44 / 40. Lifted 1: all at y 4, each pocket
+  reaches them. Lifted 3 (y 6): pocket 3 alone finds no spot ("no golem can spawn anywhere in the
+  build"; the flood scans from the rider's cell and the one above, + 6).
+- The lock box decides every waiting tier (villager box grown 17.84 against the golem's): feet
+  at least 19.79 below the lowest golem spot or 20.54 above the highest. A straight run in the chunk
+  rises 15 at most, so a 20-cell climb takes a corner.
+- A dug cavity's rock floor inside the stand's golem band (y -8..+6 around the pockets) is a golem
+  floor: a stone floor at y -7 under the stand gives spots all over the column and golems that
+  reach the zombies; bottom cobblestone slabs on it (y -6) leave the 44 pad spots only.
+- `skeleton-b-folded.txt`, (b) with the folded register: pad +1, queue tier -21..-16 (peaks -17), H
+  at rails -17, gap -15..-7, bed stop -39..-22, controller -49..-40, cover 8..10: 16 x 60 x 16 =
+  15,360 blocks³; `mobfarm bill` (void, middle) 130.3 build minutes on its 771 placed blocks.
+- `skeleton-v3-gravity.txt`, the gravity queue: today's pad, the stand tier's floor capped, golem
+  zone 7..24, queue tier 25..39 (hold feet >= 24.5), tail tier 40..49, bed stop 50..67, cover
+  68..71: 16 x 78 x 16 = 19,968 blocks³; 140.0 build minutes on its 1,020 placed blocks.
+- `bill --terrain` finds a spot that deep in village-edge only: plains and forest refuse inside the
+  judge's 14-column spot search (water at y 25 under plains' start, a mineshaft at y 4..6, the
+  forest's river and logs, uneven ground); the samples are full height. b8949c96's dug-in finder
+  (explore/farmopt-dugin) searches the whole sample.
