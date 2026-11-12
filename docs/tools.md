@@ -175,7 +175,13 @@ ports, a later part's shared-bed `home`, one Nether part, `positions:` and `decl
 its junctions settled as `mobfarm paste` settles them; `--ground` so `mobfarm bill --terrain` digs
 it in, `--out-shift` to write it in the farm's aligned frame (loop + 6,0,6), `--no-riders` so
 `mobfarm exit --positions` sets the summoners one pocket at a time
-(designs/farms/iron/carousel-assembly/NOTES.md, "One chunk").
+(designs/farms/iron/carousel-assembly/NOTES.md, "One chunk"). Stand-ins for a lane's cells until
+they land: `--track NAME=x,y,z;x,y,z;...` (plain rails through the waypoints, a stone under each:
+each leg along x or z, a rising leg climbing in its last cells and a falling one dropping in its
+first, so a curve never slopes), `--cart x,y,z[,Y][,empty]`, `--post x,y,z` (the brief's zombie
+post); `--clear` boxes take committed cells out first (a lane's re-lay), `--note` writes header
+lines (the joints table), `--positions-out F` writes every villager position (riders' cells and
+sketch rail cells) for the flood with a summoner at each.
 A run's tick-level timing view (the carousel's parts and assembly): `mctas mobfarm timeline
 <design> --seed S --days D [--terrain <sample> | --build K] [--tag '<tag>'...] [--from T --to T]
 [--out DIR]` replays `mobfarm run`'s run (its counters printed beside the judge's: the same run tick

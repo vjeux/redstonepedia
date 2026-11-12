@@ -66,3 +66,19 @@ wiring, nothing benched, everything else a reserved box; both are written in the
   judge's 14-column spot search (water at y 25 under plains' start, a mineshaft at y 4..6, the
   forest's river and logs, uneven ground); the samples are full height. b8949c96's dug-in finder
   (explore/farmopt-dugin) searches the whole sample.
+- `skeleton-v4-inverted.txt`, the lead (ironspec 17:30): v3 with the pad below the stand (the
+  committed pad moved down 9: all 44 golem spots at feet y -6; per pocket 40/44/40; the pad one
+  lower and pocket 1 alone finds no spot), so every waiting rider needs feet >= 14.54 and the
+  hold sits at 16.18. The flood with every villager position a summoner (124: riders, every
+  sketch rail cell, the napper on foot; the bed cleared so it floods as a part) finds the pad's
+  spots only, with no bottom slab: the stand's blocks and the tracks offer no golem floor in the
+  band and the cavity's floor (y -10) lies below every pocket's reach; a stone with air above
+  beside the stand is caught. The stand's posts move off the pad (post-search: (4,2,-6),
+  (2,4,-6), (9,4,-4); flee-check's verdicts as the committed stand's); the pressed run's posts
+  (2,31,5), (2,24,-2), (3,28,4), (3,21,-3) cover its 14 cells (least 6.35); the napper on foot
+  sees no zombie (its waker behind the hatch), and a post moved into its view at (-1,48,8) shows
+  in sight (and inside 6.05). Its header carries the joints table. 16 x 73 x 16 = 18,688 blocks³.
+- The sentinel villager (b8949c96's rule: in the shared bed's section, its box more than 11 from
+  every villager position's box on one axis, sealed, the AFK 2 sections away) has no room in the
+  bed's section of any of the three: the bed stop fills the 16-wide column; it goes in the next
+  chunk at the bed's height.
