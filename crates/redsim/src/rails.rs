@@ -328,6 +328,15 @@ pub fn can_survive(w: &World, p: BlockPos) -> bool {
     rigid(w, p.below())
 }
 
+/// (farmopt, Nov 12 2026, ironspec's ruling after onechunk found ironfarm's top slopes unsupported)
+/// Whether the rail at `p` would pop on its next neighbour update: `BaseRailBlock.shouldBeRemoved`
+/// (no rigid top below, or an ascending rail with no rigid block on its high side). False for a
+/// block that is no rail. `mctas design would-pop` lists them in design files.
+pub fn would_pop(w: &World, p: BlockPos) -> bool {
+    let s = w.get(p);
+    is_rail(&s) && should_be_removed(w, p, shape_of(&s))
+}
+
 /// `shouldBeRemoved`.
 fn should_be_removed(w: &World, p: BlockPos, shape: RailShape) -> bool {
     if !rigid(w, p.below()) {

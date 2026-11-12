@@ -20,12 +20,93 @@ pub enum DesignCmd {
         #[arg(long)]
         rewrite: Option<String>,
     },
+    /// (farmopt, Nov 12 2026, ironspec's ruling after onechunk found ironfarm's lane top slopes
+    /// unsupported) List every rail in the design files (.txt) under the PATHs that would pop on
+    /// its next neighbour update: 26.3's `BaseRailBlock.shouldBeRemoved` (redsim's port) — no
+    /// rigid top below, or an ascending rail with no rigid block on its high side. The overworld
+    /// blocks and the Nether part are each pasted raw into their own world. A rail beside a block
+    /// redsim can't parse is reported as unjudged, not as a pop.
+    WouldPop { paths: Vec<PathBuf> },
 }
 
 pub fn run(cmd: DesignCmd) -> Result<()> {
     match cmd {
         DesignCmd::BlankRows { paths, rewrite } => blank_rows(&paths, rewrite.as_deref()),
+        DesignCmd::WouldPop { paths } => would_pop(&paths),
     }
+}
+
+/// The rails of one part (its blocks pasted raw into a world one cell larger on every side) that
+/// would pop, and those left unjudged because a neighbour (below or beside) doesn't parse in redsim.
+fn popping_rails(blocks: &BTreeMap<[i32; 3], String>) -> (Vec<[i32; 3]>, Vec<[i32; 3]>) {
+    use redsim::pos::BlockPos;
+    let Some(first) = blocks.keys().next() else { return (Vec::new(), Vec::new()) };
+    let (mut lo, mut hi) = (*first, *first);
+    for p in blocks.keys() {
+        for i in 0..3 {
+            lo[i] = lo[i].min(p[i]);
+            hi[i] = hi[i].max(p[i]);
+        }
+    }
+    let mut w = redsim::world::World::new(BlockPos::new(lo[0] - 1, lo[1] - 1, lo[2] - 1), [hi[0] - lo[0] + 3, hi[1] - lo[1] + 3, hi[2] - lo[2] + 3]);
+    let mut cells = Vec::new();
+    let mut unparsed: BTreeSet<[i32; 3]> = BTreeSet::new();
+    for (p, s) in blocks {
+        match redsim::block::Block::parse(s) {
+            Ok(b) => cells.push((BlockPos::new(p[0], p[1], p[2]), b)),
+            Err(_) => {
+                unparsed.insert(*p);
+            }
+        }
+    }
+    w.place_raw(&cells);
+    let (mut pops, mut unjudged) = (Vec::new(), Vec::new());
+    for p in blocks.keys() {
+        let bp = BlockPos::new(p[0], p[1], p[2]);
+        if !redsim::rails::would_pop(&w, bp) {
+            continue;
+        }
+        let near = [[0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]].iter().any(|d| unparsed.contains(&[p[0] + d[0], p[1] + d[1], p[2] + d[2]]));
+        if near {
+            unjudged.push(*p);
+        } else {
+            pops.push(*p);
+        }
+    }
+    (pops, unjudged)
+}
+
+fn would_pop(paths: &[PathBuf]) -> Result<()> {
+    let mut files = Vec::new();
+    for p in paths {
+        walk(p, &mut files)?;
+    }
+    let (mut designs, mut failing, mut cells, mut unjudged_files) = (0usize, 0usize, 0usize, 0usize);
+    for f in &files {
+        let Ok(text) = std::fs::read_to_string(f) else { continue };
+        let Ok(d) = Design::parse(&text) else { continue };
+        designs += 1;
+        let (pops, unjudged) = popping_rails(&d.blocks);
+        let (npops, nunjudged) = popping_rails(&d.nether_blocks);
+        let show = |v: &[[i32; 3]]| v.iter().take(8).map(|p| format!("{},{},{}", p[0], p[1], p[2])).collect::<Vec<_>>().join(" ");
+        if !pops.is_empty() || !npops.is_empty() {
+            failing += 1;
+            cells += pops.len() + npops.len();
+            println!(
+                "{}: {} rail(s) would pop: {}{}",
+                f.display(),
+                pops.len() + npops.len(),
+                show(&pops),
+                if npops.is_empty() { String::new() } else { format!(" (Nether: {})", show(&npops)) }
+            );
+        }
+        if !unjudged.is_empty() || !nunjudged.is_empty() {
+            unjudged_files += 1;
+            println!("{}: {} rail(s) unjudged (a neighbour redsim can't parse): {}", f.display(), unjudged.len() + nunjudged.len(), show(&unjudged));
+        }
+    }
+    println!("{designs} design file(s) read; {failing} with rails that would pop ({cells} cells); {unjudged_files} with unjudged rails");
+    Ok(())
 }
 
 /// Every .txt under `p` (or `p` itself), in path order.

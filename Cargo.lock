@@ -1268,6 +1268,7 @@ dependencies = [
  "mctas",
  "mobai",
  "mobfarm",
+ "redsim",
  "regex",
  "serde_json",
  "site",
