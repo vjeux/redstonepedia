@@ -1285,7 +1285,10 @@ pub fn bench(spec: &FarmSpec, o: &ClimbOpts) -> Result<Vec<String>, String> {
                     g0_key_at = Some(e);
                 }
                 open[2] = g0_key_at.is_none();
-                open[1] = d1_first.is_none();
+                // (G1's D1 key armed by G0's shut, so the departure's own D1 crossings (P2's and
+                // P3's leaving carts, before the arming) never key it; G2's key needs G1 shut)
+                let g1_keyed = g0_key_at.is_some_and(|g| d1_edges.iter().any(|&e| e >= g));
+                open[1] = !g1_keyed;
                 open[0] = p2_key_at.is_none();
             }
         }
