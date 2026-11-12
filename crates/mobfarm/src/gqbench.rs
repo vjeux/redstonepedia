@@ -94,6 +94,10 @@ pub struct GqOpts {
     pub ds_slope: bool,
     /// Two empties adjacent in the pool come in through the intake as a merged pair.
     pub merged_intake: bool,
+    /// Edge escapement: re-arm G_P when its cart never reached the escapement sensor (31 live gt).
+    pub gp_retry: bool,
+    /// Ga's close delay after P_b's edge runs as a locked chain (not paused by a freeze).
+    pub pb_locked: bool,
     /// Edge escapement: G_P only after no hold sensor edge for this many gt (the hold settled).
     pub fill_quiet: i64,
     /// The start state: the run empty, carts admitted seated one at a time until N are on it.
@@ -102,6 +106,9 @@ pub struct GqOpts {
     pub gentle: bool,
     /// The gentle fill's control: never seat.
     pub gentle_no_seat: bool,
+    /// The gentle fill with each cart already seated (it arrives ridden and is released from rest
+    /// within one cell above the back: the stop-block procedure).
+    pub gentle_seated: bool,
     /// (cc767b78) day-1's live-time cycle clock and liveness gate (`crate::liveness`): the cycle
     /// restarts at each golem event (the column live at a summon boundary: a frozen column makes
     /// none), every pulse (the hold's release at T+3, G_P and G0's openings, the tail chain's
@@ -613,6 +620,13 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
     let mut release_n: usize = 0;
     let mut ds_since: usize = 0;
     let mut pb_close_at: Option<i64> = None;
+    let mut pb_armed = false;
+    let mut pb_live: i64 = 0;
+    let mut rel_live: i64 = 0;
+    let mut stage_live: i64 = 0;
+    let mut gp_waiting: Option<i64> = None;
+    let mut gp_wait_live: i64 = 0;
+    let mut gp_retries: usize = 0;
     let mut ds_first_at: Option<i64> = None;
     let mut gone: Vec<bool> = vec![false; o.carts];
     let mut reset_log = String::new();
@@ -902,6 +916,8 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                     // the only cart to cross it during a release, keys Ga's close D gt later)
                     if h == 1 && o.hold_close_pb > 0 && hold_release_at >= 0 && t > hold_release_at && t < hold_release_at + o.hold_pulse && pb_close_at.is_none() {
                         pb_close_at = Some(t + o.hold_close_pb);
+                        pb_armed = true;
+                        pb_live = 0;
                         if std::env::var("MCTAS_GQ_EVENTS").is_ok() {
                             eprintln!("t {t}: P_b edge in the release at {hold_release_at}: Ga closes at {}", t + o.hold_close_pb);
                         }
@@ -930,6 +946,9 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
         if let Some((ex, ey)) = g.esc_s {
             let on = matches!(run.world.get(BlockPos::new(ex, ey, 0)), Block::DetectorRail { powered: true, .. });
             if on && !esc_was_on && o.edge_esc && !frz {
+                // (the staged cart passed: G_P's opening did its job)
+                gp_waiting = None;
+                gp_wait_live = 0;
                 // (with --alive-gate the edge's pulse rises only while ALIVE: a refused edge waits,
                 // latched, for ALIVE)
                 if o.alive && !(alive && gate.allow_rise(&run.world, "G0 (escapement edge)", t)) {
@@ -937,6 +956,7 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                 } else {
                     eg0_until = t + 12;
                     staged_at = Some(t);
+                    stage_live = 0;
                 }
                 if std::env::var("MCTAS_GQ_EVENTS").is_ok() {
                     eprintln!("t {t}: escapement sensor edge, G0 fires{}", if g0_wait { " (waiting for ALIVE)" } else { "" });
@@ -948,6 +968,7 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
             g0_wait = false;
             eg0_until = t + 12;
             staged_at = Some(t);
+            stage_live = 0;
         }
         // (the jam's reset (ironspec 18:48), at --reset-at T: the player breaks every empty cart (the
         // merged pair first: the carts are simply removed), then presses the escapement's reset: the
@@ -1019,6 +1040,9 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
             release_n = held;
             ds_since = 0;
             pb_close_at = None;
+            pb_armed = false;
+            pb_live = 0;
+            rel_live = 0;
             ds_first_at = None;
             hold_at_release.push((t, held));
             hold_release_until = t + o.hold_pulse;
@@ -1075,7 +1099,7 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                     };
                     if let Some((cx, cy)) = cell {
                         let k = gentle_next;
-                        ids[k] = Some(spawn(&mut run, [cx as f64 + 0.5, cy as f64 + 0.5 + 0.0625, 0.5], 0.0, false)?);
+                        ids[k] = Some(spawn(&mut run, [cx as f64 + 0.5, cy as f64 + 0.5 + 0.0625, 0.5], 0.0, o.gentle_seated)?);
                         gentle_seat = Some((k, t));
                         gentle_last_place = t;
                         gentle_log.push(format!("t {t}: cart {k} placed at x {:.1}{}", cx as f64 + 0.5, if back_x.is_infinite() { " (the run empty)".to_string() } else { format!(" (the back at {back_x:.3}, gap {:.3})", back_x - 0.79 - (cx as f64 + 0.5)) }));
@@ -1085,6 +1109,7 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                 }
                 Some((k, t0)) if (still || o.gentle_no_seat) && t > t0 + 5 => {
                     if !o.gentle_no_seat
+                        && !o.gentle_seated
                         && let Some(id) = ids[k]
                         && let Some((x, y, _)) = cart_state(&run.world, id)
                     {
@@ -1202,13 +1227,38 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                 eg0_until = t + 12;
                 staged_at = Some(t);
             }
-            if let Some(s) = staged_at
-                && t - s >= o.stage_delay
-            {
+            // (live-time timers, day-1's pause semantics: with --alive-gate every delay counts only
+            // ticks while ALIVE, so a freeze pauses it instead of letting it run out under frozen carts)
+            let live = !o.alive || alive;
+            if staged_at.is_some() && live {
+                stage_live += 1;
+            }
+            if staged_at.is_some() && stage_live >= o.stage_delay {
                 staged = true;
                 staged_at = None;
+                stage_live = 0;
             }
-            let quiet = hold_release_at < 0 || t >= hold_release_at + o.fill_after;
+            if hold_release_at >= 0 && live {
+                rel_live += 1;
+            }
+            // (--pb-locked: Ga's close delay a locked chain (runs through a freeze once started);
+            // otherwise pausable on ALIVE)
+            if pb_armed && (live || o.pb_locked) {
+                pb_live += 1;
+            }
+            // (G_P's retry: a G_P opening whose cart never reaches the escapement sensor (it froze on P
+            // through the opening) re-arms the staged latch after the pulse plus 20 live gt)
+            if gp_waiting.is_some() && live {
+                gp_wait_live += 1;
+            }
+            if gp_waiting.is_some() && gp_wait_live >= 11 + 20 && o.gp_retry {
+                gp_waiting = None;
+                gp_wait_live = 0;
+                staged = true;
+                fills_since = fills_since.saturating_sub(1);
+                gp_retries += 1;
+            }
+            let quiet = hold_release_at < 0 || rel_live >= o.fill_after;
             let spaced = t >= last_gp + o.esc_gap;
             // (--fill-count: the hold's room by count (fills since the last release under 3) instead
             // of its entry pocket's latch, so fills may follow each other into the hold)
@@ -1225,6 +1275,8 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                 staged = false;
                 last_gp = t;
                 fills_since += 1;
+                gp_waiting = Some(t);
+                gp_wait_live = 0;
                 if std::env::var("MCTAS_GQ_EVENTS").is_ok() {
                     eprintln!("t {t} (ph {ph}): G_P fires; occ_h {occ_h:?}");
                 }
@@ -1271,8 +1323,8 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                             until = until.min(t);
                         }
                     }
-                    if let Some(c) = pb_close_at {
-                        until = until.min(c);
+                    if pb_armed && pb_live >= o.hold_close_pb {
+                        until = until.min(t);
                     }
                     if hold_release_at >= 0 && t >= from && t < until {
                         true
@@ -1481,6 +1533,9 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
     l.push(format!("the front cart at G0's face: the highest stored speed at rest {front_v_max:.3}; backward moves in the run (a cart moving back up it by 0.05 or more in a tick) {back_moves}, the largest {back_max:.3} b/t"));
     if !reset_log.is_empty() {
         l.push(format!("the jam's reset: {reset_log}"));
+    }
+    if o.edge_esc {
+        l.push(format!("the edge escapement's G_P retries (an opening whose cart never reached the escapement sensor, re-armed after 31 live gt): {gp_retries}"));
     }
     l.push(format!("merges (two carts' centres within 0.5; separated when 0.9 apart): {}{}", merge_log.len(), if merge_log.is_empty() { String::new() } else { format!(" ({})", merge_log.iter().take(if o.cycles > 200 { 400 } else { 12 }).cloned().collect::<Vec<_>>().join("; ")) }));
     l.push(format!(

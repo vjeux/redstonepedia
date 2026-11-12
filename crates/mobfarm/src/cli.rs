@@ -1366,6 +1366,12 @@ pub enum MobfarmCmd {
         /// Two empties adjacent in the pool come in through the intake as a merged pair.
         #[arg(long)]
         merged_intake: bool,
+        /// Edge escapement: re-arm G_P when its cart never reached the escapement sensor.
+        #[arg(long)]
+        gp_retry: bool,
+        /// Ga's close delay after P_b's edge runs as a locked chain (not paused by a freeze).
+        #[arg(long)]
+        pb_locked: bool,
         /// Edge escapement: G_P only after no hold sensor edge for this many gt.
         #[arg(long, default_value_t = 0)]
         fill_quiet: i64,
@@ -1378,6 +1384,9 @@ pub enum MobfarmCmd {
         /// The gentle fill's control: never seat.
         #[arg(long)]
         gentle_no_seat: bool,
+        /// The gentle fill with each cart already seated (released from rest within a cell of the back).
+        #[arg(long)]
+        gentle_seated: bool,
         /// (cc767b78) Day-1's live-time cycle clock and liveness gate (crate::liveness): the cycle
         /// restarts at each golem event (the column live at a summon boundary), every pulse (the
         /// hold at T+3, G_P and G0's openings, the tail chain's release) ANDed with ALIVE at its
@@ -3983,7 +3992,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let rep = crate::pocketbench::pocket_bench(&o).map_err(|e| anyhow::anyhow!(e))?;
             println!("{}", rep.text);
         }
-        MobfarmCmd::GqBench { carts, riders, tail, run, cap, cycles, corner, pulse, wire, spacer, ret, ret_gap, ret_speed, freeze, hold_pulse, hold_ripple, settle, overfill, adm_settle, intake_admit, ideal_tail, no_intake_flat, back_at, edge_esc, stage_delay, fill_after, esc_gap, esc_sensor, fill_count, reset_at, hold_close_ds, hold_close_pb, hold_stagger_ds, ds_slope, merged_intake, fill_quiet, start_fill, gentle, gentle_no_seat, alive_gate, freeze32, freeze_matrix, jobs, hold_v, tail_v, hold_bb, hold_line, esc_at, hold_only } => {
+        MobfarmCmd::GqBench { carts, riders, tail, run, cap, cycles, corner, pulse, wire, spacer, ret, ret_gap, ret_speed, freeze, hold_pulse, hold_ripple, settle, overfill, adm_settle, intake_admit, ideal_tail, no_intake_flat, back_at, edge_esc, stage_delay, fill_after, esc_gap, esc_sensor, fill_count, reset_at, hold_close_ds, hold_close_pb, hold_stagger_ds, ds_slope, merged_intake, gp_retry, pb_locked, fill_quiet, start_fill, gentle, gentle_no_seat, gentle_seated, alive_gate, freeze32, freeze_matrix, jobs, hold_v, tail_v, hold_bb, hold_line, esc_at, hold_only } => {
             let pairs = |v: &[String], what: &str| -> anyhow::Result<Vec<(i64, i64)>> {
                 v.iter()
                     .map(|s| {
@@ -3994,7 +4003,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             };
             let fr = pairs(&freeze, "freeze")?;
             let fr32 = pairs(&freeze32, "freeze32")?;
-            let o = crate::gqbench::GqOpts { carts, riders: riders.iter().map(|r| *r != 0).collect(), tail, run, cap, cycles, corner, pulse, wire, spacer, ret, ret_gap, ret_speed, freeze: fr, hold_pulse, hold_ripple, settle, overfill, adm_settle, intake_admit, ideal_tail, no_intake_flat, back_at, edge_esc, stage_delay, fill_after, esc_gap, esc_sensor, fill_count, reset_at, hold_close_ds, hold_close_pb, hold_stagger_ds, ds_slope, merged_intake, fill_quiet, start_fill, gentle, gentle_no_seat, alive: alive_gate, freeze32: fr32, hold_v, tail_v, hold_bb, hold_line, esc_at, hold_only };
+            let o = crate::gqbench::GqOpts { carts, riders: riders.iter().map(|r| *r != 0).collect(), tail, run, cap, cycles, corner, pulse, wire, spacer, ret, ret_gap, ret_speed, freeze: fr, hold_pulse, hold_ripple, settle, overfill, adm_settle, intake_admit, ideal_tail, no_intake_flat, back_at, edge_esc, stage_delay, fill_after, esc_gap, esc_sensor, fill_count, reset_at, hold_close_ds, hold_close_pb, hold_stagger_ds, ds_slope, merged_intake, gp_retry, pb_locked, fill_quiet, start_fill, gentle, gentle_no_seat, gentle_seated, alive: alive_gate, freeze32: fr32, hold_v, tail_v, hold_bb, hold_line, esc_at, hold_only };
             if !freeze_matrix.is_empty() {
                 let parts: Vec<&str> = freeze_matrix.split(';').collect();
                 let sv: Vec<i64> = parts.first().unwrap_or(&"").split(',').filter_map(|x| x.trim().parse().ok()).collect();
@@ -4047,6 +4056,33 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         let into = after("must be 0): ").map(|x| num(&x)).unwrap_or("-".to_string());
                         let dropped = after("sequences dropped ").map(|x| num(&x)).unwrap_or("-".to_string());
                         let lost = after("a consequence row): ").map(|x| x.to_string()).unwrap_or("-".to_string());
+                        // (the hold's front-gate margins and the fill's last cart, the worst after the
+                        // first two releases; which gates shut onto a cart)
+                        let margins = r.lines().find_map(|l| l.split("bar 2 or more): ").nth(1)).map(|x| {
+                            let ps: Vec<(Option<i64>, Option<i64>)> = x.split(", t ").skip(2).filter_map(|p| p.split(": ").nth(1)).map(|p| {
+                                let mut it = p.split(" / ");
+                                (it.next().and_then(|a| a.trim().parse().ok()), it.next().and_then(|b| b.trim().parse().ok()))
+                            }).collect();
+                            let a = ps.iter().filter_map(|p| p.0).min().map_or("-".to_string(), |v| v.to_string());
+                            let b = ps.iter().filter_map(|p| p.1).min().map_or("-".to_string(), |v| v.to_string());
+                            let nc = ps.iter().filter(|p| p.0.is_none()).count();
+                            format!("rear clear->shut {a}, shut->next {b}{}", if nc > 0 { format!(" ({nc} releases with the rear not clear)") } else { String::new() })
+                        }).unwrap_or("-".to_string());
+                        let lastfill = r.lines().find(|l| l.starts_with("the hold's hand-off")).map(|l| {
+                            let vs: Vec<i64> = l.split("last fill ").skip(3).filter_map(|x| x.split(' ').next()).filter_map(|x| x.parse().ok()).collect();
+                            vs.iter().min().map_or("-".to_string(), |v| format!("{v} gt before T+3"))
+                        }).unwrap_or("-".to_string());
+                        let which = r.lines().find(|l| l.starts_with("gate shuts onto a cart")).map(|l| {
+                            let mut by: std::collections::BTreeMap<String, usize> = Default::default();
+                            for part in l.split(": ").skip(2) {
+                                if let Some(gname) = part.split(" shut onto").next().filter(|_| part.contains(" shut onto")) {
+                                    *by.entry(gname.trim().to_string()).or_default() += 1;
+                                }
+                            }
+                            by.iter().map(|(k, v)| format!("{k} {v}")).collect::<Vec<_>>().join(", ")
+                        }).unwrap_or_default();
+                        println!("freeze t {ft} for {d}: per opening {per_open} | shuts onto a cart {shuts}{} | hold margins {margins} | last fill {lastfill} | arrivals {arr} | run fill min {fill}, tail max {tail_max} | hold {held} | clock {clock} | latency {lat} | fired into a frozen cart {into} | sequences dropped {dropped} | releases lost {lost}", if which.is_empty() { String::new() } else { format!(" ({which})") });
+                        continue;
                         println!("freeze t {ft} for {d}: per opening {per_open} | shuts onto a cart {shuts} | arrivals {arr} | run fill min {fill}, tail max {tail_max} | hold {held} | clock {clock} | latency {lat} | fired into a frozen cart {into} | sequences dropped {dropped} | releases lost {lost}");
                     }
                 }
