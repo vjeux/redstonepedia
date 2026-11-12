@@ -202,6 +202,9 @@ pub struct DropOpts {
     /// The trapdoors shut this long after opening (0: they stay open).
     pub pulse: i64,
     pub occupancy: bool,
+    /// The trapdoors' timer on world ticks (a plain redstone clock running through a freeze), not
+    /// the live clock: the positive control for the strings.
+    pub release_world: bool,
     pub ticks: i64,
     pub seed: i64,
     pub freeze: Option<(i64, i64)>,
@@ -323,9 +326,10 @@ pub fn bench(spec: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats), 
             let (x, _, z) = pockets[k];
             let cell = BlockPos::new(x, o.hold_y, z);
             let occupied = o.occupancy && on_since[k].is_some_and(|s| live - s >= 20);
-            if opened[k].is_none() && !frozen_now && live >= o.release {
+            let due = if o.release_world { dt >= o.release } else { !frozen_now && live >= o.release };
+            if opened[k].is_none() && due {
                 if occupied {
-                    waited[k] = live - o.release + 1;
+                    waited[k] = (if o.release_world { dt } else { live }) - o.release + 1;
                 } else {
                     opened[k] = Some(dt);
                     opened_live[k] = live;

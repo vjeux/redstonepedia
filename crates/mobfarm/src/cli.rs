@@ -1648,6 +1648,10 @@ pub enum MobfarmCmd {
         /// Gate each trapdoor on its own pocket's string (held 20 gt: occupied, wait).
         #[arg(long)]
         occupancy: bool,
+        /// The trapdoors' timer on world ticks (a plain redstone clock through a freeze): the
+        /// strings' positive control.
+        #[arg(long)]
+        release_world: bool,
         #[arg(long, default_value = "1,1,1")]
         dep_riders: String,
         #[arg(long, default_value = "1,1,1")]
@@ -5299,7 +5303,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             }
         }
-        MobfarmCmd::DropBench { layout, hold_y, rel, stagger, rebrake, release, pulse, occupancy, dep_riders, arr_riders, freezes, freeze_sweep, ticks, seed, seeds, summary, out, trace } => {
+        MobfarmCmd::DropBench { layout, hold_y, rel, stagger, rebrake, release, pulse, occupancy, release_world, dep_riders, arr_riders, freezes, freeze_sweep, ticks, seed, seeds, summary, out, trace } => {
             let list = |s: &str| s.split(',').map(|x| x.trim().parse::<i64>()).collect::<Result<Vec<_>, _>>();
             let r3 = |s: &str| -> anyhow::Result<[bool; 3]> {
                 let v: Vec<&str> = s.split(',').map(|x| x.trim()).collect();
@@ -5350,7 +5354,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             for rb in &rebrakes {
                                 for rl in &releases {
                                     for s in seed..seed + seeds {
-                                        let o = crate::drop::DropOpts { layout: lo, hold_y: *h as i32, rel: *r, stagger: [st[0], st[1], st[2]], rebrake: *rb, release: *rl, pulse, occupancy, ticks, seed: s, freeze: *f, trace };
+                                        let o = crate::drop::DropOpts { layout: lo, hold_y: *h as i32, rel: *r, stagger: [st[0], st[1], st[2]], rebrake: *rb, release: *rl, pulse, occupancy, release_world, ticks, seed: s, freeze: *f, trace };
                                         let (lines, stats) = crate::drop::bench(&fspec, &o).map_err(|e| anyhow::anyhow!(e))?;
                                         runs.push(stats);
                                         if !summary {
