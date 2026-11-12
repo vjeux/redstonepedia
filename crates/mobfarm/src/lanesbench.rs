@@ -253,9 +253,8 @@ pub fn lanes_bench(o: &LanesOpts) -> Result<String, String> {
     lines.push(format!("gate shuts onto a cart (the bar: 0): {}{}", shut_onto.len(), if shut_onto.is_empty() { String::new() } else { format!(" ({})", shut_onto.iter().take(6).cloned().collect::<Vec<_>>().join("; ")) }));
     let amax = arrivals.iter().map(|a| a.1).fold(0.0f64, f64::max);
     lines.push(format!(
-        "arrivals at the lanes' backs (the intakes and the trains closing up): {}, {} above 0.46 (the brief's gravity-run bar), {} above 0.2 (the hold brief's contact bar), the hardest {amax:.3}",
+        "arrivals at the lanes' backs (the intakes and the trains closing up; this bench's bar is the hold brief's contact bar 0.2, not the gravity run's 0.46): {}, {} above 0.2, the hardest {amax:.3}",
         arrivals.len(),
-        arrivals.iter().filter(|a| a.1 > 0.46).count(),
         arrivals.iter().filter(|a| a.1 > 0.2).count()
     ));
     if !spacing.is_empty() {
