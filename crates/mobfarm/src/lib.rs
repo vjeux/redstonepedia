@@ -51,6 +51,8 @@ pub mod trim;
 pub mod validate;
 pub mod weathercheck;
 pub mod sitecheck;
+pub mod sky;
+pub mod siting;
 pub mod fleecheck;
 pub mod envelope;
 pub mod tile;

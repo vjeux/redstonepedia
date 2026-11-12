@@ -84,7 +84,7 @@ impl Zombie {
         Vec3::new((self.bb.min_x + self.bb.max_x) / 2.0, self.bb.min_y + 1.74, (self.bb.min_z + self.bb.max_z) / 2.0)
     }
     /// Its box and its boat's.
-    fn boxes(&self) -> Vec<Aabb> {
+    pub(crate) fn boxes(&self) -> Vec<Aabb> {
         std::iter::once(self.bb).chain(self.boat).collect()
     }
 }
@@ -1372,7 +1372,7 @@ fn shell_seals(w: &World, lo: BlockPos, hi: BlockPos, spawners: &[BlockPos]) -> 
 
 /// A design's `chunk: <x> <y> <z> <X0>-<X1> <Z0>-<Z1>` header (the brief's chunk alignment): the
 /// reference block's design cell and the allowed world X & 15 and Z & 15 ranges.
-fn chunk_rule(c: &circuit::Circuit) -> Result<Option<(BlockPos, (i32, i32), (i32, i32))>, String> {
+pub(crate) fn chunk_rule(c: &circuit::Circuit) -> Result<Option<(BlockPos, (i32, i32), (i32, i32))>, String> {
     let Some(v) = c.clock.design.meta.get("chunk") else { return Ok(None) };
     let t: Vec<&str> = v.split_whitespace().collect();
     let range = |s: &str| -> Result<(i32, i32), String> {
@@ -1388,7 +1388,7 @@ fn chunk_rule(c: &circuit::Circuit) -> Result<Option<(BlockPos, (i32, i32), (i32
 
 /// Whether the design moved by `dx`, `dz` (design to world) puts its chunk reference block at an
 /// allowed X & 15 and Z & 15.
-fn chunk_ok(r: &(BlockPos, (i32, i32), (i32, i32)), dx: i32, dz: i32) -> bool {
+pub(crate) fn chunk_ok(r: &(BlockPos, (i32, i32), (i32, i32)), dx: i32, dz: i32) -> bool {
     let (x, z) = ((r.0.x + dx).rem_euclid(16), (r.0.z + dz).rem_euclid(16));
     x >= r.1.0 && x <= r.1.1 && z >= r.2.0 && z <= r.2.1
 }

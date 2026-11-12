@@ -1653,6 +1653,119 @@ pub enum MobfarmCmd {
         #[arg(long)]
         speeds: Option<PathBuf>,
     },
+    /// (ironspec 2026-11-11, vjeux's stage correction: the carousel is the endgame farm) The sky
+    /// variant: the module floating over a terrain sample, nothing on the natural surface, at the
+    /// spot needing the least scaffold (every villager position 8 above the highest natural block
+    /// within 8 columns, the box above everything natural under it), with an opaque roof of
+    /// bottom slabs outside every strike's box (the footprint and 3 around, or the footprint and
+    /// one lightning rod: `--rod`), a daylight detector on it, the boxes of `--remove` (the
+    /// sentinel room) taken out; prints what it adds and removes, writes the sky design (its
+    /// `ground:` at the natural ground under it, for `mobfarm bill`'s height rows).
+    /// (ironspec 2026-11-11, vjeux's compact one-bed plan) A module's siting cost from its envelope
+    /// alone (`mobfarm::siting`, for farmopt's envelope tool): the roof, the rod, the time signal,
+    /// its own spawn-proofing, the pearl loader, the ground light and fence ring on the surface,
+    /// the height's trips and edge placements, at a stage's prices; sky and surface, each with and
+    /// without a rod.
+    Siting {
+        /// The module's box, W x D x H (blocks).
+        #[arg(long)]
+        envelope: String,
+        /// The blocks it places.
+        #[arg(long)]
+        blocks: u32,
+        /// Its own dark floors a monster stands on.
+        #[arg(long, default_value_t = 0)]
+        floors: u32,
+        /// Its lowest ranged target's level over its floor (a villager position or a golem cell).
+        #[arg(long, default_value_t = 0)]
+        low: i32,
+        /// Its highest villager position's level over its floor (the roof goes 6 over it; default:
+        /// the box's top already clears it).
+        #[arg(long, default_value_t = i32::MIN / 2)]
+        high: i32,
+        /// The share of its blocks placed at an edge in the sky (v4 C': 0.68).
+        #[arg(long, default_value_t = 0.68)]
+        edge: f64,
+        /// The chunks it covers (default: its footprint on the chunk grid).
+        #[arg(long)]
+        chunks: Option<u32>,
+        /// A shared loader's blocks a module instead of a pearl stasis cell per chunk (the
+        /// ring-free plan's item loop, ~18).
+        #[arg(long)]
+        loader_blocks: Option<u32>,
+        /// Its other trips, each to its mid-height (scarers placed, lava trips).
+        #[arg(long, default_value_t = 0)]
+        extra_trips: u32,
+        /// Its own dark floors lit, one torch per this many floors, instead of a slab on each.
+        #[arg(long)]
+        floor_torch: Option<u32>,
+        /// The modules in an array (9fc3155f's tiling), sharing the rod and the surface's lit
+        /// ground and fence ring; the rows are a module's share.
+        #[arg(long, default_value_t = 1)]
+        array: u32,
+        /// Sky: every target this high over the highest natural block within this many columns (8:
+        /// the golem search's band; 16: the golem cells out of a ground skeleton's bow, the
+        /// villagers out of a pillager's sensing, 15 each).
+        #[arg(long, default_value_t = 8)]
+        range: i32,
+        /// Sky: the highest natural block within `range` columns over the highest under the module.
+        #[arg(long, default_value_t = 0)]
+        relief: i32,
+        /// Surface: the lit and fenced ground's reach from the module.
+        #[arg(long, default_value_t = 16)]
+        radius: i32,
+        #[arg(long, default_value = "late")]
+        stage: String,
+        /// The pocket level's height over the module's floor: with it, each sky siting prints its
+        /// site condition, the highest ground top keeping the pocket at --max-pocket-y or lower
+        /// (the standard layout's design choice, no game rule: ironspec 2026-11-12).
+        #[arg(long)]
+        pocket_level: Option<i32>,
+        /// The highest world y the pocket level may take.
+        #[arg(long, default_value_t = 110)]
+        max_pocket_y: i32,
+    },
+    Sky {
+        design: PathBuf,
+        #[arg(long)]
+        terrain: String,
+        /// One lightning rod on the roof (the roof then over the footprint only).
+        #[arg(long)]
+        rod: bool,
+        /// A box of design cells taken out of the design, X0,Y0,Z0..X1,Y1,Z1 (repeatable).
+        #[arg(long, allow_hyphen_values = true)]
+        remove: Vec<String>,
+        /// Extra villager positions, as site-check's `--positions`.
+        #[arg(long)]
+        positions: Vec<PathBuf>,
+        /// Every rail cell a villager position (riders on carts).
+        #[arg(long)]
+        rails: bool,
+        /// Every villager position at least this high over the highest natural block within this
+        /// many columns (8, the rule: the golem search's band; 16: the golem cells out of a ground
+        /// skeleton's bow, the villagers out of a pillager's sensing, 15 each).
+        #[arg(long, default_value_t = 8)]
+        range: i32,
+        /// The design y of the pocket level (its stand pockets): with it, spots lifting it over
+        /// --max-pocket-y are refused: the standard layout's design choice, a tool default and no
+        /// game rule (ironspec 2026-11-12: the shared kill room's portal at the pads' y, the loop
+        /// pair 13 or more levels away and the whole Nether side under the roof for survival
+        /// access need the pocket at 110 or less; 26.3 links pre-built portals at any y, G1).
+        #[arg(long, allow_hyphen_values = true)]
+        pocket_y: Option<i32>,
+        /// The highest world y the pocket level may take (the standard layout's choice).
+        #[arg(long, default_value_t = 110)]
+        max_pocket_y: i32,
+        /// Drop the standard layout's pocket cap, for a site that needs it: its gate is then
+        /// onechunk's `portal-links` on that site's own Nether cells, every pad and loop portal
+        /// linking to its intended partner by 3D distance with a margin of 2 or more (ironspec
+        /// 2026-11-12); the report names it.
+        #[arg(long)]
+        no_pocket_cap: bool,
+        /// The sky design written here.
+        #[arg(long)]
+        out: PathBuf,
+    },
     /// Two designs compared cell by cell (a lab change's cost): the cells only B has (added), only
     /// A has (removed) and those both hold with different blocks (changed), each list counted by
     /// block kind; positions moved by --shift X,Z first (B's frame back to A's).
@@ -5453,6 +5566,55 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 let col: Vec<String> = lay.path.iter().filter(|(p, _)| p[0] == -o.row_gap + o.shift[0] && p[2] < head - 1).map(|(p, k)| format!("{}:{}{}", p[2] - o.shift[1], p[1], match k { crate::queue::Cell::Boost => "B", crate::queue::Cell::Detector => "D", _ => "" })).collect();
                 println!("approach column x {} (loop z:y, B booster, D detector), the head slot at z {}{}: {}", -o.row_gap, head - o.shift[1], if crate::queue::hump_pad(&o) > 0 { format!(" (moved north {} by the hump)", crate::queue::hump_pad(&o)) } else { String::new() }, col.join(" "));
             }
+        }
+        MobfarmCmd::Siting { envelope, blocks, floors, low, high, edge, chunks, loader_blocks, extra_trips, floor_torch, array, range, relief, radius, stage, pocket_level, max_pocket_y } => {
+            let v: Vec<i32> = envelope.split(['x', 'X']).map(|n| n.trim().parse::<i32>()).collect::<Result<_, _>>()?;
+            anyhow::ensure!(v.len() == 3, "--envelope {envelope}: W x D x H, e.g. 16x16x69");
+            let ix = match stage.as_str() {
+                "day-1" | "day1" => 0,
+                "middle" => 1,
+                "late" | "fastest" => 2,
+                s => anyhow::bail!("--stage {s}: day-1, middle or late"),
+            };
+            let e = crate::siting::Envelope { w: v[0], d: v[1], h: v[2], blocks, floors, low, high, edge, chunks, loader_blocks, extra_trips, floor_torch, array };
+            for at in [
+                crate::siting::Placement::Sky { range, relief, rod: true },
+                crate::siting::Placement::Sky { range, relief, rod: false },
+                crate::siting::Placement::Surface { radius, rod: true },
+                crate::siting::Placement::Surface { radius, rod: false },
+            ] {
+                let s = crate::siting::siting(&e, &at, ix).map_err(|e| anyhow::anyhow!(e))?;
+                print!("{}", crate::siting::render(&e, &at, &s));
+                if let (Some(l), crate::siting::Placement::Sky { .. }) = (pocket_level, &at) {
+                    // the pocket at ground top + 1 + lift + its level over the floor
+                    println!("  site condition (the standard layout's design choice, no game rule: its kill-room portal at the pads' y, the loop pair 13+ levels away, the Nether side under the roof): the pocket level ({l} over the floor) at y {max_pocket_y} or lower: the ground top under the module at y {} or lower; a higher site's gate is onechunk's portal-links on its own Nether cells (every pad and loop portal to its intended partner by 3D distance, margin 2 or more)", max_pocket_y - 1 - s.lift - l);
+                }
+            }
+        }
+        MobfarmCmd::Sky { design, terrain, rod, remove, positions, rails, range, pocket_y, max_pocket_y, no_pocket_cap, out } => {
+            let mut extra: Vec<redsim::pos::BlockPos> = Vec::new();
+            for f in &positions {
+                for line in std::fs::read_to_string(f)?.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')) {
+                    let v: Vec<i32> = line.split([',', ' ']).filter(|s| !s.is_empty()).map(|n| n.parse::<i32>()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(v.len() == 3, "{}: a position takes x y z: {line}", f.display());
+                    extra.push(redsim::pos::BlockPos::new(v[0], v[1], v[2]));
+                }
+            }
+            let mut boxes = Vec::new();
+            for r in &remove {
+                let (a, b) = r.split_once("..").ok_or_else(|| anyhow::anyhow!("--remove {r}: X0,Y0,Z0..X1,Y1,Z1"))?;
+                let p = |s: &str| -> Result<redsim::pos::BlockPos> {
+                    let v: Vec<i32> = s.split(',').map(|n| n.trim().parse::<i32>()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(v.len() == 3, "--remove {r}: X0,Y0,Z0..X1,Y1,Z1");
+                    Ok(redsim::pos::BlockPos::new(v[0], v[1], v[2]))
+                };
+                let (a, b) = (p(a)?, p(b)?);
+                boxes.push((redsim::pos::BlockPos::new(a.x.min(b.x), a.y.min(b.y), a.z.min(b.z)), redsim::pos::BlockPos::new(a.x.max(b.x), a.y.max(b.y), a.z.max(b.z))));
+            }
+            let o = crate::sky::SkyOpts { rod, remove: boxes, positions: extra, rails, range, pocket: pocket_y.map(|y| (y, max_pocket_y)), capped: !no_pocket_cap };
+            let (report, text) = crate::sky::sky(&design, &terrain, &o).map_err(|e| anyhow::anyhow!(e))?;
+            std::fs::write(&out, text)?;
+            println!("{report}\nwritten: {}", out.display());
         }
         MobfarmCmd::SiteCheck { design, terrain, at, dug_in, cover, positions, rails, no_controls, afk, speeds } => {
             let (c, spec) = load(version, &design)?;
