@@ -46,8 +46,9 @@ pub struct LiftOpts {
     /// (c)'s napper: one more cart launched on the entry line (lane A) at this live tick, after
     /// the batches (the y 0 hold's release into a batch's gap).
     pub napper_at: Option<i64>,
-    /// (a‴)'s stopper: a soul sand block in the shaft at this height (the napper held under it,
-    /// the column above standing on it).
+    /// (a‴), rejected (the rider's eye crosses the soul sand on the way up; its head sits in the
+    /// stopper's cell while held): a soul sand block in the shaft at this height (the napper held
+    /// under it, the column above standing on it).
     pub stopper: Option<i32>,
     /// The bench frozen (its chunks at level 32: blocks tick, entities don't) from tick FROM for LEN
     /// gt; the carts' launches wait it out.
@@ -202,6 +203,76 @@ fn build(o: &LiftOpts) -> Result<FarmSpec, String> {
     })
 }
 
+/// One cart's state for the pair tests.
+#[derive(Clone, Copy, Debug)]
+pub struct CartState {
+    pub x: f64,
+    pub y: f64,
+    pub z: f64,
+    pub vx: f64,
+    pub vy: f64,
+    pub vz: f64,
+    /// The cart's yaw (degrees; the minecart's heading vector is (cos, sin) of it).
+    pub yaw: f32,
+}
+
+impl CartState {
+    pub fn of(e: &redsim::entity::Entity) -> CartState {
+        CartState { x: e.pos.x, y: e.pos.y, z: e.pos.z, vx: e.delta_movement.x, vy: e.delta_movement.y, vz: e.delta_movement.z, yaw: e.y_rot }
+    }
+}
+
+/// The game's cart-cart contact (`AbstractMinecart`: the carts meeting its box inflated 0.2
+/// sideways; 0.98 x 0.7 x 0.98 boxes, so |dx|, |dz| < 1.18 and |dy| < 0.7): `None` apart, else
+/// whether the push acts (`push`: the centre line within |cos| >= 0.8 of either cart's yaw vector
+/// (cos yaw, sin yaw)) and the closing speed (the relative velocity's component along the centre
+/// line, positive closing).
+pub fn touch(a: &CartState, b: &CartState) -> Option<(bool, f64)> {
+    let (dx, dy, dz) = (b.x - a.x, b.y - a.y, b.z - a.z);
+    if dx.abs() >= 1.18 || dz.abs() >= 1.18 || dy.abs() >= 0.7 {
+        return None;
+    }
+    let h = (dx * dx + dz * dz).sqrt();
+    let push = h >= 1.0e-2
+        && [a.yaw, b.yaw].iter().any(|y| {
+            let r = (*y as f64).to_radians();
+            ((dx * r.cos() + dz * r.sin()) / h).abs() >= 0.8
+        });
+    let d = (dx * dx + dy * dy + dz * dz).sqrt().max(1.0e-9);
+    let closing = -((b.vx - a.vx) * dx + (b.vy - a.vy) * dy + (b.vz - a.vz) * dz) / d;
+    Some((push, closing))
+}
+
+/// The pair tests' tally: every touch (pair-ticks), the hardest closing, and the subset where the
+/// push acts.
+#[derive(Default)]
+pub struct Touches {
+    pub n: usize,
+    pub hardest: Option<(f64, i64, usize, usize, f64, f64, f64)>,
+    pub pushes: usize,
+    pub hardest_push: Option<(f64, i64, usize, usize, f64, f64, f64)>,
+}
+
+impl Touches {
+    pub fn note(&mut self, t: i64, a: usize, b: usize, s: &CartState, push: bool, closing: f64) {
+        let row = (closing, t, a, b, s.x, s.y, s.z);
+        self.n += 1;
+        if self.hardest.is_none_or(|h| closing > h.0) {
+            self.hardest = Some(row);
+        }
+        if push {
+            self.pushes += 1;
+            if self.hardest_push.is_none_or(|h| closing > h.0) {
+                self.hardest_push = Some(row);
+            }
+        }
+    }
+    pub fn line(&self) -> String {
+        let f = |h: Option<(f64, i64, usize, usize, f64, f64, f64)>| h.map_or(String::new(), |(c, t, a, b, x, y, z)| format!(", the hardest closing {c:.3} (t {t}, carts {a} and {b} at {x:.2},{y:.2},{z:.2})"));
+        format!("box touches (the game's push test: inflated 0.2 sideways, |dy| < 0.7) {} pair-ticks{}; where a push acts (|cos| >= 0.8 against either yaw) {}{}", self.n, f(self.hardest), self.pushes, f(self.hardest_push))
+    }
+}
+
 struct CartLog {
     id: Option<u32>,
     rider: Option<u32>,
@@ -231,6 +302,13 @@ struct CartLog {
 
 /// One bench run's report lines.
 pub fn lift_bench(o: &LiftOpts) -> Result<String, String> {
+    // (`--napper-at`: the napper follows the batches; G1: enforce it)
+    if let Some(na) = o.napper_at {
+        let last = (0..o.carts as i64).map(|k| if o.merge3 { (k / 3) * 100 + (k % 3) * o.spacing } else { k * o.spacing }).max().unwrap_or(0);
+        if na <= last {
+            return Err(format!("--napper-at {na} must come after the batches' last release (t {last})"));
+        }
+    }
     let spec = build(o)?;
     let ro = RunOpts { ai: true, ..RunOpts::steady(1, (o.ticks + 200) as u32, WalkMode::Random) };
     let mut run = Run::start(&spec, &ro)?;
@@ -259,8 +337,7 @@ pub fn lift_bench(o: &LiftOpts) -> Result<String, String> {
     let mut det_was = false;
     let mut health0: Vec<Option<f32>> = vec![None; n_carts];
     let mut column_gap = f64::INFINITY;
-    let mut contact_max = 0.0f64;
-    let mut contact_at: Option<(i64, usize, usize, f64, f64)> = None;
+    let mut touches = Touches::default();
     let mut piston_fired: Vec<(i64, usize, f64, f64)> = Vec::new();
     let mut piston_until: Option<i64> = None;
     let rblock = Block::parse("minecraft:redstone_block")?;
@@ -397,20 +474,20 @@ pub fn lift_bench(o: &LiftOpts) -> Result<String, String> {
             det_was = on;
         }
         // (cart pairs: the closest centres in the shaft's column (a rising cart under a bobbing
-        // one) and every contact's relative speed (centres within 1.0, closing))
-        let st: Vec<Option<(f64, f64, f64, f64, f64, f64)>> = logs.iter().map(|lg| lg.id.and_then(|id| redsim::entity::index_of(&run.world, id)).map(|i| { let e = &run.world.entities.list[i]; (e.pos.x, e.pos.y, e.delta_movement.x, e.delta_movement.y, e.pos.z, e.delta_movement.z) })).collect();
+        // one), and the game's cart-cart contact (G1, lift3 review): `AbstractMinecart` takes the
+        // carts meeting its box inflated 0.2 sideways (0.98 x 0.7 x 0.98 boxes: |dx|, |dz| < 1.18,
+        // |dy| < 0.7); the push acts only where the centre line is within |cos| >= 0.8 of either
+        // cart's yaw)
+        let st: Vec<Option<CartState>> = logs.iter().map(|lg| lg.id.and_then(|id| redsim::entity::index_of(&run.world, id)).map(|i| CartState::of(&run.world.entities.list[i]))).collect();
         for a in 0..st.len() {
             for b in a + 1..st.len() {
                 if let (Some(pa), Some(pb)) = (st[a], st[b]) {
-                    // (centres in 3-D: carts on side-by-side lanes (z 0 / 2 / -2) are not in contact)
-                    let d = ((pa.0 - pb.0).powi(2) + (pa.1 - pb.1).powi(2) + (pa.4 - pb.4).powi(2)).sqrt();
-                    if pa.0 > -0.1 && pa.0 < 1.0 && pb.0 > -0.1 && pb.0 < 1.0 {
+                    if pa.x > -0.1 && pa.x < 1.0 && pb.x > -0.1 && pb.x < 1.0 {
+                        let d = ((pa.x - pb.x).powi(2) + (pa.y - pb.y).powi(2) + (pa.z - pb.z).powi(2)).sqrt();
                         column_gap = column_gap.min(d);
                     }
-                    let rel = ((pa.2 - pb.2).powi(2) + (pa.3 - pb.3).powi(2) + (pa.5 - pb.5).powi(2)).sqrt();
-                    if d < 1.0 && rel > contact_max {
-                        contact_max = rel;
-                        contact_at = Some((t, a, b, pa.0, pa.1));
+                    if let Some((push, closing)) = touch(&pa, &pb) {
+                        touches.note(t, a, b, &pa, push, closing);
                     }
                 }
             }
@@ -535,7 +612,7 @@ pub fn lift_bench(o: &LiftOpts) -> Result<String, String> {
         if let Some((top, eye)) = lg.held
             && let Some(sy) = o.stopper
         {
-            out.push(format!("  cart {k} under the stopper at y {sy}: its top at {top:.3} (the stopper's bottom {sy}), the rider's eye at {eye:.3} (the soul sand's shape {sy}..{:.3})", sy as f64 + 0.875));
+            out.push(format!("  cart {k} under the stopper ((a‴), rejected) at y {sy}: its top at {top:.3} (the stopper's bottom {sy}), the rider's eye at {eye:.3} (the soul sand's shape {sy}..{:.3})", sy as f64 + 0.875));
         }
     }
     // (the primitive's cost: the shaft and its walls 3 x 3 from the soul sand's support to the
@@ -569,12 +646,7 @@ pub fn lift_bench(o: &LiftOpts) -> Result<String, String> {
             bv.iter().cloned().fold(None, |m: Option<f64>, v| Some(m.map_or(v, |m| m.max(v)))).map_or("-".into(), |v| format!("{v:.3}"))
         ));
     }
-    out.push(format!(
-        "pairs: the closest centres in the shaft's column {}; the hardest contact (centres within 1.0) {:.3}{}",
-        if column_gap.is_finite() { format!("{column_gap:.3}") } else { "-".into() },
-        contact_max,
-        contact_at.map_or(String::new(), |(t, a, b, x, y)| format!(" (t {t}, carts {a} and {b} at {x:.2},{y:.2})"))
-    ));
+    out.push(format!("pairs: the closest centres in the shaft's column {}; {}", if column_gap.is_finite() { format!("{column_gap:.3}") } else { "-".into() }, touches.line()));
     if o.exit == "piston" {
         out.push(format!("piston firings (tick, cart, its y, its vertical speed): {}", piston_fired.iter().map(|(t, k, y, vy)| format!("t {t} cart {k} y {y:.3} vy {vy:.3}")).collect::<Vec<_>>().join("; ")));
     }
