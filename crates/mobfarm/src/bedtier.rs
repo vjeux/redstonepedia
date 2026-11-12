@@ -55,9 +55,105 @@ pub const HOLD: [i32; 3] = [3, -1, 6];
 /// R's detector: past the hold (a held cart never reads as the tier cleared).
 pub const EXIT_DET: [i32; 3] = [4, -1, 6];
 
-/// The design: the bed tier alone, or (`bench`) with a run-out past the exit.
-pub fn design(bench: bool) -> Result<String> {
-    let mut b = Builder::new(if bench { "bed-tier-fold-bench" } else { "bed-tier-fold" });
+
+/// The napper's legs on C′ (ironspec 19:29; loop frame minus (0,50,0)): the divert from the switch
+/// flat (9,-14,-1) (loop (9,36,-1): a T on the tail's x 9 run, powered = its north-west curve, the
+/// carts from G1 turned west; unpowered = its south-west curve, a cart from the north passes south)
+/// climbing a square spiral (x 4..8, z -5..-1) to the tier's entry (3,2,-4), boosted on every
+/// straight but the last four slopes (an unboosted climb brings the cart from the rails' 0.4 to
+/// about 0.3, the tier's arrival cap); the return from R (4,-1,6) descending a 3 x 3 helix
+/// (x 5..7, z 6..8, four levels a lap, glass supports: a rider's eye never in a solid block) to
+/// (7,-16,8) and the re-entry's T on the tail's z 9 flats (7,-16,9). The legs share no cell.
+/// Each cell: (pos, rail state, powered rail).
+pub fn trip_cells() -> (Vec<([i32; 3], &'static str, bool)>, Vec<([i32; 3], &'static str)>) {
+    let divert: Vec<([i32; 3], &'static str, bool)> = vec![
+        ([8, -14, -1], "ascending_west", true),
+        ([7, -13, -1], "ascending_west", false),
+        ([6, -12, -1], "ascending_west", true),
+        ([5, -11, -1], "ascending_west", false),
+        ([4, -10, -1], "north_east", false),
+        ([4, -10, -2], "ascending_north", true),
+        ([4, -9, -3], "ascending_north", false),
+        ([4, -8, -4], "ascending_north", true),
+        ([4, -7, -5], "south_east", false),
+        ([5, -7, -5], "ascending_east", true),
+        ([6, -6, -5], "ascending_east", false),
+        ([7, -5, -5], "ascending_east", true),
+        ([8, -4, -5], "south_west", false),
+        ([8, -4, -4], "ascending_south", true),
+        ([8, -3, -3], "ascending_south", false),
+        ([8, -2, -2], "north_west", false),
+        ([7, -2, -2], "ascending_west", false),
+        ([6, -1, -2], "ascending_west", false),
+        ([5, 0, -2], "ascending_west", false),
+        ([4, 1, -2], "north_east", false),
+        ([4, 1, -3], "ascending_north", false),
+        ([4, 2, -4], "south_west", false),
+    ];
+    let mut ret: Vec<([i32; 3], &'static str)> = vec![([5, -1, 6], "east_west")];
+    // the helix: per lap east (slope down), the corner south, south (slope), the corner west,
+    // west (slope), the corner north, north (slope), the corner east
+    let mut y = -1;
+    for lap in 0..4 {
+        ret.push(([6, y - 1, 6], "ascending_west"));
+        ret.push(([7, y - 1, 6], "south_west"));
+        ret.push(([7, y - 2, 7], "ascending_north"));
+        if lap == 3 {
+            ret.push(([7, y - 3, 8], "ascending_north"));
+            break;
+        }
+        ret.push(([7, y - 2, 8], "north_west"));
+        ret.push(([6, y - 3, 8], "ascending_east"));
+        ret.push(([5, y - 3, 8], "north_east"));
+        ret.push(([5, y - 4, 7], "ascending_south"));
+        ret.push(([5, y - 4, 6], "south_east"));
+        y -= 4;
+    }
+    (divert, ret)
+}
+
+/// The re-entry's waiting cell (the T on the tail's z 9 flats; on the bench a braked rail).
+pub const WAIT: [i32; 3] = [7, -16, 9];
+/// The divert's first cell past the switch (the bench's cart starts on it, heading west).
+pub const DIVERT0: [i32; 3] = [8, -14, -1];
+
+fn trip_legs(b: &mut Builder) -> Result<()> {
+    let (divert, ret) = trip_cells();
+    // (one redstone block under one powered rail of each boosted straight: it powers the rail
+    // and the powered rails joined to it; the curves break the chain)
+    let boosters: [[i32; 3]; 7] = [[8, -14, -1], [6, -12, -1], [4, -10, -2], [4, -8, -4], [5, -7, -5], [7, -5, -5], [8, -4, -4]];
+    // (MCTAS_TRIP_POWERED=i,j,..: the divert cells (by index) laid as powered rails, each with a
+    // redstone block under it, in place of the default: the tuning knob for the arrival speed)
+    let over: Option<Vec<usize>> = std::env::var("MCTAS_TRIP_POWERED").ok().map(|s| s.split(',').filter_map(|x| x.trim().parse().ok()).collect());
+    for (k, (c, shape, powered)) in divert.iter().enumerate() {
+        let (powered, block) = match &over {
+            Some(v) => (v.contains(&k), v.contains(&k)),
+            None => (*powered, boosters.contains(c)),
+        };
+        if powered {
+            put(b, *c, &format!("powered_rail[powered=true,shape={shape},waterlogged=false]"))?;
+        } else {
+            put(b, *c, &format!("rail[shape={shape},waterlogged=false]"))?;
+        }
+        let under = [c[0], c[1] - 1, c[2]];
+        put(b, under, if block { "redstone_block" } else { "glass" })?;
+    }
+    for (c, shape) in &ret {
+        put(b, *c, &format!("rail[shape={shape},waterlogged=false]"))?;
+        put(b, [c[0], c[1] - 1, c[2]], "glass")?;
+    }
+    put(b, WAIT, "powered_rail[powered=false,shape=north_south,waterlogged=false]")?;
+    put(b, [WAIT[0], WAIT[1] - 1, WAIT[2]], "stone")?;
+    put(b, [WAIT[0], WAIT[1], WAIT[2] + 1], "stone")?;
+    // (the switch flat itself, the cart's start behind it)
+    put(b, [9, -14, -1], "rail[shape=north_west,waterlogged=false]")?;
+    put(b, [9, -15, -1], "stone")?;
+    Ok(())
+}
+/// The design with the napper's legs on C′ (`trip`: the divert spiral and the return helix in
+/// place of the bench's run-out).
+pub fn design_with(bench: bool, trip: bool) -> Result<String> {
+    let mut b = Builder::new(if trip { "bed-tier-fold-trip" } else if bench { "bed-tier-fold-bench" } else { "bed-tier-fold" });
     let rail = |s: &str| format!("rail[shape={s},waterlogged=false]");
     let cap = "iron_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]";
     let wall = |b: &mut Builder, c: [i32; 3]| -> Result<()> {
@@ -209,7 +305,9 @@ pub fn design(bench: bool) -> Result<String> {
             wall(&mut b, [n[0], 3, n[2]])?;
         }
     }
-    if bench {
+    if trip {
+        trip_legs(&mut b)?;
+    } else if bench {
         // the run-out past R and a stop
         for x in EXIT_DET[0] + 1..=EXIT_DET[0] + 6 {
             put(&mut b, [x, -1, 6], &rail("east_west"))?;
@@ -222,9 +320,14 @@ pub fn design(bench: bool) -> Result<String> {
     b.d.ports.insert("output".into(), [12, 0, 6]);
     b.d.ports.insert("home".into(), BED_HEAD);
     Ok(b.text(&[
-        "The one-chunk top tier's bed stop folded into C′'s envelope (loop frame minus (0,50,0); the bed's head at (-3,0,4)): a booster entry and an always-on activator heading west, one braked park rail on a slope, a slope, a capped flat, a curve south, four capped flats, the pickup cell beside the bed, a capped flat, a curve east, two capped flats, the exit slope, the rider check, the hold, R.",
-        "The rider lands on the ledge south of the activator, walks round to the pickup cell's column and drops in, sleeps; woken through the hatch it stands only on the pickup cell and keeps seeing the zombie there; the released cart reaches it under 0.2 b/t and seats it; a riderless cart is held before R.",
+        "The one-chunk top tier's bed stop folded into C′'s envelope (loop frame minus (0,50,0); the bed's head at (-3,0,4)): a booster entry and an always-on activator heading west, two braked park rails down a slope, a capped flat, a curve south, seven capped flats, the pickup cell beside the bed, a capped booster, a curve east, two capped flats, the exit slope, a flat, the hold under the rider check, R.",
+        "The rider lands on the ledge south of the activator, walks round onto the bed's roof and sleeps; woken through the hatch it stands only on the pickup cell and keeps seeing the zombie there; the released cart reaches it under 0.2 b/t and seats it; a riderless cart is held before R.",
     ]))
+}
+
+/// The design: the bed tier alone, or (`bench`) with a run-out past the exit.
+pub fn design(bench: bool) -> Result<String> {
+    design_with(bench, false)
 }
 
 /// One visit's unit-bench row.
@@ -254,6 +357,9 @@ pub struct Row {
     pub r_at: Option<i64>,
     /// The rider check held the cart on HOLD (still there 40 gt: the alarm), gt after the entry.
     pub held: Option<i64>,
+    /// (the trip) The cart onto the tier's entry, gt after the start.
+    pub entry_at: Option<i64>,
+    pub entry_speed: Option<f64>,
     /// Whether the cart left with the napper seated.
     pub seated_out: bool,
     pub problems: Vec<String>,
@@ -273,6 +379,9 @@ pub struct Faults {
     /// A level-32 freeze (the tier's entities stop ticking) from this gt after the entry, for this
     /// many gt.
     pub freeze: Option<(i64, i64)>,
+    /// The trip: the cart starts on the switch flat heading west up the divert, and the visit ends
+    /// at the re-entry's waiting cell past the return.
+    pub trip: bool,
 }
 
 fn block(s: &str) -> Block {
@@ -316,7 +425,8 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, f_at_in: i64, release_after
     } else {
         format!("{{Rotation:[0f,0f],Passengers:[{{id:\"minecraft:villager\",Brain:{{memories:{{\"minecraft:home\":{{value:{{dimension:\"minecraft:overworld\",pos:[I;{},{},{}]}}}}}}}}}}]}}", h[0], h[1], h[2])
     };
-    let cart_id = redsim::entity::spawn(&mut run.world, "minecraft:minecart", [ENTRY[0] as f64 + 0.5, ENTRY[1] as f64 + 0.0625, ENTRY[2] as f64 + 0.5], Some(&nbt))?;
+    let start = if f.trip { [9.5, -14.0 + 0.0625, -0.5] } else { [ENTRY[0] as f64 + 0.5, ENTRY[1] as f64 + 0.0625, ENTRY[2] as f64 + 0.5] };
+    let cart_id = redsim::entity::spawn(&mut run.world, "minecraft:minecart", start, Some(&nbt))?;
     let vill = run.world.entities.list.iter().find(|e| e.id == cart_id).and_then(|e| e.passengers.first().copied());
     if vill.is_none() && !f.empty {
         return Err("no rider".into());
@@ -327,7 +437,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, f_at_in: i64, release_after
     {
         let w = &mut run.world;
         let i = idx(w, cart_id).ok_or("cart gone")?;
-        w.entities.list[i].pos = Vec3::new(ENTRY[0] as f64 + 0.5, ENTRY[1] as f64 + 0.0625, ENTRY[2] as f64 + 0.5);
+        w.entities.list[i].pos = Vec3::new(start[0], start[1], start[2]);
         w.entities.list[i].delta_movement = Vec3::new(-speed, 0.0, 0.0);
         let ps = w.entities.list[i].passengers.clone();
         for pid in ps {
@@ -470,7 +580,17 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, f_at_in: i64, release_after
             row.held = Some(t - 40);
             break;
         }
-        if on_exit_row && c.pos.x > EXIT_DET[0] as f64 + 1.5 {
+        if f.trip && row.entry_at.is_none() && (c.pos.z - (ENTRY[2] as f64 + 0.5)).abs() < 0.3 && c.pos.x < ENTRY[0] as f64 + 0.5 && c.pos.y > 1.5 {
+            row.entry_at = Some(t);
+            row.entry_speed = Some(c.delta_movement.x.hypot(c.delta_movement.z));
+        }
+        if f.trip {
+            if ccell == WAIT && still >= 5 {
+                row.out_at = Some(t - 5);
+                row.seated_out = riding;
+                break;
+            }
+        } else if on_exit_row && c.pos.x > EXIT_DET[0] as f64 + 1.5 {
             row.out_at = Some(t);
             row.seated_out = riding;
             break;

@@ -1,5 +1,5 @@
-# The one-chunk top tier's bed stop folded into C′'s envelope (loop frame minus (0,50,0); the bed's head at (-3,0,4)): a booster entry and an always-on activator heading west, one braked park rail on a slope, a slope, a capped flat, a curve south, four capped flats, the pickup cell beside the bed, a capped flat, a curve east, two capped flats, the exit slope, the rider check, the hold, R.
-# The rider lands on the ledge south of the activator, walks round to the pickup cell's column and drops in, sleeps; woken through the hatch it stands only on the pickup cell and keeps seeing the zombie there; the released cart reaches it under 0.2 b/t and seats it; a riderless cart is held before R.
+# The one-chunk top tier's bed stop folded into C′'s envelope (loop frame minus (0,50,0); the bed's head at (-3,0,4)): a booster entry and an always-on activator heading west, two braked park rails down a slope, a capped flat, a curve south, seven capped flats, the pickup cell beside the bed, a capped booster, a curve east, two capped flats, the exit slope, a flat, the hold under the rider check, R.
+# The rider lands on the ledge south of the activator, walks round onto the bed's roof and sleeps; woken through the hatch it stands only on the pickup cell and keeps seeing the zombie there; the released cart reaches it under 0.2 b/t and seats it; a riderless cart is held before R.
 name: bed-tier-fold-bench
 circuit: mob-farm iron_ingot
 port home: -3 0 4

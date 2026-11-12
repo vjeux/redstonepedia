@@ -1,0 +1,400 @@
+# The one-chunk top tier's bed stop folded into C′'s envelope (loop frame minus (0,50,0); the bed's head at (-3,0,4)): a booster entry and an always-on activator heading west, two braked park rails down a slope, a capped flat, a curve south, seven capped flats, the pickup cell beside the bed, a capped booster, a curve east, two capped flats, the exit slope, a flat, the hold under the rider check, R.
+# The rider lands on the ledge south of the activator, walks round onto the bed's roof and sleeps; woken through the hatch it stands only on the pickup cell and keeps seeing the zombie there; the released cart reaches it under 0.2 b/t and seats it; a riderless cart is held before R.
+name: bed-tier-fold-trip
+circuit: mob-farm iron_ingot
+port home: -3 0 4
+port output: 12 0 6
+entity: minecraft:oak_boat -5 0 4.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
+origin: -6 0 -5
+palette:
+  A minecraft:activator_rail[powered=true,shape=east_west,waterlogged=false]
+  B minecraft:iron_trapdoor[facing=west,half=top,open=true,powered=true,waterlogged=false]
+  C minecraft:powered_rail[powered=false,shape=north_south,waterlogged=false]
+  D minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]
+  E minecraft:powered_rail[powered=true,shape=ascending_east,waterlogged=false]
+  F minecraft:powered_rail[powered=true,shape=ascending_north,waterlogged=false]
+  G minecraft:glass
+  H minecraft:powered_rail[powered=true,shape=ascending_south,waterlogged=false]
+  I minecraft:iron_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]
+  J minecraft:powered_rail[powered=true,shape=ascending_west,waterlogged=false]
+  K minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]
+  L minecraft:powered_rail[powered=true,shape=north_south,waterlogged=false]
+  M minecraft:rail[shape=ascending_south,waterlogged=false]
+  N minecraft:rail[shape=ascending_west,waterlogged=false]
+  O minecraft:oak_leaves[distance=1,persistent=true,waterlogged=false]
+  P minecraft:powered_rail[powered=false,shape=ascending_east,waterlogged=false]
+  Q minecraft:rail[shape=east_west,waterlogged=false]
+  R minecraft:rail[shape=ascending_east,waterlogged=false]
+  S minecraft:rail[shape=north_east,waterlogged=false]
+  T minecraft:rail[shape=north_south,waterlogged=false]
+  U minecraft:rail[shape=north_west,waterlogged=false]
+  V minecraft:rail[shape=south_east,waterlogged=false]
+  W minecraft:rail[shape=south_west,waterlogged=false]
+  X minecraft:red_bed[facing=south,occupied=false,part=foot]
+  Y minecraft:red_bed[facing=south,occupied=false,part=head]
+  Z minecraft:redstone_block
+  a minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]
+  b minecraft:tripwire_hook[attached=true,facing=north,powered=false]
+  c minecraft:tripwire_hook[attached=true,facing=south,powered=false]
+  i minecraft:iron_trapdoor[facing=west,half=bottom,open=true,powered=true,waterlogged=false]
+  p minecraft:powered_rail[powered=false,shape=east_west,waterlogged=false]
+  r minecraft:rail[shape=ascending_north,waterlogged=false]
+  s minecraft:stone
+  t minecraft:tripwire[attached=true,disarmed=false,east=false,north=true,powered=false,south=true,west=false]
+layer -17:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .............G
+  .............s
+  .
+layer -16:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .............G
+  .............r
+  .............C
+  .............s
+layer -15:
+  .
+  .
+  .
+  .
+  ..............Zs
+  .
+  .
+  .
+  .
+  .
+  .
+  ............GG
+  .............r
+  .
+  .
+  .
+layer -14:
+  .
+  .
+  .
+  .
+  .............GJU
+  .
+  .
+  .
+  .
+  .
+  .
+  ...........GNW
+  ...........G
+  .
+  .
+  .
+layer -13:
+  .
+  .
+  .
+  .
+  ............ZN
+  .
+  .
+  .
+  .
+  .
+  .
+  ...........V
+  ...........M
+  ...........GG
+  .
+  .
+layer -12:
+  .
+  .
+  .
+  .
+  ...........GJ
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .............G
+  ...........SRG
+  .
+  .
+layer -11:
+  .
+  .
+  .
+  ..........Z
+  ..........GN
+  .
+  .
+  .
+  .
+  .
+  .
+  ............GG
+  .............r
+  .............U
+  .
+  .
+layer -10:
+  .
+  .
+  ..........G
+  ..........F
+  ..........S
+  .
+  .
+  .
+  .
+  .
+  .
+  ...........GNW
+  ...........G
+  .
+  .
+  .
+layer -9:
+  .
+  ..........Z
+  ..........r
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ...........V
+  ...........M
+  ...........GG
+  .
+  .
+layer -8:
+  ..........GZ
+  ..........F
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .............G
+  ...........SRG
+  .
+  .
+layer -7:
+  ..........VEG
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ............GG
+  .............r
+  .............U
+  .
+  .
+layer -6:
+  ............RZ
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ...........GNW
+  ...........G
+  .
+  .
+  .
+layer -5:
+  .............EG
+  ..............Z
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ...........V
+  ...........M
+  ...........GG
+  .
+  .
+layer -4:
+  ..............W
+  ..............H
+  ..............G
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .............G
+  ...........SRG
+  .
+  .
+layer -3:
+  .
+  .
+  ..............M
+  .............GG
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ............GG
+  .............r
+  .............U
+  .
+  .
+layer -2:
+  .
+  .
+  .
+  ............GNU
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .......sGGsGNW
+  .........s
+  .........s
+  .
+  .
+layer -1:
+  .
+  ....GGs
+  ....G
+  ....G......GN
+  ....G
+  ....G
+  ....G
+  ....G
+  ...GG
+  .GGGG
+  ....Z
+  ....GGGNQpDQ
+  .........a
+  .........a
+  .
+  .
+layer 0:
+  .
+  ....VQPs
+  ....T.....G
+  ....T.....GN
+  ....T
+  ....TG
+  ....TG
+  ...GTG
+  .GZXTG
+  G.iYTG...s
+  .GGGLG...c
+  ....SQQ..t
+  .........b
+  .........s
+  .
+  .
+layer 1:
+  .
+  ....II.PsZG
+  ....I...s.r
+  ....I...s.S
+  ....I...s
+  ....IGsss
+  ....IG
+  ...GIG
+  .GGIIG
+  G.BI.G
+  .GGGIG
+  ....III
+  .
+  .
+  .
+  .
+layer 2:
+  ........Z
+  ........AKW
+  .......G.G
+  .......G.G
+  .....GGG.G
+  ....G....G
+  ....G.GGG
+  ...GG.G
+  ..G...G
+  .GZ..G
+  ...G
+  .
+  .
+  .
+  .
+  .
+layer 3:
+  .
+  .......GII
+  .......G.G
+  .......G.G
+  .....GGG.G
+  ....G....G
+  ....G.GGG
+  ...GG.G
+  ..G...G
+  .OG..G
+  ...G
+  .
+  .
+  .
+  .
+  .
