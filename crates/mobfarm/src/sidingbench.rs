@@ -49,6 +49,9 @@ pub struct SidingOpts {
     pub guard: bool,
     /// Release a napper only K after a predecessor's pass seen while it waits (else a lane-lap).
     pub early_only: bool,
+    /// Day-1's option (ii): release K after ANY cart's pass that finds the napper waiting (the
+    /// napper-present sample at the pass), behind whichever cart passed.
+    pub any_pass: bool,
     /// The siding's distance west of the lane (1: adjacent to the branch, as laid; 2: one cell clear).
     pub siding_dx: i32,
     /// The siding's rest raised this many levels (9fc3155f: 1, out of the branch carts' push range).
@@ -68,6 +71,9 @@ pub struct SidingOpts {
     /// repeater at (x-1,m,mz+2) facing it (input from the south, away from the detector), the switch a
     /// redstone block at the repeater's input (x-1,m,mz+3).
     pub side_real: bool,
+    /// The stray-power check's positive controls: the side cell as "dust", "dust-line" or
+    /// "repeater-east" (see the bench).
+    pub side_ctl: Option<String>,
 }
 
 /// The bench: returns the text.
@@ -94,6 +100,8 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
     let hook_nf = b("minecraft:tripwire_hook[attached=true,facing=north,powered=false]")?;
     let det_ns = b("minecraft:detector_rail[powered=false,shape=north_south,waterlogged=false]")?;
     let repeater_n = b("minecraft:repeater[delay=1,facing=south,locked=false,powered=false]")?;
+    let repeater_e = b("minecraft:repeater[delay=1,facing=east,locked=false,powered=false]")?;
+    let dust = b("minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]")?;
     let mut blocks: Vec<(BlockPos, Block)> = Vec::new();
     let mut put = |x: i32, y: i32, z: i32, blk: &Block| blocks.push((BlockPos::new(x, y, z), blk.clone()));
     // (the hold: trapdoor floor, glass far side (z -1, two high) and both sides, its string over it)
@@ -202,13 +210,33 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
     // (--side-real: the side-power cell a real conductor (stone), strongly powered only through its
     // south face by a repeater facing it (input from the south, away from the detector), the switch a
     // redstone block at the repeater's input; the controller toggles that switch)
-    let s_switch = if so.side_real {
-        put(s_pow.x, s_pow.y, s_pow.z, &stone);
-        put(s_pow.x, s_pow.y, s_pow.z + 1, &repeater_n);
-        put(s_pow.x, s_pow.y - 1, s_pow.z + 1, &glass);
-        BlockPos::new(s_pow.x, s_pow.y, s_pow.z + 2)
-    } else {
-        s_pow
+    let s_switch = match so.side_ctl.as_deref() {
+        // (the positive controls of the stray-power check (G1): drivers the guard detector's weak
+        // power CAN reach: "dust" (G1's literal swap: dust in the side cell, the repeater behind it),
+        // "dust-line" (dust whose only connection is the detector: a line pointing into the rest),
+        // "repeater-east" (a repeater taking its input from the detector's side, output into the
+        // rest); the switch stays at the repeater's old input, so only the guard can power the rest)
+        Some(kind) => {
+            put(s_pow.x, s_pow.y - 1, s_pow.z, &glass);
+            match kind {
+                "dust" => {
+                    put(s_pow.x, s_pow.y, s_pow.z, &dust);
+                    put(s_pow.x, s_pow.y, s_pow.z + 1, &repeater_n);
+                    put(s_pow.x, s_pow.y - 1, s_pow.z + 1, &glass);
+                }
+                "dust-line" => put(s_pow.x, s_pow.y, s_pow.z, &dust),
+                "repeater-east" => put(s_pow.x, s_pow.y, s_pow.z, &repeater_e),
+                other => return Err(format!("--side-ctl {other}: dust, dust-line or repeater-east")),
+            }
+            BlockPos::new(s_pow.x, s_pow.y, s_pow.z + 2)
+        }
+        None if so.side_real => {
+            put(s_pow.x, s_pow.y, s_pow.z, &stone);
+            put(s_pow.x, s_pow.y, s_pow.z + 1, &repeater_n);
+            put(s_pow.x, s_pow.y - 1, s_pow.z + 1, &glass);
+            BlockPos::new(s_pow.x, s_pow.y, s_pow.z + 2)
+        }
+        None => s_pow,
     };
     let rest_pos = BlockPos::new(sx, rest_y, rest_z);
     // (--nap-guard: a string over the branch cell before the merge (x,m+1,mz+1), hooks at x+-1, stone
@@ -331,6 +359,8 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
     let mut late_naps = 0usize;
     let mut nap_rested_at: Option<i64> = None;
     let mut nap_wait_max = 0i64;
+    let mut last_any_pass: Option<(i64, usize)> = None;
+    let mut release_lead: Option<usize> = None;
     let mut switch_last_on = -1000i64;
     let mut stray_power = 0usize;
     let mut stray_with_guard = 0usize;
@@ -392,6 +422,7 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
             let found = swept.or_else(|| (0..n).find(|c| carts[*c].and_then(|id| st(&run.world, id)).is_some_and(|p| in_cell((p.0, p.1, p.2), lx, m, pass_z))));
             if let Some(c) = found {
                 last_pass[c] = Some(t);
+                last_any_pass = Some((t, c));
             }
         }
         merge_was = mh;
@@ -407,7 +438,25 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
         } else {
             so.guard && matches!(run.world.get(BlockPos::new(lx - 1, m + 1, mz + 1)), Block::TripwireHook { powered: true, .. })
         };
-        if let Some((nc, pred)) = nap
+        // (day-1's option (ii), --nap-any-pass (ironspec 04:19): the napper-present sample at a pass:
+        // a napper resting on the siding when any cart's pass edge comes is released K after that pass
+        // (held while the guard is powered), behind whichever cart passed; in this one-lane bench every
+        // pass is the lane's own, inside its ring window)
+        if so.any_pass {
+            if nap.is_some()
+                && released_at.is_none()
+                && nap_ready
+                && !guard_on
+                && let Some((pp, pc)) = last_any_pass
+                && t >= pp + so.k
+                && nap_rested_at.is_some_and(|r| r <= pp)
+            {
+                s_until = t + so.nap_pulse;
+                released_at = Some(t);
+                pred_pass = Some(pp);
+                release_lead = Some(pc);
+            }
+        } else if let Some((nc, pred)) = nap
             && released_at.is_none()
             && nap_ready
             && !guard_on
@@ -425,6 +474,7 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
                 s_until = t + so.nap_pulse;
                 released_at = Some(t);
                 pred_pass = Some(pp);
+                release_lead = Some(pred);
             }
         }
         let ph = (t - warm - o.corner).rem_euclid(o.period);
@@ -696,6 +746,7 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
                         lap_wait = false;
                         nap_rested_at = None;
                         knocked_this = false;
+                        release_lead = None;
                     }
                     pending.push((t + if is_nap { so.nap_ret } else { o.ret }, c, is_nap));
                 }
@@ -714,25 +765,35 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
                 && t > ra + 5
                 && (x - zc).abs() < 0.6
             {
-                let m_pred = merge_occ.iter().rev().find(|mo| mo.0 == pred && mo.1 <= ra).and_then(|mo| mo.2);
+                // (the leader it followed through the merge: its predecessor, or under option (ii) the
+                // cart whose pass released it; a late rejoin is behind a cart other than its predecessor)
+                let lead = release_lead.unwrap_or(pred);
+                let late_rejoin = so.any_pass && lead != pred;
+                let m_pred = merge_occ.iter().rev().find(|mo| mo.0 == lead && mo.1 <= ra).and_then(|mo| mo.2);
                 let m_nap = merge_occ.iter().rev().find(|mo| mo.0 == c).map(|mo| mo.1);
                 let curve_rule = match (m_pred, m_nap) { (Some(cl), Some(en)) => format!("{}", en - cl), _ => "-".to_string() };
                 let c_nap = contacts.iter().filter(|k| k.0 == c && k.4).map(|k| k.1).fold(0.0f64, f64::max);
                 let q_nap = contacts.iter().rev().find(|k| k.0 == c && k.4).map_or("-".to_string(), |k| format!("{}", k.3 as usize));
                 // (its wait on the siding: from coming to rest there to its release (day-1's strand
-                // margin under rule 2: a late napper waits for its predecessor's next pass))
+                // margin and the siding's double occupancy))
                 let waited = nap_rested_at.map(|r| ra - r);
                 if let Some(w) = waited {
                     nap_wait_max = nap_wait_max.max(w);
                 }
                 nap_rows.push(format!(
                     "napper cart {c} (predecessor {pred}){}: the predecessor over the merge string t {}, at rest on the siding t {}, released t {ra} (waited {} gt on the siding), at the lane's back t {t} (z {z:.2}); the merge's curve rule (its entry minus the predecessor's clear) {curve_rule} gt; its contact {c_nap:.3} at q {q_nap}; braked creep {creep:.4}",
-                    if lap_wait { " (late: its successor passed first, it waited a lane-lap)" } else { "" },
+                    if lap_wait {
+                        " (late: its successor passed first, it waited a lane-lap)".to_string()
+                    } else if late_rejoin {
+                        format!(" (late: rejoined behind cart {lead}, whose pass found it waiting)")
+                    } else {
+                        String::new()
+                    },
                     pred_pass.map_or("-".to_string(), |p| p.to_string()),
                     nap_rested_at.map_or("-".to_string(), |r| r.to_string()),
                     waited.map_or("-".to_string(), |w| w.to_string())
                 ));
-                if lap_wait {
+                if lap_wait || late_rejoin {
                     late_naps += 1;
                 }
                 nap = None;
@@ -768,7 +829,13 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
     lines.push(format!("the longest napper wait on the siding (at rest there to its release): {nap_wait_max} gt"));
     lines.push(format!(
         "the siding rest powered with its declared switch off (a stray power; the bar: 0): {stray_power} ticks, {stray_with_guard} of them with the guard detector powered; ticks the guard was powered while a napper waited: {guard_on_waiting}; the side power {}",
-        if so.side_real { "a real conductor (stone), driven through its south face by a repeater" } else { "emulated (a redstone block set and cleared)" }
+        match so.side_ctl.as_deref() {
+            Some("dust") => "the positive control: dust in the side cell, the repeater behind it".to_string(),
+            Some("dust-line") => "the positive control: dust in the side cell, its only connection the detector".to_string(),
+            Some("repeater-east") => "the positive control: a repeater in the side cell taking its input from the detector's side".to_string(),
+            _ if so.side_real => "a real conductor (stone), driven through its south face by a repeater".to_string(),
+            _ => "emulated (a redstone block set and cleared)".to_string(),
+        }
     ));
     lines.push(format!("the napper heading the wrong way at the merge (the bar: 0): {}{}", wrong_way.len(), if wrong_way.is_empty() { String::new() } else { format!(" ({})", wrong_way.join("; ")) }));
     lines.push(format!(

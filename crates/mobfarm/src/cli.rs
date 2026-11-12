@@ -1293,6 +1293,10 @@ pub enum MobfarmCmd {
         /// The siding: release only after a predecessor pass seen while the napper waits.
         #[arg(long)]
         nap_early: bool,
+        /// The siding: day-1's option (ii): release K after any cart's pass that finds the napper
+        /// waiting, behind whichever cart passed.
+        #[arg(long)]
+        nap_any_pass: bool,
         /// The siding's distance west of the lane (1: adjacent to the branch, as laid).
         #[arg(long, default_value_t = 1)]
         siding_dx: i32,
@@ -1318,6 +1322,11 @@ pub enum MobfarmCmd {
         /// a repeater; the switch a redstone block at the repeater's input).
         #[arg(long)]
         side_real: bool,
+        /// The siding bench: the stray-power check's positive control: the side cell as dust (with the
+        /// repeater behind it), dust-line (dust whose only connection is the detector) or repeater-east
+        /// (a repeater taking its input from the detector's side).
+        #[arg(long)]
+        side_ctl: Option<String>,
         /// The siding bench as a matrix: one compact row per (ret, v_in, nap_ret, corner) of the lists.
         #[arg(long)]
         siding_matrix: bool,
@@ -4301,7 +4310,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 anyhow::bail!("frame-check failed");
             }
         }
-        MobfarmCmd::DropBench { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, login_matrix, restart, restart_matrix, phase_step, intake_flat, v_in, siding, nap_k, nap_every, nap_ret, nap_pulse, merge_curve, slopes, nap_guard, nap_early, siding_dx, siding_dy, ns_merge, guard_det, guard_dz, drop_entry, no_top_support, side_real, siding_matrix, rets, v_ins, nap_rets, corners, nap_ks, jobs, emit_lanes_design, r_boost, floor_bottom, empty, freeze32 } => {
+        MobfarmCmd::DropBench { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, login_matrix, restart, restart_matrix, phase_step, intake_flat, v_in, siding, nap_k, nap_every, nap_ret, nap_pulse, merge_curve, slopes, nap_guard, nap_early, nap_any_pass, siding_dx, siding_dy, ns_merge, guard_det, guard_dz, drop_entry, no_top_support, side_real, side_ctl, siding_matrix, rets, v_ins, nap_rets, corners, nap_ks, jobs, emit_lanes_design, r_boost, floor_bottom, empty, freeze32 } => {
             if let Some(path) = emit_lanes_design {
                 let text = crate::sidingbench::lanes_design(slopes).map_err(|e| anyhow::anyhow!(e))?;
                 if let Some(dir) = std::path::Path::new(&path).parent() {
@@ -4322,7 +4331,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let restart: Vec<(i64, crate::liveness::Restart)> = restart.iter().map(|s| crate::liveness::parse_restart(s)).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!(e))?;
             let o = crate::dropbench::DropOpts { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, intake_flat, v_in, r_boost, floor_bottom, riders: !empty, freeze32, restart };
             if siding {
-                let so = crate::sidingbench::SidingOpts { k: nap_k, nap_every, nap_ret, nap_pulse, merge_curve, slopes, guard: nap_guard, early_only: nap_early, siding_dx, siding_dy, ns_merge, guard_det, guard_dz, drop_entry, no_top_support, side_real };
+                let so = crate::sidingbench::SidingOpts { k: nap_k, nap_every, nap_ret, nap_pulse, merge_curve, slopes, guard: nap_guard, early_only: nap_early, any_pass: nap_any_pass, siding_dx, siding_dy, ns_merge, guard_det, guard_dz, drop_entry, no_top_support, side_real, side_ctl: side_ctl.clone() };
                 if restart_matrix {
                     // (ironspec's L1‴ rows on the siding: every restart row at every phase of the third
                     // cycle; a row fails on any failure count, or on more arrivals above 0.46 than the
@@ -4353,7 +4362,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         worst = worst.max(row.arrival_max);
                         let bad = row.empty_releases + row.not_one + row.wrong + row.knocked + row.touching + row.order_broken + row.off_rail + row.eyes + row.landing_over + row.popped + row.stray_power + row.stuck as usize;
                         if bad > 0 || row.arrivals_over > ctl.arrivals_over {
-                            fails.entry(r.label()).or_default().push(format!("phase {p}: lost {} not-1 {} wrong {} knocked {} touching {} order {} off-rail {} eyes {} landings over 0.46 {} over 0.46 {} (control {}){}", row.empty_releases, row.not_one, row.wrong, row.knocked, row.touching, row.order_broken, row.off_rail, row.eyes, row.landing_over, row.arrivals_over, ctl.arrivals_over, if row.stuck { " napper stuck" } else { "" }));
+                            fails.entry(r.label()).or_default().push(format!("phase {p}: lost {} not-1 {} wrong {} knocked {} touching {} order {} off-rail {} eyes {} landings over 0.46 {} popped {} stray power {} over 0.46 {} (control {}){}", row.empty_releases, row.not_one, row.wrong, row.knocked, row.touching, row.order_broken, row.off_rail, row.eyes, row.landing_over, row.popped, row.stray_power, row.arrivals_over, ctl.arrivals_over, if row.stuck { " napper stuck" } else { "" }));
                         }
                     }
                     println!(
