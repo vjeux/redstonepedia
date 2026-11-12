@@ -68,16 +68,16 @@ pub fn load_window(version: &str, case: &str, runs: u32, design: Option<&std::pa
         "item-loop" => return item_loop(version, runs),
         "item-loop-build" => return item_loop_build(version, runs, false, design, mobs, None),
         "item-loop-build-slab" => return item_loop_build(version, runs, true, design, mobs, None),
-        "item-loop-extremes" => return item_loop_build(version, 0, false, design, None, Some((400, 0))),
+        "item-loop-extremes" => return item_loop_build(version, 0, false, design, None, Some((400, Delay::None))),
         // the corners fired `--runs` gt after the portals are built (no 400-gt run first), then
         // every nether_portal and obsidian block of both dimensions' search areas counted
-        "item-loop-early" => return item_loop_build(version, 0, false, design, None, Some((runs.min(399), 0))),
+        "item-loop-early" => return item_loop_build(version, 0, false, design, None, Some((runs.min(399), Delay::None))),
         // the same, the portals built 600 gt after the server's start (after start, or after building?)
-        "item-loop-early-late" => return item_loop_build(version, 0, false, design, None, Some((runs.min(399), 600))),
+        "item-loop-early-late" => return item_loop_build(version, 0, false, design, None, Some((runs.min(399), Delay::Portals(600)))),
         // the same, the chunks force-loaded (so generated) only 600 gt after the start, and the
         // portals built at once (the server's start, or the chunks' first load?)
-        "item-loop-early-fresh" => return item_loop_build(version, 0, false, design, None, Some((runs.min(399), 100_600))),
-        _ => bail!("--case quiet, load, pearl, pearl-busy, portal-loop, item-loop, item-loop-build, item-loop-build-slab or item-loop-extremes"),
+        "item-loop-early-fresh" => return item_loop_build(version, 0, false, design, None, Some((runs.min(399), Delay::Chunks(600)))),
+        _ => bail!("--case quiet, load, pearl, pearl-busy, portal-loop, item-loop, item-loop-build, item-loop-build-slab, item-loop-extremes, item-loop-early, item-loop-early-late or item-loop-early-fresh"),
     };
     let jar = mctas::bridge::load_agent(version)?;
     println!("== load-window {case} on the official {version} server: farm chunks {},{} to {},{} forced{}", FARM[0], FARM[1], FARM[2], FARM[3], if busy { ", a 25 x 25 forced square of real terrain loading at the same start" } else { "" });
@@ -884,7 +884,18 @@ const BUILD_LOOP: &str = "designs/farms/iron/carousel-assembly/wip/tickexact/loa
 /// behind the droppers (2 gt every 200 gt, the Nether half a period later); an observer clock and
 /// two entities in the overworld chunk (1, 2) for the first scheduled and entity ticks; no player
 /// online, no forced chunks once built; then `runs` real restarts at different clock phases.
-fn item_loop_build(version: &str, runs: u32, slab: bool, design: Option<&std::path::Path>, mobs: Option<&str>, corners: Option<(u32, u32)>) -> Result<()> {
+/// item-loop-early*: what waits before the corners' world is built (ironspec: no magic offsets).
+#[derive(Clone, Copy)]
+enum Delay {
+    /// built at once after the start and the force-loads
+    None,
+    /// the portals built this many gt after the force-loads
+    Portals(u32),
+    /// the force-loads (so the chunks' generation) this many gt after the start
+    Chunks(u32),
+}
+
+fn item_loop_build(version: &str, runs: u32, slab: bool, design: Option<&std::path::Path>, mobs: Option<&str>, corners: Option<(u32, Delay)>) -> Result<()> {
     let design = design.unwrap_or(std::path::Path::new(BUILD_LOOP));
     let d = mctas::design::Design::load(design)?;
     let jar = mctas::bridge::load_agent(version)?;
@@ -913,15 +924,15 @@ fn item_loop_build(version: &str, runs: u32, slab: bool, design: Option<&std::pa
     let n0 = [t[0].div_euclid(8), t[1], t[2].div_euclid(8)];
     let mut srv = VanillaServer::start(&opts(None))?;
     srv.cmd_ok("gamerule spawn_mobs false")?;
-    // item-loop-early-fresh (pre >= 100,000): the wait comes before the force-loads
-    if let Some((_, pre)) = corners.filter(|c| c.1 >= 100_000) {
-        srv.step(pre - 100_000)?;
-        println!("the chunks force-loaded {} gt after the start (game time {})", pre - 100_000, srv.game_time()?);
+    // item-loop-early-fresh: the wait comes before the force-loads
+    if let Some((_, Delay::Chunks(pre))) = corners {
+        srv.step(pre)?;
+        println!("the chunks force-loaded {pre} gt after the start (game time {})", srv.game_time()?);
     }
     srv.cmd_ok("forceload add 0 0 31 47")?;
     srv.cmd_ok("execute in minecraft:the_nether run forceload add -16 -16 31 31")?;
     srv.step(20)?;
-    if let Some((_, pre)) = corners.filter(|c| c.1 > 0 && c.1 < 100_000) {
+    if let Some((_, Delay::Portals(pre))) = corners {
         srv.step(pre)?;
         println!("the portals built {pre} gt later than usual (game time {})", srv.game_time()?);
     }
@@ -1071,11 +1082,16 @@ fn item_loop_build(version: &str, runs: u32, slab: bool, design: Option<&std::pa
         println!("the corners fired {w} gt after the portals were built");
         let bad = fire_corners(&mut srv, &d, t, n0)?;
         where_items(&mut srv, &sides, "after the corners")?;
-        // every nether_portal, then obsidian, block in each dimension's portal search area
-        // (createPortal: within 16 of the scaled point), counted by replacing them with air in
-        // slices of at most 32,768 blocks (this ends the run)
-        for (dim, x0, x1, z0, z1, y0, y1) in [("overworld", -16, 47, 0, 63, 40, 127), ("the_nether", -16, 31, -16, 31, 1, 127)] {
-            for block in ["minecraft:nether_portal", "minecraft:obsidian"] {
+        // G1: hidden, not lost? An entity added to a section whose chunk is not yet FULL is stored
+        // but invisible to selectors; 600 gt later the chunk is promoted and it shows up
+        srv.step(600)?;
+        where_items(&mut srv, &sides, "600 gt after the corners")?;
+        // every obsidian block in each dimension's portal search area (createPortal: within 16 of
+        // the scaled point, the whole column from the bottom to the logical height's top), counted
+        // by replacing them with air in slices of at most 32,768 blocks (this ends the run). Portal
+        // blocks can't be counted that way: replacing one slice collapses the rest of a portal.
+        for (dim, x0, x1, z0, z1, y0, y1) in [("overworld", -16, 47, 0, 63, -64, 319), ("the_nether", -16, 31, -16, 31, 0, 127)] {
+            for block in ["minecraft:obsidian"] {
                 let mut total = 0u64;
                 let rows = (32768 / ((x1 - x0 + 1) * (z1 - z0 + 1))).max(1);
                 let mut y = y0;
