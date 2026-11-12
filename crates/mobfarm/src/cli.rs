@@ -1406,6 +1406,16 @@ pub enum MobfarmCmd {
         /// Another design's blocks, box and redstone (e.g. the gravity pressed run's file).
         #[arg(long)]
         compare: Option<PathBuf>,
+        /// A sweep of the first release's start over F0..F1 (every phase of the ring's lap): one
+        /// summary line per run and the totals ("F0,F1").
+        #[arg(long, value_delimiter = ',')]
+        first_sweep: Vec<i64>,
+        /// A freeze at every start S0..S1 gt after the release's start for LEN gt ("S0,S1,LEN";
+        /// with --first-sweep: each combination).
+        #[arg(long, value_delimiter = ',')]
+        freeze_sweep: Vec<i64>,
+        #[arg(long, default_value_t = 8)]
+        jobs: usize,
         #[arg(long)]
         out: Option<PathBuf>,
         #[arg(long)]
@@ -4996,7 +5006,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::StackBench { carts, exit, run, headroom, release, cut, first, every, releases, refill_y, refill_after, refill_every, freeze, reload_at, ticks, seed, seeds, plane, zombie, golem_spot, bed, compare, out, trace } => {
+        MobfarmCmd::StackBench { carts, exit, run, headroom, release, cut, first, every, releases, refill_y, refill_after, refill_every, freeze, reload_at, ticks, seed, seeds, plane, zombie, golem_spot, bed, compare, first_sweep, freeze_sweep, jobs, out, trace } => {
             let d = crate::stack::StackDesign { carts, exit: exit.clone(), run, riders: true, headroom };
             let text = crate::stack::design(&d).map_err(|e| anyhow::anyhow!(e))?;
             let path = out.clone().unwrap_or_else(|| std::env::temp_dir().join(format!("stack-bench-{}.txt", std::process::id())));
@@ -5016,29 +5026,95 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let cut = crate::stack::Cut::parse(&cut).map_err(|e| anyhow::anyhow!(e))?;
             println!("stack bench: the design {}", path.display());
             if let Some(cp) = &compare {
-                let (_c2, cspec) = load(version, cp)?;
-                println!("compare: {}: {}", cp.display(), crate::stack::metrics(&cspec));
+                // (`FILE#x0,y0,z0,x1,y1,z1`: only the cells inside the box, in the file's frame)
+                let s = cp.to_string_lossy().to_string();
+                let (file, bx) = match s.split_once('#') {
+                    Some((f, b)) => {
+                        let v: Vec<i32> = b.split(',').map(|x| x.trim().parse::<i32>()).collect::<Result<_, _>>()?;
+                        anyhow::ensure!(v.len() == 6, "--compare FILE#x0,y0,z0,x1,y1,z1");
+                        (f.to_string(), Some(([v[0], v[1], v[2]], [v[3], v[4], v[5]])))
+                    }
+                    None => (s.clone(), None),
+                };
+                let (_c2, cspec) = load(version, &PathBuf::from(&file))?;
+                println!("compare: {file}{}: {}", bx.map_or(String::new(), |(a, z)| format!(" inside {a:?}..{z:?}")), crate::stack::metrics_in(&cspec, bx));
+            }
+            let mk = |s: i64, f: i64, fr: Option<(i64, i64)>| crate::stack::StackOpts {
+                release,
+                cut,
+                first: f,
+                every,
+                releases,
+                refill_y,
+                refill_after,
+                refill_every,
+                freeze: fr,
+                reload_at,
+                ticks,
+                seed: s,
+                plane,
+                zombies: zombies.clone(),
+                golem: (golem_spot.len() == 3).then(|| [golem_spot[0], golem_spot[1], golem_spot[2]]),
+                bed: (bed.len() == 3).then(|| [bed[0], bed[1], bed[2]]),
+                trace,
+            };
+            // (cc767b78: a sweep of the release's start over the ring's phases and/or a freeze at
+            // every start after it: one summary line per run, the totals)
+            if !first_sweep.is_empty() || !freeze_sweep.is_empty() {
+                anyhow::ensure!(first_sweep.is_empty() || first_sweep.len() == 2, "--first-sweep F0,F1");
+                anyhow::ensure!(freeze_sweep.is_empty() || freeze_sweep.len() == 3, "--freeze-sweep S0,S1,LEN");
+                let firsts: Vec<i64> = if first_sweep.len() == 2 { (first_sweep[0]..=first_sweep[1]).collect() } else { vec![first] };
+                let frs: Vec<Option<(i64, i64)>> = if freeze_sweep.len() == 3 { (freeze_sweep[0]..=freeze_sweep[1]).map(|s| Some((s, freeze_sweep[2]))).collect() } else { vec![None] };
+                let mut combos: Vec<(i64, i64, Option<(i64, i64)>)> = Vec::new();
+                for s in seed..seed + seeds {
+                    for f in &firsts {
+                        for fr in &frs {
+                            combos.push((s, *f, fr.map(|(a, l)| (f + a, l))));
+                        }
+                    }
+                }
+                println!("stack bench sweep: {} runs (first {:?}, freeze starts {:?} after the release, seeds {seed}..{})", combos.len(), first_sweep, freeze_sweep, seed + seeds - 1);
+                let (mut n, mut good) = (0usize, 0usize);
+                let mut bad: Vec<String> = Vec::new();
+                let mut hurt_runs = 0usize;
+                for chunk in combos.chunks(jobs.max(1)) {
+                    let got: Vec<((i64, i64, Option<(i64, i64)>), Result<Vec<String>, String>)> = std::thread::scope(|sc| {
+                        let hs: Vec<_> = chunk
+                            .iter()
+                            .map(|&(s, f, fr)| {
+                                let o = mk(s, f, fr);
+                                let (fspec, d) = (&fspec, &d);
+                                sc.spawn(move || ((s, f, fr), crate::stack::bench(fspec, d, &o)))
+                            })
+                            .collect();
+                        hs.into_iter().map(|h| h.join().expect("a bench thread panicked")).collect()
+                    });
+                    for ((s, f, fr), r) in got {
+                        let lines = r.map_err(|e| anyhow::anyhow!(e))?;
+                        let deps: Vec<String> = lines.iter().filter(|l| l.starts_with("release ")).filter_map(|l| l.split("DEPARTURES ").nth(1).and_then(|x| x.split(|c: char| !c.is_ascii_digit()).next()).map(|x| x.to_string())).collect();
+                        let powered: Vec<String> = lines.iter().filter(|l| l.starts_with("release ")).filter_map(|l| l.split("the foot powered ").nth(1).and_then(|x| x.split(';').next()).map(|x| x.to_string())).collect();
+                        let over = lines.iter().find(|l| l.starts_with("over the run:")).cloned().unwrap_or_default();
+                        let hurt = over.split("rider damage ").nth(1).and_then(|x| x.split(|c: char| !c.is_ascii_digit()).next()).and_then(|x| x.parse::<usize>().ok()).unwrap_or(0);
+                        let merges = over.split("merges ").nth(1).and_then(|x| x.split(|c: char| !c.is_ascii_digit()).next()).and_then(|x| x.parse::<usize>().ok()).unwrap_or(0);
+                        let ok = deps.iter().all(|x| x.parse::<usize>().ok() == Some(release)) && !deps.is_empty() && merges == 0 && hurt == 0;
+                        n += 1;
+                        if ok {
+                            good += 1;
+                        } else {
+                            bad.push(format!("first {f}{}", fr.map_or(String::new(), |(a, l)| format!(" freeze T+{a}/{l}"))));
+                        }
+                        hurt_runs += (hurt > 0) as usize;
+                        println!("seed {s}, first {f}{}: departures {} | the foot powered {} | {}", fr.map_or(String::new(), |(a, l)| format!(", freeze T+{a} for {l}")), deps.join(","), powered.join(" / "), over.trim_start_matches("over the run: "));
+                    }
+                }
+                println!("over the sweep: {n} runs; exactly {release} departures (and no merge, no rider damage) in {good}; runs with rider damage {hurt_runs}; failing: {}", if bad.is_empty() { "none".to_string() } else { bad.iter().take(60).cloned().collect::<Vec<_>>().join(", ") });
+                if out.is_none() {
+                    let _ = std::fs::remove_file(&path);
+                }
+                return Ok(());
             }
             for s in seed..seed + seeds {
-                let o = crate::stack::StackOpts {
-                    release,
-                    cut,
-                    first,
-                    every,
-                    releases,
-                    refill_y,
-                    refill_after,
-                    refill_every,
-                    freeze: (freeze.len() == 2).then(|| (freeze[0], freeze[1])),
-                    reload_at,
-                    ticks,
-                    seed: s,
-                    plane,
-                    zombies: zombies.clone(),
-                    golem: (golem_spot.len() == 3).then(|| [golem_spot[0], golem_spot[1], golem_spot[2]]),
-                    bed: (bed.len() == 3).then(|| [bed[0], bed[1], bed[2]]),
-                    trace,
-                };
+                let o = mk(s, first, (freeze.len() == 2).then(|| (freeze[0], freeze[1])));
                 let lines = crate::stack::bench(&fspec, &d, &o).map_err(|e| anyhow::anyhow!(e))?;
                 println!("== seed {s}");
                 for l in lines {

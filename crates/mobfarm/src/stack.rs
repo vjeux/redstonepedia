@@ -197,7 +197,13 @@ struct Rel {
 
 /// The stack's design metrics (blocks, the box, redstone components, height) of a farm spec.
 pub fn metrics(spec: &FarmSpec) -> String {
-    let blocks: Vec<&(BlockPos, Block)> = spec.blocks.iter().filter(|(_, b)| !b.to_string().contains(":air")).collect();
+    metrics_in(spec, None)
+}
+
+/// [`metrics`] of the cells inside a box (inclusive) only.
+pub fn metrics_in(spec: &FarmSpec, within: Option<([i32; 3], [i32; 3])>) -> String {
+    let inside = |p: &BlockPos| within.is_none_or(|(a, z)| p.x >= a[0] && p.x <= z[0] && p.y >= a[1] && p.y <= z[1] && p.z >= a[2] && p.z <= z[2]);
+    let blocks: Vec<&(BlockPos, Block)> = spec.blocks.iter().filter(|(p, b)| inside(p) && !b.to_string().contains(":air")).collect();
     if blocks.is_empty() {
         return "no blocks".into();
     }
