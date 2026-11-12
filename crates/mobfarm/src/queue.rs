@@ -8365,6 +8365,7 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
     // ones lost to GOLEM_DETECTED_RECENTLY, to both, or with no panicking summoner in reach)
     let (mut summon_possible, mut lost_detected, mut lost_both, mut no_summoner) = (0u32, 0u32, 0u32, 0u32);
     let (mut stand_possible, mut stand_lost_other) = (0u32, 0u32);
+    let (mut lost_never, mut stand_lost_never) = (0u32, 0u32);
     let mut stand_lost_expired: std::collections::BTreeMap<i64, u32> = std::collections::BTreeMap::new();
     let mut tod_was = -1i64;
     let mut home_at_start: Option<Vec<Option<BlockPos>>> = None;
@@ -12175,29 +12176,32 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             // LAST_SLEPT: no villager meets it, but one would with every expired LAST_SLEPT fresh;
             // to GOLEM_DETECTED_RECENTLY: one would with every detection cleared instead; to both:
             // only clearing both makes one)
-            let vill: Vec<(usize, bool, bool, bool)> = run.world.entities.list.iter().enumerate().filter_map(|(i, e)| match &e.kind {
+            let vill: Vec<(usize, bool, bool, bool, bool)> = run.world.entities.list.iter().enumerate().filter_map(|(i, e)| match &e.kind {
                 redsim::entity::EntityKind::Mob(m) if m.ty == redsim::entity::mob::types::MobType::Villager => m.brain.as_deref().map(|b| {
                     let panic = b.ex.as_deref().is_some_and(|x| x.active == redsim::entity::mob::ai::brain::Act::Panic);
-                    (i, panic, b.last_slept.is_some_and(|s| t_next - s < 24000), b.golem_detected.is_none())
+                    (i, panic, b.last_slept.is_some_and(|s| t_next - s < 24000), b.golem_detected.is_none(), b.last_slept.is_none())
                 }),
                 _ => None,
             }).collect();
-            let can = |wants: &dyn Fn(bool, bool) -> bool, stand_only: bool| -> bool {
-                vill.iter().any(|&(i, panic, fresh, calm)| {
-                    if !panic || !wants(fresh, calm) || (stand_only && !stand_idx.contains(&i)) {
+            let can = |wants: &dyn Fn(bool, bool, bool) -> bool, stand_only: bool| -> bool {
+                vill.iter().any(|&(i, panic, fresh, calm, never)| {
+                    if !panic || !wants(fresh, calm, never) || (stand_only && !stand_idx.contains(&i)) {
                         return false;
                     }
                     let near = run.world.get_entities(run.world.entities.list[i].bb.inflate(10.0, 10.0, 10.0), |e| matches!(&e.kind, redsim::entity::EntityKind::Mob(m) if m.ty == redsim::entity::mob::types::MobType::Villager));
-                    near.iter().filter(|j| vill.iter().any(|&(v, _, f, c)| v == **j && wants(f, c))).take(5).count() >= 3
+                    near.iter().filter(|j| vill.iter().any(|&(v, _, f, c, n)| v == **j && wants(f, c, n))).take(5).count() >= 3
                 })
             };
-            if can(&|f, c| f && c, false) {
+            // (never slept (no LAST_SLEPT yet: the run's warm-up) apart from expired, G1 19:43)
+            if can(&|f, c, _| f && c, false) {
                 summon_possible += 1;
-            } else if can(&|_, c| c, false) {
+            } else if can(&|f, c, n| c && (f || n), false) {
+                lost_never += 1;
+            } else if can(&|_, c, _| c, false) {
                 *lost_expired.entry((t_next + off).div_euclid(24000)).or_default() += 1;
-            } else if can(&|f, _| f, false) {
+            } else if can(&|f, _, _| f, false) {
                 lost_detected += 1;
-            } else if can(&|_, _| true, false) {
+            } else if can(&|_, _, _| true, false) {
                 lost_both += 1;
             } else {
                 no_summoner += 1;
@@ -12205,9 +12209,11 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
             // (the same with only the stand batch as summoners: a design where only the stand sees
             // the zombie; every villager wanting in the summoner's box still counts)
             if at_stand >= 3 {
-                if can(&|f, c| f && c, true) {
+                if can(&|f, c, _| f && c, true) {
                     stand_possible += 1;
-                } else if can(&|_, c| c, true) {
+                } else if can(&|f, c, n| c && (f || n), true) {
+                    stand_lost_never += 1;
+                } else if can(&|_, c, _| c, true) {
                     *stand_lost_expired.entry((t_next + off).div_euclid(24000)).or_default() += 1;
                 } else {
                     stand_lost_other += 1;
@@ -12410,12 +12416,13 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                     slept_tonight[k] = true;
                 }
                 if *a && !was_asleep[k] {
-                    // (the nap's time from the brain's own LAST_SLEPT, set as it lies down)
+                    // (the nap's time from the brain's own LAST_SLEPT, set as it lies down, kept as
+                    // the day time at that moment)
                     let ls = redsim::entity::index_of(&run.world, riders[k]).and_then(|i| match &run.world.entities.list[i].kind {
                         redsim::entity::EntityKind::Mob(m) => m.brain.as_deref().and_then(|b| b.last_slept),
                         _ => None,
                     });
-                    lie_downs[k].push(ls.unwrap_or(run.world.time));
+                    lie_downs[k].push(ls.unwrap_or(run.world.time) + (run.world.day_time() - run.world.time));
                 }
                 was_asleep[k] = *a;
             }
@@ -13792,17 +13799,17 @@ pub fn run_loop_hdr(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, hdr: &Header
                 }
             }
         }
-        out.push(format!("summon ticks by the summoner's own rule (every villager: PANIC running, wanting, 3 or more wanting in its box inflated 10, at most 5 counted): a summon possible on {summon_possible}; lost to an expired LAST_SLEPT (one would with every expired LAST_SLEPT fresh) {}, by day-time day: {}; lost to GOLEM_DETECTED_RECENTLY {lost_detected}; to both {lost_both}; no panicking summoner with 3 in reach {no_summoner}; golem attempts {tries}: {golems} golems, {} failed spawns (no spawn cell)", lost_expired.values().sum::<u32>(), if by_day.is_empty() { "-".to_string() } else { by_day.join(", ") }, tries - golems));
+        out.push(format!("summon ticks by the summoner's own rule (every villager: PANIC running, wanting, 3 or more wanting in its box inflated 10, at most 5 counted): a summon possible on {summon_possible}; lost to never-slept riders (no LAST_SLEPT yet: the warm-up) {lost_never}; lost to an expired LAST_SLEPT (one would with every expired LAST_SLEPT fresh) {}, by day-time day: {}; lost to GOLEM_DETECTED_RECENTLY {lost_detected}; to both {lost_both}; no panicking summoner with 3 in reach {no_summoner}; golem attempts {tries}: {golems} golems, {} failed spawns (no spawn cell)", lost_expired.values().sum::<u32>(), if by_day.is_empty() { "-".to_string() } else { by_day.join(", ") }, tries - golems));
         out.push(format!("stand batch on the summon ticks (information): 3 riders at the stand {stand3_ticks}, all 3 wanting {willing3_ticks}"));
         let sby: Vec<String> = stand_lost_expired.iter().map(|(d, n)| format!("day {d} {n}")).collect();
-        out.push(format!("the same rule with only the stand batch as summoners (only the stand sees the zombie; every villager wanting in its box counts), of the {stand3_ticks} ticks with 3 at the stand: a summon possible on {stand_possible}; lost to an expired LAST_SLEPT {}, by day-time day: {}; lost otherwise {stand_lost_other}", stand_lost_expired.values().sum::<u32>(), if sby.is_empty() { "-".to_string() } else { sby.join(", ") }));
+        out.push(format!("the same rule with only the stand batch as summoners (only the stand sees the zombie; every villager wanting in its box counts), of the {stand3_ticks} ticks with 3 at the stand: a summon possible on {stand_possible}; lost to never-slept riders (the warm-up) {stand_lost_never}; lost to an expired LAST_SLEPT {}, by day-time day: {}; lost otherwise {stand_lost_other}", stand_lost_expired.values().sum::<u32>(), if sby.is_empty() { "-".to_string() } else { sby.join(", ") }));
         let off = run.world.day_time() - run.world.time;
         let mut worst_all = 0i64;
         let naps: Vec<String> = riders.iter().enumerate().map(|(k, _)| {
             let mut s = format!("e{k}:");
             let mut worst = 0i64;
             for (j, t) in lie_downs[k].iter().enumerate() {
-                let d = t + off;
+                let d = *t;
                 s.push_str(&format!(" day {} at {}", d.div_euclid(24000), d.rem_euclid(24000)));
                 if j > 0 {
                     let d = t - lie_downs[k][j - 1] - 24000;

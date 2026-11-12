@@ -95,7 +95,8 @@ pub struct Opts {
     /// With `skip_night`: the observer-only sentinel's fallback (the early wake refused: ALARM the next
     /// night); off = a directional source that accepts the early wake.
     pub skip_alarm: bool,
-    /// A missed (-1) or double (+1) pass edge on the virtual clock at day D's 5th pick.
+    /// A missed (-1) or double (+1) pass edge on the virtual clock at day D's 6th pick (read before
+    /// the 6th pick is made).
     pub pass_fault: Option<(usize, i64)>,
     /// The register's batch-cart index carried across nights (as the built W controller does: visit
     /// j's cart is (all visits so far) mod 3), not reset at dusk; with `visits` above the night's
@@ -106,6 +107,13 @@ pub struct Opts {
     /// The carts the controller's gate assumes (21) when the loop holds fewer (`carts`: a lost cart,
     /// a stranded napper's cart held at the tier's exit); None: the loop's own count.
     pub gate_carts: Option<usize>,
+    /// Cart 0 has no rider (a riderless cart carried in the loop): never eligible, diverted like any
+    /// pick when its turn comes (nobody sleeps; the tier's give-up timeout makes a normal trip); out
+    /// of the rider scores.
+    pub empty_cart: bool,
+    /// The register diverts the stand's cart after its batch's summon (the built W), not before the
+    /// stand: no hole while the napper is back before its next stand turn (G1 Nov 11 19:43).
+    pub register_after: bool,
     /// Releases skipped a day (fix (a): 2, so 714 = 34 x 21 carts pass a day).
     pub skip_per_day: usize,
     /// A nap's trip, the switch to its re-entry point, uniform in [lo, hi] gt; lie-down this many gt
@@ -327,7 +335,7 @@ pub fn simulate(o: &Opts) -> Score {
             // eligibility judged at the cycle's summon, before this pass's pick re-arms it; the bed
             // free once every napper is back from it, gated or not)
             let hole = o.keep_place && away.iter().any(|a| a.0 == cart);
-            let elig = last_sleep[cart].is_some_and(|ls| t0 - ls < 24000);
+            let elig = !(o.empty_cart && cart == 0) && last_sleep[cart].is_some_and(|ls| t0 - ls < 24000);
             let bed_free = if o.free_at_reentry { away.is_empty() } else { away.iter().all(|a| a.1 <= t) };
             let want = in_night && bed_free && night_picks.len() < o.visits && !hole && match o.picker {
                 Picker::FromPick(k) | Picker::FromReturn(k) => count >= k,
@@ -350,8 +358,13 @@ pub fn simulate(o: &Opts) -> Score {
                 }
                 night_picks.push(cart);
                 total_picks += 1;
-                last_sleep[cart] = Some(t + o.sleep_at);
-                naps[cart].push(t + o.sleep_at);
+                // (the riderless cart is diverted like any pick (lap-exact re-entry on its token) but
+                // nobody sleeps: the tier's F fires at its give-up timeout, so its trip is a normal
+                // one; ironspec/farmopt Nov 11 19:40)
+                if !(o.empty_cart && cart == 0) {
+                    last_sleep[cart] = Some(t + o.sleep_at);
+                    naps[cart].push(t + o.sleep_at);
+                }
                 let gate = if o.gate_virtual {
                     Some(o.gate_carts.unwrap_or(o.carts) - 1)
                 } else if o.gate_lap {
@@ -367,9 +380,11 @@ pub fn simulate(o: &Opts) -> Score {
                 let slow = o.slow_visit.is_some_and(|(every, _)| every > 0 && day >= 0 && day % every as i64 == 0) && night_picks.len() == 5;
                 away.push((cart, t + if slow { o.slow_visit.map_or(drawn, |s| s.1) } else { drawn }, 0, gate));
                 count = 0;
-                // (the register diverts before the stand: its batch lacks the napper; gravity picks
-                // after the summon, from the batch that made it)
-                members.push(if o.keep_place { None } else { Some(elig) });
+                // (the register diverts before the stand: its batch lacks the napper, unless
+                // `register_after` (the built W: the stand's cart after its batch's summon, back in
+                // its own slot before its next turn, else a hole then); gravity picks after the
+                // summon, from the batch that made it)
+                members.push(if o.keep_place && !o.register_after { None } else { Some(elig) });
                 if o.keep_place {
                     fifo.push_back(cart);
                 }
@@ -390,7 +405,11 @@ pub fn simulate(o: &Opts) -> Score {
     // scored night with no nap is a missed night)
     let from = o.dusk_at + o.warmup as i64 * o.day_gt;
     let scored_nights = o.days.saturating_sub(o.warmup + 1);
-    for n in &naps {
+    for (ci, n) in naps.iter().enumerate() {
+        // (the riderless cart has no rider: out of the rider scores)
+        if o.empty_cart && ci == 0 {
+            continue;
+        }
         let mut worst = 0i64;
         for w in n.windows(2) {
             if w[1] >= from {

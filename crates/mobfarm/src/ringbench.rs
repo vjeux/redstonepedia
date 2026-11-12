@@ -42,9 +42,12 @@ pub fn loop_cells() -> Vec<([i32; 3], Role, &'static str)> {
 }
 
 /// The ring's design: rails at y 1 on stone (redstone blocks under the powered rails), `carts` empty
-/// carts (1 or 2; the second half a lap behind) moving along the loop at `speed` b/t.
-pub fn design(speed: f64, carts: usize) -> Design {
-    let mut d = Design { name: format!("liveness-ring-8x{carts}"), ..Default::default() };
+/// carts (1 or 2; the second half a lap behind) moving along the loop at `speed` b/t. `sealed`: the
+/// ring closed against mobs (its empty carts board any mob they touch above 0.1 b/t): the 5 x 5
+/// interior solid at y 1, a wall round the outside at y 1, a roof over every rail at y 2 (an empty
+/// cart is 0.7 tall), so no mob can stand, spawn or reach a cart.
+pub fn design(speed: f64, carts: usize, sealed: bool) -> Design {
+    let mut d = Design { name: format!("liveness-ring-8x{carts}{}", if sealed { "-sealed" } else { "" }), ..Default::default() };
     d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
     for (c, role, shape) in loop_cells() {
         let (rail, under) = match role {
@@ -54,6 +57,20 @@ pub fn design(speed: f64, carts: usize) -> Design {
         };
         d.blocks.insert(c, rail);
         d.blocks.insert([c[0], 0, c[2]], under.into());
+        if sealed {
+            d.blocks.insert([c[0], 2, c[2]], "minecraft:stone".into());
+        }
+    }
+    if sealed {
+        for x in -1..=7 {
+            for z in -1..=7 {
+                let interior = (1..=5).contains(&x) && (1..=5).contains(&z);
+                let outside = x == -1 || x == 7 || z == -1 || z == 7;
+                if interior || outside {
+                    d.blocks.insert([x, 1, z], "minecraft:stone".into());
+                }
+            }
+        }
     }
     // (cell 2 runs +x; the second cart 13.5 cells behind it (12 is half the lap, the extra 1.5 cells
     // half a detector spacing), so its rising edges fall between the first's: an edge every half
@@ -62,7 +79,7 @@ pub fn design(speed: f64, carts: usize) -> Design {
     if carts >= 2 {
         d.entities.push(EntitySpec { kind: "minecraft:minecart".into(), pos: [3.0, 1.0625, 6.5], nbt: Some(format!("{{Motion:[{:.4}d,0.0d,0.0d]}}", -speed)) });
     }
-    d.ports.insert("output".into(), [3, 1, 3]);
+    d.ports.insert("output".into(), [3, 3, 3]);
     d
 }
 
@@ -91,6 +108,10 @@ pub fn bench(spec: &FarmSpec, ticks: u32, stretch: i64, gone_at: Option<u32>) ->
     let mut gone_t: Option<i64> = None;
     let mut speed_sum = 0.0f64;
     let mut speed_n = 0u64;
+    // (G1 Nov 11 19:43: each cart's own lap, from its entries into the corner cell (0,1,0))
+    let mut in_corner: Vec<bool> = vec![false; ids.len()];
+    let mut corner_at: Vec<Option<i64>> = vec![None; ids.len()];
+    let mut laps: Vec<(i64, i64)> = vec![(i64::MAX, 0); ids.len()];
     for t in 0..ticks as i64 {
         if gone_at.is_some_and(|g| g as i64 == t) {
             for id in &ids {
@@ -127,10 +148,19 @@ pub fn bench(spec: &FarmSpec, ticks: u32, stretch: i64, gone_at: Option<u32>) ->
             }
             prev[k] = on;
         }
-        for id in &ids {
+        for (ci, id) in ids.iter().enumerate() {
             if let Some(e) = run.world.entities.list.iter().find(|e| e.id == *id && !e.removed && matches!(e.kind, EntityKind::Minecart(_))) {
                 speed_sum += e.delta_movement.x.hypot(e.delta_movement.z);
                 speed_n += 1;
+                let at = e.pos.x.floor() as i32 == 0 && e.pos.z.floor() as i32 == 0;
+                if at && !in_corner[ci] {
+                    if let Some(p) = corner_at[ci] {
+                        laps[ci].0 = laps[ci].0.min(t - p);
+                        laps[ci].1 = laps[ci].1.max(t - p);
+                    }
+                    corner_at[ci] = Some(t);
+                }
+                in_corner[ci] = at;
             }
         }
     }
@@ -139,8 +169,10 @@ pub fn bench(spec: &FarmSpec, ticks: u32, stretch: i64, gone_at: Option<u32>) ->
     out.push(format!("liveness ring (8 detectors, {} cart(s), 24 cells): {ticks} gt, {edges} rising edges; gaps between rising edges (gt:count): {}", ids.len(), hist.join(" ")));
     out.push(format!("the largest gap {} gt{}; false drops with a {stretch}-gt stretcher (a gap over it before the control): {false_drops}", worst.map_or(0, |w| w.0), worst.map_or(String::new(), |w| format!(" (at t {}, detector {} at {:?})", w.1, w.2, dets[w.2]))));
     let lap = per_max * ids.len() as i64;
-    out.push(format!("each detector's own spacing between rising edges: {}..{} gt (it must fall between carts); the lap {lap} gt (24 cells: {:.3} b/t)", if per_min == i64::MAX { 0 } else { per_min }, per_max, if lap > 0 { 24.0 / lap as f64 } else { 0.0 }));
-    let _ = (speed_sum, speed_n);
+    let lap_s: Vec<String> = laps.iter().enumerate().map(|(i, (a, b))| if *a == i64::MAX { format!("cart {i} -") } else { format!("cart {i} {a}..{b} gt") }).collect();
+    let pmin = if per_min == i64::MAX { 0 } else { per_min };
+    out.push(format!("each detector's own spacing between rising edges: {pmin}..{per_max} gt (bar: at least 21 gt, the detector's 20-gt re-check + 1, so it falls between carts: {}); each cart's lap: {} ({:.3} b/t at the shortest)", if pmin >= 21 { "PASS" } else { "FAIL" }, lap_s.join(", "), laps.iter().map(|l| l.0).filter(|l| *l != i64::MAX).min().map_or(0.0, |l| 24.0 / l as f64)));
+    let _ = (speed_sum, speed_n, lap);
     if let Some(g) = gone_t {
         let drop = last_edge.map(|l| l + stretch);
         out.push(format!("positive control: the carts removed at t {g}; rising edges after it {edges_after_gone}; the last rising edge t {}; ALIVE drops at t {} (latency {} gt after the carts stopped)", last_edge.map_or("-".into(), |l| l.to_string()), drop.map_or("-".into(), |d| d.to_string()), drop.map_or("-".into(), |d| (d - g).to_string())));
