@@ -3971,6 +3971,7 @@ pub struct MeterState {
     /// the timer fill (`MCTAS_TIMER_FILL`): the fill's first H opening, live gt since
     fill_t: Option<i64>,
     fill_live: i64,
+    fill_dropped: usize,
     /// P2: the transit latch (set when a cart passes H's plane, cleared by its count edge), its
     /// live gt, a held REL, and the counts
     tl: Option<i64>,
@@ -4860,9 +4861,27 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
             let n: Vec<i64> = v.split(',').filter_map(|x| x.trim().parse().ok()).collect();
             (n.len() == 2).then(|| (n[0], n[1]))
         });
+        // (day-1's gravity liveness gate: ALIVE = a rising edge of the stand chunk's clock (the
+        // first `MCTAS_CLOCK_PROBES` probe) within 32 gt; a timer sequence not yet fired when ALIVE
+        // drops is dropped, not resumed (the next golem event restarts the cycle); without a clock
+        // probe, the stand chunk's entity ticking stands in)
         if timer_fill.is_some() && s.fill_t.is_some() {
             let hc = at(xb, 3, 0);
-            if w.chunk_level(hc.x.div_euclid(16), hc.z.div_euclid(16)) <= 31 {
+            let alive = match s.clock_edges.first() {
+                Some(e) => e.last().is_some_and(|x| t - x.0 <= 32),
+                None => w.chunk_level(hc.x.div_euclid(16), hc.z.div_euclid(16)) <= 31,
+            };
+            let pending = timer_fill.is_some_and(|(t1, t2)| s.fill_live < t1.max(t2));
+            if !alive && pending {
+                // (cc767b78's finding, 18:01: a fill whose release has risen must not be dropped
+                // (its carts roll on into gates that never shut); paused while ALIVE is low, the
+                // live count resumes at the thaw; `MCTAS_TIMER_FILL_DROP=1` day-1's drop rule)
+                if std::env::var("MCTAS_TIMER_FILL_DROP").is_ok() {
+                    s.fill_t = None;
+                    s.fill_dropped += 1;
+                    log(s, format!("{c}+{dt} timer fill dropped (ALIVE low at {} gt)", s.fill_live));
+                }
+            } else {
                 s.fill_live += 1;
             }
         }
@@ -4896,8 +4915,11 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
             }
         }
         let slope_src = [at(ox + 8, -3, 1), at(ox + 4, -3, 0), at(ox, -2, 0)];
+        // (`MCTAS_SLOPE_AT_OPEN=1`: G1's and G2's slopes powered as their gates open, not 8 gt
+        // after (dfb89499's stand-side variant for middle-empty's departure lag))
+        let slope_delay = if std::env::var("MCTAS_SLOPE_AT_OPEN").is_ok_and(|v| v == "1") { 0 } else { 8 };
         for k in 0..3 {
-            let on = want[k] && (k == 0 || s.gate_open_since[k].is_some_and(|x| t - x >= 8));
+            let on = want[k] && (k == 0 || s.gate_open_since[k].is_some_and(|x| t - x >= slope_delay));
             let cur = w.get(slope_src[k]).to_string();
             let is_on = cur.contains("redstone_block");
             if on != is_on
