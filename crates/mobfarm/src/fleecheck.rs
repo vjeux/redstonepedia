@@ -720,6 +720,91 @@ fn stamp_sources(p: &Place) -> Vec<(&'static str, &Source)> {
 
 /// A place's stamp-arming class: a live draw with no complete path arms the CANT_REACH stamp, a
 /// live draw with one clears it.
+/// The path-integrated stamp age (ironspec Nov 11 20:39, after day-1's e6 trace): the stamp
+/// (CANT_REACH_WALK_TARGET_SINCE) is set once at the first unreachable walk target, never refreshed,
+/// erased only on a reachable one, so it ages along the rider's path. A panicking cell (a zombie
+/// seen within 8) with draws (PANIC's flee while one is within 6, its stroll 2/2) none of which a
+/// path reaches ARMS; a panicking cell with a reachable draw CLEARS; calm cells and cells with no
+/// draw do neither (no new walk target, no erase). Per cell: (arms, clears, the arming source).
+pub fn stamp_path_roles(places: &[Place]) -> std::collections::HashMap<BlockPos, (bool, bool, &'static str)> {
+    let mut m = std::collections::HashMap::new();
+    for p in places.iter().filter(|p| !p.on_foot) {
+        if p.seen == 0 {
+            m.insert(p.cell, (false, false, "calm"));
+            continue;
+        }
+        let mut cells = p.panic_stroll.cells;
+        let mut reached = p.panic_stroll.reached_share;
+        let mut src = "panic stroll";
+        if p.flee_from > 0 {
+            cells += p.flee.cells;
+            reached += p.flee.reached_share;
+            src = if p.panic_stroll.cells > 0 { "flee + panic stroll" } else { "flee" };
+        }
+        m.insert(p.cell, (cells > 0 && reached <= 1e-9, reached > 1e-9, src));
+    }
+    m
+}
+
+/// A path position's rail cell: the one it stands in or the one below (a slope's cart rides up to a
+/// block over its cell), with its role.
+pub fn path_cell(roles: &std::collections::HashMap<BlockPos, (bool, bool, &'static str)>, p: Vec3) -> Option<(BlockPos, (bool, bool, &'static str))> {
+    let c0 = BlockPos::new(p.x.floor() as i32, p.y.floor() as i32, p.z.floor() as i32);
+    let c1 = BlockPos::new(c0.x, c0.y - 1, c0.z);
+    [c0, c1].into_iter().find_map(|c| roles.get(&c).map(|r| (c, *r)))
+}
+
+/// One stamp along a path: armed at tick `t0` in `cell0` (its source), cleared at `t1` in `cell1`
+/// (None: still armed when the path ends).
+pub struct StampRun {
+    pub t0: i64,
+    pub cell0: BlockPos,
+    pub src: &'static str,
+    pub cleared: Option<(i64, BlockPos)>,
+}
+
+/// The stamps along a rider's path (one cart position a tick), each position's rail cell the one it
+/// stands in or the one below (a slope's cart rides up to a block over its cell).
+pub fn stamp_path(roles: &std::collections::HashMap<BlockPos, (bool, bool, &'static str)>, path: &[(i64, Vec3, String)]) -> Vec<StampRun> {
+    let mut out: Vec<StampRun> = Vec::new();
+    let mut armed: Option<usize> = None;
+    for (t, p, _) in path {
+        let Some((cell, role)) = path_cell(roles, *p) else { continue };
+        match armed {
+            None if role.0 => {
+                out.push(StampRun { t0: *t, cell0: cell, src: role.2, cleared: None });
+                armed = Some(out.len() - 1);
+            }
+            Some(i) if role.1 => {
+                out[i].cleared = Some((*t, cell));
+                armed = None;
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// A `queue-loop-run --watch K` file read as a path: each `c<slot> +<dt>: x,y,z ...` line one tick
+/// (its `c<slot> +<dt>` label kept).
+pub fn read_watch_path(text: &str) -> Vec<(i64, Vec3, String)> {
+    let mut out = Vec::new();
+    for l in text.lines() {
+        if !l.starts_with('c') {
+            continue;
+        }
+        let Some((head, rest)) = l.split_once(": ") else { continue };
+        if !head.contains(" +") {
+            continue;
+        }
+        let xyz: Vec<f64> = rest.split_whitespace().next().unwrap_or("").split(',').filter_map(|v| v.parse().ok()).collect();
+        if xyz.len() == 3 {
+            out.push((out.len() as i64, Vec3::new(xyz[0], xyz[1], xyz[2]), head.to_string()));
+        }
+    }
+    out
+}
+
 pub fn stamp_class(p: &Place) -> &'static str {
     let srcs = stamp_sources(p);
     let arm: f64 = srcs.iter().map(|(_, s)| s.risk()).sum();

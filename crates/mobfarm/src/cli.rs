@@ -587,6 +587,15 @@ pub enum MobfarmCmd {
         /// With --fix-search: also every PAIR of candidate glass floors (a two-cell walkway).
         #[arg(long)]
         fix_pairs: bool,
+        /// The path-integrated stamp age along a rider's path: a `queue-loop-run --watch K` file
+        /// (one cart position a gt); each stamp's arming cell, clearing cell and age, the worst
+        /// against 1,000 gt.
+        #[arg(long)]
+        path_watch: Option<PathBuf>,
+        /// With --path-watch: every cell change between these two path labels' ticks (`c287+0,c297+40`:
+        /// slot and dt) with its role (arms / clears / neither) and its draws' reachable shares.
+        #[arg(long)]
+        path_trace: Option<String>,
         /// The floor block --fix-search places (default glass: golem-proof, but not a stroll
         /// destination, which needs a solid-render block below; glowstone and sea lantern are
         /// both golem-proof and solid-render).
@@ -6795,7 +6804,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 std::process::exit(1);
             }
         }
-        MobfarmCmd::FleeCheck { design, home, show, foot, clearing, eye_control, pickup_control, sampled, claim, classes, fix_search, fix_pairs, fix_block } => {
+        MobfarmCmd::FleeCheck { design, home, show, foot, clearing, eye_control, pickup_control, sampled, claim, classes, fix_search, fix_pairs, fix_block, path_watch, path_trace } => {
             let (_c, spec) = load(version, &design)?;
             // (the bed: --home, else the design's `port home:` line)
             let text = std::fs::read_to_string(&design)?;
@@ -6821,6 +6830,52 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             for l in crate::fleecheck::stamp_classes(&places, classes) {
                 println!("{l}");
+            }
+            if let Some(pw) = &path_watch {
+                let path = crate::fleecheck::read_watch_path(&std::fs::read_to_string(pw)?);
+                let roles = crate::fleecheck::stamp_path_roles(&places);
+                let runs = crate::fleecheck::stamp_path(&roles, &path);
+                let worst = runs.iter().map(|r| r.cleared.map_or(path.len() as i64 - r.t0, |(t, _)| t - r.t0)).max().unwrap_or(0);
+                println!(
+                    "path-integrated stamp age ({} ticks of the rider's path; arms: a panicking cell whose draws no path reaches, clears: a panicking cell with a reachable draw; calm cells neither): {} stamps, the worst {} gt (bar < 1000): {}",
+                    path.len(),
+                    runs.len(),
+                    worst,
+                    if worst < 1000 { "PASS" } else { "FAIL" }
+                );
+                let label = |t: i64| path.get(t as usize).map_or(String::new(), |p| p.2.replace(' ', ""));
+                for r in &runs {
+                    match r.cleared {
+                        Some((t, c)) => println!("  STAMP-AGE armed {} at {},{},{} ({}), cleared {} at {},{},{}: {} gt", label(r.t0), r.cell0.x, r.cell0.y, r.cell0.z, r.src, label(t), c.x, c.y, c.z, t - r.t0),
+                        None => println!("  STAMP-AGE armed {} at {},{},{} ({}), still armed at the path's end: {} gt or more", label(r.t0), r.cell0.x, r.cell0.y, r.cell0.z, r.src, path.len() as i64 - r.t0),
+                    }
+                }
+                if let Some(pt) = &path_trace {
+                    let (a, b) = pt.split_once(',').ok_or_else(|| anyhow::anyhow!("--path-trace c287+0,c297+40"))?;
+                    let ta = path.iter().position(|p| p.2.replace(' ', "") == a).unwrap_or(0);
+                    let tb = path.iter().position(|p| p.2.replace(' ', "") == b).unwrap_or(path.len().saturating_sub(1));
+                    let mut last: Option<redsim::pos::BlockPos> = None;
+                    for p in &path[ta..=tb.min(path.len() - 1)] {
+                        let Some((cell, role)) = crate::fleecheck::path_cell(&roles, p.1) else { continue };
+                        if last == Some(cell) {
+                            continue;
+                        }
+                        last = Some(cell);
+                        let pl = places.iter().find(|q| q.cell == cell && !q.on_foot);
+                        let shares = pl.map_or(String::new(), |q| {
+                            format!(
+                                "panic stroll {} cells reached {:.1}%, flee {} cells reached {:.1}% (hostiles within 6: {}, seen within 8: {})",
+                                q.panic_stroll.cells,
+                                100.0 * q.panic_stroll.reached_share,
+                                if q.flee_from > 0 { q.flee.cells } else { 0 },
+                                if q.flee_from > 0 { 100.0 * q.flee.reached_share } else { 0.0 },
+                                q.flee_from,
+                                q.seen
+                            )
+                        });
+                        println!("  PATH {} {:.2},{:.2},{:.2} cell {},{},{}: {}; {}", p.2.replace(' ', ""), p.1.x, p.1.y, p.1.z, cell.x, cell.y, cell.z, if role.0 { "ARMS" } else if role.1 { "clears" } else { "neither" }, shares);
+                    }
+                }
             }
             for s in &fix_search {
                 let v: Vec<i32> = s.split(',').filter_map(|x| x.trim().parse().ok()).collect();
