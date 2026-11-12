@@ -88,4 +88,5 @@ pub mod lanesjudge;
 pub mod postsearch;
 pub mod yard;
 pub mod killguard;
+pub mod waycell;
 pub mod storage;
