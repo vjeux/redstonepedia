@@ -8,7 +8,11 @@
 //! cell's own route (exempt) is what it reaches without entering a junction (a rail with 3+
 //! potential connections, of any kind: a straight powered, detector or activator rail with three
 //! rail neighbours counts too, conservatively, since a cart entering from its side is snapped onto
-//! it; routes a junction joins are different tracks, ironspec Nov 12 05:52, the K contact). Rest or
+//! it; routes a junction joins are different tracks, ironspec Nov 12 05:52, the K contact). A
+//! junction declared `own-route-junctions: x,y,z=REASON` (ironspec Nov 12 07:52, the S-bend's c3)
+//! joins a rest cell's own route when its third arm is that rest cell and its shape never connects
+//! to it and no source reaches it (both checked, refused otherwise), REASON the bench's evidence
+//! that no other route's cart enters it, printed beside it. Rest or
 //! creep cells: the `--rest` cells (the queue's slopes, holds, D cells, the queue cell) and, unless
 //! turned off, every unpowered powered rail (a brake).
 
@@ -42,8 +46,15 @@ fn cart_box(c: BlockPos, state: &str) -> [f64; 6] {
     [c.x as f64 + 0.01, c.x as f64 + 0.99, y0, y1, c.z as f64 + 0.01, c.z as f64 + 0.99]
 }
 
-/// The scan: (the flagged pairs as lines, the rest cells checked, the tracks).
-pub fn scan(spec: &FarmSpec, rests: &[BlockPos], auto: bool) -> (Vec<String>, usize, usize) {
+/// The scan: (the flagged pairs as lines, the rest cells checked, the tracks). `own_decl`: the
+/// declared own-route junctions (`own-route-junctions: x,y,z=REASON`, ironspec Nov 12 07:52, c3's
+/// ruling): a junction cell joins a rest cell's own route when (a) one of its 3+ potential
+/// connections is that rest cell (its third arm is no other route), (b) its placed shape never
+/// connects to the rest cell and no signal-source update reaches it (never switched), and (c) no
+/// other route's cart ever enters it, a bench's evidence that the declaration's REASON carries and
+/// the scan prints beside it. (a) and (b) are checked here and a declaration failing either is
+/// refused (an error); an accepted junction is the rest's own route itself, not a way through it.
+pub fn scan(spec: &FarmSpec, rests: &[BlockPos], auto: bool, own_decl: &[(BlockPos, String)]) -> Result<(Vec<String>, usize, usize), String> {
     let rails: HashMap<BlockPos, String> = spec.blocks.iter().filter(|(_, b)| b.to_string().contains("rail")).map(|(p, b)| (*p, b.to_string())).collect();
     // (the tracks: union-find over the rail cells joined by their exits)
     let cells: Vec<BlockPos> = rails.keys().copied().collect();
@@ -107,6 +118,43 @@ pub fn scan(spec: &FarmSpec, rests: &[BlockPos], auto: bool) -> (Vec<String>, us
         v
     };
     let mut out = Vec::new();
+    // (the declared own-route junctions, checked: (a) a rest cell among its potential connections,
+    // (b) its exits never toward that rest cell, no signal-source update reaching it)
+    let reach = sources_reaching(spec);
+    let mut own_j: Vec<(BlockPos, BlockPos)> = Vec::new();
+    for (j, reason) in own_decl {
+        let Some(js) = rails.get(j) else {
+            return Err(format!("own-route junction {},{},{}: not a rail cell", j.x, j.y, j.z));
+        };
+        if !junction(j) {
+            return Err(format!("own-route junction {},{},{}: not a junction (fewer than 3 potential connections)", j.x, j.y, j.z));
+        }
+        let arm_rests: Vec<(i32, i32, BlockPos)> = [(0, -1), (1, 0), (0, 1), (-1, 0)]
+            .iter()
+            .filter_map(|(dx, dz)| (-1..=1).map(|dy| BlockPos::new(j.x + dx, j.y + dy, j.z + dz)).find(|p| rest_cells.contains(p)).map(|p| (*dx, *dz, p)))
+            .collect();
+        let Some((dx, dz, r)) = arm_rests.first().copied() else {
+            return Err(format!("own-route junction {},{},{}: (a) fails: no rest cell among its potential connections", j.x, j.y, j.z));
+        };
+        if exits(js).iter().any(|(ex, ez, _)| (*ex, *ez) == (dx, dz)) {
+            return Err(format!("own-route junction {},{},{}: (b) fails: its shape {} connects to the rest cell {},{},{}", j.x, j.y, j.z, short(js), r.x, r.y, r.z));
+        }
+        if let Some(srcs) = reach.get(j).filter(|v| !v.is_empty()) {
+            let s: Vec<String> = srcs.iter().map(|n| format!("{},{},{}", n.x, n.y, n.z)).collect();
+            return Err(format!("own-route junction {},{},{}: (b) fails: signal-source updates reach it from {}", j.x, j.y, j.z, s.join(", ")));
+        }
+        out.push(format!(
+            "  OWN-ROUTE JUNCTION {},{},{} of the rest {},{},{}: (a) its third arm is the rest cell; (b) stored {}, no exit toward the rest, no signal-source update reaches it; (c) {reason}",
+            j.x,
+            j.y,
+            j.z,
+            r.x,
+            r.y,
+            r.z,
+            short(js)
+        ));
+        own_j.push((*j, r));
+    }
     for r in &rest_cells {
         let Some(rs) = rails.get(r) else {
             out.push(format!("  {},{},{}: not a rail cell (skipped)", r.x, r.y, r.z));
@@ -122,6 +170,12 @@ pub fn scan(spec: &FarmSpec, rests: &[BlockPos], auto: bool) -> (Vec<String>, us
                 if !junction(&n) && own.insert(n) {
                     todo.push(n);
                 }
+            }
+        }
+        // (a declared own-route junction of this rest: its own route, the cell itself only)
+        for (j, jr) in &own_j {
+            if jr == r {
+                own.insert(*j);
             }
         }
         let mut rb = cart_box(*r, rs);
@@ -174,7 +228,24 @@ pub fn scan(spec: &FarmSpec, rests: &[BlockPos], auto: bool) -> (Vec<String>, us
     let mut roots: Vec<usize> = (0..cells.len()).map(|i| find(&mut parent, i)).collect();
     roots.sort();
     roots.dedup();
-    (out, rest_cells.len(), roots.len())
+    Ok((out, rest_cells.len(), roots.len()))
+}
+
+/// Every cell a signal-source update can reach, with its sources (the source set and each type's
+/// update pattern from redsim's block model, `update_reach`).
+fn sources_reaching(spec: &FarmSpec) -> HashMap<BlockPos, Vec<BlockPos>> {
+    let mut reach: HashMap<BlockPos, Vec<BlockPos>> = HashMap::new();
+    for (p, b) in &spec.blocks {
+        if let Some((_, cells)) = update_reach(*p, b) {
+            for q in cells {
+                let v = reach.entry(q).or_default();
+                if !v.contains(p) {
+                    v.push(*p);
+                }
+            }
+        }
+    }
+    reach
 }
 
 fn short(s: &str) -> String {
@@ -201,17 +272,7 @@ pub fn tees(spec: &FarmSpec, switches: &[BlockPos]) -> (Vec<String>, usize) {
     let is_rail = |p: &BlockPos| all.get(p).is_some_and(|s| s.contains("rail"));
     // (each cell a signal-source update can reach, with its sources: the source set and each
     // type's update pattern from redsim's block model, `update_reach`)
-    let mut reach: HashMap<BlockPos, Vec<BlockPos>> = HashMap::new();
-    for (p, b) in &spec.blocks {
-        if let Some((_, cells)) = update_reach(*p, b) {
-            for q in cells {
-                let v = reach.entry(q).or_default();
-                if !v.contains(p) {
-                    v.push(*p);
-                }
-            }
-        }
-    }
+    let reach = sources_reaching(spec);
     let mut out = Vec::new();
     let mut undeclared = 0usize;
     let mut cells: Vec<&BlockPos> = all.iter().filter(|(_, s)| s.starts_with("minecraft:rail[")).map(|(p, _)| p).collect();

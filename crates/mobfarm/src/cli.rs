@@ -936,6 +936,12 @@ pub enum MobfarmCmd {
         /// Print the rail-T scan's positive controls (one per source type) first.
         #[arg(long)]
         controls: bool,
+        /// A declared own-route junction x,y,z=REASON (repeatable; also read from the design's
+        /// `own-route-junctions: x,y,z=REASON; ...` header lines): a junction whose third arm is a
+        /// rest cell, whose shape never connects to it and that no source reaches (both checked;
+        /// refused otherwise), REASON the bench's evidence that no other route's cart enters it.
+        #[arg(long, allow_hyphen_values = true)]
+        own_route_junction: Vec<String>,
     },
     /// (tickexact 2026-11-11, ironspec's HOME rule) The walk-target static check: from every rail cell
     /// (a rider seated in a cart there), every cell its brain can take as a walk target (PANIC's flee
@@ -9740,7 +9746,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
         }
-        MobfarmCmd::PushScan { design, rest, no_auto, switch, controls } => {
+        MobfarmCmd::PushScan { design, rest, no_auto, switch, controls, own_route_junction } => {
             let (_c, spec) = load(version, &design)?;
             if controls {
                 let cl = crate::pushscan::tee_controls();
@@ -9761,9 +9767,40 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 anyhow::ensure!(v.len() == 3, "--switch x,y,z");
                 switches.push(redsim::pos::BlockPos::new(v[0], v[1], v[2]));
             }
-            let (lines, n, tracks) = crate::pushscan::scan(&spec, &rests, !no_auto);
+            // (the declared own-route junctions: the flags and the design's header lines; a line's
+            // entries split where a "; " is followed by the next x,y,z=, so a REASON may hold "; ")
+            let mut decl_txt: Vec<String> = own_route_junction.clone();
+            for l in std::fs::read_to_string(&design)?.lines() {
+                if let Some(i) = l.find("own-route-junctions:") {
+                    let body = &l[i + "own-route-junctions:".len()..];
+                    let mut cur = String::new();
+                    for part in body.split(';') {
+                        let head = part.trim_start();
+                        let starts = head.split_once('=').is_some_and(|(c, _)| c.split(',').count() == 3 && c.split(',').all(|t| t.trim().parse::<i32>().is_ok()));
+                        if starts && !cur.trim().is_empty() {
+                            decl_txt.push(cur.trim().to_string());
+                            cur = String::new();
+                        }
+                        if !cur.is_empty() {
+                            cur.push(';');
+                        }
+                        cur.push_str(part);
+                    }
+                    if !cur.trim().is_empty() {
+                        decl_txt.push(cur.trim().to_string());
+                    }
+                }
+            }
+            let mut own_decl: Vec<(redsim::pos::BlockPos, String)> = Vec::new();
+            for d in &decl_txt {
+                let (c, reason) = d.split_once('=').ok_or_else(|| anyhow::anyhow!("own-route junction {d}: x,y,z=REASON"))?;
+                let v: Vec<i32> = c.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(v.len() == 3, "own-route junction {d}: x,y,z=REASON");
+                own_decl.push((redsim::pos::BlockPos::new(v[0], v[1], v[2]), reason.trim().to_string()));
+            }
+            let (lines, n, tracks) = crate::pushscan::scan(&spec, &rests, !no_auto, &own_decl).map_err(|e| anyhow::anyhow!(e))?;
             let flagged = lines.iter().filter(|l| l.contains("PUSH")).count();
-            println!("push-range scan ({n} rest or creep cells against {tracks} tracks; boxes 0.98 x 0.7, the resting one inflated 0.2 in x and z and 0.5 along its axis): {flagged} pairs within push range");
+            println!("push-range scan ({n} rest or creep cells against {tracks} tracks; boxes 0.98 x 0.7, the resting one inflated 0.2 in x and z and 0.5 along its axis; {} own-route junctions declared): {flagged} pairs within push range", own_decl.len());
             for l in &lines {
                 println!("{l}");
             }
