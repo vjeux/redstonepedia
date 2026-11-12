@@ -5398,7 +5398,7 @@ fn meter_trace(w: &redsim::world::World, s: &mut MeterState, lay: &LoopLayout, o
 /// consecutive passages, with the leader's speed at its entry; plus the ticks on which two carts'
 /// boxes touch while both centres are within 1.5 of the curve's centre (must be 0).
 #[derive(Default)]
-struct CurveSpacing {
+pub(crate) struct CurveSpacing {
     cells: Vec<BlockPos>,
     /// (curve, cart): entry tick, speed at entry, passed the centre
     open: std::collections::HashMap<(usize, u32), (i64, f64, bool)>,
@@ -5407,7 +5407,7 @@ struct CurveSpacing {
 }
 
 impl CurveSpacing {
-    fn init(&mut self, w: &redsim::world::World) {
+    pub(crate) fn init(&mut self, w: &redsim::world::World) {
         let (mn, sz) = (w.min, w.size);
         for x in mn.x..mn.x + sz[0] {
             for y in mn.y..mn.y + sz[1] {
@@ -5426,7 +5426,7 @@ impl CurveSpacing {
         }
         self.passes = vec![Vec::new(); self.cells.len()];
     }
-    fn observe(&mut self, w: &redsim::world::World, t: i64) {
+    pub(crate) fn observe(&mut self, w: &redsim::world::World, t: i64) {
         let carts: Vec<&redsim::entity::Entity> = w.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, redsim::entity::EntityKind::Minecart(_))).collect();
         for (i, p) in self.cells.iter().enumerate() {
             let (cx, cz) = (p.x as f64 + 0.5, p.z as f64 + 0.5);
@@ -5464,7 +5464,7 @@ impl CurveSpacing {
     /// One line per curve passed by two or more carts (loop cells: the design frame less
     /// (6,0,6)), the least margin first; a negative margin is a follower entering before the
     /// leader cleared; then the touch count.
-    fn report(&self) -> Vec<String> {
+    pub(crate) fn report(&self) -> Vec<String> {
         let mut rows: Vec<(i64, String)> = Vec::new();
         for (i, p) in self.cells.iter().enumerate() {
             let mut ps = self.passes[i].clone();
