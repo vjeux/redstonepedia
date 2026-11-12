@@ -3799,6 +3799,12 @@ pub enum MobfarmCmd {
         /// switched cell (x-4,22,9); R powers 8 gt after the switch.
         #[arg(long)]
         feed_slime: bool,
+        /// With --restart-matrix or --siding-matrix: run it once per napper rule and start,
+        /// "RULES:STARTS" (rules ii and A (--nap-late-latch), starts full and steady
+        /// (--start-steady)), e.g. ii,A:full,steady: every variant from one command, each summary
+        /// line labelled.
+        #[arg(long)]
+        combos: Option<String>,
         /// With --nap-feed-v: the napper's spawn moved this far back along its path (an entry
         /// phase; the rest sweep's ceiling is arrival 0.102 at phase 0.0606).
         #[arg(long, default_value_t = 0.0)]
@@ -8302,7 +8308,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 anyhow::bail!("frame-check failed");
             }
         }
-        MobfarmCmd::EscapeBench { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, login_matrix, restart, restart_matrix, restart_base, phase_step, intake_flat, v_in, siding, nap_k, nap_every, nap_ret, nap_pulse, merge_curve, slopes, nap_guard, nap_early, nap_any_pass, nap_ring, nap_pick_u, nap_win_du, nap_win_tap, nap_ai, nap_stamp_at_arrival, nap_late_latch, nap_post, k_row, k_offsets, nap_feed_v, flat_detector, siding_north, emit_with_row, fill_scene, top_flat, mirror_z, start_steady, r_support, rest_sweep, rest_phases, emit_rest_range, feed_path, feed_z8, feed_slime, nap_feed_phase, siding_dx, siding_dy, ns_merge, guard_det, guard_dz, drop_entry, no_top_support, side_real, side_ctl, siding_matrix, rets, v_ins, nap_rets, corners, nap_ks, jobs, emit_lanes_design, r_boost, floor_bottom, empty, freeze32 } => {
+        MobfarmCmd::EscapeBench { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, login_matrix, restart, restart_matrix, restart_base, phase_step, intake_flat, v_in, siding, nap_k, nap_every, nap_ret, nap_pulse, merge_curve, slopes, nap_guard, nap_early, nap_any_pass, nap_ring, nap_pick_u, nap_win_du, nap_win_tap, nap_ai, nap_stamp_at_arrival, nap_late_latch, nap_post, k_row, k_offsets, nap_feed_v, flat_detector, siding_north, emit_with_row, fill_scene, top_flat, mirror_z, start_steady, r_support, rest_sweep, rest_phases, emit_rest_range, feed_path, feed_z8, feed_slime, combos, nap_feed_phase, siding_dx, siding_dy, ns_merge, guard_det, guard_dz, drop_entry, no_top_support, side_real, side_ctl, siding_matrix, rets, v_ins, nap_rets, corners, nap_ks, jobs, emit_lanes_design, r_boost, floor_bottom, empty, freeze32 } => {
             if let Some(path) = emit_lanes_design {
                 let text = crate::sidingbench::lanes_design(slopes, siding_north, emit_with_row, r_support.as_deref(), emit_rest_range.as_deref()).map_err(|e| anyhow::anyhow!(e))?;
                 if let Some(dir) = std::path::Path::new(&path).parent() {
@@ -8390,7 +8396,37 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     );
                     return Ok(());
                 }
+                // (--combos RULES:STARTS (the parent's 11:58: one command for every variant, no shell
+                // loop): the restart and siding matrices run once per napper rule (ii: the ring
+                // window alone, A: --nap-late-latch) and start (full: the bench's full-lane start,
+                // steady: --start-steady), each summary line labelled; absent, the flags as given)
+                let combo_list: Vec<(String, crate::sidingbench::SidingOpts)> = match combos.as_deref() {
+                    None => vec![(String::new(), so.clone())],
+                    Some(c) => {
+                        let (rules, starts) = c.split_once(':').ok_or_else(|| anyhow::anyhow!("--combos {c}: RULES:STARTS, e.g. ii,A:full,steady"))?;
+                        let mut v = Vec::new();
+                        for r in rules.split(',').map(str::trim) {
+                            for s in starts.split(',').map(str::trim) {
+                                let mut sc = so.clone();
+                                sc.late_latch = match r {
+                                    "ii" => false,
+                                    "A" => true,
+                                    _ => anyhow::bail!("--combos {c}: a rule is ii or A"),
+                                };
+                                sc.start_steady = match s {
+                                    "full" => false,
+                                    "steady" => true,
+                                    _ => anyhow::bail!("--combos {c}: a start is full or steady"),
+                                };
+                                v.push((format!("[({r}) {s}] "), sc));
+                            }
+                        }
+                        v
+                    }
+                };
                 if restart_matrix {
+                    for (label, so) in &combo_list {
+                    let so = so.clone();
                     // (ironspec's L1‴ rows on the siding: every restart row at every phase of the third
                     // cycle; a row fails on any failure count, or on more arrivals above 0.46 than the
                     // control (no restart))
@@ -8426,6 +8462,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             fails.entry(r.label()).or_default().push(format!("phase {p}: lost {} not-1 {} wrong {} knocked {} touching {} order {} off-rail {} eyes {} landings over 0.46 {} popped {} stray power {} over 0.46 {} (control {}); through-carts in push range {} lost {}, lane carts in push contact {} on the siding {}, detector false {}, releases at occupancy 8 {}{}", row.empty_releases, row.not_one, row.wrong, row.knocked, row.touching, row.order_broken, row.off_rail, row.eyes, row.landing_over, row.popped, row.stray_power, row.arrivals_over, ctl.arrivals_over, row.th_push, row.th_lost, row.lane_push, row.lane_on_siding, row.flat_false, row.occ8, if row.stuck { " napper stuck" } else { "" }));
                         }
                     }
+                    print!("{label}");
                     println!(
                         "siding restart matrix (ironspec's L1‴ rows: save, reverse and seed:1..8 at every {}-gt phase of a {period}-gt cycle): {} runs, {} failing; the hardest arrival {worst:.3}; the lane's largest occupancy at a release from the steady state {occ_hi} (releases at 8: {occ8_total}); control: lost {} over 0.46 {} (max {:.3})",
                         phase_step.max(1),
@@ -8438,14 +8475,17 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     for (k, v) in &fails {
                         println!("  {k}: {} failing: {}", v.len(), v.iter().take(4).cloned().collect::<Vec<_>>().join(" | "));
                     }
+                    }
                     return Ok(());
                 }
                 if siding_matrix {
-                    let rets = if rets.is_empty() { vec![o.ret] } else { rets };
-                    let v_ins = if v_ins.is_empty() { vec![o.v_in] } else { v_ins };
-                    let nap_rets = if nap_rets.is_empty() { vec![so.nap_ret] } else { nap_rets };
-                    let corners = if corners.is_empty() { vec![o.corner] } else { corners };
-                    let nap_ks = if nap_ks.is_empty() { vec![so.k] } else { nap_ks };
+                    for (label, so) in &combo_list {
+                    let so = so.clone();
+                    let rets = if rets.is_empty() { vec![o.ret] } else { rets.clone() };
+                    let v_ins = if v_ins.is_empty() { vec![o.v_in] } else { v_ins.clone() };
+                    let nap_rets = if nap_rets.is_empty() { vec![so.nap_ret] } else { nap_rets.clone() };
+                    let corners = if corners.is_empty() { vec![o.corner] } else { corners.clone() };
+                    let nap_ks = if nap_ks.is_empty() { vec![so.k] } else { nap_ks.clone() };
                     let mut rows: Vec<(i64, f64, i64, i64, i64)> = Vec::new();
                     for &r in &rets {
                         for &v in &v_ins {
@@ -8556,6 +8596,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             e.3 = e.3.max(row.merge_v_max);
                         }
                     }
+                    print!("{label}");
                     println!(
                         "siding matrix: {} rows, {fails} with a failing count; the hardest arrival by q over all rows: {}; the hardest napper {worst_nap:.3}; the merge-entry speed over all rows {:.3}..{:.3}; the lane's largest occupancy at a release from the steady state {occ_hi} (releases at 8, the top cell at rest: {occ8_total}); the least z gap between a through-cart's box and the waiting napper's push box over all rows: {}; carts holding the lane's top cell V 20 gt from the steady state (slot 8; the bar: 0) {v_holds_total}, the lowest occupancy at a hold {} (lowest over the rows), carts resting on another cart's top (the overflow; the bar: 0) {stacked_total} cart-ticks; failing rows by v_in (stored at spawn: merge entry): {}",
                         rows.len(),
@@ -8566,6 +8607,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         if v_occ_lo == usize::MAX { "never".to_string() } else { v_occ_lo.to_string() },
                         by_v.iter().map(|(v, (n, f, lo, hi))| format!("{v} ({lo:.3}..{hi:.3}): {f}/{n}")).collect::<Vec<_>>().join(", ")
                     );
+                    }
                     return Ok(());
                 }
                 println!("{}", crate::sidingbench::siding_bench(&o, &so).map_err(|e| anyhow::anyhow!(e))?);
