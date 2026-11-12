@@ -2333,6 +2333,9 @@ pub enum MobfarmCmd {
         out: PathBuf,
         #[arg(long)]
         claim: bool,
+        /// The variant: a wooden pressure plate in the sentinel's standing cell.
+        #[arg(long)]
+        plate: bool,
     },
     /// The sentinel's bench: the bed's lie-down and wake and the observer's pulses (day times) over
     /// `--days` days per seed, where it stands up, panic and off-cell ticks; the faults: a level-32
@@ -2355,6 +2358,9 @@ pub enum MobfarmCmd {
         /// A villager with no HOME on the floor east of the room (it must never claim the bed).
         #[arg(long)]
         outsider: bool,
+        /// Skip the night to the morning at this day time on day 2 (players sleeping).
+        #[arg(long)]
+        skip: Option<i64>,
     },
     PickerSim {
         #[arg(long, default_value_t = 21)]
@@ -4636,11 +4642,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             println!("bed tier unit bench: {} of {n} visits clean", n - bad);
         }
-        MobfarmCmd::Sentinel { out, claim } => {
-            std::fs::write(&out, crate::sentinel::design(!claim)?)?;
+        MobfarmCmd::Sentinel { out, claim, plate } => {
+            std::fs::write(&out, crate::sentinel::design(!claim, plate)?)?;
             println!("wrote {}", out.display());
         }
-        MobfarmCmd::SentinelBench { design, from, to, days, freeze, reload, kill, outsider } => {
+        MobfarmCmd::SentinelBench { design, from, to, days, freeze, reload, kill, outsider, skip } => {
             let (_c, spec) = load(version, &design)?;
             let two = |s: &Option<String>| -> Result<Option<(i64, i64)>> {
                 Ok(match s {
@@ -4652,11 +4658,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     None => None,
                 })
             };
-            let f = crate::sentinel::Faults { freeze: two(&freeze)?, reload: two(&reload)?, kill, outsider };
+            let f = crate::sentinel::Faults { freeze: two(&freeze)?, reload: two(&reload)?, kill, outsider, skip };
             for seed in from..=to {
                 match crate::sentinel::bench(&spec, seed, days, &f) {
                     Ok(r) => {
-                        println!("seed {seed}: HOME {:?}; panic ticks {}, ticks off its cell awake {}; the head's free tickets at the end {:?}{}", r.home, r.panic_ticks, r.off_cell_ticks, r.head_free_tickets_end, if r.problems.is_empty() { String::new() } else { format!(" PROBLEMS {:?}", r.problems) });
+                        println!("seed {seed}: HOME {:?}; panic ticks {}, ticks off its cell awake {}; the head's free tickets at the end {:?}; plate released while awake {} ticks, pressed while asleep {}{}", r.home, r.panic_ticks, r.off_cell_ticks, r.head_free_tickets_end, r.plate_off_awake, r.plate_on_asleep, if r.problems.is_empty() { String::new() } else { format!(" PROBLEMS {:?}", r.problems) });
                         for e in &r.events {
                             println!("  day {} dayTime {:5} (t {}): {}", e.day, e.day_time, e.t, e.what);
                         }

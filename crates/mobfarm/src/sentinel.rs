@@ -33,12 +33,17 @@ pub const OUT: [i32; 3] = [0, 0, 3];
 /// one over the bed, so nothing stands on it), the observer in the south wall facing the head,
 /// its output into a redstone lamp; the villager in its cell, HOME = the bed (`preset`) or none
 /// (it claims the bed itself, AcquirePoi).
-pub fn design(preset: bool) -> Result<String> {
+pub fn design(preset: bool, plate: bool) -> Result<String> {
     let mut b = Builder::new("sentinel");
     put(&mut b, HEAD, "red_bed[facing=south,occupied=false,part=head]")?;
     put(&mut b, FOOT, "red_bed[facing=south,occupied=false,part=foot]")?;
     put(&mut b, OBSERVER, "observer[facing=north,powered=false]")?;
     put(&mut b, OUT, "redstone_lamp[lit=false]")?;
+    // (ironspec 17:51, the variant: a wooden pressure plate in the standing cell, pressed while the
+    // sentinel stands awake there, released while it lies in bed; no collision shape)
+    if plate {
+        put(&mut b, CELL, "oak_pressure_plate[powered=false]")?;
+    }
     let inside = [HEAD, FOOT, CELL, [CELL[0], 1, CELL[2]]];
     for x in -2..=1 {
         for z in -1..=2 {
@@ -90,6 +95,9 @@ pub struct Report {
     pub off_cell_ticks: i64,
     pub home: Option<[i32; 3]>,
     pub head_free_tickets_end: Option<u32>,
+    /// The plate (if built): ticks released while the sentinel is awake, pressed while it sleeps.
+    pub plate_off_awake: i64,
+    pub plate_on_asleep: i64,
 }
 
 fn block(s: &str) -> Block {
@@ -105,6 +113,8 @@ pub struct Faults {
     pub reload: Option<(i64, i64)>,
     /// Day time on day 2 at which the sentinel is removed.
     pub kill: Option<i64>,
+    /// (day time on day 2 at which the night is skipped to the next morning, as when players sleep)
+    pub skip: Option<i64>,
     /// A villager with no HOME spawned on the floor east of the room at the start.
     pub outsider: bool,
 }
@@ -127,7 +137,11 @@ pub fn bench(spec: &FarmSpec, seed: u64, days: i64, f: &Faults) -> Result<Report
     let t0 = run.world.time;
     let d0 = run.world.day_time();
     let end = t0 + days * 24000;
+    let plate_on = |w: &World| w.get(at(CELL)).to_string().contains("powered=true");
+    let has_plate = run.world.get(at(CELL)).to_string().contains("pressure_plate");
     let (mut was_occ, mut was_obs, mut was_asleep) = (occupied(&run.world), obs_on(&run.world), false);
+    let mut was_plate = plate_on(&run.world);
+    let mut skipped = false;
     let mut freeze_from: Option<i64> = None;
     let mut reload_from: Option<i64> = None;
     let mut killed = false;
@@ -173,6 +187,16 @@ pub fn bench(spec: &FarmSpec, seed: u64, days: i64, f: &Faults) -> Result<Report
                 vid = run.world.renumbered.get(&vid).copied().unwrap_or(vid);
                 ev(&mut rep, &run.world, t, "load".into());
             }
+            if let Some(when) = f.skip
+                && !skipped
+                && day == 2
+                && dt == when
+            {
+                let jump = 24000 - dt;
+                run.world.mob.day_offset += jump;
+                skipped = true;
+                ev(&mut rep, &run.world, t, format!("night skipped to the morning (+{jump} day time)"));
+            }
             if let Some(when) = f.kill
                 && !killed
                 && day == 2
@@ -198,6 +222,13 @@ pub fn bench(spec: &FarmSpec, seed: u64, days: i64, f: &Faults) -> Result<Report
             ev(&mut rep, w, run.world.time, "observer pulse".into());
         }
         (was_occ, was_obs) = (occ, obs);
+        if has_plate {
+            let p = plate_on(w);
+            if p != was_plate {
+                ev(&mut rep, w, run.world.time, if p { "plate pressed".into() } else { "plate released".into() });
+            }
+            was_plate = p;
+        }
         if let Some(i) = idx(w, vid) {
             let v = &w.entities.list[i];
             let cell = [v.pos.x.floor() as i32, (v.pos.y + 0.01).floor() as i32, v.pos.z.floor() as i32];
@@ -213,6 +244,15 @@ pub fn bench(spec: &FarmSpec, seed: u64, days: i64, f: &Faults) -> Result<Report
                 rep.panic_ticks += 1;
             }
             rep.home = brain::brain(w, i).home.map(|h| [h.x, h.y, h.z]);
+            if has_plate {
+                let p = plate_on(w);
+                if !asleep && !p {
+                    rep.plate_off_awake += 1;
+                }
+                if asleep && p {
+                    rep.plate_on_asleep += 1;
+                }
+            }
             was_asleep = asleep;
         }
     }
