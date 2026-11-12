@@ -1,5 +1,5 @@
-# The one-chunk top tier's bed stop folded into C′'s envelope (loop frame minus (0,50,0); the bed's head at (-3,0,4)): a booster entry and an always-on activator heading west, two braked park rails down a slope, a capped flat, a curve south, a capped hump (a slope up, five raised flats, a slope down), the pickup cell beside the bed, a capped flat, a curve east, the retry hold (a braked slope up under a rider-height string), a flat, two slopes down, a flat, R.
-# The rider lands on the ledge south of the activator, walks round onto the bed's roof and sleeps; woken through the hatch it stands only on the pickup cell and keeps seeing the zombie there; the released cart reaches it under 0.2 b/t and seats it; the string sees the rider and the hold boosts the cart on to R. A cart that finds the napper asleep (a reload put it back to bed) stops on the hold; the napper's next wake powers the hold and the cart rolls back through the pickup cell.
+# The bed stop (local frame; under the station, loop = local + (0,-18,-1); the bed's head at (-3,0,4)): a booster entry and an always-on activator heading west, two braked park rails down a slope, a capped flat, a curve south, a capped 2-level hump, the north T (unpowered for good: its spur east, a dead end), the pickup cell beside the bed, a capped flat, a curve east, the slope down (a braked powered rail on the rider string or the kick clock), a flat, the south T (powered only by the rider strings and a latch they set and R resets: its spur south, a dead end), the curve north and east, two flats, R.
+# The rider lands on the ledge south of the activator, walks round onto the bed's roof and sleeps; woken through the hatch it stands only on the pickup cell and keeps seeing the zombie there; the released cart reaches it under 0.2 b/t and seats it; the strings see the rider and the south T sends the cart north to R. A cart that finds the napper asleep (a reload put it back to bed) turns into the south spur; the kick clock (80 live gt, 40 on: the ring's edges, so a freeze stops it) sends it back through the pickup cell into the north spur and back again until the napper rides.
 name: bed-tier-fold-bench
 circuit: mob-farm iron_ingot
 port home: -3 0 4
@@ -49,7 +49,7 @@ layer -2:
   .
   .
   .......GGGsGGGGGG
-  .....sGG
+  .....sGs
   .......s
   .
 layer -1:

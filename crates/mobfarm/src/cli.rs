@@ -4727,6 +4727,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
                 let (mut tot, mut seated, mut to_r, mut never, mut ridden_held, mut healed, mut lost, mut bulb) = (0, 0, 0, 0, 0, 0, 0, 0);
                 let mut min_pick = f64::MAX;
+                let mut max_pick: f64 = 0.0;
+                // (the south T's least lead over a ridden cart, every row: freezes and thaws included)
+                let mut least_lead: Option<i64> = None;
                 let mut heal_gt: Vec<i64> = Vec::new();
                 // (the heal's extra time: a strand's exit (R, less the time away) against the same seed and
                 // speed's night exit)
@@ -4769,15 +4772,25 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                                     }
                                     if let Some(s) = r.pickup_speed {
                                         min_pick = min_pick.min(s);
+                                        max_pick = max_pick.max(s);
                                     }
-                                    if !r.holds.is_empty() && r.seated_out {
+                                    if let Some(l) = r.min_lead {
+                                        least_lead = Some(least_lead.map_or(l, |x: i64| x.min(l)));
+                                    }
+                                    // (a strand: the napper not seated by the forward pass (its
+                                    // cart reached the south spur or was kicked), or an exit later
+                                    // than the night's by more than 30 gt; its extra time)
+                                    let late = match (r.r_at, night_r.get(&(seed, format!("{v}")))) {
+                                        (Some(rr), Some(nr)) => Some(rr - f.reload.map_or(0, |(_, l)| l) - f.freeze.map_or(0, |(_, l)| l) - nr),
+                                        _ => None,
+                                    };
+                                    if r.seated_out && (!r.holds.is_empty() || !r.rollbacks.is_empty() || late.is_some_and(|x| x > 30)) {
                                         healed += 1;
                                         if let (Some(h), Some(rr)) = (r.holds.first(), r.r_at) {
                                             heal_gt.push(rr - h);
-                                            if let Some(nr) = night_r.get(&(seed, format!("{v}"))) {
-                                                let away = f.reload.map_or(0, |(_, l)| l) + f.freeze.map_or(0, |(_, l)| l);
-                                                extra.push(rr - away - nr);
-                                            }
+                                        }
+                                        if let Some(x) = late {
+                                            extra.push(x);
                                         }
                                     }
                                     if r.problems.is_empty() {
@@ -4796,7 +4809,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 extra.sort();
                 let pct = |v: &Vec<i64>, p: f64| v.get(((v.len() as f64 - 1.0) * p).round() as usize).copied();
                 println!("heal extra (strand exit less the night exit, gt): {} strands, min {:?}, median {:?}, p90 {:?}, max {:?}", extra.len(), extra.first(), pct(&extra, 0.5), pct(&extra, 0.9), extra.last());
-                println!("sweep: {tot} visits ({} rows), seated {seated}; strands reaching R {to_r}; never out {never}; ridden carts held {ridden_held}; HOME problems {lost}; south-T or ridden-spur problems {bulb}; strands healed by the retry {healed} (hold to R: min {:?}, median {:?}, max {:?} gt); least pickup speed {:.3}", rows.len(), heal_gt.first(), heal_gt.get(heal_gt.len() / 2), heal_gt.last(), min_pick);
+                println!("sweep: {tot} visits ({} rows), seated {seated}; strands reaching R {to_r}; never out {never}; ridden carts held {ridden_held}; HOME problems {lost}; south-T or ridden-spur problems {bulb}; strands healed by the retry {healed} (hold to R: min {:?}, median {:?}, max {:?} gt); least pickup speed {:.3}, most {:.3}; the south T's least lead {:?} gt", rows.len(), heal_gt.first(), heal_gt.get(heal_gt.len() / 2), heal_gt.last(), min_pick, max_pick, least_lead);
                 return Ok(());
             }
             let mut bad = 0;

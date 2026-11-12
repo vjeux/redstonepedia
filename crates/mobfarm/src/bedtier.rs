@@ -54,13 +54,18 @@ pub const HATCH_CTRL_HI: [i32; 3] = [-4, 2, 4];
 /// powered rail, dead end at the stone east of it).
 pub const NORTH_T: [i32; 3] = [-2, 0, 3];
 pub const NORTH_SPUR: [i32; 3] = [-1, 0, 3];
-/// The south T (powered by the rider string's hook over it: north-west, the exit; unpowered:
-/// south-west, the spur) and its spur south (a powered rail, dead end at the stone south of it).
+/// The south T (powered by the rider strings A and B, or by the latch they set and R's pulse
+/// resets: north-west, the exit; unpowered: south-west, the spur) and its spur south (a powered
+/// rail, dead end at the stone south of it). The latch's output is the T's support (the bench
+/// emulates it there), so a rider frozen on the flat under both strings keeps the T powered.
 pub const SOUTH_T: [i32; 3] = [1, -1, 6];
 pub const SOUTH_SPUR: [i32; 3] = [1, -1, 7];
-/// The kick clock: both spur rails powered KICK_LEN gt in every KICK_PERIOD (game time).
+/// The kick clock: both spur rails and the slope powered KICK_LEN live gt in every KICK_PERIOD (the
+/// tier chunk's ring edges: a freeze stops it with the carts).
 pub const KICK_PERIOD: i64 = 80;
 pub const KICK_LEN: i64 = 40;
+/// The slope's window in the same period (from the same phase): 20 gt longer than the spurs'.
+pub const SLOPE_LEN: i64 = 60;
 /// The slope down from the curve to the south T: a braked powered rail, powered by the rider string
 /// OR the kick clock (a second hold: a strand cart rests on it until a kick rolls it on into the spur;
 /// a kick boosts the cart coming back west up it).
@@ -306,7 +311,10 @@ pub fn design_with(bench: bool, trip: bool) -> Result<String> {
         put(&mut b, [SOUTH_T[0] + 1, -1, z], "stone")?;
     }
     put(&mut b, SOUTH_T, &rail("south_west"))?;
-    put(&mut b, [SOUTH_T[0], SOUTH_T[1] - 1, SOUTH_T[2]], "glass")?;
+    // (the T's support: the latch's output (set by either string, reset by R's pulse; ~10 blocks,
+    // emulated on the bench): the T stays powered from the first sight of a rider until its cart
+    // has passed R, through any freeze, where a frozen rider can sit under both strings)
+    put(&mut b, [SOUTH_T[0], SOUTH_T[1] - 1, SOUTH_T[2]], "stone")?;
     put(&mut b, SOUTH_SPUR, "powered_rail[powered=false,shape=north_south,waterlogged=false]")?;
     put(&mut b, [SOUTH_SPUR[0], SOUTH_SPUR[1] - 1, SOUTH_SPUR[2]], "stone")?;
     put(&mut b, [SOUTH_SPUR[0], SOUTH_SPUR[1], SOUTH_SPUR[2] + 1], "stone")?;
@@ -401,8 +409,8 @@ pub fn design_with(bench: bool, trip: bool) -> Result<String> {
     b.d.ports.insert("output".into(), [12, 0, 6]);
     b.d.ports.insert("home".into(), BED_HEAD);
     Ok(b.text(&[
-        "The one-chunk top tier's bed stop folded into C′'s envelope (loop frame minus (0,50,0); the bed's head at (-3,0,4)): a booster entry and an always-on activator heading west, two braked park rails down a slope, a capped flat, a curve south, a capped hump (a slope up, five raised flats, a slope down), the pickup cell beside the bed, a capped flat, a curve east, the retry hold (a braked slope up under a rider-height string), a flat, two slopes down, a flat, R.",
-        "The rider lands on the ledge south of the activator, walks round onto the bed's roof and sleeps; woken through the hatch it stands only on the pickup cell and keeps seeing the zombie there; the released cart reaches it under 0.2 b/t and seats it; the string sees the rider and the hold boosts the cart on to R. A cart that finds the napper asleep (a reload put it back to bed) stops on the hold; the napper's next wake powers the hold and the cart rolls back through the pickup cell.",
+        "The bed stop (local frame; under the station, loop = local + (0,-18,-1); the bed's head at (-3,0,4)): a booster entry and an always-on activator heading west, two braked park rails down a slope, a capped flat, a curve south, a capped 2-level hump, the north T (unpowered for good: its spur east, a dead end), the pickup cell beside the bed, a capped flat, a curve east, the slope down (a braked powered rail on the rider string or the kick clock), a flat, the south T (powered only by the rider strings and a latch they set and R resets: its spur south, a dead end), the curve north and east, two flats, R.",
+        "The rider lands on the ledge south of the activator, walks round onto the bed's roof and sleeps; woken through the hatch it stands only on the pickup cell and keeps seeing the zombie there; the released cart reaches it under 0.2 b/t and seats it; the strings see the rider and the south T sends the cart north to R. A cart that finds the napper asleep (a reload put it back to bed) turns into the south spur; the kick clock (80 live gt, 40 on: the ring's edges, so a freeze stops it) sends it back through the pickup cell into the north spur and back again until the napper rides.",
     ]))
 }
 
@@ -564,6 +572,8 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, f_at_in: i64, release_after
     let mut wake_release: Option<i64> = None;
     let mut kick_on = false;
     let mut slope_on = false;
+    let mut latch = false;
+    let mut latch_out = false;
     let mut t_powered_at: Option<i64> = None;
     let mut last_ccell = [i32::MIN; 3];
     for t in 1..=2400i64 {
@@ -635,10 +645,11 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, f_at_in: i64, release_after
             }
             row.release_at = Some(t);
         }
-        // (the kick clock, game time (ironspec 21:58: a plain clock, any phase): both spur rails
+        // (the kick clock, counted in the tier chunk's ring edges (live time): a freeze stops it with
+        // the carts, so a cart caught mid-kick is not braked by the spur at the thaw; both spur rails
         // powered KICK_LEN gt in every KICK_PERIOD, shifted by f.kick_phase; on their supports)
         if !away {
-            let on = (t + f.kick_phase).rem_euclid(KICK_PERIOD) < KICK_LEN;
+            let on = (live + f.kick_phase).rem_euclid(KICK_PERIOD) < KICK_LEN;
             if on != kick_on {
                 for s in [NORTH_SPUR, SOUTH_SPUR] {
                     set(&mut run.world, [s[0], s[1] - 1, s[2]], if on { "redstone_block" } else { "stone" });
@@ -646,11 +657,30 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, f_at_in: i64, release_after
                 kick_on = on;
             }
         }
+        // (the T's latch, emulated: set while either string's hook is powered, reset by R (the
+        // cart past R's detector); its output on the T's support)
+        if !away {
+            let a_on = matches!(run.world.get(BlockPos::new(2, 1, 6)), Block::TripwireHook { powered: true, .. });
+            let b_on = matches!(run.world.get(BlockPos::new(SOUTH_T[0], 0, 7)), Block::TripwireHook { powered: true, .. });
+            if a_on || b_on {
+                latch = true;
+            }
+            if latch && row.r_at.is_some() && !(a_on || b_on) {
+                latch = false;
+            }
+            if latch != latch_out {
+                set(&mut run.world, [SOUTH_T[0], SOUTH_T[1] - 1, SOUTH_T[2]], if latch { "redstone_block" } else { "stone" });
+                latch_out = latch;
+            }
+        }
         // (the slope's power: the rider string (its east hook) OR the kick clock, emulated on its
         // support)
         if !away {
             let string_on = matches!(run.world.get(BlockPos::new(2, 1, 6)), Block::TripwireHook { powered: true, .. });
-            let on = kick_on || string_on;
+            // (the slope's own window outlasts the spurs' by SLOPE_LEN - KICK_LEN: a cart kicked
+            // in the spurs' last tick still climbs it boosted)
+            let slope_kick = (live + f.kick_phase).rem_euclid(KICK_PERIOD) < SLOPE_LEN;
+            let on = slope_kick || string_on;
             if on != slope_on {
                 set(&mut run.world, [SLOPE[0], SLOPE[1] - 1, SLOPE[2]], if on { "redstone_block" } else { "stone" });
                 slope_on = on;
