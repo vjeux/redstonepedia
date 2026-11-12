@@ -15,6 +15,39 @@ use crate::world::World;
 pub struct Body {
     pub delta: Vec3,
     pub on_ground: bool,
+    /// (mob-AI 2026-11-11) Its entry in its entity section (`Entities::section_counter`'s value
+    /// when it moved into it; None: still in the section it started in, entered before any mob).
+    pub section_seq: Option<u64>,
+}
+
+/// (mob-AI 2026-11-11) The player's place in `Level.getEntities`' order (sections in key order,
+/// each section's entities in the order they entered it): comparable with an entity's
+/// `(section_order(e.section), 1 + e.section_seq)`. First in the section it started in; after a
+/// move into another section, at that section's end like an entity.
+pub fn order_key(w: &World, k: usize) -> ((i32, u32, u32), u64) {
+    let p = w.mob.ai.players[k].pos;
+    let seq = w.mob.ai.bodies.get(k).and_then(|b| b.section_seq).map_or(k as u64, |q| 1 + q);
+    (crate::entity::section_order(crate::entity::section_of(p)), seq)
+}
+
+/// (mob-AI 2026-11-11) `LivingEntity.knockback(power, xd, zd)` on player `k` (its knockback
+/// resistance 0): its motion halved less `power` along (xd, zd); on the ground it hops
+/// (`min(0.4, y / 2 + power)`), else (the bridge's flying AFK player) its vertical motion stays.
+pub fn knockback(w: &mut World, k: usize, power: f64, xd: f64, zd: f64) {
+    if power <= 0.0 {
+        return;
+    }
+    if xd * xd + zd * zd < 1.0e-5f32 as f64 {
+        // the random direction from the player's own random
+        legacy(w, "a knockback on the AFK player straight from its own position");
+        return;
+    }
+    let b = body(w, k);
+    let d = b.delta;
+    let len = (xd * xd + zd * zd).sqrt();
+    let (nx, nz) = (xd / len * power, zd / len * power);
+    let y = if b.on_ground { (d.y / 2.0 + power).min(0.4) } else { d.y };
+    b.delta = Vec3::new(d.x / 2.0 - nx, y, d.z / 2.0 - nz);
 }
 
 /// `Player.STANDING_DIMENSIONS.makeBoundingBox(pos)` (half of 0.6F, 1.8F tall).
@@ -125,6 +158,12 @@ pub fn tick(w: &mut World) {
         let vy = if flying { d.y * 0.6 } else { my * 0.98f32 as f64 };
         b.delta = Vec3::new(nd.x * friction as f64, vy, nd.z * friction as f64);
         b.on_ground = on_ground;
+        // its entity section: a move into another one puts it at that section's end
+        // (PersistentEntitySectionManager's onMove, as Entities::set_pos does for an entity)
+        if crate::entity::section_of(np) != crate::entity::section_of(pos) {
+            b.section_seq = Some(w.entities.section_counter);
+            w.entities.section_counter += 1;
+        }
         w.mob.ai.players[k].pos = np;
         // the other copies of the AFK player's position (the world's, natural spawning's)
         if np != pos {

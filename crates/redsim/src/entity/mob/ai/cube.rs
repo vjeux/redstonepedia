@@ -155,7 +155,8 @@ pub fn can_use(w: &mut World, i: usize, g: &mut CubeGoal) -> bool {
         // TemptGoal: no player holds a swallowable item (redsim's players hold nothing)
         CubeGoal::Tempt => false,
         CubeGoal::SearchItems => search_can_use(w, i),
-        CubeGoal::RandomDirection { .. } => ai(w, i).target.is_none() && (w.entities.list[i].on_ground || in_liquid(w, i)),
+        // (mob-AI 2026-11-11) getTarget(): the checked read (a dead target is none)
+        CubeGoal::RandomDirection { .. } => super::target::get_target(w, i).is_none() && (w.entities.list[i].on_ground || in_liquid(w, i)),
         CubeGoal::KeepOnJumping => w.entities.list[i].vehicle.is_none(),
         // a target it may attack (`canAttack`: alive), the cube's move control
         CubeGoal::Attack { .. } => attack_target(w, i).is_some(),

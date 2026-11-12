@@ -1297,9 +1297,7 @@ fn push_entities(w: &mut World, i: usize) {
     // player summed its motion in the other order, a bit apart.
     let mut order: Vec<(((i32, u32, u32), u64), Result<usize, usize>)> = Vec::with_capacity(players.len() + others.len());
     for &k in &players {
-        let p = w.mob.ai.players[k].pos;
-        let s = [(p.x.floor() as i32) >> 4, (p.y.floor() as i32) >> 4, (p.z.floor() as i32) >> 4];
-        order.push(((crate::entity::section_order(s), k as u64), Err(k)));
+        order.push((super::ai::player_body::order_key(w, k), Err(k)));
     }
     for &j in &others {
         let e = &w.entities.list[j];

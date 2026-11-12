@@ -104,9 +104,11 @@ pub fn held(w: &World, i: usize) -> Option<Kinetic> {
     mob(w, i).mainhand.as_ref().and_then(|h| kinetic(&h.item))
 }
 
-/// `ableToAttack()`: a target and a spear in hand.
+/// `ableToAttack()`: a target and a spear in hand. (mob-AI 2026-11-11) `getTarget()` is the
+/// checked read (`asValidTarget`: a dead target is none), not the raw field: dust-pulse-dug10
+/// village-edge b9 t87278, a zombie villager's target died and its charge ended at once.
 fn able_to_attack(w: &World, i: usize) -> bool {
-    ai(w, i).target.is_some() && held(w, i).is_some()
+    target::get_target(w, i).is_some() && held(w, i).is_some()
 }
 
 pub fn can_use(w: &mut World, i: usize, _g: &mut SpearUse) -> bool {
@@ -249,10 +251,21 @@ fn can_hit(w: &World, i: usize, j: usize) -> bool {
     alive && pickable && root_vehicle(w, i) != root_vehicle(w, j)
 }
 
+/// (mob-AI 2026-11-11) What a spear's stab meets: an entity (its index) or a player (its index
+/// among the mob AI's players).
+#[derive(Clone, Copy, Debug)]
+enum Hit {
+    Entity(usize),
+    Player(usize),
+}
+
 /// `ProjectileUtil.getHitEntitiesAlong(attacker, attackRange, canHitEntity, COLLIDER)`: the
 /// entities (in the level's order) along the head's look between the reach's ends, a block in the
-/// way short of the near end hitting none.
-fn hit_entities_along(w: &mut World, i: usize) -> Vec<usize> {
+/// way short of the near end hitting none. (mob-AI 2026-11-11) The players are entities to it too
+/// (`PiercingWeapon.canHitEntity`: pickable, not a spectator), each in its place in the level's
+/// order (`player_body::order_key`): dust-pulse-dug10 village-edge b9 t36442, a zombie
+/// horseman's charge knocked the AFK player back.
+fn hit_entities_along(w: &mut World, i: usize) -> Vec<Hit> {
     let e = &w.entities.list[i];
     let look = view_vector(e.x_rot, ai(w, i).y_head_rot);
     let eye = crate::entity::mob::ai::eye_pos(w, i);
@@ -270,33 +283,39 @@ fn hit_entities_along(w: &mut World, i: usize) -> Vec<usize> {
     let half = m / 2.0;
     let d = to.subtract_v(from);
     let area = Aabb::new(from.x - half, from.y - half, from.z - half, from.x + half, from.y + half, from.z + half).expand_towards(d.x, d.y, d.z).inflate(1.0, 1.0, 1.0);
-    // a player in the way (the AFK player, a scene's): not modeled
-    let near_player = w.mob.ai.players.iter().filter(|p| p.mode != crate::entity::mob::ai::GameMode::Spectator).any(|p| crate::entity::make_bounding_box(p.pos, target::PLAYER_WIDTH, target::PLAYER_HEIGHT).intersects(area));
-    if near_player {
-        w.mob.ai.legacy.insert("a spear's stab reaching a player");
-    }
+    // the box test: the segment inside or through it, else through it grown by the margin with a
+    // clear line from there toward its centre
+    let hits = |w: &World, bb: Aabb| -> bool {
+        if collide::aabb_contains(bb, from) || collide::clip(bb, from, to).is_some() {
+            return true;
+        }
+        let Some(outside) = collide::clip(bb.inflate(m, m, m), from, to) else { return false };
+        let mut toward = bb.center();
+        let bh = crate::entity::mob::los::clip_collider(w, outside, toward);
+        if !bh.miss {
+            toward = bh.location;
+        }
+        collide::clip(bb, outside, toward).is_some()
+    };
     let id = w.entities.list[i].id;
-    let candidates = w.get_entities(area, |x| x.id != id);
-    let mut out = Vec::new();
-    for j in candidates {
-        if !can_hit(w, i, j) {
+    let mut keyed: Vec<(((i32, u32, u32), u64), Hit)> = Vec::new();
+    for j in w.get_entities(area, |x| x.id != id) {
+        if can_hit(w, i, j) && hits(w, w.entities.list[j].bb) {
+            let e = &w.entities.list[j];
+            keyed.push(((crate::entity::section_order(e.section), 1 + e.section_seq), Hit::Entity(j)));
+        }
+    }
+    for k in 0..w.mob.ai.players.len() {
+        if w.mob.ai.players[k].mode == crate::entity::mob::ai::GameMode::Spectator {
             continue;
         }
-        let bb = w.entities.list[j].bb;
-        if collide::aabb_contains(bb, from) || collide::clip(bb, from, to).is_some() {
-            out.push(j);
-        } else if let Some(outside) = collide::clip(bb.inflate(m, m, m), from, to) {
-            let mut toward = bb.center();
-            let bh = crate::entity::mob::los::clip_collider(w, outside, toward);
-            if !bh.miss {
-                toward = bh.location;
-            }
-            if collide::clip(bb, outside, toward).is_some() {
-                out.push(j);
-            }
+        let bb = crate::entity::make_bounding_box(w.mob.ai.players[k].pos, target::PLAYER_WIDTH, target::PLAYER_HEIGHT);
+        if bb.intersects(area) && hits(w, bb) {
+            keyed.push((crate::entity::mob::ai::player_body::order_key(w, k), Hit::Player(k)));
         }
     }
-    out
+    keyed.sort_by_key(|(key, _)| *key);
+    keyed.into_iter().map(|(_, h)| h).collect()
 }
 
 /// `KineticWeapon.damageEntities(stack, ticksRemaining, mob, MAINHAND)`.
@@ -311,8 +330,13 @@ pub fn damage_entities(w: &mut World, i: usize, remaining: i32) {
     let attacker_speed = look.dot(motion(w, i));
     let factor = 0.2f32 as f64;
     let base = crate::entity::mob::ai::attack::base_attack_damage(w, i) as f64;
-    for j in hit_entities_along(w, i) {
-        let tid = w.entities.list[j].id;
+    for h in hit_entities_along(w, i) {
+        // KineticWeapon.getMotion(target): a player's own known speed (redsim keeps none: it
+        // only weighs the damage condition, and a creative player refuses the hurt)
+        let (tid, target_speed) = match h {
+            Hit::Entity(j) => (w.entities.list[j].id, look.dot(motion(w, j))),
+            Hit::Player(k) => (crate::entity::mob::ai::PLAYER_ID_BASE + k as u32, 0.0),
+        };
         let now = w.time;
         if ai(w, i).stabbed.iter().any(|&(e, t)| e == tid && now - t < 10) {
             continue;
@@ -321,7 +345,6 @@ pub fn damage_entities(w: &mut World, i: usize, remaining: i32) {
             Some(s) => s.1 = now,
             None => ai_mut(w, i).stabbed.push((tid, now)),
         }
-        let target_speed = look.dot(motion(w, j));
         let relative = (attacker_speed - target_speed).max(0.0);
         let test = |(max, min_speed): (i32, f32), min_relative: f32| ticks_used <= max && attacker_speed >= min_speed as f64 * factor && relative >= min_relative as f64 * factor;
         let dismount = test(k.dismount, 0.0);
@@ -332,9 +355,43 @@ pub fn damage_entities(w: &mut World, i: usize, remaining: i32) {
             if std::env::var("MCTAS_TRACE_SPEAR").is_ok() {
                 eprintln!("spear t{}: #{} stabs #{} (used {ticks_used}, speed {attacker_speed:.3}, relative {relative:.3}): damage {damage} {dealt}, knockback {knockback}, dismount {dismount}", w.time, w.entities.list[i].id, tid);
             }
-            stab_attack(w, i, j, dealt, damage, knockback, dismount);
+            match h {
+                Hit::Entity(j) => {
+                    stab_attack(w, i, j, dealt, damage, knockback, dismount);
+                }
+                Hit::Player(p) => {
+                    stab_player(w, i, p, damage, knockback);
+                }
+            }
         }
     }
+}
+
+/// (mob-AI 2026-11-11) `LivingEntity.stabAttack` on player `k` (the AFK player): a creative or
+/// invulnerable one refuses the hurt (`Player.hurtServer`: abilities.invulnerable) but takes the
+/// knockback (`causeExtraKnockback`, unconditional on the hurt), the attacker slowed to 0.6 each
+/// time; it rides nothing to be dismounted from; affected, the attacker's `setLastHurtMob`.
+fn stab_player(w: &mut World, i: usize, k: usize, deals_damage: bool, deals_knockback: bool) -> bool {
+    let p = &w.mob.ai.players[k];
+    let unhurt = p.mode == crate::entity::mob::ai::GameMode::Creative || p.invulnerable;
+    if deals_damage && !unhurt {
+        w.mob.ai.legacy.insert("a spear's stab hurting a survival player");
+    }
+    if deals_knockback {
+        let ench: Vec<(&'static str, i32)> = mob(w, i).mainhand.as_ref().map(|h| h.ench.clone()).unwrap_or_default();
+        let yaw = w.entities.list[i].y_rot * (std::f64::consts::PI / 180.0) as f32;
+        let (s, c) = (mth::sin(yaw as f64), mth::cos(yaw as f64));
+        let kb = ench.iter().find(|&&(e, _)| e == "knockback").map_or(0.0f32, |&(_, l)| l as f32) / 2.0f32;
+        for power in [0.4f32, kb] {
+            if power > 0.0 {
+                crate::entity::mob::ai::player_body::knockback(w, k, power as f64, s as f64, -c as f64);
+                let e = &mut w.entities.list[i];
+                e.delta_movement = e.delta_movement.multiply(0.6, 1.0, 0.6);
+            }
+        }
+        ai_mut(w, i).last_hurt_mob = Some(crate::entity::mob::ai::PLAYER_ID_BASE + k as u32);
+    }
+    deals_knockback
 }
 
 /// `LivingEntity.stabAttack(MAINHAND, target, damage, dealsDamage, dealsKnockback, dismounts)`.

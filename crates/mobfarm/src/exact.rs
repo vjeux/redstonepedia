@@ -186,6 +186,30 @@ fn entity_probe() -> Option<(&'static [u32], i64, i64)> {
 /// both sides (pos, motion, on ground, fire, health, hurt time, yaw, its memories).
 fn print_probed(f: &Frame, ours: &Frame) {
     print_summons(f, ours);
+    // (mob-AI 2026-11-11) MCTAS_EXACT_PLAYER="T0:T1": the AFK player's position on both sides at
+    // each game time T0..=T1, and the game's entities within 3 of it (MCTAS_EXACT_NEAR=R): who
+    // pushes it
+    if let Ok(v) = std::env::var("MCTAS_EXACT_PLAYER")
+        && let Some((a, b)) = v.split_once(':')
+        && let (Ok(t0), Ok(t1)) = (a.parse::<i64>(), b.parse::<i64>())
+        && f.t >= t0
+        && f.t <= t1
+    {
+        eprintln!("t{} player game:   {:?}", f.t, f.player);
+        eprintln!("t{} player redsim: {:?}", f.t, ours.player);
+        if let Some(c) = f.player {
+            let r: f64 = std::env::var("MCTAS_EXACT_NEAR").ok().and_then(|v| v.parse().ok()).unwrap_or(3.0);
+            let near: Vec<String> = f
+                .entities
+                .iter()
+                .filter(|e| (0..3).map(|k| (e.pos[k] - c[k]).powi(2)).sum::<f64>() < r * r)
+                .map(|e| format!("#{} {} at {:.3} {:.3} {:.3} motion {:.3} {:.3} {:.3}", e.n, e.ty, e.pos[0], e.pos[1], e.pos[2], e.motion[0], e.motion[1], e.motion[2]))
+                .collect();
+            if !near.is_empty() {
+                eprintln!("t{} player near (game): {}", f.t, near.join("; "));
+            }
+        }
+    }
     let Some((ids, t0, t1)) = entity_probe() else { return };
     if f.t < t0 || f.t > t1 {
         return;
@@ -195,6 +219,8 @@ fn print_probed(f: &Frame, ours: &Frame) {
         let o = ours.entities.iter().find(|e| e.n == n);
         eprintln!("t{} #{n} game:   {:?}", f.t, g.map(|e| (&e.ty, &e.item, e.pos, e.motion, e.on_ground, e.fire, e.health, e.hurt_time, e.yaw, &e.memories)));
         eprintln!("t{} #{n} redsim: {:?}", f.t, o.map(|e| (&e.ty, &e.item, e.pos, e.motion, e.on_ground, e.fire, e.health, e.hurt_time, e.yaw, &e.memories)));
+        // (mob-AI 2026-11-11) the goals, target and path beside them
+        eprintln!("t{} #{n} goals game: {:?} target {:?} path {:?} | redsim: {:?} target {:?} path {:?}", f.t, g.and_then(|e| e.goals.as_ref()), g.and_then(|e| e.target.as_ref()), g.and_then(|e| e.path.as_ref()), o.and_then(|e| e.goals.as_ref()), o.and_then(|e| e.target.as_ref()), o.and_then(|e| e.path.as_ref()));
         // (tickexact 2026-11-10) the game's other entities within 3 of it (who picks it up, who
         // pushes it); MCTAS_EXACT_NEAR=R widens it (whom it targets)
         if let Some(c) = g {
@@ -1238,6 +1264,27 @@ pub fn compare(version: &str, design: &std::path::Path, opts: &Opts, draws_at: O
         left -= n;
         if mobstate_at == Some(t) {
             let v = game.w.call(json!({"op": "mobstate", "sandbox": game.sb}))?;
+            // (mob-AI 2026-11-11) MCTAS_EXACT_CELLS="x0,y0,z0:x1,y1,z1": every cell of the box on
+            // both sides (the game's state beside redsim's), where they differ marked
+            if let Ok(spec) = std::env::var("MCTAS_EXACT_CELLS")
+                && let Some((a, b)) = spec.split_once(':')
+            {
+                let p = |s: &str| -> Vec<i32> { s.split(',').filter_map(|x| x.trim().parse().ok()).collect() };
+                let (a, b) = (p(a), p(b));
+                if a.len() == 3 && b.len() == 3 {
+                    let region = game.w.get_region(game.sb, [a[0], a[1], a[2]], [b[0], b[1], b[2]])?;
+                    for y in a[1].min(b[1])..=a[1].max(b[1]) {
+                        for z in a[2].min(b[2])..=a[2].max(b[2]) {
+                            for x in a[0].min(b[0])..=a[0].max(b[0]) {
+                                let g = region.get([x, y, z]).unwrap_or("?").to_string();
+                                let o = run.world.get(redsim::BlockPos::new(x, y, z)).to_string();
+                                let mark = if g.trim_start_matches("minecraft:") == o.trim_start_matches("minecraft:") { "" } else { "  <- differs" };
+                                eprintln!("cell t{t} {x} {y} {z}: game {g} | redsim {o}{mark}");
+                            }
+                        }
+                    }
+                }
+            }
             // (mob-AI 2026-11-11) MCTAS_EXACT_STATE=N,..: those entities' saved data on the game's
             // side (the bridge's key state: a cat's variant, a llama's, a villager's data) beside
             // redsim's stored variant
