@@ -2337,9 +2337,10 @@ pub enum MobfarmCmd {
         /// `--napper-lift`: the tick the napper leaves R.
         #[arg(long, default_value_t = 0)]
         napper_r: i64,
-        /// `--napper-lift`: the hold's release pulse (gt; day-1's real release: 8, a repeater into the
-        /// stone under the hold rail, the rail rising at ARM3 + D).
-        #[arg(long, default_value_t = 8)]
+        /// `--napper-lift`: the hold's release pulse (gt): 12, day-1's (ironspec 10:04/10:05: the 12-gt
+        /// pulse, ungated unless its gate is chosen), through the repeater (8,-1,8) into the stone under
+        /// the hold rail, the rail rising at ARM3 + D.
+        #[arg(long, default_value_t = 12)]
         release_pulse: i64,
         #[arg(long)]
         boosters: bool,
@@ -2373,6 +2374,18 @@ pub enum MobfarmCmd {
         /// miss 1 tick, <= 3 gt).
         #[arg(long, default_value_t = 3)]
         lead_login_max: i64,
+        /// Skip the bench's 729 ±2 jitter patterns at each nominal corner (lead rows by default).
+        #[arg(long)]
+        no_jitter: bool,
+        /// The late-arrival rows: the napper leaving R at every tick FROM..TO at each nominal corner
+        /// (with --napper-lift; one more batch so a late napper has a next batch; `-1,-1`: none).
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true, default_value = "0,199")]
+        late: Vec<i64>,
+        /// A departure off a pulse's rise is a failure in itself (a scheduled-departure design); by default
+        /// (ironspec 10:09, (b): the ungated pulse, the timers keyed to the napper's actual departure) it is
+        /// counted and judged by its slot margins and the state.
+        #[arg(long)]
+        scheduled_only: bool,
         /// The batch carts' delivery band (stored, entering their lane's merge cell): the floor 0.27
         /// (ironfarm's real first failure 0.22 + ironspec's 0.05, farmopt 05:58); the upper end 0.95
         /// (ironfarm's upward sweep, farmopt 08:57: no failure through stored 1.00 (merge entry 0.991),
@@ -6869,7 +6882,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             println!("{}", crate::queue::golem_spots(&spec, o.as_ref(), &extra, with_entities, list, pad_box, &stand_cells).map_err(|e| anyhow::anyhow!(e))?);
         }
-        MobfarmCmd::ReturnJudge { batches, ticks, boost, reverse, flat, game_ticks, dip, resync, z7, row10, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station, k_relay, napper_lane, napper_r, release_pulse, boosters, row_boost, offsets, spread, speeds, napper_ds, restart_napper, starts, no_restarts, ds, lead_login_max, branch_band, upper_final, napper_band, shaft_min, napper_behind, napper_ahead, junction_min, pushes_max, head_max, k_band, margin, gates_out, design_file, solve_steps, solve_ds, solve_table, jobs } => {
+        MobfarmCmd::ReturnJudge { batches, ticks, boost, reverse, flat, game_ticks, dip, resync, z7, row10, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station, k_relay, napper_lane, napper_r, release_pulse, boosters, row_boost, offsets, spread, speeds, napper_ds, restart_napper, starts, no_restarts, ds, lead_login_max, no_jitter, late, scheduled_only, branch_band, upper_final, napper_band, shaft_min, napper_behind, napper_ahead, junction_min, pushes_max, head_max, k_band, margin, gates_out, design_file, solve_steps, solve_ds, solve_table, jobs } => {
             anyhow::ensure!(starts.len() == 2, "--starts A,B");
             anyhow::ensure!(offsets.len() == 3, "--offsets A,B,C");
             anyhow::ensure!(spread.len() == 2, "--spread LO,HI");
@@ -6888,7 +6901,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let starts = vec![starts[0], starts[1] + prelude];
             let base = crate::returnbench::ReturnOpts { batches, spacing: 14, speed: 0.4, ticks, login: None, boost, trace: None, reverse, offsets: offsets.clone(), jitter: Vec::new(), flat, game_ticks, napper_delay: (restart_napper >= 0).then_some(restart_napper), dip, resync, seed_miss: None, restart: None, z7, row10, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station, k_relay, napper_lane, napper_r, release_pulse, boosters, row_boost, out: None, mirror_z: false, day1_taps: false, supp_open: 73, pulse_gate: None, gate_delayed_only: false, lift_depth: 0, bit_delay: 36, tripwire: false, dep_keyed: false, trip_lag: 0 };
             anyhow::ensure!(k_band.len() == 2, "--k-band LO,HI");
-            let bars = crate::returnjudge::ReturnBars { branch_band: (branch_band[0], branch_band[1]), napper_band: (napper_band[0], napper_band[1]), shaft_min, napper_behind, napper_ahead, junction_min: jm.clone(), pushes_max, head_max, k_band: k_relay.then_some((k_band[0], k_band[1])) };
+            let bars = crate::returnjudge::ReturnBars { branch_band: (branch_band[0], branch_band[1]), napper_band: (napper_band[0], napper_band[1]), shaft_min, napper_behind, napper_ahead, junction_min: jm.clone(), pushes_max, head_max, k_band: k_relay.then_some((k_band[0], k_band[1])), scheduled_only };
             let line = format!(
                 "return-bench {}{}{}{}{}{}{}{}{}{}{}{}{}{}{}--offsets {}",
                 if z7 { "--z7 " } else { "" },
@@ -6966,7 +6979,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
             let phase_corners: Vec<crate::returnjudge::Corner> = speeds.iter().map(|&sp| crate::returnjudge::Corner { offsets: offsets.clone(), speed: sp, napper: (restart_napper >= 0).then_some(restart_napper) }).collect();
-            let o = crate::returnjudge::ReturnJudgeOpts { corners, phase_corners, starts: (starts[0], starts[1]), restarts: !no_restarts, ds: ds.clone(), lead_login_max, bars, margin, jobs };
+            let o = crate::returnjudge::ReturnJudgeOpts { corners, phase_corners, starts: (starts[0], starts[1]), restarts: !no_restarts, ds: ds.clone(), lead_login_max, jitter: !no_jitter, late: (napper_lift && late.len() == 2 && late[0] >= 0).then(|| (late[0], late[1])), bars, margin, jobs };
             println!(
                 "return judge (cc767b78, bench, tool unreviewed; the lead's rows: the controls at {} corners (offsets {:?}, the departure spread {}..{} gt on each, releases {speeds:?}, napper {}), at the nominal corners every gt bar's margin >= {margin} and a save/stop/start at every phase t {}..{} in the 10 orders, the cold start = the control{}): {line}, {batches} batches, {ticks} ticks; {d_means}",
                 o.corners.len(),

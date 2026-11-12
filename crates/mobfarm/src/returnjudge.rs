@@ -50,6 +50,11 @@ pub struct ReturnBars {
     /// `--k-relay`: the returning napper's arrival on its siding's K cell (ironspec 08:46, widened 09:00:
     /// 0.10..0.44) in place of the 4th route's hand-on band.
     pub k_band: Option<(f64, f64)>,
+    /// A departure off a pulse's rise (the bench's "NOT on the hold at any pulse") is a failure in itself
+    /// (a scheduled-departure design); off (ironspec 10:09, (b): the ungated pulse with the timers keyed
+    /// to the napper's actual departure), such a departure is judged by its slot margins and the state
+    /// (lanes, sidings, the napper's route) and only counted.
+    pub scheduled_only: bool,
 }
 
 /// One run's reading of the bench's text.
@@ -83,6 +88,12 @@ pub struct ReturnRead {
     /// The gaps line carries the napper's clause (its values may be `-`: the napper or the next batch's
     /// first never into the shaft, a failure).
     pub napper_clause: bool,
+    /// The bench's "(c)'s napper lift" line was read (`--napper-lift`).
+    pub lift_seen: bool,
+    /// From that line: whether the napper was on the hold at a pulse's rise (a scheduled departure);
+    /// `Some(false)`: "NOT on the hold at any pulse" (a departure outside a scheduled window, or with a
+    /// presence gate, never departed).
+    pub napper_on_hold: Option<bool>,
     pub touches: usize,
     pub pushes: usize,
     /// Per lane, the longest return (release to its branch flat, live gt).
@@ -116,25 +127,33 @@ fn need(l: &str, key: &str, what: &str, errors: &mut Vec<String>) -> Option<f64>
 pub fn read(text: &str, napper: bool, k_cell: Option<(i32, i32, i32)>) -> ReturnRead {
     let mut r = ReturnRead::default();
     let (mut saw_split, mut saw_pairs, mut saw_gaps, mut saw_head) = (false, false, false, false);
+    let mut k_first: BTreeMap<usize, f64> = BTreeMap::new();
+    let mut napper_idx: Option<usize> = None;
     for l in text.lines() {
+        // (`  t T: cart K at x,y,z v vx,vy,vz on ...`: each traced cart's first tick in the K cell, kept
+        // by its index; the napper's chosen after the loop by the index its own line names (G1's note on
+        // c620a1429))
         if let Some(kc) = k_cell
-            && r.napper_k.is_none()
-            && l.starts_with("  t ")
-            && let Some((_, rest)) = l.split_once(" at ")
+            && let Some(after) = l.strip_prefix("  t ")
+            && let Some((_, rest)) = after.split_once(": cart ")
+            && let Some((idx, rest)) = rest.split_once(" at ")
             && let Some((pos, vel)) = rest.split_once(" v ")
         {
             let nums = |s: &str| s.split(',').map(|x| x.trim().parse::<f64>()).collect::<Result<Vec<_>, _>>();
             let vel = vel.split(" on ").next().unwrap_or("");
-            match (nums(pos), nums(vel)) {
-                (Ok(p), Ok(v)) if p.len() == 3 && v.len() == 3 => {
+            match (idx.trim().parse::<usize>(), nums(pos), nums(vel)) {
+                (Ok(i), Ok(p), Ok(v)) if p.len() == 3 && v.len() == 3 => {
                     if (p[0].floor() as i32, p[1].floor() as i32, p[2].floor() as i32) == kc {
-                        r.napper_k = Some((v[0] * v[0] + v[2] * v[2]).sqrt());
+                        k_first.entry(i).or_insert((v[0] * v[0] + v[2] * v[2]).sqrt());
                     }
                 }
                 _ => r.errors.push(format!("a trace line unreadable: {:?}", l.chars().take(120).collect::<String>())),
             }
         }
         let is_napper = l.starts_with("napper ");
+        if is_napper {
+            napper_idx = l["napper ".len()..].split(' ').next().and_then(|x| x.parse::<usize>().ok());
+        }
         if (l.starts_with("cart ") || is_napper) && l.contains(": into the shaft") {
             r.carts += 1;
             let wrong = l.contains("(WRONG LANE)");
@@ -209,6 +228,19 @@ pub fn read(text: &str, napper: bool, k_cell: Option<(i32, i32, i32)>) -> Return
                 None => r.errors.push("the split line has no junction gaps".to_string()),
             }
         }
+        if let Some(rest) = l.strip_prefix("(c)'s napper lift: ") {
+            // (`... on the hold when a pulse (P gt) launched it: at x,y,z (on the hold) ...` or `...: NOT
+            // on the hold at any pulse ...` / `(NOT on the hold)`)
+            r.lift_seen = true;
+            r.napper_on_hold = if rest.contains("NOT on the hold") {
+                Some(false)
+            } else if rest.contains("(on the hold)") {
+                Some(true)
+            } else {
+                r.errors.push(format!("the napper lift line unreadable: {:?}", rest.chars().take(120).collect::<String>()));
+                None
+            };
+        }
         if l.starts_with("pairs: ") {
             saw_pairs = true;
             r.touches = need(l, "|dy| < 0.7) ", "box touches", &mut r.errors).map_or(0, |x| x as usize);
@@ -247,6 +279,8 @@ pub fn read(text: &str, napper: bool, k_cell: Option<(i32, i32, i32)>) -> Return
             }
         }
     }
+    // (the napper's K arrival: its own index's first tick in the K cell)
+    r.napper_k = napper_idx.and_then(|i| k_first.get(&i).copied());
     if r.carts == 0 {
         r.missing.push("the carts' lines");
     }
@@ -310,6 +344,13 @@ pub fn fails(r: &ReturnRead, b: &ReturnBars, napper: bool) -> Vec<String> {
         if r.napper_behind.is_none() || r.napper_ahead.is_none() {
             v.push("the napper's window unmeasured (it or the next batch's first never into the shaft)".into());
         }
+        // (ironspec 10:02: the napper never rides with a batch; its departure only at a scheduled pulse)
+        if r.napper_ahead.is_some_and(|g| g < 0) || r.napper_behind.is_some_and(|g| g < 0) {
+            v.push(format!("the napper rode with a batch (behind {}, ahead {})", r.napper_behind.map_or("-".into(), |g| g.to_string()), r.napper_ahead.map_or("-".into(), |g| g.to_string())));
+        }
+        if b.scheduled_only && r.napper_on_hold == Some(false) {
+            v.push("the napper departed outside a scheduled window (not on the hold at any pulse's rise)".into());
+        }
         if r.napper_behind.is_some_and(|g| g < b.napper_behind) {
             v.push(format!("the napper {} gt behind the third cart (bar {})", r.napper_behind.unwrap_or(0), b.napper_behind));
         }
@@ -359,6 +400,23 @@ pub enum Row {
     Control,
     Restart(i64, Restart),
     Login(i64, i64),
+    /// The bench's ±2 pattern `code` (0..729) over batches 0 and 1's releases (its `--jitter`).
+    Jitter(usize),
+    /// The napper leaving R at this tick (its `--napper-r`: the late-arrival rows), with one more batch
+    /// so a late napper always has a next batch to be judged against.
+    Late(i64),
+}
+
+/// The bench's jitter vector for `code`: each of batches 0 and 1's six releases shifted -2, 0 or +2
+/// (the bench's own `jitter_sweep` order).
+pub fn jitter_of(code: usize) -> Vec<i64> {
+    let mut j = Vec::new();
+    let mut c = code;
+    for _ in 0..6 {
+        j.push([-2i64, 0, 2][c % 3]);
+        c /= 3;
+    }
+    j
 }
 
 /// A failure's kind with its numbers replaced by N (to group failures across runs).
@@ -424,6 +482,11 @@ pub struct ReturnJudgeOpts {
     /// are the pearl alternative's, printed as its stated limit (failures by gap length, the first
     /// failing gap).
     pub lead_login_max: i64,
+    /// The bench's 729 ±2 jitter patterns at each nominal corner (lead rows; ironspec 10:02).
+    pub jitter: bool,
+    /// The late-arrival rows: the napper leaving R at every tick in this range at each nominal corner
+    /// (lead rows: its departure only at a scheduled pulse, never with a batch; ironspec 10:02).
+    pub late: Option<(i64, i64)>,
     pub bars: ReturnBars,
     /// Every gt bar's margin at the nominal corners.
     pub margin: i64,
@@ -451,7 +514,21 @@ fn run_all<K: Clone + Send + Sync + std::fmt::Debug>(base: &ReturnOpts, runs: &[
     let mut results = Vec::new();
     for chunk in runs.chunks(jobs.max(1)) {
         let got: Vec<Result<(K, ReturnRead), String>> = std::thread::scope(|sc| {
-            let hs: Vec<_> = chunk.iter().map(|(k, lo, nap)| sc.spawn(move || return_bench(lo).map(|t| (k.clone(), read(&t, *nap, kc))))).collect();
+            let hs: Vec<_> = chunk
+                .iter()
+                .map(|(k, lo, nap)| {
+                    sc.spawn(move || {
+                        return_bench(lo).map(|t| {
+                            let mut rd = read(&t, *nap, kc);
+                            // (`--napper-lift`: the bench's napper lift line is read for every napper run)
+                            if lo.napper_lift && *nap && !rd.lift_seen {
+                                rd.missing.push("the napper lift line");
+                            }
+                            (k.clone(), rd)
+                        })
+                    })
+                })
+                .collect();
             hs.into_iter().map(|h| h.join().expect("a return judge thread panicked")).collect()
         });
         for r in got {
@@ -472,7 +549,6 @@ fn opts(base: &ReturnOpts, c: &Corner, row: Row) -> ReturnOpts {
     lo.offsets = c.offsets.clone();
     lo.speed = c.speed;
     lo.napper_delay = c.napper;
-    lo.trace = (lo.k_relay && c.napper.is_some()).then_some(lo.batches * 3);
     lo.out = None;
     lo.restart = None;
     lo.login = None;
@@ -480,7 +556,15 @@ fn opts(base: &ReturnOpts, c: &Corner, row: Row) -> ReturnOpts {
         Row::Control => {}
         Row::Restart(t, how) => lo.restart = Some((t, how)),
         Row::Login(t, d) => lo.login = Some((t, d)),
+        Row::Jitter(code) => lo.jitter = jitter_of(code),
+        Row::Late(r) => {
+            lo.napper_r = r;
+            lo.batches = base.batches + 1;
+            lo.ticks = base.ticks + 100;
+        }
     }
+    // (the napper is the cart after the batches: its index set once the batches are)
+    lo.trace = (lo.k_relay && c.napper.is_some()).then_some(lo.batches * 3);
     lo
 }
 
@@ -505,6 +589,16 @@ pub fn judge(base: &ReturnOpts, o: &ReturnJudgeOpts) -> Result<(Vec<String>, usi
             }
             for &d in &o.ds {
                 push(c, Row::Login(t, d));
+            }
+        }
+        if o.jitter {
+            for code in 0..729 {
+                push(c, Row::Jitter(code));
+            }
+        }
+        if let Some((a, b)) = o.late {
+            for r in a..=b {
+                push(c, Row::Late(r));
             }
         }
     }
@@ -652,6 +746,42 @@ pub fn judge(base: &ReturnOpts, o: &ReturnJudgeOpts) -> Result<(Vec<String>, usi
                 o.lead_login_max,
                 pearl.iter().map(|(d, e)| format!("{d} gt: failing {} of {}{}", e.1.len(), e.0, if e.2.is_empty() { String::new() } else { format!(" ({})", e.2.iter().cloned().collect::<Vec<_>>().join(", ")) })).collect::<Vec<_>>().join("; "),
                 first.map_or("none".to_string(), |d| format!("{d} gt"))
+            ));
+        }
+        // (the jitter rows: the bench's 729 ±2 patterns; the late rows: the napper leaving R at every tick
+        // (lead rows, ironspec 10:02); each with its failing count, the napper's least window and the
+        // departures outside a scheduled window)
+        for (fam, is_fam) in [("jitter (the bench's 729 ±2 patterns over batches 0 and 1)", (|r: &Row| matches!(r, Row::Jitter(_))) as fn(&Row) -> bool), ("late arrivals (the napper leaving R at every tick, with one more batch)", |r: &Row| matches!(r, Row::Late(_)))] {
+            let rows: Vec<&&Res> = mine.iter().filter(|((_, row), _)| is_fam(row)).collect();
+            if rows.is_empty() {
+                continue;
+            }
+            let bad: Vec<&&&Res> = rows.iter().filter(|((cc, _), r)| !fl(cc, r).is_empty()).collect();
+            total += bad.len();
+            let rs: Vec<&ReturnRead> = rows.iter().map(|(_, r)| r).collect();
+            let off_window = rs.iter().filter(|r| r.napper_on_hold == Some(false)).count();
+            let rode = rs.iter().filter(|r| r.napper_ahead.is_some_and(|g| g < 0) || r.napper_behind.is_some_and(|g| g < 0)).count();
+            let kinds: std::collections::BTreeSet<String> = bad.iter().flat_map(|((cc, _), r)| fl(cc, r).into_iter().map(|k| kind(&k))).collect();
+            let which: Vec<String> = bad
+                .iter()
+                .take(12)
+                .map(|((_, row), _)| match row {
+                    Row::Jitter(code) => format!("[{}]", jitter_of(*code).iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",")),
+                    Row::Late(r) => format!("R at t {r}"),
+                    _ => String::new(),
+                })
+                .collect();
+            out.push(format!(
+                "  {fam}: {} runs, failing {}; departures off a pulse's rise {off_window}{}; the napper riding with a batch {rode}; the napper's least window {} behind, {} ahead; the least shaft-entry gap {}; delivery {}; {}{}",
+                rows.len(),
+                bad.len(),
+                if o.bars.scheduled_only { " (each a failure)" } else { " (counted: judged by their slot margins and the state, ironspec 10:09)" },
+                least(&rs, |r| r.napper_behind, o.bars.napper_behind),
+                least(&rs, |r| r.napper_ahead, o.bars.napper_ahead),
+                least(&rs, |r| r.shaft, o.bars.shaft_min),
+                margins(&rs.iter().flat_map(|r| r.merge.clone()).collect::<Vec<_>>(), o.bars.branch_band),
+                napper_text(&rs),
+                if bad.is_empty() { String::new() } else { format!(" — failing: {} ({})", which.join(" "), kinds.into_iter().collect::<Vec<_>>().join(", ")) }
             ));
         }
         for how in &orders {
@@ -859,6 +989,14 @@ pub fn drivers(w: &redsim::world::World, p: redsim::pos::BlockPos) -> Vec<(Strin
         }
         Block::parse(&u).ok()
     };
+    // (a repeater or comparator whose output faces the cell asking: its `facing` is the side away from
+    // its output (the input's), so one at `q = p.rel(d)` with facing `d` drives `p`; recognised by its
+    // shape too, since a comparator set `powered=true` without its block entity may output 0 in redsim
+    // (G1's note on c620a1429))
+    let diode_into = |b: &Block, d: Dir| -> bool {
+        let t = b.to_string();
+        (t.contains("repeater") || t.contains("comparator")) && t.contains(&format!("facing={}", d.name()))
+    };
     let mut out = Vec::new();
     for d in Dir::ALL {
         let q = p.rel(d);
@@ -872,6 +1010,7 @@ pub fn drivers(w: &redsim::world::World, p: redsim::pos::BlockPos) -> Vec<(Strin
                 let sr = w.get(r);
                 let now = w.direct_signal(r, e) > 0;
                 let could = now
+                    || diode_into(&sr, e)
                     || lit(&sr).is_some_and(|on| {
                         let mut w2 = w.clone();
                         w2.place_raw(&[(r, on)]);
@@ -884,6 +1023,7 @@ pub fn drivers(w: &redsim::world::World, p: redsim::pos::BlockPos) -> Vec<(Strin
         } else {
             let now = w.signal(q, d) > 0;
             let could = now
+                || diode_into(&s, d)
                 || lit(&s).is_some_and(|on| {
                     let mut w2 = w.clone();
                     w2.place_raw(&[(q, on)]);
@@ -1210,7 +1350,7 @@ mod tests {
     }
 
     fn bars() -> ReturnBars {
-        ReturnBars { branch_band: (0.30, 0.48), napper_band: (0.1, 0.3), shaft_min: 14, napper_behind: 21, napper_ahead: 16, junction_min: [(3, 8), (-1, 8)].into_iter().collect(), pushes_max: 0, head_max: 28.0, k_band: None }
+        ReturnBars { branch_band: (0.30, 0.48), napper_band: (0.1, 0.3), shaft_min: 14, napper_behind: 21, napper_ahead: 16, junction_min: [(3, 8), (-1, 8)].into_iter().collect(), pushes_max: 0, head_max: 28.0, k_band: None, scheduled_only: true }
     }
 
     const T: &str = "cart 0 (batch 0, lane -1): into the shaft 30 live gt after release (the rider's feet at y 12.01 at 44); lane -1, at its branch flat 132 live gt after release; branch speed 0.410 (entering the merge cell 0.350); air 300; seated; hurt 0.0; eye-in-wall ticks 0\n  cart 0 speed pin: merge row stored >= 0.791, moved >= 0.200/gt; split row stored >= 0.230, moved >= 0.172/gt; the rider's highest head y 26.900 (the roof's underside 28.0)\ncart 1 (batch 0, lane 3): into the shaft 31 live gt after release; lane 3, at its branch flat 153 live gt after release; branch speed 0.420 (entering the merge cell 0.360); air 300; seated; hurt 0.0; eye-in-wall ticks 0\n  cart 1 speed pin: merge row -; split row -; the rider's highest head y 27.012 (the roof's underside 28.0)\nnapper 3 (batch 0, the 4th route): into the shaft 80 live gt after release; the 4th route; branch speed - (handed on by the 4th route at 0.261 stored, 0.196/gt); air 300; seated; hurt 0.0; eye-in-wall ticks 0\n  napper 3 speed pin: merge row -; split row -; the rider's highest head y 26.500 (the roof's underside 28.0)\nsplit: 0 wrong lane(s) of 3; the batch carts' stored speed entering their branch 0.410..0.420, entering their lane's merge cell 0.350..0.360 (ironfarm's delivery band 0.30..0.48, margins 0.050 / 0.120); the least gap from a junction's turn to the next cart at it: J(3) 17 gt, J(-1) 18 gt; the shaft's closest pair 3.100\npairs: box touches (the game's push test: inflated 0.2 sideways, |dy| < 0.7) 6 pair-ticks, the hardest closing 0.081 (t 120, carts 0 and 1 at 1.00,2.00,3.00); where a push acts (|cos| >= 0.8 against either yaw) 0\nshaft entry gaps (live gt): batch 0 23 / 23, batch 1 23 / 24; the napper 30 behind batch 0's third cart, 24 ahead of batch 1's first\n";
@@ -1290,6 +1430,33 @@ mod tests {
         // (no K cell in the trace: missing; an unreadable trace line: an error)
         assert!(super::read(&t, true, Some((5, 25, 9))).missing.iter().any(|m| m.contains("K cell")));
         assert!(!super::read(&t.replace("v 0.296,-0.000,0.000", "v x,0,0"), true, Some((1, 25, 9))).errors.is_empty());
+        // (another cart's tick in the K cell is not the napper's: keyed on the napper's index, its own
+        // line's "napper 3")
+        let other = format!("{T}  t 300: cart 1 at 1.200,25.062,9.500 v 0.050,0.000,0.000 on rail[shape=north_east,waterlogged=false]\n{trace}");
+        assert_eq!(super::read(&other, true, Some((1, 25, 9))).napper_k, Some(0.296));
+    }
+
+    /// The napper lift line (ironspec 10:02): "on the hold when a pulse launched it ... (on the hold)" is
+    /// a scheduled departure; "NOT on the hold at any pulse" a departure outside a scheduled window (a
+    /// failure); an unreadable one an error. The napper's shaft entry inside a batch (a negative gap) is
+    /// "the napper rode with a batch".
+    #[test]
+    fn napper_departure_and_batch() {
+        let lift = |s: &str| format!("{T}(c)'s napper lift: the napper from R at t 0, on the hold when a pulse (12 gt) launched it: {s} (4 pulse(s) in the run); the hold rail's first rise ARM3 + 12\n");
+        let ok = read(&lift("at 9.500,0.062,8.510 (on the hold)"), true);
+        assert!(ok.lift_seen && ok.napper_on_hold == Some(true) && ok.errors.is_empty());
+        assert!(fails(&ok, &bars(), true).is_empty(), "{:?}", fails(&ok, &bars(), true));
+        let late = read(&lift("NOT on the hold at any pulse"), true);
+        assert_eq!(late.napper_on_hold, Some(false));
+        assert!(fails(&late, &bars(), true).iter().any(|f| f.contains("outside a scheduled window")), "{:?}", fails(&late, &bars(), true));
+        // ((b), ironspec 10:09: the timers keyed to the actual departure: an off-rise departure is no
+        // failure in itself)
+        let b_design = ReturnBars { scheduled_only: false, ..bars() };
+        assert!(fails(&late, &b_design, true).is_empty(), "{:?}", fails(&late, &b_design, true));
+        assert!(!read(&lift("somewhere"), true).errors.is_empty());
+        assert!(!read(T, true).lift_seen);
+        let rode = read(&T.replace("the napper 30 behind batch 0's third cart, 24 ahead of batch 1's first", "the napper 100 behind batch 0's third cart, -45 ahead of the next batch's first"), true);
+        assert!(fails(&rode, &bars(), true).iter().any(|f| f.contains("rode with a batch (behind 100, ahead -45)")), "{:?}", fails(&rode, &bars(), true));
     }
 
     /// ironspec's T rule bites (a positive control): a switched T with arms N/W/E (a row along x, its
@@ -1350,5 +1517,13 @@ mod tests {
         let under = vec![([0, -1, 1], "minecraft:repeater[delay=1,facing=south,locked=false,powered=true]".to_string())];
         let (line, bad) = tee("north_west", &under).expect("a T driven through its support");
         assert!(bad.is_empty() && line.contains("via stone (0,-1,0)"), "{line}: {bad:?}");
+        // (an idle comparator pointing into the T is a driver by its shape (G1's note on c620a1429): the
+        // T is a switched T, judged, not skipped)
+        let comp = vec![([0, 0, 1], "minecraft:comparator[facing=south,mode=compare,powered=false]".to_string())];
+        let (line, bad) = tee("north_east", &comp).expect("a comparator-driven T");
+        assert!(bad.is_empty() && line.contains("comparator (0,0,1) (off)"), "{line}: {bad:?}");
+        let (line, bad) = tee("east_west", &comp).expect("a comparator-driven T");
+        assert!(bad.iter().any(|b| b.contains("which no settle gives")), "{line}: {bad:?}");
+        assert!(tee("north_east", &[([0, 0, 1], "minecraft:comparator[facing=north,mode=compare,powered=false]".to_string())]).is_none(), "a comparator pointing away drives nothing");
     }
 }
