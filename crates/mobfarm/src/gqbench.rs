@@ -92,6 +92,8 @@ pub struct GqOpts {
     pub hold_stagger_ds: bool,
     /// Ds a sloped detector right after the hold's line (v4's).
     pub ds_slope: bool,
+    /// Two empties adjacent in the pool come in through the intake as a merged pair.
+    pub merged_intake: bool,
     /// Edge escapement: G_P only after no hold sensor edge for this many gt (the hold settled).
     pub fill_quiet: i64,
     /// The start state: the run empty, carts admitted seated one at a time until N are on it.
@@ -676,6 +678,10 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
     let mut gentle_seat: Option<(usize, i64)> = None;
     let mut gentle_log: Vec<String> = Vec::new();
     let mut gentle_last_place: i64 = i64::MIN / 2;
+    // (--merged-intake: each merged pair's spawn tick and carts; per cart: released, the lowest point
+    // reached (largest x), the highest point after it (its bounce back up), the tick of that)
+    let mut merged_in: Vec<(i64, usize, usize)> = Vec::new();
+    let mut merged_track: std::collections::BTreeMap<usize, (bool, f64, f64, i64)> = Default::default();
     let ticks = warm + o.cycles * 100;
     // (cc767b78, `alive`: day-1's gate on a virtual sealed ring in the hold's chunk (or
     // `MCTAS_ALIVE_RING`); the cycle's pulses as offsets from its golem event: the hold at +3,
@@ -738,6 +744,18 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                 let base = (ph5 - 1) as f64;
                 let yr = base + (1.0 - (xr - (px5 + 1) as f64)) + 0.0625;
                 ids[k] = Some(spawn(&mut run, [xr, yr, 0.5], 0.0, ridden_k(k) || replaced[k])?);
+                // (--merged-intake: an empty cart followed in the pool by another empty comes in as a
+                // merged pair: both placed on the same spot at the staging cell (the jam case after two
+                // deaths), released together)
+                if o.merged_intake
+                    && !(ridden_k(k) || replaced[k])
+                    && let Some(&k2) = pool.front()
+                    && !(ridden_k(k2) || replaced[k2])
+                {
+                    pool.pop_front();
+                    ids[k2] = Some(spawn(&mut run, [xr, yr, 0.5], 0.0, false)?);
+                    merged_in.push((t, k, k2));
+                }
                 occ_t[0] = true;
                 settle_live = o.settle;
                 next_spawn_ok = t + 4;
@@ -1383,6 +1401,32 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
         }
         // (blow-ups and carts off the track: the highest stored speed of any cart at any tick; a cart
         // below the bench's lowest rail by 2 or outside its x span by 1)
+        {
+            let face0 = g.gates.iter().find(|x| x.0 == Role::Tail(0)).map_or(0.0, |x| x.1 as f64 + 0.375);
+            for (t0, k1, k2) in merged_in.iter().copied() {
+                for k in [k1, k2] {
+                    if t - t0 > 400 {
+                        continue;
+                    }
+                    if let Some((x, _, _)) = now[k] {
+                        let e = merged_track.entry(k).or_insert((false, x, f64::INFINITY, 0));
+                        if !e.0 && x > face0 + 0.6 {
+                            e.0 = true;
+                        }
+                        if e.0 {
+                            if x > e.1 && e.2.is_infinite() {
+                                e.1 = x;
+                            } else if x < e.1 - 0.05 && x < e.2 {
+                                e.2 = x;
+                                e.3 = t;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // (blow-ups and carts off the track: the highest stored speed of any cart at any tick; a cart
+        // below the bench's lowest rail by 2 or outside its x span by 1)
         for k in 0..o.carts {
             if let Some((x, y, v)) = now[k] {
                 if v > vmax_any.0 {
@@ -1445,6 +1489,23 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
         if vmax_any.0 > 2.0 { " BLOW-UP" } else { "" },
         if off_track.is_empty() { "0".to_string() } else { off_track.iter().map(|(t, k, x, y)| format!("t {t} cart {k} at {x:.1},{y:.1}")).collect::<Vec<_>>().join("; ") }
     ));
+    // (--merged-intake: each merged pair's release: its lowest point, its bounce back up (the highest
+    // point after it), the gap left to the staging cell's cart face, and every contact within 300 gt
+    // of it; contacts into a ridden cart above 0.46)
+    if !merged_in.is_empty() {
+        let face0 = g.gates.iter().find(|x| x.0 == Role::Tail(0)).map_or(0.0, |x| x.1 as f64 + 0.375);
+        for (t0, k1, k2) in &merged_in {
+            let tr = |k: &usize| merged_track.get(k).map_or("-".to_string(), |(rel, lo, hi, th)| if !rel { "never released".to_string() } else if hi.is_infinite() { format!("lowest x {lo:.2}, no bounce") } else { format!("lowest x {lo:.2}, bounced back up {:.2} in x ({:.2} along the slope) to x {hi:.2} at t {th}, {:.2} below the gate's face", lo - hi, (lo - hi) * std::f64::consts::SQRT_2, hi - face0) });
+            let cs: Vec<&Contact> = contacts_arr.iter().chain(contacts_mov.iter()).filter(|c| c.t >= *t0 && c.t <= t0 + 300).collect();
+            let into_r: Vec<&&Contact> = cs.iter().filter(|c| (ridden_k(c.j) || replaced[c.j]) && c.pv > 0.46).collect();
+            l.push(format!(
+                "merged empty pair (carts {k1}, {k2}) placed at the staging cell at t {t0}: cart {k1}: {}; cart {k2}: {}; contacts within 300 gt: {} (hardest {:.3}); into a ridden cart above 0.46: {}{}",
+                tr(k1), tr(k2), cs.len(), cs.iter().map(|c| c.pv).fold(0.0f64, f64::max),
+                into_r.len(),
+                if into_r.is_empty() { String::new() } else { format!(" ({})", into_r.iter().take(6).map(|c| format!("t {} cart {} into {} at {:.3}", c.t, c.k, c.j, c.pv)).collect::<Vec<_>>().join(", ")) }
+            ));
+        }
+    }
     // (every ridden intake striking an empty back (R onto E): count and speeds in 0.05 bins)
     {
         let re: Vec<f64> = contacts_arr.iter().chain(contacts_mov.iter()).filter(|c| c.intake.is_some() && c.t >= warm && ridden_k(c.k) && !ridden_k(c.j)).map(|c| c.pv).collect();
