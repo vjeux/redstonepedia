@@ -499,6 +499,14 @@ pub fn check_pillagers(spec: &FarmSpec, home: Option<BlockPos>, foot: &[BlockPos
 /// A pillager's panic distance (`VillagerHostilesSensor.ACCEPTABLE_DISTANCE_FROM_HOSTILES`).
 pub const PILLAGER_BAR: f64 = 15.0;
 
+/// A pillager's eye over its feet (G1's review: no `eyeHeight` on its builder, so 0.85 x 1.95).
+pub const PILLAGER_EYE: f64 = 0.85 * 1.95;
+
+/// A pillager seated in a boat: its feet over the boat's y (the boat's passenger attachment
+/// 0.5625 / 3, then the pillager's `ridingOffset(-0.6)`; G1's review: searched standing, it sat
+/// ~0.37 too high).
+pub const PILLAGER_SEAT: f64 = (0.5625f32 / 3.0f32) as f64 - 0.6;
+
 /// [`check_claims`], only the rider place at `only` (the others skipped: the fix search's runs).
 fn check_inner(spec: &FarmSpec, home: Option<BlockPos>, foot: &[BlockPos], panic_boxes: &[([i32; 3], [i32; 3])], continuous: bool, claims: &[BlockPos], pills: &[Vec3], only: Option<BlockPos>) -> Result<Vec<Place>, String> {
     let continuous_off = !continuous;
@@ -605,7 +613,7 @@ fn check_inner(spec: &FarmSpec, home: Option<BlockPos>, foot: &[BlockPos], panic
                 }
             }
             panic_ok &= foes.iter().any(|f| dist(f) <= PANIC_BAR && redsim::entity::mob::los::has_line_of_sight(w, eye, Vec3::new(f.x, f.y + 1.74, f.z)))
-                || pills.iter().any(|f| dist(f) <= PILLAGER_BAR - 0.05 && redsim::entity::mob::los::has_line_of_sight(w, eye, Vec3::new(f.x, f.y + 1.62, f.z)));
+                || pills.iter().any(|f| dist(f) <= PILLAGER_BAR - 0.05 && redsim::entity::mob::los::has_line_of_sight(w, eye, Vec3::new(f.x, f.y + PILLAGER_EYE, f.z)));
             let near6: Vec<Vec3> = foes.iter().chain(pills.iter()).copied().filter(|f| dist(f) < 6.0).collect();
             let near8: Vec<Vec3> = foes.iter().copied().filter(|f| dist(f) <= 8.0).collect();
             let near15: Vec<Vec3> = pills.iter().copied().filter(|f| dist(f) <= PILLAGER_BAR).collect();
@@ -613,7 +621,7 @@ fn check_inner(spec: &FarmSpec, home: Option<BlockPos>, foot: &[BlockPos], panic
             panic_from = panic_from.max(near8.len() + near15.len());
             seen = seen.max(
                 near8.iter().filter(|f| redsim::entity::mob::los::has_line_of_sight(w, eye, Vec3::new(f.x, f.y + 1.74, f.z))).count()
-                    + near15.iter().filter(|f| redsim::entity::mob::los::has_line_of_sight(w, eye, Vec3::new(f.x, f.y + 1.62, f.z))).count(),
+                    + near15.iter().filter(|f| redsim::entity::mob::los::has_line_of_sight(w, eye, Vec3::new(f.x, f.y + PILLAGER_EYE, f.z))).count(),
             );
             // PANIC's flee: every hostile within 6 (the largest share over them and the points; the
             // exact enumeration's cells a share of 0 misses kept at 0: an offset of exactly 16)
@@ -965,11 +973,13 @@ pub fn clearing_fix_pairs(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: 
 /// post covering the most still-uncovered points first, at most `max_posts`. Not checked here: the
 /// posts' reach from the golems (their hatches) and the pad golems' distance to a pillager; the
 /// laid result goes through the full flee-check (classes, the 6-8 gate).
-pub fn scarer_search(spec: &FarmSpec, extra: &[Vec3], lo: [i32; 3], hi: [i32; 3], kind: &str, max_posts: usize, any_floor: bool, exclude: &[([i32; 3], [i32; 3])], near: Option<f64>) -> Result<Vec<String>, String> {
+pub fn scarer_search(spec: &FarmSpec, extra: &[Vec3], lo: [i32; 3], hi: [i32; 3], kind: &str, max_posts: usize, any_floor: bool, exclude: &[([i32; 3], [i32; 3])], near: Option<f64>, walls: bool) -> Result<Vec<String>, String> {
     let o = RunOpts { ai: true, ..RunOpts::steady(1, 0, WalkMode::Random) };
     let mut run = Run::start(spec, &o)?;
     while run.settle_tick() {}
-    let w = &run.world;
+    let w = &mut run.world;
+    let stone = redsim::block::Block::parse("minecraft:stone")?;
+    let air_block = redsim::block::Block::parse("minecraft:air")?;
     let pillager = kind == "pillager";
     let (mut near_bar, far_bar) = if pillager { (8.0, 15.0) } else { (FLEE_BAR, PANIC_BAR) };
     // (a margin over the bar, ironspec Nov 11 23:57: a boat bobs in its cell and the charge test runs
@@ -991,72 +1001,119 @@ pub fn scarer_search(spec: &FarmSpec, extra: &[Vec3], lo: [i32; 3], hi: [i32; 3]
         pts.push((format!("rider {:.2},{:.2},{:.2}", e.x, e.y, e.z), *e));
     }
     let seat = (0.5625f32 / 3.0f32) as f64 + redsim::entity::mob::types::MobType::Zombie.def().riding_offset as f64;
-    let air = |x: i32, y: i32, z: i32| w.get(BlockPos::new(x, y, z)).is_air();
-    let mut cands: Vec<(BlockPos, Vec<usize>)> = Vec::new();
+    let air = |w: &redsim::World, x: i32, y: i32, z: i32| w.get(BlockPos::new(x, y, z)).is_air();
+    let mut cands: Vec<(BlockPos, Vec<usize>, Option<(i32, i32)>)> = Vec::new();
     let mut refused = 0usize;
     for y in lo[1]..=hi[1] {
         for z in lo[2]..=hi[2] {
             for x in lo[0]..=hi[0] {
                 // (a post brings its own floor with `any_floor`: then any air cell with air above;
-                // the floor block it adds is not in the sight test)
-                if !air(x, y, z) || !air(x, y + 1, z) || (!any_floor && air(x, y - 1, z)) {
+                // its floor block (stone) is placed for the sight test, G1's review)
+                if !air(w, x, y, z) || !air(w, x, y + 1, z) || (!any_floor && air(w, x, y - 1, z)) {
                     continue;
                 }
                 // (a post, its floor and the zombie's head cell kept out of every excluded box:
                 // other parts' reserved space, the pad's spawn columns, the riders' own cells)
-                if exclude.iter().any(|(a, b)| (a[0]..=b[0]).contains(&x) && (a[2]..=b[2]).contains(&z) && a[1] <= y + 1 && y - 1 <= b[1]) {
+                // (with `walls`, the post's whole footprint (x +-1, z +-1, its floor to its roof) kept
+                // out of the excluded boxes too)
+                let r = if walls { 1 } else { 0 };
+                let (ytop, ybot) = if walls { (y + 2, y - 1) } else { (y + 1, y - 1) };
+                if exclude.iter().any(|(a, b)| a[0] <= x + r && x - r <= b[0] && a[2] <= z + r && z - r <= b[2] && a[1] <= ytop && ybot <= b[1]) {
                     continue;
                 }
-                let feet = Vec3::new(x as f64 + 0.5, y as f64 + if pillager { 0.0 } else { seat }, z as f64 + 0.5);
-                let eye = Vec3::new(feet.x, feet.y + if pillager { 1.62 } else { 1.74 }, feet.z);
-                let mut covers = Vec::new();
-                let mut bad = false;
-                for (k, (_, p)) in pts.iter().enumerate() {
-                    let d = ((p.x - feet.x).powi(2) + (p.y - feet.y).powi(2) + (p.z - feet.z).powi(2)).sqrt();
-                    if !pillager && d < near_bar {
-                        bad = true;
-                        break;
+                // (the post's own blocks in the sight test, G1's review / dfb89499: the floor
+                // (stone) with `any_floor`, and with `walls` a stone roof and two-high walls on three
+                // sides, each of the four open sides tried and the best kept)
+                let sides: &[Option<(i32, i32)>] = if walls { &[Some((0, -1)), Some((1, 0)), Some((0, 1)), Some((-1, 0))] } else { &[None] };
+                let feet = Vec3::new(x as f64 + 0.5, y as f64 + if pillager { PILLAGER_SEAT } else { seat }, z as f64 + 0.5);
+                let eye = Vec3::new(feet.x, feet.y + if pillager { PILLAGER_EYE } else { 1.74 }, feet.z);
+                let mut best_cfg: Option<(Vec<usize>, Option<(i32, i32)>)> = None;
+                let mut any_bad = false;
+                for open in sides {
+                    let mut post: Vec<BlockPos> = Vec::new();
+                    if any_floor {
+                        post.push(BlockPos::new(x, y - 1, z));
                     }
-                    if d > far_bar {
+                    if let Some(o) = open {
+                        post.push(BlockPos::new(x, y + 2, z));
+                        for (dx, dz) in [(0, -1), (1, 0), (0, 1), (-1, 0)] {
+                            if (dx, dz) != *o {
+                                post.push(BlockPos::new(x + dx, y, z + dz));
+                                post.push(BlockPos::new(x + dx, y + 1, z + dz));
+                            }
+                        }
+                    }
+                    let placed: Vec<BlockPos> = post.into_iter().filter(|p| air(w, p.x, p.y, p.z)).collect();
+                    for p in &placed {
+                        w.set_block(*p, stone.clone(), redsim::world::flags::CLIENTS);
+                    }
+                    let mut covers = Vec::new();
+                    let mut bad = false;
+                    for (k, (_, p)) in pts.iter().enumerate() {
+                        let d = ((p.x - feet.x).powi(2) + (p.y - feet.y).powi(2) + (p.z - feet.z).powi(2)).sqrt();
+                        if !pillager && d < near_bar {
+                            bad = true;
+                            break;
+                        }
+                        if d > far_bar {
+                            continue;
+                        }
+                        let seen = redsim::entity::mob::los::has_line_of_sight(w, Vec3::new(p.x, p.y + 1.62, p.z), eye);
+                        if pillager && d < near_bar && seen {
+                            bad = true;
+                            break;
+                        }
+                        if seen && d >= near_bar {
+                            covers.push(k);
+                        }
+                    }
+                    for p in &placed {
+                        w.set_block(*p, air_block.clone(), redsim::world::flags::CLIENTS);
+                    }
+                    if bad {
+                        any_bad = true;
                         continue;
                     }
-                    let seen = redsim::entity::mob::los::has_line_of_sight(w, Vec3::new(p.x, p.y + 1.62, p.z), eye);
-                    if pillager && d < near_bar && seen {
-                        bad = true;
-                        break;
-                    }
-                    if seen && d >= near_bar {
-                        covers.push(k);
+                    if best_cfg.as_ref().is_none_or(|(c, _)| covers.len() > c.len()) {
+                        best_cfg = Some((covers, *open));
                     }
                 }
-                if bad {
-                    refused += 1;
-                } else if !covers.is_empty() {
-                    cands.push((BlockPos::new(x, y, z), covers));
+                match best_cfg {
+                    Some((covers, open)) if !covers.is_empty() => cands.push((BlockPos::new(x, y, z), covers, open)),
+                    None if any_bad => refused += 1,
+                    _ => {}
                 }
             }
         }
     }
     let mut covered = vec![false; pts.len()];
-    let mut chosen: Vec<(BlockPos, usize)> = Vec::new();
+    let mut chosen: Vec<(BlockPos, usize, Option<(i32, i32)>)> = Vec::new();
     while chosen.len() < max_posts {
-        let best = cands.iter().map(|(c, cv)| (*c, cv, cv.iter().filter(|&&k| !covered[k]).count())).max_by_key(|(c, _, n)| (*n, std::cmp::Reverse((c.y, c.z, c.x))));
-        let Some((c, cv, n)) = best else { break };
+        let best = cands.iter().map(|(c, cv, o)| (*c, cv, *o, cv.iter().filter(|&&k| !covered[k]).count())).max_by_key(|(c, _, _, n)| (*n, std::cmp::Reverse((c.y, c.z, c.x))));
+        let Some((c, cv, o, n)) = best else { break };
         if n == 0 {
             break;
         }
         for &k in cv.iter() {
             covered[k] = true;
         }
-        chosen.push((c, n));
+        chosen.push((c, n, o));
     }
+    let side = |o: Option<(i32, i32)>| match o {
+        Some((0, -1)) => " open north",
+        Some((1, 0)) => " open east",
+        Some((0, 1)) => " open south",
+        Some((-1, 0)) => " open west",
+        _ => "",
+    };
     let mut lines = vec![format!(
-        "scarer search ({kind}: covers {near_bar}..{far_bar} in sight; refused with a rider point inside {near_bar}{}), candidates in x {}..{} y {}..{} z {}..{}: {} posts cover a point, {refused} refused; {} rider points; greedy, at most {max_posts}: {}",
+        "scarer search ({kind} seated in a boat: covers {near_bar}..{far_bar} in sight; refused with a rider point inside {near_bar}{}; the post's {} in the sight test), candidates in x {}..{} y {}..{} z {}..{}: {} posts cover a point, {refused} refused; {} rider points; greedy, at most {max_posts}: {}",
         if pillager { " that it sees" } else { ", sight or not" },
+        match (any_floor, walls) { (true, true) => "floor, roof and three walls", (true, false) => "floor", (false, true) => "roof and three walls (its floor the design's)", (false, false) => "cell (its floor the design's)" },
         lo[0], hi[0], lo[1], hi[1], lo[2], hi[2],
         cands.len(),
         pts.len(),
-        if chosen.is_empty() { "none".to_string() } else { chosen.iter().map(|(c, n)| format!("{},{},{} (+{n})", c.x, c.y, c.z)).collect::<Vec<_>>().join(", ") }
+        if chosen.is_empty() { "none".to_string() } else { chosen.iter().map(|(c, n, o)| format!("{},{},{}{} (+{n})", c.x, c.y, c.z, side(*o))).collect::<Vec<_>>().join(", ") }
     )];
     // (each place's points: covered when every point is)
     let mut labels: Vec<&str> = Vec::new();
@@ -1074,12 +1131,26 @@ pub fn scarer_search(spec: &FarmSpec, extra: &[Vec3], lo: [i32; 3], hi: [i32; 3]
         }
     }
     lines.push(format!("places and riders fully covered: {} of {}{}", labels.len() - open.len(), labels.len(), if open.is_empty() { String::new() } else { format!("; not: {}", open.join(", ")) }));
-    for (c, _) in &chosen {
-        lines.push(if pillager {
-            format!("entity: minecraft:pillager {}.5 {} {}.5 {{PersistenceRequired:1b}}", c.x, c.y, c.z)
-        } else {
-            format!("entity: minecraft:oak_boat {}.5 {} {}.5 {{Passengers:[{{id:\"minecraft:zombie\",PersistenceRequired:1b}}]}}", c.x, c.y, c.z)
-        });
+    for (c, _, o) in &chosen {
+        let mob = if pillager { "pillager" } else { "zombie" };
+        lines.push(format!("entity: minecraft:oak_boat {}.5 {} {}.5 {{Passengers:[{{id:\"minecraft:{mob}\",PersistenceRequired:1b}}]}}", c.x, c.y, c.z));
+        // (the post's blocks: stone floor, roof and the three walls, the open side's two cells air)
+        let mut blocks = Vec::new();
+        if any_floor {
+            blocks.push(format!("{},{},{}", c.x, c.y - 1, c.z));
+        }
+        if let Some(op) = o {
+            blocks.push(format!("{},{},{}", c.x, c.y + 2, c.z));
+            for (dx, dz) in [(0, -1), (1, 0), (0, 1), (-1, 0)] {
+                if (dx, dz) != *op {
+                    blocks.push(format!("{},{},{}", c.x + dx, c.y, c.z + dz));
+                    blocks.push(format!("{},{},{}", c.x + dx, c.y + 1, c.z + dz));
+                }
+            }
+            lines.push(format!("  its post (stone): {}; the opening {},{},{} and {},{},{} air", blocks.join(" "), c.x + op.0, c.y, c.z + op.1, c.x + op.0, c.y + 1, c.z + op.1));
+        } else if !blocks.is_empty() {
+            lines.push(format!("  its floor (stone): {}", blocks.join(" ")));
+        }
     }
     Ok(lines)
 }

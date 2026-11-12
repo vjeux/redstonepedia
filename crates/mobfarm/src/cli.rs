@@ -809,12 +809,17 @@ pub enum MobfarmCmd {
         /// candidate; the added floor block is left out of the sight test).
         #[arg(long)]
         scarer_any_floor: bool,
+        /// With --scarer-search: each post with its stone roof and two-high walls on three sides in
+        /// the sight test (the four open sides tried, the best kept; the post's blocks printed).
+        #[arg(long)]
+        scarer_walls: bool,
         /// With --scarer-search: a box x0,y0,z0,x1,y1,z1 no post (with its floor and its head
         /// cell) may touch (repeatable: other parts' space, the pad's spawn columns, rider cells).
         #[arg(long, allow_hyphen_values = true)]
         scarer_exclude: Vec<String>,
-        /// A declared pillager's feet x,y,z (repeatable; redsim does not spawn pillagers): a panic
-        /// source within 15 of a rider point when seen (eye 1.62 up), fled from within 6.
+        /// A declared pillager seated in a boat, the BOAT's position x,y,z (repeatable; redsim does
+        /// not spawn pillagers; G1's review: its feet at boat y + 0.1875 - 0.6, its eye 1.6575 over
+        /// them): a panic source within 15 of a rider point when seen, fled from within 6.
         #[arg(long, allow_hyphen_values = true)]
         pillager: Vec<String>,
         /// Instead: whether an iron golem standing on any cell of --golem-pad has a path to this
@@ -8337,7 +8342,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 std::process::exit(1);
             }
         }
-        MobfarmCmd::FleeCheck { design, home, show, foot, clearing, eye_control, pickup_control, sampled, claim, classes, fix_search, fix_pairs, fix_block, path_watch, path_trace, scarer_search, scarer, scarer_rider, scarer_max, scarer_any_floor, scarer_exclude, pillager, golem_reach, golem_pad, scarer_near, post_drift, drift_ticks } => {
+        MobfarmCmd::FleeCheck { design, home, show, foot, clearing, eye_control, pickup_control, sampled, claim, classes, fix_search, fix_pairs, fix_block, path_watch, path_trace, scarer_search, scarer, scarer_rider, scarer_max, scarer_any_floor, scarer_walls, scarer_exclude, pillager, golem_reach, golem_pad, scarer_near, post_drift, drift_ticks } => {
             if !post_drift.is_empty() {
                 anyhow::ensure!(post_drift.len() == 3, "--post-drift x,y,z");
                 let (_c, spec) = load(version, &design)?;
@@ -8362,7 +8367,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             for r in &pillager {
                 let v: Vec<f64> = r.split(',').map(|t| t.trim().parse::<f64>()).collect::<Result<_, _>>()?;
                 anyhow::ensure!(v.len() == 3, "--pillager x,y,z");
-                pills.push(redsim::entity::Vec3::new(v[0], v[1], v[2]));
+                pills.push(redsim::entity::Vec3::new(v[0], v[1] + crate::fleecheck::PILLAGER_SEAT, v[2]));
             }
             if !scarer_search.is_empty() {
                 anyhow::ensure!(scarer_search.len() == 6, "--scarer-search x0,y0,z0,x1,y1,z1");
@@ -8382,7 +8387,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     anyhow::ensure!(v.len() == 6, "--scarer-exclude x0,y0,z0,x1,y1,z1");
                     excl.push(([v[0].min(v[3]), v[1].min(v[4]), v[2].min(v[5])], [v[0].max(v[3]), v[1].max(v[4]), v[2].max(v[5])]));
                 }
-                for l in crate::fleecheck::scarer_search(&spec, &extra, lo, hi, &scarer, scarer_max, scarer_any_floor, &excl, scarer_near).map_err(|e| anyhow::anyhow!(e))? {
+                for l in crate::fleecheck::scarer_search(&spec, &extra, lo, hi, &scarer, scarer_max, scarer_any_floor, &excl, scarer_near, scarer_walls).map_err(|e| anyhow::anyhow!(e))? {
                     println!("{l}");
                 }
                 return Ok(());
