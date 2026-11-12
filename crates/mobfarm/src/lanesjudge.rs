@@ -77,6 +77,9 @@ pub struct Bars {
     /// Every family the text carries (the exactly-1 families, the bar-0 lines, the arrivals, the
     /// unsettled count, the retries, the eye blocks): a run lacking one its control carries is an error.
     pub families: BTreeSet<String>,
+    /// Counts the reader could not read (G1 2026-11-12 04:36, nothing silently dropped): a count that
+    /// is not a number where a family's count stands; any is an error in the judge.
+    pub errors: Vec<String>,
 }
 
 impl Bars {
@@ -117,8 +120,22 @@ impl Bars {
     }
 }
 
-fn first_num(s: &str) -> usize {
-    s.trim_start().split(|c: char| !c.is_ascii_digit()).next().and_then(|x| x.parse::<usize>().ok()).unwrap_or(0)
+/// The count at the start of `s` (after spaces): its leading digits; `None` when it has none (an
+/// unreadable count: the reader records it as an error, never as 0).
+fn count(s: &str) -> Option<usize> {
+    let d: String = s.trim_start().chars().take_while(|c| c.is_ascii_digit()).collect();
+    d.parse::<usize>().ok()
+}
+
+/// [`count`], or the error recorded in `errors` (and 0 added, which the error makes moot).
+fn count_or(s: &str, what: &str, errors: &mut Vec<String>) -> usize {
+    match count(s) {
+        Some(n) => n,
+        None => {
+            errors.push(format!("{what}: no number in {:?}", s.trim()));
+            0
+        }
+    }
 }
 
 /// The bars of a bench's text: its "exactly 1" families (`carts per lane per opening (exactly 1): 0
@@ -126,7 +143,8 @@ fn first_num(s: &str) -> usize {
 /// `carts per cell per release (exactly 1): 1: 60; cells not settled (string held) at a release: 0;
 /// ...`; `carts per D per release (exactly 1): 1: 36; D not settled at a release: 0; R-line retries:
 /// 0`), its `(the bar: 0): K` lines, `arrivals at the lanes' backs (...): N, M above X, ...`, `the
-/// riders' eye blocks: in D a x3; on R b x2`, `artefact: ...`.
+/// riders' eye blocks: in D a x3; on R b x2`, `artefact: ...`. A count that is not a number is
+/// recorded in `errors`.
 pub fn bars(text: &str) -> Bars {
     let mut b = Bars::default();
     for l in text.lines() {
@@ -142,21 +160,33 @@ pub fn bars(text: &str) -> Bars {
         }
         if let Some(i) = l.find(" (the bar: 0): ") {
             let label = l[..i].to_string();
-            *b.zero.entry(label.clone()).or_default() += first_num(&l[i + 15..]);
+            let n = count_or(&l[i + 15..], &label, &mut b.errors);
+            *b.zero.entry(label.clone()).or_default() += n;
             b.families.insert(label);
         }
         if l.starts_with("arrivals at the lanes' backs") {
             // (`...: N, M above X[ (why)], K above Y[ (why)], the hardest H`: every `M above X` clause
             // its own family, so each bar the bench prints is judged (G1 2026-11-12 04:22: ironfarm's
-            // port prints both the gravity-run 0.46 and the hold's contact 0.2))
+            // port prints both the gravity-run 0.46 and the hold's contact 0.2); the scan stops at
+            // ", the hardest" (G1 04:36: nothing after it adds a family), and M must be a number)
+            let scan = l.split(", the hardest").next().unwrap_or(l);
             let mut from = 0;
-            while let Some(k) = l[from..].find(" above ") {
+            while let Some(k) = scan[from..].find(" above ") {
                 let i = from + k;
-                let m = l[..i].rsplit([' ', ',']).find(|t| !t.is_empty()).map(first_num).unwrap_or(0);
-                let lim: String = l[i + 7..].chars().take_while(|c| c.is_ascii_digit() || *c == '.').collect();
+                let lim: String = scan[i + 7..].chars().take_while(|c| c.is_ascii_digit() || *c == '.').collect();
                 let lim = lim.trim_end_matches('.').to_string();
-                if !lim.is_empty() {
+                if lim.is_empty() {
+                    b.errors.push(format!("arrivals at the lanes' backs: no limit after \"above\" in {:?}", &scan[i..]));
+                } else {
                     let label = format!("arrivals at the lanes' backs above {lim}");
+                    let tok = scan[..i].rsplit([' ', ',']).find(|t| !t.is_empty()).unwrap_or("");
+                    let m = match tok.parse::<usize>() {
+                        Ok(m) => m,
+                        Err(_) => {
+                            b.errors.push(format!("{label}: the count before \"above\" is {tok:?}, not a number"));
+                            0
+                        }
+                    };
                     *b.zero.entry(label.clone()).or_default() += m;
                     b.families.insert(label);
                 }
@@ -183,13 +213,13 @@ pub fn bars(text: &str) -> Bars {
         for seg in l.split("; ") {
             if let Some(i) = seg.find("not settled") {
                 if let Some(j) = seg[i..].find(": ") {
-                    b.unsettled += first_num(&seg[i + j + 2..]);
+                    b.unsettled += count_or(&seg[i + j + 2..], "not settled at a release", &mut b.errors);
                     b.families.insert("not settled at a release".to_string());
                 }
                 continue;
             }
             if let Some(i) = seg.find("retries: ") {
-                b.retries += first_num(&seg[i + 9..]);
+                b.retries += count_or(&seg[i + 9..], "retries", &mut b.errors);
                 b.families.insert("retries".to_string());
                 continue;
             }
@@ -204,13 +234,16 @@ pub fn bars(text: &str) -> Bars {
                 continue;
             };
             b.families.insert(label.clone());
-            for p in pairs.split(", ") {
-                let Some((k, n)) = p.split_once(": ") else { continue };
-                let k = k.trim_end_matches(" carts").trim();
-                if let (Ok(k), Ok(n)) = (k.parse::<usize>(), n.trim().parse::<usize>())
-                    && k != 1
-                {
-                    *b.wrong.entry((label.clone(), k)).or_default() += n;
+            // (each pair `K[ carts]: N`, both numbers; an empty list (no opening yet) has none)
+            for p in pairs.split(", ").filter(|p| !p.trim().is_empty()) {
+                let parsed = p.split_once(": ").and_then(|(k, n)| Some((k.trim_end_matches(" carts").trim().parse::<usize>().ok()?, n.trim().parse::<usize>().ok()?)));
+                match parsed {
+                    Some((k, n)) => {
+                        if k != 1 {
+                            *b.wrong.entry((label.clone(), k)).or_default() += n;
+                        }
+                    }
+                    None => b.errors.push(format!("{label}: the pair {p:?} is not \"K: N\" in numbers")),
                 }
             }
         }
@@ -314,6 +347,10 @@ where
             }
             // (every artefact line names one of this judge's families in full)
             check_artefacts(b, expected).map_err(|e| format!("mode {}: corner {c:+}, freeze {f:?}: {e}", m.label))?;
+            // (every count read: nothing silently dropped)
+            if !b.errors.is_empty() {
+                return Err(format!("mode {}: corner {c:+}, freeze {f:?}: the bench's text has counts the judge cannot read: {:?}", m.label, b.errors));
+            }
         }
         // (nothing dirty: a control's own bars fail the mode unless an artefact line names each)
         let mut dirty: Vec<String> = Vec::new();
@@ -447,6 +484,34 @@ mod tests {
         let sw = bars("arrivals at the lanes' backs (each arrival's first contact in the lane): 40, 3 above 0.46, the hardest 0.501; the fewest carts queued on the slopes behind R_1's cart at an arrival 2\n");
         assert_eq!(sw.zero.get("arrivals at the lanes' backs above 0.46"), Some(&3));
         assert_eq!(sw.zero.len(), 1);
+        assert!(sw.errors.is_empty(), "{:?}", sw.errors);
+        // (G1 04:36: the scan stops at ", the hardest": a later " above <number>" adds no family)
+        let later = bars("arrivals at the lanes' backs (returns): 40, 3 above 0.46, the hardest 0.501 above 0.9 of the run\n");
+        assert_eq!(later.zero.keys().cloned().collect::<Vec<_>>(), vec!["arrivals at the lanes' backs above 0.46".to_string()]);
+        assert!(later.errors.is_empty());
+        // (G1 04:36: a count that is not a number is an error, never a 0)
+        let worded = bars("arrivals at the lanes' backs (returns): 40, 3 arrivals above 0.46, the hardest 0.501\n");
+        assert_eq!(worded.errors.len(), 1, "{:?}", worded.errors);
+        assert!(worded.errors[0].contains("\"arrivals\""));
+    }
+
+    /// Nothing silently dropped: an unreadable count in any family is an error (a bar-0 line, the
+    /// not-settled count, the retries, an exactly-1 pair); an empty pair list (no opening yet) is none.
+    #[test]
+    fn unreadable_counts_are_errors() {
+        let ok = bars("carts per G0 opening (exactly 1, after the warm-up): ; per G_P opening: \ncarts per D per release (exactly 1): 1: 36; D not settled at a release: 0; R-line retries: 0\ntrapdoor shuts onto a cart (the bar: 0): 2 (t 5: x; y)\n");
+        assert!(ok.errors.is_empty(), "{:?}", ok.errors);
+        assert_eq!(ok.zero.get("trapdoor shuts onto a cart"), Some(&2));
+        for (bad, what) in [
+            ("trapdoor shuts onto a cart (the bar: 0): none\n", "trapdoor shuts onto a cart"),
+            ("carts per D per release (exactly 1): 1: 36; D not settled at a release: some; R-line retries: 0\n", "not settled at a release"),
+            ("carts per D per release (exactly 1): 1: 36; D not settled at a release: 0; R-line retries: -\n", "retries"),
+            ("carts per D per release (exactly 1): 1: 36, two: 1; D not settled at a release: 0; R-line retries: 0\n", "carts per D per release (exactly 1)"),
+        ] {
+            let b = bars(bad);
+            assert_eq!(b.errors.len(), 1, "{bad:?}: {:?}", b.errors);
+            assert!(b.errors[0].starts_with(what), "{:?} starts with {what:?}", b.errors[0]);
+        }
     }
 
     /// An artefact line covers only the dirt whose kind starts with its label.
@@ -545,6 +610,7 @@ mod tests {
         for (families, clean, cases) in [lanes, switched, gates] {
             let c = bars(clean);
             assert!(c.own().is_empty(), "the synthetic clean text is clean: {:?}", c.own());
+            assert!(c.errors.is_empty(), "the synthetic clean text reads: {:?}", c.errors);
             assert_eq!(cases.iter().map(|x| x.0).collect::<BTreeSet<_>>(), families.iter().copied().collect::<BTreeSet<_>>(), "a case per family");
             for f in families {
                 assert!(c.families.contains(*f), "the clean text carries {f:?}");
