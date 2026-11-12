@@ -281,6 +281,18 @@ pub enum MobaiCmd {
         runs: u32,
         #[arg(long, default_value = "26.3")]
         version: String,
+        /// item-loop-build: the loop's design file (default the build's l1-build-loop.txt)
+        #[arg(long)]
+        design: Option<std::path::PathBuf>,
+        /// item-loop-build: the mob/pickup row (an adult, a baby and a chicken jockey, loot
+        /// pickup on, in each portal's bottom row, made to jump every 7 gt): `empty` (empty
+        /// hands, the known limit), `armed` (golden swords, as the portal spawns them) or `mixed`
+        /// (the babies empty-handed, the rest armed, and a baby piglin in the Nether portal)
+        #[arg(long)]
+        mobs: Option<String>,
+        /// item-loop-*: the loop's item (replacing the design's cobblestone), e.g. minecraft:leather
+        #[arg(long, default_value = "minecraft:cobblestone")]
+        item: String,
     },
     /// (tickexact 2026-11-12, ironspec's design-space item 3) On the official server: villagers
     /// holding the overworld bed as HOME at night, calm and panicking in the Nether, calm in the
@@ -529,7 +541,10 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         MobaiCmd::ArmLint { paths } => crate::fixture::arm_lint(&paths),
         MobaiCmd::RecPaneattach { path } => crate::fixture::rec_paneattach(&path),
         MobaiCmd::SentinelVanilla { case, version } => crate::bedreload::sentinel_vanilla(&version, &case),
-        MobaiCmd::LoadWindow { case, runs, version } => crate::loadwindow::load_window(&version, &case, runs),
+        MobaiCmd::LoadWindow { case, runs, version, design, mobs, item } => {
+            let _ = crate::loadwindow::LOOP_ITEM.set(item);
+            crate::loadwindow::load_window(&version, &case, runs, design.as_deref(), mobs.as_deref())
+        }
         MobaiCmd::NetherHome { version } => crate::netherhome::nether_home(&version),
         MobaiCmd::T600 { version } => crate::t600::t600(&version),
         MobaiCmd::ThreeBeds { version } => crate::threebeds::three_beds(&version),

@@ -1,5 +1,10 @@
 # (tickexact 2026-11-12, ironspec: the build's loop variant from the brief's rules, bridged with
-# `mctas mobai load-window --case item-loop-build`) The L1''' item loop as the brief builds it, not
+# `mctas mobai load-window --case item-loop-build`) A BRIDGE RECORD, not the build: ironspec ruled
+# the module's loop is onechunk's 4-row file (wip/onechunk/loader/l1-item-loop-bench.txt,
+# explore/farmopt-onechunk2 dad7b0114), whose arrivals' floor is 3 cells wide between walls; this
+# 1-cell pocket loses the dispenser's widest launches (its lateral spread drifts an item up to
+# about 1.7 from the column, G1 and onechunk), which the 68 bridged launches here didn't meet.
+# The L1''' item loop as the brief builds it, not
 # onechunk's bottom-row bench: two same-axis 5 x 4 portals (the Nether part at the anchor's /8,
 # same y), each side firing through its portal's TOP row (above a zombified piglin's reach: an
 # adult's box tops out 1.95 above the portal floor, the item flies 3.34 above it), both faces of
@@ -16,13 +21,15 @@
 # corners); the firing face z 1: the firing dropper D (1,13,1) facing north, fed by the up-facing
 # droppers A2 (1,12,1) and A (1,11,1), the hoppers C (2..3,11,1) into A; the arrivals' pocket
 # (3,12..13,1) over the collector C (3,11,1), its ceiling (3,14,1) and backstop (3,12..13,2) glass;
-# every other face cell glass, the back face z -1 glass. The clock (emulated in the bridge:
-# redstone blocks 2 gt every 200 gt) goes behind D and A2, at (1,13,2) and (1,12,2): D and A2
-# powered directly, A by quasi-connectivity through A2's cell.
+# every other face cell glass, the back face z -1 glass. The clock powers EVERY dropper of the
+# firing column directly (D, A2 and A) and updates each on the falling edge: powered through
+# quasi-connectivity alone, a dropper is left TRIGGERED with no update when its source goes and
+# never fires again (the bridge's control died within 800 gt). The bridge emulates it as redstone
+# blocks behind D, A2 and A at (1,11..13,2), 2 gt every 200 gt, removed top down.
 # Nether part (nether-origin, the same palette): the mirror, firing through column 3 facing south
 # (d (3,13,-1), A2 (3,12,-1), A (3,11,-1), the hoppers H (1..2,11,-1) into A), the pocket at column 1
 # (1,12..13,-1) with its ceiling (1,14,-1) and backstop (1,12..13,-2), the back face z 1; its clock
-# behind d and A2 at (3,13,-2) and (3,12,-2).
+# behind d, A2 and A at (3,11..13,-2), each powered directly.
 # Each side fires from its own column (overworld 1, Nether 3), so the other side's items come out
 # at the other column, into that side's pocket. 3 items a side, one in each dropper.
 name: l1-build-loop

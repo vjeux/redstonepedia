@@ -58,7 +58,7 @@ fn build(srv: &mut VanillaServer) -> Result<()> {
     Ok(())
 }
 
-pub fn load_window(version: &str, case: &str, runs: u32) -> Result<()> {
+pub fn load_window(version: &str, case: &str, runs: u32, design: Option<&std::path::Path>, mobs: Option<&str>) -> Result<()> {
     let busy = match case {
         "quiet" => false,
         "load" => true,
@@ -66,9 +66,10 @@ pub fn load_window(version: &str, case: &str, runs: u32) -> Result<()> {
         "pearl-busy" => return pearl_window(version, runs, true),
         "portal-loop" => return portal_loop(version, runs),
         "item-loop" => return item_loop(version, runs),
-        "item-loop-build" => return item_loop_build(version, runs, false),
-        "item-loop-build-slab" => return item_loop_build(version, runs, true),
-        _ => bail!("--case quiet, load, pearl or pearl-busy"),
+        "item-loop-build" => return item_loop_build(version, runs, false, design, mobs, false),
+        "item-loop-build-slab" => return item_loop_build(version, runs, true, design, mobs, false),
+        "item-loop-extremes" => return item_loop_build(version, 0, false, design, None, true),
+        _ => bail!("--case quiet, load, pearl, pearl-busy, portal-loop, item-loop, item-loop-build, item-loop-build-slab or item-loop-extremes"),
     };
     let jar = mctas::bridge::load_agent(version)?;
     println!("== load-window {case} on the official {version} server: farm chunks {},{} to {},{} forced{}", FARM[0], FARM[1], FARM[2], FARM[3], if busy { ", a 25 x 25 forced square of real terrain loading at the same start" } else { "" });
@@ -476,8 +477,11 @@ fn portal_loop(version: &str, runs: u32) -> Result<()> {
 struct LoopSide {
     dim: &'static str,
     containers: Vec<[i32; 3]>,
+    /// The emulated clock's cells; empty for a design with its own (real) clock.
     clock: Vec<[i32; 3]>,
     phase: i64,
+    /// The firing column's droppers (the firing one and its feeders).
+    droppers: Vec<[i32; 3]>,
 }
 
 /// Items in a container (`data get block ... Items`): the sum of its stacks' counts.
@@ -486,27 +490,154 @@ fn items_in(srv: &mut VanillaServer, dim: &str, p: [i32; 3]) -> Result<u32> {
     Ok(out.split("count: ").skip(1).filter_map(|s| s.chars().take_while(|c| c.is_ascii_digit()).collect::<String>().parse::<u32>().ok()).sum())
 }
 
+/// The item loop's item (`--item`; the designs carry cobblestone, replaced on paste).
+pub static LOOP_ITEM: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+fn loop_item() -> &'static str {
+    LOOP_ITEM.get().map(String::as_str).unwrap_or("minecraft:cobblestone")
+}
+
 /// A side's items: in its containers, and item entities in its dimension.
 fn side_items(srv: &mut VanillaServer, s: &LoopSide) -> Result<(u32, u32)> {
     let mut held = 0;
     for p in &s.containers {
         held += items_in(srv, s.dim, *p)?;
     }
-    // the loop's cobblestone item entities in this dimension, by their stacks' counts (a stuck
-    // pair merges into one entity; natural drops, a Nether vine, aren't the loop's)
+    // the loop's item entities in this dimension, by their stacks' counts (a stuck pair merges
+    // into one entity; natural drops, a Nether vine, aren't the loop's; the controls' are tagged)
     let out = srv.cmd_long(&format!(
-        "execute in minecraft:{} as @e[type=minecraft:item,distance=0..,nbt={{Item:{{id:\"minecraft:cobblestone\"}}}}] run data get entity @s Item.count",
-        s.dim
+        "execute in minecraft:{} as @e[type=minecraft:item,distance=0..,tag=!ctl,nbt={{Item:{{id:\"{}\"}}}}] run data get entity @s Item.count",
+        s.dim,
+        loop_item()
     ))?;
     let flying = out.split("entity data: ").skip(1).filter_map(|v| v.chars().take_while(|c| c.is_ascii_digit()).collect::<String>().parse::<u32>().ok()).sum();
     Ok((held, flying))
 }
 
+/// (tickexact 2026-11-12, ironspec: the gap rule's proof) The mob/pickup row: tagged mobs in the
+/// loop's portals (an adult zombified piglin, a baby, a chicken jockey with a baby rider, loot
+/// pickup on, empty hands), made to jump every 7 gt (every phase of the 200-gt clocks), checked
+/// every 20 gt: each mob's dimension, whether its box stays inside its portal's plane, and
+/// whether it holds anything.
+struct MobRow {
+    /// Each portal's interior: its dimension, min corner, max corner (exclusive).
+    planes: Vec<(&'static str, [f64; 3], [f64; 3])>,
+    /// Each mob's tag and half width.
+    mobs: Vec<(String, f64)>,
+    stats: std::cell::RefCell<MobStats>,
+}
+
+#[derive(Default)]
+struct MobStats {
+    checks: u64,
+    jumps: u64,
+    outside: Vec<String>,
+    held: Vec<String>,
+    gone: Vec<String>,
+}
+
+impl MobRow {
+    fn jump(&self, srv: &mut VanillaServer) -> Result<()> {
+        for (dim, _, _) in &self.planes {
+            srv.cmd(&format!("execute in minecraft:{dim} as @e[tag=loopmob,distance=0..,nbt={{OnGround:1b}}] run data merge entity @s {{Motion:[0.0d,0.42d,0.0d]}}"))?;
+        }
+        self.stats.borrow_mut().jumps += 1;
+        Ok(())
+    }
+
+    fn check(&self, srv: &mut VanillaServer, t: i64) -> Result<()> {
+        let mut st = self.stats.borrow_mut();
+        st.checks += 1;
+        for (tag, hw) in &self.mobs {
+            let mut found = false;
+            for (dim, lo, hi) in &self.planes {
+                let out = srv.cmd_long(&format!("execute in minecraft:{dim} run data get entity @e[tag={tag},distance=0..,limit=1] Pos"))?;
+                let Some(rest) = out.split("entity data: ").nth(1) else { continue };
+                found = true;
+                let p: Vec<f64> = rest.trim().trim_start_matches('[').trim_end_matches(']').split(',').filter_map(|s| s.trim().trim_end_matches('d').parse().ok()).collect();
+                if p.len() == 3 {
+                    let inside = p[0] - hw >= lo[0] - 0.01 && p[0] + hw <= hi[0] + 0.01 && p[2] - hw >= lo[2] - 0.01 && p[2] + hw <= hi[2] + 0.01 && p[1] >= lo[1] - 0.5 && p[1] < hi[1];
+                    if !inside && st.outside.len() < 20 {
+                        st.outside.push(format!("t{t} {tag} in {dim} at ({:.3}, {:.3}, {:.3})", p[0], p[1], p[2]));
+                    }
+                }
+                let hand = srv.cmd_long(&format!("execute in minecraft:{dim} run data get entity @e[tag={tag},distance=0..,limit=1] equipment"))?;
+                if hand.contains(loop_item()) && st.held.len() < 20 {
+                    st.held.push(format!("t{t} {tag} in {dim}: {}", hand.split("entity data: ").nth(1).unwrap_or("").trim()));
+                }
+                break;
+            }
+            if !found && st.gone.len() < 20 {
+                st.gone.push(format!("t{t} {tag}"));
+            }
+        }
+        // every piglin and zombified piglin in either dimension holding the loop's item (the
+        // baby piglin's chain converts it, and the conversion may not keep its tags)
+        for dim in ["overworld", "the_nether"] {
+            for ty in ["minecraft:piglin", "minecraft:zombified_piglin"] {
+                let out = srv.cmd_long(&format!("execute in minecraft:{dim} as @e[type={ty},distance=0..,tag=!pickctl] run data get entity @s equipment"))?;
+                if out.contains(loop_item()) && st.held.len() < 20 {
+                    st.held.push(format!("t{t} a {ty} in {dim} holds the loop's item"));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn report(&self) -> String {
+        let st = self.stats.borrow();
+        format!(
+            "mob/pickup row: {} checks, {} forced jumps; outside their portal: {}; holding anything: {}; gone: {}",
+            st.checks,
+            st.jumps,
+            if st.outside.is_empty() { "none".to_string() } else { st.outside.join("; ") },
+            if st.held.is_empty() { "none".to_string() } else { st.held.join("; ") },
+            if st.gone.is_empty() { "none".to_string() } else { st.gone.join("; ") }
+        )
+    }
+}
+
+/// Droppers of the sides' firing columns left TRIGGERED outside their clock's pulse (a dropper is
+/// TRIGGERED from its rising edge to its falling edge: past the pulse's 2 gt it must be clear).
+fn stuck_triggered(srv: &mut VanillaServer, sides: &[LoopSide]) -> Result<Vec<String>> {
+    let mut out = Vec::new();
+    // an emulated clock: past its pulse every dropper must be clear; a real clock: a dropper
+    // TRIGGERED at every one of 40 consecutive ticks is stuck (a running clock clears it)
+    let real = sides.iter().any(|s| s.clock.is_empty());
+    let mut seen: Vec<Vec<bool>> = sides.iter().map(|s| vec![true; s.droppers.len()]).collect();
+    for k in 0..if real { 40 } else { 1 } {
+        if k > 0 {
+            srv.step(1)?;
+        }
+        let t = srv.game_time()?;
+        for (i, s) in sides.iter().enumerate() {
+            if !s.clock.is_empty() && (t - s.phase).rem_euclid(200) < 4 {
+                seen[i].iter_mut().for_each(|v| *v = false);
+                continue;
+            }
+            for (j, p) in s.droppers.iter().enumerate() {
+                if !srv.cmd(&format!("execute in minecraft:{} if block {} {} {} minecraft:dropper[triggered=true]", s.dim, p[0], p[1], p[2]))?.contains("passed") {
+                    seen[i][j] = false;
+                }
+            }
+        }
+    }
+    let t = srv.game_time()?;
+    for (i, s) in sides.iter().enumerate() {
+        for (j, p) in s.droppers.iter().enumerate() {
+            if seen[i][j] {
+                out.push(format!("t{t} {} {:?}", s.dim, p));
+            }
+        }
+    }
+    Ok(out)
+}
+
 /// Runs the item loop's clocks for `n` gt (each side's droppers powered for 2 gt every 200 gt at
 /// its phase), sampling every 5 gt; returns the arrivals' game times per side (a side's total going
 /// up) and the fewest and most items seen in all, and the clock pulses that failed (a side's
-/// chunk not loaded).
-fn run_item_loop(srv: &mut VanillaServer, sides: &[LoopSide], n: i64) -> Result<(Vec<Vec<i64>>, u32, u32, Vec<String>)> {
+/// chunk not loaded). With a mob row, its mobs jump every 7 gt and are checked every 20 gt.
+fn run_item_loop(srv: &mut VanillaServer, sides: &[LoopSide], n: i64, mobs: Option<&MobRow>) -> Result<(Vec<Vec<i64>>, u32, u32, Vec<String>)> {
     let mut arrivals = vec![Vec::new(); sides.len()];
     let mut prev: Vec<u32> = Vec::new();
     for s in sides {
@@ -535,7 +666,18 @@ fn run_item_loop(srv: &mut VanillaServer, sides: &[LoopSide], n: i64) -> Result<
                 }
             }
         }
+        if let Some(m) = mobs
+            && t % 7 == 0
+        {
+            m.jump(srv)?;
+        }
         srv.step(1)?;
+        if let Some(m) = mobs
+            && (srv.game_time()? - t0) % 20 == 0
+        {
+            let now = srv.game_time()?;
+            m.check(srv, now)?;
+        }
         if (srv.game_time()? - t0) % 5 == 0 {
             let mut all = 0;
             for (k, s) in sides.iter().enumerate() {
@@ -623,25 +765,27 @@ fn item_loop(version: &str, runs: u32) -> Result<()> {
         containers: vec![[16, 64, 34], [16, 65, 34], [17, 64, 34], [18, 64, 34], [19, 64, 34], [17, 64, 35], [18, 64, 35], [19, 64, 35]],
         clock: vec![[15, 65, 34], [15, 64, 34]],
         phase: 0,
+        droppers: vec![[16, 64, 34], [16, 65, 34]],
     };
     let neth = LoopSide {
         dim: "the_nether",
         containers: vec![[3, 64, 3], [3, 65, 3], [0, 64, 3], [1, 64, 3], [2, 64, 3], [0, 64, 2], [1, 64, 2], [2, 64, 2]],
         clock: vec![[4, 65, 3], [4, 64, 3]],
         phase: 100,
+        droppers: vec![[3, 64, 3], [3, 65, 3]],
     };
     let sides = [over, neth];
     // two cycles with the forced chunks, then without them
-    let (a, lo, hi, failed) = run_item_loop(&mut srv, &sides, 400)?;
+    let (a, lo, hi, failed) = run_item_loop(&mut srv, &sides, 400, None)?;
     println!("built (forced): overworld {}, nether {}; items in all {lo}..{hi}; failed pulses {}", gaps(&a[0]), gaps(&a[1]), failed.len());
     srv.cmd_ok("forceload remove 0 16 47 63")?;
     srv.cmd_ok("execute in minecraft:the_nether run forceload remove -16 -16 15 15")?;
-    let (a, lo, hi, failed) = run_item_loop(&mut srv, &sides, 1600)?;
+    let (a, lo, hi, failed) = run_item_loop(&mut srv, &sides, 1600, None)?;
     println!("no forced chunks, 1,600 gt: overworld {}, nether {}; items in all {lo}..{hi}; failed pulses {}", gaps(&a[0]), gaps(&a[1]), failed.len());
     for f in failed.iter().take(3) {
         println!("  {f}");
     }
-    let srv = loop_restarts(srv, &opts, &sides, runs, [2, 65, 4], [17, 65, 33])?;
+    let srv = loop_restarts(srv, &opts, &sides, runs, [2, 65, 4], [17, 65, 33], None)?;
     let _ = std::fs::remove_dir_all(&srv.dir);
     Ok(())
 }
@@ -652,10 +796,10 @@ fn item_loop(version: &str, runs: u32) -> Result<()> {
 /// tick in each watched overworld chunk (G1: "no load window" measured per restart), whether
 /// each side (its probe cell) is loaded right after the start, and the loop's arrivals, items and
 /// failed pulses over the 1,200 gt after it.
-fn loop_restarts(mut srv: VanillaServer, opts: &dyn Fn(Option<PathBuf>) -> VanillaOptions, sides: &[LoopSide], runs: u32, nether_probe: [i32; 3], over_probe: [i32; 3]) -> Result<VanillaServer> {
+fn loop_restarts(mut srv: VanillaServer, opts: &dyn Fn(Option<PathBuf>) -> VanillaOptions, sides: &[LoopSide], runs: u32, nether_probe: [i32; 3], over_probe: [i32; 3], mobs: Option<&MobRow>) -> Result<VanillaServer> {
     for run in 0..runs {
         // a different phase of the clocks each time (the clocks keep running up to the save)
-        let _ = run_item_loop(&mut srv, sides, 37 + 76 * run as i64)?;
+        let _ = run_item_loop(&mut srv, sides, 37 + 76 * run as i64, mobs)?;
         srv.cmd_ok("save-on")?;
         srv.cmd_ok("save-all flush")?;
         let old = srv.dir.clone();
@@ -689,7 +833,8 @@ fn loop_restarts(mut srv: VanillaServer, opts: &dyn Fn(Option<PathBuf>) -> Vanil
         // per watched chunk with any: its first scheduled tick and its first entity tick among
         // the ticks that ran (the agent's `running=1`: line 0 is the server's first tick, frozen
         // or not; every later line a tick that ran), read once the loop has run
-        let (a, lo, hi, failed) = run_item_loop(&mut srv, sides, 1200)?;
+        let (a, lo, hi, failed) = run_item_loop(&mut srv, sides, 1200, mobs)?;
+        let stuck = stuck_triggered(&mut srv, sides)?;
         let lines = parse(&std::fs::read_to_string(&srv.log)?);
         let mut firsts = Vec::new();
         let ran: Vec<&Line> = lines.iter().skip(1).collect();
@@ -705,7 +850,13 @@ fn loop_restarts(mut srv: VanillaServer, opts: &dyn Fn(Option<PathBuf>) -> Vanil
         } else {
             println!("  no tick ran in the printed ticks");
         }
-        println!("  after it, 1,200 gt: overworld {}, nether {}; items in all {lo}..{hi}; failed pulses {}", gaps(&a[0]), gaps(&a[1]), failed.len());
+        println!(
+            "  after it, 1,200 gt: overworld {}, nether {}; items in all {lo}..{hi}; failed pulses {}; droppers stuck TRIGGERED after the run: {}",
+            gaps(&a[0]),
+            gaps(&a[1]),
+            failed.len(),
+            if stuck.is_empty() { "none".to_string() } else { stuck.join(", ") }
+        );
         for f in failed.iter().take(3) {
             println!("    {f}");
         }
@@ -725,13 +876,19 @@ const BUILD_LOOP: &str = "designs/farms/iron/carousel-assembly/wip/tickexact/loa
 /// behind the droppers (2 gt every 200 gt, the Nether half a period later); an observer clock and
 /// two entities in the overworld chunk (1, 2) for the first scheduled and entity ticks; no player
 /// online, no forced chunks once built; then `runs` real restarts at different clock phases.
-fn item_loop_build(version: &str, runs: u32, slab: bool) -> Result<()> {
-    let d = mctas::design::Design::load(std::path::Path::new(BUILD_LOOP))?;
+fn item_loop_build(version: &str, runs: u32, slab: bool, design: Option<&std::path::Path>, mobs: Option<&str>, corners: bool) -> Result<()> {
+    let design = design.unwrap_or(std::path::Path::new(BUILD_LOOP));
+    let d = mctas::design::Design::load(design)?;
     let jar = mctas::bridge::load_agent(version)?;
     let agent = PathBuf::from(format!("{}=watch=0,0,1,2;ticks=40;tickets=1;running=1", jar.display()));
     println!(
-        "== load-window item-loop-build{} on the official {version} server: the build's L1''' loop ({BUILD_LOOP}), no player online, {runs} restarts",
-        if slab { "-slab" } else { "" }
+        "== load-window item-loop-build{} on the official {version} server: the L1''' loop of {}{}, no player online, {runs} restarts",
+        if slab { "-slab" } else { "" },
+        design.display(),
+        match mobs {
+            Some(m) => format!(", with the mob/pickup row ({m})"),
+            None => String::new(),
+        }
     );
     let opts = |world: Option<PathBuf>| VanillaOptions {
         version: version.to_string(),
@@ -770,9 +927,11 @@ fn item_loop_build(version: &str, runs: u32, slab: bool) -> Result<()> {
     place(&mut srv, &d.blocks, t, false)?;
     place(&mut srv, &d.nether_blocks, n0, true)?;
     for (p, nbt) in &d.block_entities {
+        let nbt = nbt.replace("minecraft:cobblestone", loop_item());
         srv.cmd_ok(&format!("data merge block {} {} {} {nbt}", t[0] + p[0], t[1] + p[1], t[2] + p[2]))?;
     }
     for (p, nbt) in &d.nether_block_entities {
+        let nbt = nbt.replace("minecraft:cobblestone", loop_item());
         srv.cmd_ok(&n(&format!("data merge block {} {} {} {nbt}", n0[0] + p[0], n0[1] + p[1], n0[2] + p[2])))?;
     }
     // the slab variant: a bottom slab in each arrivals' pocket (overworld 3 12 1, Nether 1 12 -1)
@@ -791,33 +950,278 @@ fn item_loop_build(version: &str, runs: u32, slab: bool) -> Result<()> {
     // the sides: their containers (every dropper and hopper) and their clock cells (behind every
     // dropper in the firing dropper's column, against its facing: each powered directly, since a
     // dropper's quasi-connectivity needs a block update a neighbour dropper's TRIGGERED change
-    // (flag 2) doesn't give)
+    // (flag 2) doesn't give); none for a design with its own clock (observers: onechunk's)
     let side = |blocks: &std::collections::BTreeMap<[i32; 3], String>, at: [i32; 3], dim: &'static str, phase: i64| -> Result<LoopSide> {
         let containers: Vec<[i32; 3]> = blocks.iter().filter(|(_, s)| s.contains("dropper") || s.contains("hopper")).map(|(p, _)| [at[0] + p[0], at[1] + p[1], at[2] + p[2]]).collect();
         let (fp, fs) = blocks.iter().find(|(_, s)| s.contains("dropper") && !s.contains("facing=up")).ok_or_else(|| anyhow::anyhow!("{dim}: no firing dropper"))?;
         let dz = if fs.contains("facing=north") { 1 } else if fs.contains("facing=south") { -1 } else { bail!("{dim}: the firing dropper faces neither north nor south: {fs}") };
-        let clock: Vec<[i32; 3]> = blocks.iter().filter(|(p, s)| s.contains("dropper") && p[0] == fp[0] && p[2] == fp[2]).map(|(p, _)| [at[0] + p[0], at[1] + p[1], at[2] + p[2] + dz]).collect();
-        Ok(LoopSide { dim, containers, clock, phase })
+        let droppers: Vec<[i32; 3]> = blocks.iter().filter(|(p, s)| s.contains("dropper") && p[0] == fp[0] && p[2] == fp[2]).map(|(p, _)| [at[0] + p[0], at[1] + p[1], at[2] + p[2]]).collect();
+        let real = blocks.values().any(|s| s.contains("observer"));
+        let clock: Vec<[i32; 3]> = if real { Vec::new() } else { droppers.iter().map(|p| [p[0], p[1], p[2] + dz]).collect() };
+        Ok(LoopSide { dim, containers, clock, phase, droppers })
     };
     let sides = [side(&d.blocks, t, "overworld", 0)?, side(&d.nether_blocks, n0, "the_nether", 100)?];
+    // the mob/pickup row: in each portal's bottom row an adult zombified piglin, a baby and a
+    // chicken jockey (a baby rider), loot pickup on, no equipment (summoned with data, so no
+    // finalizeSpawn and no golden sword), the adult beside the arrivals' pocket's column; and a
+    // positive control, a zombified piglin with an item at its feet on the markers' floor
+    let row = if let Some(mode) = mobs {
+        if mode != "empty" && mode != "armed" && mode != "mixed" {
+            bail!("--mobs empty, armed or mixed");
+        }
+        // the loop runs 400 gt first: an entity sent through these command-built portals within
+        // tens of gt of their building was lost (the harness's open question), not one after
+        let _ = run_item_loop(&mut srv, &sides, 400, None)?;
+        let interior = |blocks: &std::collections::BTreeMap<[i32; 3], String>, at: [i32; 3]| -> Result<([f64; 3], [f64; 3])> {
+            let ps: Vec<[i32; 3]> = blocks.iter().filter(|(_, s)| s.contains("nether_portal")).map(|(p, _)| [at[0] + p[0], at[1] + p[1], at[2] + p[2]]).collect();
+            let lo = [0, 1, 2].map(|k| ps.iter().map(|p| p[k]).min().unwrap_or(0) as f64);
+            let hi = [0, 1, 2].map(|k| ps.iter().map(|p| p[k]).max().unwrap_or(0) as f64 + 1.0);
+            if ps.is_empty() {
+                bail!("no portal in the design");
+            }
+            Ok((lo, hi))
+        };
+        let (olo, ohi) = interior(&d.blocks, t)?;
+        let (nlo, nhi) = interior(&d.nether_blocks, n0)?;
+        let mut tags = Vec::new();
+        // armed: the golden sword every portal piglin spawns with
+        // (ZombifiedPiglin.populateDefaultEquipmentSlots), in the summon's data so it holds it from
+        // its first tick (a mob summoned in a portal crosses on that tick); loot pickup forced on.
+        // mixed: the babies empty-handed (the deciding row), the adults and the jockey riders armed
+        let sword = ",equipment:{mainhand:{id:\"minecraft:golden_sword\",count:1}}";
+        let (eq_adult, eq_baby, eq_rider) = match mode {
+            "armed" => (sword, sword, sword),
+            "mixed" => (sword, "", sword),
+            _ => ("", "", ""),
+        };
+        for (k, (dim, lo, cols)) in [("overworld", olo, [3.5, 2.5, 4.5]), ("the_nether", nlo, [1.5, 2.5, 0.5])].into_iter().enumerate() {
+            let b = 4 * k;
+            let (y, z) = (lo[1], lo[2] + 0.5);
+            let c = |cmd: String| if dim == "overworld" { cmd } else { format!("execute in minecraft:the_nether run {cmd}") };
+            srv.cmd_ok(&c(format!("summon minecraft:zombified_piglin {} {y} {z} {{Tags:[\"loopmob\",\"lm{b}\"],CanPickUpLoot:1b,PersistenceRequired:1b{eq_adult}}}", lo[0] + cols[0])))?;
+            srv.cmd_ok(&c(format!("summon minecraft:zombified_piglin {} {y} {z} {{Tags:[\"loopmob\",\"lm{}\"],IsBaby:1b,CanPickUpLoot:1b,PersistenceRequired:1b{eq_baby}}}", lo[0] + cols[1], b + 1)))?;
+            srv.cmd_ok(&c(format!(
+                "summon minecraft:chicken {} {y} {z} {{Tags:[\"loopmob\",\"lm{}\"],IsChickenJockey:1b,PersistenceRequired:1b,Passengers:[{{id:\"minecraft:zombified_piglin\",Tags:[\"loopmob\",\"lm{}\"],IsBaby:1b,CanPickUpLoot:1b,PersistenceRequired:1b{eq_rider}}}]}}",
+                lo[0] + cols[2],
+                b + 2,
+                b + 3
+            )))?;
+            tags.extend([(format!("lm{b}"), 0.3), (format!("lm{}", b + 1), 0.15), (format!("lm{}", b + 2), 0.2), (format!("lm{}", b + 3), 0.15)]);
+        }
+        // each mob's hands at the start
+        for (tag, _) in &tags {
+            let mut hands = String::from("not found");
+            for dim in ["overworld", "the_nether"] {
+                let out = srv.cmd_long(&format!("execute in minecraft:{dim} run data get entity @e[tag={tag},distance=0..,limit=1] equipment"))?;
+                if out.contains("entity data") {
+                    hands = format!("{dim}: {}", out.split("entity data: ").nth(1).unwrap_or("").trim());
+                } else if out.contains("Found no elements") && hands == "not found" {
+                    hands = format!("{dim}: empty");
+                }
+            }
+            println!("  {tag} at the start: {hands}");
+        }
+        srv.cmd_ok("summon minecraft:zombified_piglin 24.5 64 45.5 {Tags:[\"pickctl\"],CanPickUpLoot:1b,PersistenceRequired:1b,NoAI:0b}")?;
+        srv.cmd_ok(&format!("summon minecraft:item 24.5 64.1 45.5 {{Item:{{id:\"{}\",count:1}},PickupDelay:0s,Tags:[\"ctl\"]}}", loop_item()))?;
+        // the armed row's own control: a sword-holder with the loop's item at its feet keeps its sword
+        if mode != "empty" {
+            srv.cmd_ok("summon minecraft:zombified_piglin 28.5 64 40.5 {Tags:[\"pickctl2\"],CanPickUpLoot:1b,PersistenceRequired:1b,equipment:{mainhand:{id:\"minecraft:golden_sword\",count:1}}}")?;
+            srv.cmd_ok(&format!("summon minecraft:item 28.5 64.1 40.5 {{Item:{{id:\"{}\",count:1}},PickupDelay:0s,Tags:[\"ctl\"]}}", loop_item()))?;
+        }
+        // mixed: a baby piglin in the Nether portal's bottom row (the natural chain: it crosses
+        // at once and zombifies in the overworld after 300 gt, its hand empty); the checks sweep
+        // every piglin and zombified piglin in both dimensions
+        if mode == "mixed" {
+            srv.cmd_ok(&format!("execute in minecraft:the_nether run summon minecraft:piglin {} {} {} {{Tags:[\"loopmob\",\"lm8\"],IsBaby:1b,PersistenceRequired:1b}}", nlo[0] + 3.5, nlo[1], nlo[2] + 0.5))?;
+        }
+        Some(MobRow { planes: vec![("overworld", olo, ohi), ("the_nether", nlo, nhi)], mobs: tags, stats: Default::default() })
+    } else {
+        None
+    };
     where_items(&mut srv, &sides, "built")?;
-    let (a, lo, hi, failed) = run_item_loop(&mut srv, &sides, 400)?;
+    let (a, lo, hi, failed) = run_item_loop(&mut srv, &sides, 400, row.as_ref())?;
     println!("built (forced): overworld {}, nether {}; items in all {lo}..{hi}; failed pulses {}", gaps(&a[0]), gaps(&a[1]), failed.len());
     where_items(&mut srv, &sides, "after 400 gt forced")?;
+    // `--case item-loop-extremes`: the clocks stopped (a real clock's observers taken out; an
+    // emulated one simply not pulsed), the loop's flights left to land, then the dispense
+    // support's corners fired from each side through this same world
+    if corners {
+        for (blocks, at, dim) in [(&d.blocks, t, "overworld"), (&d.nether_blocks, n0, "the_nether")] {
+            for (p, s) in blocks.iter() {
+                if s.contains("observer") {
+                    srv.cmd_ok(&format!("execute in minecraft:{dim} run setblock {} {} {} minecraft:glass", at[0] + p[0], at[1] + p[1], at[2] + p[2]))?;
+                }
+            }
+        }
+        srv.step(100)?;
+        let bad = fire_corners(&mut srv, &d, t, n0)?;
+        where_items(&mut srv, &sides, "after the corners")?;
+        let _ = std::fs::remove_dir_all(&srv.dir);
+        if bad > 0 {
+            bail!("{bad} dispense corners lost or touching");
+        }
+        return Ok(());
+    }
+    if row.is_some() {
+        let ctl = srv.cmd_long("data get entity @e[tag=pickctl,limit=1] equipment.mainhand")?;
+        println!("pickup control (a zombified piglin with the same data, the loop's item at its feet): {}", if ctl.contains(loop_item()) { "taken" } else { "NOT taken" });
+        if mobs.is_some_and(|m| m != "empty") {
+            let ctl2 = srv.cmd_long("data get entity @e[tag=pickctl2,limit=1] equipment")?;
+            println!("armed control (a golden-sword holder, loot pickup on, the loop's item at its feet): {}", if ctl2.contains(loop_item()) { "TAKEN" } else { "kept its sword" });
+        }
+    }
     srv.cmd_ok("forceload remove 0 0 31 47")?;
     srv.cmd_ok("execute in minecraft:the_nether run forceload remove -16 -16 31 31")?;
-    let (a, lo, hi, failed) = run_item_loop(&mut srv, &sides, 1600)?;
+    let (a, lo, hi, failed) = run_item_loop(&mut srv, &sides, 1600, row.as_ref())?;
     println!("no forced chunks, 1,600 gt: overworld {}, nether {}; items in all {lo}..{hi}; failed pulses {}", gaps(&a[0]), gaps(&a[1]), failed.len());
     for f in failed.iter().take(3) {
         println!("  {f}");
     }
     let probe_n = [n0[0] + 2, n0[1] + 11, n0[2]];
     let probe_o = [t[0] + 2, t[1] + 11, t[2]];
-    let mut srv = loop_restarts(srv, &opts, &sides, runs, probe_n, probe_o)?;
+    let mut srv = loop_restarts(srv, &opts, &sides, runs, probe_n, probe_o, row.as_ref())?;
     // where the loop's items are at the end: each side's containers, and every item entity
     where_items(&mut srv, &sides, "at the end")?;
+    if let Some(r) = &row {
+        println!("{}", r.report());
+    }
     let _ = std::fs::remove_dir_all(&srv.dir);
     Ok(())
+}
+
+/// (tickexact 2026-11-12, ironspec: zero loss over the dropper's bounded launch distribution)
+/// `--case item-loop-extremes`: the loop's design pasted with its clocks left out (no observer),
+/// then from each side's firing dropper one scripted item per corner of `spawnItem`'s support
+/// (DefaultDispenseItemBehavior, accuracy 6: forward 0.2..0.3 +- 0.103365, sideways 0 +- 0.103365,
+/// up 0.2 +- 0.103365; so forward 0.096635 / 0.403365 x sideways -+0.103365 x up 0.096635 /
+/// 0.303365) and the centre (0.25, 0, 0.2), spawned where the dropper spawns its item (the face
+/// centre 0.7 out, 0.15625 lower) with that motion; tracked every tick across the portal: where it
+/// crosses the arrival side's exit face (its sideways position against the pocket's opening, its
+/// bottom against the pocket's floor), whether it comes back into the portal cell, and where it
+/// ends (a hopper takes it, or it is left as an entity).
+fn fire_corners(srv: &mut VanillaServer, d: &mctas::design::Design, t: [i32; 3], n0: [i32; 3]) -> Result<usize> {
+    let n = |c: &str| format!("execute in minecraft:the_nether run {c}");
+    // each side: its dimension, its firing dropper (absolute) and facing (dz), its portal interior
+    // (min, max inclusive), its blocks and frame offset
+    struct Part<'a> {
+        dim: &'static str,
+        fire: [i32; 3],
+        dz: i32,
+        lo: [i32; 3],
+        hi: [i32; 3],
+        blocks: &'a std::collections::BTreeMap<[i32; 3], String>,
+        at: [i32; 3],
+    }
+    let mk = |blocks: &std::collections::BTreeMap<[i32; 3], String>, at: [i32; 3], dim: &'static str| -> Result<([i32; 3], i32, [i32; 3], [i32; 3])> {
+        let (fp, fs) = blocks.iter().find(|(_, s)| s.contains("dropper") && !s.contains("facing=up")).ok_or_else(|| anyhow::anyhow!("{dim}: no firing dropper"))?;
+        let dz = if fs.contains("facing=north") { -1 } else if fs.contains("facing=south") { 1 } else { bail!("{dim}: the firing dropper faces neither north nor south") };
+        let ps: Vec<[i32; 3]> = blocks.iter().filter(|(_, s)| s.contains("nether_portal")).map(|(p, _)| [at[0] + p[0], at[1] + p[1], at[2] + p[2]]).collect();
+        let lo = [0, 1, 2].map(|k| ps.iter().map(|p| p[k]).min().unwrap_or(0));
+        let hi = [0, 1, 2].map(|k| ps.iter().map(|p| p[k]).max().unwrap_or(0));
+        Ok(([at[0] + fp[0], at[1] + fp[1], at[2] + fp[2]], dz, lo, hi))
+    };
+    let (of, odz, olo, ohi) = mk(&d.blocks, t, "overworld")?;
+    let (nf, ndz, nlo, nhi) = mk(&d.nether_blocks, n0, "the_nether")?;
+    let parts = [
+        Part { dim: "overworld", fire: of, dz: odz, lo: olo, hi: ohi, blocks: &d.blocks, at: t },
+        Part { dim: "the_nether", fire: nf, dz: ndz, lo: nlo, hi: nhi, blocks: &d.nether_blocks, at: n0 },
+    ];
+    let dev = 0.0172275 * 6.0;
+    let mut launches: Vec<(f64, f64, f64)> = Vec::new();
+    for fwd in [0.2 - dev, 0.3 + dev] {
+        for side in [-dev, dev] {
+            for up in [0.2 - dev, 0.2 + dev] {
+                launches.push((fwd, side, up));
+            }
+        }
+    }
+    launches.push((0.25, 0.0, 0.2));
+    let mut bad = 0;
+    for (k, from) in parts.iter().enumerate() {
+        let to = &parts[1 - k];
+        // the arrival side's exit face: the items keep the launch's direction (same-axis portals)
+        let face_z = if from.dz < 0 { to.lo[2] as f64 } else { to.hi[2] as f64 + 1.0 };
+        let face_cell_z = if from.dz < 0 { to.lo[2] - 1 } else { to.hi[2] + 1 };
+        // the pocket: the open face cells in the portal's top two rows, and the floor under them
+        let open: Vec<i32> = (to.lo[0]..=to.hi[0]).filter(|x| [to.hi[1], to.hi[1] - 1].iter().all(|y| !to.blocks.contains_key(&[x - to.at[0], y - to.at[1], face_cell_z - to.at[2]]))).collect();
+        let (ox0, ox1) = (open.iter().copied().min().unwrap_or(0) as f64, open.iter().copied().max().unwrap_or(-1) as f64 + 1.0);
+        let floor = (to.hi[1] - 1) as f64;
+        println!("from the {} (firing dropper {:?}): the {} exit face at z {face_z}, the pocket open over x {ox0}..{ox1}, its floor y {floor}", from.dim, from.fire, to.dim);
+        for (fwd, side, up) in &launches {
+            let f = from.fire;
+            let (sx, sy, sz) = (f[0] as f64 + 0.5, f[1] as f64 + 0.5 - 0.15625, f[2] as f64 + 0.5 + 0.7 * from.dz as f64);
+            let (mx, mz) = (*side, fwd * from.dz as f64);
+            let c = format!("summon minecraft:item {sx} {sy} {sz} {{Item:{{id:\"{}\",count:1}},Tags:[\"ext\"],Motion:[{mx}d,{up}d,{mz}d]}}", loop_item());
+            srv.cmd_ok(&if from.dim == "overworld" { c } else { n(&c) })?;
+            let mut track: Vec<(&'static str, [f64; 3])> = Vec::new();
+            let mut gone = None;
+            let mut misses = 0;
+            for tick in 1..=120 {
+                srv.step(1)?;
+                let mut found = None;
+                for dim in ["overworld", "the_nether"] {
+                    let out = srv.cmd_long(&format!("execute in minecraft:{dim} run data get entity @e[type=minecraft:item,tag=ext,distance=0..,limit=1] Pos"))?;
+                    if let Some(rest) = out.split("entity data: ").nth(1) {
+                        let p: Vec<f64> = rest.trim().trim_start_matches('[').trim_end_matches(']').split(',').filter_map(|s| s.trim().trim_end_matches('d').parse().ok()).collect();
+                        if p.len() == 3 {
+                            found = Some((dim, [p[0], p[1], p[2]]));
+                        }
+                    }
+                }
+                // (a dimension change leaves the item in neither level for a tick or so)
+                match found {
+                    Some(f) => {
+                        track.push(f);
+                        misses = 0;
+                    }
+                    None => {
+                        misses += 1;
+                        if misses >= 5 {
+                            gone = Some(tick - 4);
+                            break;
+                        }
+                    }
+                }
+            }
+            // the crossing: the ticks in the arrival dimension whose box spans the face plane
+            let arr: Vec<[f64; 3]> = track.iter().filter(|(dim, _)| *dim == to.dim).map(|(_, p)| *p).collect();
+            let crossing: Vec<&[f64; 3]> = arr.iter().filter(|p| p[2] - 0.125 < face_z && p[2] + 0.125 > face_z).collect();
+            let beyond = |p: &[f64; 3]| if from.dz < 0 { p[2] + 0.125 <= face_z } else { p[2] - 0.125 >= face_z };
+            let first_beyond = arr.iter().position(beyond);
+            let back_in = first_beyond.is_some_and(|i| arr[i..].iter().any(|p| !beyond(p)));
+            let side_hit = crossing.iter().any(|p| p[0] - 0.125 < ox0 || p[0] + 0.125 > ox1);
+            let low_hit = crossing.iter().any(|p| p[1] < floor);
+            // taken before a sampled tick showed it spanning the face: a hopper under the pocket
+            // reaches up through the floor (its suck box tops out 1 block above it); then the last
+            // position must be over the opening and above the floor
+            let taken_at_face = crossing.is_empty()
+                && gone.is_some()
+                && arr.last().is_some_and(|p| p[0] - 0.125 >= ox0 && p[0] + 0.125 <= ox1 && p[1] >= floor && (p[2] - face_z).abs() < 0.5);
+            let centre = (to.lo[0] as f64) + (from.fire[0] - from.lo[0]) as f64 + 0.5;
+            let at_face = crossing
+                .first()
+                .map(|p| format!("x {:.3} ({:+.3} from the column's centre), bottom y {:.3}", p[0], p[0] - centre, p[1]))
+                .unwrap_or(if taken_at_face { "taken at the face by a hopper under the pocket, over the opening".into() } else { "never crossed".into() });
+            let (xmin, xmax) = arr.iter().filter(|p| beyond(p)).fold((f64::NAN, f64::NAN), |(a, b), p| (if a.is_nan() { p[0] } else { a.min(p[0]) }, if b.is_nan() { p[0] } else { b.max(p[0]) }));
+            let last = track.last().map(|(dim, p)| format!("{dim} ({:.3}, {:.3}, {:.3})", p[0], p[1], p[2])).unwrap_or("-".into());
+            let ok = gone.is_some() && (crossing.len() > 0 || taken_at_face) && !side_hit && !low_hit && !back_in;
+            if !ok {
+                bad += 1;
+            }
+            println!(
+                "  forward {fwd:.6} sideways {side:+.6} up {up:.6}: at the face {at_face}{}{}{}; in the pocket x {:.3}..{:.3}; {} ({})",
+                if side_hit { "; MEETS THE FACE BESIDE THE POCKET" } else { "" },
+                if low_hit { "; BELOW THE POCKET'S FLOOR AT THE FACE" } else { "" },
+                if back_in { "; BACK INTO THE PORTAL CELL" } else { "" },
+                xmin,
+                xmax,
+                match gone { Some(g) => format!("taken by a hopper by tick {g}"), None => "NOT TAKEN within 120 gt".to_string() },
+                last
+            );
+        }
+    }
+    println!("{bad} launches lost or touching the face beside the pocket, below its floor or back in the portal cell");
+    Ok(bad)
 }
 
 /// Where the loop's items are: each side's containers (each one's count), and every item entity
