@@ -582,6 +582,10 @@ pub enum MobfarmCmd {
         /// kills, that walks out or goes through a portal reported), the bed a block like any other.
         #[arg(long)]
         part_flood: bool,
+        /// A part's every golem spawn spot (its villagers' and the --positions cells' 17 x 17
+        /// columns, `trySpawnMob`'s scan and `checkSpawnObstruction`), with the block under it.
+        #[arg(long)]
+        spots: bool,
     },
     /// `--terrain`: built into its terrain sample at the judge's cheapest spot (design
     /// coordinates). `--flammable`: instead of a row, every flammable block inside the farm's box
@@ -1757,6 +1761,29 @@ pub enum MobfarmCmd {
         /// Every block in the box too, one per line: x y z state (the design's own frame)
         #[arg(long)]
         list: bool,
+    },
+    /// (ironspec 03:39, G1's 26-connected ghast rule) Every block that matters (observers, chests,
+    /// redstone components, rails, portal blocks) resisting under 3.283 that a ray from the outside
+    /// air reaches by a 26-connected path through cells under 4.034; 0 required. `--nether` checks
+    /// the file's Nether part instead of its overworld cells (a Nether layout written as
+    /// overworld cells needs neither).
+    GhastCheck {
+        design: PathBuf,
+        #[arg(long)]
+        nether: bool,
+        /// Close it (cobblestone in every outside air cell with an edge or a corner on a weak cell
+        /// inside, until nothing that matters is reached) and write the closed design here: only
+        /// for a layout whose working spaces are enclosed.
+        #[arg(long)]
+        close: Option<PathBuf>,
+    },
+    /// (ironspec 03:17 / 03:39) Every position a creeper can take (spawned at block light 0, or
+    /// walked to from there) within 5.5 of a portal block (`--glass`: or of a glass block, the
+    /// loader's overworld side): 0 required; 5.5 to 10.5 printed for charged creepers.
+    CreeperCheck {
+        design: PathBuf,
+        #[arg(long)]
+        glass: bool,
     },
     /// Where a stand's zombie can stand under the 6-8 rule (ironspec 2026-11-11): every candidate
     /// cell of `--region` (a zombie's feet at its centre, y as given), scored against every rider
@@ -5622,7 +5649,46 @@ fn column_write(version: &str, out: &PathBuf, d: mctas::design::Design, head: &s
         if !settled.is_empty() {
             std::fs::write(out, format!("{title}{head}{lines}{}", d.to_text()))?;
         }
+    } else {
+        // (ironspec 03:37: pasted with no settle, the file lists the rails a builder must place in
+        // an order or with a temporary helper; a file the circuit loader refuses (a Nether layout
+        // written as overworld cells) prints why and goes on)
+        match load(version, out).map_err(|e| e.to_string()).and_then(|(_c, spec)| Ok((crate::column::placement_order(&spec)?, crate::column::t_rails(&spec)?))) {
+            Ok((po, ts)) => {
+                println!("placement order: {} rails whose designed shape (or a neighbouring rail's) differs when placed last into the finished build", po.len());
+                let mut lines = format!("# placement order (every rail placed last into the finished build: the ones whose designed shape, or a neighbouring rail's, vanilla placement changes; place them in an order or with a temporary helper): {}\n", po.len());
+                for l in &po {
+                    println!("  {l}");
+                    lines.push_str(&format!("# placement order: {l}\n"));
+                }
+                println!("rail Ts (3 potential connections; each a placement-order case or power-forced): {}", ts.len());
+                lines.push_str(&format!("# rail Ts (every plain rail with 3 potential connections in the finished build; each a placement-order case or power-forced): {}\n", ts.len()));
+                for l in &ts {
+                    println!("  {l}");
+                    lines.push_str(&format!("# rail T: {l}\n"));
+                }
+                std::fs::write(out, format!("{title}{head}{lines}{}", d.to_text()))?;
+            }
+            Err(e) => println!("placement order: not run (the circuit loader refuses the file: {e})"),
+        }
     }
+    // (ironspec 02:32: every design writer re-parses what it wrote and compares every cell)
+    let back = mctas::design::Design::parse(&std::fs::read_to_string(out)?)?;
+    let ents = |x: &mctas::design::Design| x.entities.iter().map(|e| format!("{} {:?} {:?}", e.kind, e.cell(), e.nbt)).collect::<Vec<_>>();
+    let checks = [
+        ("overworld cells", back.blocks == d.blocks),
+        ("block entities", back.block_entities == d.block_entities),
+        ("Nether cells", back.nether_blocks == d.nether_blocks),
+        ("Nether block entities", back.nether_block_entities == d.nether_block_entities),
+        ("ports", back.ports == d.ports),
+        ("entities", ents(&back) == ents(&d)),
+        ("positions", back.meta.get("positions") == d.meta.get("positions")),
+        ("declared", back.meta.get("declared") == d.meta.get("declared")),
+        ("run cells", back.meta.get("run-cells") == d.meta.get("run-cells")),
+    ];
+    let bad: Vec<&str> = checks.iter().filter(|(_, ok)| !ok).map(|(n, _)| *n).collect();
+    anyhow::ensure!(bad.is_empty(), "{}: the written file doesn't round-trip: {} differ", out.display(), bad.join(", "));
+    println!("round trip: {} re-parsed, every cell equal ({} blocks, {} block entities, {} Nether blocks, {} entities, {} ports)", out.display(), d.blocks.len(), d.block_entities.len(), d.nether_blocks.len(), d.entities.len(), d.ports.len());
     println!("{}", out.display());
     Ok(())
 }
@@ -5852,7 +5918,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             std::fs::write(&out, text)?;
             println!("{}", out.display());
         }
-        MobfarmCmd::Exit { design, seed, positions, offset, part_flood } => {
+        MobfarmCmd::Exit { design, seed, positions, offset, part_flood, spots } => {
             let (c, spec) = load(version, &design)?;
             let part = part_flood || !spec.has_bed();
             if part {
@@ -5890,6 +5956,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     }
                 }
                 println!("a part's flood (no bed in the file): every villager and {} declared position(s) summon; a golem nothing kills, that walks out of the part or that goes through a nether portal is reported, not refused (a part has no kill)", extra.len());
+                if spots {
+                    print!("{}", crate::column::part_spots(&spec, &extra, seed).map_err(|e| anyhow::anyhow!(e))?);
+                }
                 redsim::entity::mob::exit::golem_exit_part(&spec, &extra, seed, threads)
             } else {
                 redsim::entity::mob::exit::golem_exit(&spec, seed, threads)
@@ -6536,6 +6605,42 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 column_write(version, &out, d, &head, &f, ground, shift, no_settle)?;
             }
             if !bed_ok {
+                std::process::exit(1);
+            }
+        }
+        MobfarmCmd::CreeperCheck { design, glass } => {
+            let (_c, spec) = load(version, &design)?;
+            let (rep, ok) = crate::column::creeper_report(&spec, glass).map_err(|e| anyhow::anyhow!(e))?;
+            print!("{}: {rep}", design.display());
+            if !ok {
+                std::process::exit(1);
+            }
+        }
+        MobfarmCmd::GhastCheck { design, nether, close } => {
+            let text = std::fs::read_to_string(&design)?;
+            let mut d = mctas::design::Design::parse(&text)?;
+            if let Some(outp) = &close {
+                let cells = if nether { &mut d.nether_blocks } else { &mut d.blocks };
+                let added = crate::l1items::close_ghast(cells, "minecraft:cobblestone").map_err(|e| anyhow::anyhow!("{}: {e}", design.display()))?;
+                let head: String = text.lines().take_while(|l| l.starts_with('#')).map(|l| format!("{l}\n")).collect();
+                let note = format!("# closed for ghasts (mctas mobfarm ghast-check --close): {} cobblestone in the outside cells with an edge or a corner on a weak cell inside:{}\n", added.len(), added.iter().map(|p| format!(" ({},{},{})", p[0], p[1], p[2])).collect::<String>());
+                let out_text = format!("{head}{note}{}", d.to_text());
+                let back = mctas::design::Design::parse(&out_text)?;
+                anyhow::ensure!(back.blocks == d.blocks && back.nether_blocks == d.nether_blocks && back.block_entities == d.block_entities, "{}: the closed design doesn't round-trip", outp.display());
+                std::fs::write(outp, out_text)?;
+                println!("{}: closed with {} cobblestone -> {}", design.display(), added.len(), outp.display());
+            }
+            let cells = if nether { &d.nether_blocks } else { &d.blocks };
+            let ex = crate::l1items::ghast_exposed(cells);
+            println!(
+                "{}: {} cells ({}); blocks that matter under 3.283 a ray from the outside air reaches (a 26-connected flood through cells under 4.034): {}{}",
+                design.display(),
+                cells.len(),
+                if nether { "its Nether part" } else { "its overworld cells" },
+                ex.len(),
+                if ex.is_empty() { " (PASS)".to_string() } else { format!(" (FAIL){}", ex.iter().map(|(p, s)| format!(" ({},{},{}) {}", p[0], p[1], p[2], s.trim_start_matches("minecraft:").split('[').next().unwrap_or(""))).collect::<String>()) }
+            );
+            if !ex.is_empty() {
                 std::process::exit(1);
             }
         }
