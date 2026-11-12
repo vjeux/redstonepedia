@@ -186,6 +186,9 @@ pub struct HeadPerm {
     /// (ironspec's ruling, (i)) GO toward X also requires D_arr_X low; the GOs it held
     pub darr_gate: bool,
     pub darr_holds: Vec<String>,
+    /// (a candidate rule (iii)) GO toward X also requires every branch chunk live; the GOs it held
+    pub live_go: bool,
+    pub live_holds: Vec<String>,
     /// (a fix candidate for (i)'s drain) RETRY also while D_arr is on
     pub retry_darr: bool,
     /// (a fault) D_arr stuck at a level from a slot on
@@ -282,6 +285,8 @@ impl HeadPerm {
             branch_frozen: false,
             darr_gate: false,
             darr_holds: Vec::new(),
+            live_go: false,
+            live_holds: Vec::new(),
             retry_darr: false,
             darr_stuck: None,
             l_x: false,
@@ -439,7 +444,14 @@ impl HeadPerm {
             if darr_block && !forced && (!self.gate || self.permit()) && self.darr_holds.len() < 40 {
                 self.darr_holds.push(c.to_string());
             }
-            ("A", if forced || (self.gate && !self.permit()) || darr_block { Go::Hold } else { Go::Launch })
+            // (`live_go`, a candidate rule (iii): GO toward X also requires every branch chunk's
+            // liveness clock live (emulated: no branch chunk frozen), so a launch never goes into
+            // a branch whose train may be frozen in it)
+            let live_block = self.live_go && self.branch_frozen;
+            if live_block && !forced && !darr_block && (!self.gate || self.permit()) && self.live_holds.len() < 40 {
+                self.live_holds.push(c.to_string());
+            }
+            ("A", if forced || (self.gate && !self.permit()) || darr_block || live_block { Go::Hold } else { Go::Launch })
         } else {
             ("B", if self.b_hold.is_some_and(|(c0, n)| c >= c0 && c < c0 + n) {
                 Go::Hold
@@ -709,6 +721,9 @@ impl HeadPerm {
                 }
                 if self.darr_gate {
                     out.push(format!("head-perm D_arr gate (ironspec's ruling (i): GO toward A also requires D_arr low): A's GOs held by it: {}", if self.darr_holds.is_empty() { "none".to_string() } else { self.darr_holds.join(",") }));
+                }
+                if self.live_go {
+                    out.push(format!("head-perm liveness GO (a candidate rule (iii): GO toward A also requires every branch chunk live, emulated: no branch chunk frozen): A's GOs held by it: {}", if self.live_holds.is_empty() { "none".to_string() } else { self.live_holds.join(",") }));
                 }
             }
             if !self.tick_waits.is_empty() {
