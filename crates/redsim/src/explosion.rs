@@ -23,6 +23,18 @@
 //!    16 per item, `StackCollector`), `setBlockAndUpdate(air)` (its neighbors react at once), then
 //!    `wasExploded` (a TNT block becomes a primed TNT with a 10..29 tick fuse). Then every
 //!    collected stack pops (`Block.popResource`).
+//!
+//! (mob-AI 2026-11-11) A creeper's explosion ([`explode_with`], from `Creeper.explodeCreeper`:
+//! `ServerLevel.explode(creeper, .., x, y, z, 3 (6 powered), MOB)`): with mobGriefing the block
+//! interaction is DESTROY_WITH_DECAY (`mob_explosion_drop_decay`'s default: every block's loot
+//! table with the radius, `survives_explosion` and `explosion_decay` drawing from its random
+//! sequence, `terrain::loot`), without it KEEP (no block broken, the rays still drawn). The
+//! creeper is the hurt mobs' attacker (`LivingEntity.hurtServer` with `Damage::Explosion`: armor
+//! and blast protection, no default knockback, the panic, the death and its loot); each push is
+//! scaled by 1 less the entity's EXPLOSION_KNOCKBACK_RESISTANCE (blast protection's); items and
+//! armor stands ignore an explosion that does not affect block-like entities (mobGriefing off and
+//! KEEP), vehicles a mob's with mobGriefing off; the AFK player is pushed (a creative one is not
+//! hurt). The level's entity order is each section's entry order (`Entity::section_seq`).
 
 use crate::block::Block;
 use crate::entity::{self, mth, Aabb, EntityKind, Vec3};
@@ -777,41 +789,47 @@ pub fn seen_percent(w: &World, center: Vec3, bb: Aabb) -> f32 {
 
 // ------------------------------------------------------------------ entities
 
-/// An entity an explosion can reach: one of `entities.list` or a falling block.
+/// An entity an explosion can reach: one of `entities.list`, a falling block, or a player (the
+/// mob AI's players: the AFK player).
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Target {
     Main(usize),
     Falling(usize),
+    Player(usize),
 }
 
-/// `SectionPos.asLong` order within one x slab: z then y, as the masked (unsigned) fields.
-fn section_key(p: Vec3) -> (i32, u64) {
-    let (bx, by, bz) = (mth::floor(p.x), mth::floor(p.y), mth::floor(p.z));
-    let (sx, sy, sz) = (bx >> 4, by >> 4, bz >> 4);
-    (sx, ((sz as i64 & 0x3F_FFFF) as u64) << 20 | (sy as i64 & 0xF_FFFF) as u64)
-}
-
-/// `level.getEntities(source, box)`: the live entities (falling blocks included) whose box meets
-/// `bb`, the source excluded, in entity-section order (x slab, then the section key), then spawn
-/// order within a section.
+/// `level.getEntities(source, box)`: the live entities (falling blocks and the players included)
+/// whose box meets `bb`, the source excluded, in entity-section order (x slab, then the section
+/// key), then each section's entities in the order they entered it (mob-AI 2026-11-11:
+/// `Entity::section_seq`, as `World::get_entities`; the AFK player first in the section it
+/// started in, `player_body::order_key`; a falling block, whose section entries redsim does not
+/// track, after the others in its section, by id).
 fn entities_in(w: &World, source: Option<u32>, bb: Aabb) -> Vec<Target> {
-    let mut v: Vec<((i32, u64), u32, Target)> = Vec::new();
+    let mut v: Vec<(((i32, u32, u32), u64), Target)> = Vec::new();
     for (i, e) in w.entities.list.iter().enumerate() {
         if !e.removed && Some(e.id) != source && e.bb.intersects(bb) {
-            v.push((section_key(e.pos), e.id, Target::Main(i)));
+            v.push(((crate::entity::section_order(e.section), 1 + e.section_seq), Target::Main(i)));
         }
     }
     for (i, f) in w.gravity.entities.iter().enumerate() {
         if !f.removed && Some(f.id) != source && f.bb().intersects(bb) {
-            v.push((section_key(Vec3::new(f.x, f.y, f.z)), f.id, Target::Falling(i)));
+            let s = crate::entity::section_of(Vec3::new(f.x, f.y, f.z));
+            v.push(((crate::entity::section_order(s), (1 << 62) + f.id as u64), Target::Falling(i)));
         }
     }
-    v.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
-    v.into_iter().map(|x| x.2).collect()
+    for k in 0..w.mob.ai.players.len() {
+        let p = &w.mob.ai.players[k];
+        if p.mode != crate::entity::mob::ai::GameMode::Spectator && crate::entity::mob::ai::player_body::bb(p.pos).intersects(bb) {
+            v.push((crate::entity::mob::ai::player_body::order_key(w, k), Target::Player(k)));
+        }
+    }
+    v.sort_by_key(|x| x.0);
+    v.into_iter().map(|x| x.1).collect()
 }
 
-/// `ServerExplosion.hurtEntities`.
-fn hurt_entities(w: &mut World, source: Option<u32>, center: Vec3, radius: f32) {
+/// `ServerExplosion.hurtEntities`. `attacker`: the explosion's indirect source entity (a creeper
+/// itself), the hurt mobs' attacker.
+fn hurt_entities(w: &mut World, source: Option<u32>, attacker: Option<u32>, center: Vec3, radius: f32, interaction: Interaction) {
     if radius < 1.0e-5 {
         return;
     }
@@ -832,8 +850,30 @@ fn hurt_entities(w: &mut World, source: Option<u32>, center: Vec3, radius: f32) 
                 let f = &w.gravity.entities[i];
                 (Vec3::new(f.x, f.y, f.z), f.bb(), 0.98f32 * 0.85f32, false)
             }
+            // a standing player: eye 1.62F
+            Target::Player(k) => {
+                let p = w.mob.ai.players[k].pos;
+                (p, crate::entity::mob::ai::player_body::bb(p), 1.62f32, false)
+            }
         };
-        // ignoreExplosion: an invisible armor stand (redsim's are visible); the rest are hit
+        // ignoreExplosion (mob-AI 2026-11-11): an item and an armor stand when the explosion does
+        // not affect block-like entities (`shouldAffectBlocklikeEntities`: mobGriefing on, or a
+        // block interaction that is not KEEP), an armor stand when invisible (redsim's are
+        // visible), a vehicle when a mob caused it with mobGriefing off; the rest are hit
+        let blocklike = w.mob.ai.mob_griefing || interaction != Interaction::Keep;
+        let ignored = match t {
+            Target::Main(i) => match &w.entities.list[i].kind {
+                EntityKind::Item(_) | EntityKind::ArmorStand(_) => !blocklike,
+                EntityKind::Boat(_) | EntityKind::Minecart(_) => {
+                    attacker.and_then(|a| crate::entity::index_of(w, a)).is_some_and(|j| matches!(w.entities.list[j].kind, EntityKind::Mob(_))) && !w.mob.ai.mob_griefing
+                }
+                _ => false,
+            },
+            _ => false,
+        };
+        if ignored {
+            continue;
+        }
         let dist = pos.distance_to_sqr(center).sqrt() / dr as f64;
         if dist > 1.0 {
             continue;
@@ -844,9 +884,18 @@ fn hurt_entities(w: &mut World, source: Option<u32>, center: Vec3, radius: f32) 
         // getEntityDamageAmount
         let pow = (1.0 - dist) * exposure as f64;
         let damage = ((pow * pow + pow) / 2.0 * 7.0 * dr as f64 + 1.0) as f32;
-        hurt(w, t, damage);
-        // knockback: (1 - dist) * exposure * multiplier (1) * (1 - knockback resistance (0))
-        let power = (1.0 - dist) * exposure as f64 * 1.0f32 as f64 * (1.0 - 0.0);
+        hurt(w, t, damage, attacker);
+        // knockback: (1 - dist) * exposure * multiplier (1) * (1 - EXPLOSION_KNOCKBACK_RESISTANCE:
+        // a living entity's, 0 unless its armor's blast protection gives some), then
+        // pushFromExplosion (Entity.push: added to its motion, a mob the explosion killed too)
+        let resistance = match t {
+            Target::Main(i) => match &w.entities.list[i].kind {
+                EntityKind::Mob(m) => m.armor.explosion_knockback_resistance(m.helmet.is_some()),
+                _ => 0.0,
+            },
+            _ => 0.0,
+        };
+        let power = (1.0 - dist) * exposure as f64 * 1.0f32 as f64 * (1.0 - resistance);
         let k = direction.scale(power);
         if k.x.is_finite() && k.y.is_finite() && k.z.is_finite() {
             match t {
@@ -860,13 +909,23 @@ fn hurt_entities(w: &mut World, source: Option<u32>, center: Vec3, radius: f32) 
                     f.vy += k.y;
                     f.vz += k.z;
                 }
+                Target::Player(p) => crate::entity::mob::ai::player_body::push(w, p, k),
             }
         }
     }
 }
 
-/// `hurtServer(level, explosion damage source, damage)` of one target.
-fn hurt(w: &mut World, t: Target, damage: f32) {
+/// `hurtServer(level, explosion damage source, damage)` of one target. `attacker`: the
+/// explosion's indirect source (a creeper: the hurt mob's attacker, `MobWorld.ai.attacker`).
+fn hurt(w: &mut World, t: Target, damage: f32, attacker: Option<u32>) {
+    if let Target::Player(k) = t {
+        // Player.hurtServer: a creative or invulnerable player refuses it
+        let p = &w.mob.ai.players[k];
+        if !(p.mode == crate::entity::mob::ai::GameMode::Creative || p.invulnerable) {
+            w.mob.ai.legacy.insert("an explosion hurting a survival player");
+        }
+        return;
+    }
     let Target::Main(i) = t else { return };
     if !w.sculk.is_empty() {
         w.errors.push("explosion: an entity's damage vibration near sculk sensors is not modeled".into());
@@ -899,9 +958,25 @@ fn hurt(w: &mut World, t: Target, damage: f32) {
             e.removed = true;
             w.errors.push("explosion: an armor stand it breaks drops its items (not modeled)".into());
         }
-        // ironfarm: explosions hurting mobs are not modeled
+        // (mob-AI 2026-11-11) LivingEntity.hurtServer with the explosion's source (its attacker:
+        // the creeper): armor and blast protection, no default knockback (#no_knockback), the
+        // panic, the death and its loot
         EntityKind::Mob(_) => {
-            w.errors.push("explosion: damage to a mob is not modeled".into());
+            let prev = w.mob.ai.attacker;
+            w.mob.ai.attacker = attacker;
+            let was_alive = crate::entity::mob::mob(w, i).health > 0.0;
+            crate::entity::mob::living::hurt(w, i, crate::entity::mob::Damage::Explosion, damage);
+            w.mob.ai.attacker = prev;
+            // Creeper.killedEntity: a powered creeper's first kill drops the CHARGED_CREEPER
+            // loot (a head) from the victim: not modeled
+            if was_alive
+                && crate::entity::mob::mob(w, i).health <= 0.0
+                && let Some(a) = attacker.and_then(|a| crate::entity::index_of(w, a))
+                && let EntityKind::Mob(m) = &w.entities.list[a].kind
+                && m.ai.as_deref().is_some_and(|x| x.creeper_powered)
+            {
+                w.mob.ai.legacy.insert("a powered creeper's kill (its CHARGED_CREEPER loot: a head)");
+            }
         }
         // Projectile.hurtServer: false
         EntityKind::Arrow(_) => {}
@@ -923,7 +998,9 @@ struct Collector {
 fn add_or_append(stacks: &mut Vec<Collector>, pos: BlockPos, item: String, mut count: u32, payload: u16) {
     let max = crate::loot::max_stack(&item);
     for c in stacks.iter_mut() {
-        if c.item == item && c.payload == payload && count + c.count <= max {
+        // (mob-AI 2026-11-11) an empty collector (a 0-count drop, still popped: its draws) merges
+        // nothing: an empty stack is not the same item as any (`isSameItemSameComponents`)
+        if c.count > 0 && count > 0 && c.item == item && c.payload == payload && count + c.count <= max {
             let delta = (max.min(16) as i64 - c.count as i64).min(count as i64);
             c.count = (c.count as i64 + delta) as u32;
             count = (count as i64 - delta) as u32;
@@ -936,7 +1013,7 @@ fn add_or_append(stacks: &mut Vec<Collector>, pos: BlockPos, item: String, mut c
 }
 
 /// `ServerExplosion.interactWithBlocks`.
-fn interact_with_blocks(w: &mut World, mut list: Vec<BlockPos>, rolls: Rolls) {
+fn interact_with_blocks(w: &mut World, mut list: Vec<BlockPos>, rolls: Rolls, interaction: Interaction, radius: f32) {
     if rolls == Rolls::Level {
         if let Some(r) = w.level_random.as_mut() {
             // Util.shuffle
@@ -966,7 +1043,19 @@ fn interact_with_blocks(w: &mut World, mut list: Vec<BlockPos>, rolls: Rolls) {
             if payload.is_none() && w.containers.map.get(&pos).is_some_and(|c| c.slots.iter().any(|x| x.is_some())) {
                 w.errors.push(format!("explosion: the container at {pos} spills its items (not modeled)"));
             }
-            match dropped.map(|d| crate::loot::drops(&d)) {
+            // (mob-AI 2026-11-11) the loot of a natural block, and with the decay (a creeper's)
+            // of every block: its table evaluated with the explosion's radius, drawing from its
+            // random sequence (`terrain::loot`); a count may be 0 (it still pops, or merges away)
+            let table = interaction == Interaction::DestroyWithDecay || matches!(s, Block::Terrain(_));
+            let rolled = match dropped {
+                Some(d) if table => {
+                    let r = if interaction == Interaction::DestroyWithDecay { Some(radius) } else { None };
+                    Some(crate::terrain::loot::drops(w, &d, pos, r).map(|v| v.into_iter().map(|(item, n)| (item, n.max(0) as u32)).collect::<Vec<_>>()))
+                }
+                Some(d) => Some(crate::loot::drops(&d)),
+                None => None,
+            };
+            match rolled {
                 Some(Ok(v)) => {
                     for (item, n) in v {
                         add_or_append(&mut stacks, pos, item, n, payload.unwrap_or(0));
@@ -1074,9 +1163,27 @@ pub fn explode_on(w: &mut World, seed: i64, chunks: [i32; 4]) {
     w.explosion_rolls = Rolls::Level;
 }
 
+/// How an explosion treats the blocks it reaches (`Explosion.BlockInteraction`): KEEP (none
+/// broken: a creeper without mobGriefing), DESTROY (TNT with `tnt_explosion_drop_decay` off: every
+/// drop), DESTROY_WITH_DECAY (a creeper's with mobGriefing and `mob_explosion_drop_decay` on:
+/// each block's loot with the explosion's radius, `survives_explosion` and `explosion_decay`
+/// drawing from its table's random sequence).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Interaction {
+    Keep,
+    Destroy,
+    DestroyWithDecay,
+}
+
 /// `ServerLevel.explode(source, .., center, radius, fire = false, TNT)` -> `ServerExplosion.explode`
 /// (see the module doc). `source`: the exploding entity's id (excluded from the entities hit).
 pub fn explode(w: &mut World, source: Option<u32>, center: Vec3, radius: f32) {
+    explode_with(w, source, None, center, radius, Interaction::Destroy);
+}
+
+/// `ServerExplosion.explode` with its block interaction; `attacker`: its indirect source entity
+/// (a creeper's own id: the hurt mobs' attacker).
+pub fn explode_with(w: &mut World, source: Option<u32>, attacker: Option<u32>, center: Vec3, radius: f32, interaction: Interaction) {
     let rolls = w.explosion_rolls;
     if rolls == Rolls::Level && w.level_random.is_none() {
         w.errors.push("explosion: Rolls::Level needs the mirrored level random (World::mirror_level_random), or choose Rolls::Max / Min / Fixed".into());
@@ -1095,8 +1202,11 @@ pub fn explode(w: &mut World, source: Option<u32>, center: Vec3, radius: f32) {
     if let Some(b) = w.explosions.last_mut() {
         b.positions = blow.len();
     }
-    hurt_entities(w, source, center, radius);
-    interact_with_blocks(w, blow, rolls);
+    hurt_entities(w, source, attacker, center, radius, interaction);
+    // interactsWithBlocks: not KEEP
+    if interaction != Interaction::Keep {
+        interact_with_blocks(w, blow, rolls, interaction, radius);
+    }
 }
 
 #[cfg(test)]

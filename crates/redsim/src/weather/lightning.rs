@@ -627,6 +627,14 @@ fn mob_thunder_hit(w: &mut World, i: usize) {
         m.fire_ticks = t160;
     }
     mob::living::hurt(w, i, Damage::Lightning, 5.0);
+    // (mob-AI 2026-11-11) Creeper.thunderHit after Entity's: powered (DATA_IS_POWERED: its blast
+    // radius doubled)
+    if !w.entities.list[i].removed
+        && mob::mob(w, i).ty.def().id == "creeper"
+        && let Some(a) = mob::mob_mut(w, i).ai.as_deref_mut()
+    {
+        a.creeper_powered = true;
+    }
 }
 
 /// `LightningBolt.powerLightningRod`: the block under the bolt (`getStrikePosition`), if a rod

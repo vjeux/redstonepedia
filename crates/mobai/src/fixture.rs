@@ -7231,6 +7231,124 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 3,
         });
     }
+    // (mob-AI 2026-11-11) a creeper's explosion: an ignited creeper (`ignited:1b`: it swells on
+    // its own, 30 ticks) on a floor among blocks of every kind its blast breaks, mobGriefing on
+    // (DESTROY_WITH_DECAY: each block's loot with the radius, `survives_explosion` and
+    // `explosion_decay` drawing from its table's random sequence; the shuffle, the pops), sand
+    // and gravel falling into the crater; the creeper gone after
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, 0, 48, 63, stone);
+        floor(&mut b, 20, 29, 20, 29, 63, "minecraft:dirt");
+        for (x, z) in [(22, 22), (23, 22), (24, 22), (22, 23), (26, 26), (27, 26)] {
+            b.push(([x, 63, z], "minecraft:grass_block[snowy=false]".to_string()));
+        }
+        let ring = [
+            ((22, 24), "minecraft:cobblestone"),
+            ((26, 24), "minecraft:oak_planks"),
+            ((24, 22), "minecraft:glass"),
+            ((24, 26), "minecraft:oak_log[axis=y]"),
+            ((22, 26), "minecraft:stone"),
+            ((26, 22), "minecraft:cobblestone"),
+            ((21, 24), "minecraft:oak_planks"),
+            ((27, 24), "minecraft:dirt"),
+        ];
+        for ((x, z), s) in ring {
+            b.push(([x, 64, z], s.to_string()));
+        }
+        b.push(([22, 65, 24], "minecraft:sand".to_string()));
+        b.push(([26, 65, 22], "minecraft:gravel".to_string()));
+        b.push(([23, 64, 25], "minecraft:torch".to_string()));
+        b.push(([25, 64, 23], "minecraft:red_bed[facing=east,occupied=false,part=foot]".to_string()));
+        b.push(([26, 64, 23], "minecraft:red_bed[facing=east,occupied=false,part=head]".to_string()));
+        v.push(Scene {
+            name: "creeper-blocks".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: b,
+            mobs: vec![("minecraft:creeper".into(), [24.5, 64.0, 24.5], Some("{PersistenceRequired:1b,ignited:1b}".into()))],
+            day_time: 18000,
+            difficulty: Difficulty::Easy,
+            mob_griefing: true,
+            watch: ([0, 58, 0], [47, 70, 47]),
+            player: None,
+            player_creative: false,
+            // grass blocks: their random ticks need the terrain worlds' light
+            random_tick_speed: 0,
+        });
+    }
+    // (mob-AI 2026-11-11) a creeper's explosion among mobs, mobGriefing off (KEEP: no block
+    // broken, the rays still drawn): the damage (the creeper as the attacker: armor, the hurt
+    // and death sounds' draws, the panic of the animals), the deaths and their loot, the
+    // knockback of every mob it reaches (the iron golem's too: its knockback resistance is not
+    // the explosion's), the survivors' AI after
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, 0, 48, 63, stone);
+        v.push(Scene {
+            name: "creeper-mobs".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: b,
+            mobs: vec![
+                ("minecraft:creeper".into(), [24.5, 64.0, 24.5], Some("{PersistenceRequired:1b,ignited:1b}".into())),
+                ("minecraft:zombie".into(), [26.0, 64.0, 24.5], Some("{PersistenceRequired:1b}".into())),
+                ("minecraft:zombie".into(), [24.5, 64.0, 28.6], Some("{PersistenceRequired:1b}".into())),
+                ("minecraft:chicken".into(), [22.3, 64.0, 23.4], Some("{PersistenceRequired:1b}".into())),
+                ("minecraft:sheep".into(), [27.2, 64.0, 22.9], Some("{PersistenceRequired:1b}".into())),
+                ("minecraft:cow".into(), [20.4, 64.0, 26.8], Some("{PersistenceRequired:1b}".into())),
+                ("minecraft:iron_golem".into(), [21.2, 64.0, 21.6], Some("{PersistenceRequired:1b}".into())),
+            ],
+            day_time: 18000,
+            difficulty: Difficulty::Easy,
+            mob_griefing: false,
+            watch: ([0, 60, 0], [47, 70, 47]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 3,
+        });
+    }
+    // (mob-AI 2026-11-11) a creeper's fall feeds its fuse (Creeper.causeFallDamage: swell +=
+    // (int)(distance x 1.5), at most maxSwell - 5): an ignited creeper dropped 3 blocks lands
+    // with 4 more and explodes that much sooner; mobGriefing off (KEEP)
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, 0, 48, 63, stone);
+        v.push(Scene {
+            name: "creeper-fall".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: b,
+            mobs: vec![("minecraft:creeper".into(), [24.5, 67.0, 24.5], Some("{PersistenceRequired:1b,ignited:1b}".into()))],
+            day_time: 18000,
+            difficulty: Difficulty::Easy,
+            mob_griefing: false,
+            watch: ([0, 60, 0], [47, 70, 47]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 3,
+        });
+    }
+    // (mob-AI 2026-11-11) a powered creeper's explosion (`powered:1b`, as lightning leaves one:
+    // Creeper.thunderHit): radius 6 (explosionRadius x 2), mobGriefing on (the decay at 1/6)
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, 0, 48, 63, stone);
+        floor(&mut b, 18, 31, 18, 31, 62, "minecraft:dirt");
+        for (x, z) in [(20, 24), (28, 24), (24, 20), (24, 28)] {
+            b.push(([x, 64, z], "minecraft:oak_planks".to_string()));
+        }
+        v.push(Scene {
+            name: "creeper-powered".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: b,
+            mobs: vec![("minecraft:creeper".into(), [24.5, 64.0, 24.5], Some("{PersistenceRequired:1b,ignited:1b,powered:1b}".into()))],
+            day_time: 18000,
+            difficulty: Difficulty::Easy,
+            mob_griefing: true,
+            watch: ([0, 55, 0], [47, 70, 47]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 3,
+        });
+    }
     v
 }
 

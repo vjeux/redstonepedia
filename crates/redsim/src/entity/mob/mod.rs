@@ -156,13 +156,23 @@ pub enum Damage {
     /// `MobWorld.ai.projectile_motion`: the knockback goes along it, `Projectile`'s
     /// `calculateHorizontalHurtKnockbackDirection`).
     Spit,
+    /// (mob-AI 2026-11-11) An explosion's (`explosion`: `#is_explosion`, `#no_knockback`,
+    /// `#panic_causes`; armor and blast protection count). A creeper's has the creeper as its
+    /// attacker (`MobWorld.ai.attacker` during the call: `Explosion.getIndirectSourceEntity`).
+    Explosion,
 }
 
 impl Damage {
     /// Caused by a living attacker (`MobWorld.ai.attacker` during the call): a melee hit, an
     /// arrow's or a trident's owner, a spear's holder, a spitting llama.
     pub fn by_attacker(self) -> bool {
-        matches!(self, Damage::MobAttack | Damage::Arrow | Damage::Spear | Damage::Trident | Damage::Spit)
+        matches!(self, Damage::MobAttack | Damage::Arrow | Damage::Spear | Damage::Trident | Damage::Spit | Damage::Explosion)
+    }
+
+    /// Tag `no_knockback` among the attacker damages: no `dealDefaultKnockback` (a spear's stab
+    /// pushes on its own; an explosion pushes everything it reaches in `hurtEntities`).
+    pub fn no_knockback(self) -> bool {
+        matches!(self, Damage::Spear | Damage::Explosion)
     }
 
     /// A projectile's (`#is_projectile` among the modeled): the knockback goes along its motion.
@@ -205,6 +215,7 @@ impl Damage {
             Damage::Trident => "trident",
             Damage::OutOfWorld => "out_of_world",
             Damage::Spit => "spit",
+            Damage::Explosion => "explosion",
         }
     }
 
@@ -226,6 +237,7 @@ impl Damage {
             Damage::Trident => "trident",
             Damage::OutOfWorld => "outOfWorld",
             Damage::Spit => "mob",
+            Damage::Explosion => "explosion",
         }
     }
 }
@@ -790,6 +802,11 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
     let mut ty = MobType::from_id(type_id)?;
     let mut persistent = false;
     let mut can_break_doors = false;
+    // (mob-AI 2026-11-11) Creeper.readAdditionalSaveData: ignited, Fuse, ExplosionRadius
+    let mut creeper_ignited = false;
+    let mut creeper_fuse: Option<i32> = None;
+    let mut creeper_radius: Option<i32> = None;
+    let mut creeper_powered = false;
     let mut bat_flags = 0;
     let mut cube_size: Option<i32> = None;
     let mut animal_age: Option<i32> = None;
@@ -986,6 +1003,10 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
                 Some(("PersistenceRequired", v)) => persistent = matches!(v, "1b" | "true" | "1"),
                 // ---- mob AI (the mob-AI lane): a zombie that breaks doors ----
                 Some(("CanBreakDoors", v)) if w.mob.ai.on && matches!(ty.def().id, "zombie" | "baby_zombie") => can_break_doors = matches!(v, "1b" | "true" | "1"),
+                Some(("ignited", v)) if w.mob.ai.on && ty.def().id == "creeper" => creeper_ignited = matches!(v, "1b" | "true" | "1"),
+                Some(("Fuse", v)) if w.mob.ai.on && ty.def().id == "creeper" => creeper_fuse = v.trim_end_matches(['s', 'S']).parse::<i32>().ok(),
+                Some(("ExplosionRadius", v)) if w.mob.ai.on && ty.def().id == "creeper" => creeper_radius = v.trim_end_matches(['b', 'B']).parse::<i32>().ok(),
+                Some(("powered", v)) if w.mob.ai.on && ty.def().id == "creeper" => creeper_powered = matches!(v, "1b" | "true" | "1"),
                 // a bat's flags (resting: bit 1)
                 Some(("BatFlags", v)) if ty.def().id == "bat" => bat_flags = v.trim_end_matches(['b', 'B']).parse::<i32>().unwrap_or(0),
                 // a sulfur cube's size (`Size` = size - 1)
@@ -1170,6 +1191,19 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
         && let Some(a) = m.ai.as_deref_mut()
     {
         ai::goal::zombie::set_can_break_doors(a, true);
+    }
+    if let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id)
+        && let EntityKind::Mob(m) = &mut e.kind
+        && let Some(a) = m.ai.as_deref_mut()
+    {
+        a.creeper_ignited |= creeper_ignited;
+        a.creeper_powered |= creeper_powered;
+        if let Some(f) = creeper_fuse {
+            a.max_swell = f;
+        }
+        if let Some(r) = creeper_radius {
+            a.explosion_radius = r;
+        }
     }
     Some(Ok(id))
 }
@@ -1361,6 +1395,8 @@ impl Armor {
                     "fire_protection" if src.is_fire() => 2.0 * l,
                     "projectile_protection" if src.by_projectile() => 2.0 * l,
                     "feather_falling" if src == Damage::Fall => 3.0 * l,
+                    // (mob-AI 2026-11-11) blast protection's damage_protection on #is_explosion
+                    "blast_protection" if src == Damage::Explosion => 2.0 * l,
                     _ => 0.0,
                 };
             }
@@ -1395,6 +1431,12 @@ impl Armor {
     /// BURNING_TIME: fire protection's -0.15F a level (ADD_MULTIPLIED_BASE on 1).
     pub fn burning_time(&self, helmet: bool) -> f64 {
         1.0 + self.linear_sum(helmet, "fire_protection", -0.15)
+    }
+
+    /// (mob-AI 2026-11-11) EXPLOSION_KNOCKBACK_RESISTANCE: blast protection's 0.15F a level
+    /// (ADD_VALUE on 0), clamped to the attribute's 0..1.
+    pub fn explosion_knockback_resistance(&self, helmet: bool) -> f64 {
+        self.linear_sum(helmet, "blast_protection", 0.15).clamp(0.0, 1.0)
     }
 }
 

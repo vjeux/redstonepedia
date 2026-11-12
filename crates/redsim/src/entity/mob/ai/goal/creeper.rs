@@ -57,22 +57,59 @@ pub fn swell_tick(w: &mut World, i: usize) {
     ai_mut(w, i).swell_dir = dir;
 }
 
-/// `Creeper.tick()` before `super.tick()`: the fuse (`swell += swellDir`, 0..30); at 30 it
-/// explodes (refused: a creeper's explosion is not modeled).
-pub fn creeper_tick(w: &mut World, i: usize) {
+/// `Creeper.tick()` before `super.tick()`: an ignited creeper swells on its own (`swellDir` 1);
+/// the fuse (`swell += swellDir`, 0..maxSwell); at maxSwell it explodes ([`explode_creeper`]).
+/// Returns whether it exploded (it is gone: `super.tick()` then runs on a removed creeper, which
+/// changes nothing).
+pub fn creeper_tick(w: &mut World, i: usize) -> bool {
     if mob(w, i).dead || mob(w, i).health <= 0.0 {
-        return;
+        return false;
     }
     let a = ai_mut(w, i);
+    if a.creeper_ignited {
+        a.swell_dir = 1;
+    }
+    // (swellDir > 0 at swell 0: the primed sound and the PRIME_FUSE game event)
+    let primed = a.swell_dir > 0 && a.swell == 0;
     a.swell += a.swell_dir;
     if a.swell < 0 {
         a.swell = 0;
     }
-    if a.swell >= 30 {
-        a.swell = 30;
-        let why = "a creeper's explosion is not modeled".to_string();
-        if !w.errors.contains(&why) {
-            w.errors.push(why);
-        }
+    if std::env::var_os("MCTAS_TRACE_SWELL").is_some() && (a.swell > 0 || a.swell_dir > 0) {
+        let (s, d) = (a.swell, a.swell_dir);
+        eprintln!("swell t{} #{} swell {s} dir {d}", w.time, w.entities.list[i].id);
+    }
+    if primed {
+        let p = w.entities.list[i].pos;
+        w.game_event_at("prime_fuse", [p.x, p.y, p.z], None, false);
+    }
+    let a = ai_mut(w, i);
+    if a.swell >= a.max_swell {
+        a.swell = a.max_swell;
+        explode_creeper(w, i);
+        return true;
+    }
+    false
+}
+
+/// (mob-AI 2026-11-11) `Creeper.explodeCreeper()`: `ServerLevel.explode(this, x, y, z,
+/// explosionRadius x (2 when powered), MOB)` (mobGriefing: DESTROY_WITH_DECAY, the default
+/// `mob_explosion_drop_decay`; else KEEP), its lingering cloud (none without effects), then
+/// `discard()` (gone: no death, no loot).
+fn explode_creeper(w: &mut World, i: usize) {
+    let id = w.entities.list[i].id;
+    let p = w.entities.list[i].pos;
+    let radius = ai(w, i).explosion_radius as f32 * if ai(w, i).creeper_powered { 2.0f32 } else { 1.0f32 };
+    let interaction = if w.mob.ai.mob_griefing { crate::explosion::Interaction::DestroyWithDecay } else { crate::explosion::Interaction::Keep };
+    crate::explosion::explode_with(w, Some(id), Some(id), p, radius, interaction);
+    // spawnLingeringCloud: an AreaEffectCloud of its active effects
+    if let Some(j) = crate::entity::index_of(w, id)
+        && let crate::entity::EntityKind::Mob(m) = &w.entities.list[j].kind
+        && m.effects != Default::default()
+    {
+        w.mob.ai.legacy.insert("a creeper's lingering cloud of its effects");
+    }
+    if let Some(j) = crate::entity::index_of(w, id) {
+        w.entities.list[j].removed = true;
     }
 }

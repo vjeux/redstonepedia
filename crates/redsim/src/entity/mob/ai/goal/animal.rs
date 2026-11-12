@@ -439,7 +439,7 @@ pub fn can_use(w: &mut World, i: usize, g: &mut AnimalGoal) -> bool {
             let panics = mob(w, i).last_damage.is_some_and(|(t, s)| {
                 now - t <= 40
                     && (matches!(s, Damage::Lava | Damage::OnFire | Damage::HotFloor | Damage::Lightning | Damage::InFire)
-                        || (!env_only && matches!(s, Damage::MobAttack | Damage::Arrow | Damage::Spear | Damage::Trident)))
+                        || (!env_only && matches!(s, Damage::MobAttack | Damage::Arrow | Damage::Spear | Damage::Trident | Damage::Explosion)))
             });
             if !panics || (*mount && crate::entity::mob::ai::controlled_by_mob(w, i)) {
                 return false;
@@ -643,17 +643,23 @@ fn grow_up(w: &mut World, i: usize) {
 /// `AgeableMob.aiStep`'s age after `LivingEntity.aiStep`: a baby's counts up to 0 (an adult's
 /// breeding cooldown down to 0); then the chicken's tail.
 pub fn after_ai_step(w: &mut World, i: usize) {
-    if !is_animal(mob(w, i).ty.def().id) || mob(w, i).health <= 0.0 || w.entities.list[i].removed {
+    if !is_animal(mob(w, i).ty.def().id) || w.entities.list[i].removed {
         return;
     }
-    let a = age(w, i);
-    if a < 0 {
-        set_age(w, i, a + 1);
-    } else if a > 0 {
-        set_age(w, i, a - 1);
+    // (mob-AI 2026-11-11) a dying animal (health 0: its death animation) still runs aiStep:
+    // AgeableMob's age and the rest wait for isAlive, Chicken's slow fall does not (a chicken a
+    // creeper's blast killed in the air)
+    let alive = mob(w, i).health > 0.0;
+    if alive {
+        let a = age(w, i);
+        if a < 0 {
+            set_age(w, i, a + 1);
+        } else if a > 0 {
+            set_age(w, i, a - 1);
+        }
     }
-    chicken_after_ai_step(w, i);
-    if is_horse(mob(w, i).ty.def().id) {
+    chicken_after_ai_step(w, i, alive);
+    if alive && is_horse(mob(w, i).ty.def().id) {
         horse_after_ai_step(w, i);
     }
 }
@@ -666,7 +672,7 @@ pub fn chicken_egg_time(r: &mut crate::rng::LegacyRandom) -> i32 {
 /// `Chicken.aiStep` after `super.aiStep()`: a falling chicken keeps 0.6 of its fall speed; an
 /// adult lays an egg when its timer runs out (the CHICKEN_LAY gift table's egg, its sound's
 /// pitch, a new timer; a baby's timer stands still).
-fn chicken_after_ai_step(w: &mut World, i: usize) {
+fn chicken_after_ai_step(w: &mut World, i: usize, alive: bool) {
     if adult_of(mob(w, i).ty.def().id) != Some("chicken") {
         return;
     }
@@ -676,7 +682,7 @@ fn chicken_after_ai_step(w: &mut World, i: usize) {
         e.delta_movement = crate::entity::Vec3::new(d.x, d.y * 0.6, d.z);
     }
     // (ServerLevel, alive) not a baby, not a chicken jockey, then --eggTime <= 0
-    if age(w, i) < 0 || mob(w, i).chicken_jockey {
+    if !alive || age(w, i) < 0 || mob(w, i).chicken_jockey {
         return;
     }
     let t = mob(w, i).egg_time - 1;

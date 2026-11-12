@@ -48,7 +48,11 @@ cat-creeper.rec	95089d65a7437d0c		26.3	uncommitted	recorded before manifests: se
 chicken-jockey-flag.rec	8fa3fe767611d11e		26.3	2026-11-09T09:18Z on 05e0d74842	mctas mobai record chicken-jockey-flag --seed 1 --ticks 600 --dir designs/redsim/recorded/mobai
 contact6-unload.rec	07a86ee122603ed3		26.3	2026-11-11T18:41Z on 1ccfb43c1e	mctas mobai record contact6-unload --seed 1 --ticks 1100 --dir /tmp/rerec
 contact6.rec	e5ddaccaa831d919		26.3	2026-11-11T18:41Z on 1ccfb43c1e	mctas mobai record contact6 --seed 1 --ticks 1400 --dir /tmp/rerec
+creeper-blocks.rec	81970758ee7ecd5d		26.3	2026-11-12T09:12Z on 3bc6a86b3	mctas mobai record creeper-blocks --seed 1 --ticks 300 --dir designs/redsim/recorded/mobai
+creeper-fall.rec	1a322a34f0964d70		26.3	2026-11-12T09:35Z on 3bc6a86b3	mctas mobai record creeper-fall --seed 1 --ticks 300 --dir designs/redsim/recorded/mobai
+creeper-mobs.rec	78a4fca765f0a298		26.3	2026-11-12T09:12Z on 3bc6a86b3	mctas mobai record creeper-mobs --seed 1 --ticks 300 --dir designs/redsim/recorded/mobai
 creeper-player.rec	1a9cdc8984c37345		26.3	2026-11-08T21:43Z on 88512141f	mctas mobai record creeper-player --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
+creeper-powered.rec	8310272e66a55136		26.3	2026-11-12T10:00Z on 3bc6a86b3	mctas mobai record creeper-powered --seed 1 --ticks 300 --dir designs/redsim/recorded/mobai
 curve-pair.rec	75e57eb1ee83a548		26.3	2026-11-11T21:10Z on 744e235182	mctas mobai record curve-pair --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
 curve-wrong-side.rec	a5d4dd68e0fe1501		26.3	2026-11-11T15:04Z on 0bf0bdaab4	mctas mobai record curve-wrong-side --seed 1 --ticks 60 --dir designs/redsim/recorded/mobai
 door-halves.rec	b527d9b71d4e4c0f		26.3	2026-11-11T05:09Z on b799dde74	mctas mobai record door-halves --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai

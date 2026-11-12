@@ -48,8 +48,9 @@ pub(crate) fn climbable_now(w: &mut World, i: usize) -> bool {
 /// `Mob.tick` of entity `i` (`LivingEntity.tick`; `updateControlFlags` changes no modeled state).
 pub fn tick(w: &mut World, i: usize) {
     // ---- mob AI (the mob-AI lane): Creeper.tick's fuse before super.tick ----
-    if super::ai::has_ai(w, i) && mob(w, i).ty.def().id == "creeper" {
-        super::ai::goal::creeper::creeper_tick(w, i);
+    if super::ai::has_ai(w, i) && mob(w, i).ty.def().id == "creeper" && super::ai::goal::creeper::creeper_tick(w, i) {
+        // it exploded and is gone (super.tick on a removed creeper: no draws, no moves)
+        return;
     }
     // LivingEntity.onClimbable (the block at its feet in BlockTags.CLIMBABLE: the natural ladders
     // and vines; scaffolding, whose climbing is not modeled, is refused), read again where the
@@ -1461,7 +1462,9 @@ pub fn check_fall_damage(w: &mut World, i: usize, ya: f64, on_ground: bool) {
             crate::stems::mob_fall_on(w, on, distance, wd, ht, griefing);
         }
         let distance = distance * mult;
-        if modifier > 0.0 && !chicken {
+        // (a slime block's modifier 0 still calls causeFallDamage: no damage, but a creeper's
+        // fuse grows: mob-AI 2026-11-11)
+        if !chicken {
             cause_fall_damage(w, i, distance, modifier);
         }
         let e = &w.entities.list[i];
@@ -1519,6 +1522,15 @@ pub(crate) fn cause_fall_damage(w: &mut World, i: usize, distance: f64, modifier
     let dmg = mth::floor((distance + 1.0e-6 - 3.0) * modifier as f64);
     if dmg > 0 {
         hurt(w, i, Damage::Fall, dmg as f32);
+    }
+    // (mob-AI 2026-11-11) Creeper.causeFallDamage after LivingEntity's: the fuse grows by
+    // (int)(distance x 1.5), at most maxSwell - 5 (a swelling creeper that lands is set back to it)
+    if super::ai::has_ai(w, i) && mob(w, i).ty.def().id == "creeper" && !w.entities.list[i].removed {
+        let a = super::ai::ai_mut(w, i);
+        a.swell += (distance * 1.5) as i32;
+        if a.swell > a.max_swell - 5 {
+            a.swell = a.max_swell - 5;
+        }
     }
 }
 

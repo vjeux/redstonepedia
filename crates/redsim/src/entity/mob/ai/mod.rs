@@ -93,6 +93,13 @@ pub struct MobAi {
     pub swell: i32,
     pub swell_dir: i32,
     pub swell_target: Option<u32>,
+    /// (mob-AI 2026-11-11) The creeper's `DATA_IS_IGNITED` (`ignite()`: it swells on its own),
+    /// `maxSwell` (`Fuse`, 30), `explosionRadius` (`ExplosionRadius`, 3) and `DATA_IS_POWERED`
+    /// (`powered`: lightning, `Creeper.thunderHit`; its blast's radius doubled).
+    pub creeper_ignited: bool,
+    pub max_swell: i32,
+    pub explosion_radius: i32,
+    pub creeper_powered: bool,
     /// A cube mob's move control and landing state ([`cube`]).
     pub cube: Option<cube::CubeState>,
     /// A squid's tentacles and swim direction ([`squid`]).
@@ -214,6 +221,10 @@ impl MobAi {
             swell: 0,
             swell_dir: -1,
             swell_target: None,
+            creeper_ignited: false,
+            max_swell: 30,
+            explosion_radius: 3,
+            creeper_powered: false,
             cube: None,
             squid: None,
             fish: None,

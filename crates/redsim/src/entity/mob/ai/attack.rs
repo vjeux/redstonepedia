@@ -249,8 +249,9 @@ pub fn after_hurt(w: &mut World, i: usize, src: Damage, took_full: bool) {
         // Projectile.calculateHorizontalHurtKnockbackDirection: along the projectile's motion
         knockback(w, i, 0.4f32 as f64, -m.x, -m.z);
     } else if took_full
-        // a spear's stab: #no_knockback (stabAttack pushes on its own)
-        && src != Damage::Spear
+        // #no_knockback: a spear's stab (stabAttack pushes on its own), an explosion
+        // (hurtEntities pushes everything it reaches)
+        && !src.no_knockback()
         && let Some(a) = attacker
         && let Some(ai_idx) = crate::entity::index_of(w, a)
     {

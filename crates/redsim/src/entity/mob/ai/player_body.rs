@@ -30,6 +30,13 @@ pub fn order_key(w: &World, k: usize) -> ((i32, u32, u32), u64) {
     (crate::entity::section_order(crate::entity::section_of(p)), seq)
 }
 
+/// (mob-AI 2026-11-11) `Entity.push(impulse)` on player `k` (an explosion's
+/// `pushFromExplosion`): added to its motion.
+pub fn push(w: &mut World, k: usize, v: Vec3) {
+    let b = body(w, k);
+    b.delta = b.delta.add(v.x, v.y, v.z);
+}
+
 /// (mob-AI 2026-11-11) `LivingEntity.knockback(power, xd, zd)` on player `k` (its knockback
 /// resistance 0): its motion halved less `power` along (xd, zd); on the ground it hops
 /// (`min(0.4, y / 2 + power)`), else (the bridge's flying AFK player) its vertical motion stays.
