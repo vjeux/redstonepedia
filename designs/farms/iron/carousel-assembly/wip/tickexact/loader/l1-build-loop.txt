@@ -1,0 +1,102 @@
+# (tickexact 2026-11-12, ironspec: the build's loop variant from the brief's rules, bridged with
+# `mctas mobai load-window --case item-loop-build`) The L1''' item loop as the brief builds it, not
+# onechunk's bottom-row bench: two same-axis 5 x 4 portals (the Nether part at the anchor's /8,
+# same y), each side firing through its portal's TOP row (above a zombified piglin's reach: an
+# adult's box tops out 1.95 above the portal floor, the item flies 3.34 above it), both faces of
+# each portal closed with blocks, the arrivals coming out of the twin's top row at the other
+# side's column into a dead-end pocket two rows tall over the collecting hopper.
+# Why 4 rows and a 2-row pocket (farmopt, onechunk's real-clock bench, Nov 12): a slow launch
+# (forward speed down to 0.097, the dispenser's 0.2..0.3 less its 0.103 spread) falls about a
+# block while it crosses the arrival portal to the exit face; with the pocket's floor only 0.34
+# under the firing height (a 3-row portal) it meets the closed face, stops and drops into the
+# portal plane, stuck there for good (an entity inside a portal keeps restarting its cooldown).
+# Here the pocket's floor (the collector's top) is 1.34 under the firing height, and 2.0 above
+# the portal floor, out of a piglin's jump (1.25).
+# Overworld (this frame): portal interior x 0..4 y 10..13 z 0 (axis x), frame x -1..5 y 9..14 (no
+# corners); the firing face z 1: the firing dropper D (1,13,1) facing north, fed by the up-facing
+# droppers A2 (1,12,1) and A (1,11,1), the hoppers C (2..3,11,1) into A; the arrivals' pocket
+# (3,12..13,1) over the collector C (3,11,1), its ceiling (3,14,1) and backstop (3,12..13,2) glass;
+# every other face cell glass, the back face z -1 glass. The clock (emulated in the bridge:
+# redstone blocks 2 gt every 200 gt) goes behind D and A2, at (1,13,2) and (1,12,2): D and A2
+# powered directly, A by quasi-connectivity through A2's cell.
+# Nether part (nether-origin, the same palette): the mirror, firing through column 3 facing south
+# (d (3,13,-1), A2 (3,12,-1), A (3,11,-1), the hoppers H (1..2,11,-1) into A), the pocket at column 1
+# (1,12..13,-1) with its ceiling (1,14,-1) and backstop (1,12..13,-2), the back face z 1; its clock
+# behind d and A2 at (3,13,-2) and (3,12,-2).
+# Each side fires from its own column (overworld 1, Nether 3), so the other side's items come out
+# at the other column, into that side's pocket. 3 items a side, one in each dropper.
+name: l1-build-loop
+circuit: mob-farm iron_ingot
+port nether-anchor: 0 0 0
+port nether-axis: 1 0 0
+port output: 3 11 1
+nbt: 1 11 1 {Items:[{Slot:0b,id:"minecraft:cobblestone",count:1}]}
+nbt: 1 12 1 {Items:[{Slot:0b,id:"minecraft:cobblestone",count:1}]}
+nbt: 1 13 1 {Items:[{Slot:0b,id:"minecraft:cobblestone",count:1}]}
+nether nbt: 3 11 -1 {Items:[{Slot:0b,id:"minecraft:cobblestone",count:1}]}
+nether nbt: 3 12 -1 {Items:[{Slot:0b,id:"minecraft:cobblestone",count:1}]}
+nether nbt: 3 13 -1 {Items:[{Slot:0b,id:"minecraft:cobblestone",count:1}]}
+origin: -1 0 -1
+palette:
+  A minecraft:dropper[facing=up,triggered=false]
+  C minecraft:hopper[enabled=true,facing=west]
+  D minecraft:dropper[facing=north,triggered=false]
+  G minecraft:glass
+  H minecraft:hopper[enabled=true,facing=east]
+  N minecraft:nether_portal[axis=x]
+  O minecraft:obsidian
+  d minecraft:dropper[facing=south,triggered=false]
+layer 9:
+  .
+  .OOOOO
+layer 10:
+  .GGGGG
+  ONNNNNO
+  .GGGGG
+layer 11:
+  .GGGGG
+  ONNNNNO
+  .GACCG
+layer 12:
+  .GGGGG
+  ONNNNNO
+  .GAG.G
+  ....G
+layer 13:
+  .GGGGG
+  ONNNNNO
+  .GDG.G
+  ....G
+layer 14:
+  .
+  .OOOOO
+  ....G
+nether-origin: -1 0 -2
+nether layer 9:
+  .
+  .
+  .OOOOO
+nether layer 10:
+  .
+  .GGGGG
+  ONNNNNO
+  .GGGGG
+nether layer 11:
+  .
+  .GHHAG
+  ONNNNNO
+  .GGGGG
+nether layer 12:
+  ..G
+  .G.GAG
+  ONNNNNO
+  .GGGGG
+nether layer 13:
+  ..G
+  .G.GdG
+  ONNNNNO
+  .GGGGG
+nether layer 14:
+  .
+  ..G
+  .OOOOO

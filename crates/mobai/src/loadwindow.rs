@@ -66,6 +66,8 @@ pub fn load_window(version: &str, case: &str, runs: u32) -> Result<()> {
         "pearl-busy" => return pearl_window(version, runs, true),
         "portal-loop" => return portal_loop(version, runs),
         "item-loop" => return item_loop(version, runs),
+        "item-loop-build" => return item_loop_build(version, runs, false),
+        "item-loop-build-slab" => return item_loop_build(version, runs, true),
         _ => bail!("--case quiet, load, pearl or pearl-busy"),
     };
     let jar = mctas::bridge::load_agent(version)?;
@@ -468,12 +470,13 @@ fn portal_loop(version: &str, runs: u32) -> Result<()> {
     Ok(())
 }
 
-/// The item loop's side: its dimension, its containers (the firing dropper, the feeding dropper,
-/// the hopper floor), its clock's redstone-block cells (beside the two droppers) and its phase.
+/// The item loop's side: its dimension, its containers (the firing dropper, the feeding droppers,
+/// the hoppers), its clock's redstone-block cells (behind every dropper in the firing column) and
+/// its phase.
 struct LoopSide {
     dim: &'static str,
     containers: Vec<[i32; 3]>,
-    clock: [[i32; 3]; 2],
+    clock: Vec<[i32; 3]>,
     phase: i64,
 }
 
@@ -489,8 +492,13 @@ fn side_items(srv: &mut VanillaServer, s: &LoopSide) -> Result<(u32, u32)> {
     for p in &s.containers {
         held += items_in(srv, s.dim, *p)?;
     }
-    let out = srv.cmd_long(&format!("execute in minecraft:{} if entity @e[type=minecraft:item,distance=0..]", s.dim))?;
-    let flying = out.split("count: ").nth(1).and_then(|v| v.trim().parse().ok()).unwrap_or(0);
+    // the loop's cobblestone item entities in this dimension, by their stacks' counts (a stuck
+    // pair merges into one entity; natural drops, a Nether vine, aren't the loop's)
+    let out = srv.cmd_long(&format!(
+        "execute in minecraft:{} as @e[type=minecraft:item,distance=0..,nbt={{Item:{{id:\"minecraft:cobblestone\"}}}}] run data get entity @s Item.count",
+        s.dim
+    ))?;
+    let flying = out.split("entity data: ").skip(1).filter_map(|v| v.chars().take_while(|c| c.is_ascii_digit()).collect::<String>().parse::<u32>().ok()).sum();
     Ok((held, flying))
 }
 
@@ -514,7 +522,12 @@ fn run_item_loop(srv: &mut VanillaServer, sides: &[LoopSide], n: i64) -> Result<
             let m = (t - s.phase).rem_euclid(200);
             if m == 0 || m == 2 {
                 let block = if m == 0 { "minecraft:redstone_block" } else { "minecraft:air" };
-                for c in &s.clock {
+                // removed top down, so each dropper is updated after its last source is gone (a
+                // dropper also powered through the cell above it, quasi-connectivity, gets no
+                // update when that source goes and would stay TRIGGERED, never firing again)
+                let mut cells = s.clock.clone();
+                cells.sort_by_key(|c| if m == 0 { c[1] } else { -c[1] });
+                for c in &cells {
                     let out = srv.cmd(&format!("execute in minecraft:{} run setblock {} {} {} {block}", s.dim, c[0], c[1], c[2]))?;
                     if out.contains("not loaded") {
                         failed.push(format!("t{t} {} {:?}: {out}", s.dim, c));
@@ -563,7 +576,7 @@ fn gaps(a: &[i64]) -> String {
 /// the Nether side is loaded right after the start, and the loop's arrivals and items after it.
 fn item_loop(version: &str, runs: u32) -> Result<()> {
     let jar = mctas::bridge::load_agent(version)?;
-    let agent = PathBuf::from(format!("{}=watch=0,0,1,2;ticks=40;tickets=1", jar.display()));
+    let agent = PathBuf::from(format!("{}=watch=0,0,1,2;ticks=40;tickets=1;running=1", jar.display()));
     println!("== load-window item-loop on the official {version} server: onechunk's L1''' item loop (two 5 x 3 same-axis portals, dropper-fed, hopper floors, 6 items), no player online, {runs} restarts");
     let opts = |world: Option<PathBuf>| VanillaOptions {
         version: version.to_string(),
@@ -608,13 +621,13 @@ fn item_loop(version: &str, runs: u32) -> Result<()> {
     let over = LoopSide {
         dim: "overworld",
         containers: vec![[16, 64, 34], [16, 65, 34], [17, 64, 34], [18, 64, 34], [19, 64, 34], [17, 64, 35], [18, 64, 35], [19, 64, 35]],
-        clock: [[15, 65, 34], [15, 64, 34]],
+        clock: vec![[15, 65, 34], [15, 64, 34]],
         phase: 0,
     };
     let neth = LoopSide {
         dim: "the_nether",
         containers: vec![[3, 64, 3], [3, 65, 3], [0, 64, 3], [1, 64, 3], [2, 64, 3], [0, 64, 2], [1, 64, 2], [2, 64, 2]],
-        clock: [[4, 65, 3], [4, 64, 3]],
+        clock: vec![[4, 65, 3], [4, 64, 3]],
         phase: 100,
     };
     let sides = [over, neth];
@@ -628,9 +641,21 @@ fn item_loop(version: &str, runs: u32) -> Result<()> {
     for f in failed.iter().take(3) {
         println!("  {f}");
     }
+    let srv = loop_restarts(srv, &opts, &sides, runs, [2, 65, 4], [17, 65, 33])?;
+    let _ = std::fs::remove_dir_all(&srv.dir);
+    Ok(())
+}
+
+/// The item loop's `runs` real saves, stops and starts, each at a different phase of the clocks
+/// (the clocks running up to the save): per restart, each side's tickets at the save and at the
+/// first tick, the agent's first-tick chunk flags, the first scheduled tick and the first entity
+/// tick in each watched overworld chunk (G1: "no load window" measured per restart), whether
+/// each side (its probe cell) is loaded right after the start, and the loop's arrivals, items and
+/// failed pulses over the 1,200 gt after it.
+fn loop_restarts(mut srv: VanillaServer, opts: &dyn Fn(Option<PathBuf>) -> VanillaOptions, sides: &[LoopSide], runs: u32, nether_probe: [i32; 3], over_probe: [i32; 3]) -> Result<VanillaServer> {
     for run in 0..runs {
         // a different phase of the clocks each time (the clocks keep running up to the save)
-        let _ = run_item_loop(&mut srv, &sides, 37 + 76 * run as i64)?;
+        let _ = run_item_loop(&mut srv, sides, 37 + 76 * run as i64)?;
         srv.cmd_ok("save-on")?;
         srv.cmd_ok("save-all flush")?;
         let old = srv.dir.clone();
@@ -648,10 +673,11 @@ fn item_loop(version: &str, runs: u32) -> Result<()> {
         let _ = std::fs::remove_dir_all(&old);
         let after = std::fs::read_to_string(&srv.log)?;
         println!("  tickets at the first tick: {} || {}", tickets_of(&after, "minecraft:overworld", false), tickets_of(&after, "minecraft:the_nether", false));
-        let nloaded = srv.cmd("execute in minecraft:the_nether if loaded 2 65 4")?;
-        let oloaded = srv.cmd("execute in minecraft:overworld if loaded 17 65 33")?;
-        let log = std::fs::read_to_string(&srv.log)?;
-        let lines = parse(&log);
+        let p = nether_probe;
+        let nloaded = srv.cmd(&format!("execute in minecraft:the_nether if loaded {} {} {}", p[0], p[1], p[2]))?;
+        let p = over_probe;
+        let oloaded = srv.cmd(&format!("execute in minecraft:overworld if loaded {} {} {}", p[0], p[1], p[2]))?;
+        let lines = parse(&after);
         let first = lines.first().map(|l| l.2.iter().map(|c| format!("{},{} st{} bt{} el{} et{}", c.0, c.1, c.2 as u8, c.3 as u8, c.4 as u8, c.5 as u8)).collect::<Vec<_>>().join("; ")).unwrap_or("-".into());
         let gt2 = srv.game_time()?;
         println!(
@@ -660,12 +686,156 @@ fn item_loop(version: &str, runs: u32) -> Result<()> {
             if nloaded.contains("passed") { "loaded" } else { "NOT loaded" },
             if oloaded.contains("passed") { "loaded" } else { "NOT loaded" }
         );
-        let (a, lo, hi, failed) = run_item_loop(&mut srv, &sides, 1200)?;
+        // per watched chunk with any: its first scheduled tick and its first entity tick among
+        // the ticks that ran (the agent's `running=1`: line 0 is the server's first tick, frozen
+        // or not; every later line a tick that ran), read once the loop has run
+        let (a, lo, hi, failed) = run_item_loop(&mut srv, sides, 1200)?;
+        let lines = parse(&std::fs::read_to_string(&srv.log)?);
+        let mut firsts = Vec::new();
+        let ran: Vec<&Line> = lines.iter().skip(1).collect();
+        if let (Some(l0), Some(r0)) = (lines.first(), ran.first()) {
+            for (k, c) in l0.2.iter().enumerate() {
+                let fs = ran.iter().find(|l| l.2.get(k).is_some_and(|c| c.6 > 0)).map(|l| l.1);
+                let fe = ran.iter().find(|l| l.2.get(k).is_some_and(|c| c.7 > 0)).map(|l| l.1);
+                if fs.is_some() || fe.is_some() {
+                    firsts.push(format!("{},{}: scheduled from gt {}, entities from gt {}", c.0, c.1, fs.map(|t| t.to_string()).unwrap_or("-".into()), fe.map(|t| t.to_string()).unwrap_or("-".into())));
+                }
+            }
+            println!("  the first tick that ran after the start: gt {}; {}", r0.1, if firsts.is_empty() { "no scheduled or entity tick in the printed ticks".to_string() } else { firsts.join("; ") });
+        } else {
+            println!("  no tick ran in the printed ticks");
+        }
         println!("  after it, 1,200 gt: overworld {}, nether {}; items in all {lo}..{hi}; failed pulses {}", gaps(&a[0]), gaps(&a[1]), failed.len());
         for f in failed.iter().take(3) {
             println!("    {f}");
         }
     }
+    Ok(srv)
+}
+
+/// The build's loop variant (ironspec: from the brief's rules): its design file.
+const BUILD_LOOP: &str = "designs/farms/iron/carousel-assembly/wip/tickexact/loader/l1-build-loop.txt";
+
+/// (tickexact 2026-11-12, ironspec: the build's loop variant, G1 on ebb3ce8d7: the bridged
+/// geometry wasn't the build's) `--case item-loop-build` (`-slab`: a bottom slab in each arrivals'
+/// pocket, its gap 0.5): the L1''' loop as the brief builds it, from its design file (BUILD_LOOP,
+/// pasted with its frame's 0 0 0 at 15 55 33, its Nether part at the anchor's /8, 1 55 4): each side
+/// firing through its portal's top row, both faces of each portal closed, the arrivals coming out
+/// of the twin's top row into a dead-end pocket over the collecting hopper. The clocks emulated
+/// behind the droppers (2 gt every 200 gt, the Nether half a period later); an observer clock and
+/// two entities in the overworld chunk (1, 2) for the first scheduled and entity ticks; no player
+/// online, no forced chunks once built; then `runs` real restarts at different clock phases.
+fn item_loop_build(version: &str, runs: u32, slab: bool) -> Result<()> {
+    let d = mctas::design::Design::load(std::path::Path::new(BUILD_LOOP))?;
+    let jar = mctas::bridge::load_agent(version)?;
+    let agent = PathBuf::from(format!("{}=watch=0,0,1,2;ticks=40;tickets=1;running=1", jar.display()));
+    println!(
+        "== load-window item-loop-build{} on the official {version} server: the build's L1''' loop ({BUILD_LOOP}), no player online, {runs} restarts",
+        if slab { "-slab" } else { "" }
+    );
+    let opts = |world: Option<PathBuf>| VanillaOptions {
+        version: version.to_string(),
+        difficulty: "normal".into(),
+        with_bot: false,
+        keep_dir: true,
+        biome: "minecraft:plains".into(),
+        tick_rate: 1000,
+        world,
+        java_agent: Some(agent.clone()),
+        ..Default::default()
+    };
+    let t: [i32; 3] = [15, 55, 33];
+    let n0 = [t[0].div_euclid(8), t[1], t[2].div_euclid(8)];
+    let mut srv = VanillaServer::start(&opts(None))?;
+    srv.cmd_ok("gamerule spawn_mobs false")?;
+    srv.cmd_ok("forceload add 0 0 31 47")?;
+    srv.cmd_ok("execute in minecraft:the_nether run forceload add -16 -16 31 31")?;
+    srv.step(20)?;
+    let n = |c: &str| format!("execute in minecraft:the_nether run {c}");
+    srv.cmd_ok(&n(&format!("fill {} {} {} {} {} {} minecraft:air", n0[0] - 4, n0[1] + 6, n0[2] - 5, n0[0] + 8, n0[1] + 16, n0[2] + 4)))?;
+    // the frames, then the portals, then the rest; then the containers' items
+    let place = |srv: &mut VanillaServer, blocks: &std::collections::BTreeMap<[i32; 3], String>, at: [i32; 3], nether: bool| -> Result<()> {
+        for pass in 0..3 {
+            for (p, s) in blocks {
+                let k = if s.contains("obsidian") { 0 } else if s.contains("nether_portal") { 1 } else { 2 };
+                if k != pass {
+                    continue;
+                }
+                let c = format!("setblock {} {} {} {s}", at[0] + p[0], at[1] + p[1], at[2] + p[2]);
+                srv.cmd_ok(&if nether { n(&c) } else { c })?;
+            }
+        }
+        Ok(())
+    };
+    place(&mut srv, &d.blocks, t, false)?;
+    place(&mut srv, &d.nether_blocks, n0, true)?;
+    for (p, nbt) in &d.block_entities {
+        srv.cmd_ok(&format!("data merge block {} {} {} {nbt}", t[0] + p[0], t[1] + p[1], t[2] + p[2]))?;
+    }
+    for (p, nbt) in &d.nether_block_entities {
+        srv.cmd_ok(&n(&format!("data merge block {} {} {} {nbt}", n0[0] + p[0], n0[1] + p[1], n0[2] + p[2])))?;
+    }
+    // the slab variant: a bottom slab in each arrivals' pocket (overworld 3 12 1, Nether 1 12 -1)
+    if slab {
+        srv.cmd_ok(&format!("setblock {} {} {} minecraft:smooth_stone_slab[type=bottom]", t[0] + 3, t[1] + 12, t[2] + 1))?;
+        srv.cmd_ok(&n(&format!("setblock {} {} {} minecraft:smooth_stone_slab[type=bottom]", n0[0] + 1, n0[1] + 12, n0[2] - 1)))?;
+    }
+    // the first-ticks markers in the overworld chunk (1, 2): an observer clock, an armor stand
+    // and a minecart on a rail, on a stone floor
+    srv.cmd_ok("fill 22 63 38 30 63 46 minecraft:stone")?;
+    srv.cmd_ok("setblock 24 64 40 minecraft:observer[facing=east]")?;
+    srv.cmd_ok("setblock 25 64 40 minecraft:observer[facing=west]")?;
+    srv.cmd_ok("setblock 28 64 44 minecraft:rail")?;
+    srv.cmd_ok("summon minecraft:minecart 28.5 64.0625 44.5")?;
+    srv.cmd_ok("summon minecraft:armor_stand 26.5 64 42.5")?;
+    // the sides: their containers (every dropper and hopper) and their clock cells (behind every
+    // dropper in the firing dropper's column, against its facing: each powered directly, since a
+    // dropper's quasi-connectivity needs a block update a neighbour dropper's TRIGGERED change
+    // (flag 2) doesn't give)
+    let side = |blocks: &std::collections::BTreeMap<[i32; 3], String>, at: [i32; 3], dim: &'static str, phase: i64| -> Result<LoopSide> {
+        let containers: Vec<[i32; 3]> = blocks.iter().filter(|(_, s)| s.contains("dropper") || s.contains("hopper")).map(|(p, _)| [at[0] + p[0], at[1] + p[1], at[2] + p[2]]).collect();
+        let (fp, fs) = blocks.iter().find(|(_, s)| s.contains("dropper") && !s.contains("facing=up")).ok_or_else(|| anyhow::anyhow!("{dim}: no firing dropper"))?;
+        let dz = if fs.contains("facing=north") { 1 } else if fs.contains("facing=south") { -1 } else { bail!("{dim}: the firing dropper faces neither north nor south: {fs}") };
+        let clock: Vec<[i32; 3]> = blocks.iter().filter(|(p, s)| s.contains("dropper") && p[0] == fp[0] && p[2] == fp[2]).map(|(p, _)| [at[0] + p[0], at[1] + p[1], at[2] + p[2] + dz]).collect();
+        Ok(LoopSide { dim, containers, clock, phase })
+    };
+    let sides = [side(&d.blocks, t, "overworld", 0)?, side(&d.nether_blocks, n0, "the_nether", 100)?];
+    where_items(&mut srv, &sides, "built")?;
+    let (a, lo, hi, failed) = run_item_loop(&mut srv, &sides, 400)?;
+    println!("built (forced): overworld {}, nether {}; items in all {lo}..{hi}; failed pulses {}", gaps(&a[0]), gaps(&a[1]), failed.len());
+    where_items(&mut srv, &sides, "after 400 gt forced")?;
+    srv.cmd_ok("forceload remove 0 0 31 47")?;
+    srv.cmd_ok("execute in minecraft:the_nether run forceload remove -16 -16 31 31")?;
+    let (a, lo, hi, failed) = run_item_loop(&mut srv, &sides, 1600)?;
+    println!("no forced chunks, 1,600 gt: overworld {}, nether {}; items in all {lo}..{hi}; failed pulses {}", gaps(&a[0]), gaps(&a[1]), failed.len());
+    for f in failed.iter().take(3) {
+        println!("  {f}");
+    }
+    let probe_n = [n0[0] + 2, n0[1] + 11, n0[2]];
+    let probe_o = [t[0] + 2, t[1] + 11, t[2]];
+    let mut srv = loop_restarts(srv, &opts, &sides, runs, probe_n, probe_o)?;
+    // where the loop's items are at the end: each side's containers, and every item entity
+    where_items(&mut srv, &sides, "at the end")?;
     let _ = std::fs::remove_dir_all(&srv.dir);
+    Ok(())
+}
+
+/// Where the loop's items are: each side's containers (each one's count), and every item entity
+/// in its dimension (its id, count and position).
+fn where_items(srv: &mut VanillaServer, sides: &[LoopSide], when: &str) -> Result<()> {
+    for s in sides {
+        let mut held = Vec::new();
+        for p in &s.containers {
+            held.push(format!("{:?} {}", p, items_in(srv, s.dim, *p)?));
+        }
+        let pos = srv.cmd_long(&format!("execute in minecraft:{} as @e[type=minecraft:item,distance=0..] run data get entity @s Pos", s.dim))?;
+        let cnt = srv.cmd_long(&format!("execute in minecraft:{} as @e[type=minecraft:item,distance=0..] run data get entity @s Item.count", s.dim))?;
+        let ids = srv.cmd_long(&format!("execute in minecraft:{} as @e[type=minecraft:item,distance=0..] run data get entity @s Item.id", s.dim))?;
+        let ids: Vec<String> = ids.split("entity data: ").skip(1).map(|v| v.split('"').nth(1).unwrap_or("?").to_string()).collect();
+        let pos: Vec<String> = pos.split("entity data: ").skip(1).map(|v| v.split(']').next().unwrap_or("").trim_start_matches('[').replace('d', "")).collect();
+        let cnt: Vec<String> = cnt.split("entity data: ").skip(1).map(|v| v.chars().take_while(|c| c.is_ascii_digit()).collect()).collect();
+        let ents: Vec<String> = (0..pos.len()).map(|k| format!("{} {} at ({})", cnt.get(k).map(String::as_str).unwrap_or("?"), ids.get(k).map(String::as_str).unwrap_or("?"), pos[k])).collect();
+        println!("{when}, {}: containers {}; item entities {}", s.dim, held.join(", "), if ents.is_empty() { "none".to_string() } else { ents.join(", ") });
+    }
     Ok(())
 }

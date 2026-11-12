@@ -47,6 +47,8 @@ public final class LoadAgent {
     private static int levelTicks = 0;
     /** {@code tickets=1}: also print every level's tickets on the watched chunks. */
     private static boolean tickets = false;
+    /** {@code running=1}: past the server's first tick, only ticks that run normally (not frozen). */
+    private static boolean runningOnly = false;
     /** Each level's watched chunk's ticket types and levels at its last print (ticks left aside). */
     private static final Map<String, String> previousTickets = new HashMap<>();
     private static final Map<Long, int[]> counts = new HashMap<>();
@@ -70,6 +72,8 @@ public final class LoadAgent {
                     ticks = Integer.parseInt(kv[1].trim());
                 } else if (kv.length == 2 && kv[0].equals("tickets")) {
                     tickets = kv[1].trim().equals("1");
+                } else if (kv.length == 2 && kv[0].equals("running")) {
+                    runningOnly = kv[1].trim().equals("1");
                 }
             }
         }
@@ -185,6 +189,18 @@ public final class LoadAgent {
     /** The overworld's tick ended: one line per watched chunk. */
     static Object end(Object level, Object unused) {
         try {
+            // with `running=1`, a frozen tick (the stepped runner's waits) runs no block or entity
+            // ticks: past the server's first tick, it prints nothing and doesn't count toward
+            // `ticks`
+            if (runningOnly && levelTicks > 0) {
+                Object trm = level.getClass().getMethod("tickRateManager").invoke(level);
+                if (!(boolean) trm.getClass().getMethod("runsNormally").invoke(trm)) {
+                    if (overworld(level)) {
+                        counts.clear();
+                    }
+                    return null;
+                }
+            }
             if (tickets) {
                 dumpTickets(level);
             }
