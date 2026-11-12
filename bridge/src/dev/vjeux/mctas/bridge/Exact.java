@@ -1112,6 +1112,19 @@ final class Exact {
             j.addProperty("goals", String.join(" ", goals));
             Path p = mob.getNavigation().getPath();
             j.addProperty("path", p == null ? "none" : path(p));
+            // (tickexact 2026-11-12) the path's nodes, start first ("x,y,z x,y,z ..."): read by the
+            // game-only timeline, never compared
+            if (p != null) {
+                StringBuilder nodes = new StringBuilder();
+                for (int k = 0; k < p.getNodeCount(); k++) {
+                    net.minecraft.world.level.pathfinder.Node nd = p.getNode(k);
+                    if (k > 0) {
+                        nodes.append(' ');
+                    }
+                    nodes.append(nd.x).append(',').append(nd.y).append(',').append(nd.z);
+                }
+                j.addProperty("path_nodes", nodes.toString());
+            }
             j.addProperty("target", mob.getTarget() == null ? "none" : ref(sb, mob.getTarget()));
         }
         return j;

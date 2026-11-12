@@ -188,6 +188,7 @@ stroll-village-taken.rec	17750fcccd7a68e6		26.3	2026-11-11T19:33Z on d2663812b7	
 stroll-village.rec	b0db1ed4a068d7b8		26.3	2026-11-11T19:33Z on d2663812b7	mctas mobai record stroll-village --seed 1 --ticks 1200 --dir designs/redsim/recorded/mobai
 sulfur-cube-rail.rec	8099a548983c70e9		26.3	2026-11-11T07:12Z on 244b9196d	mctas mobai record sulfur-cube-rail --seed 1 --ticks 600 --dir designs/redsim/recorded/mobai
 sulfur-cubes.rec	595f7493d841a282		26.3	2026-11-09T00:37Z on b6cc475b6	mctas mobai record sulfur-cubes --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
+t-snap.rec	a7e7d4d7402d132f		26.3	2026-11-12T20:18Z on dad9c1a38	mctas mobai record t-snap --seed 1 --ticks 60 --dir designs/redsim/recorded/mobai
 takeoff-clamp.rec	2d6def856f3a43f0		26.3	2026-11-11T20:54Z on 37d74a3853	mctas mobai record takeoff-clamp --seed 1 --ticks 100 --dir designs/redsim/recorded/mobai
 ticket-release.rec	51ce4f1f04f560c4		26.3	2026-11-11T15:48Z on 78e705bca2	mctas mobai record ticket-release --seed 1 --ticks 600 --dir designs/redsim/recorded/mobai
 tripwire-rider.rec	532729e78a494c36		26.3	2026-11-12T18:48Z on f02f86adc	mctas mobai record tripwire-rider --seed 1 --ticks 60 --dir designs/redsim/recorded/mobai

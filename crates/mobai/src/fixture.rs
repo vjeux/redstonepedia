@@ -690,6 +690,14 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
         // (tickexact 2026-11-12, ironspec and onechunk: an entity walk across PANIC's start) the
         // zombie's box opens toward the rider at t200
         "panic-entity-walk" => vec![(200, vec![s([9, 64, 8], "minecraft:air"), s([9, 65, 8], "minecraft:air")])],
+        "panic-lift" => {
+            let water = "minecraft:water[level=0]";
+            vec![
+                (5, (64..=70).map(|y| s([20, y, 7], water)).collect()),
+                (200, vec![s([13, 64, 11], "minecraft:air"), s([13, 65, 11], "minecraft:air")]),
+                (214, vec![s([13, 63, 7], "minecraft:redstone_block")]),
+            ]
+        }
         // (tickexact 2026-11-11, ironspec's gravity intake bridge) every intake set at rest on the
         // run once the run is at rest (the scene's entities by number: each lane's 12 run carts
         // and their riders, then its intake)
@@ -5799,6 +5807,129 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
+    // (tickexact 2026-11-12, ironspec 12:06 and G1: the napper T's snap) the T (9,64,7) stored
+    // south_west with its north arm laid as built (the exit rail (7,61,4), the ascending (8,61,4), the
+    // curve (9,62,4), the powered slopes (9,62,5) and (9,63,6) on their redstone blocks) and the
+    // hold (9,64,8), a powered rail unpowered (the brake) with a stone stop (9,64,9) past it; the
+    // cell west of the T keeps a tripwire string at (8,65,7) (hooks (8,65,6) and (8,65,8), the
+    // departure string's cell) to show a rider's box reaching it. Three copies 16 apart in x
+    // (+0, +16, +32), each a cart with a seated villager on the upper slope at z 6.6, heading south
+    // at 0.05, 0.15 and 0.35 b/gt (the slope's boost brings them to the T near 0.1, 0.2 and 0.4).
+    // G1's reading: moveAlongTrack snaps a cart entering the south_west T from its north edge onto
+    // the chord from (9.0, 7.5) to (9.5, 8.0), at x 9.0 + half its depth into the cell: the rider's
+    // box (0.6 wide) then reaches x < 9. Copies 3..5: the same arm with the cart summoned just
+    // below the slope's top (z 6.95, 6.9, 6.8 at 0.048, 0.148, 0.348) so it crosses into the T on
+    // its first tick at 0.1, 0.2 and 0.4 (the slope's one boost, 0.06 less its 0.0078 climb);
+    // copies 6, 7 start faster (0.6 at z 6.6, 0.8 at z 6.8) for the fastest arrivals the rail allows
+    {
+        let starts: [(f64, f64); 8] = [(6.6, 0.05), (6.6, 0.15), (6.6, 0.35), (6.95, 0.048), (6.9, 0.148), (6.8, 0.348), (6.6, 0.6), (6.8, 0.8)];
+        let mut b = Vec::new();
+        floor(&mut b, 0, 128, 0, 16, 59, stone);
+        for k in 0..starts.len() {
+            let dx = 16 * k as i32;
+            let at = |x: i32, y: i32, z: i32| [x + dx, y, z];
+            b.push((at(7, 60, 4), stone.to_string()));
+            b.push((at(7, 61, 4), "minecraft:rail[shape=east_west,waterlogged=false]".to_string()));
+            b.push((at(8, 60, 4), stone.to_string()));
+            b.push((at(8, 61, 4), "minecraft:rail[shape=ascending_east,waterlogged=false]".to_string()));
+            b.push((at(9, 61, 4), stone.to_string()));
+            b.push((at(9, 62, 4), "minecraft:rail[shape=south_west,waterlogged=false]".to_string()));
+            b.push((at(9, 61, 5), "minecraft:redstone_block".to_string()));
+            b.push((at(9, 62, 5), "minecraft:powered_rail[powered=true,shape=ascending_south,waterlogged=false]".to_string()));
+            b.push((at(9, 62, 6), "minecraft:redstone_block".to_string()));
+            b.push((at(9, 63, 6), "minecraft:powered_rail[powered=true,shape=ascending_south,waterlogged=false]".to_string()));
+            b.push((at(9, 63, 7), stone.to_string()));
+            b.push((at(9, 64, 7), "minecraft:rail[shape=south_west,waterlogged=false]".to_string()));
+            b.push((at(9, 63, 8), stone.to_string()));
+            b.push((at(9, 64, 8), "minecraft:powered_rail[powered=false,shape=north_south,waterlogged=false]".to_string()));
+            b.push((at(9, 64, 9), stone.to_string()));
+            // the string west of the T, over the cell a rider's box would reach
+            b.push((at(8, 65, 5), stone.to_string()));
+            b.push((at(8, 65, 9), stone.to_string()));
+            b.push((at(8, 65, 6), "minecraft:tripwire_hook[attached=true,facing=south,powered=false]".to_string()));
+            b.push((at(8, 65, 7), "minecraft:tripwire[attached=true,disarmed=false,east=false,north=true,powered=false,south=true,west=false]".to_string()));
+            b.push((at(8, 65, 8), "minecraft:tripwire_hook[attached=true,facing=north,powered=false]".to_string()));
+        }
+        let mobs = starts
+            .iter()
+            .enumerate()
+            .map(|(k, (z, vz))| {
+                let x = 9.5 + 16.0 * k as f64;
+                // on the ascending slope (9,63,6): y = 63.0625 + the depth into the cell
+                ("minecraft:minecart".to_string(), [x, 63.0625 + (z - 6.0), *z], Some(format!("{{Motion:[0.0d,0.0d,{vz}d],Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b}}]}}")))
+            })
+            .collect();
+        v.push(Scene {
+            name: "t-snap".into(),
+            chunks: [0, 0, 7, 0],
+            blocks: b,
+            mobs,
+            day_time: 1000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([6, 59, 3], [122, 66, 10]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (tickexact 2026-11-12, ironspec and onechunk: a rider panicking on the merge row as its cart
+    // enters the lift) an IDLE rider in a cart at rest at (13.22, 64.0625, 7.5) on an unpowered
+    // powered rail (13,64,7) against a stone stop (12,64,7), a rail line east (14..19, 64, 7) into a
+    // walled bubble column (20, 64..70, 7) over soul sand (its sources placed at t5; the column in
+    // the next chunk, since redsim does not model sky light through a bubble column and the
+    // section's light would reach the zombie's); a zombie in a boat closed in a stone box at
+    // (13.5, 64, 12.5), its north wall (13,64..65,11) opening at t200 (the rider 5 away panics); at
+    // t214 the rail's support (13,63,7) becomes a redstone block: the powered rail kicks the cart
+    // east off the stop, along the line and into the column. The frames give the panic stroll's
+    // draw, MoveToTargetSink's start (the path, its length, reached or partial) against its stop
+    // and cooldown before the draw, and the path from inside the column
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 32, 0, 16, 62, stone);
+        for x in 10..=23 {
+            for z in 3..=14 {
+                b.push(([x, 63, z], stone.to_string()));
+            }
+        }
+        b.push(([13, 64, 7], "minecraft:powered_rail[powered=false,shape=east_west,waterlogged=false]".to_string()));
+        b.push(([12, 64, 7], stone.to_string()));
+        for x in 14..=19 {
+            b.push(([x, 64, 7], "minecraft:rail[shape=east_west,waterlogged=false]".to_string()));
+        }
+        b.push(([20, 63, 7], "minecraft:soul_sand".to_string()));
+        for y in 64..=72 {
+            b.push(([21, y, 7], stone.to_string()));
+            b.push(([20, y, 6], stone.to_string()));
+            b.push(([20, y, 8], stone.to_string()));
+            if y >= 65 {
+                b.push(([19, y, 7], stone.to_string()));
+            }
+        }
+        for (x, z) in [(12, 12), (14, 12), (13, 11), (13, 13)] {
+            for y in 64..=65 {
+                b.push(([x, y, z], stone.to_string()));
+            }
+        }
+        b.push(([13, 66, 12], stone.to_string()));
+        let mobs = vec![
+            ("minecraft:minecart".to_string(), [13.22, 64.0625, 7.5], Some("{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}".to_string())),
+            ("minecraft:oak_boat".to_string(), [13.5, 64.0, 12.5], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}".to_string())),
+        ];
+        v.push(Scene {
+            name: "panic-lift".into(),
+            chunks: [0, 0, 1, 0],
+            blocks: b,
+            mobs,
+            day_time: 1000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([10, 62, 3], [23, 73, 14]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
     // (tickexact 2026-11-12, the pane walls' water for 7b90c3f1's lift) a 1 x 1 water column over
     // soul sand (16, 64..68, 16) walled by 4 dry unconnected glass panes per layer (its corners
     // air), its sources placed at t5 (the soul sand makes it a bubble column); a waterlogged pane
@@ -8957,7 +9088,10 @@ pub fn timeline(version: &str, name: &str, seed: i64, ticks: u32, also: &[String
                     let now = v.to_string();
                     let key = format!("{n} {m}");
                     if mem_last.insert(key, now.clone()).as_ref() != Some(&now) {
-                        println!("t {t} #{n} {ty} at {at} memory {m}: {now}");
+                        // (tickexact 2026-11-12) a path's nodes beside it, start first (the bridge's
+                        // `path_nodes`, the navigation's current path)
+                        let nodes = if m == "path" { e["path_nodes"].as_str().map(|s| format!(" nodes [{s}]")).unwrap_or_default() } else { String::new() };
+                        println!("t {t} #{n} {ty} at {at} memory {m}: {now}{nodes}");
                         // (with `also` walk_target: the pick's offset from the mob's block, for the
                         // summary at the end)
                         if m == "walk_target" {
