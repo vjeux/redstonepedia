@@ -1,15 +1,20 @@
 # The return for F1 + Q2 at 24 (7b90c3f1; bench, tool unreviewed): loop frame, paste with no move. Made by `mctas mobfarm return-bench --out` from the bench's own world; every coordinate in this header is generated from the same options.
-# run line: mctas mobfarm return-bench --z7 --row9 --boost-exit --climb2 --reverse --boosters --game-ticks --offsets 0,12,24 --napper-delay 10 --napper-lift
+# run line: mctas mobfarm return-bench --z7 --row9 --k-relay --napper-lane 3 --day1-taps --reverse --boosters --game-ticks --offsets 0,12,24 --napper-delay 12 --napper-lift --release-pulse 12 --pulse-gate 38
 # - merge row along z 7: lane 7's curve (7,0,7) north_west (a T once the hold's line joins from (8,0,7)), Ts (3,0,7) and (-1,0,7) north_west, the main line (x,0,7) x -4..6 on glass, glass over the wall entry (-4,1,7); the station's tracks and boosters (z 1..6) are dfb89499's, not here.
-# - shared lift: soul sand (-5,-1,7) on glass (-5,-2,7), the bubble column (-5,0..22,7), glass walls (-6,y,7), (-5,y,6), (-5,y,8) for y 0..22 and (-4,y,7) for y 1..22 (panes to come; (-4,0,7) is the wall entry); the top cell (-5,23,7) with glass over it (-5,24,7) and beside it (-6,23,7), (-4,23,7); the current's source (-5,23,6) boxed by glass (-5,23,5), (-6,23,6), (-4,23,6), (-5,24,6).
-# - exit and split (in the chunk): the exit cell (-5,23,8) a powered rail (north_south, on) on the redstone block (-5,22,8) (the shaft's south wall there); the curve (-5,23,9) north_east; two climbing slopes (-4,23,9) and (-3,24,9), both ascending_east, to the row; the row along z 9 at y 25 from x -2 (glass under it at y 24): J(-1) (-1,25,9), J(3) (3,25,9), J(7) (7,25,9), the row's detectors (1,25,9) and (5,25,9), the 4th route (8,25,9), (9,25,9); each lane's branch the detector slope (x,24,8) ascending_south on glass (x,23,8), into ironfarm's merge cell (x,24,7) (not here); the junctions' levers (x,26,9) with glass (x,27,9).
-# - napper (c), re-laid for the z 7 hold: from R (4,-19,4) (58f770cc's, not here) the entry (5,-19,4) east_west on glass; soul sand (6,-20,4), the bubble column (6,-19..-4,4), glass walls (7,y,4), (6,y,3), (6,y,5) for y -20..-4 and (5,y,4) for y -18..-4; the top cell (6,-3,4) (glass beside it (6,-3,3), (6,-3,5), over it (6,-2,4)), the source (5,-3,4) boxed by glass (4,-3,4), (5,-3,3), (5,-3,5), (5,-2,4); the exit (7,-3,4) east_west; a powered slope (8,-3,4) ascending_east on the redstone block (8,-4,4); the curve (9,-2,4) south_west on glass; powered slopes (9,-2,5) and (9,-1,6) ascending_south on the redstone blocks (9,-3,5), (9,-2,6); the T (9,0,7) south_west on glass (arms N, S, W: from the north on south, from the south west); the hold (9,0,8), a powered rail north_south, off, on the block (9,-1,8) (glass here; the release circuit powers it: EMULATED, the bench puts a redstone block there D gt after the arming rise), the napper stopped against stone (9,0,9) with glass over it (9,1,9); the hold's line (8,0,7) a powered rail (on) on the redstone block (8,-1,7) into lane 7's curve (7,0,7); the arming detector (5,0,7) east_west on the main line (past the boosters, two cells off lane 7's curve and lane 3's T).
+# - shared lift: soul sand (-5,-1,7) on glass (-5,-2,7), the bubble column (-5,0..22,7), glass walls (-6,y,7), (-5,y,6) for y 0..22, (-5,y,8) for y 0..22 and (-4,y,7) for y 1..22 (panes to come; (-4,0,7) is the wall entry); the top cell (-5,23,7) with glass over it (-5,24,7) and beside it (-6,23,7), (-4,23,7); the current's source (-5,23,6) boxed by glass (-5,23,5), (-6,23,6), (-4,23,6), (-5,24,6).
+# - exit and split (in the chunk; K re-lay): the booster, a powered slope (-5,23,8) ascending_south (on) on the shaft wall's glass (-5,22,8), powered from its west side by the redstone block (-6,23,8) (3 from lane -1's seat), capped with glass (-6,24,8) (no spawn spot on it); the curve (-5,24,9) north_east on glass; the slope (-4,24,9) ascending_east on glass into K(-3) (lay each slope after the rail at its high end); every rail within 2 of lane -1's seat (-3,24,7) on glass; the row along z 9 at y 25, x -3..6 on glass at y 24: K(-3) (-3,25,9), J(-1) (-1,25,9), K(1) (1,25,9), J(3) (3,25,9), K(5) (5,25,9), J(7) (7,25,9), the 4th route (8,25,9), (9,25,9); each K's feed F (x-2,25,8) north_south on glass (x-2,24,8) (ironfarm's S-bend beyond, not here); each lane's branch the detector slope D (x,24,8) ascending_south on glass (x,23,8), into ironfarm's merge cell (x,24,7) (not here); a lever over every J and K (x,26,9) with glass (x,27,9); (x-1,24,9) glass only; nothing of this file in (x-2..x-1, 22..23, 9) or at (x,23,9) (ironfarm's R feed path and the switched cell).
+# - napper (c), re-laid for the z 7 hold: from R (4,-19,4) (58f770cc's, not here) the entry (5,-19,4) east_west on glass; soul sand (6,-20,4), the bubble column (6,-19..-4,4), glass walls (7,y,4), (6,y,3), (6,y,5) for y -20..-4 and (5,y,4) for y -18..-4; the top cell (6,-3,4) (glass beside it (6,-3,3), (6,-3,5), over it (6,-2,4)), the source (5,-3,4) boxed by glass (4,-3,4), (5,-3,3), (5,-3,5), (5,-2,4); the exit (7,-3,4) east_west; a powered slope (8,-3,4) ascending_east on the redstone block (8,-4,4); the curve (9,-2,4) south_west on glass; powered slopes (9,-2,5) and (9,-1,6) ascending_south on the redstone blocks (9,-3,5), (9,-2,6); the T (9,0,7) south_west on glass (arms N, S, W: from the north on south, from the south west); the hold (9,0,8), a powered rail north_south, off, on stone (9,-1,8) (a conductor), driven by the repeater (8,-1,8) facing west on glass (8,-2,8) (its input (7,-1,8), day-1's chain: the hold rail powered from ARM3 + D for the release pulse (--release-pulse, 8 gt by default) in each cycle whose pulse fires (with --pulse-gate X, day-1's gate: only when the napper's waiting bit, set on the approach detector (7,-3,4) (a detector rail east_west on glass (7,-4,4), read from its side) and sampled X gt late at E's rise (ARM3 + 2), is high, so a napper not yet at rest waits for the next cycle's pulse and every departure is a scheduled one; without it, every cycle; with --tripwire and --dep-keyed, (b): an ungated pulse every cycle, the departure read by a north-south tripwire string (8,1,7) over the napper-only (8,0,7), hooks (8,1,6) facing south and (8,1,8) facing north on glass anchors (8,1,5), (8,1,9), the FIFO pop and the K/J(-1) taps keyed to its rising edge); EMULATED, a redstone block at (7,-1,8) for the pulse), the napper stopped against the slime block (9,0,9) (a conductor, so the launch's kick pushes off it; not solid-render) with glass over it (9,1,9); the hold's line (8,0,7) a powered rail (on) on the redstone block (8,-1,7) into lane 7's curve (7,0,7); declared (push-scan's two pairs at the hold): the staircase, the T (9,0,7), the hold (9,0,8) and the hold's line (8,0,7) are the napper's own route, no batch cart enters it (lane 7's merge T (7,0,7) joins north and west only, its east arm is the hold's line), one napper at a time (the next reaches the hold a lap later, >= ~970 gt by day-1's minimum), so no two carts meet there; the arming detector (5,0,7) east_west on the main line (past the boosters, two cells off lane 7's curve and lane 3's T).
+# - declared: each D (x,24,8)'s high end is its junction J (x,25,9) (3 potential connections) and J is a face of the cell over D; J is power-forced by its declared switch in both states, so D's press and release re-settle J to the settle shape of its power, a no-op: tick-exact's official D-J probe passes (J at its driver's settle, NE off / NW on, 2 gt after the lever; D ascending_south through every press, release, toggle while pressed and restart in each state; module-check 0 of 14 blocks differ; https://artifacts.internalmeta.com/a/1169573292176966).
 # - switches EMULATED: a lever over each junction (face ceiling, glass over it) is the latch's output (`drive_j` only toggles the lever, flags ALL; redsim settles the junction); the latches: J(-1) on at idle; lane -1's branch rise turns it off and J(3) on; lane 3's turns J(3) off; the third cart's rise at the row's second detector turns J(-1) on, or opens the napper window (J(7) off on lane 7's branch rise; J(-1) on at the napper's own first rise at the row's first detector).
-# - OPEN: ironfarm's siding feeds (x-2,25,9) sit on this row: (1,25,9) and (5,25,9) are the row's detectors, (-3,25,9) is over the climb slope (-3,24,9) (where the rest's glass support goes); the K re-lay (power-forced junctions at (x-2,25,9)) is approved in direction, pending the rest's contact fix (ironfarm), the siding sensor (x-1,24,7) and day-1's K driver.
+# - OPEN: day-1's drivers (K set, K reset and J(-1)'s re-arm at day-1's taps after the napper's own ARM3, EMULATED here as the levers at those ticks; the hold's pulse into (7,-1,8)); lane -1's seat (-3,24,7): no rail of mine on a solid-render block within 2 of it (the booster's redstone block sits at (-6,23,8), beside the booster (-5,23,8), 3 from the seat), 9fc3155f to confirm with --clear-rate.
+# single-occupant: 9,0,8+9,0,7+8,0,7=one napper released per nap trip, on a fired pulse only (the gate); every arm of the T (9,0,7) carries only that napper's route (in from the staircase, rest on the hold (9,0,8) against the slime stop (9,0,9), out west on (8,0,7)); lane 7's merge T (7,0,7) joins north and west only, so no batch cart enters (return-bench: 0 batch carts on the hold's route over its late, jitter, restart and arrival-phase sweeps); consecutive nappers leave the bed stop >= 312 gt apart (day-1) and the stop -> hold trip spreads by <= 4 gt (75..79, return-bench), against the bar 177 (the hold's longest wait 138 + the 12-gt pulse + clear + 20; ironspec 11:49): 135 to spare
+# T (-3,25,9): arms north/west/east, designed north_east, unpowered north_east, powered north_west; sources at its faces: lever[face=ceiling,facing=north,powered=false] (-3,26,9); switched by its declared lever (NW on, NE off; now north_east)
 # T (-1,0,7): arms north/west/east, designed north_west, unpowered north_east, powered north_west; sources at its faces: none; placement order (settles north_east unpowered): lay it after its two designed arms, before the third
 # T (-1,25,9): arms north/west/east, designed north_east, unpowered north_east, powered north_west; sources at its faces: lever[face=ceiling,facing=north,powered=false] (-1,26,9); switched by its declared lever (NW on, NE off; now north_east)
+# T (1,25,9): arms north/west/east, designed north_east, unpowered north_east, powered north_west; sources at its faces: lever[face=ceiling,facing=north,powered=false] (1,26,9); switched by its declared lever (NW on, NE off; now north_east)
 # T (3,0,7): arms north/west/east, designed north_west, unpowered north_east, powered north_west; sources at its faces: none; placement order (settles north_east unpowered): lay it after its two designed arms, before the third
 # T (3,25,9): arms north/west/east, designed north_east, unpowered north_east, powered north_west; sources at its faces: lever[face=ceiling,facing=north,powered=false] (3,26,9); switched by its declared lever (NW on, NE off; now north_east)
+# T (5,25,9): arms north/west/east, designed north_east, unpowered north_east, powered north_west; sources at its faces: lever[face=ceiling,facing=north,powered=false] (5,26,9); switched by its declared lever (NW on, NE off; now north_east)
 # T (7,0,7): arms north/west/east, designed north_west, unpowered north_east, powered north_west; sources at its faces: none; placement order (settles north_east unpowered): lay it after its two designed arms, before the third
 # T (7,25,9): arms north/west/east, designed north_west, unpowered north_east, powered north_west; sources at its faces: lever[face=ceiling,facing=north,powered=true] (7,26,9); switched by its declared lever (NW on, NE off; now north_west)
 # T (9,0,7): arms north/south/west, designed south_west, unpowered south_west, powered north_west; sources at its faces: none; settled (unpowered)
@@ -22,25 +27,27 @@ palette:
   B minecraft:bubble_column[drag=false]
   C minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]
   D minecraft:detector_rail[powered=false,shape=ascending_south,waterlogged=false]
-  E minecraft:powered_rail[powered=true,shape=north_south,waterlogged=false]
-  F minecraft:rail[shape=north_east,waterlogged=false]
+  E minecraft:rail[shape=north_east,waterlogged=false]
+  F minecraft:rail[shape=north_south,waterlogged=false]
   G minecraft:glass
   H minecraft:rail[shape=north_west,waterlogged=false]
   I minecraft:rail[shape=south_west,waterlogged=false]
   J minecraft:redstone_block
+  K minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
   L minecraft:lever[face=ceiling,facing=north,powered=false]
+  M minecraft:stone
   P minecraft:powered_rail[powered=false,shape=north_south,waterlogged=false]
   R minecraft:rail[shape=ascending_east,waterlogged=false]
-  S minecraft:soul_sand
+  S minecraft:slime_block
   W minecraft:water[level=0]
   d minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]
   l minecraft:lever[face=ceiling,facing=north,powered=true]
   p minecraft:powered_rail[powered=true,shape=ascending_east,waterlogged=false]
   r minecraft:rail[shape=east_west,waterlogged=false]
-  s minecraft:stone
+  s minecraft:soul_sand
 layer -20:
   ............G
-  ...........GSG
+  ...........GsG
   ............G
   .
   .
@@ -188,15 +195,15 @@ layer -2:
   ...............A
   ...............J
   .G
-  .
+  ..............G
   .
 layer -1:
   .
   .
   .
   ...............A
-  .SGGGGGGGGGGGGJG
-  ...............G
+  .sGGGGGGGGGGGGJG
+  ..............KM
   .
 layer 0:
   .
@@ -205,7 +212,7 @@ layer 0:
   .G
   GBrrrHrrrHrdrHCI
   .G.............P
-  ...............s
+  ...............S
 layer 1:
   .
   .
@@ -380,32 +387,32 @@ layer 22:
   .
   .G
   GBG
-  .J
-  .GG
+  .G
+  .
 layer 23:
   .
   .
   .G
   GWG
   G.G
-  .E...G...G...G
-  .FRG
+  JA...G...G...G
+  .GG
 layer 24:
   .
   .
   .
   .G
   .G
-  .....D...D...D
-  ...RGGGGGGGGGGGG
+  G..G.D.G.D.G.D
+  .ERGGGGGGGGGGGGG
 layer 25:
   .
   .
   .
   .
   .
-  .
-  ....rFrdrFrdrHrr
+  ...F...F...F
+  ...ErErErErErHrr
 layer 26:
   .
   .
@@ -413,7 +420,7 @@ layer 26:
   .
   .
   .
-  .....L...L...l
+  ...L.L.L.L.L.l
 layer 27:
   .
   .
@@ -421,4 +428,4 @@ layer 27:
   .
   .
   .
-  .....G...G...G
+  ...G.G.G.G.G.G
