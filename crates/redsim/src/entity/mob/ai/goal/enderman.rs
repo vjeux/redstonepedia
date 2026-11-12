@@ -162,8 +162,16 @@ fn take_block(w: &mut World, i: usize) {
     let from = Vec3::new(bx as f64 + 0.5, yt as f64 + 0.5, bz as f64 + 0.5);
     let to = Vec3::new(xt as f64 + 0.5, yt as f64 + 0.5, zt as f64 + 0.5);
     // the clip (OUTLINE, no fluids): a miss reports the end cell
-    let reachable = crate::entity::mob::los::first_hit_outline(w, from, to).unwrap_or(pos) == pos;
+    let (first, unknown) = crate::entity::mob::los::first_hit_outline(w, from, to);
+    if unknown.is_some() {
+        w.mob.ai.legacy.insert("an enderman's take through a block whose outline shape is not described (its collision stands in)");
+    }
+    let reachable = first.unwrap_or(pos) == pos;
     let holdable = props_at(w, pos).is_some_and(|p| p.has_tag("minecraft:enderman_holdable"));
+    if std::env::var("MCTAS_TRACE_ENDERMAN").is_ok_and(|v| v.parse::<u32>().ok() == Some(w.entities.list[i].id)) {
+        let fs = first.map(|p| w.get(p).to_string());
+        eprintln!("enderman t{} take: {pos} {} holdable {holdable} first hit {first:?} {fs:?} (from {from:?})", w.time, w.get(pos));
+    }
     if holdable && reachable {
         let carried = match w.get(pos) {
             Block::Terrain(id) => {

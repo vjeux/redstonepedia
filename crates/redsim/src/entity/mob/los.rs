@@ -56,18 +56,28 @@ pub fn first_hit(w: &World, from: Vec3, to: Vec3) -> Option<BlockPos> {
 }
 
 /// `level.clip(OUTLINE, Fluid.NONE)`: the first cell whose outline shape (`getShape`, a natural
-/// state's from its row, moved by its cell's offset; a design block's its collision boxes) stops
-/// the segment.
-pub fn first_hit_outline(w: &World, from: Vec3, to: Vec3) -> Option<BlockPos> {
+/// state's from its row, moved by its cell's offset; a modeled block's from its game string's row,
+/// else its collision boxes, reported back) stops the segment.
+pub fn first_hit_outline(w: &World, from: Vec3, to: Vec3) -> (Option<BlockPos>, Option<String>) {
     let mut hit = None;
+    let mut unknown: Option<String> = None;
     collide::traverse_blocks(from, to, |p| {
         let s = w.get(p);
         if s.is_air() {
             return false;
         }
+        // (mob-AI 2026-11-11) a modeled block's outline from the natural-state table too (its
+        // game string: a torch has an outline and no collision; cross-4-underground plains b11
+        // t97646, an enderman standing in a torch could not take the dirt beside it)
         let boxes: Vec<Aabb> = match s {
             crate::block::Block::Terrain(id) => crate::terrain::blocks::props(id).outline_at(p).iter().map(|b| Aabb::new(b[0], b[1], b[2], b[3], b[4], b[5])).collect(),
-            _ => collide::boxes_at(w, &s, p),
+            _ => match crate::terrain::blocks::id_of(&s.to_string()) {
+                Some(id) => crate::terrain::blocks::props(id).outline_at(p).iter().map(|b| Aabb::new(b[0], b[1], b[2], b[3], b[4], b[5])).collect(),
+                None => {
+                    unknown.get_or_insert_with(|| s.to_string());
+                    collide::boxes_at(w, &s, p)
+                }
+            },
         };
         let stop = shape_hits(&boxes, p, from, to);
         if stop {
@@ -75,7 +85,9 @@ pub fn first_hit_outline(w: &World, from: Vec3, to: Vec3) -> Option<BlockPos> {
         }
         stop
     });
-    hit
+    // a modeled block whose outline the table does not describe: its collision boxes stood in
+    // (the caller names it in the run's report)
+    (hit, unknown)
 }
 
 /// `LivingEntity.hasLineOfSight(target)` from the eye `from` to the target's eye `to` (the
