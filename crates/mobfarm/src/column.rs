@@ -1047,8 +1047,24 @@ pub fn placement_order(spec: &redsim::entity::mob::farm::FarmSpec) -> Result<Vec
 /// entity must match. A cell or entity in the committed file that no part declares (a leftover:
 /// a superseded part's cell that stayed, a stale mob) is printed, and so is a declared one the file
 /// lacks or holds differently. Then the census of the file's entities (each passenger counted).
-pub fn assembly_check(composed: &Design, committed: &Design) -> (String, bool) {
+pub fn assembly_check(composed: &Design, committed: &Design, keep: &[(String, [i32; 3], [i32; 3])]) -> (String, bool) {
     let mut s = String::new();
+    // (ironspec 09:31) the keep-clear boxes: no block of the committed file inside
+    let mut kept_ok = true;
+    for (name, lo, hi) in keep {
+        let inside: Vec<String> = committed.blocks.iter().filter(|(p, _)| (0..3).all(|k| p[k] >= lo[k] && p[k] <= hi[k])).map(|(p, b)| format!("({},{},{}) {b}", p[0], p[1], p[2])).collect();
+        kept_ok &= inside.is_empty();
+        s.push_str(&format!(
+            "keep-clear {name} x {}..{} y {}..{} z {}..{}: {}\n",
+            lo[0],
+            hi[0],
+            lo[1],
+            hi[1],
+            lo[2],
+            hi[2],
+            if inside.is_empty() { "clear (PASS)".to_string() } else { format!("{} blocks inside (FAIL): {}", inside.len(), inside.join("; ")) }
+        ));
+    }
     let mut leftover: Vec<String> = Vec::new();
     let mut missing: Vec<String> = Vec::new();
     let mut differ: Vec<String> = Vec::new();
@@ -1112,7 +1128,7 @@ pub fn assembly_check(composed: &Design, committed: &Design) -> (String, bool) {
         let nm = composed.nether_blocks.iter().filter(|(p, _)| !committed.nether_blocks.contains_key(*p)).count();
         s.push_str(&format!("Nether part: {} cells in the file, {} declared: {nl} leftover or different, {nm} missing\n", committed.nether_blocks.len(), composed.nether_blocks.len()));
     }
-    let ok = leftover.is_empty() && missing.is_empty() && differ.is_empty() && ent_left.is_empty() && ent_missing.is_empty();
+    let ok = kept_ok && leftover.is_empty() && missing.is_empty() && differ.is_empty() && ent_left.is_empty() && ent_missing.is_empty();
     s.push_str(&format!("assembly: {}\n", if ok { "every cell and entity declared by a part (PASS)" } else { "FAIL" }));
     (s, ok)
 }

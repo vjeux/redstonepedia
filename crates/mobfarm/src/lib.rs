@@ -14,6 +14,7 @@ pub mod l1bench;
 pub mod l1items;
 pub mod f1q2run;
 pub mod ticketcheck;
+pub mod holdcheck;
 pub mod portallinks;
 pub mod comb;
 pub mod components;
