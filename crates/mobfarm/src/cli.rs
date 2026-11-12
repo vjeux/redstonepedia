@@ -2327,6 +2327,20 @@ pub enum MobfarmCmd {
         /// `--napper-lift`: arm the release on the station's exit detector (7,0,2).
         #[arg(long)]
         arm_station: bool,
+        /// (7b90c3f1's 7b21f939a) ironfarm's S-bend sidings fed from the row by power-forced junctions
+        /// K at (x-2,25,9) into F (x-2,25,8), the exit routed west.
+        #[arg(long)]
+        k_relay: bool,
+        /// `--k-relay`: the returning napper's lane (-1, 3 or 7).
+        #[arg(long, default_value_t = 3, allow_hyphen_values = true)]
+        napper_lane: i32,
+        /// `--napper-lift`: the tick the napper leaves R.
+        #[arg(long, default_value_t = 0)]
+        napper_r: i64,
+        /// `--napper-lift`: the hold's release pulse (gt; day-1's real release: 8, a repeater into the
+        /// stone under the hold rail, the rail rising at ARM3 + D).
+        #[arg(long, default_value_t = 8)]
+        release_pulse: i64,
         #[arg(long)]
         boosters: bool,
         #[arg(long)]
@@ -2340,26 +2354,34 @@ pub enum MobfarmCmd {
         /// The release speeds (the measured release-speed range's ends and middle).
         #[arg(long, value_delimiter = ',', default_value = "0.3,0.35,0.4")]
         speeds: Vec<f64>,
-        /// The napper's delays at the controls (empty: no napper; s 12 adopted with D 10: farmopt 06:05).
-        #[arg(long, value_delimiter = ',', default_value = "10")]
+        /// The napper's delays at the controls (empty: no napper; D 12 adopted on the K re-lay: ironspec
+        /// 08:46).
+        #[arg(long, value_delimiter = ',', default_value = "12")]
         napper_ds: Vec<i64>,
         /// The napper's delay at the nominal corners (negative: none).
-        #[arg(long, default_value_t = 10, allow_hyphen_values = true)]
+        #[arg(long, default_value_t = 12, allow_hyphen_values = true)]
         restart_napper: i64,
         #[arg(long, value_delimiter = ',', default_value = "0,330")]
         starts: Vec<i64>,
         #[arg(long)]
         no_restarts: bool,
-        /// Login lengths at every phase (the pearl alternative, through liveness::freeze32; reported).
+        /// Login lengths at every phase (through liveness::freeze32): up to --lead-login-max the lead's
+        /// (ironspec 09:26), longer the pearl alternative's stated limit.
         #[arg(long, value_delimiter = ',', default_value = "1,2,3,4")]
         ds: Vec<i64>,
+        /// The longest login (gt) that is the lead's (the brief's bound: a restart's riders officially
+        /// miss 1 tick, <= 3 gt).
+        #[arg(long, default_value_t = 3)]
+        lead_login_max: i64,
         /// The batch carts' delivery band (stored, entering their lane's merge cell): the floor 0.27
-        /// (ironfarm's real first failure 0.22 + ironspec's 0.05, farmopt 05:58); the upper end until
-        /// ironfarm's upper failure (- 0.05) lands, the old 0.48.
-        #[arg(long, value_delimiter = ',', default_value = "0.27,0.48")]
+        /// (ironfarm's real first failure 0.22 + ironspec's 0.05, farmopt 05:58); the upper end 0.95
+        /// (ironfarm's upward sweep, farmopt 08:57: no failure through stored 1.00 (merge entry 0.991),
+        /// 84 rows; the first upper failure above 1.00, less 0.05).
+        #[arg(long, value_delimiter = ',', default_value = "0.27,0.95")]
         branch_band: Vec<f64>,
-        /// --branch-band's upper end is ironfarm's measured upper failure - 0.05 (else it prints pending).
-        #[arg(long)]
+        /// --branch-band's upper end is ironfarm's measured upper bar (its sweep: true by default; `false`
+        /// prints the upper bar as pending).
+        #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
         upper_final: bool,
         /// The napper's delivery band (stored, its hand-on by the 4th route).
         #[arg(long, value_delimiter = ',', default_value = "0.1,0.3")]
@@ -2379,6 +2401,10 @@ pub enum MobfarmCmd {
         /// The roof's underside: every rider's head under it.
         #[arg(long, default_value_t = 28.0)]
         head_max: f64,
+        /// `--k-relay`: the returning napper's arrival on its siding's K cell (ironspec 08:46, the band
+        /// widened 09:00), in place of --napper-band (the 4th route's hand-on).
+        #[arg(long, value_delimiter = ',', default_value = "0.10,0.44")]
+        k_band: Vec<f64>,
         /// Every gt bar's margin at the nominal corners (and in the solve over its corners).
         #[arg(long, default_value_t = 2)]
         margin: i64,
@@ -6843,7 +6869,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             println!("{}", crate::queue::golem_spots(&spec, o.as_ref(), &extra, with_entities, list, pad_box, &stand_cells).map_err(|e| anyhow::anyhow!(e))?);
         }
-        MobfarmCmd::ReturnJudge { batches, ticks, boost, reverse, flat, game_ticks, dip, resync, z7, row10, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station, boosters, row_boost, offsets, spread, speeds, napper_ds, restart_napper, starts, no_restarts, ds, branch_band, upper_final, napper_band, shaft_min, napper_behind, napper_ahead, junction_min, pushes_max, head_max, margin, gates_out, design_file, solve_steps, solve_ds, solve_table, jobs } => {
+        MobfarmCmd::ReturnJudge { batches, ticks, boost, reverse, flat, game_ticks, dip, resync, z7, row10, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station, k_relay, napper_lane, napper_r, release_pulse, boosters, row_boost, offsets, spread, speeds, napper_ds, restart_napper, starts, no_restarts, ds, lead_login_max, branch_band, upper_final, napper_band, shaft_min, napper_behind, napper_ahead, junction_min, pushes_max, head_max, k_band, margin, gates_out, design_file, solve_steps, solve_ds, solve_table, jobs } => {
             anyhow::ensure!(starts.len() == 2, "--starts A,B");
             anyhow::ensure!(offsets.len() == 3, "--offsets A,B,C");
             anyhow::ensure!(spread.len() == 2, "--spread LO,HI");
@@ -6860,17 +6886,19 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let prelude = if napper_lift { 100 } else { 0 };
             let ticks = ticks + prelude;
             let starts = vec![starts[0], starts[1] + prelude];
-            let base = crate::returnbench::ReturnOpts { batches, spacing: 14, speed: 0.4, ticks, login: None, boost, trace: None, reverse, offsets: offsets.clone(), jitter: Vec::new(), flat, game_ticks, napper_delay: (restart_napper >= 0).then_some(restart_napper), dip, resync, seed_miss: None, restart: None, z7, row10, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station, boosters, row_boost, out: None, k_relay: false, napper_lane: 3, napper_r: 0, release_pulse: 8, mirror_z: false, day1_taps: false, supp_open: 73, pulse_gate: None, gate_delayed_only: false, lift_depth: 0, bit_delay: 36, tripwire: false, dep_keyed: false, trip_lag: 0 };
-            let bars = crate::returnjudge::ReturnBars { branch_band: (branch_band[0], branch_band[1]), napper_band: (napper_band[0], napper_band[1]), shaft_min, napper_behind, napper_ahead, junction_min: jm.clone(), pushes_max, head_max };
+            let base = crate::returnbench::ReturnOpts { batches, spacing: 14, speed: 0.4, ticks, login: None, boost, trace: None, reverse, offsets: offsets.clone(), jitter: Vec::new(), flat, game_ticks, napper_delay: (restart_napper >= 0).then_some(restart_napper), dip, resync, seed_miss: None, restart: None, z7, row10, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station, k_relay, napper_lane, napper_r, release_pulse, boosters, row_boost, out: None, mirror_z: false, day1_taps: false, supp_open: 73, pulse_gate: None, gate_delayed_only: false, lift_depth: 0, bit_delay: 36, tripwire: false, dep_keyed: false, trip_lag: 0 };
+            anyhow::ensure!(k_band.len() == 2, "--k-band LO,HI");
+            let bars = crate::returnjudge::ReturnBars { branch_band: (branch_band[0], branch_band[1]), napper_band: (napper_band[0], napper_band[1]), shaft_min, napper_behind, napper_ahead, junction_min: jm.clone(), pushes_max, head_max, k_band: k_relay.then_some((k_band[0], k_band[1])) };
             let line = format!(
-                "return-bench {}{}{}{}{}{}{}{}{}{}{}{}{}{}--offsets {}",
+                "return-bench {}{}{}{}{}{}{}{}{}{}{}{}{}{}{}--offsets {}",
                 if z7 { "--z7 " } else { "" },
                 if row9 { "--row9 " } else { "" },
                 if row10 { "--row10 " } else { "" },
+                if k_relay { format!("--k-relay --napper-lane {napper_lane} ") } else { String::new() },
                 if boost_exit { "--boost-exit " } else { "" },
                 if climb2 { "--climb2 " } else { "" },
                 if boost_slope { "--boost-slope " } else { "" },
-                if napper_lift { "--napper-lift " } else { "" },
+                if napper_lift { format!("--napper-lift --release-pulse {release_pulse} {}", if napper_r != 0 { format!("--napper-r {napper_r} ") } else { String::new() }) } else { String::new() },
                 if arm_station { "--arm-station " } else { "" },
                 if boosters { "--boosters " } else { "" },
                 if row_boost { "--row-boost " } else { "" },
@@ -6897,9 +6925,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             // (what the napper's D means: the bench's --napper-delay)
             let d_means = if napper_lift {
-                "the napper's D: the hold rail's power rise D gt after the arming detector's first rise (the bench's --napper-delay with --napper-lift: a redstone block placed under the hold rail (9,-1,8) and kept — a permanent power, not day-1's 8-gt pulse; the napper at rest starts 1 gt after the rise and clears the hold at +7, so its departure is D + 1)"
+                format!("the napper's D: the hold rail's power rise D gt after the arming detector's first rise (the bench's --napper-delay with --napper-lift: the hold rail powered for --release-pulse {release_pulse} gt each cycle through the repeater (8,-1,8) into the stone under the hold rail (9,-1,8) (day-1's real release; the bench drives the repeater's input (7,-1,8)); the napper at rest starts 1 gt after the rise and clears the hold at +7, so its departure is D + 1)")
             } else {
-                "the napper's D: the napper spawned moving west at 0.4 on (8,0,8) D gt after the arming detector's first rise (the bench's --napper-delay without --napper-lift: no hold, no lift)"
+                "the napper's D: the napper spawned moving west at 0.4 on (8,0,8) D gt after the arming detector's first rise (the bench's --napper-delay without --napper-lift: no hold, no lift)".to_string()
             };
             if !solve_steps.is_empty() {
                 let so = crate::returnjudge::SolveOpts { steps: solve_steps.clone(), ds: solve_ds.clone(), speeds: speeds.clone(), spread: (spread[0], spread[1]), margin, bars, all_rows: solve_table, jobs };
@@ -6938,7 +6966,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
             let phase_corners: Vec<crate::returnjudge::Corner> = speeds.iter().map(|&sp| crate::returnjudge::Corner { offsets: offsets.clone(), speed: sp, napper: (restart_napper >= 0).then_some(restart_napper) }).collect();
-            let o = crate::returnjudge::ReturnJudgeOpts { corners, phase_corners, starts: (starts[0], starts[1]), restarts: !no_restarts, ds: ds.clone(), bars, margin, jobs };
+            let o = crate::returnjudge::ReturnJudgeOpts { corners, phase_corners, starts: (starts[0], starts[1]), restarts: !no_restarts, ds: ds.clone(), lead_login_max, bars, margin, jobs };
             println!(
                 "return judge (cc767b78, bench, tool unreviewed; the lead's rows: the controls at {} corners (offsets {:?}, the departure spread {}..{} gt on each, releases {speeds:?}, napper {}), at the nominal corners every gt bar's margin >= {margin} and a save/stop/start at every phase t {}..{} in the 10 orders, the cold start = the control{}): {line}, {batches} batches, {ticks} ticks; {d_means}",
                 o.corners.len(),
@@ -6948,7 +6976,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 if napper_ds.is_empty() { "none".to_string() } else { format!("D {napper_ds:?}") },
                 starts[0],
                 starts[1],
-                if ds.is_empty() { String::new() } else { format!("; logins of {ds:?} gt at every phase through liveness::freeze32 (the pearl alternative, reported)") },
+                if ds.is_empty() { String::new() } else { format!("; logins of {ds:?} gt at every phase through liveness::freeze32 (up to {lead_login_max} gt the lead's, longer the pearl alternative's stated limit)") },
             );
             for l in &glines {
                 println!("{l}");
