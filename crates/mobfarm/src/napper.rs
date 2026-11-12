@@ -130,7 +130,10 @@ pub struct Opts {
     /// The watchdog's W (live gt after the last cycle start); None with `events`: no watchdog (the
     /// lock-up's positive control).
     pub watchdog: Option<i64>,
-    /// A summon's pad roll: the chance an eligible batch's summon finds its golem (P = 0.99).
+    /// A summon tick's pad roll: the chance the stand batch's summon at that tick finds its golem (per
+    /// summon tick, not per villager: each wanting villager of the batch makes its own 10 tries and
+    /// the first golem stops the rest, so P = 1 - (1 - p)^k over the batch's k wanting villagers;
+    /// P = 0.99 measured on v4's pads).
     pub pad_roll: f64,
     /// The batch reaches the stand this many gt after its cycle start (its first summon tick is the
     /// first one at or after it).
@@ -141,6 +144,30 @@ pub struct Opts {
     /// A recovery picker mode (a candidate, off = None): after a watchdog fire inside the night
     /// window, the picker counts K' passes instead of k for the rest of that night.
     pub recover_k: Option<usize>,
+    /// Rule 4a's self-lock (farmopt/51b2aacd Nov 11 21:26): a rider whose batch made a golem at T is
+    /// golem-locked 600 gt and counts for a summon again only at ticks after T + 600 (a turn 600 gt
+    /// later fails, 700 later counts).
+    pub lock: bool,
+    /// The lock's length: a rider counts again at ticks >= T + lock_gt (600: tick-exact's code read,
+    /// Nov 11 21:49: free at exactly T + 600 in either tick order; 700: the old "600 = locked").
+    pub lock_gt: i64,
+    /// The chance a batch member is re-marked just after its summon (its lock restarts a tick later:
+    /// a 600-gt turn then fails, a 700-gt one counts).
+    pub remark: f64,
+    /// Idle beats: in each group of L beats from the day's start the last I are idle (no release;
+    /// the batch stays, locked by its own golem): the 7-beat cycle of 18 villagers (7,1), the 6-beat
+    /// cycles of 15 (6,1) and 12 (6,2).
+    pub idle: Option<(usize, usize)>,
+    /// away at once (None: no cap).
+    pub beds: usize,
+    pub max_away: Option<usize>,
+    /// A night skip (the players sleep): on day D (or every day from D with `jump_every`) at IN_DAY
+    /// (the model's day starts at the re-arm, dayTime 13,670; a bed-time skip at dayTime 12,642 is
+    /// in_day 22,972, in rain 12,010 is 22,340, a daytime thunder skip at 6,000 is 16,330), dayTime
+    /// jumps to dawn (in_day 10,330, the next model day if IN_DAY is past it); game time and every
+    /// LAST_SLEEP's age run on.
+    pub jump: Option<(usize, i64)>,
+    pub jump_every: bool,
     /// The player away (the farm unloaded) on day D from DT gt after dusk for LEN gt: no cycles, the
     /// nappers in the tier frozen with it (their returns LEN later), the watchdog's live count paused,
     /// game time and every LAST_SLEEP's age running on.
@@ -209,6 +236,13 @@ pub struct Score {
     pub failed_rolls: usize,
     pub first_golem_after: Option<i64>,
     pub naps_by_night: Vec<(i64, usize)>,
+    /// With `lock`: summons lost with every rider fresh but one golem-locked; summon ticks (scored days)
+    /// and those with fewer than 21 carts present (circulating, not in the tier).
+    pub lock_lost: usize,
+    pub summon_ticks: usize,
+    pub short_present: usize,
+    /// The least spacing between a rider's turns (its batch's release to its next), scored days.
+    pub least_spacing: i64,
     /// The scored days that lost more than the scheduled skips: (day, summons lost beyond them).
     pub bad_days: Vec<(i64, usize)>,
     /// Each rider's worst night-to-night drift (gt, 0 = never later).
@@ -250,6 +284,10 @@ pub fn simulate(o: &Opts) -> Score {
     let mut absence_end: Option<i64> = if o.events && o.absence.is_none() && o.events_from == 0 { Some(0) } else { None };
     let mut skip_day: i64 = i64::MIN;
     let mut night_wd = false;
+    let mut locked_until: Vec<i64> = vec![i64::MIN; o.carts];
+    let mut last_jump_day: i64 = i64::MIN;
+    let mut last_turn: Vec<Option<i64>> = vec![None; o.carts];
+    sc.least_spacing = i64::MAX;
     sc.golems_by_day = vec![0; o.days + 1];
     let mut t0: i64 = -o.period;
     loop {
@@ -264,10 +302,16 @@ pub fn simulate(o: &Opts) -> Score {
             }
             let mut found = None;
             while s < last_start.saturating_add(w) && s < end_t {
-                let elig = stand.len() == o.batch && stand.iter().all(|&b| !(o.empty_cart && b == 0) && last_sleep[b].is_some_and(|ls| s - ls < 24000));
+                let elig = stand.len() == o.batch && stand.iter().all(|&b| !(o.empty_cart && b == 0) && last_sleep[b].is_some_and(|ls| s - ls < 24000) && (!o.lock || locked_until[b] <= s));
                 if elig {
                     if (rng.next() % 1_000_000) as f64 / 1_000_000.0 < o.pad_roll {
                         found = Some(s);
+                        if o.lock {
+                            for &b in &stand {
+                                let re = (rng.next() % 1_000_000) as f64 / 1_000_000.0 < o.remark;
+                                locked_until[b] = s + o.lock_gt + i64::from(re);
+                            }
+                        }
                         break;
                     }
                     sc.failed_rolls += 1;
@@ -339,6 +383,20 @@ pub fn simulate(o: &Opts) -> Score {
         let day = rel.div_euclid(o.day_gt);
         let in_day = rel.rem_euclid(o.day_gt);
         let cyc_in_day = in_day / o.period;
+        // (a night skip: dayTime jumps to dawn, in_day 10,330, the next model day if the jump is past
+        // it; the controller's day counter re-phases on the daylight rise that follows)
+        let (day, in_day, cyc_in_day) = if let Some((d, at)) = o.jump
+            && (day == d as i64 || o.jump_every && day >= d as i64)
+            && in_day >= at
+            && last_jump_day != day
+        {
+            last_jump_day = day;
+            shift += if at >= 10_330 { o.day_gt + 10_330 - in_day } else { 10_330 - in_day };
+            let rel = t0 - o.dusk_at + shift;
+            (rel.div_euclid(o.day_gt), rel.rem_euclid(o.day_gt), rel.rem_euclid(o.day_gt) / o.period)
+        } else {
+            (day, in_day, cyc_in_day)
+        };
         if day != cur_day {
             if cur_day >= o.warmup as i64 {
                 sc.lost_expiry += day_lost[0] as f64;
@@ -428,7 +486,24 @@ pub fn simulate(o: &Opts) -> Score {
             day_lost[2] += 1;
             continue;
         }
+        // (idle beats: no release, the batch stays at the stand, locked by its own golem)
+        if let Some((l, i)) = o.idle
+            && cyc_in_day % l as i64 >= (l - i) as i64
+        {
+            day_lost[2] += 1;
+            continue;
+        }
         let mut members: Vec<Option<bool>> = Vec::new();
+        // (rule 4a's self-lock: the batch's carts, whether a fresh rider was golem-locked; the carts
+        // present (circulating, not in the tier) at this summon tick)
+        let mut batch_ids: Vec<usize> = Vec::new();
+        let mut lock_hit = false;
+        if day >= o.warmup as i64 {
+            sc.summon_ticks += 1;
+            if o.carts.saturating_sub(away.len()) < 21 {
+                sc.short_present += 1;
+            }
+        }
         for j in 0..o.batch {
             let t = t0 + o.cross_at + j as i64 * o.spacing;
             // (the sleepers back: gravity re-enters at the back, behind every cart that passed; a
@@ -468,6 +543,13 @@ pub fn simulate(o: &Opts) -> Score {
             }
             sc.waiting_max = sc.waiting_max.max(away.iter().filter(|a| a.1 <= t).count());
             let Some(cart) = fifo.pop_front() else { continue };
+            batch_ids.push(cart);
+            if day >= o.warmup as i64
+                && let Some(lt) = last_turn[cart]
+            {
+                sc.least_spacing = sc.least_spacing.min(t0 - lt);
+            }
+            last_turn[cart] = Some(t0);
             for a in away.iter_mut() {
                 a.2 += 1;
             }
@@ -477,8 +559,14 @@ pub fn simulate(o: &Opts) -> Score {
             // eligibility judged at the cycle's summon, before this pass's pick re-arms it; the bed
             // free once every napper is back from it, gated or not)
             let hole = o.keep_place && away.iter().any(|a| a.0 == cart);
-            let elig = !(o.empty_cart && cart == 0) && last_sleep[cart].is_some_and(|ls| t0 - ls < 24000);
-            let bed_free = if o.free_at_reentry { away.is_empty() } else { away.iter().all(|a| a.1 <= t) };
+            let fresh = !(o.empty_cart && cart == 0) && last_sleep[cart].is_some_and(|ls| t0 - ls < 24000);
+            let unlocked = !o.lock || locked_until[cart] <= t0;
+            if fresh && !unlocked {
+                lock_hit = true;
+            }
+            let elig = fresh && unlocked;
+            let in_bed = away.iter().filter(|a| a.1 > t).count();
+            let bed_free = (if o.free_at_reentry { away.len() < o.beds.max(1) } else { in_bed < o.beds.max(1) }) && o.max_away.is_none_or(|m| away.len() < m);
             let want = in_night && bed_free && night_picks.len() < o.visits && !hole && match o.picker {
                 Picker::FromPick(k) | Picker::FromReturn(k) => count >= if night_wd { o.recover_k.unwrap_or(k) } else { k },
                 Picker::Anchored(k, off) => if night_picks.is_empty() { anchor.is_none() && count >= k || anchor.is_some() && anchor_passes % o.carts == off % o.carts } else { count >= k },
@@ -540,6 +628,16 @@ pub fn simulate(o: &Opts) -> Score {
             night_releases += 1;
         }
         let ok = if ev { golem } else { members.len() == o.batch && members.iter().all(|m| *m == Some(true)) };
+        if !ev && o.lock {
+            if ok {
+                for &c in &batch_ids {
+                    let re = (rng.next() % 1_000_000) as f64 / 1_000_000.0 < o.remark;
+                    locked_until[c] = t0 + o.lock_gt + i64::from(re);
+                }
+            } else if lock_hit && day >= o.warmup as i64 {
+                sc.lock_lost += 1;
+            }
+        }
         // (fixed beats: a golem when the batch is all eligible; event-driven: counted at the event)
         if ok
             && !ev
@@ -616,6 +714,298 @@ pub fn event_line(label: &str, o: &Opts, s: &Score, normal: Option<f64>) -> Stri
         norm,
         o.carts.min(o.visits),
         full.map_or("not within 5 nights".to_string(), |i| format!("on the {} night from the event", ["1st", "2nd", "3rd", "4th", "5th"][i]))
+    )
+}
+
+/// Q2 (design-space v0, Nov 11): `lanes` lanes in lockstep, one release line opening every lane's
+/// gate at once: a batch is each lane's front cart; after its summon each cart returns to its own lane
+/// (its back) unless the one shared divert on the returns (counting the `lanes` returns a cycle in lane
+/// order) picks it; the napper re-enters its own lane: `lane_exact` = right behind the cart that went
+/// before it in its lane, as that cart returns on its next lap (if the napper is back by then, else the
+/// lap after); else at its lane's back once it is back. Fixed 100-gt beats; rule 4a's self-lock with
+/// `lock`; fix (a)'s skips (no release: the batch stays, locked by its own golem).
+#[derive(Clone, Debug)]
+pub struct LaneOpts {
+    pub lanes: usize,
+    pub per_lane: usize,
+    pub k: usize,
+    /// Beds: 1 (shared, the picker counts the shared returns), or `lanes` (Z4: each lane owns a bed
+    /// and picks its own riders on its own count of its returns, k then being the lane's count).
+    pub beds: usize,
+    /// One bed with per-lane counting (ironspec Nov 11 22:07): each lane's own count (k) picks its
+    /// nappers, the one bed serving one napper at a time, the lanes taking turns: 1 = in sequence
+    /// (lane A's quota, then B's, then C's), 2 = round-robin; 0 = off.
+    pub turns: u8,
+    pub visits: usize,
+    pub lane_exact: bool,
+    /// The napper keeps its slot in its lane (fixed slots, or an equal-length bypass rejoining in
+    /// place): its slot passes as a hole if it is still away at its turn.
+    pub keep_place: bool,
+    pub skip_per_day: usize,
+    pub lock: bool,
+    pub trip: (i64, i64),
+    pub sleep_at: i64,
+    pub spacing: i64,
+    pub cross_at: i64,
+    pub days: usize,
+    pub warmup: usize,
+    pub seed: u64,
+    pub night_gt: i64,
+    pub day_gt: i64,
+    pub dusk_at: i64,
+    /// A night skip, as `Opts::jump`: (day D, in_day of the jump), every day from D with `jump_every`.
+    pub jump: Option<(usize, i64)>,
+    pub jump_every: bool,
+    /// Strict rhythm: a strand outlier, one trip + ADD gt every EVERY gt of play: (EVERY, ADD).
+    pub outlier: Option<(i64, i64)>,
+}
+
+/// The lane model's report line.
+pub fn simulate_lanes(o: &LaneOpts) -> String {
+    let mut rng = Rng(o.seed);
+    let n = o.lanes * o.per_lane;
+    let mut lanes: Vec<VecDeque<usize>> = (0..o.lanes).map(|l| (0..o.per_lane).map(|i| l + i * o.lanes).collect()).collect();
+    let lane_of = |c: usize| c % o.lanes;
+    let mut last_sleep: Vec<Option<i64>> = vec![None; n];
+    let mut locked_until: Vec<i64> = vec![i64::MIN; n];
+    // (the sleepers: cart, back from the bed at, the cart it re-enters behind (lane-exact))
+    let mut away: Vec<(usize, i64, usize)> = Vec::new();
+    let (mut count, mut night_picks): (usize, Vec<usize>) = (0, Vec::new());
+    let mut lane_count: Vec<usize> = vec![0; o.lanes];
+    let mut lane_picks: Vec<usize> = vec![0; o.lanes];
+    let per_bed = o.beds >= o.lanes || o.turns > 0;
+    let mut cur_lane = 0usize;
+    // (strict rhythm, turns 3: the night's first cycle; the one bed's queue: when it frees)
+    let mut night_c0: i64 = 0;
+    let mut bed_free_at: i64 = i64::MIN;
+    let mut bed_q: Vec<(i64, i64)> = Vec::new();
+    let (mut max_queue, mut outliers) = (0usize, 0usize);
+    let mut next_outlier: i64 = o.outlier.map_or(i64::MAX, |(every, _)| every / 2);
+    let mut lane_len_hist: std::collections::BTreeMap<usize, u64> = std::collections::BTreeMap::new();
+    let mut night_idx: Option<i64> = None;
+    let (mut golems, mut lost_lock, mut lost_expiry, mut lost_short, mut lost_skip) = (0usize, 0usize, 0usize, 0usize, 0usize);
+    let (mut least_distinct, mut short_nights, mut min_lane, mut ticks_below) = (usize::MAX, 0usize, usize::MAX, 0usize);
+    let mut scored_ticks = 0usize;
+    let cycles_per_day = o.day_gt / 100;
+    let skip_from = cycles_per_day * 2 / 3;
+    let mut held = false;
+    let (mut shift, mut last_jump_day) = (0i64, i64::MIN);
+    let mut last_turn: Vec<Option<i64>> = vec![None; n];
+    let mut least_spacing = i64::MAX;
+    let mut golems_day: std::collections::BTreeMap<i64, usize> = std::collections::BTreeMap::new();
+    for c in 0..cycles_per_day * o.days as i64 {
+        let t0 = c * 100;
+        let rel = t0 - o.dusk_at + shift;
+        let (mut day, mut in_day) = (rel.div_euclid(o.day_gt), rel.rem_euclid(o.day_gt));
+        if let Some((d, at)) = o.jump
+            && (day == d as i64 || o.jump_every && day >= d as i64)
+            && in_day >= at
+            && last_jump_day != day
+        {
+            last_jump_day = day;
+            shift += if at >= 10_330 { o.day_gt + 10_330 - in_day } else { 10_330 - in_day };
+            let rel = t0 - o.dusk_at + shift;
+            (day, in_day) = (rel.div_euclid(o.day_gt), rel.rem_euclid(o.day_gt));
+        }
+        let scored = day >= o.warmup as i64;
+        let in_night = in_day < o.night_gt;
+        if in_night && night_idx != Some(day) {
+            night_idx = Some(day);
+            night_picks.clear();
+            count = 0;
+            lane_count = vec![0; o.lanes];
+            lane_picks = vec![0; o.lanes];
+            cur_lane = 0;
+            night_c0 = c;
+        }
+        if !in_night && night_idx == Some(day) {
+            if scored {
+                let mut seen = vec![false; n];
+                night_picks.iter().for_each(|&p| seen[p] = true);
+                let d = seen.iter().filter(|s| **s).count();
+                least_distinct = least_distinct.min(d);
+                if night_picks.len() < o.visits {
+                    short_nights += 1;
+                }
+            }
+            night_idx = Some(-1 - day);
+        }
+        // (the batch at the stand: each lane's front; it summons at t0 unless held by a skip, when
+        // the same batch stays a beat, locked by its own golem)
+        let batch: Vec<Option<usize>> = lanes.iter().map(|l| l.front().copied()).collect();
+        let lens_min = lanes.iter().map(|l| l.len()).min().unwrap_or(0);
+        if scored {
+            scored_ticks += 1;
+            min_lane = min_lane.min(lens_min);
+            if lens_min + 1 < o.per_lane {
+                ticks_below += 1;
+            }
+            for ln in lanes.iter() {
+                *lane_len_hist.entry(ln.len()).or_default() += 1;
+            }
+        }
+        let fresh = |b: usize| last_sleep[b].is_some_and(|ls| t0 - ls < 24000);
+        let unlocked = |b: usize| !o.lock || locked_until[b] <= t0;
+        // (keep-place: a napper still away at its slot's turn is a hole)
+        let all = batch.iter().all(|b| b.is_some_and(|b| !o.keep_place || !away.iter().any(|a| a.0 == b)));
+        let ok = all && batch.iter().all(|b| b.is_some_and(|b| fresh(b) && unlocked(b)));
+        if ok {
+            if scored {
+                golems += 1;
+            }
+            *golems_day.entry(day).or_default() += 1;
+            for b in batch.iter().flatten() {
+                locked_until[*b] = t0 + 600;
+            }
+        } else if scored {
+            if held {
+                lost_skip += 1;
+            } else if !all {
+                lost_short += 1;
+            } else if batch.iter().flatten().any(|&b| fresh(b) && !unlocked(b)) {
+                lost_lock += 1;
+            } else {
+                lost_expiry += 1;
+            }
+        }
+        held = false;
+        if o.skip_per_day > 0 && in_day / 100 >= skip_from && in_day / 100 < skip_from + o.skip_per_day as i64 {
+            held = true;
+            continue;
+        }
+        // (each rider's turn spacing: its batch's release to its next one)
+        for b in batch.iter().flatten() {
+            if scored && let Some(lt) = last_turn[*b] {
+                least_spacing = least_spacing.min(t0 - lt);
+            }
+            last_turn[*b] = Some(t0);
+        }
+        // (the release: each lane's front leaves and returns in lane order past the shared divert)
+        for l in 0..o.lanes {
+            let Some(cart) = lanes[l].pop_front() else { continue };
+            let t = t0 + o.cross_at + l as i64 * o.spacing;
+            count += 1;
+            lane_count[l] += 1;
+            // (one shared bed: free once every napper is back from it; Z4: one napper per lane at a
+            // time (in its bed or waiting to re-enter), farmopt Nov 11 21:40)
+            let want = if o.turns == 3 {
+                // (strict rhythm: lane l picks every k cycles at offset l*k/lanes from the night's
+                // start, whatever the bed's state (the bed stop queues); one napper per lane. With
+                // lane-exact re-entry the napper misses one turn, so a lane's picks advance k - (lane
+                // length - 1) places: k must make that coprime with the lane length (8: k 8, 10))
+                let lane_free = away.iter().all(|a| lane_of(a.0) != l);
+                let period = o.k as i64;
+                in_night && lane_free && lane_picks[l] < o.per_lane && (c - night_c0).rem_euclid(period) == (l * o.k / o.lanes) as i64
+            } else if per_bed {
+                let lane_free = away.iter().all(|a| lane_of(a.0) != l);
+                // (one bed shared by turns: nobody in it, and this lane's turn)
+                let bed_ok = o.turns == 0 || (away.iter().all(|a| a.1 <= t) && l == cur_lane);
+                in_night && lane_free && bed_ok && lane_picks[l] < o.per_lane && lane_count[l] >= o.k
+            } else {
+                let bed_free = away.iter().all(|a| a.1 <= t);
+                in_night && bed_free && night_picks.len() < o.visits && count >= o.k
+            };
+            if want {
+                night_picks.push(cart);
+                lane_picks[l] += 1;
+                lane_count[l] = 0;
+                // (the lane turn: round-robin moves on after each pick, the sequence once the lane's
+                // quota is napped; lanes whose quota is done are passed over)
+                if o.turns > 0 && (o.turns == 2 || lane_picks[l] >= o.per_lane) {
+                    for step in 1..=o.lanes {
+                        let nl = (l + step) % o.lanes;
+                        if lane_picks[nl] < o.per_lane {
+                            cur_lane = nl;
+                            break;
+                        }
+                    }
+                }
+                last_sleep[cart] = Some(t + o.sleep_at);
+                let pred = lanes[l].back().copied().unwrap_or(cart);
+                let drawn = rng.range(o.trip.0, o.trip.1);
+                // (strict rhythm: the one bed queues: 60 gt to the bed, sleep (trip - 120) from when
+                // the bed frees, 60 back; LAST_SLEEP at the lie-down)
+                let back = if o.turns == 3 {
+                    // (a strand outlier: one trip + ADD every EVERY gt of play)
+                    let extra = if let Some((every, add)) = o.outlier
+                        && t >= next_outlier
+                    {
+                        next_outlier = t + every;
+                        outliers += 1;
+                        add
+                    } else {
+                        0
+                    };
+                    let arrive = t + 60;
+                    let start = arrive.max(bed_free_at);
+                    // (the bed queue: nappers arrived and still waiting at this arrival)
+                    bed_q.retain(|(_, s)| *s > arrive);
+                    let depth = bed_q.iter().filter(|(a, s)| *a <= arrive && *s > arrive).count() + usize::from(start > arrive);
+                    max_queue = max_queue.max(depth);
+                    let sleep = (drawn + extra - 120).max(1);
+                    bed_free_at = start + sleep;
+                    bed_q.push((arrive, start));
+                    last_sleep[cart] = Some(start);
+                    start + sleep + 60
+                } else {
+                    t + drawn
+                };
+                away.push((cart, back, pred));
+                count = 0;
+                if o.keep_place {
+                    lanes[l].push_back(cart);
+                }
+            } else {
+                lanes[l].push_back(cart);
+                // (lane-exact: a napper back from the bed re-enters right behind this cart, the one
+                // that went before it in its lane)
+                if o.lane_exact {
+                    while let Some(i) = away.iter().position(|a| a.2 == cart && a.1 <= t && lane_of(a.0) == l) {
+                        let (id, _, _) = away.remove(i);
+                        lanes[l].push_back(id);
+                    }
+                }
+            }
+            if o.keep_place {
+                // (its slot never left the lane: back from the bed, it just takes its slot again)
+                away.retain(|a| a.1 > t);
+            } else if !o.lane_exact {
+                while let Some(i) = away.iter().position(|a| a.1 <= t && lane_of(a.0) == l) {
+                    let (id, _, _) = away.remove(i);
+                    lanes[l].push_back(id);
+                }
+            }
+        }
+    }
+    let days = o.days.saturating_sub(o.warmup).max(1) as f64;
+    let per_day: Vec<String> = golems_day.iter().filter(|(d, _)| **d >= o.warmup as i64 - 1).map(|(d, g)| format!("d{d} {g}")).collect();
+    let lens: Vec<String> = lane_len_hist.iter().map(|(l, n)| format!("{l}:{n}")).collect();
+    format!(
+        "Q2 {} lanes x {} ({} villagers), {} bed(s){}, k {}{}, {}, {} skipped a day{}{}: golems a day {:.1}; lost a day: self-lock {:.2}, expired {:.2}, a lane empty {:.2}, held by a skip {:.2}; the shortest lane at any summon {} (summon ticks with a lane below {}: {:.1}%; lane lengths at the summons (length:lane-ticks) {}); the least turn spacing of any rider {} gt; fewest distinct nappers in a night {}, nights short of {}: {}; the deepest bed queue {} (strand outliers {}); golems each day: {}",
+        o.lanes, o.per_lane, n, o.beds,
+        match o.turns { 1 => ", the lanes take the bed in sequence", 2 => ", the lanes take the bed round-robin", 3 => ", strict rhythm (lane l at cycles = l*k mod lanes*k; the bed queues)", _ => "" },
+        o.k,
+        if per_bed { " (each lane's own count)" } else { " (the shared returns)" },
+        if o.keep_place { "the napper keeps its slot (fixed slots / equal-length bypass; a hole if away at its turn)" } else if o.lane_exact { "lane-exact re-entry" } else { "re-entry at its lane's back" },
+        o.skip_per_day,
+        if o.lock { ", the 600-gt self-lock" } else { "" },
+        o.jump.map_or(String::new(), |(d, at)| format!(", a night skip at in_day {at} on day {d}{}", if o.jump_every { " and every day after" } else { "" })),
+        golems as f64 / days,
+        lost_lock as f64 / days,
+        lost_expiry as f64 / days,
+        lost_short as f64 / days,
+        lost_skip as f64 / days,
+        if min_lane == usize::MAX { 0 } else { min_lane },
+        o.per_lane.saturating_sub(1),
+        100.0 * ticks_below as f64 / scored_ticks.max(1) as f64,
+        lens.join(" "),
+        if least_spacing == i64::MAX { 0 } else { least_spacing },
+        if least_distinct == usize::MAX { 0 } else { least_distinct },
+        o.visits,
+        short_nights,
+        max_queue,
+        outliers,
+        per_day.join(", ")
     )
 }
 

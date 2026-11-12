@@ -88,8 +88,12 @@ fn trial(spec: &FarmSpec, stages: i32, freeze: Option<(i64, i64)>, ticks: i64) -
 /// The pulse train (G1 Nov 11 19:43): `pulses` trigger pulses `width` gt long every `every` gt (one
 /// per release), a `len`-gt freeze begun at every phase of one period; each stage's rise and fall per
 /// pulse against the paused ideal (start + 2(k+1) [+ width for the fall], + len when the freeze began
-/// before it), and the waves' integrity (each stage rises and falls once per pulse).
-pub fn bench_train(spec: &FarmSpec, stages: i32, len: i64, every: i64, width: i64, pulses: i64) -> Result<Vec<String>, String> {
+/// before it), and the waves' integrity (each stage rises and falls once per pulse). `pb`: the brief's
+/// latched start (ironspec 20:45, G1 21:35): P set at each trigger and held, the chain's input on
+/// while P is set, P cleared when stage 1 rises; so a freeze can only carry a start late (the wave is
+/// then stage 1's 2-gt pulse, the nominal width 2).
+pub fn bench_train(spec: &FarmSpec, stages: i32, len: i64, every: i64, width: i64, pulses: i64, pb: bool) -> Result<Vec<String>, String> {
+    let width = if pb { 2 } else { width };
     let horizon = every * pulses + 2 * stages as i64 + len + 40;
     let run_one = |freeze: Option<(i64, i64)>| -> Result<Vec<Vec<(i64, bool)>>, String> {
         let ro = RunOpts { ai: false, ..RunOpts::steady(1, horizon as u32 + 20, WalkMode::Random) };
@@ -101,11 +105,13 @@ pub fn bench_train(spec: &FarmSpec, stages: i32, len: i64, every: i64, width: i6
         let drv = drivers(stages);
         let mut was = vec![false; stages as usize];
         let mut tr: Vec<Vec<(i64, bool)>> = vec![Vec::new(); stages as usize];
+        let mut p_set = false;
         for t in 0..horizon {
             if t % every == 0 && t / every < pulses {
                 run.world.set_block(BlockPos::new(0, 1, 0), on.clone(), redsim::world::flags::ALL);
+                p_set = true;
             }
-            if t % every == width && t / every < pulses {
+            if !pb && t % every == width && t / every < pulses {
                 run.world.set_block(BlockPos::new(0, 1, 0), air.clone(), redsim::world::flags::ALL);
             }
             if let Some((f, l)) = freeze {
@@ -121,6 +127,11 @@ pub fn bench_train(spec: &FarmSpec, stages: i32, len: i64, every: i64, width: i6
                 }
             }
             run.tick();
+            // (P/B: stage 1 has risen: the wave entered the chain, P clears)
+            if pb && p_set && run.world.get(BlockPos::new(1, 1, 0)).to_string().contains("powered=true") {
+                p_set = false;
+                run.world.set_block(BlockPos::new(0, 1, 0), air.clone(), redsim::world::flags::ALL);
+            }
             for k in 0..stages as usize {
                 let now = run.world.get(BlockPos::new(k as i32 + 1, 1, 0)).to_string().contains("powered=true");
                 if now != was[k] {
@@ -272,7 +283,7 @@ pub fn bench(spec: &FarmSpec, stages: i32, len: i64) -> Result<Vec<String>, Stri
         format!("{label}: {}", m.iter().map(|(l, n)| format!("{l}:{n}")).collect::<Vec<_>>().join(" "))
     }).collect();
     out.push(format!("the lag by when each stage was due after the bus rose (lag:count; a stage due within the lockers' own 2 gt fires unpaused, lag -{len}): {}", rows.join("; ")));
-    out.push(format!("the pause latency from a freeze: ALIVE's drop (rising edges 3..4 gt apart, the 5-gt stretcher: 1..5 gt after the freeze) + the bus trunk's delay + the lockers' 2 gt; a timed stage due inside it still fires"));
+    out.push(format!("the pause latency from a freeze: ALIVE's drop (as built, ring-bench --alive: the comparator's 2 gt + the observer's 2 gt and its 2-gt pulse, so 2 + S to 6 + S gt after the freeze, S the stretcher's hold; the software ALIVE 1..5) + the bus trunk's delay + the lockers' 2 gt; a timed stage due inside it still fires"));
     let ctl = trial(spec, stages, Some((1, 200)), 2 * stages as i64 + 260)?;
     let during = ctl.iter().filter(|r| r.is_some_and(|t| t > 3 && t <= 201)).count();
     let first_after = ctl.iter().filter_map(|r| *r).filter(|t| *t > 201).min();

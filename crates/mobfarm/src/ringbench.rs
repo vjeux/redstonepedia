@@ -235,7 +235,9 @@ pub fn bench(spec: &FarmSpec, ticks: u32, stretch: i64, gone_at: Option<u32>) ->
     if built {
         // (the stretcher as built: a repeater of `delay` ticks on the raw OR line: it turns on `delay`
         // gt after its input rises (a shorter pulse is lengthened), and off `delay` gt after its input
-        // falls only if the input is still off then (DiodeBlock.tick re-checks its input))
+        // falls only if the input is still off then; its scheduled tick runs at VERY_HIGH priority,
+        // before the observers' NORMAL ticks of the same gt, so it sees the line as it stood at the end
+        // of the gt before (G1 Nov 11 21:35): a gap of `delay` gt or more drops it)
         let rep = |delay: i64| -> Vec<bool> {
             let (mut out, mut pending): (bool, Option<i64>) = (false, None);
             let mut res = vec![false; raw.len()];
@@ -243,11 +245,12 @@ pub fn bench(spec: &FarmSpec, ticks: u32, stretch: i64, gone_at: Option<u32>) ->
                 let t = t as i64;
                 if pending == Some(t) {
                     pending = None;
-                    if out && !input {
+                    let seen = if t > 0 { raw[t as usize - 1] } else { input };
+                    if out && !seen {
                         out = false;
                     } else if !out {
                         out = true;
-                        if !input {
+                        if !seen {
                             pending = Some(t + delay);
                         }
                     }
