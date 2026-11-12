@@ -10,7 +10,6 @@
 use mctas::design::Design;
 use redsim::block::Block;
 use redsim::entity::mob::farm::{FarmSpec, Run, RunOpts, WalkMode};
-use redsim::pos::BlockPos;
 
 type P = [i32; 3];
 
@@ -117,13 +116,13 @@ pub fn design() -> Design {
 pub fn bench(spec: &FarmSpec, cycles: i64, period: i64, width: i64, jitter: &[i64]) -> Result<Vec<String>, String> {
     let horizon = cycles * period + 200;
     let ro = RunOpts { ai: false, ..RunOpts::steady(1, horizon as u32 + 20, WalkMode::Random) };
-    let mut run = Run::start(spec, &ro)?;
+    let mut run = Run::start(&crate::mirror::spec(spec)?, &ro)?;
     while run.settle_tick() {}
     let on = Block::parse("minecraft:redstone_block").map_err(|e| e.to_string())?;
     let air = Block::parse("minecraft:air").map_err(|e| e.to_string())?;
     let all = redsim::world::flags::ALL;
-    let bp = |p: P| BlockPos::new(p[0], p[1], p[2]);
-    let drive = BlockPos::new(0, 0, 3);
+    let bp = |p: P| crate::mirror::at(p);
+    let drive = crate::mirror::bp(0, 0, 3);
     let expect = |u: i64| -> i32 { match u.rem_euclid(10) { 0 => 2, 3 | 6 | 7 => 1, _ => 0 } };
     let (mut ok, mut bad) = (0u64, Vec::new());
     let mut settle_max = 0i64;

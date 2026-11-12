@@ -142,16 +142,16 @@ pub fn bench(spec: &FarmSpec, g: Geom) -> Result<Vec<String>, String> {
     let per = 120i64; // gt per trial
     let horizon = cases.len() as i64 * offsets * per + 400;
     let ro = RunOpts { ai: false, ..RunOpts::steady(1, horizon as u32 + 20, WalkMode::Random) };
-    let mut run = Run::start(spec, &ro)?;
+    let mut run = Run::start(&crate::mirror::spec(spec)?, &ro)?;
     while run.settle_tick() {}
     let on = Block::parse("minecraft:redstone_block").map_err(|e| e.to_string())?;
     let air = Block::parse("minecraft:air").map_err(|e| e.to_string())?;
     let dust = Block::parse(DUST_NS).map_err(|e| e.to_string())?;
     let all = redsim::world::flags::ALL;
-    let bp = |p: P| BlockPos::new(p[0], p[1], p[2]);
+    let bp = |p: P| crate::mirror::at(p);
     // (a source at level s: its block on the cell 16 - s from the comparator's end, so the end dust
     // reads 15 - (16 - s - 1) = s; 0 = no block)
-    let src_cell = |line: P, dir: i32, s: i32| -> Option<BlockPos> { (s > 0).then(|| BlockPos::new(line[0], 1, line[2] + dir * (16 - s))) };
+    let src_cell = |line: P, dir: i32, s: i32| -> Option<BlockPos> { (s > 0).then(|| crate::mirror::bp(line[0], 1, line[2] + dir * (16 - s))) };
     let s2 = g.src2();
     let set_src = |run: &mut Run, prev: i32, s: i32| {
         for (line, dir) in [(SRC1, 1), (s2, -1)] {
@@ -178,7 +178,7 @@ pub fn bench(spec: &FarmSpec, g: Geom) -> Result<Vec<String>, String> {
         *t += 1;
     };
     // (the level LIVE1 sends into the cell west of it: the source's self-check)
-    let probe = |run: &Run| run.world.best_neighbor_signal(BlockPos::new(-1, 1, 0));
+    let probe = |run: &Run| run.world.best_neighbor_signal(crate::mirror::bp(-1, 1, 0));
     for &(from, to) in &cases {
         for off in 0..offsets {
             // reset the latch (a 6-gt pulse on the south reset), settle at `from`

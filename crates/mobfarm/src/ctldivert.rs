@@ -13,7 +13,6 @@
 use mctas::design::Design;
 use redsim::block::Block;
 use redsim::entity::mob::farm::{FarmSpec, Run, RunOpts, WalkMode};
-use redsim::pos::BlockPos;
 
 type P = [i32; 3];
 
@@ -126,12 +125,12 @@ pub fn bench(spec: &FarmSpec, width: i64, mode: Mode, edge: Edge) -> Result<Vec<
     let per = 80i64 + width;
     let horizon = 2 * deltas.len() as i64 * (per + 60) + 200;
     let ro = RunOpts { ai: false, ..RunOpts::steady(1, horizon as u32 + 20, WalkMode::Random) };
-    let mut run = Run::start(spec, &ro)?;
+    let mut run = Run::start(&crate::mirror::spec(spec)?, &ro)?;
     while run.settle_tick() {}
     let on = Block::parse("minecraft:redstone_block").map_err(|e| e.to_string())?;
     let air = Block::parse("minecraft:air").map_err(|e| e.to_string())?;
     let all = redsim::world::flags::ALL;
-    let bp = |p: P| BlockPos::new(p[0], p[1], p[2]);
+    let bp = |p: P| crate::mirror::at(p);
     let junction = |run: &Run| run.world.best_neighbor_signal(bp(JUNCTION)) > 0;
     let l_on = |run: &Run| run.world.get(bp(L)).to_string().contains("powered=true");
     run.world.set_block(bp(DIV_DRIVE), on.clone(), all);

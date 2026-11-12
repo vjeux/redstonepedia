@@ -103,13 +103,13 @@ fn edge(v: &mut Vec<(i64, i64)>, was: &mut bool, now: bool, t: i64) {
 /// One run: the drive block placed at every cycle start (t = phase + k * 100, k < `cycles`) for 20 gt; a
 /// ridden cart placed on the hold rail at t = `place` (None: no cart). States are read after each tick.
 fn run_once(phase: i64, cycles: i64, place: Option<i64>) -> Result<Rec, String> {
-    let sp = spec()?;
+    let sp = crate::mirror::spec(&spec()?)?;
     let ro = RunOpts { ai: false, ..RunOpts::steady(1, 0, WalkMode::Random) };
     let mut run = Run::start(&sp, &ro)?;
     while run.settle_tick() {}
     let on = Block::parse("minecraft:redstone_block").map_err(|e| e.to_string())?;
     let air = Block::parse("minecraft:air").map_err(|e| e.to_string())?;
-    let bp = |p: [i32; 3]| BlockPos::new(p[0], p[1], p[2]);
+    let bp = |p: [i32; 3]| crate::mirror::at(p);
     let powered = |run: &Run, p: [i32; 3]| run.world.get(bp(p)).to_string().contains("powered=true");
     let mut rec = Rec::default();
     let mut cart: Option<u32> = None;
@@ -124,7 +124,7 @@ fn run_once(phase: i64, cycles: i64, place: Option<i64>) -> Result<Rec, String> 
             run.world.set_block(bp(ARM3_DRIVE), air.clone(), redsim::world::flags::ALL);
         }
         if place == Some(t) {
-            cart = Some(redsim::entity::spawn(&mut run.world, "minecraft:minecart", [HOLD[0] as f64 + 0.5, 1.0625, HOLD[2] as f64 + 0.5], Some("{Motion:[0.0d,0.0d,0.0d],Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}"))?);
+            cart = Some(redsim::entity::spawn(&mut run.world, "minecraft:minecart", [HOLD[0] as f64 + 0.5, 1.0625, crate::mirror::zf(HOLD[2] as f64 + 0.5)], Some("{Motion:[0.0d,0.0d,0.0d],Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}"))?);
         }
         run.tick();
         let a = powered(&run, ARM3);

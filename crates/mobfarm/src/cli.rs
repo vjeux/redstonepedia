@@ -47,6 +47,9 @@ pub enum MobfarmCmd {
         /// Nov 12: the release at stage 3; stage 1 is the control that must break); 0 = off.
         #[arg(long, default_value_t = 0)]
         release_stage: i32,
+        /// Run the bench z-mirrored (`mirror.rs`: z -> -z, north <-> south; onechunk rev 3's southern pair).
+        #[arg(long)]
+        mirror_z: bool,
     },
     /// The controller's units digit (`ctlring.rs`, day-1 Nov 12): one 10-dropper ring, four tokens
     /// (the u = 0 one unstackable), one tap; writes the design to `--out` and pulses its clock
@@ -63,6 +66,9 @@ pub enum MobfarmCmd {
         width: i64,
         #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
         jitter: Vec<i64>,
+        /// Run the bench z-mirrored (`mirror.rs`).
+        #[arg(long)]
+        mirror_z: bool,
     },
     /// The skip arm's drop latch as blocks (`ctllatch.rs`, ironspec Nov 12 03:27): LIVE x2 -> DLY ->
     /// SUB -> 3 dust -> the threshold repeater -> an RS NOR latch; every fall case at every gt offset
@@ -76,6 +82,9 @@ pub enum MobfarmCmd {
         /// The dust the threshold repeater sits on (3 = the design; 2 = the control: sets at a fall of 2).
         #[arg(long, default_value_t = 3)]
         thresh_dust: i32,
+        /// Run the bench z-mirrored (`mirror.rs`).
+        #[arg(long)]
+        mirror_z: bool,
     },
     /// The odd launch tap (`oddtap.rs`, ironspec Nov 12 05:29; G1 on 72d510183): a cart with a villager
     /// rider leaving a powered hold rail powered by a repeater (the chain's 2-gt stage) or by a sticky
@@ -93,6 +102,9 @@ pub enum MobfarmCmd {
     CtlJunctionBench {
         #[arg(long)]
         out: PathBuf,
+        /// Run the bench z-mirrored (`mirror.rs`).
+        #[arg(long)]
+        mirror_z: bool,
     },
     /// split9's napper hold release (`holdpulse.rs`, ironspec Nov 12 06:46): an 8-gt pulse at ARM3 + 10
     /// every cycle; the pulse's timing over every phase, and a ridden cart placed between two pulses
@@ -101,6 +113,9 @@ pub enum MobfarmCmd {
         /// The step between the placements (gt).
         #[arg(long, default_value_t = 1)]
         step: i64,
+        /// Run the bench z-mirrored (`mirror.rs`).
+        #[arg(long)]
+        mirror_z: bool,
     },
     /// The divert's single atomic read as blocks (`ctldivert.rs`, ironspec Nov 12 03:27): DECIDE = DIV -
     /// DAY held by a repeater unlocked by a rising-edge pulse of D2; DAY's edge at every gt offset around
@@ -118,6 +133,9 @@ pub enum MobfarmCmd {
         /// The input swept around D2: day (DAY's edge, DIV armed) or div (DIV's edge, at night).
         #[arg(long, default_value = "day")]
         edge: String,
+        /// Run the bench z-mirrored (`mirror.rs`).
+        #[arg(long)]
+        mirror_z: bool,
     },
     /// 3): the units ring fast-forwarded to u 0 at its own step rate on RISE / trigger 2 (each at the
     /// next release), a pending-step latch for a release during the FF, the trigger-2 gate; every
@@ -8326,7 +8344,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::ChainBench { out, stages, freeze_len, pulses, every, width, pb, pb_stage, pb_transit, pair_stride, terminator, release_stage } => {
+        MobfarmCmd::ChainBench { out, stages, freeze_len, pulses, every, width, pb, pb_stage, pb_transit, pair_stride, terminator, release_stage, mirror_z } => {
+            crate::mirror::set(mirror_z);
+            if mirror_z {
+                println!("chain-bench{}", crate::mirror::tag());
+            }
             let d = crate::chainbench::design(stages, pb_transit, terminator);
             std::fs::write(&out, format!("# The pausable timers' shared lockable chain: {stages} 1-tick repeaters, side lockers on a NOT-ALIVE bus{}{} (mctas mobfarm chain-bench).\n{}", if terminator { ", a dummy repeater after the last tap" } else { "" }, if pb_transit { "; plus the bench's mid-gt bus drivers (scaffolding: a repeater per driver, not part of the chain)" } else { "" }, d.to_text()))?;
             let (_c, spec) = load(version, &out)?;
@@ -8381,7 +8403,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
         }
-        MobfarmCmd::CtlDivertBench { out, width, control, edge } => {
+        MobfarmCmd::CtlDivertBench { out, width, control, edge, mirror_z } => {
+            crate::mirror::set(mirror_z);
+            if mirror_z {
+                println!("ctl-divert-bench{}", crate::mirror::tag());
+            }
             let mode = match control.as_str() {
                 "edge" => crate::ctldivert::Mode::Edge,
                 "level" => crate::ctldivert::Mode::Level,
@@ -8400,12 +8426,20 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
         }
-        MobfarmCmd::HoldPulseBench { step } => {
+        MobfarmCmd::HoldPulseBench { step, mirror_z } => {
+            crate::mirror::set(mirror_z);
+            if mirror_z {
+                println!("hold-pulse-bench{}", crate::mirror::tag());
+            }
             for l in crate::holdpulse::bench(step.max(1)).map_err(|e| anyhow::anyhow!(e))? {
                 println!("{l}");
             }
         }
-        MobfarmCmd::CtlJunctionBench { out } => {
+        MobfarmCmd::CtlJunctionBench { out, mirror_z } => {
+            crate::mirror::set(mirror_z);
+            if mirror_z {
+                println!("ctl-junction-bench{}", crate::mirror::tag());
+            }
             let d = crate::ctljunction::design();
             std::fs::write(&out, format!("# The J/K junction driver: the napper-present latch's driver repeater power-forcing a T-junction rail (mctas mobfarm ctl-junction-bench).\n{}", d.to_text()))?;
             let (_c, spec) = load(version, &out)?;
@@ -8418,7 +8452,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
         }
-        MobfarmCmd::CtlLatchBench { out, dly, thresh_dust } => {
+        MobfarmCmd::CtlLatchBench { out, dly, thresh_dust, mirror_z } => {
+            crate::mirror::set(mirror_z);
+            if mirror_z {
+                println!("ctl-latch-bench{}", crate::mirror::tag());
+            }
             let g = crate::ctllatch::Geom { dly, td: thresh_dust };
             let d = crate::ctllatch::design_with(g);
             std::fs::write(&out, format!("# The skip arm's drop latch (dly {dly}, threshold on dust {thresh_dust}): LIVE x2 -> DLY -> SUB -> dust -> the threshold repeater -> an RS NOR latch, with the bench's two source lines (mctas mobfarm ctl-latch-bench).\n{}", d.to_text()))?;
@@ -8427,7 +8465,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
         }
-        MobfarmCmd::CtlRingBench { out, cycles, period, width, jitter } => {
+        MobfarmCmd::CtlRingBench { out, cycles, period, width, jitter, mirror_z } => {
+            crate::mirror::set(mirror_z);
+            if mirror_z {
+                println!("ctl-ring-bench{}", crate::mirror::tag());
+            }
             let d = crate::ctlring::design();
             std::fs::write(&out, format!("# The controller's units digit: a 10-dropper ring, 4 tokens (the u = 0 one unstackable), one tap on D8 (mctas mobfarm ctl-ring-bench).\n{}", d.to_text()))?;
             let (_c, spec) = load(version, &out)?;

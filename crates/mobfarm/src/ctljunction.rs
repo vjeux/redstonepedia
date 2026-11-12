@@ -9,7 +9,6 @@
 use mctas::design::Design;
 use redsim::block::Block;
 use redsim::entity::mob::farm::{FarmSpec, Run, RunOpts, WalkMode};
-use redsim::pos::BlockPos;
 
 type P = [i32; 3];
 
@@ -82,12 +81,12 @@ pub fn piece_blocks() -> usize {
 pub fn bench(spec: &FarmSpec) -> Result<Vec<String>, String> {
     let horizon = 20 * 200 + 400;
     let ro = RunOpts { ai: false, ..RunOpts::steady(1, horizon as u32 + 20, WalkMode::Random) };
-    let mut run = Run::start(spec, &ro)?;
+    let mut run = Run::start(&crate::mirror::spec(spec)?, &ro)?;
     while run.settle_tick() {}
     let on = Block::parse("minecraft:redstone_block").map_err(|e| e.to_string())?;
     let air = Block::parse("minecraft:air").map_err(|e| e.to_string())?;
     let all = redsim::world::flags::ALL;
-    let bp = |p: P| BlockPos::new(p[0], p[1], p[2]);
+    let bp = |p: P| crate::mirror::at(p);
     let shape = |run: &Run| run.world.get(bp(JUNCTION)).to_string();
     let mut t = 0i64;
     let tick = |run: &mut Run, t: &mut i64| {

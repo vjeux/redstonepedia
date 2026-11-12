@@ -9,7 +9,6 @@
 use mctas::design::Design;
 use redsim::block::Block;
 use redsim::entity::mob::farm::{FarmSpec, Run, RunOpts, WalkMode};
-use redsim::pos::BlockPos;
 
 const REP_CHAIN: &str = "minecraft:repeater[delay=1,facing=west,locked=false,powered=false]";
 const REP_LOCK: &str = "minecraft:repeater[delay=1,facing=north,locked=false,powered=false]";
@@ -72,29 +71,29 @@ fn drivers(stages: i32) -> Vec<i32> {
 /// every stage's rise time after t0 (None: never within the run).
 fn trial(spec: &FarmSpec, stages: i32, freeze: Option<(i64, i64)>, ticks: i64) -> Result<Vec<Option<i64>>, String> {
     let ro = RunOpts { ai: false, ..RunOpts::steady(1, ticks as u32 + 20, WalkMode::Random) };
-    let mut run = Run::start(spec, &ro)?;
+    let mut run = Run::start(&crate::mirror::spec(spec)?, &ro)?;
     while run.settle_tick() {}
     let on = Block::parse("minecraft:redstone_block").map_err(|e| e.to_string())?;
     let dust = Block::parse(DUST).map_err(|e| e.to_string())?;
     let drv = drivers(stages);
-    run.world.set_block(BlockPos::new(0, 1, 0), on.clone(), redsim::world::flags::ALL);
+    run.world.set_block(crate::mirror::bp(0, 1, 0), on.clone(), redsim::world::flags::ALL);
     let mut rise: Vec<Option<i64>> = vec![None; stages as usize];
     for t in 0..ticks {
         if let Some((f, len)) = freeze {
             if t == f {
                 for x in &drv {
-                    run.world.set_block(BlockPos::new(*x, 1, -2), on.clone(), redsim::world::flags::ALL);
+                    run.world.set_block(crate::mirror::bp(*x, 1, -2), on.clone(), redsim::world::flags::ALL);
                 }
             }
             if t == f + len {
                 for x in &drv {
-                    run.world.set_block(BlockPos::new(*x, 1, -2), dust.clone(), redsim::world::flags::ALL);
+                    run.world.set_block(crate::mirror::bp(*x, 1, -2), dust.clone(), redsim::world::flags::ALL);
                 }
             }
         }
         run.tick();
         for k in 0..stages {
-            if rise[k as usize].is_none() && run.world.get(BlockPos::new(k + 1, 1, 0)).to_string().contains("powered=true") {
+            if rise[k as usize].is_none() && run.world.get(crate::mirror::bp(k + 1, 1, 0)).to_string().contains("powered=true") {
                 rise[k as usize] = Some(t + 1);
             }
         }
@@ -118,20 +117,20 @@ pub fn bench_pb(spec: &FarmSpec, stages: i32, len: i64, ns: &[i32], stride: i64,
     let air = Block::parse("minecraft:air").map_err(|e| e.to_string())?;
     let dust = Block::parse(DUST).map_err(|e| e.to_string())?;
     let drv = drivers(stages);
-    let s1 = BlockPos::new(1, 1, 0);
+    let s1 = crate::mirror::bp(1, 1, 0);
     let all = redsim::world::flags::ALL;
     let stride = stride.max(1) as usize;
     const TRIG: i64 = 4;
     let trial = |n: i32, mid: bool, pre_clear: Option<i64>, freezes: &[(i64, i64)], horizon: i64| -> Result<(Vec<Vec<(i64, bool)>>, Option<i64>), String> {
         let ro = RunOpts { ai: false, ..RunOpts::steady(1, horizon as u32 + 20, WalkMode::Random) };
-        let run_n = Run::start(spec, &ro);
+        let run_n = Run::start(&crate::mirror::spec(spec)?, &ro);
         let mut run = run_n?;
         while run.settle_tick() {}
         // (ironspec Nov 12 00:12: hold-settled (SETTLED) drops when the release tap at stage
         // `release_stage` rises (the holds empty), so the chain's input P AND SETTLED AND NOT B falls
         // at the first of stage N's rise (P clears, B sets) and the release's)
         let n_eff = if release_stage > 0 { n.min(release_stage) } else { n };
-        let n_cell = BlockPos::new(n_eff, 1, 0);
+        let n_cell = crate::mirror::bp(n_eff, 1, 0);
         let rep_kind = run.world.get(s1).kind();
         let mut was = vec![false; stages as usize];
         let mut tr: Vec<Vec<(i64, bool)>> = vec![Vec::new(); stages as usize];
@@ -140,29 +139,29 @@ pub fn bench_pb(spec: &FarmSpec, stages: i32, len: i64, ns: &[i32], stride: i64,
             // (the trigger at t = TRIG, so freezes from f = 2 also catch it and the wave's entry: G1
             // Nov 11 23:41)
             if t == TRIG {
-                run.world.set_block(BlockPos::new(0, 1, 0), on.clone(), all);
+                run.world.set_block(crate::mirror::bp(0, 1, 0), on.clone(), all);
             }
             for &(f, l) in freezes {
                 if mid {
                     if t == f - 2 {
                         for x in &drv {
-                            run.world.set_block(BlockPos::new(*x, 1, -4), on.clone(), all);
+                            run.world.set_block(crate::mirror::bp(*x, 1, -4), on.clone(), all);
                         }
                     }
                     if t == f + l - 2 {
                         for x in &drv {
-                            run.world.set_block(BlockPos::new(*x, 1, -4), air.clone(), all);
+                            run.world.set_block(crate::mirror::bp(*x, 1, -4), air.clone(), all);
                         }
                     }
                 } else {
                     if t == f {
                         for x in &drv {
-                            run.world.set_block(BlockPos::new(*x, 1, -2), on.clone(), all);
+                            run.world.set_block(crate::mirror::bp(*x, 1, -2), on.clone(), all);
                         }
                     }
                     if t == f + l {
                         for x in &drv {
-                            run.world.set_block(BlockPos::new(*x, 1, -2), dust.clone(), all);
+                            run.world.set_block(crate::mirror::bp(*x, 1, -2), dust.clone(), all);
                         }
                     }
                 }
@@ -174,10 +173,10 @@ pub fn bench_pb(spec: &FarmSpec, stages: i32, len: i64, ns: &[i32], stride: i64,
             if p_set && run.world.get(n_cell).to_string().contains("powered=true") {
                 p_set = false;
                 rose = Some(t);
-                run.world.set_block(BlockPos::new(0, 1, 0), air.clone(), all);
+                run.world.set_block(crate::mirror::bp(0, 1, 0), air.clone(), all);
             }
             for k in 0..stages as usize {
-                let now = run.world.get(BlockPos::new(k as i32 + 1, 1, 0)).to_string().contains("powered=true");
+                let now = run.world.get(crate::mirror::bp(k as i32 + 1, 1, 0)).to_string().contains("powered=true");
                 if now != was[k] {
                     tr[k].push((t + 1, now));
                     was[k] = now;
@@ -281,11 +280,11 @@ pub fn bench_train(spec: &FarmSpec, stages: i32, len: i64, every: i64, width: i6
     // and holds behind its locker while its predecessor's fall runs first: G1/ironspec Nov 11 22:48);
     // 2 makes a 4-gt wave, a stage always on between the falling and the rising one)
     let width = if pb { 2 * pb_stage.max(1) as i64 } else { width };
-    let pb_cell = BlockPos::new(pb_stage.max(1), 1, 0);
+    let pb_cell = crate::mirror::bp(pb_stage.max(1), 1, 0);
     let horizon = every * pulses + 2 * stages as i64 + len + 40;
     let run_one = |freeze: Option<(i64, i64)>| -> Result<Vec<Vec<(i64, bool)>>, String> {
         let ro = RunOpts { ai: false, ..RunOpts::steady(1, horizon as u32 + 20, WalkMode::Random) };
-        let mut run = Run::start(spec, &ro)?;
+        let mut run = Run::start(&crate::mirror::spec(spec)?, &ro)?;
         while run.settle_tick() {}
         let on = Block::parse("minecraft:redstone_block").map_err(|e| e.to_string())?;
         let air = Block::parse("minecraft:air").map_err(|e| e.to_string())?;
@@ -296,21 +295,21 @@ pub fn bench_train(spec: &FarmSpec, stages: i32, len: i64, every: i64, width: i6
         let mut p_set = false;
         for t in 0..horizon {
             if t % every == 0 && t / every < pulses {
-                run.world.set_block(BlockPos::new(0, 1, 0), on.clone(), redsim::world::flags::ALL);
+                run.world.set_block(crate::mirror::bp(0, 1, 0), on.clone(), redsim::world::flags::ALL);
                 p_set = true;
             }
             if !pb && t % every == width && t / every < pulses {
-                run.world.set_block(BlockPos::new(0, 1, 0), air.clone(), redsim::world::flags::ALL);
+                run.world.set_block(crate::mirror::bp(0, 1, 0), air.clone(), redsim::world::flags::ALL);
             }
             if let Some((f, l)) = freeze {
                 if t == f {
                     for x in &drv {
-                        run.world.set_block(BlockPos::new(*x, 1, -2), on.clone(), redsim::world::flags::ALL);
+                        run.world.set_block(crate::mirror::bp(*x, 1, -2), on.clone(), redsim::world::flags::ALL);
                     }
                 }
                 if t == f + l {
                     for x in &drv {
-                        run.world.set_block(BlockPos::new(*x, 1, -2), dust.clone(), redsim::world::flags::ALL);
+                        run.world.set_block(crate::mirror::bp(*x, 1, -2), dust.clone(), redsim::world::flags::ALL);
                     }
                 }
             }
@@ -318,10 +317,10 @@ pub fn bench_train(spec: &FarmSpec, stages: i32, len: i64, every: i64, width: i6
             // (P/B: stage `pb_stage` has risen: the wave entered the chain, P clears)
             if pb && p_set && run.world.get(pb_cell).to_string().contains("powered=true") {
                 p_set = false;
-                run.world.set_block(BlockPos::new(0, 1, 0), air.clone(), redsim::world::flags::ALL);
+                run.world.set_block(crate::mirror::bp(0, 1, 0), air.clone(), redsim::world::flags::ALL);
             }
             for k in 0..stages as usize {
-                let now = run.world.get(BlockPos::new(k as i32 + 1, 1, 0)).to_string().contains("powered=true");
+                let now = run.world.get(crate::mirror::bp(k as i32 + 1, 1, 0)).to_string().contains("powered=true");
                 if now != was[k] {
                     tr[k].push((t + 1, now));
                     was[k] = now;
