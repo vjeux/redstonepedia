@@ -1306,7 +1306,7 @@ pub enum MobfarmCmd {
         #[arg(long)]
         guard_det: bool,
         /// The detector guard's cell: the merge's z + this (1: shared with the split's latch, the lead).
-        #[arg(long, default_value_t = 2)]
+        #[arg(long, default_value_t = 1)]
         guard_dz: i32,
         /// The siding bench: the passive drop entry (the merge one level up over a drop with a wall).
         #[arg(long)]

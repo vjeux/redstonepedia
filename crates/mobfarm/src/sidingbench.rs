@@ -843,7 +843,7 @@ pub fn lanes_design(ns: i32) -> Result<String, String> {
         mz + 1,
         mz + 1
     ));
-    out.push_str("# Bars as benched (the bench's v_in is the STORED speed, the cart's Motion; a ridden cart moves 0.75 of it a tick): see the commit for the rows; every failure count 0; the 10 load orders at every phase 0 failing.\n");
+    out.push_str("# The split's interface (the bench's v_in is the STORED speed, the cart's Motion at (x,24,9); a ridden cart moves 0.75 of it a tick): stored 0.30..0.48 benched clean (8 a lane, 5 slopes, ret 130..600, nap_ret 60/150/300, +-2: arrivals q0/q1 0.459, q2 0.392, q3 <= 0.332, nappers <= 0.459, landings meeting a cart 0); stored 0.26 fails the late napper with the guard at (x,24,8) (napper and successor land together); 0.22 rests on the merge's glass. Restarts (10 load orders at every phase) and the fresh-design cold start at every phase: 0 failing.\n");
     out.push_str("name: f1q2-lanes\ncircuit: mob-farm iron_ingot\n");
     out.push_str(&format!("origin: {x0} 0 {z0}\npalette:\n"));
     for s in &states {
