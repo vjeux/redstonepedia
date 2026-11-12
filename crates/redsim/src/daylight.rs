@@ -204,6 +204,11 @@ fn props(b: &Block) -> Result<Props, String> {
         // glass, stained glass and copper grates, waterlogged too (`TransparentBlock`:
         // propagatesSkylightDown always, not solid render: light dampening 0, no occlusion)
         Block::Simple(Simple::Glass | Simple::WhiteStainedGlass | Simple::BlackStainedGlass | Simple::WaxedCopperGrate) | Block::WaterloggedGrate => Props { dampening: 0, faces: None },
+        // a slime block (onechunk 2026-11-12, the S-bend's R support: ironfarm's row fix): a
+        // HalfTransparentBlock with `noOcclusion()` (not solid render, no occluding face) that
+        // overrides neither `getShape` nor `propagatesSkylightDown`, so its full shape keeps the sky
+        // light from passing down: `getLightDampening` = 1, as water's
+        Block::Simple(Simple::SlimeBlock) => Props { dampening: 1, faces: None },
         // a moving block (`MovingPistonBlock`: noOcclusion, an empty shape without its block
         // entity, which the state's light cache is computed without: dampening 0, no occlusion)
         Block::MovingPiston { .. } => Props { dampening: 0, faces: None },
@@ -640,6 +645,21 @@ mod tests {
         let mut w = World::new(BlockPos::new(-2, -2, -2), [5, 8, 5]);
         w.place_raw(&layer(Block::Simple(crate::block::Simple::Stone)));
         assert!(sky_light(&w, BlockPos::new(0, 1, 0)).unwrap() < 13);
+    }
+
+    /// (onechunk 2026-11-12) A slime block (`noOcclusion`, its full shape unchanged) keeps the sky
+    /// from passing down and dampens by 1: under a whole layer of it the layer's cells read 14 and
+    /// the cell under them 13, as under water; glass (`TransparentBlock`) lets the sky through.
+    #[test]
+    fn a_slime_block_dampens_by_one() {
+        let layer = |b: Block| -> Vec<(BlockPos, Block)> { (-2..=2).flat_map(|x| (-2..=2).map(move |z| (x, z))).map(|(x, z)| (BlockPos::new(x, 2, z), b.clone())).collect() };
+        let mut w = World::new(BlockPos::new(-2, -2, -2), [5, 8, 5]);
+        w.place_raw(&layer(Block::Simple(crate::block::Simple::SlimeBlock)));
+        assert_eq!(sky_light(&w, BlockPos::new(0, 2, 0)), Ok(14), "the layer's cell");
+        assert_eq!(sky_light(&w, BlockPos::new(0, 1, 0)), Ok(13), "the cell under the layer");
+        let mut w = World::new(BlockPos::new(-2, -2, -2), [5, 8, 5]);
+        w.place_raw(&layer(Block::Simple(crate::block::Simple::Glass)));
+        assert_eq!(sky_light(&w, BlockPos::new(0, 1, 0)), Ok(15), "a glass layer: a sky source");
     }
 
     #[test]

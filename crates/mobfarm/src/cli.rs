@@ -1806,6 +1806,11 @@ pub enum MobfarmCmd {
         /// census; exit 1 on any difference.
         #[arg(long)]
         verify: Option<PathBuf>,
+        /// With --verify: a keep-clear box, NAME=x0,y0,z0,x1,y1,z1 (inclusive), that must hold no
+        /// block in the committed file (ironspec 09:31: the bed stop's column over the bed).
+        /// Repeatable.
+        #[arg(long = "keep-clear", allow_hyphen_values = true)]
+        keep_clear: Vec<String>,
     },
     /// A design's overworld box: its extents, volume, the chunk columns it crosses (X >> 4,
     /// Z >> 4 of its cells as written) and its blocks by kind, within `--box` if given.
@@ -1848,6 +1853,18 @@ pub enum MobfarmCmd {
     /// level from the loader loop's portal ticket (26.3: level 30 at the exit portal's chunk in the
     /// destination level; best level 30 + the Chebyshev distance, >= 32 a violation), the module
     /// copies placed by the budget's tiling around the loader's gap chunk (`mobfarm::ticketcheck`).
+    /// (onechunk; ironspec 09:22) Each hold's launch threshold against its pulse: a cart with a
+    /// villager settled on the hold's powered rail, the rail powered N gt; the least N that sends
+    /// it off the hold for good, against the controller's pulse.
+    HoldCheck {
+        design: PathBuf,
+        /// A hold, NAME=x,y,z:PULSE (the controller's pulse in gt). Repeatable.
+        #[arg(long = "hold")]
+        holds: Vec<String>,
+        /// The longest pulse tried (gt).
+        #[arg(long, default_value_t = 40)]
+        max: i64,
+    },
     TicketCheck {
         #[arg(long)]
         module: PathBuf,
@@ -6778,7 +6795,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let o = crate::columnrun::Opts { cycles, warm, seed, close_at, slope_delay, g2_plus, hold_shut_delay, pulse, laps, trace };
             print!("{}", crate::columnrun::run(&spec, &c.clock.design.meta, &o).map_err(|e| anyhow::anyhow!(e))?);
         }
-        MobfarmCmd::Column { parts, reserves, reserves_from, reserve_skip, ports, tracks, carts, posts, clears, column, chunk_phase, plan, name, no_settle, ground, out_shift, no_riders, positions_out, path, notes, bed, bed_exempt, sentinel, sections, summon_box, golem_box, run_gate, run_cell, run_controller, notes_file, pockets, block, wait_box, out, verify } => {
+        MobfarmCmd::Column { parts, reserves, reserves_from, reserve_skip, ports, tracks, carts, posts, clears, column, chunk_phase, plan, name, no_settle, ground, out_shift, no_riders, positions_out, path, notes, bed, bed_exempt, sentinel, sections, summon_box, golem_box, run_gate, run_cell, run_controller, notes_file, pockets, block, wait_box, out, verify, keep_clear } => {
             let mut notes = notes;
             if let Some(nf) = &notes_file {
                 notes.extend(std::fs::read_to_string(nf)?.lines().map(str::trim).filter(|l| !l.is_empty()).map(String::from));
@@ -6942,7 +6959,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 // its declared parts and overrides must match it cell for cell and entity for
                 // entity, so a stale cell or a stale mob can't hide; and the census)
                 let committed = mctas::design::Design::parse(&std::fs::read_to_string(vf)?)?;
-                let (rep, ok) = crate::column::assembly_check(&d, &committed);
+                let keep: Vec<crate::column::Reserve> = keep_clear.iter().map(|s| crate::column::Reserve::parse(s)).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!(e))?;
+                let keep: Vec<(String, [i32; 3], [i32; 3])> = keep.iter().map(|r| (r.name.clone(), r.b.0, r.b.1)).collect();
+                let (rep, ok) = crate::column::assembly_check(&d, &committed, &keep);
                 print!("assembly check against {}: {rep}", vf.display());
                 if !ok {
                     std::process::exit(1);
@@ -6961,6 +6980,15 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 column_write(version, &out, d, &head, &f, ground, shift, no_settle)?;
             }
             if !bed_ok {
+                std::process::exit(1);
+            }
+        }
+        MobfarmCmd::HoldCheck { design, holds, max } => {
+            let (_c, spec) = load(version, &design)?;
+            let hs: Vec<crate::holdcheck::Hold> = holds.iter().map(|s| crate::holdcheck::Hold::parse(s)).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!(e))?;
+            let (rep, ok) = crate::holdcheck::report(&spec, &hs, max).map_err(|e| anyhow::anyhow!(e))?;
+            print!("{}: {rep}", design.display());
+            if !ok {
                 std::process::exit(1);
             }
         }
