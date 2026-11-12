@@ -31,7 +31,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 type P = [i32; 3];
 
-pub const ITEM: &str = "cobblestone";
+/// The loop's item (ironspec 01:36: leather: baby piglins ignore it, armed mobs keep their weapons).
+pub const ITEM: &str = "leather";
 /// The piglin's reach: its box (1.95) over the frame's bottom obsidian (y 10).
 pub const PIGLIN_REACH_Y: f64 = 11.95;
 /// A jumping baby's (tick-exact: a Nether baby piglin that crossed and zombified, empty-handed with
@@ -50,6 +51,9 @@ pub struct Side {
     pub fire_y: i32,
     /// The far face's walled rows from the bottom (2: the bottom two, the rule; the height: all).
     pub far_rows: i32,
+    /// The block shielding the portal and the pocket (glass in the overworld; cobblestone in the
+    /// Nether: a ghast's power-1 fireball breaks glass, and a portal block has no blast resistance).
+    pub shell: &'static str,
 }
 
 impl Side {
@@ -175,28 +179,275 @@ impl Side {
                 out.insert([width, y, z], glass.clone());
             }
         }
-        // the clock: O1 faces O2 (its back, the output, into the feeder under D2), O2 faces O1
+        // the clock: O1 faces O2 (its back, the output, into the feeder under D2), O2 faces O1;
+        // glass over O1 (its top, a full face, would take a 1-high spawn under the roof)
+        out.insert([c, self.fire_y, 2 * s], "minecraft:glass".into());
         out.insert(o1, format!("minecraft:observer[facing={away},powered=false]"));
         out.insert(o2, format!("minecraft:observer[facing={toward},powered=false]"));
+        // O2's two faces on the outside (G1, ironspec 02:31: an observer's 3.0 under a ghast's
+        // fireball): its back (its output: the block there is powered with each pulse and powers
+        // nothing, no redstone beside it) and its bottom, below the backstop; glass here, the
+        // Nether side's outer layer turns both to cobblestone
+        out.insert([c, self.fire_y - 1, 4 * s], "minecraft:glass".into());
+        out.insert([c, fy, 3 * s], "minecraft:glass".into());
     }
 }
 
-pub fn sides(width: i32, fire_y: i32, far_rows: i32) -> (Side, Side) {
-    (Side { s: 1, col: 1, other: width - 2, fire_y, far_rows }, Side { s: -1, col: width - 2, other: 1, fire_y, far_rows })
+pub fn sides(width: i32, height: i32, fire_y: i32, far_rows: i32) -> (Side, Side) {
+    // (the Nether side (ironspec 02:02, ghasts): every block shielding the portal or the pocket
+    // at least cobblestone's blast resistance, and its far face closed in every row)
+    (Side { s: 1, col: 1, other: width - 2, fire_y, far_rows, shell: "minecraft:glass" }, Side { s: -1, col: width - 2, other: 1, fire_y, far_rows: height, shell: "minecraft:cobblestone" })
 }
 
-pub fn design_text(width: i32, height: i32, fire_y: i32, far_rows: i32, hopper_floor: bool, items: u32) -> String {
-    let (a, b) = sides(width, fire_y, far_rows);
+/// The air cells outside a cell map: flooded from its bounding box grown by 1 through cells it
+/// doesn't hold (portal blocks count as held).
+fn outside_air(cells: &BTreeMap<P, String>) -> BTreeSet<P> {
+    let (mut lo, mut hi) = ([i32::MAX; 3], [i32::MIN; 3]);
+    for p in cells.keys() {
+        for k in 0..3 {
+            lo[k] = lo[k].min(p[k] - 1);
+            hi[k] = hi[k].max(p[k] + 1);
+        }
+    }
+    let mut seen: BTreeSet<P> = BTreeSet::new();
+    let mut stack = vec![lo];
+    while let Some(p) = stack.pop() {
+        if (0..3).any(|k| p[k] < lo[k] || p[k] > hi[k]) || seen.contains(&p) || cells.contains_key(&p) {
+            continue;
+        }
+        seen.insert(p);
+        for d in [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]] {
+            stack.push([p[0] + d[0], p[1] + d[1], p[2] + d[2]]);
+        }
+    }
+    seen
+}
+
+/// Every glass block with a face on the outside air becomes `shell`.
+pub fn harden_outer(cells: &mut BTreeMap<P, String>, shell: &str) {
+    let out = outside_air(cells);
+    let outer: Vec<P> = cells
+        .iter()
+        .filter(|(p, s)| s.as_str() == "minecraft:glass" && [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]].iter().any(|d| out.contains(&[p[0] + d[0], p[1] + d[1], p[2] + d[2]])))
+        .map(|(p, _)| *p)
+        .collect();
+    for p in outer {
+        cells.insert(p, shell.to_string());
+    }
+}
+
+/// (ironspec 02:14) Every interior air cell (not reachable from the outside air, not a portal cell)
+/// over a block a Nether mob can spawn on (a full top that isn't glass, a hopper, a slab or a
+/// portal), with its air height: a magma cube (0.52) fits 1, a piglin (1.95) 2, an enderman (2.9) 3.
+pub fn interior_spawn_cells(cells: &BTreeMap<P, String>) -> Vec<(P, String, i32)> {
+    let out = outside_air(cells);
+    let (mut lo, mut hi) = ([i32::MAX; 3], [i32::MIN; 3]);
+    for p in cells.keys() {
+        for k in 0..3 {
+            lo[k] = lo[k].min(p[k]);
+            hi[k] = hi[k].max(p[k]);
+        }
+    }
+    let unspawnable = |s: &str| s.contains("glass") || s.contains("hopper") || s.contains("_slab") || s.contains("nether_portal") || s.contains("tripwire") || s.contains("rail");
+    let mut v = Vec::new();
+    for x in lo[0]..=hi[0] {
+        for y in lo[1]..=hi[1] {
+            for z in lo[2]..=hi[2] {
+                let p = [x, y, z];
+                if cells.contains_key(&p) || out.contains(&p) {
+                    continue;
+                }
+                let Some(below) = cells.get(&[x, y - 1, z]) else { continue };
+                if unspawnable(below) {
+                    continue;
+                }
+                let mut h = 0;
+                while h < 4 && !cells.contains_key(&[x, y + h, z]) && !out.contains(&[x, y + h, z]) {
+                    h += 1;
+                }
+                v.push((p, below.clone(), h));
+            }
+        }
+    }
+    v
+}
+
+/// A block's blast resistance (26.3's values for the blocks these files use; anything else counts
+/// as 0, the weak side).
+pub fn blast_resistance(state: &str) -> f64 {
+    let n = state.trim_start_matches("minecraft:");
+    let n = n.split('[').next().unwrap_or(n);
+    match n {
+        "obsidian" | "crying_obsidian" => 1200.0,
+        "cobblestone" | "stone" | "smooth_stone_slab" | "stone_bricks" | "cobblestone_slab" | "stone_slab" => 6.0,
+        "hopper" => 4.8,
+        "dropper" | "dispenser" => 3.5,
+        "observer" => 3.0,
+        "glass" | "glass_pane" => 0.3,
+        "packed_ice" | "ice" => 0.5,
+        _ => 0.0,
+    }
+}
+
+/// The 26 neighbour offsets (faces, edges and corners).
+fn n26() -> Vec<P> {
+    let mut v = Vec::new();
+    for dx in -1..=1 {
+        for dy in -1..=1 {
+            for dz in -1..=1 {
+                if (dx, dy, dz) != (0, 0, 0) {
+                    v.push([dx, dy, dz]);
+                }
+            }
+        }
+    }
+    v
+}
+
+/// (G1 / ironspec 02:31; G1 03:35: a power-1 ray samples every 0.3 blocks, so it crosses a cell
+/// edge or corner without sampling either face neighbour) Every loop block a ray from the outside
+/// reaches: a 26-connected flood from the outside air through air and every block under 4.034,
+/// listing the observers (3.0) and portal blocks (no resistance) it meets; a dropper (3.5) costs a
+/// ray's second sample more than it has left (G1), so it isn't listed.
+pub fn exposed_loop_blocks(cells: &BTreeMap<P, String>) -> Vec<(P, String)> {
+    let (mut lo, mut hi) = ([i32::MAX; 3], [i32::MIN; 3]);
+    for p in cells.keys() {
+        for k in 0..3 {
+            lo[k] = lo[k].min(p[k] - 1);
+            hi[k] = hi[k].max(p[k] + 1);
+        }
+    }
+    let weak = |p: &P| cells.get(p).is_none_or(|s| blast_resistance(s) < 4.034);
+    let nb = n26();
+    let mut seen: BTreeSet<P> = BTreeSet::new();
+    let mut stack = vec![lo];
+    while let Some(p) = stack.pop() {
+        if (0..3).any(|k| p[k] < lo[k] || p[k] > hi[k]) || seen.contains(&p) || !weak(&p) {
+            continue;
+        }
+        seen.insert(p);
+        for d in &nb {
+            stack.push([p[0] + d[0], p[1] + d[1], p[2] + d[2]]);
+        }
+    }
+    seen.iter()
+        .filter_map(|p| cells.get(p).filter(|s| s.contains("observer") || s.contains("nether_portal")).map(|s| (*p, s.clone())))
+        .collect()
+}
+
+/// (G1 03:35) Close the casing's 26-neighbourhood: while a 26-connected ray flood from the outside
+/// reaches an observer or a portal block, every outside air cell (6-connected) with an edge or a
+/// corner on a weak cell inside the casing (under 4.034, air included) becomes `shell`. The cells
+/// added.
+pub fn close_26(cells: &mut BTreeMap<P, String>, shell: &str) -> Vec<P> {
+    let mut added = Vec::new();
+    let nb = n26();
+    for _ in 0..8 {
+        if exposed_loop_blocks(cells).is_empty() {
+            break;
+        }
+        let out = outside_air(cells);
+        let inside_weak = |p: &P| !out.contains(p) && cells.get(p).is_none_or(|s| blast_resistance(s) < 4.034);
+        let (mut lo, mut hi) = ([i32::MAX; 3], [i32::MIN; 3]);
+        for p in cells.keys() {
+            for k in 0..3 {
+                lo[k] = lo[k].min(p[k]);
+                hi[k] = hi[k].max(p[k]);
+            }
+        }
+        let inside_box = |p: &P| (0..3).all(|k| p[k] >= lo[k] && p[k] <= hi[k]);
+        let fill: Vec<P> = out
+            .iter()
+            .filter(|p| nb.iter().any(|d| {
+                let q = [p[0] + d[0], p[1] + d[1], p[2] + d[2]];
+                inside_box(&q) && inside_weak(&q)
+            }))
+            .copied()
+            .collect();
+        if fill.is_empty() {
+            break;
+        }
+        for p in fill {
+            cells.insert(p, shell.to_string());
+            added.push(p);
+        }
+    }
+    added
+}
+
+pub fn design_text(width: i32, height: i32, fire_y: i32, far_rows: i32, hopper_floor: bool, items: u32) -> Result<String, String> {
+    let (a, b) = sides(width, height, fire_y, far_rows);
     let mut d = Design { name: "l1-item-loop-bench".into(), ..Default::default() };
     a.blocks(width, height, hopper_floor, &mut d.blocks, &mut d.block_entities, items);
     b.blocks(width, height, hopper_floor, &mut d.nether_blocks, &mut d.nether_block_entities, items);
+    // (the Nether side's outer layer, ironspec 02:14: every glass block facing the open Nether
+    // becomes the shell's cobblestone; a power-1 ray loses 1.89 a step through it, so the
+    // interior stays glass)
+    harden_outer(&mut d.nether_blocks, b.shell);
+    // (G1 03:35: the casing closed in the 26-neighbourhood: the edges and corners a ray crosses)
+    let closed = close_26(&mut d.nether_blocks, b.shell);
     d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
     d.ports.insert("output".into(), [width + 6, 10, 8]);
     d.ports.insert("nether-anchor".into(), [0, 0, 0]);
     d.ports.insert("nether-axis".into(), [1, 0, 0]);
-    let mut t = format!("# L1''' item-loop loader bench (onechunk, Nov 12): portals {width} x {height}; on each side a firing dropper at y {fire_y} (the top row) fed by up-facing droppers, the exit face closed below and at the pocket floor (its top at y {}), the floor {} and a hopper row past the frame, the far face closed in its bottom {far_rows} rows, a backstop, a glass enclosure, and the clock: two observers facing each other behind the firing column (REAL, not emulated); {items} items\n", fire_y - 1, if hopper_floor { "hoppers" } else { "packed ice" });
+    let mut t = format!("# L1''' item-loop loader bench (onechunk, Nov 12): portals {width} x {height}; on each side a firing dropper at y {fire_y} (the top row) fed by up-facing droppers, the exit face closed below and at the pocket floor (its top at y {}), the floor {} and a hopper row past the frame, a backstop and an enclosure; the overworld side glass, its far face closed in its bottom {far_rows} rows; the Nether side's outer layer cobblestone (ghasts), its far face closed in every row, its interior glass; the clock: two observers facing each other behind the firing column (REAL, not emulated); {items} items ({ITEM})\n", fire_y - 1, if hopper_floor { "hoppers" } else { "packed ice" });
+    for (wn, cells) in [("overworld", &d.blocks), ("Nether", &d.nether_blocks)] {
+        let sp = interior_spawn_cells(cells);
+        t.push_str(&format!("# {wn} side: interior spawn floors (a full top under air inside the enclosure): {}{}\n", sp.len(), sp.iter().map(|(p, b, h)| format!(" ({},{},{}) over {} with {h} air", p[0], p[1], p[2], b.trim_start_matches("minecraft:"))).collect::<String>()));
+        if wn == "Nether" {
+            let ex = exposed_loop_blocks(cells);
+            t.push_str(&format!("# Nether side: the casing closed in the 26-neighbourhood (G1): {} cobblestone added at its edges and corners{}\n", closed.len(), closed.iter().map(|p| format!(" ({},{},{})", p[0], p[1], p[2])).collect::<String>()));
+            t.push_str(&format!("# Nether side: loop blocks (observers, portal blocks) a ray from the open Nether reaches (a 26-connected flood through blocks under 4.034): {}{}\n", ex.len(), ex.iter().map(|(p, b)| format!(" ({},{},{}) {}", p[0], p[1], p[2], b.trim_start_matches("minecraft:"))).collect::<String>()));
+        }
+    }
     t.push_str(&d.to_text());
-    t
+    // (ironspec 02:32: every design writer re-parses what it wrote and compares every cell)
+    let back = Design::parse(&t).map_err(|e| format!("the written design doesn't parse: {e}"))?;
+    let same = back.blocks == d.blocks && back.nether_blocks == d.nether_blocks && back.block_entities == d.block_entities && back.nether_block_entities == d.nether_block_entities && back.ports == d.ports;
+    if !same {
+        return Err(format!(
+            "the written design doesn't round-trip: overworld {} vs {} cells, Nether {} vs {}, block entities {} vs {}, Nether block entities {} vs {}, ports {} vs {}",
+            back.blocks.len(),
+            d.blocks.len(),
+            back.nether_blocks.len(),
+            d.nether_blocks.len(),
+            back.block_entities.len(),
+            d.block_entities.len(),
+            back.nether_block_entities.len(),
+            d.nether_block_entities.len(),
+            back.ports.len(),
+            d.ports.len()
+        ));
+    }
+    Ok(t)
+}
+
+/// (ironspec 02:14) The interior spawn floors of both sides, as `design_text` lays them.
+pub fn spawn_report(width: i32, height: i32, fire_y: i32, far_rows: i32, hopper_floor: bool) -> String {
+    let (a, b) = sides(width, height, fire_y, far_rows);
+    let (mut ow, mut ne, mut be) = (BTreeMap::new(), BTreeMap::new(), BTreeMap::new());
+    a.blocks(width, height, hopper_floor, &mut ow, &mut be, 4);
+    b.blocks(width, height, hopper_floor, &mut ne, &mut be, 4);
+    harden_outer(&mut ne, b.shell);
+    let closed = close_26(&mut ne, b.shell);
+    let mut s = String::new();
+    for (wn, cells) in [("overworld", &ow), ("Nether", &ne)] {
+        let sp = interior_spawn_cells(cells);
+        let shell = cells.values().filter(|v| v.as_str() == "minecraft:cobblestone").count();
+        s.push_str(&format!("{wn} side: {} placed blocks ({} cobblestone, the outer layer); interior spawn floors (a full top under air inside the enclosure; a magma cube fits 1 air, a piglin 2, an enderman 3): {}{}{}\n", cells.values().filter(|v| !v.contains("nether_portal")).count(), shell, sp.len(), if sp.is_empty() { " (PASS)" } else { " (FAIL)" }, sp.iter().map(|(p, b, h)| format!(" ({},{},{}) over {} with {h} air", p[0], p[1], p[2], b.trim_start_matches("minecraft:"))).collect::<String>()));
+        // (the ghast rule binds the Nether side; the overworld's glass is printed for the record)
+        let ex = exposed_loop_blocks(cells);
+        if wn == "Nether" {
+            s.push_str(&format!("Nether side: the casing closed in the 26-neighbourhood (G1: a ray crosses edges and corners): {} cobblestone added at its edges and corners\n", closed.len()));
+        }
+        s.push_str(&format!(
+            "{wn} side: loop blocks (observers 3.0, portal blocks; a dropper's 3.5 outlasts a ray's second sample) a ray from the outside reaches, a 26-connected flood through blocks under 4.034{}: {}{}\n",
+            if wn == "Nether" { "" } else { " (glass: not ruled on this side)" },
+            ex.len(),
+            if wn != "Nether" { String::new() } else if ex.is_empty() { " (PASS)".into() } else { format!(" (FAIL){}", ex.iter().map(|(p, b)| format!(" ({},{},{}) {}", p[0], p[1], p[2], b.trim_start_matches("minecraft:").split('[').next().unwrap_or(""))).collect::<String>()) }
+        ));
+    }
+    s
 }
 
 #[derive(Clone, Debug)]
@@ -218,8 +469,10 @@ pub struct Opts {
     pub login_each: Option<i64>,
     /// A 3-gt freeze of both worlds starting at every dispense (the item crosses after the thaw).
     pub login_before_arrival: bool,
-    /// Both worlds unloaded at T and loaded at T + 1 (`reload::unload_all` / `load_all`).
+    /// A restart at T: `liveness::restart` on both worlds between two ticks (no time passing).
     pub stops: Vec<i64>,
+    /// The restarts' entity load order (liveness::Restart: save, reverse, seed:K).
+    pub restart: crate::liveness::Restart,
     /// A mob placed in a bottom row at column X at time T (AI on), on side bits (1 A, 2 B, 3 both),
     /// kind 0 an adult zombified piglin, 1 a baby, 2 a chicken jockey.
     pub piglins: Vec<(i64, i32, u8, u8)>,
@@ -272,6 +525,9 @@ pub struct RunOut {
     pub held_by_mob: u32,
     /// Mobs whose centre left the portal's cells (a placed mob must stay in the bottom rows).
     pub mobs_out: usize,
+    /// The placed mobs' highest box top over the portal's floor (y 10): adults (box >= 1.5 tall),
+    /// babies on foot, and the jockey stack (a rider or its chicken): the jumps' own control.
+    pub mob_top: [f64; 3],
     pub stuck: usize,
     pub nether_dead: i64,
     pub nether_dead_from: Option<i64>,
@@ -316,7 +572,7 @@ pub fn run_one(spec: &FarmSpec, o: &Opts, seed: i64) -> Result<RunOut, String> {
         w.drop_seed = Some(seed ^ k);
         w.entity_chunks = Some([-2, -2, 1, 1]);
     }
-    let (a, b) = sides(width, o.fire_y, o.far_rows);
+    let (a, b) = sides(width, o.height, o.fire_y, o.far_rows);
     let air = Block::parse("minecraft:air")?;
     // the clocks' start: O2 taken and put back (O1 sees it; in the build, O2 placed last)
     for (wi, side) in [(0usize, &a), (1usize, &b)] {
@@ -393,12 +649,20 @@ pub fn run_one(spec: &FarmSpec, o: &Opts, seed: i64) -> Result<RunOut, String> {
         }
         for &st in &o.stops {
             if rel == st {
-                redsim::reload::unload_all(&mut run.world);
-                redsim::reload::unload_all(run.world.nether.as_deref_mut().unwrap());
-            }
-            if rel == st + 1 {
-                redsim::reload::load_all(&mut run.world);
-                redsim::reload::load_all(run.world.nether.as_deref_mut().unwrap());
+                // (G1 on 0596acead: liveness::restart, cc767b78's helper: a save/stop/start
+                // between two ticks in the run's load order, no time passing, on both worlds;
+                // every entity back under a new id, so the trackers follow the id map)
+                for wi in 0..2usize {
+                    let m = crate::liveness::restart(world_mut(&mut run, wi), o.restart)?;
+                    let tr = |id: &u32| m.get(id).copied();
+                    seen[wi] = seen[wi].iter().filter_map(tr).collect();
+                    arriving[wi] = arriving[wi].iter().filter_map(tr).collect();
+                    inside_since = inside_since.iter().map(|(&(w, id), &v)| ((w, if w == wi { tr(&id).unwrap_or(id) } else { id }), v)).collect();
+                    mobs_out = mobs_out.iter().map(|&(w, id)| (w, if w == wi { tr(&id).unwrap_or(id) } else { id })).collect();
+                    drift = drift.iter().map(|(&(w, id), &v)| ((w, if w == wi { tr(&id).unwrap_or(id) } else { id }), v)).collect();
+                    arrived_at = arrived_at.iter().map(|(&(w, id), &v)| ((w, if w == wi { tr(&id).unwrap_or(id) } else { id }), v)).collect();
+                    crossed = crossed.iter().map(|&(w, id)| (w, if w == wi { tr(&id).unwrap_or(id) } else { id })).collect();
+                }
             }
         }
         let mut want = [false; 2];
@@ -436,6 +700,18 @@ pub fn run_one(spec: &FarmSpec, o: &Opts, seed: i64) -> Result<RunOut, String> {
         for wi in 0..2usize {
             let w: &redsim::world::World = if wi == 0 { &run.world } else { run.world.nether.as_deref().unwrap() };
             for e in w.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, EntityKind::Mob(_))) {
+                // (the jumps' own control: each placed mob's highest box top over the portal's
+                // floor: adults (a box 1.5 tall or more), babies on foot, and the jockey stack (a
+                // rider or its chicken) apart)
+                let tall = e.bb.max_y - e.bb.min_y;
+                let k = if tall >= 1.5 {
+                    0
+                } else if e.vehicle.is_some() || !e.passengers.is_empty() {
+                    2
+                } else {
+                    1
+                };
+                out.mob_top[k] = out.mob_top[k].max(e.bb.max_y - 10.0);
                 let d = (-e.pos.x).max(e.pos.x - width as f64).max(-e.pos.z).max(e.pos.z - 1.0).max(0.0);
                 if d > 0.05 && !mobs_out.contains(&(wi, e.id)) {
                     mobs_out.insert((wi, e.id));
@@ -640,7 +916,7 @@ pub fn bench(spec: &FarmSpec, o: &Opts) -> Result<String, String> {
         rows.push("a 3-gt login freeze (both worlds) on every dispense".into());
     }
     if !o.stops.is_empty() {
-        rows.push(format!("{} full stops (both worlds unloaded and loaded again)", o.stops.len()));
+        rows.push(format!("{} restarts at every phase (liveness::restart on both worlds between two ticks, order {})", o.stops.len(), o.restart.label()));
     }
     if !o.piglins.is_empty() {
         rows.push(format!("{} zombified piglin placements in the bottom rows (AI on, loot pickup on, empty hand, a stone at each one's feet as the control)", o.piglins.len()));
@@ -662,7 +938,7 @@ pub fn bench(spec: &FarmSpec, o: &Opts) -> Result<String, String> {
         let cl = runs.iter().fold([f64::MAX; 4], |a, r| [a[0].min(r.clear[wi][0]), a[1].min(r.clear[wi][1]), a[2].min(r.clear[wi][2]), a[3].min(r.clear[wi][3])]);
         let dr = runs.iter().fold([0usize; 4], |a, r| [a[0] + r.drift[wi][0], a[1] + r.drift[wi][1], a[2] + r.drift[wi][2], a[3] + r.drift[wi][3]]);
         let dmax = runs.iter().map(|r| r.drift_max[wi]).fold(0.0f64, f64::max);
-        let side = if wi == 0 { sides(o.width, o.fire_y, o.far_rows).0 } else { sides(o.width, o.fire_y, o.far_rows).1 };
+        let side = if wi == 0 { sides(o.width, o.height, o.fire_y, o.far_rows).0 } else { sides(o.width, o.height, o.fire_y, o.far_rows).1 };
         let (fx0, fx1) = ((side.other - 1).max(0) as f64, ((side.other + 1).min(o.width - 1) + 1) as f64);
         let pct = |k: usize| if dr[0] == 0 { 0.0 } else { 100.0 * k as f64 / dr[0] as f64 };
         s.push_str(&format!(
@@ -703,6 +979,16 @@ pub fn bench(spec: &FarmSpec, o: &Opts) -> Result<String, String> {
     if !o.piglins.is_empty() {
         let out_total: usize = runs.iter().map(|r| r.mobs_out).sum();
         s.push_str(&format!("mobs out of the portal's cells over every seed: {out_total}{}\n", if out_total == 0 { " (PASS)" } else { " (FAIL)" }));
+        let top = runs.iter().fold([0.0f64; 3], |a, r| [a[0].max(r.mob_top[0]), a[1].max(r.mob_top[1]), a[2].max(r.mob_top[2])]);
+        s.push_str(&format!(
+            "the mobs' highest box top over the portal's floor (y 10), the jumps' own control{}: adults {:.3}, babies on foot {:.3}, the jockey stack (a rider and its chicken) {:.3}; the pocket floor's top is {:.1} over it, the hopper bowl's items {:.4}\n",
+            if o.mob_jump.is_some() { "" } else { " (no forced jumps)" },
+            top[0],
+            top[1],
+            top[2],
+            (o.fire_y - 1 - 10) as f64,
+            (o.fire_y - 2 - 10) as f64 + 0.6875
+        ));
     }
     if let Some(r) = runs.first() {
         for l in r.control.iter().take(6) {

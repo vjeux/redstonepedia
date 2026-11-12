@@ -465,8 +465,12 @@ pub enum MobfarmCmd {
         /// Moves the --positions and `positions:` cells by dx,dy,dz (into the design's frame).
         #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
         offset: Vec<i32>,
+        /// (onechunk Nov 12: the assembled module, its bed in the file) Flood it as a part: every
+        /// villager and every --positions cell summons (the homeless static checks; a golem nothing
+        /// kills, that walks out or goes through a portal reported), the bed a block like any other.
+        #[arg(long)]
+        part_flood: bool,
     },
-    /// The built farm (water settled) along a row: each cell's block from x0 to x1 at y, z.
     /// `--terrain`: built into its terrain sample at the judge's cheapest spot (design
     /// coordinates). `--flammable`: instead of a row, every flammable block inside the farm's box
     /// (`weather::lightning::flammable`: the fuel the fire rules' spread can pass through, natural
@@ -1146,8 +1150,8 @@ pub enum MobfarmCmd {
         /// The firing dropper's y: the top row (13 in 4 rows, 14 in 5: the ruling); the pocket floor 2 under it.
         #[arg(long, default_value_t = 14)]
         fire_y: i32,
-        /// The far face's walled rows from the bottom (2: the bottom two only, the trim; default
-        /// every row).
+        /// The overworld far face's walled rows from the bottom (default 2: the bottom two, the trim;
+        /// the Nether far face is closed in every row).
         #[arg(long)]
         far_rows: Option<i32>,
         /// The pocket floor: hoppers (no spawnable floor: the ruling) or ice (packed ice: redsim's
@@ -1180,6 +1184,10 @@ pub enum MobfarmCmd {
         /// 2N + 1, 3N + 2, ...: every phase).
         #[arg(long)]
         stop_every: Option<i64>,
+        /// The restarts' entity load order: save, reverse, seed:K, or all (the 10 orders of
+        /// liveness::Restart::rows(), one pass each).
+        #[arg(long, default_value = "save")]
+        restart_order: String,
         /// A mob (loot pickup on, empty hand) placed in a bottom row at column X at time T, on
         /// SIDE (a, b or both; default both), KIND adult (default), baby or jockey (a baby on a
         /// chicken), armed `sword` (a golden sword in hand, as portal piglins spawn):
@@ -1273,7 +1281,9 @@ pub enum MobfarmCmd {
     Column {
         /// A part, NAME=FILE[@fx,fy,fz][^tx,ty,tz][#x0,y0,z0,x1,y1,z1]: `@` the move from the
         /// file's frame into the column's, `^` from its committed place to its tier, `#` the
-        /// cells kept (the file's frame, inclusive). Repeatable; the first part keeps its ports.
+        /// cells kept (the file's frame, inclusive). `NAME!=` re-lays cleared cells; `NAME~=` takes
+        /// the file's Nether part as the part's cells (a Nether layout). Repeatable; the first part
+        /// keeps its ports.
         #[arg(long = "part", allow_hyphen_values = true)]
         parts: Vec<String>,
         /// A reserved box NAME=x0,y0,z0,x1,y1,z1 (the column's frame): a part not yet laid out for
@@ -1281,6 +1291,13 @@ pub enum MobfarmCmd {
         /// tier report and the column's box, holding no block. Repeatable.
         #[arg(long = "reserve", allow_hyphen_values = true)]
         reserves: Vec<String>,
+        /// Every `# reserved (no blocks): NAME x a..b y c..d z e..f` header line of this design
+        /// file (a budget) as a `--reserve`, but the names in `--reserve-skip` (the parts laid).
+        #[arg(long)]
+        reserves_from: Option<PathBuf>,
+        /// A reserved box of `--reserves-from` left out (its part is laid). Repeatable.
+        #[arg(long)]
+        reserve_skip: Vec<String>,
         /// A port set on the skeleton, NAME=x,y,z (the judge's `port output` when no kept part
         /// cell holds one); repeatable, replaces a part's port of that name.
         #[arg(long = "port", allow_hyphen_values = true)]
@@ -4865,9 +4882,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             std::fs::write(&out, text)?;
             println!("{}", out.display());
         }
-        MobfarmCmd::Exit { design, seed, positions, offset } => {
+        MobfarmCmd::Exit { design, seed, positions, offset, part_flood } => {
             let (c, spec) = load(version, &design)?;
-            let part = !spec.has_bed();
+            let part = part_flood || !spec.has_bed();
             if part {
                 // (a part's riders and posts checked on a homeless build: a check that can't run
                 // never passes silently, ironspec Nov 11 16:03)
@@ -5252,16 +5269,16 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             print!("{}", crate::portallinks::report(&ow, &nether, &ex, margin));
         }
-        MobfarmCmd::L1ItemBench { design_out, width, height, fire_y, far_rows, floor, items, ticks, seeds, freeze, login_each, login_before_arrival, stop, stop_every, piglin, mob_jump, trace } => {
+        MobfarmCmd::L1ItemBench { design_out, width, height, fire_y, far_rows, floor, items, ticks, seeds, freeze, login_each, login_before_arrival, stop, stop_every, restart_order, piglin, mob_jump, trace } => {
             let path = design_out.unwrap_or_else(|| std::env::temp_dir().join(format!("l1-item-bench-{}.txt", std::process::id())));
             anyhow::ensure!((13..=9 + height).contains(&fire_y), "--fire-y between 13 and the top row (9 + height)");
-            let far_rows = far_rows.unwrap_or(height).clamp(2, height);
+            let far_rows = far_rows.unwrap_or(2).clamp(2, height);
             let hopper_floor = match floor.as_str() {
                 "hoppers" => true,
                 "ice" => false,
                 o => anyhow::bail!("--floor {o}: hoppers or ice"),
             };
-            std::fs::write(&path, crate::l1items::design_text(width, height, fire_y, far_rows, hopper_floor, items))?;
+            std::fs::write(&path, crate::l1items::design_text(width, height, fire_y, far_rows, hopper_floor, items).map_err(|e| anyhow::anyhow!(e))?)?;
             let (_c, spec) = load(version, &path)?;
             let freezes = parse_freezes(&freeze)?;
             let seeds: Vec<i64> = match seeds.split_once("..") {
@@ -5301,9 +5318,20 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     t = (k + 1) * n + k;
                 }
             }
-            let o = crate::l1items::Opts { width, height, fire_y, far_rows, hopper_floor, items, ticks, freezes, login_each, login_before_arrival, stops, piglins, mob_jump, seeds, trace };
+            let orders: Vec<crate::liveness::Restart> = if restart_order == "all" {
+                crate::liveness::Restart::rows()
+            } else {
+                vec![crate::liveness::Restart::parse(&restart_order).ok_or_else(|| anyhow::anyhow!("--restart-order {restart_order}: save, reverse, seed:K or all"))?]
+            };
             println!("{}", path.display());
-            print!("{}", crate::l1items::bench(&spec, &o).map_err(|e| anyhow::anyhow!(e))?);
+            print!("{}", crate::l1items::spawn_report(width, height, fire_y, far_rows, hopper_floor));
+            for restart in orders {
+                let o = crate::l1items::Opts { width, height, fire_y, far_rows, hopper_floor, items, ticks, freezes: freezes.clone(), login_each, login_before_arrival, stops: stops.clone(), restart, piglins: piglins.clone(), mob_jump, seeds: seeds.clone(), trace };
+                if !stops.is_empty() {
+                    println!("== the restarts' load order: {}", restart.label());
+                }
+                print!("{}", crate::l1items::bench(&spec, &o).map_err(|e| anyhow::anyhow!(e))?);
+            }
         }
         MobfarmCmd::L1Bench { design_out, ticks, hold, pulse, stagger, freeze, piglin, trace } => {
             let path = design_out.unwrap_or_else(|| std::env::temp_dir().join(format!("l1-bench-{}.txt", std::process::id())));
@@ -5331,7 +5359,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let o = crate::columnrun::Opts { cycles, warm, seed, close_at, slope_delay, g2_plus, hold_shut_delay, pulse, laps, trace };
             print!("{}", crate::columnrun::run(&spec, &c.clock.design.meta, &o).map_err(|e| anyhow::anyhow!(e))?);
         }
-        MobfarmCmd::Column { parts, reserves, ports, tracks, carts, posts, clears, column, chunk_phase, plan, name, no_settle, ground, out_shift, no_riders, positions_out, path, notes, bed, bed_exempt, sentinel, sections, summon_box, golem_box, run_gate, run_cell, run_controller, notes_file, pockets, block, wait_box, out } => {
+        MobfarmCmd::Column { parts, reserves, reserves_from, reserve_skip, ports, tracks, carts, posts, clears, column, chunk_phase, plan, name, no_settle, ground, out_shift, no_riders, positions_out, path, notes, bed, bed_exempt, sentinel, sections, summon_box, golem_box, run_gate, run_cell, run_controller, notes_file, pockets, block, wait_box, out } => {
             let mut notes = notes;
             if let Some(nf) = &notes_file {
                 notes.extend(std::fs::read_to_string(nf)?.lines().map(str::trim).filter(|l| !l.is_empty()).map(String::from));
@@ -5378,6 +5406,10 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             anyhow::ensure!(summoners.is_empty() || golem_b.is_some(), "--summon-box needs --golem-box");
             let clear: Vec<([i32; 3], [i32; 3])> = clears.iter().map(|s| crate::column::Reserve::parse(&format!("clear={s}")).map(|r| r.b)).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!(e))?;
             let specs: Vec<crate::column::PartSpec> = parts.iter().map(|s| crate::column::PartSpec::parse(s)).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!(e))?;
+            let mut reserves = reserves;
+            if let Some(f) = &reserves_from {
+                reserves.extend(crate::column::reserves_from_header(&std::fs::read_to_string(f)?, &reserve_skip));
+            }
             let reserves: Vec<crate::column::Reserve> = reserves.iter().map(|s| crate::column::Reserve::parse(s)).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!(e))?;
             let mut given: Vec<(String, [i32; 3])> = Vec::new();
             for p in &ports {

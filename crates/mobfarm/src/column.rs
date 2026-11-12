@@ -31,6 +31,9 @@ pub struct PartSpec {
     /// A part that re-lays cleared cells (`NAME!=FILE`): the `--clear` boxes take nothing out of
     /// it (onechunk's runner, Nov 11: the escapement's detector replacing the hold's flat).
     pub relay: bool,
+    /// A part made of its file's Nether part (`NAME~=FILE`: onechunk Nov 12, the per-group Nether
+    /// layout composed from the loader's twin, the kill room and the storage).
+    pub nether: bool,
 }
 
 fn ints(s: &str) -> Result<Vec<i32>, String> {
@@ -49,7 +52,10 @@ impl PartSpec {
         let (name, rest) = s.split_once('=').ok_or_else(|| format!("--part {s:?}: NAME=FILE[@fx,fy,fz][^tx,ty,tz][#x0,y0,z0,x1,y1,z1]"))?;
         let marks = ['@', '^', '#'];
         let cut = rest.find(marks).unwrap_or(rest.len());
-        let mut p = PartSpec { name: name.trim().trim_end_matches('!').to_string(), file: PathBuf::from(&rest[..cut]), frame: [0; 3], tier: [0; 3], keep: None, relay: name.trim().ends_with('!') };
+        let flags = name.trim();
+        let bare = flags.trim_end_matches(['!', '~']);
+        let marks_of = &flags[bare.len()..];
+        let mut p = PartSpec { name: bare.to_string(), file: PathBuf::from(&rest[..cut]), frame: [0; 3], tier: [0; 3], keep: None, relay: marks_of.contains('!'), nether: marks_of.contains('~') };
         let mut tail = &rest[cut..];
         while let Some(m) = tail.chars().next() {
             let body = &tail[1..];
@@ -196,7 +202,16 @@ pub fn shifted(d: &Design, by: P) -> Result<Design, String> {
 
 pub fn load_part(spec: &PartSpec) -> Result<Part, String> {
     let text = std::fs::read_to_string(&spec.file).map_err(|e| format!("{}: {e}", spec.file.display()))?;
-    let d = Design::parse(&text).map_err(|e| format!("{}: {e}", spec.file.display()))?;
+    let mut d = Design::parse(&text).map_err(|e| format!("{}: {e}", spec.file.display()))?;
+    if spec.nether {
+        // (the file's Nether part as the part's cells, in the Nether frame the file writes it in)
+        d.blocks = std::mem::take(&mut d.nether_blocks);
+        d.block_entities = std::mem::take(&mut d.nether_block_entities);
+        d.ports = std::mem::take(&mut d.nether_ports);
+        d.entities.clear();
+        d.meta.remove("positions");
+        d.meta.remove("declared");
+    }
     let k = kept(&d, spec.keep)?;
     if k.blocks.is_empty() {
         return Err(format!("part {}: no block of {} in the kept box", spec.name, spec.file.display()));
@@ -686,7 +701,7 @@ pub fn sketch_part(tracks: &[(String, Vec<P>, [bool; 2])], carts: &[(P, Option<f
         d.entities.push(mctas::design::EntitySpec { kind: "minecraft:oak_boat".into(), pos: [p[0] as f64 + 0.5, p[1] as f64, p[2] as f64 + 0.5], nbt: Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}".into()) });
     }
     let part = |d: Design, file: &str| {
-        let spec = PartSpec { name: d.name.clone(), file: PathBuf::from(file), frame: [0; 3], tier: [0; 3], keep: None, relay: true };
+        let spec = PartSpec { name: d.name.clone(), file: PathBuf::from(file), frame: [0; 3], tier: [0; 3], keep: None, relay: true, nether: false };
         Part { spec, committed: d.clone(), placed: d, positions: Vec::new(), declared: Vec::new() }
     };
     let mut out: Vec<Part> = track_designs.into_iter().filter(|t| !t.blocks.is_empty()).map(|t| part(t, "(sketch track)")).collect();
@@ -788,6 +803,23 @@ fn seg_dist(p: [f64; 3], a: [f64; 3], b: [f64; 3]) -> f64 {
     let t = if l2 > 0.0 { ((ap[0] * ab[0] + ap[1] * ab[1] + ap[2] * ab[2]) / l2).clamp(0.0, 1.0) } else { 0.0 };
     let q = [a[0] + t * ab[0] - p[0], a[1] + t * ab[1] - p[1], a[2] + t * ab[2] - p[2]];
     (q[0] * q[0] + q[1] * q[1] + q[2] * q[2]).sqrt()
+}
+
+/// (onechunk Nov 12) A budget's reserved boxes as `--reserve` specs: every `# reserved (no
+/// blocks): NAME x a..b y c..d z e..f` header line (`column`'s own output), but the names in `skip`.
+pub fn reserves_from_header(text: &str, skip: &[String]) -> Vec<String> {
+    let mut out = Vec::new();
+    for line in text.lines() {
+        let Some(rest) = line.strip_prefix("# reserved (no blocks): ") else { continue };
+        let f: Vec<&str> = rest.split_whitespace().collect();
+        if f.len() < 7 || f[1] != "x" || f[3] != "y" || f[5] != "z" || skip.iter().any(|s| s == f[0]) {
+            continue;
+        }
+        let span = |t: &str| t.split_once("..").map(|(a, b)| (a.to_string(), b.to_string()));
+        let (Some((x0, x1)), Some((y0, y1)), Some((z0, z1))) = (span(f[2]), span(f[4]), span(f[6])) else { continue };
+        out.push(format!("{}={x0},{y0},{z0},{x1},{y1},{z1}", f[0]));
+    }
+    out
 }
 
 /// (G1 on 6704219e6 / 3326b8d96: an off-rail rider is invisible to the rail cells) The declared
@@ -1068,7 +1100,7 @@ pub fn pocket_part(name: &str, start: P, dir: &str, n: usize, rstar: bool) -> Re
         cells.push((format!("{name}_P{kk}"), p));
         cells.push((format!("{name}_R{kk}"), r));
     }
-    let spec = PartSpec { name: d.name.clone(), file: PathBuf::from("(pocket chain)"), frame: [0; 3], tier: [0; 3], keep: None, relay: true };
+    let spec = PartSpec { name: d.name.clone(), file: PathBuf::from("(pocket chain)"), frame: [0; 3], tier: [0; 3], keep: None, relay: true, nether: false };
     Ok((Part { spec, committed: d.clone(), placed: d, positions: Vec::new(), declared: Vec::new() }, gates, cells))
 }
 
@@ -1079,7 +1111,7 @@ pub fn block_part(blocks: &[(P, String)]) -> Part {
     for (c, s) in blocks {
         d.blocks.insert(*c, if s.contains(':') { s.clone() } else { format!("minecraft:{s}") });
     }
-    let spec = PartSpec { name: "blocks".into(), file: PathBuf::from("(--block)"), frame: [0; 3], tier: [0; 3], keep: None, relay: true };
+    let spec = PartSpec { name: "blocks".into(), file: PathBuf::from("(--block)"), frame: [0; 3], tier: [0; 3], keep: None, relay: true, nether: false };
     Part { spec, committed: d.clone(), placed: d, positions: Vec::new(), declared: Vec::new() }
 }
 

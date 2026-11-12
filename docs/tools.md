@@ -163,11 +163,13 @@ ports of F, so `web shot F` pictures the Nether side (the kill, the collection);
 design's overworld blocks only.
 The one-chunk column's skeleton (onechunk, farmopt's lane: vjeux's "Can we have the system in one
 chunk?"): `mctas mobfarm column --part NAME=FILE[@fx,fy,fz][^tx,ty,tz][#x0,y0,z0,x1,y1,z1]...
-[--reserve NAME=x0,y0,z0,x1,y1,z1...] [--column -6,-6,9,9] [--chunk-phase -6,-6] [--plan] [--port
-NAME=x,y,z] [--ground Y] [--out-shift dx,dy,dz] [--no-riders] [--no-settle] [--out F]` moves each
+[--reserve NAME=x0,y0,z0,x1,y1,z1...] [--reserves-from BUDGET [--reserve-skip NAME]...] [--column
+-6,-6,9,9] [--chunk-phase -6,-6] [--plan] [--port NAME=x,y,z] [--ground Y] [--out-shift dx,dy,dz]
+[--no-riders] [--no-settle] [--out F]` moves each
 part's committed design (`#`: only its cells in that box, the file's frame) from its file's frame
 into the column's (`@`) and from its committed place into its tier (`^`); a reserved box stands for
-a part not laid out yet. It prints each part's committed and placed box, the chunk lines each
+a part not laid out yet (`--reserves-from`: every `# reserved (no blocks):` line of a budget the
+command wrote, but the `--reserve-skip` names, the parts laid). It prints each part's committed and placed box, the chunk lines each
 crosses (`--chunk-phase`: lines at x, z = PX + 16k; the loop frame's -6), where it leaves the
 column, the cells two parts hold, reserved boxes over a part or each other, cells declared two
 ways, the tiers top down and the column's blocks³. `--out` writes the skeleton (the first part's
@@ -181,7 +183,9 @@ each leg along x or z, a rising leg climbing in its last cells and a falling one
 first, so a curve never slopes), `--cart x,y,z[,Y][,empty]`, `--post x,y,z` (the brief's zombie
 post); `--clear` boxes take committed cells out first (a lane's re-lay), `--note` writes header
 lines (the joints table), `--positions-out F` writes every villager position (riders' cells and
-sketch rail cells) for the flood with a summoner at each. More of the generator: a track named
+sketch rail cells) for the flood with a summoner at each (`mobfarm exit F --positions P
+--part-flood` floods an assembled module that holds its bed as a part: every villager and every
+position summons, the bed a block like any other). More of the generator: a track named
 `+NAME` is boosted (every straight cell a powered rail on its own redstone block, the curves plain);
 a part named `NAME!=FILE` re-lays cleared cells (the clears skip it); `--pockets
 NAME=x,y,z,DIR,N[,rstar]` lays N of the stand's pockets in a row (P a flat detector, R the rest slope,
@@ -224,7 +228,8 @@ listed in the report and the design header: pocket 1's release pulse, which also
 line's two boosters, pocket 2's 2-gt nudge once pocket 1 and the line are clear, each release timed
 from that cart's own arrival) and `mctas mobfarm l1-item-bench [--width 5] [--height 5]
 [--fire-y 14] [--far-rows 2] [--floor hoppers|ice] [--items 4] [--ticks 24000] [--seeds N|A..B]
-[--stop T]... [--stop-every N] [--login-each N] [--login-before-arrival] [--freeze T,D[,WORLD]]...
+[--stop T]... [--stop-every N] [--restart-order save|reverse|seed:K|all] [--login-each N]
+[--login-before-arrival] [--freeze T,D[,WORLD]]...
 [--piglin T,X[,a|b|both[,adult|baby|jockey[,sword]]]]... [--mob-jump N] [--design-out F]` (L1‴, the
 item loop: same-axis portals; on each side a firing dropper in the top row (y 14 of a 5-row
 portal: 4.34 over its floor) fed by up-facing droppers, the exit face closed below and at the
@@ -241,9 +246,19 @@ a jumping baby's 12.227), mobs out of the portal's cells, and a positive control
 pickup (a stone at each placed mob's feet; an iron sword for one placed armed with a golden sword,
 as portal piglins spawn; `--mob-jump` forces jumps). Crossings, the cooldown restart, the
 closest-portal search and the Nether ticket are redsim's. `--freeze` is redsim's level-32 freeze
-(`reload::unload_some`: entities skip, blocks run) per world; `--stop` unloads both worlds and loads
-them again a tick later (`reload::unload_all` / `load_all`: scheduled ticks kept);
-`--login-before-arrival` freezes both worlds 3 gt from every dispense.
+(`reload::unload_some`: entities skip, blocks run) per world; `--stop T` / `--stop-every N` restart
+both worlds between two ticks (`liveness::restart`: saved, unloaded and loaded again in
+`--restart-order` save, reverse or seed:K, or `all`: one pass per order of `Restart::rows()`);
+`--login-before-arrival` freezes both worlds 3 gt from every dispense. The overworld side is glass,
+its far face closed in its bottom `--far-rows` rows (default 2); the Nether side's far face is closed
+in every row and every glass block of its outer layer is cobblestone (ghasts), O2's back and bottom
+shielded, and the casing closed in the 26-neighbourhood (cobblestone in every outside cell with an
+edge or a corner on a weak cell inside: a ray samples every 0.3 blocks); the design and the run
+print each side's interior spawn floors (a full top under air inside the enclosure: 0 required) and
+the loop blocks (observers, portal blocks) a ray from the outside reaches by a 26-connected flood
+through blocks under 4.034 (0 required on the Nether side), the mobs' highest box top (adults,
+babies on foot and the jockey stack apart: the jumps' own control), and the design writer re-parses
+its text and compares every cell.
 Every portal's link as the game searches it: `mctas mobfarm portal-links --ow NAME=x0,y0,z0,x1,y1,z1[;...]...
 --nether NAME=...... [--expect SOURCE=TARGET]... [--margin 0.7]` (absolute cells): from each
 overworld portal the Nether portals within 16 of its x 1/8 point (y not scaled), 3D-closest, ties to

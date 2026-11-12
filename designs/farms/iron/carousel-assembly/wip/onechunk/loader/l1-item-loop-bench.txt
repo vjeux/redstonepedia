@@ -1,20 +1,25 @@
-# L1''' item-loop loader bench (onechunk, Nov 12): portals 5 x 5; on each side a firing dropper at y 14 (the top row) fed by up-facing droppers, the exit face closed below and at the pocket floor (its top at y 13), the floor hoppers and a hopper row past the frame, the far face closed in its bottom 2 rows, a backstop, a glass enclosure, and the clock: two observers facing each other behind the firing column (REAL, not emulated); 4 items
+# L1''' item-loop loader bench (onechunk, Nov 12): portals 5 x 5; on each side a firing dropper at y 14 (the top row) fed by up-facing droppers, the exit face closed below and at the pocket floor (its top at y 13), the floor hoppers and a hopper row past the frame, a backstop and an enclosure; the overworld side glass, its far face closed in its bottom 2 rows; the Nether side's outer layer cobblestone (ghasts), its far face closed in every row, its interior glass; the clock: two observers facing each other behind the firing column (REAL, not emulated); 4 items (leather)
+# overworld side: interior spawn floors (a full top under air inside the enclosure): 0
+# Nether side: interior spawn floors (a full top under air inside the enclosure): 0
+# Nether side: the casing closed in the 26-neighbourhood (G1): 50 cobblestone added at its edges and corners (-1,9,-1) (-1,9,0) (-1,9,1) (-1,10,1) (-1,11,1) (-1,12,1) (-1,13,1) (-1,14,1) (-1,15,0) (-1,15,1) (0,9,-1) (0,9,1) (0,12,-3) (0,15,1) (1,9,-1) (1,9,1) (1,12,-3) (1,15,1) (2,9,-1) (2,9,1) (2,11,-2) (2,12,-4) (2,12,-3) (2,13,-4) (2,14,-4) (2,15,1) (3,9,-1) (3,9,1) (3,11,-2) (3,12,-4) (3,14,-4) (3,15,1) (4,9,-1) (4,9,1) (4,11,-2) (4,12,-4) (4,12,-3) (4,13,-4) (4,14,-4) (4,15,1) (5,9,-1) (5,9,0) (5,9,1) (5,10,1) (5,11,1) (5,12,1) (5,13,1) (5,14,1) (5,15,0) (5,15,1)
+# Nether side: loop blocks (observers, portal blocks) a ray from the open Nether reaches (a 26-connected flood through blocks under 4.034): 0
 name: l1-item-loop-bench
 circuit: mob-farm iron_ingot
 port nether-anchor: 0 0 0
 port nether-axis: 1 0 0
 port output: 11 10 8
-nbt: 1 12 1 {Items:[{Slot:0b,id:"minecraft:cobblestone",count:1}]}
-nbt: 1 14 1 {Items:[{Slot:0b,id:"minecraft:cobblestone",count:1}]}
-nether nbt: 3 12 -1 {Items:[{Slot:0b,id:"minecraft:cobblestone",count:1}]}
-nether nbt: 3 14 -1 {Items:[{Slot:0b,id:"minecraft:cobblestone",count:1}]}
+nbt: 1 12 1 {Items:[{Slot:0b,id:"minecraft:leather",count:1}]}
+nbt: 1 14 1 {Items:[{Slot:0b,id:"minecraft:leather",count:1}]}
+nether nbt: 3 12 -1 {Items:[{Slot:0b,id:"minecraft:leather",count:1}]}
+nether nbt: 3 14 -1 {Items:[{Slot:0b,id:"minecraft:leather",count:1}]}
 origin: -1 0 -1
 palette:
   A minecraft:dropper[facing=up,triggered=false]
   B minecraft:hopper[enabled=true,facing=south]
-  C minecraft:hopper[enabled=true,facing=west]
+  C minecraft:cobblestone
   D minecraft:dropper[facing=north,triggered=false]
-  E minecraft:obsidian
+  E minecraft:hopper[enabled=true,facing=west]
+  F minecraft:obsidian
   G minecraft:glass
   H minecraft:hopper[enabled=true,facing=east]
   N minecraft:nether_portal[axis=x]
@@ -24,86 +29,100 @@ palette:
   o minecraft:observer[facing=south,powered=false]
 layer 9:
   .
-  .EEEEE
+  .FFFFF
+  .
   .
   .
   .
 layer 10:
   .GGGGG
-  ENNNNNE
+  FNNNNNF
   GGGGGGG
   G.....G
   G.....G
+  .
 layer 11:
   .GGGGG
-  ENNNNNE
+  FNNNNNF
   GGGGGGG
   G.....G
   G.....G
+  .
 layer 12:
   .
-  ENNNNNE
-  GGACCCG
+  FNNNNNF
+  GGAEEEG
   GGGhhhG
-  G.....G
+  G.G...G
+  .
 layer 13:
   .
-  ENNNNNE
+  FNNNNNF
   GGA...G
   GGo...G
   GGOGGGG
+  ..G
 layer 14:
   .
-  ENNNNNE
+  FNNNNNF
   GGD...G
-  G.....G
+  G.G...G
   GGGGGGG
+  .
 layer 15:
   .
-  .EEEEE
+  .FFFFF
   GGGGGGG
   GGGGGGG
   GGGGGGG
-nether-origin: -1 0 -3
+  .
+nether-origin: -1 0 -4
 nether layer 9:
   .
   .
   .
-  .EEEEE
-  .
+  CCCCCCC
+  CFFFFFC
+  CCCCCCC
 nether layer 10:
-  G.....G
-  G.....G
-  GGGGGGG
-  ENNNNNE
-  .GGGGG
+  .
+  C.....C
+  C.....C
+  CCCCCCC
+  FNNNNNF
+  CCCCCCC
 nether layer 11:
-  G.....G
-  G.....G
-  GGGGGGG
-  ENNNNNE
-  .GGGGG
+  .
+  C.....C
+  C..CCCC
+  CCCCCCC
+  FNNNNNF
+  CCCCCCC
 nether layer 12:
-  G.....G
-  GBBBGGG
-  GHHHAGG
-  ENNNNNE
-  .
+  ...CCC
+  CCCCCCC
+  CBBBCCC
+  CHHHAGC
+  FNNNNNF
+  CCCCCCC
 nether layer 13:
-  GGGGoGG
-  G...OGG
-  G...AGG
-  ENNNNNE
-  .
+  ...CCC
+  CCCCoCC
+  C...OGC
+  C...AGC
+  FNNNNNF
+  CCCCCCC
 nether layer 14:
-  GGGGGGG
-  G.....G
-  G...dGG
-  ENNNNNE
-  .
+  ...CCC
+  CCCCCCC
+  C...G.C
+  C...dGC
+  FNNNNNF
+  CCCCCCC
 nether layer 15:
-  GGGGGGG
-  GGGGGGG
-  GGGGGGG
-  .EEEEE
   .
+  CCCCCCC
+  CCCCCCC
+  CCCCCCC
+  CFFFFFC
+  CCCCCCC
