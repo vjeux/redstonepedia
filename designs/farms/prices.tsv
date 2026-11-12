@@ -78,6 +78,7 @@ daylight_detector	-	21.4	7.4	3 glass + 3 quartz + 3 wooden slabs
 copper_bulb	-	25.8	7.6	3 copper blocks (27 copper) + 1 blaze rod + 1 dust make 4
 campfire	11	5	1.5	3 sticks + 1 coal + 3 logs
 glass_pane	2.6	0.75	0.15	6 glass make 16
+glowstone	-	8	2	no golem floor (SpawnUtil's legacy iron golem test; ironspec 2026-11-12: golem-proofing): middle, a Nether trip, ceiling clusters broken by hand (2-4 dust a block, 4 dust make 1), shared over a stack; late, a Nether hub or a cleric's trade
 lightning_rod	30	9	3	3 copper (one rod topping its column within 128 blocks takes every bolt: ServerLevel.findLightningRod)
 furnace	8	4	1.6	8 filler (a second day-1 furnace is inside smelt's price; this row is for a furnace the design places)
 tool:stone_tools	0	0	0	a stone pickaxe, axe, shovel and sword: in hand from the stage's definition (wood and stone tools on day 1; iron or better later)

@@ -1,32 +1,32 @@
-# The bed stop (local frame; under the station, loop = local + (0,-18,-1); the bed's head at (-3,0,4)): a booster entry and an always-on activator heading west, two braked park rails down a slope, a capped flat, a curve south, seven capped flats, the pickup cell beside the bed, the curve east, a capped booster, a capped flat, the slope down, two flats, R.
+# The bed stop (local frame; under the station, loop = local + (0,-18,-1); the bed's head at (-3,0,4)): a booster entry and an always-on activator heading west, two braked park rails down a slope, a capped flat, a curve south, seven flats under glass, the pickup cell beside the bed, the curve east, a capped booster, a capped flat, the slope down, two flats, R.
 # The rider lands on the ledge south of the activator, walks round onto the bed's roof and sleeps; woken through the hatch it stands only on the pickup cell and keeps seeing the zombie there; the released cart reaches it under 0.2 b/t and seats it; the cart runs on to R. Normal operation only: under L1 a restart cannot put a woken napper back to bed before the cart reaches it (SleepInBed's 100-gt LAST_WOKEN guard), so no strand handling.
 name: bed-tier-fold-bench
 circuit: mob-farm iron_ingot
 port home: -3 0 4
 port output: 12 0 6
-entity: minecraft:oak_boat -5 0 4.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
+entity: minecraft:oak_boat -4.5 0 4.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
 origin: -6 0 -5
 palette:
   A minecraft:activator_rail[powered=true,shape=east_west,waterlogged=false]
   B minecraft:iron_trapdoor[facing=west,half=top,open=true,powered=true,waterlogged=false]
-  C minecraft:rail[shape=ascending_west,waterlogged=false]
+  C minecraft:rail[shape=north_east,waterlogged=false]
   D minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]
-  E minecraft:rail[shape=east_west,waterlogged=false]
-  F minecraft:rail[shape=north_east,waterlogged=false]
+  E minecraft:rail[shape=north_south,waterlogged=false]
+  F minecraft:rail[shape=south_east,waterlogged=false]
   G minecraft:glass
-  H minecraft:rail[shape=north_south,waterlogged=false]
+  H minecraft:red_bed[facing=south,occupied=false,part=foot]
   I minecraft:iron_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]
-  J minecraft:rail[shape=south_east,waterlogged=false]
-  K minecraft:red_bed[facing=south,occupied=false,part=foot]
-  L minecraft:red_bed[facing=south,occupied=false,part=head]
-  M minecraft:redstone_block
-  O minecraft:oak_leaves[distance=1,persistent=true,waterlogged=false]
+  J minecraft:red_bed[facing=south,occupied=false,part=head]
+  K minecraft:redstone_block
+  O minecraft:oak_leaves[distance=7,persistent=true,waterlogged=false]
   P minecraft:powered_rail[powered=false,shape=ascending_east,waterlogged=false]
-  R minecraft:rail[shape=ascending_north,waterlogged=false]
+  R minecraft:rail[shape=ascending_west,waterlogged=false]
   S minecraft:stone
+  g minecraft:glowstone
   i minecraft:iron_trapdoor[facing=west,half=bottom,open=true,powered=true,waterlogged=false]
   p minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]
-  r minecraft:rail[shape=ascending_south,waterlogged=false]
+  r minecraft:rail[shape=east_west,waterlogged=false]
+  s minecraft:stone_button[face=floor,facing=north,powered=false]
 layer -2:
   .
   .
@@ -43,56 +43,56 @@ layer -1:
   .
   ....GGS
   ....G
-  .
-  .
-  .
+  ....G
+  ....G
+  ....G
   ....G
   ....G
   ...GG
   .GGGG
-  ....GMGCEEDEEEEEEG
+  ....GKGRrrDrrrrrrG
 layer 0:
   .
-  ....JEPS
-  ....r
-  ....G
-  .
-  ....GG
-  ....RG
-  ...GHG
-  .GMKHG
-  G.iLHG
-  .GGGFpE
+  ....FrPS
+  ....E
+  ....E
+  ....E
+  ....EG
+  ....EG
+  ...GEG
+  .GKHEG
+  G.iJEG
+  .GGGCpr
 layer 1:
   .
-  ....II.PSM
-  ....I...S
-  ....r...S
-  ....G...S
-  ....RGSSS
-  .....G
-  ...GIG
-  .GGIIG
+  ....GI.PSK
+  ....G...g
+  ....G...g
+  ....G...g
+  ....GGggg
+  ....GG
+  ...GGG
+  .GGIGG
   G.BI.G
   .GGGIII
 layer 2:
-  ........M
-  ........Ap
+  ........K
+  .....s..Ap
   .......G.G
-  ....I..G.G
-  ....HGGG.G
-  ....I....G
-  ....I.GGG
+  .......G.G
+  .....GGG.G
+  ....G....G
+  ....G.GGG
   ...GG.G
-  ..G...G
-  .GM..G
-  ...G
+  ..Gs..G
+  .GKs.G
+  ...Gsss
 layer 3:
-  .
+  ........G
   .......GII
   .......G.G
   .......G.G
-  ....IGGG.G
+  .....GGG.G
   ....G....G
   ....G.GGG
   ...GG.G
@@ -101,7 +101,7 @@ layer 3:
   ...G
 layer 4:
   .
-  .
+  ........GG
   .
   .
   .
@@ -172,7 +172,7 @@ layer 9:
   .
   .
 layer 10:
-  ...............E
+  ...............r
   .
   .
   .
