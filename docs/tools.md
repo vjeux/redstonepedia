@@ -220,6 +220,28 @@ cart-cart contact with both stored speeds (bar 0.2, the nearest run cell named),
 onto a cart (the closed bar's box), each cart's detector passes, and at each T every rider inside a
 stand summoner's box grown by 10, every rider inside a pad spot's sensor box (the worst-case
 constants) and the last departing batch's feet against the lock (pad feet + 20.54) by T - 5.
+The F1 + Q2 station, benched: `mctas mobfarm drop-bench --layout station --pad ...` (the M1 drop:
+three level pockets under trapdoor holds at y 16, the pad below; `--l1` the controller on game
+ticks; `--restart T,ORDER` / `--restart-sweep FROM,TO,STEP` the 10 load orders of
+`liveness::restart`; `--write-design PATH` the station in the loop frame for the module, its
+placement-order list and the detector rule in its header). `--panic-post KIND:x,y,z:OPEN[:ROOF]`
+lays a scarer post (a boat at the cell's centre in a glass box open on one side, OPEN `-` none: a
+part file's box; `--part FILE` lays a loop-frame part file's blocks too, e.g. a scarer part's
+occluders) and prints, per
+summoner, the game's summon trigger at the next summon over the rider's own 400 sensor phase pairs
+(NEAREST_HOSTILE: a scarer in the living scan's box, `--follow-range`, seen eye to eye within 16 at
+every tick to the hostiles scan, in its type's range; VillagerPanicTrigger's 61-tick run and its
+restart gap h + 61 + 62k): the pairs it calls in, the least caller count (the riders calling in all
+400; the stand's bar >= 1, margin 2), its panic window in the pocket, and the conservative windows
+(in range T-19..T, seen in the 16-box T-38..T). The golem flow on that pad: `mctas mobfarm golem-flow
+<station> --post KIND:x,y,z:OPEN[:ROOF]... [--cycles 240] [--twin] [--piglins N] [--block-row Z]
+[--restart-phases P,..] [--restart-noop] [--restart-once TICK,ORDER] [--callers 2]` (redsim with the
+mob AI on, a pillager post seating redsim's pillager (no crossbow AI: its shots are tick-exact's
+official bridge): a summon at every summon tick, each golem followed to its portal crossing (the
+tick of its own life it crossed in, bar 2), its targets and the posts' (printed counts), damage
+taken or dealt, the posts alive at each dawn, golems in the overworld at a summon tick and the
+summoners' sightings, a reload's priced costs apart; `--block-row` the positive control,
+`--restart-noop` the restarts' control).
 The portal-loop loaders, benched in redsim: `mctas mobfarm l1-bench [--ticks N] [--hold 320]
 [--pulse 20] [--stagger A1,B1,A2] [--freeze T,D[,ow|nether|both]]... [--piglin T]...
 [--design-out F]` (L1′, the cart loop: an overworld portal and its Nether twin, each side an exit

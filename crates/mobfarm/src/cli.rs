@@ -2522,6 +2522,66 @@ pub enum MobfarmCmd {
         #[arg(long)]
         no_bench: bool,
     },
+    /// (ironspec 03:31, the scarer line's deciding run; `mobfarm::golemflow`) The golem flow on
+    /// the F1 + Q2 station's pad in redsim with the mob AI on: a summon at every summon tick over a
+    /// game day with the scarer posts laid, every golem followed to its portal crossing (the tick
+    /// of its own life it crossed in, its targets, its least overlap with a portal row, its move),
+    /// the cadence, the next batch's golem sightings; push sources (`--twin`, `--piglins`);
+    /// restarts after each summon in the 10 orders (`--restart-phases`); the positive control
+    /// (`--block-row`). A pillager post seats redsim's pillager (9fc3155f: its box, seat and eye;
+    /// a villager, or a golem off a portal, it sees within 8 is a loud model error; a golem
+    /// overlapping a portal block with cooldown 0 is exempt); its crossbow AI is not modeled (the
+    /// shots are tick-exact's official bridge: 0 in 136 golems).
+    GolemFlow {
+        /// The station's design in the loop frame (`wip/station/f1q2-station.txt`).
+        design: PathBuf,
+        /// A scarer post KIND:x,y,z:OPEN[:ROOF] (z a zombie, p a pillager: seated in an oak boat
+        /// at the cell's centre in a glass box open on that side, its roof ROOF or glass;
+        /// repeatable).
+        #[arg(long = "post", allow_hyphen_values = true)]
+        posts: Vec<String>,
+        #[arg(long, default_value_t = 240)]
+        cycles: i64,
+        #[arg(long, default_value_t = 1)]
+        seed: i64,
+        #[arg(long, default_value_t = 1)]
+        seeds: i64,
+        /// The positive control: the portal row at this loop z blocked.
+        #[arg(long, allow_hyphen_values = true)]
+        block_row: Option<i32>,
+        /// Zombified piglins standing in the pad's portal cells (push sources).
+        #[arg(long, default_value_t = 0)]
+        piglins: usize,
+        /// A second golem with each summon, at the next spawn cell.
+        #[arg(long)]
+        twin: bool,
+        /// One restart PHASE,ORDER after every summon tick.
+        #[arg(long)]
+        restart: Option<String>,
+        /// One run per phase and per order of the reload-order rule: a restart at that phase after
+        /// every summon tick.
+        #[arg(long, value_delimiter = ',')]
+        restart_phases: Vec<i64>,
+        /// The restarts' control: the same ticks with the reload replaced by nothing.
+        #[arg(long)]
+        restart_noop: bool,
+        /// One reload only, at game time TICK in ORDER (`TICK,ORDER`): the posts' and golems' AI
+        /// goal phases redrawn once (each mob's goal selector runs in full on alternate ticks).
+        #[arg(long)]
+        restart_once: Option<String>,
+        /// No forced summon: the villagers' own panic.
+        #[arg(long)]
+        natural: bool,
+        /// The forced summon's callers: the first N summoners in lane order (the panic measure's
+        /// robust callers with the lead posts: lanes x -1 and x 3).
+        #[arg(long, default_value_t = 2)]
+        callers: usize,
+        /// The posts' roof block (default glass).
+        #[arg(long, default_value = "minecraft:glass")]
+        roof: String,
+        #[arg(long)]
+        trace: bool,
+    },
     /// The vertical drop, M1 (vjeux 21:00; `mobfarm::drop`; ironfarm's lane bench is
     /// `escape-bench`): the waiting batch on trapdoors straight above three braked pockets drops into
     /// them while the batch in them leaves at REL; the series layout (today's strip), Q2's parallel
@@ -2613,6 +2673,19 @@ pub enum MobfarmCmd {
         /// runner's `run-cells:`, the event table in the header.
         #[arg(long)]
         write_design: Option<PathBuf>,
+        /// (the panic window, ironspec 04:54) A scarer post KIND:x,y,z:OPEN in the loop frame (p a
+        /// pillager, z a zombie, seated in a boat at the cell's centre in a glass box open on that
+        /// side; repeatable): its box laid, and per summoner the bench prints the next summon's
+        /// panic window (in range T-19..T, seen in the 16-box T-38..T).
+        #[arg(long, allow_hyphen_values = true)]
+        panic_post: Vec<String>,
+        /// (the panic) A part file in the loop frame whose blocks are laid in the world (repeatable;
+        /// e.g. 9fc3155f's F3 part with its occluders and glowstone floors; its entities are not).
+        #[arg(long)]
+        part: Vec<String>,
+        /// (the panic) The riders' follow range for the living scan's box (14.16..17.84; G1).
+        #[arg(long, default_value_t = 16.0)]
+        follow_range: f64,
         /// (the station) The R line: the lanes' R_1 cells with the next batch on them, powered from
         /// the side "D,L": D gt after the last trapdoor shut again (needs --pulse), for L gt.
         #[arg(long, default_value = "")]
@@ -6768,6 +6841,38 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             }
         }
+        MobfarmCmd::GolemFlow { design, posts, cycles, seed, seeds, block_row, piglins, twin, restart, restart_phases, restart_noop, restart_once, natural, callers, roof, trace } => {
+            let once = match &restart_once {
+                Some(r) => Some(crate::liveness::parse_restart(r).map_err(|e| anyhow::anyhow!(e))?),
+                None => None,
+            };
+            let station = std::fs::read_to_string(&design)?;
+            let posts_v = posts.iter().map(|s| crate::golemflow::parse_post(s).map_err(|e| anyhow::anyhow!(e))).collect::<anyhow::Result<Vec<_>>>()?;
+            let mut rows: Vec<Option<(i64, crate::liveness::Restart)>> = vec![None];
+            if let Some(r) = &restart {
+                rows = vec![Some(crate::liveness::parse_restart(r).map_err(|e| anyhow::anyhow!(e))?)];
+            }
+            if !restart_phases.is_empty() {
+                rows = restart_phases.iter().flat_map(|p| crate::liveness::Restart::rows().into_iter().map(move |h| Some((*p, h)))).collect();
+            }
+            let (mut runs, mut passed) = (0usize, 0usize);
+            for row in &rows {
+                for s in seed..seed + seeds.max(1) {
+                    let o = crate::golemflow::FlowOpts { cycles, seed: s, posts: posts_v.clone(), block_row, piglins, twin, restart: *row, restart_noop, restart_once: once, natural, callers, roof: roof.clone(), trace };
+                    let text = crate::golemflow::design_text(&station, &o).map_err(|e| anyhow::anyhow!(e))?;
+                    let path = std::env::temp_dir().join(format!("golem-flow-{}.txt", std::process::id()));
+                    std::fs::write(&path, &text)?;
+                    let (_c, spec) = load(version, &path)?;
+                    let (lines, ok) = crate::golemflow::bench(&spec, &o).map_err(|e| anyhow::anyhow!(e))?;
+                    for l in lines {
+                        println!("{l}");
+                    }
+                    runs += 1;
+                    passed += ok as usize;
+                }
+            }
+            println!("golem flow: {passed} of {runs} run(s) passed");
+        }
         MobfarmCmd::Storage { modules, lines, chests, days, seed, seeds, prefill, misset, open, boxed, frame, out, no_bench } => {
             let lines = lines.unwrap_or(if modules <= 2 { 1 } else { 2 });
             // 20 play-hours = 60 game days of iron blocks (ironspec 01:13)
@@ -6860,7 +6965,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 Ok(fspec)
             };
             let (spec, cold_spec) = (spec_of([true; 3])?, spec_of([false; 3])?);
-            let base = crate::drop::DropOpts { layout: lo, hold_y, rel: rel[0], stagger: [stagger[0], stagger[1], stagger[2]], rebrake, release, pulse, occupancy: false, exit_gate: true, open_delay, l1: !l2, dep_absent: [false; 3], restarts: Vec::new(), release_world: false, rebrake_each: true, scarers: scarers_v, refill: Some((refill[0], refill[1])), ticks, seed, freeze: None, logins: Vec::new(), trace: false };
+            let base = crate::drop::DropOpts { layout: lo, hold_y, rel: rel[0], stagger: [stagger[0], stagger[1], stagger[2]], rebrake, release, pulse, occupancy: false, exit_gate: true, open_delay, l1: !l2, dep_absent: [false; 3], restarts: Vec::new(), panic_posts: Vec::new(), follow_range: 16.0, release_world: false, rebrake_each: true, scarers: scarers_v, refill: Some((refill[0], refill[1])), ticks, seed, freeze: None, logins: Vec::new(), trace: false };
             let o = crate::stationjudge::StationJudgeOpts { rels: rel.clone(), seeds: (seed..seed + seeds.max(1)).collect(), starts: (starts[0], starts[1]), ds: ds.clone(), restarts: !no_restarts, cold: !no_cold, launch_min, edge, rest_bar, jobs };
             println!(
                 "station judge (cc767b78, bench, tool unreviewed; the {} mode: per REL {rel:?} the control, {}the cold start{}): drop-bench --layout station --pad --hold-y {hold_y} --stagger {},{},{} --rebrake {rebrake} --rebrake-each --release {release} --exit-gate --open-delay {open_delay} --pulse {pulse} --refill {},{} --post {:?} {}--scarers {scarers}, {ticks} ticks; the launch bar {}",
@@ -6910,7 +7015,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::DropBench { layout, login, hold_y, rel, stagger, rebrake, release, pulse, occupancy, exit_gate, release_world, pad, rebrake_each, scarers, block, posts, slab_stop, open_delay, l1, restart, restart_sweep, write_design, refill, dep_riders, arr_riders, freezes, freeze_sweep, ticks, seed, seeds, summary, out, trace } => {
+        MobfarmCmd::DropBench { layout, login, hold_y, rel, stagger, rebrake, release, pulse, occupancy, exit_gate, release_world, pad, rebrake_each, scarers, block, posts, slab_stop, open_delay, l1, restart, restart_sweep, write_design, panic_post, part, follow_range, refill, dep_riders, arr_riders, freezes, freeze_sweep, ticks, seed, seeds, summary, out, trace } => {
             let posts_v: Vec<(i32, i32, i32)> = posts
                 .iter()
                 .map(|s| -> anyhow::Result<(i32, i32, i32)> {
@@ -6920,7 +7025,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 })
                 .collect::<anyhow::Result<_>>()?;
             // (extra blocks "x,y,z,STATE": the state may hold commas)
-            let blocks_v: Vec<(i32, i32, i32, String)> = block
+            let mut blocks_v: Vec<(i32, i32, i32, String)> = block
                 .iter()
                 .map(|s| -> anyhow::Result<(i32, i32, i32, String)> {
                     let mut it = s.splitn(4, ',');
@@ -6929,6 +7034,37 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     Ok((x.trim().parse()?, y.trim().parse()?, z.trim().parse()?, st.trim().to_string()))
                 })
                 .collect::<anyhow::Result<_>>()?;
+            // (the panic window's scarer posts, loop frame cells: each a boat at the cell's centre in
+            // a glass box (floor below, roof 2 over the seat, two-high walls on the three sides but
+            // the open one), the mob seated (feet at the boat's y + 0.1875 - 0.6 for a pillager,
+            // - 0.7 for a zombie: 9fc3155f); laid at file = loop + (6,0,6))
+            let mut panic_v: Vec<(char, redsim::entity::Vec3)> = Vec::new();
+            // (a part file in the loop frame, e.g. 9fc3155f's F3 part: its blocks laid at file =
+            // loop + (6,0,6); its entities left out, the scarers come from --panic-post)
+            for path in &part {
+                let text = std::fs::read_to_string(path).map_err(|e| anyhow::anyhow!("--part {path}: {e}"))?;
+                let d = mctas::design::Design::parse(&text).map_err(|e| anyhow::anyhow!("--part {path}: {e}"))?;
+                for (p, st) in &d.blocks {
+                    blocks_v.push((p[0] + 6, p[1], p[2] + 6, st.trim_start_matches("minecraft:").to_string()));
+                }
+            }
+            for s in &panic_post {
+                let p = crate::golemflow::parse_post(s).map_err(|e| anyhow::anyhow!(e))?;
+                let [x, y, z] = [p.cell[0] + 6, p.cell[1], p.cell[2] + 6];
+                // (OPEN '-': the box is a part file's, laid as it stands)
+                if p.open != '-' {
+                    blocks_v.push((x, y - 1, z, "glass".into()));
+                    blocks_v.push((x, y + 2, z, p.roof.clone().map_or("glass".to_string(), |r| r.trim_start_matches("minecraft:").to_string())));
+                    for (side, sx, sz) in [('e', x + 1, z), ('w', x - 1, z), ('n', x, z - 1), ('s', x, z + 1)] {
+                        if side != p.open {
+                            blocks_v.push((sx, y, sz, "glass".into()));
+                            blocks_v.push((sx, y + 1, sz, "glass".into()));
+                        }
+                    }
+                }
+                let seat = 0.1875 - if p.kind == 'z' { 0.7 } else { 0.6 };
+                panic_v.push((p.kind, redsim::entity::Vec3::new(x as f64 + 0.5, y as f64 + seat, z as f64 + 0.5)));
+            }
             let logins_v: Vec<(i64, i64)> = login
                 .iter()
                 .map(|s| -> anyhow::Result<(i64, i64)> {
@@ -7029,7 +7165,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         let header: Vec<String> = vec![
                             "The F1 + Q2 station (dfb89499), in the loop frame: written by `mctas mobfarm drop-bench --layout station ... --write-design` (the bench's own file sits at loop + (6,0,6)); NOTES: designs/farms/iron/carousel-assembly/wip/station/NOTES.md.".into(),
                             format!(
-                                "The lead: --l1 --open-delay {open_delay}; the build: {}{}; the trapdoor pulse {pulse}; the re-brake {}; offsets {} (lanes x -1/3/7).",
+                                "The lead: --l1 --open-delay {open_delay}; the build: {}{}; the trapdoor pulse {pulse}; the re-brake {}; offsets {} (lanes x -1/3/7; the stand's summon bar: >= 1 caller at every summon over all 400 sensor phase pairs, margin 2 (the 20-gt rest bar retired): NOTES).",
                                 if slab_stop { "--slab-stop (each hold's north stop a bottom slab)" } else { "glass north stops" },
                                 if posts_v.is_empty() { ", no zombie post (9fc3155f's summoner-only scarers)".to_string() } else { format!(", zombie posts at loop {}", posts_v.iter().map(|p| format!("({},{},{})", p.0 - 6, p.1, p.2 - 6)).collect::<Vec<_>>().join(" ")) },
                                 rebrake,
@@ -7041,7 +7177,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             "Carts: the batch in the pockets and the next in the holds (riders), the hold carts where the lane leaves them (0.49 into the cell, against the ring's north glass: tickexact's lane-handoff ca3cdb2ed); the lanes' carts (R_1 on) and R_2 are the lanes' file's. The pad's seal: cobblestone at y -8 under the floor rows, x -2..7 (40 blocks).".into(),
                             "The Nether part is the bench's PLACEHOLDER, not the build: the shared kill room's portal at the pads' y replaces it.".into(),
                             "Read path: the hold strings' hook supports (x+-2,17,0) are glowstone (golem-proof, lit, a solid-render stroll destination, a sturdy hook face); glowstone conducts no power, so each hold string is read from its hooks directly (dust or a repeater beside the hook), never through the support.".into(),
-                            "R_1's power cell (x+1,17,1) sits face-adjacent (south) to the hold string's hook (x+1,17,0): the built driver is a repeater facing west into R_1, its input from the east (x+2,17,1), which no hook can drive (never dust, nor a repeater or comparator reading from the north); this file holds glass there, the bench's emulation (a redstone block while the R line is on).".into(),
+                            "R_1's power cell (x+1,17,1) sits face-adjacent (south) to the hold string's hook (x+1,17,0): the built driver is a repeater facing west into R_1, its input from the east (x+2,17,1), which no hook can drive (never dust, nor a repeater or comparator reading from the north); this file holds glass there, the bench's emulation (a redstone block while the R line is on). R_1's high side's support (x,17,2), the lanes' glass under their R_2, comes from the lanes' file: `design would-pop` on this file alone lists R_1 x3, safe in the build (R_1 takes its slope once R_2 is placed).".into(),
                         ];
                         let loop_text = crate::drop::station_loop_text(&text, *h as i32, &header).map_err(|e| anyhow::anyhow!(e))?;
                         std::fs::write(wd, &loop_text)?;
@@ -7062,7 +7198,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             for rb in &rebrakes {
                                 for rl in &releases {
                                     for s in seed..seed + seeds {
-                                        let o = crate::drop::DropOpts { layout: lo, hold_y: *h as i32, rel: *r, stagger: [st[0], st[1], st[2]], rebrake: *rb, release: *rl, pulse, occupancy, exit_gate, open_delay, l1, dep_absent: dep_x, restarts: rset.clone(), release_world, rebrake_each, scarers: scarers_v.clone(), refill: refill_v, ticks, seed: s, freeze: *f, logins: logins_v.clone(), trace };
+                                        let o = crate::drop::DropOpts { layout: lo, hold_y: *h as i32, rel: *r, stagger: [st[0], st[1], st[2]], rebrake: *rb, release: *rl, pulse, occupancy, exit_gate, open_delay, l1, dep_absent: dep_x, restarts: rset.clone(), panic_posts: panic_v.clone(), follow_range, release_world, rebrake_each, scarers: scarers_v.clone(), refill: refill_v, ticks, seed: s, freeze: *f, logins: logins_v.clone(), trace };
                                         let (lines, stats) = crate::drop::bench(&fspec, &o).map_err(|e| anyhow::anyhow!(e))?;
                                         by_rel.entry(*r).or_default().push(stats.clone());
                                         runs.push(stats);
@@ -7083,11 +7219,20 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     if by_rel.len() > 1 {
                         for (r, rs) in &by_rel {
                             let fails: usize = rs.iter().map(|s| s.wrong + s.contacts + s.hurt + s.stuck + s.shut_onto).sum();
+                            let pan: Vec<String> = (0..3)
+                                .filter_map(|k| {
+                                    let v: Vec<(i64, i64)> = rs.iter().filter_map(|s| s.panic[k].map(|x| (x.1, x.2))).collect();
+                                    let c = rs.iter().filter_map(|s| s.panic_calls[k]).map(|c| c.0).min();
+                                    (!v.is_empty()).then(|| format!("lane {k} {}/{} calls {}", v.iter().map(|x| x.0).min().unwrap(), v.iter().map(|x| x.1).min().unwrap(), c.map_or("-".to_string(), |c| c.to_string())))
+                                })
+                                .collect();
+                            let least = rs.iter().filter_map(|s| s.panic_callers).min();
                             println!(
-                                "  REL T+{r}: {} runs; at rest least {} gt before the next summon, the landing lead least {} gt; failures {fails}",
+                                "  REL T+{r}: {} runs; at rest least {} gt before the next summon, the landing lead least {} gt; failures {fails}{}",
                                 rs.len(),
                                 rs.iter().map(|s| s.rest).min().unwrap_or(i64::MIN),
-                                rs.iter().filter_map(|s| s.brake_lead).min().map_or("-".to_string(), |v| v.to_string())
+                                rs.iter().filter_map(|s| s.brake_lead).min().map_or("-".to_string(), |v| v.to_string()),
+                                if pan.is_empty() { String::new() } else { format!("; the panic (window margins in range / seen, phase pairs calling of 400): {}; least callers {}", pan.join(", "), least.map_or("-".to_string(), |c| c.to_string())) }
                             );
                         }
                     }

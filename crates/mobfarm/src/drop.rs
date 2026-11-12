@@ -465,11 +465,16 @@ pub fn station_loop_text(file_text: &str, hold_y: i32, header: &[String]) -> Res
         s.push_str(l);
         s.push('\n');
     }
-    // (ironspec 03:37: the placement-order cells, the file's list: alone, and with the lanes' R_2)
-    let po = placement_order_rails(&m)?;
-    let po_r2 = placement_order_rails(&with_r2)?;
+    // (ironspec 03:37: the placement-order cells, the file's list: alone, and with the lanes' R_2;
+    // the detectors' reach, G1)
+    let (po, reach) = placement_order_rails(&m)?;
+    let (po_r2, _) = placement_order_rails(&with_r2)?;
     let list = |po: &[([i32; 3], String, String)]| if po.is_empty() { "every rail takes its stored shape".to_string() } else { po.iter().map(|(p, st, nat)| format!("({},{},{}) stored {st}, placement gives {nat}", p[0], p[1], p[2])).collect::<Vec<_>>().join("; ") };
     s.push_str(&format!("# Placement order (bottom-up, each rail placed facing its own axis): in this file alone: {}; with the lanes' R_2 rails (x,{},2) laid in the same order (the module): {}\n", list(&po), hold_y + 2, list(&po_r2)));
+    s.push_str(&format!(
+        "# The detector rule (no rail with 3 potential connections within a detector's reach: the 6 neighbours of its cell and of the cell below, and of the cell above for a sloped one): {}\n",
+        if reach.is_empty() { "no rail within any detector's reach".to_string() } else { format!("the rails within reach and their potential connections: {}", reach.join(", ")) }
+    ));
     s.push_str(&m.to_text());
     // (farmopt 02:30: the parser refuses whitespace-only rows inside a layer: the file reads back
     // as written, its blocks and entities the same)
@@ -486,11 +491,12 @@ pub fn station_loop_text(file_text: &str, hold_y: i32, header: &[String]) -> Res
 /// for an east-west or east/west-ascending rail) and its `onPlace` run (redsim's `RailState.place`,
 /// its neighbours reshaped as the game does). (cell, stored, natural); empty when every rail keeps
 /// its shape. The fix for a listed cell: another order, or a temporary helper rail removed after.
-pub fn placement_order_rails(d: &mctas::design::Design) -> Result<Vec<([i32; 3], String, String)>, String> {
+pub fn placement_order_rails(d: &mctas::design::Design) -> Result<(Vec<([i32; 3], String, String)>, Vec<String>), String> {
+    let mut reach_out: Vec<String> = Vec::new();
     use redsim::block::Block;
     use redsim::pos::BlockPos;
     let (Some(lo), Some(hi)) = (d.blocks.keys().copied().reduce(|a, b| [a[0].min(b[0]), a[1].min(b[1]), a[2].min(b[2])]), d.blocks.keys().copied().reduce(|a, b| [a[0].max(b[0]), a[1].max(b[1]), a[2].max(b[2])])) else {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), Vec::new()));
     };
     let mut w = redsim::world::World::new(BlockPos::new(lo[0] - 2, lo[1] - 2, lo[2] - 2), [hi[0] - lo[0] + 5, hi[1] - lo[1] + 5, hi[2] - lo[2] + 5]);
     let mut cells: Vec<([i32; 3], String)> = d.blocks.iter().map(|(p, s)| (*p, s.clone())).collect();
@@ -522,25 +528,43 @@ pub fn placement_order_rails(d: &mctas::design::Design) -> Result<Vec<([i32; 3],
             out.push((p, s, now));
         }
     }
-    // (ironspec 03:54, the detector rule: no rail with 3 potential connections among a detector's
-    // raw connections; a breach is listed here as a cell too, its "natural" the count)
+    // (ironspec 03:54 / G1 04:54, the detector rule: no rail with 3 potential connections within a
+    // detector's reach: the 6 neighbours of its cell and the 6 of the cell below, and the 6 of the
+    // cell above for a sloped one; every rail there is listed with its count, a breach as a cell)
+    let mut reach_lines = Vec::new();
     for (p, s) in &cells {
         if !s.contains("detector_rail") {
             continue;
         }
         let here = BlockPos::new(p[0], p[1], p[2]);
-        let conns: Vec<BlockPos> = redsim::rails::RailState::new(here, w.get(here)).connections().to_vec();
-        for q in conns {
-            let b = w.get(q);
-            if redsim::rails::is_rail(&b) {
-                let n = redsim::rails::RailState::new(q, b.clone()).count_potential_connections(&w);
-                if n >= 3 {
-                    out.push(([q.x, q.y, q.z], format!("a rail beside the detector at ({},{},{})", p[0], p[1], p[2]), format!("{n} potential connections (the detector rule)")));
+        let sloped = s.contains("ascending");
+        let mut centres = vec![here, BlockPos::new(p[0], p[1] - 1, p[2])];
+        if sloped {
+            centres.push(BlockPos::new(p[0], p[1] + 1, p[2]));
+        }
+        let mut seen: Vec<BlockPos> = Vec::new();
+        for c in centres {
+            for (dx, dy, dz) in [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)] {
+                let q = BlockPos::new(c.x + dx, c.y + dy, c.z + dz);
+                if q == here || seen.contains(&q) {
+                    continue;
+                }
+                seen.push(q);
+                let b = w.get(q);
+                if redsim::rails::is_rail(&b) {
+                    let n = redsim::rails::RailState::new(q, b.clone()).count_potential_connections(&w);
+                    reach_lines.push(format!("({},{},{}) {n}", q.x, q.y, q.z));
+                    if n >= 3 {
+                        out.push(([q.x, q.y, q.z], format!("a rail within the detector's reach at ({},{},{})", p[0], p[1], p[2]), format!("{n} potential connections (the detector rule)")));
+                    }
                 }
             }
         }
     }
-    Ok(out)
+    if !reach_lines.is_empty() {
+        reach_out.extend(reach_lines);
+    }
+    Ok((out, reach_out))
 }
 
 /// The station's box against the budget's (static).
@@ -585,6 +609,15 @@ pub struct DropOpts {
     /// and riders followed by their new ids (`liveness::follow`). The cold start is the fresh
     /// design's row (`dep_absent`, G1).
     pub restarts: Vec<(i64, crate::liveness::Restart)>,
+    /// (ironspec 04:53/04:54, the rest bar's mechanism: each summoner panics at T) Scarers for the
+    /// panic window: kind ('p' pillager, 'z' zombie) and its feet (file frame), seated in its boat.
+    /// Per summoner the bench prints, against the next summon T: in the scarer's type range
+    /// (pillager 15, zombie 8) at every tick in T-19..T, and eye to eye (collider clip) within 16
+    /// and the 16-box at every tick in T-38..T (the cached line of sight up to 19 gt older).
+    pub panic_posts: Vec<(char, Vec3)>,
+    /// The rider's follow range (the living scan inflates its box by it: 16 x (1 +- 0.11485),
+    /// 14.16..17.84 by its random spawn bonus; G1).
+    pub follow_range: f64,
     /// The trapdoors' timer on world ticks (a plain redstone clock running through a freeze), not
     /// the live clock: the positive control for the strings.
     pub release_world: bool,
@@ -662,6 +695,15 @@ pub struct DropStats {
     /// Villagers in a shaft or on a departure rail at a summon tick (gameTime % 100 == 0, before
     /// and after it): `positions:` lists the pockets and the holds only on that timing (required 0).
     pub summon_off: usize,
+    /// The panic window per summoner (lane): the best scarer's index, the margin before T-19 of
+    /// its range run, the margin before T-38 of its sight run (negative: the window fails), and
+    /// the earliest failing tick in each window (after T).
+    pub panic: [Option<(usize, i64, i64, Option<i64>, Option<i64>)>; 3],
+    /// The game's trigger per summoner: the sensor phase pairs (of 400) in which it calls the
+    /// summon at T, and the wanting villagers in its 10-box; the least caller count (the summoners
+    /// that call in every phase pair).
+    pub panic_calls: [Option<(usize, usize)>; 3],
+    pub panic_callers: Option<usize>,
     /// Per lane (front first: loop x -1, 3, 7), from its launch tick REL + offset: the tick its
     /// departing cart leaves the pocket's rest, the tick it leaves the station (loop z 6.9) and its
     /// speed there.
@@ -765,6 +807,8 @@ pub fn bench(spec: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats), 
     let mut on_since: [Option<i64>; 3] = [0, 1, 2].map(|k| string_on(&run.world, k).then_some(-1000));
     let mut landed: [Option<(i64, f64, bool)>; 3] = [None; 3];
     let mut fall_v = [0.0f64; 3];
+    let mut panic_log: Vec<[Vec<(bool, bool, bool)>; 3]> = Vec::new();
+    let mut panic_pos: Vec<[Option<Vec3>; 3]> = Vec::new();
     let mut summon_off: Vec<String> = Vec::new();
     // (ironspec 02:14, tick-exact's void condition: the falling carts' largest horizontal offset
     // from their shaft's centre line, from the trapdoor's opening to the landing, and its largest
@@ -954,6 +998,29 @@ pub fn bench(spec: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats), 
             summon_off.extend(v.into_iter().map(|s| format!("T+{dt} (before): {s}")));
         }
         run.tick();
+        // (the panic window: per summoner and scarer, after this tick: in the scarer's type range;
+        // eye to eye within 16 and the villager's box inflated by 16 meeting the scarer's)
+        if !o.panic_posts.is_empty() {
+            let mut row: [Vec<(bool, bool, bool)>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+            let mut prow: [Option<Vec3>; 3] = [None; 3];
+            for k in 0..3 {
+                let Some(r) = riders[3 + k] else { continue };
+                let Some(e) = run.world.entities.list.iter().find(|e| e.id == r && !e.removed) else { continue };
+                prow[k] = Some(e.pos);
+                let eye = Vec3::new(e.pos.x, e.pos.y + 1.62, e.pos.z);
+                for (kind, s) in &o.panic_posts {
+                    let range = if *kind == 'z' { 8.0 } else { 15.0 };
+                    let d = ((e.pos.x - s.x).powi(2) + (e.pos.y - s.y).powi(2) + (e.pos.z - s.z).powi(2)).sqrt();
+                    let fr = o.follow_range;
+                    let inbox = (e.pos.x - s.x).abs() < fr + 0.6 && (e.pos.z - s.z).abs() < fr + 0.6 && s.y < e.pos.y + 1.95 + fr && s.y + 1.95 > e.pos.y - fr;
+                    let seye = Vec3::new(s.x, s.y + if *kind == 'z' { 1.74 } else { 1.6575 }, s.z);
+                    let los16 = d <= 16.0 && redsim::entity::mob::los::has_line_of_sight(&run.world, eye, seye);
+                    row[k].push((d <= range, inbox, los16));
+                }
+            }
+            panic_log.push(row);
+            panic_pos.push(prow);
+        }
         if dt % 100 == 0 {
             let mut v = Vec::new();
             at_summon(&run.world, &mut v);
@@ -1328,6 +1395,139 @@ pub fn bench(spec: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats), 
     stats.fall_off = fall_off;
     stats.fall_toward = if fall_toward.is_finite() { Some(fall_toward) } else { None };
     stats.summon_off = summon_off.len();
+    // (the panic at the next summon T = T+100, two readings. (1) ironspec's conservative windows:
+    // per summoner the scarer whose runs reach furthest back: in range from t_A on (needed from
+    // T-19), seen eye to eye in the 16-box from t_B on (needed from T-38). (2) the game's trigger
+    // (G1 / ironspec 05:04): per summoner and per sensor phase pair (the living scan every 20 gt at
+    // phase pL, the hostiles scan every 20 gt at phase pH), NEAREST_HOSTILE at each hostiles scan t
+    // = a scarer in the 16-box at the last living scan u <= t, seen (within 16, eye to eye) at every
+    // tick u..t (the cached sight), in its type's range at t; VillagerPanicTrigger (duration 60)
+    // runs from the first scan h of a continuous presence, h..h+60, stops at h+61, restarts at h+62:
+    // the summoner calls spawnGolemIfNeeded at T if the last scan <= T found a scarer and T is not
+    // h + 61 + 62k. The game's bar: >= 1 caller in every phase combination; the brief's: all three.)
+    if !o.panic_posts.is_empty() && panic_log.len() > 100 {
+        let tn = 100usize;
+        let ns = o.panic_posts.len();
+        let mut lines = Vec::new();
+        let mut robust = 0usize;
+        for k in 0..3 {
+            let a = |t: usize, s: usize| panic_log[t][k].get(s).is_some_and(|x| x.0);
+            let b = |t: usize, s: usize| panic_log[t][k].get(s).is_some_and(|x| x.1 && x.2);
+            let mut best: Option<(usize, i64, i64, Option<i64>, Option<i64>)> = None;
+            for s in 0..ns {
+                let run_from = |f: &dyn Fn(usize) -> bool| -> i64 {
+                    let mut t = tn as i64;
+                    while t >= 0 && f(t as usize) {
+                        t -= 1;
+                    }
+                    t + 1
+                };
+                let (ta, tb) = (run_from(&|t| a(t, s)), run_from(&|t| b(t, s)));
+                let (ma, mb) = ((tn as i64 - 19) - ta, (tn as i64 - 38) - tb);
+                let fa = (tn - 19..=tn).find(|t| !a(*t, s)).map(|t| t as i64);
+                let fb = (tn - 38..=tn).find(|t| !b(*t, s)).map(|t| t as i64);
+                if best.is_none_or(|x| ma.min(mb) > x.1.min(x.2)) {
+                    best = Some((s, ma, mb, fa, fb));
+                }
+            }
+            stats.panic[k] = best;
+            // the game's trigger over every phase pair
+            let mem = |t: usize, pl: usize| -> bool {
+                let u = t - (t + 20 - pl) % 20;
+                (0..ns).any(|s| panic_log[u][k].get(s).is_some_and(|x| x.1) && (u..=t).all(|q| panic_log[q][k].get(s).is_some_and(|x| x.2)) && panic_log[t][k].get(s).is_some_and(|x| x.0))
+            };
+            let mut calls = 0usize;
+            let mut unknown = 0usize;
+            let mut h_latest: Option<i64> = None;
+            let mut durations: Vec<i64> = Vec::new();
+            let mut windows: Vec<i64> = Vec::new();
+            let mut h_least: Option<i64> = None;
+            let mut fail_eg: Option<String> = None;
+            for pl in 0..20 {
+                for ph in 0..20 {
+                    let tstar = tn - (tn + 20 - ph) % 20;
+                    let ok = if !mem(tstar, pl) {
+                        false
+                    } else {
+                        let mut h = tstar;
+                        while h >= 40 && mem(h - 20, pl) {
+                            h -= 20;
+                        }
+                        // (the turn's panic: from h to the first hostiles scan without a scarer)
+                        let mut e = tstar;
+                        while e + 20 < panic_log.len() && mem(e + 20, pl) {
+                            e += 20;
+                        }
+                        let dur = (e + 20 - h) as i64;
+                        durations.push(dur);
+                        // (its window in the pocket: from h to leaving its rest, the next cycle's
+                        // launch, launch_at + 100 in L1)
+                        if let Some(l) = launch_at[k] {
+                            windows.push(l + 100 - h as i64);
+                        }
+                        if h < 40 {
+                            // (present since before the bench's window: the trigger's phase is
+                            // unknown, T can be its dead tick h + 61 + 62k)
+                            unknown += 1;
+                            false
+                        } else {
+                            let dead = tn >= h + 61 && (tn - h - 61) % 62 == 0;
+                            if !dead && tn < h + 61 {
+                                h_least = Some(h_least.map_or(h as i64, |x: i64| x.min(h as i64)));
+                            }
+                            if !dead {
+                                h_latest = Some(h_latest.map_or(h as i64, |x: i64| x.max(h as i64)));
+                            }
+                            !dead
+                        }
+                    };
+                    if ok {
+                        calls += 1;
+                    } else if fail_eg.is_none() {
+                        fail_eg = Some(format!(
+                            "living phase {pl}, hostiles phase {ph}: {}",
+                            if !mem(tstar, pl) { "no scarer at the last hostiles scan" } else if unknown > 0 { "a scarer seen since before T+40: the trigger's phase unknown, T can be its dead tick" } else { "T falls on the trigger's restart gap" }
+                        ));
+                    }
+                }
+            }
+            if calls == 400 {
+                robust += 1;
+            }
+            // the wanting villagers in this summoner's 10-box at T (the arriving batch)
+            let wanting = panic_pos.get(tn).map_or(0, |row| {
+                let Some(c) = row[k] else { return 0 };
+                row.iter().flatten().filter(|q| (q.x - c.x).abs() < 10.6 && (q.z - c.z).abs() < 10.6 && q.y < c.y + 1.95 + 10.0 && q.y + 1.95 > c.y - 10.0).count()
+            });
+            stats.panic_calls[k] = Some((calls, wanting));
+            if let Some((s, ma, mb, fa, fb)) = best {
+                lines.push(format!(
+                    "lane {k}: calls in {calls} of 400 sensor phase pairs{}{}{}, {wanting} wanting in its 10-box; its panic window in the pocket (its first hostiles scan with a scarer to leaving its rest at T+{}) {}; its panic this turn (to the first scan without a scarer, the bench's track end included) {}; windows (scarer {s}): in range {} (margin {ma}), seen in the 16-box {} (margin {mb})",
+                    if unknown > 0 { format!(" ({unknown} with a scarer seen since before T+40: the trigger's phase unknown)") } else { String::new() },
+                    h_least.map_or(String::new(), |h| format!(", its trigger started at T+{h} at the earliest (T is its dead tick only from a start at T+39: margin {}){}", h - 39, h_latest.map_or(String::new(), |l| format!(" and by T+{l} at the latest over both sensors' phases")))),
+                    fail_eg.map_or(String::new(), |e| format!(" (fails e.g. {e})")),
+                    launch_at[k].map_or("?".to_string(), |l| (l + 100).to_string()),
+                    match (windows.iter().min(), windows.iter().max()) {
+                        (Some(a), Some(b)) => format!("{a}..{b} gt over the phase pairs (the shortest {a})"),
+                        _ => "none".to_string(),
+                    },
+                    match (durations.iter().min(), durations.iter().max()) {
+                        (Some(a), Some(b)) => format!("{a}..{b} gt"),
+                        _ => "none".to_string(),
+                    },
+                    fa.map_or("through T+81..100".to_string(), |t| format!("FAILS at T+{t}")),
+                    fb.map_or("through T+62..100".to_string(), |t| format!("FAILS at T+{t}"))
+                ));
+            }
+        }
+        stats.panic_callers = Some(robust);
+        out.push(format!(
+            "the panic at the next summon (T+100; each rider's own two sensor phases, 20 x 20 pairs each; follow range {:.2}): {}; the least caller count {robust} (the riders calling at all 400 of their own pairs; the game's bar >= 1, margin 2); all three call in every phase pair: {} (the retired all-three rule)",
+            o.follow_range,
+            lines.join("; "),
+            if robust == 3 { "yes" } else { "NO" }
+        ));
+    }
     if !summon_off.is_empty() {
         out.push(format!("villagers in a shaft or on a departure rail at a summon tick: {}", summon_off.join("; ")));
     }
@@ -1437,6 +1637,38 @@ pub fn summary(label: &str, runs: &[DropStats]) -> String {
                 })
                 .collect();
             let lanes = if lanes.is_empty() { String::new() } else { format!("; departures from each lane's launch tick (REL + offset): {}", lanes.join(", ")) };
+            // (the panic window: per summoner the least margins over the runs)
+            let pan: Vec<String> = (0..3)
+                .filter_map(|k| {
+                    let v: Vec<(usize, i64, i64, Option<i64>, Option<i64>)> = runs.iter().filter_map(|s| s.panic[k]).collect();
+                    if v.is_empty() {
+                        return None;
+                    }
+                    let (ma, mb) = (v.iter().map(|x| x.1).min().unwrap(), v.iter().map(|x| x.2).min().unwrap());
+                    let fails = v.iter().filter(|x| x.1 < 0 || x.2 < 0).count();
+                    let ea = v.iter().filter_map(|x| x.3).min();
+                    let eb = v.iter().filter_map(|x| x.4).min();
+                    let calls = runs.iter().filter_map(|s| s.panic_calls[k]).map(|c| c.0).min();
+                    Some(format!(
+                        "lane {k}: calls in at least {} of 400 phase pairs, in range margin {ma}{}, seen margin {mb}{}, failing window runs {fails}",
+                        calls.map_or("-".to_string(), |c| c.to_string()),
+                        ea.map_or(String::new(), |t| format!(" (earliest fail T+{t})")),
+                        eb.map_or(String::new(), |t| format!(" (earliest fail T+{t})"))
+                    ))
+                })
+                .collect();
+            let least = runs.iter().filter_map(|s| s.panic_callers).min();
+            let all3 = runs.iter().filter(|s| s.panic_callers == Some(3)).count();
+            let lanes = if pan.is_empty() {
+                lanes
+            } else {
+                format!(
+                    "{lanes}; the panic at the next summon: {}; the least caller count {} (the stand's bar >= 1, margin 2), all three calling in every phase pair in {all3} of {} runs (the retired all-three rule)",
+                    pan.join(", "),
+                    least.map_or("-".to_string(), |c| c.to_string()),
+                    runs.len()
+                )
+            };
             format!(
                 "{r_line}; the falling carts' largest horizontal offset from their shaft's centre line {off:.4}{}{}; villagers in a shaft or on a departure rail at a summon tick (T+0/100/200, before and after) {} (in {} runs; required 0){lanes}",
                 if toward.is_finite() { format!(" (toward a zombie post's seat {toward:+.4}{})", if toward >= 0.03 { ": AT OR OVER 0.03, THE POST MOVES" } else { "" }) } else { String::new() },
