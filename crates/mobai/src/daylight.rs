@@ -222,6 +222,99 @@ pub fn skip_latency(version: &str) -> Result<()> {
     Ok(())
 }
 
+/// (tickexact 2026-11-12, day-1's inhibit level, ironspec) An open daylight detector's level from
+/// 26.3's code, no server: `DaylightDetectorBlock.updateSignalStrength` with sky light 15, the
+/// sky darkening of the day timeline and the weather layer (`redsim::weather::sky_darken_at`, the
+/// effective thunder being thunder x rain) and the sun's angle (`redsim::daylight::sun_angle`),
+/// pulled toward noon by 0.2 and rounded (`Math.round`).
+fn level(day: i64, rain: f32, thunder: f32) -> i32 {
+    let target = 15 - redsim::weather::sky_darken_at(day.rem_euclid(24000), rain, thunder * rain);
+    if target <= 0 {
+        return 0;
+    }
+    let mut sun = redsim::daylight::sun_angle(day.rem_euclid(24000)) * (std::f64::consts::PI / 180.0) as f32;
+    let offset = if sun < std::f64::consts::PI as f32 { 0.0f32 } else { (std::f64::consts::PI * 2.0) as f32 };
+    sun += (offset - sun) * 0.2f32;
+    let v = target as f32 * redsim::entity::mth::cos(sun as f64);
+    ((v as f64 + 0.5).floor() as i32).clamp(0, 15)
+}
+
+/// `mctas mobai daylight --levels`: the table day-1's controller needs (ironspec 02:46).
+pub fn levels() -> Result<()> {
+    let weathers = [("clear", 0.0f32, 0.0f32), ("rain", 1.0, 0.0), ("thunder", 1.0, 1.0)];
+    println!("== an open daylight detector's level from 26.3's code (sky light 15), per day time d");
+    println!("1. every d, step 100 (clear / rain / thunder):");
+    for d in (0..24000).step_by(100) {
+        println!("  d {d:>5}: {:>2} / {:>2} / {:>2}", level(d, 0.0, 0.0), level(d, 1.0, 0.0), level(d, 1.0, 1.0));
+    }
+    println!("   the steps (every d where a weather's level changes, to the tick):");
+    for (name, r, t) in weathers {
+        let mut steps = Vec::new();
+        let mut prev = level(0, r, t);
+        for d in 1..24000 {
+            let l = level(d, r, t);
+            if l != prev {
+                steps.push(format!("{d}:{prev}->{l}"));
+                prev = l;
+            }
+        }
+        println!("  {name}: {}", steps.join(" "));
+    }
+    // a skip resets the weather cycle (`ServerLevel.resetWeatherCycle`): both flags off, so the
+    // rain and thunder levels fall 0.01 a tick from where they were, from the jump to day 0
+    println!("2. a skip from a storm to dawn (day 0, the rain and thunder levels falling 0.01 a tick):");
+    for (name, r0, t0) in [("rain", 1.0f32, 0.0f32), ("thunder", 1.0, 1.0)] {
+        let mut seq = Vec::new();
+        let mut prev = -1;
+        for k in 0..=400i64 {
+            let r = (r0 - 0.01 * k as f32).max(0.0);
+            let t = (t0 - 0.01 * k as f32).max(0.0);
+            let l = level(k, r, t);
+            if l != prev {
+                seq.push(format!("{k}:{l}"));
+                prev = l;
+            }
+        }
+        let night: Vec<String> = [12_500i64, 13_000, 18_000, 23_000, 23_900].iter().map(|d| format!("{d}:{}", level(*d, r0, t0))).collect();
+        println!("  {name}: the level before the skip {}; after it (day time:level at each change) {}", night.join(" "), seq.join(" "));
+    }
+    // the largest change of the level between two readings 20 gt apart, over every day time
+    println!("3. the largest change between two readings 20 gt apart (any day time):");
+    let mut sun = (0, 0);
+    for (_, r, t) in weathers {
+        for d in 0..24000 {
+            let c = (level(d + 20, r, t) - level(d, r, t)).abs();
+            if c > sun.0 {
+                sun = (c, d);
+            }
+        }
+    }
+    println!("  the sun alone (each weather held): {} (from d {})", sun.0, sun.1);
+    // ramps: rain 0.01 a tick (0.2 per reading), thunder 0.01 a tick, effective thunder = thunder x rain
+    let ramp = |dr: f32, dt: f32| {
+        let mut best = (0, 0i64, 0.0f32, 0.0f32);
+        for d in (0..24000).step_by(10) {
+            for i in 0..=100 {
+                let a = i as f32 / 100.0;
+                for j in 0..=100 {
+                    let b = j as f32 / 100.0;
+                    let (r1, t1) = ((a + dr).clamp(0.0, 1.0), (b + dt).clamp(0.0, 1.0));
+                    let c = (level(d + 20, r1, t1) - level(d, a, b)).abs();
+                    if c > best.0 {
+                        best = (c, d, a, b);
+                    }
+                }
+            }
+        }
+        best
+    };
+    for (name, dr, dt) in [("rain rising", 0.2f32, 0.0f32), ("rain falling", -0.2, 0.0), ("thunder rising", 0.0, 0.2), ("thunder falling", 0.0, -0.2), ("both rising", 0.2, 0.2), ("both falling", -0.2, -0.2)] {
+        let (c, d, a, b) = ramp(dr, dt);
+        println!("  {name} (with the sun): {c} (at d {d}, rain {a:.2}, thunder {b:.2})");
+    }
+    Ok(())
+}
+
 pub fn daylight(version: &str) -> Result<()> {
     println!("== daylight on the official {version} server: a daylight detector under the open sky, the bot beside a bed");
     let mut srv = VanillaServer::start(&VanillaOptions {

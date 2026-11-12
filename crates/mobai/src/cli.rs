@@ -325,6 +325,10 @@ pub enum MobaiCmd {
         /// Only the skip latency, on a running (unfrozen) server
         #[arg(long)]
         latency: bool,
+        /// No server: an open detector's level from 26.3's code at every day time, weather, a
+        /// skip from a storm and the largest change between readings (day-1's inhibit level)
+        #[arg(long)]
+        levels: bool,
     },
     /// (tickexact 2026-11-11, the parent's shared-bed overload across reloads) Scene bed-reload-<case>'s
     /// recording at its checkpoints: every villager's HOME and LAST_SLEPT, the bed, the naps
@@ -548,8 +552,10 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         MobaiCmd::NetherHome { version } => crate::netherhome::nether_home(&version),
         MobaiCmd::T600 { version } => crate::t600::t600(&version),
         MobaiCmd::ThreeBeds { version } => crate::threebeds::three_beds(&version),
-        MobaiCmd::Daylight { version, latency } => {
-            if latency {
+        MobaiCmd::Daylight { version, latency, levels } => {
+            if levels {
+                crate::daylight::levels()
+            } else if latency {
                 crate::daylight::skip_latency(&version)
             } else {
                 crate::daylight::daylight(&version)

@@ -68,10 +68,12 @@ pub fn load_window(version: &str, case: &str, runs: u32, design: Option<&std::pa
         "item-loop" => return item_loop(version, runs),
         "item-loop-build" => return item_loop_build(version, runs, false, design, mobs, None),
         "item-loop-build-slab" => return item_loop_build(version, runs, true, design, mobs, None),
-        "item-loop-extremes" => return item_loop_build(version, 0, false, design, None, Some(400)),
+        "item-loop-extremes" => return item_loop_build(version, 0, false, design, None, Some((400, 0))),
         // the corners fired `--runs` gt after the portals are built (no 400-gt run first), then
         // every nether_portal and obsidian block of both dimensions' search areas counted
-        "item-loop-early" => return item_loop_build(version, 0, false, design, None, Some(runs.min(399))),
+        "item-loop-early" => return item_loop_build(version, 0, false, design, None, Some((runs.min(399), 0))),
+        // the same, the portals built 600 gt after the server's start (after start, or after building?)
+        "item-loop-early-late" => return item_loop_build(version, 0, false, design, None, Some((runs.min(399), 600))),
         _ => bail!("--case quiet, load, pearl, pearl-busy, portal-loop, item-loop, item-loop-build, item-loop-build-slab or item-loop-extremes"),
     };
     let jar = mctas::bridge::load_agent(version)?;
@@ -879,7 +881,7 @@ const BUILD_LOOP: &str = "designs/farms/iron/carousel-assembly/wip/tickexact/loa
 /// behind the droppers (2 gt every 200 gt, the Nether half a period later); an observer clock and
 /// two entities in the overworld chunk (1, 2) for the first scheduled and entity ticks; no player
 /// online, no forced chunks once built; then `runs` real restarts at different clock phases.
-fn item_loop_build(version: &str, runs: u32, slab: bool, design: Option<&std::path::Path>, mobs: Option<&str>, corners: Option<u32>) -> Result<()> {
+fn item_loop_build(version: &str, runs: u32, slab: bool, design: Option<&std::path::Path>, mobs: Option<&str>, corners: Option<(u32, u32)>) -> Result<()> {
     let design = design.unwrap_or(std::path::Path::new(BUILD_LOOP));
     let d = mctas::design::Design::load(design)?;
     let jar = mctas::bridge::load_agent(version)?;
@@ -911,6 +913,10 @@ fn item_loop_build(version: &str, runs: u32, slab: bool, design: Option<&std::pa
     srv.cmd_ok("forceload add 0 0 31 47")?;
     srv.cmd_ok("execute in minecraft:the_nether run forceload add -16 -16 31 31")?;
     srv.step(20)?;
+    if let Some((_, pre)) = corners.filter(|c| c.1 > 0) {
+        srv.step(pre)?;
+        println!("the portals built {pre} gt later than usual (game time {})", srv.game_time()?);
+    }
     let n = |c: &str| format!("execute in minecraft:the_nether run {c}");
     srv.cmd_ok(&n(&format!("fill {} {} {} {} {} {} minecraft:air", n0[0] - 4, n0[1] + 6, n0[2] - 5, n0[0] + 8, n0[1] + 16, n0[2] + 4)))?;
     // the frames, then the portals, then the rest; then the containers' items
@@ -1043,7 +1049,7 @@ fn item_loop_build(version: &str, runs: u32, slab: bool, design: Option<&std::pa
     };
     // `--case item-loop-early`: the corners fired right after building (ironspec's hypothesis
     // for the early loss: a crossing before the twin's POI is findable builds a new portal)
-    if let Some(w) = corners.filter(|w| *w < 400) {
+    if let Some(w) = corners.map(|c| c.0).filter(|w| *w < 400) {
         for (blocks, at, dim) in [(&d.blocks, t, "overworld"), (&d.nether_blocks, n0, "the_nether")] {
             for (p, s) in blocks.iter() {
                 if s.contains("observer") {
