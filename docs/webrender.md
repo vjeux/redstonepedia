@@ -708,8 +708,13 @@ each build's page.
   sulfur cube's translucent faces take the red overlay too. Tests `a_skeleton_draws_its_bow`,
   `a_drink_is_held_where_the_game_holds_it`, `an_enchanted_piece_glints`,
   `a_sulfur_cube_squishes`. In the 15 terrain farms' runs no skeleton draws its bow and no witch
-  drinks; enchanted bows and armor show in five. Not
-  drawn yet: a baby's armor (`humanoid_baby`: no baby in the farms wears any), a zombie
+  drinks; enchanted bows and armor show in five. A baby zombie's and a baby zombie villager's
+  armor is the baby mesh (`HumanoidModel.createBabyArmorMeshSet`: a big helmet, the body and
+  arms, the legs and a waist, two feet hung from the legs; the deformations (-0.1, 0.5, 0.3) and,
+  for the legs, (-0.1, 0.3, 0.3): `Cube::grow_axes`) with the `humanoid_baby` textures (every
+  slot), posed by the baby model's own `setupAnim`; test `a_baby_wears_the_baby_armor` (no baby
+  in the farms' runs wears any). Not
+  drawn yet: a zombie
   villager's profession (redsim keeps none), the farm animals' warm and cold variants (every
   terrain site is temperate), a sulfur cube's swallowed block (redsim refuses one), a boat's
   lead, a cat's crouch and sprint (redsim keeps neither). Lava is drawn as the game draws it: its

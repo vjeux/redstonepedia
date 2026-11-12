@@ -9,13 +9,15 @@ use crate::atlas::GameAssets;
 use crate::mesh::Vertex;
 
 /// A box of a model part (`CubeListBuilder.texOffs(u, v).addBox(x, y, z, w, h, d[, grow])`): a
-/// `CubeDeformation` grows the box on every side, never its texture.
+/// `CubeDeformation` grows the box on every side, never its texture (by `grow` on every axis,
+/// plus `grow_axes`: a deformation of its own per axis, `new CubeDeformation(x, y, z)`).
 struct Cube {
     tex: [f32; 2],
     from: [f32; 3],
     size: [f32; 3],
     mirror: bool,
     grow: f32,
+    grow_axes: [f32; 3],
 }
 
 /// A model part: its boxes, its pose (offset in pixels, rotations in radians, scale: `PartPose`)
@@ -29,7 +31,7 @@ struct EPart {
 }
 
 fn cube(u: f32, v: f32, from: [f32; 3], size: [f32; 3]) -> Cube {
-    Cube { tex: [u, v], from, size, mirror: false, grow: 0.0 }
+    Cube { tex: [u, v], from, size, mirror: false, grow: 0.0, grow_axes: [0.0; 3] }
 }
 
 /// A box with a `CubeDeformation` of `grow` on every side.
@@ -189,9 +191,9 @@ fn emit(out: &mut Vec<Vertex>, parts: &[EPart], m: &M, tex_size: [f32; 2], rect:
             pm = pm.scale([p.scale, p.scale, p.scale]);
         }
         for c in &p.cubes {
-            let g = c.grow;
-            let (mut x0, y0, z0) = (c.from[0] - g, c.from[1] - g, c.from[2] - g);
-            let (mut x1, y1, z1) = (c.from[0] + c.size[0] + g, c.from[1] + c.size[1] + g, c.from[2] + c.size[2] + g);
+            let g = [c.grow + c.grow_axes[0], c.grow + c.grow_axes[1], c.grow + c.grow_axes[2]];
+            let (mut x0, y0, z0) = (c.from[0] - g[0], c.from[1] - g[1], c.from[2] - g[2]);
+            let (mut x1, y1, z1) = (c.from[0] + c.size[0] + g[0], c.from[1] + c.size[1] + g[1], c.from[2] + c.size[2] + g[2]);
             if c.mirror {
                 std::mem::swap(&mut x0, &mut x1);
             }
@@ -1085,6 +1087,14 @@ pub const MOB_TEXTURES: &[&str] = &[
     "entity/equipment/humanoid_leggings/chainmail",
     "entity/equipment/humanoid_leggings/iron",
     "entity/equipment/humanoid_leggings/diamond",
+    // a baby's armor (`HumanoidArmorLayer`: `LayerType.HUMANOID_BABY`, every slot)
+    "entity/equipment/humanoid_baby/leather",
+    "entity/equipment/humanoid_baby/leather_overlay",
+    "entity/equipment/humanoid_baby/copper",
+    "entity/equipment/humanoid_baby/gold",
+    "entity/equipment/humanoid_baby/chainmail",
+    "entity/equipment/humanoid_baby/iron",
+    "entity/equipment/humanoid_baby/diamond",
 ];
 
 /// A mob's eyes layer (`EyesLayer`: the model again with this texture through the `eyes`
@@ -1220,12 +1230,44 @@ const ARMOR_ASSETS: [&str; 6] = ["leather", "copper", "gold", "chainmail", "iron
 
 /// A humanoid mob's parts' poses as its `setupAnim` left them (head, body, right arm, left arm,
 /// right leg, left leg, from the built model): what its armor model, an instance of its own model
-/// class posed by the same `setupAnim`, takes. None: not a humanoid (or a baby zombie, whose armor
-/// is the `humanoid_baby` mesh: not drawn yet).
+/// class posed by the same `setupAnim`, takes. A baby zombie's (its model's body first) and a baby
+/// zombie villager's are their baby models' (`BabyZombieModel`, `BabyZombieVillagerModel`: their
+/// armor the `humanoid_baby` mesh, [`baby_armor_parts`]). None: not a humanoid.
 fn humanoid_pose(k: &str, parts: &[EPart]) -> Option<[[f32; 3]; 6]> {
     match k {
-        "zombie" | "skeleton" | "zombie_villager" if parts.len() >= 6 => Some(std::array::from_fn(|i| parts[i].rot)),
+        "zombie" | "skeleton" | "zombie_villager" | "baby_zombie_villager" if parts.len() >= 6 => Some(std::array::from_fn(|i| parts[i].rot)),
+        "baby_zombie" if parts.len() >= 6 => Some([parts[1].rot, parts[0].rot, parts[2].rot, parts[3].rot, parts[4].rot, parts[5].rot]),
         _ => None,
+    }
+}
+
+/// `HumanoidModel.createBabyArmorMeshSet(BABY_INNER, BABY_OUTER, ZERO)`'s model of an armor slot
+/// (`LayerDefinitions`: the outer deformation (-0.1, 0.5, 0.3), the legs' inner one (-0.1, 0.3,
+/// 0.3); `createBabyArmorMesh`, `BABY_ARMOR_PARTS_PER_SLOT`): 0 the head; 1 the body and the arms;
+/// 2 the legs and the waist (their boxes 0.1 less: `extend(-0.1)`); 3 the feet, children of the
+/// legs (the part named `left_leg`, at +1.5, carries the one named `right_foot`: the game's own
+/// names), each posed by the baby's `setupAnim` (the waist never); texture 64 x 64. A baby zombie
+/// villager's armor is the same mesh (`ZombieVillagerModel.createBabyArmorMeshSet`: inherited).
+fn baby_armor_parts(slot: usize, pose: &[[f32; 3]; 6]) -> Vec<EPart> {
+    let g: [f32; 3] = if slot == 2 { [-0.1, 0.3, 0.3] } else { [-0.1, 0.5, 0.3] };
+    let less = g.map(|x| x - 0.1);
+    let bx = |u: f32, v: f32, from: [f32; 3], size: [f32; 3], g: [f32; 3]| Cube { grow_axes: g, ..cube(u, v, from, size) };
+    match slot {
+        0 => vec![part(vec![bx(0.0, 0.0, [-4.5, -7.0, -4.5], [9.0, 8.0, 8.0], g)], [0.0, 15.0, 0.0], pose[0])],
+        1 => vec![
+            part(vec![bx(0.0, 17.0, [-3.0, -3.0, -1.5], [6.0, 5.0, 3.0], g)], [0.0, 18.0, 0.0], pose[1]),
+            part(vec![bx(30.0, 25.0, [-1.0, 0.0, -1.53], [2.0, 5.0, 3.0], g)], [-3.5, 15.5, 0.0], pose[2]),
+            part(vec![bx(30.0, 17.0, [-1.0, 0.0, -1.53], [2.0, 5.0, 3.0], g)], [3.5, 15.5, 0.0], pose[3]),
+        ],
+        2 => vec![
+            part(vec![bx(0.0, 36.0, [-3.0, -1.2, -1.49], [5.9, 2.0, 2.9], less)], [0.0, 19.0, 0.0], [0.0; 3]),
+            part(vec![bx(18.0, 24.0, [-2.0, -0.2, -2.0], [3.0, 4.0, 3.0], less)], [1.5, 20.0, 0.5], pose[5]),
+            part(vec![bx(18.0, 17.0, [-1.0, -0.2, -2.0], [3.0, 4.0, 3.0], less)], [-1.5, 20.0, 0.5], pose[4]),
+        ],
+        _ => vec![
+            part_with(vec![], [1.5, 20.0, 0.5], pose[5], vec![part(vec![bx(0.0, 25.0, [-2.0, 2.9, -2.0], [3.0, 1.0, 3.0], g)], [0.0; 3], [0.0; 3])]),
+            part_with(vec![], [-1.5, 20.0, 0.5], pose[4], vec![part(vec![Cube { mirror: true, ..bx(0.0, 29.0, [-1.0, 2.9, -2.0], [3.0, 1.0, 3.0], g) }], [0.0; 3], [0.0; 3])]),
+        ],
     }
 }
 
@@ -1266,10 +1308,17 @@ fn armor_parts(slot: usize, pose: &[[f32; 3]; 6], villager: bool) -> Vec<EPart> 
 }
 
 /// The layers of a slot's armor of a material (`EquipmentLayerRenderer.renderLayers` over the
-/// asset's `humanoid` layers, the legs' `humanoid_leggings`): each texture and its colour
-/// (leather's base dyeable, undyed `color_when_undyed` 0xA06540, then its overlay as drawn).
-fn armor_layers(slot: usize, material: u8) -> Vec<(String, [u8; 3])> {
-    let kind = if slot == 2 { "humanoid_leggings" } else { "humanoid" };
+/// asset's `humanoid` layers, the legs' `humanoid_leggings`, a baby's `humanoid_baby` in every
+/// slot: `HumanoidArmorLayer`): each texture and its colour (leather's base dyeable, undyed
+/// `color_when_undyed` 0xA06540, then its overlay as drawn).
+fn armor_layers(slot: usize, material: u8, baby: bool) -> Vec<(String, [u8; 3])> {
+    let kind = if baby {
+        "humanoid_baby"
+    } else if slot == 2 {
+        "humanoid_leggings"
+    } else {
+        "humanoid"
+    };
     let asset = ARMOR_ASSETS.get(material as usize).copied().unwrap_or("iron");
     let tex = |a: &str| format!("entity/equipment/{kind}/{a}");
     if asset == "leather" { vec![(tex("leather"), [0xA0, 0x65, 0x40]), (tex("leather_overlay"), [255; 3])] } else { vec![(tex(asset), [255; 3])] }
@@ -1422,12 +1471,15 @@ pub fn mob_triangles(g: &GameAssets, kind: &str, pos: [f32; 3], d: &crate::mesh:
     if let Some(pose) = humanoid_pose(k, &parts) {
         for slot in [1, 2, 3, 0] {
             let Some(material) = d.armor[slot] else { continue };
+            // (a baby's the `humanoid_baby` mesh and textures, 64 x 64)
+            let baby = k.starts_with("baby_");
+            let (pieces, size) = if baby { (baby_armor_parts(slot, &pose), [64.0, 64.0]) } else { (armor_parts(slot, &pose, k == "zombie_villager"), [64.0, 32.0]) };
             // (an enchanted piece's first layer with the glint: `EquipmentLayerRenderer`'s
             // `renderShaderGlint`, false after it)
-            for (li, (tex, tint)) in armor_layers(slot, material).into_iter().enumerate() {
+            for (li, (tex, tint)) in armor_layers(slot, material, baby).into_iter().enumerate() {
                 let Some(ar) = rect(g, &tex) else { continue };
                 let n = out.len();
-                emit(&mut out, &armor_parts(slot, &pose, k == "zombie_villager"), &m, [64.0, 32.0], ar, tw, th);
+                emit(&mut out, &pieces, &m, size, ar, tw, th);
                 let glint = li == 0 && d.foil[slot + 1];
                 for v in &mut out[n..] {
                     for c in 0..3 {
@@ -1852,6 +1904,39 @@ mod tests {
         let hurt = crate::mesh::MobDraw { red: true, ..bare.clone() };
         assert!(mob_translucent(&g, "minecraft:sulfur_cube_2", [0.0; 3], &hurt).iter().flatten().all(|v| v.layer == GAME_LAYER_RED));
         assert!(mob_translucent(&g, "minecraft:sulfur_cube_2", [0.0; 3], &bare).iter().flatten().all(|v| v.layer != GAME_LAYER_RED));
+    }
+
+    /// A baby zombie's and a baby zombie villager's armor is the `humanoid_baby` mesh and textures
+    /// (`HumanoidArmorLayer`: `babyModelSet`, `LayerType.HUMANOID_BABY`): one box for the head,
+    /// three for the chest (body, arms), three for the legs (legs, waist), two feet; around the
+    /// baby's own model, the feet swinging with its legs.
+    #[test]
+    fn a_baby_wears_the_baby_armor() {
+        let g = browser_game();
+        let r = g.tex.get("entity/equipment/humanoid_baby/iron").expect("vendored").rect;
+        for k in ["minecraft:baby_zombie", "minecraft:baby_zombie_villager"] {
+            let bare = crate::mesh::MobDraw { eye_standing: 0.93, ..Default::default() };
+            let body = mob_triangles(&g, k, [0.0; 3], &bare).unwrap();
+            let iron = crate::mesh::MobDraw { armor: [Some(4); 4], ..bare.clone() };
+            let t = mob_triangles(&g, k, [0.0; 3], &iron).unwrap();
+            assert_eq!(t.len() - body.len(), (1 + 3 + 3 + 2) * 36, "{k}: the baby mesh's boxes");
+            let (tw, th) = (g.width as f32, g.height as f32);
+            assert!(
+                t[body.len()..].iter().all(|v| {
+                    let (x, y) = (v.uv[0] * tw, v.uv[1] * th);
+                    x >= r[0] as f32 - 0.01 && x <= (r[0] + r[2]) as f32 + 0.01 && y >= r[1] as f32 - 0.01 && y <= (r[1] + r[3]) as f32 + 0.01
+                }),
+                "{k}: every armor face samples humanoid_baby/iron"
+            );
+            let (lo, hi) = bounds(&body);
+            let (alo, ahi) = bounds(&t[body.len()..]);
+            assert!(alo[1] <= lo[1] + 0.01 && ahi[1] >= hi[1] - 0.05, "{k}: the armor spans the baby, feet to head: {alo:?}..{ahi:?} around {lo:?}..{hi:?}");
+            // a step: the feet move with the legs
+            let walk = crate::mesh::MobDraw { walk_pos: 1.2, walk_speed: 0.8, ..iron.clone() };
+            let w = mob_triangles(&g, k, [0.0; 3], &walk).unwrap();
+            let feet = t.len() - 2 * 36..;
+            assert!(t[feet.clone()].iter().zip(&w[feet]).any(|(a, b)| (a.pos[2] - b.pos[2]).abs() > 0.02), "{k}: the feet swing");
+        }
     }
 
     /// A zombie villager (the census: d1u-side's, adult and baby) draws with its own model and
