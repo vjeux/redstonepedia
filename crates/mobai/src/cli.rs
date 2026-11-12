@@ -427,6 +427,58 @@ pub enum MobaiCmd {
         #[arg(long)]
         draws_out: Option<std::path::PathBuf>,
     },
+    /// (tickexact 2026-11-12, ironspec 12:44: A6's restart re-board) A ridden cart onto A6's
+    /// activator, a restart at every tick from the eject to eject + W (chest landing or `--glass`)
+    Reboard {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        #[arg(long)]
+        file: std::path::PathBuf,
+        #[arg(long, default_value = "0.2,0.3,0.4")]
+        speeds: String,
+        #[arg(long, default_value_t = 10)]
+        window: u32,
+        #[arg(long)]
+        glass: bool,
+    },
+    /// (tickexact 2026-11-12, ironspec: A6's napper ride) The napper's cart from R up its lift and
+    /// the staircase to rest on the hold, on the official server: the detector's rise, the T entry
+    /// speed, the rest tick; rows at several start speeds and with a restart along the climb
+    NapperRide {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        #[arg(long)]
+        module: std::path::PathBuf,
+        #[arg(long, default_value_t = 9)]
+        depth: i32,
+        #[arg(long, default_value = "0.2")]
+        speeds: String,
+        #[arg(long, allow_hyphen_values = true, default_value = "7,-3,4")]
+        detector: String,
+        #[arg(long, allow_hyphen_values = true, default_value = "9,0,7")]
+        t: String,
+        #[arg(long, allow_hyphen_values = true, default_value = "9,0,8")]
+        hold: String,
+        /// Cart y thresholds: one row per threshold restarts the server when the cart first reaches it
+        #[arg(long, allow_hyphen_values = true, default_value = "")]
+        restart_at: String,
+        #[arg(long, default_value_t = 400)]
+        max_ticks: u32,
+    },
+    /// (tickexact 2026-11-12, farmopt/ironspec: A6's wake) A villager asleep in A6's bed, the hatch
+    /// revealed N gt after the lie-down: NEAREST_HOSTILE, the wake and the stand-up cell per trial
+    NapWake {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        #[arg(long)]
+        file: std::path::PathBuf,
+        #[arg(long, default_value_t = 30)]
+        trials: u32,
+        #[arg(long, default_value_t = 10)]
+        flip_after: u32,
+        #[arg(long, default_value_t = 300)]
+        ticks: u32,
+    },
     /// (tickexact 2026-11-12, ironspec: does a summoner's GOLEM_DETECTED_RECENTLY get renewed after
     /// its own summon?) Stands of three panicking seated villagers summoning a golem that leaves
     /// after N ticks: the renewals after T and the summon at T + 600, over fresh rounds
@@ -1115,6 +1167,21 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
                 .collect::<anyhow::Result<_>>()?;
             crate::lanerun::lane_run(&version, &module, x, riders, ticks, every, post, &glow, part.as_deref(), draws_out.as_deref())
         }
+        MobaiCmd::Reboard { version, file, speeds, window, glass } => {
+            let speeds: Vec<f64> = speeds.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+            crate::reboard::reboard(&version, &file, &speeds, window, glass)
+        }
+        MobaiCmd::NapperRide { version, module, depth, speeds, detector, t, hold, restart_at, max_ticks } => {
+            let p3 = |s: &str| -> anyhow::Result<[i32; 3]> {
+                let v: Vec<i32> = s.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(v.len() == 3, "x,y,z, got {s}");
+                Ok([v[0], v[1], v[2]])
+            };
+            let speeds: Vec<f64> = speeds.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+            let restarts: Vec<f64> = restart_at.split(',').filter(|n| !n.trim().is_empty()).map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+            crate::napperride::napper_ride(&version, &module, depth, &speeds, p3(&detector)?, p3(&t)?, p3(&hold)?, &restarts, max_ticks)
+        }
+        MobaiCmd::NapWake { version, file, trials, flip_after, ticks } => crate::napwake::nap_wake(&version, &file, trials, flip_after, ticks),
         MobaiCmd::GolemRenew { version, stands, rounds, golem_ticks } => crate::golemrenew::golem_renew(&version, stands, rounds, golem_ticks),
         MobaiCmd::GolemRange { version, gaps, ticks } => {
             let gaps: Vec<f64> = gaps.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;

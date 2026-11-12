@@ -242,7 +242,7 @@ pub fn golem_renew(version: &str, stands: u32, rounds: u32, golem_ticks: u32) ->
                 .villagers
                 .iter()
                 .map(|v| {
-                    let own = tr.sets.get(v).and_then(|ts| ts.iter().copied().filter(|&x| x < t && x > s && x % 100 != 0).max()).unwrap_or(i64::MIN);
+                    let own = tr.sets.get(v).and_then(|ts| ts.iter().copied().filter(|&x| x < t && x > s && !tr.golems.contains(&x)).max()).unwrap_or(i64::MIN);
                     t - last_summon.max(own)
                 })
                 .collect();

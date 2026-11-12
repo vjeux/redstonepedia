@@ -307,7 +307,9 @@ pub struct World {
     /// nothing; an entity through a portal goes to the overworld (`outgoing`).
     pub ultrawarm: bool,
     /// (tickexact 2026-11-12) The overworld's top (`getMaxY()`) when the bridge's sandbox is taller
-    /// than the overworld's 384 (a design taller than y 319 once lifted); None: 319.
+    /// than the overworld's 384 (a design taller than y 319 once lifted: the exact compare sets it
+    /// from `GameFarm::max_y`); None: 319, as every redsim-only run (`Run::start` without the
+    /// bridge) keeps, since only the bridge's lift takes a design above y 319.
     pub max_y: Option<i32>,
     /// The PORTAL tickets on this world (chunk, game time made: `TicketType.PORTAL`, 300 gt, radius
     /// 3): entities tick within 1 chunk of one, blocks within 2.
