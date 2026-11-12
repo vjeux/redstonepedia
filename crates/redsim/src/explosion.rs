@@ -154,6 +154,14 @@ pub fn block_resistance(b: &Block) -> f32 {
                 3.0
             }
         }
+        // ---- panes and bars (tickexact): glass 0.3, bars 6.0 ----
+        Block::Pane { kind, .. } => {
+            if crate::pane::glass(*kind) {
+                0.3
+            } else {
+                6.0
+            }
+        }
         // instabreak
         Block::SugarCane { .. } => 0.0,
         // the grate's (its water's 100 is the fluid's, below)

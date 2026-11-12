@@ -56,6 +56,7 @@ pub fn collides(s: &Block) -> bool {
         | Block::EndRod { .. }
         | Block::Froglight { .. }
         | Block::SeaPickle { .. }
+        | Block::Pane { .. }
         | Block::Candle { .. } => light_row(s).is_some_and(|p| !p.boxes.is_empty()),
         _ => true,
     }
@@ -73,6 +74,7 @@ pub fn full_cube(s: &Block) -> bool {
         | Block::EndRod { .. }
         | Block::Froglight { .. }
         | Block::SeaPickle { .. }
+        | Block::Pane { .. }
         | Block::Candle { .. } => light_row(s).is_some_and(|p| p.full_collision),
         Block::Simple(x) => x.full() && !matches!(x, Simple::SoulSand | Simple::HoneyBlock | Simple::Mud),
         Block::Glazed { .. }
@@ -143,6 +145,7 @@ pub fn is_solid(s: &Block) -> bool {
         | Block::EndRod { .. }
         | Block::Froglight { .. }
         | Block::SeaPickle { .. }
+        | Block::Pane { .. }
         | Block::Candle { .. } => light_row(s).is_some_and(|p| p.solid),
         Block::Air
         | Block::Wire { .. }
@@ -206,6 +209,7 @@ pub fn conductor_of(s: &Block) -> bool {
         | Block::EndRod { .. }
         | Block::Froglight { .. }
         | Block::SeaPickle { .. }
+        | Block::Pane { .. }
         | Block::Candle { .. } => light_row(s).is_some_and(|p| p.conductor),
         Block::Simple(x) => x.conductor(),
         Block::Glazed { .. } | Block::Lamp { .. } | Block::Note { .. } | Block::Target { .. } | Block::Dispenser { .. } | Block::Crafter { .. } => true,
@@ -245,6 +249,7 @@ pub fn sturdy_of(s: &Block, face: Dir, support: Support) -> bool {
         | Block::EndRod { .. }
         | Block::Froglight { .. }
         | Block::SeaPickle { .. }
+        | Block::Pane { .. }
         | Block::Candle { .. } => {
             let k = match support {
                 Support::Full => 0,
@@ -504,6 +509,8 @@ pub fn instrument(s: &Block) -> Instrument {
                 Instrument::Basedrum
             }
         }
+        // ---- panes and bars (tickexact): the glass panes HAT, bars HARP ----
+        Block::Pane { kind, .. } if crate::pane::glass(kind) => Instrument::Hat,
         _ => Instrument::Harp,
     }
 }
@@ -519,6 +526,7 @@ pub fn push_reaction(s: &Block) -> PushReaction {
         | Block::EndRod { .. }
         | Block::Froglight { .. }
         | Block::SeaPickle { .. }
+        | Block::Pane { .. }
         | Block::Candle { .. } => match light_row(s).map(|p| p.push.as_str()) {
             Some("DESTROY") => PushReaction::Popped,
             Some("BLOCK") => PushReaction::Immoveable,
@@ -610,6 +618,8 @@ pub fn light_row(s: &Block) -> Option<&'static crate::terrain::blocks::Props> {
         | Block::Froglight { .. }
         | Block::SeaPickle { .. }
         | Block::Candle { .. } => crate::terrain::blocks::id_of(&s.to_string()).map(crate::terrain::blocks::props),
+        // ---- panes and bars (tickexact): a stained pane reads the glass pane's row ----
+        Block::Pane { .. } => crate::pane::row(s),
         _ => None,
     }
 }
@@ -662,6 +672,7 @@ pub fn collision_boxes(s: &Block) -> Vec<Box16> {
         | Block::EndRod { .. }
         | Block::Froglight { .. }
         | Block::SeaPickle { .. }
+        | Block::Pane { .. }
         | Block::Candle { .. } => light_row(s)
             .map(|p| {
                 p.boxes
@@ -992,6 +1003,8 @@ pub fn update_shape(w: &mut World, s: Block, p: BlockPos, d: Dir, np: BlockPos, 
         Block::CoralFan { .. } | Block::CoralWallFan { .. } => crate::tnt::fan_update_shape(w, s, p, d),
         // ---- fences (clk-misc) ----
         Block::Fence { .. } => crate::fence::update_shape(w, s, p, d, np, ns),
+        // ---- panes and bars (tickexact) ----
+        Block::Pane { .. } => crate::pane::update_shape(w, s, p, d, np, ns),
         // ---- crop farms (webrender): a cane that cannot stand breaks next tick; the grate's
         // water ticks ----
         Block::SugarCane { .. } => crate::crops::update_shape(w, s, p),

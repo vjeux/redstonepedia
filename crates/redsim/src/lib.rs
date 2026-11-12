@@ -22,6 +22,7 @@ pub mod pos;
 pub mod daylight;
 pub mod explosion;
 pub mod fence;
+pub mod pane;
 pub mod fxhash;
 pub mod crops;
 pub mod stems;

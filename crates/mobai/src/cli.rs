@@ -228,6 +228,15 @@ pub enum MobaiCmd {
     RecDrop {
         path: std::path::PathBuf,
     },
+    /// (tickexact 2026-11-12, ironspec's pane sight bridge) Scene pane-sight's recording per lane:
+    /// whether the rider saw its zombie through or past the panes, and from which tick
+    RecPanesight {
+        path: std::path::PathBuf,
+    },
+    /// (tickexact 2026-11-12) Scene pane-water's recording: its block changes in order
+    RecPanewater {
+        path: std::path::PathBuf,
+    },
     /// (tickexact 2026-11-11, ironspec's sentinel) Scene sentinel-<case>'s recording as events: the
     /// claim, the bed's, observer's and lamp's flips, the lie-downs and wakes, the reload
     RecSentinel {
@@ -488,6 +497,8 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         MobaiCmd::RecGqintake { paths, by_speed } => crate::fixture::rec_gqintake(&paths, by_speed),
         MobaiCmd::RecGqempties { path } => crate::fixture::rec_gqempties(&path),
         MobaiCmd::RecDrop { path } => crate::fixture::rec_drop(&path),
+        MobaiCmd::RecPanesight { path } => crate::fixture::rec_panesight(&path),
+        MobaiCmd::RecPanewater { path } => crate::fixture::rec_panewater(&path),
         MobaiCmd::SentinelVanilla { case, version } => crate::bedreload::sentinel_vanilla(&version, &case),
         MobaiCmd::LoadWindow { case, runs, version } => crate::loadwindow::load_window(&version, &case, runs),
         MobaiCmd::NetherHome { version } => crate::netherhome::nether_home(&version),

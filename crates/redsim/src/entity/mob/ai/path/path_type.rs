@@ -223,6 +223,7 @@ pub fn pathfindable_land(b: &Block) -> bool {
         Block::Bed { .. }
         | Block::Cactus { .. }
         | Block::Fence { .. }
+        | Block::Pane { .. }
         | Block::Slab { .. }
         | Block::StoneSlab { .. }
         | Block::AnySlab { .. }

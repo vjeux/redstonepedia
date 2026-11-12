@@ -463,6 +463,28 @@ const GQ_PARK: i32 = 4 + GQ_SLOPE + 3;
 /// The tick the intakes are set on the run (the run at rest).
 const GQ_RELEASE: u32 = 30;
 
+/// (tickexact 2026-11-12, ironspec's pane sight bridge) The pane-sight scene's lanes: what it
+/// shows, the rider's z offset in its lane (x 4.5), the zombie's (x, z offset), the panes (x, z
+/// offset, north arm, south arm) at y 65 and 66. Sight rays run from the rider's eye to the
+/// zombie's; a glass pane's collision shape is its 2 px post (7..9 px) plus its arms.
+#[allow(clippy::type_complexity)]
+fn pane_sight_lanes() -> Vec<(&'static str, f64, [f64; 2], Vec<(i32, i32, bool, bool)>)> {
+    let lone = vec![(7, 0, false, false)];
+    let shaft = vec![(3, 0, false, false), (5, 0, false, false), (4, -1, false, false), (4, 1, false, false)];
+    vec![
+        ("straight through a lone pane's post (the ray at z 0.50, the zombie 7.0 off)", 0.50, [11.5, 0.50], lone.clone()),
+        ("beside a lone pane's post (z 0.30)", 0.30, [11.5, 0.30], lone.clone()),
+        ("grazing outside the post (z 0.43; the post 0.4375 .. 0.5625)", 0.43, [11.5, 0.43], lone.clone()),
+        ("grazing inside the post (z 0.45)", 0.45, [11.5, 0.45], lone.clone()),
+        ("beside the post at 6.05 (z 0.30)", 0.30, [10.55, 0.30], lone.clone()),
+        ("through the post at 7.95 (z 0.50)", 0.50, [12.45, 0.50], lone.clone()),
+        ("through a connected wall of 3 panes along z (the arms; z 0.30)", 0.30, [11.5, 0.30], vec![(7, -1, false, true), (7, 0, true, true), (7, 1, true, false)]),
+        ("diagonal through a lone pane's post (the ray through its cell's centre, 7.07 off)", 0.50, [9.5, 5.50], vec![(6, 2, false, false)]),
+        ("from a 1x1 pane shaft, diagonal through its empty corner (7.07 off)", 0.50, [9.5, 5.50], shaft.clone()),
+        ("from a 1x1 pane shaft, straight through a wall pane's post (7.0 off)", 0.50, [11.5, 0.50], shaft),
+    ]
+}
+
 /// (tickexact 2026-11-12, ironspec's drop bridge, dfb89499's bench) The tick the drop scene's
 /// trapdoors open.
 const DROP_RELEASE: u32 = 20;
@@ -676,6 +698,18 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
                 id += if ar { 2 } else { 1 };
             }
             vec![(GQ_RELEASE, acts)]
+        }
+        // (tickexact 2026-11-12) the pane walls' water: the column's sources (soul sand turns them
+        // into a bubble column), the waterlogged pane and the open sources placed at t5, so their
+        // fluid ticks run
+        "pane-water" => {
+            let water = "minecraft:water[level=0]".to_string();
+            let mut acts: Vec<([i32; 3], String)> = (64..=68).map(|y| ([16, y, 16], water.clone())).collect();
+            acts.push(([8, 64, 8], "minecraft:glass_pane[east=false,north=false,south=false,waterlogged=true,west=false]".to_string()));
+            acts.push(([24, 64, 8], water.clone()));
+            acts.push(([22, 64, 24], water.clone()));
+            acts.push(([24, 64, 24], water));
+            vec![(5, acts), (10, vec![([8, 65, 8], "minecraft:stone".to_string())])]
         }
         // (tickexact 2026-11-12, ironspec's drop bridge) every lane's trapdoor opens at DROP_RELEASE
         "drop-bridge" => {
@@ -5399,6 +5433,81 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
+    // (tickexact 2026-11-12, the pane walls' water for 7b90c3f1's lift) a 1 x 1 water column over
+    // soul sand (16, 64..68, 16) walled by 4 dry unconnected glass panes per layer (its corners
+    // air), its sources placed at t5 (the soul sand makes it a bubble column); a waterlogged pane
+    // alone in the open at (8, 64, 8), placed at t5 and woken at t10 by a stone set on it; a water
+    // source at (24, 64, 8) with a dry pane east of it; a dry pane between two sources at (23, 64,
+    // 24); every flow stays inside the 2 x 2 chunk box
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 32, 0, 32, 63, stone);
+        let lone = "minecraft:glass_pane[east=false,north=false,south=false,waterlogged=false,west=false]";
+        b.push(([16, 63, 16], "minecraft:soul_sand".to_string()));
+        for y in 64..=68 {
+            for (x, z) in [(15, 16), (17, 16), (16, 15), (16, 17)] {
+                b.push(([x, y, z], lone.to_string()));
+            }
+        }
+        b.push(([25, 64, 8], lone.to_string()));
+        b.push(([23, 64, 24], lone.to_string()));
+        v.push(Scene {
+            name: "pane-water".into(),
+            chunks: [0, 0, 1, 1],
+            blocks: b,
+            mobs: Vec::new(),
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [31, 70, 31]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (tickexact 2026-11-12, ironspec's pane sight bridge for 9fc3155f's lift walls: glass_pane
+    // modeled in redsim) pane_sight_lanes, 14 apart in z (z0 = 4 + 14 k): a rider seated in a cart
+    // at rest on a rail along z at x 4 (its eye about 65.68), a zombie in a boat at the lane's
+    // point, glass panes at y 65 and 66 (the sight ray's height) where the lane puts them; a roof
+    // at y 72
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 16, 0, 144, 63, stone);
+        floor(&mut b, 0, 16, 0, 144, 72, stone);
+        let mut mobs: Vec<(String, [f64; 3], Option<String>)> = Vec::new();
+        let rider = "{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}";
+        for (k, (_, rz, zombie, panes)) in pane_sight_lanes().into_iter().enumerate() {
+            let z0 = 4 + 14 * k as i32;
+            b.push(([4, 64, z0 - 2], stone.to_string()));
+            for z in z0 - 1..=z0 + 2 {
+                b.push(([4, 64, z], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+            }
+            b.push(([4, 64, z0 + 3], stone.to_string()));
+            for (x, dz, north, south) in panes {
+                for y in [65, 66] {
+                    b.push((
+                        [x, y, z0 + dz],
+                        format!("minecraft:glass_pane[east=false,north={north},south={south},waterlogged=false,west=false]"),
+                    ));
+                }
+            }
+            mobs.push(("minecraft:minecart".into(), [4.5, 64.0625, z0 as f64 + rz], Some(rider.to_string())));
+            mobs.push(("minecraft:oak_boat".into(), [zombie[0], 64.0, z0 as f64 + zombie[1]], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}".into())));
+        }
+        v.push(Scene {
+            name: "pane-sight".into(),
+            chunks: [0, 0, 0, 8],
+            blocks: b,
+            mobs,
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [15, 72, 143]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
     // (tickexact 2026-11-11, ironspec's grazing eye: blindness counted from the eye point inside a
     // collision shape, as hasLineOfSight clips from the eye point, not from isInWall's eye box,
     // ±0.24) seated riders in carts at rest on a rail along z (x 4, P = 64; rails z0-1 .. z0+2), each
@@ -9045,6 +9154,76 @@ pub fn stopper_sweep(files: &[std::path::PathBuf]) -> Result<()> {
 /// gq-empties per lane: each cart's start and end z, its largest stored speed (and the tick), how
 /// far it ever went back up the run, every pair whose centres came within 0.5 (merged), and for
 /// the admission lanes how many carts passed G0.
+/// (tickexact 2026-11-12) Scene pane-water's recording: every block change in its watched box, in
+/// order, with its tick (the column's walls, the waterlogged pane's spill, the dry panes beside
+/// water).
+pub fn rec_panewater(path: &std::path::Path) -> Result<()> {
+    let text = mctas::recorded::read_text(path)?;
+    let mut lines = text.lines();
+    let _header = lines.next();
+    let mut last: std::collections::BTreeMap<(i64, i64, i64), (usize, String)> = std::collections::BTreeMap::new();
+    let mut n = 0;
+    for (i, l) in lines.enumerate() {
+        let f: serde_json::Value = serde_json::from_str(l).map_err(|e| anyhow!("{e}"))?;
+        for c in f["blocks"].as_array().into_iter().flatten() {
+            n += 1;
+            let p = (c[0].as_i64().unwrap_or(0), c[1].as_i64().unwrap_or(0), c[2].as_i64().unwrap_or(0));
+            last.insert(p, (i + 1, c[3].as_str().unwrap_or("?").to_string()));
+        }
+    }
+    let show = |what: &str, cells: &[(i64, i64, i64)]| {
+        let mut s = format!("  {what}:");
+        for p in cells {
+            match last.get(p) {
+                Some((t, st)) => s.push_str(&format!(" ({},{},{}) {} at t{t};", p.0, p.1, p.2, st.trim_start_matches("minecraft:"))),
+                None => s.push_str(&format!(" ({},{},{}) unchanged;", p.0, p.1, p.2)),
+            }
+        }
+        println!("{s}");
+    };
+    show("the column", &(64..=68).map(|y| (16, y, 16)).collect::<Vec<_>>());
+    show("its wall panes (y 64 and 68)", &[(15, 64, 16), (17, 64, 16), (16, 64, 15), (16, 64, 17), (15, 68, 16), (17, 68, 16), (16, 68, 15), (16, 68, 17)]);
+    show("outside the walls (y 64 and 68)", &[(14, 64, 16), (18, 64, 16), (16, 64, 14), (16, 64, 18), (14, 68, 16), (18, 68, 16), (16, 68, 14), (16, 68, 18)]);
+    show("the waterlogged pane and its sides", &[(8, 64, 8), (7, 64, 8), (9, 64, 8), (8, 64, 7), (8, 64, 9)]);
+    show("the source, the dry pane east of it, the cell beyond", &[(24, 64, 8), (25, 64, 8), (26, 64, 8)]);
+    show("the dry pane between two sources, and its north and south", &[(23, 64, 24), (23, 64, 23), (23, 64, 25)]);
+    println!("  {n} block changes in all");
+    Ok(())
+}
+
+/// (tickexact 2026-11-12, ironspec's pane sight bridge) Scene pane-sight's recording, one line per
+/// lane: whether its rider ever held its own zombie as NEAREST_HOSTILE (seen: the sight test
+/// passed) and from which tick, or never.
+pub fn rec_panesight(path: &std::path::Path) -> Result<()> {
+    let text = mctas::recorded::read_text(path)?;
+    let mut lines = text.lines();
+    let _header = lines.next();
+    let frames: Vec<serde_json::Value> = lines.map(|l| serde_json::from_str(l).map_err(|e| anyhow!("{e}"))).collect::<Result<_>>()?;
+    let first = frames.first().ok_or_else(|| anyhow!("an empty recording"))?;
+    let ents: Vec<serde_json::Value> = first["entities"].as_array().cloned().unwrap_or_default();
+    let carts: Vec<u64> = ents.iter().filter(|e| e["type"] == "minecart").filter_map(|e| e["n"].as_u64()).collect();
+    let boats: Vec<u64> = ents.iter().filter(|e| e["type"] == "oak_boat").filter_map(|e| e["n"].as_u64()).collect();
+    let rider_of = |v: u64| ents.iter().find(|e| e["vehicle"].as_str() == Some(&format!("#{v}"))).and_then(|e| e["n"].as_u64());
+    for (k, (what, ..)) in pane_sight_lanes().into_iter().enumerate() {
+        let (Some(&cart), Some(&boat)) = (carts.get(k), boats.get(k)) else { continue };
+        let (Some(villager), Some(zombie)) = (rider_of(cart), rider_of(boat)) else { continue };
+        let want = format!("#{zombie}");
+        let seen: Vec<usize> = frames
+            .iter()
+            .enumerate()
+            .filter(|(_, f)| {
+                f["entities"].as_array().into_iter().flatten().any(|e| e["n"].as_u64() == Some(villager) && e["memories"]["nearest_hostile"].as_str() == Some(want.as_str()))
+            })
+            .map(|(i, _)| i + 1)
+            .collect();
+        match seen.first() {
+            Some(t) => println!("  lane {k} {what}: SEEN from t{t} ({} of {} ticks)", seen.len(), frames.len()),
+            None => println!("  lane {k} {what}: never seen in {} ticks", frames.len()),
+        }
+    }
+    Ok(())
+}
+
 /// (tickexact 2026-11-12, ironspec's drop bridge) Scene drop-bridge's recording, one line per lane:
 /// the dropped cart's release tick (the trapdoor opens at DROP_RELEASE), the tick it lands (its
 /// vertical motion zeroed: snapped onto the rail, or stopped on the occupied pocket's rider), the

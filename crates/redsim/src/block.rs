@@ -638,6 +638,12 @@ pub enum Block {
     /// A fence (`FenceBlock`): `kind` indexes `fence::FENCES` (wooden, then nether brick); the four
     /// arms and the water.
     Fence { kind: u8, north: bool, east: bool, south: bool, west: bool, waterlogged: bool },
+    /// A pane or bars (`IronBarsBlock`, a `CrossCollisionBlock`; tickexact 2026-11-12, the lift's
+    /// walls and sight lines): `kind` 0 the glass pane, 1..=16 the stained glass panes (`DYES`
+    /// index + 1), 17 iron bars; an arm toward each side it attaches to, re-derived on horizontal
+    /// neighbour updates (`pane::update_shape`); `waterlogged` holds a water source. Shapes, solidity,
+    /// light and support from the natural-state table (`pane::row`).
+    Pane { kind: u8, north: bool, east: bool, south: bool, west: bool, waterlogged: bool },
     // ---- crop farms (webrender, `crops.rs`) ----
     /// Sugar cane (`SugarCaneBlock`): its growth `age` (0..15: a random tick at 15 grows the block
     /// above, `crops::random_tick`).
@@ -794,6 +800,8 @@ pub enum Kind {
     // ---- fences (clk-misc) ----
     /// By `fence::FENCES` index.
     Fence(u8),
+    /// By `Block::Pane::kind`.
+    Pane(u8),
     // ---- crop farms (webrender) ----
     SugarCane,
     // ---- crop farms (clk-misc) ----
@@ -903,6 +911,7 @@ impl Block {
             Block::ShulkerBox { colour, .. } => Kind::ShulkerBox(colour),
             Block::Chest { .. } => Kind::Chest,
             Block::Fence { kind, .. } => Kind::Fence(kind),
+            Block::Pane { kind, .. } => Kind::Pane(kind),
             Block::SugarCane { .. } => Kind::SugarCane,
             // the dry grate's block, another state
             Block::WaterloggedGrate => Kind::Simple(Simple::WaxedCopperGrate as u8),
@@ -1359,6 +1368,15 @@ impl Block {
                 west: bool_of("west", false)?,
                 waterlogged: bool_of("waterlogged", false)?,
             },
+            // ---- panes and bars (tickexact) ----
+            n if crate::pane::kind_of(n).is_some() => Block::Pane {
+                kind: crate::pane::kind_of(n).unwrap_or(0),
+                north: bool_of("north", false)?,
+                east: bool_of("east", false)?,
+                south: bool_of("south", false)?,
+                west: bool_of("west", false)?,
+                waterlogged: bool_of("waterlogged", false)?,
+            },
             // ---- entity-reacting blocks (clk-misc): rails ----
             "rail" => {
                 waterlogged_ok()?;
@@ -1570,6 +1588,16 @@ impl fmt::Display for Block {
                 f,
                 "minecraft:{}_fence[east={},north={},south={},waterlogged={},west={}]",
                 crate::fence::FENCES[kind as usize],
+                b(east),
+                b(north),
+                b(south),
+                b(waterlogged),
+                b(west)
+            ),
+            Block::Pane { kind, north, east, south, west, waterlogged } => write!(
+                f,
+                "minecraft:{}[east={},north={},south={},waterlogged={},west={}]",
+                crate::pane::name(kind),
                 b(east),
                 b(north),
                 b(south),

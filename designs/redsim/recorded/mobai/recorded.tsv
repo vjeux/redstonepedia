@@ -110,6 +110,8 @@ loot.rec	331598a691332d70		26.3	2026-11-09T03:55Z on dc7ec7ffd	mctas mobai recor
 merge-flat.rec	f58ae116a16d052e		26.3	2026-11-11T17:55Z on fdfdfa0d66	mctas mobai record merge-flat --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
 merge-threshold.rec	ded8d58396e39485		26.3	2026-11-11T17:48Z on b6dbc4de63	mctas mobai record merge-threshold --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
 pane-connect.rec	8106ec4b73502113		26.3	2026-11-11T13:06Z on 6c44849cf	mctas mobai record pane-connect --seed 1 --ticks 60 --dir designs/redsim/recorded/mobai
+pane-sight.rec	fa0e3cd93ec3fe64		26.3	2026-11-12T06:56Z on c2235cf2b	mctas mobai record pane-sight --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
+pane-water.rec	5df1a57f3634eb78		26.3	2026-11-12T06:56Z on c2235cf2b	mctas mobai record pane-water --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
 piglin-golem.rec	c64c5b10f729eb4a		26.3	2026-11-10T09:30Z on c79192011	mctas mobai record piglin-golem --seed 1 --ticks 4000 --dir designs/redsim/recorded/mobai
 plant-supports.rec	11be23d73b2d91fe		26.3	2026-11-10T22:01Z on 87e6fbad4d	mctas mobai record plant-supports --seed 1 --ticks 600 --dir designs/redsim/recorded/mobai
 plate-rider.rec	a6b89e2ef1c0d4b4		26.3	2026-11-11T19:23Z on d2663812b7	mctas mobai record plate-rider --seed 1 --ticks 300 --dir designs/redsim/recorded/mobai
