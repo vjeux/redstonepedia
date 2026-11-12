@@ -1228,16 +1228,31 @@ pub enum MobfarmCmd {
         hold_n: i64,
         #[arg(long)]
         front_boost: bool,
+        /// The bucket-brigade lane: this many pockets (0: the pressed lane with G0/G_P).
+        #[arg(long, default_value_t = 0)]
+        pockets: usize,
+        /// The brigade's strings: cells above each pocket's rail block.
+        #[arg(long, default_value_t = 2)]
+        string_dy: i32,
+        /// The switched-R lane (ironspec 22:32): the R line's pulse in gt (0: off).
+        #[arg(long, default_value_t = 0)]
+        r_pulse: i64,
+        /// The switched-R lane: retry the R line this long after a pulse if a D hasn't settled.
+        #[arg(long, default_value_t = 40)]
+        retry: i64,
+        /// Logins T,D: the entities frozen for D gt while the redstone runs (repeatable).
+        #[arg(long)]
+        login: Vec<String>,
+        /// The login matrix: a login of 1..=3 gt at every phase of a cycle (one run per phase and
+        /// length), printing the rows that fail.
+        #[arg(long)]
+        login_matrix: bool,
         #[arg(long)]
         r_boost: bool,
         #[arg(long)]
         floor_bottom: bool,
         #[arg(long)]
         empty: bool,
-        /// (cc767b78) Real level-32 freezes T,D (repeatable): entities frozen, redstone and the
-        /// controller running.
-        #[arg(long)]
-        freeze32: Vec<String>,
     },
     LanesBench {
         #[arg(long, default_value_t = 3)]
@@ -1337,6 +1352,16 @@ pub enum MobfarmCmd {
         hold_n: i64,
         #[arg(long)]
         front_boost: bool,
+        /// The bucket-brigade lane: this many pockets (0: the pressed lane).
+        #[arg(long, default_value_t = 0)]
+        pockets: usize,
+        #[arg(long, default_value_t = 2)]
+        string_dy: i32,
+        /// The switched-R lane: the R line's pulse in gt (0: off).
+        #[arg(long, default_value_t = 0)]
+        r_pulse: i64,
+        #[arg(long, default_value_t = 40)]
+        retry: i64,
         #[arg(long)]
         r_boost: bool,
         #[arg(long)]
@@ -4175,15 +4200,36 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 anyhow::bail!("frame-check failed");
             }
         }
-        MobfarmCmd::DropBench { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, r_boost, floor_bottom, empty, freeze32 } => {
+        MobfarmCmd::DropBench { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, login_matrix, r_boost, floor_bottom, empty } => {
             let pair = |s: &String| -> anyhow::Result<(i64, i64)> {
                 let mut it = s.split(',');
                 let a = it.next().unwrap_or("").trim().parse::<i64>()?;
                 let d = it.next().unwrap_or("").trim().parse::<i64>()?;
                 Ok((a, d))
             };
-            let freeze32: Vec<(i64, i64)> = freeze32.iter().map(pair).collect::<anyhow::Result<_>>()?;
-            let o = crate::dropbench::DropOpts { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, r_boost, floor_bottom, riders: !empty, freeze32 };
+            let login: Vec<(i64, i64)> = login.iter().map(pair).collect::<anyhow::Result<_>>()?;
+            let o = crate::dropbench::DropOpts { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, r_boost, floor_bottom, riders: !empty };
+            if login_matrix {
+                // (a login of 1..=3 gt landing at every phase of the third cycle)
+                let base = 300 + 2 * period;
+                let mut bad: Vec<String> = Vec::new();
+                let mut rows = 0usize;
+                for d in 1..=3i64 {
+                    for p in 0..period {
+                        let mut oo = o.clone();
+                        oo.cycles = cycles.max(5);
+                        oo.login = vec![(base + p, d)];
+                        let r = crate::switchbench::switch_bench(&oo).map_err(|e| anyhow::anyhow!(e))?;
+                        rows += 1;
+                        let ok = r.per_release.keys().all(|k| *k == 1) && r.shuts == 0 && r.hanging == 0 && r.unsettled == 0;
+                        if !ok {
+                            bad.push(format!("login {d} gt at phase {p}: per release {:?}, shuts {}, unsettled {}, hanging {}, retries {}", r.per_release, r.shuts, r.unsettled, r.hanging, r.retries));
+                        }
+                    }
+                }
+                println!("login matrix: {rows} rows (1..3 gt at every phase of a {period}-gt cycle), {} failing{}", bad.len(), if bad.is_empty() { String::new() } else { format!(":\n{}", bad.iter().take(20).cloned().collect::<Vec<_>>().join("\n")) });
+                return Ok(());
+            }
             println!("{}", crate::dropbench::drop_bench(&o).map_err(|e| anyhow::anyhow!(e))?);
             return Ok(());
         }
@@ -4221,17 +4267,24 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             return Ok(());
         }
-        MobfarmCmd::DropJudge { lanes, spacing, run, per_lane, period, cycles, ret, w0, wp, drop_w, entry, hold_n, front_boost, r_boost, floor_bottom, empty, starts, k, ds, corners, jobs } => {
+        MobfarmCmd::DropJudge { lanes, spacing, run, per_lane, period, cycles, ret, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, r_boost, floor_bottom, empty, starts, k, ds, corners, jobs } => {
             anyhow::ensure!(starts.len() == 2, "--starts A,B");
-            let base = crate::dropbench::DropOpts { lanes, spacing, run, per_lane, period, cycles, ret, corner: 0, w0, wp, drop_w, entry, hold_n, front_boost, r_boost, floor_bottom, riders: !empty, freeze32: Vec::new() };
+            let base = crate::dropbench::DropOpts { lanes, spacing, run, per_lane, period, cycles, ret, corner: 0, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login: Vec::new(), r_boost, floor_bottom, riders: !empty };
             let modes = vec![crate::lanesjudge::Mode::parse("gt").map_err(|e| anyhow::anyhow!(e))?];
             let o = crate::lanesjudge::JudgeOpts { modes, starts: (starts[0], starts[1]), k, ds, corners, jobs };
-            let title = format!("drop ({lanes} lanes, {run}-slope runs, {per_lane} carts a lane, G0 {w0} gt, G_P {wp} gt, the trapdoors {drop_w} gt every {period}, hold {hold_n}, {cycles} cycles)");
+            let lane = if r_pulse > 0 {
+                format!("the switched-R lane (the R line {r_pulse} gt, retry {retry} gt)")
+            } else if pockets > 0 {
+                format!("the bucket-brigade lane ({pockets} pockets)")
+            } else {
+                format!("G0 {w0} gt, G_P {wp} gt")
+            };
+            let title = format!("drop ({lanes} lanes, {run}-slope runs, {per_lane} carts a lane, {lane}, the trapdoors {drop_w} gt every {period}, hold {hold_n}, {cycles} cycles)");
             // (dropbench's warm-up: 300 gt)
             let lines = crate::lanesjudge::judge(&title, 300, period, &o, |_, c, fr| {
                 let mut lo = base.clone();
                 lo.corner = c;
-                lo.freeze32 = fr;
+                lo.login = fr;
                 crate::dropbench::drop_bench(&lo)
             })
             .map_err(|e| anyhow::anyhow!(e))?;

@@ -53,10 +53,14 @@ pub struct JudgeOpts {
 pub struct Bars {
     /// (the family's label, a count other than 1) -> how many.
     pub wrong: BTreeMap<(String, usize), usize>,
-    /// Gate (and trapdoor) shuts onto a cart.
-    pub shut: usize,
+    /// Each `... (the bar: 0): K` line's label -> K (gate and trapdoor shuts onto a cart, carts
+    /// hanging, ...).
+    pub zero: BTreeMap<String, usize>,
     /// Cells not settled at a release.
     pub unsettled: usize,
+    /// The recovery path's retries (reported, not a bar: the bench's own login matrix leaves them
+    /// out of its pass).
+    pub retries: usize,
 }
 
 impl Bars {
@@ -70,8 +74,11 @@ impl Bars {
                 v.push((format!("{} {} carts", k.0, k.1), n - c));
             }
         }
-        if self.shut > control.shut {
-            v.push(("shut onto a cart".to_string(), self.shut - control.shut));
+        for (k, n) in &self.zero {
+            let c = control.zero.get(k).copied().unwrap_or(0);
+            if *n > c {
+                v.push((k.clone(), n - c));
+            }
         }
         if self.unsettled > control.unsettled {
             v.push(("cells not settled at a release".to_string(), self.unsettled - control.unsettled));
@@ -80,23 +87,34 @@ impl Bars {
     }
 }
 
+fn first_num(s: &str) -> usize {
+    s.split(|c: char| !c.is_ascii_digit()).next().and_then(|x| x.parse::<usize>().ok()).unwrap_or(0)
+}
+
 /// The bars of a bench's text: its "exactly 1" families (`carts per lane per opening (exactly 1): 0
 /// carts: 3, 1 carts: 87`; `carts per G0 opening (exactly 1, ...): 1: 60; per G_P opening: 1: 60`;
 /// `carts per cell per release (exactly 1): 1: 60; cells not settled (string held) at a release: 0;
-/// ...`), its `(the bar: 0): K` shuts.
+/// ...`; `carts per D per release (exactly 1): 1: 36; D not settled at a release: 0; R-line retries:
+/// 0`), its `(the bar: 0): K` lines.
 pub fn bars(text: &str) -> Bars {
     let mut b = Bars::default();
     for l in text.lines() {
-        if let Some(i) = l.find("(the bar: 0): ") {
-            b.shut += l[i + 14..].split(|c: char| !c.is_ascii_digit()).next().and_then(|x| x.parse::<usize>().ok()).unwrap_or(0);
+        if let Some(i) = l.find(" (the bar: 0): ") {
+            *b.zero.entry(l[..i].to_string()).or_default() += first_num(&l[i + 15..]);
             continue;
         }
         if !l.contains("(exactly 1") {
             continue;
         }
         for seg in l.split("; ") {
-            if let Some(rest) = seg.strip_prefix("cells not settled (string held) at a release: ") {
-                b.unsettled += rest.split(|c: char| !c.is_ascii_digit()).next().and_then(|x| x.parse::<usize>().ok()).unwrap_or(0);
+            if let Some(i) = seg.find("not settled") {
+                if let Some(j) = seg[i..].find(": ") {
+                    b.unsettled += first_num(&seg[i + j + 2..]);
+                }
+                continue;
+            }
+            if let Some(i) = seg.find("retries: ") {
+                b.retries += first_num(&seg[i + 9..]);
                 continue;
             }
             // (the label: up to "): " for the family's first segment, up to ": " for a "per ..." one)
@@ -195,10 +213,16 @@ where
             }
         }
         let n = results.iter().filter(|(k, _)| k.1.is_some()).count();
+        let retry_runs: Vec<(i64, i64, i64)> = results
+            .iter()
+            .filter_map(|((c, f), b)| f.filter(|_| b.retries > control(*c).retries).map(|(d, off)| (*c, d, off)))
+            .collect();
         out.push(format!(
-            "mode {}: {n} runs; failing {}; the unfrozen controls (their own bars) {}",
+            "mode {}: {n} runs; failing {}; runs with recovery retries beyond the control (not a bar) {}{}; the unfrozen controls (their own bars) {}",
             m.label,
             fails.len(),
+            retry_runs.len(),
+            if retry_runs.is_empty() { String::new() } else { format!(" (e.g. {})", retry_runs.iter().take(4).map(|(c, d, off)| format!("corner {c:+} D {d} start {off}")).collect::<Vec<_>>().join(", ")) },
             controls.join(", ")
         ));
         for &c in &o.corners {
