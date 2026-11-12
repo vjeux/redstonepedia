@@ -12,6 +12,11 @@ bed-r1.rec	c2199fa6955a6c94		26.3	uncommitted	recorded before manifests: see the
 bed-radius-zombie-reload.rec	127add6254956063		26.3	2026-11-11T10:49Z on ac495f13c	mctas mobai record bed-radius-zombie-reload --seed 1 --ticks 700 --dir designs/redsim/recorded/mobai
 bed-radius-zombie.rec	68377fe008aeeaf8		26.3	2026-11-11T10:49Z on ac495f13c	mctas mobai record bed-radius-zombie --seed 1 --ticks 700 --dir designs/redsim/recorded/mobai
 bed-radius.rec	a161200e1c190f53		26.3	2026-11-11T10:49Z on ac495f13c	mctas mobai record bed-radius --seed 1 --ticks 700 --dir designs/redsim/recorded/mobai
+bed-reload-asleep.rec	bcb7eceb0f8d26c2		26.3	2026-11-12T01:22Z on bcc86f2596	mctas mobai record bed-reload-asleep --seed 1 --ticks 11300 --dir designs/redsim/recorded/mobai
+bed-reload-broken.rec	cb39e3895d0504c2		26.3	2026-11-12T01:25Z on bcc86f2596	mctas mobai record bed-reload-broken --seed 1 --ticks 11300 --dir designs/redsim/recorded/mobai
+bed-reload-day.rec	00eee29ecb639701		26.3	2026-11-12T01:21Z on bcc86f2596	mctas mobai record bed-reload-day --seed 1 --ticks 11300 --dir designs/redsim/recorded/mobai
+bed-reload-none.rec	837b920d21aa168c		26.3	2026-11-12T01:19Z on bcc86f2596	mctas mobai record bed-reload-none --seed 1 --ticks 11300 --dir designs/redsim/recorded/mobai
+bed-reload-woken.rec	f8dbff0e9957e1fc		26.3	2026-11-12T01:23Z on bcc86f2596	mctas mobai record bed-reload-woken --seed 1 --ticks 11300 --dir designs/redsim/recorded/mobai
 bed-retake.rec	07e5f7c3f65e781e		26.3	2026-11-10T07:11Z on 0609ee3f7	mctas mobai record bed-retake --seed 1 --ticks 24500 --dir designs/redsim/recorded/mobai
 bed-shared.rec	dab056dfa27a591c		26.3	2026-11-10T07:21Z on a5d224f10	mctas mobai record bed-shared --seed 1 --ticks 4000 --dir designs/redsim/recorded/mobai
 board-cooldown-reload.rec	126f4129a6e805c0		26.3	2026-11-11T08:52Z on 620262bdd	mctas mobai record board-cooldown-reload --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai

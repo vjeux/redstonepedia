@@ -275,6 +275,46 @@ fn cartpole_lanes(name: &str) -> Vec<(i32, i32, &'static str, u8, f64, bool, u8,
     v
 }
 
+/// (tickexact 2026-11-11, the parent's shared-bed overload across reloads, for vjeux) scene
+/// bed-reload's schedule (from day 6000): 21 villagers e0..e20 held panicking in a room (zombies
+/// on a pillar in plain view, the room more than 48 from the bed); the build guide's claims
+/// (villager k brought beside the bed's head at BR_CLAIM0 + BR_STEP k, back to the room
+/// BR_CLAIM_LEN later, the bed broken 4 gt after that and placed again 6 gt later: the last
+/// break-and-replace after the final claim leaves the spare ticket); the night's naps (villager
+/// k calms 40 gt in the airlock, is brought beside the bed at BR_NAP0 + BR_NAP k and lies down;
+/// BR_NAP_LEN later a teleport wakes it (it stands up beside the bed) and the next tick a second
+/// one takes it back to the room, where it panics).
+pub(crate) const BR_CLAIM0: u32 = 40;
+pub(crate) const BR_CLAIM_LEN: u32 = 200;
+pub(crate) const BR_STEP: u32 = 230;
+pub(crate) const BR_NAP0: u32 = 6200;
+pub(crate) const BR_NAP: u32 = 240;
+pub(crate) const BR_NAP_LEN: u32 = 170;
+/// The scene's length.
+pub(crate) const BR_TICKS: u32 = BR_NAP0 + 21 * BR_NAP + 60;
+/// Where a villager stands to claim or nap (beside the bed's head, inside the bed's walls), and
+/// where it goes back to in the room (k's own spot).
+const BR_BESIDE: [f64; 3] = [8.5, 64.0, 7.5];
+/// A napper's airlock (a closed stone cell at (24,64,24), 22.6 from the bed): it calms there for
+/// 40 gt before its nap.
+const BR_AIRLOCK: [f64; 3] = [24.5, 64.0, 24.5];
+fn br_room_spot(k: u32) -> [f64; 3] {
+    [1.5 + (k % 9) as f64, 64.0, 66.5 + (k / 9) as f64 * 2.0]
+}
+
+/// The game ticks of scene bed-reload-`case`'s unload and load (the bridge's sandbox unload with
+/// the player away; the vanilla runner's real stop and start), if any: after the claims (day,
+/// broken: the bed broken for good at 4890 first), with villager 10 asleep, 3 gt after its wake.
+pub(crate) fn br_reload(case: &str) -> Option<(u32, u32)> {
+    let nap10 = BR_NAP0 + 10 * BR_NAP;
+    match case {
+        "day" | "broken" => Some((4900, 4920)),
+        "asleep" => Some((nap10 + 80, nap10 + 100)),
+        "woken" => Some((nap10 + BR_NAP_LEN + 3, nap10 + BR_NAP_LEN + 23)),
+        _ => None,
+    }
+}
+
 /// (tickexact 2026-11-11, farmopt's H retry on a frozen cart) scene gate-frozen's lanes: how deep the
 /// frozen cart's box is in the gate's (z 7.375..7.625), whether a retry opens and shuts the gate
 /// during the freeze, and whether the cart is ridden.
@@ -294,6 +334,47 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
         return plant_supports().1;
     }
     match name {
+        // (tickexact 2026-11-11, the parent's shared-bed overload across reloads) the claims by
+        // break-and-replace, the reload of the case, the night's naps; the control breaks the bed
+        // for good before its reload
+        n if n.starts_with("bed-reload-") => {
+            let case = &n["bed-reload-".len()..];
+            let mut by: std::collections::BTreeMap<u32, Vec<([i32; 3], String)>> = std::collections::BTreeMap::new();
+            // (the scene's own entities by number: the villagers are the first 21, ids 0..20)
+            let tp = |k: u32, p: [f64; 3]| ([0, 0, 0], format!("tp:id{k}:{}:{}:{}", p[0], p[1], p[2]));
+            let head = "minecraft:red_bed[facing=north,occupied=false,part=head]";
+            let foot = "minecraft:red_bed[facing=north,occupied=false,part=foot]";
+            for k in 0..21u32 {
+                let t = BR_CLAIM0 + BR_STEP * k;
+                by.entry(t).or_default().push(tp(k, BR_BESIDE));
+                by.entry(t + BR_CLAIM_LEN).or_default().push(tp(k, br_room_spot(k)));
+                by.entry(t + BR_CLAIM_LEN + 4).or_default().push(([8, 64, 8], "minecraft:air".to_string()));
+                by.entry(t + BR_CLAIM_LEN + 10).or_default().extend([([8, 64, 8], head.to_string()), ([8, 64, 9], foot.to_string())]);
+            }
+            if case == "broken" {
+                by.entry(4890).or_default().push(([8, 64, 8], "minecraft:air".to_string()));
+            }
+            if let Some((u, l)) = br_reload(case) {
+                by.entry(u).or_default().push(([0, 0, 0], "unload".to_string()));
+                by.entry(l).or_default().push(([0, 0, 0], "load".to_string()));
+            }
+            for k in 0..21u32 {
+                let t = BR_NAP0 + BR_NAP * k;
+                // (it would arrive panicking from the room and flee across the walls' inside:
+                // it calms first in the airlock, out of every zombie's view and more than 16
+                // from the bed, then comes beside the head calm and lies down at once)
+                by.entry(t - 40).or_default().push(tp(k, BR_AIRLOCK));
+                by.entry(t).or_default().push(tp(k, BR_BESIDE));
+                // (a teleport wakes a sleeper, which then stands up beside the bed: a second one
+                // takes it to the room. A villager loaded asleep runs no SleepInBed, so the first
+                // teleport moves it asleep; it wakes when it sees a zombie in the room (WakeUp)
+                // and stands up beside the bed again: a third one, once it is awake, takes it back)
+                by.entry(t + BR_NAP_LEN).or_default().push(tp(k, br_room_spot(k)));
+                by.entry(t + BR_NAP_LEN + 1).or_default().push(tp(k, br_room_spot(k)));
+                by.entry(t + BR_NAP_LEN + 45).or_default().push(tp(k, br_room_spot(k)));
+            }
+            by.into_iter().collect()
+        }
         // (tickexact 2026-11-11, ironspec's cart-pole) the overlap lanes' chain placed at A at their
         // tick; the push lanes' piston powered (a redstone block behind it) at theirs
         "cart-pole-push" => {
@@ -4902,6 +4983,81 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
+    // (tickexact 2026-11-11, the parent's shared-bed overload across reloads, for vjeux) bed-reload's
+    // world: the shared bed (head (8,64,8), foot (8,64,9), facing north) inside stone walls 3 high
+    // (x 5..11, z 5..12: no zombie in view there); the room (glass, interior x 1..9, z 66..72, 4
+    // high, a stone roof: no sun on the zombies) more than 48 from the bed (a villager there never
+    // tries the bed: AcquirePoi's failed-path retry delays, up to 400 gt, never build up before
+    // its turn), with a stone pillar 2 high at (5,64..65,69) carrying 3 zombies in boats in plain
+    // view of the whole room (the 21 villagers panic in it: no REST, no validation, no walk to
+    // HOME); villagers e0..e20 at their room spots; day 6000 (the claims by day, the naps from
+    // night 12000). Cases: day (the sandbox unloaded and loaded again after the claims), asleep
+    // (with villager 10 asleep), woken (2 gt after its wake), broken (the bed broken for good,
+    // then the reload: the control), none.
+    for case in ["day", "asleep", "woken", "broken", "none"] {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, 0, 80, 63, stone);
+        let glass = "minecraft:glass";
+        for y in 64..67 {
+            for x in 5..=11 {
+                b.push(([x, y, 5], stone.to_string()));
+                b.push(([x, y, 12], stone.to_string()));
+            }
+            for z in 6..=11 {
+                b.push(([5, y, z], stone.to_string()));
+                b.push(([11, y, z], stone.to_string()));
+            }
+        }
+        b.push(([8, 64, 8], "minecraft:red_bed[facing=north,occupied=false,part=head]".to_string()));
+        b.push(([8, 64, 9], "minecraft:red_bed[facing=north,occupied=false,part=foot]".to_string()));
+        for y in 64..68 {
+            for x in 0..=10 {
+                b.push(([x, y, 65], glass.to_string()));
+                b.push(([x, y, 73], glass.to_string()));
+            }
+            for z in 66..=72 {
+                b.push(([0, y, z], glass.to_string()));
+                b.push(([10, y, z], glass.to_string()));
+            }
+        }
+        for x in 0..=10 {
+            for z in 65..=73 {
+                b.push(([x, 68, z], stone.to_string()));
+            }
+        }
+        b.push(([5, 64, 69], stone.to_string()));
+        b.push(([5, 65, 69], stone.to_string()));
+        // the napper's airlock: a closed stone cell at (24,64,24)
+        for x in 23..=25 {
+            for z in 23..=25 {
+                b.push(([x, 66, z], stone.to_string()));
+                if (x, z) != (24, 24) {
+                    b.push(([x, 64, z], stone.to_string()));
+                    b.push(([x, 65, z], stone.to_string()));
+                }
+            }
+        }
+        let mut mobs: Vec<(String, [f64; 3], Option<String>)> = Vec::new();
+        for k in 0..21u32 {
+            mobs.push(("minecraft:villager".into(), br_room_spot(k), Some("{PersistenceRequired:1b}".into())));
+        }
+        for dx in [-0.3, 0.0, 0.3] {
+            mobs.push(("minecraft:oak_boat".into(), [5.5 + dx, 66.0, 69.5], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}".into())));
+        }
+        v.push(Scene {
+            name: format!("bed-reload-{case}"),
+            chunks: [0, 0, 2, 4],
+            blocks: b,
+            mobs,
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [47, 69, 79]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
     // (tickexact 2026-11-11, G1's rows under tooFar: the job site and the bell at 30 and 60
     // Manhattan) four riders in carts held between stones on an open floor (their idle walks reach
     // their targets, so no stamp is left from before), from day time 0: a composter 30 and 60 east
@@ -8201,6 +8357,147 @@ pub fn stopper_sweep(files: &[std::path::PathBuf]) -> Result<()> {
         }
     }
     println!("\n(any entity move that starts inside a block shape is a run's, not a file's: every mctas mobfarm command prints `voxel-stop moves: N` on stderr at its end (0 expected), and `--voxel-trace` lists each such move with its cell and both distances)");
+    Ok(())
+}
+
+/// (tickexact 2026-11-11, the parent's shared-bed overload across reloads) `mctas mobai rec-bedreload
+/// <rec>`: scene bed-reload-<case>'s recording at its checkpoints (after the claims, just before and
+/// after its reload, after the night): every villager's HOME and LAST_SLEPT, the bed's state, and
+/// each villager's naps (the ticks it lay down).
+pub fn rec_bedreload(path: &std::path::Path) -> Result<()> {
+    let text = mctas::recorded::read_text(path)?;
+    let mut lines = text.lines();
+    let _header = lines.next();
+    let frames: Vec<serde_json::Value> = lines.map(|l| serde_json::from_str(l).map_err(|e| anyhow!("{e}"))).collect::<Result<_>>()?;
+    let scene = path.file_stem().and_then(|s| s.to_str()).unwrap_or("bed-reload-none").trim_end_matches(".rec").to_string();
+    let case = scene.trim_start_matches("bed-reload-").to_string();
+    let mut checks: Vec<(u32, String)> = vec![(BR_CLAIM0 + BR_STEP * 20 + BR_CLAIM_LEN + 30, "after the 21 claims and the last break-and-replace".to_string())];
+    if let Some((u, l)) = br_reload(&case) {
+        checks.push((u - 1, format!("just before the reload (unload at {u})")));
+        checks.push((l + 1, format!("just after the reload (load at {l})")));
+    }
+    checks.push((BR_TICKS - 10, "after the night's naps".to_string()));
+    let ent = |f: &serde_json::Value, n: u64| f["entities"].as_array().and_then(|a| a.iter().find(|e| e["n"].as_u64() == Some(n) && e["type"] == "villager").cloned());
+    // (a reload brings every villager back as a new entity with a new number, where it was saved,
+    // and its first tick moves it a little: each villager k followed across it by the nearest
+    // newcomer to its last position, pairs taken closest first, its LAST_SLEPT agreeing)
+    let mut ids: Vec<u64> = (0..21).collect();
+    let mut last_pos: Vec<[f64; 3]> = vec![[0.0; 3]; 21];
+    let mut last_slept: Vec<String> = vec![String::new(); 21];
+    let mut ids_at: Vec<Vec<u64>> = Vec::with_capacity(frames.len());
+    let pos_of = |e: &serde_json::Value| [e["pos"][0].as_f64().unwrap_or(0.0), e["pos"][1].as_f64().unwrap_or(0.0), e["pos"][2].as_f64().unwrap_or(0.0)];
+    let slept_of = |e: &serde_json::Value| e["memories"]["last_slept"].as_str().map(|s| s.split_whitespace().next().unwrap_or("").to_string()).unwrap_or_default();
+    for f in &frames {
+        let missing: Vec<usize> = (0..21).filter(|&k| ent(f, ids[k]).is_none()).collect();
+        if !missing.is_empty() {
+            let cands: Vec<serde_json::Value> = f["entities"].as_array().into_iter().flatten().filter(|e| e["type"] == "villager" && !ids.contains(&e["n"].as_u64().unwrap_or(u64::MAX))).cloned().collect();
+            let mut pairs: Vec<(f64, usize, usize)> = Vec::new();
+            for &k in &missing {
+                for (ci, e) in cands.iter().enumerate() {
+                    if slept_of(e) != last_slept[k] {
+                        continue;
+                    }
+                    let p = pos_of(e);
+                    let d = (0..3).map(|i| (p[i] - last_pos[k][i]).powi(2)).sum::<f64>().sqrt();
+                    if d < 1.5 {
+                        pairs.push((d, k, ci));
+                    }
+                }
+            }
+            pairs.sort_by(|a, b| a.0.total_cmp(&b.0));
+            let (mut kd, mut cd) = (std::collections::HashSet::new(), std::collections::HashSet::new());
+            for (_, k, ci) in pairs {
+                if kd.contains(&k) || cd.contains(&ci) {
+                    continue;
+                }
+                kd.insert(k);
+                cd.insert(ci);
+                ids[k] = cands[ci]["n"].as_u64().unwrap_or(ids[k]);
+            }
+        }
+        for k in 0..21 {
+            if let Some(e) = ent(f, ids[k]) {
+                last_pos[k] = pos_of(&e);
+                last_slept[k] = slept_of(&e);
+            }
+        }
+        ids_at.push(ids.clone());
+    }
+    // the bed head's state, carried forward through the frames' block changes
+    let mut bed = String::from("red_bed[facing=north,occupied=false,part=head]");
+    let mut bed_at: Vec<String> = Vec::with_capacity(frames.len());
+    // each villager's naps (the frames where its pose turns sleeping), and where and when it lost
+    // HOME (after the claims)
+    let mut naps: Vec<Vec<u64>> = vec![Vec::new(); 21];
+    let mut was_sleeping = [false; 21];
+    let mut had_home = [false; 21];
+    let mut losses: Vec<String> = Vec::new();
+    for (fi, f) in frames.iter().enumerate() {
+        for c in f["blocks"].as_array().into_iter().flatten() {
+            if c[0].as_i64() == Some(8) && c[1].as_i64() == Some(64) && c[2].as_i64() == Some(8) {
+                bed = c[3].as_str().unwrap_or("?").trim_start_matches("minecraft:").to_string();
+            }
+        }
+        bed_at.push(bed.clone());
+        let t = f["t"].as_u64().unwrap_or(0);
+        for n in 0..21usize {
+            let e = ent(f, ids_at[fi][n]);
+            let s = e.as_ref().is_some_and(|e| e["pose"] == "sleeping");
+            if s && !was_sleeping[n] {
+                naps[n].push(t);
+            }
+            was_sleeping[n] = s;
+            if let Some(e) = &e {
+                let home = e["memories"]["home"].as_str().is_some();
+                if had_home[n] && !home {
+                    let p = [e["pos"][0].as_f64().unwrap_or(0.0), e["pos"][1].as_f64().unwrap_or(0.0), e["pos"][2].as_f64().unwrap_or(0.0)];
+                    let d = ((p[0] - 8.5).powi(2) + (p[1] - 64.5).powi(2) + (p[2] - 8.5).powi(2)).sqrt();
+                    losses.push(format!("v{n} at t {t} ({:.1} from the bed's head, activities {})", d, e["activities"].as_str().unwrap_or("?")));
+                }
+                had_home[n] = home;
+            }
+        }
+    }
+    println!("== {scene}");
+    for (t, label) in &checks {
+        let Some(f) = frames.get(*t as usize) else { continue };
+        let occupied = bed_at.get(*t as usize).map(|b| b.contains("occupied=true")).unwrap_or(false);
+        let bed_s = bed_at.get(*t as usize).cloned().unwrap_or_default();
+        let mut homes = Vec::new();
+        let mut slept = Vec::new();
+        let mut missing = Vec::new();
+        for n in 0..21usize {
+            let Some(e) = ent(f, ids_at[*t as usize][n]) else {
+                missing.push(format!("v{n} (absent)"));
+                continue;
+            };
+            let m = &e["memories"];
+            let home = m["home"].as_str().map(|s| s.to_string()).unwrap_or_default();
+            if home.is_empty() {
+                missing.push(format!("v{n}"));
+            } else {
+                homes.push(home);
+            }
+            slept.push(format!("v{n} {}", m["last_slept"].as_str().map(|s| s.split_whitespace().next().unwrap_or("").to_string()).unwrap_or_else(|| "-".to_string())));
+        }
+        homes.sort();
+        homes.dedup();
+        println!(
+            "t {t} ({label}): bed {}{}; HOME held by {}/21 ({}){}; LAST_SLEPT: {}",
+            if bed_s.starts_with("red_bed") { "" } else { "GONE: " },
+            if bed_s.starts_with("red_bed") { if occupied { "OCCUPIED".to_string() } else { "free".to_string() } } else { bed_s.clone() },
+            21 - missing.len(),
+            homes.join(", "),
+            if missing.is_empty() { String::new() } else { format!("; without HOME: {}", missing.join(" ")) },
+            slept.join(", ")
+        );
+    }
+    println!("HOME lost: {}", if losses.is_empty() { "none".to_string() } else { losses.join("; ") });
+    let napped = naps.iter().filter(|v| v.iter().any(|t| *t >= BR_NAP0 as u64)).count();
+    println!(
+        "naps from the night's start (t {BR_NAP0}): {napped}/21 villagers lay down: {}",
+        naps.iter().enumerate().map(|(n, v)| format!("v{n} {:?}", v.iter().filter(|t| **t >= BR_NAP0 as u64).collect::<Vec<_>>())).collect::<Vec<_>>().join(", ")
+    );
     Ok(())
 }
 

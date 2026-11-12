@@ -204,6 +204,26 @@ pub enum MobaiCmd {
         #[arg(long)]
         xz: bool,
     },
+    /// (tickexact 2026-11-11, the parent's shared-bed overload across reloads) Scene bed-reload-<case>'s
+    /// recording at its checkpoints: every villager's HOME and LAST_SLEPT, the bed, the naps
+    RecBedreload {
+        path: std::path::PathBuf,
+    },
+    /// (tickexact 2026-11-11, the parent's shared-bed overload across reloads, for vjeux) Scene
+    /// bed-reload-<case> on the unmodified dedicated server, with a real save, stop and start where
+    /// the bridge unloads and loads its sandbox (or --forceload: the site's forced chunks released and
+    /// forced again, nobody near): every villager's HOME and LAST_SLEPT, the bed POI's free tickets
+    /// (its saved record) and OCCUPIED at the checkpoints, and every nap
+    BedReloadVanilla {
+        /// day (after the claims), asleep (villager 10 asleep), woken (3 gt after its wake),
+        /// broken (the bed broken for good first: the control), none
+        #[arg(long, default_value = "day")]
+        case: String,
+        #[arg(long)]
+        forceload: bool,
+        #[arg(long, default_value = "26.3")]
+        version: String,
+    },
     /// (tickexact 2026-11-11, ironspec's sweep after the cart-pole fixes) Every element of the
     /// designs in the classes the fixes changed (path blockers, iron bars and chains, piston-moved
     /// table blocks), with what the old redsim did there
@@ -388,6 +408,8 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         MobaiCmd::SceneLint { scenes } => crate::fixture::scene_lint(&scenes),
         MobaiCmd::FleeControl { scene } => crate::fixture::flee_control(&scene),
         MobaiCmd::RecPlate { path, scene } => crate::fixture::rec_plate(&path, &scene),
+        MobaiCmd::RecBedreload { path } => crate::fixture::rec_bedreload(&path),
+        MobaiCmd::BedReloadVanilla { case, forceload, version } => crate::bedreload::bed_reload_vanilla(&version, &case, forceload),
         MobaiCmd::StopperSweep { files } => crate::fixture::stopper_sweep(&files),
         MobaiCmd::RecCartpole { path } => crate::fixture::rec_cartpole(&path),
         MobaiCmd::RecHcontact { path } => crate::fixture::rec_hcontact(&path),
