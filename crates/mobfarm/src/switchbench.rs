@@ -117,7 +117,9 @@ pub fn switch_bench(o: &DropOpts) -> Result<SwitchRow, String> {
     }
     let n = carts.len();
     let warm = 300i64;
-    let ticks = warm + o.cycles * o.period;
+    // (the last release gets 60 gt to finish: releases stop at the cycles' end, the run goes on)
+    let rel_end = warm + o.cycles * o.period;
+    let ticks = rel_end + 60;
     let hook = |l: usize| BlockPos::new(xd, h, zs[l] - 1);
     let mut held = vec![0i64; nl];
     let mut trap_until = -1i64;
@@ -164,7 +166,7 @@ pub fn switch_bench(o: &DropOpts) -> Result<SwitchRow, String> {
         let full: Vec<bool> = (0..nl).map(|l| held[l] >= o.hold_n).collect();
         // (the release line)
         let ph = (t - warm - o.corner).rem_euclid(o.period);
-        if t >= warm && ph == 0 {
+        if t >= warm && t < rel_end && ph == 0 {
             trap_until = t + o.drop_w;
             unsettled += full.iter().filter(|f| !**f).count();
             releases.push((t, vec![0; nl]));
