@@ -1483,6 +1483,9 @@ pub fn variation(a: &crate::VariationArgs) -> Result<()> {
     if a.reexpose {
         return reexpose(&repo, &a.farm, &a.stage, &a.designs);
     }
+    if a.reweather {
+        return reweather(&repo, &a.farm, &a.stage, &a.designs);
+    }
     let study = "mobfarm";
     let dir = repo.join("designs/farms").join(&a.farm).join(&a.stage);
     std::fs::create_dir_all(&dir)?;
@@ -1672,6 +1675,86 @@ fn reexpose(repo: &Path, farm: &str, stage: &str, designs: &[PathBuf]) -> Result
     write_verdicts(&dir, &rows)?;
     println!("{stage}: {changed} cards changed, {same} unchanged{}", if left.is_empty() { String::new() } else { format!("; no exposures line on {} ({})", left.len(), left.join(" ")) });
     Ok(())
+}
+
+/// `site variation --reweather`: the weather line (the card's `rain` metric: its clear, rain and
+/// thunder days, the judge's [`circuit::mobfarm::WINDOW_RUNS`] single days each) of each variation
+/// named (or of every row of the stage) measured again on redsim, replaced in its row and in its
+/// design's `# CIRCUIT:` line, nothing else touched: the row's other metrics (the real-game gate's
+/// lines among them) and its date stay (the parent 2026-11-11: the weather lines made multi-day,
+/// so they stop moving 10 to 30 iron/h with every simulator change). A row with no weather line is
+/// left as it is, and said so.
+fn reweather(repo: &Path, farm: &str, stage: &str, designs: &[PathBuf]) -> Result<()> {
+    let dir = repo.join("designs/farms").join(farm).join(stage);
+    let mut rows = circuit::archive::read_rows(&dir)?;
+    let paths: Vec<PathBuf> = if designs.is_empty() { rows.iter().map(|r| dir.join(&r.file)).collect() } else { designs.to_vec() };
+    // (a design named on the command line must be one of the stage's own: the row and the card
+    // rewritten are the stage directory's, G1 2026-11-12)
+    for path in &paths {
+        let canon = std::fs::canonicalize(path).with_context(|| format!("{}", path.display()))?;
+        if canon.parent() != Some(std::fs::canonicalize(&dir)?.as_path()) {
+            bail!("{}: not a design of the {stage} stage ({})", path.display(), dir.display());
+        }
+    }
+    let (mut done, mut left) = (0, Vec::new());
+    for path in &paths {
+        let text = std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+        let c = circuit::Circuit::load(path)?;
+        let stem = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+        let file = format!("{stem}.txt");
+        let Some(row) = rows.iter_mut().find(|r| r.file == file) else { bail!("{file}: no row in {stage}'s verdicts.tsv to re-weather") };
+        let Some(old) = weather_part(&row.metrics).map(str::to_string) else {
+            println!("{file}: no weather line on its card: left as it is");
+            left.push(file);
+            continue;
+        };
+        let judged = judge_for_stage(path, &text, &c, stage, &file, false).map_err(|why| anyhow::anyhow!("{}: {why}", path.display()))?;
+        let Some(new) = weather_part(&judged.metrics).map(str::to_string) else {
+            println!("{file}: its judge printed no weather line (its card's is an older judge's): left as it is");
+            left.push(file);
+            continue;
+        };
+        row.metrics = row.metrics.replacen(&old, &new, 1);
+        row.summary = row.summary.replacen(&old, &new, 1);
+        let design = dir.join(&file);
+        let body = std::fs::read_to_string(&design).with_context(|| format!("reading {}", design.display()))?;
+        if let Some(first) = body.lines().next().filter(|l| l.starts_with("# CIRCUIT: "))
+            && let Some(mine) = weather_part(first)
+            && mine != new
+        {
+            let line = first.replacen(mine, &new, 1);
+            std::fs::write(&design, body.replacen(first, &line, 1))?;
+        }
+        println!("{file}:\n  before: {old}\n  after:  {new}");
+        done += 1;
+    }
+    write_verdicts(&dir, &rows)?;
+    println!("{stage}: {done} weather lines measured again{}", if left.is_empty() { String::new() } else { format!("; no weather line on {} ({})", left.len(), left.join(" ")) });
+    // (G1 2026-11-12: a card's weather part and its row's must agree; the first resubmission's
+    // rebase left 16 rows behind their cards: every row of the stage checked, not only the ones
+    // just measured)
+    let mut off = Vec::new();
+    for r in &rows {
+        let Some(row_part) = weather_part(&r.metrics) else { continue };
+        let body = std::fs::read_to_string(dir.join(&r.file)).with_context(|| format!("reading {}", r.file))?;
+        let card_part = body.lines().next().filter(|l| l.starts_with("# CIRCUIT: ")).and_then(weather_part);
+        if card_part != Some(row_part) {
+            off.push(format!("{}: row \"{row_part}\", card \"{}\"", r.file, card_part.unwrap_or("none")));
+        }
+    }
+    if !off.is_empty() {
+        bail!("{stage}: {} card(s) whose weather line differs from its verdicts row:\n  {}", off.len(), off.join("\n  "));
+    }
+    println!("{stage}: every card's weather line equals its row's ({} rows with one)", rows.iter().filter(|r| weather_part(&r.metrics).is_some()).count());
+    Ok(())
+}
+
+/// The `rain clear day …; rain day …; thunder day …` part of a mob farm's metrics (its `rain`
+/// metric; its value holds no ", ").
+fn weather_part(metrics: &str) -> Option<&str> {
+    let start = metrics.find("rain clear day ")?;
+    let end = metrics[start..].find(", ").map_or(metrics.len(), |e| start + e);
+    Some(&metrics[start..end])
 }
 
 /// The `exposures …` part of a mob farm's metrics: up to its `build minutes flat` metric, the next

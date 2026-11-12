@@ -1023,8 +1023,11 @@ pub fn base_checks_with(c: &Circuit, spec: &FarmSpec, o: &JudgeOpts, builds: &[(
     Ok(BaseChecks { exit, worst, restart, away, windows })
 }
 
-/// Runs of the rain and thunder probe.
-pub const WINDOW_RUNS: u32 = 16;
+/// Runs of the rain and thunder probe: each a natural day, a forced day of rain and a forced day of
+/// thunder, so each weather line is the mean of this many single days (the parent and farmopt
+/// 2026-11-11: 16 single days moved 10 to 30 iron/h with every simulator change, a day's Poisson
+/// noise being about 18%; 48 cut it 1.7 times for about 15% more judge time).
+pub const WINDOW_RUNS: u32 = 48;
 
 /// The rain and thunder probe (mobinfra; the card's `rain` line): [`WINDOW_RUNS`] runs of a
 /// natural day, then a forced day of rain, then a forced day of thunder (`weather::Plan::Windows`,
