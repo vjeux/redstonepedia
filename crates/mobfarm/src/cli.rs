@@ -29,9 +29,16 @@ pub enum MobfarmCmd {
         /// The brief's latched start: P set at each trigger, held until stage 1 rises.
         #[arg(long)]
         pb: bool,
-        /// With --pb: P clears on this stage's rise (1: a 2-gt wave, the control; 2: the fix, 4 gt).
-        #[arg(long, default_value_t = 2)]
+        /// With --pb: P clears on this stage's rise (1: a 2-gt wave; 2: 4 gt; 3: ironspec's pick, 6 gt).
+        #[arg(long, default_value_t = 3)]
         pb_stage: i32,
+        /// The P/B wave under one and two freezes in transit (`chainbench::bench_pb`): N 1 and 2 (the
+        /// controls) and --pb-stage, the bus between gts and mid-gt, both P-clear orders.
+        #[arg(long)]
+        pb_transit: bool,
+        /// With --pb-transit: the grid of the two-freeze pairs (first freeze's phase, gap), gt.
+        #[arg(long, default_value_t = 2)]
+        pair_stride: i64,
     },
     /// The fast liveness ring (`ringbench.rs`): writes its design (24 rail cells, 8 detectors, 2
     /// carts) to `--out`, runs it `--ticks` gt and prints the gaps between the detectors' rising
@@ -207,6 +214,27 @@ pub enum MobfarmCmd {
         /// cycle, entry -> R -> the lift's foot).
         #[arg(long, default_value_t = 100)]
         post: i64,
+        /// Strict rhythm: the napper's foot: 0 the whole bed cycle, 1 (a) the foot gate, 2 (c) the
+        /// napper-only lift (see `napper::LaneOpts::foot`).
+        #[arg(long, default_value_t = 0)]
+        foot: u8,
+        /// Strict rhythm, --foot 1|2: R to the foot gate (a) or to the merge-level hold (c), gt.
+        #[arg(long, default_value_t = 48)]
+        r_leg: i64,
+        /// Strict rhythm, --foot 1|2: the gate's or the hold's open window, gt after a release
+        /// (mod 100): LO,HI.
+        #[arg(long, value_delimiter = ',', default_values_t = vec![28i64, 72])]
+        window: Vec<i64>,
+        /// Strict rhythm, --foot 1: the foot gate to the evidence detector (the queue's release), gt.
+        #[arg(long, default_value_t = 2)]
+        det: i64,
+        /// Strict rhythm: the stop's entry to the lie-down, gt.
+        #[arg(long, default_value_t = 80)]
+        lie: i64,
+        /// Strict rhythm: also search the strand margin, the largest +ADD (a strand once a night, 10-gt
+        /// steps up to 600) that loses no golem.
+        #[arg(long)]
+        strand_search: bool,
         /// The most nappers away at once.
         #[arg(long)]
         max_away: Option<usize>,
@@ -246,6 +274,13 @@ pub enum MobfarmCmd {
         /// Dusk, gt into a golem cycle (a day is 240 cycles, so it falls there every night).
         #[arg(long, default_value_t = 0)]
         dusk_at: i64,
+        /// The lane model: the day time of the pick window's start (in_day 0).
+        #[arg(long, default_value_t = 13_670)]
+        start_dt: i64,
+        /// The lane model: after a night skip, the next window opens this much later (gt; the
+        /// counter re-phasing on the detector's 170..188 rise instead of 22,331: ~1,840).
+        #[arg(long, default_value_t = 0)]
+        rephase_lag: i64,
         /// The comparison: today's register, gravity's pickers, and fixes (a), (b), (c).
         #[arg(long)]
         table: bool,
@@ -6103,7 +6138,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
         }
-        MobfarmCmd::NapperPicker { carts, visits, picker, k, offset, every, keep_place, gate_m, gate_lap, gate_batches, virtual_count, gate_lap_off, gate_virtual, free_at_reentry, rearm_jitter, golemless, count_golems, freeze, skip_night, skip_alarm, pass_fault, register_carry, spacing, slow_visit, trip_bound, gate_carts, empty_cart, register_after, empty_trip, skip_per_day, events, watchdog, pad_roll, arrive, events_from, recover_k, lock, lock_gt, remark, idle, lanes, beds, lane_exact, turns, outlier, post, max_away, jump, jump_every, absence, watchdog_table, trip, sleep_at, days, warmup, seed, night_gt, cross_at, dusk_at, table, sweep_k } => {
+        MobfarmCmd::NapperPicker { carts, visits, picker, k, offset, every, keep_place, gate_m, gate_lap, gate_batches, virtual_count, gate_lap_off, gate_virtual, free_at_reentry, rearm_jitter, golemless, count_golems, freeze, skip_night, skip_alarm, pass_fault, register_carry, spacing, slow_visit, trip_bound, gate_carts, empty_cart, register_after, empty_trip, skip_per_day, events, watchdog, pad_roll, arrive, events_from, recover_k, lock, lock_gt, remark, idle, lanes, beds, lane_exact, turns, outlier, post, foot, r_leg, window, det, lie, strand_search, max_away, jump, jump_every, absence, watchdog_table, trip, sleep_at, days, warmup, seed, night_gt, cross_at, dusk_at, start_dt, rephase_lag, table, sweep_k } => {
             let absence = match absence.as_slice() {
                 [] => None,
                 [d, dt, len] => Some((*d as usize, *dt, *len)),
@@ -6126,8 +6161,31 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     [e, a] => Some((*e, *a)),
                     _ => bail!("--outlier EVERY,ADD"),
                 };
-                let lo_ = crate::napper::LaneOpts { lanes, per_lane: carts / lanes, k, beds, turns, visits, lane_exact, keep_place, skip_per_day, lock, trip: (lo, hi), sleep_at, spacing, cross_at, days, warmup, seed, night_gt, day_gt: 24000, dusk_at, jump, jump_every, outlier, post };
+                let window = match window.as_slice() {
+                    [a, b] => (*a, *b),
+                    _ => bail!("--window LO,HI"),
+                };
+                let lo_ = crate::napper::LaneOpts { lanes, per_lane: carts / lanes, k, beds, turns, visits, lane_exact, keep_place, skip_per_day, lock, trip: (lo, hi), sleep_at, spacing, cross_at, days, warmup, seed, night_gt, day_gt: 24000, dusk_at, jump, jump_every, outlier, post, foot, r_leg, window, det, lie, start_dt, rephase_lag };
                 println!("{}", crate::napper::simulate_lanes(&lo_));
+                if strand_search {
+                    // (the strand margin: the largest +ADD, one strand a night, that loses no golem)
+                    let mut margin: Option<i64> = None;
+                    let mut first_loss: Option<(i64, f64)> = None;
+                    for add in (0..=600).step_by(10) {
+                        let o2 = crate::napper::LaneOpts { outlier: Some((24000, add)), ..lo_.clone() };
+                        let (_, st) = crate::napper::simulate_lanes_scored(&o2);
+                        if st.golems >= 239.95 && first_loss.is_none() {
+                            margin = Some(add);
+                        } else if first_loss.is_none() {
+                            first_loss = Some((add, st.golems));
+                        }
+                    }
+                    println!(
+                        "  the strand margin (one strand a night): {} (the first loss at +{})",
+                        margin.map_or("none (losses with no strand)".to_string(), |m| format!("+{m} gt loses nothing")),
+                        first_loss.map_or("-, none up to +600".to_string(), |(a, g)| format!("{a}: {g:.1} a day"))
+                    );
+                }
                 return Ok(());
             }
             let empty_trip = match empty_trip.as_slice() {
@@ -6259,11 +6317,21 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::ChainBench { out, stages, freeze_len, pulses, every, width, pb, pb_stage } => {
+        MobfarmCmd::ChainBench { out, stages, freeze_len, pulses, every, width, pb, pb_stage, pb_transit, pair_stride } => {
             let d = crate::chainbench::design(stages);
             std::fs::write(&out, format!("# The pausable timers' shared lockable chain: {stages} 1-tick repeaters, side lockers on a NOT-ALIVE bus (mctas mobfarm chain-bench).\n{}", d.to_text()))?;
             let (_c, spec) = load(version, &out)?;
-            let lines = if pulses > 0 { crate::chainbench::bench_train(&spec, stages, freeze_len, every, width, pulses, pb, pb_stage) } else { crate::chainbench::bench(&spec, stages, freeze_len) };
+            let lines = if pb_transit {
+                let mut ns = vec![1, 2];
+                if !ns.contains(&pb_stage) {
+                    ns.push(pb_stage);
+                }
+                crate::chainbench::bench_pb(&spec, stages, freeze_len, &ns, pair_stride)
+            } else if pulses > 0 {
+                crate::chainbench::bench_train(&spec, stages, freeze_len, every, width, pulses, pb, pb_stage)
+            } else {
+                crate::chainbench::bench(&spec, stages, freeze_len)
+            };
             for l in lines.map_err(|e| anyhow::anyhow!(e))? {
                 println!("{l}");
             }

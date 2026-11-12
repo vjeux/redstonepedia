@@ -32,6 +32,14 @@ pub fn design(stages: i32) -> Design {
         d.blocks.insert([x, 1, -2], DUST.into());
         d.blocks.insert([x, 0, -2], "minecraft:stone".into());
     }
+    // (the mid-gt bus, ironspec/G1 Nov 11 23:03: a repeater into the bus at each driver, its input
+    // (x,1,-4) where `bench_pb` sets a redstone block 2 gt ahead, so the bus's edges land inside a gt
+    // at the driver's priority; inert while the direct bench overwrites the bus cell itself)
+    for x in drivers(stages) {
+        d.blocks.insert([x, 1, -3], "minecraft:repeater[delay=1,facing=north,locked=false,powered=false]".into());
+        d.blocks.insert([x, 0, -3], "minecraft:stone".into());
+        d.blocks.insert([x, 0, -4], "minecraft:stone".into());
+    }
     d.blocks.insert([0, 0, 0], "minecraft:stone".into());
     d.ports.insert("output".into(), [0, 1, 3]);
     d
@@ -83,6 +91,156 @@ fn trial(spec: &FarmSpec, stages: i32, freeze: Option<(i64, i64)>, ticks: i64) -
         }
     }
     Ok(rise)
+}
+
+/// The P/B wave under freezes in transit (ironspec and G1, Nov 11 23:03): one trigger; P set and the
+/// chain's input held until stage N rises (P clears, B sets: a 2N-gt wave). Every phase of one
+/// `len`-gt freeze while the wave is in transit, and pairs of freezes (the second begun d gt after the
+/// first thaws, f1 and d on a `stride` grid); the bus driven between gts (redstone blocks, as before)
+/// or mid-gt (repeaters into the bus, their edges inside a gt at the drivers' priority); both P-clear
+/// orders: A, stage 1's fall scheduled after stage N+1's rise in the same gt (the bench clears P after
+/// the tick stage N rose in: redsim, like the game, advances the time at the tick's start), and B,
+/// stage 1's off-tick inserted before that tick (the rise's tick from A's run of the same freezes,
+/// which P's clearing cannot move: it is upstream). Each schedule: broken (not every stage rises and
+/// falls once) and every tap's width.
+pub fn bench_pb(spec: &FarmSpec, stages: i32, len: i64, ns: &[i32], stride: i64) -> Result<Vec<String>, String> {
+    use redsim::ticks::Priority;
+    let on = Block::parse("minecraft:redstone_block").map_err(|e| e.to_string())?;
+    let air = Block::parse("minecraft:air").map_err(|e| e.to_string())?;
+    let dust = Block::parse(DUST).map_err(|e| e.to_string())?;
+    let drv = drivers(stages);
+    let s1 = BlockPos::new(1, 1, 0);
+    let all = redsim::world::flags::ALL;
+    let stride = stride.max(1) as usize;
+    let trial = |n: i32, mid: bool, pre_clear: Option<i64>, freezes: &[(i64, i64)], horizon: i64| -> Result<(Vec<Vec<(i64, bool)>>, Option<i64>), String> {
+        let ro = RunOpts { ai: false, ..RunOpts::steady(1, horizon as u32 + 20, WalkMode::Random) };
+        let mut run = Run::start(spec, &ro)?;
+        while run.settle_tick() {}
+        let n_cell = BlockPos::new(n, 1, 0);
+        let rep_kind = run.world.get(s1).kind();
+        let mut was = vec![false; stages as usize];
+        let mut tr: Vec<Vec<(i64, bool)>> = vec![Vec::new(); stages as usize];
+        let (mut p_set, mut rose) = (true, None);
+        run.world.set_block(BlockPos::new(0, 1, 0), on.clone(), all);
+        for t in 0..horizon {
+            for &(f, l) in freezes {
+                if mid {
+                    if t == f - 2 {
+                        for x in &drv {
+                            run.world.set_block(BlockPos::new(*x, 1, -4), on.clone(), all);
+                        }
+                    }
+                    if t == f + l - 2 {
+                        for x in &drv {
+                            run.world.set_block(BlockPos::new(*x, 1, -4), air.clone(), all);
+                        }
+                    }
+                } else {
+                    if t == f {
+                        for x in &drv {
+                            run.world.set_block(BlockPos::new(*x, 1, -2), on.clone(), all);
+                        }
+                    }
+                    if t == f + l {
+                        for x in &drv {
+                            run.world.set_block(BlockPos::new(*x, 1, -2), dust.clone(), all);
+                        }
+                    }
+                }
+            }
+            if pre_clear == Some(t) {
+                run.world.schedule_tick(s1, rep_kind, 3, Priority::ExtremelyHigh);
+            }
+            run.tick();
+            if p_set && run.world.get(n_cell).to_string().contains("powered=true") {
+                p_set = false;
+                rose = Some(t);
+                run.world.set_block(BlockPos::new(0, 1, 0), air.clone(), all);
+            }
+            for k in 0..stages as usize {
+                let now = run.world.get(BlockPos::new(k as i32 + 1, 1, 0)).to_string().contains("powered=true");
+                if now != was[k] {
+                    tr[k].push((t + 1, now));
+                    was[k] = now;
+                }
+            }
+        }
+        Ok((tr, rose))
+    };
+    // (carried: every stage one rise then one fall; its widths)
+    let carried = |tr: &[Vec<(i64, bool)>]| -> (bool, Vec<i64>) {
+        let ok = tr.iter().all(|v| v.len() == 2 && v[0].1 && !v[1].1);
+        (ok, tr.iter().map(|v| if v.len() == 2 { v[1].0 - v[0].0 } else { -1 }).collect())
+    };
+    let mut out = vec![format!(
+        "the P/B wave (P set by one trigger, the chain's input held until stage N rises: a 2N-gt wave) down {stages} stages under {len}-gt freezes in transit; one freeze at every phase, two freezes on a {stride}-gt grid (the second begun d gt after the first thaws); the bus driven between gts or mid-gt (repeaters into the bus); P-clear order A (stage 1's fall after stage N+1's rise in the same gt) and B (before it)"
+    )];
+    let fmt_least = |v: &[i64]| v.iter().map(|w| if *w == i64::MAX { "-".to_string() } else { w.to_string() }).collect::<Vec<_>>().join(" ");
+    for &n in ns {
+        let transit = 2 * stages as i64 + 2 * n as i64 + 6;
+        for mid in [false, true] {
+            // (per order: trials, broken, the first broken schedule, the least width per tap)
+            let mut acc: Vec<(u64, u64, Option<String>, Vec<i64>, u64, u64, Option<String>, Vec<i64>)> = (0..2).map(|_| (0, 0, None, vec![i64::MAX; stages as usize], 0, 0, None, vec![i64::MAX; stages as usize])).collect();
+            let mut record = |order: usize, two: bool, tr: &[Vec<(i64, bool)>], label: String| {
+                let (ok, w) = carried(tr);
+                let a = &mut acc[order];
+                let (trials, broken, ex, least) = if two { (&mut a.4, &mut a.5, &mut a.6, &mut a.7) } else { (&mut a.0, &mut a.1, &mut a.2, &mut a.3) };
+                *trials += 1;
+                if !ok {
+                    *broken += 1;
+                    if ex.is_none() {
+                        let bad: Vec<String> = tr.iter().enumerate().filter(|(_, v)| !(v.len() == 2 && v[0].1 && !v[1].1)).take(3).map(|(k, v)| format!("stage {} {} transitions", k + 1, v.len())).collect();
+                        *ex = Some(format!("{label}: {}", bad.join(", ")));
+                    }
+                }
+                for (k, wk) in w.iter().enumerate() {
+                    if *wk >= 0 {
+                        least[k] = least[k].min(*wk);
+                    }
+                }
+            };
+            let mut schedules: Vec<(bool, Vec<(i64, i64)>, String)> = Vec::new();
+            for f in 2..transit {
+                schedules.push((false, vec![(f, len)], format!("one freeze at +{f}")));
+            }
+            for f1 in (2..transit).step_by(stride) {
+                for dd in (0..transit).step_by(stride) {
+                    schedules.push((true, vec![(f1, len), (f1 + len + dd, len)], format!("freezes at +{f1} and +{}", f1 + len + dd)));
+                }
+            }
+            for (two, fr, label) in &schedules {
+                let horizon = transit + fr.iter().map(|(_, l)| *l).sum::<i64>() + transit + 20;
+                let (tr_a, rose) = trial(n, mid, None, fr, horizon)?;
+                record(0, *two, &tr_a, label.clone());
+                if n >= 2 {
+                    let (tr_b, _) = trial(n, mid, rose, fr, horizon)?;
+                    record(1, *two, &tr_b, label.clone());
+                }
+            }
+            for (order, a) in acc.iter().enumerate() {
+                if order == 1 && n < 2 {
+                    continue;
+                }
+                out.push(format!(
+                    "N {n} ({}-gt wave{}), bus {}, P-clear {}: one freeze ({} phases): broken {}{}; the least width per tap {}; two freezes ({} pairs): broken {}{}; the least width per tap {}",
+                    2 * n,
+                    match n { 1 => ": the control that must break under one freeze", 2 => ": the control that must break under two", _ => "" },
+                    if mid { "mid-gt (repeaters)" } else { "between gts" },
+                    if order == 0 { "A" } else { "B" },
+                    a.0,
+                    a.1,
+                    a.2.as_ref().map_or(String::new(), |e| format!(" (first: {e})")),
+                    fmt_least(&a.3),
+                    a.4,
+                    a.5,
+                    a.6.as_ref().map_or(String::new(), |e| format!(" (first: {e})")),
+                    fmt_least(&a.7)
+                ));
+            }
+        }
+    }
+    out.push("scope: the lead (F1 + Q2) uses a portal-ticket loader with no lockers (its chain a plain repeater chain inside the <= 3-gt login window); this guards pearl-loaded designs and the brief's general rule".to_string());
+    Ok(out)
 }
 
 /// The pulse train (G1 Nov 11 19:43): `pulses` trigger pulses `width` gt long every `every` gt (one

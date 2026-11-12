@@ -760,10 +760,61 @@ pub struct LaneOpts {
     pub outlier: Option<(i64, i64)>,
     /// Strict rhythm: the lift's foot to the lane hold, gt (the trip range being the bed's cycle).
     pub post: i64,
+    /// Strict rhythm: the napper's foot (ironspec/farmopt Nov 11 23:03): 0 = the trip range is the
+    /// whole bed cycle and the queue releases at its end; 1 = (a) the foot gate: R (the trip range
+    /// is entry -> R), then `r_leg` to the foot gate, which opens only inside `window` (gt after a
+    /// release, mod 100), then `det` to the evidence detector, where the queue releases, then
+    /// `post`; 2 = (c) the napper-only lift: the queue releases as the cart leaves R, then `r_leg`
+    /// to the merge-level hold, released only inside `window`, then `post`.
+    pub foot: u8,
+    pub r_leg: i64,
+    pub window: (i64, i64),
+    pub det: i64,
+    /// Strict rhythm: the stop's entry to the lie-down, gt (58f770cc Nov 11 23:10: the fastest 80).
+    pub lie: i64,
+    /// The day time of the model's in_day 0, the pick window's start (13,670; ironspec Nov 11 23:21:
+    /// REST begins at 12,000, so ~12,150..12,200); dawn falls at in_day day_gt - start_dt.
+    pub start_dt: i64,
+    /// After a night skip, the next window opens this much later (gt): the counter re-phases on the
+    /// detector's rise at day 170..188 instead of the first morning rise at 22,331 (tick-exact's
+    /// daylight bridge, Nov 11 23:26), so that day's decodes land ~1,840 gt late.
+    pub rephase_lag: i64,
+}
+
+/// The strict rhythm's numbers beside its line (the strand-margin search reads them).
+#[derive(Clone, Debug, Default)]
+pub struct LaneStats {
+    pub golems: f64,
+    pub max_queue: usize,
+    pub max_trip: i64,
+    /// The latest lie-down's in_day (from the model's night start) over the scored nights.
+    pub latest_lie: i64,
+    /// Lie-downs after the night's end (the nap fails: LAST_SLEEP is not refreshed).
+    pub late_naps: usize,
+    /// The busiest night's bed occupancy (entry to the queue's release, summed) over the pick
+    /// window (per_lane * k cycles).
+    pub util_max: f64,
+}
+
+/// The wait at a gate opening only inside `w` (gt after a release, mod 100).
+fn gate_wait(x: i64, w: (i64, i64)) -> i64 {
+    let ph = x.rem_euclid(100);
+    if ph >= w.0 && ph <= w.1 {
+        0
+    } else if ph < w.0 {
+        w.0 - ph
+    } else {
+        100 + w.0 - ph
+    }
 }
 
 /// The lane model's report line.
 pub fn simulate_lanes(o: &LaneOpts) -> String {
+    simulate_lanes_scored(o).0
+}
+
+/// The lane model's report line and its numbers.
+pub fn simulate_lanes_scored(o: &LaneOpts) -> (String, LaneStats) {
     let mut rng = Rng(o.seed);
     let n = o.lanes * o.per_lane;
     let mut lanes: Vec<VecDeque<usize>> = (0..o.lanes).map(|l| (0..o.per_lane).map(|i| l + i * o.lanes).collect()).collect();
@@ -783,6 +834,8 @@ pub fn simulate_lanes(o: &LaneOpts) -> String {
     let mut bed_q: Vec<(i64, i64)> = Vec::new();
     let (mut max_queue, mut outliers) = (0usize, 0usize);
     let mut max_trip: i64 = 0;
+    let (mut latest_lie, mut late_naps, mut util_max) = (0i64, 0usize, 0f64);
+    let mut night_busy: std::collections::BTreeMap<i64, i64> = std::collections::BTreeMap::new();
     let mut next_outlier: i64 = o.outlier.map_or(i64::MAX, |(every, _)| every / 2);
     let mut lane_len_hist: std::collections::BTreeMap<usize, u64> = std::collections::BTreeMap::new();
     let mut night_idx: Option<i64> = None;
@@ -793,6 +846,7 @@ pub fn simulate_lanes(o: &LaneOpts) -> String {
     let skip_from = cycles_per_day * 2 / 3;
     let mut held = false;
     let (mut shift, mut last_jump_day) = (0i64, i64::MIN);
+    let mut lag_day: Option<i64> = None;
     let mut last_turn: Vec<Option<i64>> = vec![None; n];
     let mut least_spacing = i64::MAX;
     let mut golems_day: std::collections::BTreeMap<i64, usize> = std::collections::BTreeMap::new();
@@ -800,18 +854,23 @@ pub fn simulate_lanes(o: &LaneOpts) -> String {
         let t0 = c * 100;
         let rel = t0 - o.dusk_at + shift;
         let (mut day, mut in_day) = (rel.div_euclid(o.day_gt), rel.rem_euclid(o.day_gt));
+        let dawn_in = (o.day_gt - o.start_dt).rem_euclid(o.day_gt);
         if let Some((d, at)) = o.jump
             && (day == d as i64 || o.jump_every && day >= d as i64)
             && in_day >= at
             && last_jump_day != day
         {
             last_jump_day = day;
-            shift += if at >= 10_330 { o.day_gt + 10_330 - in_day } else { 10_330 - in_day };
+            shift += if at >= dawn_in { o.day_gt + dawn_in - in_day } else { dawn_in - in_day };
             let rel = t0 - o.dusk_at + shift;
             (day, in_day) = (rel.div_euclid(o.day_gt), rel.rem_euclid(o.day_gt));
+            // (the next window after the landing at dawn is the next model day's)
+            lag_day = Some(day + 1);
         }
         let scored = day >= o.warmup as i64;
-        let in_night = in_day < o.night_gt;
+        // (the day after a night skip: the window opens `rephase_lag` late)
+        let lag = if lag_day == Some(day) { o.rephase_lag } else { 0 };
+        let in_night = in_day >= lag && in_day < o.night_gt;
         if in_night && night_idx != Some(day) {
             night_idx = Some(day);
             night_picks.clear();
@@ -923,6 +982,7 @@ pub fn simulate_lanes(o: &LaneOpts) -> String {
                         }
                     }
                 }
+                let prev_sleep = last_sleep[cart];
                 last_sleep[cart] = Some(t + o.sleep_at);
                 let pred = lanes[l].back().copied().unwrap_or(cart);
                 let drawn = rng.range(o.trip.0, o.trip.1);
@@ -950,10 +1010,40 @@ pub fn simulate_lanes(o: &LaneOpts) -> String {
                     let depth = bed_q.iter().filter(|(a, s)| *a <= arrive && *s > arrive).count() + usize::from(start > arrive);
                     max_queue = max_queue.max(depth);
                     let cycle = (drawn + extra).max(1);
-                    bed_free_at = start + cycle;
+                    // (the foot: where the queue releases and what the trip adds after R)
+                    let r = start + cycle;
+                    let (free, back) = match o.foot {
+                        1 => {
+                            let foot = r + o.r_leg;
+                            let pass = foot + gate_wait(foot, o.window) + o.det;
+                            (pass, pass + o.post)
+                        }
+                        2 => {
+                            let hold = r + o.r_leg;
+                            (r, hold + gate_wait(hold, o.window) + o.post)
+                        }
+                        _ => (r, r + o.post),
+                    };
+                    bed_free_at = free;
                     bed_q.push((arrive, start));
-                    last_sleep[cart] = Some(start + 20);
-                    let back = start + cycle + o.post;
+                    // (the lie-down, `lie` gt after the entry: past the night's end the nap fails)
+                    let lrel = start + o.lie - o.dusk_at + shift;
+                    let lie_in = lrel.rem_euclid(o.day_gt);
+                    let lie_day = lrel.div_euclid(o.day_gt);
+                    if lie_in >= o.night_gt {
+                        last_sleep[cart] = prev_sleep;
+                        if scored {
+                            late_naps += 1;
+                        }
+                    } else {
+                        last_sleep[cart] = Some(start + o.lie);
+                        if scored {
+                            latest_lie = latest_lie.max(lie_in);
+                        }
+                    }
+                    if scored {
+                        *night_busy.entry(lie_day).or_default() += free - start;
+                    }
                     max_trip = max_trip.max(back - t);
                     back
                 } else {
@@ -987,10 +1077,34 @@ pub fn simulate_lanes(o: &LaneOpts) -> String {
         }
     }
     let days = o.days.saturating_sub(o.warmup).max(1) as f64;
+    let window_gt = (o.per_lane * o.k) as f64 * 100.0;
+    for busy in night_busy.values() {
+        util_max = util_max.max(*busy as f64 / window_gt);
+    }
+    let stats = LaneStats { golems: golems as f64 / days, max_queue, max_trip, latest_lie, late_naps, util_max };
     let per_day: Vec<String> = golems_day.iter().filter(|(d, _)| **d >= o.warmup as i64 - 1).map(|(d, g)| format!("d{d} {g}")).collect();
     let lens: Vec<String> = lane_len_hist.iter().map(|(l, n)| format!("{l}:{n}")).collect();
-    format!(
-        "Q2 {} lanes x {} ({} villagers), {} bed(s){}, k {}{}, {}, {} skipped a day{}{}: golems a day {:.1}; lost a day: self-lock {:.2}, expired {:.2}, a lane empty {:.2}, held by a skip {:.2}; the shortest lane at any summon {} (summon ticks with a lane below {}: {:.1}%; lane lengths at the summons (length:lane-ticks) {}); the least turn spacing of any rider {} gt; fewest distinct nappers in a night {}, nights short of {}: {}; the deepest bed queue {} (strand outliers {}; the longest trip, the divert to the lane hold with the queue wait, {} gt); golems each day: {}",
+    let foot = if o.turns == 3 {
+        format!(
+            "; the foot: {}; the latest lie-down at in_day {} of the night's {} (night margin {:.1}%), lie-downs past the night {}; the busiest night's bed occupancy {:.1}% of the {}-gt pick window (margin {:.1}%)",
+            match o.foot {
+                1 => format!("(a) the foot gate (R + {} gt, open {}..{} gt after a release, the queue released {} gt past it, post {})", o.r_leg, o.window.0, o.window.1, o.det, o.post),
+                2 => format!("(c) the napper-only lift (the queue released as the cart leaves R; R + {} gt to the merge-level hold, released {}..{} gt after a release, post {})", o.r_leg, o.window.0, o.window.1, o.post),
+                _ => format!("the trip range is the whole bed cycle, post {}", o.post),
+            },
+            latest_lie,
+            o.night_gt,
+            100.0 * (o.night_gt - latest_lie) as f64 / o.night_gt as f64,
+            late_naps,
+            100.0 * util_max,
+            window_gt as i64,
+            100.0 * (1.0 - util_max)
+        )
+    } else {
+        String::new()
+    };
+    let line = format!(
+        "Q2 {} lanes x {} ({} villagers), {} bed(s){}, k {}{}, {}, {} skipped a day{}{}: golems a day {:.1}; lost a day: self-lock {:.2}, expired {:.2}, a lane empty {:.2}, held by a skip {:.2}; the shortest lane at any summon {} (summon ticks with a lane below {}: {:.1}%; lane lengths at the summons (length:lane-ticks) {}); the least turn spacing of any rider {} gt; fewest distinct nappers in a night {}, nights short of {}: {}; the deepest bed queue {} (strand outliers {}; the longest trip, the divert to the lane hold with the queue wait, {} gt){}; golems each day: {}",
         o.lanes, o.per_lane, n, o.beds,
         match o.turns { 1 => ", the lanes take the bed in sequence", 2 => ", the lanes take the bed round-robin", 3 => ", strict rhythm (lane l at cycles = l*k mod lanes*k; the bed queues)", _ => "" },
         o.k,
@@ -1015,8 +1129,10 @@ pub fn simulate_lanes(o: &LaneOpts) -> String {
         max_queue,
         outliers,
         max_trip,
+        foot,
         per_day.join(", ")
-    )
+    );
+    (line, stats)
 }
 
 /// The report line for one row.
