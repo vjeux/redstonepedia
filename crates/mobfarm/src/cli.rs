@@ -1359,6 +1359,34 @@ pub enum MobfarmCmd {
         freeze_matrix: String,
         #[arg(long, default_value_t = 1)]
         jobs: usize,
+        /// The hold as 9fc3155f's (B) on onechunk's v3 (hold-tail-v3.txt): net-0 V-pockets (P, R, G
+        /// under its gate, U U; the P flat on top), pitch 5, the corners laid flat, 2 flats to the
+        /// descent.
+        #[arg(long)]
+        hold_v: bool,
+        /// The tail chain as 9fc3155f's v3 draft (hold-tail-v3.txt, peaks fixed): 3 stand pockets, a
+        /// V-pocket, the intake pocket; the corners laid flat. Lays 5 pockets (--tail 5).
+        #[arg(long)]
+        tail_v: bool,
+        /// The brake-boost hold (ironspec Nov 11 17:33's lever): the stand's pocket (P flat on top,
+        /// R, G under its gate, U) with R a powered slope powered with its gate (braking while shut,
+        /// launching at the release); pitch 4.
+        #[arg(long)]
+        hold_bb: bool,
+        /// The hold as a line of tokens along +x (r. flat, rv down, r^ up, P. a flat detector, P^ / Pv
+        /// a detector rising / falling, R* a powered rest slope powered with the next gate, G a powered
+        /// slope under its gate, g a plain one): 3 sensors and 3 gates; overrides --hold-v/--hold-bb.
+        /// hold-v4.txt's (5/5) hold: "r. rv P. rv G r. r^ P. rv G r. r^ P. rv G r. r.".
+        #[arg(long)]
+        hold_line: Option<String>,
+        /// The escapement's advances a cycle (A: G_P at A+6 for 11 gt, G0 at A+13 for 12 gt).
+        #[arg(long, value_delimiter = ',', default_values_t = [32i64, 56, 80])]
+        esc_at: Vec<i64>,
+        /// The hold alone: one cart at rest in each pocket (--riders, the front first), every hold
+        /// gate opened with its powered cells for --hold-pulse gt: the exits past the front gate, the
+        /// gaps, the closest centres, a shut onto a cart.
+        #[arg(long)]
+        hold_only: bool,
     },
     TraceDiff {
         a: PathBuf,
@@ -3919,7 +3947,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let rep = crate::pocketbench::pocket_bench(&o).map_err(|e| anyhow::anyhow!(e))?;
             println!("{}", rep.text);
         }
-        MobfarmCmd::GqBench { carts, riders, tail, run, cap, cycles, corner, pulse, wire, spacer, ret, ret_gap, ret_speed, freeze, hold_pulse, hold_ripple, settle, overfill, adm_settle, intake_admit, ideal_tail, no_intake_flat, back_at, edge_esc, stage_delay, fill_after, esc_gap, alive_gate, freeze32, freeze_matrix, jobs } => {
+        MobfarmCmd::GqBench { carts, riders, tail, run, cap, cycles, corner, pulse, wire, spacer, ret, ret_gap, ret_speed, freeze, hold_pulse, hold_ripple, settle, overfill, adm_settle, intake_admit, ideal_tail, no_intake_flat, back_at, edge_esc, stage_delay, fill_after, esc_gap, alive_gate, freeze32, freeze_matrix, jobs, hold_v, tail_v, hold_bb, hold_line, esc_at, hold_only } => {
             let pairs = |v: &[String], what: &str| -> anyhow::Result<Vec<(i64, i64)>> {
                 v.iter()
                     .map(|s| {
@@ -3930,7 +3958,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             };
             let fr = pairs(&freeze, "freeze")?;
             let fr32 = pairs(&freeze32, "freeze32")?;
-            let o = crate::gqbench::GqOpts { carts, riders: riders.iter().map(|r| *r != 0).collect(), tail, run, cap, cycles, corner, pulse, wire, spacer, ret, ret_gap, ret_speed, freeze: fr, hold_pulse, hold_ripple, settle, overfill, adm_settle, intake_admit, ideal_tail, no_intake_flat, back_at, edge_esc, stage_delay, fill_after, esc_gap, alive: alive_gate, freeze32: fr32 };
+            let o = crate::gqbench::GqOpts { carts, riders: riders.iter().map(|r| *r != 0).collect(), tail, run, cap, cycles, corner, pulse, wire, spacer, ret, ret_gap, ret_speed, freeze: fr, hold_pulse, hold_ripple, settle, overfill, adm_settle, intake_admit, ideal_tail, no_intake_flat, back_at, edge_esc, stage_delay, fill_after, esc_gap, alive: alive_gate, freeze32: fr32, hold_v, tail_v, hold_bb, hold_line, esc_at, hold_only };
             if !freeze_matrix.is_empty() {
                 let parts: Vec<&str> = freeze_matrix.split(';').collect();
                 let sv: Vec<i64> = parts.first().unwrap_or(&"").split(',').filter_map(|x| x.trim().parse().ok()).collect();

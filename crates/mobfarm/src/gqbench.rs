@@ -86,6 +86,82 @@ pub struct GqOpts {
     /// (cc767b78) T,D: a real freeze: the whole bench at level 32 inside a forced ring of chunks
     /// (redstone running, entities frozen) from tick T for D gt.
     pub freeze32: Vec<(i64, i64)>,
+    /// The hold as 9fc3155f's (B) on onechunk's v3 (hold-tail-v3.txt): net-0 V-pockets, pitch 5.
+    pub hold_v: bool,
+    /// The tail chain as 9fc3155f's v3 draft (hold-tail-v3.txt, peaks fixed): 3 stand pockets, a
+    /// V-pocket, the intake pocket (5 pockets).
+    pub tail_v: bool,
+    /// The brake-boost hold (`HOLD_BB`): the stand's pocket with its rest slope powered with its gate.
+    pub hold_bb: bool,
+    /// The hold as a line of tokens (`line`'s: r. rv r^ P. P^ Pv R* G g), 3 sensors and 3 gates.
+    pub hold_line: Option<String>,
+    /// The escapement's three advances a cycle (A; G_P at A+6 for 11 gt, G0 at A+13 for 12 gt).
+    pub esc_at: Vec<i64>,
+    /// The hold alone (`hold_release`): 3 carts at rest in its pockets, one release.
+    pub hold_only: bool,
+}
+
+/// A track line from tokens (9fc3155f's v3/v4 hold and tail chain, the corners laid flat): `r.` a
+/// flat rail, `rv` a slope down, `r^` a slope up, `P.` a flat detector rail, `P^` / `Pv` a detector
+/// rail rising / falling, `G` a powered slope down under its gate (powered with the gate), `g` a plain
+/// slope down under its gate. Each P is a sensor; each G or g a gate (its cell over the slope, at the
+/// level the slope leaves) with the powered slope's cell for a G; `R*` a powered slope down powered
+/// with the next gate (the brake-boost rest cell: braking while its gate is shut, launching as it
+/// opens). hold-v4.txt's (5/5) hold (the stand's pockets, a flat in each valley) is `HOLD_V4`.
+pub const HOLD_V: &str = "r. rv P. rv G r^ r^ P. rv G r^ r. r^ P. rv G r. r.";
+pub const HOLD_V4: &str = "r. rv P. rv G r. r^ P. rv G r. r^ P. rv G r. r.";
+pub const TAIL_V: &str = "r. P. rv G r^ P. rv G r^ P. rv G rv r. r. r. r. r. r^ P. rv G r^ r^ P. rv g r.";
+/// The brake-boost hold (ironspec 17:33's lever): the stand's pocket (P flat on top, R, G under its
+/// gate, U) with R a powered slope powered with its gate, so all three carts launch at the release
+/// from rest on a booster; P's block shares no face with R's or G's (R's block is one lower).
+pub const HOLD_BB: &str = "r. rv P. R* G r^ P. R* G r^ P. R* G r. r.";
+
+struct LineBlocks {
+    glass: Block,
+    flat: Block,
+    down: Block,
+    up: Block,
+    det: Block,
+    det_up: Block,
+    det_down: Block,
+    pdown_off: Block,
+}
+
+/// A gate of a line: its cell, the powered slope under it (a G), and the powered rest slope before
+/// it (an R*), both powered with the gate.
+type LineGate = (i32, i32, Option<(i32, i32)>, Option<(i32, i32)>);
+
+fn line(b: &LineBlocks, blocks: &mut Vec<(BlockPos, Block)>, x: &mut i32, lv: &mut i32, spec: &str) -> Result<(Vec<(i32, i32)>, Vec<LineGate>), String> {
+    let mut sensors = Vec::new();
+    let mut gates = Vec::new();
+    let mut rest: Option<(i32, i32)> = None;
+    for tok in spec.split_whitespace() {
+        let (y, rail, dl) = match tok {
+            "r." => (*lv, &b.flat, 0),
+            "rv" => (*lv - 1, &b.down, -1),
+            "r^" => (*lv, &b.up, 1),
+            "P." => (*lv, &b.det, 0),
+            "P^" => (*lv, &b.det_up, 1),
+            "Pv" => (*lv - 1, &b.det_down, -1),
+            "R*" => (*lv - 1, &b.pdown_off, -1),
+            "G" | "g" => (*lv - 1, if tok == "G" { &b.pdown_off } else { &b.down }, -1),
+            _ => return Err(format!("{tok:?}: a line token of r. rv r^ P. P^ Pv R* G g")),
+        };
+        blocks.push((BlockPos::new(*x, y, 0), rail.clone()));
+        blocks.push((BlockPos::new(*x, y - 1, 0), b.glass.clone()));
+        if tok.starts_with('P') {
+            sensors.push((*x, y));
+        }
+        if tok == "R*" {
+            rest = Some((*x, y));
+        }
+        if tok == "G" || tok == "g" {
+            gates.push((*x, *lv, if tok == "G" { Some((*x, y)) } else { None }, rest.take()));
+        }
+        *lv += dl;
+        *x += 1;
+    }
+    Ok((sensors, gates))
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -109,6 +185,10 @@ struct Geo {
     sink_x: f64,
     run_cells: Vec<(i32, i32)>,
     run_sensor: (i32, i32),
+    /// Gates (by index) with a brake-boost rest slope powered with them (an R*).
+    gate_rest: std::collections::HashMap<usize, (i32, i32)>,
+    /// The hold's front gate's cell's east edge (a cart's centre past it has left the hold).
+    hold_exit: f64,
 }
 
 fn build(o: &GqOpts) -> Result<(FarmSpec, Geo), String> {
@@ -127,7 +207,17 @@ fn build(o: &GqOpts) -> Result<(FarmSpec, Geo), String> {
     // (the track: x the next cell, lv the rail's height at its west edge)
     let top = 2 * (o.tail as i32 + 6) + o.run + 8;
     let (mut x, mut lv) = (0i32, top);
-    let mut g = Geo { gates: Vec::new(), tail_p: Vec::new(), hold_p: Vec::new(), run_x: (0.0, 0.0), g0_plane: 0.0, gp_plane: 0.0, launch: (0.5, top as f64 + 0.0625), sink_x: 0.0, run_cells: Vec::new(), run_sensor: (0, 0), ds: (0, 0) };
+    let mut g = Geo { gates: Vec::new(), tail_p: Vec::new(), hold_p: Vec::new(), run_x: (0.0, 0.0), g0_plane: 0.0, gp_plane: 0.0, launch: (0.5, top as f64 + 0.0625), sink_x: 0.0, run_cells: Vec::new(), run_sensor: (0, 0), ds: (0, 0), gate_rest: Default::default(), hold_exit: f64::MAX };
+    let lb = LineBlocks {
+        glass: glass.clone(),
+        flat: flat.clone(),
+        down: down.clone(),
+        up: up.clone(),
+        det: det.clone(),
+        det_up: Block::parse("minecraft:detector_rail[powered=false,shape=ascending_east,waterlogged=false]")?,
+        det_down: det_down.clone(),
+        pdown_off: pdown_off.clone(),
+    };
     let mut put = |blocks: &mut Vec<(BlockPos, Block)>, x: i32, y: i32, b: &Block| {
         blocks.push((BlockPos::new(x, y, 0), b.clone()));
         blocks.push((BlockPos::new(x, y - 1, 0), glass.clone()));
@@ -165,7 +255,21 @@ fn build(o: &GqOpts) -> Result<(FarmSpec, Geo), String> {
         (p, gate_cell, g_cell)
     };
     let ntail = if o.ideal_tail { 1 } else { o.tail };
-    for j in 0..ntail {
+    if o.tail_v && !o.ideal_tail {
+        // (9fc3155f's tail chain: the launch flat stands for its buffer cell)
+        let (ps, gs) = line(&lb, &mut blocks, &mut x, &mut lv, &TAIL_V[3..])?;
+        if ps.len() != o.tail || gs.len() != o.tail {
+            return Err(format!("--tail-v lays {} pockets: run it with --tail {}", gs.len(), gs.len()));
+        }
+        g.tail_p = ps;
+        for (j, (gx, gy, gg, gr)) in gs.into_iter().enumerate() {
+            if let Some(c) = gr {
+                g.gate_rest.insert(g.gates.len(), c);
+            }
+            g.gates.push((Role::Tail(j), gx, gy, gg));
+        }
+    }
+    for j in 0..if o.tail_v && !o.ideal_tail { 0 } else { ntail } {
         let last = j + 1 == ntail;
         let (p, gc, gg) = pocket(&mut blocks, &mut extra, &mut put, &mut x, &mut lv, last);
         g.tail_p.push(p);
@@ -200,12 +304,28 @@ fn build(o: &GqOpts) -> Result<(FarmSpec, Geo), String> {
     g.gp_plane = x as f64 + 0.5;
     x += 1;
     lv -= 1;
-    // (the hold: 3 pockets; the front one's G a powered slope into the descent)
-    for j in 0..3 {
+    // (the hold: 3 pockets; the front one's G a powered slope into the descent; or a line of tokens:
+    // its 3 P detectors are the hold's sensors, hold_p[0] the entry pocket's)
+    if o.hold_v || o.hold_bb || o.hold_line.is_some() {
+        let spec = o.hold_line.as_deref().unwrap_or(if o.hold_bb { HOLD_BB } else { HOLD_V });
+        let (ps, gs) = line(&lb, &mut blocks, &mut x, &mut lv, spec)?;
+        if gs.len() != 3 || ps.len() != 3 {
+            return Err(format!("the hold's line {spec:?} lays {} sensors and {} gates (3 each)", ps.len(), gs.len()));
+        }
+        g.hold_p = ps;
+        for (j, (gx, gy, gg, gr)) in gs.into_iter().enumerate() {
+            if let Some(c) = gr {
+                g.gate_rest.insert(g.gates.len(), c);
+            }
+            g.gates.push((Role::Hold(j), gx, gy, gg));
+        }
+    }
+    for j in 0..if o.hold_v || o.hold_bb || o.hold_line.is_some() { 0 } else { 3 } {
         let (p, gc, gg) = pocket(&mut blocks, &mut extra, &mut put, &mut x, &mut lv, false);
         g.hold_p.push(p);
         g.gates.push((Role::Hold(j), gc.0, gc.1, Some(gg)));
     }
+    g.hold_exit = g.gates.iter().filter(|gt| gt.0 == Role::Hold(2)).map(|gt| gt.1 as f64 + 1.0).next().unwrap_or(f64::MAX);
     // (the descent and the sink: a flat first, at the front pocket's U top (a detector rail: the
     // front pocket's leaving edge, 7b90c3f1's per-pocket latch clear), then slopes down)
     put(&mut blocks, x, lv, &det);
@@ -259,8 +379,111 @@ struct Contact {
     intake: Option<(i64, usize)>,
 }
 
+/// The hold alone (9fc3155f, ironspec 17:33 and 18:04's hand-off targets): the bench's line built as
+/// for a run, one cart set at rest in each hold pocket (on its rest slope, 0.6 short of the gate cell;
+/// the carts ridden or empty by `riders`, the front pocket's first), then every hold gate opened with
+/// its powered cells at t 40 for `hold_pulse` gt: each cart's exit past the front gate's cell, the
+/// gaps, the closest centres while they leave, the front gate's shut onto a cart, the rest heights.
+pub fn hold_release(o: &GqOpts) -> Result<String, String> {
+    let (spec, g) = build(o)?;
+    let ro = RunOpts { ai: false, ..RunOpts::steady(1, 0, WalkMode::Random) };
+    let mut run = Run::start(&spec, &ro)?;
+    while run.settle_tick() {}
+    let open_b = Block::parse("minecraft:oak_fence_gate[facing=east,in_wall=false,open=true,powered=false]")?;
+    let shut_b = Block::parse("minecraft:oak_fence_gate[facing=east,in_wall=false,open=false,powered=false]")?;
+    let rsrc = Block::parse("minecraft:redstone_block")?;
+    let glass_b = Block::parse("minecraft:glass")?;
+    let holds: Vec<usize> = (0..g.gates.len()).filter(|gi| matches!(g.gates[*gi].0, Role::Hold(_))).collect();
+    // (the carts: pocket 2 the front, its cart first)
+    let mut ids = Vec::new();
+    for (n, gi) in holds.iter().rev().enumerate() {
+        let (_, gx, gy, _) = g.gates[*gi];
+        let ridden = o.riders.get(n % o.riders.len().max(1)).copied().unwrap_or(true);
+        let rider = if ridden { ",Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]" } else { "" };
+        let nbt = format!("{{Motion:[0.0d,0.0d,0.0d]{rider}}}");
+        ids.push(redsim::entity::spawn(&mut run.world, "minecraft:minecart", [gx as f64 - 0.6, gy as f64 + 0.45, 0.5], Some(&nbt))?);
+    }
+    let set = |run: &mut Run, open: bool| {
+        for gi in &holds {
+            let (_, gx, gy, gcell) = g.gates[*gi];
+            run.world.set_block(BlockPos::new(gx, gy, 0), if open { open_b.clone() } else { shut_b.clone() }, redsim::world::flags::ALL);
+            for c in [gcell, g.gate_rest.get(gi).copied()].into_iter().flatten() {
+                run.world.set_block(BlockPos::new(c.0, c.1 - 1, 0), if open { rsrc.clone() } else { glass_b.clone() }, redsim::world::flags::ALL);
+            }
+        }
+    };
+    let t0 = 40i64;
+    let mut exits: Vec<(usize, i64)> = Vec::new();
+    let mut rest = Vec::new();
+    let mut closest = f64::MAX;
+    let mut shut_onto = Vec::new();
+    let mut prev: Vec<Option<(f64, f64, f64)>> = vec![None; ids.len()];
+    for t in 0..t0 + 160 {
+        if t == t0 {
+            set(&mut run, true);
+            for id in &ids {
+                if let Some((_, y, _)) = cart_state(&run.world, *id) {
+                    rest.push(y);
+                }
+            }
+        }
+        if t == t0 + o.hold_pulse {
+            set(&mut run, false);
+            for (k, id) in ids.iter().enumerate() {
+                if let Some((x, y, _)) = cart_state(&run.world, *id) {
+                    for gi in &holds {
+                        let (role, gx, gy, _) = g.gates[*gi];
+                        if x + 0.49 > gx as f64 + 0.375 && x - 0.49 < gx as f64 + 0.625 && y + 0.7 > gy as f64 && y < gy as f64 + 1.5 {
+                            shut_onto.push(format!("{role:?} onto cart {k}"));
+                        }
+                    }
+                }
+            }
+        }
+        run.tick();
+        let now: Vec<Option<(f64, f64, f64)>> = ids.iter().map(|id| cart_state(&run.world, *id)).collect();
+        if t >= t0 {
+            for k in 0..ids.len() {
+                if let (Some((x, _, _)), Some((px, _, _))) = (now[k], prev[k])
+                    && px < g.hold_exit
+                    && x >= g.hold_exit
+                {
+                    exits.push((k, t - t0));
+                }
+                for j in k + 1..ids.len() {
+                    // (while both are still on the hold's line or the 6 cells after its front
+                    // gate: the descent the hand-off feeds, not the bench's run-out)
+                    if let (Some((xa, _, _)), Some((xb, _, _))) = (now[k], now[j])
+                        && xa < g.hold_exit + 6.0
+                        && xb < g.hold_exit + 6.0
+                    {
+                        closest = closest.min((xa - xb).abs());
+                    }
+                }
+            }
+        }
+        prev = now;
+    }
+    let order: String = exits.iter().map(|(k, _)| ["a", "b", "c"].get(*k).copied().unwrap_or("?")).collect::<Vec<_>>().join("");
+    let gaps: Vec<i64> = exits.windows(2).map(|w| w[1].1 - w[0].1).collect();
+    Ok(format!(
+        "hold alone ({}; riders {}; the gates and their powered cells open at t 0 for {} gt): exits past the front gate's cell at {} (order {order}), gaps {}; closest centres while leaving {:.2}; rest heights {}; shut onto a cart at the window's end: {}",
+        o.hold_line.as_deref().unwrap_or(if o.hold_bb { HOLD_BB } else if o.hold_v { HOLD_V } else { "the stand's pocket" }),
+        (0..ids.len()).map(|n| if o.riders.get(n % o.riders.len().max(1)).copied().unwrap_or(true) { 'R' } else { 'E' }).collect::<String>(),
+        o.hold_pulse,
+        exits.iter().map(|(_, t)| format!("+{t}")).collect::<Vec<_>>().join(" "),
+        gaps.iter().map(|g| g.to_string()).collect::<Vec<_>>().join("/"),
+        closest,
+        rest.iter().map(|y| format!("{y:.3}")).collect::<Vec<_>>().join(" "),
+        if shut_onto.is_empty() { "none".to_string() } else { shut_onto.join(", ") }
+    ))
+}
+
 /// Runs the bench; returns the text.
 pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
+    if o.hold_only {
+        return hold_release(o);
+    }
     if o.tail < 2 && !o.ideal_tail {
         return Err("the tail chain needs 2 pockets or more (the spacer keys on its second sensor)".into());
     }
@@ -458,6 +681,10 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                     // (the gate's signal powers the G slope beneath it, the stand's repeater and
                     // wire: a redstone block under the slope while the gate is open, glass while shut;
                     // a declared source)
+                    run.world.set_block(BlockPos::new(cx, cy - 1, 0), if want { rsrc.clone() } else { glass_b.clone() }, redsim::world::flags::ALL);
+                }
+                if let Some((cx, cy)) = g.gate_rest.get(&gi).copied() {
+                    // (an R*, the brake-boost rest slope: powered with its gate the same way)
                     run.world.set_block(BlockPos::new(cx, cy - 1, 0), if want { rsrc.clone() } else { glass_b.clone() }, redsim::world::flags::ALL);
                 }
                 // (a shut onto a cart: the gate's box (the cell's middle slice, 1.5 tall) appearing
@@ -678,7 +905,7 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
         // pocket above feeds the last pocket only while it is shut; the last gate opens again once
         // its new cart has passed P and settled, and that cart rolls about one cell into the back)
         if o.overfill {
-            let g0_now = in_cycles && !frz && [32, 56, 80].iter().any(|a| (ph >= a + 13 && ph < a + 13 + 12) || (t - warm >= 100 && ph + 100 >= a + 13 && ph + 100 < a + 13 + 12));
+            let g0_now = in_cycles && !frz && o.esc_at.iter().any(|a| (ph >= a + 13 && ph < a + 13 + 12) || (t - warm >= 100 && ph + 100 >= a + 13 && ph + 100 < a + 13 + 12));
             if g0_now && !g0_was {
                 adm_live = Some(0);
             }
@@ -759,8 +986,8 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                 }
                 Role::Gp if o.edge_esc => t < egp_until,
                 Role::G0 if o.edge_esc => t < eg0_until,
-                Role::Gp => if o.alive { t < gp_until } else { in_cycles && !frz && [32, 56, 80].iter().any(|a| (ph >= a + 6 && ph < a + 6 + 11) || (t - warm >= 100 && ph + 100 >= a + 6 && ph + 100 < a + 6 + 11)) },
-                Role::G0 => if o.alive { t < g0_until } else { in_cycles && !frz && [32, 56, 80].iter().any(|a| (ph >= a + 13 && ph < a + 13 + 12) || (t - warm >= 100 && ph + 100 >= a + 13 && ph + 100 < a + 13 + 12)) },
+                Role::Gp => if o.alive { t < gp_until } else { in_cycles && !frz && o.esc_at.iter().any(|a| (ph >= a + 6 && ph < a + 6 + 11) || (t - warm >= 100 && ph + 100 >= a + 6 && ph + 100 < a + 6 + 11)) },
+                Role::G0 => if o.alive { t < g0_until } else { in_cycles && !frz && o.esc_at.iter().any(|a| (ph >= a + 13 && ph < a + 13 + 12) || (t - warm >= 100 && ph + 100 >= a + 13 && ph + 100 < a + 13 + 12)) },
                 Role::Hold(j) => {
                     // (together: every hold gate open for hold_pulse from T+3; a ripple of D: the
                     // front gate at T+3, each gate behind D gt later, each for hold_pulse)
