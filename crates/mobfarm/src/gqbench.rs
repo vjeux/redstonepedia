@@ -86,6 +86,10 @@ pub struct GqOpts {
     pub reset_at: i64,
     /// The hold's release gates shut once Ds has counted the carts latched at the release.
     pub hold_close_ds: bool,
+    /// Edge escapement: G_P only after no hold sensor edge for this many gt (the hold settled).
+    pub fill_quiet: i64,
+    /// The start state: the run empty, carts admitted seated one at a time until N are on it.
+    pub start_fill: usize,
     /// (cc767b78) day-1's live-time cycle clock and liveness gate (`crate::liveness`): the cycle
     /// restarts at each golem event (the column live at a summon boundary: a frozen column makes
     /// none), every pulse (the hold's release at T+3, G_P and G0's openings, the tail chain's
@@ -516,17 +520,24 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
     let rsrc = Block::parse("minecraft:redstone_block")?;
     let glass_b = Block::parse("minecraft:glass")?;
     let ridden_k = |k: usize| o.riders.get(k % o.riders.len().max(1)).copied().unwrap_or(true);
-    let spawn = |run: &mut Run, k: usize, pos: [f64; 3], v: f64| -> Result<u32, String> {
-        let rider = if ridden_k(k) { ",Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]" } else { "" };
+    let spawn = |run: &mut Run, pos: [f64; 3], v: f64, rid: bool| -> Result<u32, String> {
+        let rider = if rid { ",Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]" } else { "" };
         let nbt = format!("{{Motion:[{v:.4}d,0.0d,0.0d]{rider}}}");
         redsim::entity::spawn(&mut run.world, "minecraft:minecart", pos, Some(&nbt))
     };
     // (the start: the run filled at rest from G0 up, one cart a cell; the rest launched into the
     // tail chain 30 gt apart)
     let mut ids: Vec<Option<u32>> = vec![None; o.carts];
+    // (carts broken at the jam's reset and replaced by the player with seated villagers)
+    let mut replaced: Vec<bool> = vec![false; o.carts];
     let mut pending: Vec<(i64, usize)> = Vec::new();
     let in_run = o.cap.min(o.carts).min(g.run_cells.len());
-    if o.back_at > 0.0 {
+    if o.start_fill > 0 {
+        // (the start state: the run empty, every cart seated and pooled at the staging cell)
+        for k in 0..o.carts {
+            pending.push((k as i64 * 30, k));
+        }
+    } else if o.back_at > 0.0 {
         // (the run filled pressed (0.790 apart in x, measured) from G0's rest up to the back's target,
         // `back_at` past the last tail gate's cell: the count the intake keeps constant)
         let gx = g.gates.iter().find(|x| x.0 == Role::Tail(g.tail_p.len() - 1)).map_or(0.0, |x| x.1 as f64);
@@ -536,7 +547,7 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
         while xk >= gx + o.back_at - 0.01 && k < o.carts {
             let cell = g.run_cells.iter().find(|c| xk >= c.0 as f64 && xk < (c.0 + 1) as f64).copied();
             let y = cell.map_or(0.0, |c| c.1 as f64 + (1.0 - (xk - c.0 as f64)) + 0.0625);
-            ids[k] = Some(spawn(&mut run, k, [xk, y, 0.5], 0.0)?);
+            ids[k] = Some(spawn(&mut run, [xk, y, 0.5], 0.0, ridden_k(k))?);
             k += 1;
             xk -= 0.79;
         }
@@ -546,7 +557,7 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
     } else {
     for k in 0..in_run {
         let (cx, cy) = g.run_cells[g.run_cells.len() - 1 - k];
-        ids[k] = Some(spawn(&mut run, k, [cx as f64 + 0.5, cy as f64 + 0.5 + 0.0625, 0.5], 0.0)?);
+        ids[k] = Some(spawn(&mut run, [cx as f64 + 0.5, cy as f64 + 0.5 + 0.0625, 0.5], 0.0, ridden_k(k))?);
     }
     for (i, k) in (in_run..o.carts).enumerate() {
         pending.push((i as i64 * 30, k));
@@ -571,6 +582,7 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
     let mut staged = false;
     let mut gp_cond_was = false;
     let mut fills_since: usize = 0;
+    let mut last_hold_edge: i64 = i64::MIN / 2;
     let mut release_n: usize = 0;
     let mut ds_since: usize = 0;
     let mut gone: Vec<bool> = vec![false; o.carts];
@@ -624,7 +636,10 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
     let mut tail_max = 0usize;
     let mut sunk = 0usize;
     let mut launched_into_run: std::collections::BTreeSet<usize> = Default::default();
-    let warm = 200i64;
+    let warm = if o.start_fill > 0 { 200 + 60 * o.start_fill as i64 } else { 200i64 };
+    let mut run_still_since: i64 = 0;
+    let mut fill_done = false;
+    let mut fill_done_at: i64 = -1;
     let ticks = warm + o.cycles * 100;
     // (cc767b78, `alive`: day-1's gate on a virtual sealed ring in the hold's chunk (or
     // `MCTAS_ALIVE_RING`); the cycle's pulses as offsets from its golem event: the hold at +3,
@@ -672,7 +687,7 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
             if o.ideal_tail {
                 pool.push_back(k);
             } else {
-                ids[k] = Some(spawn(&mut run, k, [g.launch.0, g.launch.1, 0.5], o.ret_speed)?);
+                ids[k] = Some(spawn(&mut run, [g.launch.0, g.launch.1, 0.5], o.ret_speed, ridden_k(k) || replaced[k])?);
             }
         }
         // (the ideal tail: the next pooled cart placed at rest at the last tail gate's face whenever
@@ -686,7 +701,7 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                 let xr = face - 0.49;
                 let base = (ph5 - 1) as f64;
                 let yr = base + (1.0 - (xr - (px5 + 1) as f64)) + 0.0625;
-                ids[k] = Some(spawn(&mut run, k, [xr, yr, 0.5], 0.0)?);
+                ids[k] = Some(spawn(&mut run, [xr, yr, 0.5], 0.0, ridden_k(k) || replaced[k])?);
                 occ_t[0] = true;
                 settle_live = o.settle;
                 next_spawn_ok = t + 4;
@@ -815,6 +830,7 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                     }
                 } else {
                     let h = si - nt;
+                    last_hold_edge = t;
                     if h == 3 {
                         // (Ds: the hold's front pocket left)
                         occ_h[2] = false;
@@ -873,6 +889,13 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
             }
             pending.retain(|p| !gone[p.1]);
             pool.retain(|k| !gone[*k]);
+            // (the procedure ends with the player placing a new cart with a seated villager for each
+            // broken one, at the climb's top, until the census reads 21 again (ironspec 19:04))
+            for (i, k) in broken.iter().enumerate() {
+                gone[*k] = false;
+                replaced[*k] = true;
+                pending.push((t + 100 + 30 * i as i64, *k));
+            }
             let now2: Vec<Option<(f64, f64, f64)>> = ids.iter().map(|id| id.and_then(|id| cart_state(&run.world, id))).collect();
             for j in 0..3 {
                 let px = g.hold_p[j].0 as f64;
@@ -880,6 +903,9 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
                 occ_h[j] = now2.iter().any(|c| c.is_some_and(|(x, _, _)| x >= px && x < next));
             }
             fills_since = occ_h.iter().filter(|b| **b).count();
+            // (the intake's owed admissions cleared too: the run's count restarts from what is on it)
+            owed = 0;
+            owed_at.clear();
             let p_has = now2.iter().any(|c| c.is_some_and(|(x, _, _)| x >= g.g0_plane - 0.5 && x < g.gp_plane));
             if p_has {
                 staged = true;
@@ -934,19 +960,34 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
         // (intake keyed on the escapement's own admission, ironspec 17:43 (B): each G0 opening edge
         // owes one intake; the last tail gate releases its waiting cart (latched, settled) once per
         // owed admission, so the run's count stays constant)
-        let g0_w = in_cycles && !frz && G0_AT.iter().any(|a| (ph >= *a && ph < a + 12) || (t - warm >= 100 && ph + 100 >= *a && ph + 100 < a + 12));
+        let g0_w = if o.edge_esc { t < eg0_until && !frz } else { in_cycles && !frz && G0_AT.iter().any(|a| (ph >= *a && ph < a + 12) || (t - warm >= 100 && ph + 100 >= *a && ph + 100 < a + 12)) };
         if g0_w && !g0_prev_w {
             owed += 1;
             owed_at.push_back(t);
         }
         g0_prev_w = g0_w;
-        let tail_ev = if o.intake_admit {
+        // (--start-fill N, the guide's fill procedure: carts join the run only ridden, one at a time:
+        // each seated at the last tail gate (the staging cell above the intake), then admitted once
+        // the run below is still (no cart on it moving for 5 gt), until N carts are on the run)
+        let run_count = ids.iter().filter(|id| id.and_then(|id| cart_state(&run.world, id)).is_some_and(|(x, _, _)| x >= g.run_x.0 as f64 && x < g.run_x.1 as f64)).count();
+        let run_moving = ids.iter().any(|id| id.and_then(|id| cart_state(&run.world, id)).is_some_and(|(x, _, v)| x >= g.run_x.0 as f64 && x < g.run_x.1 as f64 && v > 0.01));
+        if run_moving {
+            run_still_since = t;
+        }
+        if o.start_fill > 0 && !fill_done && run_count >= o.start_fill && t - run_still_since >= 5 {
+            fill_done = true;
+            fill_done_at = t;
+        }
+        let filling = o.start_fill > 0 && !fill_done;
+        let tail_ev = if filling {
+            occ_t[nt - 1] && t - run_still_since >= 5 && settle_live >= o.settle && t >= tail_release_until + 4
+        } else if o.intake_admit {
             // (released once the admission's train shift has settled: `adm_settle` gt after its edge)
             occ_t[nt - 1] && owed > 0 && owed_at.front().is_some_and(|e| t - e >= o.adm_settle) && settle_live >= o.settle && t >= tail_release_until + 4
         } else {
             !o.overfill && occ_t[nt - 1] && !run_busy && settle_live >= o.settle && t >= tail_release_until + 4
         };
-        if tail_ev && o.intake_admit && !frz {
+        if tail_ev && o.intake_admit && !filling && !frz {
             owed -= 1;
             owed_at.pop_front();
         }
@@ -1045,6 +1086,9 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
             // (--fill-count: the hold's room by count (fills since the last release under 3) instead
             // of its entry pocket's latch, so fills may follow each other into the hold)
             let room = if o.fill_count { fills_since < 3 } else { !occ_h[0] };
+            // (--fill-quiet: the hold settled: no hold sensor edge in the last Q gt, so a fill never
+            // follows a cart shifting between pockets through a gate that is about to shut)
+            let room = room && t - last_hold_edge >= o.fill_quiet;
             let cond = staged && room && quiet && spaced && !frz && t >= warm;
             if cond && !gp_cond_was {
                 egp_until = t + 11;
@@ -1306,6 +1350,21 @@ pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
         },
         intake_alone.iter().filter(|a| a.0 >= warm).count()
     ));
+    if o.start_fill > 0 {
+        // (the start state's fill: every contact before the fill completed, by its struck cart's
+        // seat and its stored speed; and the fill's end)
+        let fill_end = if fill_done_at >= 0 { fill_done_at } else { i64::MAX };
+        let fc: Vec<&Contact> = contacts_arr.iter().chain(contacts_mov.iter()).filter(|c| c.t < fill_end).collect();
+        let mx = fc.iter().map(|c| c.pv).fold(0.0f64, f64::max);
+        l.push(format!(
+            "the start fill ({} carts admitted one at a time from the staging cell, each once the run is still): done at {}; {} contacts, {} above 0.2, the hardest {mx:.3}; each: {}",
+            o.start_fill,
+            if fill_done_at >= 0 { format!("t {fill_done_at}") } else { "never".to_string() },
+            fc.len(),
+            fc.iter().filter(|c| c.pv > 0.2).count(),
+            fc.iter().take(16).map(|c| format!("t {} {}{} {:.3}", c.t, if ridden_k(c.k) { "R" } else { "E" }, if ridden_k(c.j) { "R" } else { "E" }, c.pv)).collect::<Vec<_>>().join(", ")
+        ));
+    }
     l.push(format!(
         "intake travel (x from the rest at the last gate to the contact) and stored speed at contact: {}",
         {
