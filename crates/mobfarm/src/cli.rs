@@ -1119,6 +1119,87 @@ pub enum MobfarmCmd {
         #[arg(long)]
         window: bool,
     },
+    /// The pocket-module bench (farmopt Nov 11 16:26, the shared module bench): N pockets of
+    /// 9fc3155f's 3-cell module (P detector flat, R rest slope, G gate column) after a descent,
+    /// then a slot-0 stand-in; a latch read from the P detectors' real powered state, the
+    /// admission spacer, front-first releases at slot 0's beats; faults (missed:S:N, double:S:N,
+    /// freeze:T:D, ghost:S:T).
+    PocketBench {
+        #[arg(long, default_value_t = 3)]
+        pockets: usize,
+        #[arg(long, value_delimiter = ',', default_values_t = [1.0, 1.0, 1.0])]
+        speeds: Vec<f64>,
+        /// Per cart, 1 ridden or 0 empty (the last repeats).
+        #[arg(long, value_delimiter = ',', default_values_t = [1u8])]
+        riders: Vec<u8>,
+        /// Launch spacing, gt (the last repeats).
+        #[arg(long, value_delimiter = ',', default_values_t = [24i64])]
+        gaps: Vec<i64>,
+        #[arg(long, default_value_t = 2)]
+        descent: i32,
+        #[arg(long, default_value_t = 400)]
+        ticks: i64,
+        #[arg(long, default_value_t = 24)]
+        beat: i64,
+        #[arg(long, default_value_t = 40)]
+        beat_at: i64,
+        #[arg(long, default_value_t = 0, allow_hyphen_values = true)]
+        corner: i64,
+        #[arg(long, default_value_t = 16)]
+        lead: i64,
+        #[arg(long, default_value_t = 8)]
+        pulse: i64,
+        #[arg(long, default_value_t = 2)]
+        wire: i64,
+        #[arg(long, default_value_t = 24)]
+        spacer: i64,
+        #[arg(long)]
+        fault: Vec<String>,
+        /// Cells per pocket: 3 (P, R, G) or 5 (P, R, G, B, S).
+        #[arg(long, default_value_t = 5)]
+        pocket_cells: usize,
+        /// Front-first releases (default: every pocket gate together, the latch reset).
+        #[arg(long)]
+        front_first: bool,
+    },
+    /// The gravity-queue bench (ironspec Nov 11 16:38; paper v0 2098083320824660): a tail chain of
+    /// the stand's pockets, a straight pressed run fed by count, R1's escapement (G0 over a powered
+    /// slope, G_P over a plain one), a 3-pocket hold released together at T+3, a sink and the climb
+    /// back; carts per opening, gate edges on carts, arrival contacts, the run's fill.
+    GqBench {
+        #[arg(long, default_value_t = 21)]
+        carts: usize,
+        /// Per cart, 1 ridden or 0 empty (repeating).
+        #[arg(long, value_delimiter = ',', default_values_t = [1u8])]
+        riders: Vec<u8>,
+        #[arg(long, default_value_t = 5)]
+        tail: usize,
+        #[arg(long, default_value_t = 12)]
+        run: i32,
+        #[arg(long, default_value_t = 12)]
+        cap: usize,
+        #[arg(long, default_value_t = 8)]
+        cycles: i64,
+        #[arg(long, default_value_t = 0, allow_hyphen_values = true)]
+        corner: i64,
+        #[arg(long, default_value_t = 8)]
+        pulse: i64,
+        #[arg(long, default_value_t = 2)]
+        wire: i64,
+        #[arg(long, default_value_t = 24)]
+        spacer: i64,
+        #[arg(long, default_value_t = 170)]
+        ret: i64,
+        #[arg(long, default_value_t = 6)]
+        ret_gap: i64,
+        #[arg(long, default_value_t = 0.4)]
+        ret_speed: f64,
+        /// T,D: every cart frozen from tick T for D gt (repeatable).
+        #[arg(long)]
+        freeze: Vec<String>,
+        #[arg(long, default_value_t = 32)]
+        hold_pulse: i64,
+    },
     TraceDiff {
         a: PathBuf,
         b: PathBuf,
@@ -3480,6 +3561,23 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let rid: Vec<bool> = if riders.is_empty() { vec![!empty] } else { riders.iter().map(|r| *r != 0).collect() };
             let (_, text) = crate::holdbench::hold_bench(&speeds, &rid, descent, post, flats, gap, ticks, !no_brake).map_err(|e| anyhow::anyhow!(e))?;
             println!("{text}");
+        }
+        MobfarmCmd::PocketBench { pockets, speeds, riders, gaps, descent, ticks, beat, beat_at, corner, lead, pulse, wire, spacer, fault, pocket_cells, front_first } => {
+            let faults = fault.iter().map(|f| crate::pocketbench::parse_fault(f)).collect::<Result<Vec<_>, _>>().map_err(|e| anyhow::anyhow!(e))?;
+            let o = crate::pocketbench::PocketOpts { pockets, speeds, riders: riders.iter().map(|r| *r != 0).collect(), gaps, descent, ticks, beat, beat_at, corner, lead, pulse, wire, spacer, faults, cells: pocket_cells, together: !front_first };
+            let rep = crate::pocketbench::pocket_bench(&o).map_err(|e| anyhow::anyhow!(e))?;
+            println!("{}", rep.text);
+        }
+        MobfarmCmd::GqBench { carts, riders, tail, run, cap, cycles, corner, pulse, wire, spacer, ret, ret_gap, ret_speed, freeze, hold_pulse } => {
+            let fr = freeze
+                .iter()
+                .map(|s| {
+                    let p: Vec<i64> = s.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+                    if p.len() == 2 { Ok((p[0], p[1])) } else { Err(anyhow::anyhow!("--freeze T,D")) }
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            let o = crate::gqbench::GqOpts { carts, riders: riders.iter().map(|r| *r != 0).collect(), tail, run, cap, cycles, corner, pulse, wire, spacer, ret, ret_gap, ret_speed, freeze: fr, hold_pulse };
+            println!("{}", crate::gqbench::gq_bench(&o).map_err(|e| anyhow::anyhow!(e))?);
         }
         MobfarmCmd::TraceDiff { a, b, tol } => {
             println!("{}", crate::queue::trace_diff(&std::fs::read_to_string(&a)?, &std::fs::read_to_string(&b)?, tol));

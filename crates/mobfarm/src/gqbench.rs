@@ -1,0 +1,478 @@
+//! The gravity-queue bench (ironspec Nov 11 16:38, vjeux's lead: paper v0 artifact 2098083320824660):
+//! a straight line built in code along +x, top to bottom:
+//! - the tail chain: `tail` pockets of the shared module (the stand's pocket, farmopt 16:38: P a flat
+//!   detector rail, R the plain rest slope, G a powered slope under the oak fence gate (powered as
+//!   the gate opens, the stand's repeater and wire), U a rail rising back one level; pitch 4, one
+//!   level down per pocket); the last pocket's gate stands over the pressed run's top slope;
+//! - the pressed run: `run` plain slopes, straight;
+//! - the escapement (R1's): G0 over P (a powered slope always on, a redstone block under it), G_P
+//!   over R (a plain slope); windows G_P at A+6 for 11 gt, G0 at A+13 for 12 gt, three advances a
+//!   cycle (A = 32, 56, 80), every gate shifted by `corner`;
+//! - the hold: 3 pockets of the same module, filled front-first (a gate is open while the pocket
+//!   ahead is latched empty), all released together at T+3 (their gates open for `pulse`, the latch
+//!   reset);
+//! - the descent and a sink: a cart past it is gone and comes back `ret` gt after its release at the
+//!   tail chain's top, `ret_gap` gt behind the cart before it (the climb).
+//!
+//! The latches read only the P detector rails' real powered state. The tail chain feeds the run only
+//! while the run holds fewer than `cap` carts by count (tail releases into the run minus passes into
+//! the hold's first pocket, the cart staged on P counted with the run): pass-sensor evidence.
+//! Printed: carts per opening at G0 and G_P, every gate edge with a cart's box in the gate's cell,
+//! each arrival's stored speed at contact with the run's back cart (the bar 0.2), the run's fill at
+//! its emptiest, the hold's carts at each release, the tail chain's occupancy.
+
+use redsim::block::Block;
+use redsim::entity::mob::farm::{FarmSpec, Run, RunOpts, WalkMode};
+use redsim::pos::BlockPos;
+
+/// The bench's options.
+#[derive(Clone, Debug)]
+pub struct GqOpts {
+    pub carts: usize,
+    pub riders: Vec<bool>,
+    pub tail: usize,
+    pub run: i32,
+    pub cap: usize,
+    pub cycles: i64,
+    pub corner: i64,
+    pub pulse: i64,
+    pub wire: i64,
+    pub spacer: i64,
+    pub ret: i64,
+    pub ret_gap: i64,
+    pub ret_speed: f64,
+    /// Every cart frozen from tick T for D gt (the latches and gates run); the escapement's and the
+    /// hold's openings wait while it lasts (the liveness gate).
+    pub freeze: Vec<(i64, i64)>,
+    /// The hold's release: every hold gate open together this long (the rear cart passes them all).
+    pub hold_pulse: i64,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Role {
+    Tail(usize),
+    G0,
+    Gp,
+    Hold(usize),
+}
+
+struct Geo {
+    gates: Vec<(Role, i32, i32, Option<(i32, i32)>)>,
+    tail_p: Vec<(i32, i32)>,
+    hold_p: Vec<(i32, i32)>,
+    run_x: (f64, f64),
+    g0_plane: f64,
+    gp_plane: f64,
+    launch: (f64, f64),
+    sink_x: f64,
+    run_cells: Vec<(i32, i32)>,
+    run_sensor: (i32, i32),
+}
+
+fn build(o: &GqOpts) -> Result<(FarmSpec, Geo), String> {
+    let glass = Block::parse("minecraft:glass")?;
+    let down = Block::parse("minecraft:rail[shape=ascending_west,waterlogged=false]")?;
+    let up = Block::parse("minecraft:rail[shape=ascending_east,waterlogged=false]")?;
+    let flat = Block::parse("minecraft:rail[shape=east_west,waterlogged=false]")?;
+    let det = Block::parse("minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]")?;
+    let det_down = Block::parse("minecraft:detector_rail[powered=false,shape=ascending_west,waterlogged=false]")?;
+    let pdown_off = Block::parse("minecraft:powered_rail[powered=false,shape=ascending_west,waterlogged=false]")?;
+    let pdown_on = Block::parse("minecraft:powered_rail[powered=true,shape=ascending_west,waterlogged=false]")?;
+    let gate = Block::parse("minecraft:oak_fence_gate[facing=east,in_wall=false,open=false,powered=false]")?;
+    let rblock = Block::parse("minecraft:redstone_block")?;
+    let mut blocks: Vec<(BlockPos, Block)> = Vec::new();
+    let mut extra: Vec<(BlockPos, Block)> = Vec::new();
+    // (the track: x the next cell, lv the rail's height at its west edge)
+    let top = 2 * (o.tail as i32 + 6) + o.run + 8;
+    let (mut x, mut lv) = (0i32, top);
+    let mut g = Geo { gates: Vec::new(), tail_p: Vec::new(), hold_p: Vec::new(), run_x: (0.0, 0.0), g0_plane: 0.0, gp_plane: 0.0, launch: (0.5, top as f64 + 0.0625), sink_x: 0.0, run_cells: Vec::new(), run_sensor: (0, 0) };
+    let mut put = |blocks: &mut Vec<(BlockPos, Block)>, x: i32, y: i32, b: &Block| {
+        blocks.push((BlockPos::new(x, y, 0), b.clone()));
+        blocks.push((BlockPos::new(x, y - 1, 0), glass.clone()));
+    };
+    // (the launch flat, then a rigid block west of every descending slope's high side as needed)
+    put(&mut blocks, x, lv, &flat);
+    x += 1;
+    let pocket = |blocks: &mut Vec<(BlockPos, Block)>, extra: &mut Vec<(BlockPos, Block)>, put: &mut dyn FnMut(&mut Vec<(BlockPos, Block)>, i32, i32, &Block), x: &mut i32, lv: &mut i32, last_over_run: bool| -> ((i32, i32), (i32, i32), (i32, i32)) {
+        // P flat detector at lv; R down; G down (powered, the gate over it at R's level); U up
+        let p = (*x, *lv);
+        put(blocks, *x, *lv, &det);
+        put(blocks, *x + 1, *lv - 1, &down);
+        let gate_cell = (*x + 2, *lv - 1);
+        let g_cell = (*x + 2, *lv - 2);
+        if last_over_run {
+            // (the intake, farmopt 17:14 on onechunk's v3: G5 a plain slope (no boost) under its
+            // gate, then a flat (the curve at (-4,40,9)), then the pressed run's top slope)
+            put(blocks, *x + 2, *lv - 2, &down);
+            put(blocks, *x + 3, *lv - 2, &flat);
+            *x += 4;
+            *lv -= 2;
+            return (p, gate_cell, g_cell);
+        }
+        put(blocks, *x + 2, *lv - 2, &pdown_off);
+        put(blocks, *x + 3, *lv - 2, &up);
+        // (U rises east: its high side's rigid block is under the next P)
+        extra.push((BlockPos::new(*x + 4, *lv - 2, 0), Block::parse("minecraft:glass").unwrap()));
+        *x += 4;
+        *lv -= 1;
+        (p, gate_cell, g_cell)
+    };
+    for j in 0..o.tail {
+        let last = j + 1 == o.tail;
+        let (p, gc, gg) = pocket(&mut blocks, &mut extra, &mut put, &mut x, &mut lv, last);
+        g.tail_p.push(p);
+        g.gates.push((Role::Tail(j), gc.0, gc.1, if last { None } else { Some(gg) }));
+    }
+    // (the pressed run: its first slope is under the last tail gate)
+    let run_x0 = x as f64;
+    for k in 0..o.run {
+        // (the run's top cell a detector rail (a sloped detector that sees a resting cart: the
+        // intake's "top cell free" evidence); no gate stands over it (the flat comes between) and
+        // it touches no powered rail)
+        if k == 0 {
+            put(&mut blocks, x, lv - 1, &det_down);
+            g.run_sensor = (x, lv - 1);
+        } else {
+            put(&mut blocks, x, lv - 1, &down);
+        }
+        g.run_cells.push((x, lv - 1));
+        x += 1;
+        lv -= 1;
+    }
+    g.run_x = (run_x0, x as f64);
+    // (the escapement: G0 over P (powered always, a redstone block under it); G_P over R)
+    blocks.push((BlockPos::new(x, lv - 1, 0), pdown_on.clone()));
+    blocks.push((BlockPos::new(x, lv - 2, 0), rblock.clone()));
+    g.gates.push((Role::G0, x, lv, None));
+    g.g0_plane = x as f64 + 0.5;
+    x += 1;
+    lv -= 1;
+    put(&mut blocks, x, lv - 1, &down);
+    g.gates.push((Role::Gp, x, lv, None));
+    g.gp_plane = x as f64 + 0.5;
+    x += 1;
+    lv -= 1;
+    // (the hold: 3 pockets; the front one's G a powered slope into the descent)
+    for j in 0..3 {
+        let (p, gc, gg) = pocket(&mut blocks, &mut extra, &mut put, &mut x, &mut lv, false);
+        g.hold_p.push(p);
+        g.gates.push((Role::Hold(j), gc.0, gc.1, Some(gg)));
+    }
+    // (the descent and the sink: a flat first, at the front pocket's U top, then slopes down)
+    put(&mut blocks, x, lv, &flat);
+    x += 1;
+    for _ in 0..3 {
+        put(&mut blocks, x, lv - 1, &down);
+        x += 1;
+        lv -= 1;
+    }
+    for k in 0..8 {
+        put(&mut blocks, x + k, lv, &flat);
+    }
+    g.sink_x = (x + 4) as f64;
+    blocks.extend(extra);
+    for (_, gx, gy, _) in &g.gates {
+        blocks.push((BlockPos::new(*gx, *gy, 0), gate.clone()));
+    }
+    let spec = FarmSpec {
+        blocks,
+        entities: Vec::new(),
+        output: BlockPos::new(x + 12, lv, 3),
+        lo: BlockPos::new(-4, lv - 8, -4),
+        hi: BlockPos::new(x + 14, top + 4, 4),
+        block_entities: Vec::new(),
+        rock: false,
+        nether: None,
+        land: false,
+    };
+    Ok((spec, g))
+}
+
+fn cart_state(w: &redsim::world::World, id: u32) -> Option<(f64, f64, f64)> {
+    let i = redsim::entity::index_of(w, id)?;
+    let e = &w.entities.list[i];
+    Some((e.pos.x, e.pos.y, (e.delta_movement.x.powi(2) + e.delta_movement.z.powi(2)).sqrt()))
+}
+
+/// Runs the bench; returns the text.
+pub fn gq_bench(o: &GqOpts) -> Result<String, String> {
+    if o.tail < 2 {
+        return Err("the tail chain needs 2 pockets or more (the spacer keys on its second sensor)".into());
+    }
+    let (spec, g) = build(o)?;
+    let ro = RunOpts { ai: false, ..RunOpts::steady(1, 0, WalkMode::Random) };
+    let mut run = Run::start(&spec, &ro)?;
+    while run.settle_tick() {}
+    // (an open gate is set unpowered: a powered=true gate with no signal shuts at its next
+    // neighbour update)
+    let open_b = Block::parse("minecraft:oak_fence_gate[facing=east,in_wall=false,open=true,powered=false]")?;
+    let shut_b = Block::parse("minecraft:oak_fence_gate[facing=east,in_wall=false,open=false,powered=false]")?;
+    let rsrc = Block::parse("minecraft:redstone_block")?;
+    let glass_b = Block::parse("minecraft:glass")?;
+    let ridden_k = |k: usize| o.riders.get(k % o.riders.len().max(1)).copied().unwrap_or(true);
+    let spawn = |run: &mut Run, k: usize, pos: [f64; 3], v: f64| -> Result<u32, String> {
+        let rider = if ridden_k(k) { ",Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]" } else { "" };
+        let nbt = format!("{{Motion:[{v:.4}d,0.0d,0.0d]{rider}}}");
+        redsim::entity::spawn(&mut run.world, "minecraft:minecart", pos, Some(&nbt))
+    };
+    // (the start: the run filled at rest from G0 up, one cart a cell; the rest launched into the
+    // tail chain 30 gt apart)
+    let mut ids: Vec<Option<u32>> = vec![None; o.carts];
+    let mut pending: Vec<(i64, usize)> = Vec::new();
+    let in_run = o.cap.min(o.carts).min(g.run_cells.len());
+    for k in 0..in_run {
+        let (cx, cy) = g.run_cells[g.run_cells.len() - 1 - k];
+        ids[k] = Some(spawn(&mut run, k, [cx as f64 + 0.5, cy as f64 + 0.5 + 0.0625, 0.5], 0.0)?);
+    }
+    for (i, k) in (in_run..o.carts).enumerate() {
+        pending.push((i as i64 * 30, k));
+    }
+    let n_gates = g.gates.len();
+    let mut target_hist: Vec<std::collections::VecDeque<bool>> = vec![std::collections::VecDeque::new(); n_gates];
+    let mut gate_open: Vec<bool> = vec![false; n_gates];
+    let sensors: Vec<(i32, i32)> = g.tail_p.iter().chain(g.hold_p.iter()).copied().collect();
+    let nt = o.tail;
+    let mut was_on = vec![false; sensors.len()];
+    let mut occ_t = vec![false; nt];
+    let mut occ_h = [false; 3];
+    let mut last_rise_t1: i64 = i64::MIN / 2;
+    let mut count_q: i64 = in_run as i64;
+    let mut tail_release_until: i64 = -1;
+    let mut hold_release_until: i64 = -1;
+    let mut prev: Vec<Option<(f64, f64, f64)>> = vec![None; o.carts];
+    let mut frozen: Option<Vec<(u32, [f64; 3], [f64; 3])>> = None;
+    // (measures)
+    let mut edges_on_cart: Vec<String> = Vec::new();
+    let mut g0_open_count: Option<usize> = None;
+    let mut gp_open_count: Option<usize> = None;
+    let mut g0_hist: std::collections::BTreeMap<usize, usize> = Default::default();
+    let mut gp_hist: std::collections::BTreeMap<usize, usize> = Default::default();
+    let mut arrivals: Vec<(f64, i64, usize)> = Vec::new();
+    let mut run_min: (usize, i64) = (usize::MAX, 0);
+    let mut hold_at_release: Vec<(i64, usize)> = Vec::new();
+    let mut tail_max = 0usize;
+    let mut sunk = 0usize;
+    let mut launched_into_run: std::collections::BTreeSet<usize> = Default::default();
+    let warm = 200i64;
+    let ticks = warm + o.cycles * 100;
+    for t in 0..ticks {
+        // (launches)
+        let due: Vec<usize> = pending.iter().filter(|p| p.0 == t).map(|p| p.1).collect();
+        pending.retain(|p| p.0 != t);
+        for k in due {
+            ids[k] = Some(spawn(&mut run, k, [g.launch.0, g.launch.1, 0.5], o.ret_speed)?);
+        }
+        let frz = o.freeze.iter().any(|(a, d)| t >= *a && t < a + d);
+        // (gates as targeted `wire` gt ago; a pocket's G slope powered with its gate)
+        for gi in 0..n_gates {
+            let want = if target_hist[gi].len() > o.wire as usize { target_hist[gi].pop_front().unwrap() } else { gate_open[gi] };
+            if want != gate_open[gi] {
+                gate_open[gi] = want;
+                let (role, gx, gy, gcell) = g.gates[gi];
+                run.world.set_block(BlockPos::new(gx, gy, 0), if want { open_b.clone() } else { shut_b.clone() }, redsim::world::flags::ALL);
+                if let Some((cx, cy)) = gcell {
+                    // (the gate's signal powers the G slope beneath it, the stand's repeater and
+                    // wire: a redstone block under the slope while the gate is open, glass while shut;
+                    // a declared source)
+                    run.world.set_block(BlockPos::new(cx, cy - 1, 0), if want { rsrc.clone() } else { glass_b.clone() }, redsim::world::flags::ALL);
+                }
+                // (a shut onto a cart: the gate's box (the cell's middle slice, 1.5 tall) appearing
+                // inside a cart's box; a cart pressed on the gate's face is in the cell, not the box)
+                for (k, id) in ids.iter().enumerate() {
+                    if let Some((x, y, _)) = id.and_then(|id| cart_state(&run.world, id))
+                        && !want
+                        && x + 0.49 > gx as f64 + 0.375
+                        && x - 0.49 < gx as f64 + 0.625
+                        && y + 0.7 > gy as f64
+                        && y < gy as f64 + 1.5
+                    {
+                        edges_on_cart.push(format!("t {t}: {role:?} shut onto cart {k} ({x:.2},{y:.2})"));
+                    }
+                }
+                // (carts per opening: close the count at each opening's start)
+                if want && role == Role::G0 {
+                    if let Some(c) = g0_open_count.take() {
+                        *g0_hist.entry(c).or_insert(0) += 1;
+                    }
+                    g0_open_count = Some(0);
+                }
+                if want && role == Role::Gp {
+                    if let Some(c) = gp_open_count.take() {
+                        *gp_hist.entry(c).or_insert(0) += 1;
+                    }
+                    gp_open_count = Some(0);
+                }
+            }
+        }
+        if frz && frozen.is_none() {
+            frozen = Some(run.world.entities.list.iter().map(|e| (e.id, [e.pos.x, e.pos.y, e.pos.z], [e.delta_movement.x, e.delta_movement.y, e.delta_movement.z])).collect());
+        }
+        if !frz {
+            frozen = None;
+        }
+        run.tick();
+        if let Some(snap) = &frozen {
+            for (id, p, v) in snap {
+                if let Some(i) = redsim::entity::index_of(&run.world, *id) {
+                    let e = &mut run.world.entities.list[i];
+                    e.pos = redsim::entity::Vec3::new(p[0], p[1], p[2]);
+                    e.delta_movement = redsim::entity::Vec3::new(v[0], v[1], v[2]);
+                }
+            }
+        }
+        // (the sink: gone, back at the tail chain's top after the climb)
+        for k in 0..o.carts {
+            if let Some(id) = ids[k]
+                && let Some((x, _, _)) = cart_state(&run.world, id)
+                && x > g.sink_x
+            {
+                let riders: Vec<u32> = redsim::entity::index_of(&run.world, id).map(|i| run.world.entities.list[i].passengers.clone()).unwrap_or_default();
+                for r in riders {
+                    let _ = redsim::entity::kill(&mut run.world, r);
+                }
+                let _ = redsim::entity::kill(&mut run.world, id);
+                ids[k] = None;
+                sunk += 1;
+                let last = pending.iter().map(|p| p.0).max().unwrap_or(i64::MIN / 2);
+                pending.push(((t + o.ret).max(last + o.ret_gap), k));
+                launched_into_run.remove(&k);
+            }
+        }
+        let now: Vec<Option<(f64, f64, f64)>> = ids.iter().map(|id| id.and_then(|id| cart_state(&run.world, id))).collect();
+        if let Ok(tr) = std::env::var("MCTAS_GQ_TRACE") {
+            let p: Vec<i64> = tr.split(',').filter_map(|x| x.parse().ok()).collect();
+            if p.len() == 3 && t >= p[1] && t < p[2] {
+                if let Some((x, y, v)) = now.get(p[0] as usize).copied().flatten() {
+                    let gs: String = gate_open.iter().map(|o| if *o { 'o' } else { '.' }).collect();
+                    eprintln!("t {t}: cart {} at {x:.3},{y:.3} v {v:.3}; gates {gs}; occ_t {:?} occ_h {:?} count {count_q}", p[0], occ_t, occ_h);
+                }
+            }
+        }
+        // (the sensors and the latches)
+        for (si, (sx, sy)) in sensors.iter().enumerate() {
+            let on = matches!(run.world.get(BlockPos::new(*sx, *sy, 0)), Block::DetectorRail { powered: true, .. });
+            if on && !was_on[si] {
+                if si < nt {
+                    occ_t[si] = true;
+                    if si > 0 {
+                        occ_t[si - 1] = false;
+                    }
+                    if si == 1 {
+                        last_rise_t1 = t;
+                    }
+                } else {
+                    let h = si - nt;
+                    occ_h[h] = true;
+                    if h > 0 {
+                        occ_h[h - 1] = false;
+                    }
+                    if h == 0 {
+                        count_q -= 1;
+                    }
+                }
+            }
+            was_on[si] = on;
+        }
+        // (the cycle: T = warm + 100 c; the hold at T+3; the escapement at A+6 / A+13)
+        let ph = (t - warm - o.corner).rem_euclid(100);
+        let in_cycles = t >= warm;
+        if in_cycles && ph == 3 && !frz {
+            let held = occ_h.iter().filter(|b| **b).count();
+            hold_at_release.push((t, held));
+            hold_release_until = t + o.hold_pulse;
+            occ_h = [false; 3];
+        }
+        // (the tail chain's release into the run: its front pocket latched, the run's top free by
+        // the run's sensor (its second cell's detector rail off), the last release done)
+        let run_busy = matches!(run.world.get(BlockPos::new(g.run_sensor.0, g.run_sensor.1, 0)), Block::DetectorRail { powered: true, .. });
+        if occ_t[nt - 1] && !run_busy && t >= tail_release_until + 4 && !frz {
+            tail_release_until = t + o.pulse;
+            occ_t[nt - 1] = false;
+            count_q += 1;
+        }
+        for (gi, (role, _, _, _)) in g.gates.iter().enumerate() {
+            let open = match role {
+                Role::Tail(j) => {
+                    if *j + 1 == nt {
+                        t < tail_release_until
+                    } else {
+                        let mut sh = occ_t[j + 1];
+                        if *j == 0 && o.spacer > 0 && t - last_rise_t1 < o.spacer {
+                            sh = true;
+                        }
+                        !sh
+                    }
+                }
+                Role::Gp => in_cycles && !frz && [32, 56, 80].iter().any(|a| (ph >= a + 6 && ph < a + 6 + 11) || (t - warm >= 100 && ph + 100 >= a + 6 && ph + 100 < a + 6 + 11)),
+                Role::G0 => in_cycles && !frz && [32, 56, 80].iter().any(|a| (ph >= a + 13 && ph < a + 13 + 12) || (t - warm >= 100 && ph + 100 >= a + 13 && ph + 100 < a + 13 + 12)),
+                Role::Hold(j) => {
+                    if t < hold_release_until {
+                        true
+                    } else if *j == 2 {
+                        false
+                    } else {
+                        !occ_h[j + 1]
+                    }
+                }
+            };
+            target_hist[gi].push_back(open);
+        }
+        // (plane crossings at G0 and G_P; arrivals at the run's back; the run's fill)
+        let mut in_run_now = 0usize;
+        for k in 0..o.carts {
+            let (Some((x, _, v)), Some((px, _, pv))) = (now[k], prev[k]) else { continue };
+            if px < g.g0_plane && x >= g.g0_plane {
+                if let Some(c) = g0_open_count.as_mut() {
+                    *c += 1;
+                }
+            }
+            if px < g.gp_plane && x >= g.gp_plane {
+                if let Some(c) = gp_open_count.as_mut() {
+                    *c += 1;
+                }
+            }
+            if x >= g.run_x.0 && x < g.run_x.1 + 0.5 {
+                in_run_now += 1;
+                if !launched_into_run.contains(&k) && t >= warm {
+                    launched_into_run.insert(k);
+                }
+                if pv - v >= 0.04 && now.iter().enumerate().any(|(j, c)| j != k && c.is_some_and(|(xj, _, _)| xj > x && xj - x < 1.3)) {
+                    arrivals.push((pv, t, k));
+                }
+            }
+        }
+        if t >= warm + 100 && in_run_now < run_min.0 {
+            run_min = (in_run_now, t);
+        }
+        let in_tail = now.iter().filter(|c| c.is_some_and(|(x, _, _)| x < g.run_x.0)).count();
+        tail_max = tail_max.max(in_tail);
+        prev = now;
+    }
+    let above: Vec<&(f64, i64, usize)> = arrivals.iter().filter(|a| a.0 > 0.2 && a.1 >= warm).collect();
+    let worst = arrivals.iter().filter(|a| a.1 >= warm).map(|a| a.0).fold(0.0f64, f64::max);
+    let h = |m: &std::collections::BTreeMap<usize, usize>| m.iter().map(|(n, c)| format!("{n} cart{}: {c}", if *n == 1 { "" } else { "s" })).collect::<Vec<_>>().join(", ");
+    let mut l = vec![format!(
+        "gravity-queue bench: {} carts ({}), a {}-pocket tail chain (the stand's pocket), a {}-slope pressed run fed while it holds fewer than {} carts by count, R1's escapement (G_P A+6/11, G0 A+13/12, A = 32/56/80), a 3-pocket hold released together at T+3, {} cycles after {warm} gt, corner {:+}, the climb back {} gt (+{} gt per cart){}",
+        o.carts,
+        (0..o.carts).map(|k| if ridden_k(k) { "R" } else { "E" }).collect::<String>(),
+        o.tail,
+        o.run,
+        o.cap,
+        o.cycles,
+        o.corner,
+        o.ret,
+        o.ret_gap,
+        if o.freeze.is_empty() { String::new() } else { format!(", freezes {:?}", o.freeze) }
+    )];
+    l.push(format!("carts per opening (exactly 1): G_P {}; G0 {}", h(&gp_hist), h(&g0_hist)));
+    l.push(format!("gate shuts onto a cart (the gate's box inside a cart's; the bar: 0): {}{}", edges_on_cart.len(), if edges_on_cart.is_empty() { String::new() } else { format!(" ({})", edges_on_cart.iter().take(6).cloned().collect::<Vec<_>>().join("; ")) }));
+    l.push(format!(
+        "arrivals into the pressed run (a cart's stored speed at contact with the cart ahead; the bar 0.2): {} contacts after the warm-up, the hardest {worst:.3}, {} above 0.2{}",
+        arrivals.iter().filter(|a| a.1 >= warm).count(),
+        above.len(),
+        if above.is_empty() { String::new() } else { format!(" ({})", above.iter().take(6).map(|a| format!("t {} cart {} {:.3}", a.1, a.2, a.0)).collect::<Vec<_>>().join(", ")) }
+    ));
+    l.push(format!("the pressed run's fill (carts on its slopes) at its emptiest after the first cycle: {} (t {}); the tail chain's most carts: {tail_max}", if run_min.0 == usize::MAX { 0 } else { run_min.0 }, run_min.1));
+    l.push(format!("the hold at each release (latched carts): {}; carts through the sink: {sunk}", hold_at_release.iter().map(|(t, n)| format!("t {t}: {n}")).collect::<Vec<_>>().join(", ")));
+    Ok(l.join("\n"))
+}
