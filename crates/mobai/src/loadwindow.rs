@@ -1111,7 +1111,7 @@ fn item_loop_build(version: &str, runs: u32, slab: bool, design: Option<&std::pa
             println!("  {}", &l[..l.len().min(240)]);
         }
         let _ = std::fs::remove_dir_all(&srv.dir);
-        println!("{bad} corners lost or touching");
+        println!("{bad} corners not seen arriving within their 120-gt watch (the recount 600 gt later is the verdict)");
         return Ok(());
     }
     where_items(&mut srv, &sides, "built")?;

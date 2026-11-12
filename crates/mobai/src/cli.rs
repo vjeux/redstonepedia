@@ -329,6 +329,10 @@ pub enum MobaiCmd {
         /// skip from a storm and the largest change between readings (day-1's inhibit level)
         #[arg(long)]
         levels: bool,
+        /// On the official server: the detector through rain and thunder ramps at held day times
+        /// and after one thunder skip, against the --levels model (G1's control)
+        #[arg(long)]
+        weather_row: bool,
     },
     /// (tickexact 2026-11-11, the parent's shared-bed overload across reloads) Scene bed-reload-<case>'s
     /// recording at its checkpoints: every villager's HOME and LAST_SLEPT, the bed, the naps
@@ -552,9 +556,11 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         MobaiCmd::NetherHome { version } => crate::netherhome::nether_home(&version),
         MobaiCmd::T600 { version } => crate::t600::t600(&version),
         MobaiCmd::ThreeBeds { version } => crate::threebeds::three_beds(&version),
-        MobaiCmd::Daylight { version, latency, levels } => {
+        MobaiCmd::Daylight { version, latency, levels, weather_row } => {
             if levels {
                 crate::daylight::levels()
+            } else if weather_row {
+                crate::daylight::weather_row(&version)
             } else if latency {
                 crate::daylight::skip_latency(&version)
             } else {

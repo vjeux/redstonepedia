@@ -315,6 +315,76 @@ pub fn levels() -> Result<()> {
     Ok(())
 }
 
+/// (tickexact 2026-11-12, G1 on f451e78d4: the weather layer's official control) `mctas mobai
+/// daylight --weather-row`: with the day time held (`advance_time` off) at a few day times, the
+/// sky cleared, then `weather thunder` (rain and thunder both rising 0.01 a tick) and later
+/// `weather clear` (both falling): the detector read at every update (game time a multiple of
+/// 20) against [`level`] with the levels the ramps reach by that tick; then one real thunder
+/// skip, its readings after the jump against the model with both levels falling from 1.
+pub fn weather_row(version: &str) -> Result<()> {
+    println!("== daylight --weather-row on the official {version} server: the detector through rain and thunder ramps against the code's model (daylight --levels)");
+    let mut srv = VanillaServer::start(&VanillaOptions {
+        version: version.to_string(),
+        difficulty: "peaceful".into(),
+        with_bot: true,
+        biome: "minecraft:plains".into(),
+        tick_rate: 1000,
+        ..Default::default()
+    })?;
+    srv.cmd_ok("gamerule advance_time false")?;
+    srv.cmd_ok("gamerule advance_weather true")?;
+    srv.cmd_ok("fill -4 63 -4 8 63 4 minecraft:stone")?;
+    srv.cmd_ok(&format!("setblock {} {} {} minecraft:daylight_detector", DETECTOR[0], DETECTOR[1], DETECTOR[2]))?;
+    srv.cmd_ok(&format!("setblock {} {} {} minecraft:red_bed[facing=north,part=foot]", BED_HEAD[0], BED_HEAD[1], BED_HEAD[2] + 1))?;
+    srv.cmd_ok(&format!("setblock {} {} {} minecraft:red_bed[facing=north,part=head]", BED_HEAD[0], BED_HEAD[1], BED_HEAD[2]))?;
+    srv.teleport_bot(BED_HEAD[0] as f64 + 1.5, 64.0, BED_HEAD[2] as f64 + 0.5)?;
+    srv.step(20)?;
+    let (mut readings, mut differ) = (0, 0);
+    for d in [1000i64, 6000, 11700, 12400, 23600] {
+        set_weather(&mut srv, "clear")?;
+        srv.cmd_ok(&format!("time set {d}"))?;
+        srv.step(40)?;
+        for (cmd, up) in [("thunder", true), ("clear", false)] {
+            srv.cmd_ok(&format!("weather {cmd} 1000000"))?;
+            let mut seq = Vec::new();
+            for k in 1..=140i64 {
+                srv.step(1)?;
+                if srv.game_time()?.rem_euclid(20) == 0 {
+                    let x = (0.01 * k as f32).min(1.0);
+                    let lv = if up { x } else { 1.0 - x };
+                    let (got, want) = (power(&mut srv)?, level(d, lv, lv));
+                    readings += 1;
+                    if got != want {
+                        differ += 1;
+                    }
+                    seq.push(format!("{k}:{got}{}", if got == want { String::new() } else { format!("(model {want})") }));
+                }
+            }
+            println!("d {d:>5}, weather {cmd}: (gt since the command:level) {}", seq.join(" "));
+        }
+    }
+    // one real thunder skip: lie down at 23,000 in full thunder; the readings after the jump
+    let (lay, after) = skip(&mut srv, "thunder", 23000, 300)?;
+    let mut seq = Vec::new();
+    for (day, got) in &after {
+        let k = day.rem_euclid(24000);
+        let x = (1.0 - 0.01 * k as f32).max(0.0);
+        let want = level(k, x, x);
+        readings += 1;
+        if *got != want {
+            differ += 1;
+        }
+        seq.push(format!("{k}:{got}{}", if *got == want { String::new() } else { format!("(model {want})") }));
+    }
+    println!("a thunder skip (lay down at {}): (day time:level) {}", lay.map(|t| t.to_string()).unwrap_or("-".into()), seq.join(" "));
+    println!("{readings} readings, {differ} differ from the model");
+    let _ = std::fs::remove_dir_all(&srv.dir);
+    if differ > 0 {
+        bail!("{differ} readings differ from the model");
+    }
+    Ok(())
+}
+
 pub fn daylight(version: &str) -> Result<()> {
     println!("== daylight on the official {version} server: a daylight detector under the open sky, the bot beside a bed");
     let mut srv = VanillaServer::start(&VanillaOptions {
