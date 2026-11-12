@@ -4758,6 +4758,9 @@ pub enum MobfarmCmd {
         /// The approach flats covered by top-half trapdoors (the contact mode's positive control).
         #[arg(long)]
         trapdoor_caps: bool,
+        /// The bench's queue cell bare, without the way-in line's scarer (the HOME control).
+        #[arg(long)]
+        bare_queue: bool,
     },
     /// The bed stop's one-visit bench (a `bedtier --bench` design) over seeds and entry speeds: F
     /// --after-sleep gt after the lie-down, the release --release-after gt after F (the controller
@@ -10594,8 +10597,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             compare_cmd(version, &design, &opts, twin)?;
         }
-        MobfarmCmd::Bedtier { out, bench, trapdoor_caps } => {
-            std::fs::write(&out, crate::bedtier::design(bench, trapdoor_caps)?)?;
+        MobfarmCmd::Bedtier { out, bench, trapdoor_caps, bare_queue } => {
+            std::fs::write(&out, crate::bedtier::design(bench, trapdoor_caps, bare_queue)?)?;
             println!("wrote {}", out.display());
             // (the placement-order cells: what the guide's build order leaves unlike the file)
             let (_c, spec) = load(version, &out)?;
@@ -10609,6 +10612,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             for l in crate::bedtier::zombie_post_lines(&spec).map_err(|e| anyhow::anyhow!(e))? {
                 println!("zombie post: {l}");
+            }
+            if bench {
+                for l in crate::bedtier::queue_seat_lines(&spec, 20000).map_err(|e| anyhow::anyhow!(e))? {
+                    println!("{l}");
+                }
             }
         }
         MobfarmCmd::BedtierBench { design, from, to, speeds, after_sleep, release_after, day, empty, no_home, hide_after_wake, restart, hour, restart_phases, orders, hours } => {

@@ -57,10 +57,13 @@ pub const EXIT_DET: [i32; 3] = [4, -1, 5];
 /// The queue cell (loop (9,-8,-6), 9fc3155f's budget 28b1bbd37e): the next napper waits there awake
 /// in its cart, 17.7 from the bed's head (the two-visit bench's; the bench design carries its rail).
 pub const QUEUE: [i32; 3] = [9, 10, -5];
+/// (b8949c96, the way-in line) the queue's scarer post: its zombie's boat 7 east of the queue cell.
+pub const QUEUE_POST: [i32; 3] = [QUEUE[0] + 7, QUEUE[1], QUEUE[2]];
 
 /// The design (`bench`: with a run-out past R and the queue cell's rail; `trapdoor_caps`: the
-/// approach flats covered by top-half trapdoors, the contact mode's positive control).
-pub fn design(bench: bool, trapdoor_caps: bool) -> Result<String> {
+/// approach flats covered by top-half trapdoors, the contact mode's positive control;
+/// `bare_queue`: the bench's queue cell without the way-in line's scarer, its control).
+pub fn design(bench: bool, trapdoor_caps: bool, bare_queue: bool) -> Result<String> {
     let mut b = Builder::new(if bench { "bed-tier-fold-bench" } else { "bed-tier-fold" });
     let rail = |s: &str| format!("rail[shape={s},waterlogged=false]");
     let cap = "iron_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]";
@@ -239,7 +242,25 @@ pub fn design(bench: bool, trapdoor_caps: bool) -> Result<String> {
         }
         put(&mut b, [EXIT_DET[0] + 7, -1, EXIT_DET[2]], "glass")?;
         put(&mut b, QUEUE, &rail("east_west"))?;
-        put(&mut b, [QUEUE[0], QUEUE[1] - 1, QUEUE[2]], "stone")?;
+        // (the queue rail on glowstone when the way-in line lays the cell: the rider's own cell
+        // counts as a reached panic-stroll draw only over a solid-render floor, ironspec 06:45 from
+        // tick-exact's rail-glow row; glowstone is golem-proof too)
+        put(&mut b, [QUEUE[0], QUEUE[1] - 1, QUEUE[2]], if bare_queue { "stone" } else { "glowstone" })?;
+        if !bare_queue {
+            // (b8949c96, the way-in line's queue cell, ironspec 2026-11-12 / G1's flag 1 on
+            // d90745270) the held napper's stamp: a scarer in view all day and all night, so the
+            // rider panics (no IDLE stroll: the 10/7 box's unreachable candidates never armed) and
+            // never rests calm at the queue; the zombie at 6.05-7.95 from the rider (7.0: inside
+            // VillagerHostilesSensor's 8, outside SetWalkTargetAwayFrom's 6: no flee walk), in
+            // sight through air (glass blocks the sensor's line of sight), riding a boat on glass
+            // (no golem floor), leaves over its eye cell (sky light 14: no sunburn, as the stop's
+            // post); the panic stroll's 2/2 box holds no standable cell but the rider's own rail
+            // cell (reachable: it stands there), so every pick clears the stamp (none-or-all)
+            let post = QUEUE_POST;
+            put(&mut b, [post[0], post[1] - 1, post[2]], "glass")?;
+            put(&mut b, [post[0], post[1] + 3, post[2]], "oak_leaves[distance=7,persistent=true,waterlogged=false]")?;
+            b.entity("oak_boat", [post[0] as f64 + 0.5, post[1] as f64, post[2] as f64 + 0.5], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}"));
+        }
     }
     b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
     b.d.ports.insert("output".into(), [12, 0, 6]);
@@ -614,6 +635,9 @@ pub struct TwoRow {
     pub homes_end: (bool, bool),
     /// A napper awake on the pickup cell had a path north (toward the arriving cart), any row.
     pub north_path: bool,
+    /// (b8949c96, the way-in line's queue cell) the least and most distance from a napper at the
+    /// queue cell to the queue's zombie (the flee rule: over 6.05; the panic: under 7.95).
+    pub queue_zombie_dist: Option<(f64, f64)>,
     /// At each lie-down (A's and C's), the napper's feet the tick before to the bed head's centre.
     pub lie_dists: Vec<f64>,
     pub problems: Vec<String>,
@@ -777,6 +801,17 @@ pub fn two_visit_bench(spec: &FarmSpec, seed: u64, speed: f64, o: &TwoOpts) -> R
                 row.home_lost.push((if k == 0 { "A" } else { "C" }, t));
             }
             homes[k] = has;
+            // (the queue's zombie against a napper at the queue cell: the flee rule's 6.05 and the
+            // panic's 7.95)
+            let me = w.entities.list[i].pos;
+            if (me.x - (QUEUE[0] as f64 + 0.5)).abs() < 1.0 && (me.z - (QUEUE[2] as f64 + 0.5)).abs() < 1.0 && (me.y - QUEUE[1] as f64).abs() < 2.0 {
+                for e in w.entities.list.iter().filter(|e| !e.removed && matches!(&e.kind, redsim::entity::EntityKind::Mob(m) if m.ty.game_id() == "minecraft:zombie")) {
+                    if (e.pos.x - (QUEUE_POST[0] as f64 + 0.5)).abs() < 1.5 && (e.pos.z - (QUEUE_POST[2] as f64 + 0.5)).abs() < 1.5 {
+                        let d = me.distance_to_sqr(e.pos).sqrt();
+                        row.queue_zombie_dist = Some(row.queue_zombie_dist.map_or((d, d), |(lo, hi)| (lo.min(d), hi.max(d))));
+                    }
+                }
+            }
             let asleep = redsim::entity::mob::mob(w, i).sleeping_pos.is_some();
             let seated = w.entities.list[i].vehicle == Some(cart) && released;
             // (a napper awake on the pickup cell with a path north, toward the cart: any row)
@@ -900,7 +935,8 @@ pub fn zombie_post_lines(spec: &FarmSpec) -> Result<Vec<String>, String> {
             run.tick();
         }
         for e in run.world.entities.list.iter().filter(|e| !e.removed && e.id >= first) {
-            let inside = e.pos.x >= ZOMBIE_POST[0] as f64 && e.pos.x <= ZOMBIE_POST[0] as f64 + 1.0 && e.pos.z >= ZOMBIE_POST[2] as f64 && e.pos.z <= ZOMBIE_POST[2] as f64 + 1.0;
+            let in_post = |post: [i32; 3]| e.pos.x >= post[0] as f64 && e.pos.x <= post[0] as f64 + 1.0 && e.pos.z >= post[2] as f64 && e.pos.z <= post[2] as f64 + 1.0;
+            let inside = in_post(ZOMBIE_POST) || in_post(QUEUE_POST);
             let name = match &e.kind {
                 redsim::entity::EntityKind::Boat(_) => "the boat".to_string(),
                 redsim::entity::EntityKind::Mob(m) => format!("the {:?}", m.ty),
@@ -913,6 +949,99 @@ pub fn zombie_post_lines(spec: &FarmSpec) -> Result<Vec<String>, String> {
                 format!(", eye cell ({},{},{}) sky light {}", eye.x, eye.y, eye.z, redsim::daylight::sky_light(&run.world, eye).map_or_else(|x| x, |l| l.to_string()))
             });
             out.push(format!("t {t}: {name} at ({:.3}, {:.3}, {:.3}): {}{}", e.pos.x, e.pos.y, e.pos.z, if inside { "inside the post cell" } else { "OUTSIDE the post cell" }, sky.unwrap_or_default()));
+        }
+    }
+    Ok(out)
+}
+
+/// (b8949c96, the way-in line's queue cell; ironspec 06:45's conditions) the queue seat's checks:
+/// a napper in its cart at the queue cell (the design's entities spawned), and
+/// - its panic stroll's draws (`VillageBoundRandomStroll` 2/2, as the brain picks them): `draws`
+///   of them, the share with no position (P_null), the share on its own cell (a reached draw: the
+///   stamp clears), any other cell drawn (each would need a path);
+/// - the queue's zombie: its eye cell's sky light (under 15: no sunburn), its distance to the
+///   rider (the flee rule: over 6.05; the panic: under 7.95), to the nearest cell of the stop (the
+///   villagers' visible-entity sensor reaches 16: farther, never seen by a bed-stop villager), and
+///   to the nearest rail cell (no empty cart passes within pickup reach of its boat).
+pub fn queue_seat_lines(spec: &FarmSpec, draws: usize) -> Result<Vec<String>, String> {
+    let ro = RunOpts { ai: true, ..RunOpts::steady(1, 0, WalkMode::Random) };
+    let (mut run, _) = crate::placing::start(spec, &ro, crate::placing::Placement::Judge, &crate::placing::BuildPlan::default())?;
+    for (ty, pos, nbt) in &spec.entities {
+        redsim::entity::spawn(&mut run.world, ty, *pos, nbt.as_deref())?;
+    }
+    let seat = [QUEUE[0] as f64 + 0.5, QUEUE[1] as f64 + 0.0625, QUEUE[2] as f64 + 0.5];
+    let cart = redsim::entity::spawn(&mut run.world, "minecraft:minecart", seat, Some("{Passengers:[{id:\"minecraft:villager\"}]}"))?;
+    for _ in 0..5 {
+        run.tick();
+    }
+    let w = &mut run.world;
+    let vi = w.entities.list.iter().position(|e| !e.removed && e.vehicle == Some(cart)).ok_or("no rider in the queue cart")?;
+    let mut out = Vec::new();
+    let me = w.entities.list[vi].block_position();
+    let village = redsim::entity::mob::ai::poi::is_village(w, me);
+    let (mut null, mut own) = (0usize, 0usize);
+    let mut other: std::collections::BTreeMap<[i32; 3], usize> = std::collections::BTreeMap::new();
+    for _ in 0..draws {
+        let p = if village {
+            redsim::entity::mob::ai::goal::stroll::land_random_pos(w, vi, 2, 2)
+        } else {
+            let s = (me.x.div_euclid(16), me.y.div_euclid(16), me.z.div_euclid(16));
+            let best = redsim::entity::mob::ai::poi::section_closest_to_village(w, s, 2);
+            if best != s {
+                let c = Vec3::new((best.0 * 16 + 8) as f64 + 0.5, (best.1 * 16 + 8) as f64, (best.2 * 16 + 8) as f64 + 0.5);
+                redsim::entity::mob::ai::goal::stroll::default_pos_towards(w, vi, 2, 2, c, (std::f64::consts::PI / 2.0) as f32 as f64)
+            } else {
+                redsim::entity::mob::ai::goal::stroll::land_random_pos(w, vi, 2, 2)
+            }
+        };
+        match p {
+            None => null += 1,
+            Some(v) => {
+                let c = [v.x.floor() as i32, v.y.floor() as i32, v.z.floor() as i32];
+                if c == [me.x, me.y, me.z] {
+                    own += 1;
+                } else {
+                    *other.entry(c).or_default() += 1;
+                }
+            }
+        }
+    }
+    out.push(format!(
+        "queue seat: the rider at ({},{},{}){}: {draws} panic-stroll draws (2/2): P_null {:.4}, its own cell {:.4} (a reached draw), other cells {}",
+        me.x,
+        me.y,
+        me.z,
+        if village { " (in a village section: uniform on land)" } else { "" },
+        null as f64 / draws as f64,
+        own as f64 / draws as f64,
+        if other.is_empty() { "none (none-or-all: every draw the rider makes is reached or empty)".to_string() } else { format!("{:?} (each needs a path)", other) }
+    ));
+    let rider = w.entities.list[vi].pos;
+    let zombie = w.entities.list.iter().find(|e| !e.removed && matches!(&e.kind, redsim::entity::EntityKind::Mob(m) if m.ty.game_id() == "minecraft:zombie") && (e.pos.x - (QUEUE_POST[0] as f64 + 0.5)).abs() < 1.5 && (e.pos.z - (QUEUE_POST[2] as f64 + 0.5)).abs() < 1.5);
+    match zombie {
+        None => out.push("queue seat: no zombie at the queue post (a bare queue cell)".to_string()),
+        Some(z) => {
+            let eye = BlockPos::new(z.pos.x.floor() as i32, (z.pos.y + z.kind.eye_height() as f64).floor() as i32, z.pos.z.floor() as i32);
+            let sky = redsim::daylight::sky_light(w, eye).map_or_else(|x| x, |l| l.to_string());
+            let d_rider = rider.distance_to_sqr(z.pos).sqrt();
+            let zc = [z.pos.x, z.pos.y, z.pos.z];
+            let dist = |c: &[i32; 3]| ((c[0] as f64 + 0.5 - zc[0]).powi(2) + (c[1] as f64 + 0.5 - zc[1]).powi(2) + (c[2] as f64 + 0.5 - zc[2]).powi(2)).sqrt();
+            let queue_cells: std::collections::BTreeSet<[i32; 3]> = [QUEUE, [QUEUE[0], QUEUE[1] - 1, QUEUE[2]], [QUEUE_POST[0], QUEUE_POST[1] - 1, QUEUE_POST[2]], [QUEUE_POST[0], QUEUE_POST[1] + 3, QUEUE_POST[2]]].into_iter().collect();
+            let stop = spec.blocks.iter().map(|(p, _)| [p.x, p.y, p.z]).filter(|c| !queue_cells.contains(c)).map(|c| dist(&c)).fold(f64::INFINITY, f64::min);
+            let rails = spec.blocks.iter().filter(|(p, b)| rail_shape(b).is_some() && [p.x, p.y, p.z] != QUEUE).map(|(p, _)| dist(&[p.x, p.y, p.z])).fold(f64::INFINITY, f64::min);
+            out.push(format!(
+                "queue seat: the zombie at ({:.2},{:.2},{:.2}): eye cell ({},{},{}) sky light {sky} (under 15: no sunburn); from the rider {d_rider:.3} (the flee rule over 6.05 {}, the panic under 7.95 {}); the nearest cell of the stop {stop:.1} away (a zombie is a villager's hostile only within 8, VillagerHostilesSensor's reach, so no bed-stop villager ever panics or wakes for it: {}); the nearest other rail cell {rails:.1} away (an empty cart's pickup reach is under 2: {})",
+                z.pos.x,
+                z.pos.y,
+                z.pos.z,
+                eye.x,
+                eye.y,
+                eye.z,
+                if d_rider > 6.05 { "PASS" } else { "FAIL" },
+                if d_rider < 7.95 { "PASS" } else { "FAIL" },
+                if stop > 8.0 { "PASS" } else { "FAIL" },
+                if rails > 2.0 { "PASS" } else { "FAIL" }
+            ));
         }
     }
     Ok(out)
@@ -1135,6 +1264,8 @@ pub fn two_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, restart_phases
         }
     }
     let (mut n, mut clean, mut lost, mut close) = (0, 0, 0, 0);
+    let (mut before_r, mut latched) = (0usize, 0usize);
+    let mut qz: Option<(f64, f64)> = None;
     let mut least: Option<f64> = None;
     let mut gap: Vec<i64> = Vec::new();
     let mut c_waits: Vec<i64> = Vec::new();
@@ -1162,6 +1293,16 @@ pub fn two_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, restart_phases
                         }
                         if let (Some(q), Some(d)) = (r.c_queued, r.a_drop) {
                             after_drop.push(q - d);
+                        }
+                        // (G1 on d90745270: the queue latches R until C arrives, or C is queued
+                        // before R: which one each row ran)
+                        match (r.c_queued, r.a_r) {
+                            (Some(q), Some(ar)) if q < ar => before_r += 1,
+                            (Some(_), Some(_)) => latched += 1,
+                            _ => {}
+                        }
+                        if let Some((lo, hi)) = r.queue_zombie_dist {
+                            qz = Some(qz.map_or((lo, hi), |(a, b): (f64, f64)| (a.min(lo), b.max(hi))));
                         }
                         if let Some(s) = r.a_slept {
                             a_sleeps.push((r.start_day + s).rem_euclid(24000));
@@ -1201,6 +1342,17 @@ pub fn two_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, restart_phases
     println!("two visits (queue released on R, C at the entry {transit} gt later, A's lift from R + {lift_delay} at {lift_speed} b/t): {n} rows, {clean} clean; A within 17 at C's lie-down {close}; HOME lost or missing at the end {lost}; A's least distance at C's lie-down {:?}; A's R to C's lie-down min {:?} median {:?} max {:?} gt; lie-downs' reach to the bed head's centre {:.4}..{:.4} (SleepInBed's bar 2)", least.map(|d| format!("{d:.2}")), gap.first(), gap.get(gap.len() / 2), gap.last(), if lie_min == f64::MAX { 0.0 } else { lie_min }, lie_max);
     if day_hold.is_some() {
         println!("daylight rows (the NOT DAY gate opens at day times {day_offs}): C's wait at the queue for A's R min {:?} median {:?} max {:?} gt", c_waits.first(), c_waits.get(c_waits.len() / 2), c_waits.last());
+    }
+    println!(
+        "the queue's latch rule (G1 on d90745270: the queue latches R until C arrives, or C is queued before R): the release order R before C in {latched} row(s) (R latched: the trapdoor opens at the later of R and dusk and stays open until C arrives and drops, C passing on arrival), C before R in {before_r} (C waits at the shut trapdoor for R); the bench's release, C's cart at the entry {transit} gt after the later of A's R and C's arrival at the queue, is that latch's"
+    );
+    match qz {
+        Some((lo, hi)) => println!(
+            "the queue's zombie from a napper at the queue cell: {lo:.3} to {hi:.3} (the flee rule: over 6.05 {}; the panic: under 7.95 {})",
+            if lo > 6.05 { "PASS" } else { "FAIL" },
+            if hi < 7.95 { "PASS" } else { "FAIL" }
+        ),
+        None => println!("the queue's zombie: none seen from the queue cell (a bare queue cell)"),
     }
     Ok(())
 }
