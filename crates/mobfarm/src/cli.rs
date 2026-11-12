@@ -157,6 +157,13 @@ pub enum MobfarmCmd {
         /// (c′) the settle delay's last repeater (redstone ticks): the detector to H2 in 34 + 2 x this gt.
         #[arg(long, default_value_t = 2)]
         settle_rt: i64,
+        /// (ironspec 12:59, the box item) A (c′) layout in real in-chunk cells from this file (see
+        /// `holdpulse::read_gate_file`), laid over the Real track with rev 3's hazards; its rows.
+        #[arg(long)]
+        gate_cells: Option<String>,
+        /// With --gate-cells: one exit speed (0.25) instead of three.
+        #[arg(long)]
+        quick: bool,
     },
     /// The divert's single atomic read as blocks (`ctldivert.rs`, ironspec Nov 12 03:27): DECIDE = DIV -
     /// DAY held by a repeater unlocked by a rising-edge pulse of D2; DAY's edge at every gt offset around
@@ -264,10 +271,14 @@ pub enum MobfarmCmd {
         /// rows: 529..638 gt; the riders away per lane).
         #[arg(long, default_value_t = 1000)]
         back_after: i64,
-        /// (ironspec 12:54) The stale-hold back-pressure: no pick while the queue is occupied OR (the stop
-        /// is held AND NOT REST_l).
+        /// (ironspec 12:54, dropped 13:51) The stale-hold back-pressure: no pick while the queue is
+        /// occupied OR (the stop is held AND NOT REST_l). Off by default (the lane latch covers it).
         #[arg(long)]
         stale_backpressure: bool,
+        /// (ironspec 13:51: adopted) The per-lane away latch (no pick from a lane while its napper is
+        /// away) is on by default; this turns it off.
+        #[arg(long)]
+        no_lane_latch: bool,
         /// The high re-phase at threshold H (ironspec 09:49; 15: a clear midday only): the load and the
         /// window are derived from a clear run and printed.
         #[arg(long)]
@@ -10007,7 +10018,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::CtlCounterBench { ff_period, no_pend, window_open, window_close, gate_hi, gate_lo, load2, load1, to_bed, early_tol, last_nap, day_inhibit, drop_min, arm, weather_sweep, sweep_step, hatch_lag, no_release, rest_set, rest_reset, stale_hold, no_backpressure, day_rise_load, stop_cycle, stop_walk, stop_nap, back_after, stale_backpressure, high } => {
+        MobfarmCmd::CtlCounterBench { ff_period, no_pend, window_open, window_close, gate_hi, gate_lo, load2, load1, to_bed, early_tol, last_nap, day_inhibit, drop_min, arm, weather_sweep, sweep_step, hatch_lag, no_release, rest_set, rest_reset, stale_hold, no_backpressure, day_rise_load, stop_cycle, stop_walk, stop_nap, back_after, stale_backpressure, no_lane_latch, high } => {
             let mut o = crate::ctlcounter::CounterOpts {
                 ff_period,
                 pend: !no_pend,
@@ -10031,6 +10042,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 stop_nap,
                 back_after,
                 stale_backpressure,
+                lane_latch: !no_lane_latch,
                 ..Default::default()
             };
             if let Some(h) = high {
@@ -10066,12 +10078,16 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
         }
-        MobfarmCmd::HoldPulseBench { step, mirror_z, extra, freeze, real, gate, settle_rt } => {
+        MobfarmCmd::HoldPulseBench { step, mirror_z, extra, freeze, real, gate, settle_rt, gate_cells, quick } => {
             crate::mirror::set(mirror_z);
             if mirror_z {
                 println!("hold-pulse-bench{}", crate::mirror::tag());
             }
-            if gate {
+            if let Some(path) = gate_cells {
+                for l in crate::holdpulse::gate_file_bench(&path, freeze, quick).map_err(|e| anyhow::anyhow!(e))? {
+                    println!("{l}");
+                }
+            } else if gate {
                 for l in crate::holdpulse::gate_bench(extra, settle_rt, freeze).map_err(|e| anyhow::anyhow!(e))? {
                     println!("{l}");
                 }

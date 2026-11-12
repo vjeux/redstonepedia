@@ -66,7 +66,7 @@ fn lane_cells(l: &Lane) -> (Vec<(P, String)>, P, Option<P>, Vec<P>) {
         (-1, Feed::Below) => {
             // the slime under the feed dust; day-1's delay-3 repeater (-4,22,9) facing west on glass,
             // its input dust (-5,22,9) on glass; the exit rail's glass (-5,23,9), (-4,23,9); the floors
-            // (-3..0,21,9) (glowstone)
+            // (-1..0,21,9) (glowstone; F3's cfd6fd621 dropped (-3,21,9) and (-2,21,9), G1 on 9c30d6dc3)
             put([-3, 22, 9], "minecraft:slime_block");
             put([-4, 22, 9], "minecraft:repeater[delay=3,facing=west,locked=false,powered=false]");
             put([-4, 21, 9], GLASS);
@@ -74,7 +74,7 @@ fn lane_cells(l: &Lane) -> (Vec<(P, String)>, P, Option<P>, Vec<P>) {
             put([-5, 21, 9], GLASS);
             put([-5, 23, 9], GLASS);
             put([-4, 23, 9], GLASS);
-            for xx in -3..=0 {
+            for xx in -1..=0 {
                 put([xx, 21, 9], "minecraft:glowstone");
             }
             ([-6, 22, 9], Some([-3, 22, 9]), vec![[-1, 22, 9], [-1, 23, 9], [0, 22, 9], [0, 23, 9]])
@@ -209,8 +209,10 @@ pub fn bench(width: i64) -> Result<Vec<String>, String> {
         for t0 in 40..60 {
             let o = run_once(l, t0, width, None)?;
             if let (Some(r), Some(f)) = (o.rise, o.fall) {
-                *rise.entry(r - t0).or_default() += 1;
-                *fall.entry(f - (t0 + width)).or_default() += 1;
+                // (G1 on 9c30d6dc3: one reference, one number: the drive is placed before tick t0 and R is
+                // read after each tick, so R powered after tick t0 + k is k + 1 gt after the drive)
+                *rise.entry(r - t0 + 1).or_default() += 1;
+                *fall.entry(f - (t0 + width) + 1).or_default() += 1;
                 base.get_or_insert((r - t0, f - (t0 + width)));
             }
         }
@@ -237,7 +239,7 @@ pub fn bench(width: i64) -> Result<Vec<String>, String> {
         };
         let slime_ok = facts.slime_nb.iter().all(|s| !s.contains("rail"));
         lines.push(format!(
-            "  lane {} ({}): R rose at the drive's rise + (gt:count) {}, fell at its fall + {}; with a restart at every tick around both edges in every reload order: {same} of {n} the same{}; R with the drive on: {}; the feed dust (x-2,23,9) {} ({}); {}; the candidate cells {}",
+            "  lane {} ({}): R powered (gt after the drive, gt:count; the drive placed before tick t0, R read after each tick) {}, unpowered after the drive's removal {}; with a restart at every tick around both edges in every reload order: {same} of {n} the same{}; R with the drive on: {}; the feed dust (x-2,23,9) {} ({}); {}; the candidate cells {}",
             l.x,
             match l.feed {
                 Feed::Below => "fed from below: day-1's delay-3 repeater into the slime under the feed dust",

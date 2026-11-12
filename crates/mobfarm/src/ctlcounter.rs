@@ -84,6 +84,9 @@ pub struct CounterOpts {
     /// (ironspec 12:54) The stale-hold back-pressure: no pick while the stop is held AND NOT REST_l (a
     /// stale napper on the stop's ledge outside REST) either.
     pub stale_backpressure: bool,
+    /// (ironspec 12:13 / 12:23, day-1's option 2) The per-lane away latch: no pick from a lane while its
+    /// napper is away (set at the pick, reset when it is back in its lane past K).
+    pub lane_latch: bool,
     /// The clock's variant (a) (ironspec 09:11): every DAY rise (the level reaching L) loads C with this
     /// value at the next release, as trigger 2 does; None: (b), the gate's trigger 2 only.
     pub day_rise_load: Option<i64>,
@@ -139,6 +142,7 @@ impl Default for CounterOpts {
             stale_hold: 80,
             backpressure: true,
             stale_backpressure: false,
+            lane_latch: true,
             day_rise_load: None,
             back_after: 1_000,
             stop_cycle: 300,
@@ -227,6 +231,8 @@ pub struct RunOut {
     /// (ironspec 12:54) Picks made while the stop held a stale napper outside REST (bar 0 under the
     /// stale-hold back-pressure).
     pub stale_picks: u32,
+    /// Picks the per-lane away latch skipped (its lane's napper still away).
+    pub lane_skips: u32,
     /// The most nappers held at the queue at once; the most riders away (picked and not yet back in
     /// their lane) at a release.
     pub queue_max: u32,
@@ -788,10 +794,14 @@ pub fn run(o: &CounterOpts, days: i64, d0: i64, phase: i64, det_phase: i64, c0: 
             // lanes A/B/C at offsets 0/3/6 of the 10-cycle); decided at its divert)
             if w && rephased_once && let Some(lane) = [0i64, 3, 6].iter().position(|&x| x == (c - o.window.0).rem_euclid(10)) {
                 let stale_held = o.stale_backpressure && t < stop_until && !rest_l;
+                let lane_held = o.lane_latch && (in_flight_lane[lane] > 0 || back_lane.iter().any(|&(b, x)| x == lane && b > t));
                 if o.rest.is_some() && o.backpressure && (!queue.is_empty() || stale_held) {
                     // (G1's back-pressure: no pick while a napper is held at the queue; ironspec 12:54: nor
                     // while the stop is held outside REST)
                     out.deferred += 1;
+                } else if o.rest.is_some() && lane_held {
+                    // (the per-lane away latch: this lane's napper is still away)
+                    out.lane_skips += 1;
                 } else {
                     if o.rest.is_some() && t < stale_until && !rest_l {
                         out.stale_picks += 1;
@@ -868,6 +878,7 @@ pub struct ScenOut {
     pub wait: (i64, i64, i64, u64),
     pub deferred: u32,
     pub stale_picks: u32,
+    pub lane_skips: u32,
     pub queue_max: u32,
     pub away_max: u32,
     pub rest_rise: (i64, i64),
@@ -1011,6 +1022,7 @@ pub fn scenario_days(o: &CounterOpts, evs: &[(i64, Ev)], phase_step: usize, det_
                 }
                 s.deferred += r.deferred;
                 s.stale_picks += r.stale_picks;
+                s.lane_skips += r.lane_skips;
                 s.queue_max = s.queue_max.max(r.queue_max);
                 s.away_max = s.away_max.max(r.away_max);
                 s.lane_away_max = s.lane_away_max.max(r.lane_away_max);
@@ -1422,6 +1434,7 @@ fn merge_release(a: &mut ScenOut, s: &ScenOut) {
     }
     a.deferred += s.deferred;
     a.stale_picks += s.stale_picks;
+    a.lane_skips += s.lane_skips;
     a.queue_max = a.queue_max.max(s.queue_max);
     a.away_max = a.away_max.max(s.away_max);
     a.lane_away_max = a.lane_away_max.max(s.lane_away_max);
@@ -1451,7 +1464,7 @@ fn release_line(s: &ScenOut) -> String {
     let m = |x: i64, none: i64| if x == none { "-".to_string() } else { x.to_string() };
     let mean = if s.wait.3 > 0 { format!("{:.0}", s.wait.2 as f64 / s.wait.3 as f64) } else { "-".to_string() };
     format!(
-        "    release (REST_l AND the stale-window hold AND NOT DAY after it AND the stop clear): entries {}: the earliest at dusk at day time {} (bar >= 12,000), the latest {} (the latest made in REST, stale or not, at night time {}), {} outside REST (10..11,999, not after a skip); stale admissions {} (in a skip's stale window, day times {}: each waits on the stop's ledge until REST and naps that evening, the stop clear at day time {}); the least gap between consecutive departures from the stop {} gt; the least time from a napper's R to the next napper's lie-down {} gt; the wait at the queue {}..{} gt (mean {mean}); picks deferred by the back-pressure {} (picks made while a stale napper held the stop outside REST {}); held at the gate at once at most {} (bar 1); riders away at a release at most {} (from one lane at any instant at most {}; the longest pick to stop entry {} gt); REST_l rose at day time {}..{} (+ {} transient rises by day, DAY high: no release); naps a night (complete nights no skip cut) least {} of 24",
+        "    release (REST_l AND the stale-window hold AND NOT DAY after it AND the stop clear): entries {}: the earliest at dusk at day time {} (bar >= 12,000), the latest {} (the latest made in REST, stale or not, at night time {}), {} outside REST (10..11,999, not after a skip); stale admissions {} (in a skip's stale window, day times {}: each waits on the stop's ledge until REST and naps that evening, the stop clear at day time {}); the least gap between consecutive departures from the stop {} gt; the least time from a napper's R to the next napper's lie-down {} gt; the wait at the queue {}..{} gt (mean {mean}); picks deferred by the back-pressure {} (picks made while a stale napper held the stop outside REST {}; picks the per-lane away latch skipped {}); held at the gate at once at most {} (bar 1); riders away at a release at most {} (from one lane at any instant at most {}; the longest pick to stop entry {} gt); REST_l rose at day time {}..{} (+ {} transient rises by day, DAY high: no release); naps a night (complete nights no skip cut) least {} of 24",
         s.wait.3,
         m(s.entry_min, i64::MAX),
         m(s.entry_max, i64::MIN),
@@ -1466,6 +1479,7 @@ fn release_line(s: &ScenOut) -> String {
         m(s.wait.1, i64::MIN),
         s.deferred,
         s.stale_picks,
+        s.lane_skips,
         s.queue_max,
         s.away_max,
         s.lane_away_max,
@@ -1722,6 +1736,7 @@ pub fn bench(base: &CounterOpts) -> Vec<String> {
         let mut rel_lane_away = 0u32;
         let mut rel_pick_entry = 0i64;
         let mut rel_stale_picks = 0u32;
+        let mut rel_lane_skips = 0u32;
         let mut rel_normal_naps = u32::MAX;
         let mut rel_add = |s: &ScenOut| {
             rel_entry_min = rel_entry_min.min(s.entry_min);
@@ -1731,6 +1746,7 @@ pub fn bench(base: &CounterOpts) -> Vec<String> {
             rel_lane_away = rel_lane_away.max(s.lane_away_max);
             rel_pick_entry = rel_pick_entry.max(s.pick_entry_max);
             rel_stale_picks += s.stale_picks;
+            rel_lane_skips += s.lane_skips;
             rel_outside += s.outside_rest;
             rel_stale += s.stale_admit_n;
             rel_admit_dt = (rel_admit_dt.0.min(s.stale_admit_dt.0), rel_admit_dt.1.max(s.stale_admit_dt.1));
@@ -1910,10 +1926,10 @@ pub fn bench(base: &CounterOpts) -> Vec<String> {
             // at 0), the earliest bed-stop entry >= 12,000, one napper held at most)
             let m = |x: i64, none: i64| if x == none { "-".to_string() } else { x.to_string() };
             lines.push(format!(
-                "  => the release's bars over every scenario and sweep above (REST_l = C >= {rs} or C < {rr}; every napper held >= {} gt at the queue; NOT DAY as the hatch sees it after the hold; the stop clear (R's RS; the stop's cycle {} gt); the back-pressure {}): the earliest bed-stop entry at dusk {} (bar >= 12,000: {}); entries outside REST not after a skip {rel_outside} ({}); stale admissions {rel_stale} (entered in a skip's stale window at day time {}; each waits on the stop's ledge until REST, naps that evening and leaves, the stop clear at day time {}: ironspec 09:31, option A's outcome rows are 58f770cc's); the least gap between consecutive departures from the stop {} gt (ironspec 10:10: the hold's bar, its longest wait + 12 + clear + 20, against it with 7b90c3f1's trip spread); the least time from a napper's R to the next napper's lie-down {} gt (ironspec 10:52, HOLD dropped: the departing napper leaves the 16-ball within it, 58f770cc's R-to-ball-exit against the bar 20); the latest entry made in REST at night time {} (G1: a later one is on foot when REST ends, classed stale, holding the stop to the next REST; entries in a skip's stale window are that class; bar <= 24,010 - stop_walk = {}: {}); riders away from one lane at once at most {} (ironspec 12:13: bar 1, the lane's 7 of 8 in rotation at every summon, read at every pick; back in lane {} gt after the entry, the longest pick to stop entry {} gt: {}); held at the gate at once at most {rel_queue} (bar 1: {}); picks deferred {rel_deferred}; picks made while a stale napper held the stop outside REST {rel_stale_picks} ({}); normal nights' naps least {} of 24 ({})",
+                "  => the release's bars over every scenario and sweep above (REST_l = C >= {rs} or C < {rr}; every napper held >= {} gt at the queue; NOT DAY as the hatch sees it after the hold; the stop clear (R's RS; the stop's cycle {} gt); the back-pressure {}): the earliest bed-stop entry at dusk {} (bar >= 12,000: {}); entries outside REST not after a skip {rel_outside} ({}); stale admissions {rel_stale} (entered in a skip's stale window at day time {}; each waits on the stop's ledge until REST, naps that evening and leaves, the stop clear at day time {}: ironspec 09:31, option A's outcome rows are 58f770cc's); the least gap between consecutive departures from the stop {} gt (ironspec 10:10: the hold's bar, its longest wait + 12 + clear + 20, against it with 7b90c3f1's trip spread); the least time from a napper's R to the next napper's lie-down {} gt (ironspec 10:52, HOLD dropped: the departing napper leaves the 16-ball within it, 58f770cc's R-to-ball-exit against the bar 20); the latest entry made in REST at night time {} (G1: a later one is on foot when REST ends, classed stale, holding the stop to the next REST; entries in a skip's stale window are that class; bar <= 24,010 - stop_walk = {}: {}); riders away from one lane at once at most {} (ironspec 12:13: bar 1, the lane's 7 of 8 in rotation at every summon, read at every pick; back in lane {} gt after the entry, the longest pick to stop entry {} gt: {}); held at the gate at once at most {rel_queue} (bar 1: {}); picks deferred {rel_deferred}; picks made while a stale napper held the stop outside REST {rel_stale_picks} ({}); picks the per-lane away latch skipped {rel_lane_skips}; normal nights' naps least {} of 24 ({})",
                 o.stale_hold,
                 o.stop_cycle,
-                if !o.backpressure { "OFF" } else if o.stale_backpressure { "on, with the stale hold (ironspec 12:54: no pick while the queue is occupied OR the stop is held AND NOT REST_l)" } else { "on" },
+                if !o.backpressure { "OFF".to_string() } else { format!("on{}{}", if o.stale_backpressure { ", with the stale hold (ironspec 12:54: no pick while the queue is occupied OR the stop is held AND NOT REST_l)" } else { "" }, if o.lane_latch { ", with the per-lane away latch (no pick from a lane while its napper is away)" } else { "" }) },
                 m(rel_entry_min, i64::MAX),
                 if rel_entry_min >= 12_000 { "pass" } else { "FAIL" },
                 if rel_outside == 0 { "pass" } else { "FAIL" },
