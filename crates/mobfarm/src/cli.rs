@@ -5991,6 +5991,43 @@ pub enum MobfarmCmd {
         orders: String,
         #[arg(long)]
         hours: Option<String>,
+        /// A night skip at tick T after the entry (G1 on 941c5aa2b): the day time to the next day
+        /// time 0, game time on. One row.
+        #[arg(long)]
+        skip: Option<i64>,
+        /// A sweep of night skips, one row per tick (with --hour: from that visit's day time, e.g.
+        /// 11593 for a napper on the ledge since the 11,556 thunder release).
+        #[arg(long)]
+        skip_phases: Option<String>,
+        /// DAY's fall at dusk (the daylight detector under L 6): clear 12230, rain 12002, thunder
+        /// 11556. DAY is high from day time 0 to it.
+        #[arg(long)]
+        day_off: Option<i64>,
+        /// The release's positive control: released after F (or 300 gt after the entry) whether
+        /// or not the napper is up on the pickup cell (an empty cart must leave).
+        #[arg(long)]
+        no_presence_gate: bool,
+        /// The 09:00 shape (a control since ironspec 09:45): DAY gates the activator and the abort
+        /// returns an unslept napper by day.
+        #[arg(long)]
+        day_gate: bool,
+        /// DAY's rise after day time 0, the stale window after a skip (day-1: clear 23, storm 53 at
+        /// its box, + the DAY line): DAY is high from this day time to --day-off.
+        #[arg(long)]
+        day_on: Option<i64>,
+        /// The seated term's control: read from the live DAY level, not latched at the activator.
+        #[arg(long)]
+        live_day_seated: bool,
+        /// With --skip-phases: a restart this many gt after each skip (a list; each in --orders).
+        #[arg(long)]
+        restart_after_skip: Option<String>,
+        /// The napper still panicking at the entry: NEAREST_HOSTILE held on the zombie through each
+        /// of these ticks after the entry (a list), then the sensor's own updates.
+        #[arg(long)]
+        panic_entries: Option<String>,
+        /// Visits run on this many threads.
+        #[arg(long, default_value_t = 32)]
+        jobs: usize,
     },
     /// (G1's point 1, ironspec 00:52) The two-visit row on the lead's geometry: A's visit, the next
     /// napper C waiting awake in its cart at the queue cell, the queue released on A's R (C at the
@@ -6028,6 +6065,24 @@ pub enum MobfarmCmd {
         /// Also a row with C reaching the queue at this day time (its real first-napper time).
         #[arg(long)]
         c_at: Option<i64>,
+        /// (design A, ironspec 07:43) Rows with a night skip at each of these ticks of A's visit:
+        /// A aborts, and C must be held at the queue until DAY falls (no cascade).
+        #[arg(long)]
+        skip_phases: Option<String>,
+        /// DAY's rise after day time 0, the stale window after a skip (day-1 08:44).
+        #[arg(long, default_value_t = 0)]
+        day_on: i64,
+        /// Visits run on this many threads.
+        #[arg(long, default_value_t = 32)]
+        jobs: usize,
+        /// The 09:00 shape (a control): DAY gates the activator and the abort returns an unslept
+        /// napper by day.
+        #[arg(long)]
+        day_gate: bool,
+        /// (ironspec 09:31) Rows with A admitted on a stale DAY, at the entry at each of these day
+        /// times; C at the queue from the start, released on A's R.
+        #[arg(long)]
+        a_hours: Option<String>,
     },
 }
 
@@ -13221,16 +13276,19 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             for l in crate::bedtier::zombie_post_lines(&spec).map_err(|e| anyhow::anyhow!(e))? {
                 println!("zombie post: {l}");
             }
+            for l in crate::bedtier::waker_lines(&spec).map_err(|e| anyhow::anyhow!(e))? {
+                println!("waker: {l}");
+            }
         }
-        MobfarmCmd::BedtierBench { design, from, to, speeds, after_sleep, release_after, day, empty, no_home, hide_after_wake, restart, hour, restart_phases, orders, hours } => {
+        MobfarmCmd::BedtierBench { design, from, to, speeds, after_sleep, release_after, day, empty, no_home, hide_after_wake, restart, hour, restart_phases, orders, hours, skip, skip_phases, day_off, no_presence_gate, day_gate, day_on, live_day_seated, restart_after_skip, panic_entries, jobs } => {
             let (_c, spec) = load(version, &design)?;
             let restart = restart.as_deref().map(crate::liveness::parse_restart).transpose().map_err(|e| anyhow::anyhow!(e))?;
-            let faults = crate::bedtier::Faults { empty, no_home, hide_after_wake, restart, hour };
-            crate::bedtier::bench_cmd(&spec, from, to, &speeds, after_sleep, release_after, day, &faults, [restart_phases.as_deref(), hours.as_deref()], &crate::bedtier::orders(&orders)?)?;
+            let faults = crate::bedtier::Faults { empty, no_home, hide_after_wake, restart, hour, skip, day_off, no_presence_gate, day_gate, day_on, live_day_seated, panic_entry: None };
+            crate::bedtier::bench_cmd(&spec, from, to, &speeds, after_sleep, release_after, day, &faults, [restart_phases.as_deref(), hours.as_deref(), skip_phases.as_deref(), restart_after_skip.as_deref(), panic_entries.as_deref()], &crate::bedtier::orders(&orders)?, jobs)?;
         }
-        MobfarmCmd::BedtierTwo { design, from, to, speeds, restart_phases, orders, transit, lift_delay, lift_speed, day_hold, day_off, gap, c_at } => {
+        MobfarmCmd::BedtierTwo { design, from, to, speeds, restart_phases, orders, transit, lift_delay, lift_speed, day_hold, day_off, gap, c_at, skip_phases, day_on, jobs, day_gate, a_hours } => {
             let (_c, spec) = load(version, &design)?;
-            crate::bedtier::two_cmd(&spec, from, to, &speeds, restart_phases.as_deref(), &crate::bedtier::orders(&orders)?, transit, lift_delay, lift_speed, day_hold.as_deref(), &day_off, gap, c_at)?;
+            crate::bedtier::two_cmd(&spec, from, to, &speeds, restart_phases.as_deref(), &crate::bedtier::orders(&orders)?, transit, lift_delay, lift_speed, day_hold.as_deref(), &day_off, gap, c_at, skip_phases.as_deref(), day_on, jobs, day_gate, a_hours.as_deref())?;
         }
     }
     Ok(())

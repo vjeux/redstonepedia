@@ -1,7 +1,9 @@
-# The bed stop (local frame; under the station, loop = local + (0,-18,-1); the bed's head at (-3,0,4)): a booster entry and an always-on activator heading west, two braked park rails down a slope, a capped flat, a curve south, seven flats under glass, the pickup cell beside the bed, the curve east, a capped booster, a capped flat, the slope down, two flats, R.
-# The rider lands on the ledge south of the activator, walks round onto the bed's roof and sleeps; woken through the hatch it stands only on the pickup cell and keeps seeing the zombie there; the released cart reaches it under 0.2 b/t and seats it; the cart runs on to R. Normal operation only: under L1 a restart cannot put a woken napper back to bed before the cart reaches it (SleepInBed's 100-gt LAST_WOKEN guard), so no strand handling.
+# The bed stop (local frame; under the station, loop = local + (0,-18,-1); the bed's head at (-3,0,4)): a booster entry and an activator heading west (always on), two braked park rails down a slope, a capped flat, a curve south, seven flats under glass, the pickup cell beside the bed's head, the curve east, a capped booster, a capped flat, the slope down, two flats, R. No solid-render block anywhere in the stop (rails on glass, torches and levers on glass): no IDLE stroll candidate.
+# The activator drops the rider on the ledge south of it; it walks the glass ledge round over the approach's covers onto the bed's foot roof and steps south into the open column over the bed's head: a 1.44 drop onto the bed, the bed column's first non-solid cell (-3,1,4), so the HOME path's target, reached (the walk arms no CANT_REACH stamp). It lies down on the way (REST) or waits standing on the bed (IDLE) until REST. F (the lie-down + 10) opens the hatch's iron door: the zombie wakes it, it stands up on the pickup cell (its only stand-up cell), the park releases 30 gt after the wake edge, and the cart seats it under 0.2 b/t and runs on to R. Keep (-3,1,4), (-3,2,4) and (-3,3,4) clear.
 name: bed-tier-fold
 circuit: mob-farm iron_ingot
+keep-clear: -3,1,4 -3,2,4 -3,3,4 -5,3,4
+waker-places: -3,0,4=asleep in the bed, woken by F (2.04); -2,0,4=standing up on the pickup cell and seated there (3.03); -2,0,5+0,0,5+1,0,5+1,-1,5+2,-1,5=riding out past the hatch to R (3.08..6.66)
 port home: -3 0 4
 port output: 12 0 6
 entity: minecraft:oak_boat -4.5 0 4.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
@@ -9,24 +11,25 @@ origin: -6 0 -5
 palette:
   A minecraft:activator_rail[powered=true,shape=east_west,waterlogged=false]
   B minecraft:iron_trapdoor[facing=west,half=top,open=true,powered=true,waterlogged=false]
-  C minecraft:rail[shape=north_east,waterlogged=false]
+  C minecraft:chest[facing=south,type=single,waterlogged=false]
   D minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]
-  E minecraft:rail[shape=north_south,waterlogged=false]
-  F minecraft:rail[shape=south_east,waterlogged=false]
+  E minecraft:rail[shape=north_east,waterlogged=false]
+  F minecraft:rail[shape=north_south,waterlogged=false]
   G minecraft:glass
-  H minecraft:red_bed[facing=south,occupied=false,part=foot]
+  H minecraft:rail[shape=south_east,waterlogged=false]
   I minecraft:iron_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]
-  J minecraft:red_bed[facing=south,occupied=false,part=head]
-  K minecraft:redstone_block
+  J minecraft:red_bed[facing=south,occupied=false,part=foot]
+  K minecraft:red_bed[facing=south,occupied=false,part=head]
+  L minecraft:lever[face=floor,facing=north,powered=false]
+  M minecraft:redstone_torch[lit=true]
   O minecraft:oak_leaves[distance=7,persistent=true,waterlogged=false]
   P minecraft:powered_rail[powered=false,shape=ascending_east,waterlogged=false]
   R minecraft:rail[shape=ascending_west,waterlogged=false]
-  S minecraft:stone
-  g minecraft:glowstone
+  S minecraft:stone_button[face=floor,facing=north,powered=false]
   i minecraft:iron_trapdoor[facing=west,half=bottom,open=true,powered=true,waterlogged=false]
+  l minecraft:lever[face=floor,facing=north,powered=true]
   p minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]
   r minecraft:rail[shape=east_west,waterlogged=false]
-  s minecraft:stone_button[face=floor,facing=north,powered=false]
 layer -2:
   .
   .
@@ -38,70 +41,90 @@ layer -2:
   .
   .
   .
-  .......SGGS
+  .......GGGG
+  .
 layer -1:
-  .
-  ....GGS
+  ......G
+  ....GGG
   ....G
   ....G
   ....G
   ....G
   ....G
   ....G
-  ...GG
-  .GGGG
-  ....GKGRrrD
+  ..GGG
+  .G.GG
+  ....GGGRrrD
+  .....G
 layer 0:
-  .
-  ....FrPS
-  ....E
-  ....E
-  ....E
-  ....EG
-  ....EG
-  ...GEG
-  .GKHEG
-  G.iJEG
-  .GGGCpr
+  ......LG
+  ....HrPG
+  ....F
+  ....F
+  ....F
+  ....FG
+  ....FG
+  ...GFG
+  .GlJFG
+  G.iKFG
+  .GGGEpr
+  .....M
 layer 1:
-  .
-  ....GI.PSK
-  ....G...g
-  ....G...g
-  ....G...g
-  ....GGggg
+  .......LGG
+  ....GI.PGG
+  ....G...G
+  ....G...G
+  ....G...G
+  ....GGGGG
   ....GG
   ...GGG
   .GGIGG
-  G.BI.G
-  .GGGIII
+  G.B..G
+  .GlGIII
+  .
 layer 2:
-  ........K
-  .....s..Ap
+  ........lM
+  .....S..Ap
+  .......GCG
   .......G.G
-  .......G.G
-  .....GGG.G
-  ....G....G
-  ....G.GGG
-  ...GG.G
-  ..Gs..G
-  .GKs.G
-  ...Gsss
+  ....GGGG.G
+  ...G.....G
+  ...G.GGGG
+  ..G..G
+  ..GSG
+  .GG.G
+  ...GGSS
+  .
 layer 3:
   ........G
-  .......GII
+  .......GG
   .......G.G
   .......G.G
-  .....GGG.G
-  ....G....G
-  ....G.GGG
-  ...GG.G
-  ..G...G
-  .OG..G
+  ....GGGG.G
+  ...G.....G
+  ...G.GGGG
+  ..G..G
+  ..G.G
+  .OG.G
   ...G
+  .
 layer 4:
   .
-  ........GG
+  .........G
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .G.G
+  .
+  .
+layer 5:
+  .
+  .
+  ........G
   .
   .
   .
