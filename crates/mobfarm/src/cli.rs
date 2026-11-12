@@ -246,6 +246,17 @@ pub enum MobfarmCmd {
         /// card prices it so).
         #[arg(long)]
         terrain: Option<String>,
+        /// The redstone components and blocks instead of the bill (farmopt and ironspec, Nov 11):
+        /// repeaters, comparators, observers, dust, torches, detector rails, powered rails (on or
+        /// off at rest), redstone blocks, other redstone, gates (the controlled places, listed),
+        /// rails and every block, counted from the file; per `--part` box too.
+        #[arg(long)]
+        components: bool,
+        /// With --components: a named box counted on its own column, NAME=X0,Y0,Z0..X1,Y1,Z1 in
+        /// the file's cells (repeatable; a cell counts in the first box holding it, cells in no
+        /// box as "rest").
+        #[arg(long, allow_hyphen_values = true)]
+        part: Vec<String>,
     },
     /// A void farm dug into rock (vjeux 18:18: the underground version): its containment blocks
     /// give way to natural rock, every cell its golems (any input in the exit flood, the runs),
@@ -7379,7 +7390,17 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             std::fs::write(&out, d.to_text())?;
             println!("{}: {} open cells ({} dug open beyond its blocks), {} containment blocks left to the rock; ground layer {}", out.display(), cells.len(), opened, removed, d.meta.get("ground").cloned().unwrap_or_default());
         }
-        MobfarmCmd::Bill { design, stage, terrain } => {
+        MobfarmCmd::Bill { design, stage, terrain, components, part } => {
+            if components {
+                // (the design's own blocks, as written: a part file without ports or a farm spec
+                // counts too)
+                let d = mctas::design::Design::parse(&std::fs::read_to_string(&design)?)?;
+                let blocks: Vec<([i32; 3], String)> = d.blocks.iter().map(|(p, k)| (*p, k.clone())).collect();
+                let parts = part.iter().map(|t| crate::components::parse_part(t)).collect::<Result<Vec<_>, _>>().map_err(|e| anyhow::anyhow!(e))?;
+                println!("{}: {} cells", design.display(), blocks.len());
+                print!("{}", crate::components::table(&blocks, &parts));
+                return Ok(());
+            }
             let (c, spec) = load(version, &design)?;
             let ix = match stage.as_str() {
                 "day-1" | "day1" => 0,

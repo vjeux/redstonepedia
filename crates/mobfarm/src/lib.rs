@@ -10,6 +10,7 @@ pub mod carousel;
 pub mod cli;
 pub mod column;
 pub mod comb;
+pub mod components;
 pub mod headperm;
 pub mod day1;
 pub mod entlog;
