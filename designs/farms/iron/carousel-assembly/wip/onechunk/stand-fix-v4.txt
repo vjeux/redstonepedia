@@ -1,0 +1,19 @@
+# The stand's cells for v4 (placed by onechunk; owners as listed), loop frame (paste with no move; the column marks it a relaying part, `stand-fix!=`, so the D2 cell's
+# clear does not take it out):
+# - the stamp-arming fixes (9fc3155f's classes, ironspec 20:09/20:10): glass at (7,-3,-1) (clears pocket 1 in all bed states) and (3,-1,-1) (pocket 2); glowstone at (-1,-1,-1)
+#   (pocket 3: golem-proof by the spawn rule itself whatever its neighbours, ironspec's pick over stone);
+# - D2 (7b90c3f1's stand (A) keys, ironspec provisional 20:02): P2's flat (2,0,0) as a detector rail, east_west as the track runs there (the stand's row runs along x at z 0),
+#   its faces the plain U (1,-1,0) and R2's slope (3,-1,0); the gates' powered slopes two cells away.
+name: stand-fix-v4
+origin: -1 0 -1
+palette:
+  g minecraft:glass
+  L minecraft:glowstone
+  N minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]
+layer -3:
+  ........g
+layer -1:
+  L...g
+layer 0:
+  .
+  ...N

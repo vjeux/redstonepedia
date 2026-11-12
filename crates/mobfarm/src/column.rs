@@ -28,6 +28,9 @@ pub struct PartSpec {
     pub tier: P,
     /// The cells kept, in the file's frame (`#`, inclusive); none: the whole file.
     pub keep: Option<(P, P)>,
+    /// A part that re-lays cleared cells (`NAME!=FILE`): the `--clear` boxes take nothing out of
+    /// it (onechunk's runner, Nov 11: the escapement's detector replacing the hold's flat).
+    pub relay: bool,
 }
 
 fn ints(s: &str) -> Result<Vec<i32>, String> {
@@ -46,7 +49,7 @@ impl PartSpec {
         let (name, rest) = s.split_once('=').ok_or_else(|| format!("--part {s:?}: NAME=FILE[@fx,fy,fz][^tx,ty,tz][#x0,y0,z0,x1,y1,z1]"))?;
         let marks = ['@', '^', '#'];
         let cut = rest.find(marks).unwrap_or(rest.len());
-        let mut p = PartSpec { name: name.trim().to_string(), file: PathBuf::from(&rest[..cut]), frame: [0; 3], tier: [0; 3], keep: None };
+        let mut p = PartSpec { name: name.trim().trim_end_matches('!').to_string(), file: PathBuf::from(&rest[..cut]), frame: [0; 3], tier: [0; 3], keep: None, relay: name.trim().ends_with('!') };
         let mut tail = &rest[cut..];
         while let Some(m) = tail.chars().next() {
             let body = &tail[1..];
@@ -162,6 +165,31 @@ pub fn shifted(d: &Design, by: P) -> Result<Design, String> {
     if let Some(g) = d.meta.get("ground") {
         let y: i32 = g.trim().parse().map_err(|e| format!("ground: {g}: {e}"))?;
         m.meta.insert("ground".into(), (y + by[1]).to_string());
+    }
+    // (the runner's named cells, `column-run`'s header: `NAME x,y,z[/x,y,z]; ...`)
+    for key in ["run-gates", "run-cells"] {
+        if let Some(l) = d.meta.get(key) {
+            let mut items = Vec::new();
+            for item in l.split(';').map(str::trim).filter(|s| !s.is_empty()) {
+                let (name, rest) = item.split_once(' ').ok_or_else(|| format!("{key}: {item}"))?;
+                let ps: Vec<String> = rest
+                    .trim()
+                    .split('/')
+                    .map(|p| {
+                        let n: Vec<i32> = p.split(',').map(|x| x.trim().parse::<i32>().map_err(|e| format!("{key}: {item}: {e}"))).collect::<Result<_, _>>()?;
+                        if n.len() != 3 {
+                            return Err(format!("{key}: {item}: want x,y,z"));
+                        }
+                        Ok(format!("{},{},{}", n[0] + by[0], n[1] + by[1], n[2] + by[2]))
+                    })
+                    .collect::<Result<_, String>>()?;
+                items.push(format!("{name} {}", ps.join("/")));
+            }
+            m.meta.insert(key.into(), items.join("; "));
+        }
+    }
+    if let Some(c) = d.meta.get("run-controller") {
+        m.meta.insert("run-controller".into(), c.clone());
     }
     Ok(m)
 }
@@ -427,7 +455,7 @@ pub fn run_bed(specs: &[PartSpec], extra: Vec<Part>, clear: &[(P, P)], reserves:
 pub fn run_full(specs: &[PartSpec], extra: Vec<Part>, clear: &[(P, P)], reserves: &[Reserve], ports: &[(String, P)], f: &Frame, name: &str, with_plan: bool, bed: Option<(P, &[String])>, sentinel_box: Option<(P, P)>, shift: P, summon: Option<(&[P], (P, P))>) -> Result<(String, Design, bool), String> {
     let mut parts: Vec<Part> = specs.iter().map(load_part).collect::<Result<_, _>>()?;
     let mut cleared = 0usize;
-    for p in &mut parts {
+    for p in parts.iter_mut().filter(|p| !p.spec.relay) {
         for b in clear {
             let n = p.placed.blocks.len();
             p.placed.blocks.retain(|c, _| !inside(c, b));
@@ -492,6 +520,15 @@ pub fn run_full(specs: &[PartSpec], extra: Vec<Part>, clear: &[(P, P)], reserves
         for t in &two_ways {
             s.push_str(&format!("DECLARED TWO WAYS {t}\n"));
         }
+    }
+    // (a slope stays only on a sturdy block below and a sturdy block on its high side,
+    // `BaseRailBlock.shouldBeRemoved`: a kept box or a clear that drops either pops the rail when
+    // placed; onechunk's runner, Nov 11: v4's snap-turn slope (-3,2,0) had lost its (-4,2,0))
+    let unsupported = slope_supports(&d);
+    if unsupported.is_empty() {
+        s.push_str("slopes: every ascending rail has a sturdy block below and on its high side\n");
+    } else {
+        s.push_str(&format!("SLOPES THAT POP (no sturdy block below or on the high side): {}\n", unsupported.join("; ")));
     }
     // the column's box: the parts' blocks and the reserved boxes
     let mut b = span(&d);
@@ -603,9 +640,20 @@ pub fn sketch_part(tracks: &[(String, Vec<P>, [bool; 2])], carts: &[(P, Option<f
             owner.insert(*c, ti);
         }
     }
-    let mut track_designs: Vec<Design> = tracks.iter().map(|(name, _, _)| Design { name: format!("track:{name}"), ..Default::default() }).collect();
+    let mut track_designs: Vec<Design> = tracks.iter().map(|(name, _, _)| Design { name: format!("track:{}", name.trim_start_matches('+')), ..Default::default() }).collect();
+    // (a track named `+NAME` is boosted: every straight cell a powered rail on its own redstone
+    // block, the curves plain on glass; onechunk's runner, Nov 11: the climb back's boosters as a
+    // labelled sketch until dfb89499's climb cells come)
+    let boosted: Vec<bool> = tracks.iter().map(|(name, _, _)| name.starts_with('+')).collect();
+    let straight = |s: &str| s.starts_with("ascending") || s == "north_south" || s == "east_west";
     for (c, shape) in &rails {
-        track_designs[owner[c]].blocks.insert(*c, format!("minecraft:rail[shape={shape},waterlogged=false]"));
+        let ti = owner[c];
+        if boosted[ti] && straight(shape) {
+            track_designs[ti].blocks.insert(*c, format!("minecraft:powered_rail[powered=true,shape={shape},waterlogged=false]"));
+            track_designs[ti].blocks.insert([c[0], c[1] - 1, c[2]], "minecraft:redstone_block".into());
+        } else {
+            track_designs[ti].blocks.insert(*c, format!("minecraft:rail[shape={shape},waterlogged=false]"));
+        }
     }
     for c in rails.keys() {
         let under = [c[0], c[1] - 1, c[2]];
@@ -638,7 +686,7 @@ pub fn sketch_part(tracks: &[(String, Vec<P>, [bool; 2])], carts: &[(P, Option<f
         d.entities.push(mctas::design::EntitySpec { kind: "minecraft:oak_boat".into(), pos: [p[0] as f64 + 0.5, p[1] as f64, p[2] as f64 + 0.5], nbt: Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}".into()) });
     }
     let part = |d: Design, file: &str| {
-        let spec = PartSpec { name: d.name.clone(), file: PathBuf::from(file), frame: [0; 3], tier: [0; 3], keep: None };
+        let spec = PartSpec { name: d.name.clone(), file: PathBuf::from(file), frame: [0; 3], tier: [0; 3], keep: None, relay: true };
         Part { spec, committed: d.clone(), placed: d, positions: Vec::new(), declared: Vec::new() }
     };
     let mut out: Vec<Part> = track_designs.into_iter().filter(|t| !t.blocks.is_empty()).map(|t| part(t, "(sketch track)")).collect();
@@ -658,6 +706,45 @@ pub fn rail_shape_of(state: &str) -> Option<&str> {
     let i = base.find("shape=")? + 6;
     let rest = &base[i..];
     Some(&rest[..rest.find([',', ']']).unwrap_or(rest.len())])
+}
+
+/// Every ascending rail missing its sturdy block below or on its high side (the neighbour it rises
+/// toward): `BaseRailBlock.shouldBeRemoved` pops it when placed. Sturdy here: a full block by name
+/// (anything but air, rails, gates, fences, walls, panes, slabs, stairs, carpets, plates, buttons,
+/// torches, dust, repeaters, comparators, tripwire and hooks, ladders, signs, trapdoors, doors,
+/// fluids).
+pub fn slope_supports(d: &Design) -> Vec<String> {
+    let sturdy = |c: P| -> bool {
+        let Some(s) = d.blocks.get(&c) else { return false };
+        let b = s.strip_prefix("minecraft:").unwrap_or(s);
+        let name = &b[..b.find('[').unwrap_or(b.len())];
+        let not = ["air", "rail", "gate", "fence", "wall", "pane", "slab", "stairs", "carpet", "plate", "button", "torch", "redstone_wire", "repeater", "comparator", "tripwire", "ladder", "sign", "trapdoor", "door", "water", "lava", "lever", "scaffolding", "snow", "chain", "bars", "candle", "head", "skull", "pot", "rod"];
+        !not.iter().any(|n| name.contains(n))
+    };
+    let mut out = Vec::new();
+    for (c, st) in &d.blocks {
+        let Some(shape) = rail_shape_of(st) else { continue };
+        let Some(dir) = shape.strip_prefix("ascending_") else { continue };
+        let high = match dir {
+            "east" => [c[0] + 1, c[1], c[2]],
+            "west" => [c[0] - 1, c[1], c[2]],
+            "south" => [c[0], c[1], c[2] + 1],
+            "north" => [c[0], c[1], c[2] - 1],
+            _ => continue,
+        };
+        let below = [c[0], c[1] - 1, c[2]];
+        let mut why = Vec::new();
+        if !sturdy(below) {
+            why.push(format!("below ({},{},{}) {}", below[0], below[1], below[2], d.blocks.get(&below).map(String::as_str).unwrap_or("air")));
+        }
+        if !sturdy(high) {
+            why.push(format!("high side ({},{},{}) {}", high[0], high[1], high[2], d.blocks.get(&high).map(String::as_str).unwrap_or("air")));
+        }
+        if !why.is_empty() {
+            out.push(format!("({},{},{}) {shape}: {}", c[0], c[1], c[2], why.join(", ")));
+        }
+    }
+    out
 }
 
 /// The cart's path through a rail cell (its feet: the villager sits at the cart's own y): two
@@ -940,6 +1027,27 @@ mod tests {
         assert!(!ok && rep.contains("gap to a villager position's box 11.00") && rep.contains("FAIL"), "{rep}");
         let (rep2, ok2) = sentinel(&t, ([13, 0, 0], [14, 1, 2]), Some([0, 0, 1]), [6, 0, 6]);
         assert!(ok2 && rep2.contains("12.00") && rep2.contains("section (x, z) in the written frame (1, 0)") && rep2.contains("adjacent"), "{rep2}");
+    }
+
+    #[test]
+    fn slope_support() {
+        // a slope rising west on stone: popped without a block on its high side (the snap turn
+        // v4's kept box cut), kept with one; a boosted sketch track lays its straight cells
+        // powered on redstone blocks, its curves plain
+        let mut d = Design { name: "s".into(), ..Default::default() };
+        d.blocks.insert([0, 1, 0], "minecraft:rail[shape=ascending_west,waterlogged=false]".into());
+        d.blocks.insert([0, 0, 0], "minecraft:stone".into());
+        let pop = slope_supports(&d);
+        assert!(pop.len() == 1 && pop[0].contains("high side (-1,1,0) air"), "{pop:?}");
+        d.blocks.insert([-1, 1, 0], "minecraft:glass".into());
+        assert!(slope_supports(&d).is_empty());
+        d.blocks.insert([-1, 1, 0], "minecraft:oak_fence_gate[facing=east,in_wall=false,open=false,powered=false]".into());
+        assert_eq!(slope_supports(&d).len(), 1);
+        let t = sketch_part(&[("+b".into(), vec![[0, 0, 0], [0, 0, 1], [2, 1, 1]], [false, false])], &[], &[]).unwrap();
+        let b = &t[0].placed.blocks;
+        assert!(b[&[0, 0, 0]].starts_with("minecraft:powered_rail[powered=true,shape=north_south") && b[&[0, -1, 0]] == "minecraft:redstone_block", "{b:?}");
+        assert!(b[&[0, 0, 1]].starts_with("minecraft:rail[shape=") && b[&[0, -1, 1]] == "minecraft:glass", "{b:?}");
+        assert!(b[&[2, 1, 1]].starts_with("minecraft:powered_rail[powered=true,shape=ascending_east") || b[&[2, 1, 1]].starts_with("minecraft:powered_rail[powered=true,shape=east_west"), "{b:?}");
     }
 
     #[test]

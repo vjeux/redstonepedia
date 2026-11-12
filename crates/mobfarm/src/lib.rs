@@ -9,6 +9,7 @@ pub mod borders;
 pub mod carousel;
 pub mod cli;
 pub mod column;
+pub mod columnrun;
 pub mod comb;
 pub mod components;
 pub mod headperm;

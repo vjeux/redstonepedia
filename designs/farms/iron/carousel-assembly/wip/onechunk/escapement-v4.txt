@@ -1,0 +1,63 @@
+# The escapement on v4 (owner ironfarm; farmopt Nov 11 19:25, from explore/ironfarm 3530fa1b9's bench: 100 cycles, every rider mix, 0 gate shuts onto a cart, 3 at every release,
+# 0 lasting merges), loop frame (paste with no move). The pressed run's 11 plain slopes (-4,31,8) down to (-4,21,-2) all ascending_south (rising toward +z); the front cart rests on
+# (-4,21,-2) pressed on G0's face. This file lays the run's two ends and the escapement: the run's top cell (-4,31,8) a sloped detector (the run's sensor, joint [8]) on glass;
+# P = powered_rail ascending_south at (-4,20,-3), always powered by its redstone block (-4,19,-3); G0 = oak fence gate at (-4,21,-3) over P, its closed plane across the track;
+# R = plain rail ascending_south at (-4,19,-4) (v4's release exit) on glass; G_P = oak fence gate at (-4,20,-4) over R (a staged cart rests on P against G_P's face); the
+# escapement sensor: a flat detector rail at (-3,19,-5), the first straight cell after the hold's corner 1 (-4,19,-5), on glass, sharing no face with G_P's gate or P: it fires
+# only G0 (~8 gt after G_P opens). Control (ironfarm's, all edge-keyed): G0 12 gt on the escapement sensor's rising edge; G_P 11 gt on the rising edge of (staged, 14 gt after
+# G0) AND (fills since the release < 3) AND (>= 10 gt past the release) AND (no hold-sensor edge for 6 gt). The run's middle cells are the column's sketch track.
+name: escapement-v4
+origin: -4 0 -5
+palette:
+  g minecraft:glass
+  E minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]
+  T minecraft:detector_rail[powered=false,shape=ascending_south,waterlogged=false]
+  r minecraft:rail[shape=ascending_south,waterlogged=false]
+  B minecraft:redstone_block
+  P minecraft:powered_rail[powered=true,shape=ascending_south,waterlogged=false]
+  G minecraft:oak_fence_gate[facing=south,in_wall=false,open=false,powered=false]
+layer 18:
+  .g
+  g
+layer 19:
+  .E
+  r
+  B
+layer 20:
+  .
+  G
+  P
+layer 21:
+  .
+  .
+  G
+layer 30:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  g
+layer 31:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  T

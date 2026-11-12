@@ -1,4 +1,4 @@
-# every villager position of onechunk-skeleton-v4-inverted (riders' cells and every rail cell of every part), the written frame
+# every villager position of skeleton-v4-inverted (riders' cells and every rail cell of every part), the written frame
 0 18 14
 0 18 15
 0 19 13

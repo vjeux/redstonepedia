@@ -744,6 +744,64 @@ pub enum MobfarmCmd {
         #[arg(long)]
         no_settle: bool,
     },
+    /// (onechunk 2026-11-11, ironspec 20:27) The golem chance per summon
+    /// (`columnrun::summon_chance`): for each villager riding a cart over a --stand cell, its 289
+    /// summon columns (the game's LEGACY_IRON_GOLEM scan, checkSpawnObstruction with the file's
+    /// carts in place): n_i landing on --pad and passing, off-pad passes, wasted landings, no-floor
+    /// columns; P = 1 - prod (1 - n_i/289)^10 and golems a day.
+    SummonChance {
+        design: PathBuf,
+        /// The pad's spawn cells (feet), x0,y0,z0,x1,y1,z1 in the file's frame.
+        #[arg(long, allow_hyphen_values = true)]
+        pad: String,
+        /// A stand rest cell x,y,z (repeatable), the file's frame.
+        #[arg(long, allow_hyphen_values = true)]
+        stand: Vec<String>,
+        /// Summons a day.
+        #[arg(long, default_value_t = 238.0)]
+        per_day: f64,
+    },
+    /// (onechunk 2026-11-11; farmopt 19:14, ironspec 19:16) A gravity column run from its own
+    /// file (`mobfarm::columnrun`): the file built as placed, its header's run cells
+    /// (`run-gates:`, `run-cells:`, `run-controller:`), T at every world time multiple of 100, the
+    /// design's controller driving its gates (every drive EMULATED and labelled), and the measures:
+    /// new cart-cart contacts with both stored speeds (bar 0.2), gate shuts onto a cart, each
+    /// cart's passes over the named detectors, every rider inside a stand summoner's 10-box at T.
+    ColumnRun {
+        design: PathBuf,
+        /// Cycles of 100 gt measured after the warm-up.
+        #[arg(long, default_value_t = 10)]
+        cycles: i64,
+        /// Warm-up ticks before the first measured T (the file's carts settle into place).
+        #[arg(long, default_value_t = 200)]
+        warm: i64,
+        #[arg(long, default_value_t = 1)]
+        seed: i64,
+        /// The stand's arrival fill: a gate shuts when its k-th cart's centre is this far past the
+        /// gate cell's west face.
+        #[arg(long, default_value_t = 1.6)]
+        close_at: f64,
+        /// The departure: S1's and S2's slopes powered this long after their gates open
+        /// (dfb89499's slope delay).
+        #[arg(long, default_value_t = 6)]
+        slope_delay: i64,
+        /// The departure: S2 opens this long after S0 and S1 (dfb89499's G2 +2).
+        #[arg(long, default_value_t = 2)]
+        g2_plus: i64,
+        /// The hold's release: Ga shuts no sooner than T+3+4 plus this, once the hold is empty.
+        #[arg(long, default_value_t = 0)]
+        hold_shut_delay: i64,
+        /// The tail's moves: each gate's pulse (gt) once its pocket's cart is at rest and the
+        /// next pocket is empty.
+        #[arg(long, default_value_t = 12)]
+        pulse: i64,
+        /// Laps printed: the first carts released after the warm-up, each cart's detector passes.
+        #[arg(long, default_value_t = 3)]
+        laps: usize,
+        /// Print every control event.
+        #[arg(long)]
+        trace: bool,
+    },
     /// (onechunk 2026-11-11, vjeux's "Can we have the system in one chunk?") The one-chunk
     /// column's skeleton (`mobfarm::column`): each --part's committed design, or its cells in a
     /// kept box, moved into the column's frame and stacked into its tier, nothing wired; prints
@@ -851,6 +909,19 @@ pub enum MobfarmCmd {
         /// The pad's golem spots as feet cells x0,y0,z0,x1,y1,z1 (the column's frame).
         #[arg(long, allow_hyphen_values = true)]
         golem_box: Option<String>,
+        /// A runner gate for `column-run`: NAME=x,y,z[/sx,sy,sz] (the fence gate, and the block
+        /// powering the powered rail under it), in the column's frame (shifted with the file).
+        #[arg(long = "run-gate", allow_hyphen_values = true)]
+        run_gate: Vec<String>,
+        /// A runner cell for `column-run`: NAME=x,y,z (a detector rail it reads, or a rest cell).
+        #[arg(long = "run-cell", allow_hyphen_values = true)]
+        run_cell: Vec<String>,
+        /// The runner's controller for `column-run` (v4).
+        #[arg(long)]
+        run_controller: Option<String>,
+        /// More header notes, one per line of this file (as --note).
+        #[arg(long)]
+        notes_file: Option<PathBuf>,
         /// Where the skeleton goes (none: the report alone).
         #[arg(long)]
         out: Option<PathBuf>,
@@ -4210,7 +4281,26 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             // (the slope-to-slope peak check, 9fc3155f Nov 11: a top no cart crosses)
             println!("{}", crate::borders::peaks_line(&d.blocks).0);
         }
-        MobfarmCmd::Column { parts, reserves, ports, tracks, carts, posts, clears, column, chunk_phase, plan, name, no_settle, ground, out_shift, no_riders, positions_out, notes, bed, bed_exempt, sentinel, sections, summon_box, golem_box, out } => {
+        MobfarmCmd::SummonChance { design, pad, stand, per_day } => {
+            let (_c, spec) = load(version, &design)?;
+            let b = crate::column::Reserve::parse(&format!("pad={pad}")).map_err(|e| anyhow::anyhow!(e))?.b;
+            let cells: Vec<[i32; 3]> = stand.iter().map(|t| {
+                let n: Vec<i32> = t.split(',').map(|s| s.trim().parse()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(n.len() == 3, "--stand x,y,z");
+                Ok([n[0], n[1], n[2]])
+            }).collect::<Result<_>>()?;
+            print!("{}", crate::columnrun::summon_chance(&spec, b, &cells, per_day).map_err(|e| anyhow::anyhow!(e))?);
+        }
+        MobfarmCmd::ColumnRun { design, cycles, warm, seed, close_at, slope_delay, g2_plus, hold_shut_delay, pulse, laps, trace } => {
+            let (c, spec) = load(version, &design)?;
+            let o = crate::columnrun::Opts { cycles, warm, seed, close_at, slope_delay, g2_plus, hold_shut_delay, pulse, laps, trace };
+            print!("{}", crate::columnrun::run(&spec, &c.clock.design.meta, &o).map_err(|e| anyhow::anyhow!(e))?);
+        }
+        MobfarmCmd::Column { parts, reserves, ports, tracks, carts, posts, clears, column, chunk_phase, plan, name, no_settle, ground, out_shift, no_riders, positions_out, notes, bed, bed_exempt, sentinel, sections, summon_box, golem_box, run_gate, run_cell, run_controller, notes_file, out } => {
+            let mut notes = notes;
+            if let Some(nf) = &notes_file {
+                notes.extend(std::fs::read_to_string(nf)?.lines().map(str::trim).filter(|l| !l.is_empty()).map(String::from));
+            }
             let summoners: Vec<[i32; 3]> = summon_box.iter().map(|t| {
                 let n: Vec<i32> = t.split(',').map(|s| s.trim().parse()).collect::<Result<_, _>>()?;
                 anyhow::ensure!(n.len() == 3, "--summon-box x,y,z");
@@ -4298,6 +4388,15 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("positions: {} cells -> {}", cells.len(), pf.display());
             }
             let mut d = d;
+            if !run_gate.is_empty() {
+                d.meta.insert("run-gates".into(), run_gate.iter().map(|g| g.replacen('=', " ", 1)).collect::<Vec<_>>().join("; "));
+            }
+            if !run_cell.is_empty() {
+                d.meta.insert("run-cells".into(), run_cell.iter().map(|g| g.replacen('=', " ", 1)).collect::<Vec<_>>().join("; "));
+            }
+            if let Some(c) = &run_controller {
+                d.meta.insert("run-controller".into(), c.clone());
+            }
             if no_riders {
                 let n = d.entities.len();
                 d.entities.retain(|e| !(e.kind.ends_with("minecart") && e.nbt.as_deref().is_some_and(|t| t.contains("villager"))));
