@@ -40,5 +40,6 @@ pub mod ground;
 pub mod ledge_sweep;
 pub mod contact_scene;
 pub mod combine;
+pub mod holdbench;
 pub mod postsearch;
 pub mod yard;

@@ -1087,6 +1087,38 @@ pub enum MobfarmCmd {
     /// Two release traces (queue-loop-run with MCTAS_RELEASE_TRACE=path) compared tick by tick,
     /// the bench-against-wired check: the release group's 3 rails' power and every cart on the
     /// release run, the first difference of each, their counts and the largest position gap.
+    /// The hold bench (ironspec Nov 11 15:44, the metered hold ahead of R1's queue): a straight
+    /// line built in code (a descent of plain slopes, a brake slope, flats, the hold gate H_R over
+    /// the queue's first slope); carts launched at the descent's top at the given stored speeds,
+    /// `--gap` gt apart: each one's speed leaving the brake, its stored speed at any contact with a
+    /// cart ahead (the brief's 0.2 bar), where it rests, any left on the brake.
+    BrakeBench {
+        #[arg(long, value_delimiter = ',', default_values_t = [0.4, 0.8, 1.2])]
+        speeds: Vec<f64>,
+        /// Empty carts (default ridden).
+        #[arg(long)]
+        empty: bool,
+        /// Per cart, 1 ridden or 0 empty (the last repeats), over --empty.
+        #[arg(long, value_delimiter = ',')]
+        riders: Vec<u8>,
+        #[arg(long, default_value_t = 3)]
+        descent: i32,
+        /// Plain slopes down after the brake, before the flats (a bounced cart can't climb back).
+        #[arg(long, default_value_t = 0)]
+        post: i32,
+        #[arg(long, default_value_t = 3)]
+        flats: i32,
+        #[arg(long, default_value_t = 12)]
+        gap: i64,
+        #[arg(long, default_value_t = 300)]
+        ticks: i64,
+        /// No brake (a plain slope in its place): the control.
+        #[arg(long)]
+        no_brake: bool,
+        /// The brake window: each speed alone in its own world (bar 1).
+        #[arg(long)]
+        window: bool,
+    },
     TraceDiff {
         a: PathBuf,
         b: PathBuf,
@@ -3439,6 +3471,15 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             if !ok {
                 anyhow::bail!("frame-check failed");
             }
+        }
+        MobfarmCmd::BrakeBench { speeds, empty, riders, descent, post, flats, gap, ticks, no_brake, window } => {
+            if window {
+                println!("{}", crate::holdbench::brake_window(&speeds, !empty, descent, post, flats, ticks).map_err(|e| anyhow::anyhow!(e))?);
+                return Ok(());
+            }
+            let rid: Vec<bool> = if riders.is_empty() { vec![!empty] } else { riders.iter().map(|r| *r != 0).collect() };
+            let (_, text) = crate::holdbench::hold_bench(&speeds, &rid, descent, post, flats, gap, ticks, !no_brake).map_err(|e| anyhow::anyhow!(e))?;
+            println!("{text}");
         }
         MobfarmCmd::TraceDiff { a, b, tol } => {
             println!("{}", crate::queue::trace_diff(&std::fs::read_to_string(&a)?, &std::fs::read_to_string(&b)?, tol));
