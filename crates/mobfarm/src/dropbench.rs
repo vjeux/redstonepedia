@@ -31,6 +31,8 @@ pub struct DropOpts {
     pub entry: i32,
     pub hold_n: i64,
     pub front_boost: bool,
+    /// R (under G_P) a powered slope, always on: the staged cart leaves faster.
+    pub r_boost: bool,
     pub floor_bottom: bool,
     pub riders: bool,
     /// (cc767b78, the L1 judge) Real level-32 freezes T,D: the whole bench from tick T for D gt,
@@ -114,7 +116,11 @@ pub fn drop_bench(o: &DropOpts) -> Result<String, String> {
         }
         put(xp, yp, &pdown_on, &rblock);
         put(xs, ys, &slope, &glass);
-        put(xr, yr, &slope, &glass);
+        if o.r_boost {
+            put(xr, yr, &pdown_on, &rblock);
+        } else {
+            put(xr, yr, &slope, &glass);
+        }
         for k in 0..o.entry {
             put(o.run + 3 + k, top - 4 - o.run - k, &slope, &glass);
         }

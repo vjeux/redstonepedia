@@ -1229,6 +1229,8 @@ pub enum MobfarmCmd {
         #[arg(long)]
         front_boost: bool,
         #[arg(long)]
+        r_boost: bool,
+        #[arg(long)]
         floor_bottom: bool,
         #[arg(long)]
         empty: bool,
@@ -1335,6 +1337,8 @@ pub enum MobfarmCmd {
         hold_n: i64,
         #[arg(long)]
         front_boost: bool,
+        #[arg(long)]
+        r_boost: bool,
         #[arg(long)]
         floor_bottom: bool,
         #[arg(long)]
@@ -4171,7 +4175,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 anyhow::bail!("frame-check failed");
             }
         }
-        MobfarmCmd::DropBench { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, floor_bottom, empty, freeze32 } => {
+        MobfarmCmd::DropBench { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, r_boost, floor_bottom, empty, freeze32 } => {
             let pair = |s: &String| -> anyhow::Result<(i64, i64)> {
                 let mut it = s.split(',');
                 let a = it.next().unwrap_or("").trim().parse::<i64>()?;
@@ -4179,7 +4183,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 Ok((a, d))
             };
             let freeze32: Vec<(i64, i64)> = freeze32.iter().map(pair).collect::<anyhow::Result<_>>()?;
-            let o = crate::dropbench::DropOpts { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, floor_bottom, riders: !empty, freeze32 };
+            let o = crate::dropbench::DropOpts { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, r_boost, floor_bottom, riders: !empty, freeze32 };
             println!("{}", crate::dropbench::drop_bench(&o).map_err(|e| anyhow::anyhow!(e))?);
             return Ok(());
         }
@@ -4217,9 +4221,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             return Ok(());
         }
-        MobfarmCmd::DropJudge { lanes, spacing, run, per_lane, period, cycles, ret, w0, wp, drop_w, entry, hold_n, front_boost, floor_bottom, empty, starts, k, ds, corners, jobs } => {
+        MobfarmCmd::DropJudge { lanes, spacing, run, per_lane, period, cycles, ret, w0, wp, drop_w, entry, hold_n, front_boost, r_boost, floor_bottom, empty, starts, k, ds, corners, jobs } => {
             anyhow::ensure!(starts.len() == 2, "--starts A,B");
-            let base = crate::dropbench::DropOpts { lanes, spacing, run, per_lane, period, cycles, ret, corner: 0, w0, wp, drop_w, entry, hold_n, front_boost, floor_bottom, riders: !empty, freeze32: Vec::new() };
+            let base = crate::dropbench::DropOpts { lanes, spacing, run, per_lane, period, cycles, ret, corner: 0, w0, wp, drop_w, entry, hold_n, front_boost, r_boost, floor_bottom, riders: !empty, freeze32: Vec::new() };
             let modes = vec![crate::lanesjudge::Mode::parse("gt").map_err(|e| anyhow::anyhow!(e))?];
             let o = crate::lanesjudge::JudgeOpts { modes, starts: (starts[0], starts[1]), k, ds, corners, jobs };
             let title = format!("drop ({lanes} lanes, {run}-slope runs, {per_lane} carts a lane, G0 {w0} gt, G_P {wp} gt, the trapdoors {drop_w} gt every {period}, hold {hold_n}, {cycles} cycles)");
