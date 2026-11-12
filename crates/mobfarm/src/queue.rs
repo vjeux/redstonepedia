@@ -3933,6 +3933,12 @@ pub struct MeterState {
     night_two_calm_s3: usize,
     night_calm_s3_max: usize,
     night_calm_cells: std::collections::BTreeMap<[i32; 3], usize>,
+    /// the per-gate hold (`MCTAS_POCKET_HOLD`): pocket a's occupancy (last tick), each cart's last
+    /// z, the admission spacer's end, gate shuts
+    ph_pa: bool,
+    ph_prevz: Vec<f64>,
+    ph_spacer_until: i64,
+    ph_shuts: usize,
     /// P2: the transit latch (set when a cart passes H's plane, cleared by its count edge), its
     /// live gt, a held REL, and the counts
     tl: Option<i64>,
@@ -4492,8 +4498,12 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
         log(s, format!("{c}+{dt} REL (occupancy {}{}{})", s.occ[0] as u8, s.occ[1] as u8, s.occ[2] as u8));
     }
     s.rel_was = rel_on;
-    // (SE: the rearmost occupied pocket's departing cart at its cell, the stand open; E = SE)
-    let se_edge = if s.occ[2] { rise[3] } else if s.occ[1] { rise[2] } else { rise[4] };
+    // (SE: the rearmost occupied pocket's departing cart at its cell, the stand open; E = SE;
+    // `MCTAS_SE_CREST`: SE only when the last departing cart crosses the crest (the batch's
+    // count of crest crossings since REL reaching the occupied pockets), for staggered departures
+    // whose last cart is slow to clear the gates)
+    let occ_n = s.occ.iter().filter(|x| **x).count();
+    let se_edge = if std::env::var("MCTAS_SE_CREST").is_ok() { rise[4] && s.crest_seen >= occ_n.max(1) } else if s.occ[2] { rise[3] } else if s.occ[1] { rise[2] } else { rise[4] };
     if s.se_armed && s.rel_open && se_edge {
         s.se_armed = false;
         s.se_count += 1;
@@ -4633,7 +4643,7 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
     // (the guard, `--meter-hold ...,GUARD` 1: a chained opening (Dh + D12) waits for the cart it
     // follows to be counted in the stand: opening 2 for L1, opening 3 for L2; a retry doesn't wait;
     // P2 (ii): no opening from REL until SE)
-    let guard_wait = (m.guard && !s.retry_open && ((s.phase == 2 && !s.l1) || (s.phase == 4 && !s.l2))) || (m.p2 && s.rel_open && s.se_armed);
+    let guard_wait = (m.guard && !s.retry_open && ((s.phase == 2 && !s.l1) || (s.phase == 4 && !s.l2))) || (m.p2 && s.rel_open && s.se_armed) || (!s.ph_pa && std::env::var("MCTAS_POCKET_HOLD").is_ok());
     if s.open_at.is_some_and(|a| t >= a) && !s.h_open && !guard_wait {
         s.open_at = None;
         s.cur_open_retry = s.retry_open;
@@ -4844,6 +4854,48 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
                 // pitch, a level-random draw, so an emulated run keeps the wired run's random stream)
                 if m.h_delay > 0 && std::env::var("MCTAS_METER_NO_PITCH").is_err() {
                     w.draw_sound_pitch();
+                }
+            }
+        }
+    }
+    // (`MCTAS_POCKET_HOLD` S: the per-gate hold, emulated on the descent: pockets a (the front,
+    // against H), b (one slope up) and c (two up), gates Gb at (xb,4,1) and Gc at (xb,5,2), each
+    // stopping the cart resting one slope above it; Gb shut while pocket a holds a cart, Gc while
+    // pocket b does or for S gt after a cart passes Gc's plane (the admission spacer, splitting a
+    // pressed train); a gate never shuts on a cart's box; ideal occupancy sensors)
+    if let Some(sp) = std::env::var("MCTAS_POCKET_HOLD").ok().and_then(|v| v.parse::<i64>().ok()) {
+        let col = xb as f64 + 0.5;
+        let occ = |zc: f64| pos.iter().flatten().any(|p| (p.0 - col).abs() < 0.3 && (p.2 - zc).abs() < 0.3 && p.1 > 2.5);
+        let (pa, pb) = (occ(1.12), occ(2.12));
+        s.ph_pa = pa;
+        if s.ph_prevz.len() != pos.len() {
+            s.ph_prevz = vec![f64::NAN; pos.len()];
+        }
+        for (k, p) in pos.iter().enumerate() {
+            if let Some(p) = p {
+                if (p.0 - col).abs() < 0.3 && s.ph_prevz[k] >= 2.625 && p.2 < 2.625 && p.1 > 3.5 {
+                    s.ph_spacer_until = t + sp;
+                }
+                s.ph_prevz[k] = p.2;
+            } else {
+                s.ph_prevz[k] = f64::NAN;
+            }
+        }
+        let on_cell = |c: BlockPos| pos.iter().flatten().any(|p| {
+            let (gx, gy, gz) = (c.x - sx - offx, c.y - offy, if mz { offz - c.z + sz } else { c.z - sz - offz });
+            (p.0 - (gx as f64 + 0.5)).abs() < 0.99 && p.1 + 0.7 > gy as f64 && p.1 < gy as f64 + 1.0 && (p.2 - (gz as f64 + 0.5)).abs() < 0.99
+        });
+        for (cell, shut) in [(at(xb, 4, 1), pa), (at(xb, 5, 2), pb || t < s.ph_spacer_until)] {
+            let cur = w.get(cell).to_string();
+            let open_now = cur.contains("open=true");
+            let is_gate = cur.contains("fence_gate");
+            let want_open = !shut || (open_now && on_cell(cell));
+            if !is_gate || open_now != want_open {
+                if let Some(b) = parse(&format!("minecraft:oak_fence_gate[facing=north,in_wall=false,open={want_open},powered=false]")) {
+                    w.set_block(cell, b, redsim::world::flags::ALL);
+                }
+                if is_gate && !want_open {
+                    s.ph_shuts += 1;
                 }
             }
         }
