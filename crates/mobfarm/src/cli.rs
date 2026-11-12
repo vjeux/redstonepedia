@@ -1307,6 +1307,18 @@ pub enum MobfarmCmd {
         /// The post's own cells come in --extra (a walled post): no default glass and leaves.
         #[arg(long)]
         custom_post: bool,
+        /// The all-day wait: START,TICKS (day time, gt) with the rider's HOME at --bed.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        wait: Vec<i64>,
+        /// The stop's bed head (x,y,z) for --wait.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true, default_values_t = vec![-3, -18, 3])]
+        bed: Vec<i32>,
+        /// The way down: a cart with its rider started at X,Y,Z with motion VX,VY,VZ, followed to the
+        /// queue (HOLD's lead against the 16-ball; --hold names HOLD's detector cell).
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        leg: Vec<f64>,
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        hold: Vec<i32>,
     },
     /// (onechunk 2026-11-11; farmopt 22:07, ironspec's self-contained loaders) L1′, the cart-loop
     /// loader, benched in redsim (`mobfarm::l1bench`): writes its design (--design-out) or runs it:
@@ -5698,7 +5710,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 print!("{}", crate::l1items::bench(&spec, &o).map_err(|e| anyhow::anyhow!(e))?);
             }
         }
-        MobfarmCmd::WayCell { design, positions, queue, post, own, napper, keep_clear, chunk, pad, draws, write, rail, extra, ride_to, custom_post } => {
+        MobfarmCmd::WayCell { design, positions, queue, post, own, napper, keep_clear, chunk, pad, draws, write, rail, extra, ride_to, custom_post, wait, bed, leg, hold } => {
             let (_c, spec) = load(version, &design)?;
             if queue.len() != 3 || !(post.is_empty() || post.len() == 3) || chunk.len() != 4 {
                 anyhow::bail!("--queue X,Y,Z, --post X,Y,Z, --chunk X0,Z0,X1,Z1");
@@ -5715,6 +5727,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 positions: pos,
                 pad: crate::waycell::parse_boxes(pad.as_deref()).map_err(|e| anyhow::anyhow!(e))?,
                 extra: crate::waycell::parse_extra(extra.as_deref()).map_err(|e| anyhow::anyhow!(e))?,
+                replace: crate::waycell::parse_replace(extra.as_deref()).map_err(|e| anyhow::anyhow!(e))?,
                 custom_post,
             };
             println!("{}: the queue cell {:?}, {} villager positions", design.display(), o.queue, o.positions.len());
@@ -5726,6 +5739,18 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             if ride_to.len() == 3 {
                 for l in crate::waycell::ride_lines(&spec, &o, [ride_to[0], ride_to[1], ride_to[2]], 200).map_err(|e| anyhow::anyhow!(e))? {
+                    println!("{l}");
+                }
+                return Ok(());
+            }
+            if let (2, Some(p), 3) = (wait.len(), o.post, bed.len()) {
+                for l in crate::waycell::wait_lines(&spec, &o, p, wait[0], wait[1] as u32, [bed[0], bed[1], bed[2]]).map_err(|e| anyhow::anyhow!(e))? {
+                    println!("{l}");
+                }
+                return Ok(());
+            }
+            if let (6, 3, 3) = (leg.len(), hold.len(), bed.len()) {
+                for l in crate::waycell::leg_lines(&spec, &o, [leg[0], leg[1], leg[2]], [leg[3], leg[4], leg[5]], [hold[0], hold[1], hold[2]], [bed[0], bed[1], bed[2]], 600).map_err(|e| anyhow::anyhow!(e))? {
                     println!("{l}");
                 }
                 return Ok(());

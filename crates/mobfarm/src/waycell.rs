@@ -54,14 +54,18 @@ pub struct Opts {
     /// The post's own cells come in `extra` (a walled post: floor, walls, roof, occluders): no
     /// default glass under the boat and leaves over the eye.
     pub custom_post: bool,
+    /// Extra cells that replace the module's block there (`!x,y,z=...`).
+    pub replace: Vec<P>,
 }
 
-/// `x,y,z=block;...` (a block state, `minecraft:` optional).
+/// `x,y,z=block;...` (a block state, `minecraft:` optional; a leading `!` on a cell replaces what
+/// the module holds there).
 pub fn parse_extra(s: Option<&str>) -> Result<Vec<(P, String)>, String> {
     let Some(s) = s else { return Ok(Vec::new()) };
     s.split(';')
         .filter(|x| !x.trim().is_empty())
         .map(|c| {
+            let c = c.trim().trim_start_matches('!');
             let (p, b) = c.split_once('=').ok_or(format!("{c:?}: x,y,z=block"))?;
             let v: Vec<i32> = p.split(',').map(|x| x.trim().parse::<i32>().map_err(|e| format!("{c:?}: {e}"))).collect::<Result<_, _>>()?;
             if v.len() != 3 {
@@ -107,8 +111,22 @@ fn in_box(p: &P, b: &B6) -> bool {
     p[0] >= b[0] && p[0] <= b[3] && p[1] >= b[1] && p[1] <= b[4] && p[2] >= b[2] && p[2] <= b[5]
 }
 
-fn eye_of(p: &P) -> Vec3 {
-    Vec3::new(p[0] as f64 + 0.5, p[1] as f64 + 1.62, p[2] as f64 + 0.5)
+/// (ironspec 10:30: the eye model tick-exact's run agrees with, 9fc3155f's) a position's eye: the
+/// cart's position + 1.62 on a rail (a slope's middle 0.5 up, a flat rail 0.0625 up), the feet + 1.62
+/// on foot.
+fn eye_in(w: &redsim::world::World, p: &P) -> Vec3 {
+    let b = w.get(BlockPos::new(p[0], p[1], p[2]));
+    let up = match b {
+        Block::Rail { shape, .. } | Block::PlainRail { shape } | Block::DetectorRail { shape, .. } => {
+            if shape.is_ascending() {
+                0.5
+            } else {
+                0.0625
+            }
+        }
+        _ => 0.0,
+    };
+    Vec3::new(p[0] as f64 + 0.5, p[1] as f64 + up + 1.62, p[2] as f64 + 0.5)
 }
 
 fn feet_of(p: &P) -> Vec3 {
@@ -259,7 +277,7 @@ pub fn post_lines(spec: &FarmSpec, o: &Opts, post: P) -> Result<(bool, Vec<Strin
         }
         let dd = feet_of(p).distance_to_sqr(zf).sqrt();
         let own = o.own.iter().any(|b| in_box(p, b));
-        let sees = dd < 8.0 && redsim::entity::mob::los::has_line_of_sight(&w, eye_of(p), ze);
+        let sees = dd < 8.0 && redsim::entity::mob::los::has_line_of_sight(&w, eye_in(&w, p), ze);
         if own {
             if sees {
                 route.push((*p, dd));
@@ -275,11 +293,38 @@ pub fn post_lines(spec: &FarmSpec, o: &Opts, post: P) -> Result<(bool, Vec<Strin
         }
     }
     let ok_b = near.is_empty() && seen_near.is_empty();
+    // (ironspec 10:20: the 6.05 bar is sight-gated, but a hidden position within 6.05 passes only on
+    // robust hiding) the "hidden within 6.05" class: every ray from the position's eye, sampled
+    // every 0.1 up its cell (the cart's position + 1.62), to the zombie's eye must end on a
+    // full-collider block (`isCollisionShapeFullBlock`: glass or solid; never a pane, a fence or a
+    // partial block)
+    let mut weak: Vec<(P, f64, String)> = Vec::new();
+    for (p, dd) in &near {
+        if seen_near.iter().any(|(q, _)| q == p) {
+            continue;
+        }
+        for k in 0..=10 {
+            let eye = Vec3::new(p[0] as f64 + 0.5, p[1] as f64 + 0.1 * k as f64 + 1.62, p[2] as f64 + 0.5);
+            let hit = redsim::entity::mob::los::clip_collider(&w, eye, ze);
+            if hit.miss {
+                weak.push((*p, *dd, format!("in sight from y +{:.1}", 0.1 * k as f64)));
+                break;
+            }
+            let b = w.get(hit.pos);
+            if !redsim::behavior::full_cube(&b) {
+                weak.push((*p, *dd, format!("hidden only by {b} at {}", hit.pos)));
+                break;
+            }
+        }
+    }
+    let hidden: Vec<&(P, f64)> = near.iter().filter(|(p, _)| !seen_near.iter().any(|(q, _)| q == p)).collect();
+    let ok_b = ok_b || (seen_near.is_empty() && weak.is_empty());
     pass &= ok_b;
     out.push(format!(
-        "(b) every other position: the nearest {nearest:.2} from the zombie; under 6.05: {}; within 8 and in sight: {} ({})",
-        if near.is_empty() { "none".to_string() } else { format!("{near:?}") },
+        "(b) every other position: the nearest {nearest:.2} from the zombie; within 8 and in sight: {}; hidden within 6.05: {} ({}) ({})",
         if seen_near.is_empty() { "none".to_string() } else { format!("{seen_near:?}") },
+        if hidden.is_empty() { "none".to_string() } else { format!("{} position(s) {:?}", hidden.len(), hidden.iter().map(|(p, d)| format!("{p:?} {d:.2}")).collect::<Vec<_>>()) },
+        if hidden.is_empty() { "-".to_string() } else if weak.is_empty() { "robust: every ray from eyes every 0.1 up each cell ends on a full-collider block".to_string() } else { format!("NOT robust: {weak:?}") },
         if ok_b { "PASS" } else { "FAIL" }
     ));
     // (e) the rider's own route (the shaft, the detectors, the run): no position under 6.05 in its
@@ -447,6 +492,135 @@ pub fn ride_lines(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32) -> Result<Vec
     ])
 }
 
+/// The queued napper's all-day wait (ironspec 10:18): the rider held on the queue rail from day
+/// time `start` for `ticks` gt with its HOME the stop's bed (`bed`, a loaded HOME memory), the
+/// post's zombie in place: HOME at every tick, its activity tick by tick, the calm REST ticks
+/// (REST active, not PANIC) and their distance to the bed's head, its CANT_REACH stamp's age
+/// (the most, and the most at a calm REST tick: the bar 1,000).
+pub fn wait_lines(spec: &FarmSpec, o: &Opts, post: P, start: i64, ticks: u32, bed: P) -> Result<Vec<String>, String> {
+    let ro = RunOpts { ai: true, ..RunOpts::steady(1, ticks + 10, WalkMode::Random) };
+    let (mut run, _) = crate::placing::start(spec, &ro, crate::placing::Placement::Judge, &crate::placing::BuildPlan::default())?;
+    let q = o.queue;
+    let mut cells: Vec<(BlockPos, Block)> = Vec::new();
+    for (p, b) in o.extra.iter().map(|(p, b)| (*p, b.clone())).chain(rail_cells(q).into_iter().map(|(p, b, _)| (p, b.to_string()))) {
+        cells.push((BlockPos::new(p[0], p[1], p[2]), Block::parse(&b).map_err(|e| format!("{b}: {e}"))?));
+    }
+    if !o.custom_post {
+        cells.push((BlockPos::new(post[0], post[1] - 1, post[2]), Block::parse("minecraft:glass").map_err(|e| e.to_string())?));
+        cells.push((BlockPos::new(post[0], post[1] + 3, post[2]), Block::parse("minecraft:oak_leaves[distance=1,persistent=true,waterlogged=false]").map_err(|e| e.to_string())?));
+    }
+    run.world.place_raw(&cells);
+    redsim::entity::spawn(&mut run.world, "minecraft:oak_boat", [post[0] as f64 + 0.5, post[1] as f64, post[2] as f64 + 0.5], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}"))?;
+    let nbt = format!(
+        "{{Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b,Brain:{{memories:{{\"minecraft:home\":{{value:{{dimension:\"minecraft:overworld\",pos:[I;{},{},{}]}}}}}}}}}}]}}",
+        bed[0], bed[1], bed[2]
+    );
+    let cart = redsim::entity::spawn(&mut run.world, "minecraft:minecart", [q[0] as f64 + 0.5, q[1] as f64 + 0.5625, q[2] as f64 + 0.5], Some(&nbt))?;
+    run.world.mob.day_offset = start - run.world.time;
+    let head = Vec3::new(bed[0] as f64 + 0.5, bed[1] as f64 + 0.5625, bed[2] as f64 + 0.5);
+    let mut acts: std::collections::BTreeMap<String, u32> = std::collections::BTreeMap::new();
+    let (mut home_lost, mut left, mut calm_rest, mut stamp_max, mut stamp_calm_max) = (None, None, 0u32, 0i64, 0i64);
+    let (mut d_min, mut d_max) = (f64::INFINITY, 0.0f64);
+    let mut first_panic = None;
+    for t in 0..ticks {
+        run.tick();
+        let w = &run.world;
+        let Some(i) = w.entities.list.iter().position(|e| !e.removed && e.vehicle == Some(cart)) else {
+            left = Some(t);
+            break;
+        };
+        if redsim::entity::mob::ai::brain::brain(w, i).home.is_none() && home_lost.is_none() {
+            home_lost = Some((t, w.day_time()));
+        }
+        if !redsim::entity::mob::ai::brain::has_exact(w, i) {
+            continue;
+        }
+        let x = redsim::entity::mob::ai::brain::ex(w, i);
+        let act = format!("{:?}", x.active);
+        let stamp = x.mem.cant_reach_since.map_or(0, |s| w.time - s);
+        stamp_max = stamp_max.max(stamp);
+        if act.contains("Panic") && first_panic.is_none() {
+            first_panic = Some(t);
+        }
+        if act.contains("Rest") {
+            calm_rest += 1;
+            stamp_calm_max = stamp_calm_max.max(stamp);
+            let d = w.entities.list[i].pos.distance_to_sqr(head).sqrt();
+            d_min = d_min.min(d);
+            d_max = d_max.max(d);
+        }
+        *acts.entry(act).or_default() += 1;
+    }
+    Ok(vec![
+        format!(
+            "(wait) the rider held on the queue rail from day time {start} for {ticks} gt (its HOME the bed at {bed:?}): HOME {}; the rider {}; first PANIC at t {first_panic:?}",
+            match home_lost {
+                None => "kept at every tick".to_string(),
+                Some((t, d)) => format!("LOST at t {t} (day time {d})"),
+            },
+            match left {
+                None => "seated throughout".to_string(),
+                Some(t) => format!("OUT of its cart at t {t}"),
+            }
+        ),
+        format!("(wait) activity ticks: {acts:?}"),
+        format!(
+            "(wait) calm REST ticks {calm_rest}{}; the stamp's age: most {stamp_max}, most at a calm REST tick {stamp_calm_max} (bar 1,000: {})",
+            if calm_rest > 0 { format!(" at {d_min:.2}..{d_max:.2} from the bed's head (inside 16: the 16-block rule)") } else { String::new() },
+            if stamp_calm_max <= 1000 { "PASS" } else { "FAIL" }
+        ),
+    ])
+}
+
+/// The napper's way down (the leg, the shaft, the queue): a cart with its rider started at `start`
+/// with `motion`, followed until it rests on the queue rail: the tick it is on the HOLD detector
+/// (`hold`), the tick it first comes within 16 of the bed's head (`bed`: ValidateNearbyPoi's
+/// 16-ball), the tick it reaches the arrival detector and the queue cell: HOLD's lead.
+pub fn leg_lines(spec: &FarmSpec, o: &Opts, start: [f64; 3], motion: [f64; 3], hold: P, bed: P, ticks: u32) -> Result<Vec<String>, String> {
+    let ro = RunOpts { ai: true, ..RunOpts::steady(1, ticks + 10, WalkMode::Random) };
+    let (mut run, _) = crate::placing::start(spec, &ro, crate::placing::Placement::Judge, &crate::placing::BuildPlan::default())?;
+    let q = o.queue;
+    let mut cells: Vec<(BlockPos, Block)> = Vec::new();
+    for (p, b) in o.extra.iter().map(|(p, b)| (*p, b.clone())).chain(rail_cells(q).into_iter().map(|(p, b, _)| (p, b.to_string()))) {
+        cells.push((BlockPos::new(p[0], p[1], p[2]), Block::parse(&b).map_err(|e| format!("{b}: {e}"))?));
+    }
+    run.world.place_raw(&cells);
+    let cart = redsim::entity::spawn(&mut run.world, "minecraft:minecart", start, Some(&format!("{{Motion:[{:.4}d,{:.4}d,{:.4}d],Passengers:[{{id:\"minecraft:villager\"}}]}}", motion[0], motion[1], motion[2])))?;
+    let head = Vec3::new(bed[0] as f64 + 0.5, bed[1] as f64 + 0.5625, bed[2] as f64 + 0.5);
+    let arrival = [q[0] + 1, q[1] + 1, q[2]];
+    let (mut on_hold, mut ball, mut at_arrival, mut at_queue) = (None, None, None, None);
+    let mut path: Vec<P> = Vec::new();
+    for t in 0..ticks {
+        run.tick();
+        let Some(e) = run.world.entities.list.iter().find(|e| e.id == cart && !e.removed) else { break };
+        let c = [e.pos.x.floor() as i32, e.pos.y.floor() as i32, e.pos.z.floor() as i32];
+        if path.last() != Some(&c) {
+            path.push(c);
+        }
+        if on_hold.is_none() && c == hold {
+            on_hold = Some(t);
+        }
+        if ball.is_none() && e.pos.distance_to_sqr(head).sqrt() < 16.0 {
+            ball = Some(t);
+        }
+        if at_arrival.is_none() && c == arrival {
+            at_arrival = Some(t);
+        }
+        if at_queue.is_none() && c == q && e.delta_movement.length_sqr() < 1e-6 {
+            at_queue = Some(t);
+            break;
+        }
+    }
+    let lead = match (on_hold, ball) {
+        (Some(h), Some(b)) => format!("{} gt", b as i64 - h as i64),
+        _ => "unknown".to_string(),
+    };
+    Ok(vec![
+        format!("(leg) on the HOLD detector {hold:?} at t {on_hold:?}; within 16 of the bed's head at t {ball:?} (HOLD's lead {lead}); at the arrival detector at t {at_arrival:?}; at rest on the queue rail at t {at_queue:?}"),
+        format!("(leg) the cells: {:?}", path.iter().take(60).collect::<Vec<_>>()),
+    ])
+}
+
 /// The way-in line's cells laid into the module file (a WIP design against its frame): the queue
 /// cell's iron trapdoor (shut, bottom half: the cart rests on it, the drop under it when day-1's
 /// gate opens it), the post's glass, its leaves, the queue cart with its rider and the post's boat
@@ -469,7 +643,12 @@ pub fn write_layout(module: &std::path::Path, out: &std::path::Path, o: &Opts, p
     let mut lines = Vec::new();
     for (p, b, what) in &cells {
         if let Some(have) = d.blocks.get(p) {
-            return Err(format!("{p:?} ({what}) already holds {have}"));
+            if !o.replace.contains(p) {
+                return Err(format!("{p:?} ({what}) already holds {have}"));
+            }
+            lines.push(format!("  {p:?} {b} ({what}; REPLACES the module's {have})"));
+            d.blocks.insert(*p, b.to_string());
+            continue;
         }
         d.blocks.insert(*p, b.to_string());
         lines.push(format!("  {p:?} {b} ({what})"));
@@ -483,6 +662,20 @@ pub fn write_layout(module: &std::path::Path, out: &std::path::Path, o: &Opts, p
     d.save(out).map_err(|e| e.to_string())?;
     lines.insert(0, format!("wrote {} (the module {} with the way-in line's queue cell and post):", out.display(), module.display()));
     Ok(lines)
+}
+
+/// The cells `parse_extra` marks with a leading `!` (replacing the module's block there).
+pub fn parse_replace(s: Option<&str>) -> Result<Vec<P>, String> {
+    let Some(s) = s else { return Ok(Vec::new()) };
+    let mut v = Vec::new();
+    for c in s.split(';').map(|c| c.trim()).filter(|c| c.starts_with('!')) {
+        let (p, _) = c[1..].split_once('=').ok_or(format!("{c:?}: !x,y,z=block"))?;
+        let n: Vec<i32> = p.split(',').map(|x| x.trim().parse::<i32>().map_err(|e| format!("{c:?}: {e}"))).collect::<Result<_, _>>()?;
+        if n.len() == 3 {
+            v.push([n[0], n[1], n[2]]);
+        }
+    }
+    Ok(v)
 }
 
 /// Every candidate post: free cells of the chunk 6.05..7.95 (by cell centres) from the queue
