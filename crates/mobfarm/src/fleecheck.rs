@@ -29,6 +29,7 @@
 use redsim::entity::mob::farm::{FarmSpec, Run, RunOpts, WalkMode};
 use redsim::entity::{EntityKind, Vec3};
 use redsim::pos::BlockPos;
+use std::collections::HashMap;
 
 /// One source's result at a place: its cells, and those with no complete path with the chance one
 /// event picks each (a share of 0: an edge cell).
@@ -506,6 +507,31 @@ pub const PILLAGER_EYE: f64 = 0.85 * 1.95;
 /// 0.5625 / 3, then the pillager's `ridingOffset(-0.6)`; G1's review: searched standing, it sat
 /// ~0.37 too high).
 pub const PILLAGER_SEAT: f64 = (0.5625f32 / 3.0f32) as f64 - 0.6;
+
+/// An iron golem's eye over its feet (EntityTypes.IRON_GOLEM 1.4 x 2.7, eye 2.7 x 0.85).
+pub const GOLEM_EYE: f64 = 2.295;
+
+/// The block cells a straight segment passes through, its two end cells left out (sampled at
+/// 1/40 block: a visor's candidate cells on a golem's sight ray).
+fn ray_cells(a: Vec3, b: Vec3) -> Vec<BlockPos> {
+    let len = ((b.x - a.x).powi(2) + (b.y - a.y).powi(2) + (b.z - a.z).powi(2)).sqrt();
+    let n = ((len * 40.0).ceil() as usize).max(1);
+    let cell = |p: Vec3| BlockPos::new(p.x.floor() as i32, p.y.floor() as i32, p.z.floor() as i32);
+    let (ca, cb) = (cell(a), cell(b));
+    let mut v: Vec<BlockPos> = Vec::new();
+    for i in 0..=n {
+        let t = i as f64 / n as f64;
+        let c = cell(Vec3::new(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t));
+        if c != ca && c != cb && !v.contains(&c) {
+            v.push(c);
+        }
+    }
+    v
+}
+
+/// An iron golem's follow range: it targets an Enemy it sees within it (IronGolem's
+/// NearestAttackableTargetGoal) and keeps the target while within it.
+pub const GOLEM_TARGET: f64 = 16.0;
 
 /// [`check_claims`], only the rider place at `only` (the others skipped: the fix search's runs).
 fn check_inner(spec: &FarmSpec, home: Option<BlockPos>, foot: &[BlockPos], panic_boxes: &[([i32; 3], [i32; 3])], continuous: bool, claims: &[BlockPos], pills: &[Vec3], only: Option<BlockPos>) -> Result<Vec<Place>, String> {
@@ -1010,7 +1036,7 @@ fn zombie_seat() -> f64 {
 /// blocks already in the design), seated, against every rider point: refused when a pillager sees
 /// a rider inside 8.5 or a zombie has one inside 6.05 (sight or not); the points each covers
 /// (a pillager 8.5..15 in sight, a zombie 6.05..7.95 in sight); the places no post covers.
-pub fn scarer_check(spec: &FarmSpec, extra: &[Vec3], posts: &[(BlockPos, bool)], transient: &[String]) -> Result<Vec<String>, String> {
+pub fn scarer_check(spec: &FarmSpec, extra: &[Vec3], posts: &[(BlockPos, bool)], transient: &[String], golem_pad: Option<([i32; 3], [i32; 3])>) -> Result<Vec<String>, String> {
     let o = RunOpts { ai: true, ..RunOpts::steady(1, 0, WalkMode::Random) };
     let mut run = Run::start(spec, &o)?;
     while run.settle_tick() {}
@@ -1051,15 +1077,39 @@ pub fn scarer_check(spec: &FarmSpec, extra: &[Vec3], posts: &[(BlockPos, bool)],
         if !bad.is_empty() {
             refused += 1;
         }
+        // (the pad golems that see this post within their 16 follow range: 0 required, G1)
+        let mut seers: Vec<String> = Vec::new();
+        if let Some((glo, ghi)) = golem_pad {
+            let eye = Vec3::new(feet.x, feet.y + if *pill { PILLAGER_EYE } else { 1.74 }, feet.z);
+            for gx in glo[0]..=ghi[0] {
+                for gy in glo[1]..=ghi[1] {
+                    for gz in glo[2]..=ghi[2] {
+                        let gf = Vec3::new(gx as f64 + 0.5, gy as f64, gz as f64 + 0.5);
+                        let d = ((gf.x - feet.x).powi(2) + (gf.y - feet.y).powi(2) + (gf.z - feet.z).powi(2)).sqrt();
+                        if d <= GOLEM_TARGET && redsim::entity::mob::los::has_line_of_sight(w, Vec3::new(gf.x, gf.y + GOLEM_EYE, gf.z), eye) {
+                            seers.push(format!("{gx},{gy},{gz} at {d:.2}"));
+                        }
+                    }
+                }
+            }
+            if !seers.is_empty() {
+                refused += 1;
+            }
+        }
         lines.push(format!(
-            "  {} {},{},{}: covers {n} points; the nearest rider {} {}{}",
+            "  {} {},{},{}: covers {n} points; the nearest rider {} {}{}{}",
             if *pill { "pillager" } else { "zombie" },
             c.x,
             c.y,
             c.z,
             if *pill { "it sees" } else { "(sight or not)" },
             if least == f64::MAX { "none within range".to_string() } else { format!("{least:.2}") },
-            if bad.is_empty() { String::new() } else { format!("; REFUSED, {} inside its bar: {}", bad.len(), bad.iter().take(4).cloned().collect::<Vec<_>>().join(", ")) }
+            if bad.is_empty() { String::new() } else { format!("; REFUSED, {} inside its bar: {}", bad.len(), bad.iter().take(4).cloned().collect::<Vec<_>>().join(", ")) },
+            match golem_pad {
+                None => String::new(),
+                Some(_) if seers.is_empty() => "; no pad golem sees it within 16".to_string(),
+                Some(_) => format!("; REFUSED, {} pad golem cells see it within 16: {}", seers.len(), seers.iter().take(4).cloned().collect::<Vec<_>>().join(", ")),
+            }
         ));
     }
     let mut labels: Vec<&str> = Vec::new();
@@ -1109,7 +1159,7 @@ pub fn scarer_check(spec: &FarmSpec, extra: &[Vec3], posts: &[(BlockPos, bool)],
 /// exact least cover over both kinds' posts (`exact_cover`). Not checked here: golem paths to the
 /// posts (`golem_reach`); the laid result goes through the full flee-check (classes, the 6-8 gate).
 #[allow(clippy::too_many_arguments)]
-pub fn scarer_search(spec: &FarmSpec, extra: &[Vec3], lo: [i32; 3], hi: [i32; 3], kind: &str, max_posts: usize, any_floor: bool, exclude: &[([i32; 3], [i32; 3])], near: Option<f64>, walls: bool, target: &[String], exact: Option<usize>, transient: &[String], mix: bool) -> Result<Vec<String>, String> {
+pub fn scarer_search(spec: &FarmSpec, extra: &[Vec3], lo: [i32; 3], hi: [i32; 3], kind: &str, max_posts: usize, any_floor: bool, exclude: &[([i32; 3], [i32; 3])], near: Option<f64>, walls: bool, target: &[String], exact: Option<usize>, transient: &[String], mix: bool, golem_pad: Option<([i32; 3], [i32; 3])>, visor: bool) -> Result<Vec<String>, String> {
     let o = RunOpts { ai: true, ..RunOpts::steady(1, 0, WalkMode::Random) };
     let mut run = Run::start(spec, &o)?;
     while run.settle_tick() {}
@@ -1130,6 +1180,8 @@ pub fn scarer_search(spec: &FarmSpec, extra: &[Vec3], lo: [i32; 3], hi: [i32; 3]
     // (exact: both kinds, every valid open side its own candidate; (cell, covers, open side, a
     // pillager, the blocks it places))
     let mut all: Vec<(BlockPos, Vec<usize>, Option<(i32, i32)>, bool, usize)> = Vec::new();
+    // (each candidate's visor cells, by its index in `all`)
+    let mut visors: HashMap<usize, Vec<BlockPos>> = HashMap::new();
     let kinds: Vec<bool> = if exact.is_some() { vec![true, false] } else { vec![pillager] };
     let mut refused = 0usize;
     for &pill in &kinds {
@@ -1201,6 +1253,85 @@ pub fn scarer_search(spec: &FarmSpec, extra: &[Vec3], lo: [i32; 3], hi: [i32; 3]
                             covers.push(k);
                         }
                     }
+                    // (G1, Nov 12 03:29: an iron golem targets an Enemy it sees within its 16 follow
+                    // range (NearestAttackableTargetGoal, its line of sight eye to eye) and keeps it
+                    // while within 16: a post any pad golem sees within 16 parks golems at the pad's
+                    // edge and keeps the summoners golem-detected; refused, or with --scarer-visor
+                    // shielded by a visor (ironspec Nov 12 03:54): glass on the golems' rays and on
+                    // no covered rider's ray, inside the box and out of every excluded box, the
+                    // fewest cells by a greedy hitting set, then every golem cell and every covered
+                    // point re-checked with it laid)
+                    let mut vis: Vec<BlockPos> = Vec::new();
+                    if !bad {
+                        if let Some((glo, ghi)) = golem_pad {
+                            let golem_rays = |w: &redsim::World| -> Vec<Vec3> {
+                                let mut v = Vec::new();
+                                for gx in glo[0]..=ghi[0] {
+                                    for gy in glo[1]..=ghi[1] {
+                                        for gz in glo[2]..=ghi[2] {
+                                            let gf = Vec3::new(gx as f64 + 0.5, gy as f64, gz as f64 + 0.5);
+                                            let d = ((gf.x - feet.x).powi(2) + (gf.y - feet.y).powi(2) + (gf.z - feet.z).powi(2)).sqrt();
+                                            let ge = Vec3::new(gf.x, gf.y + GOLEM_EYE, gf.z);
+                                            if d <= GOLEM_TARGET && redsim::entity::mob::los::has_line_of_sight(w, ge, eye) {
+                                                v.push(ge);
+                                            }
+                                        }
+                                    }
+                                }
+                                v
+                            };
+                            let rays = golem_rays(w);
+                            if !rays.is_empty() {
+                                if !visor {
+                                    bad = true;
+                                } else {
+                                    let pt_eye = |k: usize| Vec3::new(pts[k].1.x, pts[k].1.y + 1.62, pts[k].1.z);
+                                    let keep: std::collections::HashSet<BlockPos> = covers.iter().flat_map(|&k| ray_cells(pt_eye(k), eye)).collect();
+                                    let ok_cell = |c: &BlockPos| {
+                                        air(w, c.x, c.y, c.z)
+                                            && !keep.contains(c)
+                                            && c.x >= lo[0] - 1
+                                            && c.x <= hi[0] + 1
+                                            && c.z >= lo[2] - 1
+                                            && c.z <= hi[2] + 1
+                                            && !exclude.iter().any(|(a, b)| a[0] <= c.x && c.x <= b[0] && a[1] <= c.y && c.y <= b[1] && a[2] <= c.z && c.z <= b[2])
+                                    };
+                                    let mut sets: Vec<Vec<BlockPos>> = rays.iter().map(|g| ray_cells(*g, eye).into_iter().filter(|c| ok_cell(c)).collect()).collect();
+                                    while !sets.is_empty() {
+                                        if sets.iter().any(|s| s.is_empty()) {
+                                            break;
+                                        }
+                                        let mut count: HashMap<BlockPos, usize> = HashMap::new();
+                                        for s in &sets {
+                                            for c in s {
+                                                *count.entry(*c).or_default() += 1;
+                                            }
+                                        }
+                                        let best = count.iter().max_by_key(|(c, n)| (**n, std::cmp::Reverse((c.y, c.z, c.x)))).map(|(c, _)| *c).expect("a cell");
+                                        vis.push(best);
+                                        sets.retain(|s| !s.contains(&best));
+                                    }
+                                    if !sets.is_empty() {
+                                        bad = true;
+                                        vis.clear();
+                                    } else {
+                                        for c in &vis {
+                                            w.set_block(*c, stone.clone(), redsim::world::flags::CLIENTS);
+                                        }
+                                        let still = golem_rays(w);
+                                        let lost = covers.iter().any(|&k| !redsim::entity::mob::los::has_line_of_sight(w, pt_eye(k), eye));
+                                        for c in &vis {
+                                            w.set_block(*c, air_block.clone(), redsim::world::flags::CLIENTS);
+                                        }
+                                        if !still.is_empty() || lost {
+                                            bad = true;
+                                            vis.clear();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                     for p in &placed {
                         w.set_block(*p, air_block.clone(), redsim::world::flags::CLIENTS);
                     }
@@ -1209,7 +1340,10 @@ pub fn scarer_search(spec: &FarmSpec, extra: &[Vec3], lo: [i32; 3], hi: [i32; 3]
                         continue;
                     }
                     if exact.is_some() && !covers.is_empty() {
-                        all.push((BlockPos::new(x, y, z), covers.clone(), *open, pill, placed.len()));
+                        if !vis.is_empty() {
+                            visors.insert(all.len(), vis.clone());
+                        }
+                        all.push((BlockPos::new(x, y, z), covers.clone(), *open, pill, placed.len() + vis.len()));
                     }
                     if best_cfg.as_ref().is_none_or(|(c, _)| covers.len() > c.len()) {
                         best_cfg = Some((covers, *open));
@@ -1233,7 +1367,7 @@ pub fn scarer_search(spec: &FarmSpec, extra: &[Vec3], lo: [i32; 3], hi: [i32; 3]
             let mut placed: Vec<BlockPos> = Vec::new();
             for &i in sel {
                 let (c, _, o, _, _) = &all[i];
-                for p in post_blocks(*c, *o, any_floor) {
+                for p in post_blocks(*c, *o, any_floor).into_iter().chain(visors.get(&i).cloned().unwrap_or_default()) {
                     if air(w, p.x, p.y, p.z) && !placed.contains(&p) {
                         w.set_block(p, stone.clone(), redsim::world::flags::CLIENTS);
                         placed.push(p);
@@ -1271,7 +1405,7 @@ pub fn scarer_search(spec: &FarmSpec, extra: &[Vec3], lo: [i32; 3], hi: [i32; 3]
             }
             if ok { Some(cov.iter().enumerate().filter(|(_, b)| **b).map(|(k, _)| k).collect()) } else { None }
         };
-        return Ok(exact_cover(&pts, &all, maxk, refused, any_floor, transient, mix, &mut verify));
+        return Ok(exact_cover(&pts, &all, maxk, refused, any_floor, transient, mix, &mut verify, &visors));
     }
     let mut covered = vec![false; pts.len()];
     let mut chosen: Vec<(BlockPos, usize, Option<(i32, i32)>)> = Vec::new();
@@ -1448,7 +1582,7 @@ fn xc_dfs(cx: &mut XcCtx, chosen: &mut Vec<usize>, cov: XcBits, k: usize, max_p:
 /// candidates branched first, a counting bound) after dominated candidates are dropped (a cover
 /// inside another's whose post has no more pillagers and no more blocks; footprint clashes are not
 /// weighed in that drop, so a found set is re-checked built). Points no candidate covers are listed.
-fn exact_cover(pts: &[(String, Vec3)], all: &[(BlockPos, Vec<usize>, Option<(i32, i32)>, bool, usize)], maxk: usize, refused: usize, any_floor: bool, transient: &[String], mix: bool, verify: &mut dyn FnMut(&[usize]) -> Option<Vec<usize>>) -> Vec<String> {
+fn exact_cover(pts: &[(String, Vec3)], all: &[(BlockPos, Vec<usize>, Option<(i32, i32)>, bool, usize)], maxk: usize, refused: usize, any_floor: bool, transient: &[String], mix: bool, verify: &mut dyn FnMut(&[usize]) -> Option<Vec<usize>>, visors: &HashMap<usize, Vec<BlockPos>>) -> Vec<String> {
     let n = pts.len();
     if n > XC_MAX {
         return vec![format!("exact cover: {n} rider points, over the {XC_MAX} the solver holds")];
@@ -1638,7 +1772,20 @@ fn exact_cover(pts: &[(String, Vec3)], all: &[(BlockPos, Vec<usize>, Option<(i32
                     }
                 }
             }
-            lines.push(format!("  {} {},{},{} {} (covers {} points; {nb} placed): stone {}", if *pill { "pillager" } else { "zombie" }, c.x, c.y, c.z, side(*o), cov.len(), b.join(" ")));
+            lines.push(format!(
+                "  {} {},{},{} {} (covers {} points; {nb} placed): stone {}{}",
+                if *pill { "pillager" } else { "zombie" },
+                c.x,
+                c.y,
+                c.z,
+                side(*o),
+                cov.len(),
+                b.join(" "),
+                match visors.get(&i) {
+                    Some(v) => format!("; visor (glass, on the pad golems' rays only) {}", v.iter().map(|p| format!("{},{},{}", p.x, p.y, p.z)).collect::<Vec<_>>().join(" ")),
+                    None => String::new(),
+                }
+            ));
         }
     }
     if answers.is_empty() {

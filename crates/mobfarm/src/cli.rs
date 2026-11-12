@@ -934,6 +934,14 @@ pub enum MobfarmCmd {
         /// re-check inside the search (every post laid at once).
         #[arg(long)]
         scarer_mix: bool,
+        /// With --scarer-exact and --golem-pad: a post a pad golem sees within its 16 follow range
+        /// is shielded by a visor instead of refused (ironspec Nov 12 03:54): glass on every such
+        /// golem's eye ray to the post's mob and on no covered rider's ray, inside the box and out
+        /// of every excluded box (a greedy hitting set), every golem cell and covered point
+        /// re-checked with it laid; its cells are printed with the post and laid in the built
+        /// re-check.
+        #[arg(long)]
+        scarer_visor: bool,
         /// With --scarer-search: a box x0,y0,z0,x1,y1,z1 no post (with its floor and its head
         /// cell) may touch (repeatable: other parts' space, the pad's spawn columns, rider cells).
         #[arg(long, allow_hyphen_values = true)]
@@ -8972,7 +8980,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 std::process::exit(1);
             }
         }
-        MobfarmCmd::FleeCheck { design, home, show, foot, clearing, eye_control, pickup_control, sampled, claim, classes, fix_search, fix_pairs, fix_block, path_watch, path_trace, scarer_search, scarer, scarer_rider, scarer_max, scarer_any_floor, scarer_walls, scarer_target, scarer_exact, scarer_check, scarer_transient, scarer_mix, scarer_exclude, pillager, golem_reach, golem_pad, scarer_near, post_drift, drift_ticks } => {
+        MobfarmCmd::FleeCheck { design, home, show, foot, clearing, eye_control, pickup_control, sampled, claim, classes, fix_search, fix_pairs, fix_block, path_watch, path_trace, scarer_search, scarer, scarer_rider, scarer_max, scarer_any_floor, scarer_walls, scarer_target, scarer_exact, scarer_check, scarer_transient, scarer_mix, scarer_visor, scarer_exclude, pillager, golem_reach, golem_pad, scarer_near, post_drift, drift_ticks } => {
             if !post_drift.is_empty() {
                 anyhow::ensure!(post_drift.len() == 3, "--post-drift x,y,z");
                 let (_c, spec) = load(version, &design)?;
@@ -9012,7 +9020,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     anyhow::ensure!(t.len() == 4 && (t[3] == "pillager" || t[3] == "zombie"), "--scarer-check x,y,z,pillager|zombie");
                     posts.push((redsim::pos::BlockPos::new(t[0].parse()?, t[1].parse()?, t[2].parse()?), t[3] == "pillager"));
                 }
-                for l in crate::fleecheck::scarer_check(&spec, &extra, &posts, &scarer_transient).map_err(|e| anyhow::anyhow!(e))? {
+                let gp = if golem_pad.len() == 6 { Some(([golem_pad[0].min(golem_pad[3]), golem_pad[1].min(golem_pad[4]), golem_pad[2].min(golem_pad[5])], [golem_pad[0].max(golem_pad[3]), golem_pad[1].max(golem_pad[4]), golem_pad[2].max(golem_pad[5])])) } else { None };
+                for l in crate::fleecheck::scarer_check(&spec, &extra, &posts, &scarer_transient, gp).map_err(|e| anyhow::anyhow!(e))? {
                     println!("{l}");
                 }
                 return Ok(());
@@ -9035,7 +9044,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     anyhow::ensure!(v.len() == 6, "--scarer-exclude x0,y0,z0,x1,y1,z1");
                     excl.push(([v[0].min(v[3]), v[1].min(v[4]), v[2].min(v[5])], [v[0].max(v[3]), v[1].max(v[4]), v[2].max(v[5])]));
                 }
-                for l in crate::fleecheck::scarer_search(&spec, &extra, lo, hi, &scarer, scarer_max, scarer_any_floor, &excl, scarer_near, scarer_walls, &scarer_target, scarer_exact, &scarer_transient, scarer_mix).map_err(|e| anyhow::anyhow!(e))? {
+                let gp = if golem_pad.len() == 6 { Some(([golem_pad[0].min(golem_pad[3]), golem_pad[1].min(golem_pad[4]), golem_pad[2].min(golem_pad[5])], [golem_pad[0].max(golem_pad[3]), golem_pad[1].max(golem_pad[4]), golem_pad[2].max(golem_pad[5])])) } else { None };
+                for l in crate::fleecheck::scarer_search(&spec, &extra, lo, hi, &scarer, scarer_max, scarer_any_floor, &excl, scarer_near, scarer_walls, &scarer_target, scarer_exact, &scarer_transient, scarer_mix, gp, scarer_visor).map_err(|e| anyhow::anyhow!(e))? {
                     println!("{l}");
                 }
                 return Ok(());
