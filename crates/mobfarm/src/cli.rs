@@ -96,6 +96,18 @@ pub enum MobfarmCmd {
         #[arg(long, value_delimiter = ',', default_values_t = vec![2i64, 4, 5, 6, 7, 8, 9, 10])]
         pulse: Vec<i64>,
     },
+    /// The siding feeds (`ctlfeed.rs`, ironspec Nov 12 11:22): lanes -1 and 3 fed from below (day-1's
+    /// delay-3 repeater into a slime under ironfarm's feed dust), lane 7 as ruled; R's rise and fall after
+    /// the line's at 20 phases, with a restart at every tick around both edges in every reload order; the
+    /// powered slimes' neighbours, the feed dusts' connections, the seat candidates' cells.
+    CtlFeedBench {
+        /// The line's pulse (gt).
+        #[arg(long, default_value_t = 30)]
+        width: i64,
+        /// Run the bench z-mirrored (`mirror.rs`).
+        #[arg(long)]
+        mirror_z: bool,
+    },
     /// The high re-phase's circuit as blocks (`ctlhigh.rs`, ironspec Nov 12 10:18): HI (compare at 15), its
     /// rising edge, the AND with the window decode's IN_WIN; the load request's delay and width, the rise,
     /// the weather's jump, the fall, IN_WIN both ways and at every offset around the rise.
@@ -137,6 +149,14 @@ pub enum MobfarmCmd {
         /// (8,0,7) on glass hooks) instead of the straight line.
         #[arg(long)]
         real: bool,
+        /// (c′) (ironspec 11:43 / 11:49): the presence-gated release as blocks in the real cells, the
+        /// approach detector's delayed bit AND the live bit, with arrivals, the freeze sweep and the
+        /// phantom-pulse control.
+        #[arg(long)]
+        gate: bool,
+        /// (c′) the settle delay's last repeater (redstone ticks): the detector to H2 in 34 + 2 x this gt.
+        #[arg(long, default_value_t = 2)]
+        settle_rt: i64,
     },
     /// The divert's single atomic read as blocks (`ctldivert.rs`, ironspec Nov 12 03:27): DECIDE = DIV -
     /// DAY held by a repeater unlocked by a rising-edge pulse of D2; DAY's edge at every gt offset around
@@ -240,6 +260,14 @@ pub enum MobfarmCmd {
         stop_walk: i64,
         #[arg(long, default_value_t = 100)]
         stop_nap: i64,
+        /// (ironspec 12:13) A napper is back in its lane this long after its stop entry (onechunk's rev 3
+        /// rows: 529..638 gt; the riders away per lane).
+        #[arg(long, default_value_t = 1000)]
+        back_after: i64,
+        /// (ironspec 12:54) The stale-hold back-pressure: no pick while the queue is occupied OR (the stop
+        /// is held AND NOT REST_l).
+        #[arg(long)]
+        stale_backpressure: bool,
         /// The high re-phase at threshold H (ironspec 09:49; 15: a clear midday only): the load and the
         /// window are derived from a clear run and printed.
         #[arg(long)]
@@ -12389,7 +12417,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::CtlCounterBench { ff_period, no_pend, window_open, window_close, gate_hi, gate_lo, load2, load1, to_bed, early_tol, last_nap, day_inhibit, drop_min, arm, weather_sweep, sweep_step, hatch_lag, no_release, rest_set, rest_reset, stale_hold, no_backpressure, day_rise_load, stop_cycle, stop_walk, stop_nap, high } => {
+        MobfarmCmd::CtlCounterBench { ff_period, no_pend, window_open, window_close, gate_hi, gate_lo, load2, load1, to_bed, early_tol, last_nap, day_inhibit, drop_min, arm, weather_sweep, sweep_step, hatch_lag, no_release, rest_set, rest_reset, stale_hold, no_backpressure, day_rise_load, stop_cycle, stop_walk, stop_nap, back_after, stale_backpressure, high } => {
             let mut o = crate::ctlcounter::CounterOpts {
                 ff_period,
                 pend: !no_pend,
@@ -12411,6 +12439,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 stop_cycle,
                 stop_walk,
                 stop_nap,
+                back_after,
+                stale_backpressure,
                 ..Default::default()
             };
             if let Some(h) = high {
@@ -12446,13 +12476,25 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
         }
-        MobfarmCmd::HoldPulseBench { step, mirror_z, extra, freeze, real } => {
+        MobfarmCmd::HoldPulseBench { step, mirror_z, extra, freeze, real, gate, settle_rt } => {
             crate::mirror::set(mirror_z);
             if mirror_z {
                 println!("hold-pulse-bench{}", crate::mirror::tag());
             }
-            let g = if real { crate::holdpulse::Geo::Real } else { crate::holdpulse::Geo::Line };
-            for l in crate::holdpulse::bench(step.max(1), extra, freeze, g).map_err(|e| anyhow::anyhow!(e))? {
+            if gate {
+                for l in crate::holdpulse::gate_bench(extra, settle_rt, freeze).map_err(|e| anyhow::anyhow!(e))? {
+                    println!("{l}");
+                }
+            } else {
+                let g = if real { crate::holdpulse::Geo::Real } else { crate::holdpulse::Geo::Line };
+                for l in crate::holdpulse::bench(step.max(1), extra, freeze, g).map_err(|e| anyhow::anyhow!(e))? {
+                    println!("{l}");
+                }
+            }
+        }
+        MobfarmCmd::CtlFeedBench { width, mirror_z } => {
+            crate::mirror::set(mirror_z);
+            for l in crate::ctlfeed::bench(width.max(4)).map_err(|e| anyhow::anyhow!(e))? {
                 println!("{l}");
             }
         }
