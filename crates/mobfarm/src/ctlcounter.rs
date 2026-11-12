@@ -59,6 +59,15 @@ pub struct CounterOpts {
     /// release: the detector has updated since any skip by then), where the FIFO push also sits.
     pub day_inhibit: Option<i64>,
     pub to_divert: i64,
+    /// The skip arm (ironspec 01:57): a falling 8-crossing with C in `arm_band` arms trigger 2's
+    /// acceptance for `arm` gt (a skip from daylight drops the level through 8 and its rising
+    /// crossing follows ~150..210 gt later; weather spells last >= 3,600 gt).
+    pub arm: Option<i64>,
+    pub arm_band: (i64, i64),
+    /// The arm as a latch set only by a drop of >= 2 levels through 8 in one detector update (from
+    /// >= 9 to <= 7: a skip from daylight; weather ramps and the sun move < 2 levels an update),
+    /// cleared by trigger 2's acceptance, RISE and the window's opening (no timer).
+    pub arm_drop2: bool,
 }
 
 /// The linear daylight-level model (day time mod 24,000): 0 at night, 1 at RISE rising to 8 at the
@@ -100,6 +109,9 @@ impl Default for CounterOpts {
             night_len: 11_619,
             day_inhibit: None,
             to_divert: 60,
+            arm: None,
+            arm_band: (0, 999),
+            arm_drop2: false,
         }
     }
 }
@@ -140,6 +152,15 @@ pub struct RunOut {
     pub night_inhibited: u32,
     /// The least gap between a divert decision and the inhibit's last change (>= 3 + 1 tick).
     pub inhibit_edge_gap: i64,
+    /// Good picks (not inhibited, the napper at the bed inside the night) per night, keyed by the
+    /// night's dusk day number; nights a skip cut short are listed in `cut_nights`.
+    pub night_picks: std::collections::BTreeMap<i64, u32>,
+    pub cut_nights: std::collections::BTreeSet<i64>,
+    /// Trigger 2 accepted through the arm; and those with no skip in the arm's span before it.
+    pub arm_accepts: u32,
+    pub false_arms: u32,
+    /// The absolute day time at the run's end (for the complete nights).
+    pub end_day: i64,
 }
 
 /// One run: `days` days from day time `d0` at game time 0, releases at game times = `phase` mod 100,
@@ -157,6 +178,10 @@ pub fn run(o: &CounterOpts, days: i64, d0: i64, phase: i64, det_phase: i64, c0: 
     let mut day_hi = false; // level >= the inhibit's L, as last updated
     let mut day_changed_t = -1_000i64;
     let mut diverts: Vec<i64> = Vec::new(); // pending divert decisions (game times)
+    let mut check_at: Option<i64> = None; // the count check at the end of the FF's busy span
+    let mut armed_until = -1i64;
+    let mut arm_latch = false;
+    let mut last_skip_t = -1_000_000i64;
     let (mut rise_pend, mut trig2_pend) = (false, false);
     // FF: (started, next pulse, steps, held releases, target units)
     let mut ff: Option<(i64, i64, i64, i64, i64)> = None;
@@ -180,6 +205,13 @@ pub fn run(o: &CounterOpts, days: i64, d0: i64, phase: i64, det_phase: i64, c0: 
         while ev_i < evs.len() && evs[ev_i].0 <= t {
             match evs[ev_i].1 {
                 Ev::Skip => {
+                    // (a skip at night cuts that night short; keyed by its dusk's day number)
+                    if day.rem_euclid(24_000) >= 12_000 {
+                        out.cut_nights.insert(day.div_euclid(24_000));
+                    } else if day.rem_euclid(24_000) < 1_000 {
+                        out.cut_nights.insert(day.div_euclid(24_000) - 1);
+                    }
+                    last_skip_t = t;
                     day = (day.div_euclid(24_000) + 1) * 24_000;
                     // (sleeping through the night clears the weather)
                     dark_until = -1;
@@ -197,7 +229,11 @@ pub fn run(o: &CounterOpts, days: i64, d0: i64, phase: i64, det_phase: i64, c0: 
         // the detector
         if (t - det_phase).rem_euclid(o.det_period) == 0 {
             let d = if t < dark_until { dark } else { 0 };
+            let prev_level = level_int;
             level_int = (level(o, dm).round() as i64 - d).max(0);
+            if o.arm_drop2 && prev_level >= 9 && level_int <= 7 {
+                arm_latch = true;
+            }
             if let Some(l) = o.day_inhibit {
                 let hi_now = level_int >= l;
                 if hi_now != day_hi {
@@ -209,10 +245,19 @@ pub fn run(o: &CounterOpts, days: i64, d0: i64, phase: i64, det_phase: i64, c0: 
             let eight = dm >= o.eight_day && dm < 12_000 - o.eight_day && t >= rain_until;
             if hi && !level_hi {
                 rise_pend = true;
+                arm_latch = false;
             }
             if eight && !eight_hi {
                 let c = c_of(u, tens);
-                let acc = c >= o.gate.0 || c <= o.gate.1;
+                let by_gate = c >= o.gate.0 || c <= o.gate.1;
+                let by_arm = (o.arm.is_some() && t < armed_until) || (o.arm_drop2 && arm_latch);
+                let acc = by_gate || by_arm;
+                if by_arm && !by_gate {
+                    out.arm_accepts += 1;
+                    if t - last_skip_t > o.arm.unwrap_or(300) + 40 {
+                        out.false_arms += 1;
+                    }
+                }
                 // (`since`: gt since the release that set C; a release in this same tick has not
                 // stepped yet when the detector updates, so 0 means a full period)
                 let since = match (t - phase).rem_euclid(100) {
@@ -223,6 +268,18 @@ pub fn run(o: &CounterOpts, days: i64, d0: i64, phase: i64, det_phase: i64, c0: 
                 if acc {
                     trig2_pend = true;
                     rise_pend = false;
+                    armed_until = -1;
+                    arm_latch = false;
+                }
+            }
+            // (the arm: a falling 8-crossing with C in the band)
+            if let Some(span) = o.arm
+                && !eight
+                && eight_hi
+            {
+                let c = c_of(u, tens);
+                if c >= o.arm_band.0 && c <= o.arm_band.1 {
+                    armed_until = t + span;
                 }
             }
             level_hi = hi;
@@ -241,8 +298,10 @@ pub fn run(o: &CounterOpts, days: i64, d0: i64, phase: i64, det_phase: i64, c0: 
                 busy_until = t + o.ff_period;
                 if held > 0 {
                     pend_at = Some(t + o.ff_period);
-                } else if let Some(load) = rephase.take() {
-                    out.count_errors.push(c_of(u, tens) - (load + releases_since));
+                } else {
+                    // (G1 on 100874aa8: a release may still be held in the trailing busy span, so
+                    // the count is checked at its end (or at the pending step))
+                    check_at = Some(busy_until);
                 }
             } else {
                 ff = Some((st, t + o.ff_period, steps, hd, target));
@@ -257,7 +316,17 @@ pub fn run(o: &CounterOpts, days: i64, d0: i64, phase: i64, det_phase: i64, c0: 
             }
             held = 0;
             pend_at = None;
+            check_at = None;
             if let Some(load) = rephase.take() {
+                out.count_errors.push(c_of(u, tens) - (load + releases_since));
+            }
+        }
+        // the count check at the end of the FF's busy span (nothing held)
+        if check_at == Some(t) {
+            check_at = None;
+            if pend_at.is_none()
+                && let Some(load) = rephase.take()
+            {
                 out.count_errors.push(c_of(u, tens) - (load + releases_since));
             }
         }
@@ -276,6 +345,12 @@ pub fn run(o: &CounterOpts, days: i64, d0: i64, phase: i64, det_phase: i64, c0: 
             }
             if early && !inhibited {
                 out.daylight_picks += 1;
+            }
+            // (the night's naps: the napper at the bed inside the night, not inhibited)
+            let arrive_abs = day + (o.to_bed - o.to_divert);
+            let dm_a = arrive_abs.rem_euclid(24_000);
+            if !inhibited && dm_a >= o.bed_clear - o.early_tol && dm_a < o.night_end {
+                *out.night_picks.entry(arrive_abs.div_euclid(24_000)).or_default() += 1;
             }
         }
         // the release
@@ -354,6 +429,9 @@ pub fn run(o: &CounterOpts, days: i64, d0: i64, phase: i64, det_phase: i64, c0: 
             if w && !in_window && rephased_once {
                 out.opens.push((dm, c));
             }
+            if w && !in_window {
+                arm_latch = false;
+            }
             in_window = w;
             // (a pick: the window open at a pick phase (the window's first release and every 3rd:
             // lanes A/B/C at offsets 0/3/6 of the 10-cycle); decided at its divert)
@@ -363,6 +441,7 @@ pub fn run(o: &CounterOpts, days: i64, d0: i64, phase: i64, det_phase: i64, c0: 
         }
         day += 1;
     }
+    out.end_day = day;
     out
 }
 
@@ -386,6 +465,9 @@ pub struct ScenOut {
     pub daylight: u32,
     pub night_inh: u32,
     pub edge_gap: i64,
+    /// The fewest good naps over the complete nights no skip cut (G1 on 100874aa8: 24 a night).
+    pub min_night: u32,
+    pub false_arms: u32,
 }
 
 /// A scenario over release phases (every `phase_step`), the given detector phases and every units
@@ -395,13 +477,22 @@ pub fn scenario(o: &CounterOpts, evs: &[(i64, Ev)]) -> ScenOut {
 }
 
 pub fn scenario_with(o: &CounterOpts, evs: &[(i64, Ev)], phase_step: usize, det_phases: &[i64]) -> ScenOut {
-    let mut s = ScenOut { open_min: i64::MAX, open_max: i64::MIN, hi: (0, i64::MAX), lo: (0, i64::MAX), rej: (0, i64::MAX), min_spacing: i64::MAX, edge_gap: i64::MAX, ..Default::default() };
+    let mut s = ScenOut { open_min: i64::MAX, open_max: i64::MIN, hi: (0, i64::MAX), lo: (0, i64::MAX), rej: (0, i64::MAX), min_spacing: i64::MAX, edge_gap: i64::MAX, min_night: u32::MAX, ..Default::default() };
     for phase in (0..100).step_by(phase_step) {
         for &det_phase in det_phases {
             for c0 in 100i64..110 {
                 s.runs += 1;
                 let r = run(o, 3, 20_000, phase, det_phase, c0, evs);
                 s.edge_gap = s.edge_gap.min(r.inhibit_edge_gap);
+                s.false_arms += r.false_arms;
+                // (complete nights from key 1 (the run starts inside key 0's night) whose end the run
+                // reached, none cut by a skip)
+                let last_complete = (r.end_day - 23_850).div_euclid(24_000);
+                for k in 1..=last_complete {
+                    if !r.cut_nights.contains(&k) {
+                        s.min_night = s.min_night.min(r.night_picks.get(&k).copied().unwrap_or(0));
+                    }
+                }
                 for (st, last, steps, held) in &r.ffs {
                     s.ff_max = s.ff_max.max(last - st);
                     s.ff_steps_max = s.ff_steps_max.max(*steps);
@@ -443,6 +534,84 @@ pub fn scenario_with(o: &CounterOpts, evs: &[(i64, Ev)], phase_step: usize, det_
     s
 }
 
+/// The siding windows (ironspec 01:13, option 1): each lane's 100-gt window [R(c) + a, R(c+1) + a),
+/// its edges taken from the release chain's taps (a in 0..=a_max, even: 2 gt a stage), placed on
+/// the predecessor's pass at R(pick + 6) + T_pb (the lane runs 7 carts while its napper is away, so
+/// the cart released just before the napper comes round 7 releases later, i.e. pick - 1 + 7). Picks
+/// at u = window_open + 0/3/6. Prints each lane's window phase u, tap a, the margins to the window's
+/// edges, and the ring's token set (u 0 the unstackable: the reset).
+pub fn sidings(window_open: i64, t_pb: [i64; 3], a_max: i64) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut tokens = std::collections::BTreeSet::new();
+    tokens.insert(0i64);
+    let mut worst = i64::MAX;
+    let names = ["A (x -1)", "B (x 3)", "C (x 7)"];
+    let mut parts = Vec::new();
+    for (l, off) in [0i64, 3, 6].iter().enumerate() {
+        let pick_u = (window_open + off).rem_euclid(10);
+        tokens.insert(pick_u);
+        // the pass, in release units after the pick: 6 + T_pb / 100
+        let base = 6 + t_pb[l].div_euclid(100);
+        let q = t_pb[l].rem_euclid(100);
+        // candidates: the window in cycle `base` (pass at +q) or `base - 1` (pass at +q + 100)
+        let mut best: Option<(i64, i64, i64, i64)> = None; // (min margin, c_rel, a, before)
+        for a in (0..=a_max).step_by(2) {
+            for (c_rel, at) in [(base, q), (base - 1, q + 100)] {
+                let before = at - a;
+                let after = a + 100 - at;
+                if before <= 0 || after <= 0 {
+                    continue;
+                }
+                let m = before.min(after);
+                if best.is_none_or(|b| m > b.0) {
+                    best = Some((m, c_rel, a, before));
+                }
+            }
+        }
+        let Some((m, c_rel, a, before)) = best else {
+            parts.push(format!("{}: no window", names[l]));
+            continue;
+        };
+        let win_u = (pick_u + c_rel).rem_euclid(10);
+        tokens.insert(win_u);
+        worst = worst.min(m);
+        parts.push(format!(
+            "{} pick u {pick_u}, T_pb {}: window u {win_u} (the {}th release after the pick) + tap {a} gt (stage {}), the pass {before} gt after the window opens and {} before it closes",
+            names[l], t_pb[l], c_rel, a / 2, 100 - before
+        ));
+    }
+    let toks: Vec<String> = tokens.iter().map(|t| t.to_string()).collect();
+    lines.push(format!(
+        "sidings (window C {window_open}.., picks u {}/{}/{}; chain taps 0..{a_max} gt): {}; the ring's tokens at u {{{}}} ({} tokens, u 0 the unstackable; the event counter {} events a period, {} bulbs); the least margin {worst} gt",
+        window_open.rem_euclid(10), (window_open + 3).rem_euclid(10), (window_open + 6).rem_euclid(10),
+        parts.join("; "), toks.join(", "), tokens.len(), tokens.len(),
+        if tokens.len() <= 4 { 2 } else if tokens.len() <= 8 { 3 } else { 4 }
+    ));
+    lines
+}
+
+/// One skip at day time `d` (on the run's second calendar day): the naps (min, max over release
+/// phases x units phases) that night and the night after. "That night" is the night after the jump
+/// for a skip by day (d < 12,000), the cut night for a skip at night.
+pub fn skip_naps(o: &CounterOpts, d: i64) -> ((u32, u32), (u32, u32), u32) {
+    // (the run starts at day time 20,000 (key 0); key 1's day time d is game time 4,000 + d)
+    let evs = vec![(4_000 + d, Ev::Skip)];
+    let that_key = if d < 12_000 { 2 } else { 1 };
+    let (mut that, mut after) = ((u32::MAX, 0u32), (u32::MAX, 0u32));
+    let mut daylight = 0u32;
+    for phase in (0..100).step_by(10) {
+        for c0 in [100i64, 103, 106, 109] {
+            let r = run(o, 4, 20_000, phase, 0, c0, evs.as_slice());
+            let a = r.night_picks.get(&that_key).copied().unwrap_or(0);
+            let b = r.night_picks.get(&(that_key + 1)).copied().unwrap_or(0);
+            that = (that.0.min(a), that.1.max(a));
+            after = (after.0.min(b), after.1.max(b));
+            daylight += r.daylight_picks;
+        }
+    }
+    (that, after, daylight)
+}
+
 /// The bench: both variants, the scripted scenarios, ironspec's bars per variant.
 pub fn bench(base: &CounterOpts) -> Vec<String> {
     let mut lines = Vec::new();
@@ -475,6 +644,7 @@ pub fn bench(base: &CounterOpts) -> Vec<String> {
         let mut daylight_total = 0u32;
         let mut night_inh_total = 0u32;
         let mut worst_edge = i64::MAX;
+        let mut normal_min_night = 0u32;
         for (label, evs) in &scen {
             let s = scenario(o, evs);
             let m = |x: i64| if x == i64::MAX { "-".to_string() } else { x.to_string() };
@@ -495,15 +665,19 @@ pub fn bench(base: &CounterOpts) -> Vec<String> {
             worst_spacing = worst_spacing.min(s.min_spacing);
             bad_counts += s.cerr_bad;
             lines.push(format!(
-                "  {label}: the window opens at day {}..{} (night margin at the worst trip {:.1}%; the first napper {} gt {} the bar); picks whose napper reaches the bed before the stop takes it {} (of {} runs); trigger 2 accepted high {} (least {} gt inside), accepted low {} (least {} gt inside), rejected {} (least {} gt outside); FF longest {} gt ({} steps, {} held), overflows {}, absorbed {}; ring pulses at least {} gt apart; count errors {} of {}",
+                "  {label}: the window opens at day {}..{} (night margin at the worst trip {:.1}%; the first napper {} gt {} the bar); naps a night (complete nights no skip cut) least {} of 24; picks whose napper reaches the bed before the stop takes it {} (of {} runs); trigger 2 accepted high {} (least {} gt inside), accepted low {} (least {} gt inside), rejected {} (least {} gt outside); FF longest {} gt ({} steps, {} held), overflows {}, absorbed {}; ring pulses at least {} gt apart; count errors {} of {}",
                 m(s.open_min), if s.open_max == i64::MIN { "-".to_string() } else { s.open_max.to_string() },
                 night, early.abs(), if early >= 0 { "inside" } else { "BEFORE" },
+                if s.min_night == u32::MAX { "-".to_string() } else { s.min_night.to_string() },
                 s.daylight, s.runs,
                 s.hi.0, m(s.hi.1), s.lo.0, m(s.lo.1), s.rej.0, m(s.rej.1),
                 s.ff_max, s.ff_steps_max, s.held_max, s.ovf, s.absorbed, m(s.min_spacing), s.cerr_bad, s.cerr_n
             ));
             daylight_total += s.daylight;
             night_inh_total += s.night_inh;
+            if *label == "normal days" {
+                normal_min_night = s.min_night;
+            }
         }
         // (ironspec 01:38: every skip time inside the window x weather; the FF variant only)
         if o.variant == Variant::Ff {
@@ -555,7 +729,8 @@ pub fn bench(base: &CounterOpts) -> Vec<String> {
         let pass_spacing = worst_spacing >= o.ff_period;
         let pass_counts = bad_counts == 0;
         lines.push(format!(
-            "  => bars: night margin {:.1}% ({}); the first napper's arrival {} gt ({}); picks before the beds take them {} ({}); {}gate margins >= 1 release: least {} gt ({}); ring pulses >= {} gt apart: least {} ({}); count errors {} ({})",
+            "  => bars: every normal night 24 naps: least {normal_min_night} ({}); night margin {:.1}% ({}); the first napper's arrival {} gt ({}); picks before the beds take them {} ({}); {}gate margins >= 1 release: least {} gt ({}); ring pulses >= {} gt apart: least {} ({}); count errors {} ({})",
+            if normal_min_night >= 24 { "pass" } else { "FAIL" },
             worst_night, if pass_night { "pass" } else { "FAIL" },
             worst_early, if pass_early { "pass" } else { "FAIL" },
             daylight_total, if daylight_total == 0 { "pass" } else { "FAIL" },

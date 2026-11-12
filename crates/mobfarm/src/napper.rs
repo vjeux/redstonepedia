@@ -783,6 +783,12 @@ pub struct LaneOpts {
     /// detector's rise at day 170..188 instead of the first morning rise at 22,331 (tick-exact's
     /// daylight bridge, Nov 11 23:26), so that day's decodes land ~1,840 gt late.
     pub rephase_lag: i64,
+    /// The window after a skip keeps only its first N releases' picks (the daytime thunderstorm skip
+    /// as is: the count a day off, the window open by day under the daylight inhibit, its tail at night).
+    pub truncate_after_skip: Option<i64>,
+    /// A napper held at the bed queue (D, IN_DAY, ADD): the first pick at or after day D's IN_DAY
+    /// gets +ADD gt on its trip (a skip's daylight napper waiting for dusk behind the NOT-DAY gate).
+    pub hold_at: Option<(usize, i64, i64)>,
     /// Strict rhythm: the controller's siding rule (ironspec Nov 11 23:54): a napper rejoins only at
     /// its lane's phase window (its pick's offset + lanes' length - 1, mod k) behind the cart passing
     /// then; a late napper waits a whole window (one period) and rejoins behind that period's cart.
@@ -811,6 +817,10 @@ pub struct LaneStats {
     /// The busiest night's bed occupancy (entry to the queue's release, summed) over the pick
     /// window (per_lane * k cycles).
     pub util_max: f64,
+    /// Summons lost to an expired LAST_SLEPT over the scored days (golems), and the largest
+    /// LAST_SLEPT age any villager reached (gt; >= 24,000 = out of the summons).
+    pub lost_expiry: f64,
+    pub max_age: i64,
 }
 
 /// The wait at a gate opening only inside `w` (gt after a release, mod 100).
@@ -857,6 +867,9 @@ pub fn simulate_lanes_scored(o: &LaneOpts) -> (String, LaneStats) {
     let mut lane_len_hist: std::collections::BTreeMap<usize, u64> = std::collections::BTreeMap::new();
     let mut night_idx: Option<i64> = None;
     let (mut golems, mut lost_lock, mut lost_expiry, mut lost_short, mut lost_skip) = (0usize, 0usize, 0usize, 0usize, 0usize);
+    // (the largest LAST_SLEPT age any villager reaches over the scored days, ironspec Nov 12 02:10)
+    let mut max_age = 0i64;
+    let mut hold_used = false;
     let (mut least_distinct, mut short_nights, mut min_lane, mut ticks_below) = (usize::MAX, 0usize, usize::MAX, 0usize);
     let mut scored_ticks = 0usize;
     let cycles_per_day = o.day_gt / 100;
@@ -926,6 +939,11 @@ pub fn simulate_lanes_scored(o: &LaneOpts) -> (String, LaneStats) {
             }
         }
         let fresh = |b: usize| last_sleep[b].is_some_and(|ls| t0 - ls < 24000);
+        if scored {
+            for ls in last_sleep.iter().flatten() {
+                max_age = max_age.max(t0 - ls);
+            }
+        }
         let unlocked = |b: usize| !o.lock || locked_until[b] <= t0;
         // (keep-place: a napper still away at its slot's turn is a hole)
         let all = batch.iter().all(|b| b.is_some_and(|b| !o.keep_place || !away.iter().any(|a| a.0 == b)));
@@ -979,6 +997,9 @@ pub fn simulate_lanes_scored(o: &LaneOpts) -> (String, LaneStats) {
                 let lane_free = away.iter().all(|a| lane_of(a.0) != l);
                 let period = o.k as i64;
                 in_night && lane_free && lane_picks[l] < o.per_lane && (c - night_c0).rem_euclid(period) == (l * o.k / o.lanes) as i64
+                    // (the window after a skip cut to its first N releases: a daytime thunderstorm
+                    // skip leaves the count a day off, so only the window's tail is at night)
+                    && !(lag_day == Some(day) && o.truncate_after_skip.is_some_and(|n| c - night_c0 >= n))
             } else if per_bed {
                 let lane_free = away.iter().all(|a| lane_of(a.0) != l);
                 // (one bed shared by turns: nobody in it, and this lane's turn)
@@ -1020,6 +1041,16 @@ pub fn simulate_lanes_scored(o: &LaneOpts) -> (String, LaneStats) {
                     } else {
                         0
                     };
+                    // (a napper held at the bed queue until dusk: the first pick at or after day D's
+                    // IN_DAY gets +ADD on its trip (ironspec Nov 12 02:28: the queue's NOT-DAY gate))
+                    let extra = extra
+                        + match o.hold_at {
+                            Some((hd, hat, add)) if !hold_used && day == hd as i64 && in_day >= hat => {
+                                hold_used = true;
+                                add
+                            }
+                            _ => 0,
+                        };
                     // (ironspec Nov 11 22:46: the trip range is the bed's cycle, entry -> R -> the
                     // returning napper at the lift's foot (the queue releases on that evidence); 60 gt
                     // from the divert to the stop's entry before it, `post` from the lift's foot to the
@@ -1132,7 +1163,7 @@ pub fn simulate_lanes_scored(o: &LaneOpts) -> (String, LaneStats) {
     for busy in night_busy.values() {
         util_max = util_max.max(*busy as f64 / window_gt);
     }
-    let stats = LaneStats { golems: golems as f64 / days, max_queue, max_trip, latest_lie, late_naps, util_max };
+    let stats = LaneStats { golems: golems as f64 / days, max_queue, max_trip, latest_lie, late_naps, util_max, lost_expiry: lost_expiry as f64, max_age };
     let per_day: Vec<String> = golems_day.iter().filter(|(d, _)| **d >= o.warmup as i64 - 1).map(|(d, g)| format!("d{d} {g}")).collect();
     let lens: Vec<String> = lane_len_hist.iter().map(|(l, n)| format!("{l}:{n}")).collect();
     let foot = if o.turns == 3 {

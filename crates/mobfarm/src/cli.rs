@@ -102,6 +102,19 @@ pub enum MobfarmCmd {
         #[arg(long)]
         day_inhibit: Option<i64>,
     },
+    /// The controller's siding windows (`ctlcounter.rs::sidings`, ironspec's option 1): per lane the
+    /// window's phase and chain tap centred on the predecessor's pass, from each lane's T_pb (the
+    /// pocket -> branch time; `--t-pb A,B,C`, repeatable for a grid); the ring's token set.
+    CtlSidingBench {
+        #[arg(long, default_value_t = 141)]
+        window_open: i64,
+        /// T_pb for lanes A,B,C (x -1, 3, 7); repeat the flag for more rows.
+        #[arg(long, value_delimiter = ',', num_args = 1)]
+        t_pb: Vec<i64>,
+        /// The release chain's last tap (gt after RELEASE).
+        #[arg(long, default_value_t = 40)]
+        a_max: i64,
+    },
     /// The fast liveness ring (`ringbench.rs`): writes its design (24 rail cells, 8 detectors, 2
     /// carts) to `--out`, runs it `--ticks` gt and prints the gaps between the detectors' rising
     /// edges, the false drops of a `--stretch` gt stretcher, each detector's own spacing, the carts'
@@ -343,6 +356,23 @@ pub enum MobfarmCmd {
         /// counter re-phasing on the detector's 170..188 rise instead of 22,331: ~1,840).
         #[arg(long, default_value_t = 0)]
         rephase_lag: i64,
+        /// The lane model: the window after a skip keeps only its first N releases' picks (the daytime
+        /// thunderstorm skip as is).
+        #[arg(long)]
+        truncate_after_skip: Option<i64>,
+        /// The lane model + the controller's counter (ironspec Nov 12 02:10): a skip at every day time
+        /// 0..12,000 (step `--sweep-step`) plus the rain-dusk and bed-time references, as is and with
+        /// the falling-8 arm: naps that night and the night after (the counter, daylight inhibit L 7),
+        /// the largest LAST_SLEPT age and the golems lost to expiry (the lane model, that night cut to
+        /// the counter's naps).
+        #[arg(long)]
+        thunder_sweep: bool,
+        #[arg(long, default_value_t = 100)]
+        sweep_step: i64,
+        /// The lane model: a napper held at the bed queue, D,IN_DAY,ADD (the first pick at or after
+        /// day D's IN_DAY gets +ADD gt on its trip).
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        hold_at: Vec<i64>,
         /// The lane model, strict rhythm: the controller's siding rule (a napper rejoins only at its
         /// lane's phase window, behind the cart passing then; a late one waits a whole period).
         #[arg(long)]
@@ -6716,7 +6746,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
         }
-        MobfarmCmd::NapperPicker { carts, visits, picker, k, offset, every, keep_place, gate_m, gate_lap, gate_batches, virtual_count, gate_lap_off, gate_virtual, free_at_reentry, rearm_jitter, golemless, count_golems, freeze, skip_night, skip_alarm, pass_fault, register_carry, spacing, slow_visit, trip_bound, gate_carts, empty_cart, register_after, empty_trip, skip_per_day, events, watchdog, pad_roll, arrive, events_from, recover_k, lock, lock_gt, remark, idle, lanes, beds, lane_exact, turns, outlier, post, foot, r_leg, window, det, lie, strand_search, max_away, jump, jump_every, absence, watchdog_table, trip, sleep_at, days, warmup, seed, night_gt, cross_at, dusk_at, start_dt, rephase_lag, siding_window, ret, table, sweep_k } => {
+        MobfarmCmd::NapperPicker { carts, visits, picker, k, offset, every, keep_place, gate_m, gate_lap, gate_batches, virtual_count, gate_lap_off, gate_virtual, free_at_reentry, rearm_jitter, golemless, count_golems, freeze, skip_night, skip_alarm, pass_fault, register_carry, spacing, slow_visit, trip_bound, gate_carts, empty_cart, register_after, empty_trip, skip_per_day, events, watchdog, pad_roll, arrive, events_from, recover_k, lock, lock_gt, remark, idle, lanes, beds, lane_exact, turns, outlier, post, foot, r_leg, window, det, lie, strand_search, max_away, jump, jump_every, absence, watchdog_table, trip, sleep_at, days, warmup, seed, night_gt, cross_at, dusk_at, start_dt, rephase_lag, truncate_after_skip, thunder_sweep, sweep_step, hold_at, siding_window, ret, table, sweep_k } => {
             let absence = match absence.as_slice() {
                 [] => None,
                 [d, dt, len] => Some((*d as usize, *dt, *len)),
@@ -6743,7 +6773,62 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     [a, b] => (*a, *b),
                     _ => bail!("--window LO,HI"),
                 };
-                let lo_ = crate::napper::LaneOpts { lanes, per_lane: carts / lanes, k, beds, turns, visits, lane_exact, keep_place, skip_per_day, lock, trip: (lo, hi), sleep_at, spacing, cross_at, days, warmup, seed, night_gt, day_gt: 24000, dusk_at, jump, jump_every, outlier, post, foot, r_leg, window, det, lie, start_dt, rephase_lag, siding_window, ret, lock_gt, remark };
+                let hold_at = match hold_at.as_slice() {
+                    [] => None,
+                    [d, at, add] => Some((*d as usize, *at, *add)),
+                    _ => bail!("--hold-at D,IN_DAY,ADD"),
+                };
+                let lo_ = crate::napper::LaneOpts { lanes, per_lane: carts / lanes, k, beds, turns, visits, lane_exact, keep_place, skip_per_day, lock, trip: (lo, hi), sleep_at, spacing, cross_at, days, warmup, seed, night_gt, day_gt: 24000, dusk_at, jump, jump_every, outlier, post, foot, r_leg, window, det, lie, start_dt, rephase_lag, truncate_after_skip, hold_at, siding_window, ret, lock_gt, remark };
+                if thunder_sweep {
+                    // (the counter: daylight inhibit L 7 on the linear level model; the arm: a falling
+                    // 8-crossing arms trigger 2 for 300 gt)
+                    let co = crate::ctlcounter::CounterOpts { day_inhibit: Some(7), ..Default::default() };
+                    let ca = crate::ctlcounter::CounterOpts { arm: Some(300), ..co.clone() };
+                    let cd = crate::ctlcounter::CounterOpts { arm_drop2: true, ..co.clone() };
+                    // (picks in the first n releases of a window: lanes at offsets 0/3/6 of 10)
+                    let picks_in = |n: i64| 3 * (n / 10) + [0i64, 3, 6].iter().filter(|o| **o < n % 10).count() as i64;
+                    let n_for = |naps: u32| -> Option<i64> {
+                        if naps >= 24 {
+                            return None;
+                        }
+                        (0..=80).find(|n| picks_in(*n) >= naps as i64)
+                    };
+                    let base = crate::napper::simulate_lanes_scored(&lo_).1;
+                    println!(
+                        "thunder sweep (ironspec Nov 12 02:10): the lane model as above (baseline unskipped: {:.1} a day, {} golems lost to expiry, the largest LAST_SLEPT age {} gt); per skip day time d: naps that night / the night after (the counter, min..max over 40 phases; for a skip at night, that night is the one it cuts), the largest LAST_SLEPT age, golems lost to expiry against the baseline; as is | the falling-8 arm (300 gt) | the 2-level-drop latch",
+                        base.golems, base.lost_expiry, base.max_age
+                    );
+                    let mut rows: Vec<(String, i64)> = Vec::new();
+                    for d in (0..=12_000).step_by(sweep_step.max(1) as usize) {
+                        rows.push((format!("{d}"), d));
+                    }
+                    rows.push(("rain-dusk bed-time 12,102".into(), 12_102));
+                    rows.push(("bed-time 12,623".into(), 12_623));
+                    let mut worst = [0f64; 3];
+                    for (label, d) in rows {
+                        let jump_at = if d < 12_000 { (9usize, d + 24_000 - start_dt) } else { (10usize, d - start_dt) };
+                        let mut cells = Vec::new();
+                        for (vi, copts) in [&co, &ca, &cd].into_iter().enumerate() {
+                            let (that, after, daylight) = crate::ctlcounter::skip_naps(copts, d);
+                            // (the lane model cuts the window after the jump: a skip by day lands
+                            // before "that night"; a skip at night cuts its own night, the model's
+                            // next window is "the night after")
+                            let cut = if d < 12_000 { that.0 } else { after.0 };
+                            let o2 = crate::napper::LaneOpts { jump: Some(jump_at), truncate_after_skip: n_for(cut), ..lo_.clone() };
+                            let st = crate::napper::simulate_lanes_scored(&o2).1;
+                            let lost = st.lost_expiry - base.lost_expiry;
+                            worst[vi] = worst[vi].max(lost);
+                            cells.push(format!(
+                                "naps {}..{} / {}..{}, LAST_SLEPT max {}, lost {:.0}{}",
+                                that.0, that.1, after.0, after.1, st.max_age, lost,
+                                if daylight > 0 { format!(", daylight picks {daylight}") } else { String::new() }
+                            ));
+                        }
+                        println!("  d {label}: {} | {} | {}", cells[0], cells[1], cells[2]);
+                    }
+                    println!("  => the worst skip: as is {:.0} golems lost, the falling-8 arm {:.0}, the 2-level-drop latch {:.0}", worst[0], worst[1], worst[2]);
+                    return Ok(());
+                }
                 println!("{}", crate::napper::simulate_lanes(&lo_));
                 if strand_search {
                     // (the strand margin: the largest +ADD, one strand a night, that loses no golem)
@@ -6912,6 +6997,16 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             };
             for l in lines.map_err(|e| anyhow::anyhow!(e))? {
                 println!("{l}");
+            }
+        }
+        MobfarmCmd::CtlSidingBench { window_open, t_pb, a_max } => {
+            let t_pb = if t_pb.is_empty() { vec![152, 215, 296] } else { t_pb };
+            for row in t_pb.chunks(3) {
+                if row.len() == 3 {
+                    for l in crate::ctlcounter::sidings(window_open, [row[0], row[1], row[2]], a_max) {
+                        println!("{l}");
+                    }
+                }
             }
         }
         MobfarmCmd::CtlCounterBench { ff_period, no_pend, window_open, window_close, gate_hi, gate_lo, load2, load1, to_bed, early_tol, last_nap, day_inhibit } => {
