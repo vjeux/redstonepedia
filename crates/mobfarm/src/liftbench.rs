@@ -39,6 +39,10 @@ pub struct LiftOpts {
     pub split3: bool,
     /// The shaft's four wall cells as unconnected fence posts (sight-passing walls).
     pub pane_walls: bool,
+    /// The rider-height mark: the rider's feet this far over the entry's (default 11.95).
+    pub reach_dy: f64,
+    /// A detector rail on the entry line at this x (the napper-only leg's evidence detector).
+    pub detector_at: Option<i32>,
     /// The bench frozen (its chunks at level 32: blocks tick, entities don't) from tick FROM for LEN
     /// gt; the carts' launches wait it out.
     pub freeze: Option<(i64, i64)>,
@@ -74,7 +78,9 @@ fn build(o: &LiftOpts) -> Result<FarmSpec, String> {
         }
     }
     for x in 1..=o.entry_len {
-        blocks.push((BlockPos::new(x, 0, 0), flat.clone()));
+        // (`detector_at`: the napper-only leg's evidence detector, its rise the queue's release)
+        let r = if o.detector_at == Some(x) { Block::parse("minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]")? } else { flat.clone() };
+        blocks.push((BlockPos::new(x, 0, 0), r));
         blocks.push((BlockPos::new(x, -1, 0), glass.clone()));
     }
     if o.merge3 {
@@ -198,6 +204,8 @@ struct CartLog {
     launch: Option<i64>,
     /// The rider's feet 11.95 above the entry rail's (the summoners' level), live gt from launch.
     reach: Option<i64>,
+    /// The entry detector's rise under this cart, live gt from launch.
+    det_rise: Option<i64>,
     /// Landed on the exit rail (x < 0, on the rail's level): live gt from launch, the speed then.
     exit: Option<(i64, f64)>,
     launch_live: i64,
@@ -228,7 +236,8 @@ pub fn lift_bench(o: &LiftOpts) -> Result<String, String> {
         o.speed,
         if spill.is_empty() { "none".to_string() } else { spill.join(" ") }
     ));
-    let mut logs: Vec<CartLog> = (0..o.carts).map(|_| CartLog { id: None, rider: None, met_column: None, top_y: f64::NEG_INFINITY, top_at: None, least_air: i32::MAX, dismounted: None, hurt: 0.0, eye_in_block: 0, end: None, launch: None, reach: None, exit: None, launch_live: 0 }).collect();
+    let mut logs: Vec<CartLog> = (0..o.carts).map(|_| CartLog { id: None, rider: None, met_column: None, top_y: f64::NEG_INFINITY, top_at: None, least_air: i32::MAX, dismounted: None, hurt: 0.0, eye_in_block: 0, end: None, launch: None, reach: None, det_rise: None, exit: None, launch_live: 0 }).collect();
+    let mut det_was = false;
     let mut health0: Vec<Option<f32>> = vec![None; o.carts];
     let mut column_gap = f64::INFINITY;
     let mut contact_max = 0.0f64;
@@ -346,6 +355,27 @@ pub fn lift_bench(o: &LiftOpts) -> Result<String, String> {
             }
         }
         run.tick();
+        // (`detector_at`: a rise belongs to the cart nearest the detector's cell)
+        if let Some(dx) = o.detector_at {
+            let on = matches!(run.world.get(BlockPos::new(dx, 0, 0)), Block::DetectorRail { powered: true, .. });
+            if on && !det_was {
+                let mut best: Option<(f64, usize)> = None;
+                for (k, lg) in logs.iter().enumerate() {
+                    let Some(id) = lg.id else { continue };
+                    let Some(i) = redsim::entity::index_of(&run.world, id) else { continue };
+                    let d = (run.world.entities.list[i].pos.x - (dx as f64 + 0.5)).abs();
+                    if best.is_none_or(|b| d < b.0) {
+                        best = Some((d, k));
+                    }
+                }
+                if let Some((_, k)) = best
+                    && logs[k].det_rise.is_none()
+                {
+                    logs[k].det_rise = Some(live - logs[k].launch_live);
+                }
+            }
+            det_was = on;
+        }
         // (cart pairs: the closest centres in the shaft's column (a rising cart under a bobbing
         // one) and every contact's relative speed (centres within 1.0, closing))
         let st: Vec<Option<(f64, f64, f64, f64, f64)>> = logs.iter().map(|lg| lg.id.and_then(|id| redsim::entity::index_of(&run.world, id)).map(|i| { let e = &run.world.entities.list[i]; (e.pos.x, e.pos.y, e.delta_movement.x, e.delta_movement.y, e.pos.z) })).collect();
@@ -390,7 +420,7 @@ pub fn lift_bench(o: &LiftOpts) -> Result<String, String> {
                 && let Some(j) = redsim::entity::index_of(&run.world, r)
             {
                 let re = &run.world.entities.list[j];
-                if lg.reach.is_none() && re.pos.y >= 0.0625 + 0.4 + 11.95 {
+                if lg.reach.is_none() && re.pos.y >= 0.0625 + 0.4 + o.reach_dy {
                     lg.reach = Some(live - lg.launch_live);
                 }
                 if let EntityKind::Mob(m) = &re.kind {
@@ -415,12 +445,18 @@ pub fn lift_bench(o: &LiftOpts) -> Result<String, String> {
     }
     for (k, lg) in logs.iter().enumerate() {
         out.push(format!(
-            "cart {k}: met the column at {}; top y {:.3} at {}; on the exit rail {}; the rider's feet 11.95 over the entry's {}; ends at {}; the rider's least air {}; {}; hurt {:.1}; eye-in-block ticks {}",
+            "cart {k}: met the column at {}; top y {:.3} at {}; on the exit rail {}; the rider's feet {:.2} over the entry's {}{}; ends at {}; the rider's least air {}; {}; hurt {:.1}; eye-in-block ticks {}",
             lg.met_column.map_or("never".into(), |t| format!("t {t}")),
             lg.top_y,
             lg.top_at.map_or("-".into(), |t| format!("t {t}")),
             lg.exit.map_or("NEVER".into(), |(d, s)| format!("{d} live gt after launch at {s:.3}")),
+            o.reach_dy,
             lg.reach.map_or("never".into(), |d| format!("{d} live gt after launch")),
+            match (o.detector_at, lg.det_rise, lg.reach) {
+                (Some(_), Some(d), Some(r)) => format!(" (the entry detector's rise {d} live gt after launch: {} gt from the rise to the mark)", r - d),
+                (Some(_), None, _) => " (the entry detector never rose under it)".to_string(),
+                _ => String::new(),
+            },
             lg.end.map_or("-".into(), |(x, y, z, s, vy)| format!("{x:.3},{y:.3},{z:.3} (horizontal {s:.3}, vertical {vy:.3})")),
             if lg.least_air == i32::MAX { "-".into() } else { lg.least_air.to_string() },
             lg.dismounted.map_or("seated to the end".into(), |t| format!("DISMOUNTED at t {t}")),
