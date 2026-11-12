@@ -154,8 +154,9 @@ pub enum MobfarmCmd {
         /// phantom-pulse control.
         #[arg(long)]
         gate: bool,
-        /// (c′) the settle delay's last repeater (redstone ticks): the detector to H2 in 34 + 2 x this gt.
-        #[arg(long, default_value_t = 2)]
+        /// (c′) the settle delay's last repeater (redstone ticks): the detector to H2 in 34 + 2 x this gt
+        /// (ironspec 14:15: k = 40).
+        #[arg(long, default_value_t = 3)]
         settle_rt: i64,
         /// (ironspec 12:59, the box item) A (c′) layout in real in-chunk cells from this file (see
         /// `holdpulse::read_gate_file`), laid over the Real track with rev 3's hazards; its rows.
