@@ -69,6 +69,17 @@ gate-frozen.rec	3d8ad8052d7316e8		26.3	2026-11-11T19:00Z on 0046b0abb5	mctas mob
 gate-hold-w.rec	85faab5a8cb5f3c0		26.3	2026-11-11T20:25Z on 05abd782de	mctas mobai record gate-hold-w --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
 golem-summon.rec	9211d49a03edc4b0		26.3	2026-11-10T06:52Z on 38f8d65e4	mctas mobai record golem-summon --seed 1 --ticks 5000 --dir designs/redsim/recorded/mobai
 golem-zombie.rec	ef19b029d877d590		26.3	2026-11-08T21:43Z on 88512141f	mctas mobai record golem-zombie --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
+gq-empties.rec	8d1c14058852a11b		26.3	2026-11-12T03:15Z on 02ab7e803	mctas mobai record gq-empties --seed 1 --ticks 420 --dir designs/redsim/recorded/mobai
+gq-intake-e.rec	40265316045b4797		26.3	2026-11-12T03:06Z on 02ab7e803	mctas mobai record gq-intake-e --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
+gq-intake-er-0.rec	2c34ae5ce5af33c0		26.3	2026-11-12T03:19Z on 02ab7e803	mctas mobai record gq-intake-er-0 --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
+gq-intake-er-1.rec	46de76877179048a		26.3	2026-11-12T03:19Z on 02ab7e803	mctas mobai record gq-intake-er-1 --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
+gq-intake-er-2.rec	71177c7e769c83af		26.3	2026-11-12T03:20Z on 02ab7e803	mctas mobai record gq-intake-er-2 --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
+gq-intake-er-3.rec	c599e87948f29eea		26.3	2026-11-12T03:21Z on 02ab7e803	mctas mobai record gq-intake-er-3 --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
+gq-intake-rr-0.rec	7a21de2cfbde16c1		26.3	2026-11-12T03:14Z on 02ab7e803	mctas mobai record gq-intake-rr-0 --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
+gq-intake-rr-1.rec	57556b5fb1ad4c51		26.3	2026-11-12T03:15Z on 02ab7e803	mctas mobai record gq-intake-rr-1 --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
+gq-intake-rr-2.rec	8acc3878f005891d		26.3	2026-11-12T03:16Z on 02ab7e803	mctas mobai record gq-intake-rr-2 --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
+gq-intake-rr-3.rec	9cec314851a352e4		26.3	2026-11-12T03:17Z on 02ab7e803	mctas mobai record gq-intake-rr-3 --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
+gq-settle.rec	98b6114ada73d8a0		26.3	2026-11-12T03:43Z on 10ddd85b2	mctas mobai record gq-settle --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
 h-contact-farmopt.rec	5ac37ecdc72e1ca7		26.3	2026-11-11T22:27Z on 36a4d719ce	mctas mobai record h-contact-farmopt --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
 h-contact-p1e.rec	4e0f8989587af918		26.3	2026-11-11T23:05Z on 1fcedaea5c	mctas mobai record h-contact-p1e --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai
 h-contact-sweep.rec	51052ff2d1eaefc5		26.3	2026-11-11T22:26Z on 36a4d719ce	mctas mobai record h-contact-sweep --seed 1 --ticks 200 --dir designs/redsim/recorded/mobai

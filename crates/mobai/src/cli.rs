@@ -207,6 +207,16 @@ pub enum MobaiCmd {
         #[arg(long)]
         xz: bool,
     },
+    /// (tickexact 2026-11-11, ironspec's gravity intake bridge) Scene gq-intake-{r,e}'s recording
+    /// per lane and per cell: the contact speed, merges, the closest centres, the worst pair
+    RecGqintake {
+        paths: Vec<std::path::PathBuf>,
+    },
+    /// (tickexact 2026-11-11, the slide bridge's empties) Scene gq-empties' recording per lane: each
+    /// cart's largest stored speed, how far it went back up the run, the merged pairs
+    RecGqempties {
+        path: std::path::PathBuf,
+    },
     /// (tickexact 2026-11-11, ironspec's sentinel) Scene sentinel-<case>'s recording as events: the
     /// claim, the bed's, observer's and lamp's flips, the lie-downs and wakes, the reload
     RecSentinel {
@@ -428,6 +438,8 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         MobaiCmd::RecPlate { path, scene } => crate::fixture::rec_plate(&path, &scene),
         MobaiCmd::RecBedreload { path } => crate::fixture::rec_bedreload(&path),
         MobaiCmd::RecSentinel { path } => crate::fixture::rec_sentinel(&path),
+        MobaiCmd::RecGqintake { paths } => crate::fixture::rec_gqintake(&paths),
+        MobaiCmd::RecGqempties { path } => crate::fixture::rec_gqempties(&path),
         MobaiCmd::SentinelVanilla { case, version } => crate::bedreload::sentinel_vanilla(&version, &case),
         MobaiCmd::BedReloadVanilla { case, forceload, version } => crate::bedreload::bed_reload_vanilla(&version, &case, forceload),
         MobaiCmd::StopperSweep { files } => crate::fixture::stopper_sweep(&files),
