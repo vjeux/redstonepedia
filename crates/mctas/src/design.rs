@@ -118,6 +118,31 @@ pub enum BlankRows {
     Air,
 }
 
+/// One design line, read the same way by [`Design::parse_with`] and [`interior_blank_rows`] (one
+/// classifier, so the parser and the scan can't drift; G1's note on a02552068): whitespace only;
+/// a comment only ('#' starts a comment except on an indented line inside a layer, where it can
+/// be a palette char); or text, its comment cut off.
+enum LineKind<'a> {
+    Blank,
+    Comment,
+    Text(&'a str),
+}
+
+fn line_kind(raw: &str, in_layer: bool) -> LineKind<'_> {
+    if raw.trim().is_empty() {
+        return LineKind::Blank;
+    }
+    let line = match raw.find('#') {
+        Some(i) if !in_layer || !raw.starts_with("  ") => &raw[..i],
+        _ => raw,
+    };
+    if line.trim().is_empty() {
+        LineKind::Comment
+    } else {
+        LineKind::Text(line)
+    }
+}
+
 /// The 0-based line numbers of the whitespace-only lines inside a layer (or a Nether layer) that
 /// more rows of the same layer follow: the lines [`BlankRows`] decides (`mctas design blank-rows`).
 pub fn interior_blank_rows(text: &str) -> Vec<usize> {
@@ -125,25 +150,26 @@ pub fn interior_blank_rows(text: &str) -> Vec<usize> {
     let mut pending: Vec<usize> = Vec::new();
     let mut out = Vec::new();
     for (lineno, raw) in text.lines().enumerate() {
-        if raw.trim().is_empty() {
-            if in_layer {
-                pending.push(lineno);
+        match line_kind(raw, in_layer) {
+            LineKind::Blank => {
+                if in_layer {
+                    pending.push(lineno);
+                }
             }
-            continue;
-        }
-        if raw.starts_with("  ") {
-            if in_layer {
-                out.append(&mut pending);
+            LineKind::Comment => {}
+            // a row of the layer: the blank lines before it were rows too
+            LineKind::Text(line) if line.starts_with("  ") => {
+                if in_layer {
+                    out.append(&mut pending);
+                }
             }
-            continue;
+            // a header line ends the layer (its blank lines were a separator) or starts one
+            LineKind::Text(line) => {
+                let l = line.trim();
+                pending.clear();
+                in_layer = (l.starts_with("layer ") || l.starts_with("nether layer ")) && l.ends_with(':');
+            }
         }
-        // a header line (a comment-only line is neither a row nor the layer's end)
-        let l = raw.split('#').next().unwrap_or("").trim();
-        if l.is_empty() {
-            continue;
-        }
-        pending.clear();
-        in_layer = (l.starts_with("layer ") || l.starts_with("nether layer ")) && l.ends_with(':');
     }
     out
 }
@@ -248,18 +274,19 @@ impl Design {
         let mut pending_blank: Vec<usize> = Vec::new();
         for (lineno, raw) in text.lines().enumerate() {
             let err = || format!("line {}: {raw:?}", lineno + 1);
-            let line = match raw.find('#') {
-                // '#' starts a comment except inside a layer row, where it can be a palette char.
-                Some(i) if !matches!(section, Section::Layer(_) | Section::NetherLayer(_)) || !raw.starts_with("  ") => &raw[..i],
-                _ => raw,
-            };
-            if line.trim().is_empty() {
-                // a comment-only line is no row; a whitespace-only line inside a layer may be one
-                if raw.trim().is_empty() && matches!(section, Section::Layer(_) | Section::NetherLayer(_)) {
-                    pending_blank.push(lineno);
+            let in_layer = matches!(section, Section::Layer(_) | Section::NetherLayer(_));
+            let line = match line_kind(raw, in_layer) {
+                // a whitespace-only line inside a layer may be a row (decided by what follows)
+                LineKind::Blank => {
+                    if in_layer {
+                        pending_blank.push(lineno);
+                    }
+                    continue;
                 }
-                continue;
-            }
+                // a comment-only line is no row and doesn't end the layer
+                LineKind::Comment => continue,
+                LineKind::Text(line) => line,
+            };
             let indented = line.starts_with("  ");
             if !indented {
                 pending_blank.clear();
@@ -606,6 +633,11 @@ mod tests {
         assert_eq!(interior_blank_rows(nether), vec![7]);
         assert!(Design::parse(nether).is_err());
         assert!(Design::parse_with(nether, BlankRows::Air).unwrap().nether_blocks.contains_key(&[0, 64, 2]));
+        // an indented '#' line inside a layer is a row for both the scan and the parser (one
+        // classifier): the blank before it is interior, and the parser reads '#' as a palette char
+        let hash = "name: h\npalette:\n  S stone\nlayer 0:\n  S\n  \n  # note\n";
+        assert_eq!(interior_blank_rows(hash), vec![5]);
+        assert!(Design::parse_with(hash, BlankRows::Skip).unwrap_err().to_string().contains("unknown palette char '#'"));
     }
 
     #[test]
