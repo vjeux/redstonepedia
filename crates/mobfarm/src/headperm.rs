@@ -117,6 +117,8 @@ pub struct HeadPerm {
     skip_next_launch: bool,
     b_hold: Option<(i64, i64)>,
     router_log: Vec<String>,
+    /// (cc767b78) each A GO the head held (its GO index), for the register census
+    pub a_held: Vec<i64>,
     holds: usize,
     /// (day-1's RETRY-only head, farmopt 2026-11-11) this stand's REL only with a launch for it, or
     /// by RETRY (an EXPIRE GO, the stand not emptied since its last launch, no train in flight);
@@ -188,6 +190,14 @@ pub struct HeadPerm {
     pub retry_darr: bool,
     /// (a fault) D_arr stuck at a level from a slot on
     pub darr_stuck: Option<(i64, bool)>,
+    /// (day-1's one-shot ARR SET) L_X: launched, not yet departed (GO sets it, the first DEP_X
+    /// resets it); `lx_gate` on by default; `lx_stuck` a fault; the DEP_X pulses it ignored
+    pub l_x: bool,
+    pub lx_gate: bool,
+    pub lx_stuck: Option<(i64, bool, i64)>,
+    pub dep_ignored: Vec<i64>,
+    /// stray DEP_X pulses injected (a fault row)
+    pub stray_deps: Vec<i64>,
     pub expire_since_dep: u32,
     pub dh3_since_dep: bool,
     pub branch_occupied: bool,
@@ -232,6 +242,7 @@ impl HeadPerm {
             skip_next_launch: false,
             b_hold,
             router_log: Vec::new(),
+            a_held: Vec::new(),
             holds: 0,
             retry: false,
             a_pulses: Vec::new(),
@@ -273,6 +284,11 @@ impl HeadPerm {
             darr_holds: Vec::new(),
             retry_darr: false,
             darr_stuck: None,
+            l_x: false,
+            lx_gate: true,
+            lx_stuck: None,
+            dep_ignored: Vec::new(),
+            stray_deps: Vec::new(),
             expire_since_dep: 0,
             dh3_since_dep: false,
             branch_occupied: false,
@@ -313,6 +329,8 @@ impl HeadPerm {
             self.arr_armed_at = t;
             self.emp_armed = occupied;
         }
+        // (day-1's one-shot SET: GO_X sets L_X, launched and not yet departed)
+        self.l_x = true;
         if waiting > 0 {
             self.launch_waits.push(format!("slot {slot} (t {t}): {waiting} carts stopped at H"));
         }
@@ -320,8 +338,21 @@ impl HeadPerm {
 
     /// (day-1's latches with DEP_X) a cart crossing DEP_X toward this stand: ARR_X re-armed if
     /// clear (a train's later carts cross while it is still armed), EMP_X re-armed while the
-    /// stand holds a batch (one-shot per re-arm).
+    /// stand holds a batch (one-shot per re-arm). Day-1's ARR SET is a one-shot: only the first
+    /// DEP_X after a launch (L_X high) arms; it resets L_X, and later carts' pulses find L_X low
+    /// and do nothing (`lx_gate`; `--lx-off` arms on every pulse; `lx_stuck` a fault).
     pub fn day1_dep(&mut self, t: i64, occupied: bool) {
+        let lx = match self.lx_stuck {
+            Some((s, lv, n)) if t.div_euclid(100) >= s && t.div_euclid(100) < s.saturating_add(n) => lv,
+            _ => self.l_x || !self.lx_gate,
+        };
+        if !lx {
+            if self.dep_ignored.len() < 40 {
+                self.dep_ignored.push(t);
+            }
+            return;
+        }
+        self.l_x = false;
         if !self.arr_armed {
             if (self.prev[0] || self.n_held_now > 0) && self.armed_waiting.len() < 20 {
                 self.armed_waiting.push(format!("t {t} (D_arr {}, {} carts stopped at H)", if self.prev[0] { "on" } else { "off" }, self.n_held_now));
@@ -423,6 +454,7 @@ impl HeadPerm {
         };
         if d == Go::Hold {
             self.holds += 1;
+            self.a_held.push(c);
         }
         if self.router_log.len() < 200 {
             self.router_log.push(format!("{c}:{who}{}{}", match d {
@@ -652,7 +684,7 @@ impl HeadPerm {
                     if self.launch_waits.is_empty() { String::new() } else { format!(" ({})", self.launch_waits.iter().take(8).cloned().collect::<Vec<_>>().join("; ")) },
                     self.held_max.0,
                     self.held_max.1,
-                    self.dep_x.map_or(String::new(), |z| format!("; re-armed by DEP_X (ideal, the approach column crossing z {z} downward) at t {}", if self.dep_log.is_empty() { "-".to_string() } else { self.dep_log.join(",") }))
+                    self.dep_x.map_or(String::new(), |z| format!("; re-armed by DEP_X (ideal, the approach column crossing z {z} downward) at t {}; {}", if self.dep_log.is_empty() { "-".to_string() } else { self.dep_log.join(",") }, if !self.lx_gate { "every DEP_X pulse arms (--lx-off)".to_string() } else { format!("day-1's one-shot SET (L_X: only the first DEP_X after a launch arms){}; later pulses ignored at t {}{}", self.lx_stuck.map_or(String::new(), |(s, lv, n)| format!(", L_X stuck {} over slots {s}..{} (a fault)", if lv { "high" } else { "low" }, if n == i64::MAX { "the end".to_string() } else { (s + n - 1).to_string() })), if self.dep_ignored.is_empty() { "-".to_string() } else { self.dep_ignored.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",") }, if self.stray_deps.is_empty() { String::new() } else { format!("; stray DEP_X pulses injected at t {} (a fault)", self.stray_deps.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",")) }) }))
                 ));
                 out.push(format!(
                     "head-perm at H (ironspec's watch item): the most carts stopped at H at once {} (the farthest back z {:.2} from the snap turn's cell); a train reaching H while earlier carts still waited there: {}{}{}; trains armed (DEP_X) while D_arr was on or carts waited at H (no clearing edge may come): {}{}; ARR_X at the run's end: {}",
