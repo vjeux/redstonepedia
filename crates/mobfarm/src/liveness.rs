@@ -343,6 +343,11 @@ pub fn freeze32(w: &mut World) -> [i32; 4] {
     let pb = w.entity_chunks.unwrap_or([0; 4]);
     w.entity_chunks = Some([pb[0] - 1, pb[1] - 1, pb[2] + 1, pb[3] + 1]);
     redsim::reload::unload_some(w, pb);
+    // (G1: a part box 3 or more chunks wide on both axes would leave its middle at level 33, where
+    // nothing runs: the freeze must read 32 on every part chunk, or the bench is not freezing what it
+    // says)
+    let (lo, hi) = levels(w, pb);
+    assert!(lo == 32 && hi == 32, "freeze32: the part's chunks read levels {lo}..{hi}, not 32 (box {pb:?})");
     pb
 }
 

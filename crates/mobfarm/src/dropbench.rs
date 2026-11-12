@@ -196,7 +196,10 @@ pub fn drop_bench(o: &DropOpts) -> Result<String, String> {
     let nl = o.lanes;
     let warm = 300i64;
     let start = 20i64;
-    let ticks = warm + o.cycles * o.period;
+    // (the last release gets 60 gt to finish: releases stop at the cycles' end, the run goes on, so a
+    // negative corner's last release is never cut by the run's end)
+    let rel_end = warm + o.cycles * o.period;
+    let ticks = rel_end + 60;
     let mut prev: Vec<Option<(f64, f64, f64, f64)>> = vec![None; n];
     let mut pending: Vec<(i64, usize)> = Vec::new();
     let (mut s_run, mut d_run) = (vec![0i64; nl], vec![0i64; nl]);
@@ -249,7 +252,7 @@ pub fn drop_bench(o: &DropOpts) -> Result<String, String> {
         }
         // (the release line: all trapdoors together)
         let ph = (t - warm - o.corner).rem_euclid(o.period);
-        if t >= warm && ph == 0 {
+        if t >= warm && t < rel_end && ph == 0 {
             trap_until = t + o.drop_w;
             let full: Vec<bool> = (0..nl).map(|l| d_run[l] >= o.hold_n).collect();
             for l in 0..nl {

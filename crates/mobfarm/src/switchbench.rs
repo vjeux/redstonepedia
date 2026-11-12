@@ -47,6 +47,8 @@ pub struct SwitchRow {
     pub unsettled: usize,
     pub retries: usize,
     pub hanging: usize,
+    /// Arrivals at the lanes' backs above the brief's 0.46 gravity-run bar.
+    pub arrivals_over: usize,
     pub text: String,
 }
 
@@ -165,6 +167,7 @@ pub fn switch_bench(o: &DropOpts) -> Result<SwitchRow, String> {
     let mut eye_d: std::collections::BTreeMap<String, usize> = Default::default();
     let mut eye_r: std::collections::BTreeMap<String, usize> = Default::default();
     let mut frozen32: Option<[i32; 4]> = None;
+    let mut first_held: Option<i64> = None;
     for t in 0..ticks {
         // (the logins and freezes as one schedule: frozen while any interval covers t, so overlapping
         // ones neither drop a start nor thaw early)
@@ -182,6 +185,9 @@ pub fn switch_bench(o: &DropOpts) -> Result<SwitchRow, String> {
             held[l] = if hk[l] { held[l] + 1 } else { 0 };
         }
         let full: Vec<bool> = (0..nl).map(|l| held[l] >= o.hold_n).collect();
+        if first_held.is_none() && full.iter().all(|f| *f) {
+            first_held = Some(t);
+        }
         // (the release line)
         let ph = (t - warm - o.corner).rem_euclid(o.period);
         if t >= warm && t < rel_end && ph == 0 {
@@ -375,5 +381,14 @@ pub fn switch_bench(o: &DropOpts) -> Result<SwitchRow, String> {
         eye_d.iter().map(|(k, v)| format!("{k} x{v}")).collect::<Vec<_>>().join(", "),
         eye_r.iter().map(|(k, v)| format!("{k} x{v}")).collect::<Vec<_>>().join(", ")
     ));
-    Ok(SwitchRow { per_release, shuts: shut_onto.len(), unsettled, retries, hanging: hanging.len(), text: lines.join("\n") })
+    // (the cold start: the bench starts built, D empty and the front cart braked on R; the first R pulse
+    // restages; the first release must already drop 1 cart per D)
+    let first = releases.first().map(|r| r.1.clone()).unwrap_or_default();
+    lines.push(format!(
+        "the cold start: the first release (t {}) dropped {:?} (1 per D expected), the first D string held {} gt after the start",
+        releases.first().map_or(-1, |r| r.0),
+        first,
+        first_held.map_or("-".to_string(), |v| v.to_string())
+    ));
+    Ok(SwitchRow { per_release, shuts: shut_onto.len(), unsettled, retries, hanging: hanging.len(), arrivals_over: arrivals.iter().filter(|a| **a > 0.46).count(), text: lines.join("\n") })
 }

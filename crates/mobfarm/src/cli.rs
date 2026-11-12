@@ -1293,6 +1293,27 @@ pub enum MobfarmCmd {
         /// The siding's guard as a detector rail in the branch cell before the merge's neighbour.
         #[arg(long)]
         guard_det: bool,
+        /// The siding bench: the passive drop entry (the merge one level up over a drop with a wall).
+        #[arg(long)]
+        drop_entry: bool,
+        /// The siding bench as a matrix: one compact row per (ret, v_in, nap_ret, corner) of the lists.
+        #[arg(long)]
+        siding_matrix: bool,
+        /// The siding matrix's returns (gt, comma list; default: --ret).
+        #[arg(long, value_delimiter = ',')]
+        rets: Vec<i64>,
+        /// The siding matrix's branch speeds (b/t, comma list; default: --v-in).
+        #[arg(long, value_delimiter = ',')]
+        v_ins: Vec<f64>,
+        /// The siding matrix's napper returns (gt, comma list; default: --nap-ret).
+        #[arg(long, value_delimiter = ',')]
+        nap_rets: Vec<i64>,
+        /// The siding matrix's corners (gt, comma list; default: --corner).
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        corners: Vec<i64>,
+        /// The siding matrix's parallel runs.
+        #[arg(long, default_value_t = 2)]
+        jobs: usize,
         #[arg(long)]
         r_boost: bool,
         #[arg(long)]
@@ -4252,7 +4273,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 anyhow::bail!("frame-check failed");
             }
         }
-        MobfarmCmd::DropBench { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, login_matrix, intake_flat, v_in, siding, nap_k, nap_every, nap_ret, nap_pulse, merge_curve, slopes, nap_guard, nap_early, siding_dx, siding_dy, ns_merge, guard_det, r_boost, floor_bottom, empty, freeze32 } => {
+        MobfarmCmd::DropBench { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, login_matrix, intake_flat, v_in, siding, nap_k, nap_every, nap_ret, nap_pulse, merge_curve, slopes, nap_guard, nap_early, siding_dx, siding_dy, ns_merge, guard_det, drop_entry, siding_matrix, rets, v_ins, nap_rets, corners, jobs, r_boost, floor_bottom, empty, freeze32 } => {
             let pair = |s: &String| -> anyhow::Result<(i64, i64)> {
                 let mut it = s.split(',');
                 let a = it.next().unwrap_or("").trim().parse::<i64>()?;
@@ -4263,15 +4284,98 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let freeze32: Vec<(i64, i64)> = freeze32.iter().map(pair).collect::<anyhow::Result<_>>()?;
             let o = crate::dropbench::DropOpts { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, intake_flat, v_in, r_boost, floor_bottom, riders: !empty, freeze32 };
             if siding {
-                let so = crate::sidingbench::SidingOpts { k: nap_k, nap_every, nap_ret, nap_pulse, merge_curve, slopes, guard: nap_guard, early_only: nap_early, siding_dx, siding_dy, ns_merge, guard_det };
+                let so = crate::sidingbench::SidingOpts { k: nap_k, nap_every, nap_ret, nap_pulse, merge_curve, slopes, guard: nap_guard, early_only: nap_early, siding_dx, siding_dy, ns_merge, guard_det, drop_entry };
+                if siding_matrix {
+                    let rets = if rets.is_empty() { vec![o.ret] } else { rets };
+                    let v_ins = if v_ins.is_empty() { vec![o.v_in] } else { v_ins };
+                    let nap_rets = if nap_rets.is_empty() { vec![so.nap_ret] } else { nap_rets };
+                    let corners = if corners.is_empty() { vec![o.corner] } else { corners };
+                    let mut rows: Vec<(i64, f64, i64, i64)> = Vec::new();
+                    for &r in &rets {
+                        for &v in &v_ins {
+                            for &nr in &nap_rets {
+                                for &c in &corners {
+                                    rows.push((r, v, nr, c));
+                                }
+                            }
+                        }
+                    }
+                    let next = std::sync::atomic::AtomicUsize::new(0);
+                    let out: std::sync::Mutex<Vec<Option<Result<crate::sidingbench::SidingRow, String>>>> = std::sync::Mutex::new(vec![None; rows.len()]);
+                    std::thread::scope(|sc| {
+                        for _ in 0..jobs.max(1) {
+                            sc.spawn(|| loop {
+                                let i = next.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                                if i >= rows.len() {
+                                    break;
+                                }
+                                let (r, v, nr, c) = rows[i];
+                                let mut oo = o.clone();
+                                oo.ret = r;
+                                oo.v_in = v;
+                                oo.corner = c;
+                                let mut s2 = so.clone();
+                                s2.nap_ret = nr;
+                                let res = crate::sidingbench::siding_row(&oo, &s2);
+                                out.lock().unwrap()[i] = Some(res);
+                            });
+                        }
+                    });
+                    let out = out.into_inner().unwrap();
+                    let mut worst_q: std::collections::BTreeMap<usize, f64> = Default::default();
+                    let mut worst_nap = 0.0f64;
+                    let mut fails = 0usize;
+                    for (i, res) in out.into_iter().enumerate() {
+                        let (r, v, nr, c) = rows[i];
+                        let row = res.unwrap_or_else(|| Err("not run".into())).map_err(|e| anyhow::anyhow!(e))?;
+                        for (q, x) in &row.by_q {
+                            let e = worst_q.entry(*q).or_insert(0.0);
+                            *e = e.max(*x);
+                        }
+                        let nmax = row.nap_contacts.iter().copied().fold(0.0f64, f64::max);
+                        worst_nap = worst_nap.max(nmax);
+                        let bad = row.empty_releases + row.not_one + row.wrong + row.knocked + row.touching + row.arrivals_over + row.order_broken + row.off_rail + row.eyes + row.stuck as usize;
+                        fails += (bad > 0) as usize;
+                        println!(
+                            "ret {r} v_in {v:.2} nap_ret {nr} corner {c:+}: arrivals by q {}; over 0.46 {} (max {:.3}); nappers {} (late {}); lost {} not-1 {} wrong {} knocked {} touching {} order {} off-rail {} eyes {} health {} restage {} gt{}",
+                            row.by_q.iter().map(|(q, x)| format!("{q}:{x:.3}")).collect::<Vec<_>>().join(" "),
+                            row.arrivals_over,
+                            row.arrival_max,
+                            if row.nap_contacts.is_empty() { "none".to_string() } else { row.nap_contacts.iter().zip(row.nap_q.iter()).map(|(x, q)| format!("{x:.3}@q{q}")).collect::<Vec<_>>().join(",") },
+                            row.late_naps,
+                            row.empty_releases,
+                            row.not_one,
+                            row.wrong,
+                            row.knocked,
+                            row.touching,
+                            row.order_broken,
+                            row.off_rail,
+                            row.eyes,
+                            if row.min_health == f32::MAX { "-".to_string() } else { format!("{:.1}", row.min_health) },
+                            row.restage_max,
+                            if row.stuck { " NAPPER STUCK" } else { "" }
+                        );
+                    }
+                    println!(
+                        "siding matrix: {} rows, {fails} with a failing count; the hardest arrival by q over all rows: {}; the hardest napper {worst_nap:.3}",
+                        rows.len(),
+                        worst_q.iter().map(|(q, x)| format!("{q}:{x:.3}")).collect::<Vec<_>>().join(" ")
+                    );
+                    return Ok(());
+                }
                 println!("{}", crate::sidingbench::siding_bench(&o, &so).map_err(|e| anyhow::anyhow!(e))?);
                 return Ok(());
             }
             if login_matrix {
-                // (a login of 1..=3 gt landing at every phase of the third cycle)
+                // (the L1 rows: a save, stop and start at every phase of the third cycle, as its load
+                // window: the entities held 1..=3 gt while the blocks and the controller run; the
+                // control (no reload) sets the arrival bar's own count, the bar 0.46)
                 let base = 300 + 2 * period;
                 let mut bad: Vec<String> = Vec::new();
                 let mut rows = 0usize;
+                let mut oc = o.clone();
+                oc.cycles = cycles.max(5);
+                let ctl = crate::switchbench::switch_bench(&oc).map_err(|e| anyhow::anyhow!(e))?;
                 for d in 1..=3i64 {
                     for p in 0..period {
                         let mut oo = o.clone();
@@ -4279,13 +4383,20 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         oo.login = vec![(base + p, d)];
                         let r = crate::switchbench::switch_bench(&oo).map_err(|e| anyhow::anyhow!(e))?;
                         rows += 1;
-                        let ok = r.per_release.keys().all(|k| *k == 1) && r.shuts == 0 && r.hanging == 0 && r.unsettled == 0;
+                        let ok = r.per_release.keys().all(|k| *k == 1) && r.shuts == 0 && r.hanging == 0 && r.unsettled == 0 && r.arrivals_over <= ctl.arrivals_over;
                         if !ok {
-                            bad.push(format!("login {d} gt at phase {p}: per release {:?}, shuts {}, unsettled {}, hanging {}, retries {}", r.per_release, r.shuts, r.unsettled, r.hanging, r.retries));
+                            bad.push(format!("reload {d} gt at phase {p}: per release {:?}, shuts {}, unsettled {}, hanging {}, retries {}, arrivals above 0.46 {} (control {})", r.per_release, r.shuts, r.unsettled, r.hanging, r.retries, r.arrivals_over, ctl.arrivals_over));
                         }
                     }
                 }
-                println!("login matrix: {rows} rows (1..3 gt at every phase of a {period}-gt cycle), {} failing{}", bad.len(), if bad.is_empty() { String::new() } else { format!(":\n{}", bad.iter().take(20).cloned().collect::<Vec<_>>().join("\n")) });
+                let cold = ctl.text.lines().find(|l| l.starts_with("the cold start")).unwrap_or("the cold start: -");
+                println!(
+                    "L1 reload matrix (a save, stop and start at every phase: the entities held 1..3 gt while the blocks run): {rows} rows over a {period}-gt cycle, {} failing{}\ncontrol (no reload): per release {:?}, arrivals above 0.46 {}\n{cold}",
+                    bad.len(),
+                    if bad.is_empty() { String::new() } else { format!(":\n{}", bad.iter().take(20).cloned().collect::<Vec<_>>().join("\n")) },
+                    ctl.per_release,
+                    ctl.arrivals_over
+                );
                 return Ok(());
             }
             println!("{}", crate::dropbench::drop_bench(&o).map_err(|e| anyhow::anyhow!(e))?);
