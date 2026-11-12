@@ -1196,6 +1196,43 @@ pub enum MobfarmCmd {
     /// The shared-release lanes bench (Q2): parallel pressed lanes, one release line opening every
     /// front gate together; per opening and lane the carts through (exactly 1), gate shuts onto a
     /// cart, the batch's spread across lanes, arrivals at the backs, the pressed spacing.
+    /// The per-lane escapement into the drop cell (ironspec 22:02): pressed lanes, G0 over P, the
+    /// staging slope with its string, G_P over R, the rail end, the off-rail trapdoor cell with its
+    /// string; one release line opens every trapdoor; each lane restages on its own strings.
+    DropBench {
+        #[arg(long, default_value_t = 3)]
+        lanes: usize,
+        #[arg(long, default_value_t = 4)]
+        spacing: i32,
+        #[arg(long, default_value_t = 10)]
+        run: i32,
+        #[arg(long, default_value_t = 8)]
+        per_lane: usize,
+        #[arg(long, default_value_t = 100)]
+        period: i64,
+        #[arg(long, default_value_t = 20)]
+        cycles: i64,
+        #[arg(long, default_value_t = 80)]
+        ret: i64,
+        #[arg(long, default_value_t = 0, allow_hyphen_values = true)]
+        corner: i64,
+        #[arg(long, default_value_t = 13)]
+        w0: i64,
+        #[arg(long, default_value_t = 12)]
+        wp: i64,
+        #[arg(long, default_value_t = 12)]
+        drop_w: i64,
+        #[arg(long, default_value_t = 0)]
+        entry: i32,
+        #[arg(long, default_value_t = 20)]
+        hold_n: i64,
+        #[arg(long)]
+        front_boost: bool,
+        #[arg(long)]
+        floor_bottom: bool,
+        #[arg(long)]
+        empty: bool,
+    },
     LanesBench {
         #[arg(long, default_value_t = 3)]
         lanes: usize,
@@ -4046,6 +4083,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             if !ok {
                 anyhow::bail!("frame-check failed");
             }
+        }
+        MobfarmCmd::DropBench { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, floor_bottom, empty } => {
+            let o = crate::dropbench::DropOpts { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, floor_bottom, riders: !empty };
+            println!("{}", crate::dropbench::drop_bench(&o).map_err(|e| anyhow::anyhow!(e))?);
+            return Ok(());
         }
         MobfarmCmd::LanesBench { lanes, spacing, run, per_lane, period, width, cycles, ret, corner, ring_q, freeze, freeze32, empty } => {
             let pair = |s: &String| -> anyhow::Result<(i64, i64)> {
