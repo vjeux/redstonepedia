@@ -96,6 +96,16 @@ pub enum MobfarmCmd {
         #[arg(long, value_delimiter = ',', default_values_t = vec![2i64, 4, 5, 6, 7, 8, 9, 10])]
         pulse: Vec<i64>,
     },
+    /// The high re-phase's circuit as blocks (`ctlhigh.rs`, ironspec Nov 12 10:18): HI (compare at 15), its
+    /// rising edge, the AND with the window decode's IN_WIN; the load request's delay and width, the rise,
+    /// the weather's jump, the fall, IN_WIN both ways and at every offset around the rise.
+    CtlHighBench {
+        #[arg(long)]
+        out: PathBuf,
+        /// Run the bench z-mirrored (`mirror.rs`).
+        #[arg(long)]
+        mirror_z: bool,
+    },
     /// The J/K junction drivers (`ctljunction.rs`, ironspec Nov 12 05:35): the napper-present latch's
     /// driver repeater power-forcing a T-junction rail; the edge to the switch and the reset to the
     /// return, at every phase, against <= 10 gt.
@@ -106,9 +116,10 @@ pub enum MobfarmCmd {
         #[arg(long)]
         mirror_z: bool,
     },
-    /// split9's napper hold release (`holdpulse.rs`, ironspec Nov 12 06:46): an 8-gt pulse at ARM3 + 10
-    /// every cycle; the pulse's timing over every phase, and a ridden cart placed between two pulses
-    /// leaving at the next.
+    /// split9's napper hold release (`holdpulse.rs`, ironspec Nov 12 06:46 / 10:09): a 12-gt pulse at ARM3 +
+    /// 10 every cycle, the departure seen by a tripwire after the hold; the pulse's timing over every phase,
+    /// a ridden cart placed between two pulses leaving at the next, a login freeze at every offset around
+    /// the pulse, and the launch threshold under the freeze.
     HoldPulseBench {
         /// The step between the placements (gt).
         #[arg(long, default_value_t = 1)]
@@ -116,6 +127,16 @@ pub enum MobfarmCmd {
         /// Run the bench z-mirrored (`mirror.rs`).
         #[arg(long)]
         mirror_z: bool,
+        /// E's extra side delay in redstone ticks (the pulse is 8 + 2 x extra gt; 2 = the design's 12).
+        #[arg(long, default_value_t = 2)]
+        extra: i64,
+        /// The login freeze's length (gt; the lead's bound is 3).
+        #[arg(long, default_value_t = 3)]
+        freeze: i64,
+        /// 7b90c3f1's real cells (the hold, the slime stop, the T, the booster, lane 7's T, the string over
+        /// (8,0,7) on glass hooks) instead of the straight line.
+        #[arg(long)]
+        real: bool,
     },
     /// The divert's single atomic read as blocks (`ctldivert.rs`, ironspec Nov 12 03:27): DECIDE = DIV -
     /// DAY held by a repeater unlocked by a rising-edge pulse of D2; DAY's edge at every gt offset around
@@ -191,6 +212,38 @@ pub enum MobfarmCmd {
         /// comparator (2) plus the DAY line's delay to the queue.
         #[arg(long, default_value_t = 2)]
         hatch_lag: i64,
+        /// The plain hatch (open on DAY low) instead of the release model (ironspec Nov 12 09:04 / 09:12:
+        /// every napper held at the queue >= the stale window, released at REST_l AND NOT DAY after it).
+        #[arg(long)]
+        no_release: bool,
+        /// REST_l = C >= rest_set or C < rest_reset (a level decoded from C, as the gate).
+        #[arg(long, default_value_t = 138)]
+        rest_set: i64,
+        #[arg(long, default_value_t = 15)]
+        rest_reset: i64,
+        /// The queue's hold before the release (>= the stale window: <= 53 at the DAY out + the gate's 2 +
+        /// the DAY line + a margin).
+        #[arg(long, default_value_t = 80)]
+        stale_hold: i64,
+        /// No back-pressure (the control: picks go on while a napper is held at the queue).
+        #[arg(long)]
+        no_backpressure: bool,
+        /// The clock's variant (a): every DAY rise loads this C (the bench prints the clear-weather edge's).
+        #[arg(long)]
+        day_rise_load: Option<i64>,
+        /// The stop's cycle: an entry holds the stop this long (walk, nap, exit through R) before the next
+        /// release (R's RS); a stale admission holds it until REST + this (58f770cc's number pending).
+        #[arg(long, default_value_t = 300)]
+        stop_cycle: i64,
+        /// The stop's walk (entry -> lying down) and nap (lying -> woken) inside the cycle.
+        #[arg(long, default_value_t = 80)]
+        stop_walk: i64,
+        #[arg(long, default_value_t = 100)]
+        stop_nap: i64,
+        /// The high re-phase at threshold H (ironspec 09:49; 15: a clear midday only): the load and the
+        /// window are derived from a clear run and printed.
+        #[arg(long)]
+        high: Option<i64>,
     },
     /// The daylight detector's exact curve (redsim's updateSignalStrength) per weather, and the
     /// largest one-update drop from weather ramps (`ctlcounter.rs::daylight_table`).
@@ -9926,8 +9979,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::CtlCounterBench { ff_period, no_pend, window_open, window_close, gate_hi, gate_lo, load2, load1, to_bed, early_tol, last_nap, day_inhibit, drop_min, arm, weather_sweep, sweep_step, hatch_lag } => {
-            let o = crate::ctlcounter::CounterOpts {
+        MobfarmCmd::CtlCounterBench { ff_period, no_pend, window_open, window_close, gate_hi, gate_lo, load2, load1, to_bed, early_tol, last_nap, day_inhibit, drop_min, arm, weather_sweep, sweep_step, hatch_lag, no_release, rest_set, rest_reset, stale_hold, no_backpressure, day_rise_load, stop_cycle, stop_walk, stop_nap, high } => {
+            let mut o = crate::ctlcounter::CounterOpts {
                 ff_period,
                 pend: !no_pend,
                 window: (window_open, window_close),
@@ -9941,8 +9994,20 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 drop_min,
                 arm,
                 hatch_lag,
+                rest: (!no_release).then_some((rest_set, rest_reset)),
+                stale_hold,
+                backpressure: !no_backpressure,
+                day_rise_load,
+                stop_cycle,
+                stop_walk,
+                stop_nap,
                 ..Default::default()
             };
+            if let Some(h) = high {
+                let (p, desc) = crate::ctlcounter::high_params(&o, h);
+                println!("{desc}");
+                o.high = Some(p);
+            }
             let lines = if weather_sweep { crate::ctlcounter::weather_sweep(&o, sweep_step) } else { crate::ctlcounter::bench(&o) };
             for l in lines {
                 println!("{l}");
@@ -9971,12 +10036,25 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
         }
-        MobfarmCmd::HoldPulseBench { step, mirror_z } => {
+        MobfarmCmd::HoldPulseBench { step, mirror_z, extra, freeze, real } => {
             crate::mirror::set(mirror_z);
             if mirror_z {
                 println!("hold-pulse-bench{}", crate::mirror::tag());
             }
-            for l in crate::holdpulse::bench(step.max(1)).map_err(|e| anyhow::anyhow!(e))? {
+            let g = if real { crate::holdpulse::Geo::Real } else { crate::holdpulse::Geo::Line };
+            for l in crate::holdpulse::bench(step.max(1), extra, freeze, g).map_err(|e| anyhow::anyhow!(e))? {
+                println!("{l}");
+            }
+        }
+        MobfarmCmd::CtlHighBench { out, mirror_z } => {
+            crate::mirror::set(mirror_z);
+            if mirror_z {
+                println!("ctl-high-bench{}", crate::mirror::tag());
+            }
+            let d = crate::ctlhigh::design();
+            std::fs::write(&out, format!("# The high re-phase's circuit: HI (compare at 15), its rising edge, the AND with IN_WIN (mctas mobfarm ctl-high-bench).\n{}", d.to_text()))?;
+            let (_c, spec) = load(version, &out)?;
+            for l in crate::ctlhigh::bench(&spec).map_err(|e| anyhow::anyhow!(e))? {
                 println!("{l}");
             }
         }
@@ -10016,7 +10094,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("ctl-ring-bench{}", crate::mirror::tag());
             }
             let d = crate::ctlring::design();
-            std::fs::write(&out, format!("# The controller's units digit: a 10-dropper ring, 4 tokens (the u = 0 one unstackable), one tap on D8 (mctas mobfarm ctl-ring-bench).\n{}", d.to_text()))?;
+            std::fs::write(&out, format!("# The controller's units digit: a 10-dropper ring, 8 tokens at u 0,1,2,4,5,6,7,8 (the u = 0 one unstackable), the main tap on D9 and the u-9 tap on D8 (mctas mobfarm ctl-ring-bench).\n{}", d.to_text()))?;
             let (_c, spec) = load(version, &out)?;
             let jitter = if jitter.is_empty() { vec![0] } else { jitter };
             for l in crate::ctlring::bench(&spec, cycles, period, width, &jitter).map_err(|e| anyhow::anyhow!(e))? {
