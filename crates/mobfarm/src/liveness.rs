@@ -37,20 +37,31 @@ pub enum Ring {
     Virtual { x: f64, z: f64, period: i64, high: i64, phase: i64 },
     /// A virtual ring read as its detectors' edge train: a lap of `lap` gt (advancing only while
     /// the chunk of x,z ticks entities) with a one-tick pulse at each offset of `edges` (day-1's
-    /// fast ring: 8 detectors, 2 ring carts, an edge every ~3.75 gt, with a ~5-gt stretcher).
+    /// fast ring as benched: 8 detectors, 2 ring carts, rising edges 3 or 4 gt apart, ALIVE =
+    /// now - the last edge < 5 gt).
     Train { x: f64, z: f64, lap: i64, edges: Vec<i64> },
 }
 
 impl Ring {
-    /// Day-1's fast ring (8 detectors, 2 ring carts): an edge every 3.75 gt on average (offsets 0,
-    /// 4, 8, 11 of a 15-gt lap), to go with a 5-gt stretcher ([`FAST_STRETCH`]).
+    /// Day-1's fast ring as benched (`mctas mobfarm ring-bench --carts 2 --stretch 5`, farmopt
+    /// 2026-11-11 18:23): a 7 x 7 loop of 24 rails, 8 detector rails, 2 empty carts 13.5 cells
+    /// apart, a 62-gt lap; the 8 detectors' rising edges 3 or 4 gt apart (16 per lap: here 14
+    /// gaps of 4 and 2 of 3), with ALIVE = (now - the last rising edge) < 5 gt ([`FAST_STRETCH`]).
     pub fn fast(x: f64, z: f64) -> Ring {
-        Ring::Train { x, z, lap: 15, edges: vec![0, 4, 8, 11] }
+        let gaps = [4, 4, 4, 4, 4, 4, 4, 3, 4, 4, 4, 4, 4, 4, 4, 3];
+        let mut edges = Vec::new();
+        let mut at = 0;
+        for g in gaps {
+            edges.push(at);
+            at += g;
+        }
+        Ring::Train { x, z, lap: at, edges }
     }
 }
 
-/// The stretcher that goes with [`Ring::fast`] (a detection latency of at most ~6 gt).
-pub const FAST_STRETCH: i64 = 5;
+/// The stretcher that goes with [`Ring::fast`]: ALIVE while now - the last rising edge <= 4 (day-1's
+/// "< 5 gt"; a detection latency of at most 5 gt).
+pub const FAST_STRETCH: i64 = 4;
 
 #[derive(Clone, Debug, Default)]
 struct Seq {
@@ -97,7 +108,8 @@ impl Liveness {
 
     /// The module's own choice of ring: `MCTAS_ALIVE_RING` = `probe:X,Y,Z` (a real ring's
     /// detector rail, world coordinates), `virtual:X,Z[,PHASE]` (world coordinates), or `fast`
-    /// / `fast:X,Z` (day-1's fast ring, [`Ring::fast`], with its 5-gt stretcher; bare `fast` in
+    /// / `fast:X,Z` (day-1's fast ring as benched, [`Ring::fast`], ALIVE = now - the last edge < 5
+    /// gt; bare `fast` in
     /// the fallback's chunk); else the `fallback` the bench gives (a virtual ring in its column's
     /// chunk).
     pub fn from_config(fallback: Ring) -> Self {
@@ -265,6 +277,12 @@ impl Liveness {
         true
     }
 
+    /// A pulse that rose on its own timing (a lockable repeater chain's last stage, which the
+    /// caller gates itself): recorded as fired, and checked for a frozen cart in the column.
+    pub fn fired_pulse(&mut self, w: &World, what: &str, t: i64) {
+        self.note_fired(w, t, what.to_string());
+    }
+
     fn note_fired(&mut self, w: &World, t: i64, what: String) {
         // (a cart frozen in the column at the rise: the pulse fires into it, ALIVE still high in
         // the latency window)
@@ -402,13 +420,13 @@ mod tests {
         assert!(g.rise(&w, "fill", 0, 260));
     }
 
-    /// Day-1's fast ring: ALIVE never falls while the ring runs (edges 3..4 gt apart under a 5-gt
-    /// stretcher); frozen at any phase of its lap, ALIVE falls within 6 gt; a dropped sequence
-    /// reads as dropped, a running one as pending.
+    /// Day-1's fast ring as benched: ALIVE never falls while the ring runs (edges 3..4 gt apart,
+    /// ALIVE = now - the last edge < 5); frozen at any phase of its 62-gt lap, ALIVE falls within 5
+    /// gt (day-1's bar); a dropped sequence reads as dropped, a running one as pending.
     #[test]
     fn fast_ring() {
         let w = World::new(BlockPos::new(0, 0, 0), [32, 4, 32]);
-        for phase in 0..15 {
+        for phase in 0..62 {
             let mut g = Liveness::new(Ring::fast(8.0, 8.0));
             g.stretch = FAST_STRETCH;
             g.column_frozen = Some(false);
@@ -420,7 +438,7 @@ mod tests {
             let f0 = 100 + phase;
             g.column_frozen = Some(true);
             let fell = (f0..f0 + 40).find(|t| !g.alive(&w, *t)).expect("ALIVE falls once the ring stops");
-            assert!(fell - f0 <= FAST_STRETCH + 1, "phase {phase}: latency {}", fell - f0);
+            assert!(fell - f0 <= 5, "phase {phase}: latency {}", fell - f0);
             assert!(g.dropped("fill") && !g.pending("fill"));
         }
     }

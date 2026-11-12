@@ -408,6 +408,70 @@ pub fn design_with(cells: i32, crest: i32, pattern: &str, with_riders: [bool; 3]
     b.text(&["One-chunk (b): the climb bench: H's queue, a straight powered climb to today's approach top, the snap turn and today's 3 pockets (gates bench-driven)."])
 }
 
+/// (cc767b78) The lock line of a lockable repeater chain: the chain locks this many gt after
+/// ALIVE falls and unlocks this many gt after it rises (one 1-tick repeater into the chain's sides).
+pub const CHAIN_LOCK_D: usize = 2;
+
+/// (cc767b78) One fill timer as a lockable repeater chain: its stages (gt), the stage running, its
+/// completion tick (None: waiting for the unlock to schedule it), whether it has fired, and the
+/// completions lost to a lock.
+#[derive(Clone, Debug)]
+struct Chain {
+    stages: Vec<i64>,
+    j: usize,
+    due: Option<i64>,
+    done: bool,
+    lost: usize,
+}
+
+impl Chain {
+    /// A chain of `total` gt in stages of `stage` gt (a remainder stage first), its first stage's
+    /// input rising at `t` (scheduled only if unlocked).
+    fn start(total: i64, stage: i64, t: i64, locked: bool) -> Chain {
+        let s = stage.max(1);
+        let mut stages = Vec::new();
+        if total % s > 0 {
+            stages.push(total % s);
+        }
+        stages.extend(std::iter::repeat_n(s, (total / s) as usize));
+        if stages.is_empty() {
+            stages.push(1);
+        }
+        let due = (!locked).then(|| t + stages[0]);
+        Chain { stages, j: 0, due, done: false, lost: 0 }
+    }
+
+    /// One tick: true on the tick the chain's last stage completes (its output rises).
+    fn tick(&mut self, t: i64, locked: bool) -> bool {
+        if self.done {
+            return false;
+        }
+        match self.due {
+            None => {
+                if !locked {
+                    self.due = Some(t + self.stages[self.j]);
+                }
+                false
+            }
+            Some(d) if d == t => {
+                if locked {
+                    self.due = None;
+                    self.lost += 1;
+                    return false;
+                }
+                self.j += 1;
+                if self.j == self.stages.len() {
+                    self.done = true;
+                    return true;
+                }
+                self.due = Some(t + self.stages[self.j]);
+                false
+            }
+            _ => false,
+        }
+    }
+}
+
 /// One climb run's options.
 #[derive(Clone, Debug)]
 pub struct ClimbOpts {
@@ -449,6 +513,12 @@ pub struct ClimbOpts {
     /// (cc767b78) With `alive`: the stand's fill timers pause while ALIVE is low and resume on its
     /// return (a live clock counted on ALIVE, the detection latency included) instead of dropping.
     pub alive_pause: bool,
+    /// (cc767b78) With `alive`: the stand's fill timers as lockable repeater chains of stages of
+    /// this many gt (a remainder stage first), keyed on the hold's release edge and locked while
+    /// ALIVE is low (the lock line [`CHAIN_LOCK_D`] gt behind ALIVE): a stage whose completion
+    /// falls while locked is lost and runs its full delay again from the unlock (a repeater's
+    /// scheduled tick does nothing while locked; the unlock reschedules it).
+    pub chain_stage: Option<i64>,
     pub trace: bool,
 }
 
@@ -532,6 +602,12 @@ pub fn bench(spec: &FarmSpec, o: &ClimbOpts) -> Result<Vec<String>, String> {
     let mut fill_shut = [false; 2];
     // (`alive_pause`: the fill's live clock, ticks with ALIVE high since the release)
     let mut fill_live = 0i64;
+    // (`chain_stage`: the fill's two lockable repeater chains, G2 and G1, and ALIVE's recent
+    // values for the lock line)
+    let mut chains: [Option<Chain>; 2] = [None, None];
+    let mut alive_hist: std::collections::VecDeque<bool> = std::collections::VecDeque::new();
+    // (each cart's exit from each gate's cell: its box clear of the cell, past it)
+    let mut gate_exit: [[Option<i64>; 3]; 3] = [[None; 3]; 3];
     let mut alive_log: Vec<String> = Vec::new();
     let mut handed = [false; 3];
     let mut gate_edges: Vec<String> = Vec::new();
@@ -558,6 +634,10 @@ pub fn bench(spec: &FarmSpec, o: &ClimbOpts) -> Result<Vec<String>, String> {
         let mut released_now = false;
         if o.alive {
             let alive = gate.alive(&run.world, dt);
+            alive_hist.push_back(alive);
+            if alive_hist.len() > CHAIN_LOCK_D + 2 {
+                alive_hist.pop_front();
+            }
             let col_live = run.world.entity_ticks_at((chunks[0] * 16 + 8) as f64, (chunks[1] * 16 + 8) as f64);
             if dt % 100 == 0 && col_live {
                 if release_t.is_none() {
@@ -643,7 +723,28 @@ pub fn bench(spec: &FarmSpec, o: &ClimbOpts) -> Result<Vec<String>, String> {
         // bench position triggers (`alive`: the fill sequence's shuts, each ANDed with ALIVE at
         // its rise, the unfired remainder dropped when ALIVE falls, restarted at a golem event)
         if let Some((a, b)) = o.gate_shut {
-            if o.alive && o.alive_pause {
+            if let (true, Some(stage)) = (o.alive, o.chain_stage) {
+                // (the fill as lockable repeater chains keyed on the release edge: locked while
+                // ALIVE was low CHAIN_LOCK_D gt ago; a completion that falls while locked is lost
+                // and runs its full stage again from the unlock)
+                let locked = alive_hist.len() > CHAIN_LOCK_D && !alive_hist[alive_hist.len() - 1 - CHAIN_LOCK_D];
+                if release_t == Some(dt) {
+                    chains = [Some(Chain::start(a, stage, dt, locked)), Some(Chain::start(b, stage, dt, locked))];
+                }
+                for i in 0..2 {
+                    let fired = match chains[i].as_mut() {
+                        Some(c) if release_t != Some(dt) || c.due.is_none() => c.tick(dt, locked),
+                        _ => false,
+                    };
+                    if fired && !fill_shut[i] {
+                        fill_shut[i] = true;
+                        gate.fired_pulse(&run.world, ["fill G2 (chain)", "fill G1 (chain)"][i], dt);
+                        alive_log.push(format!("{} shut at T+{dt} (chain{})", ["G2", "G1"][i], chains[i].as_ref().map_or(String::new(), |c| if c.lost > 0 { format!(", {} stage completions lost to a lock", c.lost) } else { String::new() })));
+                    }
+                }
+                open[0] = !fill_shut[0];
+                open[1] = !fill_shut[1];
+            } else if o.alive && o.alive_pause {
                 // (the fill on a live clock counted on ALIVE: paused while ALIVE is low, resumed
                 // on its return; each shut a pulse ANDed with ALIVE (true by construction), the
                 // frozen-cart check on it)
@@ -732,6 +833,10 @@ pub fn bench(spec: &FarmSpec, o: &ClimbOpts) -> Result<Vec<String>, String> {
                 for (g, (gx, _)) in GATES.iter().enumerate() {
                     if gate_entry[k][g].is_none() && p.x + 0.49 >= *gx as f64 && p.x < *gx as f64 + 1.0 {
                         gate_entry[k][g] = Some((dt, prev_v[k].max(s)));
+                    }
+                    // (cc767b78: the exit, the cart's box clear of the cell past it)
+                    if gate_entry[k][g].is_some() && gate_exit[k][g].is_none() && p.x - 0.49 >= *gx as f64 + 1.0 {
+                        gate_exit[k][g] = Some(dt);
                     }
                 }
             }
@@ -949,6 +1054,26 @@ pub fn bench(spec: &FarmSpec, o: &ClimbOpts) -> Result<Vec<String>, String> {
             })
             .collect();
         out.push(format!("timed edges (the liveness latency must stay under each least gap): {}", per.join("; ")));
+        // (machine-readable, for the matrix's drift condition: each timed gate's shut tick and
+        // every cart's entry into and exit from its cell, -1 for none)
+        let tl: Vec<String> = (0..2)
+            .map(|i| {
+                format!(
+                    "{} shut {} entries {} exits {}",
+                    ["G2", "G1"][i],
+                    shut_at[i].unwrap_or(-1),
+                    (0..3).map(|k| gate_entry[k][i].map_or(-1, |(t, _)| t).to_string()).collect::<Vec<_>>().join(","),
+                    (0..3).map(|k| gate_exit[k][i].unwrap_or(-1).to_string()).collect::<Vec<_>>().join(",")
+                )
+            })
+            .collect();
+        out.push(format!("gate timing: {}", tl.join("; ")));
+        if let Some(stage) = o.chain_stage.filter(|_| o.alive) {
+            out.push(format!(
+                "the fill as lockable repeater chains (stages of {stage} gt, a remainder stage first; locked {CHAIN_LOCK_D} gt behind ALIVE; a completion while locked lost and run again in full from the unlock): {}",
+                chains.iter().enumerate().map(|(i, c)| c.as_ref().map_or(format!("{} not started", ["G2", "G1"][i]), |c| format!("{} {} stages {:?}, completions lost {}", ["G2", "G1"][i], c.stages.len(), c.stages, c.lost))).collect::<Vec<_>>().join("; ")
+            ));
+        }
     }
     let _ = t0;
     Ok(out)
