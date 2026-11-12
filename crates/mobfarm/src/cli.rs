@@ -3166,6 +3166,10 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     std::fs::write(&out, format!("{head}{lines}{}", d.to_text()))?;
                 }
             }
+            // (ironspec Nov 11 15:46: the borders report is a default of the assembly as of the
+            // runner: the pasted file's chunk-line crossings, its own frame taken as the world's,
+            // as `queue-loop-run` takes it)
+            println!("{}", crate::borders::summary(&d.blocks, [0, 0], 12));
         }
         MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, drop, vstand, no_tail_v, folded, row_gap, uturn_boost, line, no_tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, stand_wired, stand_guard, shift, tail_fifo, tail_esc, climb_boost, tail_brake, tail_plain, climb_every, ledge_slope, esc_door, esc_flat, landing_boost2, esc_g0, esc_adm, adm_ledge, adm_g1, adm_short, adm_qboost, adm_flatb, adm_rboost, adm_pdet, adm_sensors, adm_room_k, adm_latch_reset, adm_xq, tail_post_x, xq_gap, xq_drop, xq_z, row_a, tail_posts, approach, depart_crest, cprime, approach_boost, part_departure, crest_plain_dip, crest_descent, part_handoff, approach_climb_boost, part_allowed, out } => {
             let tail_deep = !no_tail_deep && !plain && !tail_desc && tail_fifo == 0 && tail_esc == 0;
