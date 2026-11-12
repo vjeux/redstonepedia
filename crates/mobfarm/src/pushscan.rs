@@ -4,7 +4,10 @@
 //! cart anywhere between its two ends, so its box spans the slope's rise too); the resting cart's
 //! box inflated 0.2 in x and z (the push test) and 0.5 each way along its rail's axis (a braked
 //! cart stops anywhere along its cell); the y ranges must overlap. Tracks: rail cells
-//! joined where each one's shape exits toward the other (a level or a one-up neighbour). Rest or
+//! joined where each one's shape exits toward the other (a level or a one-up neighbour); a rest
+//! cell's own route (exempt) is what it reaches without entering a junction (a rail with 3+
+//! potential connections: routes a junction joins are different tracks, ironspec Nov 12 05:52, the
+//! K contact). Rest or
 //! creep cells: the `--rest` cells (the queue's slopes, holds, D cells, the queue cell) and, unless
 //! turned off, every unpowered powered rail (a brake).
 
@@ -84,6 +87,24 @@ pub fn scan(spec: &FarmSpec, rests: &[BlockPos], auto: bool) -> (Vec<String>, us
         }
     }
     rest_cells.sort_by_key(|c| (c.y, c.z, c.x));
+    // (ironspec Nov 12 05:52, the K contact: routes joined by a junction (a rail with 3 or more
+    // potential connections: rails beside it at its level, one up or one down) are different
+    // tracks; only the rails reachable from the rest cell without entering a junction cell are its
+    // own route and exempt)
+    let is_rail = |p: &BlockPos| rails.contains_key(p);
+    let junction = |c: &BlockPos| [(0, -1), (1, 0), (0, 1), (-1, 0)].iter().filter(|(dx, dz)| (-1..=1).any(|dy| is_rail(&BlockPos::new(c.x + dx, c.y + dy, c.z + dz)))).count() >= 3;
+    let joined = |c: &BlockPos| -> Vec<BlockPos> {
+        let mut v = Vec::new();
+        for (dx, dz, rises) in exits(&rails[c]) {
+            for dy in if rises { vec![1] } else { vec![0, -1] } {
+                let n = BlockPos::new(c.x + dx, c.y + dy, c.z + dz);
+                if rails.get(&n).is_some_and(|s| exits(s).iter().any(|(ex, ez, _)| *ex == -dx && *ez == -dz)) {
+                    v.push(n);
+                }
+            }
+        }
+        v
+    };
     let mut out = Vec::new();
     for r in &rest_cells {
         let Some(rs) = rails.get(r) else {
@@ -92,6 +113,16 @@ pub fn scan(spec: &FarmSpec, rests: &[BlockPos], auto: bool) -> (Vec<String>, us
         };
         let ri = idx[r];
         let rt = find(&mut parent, ri);
+        let mut own: std::collections::HashSet<BlockPos> = std::collections::HashSet::new();
+        own.insert(*r);
+        let mut todo = vec![*r];
+        while let Some(c) = todo.pop() {
+            for n in joined(&c) {
+                if !junction(&n) && own.insert(n) {
+                    todo.push(n);
+                }
+            }
+        }
         let mut rb = cart_box(*r, rs);
         rb[0] -= 0.2;
         rb[1] += 0.2;
@@ -118,13 +149,24 @@ pub fn scan(spec: &FarmSpec, rests: &[BlockPos], auto: bool) -> (Vec<String>, us
             if (p.x - r.x).abs() > 2 || (p.z - r.z).abs() > 2 || (p.y - r.y).abs() > 2 {
                 continue;
             }
-            let pt = find(&mut parent, idx[p]);
-            if pt == rt {
+            if own.contains(p) {
                 continue;
             }
+            let pt = find(&mut parent, idx[p]);
             let pb = cart_box(*p, ps);
             if rb[0] < pb[1] && pb[0] < rb[1] && rb[2] < pb[3] && pb[2] < rb[3] && rb[4] < pb[5] && pb[4] < rb[5] {
-                out.push(format!("  PUSH {},{},{} (rests: {}) <- {},{},{} (another track: {})", r.x, r.y, r.z, short(rs), p.x, p.y, p.z, short(ps)));
+                out.push(format!(
+                    "  PUSH {},{},{} (rests: {}) <- {},{},{} ({}: {})",
+                    r.x,
+                    r.y,
+                    r.z,
+                    short(rs),
+                    p.x,
+                    p.y,
+                    p.z,
+                    if pt == rt { "the same track beyond a junction" } else { "another track" },
+                    short(ps)
+                ));
             }
         }
     }
