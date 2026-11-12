@@ -178,6 +178,10 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
     }
     // (the siding's rest rail and where its side power goes)
     let (rest_y, rest_z) = if so.siding_dy > 0 { (m + 1, mz + 2) } else { (m, mz + 1) };
+    // (the siding's switched side power: with the siding two west of the lane, its EAST side (x-1, at
+    // the rest's level), between it and the branch (the west side x-3 is the lift's shell for lane -1);
+    // else its west side)
+    let s_pow = if so.siding_dx >= 2 && so.siding_dy == 0 { BlockPos::new(sx + 1, rest_y, rest_z) } else { BlockPos::new(sx - 1, rest_y, rest_z) };
     // (--nap-guard: a string over the branch cell before the merge (x,m+1,mz+1), hooks at x+-1, stone
     // at x+-2: the siding releases only while no cart is there)
     if so.guard {
@@ -195,10 +199,15 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
     // once, so a rail placed beside another can be reshaped by the connection rule (the branch flat
     // beside the raised siding's lower slope turned toward it); the build places them in order)
     let mut reshaped = 0usize;
+    let mut reshaped_note: Vec<String> = Vec::new();
     for (p, blk) in &spec.blocks {
         if matches!(blk, Block::PlainRail { .. } | Block::Rail { .. })
             && run.world.get(*p) != *blk
         {
+            if reshaped_note.len() < 4 {
+                let short = |b: &Block| format!("{b:?}").replace("PlainRail { shape: ", "").replace("Rail { activator: false, shape: ", "").replace(" }", "");
+                reshaped_note.push(format!("({},{},{}) {} -> {}", p.x, p.y, p.z, short(&run.world.get(*p)), short(blk)));
+            }
             run.world.set_block(*p, blk.clone(), redsim::world::flags::RAW);
             reshaped += 1;
         }
@@ -247,6 +256,14 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
     let mut per_release: Vec<usize> = Vec::new();
     let mut fell = vec![false; n];
     let mut prev: Vec<Option<(f64, f64, f64, f64)>> = vec![None; n];
+    let mut before_prev: Vec<Option<(f64, f64, f64, f64)>> = vec![None; n];
+    // (landings: a dropping cart's box meeting a queued cart's box during the fall or at its landing
+    // tick (lift3's box test), once per drop: (cart, its speed (all three axes), q); the q values at
+    // which a queued cart's box reached the top slope's cell (the landing cell))
+    let mut landing_meets: Vec<(usize, f64, usize)> = Vec::new();
+    let mut met_this_drop = vec![false; n];
+    let mut was_falling = vec![false; n];
+    let mut occupied_q: std::collections::BTreeSet<usize> = Default::default();
     // (the napper bookkeeping: the cart index of the napper waiting, its predecessor's index, the
     // predecessor's merge pass tick, the release tick)
     let mut nap: Option<(usize, usize)> = None;
@@ -307,11 +324,25 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
         }
         hh_was = hh;
         let mh = matches!(run.world.get(merge_hook), Block::TripwireHook { powered: true, .. });
-        // (every cart's last pass at the merge string: the rising edge, given to the cart over the merge)
-        if mh && !merge_was
-            && let Some(c) = (0..n).find(|c| carts[*c].and_then(|id| st(&run.world, id)).is_some_and(|p| in_cell((p.0, p.1, p.2), lx, m, pass_z)))
-        {
-            last_pass[c] = Some(t);
+        // (every cart's last pass at the pass string: the rising edge, credited to the cart whose box
+        // swept the string's slab (y + 1/16 .. 2.5/16 of its cell) during the tick that pressed it,
+        // from its place before that tick to its place after (G1: a fast cart can be out of the cell
+        // by the next tick's start))
+        if mh && !merge_was {
+            let slab = |p0: (f64, f64, f64, f64), p1: (f64, f64, f64, f64)| {
+                let (zlo, zhi) = (p0.2.min(p1.2) - 0.49, p0.2.max(p1.2) + 0.49);
+                let (ylo, yhi) = (p0.1.min(p1.1), p0.1.max(p1.1) + 0.7);
+                (p1.0 - zc).abs() < 0.6 && zhi > pass_z as f64 && zlo < (pass_z + 1) as f64 && yhi > m as f64 + 0.0625 && ylo < m as f64 + 0.15625
+            };
+            let swept = (0..n).find(|c| match (before_prev[*c], prev[*c]) {
+                (Some(p0), Some(p1)) => slab(p0, p1),
+                (None, Some(p1)) => slab(p1, p1),
+                _ => false,
+            });
+            let found = swept.or_else(|| (0..n).find(|c| carts[*c].and_then(|id| st(&run.world, id)).is_some_and(|p| in_cell((p.0, p.1, p.2), lx, m, pass_z))));
+            if let Some(c) = found {
+                last_pass[c] = Some(t);
+            }
         }
         merge_was = mh;
         // (the release (day-1's rule): the napper resting on the siding, its predecessor's last merge
@@ -368,7 +399,7 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
         let want_s = t < s_until;
         if want_s != s_is {
             s_is = want_s;
-            run.world.set_block(BlockPos::new(sx - 1, rest_y, rest_z), if want_s { rblock.clone() } else { air.clone() }, redsim::world::flags::ALL);
+            run.world.set_block(s_pow, if want_s { rblock.clone() } else { air.clone() }, redsim::world::flags::ALL);
         }
         // (returns: on the branch at z mz + 2.5 moving -z, or a napper onto the siding slope at rest;
         // nothing arrives while the bench is frozen)
@@ -408,6 +439,16 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
                     lap_wait = false;
                     nap_since = t;
                     merge_was = false;
+                    // (a napper still on the siding when the pulse is cut is braked there again: the
+                    // controller has no release in hand for it, it waits for its rule anew)
+                    if let Some((nc, _)) = nap
+                        && carts[nc].and_then(|id| st(&run.world, id)).is_some_and(|p| (p.0 - (sx as f64 + 0.5)).abs() < 0.6)
+                    {
+                        released_at = None;
+                        nap_rested_at = None;
+                        nap_rest = None;
+                        knocked_this = false;
+                    }
                 }
             }
         }
@@ -459,6 +500,36 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
             if touch_note.len() < 4 {
                 let who: Vec<String> = (0..n).filter(|c| now[*c].is_some_and(|p| in_cell((p.0, p.1, p.2), lx, m, mz))).map(|c| { let p = now[c].unwrap(); format!("cart {c} at {:.2},{:.2},{:.2}/{:.2}", p.0, p.1, p.2, p.3) }).collect();
                 touch_note.push(format!("t {t}: {}", who.join(", ")));
+            }
+        }
+        // (landings: a cart in the drop (in the column, over the top slopes, more than 0.3 above the
+        // rail's surface) or on its landing tick, whose box meets another cart's box (0.98 wide, 0.7
+        // high, 0.01 slack): a contact, its speed on all three axes, at q (the queued carts on the
+        // slopes behind R_1's cart then))
+        let q_now = (0..n).filter(|j| had_contact[*j] && entered.contains(j) && now[*j].is_some_and(|(xj, yj, zj, _)| (xj - zc).abs() < 0.6 && zj > 1.9 && zj < mz as f64 && yj < slope_y(zj) + 0.3)).count();
+        for c in 0..n {
+            let Some((x, y, z, _)) = now[c] else { continue };
+            let in_column = (x - zc).abs() < 0.6 && z < mz as f64 && z > 1.9;
+            let falling = in_column && y > slope_y(z) + 0.3;
+            let landing_tick = in_column && !falling && was_falling[c];
+            if (falling || landing_tick) && !met_this_drop[c] {
+                let meet = (0..n).any(|j| j != c && now[j].is_some_and(|(xj, yj, zj, _)| (x - xj).abs() < 0.99 && (z - zj).abs() < 0.99 && y < yj + 0.71 && yj < y + 0.71));
+                if meet {
+                    met_this_drop[c] = true;
+                    let sp = carts[c].and_then(|id| redsim::entity::index_of(&run.world, id)).map_or(0.0, |i| {
+                        let d = run.world.entities.list[i].delta_movement;
+                        (d.x * d.x + d.y * d.y + d.z * d.z).sqrt()
+                    });
+                    landing_meets.push((c, sp, q_now));
+                }
+            }
+            if y > m as f64 - 0.2 && z > mz as f64 - 0.2 {
+                met_this_drop[c] = false;
+            }
+            was_falling[c] = falling;
+            // (the landing cell: a queued cart's box reaching the top slope's cell)
+            if had_contact[c] && entered.contains(&c) && in_column && !falling && z + 0.49 > (1 + ns) as f64 {
+                occupied_q.insert(q_now);
             }
         }
         for c in 0..n {
@@ -594,6 +665,7 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
                 nap = None;
             }
         }
+        before_prev = prev;
         prev = now;
     }
     let mut ph: std::collections::BTreeMap<usize, usize> = Default::default();
@@ -621,7 +693,10 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
     lines.push(format!("carts per release (exactly 1): {}; empty releases after the first (golems lost: a batch of 2 can't summon): {empty_releases}; late nappers (a lane-lap wait): {late_naps}", ph.iter().map(|(a, b2)| format!("{a}: {b2}")).collect::<Vec<_>>().join(", ")));
     lines.push(format!("nappers through the siding: {}", if nap_rows.is_empty() { "none".to_string() } else { nap_rows.join(" | ") }));
     lines.push(format!("the napper heading the wrong way at the merge (the bar: 0): {}{}", wrong_way.len(), if wrong_way.is_empty() { String::new() } else { format!(" ({})", wrong_way.join("; ")) }));
-    lines.push(format!("nappers knocked loose on the siding (moving with no release; the bar: 0): {knocked}; rails the bench restored to their laid shape after placement: {reshaped}"));
+    lines.push(format!(
+        "nappers knocked loose on the siding (moving with no release; the bar: 0): {knocked}; rails the bench restored to their laid shape after placement: {reshaped}{} (the build lays the merge before the branch flat, and the branch flat before a dx 1 siding's slope)",
+        if reshaped_note.is_empty() { String::new() } else { format!(" ({})", reshaped_note.join(", ")) }
+    ));
     lines.push(format!("ticks with two carts over the merge (the curve rule's touching; the bar: 0): {touching}{}", if touch_note.is_empty() { String::new() } else { format!(" ({})", touch_note.join("; ")) }));
     lines.push(format!(
         "arrivals at the lanes' backs (each arrival's first contact in the lane): {}, {} above 0.46, the hardest {cmax:.3}; the fewest carts queued on the slopes behind R_1's cart at an arrival (q: the lane before it is D + R_1's cart + q) {} (the hardest there {}); the hardest by q: {}; the restage's shoves inside the queue (R's own, not arrivals) up to {imax:.3}",
@@ -632,9 +707,18 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
         by_count.iter().map(|(k, v)| format!("{k}: {v:.3}")).collect::<Vec<_>>().join(", ")
     ));
     lines.push(format!("arrivals landing out of order (the cart ahead is not the one that entered before; the bar: 0): {order_broken}{}", if order_note.is_empty() { String::new() } else { format!(" ({})", order_note.join("; ")) }));
+    lines.push(format!(
+        "landings meeting another cart's box (during the fall or at the landing tick; lift3's box test, its speed on all three axes against 0.46): {}, {} above 0.46{}; the landing cell (x,{},{}) held a queued cart at q: {}",
+        landing_meets.len(),
+        landing_meets.iter().filter(|k| k.1 > 0.46).count(),
+        if landing_meets.is_empty() { String::new() } else { format!(" ({})", landing_meets.iter().take(8).map(|k| format!("cart {} {:.3} at q {}", k.0, k.1, k.2)).collect::<Vec<_>>().join(", ")) },
+        17 + ns,
+        1 + ns,
+        if occupied_q.is_empty() { "none".to_string() } else { occupied_q.iter().map(|q| q.to_string()).collect::<Vec<_>>().join(", ") }
+    ));
     lines.push(format!("carts at rest off the rails (in the drop or beside a rail, 20 gt; the bar: 0): {off_rail}{}", if off_note.is_empty() { String::new() } else { format!(" ({})", off_note.join("; ")) }));
     lines.push(format!(
-        "riders' eyes inside a block's collider (rider-ticks; the bar: 0): {}{}; the riders' lowest health {}",
+        "riders' eyes inside a block's collider (the sight test; rider-ticks; the bar: 0): {}{}; the riders' lowest health {} (covers the game's suffocation, isInWall: full suffocating blocks only)",
         eye_bad.values().sum::<usize>(),
         if eye_bad.is_empty() { String::new() } else { format!(" ({})", eye_bad.iter().map(|(k, v)| format!("{k}: {v}")).collect::<Vec<_>>().join(", ")) },
         if min_health == f32::MAX { "-".to_string() } else { format!("{min_health:.1}") }
@@ -646,9 +730,116 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
         restage.len()
     ));
     if let Some((c, _)) = nap {
-        lines.push(format!("a napper still waiting at the end: cart {c} (predecessor pass {:?}, released {:?})", pred_pass, released_at));
+        // (a napper still waiting at the end is stuck only past a lane-lap and two beats since it came
+        // back (day-1's late rule waits up to one lane-lap); else it is a wait the run's end cut)
+        let waited = ticks - nap_since;
+        let lap = (o.per_lane as i64 + 2) * o.period;
+        lines.push(format!(
+            "a napper still waiting at the end: cart {c} (predecessor pass {:?}, released {:?}), {waited} gt since its drop{}",
+            pred_pass,
+            released_at,
+            if waited > lap + so.nap_ret { format!(" — stuck (over a lane-lap, {lap} gt, past its return)") } else { format!(" — within a lane-lap ({lap} gt) of its return: the run's end cut its wait") }
+        ));
     }
     Ok(lines.join("\n"))
+}
+
+/// The three lanes (x -1 / 3 / 7) as a design file in the loop frame, the cells the bench lays with
+/// `--merge-curve --siding-dx 2 --guard-det --drop-entry` (onechunk's F1 + Q2 module; farmopt
+/// 2026-11-12 01:30): R_1 and the hold string, the N slopes on glass, the drop entry (the merge one
+/// level up, the empty drop column, the wall, the pass string), the 2-cell branch with its detector
+/// guard, the x-2 siding. The switched cells are left air and named in the header.
+pub fn lanes_design(ns: i32) -> String {
+    let m = 19 + ns;
+    let mz = ns + 2;
+    let tripwire_ew = "minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,south=false,west=true,powered=false]";
+    let hook_e = "minecraft:tripwire_hook[attached=true,facing=east,powered=false]";
+    let hook_w = "minecraft:tripwire_hook[attached=true,facing=west,powered=false]";
+    let glass = "minecraft:glass";
+    let stone = "minecraft:stone";
+    let pslope = "minecraft:powered_rail[powered=false,shape=ascending_south,waterlogged=false]";
+    let slope = "minecraft:rail[shape=ascending_south,waterlogged=false]";
+    let flat_ns = "minecraft:rail[shape=north_south,waterlogged=false]";
+    let flat_ew = "minecraft:rail[shape=east_west,waterlogged=false]";
+    let curve_nw = "minecraft:rail[shape=north_west,waterlogged=false]";
+    let curve_se = "minecraft:rail[shape=south_east,waterlogged=false]";
+    let det = "minecraft:detector_rail[powered=false,shape=north_south,waterlogged=false]";
+    let mut cells: std::collections::BTreeMap<(i32, i32, i32), &str> = Default::default();
+    for x in [-1, 3, 7] {
+        let mut put = |x: i32, y: i32, z: i32, s: &'static str| {
+            cells.insert((x, y, z), s);
+        };
+        // (the hold's string (x,17,0), hooks x+-1, supports x+-2 shared between lanes)
+        put(x, 17, 0, tripwire_ew);
+        put(x - 1, 17, 0, hook_e);
+        put(x + 1, 17, 0, hook_w);
+        put(x - 2, 17, 0, stone);
+        put(x + 2, 17, 0, stone);
+        // (R_1: its support (x,16,1) is the station's ring glass, not laid here)
+        put(x, 17, 1, pslope);
+        for k in 0..ns {
+            put(x, 18 + k, 2 + k, slope);
+            put(x, 17 + k, 2 + k, glass);
+        }
+        // (the drop entry)
+        put(x, m, mz, curve_nw);
+        put(x, m - 1, mz, glass);
+        put(x, m, mz - 2, stone);
+        put(x, m, mz - 1, tripwire_ew);
+        put(x - 1, m, mz - 1, hook_e);
+        put(x + 1, m, mz - 1, hook_w);
+        put(x - 2, m, mz - 1, glass);
+        put(x + 2, m, mz - 1, glass);
+        // (the 2-cell branch)
+        put(x, m, mz + 1, flat_ns);
+        put(x, m - 1, mz + 1, glass);
+        put(x, m, mz + 2, det);
+        put(x, m - 1, mz + 2, glass);
+        // (the siding at x-2)
+        put(x - 2, m, mz + 1, pslope);
+        put(x - 2, m - 1, mz + 1, glass);
+        put(x - 2, m, mz, curve_se);
+        put(x - 2, m - 1, mz, glass);
+        put(x - 1, m, mz, flat_ew);
+        put(x - 1, m - 1, mz, glass);
+        put(x - 2, m + 1, mz + 2, flat_ns);
+        put(x - 2, m, mz + 2, glass);
+    }
+    let (x0, x1) = (cells.keys().map(|k| k.0).min().unwrap_or(0), cells.keys().map(|k| k.0).max().unwrap_or(0));
+    let (y0, y1) = (cells.keys().map(|k| k.1).min().unwrap_or(0), cells.keys().map(|k| k.1).max().unwrap_or(0));
+    let (z0, z1) = (cells.keys().map(|k| k.2).min().unwrap_or(0), cells.keys().map(|k| k.2).max().unwrap_or(0));
+    let mut states: Vec<&str> = cells.values().copied().collect();
+    states.sort();
+    states.dedup();
+    let chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    let ch = |s: &str| chars.as_bytes()[states.iter().position(|t| *t == s).unwrap_or(0)] as char;
+    let mut out = String::new();
+    out.push_str(&format!(
+        "# F1 + Q2 lanes (ironfarm, the brake-and-rider escapement with the passive drop entry; ironspec 2026-11-12 01:21, lead): three lanes x -1 / 3 / 7, loop frame (paste with no move), {ns} slopes behind R_1, the merge at m = {m}, mz = {mz}. Benched as `mctas mobfarm drop-bench --siding --merge-curve --siding-dx 2 --guard-det --drop-entry --slopes {ns} --r-pulse 30 --drop-w 20 --per-lane 8` (explore/ironfarm): one lane, these cells at x 3.\n"
+    ));
+    out.push_str("# Per lane x: the hold's string (x,17,0) with hooks (x+-1,17,0) on stone (x+-2,17,0) (shared); R_1 (x,17,1) a powered rail ascending south, its support (x,16,1) the station's ring glass (dfb89499; not laid here);");
+    out.push_str(&format!(" the slopes (x,18..{},2..{}) plain, ascending south, on glass; the merge (x,{m},{mz}) a north_west curve on glass (x,{},{mz}), its north end the rail end over the drop column (x,{m}..{},{}) (empty but the pass string) onto the top slope (x,{},{}), the wall (x,{m},{}) stone;", 17 + ns, 1 + ns, m - 1, m - 1, mz - 1, 17 + ns, 1 + ns, mz - 2));
+    out.push_str(&format!(" the pass string (x,{m},{}) with hooks (x+-1,{m},{}) on glass (x+-2,{m},{}) (shared at x 1 / 5); the 2-cell branch (x,{m},{}) flat and (x,{m},{}) the detector guard, both on glass, fed by the split from z {};", mz - 1, mz - 1, mz - 1, mz + 1, mz + 2, mz + 3));
+    out.push_str(&format!(" the siding at x-2: the rest (x-2,{m},{}) a powered rail ascending south (braked unpowered), the curve (x-2,{m},{mz}) south_east, the flat (x-1,{m},{mz}) east_west, the feed (x-2,{},{}) from the split's napper route, all on glass.\n", mz + 1, m + 1, mz + 2));
+    out.push_str(&format!(
+        "# Switched cells (left air here; the bench's emulation: a redstone block set and cleared with flags ALL): R_1's side power (x+1,17,1) (the R line: on 30 gt when the trapdoors shut); the siding's side power (x-1,{m},{}) (the siding pulse: on 30 gt at the napper's release, K = 4 gt after its predecessor's pass string edge, while the detector guard (x,{m},{}) is off). The holds' trapdoors (x,16,0) are the station's (the trapdoor line: open 20 gt).\n",
+        mz + 1,
+        mz + 2
+    ));
+    out.push_str("# Bars as benched (8 a lane, ±2, v_in 0.26..0.40): arrivals <= 0.459 at q 0..1, <= 0.392 at q >= 2; every failure count 0; the 10 load orders at every phase 0 failing. The split must deliver 0.26..0.40 b/t (0.22 rests on the merge's glass).\n");
+    out.push_str("name: f1q2-lanes\ncircuit: mob-farm iron_ingot\n");
+    out.push_str(&format!("origin: {x0} 0 {z0}\npalette:\n"));
+    for s in &states {
+        out.push_str(&format!("  {} {}\n", ch(s), s));
+    }
+    for y in y0..=y1 {
+        out.push_str(&format!("layer {y}:\n"));
+        for z in z0..=z1 {
+            let row: String = (x0..=x1).map(|x| cells.get(&(x, y, z)).map_or('.', |s| ch(s))).collect();
+            out.push_str(&format!("  {}\n", row.trim_end_matches('.')));
+        }
+    }
+    out
 }
 
 /// Run `f` over `0..n` on `jobs` threads, results in order.
@@ -685,6 +876,9 @@ pub struct SidingRow {
     pub arrival_max: f64,
     pub by_q: std::collections::BTreeMap<usize, f64>,
     pub order_broken: usize,
+    pub landing_meets: usize,
+    pub landing_over: usize,
+    pub occupied_q: String,
     pub off_rail: usize,
     pub eyes: usize,
     pub min_health: f32,
@@ -702,6 +896,7 @@ pub fn siding_row(o: &DropOpts, so: &SidingOpts) -> Result<SidingRow, String> {
         let t: String = s[i..].trim_start().chars().take_while(|c| c.is_ascii_digit() || *c == '.' || *c == '-').collect();
         t.parse().ok()
     };
+    let req = |l: &str, key: &str| -> Result<f64, String> { num_after(l, key).ok_or(format!("siding_row: no number after \"{key}\" in: {l}")) };
     for l in text.lines() {
         if l.starts_with("carts per release (exactly 1): ") {
             let body = l.trim_start_matches("carts per release (exactly 1): ");
@@ -714,8 +909,8 @@ pub fn siding_row(o: &DropOpts, so: &SidingOpts) -> Result<SidingRow, String> {
                     r.not_one += b2.trim().parse::<usize>().unwrap_or(0);
                 }
             }
-            r.empty_releases = num_after(l, "golems lost: a batch of 2 can't summon): ").unwrap_or(0.0) as usize;
-            r.late_naps = num_after(l, "late nappers (a lane-lap wait): ").unwrap_or(0.0) as usize;
+            r.empty_releases = req(l, "golems lost: a batch of 2 can't summon): ")? as usize;
+            r.late_naps = req(l, "late nappers (a lane-lap wait): ")? as usize;
         } else if l.starts_with("nappers through the siding: ") {
             for seg in l.split(" | ") {
                 if let Some(v) = num_after(seg, "its contact ") {
@@ -724,14 +919,14 @@ pub fn siding_row(o: &DropOpts, so: &SidingOpts) -> Result<SidingRow, String> {
                 }
             }
         } else if l.starts_with("the napper heading the wrong way") {
-            r.wrong = num_after(l, "(the bar: 0): ").unwrap_or(0.0) as usize;
+            r.wrong = req(l, "(the bar: 0): ")? as usize;
         } else if l.starts_with("nappers knocked loose") {
-            r.knocked = num_after(l, "(moving with no release; the bar: 0): ").unwrap_or(0.0) as usize;
+            r.knocked = req(l, "(moving with no release; the bar: 0): ")? as usize;
         } else if l.starts_with("ticks with two carts over the merge") {
-            r.touching = num_after(l, "the bar: 0): ").unwrap_or(0.0) as usize;
+            r.touching = req(l, "the bar: 0): ")? as usize;
         } else if l.starts_with("arrivals at the lanes' backs") {
-            r.arrivals_over = num_after(l, "first contact in the lane): ").and_then(|_| l.split(", ").nth(1)).and_then(|s| s.split(' ').next()).and_then(|s| s.parse().ok()).unwrap_or(0);
-            r.arrival_max = num_after(l, "the hardest ").unwrap_or(0.0);
+            r.arrivals_over = l.split("first contact in the lane): ").nth(1).and_then(|s| s.split(", ").nth(1)).and_then(|s| s.split(' ').next()).and_then(|s| s.parse().ok()).ok_or(format!("siding_row: no arrivals-over count in: {l}"))?;
+            r.arrival_max = req(l, "the hardest ")?;
             if let Some(i) = l.find("the hardest by q: ") {
                 let body = &l[i + "the hardest by q: ".len()..];
                 let body = body.split(';').next().unwrap_or("");
@@ -745,16 +940,26 @@ pub fn siding_row(o: &DropOpts, so: &SidingOpts) -> Result<SidingRow, String> {
                 }
             }
         } else if l.starts_with("arrivals landing out of order") {
-            r.order_broken = num_after(l, "(the bar: 0): ").unwrap_or(0.0) as usize;
+            r.order_broken = req(l, "the bar: 0): ")? as usize;
+        } else if l.starts_with("landings meeting another cart's box") {
+            r.landing_meets = req(l, "against 0.46): ")? as usize;
+            r.landing_over = l.split("against 0.46): ").nth(1).and_then(|s| s.split(", ").nth(1)).and_then(|s| s.split(' ').next()).and_then(|s| s.parse().ok()).ok_or(format!("siding_row: no landings-over count in: {l}"))?;
+            r.occupied_q = l.split("held a queued cart at q: ").nth(1).unwrap_or("-").to_string();
         } else if l.starts_with("carts at rest off the rails") {
-            r.off_rail = num_after(l, "the bar: 0): ").unwrap_or(0.0) as usize;
+            r.off_rail = req(l, "the bar: 0): ")? as usize;
         } else if l.starts_with("riders' eyes inside") {
-            r.eyes = num_after(l, "(rider-ticks; the bar: 0): ").unwrap_or(0.0) as usize;
+            r.eyes = req(l, "rider-ticks; the bar: 0): ")? as usize;
             r.min_health = num_after(l, "the riders' lowest health ").map(|v| v as f32).unwrap_or(f32::MAX);
         } else if l.starts_with("the restage") {
             r.restage_max = num_after(l, "the slowest ").unwrap_or(-1.0) as i64;
         } else if l.starts_with("a napper still waiting") {
-            r.stuck = true;
+            r.stuck = l.contains("— stuck");
+        }
+    }
+    // (every bar line must have been read: a line the bench stopped printing is an error, not a 0)
+    for key in ["carts per release (exactly 1)", "nappers through the siding", "the napper heading the wrong way", "nappers knocked loose", "ticks with two carts over the merge", "arrivals at the lanes' backs", "arrivals landing out of order", "landings meeting another cart's box", "carts at rest off the rails", "riders' eyes inside", "the restage"] {
+        if !text.lines().any(|l| l.starts_with(key)) {
+            return Err(format!("siding_row: the bench printed no \"{key}\" line"));
         }
     }
     r.text = text;

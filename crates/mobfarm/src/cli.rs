@@ -1325,6 +1325,9 @@ pub enum MobfarmCmd {
         /// The siding matrix's parallel runs.
         #[arg(long, default_value_t = 2)]
         jobs: usize,
+        /// Write the three lanes' design file (loop frame, --slopes) to this path and exit.
+        #[arg(long)]
+        emit_lanes_design: Option<String>,
         #[arg(long)]
         r_boost: bool,
         #[arg(long)]
@@ -4284,7 +4287,16 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 anyhow::bail!("frame-check failed");
             }
         }
-        MobfarmCmd::DropBench { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, login_matrix, restart, restart_matrix, phase_step, intake_flat, v_in, siding, nap_k, nap_every, nap_ret, nap_pulse, merge_curve, slopes, nap_guard, nap_early, siding_dx, siding_dy, ns_merge, guard_det, drop_entry, siding_matrix, rets, v_ins, nap_rets, corners, jobs, r_boost, floor_bottom, empty, freeze32 } => {
+        MobfarmCmd::DropBench { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, login_matrix, restart, restart_matrix, phase_step, intake_flat, v_in, siding, nap_k, nap_every, nap_ret, nap_pulse, merge_curve, slopes, nap_guard, nap_early, siding_dx, siding_dy, ns_merge, guard_det, drop_entry, siding_matrix, rets, v_ins, nap_rets, corners, jobs, emit_lanes_design, r_boost, floor_bottom, empty, freeze32 } => {
+            if let Some(path) = emit_lanes_design {
+                let text = crate::sidingbench::lanes_design(slopes);
+                if let Some(dir) = std::path::Path::new(&path).parent() {
+                    std::fs::create_dir_all(dir)?;
+                }
+                std::fs::write(&path, &text)?;
+                println!("wrote {path} ({} lines)", text.lines().count());
+                return Ok(());
+            }
             let pair = |s: &String| -> anyhow::Result<(i64, i64)> {
                 let mut it = s.split(',');
                 let a = it.next().unwrap_or("").trim().parse::<i64>()?;
@@ -4325,9 +4337,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         let (r, p) = grid[i];
                         let row = row.map_err(|e| anyhow::anyhow!(e))?;
                         worst = worst.max(row.arrival_max);
-                        let bad = row.empty_releases + row.not_one + row.wrong + row.knocked + row.touching + row.order_broken + row.off_rail + row.eyes + row.stuck as usize;
+                        let bad = row.empty_releases + row.not_one + row.wrong + row.knocked + row.touching + row.order_broken + row.off_rail + row.eyes + row.landing_over + row.stuck as usize;
                         if bad > 0 || row.arrivals_over > ctl.arrivals_over {
-                            fails.entry(r.label()).or_default().push(format!("phase {p}: lost {} not-1 {} wrong {} knocked {} touching {} order {} off-rail {} eyes {} over 0.46 {} (control {}){}", row.empty_releases, row.not_one, row.wrong, row.knocked, row.touching, row.order_broken, row.off_rail, row.eyes, row.arrivals_over, ctl.arrivals_over, if row.stuck { " napper stuck" } else { "" }));
+                            fails.entry(r.label()).or_default().push(format!("phase {p}: lost {} not-1 {} wrong {} knocked {} touching {} order {} off-rail {} eyes {} landings over 0.46 {} over 0.46 {} (control {}){}", row.empty_releases, row.not_one, row.wrong, row.knocked, row.touching, row.order_broken, row.off_rail, row.eyes, row.landing_over, row.arrivals_over, ctl.arrivals_over, if row.stuck { " napper stuck" } else { "" }));
                         }
                     }
                     println!(
@@ -4393,13 +4405,16 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         }
                         let nmax = row.nap_contacts.iter().copied().fold(0.0f64, f64::max);
                         worst_nap = worst_nap.max(nmax);
-                        let bad = row.empty_releases + row.not_one + row.wrong + row.knocked + row.touching + row.arrivals_over + row.order_broken + row.off_rail + row.eyes + row.stuck as usize;
+                        let bad = row.empty_releases + row.not_one + row.wrong + row.knocked + row.touching + row.arrivals_over + row.order_broken + row.off_rail + row.eyes + row.landing_over + row.stuck as usize;
                         fails += (bad > 0) as usize;
                         println!(
-                            "ret {r} v_in {v:.2} nap_ret {nr} corner {c:+}: arrivals by q {}; over 0.46 {} (max {:.3}); nappers {} (late {}); lost {} not-1 {} wrong {} knocked {} touching {} order {} off-rail {} eyes {} health {} restage {} gt{}",
+                            "ret {r} v_in {v:.2} nap_ret {nr} corner {c:+}: arrivals by q {}; over 0.46 {} (max {:.3}); landings meeting a cart {} ({} over 0.46), the landing cell held at q {}; nappers {} (late {}); lost {} not-1 {} wrong {} knocked {} touching {} order {} off-rail {} eyes {} health {} restage {} gt{}",
                             row.by_q.iter().map(|(q, x)| format!("{q}:{x:.3}")).collect::<Vec<_>>().join(" "),
                             row.arrivals_over,
                             row.arrival_max,
+                            row.landing_meets,
+                            row.landing_over,
+                            row.occupied_q,
                             if row.nap_contacts.is_empty() { "none".to_string() } else { row.nap_contacts.iter().zip(row.nap_q.iter()).map(|(x, q)| format!("{x:.3}@q{q}")).collect::<Vec<_>>().join(",") },
                             row.late_naps,
                             row.empty_releases,
@@ -4493,7 +4508,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
                 let cold = ctl.text.lines().find(|l| l.starts_with("the cold start")).unwrap_or("the cold start: -");
                 println!(
-                    "L1 reload matrix (a save, stop and start at every phase: the entities held 1..3 gt while the blocks run): {rows} rows over a {period}-gt cycle, {} failing{}\ncontrol (no reload): per release {:?}, arrivals above 0.46 {}\n{cold}",
+                    "the pearl alternative's login window (the entities held 1..3 gt while the blocks run; not the loop's restart, which is --restart-matrix): {rows} rows over a {period}-gt cycle, {} failing{}\ncontrol (no login): per release {:?}, arrivals above 0.46 {}\n{cold}",
                     bad.len(),
                     if bad.is_empty() { String::new() } else { format!(":\n{}", bad.iter().take(20).cloned().collect::<Vec<_>>().join("\n")) },
                     ctl.per_release,
