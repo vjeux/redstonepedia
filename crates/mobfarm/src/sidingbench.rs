@@ -898,6 +898,11 @@ pub fn lanes_design(ns: i32) -> Result<String, String> {
         put(x - 2, m + 1, mz + 2, flat_ns);
         put(x - 2, m, mz + 2, glass);
     }
+    // (the placement order (ironspec's rule): each rail's natural shape when placed last among its
+    // neighbours (vanilla's RailState, simplified: the neighbouring rails it can connect to: the same
+    // level, one up (it ascends toward that side), or one down when that rail ascends toward it), against
+    // the designed shape; a differing cell needs a temporary helper rail while it is placed)
+    let natural_mismatch = natural_shapes(&cells);
     let (x0, x1) = (cells.keys().map(|k| k.0).min().unwrap_or(0), cells.keys().map(|k| k.0).max().unwrap_or(0));
     let (y0, y1) = (cells.keys().map(|k| k.1).min().unwrap_or(0), cells.keys().map(|k| k.1).max().unwrap_or(0));
     let (z0, z1) = (cells.keys().map(|k| k.2).min().unwrap_or(0), cells.keys().map(|k| k.2).max().unwrap_or(0));
@@ -921,6 +926,10 @@ pub fn lanes_design(ns: i32) -> Result<String, String> {
         mz + 1
     ));
     out.push_str("# PRE-SPLIT geometry: 7b90c3f1's in-chunk split (a row along z 9 at y 25, one detector slope (x,24,8) from its junction (x,25,9) into the merge) replaces this file's 2-cell branch ((x,24,8) detector, (x,24,9) flat); the drop entry, the siding and the slopes stand.\n");
+    out.push_str(&format!(
+        "# Placement order (a rail placed last among its neighbours takes its natural shape; these differ from the design and need a temporary helper rail while placed, removed after: a removed rail reshapes nothing): {}. Lane x 3 shown; the same cells at x -1 and 7. R_1's side power (x+1,17,1) is the station's driver: it is face-adjacent to the hold string's hook (x+1,17,0), so no dust and no repeater or comparator reading from the north there.\n",
+        if natural_mismatch.is_empty() { "none".to_string() } else { natural_mismatch.join("; ") }
+    ));
     out.push_str("# The split's interface (the bench's v_in is the STORED speed, the cart's Motion at (x,24,9); a ridden cart moves 0.75 of it a tick): stored 0.30..0.48 benched clean (8 a lane, 5 slopes, ret 130..600, nap_ret 60/150/300, +-2: arrivals q0/q1 0.459, q2 0.392, q3 <= 0.332, nappers <= 0.459, landings meeting a cart 0); stored 0.26 fails the late napper with the guard at (x,24,8) (napper and successor land together); 0.22 rests on the merge's glass. Restarts (10 load orders at every phase) and the fresh-design cold start at every phase: 0 failing.\n");
     out.push_str("name: f1q2-lanes\ncircuit: mob-farm iron_ingot\n");
     out.push_str(&format!("origin: {x0} 0 {z0}\npalette:\n"));
@@ -974,6 +983,104 @@ pub fn lanes_design(ns: i32) -> Result<String, String> {
         return Err(format!("lanes_design: the parsed file differs from the bench's cells: wanted {missing:?}, found {extra:?}"));
     }
     Ok(out)
+}
+
+/// The rails of a cell map whose natural shape (placed last among its neighbours) differs from the
+/// designed one, at lane x 3, each with its fix (a temporary helper rail on the side the design
+/// connects to and the neighbours do not offer).
+fn natural_shapes(cells: &std::collections::BTreeMap<(i32, i32, i32), &str>) -> Vec<String> {
+    let shape_of = |s: &str| -> Option<String> {
+        let i = s.find("shape=")? + 6;
+        Some(s[i..].split([',', ']']).next()?.to_string())
+    };
+    let is_rail = |s: &str| s.contains("rail[");
+    // (a direction's unit vector)
+    let dirs = [("north", (0, -1)), ("south", (0, 1)), ("east", (1, 0)), ("west", (-1, 0))];
+    // (the ends a shape connects: (direction, dy of the neighbour's rail))
+    let ends = |sh: &str| -> Vec<(&'static str, i32)> {
+        match sh {
+            "north_south" => vec![("north", 0), ("south", 0)],
+            "east_west" => vec![("east", 0), ("west", 0)],
+            "ascending_south" => vec![("north", 0), ("south", 1)],
+            "ascending_north" => vec![("south", 0), ("north", 1)],
+            "ascending_east" => vec![("west", 0), ("east", 1)],
+            "ascending_west" => vec![("east", 0), ("west", 1)],
+            "north_west" => vec![("north", 0), ("west", 0)],
+            "north_east" => vec![("north", 0), ("east", 0)],
+            "south_west" => vec![("south", 0), ("west", 0)],
+            "south_east" => vec![("south", 0), ("east", 0)],
+            _ => vec![],
+        }
+    };
+    let opposite = |d: &str| match d {
+        "north" => "south",
+        "south" => "north",
+        "east" => "west",
+        _ => "east",
+    };
+    let mut out = Vec::new();
+    for (p, s) in cells {
+        if !is_rail(s) || p.0 != 3 {
+            continue;
+        }
+        let Some(designed) = shape_of(s) else { continue };
+        // (the neighbours it can connect to: a rail at the same level, one up, or one down whose own
+        // shape has an end reaching back up to this cell)
+        let mut conn: Vec<(&str, i32)> = Vec::new();
+        for (dn, (dx, dz)) in dirs {
+            for dy in [0, 1, -1] {
+                let q = (p.0 + dx, p.1 + dy, p.2 + dz);
+                let Some(t) = cells.get(&q).filter(|t| is_rail(t)) else { continue };
+                if dy == -1 {
+                    let reaches = shape_of(t).is_some_and(|ts| ends(&ts).contains(&(opposite(dn), 1)));
+                    if !reaches {
+                        continue;
+                    }
+                }
+                conn.push((dn, dy.max(0)));
+                break;
+            }
+        }
+        let has = |d: &str| conn.iter().find(|c| c.0 == d).map(|c| c.1);
+        let natural = match (has("north"), has("south"), has("east"), has("west")) {
+            (Some(_), Some(1), None, None) => "ascending_south",
+            (Some(1), Some(_), None, None) => "ascending_north",
+            (Some(_), Some(_), None, None) | (Some(_), None, None, None) | (None, Some(_), None, None) | (None, None, None, None) => {
+                if has("south") == Some(1) {
+                    "ascending_south"
+                } else if has("north") == Some(1) {
+                    "ascending_north"
+                } else {
+                    "north_south"
+                }
+            }
+            (None, None, Some(1), _) => "ascending_east",
+            (None, None, _, Some(1)) => "ascending_west",
+            (None, None, Some(_), Some(_)) | (None, None, Some(_), None) | (None, None, None, Some(_)) => "east_west",
+            (Some(_), None, None, Some(_)) => "north_west",
+            (Some(_), None, Some(_), None) => "north_east",
+            (None, Some(_), None, Some(_)) => "south_west",
+            (None, Some(_), Some(_), None) => "south_east",
+            _ => "a junction (3+ neighbours)",
+        };
+        // (powered and detector rails take no curves: a curve's natural shape on them is not offered)
+        if natural != designed {
+            let missing: Vec<String> = ends(&designed)
+                .into_iter()
+                .filter(|(d, dy)| has(d) != Some(*dy))
+                .map(|(d, dy)| {
+                    let (dx, dz) = dirs.iter().find(|x| x.0 == d).map(|x| x.1).unwrap_or((0, 0));
+                    let h = (p.0 + dx, p.1 + dy, p.2 + dz);
+                    match cells.get(&h) {
+                        Some(b) if !is_rail(b) => format!("({},{},{}) (before the {} there is laid)", h.0, h.1, h.2, b.trim_start_matches("minecraft:").split('[').next().unwrap_or("block")),
+                        _ => format!("({},{},{})", h.0, h.1, h.2),
+                    }
+                })
+                .collect();
+            out.push(format!("({},{},{}) designed {designed}, natural {natural}: place it with a helper rail at {}", p.0, p.1, p.2, missing.join(" and ")));
+        }
+    }
+    out
 }
 
 /// Run `f` over `0..n` on `jobs` threads, results in order.
