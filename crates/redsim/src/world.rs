@@ -1494,8 +1494,20 @@ impl World {
         self.place_updates(blocks);
     }
 
-    /// The judge's placement, first half: raw writes in this order.
+    /// The judge's placement, first half: raw writes in this order. (ironspec Nov 12 11:05) A
+    /// non-air cell outside a box world (not a land world, which places anywhere) would never be
+    /// placed: it fails, listing the cells, instead of building without them.
     pub fn place_raw(&mut self, blocks: &[(BlockPos, Block)]) {
+        if self.land.is_none() {
+            let outside: Vec<String> = blocks.iter().filter(|(p, s)| !s.is_air() && !self.contains(*p)).map(|(p, s)| format!("{p} {s}")).collect();
+            assert!(
+                outside.is_empty(),
+                "World::place_raw: {} non-air cells outside the world's box (they would never be placed): {}{}",
+                outside.len(),
+                outside.iter().take(24).cloned().collect::<Vec<_>>().join("; "),
+                if outside.len() > 24 { "; ..." } else { "" }
+            );
+        }
         for (p, s) in blocks {
             self.set_block(*p, *s, flags::RAW);
         }

@@ -410,6 +410,26 @@ impl Run {
     /// the mob layer seeded with `o.seed` at day time `o.day0 - SETTLE_TICKS`.
     pub fn start(spec: &FarmSpec, o: &RunOpts) -> Result<Run, String> {
         let size = [spec.hi.x - spec.lo.x + 1, spec.hi.y - spec.lo.y + 1, spec.hi.z - spec.lo.z + 1];
+        // (ironspec Nov 12 11:05) a design cell outside the world's box would never be placed (the
+        // world refuses it): the run fails, listing the cells, instead of building without them
+        if o.site.is_none() && !spec.land {
+            let outside: Vec<String> = spec
+                .blocks
+                .iter()
+                .filter(|(p, b)| !b.is_air() && (p.x < spec.lo.x || p.y < spec.lo.y || p.z < spec.lo.z || p.x > spec.hi.x || p.y > spec.hi.y || p.z > spec.hi.z))
+                .map(|(p, b)| format!("{p} {b}"))
+                .collect();
+            if !outside.is_empty() {
+                return Err(format!(
+                    "{} design cells outside the world's box {}..{} (they would never be placed): {}{}",
+                    outside.len(),
+                    spec.lo,
+                    spec.hi,
+                    outside.iter().take(24).cloned().collect::<Vec<_>>().join("; "),
+                    if outside.len() > 24 { "; ..." } else { "" }
+                ));
+            }
+        }
         let mut w = match o.site {
             Some(s) => s.world_for(spec),
             None if spec.land => crate::terrain::land::world_of_blocks(spec.lo, size, &spec.blocks)?,
@@ -447,6 +467,32 @@ impl Run {
         crate::redstone::container::apply_block_entities(&mut w, spec.block_entities.iter().map(|(p, s)| (*p, s.as_str())))?;
         if !o.raw {
             w.place_updates(&rest);
+        }
+        // (ironspec Nov 12 11:13) a part the game can't hold fails the run, like an out-of-box cell:
+        // a design cell the placement popped (its shape update removed it), or one standing where
+        // it can't survive (dust or a repeater over air, a hook without its anchor: it pops at its
+        // first update), listed
+        if o.site.is_none() && !spec.land {
+            let mut bad: Vec<String> = Vec::new();
+            for (p, b) in &rest {
+                if b.is_air() {
+                    continue;
+                }
+                let now = w.get(*p);
+                if now.is_air() {
+                    bad.push(format!("{p} {b} (popped at placement)"));
+                } else if !crate::behavior::can_survive(&w, &now, *p) {
+                    bad.push(format!("{p} {now} (no support: it pops at its first update)"));
+                }
+            }
+            if !bad.is_empty() {
+                return Err(format!(
+                    "{} design cells the game can't hold: {}{}",
+                    bad.len(),
+                    bad.iter().take(24).cloned().collect::<Vec<_>>().join("; "),
+                    if bad.len() > 24 { "; ..." } else { "" }
+                ));
+            }
         }
         let chest = Block::parse("minecraft:chest[facing=north,type=single,waterlogged=false]")?;
         if !matches!(w.get(spec.output), Block::Chest { .. }) {
