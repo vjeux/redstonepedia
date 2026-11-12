@@ -2066,6 +2066,27 @@ mod tests {
         assert!(at(0.0, 1.0) > 0 && at(2.0, 3.0) > 0, "both drawn: {} and {} vertices", at(0.0, 1.0), at(2.0, 3.0));
     }
 
+    /// A still's entities pair with their own lines: a scarer post's pillager holding its
+    /// crossbow (redsim places it: a design mob's main hand is modeled) is two entities, its boat
+    /// and itself, not three, so the next line's boat is drawn as a boat (2026-11-12: the
+    /// crossbow's id in the passenger's equipment took a slot, the next boat was drawn as a
+    /// crossbow's box and its pillager floated over it), its pillager seated in it.
+    #[test]
+    fn a_held_item_leaves_the_next_boat_a_boat() {
+        let text = "name: posts\npalette:\n  G minecraft:grass_block[snowy=false]\nlayer 0:\n  GGGGGG\n  GGGGGG\n\
+            entity: minecraft:oak_boat 0.5 1 0.5 {Passengers:[{id:\"minecraft:pillager\",PersistenceRequired:1b,equipment:{mainhand:{id:\"minecraft:crossbow\",count:1}}}]}\n\
+            entity: minecraft:spruce_boat 4.5 1 0.5 {Passengers:[{id:\"minecraft:pillager\",PersistenceRequired:1b}]}\n";
+        let s = Session::new(text, &Options::still()).unwrap();
+        assert!(s.still);
+        assert!(s.unspawned.is_empty(), "redsim placed both lines: {:?}", s.unspawned);
+        assert_eq!(s.line_ids, vec![2, 2], "each line a boat and its pillager");
+        let drawn = s.entities(0.0);
+        let kinds: Vec<(&str, f32)> = drawn.iter().map(|e| (e.kind.as_str(), e.pos[0])).collect();
+        assert!(kinds.iter().any(|&(k, x)| k == "minecraft:spruce_boat" && (x - 4.5).abs() < 0.01), "the second line's boat: {kinds:?}");
+        assert!(kinds.iter().all(|&(k, _)| !k.contains("crossbow")), "no crossbow entity: {kinds:?}");
+        assert!(drawn.iter().any(|e| e.kind == "minecraft:pillager" && e.mob.as_ref().is_some_and(|m| m.riding)), "its pillager rides: {kinds:?}");
+    }
+
     /// A design mob's equipment from its data: the main hand and each armor piece in its own slot
     /// (`equipment:{...}`, 26.3's entity format), a jockey's rider's kept out of its mount's.
     #[test]

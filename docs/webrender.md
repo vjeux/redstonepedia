@@ -727,7 +727,11 @@ each build's page.
   `LOWERED_PASSENGER_ATTACHMENT`; any other rider at 0.1875, a boat's `rideHeight` 0.5625 / 3,
   then its `ridingOffset`: a zombie 0.7 lower, a pillager 0.6; a raft's seat 0.5), as a simulated
   run draws them (a still drew every passenger 0.1875 or 0.25 up: villagers 0.19 and seated
-  zombies 0.76 too high); test `a_passenger_sits_where_the_game_seats_it`. Not
+  zombies 0.76 too high); test `a_passenger_sits_where_the_game_seats_it`. A still's redsim
+  entities take their design lines' type ids (a boat's wood) by the ids each line's summon took
+  (`Session::line_ids`), each passenger one id (an item's id in its equipment none), and only a
+  type id of the entity's own sort (`session::kind_fits`: a boat is never drawn as a crossbow);
+  test `a_held_item_leaves_the_next_boat_a_boat`. Not
   drawn yet: a zombie
   villager's profession (redsim keeps none), the farm animals' warm and cold variants (every
   terrain site is temperate), a sulfur cube's swallowed block (redsim refuses one), a boat's

@@ -189,6 +189,23 @@ pub const GROUND_PROBE: u32 = 600;
 /// period (ticks): the viewer's and the site's build-time `data-still` alike.
 pub const STILL_HORIZON: u32 = 20_000;
 
+/// Whether a design's type id names an entity of redsim's sort `e` (a boat's id for a boat, a
+/// minecart's for a minecart, ...): a drawn entity takes its line's type id (its wood, its
+/// hopper) only then, else its sort's own.
+fn kind_fits(e: &redsim::entity::EntityKind, id: &str) -> bool {
+    use redsim::entity::EntityKind;
+    let v = id.trim_start_matches("minecraft:");
+    match e {
+        EntityKind::Boat(_) => v.ends_with("boat") || v.ends_with("raft"),
+        EntityKind::Minecart(_) => v.ends_with("minecart"),
+        EntityKind::Item(_) => v == "item",
+        EntityKind::ArmorStand(_) => v == "armor_stand",
+        EntityKind::PrimedTnt(_) => v == "tnt",
+        EntityKind::Arrow(_) => v.ends_with("arrow"),
+        EntityKind::Mob(_) => true,
+    }
+}
+
 /// A TNT duper with its explosions (`Circuit::explodes`): it stands on its judge's ground.
 pub fn ground_duper(d: &Design) -> bool {
     let kind = d.meta.get("circuit").and_then(|c| c.split_whitespace().next().map(str::to_string)).unwrap_or_default();
@@ -365,6 +382,12 @@ pub struct Session {
     /// armored one), by index: the still draws them as placed (`scene::entities_into`, in the
     /// design's coordinates); they had vanished from the page's first picture.
     pub unspawned: Vec<usize>,
+    /// A still's id count per design entity line: how many of redsim's entity ids each line's
+    /// summon took, refused or not (a vehicle and its riders; a refused passenger's vehicle as
+    /// redsim leaves it), so a drawn entity pairs with its own line's type id
+    /// (`world_entities`); empty for a run (its farm runner spawns the design, and a refused line
+    /// makes no run).
+    pub line_ids: Vec<u32>,
     /// A mob farm's run (`circuit: mob-farm ...`): redsim's own farm runner, the judge's run
     /// ([`crate::mobfarm`]); its world is `world` between ticks.
     pub mob: Option<crate::mobfarm::MobRun>,
@@ -865,6 +888,7 @@ impl Session {
             period_memo: Default::default(),
             still: false,
             unspawned: Vec::new(),
+            line_ids: Vec::new(),
             mob: None,
             mob_initial: None,
             blocks_version: 0,
@@ -925,9 +949,11 @@ impl Session {
                         s.design_base = w.entities.next_id;
                         for (i, e) in s.design.entities.iter().enumerate() {
                             let pos = [e.pos[0] + off[0] as f64, e.pos[1] + off[1] as f64, e.pos[2] + off[2] as f64];
+                            let before = w.entities.next_id;
                             if redsim::entity::spawn(&mut w, &e.kind, pos, e.nbt.as_deref()).is_err() {
                                 s.unspawned.push(i);
                             }
+                            s.line_ids.push(w.entities.next_id - before);
                         }
                         w.errors.clear();
                         let (lo, hi) = t.farm_box;
@@ -948,9 +974,11 @@ impl Session {
             v.extend(crate::circuit::still_judge_blocks(&s.design));
             world.place_raw(&v);
             for (i, e) in s.design.entities.iter().enumerate() {
+                let before = world.entities.next_id;
                 if redsim::entity::spawn(&mut world, &e.kind, e.pos, e.nbt.as_deref()).is_err() {
                     s.unspawned.push(i);
                 }
+                s.line_ids.push(world.entities.next_id - before);
             }
             if let Some(f) = &s.floor {
                 world.place_raw(&f.blocks());
@@ -2369,25 +2397,24 @@ impl Session {
     fn world_entities(&self, partial: f32) -> Vec<crate::mesh::EntityDraw> {
         use redsim::entity::EntityKind;
         let lerp = |a: f64, b: f64| (a + (b - a) * partial as f64) as f32;
-        // the design's entities by id: item frames take none (redsim keeps them as comparator
-        // inputs, `World::frames`)
-        let specs: Vec<&crate::design::Entity> = self.design.entities.iter().filter(|d| !d.kind.ends_with("item_frame")).collect();
-        // the design's type ids by entity id: each entity it summons in file order, its passengers
+        // the design's type ids by entity id (item frames take none in a run: redsim keeps them
+        // as comparator inputs, `World::frames`): each entity it summons in file order, its passengers
         // (`Passengers:[{id:...}]`) right after it, as the summon spawns them (a boat's zombie took
         // the next line's villager: vjeux 2026-11-08, "I don't see any zombie, why are they
-        // panicking?")
+        // panicking?"): each passenger's compound (`scene::passengers`: an item's id in its
+        // equipment is no entity), and in a still as many as the line took from redsim's ids (a
+        // refused line's: the next boat had taken a crossbow's id and drawn as a box, 2026-11-12)
         let mut design_kinds: Vec<String> = Vec::new();
-        for d in &specs {
-            design_kinds.push(d.kind.clone());
-            if let Some(rest) = d.nbt.as_deref().and_then(|n| n.split_once("Passengers:[")).map(|(_, r)| r) {
-                for part in rest.split("id:").skip(1) {
-                    let id = part.trim_start().trim_start_matches('"');
-                    let id: String = id.chars().take_while(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | ':' | '.')).collect();
-                    if !id.is_empty() {
-                        design_kinds.push(if id.contains(':') { id } else { format!("minecraft:{id}") });
-                    }
-                }
+        for (i, d) in self.design.entities.iter().enumerate() {
+            if self.line_ids.is_empty() && d.kind.ends_with("item_frame") {
+                continue;
             }
+            let mut kinds = vec![d.kind.clone()];
+            kinds.extend(crate::scene::passengers(d.nbt.as_deref()).into_iter().map(|(id, _)| id));
+            if let Some(&n) = self.line_ids.get(i) {
+                kinds.resize(n as usize, String::new());
+            }
+            design_kinds.extend(kinds);
         }
         // a mob farm's mobs as the mob layer gives them to the viewer (`mob::view`), by entity index
         // (also in its still before it plays: the mobs as placed, drawn with their models)
@@ -2404,8 +2431,9 @@ impl Session {
                 // else the kind's
                 let kind = match (&e.kind, e.id.checked_sub(self.design_base).and_then(|i| design_kinds.get(i as usize))) {
                     (EntityKind::Mob(m), _) => format!("minecraft:{}", m.ty.def().id),
-                    (_, Some(k)) => k.clone(),
-                    (_, None) => match &e.kind {
+                    // (a type id of the entity's own sort only: a boat is never drawn as an item)
+                    (_, Some(k)) if kind_fits(&e.kind, k) => k.clone(),
+                    (_, _) => match &e.kind {
                         EntityKind::Boat(b) if b.chest => "minecraft:oak_chest_boat".to_string(),
                         EntityKind::Boat(_) => "minecraft:oak_boat".to_string(),
                         EntityKind::Minecart(m) if m.hopper => "minecraft:hopper_minecart".to_string(),
@@ -3132,6 +3160,7 @@ impl Session {
             period_memo: Default::default(),
             still: self.still,
             unspawned: self.unspawned.clone(),
+            line_ids: self.line_ids.clone(),
             mob: self.mob_initial.clone(),
             mob_initial: None,
             blocks_version: 0,
