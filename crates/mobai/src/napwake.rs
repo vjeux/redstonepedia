@@ -33,7 +33,7 @@ fn levers(srv: &mut VanillaServer, on: bool) -> Result<()> {
     Ok(())
 }
 
-pub fn nap_wake(version: &str, file: &std::path::Path, trials: u32, flip_after: u32, ticks: u32) -> Result<()> {
+pub fn nap_wake(version: &str, file: &std::path::Path, trials: u32, flip_after: u32, ticks: u32, rest_end: bool, yaws: &[f32]) -> Result<()> {
     let jar = mctas::bridge::brain_agent(version)?;
     let mut srv = VanillaServer::start(&VanillaOptions {
         version: version.to_string(),
@@ -66,13 +66,17 @@ pub fn nap_wake(version: &str, file: &std::path::Path, trials: u32, flip_after: 
     let (mut slept, mut woke, mut seen, mut leaks) = (0u32, 0u32, 0u32, 0u32);
     let mut cells: std::collections::BTreeMap<String, u32> = Default::default();
     for i in 0..trials {
+        srv.cmd_ok("gamerule advance_time false")?;
         srv.cmd_ok("time set 13800")?;
         levers(&mut srv, true)?;
         srv.step(5)?;
         let tag = format!("nap{i}");
+        // (G1's note: findStandUpPosition tries the yaw's side first: `--yaws` alternates them)
+        let yaw = if yaws.is_empty() { None } else { Some(yaws[i as usize % yaws.len()]) };
         srv.cmd_ok(&format!(
-            "summon minecraft:villager -2.5 {} 4.5 {{PersistenceRequired:1b,Tags:[\"{tag}\"],Brain:{{memories:{{\"minecraft:home\":{{value:{{dimension:\"minecraft:overworld\",pos:[I;-3,{},4]}}}}}}}}}}",
+            "summon minecraft:villager -2.5 {} 4.5 {{PersistenceRequired:1b,Tags:[\"{tag}\"],{}Brain:{{memories:{{\"minecraft:home\":{{value:{{dimension:\"minecraft:overworld\",pos:[I;-3,{},4]}}}}}}}}}}",
             0.5625 + DY as f64,
+            yaw.map(|y| format!("Rotation:[{y}f,0f],")).unwrap_or_default(),
             DY
         ))?;
         let sel = format!("@e[tag={tag},limit=1]");
@@ -117,8 +121,15 @@ pub fn nap_wake(version: &str, file: &std::path::Path, trials: u32, flip_after: 
             println!("  trial {i}: NEAREST_HOSTILE set at lie-down + {t}, BEFORE F (the hatch hiding)");
             leaks += 1;
         }
-        levers(&mut srv, false)?;
-        let (mut hostile, mut wake, mut stand) = (None::<u32>, None::<u32>, String::new());
+        if rest_end {
+            // (G1's note: the wake at REST's end, the hatch hiding: the day time run up to the
+            // schedule's IDLE at 24010)
+            srv.cmd_ok("time set 23950")?;
+            srv.cmd_ok("gamerule advance_time true")?;
+        } else {
+            levers(&mut srv, false)?;
+        }
+        let (mut hostile, mut wake, mut stand, mut wyaw) = (None::<u32>, None::<u32>, String::new(), f64::NAN);
         for t in 1..=ticks {
             srv.step(1)?;
             for l in drain(&srv)? {
@@ -128,6 +139,7 @@ pub fn nap_wake(version: &str, file: &std::path::Path, trials: u32, flip_after: 
             }
             if wake.is_none() && !srv.cmd_long(&format!("data get entity {sel} sleeping_pos"))?.contains("entity data") {
                 wake = Some(t);
+                wyaw = nums(&srv.cmd_long(&format!("data get entity {sel} Rotation"))?).first().copied().unwrap_or(f64::NAN);
                 let p = nums(&srv.cmd_long(&format!("data get entity {sel} Pos"))?);
                 if p.len() == 3 {
                     stand = format!("({:.3},{:.3},{:.3}) cell ({},{},{})", p[0], p[1] - DY as f64, p[2], p[0].floor() as i32, (p[1] - DY as f64).floor() as i32, p[2].floor() as i32);
@@ -143,9 +155,11 @@ pub fn nap_wake(version: &str, file: &std::path::Path, trials: u32, flip_after: 
             woke += 1;
         }
         println!(
-            "  trial {i}: lay down at +{lie}; levers off at lie-down + {flip_after}; NEAREST_HOSTILE {}; {}",
+            "  trial {i}: {}lay down at +{lie}; {}; NEAREST_HOSTILE {}; {}",
+            yaw.map(|y| format!("yaw {y} at the summon; ")).unwrap_or_default(),
+            if rest_end { format!("the day time set to 23950 at lie-down + {flip_after} (levers on)") } else { format!("levers off at lie-down + {flip_after}") },
             hostile.map(|t| format!("set at F + {t}")).unwrap_or_else(|| "never set".into()),
-            wake.map(|t| format!("woke at F + {t} (lie-down + {}), stood up at {stand}", t + flip_after)).unwrap_or_else(|| format!("asleep after {ticks} gt")),
+            wake.map(|t| format!("woke at F + {t} (lie-down + {}) with yaw {wyaw:.1}, stood up at {stand}", t + flip_after)).unwrap_or_else(|| format!("asleep after {ticks} gt")),
         );
         srv.cmd(&format!("kill {sel}"))?;
         srv.step(25)?;

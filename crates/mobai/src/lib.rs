@@ -35,6 +35,8 @@ pub mod golemrenew;
 pub mod napwake;
 pub mod napperride;
 pub mod reboard;
+pub mod alldaywait;
+pub mod queueroll;
 pub mod threebeds;
 pub mod daylight;
 pub mod cli;

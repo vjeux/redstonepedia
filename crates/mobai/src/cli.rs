@@ -427,6 +427,54 @@ pub enum MobaiCmd {
         #[arg(long)]
         draws_out: Option<std::path::PathBuf>,
     },
+    /// (tickexact 2026-11-12, G1 on b8949c96's way-in) The queue's release, the second fall and the
+    /// roll into A6's entry: the entry tick and speed, the rider's health, restarts mid-ride
+    QueueRoll {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        #[arg(long)]
+        module: std::path::PathBuf,
+        #[arg(long, allow_hyphen_values = true, default_value = "9.5,-13.0508,-3.8867")]
+        start: String,
+        #[arg(long, allow_hyphen_values = true, default_value = "8,-14,-4")]
+        release_cell: String,
+        #[arg(long, default_value_t = 20)]
+        release_at: u32,
+        #[arg(long, default_value_t = 10)]
+        release_len: u32,
+        #[arg(long, allow_hyphen_values = true, default_value = "3,-25,-5")]
+        entry: String,
+        /// Restart rows at these ticks after the release, a,b,c
+        #[arg(long, default_value = "")]
+        restarts: String,
+        #[arg(long, default_value_t = 300)]
+        max_ticks: u32,
+    },
+    /// (tickexact 2026-11-12, ironspec 13:27: a pick waiting at the queue all day) A seated
+    /// villager at the queue seat with HOME, time running from REST: its activity every tick, HOME
+    AllDayWait {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        #[arg(long)]
+        module: std::path::PathBuf,
+        #[arg(long, allow_hyphen_values = true)]
+        seat: String,
+        #[arg(long, allow_hyphen_values = true)]
+        home: String,
+        #[arg(long, default_value_t = 12000)]
+        from: i64,
+        #[arg(long, default_value_t = 14000)]
+        ticks: u32,
+        /// The cart's start x,y,z (it rides to the seat); unset: held at the seat
+        #[arg(long, allow_hyphen_values = true)]
+        start: Option<String>,
+        /// `--start`'s motion vx,vy,vz
+        #[arg(long, allow_hyphen_values = true, default_value = "0,0,0")]
+        motion: String,
+        /// Cells laid over the module, "x,y,z=STATE;..."
+        #[arg(long, allow_hyphen_values = true, default_value = "")]
+        set: String,
+    },
     /// (tickexact 2026-11-12, ironspec 12:44: A6's restart re-board) A ridden cart onto A6's
     /// activator, a restart at every tick from the eject to eject + W (chest landing or `--glass`)
     Reboard {
@@ -462,6 +510,18 @@ pub enum MobaiCmd {
         /// Cart y thresholds: one row per threshold restarts the server when the cart first reaches it
         #[arg(long, allow_hyphen_values = true, default_value = "")]
         restart_at: String,
+        /// A restart row at every tick from each speed's detector rise to its rest, with the maximum
+        #[arg(long)]
+        every_tick: bool,
+        /// `--every-tick` starts this many gt before the detector's rise (the lift's top)
+        #[arg(long, default_value_t = 0)]
+        before: u32,
+        /// `--every-tick --before N`: only the ticks before the rise
+        #[arg(long)]
+        only_before: bool,
+        /// FROM,TO: at each speed's worst restart tick, the player joining FROM..=TO gt after the start
+        #[arg(long)]
+        join: Option<String>,
         #[arg(long, default_value_t = 400)]
         max_ticks: u32,
     },
@@ -478,6 +538,13 @@ pub enum MobaiCmd {
         flip_after: u32,
         #[arg(long, default_value_t = 300)]
         ticks: u32,
+        /// The wake at REST's end with the levers on (the day time run up from 23950 at lie-down +
+        /// N) instead of F
+        #[arg(long)]
+        rest_end: bool,
+        /// Each trial's yaw at the summon, alternating, a,b (findStandUpPosition tries the yaw's side first)
+        #[arg(long, allow_hyphen_values = true, default_value = "")]
+        yaws: String,
     },
     /// (tickexact 2026-11-12, ironspec: does a summoner's GOLEM_DETECTED_RECENTLY get renewed after
     /// its own summon?) Stands of three panicking seated villagers summoning a golem that leaves
@@ -1167,11 +1234,47 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
                 .collect::<anyhow::Result<_>>()?;
             crate::lanerun::lane_run(&version, &module, x, riders, ticks, every, post, &glow, part.as_deref(), draws_out.as_deref())
         }
+        MobaiCmd::QueueRoll { version, module, start, release_cell, release_at, release_len, entry, restarts, max_ticks } => {
+            let f3 = |s: &str| -> anyhow::Result<[f64; 3]> {
+                let v: Vec<f64> = s.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(v.len() == 3, "x,y,z, got {s}");
+                Ok([v[0], v[1], v[2]])
+            };
+            let i3 = |s: &str| -> anyhow::Result<[i32; 3]> {
+                let v: Vec<i32> = s.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(v.len() == 3, "x,y,z, got {s}");
+                Ok([v[0], v[1], v[2]])
+            };
+            let restarts: Vec<u32> = restarts.split(',').filter(|n| !n.trim().is_empty()).map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+            crate::queueroll::queue_roll(&version, &module, f3(&start)?, i3(&release_cell)?, release_at, release_len, i3(&entry)?, &restarts, max_ticks)
+        }
+        MobaiCmd::AllDayWait { version, module, seat, home, from, ticks, start, motion, set } => {
+            let s: Vec<f64> = seat.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+            let h: Vec<i32> = home.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+            anyhow::ensure!(s.len() == 3 && h.len() == 3, "--seat x,y,z --home x,y,z");
+            let start = match start {
+                Some(st) => {
+                    let p: Vec<f64> = st.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+                    let m: Vec<f64> = motion.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(p.len() == 3 && m.len() == 3, "--start x,y,z --motion vx,vy,vz");
+                    Some(([p[0], p[1], p[2]], [m[0], m[1], m[2]]))
+                }
+                None => None,
+            };
+            let mut cells = Vec::new();
+            for e in set.split(';').filter(|e| !e.trim().is_empty()) {
+                let (p, st) = e.split_once('=').ok_or_else(|| anyhow::anyhow!("--set x,y,z=STATE, got {e}"))?;
+                let v: Vec<i32> = p.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(v.len() == 3, "--set x,y,z=STATE, got {e}");
+                cells.push(([v[0], v[1], v[2]], st.trim().to_string()));
+            }
+            crate::alldaywait::all_day_wait(&version, &module, [s[0], s[1], s[2]], [h[0], h[1], h[2]], from, ticks, start, &cells)
+        }
         MobaiCmd::Reboard { version, file, speeds, window, glass } => {
             let speeds: Vec<f64> = speeds.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
             crate::reboard::reboard(&version, &file, &speeds, window, glass)
         }
-        MobaiCmd::NapperRide { version, module, depth, speeds, detector, t, hold, restart_at, max_ticks } => {
+        MobaiCmd::NapperRide { version, module, depth, speeds, detector, t, hold, restart_at, every_tick, before, only_before, join, max_ticks } => {
             let p3 = |s: &str| -> anyhow::Result<[i32; 3]> {
                 let v: Vec<i32> = s.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
                 anyhow::ensure!(v.len() == 3, "x,y,z, got {s}");
@@ -1179,9 +1282,21 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
             };
             let speeds: Vec<f64> = speeds.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
             let restarts: Vec<f64> = restart_at.split(',').filter(|n| !n.trim().is_empty()).map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
-            crate::napperride::napper_ride(&version, &module, depth, &speeds, p3(&detector)?, p3(&t)?, p3(&hold)?, &restarts, max_ticks)
+            let join = match join.as_deref() {
+                Some(s) => {
+                    let v: Vec<u32> = s.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(v.len() == 2, "--join FROM,TO, got {s}");
+                    Some((v[0], v[1]))
+                }
+                None => None,
+            };
+            let cells = crate::napperride::Cells { detector: p3(&detector)?, t_cell: p3(&t)?, hold: p3(&hold)? };
+            crate::napperride::napper_ride(&version, &module, depth, &speeds, &cells, &restarts, every_tick, before, only_before, join, max_ticks)
         }
-        MobaiCmd::NapWake { version, file, trials, flip_after, ticks } => crate::napwake::nap_wake(&version, &file, trials, flip_after, ticks),
+        MobaiCmd::NapWake { version, file, trials, flip_after, ticks, rest_end, yaws } => {
+            let yaws: Vec<f32> = yaws.split(',').filter(|n| !n.trim().is_empty()).map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+            crate::napwake::nap_wake(&version, &file, trials, flip_after, ticks, rest_end, &yaws)
+        }
         MobaiCmd::GolemRenew { version, stands, rounds, golem_ticks } => crate::golemrenew::golem_renew(&version, stands, rounds, golem_ticks),
         MobaiCmd::GolemRange { version, gaps, ticks } => {
             let gaps: Vec<f64> = gaps.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
