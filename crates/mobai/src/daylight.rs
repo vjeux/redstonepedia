@@ -8,9 +8,11 @@
 //! - Rain and thunder readings at fixed times.
 //! - Bed times: the earliest evening and latest morning day time the bot can lie down, in clear
 //!   weather, rain and thunder (thunder: noon too).
-//! - Real skips: the bot lies down at a day time in a weather, the server skips the night after its
-//!   100 gt asleep; the detector's readings at each update after the skip, and the day time it
-//!   first reads 8.
+//! - Real skips: the bot lies down at a day time in a weather, the server skips the night once it
+//!   has slept long enough; the detector's readings at each update after the skip, and the day time
+//!   it first reads 8. (On this frozen, stepped server the bot's own sleep counter runs on between
+//!   steps, so the skip comes early, 45-49 stepped gt: `--latency` measures it on a running
+//!   server, 100 gt, `isSleepingLongEnough`; the readings after the skip run on game time.)
 //! - Rain ending at dusk: the readings as the rain fades from about 11,700.
 
 use anyhow::{Result, bail};
@@ -165,6 +167,59 @@ fn skip(srv: &mut VanillaServer, weather: &str, t: i64, after: u32) -> Result<(O
     }
     srv.cmd_ok("gamerule advance_time false")?;
     Ok((jumped.map(|j| j.0), readings))
+}
+
+/// (G1 on 6960525a1: the frozen runner's stepped ticks let the bot's own sleep counter run on
+/// between steps, so the skip latency is measured on a running server) `mctas mobai daylight
+/// --latency`: the official server unfrozen at 20 tps, the bot lies down in a bed at night with
+/// time running; the game time from its lying down to the day time's jump, 3 times.
+pub fn skip_latency(version: &str) -> Result<()> {
+    println!("== daylight --latency on the official {version} server, running unfrozen at 20 tps: the game ticks from the bot lying down to the night skip");
+    let mut srv = VanillaServer::start(&VanillaOptions {
+        version: version.to_string(),
+        difficulty: "peaceful".into(),
+        with_bot: true,
+        frozen: false,
+        biome: "minecraft:plains".into(),
+        ..Default::default()
+    })?;
+    srv.cmd_ok("gamerule advance_time true")?;
+    srv.cmd_ok("gamerule advance_weather true")?;
+    srv.cmd_ok("weather clear 1000000")?;
+    srv.cmd_ok("fill -4 63 -4 8 63 4 minecraft:stone")?;
+    srv.cmd_ok(&format!("setblock {} {} {} minecraft:red_bed[facing=north,part=foot]", BED_HEAD[0], BED_HEAD[1], BED_HEAD[2] + 1))?;
+    srv.cmd_ok(&format!("setblock {} {} {} minecraft:red_bed[facing=north,part=head]", BED_HEAD[0], BED_HEAD[1], BED_HEAD[2]))?;
+    srv.teleport_bot(BED_HEAD[0] as f64 + 1.5, 64.0, BED_HEAD[2] as f64 + 0.5)?;
+    std::thread::sleep(std::time::Duration::from_secs(2));
+    for k in 0..3 {
+        srv.cmd_ok("time set 14000")?;
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        srv.bot_use(BED_HEAD, 1)?;
+        let mut lie = None;
+        let start = std::time::Instant::now();
+        let mut prev_day = day_time(&mut srv)?;
+        let mut jumped = None;
+        while start.elapsed() < std::time::Duration::from_secs(20) {
+            let g = srv.game_time()?;
+            let d = day_time(&mut srv)?;
+            if lie.is_none() && srv.test_block(BED_HEAD, "#minecraft:beds[occupied=true]")? {
+                lie = Some(g);
+            }
+            if d < prev_day || d - prev_day > 40 {
+                jumped = Some(g);
+                break;
+            }
+            prev_day = d;
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        match (lie, jumped) {
+            (Some(l), Some(j)) => println!("  skip {k}: the bed occupied from game time <= {l}, the day time jumped by game time {j}: {} gt (bounded by the polling, about 1 gt each way)", j - l),
+            _ => println!("  skip {k}: lay down {lie:?}, jumped {jumped:?}"),
+        }
+        std::thread::sleep(std::time::Duration::from_secs(1));
+    }
+    let _ = std::fs::remove_dir_all(&srv.dir);
+    Ok(())
 }
 
 pub fn daylight(version: &str) -> Result<()> {

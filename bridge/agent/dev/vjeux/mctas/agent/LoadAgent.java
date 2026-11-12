@@ -45,6 +45,10 @@ public final class LoadAgent {
 
     private static int x0, z0, x1, z1, ticks = 400;
     private static int levelTicks = 0;
+    /** {@code tickets=1}: also print every level's tickets on the watched chunks. */
+    private static boolean tickets = false;
+    /** Each level's watched chunk's ticket types and levels at its last print (ticks left aside). */
+    private static final Map<String, String> previousTickets = new HashMap<>();
     private static final Map<Long, int[]> counts = new HashMap<>();
     /** Each watched chunk's flags at the end of the last tick (st 1, bt 2, el 4, et 8). */
     private static final Map<Long, Integer> previous = new HashMap<>();
@@ -64,6 +68,8 @@ public final class LoadAgent {
                     z1 = Integer.parseInt(p[3].trim());
                 } else if (kv.length == 2 && kv[0].equals("ticks")) {
                     ticks = Integer.parseInt(kv[1].trim());
+                } else if (kv.length == 2 && kv[0].equals("tickets")) {
+                    tickets = kv[1].trim().equals("1");
                 }
             }
         }
@@ -136,9 +142,52 @@ public final class LoadAgent {
         return null;
     }
 
+    /**
+     * With {@code tickets=1}, a level's tick ended: its tickets on the watched chunks
+     * ({@code ServerChunkCache.ticketStorage}, {@code TicketStorage.getTickets}), a line
+     * "mctas-tickets <dimension> gt G | cx,cz Ticket[...] with N ticks left ..." for each of the
+     * level's first ticks, every 50 gt, and whenever a chunk's ticket types or levels change.
+     */
+    private static void dumpTickets(Object level) throws ReflectiveOperationException {
+        Object cache = level.getClass().getMethod("getChunkSource").invoke(level);
+        java.lang.reflect.Field f = cache.getClass().getDeclaredField("ticketStorage");
+        f.setAccessible(true);
+        Object storage = f.get(cache);
+        Method get = storage.getClass().getMethod("getTickets", long.class);
+        String dim = String.valueOf(level.getClass().getMethod("dimension").invoke(level));
+        long gt = (long) level.getClass().getMethod("getGameTime").invoke(level);
+        StringBuilder sb = new StringBuilder("mctas-tickets ").append(dim).append(" gt ").append(gt);
+        boolean print = levelTicks < ticks || gt % 50 == 0;
+        for (int cx = x0; cx <= x1; cx++) {
+            for (int cz = z0; cz <= z1; cz++) {
+                java.util.List<?> list = (java.util.List<?>) get.invoke(storage, key(cx, cz));
+                StringBuilder all = new StringBuilder();
+                StringBuilder kinds = new StringBuilder();
+                for (Object t : list) {
+                    String s = String.valueOf(t);
+                    all.append(s).append("; ");
+                    kinds.append(s.replaceAll(" with .*", "")).append(';');
+                }
+                String before = previousTickets.put(dim + " " + cx + "," + cz, kinds.toString());
+                if (before == null ? kinds.length() > 0 : !before.contentEquals(kinds)) {
+                    print = true;
+                }
+                if (all.length() > 0) {
+                    sb.append(" | ").append(cx).append(',').append(cz).append(' ').append(all);
+                }
+            }
+        }
+        if (print) {
+            System.err.println(sb);
+        }
+    }
+
     /** The overworld's tick ended: one line per watched chunk. */
     static Object end(Object level, Object unused) {
         try {
+            if (tickets) {
+                dumpTickets(level);
+            }
             if (!overworld(level)) {
                 return null;
             }

@@ -310,6 +310,9 @@ pub enum MobaiCmd {
     Daylight {
         #[arg(long, default_value = "26.3")]
         version: String,
+        /// Only the skip latency, on a running (unfrozen) server
+        #[arg(long)]
+        latency: bool,
     },
     /// (tickexact 2026-11-11, the parent's shared-bed overload across reloads) Scene bed-reload-<case>'s
     /// recording at its checkpoints: every villager's HOME and LAST_SLEPT, the bed, the naps
@@ -530,7 +533,13 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         MobaiCmd::NetherHome { version } => crate::netherhome::nether_home(&version),
         MobaiCmd::T600 { version } => crate::t600::t600(&version),
         MobaiCmd::ThreeBeds { version } => crate::threebeds::three_beds(&version),
-        MobaiCmd::Daylight { version } => crate::daylight::daylight(&version),
+        MobaiCmd::Daylight { version, latency } => {
+            if latency {
+                crate::daylight::skip_latency(&version)
+            } else {
+                crate::daylight::daylight(&version)
+            }
+        }
         MobaiCmd::BedReloadVanilla { case, forceload, version } => crate::bedreload::bed_reload_vanilla(&version, &case, forceload),
         MobaiCmd::StopperSweep { files } => crate::fixture::stopper_sweep(&files),
         MobaiCmd::RecCartpole { path } => crate::fixture::rec_cartpole(&path),
