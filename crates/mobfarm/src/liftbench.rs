@@ -50,6 +50,8 @@ pub struct LiftOpts {
     /// stopper's cell while held): a soul sand block in the shaft at this height (the napper held
     /// under it, the column above standing on it).
     pub stopper: Option<i32>,
+    /// L1: launches on game ticks through a freeze (default L2: on live time).
+    pub game_ticks: bool,
     /// The bench frozen (its chunks at level 32: blocks tick, entities don't) from tick FROM for LEN
     /// gt; the carts' launches wait it out.
     pub freeze: Option<(i64, i64)>,
@@ -440,7 +442,11 @@ pub fn lift_bench(o: &LiftOpts) -> Result<String, String> {
             // cart k at (k / 3) x 100 + (k % 3) x spacing; --napper-at: the last cart, on lane A)
             let napper = o.napper_at.is_some() && k == o.carts;
             let at = if napper { o.napper_at.unwrap_or(0) } else if o.merge3 { (k as i64 / 3) * 100 + (k as i64 % 3) * o.spacing } else { k as i64 * o.spacing };
-            if lg.id.is_none() && !frozen_now && live >= at {
+            // (L2: launches wait out a freeze (live time); `game_ticks` (L1, the lead's rule): the
+            // upstream releases run on game ticks through it, a cart released into frozen chunks
+            // waiting there frozen)
+            let when = if o.game_ticks { t } else { live };
+            if lg.id.is_none() && (o.game_ticks || !frozen_now) && when >= at {
                 let nbt = format!("{{Motion:[{:.4}d,0.0d,0.0d],Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b}}]}}", -o.speed);
                 // (--merge3: cart k on lane A, B, C in turn: z 0, 2, -2)
                 let lane_z = if o.merge3 && !napper { [0.5, 2.5, -1.5][k % 3] } else { 0.5 };
