@@ -1246,6 +1246,12 @@ pub struct ClimbOpts {
     /// repeater's scheduled tick does nothing while locked; the unlock reschedules it), unless the
     /// build holds its progress (`resume`).
     pub timer_model: Option<TimerModel>,
+    /// (cc767b78) With `alive` and `timer_model`: the hold's staggered openings (cart 1's and cart
+    /// 2's hand-offs, the hold's middle and rear pocket gates opening `sp` and `sp + hand_off_2`
+    /// after the release) as the same pausable timers keyed on the release (ironspec's stagger: a
+    /// committed sequence, paused on ALIVE, drifting like the fill's delays), instead of ideal live
+    /// time; a hand-off that comes due while the column is frozen waits for the thaw.
+    pub stagger_chain: bool,
     pub trace: bool,
 }
 
@@ -1332,6 +1338,10 @@ pub fn bench(spec: &FarmSpec, o: &ClimbOpts) -> Result<Vec<String>, String> {
     // (`timer_model`: the fill's two pausable timers, G2 and G1, and ALIVE's recent
     // values for the lock line)
     let mut chains: [Option<Chain>; 2] = [None, None];
+    // (`stagger_chain`: the hold's staggered openings for carts 1 and 2 as pausable timers, and
+    // whether each has come due)
+    let mut hchains: [Option<Chain>; 3] = [None, None, None];
+    let mut hdue = [false; 3];
     // (the timers' lag against the carts: the carts' live ticks since the release, and per timer
     // the largest early (timer ahead) and late (timer behind) excursion until it fires)
     let mut carts_live = 0i64;
@@ -1422,14 +1432,34 @@ pub fn bench(spec: &FarmSpec, o: &ClimbOpts) -> Result<Vec<String>, String> {
         }
         if let Some((p, v, sp, _)) = o.hand_off {
             let live = dt - frozen_ticks;
+            let off_of = |k: usize| match k {
+                0 => 0,
+                1 => sp,
+                _ => sp + o.hand_off_2.unwrap_or(sp),
+            };
+            // (`stagger_chain`: the hold's middle and rear openings as pausable timers keyed on the
+            // release, locked CHAIN_LOCK_D gt behind ALIVE low)
+            let staggered = o.alive && o.stagger_chain && o.timer_model.is_some();
+            if staggered && let Some(tmod) = o.timer_model {
+                let locked_h = alive_hist.len() > CHAIN_LOCK_D && !alive_hist[alive_hist.len() - 1 - CHAIN_LOCK_D];
+                if released_now {
+                    for k in 1..3 {
+                        hchains[k] = Some(Chain::start(off_of(k), tmod, dt, locked_h));
+                    }
+                } else {
+                    for k in 1..3 {
+                        if let Some(c) = hchains[k].as_mut()
+                            && c.tick(dt, locked_h)
+                        {
+                            hdue[k] = true;
+                        }
+                    }
+                }
+            }
             for k in 0..o.n_carts.min(3) {
                 // (dfb89499's per-gap spacing; cc767b78's `alive`: in live time since the release)
-                let off = match k {
-                    0 => 0,
-                    1 => sp,
-                    _ => sp + o.hand_off_2.unwrap_or(sp),
-                };
-                let due = if o.alive { release_t.is_some() && rel_live >= off } else { live >= o.h_open + off };
+                let off = off_of(k);
+                let due = if staggered && k > 0 { hdue[k] } else if o.alive { release_t.is_some() && rel_live >= off } else { live >= o.h_open + off };
                 if !frozen_now && !handed[k] && due {
                     handed[k] = true;
                     place_at(&mut run.world, carts[k], p);

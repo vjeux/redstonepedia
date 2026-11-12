@@ -1317,6 +1317,11 @@ pub enum MobfarmCmd {
         /// T). Overrides --chain-stage.
         #[arg(long)]
         timer_model: Option<String>,
+        /// (cc767b78) With --alive-gate and a timer model: the hold's staggered openings (carts 1
+        /// and 2 handed off A and A+B after the release) as the same pausable timers keyed on the
+        /// release, drifting under freezes like the fill's delays (ironspec's stagger lever).
+        #[arg(long)]
+        stagger_chain: bool,
         /// (cc767b78) The freeze matrix: "F0,F1,STEP;L1,L2,..": one run per freeze start (T + F0
         /// .. T + F1 every STEP gt) and length, every H-open corner, spacing and seed, in parallel
         /// (--jobs); one line per run, the totals, and the drift condition per timed gate.
@@ -4455,7 +4460,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             println!("{}", crate::queue::golem_spots(&spec, o.as_ref(), &extra, with_entities, list, pad_box, &stand_cells).map_err(|e| anyhow::anyhow!(e))?);
         }
-        MobfarmCmd::ClimbBench { cells, crest, h_open, h_for, h_every, pattern, route, folded, gravity, v3, crest6, v4, v5, v4r, plain_flats, plain_c, speed, gate_shut, gate_shut_d1, missing, carts, close_at, ticks, seed, seeds, riders, golem_box, freeze, out, trace, alive_gate, alive_pause, chain_stage, timer_model, freeze_matrix, jobs } => {
+        MobfarmCmd::ClimbBench { cells, crest, h_open, h_for, h_every, pattern, route, folded, gravity, v3, crest6, v4, v5, v4r, plain_flats, plain_c, speed, gate_shut, gate_shut_d1, missing, carts, close_at, ticks, seed, seeds, riders, golem_box, freeze, out, trace, alive_gate, alive_pause, chain_stage, timer_model, stagger_chain, freeze_matrix, jobs } => {
             let timer_model: Option<crate::climb::TimerModel> = match (&timer_model, chain_stage) {
                 (Some(s), _) => Some(crate::climb::TimerModel::parse(s).map_err(|e| anyhow::anyhow!(e))?),
                 (None, Some(st)) => Some(crate::climb::TimerModel { stage: st.max(1), resume: false, free: None }),
@@ -4575,6 +4580,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     alive: alive_gate,
                     alive_pause,
                     timer_model,
+                    stagger_chain,
                 }
             };
             if !freeze_matrix.is_empty() {
