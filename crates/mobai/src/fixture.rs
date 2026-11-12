@@ -408,6 +408,30 @@ fn gq_intake_lanes(name: &str) -> Vec<(i32, bool, bool, f64)> {
         }
     };
     let part = name.rsplit_once('-').and_then(|(_, k)| k.parse::<u32>().ok());
+    // (ironspec's margin: R->R at each contact speed 0.436, 0.459, 0.483, 0.508, 0.534 (the
+    // speeds after 62 .. 66 ticks rolled), 64 rolling distances across the distances that give it:
+    // 64 phases of its tick, like h-contact-p1e)
+    if let Some(k) = part.filter(|_| name.starts_with("gq-margin-")) {
+        let (lo, hi) = GQ_MARGIN[k as usize];
+        return (0..64).map(|i| (1 + 3 * i, true, true, lo + (hi - lo) * (i as f64 + 0.5) / 64.0)).collect();
+    }
+    // (ironspec's fill and refill speeds: R->R from 0.6 to about 0.95, rolling 6.9 .. 14.5, in 2 scenes)
+    if let Some(k) = part.filter(|_| name.starts_with("gq-fill-")) {
+        return (0..39).map(|i| (1 + 3 * i, true, true, 6.9 + 0.1 * (39 * k + i as u32) as f64)).filter(|l| l.3 <= 14.55).collect();
+    }
+    // (ironspec's one circulating empty: R->E at each contact speed 0.392 .. 0.560 (the speeds
+    // after 60 .. 67 ticks rolled), 32 rolling distances across the distances that give it, two
+    // speeds a scene, followed 400 ticks past the contact)
+    if let Some(k) = part.filter(|_| name.starts_with("gq-re-")) {
+        let mut v = Vec::new();
+        for (lo, hi) in [GQ_RE[2 * k as usize], GQ_RE[2 * k as usize + 1]] {
+            for i in 0..32 {
+                let n = v.len() as i32;
+                v.push((1 + 3 * n, false, true, lo + (hi - lo) * (i as f64 + 0.5) / 32.0));
+            }
+        }
+        return v;
+    }
     let (struck, ridden_d, empty_d): (bool, Option<(f64, f64, f64)>, Option<(f64, f64, f64)>) = if name.starts_with("gq-intake-rr") {
         (true, Some(chunk(1.0, 7.5, 0.05, part)), None)
     } else if name.starts_with("gq-intake-er") {
@@ -444,6 +468,14 @@ fn gq_contact_z() -> f64 {
     GQ_FRONT_Z + GQ_PITCH * (GQ_RUN - 1) as f64 + 0.98
 }
 
+/// The rolling distances that give a ridden intake each margin contact speed (0.436, 0.459,
+/// 0.483, 0.508, 0.534: gq-intake-rr's lanes, 0.05 apart, put those speeds at 4.25 .. 4.55,
+/// 4.60 .. 4.90, 4.95 .. 5.25, 5.30 .. 5.65 and 5.70 .. 6.10), each widened by half a step.
+const GQ_MARGIN: [(f64, f64); 5] = [(4.225, 4.575), (4.575, 4.925), (4.925, 5.275), (5.275, 5.675), (5.675, 6.125)];
+/// The rolling distances that give a ridden intake 0.392, 0.414, 0.436, 0.459, 0.483, 0.508,
+/// 0.534 and 0.560 (gq-intake-rr's lanes).
+const GQ_RE: [(f64, f64); 8] = [(3.575, 3.975), (3.975, 4.225), (4.225, 4.575), (4.575, 4.925), (4.925, 5.275), (5.275, 5.675), (5.675, 6.125), (6.125, 6.475)];
+
 /// (tickexact 2026-11-11, farmopt's stored-speed blow-up and ironfarm's "pressed empties walk
 /// backward", ironspec's slide bridge) scene gq-empties' lanes, on the intake run moved 10 south
 /// (G0 at z 13, a flat run-out z 3..12 below it): (x, kind): 0 twelve empties pressed against G0;
@@ -471,6 +503,80 @@ const GQE_ADMIT: [u32; 5] = [40, 100, 160, 220, 280];
 const GQE_PARK: i32 = 4 + GQE_SHIFT + 16;
 const GQE_FILL0: u32 = 30;
 const GQE_FILL_EVERY: u32 = 25;
+
+/// One gq-empties lane's track at x: a flat run-out z 3 .. 12 (stone at z 2), G0 (a shut gate
+/// over a powered slope on a redstone block) at z 13, the 45° run z 14 .. 27 on stone columns,
+/// stone at z 28.
+fn gqe_track(b: &mut Vec<([i32; 3], String)>, x: i32, stone: &str) {
+    let s = GQE_SHIFT;
+    b.push(([x, 64, 2], stone.to_string()));
+    for z in 3..3 + s {
+        b.push(([x, 64, z], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+    }
+    b.push(([x, 63, 3 + s], "minecraft:redstone_block".to_string()));
+    b.push(([x, 64, 3 + s], "minecraft:powered_rail[powered=true,shape=ascending_south,waterlogged=false]".to_string()));
+    b.push(([x, 65, 3 + s], "minecraft:oak_fence_gate[facing=north,in_wall=false,open=false,powered=false]".to_string()));
+    for k in 0..14 {
+        let z = 4 + s + k;
+        for y in 64..65 + k {
+            b.push(([x, y, z], stone.to_string()));
+        }
+        b.push(([x, 65 + k, z], "minecraft:rail[shape=ascending_south,waterlogged=false]".to_string()));
+    }
+    for y in 64..66 + 14 {
+        b.push(([x, y, 4 + s + 14], stone.to_string()));
+    }
+}
+
+/// (tickexact 2026-11-11, G1's 2-to-12 gap and ironfarm's two riders lost in a row) scene
+/// gq-empties-n's lanes on gq-empties' run: (x, what, the carts up from G0: (z, ridden)): n
+/// empties pressed 0.790 apart against G0 for n 2 .. 11 (two copies, the second 0.0003 up); a
+/// ridden run of 12 with two adjacent empties at its back, middle and front; a ridden run of 11
+/// places with a merged empty pair (two empties at one place) at its back, middle and front.
+fn gq_empties_n_lanes() -> Vec<(i32, String, Vec<(f64, bool)>)> {
+    let front = GQ_FRONT_Z + GQE_SHIFT as f64;
+    let mut v: Vec<(i32, String, Vec<(f64, bool)>)> = Vec::new();
+    let mut push = |what: String, carts: Vec<(f64, bool)>| {
+        let k = v.len() as i32;
+        v.push((1 + 3 * k, what, carts));
+    };
+    for n in 2..=11 {
+        for c in 0..2 {
+            let jit = 0.0003 * c as f64;
+            push(format!("{n} empties pressed against G0 (copy +{jit:.4})"), (0..n).map(|k| (front + GQ_PITCH * k as f64 + jit, false)).collect());
+        }
+    }
+    gq_empties_ridden_lanes(&mut push);
+    v
+}
+
+/// The ridden runs holding empties (gq-empties-n's last 6 lanes; gq-empties-long's, followed
+/// 3000 ticks, with 6 pressed empties, the longest run that held 420): two adjacent empties at
+/// the back, middle and front of a ridden run of 12; a merged empty pair at the back, middle and
+/// front of a ridden run of 11 places.
+fn gq_empties_ridden_lanes(push: &mut impl FnMut(String, Vec<(f64, bool)>)) {
+    let front = GQ_FRONT_Z + GQE_SHIFT as f64;
+    for (pos, at) in [("back", 10), ("middle", 5), ("front", 0)] {
+        push(format!("a ridden run of 12 with two adjacent empties at its {pos} (places {at} and {})", at + 1), (0..12).map(|k| (front + GQ_PITCH * k as f64, !(k == at || k == at + 1))).collect());
+    }
+    for (pos, at) in [("back", 10), ("middle", 5), ("front", 0)] {
+        let mut carts: Vec<(f64, bool)> = (0..11).map(|k| (front + GQ_PITCH * k as f64, k != at)).collect();
+        carts.push((front + GQ_PITCH * at as f64, false));
+        push(format!("a ridden run of 11 places with a merged empty pair at its {pos} (place {at})"), carts);
+    }
+}
+
+fn gq_empties_long_lanes() -> Vec<(i32, String, Vec<(f64, bool)>)> {
+    let front = GQ_FRONT_Z + GQE_SHIFT as f64;
+    let mut v: Vec<(i32, String, Vec<(f64, bool)>)> = Vec::new();
+    let mut push = |what: String, carts: Vec<(f64, bool)>| {
+        let k = v.len() as i32;
+        v.push((1 + 3 * k, what, carts));
+    };
+    push("6 empties pressed against G0".to_string(), (0..6).map(|k| (front + GQ_PITCH * k as f64, false)).collect());
+    gq_empties_ridden_lanes(&mut push);
+    v
+}
 
 /// (tickexact 2026-11-11, farmopt's H retry on a frozen cart) scene gate-frozen's lanes: how deep the
 /// frozen cart's box is in the gate's (z 7.375..7.625), whether a retry opens and shuts the gate
@@ -528,7 +634,7 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
             }
             by.into_iter().collect()
         }
-        n if n.starts_with("gq-intake-") => {
+        n if n.starts_with("gq-intake-") || n.starts_with("gq-margin-") || n.starts_with("gq-fill-") || n.starts_with("gq-re-") => {
             let mut id = 0u32;
             let mut acts = Vec::new();
             for (x, struck, ar, d) in gq_intake_lanes(name) {
@@ -4986,23 +5092,7 @@ fn scenes_raw() -> Vec<Scene> {
         let on_slope = |z: f64| 65.0 + (z - 4.0 - s as f64) + 0.0625;
         let front = GQ_FRONT_Z + s as f64;
         for (x, kind, jit) in lanes {
-            b.push(([x, 64, 2], stone.to_string()));
-            for z in 3..3 + s {
-                b.push(([x, 64, z], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
-            }
-            b.push(([x, 63, 3 + s], "minecraft:redstone_block".to_string()));
-            b.push(([x, 64, 3 + s], "minecraft:powered_rail[powered=true,shape=ascending_south,waterlogged=false]".to_string()));
-            b.push(([x, 65, 3 + s], "minecraft:oak_fence_gate[facing=north,in_wall=false,open=false,powered=false]".to_string()));
-            for k in 0..14 {
-                let z = 4 + s + k;
-                for y in 64..65 + k {
-                    b.push(([x, y, z], stone.to_string()));
-                }
-                b.push(([x, 65 + k, z], "minecraft:rail[shape=ascending_south,waterlogged=false]".to_string()));
-            }
-            for y in 64..66 + 14 {
-                b.push(([x, y, 4 + s + 14], stone.to_string()));
-            }
+            gqe_track(&mut b, x, stone);
             let xf = x as f64 + 0.5;
             match kind {
                 0 | 1 | 4 => {
@@ -5050,7 +5140,59 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
-    for name in ["gq-intake-rr-0", "gq-intake-rr-1", "gq-intake-rr-2", "gq-intake-rr-3", "gq-intake-er-0", "gq-intake-er-1", "gq-intake-er-2", "gq-intake-er-3", "gq-intake-e", "gq-settle"] {
+    // (tickexact 2026-11-11, G1's 2-to-12 gap and ironfarm's two riders lost in a row)
+    // gq-empties-n: gq-empties' run, pressed runs of 2 .. 11 empties and ridden runs holding two
+    // adjacent empties or a merged empty pair; gq-empties-long: the ridden runs and 6 empties, for
+    // 3000 ticks
+    for (name, lanes) in [("gq-empties-n", gq_empties_n_lanes()), ("gq-empties-long", gq_empties_long_lanes())] {
+        let width = 3 * lanes.len() as i32 + 1;
+        let mut b = Vec::new();
+        floor(&mut b, 0, width, 0, 4 + GQE_SHIFT + 16, 63, stone);
+        let mut mobs: Vec<(String, [f64; 3], Option<String>)> = Vec::new();
+        for (x, _, carts) in lanes {
+            gqe_track(&mut b, x, stone);
+            for (z, ridden) in carts {
+                let rider = if ridden { "{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}" } else { "{}" };
+                mobs.push(("minecraft:minecart".to_string(), [x as f64 + 0.5, 65.0 + (z - 4.0 - GQE_SHIFT as f64) + 0.0625, z], Some(rider.to_string())));
+            }
+        }
+        v.push(Scene {
+            name: name.into(),
+            chunks: [0, 0, (width - 1) / 16, (4 + GQE_SHIFT + 15) / 16],
+            blocks: b,
+            mobs,
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 62, 0], [width - 1, 82, 4 + GQE_SHIFT + 15]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    for name in [
+        "gq-intake-rr-0",
+        "gq-intake-rr-1",
+        "gq-intake-rr-2",
+        "gq-intake-rr-3",
+        "gq-intake-er-0",
+        "gq-intake-er-1",
+        "gq-intake-er-2",
+        "gq-intake-er-3",
+        "gq-intake-e",
+        "gq-settle",
+        "gq-margin-0",
+        "gq-margin-1",
+        "gq-margin-2",
+        "gq-margin-3",
+        "gq-margin-4",
+        "gq-fill-0",
+        "gq-fill-1",
+        "gq-re-0",
+        "gq-re-1",
+        "gq-re-2",
+        "gq-re-3",
+    ] {
         let lanes = gq_intake_lanes(name);
         let width = 3 * lanes.len() as i32 + 1;
         let mut b = Vec::new();
@@ -8781,7 +8923,16 @@ pub fn rec_gqempties(path: &std::path::Path) -> Result<()> {
         "12 empties rolling in one at a time from rest, 1.0 behind the back, every 25 gt from t30 (the farm's fill)",
         "12 ridden carts filled the same way (the control)",
     ];
-    for (x, kind, jit) in gq_empties_lanes() {
+    // (each lane: x, what, whether G0 opens in it)
+    let scene = path.file_stem().and_then(|s| s.to_str()).unwrap_or("gq-empties").to_string();
+    let lanes: Vec<(i32, String, bool)> = if scene == "gq-empties-n" {
+        gq_empties_n_lanes().into_iter().map(|(x, what, _)| (x, what, false)).collect()
+    } else if scene == "gq-empties-long" {
+        gq_empties_long_lanes().into_iter().map(|(x, what, _)| (x, what, false)).collect()
+    } else {
+        gq_empties_lanes().into_iter().map(|(x, kind, jit)| (x, format!("{} (copy +{jit:.4})", kinds[kind as usize]), kind == 1)).collect()
+    };
+    for (x, what, admits) in lanes {
         let mut mine: Vec<(u64, f64)> = first.iter().filter(|(_, p, _)| p[0] as i32 == x).map(|(n, p, _)| (*n, p[2])).collect();
         mine.sort_by(|a, b| a.1.total_cmp(&b.1).then(a.0.cmp(&b.0)));
         let ids: Vec<u64> = mine.iter().map(|m| m.0).collect();
@@ -8825,9 +8976,9 @@ pub fn rec_gqempties(path: &std::path::Path) -> Result<()> {
                 }
             }
         }
-        println!("lane x {x} (copy +{jit:.4}): {}", kinds[kind as usize]);
+        println!("lane x {x}: {what}");
         for i in 0..n {
-            println!("  cart {i}: z {:.4} -> {:.4}; largest stored speed {:.4} at t{}; back up the run at most {:.4}{}", start[i], end[i], vmax[i], vmax_t[i], back_up[i], if kind == 1 && passed.contains(&i) { "; passed G0" } else { "" });
+            println!("  cart {i}: z {:.4} -> {:.4}; largest stored speed {:.4} at t{}; back up the run at most {:.4}{}", start[i], end[i], vmax[i], vmax_t[i], back_up[i], if admits && passed.contains(&i) { "; passed G0" } else { "" });
         }
         println!("  merged pairs (centres within 0.5): {}", if merged.is_empty() { "none".to_string() } else { merged.iter().map(|(a, b, t)| format!("{a}+{b} from t{t}")).collect::<Vec<_>>().join(", ") });
     }
@@ -8842,7 +8993,8 @@ pub fn rec_gqempties(path: &std::path::Path) -> Result<()> {
 /// cell?), the run's own motion the tick before the contact, the intake's end state and the
 /// lane's largest stored speed; then, over every recording given, per cell (pair, contact speed)
 /// the merges over its lanes and the worst pair plainly.
-pub fn rec_gqintake(paths: &[std::path::PathBuf]) -> Result<()> {
+pub fn rec_gqintake(paths: &[std::path::PathBuf], by_speed: bool) -> Result<()> {
+    let cell_name = |s: i64| if by_speed { format!("{:.3}", s as f64 / 1000.0) } else { format!("{:.2}", s as f64 / 1000.0) };
     // per cell: (pair, speed) -> (lanes, merges, contact speeds, the closest centres seen, phases)
     let mut cells: std::collections::BTreeMap<(String, i64), (u32, u32, Vec<f64>, f64, Vec<f64>)> = std::collections::BTreeMap::new();
     for path in paths {
@@ -8888,6 +9040,10 @@ pub fn rec_gqintake(paths: &[std::path::PathBuf]) -> Result<()> {
         let mut last_intake = ([0.0; 3], [0.0; 3]);
         // (farmopt's blow-up question: the largest stored speed any cart of the lane reaches)
         let mut vmax: f64 = 0.0;
+        // (the merge's follow: the pair's (least, most, last) distance, when it is apart again,
+        // the largest stored speed after it, the carts' z at the merge, the most any rises, the
+        // lowest z any reaches)
+        let (mut post, mut apart_at, mut post_v, mut at_merge, mut rise, mut lowest) = ((f64::MAX, 0.0f64, 0.0f64), None::<u64>, 0.0f64, Vec::<f64>::new(), 0.0f64, f64::MAX);
         for f in &frames {
             let t = f["t"].as_u64().unwrap_or(0);
             let cs = carts(f);
@@ -8914,6 +9070,32 @@ pub fn rec_gqintake(paths: &[std::path::PathBuf]) -> Result<()> {
             if let Some((pf, _)) = ps[0] {
                 front_min = front_min.min(pf[2]);
             }
+            // (after a merge: the pair followed: its centres' least and most distance, whether it
+            // comes apart again (0.98, the boxes clear), the lane's largest stored speed, how far
+            // any cart goes back up the run from where it was at the merge)
+            if let Some((_, a, bb, _)) = merge {
+                if at_merge.is_empty() {
+                    at_merge = ps.iter().map(|p| p.map(|(q, _)| q[2]).unwrap_or(f64::NAN)).collect();
+                }
+                if let (Some((pa, _)), Some((pb2, _))) = (ps[a], ps[bb]) {
+                    let dd = dist(pa, pb2);
+                    post.0 = post.0.min(dd);
+                    post.1 = post.1.max(dd);
+                    post.2 = dd;
+                    if dd >= 0.98 && apart_at.is_none() {
+                        apart_at = Some(t);
+                    }
+                }
+                for (k, p) in ps.iter().enumerate() {
+                    if let Some((q, m)) = p {
+                        post_v = post_v.max((m[0].powi(2) + m[1].powi(2) + m[2].powi(2)).sqrt());
+                        if !at_merge[k].is_nan() {
+                            rise = rise.max(q[2] - at_merge[k]);
+                        }
+                        lowest = lowest.min(q[2]);
+                    }
+                }
+            }
             if merge.is_none() {
                 'pairs: for a in 0..ps.len() {
                     for bb in a + 1..ps.len() {
@@ -8929,8 +9111,26 @@ pub fn rec_gqintake(paths: &[std::path::PathBuf]) -> Result<()> {
         }
         let pair = format!("{}->{}", if ar { "R" } else { "E" }, if struck { "R" } else { "E" });
         let name = |k: usize| if k == GQ_RUN { "the intake".to_string() } else if k == GQ_RUN - 1 { "the back cart".to_string() } else { format!("run cart {k}") };
+        let follow = match merge {
+            Some(_) => format!(
+                "; after the merge (to t{}): the pair {:.3}..{:.3} apart, {:.3} at the end, {}; the lane's largest stored speed after it {:.3}; carts back up the run at most {:.3}; the lowest cart z {:.3}{}",
+                frames.len().saturating_sub(1),
+                post.0,
+                post.1,
+                post.2,
+                match apart_at {
+                    Some(t) => format!("apart (0.98) again from t{t}"),
+                    None => "never apart again".to_string(),
+                },
+                post_v,
+                rise,
+                lowest,
+                if lowest < 3.5 { " (left the run past G0)" } else { "" }
+            ),
+            None => String::new(),
+        };
         println!(
-            "lane x {x}: {pair} rolling {d:.2} from rest: {}; merge {}; closest intake-back {:.3}; front cart min z {:.3}{}; the intake ends at z {:.3} moving {:.3}; the lane's largest stored speed {:.3}",
+            "lane x {x}: {pair} rolling {d:.2} from rest: {}; merge {}{follow}; closest intake-back {:.3}; front cart min z {:.3}{}; the intake ends at z {:.3} moving {:.3}; the lane's largest stored speed {:.3}",
             match contact {
                 Some((t, v, rv, ph)) => format!("contact t{t} at stored speed {v:.3}, phase {ph:.2} (the run's fastest cart the tick before {rv:.3})"),
                 None => "no contact".to_string(),
@@ -8948,7 +9148,15 @@ pub fn rec_gqintake(paths: &[std::path::PathBuf]) -> Result<()> {
         );
         let Some((_, v, _, ph)) = contact else { continue };
         // (the cell: the contact speed to 0.02 below 0.29, to 0.05 from it)
-        let cell = if v < 0.29 { ((v / 0.02).round() * 2.0) as i64 } else { ((v / 0.05).round() * 5.0) as i64 };
+        // (the cell, in thousandths: the contact speed to 0.02 below 0.29 and to 0.05 from it, or
+        // with --by-speed the stored speed itself, one cell per whole number of ticks rolled)
+        let cell = if by_speed {
+            (v * 1000.0).round() as i64
+        } else if v < 0.29 {
+            ((v / 0.02).round() * 20.0) as i64
+        } else {
+            ((v / 0.05).round() * 50.0) as i64
+        };
         let c = cells.entry((pair, cell)).or_insert((0, 0, Vec::new(), f64::MAX, Vec::new()));
         c.0 += 1;
         c.1 += merge.is_some() as u32;
@@ -8964,8 +9172,8 @@ pub fn rec_gqintake(paths: &[std::path::PathBuf]) -> Result<()> {
         let mut p = phs.clone();
         p.sort_by(|a, b| a.total_cmp(b));
         println!(
-            "  {pair} {:.2}: {m}/{n} merged; stored speed at contact {lo:.3}..{hi:.3}; phases {}; closest {cl:.3}",
-            *s as f64 / 100.0,
+            "  {pair} {}: {m}/{n} merged; stored speed at contact {lo:.3}..{hi:.3}; phases {}; closest {cl:.3}",
+            cell_name(*s),
             p.iter().map(|x| format!("{x:.2}")).collect::<Vec<_>>().join(" ")
         );
         if *m > 0 && pair.ends_with("->R") && worst.as_ref().is_none_or(|w| *s < w.1) {
@@ -8973,7 +9181,7 @@ pub fn rec_gqintake(paths: &[std::path::PathBuf]) -> Result<()> {
         }
     }
     match worst {
-        Some((p, s)) => println!("WORST: a merge with a ridden back cart at {:.2} ({p})", s as f64 / 100.0),
+        Some((p, s)) => println!("WORST: a merge with a ridden back cart at {} ({p})", cell_name(s)),
         None => println!("no merge with a ridden back cart in any lane"),
     }
     Ok(())

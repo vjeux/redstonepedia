@@ -207,10 +207,15 @@ pub enum MobaiCmd {
         #[arg(long)]
         xz: bool,
     },
-    /// (tickexact 2026-11-11, ironspec's gravity intake bridge) Scene gq-intake-{r,e}'s recording
-    /// per lane and per cell: the contact speed, merges, the closest centres, the worst pair
+    /// (tickexact 2026-11-11, ironspec's gravity intake bridge) Scenes gq-intake-*, gq-margin-* and
+    /// gq-fill-*'s recordings per lane and per cell: the contact speed, merges, the closest
+    /// centres, the worst pair
     RecGqintake {
         paths: Vec<std::path::PathBuf>,
+        /// One cell per contact speed (the stored speed after a whole number of ticks rolled),
+        /// not per 0.02 / 0.05 band
+        #[arg(long)]
+        by_speed: bool,
     },
     /// (tickexact 2026-11-11, the slide bridge's empties) Scene gq-empties' recording per lane: each
     /// cart's largest stored speed, how far it went back up the run, the merged pairs
@@ -438,7 +443,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         MobaiCmd::RecPlate { path, scene } => crate::fixture::rec_plate(&path, &scene),
         MobaiCmd::RecBedreload { path } => crate::fixture::rec_bedreload(&path),
         MobaiCmd::RecSentinel { path } => crate::fixture::rec_sentinel(&path),
-        MobaiCmd::RecGqintake { paths } => crate::fixture::rec_gqintake(&paths),
+        MobaiCmd::RecGqintake { paths, by_speed } => crate::fixture::rec_gqintake(&paths, by_speed),
         MobaiCmd::RecGqempties { path } => crate::fixture::rec_gqempties(&path),
         MobaiCmd::SentinelVanilla { case, version } => crate::bedreload::sentinel_vanilla(&version, &case),
         MobaiCmd::BedReloadVanilla { case, forceload, version } => crate::bedreload::bed_reload_vanilla(&version, &case, forceload),
