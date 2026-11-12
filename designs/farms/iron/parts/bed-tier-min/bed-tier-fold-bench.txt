@@ -1,0 +1,185 @@
+# The bed stop (local frame; under the station, loop = local + (0,-18,-1); the bed's head at (-3,0,4)): a booster entry and an always-on activator heading west, two braked park rails down a slope, a capped flat, a curve south, seven capped flats, the pickup cell beside the bed, the curve east, a capped booster, a capped flat, the slope down, two flats, R.
+# The rider lands on the ledge south of the activator, walks round onto the bed's roof and sleeps; woken through the hatch it stands only on the pickup cell and keeps seeing the zombie there; the released cart reaches it under 0.2 b/t and seats it; the cart runs on to R. Normal operation only: under L1 a restart cannot put a woken napper back to bed before the cart reaches it (SleepInBed's 100-gt LAST_WOKEN guard), so no strand handling.
+name: bed-tier-fold-bench
+circuit: mob-farm iron_ingot
+port home: -3 0 4
+port output: 12 0 6
+entity: minecraft:oak_boat -5 0 4.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
+origin: -6 0 -5
+palette:
+  A minecraft:activator_rail[powered=true,shape=east_west,waterlogged=false]
+  B minecraft:iron_trapdoor[facing=west,half=top,open=true,powered=true,waterlogged=false]
+  C minecraft:rail[shape=ascending_west,waterlogged=false]
+  D minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]
+  E minecraft:rail[shape=east_west,waterlogged=false]
+  F minecraft:rail[shape=north_east,waterlogged=false]
+  G minecraft:glass
+  H minecraft:rail[shape=north_south,waterlogged=false]
+  I minecraft:iron_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]
+  J minecraft:rail[shape=south_east,waterlogged=false]
+  K minecraft:red_bed[facing=south,occupied=false,part=foot]
+  L minecraft:red_bed[facing=south,occupied=false,part=head]
+  M minecraft:redstone_block
+  O minecraft:oak_leaves[distance=1,persistent=true,waterlogged=false]
+  P minecraft:powered_rail[powered=false,shape=ascending_east,waterlogged=false]
+  R minecraft:rail[shape=ascending_north,waterlogged=false]
+  S minecraft:stone
+  i minecraft:iron_trapdoor[facing=west,half=bottom,open=true,powered=true,waterlogged=false]
+  p minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]
+  r minecraft:rail[shape=ascending_south,waterlogged=false]
+layer -2:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .......SGGSGGGGGG
+layer -1:
+  .
+  ....GGS
+  ....G
+  .
+  .
+  .
+  ....G
+  ....G
+  ...GG
+  .GGGG
+  ....GMGCEEDEEEEEEG
+layer 0:
+  .
+  ....JEPS
+  ....r
+  ....G
+  .
+  ....GG
+  ....RG
+  ...GHG
+  .GMKHG
+  G.iLHG
+  .GGGFpE
+layer 1:
+  .
+  ....II.PSM
+  ....I...S
+  ....r...S
+  ....G...S
+  ....RGSSS
+  .....G
+  ...GIG
+  .GGIIG
+  G.BI.G
+  .GGGIII
+layer 2:
+  ........M
+  ........Ap
+  .......G.G
+  ....I..G.G
+  ....HGGG.G
+  ....I....G
+  ....I.GGG
+  ...GG.G
+  ..G...G
+  .GM..G
+  ...G
+layer 3:
+  .
+  .......GII
+  .......G.G
+  .......G.G
+  ....IGGG.G
+  ....G....G
+  ....G.GGG
+  ...GG.G
+  ..G...G
+  .OG..G
+  ...G
+layer 4:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 5:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 6:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 7:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 8:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 9:
+  ...............S
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 10:
+  ...............E
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
