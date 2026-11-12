@@ -12,7 +12,11 @@
 //! junction declared `own-route-junctions: x,y,z=REASON` (ironspec Nov 12 07:52, the S-bend's c3)
 //! joins a rest cell's own route when its third arm is that rest cell and its shape never connects
 //! to it and no source reaches it (both checked, refused otherwise), REASON the bench's evidence
-//! that no other route's cart enters it, printed beside it. Rest or
+//! that no other route's cart enters it, printed beside it. A curve's passing cart is also boxed
+//! along the chord between its exit-edge midpoints (moveAlongTrack's projection of a side entry;
+//! `--chord-speed` drops the chord's ends a side-entering cart never sits at after its first move).
+//! A `single-occupant: x,y,z+...=REASON` group's pairs print as declared, not counted (ironspec Nov
+//! 12 08:47). `--rest-pos` checks a resting cart at an exact point (inflated 0.2 only). Rest or
 //! creep cells: the `--rest` cells (the queue's slopes, holds, D cells, the queue cell) and, unless
 //! turned off, every unpowered powered rail (a brake).
 
@@ -46,15 +50,55 @@ fn cart_box(c: BlockPos, state: &str) -> [f64; 6] {
     [c.x as f64 + 0.01, c.x as f64 + 0.99, y0, y1, c.z as f64 + 0.01, c.z as f64 + 0.99]
 }
 
-/// The scan: (the flagged pairs as lines, the rest cells checked, the tracks). `own_decl`: the
-/// declared own-route junctions (`own-route-junctions: x,y,z=REASON`, ironspec Nov 12 07:52, c3's
-/// ruling): a junction cell joins a rest cell's own route when (a) one of its 3+ potential
-/// connections is that rest cell (its third arm is no other route), (b) its placed shape never
-/// connects to the rest cell and no signal-source update reaches it (never switched), and (c) no
-/// other route's cart ever enters it, a bench's evidence that the declaration's REASON carries and
-/// the scan prints beside it. (a) and (b) are checked here and a declaration failing either is
-/// refused (an error); an accepted junction is the rest's own route itself, not a way through it.
-pub fn scan(spec: &FarmSpec, rests: &[BlockPos], auto: bool, own_decl: &[(BlockPos, String)]) -> Result<(Vec<String>, usize, usize), String> {
+/// A passing cart's boxes on a track cell (G1's CHANGES 2 on ff3d181e6): a curve's cart is
+/// projected by moveAlongTrack onto the chord between its two exit-edge midpoints (a cart entering
+/// from a side lands at an end of it, a north_east curve entered from the west at its north edge's
+/// midpoint), so a curve gives its cell's box and one box at each of 5 points along that chord.
+/// The push test sees a cart's box after its move (AbstractMinecart.tick pushes after
+/// moveAlongTrack), and a ridden cart moves 0.75 of its speed a tick along the chord: with
+/// `chord_speed` V (the least speed of a cart entering a curve from its side) the chord's points
+/// run from t0 = 0.75 V / 0.7071 to 1 - t0; V 0 keeps the whole chord, both midpoints included
+/// (tick-exact's official crossing 1531189749067418: margin +0.107 at a 0.10 napper arrival with
+/// 0.29 through-carts, -0.020 for a 0.10 through-cart). Any other rail gives the cell's box.
+fn track_boxes(c: BlockPos, state: &str, chord_speed: f64) -> Vec<[f64; 6]> {
+    let curve = ["north_east", "north_west", "south_east", "south_west"].iter().any(|s| state.contains(&format!("shape={s}")));
+    if !curve {
+        return vec![cart_box(c, state)];
+    }
+    let ex = exits(state);
+    let (a, b) = (ex[0], ex[1]);
+    let (ax, az) = (c.x as f64 + 0.5 + a.0 as f64 * 0.5, c.z as f64 + 0.5 + a.1 as f64 * 0.5);
+    let (bx, bz) = (c.x as f64 + 0.5 + b.0 as f64 * 0.5, c.z as f64 + 0.5 + b.1 as f64 * 0.5);
+    let y0 = c.y as f64 + 0.0625;
+    let t0 = (0.75 * chord_speed / std::f64::consts::FRAC_1_SQRT_2).min(0.5);
+    let mut v = vec![cart_box(c, state)];
+    v.extend((0..=4).map(|k| {
+        let t = t0 + (1.0 - 2.0 * t0) * k as f64 / 4.0;
+        let (x, z) = (ax + (bx - ax) * t, az + (bz - az) * t);
+        [x - 0.49, x + 0.49, y0, y0 + 0.7, z - 0.49, z + 0.49]
+    }));
+    v
+}
+
+fn overlap(a: &[f64; 6], b: &[f64; 6]) -> bool {
+    a[0] < b[1] && b[0] < a[1] && a[2] < b[3] && b[2] < a[3] && a[4] < b[5] && b[4] < a[5]
+}
+
+/// The scan: (the flagged pairs as lines, the rest cells checked, the tracks, the declared
+/// single-occupant pairs among the flagged). `own_decl`: the declared own-route junctions
+/// (`own-route-junctions: x,y,z=REASON`, ironspec Nov 12 07:52, c3's ruling): a junction cell joins
+/// a rest cell's own route when (a) every potential connection off its stored shape is that rest
+/// cell, exactly one (its third arm is no other route), (b) its placed shape never connects to the
+/// rest cell and no signal-source update reaches it (never switched), and (c) no other route's
+/// cart ever enters it, a bench's evidence that the declaration's REASON carries and the scan
+/// prints beside it. (a) and (b) are checked here and a declaration failing either is refused (an
+/// error); an accepted junction is the rest's own route itself, not a way through it. `single`:
+/// declared single-occupant groups (`single-occupant: x,y,z+x,y,z+...=REASON`, ironspec Nov 12
+/// 08:47, 7b90c3f1's napper hold): a pair whose rest and track cells are both in one group is
+/// printed as declared, with the group's REASON (the bench's numbers), and not counted. `rest_pos`:
+/// resting carts at exact positions (the bench's rest points): each box inflated 0.2 in x and z
+/// only, against every track cell off its cell's own route.
+pub fn scan(spec: &FarmSpec, rests: &[BlockPos], auto: bool, own_decl: &[(BlockPos, String)], single: &[(Vec<BlockPos>, String)], rest_pos: &[[f64; 3]], chord_speed: f64, bridges: &[Bridge], speeds: &HashMap<String, (f64, f64)>) -> Result<(Vec<String>, usize, usize, usize, usize), String> {
     let rails: HashMap<BlockPos, String> = spec.blocks.iter().filter(|(_, b)| b.to_string().contains("rail")).map(|(p, b)| (*p, b.to_string())).collect();
     // (the tracks: union-find over the rail cells joined by their exits)
     let cells: Vec<BlockPos> = rails.keys().copied().collect();
@@ -129,13 +173,22 @@ pub fn scan(spec: &FarmSpec, rests: &[BlockPos], auto: bool, own_decl: &[(BlockP
         if !junction(j) {
             return Err(format!("own-route junction {},{},{}: not a junction (fewer than 3 potential connections)", j.x, j.y, j.z));
         }
-        let arm_rests: Vec<(i32, i32, BlockPos)> = [(0, -1), (1, 0), (0, 1), (-1, 0)]
+        // ((a), G1's CHANGES 2: every potential connection off the stored shape's two exits must
+        // be the rest cell, and exactly one)
+        let off: Vec<(i32, i32, BlockPos)> = [(0, -1), (1, 0), (0, 1), (-1, 0)]
             .iter()
-            .filter_map(|(dx, dz)| (-1..=1).map(|dy| BlockPos::new(j.x + dx, j.y + dy, j.z + dz)).find(|p| rest_cells.contains(p)).map(|p| (*dx, *dz, p)))
+            .filter(|(dx, dz)| !exits(js).iter().any(|(ex, ez, _)| (*ex, *ez) == (*dx, *dz)))
+            .filter_map(|(dx, dz)| (-1..=1).map(|dy| BlockPos::new(j.x + dx, j.y + dy, j.z + dz)).find(|p| is_rail(p)).map(|p| (*dx, *dz, p)))
             .collect();
-        let Some((dx, dz, r)) = arm_rests.first().copied() else {
-            return Err(format!("own-route junction {},{},{}: (a) fails: no rest cell among its potential connections", j.x, j.y, j.z));
-        };
+        let off_rest: Vec<&(i32, i32, BlockPos)> = off.iter().filter(|(_, _, p)| rest_cells.contains(p)).collect();
+        let off_other: Vec<String> = off.iter().filter(|(_, _, p)| !rest_cells.contains(p)).map(|(_, _, p)| format!("{},{},{} {}", p.x, p.y, p.z, short(&rails[p]))).collect();
+        if !off_other.is_empty() {
+            return Err(format!("own-route junction {},{},{}: (a) fails: a potential connection off its shape is not the rest cell: {}", j.x, j.y, j.z, off_other.join(", ")));
+        }
+        if off_rest.len() != 1 {
+            return Err(format!("own-route junction {},{},{}: (a) fails: {} rest cells among its potential connections off its shape (exactly one required)", j.x, j.y, j.z, off_rest.len()));
+        }
+        let (dx, dz, r) = *off_rest[0];
         if exits(js).iter().any(|(ex, ez, _)| (*ex, *ez) == (dx, dz)) {
             return Err(format!("own-route junction {},{},{}: (b) fails: its shape {} connects to the rest cell {},{},{}", j.x, j.y, j.z, short(js), r.x, r.y, r.z));
         }
@@ -155,13 +208,24 @@ pub fn scan(spec: &FarmSpec, rests: &[BlockPos], auto: bool, own_decl: &[(BlockP
         ));
         own_j.push((*j, r));
     }
-    for r in &rest_cells {
-        let Some(rs) = rails.get(r) else {
-            out.push(format!("  {},{},{}: not a rail cell (skipped)", r.x, r.y, r.z));
-            continue;
-        };
-        let ri = idx[r];
-        let rt = find(&mut parent, ri);
+    // (the declared single-occupant groups, checked: every cell a rail cell, one of them a rest)
+    for (g, _) in single {
+        for c in g {
+            if !rails.contains_key(c) {
+                return Err(format!("single-occupant {},{},{}: not a rail cell", c.x, c.y, c.z));
+            }
+        }
+        if !g.iter().any(|c| rest_cells.contains(c)) {
+            let s: Vec<String> = g.iter().map(|c| format!("{},{},{}", c.x, c.y, c.z)).collect();
+            return Err(format!("single-occupant {}: no rest cell among its cells", s.join("+")));
+        }
+    }
+    let group_of = |a: &BlockPos, b: &BlockPos| single.iter().find(|(g, _)| g.contains(a) && g.contains(b)).map(|(_, why)| why.clone());
+    let mut declared = 0usize;
+    let mut bridged = 0usize;
+    // (a rail cell's own route: what it reaches without entering a junction, plus its declared
+    // own-route junctions)
+    let own_of = |r: &BlockPos| -> std::collections::HashSet<BlockPos> {
         let mut own: std::collections::HashSet<BlockPos> = std::collections::HashSet::new();
         own.insert(*r);
         let mut todo = vec![*r];
@@ -172,12 +236,21 @@ pub fn scan(spec: &FarmSpec, rests: &[BlockPos], auto: bool, own_decl: &[(BlockP
                 }
             }
         }
-        // (a declared own-route junction of this rest: its own route, the cell itself only)
         for (j, jr) in &own_j {
             if jr == r {
                 own.insert(*j);
             }
         }
+        own
+    };
+    for r in &rest_cells {
+        let Some(rs) = rails.get(r) else {
+            out.push(format!("  {},{},{}: not a rail cell (skipped)", r.x, r.y, r.z));
+            continue;
+        };
+        let ri = idx[r];
+        let rt = find(&mut parent, ri);
+        let own = own_of(r);
         let mut rb = cart_box(*r, rs);
         rb[0] -= 0.2;
         rb[1] += 0.2;
@@ -208,27 +281,89 @@ pub fn scan(spec: &FarmSpec, rests: &[BlockPos], auto: bool, own_decl: &[(BlockP
                 continue;
             }
             let pt = find(&mut parent, idx[p]);
-            let pb = cart_box(*p, ps);
-            if rb[0] < pb[1] && pb[0] < rb[1] && rb[2] < pb[3] && pb[2] < rb[3] && rb[4] < pb[5] && pb[4] < rb[5] {
-                out.push(format!(
-                    "  PUSH {},{},{} (rests: {}) <- {},{},{} ({}: {})",
-                    r.x,
-                    r.y,
-                    r.z,
-                    short(rs),
-                    p.x,
-                    p.y,
-                    p.z,
-                    if junction(p) { "the junction" } else if pt == rt { "the same track beyond a junction" } else { "another track" },
-                    short(ps)
-                ));
+            let boxes = track_boxes(*p, ps, chord_speed);
+            let hit: Vec<usize> = (0..boxes.len()).filter(|k| overlap(&rb, &boxes[*k])).collect();
+            if !hit.is_empty() {
+                let at = if boxes.len() > 1 { format!(", boxes {:?} of 0..5 (0 the cell's, 1..5 its chord's points from t0 {:.3})", hit, (0.75 * chord_speed / std::f64::consts::FRAC_1_SQRT_2).min(0.5)) } else { String::new() };
+                let kind = if junction(p) { "the junction" } else if pt == rt { "the same track beyond a junction" } else { "another track" };
+                if let Some(why) = group_of(r, p) {
+                    declared += 1;
+                    out.push(format!("  SINGLE-OCCUPANT (declared) {},{},{} (rests: {}) <- {},{},{} ({kind}: {}{at}): {why}", r.x, r.y, r.z, short(rs), p.x, p.y, p.z, short(ps)));
+                } else if let Some(br) = bridges.iter().find(|br| (br.a == *r && br.b == *p) || (br.a == *p && br.b == *r)) {
+                    // (a bridged pair: accepted only while the cells within 2 of both cells hash as in
+                    // the bridged composition and the design's own speed prints lie in its ranges)
+                    let h = neighborhood_hash(spec, br.a, br.b);
+                    let mut fails: Vec<String> = Vec::new();
+                    if h != br.hash {
+                        fails.push(format!("VOID: the cells within 2 changed (hash {h}, bridged {})", br.hash));
+                    }
+                    for (name, lo, hi) in &br.ranges {
+                        match speeds.get(name) {
+                            None => fails.push(format!("no `speeds:` print for {name}")),
+                            Some((dlo, dhi)) if dlo > dhi => fails.push(format!("{name} {dlo}..{dhi}: the design's print has lo above hi")),
+                            Some((dlo, dhi)) if *dlo < *lo - 1e-9 || *dhi > *hi + 1e-9 => fails.push(format!("{name} {dlo}..{dhi} outside the bridged {lo}..{hi}")),
+                            Some(_) => {}
+                        }
+                    }
+                    if fails.is_empty() {
+                        bridged += 1;
+                        out.push(format!("  BRIDGED {},{},{} (rests: {}) <- {},{},{} ({kind}: {}{at}): bridged by {}, margin {} (hash {h}; {})", r.x, r.y, r.z, short(rs), p.x, p.y, p.z, short(ps), br.by, br.margin, br.ranges.iter().map(|(n, lo, hi)| format!("{n} {lo}..{hi}: the design's {}", speeds.get(n).map_or("?".to_string(), |(a, b)| format!("{a}..{b}")))).collect::<Vec<_>>().join(", ")));
+                    } else {
+                        out.push(format!("  PUSH {},{},{} (rests: {}) <- {},{},{} ({kind}: {}{at}): open, the bridge by {} fails: {}", r.x, r.y, r.z, short(rs), p.x, p.y, p.z, short(ps), br.by, fails.join("; ")));
+                    }
+                } else {
+                    out.push(format!("  PUSH {},{},{} (rests: {}) <- {},{},{} ({kind}: {}{at})", r.x, r.y, r.z, short(rs), p.x, p.y, p.z, short(ps)));
+                }
             }
         }
+    }
+    // (the rest points: a resting cart's exact position, its box inflated 0.2 in x and z only)
+    for rp in rest_pos {
+        let base = BlockPos::new(rp[0].floor() as i32, (rp[1] - 0.0625 + 1e-6).floor() as i32, rp[2].floor() as i32);
+        let cell = if rails.contains_key(&base) { base } else { BlockPos::new(base.x, base.y - 1, base.z) };
+        let Some(cs) = rails.get(&cell) else {
+            out.push(format!("  rest point {:.3},{:.3},{:.3}: not on a rail cell (skipped)", rp[0], rp[1], rp[2]));
+            continue;
+        };
+        let own = own_of(&cell);
+        let rb = [rp[0] - 0.69, rp[0] + 0.69, rp[1], rp[1] + 0.7, rp[2] - 0.69, rp[2] + 0.69];
+        let mut least = f64::MAX;
+        let mut least_at = String::new();
+        for (p, ps) in &rails {
+            if own.contains(p) || (p.x - cell.x).abs() > 2 || (p.z - cell.z).abs() > 2 || (p.y - cell.y).abs() > 2 {
+                continue;
+            }
+            for (k, b) in track_boxes(*p, ps, chord_speed).iter().enumerate() {
+                // (the gap where the boxes share x and y: the least of the two z or x separations)
+                if rb[2] < b[3] && b[2] < rb[3] {
+                    let gx = (b[0] - rb[1]).max(rb[0] - b[1]);
+                    let gz = (b[4] - rb[5]).max(rb[4] - b[5]);
+                    let g = gx.max(gz);
+                    if g < least {
+                        least = g;
+                        least_at = format!("{},{},{} ({}, box {k})", p.x, p.y, p.z, short(ps));
+                    }
+                }
+                if overlap(&rb, b) {
+                    out.push(format!("  PUSH rest point {:.3},{:.3},{:.3} (on {},{},{} {}) <- {},{},{} ({}, box {k})", rp[0], rp[1], rp[2], cell.x, cell.y, cell.z, short(cs), p.x, p.y, p.z, short(ps)));
+                }
+            }
+        }
+        out.push(format!(
+            "  rest point {:.3},{:.3},{:.3} (on {},{},{}): the least gap between its push box and a passing cart's box off its own route: {}",
+            rp[0],
+            rp[1],
+            rp[2],
+            cell.x,
+            cell.y,
+            cell.z,
+            if least == f64::MAX { "none within 2".to_string() } else { format!("{least:.3} to {least_at}") }
+        ));
     }
     let mut roots: Vec<usize> = (0..cells.len()).map(|i| find(&mut parent, i)).collect();
     roots.sort();
     roots.dedup();
-    Ok((out, rest_cells.len(), roots.len()))
+    Ok((out, rest_cells.len(), roots.len(), declared, bridged))
 }
 
 /// Every cell a signal-source update can reach, with its sources (the source set and each type's
@@ -246,6 +381,156 @@ fn sources_reaching(spec: &FarmSpec) -> HashMap<BlockPos, Vec<BlockPos>> {
         }
     }
     reach
+}
+
+/// A bridged pair (ironspec Nov 12 08:58): a flagged pair carried by an official run's evidence.
+/// `bridged-pairs: A=x,y,z B=x,y,z by=COMMIT/ARTIFACT hash=H name=lo..hi ... margin=M`: the pair's
+/// two cells, the evidence, the hash of every cell within 2 of either cell in the bridged
+/// composition (`--bridge-hash`), the ranges the run covers (each named as the design's `speeds:`
+/// prints name them) and its least margin.
+#[derive(Clone, Debug)]
+pub struct Bridge {
+    pub a: BlockPos,
+    pub b: BlockPos,
+    pub by: String,
+    pub hash: String,
+    pub ranges: Vec<(String, f64, f64)>,
+    pub margin: String,
+}
+
+/// One `bridged-pairs:` entry.
+pub fn parse_bridge(entry: &str) -> Result<Bridge, String> {
+    let cell = |s: &str| -> Result<BlockPos, String> {
+        let v: Vec<i32> = s.split(',').map(|t| t.trim().parse::<i32>().map_err(|e| format!("bridged pair {entry}: {s}: {e}"))).collect::<Result<_, _>>()?;
+        if v.len() == 3 { Ok(BlockPos::new(v[0], v[1], v[2])) } else { Err(format!("bridged pair {entry}: {s}: x,y,z")) }
+    };
+    let (mut a, mut b, mut by, mut hash, mut margin) = (None, None, None, None, None);
+    let mut ranges = Vec::new();
+    for tok in entry.split_whitespace() {
+        let (k, v) = tok.split_once('=').ok_or_else(|| format!("bridged pair {entry}: {tok}: name=value"))?;
+        match k {
+            "A" => a = Some(cell(v)?),
+            "B" => b = Some(cell(v)?),
+            "by" => by = Some(v.to_string()),
+            "hash" => hash = Some(v.to_string()),
+            "margin" => margin = Some(v.to_string()),
+            _ => {
+                let (lo, hi) = v.split_once("..").ok_or_else(|| format!("bridged pair {entry}: {tok}: name=lo..hi"))?;
+                let lo: f64 = lo.parse().map_err(|e| format!("bridged pair {entry}: {tok}: {e}"))?;
+                let hi: f64 = hi.parse().map_err(|e| format!("bridged pair {entry}: {tok}: {e}"))?;
+                if lo > hi {
+                    return Err(format!("bridged pair {entry}: {tok}: lo above hi"));
+                }
+                ranges.push((k.to_string(), lo, hi));
+            }
+        }
+    }
+    let need = |o: Option<String>, n: &str| o.ok_or_else(|| format!("bridged pair {entry}: no {n}="));
+    Ok(Bridge {
+        a: a.ok_or_else(|| format!("bridged pair {entry}: no A="))?,
+        b: b.ok_or_else(|| format!("bridged pair {entry}: no B="))?,
+        by: need(by, "by")?,
+        hash: need(hash, "hash")?,
+        ranges,
+        margin: need(margin, "margin")?,
+    })
+}
+
+/// The hash of every cell within 2 (each axis) of either cell, in x, y, z order, air included
+/// (FNV-1a 64 over "x,y,z=state;"): any geometry change near a bridged pair changes it.
+pub fn neighborhood_hash(spec: &FarmSpec, a: BlockPos, b: BlockPos) -> String {
+    let all: HashMap<BlockPos, String> = spec.blocks.iter().map(|(p, s)| (*p, s.to_string())).collect();
+    let mut cells: Vec<BlockPos> = Vec::new();
+    for c in [a, b] {
+        for dx in -2..=2 {
+            for dy in -2..=2 {
+                for dz in -2..=2 {
+                    let p = BlockPos::new(c.x + dx, c.y + dy, c.z + dz);
+                    if !cells.contains(&p) {
+                        cells.push(p);
+                    }
+                }
+            }
+        }
+    }
+    cells.sort_by_key(|p| (p.x, p.y, p.z));
+    let mut h: u64 = 0xcbf29ce484222325;
+    for p in cells {
+        let s = format!("{},{},{}={};", p.x, p.y, p.z, all.get(&p).map_or("minecraft:air", |s| s.as_str()));
+        for byte in s.bytes() {
+            h ^= byte as u64;
+            h = h.wrapping_mul(0x100000001b3);
+        }
+    }
+    format!("{h:016x}")
+}
+
+/// A design's `speeds:` header prints (`speeds: name=lo..hi ...`, the benches' measured ranges).
+pub fn header_speeds(text: &str) -> HashMap<String, (f64, f64)> {
+    let mut m = HashMap::new();
+    for l in text.lines() {
+        let Some(body) = l.trim_start().strip_prefix('#').map(str::trim_start).and_then(|t| t.strip_prefix("speeds:")) else { continue };
+        for tok in body.split_whitespace() {
+            if let Some((k, v)) = tok.split_once('=')
+                && let Some((lo, hi)) = v.split_once("..")
+                && let (Ok(lo), Ok(hi)) = (lo.parse::<f64>(), hi.parse::<f64>())
+            {
+                m.insert(k.to_string(), (lo, hi));
+            }
+        }
+    }
+    m
+}
+
+/// A design's `bridged-pairs:` entries (a line's entries split where a ";" is followed by "A=").
+pub fn header_bridges(text: &str) -> Vec<String> {
+    let mut v = Vec::new();
+    for l in text.lines() {
+        let Some(body) = l.trim_start().strip_prefix('#').map(str::trim_start).and_then(|t| t.strip_prefix("bridged-pairs:")) else { continue };
+        let mut cur = String::new();
+        for part in body.split(';') {
+            if part.trim_start().starts_with("A=") && !cur.trim().is_empty() {
+                v.push(cur.trim().to_string());
+                cur = String::new();
+            }
+            if !cur.is_empty() {
+                cur.push(';');
+            }
+            cur.push_str(part);
+        }
+        if !cur.trim().is_empty() {
+            v.push(cur.trim().to_string());
+        }
+    }
+    v
+}
+
+/// The entries of a design's header lines for `key` (`own-route-junctions:` or
+/// `single-occupant:`), anchored at a comment line's start (G1's note on ff3d181e6: as junction-check
+/// anchors `placement-order-ts:`): a line's entries split where a ";" is followed by the next
+/// x,y,z=, so a REASON may hold "; ".
+pub fn header_entries(text: &str, key: &str) -> Vec<String> {
+    let mut v = Vec::new();
+    for l in text.lines() {
+        let Some(body) = l.trim_start().strip_prefix('#').map(str::trim_start).and_then(|t| t.strip_prefix(key)) else { continue };
+        let mut cur = String::new();
+        for part in body.split(';') {
+            let head = part.trim_start();
+            let starts = head.split_once('=').is_some_and(|(c, _)| c.split(['+', ',']).count() % 3 == 0 && c.split(['+', ',']).all(|t| t.trim().parse::<i32>().is_ok()));
+            if starts && !cur.trim().is_empty() {
+                v.push(cur.trim().to_string());
+                cur = String::new();
+            }
+            if !cur.is_empty() {
+                cur.push(';');
+            }
+            cur.push_str(part);
+        }
+        if !cur.trim().is_empty() {
+            v.push(cur.trim().to_string());
+        }
+    }
+    v
 }
 
 fn short(s: &str) -> String {

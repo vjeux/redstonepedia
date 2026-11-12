@@ -942,6 +942,36 @@ pub enum MobfarmCmd {
         /// refused otherwise), REASON the bench's evidence that no other route's cart enters it.
         #[arg(long, allow_hyphen_values = true)]
         own_route_junction: Vec<String>,
+        /// A declared single-occupant group x,y,z+x,y,z+...=REASON (repeatable; also read from the
+        /// design's `single-occupant: ...` header lines; ironspec Nov 12 08:47, a napper hold with
+        /// its T and line): a flagged pair whose rest and track cells are both in one group prints
+        /// as declared with the group's REASON (the bench's numbers) and is not counted; every cell
+        /// a rail cell and one a rest cell, refused otherwise.
+        #[arg(long, allow_hyphen_values = true)]
+        single_occupant: Vec<String>,
+        /// A resting cart's exact centre x,y,z (repeatable; a bench's rest point): its box inflated
+        /// 0.2 in x and z only, against every passing cart's box off its cell's own route; its least
+        /// gap printed.
+        #[arg(long, allow_hyphen_values = true)]
+        rest_pos: Vec<String>,
+        /// The least speed of a cart entering a curve from its side: its chord's points start after
+        /// its first move (0.75 of it a tick, ridden); 0 keeps the whole chord.
+        #[arg(long, default_value_t = 0.0)]
+        chord_speed: f64,
+        /// A bridged pair "A=x,y,z B=x,y,z by=COMMIT/ARTIFACT hash=H name=lo..hi ... margin=M"
+        /// (repeatable; also the design's `bridged-pairs:` header lines; ironspec Nov 12 08:58): a
+        /// flagged pair carried by an official run, accepted only while the cells within 2 of both
+        /// cells hash to H (`--bridge-hash`) and each named range holds the design's `speeds:`
+        /// print of that name; printed "bridged by ..., margin M", else open with the reason.
+        #[arg(long, allow_hyphen_values = true)]
+        bridged_pair: Vec<String>,
+        /// A speed print name=lo..hi (repeatable; added to the design's `speeds:` header prints).
+        #[arg(long, allow_hyphen_values = true)]
+        speed: Vec<String>,
+        /// Print the neighbourhood hash of a pair x,y,z~x,y,z (repeatable): every cell within 2 of
+        /// either cell, for a bridged pair's `hash=`.
+        #[arg(long, allow_hyphen_values = true)]
+        bridge_hash: Vec<String>,
     },
     /// (tickexact 2026-11-11, ironspec's HOME rule) The walk-target static check: from every rail cell
     /// (a rider seated in a cart there), every cell its brain can take as a walk target (PANIC's flee
@@ -9746,7 +9776,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
         }
-        MobfarmCmd::PushScan { design, rest, no_auto, switch, controls, own_route_junction } => {
+        MobfarmCmd::PushScan { design, rest, no_auto, switch, controls, own_route_junction, single_occupant, rest_pos, chord_speed, bridged_pair, speed, bridge_hash } => {
             let (_c, spec) = load(version, &design)?;
             if controls {
                 let cl = crate::pushscan::tee_controls();
@@ -9767,29 +9797,48 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 anyhow::ensure!(v.len() == 3, "--switch x,y,z");
                 switches.push(redsim::pos::BlockPos::new(v[0], v[1], v[2]));
             }
-            // (the declared own-route junctions: the flags and the design's header lines; a line's
-            // entries split where a "; " is followed by the next x,y,z=, so a REASON may hold "; ")
+            // (the declared own-route junctions and single-occupant groups: the flags and the
+            // design's header lines, each anchored at a comment line's start)
+            let text = std::fs::read_to_string(&design)?;
             let mut decl_txt: Vec<String> = own_route_junction.clone();
-            for l in std::fs::read_to_string(&design)?.lines() {
-                if let Some(i) = l.find("own-route-junctions:") {
-                    let body = &l[i + "own-route-junctions:".len()..];
-                    let mut cur = String::new();
-                    for part in body.split(';') {
-                        let head = part.trim_start();
-                        let starts = head.split_once('=').is_some_and(|(c, _)| c.split(',').count() == 3 && c.split(',').all(|t| t.trim().parse::<i32>().is_ok()));
-                        if starts && !cur.trim().is_empty() {
-                            decl_txt.push(cur.trim().to_string());
-                            cur = String::new();
-                        }
-                        if !cur.is_empty() {
-                            cur.push(';');
-                        }
-                        cur.push_str(part);
-                    }
-                    if !cur.trim().is_empty() {
-                        decl_txt.push(cur.trim().to_string());
-                    }
+            decl_txt.extend(crate::pushscan::header_entries(&text, "own-route-junctions:"));
+            let mut single_txt: Vec<String> = single_occupant.clone();
+            single_txt.extend(crate::pushscan::header_entries(&text, "single-occupant:"));
+            let mut single: Vec<(Vec<redsim::pos::BlockPos>, String)> = Vec::new();
+            for d in &single_txt {
+                let (cs, reason) = d.split_once('=').ok_or_else(|| anyhow::anyhow!("single-occupant {d}: x,y,z+x,y,z+...=REASON"))?;
+                let mut g = Vec::new();
+                for c in cs.split('+') {
+                    let v: Vec<i32> = c.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(v.len() == 3, "single-occupant {d}: x,y,z+x,y,z+...=REASON");
+                    g.push(redsim::pos::BlockPos::new(v[0], v[1], v[2]));
                 }
+                single.push((g, reason.trim().to_string()));
+            }
+            let mut rest_points: Vec<[f64; 3]> = Vec::new();
+            for r in &rest_pos {
+                let v: Vec<f64> = r.split(',').map(|t| t.trim().parse::<f64>()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(v.len() == 3, "--rest-pos x,y,z");
+                rest_points.push([v[0], v[1], v[2]]);
+            }
+            // (bridged pairs and the design's speed prints: ironspec Nov 12 08:58)
+            let mut bridge_txt: Vec<String> = bridged_pair.clone();
+            bridge_txt.extend(crate::pushscan::header_bridges(&text));
+            let bridges: Vec<crate::pushscan::Bridge> = bridge_txt.iter().map(|e| crate::pushscan::parse_bridge(e)).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!(e))?;
+            let mut speeds = crate::pushscan::header_speeds(&text);
+            for s in &speed {
+                let (k, v) = s.split_once('=').ok_or_else(|| anyhow::anyhow!("--speed {s}: name=lo..hi"))?;
+                let (lo, hi) = v.split_once("..").ok_or_else(|| anyhow::anyhow!("--speed {s}: name=lo..hi"))?;
+                speeds.insert(k.to_string(), (lo.parse()?, hi.parse()?));
+            }
+            for pair in &bridge_hash {
+                let (a, b) = pair.split_once('~').ok_or_else(|| anyhow::anyhow!("--bridge-hash {pair}: x,y,z~x,y,z"))?;
+                let cell = |s: &str| -> anyhow::Result<redsim::pos::BlockPos> {
+                    let v: Vec<i32> = s.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(v.len() == 3, "--bridge-hash {pair}: x,y,z~x,y,z");
+                    Ok(redsim::pos::BlockPos::new(v[0], v[1], v[2]))
+                };
+                println!("bridge hash {pair}: {}", crate::pushscan::neighborhood_hash(&spec, cell(a)?, cell(b)?));
             }
             let mut own_decl: Vec<(redsim::pos::BlockPos, String)> = Vec::new();
             for d in &decl_txt {
@@ -9798,9 +9847,15 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 anyhow::ensure!(v.len() == 3, "own-route junction {d}: x,y,z=REASON");
                 own_decl.push((redsim::pos::BlockPos::new(v[0], v[1], v[2]), reason.trim().to_string()));
             }
-            let (lines, n, tracks) = crate::pushscan::scan(&spec, &rests, !no_auto, &own_decl).map_err(|e| anyhow::anyhow!(e))?;
-            let flagged = lines.iter().filter(|l| l.contains("PUSH")).count();
-            println!("push-range scan ({n} rest or creep cells against {tracks} tracks; boxes 0.98 x 0.7, the resting one inflated 0.2 in x and z and 0.5 along its axis; {} own-route junctions declared): {flagged} pairs within push range", own_decl.len());
+            let (lines, n, tracks, declared, bridged) = crate::pushscan::scan(&spec, &rests, !no_auto, &own_decl, &single, &rest_points, chord_speed, &bridges, &speeds).map_err(|e| anyhow::anyhow!(e))?;
+            let flagged = lines.iter().filter(|l| l.starts_with("  PUSH")).count();
+            println!(
+                "push-range scan ({n} rest or creep cells against {tracks} tracks; boxes 0.98 x 0.7, the resting one inflated 0.2 in x and z and 0.5 along its axis; a curve's passing cart also along its chord from t0 for side entries at {chord_speed} or faster; {} own-route junctions, {} single-occupant groups and {} bridged pairs declared; {} rest points): {flagged} pairs within push range (open), {declared} declared single-occupant, {bridged} bridged",
+                own_decl.len(),
+                single.len(),
+                bridges.len(),
+                rest_points.len()
+            );
             for l in &lines {
                 println!("{l}");
             }
