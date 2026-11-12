@@ -337,7 +337,7 @@ pub fn design_gravity_v3(with_riders: [bool; 3], plain_c: bool) -> String {
 /// north, 14 boosters up north along x 0 (z 14..1, rails 18..31), a flat curve (0,32,0) turning
 /// east, 14 boosters up east along z 0 (x 1..14, rails 32..45) and the top (15,46,0) (the sleeper's
 /// switch), a stop past it.
-pub fn design_climb_back(with_riders: [bool; 3]) -> String {
+pub fn design_climb_back(with_riders: [bool; 3], east_slopes: i32, past: i32) -> String {
     let mut b = Builder::new("climb-back-bench");
     for (x, y, s) in STRIP {
         b.set(x, y, SZ, s);
@@ -379,12 +379,27 @@ pub fn design_climb_back(with_riders: [bool; 3]) -> String {
         boost(&mut b, 0, 17 + i, 15 - i, "ascending_north");
     }
     flat(&mut b, 0, 32, 0, "south_east");
-    // east along z 0
-    for i in 1..=14 {
+    // east along z 0: `east_slopes` boosters up (v3 14: the top at 46; v4 5, then flat boosters:
+    // the top at 37)
+    for i in 1..=east_slopes {
         boost(&mut b, i, 31 + i, 0, "ascending_east");
     }
-    flat(&mut b, 15, 46, 0, "east_west");
-    b.set(16, 46, 0, "stone");
+    let top = 32 + east_slopes;
+    for x in east_slopes + 1..=14 {
+        boost(&mut b, x, top, 0, "east_west");
+    }
+    if past > 0 {
+        // (v4: the top turns south into the tail chain's buffer and receiver: plain flats past it
+        // along x 15, z 1..past, a stop after; the receiver's own cells are ironfarm's)
+        flat(&mut b, 15, top, 0, "south_west");
+        for z in 1..=past {
+            flat(&mut b, 15, top, z, "north_south");
+        }
+        b.set(15, top, past + 1, "stone");
+    } else {
+        flat(&mut b, 15, top, 0, "east_west");
+        b.set(16, top, 0, "stone");
+    }
     // the batch at rest in its pockets, front first
     for (k, (x, y)) in [(13.885, -1.8225), (9.885, -0.8225), (5.885, 0.1775)].iter().enumerate() {
         let nbt = if with_riders[k] { "{Rotation:[0f,0f],Passengers:[{id:\"minecraft:villager\"}]}" } else { "{Rotation:[0f,0f]}" };
@@ -409,6 +424,13 @@ pub struct ClimbBackOpts {
     /// Feet height the riders must pass by T+100 (the golem zone's top + the lock: 24.5).
     pub above: f64,
     pub freeze: Option<(i64, i64)>,
+    /// The top's rail height (v3 46; v4 37): the bench's sink.
+    pub top_y: i32,
+    /// v4: the flat cells past the top (the receiver's table at 4, 8 and 12 past it; the sink at the
+    /// last); 0: the sink at the top.
+    pub past: i32,
+    /// The batch's carts: 3, or 2 (cart 2 leaves the world before the release).
+    pub n_carts: usize,
     pub trace: bool,
 }
 
@@ -439,6 +461,15 @@ pub fn climb_back_bench(spec: &FarmSpec, o: &ClimbBackOpts) -> Result<Vec<String
     }
     let mut curves = crate::queue::CurveSpacing::default();
     curves.init(&run.world);
+    // (a 2-cart batch: cart 2 and its rider leave the world before the release)
+    if o.n_carts < 3 {
+        let r2 = riders[2];
+        for e in run.world.entities.list.iter_mut() {
+            if e.id == carts[2] || Some(e.id) == r2 {
+                e.removed = true;
+            }
+        }
+    }
     let pos = |w: &redsim::world::World, id: u32| w.entities.list.iter().find(|e| e.id == id && !e.removed).map(|e| (e.pos, e.delta_movement));
     // (G2, G1, G0 west to east; their slopes' sources)
     let gate_at = [BlockPos::new(GATES[0].0, GATES[0].1, SZ), BlockPos::new(GATES[1].0, GATES[1].1, SZ), BlockPos::new(GATES[2].0, GATES[2].1, SZ)];
@@ -447,6 +478,9 @@ pub fn climb_back_bench(spec: &FarmSpec, o: &ClimbBackOpts) -> Result<Vec<String
     let powers = [opens[0] + 8, opens[1] + 8, opens[2]];
     let mut above_at: [Option<i64>; 3] = [None; 3];
     let mut top_at: [Option<i64>; 3] = [None; 3];
+    let mut top_v = [0.0f64; 3];
+    let mut past_at: [[Option<(i64, f64)>; 3]; 3] = [[None; 3]; 3];
+    let top_y = o.top_y;
     let mut crest_at: [Option<i64>; 3] = [None; 3];
     let mut prev_v = [0.0f64; 3];
     let mut touching = [[false; 3]; 3];
@@ -499,11 +533,16 @@ pub fn climb_back_bench(spec: &FarmSpec, o: &ClimbBackOpts) -> Result<Vec<String
         }
         run.tick();
         curves.observe(&run.world, dt);
+        // (the top is the bench's sink: a cart reaching it leaves the world with its rider, as the
+        // tail chain's receiver takes it; its tick and speed are kept)
+        let mut top_now: Vec<u32> = Vec::new();
         let w = &run.world;
         let st: Vec<Option<(Vec3, Vec3)>> = carts.iter().map(|id| pos(w, *id)).collect();
         for k in 0..3 {
             let Some((p, _)) = st[k] else {
-                if !off_rail.iter().any(|s| s.starts_with(&format!("cart {k} "))) {
+                // (a cart the sink took, or the 2-cart batch's absent third, is not lost)
+                let taken = top_at[k].is_some() || (k == 2 && o.n_carts < 3);
+                if !taken && !off_rail.iter().any(|s| s.starts_with(&format!("cart {k} "))) {
                     off_rail.push(format!("cart {k} gone at T+{dt}"));
                 }
                 continue;
@@ -515,8 +554,23 @@ pub fn climb_back_bench(spec: &FarmSpec, o: &ClimbBackOpts) -> Result<Vec<String
             if crest_at[k].is_none() && p.x > 15.0 && p.z > 12.0 && p.z < 13.0 && p.y > 1.9 {
                 crest_at[k] = Some(dt);
             }
-            if top_at[k].is_none() && p.y > 45.9 && p.x > 14.5 {
+            if top_at[k].is_none() && p.y > top_y as f64 - 0.1 && p.x > 14.5 {
                 top_at[k] = Some(dt);
+                top_v[k] = st[k].map_or(0.0, |(_, v)| (v.x * v.x + v.z * v.z).sqrt()).max(prev_v[k]);
+                if o.past == 0 {
+                    top_now.push(carts[k]);
+                }
+            }
+            // (past the top, v4: the entry into the cells 4, 8 and 12 past it, then the sink)
+            if o.past > 0 && p.y > top_y as f64 - 0.1 && p.x > 14.5 {
+                for (i, c) in [4.0, 8.0, 12.0].iter().enumerate() {
+                    if past_at[k][i].is_none() && p.z + 0.49 >= *c {
+                        past_at[k][i] = Some((dt, st[k].map_or(0.0, |(_, v)| (v.x * v.x + v.z * v.z).sqrt()).max(prev_v[k])));
+                    }
+                }
+                if p.z >= o.past as f64 - 0.4 {
+                    top_now.push(carts[k]);
+                }
             }
             let cell = BlockPos::new(p.x.floor() as i32, (p.y + 0.01).floor() as i32, p.z.floor() as i32);
             let rail_here = |c: BlockPos| w.get(c).to_string().contains("rail");
@@ -564,9 +618,42 @@ pub fn climb_back_bench(spec: &FarmSpec, o: &ClimbBackOpts) -> Result<Vec<String
         if o.trace {
             out.push(format!("T+{dt}: {}", st.iter().map(|s| s.map_or("-".to_string(), |(p, v)| format!("{:.2},{:.2},{:.2} v{:.3}", p.x, p.y, p.z, (v.x * v.x + v.z * v.z).sqrt()))).collect::<Vec<_>>().join(" | ")));
         }
+        // (the sink: the carts at the top and their riders leave)
+        for id in top_now {
+            let ps: Vec<u32> = run.world.entities.list.iter().find(|e| e.id == id).map(|e| e.passengers.clone()).unwrap_or_default();
+            for e in run.world.entities.list.iter_mut() {
+                if e.id == id || ps.contains(&e.id) {
+                    e.removed = true;
+                }
+            }
+        }
     }
     let fmt = |a: &[Option<i64>; 3]| (0..3).map(|k| a[k].map_or("never".to_string(), |t| format!("T+{t}"))).collect::<Vec<_>>().join(", ");
-    let last_above = above_at.iter().map(|a| a.unwrap_or(i64::MAX)).max().unwrap_or(i64::MAX);
+    let last_above = above_at.iter().take(o.n_carts.min(3)).map(|a| a.unwrap_or(i64::MAX)).max().unwrap_or(i64::MAX);
+    out.push(format!(
+        "arrival at the top (rail {top_y}), tick and stored speed: {}; spacing per pair (cart 1 - cart 0, cart 2 - cart 1): {}",
+        (0..3).map(|k| top_at[k].map_or(format!("cart {k} never"), |t| format!("cart {k} T+{t} {:.3}", top_v[k]))).collect::<Vec<_>>().join(", "),
+        match (top_at[0], top_at[1], top_at[2]) { (Some(a), Some(b), Some(c)) => format!("{} gt, {} gt", b - a, c - b), _ => "-".into() }
+    ));
+    if o.past > 0 {
+        // (the receiver's table: each cart's entry tick after the stand's release edge (REL) and
+        // its stored speed at the top cell and the cells 4, 8 and 12 past it)
+        out.push(format!(
+            "after REL (T+{}): {}",
+            o.rel,
+            (0..o.n_carts.min(3))
+                .map(|k| format!(
+                    "cart {k}{} top {} | +4 {} | +8 {} | +12 {}",
+                    if riders[k].is_some() { "" } else { " (EMPTY)" },
+                    top_at[k].map_or("-".to_string(), |t| format!("R+{} {:.3}", t - o.rel, top_v[k])),
+                    past_at[k][0].map_or("-".to_string(), |(t, v)| format!("R+{} {v:.3}", t - o.rel)),
+                    past_at[k][1].map_or("-".to_string(), |(t, v)| format!("R+{} {v:.3}", t - o.rel)),
+                    past_at[k][2].map_or("-".to_string(), |(t, v)| format!("R+{} {v:.3}", t - o.rel))
+                ))
+                .collect::<Vec<_>>()
+                .join("; ")
+        ));
+    }
     out.push(format!(
         "climb back (REL T+{}, G1 +{}, G2 +{}): above feet {} at {} (all by {}); crest {}; top {}",
         o.rel,
@@ -644,6 +731,81 @@ pub fn design_gravity_c6(cells: i32, with_riders: [bool; 3]) -> String {
     b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
     b.d.ports.insert("output".into(), [-6, 1, SZ]);
     b.text(&["The gravity descent with the hold 9 levels lower: Ga's exit and three flat boosters, a straight boosted descent into the committed crest (3,6,10), the approach, today's 3 pockets (gates bench-driven)."])
+}
+
+/// The gravity descent on onechunk's skeleton v4 (the inverted variant, explore/farmopt-onechunk
+/// 84f23d5d0; loop frame + (6,0,6) here): the hand-off at Ga's rail (13,15,5) heading south (the
+/// hold's riders at feet 16.18 in the hold), a flat (13,15,6), six slopes down south (z 7..12,
+/// rails 14..9), a flat (13,9,13), a flat curve (13,9,14) turning west, three slopes down west
+/// (x 12..10, rails 8..6), flats west (x 9..4, rail 6), a flat curve (3,6,14) turning north, flats
+/// north (3,6,13..11), the committed crest (3,6,10), the one S3 file's approach and today's
+/// pockets. The skeleton lays plain rails; here every slope and flat is a booster on a redstone
+/// block (`plain_flats`: the flats plain), the curves plain.
+pub fn design_gravity_v4(with_riders: [bool; 3], plain_flats: bool) -> String {
+    let mut b = Builder::new("gravity-descent-v4-bench");
+    for (x, y, s) in STRIP {
+        b.set(x, y, SZ, s);
+        b.set(x, y - 1, SZ, "glass");
+    }
+    b.set(GATES[0].0, GATES[0].1, SZ, GATE_OPEN);
+    b.set(GATES[1].0, GATES[1].1, SZ, GATE_OPEN);
+    b.set(GATES[2].0, GATES[2].1, SZ, GATE_SHUT);
+    b.set(6, -2, SZ, "redstone_block");
+    b.set(10, -3, SZ, "redstone_block");
+    b.set(14, -3, SZ + 1, "stone");
+    b.set(AX - 1, 2, SZ, "glass");
+    b.set(AX - 1, 3, SZ, "glass");
+    b.set(AX, 6, 10, "rail[shape=north_south,waterlogged=false]");
+    b.set(AX, 5, 10, "glass");
+    for (y, z) in [(5, 9), (4, 8), (3, 7)] {
+        b.set(AX, y, z, "rail[shape=ascending_south,waterlogged=false]");
+        b.set(AX, y - 1, z, "glass");
+    }
+    let cell = |b: &mut Builder, x: i32, y: i32, z: i32, shape: &str, plain: bool| {
+        if plain {
+            b.set(x, y, z, &format!("rail[shape={shape},waterlogged=false]"));
+            b.set(x, y - 1, z, "glass");
+        } else {
+            b.set(x, y, z, &format!("powered_rail[powered=true,shape={shape},waterlogged=false]"));
+            b.set(x, y - 1, z, "redstone_block");
+        }
+    };
+    // north into the crest: flats (3,6,13..11)
+    for z in 11..=13 {
+        cell(&mut b, AX, 6, z, "north_south", plain_flats);
+    }
+    b.set(AX, 6, 14, "rail[shape=north_east,waterlogged=false]");
+    b.set(AX, 5, 14, "glass");
+    // west along z 14: flats x 4..9 (rail 6), slopes x 10..12 (rails 6..8)
+    for x in 4..=9 {
+        cell(&mut b, x, 6, 14, "east_west", plain_flats);
+    }
+    for (i, x) in (10..=12).enumerate() {
+        cell(&mut b, x, 6 + i as i32, 14, "ascending_east", false);
+    }
+    b.set(13, 9, 14, "rail[shape=north_west,waterlogged=false]");
+    b.set(13, 8, 14, "glass");
+    // south along x 13: the flat (13,9,13), slopes z 7..12 (rails 14..9), the flat (13,15,6)
+    cell(&mut b, 13, 9, 13, "north_south", plain_flats);
+    for (i, z) in (7..=12).enumerate() {
+        cell(&mut b, 13, 14 - i as i32, z, "ascending_north", false);
+    }
+    cell(&mut b, 13, 15, 6, "north_south", plain_flats);
+    // Ga's rail (the hand-off) and a stop north of it
+    b.set(13, 15, 5, "rail[shape=north_south,waterlogged=false]");
+    b.set(13, 14, 5, "glass");
+    b.set(13, 15, 4, "stone");
+    for k in 0..3usize {
+        let nbt = if with_riders[k] { "{Rotation:[0f,0f],Passengers:[{id:\"minecraft:villager\"}]}" } else { "{Rotation:[0f,0f]}" };
+        let ki = k as i32;
+        b.set(-6, 0, SZ + 3 + 3 * ki, "rail[shape=north_south,waterlogged=false]");
+        b.set(-6, -1, SZ + 3 + 3 * ki, "glass");
+        b.entity("minecart", [-5.5, 0.0625, (SZ + 3 + 3 * ki) as f64 + 0.5], Some(nbt));
+    }
+    b.set(-8, 0, SZ, "glass");
+    b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
+    b.d.ports.insert("output".into(), [-6, 1, SZ]);
+    b.text(&["The gravity descent on skeleton v4 (inverted): Ga's rail, south down x 13, a curve, west along z 14, a curve, north into the committed crest (3,6,10), the approach, today's 3 pockets (gates bench-driven)."])
 }
 
 /// The bench's design: H's queue (3 slopes down north), H's slope and gate, the climb, T, the
