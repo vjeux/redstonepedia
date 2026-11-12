@@ -824,6 +824,17 @@ pub enum MobfarmCmd {
         /// With --golem-reach: the golems' feet cells x0,y0,z0,x1,y1,z1 (the pad).
         #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
         golem_pad: Vec<i32>,
+        /// With --scarer-search: the near bar instead of the kind's (8 for a pillager): a margin,
+        /// e.g. 8.5 (ironspec Nov 11 23:57).
+        #[arg(long)]
+        scarer_near: Option<f64>,
+        /// Instead: a post's drift: a boat with a seated zombie (the stand-in) at this cell x,y,z,
+        /// ticked --drift-ticks times; its position spread.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        post_drift: Vec<i32>,
+        /// With --post-drift: the ticks.
+        #[arg(long, default_value_t = 24000)]
+        drift_ticks: u32,
         /// The floor block --fix-search places, refused unless golem-proof (LEGACY_IRON_GOLEM's
         /// excluded list: glass, stained or tinted glass, panes, glowstone, sea lantern, leaves,
         /// ice...); default glass (not a stroll destination, which needs a solid-render block below;
@@ -8326,7 +8337,15 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 std::process::exit(1);
             }
         }
-        MobfarmCmd::FleeCheck { design, home, show, foot, clearing, eye_control, pickup_control, sampled, claim, classes, fix_search, fix_pairs, fix_block, path_watch, path_trace, scarer_search, scarer, scarer_rider, scarer_max, scarer_any_floor, scarer_exclude, pillager, golem_reach, golem_pad } => {
+        MobfarmCmd::FleeCheck { design, home, show, foot, clearing, eye_control, pickup_control, sampled, claim, classes, fix_search, fix_pairs, fix_block, path_watch, path_trace, scarer_search, scarer, scarer_rider, scarer_max, scarer_any_floor, scarer_exclude, pillager, golem_reach, golem_pad, scarer_near, post_drift, drift_ticks } => {
+            if !post_drift.is_empty() {
+                anyhow::ensure!(post_drift.len() == 3, "--post-drift x,y,z");
+                let (_c, spec) = load(version, &design)?;
+                for l in crate::fleecheck::post_drift(&spec, redsim::pos::BlockPos::new(post_drift[0], post_drift[1], post_drift[2]), drift_ticks).map_err(|e| anyhow::anyhow!(e))? {
+                    println!("{l}");
+                }
+                return Ok(());
+            }
             let (_c, spec) = load(version, &design)?;
             if !golem_reach.is_empty() {
                 anyhow::ensure!(golem_reach.len() == 3 && golem_pad.len() == 6, "--golem-reach x,y,z --golem-pad x0,y0,z0,x1,y1,z1");
@@ -8363,7 +8382,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     anyhow::ensure!(v.len() == 6, "--scarer-exclude x0,y0,z0,x1,y1,z1");
                     excl.push(([v[0].min(v[3]), v[1].min(v[4]), v[2].min(v[5])], [v[0].max(v[3]), v[1].max(v[4]), v[2].max(v[5])]));
                 }
-                for l in crate::fleecheck::scarer_search(&spec, &extra, lo, hi, &scarer, scarer_max, scarer_any_floor, &excl).map_err(|e| anyhow::anyhow!(e))? {
+                for l in crate::fleecheck::scarer_search(&spec, &extra, lo, hi, &scarer, scarer_max, scarer_any_floor, &excl, scarer_near).map_err(|e| anyhow::anyhow!(e))? {
                     println!("{l}");
                 }
                 return Ok(());
