@@ -117,6 +117,10 @@ pub enum MobfarmCmd {
         /// After each row, its longest zero-loss trip (fixed trips scanned up in 5-gt steps).
         #[arg(long)]
         trip_bound: bool,
+        /// The carts the gate assumes when the loop holds fewer (--carts 20 --gate-carts 21: a lost
+        /// cart or a stranded napper).
+        #[arg(long)]
+        gate_carts: Option<usize>,
         /// Fix (a): releases skipped a day.
         #[arg(long, default_value_t = 0)]
         skip_per_day: usize,
@@ -5228,7 +5232,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
         }
-        MobfarmCmd::NapperPicker { carts, visits, picker, k, offset, every, keep_place, gate_m, gate_lap, gate_batches, virtual_count, gate_lap_off, gate_virtual, free_at_reentry, rearm_jitter, golemless, count_golems, freeze, skip_night, skip_alarm, pass_fault, register_carry, spacing, slow_visit, trip_bound, skip_per_day, trip, sleep_at, days, warmup, seed, night_gt, cross_at, dusk_at, table, sweep_k } => {
+        MobfarmCmd::NapperPicker { carts, visits, picker, k, offset, every, keep_place, gate_m, gate_lap, gate_batches, virtual_count, gate_lap_off, gate_virtual, free_at_reentry, rearm_jitter, golemless, count_golems, freeze, skip_night, skip_alarm, pass_fault, register_carry, spacing, slow_visit, trip_bound, gate_carts, skip_per_day, trip, sleep_at, days, warmup, seed, night_gt, cross_at, dusk_at, table, sweep_k } => {
             let slow_visit = match slow_visit.as_slice() {
                 [] => None,
                 [e, t] => Some((*e as usize, *t)),
@@ -5246,7 +5250,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 "register" => Picker::Register(every),
                 s => bail!("--picker {s}: from-pick, from-return, anchored or register"),
             };
-            let base = Opts { carts, visits, picker: pk, keep_place, gate_m, gate_lap, gate_batches, virtual_count, gate_lap_off, gate_virtual, free_at_reentry, rearm_jitter: (jlo, jhi), golemless, count_golems, freeze, skip_night, skip_alarm, pass_fault, register_carry, slow_visit, skip_per_day, trip: (lo, hi), sleep_at, days, warmup, seed, night_gt, day_gt: 24000, period: 100, batch: 3, spacing, cross_at, dusk_at };
+            let base = Opts { carts, visits, picker: pk, keep_place, gate_m, gate_lap, gate_batches, virtual_count, gate_lap_off, gate_virtual, free_at_reentry, rearm_jitter: (jlo, jhi), golemless, count_golems, freeze, skip_night, skip_alarm, pass_fault, register_carry, slow_visit, gate_carts, skip_per_day, trip: (lo, hi), sleep_at, days, warmup, seed, night_gt, day_gt: 24000, period: 100, batch: 3, spacing, cross_at, dusk_at };
             let rows: Vec<(String, Opts)> = if table {
                 let reg = Opts { picker: Picker::Register(every), keep_place: true, gate_m: None, gate_lap: false, gate_batches: None, virtual_count: false, gate_lap_off: 0, gate_virtual: false, free_at_reentry: false, register_carry: false, skip_per_day: 0, ..base.clone() };
                 let built = Opts { register_carry: true, visits: 99, spacing: 10, ..reg.clone() };

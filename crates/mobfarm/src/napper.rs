@@ -103,6 +103,9 @@ pub struct Opts {
     pub register_carry: bool,
     /// One slow visit: the night's 5th pick on every EVERY-th night takes T gt: (EVERY, T).
     pub slow_visit: Option<(usize, i64)>,
+    /// The carts the controller's gate assumes (21) when the loop holds fewer (`carts`: a lost cart,
+    /// a stranded napper's cart held at the tier's exit); None: the loop's own count.
+    pub gate_carts: Option<usize>,
     /// Releases skipped a day (fix (a): 2, so 714 = 34 x 21 carts pass a day).
     pub skip_per_day: usize,
     /// A nap's trip, the switch to its re-entry point, uniform in [lo, hi] gt; lie-down this many gt
@@ -350,7 +353,7 @@ pub fn simulate(o: &Opts) -> Score {
                 last_sleep[cart] = Some(t + o.sleep_at);
                 naps[cart].push(t + o.sleep_at);
                 let gate = if o.gate_virtual {
-                    Some(o.carts - 1)
+                    Some(o.gate_carts.unwrap_or(o.carts) - 1)
                 } else if o.gate_lap {
                     Some((o.carts as i64 - 1 - away.len() as i64 + o.gate_lap_off).max(0) as usize)
                 } else if let Some(nb) = o.gate_batches {
