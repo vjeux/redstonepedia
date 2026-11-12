@@ -813,6 +813,127 @@ pub fn design_gravity_v4(with_riders: [bool; 3], plain_flats: bool) -> String {
     b.text(&["The gravity descent on skeleton v4 (inverted): Ga's rail, south down x 13, a curve, west along z 14, a curve, north into the committed crest (3,6,10), the approach, today's 3 pockets (gates bench-driven)."])
 }
 
+/// The gravity descent re-laid as continuous slopes (farmopt 18:14: 9fc3155f's hold moves Ga to
+/// loop (7,16,4) and the descent starts at (7,15,5); onechunk's cells to follow — until then this
+/// is my emulation, loop frame + (6,0,6) here): Ga's rail (13,15,10) the hand-off heading south,
+/// four slopes down south (z 11..14, rails 14..11), a flat curve (13,11,15) turning west, five slopes
+/// down west (x 12..8, rails 10..6) and flats (x 7..4, rail 6), a flat curve (3,6,15) turning north,
+/// flats north (3,6,14..11), the committed crest (3,6,10), the one S3 file's approach and today's
+/// pockets. Every slope and flat a booster on a redstone block, the curves plain.
+pub fn design_gravity_v5(with_riders: [bool; 3]) -> String {
+    let mut b = Builder::new("gravity-descent-v5-bench");
+    for (x, y, s) in STRIP {
+        b.set(x, y, SZ, s);
+        b.set(x, y - 1, SZ, "glass");
+    }
+    b.set(GATES[0].0, GATES[0].1, SZ, GATE_OPEN);
+    b.set(GATES[1].0, GATES[1].1, SZ, GATE_OPEN);
+    b.set(GATES[2].0, GATES[2].1, SZ, GATE_SHUT);
+    b.set(6, -2, SZ, "redstone_block");
+    b.set(10, -3, SZ, "redstone_block");
+    b.set(14, -3, SZ + 1, "stone");
+    b.set(AX - 1, 2, SZ, "glass");
+    b.set(AX - 1, 3, SZ, "glass");
+    b.set(AX, 6, 10, "rail[shape=north_south,waterlogged=false]");
+    b.set(AX, 5, 10, "glass");
+    for (y, z) in [(5, 9), (4, 8), (3, 7)] {
+        b.set(AX, y, z, "rail[shape=ascending_south,waterlogged=false]");
+        b.set(AX, y - 1, z, "glass");
+    }
+    let boost = |b: &mut Builder, x: i32, y: i32, z: i32, shape: &str| {
+        b.set(x, y, z, &format!("powered_rail[powered=true,shape={shape},waterlogged=false]"));
+        b.set(x, y - 1, z, "redstone_block");
+    };
+    for z in 11..=14 {
+        boost(&mut b, AX, 6, z, "north_south");
+    }
+    b.set(AX, 6, 15, "rail[shape=north_east,waterlogged=false]");
+    b.set(AX, 5, 15, "glass");
+    for x in 4..=7 {
+        boost(&mut b, x, 6, 15, "east_west");
+    }
+    for (i, x) in (8..=12).enumerate() {
+        boost(&mut b, x, 6 + i as i32, 15, "ascending_east");
+    }
+    b.set(13, 11, 15, "rail[shape=north_west,waterlogged=false]");
+    b.set(13, 10, 15, "glass");
+    for (i, z) in (11..=14).enumerate() {
+        boost(&mut b, 13, 14 - i as i32, z, "ascending_north");
+    }
+    b.set(13, 15, 10, "rail[shape=north_south,waterlogged=false]");
+    b.set(13, 14, 10, "glass");
+    b.set(13, 15, 9, "stone");
+    for k in 0..3usize {
+        let nbt = if with_riders[k] { "{Rotation:[0f,0f],Passengers:[{id:\"minecraft:villager\"}]}" } else { "{Rotation:[0f,0f]}" };
+        let ki = k as i32;
+        b.set(-6, 0, SZ + 3 + 3 * ki, "rail[shape=north_south,waterlogged=false]");
+        b.set(-6, -1, SZ + 3 + 3 * ki, "glass");
+        b.entity("minecart", [-5.5, 0.0625, (SZ + 3 + 3 * ki) as f64 + 0.5], Some(nbt));
+    }
+    b.set(-8, 0, SZ, "glass");
+    b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
+    b.d.ports.insert("output".into(), [-6, 1, SZ]);
+    b.text(&["The gravity descent re-laid as continuous slopes (emulated until onechunk's cells): Ga's rail (13,15,10), four slopes south, a curve, five slopes and flats west, a curve, flats north into the committed crest (3,6,10), the approach, today's 3 pockets."])
+}
+
+/// The gravity descent re-laid by onechunk (explore/farmopt-onechunk 635596597, skeleton v4
+/// inverted; loop frame + (6,0,6) here; 13 cells): G_a (13,15,10), the hold's last gate slope (plain,
+/// the hand-off), a slope down south (13,14,11), a flat curve (13,14,12) turning west, eight slopes
+/// down west (x 12..5, rails 13..6), a flat (4,6,12), a flat curve (3,6,12) turning north, a flat
+/// (3,6,11), the committed crest (3,6,10), the one S3 file's approach and today's pockets. The
+/// skeleton lays plain rails on glass; here every slope and flat is a booster on a redstone block,
+/// the curves and G_a plain.
+pub fn design_gravity_v4r(with_riders: [bool; 3]) -> String {
+    let mut b = Builder::new("gravity-descent-v4r-bench");
+    for (x, y, s) in STRIP {
+        b.set(x, y, SZ, s);
+        b.set(x, y - 1, SZ, "glass");
+    }
+    b.set(GATES[0].0, GATES[0].1, SZ, GATE_OPEN);
+    b.set(GATES[1].0, GATES[1].1, SZ, GATE_OPEN);
+    b.set(GATES[2].0, GATES[2].1, SZ, GATE_SHUT);
+    b.set(6, -2, SZ, "redstone_block");
+    b.set(10, -3, SZ, "redstone_block");
+    b.set(14, -3, SZ + 1, "stone");
+    b.set(AX - 1, 2, SZ, "glass");
+    b.set(AX - 1, 3, SZ, "glass");
+    b.set(AX, 6, 10, "rail[shape=north_south,waterlogged=false]");
+    b.set(AX, 5, 10, "glass");
+    for (y, z) in [(5, 9), (4, 8), (3, 7)] {
+        b.set(AX, y, z, "rail[shape=ascending_south,waterlogged=false]");
+        b.set(AX, y - 1, z, "glass");
+    }
+    let boost = |b: &mut Builder, x: i32, y: i32, z: i32, shape: &str| {
+        b.set(x, y, z, &format!("powered_rail[powered=true,shape={shape},waterlogged=false]"));
+        b.set(x, y - 1, z, "redstone_block");
+    };
+    boost(&mut b, AX, 6, 11, "north_south");
+    b.set(AX, 6, 12, "rail[shape=north_east,waterlogged=false]");
+    b.set(AX, 5, 12, "glass");
+    boost(&mut b, 4, 6, 12, "east_west");
+    for (i, x) in (5..=12).enumerate() {
+        boost(&mut b, x, 6 + i as i32, 12, "ascending_east");
+    }
+    b.set(13, 14, 12, "rail[shape=north_west,waterlogged=false]");
+    b.set(13, 13, 12, "glass");
+    boost(&mut b, 13, 14, 11, "ascending_north");
+    // G_a: the hold's last gate slope (plain), the hand-off; a stop north of it
+    b.set(13, 15, 10, "rail[shape=ascending_north,waterlogged=false]");
+    b.set(13, 14, 10, "glass");
+    b.set(13, 16, 9, "stone");
+    for k in 0..3usize {
+        let nbt = if with_riders[k] { "{Rotation:[0f,0f],Passengers:[{id:\"minecraft:villager\"}]}" } else { "{Rotation:[0f,0f]}" };
+        let ki = k as i32;
+        b.set(-6, 0, SZ + 3 + 3 * ki, "rail[shape=north_south,waterlogged=false]");
+        b.set(-6, -1, SZ + 3 + 3 * ki, "glass");
+        b.entity("minecart", [-5.5, 0.0625, (SZ + 3 + 3 * ki) as f64 + 0.5], Some(nbt));
+    }
+    b.set(-8, 0, SZ, "glass");
+    b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
+    b.d.ports.insert("output".into(), [-6, 1, SZ]);
+    b.text(&["The gravity descent re-laid by onechunk (13 cells): G_a, a slope south, a curve, eight slopes west, a flat, a curve, a flat into the committed crest (3,6,10), the approach, today's 3 pockets (gates bench-driven)."])
+}
+
 /// The bench's design: H's queue (3 slopes down north), H's slope and gate, the climb, T, the
 /// approach's two slopes down, the snap turn, the strip and its gates; a marker block in the chunk
 /// west of the bench (the forced box's spare chunk, so a freeze leaves the bench at level 32).
@@ -917,6 +1038,8 @@ pub struct ClimbOpts {
     /// The hand-off (design_route, design_folded, design_gravity): cart k set at this point with
     /// this velocity at T + h_open + k * spacing; the freeze's chunk box.
     pub hand_off: Option<(Vec3, Vec3, i64, [i32; 4])>,
+    /// Cart 2's hand-off this many gt after cart 1's (default: the same spacing as cart 1's).
+    pub hand_off_2: Option<i64>,
     /// The stand's gates on timers from the hold's release (T + h_open) instead of position
     /// triggers: G2 shuts at release + .0, G1 at release + .1 (live time: paused while frozen).
     pub gate_shut: Option<(i64, i64)>,
@@ -1016,7 +1139,12 @@ pub fn bench(spec: &FarmSpec, o: &ClimbOpts) -> Result<Vec<String>, String> {
         if let Some((p, v, sp, _)) = o.hand_off {
             let live = dt - frozen_ticks;
             for k in 0..o.n_carts.min(3) {
-                if !frozen_now && !handed[k] && live >= o.h_open + k as i64 * sp {
+                let at = match k {
+                    0 => o.h_open,
+                    1 => o.h_open + sp,
+                    _ => o.h_open + sp + o.hand_off_2.unwrap_or(sp),
+                };
+                if !frozen_now && !handed[k] && live >= at {
                     handed[k] = true;
                     place_at(&mut run.world, carts[k], p);
                     if let Some(i) = run.world.entities.list.iter().position(|e| e.id == carts[k]) {
