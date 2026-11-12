@@ -189,7 +189,10 @@ G a powered slope under a gate, a flat valley and a slope up: pitch 5, net -1; t
 with their runner cells; `--block x,y,z=STATE` lays single blocks; `--wait-box BOX` checks every
 rail cell inside against the pad's golem sensor boxes (`--golem-box`: |dx|, |dz| < 18.84, golem feet
 -20.54..+19.79 of the rider's); `--summon-box x,y,z` lists every villager position inside a summoner's
-box grown by 10; `--bed x,y,z [--bed-exempt PART]` the bed radius (> 16 + 1); `--notes-file F`; every
+box grown by 10; `--bed x,y,z [--bed-exempt PART]` the bed radius (> 16 + 1); `--path
+NAME=x,y,z..x,y,z[..]` declares an off-rail rider path (a drop shaft, a bubble-column lift, a fall,
+a hold with no cart placed; each consecutive pair a straight run of cells), added to
+`--positions-out` and judged by `--bed` like a part; `--notes-file F`; every
 run lists each slope without a sturdy block below or on its high side (it pops when placed).
 The golem chance per summon from a file: `mctas mobfarm summon-chance <design> --pad BOX --stand
 x,y,z...` runs the game's summon search (redsim's port of SpawnUtil's LEGACY_IRON_GOLEM scan, 289
@@ -214,17 +217,35 @@ onto a cart (the closed bar's box), each cart's detector passes, and at each T e
 stand summoner's box grown by 10, every rider inside a pad spot's sensor box (the worst-case
 constants) and the last departing batch's feet against the lock (pad feet + 20.54) by T - 5.
 The portal-loop loaders, benched in redsim: `mctas mobfarm l1-bench [--ticks N] [--hold 320]
-[--pulse 20] [--stagger A1,B1,A2] [--freeze T,D]... [--design-out F]` (L1′, the cart loop: an
-overworld portal and its Nether twin, each side an exit track into a 2-pocket queue, 3 empty carts,
-each released `hold` gt after it arrived) and `mctas mobfarm l1-item-bench [--width 5] [--items 6]
-[--period 200] [--ticks N] [--seed S] [--freeze T,D]... [--design-out F]` (L1‴, the item loop:
-same-axis portals, a firing dropper fed by an up-facing one and a hopper floor past the frame on
-each side, dedicated items, each side's clock every `period` gt) write their design and run it:
-each side's arrivals and their intervals against the 300-gt PORTAL ticket, the Nether's ticket
-lapsing, carts or items held inside a portal (the cooldown restarting every tick inside), the carts
-or items counted. Crossings, the cooldown restart, the closest-portal search and the Nether ticket
-are redsim's; the pockets' power and the clocks are EMULATED (labelled); `--freeze` freezes the
-entities while the blocks run (the login window).
+[--pulse 20] [--stagger A1,B1,A2] [--freeze T,D[,ow|nether|both]]... [--piglin T]...
+[--design-out F]` (L1′, the cart loop: an overworld portal and its Nether twin, each side an exit
+track into a 2-pocket queue, 3 empty carts, each released `hold` gt after it arrived; EMULATED and
+listed in the report and the design header: pocket 1's release pulse, which also powers the release
+line's two boosters, pocket 2's 2-gt nudge once pocket 1 and the line are clear, each release timed
+from that cart's own arrival) and `mctas mobfarm l1-item-bench [--width 5] [--height 3|4]
+[--items 4] [--ticks 24000] [--seeds N|A..B] [--stop T]... [--stop-every N] [--login-each N]
+[--login-before-arrival] [--freeze T,D[,WORLD]]... [--piglin T,X[,a|b|both[,adult|baby|jockey]]]...
+[--design-out F]` (L1‴, the item loop: same-axis portals; on each side a firing dropper at y 12,
+above a bottom-row mob's reach, fed by an up-facing dropper, the exit face's bottom two rows closed,
+packed ice and a hopper row past the frame, a backstop, a glass enclosure, and a REAL clock: an
+observer pair behind the firing dropper) write their design and run it: each side's arrivals
+against the 300-gt PORTAL ticket (the worst gap), the Nether's ticket lapsing, carts or items held
+inside a portal (the cooldown restarting every tick inside), the carts or items counted (an item a
+mob holds is lost); L1‴ over many seeds (threads) with the failures' Wilson interval, the landing
+spread against the floor's and backstop's edges, the flight's clearance to the frame and to a
+bottom-row mob's reach (y 11.95), mobs out of the portal's cells, and a positive control for the
+mobs' pickup (a stone at each placed mob's feet). Crossings, the cooldown restart, the
+closest-portal search and the Nether ticket are redsim's. `--freeze` is redsim's level-32 freeze
+(`reload::unload_some`: entities skip, blocks run) per world; `--stop` unloads both worlds and loads
+them again a tick later (`reload::unload_all` / `load_all`: scheduled ticks kept);
+`--login-before-arrival` freezes both worlds 3 gt from every dispense.
+Every portal's link as the game searches it: `mctas mobfarm portal-links --ow NAME=x0,y0,z0,x1,y1,z1[;...]...
+--nether NAME=...... [--expect SOURCE=TARGET]... [--margin 0.7]` (absolute cells): from each
+overworld portal the Nether portals within 16 of its x 1/8 point (y not scaled), 3D-closest, ties to
+the lower y; from each Nether portal the overworld ones within 128 of its x 8 point; every
+candidate's distance, the chosen portal per target, the expected partner's least margin, and any
+empty search (a portal would be created there). An entity's centre is taken anywhere over a cell
+grown `--margin` on x and z (a golem: 0.7; an item: 0.125).
 A run's tick-level timing view (the carousel's parts and assembly): `mctas mobfarm timeline
 <design> --seed S --days D [--terrain <sample> | --build K] [--tag '<tag>'...] [--from T --to T]
 [--out DIR]` replays `mobfarm run`'s run (its counters printed beside the judge's: the same run tick

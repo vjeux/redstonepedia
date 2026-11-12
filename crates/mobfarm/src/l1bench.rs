@@ -7,14 +7,20 @@
 //! lands on the exit flat; the 300-gt cooldown counts from when it leaves the frame, and every
 //! tick a cart on cooldown spends inside a portal restarts it (`setAsInsidePortal`).
 //!
-//! EMULATED (labelled in the report): each pocket's power, set by putting a redstone block under
-//! its powered rail: pocket 1 (the front) powered for `pulse` gt once its cart arrived `hold` gt
-//! ago; pocket 2 powered while pocket 1 is empty and braked. The real circuit (a per-arrival delay
-//! of `hold` gt that can hold 2 pending releases) is priced, not built.
+//! EMULATED (labelled in the report and the design header), the real circuit priced (~25 blocks a
+//! side: a per-arrival `hold`-gt delay holding 2 pending releases, a detector on the landing flat,
+//! the release line's driver), not built:
+//! - pocket 1's release: a `pulse`-gt power on pocket 1 and on the release line's two boosters
+//!   (k1, k2), once the front cart arrived `hold` gt ago (each release timed from that cart's own
+//!   arrival: a per-cart arrival sensor with a 2-deep memory in the real circuit);
+//! - pocket 2's 2-gt nudge once pocket 1 and the release line are clear and braked (a sensing
+//!   condition the real circuit needs).
 //!
 //! The report: each side's arrivals (a minecart id appearing in that world), their intervals
 //! against the 300-gt PORTAL ticket, the Nether's ticking gaps (its ticket lapsing), every cart
-//! held inside a portal (stuck: the cooldown restarting), the carts per side, each hold.
+//! held inside a portal (stuck: the cooldown restarting), the carts per side, each hold. Rows:
+//! redsim's level-32 freeze per world (`reload::unload_some`: entities skip, blocks run), a
+//! zombified piglin standing in A's bottom portal row (AI on: an empty cart that meets it seats it).
 
 use mctas::design::Design;
 use redsim::block::Block;
@@ -110,6 +116,8 @@ pub fn sides() -> (Side, Side) {
     (Side { s: 1, out_x: 0, in_x: 1 }, Side { s: -1, out_x: 1, in_x: 0 })
 }
 
+pub const EMULATED: &str = "EMULATED (the real circuit priced, ~25 blocks a side, not built): pocket 1's release pulse, which also powers the release line's two boosters k1/k2; pocket 2's 2-gt nudge once pocket 1 and the line are clear (a sensing condition); each release timed from that cart's own arrival (a per-cart arrival sensor with a 2-deep memory)";
+
 /// The bench design: A's cells in the overworld, B's in the Nether part (anchor 0 0 0: the Nether
 /// cells as written).
 pub fn design_text() -> String {
@@ -121,7 +129,7 @@ pub fn design_text() -> String {
     d.ports.insert("output".into(), [8, 10, 8]);
     d.ports.insert("nether-anchor".into(), [0, 0, 0]);
     d.ports.insert("nether-axis".into(), [1, 0, 0]);
-    let mut t = String::from("# L1' cart-loop loader bench (onechunk, Nov 11): the overworld portal A and its Nether twin B, each with an exit track into a 2-pocket queue; the pockets' power EMULATED by mobfarm l1-bench\n");
+    let mut t = format!("# L1' cart-loop loader bench (onechunk, Nov 11): the overworld portal A and its Nether twin B, each with an exit track into a 2-pocket queue; run by mobfarm l1-bench. {EMULATED}\n");
     t.push_str(&d.to_text());
     t
 }
@@ -134,12 +142,12 @@ pub struct Opts {
     /// The first releases, gt after the start (cart 0 from A's pocket 1, cart 2 from B's, cart 1
     /// from A's once it reaches pocket 1).
     pub stagger: [i64; 3],
-    /// Entities frozen `f.1` gt from `f.0` (blocks and the emulated timers run): the login window.
-    pub freezes: Vec<(i64, i64)>,
+    /// Redsim's level-32 freeze (from, len, world bits: 1 the overworld, 2 the Nether).
+    pub freezes: Vec<(i64, i64, u8)>,
+    /// A zombified piglin placed standing in A's bottom portal row (the inbound column) at T.
+    pub piglins: Vec<i64>,
     pub trace: bool,
 }
-
-struct _Unused;
 
 fn cart_ids(w: &redsim::world::World) -> Vec<(u32, [f64; 3], [f64; 3], i32)> {
     w.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_))).map(|e| (e.id, [e.pos.x, e.pos.y, e.pos.z], [e.delta_movement.x, e.delta_movement.y, e.delta_movement.z], e.portal_cooldown)).collect()
@@ -154,12 +162,19 @@ fn in_portal(p: [f64; 3]) -> bool {
 }
 
 pub fn bench(spec: &FarmSpec, o: &Opts) -> Result<String, String> {
-    let ro = RunOpts { ai: false, ..RunOpts::steady(1, (o.ticks + 100) as u32, WalkMode::Random) };
+    let ro = RunOpts { ai: !o.piglins.is_empty(), ..RunOpts::steady(1, (o.ticks + 100) as u32, WalkMode::Random) };
     let mut run = Run::start(spec, &ro)?;
     while run.settle_tick() {}
     if run.world.nether.is_none() {
         return Err("no Nether part".into());
     }
+    // (the forced box grown by a ring of chunks: a partial unload of the bench's chunks leaves them
+    // at level 32, entities skipped, blocks running)
+    run.world.entity_chunks = Some([-2, -2, 1, 1]);
+    run.world.nether.as_deref_mut().unwrap().entity_chunks = Some([-2, -2, 1, 1]);
+    let mut frozen = [false; 2];
+    let mut freeze_arrivals: Vec<String> = Vec::new();
+    let mut piglin_log: Vec<String> = Vec::new();
     let (a, b) = sides();
     let rsrc = Block::parse("minecraft:redstone_block")?;
     let glass = Block::parse("minecraft:glass")?;
@@ -199,11 +214,45 @@ pub fn bench(spec: &FarmSpec, o: &Opts) -> Result<String, String> {
     let mut releases: [Vec<(i64, i64)>; 2] = [Vec::new(), Vec::new()];
     let mut nether_dead: Vec<i64> = Vec::new();
     let mut log: Vec<String> = Vec::new();
-    let mut frozen: Option<(Vec<(u32, [f64; 3], [f64; 3], i32)>, Vec<(u32, [f64; 3], [f64; 3], i32)>)> = None;
     let mut carts_seen_max = 0usize;
     for _ in 0..o.ticks {
         let t = run.world.time;
         let rel = t - start;
+        for &pt in &o.piglins {
+            if rel == pt {
+                let id = redsim::entity::spawn(&mut run.world, "minecraft:zombified_piglin", [a.in_x as f64 + 0.5, 10.0, 0.5], Some("{PortalCooldown:300}"))?;
+                piglin_log.push(format!("t {rel}: a zombified piglin (id {id}) placed standing in A's bottom portal row, the inbound column x {}", a.in_x));
+            }
+        }
+        // (the placed mob's trace: where it is, whether a cart seated it, every 25 gt for 3000 gt)
+        if !o.piglins.is_empty() && rel % 25 == 0 && rel < 3000 {
+            for (wn, w) in [("A", &run.world), ("B", run.world.nether.as_deref().unwrap())] {
+                for e in w.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, EntityKind::Mob(_))) {
+                    piglin_log.push(format!("t {rel}: the mob in {wn} at ({:.2},{:.2},{:.2}){}, cooldown {}", e.pos.x, e.pos.y, e.pos.z, e.vehicle.map_or(String::new(), |v| format!(", seated in entity {v}")), e.portal_cooldown));
+                }
+            }
+        }
+        // redsim's level-32 freeze, per world (the arrivals seen at this tick's start crossed in
+        // the previous tick: judged against its state)
+        let prev_frozen = frozen;
+        let mut want = [false; 2];
+        for &(f, d, wsel) in &o.freezes {
+            if rel >= f && rel < f + d {
+                want[0] |= wsel & 1 != 0;
+                want[1] |= wsel & 2 != 0;
+            }
+        }
+        for wi in 0..2 {
+            if want[wi] != frozen[wi] {
+                let w: &mut redsim::world::World = if wi == 0 { &mut run.world } else { run.world.nether.as_deref_mut().unwrap() };
+                if want[wi] {
+                    redsim::reload::unload_some(w, [-1, -1, 0, 0]);
+                } else {
+                    redsim::reload::load_some(w, [-1, -1, 0, 0]);
+                }
+                frozen[wi] = want[wi];
+            }
+        }
         for (wi, side) in [(0usize, &a), (1usize, &b)] {
             let world: &mut redsim::world::World = if wi == 0 { &mut run.world } else { run.world.nether.as_deref_mut().unwrap() };
             let cs = cart_ids(world);
@@ -215,6 +264,9 @@ pub fn bench(spec: &FarmSpec, o: &Opts) -> Result<String, String> {
                     seen[wi].insert(c.0);
                     arrivals[wi].push(rel);
                     arrived.insert((wi, c.0), t);
+                    if prev_frozen[0] && prev_frozen[1] {
+                        freeze_arrivals.push(format!("t {rel}: an arrival in {} while both worlds are frozen", if wi == 0 { "A" } else { "B" }));
+                    }
                     if o.trace {
                         log.push(format!("t {rel}: arrival in {} (cart id {}) at ({:.2},{:.2},{:.2}) v ({:.3},{:.3},{:.3})", if wi == 0 { "A" } else { "B" }, c.0, c.1[0], c.1[1], c.1[2], c.2[0], c.2[1], c.2[2]));
                     }
@@ -269,29 +321,7 @@ pub fn bench(spec: &FarmSpec, o: &Opts) -> Result<String, String> {
                 }
             }
         }
-        // the login window: entities frozen (positions, motions and cooldowns restored), blocks run
-        let freeze_now = o.freezes.iter().any(|(f, d)| rel >= *f && rel < f + d);
-        if freeze_now && frozen.is_none() {
-            frozen = Some((cart_ids(&run.world), cart_ids(run.world.nether.as_deref().unwrap())));
-        }
         run.tick();
-        if let Some((fa, fb)) = &frozen {
-            if freeze_now {
-                for (wi, snap) in [(0usize, fa), (1usize, fb)] {
-                    let world: &mut redsim::world::World = if wi == 0 { &mut run.world } else { run.world.nether.as_deref_mut().unwrap() };
-                    for (id, p, v, cd) in snap {
-                        if let Some(i) = redsim::entity::index_of(world, *id) {
-                            let e = &mut world.entities.list[i];
-                            e.set_pos(redsim::entity::Vec3::new(p[0], p[1], p[2]));
-                            e.delta_movement = redsim::entity::Vec3::new(v[0], v[1], v[2]);
-                            e.portal_cooldown = *cd;
-                        }
-                    }
-                }
-            } else {
-                frozen = None;
-            }
-        }
         let n = run.world.nether.as_deref().unwrap();
         if n.portal_tickets.is_empty() && !arrivals[1].is_empty() {
             nether_dead.push(rel);
@@ -300,7 +330,30 @@ pub fn bench(spec: &FarmSpec, o: &Opts) -> Result<String, String> {
         carts_seen_max = carts_seen_max.max(total);
     }
     // ---- the report
-    let mut s = format!("l1-bench (L1' cart loop, redsim): 3 empty carts, hold {} gt, pulse {} gt, stagger {:?}, {} gt; the pockets' power EMULATED (a redstone block set under each pocket's powered rail); crossings, the cooldown restart, the closest-portal search and the Nether's PORTAL ticket as redsim models them\n", o.hold, o.pulse, o.stagger, o.ticks);
+    let mut s = format!("l1-bench (L1' cart loop, redsim; bench, tool unreviewed): 3 empty carts, hold {} gt, pulse {} gt, stagger {:?}, {} gt; {EMULATED}; crossings, the cooldown restart, the closest-portal search and the Nether's PORTAL ticket as redsim models them\n", o.hold, o.pulse, o.stagger, o.ticks);
+    if !o.freezes.is_empty() {
+        s.push_str(&format!("rows: {} level-32 freezes (entities skip, blocks run); arrivals while both worlds were frozen: {}{}\n", o.freezes.len(), freeze_arrivals.len(), if freeze_arrivals.is_empty() { " (PASS: a cart moving into the portal as a freeze starts crosses at the thaw)" } else { " (FAIL)" }));
+        for l in freeze_arrivals.iter().take(4) {
+            s.push_str(&format!("  {l}\n"));
+        }
+    }
+    for l in &piglin_log {
+        s.push_str(&format!("row: {l}\n"));
+    }
+    if !o.piglins.is_empty() {
+        let mut riders: Vec<String> = Vec::new();
+        for (wn, w) in [("A", &run.world), ("B", run.world.nether.as_deref().unwrap())] {
+            for e in w.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_))) {
+                if let Some(p) = e.passengers.first() {
+                    riders.push(format!("a cart in {wn} carries entity {p}"));
+                }
+            }
+            for e in w.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, EntityKind::Mob(_))) {
+                riders.push(format!("a mob in {wn} at ({:.2},{:.2},{:.2}){}", e.pos.x, e.pos.y, e.pos.z, if e.vehicle.is_some() { ", seated" } else { "" }));
+            }
+        }
+        s.push_str(&format!("  the piglin at the end: {}\n", if riders.is_empty() { "gone".to_string() } else { riders.join("; ") }));
+    }
     for (wi, name) in [(0usize, "A (overworld)"), (1usize, "B (Nether)")] {
         let ar = &arrivals[wi];
         let iv: Vec<i64> = ar.windows(2).map(|w| w[1] - w[0]).collect();

@@ -1,73 +1,98 @@
-# L1''' item-loop loader bench (onechunk, Nov 11): portals 5 x 3, a firing dropper fed from below and a hopper floor on each side; 6 items; the clocks EMULATED by mobfarm l1-item-bench
+# L1''' item-loop loader bench (onechunk, Nov 12): portals 5 x 4; on each side a firing dropper at y 12 (above a bottom-row mob's reach) fed by an up-facing dropper, the exit side's bottom two rows closed, packed ice and a hopper row past the frame at y 11, a far-face wall, a backstop, and the clock: two observers facing each other behind the firing dropper (REAL, not emulated); 4 items
 name: l1-item-loop-bench
 circuit: mob-farm iron_ingot
 port nether-anchor: 0 0 0
 port nether-axis: 1 0 0
 port output: 11 10 8
-nbt: 1 9 1 {Items:[{Slot:0b,id:"minecraft:cobblestone",count:2}]}
-nbt: 1 10 1 {Items:[{Slot:0b,id:"minecraft:cobblestone",count:1}]}
-nether nbt: 3 9 -1 {Items:[{Slot:0b,id:"minecraft:cobblestone",count:2}]}
-nether nbt: 3 10 -1 {Items:[{Slot:0b,id:"minecraft:cobblestone",count:1}]}
-origin: -1 0 0
+nbt: 1 11 1 {Items:[{Slot:0b,id:"minecraft:cobblestone",count:1}]}
+nbt: 1 13 1 {Items:[{Slot:0b,id:"minecraft:cobblestone",count:1}]}
+nether nbt: 3 11 -1 {Items:[{Slot:0b,id:"minecraft:cobblestone",count:1}]}
+nether nbt: 3 13 -1 {Items:[{Slot:0b,id:"minecraft:cobblestone",count:1}]}
+origin: -1 0 -1
 palette:
   A minecraft:dropper[facing=up,triggered=false]
   B minecraft:hopper[enabled=true,facing=south]
   C minecraft:hopper[enabled=true,facing=west]
   D minecraft:dropper[facing=north,triggered=false]
+  E minecraft:obsidian
   G minecraft:glass
   H minecraft:hopper[enabled=true,facing=east]
   N minecraft:nether_portal[axis=x]
-  O minecraft:obsidian
+  O minecraft:observer[facing=north,powered=false]
+  P minecraft:packed_ice
   d minecraft:dropper[facing=south,triggered=false]
   h minecraft:hopper[enabled=true,facing=north]
+  o minecraft:observer[facing=south,powered=false]
 layer 9:
-  .OOOOO
-  ..ACCC
-  ...hhh
+  .
+  .EEEEE
+  .
+  .
   .
 layer 10:
-  ONNNNNO
-  ..D
-  .
-  ...GGGG
+  .GGGGG
+  ENNNNNE
+  GGGGGGG
+  G.....G
+  G.....G
 layer 11:
-  ONNNNNO
-  .
-  .
-  ...GGGG
+  .GGGGG
+  ENNNNNE
+  GGAPPPG
+  GGhCCCG
+  G.....G
 layer 12:
-  ONNNNNO
-  .
-  .
-  ...GGGG
+  .GGGGG
+  ENNNNNE
+  GGA...G
+  GGo...G
+  GGOGGGG
 layer 13:
-  .OOOOO
+  .GGGGG
+  ENNNNNE
+  GGD...G
+  G.....G
+  GGGGGGG
+layer 14:
   .
-  .
-  .
+  .EEEEE
+  GGGGGGG
+  GGGGGGG
+  GGGGGGG
 nether-origin: -1 0 -3
 nether layer 9:
   .
-  .BBB
-  .HHHA
-  .OOOOO
+  .
+  .
+  .EEEEE
+  .
 nether layer 10:
-  GGGG
-  .
-  ....d
-  ONNNNNO
+  G.....G
+  G.....G
+  GGGGGGG
+  ENNNNNE
+  .GGGGG
 nether layer 11:
-  GGGG
-  .
-  .
-  ONNNNNO
+  G.....G
+  GHHHBGG
+  GPPPAGG
+  ENNNNNE
+  .GGGGG
 nether layer 12:
-  GGGG
-  .
-  .
-  ONNNNNO
+  GGGGoGG
+  G...OGG
+  G...AGG
+  ENNNNNE
+  .GGGGG
 nether layer 13:
+  GGGGGGG
+  G.....G
+  G...dGG
+  ENNNNNE
+  .GGGGG
+nether layer 14:
+  GGGGGGG
+  GGGGGGG
+  GGGGGGG
+  .EEEEE
   .
-  .
-  .
-  .OOOOO

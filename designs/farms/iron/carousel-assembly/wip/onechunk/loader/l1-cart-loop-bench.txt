@@ -1,4 +1,4 @@
-# L1' cart-loop loader bench (onechunk, Nov 11): the overworld portal A and its Nether twin B, each with an exit track into a 2-pocket queue; the pockets' power EMULATED by mobfarm l1-bench
+# L1' cart-loop loader bench (onechunk, Nov 11): the overworld portal A and its Nether twin B, each with an exit track into a 2-pocket queue; run by mobfarm l1-bench. EMULATED (the real circuit priced, ~25 blocks a side, not built): pocket 1's release pulse, which also powers the release line's two boosters k1/k2; pocket 2's 2-gt nudge once pocket 1 and the line are clear (a sensing condition); each release timed from that cart's own arrival (a per-cart arrival sensor with a 2-deep memory)
 name: l1-cart-loop-bench
 circuit: mob-farm iron_ingot
 port nether-anchor: 0 0 0

@@ -984,38 +984,88 @@ pub enum MobfarmCmd {
         #[arg(long, default_value_t = 238.0)]
         per_day: f64,
     },
-    /// (onechunk 2026-11-11; farmopt 22:22, tick-exact's code read) L1‴, the item-loop loader,
-    /// benched in redsim (`mobfarm::l1items`): a same-axis portal pair, on each side a firing
-    /// dropper fed from below and a hopper floor past the frame; dedicated items circulate; each
-    /// side's clock EMULATED; each side's arrivals against the 300-gt ticket, items stalled in a
-    /// portal, the items counted, the landing spread.
+    /// (onechunk 2026-11-12; ironspec 00:02/00:16, tick-exact's linking traps) Every portal's
+    /// search as the game runs it (`mobfarm::portallinks`): from each overworld portal (its cells,
+    /// absolute) the Nether portals within 16 of its x 1/8 point, 3D-closest, ties to the lower y;
+    /// from each Nether portal the overworld ones within 128 of its x 8 point; the candidates with
+    /// their distances, the chosen portal per target, the expected partner and its least margin,
+    /// and any empty search (a portal created there).
+    PortalLinks {
+        /// An overworld portal NAME=x0,y0,z0,x1,y1,z1[;...] (its cells), repeatable.
+        #[arg(long, allow_hyphen_values = true)]
+        ow: Vec<String>,
+        /// A Nether portal NAME=x0,y0,z0,x1,y1,z1[;...], repeatable.
+        #[arg(long, allow_hyphen_values = true)]
+        nether: Vec<String>,
+        /// The intended partner SOURCE=TARGET (either direction), repeatable.
+        #[arg(long)]
+        expect: Vec<String>,
+        /// The entity's centre anywhere over a cell grown this much on x and z (a golem: 0.7).
+        #[arg(long, default_value_t = 0.7)]
+        margin: f64,
+    },
+    /// (onechunk 2026-11-11/12; farmopt 22:22, tick-exact's code reads, G1's CHANGES 4) L1‴, the
+    /// item-loop loader, benched in redsim (`mobfarm::l1items`): a same-axis portal pair; on each
+    /// side a firing dropper in the top row's height fed by an up-facing dropper, water and a
+    /// hopper row past the frame (the exit side sealed over the bottom row), a far-face wall, a
+    /// backstop and a REAL observer clock; dedicated items. Over many seeds (threads): failures
+    /// with their Wilson interval, each side's worst gap against the 300-gt ticket, items lost or
+    /// held by a mob, items held in a portal, the landing spread against the floor and backstop,
+    /// the flight's clearance to the frame and to a bottom-row piglin's reach.
     L1ItemBench {
         #[arg(long)]
         design_out: Option<PathBuf>,
         /// The portals' interior width (each side fires from its own column).
         #[arg(long, default_value_t = 5)]
         width: i32,
+        /// The portals' interior rows (3: the firing dropper's y 12 is the top row; 4: a row over
+        /// it, room for a slow item's arc).
+        #[arg(long, default_value_t = 3)]
+        height: i32,
+        /// The firing dropper's y (12: the top row of 3; 13: the top row of 4, items a row higher).
+        #[arg(long, default_value_t = 12)]
+        fire_y: i32,
         #[arg(long, default_value_t = 4)]
         items: u32,
-        #[arg(long, default_value_t = 6000)]
+        /// Game ticks a seed.
+        #[arg(long, default_value_t = 24000)]
         ticks: i64,
-        /// Each side's clock period (gt).
-        #[arg(long, default_value_t = 200)]
-        period: i64,
-        /// Entities frozen D gt from T (repeatable T,D): the login window.
+        /// Seeds: N (1..N) or A..B.
+        #[arg(long, default_value = "1")]
+        seeds: String,
+        /// Redsim's level-32 freeze (entities skip; blocks and block entities run) D gt from T,
+        /// in WORLD (ow, nether or both; default both): T,D[,WORLD], repeatable.
         #[arg(long)]
         freeze: Vec<String>,
-        #[arg(long, default_value_t = 1)]
-        seed: i64,
+        /// A 3-gt login freeze of both worlds every N gt.
+        #[arg(long)]
+        login_each: Option<i64>,
+        /// A 3-gt login freeze of both worlds starting at every dispense (the item crosses after
+        /// the thaw: the login lands just before each arrival).
+        #[arg(long)]
+        login_before_arrival: bool,
+        /// Both worlds unloaded at T and loaded again at T + 1 (a full stop), repeatable.
+        #[arg(long)]
+        stop: Vec<i64>,
+        /// A full stop every N gt, each one 1 gt later in the cycle than the last (stops at N,
+        /// 2N + 1, 3N + 2, ...: every phase).
+        #[arg(long)]
+        stop_every: Option<i64>,
+        /// A mob (loot pickup on, empty hand) placed in a bottom row at column X at time T, on
+        /// SIDE (a, b or both; default both), KIND adult (default), baby or jockey (a baby on a
+        /// chicken): T,X[,SIDE[,KIND]], repeatable (AI on).
+        #[arg(long)]
+        piglin: Vec<String>,
         #[arg(long)]
         trace: bool,
     },
     /// (onechunk 2026-11-11; farmopt 22:07, ironspec's self-contained loaders) L1′, the cart-loop
     /// loader, benched in redsim (`mobfarm::l1bench`): writes its design (--design-out) or runs it:
     /// the overworld portal and its Nether twin, each side an exit track into a 2-pocket queue, 3
-    /// empty carts; the pockets' power EMULATED (each cart released `hold` gt after it arrived);
-    /// each side's arrivals and their intervals against the 300-gt ticket, the Nether's ticket
-    /// lapsing, carts held inside a portal.
+    /// empty carts. EMULATED (labelled): pocket 1's release pulse (also powering the release line's
+    /// two boosters), pocket 2's 2-gt nudge once pocket 1 and the line are clear, each release
+    /// timed from that cart's own arrival. Each side's arrivals against the 300-gt ticket, the
+    /// Nether's ticket lapsing, carts held inside a portal.
     L1Bench {
         /// Write the bench design here and run it.
         #[arg(long)]
@@ -1030,9 +1080,13 @@ pub enum MobfarmCmd {
         /// 0, 227, 453 of a ~680-gt cart cycle (each side then gets an arrival every ~227 gt).
         #[arg(long, default_value = "5,113,232")]
         stagger: String,
-        /// Entities frozen D gt from T (repeatable T,D): the login window.
+        /// Redsim's level-32 freeze D gt from T in WORLD (ow, nether or both): T,D[,WORLD].
         #[arg(long)]
         freeze: Vec<String>,
+        /// A zombified piglin placed standing in A's bottom portal row (the inbound column) at T
+        /// (AI on), repeatable.
+        #[arg(long)]
+        piglin: Vec<i64>,
         #[arg(long)]
         trace: bool,
     },
@@ -1146,11 +1200,18 @@ pub enum MobfarmCmd {
         #[arg(long)]
         no_riders: bool,
         /// Write every villager position of the skeleton to this file as `x y z` lines in the
-        /// written frame (`--out-shift` applied): each rider's cell and every rail cell of every part (a
-        /// rider passes it), for `mobfarm exit --positions` (the flood with a summoner at every
-        /// villager position) and `site-check --positions`.
+        /// written frame (`--out-shift` applied): each rider's cell, every rail cell of every part (a
+        /// rider passes it) and every declared off-rail path cell (`--path`), for `mobfarm exit
+        /// --positions` (the flood with a summoner at every villager position) and `site-check
+        /// --positions`.
         #[arg(long)]
         positions_out: Option<PathBuf>,
+        /// A declared off-rail rider path NAME=x,y,z..x,y,z[..x,y,z] (the column's frame; each
+        /// consecutive pair a straight run of cells, ends included): a drop shaft, a bubble-column
+        /// lift, a fall, a hold with no cart placed (G1: a cart off the rails is invisible to the
+        /// rail cells). In `--positions-out` and `--bed` (judged like a part; `--bed-exempt NAME`).
+        #[arg(long, allow_hyphen_values = true)]
+        path: Vec<String>,
         /// A header line written into the skeleton (`# ` added): the joints table, a ruling.
         /// Repeatable, in order.
         #[arg(long = "note")]
@@ -4935,31 +4996,66 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             // (the slope-to-slope peak check, 9fc3155f Nov 11: a top no cart crosses)
             println!("{}", crate::borders::peaks_line(&d.blocks).0);
         }
-        MobfarmCmd::L1ItemBench { design_out, width, items, ticks, period, freeze, seed, trace } => {
+        MobfarmCmd::PortalLinks { ow, nether, expect, margin } => {
+            let ow: Vec<_> = ow.iter().map(|s| crate::portallinks::parse(s)).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!(e))?;
+            let nether: Vec<_> = nether.iter().map(|s| crate::portallinks::parse(s)).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!(e))?;
+            let mut ex = std::collections::BTreeMap::new();
+            for e in &expect {
+                let (a, b) = e.split_once('=').ok_or_else(|| anyhow::anyhow!("--expect SOURCE=TARGET"))?;
+                ex.insert(a.trim().to_string(), b.trim().to_string());
+            }
+            print!("{}", crate::portallinks::report(&ow, &nether, &ex, margin));
+        }
+        MobfarmCmd::L1ItemBench { design_out, width, height, fire_y, items, ticks, seeds, freeze, login_each, login_before_arrival, stop, stop_every, piglin, trace } => {
             let path = design_out.unwrap_or_else(|| std::env::temp_dir().join(format!("l1-item-bench-{}.txt", std::process::id())));
-            std::fs::write(&path, crate::l1items::design_text(width, items))?;
+            anyhow::ensure!((12..=9 + height).contains(&fire_y), "--fire-y between 12 and the top row (9 + height)");
+            std::fs::write(&path, crate::l1items::design_text(width, height, fire_y, items))?;
             let (_c, spec) = load(version, &path)?;
-            let freezes: Vec<(i64, i64)> = freeze.iter().map(|f| {
-                let n: Vec<i64> = f.split(',').map(|s| s.trim().parse()).collect::<Result<_, _>>()?;
-                anyhow::ensure!(n.len() == 2, "--freeze T,D");
-                Ok((n[0], n[1]))
+            let freezes = parse_freezes(&freeze)?;
+            let seeds: Vec<i64> = match seeds.split_once("..") {
+                Some((a, b)) => (a.trim().parse::<i64>()?..=b.trim().parse::<i64>()?).collect(),
+                None => (1..=seeds.trim().parse::<i64>()?).collect(),
+            };
+            let piglins: Vec<(i64, i32, u8, u8)> = piglin.iter().map(|p| {
+                let f: Vec<&str> = p.split(',').map(|s| s.trim()).collect();
+                anyhow::ensure!((2..=4).contains(&f.len()), "--piglin T,X[,a|b|both[,adult|baby|jockey]]");
+                let side = match f.get(2).copied().unwrap_or("both") {
+                    "a" => 1u8,
+                    "b" => 2,
+                    "both" => 3,
+                    o => anyhow::bail!("--piglin side {o}: a, b or both"),
+                };
+                let kind = match f.get(3).copied().unwrap_or("adult") {
+                    "adult" => 0u8,
+                    "baby" => 1,
+                    "jockey" => 2,
+                    o => anyhow::bail!("--piglin kind {o}: adult, baby or jockey"),
+                };
+                Ok((f[0].parse()?, f[1].parse()?, side, kind))
             }).collect::<Result<_>>()?;
-            let o = crate::l1items::Opts { width, items, ticks, period, freezes, seed, trace };
+            let mut stops = stop;
+            if let Some(n) = stop_every {
+                anyhow::ensure!(n > 2, "--stop-every N > 2");
+                let mut t = n;
+                let mut k = 0;
+                while t + 1 < ticks {
+                    stops.push(t);
+                    k += 1;
+                    t = (k + 1) * n + k;
+                }
+            }
+            let o = crate::l1items::Opts { width, height, fire_y, items, ticks, freezes, login_each, login_before_arrival, stops, piglins, seeds, trace };
             println!("{}", path.display());
             print!("{}", crate::l1items::bench(&spec, &o).map_err(|e| anyhow::anyhow!(e))?);
         }
-        MobfarmCmd::L1Bench { design_out, ticks, hold, pulse, stagger, freeze, trace } => {
+        MobfarmCmd::L1Bench { design_out, ticks, hold, pulse, stagger, freeze, piglin, trace } => {
             let path = design_out.unwrap_or_else(|| std::env::temp_dir().join(format!("l1-bench-{}.txt", std::process::id())));
             std::fs::write(&path, crate::l1bench::design_text())?;
             let (_c, spec) = load(version, &path)?;
             let st: Vec<i64> = stagger.split(',').map(|s| s.trim().parse()).collect::<Result<_, _>>()?;
             anyhow::ensure!(st.len() == 3, "--stagger A1,B1,A2");
-            let freezes: Vec<(i64, i64)> = freeze.iter().map(|f| {
-                let n: Vec<i64> = f.split(',').map(|s| s.trim().parse()).collect::<Result<_, _>>()?;
-                anyhow::ensure!(n.len() == 2, "--freeze T,D");
-                Ok((n[0], n[1]))
-            }).collect::<Result<_>>()?;
-            let o = crate::l1bench::Opts { ticks, hold, pulse, stagger: [st[0], st[1], st[2]], freezes, trace };
+            let freezes = parse_freezes(&freeze)?;
+            let o = crate::l1bench::Opts { ticks, hold, pulse, stagger: [st[0], st[1], st[2]], freezes, piglins: piglin, trace };
             println!("{}", path.display());
             print!("{}", crate::l1bench::bench(&spec, &o).map_err(|e| anyhow::anyhow!(e))?);
         }
@@ -4978,7 +5074,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let o = crate::columnrun::Opts { cycles, warm, seed, close_at, slope_delay, g2_plus, hold_shut_delay, pulse, laps, trace };
             print!("{}", crate::columnrun::run(&spec, &c.clock.design.meta, &o).map_err(|e| anyhow::anyhow!(e))?);
         }
-        MobfarmCmd::Column { parts, reserves, ports, tracks, carts, posts, clears, column, chunk_phase, plan, name, no_settle, ground, out_shift, no_riders, positions_out, notes, bed, bed_exempt, sentinel, sections, summon_box, golem_box, run_gate, run_cell, run_controller, notes_file, pockets, block, wait_box, out } => {
+        MobfarmCmd::Column { parts, reserves, ports, tracks, carts, posts, clears, column, chunk_phase, plan, name, no_settle, ground, out_shift, no_riders, positions_out, path, notes, bed, bed_exempt, sentinel, sections, summon_box, golem_box, run_gate, run_cell, run_controller, notes_file, pockets, block, wait_box, out } => {
             let mut notes = notes;
             if let Some(nf) = &notes_file {
                 notes.extend(std::fs::read_to_string(nf)?.lines().map(str::trim).filter(|l| !l.is_empty()).map(String::from));
@@ -5063,6 +5159,13 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             sketch.extend(extra_parts);
             let (text, d, bed_ok) = crate::column::run_full(&specs, sketch, &clear, &reserves, &given, &f, &name, plan, bed_cell.map(|b| (b, bed_exempt.as_slice())), sentinel_box, shift_w, golem_b.map(|g| (summoners.as_slice(), g))).map_err(|e| anyhow::anyhow!(e))?;
             print!("{text}");
+            let paths: Vec<(String, Vec<[i32; 3]>)> = path.iter().map(|p| crate::column::path_cells(p)).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!(e))?;
+            let mut bed_ok = bed_ok;
+            if let (Some(b), false) = (bed_cell, paths.is_empty()) {
+                let (t, ok) = crate::column::path_bed_radius(&paths, b, &bed_exempt);
+                print!("{t}");
+                bed_ok &= ok;
+            }
             if !wait_boxes.is_empty() {
                 let g = golem_b.ok_or_else(|| anyhow::anyhow!("--wait-box needs --golem-box"))?;
                 print!("{}", crate::column::waiting_check(&d, &wait_boxes, g, shift_w).0);
@@ -5101,8 +5204,14 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         cells.insert(*c);
                     }
                 }
+                // (every declared off-rail path cell: shafts, lifts, falls, a hold with no cart)
+                for (_, pc) in &paths {
+                    for c in pc {
+                        cells.insert(*c);
+                    }
+                }
                 let body: String = cells.iter().map(|c| format!("{} {} {}\n", c[0] + sh[0], c[1] + sh[1], c[2] + sh[2])).collect();
-                std::fs::write(pf, format!("# every villager position of {name} (riders' cells and every rail cell of every part), the written frame\n{body}"))?;
+                std::fs::write(pf, format!("# every villager position of {name} (riders' cells, every rail cell of every part and every declared off-rail path cell), the written frame\n{body}"))?;
                 println!("positions: {} cells -> {}", cells.len(), pf.display());
             }
             let mut d = d;
@@ -10031,4 +10140,23 @@ fn chi_crit(df: usize) -> f64 {
     let k = df.max(1) as f64;
     let z = 1.6449;
     k * (1.0 - 2.0 / (9.0 * k) + z * (2.0 / (9.0 * k)).sqrt()).powi(3)
+}
+
+/// The loader benches' `--freeze T,D[,ow|nether|both]` (redsim's level-32 freeze): (from, len,
+/// world bits: 1 the overworld, 2 the Nether).
+fn parse_freezes(freeze: &[String]) -> Result<Vec<(i64, i64, u8)>> {
+    freeze
+        .iter()
+        .map(|f| {
+            let p: Vec<&str> = f.split(',').map(|s| s.trim()).collect();
+            anyhow::ensure!(p.len() == 2 || p.len() == 3, "--freeze T,D[,ow|nether|both]");
+            let w = match p.get(2).copied().unwrap_or("both") {
+                "ow" => 1u8,
+                "nether" => 2,
+                "both" => 3,
+                o => anyhow::bail!("--freeze world {o}: ow, nether or both"),
+            };
+            Ok((p[0].parse()?, p[1].parse()?, w))
+        })
+        .collect()
 }

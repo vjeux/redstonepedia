@@ -790,6 +790,71 @@ fn seg_dist(p: [f64; 3], a: [f64; 3], b: [f64; 3]) -> f64 {
     (q[0] * q[0] + q[1] * q[1] + q[2] * q[2]).sqrt()
 }
 
+/// (G1 on 6704219e6 / 3326b8d96: an off-rail rider is invisible to the rail cells) The declared
+/// off-rail paths (`--path NAME=x,y,z..x,y,z[..]`: the drop shafts, a bubble-column lift, a fall,
+/// a hold with no cart placed): each consecutive pair of points a straight run of cells, both ends
+/// included. Returns each path's cells.
+pub fn path_cells(spec: &str) -> Result<(String, Vec<P>), String> {
+    let (name, rest) = spec.split_once('=').ok_or(format!("--path {spec}: NAME=x,y,z..x,y,z"))?;
+    let pts: Vec<P> = rest
+        .split("..")
+        .map(|t| {
+            let n: Vec<i32> = t.split(',').map(|s| s.trim().parse::<i32>().map_err(|e| format!("--path {spec}: {e}"))).collect::<Result<_, _>>()?;
+            if n.len() != 3 {
+                return Err(format!("--path {spec}: a point is x,y,z"));
+            }
+            Ok([n[0], n[1], n[2]])
+        })
+        .collect::<Result<_, _>>()?;
+    if pts.len() < 2 {
+        return Err(format!("--path {spec}: at least two points"));
+    }
+    let mut cells: Vec<P> = Vec::new();
+    for w in pts.windows(2) {
+        let (a, b) = (w[0], w[1]);
+        let n = (0..3).map(|k| (b[k] - a[k]).abs()).max().unwrap_or(0);
+        for i in 0..=n {
+            let c = [0, 1, 2].map(|k| a[k] + if n == 0 { 0 } else { (b[k] - a[k]) * i / n });
+            if !cells.contains(&c) {
+                cells.push(c);
+            }
+        }
+    }
+    Ok((name.trim().to_string(), cells))
+}
+
+/// The bed radius over the declared off-rail paths: a rider anywhere in each path cell (its feet
+/// over the cell's floor, its centre anywhere over the cell: the least distance from the head's
+/// centre to the cell's box at feet height), judged like a part's rails.
+pub fn path_bed_radius(paths: &[(String, Vec<P>)], bed: P, exempt: &[String]) -> (String, bool) {
+    let centre = [bed[0] as f64 + 0.5, bed[1] as f64 + 0.5, bed[2] as f64 + 0.5];
+    let limit = 17.0;
+    let mut s = String::from("bed radius over the declared off-rail paths (a rider anywhere over each path cell, feet on its floor):\n");
+    let mut ok = true;
+    for (name, cells) in paths {
+        let mut best: Option<(f64, P)> = None;
+        for c in cells {
+            let q = [centre[0].clamp(c[0] as f64, c[0] as f64 + 1.0), c[1] as f64, centre[2].clamp(c[2] as f64, c[2] as f64 + 1.0)];
+            let dd = ((q[0] - centre[0]).powi(2) + (q[1] - centre[1]).powi(2) + (q[2] - centre[2]).powi(2)).sqrt();
+            if best.is_none_or(|(m, _)| dd < m) {
+                best = Some((dd, *c));
+            }
+        }
+        let Some((dd, c)) = best else { continue };
+        let exempted = exempt.iter().any(|n| n == name);
+        let verdict = if exempted {
+            "EXEMPT (the napper's own path)"
+        } else if dd > limit {
+            "ok  "
+        } else {
+            ok = false;
+            "FAIL"
+        };
+        s.push_str(&format!("  {verdict} path {name} ({} cells): least {dd:.2} at ({},{},{}){}\n", cells.len(), c[0], c[1], c[2], if dd > limit || exempted { String::new() } else { format!(" ({:.2} short)", limit - dd) }));
+    }
+    (s, ok)
+}
+
 /// The bed radius (ironspec Nov 11 18:02, from tick-exact's reload proof): after a load at night a
 /// villager sits in REST until its first hostile scan, and `ValidateNearbyPoi` erases the HOME of a
 /// villager whose position lies within 16 of the occupied shared bed's head centre
@@ -885,10 +950,12 @@ pub fn section_report(d: &Design, beds: &[P], shift: P) -> String {
 /// takes every villager inside the summoner's box grown by 10 on every axis, and every one of them
 /// gets the summon mark (`GolemSensor.golemDetected`). For each summoner cell, every other villager
 /// position whose box meets that box: every ridden cart's rider (its villager box, 0.6 x 1.95 at the
-/// cart's y) and every rail cell of every part (the whole cell, 2.95 high: a rider passing it,
-/// conservative), each with its least axis gap to the golem boxes at the pad's spots (feet cells in
-/// `golem`, a golem 1.4 x 2.7): 17.84 or less on every axis means its own sensor box meets a golem
-/// (golem-locked while one exists); and the reserved boxes as bounds.
+/// cart's y) and every rail cell of every part (the whole cell grown 0.3 sideways, 2.95 high: a
+/// rider passing it, its centre anywhere over the cell, a curve's corner included (G1 on
+/// 7eef80b12: the bare cell is up to 0.3 short there); conservative), each with its least axis gap
+/// to the golem boxes at the pad's spots (feet cells in `golem`, a golem 1.4 x 2.7): 17.84 or less
+/// on every axis means its own sensor box meets a golem (golem-locked while one exists); and the
+/// reserved boxes as bounds. On-foot positions (the napper's walk) are not in the set.
 pub fn summon_box(parts: &[Part], reserves: &[Reserve], summoners: &[P], golem: (P, P)) -> String {
     type B = ([f64; 3], [f64; 3]);
     let gap = |a: &B, b: &B| -> [f64; 3] { [0, 1, 2].map(|k| (a.0[k] - b.1[k]).max(b.0[k] - a.1[k]).max(0.0)) };
@@ -900,7 +967,7 @@ pub fn summon_box(parts: &[Part], reserves: &[Reserve], summoners: &[P], golem: 
         }
         for (c, st) in &p.placed.blocks {
             if rail_shape_of(st).is_some() {
-                positions.push((format!("rail ({},{},{}) [{}]", c[0], c[1], c[2], p.spec.name), ([c[0] as f64, c[1] as f64, c[2] as f64], [c[0] as f64 + 1.0, c[1] as f64 + 2.95, c[2] as f64 + 1.0]), false));
+                positions.push((format!("rail ({},{},{}) [{}]", c[0], c[1], c[2], p.spec.name), ([c[0] as f64 - 0.3, c[1] as f64, c[2] as f64 - 0.3], [c[0] as f64 + 1.3, c[1] as f64 + 2.95, c[2] as f64 + 1.3]), false));
             }
         }
     }
