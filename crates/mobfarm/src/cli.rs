@@ -1006,8 +1006,8 @@ pub enum MobfarmCmd {
         /// The scarer --scarer-search places: zombie (in a boat) or pillager.
         #[arg(long, default_value = "zombie")]
         scarer: String,
-        /// With --scarer-search: an extra rider's feet x,y,z (repeatable; a hold's or a fall's cart
-        /// position, seat 0).
+        /// With --scarer-search / --scarer-check: an extra rider's feet x,y,z (repeatable; a seated
+        /// villager's feet are its cart's position: a hold's or a fall's cart; one on foot, its feet).
         #[arg(long, allow_hyphen_values = true)]
         scarer_rider: Vec<String>,
         /// With --scarer-search: at most this many posts.
@@ -1041,6 +1041,23 @@ pub enum MobfarmCmd {
         /// the output names it as flee-check's exception.
         #[arg(long, allow_hyphen_values = true)]
         scarer_transient: Vec<String>,
+        /// With --scarer-check: a rider column x,y0,z,y1 (repeatable: a drop from a hold, the lift),
+        /// sampled every 0.1 with the rail cells for each pillager's dense sight check (ironspec
+        /// Nov 12 05:26: no run of 5 ticks with a rider seen within 8).
+        #[arg(long, allow_hyphen_values = true)]
+        scarer_column: Vec<String>,
+        /// (ironspec Nov 12 06:44) An occluder for a post x,y,z,pillager|zombie: glass on every
+        /// sight ray from its mob to the --hide-point / --hide-column rider positions, on no ray to a
+        /// point it covers now, off the rails and out of the --scarer-exclude boxes.
+        #[arg(long, allow_hyphen_values = true)]
+        scarer_occlude: Option<String>,
+        /// With --scarer-occlude: a rider's feet x,y,z to hide (repeatable; a seated villager's feet
+        /// are its cart's position).
+        #[arg(long, allow_hyphen_values = true)]
+        hide_point: Vec<String>,
+        /// With --scarer-occlude: a column x,y0,z,y1 of rider positions to hide, every 0.1.
+        #[arg(long, allow_hyphen_values = true)]
+        hide_column: Vec<String>,
         /// With --scarer-exact: the mix (scarer mobs are their own bill line): from the fewest
         /// posts' pillagers down, the least cover with at most p pillagers, each passing the built
         /// re-check inside the search (every post laid at once).
@@ -1087,6 +1104,16 @@ pub enum MobfarmCmd {
         /// glowstone and sea lantern are both golem-proof and solid-render).
         #[arg(long, default_value = "minecraft:glass")]
         fix_block: String,
+        /// (ironspec Nov 12 05:24, F1a) A place's panic-stroll clear rate (`x,y,z`, repeatable): the
+        /// share of PANIC's 2/2 stroll draws a complete path reaches, now and with --fix-block
+        /// floors added greedily within 2 (each the one raising the share most), the per-dwell miss
+        /// probability at 10..40 draws, and the full re-check with the set laid; the --pillager
+        /// posts declared.
+        #[arg(long, allow_hyphen_values = true)]
+        clear_rate: Vec<String>,
+        /// With --clear-rate: the most floors to add.
+        #[arg(long, default_value_t = 6)]
+        clear_floors: usize,
     },
     /// One judge run of a design on redsim: its table.
     Run {
@@ -10005,7 +10032,39 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 std::process::exit(1);
             }
         }
-        MobfarmCmd::FleeCheck { design, home, show, foot, clearing, eye_control, pickup_control, sampled, claim, classes, fix_search, fix_pairs, fix_block, path_watch, path_trace, scarer_search, scarer, scarer_rider, scarer_max, scarer_any_floor, scarer_walls, scarer_target, scarer_exact, scarer_check, scarer_transient, scarer_mix, scarer_visor, scarer_exclude, pillager, golem_reach, golem_pad, scarer_near, post_drift, drift_ticks } => {
+        MobfarmCmd::FleeCheck { design, home, show, foot, clearing, eye_control, pickup_control, sampled, claim, classes, fix_search, fix_pairs, fix_block, clear_rate, clear_floors, path_watch, path_trace, scarer_search, scarer, scarer_rider, scarer_max, scarer_any_floor, scarer_walls, scarer_target, scarer_exact, scarer_check, scarer_transient, scarer_column, scarer_occlude, hide_point, hide_column, scarer_mix, scarer_visor, scarer_exclude, pillager, golem_reach, golem_pad, scarer_near, post_drift, drift_ticks } => {
+            if let Some(oc) = &scarer_occlude {
+                let v: Vec<&str> = oc.split(',').collect();
+                anyhow::ensure!(v.len() == 4, "--scarer-occlude x,y,z,pillager|zombie");
+                let post = redsim::pos::BlockPos::new(v[0].trim().parse()?, v[1].trim().parse()?, v[2].trim().parse()?);
+                let pill = v[3].trim() == "pillager";
+                let mut hide = Vec::new();
+                for s in &hide_point {
+                    let q: Vec<f64> = s.split(',').map(|t| t.trim().parse::<f64>()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(q.len() == 3, "--hide-point x,y,z");
+                    hide.push(redsim::entity::Vec3::new(q[0], q[1], q[2]));
+                }
+                for s in &hide_column {
+                    let q: Vec<f64> = s.split(',').map(|t| t.trim().parse::<f64>()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(q.len() == 4, "--hide-column x,y0,z,y1");
+                    let (y0, y1) = (q[1].min(q[3]), q[1].max(q[3]));
+                    let n = ((y1 - y0) * 10.0).round() as usize;
+                    for i in 0..=n {
+                        hide.push(redsim::entity::Vec3::new(q[0], y0 + i as f64 * 0.1, q[2]));
+                    }
+                }
+                let mut excl = Vec::new();
+                for e in &scarer_exclude {
+                    let q: Vec<i32> = e.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(q.len() == 6, "--scarer-exclude x0,y0,z0,x1,y1,z1");
+                    excl.push(([q[0].min(q[3]), q[1].min(q[4]), q[2].min(q[5])], [q[0].max(q[3]), q[1].max(q[4]), q[2].max(q[5])]));
+                }
+                let (_c, spec) = load(version, &design)?;
+                for l in crate::fleecheck::occlude(&spec, post, pill, &hide, &excl).map_err(|e| anyhow::anyhow!(e))? {
+                    println!("{l}");
+                }
+                return Ok(());
+            }
             if !post_drift.is_empty() {
                 anyhow::ensure!(post_drift.len() == 3, "--post-drift x,y,z");
                 let (_c, spec) = load(version, &design)?;
@@ -10046,7 +10105,13 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     posts.push((redsim::pos::BlockPos::new(t[0].parse()?, t[1].parse()?, t[2].parse()?), t[3] == "pillager"));
                 }
                 let gp = if golem_pad.len() == 6 { Some(([golem_pad[0].min(golem_pad[3]), golem_pad[1].min(golem_pad[4]), golem_pad[2].min(golem_pad[5])], [golem_pad[0].max(golem_pad[3]), golem_pad[1].max(golem_pad[4]), golem_pad[2].max(golem_pad[5])])) } else { None };
-                for l in crate::fleecheck::scarer_check(&spec, &extra, &posts, &scarer_transient, gp).map_err(|e| anyhow::anyhow!(e))? {
+                let mut cols: Vec<[f64; 4]> = Vec::new();
+                for s in &scarer_column {
+                    let v: Vec<f64> = s.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+                    anyhow::ensure!(v.len() == 4, "--scarer-column x,y0,z,y1");
+                    cols.push([v[0], v[1], v[2], v[3]]);
+                }
+                for l in crate::fleecheck::scarer_check(&spec, &extra, &posts, &scarer_transient, gp, &cols).map_err(|e| anyhow::anyhow!(e))? {
                     println!("{l}");
                 }
                 return Ok(());
@@ -10143,6 +10208,22 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         });
                         println!("  PATH {} {:.2},{:.2},{:.2} cell {},{},{}: {}; {}", p.2.replace(' ', ""), p.1.x, p.1.y, p.1.z, cell.x, cell.y, cell.z, if role.0 { "ARMS" } else if role.1 { "clears" } else { "neither" }, shares);
                     }
+                }
+            }
+            for s in &clear_rate {
+                // (x,y,z integers: a rail cell; with a decimal point: a cart position, the place at it)
+                let v: Vec<f64> = s.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+                anyhow::ensure!(v.len() == 3, "--clear-rate x,y,z");
+                let exact = s.contains('.').then(|| redsim::entity::Vec3::new(v[0], v[1], v[2]));
+                let at = redsim::pos::BlockPos::new(v[0].floor() as i32, v[1].floor() as i32, v[2].floor() as i32);
+                let mut cexcl = Vec::new();
+                for e in &scarer_exclude {
+                    let v: Vec<i32> = e.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(v.len() == 6, "--scarer-exclude x0,y0,z0,x1,y1,z1");
+                    cexcl.push(([v[0].min(v[3]), v[1].min(v[4]), v[2].min(v[5])], [v[0].max(v[3]), v[1].max(v[4]), v[2].max(v[5])]));
+                }
+                for l in crate::fleecheck::clear_rate(&spec, bed, &panic_boxes, &claims, &pills, at, &fix_block, clear_floors, &cexcl, exact).map_err(|e| anyhow::anyhow!(e))? {
+                    println!("{l}");
                 }
             }
             for s in &fix_search {
