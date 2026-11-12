@@ -3968,6 +3968,9 @@ pub struct MeterState {
     ph_prevz: Vec<f64>,
     ph_spacer_until: i64,
     ph_shuts: usize,
+    /// the timer fill (`MCTAS_TIMER_FILL`): the fill's first H opening, live gt since
+    fill_t: Option<i64>,
+    fill_live: i64,
     /// P2: the transit latch (set when a cart passes H's plane, cleared by its count edge), its
     /// live gt, a held REL, and the counts
     tl: Option<i64>,
@@ -4532,6 +4535,8 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
         s.metering = false;
         s.crest_seen = 0;
         s.rel_open = true;
+        s.fill_t = None;
+        s.fill_live = 0;
         // (the occupancy latched at REL: P1 = L1, P2 = L2, P3 = a Dh edge while L2 was set; SE armed
         // for the rearmost occupied pocket's departure edge: P3 by D2, P2 by D1, P1 by the crest; a
         // REL while the previous departure's SE is still pending (a freeze between REL and SE) keeps
@@ -4569,12 +4574,8 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
         log(s, format!("{c}+{dt} REL (occupancy {}{}{})", s.occ[0] as u8, s.occ[1] as u8, s.occ[2] as u8));
     }
     s.rel_was = rel_on;
-    // (SE: the rearmost occupied pocket's departing cart at its cell, the stand open; E = SE;
-    // `MCTAS_SE_CREST`: SE only when the last departing cart crosses the crest (the batch's
-    // count of crest crossings since REL reaching the occupied pockets), for staggered departures
-    // whose last cart is slow to clear the gates)
-    let occ_n = s.occ.iter().filter(|x| **x).count();
-    let se_edge = if std::env::var("MCTAS_SE_CREST").is_ok() { rise[4] && s.crest_seen >= occ_n.max(1) } else if s.occ[2] { rise[3] } else if s.occ[1] { rise[2] } else { rise[4] };
+    // (SE: the rearmost occupied pocket's departing cart at its cell, the stand open; E = SE)
+    let se_edge = if s.occ[2] { rise[3] } else if s.occ[1] { rise[2] } else { rise[4] };
     if s.se_armed && s.rel_open && se_edge {
         s.se_armed = false;
         s.se_count += 1;
@@ -4720,6 +4721,10 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
         s.cur_open_retry = s.retry_open;
         s.retry_open = false;
         s.h_open = true;
+        if s.phase == 0 && s.fill_t.is_none() {
+            s.fill_t = Some(t);
+            s.fill_live = 0;
+        }
         if s.phase % 2 == 0 {
             s.phase += 1;
         }
@@ -4848,11 +4853,29 @@ fn meter_tick(w: &mut redsim::world::World, m: &MeterHold, s: &mut MeterState, l
         let gdel = |name: &str| std::env::var(name).ok().and_then(|v| v.parse::<i64>().ok()).unwrap_or(0);
         let (g1d, g2d) = (gdel("MCTAS_METER_G1_DELAY").max(if std::env::var("MCTAS_METER_G1_DELAY").is_ok() { 0 } else { m.g1_delay }), if std::env::var("MCTAS_METER_G2_DELAY").is_ok() { gdel("MCTAS_METER_G2_DELAY") } else { m.g2_delay });
         let since_rel = s.rel_t.map_or(i64::MAX, |r| t - r);
-        let want = [
-            s.rel_open,
-            if s.rel_open && since_rel < g1d { false } else { s.rel_open || !s.l1 },
-            if s.rel_open && since_rel < g2d { false } else { s.rel_open || !s.l2 },
-        ];
+        // (`MCTAS_TIMER_FILL` T1,T2: the one-chunk fill on live-time timers instead of the D1/D2
+        // latches: G1 stays open T1 live gt and G2 T2 live gt after the fill's first H opening
+        // (the hold's release in the gravity lead), counted only while H's chunk ticks entities)
+        let timer_fill: Option<(i64, i64)> = std::env::var("MCTAS_TIMER_FILL").ok().and_then(|v| {
+            let n: Vec<i64> = v.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+            (n.len() == 2).then(|| (n[0], n[1]))
+        });
+        if timer_fill.is_some() && s.fill_t.is_some() {
+            let hc = at(xb, 3, 0);
+            if w.chunk_level(hc.x.div_euclid(16), hc.z.div_euclid(16)) <= 31 {
+                s.fill_live += 1;
+            }
+        }
+        let tf_open = |tau: i64| s.fill_t.is_none() || s.fill_live < tau;
+        let want = if let Some((t1, t2)) = timer_fill {
+            [s.rel_open, if s.rel_open && since_rel < g1d { false } else { s.rel_open || tf_open(t1) }, if s.rel_open && since_rel < g2d { false } else { s.rel_open || tf_open(t2) }]
+        } else {
+            [
+                s.rel_open,
+                if s.rel_open && since_rel < g1d { false } else { s.rel_open || !s.l1 },
+                if s.rel_open && since_rel < g2d { false } else { s.rel_open || !s.l2 },
+            ]
+        };
         for k in 0..3 {
             let cur = w.get(gw[k]).to_string();
             let open_now = cur.contains("open=true");
