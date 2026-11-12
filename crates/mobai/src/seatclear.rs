@@ -250,8 +250,17 @@ pub(crate) fn wilson95_pub(k: u32, n: u32) -> (f64, f64) {
 /// carries, and the tag f3 (its charge state is read).
 pub(crate) fn place_part(srv: &mut VanillaServer, part: &std::path::Path) -> Result<()> {
     let d = mctas::design::Design::load(part)?;
-    for (p, s) in d.blocks.iter() {
-        srv.cmd_ok(&format!("setblock {} {} {} {s}", p[0], p[1] + DY, p[2]))?;
+    // the other blocks first, then the rails as stated (strict, as the module's); a cell already in
+    // that state is left as it is (`cmd`: the setblock then reports no change), and module-check
+    // reports whatever differs afterwards
+    for pass in 0..2 {
+        for (p, s) in d.blocks.iter() {
+            let rail = s.contains("rail");
+            if rail != (pass == 1) {
+                continue;
+            }
+            srv.cmd(&format!("setblock {} {} {} {s}{}", p[0], p[1] + DY, p[2], if rail { " strict" } else { "" }))?;
+        }
     }
     for e in &d.entities {
         let nbt = e.nbt.clone().unwrap_or_default().replace(
@@ -377,7 +386,8 @@ fn start_placed(version: &str, module: &std::path::Path, strict_rails: bool) -> 
 /// glass roof.
 fn posts(srv: &mut VanillaServer) -> Result<()> {
     // S2's ruled glowstone roof (9fc3155f's sky check; night is held anyway)
-    srv.cmd_ok(&format!("setblock -5 {} -2 minecraft:glowstone", DY - 2))?;
+    // (a module that already has it, rev 3, leaves the cell unchanged: `cmd`, not `cmd_ok`)
+    srv.cmd(&format!("setblock -5 {} -2 minecraft:glowstone", DY - 2))?;
     srv.cmd_ok(&format!("summon minecraft:oak_boat {} {{Passengers:[{{id:\"minecraft:pillager\",PersistenceRequired:1b,Tags:[\"s1\"],equipment:{{mainhand:{{id:\"minecraft:crossbow\",count:1}}}}}}]}}", at(-4.5, -1.0, -4.5)))?;
     srv.cmd_ok(&format!("summon minecraft:oak_boat {} {{Passengers:[{{id:\"minecraft:zombie\",PersistenceRequired:1b,Tags:[\"s2\"]}}]}}", at(-4.5, -4.0, -1.5)))?;
     srv.cmd_ok(&format!("summon minecraft:oak_boat {} {{Passengers:[{{id:\"minecraft:zombie\",PersistenceRequired:1b,Tags:[\"bz\"]}}]}}", at(-4.5, -18.0, 3.5)))?;
@@ -922,14 +932,15 @@ fn f3_post(srv: &mut VanillaServer) -> Result<()> {
 /// cells by branch and outcome, MoveToTargetSink's state at the panic onset, the pillagers'
 /// charged ticks.
 pub fn f3_seat(version: &str, module: &std::path::Path, name: &str, seat: [i32; 3], fill: &[[i32; 3]], post: bool, glow: &[[i32; 3]], rail_glow: bool, draws: u32) -> Result<()> {
-    f3_seat_parts(version, module, name, seat, fill, post, glow, rail_glow, draws, &[], None)
+    f3_seat_parts(version, module, name, seat, fill, post, glow, rail_glow, draws, &[], None, &[])
 }
 
 /// As [`f3_seat`], with part files laid over the module in order (blocks as stated, entities
-/// summoned: [`place_part`]) and the rider's cart at `cart` (else the seat cell's centre 0.5 up);
-/// each file's cells checked against the world after everything is placed (module-check).
+/// summoned: [`place_part`]), `air` cells cleared after them, and the rider's cart at `cart` (else the
+/// seat cell's centre 0.5 up); each file's cells checked against the world after everything is
+/// placed (module-check).
 #[allow(clippy::too_many_arguments)]
-pub fn f3_seat_parts(version: &str, module: &std::path::Path, name: &str, seat: [i32; 3], fill: &[[i32; 3]], post: bool, glow: &[[i32; 3]], rail_glow: bool, draws: u32, parts: &[std::path::PathBuf], cart: Option<[f64; 3]>) -> Result<()> {
+pub fn f3_seat_parts(version: &str, module: &std::path::Path, name: &str, seat: [i32; 3], fill: &[[i32; 3]], post: bool, glow: &[[i32; 3]], rail_glow: bool, draws: u32, parts: &[std::path::PathBuf], cart: Option<[f64; 3]>, air: &[[i32; 3]]) -> Result<()> {
     println!(
         "== seat {name} ({},{},{}){}: the lead pair{}, {} glowstone floors{}; the queue filled at {fill:?}",
         seat[0],
@@ -947,6 +958,12 @@ pub fn f3_seat_parts(version: &str, module: &std::path::Path, name: &str, seat: 
     }
     for p in parts {
         place_part(&mut r.srv, p)?;
+    }
+    for a in air {
+        r.srv.cmd_ok(&format!("setblock {} {} {} minecraft:air", a[0], a[1] + DY, a[2]))?;
+    }
+    if !air.is_empty() {
+        println!("  cleared to air after the parts: {air:?}");
     }
     for f in glow {
         r.srv.cmd_ok(&format!("setblock {} {} {} minecraft:glowstone", f[0], f[1] + DY, f[2]))?;

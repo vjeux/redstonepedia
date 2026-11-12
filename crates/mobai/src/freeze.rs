@@ -31,7 +31,8 @@ const NY: i32 = 60;
 /// Ticks the agent prints every tick from a start (the build, the row's run, the restart's window).
 const TICKS: u32 = 6000;
 
-/// A block state mirrored in z (north and south swapped): facings, rail shapes, connections.
+/// A block state mirrored in z (north and south swapped): facings, rail shapes, connections, door
+/// hinges. (Stairs' shape, inner/outer left and right, is not mapped: the module has no stairs.)
 fn mirror_z(s: &str) -> String {
     let mut out = s.to_string();
     for (a, b) in [("facing=north", "facing=@S"), ("facing=south", "facing=north"), ("facing=@S", "facing=south")] {
@@ -63,35 +64,50 @@ fn mirror_z(s: &str) -> String {
     out
 }
 
-/// One module copy: world = frame + (dx, DY, dz), or mirrored: world z = mz - frame z.
+/// One module copy: world = frame + (dx, dy, dz), or mirrored: world z = mz - frame z; `alt`: the
+/// copy is of the second (already mirrored) module file.
 #[derive(Clone, Copy)]
 struct Copy {
     dx: i32,
+    dy: i32,
     dz: i32,
     mirror: Option<i32>,
+    alt: bool,
 }
 
 impl Copy {
     fn at(&self, p: [i32; 3]) -> [i32; 3] {
         match self.mirror {
-            Some(mz) => [p[0] + self.dx, p[1] + DY, mz - p[2]],
-            None => [p[0] + self.dx, p[1] + DY, p[2] + self.dz],
+            Some(mz) => [p[0] + self.dx, p[1] + self.dy, mz - p[2]],
+            None => [p[0] + self.dx, p[1] + self.dy, p[2] + self.dz],
         }
     }
     fn atf(&self, p: [f64; 3]) -> [f64; 3] {
         match self.mirror {
-            Some(mz) => [p[0] + self.dx as f64, p[1] + DY as f64, mz as f64 + 1.0 - p[2]],
-            None => [p[0] + self.dx as f64, p[1] + DY as f64, p[2] + self.dz as f64],
+            Some(mz) => [p[0] + self.dx as f64, p[1] + self.dy as f64, mz as f64 + 1.0 - p[2]],
+            None => [p[0] + self.dx as f64, p[1] + self.dy as f64, p[2] + self.dz as f64],
         }
     }
 }
 
 fn copies(n: u32) -> Vec<Copy> {
-    let mut v = vec![Copy { dx: 6, dz: 6, mirror: None }];
+    let mut v = vec![Copy { dx: 6, dy: DY, dz: 6, mirror: None, alt: false }];
     if n == 4 {
-        v.push(Copy { dx: 38, dz: 6, mirror: None });
-        v.push(Copy { dx: 6, dz: 0, mirror: Some(41) });
-        v.push(Copy { dx: 38, dz: 0, mirror: Some(41) });
+        v.push(Copy { dx: 38, dy: DY, dz: 6, mirror: None, alt: false });
+        v.push(Copy { dx: 6, dy: DY, dz: 0, mirror: Some(41), alt: false });
+        v.push(Copy { dx: 38, dy: DY, dz: 0, mirror: Some(41), alt: false });
+    }
+    v
+}
+
+/// onechunk's rev 3 recipe: the module at frame + (6, y0, 6) (and (38, y0, 6) at N = 4), the
+/// mirrored module file at frame + (6, y0, 38) and (38, y0, 38).
+fn copies_rev3(n: u32, y0: i32) -> Vec<Copy> {
+    let mut v = vec![Copy { dx: 6, dy: y0, dz: 6, mirror: None, alt: false }];
+    if n == 4 {
+        v.push(Copy { dx: 38, dy: y0, dz: 6, mirror: None, alt: false });
+        v.push(Copy { dx: 6, dy: y0, dz: 38, mirror: None, alt: true });
+        v.push(Copy { dx: 38, dy: y0, dz: 38, mirror: None, alt: true });
     }
     v
 }
@@ -265,7 +281,15 @@ fn report(log: &str, farm: &[(i32, i32)], from: i64, label: &str) {
     }
 }
 
-pub fn freeze_rows(version: &str, loader: &Path, module: &Path, n: u32, place: &str, ticks: u32) -> Result<()> {
+/// The lowest y of the group's twin portal (its portal blocks at z 2), from the group file.
+fn lowest_twin_y(group: Option<&Path>) -> Result<i32> {
+    let Some(g) = group else { return Ok(0) };
+    let d = mctas::design::Design::load(g)?;
+    d.blocks.iter().filter(|(p, s)| s.contains("nether_portal") && p[2] == 2).map(|(p, _)| p[1]).min().ok_or_else(|| anyhow::anyhow!("the group {} has no twin portal at z 2", g.display()))
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn freeze_rows(version: &str, loader: &Path, module: &Path, n: u32, place: &str, ticks: u32, group: Option<&Path>, mirrored: Option<&Path>, pocket: i32) -> Result<()> {
     if n != 1 && n != 4 {
         bail!("--modules 1 or 4");
     }
@@ -304,7 +328,10 @@ pub fn freeze_rows(version: &str, loader: &Path, module: &Path, n: u32, place: &
     // at level 32: block-ticking, its entities frozen, unless a ticket lifts it); a glass floor
     // under it, the world spawn there (a restart's login lands there too)
     let east = if n == 4 { 2 } else { 1 };
-    let far = [(east + 11) * 16 + 8, DY + 1, 16 + 8];
+    let rev3 = group.is_some();
+    // rev 3 (onechunk's recipe): modules at y0, the loader 3 lower; else everything at DY
+    let y0 = if rev3 { pocket } else { DY };
+    let far = [(east + 11) * 16 + 8, y0 + 1, 16 + 8];
     srv.cmd_ok(&format!("forceload add {} {} {} {}", far[0], far[2], far[0], far[2]))?;
     srv.cmd_ok(&format!("setblock {} {} {} minecraft:glass", far[0], far[1] - 1, far[2]))?;
     srv.cmd_ok(&format!("setworldspawn {} {} {}", far[0], far[1], far[2]))?;
@@ -314,13 +341,36 @@ pub fn freeze_rows(version: &str, loader: &Path, module: &Path, n: u32, place: &
     srv.teleport_bot(far[0] as f64 + 0.5, far[1] as f64, far[2] as f64 + 0.5)?;
     // the build, force-loaded
     srv.cmd_ok("forceload add 0 0 47 47")?;
-    srv.cmd_ok("execute in minecraft:the_nether run forceload add 0 0 15 15")?;
+    srv.cmd_ok("execute in minecraft:the_nether run forceload add -16 -16 15 15")?;
     srv.step(20)?;
-    let t = [17, DY, 17];
+    let t = if rev3 { [17, y0 - 3, 17] } else { [17, DY, 17] };
     let n0 = [2, NY, 2];
     let nc = |c: String| format!("execute in minecraft:the_nether run {c}");
-    srv.cmd_ok(&nc(format!("fill {} {} {} {} {} {} minecraft:air", n0[0] - 4, n0[1] + 6, n0[2] - 6, n0[0] + 8, n0[1] + 17, n0[2] + 4)))?;
-    for (blocks, at, nether) in [(&ld.blocks, t, false), (&ld.nether_blocks, n0, true)] {
+    if let Some(g) = group {
+        // the Nether group, unmoved (Nether world coordinates): its twin is the loader's Nether side
+        let gd = mctas::design::Design::load(g)?;
+        let (lo, hi) = gd.blocks.keys().fold(([i32::MAX; 3], [i32::MIN; 3]), |(lo, hi), p| ([lo[0].min(p[0]), lo[1].min(p[1]), lo[2].min(p[2])], [hi[0].max(p[0]), hi[1].max(p[1]), hi[2].max(p[2])]));
+        srv.cmd_ok(&nc(format!("fill {} {} {} {} {} {} minecraft:air", lo[0] - 2, lo[1] - 2, lo[2] - 2, hi[0] + 2, (hi[1] + 2).min(126), hi[2] + 2)))?;
+        for pass in 0..3 {
+            for (p, s) in &gd.blocks {
+                let k = if s.contains("obsidian") { 0 } else if s.contains("nether_portal") { 2 } else { 1 };
+                if k != pass {
+                    continue;
+                }
+                let mode = if s.contains("rail") { " strict" } else { "" };
+                srv.cmd(&nc(format!("setblock {} {} {} {s}{mode}", p[0], p[1], p[2])))?;
+            }
+        }
+        for (p, nbt) in &gd.block_entities {
+            srv.cmd_ok(&nc(format!("data merge block {} {} {} {nbt}", p[0], p[1], p[2])))?;
+        }
+        let m: Vec<String> = gd.blocks.iter().filter(|(p, s)| !srv.cmd_long(&nc(format!("execute if block {} {} {} {s}", p[0], p[1], p[2]))).map(|o| o.contains("passed")).unwrap_or(false)).map(|(p, s)| format!("({},{},{}) {s}", p[0], p[1], p[2])).collect();
+        println!("  the Nether group {} placed unmoved; module-check: {} of {} cells differ{}", g.display(), m.len(), gd.blocks.len(), if m.is_empty() { String::new() } else { format!(": {}", m.iter().take(12).cloned().collect::<Vec<_>>().join("; ")) });
+    } else {
+        srv.cmd_ok(&nc(format!("fill {} {} {} {} {} {} minecraft:air", n0[0] - 4, n0[1] + 6, n0[2] - 6, n0[0] + 8, n0[1] + 17, n0[2] + 4)))?;
+    }
+    let loader_parts: Vec<(&BTreeMap<[i32; 3], String>, [i32; 3], bool)> = if rev3 { vec![(&ld.blocks, t, false)] } else { vec![(&ld.blocks, t, false), (&ld.nether_blocks, n0, true)] };
+    for (blocks, at, nether) in loader_parts {
         for pass in 0..3 {
             for (p, s) in blocks {
                 let k = if s.contains("obsidian") { 0 } else if s.contains("nether_portal") { 1 } else { 2 };
@@ -335,23 +385,35 @@ pub fn freeze_rows(version: &str, loader: &Path, module: &Path, n: u32, place: &
     for (p, nbt) in &ld.block_entities {
         srv.cmd_ok(&format!("data merge block {} {} {} {nbt}", t[0] + p[0], t[1] + p[1], t[2] + p[2]))?;
     }
-    for (p, nbt) in &ld.nether_block_entities {
-        srv.cmd_ok(&nc(format!("data merge block {} {} {} {nbt}", n0[0] + p[0], n0[1] + p[1], n0[2] + p[2])))?;
+    if !rev3 {
+        for (p, nbt) in &ld.nether_block_entities {
+            srv.cmd_ok(&nc(format!("data merge block {} {} {} {nbt}", n0[0] + p[0], n0[1] + p[1], n0[2] + p[2])))?;
+        }
     }
+    let alt_design = match mirrored {
+        Some(m) => Some(mctas::design::Design::load(m)?),
+        None => None,
+    };
     let mut farm: std::collections::BTreeSet<(i32, i32)> = std::collections::BTreeSet::new();
-    for c in copies(n) {
-        farm.extend(place_module(&mut srv, &md, c, true)?);
+    let list = if rev3 { copies_rev3(n, y0) } else { copies(n) };
+    for c in list {
+        let d = if c.alt { alt_design.as_ref().ok_or_else(|| anyhow::anyhow!("N = 4 on rev 3 needs --mirrored"))? } else { &md };
+        farm.extend(place_module(&mut srv, d, c, !rev3)?);
     }
     let farm: Vec<(i32, i32)> = farm.into_iter().collect();
-    println!(
-        "  farm chunks: {farm:?}; the loader's chunk (1,1); the modules' pad portals left out (without the modules' Nether sides, an arrival from the loader's Nether portal can exit at a nearer pad: N = 4's first run lost the loop that way)"
-    );
+    if rev3 {
+        println!("  farm chunks: {farm:?}; the loader's chunk (1,1); the modules' pads kept (they link to the group's kill room)");
+    } else {
+        println!(
+            "  farm chunks: {farm:?}; the loader's chunk (1,1); the modules' pad portals left out (without the modules' Nether sides, an arrival from the loader's Nether portal can exit at a nearer pad: N = 4's first run lost the loop that way)"
+        );
+    }
     // the loop runs 400 gt force-loaded, then the force-loads go and the player takes its place
     srv.step(400)?;
     let warm = portal_ticks_left(&std::fs::read_to_string(&srv.log)?);
     println!("  the loop during the force-loaded 400 gt: {} printed lines with the overworld's PORTAL ticket", warm.len());
     srv.cmd_ok("forceload remove 0 0 47 47")?;
-    srv.cmd_ok("execute in minecraft:the_nether run forceload remove 0 0 15 15")?;
+    srv.cmd_ok("execute in minecraft:the_nether run forceload remove -16 -16 15 15")?;
     if place == "nether" {
         srv.cmd_ok(&format!("execute in minecraft:the_nether run tp {bot} 200.5 70 200.5"))?;
     }
@@ -363,7 +425,106 @@ pub fn freeze_rows(version: &str, loader: &Path, module: &Path, n: u32, place: &
         pos.split("entity data: ").nth(1).unwrap_or(&pos).trim(),
         dim.split("entity data: ").nth(1).unwrap_or(&dim).trim()
     );
-    srv.step(ticks)?;
+    // rev 3: every loop item's crossings, read each tick: its last cell in the twin's portal before it
+    // leaves the Nether, and where it turns up in the overworld (the loader's portal, a pad, other)
+    let mut nether_cells: BTreeMap<String, u32> = BTreeMap::new();
+    let mut arrivals: BTreeMap<String, u32> = BTreeMap::new();
+    if rev3 {
+        let items = |srv: &mut VanillaServer, dim: &str, sel: &str| -> Result<Vec<(String, [f64; 3])>> {
+            let u = srv.cmd_long(&format!("execute in minecraft:{dim} as @e[type=minecraft:item,{sel}] run data get entity @s UUID"))?;
+            let p = srv.cmd_long(&format!("execute in minecraft:{dim} as @e[type=minecraft:item,{sel}] run data get entity @s Pos"))?;
+            let us: Vec<String> = u.split("entity data: ").skip(1).map(|s| s.split(']').next().unwrap_or("").to_string()).collect();
+            let ps: Vec<[f64; 3]> = p
+                .split("entity data: ")
+                .skip(1)
+                .filter_map(|s| {
+                    let v: Vec<f64> = s.split(']').next()?.trim_start_matches('[').split(',').filter_map(|t| t.trim().trim_end_matches('d').parse().ok()).collect();
+                    (v.len() == 3).then(|| [v[0], v[1], v[2]])
+                })
+                .collect();
+            Ok(us.into_iter().zip(ps).collect())
+        };
+        let (ny0, ny1) = (lowest_twin_y(group)?, lowest_twin_y(group)? + 6);
+        let nsel = format!("x=-3,y={},z=0,dx=8,dy={},dz=4", ny0 - 1, ny1 - ny0 + 2);
+        let osel = format!("x=0,y={},z=0,dx=48,dy=24,dz=48", y0 - 12);
+        let mut last_nether: BTreeMap<String, [f64; 3]> = BTreeMap::new();
+        let mut seen_ow: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+        // items that left the Nether box, waiting to turn up in the overworld (a crossing keeps
+        // the entity's UUID: `restoreFrom` loads its saved data into the new dimension's copy)
+        let mut gone: BTreeMap<String, ([f64; 3], u32)> = BTreeMap::new();
+        for tick in 0..ticks {
+            srv.step(1)?;
+            let now_n = items(&mut srv, "the_nether", &nsel)?;
+            let now_o = items(&mut srv, "overworld", &osel)?;
+            let in_n: std::collections::BTreeSet<&String> = now_n.iter().map(|(u, _)| u).collect();
+            for (u, p) in &last_nether {
+                if !in_n.contains(u) {
+                    gone.insert(u.clone(), (*p, tick));
+                }
+            }
+            for (u, p) in &now_o {
+                if !seen_ow.contains(u) {
+                    let (x, z) = (p[0].floor() as i32, p[2].floor() as i32);
+                    let wher = if (16..=22).contains(&x) && (16..=18).contains(&z) {
+                        "the loader's portal".to_string()
+                    } else if ((4..=13).contains(&x) || (36..=45).contains(&x)) && ((0..=5).contains(&z) || (42..=47).contains(&z)) {
+                        format!("a pad ({x},{},{z})", p[1].floor() as i32)
+                    } else {
+                        format!("elsewhere ({x},{},{z})", p[1].floor() as i32)
+                    };
+                    match gone.remove(u) {
+                        Some((q, _)) => {
+                            // a crossing from the Nether: its last Nether cell, where it arrived
+                            *nether_cells.entry(format!("({},{},{})", q[0].floor() as i32, q[1].floor() as i32, q[2].floor() as i32)).or_default() += 1;
+                            *arrivals.entry(format!("from the Nether: {wher}")).or_default() += 1;
+                        }
+                        None => *arrivals.entry(format!("new in the overworld (the loader's own dropper's or other): {wher}")).or_default() += 1,
+                    }
+                }
+            }
+            seen_ow = now_o.iter().map(|(u, _)| u.clone()).collect();
+            last_nether = now_n.into_iter().collect();
+            // an item gone from the Nether box for 20 gt without turning up in the overworld:
+            // absorbed there (a hopper) or out of the boxes
+            let stale: Vec<String> = gone.iter().filter(|(_, (_, t))| tick - *t > 20).map(|(u, _)| u.clone()).collect();
+            for u in stale {
+                if let Some((q, _)) = gone.remove(&u) {
+                    *arrivals.entry(format!("left the Nether box and never seen in the overworld (absorbed or out of the boxes), last at ({},{},{})", q[0].floor() as i32, q[1].floor() as i32, q[2].floor() as i32)).or_default() += 1;
+                }
+            }
+        }
+    } else {
+        srv.step(ticks)?;
+    }
+    if rev3 {
+        println!("  (a) Nether -> overworld crossings, by the item's last Nether cell (cell: crossings): {nether_cells:?}");
+        println!("  (a) every item's first sight in the overworld: {arrivals:?}");
+        // the Nether group's chunks: their best ticket level over the row (the load agent's
+        // Nether ticket lines)
+        let log = std::fs::read_to_string(&srv.log)?;
+        let tk = ticket_lines(&log, "nether");
+        let gd = mctas::design::Design::load(group.unwrap_or(Path::new("")))?;
+        let chunks: std::collections::BTreeSet<(i32, i32)> = gd.blocks.keys().map(|p| (p[0].div_euclid(16), p[2].div_euclid(16))).collect();
+        for c in chunks {
+            let mut worst: Option<(i32, i64, String)> = None;
+            for (gt, m) in tk.iter().filter(|(gt, _)| *gt >= from) {
+                let b = best_level(m, c);
+                let lv = b.as_ref().map(|b| b.0).unwrap_or(99);
+                if worst.as_ref().is_none_or(|w| lv > w.0) {
+                    worst = Some((lv, *gt, b.map(|b| b.1).unwrap_or_else(|| "no ticket in range".into())));
+                }
+            }
+            println!(
+                "  (a) the Nether group's chunk {},{}: worst best-ticket-level {} ({}; {}, at gt {})",
+                c.0,
+                c.1,
+                worst.as_ref().map(|w| w.0.to_string()).unwrap_or_else(|| "-".into()),
+                worst.as_ref().map(|w| status(Some(w.0))).unwrap_or("-"),
+                worst.as_ref().map(|w| w.2.clone()).unwrap_or_default(),
+                worst.as_ref().map(|w| w.1).unwrap_or(0)
+            );
+        }
+    }
     let riders = srv.cmd_long("execute if entity @e[tag=farmrider]")?;
     let log = std::fs::read_to_string(&srv.log)?;
     report(&log, &farm, from, &format!("(a) the loop running {ticks} gt with the player {place}"));

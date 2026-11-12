@@ -427,6 +427,60 @@ pub enum MobaiCmd {
         #[arg(long)]
         draws_out: Option<std::path::PathBuf>,
     },
+    /// (tickexact 2026-11-12, onechunk via farmopt) Riders at lane 3's S-bend R, rolling on the
+    /// split row and dropped onto the lane tops, on the official server; every stroll draw's
+    /// target, its first path (complete or partial, its end) and WALK_TARGET's hold
+    RowDraws {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        #[arg(long)]
+        module: std::path::PathBuf,
+        #[arg(long, default_value = "")]
+        parts: String,
+        #[arg(long, default_value = "", allow_hyphen_values = true)]
+        air: String,
+        #[arg(long, default_value = "0.3,0.38")]
+        row_speeds: String,
+        #[arg(long, default_value_t = 100)]
+        every: u32,
+        #[arg(long, default_value_t = 2000)]
+        ticks: u32,
+        #[arg(long)]
+        draws_out: Option<std::path::PathBuf>,
+    },
+    /// (tickexact 2026-11-12, ironspec and G1) The S-bend crossing margin on the official server:
+    /// a ridden napper at rest on the siding's R, ridden through-carts entering K from the west at
+    /// each speed; every tick the boxes' gaps, the push searches, speeds, the napper's movement
+    Crossing {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        #[arg(long)]
+        module: std::path::PathBuf,
+        /// Part files laid over the module in order, a,b,c
+        #[arg(long, default_value = "")]
+        parts: String,
+        /// Cells cleared to air after the parts, x,y,z;...
+        #[arg(long, default_value = "", allow_hyphen_values = true)]
+        air: String,
+        /// The napper cart at rest, x,y,z
+        #[arg(long, allow_hyphen_values = true)]
+        napper: String,
+        /// The through-carts' start, x,y,z
+        #[arg(long, allow_hyphen_values = true)]
+        through: String,
+        /// The through-carts' speeds east, a,b,c (one pass each)
+        #[arg(long, default_value = "0.3")]
+        speeds: String,
+        #[arg(long, default_value_t = 80)]
+        ticks: u32,
+    },
+    /// (tickexact 2026-11-12, ironspec: split9's GO) The split junction on the official server: J a
+    /// T at (0,25,9) driven by a repeater with a lever, D a detector ascending south under its north
+    /// arm; presses and releases of D, the driver toggled, restarts; every tick J's and D's shapes
+    JunctionProbe {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+    },
     /// (tickexact 2026-11-12, ironspec: the bed stop's merge) A villager walking to its bed at night
     /// on the official server, `/time set 0` when it is `--at` blocks from the head; every tick to
     /// day time `--until`: activity, WALK_TARGET, PATH, position, asleep
@@ -470,6 +524,17 @@ pub enum MobaiCmd {
         /// Row (a)'s run (gt)
         #[arg(long, default_value_t = 2000)]
         ticks: u32,
+        /// onechunk's rev 3 recipe: the Nether group file (kill room, storage, shield and the
+        /// loader's twin), placed unmoved; the loader's own Nether part is then left out, the
+        /// modules' pads kept, everything at `--pocket`
+        #[arg(long)]
+        group: Option<std::path::PathBuf>,
+        /// Rev 3 at N = 4: the mirrored module file (the southern copies)
+        #[arg(long)]
+        mirrored: Option<std::path::PathBuf>,
+        /// Rev 3: the pocket's y (the modules' frame + y; the loader 3 lower)
+        #[arg(long, default_value_t = 110)]
+        pocket: i32,
     },
     /// (tickexact 2026-11-12, ironspec) df472311b's queue fill on the strict-placed module, printed
     /// every tick on the official server: R_1's power, H's trapdoor, every cart and rider; the
@@ -531,6 +596,9 @@ pub enum MobaiCmd {
         /// The rider's cart at x,y,z (else the seat cell's centre 0.5 up)
         #[arg(long, allow_hyphen_values = true)]
         cart: Option<String>,
+        /// Cells cleared to air after the parts, x,y,z;... (a part re-laid elsewhere)
+        #[arg(long, default_value = "", allow_hyphen_values = true)]
+        air: String,
     },
     /// (tickexact 2026-11-12, ironspec: the rail-T rule) On the official server: 7b90c3f1's
     /// in-chunk branch (a replica): J's shape through carts, a restart and a stone beside it, and
@@ -823,14 +891,48 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
                 .collect::<anyhow::Result<_>>()?;
             crate::lanerun::lane_run(&version, &module, x, riders, ticks, every, post, &glow, part.as_deref(), draws_out.as_deref())
         }
+        MobaiCmd::RowDraws { version, module, parts, air, row_speeds, every, ticks, draws_out } => {
+            let air: Vec<[i32; 3]> = air
+                .split(';')
+                .filter(|f| !f.trim().is_empty())
+                .map(|f| {
+                    let v: Vec<i32> = f.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(v.len() == 3, "--air x,y,z;..., got {f}");
+                    Ok([v[0], v[1], v[2]])
+                })
+                .collect::<anyhow::Result<_>>()?;
+            let parts: Vec<std::path::PathBuf> = parts.split(',').filter(|p| !p.trim().is_empty()).map(std::path::PathBuf::from).collect();
+            let speeds: Vec<f64> = row_speeds.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+            crate::rowdraws::row_draws(&version, &module, &parts, &air, &speeds, every, ticks, draws_out.as_deref())
+        }
+        MobaiCmd::Crossing { version, module, parts, air, napper, through, speeds, ticks } => {
+            let f3 = |s: &str, what: &str| -> anyhow::Result<[f64; 3]> {
+                let v: Vec<f64> = s.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(v.len() == 3, "--{what} x,y,z, got {s}");
+                Ok([v[0], v[1], v[2]])
+            };
+            let air: Vec<[i32; 3]> = air
+                .split(';')
+                .filter(|f| !f.trim().is_empty())
+                .map(|f| {
+                    let v: Vec<i32> = f.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(v.len() == 3, "--air x,y,z;..., got {f}");
+                    Ok([v[0], v[1], v[2]])
+                })
+                .collect::<anyhow::Result<_>>()?;
+            let parts: Vec<std::path::PathBuf> = parts.split(',').filter(|p| !p.trim().is_empty()).map(std::path::PathBuf::from).collect();
+            let speeds: Vec<f64> = speeds.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+            crate::crossing::crossing(&version, &module, &parts, &air, f3(&napper, "napper")?, f3(&through, "through")?, &speeds, ticks)
+        }
+        MobaiCmd::JunctionProbe { version } => crate::junction::junction_probe(&version),
         MobaiCmd::DayJump { version, at, until } => crate::dayjump::day_jump(&version, at, until),
         MobaiCmd::HaltBridge { version, rows, ticks } => crate::haltbridge::halt_bridge(&version, &rows, ticks),
-        MobaiCmd::FreezeRows { version, loader, module, modules, place, ticks } => crate::freeze::freeze_rows(&version, &loader, &module, modules, &place, ticks),
+        MobaiCmd::FreezeRows { version, loader, module, modules, place, ticks, group, mirrored, pocket } => crate::freeze::freeze_rows(&version, &loader, &module, modules, &place, ticks, group.as_deref(), mirrored.as_deref(), pocket),
         MobaiCmd::QueueFill { version, module, ridden } => crate::seatclear::queue_fill(&version, &module, ridden),
         MobaiCmd::SeatOffset { version } => crate::seatoffset::seat_offset(&version),
         MobaiCmd::ModuleCheck { version, module } => crate::seatclear::module_check(&version, &module),
         MobaiCmd::PadPiglins { version, station, ticks } => crate::padpiglin::pad_piglins(&version, &station, ticks),
-        MobaiCmd::SeatF3 { version, module, seats, post, glow, rail_glow, draws, parts, cart } => {
+        MobaiCmd::SeatF3 { version, module, seats, post, glow, rail_glow, draws, parts, cart, air } => {
             let cells = |s: &str| -> anyhow::Result<Vec<[i32; 3]>> {
                 s.split(';')
                     .filter(|f| !f.trim().is_empty())
@@ -856,7 +958,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
                 let seat = cells(c)?.first().copied().ok_or_else(|| anyhow::anyhow!("--seats name:x,y,z, got {s}"))?;
                 // a lane slope seat (x,17+i,1+i): its queue from R_1 up to the cell ahead of it
                 let fill: Vec<[i32; 3]> = if (17..=22).contains(&seat[1]) && seat[2] == seat[1] - 16 { (17..seat[1]).map(|y| [seat[0], y, y - 16]).collect() } else { Vec::new() };
-                crate::seatclear::f3_seat_parts(&version, &module, name, seat, &fill, post, &glow, rail_glow, draws, &parts, cart)?;
+                crate::seatclear::f3_seat_parts(&version, &module, name, seat, &fill, post, &glow, rail_glow, draws, &parts, cart, &cells(&air)?)?;
             }
             Ok(())
         }

@@ -193,7 +193,8 @@ pub fn lane_run(version: &str, module: &std::path::Path, x: i32, riders: usize, 
             // without block updates so H's trapdoor stays shut) and the front rolls off it into H
             let mut front = None;
             for k in 0..riders {
-                // the rider of the cart on H's trapdoor: its block (x,16,0) (seat at cart + 0.5)
+                // the rider of the cart on H's trapdoor: its block (x,16,0) (the seat is the cart's
+                // own position: the cart rests at y 16.1875); 17 covers a second cart stacked in H
                 if blocks[k].get(&t).is_some_and(|b| b[0] == x && b[2] == 0 && (16..=17).contains(&b[1])) {
                     front = Some(k);
                 }
@@ -312,7 +313,7 @@ pub fn lane_run(version: &str, module: &std::path::Path, x: i32, riders: usize, 
     println!("  mounts that failed: {failed_mounts}");
     if calm_age.0 > i64::MIN {
         println!(
-            "  the largest CANT_REACH stamp age at a calm (not panicking) tick: {} gt (r{} at ({},{},{}), t{})",
+            "  the largest CANT_REACH stamp age at a tick not panicking (conservative: any such tick, REST or not, walk target or not): {} gt (r{} at ({},{},{}), t{})",
             calm_age.0, calm_age.1, calm_age.2[0], calm_age.2[1], calm_age.2[2], calm_age.3
         );
     } else {

@@ -113,6 +113,7 @@ pub fn halt_bridge(version: &str, rows: &str, ticks: u32) -> Result<()> {
             "hold-ridden" => (true, false, 0.0),
             "pair-empty" => (false, true, 0.0),
             "flat-ridden" => (true, true, 0.3),
+            r if r.starts_with("pair-ridden-near-") => (true, true, r["pair-ridden-near-".len()..].parse::<f64>().map_err(|_| anyhow::anyhow!("pair-ridden-near-V: V a speed, got {r}"))?),
             r if r.starts_with("pair-ridden-") => (true, true, r["pair-ridden-".len()..].parse::<f64>().map_err(|_| anyhow::anyhow!("pair-ridden-V: V a speed, got {r}"))?),
             r => bail!("unknown row {r} (hold-empty, hold-ridden, pair-empty, pair-ridden-V, flat-ridden)"),
         };
@@ -120,12 +121,23 @@ pub fn halt_bridge(version: &str, rows: &str, ticks: u32) -> Result<()> {
         srv.step(20)?;
         if second {
             // the second cart: 3 cells up the slope (or 4 back on the flat), at rest or already moving
-            // down at `speed` (b/gt along z)
-            let p = if flat { [x, 0.0625, 5.5] } else { [x, 4.5625, 4.5] };
+            // down at `speed` (b/gt along z); `pair-ridden-near-V`: 1 cell up, so it meets the held
+            // cart within a quarter block and its contact speed stays near V (G1: from 3 cells up
+            // the roll adds about 0.05)
+            let p = if flat {
+                [x, 0.0625, 5.5]
+            } else if row.starts_with("pair-ridden-near-") {
+                [x, 2.5625, 2.5]
+            } else {
+                [x, 4.5625, 4.5]
+            };
             summon(&mut srv, &format!("b{i}"), p, -speed, ridden)?;
         }
         println!("== row {row} (x {ox}{}):", if flat { ", flat brake" } else { "" });
         let mut held_moved: Option<u32> = None;
+        // the arriving cart's speed the tick before it met the held one (it stops dead, or a push
+        // search first meets): the row's real contact speed (the summon speed is 3 cells up)
+        let (mut last_speed, mut contact_speed): (f64, Option<f64>) = (0.0, None);
         let a0 = read(&mut srv, &format!("a{i}"))?;
         for t in 1..=ticks {
             srv.step(1)?;
@@ -135,6 +147,13 @@ pub fn halt_bridge(version: &str, rows: &str, ticks: u32) -> Result<()> {
                 if held_moved.is_none() && ((a.pos[2] - a0.pos[2]).abs() > 1e-4 || (a.pos[1] - a0.pos[1]).abs() > 1e-4) {
                     held_moved = Some(t);
                 }
+            }
+            if let (Some(a), Some(b)) = (a, b) {
+                let speed = (b.motion[0].powi(2) + b.motion[2].powi(2)).sqrt();
+                if contact_speed.is_none() && last_speed > 0.01 && (speed < 0.001 || search_meets(&b, &a) || search_meets(&a, &b)) {
+                    contact_speed = Some(last_speed);
+                }
+                last_speed = speed;
             }
             let fmt = |c: &Cart| format!("({:.4},{:.4},{:.4}) v({:+.4},{:+.4},{:+.4}) yaw {:.1}", c.pos[0], c.pos[1], c.pos[2], c.motion[0], c.motion[1], c.motion[2], c.yaw);
             let line = match (a, b) {
@@ -160,10 +179,11 @@ pub fn halt_bridge(version: &str, rows: &str, ticks: u32) -> Result<()> {
         }
         let end = read(&mut srv, &format!("a{i}"))?;
         println!(
-            "  row {row}: the held cart first moved at {}; at the end {:?} (it started at {:?})",
+            "  row {row}: the held cart first moved at {}; at the end {:?} (it started at {:?}); the arriving cart's contact speed {}",
             held_moved.map(|t| format!("t{t}")).unwrap_or_else(|| "never".into()),
             end.map(|c| c.pos),
-            a0.map(|c| c.pos)
+            a0.map(|c| c.pos),
+            contact_speed.map(|v| format!("{v:.4} b/gt")).unwrap_or_else(|| "-".into())
         );
     }
     let _ = std::fs::remove_dir_all(&srv.dir);
