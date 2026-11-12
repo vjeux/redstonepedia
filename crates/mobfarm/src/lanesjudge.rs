@@ -228,6 +228,9 @@ pub fn check_artefacts(b: &Bars, expected: &[&str]) -> Result<(), String> {
         if !expected.contains(&label.as_str()) {
             return Err(format!("the artefact line's label {label:?} is none of this judge's families {expected:?}"));
         }
+        if why.is_empty() {
+            return Err(format!("the artefact line for {label:?} gives no why (G1 2026-11-12 03:17: an excuse must say what it excuses)"));
+        }
     }
     Ok(())
 }
@@ -448,6 +451,100 @@ mod tests {
         let worse = bars(&t.replace("at a release: 0", "at a release: 2").replace("artefact: carts per cell per release (exactly 1): the last release is cut by the run's end: see NOTES\n", ""));
         let kinds: Vec<String> = worse.beyond(&b).into_iter().map(|(k, _)| k).collect();
         assert!(kinds.iter().any(|k| k.starts_with("not settled at a release")), "{kinds:?}");
+        // (an empty why is refused: "artefact: <family>: " gives nothing)
+        let empty_why = bars(&format!("{t}artefact: gate and trapdoor shuts onto a cart: \n"));
+        assert!(check_artefacts(&empty_why, ESCAPE_GATES_FAMILIES).is_err());
+    }
+
+    /// Every family of the three judges, each dirtied alone in a synthetic bench text (G1 2026-11-12
+    /// 03:17): its dirt's kind starts with exactly that family (no other family's name, across the
+    /// three judges, is a prefix of it), that family's artefact covers it and no other's does; the
+    /// retries (exempt by name) make no dirt. The G0 / G_P pair, which share a line, first.
+    #[test]
+    fn every_family_covers_only_its_own_dirt() {
+        // (a judge: its families, a clean text, and per family the (from, to) that dirties it alone)
+        type Case = (&'static [&'static str], &'static str, Vec<(&'static str, &'static str, &'static str)>);
+        let lanes: Case = (
+            LANES_FAMILIES,
+            "carts per lane per opening (exactly 1): 1 carts: 24\n\
+             gate shuts onto a cart (the bar: 0): 0\n\
+             arrivals at the lanes' backs (the intakes): 30, 0 above 0.2, the hardest 0.180\n",
+            vec![
+                ("carts per lane per opening (exactly 1)", "1 carts: 24", "1 carts: 23, 0 carts: 1"),
+                ("gate shuts onto a cart", "cart (the bar: 0): 0", "cart (the bar: 0): 1"),
+                ("arrivals at the lanes' backs above 0.2", "0 above 0.2", "1 above 0.2"),
+            ],
+        );
+        let switched: Case = (
+            ESCAPE_SWITCHED_FAMILIES,
+            "carts per D per release (exactly 1): 1: 36; D not settled at a release: 0; R-line retries: 0\n\
+             trapdoor shuts onto a cart (the bar: 0): 0\n\
+             carts hanging over the rail end's support column (the bar: 0): 0\n\
+             arrivals at the lanes' backs (returns): 40, 0 above 0.46, the hardest 0.300\n\
+             the riders' eye blocks: in D tripwire x30; on R air x36\n",
+            vec![
+                ("carts per D per release (exactly 1)", "1: 36;", "1: 35, 0: 1;"),
+                ("not settled at a release", "release: 0;", "release: 1;"),
+                ("retries", "retries: 0", "retries: 2"),
+                ("trapdoor shuts onto a cart", "trapdoor shuts onto a cart (the bar: 0): 0", "trapdoor shuts onto a cart (the bar: 0): 1"),
+                ("carts hanging over the rail end's support column", "column (the bar: 0): 0", "column (the bar: 0): 1"),
+                ("arrivals at the lanes' backs above 0.46", "0 above 0.46", "1 above 0.46"),
+                ("the riders' eye blocks", "on R air x36", "on R air x35, glass x1"),
+            ],
+        );
+        let gates: Case = (
+            ESCAPE_GATES_FAMILIES,
+            "carts per G0 opening (exactly 1, after the warm-up): 1: 60; per G_P opening: 1: 60\n\
+             carts per cell per release (exactly 1): 1: 60; cells not settled (string held) at a release: 0; the batch's spread through the floors: max 0 gt\n\
+             gate and trapdoor shuts onto a cart (the bar: 0): 0\n\
+             arrivals at the lanes' backs (the ideal returns): 40, 0 above 0.46, the hardest 0.300\n",
+            vec![
+                ("carts per G0 opening (exactly 1, after the warm-up)", "after the warm-up): 1: 60;", "after the warm-up): 1: 59, 2: 1;"),
+                ("per G_P opening", "per G_P opening: 1: 60", "per G_P opening: 1: 59, 0: 1"),
+                ("carts per cell per release (exactly 1)", "release (exactly 1): 1: 60;", "release (exactly 1): 1: 59, 0: 1;"),
+                ("not settled at a release", "at a release: 0;", "at a release: 2;"),
+                ("gate and trapdoor shuts onto a cart", "cart (the bar: 0): 0", "cart (the bar: 0): 1"),
+                ("arrivals at the lanes' backs above 0.46", "0 above 0.46", "1 above 0.46"),
+            ],
+        );
+        let all: BTreeSet<&str> = LANES_FAMILIES.iter().chain(ESCAPE_SWITCHED_FAMILIES).chain(ESCAPE_GATES_FAMILIES).copied().collect();
+        let dirt = |clean: &str, from: &str, to: &str| -> Vec<String> {
+            assert!(clean.contains(from), "the synthetic text holds {from:?}");
+            bars(&clean.replacen(from, to, 1)).beyond(&bars(clean)).into_iter().map(|(k, _)| k).collect()
+        };
+        // (the G0 / G_P pair first: one line, two families, each dirt its own)
+        let (_, gclean, gcases) = &gates;
+        let g0 = dirt(gclean, gcases[0].1, gcases[0].2);
+        let gp = dirt(gclean, gcases[1].1, gcases[1].2);
+        assert_eq!(g0, vec!["carts per G0 opening (exactly 1, after the warm-up) 2 carts".to_string()]);
+        assert_eq!(gp, vec!["per G_P opening 0 carts".to_string()]);
+        assert!(covered_by(&g0[0], &[("per G_P opening".into(), "x".into())]).is_none() && covered_by(&gp[0], &[(gcases[0].0.into(), "x".into())]).is_none());
+        for (families, clean, cases) in [lanes, switched, gates] {
+            let c = bars(clean);
+            assert!(c.own().is_empty(), "the synthetic clean text is clean: {:?}", c.own());
+            assert_eq!(cases.iter().map(|x| x.0).collect::<BTreeSet<_>>(), families.iter().copied().collect::<BTreeSet<_>>(), "a case per family");
+            for f in families {
+                assert!(c.families.contains(*f), "the clean text carries {f:?}");
+            }
+            for (fam, from, to) in &cases {
+                let kinds = dirt(clean, from, to);
+                if *fam == "retries" {
+                    assert!(kinds.is_empty(), "the retries are exempt: {kinds:?}");
+                    continue;
+                }
+                assert!(!kinds.is_empty(), "{fam:?} dirtied makes dirt");
+                for k in &kinds {
+                    assert!(k.starts_with(fam), "{k:?} starts with its family {fam:?}");
+                    for g in all.iter().filter(|g| **g != *fam) {
+                        assert!(!k.starts_with(g), "{k:?} (family {fam:?}) starts with another family's name {g:?}");
+                        assert!(covered_by(k, &[(g.to_string(), "why".into())]).is_none());
+                    }
+                    assert!(covered_by(k, &[(fam.to_string(), "why".into())]).is_some());
+                }
+                let excused = bars(&format!("{}artefact: {fam}: a synthetic artefact\n", clean.replacen(from, to, 1)));
+                assert!(check_artefacts(&excused, families).is_ok(), "{fam:?}'s artefact accepted");
+            }
+        }
     }
 }
 
