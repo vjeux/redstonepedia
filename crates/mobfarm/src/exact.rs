@@ -839,15 +839,17 @@ impl GameFarm {
             eprintln!("ticking: {:?}", g.ticking);
         }
         // (tickexact 2026-11-12, the carousel-gate's first difference) the level random back to the
-        // seed's start once the farm is built: the build's own draws (a trapdoor its placement
-        // toggles plays its sound with a pitch from the level random: 4 in carousel-gate) never
-        // reach the run, and redsim's mirror, seeded from the same seed, starts equal
+        // seed's start once the farm is built: the build's own LEVEL-random draws (a trapdoor its
+        // placement toggles plays its sound with a pitch from the level random: 4 in carousel-gate)
+        // never reach the run, and redsim's mirror, seeded from the same seed, starts equal. An
+        // entity's own random is not reset: its build draws carry into the run (listed, marked)
         let rv = g.w.call(json!({"op": "reseed_level_random", "sandbox": sb}))?;
         if let Some(setup) = rv["setup_draws"].as_array().filter(|a| !a.is_empty()) {
             let n: u64 = setup.iter().filter_map(|d| d[2].as_u64()).sum();
-            eprintln!("the build drew {n} times from the traced randoms (the level random set back to the seed's start after it):");
+            eprintln!("the build drew {n} times from the traced randoms (the level random set back to the seed's start after it; other streams carry on):");
             for d in setup {
-                eprintln!("  {} {} x{}", d[0].as_str().unwrap_or(""), d[1].as_str().unwrap_or(""), d[2].as_u64().unwrap_or(0));
+                let stream = d[0].as_str().unwrap_or("");
+                eprintln!("  {stream} {} x{}{}", d[1].as_str().unwrap_or(""), d[2].as_u64().unwrap_or(0), if stream == "level" { "" } else { "  <-- not reset: an entity's own random carries these into the run" });
             }
         }
         Ok(g)

@@ -427,6 +427,17 @@ pub enum MobaiCmd {
         #[arg(long)]
         draws_out: Option<std::path::PathBuf>,
     },
+    /// (tickexact 2026-11-12, ironspec: the villager's golem detection range on 26.3) A seated
+    /// villager and a held iron golem at box gaps, horizontal and vertical: GOLEM_DETECTED_RECENTLY
+    /// and whether NEAREST_LIVING_ENTITIES holds the golem
+    GolemRange {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        #[arg(long, default_value = "15,17,30,47")]
+        gaps: String,
+        #[arg(long, default_value_t = 400)]
+        ticks: u32,
+    },
     /// (tickexact 2026-11-12, ironspec: the queue post's sky) The post's zombie in the composition:
     /// the light and the sky at its eye at noon, its Fire and Health over a clear day
     PostSky {
@@ -1090,6 +1101,10 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
                 })
                 .collect::<anyhow::Result<_>>()?;
             crate::lanerun::lane_run(&version, &module, x, riders, ticks, every, post, &glow, part.as_deref(), draws_out.as_deref())
+        }
+        MobaiCmd::GolemRange { version, gaps, ticks } => {
+            let gaps: Vec<f64> = gaps.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+            crate::golemrange::golem_range(&version, &gaps, ticks)
         }
         MobaiCmd::PostSky { version, module, parts, summon } => {
             let parts: Vec<std::path::PathBuf> = parts.split(',').filter(|p| !p.trim().is_empty()).map(std::path::PathBuf::from).collect();
