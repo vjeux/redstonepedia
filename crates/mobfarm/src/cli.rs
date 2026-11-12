@@ -1340,6 +1340,77 @@ pub enum MobfarmCmd {
         #[arg(long, default_value_t = 1)]
         jobs: usize,
     },
+    /// (cc767b78; farmopt 2026-11-11 21:06, vjeux's primitive (f), tick-exact's physics 21:10) The
+    /// vertical cart stack queue: ridden carts stacked in a 1x1 glass shaft (the pitch 1.95: each
+    /// cart on the head of the rider below), the bottom one on the foot (a powered rail with a solid
+    /// block behind it), the exit east `--exit` (r rail, D detector rail, B booster, b brake) and a
+    /// run to the sink; each release powers the foot for exactly `--release` departures (`--cut`:
+    /// detector:X:DELAY, edges:N or ticks:N); the refill dropped from `--refill-y`; a freeze or a
+    /// reload; the rules at the settled stack (each rider's eye cell, `--zombie`s, `--golem-spot`,
+    /// `--bed`); the design's blocks, box and redstone (`--compare FILE`: another design's). Bench:
+    /// the controller and the refill are the bench's.
+    StackBench {
+        #[arg(long, default_value_t = 6)]
+        carts: usize,
+        #[arg(long, default_value = "r D r B B B")]
+        exit: String,
+        #[arg(long, default_value_t = 24)]
+        run: i32,
+        #[arg(long, default_value_t = 4)]
+        headroom: i32,
+        /// Departures per release.
+        #[arg(long, default_value_t = 3)]
+        release: usize,
+        /// The cut: detector:X:DELAY (DELAY gt after the K-th rising edge of the exit's detector at
+        /// x X), edges:N (N ring edges, day-1's fast ring) or ticks:N (the control).
+        #[arg(long, default_value = "detector:2:1")]
+        cut: String,
+        #[arg(long, default_value_t = 20)]
+        first: i64,
+        #[arg(long, default_value_t = 100)]
+        every: i64,
+        #[arg(long, default_value_t = 1)]
+        releases: usize,
+        /// The refill: K carts dropped onto the stack from this y (the lift's delivery point).
+        #[arg(long)]
+        refill_y: Option<f64>,
+        #[arg(long, default_value_t = 20)]
+        refill_after: i64,
+        #[arg(long, default_value_t = 30)]
+        refill_every: i64,
+        /// A real level-32 freeze from the bench's tick T for D gt ("T,D").
+        #[arg(long, value_delimiter = ',')]
+        freeze: Vec<i64>,
+        /// A save, unload and load of the bench's chunks before tick T.
+        #[arg(long)]
+        reload_at: Option<i64>,
+        #[arg(long, default_value_t = 260)]
+        ticks: i64,
+        #[arg(long, default_value_t = 1)]
+        seed: i64,
+        #[arg(long, default_value_t = 1)]
+        seeds: i64,
+        /// The plane (x) the departures' spacing is measured at.
+        #[arg(long, default_value_t = 8.5)]
+        plane: f64,
+        /// A zombie's feet (x,y,z), repeatable: each rider's distance and sight to it.
+        #[arg(long)]
+        zombie: Vec<String>,
+        /// A golem spot (x,y,z): each rider's sideways and height distances (the sensor box bars
+        /// 18.84 / 20.54).
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        golem_spot: Vec<f64>,
+        /// A bed (x,y,z): each rider's distance.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        bed: Vec<f64>,
+        /// Another design's blocks, box and redstone (e.g. the gravity pressed run's file).
+        #[arg(long)]
+        compare: Option<PathBuf>,
+        #[arg(long)]
+        out: Option<PathBuf>,
+        #[arg(long)]
+        trace: bool,
+    },
     /// The gravity queue's climb back (onechunk's skeleton v3, `--v4` the inverted v4): the batch at
     /// rest in today's pockets leaves at the stand's release (G0 and G1 at REL, G2 at REL + its
     /// delay, each slope powered as the meter powers it) up the S3 departure, three flat curves and
@@ -4923,6 +4994,59 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         }
                     }
                 }
+            }
+        }
+        MobfarmCmd::StackBench { carts, exit, run, headroom, release, cut, first, every, releases, refill_y, refill_after, refill_every, freeze, reload_at, ticks, seed, seeds, plane, zombie, golem_spot, bed, compare, out, trace } => {
+            let d = crate::stack::StackDesign { carts, exit: exit.clone(), run, riders: true, headroom };
+            let text = crate::stack::design(&d).map_err(|e| anyhow::anyhow!(e))?;
+            let path = out.clone().unwrap_or_else(|| std::env::temp_dir().join(format!("stack-bench-{}.txt", std::process::id())));
+            std::fs::write(&path, &text)?;
+            let (_c, fspec) = load(version, &path)?;
+            anyhow::ensure!(freeze.is_empty() || freeze.len() == 2, "--freeze T,D");
+            anyhow::ensure!(golem_spot.is_empty() || golem_spot.len() == 3, "--golem-spot x,y,z");
+            anyhow::ensure!(bed.is_empty() || bed.len() == 3, "--bed x,y,z");
+            let zombies: Vec<[f64; 3]> = zombie
+                .iter()
+                .map(|s| -> anyhow::Result<[f64; 3]> {
+                    let v: Vec<f64> = s.split(',').map(|x| x.trim().parse::<f64>()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(v.len() == 3, "--zombie x,y,z");
+                    Ok([v[0], v[1], v[2]])
+                })
+                .collect::<anyhow::Result<_>>()?;
+            let cut = crate::stack::Cut::parse(&cut).map_err(|e| anyhow::anyhow!(e))?;
+            println!("stack bench: the design {}", path.display());
+            if let Some(cp) = &compare {
+                let (_c2, cspec) = load(version, cp)?;
+                println!("compare: {}: {}", cp.display(), crate::stack::metrics(&cspec));
+            }
+            for s in seed..seed + seeds {
+                let o = crate::stack::StackOpts {
+                    release,
+                    cut,
+                    first,
+                    every,
+                    releases,
+                    refill_y,
+                    refill_after,
+                    refill_every,
+                    freeze: (freeze.len() == 2).then(|| (freeze[0], freeze[1])),
+                    reload_at,
+                    ticks,
+                    seed: s,
+                    plane,
+                    zombies: zombies.clone(),
+                    golem: (golem_spot.len() == 3).then(|| [golem_spot[0], golem_spot[1], golem_spot[2]]),
+                    bed: (bed.len() == 3).then(|| [bed[0], bed[1], bed[2]]),
+                    trace,
+                };
+                let lines = crate::stack::bench(&fspec, &d, &o).map_err(|e| anyhow::anyhow!(e))?;
+                println!("== seed {s}");
+                for l in lines {
+                    println!("{l}");
+                }
+            }
+            if out.is_none() {
+                let _ = std::fs::remove_file(&path);
             }
         }
         MobfarmCmd::ClimbBack { rel, g1_delay, g2_delay, above, v4, carts, east, slopes_at_open, slope_delay, ticks, seed, seeds, riders, freeze, out, trace } => {
