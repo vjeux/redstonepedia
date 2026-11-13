@@ -935,6 +935,8 @@ pub struct Row {
     /// declared new solid cell.
     pub head_box_hits: usize,
     pub head_eye_hits: usize,
+    /// (ironspec 04:07) The bench's laid overrides, each cell's state before and after.
+    pub overrides: Vec<String>,
     pub stamp_cleared_at: Option<i64>,
     /// (ironspec 22:56 (iii)) The napper's cells a bolt could reach (sees the sky, or inside a
     /// column top's bolt hit box).
@@ -1339,11 +1341,14 @@ pub fn standin_reach(w: &World, p: BlockPos, b: &Block) -> Result<(Vec<BlockPos>
     Ok((update, power))
 }
 
-/// (ironspec 18:34) A rail with rails on 3 or more sides (each side's rail at its level, one up or
-/// one down): `RailBlock.updateState` may re-shape it when an update reaches it.
+/// (ironspec 18:34; 03:26, tick-exact's `RailBlock.updateState` citation) A PLAIN rail with rails on
+/// 3 or more sides (each side's rail at its level, one up or one down; any rail kind counts as a
+/// potential connection; 3 exactly re-shapes, the check keeps dfb89499's stricter >= 3): an update
+/// from a signal-source block may re-shape it. Powered, detector and activator rails never
+/// re-shape on a neighbour update (only their power state follows).
 pub fn rail_t_at(w: &World, p: BlockPos) -> bool {
     let is_rail = |q: BlockPos| format!("{}", w.get(q)).contains("rail");
-    if !is_rail(p) {
+    if !format!("{}", w.get(p)).starts_with("minecraft:rail[") {
         return false;
     }
     [(1, 0), (-1, 0), (0, 1), (0, -1)].iter().filter(|(dx, dz)| (-1..=1).any(|dy| is_rail(BlockPos::new(p.x + dx, p.y + dy, p.z + dz)))).count() >= 3
@@ -1554,7 +1559,16 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
     // (ironspec 00:31: the module's declared emulated cells (record7's line-bench levers and their
     // glass), laid as its own bench lays them; each must survive where it stands)
     for (c, st) in &f.lay_emulated {
-        run.world.set_block(BlockPos::new(c[0], c[1], c[2]), block(st), redsim::world::flags::ALL);
+        let p = BlockPos::new(c[0], c[1], c[2]);
+        let (before, after) = (run.world.get(p), block(st));
+        // (ironspec 04:07: an override that doesn't change its cell fails the run)
+        if before == after {
+            return Err(format!("the emulated cell ({},{},{}) already holds {before}: an override that changes nothing fails the run (ironspec 04:07)", c[0], c[1], c[2]));
+        }
+        run.world.set_block(p, after, redsim::world::flags::ALL);
+        if seed == f.record_seed && row.overrides.len() < 40 {
+            row.overrides.push(format!("({},{},{}) {before} -> {}", c[0], c[1], c[2], run.world.get(p)));
+        }
     }
     if !f.lay_emulated.is_empty() {
         survival_check(&run.world, &f.lay_emulated.iter().map(|(c, _)| BlockPos::new(c[0], c[1], c[2])).collect::<Vec<_>>())?;
@@ -1905,6 +1919,10 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             if *at == t {
                 let old = run.world.get(*p);
                 let new = block(st);
+                // (ironspec 04:07: an override that doesn't change its cell fails the run)
+                if old == new {
+                    return Err(format!("--pulse-cell ({},{},{}) at t {t}: the cell already holds {old} (an override that changes nothing fails the run, ironspec 04:07)", p.x, p.y, p.z));
+                }
                 let changed = redsim::entity::collide::boxes_at(&run.world, &old, *p) != redsim::entity::collide::boxes_at(&run.world, &new, *p);
                 let before = vill.and_then(|v| idx(&run.world, v)).map(|vi| redsim::entity::mob::ai::ai(&run.world, vi).nav.time_last_recompute);
                 run.world.set_block(*p, new.clone(), redsim::world::flags::ALL);
@@ -3351,6 +3369,9 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
                         if sk.path_after_load.len() < 8 {
                             sk.path_after_load.extend(r.path_after_load.iter().map(|p| format!("seed {} speed {}: {p}", r.seed, r.speed)));
                         }
+                        if sk.overrides.is_empty() && !r.overrides.is_empty() {
+                            sk.overrides = r.overrides.clone();
+                        }
                         if r.pickup.is_some() {
                             sk.pickups += 1;
                         }
@@ -3689,6 +3710,9 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
             failed.push(format!("{} eye overlaps with a new solid cell", sk.head_eye_hits));
         }
     }
+    if !sk.overrides.is_empty() {
+        println!("the bench's laid overrides (ironspec 04:07: each changes its cell, before -> after): {}", sk.overrides.join("; "));
+    }
     // (ironspec 00:27: every fluid cell's tick scheduled at load, the count printed)
     println!("fluid cells whose tick the bench scheduled at load (ironspec 00:27; the most in one visit's world): {}", sk.fluid_scheduled);
     // ((A), ironspec 00:37 (1)/(2b): the landings (every one within SleepInBed's 2 of the bed
@@ -3801,6 +3825,8 @@ struct SkipTotals {
     stand_over_20: usize,
     head_box_hits: usize,
     head_eye_hits: usize,
+    /// (ironspec 04:07) the laid overrides of the first visit that laid any, before -> after
+    overrides: Vec<String>,
     r_real_missing: usize,
     drops: usize,
     drop_max: f64,
