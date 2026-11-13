@@ -574,10 +574,18 @@ fn round_f32(x: f32) -> i32 {
 /// `DaylightDetectorBlock.updateSignalStrength`.
 fn update_signal_strength(w: &mut World, pos: BlockPos) {
     let Block::DaylightDetector { inverted, power } = w.get(pos) else { return };
-    // the light engine may lag a change of this tick or the previous one
-    if w.light_changes.iter().any(|&(t, q)| t >= w.time - 1 && (q.x - pos.x).abs() + (q.y - pos.y).abs() + (q.z - pos.z).abs() <= 15) {
-        w.errors.push(format!("daylight detector at {pos} reads the sky light right after a block change near it (the light engine's timing is not modeled)"));
-        return;
+    // the light engine may lag a change of this tick or the previous one; a detector whose cell is
+    // a sky source (its column open to the top of the world) with no change in that column reads
+    // the source's 15 whatever lags beside it: a change beside an open column can't lower a
+    // source's stored light, nor raise it past 15 (onechunk 2026-11-12: a farm's drives toggling 8
+    // blocks from its detector under a kept-clear column)
+    let lagging = |q: &BlockPos, t: i64| t >= w.time - 1 && (q.x - pos.x).abs() + (q.y - pos.y).abs() + (q.z - pos.z).abs() <= 15;
+    if w.light_changes.iter().any(|&(t, q)| lagging(&q, t)) {
+        let column_changed = w.light_changes.iter().any(|&(t, q)| t >= w.time - 1 && q.x == pos.x && q.z == pos.z && q.y >= pos.y);
+        if column_changed || !sky_source(w, pos).unwrap_or(false) {
+            w.errors.push(format!("daylight detector at {pos} reads the sky light right after a block change near it (the light engine's timing is not modeled)"));
+            return;
+        }
     }
     let sky = match sky_light(w, pos) {
         Ok(l) => l,
@@ -660,6 +668,41 @@ mod tests {
         let mut w = World::new(BlockPos::new(-2, -2, -2), [5, 8, 5]);
         w.place_raw(&layer(Block::Simple(crate::block::Simple::Glass)));
         assert_eq!(sky_light(&w, BlockPos::new(0, 1, 0)), Ok(15), "a glass layer: a sky source");
+    }
+
+    /// (onechunk 2026-11-12) A detector whose cell is a sky source reads its 15 even right after a
+    /// block change beside it (the light engine's lag can't lower a source's stored light); a change
+    /// in its own column, or a covered detector, is still refused.
+    #[test]
+    fn an_open_detector_reads_through_a_change_beside_it() {
+        let det = BlockPos::new(0, 0, 0);
+        let stone = Block::Simple(crate::block::Simple::Stone);
+        let fresh = |cover: bool| {
+            let mut w = World::new(BlockPos::new(-6, -2, -6), [13, 10, 13]);
+            w.place_raw(&[(det, Block::parse("minecraft:daylight_detector[inverted=false,power=0]").unwrap())]);
+            if cover {
+                w.place_raw(&[(BlockPos::new(0, 5, 0), stone)]);
+            }
+            w.watch_light = true;
+            w.time = 40;
+            w
+        };
+        // (a stone set 3 blocks away this tick: no refusal, the open sky's power read)
+        let mut w = fresh(false);
+        w.put(BlockPos::new(3, 0, 0), stone);
+        update_signal_strength(&mut w, det);
+        assert!(w.errors.is_empty(), "beside an open column: {:?}", w.errors);
+        // (a stone set in its column this tick: refused)
+        let mut w = fresh(false);
+        w.put(BlockPos::new(0, 4, 0), stone);
+        update_signal_strength(&mut w, det);
+        assert_eq!(w.errors.len(), 1, "a change in its column is refused");
+        // (a covered detector, its cover there before the watch, a change beside it this tick:
+        // refused)
+        let mut w = fresh(true);
+        w.put(BlockPos::new(3, 0, 0), stone);
+        update_signal_strength(&mut w, det);
+        assert_eq!(w.errors.len(), 1, "a covered detector beside a change is refused");
     }
 
     #[test]
