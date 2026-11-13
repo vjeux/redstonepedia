@@ -515,7 +515,22 @@ against the analytic detector. The report adds every rider's activity across day
 row per stretch, every CANT_REACH arming with its clearing (or NOT CLEARED), the REST entries by cell,
 the bed's state at every dusk, and the air-supply bar (each rider's least air per lift transit, none
 below 0; `--air-control` holds the first rider to enter water 340 gt, which must fail it).
-`--restart-at T,…` adds world opens at those ticks (night opens).
+`--restart-at T,…` adds world opens at those ticks (night opens). Each REST entry prints the rider's
+on_ground, its WALK_TARGET at entry, the path's start node (the brain's own path memory: f1q2-run
+computes no paths), both eyes (the rider's and the nearest hostile's), the distance and the clip's
+first blocking cell, the stamp with what cleared it since the previous entry (or NOT CLEARED); each
+closed spell adds the tick the sink stopped (WALK_TARGET empty), the tick HOME was first targeted with
+the stamp then (the at-entry stamp bar, < 1,000 gt, judged there), and whether a stamp armed in it.
+Each night H visit and each wake print the stamp and its clearing; `--rider-trace FILE` writes every
+distinct night eye position with its ticks. The new bars and their controls: no R1 release before
+the previous napper passes R (`--rs-ready-early-control`), the DAY update check
+(`--day-phase-control`), the bystander control's dud (`--bystander-dud`, NOT EXERCISED); a control is
+CAUGHT only on its own sample with every other sample on its bar passing. HELD is stuck when R1 is
+open (REST_l, DAY low, RS_ready) for over 30 gt with HELD set (day-1's E2); the dwell is information
+(no cap of record). Summons classify by the summoner's cell against the declared places (the pockets;
+the holds never; any other place fails). Naps count once per lie-down, keyed to its REST night, with
+the late-sleeper rule. The picks' window is C 141..220; PRESENT is effective 4 gt after its set edge
+(the RS NOR's latency).
 The one-in-flight bars run from the divert (a pick the divert turns away never enters the way-in;
 those print apart with their causes). SIGHT prints its crossings by ray class (each entity by its
 label or mob type).

@@ -2048,6 +2048,22 @@ pub enum MobfarmCmd {
         /// its cart held there 340 gt; it must drown and the bar FAIL.
         #[arg(long)]
         air_control: bool,
+        /// (ironspec 06:33 platform) Write every distinct night eye position of a rider (to 0.01)
+        /// with its ticks in all, in REST and in PANIC (9fc3155f's coverage map).
+        #[arg(long)]
+        rider_trace: Option<PathBuf>,
+        /// (ironspec D2) The RS_ready bar's known positive: RS_ready forced set at the first
+        /// departure; the next release, before that napper passes R, must fail the bar.
+        #[arg(long)]
+        rs_ready_early_control: bool,
+        /// (G1 N8) With --bystander-control: the call asks 99 willing (a dud), so the control must
+        /// show NOT EXERCISED.
+        #[arg(long)]
+        bystander_dud: bool,
+        /// (G1 N18) The DAY update check's control: compare at the half-period off-phase; the DAY
+        /// validation must catch it at the edges.
+        #[arg(long)]
+        day_phase_control: bool,
         /// (ironspec 11:15) An S-bend seat whose stamp resets are counted:
         /// `NAME=x,y,z:cx,cy,cz+cx,cy,cz...` (the seat's rail cell, its clearing candidates).
         /// Repeatable.
@@ -7518,7 +7534,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 std::process::exit(1);
             }
         }
-        MobfarmCmd::F1q2Run { design, seed, ticks, day0, lane_carts, restart_every, restart_at, restart_order, control_rider, trace, drive, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour_golems, cart_trace, drive_out, scene_out, watchdog, stale_start, held_at_divert, report_only, queue_hold, empty_pocket, stack_bench, inert_control, gossip_control, bystander_control, seed_queued_napper, day_threshold, bed_ticket_taken, stamp_control, home_erase_control, air_control } => {
+        MobfarmCmd::F1q2Run { design, seed, ticks, day0, lane_carts, restart_every, restart_at, restart_order, control_rider, trace, drive, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour_golems, cart_trace, drive_out, scene_out, watchdog, stale_start, held_at_divert, report_only, queue_hold, empty_pocket, stack_bench, inert_control, gossip_control, bystander_control, seed_queued_napper, day_threshold, bed_ticket_taken, stamp_control, home_erase_control, air_control, rider_trace, rs_ready_early_control, bystander_dud, day_phase_control } => {
             let (c, spec) = load(version, &design)?;
             let bed = *c.clock.design.ports.get("home").ok_or_else(|| anyhow::anyhow!("{}: no `home` port (the shared bed's head)", design.display()))?;
             // (the seats: NAME=x,y,z:cx,cy,cz+...)
@@ -7632,7 +7648,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             // (ironspec 22:03 / 22:09 PT) k_lock and k_sw from the module
             let num = |key: &str| -> Option<i64> { text.lines().find_map(|l| l.strip_prefix(key)).and_then(|r| r.split_whitespace().next()).and_then(|n| n.parse().ok()) };
             let (k_lock, k_sw) = (num("k-lock:"), num("k-sw:"));
-            let o = crate::f1q2run::Opts { seed, ticks, day0, lane_carts, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour, cart_trace, restarts, restart, control_rider, trace, bed, drive, drive_rec, watchdog, stale_start, held_at_divert, queue_hold, emulated, emulated_states, ts, update_only, empty_pocket, dwell_cap, stack_bench, stops, k_lock, k_sw, inert, always_on, push_pairs, way_in_composed, inert_control, watch_reasons, gossip_control, bystander_control, a6_pickup, seed_queued_napper, day_threshold, bed_ticket_taken, block_standins, stamp_control, home_erase_control, air_control };
+            let o = crate::f1q2run::Opts { seed, ticks, day0, lane_carts, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour, cart_trace, restarts, restart, control_rider, trace, bed, drive, drive_rec, watchdog, stale_start, held_at_divert, queue_hold, emulated, emulated_states, ts, update_only, empty_pocket, dwell_cap, stack_bench, stops, k_lock, k_sw, inert, always_on, push_pairs, way_in_composed, inert_control, watch_reasons, gossip_control, bystander_control, a6_pickup, seed_queued_napper, day_threshold, bed_ticket_taken, block_standins, stamp_control, home_erase_control, air_control, rider_trace, rs_ready_early_control, bystander_dud, day_phase_control };
             let (rep, out) = crate::f1q2run::run_driven(&spec, &o).map_err(|e| anyhow::anyhow!(e))?;
             print!("{rep}");
             if let (Some(df), Some(sf), Some((drive_text, scene_entities))) = (&drive_out, &scene_out, out) {
