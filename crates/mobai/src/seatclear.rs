@@ -294,23 +294,46 @@ pub(crate) fn holds_water(s: &str) -> bool {
 /// it (the scheduled tick stays keyed to the cell and runs on that block's water); the count is
 /// printed, and a design with water but no scheduled cell fails.
 pub(crate) fn place_part(srv: &mut VanillaServer, part: &std::path::Path) -> Result<()> {
+    place_part_skipping(srv, part, &[])
+}
+
+/// [`place_part`], with the cells in `skip_fresh` laid as stated without their water first (no
+/// onPlace, no scheduled tick) and left out of the guard: only water-settle's control uses it, to
+/// plant a fluid cell with no tick of its own.
+pub(crate) fn place_part_skipping(srv: &mut VanillaServer, part: &std::path::Path, skip_fresh: &[[i32; 3]]) -> Result<()> {
     let d = mctas::design::Design::load(part)?;
     // the other blocks first, then the rails as stated (strict, as the module's); a cell already in
     // that state is left as it is (`cmd`: the setblock then reports no change), and module-check
     // reports whatever differs afterwards
     let (mut water, mut logged) = (0u32, 0u32);
+    let mut unscheduled: Vec<String> = Vec::new();
     for pass in 0..2 {
         for (p, s) in d.blocks.iter() {
             let rail = s.contains("rail");
             let at = format!("{} {} {}", p[0], p[1] + DY, p[2]);
-            // a fluid cell: water first, plainly, in the first pass (a rail's goes in before the rail)
-            if pass == 0 && holds_water(s) {
-                srv.cmd(&format!("setblock {at} minecraft:water"))?;
-                if s.starts_with("minecraft:water") {
+            let skipped = skip_fresh.contains(&[p[0], p[1], p[2]]);
+            // a fluid cell: water first, plainly, in the first pass (a rail's goes in before the rail).
+            // (ironspec 02:28 PT (f1)) The cell is emptied without updates first, so the water
+            // setblock always places fresh water and runs LiquidBlock.onPlace (its tick scheduled);
+            // only a setblock the server reports as changed counts, any other reply fails the run
+            if pass == 0 && holds_water(s) && !skipped {
+                srv.cmd(&format!("setblock {at} minecraft:air strict"))?;
+                let out = srv.cmd(&format!("setblock {at} minecraft:water"))?;
+                if !out.contains("Changed the block") {
+                    unscheduled.push(format!("({},{},{}) {}", p[0], p[1], p[2], out.trim()));
+                } else if s.starts_with("minecraft:water") {
                     water += 1;
                 } else {
                     logged += 1;
                 }
+            }
+            if skipped && pass == 0 {
+                // the control's planted cell: its stated state, strictly (no onPlace, no tick)
+                srv.cmd(&format!("setblock {at} {s} strict"))?;
+                continue;
+            }
+            if skipped {
+                continue;
             }
             if rail != (pass == 1) {
                 continue;
@@ -321,9 +344,14 @@ pub(crate) fn place_part(srv: &mut VanillaServer, part: &std::path::Path) -> Res
             srv.cmd(&format!("setblock {at} {s}{}", if rail { " strict" } else { "" }))?;
         }
     }
-    let fluid = d.blocks.iter().filter(|(_, s)| holds_water(s)).count() as u32;
-    println!("  place_part {}: fluid cells scheduled: {} (water blocks {water}, waterlogged / bubble cells {logged}) of {fluid} in the design", part.display(), water + logged);
-    anyhow::ensure!(fluid == 0 || water + logged == fluid, "place_part: the design holds {fluid} fluid cells but {} were scheduled: the run fails", water + logged);
+    let fluid = d.blocks.iter().filter(|(p, s)| holds_water(s) && !skip_fresh.contains(&[p[0], p[1], p[2]])).count() as u32;
+    println!(
+        "  place_part {}: fluid cells placed fresh (the server reported each water setblock changed: onPlace ran): {} (water blocks {water}, waterlogged / bubble cells {logged}) of {fluid} in the design{}",
+        part.display(),
+        water + logged,
+        if skip_fresh.is_empty() { String::new() } else { format!(" (+{} planted without a tick: a control)", skip_fresh.len()) }
+    );
+    anyhow::ensure!(unscheduled.is_empty() && water + logged == fluid, "place_part: {} of {fluid} fluid cells not placed fresh (no onPlace, no scheduled tick): {}: the run fails", unscheduled.len(), unscheduled.join("; "));
     for e in &d.entities {
         let nbt = e.nbt.clone().unwrap_or_default().replace(
             "id:\"minecraft:pillager\"",

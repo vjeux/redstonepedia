@@ -253,6 +253,8 @@ pub fn dawn_edge(version: &str) -> Result<()> {
         let s = srv.cmd(&format!("scoreboard players get {who} lc"))?;
         Ok(s.split(" has ").nth(1).and_then(|r| r.split_whitespace().next()).and_then(|n| n.parse().ok()).unwrap_or(0))
     };
+    // (ironspec 02:28 PT (f3)) a row with no sample fails the run, as in the other tools
+    let mut not_judged: Vec<String> = Vec::new();
     for target in [d - 1, d, d + 1, d + 2] {
         srv.cmd_ok("tick freeze")?;
         srv.cmd("setblock 0 100 0 minecraft:air")?;
@@ -267,6 +269,9 @@ pub fn dawn_edge(version: &str) -> Result<()> {
         std::thread::sleep(std::time::Duration::from_millis(((u - g0 + 50) * 50) as u64));
         srv.cmd_ok("tick freeze")?;
         let (eg, ed) = (score(&mut srv, "#eg")?, score(&mut srv, "#ed")?);
+        if eg == 0 {
+            not_judged.push(format!("target D{:+}", target - d));
+        }
         println!(
             "  target D{:+}: frozen at game time {g0}, the clock set to {x}, so the update tick U = {u} (U % 20 = 0) has the post-increment day time {target}: {}",
             target - d,
@@ -297,9 +302,13 @@ pub fn dawn_edge(version: &str) -> Result<()> {
                 break;
             }
         }
+        let inside = gt > u && gt < u + 20;
+        if !inside || power.is_none() {
+            not_judged.push(format!("split row {target}"));
+        }
         println!(
             "  split row: the update tick U = {u} with the post-increment day time {target}, read at game time {gt} ({}): power {:?}; the model with the darkening at {} (pre) gives {}, at {target} (post) gives {}",
-            if gt > u && gt < u + 20 { "after U, before the next update" } else { "OUTSIDE (U, U + 20): not judged" },
+            if inside { "after U, before the next update" } else { "OUTSIDE (U, U + 20): NOT JUDGED (0 samples)" },
             power,
             target - 1,
             level_split(target - 1, target, 0.0, 0.0),
@@ -307,6 +316,7 @@ pub fn dawn_edge(version: &str) -> Result<()> {
         );
     }
     let _ = std::fs::remove_dir_all(&srv.dir);
+    anyhow::ensure!(not_judged.is_empty(), "{} row(s) NOT JUDGED (0 samples): {}: the run fails", not_judged.len(), not_judged.join(", "));
     Ok(())
 }
 

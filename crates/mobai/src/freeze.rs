@@ -300,8 +300,8 @@ pub fn freeze_rows(version: &str, loader: &Path, module: &Path, n: u32, place: &
     if n != 1 && n != 4 {
         bail!("--modules 1 or 4");
     }
-    if place != "far" && place != "nether" {
-        bail!("--place far or nether");
+    if place != "far" && place != "nether" && place != "logout" {
+        bail!("--place far, nether or logout");
     }
     let ld = mctas::design::Design::load(loader)?;
     let md = mctas::design::Design::load(module)?;
@@ -311,7 +311,11 @@ pub fn freeze_rows(version: &str, loader: &Path, module: &Path, n: u32, place: &
         "== freeze-rows on the official {version} server: the loader {} at its frame + (17,0,17) (chunk (1,1)), its Nether side at + (2,0,2); {n} module(s) of {}; the player {}; simulation and view distance 10",
         loader.display(),
         module.display(),
-        if place == "far" { "at simulation distance + 1 (11 chunks) east of the easternmost farm or loader chunk column, in row 1" } else { "in the Nether, far from the loader's Nether side" }
+        match place {
+            "far" => "at simulation distance + 1 (11 chunks) east of the easternmost farm or loader chunk column, in row 1",
+            "logout" => "standing at the farm (above its first chunk) for 600 gt, then logging out (ironspec 00:30 PT: every farm chunk must stay entity-ticking under the loop's tickets alone)",
+            _ => "in the Nether, far from the loader's Nether side",
+        }
     );
     let opts = |world: Option<PathBuf>| VanillaOptions {
         version: version.to_string(),
@@ -424,6 +428,23 @@ pub fn freeze_rows(version: &str, loader: &Path, module: &Path, n: u32, place: &
     srv.cmd_ok("execute in minecraft:the_nether run forceload remove -16 -16 15 15")?;
     if place == "nether" {
         srv.cmd_ok(&format!("execute in minecraft:the_nether run tp {bot} 200.5 70 200.5"))?;
+    }
+    // (ironspec 00:30 PT) the logout row: the player stands at the farm, then logs out; every farm
+    // chunk's status with the player there and after it left (the loop's tickets alone)
+    if place == "logout" {
+        let (cx, cz) = *farm.first().ok_or_else(|| anyhow::anyhow!("no farm chunk"))?;
+        let at = [cx * 16 + 8, y0 + 32, cz * 16 + 8];
+        srv.cmd_ok(&format!("setblock {} {} {} minecraft:glass", at[0], at[1] - 1, at[2]))?;
+        srv.teleport_bot(at[0] as f64 + 0.5, at[1] as f64, at[2] as f64 + 0.5)?;
+        let here = srv.game_time()? + 2;
+        srv.step(600)?;
+        let pos = srv.cmd_long(&format!("data get entity {bot} Pos"))?;
+        println!("  the player at the farm: {}", pos.split("entity data: ").nth(1).unwrap_or(&pos).trim());
+        report(&std::fs::read_to_string(&srv.log)?, &farm, here, "(L1) 600 gt with the player standing at the farm");
+        srv.bot = None;
+        srv.step(20)?;
+        let list = srv.cmd("list")?;
+        println!("  the player logged out: `list` says {}", list.trim());
     }
     let from = srv.game_time()? + 2;
     let pos = srv.cmd_long(&format!("data get entity {bot} Pos"))?;

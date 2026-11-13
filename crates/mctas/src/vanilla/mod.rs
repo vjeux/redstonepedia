@@ -304,6 +304,9 @@ pub struct Snapshot {
     /// Scheduled block ticks in the box's chunks: position, block id, ticks until due.
     pub block_ticks: Vec<(Pos, String, i64)>,
     pub fluid_ticks: usize,
+    /// (tickexact 2026-11-13, ironspec 02:28 PT (f2)) Every scheduled fluid tick's own position in
+    /// the box's chunks, so a check can ask about one cell rather than a total.
+    pub fluid_tick_cells: Vec<Pos>,
     /// Block entities in the box's chunks: position and id (`minecraft:piston` = moving block).
     pub block_entities: Vec<(Pos, String)>,
 }
@@ -624,6 +627,32 @@ impl VanillaServer {
         self.bot.as_mut().context("no bot")?.use_item_on(p, face)
     }
 
+    /// (tickexact 2026-11-13, ironspec 02:27 PT) Stop the server with the bot still connected:
+    /// MinecraftServer.stopServer saves every player (PlayerList.saveAll) before it removes them,
+    /// the way a dedicated server's restart does; the bot is dropped once the process has exited.
+    /// (Dropping the server instead disconnects the bot first: the player's own logout path.)
+    pub fn stop_with_bot(&mut self) -> Result<()> {
+        let _ = self.rcon.cmd("stop");
+        let t0 = Instant::now();
+        while self.child.try_wait()?.is_none() {
+            if t0.elapsed() > Duration::from_secs(60) {
+                bail!("the server did not stop within 60 s");
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        self.bot = None;
+        Ok(())
+    }
+
+    /// Kill the server process without a stop (a crash or power loss): nothing after the last save
+    /// reaches the disk.
+    pub fn kill_hard(&mut self) -> Result<()> {
+        self.child.kill()?;
+        self.child.wait()?;
+        self.bot = None;
+        Ok(())
+    }
+
     /// Save the world and read a box back from the region files.
     pub fn snapshot(&mut self, lo: Pos, hi: Pos) -> Result<Snapshot> {
         let started = Instant::now();
@@ -753,6 +782,7 @@ struct Chunk {
     sections: HashMap<i32, (Vec<String>, Vec<i64>)>,
     block_ticks: Vec<(Pos, String, i64)>,
     fluid_ticks: usize,
+    fluid_tick_cells: Vec<Pos>,
     block_entities: Vec<(Pos, String)>,
 }
 
@@ -826,7 +856,7 @@ fn read_chunk(world: &Path, cx: i32, cz: i32, cache: &mut HashMap<(i32, i32), Ve
     let Some(root) = read_chunk_root(world, cx, cz, cache)? else {
         return Ok(None);
     };
-    let mut chunk = Chunk { sections: HashMap::new(), block_ticks: Vec::new(), fluid_ticks: 0, block_entities: Vec::new() };
+    let mut chunk = Chunk { sections: HashMap::new(), block_ticks: Vec::new(), fluid_ticks: 0, fluid_tick_cells: Vec::new(), block_entities: Vec::new() };
     for sec in root.get("sections").map(|t| t.as_list()).unwrap_or(&[]) {
         let y = sec.get("Y").and_then(|t| t.as_i64()).unwrap_or(0) as i32;
         if let Some(bs) = sec.get("block_states") {
@@ -854,6 +884,7 @@ fn read_chunk(world: &Path, cx: i32, cz: i32, cache: &mut HashMap<(i32, i32), Ve
         chunk.block_ticks.push((pos_of(t), id, t.get("t").and_then(|v| v.as_i64()).unwrap_or(0)));
     }
     chunk.fluid_ticks = root.get("fluid_ticks").map(|t| t.as_list().len()).unwrap_or(0);
+    chunk.fluid_tick_cells = root.get("fluid_ticks").map(|t| t.as_list()).unwrap_or(&[]).iter().map(pos_of).collect();
     for t in root.get("block_entities").map(|t| t.as_list()).unwrap_or(&[]) {
         let id = t.get("id").and_then(|v| v.as_str()).unwrap_or("?").to_string();
         chunk.block_entities.push((pos_of(t), id));
@@ -924,15 +955,18 @@ pub fn read_box(world: &Path, lo: Pos, hi: Pos) -> Result<Snapshot> {
     // Ticks and block entities of the whole chunks: the simulator's `idle` is level-wide too.
     let mut block_ticks = Vec::new();
     let mut fluid_ticks = 0;
+    let mut fluid_tick_cells = Vec::new();
     let mut block_entities = Vec::new();
     for c in chunks.values() {
         block_ticks.extend(c.block_ticks.iter().cloned());
         fluid_ticks += c.fluid_ticks;
+        fluid_tick_cells.extend(c.fluid_tick_cells.iter().cloned());
         block_entities.extend(c.block_entities.iter().cloned());
     }
     block_ticks.sort();
+    fluid_tick_cells.sort();
     block_entities.sort();
-    Ok(Snapshot { region: Region { from: lo, size, palette, flags: Vec::new(), data }, block_ticks, fluid_ticks, block_entities })
+    Ok(Snapshot { region: Region { from: lo, size, palette, flags: Vec::new(), data }, block_ticks, fluid_ticks, fluid_tick_cells, block_entities })
 }
 
 #[cfg(test)]

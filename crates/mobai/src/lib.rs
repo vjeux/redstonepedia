@@ -56,6 +56,8 @@ pub mod bedtrap;
 pub mod loadcount;
 pub mod golemttl;
 pub mod watersettle;
+pub mod railsteps;
+pub mod playersleep;
 pub mod threebeds;
 pub mod daylight;
 pub mod cli;

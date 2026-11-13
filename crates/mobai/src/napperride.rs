@@ -211,6 +211,8 @@ fn line(v: f64, label: &str, c: &Cells, r: &Ride) -> String {
 
 #[allow(clippy::too_many_arguments)]
 pub fn napper_ride(version: &str, module: &std::path::Path, depth: i32, speeds: &[f64], c: &Cells, restarts: &[f64], every_tick: bool, before: Option<u32>, only_before: bool, join: Option<(u32, u32)>, max_ticks: u32) -> Result<()> {
+    // (ironspec 02:28 PT (f4)) the count is process-wide: start every run from 0
+    UNCLEAN_ROWS.store(0, std::sync::atomic::Ordering::Relaxed);
     println!(
         "== napper-ride on the official {version} server: {} (its entities summoned, force-loaded{}); the napper from R ({},{},4) east at {speeds:?}; the detector ({},{},{}), the T ({},{},{}), the hold ({},{},{}); restarts at cart y {restarts:?}{}{}",
         module.display(),

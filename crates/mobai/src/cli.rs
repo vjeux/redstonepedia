@@ -568,6 +568,39 @@ pub enum MobaiCmd {
         #[arg(long, allow_hyphen_values = true, default_value = "")]
         overlay_box: String,
     },
+    /// (tickexact 2026-11-13, ironspec 02:27 PT: B3) A bot in bed at the save, the world closed
+    /// (a restart with the bot connected, save-and-quit, a crash) and opened again: whether a player
+    /// is asleep at its first tick, and the night skip against the first post-load lie-down
+    PlayerSleep {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        /// restart, quit, crash, comma-separated
+        #[arg(long, default_value = "restart,quit,crash")]
+        how: String,
+    },
+    /// (tickexact 2026-11-13, ironspec 01:46 PT (a)) Official replays of the rail-shape builder
+    /// recipes (C = (x,24,7), D = (x,24,8), c3 = (x-1,24,7)): the test recipe and the two controls
+    RailSteps {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        file: std::path::PathBuf,
+        /// Lanes x, comma-separated
+        #[arg(long, default_value = "-1,3,7", allow_hyphen_values = true)]
+        lanes: String,
+        /// test, ctl-i, ctl-ii or all
+        #[arg(long, default_value = "all")]
+        case: String,
+        /// The power cell as dx,y,z (x relative to the lane); default (x,25,7) above C
+        #[arg(long, allow_hyphen_values = true)]
+        power: Option<String>,
+        /// A free-form replay instead: "empty x,y,z; set x,y,z=STATE; air x,y,z; wait N; expect
+        /// x,y,z=SHAPE; count x,y,z; …"
+        #[arg(long, allow_hyphen_values = true)]
+        script: Option<String>,
+        /// With --script: more cells to print after every step, "x,y,z;…"
+        #[arg(long, allow_hyphen_values = true, default_value = "")]
+        watch: String,
+    },
     /// (tickexact 2026-11-13, ironspec 00:27 PT: rules B, C, E) A design pasted with its fluid
     /// cells' ticks scheduled, run, saved and read back: every cell whose water left its stored
     /// state (new water fails the run)
@@ -1137,6 +1170,9 @@ pub enum MobaiCmd {
         /// Cells whose composed block is printed and tested in the game, "x,y,z;..."
         #[arg(long, allow_hyphen_values = true, default_value = "")]
         probe: String,
+        /// A real save, stop and start before each listed tick (the cart as the moving probe)
+        #[arg(long, default_value = "")]
+        restart_at: String,
     },
     /// (tickexact 2026-11-12, ironspec: the row fix's napper release) A ridden napper arriving into
     /// a siding from K's cell at each speed, then the siding's switch pulsed; every tick until it
@@ -1754,6 +1790,31 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
             };
             crate::bedtrap::bed_trap(&version, &file, &cells, &speeds, approach, &restarts, repeats, ticks, held_only)
         }
+        MobaiCmd::PlayerSleep { version, how } => crate::playersleep::player_sleep(&version, &how.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect::<Vec<_>>()),
+        MobaiCmd::RailSteps { version, file, lanes, case, power, script, watch } => {
+            if let Some(s) = script {
+                let extra: Vec<[i32; 3]> = watch
+                    .split(';')
+                    .filter(|e| !e.trim().is_empty())
+                    .map(|e| -> anyhow::Result<[i32; 3]> {
+                        let v: Vec<i32> = e.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+                        anyhow::ensure!(v.len() == 3, "--watch x,y,z;…");
+                        Ok([v[0], v[1], v[2]])
+                    })
+                    .collect::<anyhow::Result<_>>()?;
+                return crate::railsteps::rail_script(&version, &file, &s, &extra);
+            }
+            let lanes: Vec<i32> = lanes.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+            let power = match power {
+                Some(p) => {
+                    let v: Vec<i32> = p.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(v.len() == 3, "--power dx,y,z");
+                    Some([v[0], v[1], v[2]])
+                }
+                None => None,
+            };
+            crate::railsteps::rail_steps(&version, &file, &lanes, &case, power)
+        }
         MobaiCmd::WaterSettle { version, file, set, ticks, controls } => {
             if controls {
                 return crate::watersettle::controls(&version, ticks);
@@ -2050,7 +2111,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
                 .collect::<anyhow::Result<_>>()?;
             crate::sightcheck::sight_check(&version, &module, &parts, &summon, &points, &crate::sightcheck::SightOpts { ticks, free, trace, repeat, every, life, set: cells, day_time })
         }
-        MobaiCmd::CartTrace { version, module, parts, start, motion, ticks, still, probe } => {
+        MobaiCmd::CartTrace { version, module, parts, start, motion, ticks, still, probe, restart_at } => {
             let f3v = |s: &str, what: &str| -> anyhow::Result<[f64; 3]> {
                 let v: Vec<f64> = s.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
                 anyhow::ensure!(v.len() == 3, "--{what} x,y,z, got {s}");
@@ -2066,7 +2127,8 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
                     Ok([v[0], v[1], v[2]])
                 })
                 .collect::<anyhow::Result<_>>()?;
-            crate::carttrace::cart_trace(&version, &module, &parts, f3v(&start, "start")?, f3v(&motion, "motion")?, ticks, still, &probe)
+            let restart_at: Vec<u32> = restart_at.split(',').filter(|n| !n.trim().is_empty()).map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+            crate::carttrace::cart_trace(&version, &module, &parts, f3v(&start, "start")?, f3v(&motion, "motion")?, ticks, still, &probe, &restart_at)
         }
         MobaiCmd::NapperRelease { version, module, parts, k, switch, arrivals, wait, pulse, phases, ticks } => {
             let i3 = |s: &str, what: &str| -> anyhow::Result<[i32; 3]> {
