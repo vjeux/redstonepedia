@@ -4137,6 +4137,18 @@ pub enum MobfarmCmd {
         /// release; the row must count "R never powered after a release". Exits 0 when caught.
         #[arg(long)]
         hold_switch_off: bool,
+        /// With --hold-switch-off: a second release 10 gt after the held first one, so the first is
+        /// counted at that later release (the mid-run path; G1's CHANGES on bc25c5cca (4)).
+        #[arg(long)]
+        hold_switch_off_rerelease: bool,
+        /// The world's day time at t 0 (default 13,300: a night start, every rider at REST at t 1,
+        /// asserted); a day start (6000) is the t 1 assertion's control and must fail.
+        #[arg(long, default_value_t = 13_300)]
+        day0: i64,
+        /// With --nap-ai: summon the riders without their HOME (no `farm_rider`), the control of the
+        /// t 1 HOME assertion, which must fail.
+        #[arg(long)]
+        skip_farm_rider: bool,
         /// With --siding: write the bench's world as laid and settled (every non-air cell of its box,
         /// the design format, the lanes file's loop frame) to this path, for `mobfarm record-match`
         /// (ironspec 21:43).
@@ -9167,7 +9179,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 anyhow::bail!("frame-check failed");
             }
         }
-        MobfarmCmd::EscapeBench { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, login_matrix, restart, restart_matrix, restart_base, phase_step, intake_flat, v_in, siding, nap_k, nap_every, nap_ret, nap_pulse, merge_curve, slopes, nap_guard, nap_early, nap_any_pass, nap_ring, nap_pick_u, nap_win_du, nap_win_tap, nap_ai, nap_stamp_at_arrival, nap_late_latch, nap_post, k_row, k_offsets, nap_feed_v, flat_detector, siding_north, emit_with_row, fill_scene, top_flat, mirror_z, start_steady, r_support, rest_sweep, rest_phases, emit_rest_range, feed_path, feed_z8, feed_slime, combos, no_walkway, nap_present_k, curve_bar, d_gate, inject_sweep, inject_feed_vs, inject_nap_rets, r_joint_control, held_rider_control, stray_ctl, push_grid_run, grid_speeds, grid_entries, grid_delays, push_grid_out, push_grid, present_settle_worst, present_latch_unclocked, early_r, hold_switch_off, inject_release, flat_d, lip_bar, out, nap_feed_phase, siding_dx, siding_dy, ns_merge, guard_det, guard_dz, drop_entry, no_top_support, side_real, side_ctl, siding_matrix, rets, v_ins, nap_rets, corners, nap_ks, jobs, emit_lanes_design, r_boost, floor_bottom, empty, freeze32 } => {
+        MobfarmCmd::EscapeBench { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, login_matrix, restart, restart_matrix, restart_base, phase_step, intake_flat, v_in, siding, nap_k, nap_every, nap_ret, nap_pulse, merge_curve, slopes, nap_guard, nap_early, nap_any_pass, nap_ring, nap_pick_u, nap_win_du, nap_win_tap, nap_ai, nap_stamp_at_arrival, nap_late_latch, nap_post, k_row, k_offsets, nap_feed_v, flat_detector, siding_north, emit_with_row, fill_scene, top_flat, mirror_z, start_steady, r_support, rest_sweep, rest_phases, emit_rest_range, feed_path, feed_z8, feed_slime, combos, no_walkway, nap_present_k, curve_bar, d_gate, inject_sweep, inject_feed_vs, inject_nap_rets, r_joint_control, held_rider_control, stray_ctl, push_grid_run, grid_speeds, grid_entries, grid_delays, push_grid_out, push_grid, present_settle_worst, present_latch_unclocked, early_r, hold_switch_off, hold_switch_off_rerelease, day0, skip_farm_rider, inject_release, flat_d, lip_bar, out, nap_feed_phase, siding_dx, siding_dy, ns_merge, guard_det, guard_dz, drop_entry, no_top_support, side_real, side_ctl, siding_matrix, rets, v_ins, nap_rets, corners, nap_ks, jobs, emit_lanes_design, r_boost, floor_bottom, empty, freeze32 } => {
             // (--curve-bar 0: the curve rule printed only; --lip-bar: the S-bend's gate)
             let curve_bar: Option<i64> = (curve_bar > 0).then_some(curve_bar);
             // (ironspec 04:14 (9): a negative lip bar would pass contact (a margin of -1 is the napper
@@ -9177,8 +9189,15 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             // gt (0 is no control; above k the switch would go on before the leader's pass);
             // --inject-release is a tick of the run; --present-settle-worst is a settle in gt)
             if let Some(n) = early_r {
-                anyhow::ensure!(n >= 1 && n <= nap_k, "--early-r {n}: 1 to the release wait k ({nap_k}) gt (0 is no control; more than k would switch before the leader's pass)");
+                // (G1's CHANGES on bc25c5cca (3): the early switch fires at the leader's pass + k - N,
+                // and the pass is known one iteration late, so N = k never fires: 1 to k - 1; and only
+                // where the bench's release follows a pass (the ring or --nap-any-pass), never with a
+                // forced --inject-release)
+                anyhow::ensure!(n >= 1 && n < nap_k, "--early-r {n}: 1 to the release wait k - 1 ({}) gt (0 is no control; at k or more the switch would come at or before the leader's pass, which the bench reads one iteration late)", nap_k - 1);
+                anyhow::ensure!(inject_release.is_none(), "--early-r with --inject-release: the forced release has no leader's pass to shift from");
+                anyhow::ensure!(nap_ring > 0 || nap_any_pass, "--early-r needs the pass-driven release (--nap-ring or --nap-any-pass)");
             }
+            anyhow::ensure!(!hold_switch_off_rerelease || hold_switch_off, "--hold-switch-off-rerelease needs --hold-switch-off");
             if let Some(ti) = inject_release {
                 anyhow::ensure!(ti >= 0, "--inject-release {ti}: a tick of the run (0 or more)");
             }
@@ -9239,7 +9258,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         let fill: Vec<(i32, i32, i32)> = f.split(';').filter(|c| !c.trim().is_empty()).map(cell).collect::<anyhow::Result<Vec<_>>>()?;
                         Some((fill, cell(seat)?))
                     }
-                }, top_flat, mirror_z, start_steady, r_support: r_support.clone(), nap_feed_phase, feed_path, feed_z8, feed_slime, no_walkway, present_k: nap_present_k, no_d_gate, inject_release, r_joint_control, held_rider_control, stray_ctl, inject_pass: None, push_grid: match push_grid.as_deref() { Some(f) => Some(crate::sidingbench::parse_push_grid(&std::fs::read_to_string(f).map_err(|e| anyhow::anyhow!("--push-grid {f}: {e}"))?).map_err(|e| anyhow::anyhow!(e))?), None => None }, present_settle_worst, present_latch_unclocked, early_r, hold_switch_off, d_slope: !flat_d, out: out.clone(), siding_dx, siding_dy, ns_merge, guard_det, guard_dz, drop_entry, no_top_support, side_real, side_ctl: side_ctl.clone() };
+                }, top_flat, mirror_z, start_steady, r_support: r_support.clone(), nap_feed_phase, feed_path, feed_z8, feed_slime, no_walkway, present_k: nap_present_k, no_d_gate, inject_release, r_joint_control, held_rider_control, stray_ctl, inject_pass: None, push_grid: match push_grid.as_deref() { Some(f) => Some(crate::sidingbench::parse_push_grid(&std::fs::read_to_string(f).map_err(|e| anyhow::anyhow!("--push-grid {f}: {e}"))?).map_err(|e| anyhow::anyhow!(e))?), None => None }, present_settle_worst, present_latch_unclocked, early_r, hold_switch_off, hold_rerelease: hold_switch_off_rerelease, day0, skip_farm_rider, d_slope: !flat_d, out: out.clone(), siding_dx, siding_dy, ns_merge, guard_det, guard_dz, drop_entry, no_top_support, side_real, side_ctl: side_ctl.clone() };
                 if let Some(pg) = push_grid_run.as_deref() {
                     // (the push grid (ironspec 03:00, the citable grid behind `# push-pair:`): every rest
                     // position the napper's arrival on K produces (lo..hi by step, `rest_phases` entry
@@ -9308,7 +9327,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         p.6 = p.6.min(row.th_zgap);
                     }
                     let mut table = format!(
-                        "# push grid (ironfarm escape-bench --siding --push-grid-run {pg}, --rest-phases {rest_phases}, --grid-speeds {}, --grid-entries {grid_entries}, --grid-delays {}; bench, tool unreviewed): rest-z arrival phase passes displacement speed least-gap planted-displacement (rest-z: the napper's z at the injected pass; the worst over the speeds, entries and delays; least-gap: a passing cart's box to the resting napper's push box, inflated 0.2, positive is clear; planted-displacement: the grid's positive control at this rest)\n# the displacement's positive control THROUGH THE K-ZONE GATE (ironspec 04:14 (4)): each rest's PLANTED pass, a cart in K's cell near its north edge (z mz+2.14 on the curve's line) rolling north at 0.05 b/gt, counted as a K-row pass like any other: wherever its push box meets the resting napper's box (a rest past z ~7.86) its displacement must be > 0; the turn control (--r-joint-control turn:T) reads the same push_disp_max through the control-cart path: 0.307 at 0.267 (arrival 0.44, nap_ret 800, T 2139), 0.372 at 0.218 (0.30), 0.070 at 0.087 (0.10, nap_ret 760, T 2113)\n",
+                        "# push grid (ironfarm escape-bench --siding --push-grid-run {pg}, --rest-phases {rest_phases}, --grid-speeds {}, --grid-entries {grid_entries}, --grid-delays {}; bench, tool unreviewed): rest-z arrival phase passes displacement speed least-gap planted-displacement (rest-z: the napper's z at the injected pass; the worst over the speeds, entries and delays; least-gap: a passing cart's box to the resting napper's push box, inflated 0.2, positive is clear; planted-displacement: the grid's positive control at this rest)\n# the displacement's positive control THROUGH THE K-ZONE GATE (ironspec 04:14 (4)): each rest's PLANTED pass, a cart in K's cell near its north edge (z mz+2.14 on the curve's line) rolling north at 0.05 b/gt, counted as a K-row pass like any other: wherever its push box meets the resting napper's box (a rest past z ~7.86) its displacement must be > 0; the turn control (--r-joint-control turn:T) reads the same push_disp_max through the control-cart path (its runs print their own figures)\n",
                         grid_speeds.iter().map(|g| format!("{g:.2}")).collect::<Vec<_>>().join(","),
                         grid_delays.iter().map(|d| d.to_string()).collect::<Vec<_>>().join(",")
                     );
@@ -9474,11 +9493,14 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     );
                     // (ironspec 01:33 (1): the settle PRESENT's bar uses runs from PRESENT (the K tick +
                     // 2) to at rest: the K tick -> rest minus 2; the bar m >= max(L_latch + 1 = 7,
-                    // settle - 14) + 2)
-                    let bar = |s: i64| (s - 14).max(7) + 2;
+                    // settle - (k_sw + feed)) + 2, with this run's k_sw (--nap-k) and the design's feed
+                    // delay 8 (G1's CHANGES on bc25c5cca (7): not a fixed 14))
+                    let lead = so.k + 8;
+                    let bar = |s: i64| (s - lead).max(7) + 2;
                     let kr_hi = k_rest_by_v.values().map(|e| e.1).max();
                     println!(
-                        "the napper's PRESENT -> at rest over the sweep (ironspec 01:33 (1): the K tick -> its rest on R minus 2, PRESENT = K + 2; the bar m >= max(7, settle - 14) + 2): {} over {} runs (of {}); by arrival on K's cell (K tick -> rest, least..most over its phases; PRESENT -> rest; the bar it implies): {}",
+                        "the napper's PRESENT -> at rest over the sweep (ironspec 01:33 (1): the K tick -> its rest on R minus 2, PRESENT = K + 2; the bar m >= max(7, settle - (k_sw {} + feed 8 = {lead})) + 2): {} over {} runs (of {}); by arrival on K's cell (K tick -> rest, least..most over its phases; PRESENT -> rest; the bar it implies): {}",
+                        so.k,
                         match kr_hi { Some(h) => format!("the worst {} gt (K tick -> rest {h}), the bar {}", h - 2, bar(h - 2)), None => "- (NOT JUDGED (0 samples))".to_string() },
                         k_rest_by_v.values().map(|e| e.2).sum::<usize>(),
                         grid.len(),
@@ -9794,6 +9816,13 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                                 any_fail_hi.map_or("-".to_string(), |h| format!("{h} gt")),
                                 if above.is_empty() { "none".to_string() } else { above.iter().map(|(k, n)| format!("{k} {n}")).collect::<Vec<_>>().join(", ") }
                             );
+                            // (G1's CHANGES on bc25c5cca (10): the evidence's bar against the bar the gate
+                            // applies (--lip-bar): an active bar under the evidence's fails the sweep)
+                            let active = lip_bar.unwrap_or(2);
+                            println!("the lip evidence's bar {} gt against the active --lip-bar {active} gt: {}", b + 2, if active >= b + 2 { "the active bar is at or above the evidence's" } else { "FAIL, the active bar is under the evidence's" });
+                            if active < b + 2 {
+                                evidence_fail = format!("the active --lip-bar {active} is under the evidence's bar {}", b + 2);
+                            }
                         } else {
                             println!("the lip bar's evidence over the qualifying rows: NOT JUDGED (0 samples: no clean row with a margin and no lip contact): FAIL");
                             evidence_fail = "the lip bar's evidence NOT JUDGED (no clean row with a margin)".to_string();
@@ -10153,23 +10182,15 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     }
                     return Ok(());
                 }
-                // (a single row: printed, then judged by the same failure list (ironspec 04:14 (1)). A
-                // CONTROL run (ironspec 07:28 C1) reports through its own bar: CAUGHT (exit 0) when every
-                // control it ran bit, the row's other failures being the controls' own; NOT CAUGHT
-                // (exit 1) otherwise. A plain row exits 1 on any failure)
+                // (a single row: printed, then judged by `SidingRow::single_row_verdict` (ironspec 04:14
+                // (1), 07:28 C1; G1's CHANGES on bc25c5cca (1)): a plain row or a negative control's run
+                // exits 1 on any failure; a run of positive controls is CAUGHT (exit 0) only when every
+                // control bit and failed its own bar, NOT CAUGHT (exit 1) otherwise)
                 let row = crate::sidingbench::siding_row(&o, &so).map_err(|e| anyhow::anyhow!(e))?;
                 println!("{}", row.text);
-                let reasons = row.failures(lip_bar, curve_bar);
-                let fails = reasons.iter().map(|(k, n)| format!("{k} {n}")).collect::<Vec<_>>().join(", ");
-                if row.controls_n > 0 {
-                    if row.control_fail > 0 {
-                        anyhow::bail!("CONTROL NOT CAUGHT: {} of {} controls did not bite (the row's failures: {fails})", row.control_fail, row.controls_n);
-                    }
-                    println!("CONTROL CAUGHT: {} of {} controls bit (the row's failures, the controls' own: {})", row.controls_n, row.controls_n, if fails.is_empty() { "none".to_string() } else { fails });
-                    return Ok(());
-                }
-                if !reasons.is_empty() {
-                    anyhow::bail!("the row FAILS: {fails}");
+                match row.single_row_verdict(lip_bar, curve_bar) {
+                    Ok(v) => println!("{v}"),
+                    Err(e) => anyhow::bail!("{e}"),
                 }
                 return Ok(());
             }

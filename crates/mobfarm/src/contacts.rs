@@ -93,6 +93,10 @@ pub fn declared_contacts_strict(text: &str) -> Result<Vec<(BlockPos, String)>, S
     for key in ["contacts:", "stops:"] {
         for entry in crate::pushscan::header_entries(text, key) {
             let (cells, reason) = entry.split_once('=').ok_or_else(|| format!("# {key} {entry}: x,y,z[+x,y,z…]=REASON"))?;
+            // (G1's note on 329b5acc3: a declaration with an empty REASON is as bad as none)
+            if reason.trim().is_empty() {
+                return Err(format!("# {key} {entry}: an empty REASON (x,y,z[+x,y,z…]=REASON)"));
+            }
             for cell in cells.split('+') {
                 let v: Vec<i32> = cell.trim().trim_matches(|c| c == '(' || c == ')').split(',').map(|t| t.trim().replace('\u{2212}', "-").parse::<i32>()).collect::<Result<_, _>>().map_err(|e| format!("# {key} {entry}: cell {cell:?}: {e}"))?;
                 if v.len() != 3 {
@@ -280,5 +284,7 @@ mod tests {
         assert!(declared_contacts_strict("# contacts: -1,24,x=bad\n").is_err());
         assert!(declared_contacts_strict("# contacts: -1,24=short\n").is_err());
         assert!(declared_contacts_strict("# contacts: -1,24,5\n").is_err());
+        assert!(declared_contacts_strict("# contacts: -1,24,5=\n").is_err());
+        assert!(declared_contacts_strict("# contacts: -1,24,5=   \n").is_err());
     }
 }
