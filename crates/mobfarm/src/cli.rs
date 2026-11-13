@@ -7641,10 +7641,32 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             inert.extend(crate::column::header_cells(&text, "inert:"));
             let mut always_on = crate::column::header_cells(&text, "# always-on:");
             always_on.extend(crate::column::header_cells(&text, "always-on:"));
+            // (ironspec 23:51 PT (2)) the push-pair declarations: two cells and the bound the reason
+            // states (its first number)
+            let mut push_pairs = Vec::new();
+            for line in text.lines() {
+                let Some(rest) = line.strip_prefix("# push-pair:").or_else(|| line.strip_prefix("push-pair:")) else { continue };
+                for group in rest.split(';') {
+                    let mut it = group.splitn(2, '=');
+                    let cells: Vec<[i32; 3]> = it
+                        .next()
+                        .unwrap_or("")
+                        .split('+')
+                        .filter_map(|c| {
+                            let n: Vec<i32> = c.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+                            (n.len() == 3).then(|| [n[0], n[1], n[2]])
+                        })
+                        .collect();
+                    let bound = it.next().and_then(|r| r.split(|ch: char| !(ch.is_ascii_digit() || ch == '.')).find(|w| !w.is_empty()).and_then(|w| w.parse::<f64>().ok()));
+                    if cells.len() == 2 {
+                        push_pairs.push((cells[0], cells[1], bound.unwrap_or(0.0)));
+                    }
+                }
+            }
             // (ironspec 22:03 / 22:09 PT) k_lock and k_sw from the module
             let num = |key: &str| -> Option<i64> { text.lines().find_map(|l| l.strip_prefix(key)).and_then(|r| r.split_whitespace().next()).and_then(|n| n.parse().ok()) };
             let (k_lock, k_sw) = (num("k-lock:"), num("k-sw:"));
-            let o = crate::f1q2run::Opts { seed, ticks, day0, lane_carts, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour, cart_trace, restarts, restart, control_rider, trace, bed, drive, drive_rec, watchdog, stale_start, held_at_divert, queue_hold, emulated, emulated_states, ts, update_only, empty_pocket, dwell_cap, stack_bench, stops, k_lock, k_sw, inert, always_on };
+            let o = crate::f1q2run::Opts { seed, ticks, day0, lane_carts, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour, cart_trace, restarts, restart, control_rider, trace, bed, drive, drive_rec, watchdog, stale_start, held_at_divert, queue_hold, emulated, emulated_states, ts, update_only, empty_pocket, dwell_cap, stack_bench, stops, k_lock, k_sw, inert, always_on, push_pairs };
             let (rep, out) = crate::f1q2run::run_driven(&spec, &o).map_err(|e| anyhow::anyhow!(e))?;
             print!("{rep}");
             if let (Some(df), Some(sf), Some((drive_text, scene_entities))) = (&drive_out, &scene_out, out) {
