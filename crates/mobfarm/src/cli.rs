@@ -1821,6 +1821,10 @@ pub enum MobfarmCmd {
         /// is (i), the design start: HOME a memory, the ticket free).
         #[arg(long)]
         visit_start_held: bool,
+        /// (G1 07:00 (1)) the visit rows' held-walk verdict sets the exit status (1 when it FAILS or
+        /// is NOT JUDGED); with --report-only the run exits 0 and says so.
+        #[arg(long)]
+        report_only: bool,
         /// (tick-exact's forced holds) the visit's cart summoned at `--leg`'s position and held there:
         /// no leg, the rows start at once; a hold past the row's end never releases.
         #[arg(long)]
@@ -7394,7 +7398,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             );
             print!("{}", crate::killguard::bench(&spec, &c, &o).map_err(|e| anyhow::anyhow!(e))?);
         }
-        MobfarmCmd::WayCell { design, positions, move_positions, s9, c_descent, brakes, queue, post, own, napper, keep_clear, chunk, pad, draws, write, rail, extra, ride_to, custom_post, wait, bed, leg, hold, south, deep, ride_ticks, release_phases, restart_at, stamp, follow, queue_glass, leg_day, release_sweep, visit, visit_holds, visit_no_post, path_probe, seat_at, restart_every, freeze_every, band, r1_built, visit_skip, bystander, watch_cells, visit_clear_stamp, visit_plant_stamp, visit_plant_erase, visit_start_held, visit_at_rest, probe_every_tick, freeze_lens, water_restart_row, water_scan, scan_box, water_search, search_rests, search_sweep } => {
+        MobfarmCmd::WayCell { design, positions, move_positions, s9, c_descent, brakes, queue, post, own, napper, keep_clear, chunk, pad, draws, write, rail, extra, ride_to, custom_post, wait, bed, leg, hold, south, deep, ride_ticks, release_phases, restart_at, stamp, follow, queue_glass, leg_day, release_sweep, visit, visit_holds, visit_no_post, path_probe, seat_at, restart_every, freeze_every, band, r1_built, visit_skip, bystander, watch_cells, visit_clear_stamp, visit_plant_stamp, visit_plant_erase, visit_start_held, report_only, visit_at_rest, probe_every_tick, freeze_lens, water_restart_row, water_scan, scan_box, water_search, search_rests, search_sweep } => {
             if let [a, b] = water_restart_row[..] {
                 let ticks: Vec<i64> = (a..=b).collect();
                 for how in crate::liveness::Restart::rows() {
@@ -7594,8 +7598,16 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             if let (true, 6, 3, 3, Some(d)) = (visit > 0, leg.len(), bed.len(), ride_to.len(), leg_day) {
                 let holds = if visit_holds.is_empty() { vec![80, 90, 100, 110] } else { visit_holds.clone() };
                 let post_at = if visit_no_post { None } else { o.post };
-                for l in crate::waycell::visit_lines(&spec, &o, post_at, [leg[0], leg[1], leg[2]], [leg[3], leg[4], leg[5]], [bed[0], bed[1], bed[2]], d, visit, &holds, &restart_at, [ride_to[0], ride_to[1], ride_to[2]], follow).map_err(|e| anyhow::anyhow!(e))? {
+                let (lines, pass) = crate::waycell::visit_lines(&spec, &o, post_at, [leg[0], leg[1], leg[2]], [leg[3], leg[4], leg[5]], [bed[0], bed[1], bed[2]], d, visit, &holds, &restart_at, [ride_to[0], ride_to[1], ride_to[2]], follow).map_err(|e| anyhow::anyhow!(e))?;
+                for l in lines {
                     println!("{l}");
+                }
+                // (G1 07:00 (1)) the held walk's verdict is the exit status (--report-only: exit 0)
+                if !pass {
+                    println!("way-cell visit: the held walk FAILS or is NOT JUDGED{}", if report_only { " (--report-only: exit 0)" } else { " (exit 1)" });
+                    if !report_only {
+                        std::process::exit(1);
+                    }
                 }
                 return Ok(());
             }

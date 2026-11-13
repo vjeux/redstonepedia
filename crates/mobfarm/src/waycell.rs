@@ -1900,6 +1900,27 @@ pub fn sweep_lines(spec: &FarmSpec, o: &Opts, post: P, start: i64, ticks: u32, b
 /// and the entry with their walk targets, the first calm REST tick after the release with its HOME
 /// path, the stamp and HOME at the entry.
 #[allow(clippy::too_many_arguments)]
+/// (ironspec 05:20, the bench rule; G1 07:00: no silent skip) the summoned rider of `cart` asserted
+/// on its fresh brain: found, with an exact brain, and in the activity the schedule gives `day`:
+/// REST at night (day time 12,000..24,000), not REST by day (IDLE / WORK / MEET by the villager's
+/// schedule; a jobless villager cannot enter WORK and stays IDLE). Returns the activity printed.
+fn assert_summon_activity(w: &redsim::world::World, cart: u32, day: i64) -> Result<String, String> {
+    let ri = w.entities.list.iter().position(|e| !e.removed && e.vehicle == Some(cart)).ok_or_else(|| format!("the bench rule: the summoned rider of cart {cart} not found"))?;
+    if !redsim::entity::mob::ai::brain::has_exact(w, ri) {
+        return Err(format!("the bench rule: the summoned rider #{} has no exact brain (its activity cannot be asserted)", w.entities.list[ri].id));
+    }
+    let act = format!("{:?}", redsim::entity::mob::ai::brain::ex(w, ri).active);
+    let dt = day.rem_euclid(24000);
+    let night = dt >= 12000;
+    if night != act.contains("Rest") {
+        return Err(format!(
+            "the bench rule (ironspec 05:20): the summoned napper's activity is {act} at day time {dt} ({}): the day was not set before the summon",
+            if night { "night: REST expected" } else { "day: IDLE / WORK / MEET expected" }
+        ));
+    }
+    Ok(act)
+}
+
 /// (ironspec 06:31 (2)) a bed's ticket line: the POI's free tickets, its occupied flag and every
 /// villager whose HOME memory names the bed (a HOME loaded from NBT takes no ticket in the game).
 fn bed_line(w: &mut redsim::world::World, bp: BlockPos) -> String {
@@ -1918,7 +1939,7 @@ fn bed_line(w: &mut redsim::world::World, bp: BlockPos) -> String {
     format!("the bed {bp}: free tickets {}, occupied {occ}, HOME memory holders {holders:?}", free.map_or("-".to_string(), |f| f.to_string()))
 }
 
-pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], motion: [f64; 3], bed: P, day: i64, phases: u32, holds: &[u32], restart_ticks: &[i64], entry: P, follow: u32) -> Result<Vec<String>, String> {
+pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], motion: [f64; 3], bed: P, day: i64, phases: u32, holds: &[u32], restart_ticks: &[i64], entry: P, follow: u32) -> Result<(Vec<String>, bool), String> {
     // (ironspec 22:10 (2)) the visit followed past A6's entry this many gt (the held walk's clear,
     // the sleep, HOME, armings, how far the napper gets)
     let follow = if follow == 0 { 600 } else { follow };
@@ -2010,18 +2031,9 @@ pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], 
         // on the bench's old day time until its next update 20 gt later (the t22 offset)
         w0.world.mob.day_offset = day - w0.world.time;
         let cart = redsim::entity::spawn(&mut w0.world, "minecraft:minecart", start, Some(&format!("{{Motion:[{:.4}d,{:.4}d,{:.4}d],Passengers:[{rider_nbt}]}}", motion[0], motion[1], motion[2])))?;
-        // (ironspec 05:20, the bench rule) the day set before the summon, ASSERTED: at night the
-        // fresh brain's activity is REST from its creation
-        if day.rem_euclid(24000) >= 12000 {
-            if let Some(ri) = w0.world.entities.list.iter().position(|e| !e.removed && e.vehicle == Some(cart)) {
-                if redsim::entity::mob::ai::brain::has_exact(&w0.world, ri) {
-                    let act = format!("{:?}", redsim::entity::mob::ai::brain::ex(&w0.world, ri).active);
-                    if !act.contains("Rest") {
-                        return Err(format!("the bench rule (ironspec 05:20): the summoned napper's activity is {act} at night (day time {day}), not REST: the day was not set before the summon"));
-                    }
-                }
-            }
-        }
+        // (ironspec 05:20, the bench rule; G1 07:00: no silent skip) the day set before the summon,
+        // ASSERTED on the fresh brain: REST at night, the day's scheduled activity by day
+        let summon_act = assert_summon_activity(&w0.world, cart, day)?;
         let rider = w0.world.entities.list.iter().find(|e| !e.removed && e.vehicle == Some(cart)).map(|e| e.id).ok_or("no rider")?;
         // (G1 05:50: the start state) (i), the DESIGN start: the napper holds HOME as a memory only and
         // the bed's ticket is FREE (onechunk's composed runs); (ii): the napper holds the ticket too.
@@ -2537,16 +2549,29 @@ pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], 
             ws.sort();
             format!("{}..{} (median {}, over {} rows)", ws[0], ws[ws.len() - 1], ws[ws.len() / 2], ws.len())
         },
-        if rows_n == 0 || i_samples == 0 || followed_n == 0 || entry_stamped_n == 0 {
-            format!("NOT JUDGED (samples: {rows_n} rows, (i) {i_samples} rows with a stamp, (ii) {entry_stamped_n} rows stamped at the entry, (iii)/(v) {followed_n} rows followed into A6): FAILS")
+        if rows_n == 0 || i_samples == 0 || followed_n == 0 || entry_stamped_n == 0 || follow < FOLLOW_BOUND {
+            format!("NOT JUDGED (samples: {rows_n} rows, (i) {i_samples} rows with a stamp, (ii) {entry_stamped_n} rows stamped at the entry, (iii)/(v) {followed_n} rows followed into A6; the follow window {follow} gt against its bound {FOLLOW_BOUND} gt): FAILS")
         } else if over_1000_n == 0 && not_cleared_n == 0 && armed_after_n == 0 && home_lost_n == 0 && farm_stop_n == 0 && escaped_n == 0 {
             format!("PASSES within its scope: (i) over {i_samples} rows with a stamp, (ii) over {entry_stamped_n} stamped at the entry, (iii) and (v) over {followed_n} rows followed into A6, of {rows_n} rows on one world (its seed fixed; the rows differ in the arrival phase and the hold)")
         } else {
             "FAILS".to_string()
         }
     ));
-    Ok(out)
+    // (G1 07:00 (1)) the verdict as the exit status: the held walk passes only when judged and every
+    // bar holds (the caller exits 1 otherwise, unless --report-only)
+    let judged = !(rows_n == 0 || i_samples == 0 || followed_n == 0 || entry_stamped_n == 0 || follow < FOLLOW_BOUND);
+    let pass = judged && over_1000_n == 0 && not_cleared_n == 0 && armed_after_n == 0 && home_lost_n == 0 && farm_stop_n == 0 && escaped_n == 0;
+    out.push(format!(
+        "(visit) the follow window {follow} gt against its BOUND {FOLLOW_BOUND} gt (G1 07:06: MoveToTargetSink's longest duration 250 + A6's restart-to-lie-down 89 + 2 for the walk target's re-set and the restart: a sink running at A6's entry ends by entry + 250, so a napper not asleep by the bound is a real farm-stop): {}",
+        if follow >= FOLLOW_BOUND { "the window covers it" } else { "TOO SHORT: the farm-stop bar NOT JUDGED" }
+    ));
+    Ok((out, pass))
 }
+
+/// (G1 07:06 (1)) the visit rows' follow window's bound: MoveToTargetSink's longest duration (150 +
+/// nextInt(100) < 250) + A6's restart-to-lie-down (89 gt, the normal lie-down past the entry) + 2
+/// (the walk target's re-set and the sink's restart).
+const FOLLOW_BOUND: u32 = 250 + 89 + 2;
 
 /// (farmopt 17:07: the seat's own HOME path) A fresh rider seated in a cart at each of `at` (cart
 /// positions), a few ticks to settle, and the HOME path from there to `bed`: its start node, end
@@ -2971,6 +2996,10 @@ pub fn leg_lines(spec: &FarmSpec, o: &Opts, start: [f64; 3], motion: [f64; 3], h
         run.world.mob.day_offset = d - run.world.time;
     }
     let cart = redsim::entity::spawn(&mut run.world, "minecraft:minecart", start, Some(&format!("{{Motion:[{:.4}d,{:.4}d,{:.4}d],Passengers:[{rider_nbt}]}}", motion[0], motion[1], motion[2])))?;
+    // (ironspec 05:20, the bench rule; G1 07:00) the fresh brain's activity asserted for the leg too
+    if let Some(d) = day {
+        assert_summon_activity(&run.world, cart, d)?;
+    }
     let rider = run.world.entities.list.iter().find(|e| !e.removed && e.vehicle == Some(cart)).map(|e| e.id);
     let stamp_of = |w: &redsim::world::World| -> Option<i64> {
         let i = w.entities.list.iter().position(|e| !e.removed && Some(e.id) == rider)?;
