@@ -601,7 +601,13 @@ pub(crate) fn valid_empty(w: &World, p: BlockPos, type_id: &str) -> bool {
         return false;
     }
     let col = blocks::type_index(type_id);
-    !matches!((state_props(w, p), col), (Some(s), Some(c)) if s.dangerous.get(c).copied().unwrap_or(false))
+    match (state_props(w, p), col) {
+        (Some(s), Some(c)) if c < s.dangerous.len() => !s.dangerous[c],
+        // (cc767b78, G1 12:07, ironspec 12:54) a state the table has no row for (redsim's own cactus,
+        // powder snow, fire) or a type it has no column for read as safe here before: the game's
+        // `isBlockDangerous` as redsim models it now
+        _ => !crate::entity::mob::blocks::dangerous_for(&b, type_id),
+    }
 }
 
 /// `SpawnPlacements.isSpawnPositionOk`.
@@ -626,7 +632,15 @@ pub(crate) fn dark_enough(w: &mut World, p: BlockPos) -> bool {
     if sky > r {
         return false;
     }
-    let block = w.block_light(p).unwrap_or(15);
+    // (cc767b78, ironspec 12:54: no silent default; an unreadable block light refuses the spawn and
+    // surfaces, as the sky light above does)
+    let block = match w.block_light(p) {
+        Ok(v) => v,
+        Err(e) => {
+            w.errors.push(e);
+            return false;
+        }
+    };
     if block > 0 {
         return false;
     }
@@ -713,11 +727,12 @@ fn spawn_rules(w: &mut World, k: &Kind, p: BlockPos, nat: &Natural) -> bool {
 /// hostile checks' C1 reads it, so a type the game can never spawn at a cell is never listed.
 pub fn rules_can_pass(w: &World, k: &Kind, p: BlockPos, difficulty: Difficulty) -> bool {
     let not_peaceful = difficulty != Difficulty::Peaceful;
-    let block = w.block_light(p).unwrap_or(0);
-    // the darkest the rule can see (an unknown light: dark, so the exposure is listed)
-    let darkest = w.raw_brightness(p, 11).unwrap_or(0);
-    // without darkening (an unknown light: bright)
-    let raw = w.raw_brightness(p, 0).unwrap_or(15);
+    let block = w.light_or(w.block_light(p), 0);
+    // the darkest the rule can see (an unreadable light: dark, so the exposure is listed, and the error
+    // surfaces: `World::light_or`)
+    let darkest = w.light_or(w.raw_brightness(p, 11), 0);
+    // without darkening (an unreadable light: bright, the error surfacing)
+    let raw = w.light_or(w.raw_brightness(p, 0), 15);
     let tag = |t: &str| has_tag(w, p.below(), t);
     match k.rule {
         Rule::Always => true,
@@ -2938,8 +2953,8 @@ pub fn explain(w: &mut World, type_id: &str, p: BlockPos) -> String {
     let below = w.get(p.below());
     let floor = valid_spawn_floor(w, p.below(), k.id);
     let (e0, e1) = (valid_empty(w, p, k.id), valid_empty(w, p.above(), k.id));
-    let sky = w.sky_light(p).unwrap_or(-1);
-    let block = w.block_light(p).unwrap_or(-1);
+    let sky = w.sky_light(p).map_or_else(|e| format!("unreadable ({e})"), |v| v.to_string());
+    let block = w.block_light(p).map_or_else(|e| format!("unreadable ({e})"), |v| v.to_string());
     let d = darken(w);
     let bright = brightness(w, p, d);
     let bb = spawn_box(k.ty, p.x as f64 + 0.5, p.y as f64, p.z as f64 + 0.5);

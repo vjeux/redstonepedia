@@ -84,6 +84,6 @@ pub fn farm_of(w: &redsim::World, design: &mctas::design::Design, paste: &pastec
 pub fn run(sample: &Terrain, design: &mctas::design::Design, at: [i32; 2], ground: i32, afk: [f64; 3]) -> Result<(pastecheck::Paste, Farm, Vec<Exposure>)> {
     let (w, paste) = pastecheck::paste_redsim(sample, design, at, ground).context("pasting")?;
     let farm = farm_of(&w, design, &paste, afk);
-    let exposures = hostile::check(&w, &farm, true);
+    let exposures = hostile::check(&w, &farm, true).map_err(|e| anyhow::anyhow!(e))?;
     Ok((paste, farm, exposures))
 }

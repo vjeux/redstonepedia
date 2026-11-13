@@ -127,6 +127,29 @@ pub(crate) fn prevents_spawning_inside(s: &Block) -> bool {
     matches!(s, Block::Rail { .. } | Block::PlainRail { .. } | Block::DetectorRail { .. })
 }
 
+/// `EntityType.isBlockDangerous(state)` for entity type `type_id` (cc767b78, for the natural spawner's
+/// states the block table has no row for; tick-exact's 26.3 reading, 2026-11-13: EntityType 338-346):
+/// not when the type's `immuneTo` tag holds the block (empty by default, `#default_immune_to`; powder
+/// snow for a stray, a snow golem and a polar bear, the wither rose for a wither skeleton and the
+/// wither, the sweet berry bush for a fox: EntityTypes 491 / 825 / 947 / 999 / 1115 / 1125, the tags'
+/// contents VanillaBlockTagsProvider 1233-1238), else [`is_dangerous`] with the type's fire immunity
+/// (its row's `fire_immune`: `fireImmune()`).
+pub fn dangerous_for(s: &Block, type_id: &str) -> bool {
+    let name = s.to_string();
+    let id = name.split('[').next().unwrap_or(&name);
+    let immune: &[&str] = match type_id.trim_start_matches("minecraft:") {
+        "stray" | "snow_golem" | "polar_bear" => &["minecraft:powder_snow"],
+        "wither_skeleton" | "wither" => &["minecraft:wither_rose"],
+        "fox" => &["minecraft:sweet_berry_bush"],
+        _ => &[],
+    };
+    if immune.contains(&id) {
+        return false;
+    }
+    let fire_immune = super::types::MobType::from_id(type_id).is_some_and(|t| t.def().fire_immune);
+    is_dangerous(s, fire_immune)
+}
+
 /// `NaturalSpawner.isValidEmptySpawnBlock(level, pos, state, fluid, type)`: not a full collision
 /// cube, not a signal source, no fluid (`check_fluid` false: the caller passed `Fluids.EMPTY`), not
 /// a rail, not dangerous for the type.
@@ -165,7 +188,7 @@ pub fn is_suffocating(s: &Block) -> bool {
 pub fn sky_hidden(w: &World, p: BlockPos) -> bool {
     // a terrain world knows its sky light (`canSeeSky`: sky light 15)
     if w.land.is_some() {
-        return w.sky_light(p).map(|l| l < 15).unwrap_or(false);
+        return w.sees_or(w.sky_light(p).map(|l| l < 15), false);
     }
     let top = w.min.y + w.size[1];
     (p.y + 1..top).any(|y| {
