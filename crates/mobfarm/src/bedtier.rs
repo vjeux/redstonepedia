@@ -1327,6 +1327,8 @@ pub struct Row {
     pub bed_occupied_at_end: bool,
     /// (G1 13:02) the P-eye static's lines (the record seed's visits)
     pub p_eye_lines: Vec<String>,
+    /// (G1 13:26) the tick boundary the window opened at (F or the latch's OPEN)
+    pub open_at: Option<i64>,
     pub launch_cells: Vec<([i32; 3], f64)>,
     /// (G1 C16) The cells holding water at the visit's end (the design's own water is the bar).
     pub water_cells: usize,
@@ -2719,6 +2721,8 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                 }
                 if want_open {
                     f_fired = true;
+                    // (G1 13:26: the window's opening, a write before tick t: stamped t - 1)
+                    row.open_at.get_or_insert(t - 1);
                     row.waker_lines.push(format!("t {t} (F, the emulated latch): the window open"));
                 } else {
                     row.close_at.get_or_insert(t);
@@ -2755,6 +2759,8 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
         let armed_ok = lay.arm.is_none() || row.armed_at.is_some_and(|a| t - 1 >= a + f.arm_delay);
         if f.latch.is_none() && !f_fired && f_live.is_some_and(|x| live >= x) && armed_ok {
             f_fired = true;
+            // (G1 13:26: the window's opening, a write before tick t: stamped t - 1)
+            row.open_at.get_or_insert(t - 1);
             // (G1: the sleeper's eye-to-eye COLLIDER ray to the waker in both window states, the
             // blocking cell named: before F (window closed) and after F's write (window open))
             let ray = |w: &World| -> String {
@@ -5114,6 +5120,10 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
                         if let (Some(a), Some(wk)) = (r.armed_at, r.woke_at) {
                             sk.arm_to_wake.push(wk - a);
                         }
+                        // (G1 13:26: T_open sized from the window's opening to the wake)
+                        if let (Some(o), Some(wk)) = (r.open_at, r.woke_at) {
+                            sk.open_to_wake.push(wk - o);
+                        }
                         if let Some(wk) = r.woke_at {
                             sk.wake_ticks.push(wk);
                         }
@@ -5412,6 +5422,11 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
         let mut v = sk.arm_to_wake.clone();
         v.sort();
         println!("the arming edge (ARM (-2,0,1)) to the wake (day-1 12:22: its TIMEOUT T_max is sized from it): {:?}..{:?} gt over {} visits (median {:?})", v.first(), v.last(), v.len(), v.get(v.len() / 2));
+    }
+    if !sk.open_to_wake.is_empty() {
+        let mut v = sk.open_to_wake.clone();
+        v.sort();
+        println!("the window's opening to the wake (G1 13:26: T_open's worst wake latency; the wake sensor's pulse rises 2 gt after the wake): {:?}..{:?} gt over {} visits (median {:?})", v.first(), v.last(), v.len(), v.get(v.len() / 2));
     }
     if sk.sensor_seen {
         let mm = |v: &Vec<i64>| (v.iter().min().copied(), v.iter().max().copied());
@@ -5744,6 +5759,8 @@ struct SkipTotals {
     arm_to_lie: Vec<i64>,
     /// (day-1 12:22) the arming edge to the wake per visit (gt)
     arm_to_wake: Vec<i64>,
+    /// (G1 13:26) the window's opening to the wake per visit (gt)
+    open_to_wake: Vec<i64>,
     wake_ticks: Vec<i64>,
     skip_class: std::collections::BTreeMap<&'static str, (i64, i64)>,
     r_ats: Vec<i64>,
