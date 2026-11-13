@@ -1737,7 +1737,7 @@ pub fn creeper_report(spec: &redsim::entity::mob::farm::FarmSpec, glass: bool, u
     // (a light read inside the spawn rules that failed: the report is refused)
     let light_errors = w.take_light_errors();
     if !light_errors.is_empty() {
-        return Err(format!("creeper report: {} light read(s) failed: {}", light_errors.len(), light_errors.join("; ")));
+        return Err(format!("creeper report: {} light read(s) failed (pending since the world's last tick or take: some may predate this report): {}", light_errors.len(), light_errors.join("; ")));
     }
     let lmin = spaces.iter().map(|x| x.1).min().unwrap_or(0);
     let lmax = spaces.iter().map(|x| x.1).max().unwrap_or(0);
