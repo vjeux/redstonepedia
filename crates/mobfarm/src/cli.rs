@@ -740,6 +740,11 @@ pub enum MobfarmCmd {
         /// diff hid C8 and C9 once; every class is printed, so none can be missed).
         #[arg(long)]
         against: Option<PathBuf>,
+        /// (ironspec Nov 13 10:38) With `--terrain void`: the site biome the spawn lists come
+        /// from (default plains; ocean / river and any biome of redsim's table; an unknown one
+        /// refused).
+        #[arg(long, default_value = "minecraft:plains")]
+        biome: String,
     },
     /// The hostile checks' C1 against the game: at every interior cell of the farm built in a
     /// terrain sample, for every type listed there, C1's verdict (placement, spawn rule at its
@@ -2678,6 +2683,15 @@ pub enum MobfarmCmd {
         surround: String,
         #[arg(long, allow_hyphen_values = true)]
         pocket: Option<String>,
+    },
+    /// (ironspec Nov 13 08:18 (e)) The exterior hostile-spawn static on the floating site: every
+    /// top-surface cell outside the farm's interior a natural monster can spawn in at night (the
+    /// site biome, the darkest sky, no block light credited in the void); the bar 0 (exit 1).
+    ExteriorSpawn {
+        design: PathBuf,
+        /// The site biome the spawn lists come from (default plains; an unknown one refused).
+        #[arg(long, default_value = "minecraft:plains")]
+        biome: String,
     },
     /// (ironspec Nov 13 09:44) The T exposure static: every plain rail with three potential
     /// connections, its signal sources within Manhattan 2 (constant or operating) and its
@@ -8394,11 +8408,25 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let (claims, _) = crate::fleecheck::design_claims(&spec, taken);
             p_static_run(&design, &spec_file, &at, &cart, &exit_at, &set, &hold, &column_of, &surround, pocket.as_deref(), None, &claims)?;
         }
+        MobfarmCmd::ExteriorSpawn { design, biome } => {
+            let (_c, spec) = load(version, &design)?;
+            let (lines, n) = crate::fleecheck::exterior_spawns(&spec, Box::leak(biome.into_boxed_str())).map_err(|e| anyhow::anyhow!(e))?;
+            for l in &lines {
+                println!("{l}");
+            }
+            anyhow::ensure!(n == 0, "the exterior spawn static: {n} spawnable cell(s) on the build's outside (bar 0)");
+        }
         MobfarmCmd::TExposure { design } => {
             let (c, spec_file) = load(version, &design)?;
             let (spec, _) = crate::fleecheck::settled_design(&spec_file).map_err(|e| anyhow::anyhow!(e))?;
-            let classes = crate::fleecheck::PlaceClasses::from_meta(&c.clock.design.meta).map_err(|e| anyhow::anyhow!(e))?;
-            let (lines, fails) = crate::fleecheck::t_exposure(&spec, &classes.switches);
+            let classes = crate::fleecheck::PlaceClasses::from_design(&c.clock.design.meta, &std::fs::read_to_string(&design)?).map_err(|e| anyhow::anyhow!(e))?;
+            let (lines, fails) = crate::fleecheck::t_exposure(&spec, &classes.switches).map_err(|e| anyhow::anyhow!(e))?;
+            // (7b90c3f1 / day-1 Nov 13 10:37-10:41: the declared update-only sources, information:
+            // the Ts they reach must be in `switches:` to pass)
+            let mut lines = lines;
+            for (q, why) in &classes.update_only {
+                lines.push(format!("  UPDATE-ONLY (declared, information) {},{},{}: {why}", q.x, q.y, q.z));
+            }
             for l in &lines {
                 println!("{l}");
             }
@@ -13109,7 +13137,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             // coverage evidence is GEOMETRIC; the seed's day time printed)
             let o_day = redsim::entity::mob::farm::RunOpts::steady(1, 0, redsim::entity::mob::farm::WalkMode::Random);
             println!("flee-check's worlds: seed 1, day0 {} (by day; no brain ticked: PANIC / IDLE are this model's labels, the evidence GEOMETRIC)", o_day.day0);
-            let mut place_classes = crate::fleecheck::PlaceClasses::from_meta(&_c.clock.design.meta).map_err(|e| anyhow::anyhow!(e))?;
+            let mut place_classes = crate::fleecheck::PlaceClasses::from_design(&_c.clock.design.meta, &std::fs::read_to_string(&design)?).map_err(|e| anyhow::anyhow!(e))?;
             // (ironspec Nov 13 09:01 (c): a declared late-path exemption on the command line joins
             // the design's `late-exempt:` lines, each printed)
             place_classes.late_exempt.extend(holds_of(&late_exempt)?);
@@ -14783,25 +14811,16 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             println!("{}: {:.1} build minutes at {stage} prices ({:.1} of them travel and height); collecting {:.0} s per trip ({} layers each way)", c.name(), bill.seconds / 60.0, travel / 60.0, bill.collect_s, bill.collect_layers);
         }
         MobfarmCmd::SpawnRules { design, terrain, tries, day_time } => crate::spawnrules::run(version, &design, &terrain, tries, day_time)?,
-        MobfarmCmd::Exposures { design, terrain, cells, against } => {
+        MobfarmCmd::Exposures { design, terrain, cells, against, biome } => {
             if terrain == "void" {
                 // (ironspec Nov 13 08:33 (2): the FLOATING site's exterior spawns: the hostile
                 // checks on the design's own settled world in the void (redsim reads AIR outside
                 // the box, cc767b78), the AFK player at the run's default (60 under the chest))
                 anyhow::ensure!(against.is_none(), "--against with --terrain void: not supported");
                 let (_c, spec) = load(version, &design)?;
-                let w = crate::fleecheck::settled_world_void(&spec).map_err(|e| anyhow::anyhow!(e))?;
-                let summoners = {
-                    let mut with = w.clone();
-                    for (k, p, n) in &spec.entities {
-                        let _ = redsim::entity::spawn(&mut with, k, *p, n.as_deref());
-                    }
-                    redsim::entity::mob::site::villager_cells(&with)
-                };
-                let afk = redsim::entity::Vec3::new(spec.output.x as f64 + 0.5, (spec.lo.y - 60) as f64, spec.output.z as f64 + 0.5);
-                let farm = circuit::mobfarm::hostile_farm(&w, &spec, afk, &summoners);
-                let ex = redsim::entity::mob::hostile::check(&w, &farm, true);
-                println!("{} in the VOID (a floating site: void outside the box, cc767b78's World::get), the AFK player at {:.1},{:.1},{:.1}: {} golem cells, {} interior cells; {} exposure class(es)", design.display(), afk.x, afk.y, afk.z, farm.golem_cells.len(), farm.interior.len(), ex.len());
+                let biome: &'static str = Box::leak(biome.into_boxed_str());
+                let (afk, farm, ex) = crate::fleecheck::void_exposures(&spec, biome).map_err(|e| anyhow::anyhow!(e))?;
+                println!("{} in the VOID (a floating site: void outside the box, cc767b78's World::get; the site biome {biome}, the spawn lists' biome), the AFK player at {:.1},{:.1},{:.1}: {} golem cells, {} interior cells; {} exposure class(es)", design.display(), afk.x, afk.y, afk.z, farm.golem_cells.len(), farm.interior.len(), ex.len());
                 for e in &ex {
                     println!("  {e:?}");
                 }
