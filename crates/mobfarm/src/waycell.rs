@@ -124,7 +124,7 @@ fn in_box(p: &P, b: &B6) -> bool {
 fn eye_in(w: &redsim::world::World, p: &P) -> Vec3 {
     let b = w.get(BlockPos::new(p[0], p[1], p[2]));
     let up = match b {
-        Block::Rail { shape, .. } | Block::PlainRail { shape } | Block::DetectorRail { shape, .. } => {
+        Block::Rail { shape, .. } | Block::PlainRail { shape, .. } | Block::DetectorRail { shape, .. } => {
             if shape.is_ascending() {
                 0.5
             } else {
@@ -819,6 +819,14 @@ pub fn ride_lines(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32) -> Result<Vec
 /// rider's health lost, and at the landing cell (`landing`) whether the cart stayed on rails and never
 /// moved back south past it. Then the min..max over the rows.
 pub fn ride_rows(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u32, restart_ticks: &[i64], landing: Option<P>) -> Result<Vec<String>, String> {
+    ride_rows_with(spec, o, entry, ticks, phases, restart_ticks, &[], landing)
+}
+
+/// [`ride_rows`] with entity freezes too (ironspec 18:46 (a)): each (start, length) a row with the
+/// part frozen at level 32 ([`crate::liveness::freeze32`]: redstone running, entities frozen) from
+/// the tick `start` after the release for `length` gt.
+#[allow(clippy::too_many_arguments)]
+pub fn ride_rows_with(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u32, restart_ticks: &[i64], freezes: &[(i64, i64)], landing: Option<P>) -> Result<Vec<String>, String> {
     let ro = RunOpts { ai: true, ..RunOpts::steady(1, ticks + phases + 60, WalkMode::Random) };
     let (mut base, _) = crate::placing::start(&widened(spec, o), &ro, crate::placing::Placement::Judge, &crate::placing::BuildPlan::default())?;
     let q = o.queue;
@@ -835,25 +843,31 @@ pub fn ride_rows(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u32, r
     }
     let input = if o.south { BlockPos::new(q[0] - 1, q[1], q[2]) } else { BlockPos::new(q[0], q[1], q[2] + 1) };
     let mut rows: Vec<(String, Option<u32>, Option<Vec3>, f32, bool, bool)> = Vec::new();
-    let mut specs: Vec<(String, u32, Option<(i64, crate::liveness::Restart)>)> = (0..phases).map(|k| (format!("phase +{k}"), k, None)).collect();
+    let mut specs: Vec<(String, u32, Option<(i64, crate::liveness::Restart)>, Option<(i64, i64)>)> = (0..phases).map(|k| (format!("phase +{k}"), k, None, None)).collect();
     for &t in restart_ticks {
         for how in crate::liveness::Restart::rows() {
-            specs.push((format!("restart at t {t} ({})", how.label()), 0, Some((t, how))));
+            specs.push((format!("restart at t {t} ({})", how.label()), 0, Some((t, how)), None));
         }
     }
-    for (label, k, restart) in specs {
+    for &(s, len) in freezes {
+        specs.push((format!("frozen t {s}..{}", s + len), 0, None, Some((s, len))));
+    }
+    for (label, k, restart, freeze) in specs {
         let mut run = base.clone();
         for _ in 0..k {
             run.tick();
         }
         release(&mut run.world, o)?;
         let mut cart = cart0;
+        let mut frozen: Option<[i32; 4]> = None;
         let rider_of = |w: &redsim::world::World, c: u32| w.entities.list.iter().position(|v| !v.removed && v.vehicle == Some(c));
         let h0 = rider_of(&run.world, cart).map(|i| redsim::entity::mob::mob(&run.world, i).health).unwrap_or(0.0);
         let mut h_min = h0;
         let (mut at_entry, mut v_entry, mut landed, mut derailed, mut back_south) = (None, None, None::<u32>, false, false);
+        let mut last_seen: Option<([i32; 3], f64)> = None;
         let (mut box_z_max, mut vz_max) = (f64::NEG_INFINITY, f64::NEG_INFINITY);
         let mut restart_cell: Option<P> = None;
+        let mut eye_wet = 0u32;
         for t in 0..ticks {
             if let Some((rt, how)) = restart {
                 if t as i64 == rt {
@@ -863,13 +877,30 @@ pub fn ride_rows(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u32, r
                     cart = *map.get(&cart).ok_or("the cart lost in the restart")?;
                 }
             }
+            if let Some((fs, fl)) = freeze {
+                if t as i64 == fs {
+                    frozen = Some(crate::liveness::freeze32(&mut run.world));
+                }
+                if t as i64 == fs + fl {
+                    if let Some(pb) = frozen.take() {
+                        crate::liveness::thaw32(&mut run.world, pb);
+                    }
+                }
+            }
             run.tick();
             let Some(e) = run.world.entities.list.iter().find(|e| e.id == cart && !e.removed) else { break };
+            last_seen = Some(([e.pos.x.floor() as i32, e.pos.y.floor() as i32, e.pos.z.floor() as i32], (e.delta_movement.x.powi(2) + e.delta_movement.z.powi(2)).sqrt()));
             let c = [e.pos.x.floor() as i32, e.pos.y.floor() as i32, e.pos.z.floor() as i32];
             let (pz, vz) = (e.pos.z, e.delta_movement.z);
             let v = e.delta_movement;
             if let Some(i) = rider_of(&run.world, cart) {
                 h_min = h_min.min(redsim::entity::mob::mob(&run.world, i).health);
+                // (ironspec 19:12 (d)) the rider's eye above the water at every position
+                let r = &run.world.entities.list[i];
+                let eye = BlockPos::new(r.pos.x.floor() as i32, (r.pos.y + r.kind.eye_height() as f64).floor() as i32, r.pos.z.floor() as i32);
+                if redsim::fluid::fluid_state(&run.world, eye).fluid.is_water() {
+                    eye_wet += 1;
+                }
             }
             if let Some(l) = landing {
                 if landed.is_none() && c == l {
@@ -894,8 +925,10 @@ pub fn ride_rows(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u32, r
         }
         rows.push((
             format!(
-                "{label}{} [after the landing: the box's z at most {box_z_max:.4}, vz at most {vz_max:.4}]",
-                restart_cell.map_or(String::new(), |c| format!(" (the cart at {c:?} at the restart)"))
+                "{label}{}{}{} [after the landing: the box's z at most {box_z_max:.4}, vz at most {vz_max:.4}]",
+                restart_cell.map_or(String::new(), |c| format!(" (the cart at {c:?} at the restart)")),
+                if eye_wet > 0 { format!(" (the rider's EYE IN WATER {eye_wet} ticks)") } else { String::new() },
+                if at_entry.is_none() { last_seen.map_or(" (the cart gone)".to_string(), |(c, s)| format!(" (the cart last at {c:?} at {s:.4} b/t)")) } else { String::new() }
             ),
             at_entry,
             v_entry,
@@ -905,24 +938,27 @@ pub fn ride_rows(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u32, r
         ));
     }
     let mut out = Vec::new();
+    // (ironspec 19:31: (C)'s entry bar narrowed to A6's measured [0.11, 0.21] heading west (A6 is
+    // capped, not fixed); inherited from 58f770cc's A6 park sweep)
     let ok_v = |v: &Vec3| {
         let s = (v.x * v.x + v.z * v.z).sqrt();
-        (0.02..=0.62).contains(&s) && v.x < 0.0 && v.x.abs() > v.z.abs()
+        (0.11..=0.21).contains(&s) && v.x < 0.0 && v.x.abs() > v.z.abs()
     };
     for (label, t, v, hurt, derail, back) in &rows {
         out.push(format!(
-            "(ride) {label}: the entry at t {} after the release, {}; hurt {hurt:.1}; {}{}",
+            "(ride) {label}: the entry at t {} after the release, {}{}; hurt {hurt:.1}; {}{}",
             t.map_or("NEVER".to_string(), |t| t.to_string()),
             v.map_or("-".to_string(), |v| format!("{:.4} b/t (vx {:.4}, vz {:.4})", (v.x * v.x + v.z * v.z).sqrt(), v.x, v.z)),
+            if v.as_ref().is_some_and(ok_v) { "" } else { " OUT OF THE BAR" },
             if *derail { "OFF THE RAILS or no landing" } else { "on rails from the landing" },
             if *back { ", MOVED BACK SOUTH" } else { "" }
         ));
     }
     let ts: Vec<u32> = rows.iter().filter_map(|r| r.1).collect();
     let ss: Vec<f64> = rows.iter().filter_map(|r| r.2.map(|v| (v.x * v.x + v.z * v.z).sqrt())).collect();
-    let all_ok = rows.iter().all(|r| r.1.is_some() && r.2.as_ref().is_some_and(ok_v) && r.3 <= 0.0 && !r.4 && !r.5);
+    let all_ok = rows.iter().all(|r| r.1.is_some() && r.2.as_ref().is_some_and(ok_v) && r.3 <= 0.0 && !r.4 && !r.5 && !r.0.contains("EYE IN WATER"));
     out.push(format!(
-        "(ride) {} rows: the entry at t {}..{} after the release, {:.4}..{:.4} b/t heading west (A6's band 0.02..0.62); 0 hurt, on rails, never back south: {}",
+        "(ride) {} rows: the entry at t {}..{} after the release, {:.4}..{:.4} b/t heading west (the bar [0.11, 0.21], inherited: ironspec 19:31 from 58f770cc's A6 park sweep); 0 hurt, on rails, never back south: {}",
         rows.len(),
         ts.iter().min().copied().unwrap_or(0),
         ts.iter().max().copied().unwrap_or(0),
