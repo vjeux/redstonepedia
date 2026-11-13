@@ -6207,10 +6207,15 @@ pub enum MobfarmCmd {
         /// was, a plain rail where the activator was, glass over the lever.
         #[arg(long)]
         eject_at_entry: bool,
-        /// The curve contact's fix candidate (ironspec 23:19 (4b)): the wall east of the pickup cell
-        /// (-1,0,4) a closed top-half iron trapdoor (above the cart's top), not glass.
+        /// The curve contact's positive control: the wall east of the pickup cell (-1,0,4) glass, as
+        /// before the curve fix (adopted ironspec 00:32: a closed top-half iron trapdoor there).
         #[arg(long)]
-        curve_clear: bool,
+        curve_glass: bool,
+        /// (A) (ironspec 00:07 (4A), approved for benching 00:37): the eject within SleepInBed's
+        /// reach of the bed head (E over the bed foot's NE, the park one cell north of the pickup
+        /// cell, the arming detector before E); the landing chests and the ledge gone.
+        #[arg(long)]
+        eject_at_bed: bool,
     },
     /// The bed stop's one-visit bench (a `bedtier --bench` design) over seeds and entry speeds: F
     /// --after-sleep gt after the lie-down, the release --release-after gt after the wake edge (the
@@ -6354,6 +6359,45 @@ pub enum MobfarmCmd {
         /// collision shape changed and the napper's last recompute before and after.
         #[arg(long)]
         pulse_cell: Vec<String>,
+        /// (ironspec 00:31, the re-runs on record7 itself) A declared lever held ON from the start
+        /// (`x,y,z`, the module's frame with --module-offset; repeatable): REST_l's line end.
+        #[arg(long)]
+        lever_on: Vec<String>,
+        /// record7's built release: its declared NOT-ready lever (`x,y,z`, the module's frame), ON
+        /// through the wait, OFF at the release (the built R1 then powers the queue rail), ON again
+        /// once the cart leaves the seat; no R1 stand-ins laid, --queue-release not needed.
+        #[arg(long)]
+        built_release: Option<String>,
+        /// DAY's declared lever (`x,y,z`, the module's frame), following the daylight detector's
+        /// real rule: set to DAY only at game time % 20 == 0 (ironspec 00:25).
+        #[arg(long)]
+        day_lever: Option<String>,
+        /// The design of record to compare the bench's world against (record-match, ironspec 21:43 /
+        /// 23:46): the rows count only by its verdicts, which fail the run.
+        #[arg(long)]
+        record: Option<std::path::PathBuf>,
+        /// The record's offset: a bench cell + it = the record's cell (default: the module offset).
+        #[arg(long, allow_hyphen_values = true)]
+        record_offset: Option<String>,
+        /// The margin over the bench's world box for record-match.
+        #[arg(long, default_value_t = 2)]
+        record_margin: i32,
+        /// Extra declaration header text for record-match (`# stand-in:`, `# candidate:`,
+        /// `# bench-entity:` lines; repeatable), as record-match's --declare.
+        #[arg(long)]
+        record_declare: Vec<std::path::PathBuf>,
+        /// Bars this run's declared scope excludes (`visits`, `pickups`, `riderless`; repeatable):
+        /// their 0 samples print NOT JUDGED without failing (ironspec 23:56).
+        #[arg(long)]
+        scope_excludes: Vec<String>,
+        /// ((A), ironspec 00:37 (2b)) F waits for the arming detector's edge + this many gt (the
+        /// worst-case braking interval + 3, printed by the bench).
+        #[arg(long, default_value_t = 0)]
+        arm_delay: i64,
+        /// ((A)'s at-rest bar's positive control) The park released this many gt after the arming
+        /// detector's edge, whatever the napper does (0: the cart still moving; the bar must fail).
+        #[arg(long)]
+        release_after_arm: Option<i64>,
         /// With --module-offset: the module's stop brought up to date, `OLD,NEW` (two stop files
         /// in the stop's frame): every cell where they differ set in the moved module to NEW's
         /// block (air where NEW has none), the cells they agree on left as composed.
@@ -14444,8 +14488,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             compare_cmd(version, &design, &opts, twin)?;
         }
-        MobfarmCmd::Bedtier { out, bench, trapdoor_caps, eject_at_entry, curve_clear } => {
-            std::fs::write(&out, crate::bedtier::design(bench, trapdoor_caps, eject_at_entry, curve_clear)?)?;
+        MobfarmCmd::Bedtier { out, bench, trapdoor_caps, eject_at_entry, curve_glass, eject_at_bed } => {
+            anyhow::ensure!(!(eject_at_bed && (eject_at_entry || trapdoor_caps || curve_glass)), "--eject-at-bed is its own layout: no --eject-at-entry, --trapdoor-caps or --curve-glass with it");
+            std::fs::write(&out, if eject_at_bed { crate::bedtier::design_a(bench)? } else { crate::bedtier::design(bench, trapdoor_caps, eject_at_entry, curve_glass)? })?;
             println!("wrote {}", out.display());
             // (the placement-order cells: what the guide's build order leaves unlike the file)
             let (_c, spec) = load(version, &out)?;
@@ -14464,7 +14509,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("waker: {l}");
             }
         }
-        MobfarmCmd::BedtierBench { design, from, to, speeds, after_sleep, release_after, day, empty, no_home, hide_after_wake, restart, hour, restart_phases, orders, hours, skip, skip_phases, day_off, no_presence_gate, early_release, day_gate, day_on, live_day_seated, restart_after_skip, panic_entries, pickup_injects, module_offset, queue_seat, queue_release, queue_wait, queue_waits, forced_stamp, arrival_stamp, arrival_run, arrival_hold, declare_emulated, r_bar, park_shifts, set_cell, pulse_cell, restop, queue_dusk, jobs } => {
+        MobfarmCmd::BedtierBench { design, from, to, speeds, after_sleep, release_after, day, empty, no_home, hide_after_wake, restart, hour, restart_phases, orders, hours, skip, skip_phases, day_off, no_presence_gate, early_release, day_gate, day_on, live_day_seated, restart_after_skip, panic_entries, pickup_injects, module_offset, queue_seat, queue_release, queue_wait, queue_waits, forced_stamp, arrival_stamp, arrival_run, arrival_hold, declare_emulated, r_bar, park_shifts, set_cell, pulse_cell, lever_on, built_release, day_lever, record, record_offset, record_margin, record_declare, scope_excludes, arm_delay, release_after_arm, restop, queue_dusk, jobs } => {
             let (_c, mut spec) = load(version, &design)?;
             anyhow::ensure!(release_after >= 0 && after_sleep >= 0, "--release-after and --after-sleep can't be negative (the release waits for the wake edge, F for the lie-down edge)");
             let restart = restart.as_deref().map(crate::liveness::parse_restart).transpose().map_err(|e| anyhow::anyhow!(e))?;
@@ -14481,7 +14526,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     }
                 }
             };
-            let approach = match (triple(&module_offset)?, triple(&queue_seat)?, triple(&queue_release)?) {
+            let release_src = queue_release.clone().or(built_release.clone());
+            let approach = match (triple(&module_offset)?, triple(&queue_seat)?, triple(&release_src)?) {
                 (Some([ox, oy, oz]), Some([sx, sy, sz]), Some([rx, ry, rz])) => {
                     let (ox, oy, oz) = (ox as i32, oy as i32, oz as i32);
                     let (rx, ry, rz) = (rx as i32, ry as i32, rz as i32);
@@ -14495,7 +14541,42 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     Some(crate::bedtier::Approach { seat, release: [rx - ox, ry - oy, rz - oz], wait: queue_wait, dusk: queue_dusk })
                 }
                 (None, None, None) => None,
-                _ => anyhow::bail!("--module-offset, --queue-seat and --queue-release go together"),
+                _ => anyhow::bail!("--module-offset, --queue-seat and --queue-release (or --built-release) go together"),
+            };
+            // (ironspec 00:31: record7's declared line-bench levers, the module's frame -> the stop's)
+            let off = triple(&module_offset)?.map_or([0, 0, 0], |v| [v[0] as i32, v[1] as i32, v[2] as i32]);
+            let to_stop = |s: &str| -> Result<[i32; 3]> {
+                let v: Vec<i32> = s.split(',').map(|x| x.trim().parse::<i32>()).collect::<std::result::Result<_, _>>()?;
+                anyhow::ensure!(v.len() == 3, "{s:?}: x,y,z");
+                Ok([v[0] - off[0], v[1] - off[1], v[2] - off[2]])
+            };
+            let levers_on: Vec<[i32; 3]> = lever_on.iter().map(|s| to_stop(s)).collect::<Result<_>>()?;
+            let built_release = built_release.as_deref().map(to_stop).transpose()?;
+            let day_lever = day_lever.as_deref().map(to_stop).transpose()?;
+            // (record-match: the design of record, the offset (default: the module offset), the
+            // declarations from the bench design's header and --record-declare files)
+            let record = match &record {
+                Some(rp) => {
+                    let rt = std::fs::read_to_string(rp)?;
+                    let r = mctas::design::Design::parse(&rt).map_err(|e| anyhow::anyhow!("{}: {e}", rp.display()))?;
+                    let offset = match &record_offset {
+                        Some(s) => {
+                            let v: Vec<i32> = s.split(',').map(|x| x.trim().parse::<i32>()).collect::<std::result::Result<_, _>>()?;
+                            anyhow::ensure!(v.len() == 3, "--record-offset dx,dy,dz");
+                            [v[0], v[1], v[2]]
+                        }
+                        None => off,
+                    };
+                    let mut header = std::fs::read_to_string(&design)?;
+                    for f in &record_declare {
+                        header.push('\n');
+                        header.push_str(&std::fs::read_to_string(f).map_err(|e| anyhow::anyhow!("--record-declare {}: {e}", f.display()))?);
+                    }
+                    let declared = crate::recordmatch::declared_from_header(&header).map_err(|e| anyhow::anyhow!("{}: {e}", design.display()))?;
+                    let ents = r.entities.iter().map(|e| crate::recordmatch::Ent { kind: e.kind.clone(), pos: e.pos }).collect();
+                    Some(std::sync::Arc::new(crate::bedtier::RecordCtx { cells: r.blocks, ents, offset, margin: record_margin, declared, name: rp.display().to_string() }))
+                }
+                None => None,
             };
             // (the module's stop brought up to date: OLD's and NEW's differing cells)
             if let Some(pair) = &restop {
@@ -14544,17 +14625,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             // (ironspec 21:25: the cart contacts the design declares, `# contacts: x,y,z=REASON;
             // ...` in its header (a stop or a buffer); the design's frame, the loop frame with
             // --module-offset)
-            let declared_contacts: Vec<[i32; 3]> = crate::pushscan::header_entries(&std::fs::read_to_string(&design)?, "contacts:")
-                .iter()
-                .map(|d| {
-                    let c = d.split_once('=').map_or(d.as_str(), |(c, _)| c);
-                    let v: Vec<i32> = c.split(',').map(|x| x.trim().parse::<i32>()).collect::<std::result::Result<_, _>>()?;
-                    match v.as_slice() {
-                        &[x, y, z] => Ok([x - shift[0], y - shift[1], z - shift[2]]),
-                        _ => anyhow::bail!("contacts {d:?}: x,y,z=REASON"),
-                    }
-                })
-                .collect::<Result<_>>()?;
+            let declared_contacts: Vec<[i32; 3]> = crate::bedtier::parse_contacts(&std::fs::read_to_string(&design)?, shift).map_err(|e| anyhow::anyhow!(e))?;
             // (`--pulse-cell x,y,z@T=state`, the stop's frame)
             let pulses: Vec<(redsim::pos::BlockPos, i64, String)> = pulse_cell
                 .iter()
@@ -14566,7 +14637,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     Ok((redsim::pos::BlockPos::new(v[0], v[1], v[2]), t.trim().parse::<i64>()?, st.trim().to_string()))
                 })
                 .collect::<Result<_>>()?;
-            let faults = crate::bedtier::Faults { empty, no_home, hide_after_wake, restart, hour, skip, day_off, no_presence_gate, early_release, day_gate, day_on, live_day_seated, panic_entry: None, pickup_inject: None, approach, forced_stamp, arrival_stamp, arrival_run, arrival_hold, declared_emulated, r_bar, park_shift: None, park_shifts, declared_contacts, pulses };
+            let faults = crate::bedtier::Faults { empty, no_home, hide_after_wake, restart, hour, skip, day_off, no_presence_gate, early_release, day_gate, day_on, live_day_seated, panic_entry: None, pickup_inject: None, approach, forced_stamp, arrival_stamp, arrival_run, arrival_hold, declared_emulated, r_bar, park_shift: None, park_shifts, declared_contacts, pulses, levers_on, built_release, day_lever, record, record_seed: from, record_speed: f64::NAN, scope_excludes, arm_delay, release_after_arm };
             crate::bedtier::bench_cmd(&spec, from, to, &speeds, after_sleep, release_after, day, &faults, [restart_phases.as_deref(), hours.as_deref(), skip_phases.as_deref(), restart_after_skip.as_deref(), panic_entries.as_deref(), pickup_injects.as_deref(), queue_waits.as_deref()], &crate::bedtier::orders(&orders)?, jobs)?;
         }
         MobfarmCmd::BedtierTwo { design, from, to, speeds, restart_phases, orders, transit, lift_delay, lift_speed, day_hold, day_off, gap, c_at, skip_phases, day_on, jobs, day_gate, a_hours, after_sleep, release_after } => {
@@ -14575,17 +14646,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             anyhow::ensure!(release_after >= 0 && after_sleep >= 0, "--release-after and --after-sleep can't be negative (the release waits for the wake edge, F for the lie-down edge)");
             let (_c, spec) = load(version, &design)?;
             // (ironspec 21:25: the design's declared cart contacts, `# contacts: x,y,z=REASON`)
-            let declared_contacts: Vec<[i32; 3]> = crate::pushscan::header_entries(&std::fs::read_to_string(&design)?, "contacts:")
-                .iter()
-                .map(|d| {
-                    let c = d.split_once('=').map_or(d.as_str(), |(c, _)| c);
-                    let v: Vec<i32> = c.split(',').map(|x| x.trim().parse::<i32>()).collect::<std::result::Result<_, _>>()?;
-                    match v.as_slice() {
-                        &[x, y, z] => Ok([x, y, z]),
-                        _ => anyhow::bail!("contacts {d:?}: x,y,z=REASON"),
-                    }
-                })
-                .collect::<Result<_>>()?;
+            let declared_contacts: Vec<[i32; 3]> = crate::bedtier::parse_contacts(&std::fs::read_to_string(&design)?, [0, 0, 0]).map_err(|e| anyhow::anyhow!(e))?;
             crate::bedtier::two_cmd(&spec, from, to, &speeds, restart_phases.as_deref(), &crate::bedtier::orders(&orders)?, transit, lift_delay, lift_speed, day_hold.as_deref(), &day_off, gap, c_at, skip_phases.as_deref(), day_on, jobs, day_gate, a_hours.as_deref(), after_sleep, release_after, Box::leak(declared_contacts.into_boxed_slice()))?;
         }
     }
