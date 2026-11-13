@@ -142,6 +142,8 @@ pub struct Opts {
     /// (G1's P1 controls) "rest": a cart pinned at rest in lane -1's column cell until its next pass;
     /// "moving": a cart falling through it at a lane -1 pass's start.
     pub vholds_control: Option<String>,
+    /// (cc767b78 11:15) The build's offset from the design frame (x / z whole chunks).
+    pub offset: [i32; 3],
     /// (ironspec 10:51 (g)) the longest designed rest on a station hold H's trapdoor, gt.
     pub h_rest_bound: i64,
     /// (ironspec 10:51 (f)) the siding check's positive: a batch cart planted on lane -1's siding R.
@@ -286,7 +288,7 @@ pub fn poi_near(bed: [i32; 3], feet: redsim::entity::Vec3) -> bool {
 /// (G1 N4) The module's daylight detector (-5,15,3): its stored power, an error when the cell holds
 /// no daylight detector or its power doesn't parse (one reader for every DAY use).
 fn detector_level(w: &redsim::world::World) -> Result<u32, String> {
-    let s = w.get(redsim::pos::BlockPos::new(-5, 15, 3)).to_string();
+    let s = w.get(dbp(-5, 15, 3)).to_string();
     if !s.contains("daylight_detector") {
         return Err(format!("the DAY detector cell (-5,15,3) holds {s}, not a daylight detector"));
     }
@@ -349,7 +351,7 @@ fn spawned_view(w: &redsim::world::World, spawned: &[u32]) -> Result<Vec<(String
             let k = redsim::entity::index_of(w, *id).ok_or_else(|| format!("--scene-out: e{n} (#{id}) isn't in the world"))?;
             let e = &w.entities.list[k];
             let ps: Vec<String> = e.passengers.iter().filter_map(|p| redsim::entity::index_of(w, *p).map(|q| kind(&w.entities.list[q]))).collect();
-            Ok((kind(e), [e.pos.x, e.pos.y, e.pos.z], ps))
+            Ok((kind(e), [dpos(e.pos).x, dpos(e.pos).y, dpos(e.pos).z], ps))
         })
         .collect()
 }
@@ -970,7 +972,7 @@ fn set(w: &mut redsim::world::World, p: [i32; 3], state: &str, flags: u32) -> Re
     // (tick-exact / ironspec, the override rule on the drive: a write of the cell's existing state
     // changes nothing in the game (setBlock returns early with no update), so it's no write and no
     // drive act)
-    if w.get(redsim::pos::BlockPos::new(p[0], p[1], p[2])) == b {
+    if w.get(dbp(p[0], p[1], p[2])) == b {
         NOOP_WRITES.with(|n| *n.borrow_mut() += 1);
         // (G1 X16) every no-op emulated write listed (its tick, cell and state)
         NOOP_ROWS.with(|r| {
@@ -1032,7 +1034,7 @@ fn set(w: &mut redsim::world::World, p: [i32; 3], state: &str, flags: u32) -> Re
         }
         Ok(())
     })?;
-    w.set_block(redsim::pos::BlockPos::new(p[0], p[1], p[2]), b, flags);
+    w.set_block(dbp(p[0], p[1], p[2]), b, flags);
     Ok(())
 }
 
@@ -1044,7 +1046,7 @@ fn set(w: &mut redsim::world::World, p: [i32; 3], state: &str, flags: u32) -> Re
 fn lever_standin(w: &redsim::world::World, c: [i32; 3], target: [i32; 3]) -> Option<String> {
     use redsim::behavior::{sturdy_of, Support};
     use redsim::pos::Dir;
-    let at = |d: [i32; 3]| w.get(redsim::pos::BlockPos::new(c[0] + d[0], c[1] + d[1], c[2] + d[2]));
+    let at = |d: [i32; 3]| w.get(dbp(c[0] + d[0], c[1] + d[1], c[2] + d[2]));
     let ts: Vec<[i32; 3]> = TS.with(|t| t.borrow().clone());
     let n6 = |p: [i32; 3]| [[p[0] + 1, p[1], p[2]], [p[0] - 1, p[1], p[2]], [p[0], p[1] + 1, p[2]], [p[0], p[1] - 1, p[2]], [p[0], p[1], p[2] + 1], [p[0], p[1], p[2] - 1]];
     // (ironspec 18:34 (5), power reach: the lever powers its six neighbours and, strongly, its
@@ -1052,7 +1054,7 @@ fn lever_standin(w: &redsim::world::World, c: [i32; 3], target: [i32; 3]) -> Opt
     // doesn't conduct and no powerable component beside the lever but its target (a repeater or
     // comparator counts only from behind, its input))
     let powerable = |q: [i32; 3]| -> bool {
-        let s = w.get(redsim::pos::BlockPos::new(q[0], q[1], q[2])).to_string();
+        let s = w.get(dbp(q[0], q[1], q[2])).to_string();
         let n = s.trim_start_matches("minecraft:").split('[').next().unwrap_or("").to_string();
         if n == "repeater" || n == "comparator" {
             // (its input is the cell its facing names)
@@ -1084,7 +1086,7 @@ fn lever_standin(w: &redsim::world::World, c: [i32; 3], target: [i32; 3]) -> Opt
     };
     // (G1's note (a) on 961090aef: the written-over block's own updates count too: dust swapped
     // for the lever and back updates out to taxicab 2)
-    let written_over_dust = w.get(redsim::pos::BlockPos::new(c[0], c[1], c[2])).to_string().contains("redstone_wire");
+    let written_over_dust = w.get(dbp(c[0], c[1], c[2])).to_string().contains("redstone_wire");
     let dust_reach: Vec<[i32; 3]> = if written_over_dust {
         let mut v = Vec::new();
         for dx in -2i32..=2 {
@@ -1101,9 +1103,9 @@ fn lever_standin(w: &redsim::world::World, c: [i32; 3], target: [i32; 3]) -> Opt
         Vec::new()
     };
     let clean = |support: [i32; 3]| {
-        let sb = w.get(redsim::pos::BlockPos::new(support[0], support[1], support[2]));
+        let sb = w.get(dbp(support[0], support[1], support[2]));
         !n6(c).iter().chain(n6(support).iter()).chain(dust_reach.iter()).any(|q| ts.contains(q))
-            && !redsim::behavior::is_conductor(w, &sb, redsim::pos::BlockPos::new(support[0], support[1], support[2]))
+            && !redsim::behavior::is_conductor(w, &sb, dbp(support[0], support[1], support[2]))
             && n6(c).iter().all(|q| *q == target || *q == support || !powerable(*q))
     };
     let support = |d: [i32; 3]| [c[0] + d[0], c[1] + d[1], c[2] + d[2]];
@@ -1135,9 +1137,9 @@ fn input_on(w: &mut redsim::world::World, c: [i32; 3], target: [i32; 3]) -> Resu
     } else {
         lever_standin(w, c, target).ok_or_else(|| format!("no conforming lever face for the stand-in at ({},{},{}) (target ({},{},{}))", c[0], c[1], c[2], target[0], target[1], target[2]))?
     };
-    let before = w.get(redsim::pos::BlockPos::new(c[0], c[1], c[2])).to_string();
+    let before = w.get(dbp(c[0], c[1], c[2])).to_string();
     set(w, c, &s, redsim::world::flags::ALL)?;
-    let now = w.get(redsim::pos::BlockPos::new(c[0], c[1], c[2])).to_string();
+    let now = w.get(dbp(c[0], c[1], c[2])).to_string();
     if !(now.contains("lever") || now.contains("redstone_block")) {
         return Err(format!("the stand-in {s} at ({},{},{}) didn't survive its placement: the cell holds {now}", c[0], c[1], c[2]));
     }
@@ -1157,20 +1159,20 @@ fn input_on(w: &mut redsim::world::World, c: [i32; 3], target: [i32; 3]) -> Resu
 /// A controller input driven off: the stand-in, still there (a lever on its face), back to the
 /// built state.
 fn input_off(w: &mut redsim::world::World, c: [i32; 3], base: &str) -> Result<(), String> {
-    let now = w.get(redsim::pos::BlockPos::new(c[0], c[1], c[2])).to_string();
+    let now = w.get(dbp(c[0], c[1], c[2])).to_string();
     if !(now.contains("lever") || now.contains("redstone_block")) {
         return Err(format!("the stand-in at ({},{},{}) didn't survive its pulse: the cell holds {now}", c[0], c[1], c[2]));
     }
     set(w, c, base, redsim::world::flags::ALL)?;
     if BLOCK_STANDINS.with(|b| b.borrow().contains(&c)) {
-        let after = w.get(redsim::pos::BlockPos::new(c[0], c[1], c[2])).to_string();
+        let after = w.get(dbp(c[0], c[1], c[2])).to_string();
         BLOCK_TOGGLES.with(|t| t.borrow_mut().push((c, w.time, now, after)));
     }
     Ok(())
 }
 
 fn powered(w: &redsim::world::World, p: [i32; 3]) -> bool {
-    w.get(redsim::pos::BlockPos::new(p[0], p[1], p[2])).to_string().contains("powered=true")
+    w.get(dbp(p[0], p[1], p[2])).to_string().contains("powered=true")
 }
 
 impl Ctl {
@@ -1340,7 +1342,7 @@ impl Ctl {
             for x in LANES {
                 // (dfb89499's built drive, b4549f35a: R_1's repeater at (x+1,17,1), its input
                 // (x+2,17,1) a redstone block for 10 gt; the old file: the block in (x+1,17,1))
-                if w.get(redsim::pos::BlockPos::new(x + 1, 17, 1)).to_string().contains("repeater") {
+                if w.get(dbp(x + 1, 17, 1)).to_string().contains("repeater") {
                     input_on(w, [x + 2, 17, 1], [x + 1, 17, 1])?;
                     self.r_input_off = Some(now + 10);
                 } else {
@@ -1358,7 +1360,7 @@ impl Ctl {
         }
         if self.r_off == Some(now) {
             for x in LANES {
-                if !w.get(redsim::pos::BlockPos::new(x + 1, 17, 1)).to_string().contains("repeater") {
+                if !w.get(dbp(x + 1, 17, 1)).to_string().contains("repeater") {
                     set(w, [x + 1, 17, 1], "minecraft:glass", flags::ALL)?;
                 }
             }
@@ -1535,7 +1537,7 @@ impl Ctl {
             // or a rise before REL + 24): logged with the ARM3 consumers' states around it; the
             // emulation latches ARM3 once a cycle, so a second rise changes nothing here (the
             // built circuit's consumers: day-1's list)
-            let lv = |x: i32| w.get(redsim::pos::BlockPos::new(x, 26, 9)).to_string().contains("powered=true");
+            let lv = |x: i32| w.get(dbp(x, 26, 9)).to_string().contains("powered=true");
             self.nap_events.push(format!(
                 "t {now}: (5,0,7) rose again ({}): the emulation keeps ARM3 latched; the levers J/K (x,26,9) at x -3 {}, -1 {}, 1 {}, 3 {}, 5 {}; the hold input (7,-1,8) {}; a cycle {}",
                 self.arm3.map_or_else(|| self.rel.map_or("no cycle".to_string(), |r| format!("REL + {}", now - r)), |a| format!("ARM3 + {}", now - a)),
@@ -1544,7 +1546,7 @@ impl Ctl {
                 lv(1),
                 lv(3),
                 lv(5),
-                if w.get(redsim::pos::BlockPos::new(7, -1, 8)).to_string().contains("redstone_block") { "on" } else { "off" },
+                if w.get(dbp(7, -1, 8)).to_string().contains("redstone_block") { "on" } else { "off" },
                 if self.busy { "running" } else { "idle" }
             ));
         }
@@ -1553,15 +1555,15 @@ impl Ctl {
         // the stop 9 down)
         let sy = self.stop_dy;
         let by = sy - 18;
-        let bed = matches!(w.get(redsim::pos::BlockPos::new(-3, by, 3)).to_string(), s if s.contains("occupied=true"));
+        let bed = matches!(w.get(dbp(-3, by, 3)).to_string(), s if s.contains("occupied=true"));
         // (58f770cc's A6, b36302af8: every controller a floor lever on glass; the hatch's levers
         // (-4,by,2) and (-4,by+1,4) ON in the normal state, OFF at F; the park's levers (1,by+1,-6)
         // and (0,by,-6) OFF (braked), ON at the release, the bed's wake edge + 1 gt (58f770cc 00:39
         // PT); R's detector (4,by-1,4) re-arms both. d907's stop: stone and redstone blocks at its
         // control cells, the release 30 gt after F)
-        let a6 = w.get(redsim::pos::BlockPos::new(1, by + 1, -6)).to_string().contains("lever");
+        let a6 = w.get(dbp(1, by + 1, -6)).to_string().contains("lever");
         let set_lever = |w: &mut redsim::world::World, c: [i32; 3], on: bool| -> Result<(), String> {
-            let s = w.get(redsim::pos::BlockPos::new(c[0], c[1], c[2])).to_string();
+            let s = w.get(dbp(c[0], c[1], c[2])).to_string();
             if !s.contains("lever") {
                 return Err(format!("A6's control cell ({},{},{}) holds {s}, not a lever", c[0], c[1], c[2]));
             }
@@ -1657,7 +1659,7 @@ impl Ctl {
                 self.held_by = w.entities.list.iter().find(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && (cell(e.pos) == arr || cell(e.pos) == q)).and_then(|e| e.passengers.first().copied());
                 self.held_log.push(format!("t {now}: HELD set by the queue's arrival"));
                 self.q_arrivals.push(now);
-                self.nap_events.push(format!("t {now}: the queue's arrival ({},{},{}): HELD, the hold from now; the hatch (6,{},-5) {}", arr[0], arr[1], arr[2], by + 15, if w.get(redsim::pos::BlockPos::new(6, by + 15, -5)).to_string().contains("open=true") { "open" } else { "closed" }));
+                self.nap_events.push(format!("t {now}: the queue's arrival ({},{},{}): HELD, the hold from now; the hatch (6,{},-5) {}", arr[0], arr[1], arr[2], by + 15, if w.get(dbp(6, by + 15, -5)).to_string().contains("open=true") { "open" } else { "closed" }));
             }
             self.q_arr_prev = a;
             // (the napper's rest at the seat, for HELD's bound)
@@ -1713,7 +1715,7 @@ impl Ctl {
             // the first on-phase update after t 1,000 the detector's power is written one off
             // (before -> after printed), and exactly that update must mismatch
             if self.day_phase_control && !self.day_phase_done && now >= 1_000 && w.time % 20 == 0 {
-                let pos = redsim::pos::BlockPos::new(-5, 15, 3);
+                let pos = dbp(-5, 15, 3);
                 let before = w.get(pos).to_string();
                 let p0 = detector_level(w)?;
                 let p1 = if p0 == 15 { 14 } else { p0 + 1 };
@@ -1752,7 +1754,7 @@ impl Ctl {
                     let sky = match self.day_sky {
                         Some(s) => s,
                         None => {
-                            let s = redsim::daylight::sky_light(w, redsim::pos::BlockPos::new(-5, 15, 3)).map_err(|e| format!("the DAY detector's sky light: {e}"))?;
+                            let s = redsim::daylight::sky_light(w, dbp(-5, 15, 3)).map_err(|e| format!("the DAY detector's sky light: {e}"))?;
                             self.day_sky = Some(s);
                             s
                         }
@@ -1780,7 +1782,7 @@ impl Ctl {
             // emulation drives only its unlaid line ends as levels: NOT-ready at the side dust
             // (7,y+13,-5) (high from the departure's rise until A6's R), REST_l at (6,y+15,-1), DAY at
             // (4,y+15,-2); the release is read off the queue rail's power)
-            if w.get(redsim::pos::BlockPos::new(rel_cell[0], rel_cell[1], rel_cell[2])).to_string().contains("repeater") {
+            if w.get(dbp(rel_cell[0], rel_cell[1], rel_cell[2])).to_string().contains("repeater") {
                 // (NOT-ready drives the latch's side dust (7,y+13,-5) from a lever beside it at
                 // (8,y+13,-5), hung on the glass (9,y+13,-5): a comparator reads a side dust's own
                 // power, but a lever standing in the dust's cell only by its direct signal, which a
@@ -1806,7 +1808,7 @@ impl Ctl {
                     if let Some(v) = w.entities.list.iter().find(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && cell(e.pos) == q).and_then(|e| e.passengers.first().copied()) {
                         self.release_log.push((now, v));
                     }
-                    self.nap_events.push(format!("t {now}: the queue rail powered with a napper on it, through R1 (the built gate: N and RS_ready); the hatch (6,{},-5) {}", by + 15, if w.get(redsim::pos::BlockPos::new(6, by + 15, -5)).to_string().contains("open=true") { "open" } else { "closed" }));
+                    self.nap_events.push(format!("t {now}: the queue rail powered with a napper on it, through R1 (the built gate: N and RS_ready); the hatch (6,{},-5) {}", by + 15, if w.get(dbp(6, by + 15, -5)).to_string().contains("open=true") { "open" } else { "closed" }));
                 }
                 self.q_rail_prev = live;
             } else {
@@ -1944,7 +1946,7 @@ impl Ctl {
                 // input on at that tick less its line's latency, the (a) feed stack's delay-3
                 // repeater and the siding repeater 8 gt, the siding repeater alone 2 gt)
                 let sx = LANES[k] - 2;
-                let stack = w.get(redsim::pos::BlockPos::new(sx - 1, 22, 9)).to_string().contains("repeater");
+                let stack = w.get(dbp(sx - 1, 22, 9)).to_string().contains("repeater");
                 let k_sw = self.k_sw.ok_or("k_sw unset: a napper run needs the module's `k-sw:` line")?;
                 self.siding_on[k] = Some(now + k_sw + 8 - if stack { 8 } else { 2 });
                 // (G1's note) R's observed rise printed against D + k_sw + 8
@@ -2003,9 +2005,9 @@ impl Ctl {
             if self.siding_on[k] == Some(now) {
                 // (the (a) feed stack, day-1's: a repeater west of the siding's slime (sx-1,22,9)
                 // takes the release at its input (sx-2,22,9); otherwise the old input (sx,23,9))
-                let stack = w.get(redsim::pos::BlockPos::new(sx - 1, 22, 9)).to_string().contains("repeater");
+                let stack = w.get(dbp(sx - 1, 22, 9)).to_string().contains("repeater");
                 let (cell, target) = if stack { ([sx - 2, 22, 9], [sx - 1, 22, 9]) } else { ([sx, 23, 9], [sx, 23, 8]) };
-                let base = w.get(redsim::pos::BlockPos::new(cell[0], cell[1], cell[2])).to_string();
+                let base = w.get(dbp(cell[0], cell[1], cell[2])).to_string();
                 input_on(w, cell, target)?;
                 self.siding_cell[k] = Some((cell, base));
                 self.siding_on[k] = None;
@@ -2032,7 +2034,7 @@ impl Ctl {
     fn level(&mut self, w: &mut redsim::world::World, c: [i32; 3], target: [i32; 3], want: bool) -> Result<(), String> {
         let on = self.levels.contains_key(&c);
         if want && !on {
-            let base = w.get(redsim::pos::BlockPos::new(c[0], c[1], c[2])).to_string();
+            let base = w.get(dbp(c[0], c[1], c[2])).to_string();
             input_on(w, c, target)?;
             self.levels.insert(c, base);
         } else if !want && on {
@@ -2116,10 +2118,10 @@ impl Ctl {
     fn init(&mut self, w: &mut redsim::world::World) -> Result<(), String> {
         use redsim::world::flags;
         let lever = |on: bool| format!("minecraft:lever[face=ceiling,facing=north,powered={on}]");
-        self.l7_slope = w.get(redsim::pos::BlockPos::new(-4, 12, 7)).to_string().contains("powered_rail");
+        self.l7_slope = w.get(dbp(-4, 12, 7)).to_string().contains("powered_rail");
         // (G1's [3]) path (a) exactly: a plain rail at (5,0,7), and lane 7's braked slope laid; the
         // old path: the detector rail at (5,0,7) and no slope; anything else stops the run
-        let m = w.get(redsim::pos::BlockPos::new(5, 0, 7)).to_string();
+        let m = w.get(dbp(5, 0, 7)).to_string();
         self.path_a = if m.starts_with("minecraft:rail[") {
             true
         } else if m.starts_with("minecraft:detector_rail[") {
@@ -2136,7 +2138,7 @@ impl Ctl {
             // (x-4,-1,0); ironspec 17:49 / 18:06: no solid stand-in in place, so the release is a
             // floor lever in the riser's cell on its glass (x-2,-1,0) for 16 gt, the dust restored
             // after: the repeater's own line side, with the built cell's golem and path properties)
-            let at = |c: [i32; 3]| w.get(redsim::pos::BlockPos::new(c[0], c[1], c[2])).to_string();
+            let at = |c: [i32; 3]| w.get(dbp(c[0], c[1], c[2])).to_string();
             self.drive_cell[k] = if at([x - 1, 0, 0]).contains("repeater") && at([x - 3, -1, 0]).contains("redstone_wire") {
                 if !at([x - 2, 0, 0]).contains("redstone_wire") {
                     return Err(format!("M16bw's side drive at lane x {x}: no riser dust at ({},0,0)", x - 2));
@@ -2149,7 +2151,7 @@ impl Ctl {
             self.support_base[k] = Some(at(c));
         }
         for (x, on) in [(-1, true), (3, false), (7, true)] {
-            if !w.get(redsim::pos::BlockPos::new(x, 26, 9)).to_string().contains("lever") {
+            if !w.get(dbp(x, 26, 9)).to_string().contains("lever") {
                 return Err(format!("no junction lever at ({x},26,9): the drive takes c85331aaf's in-chunk split"));
             }
             set(w, [x, 26, 9], &lever(on), flags::ALL)?;
@@ -2323,12 +2325,12 @@ struct Rec {
 /// settle (bar: the T always in its intended shape).
 fn stack_bench(run: &mut Run) -> Result<String, String> {
     use redsim::world::flags;
-    let tp = redsim::pos::BlockPos::new(-3, 25, 9);
+    let tp = dbp(-3, 25, 9);
     let lever = |on: bool| format!("minecraft:lever[face=ceiling,facing=north,powered={on}]");
     let mut rows = Vec::new();
     let mut bad = 0;
     let look = |run: &Run, what: &str, rows: &mut Vec<String>, bad: &mut i32| {
-        let dust = run.world.get(redsim::pos::BlockPos::new(-3, 23, 9)).to_string();
+        let dust = run.world.get(dbp(-3, 23, 9)).to_string();
         let dp = dust.split("power=").nth(1).and_then(|r| r.split([',', ']']).next()).unwrap_or("-").to_string();
         match redsim::rails::junction_at(&run.world, tp) {
             Some(j) => {
@@ -2345,11 +2347,11 @@ fn stack_bench(run: &mut Run) -> Result<String, String> {
             }
         }
     };
-    let lever_cell = run.world.get(redsim::pos::BlockPos::new(-3, 26, 9)).to_string();
+    let lever_cell = run.world.get(dbp(-3, 26, 9)).to_string();
     if !lever_cell.contains("lever") {
         return Err(format!("--stack-bench: (-3,26,9) holds {lever_cell}, not the T's lever"));
     }
-    if !run.world.get(redsim::pos::BlockPos::new(-4, 22, 9)).to_string().contains("repeater") {
+    if !run.world.get(dbp(-4, 22, 9)).to_string().contains("repeater") {
         return Err("--stack-bench: no feed stack repeater at (-4,22,9)".to_string());
     }
     for j in [false, true] {
@@ -2358,7 +2360,7 @@ fn stack_bench(run: &mut Run) -> Result<String, String> {
             run.tick();
         }
         look(run, &format!("the lever {}", if j { "on" } else { "off" }), &mut rows, &mut bad);
-        let base = run.world.get(redsim::pos::BlockPos::new(-5, 22, 9)).to_string();
+        let base = run.world.get(dbp(-5, 22, 9)).to_string();
         input_on(&mut run.world, [-5, 22, 9], [-4, 22, 9])?;
         for _ in 0..12 {
             run.tick();
@@ -2392,13 +2394,13 @@ fn line_bench(run: &mut Run, by: i32) -> Result<String, String> {
     let mut lines: Vec<(String, [i32; 3], [i32; 3], [i32; 3], Option<i64>)> = Vec::new();
     for x in LANES {
         let sx = x - 2;
-        let stack = run.world.get(redsim::pos::BlockPos::new(sx - 1, 22, 9)).to_string().contains("repeater");
+        let stack = run.world.get(dbp(sx - 1, 22, 9)).to_string().contains("repeater");
         let (cell, target, lat) = if stack { ([sx - 2, 22, 9], [sx - 1, 22, 9], 8) } else { ([sx, 23, 9], [sx, 23, 8], 2) };
         lines.push((format!("lane x {x}'s siding feed ({})", if stack { "the (a) feed stack" } else { "the siding repeater" }), cell, target, [sx, 24, 7], Some(lat)));
     }
     lines.push(("the hold pulse (line 3)".to_string(), [7, -1, 8], [8, -1, 8], [9, 0, 8], Some(2)));
     for x in LANES {
-        let at = |c: [i32; 3]| run.world.get(redsim::pos::BlockPos::new(c[0], c[1], c[2])).to_string();
+        let at = |c: [i32; 3]| run.world.get(dbp(c[0], c[1], c[2])).to_string();
         if at([x - 1, 0, 0]).contains("repeater") {
             lines.push((format!("lane x {x}'s pocket release (M16bw)"), [x - 2, 0, 0], [x - 1, 0, 0], [x, 0, 0], None));
         }
@@ -2408,7 +2410,7 @@ fn line_bench(run: &mut Run, by: i32) -> Result<String, String> {
     }
     lines.push(("R1's gate, REST_l with DAY off and RS_ready".to_string(), [6, by + 15, -1], [6, by + 15, -2], [9, by + 13, -4], None));
     for (name, cell, target, meas, lat) in lines {
-        let base = run.world.get(redsim::pos::BlockPos::new(cell[0], cell[1], cell[2])).to_string();
+        let base = run.world.get(dbp(cell[0], cell[1], cell[2])).to_string();
         input_on(&mut run.world, cell, target)?;
         let (mut rise, mut fall) = (None, None);
         for t in 1..=40i64 {
@@ -2471,7 +2473,7 @@ fn gate_bench(run: &mut Run, by: i32) -> Result<String, String> {
         let ends = [([6, by + 15, -1], [6, by + 15, -2], rest), ([4, by + 15, -2], [5, by + 15, -2], day), ([8, by + 13, -5], [7, by + 13, -5], notready)];
         let mut bases = Vec::new();
         for (c, t, on) in ends {
-            let base = run.world.get(redsim::pos::BlockPos::new(c[0], c[1], c[2])).to_string();
+            let base = run.world.get(dbp(c[0], c[1], c[2])).to_string();
             if on {
                 input_on(&mut run.world, c, t)?;
             }
@@ -2480,8 +2482,8 @@ fn gate_bench(run: &mut Run, by: i32) -> Result<String, String> {
         for _ in 0..10 {
             run.tick();
         }
-        let states: Vec<String> = cells.iter().map(|(c, n)| format!("{n} {}", run.world.get(redsim::pos::BlockPos::new(c[0], c[1], c[2])).to_string().trim_start_matches("minecraft:"))).collect();
-        let powered = run.world.get(redsim::pos::BlockPos::new(9, by + 13, -4)).to_string().contains("powered=true");
+        let states: Vec<String> = cells.iter().map(|(c, n)| format!("{n} {}", run.world.get(dbp(c[0], c[1], c[2])).to_string().trim_start_matches("minecraft:"))).collect();
+        let powered = run.world.get(dbp(9, by + 13, -4)).to_string().contains("powered=true");
         let want = rest && !day && !notready;
         if powered != want {
             bad += 1;
@@ -2651,7 +2653,39 @@ pub fn lane_carts(slopes: usize) -> Vec<(String, [f64; 3], Option<String>)> {
 }
 
 fn cell(p: redsim::entity::Vec3) -> [i32; 3] {
-    [p.x.floor() as i32, p.y.floor() as i32, p.z.floor() as i32]
+    // (cc767b78 11:15, G1 10:50: the build-position term) every cell f1q2-run reads or writes is in
+    // the DESIGN frame; the world stands at the design + --offset
+    let o = frame_offset();
+    [p.x.floor() as i32 - o[0], p.y.floor() as i32 - o[1], p.z.floor() as i32 - o[2]]
+}
+
+thread_local! {
+    /// (cc767b78 11:15) f1q2-run's --offset: the world's build stands at the design frame + this (x / z
+    /// whole chunks); every coordinate the controller and the report use stays in the design frame.
+    static FRAME_OFFSET: std::cell::Cell<[i32; 3]> = const { std::cell::Cell::new([0, 0, 0]) };
+}
+
+/// (cc767b78 11:15) the run's --offset (the world = the design + this).
+fn frame_offset() -> [i32; 3] {
+    FRAME_OFFSET.with(|c| c.get())
+}
+
+/// (cc767b78 11:15) A design-frame cell's world block position (the design + --offset).
+fn dbp(x: i32, y: i32, z: i32) -> redsim::pos::BlockPos {
+    let o = frame_offset();
+    redsim::pos::BlockPos::new(x + o[0], y + o[1], z + o[2])
+}
+
+/// (cc767b78 11:15) A world position in the design frame (the world - --offset).
+fn dpos(v: redsim::entity::Vec3) -> redsim::entity::Vec3 {
+    let o = frame_offset();
+    redsim::entity::Vec3::new(v.x - o[0] as f64, v.y - o[1] as f64, v.z - o[2] as f64)
+}
+
+/// (cc767b78 11:15) A design-frame position in the world (the design + --offset).
+fn wpos(x: f64, y: f64, z: f64) -> redsim::entity::Vec3 {
+    let o = frame_offset();
+    redsim::entity::Vec3::new(x + o[0] as f64, y + o[1] as f64, z + o[2] as f64)
 }
 
 /// One run: the report.
@@ -2735,7 +2769,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         }
         // (the drive teleports only at rest, and a cart at rest on A6's entry booster doesn't
         // start: the napper comes from b8949c96's queue, released by its gate)
-        if o.napper && !sp.blocks.iter().any(|(p, b)| *p == redsim::pos::BlockPos::new(9, by + 13, -4) && b.to_string().contains("powered_rail")) {
+        if o.napper && !sp.blocks.iter().any(|(p, b)| *p == dbp(9, by + 13, -4) && b.to_string().contains("powered_rail")) {
             return Err(format!("--drive-out --napper: no way-in queue at (9,{},-4) (b8949c96's e9f0f4cbf): the napper must start from it", by + 13));
         }
     }
@@ -2752,6 +2786,26 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     // as every bench's drive starts it, `Run::start` with the drive's options, the settle run out
     // and the scene's entity lines spawned in file order, the memories set by the drive's acts)
     let drive_ticks = (o.ticks + 200) as u32;
+    // (cc767b78 11:15, G1 10:50: the build-position term) --offset: the world's build stands at the
+    // design + the offset (blocks, entities, block entities, the output, the box, the Nether
+    // anchor), while every cell the controller and the report use stays in the design frame
+    if o.offset != [0, 0, 0] {
+        if o.offset[0].rem_euclid(16) != 0 || o.offset[2].rem_euclid(16) != 0 {
+            return Err(format!("--offset {},{},{}: x and z move by whole chunks (multiples of 16)", o.offset[0], o.offset[1], o.offset[2]));
+        }
+        if drive_on {
+            return Err("--offset with --drive-out: the drive's acts are written in the design frame (not supported)".to_string());
+        }
+    }
+    FRAME_OFFSET.with(|c| c.set(o.offset));
+    struct FrameReset;
+    impl Drop for FrameReset {
+        fn drop(&mut self) {
+            FRAME_OFFSET.with(|c| c.set([0, 0, 0]));
+        }
+    }
+    let _frame_reset = FrameReset;
+    let sp_world = shift_spec_world(&sp, o.offset);
     let (mut run, mut lines) = if drive_on {
         let dro = RunOpts { ai: true, ..RunOpts::steady(o.seed, drive_ticks, WalkMode::Random) };
         let mut run = Run::start(&sp, &dro)?;
@@ -2764,9 +2818,9 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         check_scene_text(&spawned_view(&run.world, &lines)?, &scene_entity_lines(&sp.entities))?;
         (run, lines)
     } else {
-        (Run::new_homeless(&sp, &ro)?, Vec::new())
+        (Run::new_homeless(&sp_world, &ro)?, Vec::new())
     };
-    let bed = redsim::pos::BlockPos::new(o.bed[0], o.bed[1], o.bed[2]);
+    let bed = dbp(o.bed[0], o.bed[1], o.bed[2]);
     // (ironspec 08:05 platform (2), cc767b78's check 2) with --c7-placement, the HOME holders after
     // each setup phase, to find the setter of the stored riders' HOME
     let home_holders = |w: &redsim::world::World| -> Vec<u32> { w.entities.list.iter().filter(|e| !e.removed && matches!(&e.kind, EntityKind::Mob(m) if m.brain.as_deref().is_some_and(|b| b.home.is_some()))).map(|e| e.id).collect() };
@@ -2879,7 +2933,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     _ => None,
                 };
                 let first = c7_phase_seen.iter().find(|(_, ids)| ids.contains(&e.id)).map_or("after the HOME loop", |(ph, _)| *ph);
-                format!("#{} at ({:.2},{:.2},{:.2}) HOME {:?}, first seen {first}", e.id, e.pos.x, e.pos.y, e.pos.z, h.map(|h| [h.x, h.y, h.z]))
+                format!("#{} at ({:.2},{:.2},{:.2}) HOME {:?}, first seen {first}", e.id, dpos(e.pos).x, dpos(e.pos).y, dpos(e.pos).z, h.map(|h| [h.x, h.y, h.z]))
             })
             .collect()
     } else {
@@ -2975,7 +3029,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             .blocks
             .iter()
             .filter(|(_, b)| matches!(b, redsim::block::Block::PlainRail { .. }))
-            .filter(|(p, _)| redsim::rails::junction_at(&run.world, *p).is_some())
+            .filter(|(p, _)| redsim::rails::junction_at(&run.world, dbp(p.x, p.y, p.z)).is_some())
             .map(|(p, _)| [p.x, p.y, p.z])
             .filter(|c| !o.update_only.contains(c))
             .chain(o.ts.iter().copied())
@@ -2993,9 +3047,9 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     {
         let q_cell = [9, o.bed[1] + 13, -4];
         let w = &run.world;
-        ctl.wayin = o.napper && w.get(redsim::pos::BlockPos::new(q_cell[0], q_cell[1], q_cell[2])).to_string().contains("powered_rail") && {
+        ctl.wayin = o.napper && w.get(dbp(q_cell[0], q_cell[1], q_cell[2])).to_string().contains("powered_rail") && {
             // (the release cell: air (a stand-in's) or day-1's R1 repeater)
-            let r = w.get(redsim::pos::BlockPos::new(8, q_cell[1], -4));
+            let r = w.get(dbp(8, q_cell[1], -4));
             r.is_air() || r.to_string().contains("repeater")
         };
         if ctl.wayin && o.seed_queued_napper {
@@ -3031,7 +3085,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     let mut overrides: Vec<([i32; 3], String, String)> = Vec::new();
     if o.drive {
         for (c, state) in &o.emulated_states {
-            let p = redsim::pos::BlockPos::new(c[0], c[1], c[2]);
+            let p = dbp(c[0], c[1], c[2]);
             let before = run.world.get(p).to_string();
             if run.world.get(p).is_air() {
                 set(&mut run.world, *c, state, redsim::world::flags::ALL)?;
@@ -3255,7 +3309,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     let mut t_shapes: BTreeMap<[i32; 3], String> = spec
         .blocks
         .iter()
-        .filter(|(p, _)| redsim::rails::junction_at(&run.world, *p).is_some())
+        .filter(|(p, _)| redsim::rails::junction_at(&run.world, dbp(p.x, p.y, p.z)).is_some())
         .map(|(p, b)| ([p.x, p.y, p.z], format!("{:?}", redsim::rails::shape_of(b))))
         .collect();
     let mut t_changes: Vec<(i64, [i32; 3], String, String)> = Vec::new();
@@ -3399,6 +3453,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         for x in mn.x..mn.x + sz[0] {
             for y in mn.y..mn.y + sz[1] {
                 for z in mn.z..mn.z + sz[2] {
+                    // (the world's own bounds: a world position, not a design cell)
                     let p = redsim::pos::BlockPos::new(x, y, z);
                     let fs = redsim::fluid::fluid_state(w, p);
                     if fs.fluid != redsim::fluid::Fluid::Empty {
@@ -3427,7 +3482,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         .iter()
         .map(|c| (*c, "inert"))
         .chain(o.always_on.iter().map(|c| (*c, "always-on")))
-        .map(|(c, k)| (c, k, run.world.get(redsim::pos::BlockPos::new(c[0], c[1], c[2])).to_string()))
+        .map(|(c, k)| (c, k, run.world.get(dbp(c[0], c[1], c[2])).to_string()))
         .collect();
     let mut watched_start: Vec<String> = Vec::new();
     let mut watched_kind_bad: Vec<String> = Vec::new();
@@ -3564,7 +3619,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     ([4, -12, -2], "minecraft:lever[face=floor,facing=north,powered=false]"),
                     ([8, -14, -5], "minecraft:lever[face=wall,facing=west,powered=true]"),
                 ] {
-                    let p = redsim::pos::BlockPos::new(c[0], c[1], c[2]);
+                    let p = dbp(c[0], c[1], c[2]);
                     let before = w.get(p).to_string();
                     w.set_block(p, redsim::block::Block::parse(st).map_err(|e| format!("{st}: {e}"))?, redsim::world::flags::ALL);
                     let after = w.get(p).to_string();
@@ -3612,7 +3667,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 log.push(format!("c7 t 0 = run t {rel}: the stored queue cart killed, the napper #{vid} launched"));
             }
             if rel == c0 + 117 {
-                let p = redsim::pos::BlockPos::new(8, -14, -5);
+                let p = dbp(8, -14, -5);
                 w.set_block(p, redsim::block::Block::parse("minecraft:lever[face=wall,facing=west,powered=false]").map_err(|e| e.to_string())?, redsim::world::flags::ALL);
                 log.push("c7 t 117: the release lever (8,-14,-5) off".to_string());
             }
@@ -3636,11 +3691,11 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             let w = &mut run.world;
             let hit = w.entities.list.iter().find(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && cell(e.pos) == [0, 25, 9] && e.delta_movement.x > 0.0 && e.passengers.first().is_some_and(|r| nappers.iter().rev().find(|(v, _, _)| v == r).is_some_and(|(_, nk, _)| *nk == 2))).map(|e| e.id);
             if let Some(id) = hit {
-                let s0 = w.get(redsim::pos::BlockPos::new(1, 26, 9)).to_string();
+                let s0 = w.get(dbp(1, 26, 9)).to_string();
                 // (G1's P5) act only on K(3)'s lever OFF (never a silent no-op), read the write back
                 if s0.contains("lever") && s0.contains("powered=false") {
                     set(w, [1, 26, 9], &s0.replace("powered=false", "powered=true"), redsim::world::flags::ALL)?;
-                    let s1 = w.get(redsim::pos::BlockPos::new(1, 26, 9)).to_string();
+                    let s1 = w.get(dbp(1, 26, 9)).to_string();
                     controls_done.push(format!("the K-misroute control at t {rel}: lane 7's napper cart #{id} at (0,25,9) eastbound; K(3)'s lever (1,26,9) {s0} -> {s1}{}", if s1.contains("powered=true") { "" } else { " (the write did nothing: FAIL)" }));
                     kmis_ok = s1.contains("powered=true");
                     kmis = Some((rel, id, s0));
@@ -3652,7 +3707,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         {
             // (G1's P5) restored only if K(3)'s lever still holds the control's write: a controller
             // write since is kept
-            let now_s = run.world.get(redsim::pos::BlockPos::new(1, 26, 9)).to_string();
+            let now_s = run.world.get(dbp(1, 26, 9)).to_string();
             if now_s == s0.replace("powered=false", "powered=true") {
                 set(&mut run.world, [1, 26, 9], s0, redsim::world::flags::ALL)?;
                 controls_done.push(format!("the K-misroute control at t {rel}: K(3)'s lever restored to {s0}"));
@@ -3687,10 +3742,10 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 }).map(|(i, e)| (i, e.id));
                 if let Some((i, id)) = pick {
                     if mode == "rest" {
-                        w.entities.set_pos(i, redsim::entity::Vec3::new(-0.5, 23.0, 6.5));
+                        w.entities.set_pos(i, wpos(-0.5, 23.0, 6.5));
                         w.entities.list[i].delta_movement = redsim::entity::Vec3::ZERO;
                     } else {
-                        w.entities.set_pos(i, redsim::entity::Vec3::new(-0.5, 23.8, 6.5));
+                        w.entities.set_pos(i, wpos(-0.5, 23.8, 6.5));
                         w.entities.list[i].delta_movement = redsim::entity::Vec3::new(0.0, -0.3, 0.0);
                     }
                     vhold = Some((id, rel));
@@ -3705,7 +3760,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 if pass_judged[0] > vhold_judged0 && !pass_open.values().any(|pw| pw.lane == 0) {
                     vhold_done = true;
                 } else if let Some(i) = redsim::entity::index_of(w, id) {
-                    w.entities.set_pos(i, redsim::entity::Vec3::new(-0.5, 23.0, 6.5));
+                    w.entities.set_pos(i, wpos(-0.5, 23.0, 6.5));
                     w.entities.list[i].delta_movement = redsim::entity::Vec3::ZERO;
                 }
                 if rel == t {
@@ -3720,7 +3775,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && c[0] == 3 && (17..=22).contains(&c[1]) && e.passengers.first().is_some_and(|r| !nappers.iter().any(|(v, _, _)| v == r))
             }).map(|(i, e)| (i, e.id));
             if let Some((i, id)) = pick {
-                w.entities.set_pos(i, redsim::entity::Vec3::new(-2.5, 24.0625, 7.5));
+                w.entities.set_pos(i, wpos(-2.5, 24.0625, 7.5));
                 w.entities.list[i].delta_movement = redsim::entity::Vec3::ZERO;
                 siding_plant = Some((id, rel));
                 controls_done.push(format!("the siding plant at t {rel}: batch cart #{id} planted at rest on lane -1's siding R (-3,24,7)"));
@@ -3730,7 +3785,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             let w = &mut run.world;
             if lip_hold_cart.is_none() && rel >= 1_000 {
                 if let Some(e) = w.entities.list.iter().find(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && LANES.iter().any(|x| cell(e.pos) == [*x, 24, 6])) {
-                    lip_hold_cart = Some((e.id, rel, [e.pos.x, e.pos.y, e.pos.z]));
+                    lip_hold_cart = Some((e.id, rel, [dpos(e.pos).x, dpos(e.pos).y, dpos(e.pos).z]));
                     controls_done.push(format!("the lip hold at t {rel}: cart #{} held {n} gt on the drop cell ({},24,6)", e.id, cell(e.pos)[0]));
                 }
             }
@@ -3738,7 +3793,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 && rel < t + n
                 && let Some(ci) = redsim::entity::index_of(w, cart)
             {
-                w.entities.set_pos(ci, redsim::entity::Vec3::new(p[0], p[1], p[2]));
+                w.entities.set_pos(ci, wpos(p[0], p[1], p[2]));
                 w.entities.list[ci].delta_movement = redsim::entity::Vec3::ZERO;
             }
         }
@@ -3749,7 +3804,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             let w = &mut run.world;
             if late_hold.is_none() && rel >= 1_000 {
                 if let Some(e) = w.entities.list.iter().find(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && e.passengers.first().is_some_and(|r| nappers.iter().any(|(v, _, _)| v == r)) && LANES.iter().any(|x| cell(e.pos) == [x - 2, 25, 8])) {
-                    late_hold = Some((e.id, rel, [e.pos.x, e.pos.y, e.pos.z]));
+                    late_hold = Some((e.id, rel, [dpos(e.pos).x, dpos(e.pos).y, dpos(e.pos).z]));
                     late_lane = LANES.iter().position(|x| cell(e.pos)[0] == *x - 2);
                     late_rider = e.passengers.first().copied();
                     late_phase = 0;
@@ -3768,7 +3823,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     controls_done.push(format!("the late-return control at t {rel}: lane x {}'s release window closed: the napper cart let go", LANES[k]));
                 }
                 if late_phase < 2 {
-                    w.entities.set_pos(ci, redsim::entity::Vec3::new(p[0], p[1], p[2]));
+                    w.entities.set_pos(ci, wpos(p[0], p[1], p[2]));
                     w.entities.list[ci].delta_movement = redsim::entity::Vec3::ZERO;
                 }
             }
@@ -3799,7 +3854,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 && let Some(ci) = redsim::entity::index_of(w, cart)
             {
                 if rel < tb + nb {
-                    w.entities.set_pos(ci, redsim::entity::Vec3::new(-4.5, 23.0625, 8.5));
+                    w.entities.set_pos(ci, wpos(-4.5, 23.0625, 8.5));
                     w.entities.list[ci].delta_movement = redsim::entity::Vec3::ZERO;
                 } else {
                     redsim::entity::kill(w, cart)?;
@@ -3819,7 +3874,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                         let c = cell(e.pos);
                         c[0] == -5 && (6..=8).contains(&c[2]) && c[1] >= 2
                     })
-                    .map(|e| format!("#{} ({:.3},{:.3},{:.3}) v({:.3},{:.3},{:.3}){}", e.id, e.pos.x, e.pos.y, e.pos.z, e.delta_movement.x, e.delta_movement.y, e.delta_movement.z, if e.passengers.is_empty() { " empty" } else { "" }))
+                    .map(|e| format!("#{} ({:.3},{:.3},{:.3}) v({:.3},{:.3},{:.3}){}", e.id, dpos(e.pos).x, dpos(e.pos).y, dpos(e.pos).z, e.delta_movement.x, e.delta_movement.y, e.delta_movement.z, if e.passengers.is_empty() { " empty" } else { "" }))
                     .collect();
                 lift_rows.push(format!("t {rel}: {}", if carts.is_empty() { "none".to_string() } else { carts.join(", ") }));
             }
@@ -4525,16 +4580,16 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 // (the call's own willing villagers, `wantsToSpawnGolem` in the caller's 10-box, are
                 // its summoners: their stamps are a summon's, not a bystander's; a stamped napper
                 // that isn't willing is the bystander)
-                let cp = w.entities.list[k].pos;
+                let cp = dpos(w.entities.list[k].pos);
                 let willing: std::collections::BTreeSet<u32> = (0..w.entities.list.len())
                     .filter(|&j| {
                         let e = &w.entities.list[j];
                         !e.removed
                             && matches!(&e.kind, EntityKind::Mob(m) if m.ty == redsim::entity::mob::types::MobType::Villager)
-                            && (e.pos.x - cp.x).abs() <= 10.6
-                            && (e.pos.z - cp.z).abs() <= 10.6
-                            && e.pos.y + 1.95 >= cp.y - 10.0
-                            && e.pos.y <= cp.y + 1.95 + 10.0
+                            && (dpos(e.pos).x - cp.x).abs() <= 10.6
+                            && (dpos(e.pos).z - cp.z).abs() <= 10.6
+                            && dpos(e.pos).y + 1.95 >= cp.y - 10.0
+                            && dpos(e.pos).y <= cp.y + 1.95 + 10.0
                             && redsim::entity::mob::ai::brain::brain(w, j).wants_golem(now)
                     })
                     .map(|j| w.entities.list[j].id)
@@ -4571,7 +4626,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             }
         }
         // (ironspec 09:59; G1 N13: the bed's own OCCUPIED property) the bed occupied this tick
-        let bed_occupied = w.get(redsim::pos::BlockPos::new(o.bed[0], o.bed[1], o.bed[2])).to_string().contains("occupied=true");
+        let bed_occupied = w.get(dbp(o.bed[0], o.bed[1], o.bed[2])).to_string().contains("occupied=true");
         // (ironspec 06:31 / 06:38 PT: ValidateNearbyPoi's 16-block exposure) while someone sleeps in
         // the bed, every other villager in REST within 16 of it, per night
         if o.napper && bed_occupied {
@@ -4585,7 +4640,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 if e.removed || m.ty != redsim::entity::mob::types::MobType::Villager || m.sleeping_pos.is_some() {
                     continue;
                 }
-                let d2 = (e.pos.x - bc.x).powi(2) + (e.pos.y - bc.y).powi(2) + (e.pos.z - bc.z).powi(2);
+                let d2 = (dpos(e.pos).x - bc.x).powi(2) + (dpos(e.pos).y - bc.y).powi(2) + (dpos(e.pos).z - bc.z).powi(2);
                 let d = d2.sqrt();
                 let rest = match redsim::entity::mob::ai::brain::brain(w, j).ex.as_deref() {
                     Some(x) => x.active == redsim::entity::mob::ai::brain::Act::Rest,
@@ -4597,7 +4652,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 if d2 < 256.0 && rest {
                     *rest_near_bed.entry(w.day_time().div_euclid(24_000)).or_default() += 1;
                     if rest_near_rows.len() < 12 {
-                        rest_near_rows.push(format!("t {} {} at ({:.1},{:.1},{:.1}), {:.1} from the bed", now - t0, recs.get(&e.id).map_or(format!("#{}", e.id), |r| r.label.split(' ').next().unwrap_or("").to_string()), e.pos.x, e.pos.y, e.pos.z, d));
+                        rest_near_rows.push(format!("t {} {} at ({:.1},{:.1},{:.1}), {:.1} from the bed", now - t0, recs.get(&e.id).map_or(format!("#{}", e.id), |r| r.label.split(' ').next().unwrap_or("").to_string()), dpos(e.pos).x, dpos(e.pos).y, dpos(e.pos).z, d));
                     }
                 }
             }
@@ -4683,7 +4738,8 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         }
         // (ironspec 11:02) the zombies where they sit this tick (a boated zombie seated: the boat's
         // y + its passenger attachment + the zombie's riding offset)
-        let zombies_now = crate::fleecheck::zombies_seated(w, spec);
+        // (cc767b78 11:15) in the design frame, as every position f1q2-run compares
+        let zombies_now: Vec<redsim::entity::Vec3> = crate::fleecheck::zombies_seated(w, spec).into_iter().map(dpos).collect();
         // (ironspec 12:23) every iron golem's first tick seen (its birth); where, and the nearest
         // villager then (its likely summoner)
         // (farmopt 17:23) each summon that spawned a golem (redsim's GolemTry): its tick, the
@@ -4722,7 +4778,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 }
                 if let Some(g) = golem {
                     let vpos = redsim::entity::index_of(w, *villager).map(|k| {
-                        let p = w.entities.list[k].pos;
+                        let p = dpos(w.entities.list[k].pos);
                         [p.x, p.y, p.z]
                     });
                     golem_summon.insert(*g, (*t, *villager, *willing, *at, vpos));
@@ -4738,9 +4794,9 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     .list
                     .iter()
                     .filter(|v| !v.removed && matches!(&v.kind, EntityKind::Mob(m) if matches!(m.ty, redsim::entity::mob::types::MobType::Villager)))
-                    .map(|v| (((v.pos.x - e.pos.x).powi(2) + (v.pos.y - e.pos.y).powi(2) + (v.pos.z - e.pos.z).powi(2)).sqrt(), v.id, [v.pos.x, v.pos.y, v.pos.z]))
+                    .map(|v| (((dpos(v.pos).x - dpos(e.pos).x).powi(2) + (dpos(v.pos).y - dpos(e.pos).y).powi(2) + (dpos(v.pos).z - dpos(e.pos).z).powi(2)).sqrt(), v.id, [dpos(v.pos).x, dpos(v.pos).y, dpos(v.pos).z]))
                     .min_by(|a, b| a.0.total_cmp(&b.0));
-                golem_birth_at.insert(e.id, ([e.pos.x, e.pos.y, e.pos.z], near.map(|(d, id, p)| format!("villager {id} at ({:.2},{:.2},{:.2}), {d:.2} away", p[0], p[1], p[2])).unwrap_or_default()));
+                golem_birth_at.insert(e.id, ([dpos(e.pos).x, dpos(e.pos).y, dpos(e.pos).z], near.map(|(d, id, p)| format!("villager {id} at ({:.2},{:.2},{:.2}), {d:.2} away", p[0], p[1], p[2])).unwrap_or_default()));
             }
         }
         // (ironspec 19:33 PT) the summon tick's class, once its tick ran: a golem born at S, else
@@ -4839,7 +4895,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 .list
                 .iter()
                 .filter(|e| !e.removed && matches!(&e.kind, EntityKind::Mob(m) if m.ty == redsim::entity::mob::types::MobType::IronGolem))
-                .map(|e| redsim::entity::Vec3::new(e.pos.x + d[0] as f64, e.pos.y + d[1] as f64, e.pos.z + d[2] as f64))
+                .map(|e| redsim::entity::Vec3::new(dpos(e.pos).x + d[0] as f64, dpos(e.pos).y + d[1] as f64, dpos(e.pos).z + d[2] as f64))
                 .collect(),
             None => Vec::new(),
         };
@@ -4859,6 +4915,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             for x in x0..=x1 {
                 for y in y0..=y1 {
                     for z in z0..=z1 {
+                        // (the entity's own box: world positions)
                         let b = w.get(redsim::pos::BlockPos::new(x, y, z));
                         let name = b.to_string();
                         if name.contains("rail") {
@@ -4872,8 +4929,9 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                         if hit {
                             // (farmopt 02:38 PT, ironfarm: the first contact's cart, its position
                             // and its motion, printed with the cell)
-                            let first = format!("cart {} at ({:.3},{:.3},{:.3}) moving ({:.3},{:.3},{:.3})", e.id, e.pos.x, e.pos.y, e.pos.z, e.delta_movement.x, e.delta_movement.y, e.delta_movement.z);
-                            let k = contacts.entry([x, y, z]).or_insert((0, now - t0, format!("{} [{first}]", name.trim_start_matches("minecraft:").split('[').next().unwrap_or(""))));
+                            let first = format!("cart {} at ({:.3},{:.3},{:.3}) moving ({:.3},{:.3},{:.3})", e.id, dpos(e.pos).x, dpos(e.pos).y, dpos(e.pos).z, e.delta_movement.x, e.delta_movement.y, e.delta_movement.z);
+                            let fo = frame_offset();
+                            let k = contacts.entry([x - fo[0], y - fo[1], z - fo[2]]).or_insert((0, now - t0, format!("{} [{first}]", name.trim_start_matches("minecraft:").split('[').next().unwrap_or(""))));
                             k.0 += 1;
                         }
                     }
@@ -4905,7 +4963,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     for (k, c) in sight_cells.iter().enumerate() {
                         // (a watched cell crosses a ray only while it holds a collider: a toggled
                         // stand-in back to air is the build's own air)
-                        if redsim::behavior::collision_boxes(&w.get(redsim::pos::BlockPos::new(c[0], c[1], c[2]))).is_empty() {
+                        if redsim::behavior::collision_boxes(&w.get(dbp(c[0], c[1], c[2]))).is_empty() {
                             continue;
                         }
                         if seg_hits_cell(*ea, *eb, *c) {
@@ -4922,7 +4980,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                             let class = |s: String| s.trim_end_matches(|ch: char| ch.is_ascii_digit()).to_string();
                             *sight_classes.entry(format!("({},{},{}) {} -> {}", c[0], c[1], c[2], class(what(*a)), class(what(*b)))).or_default() += 1;
                             if sight_rows.len() < 12 {
-                                let (pa, pb) = (w.entities.list[*a].pos, w.entities.list[*b].pos);
+                                let (pa, pb) = (dpos(w.entities.list[*a].pos), dpos(w.entities.list[*b].pos));
                                 sight_rows.push(format!("t {}: ({},{},{}) on the ray from {} #{} at ({:.1},{:.1},{:.1}) to {} #{} at ({:.1},{:.1},{:.1})", now - t0, c[0], c[1], c[2], what(*a), w.entities.list[*a].id, pa.x, pa.y, pa.z, what(*b), w.entities.list[*b].id, pb.x, pb.y, pb.z));
                             }
                         }
@@ -4933,7 +4991,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         // (ironspec 23:16 PT) every declared `# inert:` / `# always-on:` cell watched through the
         // run: any change of its state fails, with the tick and the states
         for (c, kind, last) in watched.iter_mut() {
-            let now_state = w.get(redsim::pos::BlockPos::new(c[0], c[1], c[2])).to_string();
+            let now_state = w.get(dbp(c[0], c[1], c[2])).to_string();
             if now_state != *last {
                 if watched_changes.len() < 40 {
                     watched_changes.push(format!("t {}: ({},{},{}) {kind} {} -> {}", now - t0, c[0], c[1], c[2], last, now_state));
@@ -4952,7 +5010,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     for e in w.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && cell(e.pos) == c) {
                         let sp = (e.delta_movement.x.powi(2) + e.delta_movement.y.powi(2) + e.delta_movement.z.powi(2)).sqrt();
                         if !pp_rest.contains_key(&e.id) && sp < 1e-3 && !powered(w, c) {
-                            pp_rest.insert(e.id, (c, e.pos, *bound));
+                            pp_rest.insert(e.id, (c, dpos(e.pos), *bound));
                             pp_rests += 1;
                         }
                     }
@@ -4969,14 +5027,14 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     pp_rest.remove(&id);
                     continue;
                 }
-                let d = ((e.pos.x - p0.x).powi(2) + (e.pos.y - p0.y).powi(2) + (e.pos.z - p0.z).powi(2)).sqrt();
+                let d = ((dpos(e.pos).x - p0.x).powi(2) + (dpos(e.pos).y - p0.y).powi(2) + (dpos(e.pos).z - p0.z).powi(2)).sqrt();
                 if d > bound + 1e-6 {
                     let near = w
                         .entities
                         .list
                         .iter()
                         .filter(|o2| !o2.removed && o2.id != id && matches!(o2.kind, EntityKind::Minecart(_)))
-                        .map(|o2| (((o2.pos.x - e.pos.x).powi(2) + (o2.pos.y - e.pos.y).powi(2) + (o2.pos.z - e.pos.z).powi(2)).sqrt(), o2.id))
+                        .map(|o2| (((dpos(o2.pos).x - dpos(e.pos).x).powi(2) + (dpos(o2.pos).y - dpos(e.pos).y).powi(2) + (dpos(o2.pos).z - dpos(e.pos).z).powi(2)).sqrt(), o2.id))
                         .min_by(|x, y| x.0.total_cmp(&y.0));
                     if pp_fail.len() < 12 {
                         pp_fail.push(format!("t {}: cart {id} resting at ({},{},{}) displaced {d:.4} (bound {bound}){}", now - t0, c[0], c[1], c[2], near.map_or(String::new(), |(dd, oid)| format!(", the nearest cart {oid} at {dd:.2}"))));
@@ -4993,7 +5051,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         // update from another source); the ticks a cart is within 1.5 of a stale T; each shape change
         // with its lever, its branch detector (x,24,8) and the (a) feed stack's dust (-3,23,9)
         for (k, x) in [-3, -1, 1, 3, 5, 7].iter().enumerate() {
-            let p = redsim::pos::BlockPos::new(*x, 25, 9);
+            let p = dbp(*x, 25, 9);
             let Some(j) = redsim::rails::junction_at(w, p) else {
                 // (G1's [2]) a missing T fails its bars, never skipped
                 tsplit.missing[k] += 1;
@@ -5002,7 +5060,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             let want = if j.signal { j.powered } else { j.unpowered };
             if j.stored != want {
                 tsplit.stale[k] += 1;
-                let near_cart = w.entities.list.iter().any(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && ((e.pos.x - (*x as f64 + 0.5)).powi(2) + (e.pos.y - 25.0).powi(2) + (e.pos.z - 9.5).powi(2)).sqrt() < 1.5);
+                let near_cart = w.entities.list.iter().any(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && ((dpos(e.pos).x - (*x as f64 + 0.5)).powi(2) + (dpos(e.pos).y - 25.0).powi(2) + (dpos(e.pos).z - 9.5).powi(2)).sqrt() < 1.5);
                 if near_cart {
                     tsplit.stale_cart[k] += 1;
                     if tsplit.rows.len() < 12 {
@@ -5012,7 +5070,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             }
             // (ironspec 23:51 PT (2)) a T beside a declared update-only source changes shape only
             // when its own switch flips it: the lever (x,26,9)'s last flip
-            let lever_on = w.get(redsim::pos::BlockPos::new(*x, 26, 9)).to_string().contains("powered=true");
+            let lever_on = w.get(dbp(*x, 26, 9)).to_string().contains("powered=true");
             if tsplit.lever_prev[k].is_some_and(|p| p != lever_on) {
                 tsplit.lever_flip[k] = now - t0;
             }
@@ -5022,13 +5080,13 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 if now - t0 - tsplit.lever_flip[k] > 2 {
                     tsplit.unswitched[k] += 1;
                     if tsplit.unswitched_rows.len() < 12 {
-                        let d = w.get(redsim::pos::BlockPos::new(*x, 24, 8)).to_string();
-                        let dust = w.get(redsim::pos::BlockPos::new(-3, 23, 9)).to_string();
+                        let d = w.get(dbp(*x, 24, 8)).to_string();
+                        let dust = w.get(dbp(-3, 23, 9)).to_string();
                         tsplit.unswitched_rows.push(format!("t {}: ({x},25,9) {:?} -> {:?} with its lever's last flip at t {} (what was acting: (x,24,8) {}; the stack's dust (-3,23,9) {})", now - t0, tsplit.prev[k].unwrap(), j.stored, tsplit.lever_flip[k], d.trim_start_matches("minecraft:"), dust.trim_start_matches("minecraft:")));
                     }
                 }
-                let on = |c: [i32; 3]| w.get(redsim::pos::BlockPos::new(c[0], c[1], c[2])).to_string().contains("powered=true");
-                let dust = w.get(redsim::pos::BlockPos::new(-3, 23, 9)).to_string();
+                let on = |c: [i32; 3]| w.get(dbp(c[0], c[1], c[2])).to_string().contains("powered=true");
+                let dust = w.get(dbp(-3, 23, 9)).to_string();
                 let dust_power = dust.split("power=").nth(1).and_then(|r| r.split([',', ']']).next()).unwrap_or("-").to_string();
                 if tsplit.change_rows.len() < 40 {
                     tsplit.change_rows.push(format!("t {} ({x},25,9) {:?} -> {:?} (signal {}, lever {}, detector (x,24,8) {}, the stack's dust power {dust_power})", now - t0, tsplit.prev[k].unwrap(), j.stored, j.signal, on([*x, 26, 9]), on([*x, 24, 8])));
@@ -5058,7 +5116,9 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         let ids: Vec<u32> = recs.keys().copied().collect();
         for id in ids {
             let Some(i) = redsim::entity::index_of(w, id) else { continue };
-            let pos = w.entities.list[i].pos;
+            // (cc767b78 11:15) the villager's position in the DESIGN frame (its world position is
+            // w.entities.list[i].pos); world queries convert back with wpos
+            let pos = dpos(w.entities.list[i].pos);
             let (home, activity_rest, panic, sleeping, stamp, target, last_slept, reach, sink_cd, path_target, path_end, hostile, target_kind, activity, target_key, path_from, target_close) = {
                 use redsim::entity::mob::ai::brain::Act;
                 let b = redsim::entity::mob::ai::brain::brain(w, i);
@@ -5079,7 +5139,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     redsim::entity::mob::ai::brain::Tracker::Block(p) => Some([p.x as f64 + 0.5, p.y as f64, p.z as f64 + 0.5]),
                     redsim::entity::mob::ai::brain::Tracker::Point(v) => Some([v.x, v.y, v.z]),
                     redsim::entity::mob::ai::brain::Tracker::Entity { id, .. } => redsim::entity::index_of(w, id).map(|k| {
-                        let q = w.entities.list[k].pos;
+                        let q = dpos(w.entities.list[k].pos);
                         [q.x, q.y, q.z]
                     }),
                 });
@@ -5118,7 +5178,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 (b.home.map(|h| [h.x, h.y, h.z]), rest, panic, sleeping, ex.and_then(|x| x.mem.cant_reach_since), target, b.last_slept, reach, sink_cd, path_target, path_end, hostile, target_kind, activity, target_key, path_from, target_close)
             };
             let r = recs.get_mut(&id).unwrap();
-            let c = cell(pos);
+            let c = cell(w.entities.list[i].pos);
             // (ironspec 06:24 / 06:31 / 06:36 real, G1) the rider-state bars: REST entries, the
             // stamps, the farm stop
             {
@@ -5138,8 +5198,8 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 let sight = |w: &redsim::world::World| -> String {
                     hostile.and_then(|h| redsim::entity::index_of(w, h)).map_or("no scarer in sight (NEAREST_HOSTILE empty)".to_string(), |k| {
                         let e = &w.entities.list[k];
-                        let d = ((e.pos.x - pos.x).powi(2) + (e.pos.y - pos.y).powi(2) + (e.pos.z - pos.z).powi(2)).sqrt();
-                        format!("NEAREST_HOSTILE {} at ({:.1},{:.1},{:.1}), {d:.1} away", match &e.kind { EntityKind::Mob(m) => format!("{:?}", m.ty), _ => "?".to_string() }, e.pos.x, e.pos.y, e.pos.z)
+                        let d = ((dpos(e.pos).x - pos.x).powi(2) + (dpos(e.pos).y - pos.y).powi(2) + (dpos(e.pos).z - pos.z).powi(2)).sqrt();
+                        format!("NEAREST_HOSTILE {} at ({:.1},{:.1},{:.1}), {d:.1} away", match &e.kind { EntityKind::Mob(m) => format!("{:?}", m.ty), _ => "?".to_string() }, dpos(e.pos).x, dpos(e.pos).y, dpos(e.pos).z)
                     })
                 };
                 let who = r.label.split(' ').next().unwrap_or("").to_string();
@@ -5229,7 +5289,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                         let cv = w.entities.list[i].vehicle.unwrap_or(0);
                         if let Some(ci) = redsim::entity::index_of(w, cv) {
                             let cp = w.entities.list[ci].pos;
-                            air_held = Some((id, now - t0, [cp.x, cp.y, cp.z], cv, air, air));
+                            air_held = Some((id, now - t0, [dpos(cp).x, dpos(cp).y, dpos(cp).z], cv, air, air));
                             // (G1 07:28 PT) the hold's footprint by entity id and column geometry:
                             // the riders of the carts in the held cart's column below it, from the
                             // hold's start
@@ -5240,7 +5300,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                                 .iter()
                                 .filter(|e| !e.removed && e.id != cv && matches!(e.kind, EntityKind::Minecart(_)) && {
                                     let ec = cell(e.pos);
-                                    ec[0] == col[0] && ec[2] == col[2] && e.pos.y < cp.y
+                                    ec[0] == col[0] && ec[2] == col[2] && dpos(e.pos).y < cp.y
                                 })
                                 .flat_map(|e| e.passengers.iter().copied())
                                 .collect();
@@ -5252,7 +5312,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                         && now - t0 - h.1 < 340
                         && let Some(ci) = redsim::entity::index_of(w, h.3)
                     {
-                        w.entities.set_pos(ci, redsim::entity::Vec3::new(h.2[0], h.2[1], h.2[2]));
+                        w.entities.set_pos(ci, wpos(h.2[0], h.2[1], h.2[2]));
                         w.entities.list[ci].delta_movement = redsim::entity::Vec3::ZERO;
                         h.5 = h.5.min(air);
                     }
@@ -5268,7 +5328,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                         if e.removed || !["Zombie", "Husk", "Drowned", "ZombieVillager", "Pillager", "Vindicator", "Evoker", "Illusioner", "Ravager", "Vex"].contains(&ty.as_str()) {
                             continue;
                         }
-                        let d = ((e.pos.x - pos.x).powi(2) + (e.pos.y - pos.y).powi(2) + (e.pos.z - pos.z).powi(2)).sqrt();
+                        let d = ((dpos(e.pos).x - pos.x).powi(2) + (dpos(e.pos).y - pos.y).powi(2) + (dpos(e.pos).z - pos.z).powi(2)).sqrt();
                         if d <= 16.0 && best.is_none_or(|b| d < b.0) {
                             best = Some((d, j));
                         }
@@ -5279,13 +5339,13 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                         let clear = redsim::entity::mob::los::has_line_of_sight(w, eye, seye);
                         // (G1 06:33 PT: the rider's eye, the scarer's eye, the distance and the
                         // clip's blocking cell, like for like with 9fc3155f's map)
-                        let block = if clear { String::new() } else { redsim::entity::mob::los::first_hit(w, eye, seye).map_or(String::new(), |b| format!(" at ({},{},{}) {}", b.x, b.y, b.z, w.get(b).to_string().trim_start_matches("minecraft:"))) };
+                        let block = if clear { String::new() } else { redsim::entity::mob::los::first_hit(w, eye, seye).map_or(String::new(), |b| { let o = frame_offset(); format!(" at ({},{},{}) {}", b.x - o[0], b.y - o[1], b.z - o[2], w.get(b).to_string().trim_start_matches("minecraft:")) }) };
                         format!(
                             "the nearest hostile {} at ({:.1},{:.1},{:.1}), {d:.2} away; the rider's eye ({:.2},{:.2},{:.2}), its eye ({:.2},{:.2},{:.2}); the eye-to-eye clip {}{block}",
                             match &e.kind { EntityKind::Mob(m) => format!("{:?}", m.ty), _ => "?".to_string() },
-                            e.pos.x,
-                            e.pos.y,
-                            e.pos.z,
+                            dpos(e.pos).x,
+                            dpos(e.pos).y,
+                            dpos(e.pos).z,
                             eye.x,
                             eye.y,
                             eye.z,
@@ -5336,7 +5396,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                             "Pillager" => 15.0,
                             _ => return false,
                         };
-                        let d2 = (e.pos.x - pos.x).powi(2) + (e.pos.y - pos.y).powi(2) + (e.pos.z - pos.z).powi(2);
+                        let d2 = (dpos(e.pos).x - pos.x).powi(2) + (dpos(e.pos).y - pos.y).powi(2) + (dpos(e.pos).z - pos.z).powi(2);
                         !e.removed && d2 <= range * range && redsim::entity::mob::los::has_line_of_sight(w, eye, redsim::entity::mob::ai::eye_pos(w, j))
                     });
                     r.switch_covered = Some(covered);
@@ -5533,7 +5593,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                         controls_done.push(format!("the stamp control at t {}: {who} at {:?} given the walk target (9,-28,9), which no path from the lane reaches, every day tick (the stamp bar must catch it)", now - t0, c));
                     }
                     if let Some(ex) = redsim::entity::mob::ai::brain::brain_mut(w, i).ex.as_deref_mut() {
-                        ex.mem.walk_target = Some(redsim::entity::mob::ai::brain::WalkTarget { target: redsim::entity::mob::ai::brain::Tracker::Block(redsim::pos::BlockPos::new(9, -28, 9)), speed: 0.5, close: 0 });
+                        ex.mem.walk_target = Some(redsim::entity::mob::ai::brain::WalkTarget { target: redsim::entity::mob::ai::brain::Tracker::Block(dbp(9, -28, 9)), speed: 0.5, close: 0 });
                     }
                 }
             }
@@ -5543,10 +5603,10 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 // (farmopt / ironspec 00:20 PT, the seat's sight) a panic starting at the queue
                 // seat, with NEAREST_HOSTILE and the hatch's state
                 if o.napper && c == [9, o.bed[1] + 13, -4] && seat_panics.len() < 40 {
-                    let hatch = w.get(redsim::pos::BlockPos::new(6, o.bed[1] + 15, -5)).to_string();
+                    let hatch = w.get(dbp(6, o.bed[1] + 15, -5)).to_string();
                     let who = hostile.and_then(|h| redsim::entity::index_of(w, h)).map(|k| {
                         let e = &w.entities.list[k];
-                        format!("{:?} at ({:.2},{:.2},{:.2})", match &e.kind { EntityKind::Mob(m) => format!("{:?}", m.ty), _ => "?".to_string() }, e.pos.x, e.pos.y, e.pos.z)
+                        format!("{:?} at ({:.2},{:.2},{:.2})", match &e.kind { EntityKind::Mob(m) => format!("{:?}", m.ty), _ => "?".to_string() }, dpos(e.pos).x, dpos(e.pos).y, dpos(e.pos).z)
                     });
                     seat_panics.push(format!("t {}: {} panicked at the queue seat, NEAREST_HOSTILE {}, the hatch {}", now - t0, r.label.split(' ').next().unwrap_or(""), who.unwrap_or_else(|| "none".to_string()), if hatch.contains("open=true") { "open" } else { "closed" }));
                 }
@@ -5622,7 +5682,8 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             // (+1.62) to the zombie's (+1.74)); only the stop's own waker is left out (G1's CHANGES
             // 2): every other zombie counts everywhere, the stop's cells included
             {
-                let eye = redsim::entity::Vec3::new(pos.x, pos.y + 1.62, pos.z);
+                // (the eye in the world, for the world's line of sight)
+                let eye = wpos(pos.x, pos.y + 1.62, pos.z);
                 // (G1's CHANGES 2: only the waker is left out, the stop's own zombie, inside the
                 // stop's box: every other zombie counts everywhere, the stop's cells included)
                 let waker = |z: &redsim::entity::Vec3| z.x >= -6.0 && z.x < 5.0 && z.y >= (-21 + sy) as f64 && z.y < (-13 + sy) as f64 && z.z >= -6.0 && z.z < 7.0;
@@ -5633,7 +5694,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     if d >= 8.0 {
                         continue;
                     }
-                    let sees = redsim::entity::mob::los::has_line_of_sight(w, eye, redsim::entity::Vec3::new(z.x, z.y + 1.74, z.z));
+                    let sees = redsim::entity::mob::los::has_line_of_sight(w, eye, wpos(z.x, z.y + 1.74, z.z));
                     if sees {
                         seen8 = true;
                     } else if d < 6.05 {
@@ -5723,7 +5784,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                             r.bystander_stamp = Some((now, [pos.x, pos.y, pos.z], trip));
                             // (ironspec 19:07 PT: a bystander stamp on a departing rider, out of
                             // its pocket, is the T + 80 rule's failure; 0 in locked running)
-                            let c = cell(pos);
+                            let c = cell(w.entities.list[i].pos);
                             if !(c[1] == 0 && c[2] == 0 && LANES.contains(&c[0])) {
                                 let locked = ctl.rels.last().is_some_and(|rl| (rl + t0).rem_euclid(100) == 5);
                                 renew.departing_bystanders += 1;
@@ -5745,8 +5806,8 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                             .list
                             .iter()
                             .filter(|e| !e.removed && matches!(&e.kind, EntityKind::Mob(m) if m.ty == redsim::entity::mob::types::MobType::IronGolem))
-                            .filter(|e| (e.pos.x - pos.x).abs() <= 17.0 && e.pos.y <= pos.y + 17.95 && e.pos.y + 2.7 >= pos.y - 16.0 && (e.pos.z - pos.z).abs() <= 17.0)
-                            .min_by(|a, b| a.pos.distance_to_sqr(pos).total_cmp(&b.pos.distance_to_sqr(pos)))
+                            .filter(|e| (dpos(e.pos).x - pos.x).abs() <= 17.0 && dpos(e.pos).y <= pos.y + 17.95 && dpos(e.pos).y + 2.7 >= pos.y - 16.0 && (dpos(e.pos).z - pos.z).abs() <= 17.0)
+                            .min_by(|a, b| dpos(a.pos).distance_to_sqr(pos).total_cmp(&dpos(b.pos).distance_to_sqr(pos)))
                             .map(|e| (e.id, golem_born.get(&e.id).copied()));
                         let after_own = r.last_stamp.is_some_and(|s| now - s < 600);
                         if after_own {
@@ -6157,7 +6218,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                             }
                             .unwrap_or(0.0);
                             let scarer = r.draw_hostile.and_then(|h| redsim::entity::index_of(w, h)).map(|hi| {
-                                let q = w.entities.list[hi].pos;
+                                let q = dpos(w.entities.list[hi].pos);
                                 let name = if (q.x - 1.5).abs() < 1.0 && q.z < 0.0 && q.y > 20.0 {
                                     "F3's pillager"
                                 } else if q.y < -15.0 {
@@ -6230,8 +6291,8 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                         .entities
                         .list
                         .iter()
-                        .filter(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && (e.pos.x - lane_x).abs() < 1.5 && e.pos.y > 15.0 && e.pos.y < 27.0)
-                        .map(|e| format!("{}({:.4},{:.4},{:.4}) v ({:.4},{:.4},{:.4}){}", if Some(e.id) == my_cart { "ITS CART " } else { "" }, e.pos.x, e.pos.y, e.pos.z, e.delta_movement.x, e.delta_movement.y, e.delta_movement.z, if e.passengers.is_empty() { " empty" } else { "" }))
+                        .filter(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && (dpos(e.pos).x - lane_x).abs() < 1.5 && dpos(e.pos).y > 15.0 && dpos(e.pos).y < 27.0)
+                        .map(|e| format!("{}({:.4},{:.4},{:.4}) v ({:.4},{:.4},{:.4}){}", if Some(e.id) == my_cart { "ITS CART " } else { "" }, dpos(e.pos).x, dpos(e.pos).y, dpos(e.pos).z, e.delta_movement.x, e.delta_movement.y, e.delta_movement.z, if e.passengers.is_empty() { " empty" } else { "" }))
                         .collect();
                     // (tick-exact 11:05: who set an entity walk: the game's own case is an IDLE
                     // neighbour's InteractWith / TradeWithVillager locking gaze and walk on both
@@ -6368,7 +6429,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             }
             // (7b90c3f1 11:01) the split levers (x,26,9)'s states, each change
             for x in [-3, -1, 1, 3, 5, 7] {
-                let on = matches!(w.get(redsim::pos::BlockPos::new(x, 26, 9)), redsim::block::Block::Lever { powered: true, .. });
+                let on = matches!(w.get(dbp(x, 26, 9)), redsim::block::Block::Lever { powered: true, .. });
                 let h = lever_hist.entry(x).or_default();
                 let rose = on && h.last().map(|(_, s)| *s) == Some(false);
                 if h.last().map(|(_, s)| *s) != Some(on) {
@@ -6434,7 +6495,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                         && e.passengers.first().is_some_and(|r| nappers.iter().any(|(v, _, _)| v == r))
                         && r_rest_seen.insert(e.id)
                     {
-                        r_rests[k].push((e.pos.z, rel, e.id));
+                        r_rests[k].push((dpos(e.pos).z, rel, e.id));
                     }
                 }
                 let empty_rest = w.entities.list.iter().find(|e| {
@@ -6545,12 +6606,12 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     format!(
                         "{} (riding, its box {:+.3},{:+.3},{:+.3} from the cart)",
                         redsim::entity::mob::ai::brain::brain(w, i).ex.as_deref().map_or("-".to_string(), |x| format!("{:?}", x.active)),
-                        r.pos.x - e.pos.x,
-                        r.pos.y - e.pos.y,
-                        r.pos.z - e.pos.z
+                        dpos(r.pos).x - dpos(e.pos).x,
+                        dpos(r.pos).y - dpos(e.pos).y,
+                        dpos(r.pos).z - dpos(e.pos).z
                     )
                 });
-                c_arrivals[k].push((rel, (v.x * v.x + v.z * v.z).sqrt(), act, e.id, e.pos.z - e.pos.z.floor(), e.pos.y, c_prev_cell.get(&e.id).copied().unwrap_or(c)));
+                c_arrivals[k].push((rel, (v.x * v.x + v.z * v.z).sqrt(), act, e.id, dpos(e.pos).z - dpos(e.pos).z.floor(), dpos(e.pos).y, c_prev_cell.get(&e.id).copied().unwrap_or(c)));
                 // (ironspec 11:08 (2) / 11:37, G1's P1) the arrival's pass window opens at its entry
                 // into C
                 if !pass_open.contains_key(&e.id) {
@@ -6588,11 +6649,11 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 }
                 // (G1's P3) tick-exact's quantities over the pass: the off-rail ticks, the lateral
                 // deviation from the lane's centre line, a cart behind at C / D while on the lip
-                let on_rail = redsim::rails::is_rail(&w.get(redsim::pos::BlockPos::new(c[0], c[1], c[2]))) || redsim::rails::is_rail(&w.get(redsim::pos::BlockPos::new(c[0], c[1] - 1, c[2])));
+                let on_rail = redsim::rails::is_rail(&w.get(dbp(c[0], c[1], c[2]))) || redsim::rails::is_rail(&w.get(dbp(c[0], c[1] - 1, c[2])));
                 if !on_rail {
                     pw.off_rail += 1;
                 }
-                pw.max_dx = pw.max_dx.max((me.pos.x - (x as f64 + 0.5)).abs());
+                pw.max_dx = pw.max_dx.max((dpos(me.pos).x - (x as f64 + 0.5)).abs());
                 if c == [x, 24, 6] && w.entities.list.iter().any(|f| !f.removed && f.id != *cid && matches!(f.kind, EntityKind::Minecart(_)) && [[x, 24, 7], [x, 24, 8]].contains(&cell(f.pos))) {
                     pw.behind = true;
                 }
@@ -6645,7 +6706,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     let c = cell(e.pos);
                     // (G1 10:08 / ironspec 10:06: a cart counts as in its lane only on a rail or falling
                     // in the drop column; an off-rail rest is its own state, failing on its own bar)
-                    let on_rail = redsim::rails::is_rail(&w.get(redsim::pos::BlockPos::new(c[0], c[1], c[2]))) || redsim::rails::is_rail(&w.get(redsim::pos::BlockPos::new(c[0], c[1] - 1, c[2])));
+                    let on_rail = redsim::rails::is_rail(&w.get(dbp(c[0], c[1], c[2]))) || redsim::rails::is_rail(&w.get(dbp(c[0], c[1] - 1, c[2])));
                     let v = e.delta_movement;
                     if !on_rail && v.x * v.x + v.y * v.y + v.z * v.z < 0.003 * 0.003 {
                         continue;
@@ -6720,7 +6781,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 let still = e.delta_movement.x.abs() < 0.001 && e.delta_movement.y.abs() < 0.001 && e.delta_movement.z.abs() < 0.001;
                 let was = still_prev.get(&e.id).copied().unwrap_or(false);
                 if watched && still && was && stopped_rows.len() < 40 && !stopped_rows.last().is_some_and(|(id, _)| *id == e.id) {
-                    stopped_rows.push((e.id, format!("t {rel}: cart #{} still at ({:.3},{:.3},{:.3}) {:?}{}", e.id, e.pos.x, e.pos.y, e.pos.z, c, if e.passengers.is_empty() { " empty" } else { "" })));
+                    stopped_rows.push((e.id, format!("t {rel}: cart #{} still at ({:.3},{:.3},{:.3}) {:?}{}", e.id, dpos(e.pos).x, dpos(e.pos).y, dpos(e.pos).z, c, if e.passengers.is_empty() { " empty" } else { "" })));
                 }
                 if watched && still && was {
                     stopped_ticks += 1;
@@ -6754,11 +6815,11 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                         siding_batch_ids.insert(e.id);
                     }
                 }
-                let on = redsim::rails::is_rail(&w.get(redsim::pos::BlockPos::new(c[0], c[1], c[2]))) || redsim::rails::is_rail(&w.get(redsim::pos::BlockPos::new(c[0], c[1] - 1, c[2])));
+                let on = redsim::rails::is_rail(&w.get(dbp(c[0], c[1], c[2]))) || redsim::rails::is_rail(&w.get(dbp(c[0], c[1] - 1, c[2])));
                 // (the station's holds H (x,16,0): a cart rests on the closed trapdoor there by design,
                 // off any rail; its rests are listed apart and bounded; G1's P4: only the three hold
                 // cells, a trapdoor anywhere else is no hold)
-                let held = LANES.iter().any(|x| c == [*x, 16, 0]) && matches!(w.get(redsim::pos::BlockPos::new(c[0], c[1], c[2])), redsim::block::Block::Trapdoor { .. });
+                let held = LANES.iter().any(|x| c == [*x, 16, 0]) && matches!(w.get(dbp(c[0], c[1], c[2])), redsim::block::Block::Trapdoor { .. });
                 let v = e.delta_movement;
                 let resting = v.x * v.x + v.y * v.y + v.z * v.z < 0.003 * 0.003;
                 if on || held {
@@ -6800,9 +6861,9 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                                         let rv = &w.entities.list[i];
                                         let act = redsim::entity::mob::ai::brain::brain(w, i).ex.as_deref().map_or("-".to_string(), |a| format!("{:?}", a.active));
                                         // (a villager's box: 1.95 tall, or its seated height)
-                                        format!("#{} {act}, its box top y {:.3} ({:+.3} vs the lip's floor 24.0)", rv.id, rv.pos.y + 1.95, rv.pos.y + 1.95 - 24.0)
+                                        format!("#{} {act}, its box top y {:.3} ({:+.3} vs the lip's floor 24.0)", rv.id, dpos(rv.pos).y + 1.95, dpos(rv.pos).y + 1.95 - 24.0)
                                     });
-                                    format!("cart #{} at ({},{},{}) [{:.3},{:.3},{:.3}] rider {r}", f.id, fc[0], fc[1], fc[2], f.pos.x, f.pos.y, f.pos.z)
+                                    format!("cart #{} at ({},{},{}) [{:.3},{:.3},{:.3}] rider {r}", f.id, fc[0], fc[1], fc[2], dpos(f.pos).x, dpos(f.pos).y, dpos(f.pos).z)
                                 })
                                 .collect();
                             let leader = c_arrivals[k].iter().rev().find(|a| a.3 != e.id).map(|a| format!("the latest other C arrival t {} (#{}, {} gt before)", a.0, a.3, rel - a.0)).unwrap_or_else(|| "no earlier C arrival".to_string());
@@ -6858,9 +6919,9 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                             off_rest_snap.insert(e.id, format!(
                                 "[at its first tick: cart {} {me} at [{:.3},{:.3},{:.3}] in lane x {x}'s drop region ({}; split {}); the pushes on it in the last 40 gt: {}; the lane's carts {count}: {}; around it: {}; {leader}; the last two other C arrivals: {}; the lane's last bottom release (a cart leaving H) {}]",
                                 ident(e.id),
-                                e.pos.x,
-                                e.pos.y,
-                                e.pos.z,
+                                dpos(e.pos).x,
+                                dpos(e.pos).y,
+                                dpos(e.pos).z,
                                 mine_c.unwrap_or_else(|| "no C entry seen".to_string()),
                                 junction(e.id),
                                 if pushes.is_empty() { "none".to_string() } else { pushes.join(", ") },
@@ -6900,7 +6961,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     }
                     let st = lip_state.entry(e.id).or_insert((0, 0.0, false));
                     st.0 += 1;
-                    st.1 = st.1.max((e.pos.x - (LANES[k] as f64 + 0.5)).abs());
+                    st.1 = st.1.max((dpos(e.pos).x - (LANES[k] as f64 + 0.5)).abs());
                     st.2 |= behind;
                 } else {
                     // (G1's P2: the entry is dropped whichever way the cart leaves the drop cell; the
@@ -6935,7 +6996,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     row.push_str(&format!(" lane x {x}: PRESENT {} siding [{}];", if ctl.present[k] { 1 } else { 0 }, on.join(", ")));
                 }
                 let np: Vec<String> = nappers.iter().filter_map(|(v, _, _)| redsim::entity::index_of(w, *v).map(|i| {
-                    let p = w.entities.list[i].pos;
+                    let p = dpos(w.entities.list[i].pos);
                     format!("#{v} ({:.2},{:.2},{:.2})", p.x, p.y, p.z)
                 })).collect();
                 row.push_str(&format!(" nappers {}", np.join(" ")));
@@ -6950,7 +7011,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                         if !cells.contains(&c) {
                             return None;
                         }
-                        let on = redsim::rails::is_rail(&w.get(redsim::pos::BlockPos::new(c[0], c[1], c[2]))) || redsim::rails::is_rail(&w.get(redsim::pos::BlockPos::new(c[0], c[1] - 1, c[2])));
+                        let on = redsim::rails::is_rail(&w.get(dbp(c[0], c[1], c[2]))) || redsim::rails::is_rail(&w.get(dbp(c[0], c[1] - 1, c[2])));
                         (!need_off || !on).then_some(e.id)
                     })
                 };
@@ -6969,7 +7030,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             // (ironspec 09:44 / 09:48, G1 09:45 (c): the T shapes per tick) every plain-rail T's shape;
             // a change of a declared never-switched T (the design's placement-order-ts) FAILS
             for (p, prev) in t_shapes.iter_mut() {
-                let b = w.get(redsim::pos::BlockPos::new(p[0], p[1], p[2]));
+                let b = w.get(dbp(p[0], p[1], p[2]));
                 let now = if matches!(b, redsim::block::Block::PlainRail { .. }) { format!("{:?}", redsim::rails::shape_of(&b)) } else { format!("not a plain rail ({b:?})") };
                 if now != *prev {
                     t_changes.push((rel, *p, prev.clone(), now.clone()));
@@ -7032,9 +7093,9 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 row.push(format!(
                     "{} ({:.2},{:.2},{:.2}) {} {}{} HOME {} WT {} stamp {}",
                     recs.get(vid).map_or(format!("#{vid}"), |r| r.label.split(' ').next().unwrap_or("").to_string()),
-                    e.pos.x,
-                    e.pos.y,
-                    e.pos.z,
+                    dpos(e.pos).x,
+                    dpos(e.pos).y,
+                    dpos(e.pos).z,
                     e.vehicle.map_or("on foot".to_string(), |v| format!("in cart #{v}")),
                     act,
                     if sleeping { " ASLEEP" } else { "" },
@@ -7078,17 +7139,17 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     let below = [c[0], c[1] - 1, c[2]];
                     format!(
                         "t {rel}: pos ({:.4},{:.4},{:.4}) motion ({:.4},{:.4},{:.4}) rider {} on_ground {}; its cell {:?} {}, under it {}",
-                        e.pos.x,
-                        e.pos.y,
-                        e.pos.z,
+                        dpos(e.pos).x,
+                        dpos(e.pos).y,
+                        dpos(e.pos).z,
                         e.delta_movement.x,
                         e.delta_movement.y,
                         e.delta_movement.z,
                         e.passengers.first().map_or("none".to_string(), |p| DRIVE_NAMES.with(|d| d.borrow().get(p).cloned()).unwrap_or_else(|| format!("#{p}"))),
                         e.on_ground,
                         c,
-                        w.get(redsim::pos::BlockPos::new(c[0], c[1], c[2])).to_string().trim_start_matches("minecraft:"),
-                        w.get(redsim::pos::BlockPos::new(below[0], below[1], below[2])).to_string().trim_start_matches("minecraft:")
+                        w.get(dbp(c[0], c[1], c[2])).to_string().trim_start_matches("minecraft:"),
+                        w.get(dbp(below[0], below[1], below[2])).to_string().trim_start_matches("minecraft:")
                     )
                 }
                 None => format!("t {rel}: e{n} (#{id}) is gone"),
@@ -7145,20 +7206,20 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 let Some(ci) = w.entities.list[vi].vehicle.and_then(|v| redsim::entity::index_of(w, v)) else { continue };
                 let cart = &w.entities.list[ci];
                 let x = LANES[*k];
-                let r_on = w.get(redsim::pos::BlockPos::new(x - 2, 24, 7)).to_string().contains("powered=true");
+                let r_on = w.get(dbp(x - 2, 24, 7)).to_string().contains("powered=true");
                 let near: Vec<String> = w
                     .entities
                     .list
                     .iter()
                     .filter(|e| !e.removed && e.id != cart.id && matches!(e.kind, EntityKind::Minecart(_)) && e.pos.distance_to_sqr(cart.pos) <= 2.25)
-                    .map(|e| format!("cart {} at ({:.4},{:.4},{:.4}) v ({:.4},{:.4},{:.4}){}", e.id, e.pos.x, e.pos.y, e.pos.z, e.delta_movement.x, e.delta_movement.y, e.delta_movement.z, if e.passengers.is_empty() { " empty" } else { "" }))
+                    .map(|e| format!("cart {} at ({:.4},{:.4},{:.4}) v ({:.4},{:.4},{:.4}){}", e.id, dpos(e.pos).x, dpos(e.pos).y, dpos(e.pos).z, e.delta_movement.x, e.delta_movement.y, e.delta_movement.z, if e.passengers.is_empty() { " empty" } else { "" }))
                     .collect();
                 nap_trace_rows.push(format!(
                     "t {rel}: napper cart {} at ({:.4},{:.4},{:.4}) v ({:.4},{:.4},{:.4}); R ({},24,7) {}; within 1.5: {}",
                     cart.id,
-                    cart.pos.x,
-                    cart.pos.y,
-                    cart.pos.z,
+                    dpos(cart.pos).x,
+                    dpos(cart.pos).y,
+                    dpos(cart.pos).z,
                     cart.delta_movement.x,
                     cart.delta_movement.y,
                     cart.delta_movement.z,
@@ -8240,6 +8301,8 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             let mut unrouted_rows: Vec<String> = Vec::new();
             // (G1's P16) the entries too late to judge, printed as in flight
             let mut unrouted_in_flight: Vec<String> = Vec::new();
+            // (G1 12:21) the stop visits over the accepted band, each with its whole event list
+            let mut late_stop_rows: Vec<String> = Vec::new();
             let msn = |v: u32, what: &str, from: i64, to: i64| -> Option<i64> {
                 past_marks.get(&v).into_iter().flatten().chain(recs.get(&v).map(|r| r.milestones.iter()).into_iter().flatten()).find(|(m, t)| m == what && *t >= from && *t < to).map(|(_, t)| *t)
             };
@@ -8297,6 +8360,17 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     let rr = msn(*v, "at R", *t, to);
                     let sr = msn(*v, "on its siding's R", *t, to);
                     let back = msn(*v, "back in its lane", *t, to);
+                    // (G1 12:21) a stop visit over the accepted band (entry -> R > 161): its WHOLE
+                    // event list from the entry to R (the drive's stop events: lie-down, F, the wake,
+                    // the release, each pickup), with its own milestones, for its classification
+                    if let (Some(e), Some(r)) = (entry, rr)
+                        && r - e > 161
+                    {
+                        let lead = |f: &str| -> Option<i64> { f.strip_prefix("t ").and_then(|x| x.split(':').next()).and_then(|n| n.trim().parse().ok()) };
+                        let evs: Vec<&String> = ctl.nap_events.iter().filter(|ev| lead(ev).is_some_and(|n| n >= e - 20 && n <= r + 5)).collect();
+                        let own: Vec<String> = recs.get(v).map(|rc| past_marks.get(v).into_iter().flatten().chain(rc.milestones.iter()).filter(|(_, mt)| *mt >= e - 20 && *mt <= r + 5).map(|(m, mt)| format!("t {mt} {m}")).collect()).unwrap_or_default();
+                        late_stop_rows.push(format!("#{v} lane x {} picked t {t}: entry t {e} -> R t {r} ({} gt, over the band's 161); its milestones: {}; the stop's events: {}", LANES[*k], r - e, if own.is_empty() { "none".to_string() } else { own.join(", ") }, if evs.is_empty() { "none".to_string() } else { evs.iter().map(|x| x.as_str()).collect::<Vec<_>>().join(" | ") }));
+                    }
                     // (G1 10:47 O7: a LATE R fails too, not only a missing one)
                     if let Some(e) = entry
                         && rr.is_none_or(|r| r - e > stop_thr)
@@ -8422,6 +8496,13 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 if unrouted_rows.is_empty() { String::new() } else { format!(": {}", unrouted_rows.join("; ")) },
                 if unrouted_in_flight.is_empty() { "none".to_string() } else { unrouted_in_flight.join("; ") },
                 if late_rejoin.is_empty() { "none".to_string() } else { late_rejoin.iter().map(|(v, r, b)| format!("#{v}: on its siding's R at t {r}, back in its lane at t {b} ({} gt)", b - r)).collect::<Vec<_>>().join("; ") }
+            ));
+            // (G1 12:21) each stop visit over the accepted band, with its whole event list (for its
+            // classification: a re-sleep, a missed pickup, a late wake, a missed tap, an occupied bed)
+            s.push_str(&format!(
+                "  the stop visits over the band (G1 12:21: entry -> R > 161 gt, the accepted bench band 141..161; information for the classification): {}{}\n",
+                late_stop_rows.len(),
+                if late_stop_rows.is_empty() { String::new() } else { format!(": {}", late_stop_rows.join(" || ")) }
             ));
             // (ironspec 01:26 / 01:28 PT) the catch window: each fired H2 sample's late slack (the
             // sample minus Q-up, the waiting RS's set + k_lock) and early slack (Q-up minus the
@@ -9635,6 +9716,27 @@ fn open_follow(id: u32, m: &std::collections::HashMap<u32, u32>, pre_live: &std:
     }
 }
 
+/// (cc767b78 11:15) A spec moved into the world by `d` (the design + `d`): its blocks, entities, block
+/// entities, output chest, box, and its Nether part's anchor (the Nether image follows the anchor as
+/// the game's portal link does: x / 8 and z / 8, the Nether y as written).
+fn shift_spec_world(spec: &FarmSpec, d: [i32; 3]) -> FarmSpec {
+    if d == [0, 0, 0] {
+        return spec.clone();
+    }
+    let sh = |p: redsim::pos::BlockPos| redsim::pos::BlockPos::new(p.x + d[0], p.y + d[1], p.z + d[2]);
+    let mut out = spec.clone();
+    out.blocks = spec.blocks.iter().map(|(p, b)| (sh(*p), *b)).collect();
+    out.entities = spec.entities.iter().map(|(t, p, n)| (t.clone(), [p[0] + d[0] as f64, p[1] + d[1] as f64, p[2] + d[2] as f64], n.clone())).collect();
+    out.output = sh(spec.output);
+    out.lo = sh(spec.lo);
+    out.hi = sh(spec.hi);
+    out.block_entities = spec.block_entities.iter().map(|(p, s)| (sh(*p), s.clone())).collect();
+    if let Some(n) = out.nether.as_mut() {
+        n.anchor = sh(n.anchor);
+    }
+    out
+}
+
 /// (G1's P18) A lane's region, the one definition of "the lane's carts" for the count bar, the
 /// conservation ledger and the per-stall print: its pocket P (x,0,0), the fall from H to P (x,1..15,0),
 /// its rails H (x,16,0), R_1 and the slopes up to V (x,16..22, z 0..6), its drop column and lip
@@ -9773,7 +9875,7 @@ pub fn log_fail_line(name: &str, log: &[String]) -> String {
 /// detector's 6 -> 5 at level 6: clear 12,230, rain 12,002, thunder 11,556), compared exactly, each
 /// reference shifted by 1 gt as the control through the same comparison.
 pub fn day_weather_rows(w: &redsim::world::World, threshold: u32) -> String {
-    let pos = redsim::pos::BlockPos::new(-5, 15, 3);
+    let pos = dbp(-5, 15, 3);
     let sky = match redsim::daylight::sky_light(w, pos) {
         Ok(s) => s,
         Err(e) => return format!("the detector's sky light unreadable ({e}): NOT JUDGED: FAIL"),
@@ -9821,7 +9923,7 @@ pub fn day_weather_rows(w: &redsim::world::World, threshold: u32) -> String {
 /// level reaches 8 (trigger 2 loads C 19 there), and RISE, the first day time after 18,000 its level
 /// reaches 1 (the detector's 0 -> 1 loads C 0); None when the detector's sky light can't be read.
 pub fn counter_window(w: &redsim::world::World) -> Option<(i64, i64)> {
-    let sky = redsim::daylight::sky_light(w, redsim::pos::BlockPos::new(-5, 15, 3)).ok()?;
+    let sky = redsim::daylight::sky_light(w, dbp(-5, 15, 3)).ok()?;
     let power = |d: i64| redsim::daylight::detector_power(sky, redsim::weather::sky_darken_at(d, 0.0, 0.0), d, false) as u32;
     let eight = (0..12_000i64).find(|d| power(*d) >= 8)?;
     let rise = (18_000..24_000i64).find(|d| power(*d) >= 1)?;
@@ -10040,7 +10142,7 @@ fn off_pad_rows(w: &redsim::world::World, born: &BTreeMap<u32, i64>, birth_at: &
         .filter(|(_, (p, _))| p[1] > -4.0)
         .map(|(id, (p, n))| {
             let s = summon.get(id).map_or("no summon event (not a villager's call)".to_string(), |(t, v, willing, at, vp)| {
-                let floor = at.map_or(String::new(), |c| format!(", standing on ({},{},{}) {}", c[0], c[1] - 1, c[2], w.get(redsim::pos::BlockPos::new(c[0], c[1] - 1, c[2])).to_string().trim_start_matches("minecraft:")));
+                let floor = at.map_or(String::new(), |c| format!(", standing on ({},{},{}) {}", c[0], c[1] - 1, c[2], w.get(dbp(c[0], c[1] - 1, c[2])).to_string().trim_start_matches("minecraft:")));
                 format!(
                     "summoned t {} by villager {v}{} with {willing} willing; its cell {}{floor}",
                     t - t0,

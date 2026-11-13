@@ -2224,6 +2224,11 @@ pub enum MobfarmCmd {
         /// through that cell as a lane -1 pass window opens. The lip-pass bar must catch it alone.
         #[arg(long)]
         vholds_control: Option<String>,
+        /// (cc767b78 11:15, G1 10:50: the build-position term) DX,DY,DZ: build the module at the design
+        /// frame + this (x and z by whole chunks); the controller's cells and every printed row stay
+        /// in the design frame.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        offset: Vec<i32>,
         /// (ironspec 11:15) An S-bend seat whose stamp resets are counted:
         /// `NAME=x,y,z:cx,cy,cz+cx,cy,cz...` (the seat's rail cell, its clearing candidates).
         /// Repeatable.
@@ -7802,7 +7807,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 std::process::exit(1);
             }
         }
-        MobfarmCmd::F1q2Run { design, seed, ticks, day0, lane_carts, restart_every, restart_at, restart_order, control_rider, trace, drive, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour_golems, cart_trace, drive_out, scene_out, watchdog, stale_start, held_at_divert, report_only, queue_hold, empty_pocket, stack_bench, inert_control, gossip_control, bystander_control, seed_queued_napper, day_threshold, bed_ticket_taken, stamp_control, home_erase_control, air_control, rider_trace, rs_ready_early_control, bystander_dud, day_phase_control, c7_placement, c7_home_stored, lift_block, trace_entity, with_part, pair_check, chain_trace, strand_control, cart_cells, at_entry_control, late_return_control, cart_cells_box, misroute_control, lip_hold, lip_envelope, siding_trace, eject_control, h_rest_bound, siding_plant_control, k_misroute_control, westbound_control, picker_hold_to_leg, vholds_control } => {
+        MobfarmCmd::F1q2Run { design, seed, ticks, day0, lane_carts, restart_every, restart_at, restart_order, control_rider, trace, drive, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour_golems, cart_trace, drive_out, scene_out, watchdog, stale_start, held_at_divert, report_only, queue_hold, empty_pocket, stack_bench, inert_control, gossip_control, bystander_control, seed_queued_napper, day_threshold, bed_ticket_taken, stamp_control, home_erase_control, air_control, rider_trace, rs_ready_early_control, bystander_dud, day_phase_control, c7_placement, c7_home_stored, lift_block, trace_entity, with_part, pair_check, chain_trace, strand_control, cart_cells, at_entry_control, late_return_control, cart_cells_box, misroute_control, lip_hold, lip_envelope, siding_trace, eject_control, h_rest_bound, siding_plant_control, k_misroute_control, westbound_control, picker_hold_to_leg, vholds_control, offset } => {
             let (c, spec) = load(version, &design)?;
             // (ironspec 08:16 platform, onechunk's 23rd) the c7 reconciliation loads the record's own
             // villagers HOME-less (spec_of's PortHome::Skip), as tick-exact's game setup has them
@@ -8023,7 +8028,13 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     })
                     .collect()
             };
-            let o = crate::f1q2run::Opts { seed, ticks, day0, lane_carts, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour, cart_trace, restarts, restart, control_rider, trace, bed, drive, drive_rec, watchdog, stale_start, held_at_divert, queue_hold, emulated, emulated_states, ts, update_only, empty_pocket, dwell_cap, stack_bench, stops, k_lock, k_sw, inert, always_on, push_pairs, way_in_composed, inert_control, watch_reasons, gossip_control, bystander_control, a6_pickup, seed_queued_napper, day_threshold, bed_ticket_taken, block_standins, stamp_control, home_erase_control, air_control, rider_trace, rs_ready_early_control, bystander_dud, day_phase_control, c7_placement, c7_home_stored, lift_block, trace_entity, pair_checks, chain_trace, strand_control, cart_cells, at_entry_control, late_return_control, stable_ts, cart_cells_box, misroute_control, lip_hold, lip_envelope, siding_trace, eject_control, h_rest_bound, siding_plant_control, c7_port_home, no_home_tagged, k_misroute_control, westbound_control, picker_hold_to_leg, vholds_control };
+            // (cc767b78 11:15) --offset DX,DY,DZ
+            let offset: [i32; 3] = match offset.as_slice() {
+                [] => [0, 0, 0],
+                [x, y, z] => [*x, *y, *z],
+                _ => anyhow::bail!("--offset takes DX,DY,DZ"),
+            };
+            let o = crate::f1q2run::Opts { seed, ticks, day0, lane_carts, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour, cart_trace, restarts, restart, control_rider, trace, bed, drive, drive_rec, watchdog, stale_start, held_at_divert, queue_hold, emulated, emulated_states, ts, update_only, empty_pocket, dwell_cap, stack_bench, stops, k_lock, k_sw, inert, always_on, push_pairs, way_in_composed, inert_control, watch_reasons, gossip_control, bystander_control, a6_pickup, seed_queued_napper, day_threshold, bed_ticket_taken, block_standins, stamp_control, home_erase_control, air_control, rider_trace, rs_ready_early_control, bystander_dud, day_phase_control, c7_placement, c7_home_stored, lift_block, trace_entity, pair_checks, chain_trace, strand_control, cart_cells, at_entry_control, late_return_control, stable_ts, cart_cells_box, misroute_control, lip_hold, lip_envelope, siding_trace, eject_control, h_rest_bound, siding_plant_control, c7_port_home, no_home_tagged, k_misroute_control, westbound_control, picker_hold_to_leg, vholds_control, offset };
             let (rep, out) = crate::f1q2run::run_driven(&spec, &o).map_err(|e| anyhow::anyhow!(e))?;
             for l in &with_part_lines {
                 println!("the composed part (--with-part, ironspec 07:57 / 08:18 platform): {l}");
