@@ -31,6 +31,10 @@ pub struct Declared {
     /// The fluid cells laid by no build that the design means (`# water: x,y,z=REASON; x,y,z=REASON`:
     /// a lift's top-drift current, 7b90c3f1's key, farmopt 01:06), each with its reason.
     pub water: Vec<(BlockPos, String)>,
+    /// The file's stand-ins (`# stand-in:` lines, read as record-match reads them) and the ones its
+    /// bench holds (`# held: x,y,z=REAL DRIVER, CONTROLLER PHASE; …`, ironspec 01:07 (d)).
+    pub standins: Vec<BlockPos>,
+    pub held: Vec<(BlockPos, String)>,
 }
 
 /// The declarations read from the file's comment lines.
@@ -62,10 +66,19 @@ pub fn declared(text: &str) -> Result<Declared, String> {
                 }
                 d.water.push((cell(l, c)?, why.trim().to_string()));
             }
+        } else if let Some(rest) = l.strip_prefix("# held:") {
+            for entry in rest.split(';').map(str::trim).filter(|e| !e.is_empty()) {
+                let (c, why) = entry.split_once('=').ok_or_else(|| format!("{l:?}: {entry}: give `x,y,z=REAL DRIVER, CONTROLLER PHASE`"))?;
+                if why.trim().is_empty() {
+                    return Err(format!("{l:?}: {entry}: a held stand-in names its real driver and controller phase"));
+                }
+                d.held.push((cell(l, c)?, why.trim().to_string()));
+            }
         } else if let Some(rest) = l.strip_prefix("# day-time:") {
             d.day_time = Some(rest.trim().parse::<i64>().map_err(|e| format!("{l:?}: {e}"))?);
         }
     }
+    d.standins = crate::recordmatch::declared_from_header(text)?.standins.keys().map(|c| BlockPos::new(c[0], c[1], c[2])).collect();
     Ok(d)
 }
 
@@ -147,6 +160,10 @@ pub struct Settle {
     /// state depends on the build order there).
     pub observers_kicked: usize,
     pub kick_sensitive: Vec<Cell>,
+    /// The stand-ins' SURVIVAL verdicts (`recordmatch::guard_survival`, ironspec 01:07 (d)): passing, and
+    /// failing with why.
+    pub standins_ok: usize,
+    pub standins_failing: Vec<(BlockPos, String)>,
     /// The samples: the cells compared, the redstone cells among them, the shape cells checked, the fluid
     /// cells given their tick (ironspec 00:27 (B): printed).
     pub compared: usize,
@@ -183,6 +200,13 @@ impl Settle {
                 "{} designed currents unbounded (an air, washed-away or dry waterloggable neighbour: {})",
                 self.currents_unbounded.len(),
                 self.currents_unbounded.iter().take(6).map(|(p, q, b)| format!("({},{},{}) -> ({},{},{}) {b}", p.x, p.y, p.z, q.x, q.y, q.z)).collect::<Vec<_>>().join("; ")
+            ));
+        }
+        if !self.standins_failing.is_empty() {
+            v.push(format!(
+                "{} stand-ins fail SURVIVAL ({})",
+                self.standins_failing.len(),
+                self.standins_failing.iter().take(6).map(|(p, why)| format!("({},{},{}) {why}", p.x, p.y, p.z)).collect::<Vec<_>>().join("; ")
             ));
         }
         if !self.redstone.is_empty() {
@@ -253,6 +277,23 @@ pub fn shape_rule(w: &World, scratch: &mut World, p: BlockPos) -> Option<(bool, 
     Some((st == b, st))
 }
 
+/// The stand-ins' SURVIVAL for a bench (ironspec 01:07 (d): sight-diff, sensor-at, f1q2-run, the A6 bench
+/// call it on their laid world): a copy of `w` settled with its entities held (block ticks until nothing
+/// changes and nothing is pending, capped at `cap`), then `recordmatch::guard_survival` on each stand-in,
+/// `held` naming the ones the bench holds (their real driver and controller phase).
+pub fn stand_in_survival(w: &World, standins: &[BlockPos], held: &[(BlockPos, String)], cap: u32) -> Vec<(BlockPos, crate::recordmatch::Verdict)> {
+    let mut settled = w.clone();
+    settled.entity_chunks = Some([1, 1, 0, 0]);
+    for _ in 0..cap {
+        let before: Vec<Block> = standins.iter().map(|p| settled.get(*p)).collect();
+        settled.tick();
+        if settled.idle() && standins.iter().map(|p| settled.get(*p)).collect::<Vec<_>>() == before {
+            break;
+        }
+    }
+    standins.iter().map(|p| (*p, crate::recordmatch::guard_survival(w, &settled, *p, held.iter().find(|(q, _)| q == p).map(|(_, h)| h.as_str())))).collect()
+}
+
 /// A design cell's state as redsim's block, as the farm loader reads it (`circuit::studies::mobfarm`'s
 /// `farm_block`: a Nether portal through the terrain table, everything else `Block::parse`).
 pub fn block_of(s: &str) -> Result<Block, String> {
@@ -315,6 +356,8 @@ pub fn settle_check(blocks: &[(BlockPos, Block)], block_entities: &[(BlockPos, S
             fluid_cells += 1;
         }
     }
+    // (the laid world, kept for the stand-ins' SURVIVAL against the fixed point)
+    let laid = w.clone();
     let stored: std::collections::HashMap<BlockPos, Block> = blocks.iter().cloned().collect();
     let all: Vec<BlockPos> = (lo.x..=hi.x).flat_map(|x| (lo.y..=hi.y).flat_map(move |y| (lo.z..=hi.z).map(move |z| BlockPos::new(x, y, z)))).collect();
     let snap = |w: &World| -> Vec<Block> { all.iter().map(|p| w.get(*p)).collect() };
@@ -448,6 +491,15 @@ pub fn settle_check(blocks: &[(BlockPos, Block)], block_entities: &[(BlockPos, S
         }
         if !out.is_air() || !st.is_air() {
             s.settled.push((*p, out));
+        }
+    }
+    // (the stand-ins' SURVIVAL, ironspec 01:07 (d): each survives where it stands and stays as laid
+    // through the settle, unless held)
+    for p in &decl.standins {
+        let held = decl.held.iter().find(|(q, _)| q == p).map(|(_, h)| h.as_str());
+        match crate::recordmatch::guard_survival(&laid, &w, *p, held) {
+            Ok(_) => s.standins_ok += 1,
+            Err(why) => s.standins_failing.push((*p, why)),
         }
     }
     // (the designed currents, ironspec 01:07 (c): each `# water:` cell the file holds as fluid, bounded
@@ -694,6 +746,40 @@ mod tests {
         assert_eq!(header_lines(text).len(), 3);
         let again = mctas::design::Design::parse(&written).unwrap();
         assert!(again.blocks.values().any(|v| v.contains("repeater") && v.contains("powered=true")), "{:?}", again.blocks);
+    }
+
+    /// SURVIVAL (ironspec 01:07 (d)): a stand-in lever on glass, unchanged by the settle, passes; a stand-in
+    /// repeater whose input is on (the settle powers it) fails unless a `# held:` line names its real driver
+    /// and controller phase; a stand-in torch hung on air can't survive and fails; the bench-facing helper
+    /// gives the same verdicts on a laid world.
+    #[test]
+    fn stand_in_survival_rule() {
+        let mut f = floor(4);
+        f.extend([
+            at(0, 0, 0, "minecraft:lever[face=floor,facing=east,powered=false]"),
+            at(2, 0, 0, "minecraft:redstone_block"),
+            at(3, 0, 0, "minecraft:repeater[delay=1,facing=west,locked=false,powered=false]"),
+        ]);
+        let decl = declared("# stand-in: 0,0,0 (the pocket drive's lever); 3,0,0 (day-1's repeater)\n").unwrap();
+        assert_eq!(decl.standins.len(), 2);
+        let s = check(&f, &decl);
+        assert_eq!(s.standins_ok, 1, "the lever survives, unchanged");
+        assert_eq!(s.standins_failing.iter().map(|(p, _)| *p).collect::<Vec<_>>(), vec![BlockPos::new(3, 0, 0)], "{:?}", s.standins_failing);
+        assert!(s.standins_failing[0].1.contains("the settle changes it"), "{:?}", s.standins_failing);
+        let held = declared("# stand-in: 0,0,0 (lever); 3,0,0 (repeater)\n# held: 3,0,0=the controller's block (x+2,17,1), on from REL + 3\n").unwrap();
+        let s = check(&f, &held);
+        assert!(s.standins_failing.is_empty() && s.standins_ok == 2, "{:?}", s.standins_failing);
+        // (a wall torch facing east hung on the air west of it can't survive)
+        let mut t = floor(2);
+        t.push(at(1, 0, 0, "minecraft:redstone_wall_torch[facing=east,lit=true]"));
+        let laid = {
+            let mut w = World::new(BlockPos::new(-4, -3, -4), [10, 6, 10]);
+            w.place_raw(&t);
+            w
+        };
+        let v = stand_in_survival(&laid, &[BlockPos::new(1, 0, 0)], &[], CAP);
+        assert!(matches!(&v[0].1, Err(e) if e.contains("can't survive")), "{v:?}");
+        assert!(declared("# held: 3,0,0").is_err() && declared("# held: 3,0,0=").is_err());
     }
 
     /// No vacuous pass (ironspec 23:56): an empty file is NOT JUDGED and fails.
