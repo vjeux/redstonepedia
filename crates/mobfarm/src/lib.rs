@@ -97,4 +97,5 @@ pub mod postsearch;
 pub mod yard;
 pub mod killguard;
 pub mod waycell;
+pub mod vhits;
 pub mod storage;

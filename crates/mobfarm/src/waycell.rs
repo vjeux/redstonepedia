@@ -99,6 +99,14 @@ pub struct Opts {
     /// The design's declared contacts (its `# contacts:` header entries): a ride row touching only
     /// these prints them as declared, not as a contact failure.
     pub declared_contacts: Vec<P>,
+    /// (ironspec 10:42 / 10:58, main's ONE bounded judge) the design's bounded `# contacts:` / `# stops:`
+    /// declarations in the ride's own scope (the way-in's box), read strictly by
+    /// `contacts::declared_contacts_bounded` ([`bounded_in_scope`]): every bar row is judged by
+    /// `contacts::judge` against them.
+    pub declared_bounded: Vec<crate::contacts::Decl>,
+    /// This run is the declarations' own `ref=` run: `contacts::reference_check` mismatches FAIL it
+    /// (printed only otherwise).
+    pub reference_run: bool,
 }
 
 /// `x,y,z=block;...` (a block state, `minecraft:` optional; a leading `!` on a cell replaces what
@@ -645,6 +653,62 @@ pub(crate) struct DeclStats {
     pub stalls: u64,
 }
 
+/// (G1's B1 / B2 on R4) One bar row's hits as the ride rows judge them over the set: each tagged with the
+/// row as its sample (a declaration's `rate=… rows`) and keyed to it (the judge's cart: rows sharing the
+/// cart's entity id and consecutive ticks never merge into one event; hits within the row still merge
+/// by consecutive ticks, G1 18:34 (1)).
+pub fn rekey_row(row: u32, hits: Vec<crate::contacts::Hit>) -> impl Iterator<Item = crate::contacts::Hit> {
+    hits.into_iter().map(move |h| crate::contacts::Hit { cart: row, sample: Some(row as u64), ..h })
+}
+
+/// (G1 14:51 (4)) the ride rows' scope (the way-in's box: x 2..9, y -27..-11, z -8..3): the declared
+/// contacts the ride bench judges. (G1's B11 on R4: its source) the same box the ride rows' fence scan
+/// and the old stale count use, set by hand from the way-in's cells: the queue (9,-14,-4) and its
+/// staircase, the drop stop (9,-15,0), the shaft (9,-16..-23,-1), the landing booster (9,-24,-1) and its
+/// slime / torch / glass (9,-25..-27,-1), the roll (8..4,-25,-5) to the stop's entry (3,-25,-5), the
+/// R1 levers (4..6,-12..-13,-1..-2), with a cell's margin; the stop (A) (x <= -1) lies outside it.
+pub const RIDE_SCOPE: ([i32; 3], [i32; 3]) = ([2, -27, -8], [9, -11, 3]);
+
+/// (ironspec 10:42 / 10:58, G1 14:51 (4)) the design's bounded `# contacts:` / `# stops:` declarations
+/// whose cells lie in `scope`, read STRICTLY by main's `contacts::declared_contacts_bounded` (a malformed
+/// one in scope is an error); the record's other declarations (another bench's scope) are left to their
+/// benches; a declaration with cells both inside and outside the scope is an error (it can't be judged
+/// by halves).
+pub fn bounded_in_scope(text: &str, scope: ([i32; 3], [i32; 3])) -> Result<Vec<crate::contacts::Decl>, String> {
+    bounded_scope_split(text, scope).map(|(d, _)| d)
+}
+
+/// (G1 18:34 (3) on R4) The same split, with the entries left OUTSIDE the scope named (their cells), so
+/// a caller prints how many declarations the scope took and which it left (a scope silently excluding
+/// the line under test would hide a failure). Every cell is read by main's shared cell grammar
+/// (`pushscan::parse_cell_group`, G1 16:18), strictly: a malformed one is an error (G1's B10 on R4).
+pub fn bounded_scope_split(text: &str, scope: ([i32; 3], [i32; 3])) -> Result<(Vec<crate::contacts::Decl>, Vec<String>), String> {
+    let (lo, hi) = scope;
+    let inside = |p: &[i32; 3]| (0..3).all(|k| lo[k] <= p[k] && p[k] <= hi[k]);
+    let mut keep = String::new();
+    let mut outside: Vec<String> = Vec::new();
+    for key in ["contacts:", "stops:"] {
+        for entry in crate::pushscan::header_entries(text, key) {
+            let cells = entry.split_once('=').map_or(entry.as_str(), |(c, _)| c);
+            let mut parsed: Vec<[i32; 3]> = Vec::new();
+            for c in cells.split('+') {
+                let Some((x, y, z)) = crate::pushscan::parse_cell_group(c) else {
+                    return Err(format!("# {key} {entry}: cell {c:?} is not x,y,z"));
+                };
+                parsed.push([x, y, z]);
+            }
+            if !parsed.is_empty() && parsed.iter().all(inside) {
+                keep.push_str(&format!("# {key} {entry}\n"));
+            } else if parsed.iter().any(inside) {
+                return Err(format!("# {key} {entry}: cells both inside and outside the scope {lo:?}..{hi:?}"));
+            } else {
+                outside.push(format!("{} ({key})", cells.trim()));
+            }
+        }
+    }
+    Ok((crate::contacts::declared_contacts_bounded(&keep)?, outside))
+}
+
 // (ironspec 10:02: ONE CONTACT RULE) the ride rows' contacts come from the shared
 // `crate::contacts::cart_contacts` (no copy of the contact definition here).
 
@@ -1058,6 +1122,11 @@ pub fn ride_rows_with(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u
 pub fn ride_rows_core(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u32, restart_ticks: &[i64], freezes: &[(i64, i64)], landing: Option<P>, mut positions: Option<&mut Vec<[f64; 3]>>) -> Result<(Vec<String>, bool), String> {
     let ro = RunOpts { ai: true, ..RunOpts::steady(1, ticks + phases + 60, WalkMode::Random) };
     let (mut base, _) = crate::placing::start(&widened(spec, o), &ro, crate::placing::Placement::Judge, &crate::placing::BuildPlan::default())?;
+    // (ironspec 14:57) the spawner's state stated, never a light-read default: the ride rows' world has
+    // no natural spawner (no terrain site), asserted
+    if base.world.mob.natural.is_some() {
+        return Err("the ride rows' world has a natural spawner (mob.natural set): the bench states it OFF (ironspec 14:57)".to_string());
+    }
     let q = o.queue;
     let mut cells: Vec<(BlockPos, Block)> = Vec::new();
     for (p, b) in o.extra.iter().map(|(p, b)| (*p, b.clone())).chain(queue_cells(o).into_iter().map(|(p, b, _)| (p, b.to_string()))) {
@@ -1106,6 +1175,20 @@ pub fn ride_rows_core(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u
     // cell: its contact ticks and events, the most ticks in one event and events in one row, the
     // largest clipped amount per axis, the speed into and out of its ticks, the stalls
     let mut decl_stats: std::collections::BTreeMap<[i32; 3], DeclStats> = std::collections::BTreeMap::new();
+    // (ironspec 10:42 / 10:58, G1 14:51 (4); G1's B1 / B2 on R4) main's ONE bounded judge over the bar
+    // rows: every bar row's hits tagged with the row as their sample and RE-KEYED to it (the judge's cart
+    // key = the row, so adjacent phases never merge into one event), judged ONCE over the set with the
+    // samples (rows, "rows") (rate and STALE judged on the set), each failure mapped back to its row; the
+    // same pooled hits fold `contacts::reference_check`
+    let mut judge_rows = 0u32;
+    let mut all_hits: Vec<crate::contacts::Hit> = Vec::new();
+    let mut all_motion: std::collections::HashMap<(u32, i64), (f64, f64)> = std::collections::HashMap::new();
+    // each `rows` entry's judge row (None for a freeze row), and each judge row's release tick
+    let mut row_judge_idx: Vec<Option<u32>> = Vec::new();
+    let mut row_release: Vec<i64> = Vec::new();
+    // (ironspec 14:52) the first bar row with a contact: its contact ticks' moves, printed
+    let mut evidence: Vec<String> = Vec::new();
+    let mut evidence_row: Option<String> = None;
     let (mut steps_n, mut cart_ticks_n, mut rider_ticks_n, mut fence_n) = (0u64, 0u64, 0u64, 0u64);
     // (b8949c96 09:51) the bar rows' ticks with an UNDECLARED contact (the contact bar's count; the
     // declared ones print per row)
@@ -1150,6 +1233,8 @@ pub fn ride_rows_core(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u
             run.tick();
         }
         release(&mut run.world, o)?;
+        // the release's game time (the bounded judge's hit ticks printed relative to it)
+        let t_release = run.world.time;
         let mut cart = cart0;
         let mut frozen: Option<[i32; 4]> = None;
         let rider_of = |w: &redsim::world::World, c: u32| w.entities.list.iter().position(|v| !v.removed && v.vehicle == Some(c));
@@ -1177,6 +1262,11 @@ pub fn ride_rows_core(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u
         let mut decl_prev: Vec<[i32; 3]> = Vec::new();
         let mut row_runs: std::collections::HashMap<[i32; 3], u32> = std::collections::HashMap::new();
         let mut row_events: std::collections::HashMap<[i32; 3], u32> = std::collections::HashMap::new();
+        // (ironspec 10:42 / 10:58, G1 14:51 (4)) this row's hits and motion for main's bounded judge
+        let mut row_hits: Vec<crate::contacts::Hit> = Vec::new();
+        let mut row_motion: std::collections::HashMap<i64, (f64, f64)> = std::collections::HashMap::new();
+        // the cart's stored motion at the previous tick's end (the evidence print's "before")
+        let mut dm_before = [0.0f64; 3];
         let mut contact_cells: Vec<BlockPos> = Vec::new();
         let mut time_jumps = 0u32;
         let mut idle_n: Option<i64> = None;
@@ -1233,6 +1323,44 @@ pub fn ride_rows_core(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u
             // (mobfarm::contacts::cart_contacts on redsim's recorded Entity.move(SELF) calls: an axis the
             // collision clipped of the attempted move; ironfarm's 329b5acc3, carried here until it lands)
             let shared = crate::contacts::cart_contacts(&run.world, ci);
+            // (ironspec 10:42 / 10:58 / 14:52, G1 14:51 (4)) the row's hits for main's ONE bounded judge:
+            // the horizontal face contacts and the vertical classes (floor, ceiling, low ceiling,
+            // embedded), each as a Hit; the cart's motion this tick for the judge's stall rule
+            if bar_row {
+                let hz = crate::contacts::cart_hits(&run.world, ci);
+                let vt: Vec<crate::contacts::Hit> = crate::contacts::cart_vertical_hits(&run.world, ci).into_iter().map(crate::contacts::Hit::from).collect();
+                // (ironspec 14:52: classify a contact before declaring it) the first bar row's contact
+                // ticks with the cart's moves: requested and returned per axis, the box before the move,
+                // the stored motion before and after the tick, and each hit's block and face
+                if evidence_row.is_none() && (!hz.is_empty() || !vt.is_empty()) {
+                    evidence_row = Some(label.clone());
+                }
+                if evidence_row.as_deref() == Some(label.as_str()) && (!hz.is_empty() || !vt.is_empty()) {
+                    let e = &run.world.entities.list[ci];
+                    let dm = e.delta_movement;
+                    for m in e.self_moves.iter().filter(|m| m.tick == run.world.time) {
+                        let b = m.bb_before;
+                        evidence.push(format!(
+                            "(contact evidence, {label}) t {} after the release: Entity.move(SELF) requested ({:.4}, {:.4}, {:.4}) returned ({:.4}, {:.4}, {:.4}); the cart's box before the move x {:.4}..{:.4} y {:.4}..{:.4} z {:.4}..{:.4}; its stored motion before the tick ({:.4}, {:.4}, {:.4}), after ({:.4}, {:.4}, {:.4}); the hits: {}",
+                            run.world.time - t_release,
+                            m.requested.x, m.requested.y, m.requested.z,
+                            m.returned.x, m.returned.y, m.returned.z,
+                            b.min_x, b.max_x, b.min_y, b.max_y, b.min_z, b.max_z,
+                            dm_before[0], dm_before[1], dm_before[2],
+                            dm.x, dm.y, dm.z,
+                            hz.iter().chain(vt.iter()).map(|h| format!("({},{},{}) {} face {} depth {:.4}", h.cell.x, h.cell.y, h.cell.z, run.world.get(h.cell), h.face.name(), h.depth)).collect::<Vec<_>>().join(", ")
+                        ));
+                    }
+                }
+                row_hits.extend(hz);
+                row_hits.extend(vt);
+                let dm = run.world.entities.list[ci].delta_movement;
+                row_motion.insert(run.world.time, ((dm.x * dm.x + dm.z * dm.z).sqrt(), dm.y));
+            }
+            {
+                let dm = run.world.entities.list[ci].delta_movement;
+                dm_before = [dm.x, dm.y, dm.z];
+            }
             let e = &run.world.entities.list[ci];
             cart_ticks_n += bar_row as u64;
             let v_now = (e.delta_movement.x.powi(2) + e.delta_movement.z.powi(2)).sqrt();
@@ -1480,6 +1608,16 @@ pub fn ride_rows_core(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u
                 st.max_row_events = st.max_row_events.max(*n);
                 st.rows += 1;
             }
+            // (G1's B1 / B2 on R4) the row's hits tagged with the row as their sample and re-keyed to it,
+            // its motion keyed by (row, tick): judged once over the set below
+            let ri = judge_rows;
+            judge_rows += 1;
+            all_hits.extend(rekey_row(ri, row_hits));
+            row_release.push(t_release);
+            all_motion.extend(row_motion.into_iter().map(|(t, m)| ((ri, t), m)));
+            row_judge_idx.push(Some(ri));
+        } else {
+            row_judge_idx.push(None);
         }
         rows.push((
             format!(
@@ -1539,13 +1677,37 @@ pub fn ride_rows_core(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u
         centre_ss.iter().cloned().fold(f64::INFINITY, f64::min),
         centre_ss.iter().cloned().fold(0.0, f64::max)
     );
+    // (G1's B1 / B2 / B12 on R4) main's ONE bounded judge, once over every bar row's re-keyed hits (the
+    // samples: the rows), each failure mapped back to its row (an undeclared hit's key, the row named
+    // "cart N" in an exceeded bound or a stall), the failing rows marked JUDGE in their text
+    let verdict = crate::contacts::judge(&o.declared_bounded, &all_hits, &|c, t| all_motion.get(&(c, t)).copied(), crate::contacts::StallRule::IRONSPEC_1042, Some((judge_rows as u64, "rows")));
+    let row_of = |s: &str| -> Option<u32> {
+        let i = s.find("cart ")? + 5;
+        s[i..].split(|c: char| !c.is_ascii_digit()).next()?.parse().ok()
+    };
+    let mut row_fail: std::collections::BTreeMap<u32, Vec<String>> = std::collections::BTreeMap::new();
+    let rel = |h: &crate::contacts::Hit| h.tick - row_release.get(h.cart as usize).copied().unwrap_or(0);
+    for h in &verdict.undeclared {
+        row_fail.entry(h.cart).or_default().push(format!("undeclared t {} ({},{},{}) face {} depth {:.4}", rel(h), h.cell.x, h.cell.y, h.cell.z, h.face.name(), h.depth));
+    }
+    for s in verdict.exceeded.iter().chain(verdict.stalls.iter()) {
+        if let Some(r) = row_of(s) {
+            row_fail.entry(r).or_default().push(s.clone());
+        }
+    }
+    for (r, idx) in rows.iter_mut().zip(row_judge_idx.iter()) {
+        if let Some(fails) = idx.and_then(|i| row_fail.get(&i)) {
+            r.0.push_str(&format!(" (JUDGE: {})", fails.join("; ")));
+        }
+    }
     // (ironspec 01:00 (1): freezes print as STRESS) the bar rows are the plain and restart rows; the
     // freeze rows print beside them and never bar
     let bar: Vec<&(String, Option<u32>, Option<Vec3>, f32, bool, bool)> = rows.iter().filter(|r| !r.0.starts_with("frozen")).collect();
     let stress: Vec<&(String, Option<u32>, Option<Vec3>, f32, bool, bool)> = rows.iter().filter(|r| r.0.starts_with("frozen")).collect();
     let ts: Vec<u32> = bar.iter().filter_map(|r| r.1).collect();
     let ss: Vec<f64> = bar.iter().filter_map(|r| r.2.map(|v| (v.x * v.x + v.z * v.z).sqrt())).collect();
-    let all_ok = bar.iter().all(|r| r.1.is_some() && r.2.as_ref().is_some_and(ok_v) && r.3 <= 0.0 && !r.4 && !r.5 && !r.0.contains("EYE IN WATER") && !r.0.contains("CONTACTS") && !r.0.contains("GAME TIME NOT"));
+    // (G1's B9 on R4) the old per-cell CONTACTS count is information: the judge's verdict gates the run
+    let all_ok = bar.iter().all(|r| r.1.is_some() && r.2.as_ref().is_some_and(ok_v) && r.3 <= 0.0 && !r.4 && !r.5 && !r.0.contains("EYE IN WATER") && !r.0.contains("GAME TIME NOT"));
     let st_ts: Vec<u32> = stress.iter().filter_map(|r| r.1).collect();
     let st_ss: Vec<f64> = stress.iter().filter_map(|r| r.2.map(|v| (v.x * v.x + v.z * v.z).sqrt())).collect();
     let stress_line = if stress.is_empty() {
@@ -1559,7 +1721,7 @@ pub fn ride_rows_core(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u
             st_ts.iter().max().copied().unwrap_or(0),
             st_ss.iter().cloned().fold(f64::INFINITY, f64::min),
             st_ss.iter().cloned().fold(0.0, f64::max),
-            stress.iter().filter(|r| !(r.1.is_some() && r.2.as_ref().is_some_and(ok_v) && r.3 <= 0.0 && !r.4 && !r.5 && !r.0.contains("CONTACTS") && !r.0.contains("GAME TIME NOT"))).count()
+            stress.iter().filter(|r| !(r.1.is_some() && r.2.as_ref().is_some_and(ok_v) && r.3 <= 0.0 && !r.4 && !r.5 && !r.0.contains("GAME TIME NOT"))).count()
         )
     };
     // (ironspec 23:56: no vacuous passes) each bar with its samples; a bar with none is NOT JUDGED
@@ -1629,9 +1791,9 @@ pub fn ride_rows_core(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u
     // their lines
     let stale = crate::contacts::stale_declared(&declared_in_scope, &|p: BlockPos| declared_hits.get(&[p.x, p.y, p.z]).copied().unwrap_or(0));
     let stale_line = format!(
-        "; the declared contacts in the ride's scope {}: {}; their reference figures over the bar rows (ironspec 10:42 / 10:58): {}",
+        "; (information: the horizontal contacts alone, the old count; main's bounded judge below decides, both axes) the declared contacts in the ride's scope {}: {}; their horizontal figures over the bar rows (ironspec 10:42 / 10:58): {}",
         if declared_in_scope.is_empty() { "(none)".to_string() } else { declared_in_scope.iter().map(|p| format!("{p} hit {} tick(s)", declared_hits.get(&[p.x, p.y, p.z]).copied().unwrap_or(0))).collect::<Vec<_>>().join(", ") },
-        if stale.is_empty() { "none stale".to_string() } else { format!("STALE {stale:?} (declared, never met: the row set fails)") },
+        if stale.is_empty() { "none unmet horizontally".to_string() } else { format!("{stale:?} unmet horizontally (a floor or ceiling declaration is met on the vertical axis: the judge's STALE decides)") },
         if decl_stats.is_empty() {
             "none met".to_string()
         } else {
@@ -1660,9 +1822,52 @@ pub fn ride_rows_core(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u
                 .join("; ")
         }
     );
-    let pass = !vacuous && all_ok && td_ok && watch_ok && probe_ok && stale.is_empty() && !(fence_min.is_finite() && fence_min <= 0.0);
+    // (ironspec 10:58, G1 11:12 (b); G1 14:51 (4); G1's B1 / B2 on R4) main's ONE bounded judge's verdict
+    // over the bar rows (judged once, above), and each in-scope design or rest declaration's reference
+    // check over the same re-keyed hits (a mismatch fails a --reference-run, printed otherwise; a
+    // --reference-run with no design or rest declaration in scope is NOT JUDGED and fails)
+    let first = |v: &[String]| if v.is_empty() { String::new() } else { format!(" (first: {})", v.iter().take(3).cloned().collect::<Vec<_>>().join("; ")) };
+    let referenced: Vec<&crate::contacts::Decl> = o.declared_bounded.iter().filter(|d| d.class == crate::contacts::Class::Design).collect();
+    let mut ref_mismatch: Vec<String> = Vec::new();
+    for d in &referenced {
+        ref_mismatch.extend(crate::contacts::reference_check(d, &all_hits));
+    }
+    let ref_not_judged = o.reference_run && referenced.is_empty();
+    let judge_ok = !verdict.failed() && !(o.reference_run && (!ref_mismatch.is_empty() || ref_not_judged));
+    let und: Vec<String> = verdict.undeclared.iter().map(|h| format!("[row {}] t {} ({},{},{}) face {} depth {:.4} speed {:.4} -> {:.4}", h.cart, rel(h), h.cell.x, h.cell.y, h.cell.z, h.face.name(), h.depth, h.speed_in, h.speed_out)).collect();
+    let judge_line = format!(
+        "; main's bounded judge (contacts::judge once over the {judge_rows} bar row(s), each row's hits its own sample and key, the samples ({judge_rows}, \"rows\"): A ROW = one release phase x restart order, at this one build position (the loop frame as laid); the in-scope declarations {}; the stall rule ironspec 10:42's; one build position: a touching-contact bar, the set owed (G1 15:52 (4))): {} row(s) failing; {} undeclared hit(s){}; {} bound(s) exceeded{}; {} stall(s){}; {} stale{}; {} stale not judged{}; {} wiring error(s){}; events per declaration {:?}; the reference check ({}): {}",
+        if o.declared_bounded.is_empty() { "(none)".to_string() } else { o.declared_bounded.iter().map(|d| format!("{} {:?}", d.cells.iter().map(|c| format!("({},{},{})", c.x, c.y, c.z)).collect::<Vec<_>>().join("+"), d.class)).collect::<Vec<_>>().join(", ") },
+        row_fail.len(),
+        und.len(),
+        first(&und),
+        verdict.exceeded.len(),
+        first(&verdict.exceeded),
+        verdict.stalls.len(),
+        first(&verdict.stalls),
+        verdict.stale.len(),
+        first(&verdict.stale),
+        verdict.stale_not_judged.len(),
+        first(&verdict.stale_not_judged),
+        verdict.errors.len(),
+        first(&verdict.errors),
+        verdict.events,
+        if o.reference_run { "--reference-run: judged" } else { "printed, not judged: not the declarations' ref= run" },
+        if ref_not_judged {
+            "NOT JUDGED: no design declaration in scope (a --reference-run needs one): FAILS".to_string()
+        } else if referenced.is_empty() {
+            "no design declaration in scope".to_string()
+        } else if ref_mismatch.is_empty() {
+            format!("each of the {} design declaration(s) reproduces its bounds", referenced.len())
+        } else {
+            format!("MISMATCH {}", ref_mismatch.join("; "))
+        }
+    );
+    // (G1 14:51 (4); ONE contact rule) the contact verdicts are main's bounded judge's (both axes): the
+    // old horizontal-only stale count is printed as information and no longer gates the run
+    let pass = !vacuous && all_ok && td_ok && watch_ok && probe_ok && judge_ok && !(fence_min.is_finite() && fence_min <= 0.0);
     out.push(format!(
-        "(ride) {} rows ({fluid_n} fluid cell(s) of the chunk given their tick): the entry reached in {} of them at t {}..{} after the release, {:.4}..{:.4} b/t heading west (the bar [{}, {}], inherited: ironspec 21:25 from 58f770cc's A6 park sweep){centre_line}{stale_line}; 0 hurt, on rails, never back south; {}; {}; {}; the closest fence box (post and arms as laid) to the cart's box: {}; {td_line}{watch_line}{}: {}",
+        "(ride) {} rows ({fluid_n} fluid cell(s) of the chunk given their tick; natural spawning OFF by construction: the bench's world has no natural spawner, mob.natural None, ironspec 14:57): the entry reached in {} of them at t {}..{} after the release, {:.4}..{:.4} b/t heading west (the bar [{}, {}], inherited: ironspec 21:25 from 58f770cc's A6 park sweep){centre_line}{stale_line}{judge_line}; 0 hurt, on rails, never back south; {}; {}; {}; the closest fence box (post and arms as laid) to the cart's box: {}; {td_line}{watch_line}{}: {}",
         bar.len(),
         ts.len(),
         ts.iter().min().copied().unwrap_or(0),
@@ -1678,6 +1883,7 @@ pub fn ride_rows_core(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u
         stress_line,
         if vacuous { "FAIL (a bar not judged)" } else if pass { "PASS" } else { "FAIL" }
     ));
+    out.extend(evidence);
     Ok((out, pass))
 }
 
@@ -4116,7 +4322,81 @@ mod tests {
             probe_bed: None,
             watch_cells: Vec::new(),
             declared_contacts: Vec::new(),
+            declared_bounded: Vec::new(),
+            reference_run: false,
         }
+    }
+
+    /// (G1 14:51 (4)) the bounded declarations in the ride's scope: an entry whose cells lie in the scope
+    /// is read strictly (a malformed one an error); one outside it is left to its bench (even when it
+    /// wouldn't parse under the bounded grammar); one with cells on both sides is an error.
+    #[test]
+    fn the_bounded_declarations_in_the_ride_scope() {
+        let scope = ([2, -27, -8], [9, -11, 3]);
+        let inside = "# contacts: 9,-15,0=the drop stop | face=north | class=design | ref=t `cmd` (rows) | ticks<=1 why=one tick | events<=1 why=once | depth<=0.2057+eps=0.010 why=the launch | speed_in<=0.4000+eps=0.010 why=the cap | speed_out<=0.1943+eps=0.010 why=the gap | rate=1640/1640 rows\n";
+        let outside_bad = "# contacts: -3,-27,3=the bed head; class=design; rate=296/408 (no unit, not this bench's)\n";
+        let v = bounded_in_scope(&format!("{inside}{outside_bad}"), scope).unwrap();
+        assert_eq!(v.len(), 1, "only the in-scope entry");
+        assert_eq!(v[0].class, crate::contacts::Class::Design);
+        assert_eq!(v[0].cells, vec![BlockPos::new(9, -15, 0)]);
+        // a legacy (fieldless) entry in scope reads as Legacy
+        let legacy = bounded_in_scope("# contacts: 9,-15,0=the drop stop\n", scope).unwrap();
+        assert_eq!(legacy[0].class, crate::contacts::Class::Legacy);
+        // a malformed in-scope entry is an error (here: a field with no known key after the fields began)
+        assert!(bounded_in_scope("# contacts: 9,-15,0=the drop stop | class=design | ref=x (1; 2)\n", scope).is_err() || bounded_in_scope("# contacts: 9,-15,0=the drop stop | class=design\n", scope).is_err());
+        // cells on both sides of the scope
+        assert!(bounded_in_scope("# contacts: 9,-15,0+-3,-27,3=split\n", scope).is_err());
+        // (G1's B10 on R4) a malformed cell is an error, never dropped
+        assert!(bounded_in_scope("# contacts: 9,-15,x=a bad cell\n", scope).unwrap_err().contains("is not x,y,z"));
+        // (G1 18:34 (3)) the split names what it left outside: the count in and out
+        let (d, out) = bounded_scope_split(&format!("{inside}{outside_bad}"), scope).unwrap();
+        assert_eq!((d.len(), out.len()), (1, 1));
+        assert!(out[0].starts_with("-3,-27,3"), "{out:?}");
+        // the floor line just outside the scope: nothing inside (the caller's NOT JUDGED)
+        let floor = "# contacts: 9,-16,-2=the support's top | face=up | class=design | ref=t | ticks<=1 why=w | events<=1 why=w | depth<=0.0400+eps=0.001 why=w | speed_out>=0.1943+eps=0.001 why=w\n";
+        let (d, out) = bounded_scope_split(floor, ([2, -15, -8], [9, -11, 3])).unwrap();
+        assert!(d.is_empty() && out.len() == 1, "{d:?} {out:?}");
+    }
+
+    /// (G1's B1 / B2 on R4, G1 18:34 (1)) the ride rows' re-key: two rows sharing the cart's entity id
+    /// with consecutive ticks stay two events of one tick each (no merge across rows), while two hits a
+    /// tick apart IN ONE ROW are one event of two ticks; the reference check folds the re-keyed rows (a
+    /// lower speed_out becomes the least); a 100 % rate missing one row is STALE; a declaration met in
+    /// no row is STALE.
+    #[test]
+    fn the_ride_rows_rekey_per_row_and_judge_the_rate_over_the_set() {
+        use crate::contacts::{Face, Hit, StallRule};
+        let h = |tick: i64, sout: f64| Hit { tick, cart: 7, cell: BlockPos::new(9, -15, 0), face: Face::North, depth: 0.2057, speed_in: 0.4, speed_out: sout, sample: None };
+        let decl = |extra: &str| crate::contacts::declared_contacts_bounded(&format!("# contacts: 9,-15,0=the drop stop | face=north | class=design | ref=t | ticks<=1+eps=0 why=w | events<=1+eps=0 why=w | depth<=0.2057+eps=0.001 why=w | speed_out>=0.1943+eps=0.001 why=w{extra}\n")).unwrap();
+        // the motion after each event: falling (no stall)
+        let falling = |_c: u32, _t: i64| Some((0.0, -0.1));
+        // two adjacent-phase rows, one entity id, ticks 17 and 18: two events of 1 tick, one a row
+        let rows: Vec<Hit> = rekey_row(0, vec![h(17, 0.1943)]).chain(rekey_row(1, vec![h(18, 0.1943)])).collect();
+        let v = crate::contacts::judge(&decl(""), &rows, &falling, StallRule::IRONSPEC_1042, Some((2, "rows")));
+        assert!(!v.failed(), "{v:?}");
+        assert_eq!(v.events, vec![2]);
+        assert!(crate::contacts::reference_check(&decl("")[0], &rows).is_empty(), "ticks 1, events 1 reproduce");
+        // the twin: two hits a tick apart in ONE row: one event of 2 ticks (exceeds ticks<=1)
+        let one: Vec<Hit> = rekey_row(0, vec![h(17, 0.1943), h(18, 0.1943)]).collect();
+        let v = crate::contacts::judge(&decl(""), &one, &falling, StallRule::IRONSPEC_1042, Some((1, "rows")));
+        assert_eq!(v.events, vec![1]);
+        assert!(v.exceeded.iter().any(|s| s.contains("ticks 2")), "{:?}", v.exceeded);
+        // a lower speed_out in one row becomes the reference's least: the declared 0.1943 mismatches
+        let low: Vec<Hit> = rekey_row(0, vec![h(17, 0.1943)]).chain(rekey_row(1, vec![h(18, 0.1800)])).collect();
+        assert!(!crate::contacts::reference_check(&decl("")[0], &low).is_empty(), "the least speed_out 0.1800 differs from 0.1943");
+        // rate=2/2 rows with the contact in only one of the two rows: an under-rate STALE
+        let rated = decl(" | rate=2/2 rows");
+        let half: Vec<Hit> = rekey_row(0, vec![h(17, 0.1943)]).collect();
+        let v = crate::contacts::judge(&rated, &half, &falling, StallRule::IRONSPEC_1042, Some((2, "rows")));
+        assert!(!v.stale.is_empty(), "{v:?}");
+        // rate=1/2 rows met in no row of 20: STALE (P(0 | 1/2) over 20 rows < 0.001); over 2 rows the same
+        // absence can't be judged (P = 0.25): "stale not judged", printed
+        let v = crate::contacts::judge(&decl(" | rate=1/2 rows"), &[], &falling, StallRule::IRONSPEC_1042, Some((20, "rows")));
+        assert!(!v.stale.is_empty(), "{v:?}");
+        let v = crate::contacts::judge(&decl(" | rate=1/2 rows"), &[], &falling, StallRule::IRONSPEC_1042, Some((2, "rows")));
+        assert!(v.stale.is_empty() && !v.stale_not_judged.is_empty(), "{v:?}");
+        // the untagged wiring error is gone: re-keyed hits carry their row as the sample
+        assert!(rows.iter().all(|x| x.sample == Some(x.cart as u64)));
     }
 
     /// (G1 07:16 (8)) `--write`: the module's raw header read before the save (an in-place write keeps
