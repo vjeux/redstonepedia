@@ -480,13 +480,24 @@ branch, unlanded)" until `cart_contacts` (329b5acc3) is on main.
 
 Rebased onto main 1ea7bf39a (train 8: the shared contact rule); bench rows on 2af606b9d unless named.
 
-- **Contacts through main's `contacts::cart_contacts`** (G1's Q1; the 84dff165a copy gone): the clipped
-  axes of each recorded SELF move, keyed on the contacted block. The bed-head contact re-derived on it
-  at the design point (below): 296 / 408 visits, depth 0.0000, 1 tick each, speed 0.060..0.112 in,
-  0.0423..0.075 out (the least at entry 0.51). Declared with `ref=2af606b9d` and its full command;
-  `speed_out>=0.0423+eps=0.0023`: the bound 0.040 is the exit boost's measured carry threshold (a
-  loaded cart set on (-2,0,5) carried at 0.0101, stalled at 0.0100: `--boost-probe`) plus a 0.0299
-  margin. The bench parses each declaration's depth / ticks / speed_out bounds per cell (Q6).
+- **Contacts judged by main's ONE bounded judge** (G1's Q1 / Q6; ironspec Nov 13 10:42 (3) / 10:58;
+  the 84dff165a copy and my per-cell parsers gone): every visit's hits (`contacts::cart_hits` +
+  `cart_vertical_hits`, the cell in the design frame, each visit's cart its own sample) and motion into
+  `contacts::judge` (undeclared by cell and face; ticks, events, depth, speed bounds; NO STALL by
+  IRONSPEC_1042; STALE by `rate=` over the run's visits); declarations by
+  `declared_contacts_bounded`; `--reference-check` makes `contacts::reference_check` fail the run. The
+  bed-head declaration in the bounded grammar (`face=east | ticks<=1 | events<=1 | depth | speed_out
+  | ref= | rate=296/408 visits`), its values from the reference run on main's judge (ref e25e3b01c,
+  774111605's code) at 21 build positions (the design frame, ironspec's P1-P4 as written and on the
+  column convention, P2 at loop + (6,0,6) and + (6,24,6), every copy A-D at loop + 0 and + 80): the
+  same extremes at each, 296 events over 296 of 408 visits (37 of 51 entry speeds, every seed of
+  each), 1 tick, at most 1 per cart, the deepest 0.0440 (main's depth is the clipped part of the
+  cart's westward request at P's turn; the boxes stay flush), speed_out 0.0336..0.0808 (the contact
+  tick's returned move). Each eps is one unit of the stated fourth decimal: the extremes' spread is 0
+  over the 21 positions and 2,040 visits of seeds 1-40. The carry threshold 0.0101 (`--boost-probe`:
+  the cart's velocity set on (-2,0,5)) is another measure, a floor the speed_out bound doesn't lean
+  on. Controls: `--reference-check` passes on the band; editing the depth bound to 0.0400 fails 24
+  events.
 - **The wake sensor** (`--wake-sensor`, G1 12:04 / day-1 12:03): an observer at (-3,-1,4) facing up at
   the bed head, in the glass's place; OCCUPIED's set and clear each give a pulse into (-3,-2,4) 2 gt
   after the edge (tick-exact confirmed in 26.3). On every one of 408 lie-downs and 408 wakes it rose at
