@@ -64,7 +64,9 @@ pub fn carried_declarations(specs: &[PartSpec], shift: P) -> Result<(Vec<String>
     const NAMED_META: [&str; 2] = ["run-cells", "run-gates"];
     const SCALAR_META: [&str; 4] = ["circuit", "dwell-cap", "k-lock", "k-sw"];
     const SCALAR_HASH: [&str; 1] = ["day-time"];
-    const OWN_META: [&str; 8] = ["name", "origin", "nether-origin", "palette", "positions", "declared", "ground", "entity"];
+    // (the composer moves these itself: the part's name, frames, palette and layers, declared states,
+    // ground, entities, and (onechunk 12:32, the loader's chests) its block entities' `nbt:` lines)
+    const OWN_META: [&str; 9] = ["name", "origin", "nether-origin", "palette", "positions", "declared", "ground", "entity", "nbt"];
     const OWN_HASH: [&str; 5] = ["placement order", "rail T", "rail Ts", "settled junction", "+ "];
     let cell3 = |t: &str| -> Option<[i32; 3]> {
         let v: Vec<i32> = t.trim().trim_start_matches('(').trim_end_matches(')').split(',').map(|n| n.trim().parse::<i32>()).collect::<Result<_, _>>().ok()?;
