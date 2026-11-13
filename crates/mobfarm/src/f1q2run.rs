@@ -3306,6 +3306,10 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     // (ironspec 11:09 (1): how a lane reaches a 9th cart) the conservation ledger per lane: every cart
     // entering its queue (dropped in from the lip) and leaving its pocket P, (tick, cart, +1 / -1, what)
     let mut ledger: [Vec<(i64, u32, i64, String)>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+    // (G1's P18) the ledger's base (the region's count at the first tick) and the region's physical
+    // count every 500 gt
+    let mut ledger_base: [Option<i64>; 3] = [None; 3];
+    let mut region_marks: [Vec<(i64, i64)>; 3] = [Vec::new(), Vec::new(), Vec::new()];
     // (onechunk 11:16) every napper's cart dropping into a lane not its own, with its split turns
     let mut napper_wrong_lane: Vec<String> = Vec::new();
     // (G1's P16) every napper's cart dropping into any lane (the misroute bar's denominator)
@@ -6492,10 +6496,16 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     westbound_open.remove(&e.id);
                 }
                 for (k, x) in LANES.iter().enumerate() {
+                    // (ironspec 11:09 (1) / G1's P18, the conservation ledger on the one lane region) a
+                    // cart entering the region (+1) or leaving it (-1), with where from / to
+                    let (was, is) = (in_lane_region(p, *x), in_lane_region(c, *x));
+                    if !was && is {
+                        ledger[k].push((rel, e.id, 1, format!("entered at ({},{},{}) from ({},{},{})", c[0], c[1], c[2], p[0], p[1], p[2])));
+                    } else if was && !is {
+                        ledger[k].push((rel, e.id, -1, format!("left from ({},{},{}) to ({},{},{})", p[0], p[1], p[2], c[0], c[1], c[2])));
+                    }
                     if p == [*x, 24, 6] && c == [*x, 23, 6] {
                         drop_passes[k] += 1;
-                        // (ironspec 11:09 (1), the conservation ledger) a cart entering lane x's queue
-                        ledger[k].push((rel, e.id, 1, "dropped in from the lip".to_string()));
                         // (onechunk 11:16) a napper's cart dropping into a lane not its own: a misroute,
                         // with its split turns; (G1's P16) every napper drop counted, the denominator
                         if let Some(r) = e.passengers.first()
@@ -6509,10 +6519,6 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                         {
                             napper_wrong_lane.push(format!("t {rel}: napper #{r} of lane x {} (cart #{}) dropped into lane x {x}; its split turns: {}", LANES[*nk], e.id, split_turns(e.id, rel, &cart_entries, &t_changes, &t_shapes0, &lever_hist)));
                         }
-                    }
-                    if p == [*x, 0, 0] && c != [*x, 0, 0] {
-                        // (the ledger) a cart leaving lane x's pocket P (the station's exit)
-                        ledger[k].push((rel, e.id, -1, format!("left the pocket for ({},{},{})", c[0], c[1], c[2])));
                     }
                     if p == [*x, 24, 7] && c == [x - 1, 24, 7] && !e.passengers.first().is_some_and(|r| nappers.iter().any(|(v, _, _)| v == r)) {
                         c_deflections[k].push(format!("t {rel} cart #{}", e.id));
@@ -6657,11 +6663,15 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     lane_max[k] = (n, rel, tail);
                 }
                 // (G1 10:24 (a) / 10:47 blocking 3: the per-lane COUNT over D4's region) every cart, on
-                // a rail or not, in the lane's pocket P (x,0,0), on its rails (H, R_1 and the slopes),
-                // in its drop column (x,23..24,6) or at its merge (C (x,24,7), D (x,24,8)), every tick;
-                // a 9th FAILS
-                let in_lane = |c: [i32; 3]| c[0] == *x && (c == [*x, 0, 0] || (16..=22).contains(&c[1]) && (0..=6).contains(&c[2]) || (23..=24).contains(&c[1]) && c[2] == 6 || c[1] == 24 && (7..=8).contains(&c[2]));
-                let count = w.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && in_lane(cell(e.pos))).count();
+                // a rail or not, in the lane's region (G1's P18: one region for the count, the ledger
+                // and the per-stall print: in_lane_region), every tick; a 9th FAILS
+                let count = w.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && in_lane_region(cell(e.pos), *x)).count();
+                if ledger_base[k].is_none() {
+                    ledger_base[k] = Some(count as i64);
+                }
+                if rel % 500 == 0 {
+                    region_marks[k].push((rel, count as i64));
+                }
                 *lane_count_hist[k].entry(count).or_default() += 1;
                 if count > lane_count_max[k].0 {
                     lane_count_max[k] = (count, rel);
@@ -6808,7 +6818,8 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                                 let ids: Vec<String> = w.entities.list.iter().filter(|f| !f.removed && matches!(f.kind, EntityKind::Minecart(_)) && cell(f.pos) == *sc).map(|f| ident(f.id)).collect();
                                 format!("{n} {}", if ids.is_empty() { "-".to_string() } else { ids.join("+") })
                             }).collect();
-                            let count = slots.iter().map(|(_, sc)| w.entities.list.iter().filter(|f| !f.removed && matches!(f.kind, EntityKind::Minecart(_)) && cell(f.pos) == *sc).count()).sum::<usize>();
+                            // (G1's P18) the lane's carts on the one region (the slots list names where)
+                            let count = w.entities.list.iter().filter(|f| !f.removed && matches!(f.kind, EntityKind::Minecart(_)) && in_lane_region(cell(f.pos), x)).count();
                             let junction = |id: u32| -> String { split_turns(id, rel, &cart_entries, &t_changes, &t_shapes0, &lever_hist) };
                             let mine_c = c_arrivals[k].iter().rev().find(|a| a.3 == e.id).map(|a| format!("entered C at t {} from ({},{},{})", a.0, a.6[0], a.6[1], a.6[2]));
                             let last2: Vec<String> = c_arrivals[k].iter().rev().filter(|a| a.3 != e.id).take(2).map(|a| format!("{} at C t {} from ({},{},{}), split {}", ident(a.3), a.0, a.6[0], a.6[1], a.6[2], junction(a.3))).collect();
@@ -9141,37 +9152,47 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     // after its leader's (the pair gap), and each batch cart's loop transit, its hold H release (a rest
     // on H ending) to its next lip arrival
     let s = {
-        // (ironspec 11:09 (1)) the conservation ledger: per lane the t0 count (D4's region) plus the
-        // carts dropped in minus the carts that left the pocket, its timeline every 500 gt, and the
-        // ten events before the ledger first reached 9
+        // (ironspec 11:09 (1) / G1's P18) the conservation ledger on the one lane region: per lane its
+        // count at the first tick plus the carts entering minus the carts leaving the region, against
+        // the region's physical count every 500 gt (ledger - physical), and the ten events before the
+        // ledger first reached 9
         let mut out: Vec<String> = Vec::new();
         for k in 0..3 {
-            let base = lane_ids_t0[k].len() as i64;
+            let base = ledger_base[k].unwrap_or(lane_ids_t0[k].len() as i64);
             let mut n = base;
             let mut first9: Option<usize> = None;
             let mut timeline: Vec<String> = Vec::new();
-            let mut next_mark = 500i64;
-            for (i, (t, _, d, _)) in ledger[k].iter().enumerate() {
-                while *t >= next_mark {
-                    timeline.push(format!("t {next_mark} {n}"));
-                    next_mark += 500;
+            let mut marks = region_marks[k].iter().peekable();
+            let mut idx = 0usize;
+            let evs = &ledger[k];
+            while let Some((mt, phys)) = marks.next() {
+                while idx < evs.len() && evs[idx].0 <= *mt {
+                    n += evs[idx].2;
+                    if n >= 9 && first9.is_none() {
+                        first9 = Some(idx);
+                    }
+                    idx += 1;
                 }
-                n += d;
+                timeline.push(format!("t {mt} {n} / {phys}{}", if n != *phys { format!(" (ledger - physical {:+})", n - phys) } else { String::new() }));
+            }
+            while idx < evs.len() {
+                n += evs[idx].2;
                 if n >= 9 && first9.is_none() {
-                    first9 = Some(i);
+                    first9 = Some(idx);
                 }
+                idx += 1;
             }
             let before9 = first9.map(|i| ledger[k][i.saturating_sub(9)..=i].iter().map(|(t, c, d, what)| format!("t {t} #{c} {} {what}", if *d > 0 { "+1" } else { "-1" })).collect::<Vec<_>>().join("; "));
             out.push(format!(
-                "lane x {}: t0 {base}, in {}, out {}, at the end {n}; {}; {}",
+                "lane x {}: at the first tick {base}, in {}, out {}, at the end {n}; {}; {}",
                 LANES[k],
                 ledger[k].iter().filter(|e| e.2 > 0).count(),
                 ledger[k].iter().filter(|e| e.2 < 0).count(),
-                if timeline.is_empty() { "no timeline".to_string() } else { format!("every 500 gt: {}", timeline.join(", ")) },
+                if timeline.is_empty() { "no timeline".to_string() } else { format!("every 500 gt, ledger / physical: {}", timeline.join(", ")) },
                 before9.map_or("never at 9 (PASS)".to_string(), |b| format!("FIRST AT 9 (FAIL) after: {b}"))
             ));
         }
-        let s = format!("{s}the conservation ledger (ironspec 11:09 (1): per lane its t0 carts + the carts dropped into its queue - the carts leaving its pocket; a 9th FAILS, with the ten events before it): {}\n", out.join(" | "));
+        let s = format!("{s}the conservation ledger (ironspec 11:09 (1) / G1's P18: per lane the one region's count at the first tick + the carts entering it - the carts leaving it, against its physical count; a 9th FAILS, with the ten events before it): {}\n", out.join(" | "));
         // (onechunk 11:16) the nappers' misroutes, bar 0
         let s = format!(
             "{s}F4(a)'s bars (ironspec 11:33: the returning-napper register; each bar 0): (i) a K switched while another lane's napper is on the split row: {} ({}){}; (ii) a K armed with its R occupied: {} ({}){}; (iii) more than one napper between the stop's exit and the K's: {} ({}){}\n",
@@ -9601,6 +9622,14 @@ fn open_follow(id: u32, m: &std::collections::HashMap<u32, u32>, pre_live: &std:
         None if m.values().any(|n| *n == id) => Err(format!("the dead id #{id} kept across the open now names a renewed entity (G1's P9: an alias)")),
         None => Ok(id),
     }
+}
+
+/// (G1's P18) A lane's region, the one definition of "the lane's carts" for the count bar, the
+/// conservation ledger and the per-stall print: its pocket P (x,0,0), the fall from H to P (x,1..15,0),
+/// its rails H (x,16,0), R_1 and the slopes up to V (x,16..22, z 0..6), its drop column and lip
+/// (x,23..24,6), and its merge C (x,24,7) / D (x,24,8).
+fn in_lane_region(c: [i32; 3], x: i32) -> bool {
+    c[0] == x && ((c[2] == 0 && (0..=15).contains(&c[1])) || ((16..=22).contains(&c[1]) && (0..=6).contains(&c[2])) || ((23..=24).contains(&c[1]) && c[2] == 6) || (c[1] == 24 && (7..=8).contains(&c[2])))
 }
 
 /// (G1's P1) A judged pass with a hit or a push.
