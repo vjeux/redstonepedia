@@ -371,6 +371,20 @@ struct Ctl {
     /// dwell cap (HELD's bound: rest + the cap + R1's 4 gt).
     q_rest_at: Option<i64>,
     dwell_cap: i64,
+    /// (day-1 01:10 PT, the per-pick trace) REST_l's and DAY's last levels and their edges; every
+    /// pick opportunity (tick, C, lane, verdict); the napper holding HELD; each divert (tick, cart).
+    rest_prev: Option<bool>,
+    day_prev: Option<bool>,
+    edge_log: Vec<String>,
+    pick_opps: Vec<(i64, i64, usize, String)>,
+    held_by: Option<u32>,
+    divert_log: Vec<(i64, u32)>,
+    /// Each pick made: (tick, cart, villager, lane).
+    pick_carts: Vec<(i64, u32, u32, usize)>,
+    /// (day-1 01:27 PT, m per visit) each H2 sample that fired a hold pulse (tick, lane), and every
+    /// D press per lane (tick, lane).
+    h2_log: Vec<(i64, usize, i64)>,
+    dpress_log: Vec<(i64, usize)>,
     /// (G1's note) a pick decided while another was still pending (an overwrite).
     pick_overwrites: Vec<String>,
     /// (day-1's R1) the line ends held as levels (their built states), the queue rail's power last
@@ -762,6 +776,7 @@ impl Ctl {
                             // (ironspec 19:29 (b): who was picked)
                             if let Some(v) = w.entities.list.iter().find(|e| e.id == cid).and_then(|e| e.passengers.first().copied()) {
                                 self.pick_log.push((now, v));
+                                self.pick_carts.push((now, cid, v, k));
                             }
                             self.away[k] = true;
                             // (ironspec 00:12 PT, F1 adopted: HELD is set at the queue's arrival
@@ -910,6 +925,7 @@ impl Ctl {
                             self.note(now, format!("the picker: lane x {}'s cart {cid} on the row with the queue HELD: no divert", LANES[k]));
                         } else {
                             self.divert = Some((cid, k));
+                            self.divert_log.push((now, cid));
                             for x in [-1, 3, 7] {
                                 if x >= LANES[k] {
                                     set(w, [x, 26, 9], &lever(false), flags::ALL)?;
@@ -997,9 +1013,9 @@ impl Ctl {
         let bed = matches!(w.get(redsim::pos::BlockPos::new(-3, by, 3)).to_string(), s if s.contains("occupied=true"));
         // (58f770cc's A6, b36302af8: every controller a floor lever on glass; the hatch's levers
         // (-4,by,2) and (-4,by+1,4) ON in the normal state, OFF at F; the park's levers (1,by+1,-6)
-        // and (0,by,-6) OFF (braked), ON at the release, 30 gt after the bed's wake edge; R's
-        // detector (4,by-1,4) re-arms both. d907's stop: stone and redstone blocks at its control
-        // cells, the release 30 gt after F)
+        // and (0,by,-6) OFF (braked), ON at the release, the bed's wake edge + 1 gt (58f770cc 00:39
+        // PT); R's detector (4,by-1,4) re-arms both. d907's stop: stone and redstone blocks at its
+        // control cells, the release 30 gt after F)
         let a6 = w.get(redsim::pos::BlockPos::new(1, by + 1, -6)).to_string().contains("lever");
         let set_lever = |w: &mut redsim::world::World, c: [i32; 3], on: bool| -> Result<(), String> {
             let s = w.get(redsim::pos::BlockPos::new(c[0], c[1], c[2])).to_string();
@@ -1013,8 +1029,11 @@ impl Ctl {
             self.nap_events.push(format!("t {now}: lie-down (the bed occupied)"));
         }
         if a6 && !bed && self.bed_prev {
-            self.release_at = Some(now + 30);
-            self.nap_events.push(format!("t {now}: the wake edge (the bed freed): the release at t {}", now + 30));
+            // (58f770cc 00:39 PT, ironspec 01:08 PT: today's A6 releases at the wake edge, the
+            // bench's release landing 1 gt after the recorded wake; the cart reaches P 36..40 gt
+            // later)
+            self.release_at = Some(now + 1);
+            self.nap_events.push(format!("t {now}: the wake edge (the bed freed): the release at t {}", now + 1));
         }
         self.bed_prev = bed;
         if self.f_at == Some(now) {
@@ -1080,6 +1099,7 @@ impl Ctl {
                 // the departure; every set and reset logged with its cause
                 self.q_held = true;
                 self.held_set = Some((now, "the queue's arrival".to_string()));
+                self.held_by = w.entities.list.iter().find(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && (cell(e.pos) == arr || cell(e.pos) == q)).and_then(|e| e.passengers.first().copied());
                 self.held_log.push(format!("t {now}: HELD set by the queue's arrival"));
                 self.q_arrivals.push(now);
                 // (the one-in-flight timing bar) this arrival's pick -> arrival
@@ -1153,6 +1173,15 @@ impl Ctl {
                 self.level(w, [8, by + 13, -5], [7, by + 13, -5], !self.q_rs_ready)?;
                 self.level(w, [6, by + 15, -1], [6, by + 15, -2], rest)?;
                 self.level(w, [4, by + 15, -2], [5, by + 15, -2], !not_day)?;
+                // (day-1 01:10 PT, the per-pick trace) the night's REST_l and DAY edges
+                if self.rest_prev != Some(rest) {
+                    self.edge_log.push(format!("t {now}: REST_l {}", if rest { "on" } else { "off" }));
+                    self.rest_prev = Some(rest);
+                }
+                if self.day_prev != Some(!not_day) {
+                    self.edge_log.push(format!("t {now}: DAY {}", if not_day { "off" } else { "on" }));
+                    self.day_prev = Some(!not_day);
+                }
                 let qp = powered(w, q);
                 // (the release: the queue rail powered while a napper is on it, a cart arriving on
                 // an already powered rail included (it rolls straight through))
@@ -1217,6 +1246,10 @@ impl Ctl {
             && now >= s + k_lock
         {
             let k = self.nap_lane;
+            // (day-1 01:27 / ironspec 01:26 PT, m and the catch margin per visit) the H2 sample this
+            // napper caught and its catch margin: the sample's tick minus Q-up (the waiting RS's set +
+            // k_lock), bar >= 2
+            self.h2_log.push((now, k, now - (s + k_lock)));
             self.hold_on = Some(a + 10);
             self.hold_off = Some(a + 22);
             self.rs_set = None;
@@ -1282,6 +1315,10 @@ impl Ctl {
         // the siding: D's rise while PRESENT_l (the branch detectors' rises, this tick)
         let prev = [self.branch_prev_nap[0], self.branch_prev_nap[1], self.d7_prev];
         for k in 0..3 {
+            // (day-1 01:27 PT, m per visit) every D press on each lane
+            if d[k] && !prev[k] {
+                self.dpress_log.push((now, k));
+            }
             if d[k] && !prev[k] && self.present[k] {
                 // (day-1 19:19; k_sw = 6, ironspec 21:35 / 22:03: SIDING_l from WINDOW_l AND
                 // PRESENT_l at D's rise, R powered at D + k_sw + 8 = D + 14, no wait for D off: the
@@ -1392,12 +1429,19 @@ impl Ctl {
                     self.gated_by[g] += 1;
                     let gn = ["HELD (a napper in flight)", "the lane's away latch", "a picked cart not yet routed"][g];
                     self.note(rel, format!("the picker: lane x {}'s pick at C {} gated by {gn}", LANES[k], self.rel_count));
+                    let verdict = match g {
+                        0 => format!("HELD (held by #{})", self.held_by.map_or("?".to_string(), |v| v.to_string())),
+                        1 => "the away latch".to_string(),
+                        _ => "unrouted".to_string(),
+                    };
+                    self.pick_opps.push((rel, self.rel_count, k, verdict));
                 } else {
                     // (G1's note) no pick may still be pending at a decision: an overwrite fails
                     if let Some(p) = self.pick {
                         self.pick_overwrites.push(format!("t {rel}: lane x {}'s pick decided while lane x {}'s was still pending", LANES[k], LANES[p]));
                     }
                     self.pick = Some(k);
+                    self.pick_opps.push((rel, self.rel_count, k, "picked".to_string()));
                 }
             }
         }
@@ -4502,6 +4546,80 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             ));
             // (day-1 22:06) the counter's log, for its release-by-release comparison
             s.push_str(&format!("  the counter's log (day:C at each release; the RISE / EIGHT loads; picks only inside C 141..221): {}{}\n", ctl.counter_log.join(" "), ctl.counter_unmodelled.map_or(String::new(), |d| format!("; the first release at day {d} is between RISE and EIGHT: the counter's start isn't modelled there (FAIL)"))));
+            // (day-1 01:10 PT) the per-pick trace for the pick-by-pick diff against day-1's model:
+            // every pick opportunity (tick, C, lane, verdict with HELD's holder); every picked
+            // napper's divert, queue arrival, release, departure, stop entry, R, siding's R and back
+            // in lane; the night's REST_l and DAY edges
+            let opps: Vec<String> = ctl.pick_opps.iter().map(|(t, c, k, v)| format!("t {t} C {c} lane x {} {v}", LANES[*k])).collect();
+            let msn = |v: u32, what: &str, from: i64| -> Option<i64> { recs.get(&v).and_then(|r| r.milestones.iter().find(|(m, t)| m == what && *t >= from).map(|(_, t)| *t)) };
+            let ms = |v: u32, what: &str, from: i64| -> String { msn(v, what, from).map_or("-".to_string(), |t| t.to_string()) };
+            let visits: Vec<String> = ctl
+                .pick_carts
+                .iter()
+                .map(|(t, cid, v, k)| {
+                    let div = ctl.divert_log.iter().find(|(dt, c)| c == cid && dt >= t).map_or("-".to_string(), |(dt, _)| dt.to_string());
+                    let rel = ctl.release_log.iter().find(|(rt, rv)| rv == v && rt >= t).map_or("-".to_string(), |(rt, _)| rt.to_string());
+                    let dep = ctl.dep_log.iter().find(|(dt, dv)| dv == v && dt >= t).map_or("-".to_string(), |(dt, _)| dt.to_string());
+                    // (day-1 01:27 PT, m per visit) the H2 sample it caught, its K, PRESENT, the
+                    // siding's R and its lane's D presses around R
+                    let hold = msn(*v, "on the hold (9,0,8)", *t);
+                    let h2e = hold.and_then(|h| ctl.h2_log.iter().find(|(ht, _, _)| *ht >= h).copied());
+                    let h2 = h2e.map(|x| x.0);
+                    let kt = msn(*v, "on its K", *t);
+                    let present = h2.and_then(|h| ctl.present_log.iter().find(|(pt, pk)| *pk == *k && *pt >= h).map(|x| x.0));
+                    let sr = msn(*v, "on its siding's R", *t);
+                    let presses: Vec<String> = ctl.dpress_log.iter().filter(|(dt, dk)| *dk == *k && sr.is_some_and(|r| *dt >= r - 60 && *dt <= r + 120)).map(|x| x.0.to_string()).collect();
+                    let next_press = sr.and_then(|r| ctl.dpress_log.iter().find(|(dt, dk)| *dk == *k && *dt > r).map(|x| x.0));
+                    let o = |x: Option<i64>| x.map_or("-".to_string(), |v| v.to_string());
+                    format!(
+                        "#{v} lane x {} picked t {t}: divert {div}, queue arrival {}, release {rel}, departure {dep}, stop entry {}, R {}, hold {}, H2 sample {} (the catch window: late slack {}, early slack {}), K {}{}, PRESENT {}, siding's R {}, back in lane {}; the lane's D presses within R - 60 .. R + 120: [{}]; the next D press after R minus R: {}",
+                        LANES[*k],
+                        ms(*v, "at the queue's arrival", *t),
+                        ms(*v, "at A6's entry", *t),
+                        ms(*v, "at R", *t),
+                        o(hold),
+                        o(h2),
+                        h2e.map_or("-".to_string(), |x| format!("{} gt", x.2)),
+                        h2e.map_or("-".to_string(), |x| format!("{} gt", 100 - x.2)),
+                        o(kt),
+                        match (h2, kt) { (Some(h), Some(kk)) => format!(" (the K leg {} gt after H2)", kk - h), _ => String::new() },
+                        o(present),
+                        o(sr),
+                        ms(*v, "back in its lane", *t),
+                        presses.join(" "),
+                        match (next_press, sr) { (Some(p), Some(r)) => format!("{:+}", p - r), _ => "-".to_string() }
+                    )
+                })
+                .collect();
+            s.push_str(&format!(
+                "  the per-pick trace (day-1 01:10 PT): {} opportunities: {}; {} picked nappers: {}; REST_l / DAY edges: {}\n",
+                opps.len(),
+                if opps.is_empty() { "none".to_string() } else { opps.join(", ") },
+                visits.len(),
+                if visits.is_empty() { "none".to_string() } else { visits.join("; ") },
+                if ctl.edge_log.is_empty() { "none".to_string() } else { ctl.edge_log.join(", ") }
+            ));
+            // (ironspec 01:26 / 01:28 PT) the catch window: each fired H2 sample's late slack (the
+            // sample minus Q-up, the waiting RS's set + k_lock) and early slack (Q-up minus the
+            // previous sample, 100 gt before), the least of each over the run, both bars >= 2
+            let least_catch = ctl.h2_log.iter().map(|x| x.2).min();
+            let least_early = ctl.h2_log.iter().map(|x| 100 - x.2).min();
+            s.push_str(&format!(
+                "  the catch window (ironspec 01:26 / 01:28 PT: late slack = the caught H2 sample minus Q-up, early slack = Q-up minus the previous sample): {} samples, the least late slack {} (bar >= 2: {}), the least early slack {} (bar >= 2: {})\n",
+                ctl.h2_log.len(),
+                least_catch.map_or("-".to_string(), |m| format!("{m} gt")),
+                match least_catch {
+                    None => "NOT JUDGED (0 samples): FAIL",
+                    Some(m) if m >= 2 => "PASS",
+                    Some(_) => "FAIL",
+                },
+                least_early.map_or("-".to_string(), |m| format!("{m} gt")),
+                match least_early {
+                    None => "NOT JUDGED (0 samples): FAIL",
+                    Some(m) if m >= 2 => "PASS",
+                    Some(_) => "FAIL",
+                }
+            ));
         }
         s.push_str(&format!(
             "  the nappers' stamp at their queue arrival: {}; the picker: {} picks gated (HELD, away), {} turned away by DAY at the row; the queue's releases at t {}\n",
