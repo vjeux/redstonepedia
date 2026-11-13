@@ -22,22 +22,26 @@ use redsim::entity::mob::farm::FarmSpec;
 
 /// The L1 edge bar (farmopt 2026-11-12 02:39, ironspec): every cart landed at least this long before
 /// its pocket's re-brake, so the pocket's rail is unpowered before the arriving cart lands. Inherited
-/// (ironspec's bar audit 19:07 section 2, 19:24): its basis is day-1's driver latency on the pocket's
-/// power-off path plus scheduled-tick order, about 3 gt, to be re-derived from tick-exact's junction
-/// boundary row; the rail re-shapes in the same tick as its driver's change (inside neighborChanged, no
-/// scheduled tick: G1, day-1's ctl-junction-bench), so the "+ 1 for the re-shape" in the 4 is not a real
-/// delay. It binds nothing today (landing >= 31 gt after the re-brake); printed "inherited".
+/// (ironspec's bar audit 19:07 section 2, 19:24, 19:51): the pocket rail is a powered rail whose power
+/// follows its driver in the same tick (PoweredRailBlock.updateState inside neighborChanged; redsim's
+/// `redstone::blocks::rail::update_state`: G1), so the power-off latency is the M16bw repeater's scheduled
+/// delay plus phase order, to be re-derived from day-1's ctl-pocket-bench (P's fall after the switch's
+/// removal on the built (b) layout); the 4's "+ 1 for the re-shape" is not a real delay. It binds nothing
+/// today (landing >= 31 gt after the re-brake); printed "inherited".
 pub const EDGE_BAR: i64 = 4;
 
 /// The rest margin's bar before the next summon (ironspec 2026-11-12 05:26: the stand's summon bar is
 /// the game's rule, >= 1 caller at every T over all 400 sensor-phase pairs; the 20-gt rest bar and the
 /// all-three rule are retired). Inherited (the bar audit section 2, 19:24): the arriving rider seated in
-/// its designed cell before S, so it can be the panicking caller with 3 willing at S (dfb89499 19:13); its
-/// 4 is the edge bar's number, not a measured boundary; it binds nothing today (at rest >= 23 gt before S).
-/// It retires when the direct check prints (ironspec 19:24: at each S every pocket's rider seated, in
-/// PANIC, with >= 3 villagers wanting a golem in its 10-box; control: a removed rider shows the miss;
-/// built by dfb89499 in its module bench, printed by onechunk's f1q2-run), on which the judge then gates.
-/// Printed "inherited".
+/// its designed cell before S, so it can call at S (dfb89499 19:13); its 4 is the edge bar's number, not a
+/// measured boundary; it binds nothing today (at rest >= 23 gt before S). It retires onto the direct
+/// summon check, which counts the call itself (ironspec 19:51, not "in PANIC": a VillagerPanicTrigger stops
+/// un-ticked at start + 61 and restarts at + 62, so a panicking rider can make no call at S): each GolemTry
+/// (threshold 3) at each due S per stand, its caller, willing count and outcome (born / spot miss), and
+/// callers-per-S 3 / 2 / 1 / 0; the bars: >= 1 call with >= 3 willing from each stand at every due S, the
+/// removed-rider control showing the miss, the measured golem rate matching the callers-per-S
+/// expectation. The judge gates on it once the station bench prints it (dfb89499's module bench, onechunk's
+/// f1q2-run). Printed "inherited".
 pub const REST_BAR: i64 = EDGE_BAR;
 
 /// A run's failures (empty: it passes): the bars, with the landing lead held to `edge` gt (the L1
@@ -244,7 +248,7 @@ pub fn judge(spec: &FarmSpec, cold_spec: &FarmSpec, base: &DropOpts, o: &Station
         let shut = logins.iter().filter(|(_, s)| s.shut_onto > 0).count();
         let n_restarts = lead.iter().filter(|((_, _, row), _)| matches!(row, Row::Restart(..))).count();
         out.push(format!(
-            "REL T+{r} ({} seed(s)): the lead's rows (the control, the cold start, {n_restarts} restarts): failing {}; the control {}; the cold start {}; the least rest margin {} (unfrozen {}; the bar {} gt, inherited (ironspec 19:24): until the direct check prints); the least landing lead {} (the bar {} gt, inherited (ironspec 19:24): its basis day-1's driver latency + tick order, about 3 gt); the least launch spacing {} (unfrozen {}; reported, the bar {}) | the pearl alternative's logins ({} runs; reported, out of the lead's scope): failing {login_failing}; the least rest margin {}, landing lead {}, launch spacing {}; runs with a trapdoor shut onto its cart {shut}; runs with the R line switching while the entities were frozen {r_frozen}",
+            "REL T+{r} ({} seed(s)): the lead's rows (the control, the cold start, {n_restarts} restarts): failing {}; the control {}; the cold start {}; the least rest margin {} (unfrozen {}; the bar {} gt, inherited (ironspec 19:24/19:51): retires onto the direct summon check (each call at each due S) once the station bench prints it); the least landing lead {} (the bar {} gt, inherited (ironspec 19:24/19:51): its basis the M16bw repeater's delay + phase order, to be re-derived from day-1's ctl-pocket-bench); the least launch spacing {} (unfrozen {}; reported, the bar {}) | the pearl alternative's logins ({} runs; reported, out of the lead's scope): failing {login_failing}; the least rest margin {}, landing lead {}, launch spacing {}; runs with a trapdoor shut onto its cart {shut}; runs with the R line switching while the entities were frozen {r_frozen}",
             o.seeds.len(),
             failing.len() + control_fails,
             if control.is_empty() { "clean".to_string() } else { format!("FAILS ({})", control.join(", ")) },
