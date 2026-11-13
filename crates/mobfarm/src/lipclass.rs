@@ -3,10 +3,12 @@
 //!
 //! A LIP ARRIVAL is the first tick a lane cart's centre is in the drop cell (x, m, mz - 1) at the lip's
 //! height (y >= m - 0.05), entering from C (north) or from the napper's straight (east, under
-//! `--sbend-straight`). At that tick every OTHER lane cart's box and its rider's box is tested against
+//! `--sbend-straight`). At that tick every OTHER lane cart whose centre is in the lane's band (x - 0.6
+//! .. x + 1.6) has its box and its rider's box tested against
 //! the LIP VOLUME (tick-exact's lane-3 swept volume, x 1.345..4.182, y 24.0..24.7, z 5.940..8.157,
 //! taken relative to the lane: x - 1.655 .. x + 1.182, y m .. m + 0.7, z mz - 1.060 .. mz + 1.157;
-//! its y re-derived end-of-tick, unchanged on C's top), and the arrival takes the FIRST class that
+//! its y re-derived end-of-tick, unchanged on C's top; the band keeps a napper resting on R, whose box
+//! the volume's x range reaches, out of the occupants), and the arrival takes the FIRST class that
 //! holds:
 //! - `NinthCart`: 8 other carts in the lane's slots (x .. x + 1, y 15.5 .. m - 1, z 0 .. mz - 0.5): the
 //!   count sub-bar (1);
@@ -133,9 +135,17 @@ impl LipLane {
     }
 
     /// One tick's observations of the lane's carts (every cart that can reach this lip); returns the
-    /// lip arrivals of this tick, classified.
+    /// lip arrivals of this tick, classified. An OCCUPANT is a cart whose centre is in the lane's band
+    /// (x - 0.6 .. x + 1.6: the drop column and the cells either side of it) and whose box, or its
+    /// rider's, meets the lip volume: the volume's x range reaches over R's column (x - 2 .. x - 1),
+    /// where a napper resting on R is no V occupant.
     pub fn tick(&mut self, t: i64, carts: &[CartObs]) -> Vec<LipArrival> {
-        let occ: Vec<u32> = carts.iter().filter(|c| self.meets(&c.cart_box) || c.rider_box.as_ref().is_some_and(|r| self.meets(r))).map(|c| c.id).collect();
+        let occ: Vec<u32> = carts
+            .iter()
+            .filter(|c| c.pos.0 >= self.x - 0.6 && c.pos.0 < self.x + 1.6)
+            .filter(|c| self.meets(&c.cart_box) || c.rider_box.as_ref().is_some_and(|r| self.meets(r)))
+            .map(|c| c.id)
+            .collect();
         let mut out = Vec::new();
         for c in carts {
             let p = c.pos;
@@ -247,6 +257,12 @@ mod tests {
         let mut l = LipLane::new(3, 24, 7, None);
         let a = arrive(&mut l, 200, 6, &[obs(7, 3.5, 22.5725, 6.51, 0.0, true)], 0.30);
         assert_eq!(a.class, LipClass::Unclassified);
+        // (a napper resting on R (x 1.5, the lane's x - 1.5) has its box in the volume's x range, but it
+        // is outside the lane's band: no occupant, even after it rested in the slots before)
+        let mut l = LipLane::new(3, 24, 7, None);
+        let _ = l.tick(10, &[obs(8, 3.5, 20.8695, 4.807, 0.0, true)]);
+        let a = arrive(&mut l, 200, 6, &[obs(8, 1.5, 24.6, 7.6, 0.0, true)], 0.30);
+        assert_eq!((a.class, a.occupants.len()), (LipClass::Clear, 0), "{a:?}");
         // (a 9th cart: 8 others in the slots (slot 1 at z 0.49, slots 2..8 at z 1.28 + 0.79 k, the 8th
         // at V (22.083, 6.020) with its rider's head over the lip's floor, an occupant): the count comes
         // first)
