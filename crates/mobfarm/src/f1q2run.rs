@@ -3166,6 +3166,8 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     // judged set (tick, age); each rider's judged HOME-target sets
     let mut at_entry_before: Option<(i64, Option<i64>)> = None;
     let mut at_entry_next: Option<(i64, i64)> = None;
+    // (G1's P14) the at-entry control's rider's HOME release after its aging (tick, mechanism)
+    let mut at_entry_released: Option<(i64, String)> = None;
     let mut judged_sets: BTreeMap<u32, i64> = BTreeMap::new();
     // (ironspec D2) every napper's R: (id, tick)
     let mut at_r_log: Vec<(u32, i64)> = Vec::new();
@@ -3238,6 +3240,8 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     // (G1 11:19 F4 (c)) the K-misroute control's act (tick, cart, K(3)'s lever before) and the
     // westbound control's (tick, cart)
     let mut kmis: Option<(i64, u32, String)> = None;
+    // (G1's P5) whether the K-misroute control's lever write took
+    let mut kmis_ok = false;
     let mut westbound: Option<(i64, u32)> = None;
     // (G1's P1 controls) the V-holds control's cart and tick, whether the rest form is done, and lane
     // -1's judged passes when it began
@@ -3307,7 +3311,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     // (G1's P16) every napper's cart dropping into any lane (the misroute bar's denominator)
     let mut napper_drops = 0usize;
     // (day-1 11:36) every cart's entry into a split junction's cell: (tick, x, class, napper's lane)
-    let mut junction_passes: Vec<(i64, i32, &'static str, Option<usize>)> = Vec::new();
+    let mut junction_passes: Vec<(i64, [i32; 3], &'static str, Option<usize>, f64)> = Vec::new();
     // (ironspec 11:48 / 11:50) per lane each returning napper's stored speed entering its own K (speed,
     // tick, cart), and each napper cart's first rest on its siding's R (z in the design frame, tick,
     // cart); the open R visits (cart -> resting already recorded)
@@ -3629,9 +3633,12 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             let hit = w.entities.list.iter().find(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && cell(e.pos) == [0, 25, 9] && e.delta_movement.x > 0.0 && e.passengers.first().is_some_and(|r| nappers.iter().any(|(v, nk, _)| v == r && *nk == 2))).map(|e| e.id);
             if let Some(id) = hit {
                 let s0 = w.get(redsim::pos::BlockPos::new(1, 26, 9)).to_string();
-                if s0.contains("lever") {
+                // (G1's P5) act only on K(3)'s lever OFF (never a silent no-op), read the write back
+                if s0.contains("lever") && s0.contains("powered=false") {
                     set(w, [1, 26, 9], &s0.replace("powered=false", "powered=true"), redsim::world::flags::ALL)?;
-                    controls_done.push(format!("the K-misroute control at t {rel}: lane 7's napper cart #{id} at (0,25,9) eastbound; K(3)'s lever (1,26,9) switched on for 20 gt (was {s0})"));
+                    let s1 = w.get(redsim::pos::BlockPos::new(1, 26, 9)).to_string();
+                    controls_done.push(format!("the K-misroute control at t {rel}: lane 7's napper cart #{id} at (0,25,9) eastbound; K(3)'s lever (1,26,9) {s0} -> {s1}{}", if s1.contains("powered=true") { "" } else { " (the write did nothing: FAIL)" }));
+                    kmis_ok = s1.contains("powered=true");
                     kmis = Some((rel, id, s0));
                 }
             }
@@ -3639,7 +3646,15 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         if let Some((t, _, s0)) = kmis.as_ref()
             && rel == t + 20
         {
-            set(&mut run.world, [1, 26, 9], s0, redsim::world::flags::ALL)?;
+            // (G1's P5) restored only if K(3)'s lever still holds the control's write: a controller
+            // write since is kept
+            let now_s = run.world.get(redsim::pos::BlockPos::new(1, 26, 9)).to_string();
+            if now_s == s0.replace("powered=false", "powered=true") {
+                set(&mut run.world, [1, 26, 9], s0, redsim::world::flags::ALL)?;
+                controls_done.push(format!("the K-misroute control at t {rel}: K(3)'s lever restored to {s0}"));
+            } else {
+                controls_done.push(format!("the K-misroute control at t {rel}: K(3)'s lever now {now_s} (the controller wrote it): not restored"));
+            }
         }
         if o.westbound_control && westbound.is_none() && rel >= 1_000 {
             let w = &mut run.world;
@@ -5985,16 +6000,29 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 // (ironspec 08:23 platform (2), G1 08:22 PT) each HOME loss's mechanism: the
                 // release branch (SetWalkTargetFromBlockMemory with the pre-tick stamp over 1,200)
                 // or ValidateNearbyPoi (the bed OCCUPIED, the feet within 16 of its head)
-                let mech = if r.prev_stamp.is_some_and(|s| now - s > 1200) {
-                    release_branches += 1;
+                let release = r.prev_stamp.is_some_and(|s| now - s > 1200);
+                // (G1 10:47 O6) the farm-stop control's planted erasure is its own sample: neither a
+                // release-branch loss nor a HOME loss of the run
+                let planted = home_erased_id == Some(id) && home_erased;
+                let mech = if release {
+                    if !planted {
+                        release_branches += 1;
+                    }
                     format!("the release branch (pre-tick stamp {} gt > 1,200)", r.prev_stamp.map_or(0, |s| now - s))
                 } else if bed_occupied && poi_near([o.bed[0], o.bed[1], o.bed[2]], pos) {
                     "ValidateNearbyPoi (the bed occupied, the feet within 16 of its head)".to_string()
                 } else {
                     format!("unclassified (pre-tick stamp {}, the bed {})", r.prev_stamp.map_or("unarmed".to_string(), |s| format!("{} gt", now - s)), if bed_occupied { "occupied" } else { "free" })
                 };
-                r.home_lost.push(format!("t {} at {:?} (day time {day}): {mech}", now - t0, c));
-                home_lost_total += 1;
+                // (G1's P14) the at-entry control's rider: a release after its aging is recorded (the
+                // control claims none)
+                if at_entry_rider == Some(id) && at_entry_released.is_none() {
+                    at_entry_released = Some((now - t0, mech.clone()));
+                }
+                r.home_lost.push(format!("t {} at {:?} (day time {day}): {mech}{}", now - t0, c, if planted { " (the farm-stop control's planted erasure: its own sample)" } else { "" }));
+                if !planted {
+                    home_lost_total += 1;
+                }
             }
             if dawn {
                 r.home_at_dawn = Some(home);
@@ -6427,9 +6455,11 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             // (x,23,6); a C deflection: C (x,24,7) west into c3 (x-1,24,7) by any cart but a napper's
             if let Some(p) = c_prev_cell.get(&e.id).copied() {
                 // (day-1 11:36 / ironspec 11:40 (3)) every cart's entry into a split junction's cell
-                // (J (x,25,9) or K (x-2,25,9)): its tick and class (a batch cart, the outbound napper
-                // (the picker's diverted cart), a returning napper)
-                if c[1] == 25 && c[2] == 9 && [-3, -1, 1, 3, 5, 7].contains(&c[0]) && p != c {
+                // (J (x,25,9) or K (x-2,25,9)), a lane's D (x,24,8) or the row's end (8,25,9): its tick,
+                // class (a batch cart, the outbound napper (the picker's diverted cart), a returning
+                // napper) and (ironspec 11:55 (2), checklist 1c) its STORED speed (deltaMovement)
+                let tracked = (c[1] == 25 && c[2] == 9 && [-3, -1, 1, 3, 5, 7, 8].contains(&c[0])) || (c[1] == 24 && c[2] == 8 && LANES.contains(&c[0]));
+                if tracked && p != c {
                     let class = match e.passengers.first() {
                         Some(r) if nappers.iter().any(|(v, _, _)| v == r) => {
                             if ctl.divert.is_some_and(|(dc, _)| dc == e.id) { "outbound napper" } else { "returning napper" }
@@ -6438,7 +6468,9 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                         None => "empty",
                     };
                     let lane = e.passengers.first().and_then(|r| nappers.iter().find(|(v, _, _)| v == r).map(|(_, k, _)| *k));
-                    junction_passes.push((rel, c[0], class, lane));
+                    let d = e.delta_movement;
+                    let stored = (d.x * d.x + d.z * d.z).sqrt();
+                    junction_passes.push((rel, c, class, lane, stored));
                     // (ironspec 11:48 / 11:50, G1 11:50) a returning napper's STORED speed (its
                     // deltaMovement, which may exceed its per-tick move) entering its own K
                     if class == "returning napper"
@@ -6701,8 +6733,9 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 }
                 let on = redsim::rails::is_rail(&w.get(redsim::pos::BlockPos::new(c[0], c[1], c[2]))) || redsim::rails::is_rail(&w.get(redsim::pos::BlockPos::new(c[0], c[1] - 1, c[2])));
                 // (the station's holds H (x,16,0): a cart rests on the closed trapdoor there by design,
-                // off any rail; its rests are listed apart, not barred)
-                let held = matches!(w.get(redsim::pos::BlockPos::new(c[0], c[1], c[2])), redsim::block::Block::Trapdoor { .. });
+                // off any rail; its rests are listed apart and bounded; G1's P4: only the three hold
+                // cells, a trapdoor anywhere else is no hold)
+                let held = LANES.iter().any(|x| c == [*x, 16, 0]) && matches!(w.get(redsim::pos::BlockPos::new(c[0], c[1], c[2])), redsim::block::Block::Trapdoor { .. });
                 let v = e.delta_movement;
                 let resting = v.x * v.x + v.y * v.y + v.z * v.z < 0.003 * 0.003;
                 if on || held {
@@ -7892,9 +7925,10 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             // before and after the aging, and the next judged set's age
             let at_entry_control_note = match (o.at_entry_control, at_entry_rider, at_entry_before) {
                 (true, Some(v), Some((t, before))) => format!(
-                    "; the at-entry control: #{v}'s stamp aged at t {t} from {} to 1,100 gt (no release: under 1,200); its next judged HOME-target set {}",
+                    "; the at-entry control: #{v}'s stamp aged at t {t} from {} to 1,100 gt (under the release branch's 1,200); its next judged HOME-target set {}; its HOME release after the aging (G1's P14, a sample): {}",
                     before.map_or("unarmed".to_string(), |a| format!("{a} gt")),
-                    at_entry_next.map_or("never came: the control can't bite".to_string(), |(nt, a)| format!("at t {nt}, age {a} gt"))
+                    at_entry_next.map_or("never came: the control can't bite".to_string(), |(nt, a)| format!("at t {nt}, age {a} gt")),
+                    at_entry_released.as_ref().map_or("none".to_string(), |(rt, m)| format!("at t {rt} by {m} (FAIL: the control claimed none)"))
                 ),
                 (true, _, _) => "; the at-entry control: no rider with a judged HOME-target set in REST after t 1,000 to age".to_string(),
                 _ => String::new(),
@@ -8874,7 +8908,10 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     // (G1 10:24 (c)) the misroute control: two extra arrivals sent into lane -1 must take it to a
     // 9th cart (the count bar failing on lane -1 alone)
     if o.misroute_control {
-        let own = lane_count_nine[0].is_some() && lane_count_nine[1].is_none() && lane_count_nine[2].is_none();
+        // (G1's P13) its own sample: lane -1's first 9th comes at or after the control's first act, and
+        // no lane reaches a 9th otherwise
+        let act = ctl.misroute_at.first().copied();
+        let own = act.is_some_and(|a| lane_count_nine[0].is_some_and(|t| t >= a)) && lane_count_nine[1].is_none() && lane_count_nine[2].is_none();
         late_controls.push(("--misroute-control".to_string(), "the per-lane cart count", true, ctl.misroute_at.len() == 2, own));
     }
     // (G1 10:47 blocking 4's control) the eject on R: PRESENT_l must stay set (a held control on its
@@ -8895,12 +8932,22 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         late_controls.push((format!("--vholds-control {mode}"), "the lip passes clipped or pushed", true, vhold.is_some(), own));
     }
     if o.k_misroute_control {
-        late_controls.push(("--k-misroute-control".to_string(), "the nappers' carts dropping into a lane not their own", false, kmis.is_some(), true));
-        late_controls.push(("--k-misroute-control (the count)".to_string(), "the per-lane cart count", false, kmis.is_some(), true));
+        // (G1's P6) exercised only if the napper cart really took K(3)'s branch (1,25,9) -> (1,25,8)
+        // after the act and the lever write took; HELD only with all three count bars unchanged
+        let took = kmis.as_ref().is_some_and(|(t, c, _)| cart_entries.get(c).is_some_and(|v| v.windows(2).any(|p| p[0].1 == [1, 25, 9] && p[1].1 == [1, 25, 8] && p[1].0 >= *t)));
+        let ex = kmis.is_some() && kmis_ok && took;
+        late_controls.push(("--k-misroute-control".to_string(), "the nappers' carts dropping into a lane not their own", false, ex, true));
+        late_controls.push(("--k-misroute-control (the count)".to_string(), "the per-lane cart count", false, ex, true));
+        late_controls.push(("--k-misroute-control (the ledger)".to_string(), "the conservation ledger", false, ex, true));
     }
     if o.westbound_control {
-        late_controls.push(("--westbound-control".to_string(), "the per-lane cart count", false, westbound.is_some(), true));
-        late_controls.push(("--westbound-control (the ledger)".to_string(), "the conservation ledger", false, westbound.is_some(), true));
+        // (G1's P6) exercised only if the reversed cart really ran west on the row (a westbound row
+        // names it); HELD only with all three count bars unchanged
+        let ran = westbound.is_some_and(|(_, c)| westbound_rows.iter().any(|r| r.contains(&format!("cart #{c} "))));
+        let ex = westbound.is_some() && ran;
+        late_controls.push(("--westbound-control".to_string(), "the per-lane cart count", false, ex, true));
+        late_controls.push(("--westbound-control (the ledger)".to_string(), "the conservation ledger", false, ex, true));
+        late_controls.push(("--westbound-control (the misroutes)".to_string(), "the nappers' carts dropping into a lane not their own", false, ex, true));
     }
     if o.eject_control {
         let line = format!(
@@ -9183,21 +9230,34 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 let widest = ph.windows(2).map(|p| p[1] - p[0]).chain(std::iter::once(ph[0] + 100 - ph[ph.len() - 1])).max().unwrap_or(100);
                 format!("n {}, phases min {} / median {} / max {}, the circular spread {}", ph.len(), ph[0], ph[ph.len() / 2], ph[ph.len() - 1], if ph.len() < 2 { 0 } else { 100 - widest })
             };
+            let speed_txt = |v: Vec<f64>| -> String {
+                if v.is_empty() {
+                    return String::new();
+                }
+                let mut v = v;
+                v.sort_by(|a, b| a.total_cmp(b));
+                format!("; stored speed min {:.3} / median {:.3} / max {:.3} b/t", v[0], v[v.len() / 2], v[v.len() - 1])
+            };
             let mut rows: Vec<String> = Vec::new();
-            for (name, x) in [("J(-1)", -1), ("J(3)", 3), ("J(7)", 7), ("K(-1)", -3), ("K(3)", 1), ("K(7)", 5)] {
+            let cells: Vec<(String, [i32; 3])> = [("J(-1)", [-1, 25, 9]), ("J(3)", [3, 25, 9]), ("J(7)", [7, 25, 9]), ("K(-1)", [-3, 25, 9]), ("K(3)", [1, 25, 9]), ("K(7)", [5, 25, 9]), ("the row's end", [8, 25, 9]), ("D(-1)", [-1, 24, 8]), ("D(3)", [3, 24, 8]), ("D(7)", [7, 24, 8])].into_iter().map(|(n, c)| (n.to_string(), c)).collect();
+            for (name, x) in cells.iter() {
                 for class in ["batch", "outbound napper", "returning napper"] {
-                    let ts: Vec<i64> = junction_passes.iter().filter(|p| p.1 == x && p.2 == class).map(|p| p.0).collect();
-                    if !ts.is_empty() {
-                        rows.push(format!("{name} {class}: {}", phase_txt(ts)));
+                    let sel: Vec<&(i64, [i32; 3], &'static str, Option<usize>, f64)> = junction_passes.iter().filter(|p| p.1 == *x && p.2 == class).collect();
+                    if !sel.is_empty() {
+                        rows.push(format!("{name} {class}: {}{}", phase_txt(sel.iter().map(|p| p.0).collect()), speed_txt(sel.iter().map(|p| p.4).collect())));
                     }
                 }
                 // a K's own returning nappers (its lane's)
-                if let Some(k) = LANES.iter().position(|l| l - 2 == x) {
-                    let ts: Vec<i64> = junction_passes.iter().filter(|p| p.1 == x && p.2 == "returning napper" && p.3 == Some(k)).map(|p| p.0).collect();
-                    rows.push(format!("{name} its own lane's returning nappers: {}", phase_txt(ts)));
+                if let Some(k) = LANES.iter().position(|l| x[1] == 25 && x[2] == 9 && l - 2 == x[0]) {
+                    let sel: Vec<&(i64, [i32; 3], &'static str, Option<usize>, f64)> = junction_passes.iter().filter(|p| p.1 == *x && p.2 == "returning napper" && p.3 == Some(k)).collect();
+                    rows.push(format!("{name} its own lane's returning nappers: {}{}", phase_txt(sel.iter().map(|p| p.0).collect()), speed_txt(sel.iter().map(|p| p.4).collect())));
                 }
             }
-            format!("{s}the split junctions' passage ticks (day-1 11:36 / ironspec 11:40 (3): each cart's entry into J (x,25,9) / K (x-2,25,9) by class, t mod 100 on the station's clock, REL at 5; information): {}\n", rows.join("; "))
+            // (ironspec 11:55 (2)) the stored speed at each lane's C (the C arrivals' recorded speed)
+            for k in 0..3 {
+                rows.push(format!("C({}) every arrival: n {}{}", LANES[k], c_arrivals[k].len(), speed_txt(c_arrivals[k].iter().map(|a| a.1).collect())));
+            }
+            format!("{s}the split junctions' passage ticks and stored speeds (day-1 11:36 / ironspec 11:40 (3) / 11:55 (2), checklist 1c: each cart's entry into J (x,25,9) / K (x-2,25,9) / the row's end (8,25,9) / D (x,24,8) by class, t mod 100 on the station's clock, REL at 5, and its STORED speed (deltaMovement); each C arrival's stored speed; information): {}\n", rows.join("; "))
         };
         // (onechunk 11:16) the nappers' misroutes, bar 0
         let s = format!(
