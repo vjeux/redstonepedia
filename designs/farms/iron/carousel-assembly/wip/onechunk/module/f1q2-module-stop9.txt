@@ -2,34 +2,64 @@
 # + station: /tmp/onechunk/parts/f1q2-station-main.txt moved by 0,0,0 into the frame, then 0,0,0 into its tier
 # + lanes: /tmp/onechunk/parts/f1q2-lanes-sbend-71b7.txt moved by 0,0,0 into the frame, then 0,0,0 into its tier (its cells -6,-30,-6..9,40,7 kept)
 # + lanes-z8: /tmp/onechunk/parts/f1q2-lanes-sbend-71b7.txt moved by 0,0,0 into the frame, then 0,0,0 into its tier (its cells -6,-30,8..9,23,9 kept)
-# + liftsplit-w: /tmp/onechunk/parts/f1q2-lift-split-7b21.txt moved by 0,0,0 into the frame, then 0,0,0 into its tier (its cells -6,-20,3..3,27,9 kept)
-# + liftsplit-e: /tmp/onechunk/parts/f1q2-lift-split-7b21.txt moved by 0,0,0 into the frame, then 0,0,0 into its tier (its cells 9,-20,3..9,27,9 kept)
-# + liftsplit-up: /tmp/onechunk/parts/f1q2-lift-split-7b21.txt moved by 0,0,0 into the frame, then 0,0,0 into its tier (its cells 4,-10,3..8,27,9 kept)
-# + napper-lift-low: /tmp/onechunk/parts/f1q2-lift-split-7b21.txt moved by 0,-9,0 into the frame, then 0,0,0 into its tier (its cells 4,-20,3..8,-11,5 kept)
-# + napper-lift-ext1: /tmp/onechunk/parts/f1q2-lift-split-7b21.txt moved by 0,-1,0 into the frame, then 0,0,0 into its tier (its cells 4,-10,3..8,-10,5 kept)
-# + napper-lift-ext2: /tmp/onechunk/parts/f1q2-lift-split-7b21.txt moved by 0,-2,0 into the frame, then 0,0,0 into its tier (its cells 4,-10,3..8,-10,5 kept)
-# + napper-lift-ext3: /tmp/onechunk/parts/f1q2-lift-split-7b21.txt moved by 0,-3,0 into the frame, then 0,0,0 into its tier (its cells 4,-10,3..8,-10,5 kept)
-# + napper-lift-ext4: /tmp/onechunk/parts/f1q2-lift-split-7b21.txt moved by 0,-4,0 into the frame, then 0,0,0 into its tier (its cells 4,-10,3..8,-10,5 kept)
-# + napper-lift-ext5: /tmp/onechunk/parts/f1q2-lift-split-7b21.txt moved by 0,-5,0 into the frame, then 0,0,0 into its tier (its cells 4,-10,3..8,-10,5 kept)
-# + napper-lift-ext6: /tmp/onechunk/parts/f1q2-lift-split-7b21.txt moved by 0,-6,0 into the frame, then 0,0,0 into its tier (its cells 4,-10,3..8,-10,5 kept)
-# + napper-lift-ext7: /tmp/onechunk/parts/f1q2-lift-split-7b21.txt moved by 0,-7,0 into the frame, then 0,0,0 into its tier (its cells 4,-10,3..8,-10,5 kept)
-# + napper-lift-ext8: /tmp/onechunk/parts/f1q2-lift-split-7b21.txt moved by 0,-8,0 into the frame, then 0,0,0 into its tier (its cells 4,-10,3..8,-10,5 kept)
-# + napper-lift-ext9: /tmp/onechunk/parts/f1q2-lift-split-7b21.txt moved by 0,-9,0 into the frame, then 0,0,0 into its tier (its cells 4,-10,3..8,-10,5 kept)
+# + liftsplit-w: /tmp/onechunk/parts/f1q2-lift-split-main98.txt moved by 0,0,0 into the frame, then 0,0,0 into its tier (its cells -6,-20,3..3,27,9 kept)
+# + liftsplit-e: /tmp/onechunk/parts/f1q2-lift-split-main98.txt moved by 0,0,0 into the frame, then 0,0,0 into its tier (its cells 9,-20,3..9,27,9 kept)
+# + liftsplit-up: /tmp/onechunk/parts/f1q2-lift-split-main98.txt moved by 0,0,0 into the frame, then 0,0,0 into its tier (its cells 4,-10,3..8,27,9 kept)
+# + napper-lift-low: /tmp/onechunk/parts/f1q2-lift-split-main98.txt moved by 0,-9,0 into the frame, then 0,0,0 into its tier (its cells 4,-20,3..8,-11,5 kept)
+# + napper-lift-ext1: /tmp/onechunk/parts/f1q2-lift-split-main98.txt moved by 0,-1,0 into the frame, then 0,0,0 into its tier (its cells 4,-10,3..8,-10,5 kept)
+# + napper-lift-ext2: /tmp/onechunk/parts/f1q2-lift-split-main98.txt moved by 0,-2,0 into the frame, then 0,0,0 into its tier (its cells 4,-10,3..8,-10,5 kept)
+# + napper-lift-ext3: /tmp/onechunk/parts/f1q2-lift-split-main98.txt moved by 0,-3,0 into the frame, then 0,0,0 into its tier (its cells 4,-10,3..8,-10,5 kept)
+# + napper-lift-ext4: /tmp/onechunk/parts/f1q2-lift-split-main98.txt moved by 0,-4,0 into the frame, then 0,0,0 into its tier (its cells 4,-10,3..8,-10,5 kept)
+# + napper-lift-ext5: /tmp/onechunk/parts/f1q2-lift-split-main98.txt moved by 0,-5,0 into the frame, then 0,0,0 into its tier (its cells 4,-10,3..8,-10,5 kept)
+# + napper-lift-ext6: /tmp/onechunk/parts/f1q2-lift-split-main98.txt moved by 0,-6,0 into the frame, then 0,0,0 into its tier (its cells 4,-10,3..8,-10,5 kept)
+# + napper-lift-ext7: /tmp/onechunk/parts/f1q2-lift-split-main98.txt moved by 0,-7,0 into the frame, then 0,0,0 into its tier (its cells 4,-10,3..8,-10,5 kept)
+# + napper-lift-ext8: /tmp/onechunk/parts/f1q2-lift-split-main98.txt moved by 0,-8,0 into the frame, then 0,0,0 into its tier (its cells 4,-10,3..8,-10,5 kept)
+# + napper-lift-ext9: /tmp/onechunk/parts/f1q2-lift-split-main98.txt moved by 0,-9,0 into the frame, then 0,0,0 into its tier (its cells 4,-10,3..8,-10,5 kept)
 # + bedstop: /tmp/onechunk/parts/bed-tier-fold-a6.txt moved by 0,-27,-1 into the frame, then 0,0,0 into its tier
+# + wayin: /tmp/onechunk/parts/f1q2-module-wayin-e9f0.txt moved by 0,0,0 into the frame, then 0,0,0 into its tier
 # + sky: designs/farms/iron/carousel-assembly/wip/onechunk/module/f1q2-sky.txt moved by 0,0,0 into the frame, then 0,0,0 into its tier
 # + scarers: designs/farms/iron/carousel-assembly/wip/onechunk/module/f1q2-scarers-2post.txt moved by 0,0,0 into the frame, then 0,0,0 into its tier
 # + f3: /tmp/onechunk/parts/f1q2-scarer-f3-4d76.txt moved by 0,0,0 into the frame, then 0,0,0 into its tier
+# cleared first (committed cells a lane re-lays): x 9..9 y 25..25 z 9..9
+# cleared first (committed cells a lane re-lays): x 8..8 y -3..-3 z 5..5
+# cleared first (committed cells a lane re-lays): x 9..9 y -3..-3 z 5..5
+# cleared first (committed cells a lane re-lays): x 8..8 y -3..-3 z 7..7
+# cleared first (committed cells a lane re-lays): x 8..8 y -2..-2 z 5..5
+# cleared first (committed cells a lane re-lays): x 9..9 y -2..-2 z 6..6
+# cleared first (committed cells a lane re-lays): x 8..8 y -2..-2 z 7..7
+# cleared first (committed cells a lane re-lays): x -1..-1 y -1..-1 z 0..0
+# cleared first (committed cells a lane re-lays): x 3..3 y -1..-1 z 0..0
+# cleared first (committed cells a lane re-lays): x 7..7 y -1..-1 z 0..0
+# cleared first (committed cells a lane re-lays): x -1..-1 y -1..-1 z 4..4
+# cleared first (committed cells a lane re-lays): x 3..3 y -1..-1 z 4..4
+# cleared first (committed cells a lane re-lays): x 7..7 y -1..-1 z 4..4
+# cleared first (committed cells a lane re-lays): x -2..-2 y -1..-1 z 5..5
+# cleared first (committed cells a lane re-lays): x -1..-1 y -1..-1 z 5..5
+# cleared first (committed cells a lane re-lays): x 2..2 y -1..-1 z 5..5
+# cleared first (committed cells a lane re-lays): x 3..3 y -1..-1 z 5..5
+# cleared first (committed cells a lane re-lays): x 6..6 y -1..-1 z 5..5
+# cleared first (committed cells a lane re-lays): x 7..7 y -1..-1 z 5..5
+# cleared first (committed cells a lane re-lays): x -1..-1 y -1..-1 z 6..6
+# cleared first (committed cells a lane re-lays): x 3..3 y -1..-1 z 6..6
+# cleared first (committed cells a lane re-lays): x 7..7 y -1..-1 z 6..6
+# cleared first (committed cells a lane re-lays): x 8..8 y -1..-1 z 7..7
+# cleared first (committed cells a lane re-lays): x 9..9 y -1..-1 z 8..8
+# cleared first (committed cells a lane re-lays): x -2..-2 y 0..0 z 5..5
+# cleared first (committed cells a lane re-lays): x 2..2 y 0..0 z 5..5
+# cleared first (committed cells a lane re-lays): x 6..6 y 0..0 z 5..5
+# cleared first (committed cells a lane re-lays): x -6..-6 y 22..22 z 8..8
+# cleared first (committed cells a lane re-lays): x -6..-6 y 23..23 z 8..8
+# cleared first (committed cells a lane re-lays): x -1..-1 y 0..0 z -1..-1
+# cleared first (committed cells a lane re-lays): x 3..3 y 0..0 z -1..-1
+# cleared first (committed cells a lane re-lays): x 7..7 y 0..0 z -1..-1
+# cleared first (committed cells a lane re-lays): x -4..-4 y 13..13 z 7..7
 # reserved (no blocks): controller-above-s2 x -6..-4 y 6..14 z -6..5
 # reserved (no blocks): controller-beside-s2 x -6..-4 y 3..5 z -3..5
 # reserved (no blocks): sensing-column x -5..-5 y 16..27 z 3..3
-# reserved (no blocks): napper-leg-21 x 9..9 y 22..24 z -6..5
 # reserved (no blocks): napper-down-shaft x 9..9 y -12..21 z -5..-5
-# reserved (no blocks): napper-shaft-wall x 9..9 y 21..21 z -6..-6
-# reserved (no blocks): napper-queue x 9..9 y -15..-13 z -5..-3
 # reserved (no blocks): napper-fall-2 x 9..9 y -23..-16 z -1..-1
-# reserved (no blocks): napper-roll x 5..9 y -25..-24 z -5..-1
 # reserved (no blocks): stop-bed-column x -3..-3 y -26..-24 z 3..3
-# placement order (every rail placed last into the finished build: the ones whose designed shape, or a neighbouring rail's, vanilla placement changes; place them in an order or with a temporary helper): 15
+# placement order (every rail placed last into the finished build: the ones whose designed shape, or a neighbouring rail's, vanilla placement changes; place them in an order or with a temporary helper): 18
 # placement order: (-2,24,7) placed last: (-1,24,7) north_west -> east_west
 # placement order: (-1,0,7) placed last: (-1,0,7) north_west -> north_east
 # placement order: (-1,22,6) placed last: (-1,22,6) ascending_south -> north_south
@@ -45,9 +75,12 @@
 # placement order: (7,22,6) placed last: (7,22,6) ascending_south -> north_south
 # placement order: (7,24,7) placed last: (7,24,7) north_west -> south_west
 # placement order: (7,24,8) placed last: (7,24,7) north_west -> south_west
+# placement order: (9,-24,-2) placed last: (9,-24,-1) ascending_south -> north_south
+# placement order: (9,-24,-1) placed last: (9,-24,-1) ascending_south -> north_south
+# placement order: (9,-13,-5) placed last: (9,-13,-5) ascending_north -> north_south
 # rail Ts (every plain rail with 3 potential connections in the finished build; each a placement-order case or power-forced): 10
 # rail T: (-3,25,9) stored north_east, unpowered north_east, powered north_west, its signal now off; REACHED by the lever at (-3,26,9) (its update reaches this cell)
-# rail T: (-1,0,7) stored north_west, unpowered north_east, powered north_west, its signal now off; no source's update reaches it (the nearest changing source, the detector_rail at (-1,0,2), 5 away taxicab, updates its own neighbours and its support's; redstone blocks never change)
+# rail T: (-1,0,7) stored north_west, unpowered north_east, powered north_west, its signal now off; no source's update reaches it (the nearest changing source, the redstone_torch at (-2,0,5), 3 away taxicab, updates its own neighbours and its support's; redstone blocks never change)
 # rail T: (-1,25,9) stored north_east, unpowered north_east, powered north_west, its signal now off; REACHED by the detector_rail at (-1,24,8), the lever at (-1,26,9) (its update reaches this cell)
 # rail T: (1,25,9) stored north_east, unpowered north_east, powered north_west, its signal now off; REACHED by the lever at (1,26,9) (its update reaches this cell)
 # rail T: (3,0,7) stored north_west, unpowered north_east, powered north_west, its signal now off; no source's update reaches it (the nearest changing source, the detector_rail at (5,0,7), 2 away taxicab, updates its own neighbours and its support's; redstone blocks never change)
@@ -55,7 +88,7 @@
 # rail T: (5,25,9) stored north_east, unpowered north_east, powered north_west, its signal now off; REACHED by the lever at (5,26,9) (its update reaches this cell)
 # rail T: (7,0,7) stored north_west, unpowered north_east, powered north_west, its signal now off; no source's update reaches it (the nearest changing source, the detector_rail at (5,0,7), 2 away taxicab, updates its own neighbours and its support's; redstone blocks never change)
 # rail T: (7,25,9) stored north_west, unpowered north_east, powered north_west, its signal now on; REACHED by the detector_rail at (7,24,8), the lever at (7,26,9) (its update reaches this cell)
-# rail T: (9,0,7) stored south_west, unpowered south_west, powered north_west, its signal now off; no source's update reaches it (the nearest changing source, the repeater at (8,-1,8), 3 away taxicab, updates its own neighbours and its support's; redstone blocks never change)
+# rail T: (9,0,7) stored south_west, unpowered south_west, powered north_west, its signal now off; no source's update reaches it (the nearest changing source, the redstone_torch at (8,-2,7), 3 away taxicab, updates its own neighbours and its support's; redstone blocks never change)
 name: f1q2-module-stop9
 circuit: mob-farm iron_ingot
 placement-order-ts: -1,0,7=the merge T at lane -1 (never switched: no signal source and no detector reaches it; placed north_west after (-1,0,6) and (-2,0,7); pending the reach scan with the controller wired and the official module-check of the build order); 3,0,7=the merge T at lane 3 (never switched; placed north_west after (3,0,6) and (2,0,7); pending the same); 7,0,7=lane 7's merge curve, a T with the napper hold's line at (8,0,7) (never switched; placed north_west after (7,0,6) and (6,0,7); pending the same)
@@ -63,8 +96,14 @@ waker-places: -3,-27,3=asleep in the bed, woken by F (2.04); -2,-27,3=standing u
 keep-clear: -3,-26,3 -3,-25,3 -3,-24,3 (58f770cc's A6 header, + (0,-27,-1): the bed's column, holding no block)
 keep-block: -5,-24,3=oak_leaves[distance=7,persistent=true] (58f770cc 13:59: the zombie's cover, A6's local (-5,3,4))
 riderless: 1,-26,-5+0,-27,-5+-1,-27,-5+-2,-27,-5+-2,-27,-4+-2,-27,-3+-2,-27,-2+-2,-27,-1+-2,-27,0+-2,-27,1+-2,-27,2=the stop's empty cart from its park to the pickup cell (A6: the napper leaves the cart at the activator (2,-25,-5) and is seated again at the pickup (-2,-27,3))
+unreachable: -4,-26,4=A6's top-hatch lever cell (58f770cc 14:22, ironspec 14:23: the bed top's diagonal into it blocked on both sides by the hatch's trapdoor (-4,-26,3) and the glass (-3,-26,4); flee-check from 42 places draws nothing there; no visit stood or waited there in 100,000)
+# always-on: -2,0,5=torch on glass (V15, 9fc3155f 15:01); 2,0,5=torch on glass (V15); 6,0,5=torch on glass (V15); 8,-2,7=torch on glass, the merge booster fed through the slime (8,-1,7) (V15); 8,-2,5=torch on glass (V15); -6,23,8=torch on glass, the lift exit (V15)
+# the module of record (ironspec 16:03), onechunk's composition (bench, tool unreviewed). The parts' sources (the /tmp paths below are copies of these):
+#   station = main 98fd1743c wip/station/f1q2-station.txt (dfb89499's b4549f35a); lanes = ironfarm's 71b76c221 wip/lanes/f1q2-lanes-sbend.txt (R on slime); lift-split = main 98fd1743c wip/lift/f1q2-lift-split.txt (7b90c3f1's K re-lay: the slime stop (9,0,9), the lift-exit cap (-6,24,8)), its lower 10 levels moved down 9 and 9 levels inserted (napper A's lift for the stop 9 down);
+#   bedstop = 58f770cc's explore/bedtier-stop b36302af8 designs/farms/iron/parts/bed-tier-min/bed-tier-fold.txt at loop + (0,-27,-1); wayin = b8949c96's explore/farmopt-waycell3 e9f0f4cbf wip/b8949c96/f1q2-module-wayin.txt over onechunk's f52f712d7 module (%BASE: only its cells), its curve (9,25,9) an override; sky, scarers = this directory; f3 = 9fc3155f's 4d76acbfb wip/c3/f1q2-scarer-f3.txt (the z 9 floors);
+#   overrides: V15's 31 cells (9fc3155f 15:01) but the pocket backs (x,0,-1) slime (ironspec 15:08); the braked slope's sign (-4,13,7) on glass (-4,13,6) (ironspec 15:08); lane -1's feed slime (-3,22,9) and the 8 hiding glass (ironspec 16:03)
 positions: -1,0,0 -1,16,0 3,0,0 3,16,0 7,0,0 7,16,0
-run-cells: P0 -1,0,0; D0 -1,0,2; H0 -1,16,0; P1 3,0,0; D1 3,0,2; H1 3,16,0; P2 7,0,0; D2 7,0,2; H2 7,16,0; PAD0 -3,-6,-6; PAD1 8,-6,-1
+run-cells: P0 -1,0,0; D0 -1,0,2; H0 -1,16,0; P1 3,0,0; D1 3,0,2; H1 3,16,0; P2 7,0,0; D2 7,0,2; H2 7,16,0; PAD0 -3,-6,-6; PAD1 8,-6,-1; wayin.P0 -1,0,0; wayin.D0 -1,0,2; wayin.H0 -1,16,0; wayin.P1 3,0,0; wayin.D1 3,0,2; wayin.H1 3,16,0; wayin.P2 7,0,0; wayin.D2 7,0,2; wayin.H2 7,16,0; wayin.PAD0 -3,-6,-6; wayin.PAD1 8,-6,-1
 port home: -3 -27 3
 port nether-anchor: -6 0 -6
 port nether-axis: -5 0 -6
@@ -76,66 +115,70 @@ entity: minecraft:minecart -0.5 16.1875 0.4900000000000002 {Rotation:[0f,0f],Pas
 entity: minecraft:minecart 3.5 16.1875 0.4900000000000002 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
 entity: minecraft:minecart 7.5 16.1875 0.4900000000000002 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
 entity: minecraft:oak_boat -4.5 -27 3.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
+entity: minecraft:minecart 9.5 -13.4375 -3.5 {Passengers:[{id:"minecraft:villager",PersistenceRequired:1b}]}
+entity: minecraft:oak_boat 2.5 -12 -5.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
 entity: minecraft:oak_boat -4.5 -1 -4.5 {Passengers:[{id:"minecraft:pillager",PersistenceRequired:1b}]}
 entity: minecraft:oak_boat -4.5 2 -4.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
 entity: minecraft:oak_boat 1.5 25 -4.5 {Passengers:[{id:"minecraft:pillager",PersistenceRequired:1b}]}
 origin: -6 0 -6
 palette:
-  0 minecraft:tripwire_hook[attached=true,facing=east,powered=false]
-  1 minecraft:tripwire_hook[attached=true,facing=west,powered=false]
-  2 minecraft:water[level=0]
+  0 minecraft:tripwire[attached=false,disarmed=false,east=false,north=false,powered=false,south=false,west=false]
+  1 minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]
+  2 minecraft:tripwire_hook[attached=true,facing=east,powered=false]
+  3 minecraft:tripwire_hook[attached=true,facing=west,powered=false]
+  4 minecraft:water[level=0]
   A minecraft:activator_rail[powered=true,shape=east_west,waterlogged=false]
   B minecraft:bubble_column[drag=false]
   C minecraft:chest[facing=south,type=single,waterlogged=false]
   D minecraft:daylight_detector[inverted=false,power=0]
-  E minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]
-  F minecraft:detector_rail[powered=false,shape=north_south,waterlogged=false]
-  G minecraft:glass
-  H minecraft:iron_trapdoor[facing=west,half=top,open=true,powered=true,waterlogged=false]
+  E minecraft:detector_rail[powered=false,shape=ascending_south,waterlogged=false]
+  F minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]
+  G minecraft:detector_rail[powered=false,shape=north_south,waterlogged=false]
+  H minecraft:glowstone
   I minecraft:iron_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]
-  J minecraft:lever[face=floor,facing=north,powered=false]
-  K minecraft:lever[face=floor,facing=north,powered=true]
+  J minecraft:iron_trapdoor[facing=west,half=top,open=true,powered=true,waterlogged=false]
+  K minecraft:lever[face=floor,facing=north,powered=false]
   L minecraft:lever[face=ceiling,facing=north,powered=false]
-  M minecraft:lightning_rod[facing=up,powered=false,waterlogged=false]
-  N minecraft:nether_portal[axis=x]
+  M minecraft:lever[face=floor,facing=north,powered=true]
+  N minecraft:lightning_rod[facing=up,powered=false,waterlogged=false]
   O minecraft:oak_leaves[distance=7,persistent=true,waterlogged=false]
-  P minecraft:obsidian
-  Q minecraft:powered_rail[powered=false,shape=ascending_south,waterlogged=false]
-  R minecraft:powered_rail[powered=false,shape=north_south,waterlogged=false]
-  S minecraft:powered_rail[powered=true,shape=ascending_east,waterlogged=false]
-  T minecraft:powered_rail[powered=true,shape=ascending_south,waterlogged=false]
-  U minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]
-  V minecraft:powered_rail[powered=true,shape=north_south,waterlogged=false]
-  W minecraft:rail[shape=ascending_south,waterlogged=false]
-  X minecraft:rail[shape=ascending_west,waterlogged=false]
-  Y minecraft:rail[shape=east_west,waterlogged=false]
-  Z minecraft:rail[shape=north_east,waterlogged=false]
-  a minecraft:rail[shape=north_south,waterlogged=false]
-  b minecraft:rail[shape=north_west,waterlogged=false]
+  P minecraft:oak_wall_sign[facing=south,waterlogged=false]
+  Q minecraft:obsidian
+  R minecraft:powered_rail[powered=false,shape=ascending_north,waterlogged=false]
+  S minecraft:powered_rail[powered=false,shape=ascending_south,waterlogged=false]
+  T minecraft:powered_rail[powered=false,shape=north_south,waterlogged=false]
+  U minecraft:powered_rail[powered=true,shape=ascending_east,waterlogged=false]
+  V minecraft:powered_rail[powered=true,shape=ascending_south,waterlogged=false]
+  W minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]
+  X minecraft:powered_rail[powered=true,shape=north_south,waterlogged=false]
+  Y minecraft:rail[shape=ascending_south,waterlogged=false]
+  Z minecraft:rail[shape=ascending_west,waterlogged=false]
+  a minecraft:rail[shape=east_west,waterlogged=false]
+  b minecraft:rail[shape=north_east,waterlogged=false]
   c minecraft:cobblestone
-  d minecraft:detector_rail[powered=false,shape=ascending_south,waterlogged=false]
-  e minecraft:rail[shape=south_east,waterlogged=false]
-  f minecraft:rail[shape=south_west,waterlogged=false]
-  g minecraft:glowstone
-  h minecraft:red_bed[facing=south,occupied=false,part=foot]
+  d minecraft:detector_rail[powered=false,shape=ascending_north,waterlogged=false]
+  e minecraft:rail[shape=north_south,waterlogged=false]
+  f minecraft:rail[shape=north_west,waterlogged=false]
+  g minecraft:glass
+  h minecraft:rail[shape=south_east,waterlogged=false]
   i minecraft:iron_trapdoor[facing=west,half=bottom,open=true,powered=true,waterlogged=false]
-  j minecraft:red_bed[facing=south,occupied=false,part=head]
-  k minecraft:redstone_block
+  j minecraft:rail[shape=south_west,waterlogged=false]
+  k minecraft:red_bed[facing=south,occupied=false,part=foot]
   l minecraft:lever[face=ceiling,facing=north,powered=true]
-  m minecraft:redstone_torch[lit=true]
-  n minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+  m minecraft:red_bed[facing=south,occupied=false,part=head]
+  n minecraft:nether_portal[axis=x]
   o minecraft:oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]
   p minecraft:powered_rail[powered=false,shape=ascending_east,waterlogged=false]
-  q minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  q minecraft:redstone_block
   r minecraft:rail[shape=ascending_east,waterlogged=false]
-  s minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
-  t minecraft:slime_block
-  u minecraft:smooth_stone_slab[type=bottom,waterlogged=false]
-  v minecraft:soul_sand
-  w minecraft:stone
-  x minecraft:stone_button[face=floor,facing=north,powered=false]
-  y minecraft:tripwire[attached=false,disarmed=false,east=false,north=false,powered=false,south=false,west=false]
-  z minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]
+  s minecraft:redstone_torch[lit=true]
+  t minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+  u minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  v minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+  w minecraft:slime_block
+  x minecraft:smooth_stone_slab[type=bottom,waterlogged=false]
+  y minecraft:soul_sand
+  z minecraft:stone_button[face=floor,facing=north,powered=false]
 layer -29:
   .
   .
@@ -146,101 +189,101 @@ layer -29:
   .
   .
   .
-  ............G
-  .......GGGGGvG
-  ............G
+  ............g
+  .......gggggyg
+  ............g
   .
   .
   .
   .
 layer -28:
-  ......G
-  ....GGG
-  ....G
-  ....G
-  ....G
-  ....G
-  ....G
-  ....G
-  ..GGG
-  .G.GG.......G
-  ....GGGXYYEYBG
-  .....G......G
+  ......g
+  ....ggg
+  ....g
+  ....g
+  ....g
+  ....g
+  ....g
+  ....g
+  ..ggg
+  .g.gg.......g
+  ....gggZaaFaBg
+  .....g......g
   .
   .
   .
   .
 layer -27:
-  ......JG
-  ....eYpG
-  ....a
-  ....a
-  ....a
-  ....aG
-  ....aG
-  ...GaG
-  .GKhaG
-  G.ijaG......G
-  .GGGZUY....GBG
-  .....m......G
+  ......Kg
+  ....hapg
+  ....e
+  ....e
+  ....e
+  ....eg
+  ....eg
+  ...geg
+  .gMkeg
+  g.imeg......g
+  .gggbWa....gBg
+  .....s......g
   .
   .
   .
   .
 layer -26:
-  .......JGG
-  ....GI.pGG
-  ....G...G
-  ....G...G
-  ....G...G
-  ....GGGGG
-  ....GG
-  ...GGG
-  .GGIGG
-  G.H..G......G
-  .GKGIII....GBG
-  ............G
+  .......Kgg
+  ....gI.pgggggggg
+  ....g...g......g
+  ....g...g......g
+  ....g...g
+  ....ggggg
+  ....gg
+  ...ggg
+  .ggIgg
+  g.J..g......g
+  .gMgIII....gBg
+  ............g
   .
   .
   .
   .
 layer -25:
-  ........Km
-  .....x..AU
-  .......GCG
-  .......G.G
-  ....GGGG.G
-  ...G.....G
-  ...G.GGGG
-  ..G..G
-  ..GxG
-  .GG.G.......G
-  ...GGxx....GBG
-  ............G
+  ........Ms
+  .....z..AWaaaaaj
+  .......gCg.....e
+  .......g.g.....Y
+  ....gggg.g.....g
+  ...g.....g.....g
+  ...g.gggg
+  ..g..g
+  ..gzg
+  .gg.g.......g
+  ...ggzz....gBg
+  ............g
   .
   .
   .
   .
 layer -24:
-  ........G
-  .......GG
-  .......G.G
-  .......G.G
-  ....GGGG.G
-  ...G.....G
-  ...G.GGGG
-  ..G..G
-  ..G.G
-  .OG.G.......G
-  ...G.......GBG
-  ............G
+  ........g
+  .......gg
+  .......g.g
+  .......g.g
+  ....gggg.g.....e
+  ...g.....g.....Y
+  ...g.gggg......g
+  ..g..g
+  ..g.g
+  .Og.g.......g
+  ...g.......gBg
+  ............g
   .
   .
   .
   .
 layer -23:
   .
-  .........G
+  .........g
   .
   .
   .
@@ -248,9 +291,9 @@ layer -23:
   .
   .
   .
-  .G.G........G
-  ...........GBG
-  ............G
+  .g.g........g
+  ...........gBg
+  ............g
   .
   .
   .
@@ -258,16 +301,16 @@ layer -23:
 layer -22:
   .
   .
-  ........G
+  ........g
   .
   .
   .
   .
   .
   .
-  ............G
-  ...........GBG
-  ............G
+  ............g
+  ...........gBg
+  ............g
   .
   .
   .
@@ -282,9 +325,9 @@ layer -21:
   .
   .
   .
-  ............G
-  ...........GBG
-  ............G
+  ............g
+  ...........gBg
+  ............g
   .
   .
   .
@@ -299,9 +342,9 @@ layer -20:
   .
   .
   .
-  ............G
-  ...........GBG
-  ............G
+  ............g
+  ...........gBg
+  ............g
   .
   .
   .
@@ -316,9 +359,9 @@ layer -19:
   .
   .
   .
-  ............G
-  ...........GBG
-  ............G
+  ............g
+  ...........gBg
+  ............g
   .
   .
   .
@@ -333,9 +376,9 @@ layer -18:
   .
   .
   .
-  ............G
-  ...........GBG
-  ............G
+  ............g
+  ...........gBg
+  ............g
   .
   .
   .
@@ -350,9 +393,9 @@ layer -17:
   .
   .
   .
-  ............G
-  ...........GBG
-  ............G
+  ............g
+  ...........gBg
+  ............g
   .
   .
   .
@@ -361,15 +404,15 @@ layer -16:
   .
   .
   .
+  ...............g
+  ...............g
   .
   .
   .
   .
-  .
-  .
-  ............G
-  ...........GBG
-  ............G
+  ............g
+  ...........gBg
+  ............g
   .
   .
   .
@@ -377,38 +420,40 @@ layer -16:
 layer -15:
   .
   .
+  ...............H
+  ...............d
+  ...............e
+  .
+  ...............g
   .
   .
-  .
-  .
-  .
-  .
-  .
-  ............G
-  ...........GBG
-  ............G
+  ............g
+  ...........gBg
+  ............g
   .
   .
   .
   .
 layer -14:
   .
+  ...............g
+  ...............R
   .
   .
   .
   .
   .
   .
-  .
-  .
-  ............G
-  ...........GBG
-  ............G
+  ............g
+  ...........gBg
+  ............g
   .
   .
   .
   .
 layer -13:
+  ........g......g
+  ...............d
   .
   .
   .
@@ -416,11 +461,9 @@ layer -13:
   .
   .
   .
-  .
-  .
-  ............G
-  ...........GBG
-  ............G
+  ............g
+  ...........gBg
+  ............g
   .
   .
   .
@@ -435,14 +478,15 @@ layer -12:
   .
   .
   .
-  ............G
-  ...........GBG
-  ............G
+  ............g
+  ...........gBg
+  ............g
   .
   .
   .
   .
 layer -11:
+  ...........g
   .
   .
   .
@@ -451,15 +495,15 @@ layer -11:
   .
   .
   .
-  .
-  ............G
-  ...........GBG
-  ............G
+  ............g
+  ...........gBg
+  ............g
   .
   .
   .
   .
 layer -10:
+  ..........g
   .
   .
   .
@@ -468,112 +512,111 @@ layer -10:
   .
   .
   .
-  .
-  ............G
-  ...........GBG
-  ............G
+  ............g
+  ...........gBg
+  ............g
   .
   .
   .
   .
 layer -9:
   .
-  ....PPPPPPPPPP
+  ....QQQQQQQQQQ
   .
   .
-  ....PPPPPPPPPP
+  ....QQQQQQQQQQ
   .
   .
   .
   .
-  ............G
-  ...........GBG
-  ............G
+  ............g
+  ...........gBg
+  ............g
   .
   .
   .
   .
 layer -8:
   ....cccccccccc
-  ...PNNNNNNNNNNP
+  ...QnnnnnnnnnnQ
   ....cccccccccc
   ....cccccccccc
-  ...PNNNNNNNNNNP
+  ...QnnnnnnnnnnQ
   ....cccccccccc
   .
   .
   .
-  ............G
-  ...........GBG
-  ............G
+  ............g
+  ...........gBg
+  ............g
   .
   .
   .
   .
 layer -7:
   ...cccccccccccc
-  ...PNNNNNNNNNNP
+  ...QnnnnnnnnnnQ
   ...cccccccccccc
   ...cccccccccccc
-  ...PNNNNNNNNNNP
+  ...QnnnnnnnnnnQ
   ...cccccccccccc
   .
   .
   .
-  ............G
-  ...........GBG
-  ............G
+  ............g
+  ...........gBg
+  ............g
   .
   .
   .
   .
 layer -6:
   .
-  ...PNNNNNNNNNNP
+  ...QnnnnnnnnnnQ
   .
   .
-  ...PNNNNNNNNNNP
+  ...QnnnnnnnnnnQ
   .
   .
   .
   .
-  ............G
-  ...........GBG
-  ............G
+  ............g
+  ...........gBg
+  ............g
   .
   .
   .
   .
 layer -5:
   .
-  ...PPPPPPPPPPPP
+  ...QQQQQQQQQQQQ
   .
   .
-  ...PPPPPPPPPPPP
+  ...QQQQQQQQQQQQ
   .
   .
   .
   .
-  ............G
-  ...........GBG
-  ............G
+  ............g
+  ...........gBg
+  ............g
   .
   .
   .
   .
 layer -4:
   .
-  ...GGGGGGGGGGGG
+  ...gggggggggggg
   .
   .
-  ...GGGGGGGGGGGG
+  ...gggggggggggg
   .
   .
   .
   .
-  ............G
-  ...........GBGk
-  ............G
+  ............g
+  ...........gBgq
+  ............g
   .
   .
   .
@@ -588,16 +631,16 @@ layer -3:
   .
   .
   .
-  ...........GG
-  ..........G2.YSG
-  ...........GG..k
+  ...........gg
+  ..........g4.aUg
+  ...........gg.gg
   .
-  .
+  ..............g
   .
   .
 layer -2:
   .
-  .G
+  .g.......g
   .
   .
   .
@@ -606,103 +649,66 @@ layer -2:
   .
   .
   .
-  ...........GG..f
-  ...............T
-  ...............k
-  .G
-  ..............G
+  ...........gg..j
+  ..............sV
+  ...............g
+  .g............s
+  ..............g
   .
 layer -1:
-  .G
-  G
-  .G
+  .g
+  g
+  .g
   .
   .
   .
-  .....w...w...w
-  .....G...G...G
-  .....G...G...G
-  .....G...G...G
-  .....k...k...k
-  .....k...k...k
-  .....k...k...k.T
-  .vGGGGGGGGGGGGkG
-  ..............sw
+  .....g...g...g
+  .....g...g...g
+  .....g...g...g
+  .....g...g...g
+  .....g...g...g
+  ....gg..gg..gg
+  .....g...g...g.V
+  .yggggggggggggwg
+  ..............vw
   .
 layer 0:
-  .G
-  G
-  .G
+  .g
+  g..g
+  .g
   .
   .
   .....w...w...w
-  .....R...R...R
-  .....a...a...a
-  .....F...F...F
-  .....a...a...a
-  .....V...V...V
-  .....V...V...V
-  .G...V...V...V
-  GBYYYbYYYbYEYbUf
-  .G.............R
+  .....T...T...T
+  .....e...e...e
+  .....G...G...G
+  .....e...e...e
+  .....X...X...X
+  ....sX..sX..sX
+  .g...X...X...X
+  gBaaafaaafaFafWj
+  .g.............T
   ...............w
 layer 1:
-  .
-  .G
-  .
-  .
-  .
-  .....y...y...y
-  ...G0z1G0z1G0z1G
-  .
-  .
-  .
-  .
-  .
-  .G
-  GBG
-  .G
-  ...............G
-layer 2:
-  .G
-  G.G
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .G
-  GBG
-  .G
-  .
-layer 3:
-  .G
-  G.G
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .G
-  GBG
-  .G
-  .
-layer 4:
   .
   .g
   .
   .
   .
+  .....0...0...0
+  ...g213g213g213g
+  .
+  .
+  .
+  .
+  .
+  .g
+  gBg
+  .g
+  ...............g
+layer 2:
+  .g
+  g.g
   .
   .
   .
@@ -710,9 +716,46 @@ layer 4:
   .
   .
   .
-  .G
-  GBG
-  .G
+  .
+  .
+  .
+  .g
+  gBg
+  .g
+  .
+layer 3:
+  .g
+  g.g
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .g
+  gBg
+  .g
+  .
+layer 4:
+  .
+  .H
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .g
+  gBg
+  .g
   .
 layer 5:
   .
@@ -727,9 +770,9 @@ layer 5:
   .
   .
   .
-  .G
-  GBG
-  .G
+  .g
+  gBg
+  .g
   .
 layer 6:
   .
@@ -744,9 +787,9 @@ layer 6:
   .
   .
   .
-  .G
-  GBG
-  .G
+  .g
+  gBg
+  .g
   .
 layer 7:
   .
@@ -761,9 +804,9 @@ layer 7:
   .
   .
   .
-  .G
-  GBG
-  .G
+  .g
+  gBg
+  .g
   .
 layer 8:
   .
@@ -778,9 +821,9 @@ layer 8:
   .
   .
   .
-  .G
-  GBG
-  .G
+  .g
+  gBg
+  .g
   .
 layer 9:
   .
@@ -795,9 +838,9 @@ layer 9:
   .
   .
   .
-  .G
-  GBG
-  .G
+  .g
+  gBg
+  .g
   .
 layer 10:
   .
@@ -812,9 +855,9 @@ layer 10:
   .
   .
   .
-  .G
-  GBG
-  .G
+  .g
+  gBg
+  .g
   .
 layer 11:
   .
@@ -829,9 +872,9 @@ layer 11:
   .
   .
   .
-  .G
-  GBG
-  .G
+  .g
+  gBg
+  .g
   .
 layer 12:
   .
@@ -846,9 +889,9 @@ layer 12:
   .
   .
   .
-  .G
-  GBG
-  .G
+  .g
+  gBg
+  .g
   .
 layer 13:
   .
@@ -863,12 +906,13 @@ layer 13:
   .
   .
   .
-  .G
-  GBG
-  .G
+  .gg
+  gBP
+  .g
   .
 layer 14:
   .
+  ..............g
   .
   .
   .
@@ -879,10 +923,9 @@ layer 14:
   .
   .
   .
-  .
-  .G
-  GBG
-  .G
+  .g
+  gBg
+  .g
   .
 layer 15:
   .
@@ -897,9 +940,9 @@ layer 15:
   .D
   .
   .
-  .G
-  GBG
-  .G
+  .g
+  gBg
+  .g
   .
 layer 16:
   .
@@ -907,16 +950,16 @@ layer 16:
   .
   .
   .
-  .....G...G...G
-  ....GoG.GoG.GoG
-  ...g.GGg.GGg.GG
+  .....g...g...g
+  ....gog.gog.gog
+  ...H.ggH.ggH.gg
   .
   .
   .
   .
-  .G
-  GBG
-  .G
+  .g
+  gBg
+  .g
   .
 layer 17:
   .
@@ -924,16 +967,16 @@ layer 17:
   .
   .
   .
-  .....u...u...u
-  ...g0z1g0z1g0z1g
-  .....Qn..Qn..Qn
-  ....gG.g.G.g.G
+  .....x...x...x
+  ...H213H213H213H
+  .....St..St..St
+  ....Hg.H.g.H.g
   .
   .
   .
-  .G
-  GBG
-  .G
+  .g
+  gBg
+  .g
   .
 layer 18:
   .
@@ -943,14 +986,14 @@ layer 18:
   .
   .
   .
-  ......G...G...G
-  .....W...W...W
-  ....gG..gG..gG
+  ......g...g...g
+  .....Y...Y...Y
+  ....Hg..Hg..Hg
   .
   .
-  .G
-  GBG
-  .G
+  .g
+  gBg
+  .g
   .
 layer 19:
   .
@@ -958,16 +1001,16 @@ layer 19:
   .
   .
   .
-  .....G...G
+  .....g...g
   .
   .
   .
-  .....W...W...W
-  ....gG..gG..gG
+  .....Y...Y...Y
+  ....Hg..Hg..Hg
   .
-  .G
-  GBG
-  .G
+  .g
+  gBg
+  .g
   .
 layer 20:
   .
@@ -980,46 +1023,46 @@ layer 20:
   .
   .
   .
-  .....W...W...W
-  .....G...G...G
-  .G
-  GBG
-  .G
+  .....Y...Y...Y
+  .....g...g...g
+  .g
+  gBg
+  .g
   .
 layer 21:
+  ...............g
   .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  ..gggW...W...W
-  .G...Gg..Gg..G
-  GBG...g...g
-  .G....g...g
-  ...gggg...g
+  ...............g
+  ...............g
+  ...............g
+  ...............g
+  ...............g
+  ...............g
+  ...............g
+  ...............g
+  ...............g
+  ..HHHY...Y...Y.g
+  .g...gH..gH..g
+  gBg...H...H
+  .g....H...H
+  ...HHHH...H
 layer 22:
-  .
-  .
-  .
-  .........G
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .G...W...W...W
-  GBG..G...G...G
-  .G.G...G...G
-  .
+  ...............g
+  ..............g
+  ...............e
+  .........g.....e
+  ...............e
+  ...............e
+  ...............e
+  ...............e
+  ...............e
+  ...............e
+  ...............e
+  ...............Y
+  .g...Y...Y...Y.g
+  gBg..g...g...g
+  gg.g...g...g
+  ...w
 layer 23:
   .
   .
@@ -1032,14 +1075,14 @@ layer 23:
   .
   .
   .
-  .G
-  G2GGG..GG..GG
-  G.GtGG.tGG.tGG
-  kT.q.G.q.G.q.G
-  .GG
+  .g
+  g4ggg..gg..gg..Y
+  g.gwgg.wgg.wgg.g
+  sV.u.g.u.g.u.g
+  .gg
 layer 24:
   .
-  .......G
+  .......g.g
   .
   .
   .
@@ -1049,14 +1092,17 @@ layer 24:
   .
   .
   .
-  .....G...G...G
-  .G.ef..ef..ef
-  .G.QZb.QZb.QZb
-  G..G.d.G.d.G.d
-  .ZrGGGGGGGGGGGGG
+  .....g...g...g
+  .g.hj..hj..hj
+  .g.Sbf.Sbf.Sbf.Y
+  g..g.E.g.E.g.E.g
+  .brggggggggggggg
 layer 25:
-  .......G
-  ......G
+  .......g
+  ......g
+  .
+  .
+  ..........g
   .
   .
   .
@@ -1066,14 +1112,11 @@ layer 25:
   .
   .
   .
-  .
-  .
-  .
-  ...a...a...a
-  ...ZYZYZYZYZYbYY
+  ...e...e...e...e
+  ...bababababafaf
 layer 26:
-  .......G
-  ......G.G
+  .......g
+  ......g.g
   .
   .
   .
@@ -1090,7 +1133,7 @@ layer 26:
   ...L.L.L.L.L.l
 layer 27:
   .
-  .......G
+  .......g
   .
   .
   .
@@ -1104,26 +1147,26 @@ layer 27:
   .
   .
   .
-  ...G.G.G.G.G.G
+  ...g.g.g.g.g.g
 layer 28:
-  uuuuuuuuuuuuuuuu
-  uuuuuuuuuuuuuuuu
-  uuuuuuuuuuuuuuuu
-  uuuuuuuuuuuuuuuu
-  uuuuuuuuuuuuuuuu
-  uuuuuuuuuuuuuuuu
-  uuuuuuuuuuuuuuuu
-  uuuuuuuuuuuuuuuu
-  uuuuuuuuuuuuuuuu
-  uGuuuuuuuuuuuuuu
-  uuuuuuuuuuuuuuuu
-  uuuuuuuuuuuuuuuu
-  uuuuuuuuuuuuuuuu
-  uuuuuuuuuuuuuuuu
-  uuuuuuuuuuuuuuuu
-  uuuuuuuuuuuuuuuu
+  xxxxxxxxxxxxxxxx
+  xxxxxxxxxxxxxxxx
+  xxxxxxxxxxxxxxxx
+  xxxxxxxxxxxxxxxx
+  xxxxxxxxxxxxxxxx
+  xxxxxxxxxxxxxxxx
+  xxxxxxxxxxxxxxxx
+  xxxxxxxxxxxxxxxx
+  xxxxxxxxxxxxxxxx
+  xgxxxxxxxxxxxxxx
+  xxxxxxxxxxxxxxxx
+  xxxxxxxxxxxxxxxx
+  xxxxxxxxxxxxxxxx
+  xxxxxxxxxxxxxxxx
+  xxxxxxxxxxxxxxxx
+  xxxxxxxxxxxxxxxx
 layer 29:
-  M
+  N
   .
   .
   .
@@ -1141,12 +1184,12 @@ layer 29:
   .
 nether-origin: 0 0 0
 nether layer 64:
-  .PP
+  .QQ
 nether layer 65:
-  PNNP
+  QnnQ
 nether layer 66:
-  PNNP
+  QnnQ
 nether layer 67:
-  PNNP
+  QnnQ
 nether layer 68:
-  .PP
+  .QQ
