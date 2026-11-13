@@ -166,6 +166,8 @@ pub fn drop_envelope(files: &[std::path::PathBuf]) -> Result<()> {
         last: u32,
         off: u32,
         lat: f64,
+        /// (ticks since the pass started, box centre x) at or above y 23.5, for the corridor-relative lateral
+        path: Vec<(f64, f64)>,
     }
     let mut done: Vec<(String, Pass)> = Vec::new();
     for f in files {
@@ -190,12 +192,16 @@ pub fn drop_envelope(files: &[std::path::PathBuf]) -> Result<()> {
                     p.last = t;
                     p.off += off;
                     p.lat = p.lat.max(lat);
+                    if y0 >= 23.5 {
+                        p.path.push(((t - p.start) as f64, cx));
+                    }
                 }
                 _ => {
                     if let Some(p) = open.remove(&cart) {
                         done.push((f.display().to_string(), p));
                     }
-                    open.insert(cart.clone(), Pass { lane, cart, start: t, last: t, off, lat });
+                    let path = if y0 >= 23.5 { vec![(0.0, cx)] } else { Vec::new() };
+                    open.insert(cart.clone(), Pass { lane, cart, start: t, last: t, off, lat, path });
                 }
             }
         }
@@ -225,6 +231,45 @@ pub fn drop_envelope(files: &[std::path::PathBuf]) -> Result<()> {
         );
         for (f, p) in ps.iter().filter(|(_, p)| p.off == offs[n - 1] || (p.lat - lats[n - 1]).abs() < 1e-12) {
             println!("    at a maximum: {} t{}..t{} off-rail {} lateral {:.4} ({f})", p.cart, p.start, p.last, p.off, p.lat);
+        }
+        // (ironspec 10:58 (2)) the lateral CORRIDOR-RELATIVE: passes grouped by their entry (the first
+        // point at y >= 23.5 west of the lane's centre by more than 0.2 = from the S-bend's c3 arm, else
+        // from D); per entry, the corridor is the median box-centre x at each tick since the pass's
+        // start over that entry's passes (a path can cross one z twice, so ticks, not z, index it); a
+        // pass's lateral is its largest |x - corridor(tick)|
+        for (entry, west) in [("D", false), ("c3", true)] {
+            let group: Vec<&&(String, Pass)> = ps.iter().filter(|(_, p)| p.path.first().is_some_and(|&(_, x)| (x < lane as f64 + 0.3) == west)).collect();
+            if group.is_empty() {
+                println!("    entry {entry}: no passes");
+                continue;
+            }
+            let bin = |k: f64| k as i64;
+            let mut bins: BTreeMap<i64, Vec<f64>> = BTreeMap::new();
+            for (_, p) in &group {
+                for &(z, x) in &p.path {
+                    bins.entry(bin(z)).or_default().push(x);
+                }
+            }
+            let corridor: BTreeMap<i64, f64> = bins
+                .into_iter()
+                .map(|(k, mut v)| {
+                    v.sort_by(|a, b| a.total_cmp(b));
+                    (k, v[v.len() / 2])
+                })
+                .collect();
+            let mut rel: Vec<(f64, &Pass, &String)> = group.iter().map(|(f, p)| (p.path.iter().map(|&(z, x)| (x - corridor[&bin(z)]).abs()).fold(0.0, f64::max), p, f)).collect();
+            rel.sort_by(|a, b| a.0.total_cmp(&b.0));
+            let m = rel.len();
+            println!(
+                "    entry {entry}: N {m} passes; corridor-relative lateral min {:.4} / median {:.4} / max {:.4} (the max: {} t{}..t{} in {})",
+                rel[0].0,
+                rel[m / 2].0,
+                rel[m - 1].0,
+                rel[m - 1].1.cart,
+                rel[m - 1].1.start,
+                rel[m - 1].1.last,
+                rel[m - 1].2
+            );
         }
     }
     Ok(())
@@ -406,7 +451,10 @@ struct V {
     min_air: Option<(i32, u32, String)>,
     activity: String,
     hostile: bool,
-    /// the latest HOME path: (complete, start node)
+    /// (farmopt 11:22) the NEAREST_HOSTILE memory's value as last set (its PANIC trigger), and the
+    /// latest damage taken (the HURT_BY route)
+    hostile_what: String,
+    last_hurt: Option<String>,
     home_path: Option<(bool, String)>,
     stamp: Option<i64>,
     oldest: Option<(i64, u32)>,
@@ -480,7 +528,7 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
     // record's declared shape: a plain rail with rails on 3 horizontal sides (RailState's raw count:
     // the side, one up or one down, any rail block, 90-92 / 121-129)
     let mut switched_ts: Vec<String> = Vec::new();
-    let mut switched_cells: Vec<([i32; 3], String)> = Vec::new();
+    let mut switched_cells: Vec<([i32; 3], Vec<String>)> = Vec::new();
     let t_asserts: Vec<([i32; 3], String)> = {
         let is_rail = |p: [i32; 3]| d.blocks.get(&p).is_some_and(|s| s.split('[').next().unwrap_or("").ends_with("rail"));
         let mut v = Vec::new();
@@ -520,8 +568,38 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
                 }
                 match src {
                     Some(sname) => {
-                        switched_ts.push(format!("({},{},{}) declared {shape}, a source within Manhattan distance 2 (a heuristic: the record's `switches:` lines replace it): {sname}", p[0], p[1], p[2]));
-                        switched_cells.push((*p, shape.to_string()));
+                        // (G1 on N #1) a switched T must still sit in one of its LEGAL shapes: one joining
+                        // two of its raw arms (a curve for a perpendicular pair, straight or ascending
+                        // for the opposite pair), asserted at t0 and the end
+                        let arm = |o: [i32; 3]| (-1..=1).any(|dy| is_rail([p[0] + o[0], p[1] + dy, p[2] + o[2]]));
+                        let up = |o: [i32; 3]| is_rail([p[0] + o[0], p[1] + 1, p[2] + o[2]]);
+                        let (n, s_, w, e) = (arm([0, 0, -1]), arm([0, 0, 1]), arm([-1, 0, 0]), arm([1, 0, 0]));
+                        let mut legal: Vec<String> = Vec::new();
+                        for (a, b, name) in [(n, e, "north_east"), (n, w, "north_west"), (s_, e, "south_east"), (s_, w, "south_west")] {
+                            if a && b {
+                                legal.push(name.to_string());
+                            }
+                        }
+                        if n && s_ {
+                            legal.push("north_south".into());
+                            if up([0, 0, -1]) {
+                                legal.push("ascending_north".into());
+                            }
+                            if up([0, 0, 1]) {
+                                legal.push("ascending_south".into());
+                            }
+                        }
+                        if e && w {
+                            legal.push("east_west".into());
+                            if up([1, 0, 0]) {
+                                legal.push("ascending_east".into());
+                            }
+                            if up([-1, 0, 0]) {
+                                legal.push("ascending_west".into());
+                            }
+                        }
+                        switched_ts.push(format!("({},{},{}) declared {shape}, legal {legal:?}, a source within Manhattan distance 2 (a heuristic: the record's `switches:` lines replace it): {sname}", p[0], p[1], p[2]));
+                        switched_cells.push((*p, legal));
                     }
                     None => v.push((*p, format!("minecraft:rail[shape={shape}]"))),
                 }
@@ -754,6 +832,23 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
             .collect::<Result<_>>()?,
         Err(_) => Vec::new(),
     };
+    let injects: Vec<(u32, [f64; 3], [f64; 3], bool)> = match std::env::var("MCTAS_REPLAY_INJECT") {
+        Ok(s) => s
+            .split('/')
+            .filter(|e| !e.trim().is_empty())
+            .map(|e| -> Result<(u32, [f64; 3], [f64; 3], bool)> {
+                let f: Vec<&str> = e.split(';').collect();
+                anyhow::ensure!(f.len() == 3 || f.len() == 4, "MCTAS_REPLAY_INJECT=t;x,y,z;vx,vy,vz[;empty][/…], got {e}");
+                let tri = |s: &str| -> Result<[f64; 3]> {
+                    let v: Vec<f64> = s.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(v.len() == 3, "three numbers, got {s}");
+                    Ok([v[0], v[1], v[2]])
+                };
+                Ok((f[0].trim().parse()?, tri(f[1])?, tri(f[2])?, f.get(3).is_none_or(|r| r.trim() != "empty")))
+            })
+            .collect::<Result<_>>()?,
+        Err(_) => Vec::new(),
+    };
     let hold: Option<([i32; 3], u32, u32)> = match std::env::var("MCTAS_REPLAY_HOLDCART") {
         Ok(s) => {
             let f: Vec<&str> = s.split(';').collect();
@@ -773,6 +868,16 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
         Err(_) => None,
     };
     let move_clipped_only = std::env::var_os("MCTAS_REPLAY_MOVE_CLIPPED").is_some();
+    // (a shifted scene, `shift-scene`) MCTAS_REPLAY_DROP_SHIFT=dx,dz moves the drop flags' lanes and
+    // their C cells by the scene's translation
+    let drop_shift: (f64, f64) = match std::env::var("MCTAS_REPLAY_DROP_SHIFT") {
+        Ok(s) => {
+            let v: Vec<f64> = s.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+            anyhow::ensure!(v.len() == 2, "MCTAS_REPLAY_DROP_SHIFT=dx,dz, got {s}");
+            (v[0], v[1])
+        }
+        Err(_) => (0.0, 0.0),
+    };
     let (mut drop_clips, mut lip_rests) = (0usize, 0usize);
     let block_asserts: Vec<([i32; 3], String)> = match std::env::var("MCTAS_REPLAY_ASSERT") {
         Ok(s) => s
@@ -824,6 +929,31 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
                 let out = srv.cmd(&cmd_at(&old))?;
                 anyhow::ensure!(out.contains("Changed the block"), "MCTAS_REPLAY_SWAP restore at t{t}: {}", out.trim());
                 events.push(format!("t{t}: SWAP ({},{},{}) restored to {old}", c[0], c[1], c[2]));
+            }
+        }
+        // (ironspec 11:03 (2)(c): the forced-configuration row) MCTAS_REPLAY_INJECT="t;x,y,z;vx,vy,vz[;rider]"
+        // (several separated by '/'): a minecart summoned before tick t at that frame position with that
+        // motion, ridden by a fresh villager unless `rider` is `empty`; tagged inject<k> / inject<k>p0
+        for (k, (it, ip, iv, ridden)) in injects.iter().enumerate() {
+            if t == *it {
+                let pass = if *ridden { format!(",Passengers:[{{id:\"minecraft:villager\",Tags:[\"inject{k}p0\"]}}]") } else { String::new() };
+                let out = srv.cmd(&format!(
+                    "summon minecraft:minecart {} {} {} {{Tags:[\"inject{k}\"],Motion:[{:?}d,{:?}d,{:?}d]{pass}}}",
+                    ip[0],
+                    ip[1] + DY as f64,
+                    ip[2],
+                    iv[0],
+                    iv[1],
+                    iv[2]
+                ))?;
+                anyhow::ensure!(out.contains("Summoned new"), "MCTAS_REPLAY_INJECT at t{t}: {}", out.trim());
+                let u = uuid_hex(&mut srv, &format!("@e[tag=inject{k},limit=1]"))?;
+                uuid_names.push((u, format!("inject{k}")));
+                if *ridden {
+                    let ru = uuid_hex(&mut srv, &format!("@e[tag=inject{k}p0,limit=1]"))?;
+                    uuid_names.push((ru, format!("inject{k}p0")));
+                }
+                events.push(format!("t{t}: INJECT inject{k} at ({:.4},{:.4},{:.4}) motion ({:?},{:?},{:?}){}", ip[0], ip[1], ip[2], iv[0], iv[1], iv[2], if *ridden { ", ridden" } else { ", empty" }));
             }
         }
         if let Some((c, a, b)) = hold.as_ref() {
@@ -956,8 +1086,12 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
             let taken = setup_lines.iter().filter(|l| l.starts_with("poi acquire")).count();
             // (ironspec 09:48) MCTAS_REPLAY_ASSERT="x,y,z|PREDICATE;…": block predicates asserted at t0
             // (and again after the last tick), e.g. the pocket-exit Ts' placement-order shapes
-            for (p, _) in &switched_cells {
-                println!("  t0 switched T ({},{},{}): {}", p[0], p[1], p[2], cell_state(&mut srv, *p)?);
+            for (p, legal) in &switched_cells {
+                let st = cell_state(&mut srv, *p)?;
+                let shape = st.split("shape=").nth(1).and_then(|r| r.split([',', ']']).next()).unwrap_or("");
+                let ok = legal.iter().any(|l| l == shape);
+                println!("  t0 switched T ({},{},{}): {st} ({} of its legal shapes {legal:?})", p[0], p[1], p[2], if ok { "one" } else { "NONE" });
+                anyhow::ensure!(ok, "t0: the switched T ({},{},{}) is {st}, none of its legal shapes {legal:?}", p[0], p[1], p[2]);
             }
             for (c, pred) in block_asserts.iter().chain(t_asserts.iter()) {
                 let ok = crate::strict::test(&mut srv, &format!("execute if block {} {} {} {pred}", c[0], c[1] + DY, c[2]))?;
@@ -1024,9 +1158,10 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
                             let dy = DY as f64;
                             let cx = (m.bmin[0] + m.bmax[0]) / 2.0;
                             let cz = (m.bmin[2] + m.bmax[2]) / 2.0;
-                            for x0 in [-1.0f64, 3.0, 7.0] {
-                                let into_c = m.hcoll && m.req[2] > 0.0 && m.bmin[0] < x0 + 1.0 && m.bmax[0] > x0 && (m.bmin[1] - dy) < 24.0 && (m.bmax[1] - dy) > 23.0 && (m.bmax[2] - 7.0).abs() < MTH_EQUAL;
-                                let lip_rest = m.got.iter().all(|g| g.abs() < MTH_EQUAL) && m.req.iter().any(|r| r.abs() >= MTH_EQUAL) && (m.bmin[1] - dy - 24.0).abs() < MTH_EQUAL && (x0..x0 + 1.5).contains(&cx) && (6.0..7.5).contains(&cz);
+                            for x0 in [-1.0f64 + drop_shift.0, 3.0 + drop_shift.0, 7.0 + drop_shift.0] {
+                                let zc = 7.0 + drop_shift.1;
+                                let into_c = m.hcoll && m.req[2] > 0.0 && m.bmin[0] < x0 + 1.0 && m.bmax[0] > x0 && (m.bmin[1] - dy) < 24.0 && (m.bmax[1] - dy) > 23.0 && (m.bmax[2] - zc).abs() < MTH_EQUAL;
+                                let lip_rest = m.got.iter().all(|g| g.abs() < MTH_EQUAL) && m.req.iter().any(|r| r.abs() >= MTH_EQUAL) && (m.bmin[1] - dy - 24.0).abs() < MTH_EQUAL && (x0..x0 + 1.5).contains(&cx) && (zc - 1.0..zc + 0.5).contains(&cz);
                                 if into_c {
                                     drop_clips += 1;
                                     s.push_str(&format!(" [CLIP INTO lane {x0}'s C support ({x0},23,7)]"));
@@ -1050,7 +1185,13 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
                         && let Some(&pi) = by_uuid.get(pu)
                     {
                         let p = &vs[pi];
-                        s.push_str(&format!(" [pusher activity {}, walk target by {}]", if p.activity.is_empty() { "?" } else { p.activity.as_str() }, p.wt.as_deref().unwrap_or("none")));
+                        s.push_str(&format!(
+                            " [pusher activity {}, walk target by {}, nearest hostile {}, last hurt {}]",
+                            if p.activity.is_empty() { "?" } else { p.activity.as_str() },
+                            p.wt.as_deref().unwrap_or("none"),
+                            if p.hostile { p.hostile_what.as_str() } else { "none" },
+                            p.last_hurt.as_deref().unwrap_or("none")
+                        ));
                     }
                     for (u, name) in &uuid_names {
                         s = s.replace(u.as_str(), name);
@@ -1118,8 +1259,10 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
                 }
             } else if l.starts_with("set minecraft:nearest_hostile") {
                 vs[vi].hostile = true;
+                vs[vi].hostile_what = body.split(" = ").nth(1).unwrap_or(&body).split(" by ").next().unwrap_or("").to_string();
             } else if l.starts_with("erase minecraft:nearest_hostile") {
                 vs[vi].hostile = false;
+                vs[vi].hostile_what.clear();
             } else if l.starts_with("set minecraft:path = path to") {
                 if l.contains(&home_target) {
                     let complete = l.contains("reach true");
@@ -1207,6 +1350,7 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
             } else if body.starts_with("hurt ") {
                 // (ironspec 06:22 platform) every damage a villager takes, drowning above all
                 vs[vi].hurts.push(format!("t{t}: {body}"));
+                vs[vi].last_hurt = Some(format!("t{t}: {body}"));
                 events.push(format!("t{t}: {tag} {body}"));
             } else if let Some(s) = body.strip_prefix("sight at rest ") {
                 // (ironspec 06:50 real) the REST entrant's Monsters within 16: distance, its own
@@ -1463,6 +1607,15 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
     }
     // the block predicates again after the last tick (the Ts must still hold their shapes)
     let mut end_asserts_bad: Vec<String> = Vec::new();
+    for (p, legal) in &switched_cells {
+        let st = cell_state(&mut srv, *p)?;
+        let shape = st.split("shape=").nth(1).and_then(|r| r.split([',', ']']).next()).unwrap_or("").to_string();
+        let ok = legal.iter().any(|l| *l == shape);
+        println!("  end switched T ({},{},{}): {st} ({} of its legal shapes)", p[0], p[1], p[2], if ok { "one" } else { "NONE" });
+        if !ok {
+            end_asserts_bad.push(format!("switched T ({},{},{}) {st} not in {legal:?}", p[0], p[1], p[2]));
+        }
+    }
     for (c, pred) in block_asserts.iter().chain(t_asserts.iter()) {
         let ok = crate::strict::test(&mut srv, &format!("execute if block {} {} {} {pred}", c[0], c[1] + DY, c[2]))?;
         println!("  end assert ({},{},{}) {pred}: {}", c[0], c[1], c[2], if ok { "HELD" } else { "FAILED" });
