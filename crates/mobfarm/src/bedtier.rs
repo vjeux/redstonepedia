@@ -1271,6 +1271,8 @@ pub struct Row {
     /// their tick count this visit (bound: one) and the least speed right after one.
     pub declared_contact_lines: Vec<String>,
     pub declared_contact_ticks: usize,
+    /// (G1's Q6) the declared contacts' ticks this visit, per contacted cell.
+    pub declared_ticks_by_cell: std::collections::BTreeMap<[i32; 3], usize>,
     pub post_contact_speed: Option<f64>,
     /// The first tick the cart is in the exit booster's cell ((A) --exit-south: (-1,0,6)).
     pub booster_at: Option<i64>,
@@ -1550,6 +1552,8 @@ pub struct Faults {
     /// (G1's Q2) The slope hold's tap on the built path: its stand-in input lever (TAP_CTRL, into
     /// DAY-1's repeater TAP_REP) on at tick T for W gt, again every PERIOD gt when given.
     pub tap: Option<(i64, i64, Option<i64>)>,
+    /// (G1's Q6) Each declared contact's bounds, parsed from its `# contacts:` declaration.
+    pub contact_bounds: Vec<([i32; 3], ContactBounds)>,
     /// (ironspec 10:47) Each declared contact's `rate=k/n` from a band run: STALE fails only when
     /// (1 - k/n)^N < 0.001 for the run's N visits; a rate-less declaration is always expected.
     pub contact_rates: Vec<([i32; 3], (u32, u32))>,
@@ -1821,6 +1825,68 @@ pub fn parse_integrity(text: &str, shift: [i32; 3]) -> Result<Vec<([i32; 3], Str
             out.push((x, shape.to_string()));
         } else {
             return Err(format!("integrity {d:?}: `holds x,y,z=SHAPE` or `x,y,z=connections A+B`"));
+        }
+    }
+    Ok(out)
+}
+
+/// (G1's Q6 on 94e90d6b2) A declared contact's bounds, as its `# contacts:` declaration states them:
+/// `depth<=V+eps=E` (the deepest overlap: V + E), `ticks<=N` (contact ticks per visit at the cell),
+/// `speed_out>=V+eps=E` (the least speed right after it: V - E; ironfarm's bounded form, the value
+/// the reference's extreme); a bound the declaration doesn't state is None (not judged).
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct ContactBounds {
+    pub depth_max: Option<f64>,
+    pub ticks_max: Option<usize>,
+    pub speed_out_min: Option<f64>,
+}
+
+/// The `# contacts:` declarations' bounds per cell, strictly parsed (a bound key with a malformed
+/// value is an error; bench = file - shift).
+pub fn parse_contact_bounds(text: &str, shift: [i32; 3]) -> Result<Vec<([i32; 3], ContactBounds)>, String> {
+    // (a number at the start of `s`, and the rest)
+    fn num(s: &str) -> Option<(f64, &str)> {
+        let end = s.find(|ch: char| !(ch.is_ascii_digit() || ch == '.' || ch == '-')).unwrap_or(s.len());
+        s[..end].parse::<f64>().ok().map(|v| (v, &s[end..]))
+    }
+    // (`V` or `V+eps=E` after a key)
+    fn bound(rest: &str, d: &str, key: &str) -> Result<(f64, f64), String> {
+        let (v, after) = num(rest).ok_or(format!("contacts {d:?}: `{key}` wants a number"))?;
+        if let Some(e) = after.strip_prefix("+eps=") {
+            let (eps, _) = num(e).ok_or(format!("contacts {d:?}: `{key}V+eps=E` wants a number after eps="))?;
+            if eps < 0.0 {
+                return Err(format!("contacts {d:?}: a negative eps"));
+            }
+            Ok((v, eps))
+        } else {
+            Ok((v, 0.0))
+        }
+    }
+    let mut out = Vec::new();
+    for d in crate::pushscan::header_entries(text, "contacts:") {
+        let Some((cells, reason)) = d.split_once('=') else { return Err(format!("contacts {d:?}: x,y,z[+x,y,z...]=REASON")) };
+        let mut b = ContactBounds::default();
+        if let Some(i) = reason.find("depth<=") {
+            let (v, e) = bound(&reason[i + 7..], &d, "depth<=")?;
+            b.depth_max = Some(v + e);
+        }
+        if let Some(i) = reason.find("ticks<=") {
+            let (v, e) = bound(&reason[i + 7..], &d, "ticks<=")?;
+            if e != 0.0 || v < 0.0 || v.fract() != 0.0 {
+                return Err(format!("contacts {d:?}: `ticks<=N` wants a whole count"));
+            }
+            b.ticks_max = Some(v as usize);
+        }
+        if let Some(i) = reason.find("speed_out>=") {
+            let (v, e) = bound(&reason[i + 11..], &d, "speed_out>=")?;
+            b.speed_out_min = Some(v - e);
+        }
+        for c in cells.split('+') {
+            let v: Vec<i32> = c.split(',').map(|x| x.trim().parse::<i32>()).collect::<Result<_, _>>().map_err(|e| format!("contacts {d:?}: x,y,z ({e})"))?;
+            match v.as_slice() {
+                &[x, y, z] => out.push(([x - shift[0], y - shift[1], z - shift[2]], b)),
+                _ => return Err(format!("contacts {d:?}: x,y,z")),
+            }
         }
     }
     Ok(out)
@@ -2908,17 +2974,30 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                     row.declared_contact_lines.push(format!("t {t}: the bed across the contact tick: unchanged {} (head {}, foot {})", prev_bed.as_ref().is_some_and(|b| *b == bed_now), bed_now.0, bed_now.1));
                     row.declared_hit.push(cell);
                     row.post_contact_speed = Some(row.post_contact_speed.map_or(after, |s: f64| s.min(after)));
-                    if depth > 0.01 {
-                        row.problems.push(format!("t {t}: the declared contact at ({},{},{}) {depth:.4} deep (bound 0.01)", q.x, q.y, q.z));
-                    }
-                    if row.declared_contact_ticks == 2 {
-                        row.problems.push(format!("t {t}: the declared contact at ({},{},{}) on a second tick this visit (bound: one)", q.x, q.y, q.z));
-                    }
-                    // (the declaration's speed bound: the cart leaves the hand-off above 0.040 b/t,
-                    // where the exit boost carries it on (G1 10:53: a design reason, not the
-                    // observed minimum))
-                    if after < 0.040 {
-                        row.problems.push(format!("t {t}: the declared contact at ({},{},{}) left the cart at {after:.3} b/t (bound >= 0.040)", q.x, q.y, q.z));
+                    // (G1's Q6: the bounds parsed from THIS cell's declaration (`depth<=V+eps=E`,
+                    // `ticks<=N`, `speed_out>=V+eps=E`), the ticks counted per cell; a bound the
+                    // declaration doesn't state isn't judged here (the summary says so))
+                    let ticks_here = {
+                        let e = row.declared_ticks_by_cell.entry(cell).or_default();
+                        *e += 1;
+                        *e
+                    };
+                    if let Some(b) = f.contact_bounds.iter().find(|(c, _)| *c == cell).map(|(_, b)| *b) {
+                        if let Some(dmax) = b.depth_max
+                            && depth > dmax + 1e-12
+                        {
+                            row.problems.push(format!("t {t}: the declared contact at ({},{},{}) {depth:.4} deep (its declared bound {dmax:.4})", q.x, q.y, q.z));
+                        }
+                        if let Some(n) = b.ticks_max
+                            && ticks_here == n + 1
+                        {
+                            row.problems.push(format!("t {t}: the declared contact at ({},{},{}) on tick {ticks_here} this visit (its declared bound {n})", q.x, q.y, q.z));
+                        }
+                        if let Some(smin) = b.speed_out_min
+                            && after < smin - 1e-12
+                        {
+                            row.problems.push(format!("t {t}: the declared contact at ({},{},{}) left the cart at {after:.4} b/t (its declared bound >= {smin:.4})", q.x, q.y, q.z));
+                        }
                     }
                 }
             }
@@ -5183,6 +5262,12 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
     // (G1's C9: a pickup step over 0.2 fails)
     if steps_over > 0 {
         failed.push(format!("{steps_over} pickups with a step over 0.2 (G1 C9)"));
+    }
+    // (G1's Q6: the bounds each declaration states, as parsed and judged per cell)
+    for c in &base.declared_contacts {
+        let b = base.contact_bounds.iter().find(|(x, _)| x == c).map(|(_, b)| *b).unwrap_or_default();
+        let s = |o: Option<String>| o.unwrap_or_else(|| "NOT STATED (not judged)".to_string());
+        println!("the declared contact at ({},{},{}): bounds judged per visit at this cell: depth <= {}, ticks <= {}, speed out >= {}", c[0], c[1], c[2], s(b.depth_max.map(|v| format!("{v:.4}"))), s(b.ticks_max.map(|v| v.to_string())), s(b.speed_out_min.map(|v| format!("{v:.4}"))));
     }
     // (ironspec 07:47: a declared contact no visit meets is STALE and fails)
     let stale: Vec<[i32; 3]> = base.declared_contacts.iter().copied().filter(|d| !sk.declared_hit.contains(d)).collect();
