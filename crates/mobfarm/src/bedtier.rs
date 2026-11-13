@@ -721,13 +721,15 @@ pub fn design_a2(bench: bool, loop_booster: bool) -> Result<String> {
     put(&mut b, [PARK_A2[0], -1, PARK_A2[2]], "glass")?;
     put(&mut b, PARK_CTRL_A2, &ctl_block(PARK_CTRL_A2, "stone"))?;
     put(&mut b, [PARK_CTRL_A2[0], PARK_CTRL_A2[1] - 1, PARK_CTRL_A2[2]], "glass")?;
-    // the run-up: two flats along z 4 into P, glass over them (the empty cart passes under; a
-    // napper on P can't step east)
+    // the run-up: two flats along z 4 into P, glass over the one next to P only (a napper on P can't
+    // step east; the flat at the park slope's foot stays open: a cart coming down the slope rides
+    // with its box's top above y 1 until it's on the flat, and a block over that flat stopped it,
+    // the box's west edge against it)
     for x in -1..=0 {
         put(&mut b, [x, 0, 4], &rail("east_west"))?;
         put(&mut b, [x, -1, 4], "glass")?;
-        put(&mut b, [x, 1, 4], "glass")?;
     }
+    put(&mut b, [-1, 1, 4], "glass")?;
     // P, a curve turning south onto A6's exit curve, and A6's exit
     put(&mut b, SWEPT[0], &rail("south_east"))?;
     put(&mut b, [SWEPT[0][0], -1, SWEPT[0][2]], "glass")?;
