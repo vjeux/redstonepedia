@@ -31,7 +31,8 @@ fn put(b: &mut Builder, c: [i32; 3], s: &str) -> Result<()> {
     Ok(())
 }
 
-/// The stop's local frame: loop = local + (0,-18,-1) (9fc3155f's budget, explore/farmopt-c3-budget).
+/// The stop's local frame: loop = local + (0,-27,-1) (the stop 9 down, ironspec 12:23; onechunk's
+/// module explore/farmopt-onechunk2 f52f712d7).
 /// The entry (a booster, always on), heading west along z -4.
 pub const ENTRY: [i32; 3] = [3, 2, -4];
 /// The activator, always on; its south side is the landing.
@@ -58,16 +59,22 @@ pub const HATCH_HI: [i32; 3] = [-4, 1, 4];
 /// bottom trapdoor, and south of the top one (in the post case's wall).
 pub const HATCH_CTRL: [i32; 3] = [-4, 0, 3];
 pub const HATCH_CTRL_HI: [i32; 3] = [-4, 1, 5];
-/// R's detector (loop (4,-19,4)), heading east.
+/// R's detector (loop (4,-28,4)), heading east.
 pub const EXIT_DET: [i32; 3] = [4, -1, 5];
-/// The queue cell (loop (9,-8,-6), 9fc3155f's budget 28b1bbd37e): the next napper waits there awake
-/// in its cart, 17.7 from the bed's head (the two-visit bench's; the bench design carries its rail).
+/// The two-visit bench's queue cell: the old corner queue's (loop (9,-8,-6) at the old offset,
+/// 9fc3155f's budget 28b1bbd37e), 17.7 from the bed's head; the next napper waits there awake in its
+/// cart (the bench design carries its rail). The stop-9-down queue is b8949c96's way-in: the
+/// two-visit rows on it wait for its lay on onechunk's module and 7b90c3f1's lift.
 pub const QUEUE: [i32; 3] = [9, 10, -5];
 /// (A6, ironspec 10:40) The cell over the bed's head: the bed column's first non-solid cell, so the
 /// HOME path's target (`findSurfacePosition`). The walk's last step drops the napper into it (a
 /// complete path: the walk never arms CANT_REACH), and it lies down on the way (REST) or lands and
 /// waits standing on the bed (IDLE: 0 from its bed, no walk target at REST, it lies down at once).
 pub const BED_TOP: [i32; 3] = [-3, 1, 4];
+/// (ironspec 15:58) The second landing, a chest south of the entry (the trapdoor held open over it,
+/// the pathfinder's way in from the approach), and the trapdoor's lever on the ceiling over it.
+pub const LANDING2: [i32; 3] = [3, 2, -3];
+pub const LANDING2_CTRL: [i32; 3] = [3, 4, -3];
 /// The activator's power (always on since A4: a lever on glass in the bench; the 09:00 day-gate
 /// control turns it off by day).
 pub const ACT_CTRL: [i32; 3] = [2, 2, -5];
@@ -105,10 +112,8 @@ pub fn design(bench: bool, trapdoor_caps: bool) -> Result<String> {
     // path, computed while it rides, starts from the first cell over the rider that is not air or
     // passable (`getStart` for a mob off the ground): under a cap that is the cap's cell, a 1-node
     // path, partial (the stamp armed), and after the eject the rider walked back toward that node
-    // and stood 120-240 gt against the cap. Uncapped, the path starts on the rail and jumps from the
-    // activator's cell up onto the chest (its box rising through (2,3..4,-4)): complete. Glass two
-    // over the entry still)
-    put(&mut b, [ENTRY[0], 4, ENTRY[2]], "glass")?;
+    // and stood 120-240 gt against the cap. Uncapped, the path starts on the rail. The entry is open
+    // above (the path from the approach passes over it into the second landing's trapdoor cell))
     put(&mut b, [ACTIVATOR[0], 3, ACTIVATOR[2] - 1], "glass")?;
     // the park, two braked powered rails down the slope (every arrival stops on the first; the
     // release powers both: the full second cell's boost narrows the spread of release speeds that
@@ -139,8 +144,15 @@ pub fn design(bench: bool, trapdoor_caps: bool) -> Result<String> {
     for z in za + 1..=SWEPT[0][2] {
         put(&mut b, [-2, 0, z], &rail("north_south"))?;
         put(&mut b, [-2, -1, z], "glass")?;
-        if z != SWEPT[0][2] {
-            put(&mut b, [-2, 1, z], if trapdoor_caps { cap } else { "glass" })?;
+        // (the covers (farmopt 13:44: the cheapest set meeting the bar): z 0..2 carry the walk, z 3
+        // keeps the flat north of the pickup cell 1 high (no stand-up cell on the approach); z -3..-1
+        // under the walk's north wall serve nothing and are gone (no villager reaches those flats on
+        // foot: the pickup cell's way north is 1 high). `trapdoor_caps`: top-half trapdoors over all
+        // seven, the contact mode's control)
+        if trapdoor_caps && z != SWEPT[0][2] {
+            put(&mut b, [-2, 1, z], cap)?;
+        } else if (0..SWEPT[0][2]).contains(&z) {
+            put(&mut b, [-2, 1, z], "glass")?;
         }
     }
     // (the flats' covers are glass, full blocks at y 1, over the empty cart (its box tops out at y
@@ -227,10 +239,9 @@ pub fn design(bench: bool, trapdoor_caps: bool) -> Result<String> {
     put(&mut b, [-4, 1, 3], "glass")?;
     // (the zombie's cover: persistent leaves at distance 7, as the build leaves them with no log near)
     put(&mut b, [-5, 3, 4], "oak_leaves[distance=7,persistent=true,waterlogged=false]")?;
-    // (golem-proofing (onechunk's part flood on A6): leaves are a golem floor (legacy-solid), and
-    // with the pocket gone the cells over them were open: golems spawned on the leaves and reached
-    // the zombie. Glass over the leaves (no sky light lost: glass dampens none))
-    put(&mut b, [-5, 4, 4], "glass")?;
+    // (the leaves are no golem floor: SpawnUtil's LEGACY_IRON_GOLEM excludes LeavesBlock (G1 on
+    // b36302af8; redsim's `golem_excluded`); the first A6 lay's flood failures came from the spawn
+    // cell over the bed foot's roof, now a button, and the flood is clean with the leaves open above)
     // (the boat at the post cell's centre (-4.5, 0, 4.5): cbcac083a's (-5.0, 0, 4.5) was the cell's
     // west edge, x written without its + 0.5)
     b.entity("oak_boat", [ZOMBIE_POST[0] as f64 + 0.5, ZOMBIE_POST[1] as f64, ZOMBIE_POST[2] as f64 + 0.5], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}"));
@@ -265,6 +276,21 @@ pub fn design(bench: bool, trapdoor_caps: bool) -> Result<String> {
     // over it: no golem fits on the chest (its box would run up through y 5))
     put(&mut b, LEDGE[0], "chest[facing=south,type=single,waterlogged=false]")?;
     put(&mut b, [LEDGE[0][0], LEDGE[0][1] + 3, LEDGE[0][2]], "glass")?;
+    // (the second landing (ironspec 15:58, the way-in's rail descent): a calm REST HOME path that
+    // starts on an approach rail can't pass the activator's cell (1 high: the landing's north wall
+    // (2,3,-4) keeps a napper off the arrival rails and the parked cart), so it ended partial and
+    // armed a stamp on the way in. A chest south of the entry and an iron trapdoor held open in the
+    // cell over it, its plate on that cell's north side: the pathfinder takes the trapdoor's cell for
+    // passable, so the path runs from the entry onto the chests and down the ledge (complete); the
+    // plate stops a napper on the chests walking north onto the entry and back up the approach. Its
+    // lever on the ceiling over it (on glass), the chests' east side glass to y 4)
+    put(&mut b, LANDING2, "chest[facing=south,type=single,waterlogged=false]")?;
+    put(&mut b, [LANDING2[0], LANDING2[1] + 1, LANDING2[2]], "iron_trapdoor[facing=south,half=bottom,open=true,powered=true,waterlogged=false]")?;
+    put(&mut b, LANDING2_CTRL, "lever[face=ceiling,facing=north,powered=true]")?;
+    put(&mut b, [LANDING2_CTRL[0], LANDING2_CTRL[1] + 1, LANDING2_CTRL[2]], "glass")?;
+    for y in 2..=4 {
+        put(&mut b, [LANDING2[0] + 1, y, LANDING2[2]], "glass")?;
+    }
     put(&mut b, [2, 1, -2], "glass")?;
     put(&mut b, [2, 1, -1], "glass")?;
     put(&mut b, [2, 1, 0], "glass")?;
@@ -300,8 +326,15 @@ pub fn design(bench: bool, trapdoor_caps: bool) -> Result<String> {
     // over the bed, is the bed column's first non-solid cell, so the HOME path's target
     // (`findSurfacePosition`), and the walk's drop runs down (-3,3,4) and (-3,2,4) into it; a block
     // in any of them moves the target or blocks the drop. ironspec 11:43: the leaves over the
-    // zombie's post (-5,3,4) keep its eye's sky light at 14 or less (no burning by day): kept too)
-    b.d.meta.insert("keep-clear".into(), "-3,1,4 -3,2,4 -3,3,4 -5,3,4".into());
+    // zombie's post (-5,3,4) keep its eye's sky light at 14 or less (no burning by day): a block
+    // that must stay, its own line (G1 on b36302af8: keep-clear means the cell holds no block))
+    b.d.meta.insert("keep-clear".into(), "-3,1,4 -3,2,4 -3,3,4".into());
+    b.d.meta.insert("keep-block".into(), "-5,3,4=oak_leaves[distance=7,persistent=true] (the zombie's cover: its eye's sky light 14 or less, no burning by day)".into());
+    // (onechunk 14:23: standable cells no napper can reach, left out of its verify's on-foot set)
+    b.d.meta.insert(
+        "unreachable".into(),
+        "-4,1,5=the top hatch's lever cell: glass east (-3,1,5), west (-5,1,5) and under it (-4,0,5), the hatch's top trapdoor north (no floor under the hatch); the only napper cell touching it is the bed top (-3,1,4), diagonally, both orthogonals blocked (the trapdoor, the glass (-3,1,5)); flee-check from 42 places: no draw on it; no bench visit ever stood there (100,000+ visits)".into(),
+    );
     // (ironspec/farmopt 11:01: the waker's in-sight places, declared: every place a napper has the
     // zombie in sight within 8 once F shows it, from the bench's sight log (none before F in any
     // row); `x,y,z+...=REASON`, the least eye distance in brackets)
@@ -312,8 +345,8 @@ pub fn design(bench: bool, trapdoor_caps: bool) -> Result<String> {
     b.d.ports.insert("output".into(), [12, 0, 6]);
     b.d.ports.insert("home".into(), BED_HEAD);
     Ok(b.text(&[
-        "The bed stop (local frame; under the station, loop = local + (0,-18,-1); the bed's head at (-3,0,4)): a booster entry and an activator heading west (always on), two braked park rails down a slope, a capped flat, a curve south, seven flats under glass, the pickup cell beside the bed's head, the curve east, a capped booster, a capped flat, the slope down, two flats, R. No solid-render block anywhere in the stop (rails on glass, torches and levers on glass): no IDLE stroll candidate.",
-        "The activator drops the rider on the ledge south of it; it walks the glass ledge round over the approach's covers onto the bed's foot roof and steps south into the open column over the bed's head: a 1.44 drop onto the bed, the bed column's first non-solid cell (-3,1,4), so the HOME path's target, reached (the walk arms no CANT_REACH stamp). It lies down on the way (REST) or waits standing on the bed (IDLE) until REST. F (the lie-down + 10) opens the hatch's iron door: the zombie wakes it, it stands up on the pickup cell (its only stand-up cell), the park releases 30 gt after the wake edge, and the cart seats it under 0.2 b/t and runs on to R. Keep (-3,1,4), (-3,2,4) and (-3,3,4) clear.",
+        "The bed stop (local frame; under the station, the stop 9 down: loop = local + (0,-27,-1); the bed's head at (-3,0,4)): a booster entry and an activator heading west (always on, both open above), two braked park rails down a slope, a capped flat, a curve south, seven flats (glass over the last four), the pickup cell beside the bed's head, the curve east, a capped booster, a capped flat, the slope down, two flats, R. No solid-render block anywhere in the stop (rails, torches and levers on glass; the landing a chest): no IDLE stroll candidate.",
+        "The activator sets the rider down onto the chest south of it (the landing; a second chest south of the entry, an iron trapdoor held open over it (the pathfinder's way in from the approach, its plate keeping nappers off the entry)); it walks the glass ledge round over the approach's covers onto the bed's foot roof and steps south into the open column over the bed's head: a 1.44 drop onto the bed, the bed column's first non-solid cell (-3,1,4), so the HOME path's target, reached (the walk arms no CANT_REACH stamp). It lies down on the way (REST) or waits standing on the bed (IDLE) until REST. The hatch's two iron trapdoors stand open (their levers on) and hide the zombie; F (the lie-down + 10) SHUTS them (their levers off): the zombie wakes it, it stands up on the pickup cell (its only stand-up cell), the park releases 30 gt after the wake edge, and the cart seats it (at 0.143..0.207 b/t in every bench row) and runs on to R, whose pulse opens the hatch again. Keep (-3,1,4), (-3,2,4) and (-3,3,4) clear; the persistent leaves at (-5,3,4) must stay (keep-block: the zombie's cover).",
     ]))
 }
 
@@ -379,6 +412,17 @@ pub struct Row {
     pub waker_seen: std::collections::BTreeMap<String, (f64, bool)>,
     pub panic_targets: Vec<(String, [i32; 3])>,
     pub stamp_armed: Option<(i64, String)>,
+    /// (ironspec 14:23) Every node cell of every path the napper held, riding or on foot.
+    pub path_nodes: std::collections::BTreeSet<[i32; 3]>,
+    /// (ironspec 14:58) The tick its cart first entered A6's entry cell, and its stamp's age then
+    /// (None inside: no stamp).
+    pub entry_at: Option<i64>,
+    pub stamp_at_entry: Option<Option<i64>>,
+    /// (the real approach) The queue's release tick (held for dusk after a skip before it).
+    pub queue_release_at: Option<i64>,
+    /// (ironspec 16:29) The napper's escape: on foot on the entry or the approach, out of the stop's
+    /// box, or gone (the tick and the cell; MIN: gone).
+    pub escaped: Option<(i64, [i32; 3])>,
     pub waited: Vec<[i32; 3]>,
     pub slept_after_skip: Option<i64>,
     pub stamp_at_rest: Option<Option<i64>>,
@@ -450,11 +494,49 @@ pub struct Faults {
     /// NEAREST_HOSTILE held on the post's zombie through this tick after the entry (then the
     /// sensor's own updates): the panic's tail in the stop.
     pub panic_entry: Option<i64>,
+    /// (G1's note 1 on b36302af8) The released cart set two cells north of the pickup cell heading
+    /// south at this speed (b/t): the pickup margin's sweep.
+    pub pickup_inject: Option<f64>,
+    /// (ironspec 14:58, the boundary contract) The real approach: the napper's cart spawned at the
+    /// queue's seat at rest and released by its input `wait` gt later (a module file shifted into
+    /// the stop's frame, `shift_spec`).
+    pub approach: Option<Approach>,
+    /// The contract's positive control: the napper's CANT_REACH stamp armed as its cart enters A6's
+    /// entry (a stale arrival with an armed stamp must lose HOME at dusk).
+    pub forced_stamp: bool,
 }
 
 /// The walk's cells (A6), all at y 2: the landing south of the activator, the ledge round to x -2,
 /// south to (-2,2,2), the gate, the bed's foot roof; then the drop over the bed's head onto the bed.
 pub const LEDGE: [[i32; 3]; 12] = [[2, 2, -3], [2, 2, -2], [2, 2, -1], [2, 2, 0], [1, 2, 0], [0, 2, 0], [-1, 2, 0], [-2, 2, 0], [-2, 2, 1], [-2, 2, 2], [-3, 2, 2], [-3, 2, 3]];
+
+/// (ironspec 14:58) The real approach in the stop's frame: the napper's cart at the queue's seat,
+/// the queue's release input, the gt from the spawn to the release.
+#[derive(Debug, Clone, Copy)]
+pub struct Approach {
+    pub seat: [f64; 3],
+    pub release: [i32; 3],
+    pub wait: i64,
+    /// day-1's gate (15:52): the release also waits for REST_l and NOT DAY, both up by this day
+    /// time (a napper picked before a skip is held at the queue until dusk).
+    pub dusk: i64,
+}
+
+/// A module file (loop frame) moved into the stop's local frame by `d` (loop = local - d): its
+/// blocks, entities and box; its Nether part dropped (no golem travels in the stop's rows).
+pub fn shift_spec(spec: &FarmSpec, d: [i32; 3]) -> FarmSpec {
+    let sh = |p: BlockPos| BlockPos::new(p.x + d[0], p.y + d[1], p.z + d[2]);
+    FarmSpec {
+        blocks: spec.blocks.iter().map(|(p, b)| (sh(*p), *b)).collect(),
+        entities: spec.entities.iter().map(|(t, p, n)| (t.clone(), [p[0] + d[0] as f64, p[1] + d[1] as f64, p[2] + d[2] as f64], n.clone())).collect(),
+        output: sh(spec.output),
+        lo: sh(spec.lo),
+        hi: sh(spec.hi),
+        block_entities: spec.block_entities.iter().map(|(p, s)| (sh(*p), s.clone())).collect(),
+        nether: None,
+        ..spec.clone()
+    }
+}
 
 /// The abort's logic delay in the bench (design A): the controller's latch and the drives, DAY and
 /// presence to the floor opening and the park's release.
@@ -538,7 +620,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
     } else {
         format!("{{Rotation:[0f,0f],Passengers:[{{id:\"minecraft:villager\",Brain:{{memories:{{\"minecraft:home\":{{value:{{dimension:\"minecraft:overworld\",pos:[I;{},{},{}]}}}}}}}}}}]}}", h[0], h[1], h[2])
     };
-    let start = [ENTRY[0] as f64 + 0.5, ENTRY[1] as f64 + 0.0625, ENTRY[2] as f64 + 0.5];
+    let start = f.approach.map_or([ENTRY[0] as f64 + 0.5, ENTRY[1] as f64 + 0.0625, ENTRY[2] as f64 + 0.5], |a| a.seat);
     let mut cart_id = redsim::entity::spawn(&mut run.world, "minecraft:minecart", start, Some(&nbt))?;
     let mut vill = run.world.entities.list.iter().find(|e| e.id == cart_id).and_then(|e| e.passengers.first().copied());
     if vill.is_none() && !f.empty {
@@ -550,7 +632,8 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
         let w = &mut run.world;
         let i = idx(w, cart_id).ok_or("cart gone")?;
         w.entities.list[i].pos = Vec3::new(start[0], start[1], start[2]);
-        w.entities.list[i].delta_movement = Vec3::new(-speed, 0.0, 0.0);
+        // (the real approach: the cart at rest on the queue's braked rail until the release)
+        w.entities.list[i].delta_movement = if f.approach.is_some() { Vec3::new(0.0, 0.0, 0.0) } else { Vec3::new(-speed, 0.0, 0.0) };
         let ps = w.entities.list[i].passengers.clone();
         for pid in ps {
             if let Some(j) = idx(w, pid) {
@@ -570,7 +653,9 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
     let mut f_fired = false;
     let mut had_home = !f.empty && !f.no_home;
     // (a skip or a set hour: a napper that misses REST waits on the stop until the next REST)
-    let limit = if f.skip.is_some() || f.hour.is_some() { 14_000 } else { 2400 };
+    let limit = if f.skip.is_some() || f.hour.is_some() { 14_000 } else { 2400 } + f.approach.map_or(0, |a| a.wait + 200 + if f.skip.is_some() { 12_500 } else { 0 });
+    let mut entry_seen = false;
+    let mut queue_released = false;
     let mut rest_seen = false;
     // (design A's DAY and abort state; the activator's power set for the visit's start)
     let mut day_state = { let d = run.world.day_time().rem_euclid(24000); d >= f.day_on.unwrap_or(0) && d < f.day_off.unwrap_or(12_230) };
@@ -600,6 +685,35 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             zid = zid.map(|z| crate::liveness::follow(&run.world, z));
         }
         live += 1;
+        // (the real approach: the queue's release, a redstone block in its input cell, once the
+        // hold has elapsed and day-1's gate sees night (REST_l and NOT DAY: day time from `dusk`))
+        if let Some(a) = f.approach
+            && !queue_released
+            && t >= a.wait
+            && (a.dusk..24_000).contains(&run.world.day_time().rem_euclid(24000))
+        {
+            queue_released = true;
+            row.queue_release_at = Some(t);
+            run.world.set_block(BlockPos::new(a.release[0], a.release[1], a.release[2]), block("redstone_block"), redsim::world::flags::ALL);
+        }
+        // (A6's entry: the napper's stamp as its cart first enters the entry cell; the positive
+        // control (ironspec 14:58) arms it there if it isn't)
+        if !entry_seen
+            && let Some(ci) = idx(&run.world, cart_id)
+            && run.world.entities.list[ci].block_position() == BlockPos::new(ENTRY[0], ENTRY[1], ENTRY[2])
+        {
+            entry_seen = true;
+            row.entry_at = Some(t);
+            if let Some(vi) = vill.and_then(|v| idx(&run.world, v))
+                && redsim::entity::mob::ai::brain::has_exact(&run.world, vi)
+            {
+                let now = run.world.time;
+                if f.forced_stamp && redsim::entity::mob::ai::brain::ex(&run.world, vi).mem.cant_reach_since.is_none() {
+                    redsim::entity::mob::ai::brain::ex_mut(&mut run.world, vi).mem.cant_reach_since = Some(now);
+                }
+                row.stamp_at_entry = Some(redsim::entity::mob::ai::brain::ex(&run.world, vi).mem.cant_reach_since.map(|c| now - c));
+            }
+        }
         // (debug: MCTAS_BT_TP=x,y,z,T teleports the visitor there at tick T)
         if let Ok(s) = std::env::var("MCTAS_BT_TP") {
             let v: Vec<f64> = s.split(',').filter_map(|x| x.trim().parse().ok()).collect();
@@ -667,6 +781,15 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                 set(&mut run.world, c, "redstone_block");
             }
             row.release_at = Some(t);
+            // (G1's note 1 on b36302af8, the pickup margin: the released cart set on the flat two
+            // cells north of the pickup cell (-2,0,2) heading south at the forced speed)
+            if let Some(v) = f.pickup_inject
+                && let Some(i) = idx(&run.world, cart_id)
+            {
+                let w = &mut run.world;
+                w.entities.list[i].pos = Vec3::new(SWEPT[0][0] as f64 + 0.5, SWEPT[0][1] as f64 + 0.0625, SWEPT[0][2] as f64 - 1.5);
+                w.entities.list[i].delta_movement = Vec3::new(0.0, 0.0, v);
+            }
         }
         let before = idx(&run.world, cart_id).map(|i| run.world.entities.list[i].pos);
         // (the panic's tail: NEAREST_HOSTILE held on the zombie through `panic_entry` gt)
@@ -686,6 +809,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
         let vi = vill.and_then(|id| idx(w, id));
         if vill.is_some() && vi.is_none() {
             row.problems.push(format!("t {t}: the villager is gone"));
+            row.escaped.get_or_insert((t, [i32::MIN; 3]));
             break;
         }
         let mut riding = false;
@@ -700,6 +824,16 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             }
             had_home = has_home;
             let asleep = redsim::entity::mob::mob(w, vi).sleeping_pos.is_some();
+            // (ironspec 16:29, the escape row: the napper on foot on the entry or the approach (x 3
+            // and east at z -4 and north, y 2 and up), or out of the stop's box)
+            if !riding
+                && !asleep
+                && row.escaped.is_none()
+                && ((vcell[0] >= ENTRY[0] && vcell[2] <= ENTRY[2] && vcell[1] >= ENTRY[1]) || !(-6..=5).contains(&vcell[0]) || !(-5..=6).contains(&vcell[2]) || !(-2..=6).contains(&vcell[1]))
+            {
+                row.escaped = Some((t, vcell));
+                row.problems.push(format!("t {t}: the napper escaped on foot to {vcell:?}"));
+            }
             // (a skip row: where the napper waits awake before its nap, and its CANT_REACH stamp's
             // age at the first REST tick after the skip)
             if row.skipped_at.is_some() && row.slept_after_skip.is_none() && !asleep && !riding && !row.waited.contains(&vcell) {
@@ -803,6 +937,15 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             }
             if row.woke_at.is_some() && !riding && !asleep && row.pickup.is_none() && !row.cells_after_wake.contains(&vcell) {
                 row.cells_after_wake.push(vcell);
+            }
+            // (ironspec 14:23: every node of every path the napper's walks take, riding or on foot:
+            // the declared-unreachable cell must never be one)
+            if redsim::entity::mob::ai::brain::has_exact(w, vi)
+                && let Some(p) = &redsim::entity::mob::ai::brain::ex(w, vi).mem.path
+            {
+                for n in &p.nodes {
+                    row.path_nodes.insert([n.x, n.y, n.z]);
+                }
             }
             // (after the wake: the woken napper's path off the pickup cell, by direction; north is up
             // the approach, into the arriving cart: a problem in any row)
@@ -1055,6 +1198,10 @@ pub struct TwoRow {
     /// C's lie-down (ironspec 10:53: from A's leaving the ball to C's lie-down, bar 20 gt).
     pub calm16: [usize; 2],
     pub a_last_in_ball: Option<i64>,
+    /// (G1's note 3 on b36302af8) A HOME loss inside the stop's box, and one outside it (the
+    /// bench's queue cell, its lift's top).
+    pub lost_in_stop: bool,
+    pub lost_outside: bool,
     pub problems: Vec<String>,
 }
 
@@ -1263,12 +1410,15 @@ pub fn two_visit_bench(spec: &FarmSpec, seed: u64, speed: f64, o: &TwoOpts) -> R
         let w = &run.world;
         if std::env::var_os("MCTAS_BT2_TRACE").is_some() && (t % 10 == 0 || std::env::var("MCTAS_BT2_TRACE").is_ok_and(|s| s.split(',').filter_map(|x| x.parse::<i64>().ok()).collect::<Vec<_>>().windows(2).any(|r| t >= r[0] && t <= r[1]))) {
             let p = |id: u32| w.entities.list.iter().find(|e| e.id == id).map(|e| format!("({:.2},{:.2},{:.2}){}{}", e.pos.x, e.pos.y, e.pos.z, if e.removed { " removed" } else { "" }, e.vehicle.map_or(String::new(), |v| format!(" in {v}"))));
-            // (A's brain: HOME, CANT_REACH_WALK_TARGET_SINCE, WALK_TARGET, the activity)
-            let br = idx(w, a).filter(|&i| redsim::entity::mob::ai::brain::has_exact(w, i)).map(|i| {
-                let x = redsim::entity::mob::ai::brain::ex(w, i);
-                format!("home {:?} cant_reach {:?} walk_target {} act {:?}", redsim::entity::mob::ai::brain::brain(w, i).home.map(|h| [h.x, h.y, h.z]), x.mem.cant_reach_since, x.mem.walk_target.is_some(), x.active)
-            });
-            eprintln!("t {t} day {}: A {:?} cart1 {:?} {:?} | C {:?}", w.day_time().rem_euclid(24000), p(a), p(cart1), br, c2.map(|(cc, cv)| (p(cv), p(cc))));
+            // (each napper's brain: HOME, CANT_REACH_WALK_TARGET_SINCE, WALK_TARGET, the activity)
+            let brain_of = |id: u32| {
+                idx(w, id).filter(|&i| redsim::entity::mob::ai::brain::has_exact(w, i)).map(|i| {
+                    let x = redsim::entity::mob::ai::brain::ex(w, i);
+                    format!("home {:?} cant_reach {:?} walk_target {} act {:?}", redsim::entity::mob::ai::brain::brain(w, i).home.map(|h| [h.x, h.y, h.z]), x.mem.cant_reach_since, x.mem.walk_target.is_some(), x.active)
+                })
+            };
+            let br = brain_of(a);
+            eprintln!("t {t} day {}: A {:?} cart1 {:?} {:?} | C {:?} {:?}", w.day_time().rem_euclid(24000), p(a), p(cart1), br, c2.map(|(cc, cv)| (p(cv), p(cc))), c2.and_then(|(_, cv)| brain_of(cv)));
         }
         let mut who = vec![(0usize, a, cart1)];
         if let Some((cc, cv)) = c2 {
@@ -1282,6 +1432,14 @@ pub fn two_visit_bench(spec: &FarmSpec, seed: u64, speed: f64, o: &TwoOpts) -> R
             let has = redsim::entity::mob::ai::brain::brain(w, i).home.is_some();
             if homes[k] && !has {
                 row.home_lost.push((if k == 0 { "A" } else { "C" }, t));
+                // (G1's note 3 on b36302af8: a loss inside the stop's box (local x -6..5, y -2..6, z
+                // -5..6) against one outside it: the bench's queue cell, its lift's top)
+                let p = w.entities.list[i].pos;
+                if (-6.0..6.0).contains(&p.x) && (-2.0..7.0).contains(&p.y) && (-5.0..7.0).contains(&p.z) {
+                    row.lost_in_stop = true;
+                } else {
+                    row.lost_outside = true;
+                }
             }
             homes[k] = has;
             let asleep = redsim::entity::mob::mob(w, i).sleeping_pos.is_some();
@@ -1486,8 +1644,8 @@ pub fn waker_lines(spec: &FarmSpec) -> Result<Vec<String>, String> {
         }
         // (ironspec 10:04, condition 2: every walk cell (the ledge, the bed's foot roof) sees nothing
         // either way)
-        let seen: Vec<String> = LEDGE.iter().filter(|c| redsim::entity::mob::los::has_line_of_sight(&run.world, eye, Vec3::new(c[0] as f64 + 0.5, c[1] as f64 + 1.62, c[2] as f64 + 0.5))).map(|c| format!("{c:?}")).collect();
-        out.push(format!("hatch {state}: the walk's {} cells seeing the zombie (eye 1.62 over the cell's centre): {}", LEDGE.len(), if seen.is_empty() { "none".to_string() } else { seen.join(" ") }));
+        let seen: Vec<String> = LEDGE.iter().chain([LANDING2].iter()).filter(|c| redsim::entity::mob::los::has_line_of_sight(&run.world, eye, Vec3::new(c[0] as f64 + 0.5, c[1] as f64 + 1.62, c[2] as f64 + 0.5))).map(|c| format!("{c:?}")).collect();
+        out.push(format!("hatch {state}: the walk's {} cells and the second landing seeing the zombie (eye 1.62 over the cell's centre): {}", LEDGE.len(), if seen.is_empty() { "none".to_string() } else { seen.join(" ") }));
     }
     // (ironspec 11:30: the waker burns only at sky light 15 in its eye's cell, which needs a clear
     // column straight up; the hatch is beside the column, not in it)
@@ -1624,10 +1782,12 @@ fn par_map<T: Sync, R: Send>(items: &[T], jobs: usize, f: impl Fn(&T) -> R + Syn
 /// with the totals. `sweeps`: the restart phases (each at every order of `orders`), the visit day
 /// times, the skip phases, the restarts after each skip, the panic tails at the entry.
 #[allow(clippy::too_many_arguments)]
-pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep: i64, release_after: i64, day: bool, base: &Faults, sweeps: [Option<&str>; 5], orders: &[crate::liveness::Restart], jobs: usize) -> Result<()> {
+pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep: i64, release_after: i64, day: bool, base: &Faults, sweeps: [Option<&str>; 7], orders: &[crate::liveness::Restart], jobs: usize) -> Result<()> {
     let sp: Vec<f64> = list(Some(speeds))?;
     let (rp, hs, kp, ra): (Vec<i64>, Vec<i64>, Vec<i64>, Vec<i64>) = (list(sweeps[0])?, list(sweeps[1])?, list(sweeps[2])?, list(sweeps[3])?);
     let pe: Vec<i64> = list(sweeps[4])?;
+    let pi: Vec<f64> = list(sweeps[5])?;
+    let qw: Vec<i64> = list(sweeps[6])?;
     let mut rows: Vec<(String, Faults)> = Vec::new();
     for &p in &rp {
         for &how in orders {
@@ -1654,6 +1814,14 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
     if !pe.is_empty() {
         rows = rows.into_iter().flat_map(|(n, f)| pe.iter().map(move |&k| (format!("{n}, panicking through entry + {k}"), Faults { panic_entry: Some(k), ..f.clone() }))).collect();
     }
+    if !pi.is_empty() {
+        rows = rows.into_iter().flat_map(|(n, f)| pi.iter().map(move |&v| (format!("{n}, the released cart at {v} b/t two cells before the pickup cell"), Faults { pickup_inject: Some(v), ..f.clone() }))).collect();
+    }
+    if !qw.is_empty()
+        && let Some(a) = base.approach
+    {
+        rows = rows.into_iter().flat_map(|(n, f)| qw.iter().map(move |&w| (format!("{n}, released {w} gt after the spawn at the queue"), Faults { approach: Some(Approach { wait: w, ..a }), ..f.clone() }))).collect();
+    }
     let one = rows.len() == 1;
     // (each seed and speed's night exit, for each row's exit delay)
     let mut night_r = std::collections::HashMap::new();
@@ -1664,7 +1832,7 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
         }
     }
     if !one {
-        for (&(seed, v), r) in pairs.iter().zip(par_map(&pairs, jobs, |&(seed, v)| bench(spec, seed, v, release_after, day, after_sleep, &Faults::default()))) {
+        for (&(seed, v), r) in pairs.iter().zip(par_map(&pairs, jobs, |&(seed, v)| bench(spec, seed, v, release_after, day, after_sleep, &Faults { approach: base.approach, ..Faults::default() }))) {
             if let Ok(r) = r
                 && let Some(rr) = r.r_at
             {
@@ -1787,6 +1955,18 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
                             *sk.armed_at.entry(at.clone()).or_default() += 1;
                         }
                         sk.most_drops = sk.most_drops.max(r.drops.len());
+                        sk.path_nodes.extend(r.path_nodes.iter().copied());
+                        match r.stamp_at_entry {
+                            Some(None) => sk.entry_no_stamp += 1,
+                            Some(Some(a)) => sk.entry_stamps.push(a),
+                            None => {}
+                        }
+                        if let Some(e) = r.entry_at {
+                            sk.entry_ats.push(e);
+                        }
+                        if let Some((_, c)) = r.escaped {
+                            *sk.escapes.entry(c).or_default() += 1;
+                        }
                         // (ironspec 09:45's outcome classes: (a) slept in the REST it came in and
                         // picked up; (b) waited on foot through IDLE, napped at the next REST and
                         // left; (c) released unslept by the abort)
@@ -1896,6 +2076,13 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
     println!("the waker's places (where the napper had the zombie in sight within 8: visits, least distance, all after F): {:?}", sk.waker_seen.iter().map(|(p, (n, d, f))| format!("{p}: {n}, {d:.2}, {f}")).collect::<Vec<_>>());
     println!("walk targets taken while panicking (where it was -> the target: visits): {:?}", sk.panic_targets.iter().map(|((p, t), n)| format!("{p} -> {t:?}: {n}")).collect::<Vec<_>>());
     println!("the stamp's first arming after the wake: {} visits, at wake + {:?}..{:?} gt, where (visits): {:?}", sk.armed_after_wake.len(), sk.armed_after_wake.first(), sk.armed_after_wake.last(), sk.armed_at);
+    // (ironspec 14:23: the declared-unreachable cells never a path node)
+    let unreachable_hit: Vec<[i32; 3]> = [[-4, 1, 5]].into_iter().filter(|c| sk.path_nodes.contains(c)).collect();
+    sk.entry_stamps.sort();
+    sk.entry_ats.sort();
+    println!("at A6's entry (the cart's first tick in the entry cell, spawn + {:?}..{:?} gt): no stamp {}, stamped {} (ages {:?}..{:?} gt)", sk.entry_ats.first(), sk.entry_ats.last(), sk.entry_no_stamp, sk.entry_stamps.len(), sk.entry_stamps.first(), sk.entry_stamps.last());
+    println!("escapes (ironspec 16:29: the napper on foot on the entry or the approach, out of the stop's box, or gone ([MIN..]): visits by first cell): {} {:?}", sk.escapes.values().sum::<usize>(), sk.escapes);
+    println!("every node of every path the nappers held ({} distinct cells): the declared-unreachable cell (-4,1,5) among them: {}; the uncovered approach flats (-2,0,-3..-1) among them: {}; the cells: {:?}", sk.path_nodes.len(), if unreachable_hit.is_empty() { "no" } else { "YES" }, (-3..=-1).filter(|&z| sk.path_nodes.contains(&[-2, 0, z])).count(), sk.path_nodes);
     println!("at the exit: no stamp {}, stamped {} (ages {:?}..{:?} gt); then on the bench's run-out (1,500 gt seated in a stopped cart, no stamp clearer): the stamp armed at exit + {:?}..{:?} gt over {} visits, its largest age at a calm REST tick {} gt, HOME lost {} (at exit + {:?}..{:?} gt)", sk.exit_no_stamp, sk.exit_stamps.len(), sk.exit_stamps.first(), sk.exit_stamps.last(), sk.post_armed.first(), sk.post_armed.last(), sk.post_armed.len(), sk.post_stamp_max, sk.post_lost, sk.post_lost_at.first(), sk.post_lost_at.last());
     Ok(())
 }
@@ -1915,6 +2102,11 @@ struct SkipTotals {
     panic_targets: std::collections::BTreeMap<(String, [i32; 3]), usize>,
     armed_after_wake: Vec<i64>,
     armed_at: std::collections::BTreeMap<String, usize>,
+    path_nodes: std::collections::BTreeSet<[i32; 3]>,
+    entry_no_stamp: usize,
+    entry_stamps: Vec<i64>,
+    entry_ats: Vec<i64>,
+    escapes: std::collections::BTreeMap<[i32; 3], usize>,
     most_drops: usize,
     classes: std::collections::BTreeMap<&'static str, usize>,
     lie_ticks: Vec<i64>,
@@ -1995,6 +2187,7 @@ pub fn two_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, restart_phases
     let (mut skip_rows, mut a_aborts, mut c_entries) = (0usize, 0usize, Vec::<i64>::new());
     let (mut north, mut c_ledge): (usize, Option<f64>) = (0, None);
     let mut calm16 = [0usize; 2];
+    let (mut lost_in, mut lost_out) = (0usize, 0usize);
     let mut dep_gaps: Vec<i64> = Vec::new();
     let mut ball_gaps: Vec<i64> = Vec::new();
     let mut ball_exits: Vec<i64> = Vec::new();
@@ -2038,6 +2231,8 @@ pub fn two_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, restart_phases
                             a_rs.push((r.start_day + x).rem_euclid(24000));
                         }
                         lost += (!r.home_lost.is_empty() || !r.homes_end.0 || !r.homes_end.1) as usize;
+                        lost_in += r.lost_in_stop as usize;
+                        lost_out += (r.lost_outside && !r.lost_in_stop) as usize;
                         north += r.north_path as usize;
                         calm16[0] += r.calm16[0];
                         calm16[1] += r.calm16[1];
@@ -2096,6 +2291,7 @@ pub fn two_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, restart_phases
     dep_gaps.sort();
     ball_gaps.sort();
     ball_exits.sort();
+    println!("HOME losses by place (G1's note 3): rows with a loss inside the stop's box {lost_in}; rows with losses only outside it (the bench's queue cell, its lift's top: no stamp clearer there; the real build's are the queue's and the loop's) {lost_out}");
     println!("the 16-block rule: calm-REST ticks within 16 of the bed head while the other napper slept there, A {} and C {} (bar 0); A's leaving the ball to C's lie-down {:?}..{:?} gt over {} rows (bar 20); A's R to its leaving the ball {:?}..{:?} gt over {} rows (day-1's bound 152, with this run's lift: --lift-delay/--lift-speed); consecutive departures (A's R to C's R) {:?}..{:?} gt over {} rows", calm16[0], calm16[1], ball_gaps.first(), ball_gaps.last(), ball_gaps.len(), ball_exits.first(), ball_exits.last(), ball_exits.len(), dep_gaps.first(), dep_gaps.last(), dep_gaps.len());
     if skip_rows > 0 {
         c_entries.sort();

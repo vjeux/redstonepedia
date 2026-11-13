@@ -6025,6 +6025,42 @@ pub enum MobfarmCmd {
         /// of these ticks after the entry (a list), then the sensor's own updates.
         #[arg(long)]
         panic_entries: Option<String>,
+        /// The pickup margin's sweep: the released cart set two cells north of the pickup cell
+        /// heading south at each of these speeds (b/t, a list).
+        #[arg(long)]
+        pickup_injects: Option<String>,
+        /// (ironspec 14:58, the boundary contract) The real approach: DESIGN is a module file in
+        /// the loop frame with the stop at loop = local + this offset (`x,y,z`); it is moved into the
+        /// stop's frame, the module's own rider at --queue-seat removed, and each visit's napper
+        /// spawned there at rest and released by a redstone block in --queue-release --queue-wait gt
+        /// later (all loop frame).
+        #[arg(long, allow_hyphen_values = true)]
+        module_offset: Option<String>,
+        #[arg(long, allow_hyphen_values = true)]
+        queue_seat: Option<String>,
+        #[arg(long, allow_hyphen_values = true)]
+        queue_release: Option<String>,
+        #[arg(long, default_value_t = 40)]
+        queue_wait: i64,
+        /// With --module-offset: a sweep of the queue wait (the release's phase), a list.
+        #[arg(long)]
+        queue_waits: Option<String>,
+        /// The contract's positive control: the napper's stamp armed as its cart enters the entry.
+        #[arg(long)]
+        forced_stamp: bool,
+        /// A cell of the design set to a block before the runs (`x,y,z=state`, repeatable; with
+        /// --module-offset in the stop's frame): an experiment on the composed geometry.
+        #[arg(long)]
+        set_cell: Vec<String>,
+        /// With --module-offset: the module's stop brought up to date, `OLD,NEW` (two stop files
+        /// in the stop's frame): every cell where they differ set in the moved module to NEW's
+        /// block (air where NEW has none), the cells they agree on left as composed.
+        #[arg(long)]
+        restop: Option<String>,
+        /// With --module-offset: the queue's release waits for dusk too (day-1's gate: REST_l and
+        /// NOT DAY, both up by this day time; a napper picked before a skip is held until then).
+        #[arg(long, default_value_t = 12_250)]
+        queue_dusk: i64,
         /// Visits run on this many threads.
         #[arg(long, default_value_t = 32)]
         jobs: usize,
@@ -13280,11 +13316,71 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("waker: {l}");
             }
         }
-        MobfarmCmd::BedtierBench { design, from, to, speeds, after_sleep, release_after, day, empty, no_home, hide_after_wake, restart, hour, restart_phases, orders, hours, skip, skip_phases, day_off, no_presence_gate, day_gate, day_on, live_day_seated, restart_after_skip, panic_entries, jobs } => {
-            let (_c, spec) = load(version, &design)?;
+        MobfarmCmd::BedtierBench { design, from, to, speeds, after_sleep, release_after, day, empty, no_home, hide_after_wake, restart, hour, restart_phases, orders, hours, skip, skip_phases, day_off, no_presence_gate, day_gate, day_on, live_day_seated, restart_after_skip, panic_entries, pickup_injects, module_offset, queue_seat, queue_release, queue_wait, queue_waits, forced_stamp, set_cell, restop, queue_dusk, jobs } => {
+            let (_c, mut spec) = load(version, &design)?;
             let restart = restart.as_deref().map(crate::liveness::parse_restart).transpose().map_err(|e| anyhow::anyhow!(e))?;
-            let faults = crate::bedtier::Faults { empty, no_home, hide_after_wake, restart, hour, skip, day_off, no_presence_gate, day_gate, day_on, live_day_seated, panic_entry: None };
-            crate::bedtier::bench_cmd(&spec, from, to, &speeds, after_sleep, release_after, day, &faults, [restart_phases.as_deref(), hours.as_deref(), skip_phases.as_deref(), restart_after_skip.as_deref(), panic_entries.as_deref()], &crate::bedtier::orders(&orders)?, jobs)?;
+            // (the real approach: the module moved into the stop's frame, its own queue rider out)
+            let triple = |s: &Option<String>| -> Result<Option<[f64; 3]>> {
+                match s {
+                    None => Ok(None),
+                    Some(s) => {
+                        let v: Vec<f64> = s.split(',').map(|x| x.trim().parse::<f64>()).collect::<std::result::Result<_, _>>()?;
+                        match v.as_slice() {
+                            &[a, b, c] => Ok(Some([a, b, c])),
+                            _ => anyhow::bail!("{s:?}: x,y,z wanted"),
+                        }
+                    }
+                }
+            };
+            let approach = match (triple(&module_offset)?, triple(&queue_seat)?, triple(&queue_release)?) {
+                (Some([ox, oy, oz]), Some([sx, sy, sz]), Some([rx, ry, rz])) => {
+                    let (ox, oy, oz) = (ox as i32, oy as i32, oz as i32);
+                    let (rx, ry, rz) = (rx as i32, ry as i32, rz as i32);
+                    spec = crate::bedtier::shift_spec(&spec, [-ox, -oy, -oz]);
+                    let seat = [sx - ox as f64, sy - oy as f64, sz - oz as f64];
+                    let n0 = spec.entities.len();
+                    // (the module's own riders out: the queue seat's, and the lanes' villagers (no HOME
+                    // in the file: free to claim the stop's bed by AcquirePoi); the posts' mobs stay)
+                    spec.entities.retain(|(t, _, n)| !(t == "minecraft:minecart" && n.as_deref().is_some_and(|s| s.contains("minecraft:villager"))));
+                    println!("the real approach: the module moved by ({},{},{}); its {} villager riders removed (the queue seat's and the lanes'); the napper spawned at {seat:?} (stop frame), released by ({},{},{}) {queue_wait} gt later", -ox, -oy, -oz, n0 - spec.entities.len(), rx - ox, ry - oy, rz - oz);
+                    Some(crate::bedtier::Approach { seat, release: [rx - ox, ry - oy, rz - oz], wait: queue_wait, dusk: queue_dusk })
+                }
+                (None, None, None) => None,
+                _ => anyhow::bail!("--module-offset, --queue-seat and --queue-release go together"),
+            };
+            // (the module's stop brought up to date: OLD's and NEW's differing cells)
+            if let Some(pair) = &restop {
+                let (old, new) = pair.split_once(',').ok_or_else(|| anyhow::anyhow!("--restop OLD,NEW"))?;
+                let (_c, so) = load(version, &PathBuf::from(old))?;
+                let (_c, sn) = load(version, &PathBuf::from(new))?;
+                let mo: std::collections::HashMap<redsim::pos::BlockPos, redsim::block::Block> = so.blocks.iter().copied().collect();
+                let mn: std::collections::HashMap<redsim::pos::BlockPos, redsim::block::Block> = sn.blocks.iter().copied().collect();
+                let mut cells: Vec<redsim::pos::BlockPos> = mo.keys().chain(mn.keys()).copied().filter(|p| mo.get(p) != mn.get(p)).collect();
+                cells.sort_by_key(|p| (p.y, p.x, p.z));
+                cells.dedup();
+                for p in &cells {
+                    spec.blocks.retain(|(q, _)| q != p);
+                    if let Some(b) = mn.get(p) {
+                        spec.blocks.push((*p, *b));
+                    }
+                }
+                println!("the module's stop brought up to date: {} cells differ between {old} and {new}: {}", cells.len(), cells.iter().map(|p| format!("({},{},{}) {}", p.x, p.y, p.z, mn.get(p).map_or("air".to_string(), |b| format!("{b}")))).collect::<Vec<_>>().join("; "));
+            }
+            // (the experiment's cells: set in the (moved) design before the runs)
+            for s in &set_cell {
+                let (at, st) = s.split_once('=').ok_or_else(|| anyhow::anyhow!("--set-cell {s:?}: x,y,z=state"))?;
+                let v: Vec<i32> = at.split(',').map(|x| x.trim().parse::<i32>()).collect::<std::result::Result<_, _>>()?;
+                let [x, y, z] = v.as_slice() else { anyhow::bail!("--set-cell {s:?}: x,y,z=state") };
+                let p = redsim::pos::BlockPos::new(*x, *y, *z);
+                let b = redsim::block::Block::parse(&format!("minecraft:{}", st.trim_start_matches("minecraft:"))).map_err(|e| anyhow::anyhow!(e))?;
+                spec.blocks.retain(|(q, _)| *q != p);
+                if !b.is_air() {
+                    spec.blocks.push((p, b));
+                }
+                println!("set {x},{y},{z} = {st}");
+            }
+            let faults = crate::bedtier::Faults { empty, no_home, hide_after_wake, restart, hour, skip, day_off, no_presence_gate, day_gate, day_on, live_day_seated, panic_entry: None, pickup_inject: None, approach, forced_stamp };
+            crate::bedtier::bench_cmd(&spec, from, to, &speeds, after_sleep, release_after, day, &faults, [restart_phases.as_deref(), hours.as_deref(), skip_phases.as_deref(), restart_after_skip.as_deref(), panic_entries.as_deref(), pickup_injects.as_deref(), queue_waits.as_deref()], &crate::bedtier::orders(&orders)?, jobs)?;
         }
         MobfarmCmd::BedtierTwo { design, from, to, speeds, restart_phases, orders, transit, lift_delay, lift_speed, day_hold, day_off, gap, c_at, skip_phases, day_on, jobs, day_gate, a_hours } => {
             let (_c, spec) = load(version, &design)?;
