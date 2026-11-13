@@ -133,10 +133,11 @@ pub struct Entity {
     pub movement_this_tick: Vec<collide::Movement>,
     /// `finalMovementsThisTick`.
     pub final_movements: Vec<collide::Movement>,
-    /// Instrumentation, no game state (ironspec Nov 13 07:47, the amended contact definition): this
-    /// tick's `Entity.move(MoverType.SELF, …)` calls as the game ran them, each with the box before,
-    /// the requested movement and the movement `collide` returned (the axes the collision clipped);
-    /// the list holds only the latest tick's moves (cleared by the first move of a new tick).
+    /// Instrumentation, no game state (ironspec Nov 13 07:47 / 10:02, the shared contact
+    /// definition): this tick's `Entity.move(MoverType.SELF, …)` calls as the game ran them, each with
+    /// the box before, the requested movement and the movement `collide` returned (the axes the
+    /// collision clipped); the list holds only the latest tick's moves (cleared by the first move of a
+    /// new tick). Recorded while `World::record_self_moves` (on by default); nothing in redsim reads it.
     pub self_moves: Vec<collide::SelfMove>,
     /// `mainSupportingBlockPos`.
     pub main_support: Option<BlockPos>,

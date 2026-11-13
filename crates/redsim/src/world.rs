@@ -176,6 +176,11 @@ pub struct World {
     /// (tickexact 2026-11-10) Inside [`World::tick`], entities included (the bridge's
     /// `Sandbox.ticking`: a drop then is reseeded by its drop seeder, [`World::pop_resource`]).
     pub in_tick: bool,
+    /// Instrumentation (ironspec Nov 13 07:47 / 10:02, the shared contact definition): record every
+    /// `Entity.move(MoverType.SELF, …)` in `Entity::self_moves` (on by default; nothing in redsim
+    /// reads the record, and `entity::collide::tests::self_move_recording_changes_nothing` checks the
+    /// runs are byte-identical with it off).
+    pub record_self_moves: bool,
     /// (tickexact 2026-11-10) `ServerLevel.isSpawningMonsters` (SPAWN_MOBS and SPAWN_MONSTERS) for
     /// a world without natural spawning (`mob.natural` None): `None` = on (the judge's void runs,
     /// whose game has them on); a mob AI fixture scene sets its sandbox's rules (a nether portal's
@@ -397,6 +402,7 @@ impl World {
             nu_count: 0,
             handling_tick: false,
             in_tick: false,
+            record_self_moves: true,
             spawn_monsters: None,
             comparator_out: HashMap::new(),
             containers: Default::default(),

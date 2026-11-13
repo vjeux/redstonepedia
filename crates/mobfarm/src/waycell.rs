@@ -628,6 +628,23 @@ pub fn schedule_fluids(w: &mut redsim::world::World, chunk: [i32; 4]) -> usize {
     n
 }
 
+/// (ironspec 10:42 / 10:58) one declared contact cell's figures over a run's bar rows: the bounded
+/// form's reference (ticks, events as maximal consecutive runs, the most ticks in one event and events
+/// in one row, the largest clipped amount per axis, the horizontal speed into and out of its ticks,
+/// the ticks after which the cart did not move).
+#[derive(Default, Debug)]
+pub(crate) struct DeclStats {
+    pub ticks: u64,
+    pub events: u64,
+    pub rows: u32,
+    pub max_event_ticks: u32,
+    pub max_row_events: u32,
+    pub clip: [f64; 3],
+    pub v_in: Option<(f64, f64)>,
+    pub v_out: Option<(f64, f64)>,
+    pub stalls: u64,
+}
+
 // (ironspec 10:02: ONE CONTACT RULE) the ride rows' contacts come from the shared
 // `crate::contacts::cart_contacts` (no copy of the contact definition here).
 
@@ -1079,6 +1096,16 @@ pub fn ride_rows_core(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u
     // (ironspec 23:56: no vacuous passes) each bar's samples: game-time steps, cart ticks (contacts),
     // rider ticks (the eye), fence-gap samples over the way-in box's fences
     let fences = fences_in(&base.world, [2, -27, -8], [9, -11, 3]);
+    // (ironspec 10:02 (b), the shared `contacts::stale_declared`) the declared contacts in the ride's
+    // own scope (the way-in's box, the fences' box): each must be met at least once over the bar rows
+    // or it is STALE (the row set fails); the record's other declarations (lanes, drop entries) are
+    // out of this bench's scope
+    let declared_in_scope: Vec<BlockPos> = o.declared_contacts.iter().filter(|c| (2..=9).contains(&c[0]) && (-27..=-11).contains(&c[1]) && (-8..=3).contains(&c[2])).map(|c| BlockPos::new(c[0], c[1], c[2])).collect();
+    let mut declared_hits: std::collections::HashMap<[i32; 3], usize> = std::collections::HashMap::new();
+    // (ironspec 10:42 / 10:58: the bounded form's REFERENCE figures over the bar rows) per declared
+    // cell: its contact ticks and events, the most ticks in one event and events in one row, the
+    // largest clipped amount per axis, the speed into and out of its ticks, the stalls
+    let mut decl_stats: std::collections::BTreeMap<[i32; 3], DeclStats> = std::collections::BTreeMap::new();
     let (mut steps_n, mut cart_ticks_n, mut rider_ticks_n, mut fence_n) = (0u64, 0u64, 0u64, 0u64);
     // (b8949c96 09:51) the bar rows' ticks with an UNDECLARED contact (the contact bar's count; the
     // declared ones print per row)
@@ -1138,6 +1165,18 @@ pub fn ride_rows_core(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u
         let mut eye_wet = 0u32;
         let mut contacts = 0u32;
         let mut declared_contact_ticks = 0u32;
+        // (ironspec 10:20, the bounded-contact rule's terms, printed until its form is fixed) each
+        // declared contact tick of this row: the cell, the clipped amount per axis (requested -
+        // returned of the cart's Entity.move(SELF) calls that tick), the horizontal speed before and
+        // after the tick, and whether the cart moved on the next tick (no stall)
+        let mut declared_events: Vec<String> = Vec::new();
+        let mut v_prev: Option<f64> = None;
+        let mut stall_check: Option<(Option<usize>, [f64; 3], Vec<[i32; 3]>)> = None;
+        // (ironspec 10:42 / 10:58) this row's declared-contact runs: the cells met last tick, each
+        // cell's current run length and its events (maximal consecutive runs) in this row
+        let mut decl_prev: Vec<[i32; 3]> = Vec::new();
+        let mut row_runs: std::collections::HashMap<[i32; 3], u32> = std::collections::HashMap::new();
+        let mut row_events: std::collections::HashMap<[i32; 3], u32> = std::collections::HashMap::new();
         let mut contact_cells: Vec<BlockPos> = Vec::new();
         let mut time_jumps = 0u32;
         let mut idle_n: Option<i64> = None;
@@ -1196,6 +1235,22 @@ pub fn ride_rows_core(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u
             let shared = crate::contacts::cart_contacts(&run.world, ci);
             let e = &run.world.entities.list[ci];
             cart_ticks_n += bar_row as u64;
+            let v_now = (e.delta_movement.x.powi(2) + e.delta_movement.z.powi(2)).sqrt();
+            // the previous declared event's stall check: did the cart move on the tick after it?
+            if let Some((ev, p0, cells0)) = stall_check.take() {
+                let moved = (e.pos.x - p0[0]).abs() + (e.pos.y - p0[1]).abs() + (e.pos.z - p0[2]).abs() > 1e-6;
+                if let Some(s) = ev.and_then(|ev| declared_events.get_mut(ev)) {
+                    s.push_str(if moved { ", the next tick moving (no stall)" } else { ", the next tick NOT MOVING (a stall)" });
+                }
+                if !moved {
+                    for c in cells0 {
+                        decl_stats.entry(c).or_default().stalls += 1;
+                    }
+                }
+            }
+            // (ironspec 10:42 / 10:58: the bounded form's reference figures) the declared cells this
+            // tick met, for the per-cell events (maximal consecutive runs) and ticks
+            let mut decl_now: Vec<[i32; 3]> = Vec::new();
             if !shared.is_empty() {
                 let cells: Vec<BlockPos> = shared.iter().map(|(p, _)| *p).collect();
                 // a tick whose contact cells are all declared (the design's `# contacts:` / `# stops:`,
@@ -1208,12 +1263,66 @@ pub fn ride_rows_core(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u
                 } else {
                     declared_contact_ticks += 1;
                 }
+                let t_now = run.world.time;
+                // the tick's clipped amount per axis (requested - returned, the largest of its moves)
+                let mut clip = [0.0f64; 3];
+                for m in e.self_moves.iter().filter(|m| m.tick == t_now) {
+                    for (k, d) in [m.requested.x - m.returned.x, m.requested.y - m.returned.y, m.requested.z - m.returned.z].into_iter().enumerate() {
+                        if d.abs() > clip[k].abs() {
+                            clip[k] = d;
+                        }
+                    }
+                }
+                decl_now = cells.iter().filter(|c| o.declared_contacts.contains(&[c.x, c.y, c.z])).map(|c| [c.x, c.y, c.z]).collect();
+                if bar_row {
+                    for c in &decl_now {
+                        let run_n = if decl_prev.contains(c) { row_runs.get(c).copied().unwrap_or(0) + 1 } else { 1 };
+                        row_runs.insert(*c, run_n);
+                        let st = decl_stats.entry(*c).or_default();
+                        st.ticks += 1;
+                        if run_n == 1 {
+                            st.events += 1;
+                            *row_events.entry(*c).or_default() += 1;
+                        }
+                        st.max_event_ticks = st.max_event_ticks.max(run_n);
+                        for k in 0..3 {
+                            st.clip[k] = st.clip[k].max(clip[k].abs());
+                        }
+                        if let Some(vp) = v_prev {
+                            st.v_in = Some(st.v_in.map_or((vp, vp), |(a, b)| (a.min(vp), b.max(vp))));
+                        }
+                        st.v_out = Some(st.v_out.map_or((v_now, v_now), |(a, b)| (a.min(v_now), b.max(v_now))));
+                    }
+                }
+                let pushed = if !undeclared && declared_events.len() < 4 {
+                    declared_events.push(format!(
+                        "{} at t {t}: clipped x {:.4} y {:.4} z {:.4}; speed {} -> {v_now:.4} b/t",
+                        cells.iter().map(|c| c.to_string()).collect::<Vec<_>>().join("+"),
+                        clip[0],
+                        clip[1],
+                        clip[2],
+                        v_prev.map_or("-".to_string(), |v| format!("{v:.4}"))
+                    ));
+                    Some(declared_events.len() - 1)
+                } else {
+                    None
+                };
+                // the stall check on the next tick: the printed event's, and the declared cells' stats
+                if !decl_now.is_empty() {
+                    stall_check = Some((pushed, [e.pos.x, e.pos.y, e.pos.z], if bar_row { decl_now.clone() } else { Vec::new() }));
+                }
                 for c in cells {
+                    // (ironspec 10:02 (b)) each declared cell's hits over the bar rows (the stale check)
+                    if bar_row && o.declared_contacts.contains(&[c.x, c.y, c.z]) {
+                        *declared_hits.entry([c.x, c.y, c.z]).or_default() += 1;
+                    }
                     if !contact_cells.contains(&c) {
                         contact_cells.push(c);
                     }
                 }
             }
+            v_prev = Some(v_now);
+            decl_prev = decl_now;
             if k == 0 && restart.is_none() && freeze.is_none() {
                 if let Some(v) = positions.as_deref_mut() {
                     v.push([e.pos.x, e.pos.y, e.pos.z]);
@@ -1364,6 +1473,14 @@ pub fn ride_rows_core(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u
             }
         }
         centres.push(centre);
+        // (ironspec 10:42 / 10:58) the row's events per declared cell, for the per-row maximum
+        if freeze.is_none() {
+            for (c, n) in &row_events {
+                let st = decl_stats.entry(*c).or_default();
+                st.max_row_events = st.max_row_events.max(*n);
+                st.rows += 1;
+            }
+        }
         rows.push((
             format!(
                 "{label}{}{}{}{}{} [after the landing: the box's z at most {box_z_max:.4}, vz at most {vz_max:.4}]",
@@ -1374,7 +1491,11 @@ pub fn ride_rows_core(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u
                 if contacts > 0 {
                     format!(" (CONTACTS {contacts} ticks at {})", contact_cells.iter().filter(|c| !o.declared_contacts.contains(&[c.x, c.y, c.z])).map(|c| format!("{c} {}", run.world.get(*c))).collect::<Vec<_>>().join(", "))
                 } else if declared_contact_ticks > 0 {
-                    format!(" (declared contacts {declared_contact_ticks} tick(s) at {})", contact_cells.iter().map(|c| format!("{c} {}", run.world.get(*c))).collect::<Vec<_>>().join(", "))
+                    format!(
+                        " (declared contacts {declared_contact_ticks} tick(s) at {}: {})",
+                        contact_cells.iter().map(|c| format!("{c} {}", run.world.get(*c))).collect::<Vec<_>>().join(", "),
+                        declared_events.join(" | ")
+                    )
                 } else {
                     String::new()
                 }
@@ -1506,9 +1627,42 @@ pub fn ride_rows_core(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u
     };
     // (G1 07:00 / 08:12: every verdict reaches the exit status) the ride rows' verdict returned beside
     // their lines
-    let pass = !vacuous && all_ok && td_ok && watch_ok && probe_ok && !(fence_min.is_finite() && fence_min <= 0.0);
+    let stale = crate::contacts::stale_declared(&declared_in_scope, &|p: BlockPos| declared_hits.get(&[p.x, p.y, p.z]).copied().unwrap_or(0));
+    let stale_line = format!(
+        "; the declared contacts in the ride's scope {}: {}; their reference figures over the bar rows (ironspec 10:42 / 10:58): {}",
+        if declared_in_scope.is_empty() { "(none)".to_string() } else { declared_in_scope.iter().map(|p| format!("{p} hit {} tick(s)", declared_hits.get(&[p.x, p.y, p.z]).copied().unwrap_or(0))).collect::<Vec<_>>().join(", ") },
+        if stale.is_empty() { "none stale".to_string() } else { format!("STALE {stale:?} (declared, never met: the row set fails)") },
+        if decl_stats.is_empty() {
+            "none met".to_string()
+        } else {
+            decl_stats
+                .iter()
+                .map(|(c, s)| {
+                    format!(
+                        "({},{},{}): {} tick(s) in {} event(s) over {} row(s), at most {} tick(s) an event and {} event(s) a row, the largest clip x {:.4} y {:.4} z {:.4}, speed in {} -> out {} b/t, {} stall(s)",
+                        c[0],
+                        c[1],
+                        c[2],
+                        s.ticks,
+                        s.events,
+                        s.rows,
+                        s.max_event_ticks,
+                        s.max_row_events,
+                        s.clip[0],
+                        s.clip[1],
+                        s.clip[2],
+                        s.v_in.map_or("-".to_string(), |(a, b)| format!("{a:.4}..{b:.4}")),
+                        s.v_out.map_or("-".to_string(), |(a, b)| format!("{a:.4}..{b:.4}")),
+                        s.stalls
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("; ")
+        }
+    );
+    let pass = !vacuous && all_ok && td_ok && watch_ok && probe_ok && stale.is_empty() && !(fence_min.is_finite() && fence_min <= 0.0);
     out.push(format!(
-        "(ride) {} rows ({fluid_n} fluid cell(s) of the chunk given their tick): the entry reached in {} of them at t {}..{} after the release, {:.4}..{:.4} b/t heading west (the bar [{}, {}], inherited: ironspec 21:25 from 58f770cc's A6 park sweep){centre_line}; 0 hurt, on rails, never back south; {}; {}; {}; the closest fence box (post and arms as laid) to the cart's box: {}; {td_line}{watch_line}{}: {}",
+        "(ride) {} rows ({fluid_n} fluid cell(s) of the chunk given their tick): the entry reached in {} of them at t {}..{} after the release, {:.4}..{:.4} b/t heading west (the bar [{}, {}], inherited: ironspec 21:25 from 58f770cc's A6 park sweep){centre_line}{stale_line}; 0 hurt, on rails, never back south; {}; {}; {}; the closest fence box (post and arms as laid) to the cart's box: {}; {td_line}{watch_line}{}: {}",
         bar.len(),
         ts.len(),
         ts.iter().min().copied().unwrap_or(0),

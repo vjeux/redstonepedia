@@ -17,7 +17,11 @@
 //!   move the wall clips).
 //!
 //! redsim records each `move(SELF, …)` per entity (`Entity::self_moves`: the box before, requested,
-//! returned, the tick); [`cart_contacts`] judges a cart's moves of the world's current tick.
+//! returned, the tick; `World::record_self_moves`, on by default, its no-change test in redsim);
+//! [`cart_contacts`] judges a cart's moves of the world's current tick, and [`stale_declared`] the
+//! declared stops no contact met. ONE contact rule (ironspec Nov 13 10:02): every bench's contact
+//! counts go through these (ironfarm's siding bench, b8949c96's L1 rides, 58f770cc's C10, 7b90c3f1's
+//! H14), each caller's control a planted undeclared contact failing through them.
 
 use redsim::entity::collide::SelfMove;
 use redsim::entity::vec3::Aabb;
@@ -85,6 +89,12 @@ pub fn cart_contacts(world: &World, i: usize) -> Vec<(BlockPos, String)> {
     world.entities.list[i].self_moves.iter().filter(|m| m.tick == t).flat_map(|m| face_contacts_world(world, m)).collect()
 }
 
+/// The declared stops no contact met (G1's CHANGES 3 (2), ironspec Nov 13 10:02 (b)): a declaration
+/// that never applies is STALE and fails its row; `hits` counts a cell's contacts over the run.
+pub fn stale_declared(declared: &[BlockPos], hits: &dyn Fn(BlockPos) -> usize) -> Vec<BlockPos> {
+    declared.iter().copied().filter(|p| hits(*p) == 0).collect()
+}
+
 /// A design's declared contacts, strictly (G1's CHANGES 3 (3)): every `# contacts:` and `# stops:`
 /// line's entries (split by the shared `pushscan::header_entries`, so a REASON may hold "; "), each
 /// `x,y,z[+x,y,z…]=REASON`; a malformed cell or an entry with no '=' is an error, never dropped.
@@ -93,6 +103,10 @@ pub fn declared_contacts_strict(text: &str) -> Result<Vec<(BlockPos, String)>, S
     for key in ["contacts:", "stops:"] {
         for entry in crate::pushscan::header_entries(text, key) {
             let (cells, reason) = entry.split_once('=').ok_or_else(|| format!("# {key} {entry}: x,y,z[+x,y,z…]=REASON"))?;
+            // (G1's note on 329b5acc3: a declaration with an empty REASON is as bad as none)
+            if reason.trim().is_empty() {
+                return Err(format!("# {key} {entry}: an empty REASON (x,y,z[+x,y,z…]=REASON)"));
+            }
             for cell in cells.split('+') {
                 let v: Vec<i32> = cell.trim().trim_matches(|c| c == '(' || c == ')').split(',').map(|t| t.trim().replace('\u{2212}', "-").parse::<i32>()).collect::<Result<_, _>>().map_err(|e| format!("# {key} {entry}: cell {cell:?}: {e}"))?;
                 if v.len() != 3 {
@@ -266,6 +280,10 @@ mod tests {
             hit.extend(cart_contacts(&w, i));
         }
         assert!(hit.iter().any(|(p, _)| *p == BlockPos::new(0, 1, -1)), "{hit:?}");
+        // (ironspec 10:02 (b), the stale class through the same record: the wall, declared, is hit;
+        // a declared cell no cart ever met reads stale)
+        let count = |p: BlockPos| hit.iter().filter(|(q, _)| *q == p).count();
+        assert_eq!(stale_declared(&[BlockPos::new(0, 1, -1), BlockPos::new(0, 1, 11)], &count), vec![BlockPos::new(0, 1, 11)]);
     }
 
     /// The strict `# contacts:` reader (G1's CHANGES 3 (3)): every entry of every line, cells joined
@@ -280,5 +298,7 @@ mod tests {
         assert!(declared_contacts_strict("# contacts: -1,24,x=bad\n").is_err());
         assert!(declared_contacts_strict("# contacts: -1,24=short\n").is_err());
         assert!(declared_contacts_strict("# contacts: -1,24,5\n").is_err());
+        assert!(declared_contacts_strict("# contacts: -1,24,5=\n").is_err());
+        assert!(declared_contacts_strict("# contacts: -1,24,5=   \n").is_err());
     }
 }
