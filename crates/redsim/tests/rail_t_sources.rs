@@ -52,6 +52,7 @@ fn only_a_source_change_reshapes_a_powered_t() {
         // (a ceiling for a lever over the T, laid RAW)
         w.place_raw(&[(BlockPos::new(0, 3, 0), Block::parse("stone").unwrap())]);
         let j = junction_at(&w, c).unwrap();
+        assert_ne!(j.unpowered, j.powered, "the T's two settles differ (else the control proves nothing)");
         assert!(j.signal, "the redstone block powers the T");
         assert_eq!(shape_of(&w.get(c)), j.unpowered, "laid RAW: still its unpowered settle");
         (w, c, j)

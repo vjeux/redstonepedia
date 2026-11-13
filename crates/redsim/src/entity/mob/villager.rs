@@ -9,7 +9,8 @@
 //! `wantsToSpawnGolem`, `golemSpawnConditionsMet`; `LivingEntity.startSleeping` /
 //! `stopSleeping` (`AbstractBedBlock.findStandUpPosition`).
 //!
-//! Every other behavior (walking, looking, trading, gossip, job sites, breeding, bells, raids)
+//! (Gossip is modeled in the exact brain: IDLE's TradeWithVillager -> `gossip` -> `spawnGolemIfNeeded(…, 5)`, ai/brain/run.rs.)
+//! Every other behavior (walking, looking, trading, job sites, breeding, bells, raids)
 //! is not modeled: the judge refuses a design where one could change the outcome (the villagers
 //! are confined, never calm outside REST in a cluster of 5, no job site or food in reach).
 
