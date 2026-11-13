@@ -374,59 +374,192 @@ pub fn levels(w: &World, b: [i32; 4]) -> (i32, i32) {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Restart {
     /// A save/stop/start between two ticks: every chunk of the part saved and unloaded
-    /// (`redsim::reload::unload_all`) and loaded again (`load_all_ordered`) in this entity order
-    /// before the next tick (no game time passes): the scheduled block and fluid ticks back with their
-    /// remaining delays, the block entities registered again, every entity back as a new object under
-    /// a new id with its motion, passengers and codec'd memories, its uncodec'd memories lost and its
-    /// sensor timers redrawn, as redsim's bridged load models them. (Block events never cross a tick
-    /// boundary: none is pending between two ticks.)
-    Load(redsim::reload::Order),
+    /// (`redsim::reload::unload_all`) and loaded again (`load_all_ordered`) in this entity `order`: the
+    /// scheduled block and fluid ticks back with their remaining delays, the block entities registered
+    /// again, every entity back as a new object under a new id with its motion, passengers and codec'd
+    /// memories, its uncodec'd memories lost and its sensor timers redrawn, as redsim's bridged load models
+    /// them; then the load's own state for 1 + `extra` ticks ([`restart`]: blocks and redstone ticking, no
+    /// entity and no block entity; `extra` > 0 a slow load, its entities loading later than one tick,
+    /// ironspec 22:20 (3)). (Block events never cross a tick boundary: none is pending between two ticks.)
+    Load { order: redsim::reload::Order, extra: i64 },
 }
 
 impl Restart {
-    /// `save`, `reverse` or `seed:K` (K < 1000).
+    /// The official load in `order` (one load tick).
+    pub fn load(order: redsim::reload::Order) -> Restart {
+        Restart::Load { order, extra: 0 }
+    }
+
+    /// `save`, `reverse` or `seed:K` (K < 1000), with `+F` a slow load's F extra load ticks.
     pub fn parse(s: &str) -> Option<Restart> {
-        redsim::reload::Order::parse(s.trim()).map(Restart::Load)
+        let s = s.trim();
+        let (o, extra) = match s.rsplit_once('+') {
+            Some((o, f)) => (o, f.trim().parse::<i64>().ok().filter(|f| *f >= 0)?),
+            None => (s, 0),
+        };
+        redsim::reload::Order::parse(o.trim()).map(|order| Restart::Load { order, extra })
+    }
+
+    /// The row's entity load order.
+    pub fn order(&self) -> redsim::reload::Order {
+        let Restart::Load { order, .. } = *self;
+        order
+    }
+
+    /// The load's ticks: 1 + its extra ones.
+    pub fn load_ticks(&self) -> i64 {
+        let Restart::Load { extra, .. } = *self;
+        1 + extra.max(0)
+    }
+
+    /// The same load with `f` extra load ticks (the restart x F rows: a slow load).
+    pub fn with_extra(self, f: i64) -> Restart {
+        Restart::Load { order: self.order(), extra: f.max(0) }
     }
 
     pub fn label(&self) -> String {
-        match self {
-            Restart::Load(redsim::reload::Order::Save) => "save".into(),
-            Restart::Load(redsim::reload::Order::Reverse) => "reverse".into(),
-            Restart::Load(redsim::reload::Order::Seed(k)) => format!("seed:{k}"),
-        }
+        let o = match self.order() {
+            redsim::reload::Order::Save => "save".to_string(),
+            redsim::reload::Order::Reverse => "reverse".to_string(),
+            redsim::reload::Order::Seed(k) => format!("seed:{k}"),
+        };
+        if self.load_ticks() > 1 { format!("{o}+{}", self.load_ticks() - 1) } else { o }
     }
 
     /// The rows a judge runs at every phase: the save order, its reverse and 8 seeded orders
-    /// (ironspec's reload-order rule).
+    /// (ironspec's reload-order rule), each the official load (one load tick: tick-exact's held attempts;
+    /// the "moved" ones were the same trajectory by world tick, a harness counting artefact, so there is one
+    /// physical branch, ironspec 22:20 (2)).
     pub fn rows() -> Vec<Restart> {
-        let mut v = vec![Restart::Load(redsim::reload::Order::Save), Restart::Load(redsim::reload::Order::Reverse)];
-        v.extend((1..=8).map(|k| Restart::Load(redsim::reload::Order::Seed(k))));
+        let mut v = vec![Restart::load(redsim::reload::Order::Save), Restart::load(redsim::reload::Order::Reverse)];
+        v.extend((1..=8).map(|k| Restart::load(redsim::reload::Order::Seed(k))));
         v
     }
 }
 
 /// `--restart T,ORDER` (repeatable in a bench's CLI): the tick and the [`Restart`].
 pub fn parse_restart(s: &str) -> Result<(i64, Restart), String> {
-    let (t, how) = s.split_once(',').ok_or(format!("--restart {s}: T,ORDER (ORDER save, reverse or seed:K)"))?;
+    let (t, how) = s.split_once(',').ok_or(format!("--restart {s}: T,ORDER (ORDER save, reverse or seed:K, +F for a slow load's F extra load ticks)"))?;
     let t = t.trim().parse::<i64>().map_err(|e| format!("--restart {s}: {e}"))?;
-    let how = Restart::parse(how).ok_or(format!("--restart {s}: ORDER is save, reverse or seed:K"))?;
+    let how = Restart::parse(how).ok_or(format!("--restart {s}: ORDER is save, reverse or seed:K (+F: F extra load ticks)"))?;
     Ok((t, how))
 }
 
-/// Restart world `w` between two ticks ([`Restart`]). Returns the entities' new ids (old -> new) for
-/// the bench to follow its carts and riders by (any id since also follows through [`follow`]); an
-/// error when the reload model refuses the world (a player, falling blocks: `w.errors`).
-pub fn restart(w: &mut World, how: Restart) -> Result<std::collections::HashMap<u32, u32>, String> {
+/// What a [`restart`] did (ironspec 21:13: nothing silently dropped): the entities' new ids (old -> new;
+/// it reads as that map), the load ticks' game times (`first..=at`), the entity-free ticks the restart
+/// itself ran (`entity_free`: 1 + its extra load ticks, measured as the ticks run with no entity ticking)
+/// and the entities they held (`held`: each noted frozen at the first load tick in `World::frozen`, kept
+/// there, so a freeze that goes on from the load reads as starting on it).
+#[derive(Clone, Debug, Default)]
+pub struct Restarted {
+    pub ids: std::collections::HashMap<u32, u32>,
+    pub first: i64,
+    pub at: i64,
+    pub entity_free: i64,
+    pub held: usize,
+    /// Entities created in the load ticks (a dispenser's or dropper's output, a block's drop: G1's note (a),
+    /// ironspec 22:16 (2)): not there to hold, listed here and in the note, exempt from the held check.
+    pub created: Vec<u32>,
+    /// The world has a Nether part (`World::nether`): the reload model doesn't save it, so it ticks normally
+    /// through the load ticks and keeps its in-memory state; the row counts as unmodelled until the reload
+    /// model saves and loads both dimensions (ironspec 21:23/21:24: said in the note, not silent).
+    pub nether: bool,
+}
+
+impl std::ops::Deref for Restarted {
+    type Target = std::collections::HashMap<u32, u32>;
+    fn deref(&self) -> &Self::Target {
+        &self.ids
+    }
+}
+
+impl Restarted {
+    /// The row's entity-free ticks with an `f`-gt level-32 freeze going on from the load's end (a genuine
+    /// freeze, block entities ticking; a slow load is the restart's own extra load ticks, ironspec 22:20
+    /// (3)): the load's ticks plus `f`.
+    pub fn with_freeze(&self, f: i64) -> i64 {
+        self.entity_free + f.max(0)
+    }
+
+    /// The text every restart row prints (ironspec 21:13): `entity-free ticks N (the load's tick at gt T
+    /// holding H entities[, C created in it])`, a slow load's `entity-free ticks 1 + F = N (the load's ticks
+    /// at gt A..=B …)`, `[ + a F-gt level-32 freeze from it]`, and with a Nether part `; Nether restart not
+    /// modelled in redsim (…): this row UNMODELLED` (ironspec 21:24).
+    pub fn note(&self, f: i64) -> String {
+        let n = if self.entity_free > 1 { format!("1 + {} = {}", self.entity_free - 1, self.with_freeze(f)) } else { self.with_freeze(f).to_string() };
+        let ticks = if self.entity_free > 1 { format!("the load's ticks at gt {}..={}", self.first, self.at) } else { format!("the load's tick at gt {}", self.at) };
+        format!(
+            "entity-free ticks {n} ({ticks} holding {} entities{}{}){}",
+            self.held,
+            if self.created.is_empty() { String::new() } else { format!(", {} created in it {:?}", self.created.len(), self.created) },
+            if f > 0 { format!(" + a {f}-gt level-32 freeze from it") } else { String::new() },
+            if self.nether { "; Nether restart not modelled in redsim (the Nether part ticked normally through the load and kept its in-memory state): this row UNMODELLED" } else { "" }
+        )
+    }
+}
+
+/// The held check of a load's ticks (measured, not assumed): every entity alive after them that was there
+/// before them (`present`) must have been held (noted frozen in them: `noted`; a block may still remove
+/// one, a hopper taking an item); one created in them (a dispenser's output, a drop) is listed, exempt.
+/// Returns (held, created) or the entities that ticked.
+pub fn load_held(present: &std::collections::HashSet<u32>, live: &[u32], noted: &std::collections::HashSet<u32>) -> Result<(usize, Vec<u32>), Vec<u32>> {
+    let ticked: Vec<u32> = live.iter().copied().filter(|id| present.contains(id) && !noted.contains(id)).collect();
+    if !ticked.is_empty() {
+        return Err(ticked);
+    }
+    Ok((live.iter().filter(|id| present.contains(id)).count(), live.iter().copied().filter(|id| !present.contains(id)).collect()))
+}
+
+/// Restart world `w` between two ticks ([`Restart`]): the official load (tick-exact, farmopt 2026-11-12
+/// 21:07; ironspec 20:35 (2a), 21:13, 22:20): the world saved and stopped, then loaded in `how`'s entity
+/// order, then the load's own state for 1 + extra ticks: game time + 1 each, the scheduled ticks, block
+/// events and redstone run, no entity and no block entity ticks (the loaded world ticks before its
+/// entities are loaded; a slow load's entities load later, ironspec 22:20 (3)), the load order kept for the
+/// ticks after. Each load tick advances day time like a normal tick (`getDayTime` = the day offset + game
+/// time; tick-exact's re-recorded fixture prints day time beside game time, ironspec 22:16 (2b)). No block
+/// entity ticks in them (tick-exact's reading of 26.3, ironspec 22:16 (1) / 22:20 (1):
+/// `BoundTickingBlockEntity.tick` checks `LevelChunk.isTicking(pos)` = block-ticking and
+/// `areEntitiesLoaded`, and the chunk is marked entity-loaded in `entityManager.tick()`, which
+/// `ServerLevel.tick` runs after `tickBlockEntities()`): hoppers, crafters, daylight detectors (a 20-gt
+/// check falling on a load tick is skipped), sculk sensors and moving pistons start the tick after
+/// (`World::skip_block_entities`). Returns [`Restarted`]: the entities' new ids (old -> new) for the bench
+/// to follow its carts and riders by (any id since also follows through [`follow`]) and the entity-free
+/// ticks every restart row prints ([`Restarted::note`]); an error when the reload model refuses the world
+/// (a player, falling blocks: `w.errors`), a partial unload is active (the load ticks need every chunk) or
+/// an entity ticked in a load tick.
+pub fn restart(w: &mut World, how: Restart) -> Result<Restarted, String> {
     let errors = w.errors.len();
     let before: Vec<u32> = w.entities.list.iter().filter(|e| !e.removed).map(|e| e.id).collect();
-    let Restart::Load(order) = how;
     redsim::reload::unload_all(w);
-    redsim::reload::load_all_ordered(w, order);
+    redsim::reload::load_all_ordered(w, how.order());
     if w.errors.len() > errors {
         return Err(format!("restart {}: {}", how.label(), w.errors[errors..].join("; ")));
     }
-    Ok(before.into_iter().map(|id| (id, follow(w, id))).collect())
+    if !w.unforced.is_empty() {
+        return Err(format!("restart {}: a partial unload is active; the load's ticks need every chunk loaded", how.label()));
+    }
+    // (the load ticks: an empty entity-ticking range, so `entity_ticks_at` is false everywhere and no
+    // entity ticks, its place in the list kept; the freezes they note stay in `World::frozen`, counted; no
+    // block entity ticks either)
+    let (ec, frozen) = (w.entity_chunks, w.frozen.len());
+    let present: std::collections::HashSet<u32> = w.entities.list.iter().filter(|e| !e.removed).map(|e| e.id).collect();
+    let first = w.time + 1;
+    w.entity_chunks = Some([1, 1, 0, 0]);
+    w.skip_block_entities = true;
+    for _ in 0..how.load_ticks() {
+        w.tick();
+    }
+    w.skip_block_entities = false;
+    w.entity_chunks = ec;
+    if w.errors.len() > errors {
+        return Err(format!("restart {}: the load's ticks: {}", how.label(), w.errors[errors..].join("; ")));
+    }
+    let at = w.time;
+    let noted: std::collections::HashSet<u32> = w.frozen[frozen..].iter().filter(|(t, _)| *t >= first && *t <= at).map(|(_, id)| *id).collect();
+    let live: Vec<u32> = w.entities.list.iter().filter(|e| !e.removed).map(|e| e.id).collect();
+    let (held, created) = load_held(&present, &live, &noted).map_err(|t| format!("restart {}: the load's ticks ticked entities {t:?}", how.label()))?;
+    let ids = before.iter().map(|id| (*id, follow(w, *id))).collect();
+    Ok(Restarted { ids, first, at, entity_free: how.load_ticks(), held, created, nether: w.nether.is_some() })
 }
 
 /// An entity's current id after any restarts (from the id it had once, or any since).
@@ -515,24 +648,183 @@ mod tests {
         let n0 = w.ticks.count();
         assert!(n0 >= 1);
         let live_cart = |w: &World, id: u32| w.entities.list.iter().any(|e| e.id == id && !e.removed && matches!(e.kind, redsim::entity::EntityKind::Minecart(_)));
-        let ids = restart(&mut w, Restart::Load(redsim::reload::Order::Reverse)).unwrap();
+        let ids = restart(&mut w, Restart::load(redsim::reload::Order::Reverse)).unwrap();
         let now = follow(&w, cart);
         assert_ne!(now, cart);
         assert_eq!(ids.get(&cart), Some(&now));
         assert!(live_cart(&w, now));
         assert_eq!(w.ticks.count(), n0, "a save/stop/start keeps the pending tick");
-        restart(&mut w, Restart::Load(redsim::reload::Order::Seed(2))).unwrap();
+        restart(&mut w, Restart::load(redsim::reload::Order::Seed(2))).unwrap();
         let again = follow(&w, cart);
         assert_ne!(again, now, "a second restart renumbers again");
         assert!(live_cart(&w, again), "the first id follows to a live minecart");
         assert_eq!(follow(&w, now), again, "the id between follows to the same one");
         assert_eq!(w.ticks.count(), n0);
+        // (one physical branch (ironspec 22:20 (2)): the 10 orders, each the official load; a slow load's
+        // extra load ticks labelled +F)
         let rows = Restart::rows();
         assert_eq!(rows.len(), 10);
-        for r in rows {
+        assert!(rows.iter().all(|r| r.load_ticks() == 1));
+        for r in rows.iter().copied().chain([Restart::load(redsim::reload::Order::Seed(3)).with_extra(2)]) {
             assert_eq!(Restart::parse(&r.label()), Some(r));
         }
-        assert_eq!(parse_restart("120,seed:3"), Ok((120, Restart::Load(redsim::reload::Order::Seed(3)))));
-        assert!(parse_restart("120,cold").is_err());
+        assert_eq!(parse_restart("120,seed:3"), Ok((120, Restart::load(redsim::reload::Order::Seed(3)))));
+        assert_eq!(parse_restart("120,reverse+2"), Ok((120, Restart::Load { order: redsim::reload::Order::Reverse, extra: 2 })));
+        assert_eq!((Restart::load(redsim::reload::Order::Save).with_extra(3).label(), Restart::load(redsim::reload::Order::Save).with_extra(3).load_ticks()), ("save+3".to_string(), 4));
+        assert!(parse_restart("120,cold").is_err() && parse_restart("120,save/t0").is_err() && parse_restart("120,save+-1").is_err());
+    }
+
+    /// The official load (tick-exact, farmopt 21:07; 26.3's tick order, ironspec 22:16 (1)): a restart is one
+    /// tick for the blocks' scheduled ticks and redstone and none for the entities or the block entities.
+    /// Against a clone of the same world given one normal tick: the same game time, the same scheduled-tick
+    /// side (a repeater powered from behind on its way on, the pending ticks), while the moving cart holds
+    /// its place across the load (the clone's cart moves), its freeze at the load tick counted and kept
+    /// (ironspec 21:13); a daylight detector whose 20-gt check falls on the load tick doesn't update in it
+    /// (the clone's does) and a hopper doesn't push its item until the tick after (the clone's does in its
+    /// first tick); then the scheduled-tick side stays in lockstep with the clone, the hopper delivers and
+    /// the cart moves again.
+    #[test]
+    fn restart_is_a_block_only_tick() {
+        let stone = redsim::block::Block::parse("minecraft:stone").unwrap();
+        let mut w = World::new(BlockPos::new(-8, -4, -8), [16, 8, 16]);
+        for x in -3..=3 {
+            w.set_block(BlockPos::new(x, -1, 0), stone.clone(), redsim::world::flags::ALL);
+            w.set_block(BlockPos::new(x, 0, 0), redsim::block::Block::parse("minecraft:rail[shape=east_west,waterlogged=false]").unwrap(), redsim::world::flags::ALL);
+        }
+        let cart = redsim::entity::spawn(&mut w, "minecraft:minecart", [0.5, 0.0625, 0.5], None).unwrap();
+        let i = redsim::entity::index_of(&w, cart).unwrap();
+        w.entities.list[i].delta_movement = redsim::entity::Vec3::new(0.3, 0.0, 0.0);
+        // (a repeater with a redstone block on both its north and south: powered from behind whichever way it
+        // faces, so it schedules its turn-on)
+        let rp = BlockPos::new(2, 0, 4);
+        w.set_block(rp.below(), stone.clone(), redsim::world::flags::ALL);
+        w.set_block(rp, redsim::block::Block::parse("minecraft:repeater[delay=2,facing=north,locked=false,powered=false]").unwrap(), redsim::world::flags::ALL);
+        for z in [3, 5] {
+            w.set_block(BlockPos::new(2, 0, z), redsim::block::Block::parse("minecraft:redstone_block").unwrap(), redsim::world::flags::ALL);
+        }
+        // (a daylight detector reading noon at its 20-gt check, which falls on the load tick: game time 6000;
+        // a hopper over a chest holding one ingot)
+        let dd = BlockPos::new(-2, 0, 4);
+        w.set_block(dd.below(), stone.clone(), redsim::world::flags::ALL);
+        w.set_block(dd, redsim::block::Block::parse("minecraft:daylight_detector[inverted=false,power=0]").unwrap(), redsim::world::flags::ALL);
+        let (hp, chest) = (BlockPos::new(-4, 1, 4), BlockPos::new(-4, 0, 4));
+        w.set_block(chest.below(), stone.clone(), redsim::world::flags::ALL);
+        w.set_block(chest, redsim::block::Block::parse("minecraft:chest[facing=north,type=single,waterlogged=false]").unwrap(), redsim::world::flags::ALL);
+        w.set_block(hp, redsim::block::Block::parse("minecraft:hopper[enabled=true,facing=down]").unwrap(), redsim::world::flags::ALL);
+        let ingot = redsim::redstone::container::entity_items("{Items:[{Slot:0b,id:\"minecraft:iron_ingot\",count:1}]}").unwrap();
+        redsim::redstone::container::set_contents(&mut w, hp, &ingot);
+        w.time = 5999;
+        let held_in = |w: &World, p: BlockPos| w.containers.map.get(&p).map_or(0, |c| c.slots.iter().flatten().map(|s| s.count as u32).sum::<u32>());
+        assert_eq!((held_in(&w, hp), held_in(&w, chest)), (1, 0));
+        let mut w2 = w.clone();
+        w2.tick();
+        assert!(w2.get(dd).to_string().contains("power=") && !w2.get(dd).to_string().contains("power=0]") && !w2.get(dd).to_string().contains("power=0,"), "the clone's detector updated at its 20-gt check: {}", w2.get(dd));
+        assert_eq!((held_in(&w2, hp), held_in(&w2, chest)), (0, 1), "the clone's hopper pushed in its first tick");
+        let (t0, frozen0) = (w.time, w.frozen.len());
+        let p0 = w.entities.list[i].pos;
+        let r = restart(&mut w, Restart::load(redsim::reload::Order::Save)).unwrap();
+        let now = follow(&w, cart);
+        let pos_of = |w: &World, id: u32| w.entities.list[redsim::entity::index_of(w, id).unwrap()].pos;
+        assert_eq!(w.time, t0 + 1, "a load advances game time by exactly 1");
+        assert_eq!(w.time, w2.time);
+        assert_eq!(w.get(rp), w2.get(rp), "the scheduled-tick side ticked as in a normal tick");
+        assert_eq!(w.get(dd).to_string(), "minecraft:daylight_detector[inverted=false,power=0]", "the detector's check on the load tick skipped (no block entity ticks in it)");
+        assert_eq!((held_in(&w, hp), held_in(&w, chest)), (1, 0), "the hopper didn't push in the load tick");
+        assert_eq!(w.ticks.count(), w2.ticks.count(), "the same pending ticks as after a normal tick");
+        let (p1, q1) = (pos_of(&w, now), pos_of(&w2, cart));
+        assert!((p1.x - p0.x).abs() < 1e-9 && (p1.y - p0.y).abs() < 1e-9 && (p1.z - p0.z).abs() < 1e-9, "the moving cart held across the load: {p0:?} -> {p1:?}");
+        assert!(q1.x > p0.x, "the clone's cart moved in its normal tick: {p0:?} -> {q1:?}");
+        // (counted, not dropped (ironspec 21:13): the cart noted frozen at the load tick and kept; the row's
+        // entity-free ticks: the load's 1, plus an F-gt level-32 freeze after it)
+        assert_eq!((r.first, r.at, r.entity_free, r.held, r.created.len()), (t0 + 1, t0 + 1, 1, 1, 0), "{}", r.note(0));
+        assert!(w.frozen[frozen0..].contains(&(t0 + 1, now)), "the load tick's freeze kept in World::frozen: {:?}", &w.frozen[frozen0..]);
+        assert_eq!(r.get(&cart), Some(&now), "it reads as the id map");
+        assert_eq!(r.note(0), format!("entity-free ticks 1 (the load's tick at gt {} holding 1 entities)", t0 + 1));
+        assert_eq!((r.with_freeze(3), r.note(3).starts_with("entity-free ticks 4 ")), (4, true));
+        assert!(r.note(3).ends_with(" + a 3-gt level-32 freeze from it)"), "{}", r.note(3));
+        // (a world with a Nether part: the note says the row is unmodelled (ironspec 21:24))
+        let mut wn = World::new(BlockPos::new(-8, -4, -8), [16, 8, 16]);
+        wn.nether = Some(Box::new(World::new(BlockPos::new(-8, -4, -8), [16, 8, 16])));
+        let rn = restart(&mut wn, Restart::load(redsim::reload::Order::Save)).unwrap();
+        assert!(rn.nether && rn.note(0).contains("; Nether restart not modelled in redsim (") && rn.note(0).ends_with(": this row UNMODELLED"), "{}", rn.note(0));
+        assert!(!r.nether && !r.note(0).contains("Nether"));
+        let mut on = false;
+        for _ in 0..6 {
+            w.tick();
+            w2.tick();
+            assert_eq!(w.get(rp), w2.get(rp), "the scheduled-tick side stays in lockstep with the clone");
+            on |= w.get(rp).to_string().contains("powered=true");
+        }
+        assert!(on, "the repeater turned on: the block side did tick");
+        assert_eq!((held_in(&w, hp), held_in(&w, chest)), (0, 1), "the hopper delivered from the tick after the load on");
+        assert_eq!(w.get(dd).to_string(), "minecraft:daylight_detector[inverted=false,power=0]", "the detector's next check is 20 gt after the skipped one");
+        assert!(pos_of(&w, now).x > p1.x, "the next normal ticks move the cart again");
+    }
+
+    /// A slow load (ironspec 22:20 (3): entities loading later than one tick extend the load's own state,
+    /// no level-32 freeze): `save+2` runs 3 load ticks, each with no entity and no block entity ticking and
+    /// the scheduled ticks and redstone running: against a clone given 3 normal ticks, the same game time and
+    /// scheduled-tick side, the cart held through all three, a daylight detector whose 20-gt check falls on
+    /// the second load tick skipped, a hopper holding its item until the tick after the load; the note reads
+    /// 1 + 2 = 3 over the load's ticks.
+    #[test]
+    fn restart_slow_load() {
+        let stone = redsim::block::Block::parse("minecraft:stone").unwrap();
+        let mut w = World::new(BlockPos::new(-8, -4, -8), [16, 8, 16]);
+        for x in -3..=3 {
+            w.set_block(BlockPos::new(x, -1, 0), stone.clone(), redsim::world::flags::ALL);
+            w.set_block(BlockPos::new(x, 0, 0), redsim::block::Block::parse("minecraft:rail[shape=east_west,waterlogged=false]").unwrap(), redsim::world::flags::ALL);
+        }
+        let cart = redsim::entity::spawn(&mut w, "minecraft:minecart", [0.5, 0.0625, 0.5], None).unwrap();
+        let i = redsim::entity::index_of(&w, cart).unwrap();
+        w.entities.list[i].delta_movement = redsim::entity::Vec3::new(0.3, 0.0, 0.0);
+        let rp = BlockPos::new(2, 0, 4);
+        w.set_block(rp.below(), stone.clone(), redsim::world::flags::ALL);
+        w.set_block(rp, redsim::block::Block::parse("minecraft:repeater[delay=2,facing=north,locked=false,powered=false]").unwrap(), redsim::world::flags::ALL);
+        for z in [3, 5] {
+            w.set_block(BlockPos::new(2, 0, z), redsim::block::Block::parse("minecraft:redstone_block").unwrap(), redsim::world::flags::ALL);
+        }
+        let dd = BlockPos::new(-2, 0, 4);
+        w.set_block(dd.below(), stone.clone(), redsim::world::flags::ALL);
+        w.set_block(dd, redsim::block::Block::parse("minecraft:daylight_detector[inverted=false,power=0]").unwrap(), redsim::world::flags::ALL);
+        let (hp, chest) = (BlockPos::new(-4, 1, 4), BlockPos::new(-4, 0, 4));
+        w.set_block(chest.below(), stone.clone(), redsim::world::flags::ALL);
+        w.set_block(chest, redsim::block::Block::parse("minecraft:chest[facing=north,type=single,waterlogged=false]").unwrap(), redsim::world::flags::ALL);
+        w.set_block(hp, redsim::block::Block::parse("minecraft:hopper[enabled=true,facing=down]").unwrap(), redsim::world::flags::ALL);
+        let ingot = redsim::redstone::container::entity_items("{Items:[{Slot:0b,id:\"minecraft:iron_ingot\",count:1}]}").unwrap();
+        redsim::redstone::container::set_contents(&mut w, hp, &ingot);
+        // (the load's ticks at 5999..=6001: the detector's check (6000) on the second)
+        w.time = 5998;
+        let held_in = |w: &World, p: BlockPos| w.containers.map.get(&p).map_or(0, |c| c.slots.iter().flatten().map(|s| s.count as u32).sum::<u32>());
+        let mut w2 = w.clone();
+        for _ in 0..3 {
+            w2.tick();
+        }
+        let (t0, p0) = (w.time, w.entities.list[i].pos);
+        let how = Restart::load(redsim::reload::Order::Reverse).with_extra(2);
+        let r = restart(&mut w, how).unwrap();
+        let now = follow(&w, cart);
+        let p1 = w.entities.list[redsim::entity::index_of(&w, now).unwrap()].pos;
+        assert_eq!((w.time, r.first, r.at, r.entity_free, r.held), (t0 + 3, t0 + 1, t0 + 3, 3, 1), "{}", r.note(0));
+        assert_eq!((w.time, w.get(rp), w.ticks.count()), (w2.time, w2.get(rp), w2.ticks.count()), "the scheduled-tick side as in 3 normal ticks");
+        assert!((p1.x - p0.x).abs() < 1e-9 && (p1.z - p0.z).abs() < 1e-9, "the cart held through the slow load: {p0:?} -> {p1:?}");
+        assert_eq!(w.get(dd).to_string(), "minecraft:daylight_detector[inverted=false,power=0]", "the detector's check on a load tick skipped");
+        assert_ne!(w2.get(dd).to_string(), "minecraft:daylight_detector[inverted=false,power=0]", "the clone's detector updated at 6000");
+        assert_eq!((held_in(&w, hp), held_in(&w, chest), held_in(&w2, chest)), (1, 0, 1), "the hopper held its item through the load (the clone's delivered)");
+        assert_eq!(r.note(0), format!("entity-free ticks 1 + 2 = 3 (the load's ticks at gt {}..={} holding 1 entities)", t0 + 1, t0 + 3));
+        assert_eq!(how.label(), "reverse+2");
+        w.tick();
+        assert_eq!((held_in(&w, hp), held_in(&w, chest)), (0, 1), "the hopper delivers on the tick after the load");
+    }
+
+    /// The held check (G1's note (a), ironspec 22:16 (2a)): an entity there before the load ticks and not
+    /// held in them ticked (an error naming it); one created in them (a dispenser's output, a drop) is
+    /// listed, exempt; one a block removed (a hopper taking an item) is just gone.
+    #[test]
+    fn load_held_exempts_created() {
+        let set = |v: &[u32]| v.iter().copied().collect::<std::collections::HashSet<u32>>();
+        assert_eq!(load_held(&set(&[1, 2, 3]), &[1, 2, 3], &set(&[1, 2, 3])), Ok((3, vec![])));
+        assert_eq!(load_held(&set(&[1, 2, 3]), &[1, 3, 9], &set(&[1, 2, 3])), Ok((2, vec![9])), "2 removed by a block, 9 created");
+        assert_eq!(load_held(&set(&[1, 2, 3]), &[1, 2, 3], &set(&[1, 3])), Err(vec![2]), "2 ticked");
     }
 }
