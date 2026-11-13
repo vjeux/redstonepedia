@@ -458,7 +458,8 @@ fn ai_step(w: &mut World, i: usize) {
         m.jumping = false;
         m.xxa = 0.0;
         m.zza = 0.0;
-    } else {
+    } else if !mob(w, i).no_ai {
+        // `isEffectiveAi()` (Mob: false under NoAI, tick-exact 09:24): the AI step
         server_ai_step(w, i);
         if w.entities.list[i].removed {
             return;
@@ -471,8 +472,10 @@ fn ai_step(w: &mut World, i: usize) {
     };
     // `getControllingPassenger() instanceof Player` never holds here; else `canSimulateMovement()
     // && isEffectiveAi()`, both true for a server-side mob, riders included (`rideTick` zeroed its
-    // motion; its vehicle puts it back on its seat after this tick)
-    travel(w, i, input);
+    // motion; its vehicle puts it back on its seat after this tick); a NoAI mob doesn't travel
+    if !mob(w, i).no_ai {
+        travel(w, i, input);
+    }
     // mobinfra: the fire ticks before the inside-block effects (`applyEffectsFromBlocks`'
     // `previousRemainingFireTicks`); a fire's cell sets `inside.fire` like any block's
     let fire_before = mob(w, i).fire_ticks;
