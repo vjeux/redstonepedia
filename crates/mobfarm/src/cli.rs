@@ -6242,6 +6242,11 @@ pub enum MobfarmCmd {
         /// through a slime support by a torch under it (day-1's entry -> R budget).
         #[arg(long)]
         exit_boost: bool,
+        /// (A) with --exit-south: the tap hold with the napper aboard (ironspec 09:38): the exit
+        /// slope (1,-1,5) an unpowered powered rail (the bench powers it at the tap with
+        /// `--pulse-cell 1,-1,6@T=redstone_block`; DAY-1's tap cells in the build).
+        #[arg(long)]
+        hold_slope: bool,
     },
     /// The bed stop's one-visit bench (a `bedtier --bench` design) over seeds and entry speeds: F
     /// --after-sleep gt after the lie-down, the release --release-after gt after the wake edge (the
@@ -6457,8 +6462,9 @@ pub enum MobfarmCmd {
         #[arg(long)]
         scope_excludes: Vec<String>,
         /// ((A), ironspec 00:37 (2b)) F waits for the arming detector's edge + this many gt (the
-        /// worst-case braking interval + 3, printed by the bench).
-        #[arg(long, default_value_t = 0)]
+        /// worst-case braking interval + 3, printed by the bench). Default: the design's 70 (G1's
+        /// C17); the positive control passes 0 explicitly.
+        #[arg(long, default_value_t = 70)]
         arm_delay: i64,
         /// ((A)'s at-rest bar's positive control) The park released this many gt after the arming
         /// detector's edge, whatever the napper does (0: the cart still moving; the bar must fail).
@@ -14571,12 +14577,12 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             compare_cmd(version, &design, &opts, twin)?;
         }
-        MobfarmCmd::Bedtier { out, bench, trapdoor_caps, eject_at_entry, curve_glass, eject_at_bed, runup, no_loop_booster, head_glass, exit_south, waker_south, exit_boost } => {
+        MobfarmCmd::Bedtier { out, bench, trapdoor_caps, eject_at_entry, curve_glass, eject_at_bed, runup, no_loop_booster, head_glass, exit_south, waker_south, exit_boost, hold_slope } => {
             anyhow::ensure!(!(eject_at_bed && (eject_at_entry || trapdoor_caps || curve_glass)), "--eject-at-bed is its own layout: no --eject-at-entry, --trapdoor-caps or --curve-glass with it");
             anyhow::ensure!(!runup || eject_at_bed, "--runup is (A)'s variant: with --eject-at-bed");
             anyhow::ensure!(!(head_glass || exit_south) || runup, "--head-glass and --exit-south are (A) with the run-up's variants: with --runup");
-            anyhow::ensure!(!(waker_south || exit_boost) || exit_south, "--waker-south and --exit-boost go with --exit-south");
-            std::fs::write(&out, if eject_at_bed && runup { crate::bedtier::design_a2(bench, !no_loop_booster, !head_glass, exit_south, waker_south, exit_boost)? } else if eject_at_bed { crate::bedtier::design_a(bench)? } else { crate::bedtier::design(bench, trapdoor_caps, eject_at_entry, curve_glass)? })?;
+            anyhow::ensure!(!(waker_south || exit_boost || hold_slope) || exit_south, "--waker-south, --exit-boost and --hold-slope go with --exit-south");
+            std::fs::write(&out, if eject_at_bed && runup { crate::bedtier::design_a2(bench, !no_loop_booster, !head_glass, exit_south, waker_south, exit_boost, hold_slope)? } else if eject_at_bed { crate::bedtier::design_a(bench)? } else { crate::bedtier::design(bench, trapdoor_caps, eject_at_entry, curve_glass)? })?;
             println!("wrote {}", out.display());
             // (the placement-order cells: what the guide's build order leaves unlike the file)
             let (_c, spec) = load(version, &out)?;
