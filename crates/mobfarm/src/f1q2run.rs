@@ -863,10 +863,12 @@ struct Ctl {
     nap_lane: usize,
     nap_arm3: Option<i64>,
     /// K(n) set at ARM3 + 93 / 108 / 124 (+ the driver's 4), reset at ARM3 + 125 / 140 / 156 (+ 6),
-    /// that reset's edge setting PRESENT_l.
-    k_on: Option<i64>,
-    k_off: Option<i64>,
-    present_at: Option<i64>,
+    /// that reset's edge setting PRESENT_l. (onechunk 13:28: each event carries its own K cell and
+    /// lane, keyed at the napper's own H2 sample: a later pick moving nap_lane before the reset turned
+    /// the WRONG K off and left the napper's K on (t12's K-bounce nights); queued, so two napppers'
+    /// windows never overwrite each other)
+    k_events: Vec<(i64, i32, bool)>,
+    present_events: Vec<(i64, usize)>,
     present: [bool; 3],
     /// (day-1 08:31) a ridden cart on each lane's siding R last tick, for PRESENT_l's reset by the
     /// departure past R; and every reset.
@@ -1999,9 +2001,10 @@ impl Ctl {
             // ironspec's E5, day-1 06:51 PT: PRESENT_l is a two-torch RS NOR whose output reaches the
             // AND 4 gt after its set edge (measured at all 20 phases), so PRESENT is effective at
             // a + 115 / 130 / 146)
-            self.k_on = Some(a + [97, 112, 128][k]);
-            self.k_off = Some(a + [125, 140, 156][k]);
-            self.present_at = Some(a + [115, 130, 146][k]);
+            let kx0 = LANES[k] - 2;
+            self.k_events.push((a + [97, 112, 128][k], kx0, true));
+            self.k_events.push((a + [125, 140, 156][k], kx0, false));
+            self.present_events.push((a + [115, 130, 146][k], k));
             if k > 0 {
                 self.j_block = Some((a + 72, a + 127));
             }
@@ -2032,20 +2035,22 @@ impl Ctl {
             input_off(w, [7, -1, 8], "minecraft:air")?;
             self.hold_off = None;
         }
-        let kx = LANES[self.nap_lane] - 2;
-        if self.k_on == Some(now) {
-            set(w, [kx, 26, 9], &lever(true), flags::ALL)?;
-            self.k_on = None;
+        // (each K event its own cell, keyed at its napper's H2 sample: the sets, PRESENT, then the
+        // resets, in the tick's order as before)
+        let due: Vec<(i64, i32, bool)> = self.k_events.iter().filter(|e| e.0 == now).copied().collect();
+        self.k_events.retain(|e| e.0 != now);
+        for (_, kx, _) in due.iter().filter(|e| e.2) {
+            set(w, [*kx, 26, 9], &lever(true), flags::ALL)?;
             self.nap_events.push(format!("t {now}: K({kx}) on"));
         }
-        if self.present_at == Some(now) {
-            self.present[self.nap_lane] = true;
-            self.present_at = None;
-            self.present_log.push((now, self.nap_lane));
+        let pdue: Vec<(i64, usize)> = self.present_events.iter().filter(|e| e.0 == now).copied().collect();
+        self.present_events.retain(|e| e.0 != now);
+        for (_, k) in pdue {
+            self.present[k] = true;
+            self.present_log.push((now, k));
         }
-        if self.k_off == Some(now) {
-            set(w, [kx, 26, 9], &lever(false), flags::ALL)?;
-            self.k_off = None;
+        for (_, kx, _) in due.iter().filter(|e| !e.2) {
+            set(w, [*kx, 26, 9], &lever(false), flags::ALL)?;
             self.nap_events.push(format!("t {now}: K({kx}) off"));
         }
         if let Some((_, b)) = self.j_block
@@ -2145,7 +2150,7 @@ impl Ctl {
         }
         self.branch_prev_nap = [d[0], d[1]];
         self.d7_prev = d[2];
-        if self.nap_arm3.is_some() && self.k_off.is_none() && self.present.iter().all(|p| !p) && self.siding_off.iter().all(|s| s.is_none()) && self.present_at.is_none() {
+        if self.nap_arm3.is_some() && !self.k_events.iter().any(|e| !e.2) && self.present.iter().all(|p| !p) && self.siding_off.iter().all(|s| s.is_none()) && self.present_events.is_empty() {
             self.nap_arm3 = None;
         }
         Ok(())
