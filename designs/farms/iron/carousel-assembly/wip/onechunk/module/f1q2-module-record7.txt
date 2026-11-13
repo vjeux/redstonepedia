@@ -1,5 +1,6 @@
 # The one-chunk column's skeleton (mctas mobfarm column; no wiring): column x -6..9 z -6..10.
 # record7f (ironspec 01:07 / 01:21 PT): composed from 7b90c3f1's r3 record lift file (explore/farmopt-v15-patha-r3 8ed397b2e, designs/farms/iron/carousel-assembly/wip/lift/f1q2-lift-split-path-a.txt, --light-fix): the cell diff against record7e: (-6,8,7) glass -> glowstone and (5,-16,4) glass -> glowstone (the light fix), (-5,23,7) and (6,-3,4) air -> water[level=1] (the lifts' two top-drift currents, saved settled), (-4,0,7) air -> glass (in r3, not in record7e); the lift file's (9,25,9) east_west is its own stand-in (# stand-in:), so record7 keeps b8949c96's north_west curve there; the lift file's header lines follow (its # stand-in: and # frames: lines describe its own bench file and stay there)
+# record7f10: (-1,21,9), (0,21,9), (4,21,9) glowstone -> end rods facing up, a CANDIDATE (9fc3155f's trial: their tops were unreached IDLE-stroll STAMP classes; STAMP 207 -> 200 with every other bar unchanged); these three cells came from onechunk's own module composition (first-assembly onward), no part file on main holds them
 # record7f, the F3 scarer part's glowstone row (-4,21,5), (-3,21,5), (-2,21,5) swapped for end rods facing up, a CANDIDATE until 9fc3155f re-runs the gate on this file (farmopt 04:58 PT: glass at (-3,22,5) fails the gate; the end rods pass it at 9fc3155f's, 0 dark cells, sight / exposures / golem flood unchanged)
 # day-time: 18000 (the save's day time, a night placement as the build guide places the daylight detector (-5,15,3): its stored power 0 is its reading at this time; ironspec 02:37 PT (4))
 # record7f, (-4,0,7) returned to air (record7e's state; 7b90c3f1 02:05 PT drops it from its r4 lift file: no cart meets it, it holds no water, it changes no mob space)
@@ -1029,7 +1030,7 @@ layer 21:
   .g...gJ..gJ..g
   gBg...J...J
   .g....J...J
-  ..g..JJ...J
+  ..g..ee...e
 layer 22:
   ...............g
   ..............g
