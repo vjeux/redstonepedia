@@ -427,6 +427,128 @@ pub enum MobaiCmd {
         #[arg(long)]
         draws_out: Option<std::path::PathBuf>,
     },
+    /// (tickexact 2026-11-12, ironspec 18:46) A ridden cart down dry vs waterlogged slopes and flats
+    WaterRails {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        #[arg(long, default_value_t = 6)]
+        slopes: i32,
+        #[arg(long, default_value_t = 12)]
+        flat: i32,
+        #[arg(long, default_value_t = 0.0)]
+        start: f64,
+        #[arg(long, default_value_t = 200)]
+        ticks: u32,
+    },
+    /// (tickexact 2026-11-12, ironspec 16:29 (c)) Watched cells' states every tick over restarts
+    BlockWatch {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        #[arg(long)]
+        module: std::path::PathBuf,
+        #[arg(long, allow_hyphen_values = true, default_value = "")]
+        set: String,
+        /// "x,y,z=STATE;..."
+        #[arg(long, allow_hyphen_values = true)]
+        watch: String,
+        #[arg(long, default_value = "")]
+        restarts: String,
+        #[arg(long, default_value_t = 200)]
+        ticks: u32,
+    },
+    /// (tickexact 2026-11-12, ironspec 16:29 (b)) A villager on A6's second landing chest, its walk
+    /// target forced north of the trapdoor's plate: does it cross?
+    OnewayCross {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        #[arg(long)]
+        design: std::path::PathBuf,
+        /// Part files laid over the design, "file@dx,dy,dz;..."
+        #[arg(long, allow_hyphen_values = true, default_value = "")]
+        parts: String,
+        #[arg(long, allow_hyphen_values = true, default_value = "")]
+        set: String,
+        #[arg(long, allow_hyphen_values = true, default_value = "3.5,-24.125,-3.5")]
+        at: String,
+        #[arg(long, allow_hyphen_values = true, default_value = "3,-24,-6;3,-25,-6;2,-24,-7;4,-24,-7;3,-23,-6;3,-25,-5")]
+        targets: String,
+        #[arg(long, default_value_t = 120)]
+        tries: u32,
+        #[arg(long, default_value_t = 40)]
+        ticks: u32,
+        #[arg(long, allow_hyphen_values = true, default_value_t = -4.0)]
+        north_z: f64,
+        #[arg(long, default_value_t = 0.6)]
+        speed: f64,
+        #[arg(long, default_value_t = 1000)]
+        day_time: i64,
+    },
+    /// (tickexact 2026-11-12, ironspec 16:04: path (a)) The napper from the hold's fired pulse
+    /// through the T, the merge row's ramp and the lift to its y-12 pass
+    HoldPulse {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        #[arg(long)]
+        module: std::path::PathBuf,
+        #[arg(long, allow_hyphen_values = true, default_value = "9.5,0.0625,8.51")]
+        rest: String,
+        #[arg(long, allow_hyphen_values = true, default_value = "7,-1,8")]
+        pulse_cell: String,
+        /// The pulse's ticks, one start phase each, a,b,c
+        #[arg(long, default_value = "40,41,42,43")]
+        pulse_at: String,
+        #[arg(long, default_value_t = 12)]
+        pulse_len: u32,
+        #[arg(long, default_value_t = 12.0)]
+        pass_y: f64,
+        /// Restart rows at these ticks after the rise, a,b
+        #[arg(long, default_value = "")]
+        restarts: String,
+        #[arg(long, default_value_t = 300)]
+        max_ticks: u32,
+    },
+    /// (tickexact 2026-11-12, ironspec 16:36) Golems per summon chance on a pad of `--pad` (on glass)
+    GolemPad {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        #[arg(long, default_value = "minecraft:cobblestone")]
+        pad: String,
+        /// The layer under the pad (the glass floor's cells there)
+        #[arg(long, default_value = "minecraft:glass")]
+        under: String,
+        #[arg(long, default_value_t = 16)]
+        stands: u32,
+        #[arg(long, default_value_t = 3000)]
+        ticks: u32,
+    },
+    /// (tickexact 2026-11-12, ironspec 16:17: the rail-node rule) The game's createPath for a
+    /// villager riding a cart held at each position, toward each target (the bridge's path_nodes)
+    PathProbeGame {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        #[arg(long)]
+        design: std::path::PathBuf,
+        /// The carts' positions "x,y,z;..."
+        #[arg(long, allow_hyphen_values = true)]
+        at: String,
+        /// "x,y,z;..."
+        #[arg(long, allow_hyphen_values = true)]
+        targets: String,
+        /// Cells laid over the design, "x,y,z=STATE;..."
+        #[arg(long, allow_hyphen_values = true, default_value = "")]
+        set: String,
+        /// Part files laid over the design (their non-air cells) before `--set`, "file@dx,dy,dz;..."
+        #[arg(long, allow_hyphen_values = true, default_value = "")]
+        parts: String,
+        #[arg(long, default_value_t = 0)]
+        reach: i64,
+        /// Also every node the evaluator made
+        #[arg(long)]
+        nodes: bool,
+        /// Tick once after the summon (the rider placed at its seat) before the searches
+        #[arg(long)]
+        tick: bool,
+    },
     /// (tickexact 2026-11-12, ironspec: dfb89499's lane 7 hold) The braked side slope into the
     /// shared lift under a wall sign (dry or waterlogged): water states, rest, air, entry, exit
     SideSlope {
@@ -600,6 +722,9 @@ pub enum MobaiCmd {
         /// Each trial's yaw at the summon, alternating, a,b (findStandUpPosition tries the yaw's side first)
         #[arg(long, allow_hyphen_values = true, default_value = "")]
         yaws: String,
+        /// A restart at F + each offset, one per trial in turn (negative: before F), a,b
+        #[arg(long, allow_hyphen_values = true, default_value = "")]
+        restarts: String,
     },
     /// (tickexact 2026-11-12, ironspec: does a summoner's GOLEM_DETECTED_RECENTLY get renewed after
     /// its own summon?) Stands of three panicking seated villagers summoning a golem that leaves
@@ -748,6 +873,12 @@ pub enum MobaiCmd {
         /// The gt each ride lives
         #[arg(long, default_value_t = 40)]
         life: u32,
+        /// Cells laid after the parts, "x,y,z=STATE;..."
+        #[arg(long, allow_hyphen_values = true, default_value = "")]
+        set: String,
+        /// The day time set before the rides
+        #[arg(long)]
+        day_time: Option<i64>,
     },
     /// (tickexact 2026-11-12, the row-draws run's out-of-frame riders) A ridden cart through the
     /// composition: every tick its position and motion, its rider, whether it still rides
@@ -1289,6 +1420,86 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
                 .collect::<anyhow::Result<_>>()?;
             crate::lanerun::lane_run(&version, &module, x, riders, ticks, every, post, &glow, part.as_deref(), draws_out.as_deref())
         }
+        MobaiCmd::WaterRails { version, slopes, flat, start, ticks } => crate::waterrails::water_rails(&version, slopes, flat, start, ticks),
+        MobaiCmd::BlockWatch { version, module, set, watch, restarts, ticks } => {
+            let cells_of = |s: &str| -> anyhow::Result<Vec<([i32; 3], String)>> {
+                let mut out = Vec::new();
+                for e in s.split(';').filter(|e| !e.trim().is_empty()) {
+                    let (p, st) = e.split_once('=').ok_or_else(|| anyhow::anyhow!("x,y,z=STATE, got {e}"))?;
+                    let v: Vec<i32> = p.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(v.len() == 3, "x,y,z=STATE, got {e}");
+                    out.push(([v[0], v[1], v[2]], st.trim().to_string()));
+                }
+                Ok(out)
+            };
+            let restarts: Vec<u32> = restarts.split(',').filter(|n| !n.trim().is_empty()).map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+            crate::blockwatch::block_watch(&version, &module, &cells_of(&set)?, &cells_of(&watch)?, &restarts, ticks)
+        }
+        MobaiCmd::OnewayCross { version, design, parts, set, at, targets, tries, ticks, north_z, speed, day_time } => {
+            let f3 = |s: &str| -> anyhow::Result<[f64; 3]> {
+                let v: Vec<f64> = s.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(v.len() == 3, "x,y,z, got {s}");
+                Ok([v[0], v[1], v[2]])
+            };
+            let i3 = |s: &str| -> anyhow::Result<[i32; 3]> {
+                let v: Vec<i32> = s.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(v.len() == 3, "x,y,z, got {s}");
+                Ok([v[0], v[1], v[2]])
+            };
+            let mut part_list = Vec::new();
+            for e in parts.split(';').filter(|e| !e.trim().is_empty()) {
+                let (f, off) = e.rsplit_once('@').ok_or_else(|| anyhow::anyhow!("--parts file@dx,dy,dz, got {e}"))?;
+                part_list.push((std::path::PathBuf::from(f.trim()), i3(off)?));
+            }
+            let mut cells = Vec::new();
+            for e in set.split(';').filter(|e| !e.trim().is_empty()) {
+                let (p, st) = e.split_once('=').ok_or_else(|| anyhow::anyhow!("--set x,y,z=STATE, got {e}"))?;
+                cells.push((i3(p)?, st.trim().to_string()));
+            }
+            let targets: Vec<[i32; 3]> = targets.split(';').filter(|e| !e.trim().is_empty()).map(i3).collect::<Result<_, _>>()?;
+            crate::onewaycross::oneway_cross(&version, &design, &part_list, &cells, f3(&at)?, &targets, tries, ticks, north_z, speed, day_time)
+        }
+        MobaiCmd::HoldPulse { version, module, rest, pulse_cell, pulse_at, pulse_len, pass_y, restarts, max_ticks } => {
+            let f3 = |s: &str| -> anyhow::Result<[f64; 3]> {
+                let v: Vec<f64> = s.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(v.len() == 3, "x,y,z, got {s}");
+                Ok([v[0], v[1], v[2]])
+            };
+            let i3 = |s: &str| -> anyhow::Result<[i32; 3]> {
+                let v: Vec<i32> = s.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(v.len() == 3, "x,y,z, got {s}");
+                Ok([v[0], v[1], v[2]])
+            };
+            let pulse_at: Vec<u32> = pulse_at.split(',').filter(|n| !n.trim().is_empty()).map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+            let restarts: Vec<u32> = restarts.split(',').filter(|n| !n.trim().is_empty()).map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+            crate::holdpulse::hold_pulse(&version, &module, f3(&rest)?, i3(&pulse_cell)?, &pulse_at, pulse_len, pass_y, &restarts, max_ticks)
+        }
+        MobaiCmd::GolemPad { version, pad, under, stands, ticks } => crate::golempad::golem_pad(&version, &pad, &under, stands, ticks),
+        MobaiCmd::PathProbeGame { version, design, at, targets, set, parts, reach, nodes, tick } => {
+            let f3 = |s: &str| -> anyhow::Result<[f64; 3]> {
+                let v: Vec<f64> = s.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(v.len() == 3, "x,y,z, got {s}");
+                Ok([v[0], v[1], v[2]])
+            };
+            let i3 = |s: &str| -> anyhow::Result<[i32; 3]> {
+                let v: Vec<i32> = s.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(v.len() == 3, "x,y,z, got {s}");
+                Ok([v[0], v[1], v[2]])
+            };
+            let at: Vec<[f64; 3]> = at.split(';').filter(|e| !e.trim().is_empty()).map(f3).collect::<Result<_, _>>()?;
+            let targets: Vec<[i32; 3]> = targets.split(';').filter(|e| !e.trim().is_empty()).map(i3).collect::<Result<_, _>>()?;
+            let mut cells = Vec::new();
+            for e in set.split(';').filter(|e| !e.trim().is_empty()) {
+                let (p, st) = e.split_once('=').ok_or_else(|| anyhow::anyhow!("--set x,y,z=STATE, got {e}"))?;
+                cells.push((i3(p)?, st.trim().to_string()));
+            }
+            let mut part_list = Vec::new();
+            for e in parts.split(';').filter(|e| !e.trim().is_empty()) {
+                let (f, off) = e.rsplit_once('@').ok_or_else(|| anyhow::anyhow!("--parts file@dx,dy,dz, got {e}"))?;
+                part_list.push((std::path::PathBuf::from(f.trim()), i3(off)?));
+            }
+            crate::pathprobegame::path_probe_game(&version, &design, &part_list, &at, &targets, &cells, reach, nodes, tick)
+        }
         MobaiCmd::SideSlope { version, module, speeds, waterlogged, release_at, restarts, max_ticks } => {
             let speeds: Vec<f64> = speeds.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
             let restarts: Vec<u32> = restarts.split(',').filter(|n| !n.trim().is_empty()).map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
@@ -1374,9 +1585,10 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
             let cells = crate::napperride::Cells { detector: p3(&detector)?, t_cell: p3(&t)?, hold: p3(&hold)?, set: cells_set };
             crate::napperride::napper_ride(&version, &module, depth, &speeds, &cells, &restarts, every_tick, before, only_before, join, max_ticks)
         }
-        MobaiCmd::NapWake { version, file, trials, flip_after, ticks, rest_end, yaws } => {
+        MobaiCmd::NapWake { version, file, trials, flip_after, ticks, rest_end, yaws, restarts } => {
             let yaws: Vec<f32> = yaws.split(',').filter(|n| !n.trim().is_empty()).map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
-            crate::napwake::nap_wake(&version, &file, trials, flip_after, ticks, rest_end, &yaws)
+            let restarts: Vec<i64> = restarts.split(',').filter(|n| !n.trim().is_empty()).map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+            crate::napwake::nap_wake(&version, &file, trials, flip_after, ticks, rest_end, &yaws, &restarts)
         }
         MobaiCmd::GolemRenew { version, stands, rounds, golem_ticks } => crate::golemrenew::golem_renew(&version, stands, rounds, golem_ticks),
         MobaiCmd::GolemRange { version, gaps, ticks } => {
@@ -1443,7 +1655,14 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
             let module = module.ok_or_else(|| anyhow::anyhow!("--module is required (or --selftest)"))?;
             crate::bridgehash::bridge_hash_files(&module, &parts, &pairs, list)
         }
-        MobaiCmd::SightCheck { version, module, parts, summon, points, ticks, free, trace, repeat, every, life } => {
+        MobaiCmd::SightCheck { version, module, parts, summon, points, ticks, free, trace, repeat, every, life, set, day_time } => {
+            let mut cells = Vec::new();
+            for e in set.split(';').filter(|e| !e.trim().is_empty()) {
+                let (p, st) = e.split_once('=').ok_or_else(|| anyhow::anyhow!("--set x,y,z=STATE, got {e}"))?;
+                let v: Vec<i32> = p.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(v.len() == 3, "--set x,y,z=STATE, got {e}");
+                cells.push(([v[0], v[1], v[2]], st.trim().to_string()));
+            }
             let parts: Vec<std::path::PathBuf> = parts.split(',').filter(|p| !p.trim().is_empty()).map(std::path::PathBuf::from).collect();
             let summon: Vec<String> = summon.split(";;").map(str::trim).filter(|s| !s.is_empty()).map(String::from).collect();
             let points: Vec<(String, [f64; 3])> = points
@@ -1456,7 +1675,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
                     Ok((name.to_string(), [v[0], v[1], v[2]]))
                 })
                 .collect::<anyhow::Result<_>>()?;
-            crate::sightcheck::sight_check(&version, &module, &parts, &summon, &points, &crate::sightcheck::SightOpts { ticks, free, trace, repeat, every, life })
+            crate::sightcheck::sight_check(&version, &module, &parts, &summon, &points, &crate::sightcheck::SightOpts { ticks, free, trace, repeat, every, life, set: cells, day_time })
         }
         MobaiCmd::CartTrace { version, module, parts, start, motion, ticks, still, probe } => {
             let f3v = |s: &str, what: &str| -> anyhow::Result<[f64; 3]> {

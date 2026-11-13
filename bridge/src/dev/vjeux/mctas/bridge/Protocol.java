@@ -1315,7 +1315,16 @@ public final class Protocol {
                 v = vo.get("value");
             }
             Object value;
-            if (v.isJsonArray()) {
+            if (type == net.minecraft.world.entity.ai.memory.MemoryModuleType.WALK_TARGET && v.isJsonArray()) {
+                // (tickexact 2026-11-12, A6's one-way route: a walk target forced at a cell) a
+                // WalkTarget at the cell, the memory object's "speed" (default 0.5) and "close"
+                // (closeEnoughDist, default 0)
+                int[] p = ints(v.getAsJsonArray());
+                JsonObject vo = m.getValue().isJsonObject() ? m.getValue().getAsJsonObject() : new JsonObject();
+                float speed = vo.has("speed") ? vo.get("speed").getAsFloat() : 0.5f;
+                int close = vo.has("close") ? vo.get("close").getAsInt() : 0;
+                value = new net.minecraft.world.entity.ai.memory.WalkTarget(new BlockPos(p[0], p[1], p[2]), speed, close);
+            } else if (v.isJsonArray()) {
                 int[] p = ints(v.getAsJsonArray());
                 BlockPos pos = new BlockPos(p[0], p[1], p[2]);
                 value = net.minecraft.core.GlobalPos.of(sb.level.dimension(), pos);

@@ -66,6 +66,10 @@ pub struct SightOpts {
     pub repeat: u32,
     pub every: u32,
     pub life: u32,
+    /// (tickexact 2026-11-12, (C')'s hatch) cells laid after the parts, "x,y,z" and the state
+    pub set: Vec<([i32; 3], String)>,
+    /// the day time set before the rides (None: as the world starts)
+    pub day_time: Option<i64>,
 }
 
 pub fn sight_check(version: &str, module: &std::path::Path, parts: &[std::path::PathBuf], summon: &[String], points: &[(String, [f64; 3])], o: &SightOpts) -> Result<()> {
@@ -82,6 +86,14 @@ pub fn sight_check(version: &str, module: &std::path::Path, parts: &[std::path::
     let (mut srv, mut agent, _bed) = start_world_part(version, module, false, &[], None)?;
     for p in parts {
         place_part(&mut srv, p)?;
+    }
+    for (p, s) in &o.set {
+        srv.cmd(&format!("setblock {} {} {} {s}", p[0], p[1] + DY, p[2]))?;
+        println!("  set: ({},{},{}) {s}", p[0], p[1], p[2]);
+    }
+    if let Some(d) = o.day_time {
+        srv.cmd_ok(&format!("time set {d}"))?;
+        println!("  the day time: {d}");
     }
     for s in summon {
         let w: Vec<&str> = s.trim().splitn(5, ' ').collect();

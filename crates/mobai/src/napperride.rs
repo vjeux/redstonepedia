@@ -62,7 +62,18 @@ fn ride(version: &str, module: &std::path::Path, depth: i32, v: f64, c: &Cells, 
     srv.cmd_ok("gamerule spawn_mobs false")?;
     srv.cmd_ok("time set 1000")?;
     srv.cmd_ok("forceload add -32 -32 31 31")?;
-    srv.cmd_ok(&format!("setworldspawn 0 {} 0", 30 + DY))?;
+    // the joining player's spawn: a glass platform 30 blocks off the module (x -30, z -30), the
+    // spawn radius 0 (a survival player spawns anywhere within 10 of the world spawn otherwise:
+    // on the napper's track, where it stopped the cart in two join rows)
+    srv.cmd_ok(&format!("fill -32 {} -32 -28 {} -28 minecraft:glass", 29 + DY, 29 + DY))?;
+    srv.cmd_ok(&format!("setworldspawn -30 {} -30", 30 + DY))?;
+    // (the rule's name: 26.3's snake case; whichever the server knows)
+    for rule in ["respawn_radius", "spawn_radius"] {
+        let out = srv.cmd(&format!("gamerule {rule} 0"))?;
+        if !out.contains("Incorrect") && !out.contains("Unknown") {
+            break;
+        }
+    }
     srv.step(40)?;
     crate::seatclear::place_part(&mut srv, module)?;
     for (p, s) in &c.set {
@@ -135,11 +146,12 @@ fn ride(version: &str, module: &std::path::Path, depth: i32, v: f64, c: &Cells, 
             && !joined
             && t >= s + j
         {
-            // the player logs in j gt after the start (the world spawn over the station)
+            // the player logs in j gt after the start (at the world spawn, off the module)
             let port = srv.game_port();
             srv.bot = Some(mctas::vanilla::bot::Bot::connect(port, "mctas_bot")?);
             joined = true;
-            r.path.push(format!("t{t}: the player joined"));
+            let bp = nums(&srv.cmd_long("data get entity mctas_bot Pos")?);
+            r.path.push(format!("t{t}: the player joined at {bp:?}"));
         }
         if r.rest.is_some_and(|x| t > x + 5) {
             break;
@@ -162,7 +174,14 @@ fn line(v: f64, label: &str, c: &Cells, r: &Ride) -> String {
             (Some(a), Some(b)) => format!("{} gt", b - a),
             _ => "-".into(),
         },
-        if r.freezes.is_empty() { String::new() } else { format!("; entity freezes after the start at {:?}", r.freezes) }
+        if r.freezes.is_empty() {
+            String::new()
+        } else {
+            // the cart where the freezes start (a stuck cart is still in place there)
+            let at = r.freezes.first().and_then(|f| r.trace.iter().find(|(t, _, _)| t == f)).map(|(_, p, m)| format!(" (the cart at ({:.4},{:.4},{:.4}), motion ({:+.4},{:+.4},{:+.4}))", p[0], p[1], p[2], m[0], m[1], m[2])).unwrap_or_default();
+            let runs = if r.freezes.len() > 8 { format!("{} ticks from t{} to t{}", r.freezes.len(), r.freezes[0], r.freezes[r.freezes.len() - 1]) } else { format!("{:?}", r.freezes) };
+            format!("; entity freezes after the start: {runs}{at}")
+        }
     )
 }
 

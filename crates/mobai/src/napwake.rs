@@ -33,36 +33,67 @@ fn levers(srv: &mut VanillaServer, on: bool) -> Result<()> {
     Ok(())
 }
 
-pub fn nap_wake(version: &str, file: &std::path::Path, trials: u32, flip_after: u32, ticks: u32, rest_end: bool, yaws: &[f32]) -> Result<()> {
-    let jar = mctas::bridge::brain_agent(version)?;
-    let mut srv = VanillaServer::start(&VanillaOptions {
+fn nap_opts(version: &str, jar: &std::path::Path, world: Option<std::path::PathBuf>) -> VanillaOptions {
+    VanillaOptions {
         version: version.to_string(),
         difficulty: "normal".into(),
         with_bot: false,
         biome: "minecraft:plains".into(),
         tick_rate: 1000,
+        keep_dir: true,
+        world,
         java_agent: Some(std::path::PathBuf::from(format!("{}={MEMS}", jar.display()))),
         ..Default::default()
-    })?;
+    }
+}
+
+/// The brain agent's lines since the last drain (a restart starts a new log: `at` back to 0).
+struct Log {
+    at: u64,
+}
+
+impl Log {
+    fn drain(&mut self, srv: &VanillaServer) -> Result<Vec<String>> {
+        let mut f = std::fs::File::open(&srv.log)?;
+        f.seek(SeekFrom::Start(self.at))?;
+        let mut s = String::new();
+        f.read_to_string(&mut s)?;
+        let whole = s.rfind('\n').map(|i| i + 1).unwrap_or(0);
+        self.at += whole as u64;
+        Ok(s[..whole].lines().filter_map(|l| l.split("mctas brain agent: ").nth(1).map(|r| r.trim().to_string())).collect())
+    }
+}
+
+/// A save, stop and start of the world (the villager, its sleep and the levers reloaded).
+fn restart(srv: &mut VanillaServer, log: &mut Log, version: &str, jar: &std::path::Path) -> Result<()> {
+    srv.cmd_ok("save-on")?;
+    srv.cmd_ok("save-all flush")?;
+    let old = srv.dir.clone();
+    let world = old.join(&srv.level_name);
+    let fresh = VanillaServer::start(&nap_opts(version, jar, Some(world)))?;
+    let done = std::mem::replace(srv, fresh);
+    drop(done);
+    let _ = std::fs::remove_dir_all(&old);
+    srv.cmd_ok("forceload add -32 -32 31 31")?;
+    log.at = 0;
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn nap_wake(version: &str, file: &std::path::Path, trials: u32, flip_after: u32, ticks: u32, rest_end: bool, yaws: &[f32], restarts: &[i64]) -> Result<()> {
+    let jar = mctas::bridge::brain_agent(version)?;
+    let mut srv = VanillaServer::start(&nap_opts(version, &jar, None))?;
     srv.cmd_ok("gamerule advance_time false")?;
     srv.cmd_ok("gamerule spawn_mobs false")?;
     srv.cmd_ok("forceload add -32 -32 31 31")?;
     srv.step(40)?;
     crate::seatclear::place_part(&mut srv, file)?;
     println!(
-        "== nap-wake on the official {version} server: {} alone (the hatch hiding, the zombie in its boat), day time 13800; {trials} trials: a villager on the bed top, HOME the bed's head, the levers off {flip_after} gt after it lies down, {ticks} gt watched",
-        file.display()
+        "== nap-wake on the official {version} server: {} alone (the hatch hiding, the zombie in its boat), day time 13800; {trials} trials: a villager on the bed top, HOME the bed's head, the levers off {flip_after} gt after it lies down, {ticks} gt watched{}",
+        file.display(),
+        if restarts.is_empty() { String::new() } else { format!("; a restart at F + {restarts:?} (one per trial, in turn)") }
     );
-    let mut log_at = 0u64;
-    let mut drain = |srv: &VanillaServer| -> Result<Vec<String>> {
-        let mut f = std::fs::File::open(&srv.log)?;
-        f.seek(SeekFrom::Start(log_at))?;
-        let mut s = String::new();
-        f.read_to_string(&mut s)?;
-        let whole = s.rfind('\n').map(|i| i + 1).unwrap_or(0);
-        log_at += whole as u64;
-        Ok(s[..whole].lines().filter_map(|l| l.split("mctas brain agent: ").nth(1).map(|r| r.trim().to_string())).collect())
-    };
+    let mut log = Log { at: 0 };
     let (mut slept, mut woke, mut seen, mut leaks) = (0u32, 0u32, 0u32, 0u32);
     let mut cells: std::collections::BTreeMap<String, u32> = Default::default();
     for i in 0..trials {
@@ -81,12 +112,14 @@ pub fn nap_wake(version: &str, file: &std::path::Path, trials: u32, flip_after: 
         ))?;
         let sel = format!("@e[tag={tag},limit=1]");
         let who = uuid_of(&mut srv, &sel)?;
-        drain(&srv)?;
+        log.drain(&srv)?;
+        // this trial's restart, at F + offset (offset < 0: during the wait to F)
+        let restart_at = if restarts.is_empty() { None } else { Some(restarts[i as usize % restarts.len()]) };
         // the lie-down
         let mut lie = None;
         for t in 1..=400u32 {
             srv.step(1)?;
-            for l in drain(&srv)? {
+            for l in log.drain(&srv)? {
                 if std::env::var_os("MCTAS_NAP_DEBUG").is_some() && l.ends_with(&format!("@{who}")) {
                     eprintln!("    t+{t} {l}");
                 }
@@ -107,11 +140,25 @@ pub fn nap_wake(version: &str, file: &std::path::Path, trials: u32, flip_after: 
             continue;
         };
         slept += 1;
+        // (ironspec 17:35) LAST_SLEPT, set at the lie-down (Villager.startSleeping): its value
+        // against the game time of the lie-down tick
+        let lie_time = srv.game_time()?;
+        let last_slept = srv.cmd_long(&format!("data get entity {sel} Brain.memories.\"minecraft:last_slept\".value"))?;
+        let last_slept = last_slept.split("entity data: ").nth(1).map(|s| s.trim().trim_end_matches('L').to_string()).unwrap_or_else(|| "absent".into());
         // the wait to F, the hatch hiding: any NEAREST_HOSTILE then is a leak
         let mut early = None::<u32>;
+        let mut restarted: Option<i64> = None;
         for t in 1..=flip_after {
+            if let Some(off) = restart_at
+                && off < 0
+                && restarted.is_none()
+                && t as i64 == flip_after as i64 + off
+            {
+                restart(&mut srv, &mut log, version, &jar)?;
+                restarted = Some(off);
+            }
             srv.step(1)?;
-            for l in drain(&srv)? {
+            for l in log.drain(&srv)? {
                 if l.starts_with("set minecraft:nearest_hostile") && l.ends_with(&format!("@{who}")) && early.is_none() {
                     early = Some(t);
                 }
@@ -129,12 +176,24 @@ pub fn nap_wake(version: &str, file: &std::path::Path, trials: u32, flip_after: 
         } else {
             levers(&mut srv, false)?;
         }
+        if restart_at == Some(0) && restarted.is_none() {
+            restart(&mut srv, &mut log, version, &jar)?;
+            restarted = Some(0);
+        }
         // (G1 on 02e012c7f: stopSleeping picks the stand-up side with the yaw the villager has
         // asleep, then turns it to face the bed: the yaw on the last tick asleep picks the side)
         let (mut hostile, mut wake, mut stand, mut wyaw, mut asleep_yaw) = (None::<u32>, None::<u32>, String::new(), f64::NAN, f64::NAN);
         for t in 1..=ticks {
+            if let Some(off) = restart_at
+                && off > 0
+                && restarted.is_none()
+                && t as i64 == off
+            {
+                restart(&mut srv, &mut log, version, &jar)?;
+                restarted = Some(off);
+            }
             srv.step(1)?;
-            for l in drain(&srv)? {
+            for l in log.drain(&srv)? {
                 if l.starts_with("set minecraft:nearest_hostile") && l.ends_with(&format!("@{who}")) && hostile.is_none() {
                     hostile = Some(t);
                 }
@@ -158,9 +217,11 @@ pub fn nap_wake(version: &str, file: &std::path::Path, trials: u32, flip_after: 
             woke += 1;
         }
         println!(
-            "  trial {i}: {}lay down at +{lie}; {}; NEAREST_HOSTILE {}; {}",
+            "  trial {i}: {}lay down at +{lie} (game time {lie_time}; LAST_SLEPT {last_slept}{}); {}{}; NEAREST_HOSTILE {}; {}",
             yaw.map(|y| format!("yaw {y} at the summon; ")).unwrap_or_default(),
+            if last_slept.parse::<i64>().ok() == Some(lie_time) { ": the lie-down tick" } else { "" },
             if rest_end { format!("the day time set to 23950 at lie-down + {flip_after} (levers on)") } else { format!("levers off at lie-down + {flip_after}") },
+            restarted.map(|o| format!("; a restart at F {}{}", if o < 0 { "-" } else { "+" }, o.abs())).unwrap_or_default(),
             hostile.map(|t| format!("set at F + {t}")).unwrap_or_else(|| "never set".into()),
             wake.map(|t| format!("woke at F + {t} (lie-down + {}), the yaw on the last tick asleep {asleep_yaw:.1} (after the wake {wyaw:.1}), stood up at {stand}", t + flip_after)).unwrap_or_else(|| format!("asleep after {ticks} gt")),
         );
