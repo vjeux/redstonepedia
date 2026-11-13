@@ -185,7 +185,10 @@ pub fn drop_envelope(files: &[std::path::PathBuf]) -> Result<()> {
             let cx = (m.bmin[0] + m.bmax[0]) / 2.0;
             let y0 = m.bmin[1] - DY as f64;
             let Some(lane) = [-1i32, 3, 7].into_iter().find(|&x0| (cx - (x0 as f64 + 0.5)).abs() < 1.5) else { continue };
-            let off = u32::from((y0 - 24.0).abs() < MTH_EQUAL);
+            // (G1 12:09) off-rail only: a cart on a rail moves with y 0 inside moveAlongTrack (199-203) and
+            // its in-move box on a slope reads the slope block's top, so the box floor alone can't tell
+            // C's glass from a slope; an off-rail move (comeOffTrack) carries gravity in its y
+            let off = u32::from((y0 - 24.0).abs() < MTH_EQUAL && m.req[1].abs() >= MTH_EQUAL);
             let lat = if y0 >= 23.5 { (cx - (lane as f64 + 0.5)).abs() } else { 0.0 };
             match open.get_mut(&cart) {
                 Some(p) if p.lane == lane && t <= p.last + 5 => {
@@ -832,6 +835,17 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
             .collect::<Result<_>>()?,
         Err(_) => Vec::new(),
     };
+    let kills: Vec<(u32, String)> = match std::env::var("MCTAS_REPLAY_KILL") {
+        Ok(s) => s
+            .split('/')
+            .filter(|e| !e.trim().is_empty())
+            .map(|e| -> Result<(u32, String)> {
+                let (t, sel) = e.split_once(';').ok_or_else(|| anyhow::anyhow!("MCTAS_REPLAY_KILL=t;SELECTOR[/…], got {e}"))?;
+                Ok((t.trim().parse()?, sel.trim().to_string()))
+            })
+            .collect::<Result<_>>()?,
+        Err(_) => Vec::new(),
+    };
     let injects: Vec<(u32, [f64; 3], [f64; 3], bool)> = match std::env::var("MCTAS_REPLAY_INJECT") {
         Ok(s) => s
             .split('/')
@@ -953,6 +967,15 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
         // (ironspec 11:03 (2)(c): the forced-configuration row) MCTAS_REPLAY_INJECT="t;x,y,z;vx,vy,vz[;rider]"
         // (several separated by '/'): a minecart summoned before tick t at that frame position with that
         // motion, ridden by a fresh villager unless `rider` is `empty`; tagged inject<k> / inject<k>p0
+        // (G1 12:10 (2)(a): the leader's rider calm) MCTAS_REPLAY_KILL="t;SELECTOR[/…]": the entities
+        // matching SELECTOR removed before tick t (e.g. the scene's pillager scarer: no hostile in view)
+        for (kt, sel) in &kills {
+            if t == *kt {
+                let out = srv.cmd(&format!("kill {sel}"))?;
+                anyhow::ensure!(out.contains("Killed"), "MCTAS_REPLAY_KILL at t{t} ({sel}): {}", out.trim());
+                events.push(format!("t{t}: KILL {sel}: {}", out.trim()));
+            }
+        }
         for (k, (it, ip, iv, ridden)) in injects.iter().enumerate() {
             if t == *it {
                 let pass = if *ridden { format!(",Passengers:[{{id:\"minecraft:villager\",Tags:[\"inject{k}p0\"]}}]") } else { String::new() };
@@ -972,7 +995,22 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
                     let ru = uuid_hex(&mut srv, &format!("@e[tag=inject{k}p0,limit=1]"))?;
                     uuid_names.push((ru, format!("inject{k}p0")));
                 }
-                events.push(format!("t{t}: INJECT inject{k} at ({:.4},{:.4},{:.4}) motion ({:?},{:?},{:?}){}", ip[0], ip[1], ip[2], iv[0], iv[1], iv[2], if *ridden { ", ridden" } else { ", empty" }));
+                // (G1 on O #1) the stored motion and the per-tick move it gives: a ridden cart moves 0.75 x its
+                // delta per tick on a rail (OldMinecartBehavior 199), an empty one 1.0 x
+                let scale = if *ridden { 0.75 } else { 1.0 };
+                events.push(format!(
+                    "t{t}: INJECT inject{k} at ({:.4},{:.4},{:.4}) STORED motion ({:?},{:?},{:?}) = a per-tick move of ({:?},{:?},{:?}) ({scale} x){}",
+                    ip[0],
+                    ip[1],
+                    ip[2],
+                    iv[0],
+                    iv[1],
+                    iv[2],
+                    iv[0] * scale,
+                    iv[1] * scale,
+                    iv[2] * scale,
+                    if *ridden { ", ridden" } else { ", empty" }
+                ));
             }
         }
         if let Some((c, a, b)) = hold.as_ref() {
@@ -1180,7 +1218,7 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
                             for x0 in [-1.0f64 + drop_shift.0, 3.0 + drop_shift.0, 7.0 + drop_shift.0] {
                                 let zc = 7.0 + drop_shift.1;
                                 let into_c = m.hcoll && m.req[2] > 0.0 && m.bmin[0] < x0 + 1.0 && m.bmax[0] > x0 && (m.bmin[1] - dy) < 24.0 && (m.bmax[1] - dy) > 23.0 && (m.bmax[2] - zc).abs() < MTH_EQUAL;
-                                let lip_rest = m.got.iter().all(|g| g.abs() < MTH_EQUAL) && m.req.iter().any(|r| r.abs() >= MTH_EQUAL) && (m.bmin[1] - dy - 24.0).abs() < MTH_EQUAL && (x0..x0 + 1.5).contains(&cx) && (zc - 1.0..zc + 0.5).contains(&cz);
+                                let lip_rest = m.got.iter().all(|g| g.abs() < MTH_EQUAL) && m.req[1].abs() >= MTH_EQUAL && (m.bmin[1] - dy - 24.0).abs() < MTH_EQUAL && (x0..x0 + 1.5).contains(&cx) && (zc - 1.0..zc + 0.5).contains(&cz);
                                 if into_c {
                                     drop_clips += 1;
                                     s.push_str(&format!(" [CLIP INTO lane {x0}'s C support ({x0},23,7)]"));

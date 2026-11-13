@@ -78,9 +78,11 @@ pub fn presence_string_at(version: &str, ticks: u32, open_at: u32, depart_at: u3
             println!("  t{t}: world open (save, stop, start)");
         }
         if t == depart_at {
-            srv.cmd_ok("kill @e[tag=pav]")?;
+            // the rider leaves at once (a teleported passenger dismounts) and the cart goes: no death
+            // animation keeps a box under the string
+            srv.cmd_ok(&format!("tp @e[tag=pav] 0.5 {} 0.5", Y - 40))?;
             srv.cmd_ok("kill @e[tag=pa]")?;
-            println!("  t{t}: the ridden cart and its rider removed (the departure)");
+            println!("  t{t}: the rider teleported away (it dismounts) and the ridden cart removed (the departure; the rider leaves the string's box this tick)");
         }
         srv.cmd_ok("tick step 1")?;
         let a = pressed(&mut srv, 0, rise)?;
@@ -126,6 +128,12 @@ pub fn presence_string_at(version: &str, ticks: u32, open_at: u32, depart_at: u3
         release.map(|t| format!("t{t}")).unwrap_or("never".into()),
         release.map(|t| (t - depart_at).to_string()).unwrap_or("-".into())
     );
+    // (G1 on P #2) the bars reach the exit code: (A) pressed from its first press every tick to the
+    // departure and released <= 10 gt after the rider left (the departure tick here); (B) never pressed
+    let a_ok = first_press.is_some() && a_gaps.is_empty() && release.is_some_and(|r| r - depart_at <= 10);
+    let b_ok = b_presses == 0;
+    println!("  verdict: (A) {} (B) {}", if a_ok { "HELD" } else { "FAILED" }, if b_ok { "HELD" } else { "FAILED" });
+    anyhow::ensure!(a_ok && b_ok, "a presence-string bar failed (A {a_ok}, B {b_ok}): the run fails");
     Ok(())
 }
 
@@ -205,6 +213,7 @@ pub fn presence_slope(version: &str, ticks: u32, open_at: u32, depart_at: u32) -
     let mut presses = vec![0u32; n];
     let mut tops: Vec<(f64, f64)> = vec![(f64::MAX, f64::MIN); n];
     let mut rest_z: Vec<Option<f64>> = vec![None; n];
+    let mut leave = vec![None::<u32>; n];
     for t in 0..ticks {
         if t == open_at {
             let (s, _) = crate::restartcheck::reload(srv, |w| opts(Some(w)), None)?;
@@ -232,6 +241,20 @@ pub fn presence_slope(version: &str, ticks: u32, open_at: u32, depart_at: u32) -
                 release[k] = Some(t);
             }
             let ry = if *ridden { y_of(&mut srv, &format!("@e[tag=pv{k},limit=1]"))? } else { None };
+            // (G1 on P #2) the rider's own leave tick after the brake's release: its box no longer meets
+            // the string's slab (top below the slab's bottom, or its z range [z - 0.3, z + 0.3] off the
+            // string cell's [7, 8])
+            if *ridden && t >= depart_at && leave[k].is_none() {
+                let rz = {
+                    let out = srv.cmd_long(&format!("data get entity @e[tag=pv{k},limit=1] Pos[2]"))?;
+                    out.split("data: ").nth(1).and_then(|r| r.trim().trim_end_matches('d').parse::<f64>().ok())
+                };
+                let slab = y(26) as f64 + 1.0 / 16.0;
+                let meets = matches!((ry, rz), (Some(r), Some(z)) if r + 1.95 >= slab && z + 0.3 > 7.0 && z - 0.3 < 8.0);
+                if !meets {
+                    leave[k] = Some(t);
+                }
+            }
             let cz = {
                 let out = srv.cmd_long(&format!("data get entity @e[tag=pc{k},limit=1] Pos[2]"))?;
                 out.split("data: ").nth(1).and_then(|r| r.trim().trim_end_matches('d').parse::<f64>().ok())
@@ -257,17 +280,35 @@ pub fn presence_slope(version: &str, ticks: u32, open_at: u32, depart_at: u32) -
         }
     }
     let _ = std::fs::remove_dir_all(&srv.dir);
+    let mut failed: Vec<String> = Vec::new();
     for (k, (name, _, ridden, _, _)) in lanes.iter().enumerate() {
+        // (G1 on P #2) bar A for a ridden lane: pressed every tick from its first press to the brake's
+        // release, and released <= 10 gt after the rider's own leave tick; bar B for an empty lane: never
+        let verdict = if *ridden {
+            let ok = first[k].is_some() && gaps[k] == 0 && matches!((release[k], leave[k]), (Some(r), Some(l)) if r >= l && r - l <= 10);
+            if !ok {
+                failed.push(format!("lane {k} ({name}): A"));
+            }
+            if ok { "A HELD" } else { "A FAILED" }
+        } else {
+            let ok = presses[k] == 0;
+            if !ok {
+                failed.push(format!("lane {k} ({name}): B"));
+            }
+            if ok { "B HELD" } else { "B FAILED" }
+        };
         println!(
-            "  lane {k} ({name}): rest z {}; rider box top {}; first press {}; unpressed ticks after it before the departure {}; released {}; pressed ticks in all {}{}",
+            "  lane {k} ({name}): rest z {}; rider box top {}; first press {}; unpressed ticks after it before the departure {}; the rider left the string's box {}; released {}; pressed ticks in all {}{}; {verdict}",
             rest_z[k].map(|z| format!("{z:.4}")).unwrap_or("-".into()),
             if *ridden { format!("{:.4}..{:.4}", tops[k].0, tops[k].1) } else { "- (empty)".into() },
             first[k].map(|t| format!("t{t}")).unwrap_or("NEVER".into()),
             gaps[k],
-            release[k].map(|t| format!("t{t} (+{} gt)", t - depart_at)).unwrap_or("-".into()),
+            leave[k].map(|t| format!("t{t} (+{} gt after the brake's release)", t - depart_at)).unwrap_or("-".into()),
+            release[k].map(|t| format!("t{t} (+{} gt after the brake's release{})", t - depart_at, leave[k].map(|l| format!(", +{} after the leave", t as i64 - l as i64)).unwrap_or_default())).unwrap_or("-".into()),
             presses[k],
             if !*ridden && presses[k] > 0 { " (AN EMPTY CART PRESSED IT)" } else { "" }
         );
     }
+    anyhow::ensure!(failed.is_empty(), "presence-string bars failed: {}", failed.join("; "));
     Ok(())
 }
