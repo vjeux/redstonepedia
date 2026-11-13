@@ -72,6 +72,19 @@ pub struct Opts {
     /// (ironspec 06:24 platform, G1: the air bar's positive) the first rider to enter water has its
     /// cart held there 340 gt: it must drown and the air-supply bar FAIL.
     pub air_control: bool,
+    /// (ironspec 06:33 / 06:35 platform: 9fc3155f's coverage map from the composed run) a file for
+    /// every distinct night eye position of a rider (redsim's seated eye, to 0.01) with its ticks
+    /// in all, in REST and in PANIC.
+    pub rider_trace: Option<std::path::PathBuf>,
+    /// (ironspec D2's known positive) RS_ready forced set at the first departure, before its napper
+    /// passes R: the next release must fail "no R1 release before the previous napper passes R".
+    pub rs_ready_early_control: bool,
+    /// (G1 N8) The bystander control's dud: the call asks 99 willing, so it never stamps and the
+    /// control must show NOT EXERCISED.
+    pub bystander_dud: bool,
+    /// (G1 N18) The DAY update check's control: compare at the half-period off-phase; the bar must
+    /// catch it at the edges.
+    pub day_phase_control: bool,
     /// (ironspec 11:15, 9fc3155f's statics) S-bend seats whose stamp resets are counted: `NAME`,
     /// the seat's rail cell, its clearing candidates (a complete draw to one of them while a rider
     /// sits on the seat resets its stamp).
@@ -181,6 +194,25 @@ const OFFS: [i64; 3] = [0, 14, 24];
 /// A rider's place kind by its cell: 0 the pocket (x,0,0), 1 the lane (R_1 (x,17,1) and the slopes
 /// (x,18..22,2..6)), 2 the siding (the S-bend's K (x-2,25,9), F (x-2,25,8), R (x-2,24,7)), 3
 /// elsewhere.
+/// (ironspec's E7) The night a day time's REST belongs to: the evening half (12,000..24,000) is its
+/// own day's night, the morning before 12,000 the previous day's.
+pub fn night_of(day_time: i64) -> i64 {
+    let d = day_time.div_euclid(24_000);
+    if day_time.rem_euclid(24_000) >= 12_000 { d } else { d - 1 }
+}
+
+/// (G1 N15) GOLEM_DETECTED_RECENTLY's lifetime as the margins count it: redsim's
+/// `GolemSensor.MEMORY_TIME_TO_LIVE` (599): a call at T' finds a memory set at T gone when
+/// T' - (T + 599) >= 1.
+pub const GOLEM_TTL: i64 = redsim::entity::mob::villager::GOLEM_MEMORY_TTL;
+
+/// (G1 N13) ValidateNearbyPoi's predicate: the bed head's centre (x + 0.5, y + 0.5, z + 0.5)
+/// strictly within 16 of a villager's feet, in squared distance (`BlockPos.closerToCenterThan`).
+pub fn poi_near(bed: [i32; 3], feet: redsim::entity::Vec3) -> bool {
+    let (dx, dy, dz) = (feet.x - (bed[0] as f64 + 0.5), feet.y - (bed[1] as f64 + 0.5), feet.z - (bed[2] as f64 + 0.5));
+    dx * dx + dy * dy + dz * dz < 256.0
+}
+
 /// (G1 N4) The module's daylight detector (-5,15,3): its stored power, an error when the cell holds
 /// no daylight detector or its power doesn't parse (one reader for every DAY use).
 fn detector_level(w: &redsim::world::World) -> Result<u32, String> {
@@ -416,7 +448,7 @@ struct Ctl {
     /// (ironspec 00:16 PT) the napper's rest at the seat after the last arrival, and the module's
     /// dwell cap (HELD's bound: rest + the cap + R1's 4 gt).
     q_rest_at: Option<i64>,
-    dwell_cap: i64,
+    dwell_cap: Option<i64>,
     /// (day-1 01:10 PT, the per-pick trace) REST_l's and DAY's last levels and their edges; every
     /// pick opportunity (tick, C, lane, verdict); the napper holding HELD; each divert (tick, cart).
     rest_prev: Option<bool>,
@@ -447,6 +479,10 @@ struct Ctl {
     /// stored power differs from the analytic detector's.
     day_sky: Option<i32>,
     day_mismatch_rows: Vec<String>,
+    /// (G1 N18's control) compare at the half-period off-phase.
+    day_phase_control: bool,
+    /// (ironspec's E2) the tick R1 last opened (REST_l, DAY low, RS_ready) while HELD was set.
+    r1_open_since: Option<i64>,
     /// (G1's note) a pick decided while another was still pending (an overwrite).
     pick_overwrites: Vec<String>,
     /// (day-1's R1) the line ends held as levels (their built states), the queue rail's power last
@@ -462,6 +498,9 @@ struct Ctl {
     l7_off: Option<i64>,
     /// (ironspec 19:29 (a) / (b)) every queue release, departure and pick: (tick, the napper).
     release_log: Vec<(i64, u32)>,
+    /// (ironspec D2's known positive) RS_ready forced set at the first departure.
+    rs_early: bool,
+    rs_early_done: bool,
     dep_log: Vec<(i64, u32)>,
     pick_log: Vec<(i64, u32)>,
     present_log: Vec<(i64, usize)>,
@@ -1245,23 +1284,11 @@ impl Ctl {
             {
                 self.q_rest_at = Some(now);
             }
-            // (ironspec 23:56 / 00:12 / 00:16 PT, HELD's invariant under F1) a reset follows every
-            // set within its bound: the napper's rest at the seat + the dwell cap + R1's 4 gt; a
-            // napper waiting through the day (the bound passing outside REST) is reset by the next
-            // release (+ 10 gt to its departure); HELD outliving both bounds fails, with the trace
-            let dt = w.day_time().rem_euclid(24_000);
-            if let Some((t, cause)) = self.held_set.clone()
-                && !self.held_stuck.iter().any(|(st, _)| *st == t)
-            {
-                let bound_a = self.q_rest_at.filter(|r| *r >= t).unwrap_or(t) + self.dwell_cap + 4;
-                let rest_now = (12_000..24_000).contains(&dt);
-                let released_after = self.q_released.iter().find(|r| **r > bound_a).copied();
-                let stuck = now > bound_a && (rest_now && released_after.is_none_or(|r| now > r + 10) || released_after.is_some_and(|r| now > r + 10));
-                if stuck {
-                    self.held_stuck.push((t, cause.clone()));
-                    self.held_log.push(format!("t {now}: HELD still set {} gt after its set at t {t} by {cause}: past rest + the dwell cap {} + 4 (t {bound_a}){}", now - t, self.dwell_cap, released_after.map_or(String::new(), |r| format!(" and the next release t {r} + 10"))));
-                }
-            }
+            // (ironspec's E2, day-1 06:51 PT: HELD stays set while R1 is closed (REST_l off, DAY
+            // high or RS_ready false); its stuck bound is R1 OPEN (REST_l, DAY low, the stop free)
+            // with HELD still set past the arrival's travel onto the rail and its departure (30 gt;
+            // day-1's measured travel 11-12 gt, the departure 17 gt after the arrival): checked
+            // below, once REST_l and DAY are read)
             let dp = powered(w, dep);
             if dp && !self.q_dep_prev {
                 // (ironspec 19:29 (b): who departed)
@@ -1269,6 +1296,13 @@ impl Ctl {
                     self.dep_log.push((now, v));
                 }
                 self.q_rs_ready = false;
+                // (ironspec D2's known positive, --rs-ready-early-control) RS_ready forced set at the
+                // first departure, before its napper passes R: the next release must fail the bar
+                if self.rs_early && !self.rs_early_done {
+                    self.q_rs_ready = true;
+                    self.rs_early_done = true;
+                    self.nap_events.push(format!("t {now}: the RS_ready control: RS_ready forced set at the departure, before its napper passes R"));
+                }
                 if self.q_held {
                     self.held_log.push(format!("t {now}: HELD reset by the queue's departure{}", self.held_set.as_ref().map_or(String::new(), |(t, c)| format!(" (set t {t} by {c}, {} gt)", now - t))));
                 }
@@ -1294,14 +1328,38 @@ impl Ctl {
             // (G1 N4: one reader for every DAY use, an error when the cell isn't a detector)
             let power = detector_level(w)?;
             let not_day = power < self.day_threshold;
-            // (G1 N3 / ironspec's D3: the stand-in's validation, the stored power against redsim's
-            // analytic detector at every 20-gt update after a 40-gt settle, at zero tolerance, and
-            // the DAY edges with the day time and the detector's power)
+            // (ironspec's E2, day-1 06:51 PT) HELD's stuck bound: R1 open (REST_l, DAY low, RS_ready)
+            // for more than 30 gt with HELD still set
+            let r1_open = rest && not_day && self.q_rs_ready;
+            if r1_open && self.held_set.is_some() {
+                let since = *self.r1_open_since.get_or_insert(now);
+                if let Some((t, cause)) = self.held_set.clone()
+                    && now - since > 30
+                    && !self.held_stuck.iter().any(|(st, _)| *st == t)
+                {
+                    self.held_stuck.push((t, cause.clone()));
+                    self.held_log.push(format!("t {now}: HELD still set {} gt after its set at t {t} by {cause}, R1 open (REST_l, DAY low, RS_ready) since t {since}: past the 30-gt travel and departure", now - t));
+                }
+            } else {
+                self.r1_open_since = None;
+            }
+            // (G1 N3 / N18, ironspec D3: the stand-in's validation, the stored power against redsim's
+            // analytic detector at every 20-gt update from the run's first update on (the stored
+            // power before it is the save's), zero tolerance; --day-phase-control compares at the
+            // half-period off-phase instead, which the bar must catch at the edges)
             {
                 let p = power;
                 self.day_ticks += 1;
-                if w.time % 20 == 0 && now >= 40 {
-                    let sky = *self.day_sky.get_or_insert_with(|| redsim::daylight::sky_light(w, redsim::pos::BlockPos::new(-5, 15, 3)).unwrap_or(-1));
+                let phase = if self.day_phase_control { 10 } else { 0 };
+                if w.time % 20 == phase && now >= 1 {
+                    let sky = match self.day_sky {
+                        Some(s) => s,
+                        None => {
+                            let s = redsim::daylight::sky_light(w, redsim::pos::BlockPos::new(-5, 15, 3)).map_err(|e| format!("the DAY detector's sky light: {e}"))?;
+                            self.day_sky = Some(s);
+                            s
+                        }
+                    };
                     let want = redsim::daylight::detector_power(sky, w.sky_darken(), w.day_time(), false) as u32;
                     self.day_updates += 1;
                     if p != want {
@@ -1415,10 +1473,13 @@ impl Ctl {
             self.rs_set = None;
             self.nap_arm3 = Some(a);
             // (day-1 19:19, K = 4: the K-set + 4 at a + 97 / 112 / 128, the reset at K + 16 =
-            // a + 125 / 140 / 156, PRESENT on its own tap at K + 2 = a + 111 / 126 / 142)
+            // a + 125 / 140 / 156, PRESENT's set edge on its own tap at K + 2 = a + 111 / 126 / 142;
+            // ironspec's E5, day-1 06:51 PT: PRESENT_l is a two-torch RS NOR whose output reaches the
+            // AND 4 gt after its set edge (measured at all 20 phases), so PRESENT is effective at
+            // a + 115 / 130 / 146)
             self.k_on = Some(a + [97, 112, 128][k]);
             self.k_off = Some(a + [125, 140, 156][k]);
-            self.present_at = Some(a + [111, 126, 142][k]);
+            self.present_at = Some(a + [115, 130, 146][k]);
             if k > 0 {
                 self.j_block = Some((a + 72, a + 127));
             }
@@ -1585,7 +1646,9 @@ impl Ctl {
             let u = self.rel_count.rem_euclid(10);
             // (day-1 22:06: picks only inside the counter's window C 141..221, opening at day time
             // 12,431..12,549 on a normal day and closing near 20,500; no pick after C 221)
-            if (u == 1 || u == 4 || u == 7) && (141..=221).contains(&self.rel_count) {
+            // (day-1 06:07 PT, ctlcounter.rs :156: the window (141, 221), half-open, so picks at C
+            // 141..220; ironspec's E1)
+            if (u == 1 || u == 4 || u == 7) && (141..=220).contains(&self.rel_count) {
                 let k = ((u - 1) / 3) as usize;
                 if (self.q_held && !self.held_at_divert) || self.away[k] || self.pick_cart.is_some() {
                     self.picks_gated += 1;
@@ -1779,6 +1842,27 @@ struct Rec {
     /// transit in progress.
     air_open: Option<(i64, i32, i64, [i32; 3])>,
     air_transits: Vec<(i64, i32, i64, [i32; 3])>,
+    /// (ironspec 06:31 / 06:33 platform) its last REST entry and its last H visit (the tick), and
+    /// whether it sat on H last tick: each entry and visit prints what cleared its stamp since the
+    /// previous one.
+    last_rest_entry: Option<i64>,
+    last_h_visit: Option<i64>,
+    on_h_prev: bool,
+    h_rows: Vec<String>,
+    /// (ironspec 06:34 platform, the PANIC -> REST switch) in the REST spell in progress: the tick its
+    /// WALK_TARGET first went empty (the sink stopped), the tick HOME was first targeted, and
+    /// whether a stamp was armed in it.
+    spell_sink_stop: Option<i64>,
+    spell_home_at: Option<i64>,
+    spell_armed: bool,
+    /// (ironspec 06:37 platform, G1) the stamp's age at the spell's first HOME-targeting tick (the
+    /// first tick SetWalkTargetFromBlockMemory ran): Some(None) unarmed.
+    spell_home_stamp: Option<Option<i64>>,
+    /// (ironspec 06:40 platform, G1 1c) each wake: its row, kept open until the napper's next REST
+    /// entry (the waker's flee target, the path, the stamp, and whether it cleared by then).
+    sleeping_prev: bool,
+    wake_open: Option<(i64, String)>,
+    wake_rows: Vec<String>,
 }
 
 /// (ironspec 20:40 PT, the 4 undeclared T sources (2b): the (a) feed stack's dust under lane -1's
@@ -2343,7 +2427,11 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     if o.napper && o.drive {
         ctl.k_lock = Some(o.k_lock.ok_or("the module declares no `k-lock: N (why)` line (the hold gate's delayed Q, ironspec 22:09)")?);
         ctl.k_sw = Some(o.k_sw.ok_or("the module declares no `k-sw: N (why)` line (the siding's repeater after D, ironspec 22:03)")?);
-        ctl.dwell_cap = o.dwell_cap.ok_or("the module declares no `dwell-cap: N (why)` line (HELD's bound and the dwell bar, ironspec 20:34 / 00:16)")?;
+        // (ironspec 06:35 platform: the dwell is design, no fixed cap of record unless derived and
+        // cited; a declared cap still bounds HELD, and without one HELD's stuck bar isn't judged)
+        ctl.dwell_cap = o.dwell_cap;
+        ctl.rs_early = o.rs_ready_early_control;
+        ctl.day_phase_control = o.day_phase_control;
     }
     // (day-1 06:07 PT, ctlcounter.rs; G1's blocker 3: the counter's state at the first release, a
     // clear clock's: C = 141 + ceil((d - 12,540) / 100) for a first release at day time d between
@@ -2469,6 +2557,21 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     // (ironspec 02:18 PT (3a)) each lane's H..V carts at the first release, the least, the most
     // away, the rows with more than one away
     let mut occ_full: Option<[i64; 3]> = None;
+    // (G1 N6 / ironspec D4) each lane's carts by id at t0 (the pocket P (x,0,0), H (x,16,0), R_1 and
+    // the five slopes), asserted against the design's 8 a lane
+    let lane_ids_t0: [Vec<u32>; 3] = [0usize, 1, 2].map(|k| {
+        let x = LANES[k];
+        run.world
+            .entities
+            .list
+            .iter()
+            .filter(|e| {
+                let c = cell(e.pos);
+                !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && !e.passengers.is_empty() && (c == [x, 0, 0] || c == [x, 16, 0] || c == [x, 17, 1] || (0..5).any(|j| c == [x, 18 + j, 2 + j]))
+            })
+            .map(|e| e.id)
+            .collect()
+    });
     let mut occ_min = [i64::MAX; 3];
     let mut away_max = [0i64; 3];
     let mut away_rows: Vec<String> = Vec::new();
@@ -2512,6 +2615,17 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     let mut stamp_max: Option<(i64, i64, String, [i32; 3])> = None;
     let mut stamp_over: Vec<String> = Vec::new();
     let mut stamp_over_n = 0i64;
+    // (G1 N17: a control is caught only by its own sample) the riders whose stamps reached 1,000,
+    // and the nappers seen without HOME at the stop
+    let mut stamp_over_ids: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+    let mut stop_homeless_ids: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+    // (ironspec 06:37 platform, G1) the at-entry stamp bar: the stamp's age at each spell's first
+    // HOME-targeting tick (where SetWalkTargetFromBlockMemory ran), the spells judged, the worst
+    let mut at_home_target_n = 0i64;
+    let mut at_home_target_max = 0i64;
+    let mut at_home_target_over = 0i64;
+    // (ironspec D2) every napper's R: (id, tick)
+    let mut at_r_log: Vec<(u32, i64)> = Vec::new();
     // (ironspec 06:31 real) the farm-stop bar: ticks a napper without HOME stood at the bed stop
     let mut stop_homeless: Vec<String> = Vec::new();
     let mut stop_homeless_n = 0i64;
@@ -2533,8 +2647,12 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     // occupant, its activity at every tick until it leaves V or dawn, its stamp and HOME then)
     let mut v_night: [Option<(i64, u32, String, Option<i64>, bool)>; 3] = Default::default();
     let mut v_night_rows: Vec<String> = Vec::new();
+    // (ironspec 06:33 platform) every distinct night eye position of a rider: [ticks, REST, PANIC]
+    let mut eye_hist: BTreeMap<[i64; 3], [i64; 3]> = BTreeMap::new();
     let mut rest_near_rows: Vec<String> = Vec::new();
     let mut bed_ever_occupied = false;
+    // (ironspec D5(a)) REST reads of a rider with no exact brain state (counted, never "not REST")
+    let mut brainless_reads = 0i64;
     let mut golem_birth_at: BTreeMap<u32, ([f64; 3], String)> = BTreeMap::new();
     let mut golem_summon: BTreeMap<u32, (i64, u32, u32, Option<[i32; 3]>, Option<[f64; 3]>)> = BTreeMap::new();
     #[allow(clippy::type_complexity)]
@@ -2929,11 +3047,12 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             {
                 r.nap_call = Some(match r.gdr_set {
                     Some(s) => {
-                        // (ironspec 19:40 PT: from the latest set, bar >= 3; from the stamp's original
-                        // tick (its own summon or a bystander stamp), bar >= 23)
-                        let margin = t - (s + redsim::entity::mob::villager::GOLEM_MEMORY_TTL);
-                        let orig = r.last_stamp.map(|o| t - (o + redsim::entity::mob::villager::GOLEM_MEMORY_TTL));
-                        let pass = margin >= 3 && orig.is_none_or(|m| m >= 23);
+                        // (ironspec 05:10 real (3), G1 N7: ONE verdict, the margin >= 3 from the latest
+                        // set, whatever its source; the stamp's-original-tick margin (the old
+                        // "bar >= 23" of ironspec 19:40 PT, superseded) prints as information)
+                        let margin = t - (s + GOLEM_TTL);
+                        let orig = r.last_stamp.map(|o| t - (o + GOLEM_TTL));
+                        let pass = margin >= 3;
                         // (ironspec 02:37 PT: the harm bar reads every napper's first call back)
                         nap_margins.push((id, t - t0, Some(margin), r.gdr_setter.unwrap_or("?")));
                         format!(
@@ -2941,7 +3060,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                             t - t0,
                             s - t0,
                             r.gdr_setter.unwrap_or("?"),
-                            orig.map_or(String::new(), |m| format!(", {m:+} gt from the stamp's original tick (bar >= 23)")),
+                            orig.map_or(String::new(), |m| format!(", {m:+} gt from the stamp's original tick (information)")),
                             if pass { "PASS" } else { "FAIL" }
                         )
                     }
@@ -3099,7 +3218,15 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             // on the napper's outbound trip (its picked cart before the divert, or its visit before
             // the queue), where a pocket rider's 10-box reaches it, before the whole round trip (the
             // summon's other stamps are the ones that S lays anyway; the harm bar must PASS)
-            let s_phase = now.rem_euclid(100);
+            // (ironspec D7: the S phase from the run's ACTUAL S ticks) the latest pocket summon
+            // attempt's game time mod 100, else the trigger's own % 100 == 0
+            let s_mod = w.mob.events.iter().rev().find_map(|e| match e {
+                redsim::entity::mob::MobEvent::GolemTry { t, from, .. } if LANES.iter().any(|x| *from == [*x, 0, 0]) => Some(t.rem_euclid(100)),
+                _ => None,
+            }).unwrap_or(0);
+            let to_s = (s_mod - now).rem_euclid(100);
+            // (G1 N8: the early target is the napper of the current pick only)
+            let picked_v: Option<u32> = ctl.pick_cart.and_then(|(pc, _)| w.entities.list.iter().find(|e| e.id == pc).and_then(|e| e.passengers.first().copied())).or_else(|| ctl.diverts().last().map(|d| d.1));
             let target = w
                 .entities
                 .list
@@ -3110,20 +3237,19 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     let Some(v) = e.passengers.first() else { return false };
                     match variant {
                         "late" => {
+                            // (the stamp 25..35 gt before the napper's next own-pocket S)
                             c[1] == 0
                                 && c[2] == 0
                                 && LANES.contains(&c[0])
-                                && (60..=70).contains(&s_phase)
+                                && (25..=35).contains(&to_s)
                                 && nappers.iter().any(|n| n.0 == *v)
                                 && recs.get(v).is_some_and(|r| r.milestones.iter().any(|(m, _)| m == "back in its lane") && r.nap_call.is_none())
                         }
                         _ => {
-                            // (an outbound napper anywhere a pocket rider's 10-box reaches: its
-                            // picked cart before the divert, or its visit before the queue; the
-                            // call's willing pocket riders are its summoners, so their stamps are a
-                            // summon's own)
-                            ctl.pick_cart.is_some_and(|(pc, _)| pc == e.id)
-                                || (nappers.iter().any(|n| n.0 == *v) && recs.get(v).is_some_and(|r| !r.milestones.iter().any(|(m, _)| m == "at the queue's arrival")))
+                            // (the current pick's napper, outbound: before its queue arrival,
+                            // anywhere a pocket rider's 10-box reaches; the call's willing pocket
+                            // riders are its summoners, so their stamps are a summon's own)
+                            picked_v == Some(*v) && recs.get(v).is_some_and(|r| !r.milestones.iter().any(|(m, _)| m == "at the queue's arrival"))
                         }
                     }
                 })
@@ -3166,31 +3292,39 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     })
                     .map(|j| w.entities.list[j].id)
                     .collect();
-                redsim::entity::mob::spawn::spawn_golem_if_needed(w, k, 3);
+                // (G1 N8) the target's GOLEM_DETECTED_RECENTLY before and after the call; the dud
+                // control (--bystander-dud) asks 99 willing, so no golem comes and the control must
+                // show NOT EXERCISED
+                let ttl_of = |w: &redsim::world::World| redsim::entity::index_of(w, tv).and_then(|j| redsim::entity::mob::ai::brain::brain(w, j).golem_detected);
+                let ttl_before = ttl_of(w);
+                redsim::entity::mob::spawn::spawn_golem_if_needed(w, k, if o.bystander_dud { 99 } else { 3 });
+                let ttl_after = ttl_of(w);
                 let born_at = w.mob.events[before..].iter().find_map(|e| match e {
                     redsim::entity::mob::MobEvent::GolemTry { golem: Some(_), t, .. } => Some(*t),
                     _ => None,
                 });
-                let born = born_at.is_some();
+                let born = born_at.is_some() && ttl_after != ttl_before;
                 if let Some(bt) = born_at {
                     willing_at = (bt, willing);
                 }
                 if born {
                     bystander_target = Some((tv, now - t0));
                     controls_done.push(format!(
-                        "the bystander control ({variant}) at t {}: a real summon from #{v} stamped napper #{tv} at ({:.1},{:.1},{:.1}), {} (after {bystander_tries} calls; the harm bar must {})",
+                        "the bystander control ({variant}) at t {}: a real summon from #{v} stamped napper #{tv} at ({:.1},{:.1},{:.1}), {} (its GOLEM_DETECTED_RECENTLY {} -> {}; after {bystander_tries} calls; the harm bar must {})",
                         now - t0,
                         tp.x,
                         tp.y,
                         tp.z,
-                        if variant == "late" { "back in its own pocket at its return's end" } else { "on its outbound trip" },
+                        if variant == "late" { "back in its own pocket, 25..35 gt before its next S" } else { "on its outbound trip (the current pick)" },
+                        ttl_before.map_or("unset".to_string(), |t| t.to_string()),
+                        ttl_after.map_or("unset".to_string(), |t| t.to_string()),
                         if variant == "late" { "catch it" } else { "hold" }
                     ));
                 }
             }
         }
-        // (ironspec 09:59) the bed occupied this tick: a villager asleep in it
-        let bed_occupied = w.entities.list.iter().any(|e| !e.removed && matches!(&e.kind, EntityKind::Mob(m) if m.sleeping_pos.is_some_and(|p| [p.x, p.y, p.z] == o.bed)));
+        // (ironspec 09:59; G1 N13: the bed's own OCCUPIED property) the bed occupied this tick
+        let bed_occupied = w.get(redsim::pos::BlockPos::new(o.bed[0], o.bed[1], o.bed[2])).to_string().contains("occupied=true");
         // (ironspec 06:31 / 06:38 PT: ValidateNearbyPoi's 16-block exposure) while someone sleeps in
         // the bed, every other villager in REST within 16 of it, per night
         if o.napper && bed_occupied {
@@ -3204,9 +3338,16 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 if e.removed || m.ty != redsim::entity::mob::types::MobType::Villager || m.sleeping_pos.is_some() {
                     continue;
                 }
-                let d = ((e.pos.x - bc.x).powi(2) + (e.pos.y - bc.y).powi(2) + (e.pos.z - bc.z).powi(2)).sqrt();
-                let rest = redsim::entity::mob::ai::brain::brain(w, j).ex.as_deref().is_some_and(|x| x.active == redsim::entity::mob::ai::brain::Act::Rest);
-                if d < 16.0 && rest {
+                let d2 = (e.pos.x - bc.x).powi(2) + (e.pos.y - bc.y).powi(2) + (e.pos.z - bc.z).powi(2);
+                let d = d2.sqrt();
+                let rest = match redsim::entity::mob::ai::brain::brain(w, j).ex.as_deref() {
+                    Some(x) => x.active == redsim::entity::mob::ai::brain::Act::Rest,
+                    None => {
+                        brainless_reads += 1;
+                        false
+                    }
+                };
+                if d2 < 256.0 && rest {
                     *rest_near_bed.entry(w.day_time().div_euclid(24_000)).or_default() += 1;
                     if rest_near_rows.len() < 12 {
                         rest_near_rows.push(format!("t {} {} at ({:.1},{:.1},{:.1}), {:.1} from the bed", now - t0, recs.get(&e.id).map_or(format!("#{}", e.id), |r| r.label.split(' ').next().unwrap_or("").to_string()), e.pos.x, e.pos.y, e.pos.z, d));
@@ -3659,7 +3800,14 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 let ex = b.ex.as_deref();
                 // (the exact brain's own activity: REST, PANIC; the legacy fields aren't kept with
                 // the mob AI on)
-                let rest = ex.map_or(matches!(b.activity, redsim::entity::mob::villager::Activity::Rest), |x| x.active == Act::Rest);
+                let rest = match ex {
+                    Some(x) => x.active == Act::Rest,
+                    // (ironspec D5(a): a rider with no exact brain state can't be read as "not REST")
+                    None => {
+                        brainless_reads += 1;
+                        matches!(b.activity, redsim::entity::mob::villager::Activity::Rest)
+                    }
+                };
                 let panic = ex.map_or(b.panic_running, |x| x.active == Act::Panic);
                 let sleeping = matches!(&w.entities.list[i].kind, EntityKind::Mob(m) if m.sleeping_pos.is_some());
                 let target = ex.and_then(|x| x.mem.walk_target.as_ref()).and_then(|t| match t.target {
@@ -3739,6 +3887,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     }
                     if age >= 1000 {
                         stamp_over_n += 1;
+                        stamp_over_ids.insert(id);
                         if stamp_over.len() < 8 {
                             stamp_over.push(format!("t {} {who} at {:?}: {age} gt ({}, {})", now - t0, c, if activity_rest { "REST" } else if panic { "PANIC" } else { "neither" }, tgt(target)));
                         }
@@ -3762,6 +3911,14 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 if night {
                     night_window = Some(night_window.map_or((now - t0, now - t0), |(a, _)| (a, now - t0)));
                     r.night_acts[if panic { 0 } else if activity_rest { 1 } else { 2 }] += 1;
+                    if o.rider_trace.is_some() {
+                        let eye = redsim::entity::mob::villager::eye_pos(w, i);
+                        let k = [(eye.x * 100.0).round() as i64, (eye.y * 100.0).round() as i64, (eye.z * 100.0).round() as i64];
+                        let e = eye_hist.entry(k).or_default();
+                        e[0] += 1;
+                        e[1] += activity_rest as i64;
+                        e[2] += panic as i64;
+                    }
                 }
                 // (G1, farmopt 06:12 PT: a covered rider enters REST for not even one tick at the
                 // schedule switch) its activity at each tick of day time 11,990..=12,040
@@ -3832,22 +3989,110 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     }
                     best.map_or("no hostile mob within 16".to_string(), |(d, j)| {
                         let e = &w.entities.list[j];
-                        let clear = redsim::entity::mob::los::has_line_of_sight(w, eye, redsim::entity::mob::ai::eye_pos(w, j));
-                        format!("the nearest hostile {} at ({:.1},{:.1},{:.1}), {d:.2} away, the eye-to-eye clip {}", match &e.kind { EntityKind::Mob(m) => format!("{:?}", m.ty), _ => "?".to_string() }, e.pos.x, e.pos.y, e.pos.z, if clear { "clear" } else { "blocked" })
+                        let seye = redsim::entity::mob::ai::eye_pos(w, j);
+                        let clear = redsim::entity::mob::los::has_line_of_sight(w, eye, seye);
+                        // (G1 06:33 PT: the rider's eye, the scarer's eye, the distance and the
+                        // clip's blocking cell, like for like with 9fc3155f's map)
+                        let block = if clear { String::new() } else { redsim::entity::mob::los::first_hit(w, eye, seye).map_or(String::new(), |b| format!(" at ({},{},{}) {}", b.x, b.y, b.z, w.get(b).to_string().trim_start_matches("minecraft:"))) };
+                        format!(
+                            "the nearest hostile {} at ({:.1},{:.1},{:.1}), {d:.2} away; the rider's eye ({:.2},{:.2},{:.2}), its eye ({:.2},{:.2},{:.2}); the eye-to-eye clip {}{block}",
+                            match &e.kind { EntityKind::Mob(m) => format!("{:?}", m.ty), _ => "?".to_string() },
+                            e.pos.x,
+                            e.pos.y,
+                            e.pos.z,
+                            eye.x,
+                            eye.y,
+                            eye.z,
+                            seye.x,
+                            seye.y,
+                            seye.z,
+                            if clear { "clear" } else { "blocked" }
+                        )
                     })
                 };
+                // (ironspec 06:31 platform) each night H visit (a rider seated on H (x,16,0)): the
+                // stamp's age at entry and what cleared it since the previous H visit
+                let on_h = riding && LANES.iter().any(|x| c == [*x, 16, 0]);
+                if on_h && !r.on_h_prev && night {
+                    let since = r.last_h_visit;
+                    let cleared = r.arm_pairs.iter().rev().find(|(_, cl, _)| cl.is_some_and(|cl| since.is_none_or(|s| cl > s)));
+                    let row = format!(
+                        "t {} at {:?}: stamp {}; {}",
+                        now - t0,
+                        c,
+                        stamp.map_or("unarmed".to_string(), |s| format!("{} gt", now - s)),
+                        match (cleared, stamp) {
+                            (Some((a, Some(cl), how)), _) => format!("cleared since the last H visit at t {cl} (armed t {a}): {how}"),
+                            (_, Some(s)) => format!("NOT CLEARED since {} (armed t {})", since.map_or("the run's start".to_string(), |s| format!("the H visit at t {s}")), s - t0),
+                            _ => "no stamp since the last H visit".to_string(),
+                        }
+                    );
+                    if r.h_rows.len() < 16 {
+                        r.h_rows.push(row);
+                    }
+                    r.last_h_visit = Some(now - t0);
+                }
+                r.on_h_prev = on_h;
+                // (ironspec 06:40 platform, G1 1c) every wake: the flee target the waker set, its path
+                // (brain: the rider's own path memory), the stamp; closed at the next REST entry
+                if r.sleeping_prev && !sleeping {
+                    r.wake_open = Some((
+                        now - t0,
+                        format!(
+                            "woke t {} at ({:.1},{:.1},{:.1}): {}, the path then {}, stamp {}",
+                            now - t0,
+                            pos.x,
+                            pos.y,
+                            pos.z,
+                            target_kind.as_ref().map_or("no walk target".to_string(), |k| format!("{k} {}", tgt(target))),
+                            path_from.map_or("none".to_string(), |(n0, len)| format!("brain: from {} ({len} nodes, canReach {})", n0.map_or("-".to_string(), |n| format!("({},{},{})", n[0], n[1], n[2])), reach.map_or("?", |r| if r { "true" } else { "false" }))),
+                            stamp.map_or("unarmed".to_string(), |s| format!("{} gt", now - s))
+                        ),
+                    ));
+                }
+                r.sleeping_prev = sleeping;
+                if activity_rest && r.rest_spell.is_none()
+                    && let Some((wt, row)) = r.wake_open.take()
+                {
+                    let armed: Vec<&(i64, Option<i64>, String)> = r.arm_pairs.iter().filter(|(a, _, _)| *a >= wt).collect();
+                    let open_armed = r.arm_open.is_some_and(|a| a >= wt);
+                    if r.wake_rows.len() < 12 {
+                        r.wake_rows.push(format!(
+                            "{row}; until its next REST entry at t {}: {}",
+                            now - t0,
+                            if armed.is_empty() && !open_armed {
+                                "no stamp armed".to_string()
+                            } else {
+                                format!("{}{}", armed.iter().map(|(a, c, how)| format!("armed t {a}, cleared t {}: {how}", c.map_or("-".to_string(), |c| c.to_string()))).collect::<Vec<_>>().join(", "), if open_armed { format!("; armed t {} NOT CLEARED by the entry", r.arm_open.unwrap_or(0)) } else { String::new() })
+                            }
+                        ));
+                    }
+                }
                 if activity_rest {
                     if r.rest_spell.is_none() {
                         rest_entries_total += 1;
                         let counted = !in_trip && !sleeping;
+                        // (ironspec 06:33 platform (2)) what cleared the stamp since the previous
+                        // REST entry: the last clearing after it, or "not cleared"
+                        let since = r.last_rest_entry;
+                        let cleared = r.arm_pairs.iter().rev().find(|(_, c, _)| c.is_some_and(|c| since.is_none_or(|s| c > s)));
+                        let cleared_s = match (cleared, stamp) {
+                            (Some((a, Some(c), how)), _) => format!("cleared since the last entry: t {c} (armed t {a}): {how}"),
+                            (_, Some(s)) => format!("NOT CLEARED since {} (armed t {})", since.map_or("the run's start".to_string(), |s| format!("the entry at t {s}")), s - t0),
+                            _ => "no stamp since the last entry".to_string(),
+                        };
+                        r.last_rest_entry = Some(now - t0);
                         let row = format!(
-                            "t {} {who} entered REST at ({:.1},{:.1},{:.1}){}{}, {}; {}, stamp {}, HOME {}",
+                            "t {} {who} entered REST at ({:.1},{:.1},{:.1}){}{}, on_ground {}, WALK_TARGET at entry {}, the path then {}, {}; {}, stamp {} ({cleared_s}), HOME {}",
                             now - t0,
                             pos.x,
                             pos.y,
                             pos.z,
                             if riding { " riding (a design position)" } else { "" },
                             if in_trip { " (in its own trip: excluded)" } else { "" },
+                            w.entities.list[i].on_ground,
+                            target_kind.as_ref().map_or("none".to_string(), |k| format!("{k} {}", tgt(target))),
+                            path_from.map_or("none".to_string(), |(n0, len)| format!("from {} ({len} nodes, {})", n0.map_or("-".to_string(), |n| format!("({},{},{})", n[0], n[1], n[2])), reach.map_or("?", |r| if r { "complete" } else { "partial" }))),
                             sight(w),
                             nearest(w),
                             stamp.map_or("unarmed".to_string(), |s| format!("{} gt", now - s)),
@@ -3859,9 +4104,35 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                         }
                         r.rest_spell = Some((now - t0, row, counted, riding));
                         r.rest_path = None;
+                        r.spell_sink_stop = None;
+                        r.spell_home_at = None;
+                        r.spell_armed = false;
+                        r.spell_home_stamp = None;
                     }
                     if r.rest_path.is_none() && home.is_some() && path_target == home {
                         r.rest_path = reach;
+                    }
+                    // (ironspec 06:34 platform) the sink's stop, HOME targeted, a stamp armed
+                    if r.spell_sink_stop.is_none() && target.is_none() {
+                        r.spell_sink_stop = Some(now - t0);
+                    }
+                    if r.spell_home_at.is_none()
+                        && let (Some(h), Some(t)) = (home, target)
+                        && [t[0].floor() as i32, t[1].floor() as i32, t[2].floor() as i32] == h
+                    {
+                        r.spell_home_at = Some(now - t0);
+                        let age = stamp.map(|s| now - s);
+                        r.spell_home_stamp = Some(age);
+                        if let Some(a) = age {
+                            at_home_target_max = at_home_target_max.max(a);
+                            if a >= 1000 {
+                                at_home_target_over += 1;
+                            }
+                        }
+                        at_home_target_n += 1;
+                    }
+                    if stamp.is_some() && r.prev_stamp.is_none() {
+                        r.spell_armed = true;
                     }
                     if r.rest_spell.as_ref().is_some_and(|s| s.2) {
                         lane_rest_ticks += 1;
@@ -3872,7 +4143,17 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                         lane_rest_partial += 1;
                     }
                     if rest_rows.len() < 40 {
-                        rest_rows.push(format!("{row}; its HOME path {}; left REST at t {} ({} gt){}", path.map_or("never computed".to_string(), |p| if p { "complete".to_string() } else { "PARTIAL".to_string() }), now - t0, now - t0 - st, r.home_lost.last().map_or(String::new(), |l| format!("; HOME released {l}"))));
+                        rest_rows.push(format!(
+                            "{row}; the sink stopped (WALK_TARGET empty) {}, HOME targeted {}{}, a stamp armed in the spell: {}; its HOME path {}; left REST at t {} ({} gt){}",
+                            r.spell_sink_stop.map_or("never in the spell".to_string(), |t| format!("at t {t}")),
+                            r.spell_home_at.map_or("never in the spell".to_string(), |t| format!("at t {t}")),
+                            r.spell_home_stamp.map_or(String::new(), |a| format!(" (the stamp then {})", a.map_or("unarmed".to_string(), |a| format!("{a} gt")))),
+                            if r.spell_armed { "yes" } else { "no" },
+                            path.map_or("never computed".to_string(), |p| if p { "complete".to_string() } else { "PARTIAL".to_string() }),
+                            now - t0,
+                            now - t0 - st,
+                            r.home_lost.last().map_or(String::new(), |l| format!("; HOME released {l}"))
+                        ));
                     }
                 }
                 // (ironspec 06:31 real, the farm-stop bar) a napper without HOME at the bed stop
@@ -3887,6 +4168,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     }
                     if home.is_none() {
                         stop_homeless_n += 1;
+                        stop_homeless_ids.insert(id);
                         if stop_homeless.len() < 8 {
                             stop_homeless.push(format!("t {} {who} at {:?}", now - t0, c));
                         }
@@ -3962,7 +4244,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     if seat_paths.len() < 60 {
                         let f = |p: Option<[i32; 3]>| p.map_or("-".to_string(), |p| format!("({},{},{})", p[0], p[1], p[2]));
                         let complete = path_target.is_some() && path_target == path_end;
-                        seat_paths.push(format!("t {} {}: to {} ending {} ({} nodes, {})", now - t0, r.label.split(' ').next().unwrap_or(""), f(path_target), f(path_end), path_from.map_or(0, |(_, n)| n), if path_target.is_none() { "no path" } else if complete { "complete" } else { "partial" }));
+                        seat_paths.push(format!("t {} {}: to {} ending {} ({} nodes, {})", now - t0, r.label.split(' ').next().unwrap_or(""), f(path_target), f(path_end), path_from.map_or(0, |(_, n)| n), if path_target.is_none() { "no path".to_string() } else { format!("brain: the rider's own path memory, canReach {}, end {} target", reach.map_or("?", |r| if r { "true" } else { "false" }), if complete { "==" } else { "!=" }) }));
                     }
                 }
             }
@@ -4073,8 +4355,10 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                             r.gdr_setter = Some("a summon's stamp (a bystander)");
                             // (ironspec 04:02 PT: every stamp print names its trip: a napper
                             // outbound before the queue, in the stop, or on its return after the
-                            // climb; a lane rider)
-                            let trip = if nappers.iter().any(|n| n.0 == id_me) {
+                            // climb; a lane rider; ironspec D6: from the CURRENT visit only, a
+                            // napper back in its lane being a lane rider again)
+                            let on_trip = nappers.iter().any(|n| n.0 == id_me) && !r.milestones.is_empty() && !r.milestones.iter().any(|(m, _)| m == "back in its lane");
+                            let trip = if on_trip {
                                 if r.milestones.iter().any(|(m, _)| m == "in the napper lift" || m == "on the hold (9,0,8)") {
                                     "return, after the climb"
                                 } else if r.milestones.iter().any(|(m, _)| m == "at the queue's arrival") {
@@ -4190,9 +4474,9 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     }
                 }
             }
-            // (ironspec 09:59) within 16 of the bed head
-            let bh = [o.bed[0] as f64 + 0.5, o.bed[1] as f64 + 0.5, o.bed[2] as f64 + 0.5];
-            if ((pos.x - bh[0]).powi(2) + (pos.y - bh[1]).powi(2) + (pos.z - bh[2]).powi(2)).sqrt() <= 16.0 {
+            // (ironspec 09:59; E10 / G1 N13: ValidateNearbyPoi's strict squared test) within 16 of
+            // the bed head
+            if poi_near(o.bed, pos) {
                 *near.cells.entry(c).or_insert(0) += 1;
                 near.ticks += 1;
                 if bed_occupied && activity_rest && !panic && !sleeping {
@@ -4214,15 +4498,19 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 if sleeping {
                     if !r.milestones.iter().any(|(w, _)| w == "asleep in the bed") {
                         nap_times.entry(id).or_default().push(now - t0);
+                        // (ironspec 15:43: naps per full night, bar 24; E7 / G1: keyed by the
+                        // LIE-DOWN event, to the night whose REST window it falls in, so a nap
+                        // spanning 24,000 counts once)
+                        nights.entry(night_of(w.day_time())).or_default().insert(id);
                     }
                     mark(r, "asleep in the bed");
-                    // (ironspec 15:43: naps per full night, bar 24)
-                    nights.entry(w.day_time().div_euclid(24_000)).or_default().insert(id);
                 }
                 if c == [4, -19 + sy, 4] {
                     if !r.milestones.iter().any(|(w, _)| w == "at R") {
                         // (ironspec 13:44) its stamp's age at R
                         r.nap_stamps.push(format!("at R {}", stamp.map_or("unarmed".to_string(), |s| format!("{} gt", now - s))));
+                        // (ironspec D2) R's tick, for "no R1 release before the previous napper passes R"
+                        at_r_log.push((id, now - t0));
                     }
                     mark(r, "at R");
                 }
@@ -4646,7 +4934,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             for (v, k, _) in &nappers {
                 last_lane.insert(*v, *k);
             }
-            let away: [i64; 3] = [0usize, 1, 2].map(|k| last_lane.iter().filter(|(v, kk)| **kk == k && recs.get(v).is_some_and(|r| !r.milestones.iter().any(|(m, _)| m == "back in its lane"))).count() as i64);
+            let away: [i64; 3] = [0usize, 1, 2].map(|k| last_lane.iter().filter(|(v, kk)| **kk == k && recs.get(v).is_some_and(|r| !r.milestones.is_empty() && !r.milestones.iter().any(|(m, _)| m == "back in its lane"))).count() as i64);
             for k in 0..3 {
                 occ_min[k] = occ_min[k].min(full[k] - away[k]);
                 away_max[k] = away_max[k].max(away[k]);
@@ -4913,7 +5201,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 .collect::<Vec<_>>()
                 .join(", ")
         },
-        nap_margins.iter().filter_map(|x| x.2).min().map_or("-".to_string(), |m| format!("{m:+} gt")),
+        nap_margins.iter().filter_map(|x| x.2).min().map_or("-".to_string(), |m| format!("{m:+} gt (scope, G1 N7: {} of {} visits judged; a visit whose call back falls past the run's end isn't judged)", nap_margins.len(), nappers.len())),
         if nap_margins.is_empty() {
             "NOT JUDGED (0 nappers called back inside the run): FAIL"
         } else if nap_margins.iter().any(|x| x.2.is_some_and(|m| m < 3)) {
@@ -4922,23 +5210,31 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             "PASS"
         }
     ));
-    // (ironspec 02:37 PT, farmopt 02:42) the successful summons by the caller's place: a pocket
-    // rider (y 0), a hold rider (y 16: can't reach the pad, so expected 0), anywhere else (named)
+    // (ironspec 02:37 PT, farmopt 02:42; G1 N9 / ironspec 07:18 real: by the SUMMONER's cell against
+    // each declared place's cell set, not by height) a pocket rider (x,0,0), a hold rider (x,16,0:
+    // can't reach the pad, expected 0), any undeclared place (bar 0, each with the golem's spawn
+    // cell); 0 summons isn't judged
     {
         let (mut pocket, mut hold, mut other) = (0usize, 0usize, Vec::new());
-        for (t, v, _, _, p) in golem_summon.values() {
-            match p.map(|p| p[1].floor() as i32) {
-                Some(0) => pocket += 1,
-                Some(16) => hold += 1,
-                _ => other.push(format!("t {} #{v} at {}", t - t0, p.map_or("?".to_string(), |p| format!("({:.2},{:.2},{:.2})", p[0], p[1], p[2])))),
+        for (g, (t, v, _, at, p)) in &golem_summon {
+            let c = at.or_else(|| p.map(|p| [p[0].floor() as i32, p[1].floor() as i32, p[2].floor() as i32]));
+            match c {
+                Some(c) if LANES.iter().any(|x| c == [*x, 0, 0]) => pocket += 1,
+                Some(c) if LANES.iter().any(|x| c == [*x, 16, 0]) => hold += 1,
+                _ => other.push(format!(
+                    "t {} #{v} at {}, the golem #{g} spawned at {}",
+                    t - t0,
+                    c.map_or("?".to_string(), |c| format!("({},{},{})", c[0], c[1], c[2])),
+                    golem_birth_at.get(g).map_or("?".to_string(), |(bp, _)| format!("({:.2},{:.2},{:.2})", bp[0], bp[1], bp[2]))
+                )),
             }
         }
         s.push_str(&format!(
-            "the successful summons by the caller's place (ironspec 02:37 PT: hold riders never stamp): {} golems, by pocket riders {pocket}, by hold riders {hold} (expected 0: {}), elsewhere {}{}\n",
+            "the successful summons by the summoner's place (ironspec 02:37 PT / 07:18 real, G1 N9: the declared places are the pockets (x,0,0); hold riders (x,16,0) never stamp; an undeclared place fails): {} golems, by pocket riders {pocket}, by hold riders {hold} (expected 0), from undeclared places {}{} ({})\n",
             golem_summon.len(),
-            if hold == 0 { "PASS" } else { "FAIL" },
             other.len(),
-            if other.is_empty() { String::new() } else { format!(": {}", other.join(", ")) }
+            if other.is_empty() { String::new() } else { format!(": {}", other.join(", ")) },
+            if golem_summon.is_empty() { "NOT JUDGED (0 summons): FAIL" } else if hold == 0 && other.is_empty() { "PASS" } else { "FAIL" }
         ));
     }
     s.push_str(&format!(
@@ -5237,15 +5533,16 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         // (ironspec 23:56 PT (3), G1's [1]: no vacuous pass) a napper run with no trip out of the ball
         s.push_str("  (a1) its margin (ironspec 19:07 PT): 0 trips out of the bed's 16-ball: NOT JUDGED (0 samples): FAIL\n");
     }
-    // (a trip that reached R and never left the ball: its own row)
+    // (a trip that reached R and never left the ball: its own row, information only: the 152-gt bound
+    // retired 19:07 PT, ironspec's E11)
     for (vid, _, _) in nappers.iter().filter(|(v, _, _)| recs.get(v).is_some_and(|r| r.ball_exit_after_r.is_none())) {
         if let Some(r) = recs.get(vid)
             && let Some(at_r) = r.milestones.iter().find(|(w, _)| w == "at R").map(|(_, t)| *t)
         {
             s.push_str(&format!(
-                "the departing napper {} (ironspec 11:29: out of the bed's 16-ball within 152 gt of reaching R): at R t {at_r}, out of the ball {}\n",
+                "the departing napper {} (information: the 152-gt bound retired 19:07 PT; (a1) is the bar): at R t {at_r}, out of the ball {}\n",
                 r.label.split(' ').next().unwrap_or(""),
-                r.ball_exit_after_r.map_or("never (FAIL)".to_string(), |g| format!("{g} gt later{}", if g <= 152 { " (PASS)" } else { " (FAIL)" }))
+                r.ball_exit_after_r.map_or("not by the run's end".to_string(), |g| format!("{g} gt later"))
             ));
         }
     }
@@ -5347,23 +5644,46 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         // (ironspec 15:43) the villagers that slept in each night (day time 12,000..24,000), the
         // full nights inside the run held to 24
         let day_end = run.world.day_time();
+        // (ironspec's E7 late-sleeper rule) a full night passes with 24 distinct nappers, or with 23
+        // when the next night has 24
+        let counts: BTreeMap<i64, usize> = nights.iter().map(|(d, vs)| (*d, vs.len())).collect();
         let night_rows: Vec<String> = nights
             .iter()
             .map(|(d, vs)| {
                 let full = d * 24_000 + 12_000 >= day_start && (d + 1) * 24_000 <= day_end;
-                format!("night {d}{}: {} villagers napped{}", if full { "" } else { " (partial)" }, vs.len(), if full { if vs.len() >= 24 { " (PASS)" } else { " (FAIL, bar 24)" } } else { "" })
+                let late_ok = vs.len() == 23 && counts.get(&(d + 1)).is_some_and(|n| *n >= 24);
+                format!(
+                    "night {d}{}: {} villagers napped (by lie-down){}",
+                    if full { "" } else { " (partial)" },
+                    vs.len(),
+                    if full { if vs.len() >= 24 { " (PASS)".to_string() } else if late_ok { " (PASS by the late-sleeper rule: 23, the next night 24)".to_string() } else { " (FAIL, bar 24)".to_string() } } else { String::new() }
+                )
             })
             .collect();
-        s.push_str(&format!("  naps per night (ironspec 15:43, bar 24 a full night): {}\n", if night_rows.is_empty() { "no nap".to_string() } else { night_rows.join("; ") }));
+        s.push_str(&format!("  naps per night (ironspec 15:43, bar 24 a full night; E7: each nap keyed by its lie-down to its REST night, the late-sleeper rule): {}\n", if night_rows.is_empty() { "no nap".to_string() } else { night_rows.join("; ") }));
         // (ironspec 06:31 / 06:38 PT) ValidateNearbyPoi's 16-block exposure per night, bar 0; the
         // bed ticket's state the run started in
-        s.push_str(&format!(
-            "  the riders in REST within 16 of the bed while someone sleeps in it (ironspec 06:31 / 06:38 PT: ValidateNearbyPoi's exposure, bar 0 each night; the run's start: {}): {}{} ({})\n",
-            if o.bed_ticket_taken { "state (ii), the bed's ticket taken by the bench (--bed-ticket-taken)" } else { "the design start (i), every HOME a memory and the bed's ticket free" },
-            if rest_near_bed.is_empty() { "none".to_string() } else { rest_near_bed.iter().map(|(n, c)| format!("night {n}: {c} villager-ticks")).collect::<Vec<_>>().join(", ") },
-            if rest_near_rows.is_empty() { String::new() } else { format!("; the first: {}", rest_near_rows.join("; ")) },
-            if !bed_ever_occupied { "NOT JUDGED (the bed never occupied): FAIL" } else if rest_near_bed.is_empty() { "PASS" } else { "FAIL" }
-        ));
+            // (ironspec 06:31 / 06:38 PT; G1 N13) ValidateNearbyPoi's 16-block exposure, every night
+            // printed (0 included), with the rail cells whose bottom centre lies inside the sphere
+            let exp_nights: Vec<i64> = {
+                let (a, b) = (o.day0.div_euclid(24_000), (o.day0 + o.ticks).div_euclid(24_000));
+                (a..=b).collect()
+            };
+            let inside: Vec<String> = spec
+                .blocks
+                .iter()
+                .filter(|(p, b)| b.to_string().contains("rail") && poi_near(o.bed, redsim::entity::Vec3::new(p.x as f64 + 0.5, p.y as f64, p.z as f64 + 0.5)))
+                .map(|(p, _)| format!("({},{},{})", p.x, p.y, p.z))
+                .collect();
+            s.push_str(&format!(
+                "  the riders in REST within 16 of the bed while someone sleeps in it (ironspec 06:31 / 06:38 PT, G1 N13: ValidateNearbyPoi's exposure, the bed head's centre to the feet, squared < 256, while the bed is OCCUPIED; bar 0 each night; the run's start: {}): {}{}; the rail cells inside the sphere: {}; REST reads with no exact brain (ironspec D5(a), bar 0): {} ({})\n",
+                if o.bed_ticket_taken { "state (ii), the bed's ticket taken by the bench (--bed-ticket-taken)" } else { "the design start (i), every HOME a memory and the bed's ticket free" },
+                exp_nights.iter().map(|n| format!("night {n}: {} villager-ticks", rest_near_bed.get(n).copied().unwrap_or(0))).collect::<Vec<_>>().join(", "),
+                if rest_near_rows.is_empty() { String::new() } else { format!("; the first: {}", rest_near_rows.join("; ")) },
+                if inside.is_empty() { "none".to_string() } else { inside.join(" ") },
+                brainless_reads,
+                if !bed_ever_occupied { "NOT JUDGED (the bed never occupied): FAIL" } else if rest_near_bed.is_empty() && brainless_reads == 0 { "PASS" } else { "FAIL" }
+            ));
         // (ironspec 06:42 real) the start-state line and the ticket lines
         s.push_str(&format!("  {start_state_line}\n"));
         s.push_str(&format!(
@@ -5432,6 +5752,34 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 armings_night_n,
                 if armings_night.is_empty() { String::new() } else { format!(" ({})", armings_night.join("; ")) }
             ));
+            // (ironspec 06:33 / 06:37 platform, G1) the at-entry stamp bar: the stamp at each REST
+            // spell's first HOME-targeting tick
+            s.push_str(&format!(
+                "  the at-entry stamp bar (ironspec 06:33 / 06:37 platform: at every REST spell's first tick SetWalkTargetFromBlockMemory ran (HOME targeted), the stamp < 1,000 gt, any position): {} spells judged, the worst {} gt, {} at >= 1,000 ({})\n",
+                at_home_target_n,
+                at_home_target_max,
+                at_home_target_over,
+                if at_home_target_n == 0 { "NOT JUDGED (no spell targeted HOME; redsim's REST-path gap is open: cc767b78): FAIL" } else if at_home_target_over == 0 { "PASS" } else { "FAIL" }
+            ));
+            // (ironspec D2) RS_ready's job: no R1 release before the previous napper passes R
+            {
+                let mut early: Vec<String> = Vec::new();
+                for k in 1..ctl.release_log.len() {
+                    let (tp, vp) = ctl.release_log[k - 1];
+                    let (t, v) = ctl.release_log[k];
+                    if !at_r_log.iter().any(|(id, tr)| *id == vp && *tr > tp && *tr <= t) && early.len() < 8 {
+                        early.push(format!("t {t}: #{v} released while #{vp} (released t {tp}) hadn't passed R"));
+                    }
+                }
+                s.push_str(&format!(
+                    "  no R1 release before the previous napper passes R (ironspec D2, RS_ready's job; bar 0): {} releases, {} pairs judged, {} early{} ({})\n",
+                    ctl.release_log.len(),
+                    ctl.release_log.len().saturating_sub(1),
+                    early.len(),
+                    if early.is_empty() { String::new() } else { format!(": {}", early.join("; ")) },
+                    if ctl.release_log.len() < 2 { "NOT JUDGED (fewer than 2 releases): FAIL" } else if early.is_empty() { "PASS" } else { "FAIL" }
+                ));
+            }
             // (ironspec 06:22 platform + G1) the air-supply bar: each rider's least air per lift
             // transit; no rider's air below 0 (drowning)
             {
@@ -5456,6 +5804,25 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     if drowning.is_empty() { String::new() } else { format!("; drowning: {}", drowning.join("; ")) },
                     if all.is_empty() { "NOT JUDGED (no rider entered water): FAIL" } else if drowning.is_empty() { "PASS" } else { "FAIL" },
                     if per_rider.is_empty() { "none".to_string() } else { per_rider.iter().map(|(n, (k, a))| format!("{n} {k} / {a}")).collect::<Vec<_>>().join(", ") }
+                ));
+            }
+            // (ironspec 06:31 platform) each rider's night H visits: the stamp at entry, what cleared
+            // it since the previous visit
+            {
+                let wakes: Vec<String> = recs.values().filter(|r| !r.wake_rows.is_empty()).map(|r| format!("{}: {}", r.label.split(' ').next().unwrap_or(""), r.wake_rows.join(", "))).collect();
+                s.push_str(&format!(
+                    "  every wake (ironspec 06:40 platform, G1 1c: the waker's flee target, its path (brain), the stamp, and whether a stamp armed after it cleared before the napper's next REST entry): {}\n",
+                    if wakes.is_empty() { "none".to_string() } else { wakes.join("; ") }
+                ));
+            }
+            {
+                let rows: Vec<String> = recs.values().filter(|r| !r.h_rows.is_empty()).map(|r| format!("{}: {}", r.label.split(' ').next().unwrap_or(""), r.h_rows.join(", "))).collect();
+                let uncleared = recs.values().flat_map(|r| r.h_rows.iter()).filter(|l| l.contains("NOT CLEARED")).count();
+                s.push_str(&format!(
+                    "  each rider's night H visits (ironspec 06:31 platform: the stamp's age at entry and what cleared it since the previous visit): {} visits, {} NOT CLEARED; {}\n",
+                    recs.values().map(|r| r.h_rows.len()).sum::<usize>(),
+                    uncleared,
+                    if rows.is_empty() { "none".to_string() } else { rows.join("; ") }
                 ));
             }
             // (ironspec 07:10 real (2)) each rider's night ticks by activity
@@ -5566,11 +5933,11 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             // (ironspec 23:56 PT (2)) HELD's invariant, checked: every set and reset with its cause;
             // a set still standing past the bound fails; (G1) a pick decided over a pending one fails
             s.push_str(&format!(
-                "  HELD's sets and resets (ironspec 00:12 PT, F1: set at the queue's arrival detector, reset at the departure; a reset within 259 gt of each set while in REST, a napper waiting through the day waiting for the next release): {} sets, {} still set past the bound{} (bar 0: {}); the log: {}\n",
+                "  HELD's sets and resets (ironspec 00:12 PT, F1: set at the queue's arrival detector, reset at the departure; ironspec's E2, day-1 06:51 PT: stuck when R1 is open (REST_l, DAY low, RS_ready) for more than 30 gt with HELD still set): {} sets, {} still set past the bound{} (bar 0: {}); the log: {}\n",
                 ctl.held_log.iter().filter(|l| l.contains("HELD set by")).count(),
                 ctl.held_stuck.len(),
                 ctl.held_stuck.first().map_or(String::new(), |(t, c)| format!(", the first set at t {t} by {c}")),
-                if ctl.held_stuck.is_empty() { "PASS" } else { "FAIL" },
+                if ctl.held_log.iter().all(|l| !l.contains("HELD set by")) { "NOT JUDGED (HELD never set): FAIL" } else if ctl.held_stuck.is_empty() { "PASS" } else { "FAIL" },
                 if ctl.held_log.is_empty() { "none".to_string() } else { ctl.held_log.iter().take(60).cloned().collect::<Vec<_>>().join("; ") }
             ));
             // (ironspec 00:12 / 00:16 PT; 02:37 PT: measured from the DIVERT, since a pick the divert
@@ -5594,6 +5961,16 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 }
             }
             let lost: Vec<&String> = ctl.held_log.iter().filter(|l| l.contains("LOST PICK")).collect();
+            // (G1 N10) no divert dropped: one with no pick behind it, or no queue arrival after it
+            let no_pick = ctl.divert_log.len().saturating_sub(diverts.len());
+            let no_arrival = diverts.len().saturating_sub(div_to_arr.len());
+            s.push_str(&format!(
+                "  one in flight, the divert accounting (G1 N10: every divert joined to its pick and its queue arrival, bar 0 dropped): {} diverts logged, {} with no pick behind them, {} with no queue arrival after them ({})\n",
+                ctl.divert_log.len(),
+                no_pick,
+                no_arrival,
+                if ctl.divert_log.is_empty() { "NOT JUDGED (0 diverts): FAIL" } else if no_pick == 0 && no_arrival == 0 { "PASS" } else { "FAIL" }
+            ));
             s.push_str(&format!(
                 "  one in flight, the timing bar (ironspec 00:12 / 00:16 / 02:37 PT: each divert -> queue arrival against the next divert): {} diverts, {} arrivals after a divert, the largest divert -> arrival {}, the least margin to the next divert {} ({}); the picks turned away before the way-in (not in flight): {} ({} by DAY at the row){}\n",
                 diverts.len(),
@@ -5760,11 +6137,11 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             let worst = dwells.iter().filter_map(|d| d.1).max();
             let unreleased = dwells.iter().filter(|d| d.1.is_none()).count();
             s.push_str(&format!(
-                "  the queue's dwell (the hold term {} gt; arrival to release, the stop's wait included; the cap from the module's `dwell-cap:` line (ironspec 20:34 PT: day-1's lane model, no hard-coded number): {}): {}; the worst {}{}\n",
+                "  the queue's dwell (information, ironspec 06:35 platform: the dwell is design, judged through the catch window, the distinct count and one in flight; the hold term {} gt; arrival to release, the stop's wait included; the module's cap {}): {}; the worst {}{}\n",
                 ctl.queue_hold,
-                o.dwell_cap.map_or("none declared (FAIL)".to_string(), |c| format!("{c} gt")),
+                o.dwell_cap.map_or("none (no cap of record)".to_string(), |c| format!("{c} gt (HELD's bound only)")),
                 dwells.iter().take(30).map(|(a, d)| format!("t {a}: {}", d.map_or("not released".to_string(), |d| d.to_string()))).collect::<Vec<_>>().join(", "),
-                worst.map_or("-".to_string(), |w| format!("{w} ({})", if o.dwell_cap.is_some_and(|c| w <= c) { "PASS" } else { "FAIL" })),
+                worst.map_or("-".to_string(), |w| w.to_string()),
                 if unreleased > 0 { format!("; {unreleased} arrivals never released") } else { String::new() }
             ));
             // (ironspec 19:29 (a) SINGLE OCCUPANCY: at most one napper between the queue's release
@@ -5966,13 +6343,15 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         ));
         // (ironspec 00:33 PT) the stranded-napper bar
         // (ironspec 02:18 PT (3a)) each lane's away at every release, bar <= 1, and the free
-        // caller's margin at the lane's least occupancy, (carts + 1) x 100 - 32 - 599 (69 at 6
+        // caller's margin at the lane's least occupancy, (carts + 1) x 100 - 32 - GOLEM_TTL (69 at 6
         // carts), bar >= 3
         if let Some(full) = occ_full {
-            let margin = |c: i64| (c + 1) * 100 - 32 - 599;
-            let ok = (0..3).all(|k| away_max[k] <= 1 && margin(occ_min[k]) >= 3);
+            let margin = |c: i64| (c + 1) * 100 - 32 - GOLEM_TTL;
+            let design_ok = lane_ids_t0.iter().all(|v| v.len() == 8);
+            let ok = design_ok && (0..3).all(|k| away_max[k] <= 1 && margin(occ_min[k]) >= 3);
             s.push_str(&format!(
-                "  each lane's away at every release (ironspec 02:18 PT (3a): the away latch allows <= 1 per lane; the free caller's margin at the lane's least occupancy, (carts + 1) x 100 - 32 - 599, bar >= 3): {}{} ({})\n",
+                "  each lane's away at every release (ironspec 02:18 PT (3a): the away latch allows <= 1 per lane; the free caller's margin at the lane's least occupancy, (carts + 1) x 100 - 32 - GOLEM_TTL 599, bar >= 3; G1 N6 / ironspec D4: each lane's carts by id at t0, the design's 8 a lane (P, H, R_1 and five slopes): {}): {}{} ({})\n",
+                (0..3).map(|k| format!("lane x {} {}{}", LANES[k], lane_ids_t0[k].len(), if lane_ids_t0[k].len() == 8 { "" } else { " (not 8)" })).collect::<Vec<_>>().join(", "),
                 (0..3).map(|k| format!("lane x {}: {} carts at the first release, the least {}, the most away {}, the margin there {:+}", LANES[k], full[k], occ_min[k], away_max[k], margin(occ_min[k]))).collect::<Vec<_>>().join("; "),
                 if away_rows.is_empty() { String::new() } else { format!("; more than one away: {}", away_rows.join(", ")) },
                 if ok { "PASS" } else { "FAIL" }
@@ -6130,46 +6509,75 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     // bar) and the control prints CAUGHT; one that doesn't is NOT CAUGHT (a FAIL); a control that
     // never acted is NOT EXERCISED (a FAIL); the early bystander control must leave the harm bar
     // passing
-    let mut controls: Vec<(String, &str, bool, bool)> = Vec::new();
+    // (G1 N17) each control's failure must be its OWN sample, every other sample on the bar passing
+    let mut controls: Vec<(String, &str, bool, bool, bool)> = Vec::new();
     if o.inert_control {
-        controls.push(("--inert-control".to_string(), "the declared inert / always-on cells", true, true));
+        controls.push(("--inert-control".to_string(), "the declared inert / always-on cells", true, true, true));
     }
     if o.gossip_control {
-        controls.push(("--gossip-control".to_string(), "the summon paths", true, controls_done.iter().any(|c| c.contains("gossip"))));
+        controls.push(("--gossip-control".to_string(), "the summon paths", true, controls_done.iter().any(|c| c.contains("gossip")), true));
     }
     if o.empty_pocket.is_some() {
-        controls.push(("--empty-pocket".to_string(), "the direct summon check", true, true));
+        controls.push(("--empty-pocket".to_string(), "the direct summon check", true, true, true));
     }
     if let Some(v) = o.bystander_control.as_deref() {
-        // (N1: the control counts only once its target's first call back is judged)
-        let judged = bystander_target.is_some_and(|(tv, at)| nap_margins.iter().any(|(nv, t, _, _)| *nv == tv && *t >= at));
-        controls.push((format!("--bystander-control={v}"), "the bystander stamps (ironspec 02:37", v == "late", judged));
+        // (N1: the control counts only once its target's first call back is judged; N17: late is
+        // caught only when the target's own margin is < 3 and every other napper's passes)
+        let target_call = bystander_target.and_then(|(tv, at)| nap_margins.iter().position(|(nv, t, _, _)| *nv == tv && *t >= at));
+        let own = target_call.is_some_and(|i| nap_margins[i].2.is_some_and(|m| m < 3) && nap_margins.iter().enumerate().all(|(j, x)| j == i || x.2.is_none_or(|m| m >= 3)));
+        controls.push((format!("--bystander-control={v}"), "the bystander stamps (ironspec 02:37", v == "late", target_call.is_some(), own));
     }
     if o.stamp_control {
-        controls.push(("--stamp-control".to_string(), "  the runtime stamp bar", true, stamp_control_rider.is_some()));
+        let own = stamp_control_rider.is_some_and(|v| stamp_over_ids.iter().all(|i| *i == v));
+        controls.push(("--stamp-control".to_string(), "  the runtime stamp bar", true, stamp_control_rider.is_some(), own));
     }
     if o.home_erase_control {
-        controls.push(("--home-erase-control".to_string(), "  the farm-stop bar", true, home_erased));
+        // (the erased napper: the first napper seen at the stop without HOME)
+        let own = stop_homeless_ids.len() == 1;
+        controls.push(("--home-erase-control".to_string(), "  the farm-stop bar", true, home_erased, own));
     }
     if o.air_control {
-        controls.push(("--air-control".to_string(), "  the air-supply bar", true, air_held.is_some()));
+        let drowned: Vec<u32> = recs.iter().filter(|(_, r)| r.air_transits.iter().chain(r.air_open.iter()).any(|t| t.1 < 0)).map(|(id, _)| *id).collect();
+        let own = air_held.is_some_and(|h| drowned.iter().all(|d| *d == h.0));
+        controls.push(("--air-control".to_string(), "  the air-supply bar", true, air_held.is_some(), own));
+    }
+    if o.rs_ready_early_control {
+        let early = (1..ctl.release_log.len()).filter(|&k| {
+            let (tp, vp) = ctl.release_log[k - 1];
+            let t = ctl.release_log[k].0;
+            !at_r_log.iter().any(|(id, tr)| *id == vp && *tr > tp && *tr <= t)
+        }).count();
+        controls.push(("--rs-ready-early-control".to_string(), "  no R1 release before the previous napper passes R", true, ctl.rs_early_done, early == 1));
+    }
+    if o.day_phase_control {
+        controls.push(("--day-phase-control".to_string(), "  the DAY stand-in's validation", true, ctl.day_updates > 0, true));
     }
     let s = judge_controls(&s, &controls);
+    // (ironspec 06:33 platform) the night eye positions for 9fc3155f's coverage map
+    if let Some(p) = &o.rider_trace {
+        let mut t = format!("# onechunk f1q2-run --rider-trace: every distinct night eye position of a rider (redsim's seated eye: the cart's position + the seat + the villager's eye height), to 0.01; columns: x y z ticks rest_ticks panic_ticks; seed {}, {} gt from day {}\n", o.seed, o.ticks, o.day0);
+        for (k, v) in &eye_hist {
+            t.push_str(&format!("{:.2} {:.2} {:.2} {} {} {}\n", k[0] as f64 / 100.0, k[1] as f64 / 100.0, k[2] as f64 / 100.0, v[0], v[1], v[2]));
+        }
+        std::fs::write(p, t).map_err(|e| format!("--rider-trace {}: {e}", p.display()))?;
+    }
     Ok((s, drive_head.map(|h| (h, t0)), scene_entities))
 }
 
-/// (G1's blocker 2) Each requested control judged on its own bar's line: `(control, the bar line's
-/// prefix, the control must fail it, the control acted)`. A bar it must fail that fails (and isn't
-/// NOT JUDGED) has its FAIL marked "expected FAIL" and the control prints CAUGHT; otherwise NOT
-/// CAUGHT (a FAIL). A control that must leave its bar passing prints HELD, or NOT HELD (the bar's own
+/// (G1's blocker 2, N17) Each requested control judged on its own bar's line: `(control, the bar
+/// line's prefix, the control must fail it, the control acted, the bar's failure is the control's own
+/// sample with every other sample passing)`. A bar it must fail that fails (not NOT JUDGED) on the
+/// control's own sample alone has its FAIL marked "expected FAIL" and the control prints CAUGHT;
+/// otherwise NOT CAUGHT (a FAIL, the line kept as it is, so a natural failure beside the control
+/// still counts). A control that must leave its bar passing prints HELD, or NOT HELD (the bar's own
 /// FAIL stands). A control that never acted is NOT EXERCISED (a FAIL), whatever its bar says.
-pub fn judge_controls(rep: &str, controls: &[(String, &str, bool, bool)]) -> String {
+pub fn judge_controls(rep: &str, controls: &[(String, &str, bool, bool, bool)]) -> String {
     if controls.is_empty() {
         return rep.to_string();
     }
     let mut lines: Vec<String> = rep.lines().map(str::to_string).collect();
     let mut verdicts: Vec<String> = Vec::new();
-    for (name, prefix, must_fail, acted) in controls {
+    for (name, prefix, must_fail, acted, own) in controls {
         let k = lines.iter().position(|l| l.starts_with(prefix));
         let Some(k) = k else {
             verdicts.push(format!("{name}: its bar ({}) printed no line: NOT JUDGED, FAIL", prefix.trim()));
@@ -6182,9 +6590,11 @@ pub fn judge_controls(rep: &str, controls: &[(String, &str, bool, bool)]) -> Str
         let fails = lines[k].replace("expected FAIL", "").contains("FAIL");
         let not_judged = lines[k].contains("NOT JUDGED");
         if *must_fail {
-            if fails && !not_judged {
+            if fails && !not_judged && *own {
                 lines[k] = lines[k].replace("expected FAIL", "\u{1}").replace("FAIL", "expected FAIL").replace('\u{1}', "expected FAIL");
-                verdicts.push(format!("{name}: CONTROL CAUGHT by {}", prefix.trim()));
+                verdicts.push(format!("{name}: CONTROL CAUGHT by {} (its own sample alone)", prefix.trim()));
+            } else if fails && !not_judged {
+                verdicts.push(format!("{name}: NOT CAUGHT ALONE: {} fails, but not on the control's own sample alone (a natural failure stands beside it), FAIL", prefix.trim()));
             } else {
                 verdicts.push(format!("{name}: NOT CAUGHT by {} (its line {}), FAIL", prefix.trim(), if not_judged { "NOT JUDGED" } else { "passing" }));
             }
@@ -6214,9 +6624,9 @@ pub fn fail_lines(rep: &str) -> Vec<&str> {
 /// (ironspec 02:37 PT (3)) The module's daylight detector (-5,15,3) under each weather: the day
 /// time its level first falls below `threshold` in the evening and first reaches it again at dawn,
 /// from redsim's detector formula (`daylight::detector_power`) at the cell's sky light with
-/// `weather::sky_darken_at(day, rain, thunder)`, against tick-exact's official falls (clear 12,230,
-/// rain 11,603, thunder 10,958); the detector updates every 20 gt, so a fall inside the 20 gt before
-/// the official one passes.
+/// `weather::sky_darken_at(day, rain, thunder)`, against tick-exact's official DAY-off edges (the
+/// detector's 6 -> 5 at level 6: clear 12,230, rain 12,002, thunder 11,556), compared exactly, each
+/// reference shifted by 1 gt as the control through the same comparison.
 pub fn day_weather_rows(w: &redsim::world::World, threshold: u32) -> String {
     let pos = redsim::pos::BlockPos::new(-5, 15, 3);
     let sky = match redsim::daylight::sky_light(w, pos) {
@@ -6233,9 +6643,20 @@ pub fn day_weather_rows(w: &redsim::world::World, threshold: u32) -> String {
         .map(|(name, rain, thunder, official)| {
             let fall = (6_000..18_000i64).find(|d| power(*d, *rain, *thunder) < threshold);
             let rise = (18_000..30_000i64).find(|d| power(d.rem_euclid(24_000), *rain, *thunder) >= threshold).map(|d| d.rem_euclid(24_000));
+            // (G1 N16: the control runs the SAME comparison) the edge matches a reference only when
+            // equal; the official edge must match, and each reference shifted by 1 gt must not
+            let edge_matches = |reference: i64| fall == Some(reference);
             let verdict = match fall {
                 _ if threshold != 6 => "not judged: the official rows are level 6's".to_string(),
-                Some(f) if f == *official => format!("PASS; the 1-gt-shifted control ({}): {}", official + 1, if f == official + 1 { "NOT CAUGHT: FAIL" } else { "caught" }),
+                Some(_) if edge_matches(*official) => {
+                    let shifted = [official - 1, official + 1].map(|r| (r, edge_matches(r)));
+                    let caught = shifted.iter().all(|(_, m)| !m);
+                    format!(
+                        "PASS; the 1-gt-shifted controls through the same comparison: {} ({})",
+                        shifted.iter().map(|(r, m)| format!("{r} {}", if *m { "matches" } else { "differs" })).collect::<Vec<_>>().join(", "),
+                        if caught { "caught" } else { "NOT CAUGHT: FAIL" }
+                    )
+                }
                 Some(_) => "FAIL".to_string(),
                 None => "NOT JUDGED (no fall): FAIL".to_string(),
             };
@@ -6280,6 +6701,27 @@ mod counter_tests {
         assert_eq!([c(50), c(150), c(-50), c(-150)], [141, 142, 140, 139]);
         assert_eq!([c(49), c(51), c(-49), c(-51)], [141, 142, 141, 140]);
         assert_eq!([c(0), c(100), c(-100)], [141, 142, 140]);
+    }
+
+    /// (G1 N13) ValidateNearbyPoi's sphere at 16 ± 0.01 from the bed head's centre, along each axis
+    #[test]
+    fn the_exposure_sphere_is_strictly_sixteen() {
+        let bed = [-3, -27, 3];
+        let c = |dx: f64, dy: f64, dz: f64| super::poi_near(bed, redsim::entity::Vec3::new(-2.5 + dx, -26.5 + dy, 3.5 + dz));
+        assert!(c(15.99, 0.0, 0.0) && c(0.0, -15.99, 0.0) && c(0.0, 0.0, 15.99));
+        assert!(!c(16.01, 0.0, 0.0) && !c(0.0, 16.01, 0.0) && !c(0.0, 0.0, -16.01));
+        assert!(!c(16.0, 0.0, 0.0), "strict: exactly 16 is outside");
+    }
+
+    /// (ironspec's E7 control) a nap lying down at 23,990 and still asleep past 24,000 is one nap of
+    /// night 0: its lie-down's night, the morning half belonging to the night before
+    #[test]
+    fn a_nap_spanning_24000_counts_once() {
+        assert_eq!(super::night_of(23_990), 0);
+        assert_eq!(super::night_of(24_005), 0, "the morning after is still night 0");
+        assert_eq!(super::night_of(12_000), 0);
+        assert_eq!(super::night_of(11_999), -1);
+        assert_eq!(super::night_of(36_000), 1);
     }
 }
 
