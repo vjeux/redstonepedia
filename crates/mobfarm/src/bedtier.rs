@@ -5469,7 +5469,7 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
             failed.push(format!("{clear_never} wakes whose NEAREST_HOSTILE never cleared after the window's close"));
         }
         if delta_ruled > i64::MIN {
-            println!("the hold delta ruled (ironspec 09:11 (2): the cart's first entry into (-2,0,5) >= the window's close + 27 on every wake): this run's release (--release-after {release_after}) and close (--close-after {}) miss it by {} gt at worst (0 = met on every wake; G1's Q4: judged)", base.close_after.max(1), delta_ruled.max(0));
+            println!("the hold delta ruled (ironspec 09:11 (2): the cart's first entry into (-2,0,5) >= the window's close + 27 on every wake): this run's release (--release-after {release_after}) and close (--close-after {}) leave a least margin of {} gt over this sweep's wakes (negative: missed; G1's Q4: judged)", base.close_after.max(1), -delta_ruled);
             if delta_ruled > 0 {
                 failed.push(format!("the cart's first entry into (-2,0,5) came {delta_ruled} gt before the window's close + 27 on a wake (raise --release-after: delta = close + 4)"));
             }
