@@ -19,7 +19,7 @@
 //! cell's floor up to 2.95 (a rider's offset included), its eye 1.62 over the floor.
 
 use redsim::block::Block;
-use redsim::entity::mob::farm::{FarmSpec, RunOpts, WalkMode};
+use redsim::entity::mob::farm::{FarmSpec, Run, RunOpts, WalkMode};
 use redsim::entity::{EntityKind, Vec3};
 use redsim::pos::BlockPos;
 
@@ -59,6 +59,10 @@ pub struct Opts {
     /// The queue's staircase descends south (slopes ascending north: the corner shaft (9,.,-5)),
     /// not west.
     pub south: bool,
+    /// The queue rail's floor glass, not glowstone (its clearer elsewhere).
+    pub queue_glass: bool,
+    /// The ride rows' cart spawned here instead of the queue rail's centre (a real rest point).
+    pub seat_at: Option<[f64; 3]>,
 }
 
 /// `x,y,z=block;...` (a block state, `minecraft:` optional; a leading `!` on a cell replaces what
@@ -192,7 +196,8 @@ fn scene(spec: &FarmSpec, o: &Opts, post: Option<P>) -> Result<(redsim::world::W
     let (run, _) = crate::placing::start(&widened(spec, o), &ro, crate::placing::Placement::Judge, &crate::placing::BuildPlan::default())?;
     let mut w = run.world;
     // (the extra cells: the run, an occluder)
-    let extra = o.extra.iter().map(|(p, b)| Ok((BlockPos::new(p[0], p[1], p[2]), Block::parse(b).map_err(|e| format!("{b}: {e}"))?))).collect::<Result<Vec<_>, String>>()?;
+    let mut extra = o.extra.iter().map(|(p, b)| Ok((BlockPos::new(p[0], p[1], p[2]), Block::parse(b).map_err(|e| format!("{b}: {e}"))?))).collect::<Result<Vec<_>, String>>()?;
+    extra.extend(r1_cells(o));
     place_checked(&mut w, &extra)?;
     if let Some(p) = post {
         if !o.custom_post {
@@ -210,7 +215,7 @@ fn scene(spec: &FarmSpec, o: &Opts, post: Option<P>) -> Result<(redsim::world::W
     // (the queue cell: a shut bottom-half iron trapdoor the cart rests on, 3/16 high; or with
     // `rail`, a powered rail on glowstone ascending to the east, the cart at its middle)
     let qy = if o.rail {
-        let cells = rail_cells(q, o.south).iter().map(|(p, b, _)| Ok((BlockPos::new(p[0], p[1], p[2]), Block::parse(b).map_err(|e| e.to_string())?))).collect::<Result<Vec<_>, String>>()?;
+        let cells = queue_cells(o).iter().map(|(p, b, _)| Ok((BlockPos::new(p[0], p[1], p[2]), Block::parse(b).map_err(|e| e.to_string())?))).collect::<Result<Vec<_>, String>>()?;
         place_checked(&mut w, &cells)?;
         q[1] as f64 + 0.5625
     } else {
@@ -490,6 +495,78 @@ pub fn seat_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, draws: usize) -> R
 /// cell on glowstone (unpowered it brakes and holds the cart; day-1's gate powers it as a level),
 /// the departure detector rail (queue - (1, 1, 0): its pulse resets the held latch and the RS), each
 /// on its support.
+/// day-1's release stage R1 (17:57), laid in every bench world as emulated cells (not written into
+/// the design: they are day-1's): the repeaters (8,-14,-4) and (7,-14,-4) facing west (input west)
+/// into the queue rail, each on glass; none solid-render.
+pub fn r1_cells(o: &Opts) -> Vec<(BlockPos, Block)> {
+    if !o.south {
+        return Vec::new();
+    }
+    let q = o.queue;
+    let g = Block::parse("minecraft:glass").unwrap();
+    let rep = Block::parse("minecraft:repeater[delay=1,facing=west,locked=false,powered=false]").unwrap();
+    vec![
+        (BlockPos::new(q[0] - 1, q[1] - 1, q[2]), g),
+        (BlockPos::new(q[0] - 1, q[1], q[2]), rep),
+        (BlockPos::new(q[0] - 2, q[1] - 1, q[2]), g),
+        (BlockPos::new(q[0] - 2, q[1], q[2]), rep),
+    ]
+}
+
+/// The queue's release as the bench emulates day-1's RELEASE level: for the south staircase, R1's
+/// input driven by a redstone torch standing on glass at queue - (3,0,0) (the repeaters of
+/// [`r1_cells`] carry it into the rail; nothing solid-render); for the west one a redstone block
+/// (its old emulation).
+fn release(w: &mut redsim::world::World, o: &Opts) -> Result<(), String> {
+    let q = o.queue;
+    if o.south {
+        for (p, b) in r1_cells(o) {
+            if w.get(p) != b {
+                w.set_block(p, b, redsim::world::flags::ALL);
+            }
+        }
+        let support = BlockPos::new(q[0] - 3, q[1] - 1, q[2]);
+        if w.get(support).is_air() {
+            w.set_block(support, Block::parse("minecraft:glass").map_err(|e| e.to_string())?, redsim::world::flags::ALL);
+        }
+        w.set_block(BlockPos::new(q[0] - 3, q[1], q[2]), Block::parse("minecraft:redstone_torch[lit=true]").map_err(|e| e.to_string())?, redsim::world::flags::ALL);
+    } else {
+        w.set_block(BlockPos::new(q[0], q[1], q[2] + 1), Block::parse("minecraft:redstone_block").map_err(|e| e.to_string())?, redsim::world::flags::ALL);
+    }
+    Ok(())
+}
+
+/// (superseded by R1) The queue's release as a torch on glass at the input cell itself.
+#[allow(dead_code)]
+fn release_torch_at_input(w: &mut redsim::world::World, o: &Opts) -> Result<(), String> {
+    let q = o.queue;
+    if o.south {
+        let support = BlockPos::new(q[0] - 1, q[1] - 1, q[2]);
+        if w.get(support).is_air() {
+            w.set_block(support, Block::parse("minecraft:glass").map_err(|e| e.to_string())?, redsim::world::flags::ALL);
+        }
+        w.set_block(BlockPos::new(q[0] - 1, q[1], q[2]), Block::parse("minecraft:redstone_torch[lit=true]").map_err(|e| e.to_string())?, redsim::world::flags::ALL);
+    } else {
+        w.set_block(BlockPos::new(q[0], q[1], q[2] + 1), Block::parse("minecraft:redstone_block").map_err(|e| e.to_string())?, redsim::world::flags::ALL);
+    }
+    Ok(())
+}
+
+/// The queue's cells as laid ([`rail_cells`]), the queue rail's floor glass instead of glowstone
+/// with `queue_glass` (ironspec 14:47: the seat's own cell no candidate, its clearer moved to the
+/// pocket (8,-14,-6) the extra cells lay).
+pub fn queue_cells(o: &Opts) -> Vec<(P, &'static str, &'static str)> {
+    let mut v = rail_cells(o.queue, o.south);
+    if o.queue_glass {
+        for c in v.iter_mut() {
+            if c.1 == "minecraft:glowstone" {
+                *c = (c.0, "minecraft:glass", "under the queue rail (glass: the seat's own cell no stroll candidate; its clearer the pocket)");
+            }
+        }
+    }
+    v
+}
+
 pub fn rail_cells(q: P, south: bool) -> Vec<(P, &'static str, &'static str)> {
     if south {
         // (the deep or the stop-9-down queue at the corner shaft (9,.,-5): the staircase descends
@@ -512,6 +589,53 @@ pub fn rail_cells(q: P, south: bool) -> Vec<(P, &'static str, &'static str)> {
         ([q[0] - 1, q[1] - 2, q[2]], "minecraft:glass", "under the departure detector (glass: never a stroll draw)"),
         ([q[0] - 1, q[1] - 1, q[2]], "minecraft:detector_rail[powered=false,shape=ascending_east,waterlogged=false]", "the departure detector (resets HELD and the RS)"),
     ]
+}
+
+/// (ironspec 15:58: (C) decided) The rail descent replacing the second fall: from the queue's
+/// departure (9,-15,-3) the cart never leaves the rails, so a calm rider's HOME path always starts
+/// on a rail cell (58f770cc's fact 1) and none starts in free fall (fact 2). Ten slopes, every rail
+/// on glass, every slope's high side the previous rail's support, 2-high head room over each:
+/// south (9,-16,-2) .. (9,-19,1); the curve (9,-19,2); west (8,-20,2), (7,-21,2); the curve
+/// (6,-21,2); north (6,-22,1), (6,-23,0); the curve (6,-23,-1); east (7,-23,-1), (8,-23,-1); the curve
+/// (9,-23,-1); north (9,-24,-2), (9,-25,-3); then the drop-and-roll's (9,-25,-4), the curve
+/// (9,-25,-5) and west (8..4,-25,-5) into the entry. `brakes` are cells whose rail becomes an
+/// unpowered powered rail (each halves the cart's speed a tick while it is on it).
+pub fn c_run(brakes: &[P]) -> Vec<(P, String)> {
+    let glass = "minecraft:glass".to_string();
+    let rail = |p: P, s: &str| -> String {
+        if brakes.contains(&p) && !s.starts_with("north_") && !s.starts_with("south_") {
+            format!("minecraft:powered_rail[powered=false,shape={s},waterlogged=false]")
+        } else {
+            format!("minecraft:rail[shape={s},waterlogged=false]")
+        }
+    };
+    let mut v: Vec<(P, String)> = Vec::new();
+    let mut put = |p: P, s: &str| {
+        v.push(([p[0], p[1] - 1, p[2]], glass.clone()));
+        v.push((p, rail(p, s)));
+    };
+    put([9, -16, -2], "ascending_north");
+    put([9, -17, -1], "ascending_north");
+    put([9, -18, 0], "ascending_north");
+    put([9, -19, 1], "ascending_north");
+    put([9, -19, 2], "north_west");
+    put([8, -20, 2], "ascending_east");
+    put([7, -21, 2], "ascending_east");
+    put([6, -21, 2], "north_east");
+    put([6, -22, 1], "ascending_south");
+    put([6, -23, 0], "ascending_south");
+    put([6, -23, -1], "south_east");
+    put([7, -23, -1], "east_west");
+    put([8, -23, -1], "east_west");
+    put([9, -23, -1], "north_west");
+    put([9, -24, -2], "ascending_south");
+    put([9, -25, -3], "ascending_south");
+    put([9, -25, -4], "north_south");
+    put([9, -25, -5], "south_west");
+    for x in (4..=8).rev() {
+        put([x, -25, -5], "east_west");
+    }
+    v
 }
 
 /// (ironspec 12:23: the queue is the stop 9 down) The run from the queue's departure (9,-15,-3)
@@ -627,9 +751,10 @@ pub fn ride_lines(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32) -> Result<Vec
     let (mut run, _) = crate::placing::start(&widened(spec, o), &ro, crate::placing::Placement::Judge, &crate::placing::BuildPlan::default())?;
     let q = o.queue;
     let mut cells: Vec<(BlockPos, Block)> = Vec::new();
-    for (p, b) in o.extra.iter().map(|(p, b)| (*p, b.clone())).chain(rail_cells(q, o.south).into_iter().map(|(p, b, _)| (p, b.to_string()))) {
+    for (p, b) in o.extra.iter().map(|(p, b)| (*p, b.clone())).chain(queue_cells(o).into_iter().map(|(p, b, _)| (p, b.to_string()))) {
         cells.push((BlockPos::new(p[0], p[1], p[2]), Block::parse(&b).map_err(|e| format!("{b}: {e}"))?));
     }
+    cells.extend(r1_cells(o));
     place_checked(&mut run.world, &cells)?;
     let cart = redsim::entity::spawn(&mut run.world, "minecraft:minecart", [q[0] as f64 + 0.5, q[1] as f64 + 0.5625, q[2] as f64 + 0.5], Some("{Passengers:[{id:\"minecraft:villager\"}]}"))?;
     // settle on the braked rail, then release
@@ -638,7 +763,8 @@ pub fn ride_lines(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32) -> Result<Vec
     }
     let held_at = run.world.entities.list.iter().find(|e| e.id == cart).map(|e| e.pos);
     let input = if o.south { BlockPos::new(q[0] - 1, q[1], q[2]) } else { BlockPos::new(q[0], q[1], q[2] + 1) };
-    run.world.set_block(input, Block::parse("minecraft:redstone_block").map_err(|e| e.to_string())?, redsim::world::flags::ALL);
+    let _ = input;
+    release(&mut run.world, o)?;
     let (mut left, mut dep, mut at_entry) = (None, None, None);
     let mut path: Vec<P> = Vec::new();
     let mut seated = true;
@@ -697,11 +823,13 @@ pub fn ride_rows(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u32, r
     let (mut base, _) = crate::placing::start(&widened(spec, o), &ro, crate::placing::Placement::Judge, &crate::placing::BuildPlan::default())?;
     let q = o.queue;
     let mut cells: Vec<(BlockPos, Block)> = Vec::new();
-    for (p, b) in o.extra.iter().map(|(p, b)| (*p, b.clone())).chain(rail_cells(q, o.south).into_iter().map(|(p, b, _)| (p, b.to_string()))) {
+    for (p, b) in o.extra.iter().map(|(p, b)| (*p, b.clone())).chain(queue_cells(o).into_iter().map(|(p, b, _)| (p, b.to_string()))) {
         cells.push((BlockPos::new(p[0], p[1], p[2]), Block::parse(&b).map_err(|e| format!("{b}: {e}"))?));
     }
+    cells.extend(r1_cells(o));
     place_checked(&mut base.world, &cells)?;
-    let cart0 = redsim::entity::spawn(&mut base.world, "minecraft:minecart", [q[0] as f64 + 0.5, q[1] as f64 + 0.5625, q[2] as f64 + 0.5], Some("{Passengers:[{id:\"minecraft:villager\"}]}"))?;
+    let spawn_at = o.seat_at.unwrap_or([q[0] as f64 + 0.5, q[1] as f64 + 0.5625, q[2] as f64 + 0.5]);
+    let cart0 = redsim::entity::spawn(&mut base.world, "minecraft:minecart", spawn_at, Some("{Passengers:[{id:\"minecraft:villager\"}]}"))?;
     for _ in 0..40 {
         base.tick();
     }
@@ -718,16 +846,19 @@ pub fn ride_rows(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u32, r
         for _ in 0..k {
             run.tick();
         }
-        run.world.set_block(input, Block::parse("minecraft:redstone_block").map_err(|e| e.to_string())?, redsim::world::flags::ALL);
+        release(&mut run.world, o)?;
         let mut cart = cart0;
         let rider_of = |w: &redsim::world::World, c: u32| w.entities.list.iter().position(|v| !v.removed && v.vehicle == Some(c));
         let h0 = rider_of(&run.world, cart).map(|i| redsim::entity::mob::mob(&run.world, i).health).unwrap_or(0.0);
         let mut h_min = h0;
         let (mut at_entry, mut v_entry, mut landed, mut derailed, mut back_south) = (None, None, None::<u32>, false, false);
         let (mut box_z_max, mut vz_max) = (f64::NEG_INFINITY, f64::NEG_INFINITY);
+        let mut restart_cell: Option<P> = None;
         for t in 0..ticks {
             if let Some((rt, how)) = restart {
                 if t as i64 == rt {
+                    // (G1 on e9f0f4cbf: the cart's cell at the restart, so a row shows where it was)
+                    restart_cell = run.world.entities.list.iter().find(|e| e.id == cart && !e.removed).map(|e| [e.pos.x.floor() as i32, e.pos.y.floor() as i32, e.pos.z.floor() as i32]);
                     let map = crate::liveness::restart(&mut run.world, how)?;
                     cart = *map.get(&cart).ok_or("the cart lost in the restart")?;
                 }
@@ -761,7 +892,17 @@ pub fn ride_rows(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u32, r
                 break;
             }
         }
-        rows.push((format!("{label} [after the landing: the box's z at most {box_z_max:.4}, vz at most {vz_max:.4}]"), at_entry, v_entry, h0 - h_min, derailed || (landing.is_some() && landed.is_none()), back_south));
+        rows.push((
+            format!(
+                "{label}{} [after the landing: the box's z at most {box_z_max:.4}, vz at most {vz_max:.4}]",
+                restart_cell.map_or(String::new(), |c| format!(" (the cart at {c:?} at the restart)"))
+            ),
+            at_entry,
+            v_entry,
+            h0 - h_min,
+            derailed || (landing.is_some() && landed.is_none()),
+            back_south,
+        ));
     }
     let mut out = Vec::new();
     let ok_v = |v: &Vec3| {
@@ -797,18 +938,19 @@ pub fn ride_rows(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u32, r
 /// post's zombie in place: HOME at every tick, its activity tick by tick, the calm REST ticks
 /// (REST active, not PANIC) and their distance to the bed's head, its CANT_REACH stamp's age
 /// (the most, and the most at a calm REST tick: the bar 1,000).
-pub fn wait_lines(spec: &FarmSpec, o: &Opts, post: P, start: i64, ticks: u32, bed: P) -> Result<Vec<String>, String> {
-    let ro = RunOpts { ai: true, ..RunOpts::steady(1, ticks + 10, WalkMode::Random) };
+pub fn wait_lines(spec: &FarmSpec, o: &Opts, post: P, start: i64, ticks: u32, bed: P, stamp: Option<i64>, follow: u32) -> Result<Vec<String>, String> {
+    let ro = RunOpts { ai: true, ..RunOpts::steady(1, ticks + follow + 10, WalkMode::Random) };
     let (mut run, _) = crate::placing::start(&widened(spec, o), &ro, crate::placing::Placement::Judge, &crate::placing::BuildPlan::default())?;
     let q = o.queue;
     let mut cells: Vec<(BlockPos, Block)> = Vec::new();
-    for (p, b) in o.extra.iter().map(|(p, b)| (*p, b.clone())).chain(rail_cells(q, o.south).into_iter().map(|(p, b, _)| (p, b.to_string()))) {
+    for (p, b) in o.extra.iter().map(|(p, b)| (*p, b.clone())).chain(queue_cells(o).into_iter().map(|(p, b, _)| (p, b.to_string()))) {
         cells.push((BlockPos::new(p[0], p[1], p[2]), Block::parse(&b).map_err(|e| format!("{b}: {e}"))?));
     }
     if !o.custom_post {
         cells.push((BlockPos::new(post[0], post[1] - 1, post[2]), Block::parse("minecraft:glass").map_err(|e| e.to_string())?));
         cells.push((BlockPos::new(post[0], post[1] + 3, post[2]), Block::parse("minecraft:oak_leaves[distance=1,persistent=true,waterlogged=false]").map_err(|e| e.to_string())?));
     }
+    cells.extend(r1_cells(o));
     place_checked(&mut run.world, &cells)?;
     redsim::entity::spawn(&mut run.world, "minecraft:oak_boat", [post[0] as f64 + 0.5, post[1] as f64, post[2] as f64 + 0.5], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}"))?;
     let nbt = format!(
@@ -822,38 +964,73 @@ pub fn wait_lines(spec: &FarmSpec, o: &Opts, post: P, start: i64, ticks: u32, be
     let (mut home_lost, mut left, mut calm_rest, mut stamp_max, mut stamp_calm_max) = (None, None, 0u32, 0i64, 0i64);
     let (mut d_min, mut d_max) = (f64::INFINITY, 0.0f64);
     let mut first_panic = None;
-    for t in 0..ticks {
+    // (ironspec 14:47) the rider arriving with its stamp armed `stamp` gt before: set at its first
+    // exact-brain tick; when it clears; then, with `follow`, the release and the ride on (the first
+    // calm REST tick after the release, HOME there, the stamp's age at every calm REST tick)
+    let rider = run.world.entities.list.iter().find(|e| !e.removed && e.vehicle == Some(cart)).map(|e| e.id).ok_or("no rider in the queue cart")?;
+    let (mut armed, mut cleared_at) = (stamp.is_none(), None);
+    let (mut released_at, mut first_calm_after, mut home_at_first_calm, mut stamp_after_max) = (None::<u32>, None::<u32>, None::<bool>, 0i64);
+    let input = if o.south { BlockPos::new(q[0] - 1, q[1], q[2]) } else { BlockPos::new(q[0], q[1], q[2] + 1) };
+    for t in 0..ticks + follow {
+        if t == ticks && follow > 0 {
+            release(&mut run.world, o)?;
+            released_at = Some(t);
+        }
         run.tick();
         let w = &run.world;
-        let Some(i) = w.entities.list.iter().position(|e| !e.removed && e.vehicle == Some(cart)) else {
+        let Some(i) = w.entities.list.iter().position(|e| !e.removed && e.id == rider) else {
             left = Some(t);
             break;
         };
+        if released_at.is_none() && w.entities.list[i].vehicle != Some(cart) && left.is_none() {
+            left = Some(t);
+        }
         if redsim::entity::mob::ai::brain::brain(w, i).home.is_none() && home_lost.is_none() {
             home_lost = Some((t, w.day_time()));
         }
         if !redsim::entity::mob::ai::brain::has_exact(w, i) {
             continue;
         }
+        if !armed {
+            let now = run.world.time;
+            redsim::entity::mob::ai::brain::ex_mut(&mut run.world, i).mem.cant_reach_since = Some(now - stamp.unwrap_or(0));
+            armed = true;
+            continue;
+        }
+        let w = &run.world;
         let x = redsim::entity::mob::ai::brain::ex(w, i);
         let act = format!("{:?}", x.active);
-        let stamp = x.mem.cant_reach_since.map_or(0, |s| w.time - s);
-        stamp_max = stamp_max.max(stamp);
+        let stamp_age = x.mem.cant_reach_since.map_or(0, |s| w.time - s);
+        if stamp.is_some() && cleared_at.is_none() && x.mem.cant_reach_since.is_none() {
+            cleared_at = Some(t);
+        }
+        if released_at.is_some() {
+            if act.contains("Rest") {
+                stamp_after_max = stamp_after_max.max(stamp_age);
+                if first_calm_after.is_none() {
+                    first_calm_after = Some(t - ticks);
+                    home_at_first_calm = Some(redsim::entity::mob::ai::brain::brain(w, i).home.is_some());
+                }
+            }
+            continue;
+        }
+        stamp_max = stamp_max.max(stamp_age);
         if act.contains("Panic") && first_panic.is_none() {
             first_panic = Some(t);
         }
         if act.contains("Rest") {
             calm_rest += 1;
-            stamp_calm_max = stamp_calm_max.max(stamp);
+            stamp_calm_max = stamp_calm_max.max(stamp_age);
             let d = w.entities.list[i].pos.distance_to_sqr(head).sqrt();
             d_min = d_min.min(d);
             d_max = d_max.max(d);
         }
         *acts.entry(act).or_default() += 1;
     }
-    Ok(vec![
+    let mut out = vec![
         format!(
-            "(wait) the rider held on the queue rail from day time {start} for {ticks} gt (its HOME the bed at {bed:?}): HOME {}; the rider {}; first PANIC at t {first_panic:?}",
+            "(wait) the rider held on the queue rail from day time {start} for {ticks} gt (its HOME the bed at {bed:?}{}): HOME {}; the rider {}; first PANIC at t {first_panic:?}",
+            stamp.map_or(String::new(), |a| format!(", arriving with its stamp armed {a} gt before")),
             match home_lost {
                 None => "kept at every tick".to_string(),
                 Some((t, d)) => format!("LOST at t {t} (day time {d})"),
@@ -869,23 +1046,548 @@ pub fn wait_lines(spec: &FarmSpec, o: &Opts, post: P, start: i64, ticks: u32, be
             if calm_rest > 0 { format!(" at {d_min:.2}..{d_max:.2} from the bed's head (inside 16: the 16-block rule)") } else { String::new() },
             if stamp_calm_max <= 1000 { "PASS" } else { "FAIL" }
         ),
-    ])
+    ];
+    if stamp.is_some() {
+        out.push(format!("(wait) the armed stamp cleared at t {cleared_at:?} ({})", match cleared_at {
+            Some(t) if t <= 100 => "within 100 gt of the arrival: PASS".to_string(),
+            Some(_) => "LATER than 100 gt: FAIL".to_string(),
+            None => "NEVER cleared".to_string(),
+        }));
+    }
+    if follow > 0 {
+        out.push(format!(
+            "(wait) released at t {released_at:?} and followed {follow} gt: the first calm REST tick {} after the release, HOME there {}; the stamp's age at the calm REST ticks after the release at most {stamp_after_max}; HOME {}",
+            first_calm_after.map_or("none".to_string(), |t| format!("{t} gt")),
+            home_at_first_calm.map_or("-".to_string(), |h| if h { "kept".to_string() } else { "LOST".to_string() }),
+            match home_lost {
+                None => "kept to the end".to_string(),
+                Some((t, _)) => format!("LOST at t {t} ({} gt after the release)", t as i64 - ticks as i64),
+            }
+        ));
+    }
+    Ok(out)
+}
+
+/// (ironspec 14:58 (2)) The queue's release at every phase: the rider waits `ticks` gt (from day
+/// time `start`, its HOME the bed, its stamp armed `stamp` gt before its arrival when given), then
+/// for k in 0..`phases` the run is cloned, held k gt more and released (the redstone block at the
+/// input cell), and followed up to `follow` gt to the stop's entry: whether a walk target was
+/// pending at the release (a draw in MoveToTargetSink, G1's case: pathed later from the drop), the
+/// stamp's age at the release and at the entry, whether it armed after the release, HOME at the
+/// entry. Then the share of releases with a draw pending, the stamps at the entry, the armings.
+#[allow(clippy::too_many_arguments)]
+pub fn sweep_lines(spec: &FarmSpec, o: &Opts, post: P, start: i64, ticks: u32, bed: P, stamp: Option<i64>, phases: u32, follow: u32, entry: P, restart_ticks: &[i64]) -> Result<Vec<String>, String> {
+    let ro = RunOpts { ai: true, ..RunOpts::steady(1, ticks + phases + follow + 10, WalkMode::Random) };
+    let (mut base, _) = crate::placing::start(&widened(spec, o), &ro, crate::placing::Placement::Judge, &crate::placing::BuildPlan::default())?;
+    let q = o.queue;
+    let mut cells: Vec<(BlockPos, Block)> = Vec::new();
+    for (p, b) in o.extra.iter().map(|(p, b)| (*p, b.clone())).chain(queue_cells(o).into_iter().map(|(p, b, _)| (p, b.to_string()))) {
+        cells.push((BlockPos::new(p[0], p[1], p[2]), Block::parse(&b).map_err(|e| format!("{b}: {e}"))?));
+    }
+    if !o.custom_post {
+        cells.push((BlockPos::new(post[0], post[1] - 1, post[2]), Block::parse("minecraft:glass").map_err(|e| e.to_string())?));
+        cells.push((BlockPos::new(post[0], post[1] + 3, post[2]), Block::parse("minecraft:oak_leaves[distance=1,persistent=true,waterlogged=false]").map_err(|e| e.to_string())?));
+    }
+    cells.extend(r1_cells(o));
+    place_checked(&mut base.world, &cells)?;
+    redsim::entity::spawn(&mut base.world, "minecraft:oak_boat", [post[0] as f64 + 0.5, post[1] as f64, post[2] as f64 + 0.5], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}"))?;
+    let nbt = format!(
+        "{{Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b,Brain:{{memories:{{\"minecraft:home\":{{value:{{dimension:\"minecraft:overworld\",pos:[I;{},{},{}]}}}}}}}}}}]}}",
+        bed[0], bed[1], bed[2]
+    );
+    let cart0 = redsim::entity::spawn(&mut base.world, "minecraft:minecart", [q[0] as f64 + 0.5, q[1] as f64 + 0.5625, q[2] as f64 + 0.5], Some(&nbt))?;
+    base.world.mob.day_offset = start - base.world.time;
+    let rider = base.world.entities.list.iter().find(|e| !e.removed && e.vehicle == Some(cart0)).map(|e| e.id).ok_or("no rider in the queue cart")?;
+    let idx = |w: &redsim::world::World, id: u32| w.entities.list.iter().position(|e| !e.removed && e.id == id);
+    let mut armed = stamp.is_none();
+    // (ironspec 15:40) the PANIC draw ticks before the release: a panicking rider with no walk
+    // target draws once a tick (the own cell with p 0.0761: P(still armed) = 0.9239^n)
+    let draw_tick = |w: &redsim::world::World, id: u32| -> bool {
+        let Some(i) = w.entities.list.iter().position(|e| !e.removed && e.id == id) else { return false };
+        redsim::entity::mob::ai::brain::has_exact(w, i) && {
+            let x = redsim::entity::mob::ai::brain::ex(w, i);
+            format!("{:?}", x.active).contains("Panic") && x.mem.walk_target.is_none()
+        }
+    };
+    let mut n_base = 0u32;
+    // (ironspec 16:03) how the arrival stamp cleared: the tick, and the rider's activity then (a
+    // calm REST tick's HOME walk, or a PANIC tick's own-cell draw)
+    let mut cleared: Option<(u32, String)> = None;
+    let mut was_armed = false;
+    for t in 0..ticks {
+        base.tick();
+        n_base += draw_tick(&base.world, rider) as u32;
+        if armed && cleared.is_none() {
+            if let Some(i) = idx(&base.world, rider) {
+                if redsim::entity::mob::ai::brain::has_exact(&base.world, i) {
+                    let x = redsim::entity::mob::ai::brain::ex(&base.world, i);
+                    if x.mem.cant_reach_since.is_some() {
+                        was_armed = true;
+                    } else if was_armed {
+                        cleared = Some((t, format!("{:?}", x.active)));
+                    }
+                }
+            }
+        }
+        if !armed {
+            if let Some(i) = idx(&base.world, rider) {
+                if redsim::entity::mob::ai::brain::has_exact(&base.world, i) {
+                    let now = base.world.time;
+                    redsim::entity::mob::ai::brain::ex_mut(&mut base.world, i).mem.cant_reach_since = Some(now - stamp.unwrap_or(0));
+                    armed = true;
+                }
+            }
+        }
+    }
+    let input = if o.south { BlockPos::new(q[0] - 1, q[1], q[2]) } else { BlockPos::new(q[0], q[1], q[2] + 1) };
+    let age = |w: &redsim::world::World, i: usize| -> Option<i64> {
+        if !redsim::entity::mob::ai::brain::has_exact(w, i) {
+            return None;
+        }
+        redsim::entity::mob::ai::brain::ex(w, i).mem.cant_reach_since.map(|s| w.time - s)
+    };
+    let mut out = vec![format!(
+        "(sweep) the arrival stamp{}: {}",
+        stamp.map_or(" (none armed)".to_string(), |a| format!(" ({a} gt at the arrival)")),
+        match &cleared {
+            Some((t, act)) => format!(
+                "cleared at t {t} after the rider settled, {}",
+                if act.contains("Panic") { format!("on a PANIC tick (an own-cell draw; {act})") } else { format!("on a calm tick ({act}: a complete HOME walk from the seat)") }
+            ),
+            None if stamp.is_some() => "NOT cleared during the wait".to_string(),
+            None => "-".to_string(),
+        }
+    )];
+    let (mut pending_n, mut armed_after_n, mut entry_armed_n, mut home_lost_n, mut reached_n) = (0u32, 0u32, 0u32, 0u32, 0u32);
+    let mut entry_ages: Vec<i64> = Vec::new();
+    let mut sources: std::collections::BTreeMap<String, u32> = std::collections::BTreeMap::new();
+    // every release phase, plain and with a save/stop/start at each restart tick in every order
+    let mut rows: Vec<(u32, Option<(i64, crate::liveness::Restart)>)> = Vec::new();
+    for k in 0..phases {
+        rows.push((k, None));
+        for &rt in restart_ticks {
+            for how in crate::liveness::Restart::rows() {
+                rows.push((k, Some((rt, how))));
+            }
+        }
+    }
+    let wt_of = |w: &redsim::world::World, i: usize| -> Option<redsim::entity::mob::ai::brain::WalkTarget> {
+        if !redsim::entity::mob::ai::brain::has_exact(w, i) {
+            return None;
+        }
+        redsim::entity::mob::ai::brain::ex(w, i).mem.walk_target
+    };
+    let n_rows = rows.len();
+    for (k, restart) in rows {
+        let mut r = base.clone();
+        let mut n_draws = n_base;
+        for _ in 0..k {
+            r.tick();
+            n_draws += draw_tick(&r.world, rider) as u32;
+        }
+        let mut rider = rider;
+        let i = idx(&r.world, rider).ok_or("the rider gone before the release")?;
+        let wt_rel = wt_of(&r.world, i);
+        let pending = wt_rel.is_some();
+        let since_rel = if redsim::entity::mob::ai::brain::has_exact(&r.world, i) { redsim::entity::mob::ai::brain::ex(&r.world, i).mem.cant_reach_since } else { None };
+        let age_rel = age(&r.world, i);
+        release(&mut r.world, o)?;
+        let (mut armed_after, mut at_entry, mut age_entry, mut home_entry) = (None::<(u32, String)>, None::<u32>, None::<Option<i64>>, None::<bool>);
+        let mut prev_wt = wt_rel;
+        // (ironspec 15:45: redsim 96% vs the game 37%) the first calm REST tick after the release:
+        // the rider's position, falling or not, and the HOME path from there (its start node, end
+        // node, complete or partial); and the same path at the arming tick
+        let mut first_calm: Option<String> = None;
+        let mut arm_path: Option<String> = None;
+        let home_probe = |r: &mut Run, i: usize| -> String {
+            let e = &r.world.entities.list[i];
+            let (p, v) = (e.pos, e.delta_movement);
+            let vehicle = e.vehicle;
+            let cart_rail = vehicle.and_then(|c| r.world.entities.list.iter().find(|x| x.id == c)).is_some_and(|c| {
+                let cc = BlockPos::new(c.pos.x.floor() as i32, c.pos.y.floor() as i32, c.pos.z.floor() as i32);
+                redsim::rails::is_rail(&r.world.get(cc)) || redsim::rails::is_rail(&r.world.get(BlockPos::new(cc.x, cc.y - 1, cc.z)))
+            });
+            let cart_vy = vehicle.and_then(|c| r.world.entities.list.iter().find(|x| x.id == c)).map_or(v.y, |c| c.delta_movement.y);
+            let bed_p = BlockPos::new(bed[0], bed[1], bed[2]);
+            let res = redsim::entity::mob::ai::with_nav(&mut r.world, i, |w, nm, nav, arena| {
+                let mut copy = nav.clone();
+                copy.create_path_pos(w, nm, bed_p, 0, arena).map(|pa| (pa.reached, pa.nodes.first().map(|n| (n.x, n.y, n.z)), pa.nodes.last().map(|n| (n.x, n.y, n.z)), pa.nodes.len()))
+            });
+            format!(
+                "at ({:.2},{:.2},{:.2}) {}; the HOME path {}",
+                p.x,
+                p.y,
+                p.z,
+                if cart_rail { "on the rails".to_string() } else { format!("FALLING (vy {cart_vy:.3})") },
+                match res {
+                    Some((reached, s, e, n)) => format!("start {s:?}, end {e:?}, {} ({n} nodes)", if reached { "COMPLETE" } else { "partial" }),
+                    None => "none".to_string(),
+                }
+            )
+        };
+        for t in 0..follow {
+            if let Some((rt, how)) = restart {
+                if t as i64 == rt {
+                    let map = crate::liveness::restart(&mut r.world, how)?;
+                    rider = *map.get(&rider).ok_or("the rider lost in the restart")?;
+                }
+            }
+            r.tick();
+            let Some(i) = idx(&r.world, rider) else { break };
+            if redsim::entity::mob::ai::brain::has_exact(&r.world, i) {
+                if first_calm.is_none() && format!("{:?}", redsim::entity::mob::ai::brain::ex(&r.world, i).active).contains("Rest") {
+                    let a = age(&r.world, i);
+                    first_calm = Some(format!("+{t} gt {} (the stamp then {})", home_probe(&mut r, i), a.map_or("none".to_string(), |a| format!("{a} gt"))));
+                }
+                let s = redsim::entity::mob::ai::brain::ex(&r.world, i).mem.cant_reach_since;
+                if armed_after.is_none() && s.is_some() && s != since_rel {
+                    // the arming's source: the walk target pathed (the one before this tick if the
+                    // sink erased it), told apart: a seat draw pending at the release, a draw of
+                    // the seat cell after it, a HOME walk (the bed), or another target
+                    let wt = wt_of(&r.world, i).or(prev_wt);
+                    let target = wt.map(|w| w.target);
+                    let seat = redsim::entity::mob::ai::brain::Tracker::Block(BlockPos::new(q[0], q[1], q[2]));
+                    let bed_t = redsim::entity::mob::ai::brain::Tracker::Block(BlockPos::new(bed[0], bed[1], bed[2]));
+                    let src = match target {
+                        Some(tg) if wt == wt_rel && pending => format!("a draw pending at the release ({tg:?})"),
+                        Some(tg) if tg == seat => "the seat cell drawn after the release (the departure's tail)".to_string(),
+                        Some(tg) if tg == bed_t => "a calm REST HOME walk from the cart".to_string(),
+                        Some(tg) => format!("another target {tg:?}"),
+                        None => "no walk target seen".to_string(),
+                    };
+                    arm_path = Some(home_probe(&mut r, i));
+                    armed_after = Some((t, src));
+                }
+                prev_wt = wt_of(&r.world, i).or(prev_wt);
+            }
+            let p = r.world.entities.list[i].pos;
+            let c = [p.x.floor() as i32, p.y.floor() as i32, p.z.floor() as i32];
+            if at_entry.is_none() && c == entry {
+                at_entry = Some(t);
+                age_entry = Some(age(&r.world, i));
+                home_entry = Some(redsim::entity::mob::ai::brain::brain(&r.world, i).home.is_some());
+                break;
+            }
+        }
+        pending_n += pending as u32;
+        if let Some((_, s)) = &armed_after {
+            armed_after_n += 1;
+            *sources.entry(s.split(" (").next().unwrap_or(s).to_string()).or_default() += 1;
+        }
+        reached_n += at_entry.is_some() as u32;
+        if let Some(Some(a)) = age_entry {
+            entry_armed_n += 1;
+            entry_ages.push(a);
+        }
+        home_lost_n += (home_entry == Some(false)) as u32;
+        if restart.is_none() || armed_after.is_some() || home_entry != Some(true) {
+            out.push(format!(
+                "(sweep) release +{k}{}: PANIC draw ticks before it {n_draws} (P(armed) = 0.9239^n = {:.2e}); a draw pending {}; the stamp at the release {}; the first calm REST tick after it {}; armed after it {}{}; at the entry {}: the stamp {}, HOME {}",
+                restart.map_or(String::new(), |(rt, how)| format!(", restart at +{rt} ({})", how.label())),
+                0.9239f64.powi(n_draws as i32),
+                wt_rel.map_or("no".to_string(), |w| format!("YES ({:?})", w.target)),
+                age_rel.map_or("none".to_string(), |a| format!("{a} gt")),
+                first_calm.as_deref().unwrap_or("none"),
+                armed_after.as_ref().map_or("no".to_string(), |(t, s)| format!("at +{t} gt by {s}")),
+                arm_path.as_ref().map_or(String::new(), |p| format!(" (there: {p})")),
+                at_entry.map_or("NEVER".to_string(), |t| format!("t {t}")),
+                age_entry.map_or("-".to_string(), |s| s.map_or("none".to_string(), |a| format!("{a} gt"))),
+                home_entry.map_or("-".to_string(), |h| if h { "kept".to_string() } else { "LOST".to_string() })
+            ));
+        }
+    }
+    out.push(format!(
+        "(sweep) {n_rows} releases ({phases} phases{}) after a {ticks}-gt wait from day time {start}{}: a draw pending at {pending_n} ({:.1}%); the stamp armed after the release in {armed_after_n} (sources {sources:?}); at the entry {reached_n}, with an armed stamp {entry_armed_n} (ages {:?}), HOME lost {home_lost_n}: {}",
+        if restart_ticks.is_empty() { String::new() } else { format!(" x (plain + restarts at {restart_ticks:?} in 10 orders)") },
+        stamp.map_or(String::new(), |a| format!(" (arrival stamp {a} gt)")),
+        100.0 * pending_n as f64 / n_rows.max(1) as f64,
+        entry_ages,
+        if armed_after_n == 0 && home_lost_n == 0 && reached_n as usize == n_rows { "PASS (0 armings, HOME kept)" } else { "FAIL" }
+    ));
+    Ok(out)
+}
+
+/// (ironspec 16:37: the held partial runs) A whole visit, from the split row's end to A6's entry:
+/// the rider (HOME the bed) rides the leg and the shaft from day time `day` (REST), settles on the
+/// queue, waits `hold` gt from the arrival detector, is released (the torch at the input cell) and
+/// rides the descent to the entry; with `post` the queue's zombie is in place, without it the
+/// post is absent (the (C') hatch shut at night, or (C'')). Over the arrival phases (the cart
+/// spawned k gt later), the holds and, when given, a save/stop/start at each restart tick (from
+/// the arrival detector) in every order, per row: the stamp at the arrival, the tick the walk target
+/// held from the leg or the shaft is dropped (the held run's end), the tick the stamp clears (and on
+/// what tick: calm or PANIC), whether that is before the release, the armings between the release
+/// and the entry with their walk targets, the first calm REST tick after the release with its HOME
+/// path, the stamp and HOME at the entry.
+#[allow(clippy::too_many_arguments)]
+pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], motion: [f64; 3], bed: P, day: i64, phases: u32, holds: &[u32], restart_ticks: &[i64], entry: P) -> Result<Vec<String>, String> {
+    let max_hold = holds.iter().copied().max().unwrap_or(80);
+    let ro = RunOpts { ai: true, ..RunOpts::steady(1, phases + 900 + max_hold, WalkMode::Random) };
+    let (mut base, _) = crate::placing::start(&widened(spec, o), &ro, crate::placing::Placement::Judge, &crate::placing::BuildPlan::default())?;
+    let mut cells: Vec<(BlockPos, Block)> = Vec::new();
+    for (p, b) in o.extra.iter().map(|(p, b)| (*p, b.clone())).chain(queue_cells(o).into_iter().map(|(p, b, _)| (p, b.to_string()))) {
+        cells.push((BlockPos::new(p[0], p[1], p[2]), Block::parse(&b).map_err(|e| format!("{b}: {e}"))?));
+    }
+    cells.extend(r1_cells(o));
+    place_checked(&mut base.world, &cells)?;
+    if let Some(p) = post {
+        redsim::entity::spawn(&mut base.world, "minecraft:oak_boat", [p[0] as f64 + 0.5, p[1] as f64, p[2] as f64 + 0.5], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}"))?;
+    }
+    let q = o.queue;
+    let arrival = if o.south { [q[0], q[1] + 1, q[2] - 1] } else { [q[0] + 1, q[1] + 1, q[2]] };
+    let rider_nbt = format!(
+        "{{id:\"minecraft:villager\",PersistenceRequired:1b,Brain:{{memories:{{\"minecraft:home\":{{value:{{dimension:\"minecraft:overworld\",pos:[I;{},{},{}]}}}}}}}}}}",
+        bed[0], bed[1], bed[2]
+    );
+    let idx = |w: &redsim::world::World, id: u32| w.entities.list.iter().position(|e| !e.removed && e.id == id);
+    let mem = |w: &redsim::world::World, i: usize| -> Option<(Option<i64>, bool, String)> {
+        if !redsim::entity::mob::ai::brain::has_exact(w, i) {
+            return None;
+        }
+        let x = redsim::entity::mob::ai::brain::ex(w, i);
+        Some((x.mem.cant_reach_since, x.mem.walk_target.is_some(), format!("{:?}", x.active)))
+    };
+    let bed_p = BlockPos::new(bed[0], bed[1], bed[2]);
+    let probe = |r: &mut Run, i: usize| -> String {
+        let p = r.world.entities.list[i].pos;
+        let res = redsim::entity::mob::ai::with_nav(&mut r.world, i, |w, nm, nav, arena| {
+            let mut copy = nav.clone();
+            copy.create_path_pos(w, nm, bed_p, 0, arena).map(|pa| (pa.reached, pa.nodes.last().map(|n| (n.x, n.y, n.z))))
+        });
+        format!("at ({:.1},{:.1},{:.1}) the HOME path {}", p.x, p.y, p.z, match res {
+            Some((true, _)) => "COMPLETE".to_string(),
+            Some((false, e)) => format!("partial (ends {e:?})"),
+            None => "none".to_string(),
+        })
+    };
+    let mut out = Vec::new();
+    let (mut rows_n, mut before_n, mut armed_after_n, mut home_lost_n, mut entry_stamped_n) = (0u32, 0u32, 0u32, 0u32, 0u32);
+    for k in 0..phases {
+        // the leg and the shaft down to the arrival detector, shared by this phase's rows
+        let mut w0 = base.clone();
+        for _ in 0..k {
+            w0.tick();
+        }
+        let cart = redsim::entity::spawn(&mut w0.world, "minecraft:minecart", start, Some(&format!("{{Motion:[{:.4}d,{:.4}d,{:.4}d],Passengers:[{rider_nbt}]}}", motion[0], motion[1], motion[2])))?;
+        w0.world.mob.day_offset = day - w0.world.time;
+        let rider = w0.world.entities.list.iter().find(|e| !e.removed && e.vehicle == Some(cart)).map(|e| e.id).ok_or("no rider")?;
+        let mut held_since: Option<u32> = None;
+        let mut t_arr = None;
+        for t in 0..600u32 {
+            w0.tick();
+            let Some(i) = idx(&w0.world, rider) else { break };
+            if let Some((_, wt, _)) = mem(&w0.world, i) {
+                if wt && held_since.is_none() {
+                    held_since = Some(t);
+                }
+                if !wt {
+                    held_since = None;
+                }
+            }
+            let c = w0.world.entities.list.iter().find(|e| e.id == cart && !e.removed).map(|e| [e.pos.x.floor() as i32, e.pos.y.floor() as i32, e.pos.z.floor() as i32]);
+            if c == Some(arrival) {
+                t_arr = Some(t);
+                break;
+            }
+        }
+        let Some(t_arr) = t_arr else {
+            out.push(format!("(visit) phase +{k}: the cart never reached the arrival detector"));
+            continue;
+        };
+        let i = idx(&w0.world, rider).ok_or("the rider lost")?;
+        let stamp_arr = mem(&w0.world, i).and_then(|m| m.0).map(|s| w0.world.time - s);
+        for &h in holds {
+            let mut rs: Vec<Option<(i64, crate::liveness::Restart)>> = vec![None];
+            for &rt in restart_ticks {
+                for how in crate::liveness::Restart::rows() {
+                    rs.push(Some((rt, how)));
+                }
+            }
+            for restart in rs {
+                let mut r = w0.clone();
+                let mut rider = rider;
+                let mut cart = cart;
+                let (mut held_end, mut cleared, mut armed_after, mut first_calm, mut at_entry, mut stamp_entry, mut home_entry) =
+                    (None::<u32>, None::<(u32, String)>, Vec::<(u32, String)>::new(), None::<String>, None::<u32>, None::<Option<i64>>, None::<bool>);
+                let mut was_held = held_since.is_some();
+                let mut prev_since = mem(&r.world, i).and_then(|m| m.0);
+                let mut released = false;
+                // (farmopt 17:07) the seat's own HOME path at its first calm REST tick before the release
+                let mut seat_calm: Option<String> = None;
+                let (mut cart_last, mut entry_v): (Option<([i32; 3], f64)>, Option<f64>) = (None, None);
+                for t in 0..(h + 400) {
+                    if let Some((rt, how)) = restart {
+                        if t as i64 == rt {
+                            let map = crate::liveness::restart(&mut r.world, how)?;
+                            rider = *map.get(&rider).ok_or("the rider lost in the restart")?;
+                            cart = *map.get(&cart).ok_or("the cart lost in the restart")?;
+                        }
+                    }
+                    if t == h {
+                        release(&mut r.world, o)?;
+                        released = true;
+                    }
+                    r.tick();
+                    if std::env::var("WAYCELL_VISIT_TRACE").is_ok() && released && t < h + 12 {
+                        if let Some(c) = r.world.entities.list.iter().find(|e| e.id == cart && !e.removed) {
+                            let cc = BlockPos::new(c.pos.x.floor() as i32, c.pos.y.floor() as i32, c.pos.z.floor() as i32);
+                            eprintln!("visit t {t}: cart ({:.3},{:.3},{:.3}) v ({:.3},{:.3},{:.3}) at {:?} {:?}; input {:?}", c.pos.x, c.pos.y, c.pos.z, c.delta_movement.x, c.delta_movement.y, c.delta_movement.z, cc, r.world.get(cc), r.world.get(BlockPos::new(q[0] - 1, q[1], q[2])));
+                        }
+                    }
+                    let Some(i) = idx(&r.world, rider) else { break };
+                    let Some((since, wt, act)) = mem(&r.world, i) else { continue };
+                    if was_held && !wt && held_end.is_none() {
+                        held_end = Some(t);
+                    }
+                    was_held |= wt && held_end.is_none() && !released;
+                    if since.is_none() && prev_since.is_some() && cleared.is_none() {
+                        cleared = Some((t, act.clone()));
+                    }
+                    if !released && seat_calm.is_none() && act.contains("Rest") {
+                        let c = r.world.entities.list[i].vehicle.and_then(|v| r.world.entities.list.iter().find(|e| e.id == v)).map(|e| [e.pos.x.floor() as i32, e.pos.y.floor() as i32, e.pos.z.floor() as i32]);
+                        if c == Some(q) {
+                            seat_calm = Some(format!("+{t} gt {}", probe(&mut r, i)));
+                        }
+                    }
+                    if released {
+                        if since.is_some() && since != prev_since {
+                            let tg = redsim::entity::mob::ai::brain::ex(&r.world, i).mem.walk_target.map(|w| format!("{:?}", w.target)).unwrap_or_else(|| "no walk target".to_string());
+                            armed_after.push((t - h, tg));
+                        }
+                        if first_calm.is_none() && act.contains("Rest") {
+                            first_calm = Some(format!("+{} gt {}", t - h, probe(&mut r, i)));
+                        }
+                        let p = r.world.entities.list[i].pos;
+                        if let Some(c) = r.world.entities.list.iter().find(|e| e.id == cart && !e.removed) {
+                            cart_last = Some(([c.pos.x.floor() as i32, c.pos.y.floor() as i32, c.pos.z.floor() as i32], (c.delta_movement.x.powi(2) + c.delta_movement.z.powi(2)).sqrt()));
+                        }
+                        if [p.x.floor() as i32, p.y.floor() as i32, p.z.floor() as i32] == entry && at_entry.is_none() {
+                            at_entry = Some(t - h);
+                            entry_v = cart_last.map(|c| c.1);
+                            stamp_entry = Some(since.map(|s| r.world.time - s));
+                            home_entry = Some(redsim::entity::mob::ai::brain::brain(&r.world, i).home.is_some());
+                            break;
+                        }
+                    }
+                    prev_since = since;
+                }
+                rows_n += 1;
+                let before = cleared.as_ref().is_some_and(|(t, _)| *t < h) || (stamp_arr.is_none() && cleared.is_none());
+                before_n += before as u32;
+                armed_after_n += (!armed_after.is_empty()) as u32;
+                home_lost_n += (home_entry == Some(false)) as u32;
+                entry_stamped_n += matches!(stamp_entry, Some(Some(_))) as u32;
+                if restart.is_none() || !before || !armed_after.is_empty() || home_entry != Some(true) {
+                    out.push(format!(
+                        "(visit) phase +{k}, hold {h}{}: arrival at t {t_arr} with the stamp {}; the held walk {} ; the seat's first calm REST tick {}; the stamp cleared {}; armings after the release {}; the first calm REST tick after it {}; at the entry {}: the stamp {}, HOME {}",
+                        restart.map_or(String::new(), |(rt, how)| format!(", restart at +{rt} ({})", how.label())),
+                        stamp_arr.map_or("none".to_string(), |a| format!("{a} gt")),
+                        match (held_since, held_end) {
+                            (None, _) => "none at the arrival".to_string(),
+                            (Some(s), Some(e)) => format!("(since leg t {s}) dropped at +{e} gt"),
+                            (Some(s), None) => format!("(since leg t {s}) NEVER dropped before the entry"),
+                        },
+                        seat_calm.as_deref().unwrap_or("none"),
+                        cleared.as_ref().map_or("NEVER".to_string(), |(t, a)| format!("at +{t} gt on a {} tick{}", if a.contains("Panic") { "PANIC" } else { "calm" }, if *t < h { " (before the release)" } else { " (AFTER the release)" })),
+                        if armed_after.is_empty() { "none".to_string() } else { format!("{armed_after:?}") },
+                        first_calm.as_deref().unwrap_or("none"),
+                        at_entry.map_or_else(|| format!("NEVER (the cart last at {:?})", cart_last), |t| format!("+{t} gt after the release at {:.4} b/t", entry_v.unwrap_or(0.0))),
+                        stamp_entry.map_or("-".to_string(), |s| s.map_or("none".to_string(), |a| format!("{a} gt"))),
+                        home_entry.map_or("-".to_string(), |b| if b { "kept".to_string() } else { "LOST".to_string() })
+                    ));
+                }
+            }
+        }
+    }
+    out.push(format!(
+        "(visit) {rows_n} rows ({phases} arrival phases x holds {holds:?} x (plain + restarts at {restart_ticks:?} in 10 orders)), the post {}: the stamp cleared before the release in {before_n}; armed after the release in {armed_after_n}; stamped at the entry {entry_stamped_n}; HOME lost {home_lost_n}: {}",
+        if post.is_some() { "in place" } else { "ABSENT (the (C') hatch shut at night / (C''))" },
+        if before_n == rows_n && armed_after_n == 0 && home_lost_n == 0 { "PASS" } else { "FAIL" }
+    ));
+    Ok(out)
+}
+
+/// (farmopt 17:07: the seat's own HOME path) A fresh rider seated in a cart at each of `at` (cart
+/// positions), a few ticks to settle, and the HOME path from there to `bed`: its start node, end
+/// node, complete or partial, and its nodes.
+pub fn path_probe_lines(spec: &FarmSpec, o: &Opts, at: &[[f64; 3]], bed: P) -> Result<Vec<String>, String> {
+    let ro = RunOpts { ai: true, ..RunOpts::steady(1, 40, WalkMode::Random) };
+    let (mut base, _) = crate::placing::start(&widened(spec, o), &ro, crate::placing::Placement::Judge, &crate::placing::BuildPlan::default())?;
+    let mut cells: Vec<(BlockPos, Block)> = Vec::new();
+    for (p, b) in o.extra.iter().map(|(p, b)| (*p, b.clone())).chain(queue_cells(o).into_iter().map(|(p, b, _)| (p, b.to_string()))) {
+        cells.push((BlockPos::new(p[0], p[1], p[2]), Block::parse(&b).map_err(|e| format!("{b}: {e}"))?));
+    }
+    cells.extend(r1_cells(o));
+    place_checked(&mut base.world, &cells)?;
+    let bed_p = BlockPos::new(bed[0], bed[1], bed[2]);
+    let mut out = Vec::new();
+    for a in at {
+        let mut r = base.clone();
+        let cart = redsim::entity::spawn(&mut r.world, "minecraft:minecart", *a, Some("{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}"))?;
+        for _ in 0..3 {
+            r.tick();
+        }
+        let Some(i) = r.world.entities.list.iter().position(|e| !e.removed && e.vehicle == Some(cart)) else {
+            out.push(format!("(path) at {a:?}: no rider"));
+            continue;
+        };
+        let p = r.world.entities.list[i].pos;
+        let res = redsim::entity::mob::ai::with_nav(&mut r.world, i, |w, nm, nav, arena| {
+            let mut copy = nav.clone();
+            copy.create_path_pos(w, nm, bed_p, 0, arena).map(|pa| (pa.reached, pa.nodes.iter().map(|n| (n.x, n.y, n.z)).collect::<Vec<_>>()))
+        });
+        out.push(match res {
+            Some((reached, nodes)) => format!(
+                "(path) a rider at ({:.2},{:.2},{:.2}): the HOME path {} ({} nodes): {:?}",
+                p.x,
+                p.y,
+                p.z,
+                if reached { "COMPLETE" } else { "partial" },
+                nodes.len(),
+                nodes
+            ),
+            None => format!("(path) a rider at ({:.2},{:.2},{:.2}): no path", p.x, p.y, p.z),
+        });
+    }
+    Ok(out)
 }
 
 /// The napper's way down (the leg, the shaft, the queue): a cart with its rider started at `start`
 /// with `motion`, followed until it rests on the queue rail: the tick it is on the HOLD detector
 /// (`hold`), the tick it first comes within 16 of the bed's head (`bed`: ValidateNearbyPoi's
 /// 16-ball), the tick it reaches the arrival detector and the queue cell: HOLD's lead.
-pub fn leg_lines(spec: &FarmSpec, o: &Opts, start: [f64; 3], motion: [f64; 3], hold: P, bed: P, ticks: u32) -> Result<Vec<String>, String> {
+pub fn leg_lines(spec: &FarmSpec, o: &Opts, start: [f64; 3], motion: [f64; 3], hold: P, bed: P, ticks: u32, day: Option<i64>) -> Result<Vec<String>, String> {
     let ro = RunOpts { ai: true, ..RunOpts::steady(1, ticks + 10, WalkMode::Random) };
     let (mut run, _) = crate::placing::start(&widened(spec, o), &ro, crate::placing::Placement::Judge, &crate::placing::BuildPlan::default())?;
     let q = o.queue;
     let mut cells: Vec<(BlockPos, Block)> = Vec::new();
-    for (p, b) in o.extra.iter().map(|(p, b)| (*p, b.clone())).chain(rail_cells(q, o.south).into_iter().map(|(p, b, _)| (p, b.to_string()))) {
+    for (p, b) in o.extra.iter().map(|(p, b)| (*p, b.clone())).chain(queue_cells(o).into_iter().map(|(p, b, _)| (p, b.to_string()))) {
         cells.push((BlockPos::new(p[0], p[1], p[2]), Block::parse(&b).map_err(|e| format!("{b}: {e}"))?));
     }
+    cells.extend(r1_cells(o));
     place_checked(&mut run.world, &cells)?;
-    let cart = redsim::entity::spawn(&mut run.world, "minecraft:minecart", start, Some(&format!("{{Motion:[{:.4}d,{:.4}d,{:.4}d],Passengers:[{{id:\"minecraft:villager\"}}]}}", motion[0], motion[1], motion[2])))?;
+    // (ironspec 14:58: the real arrival stamp per visit) with `day`, the rider carries its HOME (the
+    // bed) and the ride starts at that day time: a calm REST rider computes its HOME walk from the
+    // falling cart, partial, and may arrive with its stamp armed
+    let rider_nbt = match day {
+        Some(_) => format!(
+            "{{id:\"minecraft:villager\",PersistenceRequired:1b,Brain:{{memories:{{\"minecraft:home\":{{value:{{dimension:\"minecraft:overworld\",pos:[I;{},{},{}]}}}}}}}}}}",
+            bed[0], bed[1], bed[2]
+        ),
+        None => "{id:\"minecraft:villager\"}".to_string(),
+    };
+    let cart = redsim::entity::spawn(&mut run.world, "minecraft:minecart", start, Some(&format!("{{Motion:[{:.4}d,{:.4}d,{:.4}d],Passengers:[{rider_nbt}]}}", motion[0], motion[1], motion[2])))?;
+    if let Some(d) = day {
+        run.world.mob.day_offset = d - run.world.time;
+    }
+    let rider = run.world.entities.list.iter().find(|e| !e.removed && e.vehicle == Some(cart)).map(|e| e.id);
+    let stamp_of = |w: &redsim::world::World| -> Option<i64> {
+        let i = w.entities.list.iter().position(|e| !e.removed && Some(e.id) == rider)?;
+        if !redsim::entity::mob::ai::brain::has_exact(w, i) {
+            return None;
+        }
+        redsim::entity::mob::ai::brain::ex(w, i).mem.cant_reach_since.map(|s| w.time - s)
+    };
+    let (mut first_armed, mut stamp_arrival, mut stamp_rest) = (None::<(u32, P)>, None::<Option<i64>>, None::<Option<i64>>);
     let head = Vec3::new(bed[0] as f64 + 0.5, bed[1] as f64 + 0.5625, bed[2] as f64 + 0.5);
     let arrival = if o.south { [q[0], q[1] + 1, q[2] - 1] } else { [q[0] + 1, q[1] + 1, q[2]] };
     let (mut on_hold, mut ball, mut at_arrival, mut at_queue) = (None, None, None, None);
@@ -934,9 +1636,14 @@ pub fn leg_lines(spec: &FarmSpec, o: &Opts, start: [f64; 3], motion: [f64; 3], h
         }
         if at_arrival.is_none() && c == arrival {
             at_arrival = Some(t);
+            stamp_arrival = Some(stamp_of(&run.world));
+        }
+        if first_armed.is_none() && stamp_of(&run.world).is_some() {
+            first_armed = Some((t, c));
         }
         if at_queue.is_none() && c == q && e.delta_movement.length_sqr() < 1e-6 {
             at_queue = Some(t);
+            stamp_rest = Some(stamp_of(&run.world));
             break;
         }
     }
@@ -968,6 +1675,13 @@ pub fn leg_lines(spec: &FarmSpec, o: &Opts, start: [f64; 3], motion: [f64; 3], h
             if contacts == 0 && vmax < 1e-9 { "PASS: x fixed, vx 0, no contact" } else { "FAIL" }
         ),
         format!("(leg) the fall tick by tick: {}", runs.join("; ")),
+        format!(
+            "(leg) the rider's CANT_REACH stamp{}: first armed {}; its age at the arrival detector {}, at rest on the queue {}",
+            if day.is_some() { " (HOME the bed, the ride from that day time)" } else { " (no HOME: no HOME walk)" },
+            first_armed.map_or("never".to_string(), |(t, c)| format!("at t {t} at {c:?}")),
+            stamp_arrival.map_or("-".to_string(), |s| s.map_or("none".to_string(), |a| format!("{a} gt"))),
+            stamp_rest.map_or("-".to_string(), |s| s.map_or("none".to_string(), |a| format!("{a} gt")))
+        ),
         format!("(leg) the cells: {:?}", path.iter().take(60).collect::<Vec<_>>()),
     ])
 }
@@ -993,7 +1707,7 @@ pub fn write_layout(module: &std::path::Path, out: &std::path::Path, o: &Opts, p
         ),
     );
     let mut cells: Vec<(P, &str, &str)> = if o.rail {
-        rail_cells(q, o.south)
+        queue_cells(o)
     } else {
         vec![(q, "minecraft:iron_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]", "the queue cell's trapdoor (the cart rests on it)")]
     };
@@ -1007,11 +1721,23 @@ pub fn write_layout(module: &std::path::Path, out: &std::path::Path, o: &Opts, p
     let mut lines = Vec::new();
     for (p, b, what) in &cells {
         if let Some(have) = d.blocks.get(p) {
+            if have.as_str() == *b {
+                // (already laid: a module that carries the way-in as a part)
+                continue;
+            }
             if !o.replace.contains(p) {
                 return Err(format!("{p:?} ({what}) already holds {have}"));
             }
+            if *b == "minecraft:air" {
+                lines.push(format!("  {p:?} REMOVED ({what}; the module's {have})"));
+                d.blocks.remove(p);
+                continue;
+            }
             lines.push(format!("  {p:?} {b} ({what}; REPLACES the module's {have})"));
             d.blocks.insert(*p, b.to_string());
+            continue;
+        }
+        if *b == "minecraft:air" {
             continue;
         }
         d.blocks.insert(*p, b.to_string());
@@ -1019,10 +1745,15 @@ pub fn write_layout(module: &std::path::Path, out: &std::path::Path, o: &Opts, p
     }
     let cart = mctas::design::EntitySpec { kind: "minecraft:minecart".into(), pos: [q[0] as f64 + 0.5, q[1] as f64 + if o.rail { 0.5625 } else { 0.1875 }, q[2] as f64 + 0.5], nbt: Some("{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}".into()) };
     let boat = mctas::design::EntitySpec { kind: "minecraft:oak_boat".into(), pos: [post[0] as f64 + 0.5, post[1] as f64, post[2] as f64 + 0.5], nbt: Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}".into()) };
-    lines.push(format!("  entity {} {:?} (the seated queue rider, {})", cart.kind, cart.pos, if o.rail { "on the braked queue rail" } else { "on the trapdoor" }));
-    lines.push(format!("  entity {} {:?} (the queue's zombie)", boat.kind, boat.pos));
-    d.entities.push(cart);
-    d.entities.push(boat);
+    for e in [cart, boat] {
+        let have = d.entities.iter().any(|x| x.kind == e.kind && (0..3).all(|k| (x.pos[k] - e.pos[k]).abs() < 0.01));
+        if have {
+            lines.push(format!("  entity {} {:?} (already in the module)", e.kind, e.pos));
+            continue;
+        }
+        lines.push(format!("  entity {} {:?} ({})", e.kind, e.pos, if e.kind.ends_with("minecart") { "the seated queue rider" } else { "the queue's zombie" }));
+        d.entities.push(e);
+    }
     d.save(out).map_err(|e| e.to_string())?;
     lines.insert(0, format!("wrote {} (the module {} with the way-in line's queue cell and post):", out.display(), module.display()));
     Ok(lines)
