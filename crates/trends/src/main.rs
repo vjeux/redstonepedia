@@ -653,7 +653,11 @@ fn rank(args: &RankArgs) -> Result<()> {
 /// Today's date (UTC), `YYYY-MM-DD`.
 fn today() -> String {
     let days = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs() / 86_400) as i64;
-    // Howard Hinnant's civil_from_days.
+    civil_from_days(days)
+}
+
+/// Days since 1970-01-01 as `YYYY-MM-DD` (Howard Hinnant's civil_from_days).
+fn civil_from_days(days: i64) -> String {
     let z = days + 719_468;
     let era = z.div_euclid(146_097);
     let doe = z.rem_euclid(146_097);
@@ -664,4 +668,21 @@ fn today() -> String {
     let month = if mp < 10 { mp + 3 } else { mp - 9 };
     let year = yoe + era * 400 + i64::from(month <= 2);
     format!("{year:04}-{month:02}-{day:02}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::CommandFactory;
+
+    /// The commands' clap definitions hold together, and the calendar names known days (the
+    /// epoch, the day before it, a leap century's March 1st, a leap day; `mctas test`'s unit piece).
+    #[test]
+    fn the_cli_and_the_calendar() {
+        Cli::command().debug_assert();
+        assert_eq!(civil_from_days(0), "1970-01-01");
+        assert_eq!(civil_from_days(-1), "1969-12-31");
+        assert_eq!(civil_from_days(11_017), "2000-03-01");
+        assert_eq!(civil_from_days(19_782), "2024-02-29");
+    }
 }

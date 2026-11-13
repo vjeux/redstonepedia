@@ -509,3 +509,27 @@ fn judge_cmd(design: &std::path::Path, offsets: usize, rotations: bool, mirror: 
     println!("{ok}/{} variants pass (gap <= 6, repair ok{}) in {:.1}s", vs.len(), if modules.len() > 1 { format!(", all {} modules", modules.len()) } else { String::new() }, t0.elapsed().as_secs_f64());
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::{CommandFactory, Parser};
+
+    #[derive(Parser)]
+    struct Probe {
+        #[command(subcommand)]
+        cmd: BedrockCmd,
+    }
+
+    /// The commands' clap definitions hold together (a duplicate flag, a bad default or a clashing
+    /// name fails here, not at a user's first run), and the cell and box parsers read and refuse
+    /// what their help says (`mctas test`'s unit piece: a change to this crate runs a test).
+    #[test]
+    fn the_cli_and_its_parsers() {
+        Probe::command().debug_assert();
+        assert_eq!(parse_cell("1,-2,3"), Ok([1, -2, 3]));
+        assert!(parse_cell("1,2").is_err() && parse_cell("1,x,3").is_err());
+        assert_eq!(parse_box("0,0,0:2,3,4"), Ok(([0, 0, 0], [2, 3, 4])));
+        assert!(parse_box("0,0,0").is_err());
+    }
+}
