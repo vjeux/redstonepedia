@@ -2112,9 +2112,23 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
         let armed_ok = lay.arm.is_none() || row.armed_at.is_some_and(|a| t >= a + f.arm_delay);
         if !f_fired && f_live.is_some_and(|x| live >= x) && armed_ok {
             f_fired = true;
+            // (G1: the sleeper's eye-to-eye COLLIDER ray to the waker in both window states, the
+            // blocking cell named: before F (window closed) and after F's write (window open))
+            let ray = |w: &World| -> String {
+                let (Some(vi), Some(zi)) = (vill.and_then(|v| idx(w, v)), zid.and_then(|z| idx(w, z))) else { return "no napper or no waker".into() };
+                let (v, z) = (&w.entities.list[vi], &w.entities.list[zi]);
+                let veh = if matches!(&v.kind, redsim::entity::EntityKind::Mob(m) if m.sleeping_pos.is_some()) { 0.2 } else { v.kind.eye_height() as f64 };
+                let ve = redsim::entity::Vec3::new(v.pos.x, v.pos.y + veh, v.pos.z);
+                let ze = redsim::entity::Vec3::new(z.pos.x, z.pos.y + z.kind.eye_height() as f64, z.pos.z);
+                let hit = redsim::entity::mob::los::first_hit(w, ve, ze);
+                format!("the napper's eye ({:.2},{:.2},{:.2}) to the waker's eye ({:.2},{:.2},{:.2}), {:.2} apart: {}", ve.x, ve.y, ve.z, ze.x, ze.y, ze.z, ((ve.x - ze.x).powi(2) + (ve.y - ze.y).powi(2) + (ve.z - ze.z).powi(2)).sqrt(), hit.map_or("CLEAR".to_string(), |p| format!("blocked at ({},{},{}) {}", p.x, p.y, p.z, w.get(p))))
+            };
+            let before = ray(&run.world);
             for c in lay.hatch_ctrl.clone() {
                 set(&mut run.world, c, "stone");
             }
+            let after = ray(&run.world);
+            row.waker_lines.push(format!("t {t} (F): window closed: {before}; window open: {after}"));
         }
         // (with `day_gate` (the 09:00 shape, a control now): DAY from the daylight detector (high
         // from `day_on` to `day_off`) gates the activator, and the abort, level-sensitive (DAY high,
