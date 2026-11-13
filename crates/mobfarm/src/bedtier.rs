@@ -1997,21 +1997,27 @@ pub fn rail_t_at(w: &World, p: BlockPos) -> bool {
 /// (ironspec 18:34) The reach half of the stand-in guard: refuses a stand-in whose updates reach
 /// a rail T not declared state-stable, or whose power reaches a redstone-sensitive cell outside
 /// `targets` (the built input's own reach) that isn't declared. Returns the reach as a line.
-pub fn standin_reach_check(w: &World, p: BlockPos, b: &Block, targets: &[BlockPos], declared: &[[i32; 3]]) -> Result<String, String> {
+pub fn standin_reach_check(w: &World, p: BlockPos, b: &Block, targets: &[BlockPos], declared: &[[i32; 3]], off: [i32; 3]) -> Result<String, String> {
+    // (`declared` in the world's frame; `off` only moves the printed cells back to the design frame
+    // (the bench's `--offset`))
     let (update, power) = standin_reach(w, p, b)?;
     let dec = |q: &BlockPos| declared.contains(&[q.x, q.y, q.z]);
+    let d = |q: &BlockPos| (q.x - off[0], q.y - off[1], q.z - off[2]);
     if let Some(t) = update.iter().find(|q| rail_t_at(w, **q) && !dec(q)) {
-        return Err(format!("refused: the stand-in {b} at ({},{},{}) updates the rail T at ({},{},{}) (RailBlock.updateState); declare it state-stable", p.x, p.y, p.z, t.x, t.y, t.z));
+        let (pp, tt) = (d(&p), d(t));
+        return Err(format!("refused: the stand-in {b} at ({},{},{}) updates the rail T at ({},{},{}) (RailBlock.updateState); declare it state-stable", pp.0, pp.1, pp.2, tt.0, tt.1, tt.2));
     }
     let sensitive = |q: &BlockPos| {
         let s = format!("{}", w.get(*q));
         ["rail", "repeater", "comparator", "piston", "lamp", "door", "trapdoor", "dispenser", "dropper", "hopper", "observer", "redstone_wire", "torch", "note_block", "lever", "bell", "tnt"].iter().any(|k| s.contains(k))
     };
     if let Some(q) = power.iter().find(|q| sensitive(q) && !targets.contains(q) && !dec(q)) {
-        return Err(format!("refused: the stand-in {b} at ({},{},{}) powers {} at ({},{},{}), outside the built input's reach; declare it", p.x, p.y, p.z, w.get(*q), q.x, q.y, q.z));
+        let (pp, qq) = (d(&p), d(q));
+        return Err(format!("refused: the stand-in {b} at ({},{},{}) powers {} at ({},{},{}), outside the built input's reach; declare it", pp.0, pp.1, pp.2, w.get(*q), qq.0, qq.1, qq.2));
     }
-    let powered: Vec<String> = power.iter().filter(|q| !w.get(**q).is_air()).map(|q| format!("({},{},{}) {}", q.x, q.y, q.z, w.get(*q))).collect();
-    Ok(format!("the stand-in {b} at ({},{},{}): its updates reach {} cells, no undeclared rail T; it powers {}", p.x, p.y, p.z, update.len(), if powered.is_empty() { "no block".to_string() } else { powered.join(", ") }))
+    let powered: Vec<String> = power.iter().filter(|q| !w.get(**q).is_air()).map(|q| { let qq = d(q); format!("({},{},{}) {}", qq.0, qq.1, qq.2, w.get(*q)) }).collect();
+    let pp = d(&p);
+    Ok(format!("the stand-in {b} at ({},{},{}): its updates reach {} cells, no undeclared rail T; it powers {}", pp.0, pp.1, pp.2, update.len(), if powered.is_empty() { "no block".to_string() } else { powered.join(", ") }))
 }
 
 pub fn ctl_block(c: [i32; 3], st: &str) -> String {
@@ -2086,6 +2092,8 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
     let dbp = |p: BlockPos| BlockPos::new(p.x - off[0], p.y - off[1], p.z - off[2]);
     let dpos = |v: Vec3| Vec3::new(v.x - off[0] as f64, v.y - off[1] as f64, v.z - off[2] as f64);
     let (ox, oy, oz) = (off[0] as f64, off[1] as f64, off[2] as f64);
+    // (the declared emulated cells moved to the world's frame, for the guard's comparisons)
+    let declared_w: Vec<[i32; 3]> = f.declared_emulated.iter().map(|c| [c[0] + off[0], c[1] + off[1], c[2] + off[2]]).collect();
     let ro = RunOpts { ai: true, ..RunOpts::steady(seed as i64, 3 * 24000, WalkMode::Random) };
     let (mut run, _) = crate::placing::start(spec, &ro, crate::placing::Placement::Judge, &crate::placing::BuildPlan::default())?;
     // (the daylight detectors the start held back (they'd read the settle's sky), placed as
@@ -2182,14 +2190,14 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             continue;
         }
         for st in ["redstone_block", "stone"] {
-            emulated_write_check(&run.world, wc(c), &block(&ctl_block(c, st))?, &f.declared_emulated)?;
+            emulated_write_check(&run.world, wc(c), &block(&ctl_block(c, st))?, &declared_w)?;
         }
         // (the reach half: the built lever's own power reach is the target set; the tap's: DAY-1's
         // repeater alone)
         let p = wc(c);
         let on = block(&ctl_block(c, "redstone_block"))?;
         let built = if c == TAP_CTRL { vec![wc(TAP_REP)] } else { standin_reach(&run.world, p, &run.world.get(p))?.1 };
-        row.standin.push(standin_reach_check(&run.world, p, &on, &built, &f.declared_emulated)?);
+        row.standin.push(standin_reach_check(&run.world, p, &on, &built, &declared_w, off)?);
     }
     // (the queue's release, the conforming stand-in (ironspec 18:10): never a redstone block in the
     // release cell (a solid block there makes the cell over it an off-pad golem cell and a second
@@ -2220,10 +2228,10 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
         // the next one, the front one only the queue's rail; no undeclared rail T in their updates)
         let rail = BlockPos::new(a.seat[0].floor() as i32, a.seat[1].floor() as i32, a.seat[2].floor() as i32);
         let bp = |c: [i32; 3]| BlockPos::new(c[0], c[1], c[2]);
-        row.standin.push(standin_reach_check(&run.world, bp(driver), &block(&lev)?, &[bp(cells[1])], &f.declared_emulated)?);
+        row.standin.push(standin_reach_check(&run.world, bp(driver), &block(&lev)?, &[bp(cells[1])], &f.declared_emulated, [0, 0, 0])?);
         let rep_on = format!("repeater[delay=1,facing={facing},locked=false,powered=true]");
-        row.standin.push(standin_reach_check(&run.world, bp(cells[1]), &block(&rep_on)?, &[bp(cells[0])], &f.declared_emulated)?);
-        row.standin.push(standin_reach_check(&run.world, bp(cells[0]), &block(&rep_on)?, &[rail], &f.declared_emulated)?);
+        row.standin.push(standin_reach_check(&run.world, bp(cells[1]), &block(&rep_on)?, &[bp(cells[0])], &f.declared_emulated, [0, 0, 0])?);
+        row.standin.push(standin_reach_check(&run.world, bp(cells[0]), &block(&rep_on)?, &[rail], &f.declared_emulated, [0, 0, 0])?);
     }
     // (ironspec 20:31 (4b), the guard's sixth property: survival: every laid block and every
     // stand-in survives where it stands, no rail pops)
@@ -3100,8 +3108,13 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                     row.panic_end_at = Some(t);
                 }
                 let m = &redsim::entity::mob::ai::brain::ex(w, vi).mem;
-                let wt = m.walk_target.as_ref().map(|x| format!("{:?}", x.target));
-                let pa = m.path.as_ref().map(|p| (p.reached, p.nodes.first().map(|n| (n.x, n.y, n.z)), p.nodes.last().map(|n| (n.x, n.y, n.z)), p.nodes.len()));
+                // (printed in the design frame: the bench's `--offset`)
+                let wt = m.walk_target.as_ref().map(|x| match x.target {
+                    redsim::entity::mob::ai::brain::Tracker::Block(b) => format!("{:?}", redsim::entity::mob::ai::brain::Tracker::Block(dbp(b))),
+                    redsim::entity::mob::ai::brain::Tracker::Point(q) => format!("{:?}", redsim::entity::mob::ai::brain::Tracker::Point(dpos(q))),
+                    ref other => format!("{other:?}"),
+                });
+                let pa = m.path.as_ref().map(|p| (p.reached, p.nodes.first().map(|n| (n.x - off[0], n.y - off[1], n.z - off[2])), p.nodes.last().map(|n| (n.x - off[0], n.y - off[1], n.z - off[2])), p.nodes.len()));
                 let st = m.cant_reach_since;
                 // (G1's C11: a FRESH arming is a stamp set after the wake (a value the stamp didn't
                 // hold at the wake tick), not one carried in from before it)
