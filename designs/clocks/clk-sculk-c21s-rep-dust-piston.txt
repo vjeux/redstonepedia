@@ -1,0 +1,19 @@
+# Clock: every 21 ticks (1.05 s) · 10 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-sculk-c21s-rep-dust-piston.html
+# CLOCK: period 21, warmup 4
+name: clk-sculk-c21s-rep-dust-piston
+port output: 2 0 -1
+origin: 0 0 0
+palette:
+  C minecraft:calibrated_sculk_sensor[facing=north,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  S minecraft:stone
+  R minecraft:repeater[delay=4,facing=west,locked=false,powered=false]
+  Q minecraft:repeater[delay=1,facing=east,locked=false,powered=true]
+  W minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]
+  P minecraft:piston[extended=false,facing=west]
+layer 0:
+  .SS
+  .SS
+layer 1:
+  CRW
+  PQW

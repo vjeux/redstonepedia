@@ -1,0 +1,24 @@
+# Clock: every 7 ticks (0.35 s) · 7 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p7-note-obs-stk-6b-301916.html
+# CLOCK: period 7, warmup 8
+name: clk-obs-p7-note-obs-stk-6b-301916
+port output: -2 1 1
+port start: 0 1 2 last
+origin: -1 0 0
+palette:
+  A minecraft:observer[facing=south,powered=false]
+  N minecraft:note_block[instrument=harp,note=0,powered=false]
+  O minecraft:observer[facing=down,powered=false]
+  S minecraft:sticky_piston[extended=false,facing=north]
+  o minecraft:observer[facing=east,powered=false]
+  s minecraft:sticky_piston[extended=false,facing=south]
+layer 0:
+  .s
+  .O
+  .
+  .S
+layer 1:
+  .
+  oA
+  .N
+  .N

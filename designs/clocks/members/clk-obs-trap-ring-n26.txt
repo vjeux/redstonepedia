@@ -1,0 +1,15 @@
+# Clock: every 114 ticks (5.7 s) · 58 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-trap-ring-n26.html
+name: clk-obs-trap-ring-n26
+origin: 0 0 0
+port output: -1 0 1
+port start: 0 0 0 last
+palette:
+  A minecraft:observer[facing=south,powered=false]
+  B minecraft:observer[facing=west,powered=false]
+  C minecraft:iron_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]
+  D minecraft:observer[facing=north,powered=false]
+  E minecraft:observer[facing=east,powered=false]
+layer 0:
+  ABCBBBBBBBBBBBBBBBBBBBBBBBBBB
+  EEEEEEEEEEEEEEEEEEEEEEEEEEEED

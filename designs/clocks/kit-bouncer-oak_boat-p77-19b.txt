@@ -1,0 +1,41 @@
+# Clock: every 77 ticks (3.85 s) · 19 blocks
+# https://vjeux.github.io/redstonepedia/clocks/kit-bouncer-oak_boat-p77-19b.html
+# CLOCK: period 77, warmup 95
+name: kit-bouncer-oak_boat-p77-19b
+kit: bouncer (kit-bouncer-356): period 77 gt, family oak_boat+tripwire+tripwire_hook, minimal; 16 types with this period
+port output: -1 1 -1
+entity: minecraft:oak_boat 1 1 1
+origin: -1 0 -1
+palette:
+  A minecraft:stone_slab[type=top]
+  B minecraft:tripwire_hook[attached=true,facing=south,powered=false]
+  S minecraft:soul_sand
+  T minecraft:tripwire[attached=true,disarmed=false,east=false,north=true,south=true,west=false,powered=false]
+  W minecraft:water[level=0]
+  s minecraft:stone
+  t minecraft:tripwire_hook[attached=true,facing=north,powered=false]
+layer -1:
+  .
+  .Ss
+  .ss
+  .
+layer 0:
+  .ss
+  sW.s
+  s..s
+  .ss
+layer 1:
+  .B
+  .T
+  .T
+  .t
+layer 2:
+  .
+  .
+  .
+  .
+layer 3:
+  .
+  .A
+  .
+  .

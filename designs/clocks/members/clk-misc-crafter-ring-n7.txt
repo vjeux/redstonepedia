@@ -1,0 +1,31 @@
+# Clock: every 38 ticks (1.9 s) · 20 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-misc-crafter-ring-n7.html
+name: clk-misc-crafter-ring-n7
+port start: 1 9 0 last
+origin: 0 0 0
+palette:
+  A minecraft:observer[facing=up,powered=false]
+  B minecraft:observer[facing=west,powered=false]
+  C minecraft:crafter[crafting=false,orientation=north_up,triggered=false]
+  O minecraft:observer[facing=down,powered=false]
+  o minecraft:observer[facing=east,powered=false]
+layer 0:
+  oA
+layer 1:
+  OA
+layer 2:
+  OA
+layer 3:
+  OA
+layer 4:
+  OA
+layer 5:
+  OA
+layer 6:
+  OA
+layer 7:
+  OA
+layer 8:
+  OA
+layer 9:
+  CB

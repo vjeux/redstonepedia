@@ -1,0 +1,27 @@
+# Signal stretcher: at least 14 ticks (0.7 s) · 17 blocks
+# https://vjeux.github.io/redstonepedia/circuits/pulse/pulse-oneshot-pulse-extender-L14-v24-17b.html
+name: pulse-oneshot-pulse-extender-L14-v24-17b
+circuit: pulse-extender
+port input: -1 1 0
+port output: 0 1 2
+origin: 0 0 0
+palette:
+  A minecraft:repeater[delay=4,facing=west,locked=false,powered=false]
+  C minecraft:comparator[facing=south,mode=compare,powered=false]
+  O minecraft:observer[facing=north,powered=false]
+  R minecraft:redstone_wire
+  S minecraft:sticky_piston[extended=false,facing=east]
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+  o minecraft:observer[facing=west,powered=false]
+  r minecraft:repeater[delay=2,facing=east,locked=false,powered=false]
+  s minecraft:stone
+layer 0:
+  .
+  osW
+  s.W
+  .OW
+layer 1:
+  SO
+  RAR
+  C.R
+  WrR

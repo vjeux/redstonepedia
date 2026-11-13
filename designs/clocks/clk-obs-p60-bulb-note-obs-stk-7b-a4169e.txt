@@ -1,0 +1,24 @@
+# Clock: every 6 ticks (0.3 s) · 7 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p60-bulb-note-obs-stk-7b-a4169e.html
+# CLOCK: period 60, warmup 19
+name: clk-obs-p60-bulb-note-obs-stk-7b-a4169e
+origin: 0 0 -1
+port output: 0 1 -3
+port start: 0 0 0 last
+palette:
+  A minecraft:observer[facing=up,powered=false]
+  B minecraft:observer[facing=north,powered=false]
+  C minecraft:note_block[instrument=harp,note=0,powered=false]
+  D minecraft:observer[facing=south,powered=false]
+  E minecraft:waxed_copper_bulb[lit=false,powered=false]
+  F minecraft:sticky_piston[extended=false,facing=north]
+layer 0:
+  .
+  A
+  B
+  C
+layer 1:
+  D
+  B
+  E
+  F

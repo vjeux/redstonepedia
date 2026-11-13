@@ -1,0 +1,64 @@
+# Piston extender: reach 3 · 50 blocks
+# https://vjeux.github.io/redstonepedia/circuits/pext/pext-n3-flipsafe50-9x5x6.html
+name: pext-n3-flipsafe50-9x5x6
+circuit: piston-extender 3
+travel: 1 0 0
+port input: -1 1 0 lever
+port payload: 4 1 0
+origin: -1 0 -2
+palette:
+  A minecraft:observer[facing=north,powered=false]
+  B minecraft:observer[facing=south,powered=false]
+  C minecraft:observer[facing=up,powered=false]
+  D minecraft:observer[facing=west,powered=false]
+  E minecraft:piston[extended=false,facing=south]
+  F minecraft:piston[extended=false,facing=up]
+  G minecraft:gold_block
+  H minecraft:piston[extended=false,facing=west]
+  I minecraft:sticky_piston[extended=false,facing=east]
+  J minecraft:sticky_piston[extended=false,facing=north]
+  K minecraft:sticky_piston[extended=false,facing=south]
+  L minecraft:lever[face=floor,facing=north]
+  M minecraft:sticky_piston[extended=false,facing=up]
+  N minecraft:stone
+  O minecraft:observer[facing=down,powered=false]
+  P minecraft:piston[extended=false,facing=east]
+  S minecraft:slime_block
+  o minecraft:observer[facing=east,powered=false]
+  p minecraft:piston[extended=false,facing=north]
+  s minecraft:sticky_piston[extended=false,facing=down]
+layer -1:
+  .
+  .......B
+  ....P.DD
+  .
+  .
+  .
+layer 0:
+  .
+  ......CO
+  s.BD.OA
+  ..C...A
+  ......F
+  .
+layer 1:
+  .DDSI.H
+  p.....AM
+  LFIIIG
+  ..B.B
+  ..BEoo
+  ..o
+layer 2:
+  .
+  .......N
+  ..DCCoC
+  .....J
+  .
+  .
+layer 3:
+  .
+  ....oKo
+  ....A.B
+  ...JNND
+  .
+  .

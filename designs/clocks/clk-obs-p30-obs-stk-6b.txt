@@ -1,0 +1,24 @@
+# Clock: every 6 ticks (0.3 s) · 7 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p30-obs-stk-6b.html
+# CLOCK: period 30, warmup 8
+name: clk-obs-p30-obs-stk-6b
+port output: -2 1 -1
+port start: 0 0 0 last
+origin: -1 0 -1
+palette:
+  A minecraft:observer[facing=north,powered=false]
+  B minecraft:observer[facing=up,powered=false]
+  O minecraft:observer[facing=down,powered=false]
+  S minecraft:sticky_piston[extended=false,facing=down]
+  o minecraft:observer[facing=east,powered=false]
+  s minecraft:sticky_piston[extended=false,facing=north]
+layer 0:
+  .
+  .B
+  .S
+  .s
+layer 1:
+  oO
+  .O
+  .A
+  .

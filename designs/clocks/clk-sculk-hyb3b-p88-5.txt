@@ -1,0 +1,16 @@
+# Clock: every 88 ticks (4.4 s) · 5 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-sculk-hyb3b-p88-5.html
+# CLOCK: period 88, warmup 33
+name: clk-sculk-hyb3b-p88-5
+port output: 2 0 -1
+origin: 0 0 0
+palette:
+  A minecraft:stone
+  O minecraft:oak_fence_gate[facing=north,in_wall=false,open=true,powered=true]
+  S minecraft:sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  o minecraft:observer[facing=west,powered=false]
+  s minecraft:sticky_piston[extended=false,facing=up]
+layer -1:
+  ..s
+layer 0:
+  SoAO

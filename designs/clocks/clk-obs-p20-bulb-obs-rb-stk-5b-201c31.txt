@@ -1,0 +1,20 @@
+# Clock: every 10 ticks (0.5 s) · 5 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p20-bulb-obs-rb-stk-5b-201c31.html
+# CLOCK: period 20, warmup 6
+name: clk-obs-p20-bulb-obs-rb-stk-5b-201c31
+origin: 0 0 0
+port output: 0 -1 0
+palette:
+  A minecraft:waxed_copper_bulb[lit=false,powered=false]
+  B minecraft:redstone_block
+  C minecraft:sticky_piston[extended=false,facing=north]
+  D minecraft:observer[facing=down,powered=false]
+  E minecraft:observer[facing=north,powered=false]
+layer 0:
+  A
+  B
+  C
+layer 1:
+  D
+  E
+  .

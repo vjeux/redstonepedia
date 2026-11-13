@@ -1,0 +1,26 @@
+# Signal shortener: at most 7 ticks (0.35 s) · 12 blocks
+# https://vjeux.github.io/redstonepedia/circuits/pulse/pulse-limiter-hopper-timer-L7-sealed.html
+name: pulse-limiter-hopper-timer-L7-sealed
+circuit: pulse-limiter
+port input: -1 1 1 minecraft:redstone_block minecraft:stone
+port output: 3 1 0
+nbt: 0 1 0 {Items:[{Slot:0b,id:"minecraft:cobblestone",count:1}]}
+origin: -1 0 0
+palette:
+  A minecraft:hopper[enabled=true,facing=south]
+  B minecraft:hopper[enabled=true,facing=west]
+  C minecraft:comparator[facing=west,mode=compare,powered=false]
+  G minecraft:glass
+  H minecraft:hopper[enabled=false,facing=east]
+  R minecraft:redstone_wall_torch[facing=north,lit=true]
+  S minecraft:stone
+  h minecraft:hopper[enabled=true,facing=north]
+layer 0:
+  ...S
+  .
+layer 1:
+  RHAC
+  ShB
+layer 2:
+  .GG
+  .GG

@@ -1,0 +1,43 @@
+# Clock: every 84 ticks (4.2 s) · 26 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-item-hopper-ring-2-n11.html
+name: loop2x12-2stone
+period: 84
+port output: 0 1 -2
+nbt: 0 1 0 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
+nbt: 1 1 11 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
+origin: 0 0 -1
+palette:
+  A minecraft:hopper[enabled=true,facing=south]
+  B minecraft:hopper[enabled=true,facing=west]
+  C minecraft:comparator[facing=south,mode=compare,powered=false]
+  H minecraft:hopper[enabled=true,facing=east]
+  S minecraft:stone
+  h minecraft:hopper[enabled=true,facing=north]
+layer 0:
+  S
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 1:
+  C
+  HA
+  hA
+  hA
+  hA
+  hA
+  hA
+  hA
+  hA
+  hA
+  hA
+  hA
+  hB

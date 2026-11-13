@@ -1,0 +1,28 @@
+# Clock: every 21 ticks (1.05 s) · 10 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p21-bulb-lamp-obs-stk-8b-931a60.html
+# CLOCK: period 21, warmup 8
+name: clk-obs-p21-bulb-lamp-obs-stk-8b-931a60
+port output: -2 2 0
+port start: 0 0 2 last
+origin: -1 0 0
+palette:
+  A minecraft:observer[facing=south,powered=false]
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  O minecraft:observer[facing=down,powered=false]
+  R minecraft:redstone_lamp[lit=false]
+  S minecraft:sticky_piston[extended=false,facing=up]
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+  o minecraft:observer[facing=north,powered=false]
+  s minecraft:stone
+layer 0:
+  .R
+  .A
+  .S
+layer 1:
+  sO
+  .o
+  .s
+layer 2:
+  CW
+  .o
+  .

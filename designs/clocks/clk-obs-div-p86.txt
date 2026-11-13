@@ -1,0 +1,24 @@
+# Clock: every 86 ticks (4.3 s) · 7 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-div-p86.html
+# CLOCK: period 86, warmup 27
+name: clk-obs-div-p86
+name: clk-obs-div-p86
+port output: 3 0 -3
+port start: 3 0 0 last
+origin: 0 0 -2
+palette:
+  C minecraft:calibrated_sculk_sensor[facing=east,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  D minecraft:dispenser[facing=down,triggered=false]
+  O minecraft:observer[facing=east,powered=false]
+  S minecraft:sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+  c minecraft:comparator[facing=south,mode=compare,powered=false]
+  s minecraft:stone
+layer -1:
+  ...s
+  .
+  .
+layer 0:
+  ...c
+  ...W
+  CDOS

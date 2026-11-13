@@ -1,0 +1,24 @@
+# Clock: every 41 ticks (2.05 s) · 8 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p41-lamp-note-obs-stk-8b-8d8ef6.html
+# CLOCK: period 41, warmup 4
+name: clk-obs-p41-lamp-note-obs-stk-8b-8d8ef6
+origin: 0 0 0
+port output: 3 0 0
+port start: 0 0 2 last
+palette:
+  A minecraft:sticky_piston[extended=false,facing=up]
+  B minecraft:sticky_piston[extended=false,facing=east]
+  C minecraft:observer[facing=south,powered=false]
+  D minecraft:redstone_lamp[lit=false]
+  E minecraft:observer[facing=north,powered=false]
+  F minecraft:note_block[instrument=harp,note=0,powered=false]
+  G minecraft:observer[facing=west,powered=false]
+  H minecraft:sticky_piston[extended=false,facing=north]
+layer -1:
+  A..
+  ...
+  ...
+layer 0:
+  B.G
+  CE.
+  DFH

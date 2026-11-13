@@ -1,0 +1,21 @@
+# Clock: every 8 ticks (0.4 s) · 7 blocks
+# https://vjeux.github.io/redstonepedia/clocks/hop2x3sub-p8.html
+# CLOCK: period 8, warmup 4
+name: hop2x3sub-p8
+port output: 0 1 -2
+nbt: 0 1 0 {Items:[{Slot:0b,id:"minecraft:diamond_sword",count:1}],TransferCooldown:7}
+nbt: 1 1 0 {Items:[{Slot:0b,id:"minecraft:diamond_sword",count:1},{Slot:1b,id:"minecraft:diamond_sword",count:1}],TransferCooldown:2}
+nbt: -2 1 -1 {Items:[{Slot:0b,id:"minecraft:diamond_sword",count:1}]}
+origin: -2 0 -1
+palette:
+  S minecraft:stone
+  X minecraft:comparator[facing=south,mode=subtract,powered=false]
+  K minecraft:comparator[facing=west,mode=compare,powered=false]
+  D minecraft:hopper[enabled=true,facing=down]
+  A minecraft:hopper[enabled=true,facing=east]
+  B minecraft:hopper[enabled=true,facing=west]
+layer 0:
+  .SS
+layer 1:
+  DKX
+  ..AB

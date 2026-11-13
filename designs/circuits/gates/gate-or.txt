@@ -1,0 +1,13 @@
+# Logic gate: A OR B · instant · 1 block
+# https://vjeux.github.io/redstonepedia/circuits/gates/gate-or.html
+name: gate-or
+circuit: gate or
+port input.b: 0 0 0
+port input.a: 2 1 0
+port output: 1 1 0
+tile: 0 0 2
+origin: 0 0 0
+palette:
+  d minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+layer 1:
+  d

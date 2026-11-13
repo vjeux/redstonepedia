@@ -1,0 +1,15 @@
+# Clock: every 30 ticks (1.5 s) · 16 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-note-ring-n5.html
+name: clk-obs-note-ring-n5
+origin: 0 0 0
+port output: 2 -1 0
+port start: 0 0 0 last
+palette:
+  A minecraft:observer[facing=south,powered=false]
+  B minecraft:observer[facing=west,powered=false]
+  C minecraft:note_block[instrument=harp,note=0,powered=false]
+  D minecraft:observer[facing=north,powered=false]
+  E minecraft:observer[facing=east,powered=false]
+layer 0:
+  ABCBBBBB
+  EEEEEEED

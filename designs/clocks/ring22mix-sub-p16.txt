@@ -1,0 +1,29 @@
+# Clock: every 16 ticks (0.8 s) · 9 blocks
+# https://vjeux.github.io/redstonepedia/clocks/ring22mix-sub-p16.html
+# CLOCK: period 16, warmup 21
+name: ring22mix-sub-p16
+port output: -2 0 0
+nbt: 0 0 1 {Items:[{Slot:0b,id:"minecraft:diamond_sword",count:1}]}
+nbt: 1 0 0 {Items:[{Slot:0b,id:"minecraft:diamond_sword",count:1}]}
+nbt: 1 0 1 {Items:[{Slot:0b,id:"minecraft:stone",count:2}]}
+nbt: -1 0 -2 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
+origin: -1 0 -2
+palette:
+  A minecraft:hopper[enabled=true,facing=south]
+  B minecraft:hopper[enabled=true,facing=west]
+  X minecraft:comparator[facing=east,mode=subtract,powered=false]
+  K minecraft:comparator[facing=north,mode=compare,powered=false]
+  D minecraft:hopper[enabled=true,facing=down]
+  H minecraft:hopper[enabled=true,facing=east]
+  S minecraft:stone
+  h minecraft:hopper[enabled=true,facing=north]
+layer -1:
+  .
+  S
+  S
+  .
+layer 0:
+  D
+  K
+  XAB
+  .Hh

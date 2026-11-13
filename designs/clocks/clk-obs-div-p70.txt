@@ -1,0 +1,52 @@
+# Clock: every 70 ticks (3.5 s) · 9 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-div-p70.html
+# CLOCK: period 70, warmup 21
+name: clk-obs-div-p70
+name: clk-obs-div-p70
+port output: -1 0 -2
+port start: 0 0 -1 use
+origin: -1 0 -1
+palette:
+  A minecraft:amethyst_block
+  B minecraft:comparator[facing=south,mode=compare,powered=false]
+  C minecraft:calibrated_sculk_sensor[facing=north,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  N minecraft:note_block[instrument=harp,note=0,powered=false]
+  S minecraft:stone
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+  c minecraft:calibrated_sculk_sensor[facing=west,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+layer -1:
+  S
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 0:
+  BN
+  Wc....AC
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ..A
+  ..C

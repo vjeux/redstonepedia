@@ -1,0 +1,26 @@
+# Clock: every 4 ticks (0.2 s) · 6 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p16-obs-pis-stk-5b-dd62f2.html
+# CLOCK: period 16, warmup 11
+name: clk-obs-p16-obs-pis-stk-5b-dd62f2
+port output: -2 2 1
+port start: 0 1 2 last
+origin: -1 0 0
+palette:
+  A minecraft:observer[facing=south,powered=false]
+  O minecraft:observer[facing=east,powered=false]
+  P minecraft:piston[extended=false,facing=down]
+  S minecraft:sticky_piston[extended=false,facing=up]
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+  o minecraft:observer[facing=north,powered=false]
+layer 0:
+  .S
+  .
+  .
+layer 1:
+  .W
+  .A
+  .P
+layer 2:
+  .
+  Oo
+  .

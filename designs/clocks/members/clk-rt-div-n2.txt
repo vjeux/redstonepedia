@@ -1,0 +1,26 @@
+# Clock: every 144 ticks (7.2 s) · 45 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-rt-div-n2.html
+name: clk-rt-div-44-x2
+port output: -4 0 -1
+origin: -6 0 -2
+palette:
+  A minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+  B minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  C minecraft:repeater[delay=4,facing=east,locked=false,powered=false]
+  D minecraft:repeater[delay=4,facing=west,locked=false,powered=false]
+  R minecraft:redstone_wall_torch[facing=north,lit=true]
+  S minecraft:stone
+  T minecraft:target
+  r minecraft:redstone_wire
+layer 0:
+  ...SS
+  SS.SSS.S
+  SSS.SS.SS
+  .SS.S
+  .S
+layer 1:
+  ...rr
+  rr.rBARDS
+  rBARBASCr
+  RBATr
+  Tr

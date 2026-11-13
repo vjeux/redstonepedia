@@ -1,0 +1,32 @@
+# Clock: every 10 ticks (0.5 s) · 10 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p10-bulb-note-obs-pis-rb-stk-8b-0d5d8c.html
+# CLOCK: period 10, warmup 17
+name: clk-obs-p10-bulb-note-obs-pis-rb-stk-8b-0d5d8c
+port output: -2 2 1
+port start: 0 1 1 last
+origin: -1 0 -1
+palette:
+  A minecraft:stone
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  N minecraft:note_block[instrument=basedrum,note=0,powered=false]
+  O minecraft:observer[facing=down,powered=false]
+  P minecraft:piston[extended=false,facing=south]
+  R minecraft:redstone_block
+  S minecraft:sticky_piston[extended=false,facing=north]
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+  s minecraft:sticky_piston[extended=false,facing=south]
+layer 0:
+  .s
+  .s
+  .P
+  .
+layer 1:
+  .
+  .R
+  AS
+  .O
+layer 2:
+  .
+  .
+  CW
+  .N

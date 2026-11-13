@@ -1,0 +1,60 @@
+# Clock: every 55 ticks (2.75 s) · 31 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-oddring-p55-tap.html
+# CLOCK: period 55, warmup 3
+name: clk-obs-oddring-p55-tap
+port output: 0 1 -2
+port start: 1 3 0 last
+origin: 0 0 -1
+palette:
+  A minecraft:observer[facing=south,powered=false]
+  B minecraft:observer[facing=up,powered=false]
+  O minecraft:observer[facing=down,powered=false]
+  P minecraft:piston[extended=false,facing=up]
+  R minecraft:redstone_block
+  S minecraft:sticky_piston[extended=false,facing=east]
+  o minecraft:observer[facing=east,powered=false]
+layer 0:
+  .
+  SR
+layer 1:
+  A
+  B.P
+layer 2:
+  .
+  Bo
+layer 3:
+  .
+  BO
+layer 4:
+  .
+  BO
+layer 5:
+  .
+  BO
+layer 6:
+  .
+  BO
+layer 7:
+  .
+  BO
+layer 8:
+  .
+  BO
+layer 9:
+  .
+  BO
+layer 10:
+  .
+  BO
+layer 11:
+  .
+  BO
+layer 12:
+  .
+  BO
+layer 13:
+  .
+  BO
+layer 14:
+  .
+  oO

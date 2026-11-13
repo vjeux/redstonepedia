@@ -1,0 +1,15 @@
+# Logic gate: NOT (A OR B) · 2 blocks
+# https://vjeux.github.io/redstonepedia/circuits/gates/gate-nor.html
+name: gate-nor
+circuit: gate nor
+port input.b: 0 0 0
+port input.a: 1 1 0
+port output: 1 1 1
+tile: 0 0 2
+origin: 0 0 0
+palette:
+  d minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  W minecraft:redstone_wall_torch[facing=south,lit=true]
+layer 1:
+  d.
+  .W

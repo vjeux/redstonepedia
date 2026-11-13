@@ -1,0 +1,26 @@
+# Clock: every 11 ticks (0.55 s) · 7 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p22-bulb-obs-pis-rb-stk-7b-21967f.html
+# CLOCK: period 22, warmup 7
+name: clk-obs-p22-bulb-obs-pis-rb-stk-7b-21967f
+origin: 0 0 0
+port output: -1 1 1
+palette:
+  A minecraft:sticky_piston[extended=false,facing=south]
+  B minecraft:observer[facing=down,powered=false]
+  C minecraft:piston[extended=false,facing=south]
+  D minecraft:redstone_block
+  E minecraft:piston[extended=false,facing=north]
+  F minecraft:observer[facing=south,powered=false]
+  G minecraft:waxed_copper_bulb[lit=false,powered=false]
+layer 0:
+  A
+  B
+  .
+layer 1:
+  C
+  D
+  E
+layer 2:
+  F
+  G
+  .

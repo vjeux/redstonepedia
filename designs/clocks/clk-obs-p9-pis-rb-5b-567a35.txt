@@ -1,0 +1,24 @@
+# Clock: every 9 ticks (0.45 s) · 5 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p9-pis-rb-5b-567a35.html
+# CLOCK: period 9, warmup 3
+name: clk-obs-p9-pis-rb-5b-567a35
+origin: 0 0 0
+port output: -1 2 0
+port start: 0 1 0 last
+palette:
+  A minecraft:piston[extended=false,facing=north]
+  B minecraft:piston[extended=false,facing=south]
+  C minecraft:slime_block
+  D minecraft:redstone_block
+layer 0:
+  A
+  .
+  .
+layer 1:
+  B
+  C
+  A
+layer 2:
+  .
+  D
+  .

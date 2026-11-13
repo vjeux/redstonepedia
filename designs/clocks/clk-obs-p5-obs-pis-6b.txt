@@ -1,0 +1,22 @@
+# Clock: every 5 ticks (0.25 s) · 6 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p5-obs-pis-6b.html
+# CLOCK: period 5, warmup 6
+name: clk-obs-p5-obs-pis-6b
+origin: 0 0 0
+port output: 0 0 -1
+port start: 0 0 0 last
+palette:
+  A minecraft:observer[facing=south,powered=false]
+  B minecraft:piston[extended=false,facing=south]
+  C minecraft:observer[facing=down,powered=false]
+  D minecraft:observer[facing=up,powered=false]
+  E minecraft:redstone_block
+layer 0:
+  A
+  B
+layer 1:
+  C
+  D
+layer 2:
+  B
+  E

@@ -1,0 +1,21 @@
+# One pulse on every switch: 8-tick pulse · 4 blocks
+# https://vjeux.github.io/redstonepedia/circuits/pulse/pulse-dual-lamp-repeater-L8.html
+name: pulse-dual-lamp-repeater-L8
+circuit: dual-edge
+tile: 1 0 0
+port input: 0 0 2
+port output: 0 0 -1
+origin: 0 0 -1
+palette:
+  O minecraft:observer[facing=south,powered=false]
+  R minecraft:redstone_lamp[lit=false]
+  S minecraft:stone
+  r minecraft:repeater[delay=4,facing=south,locked=false,powered=false]
+layer -1:
+  S
+  .
+  .
+layer 0:
+  r
+  O
+  R

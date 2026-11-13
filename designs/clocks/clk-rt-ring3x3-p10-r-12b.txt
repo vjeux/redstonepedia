@@ -1,0 +1,21 @@
+# Clock: every 10 ticks (0.5 s) · 13 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-rt-ring3x3-p10-r-12b.html
+# CLOCK: period 10, warmup 4
+name: clk-rt-ring3x3-p10-r-12b
+port output: -2 1 1
+origin: -1 0 0
+palette:
+  A minecraft:repeater[delay=1,facing=west,locked=false,powered=true]
+  B minecraft:repeater[delay=2,facing=south,locked=false,powered=false]
+  O minecraft:observer[facing=east,powered=false]
+  R minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+  S minecraft:stone
+  r minecraft:repeater[delay=1,facing=north,locked=false,powered=true]
+layer 0:
+  ..S
+  .S.S
+  ..S
+layer 1:
+  .SAS
+  OB.r
+  .SRS

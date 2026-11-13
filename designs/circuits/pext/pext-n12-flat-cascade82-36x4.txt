@@ -1,0 +1,35 @@
+# Piston extender: reach 12 · 82 blocks
+# https://vjeux.github.io/redstonepedia/circuits/pext/pext-n12-flat-cascade82-36x4.html
+name: pext-n12-flat-cascade82-36x4
+circuit: piston-extender 12
+travel: 1 0 0
+port input: 35 5 0 lever
+port payload: 24 1 0
+origin: 1 0 0
+palette:
+  A minecraft:observer[facing=up,powered=false]
+  B minecraft:observer[facing=west,powered=false]
+  C minecraft:repeater[delay=2,facing=east,locked=false,powered=false]
+  D minecraft:repeater[delay=4,facing=east,locked=false,powered=false]
+  E minecraft:sticky_piston[extended=false,facing=west]
+  F minecraft:stone
+  G minecraft:gold_block
+  L minecraft:lever[face=floor,facing=north]
+  O minecraft:observer[facing=down,powered=false]
+  P minecraft:piston[extended=false,facing=down]
+  R minecraft:redstone_block
+  S minecraft:slime_block
+  o minecraft:observer[facing=east,powered=false]
+  p minecraft:piston[extended=false,facing=west]
+  r minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+  s minecraft:sticky_piston[extended=false,facing=east]
+layer 1:
+  sSsSsSsSsSsSsSsSsSsSsSsG
+layer 2:
+  .A.B.A.A.A.B.A.B.A.B.A
+layer 3:
+  A.A.A.A.A.A.A.A.A.A.A...A.E...A..A
+layer 4:
+  DFoPCoCoCoCoCoCoCoCoo.PEo.REForo.pO
+layer 5:
+  ..................................L

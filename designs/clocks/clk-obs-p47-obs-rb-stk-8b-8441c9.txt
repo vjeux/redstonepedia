@@ -1,0 +1,24 @@
+# Clock: every 47 ticks (2.35 s) · 8 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p47-obs-rb-stk-8b-8441c9.html
+# CLOCK: period 47, warmup 4
+name: clk-obs-p47-obs-rb-stk-8b-8441c9
+origin: 0 0 0
+port output: -1 0 -1
+port start: 0 0 0 last
+palette:
+  A minecraft:observer[facing=south,powered=false]
+  B minecraft:sticky_piston[extended=false,facing=east]
+  C minecraft:observer[facing=down,powered=false]
+  D minecraft:observer[facing=up,powered=false]
+  E minecraft:sticky_piston[extended=false,facing=south]
+  F minecraft:sticky_piston[extended=false,facing=west]
+  G minecraft:redstone_block
+layer 0:
+  AFF
+  BG.
+layer 1:
+  C..
+  D..
+layer 2:
+  E..
+  ...

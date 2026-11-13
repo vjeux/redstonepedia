@@ -1,0 +1,17 @@
+# Clock: every 43 ticks (2.15 s) · 6 blocks
+# https://vjeux.github.io/redstonepedia/clocks/census-p43-oak_trapdoor-observer-sculk_sensor-sticky_piston-5b.html
+# CLOCK: period 43, warmup 78
+name: census-p43-oak_trapdoor-observer-sculk_sensor-sticky_piston-5b
+port output: 0 0 3
+port start: 3 0 0 last
+origin: 0 0 0
+palette:
+  A minecraft:observer[facing=north,powered=false]
+  O minecraft:oak_trapdoor[facing=east,half=bottom,open=false,powered=false,waterlogged=false]
+  S minecraft:sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  o minecraft:observer[facing=east,powered=false]
+  s minecraft:sticky_piston[extended=false,facing=west]
+layer 0:
+  AsoS
+  O
+  A

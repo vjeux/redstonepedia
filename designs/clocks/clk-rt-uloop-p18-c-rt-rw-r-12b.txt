@@ -1,0 +1,21 @@
+# Clock: every 18 ticks (0.9 s) · 12 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-rt-uloop-p18-c-rt-rw-r-12b.html
+# CLOCK: period 18, warmup 0
+name: clk-rt-uloop-p18-c-rt-rw-r-12b
+uloop: T-2*,4-c,d-T
+port output: 2 0 1
+origin: 0 0 -1
+palette:
+  A minecraft:redstone_wire
+  B minecraft:repeater[delay=2,facing=west,locked=false,powered=true]
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  D minecraft:repeater[delay=4,facing=west,locked=false,powered=false]
+  R minecraft:redstone_wall_torch[facing=north,lit=true]
+  S minecraft:stone
+  r minecraft:redstone_wall_torch[facing=south,lit=true]
+layer 0:
+  .SS
+  .SS
+layer 1:
+  RBDS
+  SCAr

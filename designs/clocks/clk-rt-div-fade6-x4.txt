@@ -1,0 +1,45 @@
+# Clock: every 5408 ticks (4 min 30.4 s) · 106 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-rt-div-fade6-x4.html
+# CLOCK: period 5408, warmup 20
+name: clk-rt-div-fade6-x4
+port output: 3 0 -13
+origin: 0 0 -13
+palette:
+  A minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+  B minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  R minecraft:redstone_wall_torch[facing=east,lit=true]
+  S minecraft:stone
+  T minecraft:target
+  c minecraft:comparator[facing=west,mode=compare,powered=false]
+  r minecraft:redstone_wire
+layer 0:
+  .....SS
+  ...SSSS
+  ....SS
+  ......SS
+  ....SSSS
+  .....SS
+  .......SS
+  .....SSSS
+  ......SS
+  ........SS
+  ......SSSS
+  .......SS
+  SSSSSSS
+  SSSSSSSSS
+layer 1:
+  ...TRrr
+  ...rAAr
+  ....BB
+  ....TRrr
+  ....rAAr
+  .....BB
+  .....TRrr
+  .....rAAr
+  ......BB
+  ......TRrr
+  ......rAAr
+  .......BB
+  rccccccSR
+  rCCCCCCrr

@@ -1,0 +1,20 @@
+# Clock: every 4 ticks (0.2 s) · 8 blocks
+# https://vjeux.github.io/redstonepedia/clocks/kit-dripleaf-oak_boat-p4-8b.html
+# CLOCK: period 4, warmup 3
+name: kit-dripleaf-oak_boat-p4-8b
+kit: dripleaf (kit-dripleaf-2583170): period 4 gt, family big_dripleaf+oak_boat+observer+redstone_wire, minimal; 6 types with this period
+port output: -2 -1 0
+entity: minecraft:oak_boat 0.5 1.9375 0.5
+origin: -2 0 0
+palette:
+  B minecraft:big_dripleaf[facing=north,tilt=none]
+  D minecraft:dirt
+  O minecraft:observer[facing=east]
+  R minecraft:redstone_wire[east=side,north=side,south=side,west=side]
+  S minecraft:stone
+layer -1:
+  .S
+layer 0:
+  SRD
+layer 1:
+  ROB

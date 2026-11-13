@@ -1,0 +1,20 @@
+# Clock: every 26 ticks (1.3 s) · 12 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-rt-ring3x3-p26-c-r-12b.html
+# CLOCK: period 26, warmup 4
+name: clk-rt-ring3x3-p26-c-r-12b
+port output: -1 1 0
+origin: 0 0 0
+palette:
+  A minecraft:repeater[delay=4,facing=west,locked=false,powered=true]
+  C minecraft:comparator[facing=south,mode=compare,powered=false]
+  R minecraft:repeater[delay=4,facing=east,locked=false,powered=false]
+  S minecraft:stone
+  r minecraft:repeater[delay=4,facing=north,locked=false,powered=true]
+layer 0:
+  .S
+  S.S
+  .S
+layer 1:
+  SAS
+  C.r
+  SRS

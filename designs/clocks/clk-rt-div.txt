@@ -1,0 +1,25 @@
+# Clock: every 72 ticks (3.6 s) · 27 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-rt-div.html
+# CLOCK: period 72, warmup 6
+name: clk-rt-div
+port output: -3 0 1
+origin: -3 0 -2
+palette:
+  A minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+  B minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  C minecraft:repeater[delay=4,facing=east,locked=false,powered=false]
+  D minecraft:repeater[delay=4,facing=west,locked=false,powered=false]
+  R minecraft:redstone_wall_torch[facing=north,lit=true]
+  S minecraft:stone
+  T minecraft:target
+  r minecraft:redstone_wire
+layer 0:
+  SS
+  SSS.S
+  .SS.SS
+  .S
+layer 1:
+  rr
+  rBARDS
+  RBASCr
+  Tr

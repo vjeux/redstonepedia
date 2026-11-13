@@ -1,0 +1,19 @@
+# Clock: every 18 ticks (0.9 s) · 8 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-rt-uloop-p18-rt-r-8b.html
+# CLOCK: period 18, warmup 0
+name: clk-rt-uloop-p18-rt-r-8b
+uloop: T-3*-4*-T
+port output: 0 1 -2
+origin: 0 0 -1
+palette:
+  A minecraft:repeater[delay=3,facing=west,locked=false,powered=true]
+  B minecraft:repeater[delay=4,facing=east,locked=false,powered=true]
+  R minecraft:redstone_wall_torch[facing=north,lit=true]
+  S minecraft:stone
+  r minecraft:redstone_wall_torch[facing=south,lit=true]
+layer 0:
+  .S
+  .S
+layer 1:
+  RAS
+  SBr

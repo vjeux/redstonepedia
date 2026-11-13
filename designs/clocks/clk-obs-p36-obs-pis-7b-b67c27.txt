@@ -1,0 +1,28 @@
+# Clock: every 4 ticks (0.2 s) · 8 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p36-obs-pis-7b-b67c27.html
+# CLOCK: period 36, warmup 10
+name: clk-obs-p36-obs-pis-7b-b67c27
+port output: -2 2 0
+port start: 0 1 0 last
+origin: -1 0 -1
+palette:
+  A minecraft:observer[facing=south,powered=false]
+  O minecraft:observer[facing=east,powered=false]
+  P minecraft:piston[extended=false,facing=north]
+  o minecraft:observer[facing=north,powered=false]
+  p minecraft:piston[extended=false,facing=up]
+layer 0:
+  .
+  .p
+  .A
+  .P
+layer 1:
+  .A
+  .o
+  .o
+  .
+layer 2:
+  .
+  Oo
+  .
+  .

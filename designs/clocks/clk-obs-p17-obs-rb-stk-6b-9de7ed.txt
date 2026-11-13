@@ -1,0 +1,17 @@
+# Clock: every 17 ticks (0.85 s) · 6 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p17-obs-rb-stk-6b-9de7ed.html
+# CLOCK: period 17, warmup 6
+name: clk-obs-p17-obs-rb-stk-6b-9de7ed
+origin: 0 0 0
+port output: 1 -1 2
+port start: 0 0 0 last
+palette:
+  A minecraft:observer[facing=east,powered=false]
+  B minecraft:observer[facing=north,powered=false]
+  C minecraft:sticky_piston[extended=false,facing=east]
+  D minecraft:observer[facing=south,powered=false]
+  E minecraft:redstone_block
+layer 0:
+  AD
+  BC
+  CE

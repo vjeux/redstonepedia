@@ -1,0 +1,19 @@
+# Clock: every 23 ticks (1.15 s) · 5 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-sculk-hyb3b-p23-11.html
+# CLOCK: period 23, warmup 8
+name: clk-sculk-hyb3b-p23-11
+port output: 0 0 1
+port start: -2 2 0 minecraft:redstone_block 1
+origin: -1 0 0
+palette:
+  C minecraft:calibrated_sculk_sensor[facing=south,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  O minecraft:observer[facing=down,powered=false]
+  P minecraft:piston[extended=false,facing=down]
+  S minecraft:stone
+  p minecraft:piston[extended=false,facing=up]
+layer 0:
+  .C
+layer 1:
+  PO
+layer 2:
+  pS

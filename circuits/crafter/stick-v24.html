@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en" data-mcview-textures="../../textures/26.3">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Auto-crafter: crafts 4 sticks from every 2 planks · 16 blocks · REDSTONEPEDIA</title>
+<meta name="description" content="Auto-crafter: crafts 4 sticks from every 2 planks · 16 blocks. Crafts four sticks from every two planks. The iron block machine with seven of the crafter&#39;s slots disabled, so the planks fill the top two slots of the left co">
+<meta property="og:title" content="Auto-crafter: crafts 4 sticks from every 2 planks · 16 blocks · REDSTONEPEDIA">
+<meta property="og:description" content="Auto-crafter: crafts 4 sticks from every 2 planks · 16 blocks. Crafts four sticks from every two planks. The iron block machine with seven of the crafter&#39;s slots disabled, so the planks fill the top two slots of the left co">
+<meta property="og:site_name" content="REDSTONEPEDIA">
+<link rel="stylesheet" href="../../style.css?v=bac0b029">
+<link rel="icon" href="../../favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top"><a class="logo" href="../../index.html"><span class="logo-dot"></span>REDSTONEPEDIA</a><nav class="tabs-top" aria-label="kinds"><a id="tab-door" class="tab-top" href="../../index.html#kind=door">Doors <span class="count">11</span></a><a id="tab-clock" class="tab-top" href="../../index.html#kind=clock">Clocks <span class="count">4742</span></a><a id="tab-circuit" class="tab-top on" href="../../index.html#kind=circuit">Circuits <span class="count">66</span></a><a id="tab-farm" class="tab-top" href="../../farms/index.html">Farms <span class="count">24</span></a></nav><form id="hsearch" class="hsearch" action="../../index.html" method="get" role="search"><input type="hidden" name="kind" value="circuit"><input id="hq" name="q" type="search" placeholder="Search: toggle, timer, 12…" aria-label="Search" autocomplete="off"></form></header>
+<main>
+<p class="crumbs"><a href="../../index.html">REDSTONEPEDIA</a> › <a href="../../circuits/index.html">Circuits</a> › <a href="../../circuits/crafter/index.html">Auto-crafters</a></p>
+<p class="kindline">Stick crafter: crafts by itself from a supply chest (autocrafter)</p>
+<h1>crafts 4 sticks from every 2 planks · 16 blocks</h1>
+<p class="oneliner">Crafts 4 sticks from every 2 planks by itself: fill its supply chest and every full set is crafted into its output chest (75.5 crafts a minute). A partial set waits, without jamming, until the rest arrives.</p>
+<p class="lede">the first craft after 2 s · fits in 4×2×3</p>
+<div class="viewer k-circuit" data-mcview="full" data-src="../../designs/circuits/crafter/stick-v24.txt" data-input-mode="pulse" data-circuit="crafter stick" data-kind="circuit"><div class="fallback"><span class="fb-big">crafts 4 sticks from every 2 planks</span><span class="fb-small">Auto-crafter</span><span class="fb-note">3D view loading (or not available in this browser)</span></div></div>
+<section class="what plain"><h2>Try it</h2><p>The view shows the crafter as built, without items. In the game, fill the chest on top of its hopper with 2 planks (or more): every full set becomes 4 sticks in the chest below.</p><p class="howdesign"><b>How this design does it:</b> The iron block machine with seven of the crafter&#39;s slots disabled, so the planks fill the top two slots of the left column and the comparator reads 9 once two planks are in.</p></section>
+<section><h2>Build it</h2><p><a class="button" href="../../designs/circuits/crafter/stick-v24.litematic" download>Download .litematic</a> <a class="button alt" href="../../designs/circuits/crafter/stick-v24.txt" download>Download the design as text</a></p>
+<p class="hint">The .litematic opens in <a href="https://github.com/maruohon/litematica">Litematica</a> (Minecraft 26.3): every block of the design in one region. The text file is the same build written as plain text, block by block.</p>
+<p>After building it, put a chest on top of its hopper (the supply) and one under it (the output): neither is in the download or its block count. Its crafters have slots disabled (all 9 slots and 7 slots): the download keeps them; building it by hand, disable the same slots by clicking them in the crafter&#39;s screen.</p>
+<p>Blocks used: <a class="chip" href="../../index.html#with=comparator">comparator</a> <a class="chip" href="../../index.html#with=crafter">crafter</a> <a class="chip" href="../../index.html#with=hopper">hopper</a> <a class="chip" href="../../index.html#with=redstone_wire">redstone wire</a> <a class="chip" href="../../index.html#with=repeater">repeater</a> <a class="chip" href="../../index.html#with=stone">stone</a></p></section>
+<details class="more"><summary>Details: how it works, measurements and properties</summary>
+<section class="what"><h2>In depth</h2><p>crafts by itself: hoppers fill its crafter from a supply chest, and every full recipe is crafted into the output chest</p></section>
+<section><h2>How to try it</h2><p><b>The view shows the crafter as built, with its chests and no items.</b> Drag to look around, pinch or scroll to zoom. Its numbers are in the measurements below.</p></section>
+<section><h2>Measurements</h2><table class="props metrics"><thead><tr><th>metric</th><th>value</th><th>what it means</th></tr></thead><tbody><tr><th scope="row">crafts/min</th><td>75.5</td><td class="def">crafts a minute at the steady rate, fed at hopper speed</td></tr>
+<tr><th scope="row">first craft</th><td>by 2 s</td><td class="def">game ticks from the first item in until the first craft</td></tr>
+<tr><th scope="row">crafts</th><td>93 (2 waiting sets checked)</td><td class="def">crafts counted, every one exact (and how many partial sets it was left waiting with, then completed)</td></tr>
+<tr><th scope="row">hoppers awake</th><td>1</td><td class="def">hoppers left unlocked at rest: each one looks for items every game tick (lag on busy servers)</td></tr>
+<tr><th scope="row">recipe class</th><td>2x2</td><td class="def">3x3: a recipe that fills the whole crafting grid; 2x2: a smaller one (the crafter&#39;s other slots disabled)</td></tr>
+<tr><th scope="row">supply</th><td>items</td><td class="def">the port its items come in by</td></tr>
+<tr><th scope="row">bill</th><td>5 iron, 2 quartz, 12 redstone</td><td class="def">what its blocks cost to craft: iron, quartz, redstone, slime</td></tr>
+</tbody></table></section>
+<section><h2>Notes from its designer</h2><p>Crafts four sticks from every two planks. The iron block machine with seven of the crafter&#39;s slots disabled, so the planks fill the top two slots of the left column and the comparator reads 9 once two planks are in.</p></section>
+<section><h2>Properties</h2><table class="props">
+<tr><th scope="row">Study</th><td><a href="../../circuits/crafter/index.html">Auto-crafters</a></td></tr>
+<tr><th scope="row">Kind</th><td>Stick crafter: crafts by itself from a supply chest (autocrafter)</td></tr>
+<tr><th scope="row">Blocks placed</th><td>16 (not counting the chests the view adds)</td></tr>
+<tr><th scope="row">Box</th><td>4×2×3 (24 blocks of space)</td></tr>
+<tr><th scope="row">Made of (the blocks that change state)</th><td>comparator, crafter, hopper, redstone wire, repeater, stone</td></tr>
+<tr><th scope="row">Inputs / outputs</th><td>no input / OUT</td></tr>
+<tr><th scope="row">Design file</th><td><code>stick-v24</code></td></tr>
+</table></section>
+<section><h2>The design file</h2><p><a href="https://github.com/vjeux/redstonepedia/blob/main/designs/circuits/crafter/archive/stick-v24.txt">on GitHub</a></p><details><summary>Design file (26 lines)</summary><pre class="design"># Auto-crafter: crafts 4 sticks from every 2 planks · 16 blocks
+# https://vjeux.github.io/redstonepedia/circuits/crafter/stick-v24.html
+name: stick-v24
+circuit: crafter stick
+port items: -1 1 0
+port output: 0 -1 0
+origin: -1 0 -1
+palette:
+  M minecraft:crafter[crafting=false,orientation=down_north,triggered=false]
+  C minecraft:crafter[crafting=false,orientation=north_up,triggered=false]
+  H minecraft:hopper[enabled=true,facing=east]
+  K minecraft:comparator[facing=west,mode=compare,powered=false]
+  J minecraft:comparator[facing=west,mode=compare,powered=false]
+  R minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+  S minecraft:stone
+  r minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+layer -1:
+  ..SS
+  ..SS
+  .SS.
+layer 0:
+  .SRr
+  HMKr
+  CJr.
+nbt: -1 0 1 {disabled_slots:[I;0,1,2,3,4,5,6,7,8]}
+nbt: 0 0 0 {disabled_slots:[I;1,2,4,5,6,7,8]}
+</pre></details></section>
+</details>
+
+</main>
+<footer>Built from <a href="https://github.com/vjeux/redstonepedia/tree/4af0b5260956b9ba7540426425562944212d0880">vjeux/redstonepedia@4af0b5260</a> on <span class="nowrap">2026-11-13</span>, for Minecraft 26.3.</footer>
+<script type="module">import init from "../../viewer/mcview.js?v=6bd289d0"; init({module_or_path: "../../viewer/mcview_bg.wasm?v=007901f8"});</script>
+</body>
+</html>

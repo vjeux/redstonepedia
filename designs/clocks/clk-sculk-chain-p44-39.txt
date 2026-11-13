@@ -1,0 +1,12 @@
+# Clock: every 44 ticks (2.2 s) · 3 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-sculk-chain-p44-39.html
+# CLOCK: period 44, warmup 2
+name: clk-sculk-chain-p44-39
+port output: 0 1 -1
+origin: 0 0 0
+palette:
+  O minecraft:oak_fence_gate[facing=north,in_wall=false,open=true,powered=true]
+  S minecraft:sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  o minecraft:observer[facing=west,powered=false]
+layer 1:
+  SoO

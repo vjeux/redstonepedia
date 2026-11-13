@@ -1,0 +1,20 @@
+# Flat flying machine: flies sideways · 6 blocks
+# https://vjeux.github.io/redstonepedia/circuits/fly/fly-horizontal-6b-10gt-01ce95.html
+
+name: fly-horizontal-6b-10gt-01ce95
+circuit: flying-machine
+distance: 24
+travel: 0 0 1
+port start: 0 -1 0 minecraft:stone 1
+origin: 0 0 0
+palette:
+  A minecraft:sticky_piston[extended=false,facing=south]
+  O minecraft:observer[facing=down,powered=false]
+  S minecraft:slime_block
+  s minecraft:sticky_piston[extended=false,facing=north]
+layer 0:
+  O
+  .O
+layer 1:
+  SA
+  sS

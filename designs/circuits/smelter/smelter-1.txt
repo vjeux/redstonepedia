@@ -1,0 +1,21 @@
+# Auto-smelter: 1 furnace · 4 blocks
+# https://vjeux.github.io/redstonepedia/circuits/smelter/smelter-1.html
+name: smelter-1
+circuit: smelter 1
+port items: 0 3 0
+port fuel: 0 2 1
+port output: 0 -1 0
+origin: 0 0 0
+palette:
+  D minecraft:hopper[enabled=true,facing=down]
+  N minecraft:hopper[enabled=true,facing=north]
+  F minecraft:furnace[facing=north,lit=false]
+layer 0:
+  D
+  .
+layer 1:
+  F
+  N
+layer 2:
+  D
+  .

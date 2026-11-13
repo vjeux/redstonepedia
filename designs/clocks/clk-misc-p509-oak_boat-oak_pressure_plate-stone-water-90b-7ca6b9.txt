@@ -1,0 +1,35 @@
+# Clock: every 509 ticks (25.45 s) · 90 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-misc-p509-oak_boat-oak_pressure_plate-stone-water-90b-7ca6b9.html
+# CLOCK: period 509, warmup 184
+name: clk-misc-p509-oak_boat-oak_pressure_plate-stone-water-90b-7ca6b9
+port output: 6 -1 6
+entity: minecraft:oak_boat 4.8 0 1
+origin: -1 0 -1
+palette:
+  O minecraft:oak_pressure_plate[powered=false]
+  S minecraft:stone
+  W minecraft:water[level=0]
+layer -1:
+  .
+  .SSS.SS
+  .SSS.SS
+  .....SS
+  .SS..SS
+  .SS..SS
+  .SS..SS
+  .SS...S
+  .SS.SSS
+  .SS.SSS
+  .
+layer 0:
+  .SSS.SS
+  S...OW.S
+  SWW.OW.S
+  .OOSS..S
+  S..SS..S
+  S..SS..S
+  S..SS..S
+  S..SSOO
+  S.WO.WWS
+  S.WO...S
+  .SS.SSS

@@ -1,0 +1,19 @@
+# Logic gate: A AND B · 5 blocks
+# https://vjeux.github.io/redstonepedia/circuits/gates/gate-and-5b-r7.html
+name: gate-and-5b-r7
+circuit: gate and
+port input.a: 0 1 0
+port input.b: 2 1 0
+port output: 1 1 -1
+origin: 0 0 -1
+palette:
+  S minecraft:stone
+  T minecraft:redstone_torch[lit=true]
+  W minecraft:redstone_wall_torch[facing=north,lit=true]
+  r minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
+layer 1:
+  .W.
+  .S.
+layer 2:
+  ...
+  TrT

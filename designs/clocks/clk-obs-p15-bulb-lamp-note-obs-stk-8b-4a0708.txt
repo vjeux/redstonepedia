@@ -1,0 +1,34 @@
+# Clock: every 15 ticks (0.75 s) · 10 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p15-bulb-lamp-note-obs-stk-8b-4a0708.html
+# CLOCK: period 15, warmup 33
+name: clk-obs-p15-bulb-lamp-note-obs-stk-8b-4a0708
+port output: -2 -1 0
+port start: 0 0 2 last
+origin: -1 0 0
+palette:
+  A minecraft:observer[facing=south,powered=false]
+  B minecraft:stone
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  N minecraft:note_block[instrument=harp,note=0,powered=false]
+  O minecraft:observer[facing=east,powered=false]
+  R minecraft:redstone_lamp[lit=false]
+  S minecraft:sticky_piston[extended=false,facing=down]
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+  o minecraft:observer[facing=north,powered=false]
+  s minecraft:sticky_piston[extended=false,facing=south]
+layer -2:
+  B
+  .
+  .
+layer -1:
+  CW
+  .s
+  .
+layer 0:
+  .N
+  .A
+  .O
+layer 1:
+  .R
+  .o
+  .S

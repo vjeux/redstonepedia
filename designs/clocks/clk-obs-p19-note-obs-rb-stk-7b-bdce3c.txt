@@ -1,0 +1,31 @@
+# Clock: every 19 ticks (0.95 s) · 7 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p19-note-obs-rb-stk-7b-bdce3c.html
+# CLOCK: period 19, warmup 5
+name: clk-obs-p19-note-obs-rb-stk-7b-bdce3c
+origin: 0 0 -1
+port output: -1 2 -1
+port start: 0 2 1 last
+palette:
+  A minecraft:redstone_block
+  B minecraft:sticky_piston[extended=false,facing=north]
+  C minecraft:sticky_piston[extended=false,facing=up]
+  D minecraft:note_block[instrument=harp,note=0,powered=false]
+  E minecraft:observer[facing=south,powered=false]
+  F minecraft:observer[facing=up,powered=false]
+  G minecraft:observer[facing=north,powered=false]
+layer 0:
+  .
+  A
+  B
+layer 1:
+  .
+  C
+  .
+layer 2:
+  D
+  E
+  F
+layer 3:
+  .
+  .
+  G

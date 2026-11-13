@@ -1,0 +1,15 @@
+# Clock: every 49 ticks (2.45 s) · 5 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-sculk-hyb3b-p49-19.html
+# CLOCK: period 49, warmup 2
+name: clk-sculk-hyb3b-p49-19
+port output: 0 0 -1
+origin: -3 0 0
+palette:
+  A minecraft:observer[facing=up,powered=false]
+  O minecraft:oak_fence_gate[facing=north,in_wall=false,open=true,powered=true]
+  S minecraft:sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  o minecraft:observer[facing=east,powered=false]
+layer -1:
+  OooA
+layer 0:
+  ...S

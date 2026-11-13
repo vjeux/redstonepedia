@@ -1,0 +1,25 @@
+# Clock: every 30 ticks (1.5 s) · 9 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-sculk-ring3p-p30-1.html
+# CLOCK: period 30, warmup 11
+name: clk-sculk-ring3p-p30-1
+port output: 7 0 -10
+port start: 0 0 -1 use
+origin: 0 0 -9
+palette:
+  A minecraft:amethyst_block
+  C minecraft:calibrated_sculk_sensor[facing=north,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  N minecraft:note_block[instrument=harp,note=0,powered=false]
+  W minecraft:white_wool
+  c minecraft:calibrated_sculk_sensor[facing=south,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+layer 0:
+  ......AC
+  .
+  .
+  .
+  .
+  .
+  .
+  W
+  N.W
+  c
+  A........AC

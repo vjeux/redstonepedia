@@ -1,0 +1,31 @@
+# Clock: every 80 ticks (4 s) · 9 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p80-obs-pis-rb-stk-9b-ffecbf.html
+# CLOCK: period 80, warmup 17
+name: clk-obs-p80-obs-pis-rb-stk-9b-ffecbf
+origin: 0 0 -1
+port output: 1 -2 -1
+palette:
+  A minecraft:redstone_block
+  B minecraft:observer[facing=down,powered=false]
+  C minecraft:sticky_piston[extended=false,facing=north]
+  D minecraft:sticky_piston[extended=false,facing=east]
+  E minecraft:observer[facing=north,powered=false]
+  F minecraft:sticky_piston[extended=false,facing=down]
+  G minecraft:observer[facing=south,powered=false]
+  H minecraft:piston[extended=false,facing=up]
+  I minecraft:sticky_piston[extended=false,facing=west]
+layer -1:
+  ..H
+  ...
+  ...
+  ...
+layer 0:
+  ..I
+  A..
+  B..
+  C..
+layer 1:
+  .F.
+  DG.
+  E..
+  ...
