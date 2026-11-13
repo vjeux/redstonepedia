@@ -126,3 +126,25 @@ pub fn fan_update_shape(w: &mut World, s: Block, p: BlockPos, d: Dir) -> Block {
     };
     if pops && !fan_can_survive(w, &s, p) { Block::Air } else { s }
 }
+
+#[cfg(test)]
+mod coral_tests {
+    use crate::block::Block;
+
+    /// ironspec 08:05, tick-exact's citation (Blocks 4160-4168 / 4218; BlockBehaviour.calculateSolid 488-510):
+    /// a DEAD coral fan, floor or wall, is solid (forceSolidOn over noCollision), a LIVE one isn't (noCollision,
+    /// no force flag). redsim models the dead fans only: each of the five reads solid (`is_solid`'s default
+    /// arm, the forceSolidOn), and a live fan, floor or wall, of every colour is refused at parse ("not
+    /// modeled"), so no redsim world holds one for `is_solid` to answer.
+    #[test]
+    fn coral_fans_dead_solid_live_refused() {
+        for kind in super::DEAD_CORALS {
+            let dead = Block::parse(&format!("minecraft:dead_{kind}_coral_fan[waterlogged=false]")).unwrap();
+            let dead_wall = Block::parse(&format!("minecraft:dead_{kind}_coral_wall_fan[facing=north,waterlogged=false]")).unwrap();
+            assert!(crate::behavior::is_solid(&dead) && crate::behavior::is_solid(&dead_wall), "dead {kind}: solid");
+            for live in [format!("minecraft:{kind}_coral_fan[waterlogged=true]"), format!("minecraft:{kind}_coral_wall_fan[facing=north,waterlogged=true]")] {
+                assert!(Block::parse(&live).is_err(), "{live}: refused, not modeled");
+            }
+        }
+    }
+}

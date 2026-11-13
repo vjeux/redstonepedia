@@ -117,11 +117,12 @@ pub fn fails(s: &DropStats, launch_min: i64, edge: i64) -> Vec<&'static str> {
 }
 
 /// The call gate's misses in one run (ironspec 19:51 / 20:07): every due S with no GolemTry from a pocket
-/// rider (`calls == 0`: drop-bench's `calls` are the stand's, each attributed to a pocket rider by its entity
-/// id, `pocket_of`), each with its class; a golem born with no pocket rider's call (a call from elsewhere, G1
-/// on d96461902) is still a miss; in a restart row one miss within [`REPHASE_WINDOW`] gt after the restart is
-/// the one-summon-per-disturbance allowance (returned apart). Returns (failing misses, allowed re-phase
-/// misses).
+/// rider (`calls == 0`: drop-bench's `calls` are the stand's, each GolemTry at S attributed to a pocket rider
+/// by the caller's entity id, `pocket_of`, on main since 6dc4a4e85; its `born` still covers every call until
+/// dfb89499's drop-bench fix, and the gate doesn't read it), each with its class; a golem born with no pocket
+/// rider's call (a call from elsewhere, G1 on d96461902) is still a miss; in a restart row one miss within
+/// [`REPHASE_WINDOW`] gt after the restart is the one-summon-per-disturbance allowance (returned apart).
+/// Returns (failing misses, allowed re-phase misses).
 pub fn summon_misses(s: &DropStats) -> (Vec<String>, Vec<String>) {
     let (mut bad, mut allowed) = (Vec::new(), Vec::new());
     for d in &s.summon_due {

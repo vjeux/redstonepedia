@@ -657,6 +657,57 @@ mod tests {
         assert_eq!((open_power(6_000, 0.0, 0.0), open_power(6_000, 1.0, 0.0), open_power(6_000, 1.0, 1.0)), (15, 12, 10), "noon: 15 / 12 / 10");
     }
 
+    /// ironspec 07:31 (b): the same official rows read off a PLACED open-sky detector driven through its own
+    /// 20-gt updates by the world's tick (not the power helper), the weather held at its levels (clear 0 / 0,
+    /// rain 1 / 0, thunder 1 / 1): the first update at each power level is the official one, the day time
+    /// read at that update (each tick's day time advances before the detector reads it).
+    #[test]
+    fn a_placed_detector_reads_the_official_levels() {
+        use crate::pos::BlockPos;
+        use crate::world::World;
+        let rows: [(&str, bool, bool, &[(i32, i64)]); 3] = [
+            ("clear", false, false, &[(9, 11_080), (8, 11_480), (7, 11_840), (6, 12_040), (5, 12_240), (4, 12_480)]),
+            ("rain", true, false, &[(7, 11_120), (6, 11_620), (5, 12_020), (4, 12_240), (3, 12_480)]),
+            ("thunder", true, true, &[(6, 10_960), (5, 11_560), (4, 11_940), (3, 12_300)]),
+        ];
+        for (name, raining, thundering, levels) in rows {
+            let mut w = World::new(BlockPos::new(-4, -2, -4), [9, 12, 9]);
+            let stone = crate::block::Block::parse("minecraft:stone").unwrap();
+            for x in -2..=2 {
+                for z in -2..=2 {
+                    w.set_block(BlockPos::new(x, -1, z), stone.clone(), crate::world::flags::ALL);
+                }
+            }
+            w.set_block(BlockPos::new(0, 0, 0), crate::block::Block::parse("minecraft:daylight_detector[inverted=false,power=15]").unwrap(), crate::world::flags::ALL);
+            w.mob.seed(7, 10_000);
+            let level = |on: bool| if on { 1.0f32 } else { 0.0f32 };
+            w.weather.on = true;
+            w.weather.data = crate::weather::WeatherData { clear_weather_time: 0, rain_time: 1_000_000, thunder_time: 1_000_000, raining, thundering };
+            (w.weather.o_rain_level, w.weather.rain_level) = (level(raining), level(raining));
+            (w.weather.o_thunder_level, w.weather.thunder_level) = (level(thundering), level(thundering));
+            let mut first: std::collections::BTreeMap<i32, i64> = std::collections::BTreeMap::new();
+            while w.day_time() < 13_000 {
+                w.tick();
+                if w.time % 20 == 0 {
+                    let power = match w.get(BlockPos::new(0, 0, 0)) {
+                        crate::block::Block::DaylightDetector { power, .. } => power as i32,
+                        b => panic!("{b}"),
+                    };
+                    for &(lv, _) in levels {
+                        if power <= lv {
+                            first.entry(lv).or_insert(w.day_time());
+                        }
+                    }
+                }
+            }
+            assert!(w.errors.is_empty(), "{:?}", w.errors);
+            assert_eq!((w.weather.rain_level, w.weather.thunder_level), (level(raining), level(thundering)), "{name}: the levels held");
+            for &(lv, day) in levels {
+                assert_eq!(first.get(&lv), Some(&day), "{name}: the placed detector's first update at power {lv}");
+            }
+        }
+    }
+
     /// (b8949c96 2026-11-12) A door, iron or oak, either half, shut or open, lets the sky through
     /// like air (`DoorBlock`'s noOcclusion; its panel is never a full shape): the cell under one
     /// under the open sky reads 15, as under a lightning rod; a stone cap reads less (the check
