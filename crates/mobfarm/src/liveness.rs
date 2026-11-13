@@ -373,60 +373,167 @@ pub fn levels(w: &World, b: [i32; 4]) -> (i32, i32) {
 /// cycle, which only the bench can build (e.g. dfb89499's `--dep-riders`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Restart {
-    /// A save/stop/start between two ticks: every chunk of the part saved and unloaded
-    /// (`redsim::reload::unload_all`) and loaded again (`load_all_ordered`) in this entity order
-    /// before the next tick (no game time passes): the scheduled block and fluid ticks back with their
-    /// remaining delays, the block entities registered again, every entity back as a new object under
-    /// a new id with its motion, passengers and codec'd memories, its uncodec'd memories lost and its
-    /// sensor timers redrawn, as redsim's bridged load models them. (Block events never cross a tick
-    /// boundary: none is pending between two ticks.)
+    /// A save/stop/start between two ticks, load tick 1 (the official load's held attempts): every chunk
+    /// of the part saved and unloaded (`redsim::reload::unload_all`) and loaded again
+    /// (`load_all_ordered`) in this entity order: the scheduled block and fluid ticks back with their
+    /// remaining delays, the block entities registered again, every entity back as a new object under a
+    /// new id with its motion, passengers and codec'd memories, its uncodec'd memories lost and its
+    /// sensor timers redrawn, as redsim's bridged load models them; then the load's block-only tick (game
+    /// time + 1, blocks and redstone ticking, no entity moving: [`restart`]). (Block events never cross a
+    /// tick boundary: none is pending between two ticks.)
     Load(redsim::reload::Order),
+    /// The same load with load tick 0 (the official load's moved attempts, tick-exact; ironspec 21:47
+    /// (2)): no block-only tick, so the first tick after the load ticks the entities too; every reload
+    /// effect on the entities kept (the new objects, the dry first tick, the unsaved memories, the
+    /// re-phased triggers).
+    Load0(redsim::reload::Order),
 }
 
 impl Restart {
-    /// `save`, `reverse` or `seed:K` (K < 1000).
+    /// `save`, `reverse` or `seed:K` (K < 1000), load tick 1; with `/t0` load tick 0 (`/t1` names 1).
     pub fn parse(s: &str) -> Option<Restart> {
-        redsim::reload::Order::parse(s.trim()).map(Restart::Load)
+        let s = s.trim();
+        let (o, tick) = match s.rsplit_once('/') {
+            Some((o, "t0")) => (o, 0),
+            Some((o, "t1")) => (o, 1),
+            Some(_) => return None,
+            None => (s, 1),
+        };
+        redsim::reload::Order::parse(o.trim()).map(|o| if tick == 0 { Restart::Load0(o) } else { Restart::Load(o) })
     }
 
-    pub fn label(&self) -> String {
-        match self {
-            Restart::Load(redsim::reload::Order::Save) => "save".into(),
-            Restart::Load(redsim::reload::Order::Reverse) => "reverse".into(),
-            Restart::Load(redsim::reload::Order::Seed(k)) => format!("seed:{k}"),
+    /// The row's entity load order.
+    pub fn order(&self) -> redsim::reload::Order {
+        match *self {
+            Restart::Load(o) | Restart::Load0(o) => o,
         }
     }
 
+    /// The load's block-only ticks: 1 or 0 (ironspec 21:47 (2): `load_tick: 0 | 1`).
+    pub fn load_tick(&self) -> i64 {
+        match self {
+            Restart::Load(_) => 1,
+            Restart::Load0(_) => 0,
+        }
+    }
+
+    pub fn label(&self) -> String {
+        let o = match self.order() {
+            redsim::reload::Order::Save => "save".to_string(),
+            redsim::reload::Order::Reverse => "reverse".to_string(),
+            redsim::reload::Order::Seed(k) => format!("seed:{k}"),
+        };
+        if self.load_tick() == 0 { format!("{o}/t0") } else { o }
+    }
+
     /// The rows a judge runs at every phase: the save order, its reverse and 8 seeded orders
-    /// (ironspec's reload-order rule).
+    /// (ironspec's reload-order rule), each with load tick 1 and with load tick 0 (ironspec 21:47 (2):
+    /// every restart row set runs both branches, crossed with the orders).
     pub fn rows() -> Vec<Restart> {
-        let mut v = vec![Restart::Load(redsim::reload::Order::Save), Restart::Load(redsim::reload::Order::Reverse)];
-        v.extend((1..=8).map(|k| Restart::Load(redsim::reload::Order::Seed(k))));
-        v
+        let mut orders = vec![redsim::reload::Order::Save, redsim::reload::Order::Reverse];
+        orders.extend((1..=8).map(redsim::reload::Order::Seed));
+        orders.iter().map(|o| Restart::Load(*o)).chain(orders.iter().map(|o| Restart::Load0(*o))).collect()
     }
 }
 
 /// `--restart T,ORDER` (repeatable in a bench's CLI): the tick and the [`Restart`].
 pub fn parse_restart(s: &str) -> Result<(i64, Restart), String> {
-    let (t, how) = s.split_once(',').ok_or(format!("--restart {s}: T,ORDER (ORDER save, reverse or seed:K)"))?;
+    let (t, how) = s.split_once(',').ok_or(format!("--restart {s}: T,ORDER (ORDER save, reverse or seed:K, /t0 for load tick 0)"))?;
     let t = t.trim().parse::<i64>().map_err(|e| format!("--restart {s}: {e}"))?;
-    let how = Restart::parse(how).ok_or(format!("--restart {s}: ORDER is save, reverse or seed:K"))?;
+    let how = Restart::parse(how).ok_or(format!("--restart {s}: ORDER is save, reverse or seed:K (/t0: load tick 0)"))?;
     Ok((t, how))
 }
 
-/// Restart world `w` between two ticks ([`Restart`]). Returns the entities' new ids (old -> new) for
-/// the bench to follow its carts and riders by (any id since also follows through [`follow`]); an
-/// error when the reload model refuses the world (a player, falling blocks: `w.errors`).
-pub fn restart(w: &mut World, how: Restart) -> Result<std::collections::HashMap<u32, u32>, String> {
+/// What a [`restart`] did (ironspec 21:13: nothing silently dropped): the entities' new ids (old -> new;
+/// it reads as that map), the game time after it (`at`: the load's block-only tick's, or the load's own
+/// with load tick 0), the entity-free ticks the restart itself ran (`entity_free`: its load tick, 1 or 0,
+/// measured as the ticks run with no entity ticking) and the entities that tick held (`held`: each noted
+/// frozen at `at` in `World::frozen`, kept there, so a freeze that goes on from the load tick reads as
+/// starting on it).
+#[derive(Clone, Debug, Default)]
+pub struct Restarted {
+    pub ids: std::collections::HashMap<u32, u32>,
+    pub at: i64,
+    pub entity_free: i64,
+    pub held: usize,
+    /// The world has a Nether part (`World::nether`): the reload model doesn't save it, so it ticks normally
+    /// through the load tick and keeps its in-memory state; the row counts as unmodelled until the reload
+    /// model saves and loads both dimensions (ironspec 21:23/21:24: said in the note, not silent).
+    pub nether: bool,
+}
+
+impl std::ops::Deref for Restarted {
+    type Target = std::collections::HashMap<u32, u32>;
+    fn deref(&self) -> &Self::Target {
+        &self.ids
+    }
+}
+
+impl Restarted {
+    /// The row's entity-free ticks with an `f`-gt freeze going on from the load tick (the restart x
+    /// 1..4-gt freeze rows: a load longer than 1 tick): the load's 1 (or 0) plus `f`.
+    pub fn with_freeze(&self, f: i64) -> i64 {
+        self.entity_free + f.max(0)
+    }
+
+    /// The text every restart row prints (ironspec 21:13): `entity-free ticks N (the load's block-only
+    /// tick at gt T holding H entities[ + an F-gt freeze from it])`, with load tick 0 `entity-free ticks
+    /// N (load tick 0 at gt T: no block-only tick[ + …])`, and with a Nether part `; Nether restart not
+    /// modelled in redsim (…): this row UNMODELLED` (ironspec 21:24).
+    pub fn note(&self, f: i64) -> String {
+        let load = if self.entity_free == 0 { format!("load tick 0 at gt {}: no block-only tick", self.at) } else { format!("the load's block-only tick at gt {} holding {} entities", self.at, self.held) };
+        format!(
+            "entity-free ticks {} ({load}{}){}",
+            self.with_freeze(f),
+            if f > 0 { format!(" + a {f}-gt freeze from it") } else { String::new() },
+            if self.nether { "; Nether restart not modelled in redsim (the Nether part ticked normally through the load tick and kept its in-memory state): this row UNMODELLED" } else { "" }
+        )
+    }
+}
+
+/// Restart world `w` between two ticks ([`Restart`]): the official load (tick-exact, farmopt 2026-11-12
+/// 21:07; ironspec 20:35 (2a), accepted 21:13): the world saved and stopped, then loaded in `how`'s entity
+/// order, then with load tick 1 ([`Restart::Load`]) one block-only tick (the loaded world ticks once before
+/// its entities do: game time + 1, the scheduled ticks, block events and redstone run, no entity moves),
+/// with load tick 0 ([`Restart::Load0`]) none (ironspec 21:47 (2): officially 0 or 1), the load order kept
+/// for the ticks after. Returns [`Restarted`]: the entities' new ids (old -> new) for the bench to follow its carts and
+/// riders by (any id since also follows through [`follow`]) and the entity-free ticks every restart row
+/// prints ([`Restarted::note`]); an error when the reload model refuses the world (a player, falling
+/// blocks: `w.errors`) or a partial unload is active (the block-only tick needs every chunk).
+pub fn restart(w: &mut World, how: Restart) -> Result<Restarted, String> {
     let errors = w.errors.len();
     let before: Vec<u32> = w.entities.list.iter().filter(|e| !e.removed).map(|e| e.id).collect();
-    let Restart::Load(order) = how;
     redsim::reload::unload_all(w);
-    redsim::reload::load_all_ordered(w, order);
+    redsim::reload::load_all_ordered(w, how.order());
     if w.errors.len() > errors {
         return Err(format!("restart {}: {}", how.label(), w.errors[errors..].join("; ")));
     }
-    Ok(before.into_iter().map(|id| (id, follow(w, id))).collect())
+    let ids = |w: &World| before.iter().map(|id| (*id, follow(w, *id))).collect();
+    if how.load_tick() == 0 {
+        return Ok(Restarted { ids: ids(w), at: w.time, entity_free: 0, held: 0, nether: w.nether.is_some() });
+    }
+    if !w.unforced.is_empty() {
+        return Err(format!("restart {}: a partial unload is active; the load's block-only tick needs every chunk loaded", how.label()));
+    }
+    // (the block-only tick: an empty entity-ticking range, so `entity_ticks_at` is false everywhere and no
+    // entity ticks, its place in the list kept; the freezes it notes stay in `World::frozen`, counted)
+    let (ec, frozen) = (w.entity_chunks, w.frozen.len());
+    w.entity_chunks = Some([1, 1, 0, 0]);
+    w.tick();
+    w.entity_chunks = ec;
+    if w.errors.len() > errors {
+        return Err(format!("restart {}: the load's block-only tick: {}", how.label(), w.errors[errors..].join("; ")));
+    }
+    // (measured, not assumed: every entity alive after the tick was held in it (noted frozen at its game
+    // time; a block may still remove one, a hopper taking an item); one that ticked would make it no
+    // block-only tick)
+    let at = w.time;
+    let noted: std::collections::HashSet<u32> = w.frozen[frozen..].iter().filter(|(t, _)| *t == at).map(|(_, id)| *id).collect();
+    let ticked: Vec<u32> = w.entities.list.iter().filter(|e| !e.removed && !noted.contains(&e.id)).map(|e| e.id).collect();
+    if !ticked.is_empty() {
+        return Err(format!("restart {}: the load's block-only tick ticked entities {ticked:?}", how.label()));
+    }
+    Ok(Restarted { ids: ids(w), at, entity_free: 1, held: noted.len(), nether: w.nether.is_some() })
 }
 
 /// An entity's current id after any restarts (from the id it had once, or any since).
@@ -527,12 +634,115 @@ mod tests {
         assert!(live_cart(&w, again), "the first id follows to a live minecart");
         assert_eq!(follow(&w, now), again, "the id between follows to the same one");
         assert_eq!(w.ticks.count(), n0);
+        // (both branches, crossed with the orders (ironspec 21:47 (2)): 10 orders x load tick 1 and 0)
         let rows = Restart::rows();
-        assert_eq!(rows.len(), 10);
+        assert_eq!(rows.len(), 20);
+        assert_eq!((rows.iter().filter(|r| r.load_tick() == 1).count(), rows.iter().filter(|r| r.load_tick() == 0).count()), (10, 10));
         for r in rows {
             assert_eq!(Restart::parse(&r.label()), Some(r));
         }
         assert_eq!(parse_restart("120,seed:3"), Ok((120, Restart::Load(redsim::reload::Order::Seed(3)))));
-        assert!(parse_restart("120,cold").is_err());
+        assert_eq!(parse_restart("120,seed:3/t1"), Ok((120, Restart::Load(redsim::reload::Order::Seed(3)))));
+        assert_eq!(parse_restart("120,reverse/t0"), Ok((120, Restart::Load0(redsim::reload::Order::Reverse))));
+        assert_eq!(Restart::Load0(redsim::reload::Order::Save).label(), "save/t0");
+        assert!(parse_restart("120,cold").is_err() && parse_restart("120,save/t2").is_err());
+    }
+
+    /// The official load (tick-exact, farmopt 21:07): a restart is one tick for the blocks and none for the
+    /// entities. Against a clone of the same world given one normal tick: the same game time, the same block
+    /// states and pending ticks (a repeater powered from behind on its way on), while the moving cart holds
+    /// its place across the load (the clone's cart moves), its freeze at the load tick counted and kept
+    /// (ironspec 21:13); the next ticks keep the blocks in lockstep with the clone, and move the cart again.
+    #[test]
+    fn restart_is_a_block_only_tick() {
+        let stone = redsim::block::Block::parse("minecraft:stone").unwrap();
+        let mut w = World::new(BlockPos::new(-8, -4, -8), [16, 8, 16]);
+        for x in -3..=3 {
+            w.set_block(BlockPos::new(x, -1, 0), stone.clone(), redsim::world::flags::ALL);
+            w.set_block(BlockPos::new(x, 0, 0), redsim::block::Block::parse("minecraft:rail[shape=east_west,waterlogged=false]").unwrap(), redsim::world::flags::ALL);
+        }
+        let cart = redsim::entity::spawn(&mut w, "minecraft:minecart", [0.5, 0.0625, 0.5], None).unwrap();
+        let i = redsim::entity::index_of(&w, cart).unwrap();
+        w.entities.list[i].delta_movement = redsim::entity::Vec3::new(0.3, 0.0, 0.0);
+        // (a repeater with a redstone block on both its north and south: powered from behind whichever way it
+        // faces, so it schedules its turn-on)
+        let rp = BlockPos::new(2, 0, 4);
+        w.set_block(rp.below(), stone.clone(), redsim::world::flags::ALL);
+        w.set_block(rp, redsim::block::Block::parse("minecraft:repeater[delay=2,facing=north,locked=false,powered=false]").unwrap(), redsim::world::flags::ALL);
+        for z in [3, 5] {
+            w.set_block(BlockPos::new(2, 0, z), redsim::block::Block::parse("minecraft:redstone_block").unwrap(), redsim::world::flags::ALL);
+        }
+        let mut w2 = w.clone();
+        w2.tick();
+        let (t0, frozen0) = (w.time, w.frozen.len());
+        let p0 = w.entities.list[i].pos;
+        let r = restart(&mut w, Restart::Load(redsim::reload::Order::Save)).unwrap();
+        let now = follow(&w, cart);
+        let pos_of = |w: &World, id: u32| w.entities.list[redsim::entity::index_of(w, id).unwrap()].pos;
+        assert_eq!(w.time, t0 + 1, "a load advances game time by exactly 1");
+        assert_eq!(w.time, w2.time);
+        assert_eq!(w.get(rp), w2.get(rp), "the blocks ticked as in a normal tick");
+        assert_eq!(w.ticks.count(), w2.ticks.count(), "the same pending ticks as after a normal tick");
+        let (p1, q1) = (pos_of(&w, now), pos_of(&w2, cart));
+        assert!((p1.x - p0.x).abs() < 1e-9 && (p1.y - p0.y).abs() < 1e-9 && (p1.z - p0.z).abs() < 1e-9, "the moving cart held across the load: {p0:?} -> {p1:?}");
+        assert!(q1.x > p0.x, "the clone's cart moved in its normal tick: {p0:?} -> {q1:?}");
+        // (counted, not dropped (ironspec 21:13): the cart noted frozen at the load tick and kept; the row's
+        // entity-free ticks: the load's 1, plus an F-gt freeze from it)
+        assert_eq!((r.at, r.entity_free, r.held), (t0 + 1, 1, 1));
+        assert_eq!(w.frozen[frozen0..].to_vec(), vec![(t0 + 1, now)], "the load tick's freeze kept in World::frozen");
+        assert_eq!(r.get(&cart), Some(&now), "it reads as the id map");
+        assert_eq!(r.note(0), format!("entity-free ticks 1 (the load's block-only tick at gt {} holding 1 entities)", t0 + 1));
+        assert_eq!((r.with_freeze(3), r.note(3).starts_with("entity-free ticks 4 ")), (4, true));
+        assert!(r.note(3).ends_with(" + a 3-gt freeze from it)"), "{}", r.note(3));
+        // (a world with a Nether part: the note says the row is unmodelled (ironspec 21:24))
+        let mut wn = World::new(BlockPos::new(-8, -4, -8), [16, 8, 16]);
+        wn.nether = Some(Box::new(World::new(BlockPos::new(-8, -4, -8), [16, 8, 16])));
+        let rn = restart(&mut wn, Restart::Load(redsim::reload::Order::Save)).unwrap();
+        assert!(rn.nether && rn.note(0).contains("; Nether restart not modelled in redsim (") && rn.note(0).ends_with(": this row UNMODELLED"), "{}", rn.note(0));
+        assert!(!r.nether && !r.note(0).contains("Nether"));
+        let mut on = false;
+        for _ in 0..6 {
+            w.tick();
+            w2.tick();
+            assert_eq!(w.get(rp), w2.get(rp), "the blocks stay in lockstep with the clone");
+            on |= w.get(rp).to_string().contains("powered=true");
+        }
+        assert!(on, "the repeater turned on: the block side did tick");
+        assert!(pos_of(&w, now).x > p1.x, "the next normal ticks move the cart again");
+    }
+
+    /// Load tick 0 (ironspec 21:47 (2), the official load's moved attempts): no block-only tick: the game
+    /// time stays, the blocks don't tick (the repeater's turn-on still pending as before the restart), the
+    /// entities come back renumbered (the reload's effects kept) and the first tick after the load moves
+    /// the cart; its note reads 0 entity-free ticks.
+    #[test]
+    fn restart_load_tick_0() {
+        let stone = redsim::block::Block::parse("minecraft:stone").unwrap();
+        let mut w = World::new(BlockPos::new(-8, -4, -8), [16, 8, 16]);
+        for x in -3..=3 {
+            w.set_block(BlockPos::new(x, -1, 0), stone.clone(), redsim::world::flags::ALL);
+            w.set_block(BlockPos::new(x, 0, 0), redsim::block::Block::parse("minecraft:rail[shape=east_west,waterlogged=false]").unwrap(), redsim::world::flags::ALL);
+        }
+        let cart = redsim::entity::spawn(&mut w, "minecraft:minecart", [0.5, 0.0625, 0.5], None).unwrap();
+        let i = redsim::entity::index_of(&w, cart).unwrap();
+        w.entities.list[i].delta_movement = redsim::entity::Vec3::new(0.3, 0.0, 0.0);
+        let rp = BlockPos::new(2, 0, 4);
+        w.set_block(rp.below(), stone.clone(), redsim::world::flags::ALL);
+        w.set_block(rp, redsim::block::Block::parse("minecraft:repeater[delay=2,facing=north,locked=false,powered=false]").unwrap(), redsim::world::flags::ALL);
+        for z in [3, 5] {
+            w.set_block(BlockPos::new(2, 0, z), redsim::block::Block::parse("minecraft:redstone_block").unwrap(), redsim::world::flags::ALL);
+        }
+        let (t0, n0, s0, frozen0) = (w.time, w.ticks.count(), w.get(rp), w.frozen.len());
+        let p0 = w.entities.list[i].pos;
+        let r = restart(&mut w, Restart::Load0(redsim::reload::Order::Save)).unwrap();
+        let now = follow(&w, cart);
+        assert_ne!(now, cart, "the reload's effects kept: a new object under a new id");
+        assert_eq!((w.time, w.ticks.count(), w.get(rp), w.frozen.len()), (t0, n0, s0, frozen0), "no block-only tick: time, pending ticks and blocks as before");
+        assert_eq!((r.at, r.entity_free, r.held), (t0, 0, 0));
+        assert_eq!(r.note(0), format!("entity-free ticks 0 (load tick 0 at gt {t0}: no block-only tick)"));
+        assert_eq!(r.with_freeze(2), 2);
+        w.tick();
+        let p1 = w.entities.list[redsim::entity::index_of(&w, now).unwrap()].pos;
+        assert!(p1.x > p0.x, "the first tick after a load-tick-0 restart moves the cart: {p0:?} -> {p1:?}");
     }
 }

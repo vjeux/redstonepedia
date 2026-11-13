@@ -1543,8 +1543,8 @@ pub enum MobfarmCmd {
         /// 2N + 1, 3N + 2, ...: every phase).
         #[arg(long)]
         stop_every: Option<i64>,
-        /// The restarts' entity load order: save, reverse, seed:K, or all (the 10 orders of
-        /// liveness::Restart::rows(), one pass each).
+        /// The restarts' entity load order: save, reverse, seed:K (/t0: load tick 0), or all (the 20 rows of
+        /// liveness::Restart::rows(): 10 orders x load tick 1 and 0, one pass each).
         #[arg(long, default_value = "save")]
         restart_order: String,
         /// A mob (loot pickup on, empty hand) placed in a bottom row at column X at time T, on
@@ -3914,7 +3914,8 @@ pub enum MobfarmCmd {
         #[arg(long)]
         restart: Vec<String>,
         /// The restart matrix (ironspec's L1‴ rows): every row of Restart::rows() (save, reverse,
-        /// seed:1..8) at every --phase-step phase of the third cycle, against the control.
+        /// seed:1..8, each with load tick 1 and 0) at every --phase-step phase of the third cycle, against
+        /// the control.
         #[arg(long)]
         restart_matrix: bool,
         /// The restart matrix's first restart tick (default: the third cycle, 300 + 2 periods); set it
