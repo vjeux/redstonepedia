@@ -2146,6 +2146,12 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                 eprintln!("t {t}: the napper's path recomputed (time_last_recompute {recompute0} -> {r})");
             }
         }
+        // (the farm-stop bar's known positive: the planted erasure, after this tick's own tick)
+        if f.erase_home_at == Some(t)
+            && let Some(vi) = vill.and_then(|v| idx(&run.world, v))
+        {
+            redsim::entity::mob::ai::brain::brain_mut(&mut run.world, vi).home = None;
+        }
         let w = &run.world;
         // (ironspec 05:20, a bench rule: the world's day set before the summon (the visit's hour is
         // reached before the visitor spawns) and the brain's activity asserted at t 1: REST at
@@ -2227,10 +2233,6 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             let vcell = [v.pos.x.floor() as i32, (v.pos.y + 0.01).floor() as i32, v.pos.z.floor() as i32];
             riding = v.vehicle.is_some();
             // (the napper's HOME every tick; its loss is a problem)
-            if f.erase_home_at == Some(t) {
-                // (the farm-stop bar's known positive: the planted erasure)
-                redsim::entity::mob::ai::brain::brain_mut(w, vi).home = None;
-            }
             let has_home = redsim::entity::mob::ai::brain::brain(w, vi).home.is_some();
             if had_home && !has_home && row.home_lost_at.is_none() {
                 row.home_lost_at = Some(t);
