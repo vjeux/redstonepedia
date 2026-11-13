@@ -214,52 +214,88 @@ pub fn canon_kind(k: &str) -> String {
 
 /// The passengers' types in an entity's NBT (`Passengers:[{id:"minecraft:villager",…},…]`), the direct
 /// passengers only, canonical and sorted.
-pub fn passengers_of_nbt(nbt: &str) -> Vec<String> {
-    let Some(i) = nbt.find("Passengers:[") else { return Vec::new() };
+pub fn passengers_of_nbt(nbt: &str) -> Result<Vec<String>, String> {
+    let Some(i) = nbt.find("Passengers:[") else { return Ok(Vec::new()) };
     let body = &nbt[i + "Passengers:[".len()..];
-    // (the list's direct elements: depth 1 inside the list's brackets)
-    let (mut depth, mut out, mut start) = (0i32, Vec::new(), None);
+    // (the list's direct elements: depth 1 inside the list's brackets; a quoted string's braces and
+    // brackets (a CustomName) skipped, its escapes honoured; unbalanced input refused, never guessed)
+    let (mut depth, mut out, mut start, mut quote, mut escaped, mut closed) = (0i32, Vec::new(), None, None::<char>, false, false);
+    let mut elements: Vec<(usize, usize)> = Vec::new();
     for (j, ch) in body.char_indices() {
+        if let Some(q) = quote {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == q {
+                quote = None;
+            }
+            continue;
+        }
         match ch {
-            '{' => {
+            '"' | '\'' => quote = Some(ch),
+            '{' | '[' if depth > 0 || ch == '{' => {
                 if depth == 0 {
                     start = Some(j);
                 }
                 depth += 1;
             }
-            '}' => {
+            '}' | ']' if depth > 0 => {
                 depth -= 1;
-                if depth == 0
-                    && let Some(s) = start.take()
-                {
-                    let el = &body[s..=j];
-                    // (its own id: the first `id:` at its top level)
-                    let mut d = 0i32;
-                    let mut id = None;
-                    for (k, c) in el.char_indices() {
-                        match c {
-                            '{' | '[' => d += 1,
-                            '}' | ']' => d -= 1,
-                            _ => {}
-                        }
-                        if d == 1 && el[k..].starts_with("id:") {
-                            let v = el[k + 3..].trim_start().trim_start_matches('"');
-                            id = Some(v.split(|c: char| c == '"' || c == ',' || c == '}').next().unwrap_or("").to_string());
-                            break;
-                        }
+                if depth == 0 {
+                    if ch != '}' {
+                        return Err(format!("Passengers: an element closes with `{ch}`: {nbt}"));
                     }
-                    if let Some(id) = id {
-                        out.push(canon_kind(&id));
+                    if let Some(s) = start.take() {
+                        elements.push((s, j));
                     }
                 }
             }
-            '[' if depth == 0 => {}
-            ']' if depth == 0 => break,
+            ']' => {
+                closed = true;
+                break;
+            }
+            '}' => return Err(format!("Passengers: an unbalanced `}}`: {nbt}")),
             _ => {}
         }
     }
+    if quote.is_some() || depth != 0 || !closed {
+        return Err(format!("Passengers: unbalanced braces, brackets or quotes: {nbt}"));
+    }
+    for (s, e) in elements {
+        let el = &body[s..=e];
+        // (its own id: the first `id:` at its top level, outside quotes)
+        let (mut d, mut q, mut esc, mut id) = (0i32, None::<char>, false, None);
+        for (k, c) in el.char_indices() {
+            if let Some(qc) = q {
+                if esc {
+                    esc = false;
+                } else if c == '\\' {
+                    esc = true;
+                } else if c == qc {
+                    q = None;
+                }
+                continue;
+            }
+            match c {
+                '"' | '\'' => q = Some(c),
+                '{' | '[' => d += 1,
+                '}' | ']' => d -= 1,
+                _ => {}
+            }
+            if d == 1 && el[k..].starts_with("id:") && matches!(el[..k].chars().last(), Some('{') | Some(',') | Some(' ')) {
+                let v = el[k + 3..].trim_start().trim_start_matches('"');
+                id = Some(v.split(|c: char| c == '"' || c == ',' || c == '}').next().unwrap_or("").to_string());
+                break;
+            }
+        }
+        match id {
+            Some(id) if !id.is_empty() => out.push(canon_kind(&id)),
+            _ => return Err(format!("Passengers: an element without its id: {el}")),
+        }
+    }
     out.sort();
-    out
+    Ok(out)
 }
 
 /// A bench's declarations: its stand-in cells, its candidate cells (the candidate's name) and the
@@ -368,10 +404,13 @@ impl RecordMatch {
     pub fn counts(&self) -> Counts {
         let (u, g) = (self.undeclared().len(), self.unguarded().len());
         let refused = self.diffs.iter().filter(|d| matches!(d.class, Class::OutOfScopeRefused(_))).count();
-        if u > 0 || g > 0 || refused > 0 {
+        if u > 0 || g > 0 || refused > 0 || !self.stale.is_empty() {
             let mut why = format!("{u} undeclared cell(s), {g} unguarded stand-in(s)");
             if refused > 0 {
                 why.push_str(&format!(", {refused} out-of-scope declared on a modelled cell"));
+            }
+            if !self.stale.is_empty() {
+                why.push_str(&format!(", {} stale declaration(s) (a declared cell that doesn't differ or lies outside the box: a no-op declaration fails)", self.stale.len()));
             }
             return Counts::No(why);
         }
@@ -385,13 +424,22 @@ impl RecordMatch {
     }
 
     /// The verdict for bars that involve mob behaviour (walk targets, sight, golem spots, panic): the block
-    /// verdict, and 0 undeclared entity differences.
+    /// verdict, 0 undeclared entity differences, and no stale `# bench-removed:` (a removal matching nothing
+    /// is a no-op declaration: it fails).
     pub fn counts_mob(&self) -> Counts {
         let ue = self.undeclared_entities().len();
+        let stale = self.entity_diffs.iter().filter(|d| d.declared.as_deref().is_some_and(|w| w.starts_with("STALE"))).count();
+        let mut extra = Vec::new();
+        if ue > 0 {
+            extra.push(format!("{ue} undeclared entity difference(s)"));
+        }
+        if stale > 0 {
+            extra.push(format!("{stale} stale `# bench-removed:` (no record entity there: a no-op declaration fails)"));
+        }
         match self.counts() {
-            Counts::No(why) if ue > 0 => Counts::No(format!("{why}, {ue} undeclared entity difference(s)")),
-            Counts::No(why) => Counts::No(why),
-            _ if ue > 0 => Counts::No(format!("{ue} undeclared entity difference(s)")),
+            Counts::No(why) if extra.is_empty() => Counts::No(why),
+            Counts::No(why) => Counts::No(format!("{why}, {}", extra.join(", "))),
+            _ if !extra.is_empty() => Counts::No(extra.join(", ")),
             c => c,
         }
     }
@@ -458,9 +506,9 @@ impl RecordMatch {
                     Class::OutOfScope(w) | Class::OutOfScopeRefused(w) => w.clone(),
                     _ => String::new(),
                 };
-                let mut s = if self.stale.is_empty() { String::new() } else { format!("; declared but the same or outside the box (stale): {}", self.stale.iter().map(cell).collect::<Vec<_>>().join(", ")) };
+                let mut s = if self.stale.is_empty() { String::new() } else { format!("; declared but the same or outside the box (STALE, failing): {}", self.stale.iter().map(cell).collect::<Vec<_>>().join(", ")) };
                 if !oos.is_empty() {
-                    s.push_str(&format!("; {} out of scope (record states redsim can't model, declared): {}", oos.len(), first(&oos, &|d: &Diff| format!("{} {} ({})", cell(&d.cell), short(&d.record), reason(d)))));
+                    s.push_str(&format!("; {} out of scope (record states redsim can't model, declared): {}", oos.len(), first(&oos, &|d: &Diff| format!("{} record {} / bench {} ({})", cell(&d.cell), short(&d.record), short(&d.bench), reason(d)))));
                 }
                 if !refused.is_empty() {
                     s.push_str(&format!("; {} out-of-scope declarations REFUSED (a modelled cell): {}", refused.len(), first(&refused, &|d: &Diff| format!("{} bench {} vs record {} ({})", cell(&d.cell), short(&d.bench), short(&d.record), reason(d)))));
@@ -521,7 +569,10 @@ pub fn compare(bench: &BTreeMap<Cell, String>, bench_ents: &[Ent], record: &BTre
         }
     }
     let differs: BTreeSet<Cell> = diffs.iter().map(|d| d.cell).collect();
-    let stale: Vec<Cell> = declared.standins.keys().chain(declared.candidates.keys()).filter(|c| !differs.contains(*c)).copied().collect::<BTreeSet<_>>().into_iter().collect();
+    // (a declaration on a cell that doesn't differ, or outside the box, is a no-op: it fails the bench's rows
+    // (ironspec 05:13 real (2b), the 04:07 override rule's spirit): stand-ins, candidates and out-of-scope
+    // cells alike)
+    let stale: Vec<Cell> = declared.standins.keys().chain(declared.candidates.keys()).chain(declared.out_of_scope.keys()).filter(|c| !differs.contains(*c)).copied().collect::<BTreeSet<_>>().into_iter().collect();
     // (entities: the record's shifted into the bench's frame, both inside the box, matched one to one by type,
     // position (within 1e-3) and passengers; the harness's declared removals taken out of the record first)
     let in_box = |p: &[f64; 3]| inside(&[p[0].floor() as i32, p[1].floor() as i32, p[2].floor() as i32]);
@@ -645,6 +696,8 @@ fn cell_and_rest(s: &str) -> Result<(Cell, String), String> {
 /// - `# candidate: NAME: x,y,z; …`;
 /// - `# bench-entity: KIND x y z[ (why)]; …` (an entity the bench spawns itself: a cart, a rider).
 pub fn declared_from_header(text: &str) -> Result<Declared, String> {
+    // (the shared near-miss check over every tool's declaration keys, ironspec 06:21 (c))
+    crate::declkeys::check(text)?;
     let mut d = Declared::default();
     for l in text.lines() {
         let l = l.trim();
@@ -737,6 +790,12 @@ pub fn declared_from_header(text: &str) -> Result<Declared, String> {
             }
         }
     }
+    // (one declaration per cell, ironspec 05:13 real (2c): out of scope and a stand-in or candidate at once is
+    // refused, since out of scope would skip the stand-in's guard)
+    let both: Vec<String> = d.out_of_scope.keys().filter(|c| d.standins.contains_key(*c) || d.candidates.contains_key(*c)).map(|c| format!("({},{},{})", c[0], c[1], c[2])).collect();
+    if !both.is_empty() {
+        return Err(format!("cells declared both out of scope and as a stand-in or candidate (one declaration per cell): {}", both.join(", ")));
+    }
     Ok(d)
 }
 
@@ -817,9 +876,17 @@ mod tests {
         c.candidates.insert([2, 1, 1], "wet-descent-2".into());
         let m6 = cmp(&wall, &c);
         assert_eq!(m6.counts(), Counts::Candidates(vec!["wet-descent-2".into()]), "{}", m6.line());
-        // (a stale declaration printed, not failing; an offset frame)
+        // (a stale declaration printed AND failing (ironspec 05:13 real (2b)): a candidate on a cell that doesn't
+        // differ; a stale stand-in and a stale out-of-scope cell likewise; an offset frame)
         let m7 = cmp(&record, &c);
-        assert!(m7.counts() == Counts::Module && m7.line().contains("(stale): (2,1,1)"), "{}", m7.line());
+        assert!(matches!(m7.counts(), Counts::No(ref w) if w.contains("1 stale declaration")) && matches!(m7.counts_mob(), Counts::No(_)) && m7.line().contains("(STALE, failing): (2,1,1)"), "{}", m7.line());
+        let mut st2 = Declared::default();
+        st2.standins.insert([0, 0, 0], StandIn { why: "a floor's stand-in".into(), guard: g.clone() });
+        assert!(matches!(cmp(&record, &st2).counts(), Counts::No(_)), "a stale stand-in fails");
+        let mut oos = Declared::default();
+        oos.out_of_scope.insert([0, 1, 0], "nothing differs here".into());
+        let m7o = cmp(&record, &oos);
+        assert!(matches!(m7o.counts(), Counts::No(_)) && m7o.line().contains("(STALE, failing): (0,1,0)"), "a stale out-of-scope cell fails: {}", m7o.line());
         let shifted: BTreeMap<Cell, String> = record.iter().map(|(k, v)| ([k[0] + 6, k[1], k[2] + 6], v.clone())).collect();
         let m8 = compare(&shifted, &[], &record, &[], [6, 0, 6], [6, 0, 6], [9, 2, 7], "the test's box", &none, "rec");
         assert_eq!(m8.counts(), Counts::Module, "{}", m8.line());
@@ -922,8 +989,11 @@ mod tests {
         let boat_bench = Ent { kind: "boat".into(), pos: [2.5, 1.0, 0.5], passengers: vec!["zombie".into()] };
         let m = compare(&record, &[boat_bench], &record, &[boat_rec.clone()], [0, 0, 0], lo, hi, "the test's box", &none, "rec");
         assert_eq!((m.entity_diffs.len(), m.counts_mob()), (0, Counts::Module), "{}", m.line());
-        let cart_rec = Ent { kind: "minecraft:minecart".into(), pos: [1.5, 1.0, 0.5], passengers: passengers_of_nbt("{Passengers:[{id:\"minecraft:villager\",VillagerData:{level:1}}],Motion:[0.0d,0.0d,0.0d]}") };
+        let cart_rec = Ent { kind: "minecraft:minecart".into(), pos: [1.5, 1.0, 0.5], passengers: passengers_of_nbt("{Passengers:[{id:\"minecraft:villager\",VillagerData:{level:1}}],Motion:[0.0d,0.0d,0.0d]}").unwrap() };
         assert_eq!(cart_rec.passengers, vec!["minecraft:villager".to_string()]);
+        // (a quoted name's braces don't nest; unbalanced input is refused, not guessed)
+        assert_eq!(passengers_of_nbt("{Passengers:[{CustomName:'{\"text\":\"a}b{\"}',id:\"minecraft:zombie\",Uuid:[I;1,2,3,4]}]}").unwrap(), vec!["minecraft:zombie".to_string()]);
+        assert!(passengers_of_nbt("{Passengers:[{id:\"minecraft:zombie\"}").is_err() && passengers_of_nbt("{Passengers:[{CustomName:\"open,id:\"minecraft:zombie\"}]}").is_err(), "unbalanced refused");
         let cart_full = Ent { kind: "minecraft:minecart".into(), pos: [1.5, 1.0, 0.5], passengers: vec!["minecraft:villager".into()] };
         let cart_empty = Ent { passengers: Vec::new(), ..cart_full.clone() };
         let m = compare(&record, &[cart_full], &record, &[cart_rec.clone()], [0, 0, 0], lo, hi, "the test's box", &none, "rec");
@@ -937,6 +1007,7 @@ mod tests {
         let stale = declared_from_header("# bench-removed: minecraft:villager 9.5 1.0 0.5 (nothing there)\n").unwrap();
         let m = compare(&record, &[], &record, &[], [0, 0, 0], lo, hi, "the test's box", &stale, "rec");
         assert!(m.entity_diffs.iter().any(|e| e.declared.as_deref().is_some_and(|w| w.starts_with("STALE"))), "{:?}", m.entity_diffs);
+        assert!(matches!(m.counts_mob(), Counts::No(ref w) if w.contains("stale `# bench-removed:`")) && m.counts() == Counts::Module, "a stale removal fails the mob bars: {:?}", m.counts_mob());
         assert!(declared_from_header("# bench-removed: minecraft:villager 1.5 1.0 0.5\n").is_err(), "a removal gives its reason");
     }
 
@@ -954,7 +1025,7 @@ mod tests {
         let d = declared_from_header("# out-of-scope: 1..1,0,0=the Nether pad (ironspec 21:58: Nether cells out of scope)\n").unwrap();
         assert_eq!(d.out_of_scope.len(), 1);
         let m = compare(&bench, &[], &record, &[], [0, 0, 0], lo, hi, "the test's box", &d, "rec");
-        assert!(m.out_of_scope().len() == 1 && m.undeclared().len() == 1 && m.line().contains("1 out of scope (record states redsim can't model, declared): (1,0,0) nether_portal[axis=x] (the Nether pad"), "{}", m.line());
+        assert!(m.out_of_scope().len() == 1 && m.undeclared().len() == 1 && m.line().contains("1 out of scope (record states redsim can't model, declared): (1,0,0) record nether_portal[axis=x] / bench air (the Nether pad"), "{}", m.line());
         let both = declared_from_header("# out-of-scope: 1..2,0,0=the Nether pad (ironspec 21:58)\n").unwrap();
         let m = compare(&bench, &[], &record, &[], [0, 0, 0], lo, hi, "the test's box", &both, "rec");
         assert!(matches!(m.counts(), Counts::No(ref w) if w.contains("out-of-scope declared on a modelled cell")) && m.line().contains("REFUSED"), "{}", m.line());
@@ -962,6 +1033,10 @@ mod tests {
         let m = compare(&full, &[], &record, &[], [0, 0, 0], lo, hi, "the test's box", &d, "rec");
         assert_eq!(m.counts(), Counts::Module, "only the declared unmodelled cell differs: {}", m.line());
         assert!(declared_from_header("# out-of-scope: 1,0,0\n").is_err() && declared_from_header("# out-of-scope: 1,0=x\n").is_err());
+        // (one declaration per cell, ironspec 05:13 real (2c): out of scope and a stand-in or a candidate at
+        // the same cell refused)
+        assert!(declared_from_header("# out-of-scope: 1,0,0=the Nether pad (r)\n# stand-in: 1,0,0 (a stand-in)\n").is_err());
+        assert!(declared_from_header("# out-of-scope: 1..2,0,0=the Nether pad (r)\n# candidate: c1: 2,0,0\n").is_err());
     }
 
     /// The header lines: stand-ins (dfb89499's), their owner-checked verdicts, candidates, bench-input
