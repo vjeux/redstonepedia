@@ -6011,7 +6011,8 @@ pub enum MobfarmCmd {
         trapdoor_caps: bool,
     },
     /// The bed stop's one-visit bench (a `bedtier --bench` design) over seeds and entry speeds: F
-    /// --after-sleep gt after the lie-down, the release --release-after gt after F (the controller
+    /// --after-sleep gt after the lie-down, the release --release-after gt after the wake edge (the
+    /// presence gate; after F with --no-presence-gate) (the controller
     /// on game ticks). One row with --restart T,ORDER (a save, stop and start between ticks T - 1
     /// and T, `liveness::restart`) and --hour DAYTIME; a sweep over --restart-phases (each at every
     /// order of --orders: `all` is the helper's 10, or a list of save, reverse, seed:K) and
@@ -6026,9 +6027,13 @@ pub enum MobfarmCmd {
         to: u64,
         #[arg(long, default_value = "0.1,0.2,0.3")]
         speeds: String,
-        #[arg(long, default_value_t = 10)]
+        /// F, gt after the lie-down edge: the accepted design's 2 (ironspec 19:33; G1's CHANGES 4:
+        /// defaults are the accepted design; 10 is the pre-cut control).
+        #[arg(long, default_value_t = 2)]
         after_sleep: i64,
-        #[arg(long, default_value_t = 30)]
+        /// The park's release, gt after the wake edge: the accepted design's 0 (ironspec 19:18; 30
+        /// is the pre-cut control).
+        #[arg(long, default_value_t = 0)]
         release_after: i64,
         /// By day (2,000): the napper should not sleep.
         #[arg(long)]
@@ -6065,6 +6070,10 @@ pub enum MobfarmCmd {
         /// or not the napper is up on the pickup cell (an empty cart must leave).
         #[arg(long)]
         no_presence_gate: bool,
+        /// The early-pickup bar's positive control (G1's CHANGES 4 (3)): the park released at the
+        /// lie-down edge (+ --release-after), the napper still in bed; the bar must fire.
+        #[arg(long)]
+        early_release: bool,
         /// The 09:00 shape (a control since ironspec 09:45): DAY gates the activator and the abort
         /// returns an unslept napper by day.
         #[arg(long)]
@@ -6090,8 +6099,9 @@ pub enum MobfarmCmd {
         /// (ironspec 14:58, the boundary contract) The real approach: DESIGN is a module file in
         /// the loop frame with the stop at loop = local + this offset (`x,y,z`); it is moved into the
         /// stop's frame, the module's own rider at --queue-seat removed, and each visit's napper
-        /// spawned there at rest and released by a redstone block in --queue-release --queue-wait gt
-        /// later (all loop frame).
+        /// spawned there at rest and released --queue-wait gt later by a lever thrown in
+        /// --queue-release, on glass, feeding the queue's rail from the side (ironspec 18:10's
+        /// conforming stand-in; declare the glass under it with --declare-emulated) (all loop frame).
         #[arg(long, allow_hyphen_values = true)]
         module_offset: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
@@ -6106,6 +6116,32 @@ pub enum MobfarmCmd {
         /// The contract's positive control: the napper's stamp armed as its cart enters the entry.
         #[arg(long)]
         forced_stamp: bool,
+        /// (ironspec 17:16, dwell 0/50) The napper's leg state on arrival at the queue: a stamp
+        /// armed this many gt before its spawn at the seat.
+        #[arg(long)]
+        arrival_stamp: Option<i64>,
+        /// (ironspec 17:16) The napper's leg state on arrival: a held HOME run (the bed its walk
+        /// target at the spawn; the run computed from the seat, partial there).
+        #[arg(long)]
+        arrival_run: bool,
+        /// (ironspec 17:52) With --arrival-run: the held run's remaining hold, gt (b8949c96's
+        /// measured drop 88-160 gt after the arrival).
+        #[arg(long)]
+        arrival_hold: Option<i64>,
+        /// (ironspec 17:46) A cell declared emulated (`x,y,z`, repeatable): a stand-in write there
+        /// may differ from the built cell in a golem or path property; its statics must run with
+        /// the stand-in. Without it the bench refuses such a write.
+        #[arg(long)]
+        declare_emulated: Vec<String>,
+        /// (ironspec 19:18) The timing bar for entry to R per entry speed: v_slow is the largest
+        /// entry speed with every speed up to it at a maximum of this many gt or less.
+        #[arg(long, default_value_t = 209)]
+        r_bar: i64,
+        /// (ironspec 20:31 (2)) Rows with the parked cart moved along its rail by each of these
+        /// (comma list, blocks) before the release; prints the seating and the pickup speed by park
+        /// position against the seating band.
+        #[arg(long, allow_hyphen_values = true)]
+        park_shifts: Option<String>,
         /// A cell of the design set to a block before the runs (`x,y,z=state`, repeatable; with
         /// --module-offset in the stop's frame): an experiment on the composed geometry.
         #[arg(long)]
@@ -6177,6 +6213,14 @@ pub enum MobfarmCmd {
         /// times; C at the queue from the start, released on A's R.
         #[arg(long)]
         a_hours: Option<String>,
+        /// The controller's F, gt after the lie-down edge: the accepted design's 2 (ironspec 19:33;
+        /// 10 is the pre-cut control).
+        #[arg(long, default_value_t = 2)]
+        after_sleep: i64,
+        /// The park's release, gt after the wake edge: the accepted design's 0 (ironspec 19:18; 30
+        /// is the pre-cut control; never negative: the release waits for the wake).
+        #[arg(long, default_value_t = 0)]
+        release_after: i64,
     },
 }
 
@@ -13507,8 +13551,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("waker: {l}");
             }
         }
-        MobfarmCmd::BedtierBench { design, from, to, speeds, after_sleep, release_after, day, empty, no_home, hide_after_wake, restart, hour, restart_phases, orders, hours, skip, skip_phases, day_off, no_presence_gate, day_gate, day_on, live_day_seated, restart_after_skip, panic_entries, pickup_injects, module_offset, queue_seat, queue_release, queue_wait, queue_waits, forced_stamp, set_cell, restop, queue_dusk, jobs } => {
+        MobfarmCmd::BedtierBench { design, from, to, speeds, after_sleep, release_after, day, empty, no_home, hide_after_wake, restart, hour, restart_phases, orders, hours, skip, skip_phases, day_off, no_presence_gate, early_release, day_gate, day_on, live_day_seated, restart_after_skip, panic_entries, pickup_injects, module_offset, queue_seat, queue_release, queue_wait, queue_waits, forced_stamp, arrival_stamp, arrival_run, arrival_hold, declare_emulated, r_bar, park_shifts, set_cell, restop, queue_dusk, jobs } => {
             let (_c, mut spec) = load(version, &design)?;
+            anyhow::ensure!(release_after >= 0 && after_sleep >= 0, "--release-after and --after-sleep can't be negative (the release waits for the wake edge, F for the lie-down edge)");
             let restart = restart.as_deref().map(crate::liveness::parse_restart).transpose().map_err(|e| anyhow::anyhow!(e))?;
             // (the real approach: the module moved into the stop's frame, its own queue rider out)
             let triple = |s: &Option<String>| -> Result<Option<[f64; 3]>> {
@@ -13533,7 +13578,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     // (the module's own riders out: the queue seat's, and the lanes' villagers (no HOME
                     // in the file: free to claim the stop's bed by AcquirePoi); the posts' mobs stay)
                     spec.entities.retain(|(t, _, n)| !(t == "minecraft:minecart" && n.as_deref().is_some_and(|s| s.contains("minecraft:villager"))));
-                    println!("the real approach: the module moved by ({},{},{}); its {} villager riders removed (the queue seat's and the lanes'); the napper spawned at {seat:?} (stop frame), released by ({},{},{}) {queue_wait} gt later", -ox, -oy, -oz, n0 - spec.entities.len(), rx - ox, ry - oy, rz - oz);
+                    println!("the real approach: the module moved by ({},{},{}); its {} villager riders removed (the queue seat's and the lanes'); the napper spawned at {seat:?} (stop frame), released by a lever on glass at ({},{},{}) {queue_wait} gt later", -ox, -oy, -oz, n0 - spec.entities.len(), rx - ox, ry - oy, rz - oz);
                     Some(crate::bedtier::Approach { seat, release: [rx - ox, ry - oy, rz - oz], wait: queue_wait, dusk: queue_dusk })
                 }
                 (None, None, None) => None,
@@ -13570,12 +13615,54 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
                 println!("set {x},{y},{z} = {st}");
             }
-            let faults = crate::bedtier::Faults { empty, no_home, hide_after_wake, restart, hour, skip, day_off, no_presence_gate, day_gate, day_on, live_day_seated, panic_entry: None, pickup_inject: None, approach, forced_stamp };
+            let shift = triple(&module_offset)?.map(|[x, y, z]| [x as i32, y as i32, z as i32]).unwrap_or([0, 0, 0]);
+            let declared_emulated: Vec<[i32; 3]> = declare_emulated
+                .iter()
+                .map(|s| {
+                    let v: Vec<i32> = s.split(',').map(|x| x.trim().parse::<i32>()).collect::<std::result::Result<_, _>>()?;
+                    match v.as_slice() {
+                        // (loop frame with --module-offset, like --queue-release)
+                        &[x, y, z] => Ok([x - shift[0], y - shift[1], z - shift[2]]),
+                        _ => anyhow::bail!("--declare-emulated {s:?}: x,y,z"),
+                    }
+                })
+                .collect::<Result<_>>()?;
+            let park_shifts: Vec<f64> = park_shifts.as_deref().map(|s| s.split(',').map(|x| x.trim().parse::<f64>()).collect::<std::result::Result<Vec<f64>, _>>()).transpose()?.unwrap_or_default();
+            // (ironspec 21:25: the cart contacts the design declares, `# contacts: x,y,z=REASON;
+            // ...` in its header (a stop or a buffer); the design's frame, the loop frame with
+            // --module-offset)
+            let declared_contacts: Vec<[i32; 3]> = crate::pushscan::header_entries(&std::fs::read_to_string(&design)?, "contacts:")
+                .iter()
+                .map(|d| {
+                    let c = d.split_once('=').map_or(d.as_str(), |(c, _)| c);
+                    let v: Vec<i32> = c.split(',').map(|x| x.trim().parse::<i32>()).collect::<std::result::Result<_, _>>()?;
+                    match v.as_slice() {
+                        &[x, y, z] => Ok([x - shift[0], y - shift[1], z - shift[2]]),
+                        _ => anyhow::bail!("contacts {d:?}: x,y,z=REASON"),
+                    }
+                })
+                .collect::<Result<_>>()?;
+            let faults = crate::bedtier::Faults { empty, no_home, hide_after_wake, restart, hour, skip, day_off, no_presence_gate, early_release, day_gate, day_on, live_day_seated, panic_entry: None, pickup_inject: None, approach, forced_stamp, arrival_stamp, arrival_run, arrival_hold, declared_emulated, r_bar, park_shift: None, park_shifts, declared_contacts };
             crate::bedtier::bench_cmd(&spec, from, to, &speeds, after_sleep, release_after, day, &faults, [restart_phases.as_deref(), hours.as_deref(), skip_phases.as_deref(), restart_after_skip.as_deref(), panic_entries.as_deref(), pickup_injects.as_deref(), queue_waits.as_deref()], &crate::bedtier::orders(&orders)?, jobs)?;
         }
-        MobfarmCmd::BedtierTwo { design, from, to, speeds, restart_phases, orders, transit, lift_delay, lift_speed, day_hold, day_off, gap, c_at, skip_phases, day_on, jobs, day_gate, a_hours } => {
+        MobfarmCmd::BedtierTwo { design, from, to, speeds, restart_phases, orders, transit, lift_delay, lift_speed, day_hold, day_off, gap, c_at, skip_phases, day_on, jobs, day_gate, a_hours, after_sleep, release_after } => {
+            // (G1's CHANGES 4 note (b): the release waits for the wake edge, so a negative delay
+            // would silently act as 0)
+            anyhow::ensure!(release_after >= 0 && after_sleep >= 0, "--release-after and --after-sleep can't be negative (the release waits for the wake edge, F for the lie-down edge)");
             let (_c, spec) = load(version, &design)?;
-            crate::bedtier::two_cmd(&spec, from, to, &speeds, restart_phases.as_deref(), &crate::bedtier::orders(&orders)?, transit, lift_delay, lift_speed, day_hold.as_deref(), &day_off, gap, c_at, skip_phases.as_deref(), day_on, jobs, day_gate, a_hours.as_deref())?;
+            // (ironspec 21:25: the design's declared cart contacts, `# contacts: x,y,z=REASON`)
+            let declared_contacts: Vec<[i32; 3]> = crate::pushscan::header_entries(&std::fs::read_to_string(&design)?, "contacts:")
+                .iter()
+                .map(|d| {
+                    let c = d.split_once('=').map_or(d.as_str(), |(c, _)| c);
+                    let v: Vec<i32> = c.split(',').map(|x| x.trim().parse::<i32>()).collect::<std::result::Result<_, _>>()?;
+                    match v.as_slice() {
+                        &[x, y, z] => Ok([x, y, z]),
+                        _ => anyhow::bail!("contacts {d:?}: x,y,z=REASON"),
+                    }
+                })
+                .collect::<Result<_>>()?;
+            crate::bedtier::two_cmd(&spec, from, to, &speeds, restart_phases.as_deref(), &crate::bedtier::orders(&orders)?, transit, lift_delay, lift_speed, day_hold.as_deref(), &day_off, gap, c_at, skip_phases.as_deref(), day_on, jobs, day_gate, a_hours.as_deref(), after_sleep, release_after, Box::leak(declared_contacts.into_boxed_slice()))?;
         }
     }
     Ok(())

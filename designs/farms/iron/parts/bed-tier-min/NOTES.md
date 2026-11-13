@@ -81,10 +81,17 @@ R (4,-1,5).
   are uncovered: 2 high under the walk's north wall, reached by no napper (the pickup cell's way
   north is 1 high, the curve (-2,0,-4) 1 high under its glass), never a path node in any row.
 - **Night:** it lies down on the walk (REST). The hatch's two iron trapdoors stand open (their
-  levers on) and hide the zombie; F (the lie-down + 10, the bed observer's edge) shuts them flat
-  (levers off): the zombie (persistent, in a boat at its post (-4.5,0,4.5), leaves over it) wakes
-  it, it stands up on the pickup cell, the park releases 30 gt after the wake edge, the cart seats
-  it (0.143..0.207 b/t in every bench row) and runs on to R, whose pulse opens the hatch again.
+  levers on) and hide the zombie; F (the lie-down + 2, the bed observer's edge; + 10 before the
+  stop cuts) shuts them flat (levers off): the zombie (persistent, in a boat at its post
+  (-4.5,0,4.5), leaves over it) wakes it, it stands up on the pickup cell, the park releases at the
+  wake edge (+ 0; + 30 before the cuts), the cart seats it (0.143..0.207 b/t in every bench row) and
+  runs on to R, whose pulse opens the hatch again.
+- **Declared for push-scan** (the file's `# switch:` (main's T-reach declaration, which push-scan
+  joins to its switch list) and `# always-on:` header lines, local frame):
+  the hatch's, the activator's and the park's levers, the second landing's lever and the four
+  golem-proofing stone buttons as switches; the entry and exit boosters' torches on glass always-on.
+  The buttons are inert sources (never pressed), not T controls: they move to 9fc3155f's `# inert:`
+  key once push-scan has it (ironspec 22:46 (2c)); until then `# switch:` keeps them declared.
 - **IDLE** (a skip, a stale arrival): it waits where it stands (the chest, the ledge, the bed's
   top, the pickup cell) with no walk target and no stamp, and lies down at REST's first tick.
   The stop has no clearer for a stamp armed before it: a napper arriving in IDLE with one keeps it
@@ -97,8 +104,12 @@ R (4,-1,5).
 
 ## What the stop relies on
 
-- **Entry speed 0.02-0.62 b/t** heading west at the entry booster (all seated). From 0.65 the cart
-  brakes lower on the park and the released cart stops 0.5 short of the pickup cell.
+- **Entry speed [0.02, 0.401] and [0.438, 0.641] b/t** heading west at the entry booster (all
+  seated; night, every 0.001 from 0.020 to 0.650). Between them, and from 0.642, the cart parks
+  lower on the park's upper slope rail (x 1.04..1.12 against 1.14..1.46) and the released cart,
+  topping out near 0.42 instead of 0.46, stops on the flats short of the pickup cell (z 3.71): no
+  pickup. The earlier "0.02-0.62" came from coarse steps (0.4, 0.5) that stepped over the hole.
+  The timing band is narrower still (below).
 - **The pickup speed** (G1's note 1): every bench row seats at 0.143..0.207 b/t. The margin sweep
   (`--pickup-injects`, the released cart set two cells north at a forced speed) seats at measured
   0.100..0.272 and from 0.311; below 0.1 vanilla never picks up (its speed squared must pass 0.01),
@@ -160,25 +171,143 @@ exit's rails, the entry): never the declared-unreachable (-4,1,5), never the unc
 | entries 0.25..0.62 (the night row) | 40 / 40 | lie-down entry + 87..222, waiting about 144 gt on the chest first; stamp at most 5 |
 | entry 0.171 b/t ((C)'s descent, ironspec 16:20): night, restarts +1..+250 every 3 gt x 10 orders, skip at every gt +1..+300, panic tail 0..40 | 8 + 6,720 + 2,400 + 168, all clean | lie-down entry + 85..91 (night 87), R 199..252; stamp at most 38 |
 | pickup margin: the released cart at a forced speed | 64 / 88 | seated at measured 0.100..0.354 but the injected 0.143 (measured below 0.100) and 0.322..0.35 (the dead-stop window, above) |
-| two visits, restarts every gt over +1..+321 x 10 orders | 77,064 / 77,064 | A within 17 at C's lie-down 0; A's R to C's lie-down 122..361 gt |
+| two visits, restarts every gt over +1..+321 x 10 orders | 77,064 / 77,064 | (a1) 0 calm-REST ticks within 16 of the occupied bed; A within 17 at C's lie-down 0 (an inherited margin); A's R to C's lie-down 122..361 gt |
 | two visits, A at day time 0..80, C queued | 192 / 216 | HOME losses by place: 0 rows in the stop's box, 24 only outside it (C at the bench's queue cell, at 12,013, before its entry) |
 | two visits, a skip in A's visit (every 10 gt) | 178 / 1,032 by HOME | 653 rows lose HOME only outside the stop (C on the bench's queue cell through the day, at 12,013..12,034, before its entry); 201 in the stop's box: C, teleported from the bench's queue with a stamp armed there (no post). Void (ironspec 15:17): the bench queue's; the real-queue rows (next section) replace it |
 | control `--no-presence-gate --empty` | 24 out | the empty cart leaves |
 | control `--trapdoor-caps`, restarts +90..+180 every 4 gt x 10 orders | 5,520 / 5,520 | no path off the pickup cell after a restart in A6, so the contact mode no longer shows |
 
 The two-visit rows still run on the old corner queue's cell and transit; the real queue's rows are
-the next section's.
+the next section's. The restart rows above sampled every 3 or 4 gt stepped over the restart trap's
+ticks (entry + 2 and + 3) and are pre-official-load (ironspec 22:46 (2b)).
 
-## On the real approach (ironspec 14:58-16:29, the boundary contract)
+## With both stop cuts (ironspec 17:35-19:33: day-1's controller line lays them)
+
+The park released at the wake edge + 0 (was + 30) and F at the lie-down + 1 or + 2 (was + 10):
+`--release-after 0 --after-sleep 1` (or 2) on both benches (the two-visit bench took the flags
+too). 0 blocks; entry to R 188 / 207 / 252 -> 150 / 169 / 209 at entries 0.171..0.2 with restarts.
+In vanilla LAST_SLEPT is set at the lie-down (Villager.startSleeping, which also erases
+CANT_REACH), so the 1-gt nap counts (tick-exact's official row). The release waits for the wake
+edge (the presence gate), so the released cart can't meet a napper still in bed: the new bar (0 in
+every row): no pickup before the wake, none off the bed while asleep, the released cart never in
+the pickup cell before the wake. Its positive control (G1's CHANGES 4 (3)): `--early-release
+--after-sleep 100` (the park released at the lie-down edge, the napper held asleep) fires in 24 of
+24 visits ("seated off the bed while asleep (the unbridged pickup)") and the run exits 1. The
+benches' defaults are the accepted design (F at the lie-down + 2, the release at the wake edge +
+0; 10 / 30 the pre-cut control), and every cart's contact with a block is printed per row (ironspec
+21:25; A6's file declares none, so any contact fails its row). The full set with `--after-sleep 1` (8 seeds; bench, tool
+unreviewed): every row clean, HOME 0 lost, 0 escapes, the early-pickup bar 0, the stamp at a calm
+REST tick at most 39, (-4,1,5) never a path node:
+
+| row | visits | entry to R (min / median / max) |
+|---|---|---|
+| night | 24 | 164 / 179 / 306 |
+| re-board, entries 0.02..0.62 | 24,000 | 150 / 176 / 321 |
+| restarts +1..+250 every 3 gt x 10 orders | 20,160 | 150 / 169 / 209 |
+| the same with F at lie-down + 2 | 20,160 | 151 / 170 / 209 |
+| skip at every gt; thunder; stale; early; window end; panic tail | 7,200; 10,080; 1,944; 2,424; 2,400; 504 | |
+| skip x restart; stale x restarts | 13,200; 4,800 | |
+| entries 0.25..0.62 | 40 | |
+| entry 0.171: restarts x 10 orders; skips; panic tail | 6,720; 2,400; 168 | 161 / 174 / 209 (restarts) |
+| pickup margin | 64 of 88 | the same three injected failures (below 0.100; 0.322, 0.35) |
+| two visits: restarts every gt +1..+321 x 10 orders | 77,064 / 77,064 | (a1) 0 calm-REST ticks within 16 of the occupied bed; A never within 17 at C's lie-down (an inherited margin); A's R to C's lie-down 122..361 |
+| two visits: stale; skip | 192 / 216; 238 / 1,032 by HOME | the losses C's on the bench's queue (void, 15:17) |
+
+The maxima of 306..321 are the fast entries' chest wait (below) and, in the re-board rows (restarts
+at every gt +1..+30), the restart trap. **Labels (ironspec 22:46 (2b)):** the restart rows in this
+table sampled every 3 gt stepped over the trap ticks (entry + 2 and + 3; the restart trap below) and
+ran before the official load (cc767b78's helper: one block-only tick after the load): their maxima
+(209) are pre-official-load and say nothing about + 2 / + 3; they are re-run on the helper at every
+tick.
+
+## The timing band (ironspec 19:18-19:16)
+
+A6 catches entries in [0.02, 0.401] and [0.438, 0.641] (the correctness band, above), but its
+timing band is narrower: from 0.28 a riding path last computed in the entry's cell makes the napper
+wait about 144 gt on the chest before walking (no stamp), and entry to R reaches 275..335. Lane C's
+cap holds only with entries in [0.02, 0.27] ((C)'s entry bar; the water-drag descent delivers
+0.12..0.20). The per-speed sweep, both cuts (F at lie-down + 2), 8 seeds (`--speeds` at 78 speeds
+0.02..0.62, dense at 0.05..0.07 and 0.13..0.14; `--r-bar 209` prints the v_slow line):
+
+| rows | entry to R over [0.02, 0.27] | worst speeds |
+|---|---|---|
+| night, 32 seeds per speed | at most 186 | 0.0592..0.068: 167 / 175 / 186 |
+| restarts +1..+250 every 6 gt x 10 orders (262,080 visits; sampled every 6 gt, so the trap ticks + 2 / + 3 stepped over; pre-official-load) | at most 211 | 0.0592..0.068 and 0.25..0.26: 211; over C7's band [0.128, 0.176] (b8949c96's lead (C), ironspec 22:09): at most 210 (0.13..0.136), day-1's cap input (the maximum over the band (C) delivers, not over the operating band) |
+
+From 0.28 the maximum is 328..335 with restarts. The only failures in the restart sweep are the
+catch band's hole (0.41, 0.42, 0.43: not out); HOME 0 lost, 0 escapes, 0 early pickups.
+
+**The restart trap (found Nov 12 20:47; pre-official-load, every-tick restarts):** the every-6-gt
+sweep above stepped over entry + 2 and + 3. A restart there drops the rider's path; its brain
+recomputes it at + 4 with the cart in the activator's cell (1 high: the start falls back to the
+AABB corner in the entry cell), so the path's first node is the entry, behind the one-way plate.
+Ejected onto the chest, the napper presses toward it (vanilla's shouldTargetNextNodeInDirection,
+which redsim follows, won't skip it from the chest) until the stuck detection drops the path, about
+145 gt: 160 of 240 rows per tick (3 speeds x 10 orders x 8 seeds), entry to R up to 318 / 322;
+every other restart tick +1, +4..+30 is clean. HOME, stamps (at most 39) and escapes are unchanged.
+ironspec 20:53 (1): A6's cheapest fix (b) is owed (the ejected napper never targets a node it can't
+reach, the plate stays), shown at every restart tick +1..+250, and the mechanism goes official
+first (tick-exact). Lane C's cap stays on the no-restart maximum 210 meanwhile. A first candidate,
+an open iron trapdoor over the activator (plate south), leaves 240 of 7,200 stalled: not enough.
+
+## The operating entry band [0.11, 0.24] (ironspec 19:31; widened 21:25)
+
+A6 is capped, not fixed: (C)'s entry bar is the measured [0.11, 0.24] in every row (leg speeds,
+restarts, freezes, the rest +- 0.05, the release +- 1, contacts counted); an entry outside it is
+(C)'s failure, and before such an entry counts the park sweep below is extended to cover it. Inside
+the band A6 meets every bar at 0 blocks but the restart trap above. The known limits outside it:
+- below x 1.12 the park loses a boost tick and the release stops short of the pickup (entries below
+  about 0.11 park as low as 1.14: no margin);
+- the catch hole 0.402..0.437 (and from 0.642);
+- the chest wait from 0.28 (entry to R 328..335).
+
+Park-north stays in reserve (a realistic -15..-20 gt, not -25; ironspec 19:31 (4)).
+
+## The release from every park position (ironspec 20:31 (2))
+
+The released cart starts from rest on the park's slope; the powered rails push only once it passes
+0.01, so its top speed is quantized by boost ticks (0.06 each) and the pickup speed steps with the
+park position: 0.143 -> 0.155 -> 0.204 as the park rises; below x 1.12 a park loses a tick and the
+cart comes in at about 0.10, vanilla's pickup floor, and stops against the napper (the catch band's
+hole). `--park-shifts` moves the parked cart along its rail before the release and prints the
+seating and the pickup speed by park position against the band, 0.02 inside each edge ([0.120,
+0.252] or from 0.331):
+
+| rows | park positions | result |
+|---|---|---|
+| entries 0.11..0.21 every 0.005, restarts at every gt +1..+60 (through the parking) x 10 orders (100,800 visits) | the parks produced: x 1.28..1.64 | all seated at 0.144..0.206 |
+| entries 0.11..0.24 every 0.005, restarts at every gt +1..+30 (through the parking) x 10 orders x the park moved -0.05 / 0 / +0.05 (194,400 visits; ironspec 20:16 (1), pre-official-load) | the parks produced +- 0.05: x 1.23..1.69 (48 positions) | all seated at 0.143..0.207: met (the band widened to [0.11, 0.24], ironspec 21:25) |
+| entries 0.066 / 0.12 / 0.15 / 0.17 / 0.2, the parked cart moved -0.15..+0.45 every 0.01 | x 1.19..2.00 (139 positions) | all seated at 0.143..0.249; over 1.23..1.69 (the produced range +- 0.05) 0.143..0.206: met |
+
+A booster before the pickup fails: it brings the cart in at 0.30..0.38, where it stops dead against
+the standing napper (z 3.71) at some tick phases.
+
+## On the real approach (ironspec 14:58-18:10, the boundary contract)
 
 `mctas mobfarm bedtier-bench <the module> --module-offset 0,-27,-1 --queue-seat 9.5,-13.4375,-3.5
---queue-release 8,-14,-4 --queue-waits 20..59 [--restop OLD,NEW] [--skip-phases ..] [--forced-stamp]`:
-the module moved into the stop's frame, its lanes' and seat's villager riders removed (the posts'
-mobs stay), the napper spawned at the queue seat at night and released by a redstone block in the
-release's input once the hold has passed and day-1's gate sees night (REST_l and NOT DAY, from day
-time 12,250: a napper picked before a skip is held until dusk); `--restop` brings the module's stop
-(b36302af8's) up to this file (12 cells). Every row prints the stamp at A6's entry, at every calm
-REST tick and at dusk, and the escape row. On b8949c96's drop-and-roll WIP (e9f0f4cbf, 8 seeds):
+--queue-release 8,-14,-4 --declare-emulated 8,-15,-4 --declare-emulated 7,-15,-4 --declare-emulated
+6,-15,-4 --declare-emulated 8,-14,-4 --declare-emulated 7,-14,-4 --declare-emulated 6,-14,-4
+--queue-waits 20..59 [--restop OLD,NEW] [--skip-phases ..] [--forced-stamp] [--arrival-stamp
+AGE --arrival-run --arrival-hold H]`: the module moved into the stop's frame, its lanes' and seat's
+villager riders removed (the posts' mobs stay), the napper spawned at the queue seat at night and
+released once the hold has passed and day-1's gate sees night (REST_l and NOT DAY, from day time
+12,250: a napper picked before a skip is held until dusk); `--restop` brings the module's stop
+(b36302af8's) up to this file (12 cells). The release is day-1's R1 (ironspec 18:10, b8949c96
+17:58): repeaters at (8,-14,-4) and (7,-14,-4) on glass, their output toward the queue's rail,
+driven by a lever on glass at (6,-14,-4) thrown at the release (the stand-in for day-1's gate
+output); never a redstone block in (8,-14,-4) (it made (8,-13,-4) a second PANIC candidate at the
+seat, the "walk targets taken while panicking -> [8,14,-3]" of the first rows below, and an off-pad
+golem cell). The dwell rows (ironspec 17:16/17:52) inject the leg's state at the seat: a stamp armed
+AGE gt before the spawn, HOME as the walk target (a held run, partial from the seat) and that run's
+remaining hold H. Every row prints the stamp at the queue's release, at A6's entry, at every calm
+REST tick and at dusk, the release-to-entry time, the escape row and the early-pickup bar.
+
+The first rows below (on b8949c96's drop-and-roll WIP e9f0f4cbf, 8 seeds) ran with the redstone
+block release and the old timing: provisional (ironspec 18:10), kept for the record. **Every
+real-approach row in this section ran on e9f0f4cbf, the superseded (C): all PROVISIONAL (ironspec
+22:46 (2b)); the approach rows that count run on C7's package (explore/farmopt-waycell4,
+`f1q2-module-wayin-a6.txt`) with record7d's built R1 cells, once the water batch's waterlogged rails
+are in redsim.**
 
 | row | result |
 |---|---|
@@ -192,8 +321,42 @@ REST tick and at dusk, and the escape row. On b8949c96's drop-and-roll WIP (e9f0
 | restarts +30..+300 every 5 gt x 10 orders, with the second landing | 1,100 / 1,100, HOME 0 lost, 0 escapes |
 | skips every 2 gt 20..360, phases 20/40/59, behind the night gate: A6 as composed / with the second landing (the fall still in) | 204 / 99 of 1,026 lose HOME (the fall's stamps), 0 escapes |
 
-The contract run on (C) (the rail descent at 0.171 b/t, ironspec 16:20) with the second landing
-follows its lay: 0 HOME lost over every skip tick and release phase, the forced control biting.
+With day-1's R1 release and both stop cuts (the release at the wake edge + 0, F at lie-down + 1),
+A6 with the second landing (e9f0f4cbf, 8 seeds; release to A6's entry 114 gt):
+
+| row | result |
+|---|---|
+| night, release phases 20..59 | 320 / 320, HOME 0 lost, 0 escapes, 0 early pickups; 46 enter stamped (the airborne fall) |
+| restarts +30..+300 every 5 gt x 10 orders | 1,100 / 1,100 HOME, 0 escapes |
+| skips every 2 gt 20..360, phases 20/40/59 (the fall still in) | 164 of 1,026 lose HOME (the way-in's stamps), 0 escapes |
+| escape control (the lever east on glass at (4,3,-3), nothing over it) | 223 of 320 escape |
+| forced-stamp control | 22 / 22 lose HOME at dusk |
+
+The contract run on (C) (the rail descent, ironspec 16:20) with the second landing follows its lay:
+0 HOME lost over every skip tick and release phase, the forced control biting; and the dwell rows
+(ironspec 17:16/17:52): the queue releasing at dwell 0, 34 and 50 with the leg's state injected
+(b8949c96's measures: the stamp 78..387 gt old at the arrival, the held run dropped 88..160 gt after
+it), a skip at every tick from the arrival to the first calm REST tick on the ledge, 0 HOME lost,
+entry to R inside its budget, cross-checked against b8949c96's whole-visit chain.
+
+## The stand-ins the benches write (ironspec 17:46/18:34/20:31)
+
+Every emulated write is checked before the run against the built cell (`emulated_write_check`,
+`standin_reach_check`, `survival_check`): golem and path properties through redsim's own predicates
+(legacy-solid, a full top face, full-block collision, solid-render, golem-excluded, air, signal
+source, rail, dangerous, any collider, fluid: G1's CHANGES 4) equal, unless the cell is declared
+(`--declare-emulated`); update reach (the face neighbours a state change notifies, a lever's
+attached block's, a repeater's front block's) with no undeclared rail T; power reach (a lever's six
+neighbours and attached block, a repeater's front, through a conductor (redsim's
+`isRedstoneConductor`) its neighbours) inside the built input's reach, any other stand-in kind
+refused; survival (every laid block and every stand-in `can_survive`s where it stands, no rail
+`would_pop`), or the run fails. Late-path is left to 9fc3155f's statics on the declared cells. The
+stand-ins:
+
+| stand-in | cells | golem / path | update reach | power reach |
+|---|---|---|---|---|
+| the controller's levers (hatch, activator, park): `ctl_block` | (-4,0,3), (-4,1,5), (2,2,-5), (1,1,-5), (0,0,-5) | the built levers themselves, only their powered state toggled: equal | the built lever's; no rail T (the stop has none) | the built lever's own (identical by construction) |
+| the queue's release, day-1's R1 (with --module-offset) | repeaters (8,-14,-4), (7,-14,-4); the driver lever (6,-14,-4); glass under the three | all six declared until day-1's R1 lands in the module (the repeaters and the lever differ from the air they replace in air and signal source; the glass in legacy-solid, full top, collision; golem-excluded and not solid-render: no golem cell, no PANIC candidate) | the repeaters' fronts (the next repeater, the queue's rail) and their neighbours; no rail T | the lever: the back repeater only (its other neighbours air); each repeater: the next one, the front one the queue's rail |
 
 ## Observed, unbridged
 
