@@ -139,6 +139,9 @@ pub struct Opts {
     pub eject_control: bool,
     /// (day-1 11:40) hold the outbound napper's J's off until (8,25,9), as before the per-J release.
     pub picker_hold_to_leg: bool,
+    /// (G1's P1 controls) "rest": a cart pinned at rest in lane -1's column cell until its next pass;
+    /// "moving": a cart falling through it at a lane -1 pass's start.
+    pub vholds_control: Option<String>,
     /// (ironspec 10:51 (g)) the longest designed rest on a station hold H's trapdoor, gt.
     pub h_rest_bound: i64,
     /// (ironspec 10:51 (f)) the siding check's positive: a batch cart planted on lane -1's siding R.
@@ -1181,9 +1184,8 @@ impl Ctl {
     }
 
     fn note(&mut self, t: i64, s: String) {
-        if self.log.len() < 400 {
-            self.log.push(format!("t {t}: {s}"));
-        }
+        // (G1's P10) every note kept: the report judges the whole log
+        self.log.push(format!("t {t}: {s}"));
     }
 
     /// One tick's drives, after the world's tick at `now` (`rel` the run's tick).
@@ -3191,13 +3193,17 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     // since it arrived there and its largest lateral displacement there (|x - the lane's centre|),
     // and per pass (lane, those ticks, that displacement, a cart at C / D behind it at any of them)
     let mut lip_state: BTreeMap<u32, (i64, f64, bool)> = BTreeMap::new();
-    // (ironspec 11:01 / 11:02) the arrivals at a lip while V holds a cart, per lane
-    let mut lip_v_full: [Vec<String>; 3] = [Vec::new(), Vec::new(), Vec::new()];
-    // (G1 11:06) the transits through V at a lip arrival (a moving cart whose rider stays below)
-    let mut lip_v_transits: [Vec<String>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+    // (ironspec 11:08 (2) / 11:37, G1's P1) the open pass windows, the judged passes per lane, the
+    // passes with a hit or a push, and the least separation over the clean passes
+    let mut pass_open: BTreeMap<u32, PassWindow> = BTreeMap::new();
+    let mut pass_judged = [0usize; 3];
+    let mut pass_rows: [Vec<PassRow>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+    let mut pass_clean_least = [f64::INFINITY; 3];
+    // (G1's P2 / P3) the envelope's passes: (lane, off-rail ticks, lateral deviation, a cart behind,
+    // how the window closed, cart, start, the cell it closed in)
+    let mut env_passes: Vec<(usize, i64, f64, bool, &'static str, u32, i64, [i32; 3])> = Vec::new();
     // (day-1 / ironspec 11:06) every lip arrival: (lane, tick, cart, a napper's)
     let mut lip_arrivals: Vec<(usize, i64, u32, bool)> = Vec::new();
-    let mut lip_passes: Vec<(usize, i64, f64, bool)> = Vec::new();
     // (G1 10:34) the siding trace's rows
     let mut siding_rows: Vec<String> = Vec::new();
     let mut late_rider: Option<u32> = None;
@@ -3233,6 +3239,11 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     // westbound control's (tick, cart)
     let mut kmis: Option<(i64, u32, String)> = None;
     let mut westbound: Option<(i64, u32)> = None;
+    // (G1's P1 controls) the V-holds control's cart and tick, whether the rest form is done, and lane
+    // -1's judged passes when it began
+    let mut vhold: Option<(u32, i64)> = None;
+    let mut vhold_done = false;
+    let mut vhold_judged0 = 0usize;
     // (ironspec 10:51 (f)) every batch cart seen on a siding cell (the plant control's own sample)
     let mut siding_batch_ids: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
     // (ironspec 09:44 / 09:48, G1 09:45) every plain-rail T at t0 (3+ rail neighbours) and its shape,
@@ -3293,8 +3304,16 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     let mut ledger: [Vec<(i64, u32, i64, String)>; 3] = [Vec::new(), Vec::new(), Vec::new()];
     // (onechunk 11:16) every napper's cart dropping into a lane not its own, with its split turns
     let mut napper_wrong_lane: Vec<String> = Vec::new();
+    // (G1's P16) every napper's cart dropping into any lane (the misroute bar's denominator)
+    let mut napper_drops = 0usize;
     // (day-1 11:36) every cart's entry into a split junction's cell: (tick, x, class, napper's lane)
     let mut junction_passes: Vec<(i64, i32, &'static str, Option<usize>)> = Vec::new();
+    // (ironspec 11:48 / 11:50) per lane each returning napper's stored speed entering its own K (speed,
+    // tick, cart), and each napper cart's first rest on its siding's R (z in the design frame, tick,
+    // cart); the open R visits (cart -> resting already recorded)
+    let mut k_speeds: [Vec<(f64, i64, u32)>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+    let mut r_rests: [Vec<(f64, i64, u32)>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+    let mut r_rest_seen: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
     // (ironspec 11:23, R4) the westbound carts on the split row: the open episodes and each one's row
     let mut westbound_open: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
     let mut westbound_rows: Vec<String> = Vec::new();
@@ -3636,6 +3655,45 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         // (x,24,6) after t 1,000 is held there N gt (its position pinned, its motion zeroed), then let go
         // (ironspec 10:51 (f)) --siding-plant-control: at t 1,000 a ridden lane cart whose rider isn't a
         // napper is planted at rest on lane -1's siding R (-3,24,7)
+        // (G1's P1 controls) --vholds-control rest: from t 1,000 a ridden lane-3 batch cart is pinned at
+        // rest in lane -1's column cell (-1,23,6) until lane -1's next pass window closes; moving: at
+        // the first lane -1 pass window opening after t 1,000, a ridden lane-3 batch cart is put falling
+        // through (-1,23,6); either must be CAUGHT by the lip-pass bar on its own sample
+        if let Some(mode) = o.vholds_control.as_deref() {
+            let w = &mut run.world;
+            if vhold.is_none() && rel >= 1_000 && (mode == "rest" || pass_open.values().any(|pw| pw.lane == 0 && rel - pw.start <= 1)) {
+                let pick = w.entities.list.iter().enumerate().find(|(_, e)| {
+                    let c = cell(e.pos);
+                    !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && c[0] == 3 && (17..=21).contains(&c[1]) && e.passengers.first().is_some_and(|r| !nappers.iter().any(|(v, _, _)| v == r))
+                }).map(|(i, e)| (i, e.id));
+                if let Some((i, id)) = pick {
+                    if mode == "rest" {
+                        w.entities.set_pos(i, redsim::entity::Vec3::new(-0.5, 23.0, 6.5));
+                        w.entities.list[i].delta_movement = redsim::entity::Vec3::ZERO;
+                    } else {
+                        w.entities.set_pos(i, redsim::entity::Vec3::new(-0.5, 23.8, 6.5));
+                        w.entities.list[i].delta_movement = redsim::entity::Vec3::new(0.0, -0.3, 0.0);
+                    }
+                    vhold = Some((id, rel));
+                    controls_done.push(format!("the V-holds control ({mode}) at t {rel}: batch cart #{id} put {} lane -1's column cell (-1,23,6)", if mode == "rest" { "at rest in" } else { "falling through" }));
+                }
+            }
+            // the rest form stays pinned until a lane -1 pass window opened after it has closed
+            if mode == "rest"
+                && let Some((id, t)) = vhold
+                && !vhold_done
+            {
+                if pass_judged[0] > vhold_judged0 && !pass_open.values().any(|pw| pw.lane == 0) {
+                    vhold_done = true;
+                } else if let Some(i) = redsim::entity::index_of(w, id) {
+                    w.entities.set_pos(i, redsim::entity::Vec3::new(-0.5, 23.0, 6.5));
+                    w.entities.list[i].delta_movement = redsim::entity::Vec3::ZERO;
+                }
+                if rel == t {
+                    vhold_judged0 = pass_judged[0];
+                }
+            }
+        }
         if o.siding_plant_control && siding_plant.is_none() && rel >= 1_000 {
             let w = &mut run.world;
             let pick = w.entities.list.iter().enumerate().find(|(_, e)| {
@@ -3752,13 +3810,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             // is an error, never kept silently
             let pre_live: std::collections::BTreeSet<u32> = run.world.entities.list.iter().filter(|e| !e.removed).map(|e| e.id).collect();
             let m = crate::liveness::restart(&mut run.world, o.restart)?;
-            let fol = |id: u32| -> Result<u32, String> {
-                match m.get(&id) {
-                    Some(n) => Ok(*n),
-                    None if pre_live.contains(&id) => Err(format!("t {rel}: the world open didn't renew the live entity #{id} (G1 10:47: a live id the open doesn't renew is an error)")),
-                    None => Ok(id),
-                }
-            };
+            let fol = |id: u32| -> Result<u32, String> { open_follow(id, &m, &pre_live).map_err(|e| format!("t {rel}: {e}")) };
             let mut open_log: Vec<String> = Vec::new();
             let pairs = |name: &str, old: &[u32], new: &[u32]| -> String { format!("{name}: {}", if old.is_empty() { "none".to_string() } else { old.iter().zip(new).map(|(a, b)| format!("#{a} -> #{b}")).collect::<Vec<_>>().join(", ") }) };
             let old = std::mem::take(&mut recs);
@@ -3849,6 +3901,117 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             remap_keys!("the H rests open", h_open);
             remap_vec!("the siding's batch carts", siding_batch_ids);
             remap_vec!("the westbound episodes open", westbound_open);
+            // (G1's P8) the 29th-31st's id-keyed state follows the open too
+            remap_keys!("the judged HOME-target sets", judged_sets);
+            remap_keys!("the nap times", nap_times);
+            {
+                let (mut a, mut b) = (Vec::new(), Vec::new());
+                for set in nights.values_mut() {
+                    let old = std::mem::take(set);
+                    for id in old {
+                        let n = fol(id)?;
+                        a.push(id);
+                        b.push(n);
+                        set.insert(n);
+                    }
+                }
+                open_log.push(pairs("the nights' nappers", &a, &b));
+            }
+            remap_opt!("the farm-stop control's erased napper", home_erased_id);
+            if let Some((t, c, s0)) = kmis.take() {
+                let n = fol(c)?;
+                open_log.push(pairs("the K-misroute control's cart", &[c], &[n]));
+                kmis = Some((t, n, s0));
+            }
+            if let Some((t, c)) = westbound {
+                let n = fol(c)?;
+                open_log.push(pairs("the westbound control's cart", &[c], &[n]));
+                westbound = Some((t, n));
+            }
+            if let Some((c, t)) = vhold {
+                let n = fol(c)?;
+                open_log.push(pairs("the V-holds control's cart", &[c], &[n]));
+                vhold = Some((n, t));
+            }
+            if let Some((t, k, r)) = ctl.eject_done {
+                let n = fol(r)?;
+                open_log.push(pairs("the eject control's napper", &[r], &[n]));
+                ctl.eject_done = Some((t, k, n));
+            }
+            {
+                // the tuple lists keyed by an id in one field; (G1's P9) a history entry naming an id
+                // the open didn't renew (dead before it) is dropped from the rolling push window, and
+                // kept as it was in printed rows, never aliased into a judged key
+                let lenient = |id: u32| -> u32 { m.get(&id).copied().unwrap_or(id) };
+                let (mut a, mut b) = (Vec::new(), Vec::new());
+                push_hist.retain(|p| m.contains_key(&p.1) && m.contains_key(&p.2));
+                for p in push_hist.iter_mut() {
+                    let (m1, c1) = (lenient(p.1), lenient(p.2));
+                    a.extend([p.1, p.2]);
+                    b.extend([m1, c1]);
+                    p.1 = m1;
+                    p.2 = c1;
+                    if let Some((v, cc)) = p.3 {
+                        p.3 = Some((lenient(v), cc));
+                    }
+                }
+                for lane in c_arrivals.iter_mut() {
+                    for x in lane.iter_mut() {
+                        let n = lenient(x.3);
+                        a.push(x.3);
+                        b.push(n);
+                        x.3 = n;
+                    }
+                }
+                for x in lip_arrivals.iter_mut() {
+                    let n = lenient(x.2);
+                    a.push(x.2);
+                    b.push(n);
+                    x.2 = n;
+                }
+                for x in h_rests.iter_mut() {
+                    let n = lenient(x.3);
+                    a.push(x.3);
+                    b.push(n);
+                    x.3 = n;
+                }
+                for x in env_passes.iter_mut() {
+                    let n = lenient(x.5);
+                    a.push(x.5);
+                    b.push(n);
+                    x.5 = n;
+                }
+                for lane in k_speeds.iter_mut().chain(r_rests.iter_mut()) {
+                    for x in lane.iter_mut() {
+                        let n = lenient(x.2);
+                        a.push(x.2);
+                        b.push(n);
+                        x.2 = n;
+                    }
+                }
+                for lane in pass_rows.iter_mut() {
+                    for r in lane.iter_mut() {
+                        let n = lenient(r.arrival);
+                        a.push(r.arrival);
+                        b.push(n);
+                        r.arrival = n;
+                        for h in r.hits.iter_mut() {
+                            h.2 = lenient(h.2);
+                        }
+                    }
+                }
+                for slot in r_unridden.iter_mut() {
+                    if let Some((c, t, f)) = *slot {
+                        let n = fol(c)?;
+                        a.push(c);
+                        b.push(n);
+                        *slot = Some((n, t, f));
+                    }
+                }
+                open_log.push(pairs("the pushes, C arrivals, lip arrivals, H rests, envelope passes, K speeds, R rests, lip-pass rows and unridden R carts", &a, &b));
+            }
+            remap_keys!("the open pass windows", pass_open);
+            remap_vec!("the R visits' rests seen", r_rest_seen);
             if let Some((c, t)) = siding_plant {
                 let n = fol(c)?;
                 open_log.push(pairs("the siding plant's cart", &[c], &[n]));
@@ -6226,7 +6389,20 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             }
             // (ironspec 11:29 / 11:33) an unridden cart at rest on a siding's R for 20 gt or more: "siding
             // blocked by an unridden cart", each episode
+            // (ironspec 11:48 / 11:50) a cart that left every R starts a new visit
+            r_rest_seen.retain(|id| w.entities.list.iter().any(|e| e.id == *id && !e.removed && LANES.iter().any(|l| cell(e.pos) == [l - 2, 24, 7])));
             for (k, l) in LANES.iter().enumerate() {
+                // (ironspec 11:48 / 11:50) each napper cart's first rest on its siding's R: its z (the
+                // presence string's bar: z >= 7.100)
+                for e in w.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && cell(e.pos) == [l - 2, 24, 7]) {
+                    let d = e.delta_movement;
+                    if d.x * d.x + d.y * d.y + d.z * d.z < 0.003 * 0.003
+                        && e.passengers.first().is_some_and(|r| nappers.iter().any(|(v, _, _)| v == r))
+                        && r_rest_seen.insert(e.id)
+                    {
+                        r_rests[k].push((e.pos.z, rel, e.id));
+                    }
+                }
                 let empty_rest = w.entities.list.iter().find(|e| {
                     let d = e.delta_movement;
                     !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && cell(e.pos) == [l - 2, 24, 7] && e.passengers.is_empty() && d.x * d.x + d.y * d.y + d.z * d.z < 0.003 * 0.003
@@ -6263,6 +6439,15 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     };
                     let lane = e.passengers.first().and_then(|r| nappers.iter().find(|(v, _, _)| v == r).map(|(_, k, _)| *k));
                     junction_passes.push((rel, c[0], class, lane));
+                    // (ironspec 11:48 / 11:50, G1 11:50) a returning napper's STORED speed (its
+                    // deltaMovement, which may exceed its per-tick move) entering its own K
+                    if class == "returning napper"
+                        && let Some(k) = lane
+                        && LANES[k] - 2 == c[0]
+                    {
+                        let d = e.delta_movement;
+                        k_speeds[k].push(((d.x * d.x + d.z * d.z).sqrt(), rel, e.id));
+                    }
                 }
                 // (ironspec 11:23 / G1 11:19 F4 (b), R4) a westbound cart on the split row (x,25,9):
                 // each episode's first tick, bar 0
@@ -6278,7 +6463,12 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                         // (ironspec 11:09 (1), the conservation ledger) a cart entering lane x's queue
                         ledger[k].push((rel, e.id, 1, "dropped in from the lip".to_string()));
                         // (onechunk 11:16) a napper's cart dropping into a lane not its own: a misroute,
-                        // with its split turns
+                        // with its split turns; (G1's P16) every napper drop counted, the denominator
+                        if let Some(r) = e.passengers.first()
+                            && nappers.iter().any(|(v, _, _)| v == r)
+                        {
+                            napper_drops += 1;
+                        }
                         if let Some(r) = e.passengers.first()
                             && let Some((_, nk, _)) = nappers.iter().find(|(v, _, _)| v == r)
                             && *nk != k
@@ -6310,8 +6500,87 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     )
                 });
                 c_arrivals[k].push((rel, (v.x * v.x + v.z * v.z).sqrt(), act, e.id, e.pos.z - e.pos.z.floor(), e.pos.y, c_prev_cell.get(&e.id).copied().unwrap_or(c)));
+                // (ironspec 11:08 (2) / 11:37, G1's P1) the arrival's pass window opens at its entry
+                // into C
+                if !pass_open.contains_key(&e.id) {
+                    let kind = match e.passengers.first() {
+                        None => "an empty cart".to_string(),
+                        Some(r) if nappers.iter().any(|(v, _, _)| v == r) => format!("napper #{r}'s cart"),
+                        Some(r) => format!("batch #{r}'s cart"),
+                    };
+                    pass_open.insert(e.id, PassWindow { lane: k, start: rel, kind, least: f64::INFINITY, hits: Vec::new(), seen: std::collections::BTreeSet::new(), pushed: Vec::new(), off_rail: 0, max_dx: 0.0, behind: false });
+                }
             }
             c_prev_cell.insert(e.id, c);
+        }
+        // (ironspec 11:08 (2) / 11:37, G1's P1) every open pass window, every tick: any OTHER cart's box
+        // or its rider's box intersecting the arriving cart's box inflated by the largest horizontal
+        // in-tick step (0.015, tick-exact 11:33) at rest or moving, and every push on the arrival; the
+        // window closes when the arrival's box falls below y 23.0 (into the column) or after 60 gt
+        // (the game envelope's 12 off-rail gt plus the pass's own ~15, with margin), or when it leaves
+        // the lane's C / lip / column cells another way
+        {
+            let mut closed: Vec<(u32, &'static str, [i32; 3])> = Vec::new();
+            for (cid, pw) in pass_open.iter_mut() {
+                let Some(ci) = redsim::entity::index_of(w, *cid) else {
+                    closed.push((*cid, "removed", [0, 0, 0]));
+                    continue;
+                };
+                let me = &w.entities.list[ci];
+                let x = LANES[pw.lane];
+                let c = cell(me.pos);
+                let gone = !(c[0] == x && ((c[1] == 24 && (c[2] == 6 || c[2] == 7)) || (c[1] == 23 && c[2] == 6)));
+                let fell = me.bb.min_y < 23.0;
+                if fell || rel - pw.start > 60 || gone {
+                    closed.push((*cid, if fell { "into the column" } else if gone { "out of the lane's C / lip / column another way" } else { "still on the lip after 60 gt" }, c));
+                    continue;
+                }
+                // (G1's P3) tick-exact's quantities over the pass: the off-rail ticks, the lateral
+                // deviation from the lane's centre line, a cart behind at C / D while on the lip
+                let on_rail = redsim::rails::is_rail(&w.get(redsim::pos::BlockPos::new(c[0], c[1], c[2]))) || redsim::rails::is_rail(&w.get(redsim::pos::BlockPos::new(c[0], c[1] - 1, c[2])));
+                if !on_rail {
+                    pw.off_rail += 1;
+                }
+                pw.max_dx = pw.max_dx.max((me.pos.x - (x as f64 + 0.5)).abs());
+                if c == [x, 24, 6] && w.entities.list.iter().any(|f| !f.removed && f.id != *cid && matches!(f.kind, EntityKind::Minecart(_)) && [[x, 24, 7], [x, 24, 8]].contains(&cell(f.pos))) {
+                    pw.behind = true;
+                }
+                let my_rider = me.passengers.first().copied();
+                let mb = me.bb.inflate(0.015, 0.0, 0.015);
+                for o in w.entities.list.iter().filter(|o| !o.removed && o.id != *cid && Some(o.id) != my_rider) {
+                    let cart = matches!(o.kind, EntityKind::Minecart(_));
+                    let rider_of = o.vehicle.filter(|v| *v != *cid);
+                    if !cart && rider_of.is_none() {
+                        continue;
+                    }
+                    // the separation between the boxes (negative: an overlap)
+                    let gap = [mb.min_x - o.bb.max_x, o.bb.min_x - mb.max_x, mb.min_y - o.bb.max_y, o.bb.min_y - mb.max_y, mb.min_z - o.bb.max_z, o.bb.min_z - mb.max_z].into_iter().fold(f64::NEG_INFINITY, f64::max);
+                    pw.least = pw.least.min(gap);
+                    if mb.intersects(o.bb) && pw.seen.insert(o.id) {
+                        let d = o.delta_movement;
+                        let still = d.x * d.x + d.y * d.y + d.z * d.z < 0.003 * 0.003;
+                        let oc = cell(o.pos);
+                        pw.hits.push((still, format!("t {rel}: {} #{} at ({},{},{}) {}", if cart { "cart" } else { "rider" }, o.id, oc[0], oc[1], oc[2], if still { "at rest" } else { "moving" }), o.id));
+                    }
+                }
+                for p in push_hist.iter().filter(|p| p.0 == rel && p.2 == *cid) {
+                    pw.pushed.push(format!("t {rel} by #{}", p.1));
+                }
+            }
+            for (cid, why, at) in closed {
+                if let Some(pw) = pass_open.remove(&cid) {
+                    pass_judged[pw.lane] += 1;
+                    // (G1's P2 / P3) the envelope's pass: its off-rail ticks, lateral deviation, a cart
+                    // behind, and how the window closed (a pass ends in the column; any other close is
+                    // an escape)
+                    env_passes.push((pw.lane, pw.off_rail, pw.max_dx, pw.behind, why, cid, pw.start, at));
+                    if !pw.hits.is_empty() || !pw.pushed.is_empty() {
+                        pass_rows[pw.lane].push(PassRow { arrival: cid, start: pw.start, kind: pw.kind, least: pw.least, hits: pw.hits, pushed: pw.pushed });
+                    } else {
+                        pass_clean_least[pw.lane] = pass_clean_least[pw.lane].min(pw.least);
+                    }
+                }
+            }
         }
         // (ironspec 08:13 / 08:14 platform (2), G1 08:12 PT) the cart-conservation check: each lane's
         // carts on its lane (H, R_1 and the slopes) with the farthest-back one, and any cart standing
@@ -6571,37 +6840,15 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     if !lip_state.contains_key(&e.id) {
                         // (day-1 / ironspec 11:06: the pair gaps and the loop transit) every lip arrival
                         lip_arrivals.push((k, rel, e.id, e.passengers.first().is_some_and(|r| nappers.iter().any(|(v, _, _)| v == r))));
-                        // (G1 11:06: "holds", pending ironspec) V holds a cart when a cart rests (motion
-                        // under 0.003 a tick) in the column's cells (x,22,6) / (x,23,6), or any cart
-                        // there has a rider whose box top reaches the lip's floor (y 24.0); a moving
-                        // cart whose rider stays below it is a transit, printed apart with its distance
-                        let x = LANES[k];
-                        let kind = match e.passengers.first() {
-                            None => "an empty cart".to_string(),
-                            Some(r) if nappers.iter().any(|(v, _, _)| v == r) => format!("napper #{r}'s cart"),
-                            Some(r) => format!("batch #{r}'s cart"),
-                        };
-                        for f in w.entities.list.iter().filter(|f| !f.removed && f.id != e.id && matches!(f.kind, EntityKind::Minecart(_)) && [[x, 22, 6], [x, 23, 6]].contains(&cell(f.pos))) {
-                            let d = f.delta_movement;
-                            let rest = d.x * d.x + d.y * d.y + d.z * d.z < 0.003 * 0.003;
-                            let top = f.passengers.first().and_then(|p| redsim::entity::index_of(w, *p)).map(|i| w.entities.list[i].pos.y + 1.95);
-                            let reach = top.is_some_and(|t| t >= 24.0);
-                            let fc = cell(f.pos);
-                            if rest || reach {
-                                lip_v_full[k].push(format!("t {rel} cart #{} ({kind}) arrived at the lip with cart #{} at ({},{},{}) {}", e.id, f.id, fc[0], fc[1], fc[2], if rest { "at rest".to_string() } else { format!("its rider's box top {:.3} reaching the lip's floor", top.unwrap_or(0.0)) }));
-                            } else {
-                                lip_v_transits[k].push(format!("t {rel} cart #{} ({kind}) with cart #{} passing ({},{},{}), its rider's box {} below the lip's floor", e.id, f.id, fc[0], fc[1], fc[2], top.map_or("-".to_string(), |t| format!("{:.3}", 24.0 - t))));
-                            }
-                        }
                     }
                     let st = lip_state.entry(e.id).or_insert((0, 0.0, false));
                     st.0 += 1;
                     st.1 = st.1.max((e.pos.x - (LANES[k] as f64 + 0.5)).abs());
                     st.2 |= behind;
-                } else if let Some((n, dx, behind)) = lip_state.remove(&e.id)
-                    && let Some(k) = LANES.iter().position(|x| c == [*x, 23, 6])
-                {
-                    lip_passes.push((k, n, dx, behind));
+                } else {
+                    // (G1's P2: the entry is dropped whichever way the cart leaves the drop cell; the
+                    // envelope itself is judged on the pass windows)
+                    lip_state.remove(&e.id);
                 }
             }
             // (G1 10:34) --siding-trace FROM,TO: per tick, each lane's PRESENT_l, the carts on its
@@ -7933,6 +8180,8 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             // in lane; the night's REST_l and DAY edges
             let opps: Vec<String> = ctl.pick_opps.iter().map(|(t, c, k, v)| format!("t {t} C {c} lane x {} {v}", LANES[*k])).collect();
             let mut unrouted_rows: Vec<String> = Vec::new();
+            // (G1's P16) the entries too late to judge, printed as in flight
+            let mut unrouted_in_flight: Vec<String> = Vec::new();
             let msn = |v: u32, what: &str, from: i64, to: i64| -> Option<i64> {
                 past_marks.get(&v).into_iter().flatten().chain(recs.get(&v).map(|r| r.milestones.iter()).into_iter().flatten()).find(|(m, t)| m == what && *t >= from && *t < to).map(|(_, t)| *t)
             };
@@ -7996,6 +8245,12 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                         && end - e >= stop_thr
                     {
                         unrouted_rows.push(format!("#{v} lane x {} picked t {t}: entered the stop at t {e}, R {}", LANES[*k], rr.map_or(format!("none within {stop_thr} gt"), |r| format!("at t {r}, {} gt later (over {stop_thr})", r - e))));
+                    } else if let Some(e) = entry
+                        && rr.is_none()
+                        && end - e < stop_thr
+                    {
+                        // (G1's P16) an entry too late to judge is printed as in flight, never skipped
+                        unrouted_in_flight.push(format!("#{v} lane x {} entered the stop at t {e}, {} gt before the end (under {stop_thr}): in flight", LANES[*k], end - e));
                     }
                     if period[*k] == 0 {
                         continue;
@@ -8103,10 +8358,11 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             // (G1 08:28 / ironspec 08:28 platform (3)) the napper-unrouted bar
             unrouted_total = unrouted_rows.len();
             s.push_str(&format!(
-                "  no napper unrouted (G1 08:28 / ironspec 08:28 / 08:41 platform: a napper entering the stop with no R, or on its siding's R and not back in its lane, within the derived thresholds; bar 0; {unrouted_derivation}): {} ({}){}; the late rejoins (a missed release, then the lane's next D press under the built latch): {}\n",
+                "  no napper unrouted (G1 08:28 / ironspec 08:28 / 08:41 platform: a napper entering the stop with no R, or on its siding's R and not back in its lane, within the derived thresholds; bar 0; {unrouted_derivation}): {} ({}){}; in flight at the end (G1's P16: too late to judge, printed): {}; the late rejoins (a missed release, then the lane's next D press under the built latch): {}\n",
                 unrouted_rows.len(),
                 if nappers.is_empty() { "NOT JUDGED (no napper): FAIL" } else if unrouted_rows.is_empty() { "PASS" } else { "FAIL" },
                 if unrouted_rows.is_empty() { String::new() } else { format!(": {}", unrouted_rows.join("; ")) },
+                if unrouted_in_flight.is_empty() { "none".to_string() } else { unrouted_in_flight.join("; ") },
                 if late_rejoin.is_empty() { "none".to_string() } else { late_rejoin.iter().map(|(v, r, b)| format!("#{v}: on its siding's R at t {r}, back in its lane at t {b} ({} gt)", b - r)).collect::<Vec<_>>().join("; ") }
             ));
             // (ironspec 01:26 / 01:28 PT) the catch window: each fired H2 sample's late slack (the
@@ -8530,8 +8786,10 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         s.push_str(&format!("  ctl {l}\n"));
     }
     if ctl.log.len() > 60 {
-        s.push_str(&format!("  ({} more controller-log lines not printed; the controller keeps its first 400)\n", ctl.log.len() - 60));
+        s.push_str(&format!("  ({} more controller-log lines not printed)\n", ctl.log.len() - 60));
     }
+    // (G1's P10) both logs judged whole, not only their printed heads
+    s.push_str(&format!("{}\n{}\n", log_fail_line("run log", &log), log_fail_line("controller log", &ctl.log)));
     // (G1's blocker 2 on 185e9ac47, H2 / H19 / N1) each requested control asserts ITS OWN bar: a bar
     // the control must fail that fails is marked "expected FAIL" (so the exit reads every other
     // bar) and the control prints CAUGHT; one that doesn't is NOT CAUGHT (a FAIL); a control that
@@ -8627,6 +8885,15 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     }
     // (G1 11:19 F4 (c)) the napper path's forced positives: with F4 every lane count stays unchanged
     // (HELD on the nappers' misroute bar and on the per-lane count); before F4 they show NOT HELD
+    if let Some(mode) = o.vholds_control.as_deref() {
+        // (G1's P1 controls) caught on the lip-pass bar by the planted cart alone: every pass row with
+        // a hit or a push has the planted cart among its hits
+        let own = vhold.is_some_and(|(id, _)| {
+            let rows: Vec<&PassRow> = pass_rows.iter().flatten().collect();
+            !rows.is_empty() && rows.iter().all(|r| r.hits.iter().any(|h| h.2 == id))
+        });
+        late_controls.push((format!("--vholds-control {mode}"), "the lip passes clipped or pushed", true, vhold.is_some(), own));
+    }
     if o.k_misroute_control {
         late_controls.push(("--k-misroute-control".to_string(), "the nappers' carts dropping into a lane not their own", false, kmis.is_some(), true));
         late_controls.push(("--k-misroute-control (the count)".to_string(), "the per-lane cart count", false, kmis.is_some(), true));
@@ -8790,27 +9057,37 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             if per_t.is_empty() { "no change".to_string() } else { per_t.iter().map(|(p, (n, first))| format!("({},{},{}) {n} ({})", p[0], p[1], p[2], first.join(", "))).collect::<Vec<_>>().join("; ") }
         )
     };
-    // (ironspec 11:01 / 11:02, the new bar) the arrivals at a lip while V holds a cart
-    let s = format!(
-        "{s}the arrivals at a lip while V holds a cart (ironspec 11:01 / 11:02, the new bar: a cart entering the drop cell (x,24,6) while V (x,22,6) holds one; G1 11:05: each with its kind, napper or batch; per lane against the lane's C arrivals with Wilson's 95% bound; V here is the cell (x,22,6), G1's rider-box definition pending; bar 0): {} ({}){}\n",
-        lip_v_full.iter().map(|v| v.len()).sum::<usize>(),
-        if lip_v_full.iter().all(|v| v.is_empty()) { "PASS" } else { "FAIL" },
+    // (ironspec 11:08 (2) / 11:37, G1's P1) the lip passes clipped or pushed: each arrival's pass
+    // window judged every tick (boxes, at rest or moving, and pushes); a lane with no judged pass is
+    // NOT JUDGED
+    let s = {
+        let wilson = |kk: f64, n: f64| -> f64 { if n == 0.0 { 1.0 } else { let (p, z) = (kk / n, 1.96f64); ((p + z * z / (2.0 * n)) + z * (p * (1.0 - p) / n + z * z / (4.0 * n * n)).sqrt()) / (1.0 + z * z / n) } };
+        let total: usize = pass_rows.iter().map(|v| v.len()).sum();
+        let unjudged: Vec<String> = (0..3).filter(|k| pass_judged[*k] == 0).map(|k| format!("x {}", LANES[k])).collect();
+        let per: Vec<String> = (0..3)
+            .map(|k| {
+                let rows = &pass_rows[k];
+                let at_rest = rows.iter().filter(|r| r.hits.iter().any(|h| h.0)).count();
+                let moving = rows.iter().filter(|r| r.hits.iter().any(|h| !h.0)).count();
+                let pushed = rows.iter().filter(|r| !r.pushed.is_empty()).count();
+                let shown: Vec<String> = rows.iter().take(6).map(|r| format!("#{} ({}) from t {}: least separation {:.3}; {}{}", r.arrival, r.kind, r.start, r.least, r.hits.iter().map(|h| h.1.clone()).collect::<Vec<_>>().join(", "), if r.pushed.is_empty() { String::new() } else { format!("; pushed {}", r.pushed.join(", ")) })).collect();
+                format!(
+                    "lane x {}: {} passes judged, {} with a box hit or a push (<= {:.4}): hit by a box at rest {at_rest}, by a moving box {moving}, pushed {pushed}; the least separation over the clean passes {}{}",
+                    LANES[k],
+                    pass_judged[k],
+                    rows.len(),
+                    wilson(rows.len() as f64, pass_judged[k] as f64),
+                    if pass_clean_least[k].is_finite() { format!("{:.3}", pass_clean_least[k]) } else { "-".to_string() },
+                    if shown.is_empty() { String::new() } else { format!(" ({})", shown.join(" | ")) }
+                )
+            })
+            .collect();
         format!(
-            ": {}",
-            (0..3)
-                .map(|k| {
-                    let (kk, n) = (lip_v_full[k].len() as f64, c_arrivals[k].len() as f64);
-                    let ub = if n == 0.0 { 1.0 } else { let (p, z) = (kk / n, 1.96f64); ((p + z * z / (2.0 * n)) + z * (p * (1.0 - p) / n + z * z / (4.0 * n * n)).sqrt()) / (1.0 + z * z / n) };
-                    format!("lane x {}: {} of {} C arrivals (<= {ub:.4}){}", LANES[k], lip_v_full[k].len(), c_arrivals[k].len(), if lip_v_full[k].is_empty() { String::new() } else { format!(" ({})", lip_v_full[k].iter().take(8).cloned().collect::<Vec<_>>().join("; ")) })
-                })
-                .collect::<Vec<_>>()
-                .join("; ")
+            "{s}the lip passes clipped or pushed (ironspec 11:08 (2) / 11:37, G1's P1: each arrival's pass window from its entry into C until its box falls below y 23.0 (or 60 gt: the game envelope's 12 off-rail gt plus the pass's ~15, with margin; or it leaves the lane's C / lip / column), every tick: any other cart's or rider's box intersecting the arrival's box inflated 0.015 horizontally (tick-exact 11:33's in-tick step), at rest or moving, and every push on it; bar 0; a lane with no judged pass NOT JUDGED): {total} ({}): {}\n",
+            if !unjudged.is_empty() { format!("NOT JUDGED on {}: FAIL", unjudged.join(", ")) } else if total == 0 { "PASS".to_string() } else { "FAIL".to_string() },
+            per.join("; ")
         )
-    );
-    let s = format!(
-        "{s}  the transits through V at a lip arrival (G1 11:06, information: a moving cart in (x,22,6) / (x,23,6) whose rider's box stays below the lip's floor): {}\n",
-        (0..3).map(|k| format!("lane x {}: {}{}", LANES[k], lip_v_transits[k].len(), if lip_v_transits[k].is_empty() { String::new() } else { format!(" ({})", lip_v_transits[k].iter().take(6).cloned().collect::<Vec<_>>().join("; ")) })).collect::<Vec<_>>().join("; ")
-    );
+    };
     // (day-1 / ironspec 11:06, constant (4) and the loop transit) per lane: each napper's lip arrival
     // after its leader's (the pair gap), and each batch cart's loop transit, its hold H release (a rest
     // on H ending) to its next lip arrival
@@ -8865,6 +9142,35 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             if r_unridden_rows.is_empty() { "PASS" } else { "FAIL" },
             if r_unridden_rows.is_empty() { String::new() } else { format!(": {}", r_unridden_rows.iter().take(8).cloned().collect::<Vec<_>>().join("; ")) }
         );
+        // (ironspec 11:48 / 11:50, G1 11:50) the returning nappers' stored speed entering their own K,
+        // per lane; and each napper cart's rest on its R against the presence string's bar (z >= 7.100,
+        // margin = z - 7.050); a lane with no rest NOT JUDGED
+        let s = {
+            let mut speed_rows: Vec<String> = Vec::new();
+            let mut rest_rows: Vec<String> = Vec::new();
+            let mut low: Vec<String> = Vec::new();
+            let mut unjudged: Vec<String> = Vec::new();
+            for k in 0..3 {
+                let mut v: Vec<f64> = k_speeds[k].iter().map(|x| x.0).collect();
+                v.sort_by(|a, b| a.total_cmp(b));
+                speed_rows.push(format!("K({}): {}", LANES[k], if v.is_empty() { "none".to_string() } else { format!("n {}, min {:.3}, median {:.3}, max {:.3} b/t", v.len(), v[0], v[v.len() / 2], v[v.len() - 1]) }));
+                let mut z: Vec<f64> = r_rests[k].iter().map(|x| x.0).collect();
+                z.sort_by(|a, b| a.total_cmp(b));
+                if z.is_empty() {
+                    unjudged.push(format!("x {}", LANES[k]));
+                }
+                rest_rows.push(format!("lane x {}: {}", LANES[k], if z.is_empty() { "no rest".to_string() } else { format!("n {}, the lowest z {:.4} (margin {:+.4}), median {:.4}", z.len(), z[0], z[0] - 7.050, z[z.len() / 2]) }));
+                low.extend(r_rests[k].iter().filter(|x| x.0 < 7.100).map(|(zz, t, c)| format!("lane x {} t {t} cart #{c} at z {zz:.4}", LANES[k])));
+            }
+            format!(
+                "{s}the returning nappers' stored speed entering their own K (ironspec 11:48 / 11:50, G1 11:50: the cart's deltaMovement, which may exceed its per-tick move; information): {}\nthe napper carts' rests on their R below z 7.100 (ironspec 11:48 / 11:50: the presence string's rest bar, margin = z - 7.050; bar 0; a lane with no rest NOT JUDGED): {} ({}); {}{}\n",
+                speed_rows.join("; "),
+                low.len(),
+                if !unjudged.is_empty() { format!("NOT JUDGED on {}: FAIL", unjudged.join(", ")) } else if low.is_empty() { "PASS".to_string() } else { "FAIL".to_string() },
+                rest_rows.join("; "),
+                if low.is_empty() { String::new() } else { format!("; below: {}", low.iter().take(8).cloned().collect::<Vec<_>>().join(", ")) }
+            )
+        };
         // (day-1 11:36 / ironspec 11:40 (3)) the passage ticks at each split junction by class, as
         // phases on the station's clock (t mod 100; REL is at 5 mod 100), with their circular spread
         let s = {
@@ -8901,9 +9207,10 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             if westbound_rows.is_empty() { String::new() } else { format!(": {}", westbound_rows.iter().take(10).cloned().collect::<Vec<_>>().join("; ")) }
         );
         let s = format!(
-            "{s}the nappers' carts dropping into a lane not their own (onechunk 11:16: s3 / s8's 9th cart; bar 0): {} ({}){}\n",
+            "{s}the nappers' carts dropping into a lane not their own (onechunk 11:16: s3 / s8's 9th cart; bar 0; G1's P16: no napper drop at all is NOT JUDGED): {} of {} napper drops ({}){}\n",
             napper_wrong_lane.len(),
-            if napper_wrong_lane.is_empty() { "PASS" } else { "FAIL" },
+            napper_drops,
+            if napper_drops == 0 { "NOT JUDGED (no napper drop): FAIL" } else if napper_wrong_lane.is_empty() { "PASS" } else { "FAIL" },
             if napper_wrong_lane.is_empty() { String::new() } else { format!(": {}", napper_wrong_lane.iter().take(8).cloned().collect::<Vec<_>>().join(" || ")) }
         );
         let q = |mut v: Vec<i64>| -> String {
@@ -8929,35 +9236,47 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     // detector pressed by a cart not the napper's, FAILS), each with whether PRESENT_l was set; (G1
     // 10:36) the drop-entry envelope per pass; --lip-hold's control line; the siding trace
     let s = {
+        let mut lip_beyond_total = 0usize;
         let (ok_d, bad_d): (Vec<&(i64, usize, u32, Option<u32>, bool)>, Vec<&(i64, usize, u32, Option<u32>, bool)>) = ctl.r_departures.iter().partition(|(_, _, _, r, _)| r.is_some_and(|r| nappers.iter().any(|(v, _, _)| *v == r)));
         let (eg, edx) = o.lip_envelope;
         let mut per = String::new();
+        let mut env_unjudged: Vec<String> = Vec::new();
         for k in 0..3 {
-            let v: Vec<&(usize, i64, f64, bool)> = lip_passes.iter().filter(|p| p.0 == k).collect();
+            // (G1's P2 / P3) the envelope on the whole pass window: the off-rail ticks over the pass,
+            // the largest lateral deviation from the lane's centre line; a window closing any way but
+            // into the column is an escape (counted beyond the envelope)
+            let v: Vec<&(usize, i64, f64, bool, &'static str, u32, i64, [i32; 3])> = env_passes.iter().filter(|p| p.0 == k && p.4 == "into the column").collect();
+            let escapes: Vec<String> = env_passes.iter().filter(|p| p.0 == k && p.4 != "into the column").map(|p| format!("#{} from t {}: {} (at ({},{},{}), {} off-rail gt, lateral {:.3})", p.5, p.6, p.4, p.7[0], p.7[1], p.7[2], p.1, p.2)).collect();
+            if v.is_empty() && escapes.is_empty() {
+                env_unjudged.push(format!("x {}", LANES[k]));
+            }
             let mut t: Vec<i64> = v.iter().map(|p| p.1).collect();
             t.sort();
             let mut d: Vec<f64> = v.iter().map(|p| p.2).collect();
             d.sort_by(|a, b| a.total_cmp(b));
-            let beyond: Vec<String> = v.iter().filter(|p| p.3 && (p.1 > eg || p.2 > edx)).map(|p| format!("{} gt / {:.3}", p.1, p.2)).collect();
+            let beyond: Vec<String> = v.iter().filter(|p| (p.3 && p.1 > eg) || p.2 > edx).map(|p| format!("#{} {} gt / {:.3}{}", p.5, p.1, p.2, if p.3 { " (a cart behind)" } else { "" })).collect();
+            lip_beyond_total += beyond.len() + escapes.len();
             per.push_str(&format!(
-                "{}lane x {}: {} passes; off-rail ticks on the drop cell {}; lateral displacement {}; beyond the envelope with a cart behind: {}{}",
+                "{}lane x {}: {} passes; off-rail ticks over the pass {}; lateral deviation from the centre line {}; beyond the envelope: {}{}; escapes (the window closing other than into the column): {}{}",
                 if k == 0 { "" } else { "; " },
                 LANES[k],
                 v.len(),
                 if t.is_empty() { "-".to_string() } else { format!("min {}, median {}, max {}", t[0], t[t.len() / 2], t[t.len() - 1]) },
                 if d.is_empty() { "-".to_string() } else { format!("min {:.3}, median {:.3}, max {:.3}", d[0], d[d.len() / 2], d[d.len() - 1]) },
                 beyond.len(),
-                if beyond.is_empty() { String::new() } else { format!(" ({})", beyond.iter().take(8).cloned().collect::<Vec<_>>().join(", ")) }
+                if beyond.is_empty() { String::new() } else { format!(" ({})", beyond.iter().take(8).cloned().collect::<Vec<_>>().join(", ")) },
+                escapes.len(),
+                if escapes.is_empty() { String::new() } else { format!(" ({})", escapes.iter().take(6).cloned().collect::<Vec<_>>().join("; ")) }
             ));
         }
-        let n_beyond = lip_passes.iter().filter(|p| p.3 && (p.1 > eg || p.2 > edx)).count();
+        let n_beyond = lip_beyond_total;
         format!(
-            "{s}the ridden departures from a siding's R (G1 10:34: R's departure, the detector that resets PRESENT_l; a cart not the napper's pressing it FAILS): {} by nappers, {} by others ({}){}\nthe drop-entry envelope (G1 10:36: per pass, the off-rail ticks on the drop cell (x,24,6) and the largest lateral displacement there; a pass beyond the envelope ({eg} gt / {edx:.3} b; tick-exact's game: ~5 off-rail ticks, +-0.198 diagonal) with a cart at C or D behind it FAILS): {n_beyond} ({}); {per}\n{}{}",
+            "{s}the ridden departures from a siding's R (G1 10:34: R's departure, the detector that resets PRESENT_l; a cart not the napper's pressing it FAILS): {} by nappers, {} by others ({}){}\nthe drop-entry envelope (G1 10:36 / P2 / P3: per pass window (C's entry into the column), the off-rail ticks over the pass and the largest lateral deviation from the lane's centre line; a pass over {eg} off-rail gt with a cart at C or D behind it, or over {edx:.3} b lateral, or a window closing any way but into the column (an escape), FAILS; the defaults are tick-exact 10:55's game maxima; a lane with no pass NOT JUDGED): {n_beyond} ({}); {per}\n{}{}",
             ok_d.len(),
             bad_d.len(),
-            if bad_d.is_empty() { "PASS" } else { "FAIL" },
+            if ok_d.is_empty() && bad_d.is_empty() { "NOT JUDGED (no departure from any R; G1's P16): FAIL" } else if bad_d.is_empty() { "PASS" } else { "FAIL" },
             if bad_d.is_empty() { String::new() } else { format!(": {}", bad_d.iter().take(12).map(|(t, k, c, r, p)| format!("t {t} lane x {} cart #{c} rider {} (PRESENT_l {})", LANES[*k], r.map_or("-".to_string(), |r| format!("#{r}")), if *p { "set: CLEARED by it" } else { "not set" })).collect::<Vec<_>>().join("; ")) },
-            if n_beyond == 0 { "PASS" } else { "FAIL" },
+            if !env_unjudged.is_empty() { format!("NOT JUDGED on {}: FAIL", env_unjudged.join(", ")) } else if n_beyond == 0 { "PASS".to_string() } else { "FAIL".to_string() },
             match (o.lip_hold, lip_hold_cart) {
                 (Some(n), Some((c, t, _))) => format!("the forced lip row (G1 10:34): cart #{c} held {n} gt on the drop cell from t {t}\n"),
                 (Some(n), None) => format!("the forced lip row (G1 10:34): --lip-hold {n}: no cart reached a drop cell after t 1,000: NOT JUDGED: FAIL\n"),
@@ -9191,6 +9510,47 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
 /// otherwise NOT CAUGHT (a FAIL, the line kept as it is, so a natural failure beside the control
 /// still counts). A control that must leave its bar passing prints HELD, or NOT HELD (the bar's own
 /// FAIL stands). A control that never acted is NOT EXERCISED (a FAIL), whatever its bar says.
+/// (ironspec 11:08 (2) / 11:37, G1's P1) An arrival's pass window: its lane, its entry into C, its
+/// kind, the least separation between its (inflated) box and any other box, each other box that
+/// intersected it (at rest?, the row, the other's id) once, and each push on it.
+struct PassWindow {
+    lane: usize,
+    start: i64,
+    kind: String,
+    least: f64,
+    hits: Vec<(bool, String, u32)>,
+    seen: std::collections::BTreeSet<u32>,
+    pushed: Vec<String>,
+    /// (G1's P2 / P3, tick-exact's quantities over the whole pass) the ticks off a rail (no rail in
+    /// the cart's cell or the one below), the largest lateral (x) deviation from the lane's centre
+    /// line, and whether a cart stood at C / D behind it while it was on the lip
+    off_rail: i64,
+    max_dx: f64,
+    behind: bool,
+}
+
+/// (G1 10:47 blocking 1, G1's P9) An id across a world open: a renewed one's new id; a LIVE one the
+/// open didn't renew is an error; a dead one keeps its id unless that id now names a renewed entity
+/// (an alias: an error).
+fn open_follow(id: u32, m: &std::collections::HashMap<u32, u32>, pre_live: &std::collections::BTreeSet<u32>) -> Result<u32, String> {
+    match m.get(&id) {
+        Some(n) => Ok(*n),
+        None if pre_live.contains(&id) => Err(format!("the world open didn't renew the live entity #{id} (G1 10:47: a live id the open doesn't renew is an error)")),
+        None if m.values().any(|n| *n == id) => Err(format!("the dead id #{id} kept across the open now names a renewed entity (G1's P9: an alias)")),
+        None => Ok(id),
+    }
+}
+
+/// (G1's P1) A judged pass with a hit or a push.
+struct PassRow {
+    arrival: u32,
+    start: i64,
+    kind: String,
+    least: f64,
+    hits: Vec<(bool, String, u32)>,
+    pushed: Vec<String>,
+}
+
 /// (onechunk 11:16: s3 / s8's lane-7 napper turned into K(3)'s branch, bounced back and was caught
 /// by J(-1)) Every split-row turn of cart `id` in the 400 gt before `rel`: the junction (J(x) at
 /// (x,25,9) or K(x) at (x-2,25,9)), the tick, that T's shape then (t0's plus the changes before
@@ -9271,7 +9631,37 @@ fn anyhow_free(ok: bool, why: &str) -> Result<(), String> {
 /// every "expected FAIL" token (a declared placement-order T) is stripped first, so a real FAIL on
 /// the same line still counts.
 pub fn fail_lines(rep: &str) -> Vec<&str> {
-    rep.lines().filter(|l| l.replace("expected FAIL", "").contains("FAIL")).collect()
+    rep.lines().filter(|l| strip_expected(l).contains("FAIL")).collect()
+}
+
+/// (G1's P10) A line with every "expected FAIL" token removed, a token counting only as a whole
+/// word ("unexpected FAIL" keeps its FAIL).
+fn strip_expected(l: &str) -> String {
+    let mut out = String::with_capacity(l.len());
+    let mut rest = l;
+    while let Some(i) = rest.find("expected FAIL") {
+        let whole = rest[..i].chars().last().is_none_or(|c| !c.is_alphanumeric());
+        out.push_str(&rest[..i]);
+        if !whole {
+            out.push_str("expected FAIL");
+        }
+        rest = &rest[i + "expected FAIL".len()..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// (G1's P10) The FAIL lines anywhere in a whole log (never only its printed head): one report line
+/// counting them, FAIL when there is one, with the first few.
+pub fn log_fail_line(name: &str, log: &[String]) -> String {
+    let fails: Vec<(usize, &String)> = log.iter().enumerate().filter(|(_, l)| strip_expected(l).contains("FAIL")).collect();
+    format!(
+        "the {name}'s FAIL lines over all its {} lines (G1's P10: judged uncapped): {} ({}){}",
+        log.len(),
+        fails.len(),
+        if fails.is_empty() { "PASS" } else { "FAIL" },
+        if fails.is_empty() { String::new() } else { format!(": {}", fails.iter().take(4).map(|(i, l)| format!("line {}: {}", i + 1, l.chars().take(120).collect::<String>())).collect::<Vec<_>>().join(" | ")) }
+    )
 }
 
 /// (ironspec 02:37 PT (3)) The module's daylight detector (-5,15,3) under each weather: the day
@@ -9346,6 +9736,30 @@ pub fn counter_c(d: i64) -> i64 {
 
 #[cfg(test)]
 mod counter_tests {
+    /// (G1's P10) a FAIL anywhere in a whole log fails its line (one at line 230 of 250 included);
+    /// "unexpected FAIL" keeps its FAIL; a lone "expected FAIL" token doesn't fail a report line
+    #[test]
+    fn a_fail_deep_in_a_log_fails() {
+        let mut log: Vec<String> = (0..250).map(|i| format!("t {i}: fine")).collect();
+        assert!(super::log_fail_line("run log", &log).contains("(PASS)"));
+        log[229] = "t 229: the bar FAIL".to_string();
+        let l = super::log_fail_line("run log", &log);
+        assert!(l.contains(": 1 (FAIL)") && l.contains("line 230"), "{l}");
+        assert_eq!(super::fail_lines("x: 3 (expected FAIL)\ny: unexpected FAIL\nz: PASS"), vec!["y: unexpected FAIL"]);
+    }
+
+    /// (G1 10:47 blocking 1, G1's P9) across a world open: a renewed id follows; a live id the open
+    /// didn't renew errs; a dead id keeps its id unless that id now names a renewed entity (an alias)
+    #[test]
+    fn a_dead_id_never_aliases_a_renewed_one() {
+        let m: std::collections::HashMap<u32, u32> = [(10, 0), (11, 1), (12, 7)].into_iter().collect();
+        let live: std::collections::BTreeSet<u32> = [10, 11, 12, 13].into_iter().collect();
+        assert_eq!(super::open_follow(11, &m, &live), Ok(1));
+        assert!(super::open_follow(13, &m, &live).is_err());
+        assert_eq!(super::open_follow(5, &m, &live), Ok(5));
+        assert!(super::open_follow(7, &m, &live).unwrap_err().contains("alias"));
+    }
+
     /// (G1's note on 6248be579) C at a first release 49 / 50 / 51 gt either side of the 12,490 grid
     #[test]
     fn the_first_release_s_c_at_the_grid_s_ties() {
