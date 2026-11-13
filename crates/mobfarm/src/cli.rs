@@ -2034,6 +2034,19 @@ pub enum MobfarmCmd {
         #[arg(long = "keep-out", allow_hyphen_values = true)]
         keep_out: Vec<String>,
     },
+    /// (onechunk 14:42, tick-exact's loader check: the loader's clock BUILT) Run a design's world N ticks
+    /// (no farm controller) and print each watched cell's block-state changes, and for a dropper /
+    /// dispenser the ticks its `triggered` rises with the gaps between them (a clock's period at its load).
+    CellWatch {
+        design: PathBuf,
+        /// The cells, `x,y,z;x,y,z;…` (the design's frame).
+        #[arg(long, allow_hyphen_values = true)]
+        cells: String,
+        #[arg(long, default_value_t = 1200)]
+        ticks: u32,
+        #[arg(long, default_value_t = 1)]
+        seed: i64,
+    },
     /// (G1 14:22: a battery's citable result is each night's judged bars, and the battery exits
     /// non-zero when any night fails one) f1q2-run over seeds x positions x hold deltas, each night a
     /// child `mctas mobfarm f1q2-run <design> --seed S --offset O --hold-pulse-delta D --report-only
@@ -7885,6 +7898,49 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             if !ok {
                 std::process::exit(1);
+            }
+        }
+        MobfarmCmd::CellWatch { design, cells, ticks, seed } => {
+            let (_c, spec) = load(version, &design)?;
+            let watch: Vec<[i32; 3]> = cells
+                .split(';')
+                .filter(|s| !s.trim().is_empty())
+                .map(|s| {
+                    let v: Vec<i32> = s.split(',').filter_map(|t| t.trim().parse().ok()).collect();
+                    anyhow::ensure!(v.len() == 3, "--cells takes x,y,z;x,y,z;…");
+                    Ok([v[0], v[1], v[2]])
+                })
+                .collect::<Result<_>>()?;
+            let ro = redsim::entity::mob::farm::RunOpts::steady(seed, ticks, redsim::entity::mob::farm::WalkMode::Random);
+            let mut run = redsim::entity::mob::farm::Run::start(&spec, &ro).map_err(|e| anyhow::anyhow!(e))?;
+            let mut last: Vec<String> = watch.iter().map(|c| run.world.get(redsim::pos::BlockPos::new(c[0], c[1], c[2])).to_string()).collect();
+            let mut changes: Vec<Vec<String>> = vec![Vec::new(); watch.len()];
+            let mut rises: Vec<Vec<i64>> = vec![Vec::new(); watch.len()];
+            for t in 1..=ticks as i64 {
+                run.tick();
+                for (k, c) in watch.iter().enumerate() {
+                    let now = run.world.get(redsim::pos::BlockPos::new(c[0], c[1], c[2])).to_string();
+                    if now != last[k] {
+                        if now.contains("triggered=true") && last[k].contains("triggered=false") {
+                            rises[k].push(t);
+                        }
+                        changes[k].push(format!("t {t}: {now}"));
+                        last[k] = now;
+                    }
+                }
+            }
+            for (k, c) in watch.iter().enumerate() {
+                let gaps: Vec<i64> = rises[k].windows(2).map(|w| w[1] - w[0]).collect();
+                println!(
+                    "({},{},{}): {} changes; triggered rises at {:?}; gaps {:?}; first changes: {}",
+                    c[0],
+                    c[1],
+                    c[2],
+                    changes[k].len(),
+                    rises[k],
+                    gaps,
+                    changes[k].iter().take(8).cloned().collect::<Vec<_>>().join(" | ")
+                );
             }
         }
         MobfarmCmd::F1q2Battery { design, seeds, offsets, deltas, ticks, out, extra } => {
