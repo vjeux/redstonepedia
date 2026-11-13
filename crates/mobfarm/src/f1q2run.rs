@@ -116,10 +116,10 @@ pub struct Opts {
     /// (ironspec 23:56 PT (4)) the gossip bars' positive control: a gossip attempt logged from lane
     /// x -1's pocket at t 1,000 (the bars must count it).
     pub gossip_control: bool,
-    /// (ironspec 23:56 PT (4)) the departing-bystander bar's positive control: a golem birth logged
-    /// and a departing rider's GOLEM_DETECTED_RECENTLY set at the first tick from t 1,000 with a
-    /// rider out of its pocket (the bar must count it).
-    pub bystander_control: bool,
+    /// (ironspec 02:48 PT) the harm bar's control: a real summon stamping a napper, `late` on its
+    /// return across the merge row (the harm bar must FAIL) or `early` at its own launch (it must
+    /// PASS).
+    pub bystander_control: Option<String>,
     /// (ironspec 22:03 / 22:09 PT) the module's `k-lock: N (why)` and `k-sw: N (why)` lines: the
     /// hold gate's delayed Q and the siding's repeater after D (a napper run refuses a module
     /// without them).
@@ -1617,7 +1617,7 @@ struct Rec {
     /// (ironspec 12:48) who set the memory last; a bystander's stamp (tick, position) pending its
     /// next summon.
     gdr_setter: Option<&'static str>,
-    bystander_stamp: Option<(i64, [f64; 3])>,
+    bystander_stamp: Option<(i64, [f64; 3], &'static str)>,
     /// (ironspec 20:07 PT) the tick its panic began (PANIC entered), and last tick's panic.
     panic_since: Option<i64>,
     panic_prev: bool,
@@ -2270,6 +2270,8 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     // (ironspec 23:56 PT (4)) the positive controls exercised in this run
     let mut controls_done: Vec<String> = Vec::new();
     let mut bystander_tries = 0u32;
+    // (ironspec 02:48 PT) the napper the bystander control stamped
+    let mut bystander_target: Option<u32> = None;
     let mut golem_birth_at: BTreeMap<u32, ([f64; 3], String)> = BTreeMap::new();
     let mut golem_summon: BTreeMap<u32, (i64, u32, u32, Option<[i32; 3]>, Option<[f64; 3]>)> = BTreeMap::new();
     #[allow(clippy::type_complexity)]
@@ -2682,12 +2684,12 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 });
             }
             if let Some(r) = recs.get_mut(&id)
-                && let Some((s, p)) = r.bystander_stamp.take()
+                && let Some((s, p, trip)) = r.bystander_stamp.take()
             {
                 let margin = t - (s + redsim::entity::mob::villager::GOLEM_MEMORY_TTL);
                 renew.bystander_margin = Some(renew.bystander_margin.map_or(margin, |m: i64| m.min(margin)));
                 if renew.bystander_rows.len() < 24 {
-                    renew.bystander_rows.push(format!("{} stamped as a bystander at t {} at ({:.1},{:.1},{:.1}), its next summon t {}: {margin:+} gt past the expiry", r.label.split(' ').next().unwrap_or(""), s - t0, p[0], p[1], p[2], t - t0));
+                    renew.bystander_rows.push(format!("{} stamped as a bystander at t {} at ({:.1},{:.1},{:.1}) ({trip}), its next summon t {}: {margin:+} gt past the expiry", r.label.split(' ').next().unwrap_or(""), s - t0, p[0], p[1], p[2], t - t0));
                 }
             }
         }
@@ -2731,23 +2733,63 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 controls_done.push(format!("the gossip control at t 1000 (villager {villager})"));
             }
         }
-        if o.bystander_control && now - t0 >= 1_000 && !controls_done.iter().any(|c| c.starts_with("the bystander control")) && bystander_tries < 400 {
-            // (a pocket rider as the caller, and a rider out of its pocket inside the caller's
-            // 10-box: the merge row's carts are, at the S ticks, as the night's own stamps show)
-            let caller = w
+        if let Some(variant) = o.bystander_control.as_deref()
+            && now - t0 >= 1_000
+            && !controls_done.iter().any(|c| c.starts_with("the bystander control"))
+            && bystander_tries < 400
+        {
+            // (ironspec 02:48 PT: the harm bar's control) a real summon stamping a napper: `late`, the
+            // napper back in its own pocket before its first own-pocket S (the stamp 25..35 gt
+            // before that S: the harm bar must FAIL); `early`, the same stamp planted at an S tick
+            // on the napper's outbound trip (its picked cart before the divert, or its visit before
+            // the queue), where a pocket rider's 10-box reaches it, before the whole round trip (the
+            // summon's other stamps are the ones that S lays anyway; the harm bar must PASS)
+            let s_phase = now.rem_euclid(100);
+            let target = w
                 .entities
                 .list
                 .iter()
-                .find(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && !e.passengers.is_empty() && { let c = cell(e.pos); c[1] == 0 && c[2] == 0 && LANES.contains(&c[0]) })
-                .and_then(|e| e.passengers.first().copied().map(|v| (v, e.pos)));
-            let departing = caller.is_some_and(|(_, cp)| {
-                w.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && !e.passengers.is_empty()).any(|e| {
+                .filter(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && !e.passengers.is_empty())
+                .find(|e| {
                     let c = cell(e.pos);
-                    !(c[1] == 0 && c[2] == 0 && LANES.contains(&c[0])) && (e.pos.x - cp.x).abs() <= 10.3 && (e.pos.y - cp.y).abs() <= 10.0 && (e.pos.z - cp.z).abs() <= 10.3
+                    let Some(v) = e.passengers.first() else { return false };
+                    match variant {
+                        "late" => {
+                            c[1] == 0
+                                && c[2] == 0
+                                && LANES.contains(&c[0])
+                                && (60..=70).contains(&s_phase)
+                                && nappers.iter().any(|n| n.0 == *v)
+                                && recs.get(v).is_some_and(|r| r.milestones.iter().any(|(m, _)| m == "back in its lane") && r.nap_call.is_none())
+                        }
+                        _ => {
+                            // (an outbound napper a pocket rider's 10-box reaches AT an S tick, so
+                            // the summon's other stamps are the ones that S lays anyway: its picked
+                            // cart before the divert, or its visit before the queue)
+                            s_phase == 0
+                                && (ctl.pick_cart.is_some_and(|(pc, _)| pc == e.id)
+                                    || (nappers.iter().any(|n| n.0 == *v) && recs.get(v).is_some_and(|r| !r.milestones.iter().any(|(m, _)| m == "at the queue's arrival"))))
+                        }
+                    }
                 })
+                .and_then(|e| e.passengers.first().copied().map(|v| (v, e.pos)));
+            // (the summon's 10-box: the caller's box inflated by 10 against the target's box, each
+            // 0.6 wide and 1.95 tall)
+            let caller = target.and_then(|(tv, tp)| {
+                w.entities
+                    .list
+                    .iter()
+                    .filter(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && !e.passengers.is_empty() && e.passengers.first() != Some(&tv))
+                    .find(|e| {
+                        let c = cell(e.pos);
+                        let cp = w.entities.list.iter().find(|p| Some(&p.id) == e.passengers.first()).map_or(e.pos, |p| p.pos);
+                        let tq = w.entities.list.iter().find(|p| p.id == tv).map_or(tp, |p| p.pos);
+                        c[1] == 0 && c[2] == 0 && LANES.contains(&c[0]) && (cp.x - tq.x).abs() <= 10.6 && (cp.z - tq.z).abs() <= 10.6 && tq.y + 1.95 >= cp.y - 10.0 && tq.y <= cp.y + 1.95 + 10.0
+                    })
+                    .and_then(|e| e.passengers.first().copied())
             });
-            if departing
-                && let Some((v, _)) = caller
+            if let Some((tv, tp)) = target
+                && let Some(v) = caller
                 && let Some(k) = redsim::entity::index_of(w, v)
             {
                 bystander_tries += 1;
@@ -2755,7 +2797,16 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 redsim::entity::mob::spawn::spawn_golem_if_needed(w, k, 3);
                 let born = w.mob.events[before..].iter().any(|e| matches!(e, redsim::entity::mob::MobEvent::GolemTry { golem: Some(_), .. }));
                 if born {
-                    controls_done.push(format!("the bystander control at t {} (a real summon from #{v}, after {bystander_tries} calls)", now - t0));
+                    bystander_target = Some(tv);
+                    controls_done.push(format!(
+                        "the bystander control ({variant}) at t {}: a real summon from #{v} stamped napper #{tv} at ({:.1},{:.1},{:.1}), {} (after {bystander_tries} calls; the harm bar must {})",
+                        now - t0,
+                        tp.x,
+                        tp.y,
+                        tp.z,
+                        if variant == "late" { "back in its own pocket at its return's end" } else { "on its outbound trip" },
+                        if variant == "late" { "FAIL" } else { "PASS" }
+                    ));
                 }
             }
         }
@@ -3412,7 +3463,21 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                         } else {
                             renew.bystander_stamps += 1;
                             r.gdr_setter = Some("a summon's stamp (a bystander)");
-                            r.bystander_stamp = Some((now, [pos.x, pos.y, pos.z]));
+                            // (ironspec 04:02 PT: every stamp print names its trip: a napper
+                            // outbound before the queue, in the stop, or on its return after the
+                            // climb; a lane rider)
+                            let trip = if nappers.iter().any(|n| n.0 == id_me) {
+                                if r.milestones.iter().any(|(m, _)| m == "in the napper lift" || m == "on the hold (9,0,8)") {
+                                    "return, after the climb"
+                                } else if r.milestones.iter().any(|(m, _)| m == "at the queue's arrival") {
+                                    "in the stop"
+                                } else {
+                                    "outbound, before the queue"
+                                }
+                            } else {
+                                "a lane rider"
+                            };
+                            r.bystander_stamp = Some((now, [pos.x, pos.y, pos.z], trip));
                             // (ironspec 19:07 PT: a bystander stamp on a departing rider, out of
                             // its pocket, is the T + 80 rule's failure; 0 in locked running)
                             let c = cell(pos);
@@ -3425,7 +3490,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                                 if renew.departing_rows.len() < 12 {
                                     // (farmopt 02:21 PT: which summoner's golem stamped it)
                                     let by = golem_summon.values().find(|g| g.0 == now).map_or(String::new(), |g| format!(", stamped by #{}'s summon{}", g.1, g.4.map_or(String::new(), |p| format!(" at ({:.1},{:.1},{:.1})", p[0], p[1], p[2]))));
-                                    renew.departing_rows.push(format!("t {} {} at ({:.1},{:.1},{:.1}){}{by}", now - t0, r.label.split(' ').next().unwrap_or(""), pos.x, pos.y, pos.z, if locked { " (locked)" } else { "" }));
+                                    renew.departing_rows.push(format!("t {} {} at ({:.1},{:.1},{:.1}) ({trip}){}{by}", now - t0, r.label.split(' ').next().unwrap_or(""), pos.x, pos.y, pos.z, if locked { " (locked)" } else { "" }));
                                 }
                             }
                         }
@@ -4412,10 +4477,18 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         }
     }
     // (ironspec 23:56 PT (4)) the positive controls this run exercised (each must make its bar fail)
-    if o.gossip_control || o.bystander_control {
+    if o.gossip_control || o.bystander_control.is_some() {
+        // (ironspec 02:48 PT) the bystander control's stamped napper: its margin at its next
+        // own-pocket summon, from the harm bar's rows
+        let target_margin = bystander_target.map(|tv| {
+            let label = recs.get(&tv).map_or(format!("#{tv}"), |r| r.label.split(' ').next().unwrap_or("").to_string());
+            let row = renew.bystander_rows.iter().find(|r| r.starts_with(&format!("{label} ")));
+            format!("; the stamped napper {label}'s margin at its next own-pocket summon: {}", row.map_or("no next summon inside the run".to_string(), |r| r.rsplit(": ").next().unwrap_or("").to_string()))
+        });
         s.push_str(&format!(
-            "the positive controls exercised (ironspec 23:56 PT: each must make its bar FAIL): {}\n",
-            if controls_done.is_empty() { "none (the control found no moment to act: NOT EXERCISED, FAIL)".to_string() } else { controls_done.join("; ") }
+            "the positive controls exercised (ironspec 23:56 PT: each must make its bar FAIL; the bystander control's early variant must leave the harm bar PASSING): {}{}\n",
+            if controls_done.is_empty() { "none (the control found no moment to act: NOT EXERCISED, FAIL)".to_string() } else { controls_done.join("; ") },
+            target_margin.unwrap_or_default()
         ));
     }
     // (ironspec 16:10) the chain: every cycle's REL and how it re-locks to the summon ticks (game
