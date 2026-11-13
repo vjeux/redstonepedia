@@ -732,6 +732,13 @@ fn with_passenger_home(n: &str, home: &str) -> std::result::Result<String, Strin
         if after[..end].contains("Brain:") {
             return Err(format!("a villager passenger with its own Brain data and `port home`: {n}"));
         }
+        // (ironspec 08:16 platform, onechunk's 23rd) a passenger marked `Tags:["no-home"]` stays
+        // HOME-less: the per-villager opt-out (the game reads the same tag as plain data)
+        if after[..end].contains(NO_HOME_TAG) {
+            out.push_str(&rest[..i + key.len()]);
+            rest = after;
+            continue;
+        }
         out.push_str(&rest[..i + key.len()]);
         out.push(',');
         out.push_str(home);
@@ -739,6 +746,19 @@ fn with_passenger_home(n: &str, home: &str) -> std::result::Result<String, Strin
     }
     out.push_str(rest);
     Ok(out)
+}
+
+/// (ironspec 08:16 platform) The per-villager opt-out of `port home`: a villager (or a villager
+/// passenger) whose own data carries this tag is loaded HOME-less.
+pub const NO_HOME_TAG: &str = "Tags:[\"no-home\"]";
+
+/// (ironspec 08:16 platform) Whether [`spec_of_with`] loads a `port home` design's villagers with
+/// HOME = that bed: every villager but the `no-home`-tagged ones ([`PortHome::Load`], `spec_of`'s),
+/// or none ([`PortHome::Skip`]: a fidelity bench mirroring a game setup with HOME-less riders).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PortHome {
+    Load,
+    Skip,
 }
 
 /// A mob farm's block in redsim: the modeled ones, and (tickexact 2026-11-10, the portal pad) a
@@ -752,6 +772,11 @@ fn farm_block(s: &str) -> std::result::Result<Block, String> {
 
 /// The redsim farm of a (turned, moved) design: its blocks, entities, output chest and box.
 pub fn spec_of(c: &Circuit) -> std::result::Result<FarmSpec, String> {
+    spec_of_with(c, PortHome::Load)
+}
+
+/// [`spec_of`] with the `port home` loading chosen ([`PortHome`]).
+pub fn spec_of_with(c: &Circuit, port_home: PortHome) -> std::result::Result<FarmSpec, String> {
     let d = &c.clock.design;
     let out = *d.ports.get("output").ok_or("no `port output`")?;
     let (from, to) = crate::run::watch_box(c, 4);
@@ -762,13 +787,15 @@ pub fn spec_of(c: &Circuit) -> std::result::Result<FarmSpec, String> {
     blocks.sort_by_key(|(q, _)| [q.x, q.y, q.z]);
     // (tickexact 2026-11-09, ironspec's one-bed carousel) `port home: x y z`: every villager holds
     // HOME = that bed (the R1 double claim's shared bed, turned and moved with the design), loaded
-    // as a memory (`Brain:{memories:{"minecraft:home":...}}`: no POI ticket taken, as the game loads it)
-    let home = d.ports.get("home").map(|h| format!("Brain:{{memories:{{\"minecraft:home\":{{value:{{dimension:\"minecraft:overworld\",pos:[I;{},{},{}]}}}}}}}}", h[0], h[1], h[2]));
+    // as a memory (`Brain:{memories:{"minecraft:home":...}}`: no POI ticket taken, as the game loads it);
+    // (ironspec 08:16 platform) but a `no-home`-tagged villager, and none at all with PortHome::Skip
+    let home = if port_home == PortHome::Load { d.ports.get("home").map(|h| format!("Brain:{{memories:{{\"minecraft:home\":{{value:{{dimension:\"minecraft:overworld\",pos:[I;{},{},{}]}}}}}}}}", h[0], h[1], h[2])) } else { None };
     let mut entities = Vec::new();
     for e in &d.entities {
         let mut nbt = e.nbt.clone();
         if let Some(h) = &home
             && e.kind.trim_start_matches("minecraft:") == "villager"
+            && !nbt.as_deref().is_some_and(|n| n.contains(NO_HOME_TAG))
         {
             nbt = Some(match nbt.as_deref().map(str::trim) {
                 Some(n) if n.contains("Brain:") => return Err(format!("a villager with its own Brain data and `port home`: {n}")),
@@ -1704,6 +1731,17 @@ mod tests {
             format!("{{Passengers:[{{id:\"minecraft:zombie\"}},{{id:\"minecraft:villager\",{h},PersistenceRequired:1b}}],Rotation:[90.0f,0.0f]}}")
         );
         assert!(with_passenger_home("{Passengers:[{id:\"minecraft:villager\",Brain:{memories:{}}}]}", h).is_err());
+    }
+
+    /// (ironspec 08:16 platform) the per-villager `no-home` opt-out: a tagged passenger stays
+    /// HOME-less while its untagged neighbour gets the shared HOME
+    #[test]
+    fn port_home_skips_no_home_tagged_passengers() {
+        let h = "Brain:{memories:{\"minecraft:home\":{value:{dimension:\"minecraft:overworld\",pos:[I;1,2,3]}}}}";
+        let n = "{Passengers:[{id:\"minecraft:villager\",Tags:[\"no-home\"]},{id:\"minecraft:villager\"}]}";
+        let out = with_passenger_home(n, h).unwrap();
+        assert_eq!(out, format!("{{Passengers:[{{id:\"minecraft:villager\",Tags:[\"no-home\"]}},{{id:\"minecraft:villager\",{h}}}]}}"));
+        assert_eq!(out.matches("minecraft:home").count(), 1);
     }
 
     /// The tier is the kind's last word (one site page per tier): day-1, middle, fastest, or none.

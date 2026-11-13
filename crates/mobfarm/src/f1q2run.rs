@@ -107,6 +107,9 @@ pub struct Opts {
     pub pair_checks: Vec<([i32; 3], [i32; 3], i64, i64)>,
     /// (ironspec 08:26 platform (3)) the chain trace over run ticks FROM..=TO.
     pub chain_trace: Option<(i64, i64)>,
+    /// (G1 / ironspec 08:41 platform) the unrouted bar's positive: the first napper reaching its
+    /// siding's R after t 1,000 has PRESENT_l reset on arrival (no release can follow).
+    pub strand_control: bool,
     /// (ironspec 11:15, 9fc3155f's statics) S-bend seats whose stamp resets are counted: `NAME`,
     /// the seat's rail cell, its clearing candidates (a complete draw to one of them while a rider
     /// sits on the seat resets its stamp).
@@ -275,30 +278,28 @@ pub fn scene_entity_lines(entities: &[(String, [f64; 3], Option<String>)]) -> St
     entities.iter().enumerate().map(|(n, (ty, p, nbt))| format!("# e{n}\nentity: {ty} {} {} {} {}\n", p[0], p[1], p[2], nbt.as_deref().unwrap_or(""))).collect()
 }
 
-/// (ironspec 08:05 / 08:14 platform) An entity's SNBT with every loaded HOME memory spec_of put in
-/// (`,Brain:{memories:{"minecraft:home":{value:{dimension:"minecraft:overworld",pos:[I;x,y,z]}}}}`,
-/// in a villager's own compound or a passenger's) taken out, and how many were.
-pub fn strip_loaded_home(n: &str) -> (String, usize) {
-    let mut out = String::new();
-    let mut rest = n;
-    let mut removed = 0;
-    while let Some(i) = rest.find("Brain:{memories:{\"minecraft:home\":{value:{dimension:\"minecraft:overworld\",pos:[I;") {
-        // the memory's closing: `]}}}}` after the position
-        let Some(close) = rest[i..].find("]}}}}").map(|c| i + c + "]}}}}".len()) else { break };
-        // a leading comma (the memory appended after other data) or a trailing one (before it)
-        let (cut_from, cut_to) = if rest[..i].ends_with(',') {
-            (i - 1, close)
-        } else if rest[close..].starts_with(',') {
-            (i, close + 1)
-        } else {
-            (i, close)
-        };
-        out.push_str(&rest[..cut_from]);
-        rest = &rest[cut_to..];
-        removed += 1;
+/// (G1 / ironspec 08:31-08:33 platform) The emulated controller's live entity keys across a world
+/// open: the held napper, the picked cart, the diverted cart and every napper's visit follow their
+/// entities through the open's id map, so a napper re-created mid-route is routed on (the built
+/// circuit keys on nothing); each followed key's old and new id.
+fn follow_open(ctl: &mut Ctl, nappers: &mut [(u32, usize, i64)], follow: impl Fn(u32) -> u32) -> Vec<String> {
+    let mut keys: Vec<String> = Vec::new();
+    if let Some(h) = ctl.held_by {
+        keys.push(format!("the held napper #{h} -> #{}", follow(h)));
+        ctl.held_by = Some(follow(h));
     }
-    out.push_str(rest);
-    (out, removed)
+    if let Some((c, k)) = ctl.pick_cart {
+        keys.push(format!("the picked cart #{c} -> #{} (lane x {})", follow(c), LANES[k]));
+        ctl.pick_cart = Some((follow(c), k));
+    }
+    if let Some((c, k)) = ctl.divert {
+        keys.push(format!("the diverted cart #{c} -> #{} (lane x {})", follow(c), LANES[k]));
+        ctl.divert = Some((follow(c), k));
+    }
+    for n in nappers.iter_mut() {
+        n.0 = follow(n.0);
+    }
+    keys
 }
 
 /// (G1 07:28 PT) The air control's own sample: every drowned rider is the held one or rode a cart
@@ -673,6 +674,9 @@ struct Ctl {
     /// departure past R; and every reset.
     r_cart_prev: [bool; 3],
     present_resets: Vec<(i64, usize)>,
+    /// (G1 / ironspec 08:41) the unrouted bar's positive: armed, and done.
+    strand_control: bool,
+    strand_done: bool,
     /// J(-1) kept from re-arming from ARM3 + 72 to ARM3 + 127 for an eastbound napper (lanes 3, 7),
     /// re-armed at its end.
     j_block: Option<(i64, i64)>,
@@ -1679,6 +1683,14 @@ impl Ctl {
             let sx = LANES[k] - 2;
             // (day-1 08:31) PRESENT_l's reset: the napper's ridden cart leaving the siding's R
             let r_cart = w.entities.list.iter().any(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && !e.passengers.is_empty() && cell(e.pos) == [sx, 24, 7]);
+            // (G1 08:41 / ironspec 08:41 platform: the unrouted bar's positive) --strand-control: the
+            // first napper reaching its siding's R after t0 + 1,000 has PRESENT_l reset on arrival, so
+            // no release follows: it must strand and fail the bar on its own sample
+            if self.strand_control && !self.strand_done && r_cart && !self.r_cart_prev[k] && self.present[k] && now >= 1_000 {
+                self.present[k] = false;
+                self.strand_done = true;
+                self.nap_events.push(format!("t {now}: the strand control: PRESENT_l reset on the napper's arrival at R, lane x {} (no release can follow)", LANES[k]));
+            }
             if self.r_cart_prev[k] && !r_cart && self.present[k] {
                 self.present[k] = false;
                 self.present_resets.push((now, k));
@@ -2378,23 +2390,11 @@ pub fn run_driven(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, 
 
 fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>, String), String> {
     let mut sp = spec.clone();
-    // (ironspec 08:05 / 08:14 platform, tick-exact's farm-c7 t0 state) spec_of (circuit's
-    // studies/mobfarm.rs) loads every villager of a `port home` design with HOME = that bed as a
-    // memory; the c7 reconciliation's stored riders are HOME-less as tick-exact's game summons them,
-    // so c7 mode strips that memory from the record's own villagers: a declared override, each
-    // villager's before -> after printed, a strip that changes nothing failing
-    let mut c7_strip: Vec<String> = Vec::new();
-    if o.c7_placement.is_some() && !o.c7_home_stored {
-        for (k, e) in sp.entities.iter_mut().enumerate() {
-            if let Some(n) = e.2.as_deref() {
-                let (out, removed) = strip_loaded_home(n);
-                if removed > 0 {
-                    c7_strip.push(format!("line {k} {} at ({},{},{}): {removed} loaded HOME memor{} removed", e.0, e.1[0], e.1[1], e.1[2], if removed == 1 { "y" } else { "ies" }));
-                    e.2 = Some(out);
-                }
-            }
-        }
-    }
+    // (ironspec 08:05 / 08:14 / 08:16 platform, tick-exact's farm-c7 t0 state) the c7 reconciliation's
+    // stored riders are HOME-less as tick-exact's game summons them: the CLI loads the record with
+    // spec_of's PortHome::Skip in c7 mode (no `port home` memory in any of the record's villagers);
+    // the HOME-holder check after the setup stays as the guard
+    let c7_strip: Vec<String> = Vec::new();
     if o.official_lane3 {
         // (tick-exact's scene: the module's carts out, its boats (the scarers) kept, the bed stop's
         // zombie where the official run seats it)
@@ -2644,6 +2644,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         ctl.dwell_cap = o.dwell_cap;
         ctl.rs_early = o.rs_ready_early_control;
         ctl.day_phase_control = o.day_phase_control;
+        ctl.strand_control = o.strand_control;
     }
     // (day-1 06:07 PT, ctlcounter.rs; G1's blocker 3: the counter's state at the first release, a
     // clear clock's: C = 141 + ceil((d - 12,540) / 100) for a first release at day time d between
@@ -2871,6 +2872,8 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     // (ironspec 08:23 platform (2), G1 08:22 PT) the HOME losses by the release branch, and all
     let mut release_branches: i64 = 0;
     let mut home_lost_total: i64 = 0;
+    // (G1 / ironspec 08:41 platform) the unrouted bar's row count (the strand control's own sample)
+    let mut unrouted_total: usize = 0;
     // (ironspec 06:31 / 06:42 real) the ticket lines: the bed's free tickets and the HOME memory
     // holders at the start and at every change
     let mut ticket_prev: Option<(Option<u32>, Vec<u32>)> = Some(start_ticket);
@@ -3197,26 +3200,9 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             // read as a new pulse)
             ctl.golems = ctl.golems.iter().map(|id| m.get(id).copied().unwrap_or(*id)).collect();
             // (G1 / ironspec 08:31-08:33 platform: the emulation must not be keyed on an id a world
-            // open renews) the controller's live entity keys (the held napper, the picked cart, the
-            // diverted cart) and the nappers' visit list follow their entities across the open; each
-            // key's old and new id printed
-            let follow = |id: u32| m.get(&id).copied().unwrap_or(id);
-            let mut keys: Vec<String> = Vec::new();
-            if let Some(h) = ctl.held_by {
-                keys.push(format!("the held napper #{h} -> #{}", follow(h)));
-                ctl.held_by = Some(follow(h));
-            }
-            if let Some((c, k)) = ctl.pick_cart {
-                keys.push(format!("the picked cart #{c} -> #{} (lane x {})", follow(c), LANES[k]));
-                ctl.pick_cart = Some((follow(c), k));
-            }
-            if let Some((c, k)) = ctl.divert {
-                keys.push(format!("the diverted cart #{c} -> #{} (lane x {})", follow(c), LANES[k]));
-                ctl.divert = Some((follow(c), k));
-            }
-            for n in nappers.iter_mut() {
-                n.0 = follow(n.0);
-            }
+            // open renews) the controller's live entity keys and the nappers' visit list follow
+            // their entities across the open; each key's old and new id logged
+            let keys = follow_open(&mut ctl, &mut nappers, |id| m.get(&id).copied().unwrap_or(id));
             log.push(format!("t {rel}: the emulation's keys across the open: {}", if keys.is_empty() { "none live".to_string() } else { keys.join("; ") }));
             log.push(format!("t {rel}: restart (liveness::restart, order {})", o.restart.label()));
         }
@@ -5626,10 +5612,10 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     // row only (no controller, static queues, no rotation: not the design's operation)
     if o.c7_placement.is_some() {
         s.push_str(&format!(
-            "the c7 placement (tick-exact's farm-c7 reconciliation row, FIDELITY ONLY; AcquirePoi fidelity pending: HOME-less villagers near the bed; ticket state uncertain: pre-fix redsim): the stored riders' HOME {} at t 0; spec_of's `port home` memory stripped from the record's villagers (a declared override, ironspec 08:14): {} ({}); the HOME holders after each setup phase: {}; the bed's free tickets at t 0 {} (tick-exact's game: free); the stored riders holding HOME after the setup: {} ({})\n",
+            "the c7 placement (tick-exact's farm-c7 reconciliation row, FIDELITY ONLY; AcquirePoi fidelity pending: HOME-less villagers near the bed; ticket state uncertain: pre-fix redsim): the stored riders' HOME {} at t 0; the record loaded with spec_of's PortHome::{} (ironspec 08:16: the per-villager / whole-file `port home` opt-out){}; the HOME holders after each setup phase: {}; the bed's free tickets at t 0 {} (tick-exact's game: free); the stored riders holding HOME after the setup: {} ({})\n",
             if o.c7_home_stored { "the bed (--c7-home-stored)" } else { "none, as tick-exact's game setup" },
-            if c7_strip.is_empty() { "nothing stripped".to_string() } else { c7_strip.join("; ") },
-            if o.c7_home_stored { "not applied: --c7-home-stored" } else if c7_strip.is_empty() { "a no-op override: FAIL" } else { "applied" },
+            if o.c7_home_stored { "Load" } else { "Skip" },
+            if c7_strip.is_empty() { String::new() } else { format!("; {}", c7_strip.join("; ")) },
             c7_phase_seen.iter().map(|(ph, ids)| format!("{ph} {}", ids.len())).collect::<Vec<_>>().join(", "),
             c7_free_t0.map_or("unreadable".to_string(), |n| n.to_string()),
             if c7_holders.is_empty() { "none".to_string() } else { c7_holders.join("; ") },
@@ -6640,11 +6626,45 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 past_marks.get(&v).into_iter().flatten().chain(recs.get(&v).map(|r| r.milestones.iter()).into_iter().flatten()).find(|(m, t)| m == what && *t >= from && *t < to).map(|(_, t)| *t)
             };
             let ms = |v: u32, what: &str, from: i64, to: i64| -> String { msn(v, what, from, to).map_or("-".to_string(), |t| t.to_string()) };
-            // (G1 08:28 / ironspec 08:28 platform (3), NAPPER UNROUTED, bar 0) a napper that entered
-            // the stop and has no R within 600 gt, or reached its siding's R and isn't back in its lane
-            // within one lane lap (1,000 gt), with the run going on that long
+            // (G1 08:28 / ironspec 08:28 / 08:41 platform (3), NAPPER UNROUTED, bar 0) a napper that
+            // entered the stop and has no R within the stop's threshold, or reached its siding's R and
+            // isn't back in its lane within the siding's; both DERIVED from this run's measurements
+            // (ironspec 08:41): the siding's, the lane's lap (its median D period times its 8 carts)
+            // plus the longest measured late rejoin plus 100 gt; the stop's, the worst measured entry
+            // -> R plus the longest tap wait (none in this module) plus 100 gt
+            let unrouted_derivation: String;
             {
                 let end = run.world.time - t0;
+                let mut lap = [0i64; 3];
+                let mut period = [0i64; 3];
+                for k in 0..3 {
+                    let ts: Vec<i64> = ctl.dpress_log.iter().filter(|(_, dk)| *dk == k).map(|(t, _)| *t).collect();
+                    let mut gaps: Vec<i64> = ts.windows(2).map(|p| p[1] - p[0]).filter(|g| *g > 0).collect();
+                    gaps.sort();
+                    period[k] = gaps.get(gaps.len() / 2).copied().unwrap_or(0);
+                    lap[k] = period[k] * 8;
+                }
+                let mut late_max = 0i64;
+                let mut entry_r_max = 0i64;
+                for (v, k, t) in nappers.iter() {
+                    let to = ctl.pick_carts.iter().filter(|(pt, _, pv, _)| pv == v && pt > t).map(|x| x.0).min().unwrap_or(i64::MAX);
+                    // (a late rejoin counts toward the threshold only inside two laps, the fail-safe's
+                    // range, so a stranded napper's own delay can't widen its threshold)
+                    if let (Some(r), Some(b)) = (msn(*v, "on its siding's R", *t, to), msn(*v, "back in its lane", *t, to))
+                        && b - r <= 2 * lap[*k]
+                    {
+                        late_max = late_max.max(b - r);
+                    }
+                    if let (Some(e), Some(r)) = (msn(*v, "at A6's entry", *t, to), msn(*v, "at R", *t, to)) {
+                        entry_r_max = entry_r_max.max(r - e);
+                    }
+                }
+                let siding_thr: [i64; 3] = [0, 1, 2].map(|k| lap[k] + late_max + 100);
+                let stop_thr = entry_r_max + 100;
+                unrouted_derivation = format!(
+                    "the thresholds, derived: on the siding, lane x {} / {} / {}: the lap {} / {} / {} gt (the median D period {} / {} / {} gt x 8 carts) + the longest late rejoin {late_max} gt + 100 = {} / {} / {} gt; at the stop: the worst entry -> R {entry_r_max} gt + the longest tap wait 0 (no taps in this module) + 100 = {stop_thr} gt",
+                    LANES[0], LANES[1], LANES[2], lap[0], lap[1], lap[2], period[0], period[1], period[2], siding_thr[0], siding_thr[1], siding_thr[2]
+                );
                 for (v, k, t) in nappers.iter() {
                     let to = ctl.pick_carts.iter().filter(|(pt, _, pv, _)| pv == v && pt > t).map(|x| x.0).min().unwrap_or(i64::MAX);
                     let entry = msn(*v, "at A6's entry", *t, to);
@@ -6653,13 +6673,13 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     let back = msn(*v, "back in its lane", *t, to);
                     if let Some(e) = entry
                         && rr.is_none()
-                        && end - e >= 600
+                        && end - e >= stop_thr
                     {
-                        unrouted_rows.push(format!("#{v} lane x {} picked t {t}: entered the stop at t {e}, no R by the run's end", LANES[*k]));
+                        unrouted_rows.push(format!("#{v} lane x {} picked t {t}: entered the stop at t {e}, no R within {stop_thr} gt", LANES[*k]));
                     }
                     if let Some(r) = sr
-                        && back.is_none_or(|b| b - r > 1_000)
-                        && end - r >= 1_000
+                        && back.is_none_or(|b| b - r > siding_thr[*k])
+                        && end - r >= siding_thr[*k]
                     {
                         unrouted_rows.push(format!("#{v} lane x {} picked t {t}: on its siding's R at t {r}, back in its lane {}", LANES[*k], back.map_or("never".to_string(), |b| format!("at t {b} ({} gt later)", b - r))));
                     }
@@ -6753,8 +6773,9 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 if ctl.edge_log.is_empty() { "none".to_string() } else { ctl.edge_log.join(", ") }
             ));
             // (G1 08:28 / ironspec 08:28 platform (3)) the napper-unrouted bar
+            unrouted_total = unrouted_rows.len();
             s.push_str(&format!(
-                "  no napper unrouted (G1 08:28 / ironspec 08:28 platform: a napper entering the stop with no R within 600 gt, or on its siding's R and not back in its lane within one lane lap, 1,000 gt; bar 0): {} ({}){}\n",
+                "  no napper unrouted (G1 08:28 / ironspec 08:28 / 08:41 platform: a napper entering the stop with no R, or on its siding's R and not back in its lane, within the derived thresholds; bar 0; {unrouted_derivation}): {} ({}){}\n",
                 unrouted_rows.len(),
                 if nappers.is_empty() { "NOT JUDGED (no napper): FAIL" } else if unrouted_rows.is_empty() { "PASS" } else { "FAIL" },
                 if unrouted_rows.is_empty() { String::new() } else { format!(": {}", unrouted_rows.join("; ")) }
@@ -7221,6 +7242,9 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         }).count();
         controls.push(("--rs-ready-early-control".to_string(), "  no R1 release before the previous napper passes R", true, ctl.rs_early_done, early == 1));
     }
+    if o.strand_control {
+        controls.push(("--strand-control".to_string(), "  no napper unrouted", true, ctl.strand_done, unrouted_total == 1));
+    }
     if o.day_phase_control {
         controls.push(("--day-phase-control".to_string(), "  the DAY stand-in's validation", true, ctl.day_updates > 0, true));
     }
@@ -7435,25 +7459,24 @@ mod counter_tests {
         assert!(!c(16.0, 0.0, 0.0), "strict: exactly 16 is outside");
     }
 
-    /// (ironspec 08:05 / 08:14 platform) spec_of's `port home` memory taken out of a stored rider's
-    /// passenger compound (and a bare villager's), the rest of the data kept; a homeless start
-    /// leaves 0 HOME memories
+    /// (G1 / ironspec 08:31-08:33 platform) an emulated stand-in across a world open: the
+    /// controller's live keys and the napper's visit follow the open's id map (a napper re-created
+    /// mid-route stays routed); under id-keying they'd keep the dead ids
     #[test]
-    fn the_c7_strip_leaves_no_loaded_home() {
-        let h = "Brain:{memories:{\"minecraft:home\":{value:{dimension:\"minecraft:overworld\",pos:[I;-3,-27,3]}}}}";
-        let cart = format!("{{Rotation:[0f,0f],Passengers:[{{id:\"minecraft:villager\",{h}}}]}}");
-        let (out, n) = super::strip_loaded_home(&cart);
-        assert_eq!(n, 1);
-        assert_eq!(out, "{Rotation:[0f,0f],Passengers:[{id:\"minecraft:villager\"}]}");
-        let bare = format!("{{{h},PersistenceRequired:1b}}");
-        assert_eq!(super::strip_loaded_home(&bare), ("{PersistenceRequired:1b}".to_string(), 1));
-        // nothing to strip: unchanged, counted 0 (the run fails such a no-op strip)
-        assert_eq!(super::strip_loaded_home("{Passengers:[{id:\"minecraft:villager\"}]}").1, 0);
-        // after the strip no `minecraft:home` is left anywhere
-        let two = format!("{{Passengers:[{{id:\"minecraft:villager\",{h}}},{{id:\"minecraft:villager\",{h},PersistenceRequired:1b}}]}}");
-        let (out, n) = super::strip_loaded_home(&two);
-        assert_eq!(n, 2);
-        assert!(!out.contains("minecraft:home"), "{out}");
+    fn the_emulation_follows_a_world_open() {
+        let mut ctl = super::Ctl { held_by: Some(40), pick_cart: Some((41, 0)), divert: Some((42, 2)), ..Default::default() };
+        let mut nappers = vec![(40u32, 0usize, 100i64), (7, 1, 50)];
+        let map: std::collections::HashMap<u32, u32> = [(40, 140), (41, 141), (42, 142)].into_iter().collect();
+        let keys = super::follow_open(&mut ctl, &mut nappers, |id| map.get(&id).copied().unwrap_or(id));
+        assert_eq!(ctl.held_by, Some(140));
+        assert_eq!(ctl.pick_cart, Some((141, 0)));
+        assert_eq!(ctl.divert, Some((142, 2)));
+        assert_eq!(nappers[0].0, 140, "the visit in flight follows its napper");
+        assert_eq!(nappers[1].0, 7, "an id the open didn't renew stays");
+        assert_eq!(keys.len(), 3);
+        // nothing live: nothing to follow
+        let mut idle = super::Ctl::default();
+        assert!(super::follow_open(&mut idle, &mut [], |id| id + 1).is_empty());
     }
 
     /// (G1 07:28 PT) the air control's footprint: the held rider and those stacked below it count as
