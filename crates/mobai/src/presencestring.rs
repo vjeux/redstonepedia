@@ -84,7 +84,7 @@ pub fn presence_string_at(version: &str, ticks: u32, open_at: u32, depart_at: u3
             srv.cmd_ok("kill @e[tag=pa]")?;
             println!("  t{t}: the rider teleported away (it dismounts) and the ridden cart removed (the departure; the rider leaves the string's box this tick)");
         }
-        srv.cmd_ok("tick step 1")?;
+        srv.step(1)?;
         let a = pressed(&mut srv, 0, rise)?;
         let b = pressed(&mut srv, 10, rise)?;
         let ry = if t < depart_at { y_of(&mut srv, "@e[tag=pav,limit=1]")? } else { None };
@@ -226,7 +226,7 @@ pub fn presence_slope(version: &str, ticks: u32, open_at: u32, depart_at: u32) -
             }
             println!("  t{t}: the brake released on every lane (R -> a plain ascending rail)");
         }
-        srv.cmd_ok("tick step 1")?;
+        srv.step(1)?;
         let mut line = format!("  t{t}:");
         for (k, (_, x, ridden, _, _)) in lanes.iter().enumerate() {
             let p = crate::strict::test(&mut srv, &format!("execute if block {x} {} 7 minecraft:tripwire[powered=true]", y(26)))?;

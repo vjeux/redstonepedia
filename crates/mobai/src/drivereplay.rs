@@ -519,7 +519,24 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
         ..Default::default()
     };
     let mut srv = VanillaServer::start(&opts(None))?;
-    srv.cmd_ok("forceload add -32 -32 31 31")?;
+    // (G1 12:10: the far position) the forceload area follows the scene's own bounds (a shifted scene,
+    // e.g. x / z + 16,384, is loaded where it is)
+    let forceload = match mctas::design::Design::load(scene)?.bounds() {
+        Some((lo, hi)) => format!("forceload add {} {} {} {}", lo[0].min(-32), lo[2].min(-32), hi[0].max(31), hi[2].max(31)),
+        None => "forceload add -32 -32 31 31".to_string(),
+    };
+    let fl_span = |c: &str| -> i64 {
+        let n: Vec<i64> = c.split_whitespace().skip(2).filter_map(|v| v.parse().ok()).collect();
+        if n.len() == 4 { ((n[2] >> 4) - (n[0] >> 4) + 1) * ((n[3] >> 4) - (n[1] >> 4) + 1) } else { 0 }
+    };
+    // a far scene keeps the origin's 4 x 4 chunks too only when they fit the command's 256-chunk cap
+    let forceload = if fl_span(&forceload) > 256 {
+        let (lo, hi) = mctas::design::Design::load(scene)?.bounds().expect("bounds above");
+        format!("forceload add {} {} {} {}", lo[0] - 16, lo[2] - 16, hi[0] + 16, hi[2] + 16)
+    } else {
+        forceload
+    };
+    srv.cmd_ok(&forceload)?;
     // (G1 on G #9 / H #2) the scene is summoned under the run's OWN day time: a brain takes its
     // schedule activity when it is built (registerBrainGoals) and then updates it at most once every
     // > 20 gt (Brain.updateActivityFromSchedule 327-335), so a night-built brain would sit in REST for
@@ -1032,7 +1049,7 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
             let (s, rl) = crate::restartcheck::reload(srv, |w| opts(Some(w)), None)?;
             srv = s;
             log.at = 0;
-            srv.cmd_ok("forceload add -32 -32 31 31")?;
+            srv.cmd_ok(&forceload)?;
             srv.cmd_ok("gamerule advance_time true")?;
             srv.cmd_ok("weather clear 1000000")?;
             // (G1 on G #2) the clock re-based from the game after the load: `time query time` is the

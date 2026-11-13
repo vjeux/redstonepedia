@@ -63,6 +63,8 @@ pub mod strict;
 pub mod drivereplay;
 pub mod md5;
 pub mod presencestring;
+pub mod launchsweep;
+pub mod sleepmerge;
 pub mod reclaim;
 pub mod threebeds;
 pub mod daylight;

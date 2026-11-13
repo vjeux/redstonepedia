@@ -623,6 +623,46 @@ pub enum MobaiCmd {
         #[arg(long, default_value = "")]
         loads: String,
     },
+    /// (tickexact 2026-11-13, ironspec 12:38 (2)) the launch dense sweep: nappers on F at stored speeds x
+    /// entry phases, braked on R, released, their entry into the drop and the outcome (fall or stall)
+    LaunchSweep {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        #[arg(long)]
+        scene: std::path::PathBuf,
+        /// stored speeds: from,to,step
+        #[arg(long, default_value = "0.25,0.45,0.01")]
+        speeds: String,
+        /// entry phases: z positions on F
+        #[arg(long, value_delimiter = ',', default_value = "8.50,8.62,8.74,8.86")]
+        phases: Vec<f64>,
+        #[arg(long)]
+        sbend_straight: bool,
+        /// the launch bar (rest z) the margins are quoted against
+        #[arg(long, default_value_t = 7.29)]
+        bar: f64,
+        /// print every lane's position and motion each tick of the approach
+        #[arg(long)]
+        trace: bool,
+    },
+    /// (tickexact 2026-11-13, day-1 12:27) the reverse merge: a villager lies down in a bed watched by an
+    /// observer; at the lie-down + k it is hurt or a hostile appears in view (or nothing); the observer's
+    /// pulses, the wake, the villager's path; `--guard` adds a string in the cell above the bed head
+    SleepMerge {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        /// none | damage | hostile
+        #[arg(long, default_value = "none")]
+        mode: String,
+        #[arg(long, default_value_t = 0)]
+        k: u32,
+        #[arg(long, default_value_t = 150)]
+        watch: u32,
+        #[arg(long)]
+        guard: bool,
+        #[arg(long, default_value_t = 1200)]
+        max_wait: u32,
+    },
     /// (tickexact 2026-11-13, ironspec 10:52) the presence-string row: a tripwire string two blocks above
     /// a resting rail (the y-26 form over R), (A) a cart with a seated villager resting under it, (B)
     /// an empty cart under its own string; the strings per tick, a world open, the departure
@@ -1957,6 +1997,14 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
             let h = f3(&home, "--home")?;
             crate::reclaim::bed_reclaim(&version, &file, &rm, f3(&day_pos, "--day-pos")?, [h[0] as i32, h[1] as i32, h[2] as i32], f3(&arm_at, "--arm-at")?, runs, after, expect, within, asleep)
         }
+        MobaiCmd::LaunchSweep { version, scene, speeds, phases, sbend_straight, bar, trace } => {
+            let s: Vec<f64> = speeds.split(',').map(|v| v.trim().parse::<f64>()).collect::<std::result::Result<_, _>>()?;
+            anyhow::ensure!(s.len() == 3 && s[2] > 0.0 && s[1] >= s[0], "--speeds from,to,step, got {speeds}");
+            let n = ((s[1] - s[0]) / s[2]).round() as usize;
+            let list: Vec<f64> = (0..=n).map(|i| s[0] + s[2] * i as f64).collect();
+            crate::launchsweep::launch_sweep(&version, &scene, &list, &phases, sbend_straight, bar, trace)
+        }
+        MobaiCmd::SleepMerge { version, mode, k, watch, guard, max_wait } => crate::sleepmerge::sleep_merge(&version, &mode, k, watch, guard, max_wait),
         MobaiCmd::PresenceString { version, ticks, open_at, depart_at, rise, slope } => {
             if slope {
                 crate::presencestring::presence_slope(&version, ticks, open_at, depart_at)
