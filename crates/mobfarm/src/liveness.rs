@@ -1042,6 +1042,64 @@ mod tests {
         assert_eq!((ex.mem.cant_reach_since, ex.mem.walk_target.is_some(), ex.mem.path.is_some()), (None, false, false), "CANT_REACH_WALK_TARGET_SINCE, WALK_TARGET and PATH (no codec) dropped");
     }
 
+    /// ironspec 05:20's bench rule (the brain's activity at t1, REST at night): a villager summoned with the
+    /// day already set is in REST on its first tick at night (13800) and IDLE by day (1000: the schedule's
+    /// IDLE, from 10 to WORK's 2000), as a fresh Brain's first schedule update (lastScheduleUpdate −9999) is
+    /// immediate; and a world open keeps that: the reloaded brain takes the schedule's activity at the load's
+    /// own day time at once (reload's rebuild), so its first tick after the open is in the same activity.
+    /// The wrong order (G1 on 0e91db73c), why the rule exists: summoned at day 1000, then the day set to 13800
+    /// (`/time set`: the day time moves, the game time doesn't), the villager is still IDLE at t1 and turns to
+    /// REST only at its next schedule update, more than 20 gt after the summon's (the t22 offset).
+    #[test]
+    fn world_open_activity_at_t1() {
+        use redsim::entity::mob::ai::brain::{Act, brain};
+        let stone = redsim::block::Block::parse("minecraft:stone").unwrap();
+        let active = |w: &World, i: usize| brain(w, i).ex.as_ref().expect("the exact brain (AI on)").active;
+        let floor = |w: &mut World| {
+            for x in -6..=6 {
+                for z in -6..=6 {
+                    w.set_block(BlockPos::new(x, -1, z), stone.clone(), redsim::world::flags::ALL);
+                }
+            }
+        };
+        for (day, want) in [(13800, Act::Rest), (1000, Act::Idle)] {
+            let mut w = World::new(BlockPos::new(-8, -4, -8), [16, 8, 16]);
+            floor(&mut w);
+            w.mob.seed(7, day);
+            w.mob.ai.on = true;
+            let v = redsim::entity::spawn(&mut w, "minecraft:villager", [0.5, 0.0, 0.5], None).unwrap();
+            w.tick();
+            let i = redsim::entity::index_of(&w, v).unwrap();
+            assert_eq!(active(&w, i), want, "day {day}: the activity on the first tick after the summon");
+            restart(&mut w, Restart::load(redsim::reload::Order::Save)).unwrap();
+            let i = redsim::entity::index_of(&w, follow(&w, v)).unwrap();
+            assert_eq!(active(&w, i), want, "day {day}: the reloaded brain's activity at the open");
+            w.tick();
+            let i = redsim::entity::index_of(&w, follow(&w, v)).unwrap();
+            assert_eq!(active(&w, i), want, "day {day}: the activity on the first tick after the open");
+        }
+        // (the wrong order: summoned by day, the night set after)
+        let mut w = World::new(BlockPos::new(-8, -4, -8), [16, 8, 16]);
+        floor(&mut w);
+        w.mob.seed(7, 1000);
+        w.mob.ai.on = true;
+        let v = redsim::entity::spawn(&mut w, "minecraft:villager", [0.5, 0.0, 0.5], None).unwrap();
+        let summoned = w.time;
+        w.mob.day_offset = 13800 - w.time;
+        w.tick();
+        let i = redsim::entity::index_of(&w, v).unwrap();
+        assert_eq!(active(&w, i), Act::Idle, "summoned by day, the night set after: IDLE at t1, not REST");
+        let mut rest_at = None;
+        for _ in 0..40 {
+            w.tick();
+            if active(&w, redsim::entity::index_of(&w, v).unwrap()) == Act::Rest {
+                rest_at = Some(w.time - summoned);
+                break;
+            }
+        }
+        assert!(rest_at.is_some_and(|t| t > 20), "REST only at the next schedule update, more than 20 gt after the summon: {rest_at:?}");
+    }
+
     /// The vanilla time order at a detector (tick-exact's six split rows): 26.3 advances the day time in
     /// tickChildren before the levels tick, then the level runs its weather, `updateSkyBrightness` at that
     /// day time, `tickTime` (game time + 1) and the block entities, so a daylight detector updating on a
