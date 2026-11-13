@@ -9168,6 +9168,46 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         std::fs::write(p, format!("{}\n", lip_dumps.join("\n"))).map_err(|e| format!("--lip-dump {}: {e}", p.display()))?;
         s.push_str(&format!("the lip dumps (ironfarm 12:47): {} rests dumped to {}\n", lip_dumps.len(), p.display()));
     }
+    // (ironspec 12:41 (4) / 12:51, R6 returning, the hold's Delta) each returning napper's pass of each
+    // split cell up to its own K (the K cells (x-2,25,9) and the J cells (x,25,9) west of its K): the
+    // gap to the batch cart before it and after it at that cell; the least per cell over the run
+    {
+        let mut least_before: BTreeMap<[i32; 3], (i64, String)> = BTreeMap::new();
+        let mut least_after: BTreeMap<[i32; 3], (i64, String)> = BTreeMap::new();
+        let mut n = 0usize;
+        for p in junction_passes.iter().filter(|p| p.2 == "returning napper") {
+            let Some(k) = p.3 else { continue };
+            let own_k = LANES[k] - 2;
+            // the cells up to its own K: K's and J's with x <= its K's
+            if p.1[0] > own_k || p.1[1] != 25 || p.1[2] != 9 {
+                continue;
+            }
+            n += 1;
+            // (any cart not a napper: a batch cart, ridden or empty)
+            let before = junction_passes.iter().filter(|q| q.1 == p.1 && (q.2 == "batch" || q.2 == "empty") && q.0 < p.0).map(|q| p.0 - q.0).min();
+            let after = junction_passes.iter().filter(|q| q.1 == p.1 && (q.2 == "batch" || q.2 == "empty") && q.0 > p.0).map(|q| q.0 - p.0).min();
+            if let Some(g) = before {
+                let e = least_before.entry(p.1).or_insert((i64::MAX, String::new()));
+                if g < e.0 {
+                    *e = (g, format!("t {} lane x {}", p.0, LANES[k]));
+                }
+            }
+            if let Some(g) = after {
+                let e = least_after.entry(p.1).or_insert((i64::MAX, String::new()));
+                if g < e.0 {
+                    *e = (g, format!("t {} lane x {}", p.0, LANES[k]));
+                }
+            }
+        }
+        let fmt = |m: &BTreeMap<[i32; 3], (i64, String)>| if m.is_empty() { "none".to_string() } else { m.iter().map(|(c, (g, w))| format!("({},{},{}) {g} gt ({w})", c[0], c[1], c[2])).collect::<Vec<_>>().join(", ") };
+        s.push_str(&format!(
+            "the returning napper's windows on the split row (ironspec 12:41 (4) / 12:51, R6 returning: each returning napper's entry into each K / J cell up to its own K, the batch cart's entry before it and after it at that cell; the hold pulse's Delta {} gt; rider doPush onto carts: {}; information): {n} passes; the least gap to the batch cart before: {}; after: {}\n",
+            o.hold_pulse_delta,
+            if o.rider_push_off { "off (a counterfactual, no game twin)" } else { "on (the game)" },
+            fmt(&least_before),
+            fmt(&least_after)
+        ));
+    }
     // (ironspec 13:04 (1) / 12:41 (4), R6 per pick) each outbound napper's pass of each J at or east of
     // its own lane's: the margin (b) - (a) - 4, (a) the napper clearing J (its exit from (j,25,9)),
     // (b) the next batch cart entering that J; with the hold pulse's Delta and the push switch named
@@ -9184,7 +9224,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     rows.push(format!("pick t {t_div} #{v} (lane x {}) at J({j}): no exit seen", LANES[*k]));
                     continue;
                 };
-                let b = junction_passes.iter().filter(|p| p.1 == [j, 25, 9] && p.2 == "batch" && p.0 > a).map(|p| p.0).min();
+                let b = junction_passes.iter().filter(|p| p.1 == [j, 25, 9] && (p.2 == "batch" || p.2 == "empty") && p.0 > a).map(|p| p.0).min();
                 match b {
                     Some(b) => {
                         let m = b - a - 4;
@@ -9228,7 +9268,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             let mut rows: Vec<String> = Vec::new();
             let mut least: Option<(i64, String)> = None;
             for (tr, jx, ncid) in ctl.ev_releases.iter() {
-                let b = junction_passes.iter().filter(|p| p.1 == [*jx, 25, 9] && p.2 == "batch" && p.0 > *tr).map(|p| p.0).min();
+                let b = junction_passes.iter().filter(|p| p.1 == [*jx, 25, 9] && (p.2 == "batch" || p.2 == "empty") && p.0 > *tr).map(|p| p.0).min();
                 match b {
                     Some(b) => {
                         let m = b - tr;
