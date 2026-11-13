@@ -163,7 +163,7 @@ fn reconstruct(eval: &WalkEval, closest: NodeId, target: BlockPos, reached: bool
         id = n.came_from;
     }
     nodes.reverse();
-    Path::new(nodes, target, reached)
+    Path::new(nodes, target, reached, eval.level.w.next_path_uid())
 }
 
 #[cfg(test)]
