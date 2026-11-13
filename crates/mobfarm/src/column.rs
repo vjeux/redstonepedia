@@ -944,9 +944,9 @@ pub fn t_rails(spec: &redsim::entity::mob::farm::FarmSpec) -> Result<Vec<String>
     let w = if spec.has_bed() { Run::new(spec, &o)?.world } else { Run::new_homeless(spec, &o)?.world };
     // (G1 on a9a418d03: the reach scan) a T re-settles only on a neighbour update from a signal
     // source block; a source's update reaches its own neighbours and those of the block it powers
-    // or hangs on (a detector rail's block below, a hook's or a button's support, a repeater's,
-    // comparator's or observer's front, a wire's or a torch's neighbours): every cell within
-    // taxicab 2 of a source counts as reached (a superset)
+    // or hangs on (a detector rail's block below, a lever's, a hook's or a button's support (below
+    // a floor one, above a ceiling one, else behind its facing), a repeater's, comparator's or
+    // observer's front, a wire's or a torch's neighbours): each source's reach set, scanned for Ts
     let source = |s: &str| {
         let n = s.trim_start_matches("minecraft:");
         let n = n.split('[').next().unwrap_or(n);
@@ -971,6 +971,15 @@ pub fn t_rails(spec: &redsim::entity::mob::farm::FarmSpec) -> Result<Vec<String>
             _ => return None,
         })
     };
+    let support = |s: &str, c: [i32; 3]| -> Option<[i32; 3]> {
+        if s.contains("face=floor") {
+            Some([c[0], c[1] - 1, c[2]])
+        } else if s.contains("face=ceiling") {
+            Some([c[0], c[1] + 1, c[2]])
+        } else {
+            facing(s).map(|f| [c[0] - f[0], c[1] - f[1], c[2] - f[2]])
+        }
+    };
     let reach_of = |q: redsim::pos::BlockPos, s: &str| -> Vec<[i32; 3]> {
         let n = s.trim_start_matches("minecraft:");
         let n = n.split('[').next().unwrap_or(n);
@@ -988,9 +997,11 @@ pub fn t_rails(spec: &redsim::entity::mob::farm::FarmSpec) -> Result<Vec<String>
             // its facing, an observer's output its back)
             "repeater" | "comparator" => facing(s).map(|f| with(vec![[c[0] - f[0], c[1] - f[1], c[2] - f[2]]])).unwrap_or_else(|| with(n6(c))),
             "observer" => facing(s).map(|f| with(vec![[c[0] - f[0], c[1] - f[1], c[2] - f[2]]])).unwrap_or_else(|| with(n6(c))),
-            // (its own neighbours and its support's: the block behind its facing)
-            "lever" | "tripwire_hook" => facing(s).map(|f| with(vec![c, [c[0] - f[0], c[1] - f[1], c[2] - f[2]]])).unwrap_or_else(|| with(n6(c))),
-            _ if n.ends_with("_button") => facing(s).map(|f| with(vec![c, [c[0] - f[0], c[1] - f[1], c[2] - f[2]]])).unwrap_or_else(|| with(n6(c))),
+            // (its own neighbours and its support's (G1's note 2 on 9653a6971): below a floor lever
+            // or button, above a ceiling one, else the block behind its facing; a hook hangs on a
+            // wall)
+            "lever" | "tripwire_hook" => support(s, c).map(|q| with(vec![c, q])).unwrap_or_else(|| with(n6(c))),
+            _ if n.ends_with("_button") => support(s, c).map(|q| with(vec![c, q])).unwrap_or_else(|| with(n6(c))),
             _ if n.ends_with("_pressure_plate") => with(vec![c, [c[0], c[1] - 1, c[2]]]),
             _ => with(vec![c]),
         }
@@ -1228,7 +1239,9 @@ pub fn flee_sight(d: &Design, declared: &[[i32; 3]], extra: &[(String, f64, f64,
     // match by cell
     let stop_box = d.ports.get("home").map(|h| ([-6, h[1] - 2, -6], [4, h[1] + 5, 5]));
     let full = |c: [i32; 3]| d.blocks.get(&c).and_then(|s| redsim::block::Block::parse(s).ok()).is_some_and(|b| redsim::behavior::full_cube(&b));
-    let liquid = |c: [i32; 3]| d.blocks.get(&c).is_some_and(|s| matches!(s.trim_start_matches("minecraft:").split('[').next(), Some("water" | "lava" | "bubble_column")));
+    // (water, lava, a bubble column, or a waterlogged block: it holds water (G1's note 2 on
+    // 52cbd2734))
+    let liquid = |c: [i32; 3]| d.blocks.get(&c).is_some_and(|s| matches!(s.trim_start_matches("minecraft:").split('[').next(), Some("water" | "lava" | "bubble_column")) || s.contains("waterlogged=true"));
     // (a cell's collision boxes, 1/16 units [x0, x1, y0, y1, z0, z1]; none for air, rails, levers,
     // dust, signs)
     let boxes = |c: [i32; 3]| -> Vec<redsim::behavior::Box16> { d.blocks.get(&c).and_then(|s| redsim::block::Block::parse(s).ok()).map(|b| redsim::behavior::collision_boxes(&b)).unwrap_or_default() };
@@ -1248,6 +1261,8 @@ pub fn flee_sight(d: &Design, declared: &[[i32; 3]], extra: &[(String, f64, f64,
     let mut stop_points: Vec<(String, Vec3)> = Vec::new();
     let mut chest_labels: Vec<String> = Vec::new();
     let mut unreachable_cells = 0usize;
+    let mut partial_tops: Vec<String> = Vec::new();
+    let mut liquid_cells = 0usize;
     // (a cell an entity sits in, the zombie's boat: no villager stands there)
     let seated: Vec<[i32; 3]> = d.entities.iter().map(|e| [e.pos[0].floor() as i32, e.pos[1].floor() as i32, e.pos[2].floor() as i32]).collect();
     if let Some((lo, hi)) = stop_box {
@@ -1267,23 +1282,38 @@ pub fn flee_sight(d: &Design, declared: &[[i32; 3]], extra: &[(String, f64, f64,
                     let bed_here = d.blocks.get(&c).is_some_and(|s| s.contains("_bed"));
                     let _ = bed_here;
                     // (G1's CHANGES 2 on 39925b692) the feet on the top of the cell's own collision
-                    // shape (a bed 0.5625, a chest 0.875, a slab 0.5, a closed trapdoor 0.1875), or
-                    // on the full cube under an empty cell, with 1.95 of head room above the feet
-                    // free of colliders over the villager's 0.6 footprint
+                    // shape (a bed 0.5625, a chest 0.875, a slab 0.5, a closed trapdoor 0.1875), or,
+                    // in an empty cell, on the top of the collider below when it reaches the cell
+                    // (a full cube at y, a fence or a wall at y + 0.5: G1's note 1 on 52cbd2734,
+                    // ironspec 17:01), with 1.95 of head room above the feet free of colliders over
+                    // the villager's 0.6 footprint
                     let own = boxes(c);
                     let feet = if own.is_empty() {
-                        if !full(down) {
+                        let below = boxes(down).iter().map(|b| b[3]).max().unwrap_or(0);
+                        if below < 16 {
+                            // (no floor here: air below, or a collider whose top stays in its own
+                            // cell, where its own cell is the standing cell)
                             continue;
                         }
-                        y as f64
+                        y as f64 + (below - 16) as f64 / 16.0
                     } else {
                         let top = own.iter().map(|b| b[3]).max().unwrap_or(0);
                         if top >= 16 {
+                            // (the cell's own shape reaches its top: a villager stands on it, in the
+                            // cell above; a shape that isn't a full cube is counted and printed,
+                            // never silently dropped)
+                            if !full(c) {
+                                partial_tops.push(format!("({x},{y},{z}) {}", d.blocks.get(&c).map(|s| s.trim_start_matches("minecraft:").split('[').next().unwrap_or("").to_string()).unwrap_or_default()));
+                            }
                             continue;
                         }
                         y as f64 + top as f64 / 16.0
                     };
-                    if liquid(c) || liquid(up) || !head_room(c, feet) {
+                    if liquid(c) || liquid(up) {
+                        liquid_cells += 1;
+                        continue;
+                    }
+                    if !head_room(c, feet) {
                         continue;
                     }
                     let label = format!("({x},{y},{z})");
@@ -1380,11 +1410,13 @@ pub fn flee_sight(d: &Design, declared: &[[i32; 3]], extra: &[(String, f64, f64,
     }
     let ok = in_sight.is_empty() && stop_ok;
     let s = format!(
-        "the 6.05 flee bar, sight-gated ({} rider positions every 0.1 along every rail and both lifts ({} riderless rail cells declared and left out), and {} on-foot positions in the stop's box, the feet on the cell's own collision shape or the full cube under it ({} standable cells declared unreachable and left out), {} zombies; the eye at the cart (or the feet) + 1.62, the zombie's at its feet + 1.74; hidden: a full-collider block on the eye-to-eye ray; {} declared waker places): IN SIGHT within 6.05 {}{}; the waker's declared places in sight within 6.05 {}{}; hidden within 6.05 {}{}; clear {}; every other zombie at least 6.05 from every stop position (sight or not): {}; the landings on a chest (G1): {}; the pre-wake state (the open hatch's plates, hiding the zombie until F shuts them) is not a full-collider test: it rests on tick-exact's official A6 scene (NEAREST_HOSTILE never set with the hatch open); {}\n",
+        "the 6.05 flee bar, sight-gated ({} rider positions every 0.1 along every rail and both lifts ({} riderless rail cells declared and left out), and {} on-foot positions in the stop's box, the feet on the cell's own collision shape or on the top of the collider below an empty cell when it reaches the cell ({} standable cells declared unreachable and left out; {} cells holding liquid left out; the cells whose own shape reaches its top without a full cube, stood on from the cell above: {}), {} zombies; the eye at the cart (or the feet) + 1.62, the zombie's at its feet + 1.74; hidden: a full-collider block on the eye-to-eye ray; {} declared waker places): IN SIGHT within 6.05 {}{}; the waker's declared places in sight within 6.05 {}{}; hidden within 6.05 {}{}; clear {}; every other zombie at least 6.05 from every stop position (sight or not): {}; the landings on a chest (G1): {}; the pre-wake state (the open hatch's plates, hiding the zombie until F shuts them) is not a full-collider test: it rests on tick-exact's official A6 scene (NEAREST_HOSTILE never set with the hatch open); {}\n",
         points.len() - stop_points.len(),
         riderless_cells,
         stop_points.len(),
         unreachable_cells,
+        liquid_cells,
+        if partial_tops.is_empty() { "none".to_string() } else { format!("{}: {}", partial_tops.len(), partial_tops.join(", ")) },
         zombies.len(),
         declared.len(),
         in_sight.len(),

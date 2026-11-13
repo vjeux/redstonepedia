@@ -312,7 +312,8 @@ changes when it is placed last) and the rail Ts (every plain rail with 3 potenti
 into the header, each T with its reach scan: every signal source whose state change updates the T's
 cell (a detector rail its own and the block below's neighbours; a wire or a torch its neighbours'
 neighbours; a repeater, comparator or observer its output block and that block's neighbours; a
-lever, button or hook its own and its support's; a redstone block never), or the nearest changing
+lever, button or hook its own and its support's (below a floor lever or button, above a ceiling
+one, else behind its facing); a redstone block never), or the nearest changing
 source when none does.
 `mctas mobfarm f1q2-run DESIGN [--lane-carts] [--drive] [--ticks N] [--day0 D] [--restart-every N
 --restart-order O] [--control-rider K]` (onechunk, ironspec's deciding test for every rider's bed)
@@ -367,8 +368,11 @@ its `keep-clear:` cells must hold no block and its `keep-block: x,y,z=BLOCK[prop
 block (the assembly check);
 the pre-wake state (the open hatch's plates, hiding the zombie until F shuts them) rests on tick-exact's
 official scene, not this test; the feet stand on the top of the cell's own collision shape (a bed
-0.5625, a chest 0.875, a slab 0.5, a closed trapdoor 0.1875) or on the full cube under an empty cell,
-with 1.95 of head room free above them, and a chest landing's rows are printed; `--sight-path NAME=x,z,y0,y1` adds a vertical rider path (a fall shaft; napper A's lift
+0.5625, a chest 0.875, a slab 0.5, a closed trapdoor 0.1875) or, in an empty cell, on the top of the
+collider below when it reaches the cell (a full cube at y, a fence or a wall at y + 0.5), with 1.95 of
+head room free above them; a cell holding water, lava, a bubble column or a waterlogged block is left
+out (counted), the cells whose own shape reaches its top without a full cube (stood on from the cell
+above) are listed, and a chest landing's rows are printed; `--sight-path NAME=x,z,y0,y1` adds a vertical rider path (a fall shaft; napper A's lift
 follows the stop's y). It also prints the golem detection across the tiling (ironspec 12:14, G1's
 per-axis rule: detected iff every box gap < 16), the pad's spawn cells moved to each neighbour (east,
 west, and the southern copies mirrored in z), per rider class (the lanes, the split row and sidings,
@@ -378,7 +382,9 @@ pair's per-axis gaps and the result. Exit 1 on any failure.
 6,7,8,...]` (ironspec's criterion, Nov 12 10:05): a cart with a villager settled at each rest
 position along the hold's rail (none given: the cell's centre), the rail powered; the threshold is
 the largest departure tick (the first tick off the hold's cell) over the rests + 1, against the
-controller's pulse. `--n-pulse` (ironfarm's convention-free test): the rail powered exactly N gt then
+controller's pulse; each rest is also run with the rail powered exactly the hold's pulse (G1: the
+threshold assumes a launch is monotone in the pulse length), a rest that never leaves with it a
+FAIL. `--n-pulse` (ironfarm's convention-free test): the rail powered exactly N gt then
 unpowered, each rest's speed at its first tick off the cell, and the least N at which every rest
 leaves within 1% of its N = 30 speed.
 f1q2-run's `--napper` (phase 3a; day-1's events, 58f770cc's stop, EMULATED) seeds one napper a night
@@ -391,7 +397,12 @@ edge (ARM3 + 2, ARM3 the main line's detector (5,0,7) risen at or after REL + 24
 pulse fires (the input (7,-1,8) at ARM3 + 10) and resets the RS (the departing napper's second
 ARM3 rise fires nothing), and keys K(n) on at ARM3 + 93 / 108 / 124 and off at ARM3 + 125 / 140 / 156
 (PRESENT_l at the reset) and J(-1)'s block ARM3 + 72..127 for an eastbound napper (7b90c3f1's
-numbers), and the siding's release (D's rise + 4 while PRESENT_l: the input (x-2,23,9) on 30 gt);
+numbers), and the siding's release (D's rise + 4 while PRESENT_l: the input (x-2,23,9) on 30 gt; where
+day-1's (a) feed stack is laid, its input (x-4,22,9)); the pockets' releases go under the pocket rail
+(x,-1,0), or, where M16bw's side drive is laid (a repeater (x-1,0,0) fed by the riser dust
+(x-2,0,0) and the step dust (x-3,-1,0)), as a floor lever in the riser's cell on its glass for the
+pulse, the dust restored after (ironspec 18:10: no solid stand-in); the way-in queue's release is a
+floor lever at (8,y+13,-4) on a glass support the module declares `emulated:`;
 each napper's delayed bit at the sampler is logged against its rest on the hold, its departure
 against E's rise, and every pulse fired with the hold empty or the napper still rolling (bar 0); every other rise of (5,0,7) in
 a cycle is logged with the J/K levers, the hold's input and the
@@ -444,18 +455,51 @@ b8949c96's way-in (the napper starts queued on its queue rail (9,y+13,-4), the d
 later); S is the module with the seeded carts appended as entity lines. Not with `--official-lane3`,
 `--neighbour-golems`, `--control-rider` or restarts (their writes are no drive acts). On a module
 with the way-in, the queue's gate is driven (b8949c96, day-1's to build): the release a redstone
-block at (8,y+13,-4) when RS_ready (set at power-up and by A6's R), the hold (80 gt from the arrival
-detector (9,y+14,-5)), REST (day time >= 12,000) and NOT DAY (the daylight detector (-5,15,3) at 0)
-all hold, taken away at the departure detector (9,y+12,-3), which resets RS_ready. day-1's picker
-(EMULATED, 14:46; the lanes per 7b90c3f1): a pick at the controller's releases 0 / 3 / 6 of each 10
-(lanes A / B / C = x -1 / 3 / 7, each every 1,000 gt), gated by HELD (the queue occupied, from the
+block at (8,y+13,-4) when RS_ready (set at power-up and by A6's R), the hold (`--queue-hold N` gt
+from the arrival detector (9,y+14,-5); default 0, ironspec 17:16: the release as soon as the stop is
+free), REST (day time >= 12,000) and NOT DAY (the daylight detector (-5,15,3) at 0)
+all hold, taken away at the departure detector (9,y+12,-3), which resets RS_ready; printed: each
+visit's dwell (arrival to release) against its 34-gt cap (lane C binding, day-1's model), and each napper's PRESENT against its
+predecessor's D pass (the predecessor passes its siding's D first). The golems born off the pad
+(feet above y -4) are printed with the nearest villager at the birth (bar 0), and a model error
+names them too. day-1's picker
+(EMULATED, 14:46 / 16:14; the lanes per 7b90c3f1): the counter C steps on each release (C := 0 at
+the daylight detector's morning RISE 0 -> 1, C := 19 at its EIGHT 7 -> 8 when C >= 136 or C <= 15);
+a pick when C mod 10 is 1 / 4 / 7 (lanes A / B / C = x -1 / 3 / 7, each every 10 releases), gated by HELD (the queue occupied, from the
 arrival to the departure) and the lane's away latch (set at its pick, reset when its napper is back
 in its lane); the picked lane's batch cart is the one its launch sends; DAY (the daylight detector
 above 0) at its row arrival turns it away; otherwise its own J and every J east of it are held off
 until it passes (8,25,9) onto the leg, then the split as if it had taken its lane (lane -1's D rise:
 J(3) on; lane 7's: J(-1) re-armed; J(7) back on). Each napper prints its stamp's age at its queue
 arrival, at R and at its first clear after R, and its first call back in its lane against its memory's
-last setting (margin >= 20); the worst queue-arrival age and the picks gated or turned away.
+last setting (margin >= 20); the worst queue-arrival age and the picks gated or turned away; the
+villagers napped each night (bar 24 a full night), each night's picks with the villagers picked twice
+and those never picked, and every villager's picks and naps. The chain (the brief's one trigger,
+ironspec 16:10, day-1 16:14): a cycle starts on the golem pulse (REL = the pulse + 6) or, with none started within `--watchdog W` live gt
+(a retriggerable delay from the last start; default 110; 0: the golem pulse alone), on the watchdog; printed: the cycles, the watchdog's starts,
+the RELs' phases (game time mod 100) before and after the first golem. `--stale-start` (the recovery
+row) starts every LAST_SLEPT 24,100 gt old: the first call with 3 willing villagers at the stand and
+the first golem after it are printed. The summons by day: the calls, those with 3 willing in the box,
+the golems, and the willing villagers counted per call. `--held-at-divert` (divert sampling (i)):
+the picker reads HELD at the picked cart's row arrival instead of at the pick. The siding's release
+drives day-1's (a) feed stack where it is laid (a repeater west of the siding's slime: the release
+at its input (x-4,22,9)). The largest calm-REST stamp by lane (ironspec 16:55): each lane's
+villagers (the lane each last rode), their largest stamp age at a calm REST tick against 1,000.
+Every bar line that prints FAIL makes f1q2-run exit 1 (the failing lines named last); `--report-only`
+exits 0 whatever they say. Every block a drive writes keeps the built cell's golem and path
+properties (G1's guard, ironspec 17:46; G1 17:50 / 17:53): a golem floor (legacy-solid and not on
+LEGACY_IRON_GOLEM's list), a full top face, a full-block collision, solid-render, air, a signal
+source, a rail, something dangerous, any collider, a fluid. A write that adds one the built cell
+lacks fails the run, unless it is a state of the built block itself (a trapdoor, a lever, a rail) or
+the module declares the cell `emulated: CELLS=why`; one that only suppresses (a lever: not air, a
+signal source) is named in the report. A controller line's end is driven by a powered lever hung on
+the first sturdy face around it (below, above, the sides) whose updates (its own neighbours and its
+support's) reach no rail T of the build (redsim's junction test) unless the module declares the T
+`update-only-ts:` (state-stable for the state it holds; ironspec 18:31), whose support doesn't
+conduct and with no powerable component beside it but its target (power reach, ironspec 18:34 (5):
+a repeater or comparator counts only from behind),
+checked to survive at its placement and its removal; a declared `emulated:` cell that is air is
+filled with glass at the start (a floor lever's support where the built line end isn't laid yet).
 redsim's `Run::start` (every run built from a design without a site world) refuses a design with a
 non-air cell outside the world's box, a cell the placement popped, or a cell where `can_survive`
 fails (dust or a repeater over air, a hook without its anchor, a rail `rails::would_pop` refuses:

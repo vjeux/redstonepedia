@@ -1141,3 +1141,33 @@ pub fn bench(spec: &FarmSpec, o: &Opts) -> Result<String, String> {
     }
     Ok(s)
 }
+
+#[cfg(test)]
+mod ghast_tests {
+    use super::*;
+
+    /// (G1's note 1 on 6895bc5ee: ghast-check's positive control) An observer walled in obsidian
+    /// but for one glass cell is reached through the glass (FAIL); the same wall closed is not; and
+    /// `--close`'s shell outside the glass leaves it unreached (PASS).
+    #[test]
+    fn an_observer_behind_one_weak_cell_fails_until_closed() {
+        let mut cells: BTreeMap<P, String> = BTreeMap::new();
+        for dx in -1..=1 {
+            for dy in -1..=1 {
+                for dz in -1..=1 {
+                    cells.insert([dx, dy, dz], "minecraft:obsidian".to_string());
+                }
+            }
+        }
+        cells.insert([0, 0, 0], "minecraft:observer[facing=north,powered=false]".to_string());
+        cells.insert([1, 0, 0], "minecraft:glass".to_string());
+        let ex = ghast_exposed(&cells);
+        assert_eq!(ex.iter().map(|(p, _)| *p).collect::<Vec<_>>(), vec![[0, 0, 0]], "the observer behind the glass is reached: {ex:?}");
+        let mut sealed = cells.clone();
+        sealed.insert([1, 0, 0], "minecraft:obsidian".to_string());
+        assert!(ghast_exposed(&sealed).is_empty(), "the obsidian wall all round: nothing reached");
+        let added = close_ghast(&mut cells, "minecraft:cobblestone").expect("the casing closes");
+        assert!(!added.is_empty() && added.iter().all(|p| p[0] == 2), "the shell goes in the outside cells on the glass: {added:?}");
+        assert!(ghast_exposed(&cells).is_empty(), "closed: nothing reached");
+    }
+}

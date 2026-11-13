@@ -2000,6 +2000,24 @@ pub enum MobfarmCmd {
         drive_out: Option<PathBuf>,
         #[arg(long)]
         scene_out: Option<PathBuf>,
+        /// (the brief's "one trigger, one chain", ironspec 16:10) a cycle starts when none started
+        /// within W live gt, as a golem pulse would (0: the golem pulse alone).
+        #[arg(long, default_value_t = 110)]
+        watchdog: i64,
+        /// (ironspec 16:08's recovery row) every villager's LAST_SLEPT 24,100 gt old at the start.
+        #[arg(long)]
+        stale_start: bool,
+        /// (divert sampling (i)) the picker reads HELD at the picked cart's row arrival, not at the
+        /// pick.
+        #[arg(long)]
+        held_at_divert: bool,
+        /// Exit 0 whatever the bars say (by default a bar line printing FAIL exits 1).
+        #[arg(long)]
+        report_only: bool,
+        /// (ironspec 17:16) the way-in queue's hold term in gt from the arrival (0, the ruling: the
+        /// release as soon as the stop is free; 80 the old gate).
+        #[arg(long, default_value_t = 0)]
+        queue_hold: i64,
     },
     /// Where a stand's zombie can stand under the 6-8 rule (ironspec 2026-11-11): every candidate
     /// cell of `--region` (a zombie's feet at its centre, y as given), scored against every rider
@@ -7303,7 +7321,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 std::process::exit(1);
             }
         }
-        MobfarmCmd::F1q2Run { design, seed, ticks, day0, lane_carts, restart_every, restart_order, control_rider, trace, drive, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour_golems, cart_trace, drive_out, scene_out } => {
+        MobfarmCmd::F1q2Run { design, seed, ticks, day0, lane_carts, restart_every, restart_order, control_rider, trace, drive, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour_golems, cart_trace, drive_out, scene_out, watchdog, stale_start, held_at_divert, report_only, queue_hold } => {
             let (c, spec) = load(version, &design)?;
             let bed = *c.clock.design.ports.get("home").ok_or_else(|| anyhow::anyhow!("{}: no `home` port (the shared bed's head)", design.display()))?;
             // (the seats: NAME=x,y,z:cx,cy,cz+...)
@@ -7331,11 +7349,18 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             anyhow::ensure!(drive_out.is_some() == scene_out.is_some(), "--drive-out and --scene-out go together (the drive names the scene's entity lines)");
             anyhow::ensure!(drive_out.is_none() || restarts.is_empty(), "--drive-out: no --restart-every (the drive format's reload acts aren't written)");
             let drive_rec = drive_out.as_ref().map(|_| format!(
-                "mctas mobfarm f1q2-run <design> --lane-carts{} --drive{} --seed {seed} --ticks {ticks} --drive-out F --scene-out S",
+                "mctas mobfarm f1q2-run <design> --lane-carts{} --drive{} --seed {seed} --ticks {ticks} --watchdog {watchdog} --queue-hold {queue_hold}{}{} --drive-out F --scene-out S",
                 if per_lane != 8 { format!(" --per-lane {per_lane}") } else { String::new() },
-                if napper { " --napper" } else { "" }
+                if napper { " --napper" } else { "" },
+                if stale_start { " --stale-start" } else { "" },
+                if held_at_divert { " --held-at-divert" } else { "" }
             ));
-            let o = crate::f1q2run::Opts { seed, ticks, day0, lane_carts, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour, cart_trace, restarts, restart, control_rider, trace, bed, drive, drive_rec };
+            // (G1's guard: the module's `emulated:` cells; 7b90c3f1 18:06: its placement-order Ts)
+            let text = std::fs::read_to_string(&design)?;
+            let emulated = crate::column::header_cells(&text, "emulated:");
+            let ts = crate::column::header_cells(&text, "placement-order-ts:");
+            let update_only = crate::column::header_cells(&text, "update-only-ts:");
+            let o = crate::f1q2run::Opts { seed, ticks, day0, lane_carts, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour, cart_trace, restarts, restart, control_rider, trace, bed, drive, drive_rec, watchdog, stale_start, held_at_divert, queue_hold, emulated, ts, update_only };
             let (rep, out) = crate::f1q2run::run_driven(&spec, &o).map_err(|e| anyhow::anyhow!(e))?;
             print!("{rep}");
             if let (Some(df), Some(sf), Some((drive_text, scene_entities))) = (&drive_out, &scene_out, out) {
@@ -7348,6 +7373,15 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 std::fs::write(sf, scene)?;
                 std::fs::write(df, drive_text)?;
                 println!("the drive: {} (the scene {})", df.display(), sf.display());
+            }
+            // (ironspec 17:01 (4)) the bars it prints decide the exit: a FAIL exits 1 unless
+            // `--report-only`
+            let fails: Vec<&str> = rep.lines().filter(|l| l.contains("FAIL") && !l.contains("expected FAIL")).collect();
+            if !fails.is_empty() {
+                println!("f1q2-run: {} bar line(s) FAIL{}: {}", fails.len(), if report_only { " (--report-only: exit 0)" } else { " (exit 1)" }, fails.iter().map(|l| l.trim().chars().take(60).collect::<String>()).collect::<Vec<_>>().join(" | "));
+                if !report_only {
+                    std::process::exit(1);
+                }
             }
         }
         MobfarmCmd::CreeperCheck { design, glass, unlit_control } => {

@@ -201,9 +201,14 @@ pub fn report(spec: &FarmSpec, holds: &[Hold], max: i64) -> Result<(String, bool
         let rests: Vec<Option<f64>> = if h.rests.is_empty() { vec![None] } else { h.rests.iter().map(|a| Some(*a)).collect() };
         let mut worst: Option<i64> = Some(0);
         let mut rows: Vec<String> = Vec::new();
+        // (G1's note 4 on d6063dc48: the threshold assumes a launch is monotone in the pulse
+        // length; the hold's own pulse is run too, the rail powered exactly that long)
+        let mut own_ok = true;
         for a in rests {
             let (d, rest) = departure(spec, h, a, max)?;
-            rows.push(format!("rest ({:.3},{:.3},{:.3}) departs t {}", rest[0], rest[1], rest[2], d.map_or("NEVER".to_string(), |t| t.to_string())));
+            let own = exit_speed(spec, h, a, h.pulse, max)?;
+            own_ok &= own.is_some();
+            rows.push(format!("rest ({:.3},{:.3},{:.3}) departs t {}, with its pulse exactly ({} gt) {}", rest[0], rest[1], rest[2], d.map_or("NEVER".to_string(), |t| t.to_string()), h.pulse, own.map_or("NEVER leaves".to_string(), |v| format!("leaves at speed {v:.3}"))));
             worst = match (worst, d) {
                 (Some(w), Some(t)) => Some(w.max(t)),
                 _ => None,
@@ -212,9 +217,9 @@ pub fn report(spec: &FarmSpec, holds: &[Hold], max: i64) -> Result<(String, bool
         let line = match worst {
             Some(w) => {
                 let thr = w + 1;
-                let pass = h.pulse >= thr;
+                let pass = h.pulse >= thr && own_ok;
                 ok &= pass;
-                format!("  {} ({},{},{}): {}; threshold {thr} gt; its pulse {} gt: margin {} ({})\n", h.name, h.cell[0], h.cell[1], h.cell[2], rows.join(", "), h.pulse, h.pulse - thr, if pass { "PASS" } else { "FAIL" })
+                format!("  {} ({},{},{}): {}; threshold {thr} gt; its pulse {} gt: margin {}{} ({})\n", h.name, h.cell[0], h.cell[1], h.cell[2], rows.join(", "), h.pulse, h.pulse - thr, if own_ok { "" } else { "; a rest that never leaves with the pulse itself" }, if pass { "PASS" } else { "FAIL" })
             }
             None => {
                 ok = false;
