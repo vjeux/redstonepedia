@@ -2059,7 +2059,9 @@ pub enum MobfarmCmd {
     /// <extra args>`; each report kept in --out; per night the JUDGED bars (HOME lost 0, westbound 0,
     /// window overlaps 0, K writes off their cell 0, the lift mouth and the y-12 pairs PASS, swaps 0,
     /// the per-lane count PASS) and the other FAIL lines counted by name; exit 1 if any judged bar
-    /// fails in any night.
+    /// fails in any night. (G1's conditions on the composed-night battery) With --standing FILE,
+    /// every FAIL line no standing bar's prefix matches is a NEW FAIL and fails its night, the
+    /// summary tabling each standing bar's nights; --plant-fail N is the positive control.
     F1q2Battery {
         design: PathBuf,
         /// Seeds, e.g. 1,2,3,4,5,6,7,8.
@@ -2077,6 +2079,23 @@ pub enum MobfarmCmd {
         /// Where each night's report goes (one file per night).
         #[arg(long)]
         out: PathBuf,
+        /// (G1's conditions) The standing open bars, one per line: `<prefix>\t<cause>\t<owner>`
+        /// (`#` lines and blank lines skipped). A night's FAIL line whose text, leading spaces
+        /// trimmed, starts with a prefix is that bar's; any other FAIL line is a NEW FAIL: its night
+        /// fails (exit 1). The summary tables each bar's nights and the range of the first integer
+        /// after its line's value ':' (the first outside parentheses; information).
+        #[arg(long)]
+        standing: Option<PathBuf>,
+        /// (with --standing) A standing bar whose first integer after its value ':' differs between
+        /// the nights it appeared in fails the battery too.
+        #[arg(long, requires = "standing")]
+        standing_strict_counts: bool,
+        /// (G1's positive control, with --standing) Append the line `the planted control line (G1's
+        /// control): 1 (FAIL)` to night N's report (N 0-based, in the order the nights run) before
+        /// it is judged: the battery must exit 1 naming it a NEW FAIL (night N's kept file stays the
+        /// child's own output).
+        #[arg(long, requires = "standing")]
+        plant_fail: Option<usize>,
         /// More f1q2-run flags for every night, after `--`.
         #[arg(last = true, allow_hyphen_values = true)]
         extra: Vec<String>,
@@ -7975,10 +7994,24 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 );
             }
         }
-        MobfarmCmd::F1q2Battery { design, seeds, offsets, deltas, ticks, out, extra } => {
+        MobfarmCmd::F1q2Battery { design, seeds, offsets, deltas, ticks, out, standing, standing_strict_counts, plant_fail, extra } => {
             std::fs::create_dir_all(&out)?;
             let exe = std::env::current_exe()?;
             let positions: Vec<String> = offsets.split(';').map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect();
+            // (G1's conditions) the standing open bars, read before any night runs; the planted
+            // control's night must be one the battery runs
+            let bars: Option<Vec<StandingBar>> = match &standing {
+                Some(f) => {
+                    let text = std::fs::read_to_string(f).map_err(|e| anyhow::anyhow!("--standing {}: {e}", f.display()))?;
+                    Some(parse_standing(&text).map_err(|e| anyhow::anyhow!("--standing {}: {e}", f.display()))?)
+                }
+                None => None,
+            };
+            let prefixes: Vec<String> = bars.iter().flatten().map(|b| b.prefix.clone()).collect();
+            let total = positions.len() * deltas.len() * seeds.len();
+            if let Some(n) = plant_fail {
+                anyhow::ensure!(n < total, "--plant-fail {n}: the battery runs {total} nights (N is 0-based, below {total})");
+            }
             // the judged bars: a name, the report line's key, and the verdict read from that line
             let judge = |rep: &str| -> Vec<(String, bool, String)> {
                 let line = |key: &str| rep.lines().find(|l| l.contains(key)).unwrap_or("").to_string();
@@ -8005,9 +8038,17 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 v
             };
             let mut failed = 0usize;
+            let mut judged_failed = 0usize;
+            let mut new_failed = 0usize;
             let mut nights = 0usize;
             let mut other: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
             let mut summary: Vec<String> = Vec::new();
+            // (--standing) every night's name in run order, each standing bar's (night, first integer
+            // after its value ':') per night its FAIL line appeared in, and the NEW FAIL lines
+            let mut names: Vec<String> = Vec::new();
+            let mut hits: Vec<Vec<(usize, Option<i64>)>> = vec![Vec::new(); prefixes.len()];
+            let mut new_rows: Vec<String> = Vec::new();
+            let mut plant_caught = true;
             for pos in &positions {
                 for d in &deltas {
                     for s in &seeds {
@@ -8018,34 +8059,87 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             .args(["--seed", &s.to_string(), "--offset", pos, "--hold-pulse-delta", &d.to_string(), "--ticks", &ticks.to_string(), "--report-only"])
                             .args(&extra)
                             .output()?;
-                        let rep = String::from_utf8_lossy(&o.stdout).to_string();
+                        let mut rep = String::from_utf8_lossy(&o.stdout).to_string();
                         std::fs::write(out.join(format!("{name}.txt")), format!("{rep}{}", String::from_utf8_lossy(&o.stderr)))?;
+                        let night = nights;
                         nights += 1;
+                        names.push(name.clone());
+                        // (G1's positive control) the planted FAIL line joins the night's report after
+                        // its file is kept and before anything is judged
+                        if plant_fail == Some(night) {
+                            plant_fail_line(&mut rep);
+                        }
                         let v = judge(&rep);
-                        let bad: Vec<&(String, bool, String)> = v.iter().filter(|x| !x.1).collect();
-                        if !bad.is_empty() || !o.status.success() {
-                            failed += 1;
+                        let judged_bad = v.iter().any(|x| !x.1) || !o.status.success();
+                        // the other FAIL lines (the run's own tally line left out), by their first 60 characters
+                        let lines = battery_fail_lines(&rep);
+                        let fl: Vec<String> = lines.iter().map(|l| l.trim().chars().take(60).collect::<String>()).collect();
+                        let mut row = format!("{name}: {}{}; {} FAIL lines", v.iter().map(|x| format!("{} {}", x.0, x.2)).collect::<Vec<_>>().join(", "), if o.status.success() { String::new() } else { format!(" (exit {:?})", o.status.code()) }, fl.len());
+                        // (G1's conditions) with --standing each FAIL line is a standing bar's or NEW
+                        let fresh: Vec<&str> = if bars.is_some() { new_fails(&rep, &prefixes) } else { Vec::new() };
+                        if bars.is_some() {
+                            for (k, p) in prefixes.iter().enumerate() {
+                                if let Some(l) = lines.iter().find(|l| standing_match(l, p)) {
+                                    hits[k].push((night, first_int_after_colon(l)));
+                                }
+                            }
+                            new_rows.extend(fresh.iter().map(|l| format!("  night {night} ({name}): {}", l.trim().chars().take(160).collect::<String>())));
+                            if plant_fail == Some(night) {
+                                plant_caught = fresh.contains(&PLANTED_FAIL);
+                            }
+                            row.push_str(&format!(" ({} standing, {} NEW)", lines.len() - fresh.len(), fresh.len()));
+                        } else {
+                            for l in &fl {
+                                *other.entry(l.clone()).or_default() += 1;
+                            }
                         }
-                        // the other FAIL lines, by their first 60 characters
-                        let fl: Vec<String> = crate::f1q2run::fail_lines(&rep).iter().filter(|l| !l.starts_with("f1q2-run:")).map(|l| l.trim().chars().take(60).collect::<String>()).collect();
-                        for l in &fl {
-                            *other.entry(l.clone()).or_default() += 1;
-                        }
-                        let row = format!("{name}: {}{}; {} FAIL lines", v.iter().map(|x| format!("{} {}", x.0, x.2)).collect::<Vec<_>>().join(", "), if o.status.success() { String::new() } else { format!(" (exit {:?})", o.status.code()) }, fl.len());
+                        judged_failed += usize::from(judged_bad);
+                        new_failed += usize::from(!fresh.is_empty());
+                        failed += usize::from(judged_bad || !fresh.is_empty());
                         println!("{row}");
                         summary.push(row);
                     }
                 }
             }
-            println!(
-                "f1q2-battery: {nights} nights ({} positions x {} deltas x {} seeds); judged bars (HOME lost 0, westbound 0, window overlaps 0, K writes off their cell 0, the lift mouth / the y-12 pairs / the per-lane count PASS, swaps 0) failed in {failed} nights",
+            let mut tail = vec![format!(
+                "f1q2-battery: {nights} nights ({} positions x {} deltas x {} seeds); judged bars (HOME lost 0, westbound 0, window overlaps 0, K writes off their cell 0, the lift mouth / the y-12 pairs / the per-lane count PASS, swaps 0) failed in {judged_failed} nights",
                 positions.len(),
                 deltas.len(),
                 seeds.len()
-            );
-            println!("the other FAIL lines (the standing open bars), by line and nights: {}", other.iter().map(|(l, n)| format!("[{n}] {l}")).collect::<Vec<_>>().join(" | "));
+            )];
+            // (--standing) the standing table and, with --standing-strict-counts, the bars whose count changed
+            let (table, changed) = match &bars {
+                Some(b) => standing_table(b, &hits, &names, standing_strict_counts),
+                None => (Vec::new(), Vec::new()),
+            };
+            let battery_fails = failed > 0 || !changed.is_empty() || !plant_caught;
+            if let (Some(bars), Some(file)) = (&bars, &standing) {
+                if let Some(n) = plant_fail {
+                    tail.push(format!("(--plant-fail: night {n} carries a planted FAIL line)"));
+                }
+                tail.push(format!("NEW FAIL lines (in no --standing bar): {} in {new_failed} nights", new_rows.len()));
+                tail.append(&mut new_rows);
+                tail.push(format!("the standing bars (--standing {}: {} bars): prefix | cause | owner | the nights it appeared in / {nights} | the first integer after its line's value ':' (the first outside parentheses; information)", file.display(), bars.len()));
+                tail.extend(table);
+                tail.extend(changed.iter().cloned());
+                if !plant_caught {
+                    tail.push(format!("--plant-fail: night {}'s planted line is no NEW FAIL (a --standing prefix matches it): the control did not bite (FAIL)", plant_fail.unwrap_or_default()));
+                }
+                tail.push(format!(
+                    "f1q2-battery: {failed} of {nights} nights failed (judged bars in {judged_failed}, NEW FAIL lines in {new_failed}){}{}: exit {}",
+                    if standing_strict_counts { format!("; standing bars whose count changed between nights: {} (--standing-strict-counts)", changed.len()) } else { String::new() },
+                    if plant_caught { "" } else { "; the planted control NOT caught" },
+                    u8::from(battery_fails)
+                ));
+            } else {
+                tail.push(format!("the other FAIL lines (the standing open bars), by line and nights: {}", other.iter().map(|(l, n)| format!("[{n}] {l}")).collect::<Vec<_>>().join(" | ")));
+            }
+            for l in &tail {
+                println!("{l}");
+            }
+            summary.extend(tail);
             std::fs::write(out.join("summary.txt"), format!("{}\n", summary.join("\n")))?;
-            if failed > 0 {
+            if battery_fails {
                 std::process::exit(1);
             }
         }
@@ -15277,6 +15371,267 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// (G1's conditions on the composed-night battery) One standing open bar of `mobfarm f1q2-battery
+/// --standing FILE`: a night's FAIL line whose text, leading spaces trimmed, starts with `prefix` is
+/// this bar's; every other FAIL line is NEW.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StandingBar {
+    pub prefix: String,
+    pub cause: String,
+    pub owner: String,
+}
+
+/// (G1's positive control, `f1q2-battery --plant-fail N`) The synthetic FAIL line planted in night
+/// N's report before it is judged.
+pub const PLANTED_FAIL: &str = "the planted control line (G1's control): 1 (FAIL)";
+
+/// `--standing FILE`'s text: one bar per line, `<prefix>\t<cause>\t<owner>`, `#` lines and blank
+/// lines skipped; a line without exactly three fields, with an empty one, or repeating a prefix is
+/// refused with its line number. A prefix's leading spaces are dropped (the FAIL lines are matched
+/// with theirs trimmed).
+pub fn parse_standing(text: &str) -> std::result::Result<Vec<StandingBar>, String> {
+    let mut bars: Vec<StandingBar> = Vec::new();
+    for (i, l) in text.lines().enumerate() {
+        if l.trim().is_empty() || l.trim_start().starts_with('#') {
+            continue;
+        }
+        let f: Vec<&str> = l.split('\t').collect();
+        let &[prefix, cause, owner] = f.as_slice() else {
+            return Err(format!("line {}: {} tab-separated fields, not 3 (<prefix>\\t<cause>\\t<owner>): {l}", i + 1, f.len()));
+        };
+        let (prefix, cause, owner) = (prefix.trim_start(), cause.trim(), owner.trim());
+        if prefix.is_empty() || cause.is_empty() || owner.is_empty() {
+            return Err(format!("line {}: an empty prefix, cause or owner (each standing bar names all three): {l}", i + 1));
+        }
+        if bars.iter().any(|b| b.prefix == prefix) {
+            return Err(format!("line {}: the prefix `{prefix}` again", i + 1));
+        }
+        bars.push(StandingBar { prefix: prefix.to_string(), cause: cause.to_string(), owner: owner.to_string() });
+    }
+    Ok(bars)
+}
+
+/// The run's own tally line (`f1q2-run: N bar line(s) FAIL …`, printed after its report): no bar,
+/// it restates the bars' FAIL lines.
+fn is_run_tally(l: &str) -> bool {
+    l.starts_with("f1q2-run: ") && l.contains(" bar line(s) FAIL")
+}
+
+/// A night's report lines carrying a FAIL verdict (`f1q2run::fail_lines`), the run's tally line
+/// left out.
+fn battery_fail_lines(report: &str) -> Vec<&str> {
+    crate::f1q2run::fail_lines(report).into_iter().filter(|l| !is_run_tally(l)).collect()
+}
+
+/// Whether a FAIL line is the standing bar's of this prefix: its text, leading spaces trimmed,
+/// starts with the prefix.
+fn standing_match(line: &str, prefix: &str) -> bool {
+    line.trim_start().starts_with(prefix)
+}
+
+/// (G1's conditions on the composed-night battery) A night's NEW FAIL lines: its lines carrying a
+/// FAIL verdict (`f1q2run::fail_lines`: "FAILS" in a bar's description is none; the run's tally
+/// line left out) that no standing bar's prefix matches.
+pub fn new_fails<'a>(report: &'a str, standing: &[String]) -> Vec<&'a str> {
+    battery_fail_lines(report).into_iter().filter(|l| !standing.iter().any(|p| standing_match(l, p))).collect()
+}
+
+/// (`--plant-fail N`) Night N's report with the planted control line appended, on a line of its own.
+fn plant_fail_line(rep: &mut String) {
+    if !rep.is_empty() && !rep.ends_with('\n') {
+        rep.push('\n');
+    }
+    rep.push_str(PLANTED_FAIL);
+    rep.push('\n');
+}
+
+/// The byte index of a bar line's value ':', the first one outside parentheses: a bar's name is
+/// followed by its description in parentheses, which cites times (`the summons from the pockets
+/// (farmopt 12:10, …): 3 calls`), so the line's first ':' would read a citation's minutes, the same
+/// every night; a line with no ':' outside parentheses falls back to its first ':'.
+fn bar_colon(line: &str) -> Option<usize> {
+    let mut depth = 0usize;
+    for (i, c) in line.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => depth = depth.saturating_sub(1),
+            ':' if depth == 0 => return Some(i),
+            _ => {}
+        }
+    }
+    line.find(':')
+}
+
+/// The first integer after a bar line's value ':' (`bar_colon`) as the report prints it: its digits
+/// with any thousands groups (`1,200` reads 1200, `(1,2,1)` reads 1) and a '-' directly before them
+/// (`lane x -1` reads -1); None without a ':' or without a digit after it.
+pub fn first_int_after_colon(line: &str) -> Option<i64> {
+    let rest = &line[bar_colon(line)? + 1..];
+    let b = rest.as_bytes();
+    let i = b.iter().position(u8::is_ascii_digit)?;
+    let neg = i > 0 && b[i - 1] == b'-' && (i < 2 || !b[i - 2].is_ascii_alphanumeric());
+    let mut j = i;
+    while j < b.len() && b[j].is_ascii_digit() {
+        j += 1;
+    }
+    let mut digits = rest[i..j].to_string();
+    // a thousands group: ',' then exactly three digits
+    while b.get(j) == Some(&b',') && b.len() >= j + 4 && b[j + 1..j + 4].iter().all(u8::is_ascii_digit) && b.get(j + 4).is_none_or(|c| !c.is_ascii_digit()) {
+        digits.push_str(&rest[j + 1..j + 4]);
+        j += 4;
+    }
+    let n: i64 = digits.parse().ok()?;
+    Some(if neg { -n } else { n })
+}
+
+/// (G1's conditions) The standing table: per bar its prefix's first 60 characters, cause, owner, the
+/// nights its FAIL line appeared in out of all (named unless none or all), and the range (min..max)
+/// of the first integer after its line's value ':' (`first_int_after_colon`) over those nights
+/// (information); and, with `strict` (`--standing-strict-counts`), a line per bar whose first
+/// integer differs between those nights (each fails the battery). `hits[k]`: bar k's (night, first
+/// integer) per night it appeared in; `names`: every night's name in run order.
+pub fn standing_table(bars: &[StandingBar], hits: &[Vec<(usize, Option<i64>)>], names: &[String], strict: bool) -> (Vec<String>, Vec<String>) {
+    let mut rows: Vec<String> = Vec::new();
+    let mut changed: Vec<String> = Vec::new();
+    for (b, h) in bars.iter().zip(hits) {
+        let prefix: String = b.prefix.chars().take(60).collect();
+        let nights = if h.is_empty() || h.len() == names.len() {
+            format!("{}/{}", h.len(), names.len())
+        } else {
+            format!("{}/{} ({})", h.len(), names.len(), h.iter().map(|(n, _)| names.get(*n).cloned().unwrap_or_else(|| format!("night {n}"))).collect::<Vec<_>>().join(", "))
+        };
+        let ints: Vec<i64> = h.iter().filter_map(|(_, v)| *v).collect();
+        let without = h.len() - ints.len();
+        let span = ints.iter().min().zip(ints.iter().max()).map(|(a, z)| format!("{a}..{z}"));
+        let range = match &span {
+            Some(s) if without > 0 => format!("{s} ({without} of its lines without one)"),
+            Some(s) => s.clone(),
+            None if h.is_empty() => "-".to_string(),
+            None => "no integer in its lines".to_string(),
+        };
+        rows.push(format!("  {prefix} | {} | {} | {nights} | {range}", b.cause, b.owner));
+        if strict && h.windows(2).any(|w| w[0].1 != w[1].1) {
+            changed.push(format!("standing bar {prefix}: count changed between nights ({}{})", span.as_deref().unwrap_or("-"), if without > 0 { format!(", {without} of its lines without one") } else { String::new() }));
+        }
+    }
+    (rows, changed)
+}
+
+#[cfg(test)]
+mod battery_tests {
+    use super::{PLANTED_FAIL, StandingBar, first_int_after_colon, new_fails, parse_standing, plant_fail_line, standing_table};
+
+    fn bar(prefix: &str, cause: &str, owner: &str) -> StandingBar {
+        StandingBar { prefix: prefix.to_string(), cause: cause.to_string(), owner: owner.to_string() }
+    }
+
+    /// (G1's conditions on the composed-night battery) a night's NEW FAIL lines: neither the
+    /// standing bar's FAIL line nor a PASS line describing what FAILS is new, the extra FAIL line
+    /// is (and the run's own tally line is no bar line)
+    #[test]
+    fn new_fails_are_the_fail_lines_no_standing_prefix_matches() {
+        let rep = [
+            "  the westbound carts on the split row (bar 0): 2 (FAIL)",
+            "  the ridden departures (a cart not the napper's pressing it FAILS): 22 by nappers, 0 by others (PASS)",
+            "  the y-12 pairs: 1 pair 3 gt apart (FAIL)",
+            "f1q2-run: 2 bar line(s) FAIL (--report-only: exit 0): the westbound carts on the split row | the y-12 pairs",
+        ]
+        .join("\n");
+        let standing = vec!["the westbound carts on the split row".to_string()];
+        assert_eq!(new_fails(&rep, &standing), vec!["  the y-12 pairs: 1 pair 3 gt apart (FAIL)"]);
+        // with no standing bar both FAIL lines are new, the tally never
+        assert_eq!(new_fails(&rep, &[]).len(), 2);
+    }
+
+    /// (G1's positive control, --plant-fail) the planted line is a NEW FAIL, also planted in a
+    /// report that doesn't end in a newline
+    #[test]
+    fn the_planted_line_is_a_new_fail() {
+        assert_eq!(PLANTED_FAIL, "the planted control line (G1's control): 1 (FAIL)");
+        let standing = vec!["the westbound carts on the split row".to_string()];
+        let mut rep = "  the westbound carts on the split row (bar 0): 2 (FAIL)\nthe dwell: 13 (PASS)".to_string();
+        assert!(new_fails(&rep, &standing).is_empty());
+        plant_fail_line(&mut rep);
+        assert_eq!(new_fails(&rep, &standing), vec![PLANTED_FAIL]);
+        assert!(rep.ends_with("the dwell: 13 (PASS)\nthe planted control line (G1's control): 1 (FAIL)\n"), "{rep}");
+    }
+
+    /// --standing FILE: `#` and blank lines skipped, a prefix's leading spaces dropped; a line
+    /// without three fields, with an empty one, or repeating a prefix refused with its number
+    #[test]
+    fn the_standing_file_parses() {
+        let bars = parse_standing("# prefix\tcause\towner\n\n  the westbound carts\tthe split's timing\tday-1\nthe y-12 pairs\tH2's pairs\tironspec\n").unwrap();
+        assert_eq!(bars, vec![bar("the westbound carts", "the split's timing", "day-1"), bar("the y-12 pairs", "H2's pairs", "ironspec")]);
+        assert!(parse_standing("the bar\tits cause\n").unwrap_err().starts_with("line 1:"));
+        assert!(parse_standing("# c\n\tits cause\tme\n").unwrap_err().starts_with("line 2:"));
+        assert!(parse_standing("a\tb\t\n").is_err(), "an empty owner");
+        assert!(parse_standing("a\tb\tc\na\td\te\n").unwrap_err().contains("again"));
+        assert!(parse_standing("# none yet\n\n").unwrap().is_empty());
+    }
+
+    /// the first integer after a bar line's value ':': the first ':' outside parentheses (a bar's
+    /// description cites times inside its own), else the line's first ':'
+    #[test]
+    fn the_first_integer_after_the_bars_colon() {
+        assert_eq!(first_int_after_colon("  the westbound carts on the split row (bar 0): 2 (FAIL)"), Some(2));
+        // (the composed night's own lines: their first ':' is a citation's time, 19 and 10 every night)
+        assert_eq!(first_int_after_colon("the y-12 pairs (dfb89499 14:19 / ironspec 14:13 (3)(a): consecutive entries into the column's cell (-5,12,7); bar >= 16, every pair): 0 entries; no pair; the least - (NOT JUDGED (no pair): FAIL)"), Some(0));
+        assert_eq!(first_int_after_colon("the summons from the pockets (farmopt 12:10, ironspec 12:13: the stand is the pocket): 3 calls, 3 callers blocked (bar 0: FAIL)"), Some(3));
+        assert_eq!(first_int_after_colon("naps per night: night 0: 14 villagers napped (FAIL, bar 24)"), Some(0));
+        assert_eq!(first_int_after_colon("the bar: 1,200 (<= 1,000: FAIL)"), Some(1200));
+        assert_eq!(first_int_after_colon("the per-lane cart count (a 9th FAILS): lane x -1 the most 9 (FAIL)"), Some(-1));
+        assert_eq!(first_int_after_colon("the cell: (1,2,1) moved (FAIL)"), Some(1));
+        assert_eq!(first_int_after_colon("the t-12 bar: x-12 (FAIL)"), Some(12));
+        // no ':' outside parentheses: the line's first ':'
+        assert_eq!(first_int_after_colon("the bar (unclosed: 3 (FAIL)"), Some(3));
+        assert_eq!(first_int_after_colon("no colon 3 (FAIL)"), None);
+        assert_eq!(first_int_after_colon("the bar: NOT JUDGED (FAIL)"), None);
+    }
+
+    /// the standing table: each bar's nights (named when some) and its first integers' range, the
+    /// range information unless --standing-strict-counts, which fails a bar whose count changed
+    #[test]
+    fn the_standing_table_and_strict_counts() {
+        let bars = vec![bar("the westbound carts", "the split", "day-1"), bar("the y-12 pairs", "H2", "ironspec"), bar("the lift mouth", "L", "farmopt"), bar("the dwell", "D", "G1")];
+        let names: Vec<String> = ["n0", "n1", "n2"].iter().map(|s| s.to_string()).collect();
+        let hits = vec![vec![(0, Some(2)), (1, Some(2)), (2, Some(2))], vec![(0, Some(1)), (2, Some(3))], vec![], vec![(1, None), (2, Some(4))]];
+        let (rows, changed) = standing_table(&bars, &hits, &names, false);
+        assert_eq!(
+            rows,
+            vec![
+                "  the westbound carts | the split | day-1 | 3/3 | 2..2",
+                "  the y-12 pairs | H2 | ironspec | 2/3 (n0, n2) | 1..3",
+                "  the lift mouth | L | farmopt | 0/3 | -",
+                "  the dwell | D | G1 | 2/3 (n1, n2) | 4..4 (1 of its lines without one)",
+            ]
+        );
+        assert!(changed.is_empty(), "the counts are information without --standing-strict-counts");
+        let (_, changed) = standing_table(&bars, &hits, &names, true);
+        assert_eq!(changed, vec!["standing bar the y-12 pairs: count changed between nights (1..3)", "standing bar the dwell: count changed between nights (4..4, 1 of its lines without one)"]);
+    }
+
+    /// the new flags by their names; --standing-strict-counts and --plant-fail need --standing
+    #[test]
+    fn the_battery_flags_parse() {
+        // (clap's derive over all of MobfarmCmd overflows a test thread's 2 MiB stack unoptimized)
+        let parsed = std::thread::Builder::new().stack_size(256 << 20).spawn(|| {
+            use clap::Parser;
+            #[derive(Parser)]
+            struct Cli {
+                #[command(subcommand)]
+                cmd: super::MobfarmCmd,
+            }
+            let parse = |args: &[&str]| Cli::try_parse_from(std::iter::once("mobfarm").chain(args.iter().copied()));
+            let cli = parse(&["f1q2-battery", "d.txt", "--out", "o", "--standing", "s.tsv", "--standing-strict-counts", "--plant-fail", "3", "--", "--lane-carts"]).unwrap();
+            let super::MobfarmCmd::F1q2Battery { standing, standing_strict_counts, plant_fail, extra, .. } = cli.cmd else { panic!("not f1q2-battery") };
+            assert_eq!((standing, standing_strict_counts, plant_fail, extra), (Some("s.tsv".into()), true, Some(3), vec!["--lane-carts".to_string()]));
+            assert!(parse(&["f1q2-battery", "d.txt", "--out", "o", "--plant-fail", "3"]).is_err(), "--plant-fail needs --standing");
+            assert!(parse(&["f1q2-battery", "d.txt", "--out", "o", "--standing-strict-counts"]).is_err(), "--standing-strict-counts needs --standing");
+        });
+        parsed.unwrap().join().unwrap();
+    }
 }
 
 /// `queue-loop-run --phase-sweep WHO@S1[,S2]` (ironspec's forced-phase mode, tickexact
