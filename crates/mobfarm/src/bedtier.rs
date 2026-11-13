@@ -2512,7 +2512,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                     let mut w2 = w.clone();
                     let sh = BlockPos::new(WAKER_SHUT[0], WAKER_SHUT[1], WAKER_SHUT[2]);
                     let open_state = format!("{}", w2.get(sh)).replace("open=true", "open=false").replace("powered=true", "powered=false");
-                    w2.set_block(sh, block(&open_state), 0);
+                    w2.set_block(sh, block(open_state.trim_start_matches("minecraft:")), 0);
                     let open = redsim::entity::mob::los::first_hit(&w2, ve, ze);
                     let name = |h: Option<BlockPos>, ww: &World| h.map_or("CLEAR".to_string(), |p| format!("blocked at ({},{},{}) {}", p.x, p.y, p.z, ww.get(p)));
                     row.hold_lines.push(format!("t {t}: the loaded cart at rest on the slope at ({:.3},{:.3},{:.3}); the rider's feet {dist:.2} from the waker's; its eye ({:.2},{:.2},{:.2}) to the waker's eye: shutter as now {}; shutter open (F's state, on a copy) {}", c.pos.x, c.pos.y, c.pos.z, ve.x, ve.y, ve.z, name(shut, w), name(open, &w2)));
