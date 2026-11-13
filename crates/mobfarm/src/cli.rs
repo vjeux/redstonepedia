@@ -1821,6 +1821,10 @@ pub enum MobfarmCmd {
         /// is (i), the design start: HOME a memory, the ticket free).
         #[arg(long)]
         visit_start_held: bool,
+        /// (G1 (14)) FARM-STOP's "lay down, then no HOME" positive: the napper's bed broken (both
+        /// halves to air) the tick the napper lies down.
+        #[arg(long)]
+        visit_break_bed: bool,
         /// (G1 07:00 (1)) the visit rows' held-walk verdict sets the exit status (1 when it FAILS or
         /// is NOT JUDGED); with --report-only the run exits 0 and says so.
         #[arg(long)]
@@ -7398,7 +7402,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             );
             print!("{}", crate::killguard::bench(&spec, &c, &o).map_err(|e| anyhow::anyhow!(e))?);
         }
-        MobfarmCmd::WayCell { design, positions, move_positions, s9, c_descent, brakes, queue, post, own, napper, keep_clear, chunk, pad, draws, write, rail, extra, ride_to, custom_post, wait, bed, leg, hold, south, deep, ride_ticks, release_phases, restart_at, stamp, follow, queue_glass, leg_day, release_sweep, visit, visit_holds, visit_no_post, path_probe, seat_at, restart_every, freeze_every, band, r1_built, visit_skip, bystander, watch_cells, visit_clear_stamp, visit_plant_stamp, visit_plant_erase, visit_start_held, report_only, visit_at_rest, probe_every_tick, freeze_lens, water_restart_row, water_scan, scan_box, water_search, search_rests, search_sweep } => {
+        MobfarmCmd::WayCell { design, positions, move_positions, s9, c_descent, brakes, queue, post, own, napper, keep_clear, chunk, pad, draws, write, rail, extra, ride_to, custom_post, wait, bed, leg, hold, south, deep, ride_ticks, release_phases, restart_at, stamp, follow, queue_glass, leg_day, release_sweep, visit, visit_holds, visit_no_post, path_probe, seat_at, restart_every, freeze_every, band, r1_built, visit_skip, bystander, watch_cells, visit_clear_stamp, visit_plant_stamp, visit_plant_erase, visit_start_held, visit_break_bed, report_only, visit_at_rest, probe_every_tick, freeze_lens, water_restart_row, water_scan, scan_box, water_search, search_rests, search_sweep } => {
             if let [a, b] = water_restart_row[..] {
                 let ticks: Vec<i64> = (a..=b).collect();
                 for how in crate::liveness::Restart::rows() {
@@ -7442,6 +7446,12 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             pos.sort();
             pos.dedup();
+            // (G1 (5) / (15)) a flag of the wrong shape is an error, never a silent fall-through
+            anyhow::ensure!(bystander.is_empty() || bystander.len() == 3, "--bystander X,Y,Z (got {} values)", bystander.len());
+            anyhow::ensure!(!probe_every_tick || bed.len() == 3, "--probe-every-tick needs --bed X,Y,Z (the HOME target), got {} values", bed.len());
+            anyhow::ensure!(water_search.is_none() || (scan_box.len() == 6 && bed.len() == 3 && ride_to.len() == 3), "--water-search needs --scan-box X0,Y0,Z0,X1,Y1,Z1, --bed X,Y,Z and --ride-to X,Y,Z (got {}, {}, {} values)", scan_box.len(), bed.len(), ride_to.len());
+            anyhow::ensure!(visit_skip.iter().all(|&s| s >= 0), "--visit-skip: every skip tick >= 0 (after the release), got {visit_skip:?}");
+            anyhow::ensure!(visit_plant_stamp.is_none_or(|a| (0..1_000_000).contains(&a)), "--visit-plant-stamp AGE: 0 <= AGE (gt) < 1,000,000, got {visit_plant_stamp:?}");
             let mut o = crate::waycell::Opts {
                 queue: [queue[0], queue[1], queue[2]],
                 post: (post.len() == 3).then(|| [post[0], post[1], post[2]]),
@@ -7474,6 +7484,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 visit_plant_stamp,
                 visit_plant_erase,
                 visit_start_held,
+                visit_break_bed,
                 visit_at_rest,
                 probe_bed: (probe_every_tick && bed.len() == 3).then(|| [bed[0], bed[1], bed[2]]),
                 custom_post,
@@ -7590,7 +7601,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         Ok([n[0], n[1], n[2]])
                     })
                     .collect::<anyhow::Result<_>>()?;
-                for l in crate::waycell::path_probe_lines(&spec, &o, &at, [bed[0], bed[1], bed[2]]).map_err(|e| anyhow::anyhow!(e))? {
+                let (overrides, probe) = crate::waycell::path_probe_lines(&spec, &o, &at, [bed[0], bed[1], bed[2]]).map_err(|e| anyhow::anyhow!(e))?;
+                for l in overrides.into_iter().chain(probe) {
                     println!("{l}");
                 }
                 return Ok(());
