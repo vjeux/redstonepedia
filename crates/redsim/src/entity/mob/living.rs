@@ -1397,6 +1397,12 @@ fn push_one(w: &mut World, i: usize, j: usize) {
             EntityKind::Mob(_) => {}
             // `doPush(cart)` = `AbstractMinecart.push(mob)`
             EntityKind::Minecart(_) => {
+                // ("rider doPush onto carts: off", `MobWorld::rider_cart_push_off`: this one path skipped, a
+                // counterfactual measurement with no game twin)
+                if w.mob.rider_cart_push_off && w.entities.list[i].vehicle.is_some() {
+                    w.mob.rider_cart_pushes_skipped += 1;
+                    return;
+                }
                 crate::entity::minecart::pushed_by_mob(w, j, i);
                 return;
             }
