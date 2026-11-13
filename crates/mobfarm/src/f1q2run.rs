@@ -738,6 +738,17 @@ struct Ctl {
     /// (G12); the sampled lane's pending K / J writes (G13 / G14: tick, cell, on); the hold's
     /// departure watch (T_d = the napper's first end-of-tick in (9,0,7))
     a_stop: bool,
+    /// (day-1's propagation delays rev 15:42) the observer pulses' scheduled effects (tick, SLEPT's
+    /// toggle or SLEPT_ONCE's set), OPEN's condition last tick, the release's AND last tick, P_STRING's
+    /// last raw press (its ~10-gt release lag), each visit's gap from P_STRING's last release to SO's
+    /// set (G1 15:40, >= 2), the taps' scheduled writes
+    a_obs_due: Vec<(i64, bool)>,
+    rs_reset_due: Option<i64>,
+    a_open_cond_prev: bool,
+    a_rls_prev: bool,
+    a_pstring_last_raw: Option<i64>,
+    a_so_gaps: Vec<i64>,
+    away_reset_due: [Option<i64>; 3],
     /// (day-1's G8 rev 15:42) RE_ARMED and its setters (evidence events only), D(3)'s presses, and
     /// G11's delta7 (the lane-7 pick's emulated D(7) after lane 3's real D(3) press)
     re_armed: bool,
@@ -2016,6 +2027,12 @@ impl Ctl {
             }
             self.q_rs_ready = true;
         }
+        // (day-1's G1 with the design controller) RS_ready reset 2 gt after the queue release
+        if self.rs_reset_due == Some(now) {
+            self.rs_reset_due = None;
+            self.q_rs_ready = false;
+            self.nap_events.push(format!("t {now}: RS_ready reset (the queue release + 2)"));
+        }
         if self.wayin {
             let (q, rel_cell, arr, dep) = ([9, by + 13, -4], [8, by + 13, -4], [9, by + 14, -5], [9, by + 12, -3]);
             let a = powered(w, arr);
@@ -2048,8 +2065,9 @@ impl Ctl {
                 if let Some(v) = w.entities.list.iter().find(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && cell(e.pos) == dep).and_then(|e| e.passengers.first().copied()) {
                     self.dep_log.push((now, v));
                 }
-                self.q_rs_ready = false;
-                // (ironspec D2's known positive, --rs-ready-early-control) RS_ready forced set at the
+                if !self.a_stop {
+                    self.q_rs_ready = false;
+                }
                 // first departure, before its napper passes R: the next release must fail the bar
                 if self.rs_early && !self.rs_early_done {
                     self.q_rs_ready = true;
@@ -2189,7 +2207,8 @@ impl Ctl {
             let cond = !self.q_release_on && self.q_rs_ready && present && hold_ok && rest && not_day;
             let fire = if self.a_stop {
                 if cond && self.queue_release_due.is_none() {
-                    self.queue_release_due = Some(now + 6);
+                    // (day-1's delays rev 15:42: NOT-ready's measured 4 + the dwell's 6)
+                    self.queue_release_due = Some(now + 10);
                 }
                 if self.queue_release_due == Some(now) {
                     self.queue_release_due = None;
@@ -2204,6 +2223,10 @@ impl Ctl {
                 input_on(w, rel_cell, q)?;
                 self.q_release_on = true;
                 self.q_released.push(now);
+                // (day-1's G1: RS_ready RESET at the queue release, through a torch)
+                if self.a_stop {
+                    self.rs_reset_due = Some(now + 2);
+                }
                 // (ironspec 19:29 (a): who was released)
                 if let Some(v) = w.entities.list.iter().find(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && cell(e.pos) == q).and_then(|e| e.passengers.first().copied()) {
                     self.release_log.push((now, v));
@@ -2529,49 +2552,75 @@ impl Ctl {
             self.a_log.push(format!("t {now}: ARM's edge (-2,-27,0)"));
         }
         self.a_arm_prev = arm;
-        // the bed-head observer's pulse at each occupancy change (a lie-down, a wake): SLEPT toggles
-        // after ARM (G16), SLEPT_ONCE set by the first (G17)
+        // the bed-head observer's pulse at each occupancy change (a lie-down, a wake): rises 2 gt after
+        // the bed head's change (tick-exact 26.3); SLEPT toggled 4 gt after the pulse (G16: + 6 in all),
+        // SLEPT_ONCE set 2 gt after it (G17: + 4), both only after ARM (day-1's propagation delays rev
+        // 15:42, DESIGNED)
         if bed != self.bed_prev {
             if self.a_arm_at.is_some() {
-                self.a_slept = !self.a_slept;
-                self.a_slept_once = true;
+                self.a_obs_due.push((now + 6, true));
+                self.a_obs_due.push((now + 4, false));
             }
             if bed {
                 self.a_lie_at = Some(now);
-                self.nap_events.push(format!("t {now}: lie-down (the bed occupied; the observer's pulse: SLEPT {})", self.a_slept));
+                self.nap_events.push(format!("t {now}: lie-down (the bed occupied; the observer's pulse at t {}: SLEPT toggles at t {}, SLEPT_ONCE at t {})", now + 2, now + 6, now + 4));
             } else {
-                self.nap_events.push(format!("t {now}: the wake edge (the bed freed; the observer's pulse: SLEPT {})", self.a_slept));
+                self.nap_events.push(format!("t {now}: the wake edge (the bed freed; the observer's pulse at t {}: SLEPT toggles at t {})", now + 2, now + 6));
             }
         }
-        // G18 / G19: OPEN set by the edge of (ARMED70 AND SLEPT); G20 the shutter = NOT OPEN through a
-        // torch, 2 gt
-        let armed70 = !self.a_released && self.a_arm_at.is_some_and(|a| now >= a + 70);
-        if !self.a_open && armed70 && self.a_slept {
-            self.a_open = true;
-            self.a_open_at = Some(now);
-            self.a_shutter_writes.push((now + 2, false));
-            self.nap_events.push(format!("t {now}: OPEN set (ARMED70 AND SLEPT): the window opens at t {} (F)", now + 2));
+        let obs: Vec<(i64, bool)> = self.a_obs_due.iter().filter(|x| x.0 == now).copied().collect();
+        self.a_obs_due.retain(|x| x.0 != now);
+        for (_, toggle) in obs {
+            if toggle {
+                self.a_slept = !self.a_slept;
+            } else if !self.a_slept_once {
+                self.a_slept_once = true;
+                // (G1 15:40) a stale P_STRING press from before the lie-down excluded: the gap from
+                // P_STRING's last release (its last press + ~10, the string's re-check) to SO's set
+                let gap = self.a_pstring_last_raw.map(|t| now - (t + 10));
+                self.a_so_gaps.push(gap.unwrap_or(i64::MAX));
+            }
         }
-        // G22 P_STRING: a villager on foot over P (its box over the string's cell (-2,-26,3))
-        let pstring = w.entities.list.iter().any(|e| {
+        // G18 / G19: OPEN set 6 gt after the edge of (ARMED70 AND SLEPT) (the AND 2 + the edge 2 + the
+        // latch 2); G20 the shutter = NOT OPEN through a torch, 2 gt more
+        let armed70 = !self.a_released && self.a_arm_at.is_some_and(|a| now >= a + 70);
+        let cond = armed70 && self.a_slept;
+        if cond && !self.a_open_cond_prev && !self.a_open {
+            self.a_open = true;
+            self.a_open_at = Some(now + 6);
+            self.a_shutter_writes.push((now + 8, false));
+            self.nap_events.push(format!("t {now}: ARMED70 AND SLEPT: OPEN set at t {}, the window opens at t {} (F)", now + 6, now + 8));
+        }
+        self.a_open_cond_prev = cond;
+        // G22 P_STRING: pressed in the tick a villager on foot's box meets it (its cell (-2,-26,3)),
+        // released ~10 gt after it leaves (the string's re-check)
+        let p_raw = w.entities.list.iter().any(|e| {
             !e.removed && e.vehicle.is_none() && matches!(&e.kind, EntityKind::Mob(m) if matches!(m.ty, redsim::entity::mob::types::MobType::Villager)) && {
                 let p = dpos(e.pos);
                 (p.x - (-1.5)).abs() < 0.8 && (p.z - 3.5).abs() < 0.8 && p.y < -25.0 && p.y + 1.95 > -26.0
             }
         });
-        // G21 the release: the EDGE of (P_STRING AND SLEPT_ONCE), one-shot; OPEN reset at it (G19); G20:
-        // close = OPEN's fall + 2, the park's release = OPEN's fall + 6; SLEPT and ARMED70 reset
-        if pstring && !self.a_pstring_prev && self.a_slept_once && !self.a_released {
+        if p_raw {
+            self.a_pstring_last_raw = Some(now);
+        }
+        let pstring = p_raw || self.a_pstring_last_raw.is_some_and(|t| now - t <= 10);
+        // G21 the release: the EDGE of (P_STRING AND SLEPT_ONCE), one-shot, its pulse 6 gt later (the AND
+        // 2 + the edge 2 + the one-shot 2); OPEN reset at it (G19); G20: close = the pulse + 2, the park's
+        // release = the pulse + 6 (from the release pulse itself: G1 15:40); SLEPT reset
+        let rls = pstring && self.a_slept_once;
+        if rls && !self.a_rls_prev && !self.a_released {
             self.a_released = true;
+            let pulse = now + 6;
             let was_open = self.a_open;
             self.a_open = false;
             self.a_slept = false;
             if was_open {
-                self.a_shutter_writes.push((now + 2, true));
+                self.a_shutter_writes.push((pulse + 2, true));
             }
-            self.release_at = Some(now + 6);
-            self.nap_events.push(format!("t {now}: the release (P_STRING AND SLEPT_ONCE{}): close at t {}, the park's release at t {}", if was_open { ", OPEN reset" } else { ", OPEN never set" }, now + 2, now + 6));
+            self.release_at = Some(pulse + 6);
+            self.nap_events.push(format!("t {now}: P_STRING AND SLEPT_ONCE: the release pulse at t {pulse}{}, the park's release at t {}", if was_open { format!(", OPEN reset, close at t {}", pulse + 2) } else { ", OPEN never set".to_string() }, pulse + 6));
         }
+        self.a_rls_prev = rls;
         self.a_pstring_prev = pstring;
         let due: Vec<(i64, bool)> = self.a_shutter_writes.iter().filter(|x| x.0 == now).copied().collect();
         self.a_shutter_writes.retain(|x| x.0 != now);
@@ -2608,11 +2657,12 @@ impl Ctl {
                 self.nap_events.push(format!("t {now}: R's detector pressed by an EMPTY cart: no reset (rider-keyed)"));
             }
         }
-        // G4 the slope taps: lane l's train at REL + 43 / 41 / 33 AND IN-STOP_l, the tap lever held 10
-        // gt; G12 RETURN_l set at a tap that launches (IN-STOP_l AND the tap)
+        // G4 the slope taps: lane l's train at REL + 43 / 41 / 33 AND IN-STOP_l (the AND's 2 gt: the
+        // tap lever written at REL + phase + 2, DAY-1's slope repeater adds its own 2), held 10 gt;
+        // G12 RETURN_l set at a tap that launches (IN-STOP_l AND the tap)
         if let Some(rel) = self.rel {
             for k in 0..3 {
-                if now == rel + [43, 41, 33][k] && self.in_stop[k] {
+                if now == rel + [43, 41, 33][k] + 2 && self.in_stop[k] {
                     lever_to(w, TAP, true)?;
                     self.tap_off = Some(now + 10);
                     if self.return_bits[k].is_none() {
@@ -2653,10 +2703,15 @@ impl Ctl {
                 self.return_bits[k] = None;
                 self.f4_faults.push(format!("t {now}: RETURN timed out, lane x {} (set t {t}, T_ret 450: a counted fault)", LANES[k]));
             }
-            // G7: AWAY_l reset at string_l's FALLING edge after the return (the returning napper leaving R_l)
+            // G7: AWAY_l reset at string_l's FALLING edge after the return (the returning napper leaving
+            // R_l): the string's ~10-gt release lag + the edge 2 + the latch 2 (day-1's delays rev 15:42)
             if !s_on && self.string_prev[k] && self.away[k] {
+                self.away_reset_due[k] = Some(now + 14);
+            }
+            if self.away_reset_due[k] == Some(now) {
+                self.away_reset_due[k] = None;
                 self.away[k] = false;
-                self.nap_events.push(format!("t {now}: AWAY reset, lane x {} (string_l's fall: the napper's rejoin)", LANES[k]));
+                self.nap_events.push(format!("t {now}: AWAY reset, lane x {} (string_l's fall at t {} + 14: the napper's rejoin)", LANES[k], now - 14));
             }
             self.string_prev[k] = s_on;
         }
@@ -10050,6 +10105,15 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 if ctl.f4_faults.is_empty() { String::new() } else { format!(": {}", ctl.f4_faults.iter().take(8).cloned().collect::<Vec<_>>().join(" | ")) }
             ));
             s.push_str(&format!("the rider-keyed RS_ready (G1): R's detector pressed by an EMPTY cart {} times (none set RS_ready)\n", ctl.rdet_empty_presses));
+            let gaps: Vec<i64> = ctl.a_so_gaps.iter().copied().filter(|g| *g != i64::MAX).collect();
+            s.push_str(&format!(
+                "the stale P_STRING check (G1 15:40: per visit, P_STRING's last release (its last press + ~10, the string's re-check) to SLEPT_ONCE's set, bar >= 2): {} visits, {} with an earlier press; the least gap {}{}\n",
+                ctl.a_so_gaps.len(),
+                gaps.len(),
+                gaps.iter().min().map_or("none".to_string(), |g| format!("{g} gt")),
+                if gaps.iter().any(|g| *g < 2) { " (FAIL)" } else { " (PASS)" }
+            ));
+            s.push_str("the design controller's propagation delays as emulated (day-1's list rev 15:42; DESIGNED values owed to their benches): G1 a ridden press -> RS_ready + 10, its reset the queue release + 2; G2 the AND -> the release + 10 (NOT-ready's measured 4 + the dwell 6); G3 at the release / R's ridden press; G4 the tap lever at REL + phase + 2 (DAY-1's slope repeater + 2 in the world), held 10; G6 D -> R powered + 34 (the feed's input at + 26, the stack's measured 8); G7 string_l's fall -> AWAY reset + 14 (the string's ~10 + 4); G8 the gate -> REL + 6; G10 / G11 a D press -> the latch + 2, J's switch + 4; G14 K's writes at the window's start + 4 / end + 6, a held J's at + 6 / + 4; G16 a bed change -> SLEPT toggled + 6 (the observer 2 + 4); G17 -> SLEPT_ONCE + 4; G18 ARM -> ARMED70 + 70; G19 the AND's edge -> OPEN + 6; G20 OPEN -> the window open + 2, the release pulse -> close + 2, -> the park's release + 6; G21 P_STRING AND SLEPT_ONCE -> the release pulse + 6; G22 P_STRING released 10 gt after the box leaves\n");
         }
     }
     if !positions_log.is_empty() {
