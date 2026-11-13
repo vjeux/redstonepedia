@@ -1,4 +1,5 @@
 # The one-chunk column's skeleton (mctas mobfarm column; no wiring): column x -6..9 z -6..10.
+# record7f (ironspec 01:07 / 01:21 PT): composed from 7b90c3f1's r3 record lift file (explore/farmopt-v15-patha-r3 8ed397b2e, designs/farms/iron/carousel-assembly/wip/lift/f1q2-lift-split-path-a.txt, --light-fix): the cell diff against record7e: (-6,8,7) glass -> glowstone and (5,-16,4) glass -> glowstone (the light fix), (-5,23,7) and (6,-3,4) air -> water[level=1] (the lifts' two top-drift currents, saved settled), (-4,0,7) air -> glass (in r3, not in record7e); the lift file's (9,25,9) east_west is its own stand-in (# stand-in:), so record7 keeps b8949c96's north_west curve there; the lift file's header lines follow (its # stand-in: and # frames: lines describe its own bench file and stay there)
 # record7e (ironspec 00:32 PT): A6's adopted curve fix composed: (-1,-27,3) (A6 local (-1,0,4)) glass -> minecraft:iron_trapdoor[facing=west,half=top,open=false,powered=false,waterlogged=false] (58f770cc's exact state; nothing powers it), the glass over it (-1,-26,3) kept; the cell diff against record7d is that one cell; the statics print the same (flee-check and sight 0 diff lines, the golem exit flood 48 spots / 48 positions, junction-check PASS) except spawn-rules' interior 861 against 860 (the trapdoor is a placed non-full-cube block, which joins the interior; 0 spawns either way)
 # + module: /tmp/onechunk/f1q2-module-record7c.txt moved by 0,0,0 into the frame, then 0,0,0 into its tier
 # cleared first (committed cells a lane re-lays): x 6..6 y -13..-13 z -3..-3
@@ -78,6 +79,10 @@ entity: minecraft:oak_boat -4.5 -1 -4.5 {Passengers:[{id:"minecraft:pillager",Pe
 entity: minecraft:oak_boat -4.5 2 -4.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
 entity: minecraft:oak_boat 1.5 25 -4.5 {Passengers:[{id:"minecraft:pillager",PersistenceRequired:1b}]}
 origin: -6 0 -6
+# contacts: (7b90c3f1 r3 8ed397b2e)  -6,2,7+-6,3,7=the foot entry's back wall: a cart off the merge row slides west into it and stops over the column (bench only, the official row pending: the bench prints its speed change per row); -5,2,6+-5,3,6+-5,2,8+-5,3,8=the shaft's side walls at the foot: the 0.98-wide box in the 1-wide shaft meets them as it stops and starts to rise (bench only, the official row pending: the bench prints its speed change per row); -4,3,7=the foot entry's lintel: the box's east part, still under it when the column starts lifting, is held until the cart is in (bench only, the official row pending: the bench prints its speed change per row); -5,24,7+-6,23,7=the lift's cap and its west wall at the top: the riser stops under the cap (y 23.3) and drifts south onto the exit (tick-exact's official lift-pair rows (`mctas mobai lift-pair --module path-a`, 3a5d5cdc6): redsim's cart and rider boxes equal tick for tick); -6,12,7+-6,13,7=lane 7's side entry's back wall: its cart rolls off the slope (-4,12,7) west into it and stops over the column (tick-exact's official side-slope row: rest feet 12.7767, column entry at release + 6, as redsim; the lift-pair rows enter here); -5,12,6+-5,13,6+-5,12,8+-5,13,8+-4,13,6=the shaft's side walls at the side entry and the sign's glass over the slope's north edge (tick-exact's official side-slope row: rest feet 12.7767, column entry at release + 6, as redsim; the lift-pair rows enter here); 9,0,9=the hold's slime stop: the napper rolls onto the hold rail (9,0,8) against it and rests (tick-exact's official rail-kick row (`mctas mobai rail-kick`)); 7,-28,4+7,-27,4=the napper lift's foot entry back wall: the napper off the bed stop's R slides east into it and stops over its column (tick-exact's official napper-ride rows (`mctas mobai napper-ride`, every tick from the summon: R_max 36, the pulse -> y-12 63 gt = the bench's 62 + 1)); 6,-2,4=the napper lift's cap: the napper rises under it and drifts east onto the exit detector (7,-3,4) (tick-exact's official napper-ride rows (`mctas mobai napper-ride`, every tick from the summon: R_max 36, the pulse -> y-12 63 gt = the bench's 62 + 1))
+# water: (7b90c3f1 r3 8ed397b2e)  -5,23,7=designed current, saved settled (level 1): the shared lift's top-drift current, fed by the source north of the exit cell, carrying each riser south onto the exit booster; bounded by the glass round it, the cap over it and the booster's rail (tick-exact's water-settle row on record7e: one cell, then still; the bench's traces: the riser's z speed 0.027 -> 0.104 in the cell, on the booster 8 gt after the top); 6,-3,4=designed current, saved settled (level 1): the napper climb's top-drift current, fed by the source (5,-3,4), carrying the napper east onto the exit detector (7,-3,4); bounded by the glass round it and the detector's rail (tick-exact's water-settle row on record7e)
+# update-only: (7b90c3f1 r3 8ed397b2e)  -1,24,8=J(-1)'s branch detector D, its own north arm's sensor: a rise or fall updates the T (-1,25,9), which re-settles to its power's shape (its lever (-1,26,9): north_west on, north_east off) (return-bench's D-on-J line: every change of every row, the T off its settle after one 0); 3,24,8=J(3)'s branch detector D, its own north arm's sensor: a rise or fall updates the T (3,25,9), which re-settles to its power's shape (its lever (3,26,9): north_west on, north_east off) (return-bench's D-on-J line: every change of every row, the T off its settle after one 0); 7,24,8=J(7)'s branch detector D, its own north arm's sensor: a rise or fall updates the T (7,25,9), which re-settles to its power's shape (its lever (7,26,9): north_west on, north_east off) (return-bench's D-on-J line: every change of every row, the T off its settle after one 0)
+# switches: (7b90c3f1 r3 8ed397b2e)  -1,26,9=J(-1)'s lever (day-1's latch output; a ceiling lever under glass (-1,27,9)): on -> the T (-1,25,9) north_west, off -> north_east; -3,26,9=K(-1)'s lever (day-1's timed taps; a ceiling lever under glass (-3,27,9)): on -> the T (-3,25,9) north_west, off -> north_east; 3,26,9=J(3)'s lever (day-1's latch output; a ceiling lever under glass (3,27,9)): on -> the T (3,25,9) north_west, off -> north_east; 1,26,9=K(3)'s lever (day-1's timed taps; a ceiling lever under glass (1,27,9)): on -> the T (1,25,9) north_west, off -> north_east; 7,26,9=J(7)'s lever (day-1's latch output; a ceiling lever under glass (7,27,9)): on -> the T (7,25,9) north_west, off -> north_east; 5,26,9=K(7)'s lever (day-1's timed taps; a ceiling lever under glass (5,27,9)): on -> the T (5,25,9) north_west, off -> north_east; 7,-3,4=the napper climb's exit detector, day-1's approach detector E (the waiting bit's source): redundant on the rail it reaches, (8,-3,4) being held on by its redstone block (8,-4,4)
 palette:
   ! minecraft:tripwire_hook[attached=true,facing=east,powered=false]
   $ minecraft:slime_block
@@ -126,6 +131,7 @@ palette:
   X minecraft:powered_rail[powered=false,shape=ascending_south,waterlogged=false]
   Y minecraft:powered_rail[powered=false,shape=north_south,waterlogged=false]
   Z minecraft:powered_rail[powered=true,shape=ascending_east,waterlogged=false]
+  ^ minecraft:water[level=1]
   a minecraft:powered_rail[powered=true,shape=ascending_south,waterlogged=false]
   b minecraft:powered_rail[powered=true,shape=ascending_west,waterlogged=false]
   c minecraft:cobblestone
@@ -384,7 +390,7 @@ layer -16:
   .
   .
   ............g
-  ...........gBg
+  ...........JBg
   ............g
   .
   .
@@ -605,7 +611,7 @@ layer -3:
   .
   .
   ...........gg
-  ..........g>.HZg
+  ..........g>^HZg
   ...........gg.gg
   .
   ..............g
@@ -659,7 +665,7 @@ layer 0:
   .....f...f..gg
   ....yf..yf..yg
   .....f...f...g
-  .g.gjskkkskkkkeu
+  .gggjskkkskkkkeu
   ...............Y
   ...............$
 layer 1:
@@ -795,7 +801,7 @@ layer 8:
   .
   .
   .g
-  gBg....gj
+  JBg....gj
   .g
   .
 layer 9:
@@ -1050,7 +1056,7 @@ layer 23:
   .
   .g
   g>ggg..gg..gg..h
-  g.g$gg.$gg.$gg.g
+  g^g$gg.$gg.$gg.g
   ya.8.g.8.g.8.g
   .ggz
 layer 24:
