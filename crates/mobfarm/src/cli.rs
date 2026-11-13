@@ -2721,6 +2721,10 @@ pub enum MobfarmCmd {
         /// The site biome the spawn lists come from (default plains; an unknown one refused).
         #[arg(long, default_value = "minecraft:plains")]
         biome: String,
+        /// (G1 Nov 13 11:23 (a)) Credit the design's own block light (redsim's block-light engine
+        /// over its sources): a cell counts only at block light 0; without it every cell is dark.
+        #[arg(long)]
+        lit: bool,
     },
     /// (ironspec Nov 13 09:44) The T exposure static: every plain rail with three potential
     /// connections, its signal sources within Manhattan 2 (constant or operating) and its
@@ -8525,19 +8529,19 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let (claims, _) = crate::fleecheck::design_claims(&spec, taken);
             p_static_run(&design, &spec_file, &at, &cart, &exit_at, &set, &hold, &column_of, &surround, pocket.as_deref(), None, &claims)?;
         }
-        MobfarmCmd::ExteriorSpawn { design, biome } => {
+        MobfarmCmd::ExteriorSpawn { design, biome, lit } => {
             let (_c, spec) = load(version, &design)?;
-            let (lines, n) = crate::fleecheck::exterior_spawns(&spec, Box::leak(biome.into_boxed_str())).map_err(|e| anyhow::anyhow!(e))?;
+            let (lines, inside, outside) = crate::fleecheck::spawn_static(&spec, Box::leak(biome.into_boxed_str()), lit).map_err(|e| anyhow::anyhow!(e))?;
             for l in &lines {
                 println!("{l}");
             }
-            anyhow::ensure!(n == 0, "the exterior spawn static: {n} spawnable cell(s) on the build's outside (bar 0)");
+            anyhow::ensure!(inside == 0 && outside == 0, "the spawn static: {inside} spawnable cell(s) inside, {outside} on the build's outside (bars 0)");
         }
         MobfarmCmd::TExposure { design } => {
             let (c, spec_file) = load(version, &design)?;
             let (spec, _) = crate::fleecheck::settled_design(&spec_file).map_err(|e| anyhow::anyhow!(e))?;
             let classes = crate::fleecheck::PlaceClasses::from_design(&c.clock.design.meta, &std::fs::read_to_string(&design)?).map_err(|e| anyhow::anyhow!(e))?;
-            let (lines, fails) = crate::fleecheck::t_exposure(&spec, &classes.switches).map_err(|e| anyhow::anyhow!(e))?;
+            let (lines, fails) = crate::fleecheck::t_exposure(&spec, &classes.switches, &classes.integrity).map_err(|e| anyhow::anyhow!(e))?;
             // (7b90c3f1 / day-1 Nov 13 10:37-10:41: the declared update-only sources, information:
             // the Ts they reach must be in `switches:` to pass)
             let mut lines = lines;
@@ -15410,7 +15414,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 let (_c, spec) = load(version, &design)?;
                 let biome: &'static str = Box::leak(biome.into_boxed_str());
                 let (afk, farm, ex) = crate::fleecheck::void_exposures(&spec, biome).map_err(|e| anyhow::anyhow!(e))?;
-                println!("{} in the VOID (a floating site: void outside the box, cc767b78's World::get; the site biome {biome}, the spawn lists' biome), the AFK player at {:.1},{:.1},{:.1}: {} golem cells, {} interior cells; {} exposure class(es)", design.display(), afk.x, afk.y, afk.z, farm.golem_cells.len(), farm.interior.len(), ex.len());
+                println!("{} in the VOID (a floating site: void outside the box, cc767b78's World::get; the site biome {biome}, the spawn lists' biome; C1 here is an ALL-DARK BOUND: the void models no block light, `exterior-spawn --lit` is the light-aware read), the AFK player at {:.1},{:.1},{:.1}: {} golem cells, {} interior cells; {} exposure class(es)", design.display(), afk.x, afk.y, afk.z, farm.golem_cells.len(), farm.interior.len(), ex.len());
                 for e in &ex {
                     println!("  {e:?}");
                 }
