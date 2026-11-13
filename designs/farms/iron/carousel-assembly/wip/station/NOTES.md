@@ -71,7 +71,9 @@ lanes' feed are emulated until the circuit is laid).
   dropping, and prints the cells it updated; a plain rail with three or more potential connections
   among those cells fails the row (G1's note on f7e3a825, a condition of its GO: these updates carry
   the rail's kind where the build's front updates carry the repeater's, a signal source, which
-  re-settles such a rail; none today; `--block` a third rail beside an edge rail is the control); the
+  re-settles a plain rail at exactly 3 potential connections (RailBlock.updateState 22-26,
+  tick-exact's citation; 4 is flagged conservatively); none today; `--block` a third rail beside an
+  edge rail is the control); the
   hold check fails a row whose rail reads unpowered
   at the end of a tick inside the window or powered outside it, and `--hold-poke K` (a neighbour
   update to the rail itself at REL + K) is its positive control (G1 on 82f9546f). The bench
@@ -502,27 +504,132 @@ rider comes 6.40, the nearest pad golem 8.78 (out of the boat rider's melee reac
   0 otherwise, so the gate holds at one summon per disturbance.
 - The carts' block contacts (ironspec 21:25 (4)): every tick a cart's move is stopped horizontally,
   the blocks with a collision shape on the side it moved toward are listed per cell; a contact with
-  a cell that is not declared fails the row: the station's stops (each pocket's slime back (x,0,-1),
-  each hold's north stop (x,17,-1)) and the `# contacts:` / `# stops:` cells of each `--part` file's
-  header and of the `--module` file's (`cells=what`, cells `x,y,z` joined by '+'). The station run
-  line has none. On module rev 3 with 7b90c3f1's record lift file every row meets the lift's foot
-  entry back wall (-6,2,7) (3 ticks a run: lanes -1 and 3 and the napper), lane 7's side-entry back
-  wall (-6,12,7) / (-6,13,7) and ironfarm's lane-7 backstop (7,24,5) (4 ticks: the cart at the drop
-  entry's lip before it falls); 7b90c3f1's r3 and ironfarm's lanes file declare them (`# contacts:`,
-  with their evidence rows), so until those land the module rows fail the contacts bar.
-- The stand-ins' sight (ironspec 20:10 (2) / 23:30): a lever's support where the module of record
-  has air blocks sight rays the build leaves open, so the bench checks every villager -> scarer and
-  villager -> villager ray (eye to eye) against them on every tick from T to S, a crossing failing
-  the row; its positive control (`--sight-control`, ironspec 00:27 (A)) lays a glass support in the
-  world at T on the first villager -> scarer ray, and that row must fail by its own check: the napper's (7,-2,8), and R_1's inputs' (x+2,16,1) with
-  `--r-repeater` (the pockets' levers stand on M16bw's riser glass (x-2,-1,0), the build's own cell;
-  the pocket x 7 rider's ray to the deep zombie (-4.5,-18,3.5) crosses lane x 7's (5,-1,0) in the
-  build too; the slope's line end has no stand-in, above). The eye heights over the feet come from redsim's entity data
-  (`MobType::def().eye`, each row cited to 26.3's EntityTypes builder: villager 1.62, zombie 1.74,
-  pillager 1.6575), the data 9fc3155f's sight-diff reads; a seated villager stays standing, its
-  feet the cart's position.
+  a cell that is not declared fails the row. The station declares none for the bench (G1 08:18,
+  cc767b78's staleness check: m14's six station stops, each pocket's slime back (x,0,-1) and each
+  hold's north stop (x,17,-1), met 0 times in 26 runs; no bench row meets a station cell: each
+  arriving cart falls straight from its hold into its pocket, z 0.490 throughout, and no row rolls a
+  cart into a hold); this file's header keeps the holds' rest against the ring's north glass
+  (x,16,-1) on tick-exact's lane-handoff row ca3cdb2ed (ironspec 02:41 (b): the cart 0.49 into its
+  cell), whose runs meet it. The declared contacts are the `# contacts:` / `# stops:` cells of each
+  `--part`, `--module` and
+  `--declare` file's header (`cells=what`, cells `x,y,z` joined by '+', parsed strictly: a malformed
+  cell refuses the header; a file without any prints "no contacts declared"; an entry whose `what`
+  says PROVISIONAL or whose official row is pending is printed as provisional). The station riders
+  hold HOME (the design's `port home`, the carousel's shared bed; ironspec 08:19): each row's start
+  line names its HOME holders and the per-REL line counts them. INTERIM: the contacts move to ironfarm's
+  shared face filter when it lands; until then these contact results are not cited. On module rev 3
+  with 7b90c3f1's record lift file and on record7e every row meets the lift's foot entry back wall
+  (-6,2,7) and lane 7's side-entry back wall (-6,12,7) / (-6,13,7), which 7b90c3f1's r3 declares
+  (the foot pair provisional); record7e's own header declares ironfarm's lane-7 backstop (7,24,5).
+- The sight check (ironspec 20:10 (2) / 23:30 / 00:27; G1's audit (1) and (5); tick-exact's 26.3
+  citation: a mob's sight is one eye-to-eye segment clipped against collision shapes, fluids
+  ignored): every villager -> scarer and villager -> villager segment, eye to eye, is walked cell by
+  cell (a voxel walk) through the LIVE world's collision shapes and the reference's (the module of
+  record's cells with every stand-in and `--block` override back to the cell it replaced; on the
+  station layout the design of record given with `--record` (the build: a stand-in's support where
+  the build has a collider hides nothing; record7f12 has glowstone at (1,16,1) and (5,16,1), under
+  two of R_1's input levers), else the station as written), every tick from T to S read at the
+  tick's end; a cell whose block TYPE differs from the reference's (a stand-in or override: dust ->
+  lever, air -> glass) and clips the segment where the reference's doesn't is a crossing, a failure;
+  a cell of the reference's own type in another state (a trapdoor open, a rail powered) is the
+  design operating. The
+  verdict comes only through the world: `--sight-control` lays a glass block in the world at T on
+  the first live villager -> scarer ray (refused when that cell is already a full collider or no such
+  ray exists), and its row must fail by the check. The scope is computed (the laid world differs from
+  the reference somewhere at T, or the control runs); in scope with 0 rays judged is NOT JUDGED. The
+  eye heights come from redsim's entity data (`MobType::def().eye`: villager 1.62, zombie 1.74,
+  pillager 1.6575), 9fc3155f's sight-diff's data; a seated villager stays standing, its feet the
+  cart's position.
 - A departing rider missing from the lift tracking (removed or never spawned) without `--dep-riders`
   declaring it absent fails the row (G1 on 4a09c256).
+
+## The checklist audit (ironspec Nov 13 04:38, G1's six additions): what the bench judges
+
+- ONE failure list per row, `stationjudge::fails`, for the drop bench and the station judge alike,
+  and the run exits 1 when any row fails it or a REL-level verdict fails (the golem rate; the
+  record-match verdict with `--record`); the per-REL verdict block runs for every invocation, a
+  single `--rel` included. NOT JUDGED counts as a failure wherever the bar is in scope, the scope
+  computed from the run: the S - 3 bar and the column pairs (the world holds the lift but the run
+  didn't track it, or a tracked lane tested on 0 ticks), the summon check (0 due S; a restart or a
+  freeze over S), the golem rate (an empty or k = 0 bucket only), the held rails (no edge made), the
+  sight check (0 rays).
+- The bars: wrong pockets, push contacts between carts, hurt or unseated riders, a departing cart
+  stuck, a trapdoor shut onto its cart, the refill, cells outside the box, R_1's late launches, the
+  landing lead (EDGE_BAR, inherited) and the rest margin (REST_BAR, inherited); the S - 3 bar on the
+  summon's own clock (S = the first tick after T at game time % 100 == 0; the stand's first
+  GolemTry must fall on it) against the LIVE callers' 10-boxes (the arriving riders' boxes inflated
+  by 10, each tick), and the stamps themselves (a departing rider whose GOLEM_DETECTED_RECENTLY this
+  S's summon set, read from its memory after S's tick); the column bar 16 (ironspec 20:14) on every
+  pair: the foot pair, both top pairs, lane x 7's entry after lane x 3's pass at y 12, the napper's
+  pass after lane x 7's entry; the summon gate (a due S with no call from the stand; only the
+  stand's callers' golems count; a stand GolemTry off the summon's clock fails) and the golem rate
+  (its 99 % interval missing 1 - m^k's range, over the independent rows only: freeze, login and
+  restart rows share their seed's draws, so a run of those alone leaves the rate out of its scope);
+  undeclared contacts; sight crossings; a departing rider missing; the held rails (the hold check
+  against the DECLARED window, REL + R + 1 ..= REL + R + W; the rail-T refusal on the driver's update
+  cells); the hold rail wet or its cart through the hold before the release; the laid design's fluid
+  cells each with its tick scheduled; overrides and lever edges that change nothing (04:07).
+- Prints, not bars: the watched cells (`--watch-cell`, a probe), the riders' feet at T+80, lane x
+  7's dip back into a box after S, the held cart's drift, the panic window and the napper's times.
+- The controls judge themselves: a run with one passes only when the control bites in every run,
+  else it exits 1: `--hold-poke K` (refused outside the held window; the hold check must fail),
+  `--sight-control` (a crossing), `--remove-rider K` (the stand's call missed), `--lever-off K`
+  (0..2; its cart stuck), `--rail-t-control` (the run stops at the on edge through the driver
+  path: "a held rail's driver edge reaching a rail T"),
+  `--rail-t-negative` (a T among the rail-kind cells printed, no rail-T failure), `--contact-control
+  x,y,z` (an undeclared contact on planted glass), `--missing-control K` (a departing rider
+  missing), `--rate-control` (every golem spawn spot blocked: the rate fails), `--push-control`
+  (lane x 3 released with lane x -1: a push contact),
+  `--foreign-caller-control` (ironspec 06:55 (c): every pocket rider dismounted 5 gt before S,
+  keeping its brain and panic: its calls at S are not the stand's, and the gate must read a miss
+  while those calls happen), `--reseat-control` (G1 on a3b306a05 (3): a fresh villager, a new id,
+  seated in pocket 0's cart 40 gt before S, the old rider dismounted beside it: no miss at S, the
+  fresh one's call attributed to P0 by its id, the old one no pocket's), `--fluid-control` (the first
+  laid fluid cell left unscheduled: the fluid bar, read back from the scheduler, must fail),
+  `--t-control` (a lever on glass planted beside the first station T, switched on at T+5 and off at
+  T+10: the T-shape bar must fail, its first re-shape at T+11 or later), `--activity-control`
+  (rider 0's activity set off its schedule before the t1 read: G1 on 834d6329d (T3)). Every control
+  bites through the failure list (its own failure string, or for a negative control its absence)
+  and the exit status; every other failure of a control run is its declared collateral or fails the
+  exit (G1 on 834d6329d (T1)); `--watch-control` (pocket 0's rest cell met) is an instrument print;
+  the guard's refusals are unit tests (`guard_refuses_a_differing_stand_in`).
+- The T-shape bar (farmopt 09:46, ironspec 09:44): every plain rail with >= 3 potential connections
+  in the world at T (a T: the pocket-exit joins (-1,0,7) and (3,0,7) among them) is recorded with its
+  shape and checked at every tick's end; any change is a runtime re-shape, a failure; the Ts and
+  their shapes print in each run.
+- The hold check reads the station's DECLARED held phases (`drop::HELD_SLOPE` REL + 96 ..= REL + 113,
+  `drop::HELD_NAPPER` REL + 64 ..= REL + 73, this header's `held:` lines); a CLI drive window that
+  differs is refused (G1 on a3b306a05 (4)). The S - 3 bar on redsim's tick semantics: the bench's
+  iteration dt runs game tick T + dt + 1, its post-tick state that tick's end; the end of S - 3 is
+  iteration S - 4, so a rider's last inside iteration may be S - 5; a tick without all three callers
+  is no sample.
+- The summon's accounting (ironspec 06:55 (c)/(e), G1 on cc767b78's call gate): each GolemTry is
+  attributed by its villager's entity id against the pocket's seated rider, read from the world;
+  `calls` and `born` count only those; each due S carries the villagers counted willing in the
+  pocket riders' 10-boxes (`willing_in_box`: entity id, position, whether a pocket rider; a
+  non-pocket villager among them is named in the riders' lines) and the non-pocket calls
+  (`foreign_calls`). The setup (G1 item 9): redsim's Run sets the day time before it spawns the
+  villagers; the bench gives the design's villagers LAST_SLEPT = the summon day's dawn + 10 (they
+  slept the night before) and asserts each station rider's activity at T against its schedule's
+  (WORK and MEET fall back to IDLE without a job site or meeting point; PANIC while scared), a
+  mismatch failing the row; each pocket rider's LAST_SLEPT age and activity print at S.
+- station-judge prints the verdicts its world can't reach as NOT JUDGED (no lift, no held stand-in,
+  no summon check, no reference world for the sight check); its rows are never cited for them.
+- The at-entry bar's station half (ironspec 08:23, G1 08:22): every station rider's activity is read
+  every tick (the transitions printed) and each entry into REST is recorded with its
+  GOLEM_DETECTED_RECENTLY stamp, the first tick's REST (a night world open's blip) included;
+  drop-bench and station-judge print the count (labelled: a printed count, not judged, until
+  b8949c96's SetWalkTargetFromBlockMemory hook lands). `--day-time D` (both tools) sets the runs'
+  day time at their start; a night value (12000..23999) samples the REST entries.
+- Ranges: a run whose ticks end before its last judged tick (S, the hold window's end, the
+  napper's pulse's end) is refused, as are a hold window outside the run (`--hold-width` > 0),
+  `--hold-poke` outside it, `--lever-off` / `--remove-rider` / `--missing-control` outside 0..2. The
+  defaults are the rows' (`--hold-release 95`: L7 = REL + 96; `--hold-width 18`: day-1's pulse).
+- Tolerances, each with its reason at its site: 0.05 off the pocket's centre (the "+2" launch
+  convention against tick-exact's official ride); 0.01 off a rest position (a cart at rest keeps
+  its position exactly; a powered rail's first push moves it more); under 0.01 of motion at the
+  hold (the braked rail halves motion each tick); the contacts' 0.05 widening, 1e-6 motion sign and
+  0.01 inset (interim, until the face filter); push contacts at a clearance under 0.05.
 
 ## Open
 

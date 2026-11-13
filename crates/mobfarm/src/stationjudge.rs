@@ -73,10 +73,109 @@ pub fn fails(s: &DropStats, launch_min: i64, edge: i64) -> Vec<&'static str> {
         v.push("a departing cart stuck");
     }
     // (golem-stamp path (a), ironspec 19:07: a departing rider inside a next-batch caller's box
-    // after its move on S - 3 = T + 97 (the summon at game time % 100 == 0 stamps every villager in
-    // the caller's 10-box), a verdict, G1 on 3939d2012)
-    if s.lift_last.iter().any(|l| l.is_some_and(|t| t >= 97)) {
+    // after its move on S - 3 (the summon at game time % 100 == 0 stamps every villager in the
+    // caller's 10-box), a verdict, G1 on 3939d2012; the checklist audit, ironspec 04:38: S on the
+    // summon's own clock (5), the callers' LIVE boxes (6), NOT JUDGED with no tested tick (2), and
+    // NOT JUDGED where the world holds the lift but the run didn't track it (1))
+    if s.lift_in_world && !s.track_lift {
+        v.push("NOT JUDGED (the lift in the world, not tracked): the S - 3 bar and the column pairs");
+    }
+    if (0..3).any(|n| s.lift_tracked[n] && s.lift_samples[n] == 0) {
+        v.push("NOT JUDGED (0 samples): the S - 3 bar");
+    } else if (0..3).any(|n| s.lift_tracked[n] && (s.lift_samples[n] as i64) < s.s_rel) {
+        // (G1 on a3b306a05: a tick without all three callers is no sample: the bar short of its
+        // window's S ticks is NOT JUDGED)
+        v.push("NOT JUDGED (a caller missing on some ticks): the S - 3 bar");
+    }
+    // (the bar: out of every caller's box after its move on S - 3: iteration dt's post-tick state is
+    // the end of game tick T + dt + 1, so the end of S - 3 is iteration S - 4, the rider's last
+    // inside iteration at most S - 5; G1 on a3b306a05: one gt of margin was missing)
+    if (0..3).any(|n| s.lift_tracked[n] && s.lift_last[n].is_some_and(|t| t >= s.s_rel - 4)) {
         v.push("a departing rider in a caller's box after S - 3");
+    }
+    // (the column bar, ironspec 20:14: every pair in the shared column at least COLUMN_BAR gt apart:
+    // the foot pair (lanes x -1 and x 3's entries), the top pairs (their exits), lane x 7's entry
+    // after lane x 3's pass at y 12 (the braked slope's), the napper's pass after lane x 7's entry)
+    if s.track_lift {
+        let gap = |a: Option<i64>, b: Option<i64>| a.zip(b).map(|(a, b)| b - a);
+        let mut pairs = vec![gap(s.lift_entry[0], s.lift_entry[1]), gap(s.lift_top[0].map(|t| t.0), s.lift_top[1].map(|t| t.0)), gap(s.lift_top[1].map(|t| t.0), s.lift_top[2].map(|t| t.0))];
+        if s.hold_driven {
+            pairs.push(s.hold_gap);
+        }
+        if s.napper_run {
+            pairs.push(gap(s.lift_entry[2], s.nap_y12));
+            // (G1 on a3b306a05: the lane x 7 top / napper top pair)
+            pairs.push(gap(s.lift_top[2].map(|t| t.0), s.nap_top));
+        }
+        if pairs.iter().any(|g| g.is_none()) {
+            v.push("NOT JUDGED (a pair unmeasured): the column bar");
+        }
+        if pairs.iter().any(|g| g.is_some_and(|g| g < crate::drop::COLUMN_BAR)) {
+            v.push("a column pair under the column bar");
+        }
+    }
+    // (the summon check, when the run made it: NOT JUDGED with no due S; the gate (a due S with no
+    // call from the stand); a world open over S judged like any S, a freeze over the first S out of
+    // that S's scope with the next S's recovery bar (G1 13:36, ironspec 13:37); the stand's
+    // GolemTry on the summon's own clock (5); G1 on a3b306a05 (5): the scope from the WORLD:
+    // summons happening with no check run is NOT JUDGED)
+    if !s.summon_checked && s.summon_events > 0 {
+        v.push("NOT JUDGED (summons in the world, the check not run): the summon gate, the stamps and the rate");
+    }
+    if s.summon_checked {
+        if s.summon_due.is_empty() {
+            v.push("NOT JUDGED (0 due S): the summon check");
+        }
+        // (G1 13:36 / ironspec 13:42: a world open over S is judged like any S (a miss a failure); a
+        // freeze over the first S makes a FREEZE-FAULT row (a synthetic stress the built farm never
+        // meets: route chunks never freeze): its lost attempt at S is counted and printed as the
+        // freeze-fault's consequence, and the row's verdict is its RECOVERY, the next attempt at
+        // S + 100 passing the summon check with every other bar holding. The summon keeps the
+        // game's clock: VillagerPanicTrigger.tick calls spawnGolemIfNeeded at gameTime % 100 == 0
+        // (redsim villager.rs tick_running_behaviors), so a villager frozen at S loses that attempt)
+        let frozen = |d: &crate::drop::SummonDue| d.class.starts_with("frozen");
+        if s.summon_due.iter().any(|d| d.calls == 0 && !frozen(d) && !d.recovery) {
+            v.push("the stand's call missed at a due S");
+        }
+        if s.summon_due.iter().any(|d| d.recovery && d.calls == 0) {
+            v.push("the stand's call missed at the S after a freeze over S (the recovery bar)");
+        }
+        if s.summon_due.first().is_some_and(|d| frozen(d) && d.calls == 0) && !s.summon_due.iter().any(|d| d.recovery) {
+            v.push("NOT JUDGED (the S after a freeze over S not reached): the recovery bar");
+        }
+        if s.s_try.is_some_and(|t| (t - s.s_rel).rem_euclid(100) != 0) {
+            v.push("the stand's GolemTry off the summon's clock");
+        }
+        // (the stamps themselves, the audit (6))
+        if s.dep_stamped > 0 {
+            v.push("a departing rider stamped by the summon at S");
+        }
+    }
+    // (G1 item 9: a rider's first activity off its schedule shifts every panic / REST timing)
+    if s.activity_wrong > 0 {
+        v.push("a rider's activity at T is not its schedule's");
+    }
+    // (the held rails: NOT JUDGED with no edge; the hold rail wet, or its cart through the hold
+    // before the release)
+    if (s.hold_driven || s.napper_held) && s.held_edge_count == 0 {
+        v.push("NOT JUDGED (no edge): the held rails' rail-T and hold checks");
+    }
+    if s.hold_driven && s.hold_wet > 0 {
+        v.push("the hold rail wet");
+    }
+    if s.hold_driven && s.hold_overshoot {
+        v.push("the held cart through its hold before the release");
+    }
+    // (the sight check: NOT JUDGED with a scope (a differing cell to check) and no ray judged)
+    if s.sight_scope && s.sight_rays == 0 {
+        v.push("NOT JUDGED (0 rays): the sight check");
+    }
+    // (the departing carts' push contacts; a lever stand-in's edge that changed nothing, 04:07)
+    if s.lift_push > 0 {
+        v.push("a push contact between carts");
+    }
+    if s.lever_noops > 0 {
+        v.push("a lever stand-in's edge changed nothing");
     }
     // (ironspec 21:25 (4): a cart's move stopped by a block that is no declared stop or buffer)
     if s.undeclared_contacts > 0 {
@@ -94,6 +193,23 @@ pub fn fails(s: &DropStats, launch_min: i64, edge: i64) -> Vec<&'static str> {
     // (G1 on 82f9546f (c): the held slope rail off its window's state at a tick's end)
     if s.hold_breaks > 0 {
         v.push("the held slope rail off its window (a bench artefact)");
+    }
+    // (ironspec 00:27, G1 on a3b306a05 (1): every laid fluid cell has its tick pending in the
+    // scheduler (read back from it) at the settle's start)
+    if s.fluid_scheduled < s.fluid_cells {
+        v.push("a laid fluid cell without its scheduled tick");
+    }
+    // (G1 on a3b306a05 (8): an id-keyed read that found no entity)
+    if s.missing_reads > 0 {
+        v.push("a station rider's id not found in the world");
+    }
+    // (farmopt 09:46: a T (a plain rail with >= 3 potential connections at T) re-shaped at runtime)
+    if s.t_reshaped > 0 {
+        v.push("a T re-shaped at runtime");
+    }
+    // (G1 on 834d6329d (T1): a held rail's driver edge reaching a rail T stops the run, a failure)
+    if s.rail_t_stop {
+        v.push("a held rail's driver edge reaching a rail T");
     }
     if s.refill_fail > 0 {
         v.push("the refill failed");
@@ -234,6 +350,9 @@ pub struct StationJudgeOpts {
     /// The world file's declared contacts (`# stops:` / `# contacts:`, the bench frame): each prints its
     /// hits over the matrix, and one never hit fails as stale (ironspec 06:55 (d)).
     pub declared: Vec<(i32, i32, i32)>,
+    /// (G1 on 834d6329d (T6)) A control run's failure string: the run's verdict is that string in
+    /// every lead run (the count of lead runs without it fails), not the failure count.
+    pub bite: Option<&'static str>,
     pub jobs: usize,
 }
 
@@ -333,7 +452,16 @@ pub fn judge(spec: &FarmSpec, cold_spec: &FarmSpec, base: &DropOpts, o: &Station
         let failing: Vec<&&&Res> = lead.iter().filter(|((_, _, row), s)| *row != Row::Control && !fl(s).is_empty()).collect();
         let control_fails = mine.iter().filter(|((_, _, row), s)| *row == Row::Control && !fl(s).is_empty()).count();
         let login_failing = logins.iter().filter(|(_, s)| !fl(s).is_empty()).count();
-        total += failing.len() + control_fails;
+        // (G1 on 834d6329d (T6): a control run's verdict is its bite: its failure string in EVERY
+        // lead run (not a bare exit 1, which the control's other effects could also give))
+        match o.bite {
+            Some(b) => {
+                let n = lead.iter().filter(|(_, s)| fl(s).contains(&b)).count();
+                out.push(format!("REL T+{r}: the control bites in {n} of {} lead runs (its failure: \"{b}\"; a control run's verdict, G1 on 834d6329d (T6))", lead.len()));
+                total += lead.len() - n + usize::from(lead.is_empty());
+            }
+            None => total += failing.len() + control_fails,
+        }
         // (the margins over the lead's rows only, the logins' apart: no number in the verdict from a
         // pearl row)
         let rest = lead.iter().map(|(_, s)| s.rest).min();
@@ -356,6 +484,16 @@ pub fn judge(spec: &FarmSpec, cold_spec: &FarmSpec, base: &DropOpts, o: &Station
         let r_frozen = logins.iter().filter(|(_, s)| s.r_frozen > 0).count();
         let shut = logins.iter().filter(|(_, s)| s.shut_onto > 0).count();
         let n_restarts = lead.iter().filter(|((_, _, row), _)| matches!(row, Row::Restart(..))).count();
+        // (ironspec 08:23 / G1 08:22: the station riders' REST entries over the rows, each with its
+        // stamp, the first tick's blip after a world open included; a printed count until
+        // b8949c96's SetWalkTargetFromBlockMemory hook lands, not judged)
+        let rest_n: u32 = mine.iter().map(|(_, s)| s.rest_entries).sum();
+        out.push(format!(
+            "REL T+{r}: the station riders' REST entries (a printed count until b8949c96's SetWalkTargetFromBlockMemory hook lands, not judged; a night run is --day-time 12000..23999): {rest_n} over {} rows ({} rows with any){}",
+            mine.len(),
+            mine.iter().filter(|(_, s)| s.rest_entries > 0).count(),
+            mine.iter().find_map(|(_, s)| s.rest_list.first()).map_or(String::new(), |l| format!("; the first: {l}"))
+        ));
         out.push(format!(
             "REL T+{r} ({} seed(s)): the lead's rows (the control, the cold start, {n_restarts} restarts): failing {}; the control {}; the cold start {}; the least rest margin {} (unfrozen {}; printed: the rest bar retired onto the call gate, ironspec 19:51 / 20:07); the least landing lead {} (the bar {} gt, inherited (ironspec 19:24 / 19:51): its basis the M16bw repeater's delay + phase order); the least launch spacing {} (unfrozen {}; reported, the bar {}) | the pearl alternative's logins ({} runs; reported, out of the lead's scope): failing {login_failing}; the least rest margin {}, landing lead {}, launch spacing {}; runs with a trapdoor shut onto its cart {shut}; runs with the R line switching while the entities were frozen {r_frozen}",
             o.seeds.len(),

@@ -547,24 +547,118 @@ pub const PATH_A_LIFT: [(i32, i32, i32, &str); 11] = [
 ];
 
 /// (ironspec 21:25 (4) / 22:05) A design's declared cart contacts, its header's `# contacts:` and
-/// `# stops:` lines (in its own frame): each entry `cells=what` (entries split by ';'), the cells
-/// `x,y,z` joined by '+' (parentheses and spaces allowed).
-pub fn declared_contacts(text: &str) -> Vec<(i32, i32, i32)> {
+/// `# stops:` lines (in its own frame; the entries as pushscan's shared `header_entries` splits
+/// them): each entry `cells=what`, the cells `x,y,z` joined by '+' (parentheses and spaces
+/// allowed); an entry whose `what` says PROVISIONAL (a declaration on bench evidence only,
+/// 7b90c3f1's r3) marks its cells provisional (the bool).
+pub fn declared_contacts(text: &str) -> Result<Vec<((i32, i32, i32), bool)>, String> {
     let mut out = Vec::new();
-    for l in text.lines() {
-        let Some(rest) = l.strip_prefix("# contacts:").or_else(|| l.strip_prefix("# stops:")) else { continue };
-        for entry in rest.split(';') {
-            let cells = entry.split('=').next().unwrap_or("");
-            for cell in cells.split(|c: char| c == '+' || c.is_whitespace()) {
-                let cell = cell.trim_matches(|c: char| c == '(' || c == ')' || c == ',');
-                let v: Vec<i32> = cell.split(',').filter_map(|t| t.trim().replace('\u{2212}', "-").parse().ok()).collect();
-                if v.len() == 3 && cell.split(',').count() == 3 {
-                    out.push((v[0], v[1], v[2]));
+    for key in ["contacts:", "stops:"] {
+        for entry in crate::pushscan::header_entries(text, key) {
+            // (G1 on a3b306a05: strict: an entry without its `=what` or with no cell is refused)
+            let Some((cells, what)) = entry.split_once('=') else {
+                return Err(format!("`# {key}` entry {entry:?}: no `=what` (the checklist audit (9): parsed strictly)"));
+            };
+            if what.trim().is_empty() {
+                return Err(format!("`# {key}` entry {entry:?}: an empty `=what` (the checklist audit (9))"));
+            }
+            if cells.split(|c: char| c == '+' || c.is_whitespace()).all(|t| t.trim().is_empty()) {
+                return Err(format!("`# {key}` entry {entry:?}: no cell (the checklist audit (9))"));
+            }
+            // (provisional: the entry says so, or its official row is pending (7b90c3f1's r3
+            // wording, "bench only, the official row pending"))
+            let provisional = what.to_lowercase().contains("provisional") || what.to_lowercase().contains("official row pending");
+            // (the checklist audit (9): every cell token parses as x,y,z (the documented forms:
+            // '+' or spaces between cells, parentheses around one), else the header is refused)
+            for cell in cells.split(|c: char| c == '+' || c.is_whitespace()).filter(|t| !t.trim().is_empty()) {
+                let cell = cell.trim_matches(|c: char| c == '(' || c == ')');
+                let v: Vec<Result<i32, _>> = cell.split(',').map(|t| t.trim().replace('\u{2212}', "-").parse::<i32>()).collect();
+                if v.len() != 3 || v.iter().any(|r| r.is_err()) {
+                    return Err(format!("`# {key}` entry {entry:?}: the cell {cell:?} is not x,y,z (the checklist audit (9): parsed strictly)"));
                 }
+                let v: Vec<i32> = v.into_iter().map(|r| r.unwrap()).collect();
+                out.push(((v[0], v[1], v[2]), provisional));
             }
         }
     }
-    out
+    Ok(out)
+}
+
+/// (ironspec 01:07; G1 on 82f9546f and f7e3a825) A held rail stand-in's write at one tick: the rail's
+/// own `powered` state toward `held` (the same block: the guard's list and its survival checked),
+/// written without the rail's own updates, then the neighbour updates the build's path makes at that
+/// edge, all but the rail's own re-evaluation, which the built rail answers by keeping its state (its
+/// driver holds it) and the bench's undriven one by dropping: the driver's front updates
+/// (DiodeBlock.updateNeighborsInFront: its front cell and that cell's neighbours but the driver),
+/// carrying the driver's kind, a signal source; then the rail's own setBlock (its
+/// affectNeighborsAfterRemoval) and PoweredRailBlock.updateState's updates below and, ascending,
+/// above, carrying the rail's kind. A plain rail with three or more potential connections among the
+/// driver's update cells refuses the run: a signal source's update re-settles a plain rail at exactly
+/// 3 (RailBlock.updateState 22-26, tick-exact's citation; 4 is flagged conservatively; G1's note on
+/// f7e3a825); one among the rail's own update cells is printed, not refused (the powered rail's kind
+/// is no signal source). `driver`: the driver repeater's cell and its front cell (the rail itself, or
+/// the block under it). Returns the updated cells, listed, at an edge.
+fn held_rail_write(w: &mut redsim::world::World, p: BlockPos, held: bool, driver: (BlockPos, BlockPos)) -> Result<Option<String>, String> {
+    let s = w.get(p).to_string();
+    if !s.contains("powered_rail") {
+        return Err(format!("no powered rail at the held cell {p}: {s}"));
+    }
+    let want = if held { s.replace("powered=false", "powered=true") } else { s.replace("powered=true", "powered=false") };
+    if want == s {
+        return Ok(None);
+    }
+    let (built, b) = (Block::parse(&s).map_err(|e| e.to_string())?, Block::parse(&want).map_err(|e| e.to_string())?);
+    let d = property_diff(w, &built, &b);
+    if !d.is_empty() {
+        return Err(format!("the held rail {p}'s state differs from the rail in {} (ironspec 23:30)", d.join(", ")));
+    }
+    if !redsim::behavior::can_survive(w, &b, p) {
+        return Err(format!("the held rail {p}'s state can't survive there (the guard's survival)"));
+    }
+    let kind = b.kind();
+    let driver_kind = Block::parse("minecraft:repeater[delay=1,facing=north,locked=false,powered=false]").map_err(|e| e.to_string())?.kind();
+    w.set_block(p, b, redsim::world::flags::CLIENTS | redsim::world::flags::SKIP_ON_PLACE);
+    let (rep, front) = driver;
+    let mut signal_cells: Vec<BlockPos> = Vec::new();
+    if front != p {
+        signal_cells.push(front);
+    }
+    signal_cells.extend(redsim::Dir::ALL.iter().map(|d| front.rel(*d)).filter(|c| *c != rep && *c != p));
+    let mut cells: Vec<BlockPos> = redsim::Dir::ALL.iter().map(|d| p.rel(*d)).collect();
+    cells.extend(redsim::Dir::ALL.iter().map(|d| p.rel(redsim::Dir::Down).rel(*d)).filter(|c| *c != p));
+    if want.contains("ascending") {
+        cells.extend(redsim::Dir::ALL.iter().map(|d| p.rel(redsim::Dir::Up).rel(*d)).filter(|c| *c != p));
+    }
+    let t_rail = |w: &redsim::world::World, c: BlockPos| w.get(c).to_string().starts_with("minecraft:rail[") && potential_connections(w, c) >= 3;
+    if let Some(c) = signal_cells.iter().find(|c| t_rail(w, **c)) {
+        return Err(format!(
+            "the held rail {p}'s driver updates reach the plain rail {c} ({}), which has {} potential connections: at exactly 3 a signal source's update re-settles it (RailBlock.updateState 22-26, tick-exact's citation); 4 is flagged conservatively (G1's note on f7e3a825)",
+            w.get(*c),
+            potential_connections(w, *c)
+        ));
+    }
+    for c in &signal_cells {
+        w.neighbor_changed(*c, driver_kind);
+    }
+    for c in &cells {
+        w.neighbor_changed(*c, kind);
+    }
+    let list = |w: &redsim::world::World, v: &[BlockPos]| -> String {
+        let mut seen: Vec<BlockPos> = Vec::new();
+        v.iter()
+            .filter(|c| {
+                let new = !seen.contains(c);
+                seen.push(**c);
+                new
+            })
+            .map(|c| {
+                let note = if t_rail(w, *c) { format!(" (a rail with {} potential connections: the powered rail's kind is no signal source, no re-settle)", potential_connections(w, *c)) } else { String::new() };
+                format!("{c} {}{note}", w.get(*c).to_string().trim_start_matches("minecraft:"))
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    Ok(Some(format!("the driver's ({rep} into {front}): {}; the rail's own: {}", list(w, &signal_cells), list(w, &cells))))
 }
 
 /// A plain rail's potential connections (the brief's rule, RailBlock.updateState's count): the
@@ -576,14 +670,16 @@ pub fn potential_connections(w: &redsim::world::World, c: BlockPos) -> usize {
         .count()
 }
 
-/// (ironspec 21:25 (4)) The station's declared stops, the cells its carts are meant to meet (the
-/// bench's frame): each pocket's slime back (x,0,-1), where the arriving cart comes to rest and the
-/// launch kicks it off, and each hold's north stop (x,hold_y+1,-1), where the cart off R_1 stops.
+/// (ironspec 21:25 (4); G1 08:18, cc767b78's staleness check) The station's declared stops for the
+/// bench's contact verdict (the bench's frame): none. No bench row meets a station cell: each
+/// arriving cart falls straight from its hold into its pocket (z 0.490 throughout) and no row rolls a
+/// cart into a hold, so a declaration here would never be exercised (stale). The station file's
+/// header declares the holds' rest against the ring's north glass (x,16,-1) on tick-exact's
+/// lane-handoff row ca3cdb2ed (ironspec 02:41 (b)), whose runs meet it; a bench row that meets a
+/// station cell fails as undeclared until a row's evidence declares it.
 pub fn station_stops(lo: DropLayout, hold_y: i32) -> Vec<(i32, i32, i32)> {
-    if lo != DropLayout::Station {
-        return Vec::new();
-    }
-    lo.pockets().iter().flat_map(|(x, y, z)| [(*x, *y, z - 1), (*x, hold_y + 1, z - 1)]).collect()
+    let _ = (lo, hold_y);
+    Vec::new()
 }
 
 /// (ironspec 17:46/18:34/23:30, the bench guard's full list until `recordmatch::guard_intrinsics`)
@@ -646,7 +742,7 @@ pub fn lever_reach_check(w: &redsim::world::World, p: BlockPos, consumer: BlockP
     let is_rail = |q: BlockPos| w.get(q).to_string().contains("rail");
     let component = |q: BlockPos| {
         let t = w.get(q).to_string();
-        ["rail", "repeater", "comparator", "redstone_wire", "piston", "lamp", "door", "note_block", "dispenser", "dropper", "hopper", "tnt", "observer", "fence_gate", "bell"].iter().any(|k| t.contains(k))
+        ["rail", "repeater", "comparator", "redstone_wire", "redstone_torch", "redstone_wall_torch", "piston", "lamp", "door", "note_block", "dispenser", "dropper", "hopper", "tnt", "observer", "fence_gate", "bell"].iter().any(|k| t.contains(k))
     };
     // (update reach: the toggle's block updates)
     let mut updates: Vec<BlockPos> = six(p).to_vec();
@@ -689,6 +785,10 @@ pub fn lever_reach_check(w: &redsim::world::World, p: BlockPos, consumer: BlockP
 /// cell's in a golem or path property (ironspec 17:46's guard: the stand-in is a lever, or the
 /// cell is declared emulated and the statics run with it).
 fn emulated_write(w: &mut redsim::world::World, p: BlockPos, b: Block, built: &Block) -> Result<(), String> {
+    // (ironspec 04:07: an emulated write that changes nothing fails)
+    if w.get(p) == b {
+        return Err(format!("an emulated write at {p} changes nothing ({b}): ironspec 04:07"));
+    }
     let d = property_diff(w, built, &b);
     if !d.is_empty() {
         return Err(format!(
@@ -723,17 +823,18 @@ fn lever_support(s: &str, p: BlockPos) -> BlockPos {
     }
 }
 
-/// (ironspec 20:10 (2): the stand-in guard's sight property) A segment against a unit cell.
-fn seg_hits_cell(a: Vec3, b: Vec3, c: BlockPos) -> bool {
+/// (ironspec 20:10 (2): the stand-in guard's sight property) The segment a..b against an
+/// axis-aligned box `[x0, x1, y0, y1, z0, z1]` (world units).
+fn seg_hits_box(a: Vec3, b: Vec3, bx: [f64; 6]) -> bool {
     let (mut t0, mut t1) = (0.0f64, 1.0f64);
-    for (p, q, lo) in [(a.x, b.x, c.x as f64), (a.y, b.y, c.y as f64), (a.z, b.z, c.z as f64)] {
+    for (p, q, lo, hi) in [(a.x, b.x, bx[0], bx[1]), (a.y, b.y, bx[2], bx[3]), (a.z, b.z, bx[4], bx[5])] {
         let d = q - p;
         if d.abs() < 1e-12 {
-            if p < lo || p > lo + 1.0 {
+            if p < lo || p > hi {
                 return false;
             }
         } else {
-            let (u, v) = ((lo - p) / d, (lo + 1.0 - p) / d);
+            let (u, v) = ((lo - p) / d, (hi - p) / d);
             t0 = t0.max(u.min(v));
             t1 = t1.min(u.max(v));
             if t0 > t1 {
@@ -744,15 +845,51 @@ fn seg_hits_cell(a: Vec3, b: Vec3, c: BlockPos) -> bool {
     true
 }
 
-/// (ironspec 20:10 (2)) The sight rays (eye to eye) between every villager and every scarer (a
-/// zombie or a pillager) and between villagers, against `cells` (stand-in blocks whose collision
-/// shape differs from the module's: mob sight clips on collision shapes): the rays crossing one;
-/// and the positive control, a cell on the first villager-scarer ray's midpoint, which must flag.
-pub fn sight_crossings(w: &redsim::world::World, cells: &[BlockPos]) -> (Vec<String>, Option<BlockPos>, bool) {
+/// A block's type: its id without the state (`minecraft:oak_trapdoor[open=true,..]` ->
+/// `minecraft:oak_trapdoor`).
+pub fn block_type(b: &Block) -> String {
+    let s = b.to_string();
+    s.split('[').next().unwrap_or("").to_string()
+}
+
+/// The cells a segment a..b passes through, in order (a voxel walk: Amanatides and Woo).
+fn seg_cells(a: Vec3, b: Vec3) -> Vec<BlockPos> {
+    let p = [a.x, a.y, a.z];
+    let d = [b.x - a.x, b.y - a.y, b.z - a.z];
+    let mut cell = [a.x.floor() as i32, a.y.floor() as i32, a.z.floor() as i32];
+    let end = [b.x.floor() as i32, b.y.floor() as i32, b.z.floor() as i32];
+    let step = d.map(|v| if v > 0.0 { 1 } else if v < 0.0 { -1 } else { 0 });
+    let (mut t_max, mut t_delta) = ([f64::INFINITY; 3], [f64::INFINITY; 3]);
+    for i in 0..3 {
+        if step[i] != 0 {
+            let next = if step[i] > 0 { (cell[i] + 1) as f64 } else { cell[i] as f64 };
+            t_max[i] = (next - p[i]) / d[i];
+            t_delta[i] = 1.0 / d[i].abs();
+        }
+    }
+    let mut out = vec![BlockPos::new(cell[0], cell[1], cell[2])];
+    while cell != end && out.len() < 4096 {
+        let i = if t_max[0] <= t_max[1] && t_max[0] <= t_max[2] { 0 } else if t_max[1] <= t_max[2] { 1 } else { 2 };
+        if t_max[i] > 1.0 {
+            break;
+        }
+        cell[i] += step[i];
+        t_max[i] += t_delta[i];
+        out.push(BlockPos::new(cell[0], cell[1], cell[2]));
+    }
+    out
+}
+
+/// (ironspec 20:10 (2) / 23:30 / 00:27; G1's audit (1); tick-exact's 26.3 citation: a mob's sight is
+/// one eye-to-eye segment clipped against collision shapes, fluids ignored) Every villager -> scarer
+/// (a zombie or a pillager) and villager -> villager segment, eye to eye (`MobType::def().eye`, each
+/// row cited to 26.3's EntityTypes builder; a seated villager stays standing, its feet the cart's
+/// position), walked cell by cell against the LIVE world's collision shapes and the reference's
+/// (the module of record's cells, every stand-in as its built cell): a cell where the live world
+/// clips the segment and the reference doesn't is a crossing. Returns the crossings, the rays judged,
+/// and the first villager -> scarer ray's midpoint cell (the positive control's, laid in the world).
+pub fn sight_crossings_world(w: &redsim::world::World, reference: &std::collections::HashMap<[i32; 3], Block>) -> (Vec<String>, u32, Option<BlockPos>) {
     use redsim::entity::mob::types::MobType;
-    // (the eye heights over the feet from redsim's entity data, `MobType::def().eye`, each row cited
-    // to 26.3's EntityTypes builder (9fc3155f's sight-diff reads the same; a seated villager stays
-    // standing, its feet the cart's position))
     let eye = |e: &redsim::entity::Entity, t: MobType| Vec3::new(e.pos.x, e.pos.y + t.def().eye as f64, e.pos.z);
     let of = |f: &dyn Fn(MobType) -> bool| -> Vec<Vec3> {
         w.entities
@@ -778,22 +915,40 @@ pub fn sight_crossings(w: &redsim::world::World, cells: &[BlockPos]) -> (Vec<Str
             rays.push((*a, *b, "villager -> villager"));
         }
     }
+    let air = Block::Air;
+    let clips = |s: &Block, a: Vec3, b: Vec3, c: BlockPos| {
+        redsim::behavior::collision_boxes(s).iter().any(|bx| {
+            let f = |v: i32, o: i32| o as f64 + v as f64 / 16.0;
+            seg_hits_box(a, b, [f(bx[0], c.x), f(bx[1], c.x), f(bx[2], c.y), f(bx[3], c.y), f(bx[4], c.z), f(bx[5], c.z)])
+        })
+    };
     let mut hits = Vec::new();
     for (a, b, kind) in &rays {
-        for c in cells {
-            if seg_hits_cell(*a, *b, *c) {
-                hits.push(format!("{kind} ({:.2},{:.2},{:.2}) -> ({:.2},{:.2},{:.2}) crosses {c}", a.x, a.y, a.z, b.x, b.y, b.z));
+        for c in seg_cells(*a, *b) {
+            let live = w.get(c);
+            let refb = reference.get(&[c.x, c.y, c.z]).unwrap_or(&air);
+            // (a cell holding the reference's own block type in another state is the design
+            // operating (a trapdoor open, a rail powered), not a stand-in: stand-ins and overrides
+            // change the block type (dust -> lever, air -> glass))
+            if live == *refb || block_type(&live) == block_type(refb) {
+                continue;
+            }
+            if clips(&live, *a, *b, c) && !clips(refb, *a, *b, c) {
+                hits.push(format!("{kind} ({:.2},{:.2},{:.2}) -> ({:.2},{:.2},{:.2}) clipped at {c} by {} (the reference: {}; a stand-in's cell: bench run != design run)", a.x, a.y, a.z, b.x, b.y, b.z, live.to_string().trim_start_matches("minecraft:"), refb.to_string().trim_start_matches("minecraft:")));
             }
         }
     }
     // (the positive control's cell, ironspec 00:27 (A): the midpoint cell of the first villager ->
-    // scarer ray, which `--sight-control` lays in the world for the row's own check to flag)
-    let control = rays.iter().find(|r| r.2 == "villager -> scarer").map(|(a, b, _)| {
+    // scarer ray, else (a world with no scarer: station-judge's) of the first villager -> villager
+    // ray, whose midpoint cell is not already a full collider, where `--sight-control` lays its
+    // glass in the world)
+    let mid = |(a, b, _): &(Vec3, Vec3, &str)| {
         let m = Vec3::new((a.x + b.x) / 2.0, (a.y + b.y) / 2.0, (a.z + b.z) / 2.0);
         BlockPos::new(m.x.floor() as i32, m.y.floor() as i32, m.z.floor() as i32)
-    });
-    let has_scarer_ray = rays.iter().any(|r| r.2 == "villager -> scarer");
-    (hits, control, has_scarer_ray)
+    };
+    let open = |c: &BlockPos| redsim::behavior::collision_boxes(&w.get(*c)) != vec![[0, 16, 0, 16, 0, 16]];
+    let control = rays.iter().filter(|r| r.2 == "villager -> scarer").map(mid).find(open).or_else(|| rays.iter().filter(|r| r.2 == "villager -> villager").map(mid).find(open));
+    (hits, rays.len() as u32, control)
 }
 
 /// (the direct summon check) A pocket's rider at the start of the due summon tick S.
@@ -808,6 +963,12 @@ struct RiderPre {
     run_start: Option<i64>,
     wants: bool,
     willing: u32,
+    /// (ironspec 06:55 (e)) The villagers counted willing in its 10-box: entity id, position,
+    /// whether a pocket rider.
+    willing_in_box: Vec<(u32, [f64; 3], bool)>,
+    /// (G1 on d96461902 (b)) Its LAST_SLEPT's age at S and its brain's activity at S's start.
+    slept_age: Option<i64>,
+    activity: String,
     /// Its golem search's columns where a golem can spawn (`golem_spawn_cells_from`: the 17 x 17
     /// columns, each scanned from y + 6 down): on the pad (feet at y -6) and elsewhere.
     spots_pad: u32,
@@ -823,11 +984,21 @@ impl RiderPre {
             return format!("P{k} no seated rider");
         }
         format!(
-            "P{k} {}{}, {}, {} willing in its box, its golem search's spots {} on the pad and {} elsewhere (of 289)",
+            "P{k} {}{}, {}, {} willing in its box{}, LAST_SLEPT {}, activity {}, its golem search's spots {} on the pad and {} elsewhere (of 289)",
             if !self.scared { "calm" } else if self.ticks { "panicking, its trigger ticking" } else { "panicking, its trigger skipping S" },
             self.run_start.map_or(String::new(), |s| format!(" (its run from S{s:+})")),
             if self.wants { "wanting" } else { "blocked by its own memory" },
             self.willing,
+            if self.willing_in_box.iter().any(|w| !w.2) {
+                format!(
+                    " ({})",
+                    self.willing_in_box.iter().map(|(id, p, rider)| format!("{}#{id} ({:.2},{:.2},{:.2})", if *rider { "pocket rider " } else { "NON-POCKET villager " }, p[0], p[1], p[2])).collect::<Vec<_>>().join(", ")
+                )
+            } else {
+                String::new()
+            },
+            self.slept_age.map_or("unset".to_string(), |a| format!("S - {a}")),
+            self.activity,
             self.spots_pad,
             self.spots_off
         )
@@ -869,11 +1040,19 @@ fn summon_pre(w: &redsim::world::World, pockets: &[(i32, i32, i32)], s: i64) -> 
             let ticks = scared && node.is_none_or(|n| !n.running || s <= n.end);
             let run_start = node.filter(|n| n.running).map(|n| n.end - 60 - s);
             let bb = w.entities.list[i].bb.inflate(10.0, 10.0, 10.0);
-            let willing = w.get_entities(bb, |e| matches!(&e.kind, EntityKind::Mob(m) if m.ty == MobType::Villager && m.brain.as_deref().is_some_and(|b| b.wants_golem(s)))).len() as u32;
+            let in_box = w.get_entities(bb, |e| matches!(&e.kind, EntityKind::Mob(m) if m.ty == MobType::Villager && m.brain.as_deref().is_some_and(|b| b.wants_golem(s))));
+            let willing = in_box.len() as u32;
+            // (ironspec 06:55 (e), cc767b78: every villager counted willing in the rider's 10-box,
+            // by entity id with its position and whether it is a pocket rider)
+            let riders_now: Vec<usize> = pockets.iter().filter_map(|q| pocket_rider(w, *q)).collect();
+            let willing_in_box: Vec<(u32, [f64; 3], bool)> = in_box.iter().map(|&j| {
+                let e = &w.entities.list[j];
+                (e.id, [e.pos.x, e.pos.y, e.pos.z], riders_now.contains(&j))
+            }).collect();
             let cells = redsim::entity::mob::spawn::golem_spawn_cells_from(w, w.entities.list[i].block_position());
             let spots_pad = cells.iter().filter(|(c, r)| r.is_ok() && c.y == -6).count() as u32;
             let spots_off = cells.iter().filter(|(c, r)| r.is_ok() && c.y != -6).count() as u32;
-            RiderPre { seated: true, scared, ticks, run_start, wants: b.wants_golem(s), willing, spots_pad, spots_off }
+            RiderPre { seated: true, scared, ticks, run_start, wants: b.wants_golem(s), willing, willing_in_box, slept_age: b.last_slept.map(|l| s - l), activity: format!("{:?}", b.activity), spots_pad, spots_off }
         })
         .collect()
 }
@@ -884,7 +1063,37 @@ fn pocket_of(w: &redsim::world::World, pockets: &[(i32, i32, i32)], id: u32) -> 
     pockets.iter().position(|p| pocket_rider(w, *p) == Some(i)).map(|k| k as u8)
 }
 
-fn set_lever(w: &mut redsim::world::World, p: BlockPos, on: bool) -> Result<(), String> {
+/// (ironspec Nov 12 20:14) The column bar: every pair of carts in the shared column (entries, exits,
+/// passes) at least this many game ticks apart; the y-12 23 and the 46-gt window retired.
+pub const COLUMN_BAR: i64 = 16;
+
+/// (the checklist audit (5)) The due summon tick S relative to T on the summon's own clock: the
+/// first game tick after T's at game time % 100 == 0 (redsim: the bench's iteration dt runs game
+/// tick T + dt + 1, so S runs in iteration S - 1 and its end is that iteration's post-tick state).
+pub fn s_rel_of(t_zero: i64) -> i64 {
+    let r = t_zero.rem_euclid(100);
+    if r == 0 { 100 } else { 100 - r }
+}
+
+/// (G1 on a3b306a05 (4)) The station's DECLARED held phases (its header's `held:` lines, read by
+/// the hold check instead of the CLI's drive window, which must equal them): the slope's rail held
+/// powered REL + 96 ..= REL + 113 (L7 = REL + 96, day-1's 18-gt pulse), the napper's rail REL + 64
+/// ..= REL + 73 (L7 - 32, its 10-gt pulse).
+pub const HELD_SLOPE: (i64, i64) = (96, 113);
+pub const HELD_NAPPER: (i64, i64) = (64, 73);
+
+/// A villager's GOLEM_DETECTED_RECENTLY memory (its ttl), None with no such entity.
+fn golem_mem(w: &redsim::world::World, id: Option<u32>) -> Option<Option<i64>> {
+    let e = w.entities.list.iter().find(|e| Some(e.id) == id && !e.removed)?;
+    match &e.kind {
+        EntityKind::Mob(m) => Some(m.brain.as_deref().and_then(|b| b.golem_detected)),
+        _ => None,
+    }
+}
+
+/// A lever stand-in switched toward `on`: returns whether it changed (written; `can_survive`
+/// checked at every write).
+fn set_lever(w: &mut redsim::world::World, p: BlockPos, on: bool) -> Result<bool, String> {
     let s = w.get(p).to_string();
     if !s.contains("lever") {
         return Err(format!("no lever stand-in at {p}: {s}"));
@@ -896,11 +1105,101 @@ fn set_lever(w: &mut redsim::world::World, p: BlockPos, on: bool) -> Result<(), 
             return Err(format!("the lever stand-in at {p} can't survive there (ironspec 20:31)"));
         }
         w.set_block(p, b, redsim::world::flags::ALL);
+        return Ok(true);
     }
-    Ok(())
+    Ok(false)
 }
 
-pub fn module_text(text: &str, hold_y: i32, extra: &[(i32, i32, i32, String)], napper: bool, posts: bool) -> Result<String, String> {
+/// (ironspec 04:07) Whether a lever's wanted state changed since its last call (an edge: the lever
+/// must then change; the first call only records it).
+fn lever_edge(seen: &mut Vec<(BlockPos, bool)>, p: BlockPos, on: bool) -> bool {
+    match seen.iter_mut().find(|(q, _)| *q == p) {
+        Some((_, prev)) => {
+            let edge = *prev != on;
+            *prev = on;
+            edge
+        }
+        None => {
+            seen.push((p, on));
+            false
+        }
+    }
+}
+
+/// (ironspec Nov 13 04:07: a bench override that doesn't change its cell fails the run) The module's
+/// cells (its frame + (6,0,6)) with `extra` laid over them in order, as `module_text` lays them: for
+/// each index in `checked` (the stand-ins and `--block` entries), the cell's state before and after
+/// it is laid (canonical), and the overrides that changed nothing.
+pub fn overlay_report(text: &str, extra: &[(i32, i32, i32, String)], checked: &[usize]) -> Result<(Vec<String>, Vec<String>, Vec<([i32; 3], String)>), String> {
+    let d = mctas::design::Design::parse(text).map_err(|e| format!("--module: {e}"))?;
+    let mut m = d.translated([6, 0, 6]);
+    let (mut lines, mut noops, mut befores) = (Vec::new(), Vec::new(), Vec::new());
+    for (i, (x, y, z, st)) in extra.iter().enumerate() {
+        let st = if st.contains(':') { st.clone() } else { format!("minecraft:{st}") };
+        let before = crate::recordmatch::canon(m.blocks.get(&[*x, *y, *z]).map_or("minecraft:air", |s| s.as_str()));
+        let after = crate::recordmatch::canon(&st);
+        if checked.contains(&i) {
+            let l = format!("({x},{y},{z}) {} -> {}", before.trim_start_matches("minecraft:"), after.trim_start_matches("minecraft:"));
+            if before == after {
+                noops.push(l.clone());
+            }
+            lines.push(l);
+            if !befores.iter().any(|(c, _): &([i32; 3], String)| *c == [*x, *y, *z]) {
+                befores.push(([*x, *y, *z], before.clone()));
+            }
+        }
+        if after == "minecraft:air" {
+            m.blocks.remove(&[*x, *y, *z]);
+        } else {
+            m.blocks.insert([*x, *y, *z], st);
+        }
+    }
+    Ok((lines, noops, befores))
+}
+
+/// A design cell's block as the farm loader reads it (`circuit::studies::mobfarm::farm_block`: a
+/// nether portal is a terrain block, the rest `Block::parse`).
+pub fn farm_block(s: &str) -> Result<Block, String> {
+    if s.starts_with("minecraft:nether_portal[") {
+        return redsim::terrain::land::block_of(s);
+    }
+    Block::parse(s).map_err(|e| e.to_string())
+}
+
+/// (G1's audit (1)) The sight check's reference from a design of record: its cells in the bench's
+/// frame (its frame + (6,0,6)), as the farm loader reads them.
+pub fn record_reference(text: &str) -> Result<std::collections::HashMap<[i32; 3], Block>, String> {
+    let d = mctas::design::Design::parse(text).map_err(|e| format!("--record: {e}"))?.translated([6, 0, 6]);
+    let mut reference = std::collections::HashMap::new();
+    for (p, s) in &d.blocks {
+        reference.insert(*p, farm_block(s).map_err(|e| format!("--record {p:?} {s}: {e}"))?);
+    }
+    Ok(reference)
+}
+
+/// (G1's audit (1)) The sight check's reference for a station layout's world: the design's cells
+/// with the bench's lever stand-ins and their glass (each pocket's (x-2,0,0), (x-2,-1,0); R_1's input
+/// (x+2,hold+1,1) and (x+2,hold,1)) back to air, as `station_loop_text` writes the station.
+pub fn station_reference(text: &str, lo: DropLayout, hold_y: i32) -> Result<std::collections::HashMap<[i32; 3], Block>, String> {
+    let d = mctas::design::Design::parse(text).map_err(|e| e.to_string())?;
+    let mut reference = std::collections::HashMap::new();
+    for (p, s) in &d.blocks {
+        reference.insert(*p, farm_block(s).map_err(|e| format!("the reference's {p:?} {s}: {e}"))?);
+    }
+    if lo == DropLayout::Station {
+        // (the bench's stand-ins, out of the reference: the riser's lever (x-2,0,z), the R line's
+        // lever (x+2,17,1) and its glass (x+2,16,1); G1 on 834d6329d (T11): the riser's glass
+        // (x-2,-1,z) is day-1's BUILT cell (M16bw), so it stays in the reference)
+        for (x, _, z) in lo.pockets() {
+            for c in [[x - 2, 0, z], [x + 2, hold_y + 1, z + 1], [x + 2, hold_y, z + 1]] {
+                reference.remove(&c);
+            }
+        }
+    }
+    Ok(reference)
+}
+
+pub fn module_text(text: &str, hold_y: i32, extra: &[(i32, i32, i32, String)], napper: bool, posts: bool, keep_all: bool) -> Result<String, String> {
     let d = mctas::design::Design::parse(text).map_err(|e| format!("--module: {e}"))?;
     let mut m = d.translated([6, 0, 6]);
     // (the bench's own blocks over the module's, in the bench's frame: an option's cells)
@@ -917,19 +1216,25 @@ pub fn module_text(text: &str, hold_y: i32, extra: &[(i32, i32, i32, String)], n
         e.kind.ends_with("minecart") && (z - 6.5).abs() < 0.6 && [5.5, 9.5, 13.5].iter().any(|cx| (x - cx).abs() < 0.6) && (y < 1.0 || (y - hold_y as f64).abs() < 1.0)
     };
     // (the summon check: the module's hostile posts, boats seating a zombie or a pillager, stay)
-    let post_boats: Vec<mctas::design::EntitySpec> = if posts {
+    let post_boats: Vec<mctas::design::EntitySpec> = if posts && !keep_all {
         m.entities.iter().filter(|e| e.kind.ends_with("boat") && e.nbt.as_deref().is_some_and(|n| n.contains("zombie") || n.contains("pillager"))).cloned().collect()
     } else {
         Vec::new()
     };
-    m.entities.retain(|e| station_cart(e));
-    if m.entities.len() != 6 {
-        return Err(format!("--module: {} station carts found (6 wanted: the pockets' and the holds' at loop x -1/3/7 z 0)", m.entities.len()));
+    let carts: Vec<mctas::design::EntitySpec> = m.entities.iter().filter(|e| station_cart(e)).cloned().collect();
+    if carts.len() != 6 {
+        return Err(format!("--module: {} station carts found (6 wanted: the pockets' and the holds' at loop x -1/3/7 z 0)", carts.len()));
+    }
+    // (with the design of record, every one of its entities stays as it is, record-match comparing
+    // them: its posts, its queue's cart; else only the station's carts and, for the summon check,
+    // the posts)
+    if !keep_all {
+        m.entities.retain(|e| station_cart(e));
     }
     // (path (a): the napper's cart with its rider at its hold, loop (9,0,8), the hold's rail;
-    // released by the bench at REL + --napper-release)
+    // released by the bench at REL + --napper-release; a bench input, declared)
     if napper {
-        let mut e = m.entities[0].clone();
+        let mut e = carts[0].clone();
         e.pos = [15.5, 0.0625, 14.5];
         m.entities.push(e);
     }
@@ -1166,6 +1471,8 @@ pub struct DropOpts {
     /// (ironspec 21:25 (4)) The declared stops and buffers (cells, the bench's frame) the carts may
     /// meet: any other block a cart's move is stopped by fails the row.
     pub stops: Vec<(i32, i32, i32)>,
+    /// The declared contacts on PROVISIONAL declarations (bench evidence only), printed as such.
+    pub provisional: Vec<(i32, i32, i32)>,
     /// (ironspec 22:03, the pocket drive's control) Pocket k's lever stand-in never switched on: its
     /// cart must stay in its pocket.
     pub lever_off: Option<usize>,
@@ -1175,6 +1482,40 @@ pub struct DropOpts {
     /// The hold check's positive control (G1 on 82f9546f (c), rule (A)): a real neighbour update to
     /// the held rail itself at REL + K; the bench's undriven rail drops and the check must fail.
     pub hold_poke: Option<i64>,
+    /// (record7e, ironspec 21:43/22:37) The pockets' lever stand-ins at these cells (bench frame):
+    /// the design of record's own line ends, each lever replacing its dust on the record's own
+    /// support and powering the dust beside it; None: the bench's (x-2,0,0) with day-1's repeater
+    /// stand-in (x-1,0,0), each on glass.
+    pub pocket_levers: Option<[(i32, i32, i32); 3]>,
+    /// The napper's rail held powered (a `held:` stand-in, ironspec 01:07) from REL + K + 1 for the
+    /// pulse's 10 gt at this cell (bench frame), instead of the lever stand-in at (7,-1,8).
+    pub napper_held: Option<(i32, i32, i32)>,
+    /// (G1's audit (1)) The sight check's reference: the module of record's cells (bench frame),
+    /// every stand-in as its built cell; the live world is read against it. None: no sight check.
+    pub sight_ref: Option<std::sync::Arc<std::collections::HashMap<[i32; 3], Block>>>,
+    /// (the checklist audit (7), controls) Departing rider K removed at T without `dep_absent`
+    /// (the missing-rider count must fire); every golem spawn spot of the callers blocked at T with
+    /// glass (the golem rate must fail).
+    pub remove_departing: Option<usize>,
+    pub rate_control: bool,
+    /// (ironspec 06:55 (c)) The foreign-caller control: every pocket rider dismounted 5 gt before
+    /// S (it keeps its brain, its panic and its LAST_SLEPT, standing beside its cart): its calls at
+    /// S are not the stand's, so the gate must read a miss while those calls happen.
+    pub foreign_caller: bool,
+    /// (G1 on a3b306a05 (3)) The reseat control: a fresh villager seated in pocket 0's cart 40 gt
+    /// before S, the old rider dismounted beside it.
+    pub reseat: bool,
+    /// (G1 on a3b306a05 (1)) The fluid bar's control: the first fluid cell left unscheduled.
+    pub fluid_control: bool,
+    /// (farmopt 09:46) The T-shape bar's control: a lever planted beside the first station T at T
+    /// and switched on at T+5, off at T+10.
+    pub t_control: bool,
+    /// (G1 on 834d6329d (T3)) The t1 activity check's control: rider 0's activity set off its
+    /// schedule before the read.
+    pub activity_control: bool,
+    /// (ironspec 08:23) The run's day time at its start (RunOpts' day0; None: steady's random day
+    /// time in 10..12,000): a night value (12,000..23,999) samples the riders' REST entries.
+    pub day0: Option<i64>,
     /// (G1 on 44d4bbfae) The placement count's positive control: the world built this many cells
     /// short of the design's top (0: the design's box).
     pub box_short: i32,
@@ -1226,6 +1567,8 @@ pub struct SummonCall {
 pub struct SummonDue {
     /// S - T.
     pub s: i64,
+    /// (ironspec 13:37) The S after a freeze over the first S (S + 100): the recovery bar's S.
+    pub recovery: bool,
     /// The pockets' riders at the tick's start seated in their pocket, wanting a golem (LAST_SLEPT
     /// within 24,000, no GOLEM_DETECTED_RECENTLY), with >= 3 willing in their 10-box, and whose
     /// panic trigger ticks at S (it starts at S, or runs with S <= its end: at its end + 1 it is
@@ -1248,6 +1591,15 @@ pub struct SummonDue {
     /// The run's restart before S (T + its tick), if any: a reload re-phases the panic (ironspec
     /// 20:07: a miss there counts against the one-summon-per-disturbance bar).
     pub restart_before: Option<i64>,
+    /// (ironspec 06:55 (e), cc767b78) The villagers counted willing in the pocket riders' 10-boxes
+    /// at S's start (each once): entity id, position, whether a pocket rider.
+    pub willing_in_box: Vec<(u32, [f64; 3], bool)>,
+    /// (ironspec 06:55 (c)) GolemTry calls at S by villagers that are not the stand's pocket riders
+    /// (never counted as the stand's calls nor its golem).
+    pub foreign_calls: u8,
+    /// (G1 on a3b306a05 (3)) Every GolemTry at S: the caller's entity id and the pocket it was
+    /// attributed to (from the world: the villager seated in that pocket's cart), if any.
+    pub calls_by: Vec<(u32, Option<u8>)>,
 }
 
 /// One drop run's figures for a grid's summary.
@@ -1359,10 +1711,8 @@ pub struct DropStats {
     /// first few, every tick T..S); whether this row is the positive control (its cell laid).
     pub sight_hits: Vec<String>,
     pub sight_control: bool,
-    /// The rays crossing a stand-in's support over T..S (every tick), and whether any villager ->
-    /// scarer ray existed (else the positive control is vacuous).
+    /// The sight crossings over T..S (every tick, at its end).
     pub sight_hit_count: u32,
-    pub sight_scarers: bool,
     /// (G1 on 82f9546f) Departing riders missing from the lift tracking (removed or never spawned)
     /// without `dep_absent`: a failure.
     pub missing_riders: u32,
@@ -1371,6 +1721,78 @@ pub struct DropStats {
     pub hold_breaks: u32,
     pub hold_break_first: Option<String>,
     pub held_edges: Vec<String>,
+    /// (record-match) Every lever stand-in's cell with its bench-checked update and power reach
+    /// (`lever_reach_check`'s verdict; survival checked at every write).
+    pub standin_cells: Vec<([i32; 3], String)>,
+    /// (ironspec 00:27) The laid design's fluid cells and the fluid ticks the bench scheduled for
+    /// them before the world settled (0 scheduled with a fluid cell: a failure).
+    pub fluid_cells: u32,
+    pub fluid_scheduled: u32,
+    /// (the checklist audit, ironspec 04:38 (5)) The summon's own clock: S - T, the first tick after
+    /// T at which game time % 100 == 0; the stand's first GolemTry tick (S - T), which must equal it.
+    pub s_rel: i64,
+    pub s_try: Option<i64>,
+    /// (the audit (2)) Per departing lane: tracked against the LIVE callers' 10-boxes (the arriving
+    /// riders' boxes each tick, (6)), and the ticks it was tested (T..S); 0 while tracked: NOT JUDGED.
+    pub lift_tracked: [bool; 3],
+    pub lift_samples: [u32; 3],
+    /// Whether the laid world holds the shared lift (a bubble column): its verdicts are in scope.
+    pub lift_in_world: bool,
+    /// What the run drove (the scope of the verdicts that depend on it).
+    pub track_lift: bool,
+    pub hold_driven: bool,
+    pub napper_run: bool,
+    pub napper_held: bool,
+    pub summon_checked: bool,
+    /// The sight check's scope (a stand-in or control cell differing from the reference) and the
+    /// rays it judged (every tick T..S, after each tick).
+    pub sight_scope: bool,
+    pub sight_rays: u32,
+    /// The held rails' edges made (the rail-T check runs at each; 0 with a held rail: NOT JUDGED).
+    pub held_edge_count: u32,
+    /// (ironspec 04:07) Scheduled lever edges that found their lever already in the target state.
+    pub lever_noops: u32,
+    /// (the audit (6)) Departing riders whose GOLEM_DETECTED_RECENTLY this S's summon set (read
+    /// from their memory after S's tick): a failure.
+    pub dep_stamped: u32,
+    /// (G1 item 9) Station riders whose activity at T differs from their schedule's (PANIC allowed
+    /// while scared): a failure.
+    pub activity_wrong: u32,
+    /// A run with no freeze, no login and no restart: one independent sample of the golem rate
+    /// (freeze, login and restart rows share their seed's draws).
+    pub independent: bool,
+    /// (ironspec 08:19) The station riders holding HOME at T (the design's `port home`).
+    pub home_holders: u32,
+    /// (ironspec 08:23, G1 08:22) The station riders' entries into REST over the run (the first
+    /// tick's included), and the first few with their stamps: a printed count until b8949c96's
+    /// hook lands.
+    pub rest_entries: u32,
+    pub rest_list: Vec<String>,
+    /// (G1 on a3b306a05 (8)) Id-keyed reads that found no entity (a station rider or caller gone
+    /// unexpectedly): a failure, never a skip.
+    pub missing_reads: u32,
+    /// (G1 on a3b306a05 (5)) GolemTry calls in the world over the run, whether or not the summon
+    /// check runs: summons in the world with no check is NOT JUDGED.
+    pub summon_events: u32,
+    /// (ironspec 09:03) The least distance from a HOME holder's feet to its HOME head's centre.
+    pub home_least: Option<f64>,
+    /// (G1 on a3b306a05 (3)) The reseat control's fresh villager, the dismounted old rider, and
+    /// their attributions at S through the gate's `pocket_of` (fresh, old).
+    pub reseat_id: Option<u32>,
+    /// (G1 on a3b306a05 (8)) The station riders that left a world with no lift (their later reads
+    /// out of that world's scope, printed).
+    pub riders_left: u32,
+    pub reseat_old: Option<u32>,
+    pub reseat_attr: Option<(Option<u8>, Option<u8>)>,
+    /// The run's seed (the golem rate's samples: one independent row per seed).
+    pub seed: i64,
+    /// (farmopt 09:46) The world's Ts at T (plain rails with >= 3 potential connections) and how
+    /// many re-shaped during the run: a failure.
+    pub t_count: u32,
+    pub t_reshaped: u32,
+    pub t_list: Vec<String>,
+    /// (G1 on 834d6329d (T1)) The run stopped at a held rail's driver edge reaching a rail T.
+    pub rail_t_stop: bool,
     /// (ironspec 21:25 (4)) The carts' block contacts (a move stopped horizontally by a block with a
     /// collision shape): per cell, its block, the ticks, and whether it is a declared stop.
     pub block_contacts: Vec<(BlockPos, String, u32, bool)>,
@@ -1519,12 +1941,54 @@ pub fn spec_for_run(spec: &FarmSpec, short: i32) -> FarmSpec {
 
 /// One drop run: the report lines and the figures.
 pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats), String> {
-    let ro = RunOpts { ai: true, ..RunOpts::steady(o.seed, (o.ticks + 600) as u32, WalkMode::Random) };
+    let steady = RunOpts::steady(o.seed, (o.ticks + 600) as u32, WalkMode::Random);
+    let ro = RunOpts { ai: true, day0: o.day0.unwrap_or(steady.day0), ..steady };
     let spec_run = spec_for_run(spec_in, o.box_short);
     let spec = &spec_run;
     let mut run = Run::start(spec, &ro)?;
     let place_drop = placement_drops(spec_in, &run.world);
     let rec_place = oob_records(&run.world);
+    // (ironspec 00:27: every fluid cell of the laid design gets its tick scheduled, as the game's
+    // placement of it schedules one (FlowingFluid's tick delay), before the world settles: a water
+    // layout that is not stable as laid shows; the count printed, 0 with water in the design a
+    // failure)
+    let (mut fluid_cells, mut fluid_scheduled) = (0u32, 0u32);
+    let mut lift_in_world = false;
+    {
+        let w = &mut run.world;
+        let (min, size) = (w.min, w.size);
+        let mut cells: Vec<(BlockPos, redsim::fluid::Fluid)> = Vec::new();
+        for x in min.x..min.x + size[0] {
+            for y in min.y..min.y + size[1] {
+                for z in min.z..min.z + size[2] {
+                    let p = BlockPos::new(x, y, z);
+                    let f = redsim::fluid::fluid_state(w, p);
+                    if !f.is_empty() {
+                        cells.push((p, f.fluid));
+                        // (the shared lift: a bubble column; its verdicts are then in scope)
+                        if matches!(w.get(p), Block::BubbleColumn { .. }) {
+                            lift_in_world = true;
+                        }
+                    }
+                }
+            }
+        }
+        // (G1 on a3b306a05 (1): the count of scheduled cells is read back from the SCHEDULER, each
+        // fluid cell's pending tick, not from the loop that scheduled it; `--fluid-control` leaves the
+        // first cell unscheduled, and the bar must fail)
+        let mut first = true;
+        for (p, f) in &cells {
+            fluid_cells += 1;
+            if o.fluid_control && first {
+                first = false;
+                continue;
+            }
+            first = false;
+            let delay = redsim::fluid::tick_delay(w, *f);
+            w.schedule_fluid_tick(*p, *f, delay);
+        }
+        fluid_scheduled = cells.iter().filter(|(p, f)| w.fluid_ticks.has_scheduled_tick(*p, *f)).count() as u32;
+    }
     while run.settle_tick() {}
     let first = run.world.entities.next_id;
     for (ty, pos, nbt) in &spec.entities {
@@ -1540,7 +2004,9 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
     if o.napper.is_some() && napper_cart.is_none() {
         return Err("--napper-release: no cart at the napper's hold (loop (9,0,8))".into());
     }
-    let carts: Vec<u32> = run.world.entities.list.iter().filter(|e| matches!(e.kind, EntityKind::Minecart(_)) && Some(e.id) != napper_cart).map(|e| e.id).collect();
+    // (the design of record's other carts, which record-match keeps (its queue's cart at loop y
+    // -13.4), are no station carts)
+    let carts: Vec<u32> = run.world.entities.list.iter().filter(|e| matches!(e.kind, EntityKind::Minecart(_)) && Some(e.id) != napper_cart && e.pos.y > -3.0).map(|e| e.id).collect();
     if carts.len() != 6 && carts.len() != 9 {
         return Err(format!("{} carts", carts.len()));
     }
@@ -1558,10 +2024,16 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
             }
         }
     }
-    // (the direct summon check: the bench's villagers slept as the steady runs set it (Run::start
-    // sets LAST_SLEPT only on the entities it spawns itself); the control: pocket k's arriving
+    // (the villagers' sleep, G1 on d96461902 (b): the day before the summon, the bench's
+    // villagers slept the night before as the steady runs set it: LAST_SLEPT = the summon day's
+    // dawn + 10 (they wake at dawn; Run::start sets LAST_SLEPT only on the entities it spawns
+    // itself); each pocket rider's LAST_SLEPT age and activity print at S; the WILLING count rests
+    // on it (`wants_golem`: slept within SLEPT_WITHIN, no golem memory) and on the panic from the
+    // posts; G1 on 834d6329d (T2): set as in the design's world WHATEVER the flag, so a run
+    // without --summon-check summons as the design does, and the summon's scope (computed from
+    // the world's GolemTry events) reads NOT JUDGED there; the control: pocket k's arriving
     // rider, the one in the hold over it, removed before the warm-up)
-    if o.summon_check {
+    {
         let slept = run.world.time - (ro.day0 - 10).rem_euclid(24000);
         let own = run.own.clone();
         for e in run.world.entities.list.iter_mut() {
@@ -1610,25 +2082,103 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
     // stand-ins, the cells the sight property checks, ironspec 20:10 (2))
     let mut levers: Vec<(BlockPos, BlockPos, bool)> = Vec::new();
     if o.layout == DropLayout::Station {
-        for (x, y, z) in o.layout.pockets() {
-            levers.push((BlockPos::new(x - 2, y, z), BlockPos::new(x - 1, y, z), true));
+        for (k, (x, y, z)) in o.layout.pockets().into_iter().enumerate() {
+            match o.pocket_levers {
+                // (the record's line ends: each lever's input the one dust beside it)
+                Some(l) => {
+                    let p = BlockPos::new(l[k].0, l[k].1, l[k].2);
+                    let dust: Vec<BlockPos> = [redsim::Dir::North, redsim::Dir::South, redsim::Dir::East, redsim::Dir::West]
+                        .iter()
+                        .map(|d| p.rel(*d))
+                        .filter(|c| run.world.get(*c).to_string().starts_with("minecraft:redstone_wire"))
+                        .collect();
+                    if dust.len() != 1 {
+                        return Err(format!("--pocket-lever {p}: {} dust beside it (one wanted: the line it ends)", dust.len()));
+                    }
+                    levers.push((p, dust[0], true));
+                }
+                None => levers.push((BlockPos::new(x - 2, y, z), BlockPos::new(x - 1, y, z), true)),
+            }
             if o.r_repeater && o.refill.is_some() {
                 levers.push((BlockPos::new(x + 2, o.hold_y + 1, z + 1), BlockPos::new(x + 1, o.hold_y + 1, z + 1), false));
             }
         }
     }
-    if o.napper.is_some() {
+    if o.napper.is_some() && o.napper_held.is_none() {
         levers.push((BlockPos::new(13, -1, 14), BlockPos::new(14, -1, 14), false));
     }
-    let mut sight_cells: Vec<BlockPos> = Vec::new();
-    for (p, c, built) in &levers {
+    for (p, c, _built) in &levers {
         stand_ins.push(lever_reach_check(&run.world, *p, *c, &[])?);
-        if !built {
-            sight_cells.push(lever_support(&run.world.get(*p).to_string(), *p));
-        }
     }
     let air_b = parse("air")?;
-    for t in 0..400 {
+    // (G1 item 9 / on a3b306a05 (7), ironspec 09:28: each station rider's activity at t1, the first
+    // tick after Run::start spawned the villagers with the day already set (its day0): G1 on
+    // 834d6329d (T3): the warm-up's first tick runs here, before the read (the loop below goes on
+    // from its second), against its schedule's at the world's day time (WORK and MEET fall back
+    // to IDLE without a job site or meeting point, as the brain's registerBrainGoals does), PANIC
+    // allowed while scared; a rider whose id is not found fails (no silent skip); the HOME holders
+    // named (ironspec 08:19); `--activity-control` sets rider 0's activity off its schedule before
+    // the read, which must fail)
+    run.tick();
+    if o.activity_control {
+        let day = run.world.day_time();
+        let want = redsim::entity::mob::villager::scheduled(day);
+        let wrong = if want == Some(redsim::entity::mob::villager::Activity::Rest) { redsim::entity::mob::villager::Activity::Idle } else { redsim::entity::mob::villager::Activity::Rest };
+        let r0 = riders.first().copied().flatten().ok_or("--activity-control: no rider 0")?;
+        let e = run.world.entities.list.iter_mut().find(|e| e.id == r0 && !e.removed).ok_or("--activity-control: rider 0 not found")?;
+        let EntityKind::Mob(m) = &mut e.kind else { return Err("--activity-control: rider 0 is no mob".into()) };
+        let b = m.brain.as_deref_mut().ok_or("--activity-control: rider 0 has no brain")?;
+        b.activity = wrong;
+    }
+    let mut activity_wrong = 0u32;
+    let mut activity_first: Option<String> = None;
+    let activity_line: String;
+    let home_holders: u32;
+    let mut missing_reads = 0u32;
+    let mut rider_left: Vec<Option<String>> = vec![None; riders.len()];
+    {
+        let day = run.world.day_time();
+        let want = match redsim::entity::mob::villager::scheduled(day) {
+            Some(redsim::entity::mob::villager::Activity::Work | redsim::entity::mob::villager::Activity::Meet) | None => redsim::entity::mob::villager::Activity::Idle,
+            Some(a) => a,
+        };
+        let mut seen = Vec::new();
+        let mut homes = Vec::new();
+        for (n, r) in riders.iter().enumerate() {
+            let Some(id) = r else { continue };
+            let Some(e) = run.world.entities.list.iter().find(|e| e.id == *id && !e.removed) else {
+                missing_reads += 1;
+                seen.push(format!("rider {n} NOT FOUND"));
+                continue;
+            };
+            let EntityKind::Mob(m) = &e.kind else { continue };
+            let Some(b) = m.brain.as_deref() else {
+                missing_reads += 1;
+                continue;
+            };
+            if let Some(h) = b.home {
+                homes.push(format!("rider {n} {h}"));
+            }
+            let ok = b.activity == want || (b.scared() && b.activity == redsim::entity::mob::villager::Activity::Panic);
+            seen.push(format!("rider {n} {}{}", b.activity.name(), if b.scared() { " (scared)" } else { "" }));
+            if !ok {
+                activity_wrong += 1;
+                if activity_first.is_none() {
+                    activity_first = Some(format!("rider {n} {} where the schedule at day time {} says {}", b.activity.name(), day.rem_euclid(24000), want.name()));
+                }
+            }
+        }
+        activity_line = format!(
+            "the riders' activities at t1 (the first tick after the spawn; day time {}, the schedule's {}): {}; HOME holders: {}",
+            day.rem_euclid(24000),
+            want.name(),
+            seen.join(", "),
+            if homes.is_empty() { "none".to_string() } else { homes.join(", ") }
+        );
+        home_holders = homes.len() as u32;
+    }
+    // (the warm-up's first tick ran before the t1 read above: the loop goes on from its second)
+    for t in 1..400 {
         run.tick();
         if t >= 60 && run.world.time % 100 == 0 {
             break;
@@ -1744,6 +2294,7 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
     let mut fall_off: f64 = 0.0;
     let mut fall_toward: f64 = f64::NEG_INFINITY;
     let mut rest_since: [Option<i64>; 3] = [None; 3];
+    let mut rest_at_s: [Option<Vec3>; 3] = [None; 3];
     let mut rebrake_dt: Option<i64> = None;
     let mut rebrake_at: [Option<i64>; 3] = [None; 3];
     let mut calm_run = [0i64; 9];
@@ -1754,7 +2305,10 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
     let mut next_fell = [false; 3];
     // (ironspec 09:32: R_1's launch against its drive: each lane's rail powered from .. to (read
     // from the rail's own state after each tick), each next cart's first move after the R line came
-    // on (its position before the R line's first tick, then more than 0.01 off it))
+    // on (its position before the R line's first tick, then more than 0.01 off it: a cart at rest
+    // keeps its position exactly (the hold's drift prints 0.0000), and a powered rail's first push
+    // from rest moves it more than 0.01 in its first tick, so 0.01 separates rest from the launch
+    // with no tick of lag (the checklist audit (5): a tolerance's reason))
     let mut next_start: Vec<Option<Vec3>> = vec![None; 3];
     let mut next_moved: Vec<Option<i64>> = vec![None; 3];
     // (G1 on b4549f35a: ironfarm's and tick-exact's rows key on leaving the rest's cell: each next
@@ -1791,17 +2345,88 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
             stand_ins.join("; ")
         ));
     }
-    // (the direct summon check: T's game time, the due summon tick S = T + 100 after it)
+    // (the direct summon check: T's game time, the due summon tick S after it on the summon's own
+    // clock, game time % 100 == 0 (the checklist audit (5)))
     let t_zero = run.world.time;
+    let s_rel: i64 = s_rel_of(t_zero);
+    // (G1 on a3b306a05 (4): the CLI's drive windows must equal the station's declared held phases;
+    // the hold check reads the declaration)
+    if o.hold_drive.is_some() && (o.hold_release + 1, o.hold_release + o.hold_width) != HELD_SLOPE {
+        return Err(format!(
+            "--hold-release {} / --hold-width {}: the drive window REL + {} .. REL + {} differs from the station's declared held: phase REL + {} .. REL + {} (refused, G1 on a3b306a05 (4))",
+            o.hold_release,
+            o.hold_width,
+            o.hold_release + 1,
+            o.hold_release + o.hold_width,
+            HELD_SLOPE.0,
+            HELD_SLOPE.1
+        ));
+    }
+    if let (Some(k), Some(_)) = (o.napper, o.napper_held) {
+        if (k + 1, k + 10) != HELD_NAPPER {
+            return Err(format!("--napper-release {k}: the napper's held window REL + {} .. REL + {} differs from the declared REL + {} .. REL + {} (refused)", k + 1, k + 10, HELD_NAPPER.0, HELD_NAPPER.1));
+        }
+    }
+    // (the audit (5): a run whose ticks end before the last judged tick (S, the hold window's end,
+    // the napper's pulse's end) is refused, as is a hold window outside the run)
+    let mut last_judged = s_rel + 1;
+    if o.hold_drive.is_some() {
+        if o.hold_width <= 0 || o.rel + o.hold_release < 0 {
+            return Err(format!("--hold-width {} / --hold-release {}: the window REL + R + 1 .. REL + R + W must lie in the run (W > 0)", o.hold_width, o.hold_release));
+        }
+        last_judged = last_judged.max(o.rel + o.hold_release + o.hold_width + 2);
+    }
+    if let Some(k) = o.napper {
+        last_judged = last_judged.max(o.rel + k + 12);
+    }
+    if o.ticks < last_judged {
+        return Err(format!("--ticks {}: the run ends before its last judged tick T+{last_judged} (the audit (5))", o.ticks));
+    }
+    if let Some(k) = o.hold_poke {
+        if o.hold_drive.is_none() || k < o.hold_release + 1 || k > o.hold_release + o.hold_width {
+            return Err(format!("--hold-poke {k}: outside the held window REL + {} .. REL + {} (the control must poke inside it)", o.hold_release + 1, o.hold_release + o.hold_width));
+        }
+    }
+    if o.lever_off.is_some_and(|k| k > 2) || o.remove_rider.is_some_and(|k| k > 2) {
+        return Err("--lever-off / --remove-rider: a pocket 0..2".into());
+    }
+    // (the reference world's cells whose block TYPE differs from the laid world's at T (the
+    // stand-ins and overrides): the sight check's scope)
+    let sight_scope = o.sight_control
+        || o.sight_ref.as_deref().is_some_and(|r| {
+            let air = Block::Air;
+            let (min, size) = (run.world.min, run.world.size);
+            (min.x..min.x + size[0]).any(|x| (min.y..min.y + size[1]).any(|y| (min.z..min.z + size[2]).any(|z| block_type(&run.world.get(BlockPos::new(x, y, z))) != block_type(r.get(&[x, y, z]).unwrap_or(&air)))))
+        });
+    let mut sight_rays = 0u32;
+    let mut sight_control_cell: Option<String> = None;
+    let mut s_try: Option<i64> = None;
+    let mut lift_samples = [0u32; 3];
+    let mut held_edge_count = 0u32;
+    let mut lever_seen: Vec<(BlockPos, bool)> = Vec::new();
+    let mut lever_noops = 0u32;
+    let mut dep_stamped = 0u32;
+    let mut summon_events = 0u32;
+    let mut rail_t_stop: Option<String> = None;
+    let mut t_shapes: Vec<(BlockPos, String)> = Vec::new();
+    let mut t_reshaped: Vec<(BlockPos, String)> = Vec::new();
+    let mut t_control_lever: Option<BlockPos> = None;
+    let mut home_least: Option<f64> = None;
+    let mut reseat_id: Option<u32> = None;
+    let mut reseat_old: Option<u32> = None;
+    let mut reseat_attr: Option<(Option<u8>, Option<u8>)> = None;
+    let mut act_prev: Vec<Option<redsim::entity::mob::villager::Activity>> = Vec::new();
+    let mut act_timeline: Vec<String> = Vec::new();
+    let mut rest_entries = 0u32;
+    let mut rest_list: Vec<String> = Vec::new();
     let mut summon_calls: Vec<SummonCall> = Vec::new();
     let mut summon_due: Vec<SummonDue> = Vec::new();
     let mut golems_removed = 0u32;
     let mut sight_hits: Vec<String> = Vec::new();
     let mut sight_control = false;
     let mut sight_hit_count = 0u32;
-    let mut sight_scarers = false;
     let mut rider_missing = [false; 3];
-    let mut hold_expect: Option<(BlockPos, bool)> = None;
+    let mut hold_expect: Vec<(BlockPos, bool)> = Vec::new();
     let mut hold_breaks = 0u32;
     let mut hold_break_first: Option<String> = None;
     let mut held_edges: Vec<String> = Vec::new();
@@ -1842,7 +2467,11 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
             let (x, y, z) = pockets[k];
             if o.layout == DropLayout::Station {
                 let lead = clock + 1 >= o.rel + o.stagger[k] && clock + 1 < off_at && o.lever_off != Some(k);
-                set_lever(&mut run.world, BlockPos::new(x - 2, y, z), lead)?;
+                let lever = o.pocket_levers.map_or(BlockPos::new(x - 2, y, z), |l| BlockPos::new(l[k].0, l[k].1, l[k].2));
+                let edge = lever_edge(&mut lever_seen, lever, lead);
+                if !set_lever(&mut run.world, lever, lead)? && edge {
+                    lever_noops += 1;
+                }
                 continue;
             }
             let want = if on { rs.clone() } else { support_off[k].clone() };
@@ -1879,56 +2508,24 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
             let held = clock >= o.rel + o.hold_release + 1 && clock < o.rel + o.hold_release + o.hold_width + 1;
             let (rx, ry, rz) = o.hold_rail.unwrap_or((hx, hy, hz + 2));
             let p = BlockPos::new(rx, ry, rz);
-            let s = run.world.get(p).to_string();
-            if !s.contains("powered_rail") {
-                return Err(format!("--hold-drive: no powered rail at the hold rail {p}: {s}"));
-            }
-            let want = if held { s.replace("powered=false", "powered=true") } else { s.replace("powered=true", "powered=false") };
-            if want != s {
-                let (built, b) = (Block::parse(&s).map_err(|e| e.to_string())?, Block::parse(&want).map_err(|e| e.to_string())?);
-                let d = property_diff(&run.world, &built, &b);
-                if !d.is_empty() {
-                    return Err(format!("the hold rail's held state differs from the rail in {} (ironspec 23:30)", d.join(", ")));
+            // (its driver: day-1's repeater (-4,12,6), the drive's cell + 1 south, its front the rail;
+            // G1 on 834d6329d (T1): a driver edge reaching a rail T stops the run there as a
+            // failure in its list, not a refused run)
+            let w_res = match held_rail_write(&mut run.world, p, held, (BlockPos::new(hx, hy, hz + 1), p)) {
+                Err(e) if e.contains("potential connections: at exactly 3") => {
+                    rail_t_stop = Some(format!("T+{dt}: {e}"));
+                    break;
                 }
-                if !redsim::behavior::can_survive(&run.world, &b, p) {
-                    return Err(format!("the hold rail's held state can't survive at {p} (the guard's survival)"));
-                }
-                let kind = b.kind();
-                run.world.set_block(p, b, redsim::world::flags::CLIENTS | redsim::world::flags::SKIP_ON_PLACE);
-                let mut cells: Vec<BlockPos> = redsim::Dir::ALL.iter().map(|d| p.rel(*d)).collect();
-                cells.extend(redsim::Dir::ALL.iter().map(|d| p.rel(redsim::Dir::Down).rel(*d)).filter(|c| *c != p));
-                if want.contains("ascending") {
-                    cells.extend(redsim::Dir::ALL.iter().map(|d| p.rel(redsim::Dir::Up).rel(*d)).filter(|c| *c != p));
-                }
-                // (G1's note on f7e3a825, ironspec 02:27: these updates carry the rail's kind, the
-                // build's front updates the repeater's, a signal source, which a plain rail with three
-                // or more potential connections re-settles to (RailBlock.updateState): none may be
-                // among the updated cells; `--block` a third rail beside one is the control)
-                if let Some(c) = cells.iter().find(|c| run.world.get(**c).to_string().starts_with("minecraft:rail[") && potential_connections(&run.world, **c) >= 3) {
-                    return Err(format!(
-                        "the held rail {p}'s edge updates reach the plain rail {c} ({}), which has {} potential connections: the build's driver updates (a signal source's) would re-settle it (G1's note on f7e3a825)",
-                        run.world.get(*c),
-                        potential_connections(&run.world, *c)
-                    ));
-                }
-                for c in &cells {
-                    run.world.neighbor_changed(*c, kind);
-                }
+                r => r?,
+            };
+            if let Some(cells) = w_res {
+                held_edge_count += 1;
                 if held_edges.len() < 2 {
-                    let mut seen: Vec<BlockPos> = Vec::new();
-                    let listed: Vec<String> = cells
-                        .iter()
-                        .filter(|c| {
-                            let new = !seen.contains(c);
-                            seen.push(**c);
-                            new
-                        })
-                        .map(|c| format!("{c} {}", run.world.get(*c).to_string().trim_start_matches("minecraft:")))
-                        .collect();
-                    held_edges.push(format!("T+{dt} {}: neighbour updates to {}", if held { "on" } else { "off" }, listed.join(", ")));
+                    held_edges.push(format!("the slope T+{dt} {}: neighbour updates to {cells}", if held { "on" } else { "off" }));
                 }
             }
-            hold_expect = Some((p, held));
+            // (the hold check's window: the station's DECLARED phase, HELD_SLOPE)
+            hold_expect.push((p, (o.rel + HELD_SLOPE.0..=o.rel + HELD_SLOPE.1).contains(&clock)));
             // (the hold check's positive control, rule (A): `--hold-poke K` gives the rail itself a
             // real neighbour update at REL + K, which the bench's undriven rail answers by dropping)
             if o.hold_poke.is_some_and(|k| clock == o.rel + k) {
@@ -1938,7 +2535,40 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
         }
         if let Some(k) = o.napper {
             let on = clock >= o.rel + k && clock < o.rel + k + 10;
-            set_lever(&mut run.world, nap_drive, on)?;
+            match o.napper_held {
+                // (record7e: the napper's line end (7,-1,8) is air with no support but the glass
+                // (7,-1,7), whose lever ironspec 18:31 retired, so the napper's rail is a held
+                // stand-in like the slope's: powered from REL + K + 1 for the pulse's 10 gt, the rail's
+                // rise through the repeater (8,-1,8) and the slime (9,-1,8) at the pulse + 1)
+                Some((nx, ny, nz)) => {
+                    let p = BlockPos::new(nx, ny, nz);
+                    let held = clock >= o.rel + k + 1 && clock < o.rel + k + 11;
+                    // (its driver: the module's repeater (8,-1,8), whose front is the slime (9,-1,8)
+                    // under the rail, which powers it)
+                    let front = p.rel(redsim::Dir::Down);
+                    let w_res = match held_rail_write(&mut run.world, p, held, (front.rel(redsim::Dir::West), front)) {
+                        Err(e) if e.contains("potential connections: at exactly 3") => {
+                            rail_t_stop = Some(format!("T+{dt}: {e}"));
+                            break;
+                        }
+                        r => r?,
+                    };
+                    if let Some(cells) = w_res {
+                        held_edge_count += 1;
+                        if held_edges.len() < 4 {
+                            held_edges.push(format!("the napper T+{dt} {}: neighbour updates to {cells}", if held { "on" } else { "off" }));
+                        }
+                    }
+                    // (the declared phase, HELD_NAPPER)
+                    hold_expect.push((p, (o.rel + HELD_NAPPER.0..=o.rel + HELD_NAPPER.1).contains(&clock)));
+                }
+                None => {
+                    let edge = lever_edge(&mut lever_seen, nap_drive, on);
+                    if !set_lever(&mut run.world, nap_drive, on)? && edge {
+                        lever_noops += 1;
+                    }
+                }
+            }
         }
         // the trapdoors: open at T + release unless the pocket's string has been held 20 gt
         for k in 0..3 {
@@ -2008,7 +2638,11 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
                 // stand-in (ironspec 17:46); else the old emulation, a redstone block in R_1's side
                 // cell, which the stand-in guard refuses (it differs from the stub's glass))
                 if o.r_repeater {
-                    set_lever(&mut run.world, BlockPos::new(x + 2, o.hold_y + 1, z + 1), on)?;
+                    let lp = BlockPos::new(x + 2, o.hold_y + 1, z + 1);
+                    let edge = lever_edge(&mut lever_seen, lp, on);
+                    if !set_lever(&mut run.world, lp, on)? && edge {
+                        lever_noops += 1;
+                    }
                 } else {
                     let p = BlockPos::new(x + 1, o.hold_y + 1, z + 1);
                     let want = if on { rs.clone() } else { glass.clone() };
@@ -2058,28 +2692,155 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
         }
         // (the direct summon check, ironspec 19:24..20:07: the stand's riders at the start of the
         // due summon tick S, its GolemTry calls after it (up to the first success); every golem
-        // born is removed after its tick, the portals' removal being golem-flow's)
+        // born is removed after its tick, the portals' removal being golem-flow's; S on the summon's
+        // own clock, game time % 100 == 0 (the checklist audit (5)))
         let s_time = run.world.time + 1;
-        let pre = (o.summon_check && s_time == t_zero + 100).then(|| summon_pre(&run.world, &pockets, s_time));
-        // (the sight property at T's first tick and at S: the rays crossing a stand-in support)
-        // (the sight property every tick from T to S, ironspec 23:30: a ray crossing a stand-in's
-        // support fails the row, as does a positive control that never flags while a scarer is in
-        // sight range)
-        if dt <= 100 && (!sight_cells.is_empty() || o.sight_control) {
-            let (hits, control, scarer_ray) = sight_crossings(&run.world, &sight_cells);
-            sight_hit_count += hits.len() as u32;
-            if sight_hits.len() < 12 {
-                sight_hits.extend(hits.into_iter().take(12).map(|h| format!("T+{dt}: {h}")));
+        // (ironspec 13:37: a freeze over S puts that S out of the summon check's scope (printed with
+        // its count and reason), and the NEXT S, S + 100, must pass: the recovery bar)
+        let recovery_s = summon_due.first().is_some_and(|d| d.class.starts_with("frozen")) && s_time == t_zero + s_rel + 100;
+        let pre = (o.summon_check && (s_time == t_zero + s_rel || recovery_s)).then(|| summon_pre(&run.world, &pockets, s_time));
+        // (the checklist audit (6): the stamps themselves: each departing rider's
+        // GOLEM_DETECTED_RECENTLY before S, read again after S's tick)
+        let dep_golem_pre: Option<[Option<Option<i64>>; 3]> = (o.summon_check && s_time == t_zero + s_rel).then(|| [0, 1, 2].map(|n| golem_mem(&run.world, riders[n])));
+        // (the sight check's positive control, ironspec 00:27 (A), G1's audit (1): `--sight-control`
+        // lays a glass block in the WORLD at T on the first live villager -> scarer ray; the check
+        // reads only the world against the reference, so it must flag it from then on; a cell
+        // already a full collider would change nothing (04:07) and a run with no such ray can't
+        // run the control: both refuse)
+        if o.sight_control && dt == 0 {
+            let Some(reference) = o.sight_ref.as_deref() else {
+                return Err("--sight-control: no reference world (the module's cells, the stand-ins as built) to read the sight against".into());
+            };
+            let (_, _, control) = sight_crossings_world(&run.world, reference);
+            let Some(c) = control else {
+                return Err("--sight-control: no villager -> scarer or villager -> villager ray at T to lay the control's glass on".into());
+            };
+            let before = run.world.get(c);
+            if redsim::behavior::collision_boxes(&before) == vec![[0, 16, 0, 16, 0, 16]] {
+                return Err(format!("--sight-control: the cell {c} on the ray is already a full collider ({before}): the control would change nothing (ironspec 04:07)"));
             }
-            sight_scarers |= scarer_ray;
-            // (the positive control, ironspec 00:27 (A): `--sight-control` lays a glass stand-in
-            // support in the world on the first villager -> scarer ray at T; the row's own check must
-            // flag it from then on)
-            if o.sight_control && dt == 0 {
-                if let Some(c) = control {
-                    run.world.set_block(c, glass.clone(), redsim::world::flags::ALL);
-                    sight_cells.push(c);
-                    sight_control = true;
+            run.world.set_block(c, glass.clone(), redsim::world::flags::ALL);
+            sight_control_cell = Some(format!("{c} {} -> glass", before.to_string().trim_start_matches("minecraft:")));
+            sight_control = true;
+        }
+        // (G1 on a3b306a05: the sight window starts at the END of T, the state before the first
+        // tick, and the post-tick reads cover the ends of game ticks T+1 .. S)
+        if dt == 0 {
+            if let Some(reference) = o.sight_ref.as_deref() {
+                let (hits, rays, _) = sight_crossings_world(&run.world, reference);
+                sight_rays += rays;
+                sight_hit_count += hits.len() as u32;
+                sight_hits.extend(hits.into_iter().take(12).map(|h| format!("T (its end): {h}")));
+            }
+        }
+        // (the checklist audit (7), the missing-rider control: departing rider K removed at T, not
+        // declared absent; the rate control: every golem spawn spot of the stand's callers blocked
+        // with glass at T, each block an override that must change its cell (04:07))
+        if o.foreign_caller && dt == s_rel - 5 {
+            let mut off = 0u32;
+            for q in pockets {
+                if let Some(i) = pocket_rider(&run.world, q) {
+                    redsim::entity::stop_riding(&mut run.world, i);
+                    off += 1;
+                }
+            }
+            if off == 0 {
+                return Err("--foreign-caller-control: no pocket rider to dismount at S - 5".into());
+            }
+        }
+        // (G1 on a3b306a05 (3), the attribution by id while riders are seated: `--reseat-control`
+        // dismounts pocket 0's rider 40 gt before S (it keeps its brain and panic, standing beside
+        // the cart) and seats a FRESH villager (a new id, LAST_SLEPT as the others') in that cart;
+        // at S the fresh one's call must be attributed to P0 and the old rider's counted foreign)
+        if o.reseat && dt == s_rel - 40 {
+            let i = pocket_rider(&run.world, pockets[0]).ok_or("--reseat-control: no rider in pocket 0 at S - 40")?;
+            let cart = run.world.entities.list[i].vehicle.ok_or("--reseat-control: pocket 0's rider has no vehicle")?;
+            let cp = run.world.entities.list.iter().find(|e| e.id == cart).map(|e| e.pos).ok_or("--reseat-control: pocket 0's cart is gone")?;
+            reseat_old = Some(run.world.entities.list[i].id);
+            redsim::entity::stop_riding(&mut run.world, i);
+            let fresh = redsim::entity::spawn(&mut run.world, "minecraft:villager", [cp.x, cp.y, cp.z], None)?;
+            let slept = run.world.time - (ro.day0 - 10).rem_euclid(24000);
+            if let Some(e) = run.world.entities.list.iter_mut().find(|e| e.id == fresh)
+                && let EntityKind::Mob(m) = &mut e.kind
+                && let Some(b) = m.brain.as_deref_mut()
+            {
+                b.last_slept = Some(slept);
+            }
+            // (seated as an NBT-loaded passenger is: vehicle and passengers set, the cart then
+            // positions its rider each tick; redsim's `ride` models only the /ride command's armor
+            // stand)
+            let fi = redsim::entity::index_of(&run.world, fresh).ok_or("--reseat-control: the fresh villager is gone")?;
+            let ci = redsim::entity::index_of(&run.world, cart).ok_or("--reseat-control: pocket 0's cart is gone")?;
+            run.world.entities.list[fi].vehicle = Some(cart);
+            run.world.entities.list[ci].passengers.push(fresh);
+            reseat_id = Some(fresh);
+        }
+        if dt == 0 {
+            if let Some(k) = o.remove_departing {
+                let id = riders.get(k).copied().flatten().ok_or("--missing-control: no departing rider there")?;
+                let e = run.world.entities.list.iter_mut().find(|e| e.id == id && !e.removed).ok_or("--missing-control: the rider is already gone")?;
+                e.removed = true;
+            }
+            if o.rate_control {
+                let mut laid = 0u32;
+                for (px, py, pz) in pockets {
+                    let start = BlockPos::new(px, py, pz);
+                    for (c, r) in redsim::entity::mob::spawn::golem_spawn_cells_from(&run.world, start) {
+                        if r.is_ok() && run.world.get(c) != glass {
+                            run.world.set_block(c, glass.clone(), redsim::world::flags::ALL);
+                            laid += 1;
+                        }
+                    }
+                }
+                if laid == 0 {
+                    return Err("--rate-control: no golem spawn spot to block (the control would change nothing)".into());
+                }
+            }
+        }
+        // (farmopt 09:46, the pocket-exit Ts: every plain rail with >= 3 potential connections in
+        // the world at T (a T) is recorded with its shape, checked at every tick's end, any change
+        // a runtime re-shape, a failure; `--t-control` plants a lever beside the first station T at
+        // T (on glass) and switches it on at T+5: a signal source's update, which must re-shape it)
+        if dt == 0 {
+            let (min, size) = (run.world.min, run.world.size);
+            for x in min.x..min.x + size[0] {
+                for y in min.y..min.y + size[1] {
+                    for z in min.z..min.z + size[2] {
+                        let p = BlockPos::new(x, y, z);
+                        let s = run.world.get(p).to_string();
+                        if s.starts_with("minecraft:rail[") && potential_connections(&run.world, p) >= 3 {
+                            t_shapes.push((p, s));
+                        }
+                    }
+                }
+            }
+            if o.t_control {
+                let target = t_shapes.iter().map(|(p, _)| *p).find(|p| pockets.iter().any(|(px, _, _)| p.x == *px && p.y == 0)).ok_or("--t-control: no station T (a plain rail with 3 potential connections on a pocket's exit) to plant beside")?;
+                let lp = target.rel(redsim::Dir::South);
+                let sp = lp.rel(redsim::Dir::Down);
+                if !run.world.get(lp).is_air() {
+                    return Err(format!("--t-control: the lever cell {lp} south of the T {target} is not air ({})", run.world.get(lp)));
+                }
+                let mut ov = Vec::new();
+                if run.world.get(sp).is_air() {
+                    run.world.set_block(sp, glass.clone(), redsim::world::flags::ALL);
+                    ov.push(format!("{sp} air -> glass"));
+                }
+                let lever = Block::parse("minecraft:lever[face=floor,facing=north,powered=false]").map_err(|e| e.to_string())?;
+                run.world.set_block(lp, lever, redsim::world::flags::ALL);
+                ov.push(format!("{lp} air -> lever[face=floor] (on at T+5, off at T+10)"));
+                // (G1 on 834d6329d (T8): the control's overrides printed, before -> after)
+                out.push(format!("the T-shape control's overrides beside the T {target} (G1 on 834d6329d (T8)): {}", ov.join(", ")));
+                t_control_lever = Some(lp);
+            }
+        }
+        // (the lever toggled ON at T+5 (it powers the T: the powered preference, north_west, no
+        // change) and OFF at T+10: the update of an unpowered T re-shapes it to its unpowered
+        // preference, the control's bite; 7b90c3f1's two-row control, on then off)
+        if dt == 5 || dt == 10 {
+            if let Some(lp) = t_control_lever {
+                if !set_lever(&mut run.world, lp, dt == 5)? {
+                    return Err(format!("--t-control: the lever at {lp} changed nothing (ironspec 04:07)"));
                 }
             }
         }
@@ -2088,21 +2849,100 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
         // was moving toward)
         let before: Vec<(u32, Vec3)> = carts.iter().copied().chain(napper_cart).filter_map(|id| run.world.entities.list.iter().find(|e| e.id == id && !e.removed).map(|e| (id, e.delta_movement))).collect();
         run.tick();
+        // (the Ts' shapes at this tick's end: a change is a runtime re-shape)
+        for (p, s0) in &t_shapes {
+            let now = run.world.get(*p).to_string();
+            if now != *s0 && !t_reshaped.iter().any(|(q, _)| q == p) {
+                t_reshaped.push((*p, format!("{p} {} -> {} at T+{}", s0.trim_start_matches("minecraft:"), now.trim_start_matches("minecraft:"), dt + 1)));
+            }
+        }
+        // (G1 on a3b306a05 (5): the summon's scope from the WORLD, not the flag: every GolemTry
+        // this tick counted whether or not --summon-check runs)
+        {
+            let from = if run.world.mob.events.len() >= ev0 { ev0 } else { 0 };
+            summon_events += run.world.mob.events[from..].iter().filter(|ev| matches!(ev, redsim::entity::mob::MobEvent::GolemTry { .. })).count() as u32;
+        }
         // (G1 on 82f9546f (c), the hold check: the held rail powered at the end of every tick inside
         // its window and unpowered outside it; a real neighbour update re-evaluating the bench's
-        // undriven rail would drop it while the built one stays powered: a bench artefact, a failure)
-        if let Some((p, held)) = hold_expect.take() {
+        // undriven rail would drop it while the built one stays powered: a bench artefact, a failure;
+        // the checklist audit (4): the window is the DECLARED one (the `held:` line's phase), not the
+        // drive's own formula)
+        for (p, intended) in std::mem::take(&mut hold_expect) {
             let now = run.world.get(p).to_string().contains("powered=true");
-            if now != held {
+            if now != intended {
                 hold_breaks += 1;
                 if hold_break_first.is_none() {
-                    hold_break_first = Some(format!("T+{dt}: {} where the window says {}", if now { "powered" } else { "unpowered" }, if held { "powered" } else { "unpowered" }));
+                    hold_break_first = Some(format!("T+{dt}: {p} {} where the declared window says {}", if now { "powered" } else { "unpowered" }, if intended { "powered" } else { "unpowered" }));
+                }
+            }
+        }
+        // (the sight check, every tick T..S read at the tick's END (G1's audit (5)): every
+        // villager -> scarer and villager -> villager segment against the live world's collision
+        // shapes and the reference's (G1's audit (1): the verdict only through the world))
+        // (ironspec 08:23 / G1 08:22, the at-entry bar's station half: every station rider's
+        // activity every tick (its transitions printed), each entry into REST recorded with its
+        // GOLEM_DETECTED_RECENTLY stamp, the first tick's REST (a night world open's blip)
+        // included; a printed count until b8949c96's SetWalkTargetFromBlockMemory hook lands,
+        // labelled, not judged)
+        if rider_left.len() < riders.len() {
+            rider_left.resize(riders.len(), None);
+        }
+        for n in 0..riders.len() {
+            let Some(id) = riders[n] else { continue };
+            // (G1 on a3b306a05 (8): an id-keyed read that finds no entity fails the row; G1 on
+            // 834d6329d (T4): the one exception is a departing rider the bench itself sank past the
+            // exit (set at the sink, n < 3): its later reads are out of that world's scope)
+            let Some(e) = run.world.entities.list.iter().find(|e| e.id == id && !e.removed) else {
+                if rider_left[n].is_none() {
+                    missing_reads += 1;
+                }
+                continue;
+            };
+            let EntityKind::Mob(m) = &e.kind else { continue };
+            let Some(b) = m.brain.as_deref() else {
+                missing_reads += 1;
+                continue;
+            };
+            // (ironspec 09:03 / G1: each run's least distance from a HOME holder's feet to its
+            // HOME head block's centre, printed: the exposure bar's reach (strictly < 16))
+            if let Some(h) = b.home {
+                let c = Vec3::new(h.x as f64 + 0.5, h.y as f64 + 0.5, h.z as f64 + 0.5);
+                let d = ((e.pos.x - c.x).powi(2) + (e.pos.y - c.y).powi(2) + (e.pos.z - c.z).powi(2)).sqrt();
+                home_least = Some(home_least.map_or(d, |m: f64| m.min(d)));
+            }
+            let a = b.activity;
+            if act_prev.len() <= n {
+                act_prev.resize(n + 1, None);
+            }
+            let prev = act_prev[n];
+            if a == redsim::entity::mob::villager::Activity::Rest && prev != Some(a) {
+                rest_entries += 1;
+                if rest_list.len() < 8 {
+                    rest_list.push(format!("rider {n} T+{dt} at ({:.2},{:.2},{:.2}), its stamp {}", e.pos.x, e.pos.y, e.pos.z, b.golem_detected.map_or("none".to_string(), |t| format!("ttl {t}"))));
+                }
+            }
+            if prev != Some(a) && act_timeline.len() < 48 {
+                act_timeline.push(format!("rider {n} {}@T+{dt}", a.name()));
+            }
+            act_prev[n] = Some(a);
+        }
+        if dt < s_rel {
+            if let Some(reference) = o.sight_ref.as_deref() {
+                let (hits, rays, _) = sight_crossings_world(&run.world, reference);
+                sight_rays += rays;
+                sight_hit_count += hits.len() as u32;
+                if sight_hits.len() < 12 {
+                    sight_hits.extend(hits.into_iter().take(12).map(|h| format!("T+{}: {h}", dt + 1)));
                 }
             }
         }
         // (ironspec 21:25 (4): the carts' block contacts, each tick: a cart whose move was stopped
         // horizontally, against the blocks with a collision shape its box meets when widened by
-        // 0.05 on the side of its motion)
+        // 0.05 on the side of its motion (the checklist audit (5)/(9): the stop leaves the box
+        // against the face (collide() clamps it there), so 0.05 reaches the face's block and not the
+        // next; 1e-6 is a motion component's sign (none: no side); the y inset 0.01 keeps the cells
+        // under the box's bottom and over its top out. Interim: the contacts move to ironfarm's
+        // shared face filter when it lands; until then these contact results are not cited)
         for (id, v) in &before {
             let Some(e) = run.world.entities.list.iter().find(|e| e.id == *id && !e.removed) else { continue };
             if !e.horizontal_collision {
@@ -2134,13 +2974,22 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
         }
         if o.summon_check {
             let from = if run.world.mob.events.len() >= ev0 { ev0 } else { 0 };
-            let now: Vec<(u32, u32, bool)> = run.world.mob.events[from..]
+            // (every GolemTry this tick; the stand's first one, at any tick, must fall on the
+            // summon's own clock, S (the checklist audit (5)))
+            let tries: Vec<(i64, u32, u32, bool)> = run.world.mob.events[from..]
                 .iter()
                 .filter_map(|ev| match ev {
-                    redsim::entity::mob::MobEvent::GolemTry { t, villager, willing, golem, .. } if *t == s_time => Some((*villager, *willing, golem.is_some())),
+                    redsim::entity::mob::MobEvent::GolemTry { t, villager, willing, golem, .. } => Some((*t, *villager, *willing, golem.is_some())),
                     _ => None,
                 })
                 .collect();
+            if s_try.is_none() {
+                s_try = tries.iter().find(|(_, v, _, _)| pocket_of(&run.world, &pockets, *v).is_some()).map(|(t, _, _, _)| t - t_zero);
+            }
+            // (G1 on 834d6329d (T4): a caller whose id is not found can't be attributed: a failed
+            // read, not a "foreign" call)
+            missing_reads += tries.iter().filter(|(_, v, _, _)| redsim::entity::index_of(&run.world, *v).is_none()).count() as u32;
+            let now: Vec<(u32, u32, bool)> = tries.iter().filter(|(t, ..)| *t == s_time).map(|(_, v, n, b)| (*v, *n, *b)).collect();
             let calls: Vec<SummonCall> = now
                 .iter()
                 .map(|(v, n, born)| SummonCall { s: s_time - t_zero, stand: 0, pocket: pocket_of(&run.world, &pockets, *v), willing: *n, threshold: None, tries: None, born: *born })
@@ -2152,8 +3001,36 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
                 }
             }
             if let Some(pre) = pre {
+                // (the reseat control's attribution at S, through the gate's own `pocket_of`: the
+                // fresh villager is P0's rider, the dismounted old one no pocket's)
+                if let (Some(f), Some(old)) = (reseat_id, reseat_old) {
+                    reseat_attr = Some((pocket_of(&run.world, &pockets, f), pocket_of(&run.world, &pockets, old)));
+                }
+                // (the stamps read after S's tick: a departing rider stamped by this S's summon is
+                // the S - 3 bar's own failure, read from its memory, not inferred from boxes)
+                if let Some(before) = dep_golem_pre {
+                    for n in 0..3 {
+                        if o.dep_absent[n] || rider_left.get(n).is_some_and(|l| l.is_some()) {
+                            continue;
+                        }
+                        // (G1 on a3b306a05 (8): a rider not found before or after S fails the row; a
+                        // rider the bench sank past the exit in a world with no lift is out of its
+                        // scope, printed)
+                        match (before[n], golem_mem(&run.world, riders[n])) {
+                            (Some(b), Some(Some(a))) => {
+                                if b.is_none_or(|b| a > b) {
+                                    dep_stamped += 1;
+                                }
+                            }
+                            (Some(_), Some(None)) => {}
+                            _ => missing_reads += 1,
+                        }
+                    }
+                }
                 let stand_calls = calls.iter().filter(|c| c.pocket.is_some()).count();
-                let born = calls.iter().any(|c| c.born);
+                // (G1's audit (4): only the stand's callers' golems count, not a departing rider's
+                // or the napper's)
+                let born = calls.iter().any(|c| c.born && c.pocket.is_some());
                 let eligible = pre.iter().filter(|r| r.eligible()).count();
                 let class = if born {
                     "golem born"
@@ -2174,6 +3051,7 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
                 };
                 summon_due.push(SummonDue {
                     s: s_time - t_zero,
+                    recovery: recovery_s,
                     eligible: eligible as u8,
                     calls: stand_calls as u8,
                     born,
@@ -2183,6 +3061,17 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
                     spots_pad: [0, 1, 2].map(|k| pre.get(k).map_or(0, |r| r.spots_pad)),
                     spots_off: [0, 1, 2].map(|k| pre.get(k).map_or(0, |r| r.spots_off)),
                     restart_before: o.restarts.iter().map(|r| r.0).filter(|t| *t <= s_time - t_zero).max(),
+                    willing_in_box: {
+                        let mut v: Vec<(u32, [f64; 3], bool)> = Vec::new();
+                        for w in pre.iter().flat_map(|r| r.willing_in_box.iter()) {
+                            if !v.iter().any(|x| x.0 == w.0) {
+                                v.push(*w);
+                            }
+                        }
+                        v
+                    },
+                    foreign_calls: calls.iter().filter(|c| c.pocket.is_none()).count() as u8,
+                    calls_by: now.iter().zip(calls.iter()).map(|((v, _, _), c)| (*v, c.pocket)).collect(),
                 });
             }
             summon_calls.extend(calls);
@@ -2229,6 +3118,17 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
         // test: the caller (the arriving rider at its pocket's rest) inflated by 10; the rider's
         // feet past y 12.0125 clear it vertically, every chunk cell below it is in pocket x -1's)
         if o.track_lift {
+            // (the checklist audit (6): the callers' LIVE boxes this tick, the arriving riders'
+            // boxes inflated by 10 (the summon's getEntitiesOfClass(Villager, caller.bb.inflate(10)));
+            // G1 on a3b306a05: a caller's id not found is a failed read, and a tick without all three
+            // callers is no sample (the bar NOT JUDGED short of its samples))
+            let mut callers: Vec<redsim::entity::Aabb> = Vec::new();
+            for k in 3..6 {
+                match riders.get(k).copied().flatten().and_then(|id| run.world.entities.list.iter().find(|e| e.id == id && !e.removed)) {
+                    Some(e) => callers.push(e.bb.inflate(10.0, 10.0, 10.0)),
+                    None => missing_reads += 1,
+                }
+            }
             for n in 0..3 {
                 if o.dep_absent[n] {
                     continue;
@@ -2244,11 +3144,12 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
                     continue;
                 };
                 let p = e.pos;
-                let inside = pockets.iter().any(|(px, py, pz)| {
-                    let c = Vec3::new(*px as f64 + 0.5, *py as f64 + 0.0625, *pz as f64 + 0.5);
-                    p.x - 0.3 < c.x + 0.3 + 10.0 && p.x + 0.3 > c.x - 0.3 - 10.0 && p.y < c.y + 1.95 + 10.0 && p.y + 1.95 > c.y - 10.0 && p.z - 0.3 < c.z + 0.3 + 10.0 && p.z + 0.3 > c.z - 0.3 - 10.0
-                });
-                if inside && dt <= 100 {
+                let inside = callers.iter().any(|cb| e.bb.intersects(*cb));
+                // (the window: iterations 0 .. S - 1, the ends of game ticks T+1 .. S)
+                if dt < s_rel && callers.len() == 3 {
+                    lift_samples[n] += 1;
+                }
+                if inside && dt < s_rel {
                     lift_last[n] = Some(dt);
                 }
                 // (path (a): a rider back in a caller's box after it was out, lane 2's dip at its
@@ -2256,13 +3157,13 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
                 if inside && lift_y12[n].is_some() && lift_dip[n].is_none() {
                     lift_dip[n] = Some(dt);
                 }
-                if dt == 100 {
+                if dt == s_rel - 1 {
                     lift_in100[n] = inside;
                 }
                 if dt == 80 {
                     lift_y80[n] = Some(p.y);
                 }
-                if dt == 100 {
+                if dt == s_rel - 1 {
                     lift_y100[n] = Some(p.y);
                 }
                 if lift_merge[n].is_none() && p.z >= pockets[n].2 as f64 + 7.0 {
@@ -2294,6 +3195,8 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
                         hold_overshoot = true;
                     }
                     if cb == BlockPos::new(hx, hy, hz) && hold_on.is_none() {
+                        // (at rest: the braked rail halves the cart's motion every tick, so under
+                        // 0.01 a tick it is stopped within one tick of the reading (the audit (5)))
                         let still = c.delta_movement.x.abs() + c.delta_movement.z.abs() < 0.01;
                         if hold_first.is_none() {
                             hold_first = Some(dt);
@@ -2323,6 +3226,7 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
             if let Some(nc) = napper_cart.and_then(|id| run.world.entities.list.iter().find(|e| e.id == id && !e.removed)) {
                 let cb = BlockPos::new(nc.pos.x.floor() as i32, nc.pos.y.floor() as i32, nc.pos.z.floor() as i32);
                 let in_col = run.world.get(cb).to_string().contains("bubble_column");
+                // (off its hold: more than 0.01 off its rest's z, as the R line's launch (above))
                 if nap_off.is_none() && (nc.pos.z - 14.5).abs() > 0.01 {
                     nap_off = Some(dt);
                 }
@@ -2464,11 +3368,25 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
             }
         }
         let st: Vec<Option<(Vec3, Vec3)>> = carts.iter().map(|id| pos(w, *id)).collect();
+        // (G1 on 834d6329d (T4): the napper's cart not found fails the row too)
+        if napper_cart.is_some_and(|nc| pos(w, nc).is_none()) {
+            missing_reads += 1;
+        }
         let mut sink_now: Vec<usize> = Vec::new();
         for n in 0..6 {
-            let Some((p, v)) = st[n] else { continue };
+            // (G1 on 834d6329d (T4): a station cart not found fails the row, but for a departing one
+            // the bench sank past the exit in a world with no lift)
+            let Some((p, v)) = st[n] else {
+                if !(n < 3 && exits[n].is_some() && !o.track_lift) && !(o.dep_absent.get(n).copied().unwrap_or(false)) {
+                    missing_reads += 1;
+                }
+                continue;
+            };
             if n < 3 {
-                // (the launch: the first tick the departing cart is off its pocket's centre)
+                // (the launch: the first tick the departing cart is more than 0.05 off its pocket's
+                // centre: the bench's "+2" convention against tick-exact's official ride, whose
+                // position first changes at +1 by under 0.05 and passes 0.05 at +2 (NOTES: the
+                // official ride matches redsim to the tick, +-0.0005); the checklist audit (5))
                 let (px, _, pz) = pockets[n];
                 if launch_at[n].is_none() && ((p.x - (px as f64 + 0.5)).abs() > 0.05 || (p.z - (pz as f64 + 0.5)).abs() > 0.05) {
                     launch_at[n] = Some(dt);
@@ -2510,6 +3428,10 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
                 rest_since[k].get_or_insert(dt);
             } else {
                 rest_since[k] = None;
+            }
+            // (the arriving cart's position at S, printed: 9fc3155f's pocket positions)
+            if dt == s_rel {
+                rest_at_s[k] = Some(p);
             }
             for m in 0..3 {
                 if let Some((pd, _)) = st[m] {
@@ -2633,6 +3555,8 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
                 };
                 let now = hx.abs() < 1.18 && hz.abs() < 1.18 && (pa.y - pc.y).abs() < 0.7 && (along(yaws[a]) || along(yaws[c]));
                 let _ = d;
+                // (sc: the boxes' clearance; under 0.05 (a twentieth of the 0.2 inflation G1's
+                // contact rule uses) the carts are touching, not passing: the checklist audit (5))
                 if now && !touching[a][c] && sc < 0.05 && dt > 0 {
                     let sa = prev_v[a].max((va.x * va.x + va.y * va.y + va.z * va.z).sqrt());
                     contact_max = contact_max.max(sa);
@@ -2644,7 +3568,13 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
         for n in 0..6 {
             prev_v[n] = st[n].map_or(0.0, |(_, v)| (v.x * v.x + v.y * v.y + v.z * v.z).sqrt());
             let Some(r) = riders[n] else { continue };
-            let Some(e) = w.entities.list.iter().find(|e| e.id == r && !e.removed) else { continue };
+            // (G1 on 834d6329d (T4): a rider not found here fails too, but for the one the bench sank)
+            let Some(e) = w.entities.list.iter().find(|e| e.id == r && !e.removed) else {
+                if rider_left.get(n).is_none_or(|l| l.is_none()) {
+                    missing_reads += 1;
+                }
+                continue;
+            };
             let hp = if let EntityKind::Mob(m) = &e.kind { m.health } else { 0.0 };
             if health[n].is_some_and(|h0| hp < h0) {
                 hurt += 1;
@@ -2665,6 +3595,13 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
                     e.removed = true;
                 }
             }
+            // (the bench sinks a departed cart and its rider in a world with no lift: that rider's
+            // later reads are out of the world's scope, printed (G1 on a3b306a05 (8)))
+            if let Some(slot) = rider_left.get_mut(n)
+                && slot.is_none()
+            {
+                *slot = Some(format!("rider {n} departed at T+{dt} (sunk by the bench past the exit, a world with no lift)"));
+            }
         }
     }
     let boundary = summon_boundary(&frozen_hist);
@@ -2675,17 +3612,87 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
     stats.sight_hits = sight_hits;
     stats.sight_control = sight_control;
     stats.sight_hit_count = sight_hit_count;
-    stats.sight_scarers = sight_scarers;
     stats.missing_riders = rider_missing.iter().filter(|m| **m).count() as u32;
     stats.hold_breaks = hold_breaks;
     stats.hold_break_first = hold_break_first;
     stats.held_edges = held_edges;
+    stats.standin_cells = levers.iter().zip(stand_ins.iter()).map(|((p, _, _), d)| ([p.x, p.y, p.z], d.clone())).collect();
+    stats.fluid_cells = fluid_cells;
+    stats.fluid_scheduled = fluid_scheduled;
+    stats.s_rel = s_rel;
+    stats.s_try = s_try;
+    stats.lift_tracked = [0, 1, 2].map(|n| o.track_lift && !o.dep_absent[n]);
+    stats.lift_samples = lift_samples;
+    stats.lift_in_world = lift_in_world;
+    stats.track_lift = o.track_lift;
+    stats.hold_driven = o.hold_drive.is_some();
+    stats.napper_run = o.napper.is_some();
+    stats.napper_held = o.napper.is_some() && o.napper_held.is_some();
+    stats.summon_checked = o.summon_check;
+    stats.sight_scope = sight_scope;
+    stats.sight_rays = sight_rays;
+    stats.held_edge_count = held_edge_count;
+    stats.lever_noops = lever_noops;
+    stats.dep_stamped = dep_stamped;
+    stats.activity_wrong = activity_wrong;
+    stats.independent = o.freeze.is_none() && o.logins.is_empty() && o.restarts.is_empty();
+    stats.home_holders = home_holders;
+    stats.rest_entries = rest_entries;
+    stats.rest_list = rest_list.clone();
+    stats.missing_reads = missing_reads;
+    stats.summon_events = summon_events;
+    stats.home_least = home_least;
+    stats.reseat_id = reseat_id;
+    let left: Vec<String> = rider_left.iter().flatten().cloned().collect();
+    stats.riders_left = left.len() as u32;
+    if !left.is_empty() {
+        out.push(format!("the station riders that left the bench world (a world with no lift: their later reads out of its scope, printed, not judged; G1 on a3b306a05 (8)): {}", left.join("; ")));
+    }
+    stats.reseat_old = reseat_old;
+    stats.reseat_attr = reseat_attr;
+    stats.seed = o.seed;
+    stats.t_count = t_shapes.len() as u32;
+    stats.t_reshaped = t_reshaped.len() as u32;
+    out.push(format!(
+        "the Ts (plain rails with >= 3 potential connections at T; each shape checked at every tick's end, farmopt 09:46): {}{}",
+        if t_shapes.is_empty() { "none".to_string() } else { t_shapes.iter().map(|(p, s)| format!("{p} {}", s.trim_start_matches("minecraft:rail"))).collect::<Vec<_>>().join(", ") },
+        if t_reshaped.is_empty() { "; none re-shaped".to_string() } else { format!("; RE-SHAPED: {}", t_reshaped.iter().map(|(_, l)| l.clone()).collect::<Vec<_>>().join("; ")) }
+    ));
+    stats.t_list = t_reshaped.iter().map(|(_, l)| l.clone()).collect();
+    if let Some(r) = &rail_t_stop {
+        out.push(format!("the run STOPPED at a held rail's edge (G1 on 834d6329d (T1): a failure in its list): {r}"));
+    }
+    stats.rail_t_stop = rail_t_stop.is_some();
+    out.push(format!(
+        "the least distance from a HOME holder's feet to its HOME head block's centre over the run (the exposure bar's reach, strictly < 16; ironspec 09:03): {}",
+        home_least.map_or("no HOME holder".to_string(), |d| format!("{d:.2}"))
+    ));
+    out.push(format!(
+        "the station riders' activities every tick (their transitions; ironspec 08:23): {}; REST entries (with their stamps; a printed count until b8949c96's SetWalkTargetFromBlockMemory hook lands, not judged): {}{}",
+        if act_timeline.is_empty() { "none".to_string() } else { act_timeline.join(", ") },
+        rest_entries,
+        if rest_list.is_empty() { String::new() } else { format!(": {}", rest_list.join("; ")) }
+    ));
+    if !activity_line.is_empty() {
+        out.push(format!("{activity_line}{}", activity_first.as_ref().map_or(String::new(), |f| format!("; WRONG: {f} (a failure, G1 item 9)"))));
+    }
+    if let Some(c) = &sight_control_cell {
+        out.push(format!("the sight check's positive control: glass laid at T in the world, {c}"));
+    }
+    out.push(format!(
+        "the arriving carts at S (T+{s_rel}, bench frame; loop = bench - (6,0,6)): {}",
+        (0..3).map(|k| rest_at_s[k].map_or(format!("lane {k} -"), |p| format!("lane {k} ({:.4},{:.4},{:.4})", p.x, p.y, p.z))).collect::<Vec<_>>().join(", ")
+    ));
+    out.push(format!(
+        "the laid design's fluid cells (ironspec 00:27; G1 on a3b306a05 (1): each one's pending tick read back from the scheduler): {fluid_cells}, {fluid_scheduled} with their tick pending{}",
+        if fluid_scheduled < fluid_cells { format!(": {} WITHOUT, a failure", fluid_cells - fluid_scheduled) } else { String::new() }
+    ));
     stats.block_contacts = block_contacts;
     stats.undeclared_contacts = undeclared_contacts;
     if !stats.block_contacts.is_empty() {
         out.push(format!(
             "the carts' block contacts (ironspec 21:25: a move stopped by a block; declared: the design's stops): {}",
-            stats.block_contacts.iter().map(|(c, b, n, d)| format!("{c} {b} {n} ticks{}", if *d { " (declared)" } else { " UNDECLARED" })).collect::<Vec<_>>().join("; ")
+            stats.block_contacts.iter().map(|(c, b, n, d)| format!("{c} {b} {n} ticks{}", if !*d { " UNDECLARED" } else if o.provisional.contains(&(c.x, c.y, c.z)) { " (declared PROVISIONAL: bench evidence only)" } else { " (declared)" })).collect::<Vec<_>>().join("; ")
         ));
     }
     for d in &stats.summon_due {
@@ -2718,18 +3725,20 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
             stats.hold_break_first.as_ref().map_or(String::new(), |f| format!(" (the first {f})"))
         ));
     }
-    if !sight_cells.is_empty() || o.sight_control {
+    if stats.sight_scope || o.sight_ref.is_some() {
         out.push(format!(
-            "the stand-ins' sight (ironspec 20:10/23:30/00:27, every tick T..S, a failure): {} rays crossing a lever's support ({}){}; {}",
+            "the sight check (ironspec 20:10/23:30/00:27, G1's audit (1): every villager -> scarer and villager -> villager segment, eye to eye, walked through the live world's collision shapes against the reference's, every tick T..S at the tick's end; a crossing fails): {} rays judged, {} crossings{}; {}",
+            stats.sight_rays,
             stats.sight_hit_count,
-            sight_cells.iter().map(|c| c.to_string()).collect::<Vec<_>>().join(", "),
             if stats.sight_hits.is_empty() { String::new() } else { format!(": {}", stats.sight_hits.join("; ")) },
             if stats.sight_control {
-                "this row is the positive control (a glass support laid at T on a villager -> scarer ray): it must fail"
-            } else if stats.sight_scarers {
-                "judged against every villager -> scarer and villager -> villager ray"
+                "this row is the positive control (glass laid in the world at T on a villager -> scarer ray, else a villager -> villager ray): it must fail".to_string()
+            } else if !stats.sight_scope {
+                "out of scope (computed: the laid world equals the reference at T, no stand-in cell differs)".to_string()
+            } else if stats.sight_rays == 0 {
+                "NOT JUDGED (0 rays): a failure".to_string()
             } else {
-                "NOT JUDGED for scarers (0 villager -> scarer rays: no hostile post in this world, out of the row's scope)"
+                "judged".to_string()
             }
         ));
     }
@@ -2947,7 +3956,7 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
         }
         if let Some(k) = o.napper {
             out.push(format!(
-                "the napper (released REL+{k}): off its hold T+{}, into the lift T+{}, its pass at y 12 T+{}, the lift's top T+{}; lane 7's entry into the column T+{}: the napper's pass at y 12 {} gt after it (the bar: 21)",
+                "the napper (released REL+{k}): off its hold T+{}, into the lift T+{}, its pass at y 12 T+{}, the lift's top T+{}; lane 7's entry into the column T+{}: the napper's pass at y 12 {} gt after it (the column bar 16, ironspec 20:14, judged)",
                 nap_off.map_or("-".to_string(), |t| t.to_string()),
                 nap_entry.map_or("-".to_string(), |t| t.to_string()),
                 nap_y12.map_or("-".to_string(), |t| t.to_string()),
@@ -2968,7 +3977,7 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
                 .join(", "),
             if o.hold_rail.is_some() {
                 format!(
-                    "; the hold (2c, the braked slope): released T+{}, lane 2's cart on the hold's rail from T+{}, at rest {}, its drift while held {:.4}, in the column before the release: {}, its entry {} gt after lane 1's pass at y 12 (the bar: 21), the hold rail not a dry powered rail on {} ticks{}",
+                    "; the hold (2c, the braked slope): released T+{}, lane 2's cart on the hold's rail from T+{}, at rest {}, its drift while held {:.4}, in the column before the release: {}, its entry {} gt after lane 1's pass at y 12 (the column bar 16, ironspec 20:14, judged), the hold rail not a dry powered rail on {} ticks{}",
                     hold_on.map_or("-".to_string(), |t| t.to_string()),
                     hold_first.map_or("-".to_string(), |t| t.to_string()),
                     hold_rest.map_or("never".to_string(), |(t, x, f)| format!("from T+{t} at x {:.3} (loop), its rider's feet {f:.3}", x - 6.0)),
@@ -2994,7 +4003,7 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
             lift_push_at.map_or(String::new(), |(t, a, b)| format!(", the first at T+{t}, lanes {a} and {b}"))
         ));
         out.push(format!(
-            "the departing riders through the merge row and the shared lift (the bar: each rider's box out of every next-batch caller's 10-box, the arriving riders at their pockets' rest inflated by 10, by T+80): {}",
+            "the departing riders through the merge row and the shared lift (the bar: each rider's box out of every live caller's 10-box (the arriving riders' boxes inflated by 10, each tick) after its move on S - 3, S on the summon's own clock): {}",
             (0..3)
                 .filter(|n| !o.dep_absent[*n])
                 .map(|n| format!(
@@ -3409,7 +4418,51 @@ mod tests {
     /// and the parenthesized form; the text after '=' is not read.
     #[test]
     fn declared_contacts_reads_both_forms() {
-        let t = "# contacts: -1,24,5+3,24,5+7,24,5=the drop entry's backstop, a stop: (evidence (3,4,5) here)\n# stops: (-6,2,7) (\u{2212}6,12,7)=walls\nname: x\n";
-        assert_eq!(super::declared_contacts(t), vec![(-1, 24, 5), (3, 24, 5), (7, 24, 5), (-6, 2, 7), (-6, 12, 7)]);
+        let t = "# contacts: -1,24,5+3,24,5+7,24,5=the drop entry's backstop, a stop: (evidence (3,4,5) here); -6,2,7+-6,3,7=the foot entry's back wall, PROVISIONAL (bench evidence only)\n# stops: (-6,12,7) (\u{2212}6,13,7)=walls\nname: x\n";
+        assert_eq!(
+            super::declared_contacts(t).unwrap(),
+            vec![((-1, 24, 5), false), ((3, 24, 5), false), ((7, 24, 5), false), ((-6, 2, 7), true), ((-6, 3, 7), true), ((-6, 12, 7), false), ((-6, 13, 7), false)]
+        );
+        // (strict: a malformed cell refuses the header; no header, no contacts; an entry without its
+        // `=what` or its cells refuses too)
+        assert!(super::declared_contacts("# contacts: 1,2+3,4,5=a typo\n").is_err());
+        assert!(super::declared_contacts("# contacts: 1,2,x=a typo\n").is_err());
+        assert!(super::declared_contacts("# contacts: 1,2,3\n").is_err());
+        assert!(super::declared_contacts("# contacts: 1,2,3=\n").is_err());
+        assert!(super::declared_contacts("# contacts: =a wall\n").is_err());
+        assert_eq!(super::declared_contacts("name: x\n").unwrap(), vec![]);
+    }
+
+    /// (the checklist audit (3)) The stand-in guard refuses a stand-in that differs from its built
+    /// cell: a lever for dust passes, glass for air and a redstone block for dust don't.
+    #[test]
+    fn guard_refuses_a_differing_stand_in() {
+        let w = redsim::world::World::new(redsim::pos::BlockPos::new(0, 0, 0), [1, 1, 1]);
+        let b = |s: &str| redsim::block::Block::parse(s).unwrap();
+        let dust = b("minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]");
+        assert!(super::property_diff(&w, &dust, &b("minecraft:lever[face=floor,facing=east,powered=false]")).is_empty());
+        assert!(!super::property_diff(&w, &b("minecraft:air"), &b("minecraft:glass")).is_empty());
+        assert!(!super::property_diff(&w, &dust, &b("minecraft:redstone_block")).is_empty());
+    }
+
+    /// (the checklist audit (5)) The summon's own clock: S is the first tick after T at game time
+    /// % 100 == 0 (the bench's own function, `s_rel_of`).
+    #[test]
+    fn summon_clock() {
+        assert_eq!(super::s_rel_of(2_400), 100);
+        assert_eq!(super::s_rel_of(2_437), 63);
+        assert_eq!(super::s_rel_of(2_499), 1);
+        assert_eq!(super::s_rel_of(-1), 1);
+    }
+
+    /// The voxel walk visits every cell a segment crosses, end to end.
+    #[test]
+    fn seg_cells_walks_the_segment() {
+        let v = |x: f64, y: f64, z: f64| redsim::entity::Vec3::new(x, y, z);
+        let c = super::seg_cells(v(0.5, 0.5, 0.5), v(3.5, 0.5, 0.5));
+        assert_eq!(c.len(), 4);
+        let d = super::seg_cells(v(0.5, 0.5, 0.5), v(2.5, 2.5, 0.5));
+        assert_eq!(d.first(), Some(&redsim::pos::BlockPos::new(0, 0, 0)));
+        assert_eq!(d.last(), Some(&redsim::pos::BlockPos::new(2, 2, 0)));
     }
 }

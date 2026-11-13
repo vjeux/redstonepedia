@@ -102,8 +102,15 @@ pub fn design_text(station: &str, o: &FlowOpts) -> Result<String, String> {
     for c in [[-1, 17, 2], [3, 17, 2], [7, 17, 2], [-3, 12, 7]] {
         d.blocks.entry(c).or_insert_with(|| "minecraft:glass".into());
     }
+    // (ironspec 04:07: each --block override must change its cell, else the run fails; printed
+    // before -> after by the caller's line)
     for (c, st) in &o.blocks {
-        d.blocks.insert(*c, if st.contains(':') { st.clone() } else { format!("minecraft:{st}") });
+        let st = if st.contains(':') { st.clone() } else { format!("minecraft:{st}") };
+        let before = crate::recordmatch::canon(d.blocks.get(c).map_or("minecraft:air", |s| s.as_str()));
+        if before == crate::recordmatch::canon(&st) {
+            return Err(format!("golem-flow --block {c:?} {st}: the cell is already that (ironspec 04:07: an override that changes nothing fails)"));
+        }
+        d.blocks.insert(*c, st);
     }
     for p in &o.posts {
         let [x, y, z] = p.cell;
