@@ -4199,6 +4199,14 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     let mut y12_entries: Vec<(i64, u32, &'static str, &'static str)> = Vec::new();
     // (G1 15:37) --positions-at: every cart's position at those ticks
     let mut positions_log: Vec<String> = Vec::new();
+    // (ironspec 15:17) each lipclass lip arrival's returning napper (its rider; None: a batch cart),
+    // pushed with lipc_arrivals; each K window's napper (ctl.k_windows' twin: the napper's ridden cart
+    // on the hold (9,0,8) at the H2 sample that keyed it)
+    let mut lipc_who: [Vec<Option<u32>>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+    let mut kwin_napper: Vec<Option<u32>> = Vec::new();
+    // (dfb89499 15:11, ironspec 15:23 (5) for 7b90c3f1) the station's touching contacts, the cart-cart
+    // contacts and the napper's seat on the hold, sampled every tick
+    let mut touch = TouchSampler::default();
     // (ironspec 11:48 / 11:50) per lane each returning napper's stored speed entering its own K (speed,
     // tick, cart), and each napper cart's first rest on its siding's R (z in the design frame, tick,
     // cart); the open R visits (cart -> resting already recorded)
@@ -4928,6 +4936,20 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             }
             remap_keys!("the drop-cell passes", lip_state);
             {
+                // (ironspec 15:17 / dfb89499 15:11 / ironspec 15:23 (5)) the touch prints' carts: the
+                // sampler's open state, the K windows' nappers and the lip arrivals' nappers (a dead id
+                // keeps its id)
+                let lenient = |id: u32| -> u32 { m.get(&id).copied().unwrap_or(id) };
+                let (a, b) = touch.remap(&lenient);
+                open_log.push(pairs("the touch sampler's carts", &a, &b));
+                let old: Vec<u32> = kwin_napper.iter().chain(lipc_who.iter().flatten()).flatten().copied().collect();
+                for v in kwin_napper.iter_mut().chain(lipc_who.iter_mut().flatten()).flatten() {
+                    *v = lenient(*v);
+                }
+                let new: Vec<u32> = kwin_napper.iter().chain(lipc_who.iter().flatten()).flatten().copied().collect();
+                open_log.push(pairs("the K windows' and the lip arrivals' nappers", &old, &new));
+            }
+            {
                 let old: Vec<u32> = at_r_log.iter().map(|r| r.0).collect();
                 let new: Vec<u32> = old.iter().map(|x| fol(*x)).collect::<Result<_, _>>()?;
                 for (r, n) in at_r_log.iter_mut().zip(&new) {
@@ -5207,6 +5229,12 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 }
             }
             ctl.step(&mut run.world, rel)?;
+            // (ironspec 15:17) each new K window's napper: the napper's ridden cart on the hold (9,0,8)
+            // at the H2 sample that keyed it (ctl.k_windows' twin)
+            while kwin_napper.len() < ctl.k_windows.len() {
+                let napper = run.world.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && cell(e.pos) == [9, 0, 8]).find_map(|e| e.passengers.first().copied().filter(|r| nappers.iter().any(|(v, _, _)| v == r)));
+                kwin_napper.push(napper);
+            }
             if let Some((t, k, _)) = ctl.eject_done
                 && rel == t + 20
             {
@@ -7677,6 +7705,9 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 {
                     let ids: Vec<u32> = w.entities.list.iter().filter(|f| !f.removed && matches!(f.kind, EntityKind::Minecart(_)) && in_lane_region(cell(f.pos), *x)).map(|f| f.id).collect();
                     for a in lip_lanes[k].tick(rel, &crate::lipclass::observe(w, &ids)) {
+                        // (ironspec 15:17) the arrival's returning napper (its rider; None: a batch
+                        // cart), as the lift's mouth classes it
+                        lipc_who[k].push(redsim::entity::index_of(w, a.cart).and_then(|i| w.entities.list[i].passengers.first().copied()).filter(|r| nappers.iter().any(|(v, _, _)| v == r) && recs.get(r).is_some_and(|rr| rr.milestones.iter().any(|(m, _)| m == "at R") && !rr.milestones.iter().any(|(m, _)| m == "back in its lane"))));
                         lipc_arrivals[k].push(a);
                     }
                 }
@@ -7749,6 +7780,9 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 still_prev.insert(e.id, watched && still);
             }
         }
+        // (dfb89499 15:11, ironspec 15:23 (5) for 7b90c3f1) the station's touching contacts, the
+        // cart-cart contacts and the napper's seat on the hold, every tick
+        touch.tick(w, rel, &ctl.rt_batches, &nappers);
         // (ironspec 10:04 / 10:06, G1 10:04 (d): conservation extends to every drop lip) every cart off
         // the rails (no rail in its cell or the cell below, the game's own test) each tick: at rest (its
         // motion under 0.003 a tick) 10 gt or more is a rest (bar 0, any cell); off the rails while
@@ -10811,6 +10845,10 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 if y12_entries.len() < 2 { "NOT JUDGED (no pair): FAIL" } else if least.is_some_and(|m| m >= 16) { "PASS" } else { "FAIL" }
             )
         };
+        // (ironspec 15:17) the napper's lip arrival against the batch's lane carts; (dfb89499 15:11) the
+        // station's touching contacts; (ironspec 15:23 (5) for 7b90c3f1) the cart-cart contacts and the
+        // napper's seat on the hold
+        let s = format!("{s}{}{}", napper_lip_line(&lipc_arrivals, &lipc_who, &ctl.k_windows, &kwin_napper, &ctl.k_fired, o.hold_pulse_delta), touch.report());
         // (G1 12:50 / ironspec 12:54 (1), evidence keying's swaps) the in-batch swap rate: each REL's
         // pocket releases (a cart leaving P (x,0,0), grouped within 40 gt) against their order of
         // arrival at the split row's first J (-1,25,9)
@@ -11444,6 +11482,647 @@ pub fn counter_c(d: i64) -> i64 {
     141 + (d - 12_540 + 99).div_euclid(100)
 }
 
+/// (ironspec 15:23 (5) for 7b90c3f1) The gap between two carts' boxes (0.98 wide, 0.7 tall, each on
+/// its centre): the largest per-axis separation; negative, an overlap (its least depth).
+fn cart_box_gap(a: [f64; 3], b: [f64; 3]) -> f64 {
+    ((a[0] - b[0]).abs() - 0.98).max((a[1] - b[1]).abs() - 0.7).max((a[2] - b[2]).abs() - 0.98)
+}
+
+/// (dfb89499 15:11) A cell's "on" for the touch prints: a redstone block, or a state whose text
+/// carries `powered=true` (a powered / activator rail's and a detector rail's read from its fields).
+fn on_state(b: redsim::block::Block) -> bool {
+    use redsim::block::Block;
+    match b {
+        Block::RedstoneBlock => true,
+        Block::Rail { powered, .. } | Block::DetectorRail { powered, .. } => powered,
+        Block::Air | Block::Simple(_) => false,
+        _ => b.to_string().contains("powered=true"),
+    }
+}
+
+/// The least, the most and the count of some values (None when there are none).
+fn least_most<T: Copy + PartialOrd>(v: impl IntoIterator<Item = T>) -> Option<(T, T, usize)> {
+    v.into_iter().fold(None, |acc, x| match acc {
+        None => Some((x, x, 1)),
+        Some((lo, hi, n)) => Some((if x < lo { x } else { lo }, if x > hi { x } else { hi }, n + 1)),
+    })
+}
+
+/// Ticks as `least..most (n N)`, `-` when none.
+fn lm_ticks(v: impl IntoIterator<Item = i64>) -> String {
+    least_most(v).map_or("-".to_string(), |(lo, hi, n)| format!("{lo}..{hi} (n {n})"))
+}
+
+/// Ticks from a batch's REL as `T+a..T+b (n N)`, `-` when none.
+fn lm_rel(v: impl IntoIterator<Item = i64>) -> String {
+    least_most(v).map_or("-".to_string(), |(lo, hi, n)| format!("T{lo:+}..T{hi:+} (n {n})"))
+}
+
+/// Signed lengths as `least..most (n N)` to 7 decimals, `-` when none.
+fn lm_len(v: impl IntoIterator<Item = f64>) -> String {
+    least_most(v).map_or("-".to_string(), |(lo, hi, n)| format!("{lo:+.7}..{hi:+.7} (n {n})"))
+}
+
+/// Coordinates as `least..most` to 6 decimals, `-` when none.
+fn lm_pos(v: impl IntoIterator<Item = f64>) -> String {
+    least_most(v).map_or("-".to_string(), |(lo, hi, _)| format!("{lo:.6}..{hi:.6}"))
+}
+
+/// (ironspec 15:17) Each napper arrival in one lane's lip arrivals (tick, a returning napper's?) in
+/// tick order: its index, t minus the nearest batch arrival at or before it, and the nearest batch
+/// arrival at or after it minus t.
+fn napper_lip_gaps(seq: &[(i64, bool)]) -> Vec<(usize, Option<i64>, Option<i64>)> {
+    seq.iter()
+        .enumerate()
+        .filter(|(_, a)| a.1)
+        .map(|(i, a)| {
+            let before = seq.iter().filter(|b| !b.1 && b.0 <= a.0).map(|b| a.0 - b.0).min();
+            let after = seq.iter().filter(|b| !b.1 && b.0 >= a.0).map(|b| b.0 - a.0).min();
+            (i, before, after)
+        })
+        .collect()
+}
+
+/// (ironspec 15:17) K window `i`'s own K(x) writes, from `ctl.k_windows` (its H2 sample's tick, its
+/// lane, its K's x) and `ctl.k_fired` (tick, K's x, on): the first on and the first off on its K cell
+/// after its sample, within the span the K-write audit gives a window's writes (the sample + 160 + the
+/// hold pulse's Delta, and up to the next window's sample + 93).
+fn k_window_on_off(windows: &[(i64, usize, i32)], i: usize, fired: &[(i64, i32, bool)], delta: i64) -> (Option<i64>, Option<i64>) {
+    let Some(&(t, _, kx)) = windows.get(i) else { return (None, None) };
+    let end = (t + 160 + delta).min(windows.get(i + 1).map_or(i64::MAX, |w| w.0.saturating_add(93)));
+    let first = |on: bool| fired.iter().find(|f| f.0 > t && f.0 <= end && f.1 == kx && f.2 == on).map(|f| f.0);
+    (first(true), first(false))
+}
+
+/// (ironspec 15:17) The napper's lip arrival against the batch's lane carts: per lane, each returning
+/// napper's lip arrival (mobfarm::lipclass, tick t) against the nearest batch-class arrival there at or
+/// before it (t - t_before) and at or after it (t_after - t), and against its own K window, the one
+/// keyed at the latest H2 sample before t that caught this napper on the hold (t - K_on, K_off - t).
+fn napper_lip_line(arr: &[Vec<crate::lipclass::LipArrival>; 3], who: &[Vec<Option<u32>>; 3], windows: &[(i64, usize, i32)], win_napper: &[Option<u32>], fired: &[(i64, i32, bool)], delta: i64) -> String {
+    let per: Vec<String> = (0..3)
+        .map(|k| {
+            let seq: Vec<(i64, bool)> = arr[k].iter().zip(who[k].iter()).map(|(a, w)| (a.tick, w.is_some())).collect();
+            let gaps = napper_lip_gaps(&seq);
+            let (mut kon, mut koff, mut no_win) = (Vec::new(), Vec::new(), 0usize);
+            for (i, _, _) in gaps.iter() {
+                let t = seq[*i].0;
+                let own = (0..windows.len()).rev().find(|j| windows[*j].0 < t && win_napper.get(*j).copied().flatten() == who[k][*i]);
+                match own.map(|j| k_window_on_off(windows, j, fired, delta)) {
+                    Some((on, off)) if on.is_some() || off.is_some() => {
+                        kon.extend(on.map(|on| t - on));
+                        koff.extend(off.map(|off| off - t));
+                    }
+                    _ => no_win += 1,
+                }
+            }
+            format!(
+                "lane x {}: {} napper arrivals of {}; t - t_before {}; t_after - t {}; t - K_on {}; K_off - t {}{}",
+                LANES[k],
+                gaps.len(),
+                seq.len(),
+                lm_ticks(gaps.iter().filter_map(|g| g.1)),
+                lm_ticks(gaps.iter().filter_map(|g| g.2)),
+                lm_ticks(kon),
+                lm_ticks(koff),
+                if no_win > 0 { format!("; {no_win} without its own K window") } else { String::new() }
+            )
+        })
+        .collect();
+    format!(
+        "the napper's lip arrival against the batch's lane carts (ironspec 15:17: per lane L, each returning napper's lip arrival (mobfarm::lipclass; a returning napper from its stop's R until back in its lane, as the lift's mouth classes it; every other cart batch) at tick t against the nearest batch-class lip arrival at L at or before it (t - t_before) and at or after it (t_after - t), and against its own K window (keyed at the latest H2 sample before t that caught this napper on the hold (9,0,8); its K(x) on / off): t - K_on, K_off - t; least..most per lane; information): {}\n",
+        per.join(" | ")
+    )
+}
+
+/// (dfb89499 15:11 (a)) One cart's visit to a station hold H (x,16,0), an oak trapdoor where a cart
+/// rests at about (x + 0.5, 16.1875, 0.49) against the ring's north glass (x,16,-1) (its south face z
+/// 0.0): whether it stood there at the sampler's first tick (placed, it never entered); its settle (its
+/// first tick in the cell with |dpos| <= 1e-6) and its position then; against the glass (gap z - 0.49:
+/// positive clear, negative into the glass) the longest run of ticks at gap <= 1e-6 and the largest
+/// depth 0.49 - z; the trapdoor's first open tick in the visit; any move (|dpos| > 1e-6) after the
+/// settle before the trapdoor opened (its first tick, the largest |dpos|); its last tick in the cell.
+#[derive(Clone, Copy, Debug)]
+struct HoldVisit {
+    cart: u32,
+    placed: bool,
+    settle: Option<(i64, [f64; 3])>,
+    run: i64,
+    best_run: i64,
+    depth: f64,
+    opened: Option<i64>,
+    moved: Option<(i64, f64)>,
+    last: i64,
+}
+
+impl HoldVisit {
+    fn new(cart: u32, t: i64, placed: bool) -> HoldVisit {
+        HoldVisit { cart, placed, settle: None, run: 0, best_run: 0, depth: f64::NEG_INFINITY, opened: None, moved: None, last: t }
+    }
+
+    /// One tick in the hold's cell: the cart's design-frame position, its |dpos| since the tick before
+    /// (infinite when it wasn't seen then) and whether the trapdoor stands open.
+    fn tick(&mut self, t: i64, p: [f64; 3], step: f64, open: bool) {
+        self.last = t;
+        let gap = p[2] - 0.49;
+        if gap <= 1e-6 {
+            self.run += 1;
+            self.best_run = self.best_run.max(self.run);
+        } else {
+            self.run = 0;
+        }
+        self.depth = self.depth.max(-gap);
+        if open && self.opened.is_none() {
+            self.opened = Some(t);
+        }
+        if self.settle.is_none() {
+            if step <= 1e-6 {
+                self.settle = Some((t, p));
+            }
+        } else if self.opened.is_none() && step > 1e-6 {
+            let m = self.moved.get_or_insert((t, step));
+            m.1 = m.1.max(step);
+        }
+    }
+}
+
+/// (dfb89499 15:11 (b)) One cart's stay on a lane's queue cell (slot 1 R_1 (x,17,1), 2..6 the slopes
+/// (x,16+s,s)): the lane, the slot, whether it stood there at the sampler's first tick, the last tick
+/// seen there and its z at its latest tick there with |dpos| <= 1e-6.
+#[derive(Clone, Copy, Debug)]
+struct SlotVisit {
+    lane: usize,
+    slot: usize,
+    placed: bool,
+    seen: i64,
+    rest_z: Option<f64>,
+}
+
+/// (dfb89499 15:11 (b)) A closed queue-cell stay on R_1 or slot 2: its resting z (and whether it was
+/// placed there), or one more stay that left without a rest.
+fn close_slot(rest_z: &mut [[Vec<(f64, bool)>; 2]; 3], no_rest: &mut [[usize; 2]; 3], v: SlotVisit) {
+    if v.slot == 1 || v.slot == 2 {
+        match v.rest_z {
+            Some(z) => rest_z[v.lane][v.slot - 1].push((z, v.placed)),
+            None => no_rest[v.lane][v.slot - 1] += 1,
+        }
+    }
+}
+
+/// (dfb89499 15:11 (b)) The station's batch events, in `StBatch::ticks`'s order.
+const ST_EVENTS: [&str; 15] = [
+    "the trapdoor open",
+    "the trapdoor shut",
+    "the input rise",
+    "the input fall",
+    "R_1 on",
+    "R_1 off",
+    "the hold cart's last tick in H",
+    "the R_1 cart's first move",
+    "the R_1 cart off R_1",
+    "the R_1 cart into H",
+    "the R_1 cart at rest in H",
+    "the slot-2 cart's first move",
+    "the slot-2 cart off slot 2",
+    "the slot-2 cart onto R_1",
+    "the slot-2 cart at rest on R_1",
+];
+
+/// (dfb89499 15:11 (b)) One batch at one lane's station, from its REL: the trapdoor (x,16,0) open /
+/// shut, the R line input (x+2,17,1) rise / fall and R_1 (x,17,1) powered on / off (each the first
+/// edge in the batch); the hold cart at REL and its last tick in H; the R_1 cart and the slot-2 cart at
+/// REL, each: its first move, its first tick off its cell, its entry into the cell below (H; R_1) and
+/// its first tick at rest there.
+#[derive(Clone, Copy, Debug, Default)]
+struct StBatch {
+    rel: i64,
+    trap: [Option<i64>; 2],
+    input: [Option<i64>; 2],
+    r1: [Option<i64>; 2],
+    hold: Option<(u32, Option<i64>)>,
+    carts: [Option<(u32, [Option<i64>; 4])>; 2],
+}
+
+impl StBatch {
+    /// Its events' ticks, in ST_EVENTS's order.
+    fn ticks(&self) -> [Option<i64>; 15] {
+        let c = |r: usize, i: usize| self.carts[r].and_then(|(_, e)| e[i]);
+        [self.trap[0], self.trap[1], self.input[0], self.input[1], self.r1[0], self.r1[1], self.hold.and_then(|h| h.1), c(0, 0), c(0, 1), c(0, 2), c(0, 3), c(1, 0), c(1, 1), c(1, 2), c(1, 3)]
+    }
+
+    /// Its sequence: every event seen, in tick order (ties in ST_EVENTS's order), T+n from its REL.
+    fn sequence(&self) -> String {
+        let id = |c: Option<u32>| c.map_or("-".to_string(), |c| format!("#{c}"));
+        let (h, a, b) = (id(self.hold.map(|h| h.0)), id(self.carts[0].map(|c| c.0)), id(self.carts[1].map(|c| c.0)));
+        let mut ev: Vec<(i64, String)> = self
+            .ticks()
+            .iter()
+            .enumerate()
+            .filter_map(|(i, t)| {
+                let n = ST_EVENTS[i];
+                t.map(|t| (t, match i {
+                    6 => format!("{n} ({h})"),
+                    7..=10 => format!("{n} ({a})"),
+                    11..=14 => format!("{n} ({b})"),
+                    _ => n.to_string(),
+                }))
+            })
+            .collect();
+        ev.sort_by_key(|e| e.0);
+        ev.iter().map(|(t, n)| format!("T{:+} {n}", t - self.rel)).collect::<Vec<_>>().join(", ")
+    }
+}
+
+/// (dfb89499 15:11 (b)) A cell's place in a lane's queue: (lane, slot), slot 0 the hold H (x,16,0), 1
+/// R_1 (x,17,1), 2..6 the slopes (x,16+s,s) up to V (x,22,6).
+fn queue_slot(c: [i32; 3]) -> Option<(usize, usize)> {
+    let k = LANES.iter().position(|x| *x == c[0])?;
+    (c[1] == 16 + c[2] && (0..=6).contains(&c[2])).then_some((k, c[2] as usize))
+}
+
+/// (ironspec 15:23 (5)(a)) The cart-cart contact regions, and a cell in one.
+const TOUCH_REGIONS: [&str; 3] = ["the split row (y 24..26, z 7..10)", "the shared lift column (x -6..-4)", "the merge row (y 0..3, z 6..8)"];
+
+fn in_touch_region(r: usize, c: [i32; 3]) -> bool {
+    match r {
+        0 => (24..=26).contains(&c[1]) && (7..=10).contains(&c[2]),
+        1 => (-6..=-4).contains(&c[0]),
+        _ => (0..=3).contains(&c[1]) && (6..=8).contains(&c[2]),
+    }
+}
+
+/// (dfb89499 15:11 (b)) A batch's first rise of a cell's state and the first fall after it.
+fn st_edge(v: &mut [Option<i64>; 2], on: bool, was: bool, t: i64) {
+    if on && !was && v[0].is_none() {
+        v[0] = Some(t);
+    }
+    if !on && was && v[0].is_some() && v[1].is_none() {
+        v[1] = Some(t);
+    }
+}
+
+/// (the touch sampler) One cart this tick: its id, design-frame position, cell, |dpos| since the tick
+/// before (infinite: not seen then) and rider.
+#[derive(Clone, Copy, Debug)]
+struct CartNow {
+    id: u32,
+    p: [f64; 3],
+    c: [i32; 3],
+    step: f64,
+    rider: Option<u32>,
+}
+
+/// (ironspec 15:23 (5)(b)) One napper cart's visit to the hold (9,0,8): its settle (its first tick
+/// there with |dpos| <= 1e-6 before the hold rail rises, and its position) and the rail's rise.
+#[derive(Clone, Copy, Debug)]
+struct SeatVisit {
+    cart: u32,
+    settle: Option<(i64, [f64; 3])>,
+    rise: Option<i64>,
+}
+
+/// (dfb89499 15:11, ironspec 15:23 (5) for 7b90c3f1) The touching contacts, sampled every tick: per
+/// lane the station's hold H (x,16,0) visits, the R_1 (x,17,1) / slot 2 (x,18,2) rests, the gaps
+/// between consecutive carts at rest on the slope and each batch's sequence; every pair of carts within
+/// 0.01 of touching per region; the napper's seat on the hold (9,0,8) against the hold rail's rise.
+#[derive(Default)]
+struct TouchSampler {
+    /// the first tick sampled (a cart in a cell then was placed there, it never entered)
+    t0: Option<i64>,
+    /// every cart's design-frame position at the tick it was last seen (its |dpos|)
+    prev: BTreeMap<u32, ([f64; 3], i64)>,
+    /// this tick's carts (reused every tick)
+    carts: Vec<CartNow>,
+    /// per lane last tick: the trapdoor open, the R line input on, R_1 powered
+    trap_prev: [bool; 3],
+    input_prev: [bool; 3],
+    r1_prev: [bool; 3],
+    /// the open hold visits (lane, visit) by cart, and the closed ones per lane
+    hold_open: BTreeMap<u32, (usize, HoldVisit)>,
+    hold_done: [Vec<HoldVisit>; 3],
+    /// the open queue-cell stays by cart; per lane the closed stays' resting z on R_1 / slot 2 (placed
+    /// there?) and those that left without a rest
+    slot_open: BTreeMap<u32, SlotVisit>,
+    rest_z: [[Vec<(f64, bool)>; 2]; 3],
+    no_rest: [[usize; 2]; 3],
+    /// per lane the gaps of consecutive carts both at rest on the slope, R_1-slot 2 and the pairs above
+    /// it: [least, most] of |dz| - 0.98, then of the box gap
+    pair_r1s2: [Option<[f64; 4]>; 3],
+    pair_up: [Option<[f64; 4]>; 3],
+    /// per lane every batch
+    batches: [Vec<StBatch>; 3],
+    /// per contact region: the pair-ticks within 0.01, those overlapping, and the least (gap, tick,
+    /// carts)
+    contact_n: [usize; 3],
+    contact_overlap: [usize; 3],
+    contact_least: [Option<(f64, i64, u32, u32)>; 3],
+    /// the napper's seat on the hold (9,0,8): the open visit, the closed ones, the rail's power last
+    /// tick
+    seat_open: Option<SeatVisit>,
+    seat_done: Vec<SeatVisit>,
+    seat_rail_prev: bool,
+}
+
+impl TouchSampler {
+    /// One tick, after the world's tick and the controller's step: `rels` the controller's batches
+    /// (REL, pick), `nappers` the run's nappers (rider, lane, tick).
+    fn tick(&mut self, w: &redsim::world::World, rel: i64, rels: &[(i64, Option<usize>)], nappers: &[(u32, usize, i64)]) {
+        let placed = *self.t0.get_or_insert(rel) == rel;
+        self.carts.clear();
+        for e in w.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_))) {
+            let d = dpos(e.pos);
+            let p = [d.x, d.y, d.z];
+            let step = match self.prev.get(&e.id) {
+                Some((q, t)) if *t == rel - 1 => ((p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2) + (p[2] - q[2]).powi(2)).sqrt(),
+                _ => f64::INFINITY,
+            };
+            self.carts.push(CartNow { id: e.id, p, c: cell(e.pos), step, rider: e.passengers.first().copied() });
+        }
+        for c in &self.carts {
+            self.prev.insert(c.id, (c.p, rel));
+        }
+        self.prev.retain(|_, v| v.1 == rel);
+        self.station(w, rel, rels, placed);
+        self.contacts(rel);
+        self.seat(w, rel, nappers);
+    }
+
+    /// (dfb89499 15:11) The station's lanes this tick: each batch's events, the hold visits, the
+    /// queue cells' stays and the at-rest gaps on the slope.
+    fn station(&mut self, w: &redsim::world::World, rel: i64, rels: &[(i64, Option<usize>)], placed: bool) {
+        let new_batch = rels.iter().rev().take(4).any(|(r, _)| *r == rel);
+        let mut occ: [[Option<usize>; 7]; 3] = [[None; 7]; 3];
+        for (i, c) in self.carts.iter().enumerate() {
+            if let Some((k, s)) = queue_slot(c.c)
+                && occ[k][s].is_none()
+            {
+                occ[k][s] = Some(i);
+            }
+        }
+        let mut trap = [false; 3];
+        for k in 0..3 {
+            let x = LANES[k];
+            trap[k] = matches!(w.get(dbp(x, 16, 0)), redsim::block::Block::Trapdoor { open: true, .. });
+            let input = on_state(w.get(dbp(x + 2, 17, 1)));
+            let r1 = on_state(w.get(dbp(x, 17, 1)));
+            if new_batch {
+                let id = |s: usize| occ[k][s].map(|i| self.carts[i].id);
+                self.batches[k].push(StBatch { rel, hold: id(0).map(|c| (c, None)), carts: [id(1).map(|c| (c, [None; 4])), id(2).map(|c| (c, [None; 4]))], ..Default::default() });
+            }
+            if let Some(b) = self.batches[k].last_mut() {
+                st_edge(&mut b.trap, trap[k], self.trap_prev[k], rel);
+                st_edge(&mut b.input, input, self.input_prev[k], rel);
+                st_edge(&mut b.r1, r1, self.r1_prev[k], rel);
+                // the R_1 cart (from slot 1 down to H) and the slot-2 cart (from slot 2 down to R_1)
+                for (r, s0) in [(0usize, 1usize), (1, 2)] {
+                    let Some((cid, ev)) = b.carts[r].as_mut() else { continue };
+                    let Some(c) = self.carts.iter().find(|c| c.id == *cid) else { continue };
+                    let at = queue_slot(c.c).filter(|q| q.0 == k).map(|q| q.1);
+                    if ev[0].is_none() && c.step.is_finite() && c.step > 1e-6 {
+                        ev[0] = Some(rel);
+                    }
+                    if ev[1].is_none() && at != Some(s0) {
+                        ev[1] = Some(rel);
+                    }
+                    if ev[2].is_none() && at == Some(s0 - 1) {
+                        ev[2] = Some(rel);
+                    }
+                    if ev[2].is_some() && ev[3].is_none() && at == Some(s0 - 1) && c.step <= 1e-6 {
+                        ev[3] = Some(rel);
+                    }
+                }
+            }
+            self.trap_prev[k] = trap[k];
+            self.input_prev[k] = input;
+            self.r1_prev[k] = r1;
+        }
+        // the hold visits (slot 0) and the queue cells' stays (slots 1..6)
+        for c in &self.carts {
+            let Some((k, s)) = queue_slot(c.c) else { continue };
+            if s == 0 {
+                self.hold_open.entry(c.id).or_insert((k, HoldVisit::new(c.id, rel, placed))).1.tick(rel, c.p, c.step, trap[k]);
+                continue;
+            }
+            let fresh = SlotVisit { lane: k, slot: s, placed, seen: rel, rest_z: None };
+            let v = self.slot_open.entry(c.id).or_insert(fresh);
+            if v.lane != k || v.slot != s {
+                close_slot(&mut self.rest_z, &mut self.no_rest, *v);
+                *v = fresh;
+            }
+            v.seen = rel;
+            if c.step <= 1e-6 {
+                v.rest_z = Some(c.p[2]);
+            }
+        }
+        // the visits and stays whose cart left (or vanished) this tick
+        let (done, batches) = (&mut self.hold_done, &mut self.batches);
+        self.hold_open.retain(|_, (k, v)| {
+            if v.last == rel {
+                return true;
+            }
+            if let Some(b) = batches[*k].last_mut()
+                && b.hold.is_some_and(|h| h.0 == v.cart && h.1.is_none())
+            {
+                b.hold = Some((v.cart, Some(v.last)));
+            }
+            done[*k].push(*v);
+            false
+        });
+        let (rest_z, no_rest) = (&mut self.rest_z, &mut self.no_rest);
+        self.slot_open.retain(|_, v| {
+            if v.seen == rel {
+                return true;
+            }
+            close_slot(rest_z, no_rest, *v);
+            false
+        });
+        // the gaps of consecutive carts both at rest on the slope
+        for k in 0..3 {
+            for s in 1..6 {
+                let (Some(i), Some(j)) = (occ[k][s], occ[k][s + 1]) else { continue };
+                let (a, b) = (self.carts[i], self.carts[j]);
+                if a.step > 1e-6 || b.step > 1e-6 {
+                    continue;
+                }
+                let zg = (a.p[2] - b.p[2]).abs() - 0.98;
+                let bg = cart_box_gap(a.p, b.p);
+                let slot = if s == 1 { &mut self.pair_r1s2[k] } else { &mut self.pair_up[k] };
+                let e = slot.get_or_insert([zg, zg, bg, bg]);
+                *e = [e[0].min(zg), e[1].max(zg), e[2].min(bg), e[3].max(bg)];
+            }
+        }
+    }
+
+    /// (ironspec 15:23 (5)(a)) Every pair of carts within 0.01 of touching this tick, in each region
+    /// either cart's cell is in.
+    fn contacts(&mut self, rel: i64) {
+        let n = self.carts.len();
+        for i in 0..n {
+            for j in i + 1..n {
+                let (a, b) = (self.carts[i], self.carts[j]);
+                let g = cart_box_gap(a.p, b.p);
+                if g > 0.01 {
+                    continue;
+                }
+                for r in 0..3 {
+                    if !(in_touch_region(r, a.c) || in_touch_region(r, b.c)) {
+                        continue;
+                    }
+                    self.contact_n[r] += 1;
+                    if g < 0.0 {
+                        self.contact_overlap[r] += 1;
+                    }
+                    if self.contact_least[r].is_none_or(|l| g < l.0) {
+                        self.contact_least[r] = Some((g, rel, a.id.min(b.id), a.id.max(b.id)));
+                    }
+                }
+            }
+        }
+    }
+
+    /// (ironspec 15:23 (5)(b)) The napper's seat on the hold (9,0,8) this tick.
+    fn seat(&mut self, w: &redsim::world::World, rel: i64, nappers: &[(u32, usize, i64)]) {
+        let seat = self.carts.iter().copied().find(|c| c.c == [9, 0, 8] && c.rider.is_some_and(|r| nappers.iter().any(|(v, _, _)| *v == r)));
+        let rail = on_state(w.get(dbp(9, 0, 8)));
+        if let Some(v) = self.seat_open
+            && seat.is_none_or(|c| c.id != v.cart)
+        {
+            self.seat_done.push(v);
+            self.seat_open = None;
+        }
+        if let Some(c) = seat {
+            let v = self.seat_open.get_or_insert(SeatVisit { cart: c.id, settle: None, rise: None });
+            if v.settle.is_none() && v.rise.is_none() && c.step <= 1e-6 {
+                v.settle = Some((rel, c.p));
+            }
+            if rail && !self.seat_rail_prev && v.rise.is_none() {
+                v.rise = Some(rel);
+            }
+        }
+        self.seat_rail_prev = rail;
+    }
+
+    /// Its carts across a world open (`f`: old -> new id; G1's P8: the id-keyed open state follows
+    /// the open): the open keys' (old, new) for the open's log.
+    fn remap(&mut self, f: &dyn Fn(u32) -> u32) -> (Vec<u32>, Vec<u32>) {
+        let old: Vec<u32> = self.prev.keys().copied().collect();
+        let new: Vec<u32> = old.iter().map(|id| f(*id)).collect();
+        self.prev = std::mem::take(&mut self.prev).into_iter().map(|(id, v)| (f(id), v)).collect();
+        self.hold_open = std::mem::take(&mut self.hold_open)
+            .into_iter()
+            .map(|(id, (k, mut v))| {
+                v.cart = f(v.cart);
+                (f(id), (k, v))
+            })
+            .collect();
+        self.slot_open = std::mem::take(&mut self.slot_open).into_iter().map(|(id, v)| (f(id), v)).collect();
+        for b in self.batches.iter_mut().flatten() {
+            if let Some(h) = b.hold.as_mut() {
+                h.0 = f(h.0);
+            }
+            for c in b.carts.iter_mut().flatten() {
+                c.0 = f(c.0);
+            }
+        }
+        if let Some(v) = self.seat_open.as_mut() {
+            v.cart = f(v.cart);
+        }
+        (old, new)
+    }
+
+    /// The report's lines: the station's hold contacts (dfb89499 15:11 (a)), its R_1 / slot 2 rests
+    /// and batch sequence ((b)), the cart-cart contacts and the napper's seat (ironspec 15:23 (5)).
+    fn report(&self) -> String {
+        let mut hold_rows: Vec<String> = Vec::new();
+        let mut seq_rows: Vec<String> = Vec::new();
+        for k in 0..3 {
+            let bs = &self.batches[k];
+            let rel_of = |t: i64| bs.iter().rev().find(|b| b.rel <= t).map(|b| t - b.rel);
+            let open: Vec<&HoldVisit> = self.hold_open.values().filter(|(kk, _)| *kk == k).map(|(_, v)| v).collect();
+            let placed = self.hold_done[k].iter().chain(open.iter().copied()).filter(|v| v.placed).count();
+            let still = open.iter().filter(|v| !v.placed).count();
+            let all: Vec<&HoldVisit> = self.hold_done[k].iter().chain(open.iter().copied()).filter(|v| !v.placed).collect();
+            let settled: Vec<[f64; 3]> = all.iter().filter_map(|v| v.settle.map(|s| s.1)).collect();
+            let moved: Vec<(u32, i64, f64)> = all.iter().filter_map(|v| v.moved.map(|(t, d)| (v.cart, t, d))).collect();
+            let worst = moved.iter().copied().max_by(|a, b| a.2.total_cmp(&b.2));
+            hold_rows.push(format!(
+                "lane x {}: {} visits ({} still in H at the end, {} never settled; {} placed in H at t0 not counted); the rest gap z - 0.49 {}; at rest x {}, y {}, z {}; the longest touching run (gap <= 1e-6) {} gt; the largest depth 0.49 - z {}; moved after settling before the trapdoor opened: {}{}; the trapdoor open {}, shut {}; the last tick in H {}",
+                LANES[k],
+                all.len(),
+                still,
+                all.len() - settled.len(),
+                placed,
+                lm_len(settled.iter().map(|p| p[2] - 0.49)),
+                lm_pos(settled.iter().map(|p| p[0])),
+                lm_pos(settled.iter().map(|p| p[1])),
+                lm_pos(settled.iter().map(|p| p[2])),
+                lm_ticks(all.iter().map(|v| v.best_run)),
+                lm_len(all.iter().map(|v| v.depth)),
+                moved.len(),
+                worst.map_or(String::new(), |(c, t, d)| format!(" (the largest |dpos| {d:.7}: cart #{c} from t {t}{})", rel_of(t).map_or(String::new(), |r| format!(", T{r:+}")))),
+                lm_rel(bs.iter().filter_map(|b| b.trap[0].map(|t| t - b.rel))),
+                lm_rel(bs.iter().filter_map(|b| b.trap[1].map(|t| t - b.rel))),
+                lm_rel(self.hold_done[k].iter().filter_map(|v| rel_of(v.last)))
+            ));
+            let rest = |slot: usize, placed: bool| -> Vec<f64> {
+                self.rest_z[k][slot - 1]
+                    .iter()
+                    .filter(|r| r.1 == placed)
+                    .map(|r| r.0)
+                    .chain(self.slot_open.values().filter(|v| v.lane == k && v.slot == slot && v.placed == placed).filter_map(|v| v.rest_z))
+                    .collect()
+            };
+            let zs = |v: Vec<f64>| if v.is_empty() { "-".to_string() } else { format!("{} (n {})", lm_pos(v.iter().copied()), v.len()) };
+            let pair = |p: Option<[f64; 4]>| p.map_or("-".to_string(), |e| format!("|dz| - 0.98 {:+.7}..{:+.7}, the box gap {:+.7}..{:+.7}", e[0], e[1], e[2], e[3]));
+            let full_n = bs.iter().filter(|b| b.ticks().iter().all(|t| t.is_some())).count();
+            let full = bs.iter().find(|b| b.ticks().iter().all(|t| t.is_some()));
+            let fullest = bs.iter().max_by_key(|b| (b.ticks().iter().filter(|t| t.is_some()).count(), std::cmp::Reverse(b.rel)));
+            let evs: Vec<String> = (2..15).filter(|i| *i != 6).map(|i| format!("{} {}", ST_EVENTS[i], lm_rel(bs.iter().filter_map(|b| b.ticks()[i].map(|t| t - b.rel))))).collect();
+            seq_rows.push(format!(
+                "lane x {}: the resting z on R_1 {} ({} left without a rest; placed at t0 {}), on slot 2 {} ({} left without a rest; placed at t0 {}); at rest R_1-slot 2: {}; the pairs above it: {}; {} batches, {} full: {}; {}",
+                LANES[k],
+                zs(rest(1, false)),
+                self.no_rest[k][0],
+                zs(rest(1, true)),
+                zs(rest(2, false)),
+                self.no_rest[k][1],
+                zs(rest(2, true)),
+                pair(self.pair_r1s2[k]),
+                pair(self.pair_up[k]),
+                bs.len(),
+                full_n,
+                evs.join(", "),
+                match (full, fullest) {
+                    (Some(b), _) => format!("the first full batch (REL t {}): {}", b.rel, b.sequence()),
+                    (None, Some(b)) => format!("no full batch; the first fullest (REL t {}): {}", b.rel, b.sequence()),
+                    (None, None) => "no batch".to_string(),
+                }
+            ));
+        }
+        let contacts: Vec<String> = (0..3)
+            .map(|r| format!("{}: {} pair-ticks, {} overlapping, the least {}", TOUCH_REGIONS[r], self.contact_n[r], self.contact_overlap[r], self.contact_least[r].map_or("-".to_string(), |(g, t, a, b)| format!("{g:+.7} at t {t} (#{a}, #{b})"))))
+            .collect();
+        let seats: Vec<SeatVisit> = self.seat_done.iter().copied().chain(self.seat_open).collect();
+        let settled: Vec<[f64; 3]> = seats.iter().filter_map(|v| v.settle.map(|s| s.1)).collect();
+        let waits: Vec<i64> = seats.iter().filter_map(|v| Some(v.rise? - v.settle?.0)).collect();
+        format!(
+            "the station's hold contacts (dfb89499 15:11 (a): per lane over all batches, each cart's visit to the hold H (x,16,0), an oak trapdoor, against the ring's north glass (x,16,-1) (its south face z 0.0; gap z - 0.49, positive clear, negative into the glass): its rest once settled (its first tick in H with |dpos| <= 1e-6), the longest run of ticks at gap <= 1e-6, its largest depth 0.49 - z (negative: clear), a move (|dpos| > 1e-6) after the settle before the trapdoor opened (open=true); the trapdoor's open / shut and the cart's last tick in H, T+n from the batch's REL; least..most; a cart placed in H at t0 never entered it; information): {}\n\
+             the station's R_1 / slot 2 rests and batch sequence (dfb89499 15:11 (b): per lane, each cart's resting z on R_1 (x,17,1) and on slot 2 (x,18,2) before it leaves (its z at its last tick there with |dpos| <= 1e-6; the stays still open at the end included, a cart placed there at t0 apart), the gaps between consecutive carts both at rest on the slope (R_1-slot 2, and the pairs above it up to V (x,22,6): |dz| - 0.98 along the slope, and the box gap of the 0.98 x 0.7 boxes); per batch, T+n from its REL: the R line input (x+2,17,1) rise / fall (powered=true or a redstone block), R_1 powered on / off, the R_1 cart's first move (|dpos| > 1e-6), off R_1, into H and at rest in H, the slot-2 cart's first move, off slot 2, onto R_1 and at rest on R_1; least..most over batches, and the first full batch's sequence verbatim; information): {}\n\
+             the cart-cart contacts (ironspec 15:23 (5)(a) for 7b90c3f1: every tick, every pair of carts whose boxes (0.98 x 0.7 x 0.98 on each centre) are within 0.01 of touching, in each region either cart's cell is in; per region the pair-ticks, those overlapping and the least box gap (negative = overlap) with its tick and carts; information): {}\n\
+             the napper's seat on the hold (ironspec 15:23 (5)(b) for 7b90c3f1: each napper cart's visit to the hold (9,0,8): its settled position (its first tick there with |dpos| <= 1e-6, before the hold rail rises) and the tick the rail (9,0,8) turns powered=true; least..most of rise - settle; information): {} visits; rise - settle {} gt; settled at x {}, y {}, z {}; {} rises before a settle; {} visits with no rise\n",
+            hold_rows.join(" | "),
+            seq_rows.join(" | "),
+            contacts.join("; "),
+            seats.len(),
+            lm_ticks(waits),
+            lm_pos(settled.iter().map(|p| p[0])),
+            lm_pos(settled.iter().map(|p| p[1])),
+            lm_pos(settled.iter().map(|p| p[2])),
+            seats.iter().filter(|v| v.settle.is_none() && v.rise.is_some()).count(),
+            seats.iter().filter(|v| v.rise.is_none()).count()
+        )
+    }
+}
+
 #[cfg(test)]
 mod counter_tests {
     /// (G1's P10) a FAIL anywhere in a whole log fails its line (one at line 230 of 250 included);
@@ -11661,6 +12340,88 @@ mod fail_line_tests {
         let f = super::fail_lines(rep);
         assert_eq!(f.len(), 2, "{f:?}");
         assert!(f[0].starts_with("rail junctions") && f[1].starts_with("the bar"));
+    }
+}
+
+#[cfg(test)]
+mod touch_tests {
+    /// (ironspec 15:23 (5)) the box gap: end to end, 0.01 apart, an overlap (its least depth),
+    /// diagonally apart (the largest axis separation) and stacked
+    #[test]
+    fn the_cart_box_gap_is_the_largest_axis_separation() {
+        let g = |b: [f64; 3]| super::cart_box_gap([0.0, 0.0, 0.0], b);
+        assert!(g([0.98, 0.0, 0.0]).abs() < 1e-12, "end to end along x");
+        assert!((g([0.0, 0.0, -0.99]) - 0.01).abs() < 1e-12, "0.01 apart along z");
+        assert!((g([0.5, 0.2, 0.1]) + 0.48).abs() < 1e-12, "an overlap: its least depth");
+        assert!((g([1.5, 1.5, 0.0]) - 0.8).abs() < 1e-12, "diagonally: the y separation");
+        assert!(g([0.0, 0.7, 0.0]).abs() < 1e-12, "stacked, touching");
+    }
+
+    /// (ironspec 15:17) each napper arrival against the nearest batch arrivals either side (a tie
+    /// counts both ways), none after the last
+    #[test]
+    fn a_napper_lip_arrival_takes_the_nearest_batch_arrivals() {
+        let seq = [(100, false), (130, true), (150, false), (160, false), (200, true), (210, true)];
+        assert_eq!(super::napper_lip_gaps(&seq), vec![(1, Some(30), Some(20)), (4, Some(40), None), (5, Some(50), None)]);
+        assert_eq!(super::napper_lip_gaps(&[(100, false), (100, true)]), vec![(1, Some(0), Some(0))]);
+        assert!(super::napper_lip_gaps(&[(100, false)]).is_empty());
+    }
+
+    /// (ironspec 15:17) a K window's own writes: its K cell only, after its sample, before the next
+    /// window's; the last window bounded by its own span (no overflow), a missing window none
+    #[test]
+    fn a_k_window_reads_its_own_k_writes() {
+        let windows = [(1_000, 0usize, -3), (2_000, 1, 1)];
+        let fired = [(1_097, -3, true), (1_125, -3, false), (2_100, -3, true), (2_112, 1, true), (2_140, 1, false), (2_300, 1, true)];
+        assert_eq!(super::k_window_on_off(&windows, 0, &fired, 0), (Some(1_097), Some(1_125)));
+        assert_eq!(super::k_window_on_off(&windows, 1, &fired, 0), (Some(2_112), Some(2_140)));
+        assert_eq!(super::k_window_on_off(&windows, 2, &fired, 0), (None, None));
+    }
+
+    /// (dfb89499 15:11 (a)) a hold visit: its settle at its first still tick, the touching run and the
+    /// depth against the glass, a move after the settle, and no move counted once the trapdoor is open
+    #[test]
+    fn a_hold_visit_settles_touches_and_moves() {
+        let mut v = super::HoldVisit::new(7, 10, false);
+        let at = |z: f64| [3.5, 16.1875, z];
+        v.tick(10, at(0.60), f64::INFINITY, false);
+        v.tick(11, at(0.50), 0.1, false);
+        v.tick(12, at(0.49), 0.01, false);
+        v.tick(13, at(0.49), 0.0, false);
+        v.tick(14, at(0.4899995), 5e-7, false);
+        v.tick(15, at(0.4899995), 0.0, false);
+        v.tick(16, at(0.4999), 0.0099005, false);
+        v.tick(17, at(0.4999), 0.0, true);
+        v.tick(18, at(0.4999), 0.5, true);
+        assert_eq!(v.settle.map(|s| s.0), Some(13));
+        assert_eq!(v.best_run, 4, "ticks 12..15 at gap <= 1e-6");
+        assert!((v.depth - 5e-7).abs() < 1e-9, "{}", v.depth);
+        assert_eq!(v.moved.map(|m| m.0), Some(16));
+        assert!((v.moved.map_or(0.0, |m| m.1) - 0.0099005).abs() < 1e-12);
+        assert_eq!((v.opened, v.last), (Some(17), 18));
+    }
+
+    /// (dfb89499 15:11 (b)) a batch's sequence in tick order (ties in the events' order), T+n from its
+    /// REL; the least..most forms; the queue's cells
+    #[test]
+    fn a_batch_sequence_reads_in_tick_order() {
+        let b = super::StBatch {
+            rel: 100,
+            trap: [Some(130), Some(142)],
+            input: [Some(146), Some(156)],
+            r1: [Some(148), Some(160)],
+            hold: Some((5, Some(131))),
+            carts: [Some((6, [Some(149), Some(155), Some(155), Some(158)])), Some((7, [Some(156), Some(161), Some(161), Some(165)]))],
+        };
+        assert!(b.ticks().iter().all(|t| t.is_some()));
+        let s = b.sequence();
+        assert!(s.starts_with("T+30 the trapdoor open, T+31 the hold cart's last tick in H (#5), T+42 the trapdoor shut"), "{s}");
+        assert!(s.contains("T+55 the R_1 cart off R_1 (#6), T+55 the R_1 cart into H (#6)"), "{s}");
+        assert!(s.ends_with("T+65 the slot-2 cart at rest on R_1 (#7)"), "{s}");
+        assert_eq!(super::lm_rel([5, -3, 12]), "T-3..T+12 (n 3)");
+        assert_eq!(super::lm_ticks(std::iter::empty()), "-");
+        assert_eq!([super::queue_slot([3, 16, 0]), super::queue_slot([3, 17, 1]), super::queue_slot([7, 22, 6])], [Some((1, 0)), Some((1, 1)), Some((2, 6))]);
+        assert_eq!([super::queue_slot([3, 17, 2]), super::queue_slot([5, 16, 0]), super::queue_slot([-1, 23, 7])], [None, None, None]);
     }
 }
 
