@@ -6890,7 +6890,8 @@ pub enum MobfarmCmd {
         /// 23:46): the rows count only by its verdicts, which fail the run.
         #[arg(long)]
         record: Option<std::path::PathBuf>,
-        /// The record's offset: a bench cell + it = the record's cell (default: the module offset).
+        /// The record's offset, record-match's: a record cell + it = the bench's cell (default: minus
+        /// the module offset, the module moved into the stop's frame).
         #[arg(long, allow_hyphen_values = true)]
         record_offset: Option<String>,
         /// The margin over the bench's world box for record-match.
@@ -16415,7 +16416,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             anyhow::ensure!(v.len() == 3, "--record-offset dx,dy,dz");
                             [v[0], v[1], v[2]]
                         }
-                        None => off,
+                        None => [-off[0], -off[1], -off[2]],
                     };
                     let mut header = std::fs::read_to_string(&design)?;
                     for f in &record_declare {
