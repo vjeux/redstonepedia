@@ -51,10 +51,11 @@ pub enum MobfarmCmd {
         #[arg(long)]
         mirror_z: bool,
     },
-    /// The controller's units digit (`ctlring.rs`, day-1 Nov 12): one 10-dropper ring, four tokens
-    /// (the u = 0 one unstackable), one tap; writes the design to `--out` and pulses its clock
-    /// `--cycles` times every `--period` gt (`--width` gt pulses, `--jitter` gt offsets cycling),
-    /// checking the tap's level before each pulse (2 at u 0, 1 at u 3/6/7, 0 otherwise).
+    /// The controller's units digit (`ctlring.rs`, day-1 Nov 12): one 10-dropper ring, 8 tokens at u 0,1,2,4,5,6,7,8
+    /// (the u = 0 one unstackable), the main tap on D9 and the u-9 tap on D8; writes the design to `--out` (and the
+    /// control's, a stackable u 0, beside it) and pulses its clock `--cycles` (>= 20) times every `--period` gt (`--width`
+    /// gt pulses, `--jitter` gt offsets cycling), judging both taps before each pulse (main: 2 at u 0, 1 at an event, 0
+    /// otherwise), the settle before the next pulse, the 8 tokens kept, and the control breaking the match.
     CtlRingBench {
         #[arg(long)]
         out: PathBuf,
@@ -69,6 +70,9 @@ pub enum MobfarmCmd {
         /// Run the bench z-mirrored (`mirror.rs`).
         #[arg(long)]
         mirror_z: bool,
+        /// (the chain fix) Print the judged misses without failing the run (never for a cited result).
+        #[arg(long)]
+        report_only: bool,
     },
     /// The skip arm's drop latch as blocks (`ctllatch.rs`, ironspec Nov 12 03:27): LIVE x2 -> DLY ->
     /// SUB -> 3 dust -> the threshold repeater -> an RS NOR latch; every fall case at every gt offset
@@ -103,6 +107,9 @@ pub enum MobfarmCmd {
         /// The queue holds to run (gt after the arrival detector).
         #[arg(long, value_delimiter = ',', default_values_t = vec![80i64, 130, 173])]
         holds: Vec<i64>,
+        /// (G1's note on the tenth) THE OPERATING POINT, the one judged hold (one of --holds; printed on the verdict).
+        #[arg(long)]
+        operating_hold: i64,
         /// The divert to the queue's arrival detector, LO,HI gt (b8949c96: pick -> arrival 185..230, the
         /// divert 60 gt after the pick).
         #[arg(long, value_delimiter = ',', default_values_t = vec![125i64, 170])]
@@ -189,6 +196,17 @@ pub enum MobfarmCmd {
         /// The run-up's pickup after the clocked release, LO,HI gt (release -> R, uniform).
         #[arg(long, value_delimiter = ',')]
         exit_pickup: Vec<i64>,
+        /// (G1 07:05 PT) b8949c96's per-row files (repeatable): every "asleep at +N gt" in them, each visit's lie-down
+        /// past the stop's entry; the overrun past --late-sleep-normal is added to its entry -> R.
+        #[arg(long)]
+        late_sleep_file: Vec<PathBuf>,
+        /// (G1 07:05 PT) The same distribution given as `v:n,...` (b8949c96's A6 entry -> lie-down rows); not with
+        /// --late-sleep-file.
+        #[arg(long)]
+        late_sleep_hist: Option<String>,
+        /// The normal lie-down past the stop's entry (b8949c96: 89; onechunk's real night 89..91).
+        #[arg(long, default_value_t = 89)]
+        late_sleep_normal: i64,
         /// (G1 on 7897f4ba7 (b)) Print the judged bars' failures without failing the run.
         #[arg(long)]
         report_only: bool,
@@ -219,8 +237,8 @@ pub enum MobfarmCmd {
         #[arg(long)]
         set: Vec<String>,
         /// The positive control's cells laid over the candidate, x,y,z=STATE;...: the consumer must be dead in
-        /// every combination.
-        #[arg(long, default_value = "")]
+        /// every combination (required: G1's audit hole 19).
+        #[arg(long)]
         control: String,
         /// The expected function, a conjunction of the inputs' literals, e.g. REST&!DAY&!NR.
         #[arg(long)]
@@ -236,6 +254,13 @@ pub enum MobfarmCmd {
         /// The edges at this many phases (each after settle + 0..PHASES gt).
         #[arg(long, default_value_t = 20)]
         phases: i64,
+        /// (G1's audit hole 19: "FAIL unless declared" now has a way to declare) A mechanism neighbour of a reach cell
+        /// declared as intended, x,y,z;... (a declared one prints, an undeclared one fails).
+        #[arg(long, default_value = "")]
+        declare: String,
+        /// (the chain fix) Print the judged misses without failing the run (never for a cited result).
+        #[arg(long)]
+        report_only: bool,
     },
     /// (ironspec 15:23 (3), 18:06 (3), 18:40 (4)/(5)) The cycle start's least REL-to-REL interval and phase lock
     /// (`ctlchain.rs`): P from the golem pulse or the watchdog; the chain as built, B held 100 gt with a
@@ -248,9 +273,12 @@ pub enum MobfarmCmd {
         /// The hold settled again this long after a start (gt; 0 = the worst case for the interval).
         #[arg(long, default_value_t = 0)]
         settle: i64,
-        /// The bar (ironspec 18:06: >= 100).
+        /// The bar (ironspec 18:06: >= 100; a smaller bar is refused, G1's audit hole 18).
         #[arg(long, default_value_t = 100)]
         bar: i64,
+        /// (the chain fix) Print the judged misses without failing the run (never for a cited result).
+        #[arg(long)]
+        report_only: bool,
     },
     /// The pocket drive (`ctlpocket.rs`, ironspec 16:03): (a) the slime support's repeater against (b)
     /// M16bw's side drive, all three pockets laid; each lane's P rise and fall after its switch at 20
@@ -260,6 +288,9 @@ pub enum MobfarmCmd {
         /// Run the bench z-mirrored (`mirror.rs`).
         #[arg(long)]
         mirror_z: bool,
+        /// (the chain fix) Print the judged misses without failing the run (never for a cited result).
+        #[arg(long)]
+        report_only: bool,
     },
     /// The siding feeds (`ctlfeed.rs`, ironspec Nov 12 11:22): lanes -1 and 3 fed from below (day-1's
     /// delay-3 repeater into a slime under ironfarm's feed dust), lane 7 as ruled; R's rise and fall after
@@ -272,6 +303,9 @@ pub enum MobfarmCmd {
         /// Run the bench z-mirrored (`mirror.rs`).
         #[arg(long)]
         mirror_z: bool,
+        /// (the chain fix) Print the judged misses without failing the run (never for a cited result).
+        #[arg(long)]
+        report_only: bool,
     },
     /// The high re-phase's circuit as blocks (`ctlhigh.rs`, ironspec Nov 12 10:18): HI (compare at 15), its
     /// rising edge, the AND with the window decode's IN_WIN; the load request's delay and width, the rise,
@@ -282,6 +316,9 @@ pub enum MobfarmCmd {
         /// Run the bench z-mirrored (`mirror.rs`).
         #[arg(long)]
         mirror_z: bool,
+        /// (the chain fix) Print the judged misses without failing the run (never for a cited result).
+        #[arg(long)]
+        report_only: bool,
     },
     /// The J/K junction drivers (`ctljunction.rs`, ironspec Nov 12 05:35): the napper-present latch's
     /// driver repeater power-forcing a T-junction rail; the edge to the switch and the reset to the
@@ -292,6 +329,9 @@ pub enum MobfarmCmd {
         /// Run the bench z-mirrored (`mirror.rs`).
         #[arg(long)]
         mirror_z: bool,
+        /// (the chain fix) Print the judged misses without failing the run (never for a cited result).
+        #[arg(long)]
+        report_only: bool,
     },
     /// split9's napper hold release (`holdpulse.rs`, ironspec Nov 12 06:46 / 10:09): a 12-gt pulse at ARM3 +
     /// 10 every cycle, the departure seen by a tripwire after the hold; the pulse's timing over every phase,
@@ -334,6 +374,9 @@ pub enum MobfarmCmd {
         /// speed (tick-exact's napper-ride trace to compare against).
         #[arg(long)]
         lift_trace: Option<f64>,
+        /// (the chain fix) Print the judged misses without failing the run (never for a cited result).
+        #[arg(long)]
+        report_only: bool,
     },
     /// The divert's single atomic read as blocks (`ctldivert.rs`, ironspec Nov 12 03:27): DECIDE = DIV -
     /// DAY held by a repeater unlocked by a rising-edge pulse of D2; DAY's edge at every gt offset around
@@ -430,13 +473,14 @@ pub enum MobfarmCmd {
         #[arg(long)]
         day_rise_load: Option<i64>,
         /// The stop's cycle: an entry holds the stop this long (walk, nap, exit through R) before the next
-        /// release (R's RS); a stale admission holds it until REST + this (58f770cc's number pending).
-        #[arg(long, default_value_t = 300)]
+        /// release (R's RS); a stale admission holds it until REST + this (the cited 260, the chain audit).
+        #[arg(long, default_value_t = 260)]
         stop_cycle: i64,
-        /// The stop's walk (entry -> lying down) and nap (lying -> woken) inside the cycle.
-        #[arg(long, default_value_t = 80)]
+        /// The stop's walk (entry -> lying down) and nap (lying -> woken) inside the cycle (the cited 120 / 30; a
+        /// walk shorter than 120 would loosen the walk-past bar and is refused).
+        #[arg(long, default_value_t = 120)]
         stop_walk: i64,
-        #[arg(long, default_value_t = 100)]
+        #[arg(long, default_value_t = 30)]
         stop_nap: i64,
         /// (ironspec 12:13) A napper is back in its lane this long after its stop entry (onechunk's rev 3
         /// rows: 529..638 gt; the riders away per lane).
@@ -12182,7 +12226,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     [d, at, add] => Some((*d as usize, *at, *add)),
                     _ => bail!("--hold-at D,IN_DAY,ADD"),
                 };
-                let lo_ = crate::napper::LaneOpts { lanes, per_lane: carts / lanes, k, beds, turns, visits, lane_exact, keep_place, skip_per_day, lock, trip: (lo, hi), sleep_at, spacing, offsets: None, cross_at, days, warmup, seed, night_gt, day_gt: 24000, dusk_at, jump, jump_every, outlier, post, foot, r_leg, window, det, lie, start_dt, rephase_lag, truncate_after_skip, hold_at, rule2, windows2, late_latch, log_releases: false, siding_window, ret, lock_gt, remark, queue_leg: None, queue_hold: 0, to_entry: 0, held_at_divert: false, held_at_pick: false, trip_hist: None, pick_window: None, no_quota: false, ret_hist: None, ret_hist_lane: [None, None, None], pick_offsets: None, skip_pick: None, post_lane: None, t_d: None, post_spread: 0, t_d_spread: 0, siding_any: false, clock_exit: None, exit_phase: None, exit_pickup: (0, 0) };
+                let lo_ = crate::napper::LaneOpts { lanes, per_lane: carts / lanes, k, beds, turns, visits, lane_exact, keep_place, skip_per_day, lock, trip: (lo, hi), sleep_at, spacing, offsets: None, cross_at, days, warmup, seed, night_gt, day_gt: 24000, dusk_at, jump, jump_every, outlier, post, foot, r_leg, window, det, lie, start_dt, rephase_lag, truncate_after_skip, hold_at, rule2, windows2, late_latch, log_releases: false, siding_window, ret, lock_gt, remark, queue_leg: None, queue_hold: 0, to_entry: 0, held_at_divert: false, held_at_pick: false, trip_hist: None, pick_window: None, no_quota: false, ret_hist: None, ret_hist_lane: [None, None, None], pick_offsets: None, skip_pick: None, late_sleep: None, post_lane: None, t_d: None, post_spread: 0, t_d_spread: 0, siding_any: false, clock_exit: None, exit_phase: None, exit_pickup: (0, 0) };
                 if held_compare {
                     // (ironspec 03:53: (ii) rule 2's "already waiting at the pass" with the ring's windows
                     // (a late napper takes the next window, 10 cycles on, behind whichever cart passes)
@@ -12659,31 +12703,39 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 lane_count,
                 ..Default::default()
             };
+            // (the chain audit: the stop's walk is the cited 120 or longer (a shorter one loosens the walk-past bar), the cycle
+            // holds the walk and the nap, the hold and the lags are non-negative)
+            if stop_walk < 120 || stop_nap < 0 || stop_cycle < stop_walk + stop_nap {
+                bail!("--stop-walk {stop_walk} / --stop-nap {stop_nap} / --stop-cycle {stop_cycle}: the walk at least the cited 120, the nap >= 0, the cycle >= walk + nap");
+            }
+            if stale_hold < 0 || hatch_lag < 0 || to_entry < 0 || back_after < 1 {
+                bail!("--stale-hold {stale_hold} / --hatch-lag {hatch_lag} / --to-entry {to_entry} / --back-after {back_after}: none negative, back-after >= 1");
+            }
+            let mut v = crate::verdict::Verdict::new("ctl-counter-bench");
             if let Some(h) = high {
                 let (p, desc) = crate::ctlcounter::high_params(&o, h).map_err(|e| anyhow::anyhow!(e))?;
                 println!("{desc}");
                 o.high = Some(p);
+                // (the chain audit: the counter's H lag is ctl-high-bench's measured lag, measured here on the same blocks)
+                let hp = std::env::temp_dir().join(format!("ctl-high-for-counter-{}.txt", std::process::id()));
+                std::fs::write(&hp, format!("# The high re-phase's circuit (ctl-counter-bench's H lag check).\n{}", crate::ctlhigh::design().to_text()))?;
+                let (_c, hspec) = load(version, &hp)?;
+                let lag = crate::ctlhigh::measured_lag(&hspec).map_err(|e| anyhow::anyhow!(e))?;
+                let w = v.bar("the counter's H lag equals ctl-high-bench's measured lag", lag == Some(o.high_lag));
+                println!("the H lag: the model's {} gt; ctl-high-bench's blocks measure {} ({w})", o.high_lag, lag.map_or("NO REQUEST".to_string(), |l| format!("+{l} gt")));
             }
-            let mut fails: Vec<String> = Vec::new();
-            let mut lines = if weather_sweep { crate::ctlcounter::weather_sweep(&o, sweep_step) } else { crate::ctlcounter::bench(&o, &mut fails) };
+            let mut lines = if weather_sweep { crate::ctlcounter::weather_sweep(&o, sweep_step, &mut v).map_err(|e| anyhow::anyhow!(e))? } else { crate::ctlcounter::bench(&o, &mut v) };
             if !late_inject.is_empty() {
-                lines.extend(crate::ctlcounter::late_rows(&o, &late_inject, &mut fails));
+                lines.extend(crate::ctlcounter::late_rows(&o, &late_inject, &mut v));
             }
             if skip_rows {
-                lines.extend(crate::ctlcounter::skip_rows(&o, &mut fails));
+                lines.extend(crate::ctlcounter::skip_rows(&o, &mut v));
             }
             for l in lines {
                 println!("{l}");
             }
-            // (G1 on 7897f4ba7 (b): the judged bars and the controls fail the run, not just the print)
-            if fails.is_empty() {
-                println!("=> THE RUN'S VERDICT: every judged bar passes (normal operation; the skip class's structural bars; the stress rows' next night) and every positive control bites");
-            } else {
-                println!("=> THE RUN'S VERDICT: {} judged bar(s) FAIL: {}", fails.len(), fails.join("; "));
-                if !report_only {
-                    anyhow::bail!("{} judged bar(s) FAIL (--report-only prints them without failing the run)", fails.len());
-                }
-            }
+            // (G1 on 7897f4ba7 (b), the chain fix: one failure list; the verdict line counts what ran)
+            v.finish(report_only).map_err(|e| anyhow::anyhow!(e))?;
         }
         MobfarmCmd::CtlDivertBench { out, width, control, edge, mirror_z } => {
             crate::mirror::set(mirror_z);
@@ -12708,7 +12760,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
         }
-        MobfarmCmd::HoldPulseBench { step, mirror_z, extra, freeze, real, gate, k, gate_cells, quick, lift_trace } => {
+        MobfarmCmd::HoldPulseBench { step, mirror_z, extra, freeze, real, gate, k, gate_cells, quick, lift_trace, report_only } => {
             crate::mirror::set(mirror_z);
             if mirror_z {
                 println!("hold-pulse-bench{}", crate::mirror::tag());
@@ -12717,37 +12769,39 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             if !(36..=48).contains(&k) || k % 2 != 0 {
                 anyhow::bail!("--k {k}: the settle chain builds even k from 36 to 48 only");
             }
-            if let Some(v) = lift_trace {
-                for l in crate::holdpulse::lift_trace(k, 9, v, 140).map_err(|e| anyhow::anyhow!(e))? {
-                    println!("{l}");
-                }
+            let mut v = crate::verdict::Verdict::new("hold-pulse-bench");
+            let lines = if let Some(speed) = lift_trace {
+                crate::holdpulse::lift_trace(k, 9, speed, 140, &mut v)
             } else if let Some(path) = gate_cells {
-                for l in crate::holdpulse::gate_file_bench(&path, freeze, quick).map_err(|e| anyhow::anyhow!(e))? {
-                    println!("{l}");
-                }
+                crate::holdpulse::gate_file_bench(&path, freeze, quick, &mut v)
             } else if gate {
-                for l in crate::holdpulse::gate_bench(extra, k, freeze).map_err(|e| anyhow::anyhow!(e))? {
-                    println!("{l}");
-                }
+                crate::holdpulse::gate_bench(extra, k, freeze, &mut v)
             } else {
                 let g = if real { crate::holdpulse::Geo::Real } else { crate::holdpulse::Geo::Line };
-                for l in crate::holdpulse::bench(step.max(1), extra, freeze, g).map_err(|e| anyhow::anyhow!(e))? {
-                    println!("{l}");
-                }
+                crate::holdpulse::bench(step, extra, freeze, g, &mut v)
             }
-        }
-        MobfarmCmd::CtlChainInterval { b_end, settle, bar } => {
-            for l in crate::ctlchain::bench(b_end, settle, bar) {
+            .map_err(|e| anyhow::anyhow!(e))?;
+            for l in lines {
                 println!("{l}");
             }
+            v.finish(report_only).map_err(|e| anyhow::anyhow!(e))?;
         }
-        MobfarmCmd::CtlPocketBench { mirror_z } => {
+        MobfarmCmd::CtlChainInterval { b_end, settle, bar, report_only } => {
+            let mut v = crate::verdict::Verdict::new("ctl-chain-interval");
+            for l in crate::ctlchain::bench(b_end, settle, bar, &mut v).map_err(|e| anyhow::anyhow!(e))? {
+                println!("{l}");
+            }
+            v.finish(report_only).map_err(|e| anyhow::anyhow!(e))?;
+        }
+        MobfarmCmd::CtlPocketBench { mirror_z, report_only } => {
             crate::mirror::set(mirror_z);
-            for l in crate::ctlpocket::bench().map_err(|e| anyhow::anyhow!(e))? {
+            let mut v = crate::verdict::Verdict::new("ctl-pocket-bench");
+            for l in crate::ctlpocket::bench(&mut v).map_err(|e| anyhow::anyhow!(e))? {
                 println!("{l}");
             }
+            v.finish(report_only).map_err(|e| anyhow::anyhow!(e))?;
         }
-        MobfarmCmd::LineBench { design, label, input, read, set, control, expect, probe, reach, settle, phases } => {
+        MobfarmCmd::LineBench { design, label, input, read, set, control, expect, probe, reach, settle, phases, declare, report_only } => {
             let (_c, spec) = load(version, &design)?;
             let inputs: Vec<crate::linebench::Input> = input.iter().map(|s| crate::linebench::parse_input(s)).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!(e))?;
             let read = crate::linebench::parse_cell(&read).map_err(|e| anyhow::anyhow!(e))?;
@@ -12756,12 +12810,15 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let cells = |s: &str| -> Result<Vec<[i32; 3]>> { s.split(';').map(str::trim).filter(|s| !s.is_empty()).map(|c| crate::linebench::parse_cell(c).map_err(|e| anyhow::anyhow!(e))).collect() };
             let probes = cells(&probe)?;
             let reach = cells(&reach)?;
+            let declared = cells(&declare)?;
             println!("{}", design.display());
-            for l in crate::linebench::bench(&spec, &label, &inputs, read, &sets, &control, &expect, &probes, &reach, settle, phases).map_err(|e| anyhow::anyhow!(e))? {
+            let mut v = crate::verdict::Verdict::new("line-bench");
+            for l in crate::linebench::bench(&spec, &label, &inputs, read, &sets, &control, &expect, &probes, &reach, &declared, settle, phases, &mut v).map_err(|e| anyhow::anyhow!(e))? {
                 println!("{l}");
             }
+            v.finish(report_only).map_err(|e| anyhow::anyhow!(e))?;
         }
-        MobfarmCmd::CtlCoverageBench { holds, leg, to_entry, post_lane, t_d, slot, trip, lock, offsets, late_inject, late_step, trip_hist, pick_window, no_quota, late_latch, frame_pin, return_hist, return_hist_lane, picker_search, r_leg, post_spread, t_d_spread, siding_any, clock_exit, exit_phase, exit_pickup, report_only, rule2, days, seeds } => {
+        MobfarmCmd::CtlCoverageBench { holds, operating_hold, leg, to_entry, post_lane, t_d, slot, trip, lock, offsets, late_inject, late_step, trip_hist, pick_window, no_quota, late_latch, frame_pin, return_hist, return_hist_lane, picker_search, r_leg, post_spread, t_d_spread, siding_any, clock_exit, exit_phase, exit_pickup, late_sleep_file, late_sleep_hist, late_sleep_normal, report_only, rule2, days, seeds } => {
             let [lo, hi] = leg[..] else { bail!("--leg takes LO,HI") };
             let [pa, pb, pc] = post_lane[..] else { bail!("--post-lane takes A,B,C") };
             let [da, db, dc] = t_d[..] else { bail!("--t-d takes A,B,C") };
@@ -12769,9 +12826,15 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let [oa, ob, oc] = offsets[..] else { bail!("--offsets takes A,B,C") };
             let pick_window = match pick_window[..] {
                 [] => None,
-                [a, n] => Some((a, n)),
-                _ => bail!("--pick-window takes FIRST,LEN"),
+                [a, n] if a >= 0 && n >= 1 => Some((a, n)),
+                _ => bail!("--pick-window takes FIRST,LEN (FIRST >= 0, LEN >= 1)"),
             };
+            if late_step < 1 {
+                bail!("--late-step {late_step}: at least 1");
+            }
+            if lo > hi || tl > th {
+                bail!("--leg / --trip: LO <= HI");
+            }
             let x = crate::napper::CovExtra {
                 trip_hist: trip_hist.as_deref().map(crate::napper::parse_hist).transpose().map_err(|e| anyhow::anyhow!(e))?,
                 pick_window,
@@ -12779,17 +12842,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 late_latch,
                 frame_pin,
                 ret_hist: return_hist.as_deref().map(crate::napper::parse_hist).transpose().map_err(|e| anyhow::anyhow!(e))?,
-                ret_hist_lane: {
-                    let mut v: [Option<Vec<(i64, u32)>>; 3] = [None, None, None];
-                    if let Some(s) = return_hist_lane.as_deref() {
-                        for (i, part) in s.split('|').enumerate().take(3) {
-                            if !part.trim().is_empty() {
-                                v[i] = Some(crate::napper::parse_hist(part).map_err(|e| anyhow::anyhow!(e))?);
-                            }
-                        }
-                    }
-                    v
-                },
+                // (G1's checklist (4), ironspec's hole 8 on the tenth: strict, never a silent default)
+                ret_hist_lane: crate::napper::parse_hist_lanes(return_hist_lane.as_deref()).map_err(|e| anyhow::anyhow!(e))?,
                 rule2,
                 search: picker_search,
                 r_leg,
@@ -12797,37 +12851,39 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 t_d_spread,
                 siding_any,
                 clock_exit,
-                exit_phase: (exit_phase.len() == 3).then(|| [exit_phase[0], exit_phase[1], exit_phase[2]]),
-                exit_pickup: match exit_pickup.as_slice() {
-                    [a, b] => (*a, *b),
-                    [a] => (*a, *a),
-                    _ => (0, 0),
+                exit_phase: crate::napper::parse_exit_phase(&exit_phase).map_err(|e| anyhow::anyhow!(e))?,
+                exit_pickup: crate::napper::parse_exit_pickup(&exit_pickup).map_err(|e| anyhow::anyhow!(e))?,
+                late_sleep: if late_sleep_file.is_empty() && late_sleep_hist.is_none() {
+                    None
+                } else {
+                    if late_sleep_normal < 1 {
+                        bail!("--late-sleep-normal {late_sleep_normal}: at least 1");
+                    }
+                    let h = match (&late_sleep_hist, late_sleep_file.is_empty()) {
+                        (Some(_), false) => bail!("--late-sleep-hist and --late-sleep-file: one or the other"),
+                        (Some(s), true) => crate::napper::parse_hist(s).map_err(|e| anyhow::anyhow!(e))?,
+                        (None, _) => crate::napper::late_sleep_hist(&late_sleep_file).map_err(|e| anyhow::anyhow!(e))?,
+                    };
+                    Some((h, late_sleep_normal))
                 },
             };
-            let mut fails: Vec<String> = Vec::new();
-            for l in crate::napper::coverage_bench(&holds, (lo, hi), to_entry, [pa, pb, pc], [da, db, dc], slot, (tl, th), lock, [oa, ob, oc], (&late_inject, late_step.max(1)), days, seeds, &x, &mut fails) {
+            let mut v = crate::verdict::Verdict::new(&format!("ctl-coverage-bench (the operating hold {operating_hold})"));
+            let lines = crate::napper::coverage_bench(&holds, operating_hold, (lo, hi), to_entry, [pa, pb, pc], [da, db, dc], slot, (tl, th), lock, [oa, ob, oc], (&late_inject, late_step), days, seeds, &x, &mut v).map_err(|e| anyhow::anyhow!(e))?;
+            for l in lines {
                 println!("{l}");
             }
-            // (G1 on 7897f4ba7 (b): the judged rows' bars and the controls fail the run, not just the print; the cap matrix,
-            // the reference rows and the priced classes are printed only)
-            if !picker_search {
-                if fails.is_empty() {
-                    println!("=> THE RUN'S VERDICT: every judged bar passes (the operating point's row, the normal-operation late rows, the stress rows' next night) and every positive control bites");
-                } else {
-                    println!("=> THE RUN'S VERDICT: {} judged bar(s) FAIL: {}", fails.len(), fails.join("; "));
-                    if !report_only {
-                        anyhow::bail!("{} judged bar(s) FAIL (--report-only prints them without failing the run)", fails.len());
-                    }
-                }
-            }
+            // (G1 on 7897f4ba7 (b), the chain fix: one failure list; the verdict line counts what ran)
+            v.finish(report_only).map_err(|e| anyhow::anyhow!(e))?;
         }
-        MobfarmCmd::CtlFeedBench { width, mirror_z } => {
+        MobfarmCmd::CtlFeedBench { width, mirror_z, report_only } => {
             crate::mirror::set(mirror_z);
-            for l in crate::ctlfeed::bench(width.max(4)).map_err(|e| anyhow::anyhow!(e))? {
+            let mut v = crate::verdict::Verdict::new("ctl-feed-bench");
+            for l in crate::ctlfeed::bench(width, &mut v).map_err(|e| anyhow::anyhow!(e))? {
                 println!("{l}");
             }
+            v.finish(report_only).map_err(|e| anyhow::anyhow!(e))?;
         }
-        MobfarmCmd::CtlHighBench { out, mirror_z } => {
+        MobfarmCmd::CtlHighBench { out, mirror_z, report_only } => {
             crate::mirror::set(mirror_z);
             if mirror_z {
                 println!("ctl-high-bench{}", crate::mirror::tag());
@@ -12835,11 +12891,13 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let d = crate::ctlhigh::design();
             std::fs::write(&out, format!("# The high re-phase's circuit: HI (compare at 15), its rising edge, the AND with IN_WIN (mctas mobfarm ctl-high-bench).\n{}", d.to_text()))?;
             let (_c, spec) = load(version, &out)?;
-            for l in crate::ctlhigh::bench(&spec).map_err(|e| anyhow::anyhow!(e))? {
+            let mut v = crate::verdict::Verdict::new("ctl-high-bench");
+            for l in crate::ctlhigh::bench(&spec, &mut v).map_err(|e| anyhow::anyhow!(e))? {
                 println!("{l}");
             }
+            v.finish(report_only).map_err(|e| anyhow::anyhow!(e))?;
         }
-        MobfarmCmd::CtlJunctionBench { out, mirror_z } => {
+        MobfarmCmd::CtlJunctionBench { out, mirror_z, report_only } => {
             crate::mirror::set(mirror_z);
             if mirror_z {
                 println!("ctl-junction-bench{}", crate::mirror::tag());
@@ -12847,9 +12905,14 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let d = crate::ctljunction::design();
             std::fs::write(&out, format!("# The J/K junction driver: the napper-present latch's driver repeater power-forcing a T-junction rail (mctas mobfarm ctl-junction-bench).\n{}", d.to_text()))?;
             let (_c, spec) = load(version, &out)?;
-            for l in crate::ctljunction::bench(&spec).map_err(|e| anyhow::anyhow!(e))? {
+            let cpath = out.with_extension("control.txt");
+            std::fs::write(&cpath, format!("# ctl-junction-bench's control: the junction driver without its driver repeater.\n{}", crate::ctljunction::control_design().to_text()))?;
+            let (_c2, cspec) = load(version, &cpath)?;
+            let mut v = crate::verdict::Verdict::new("ctl-junction-bench");
+            for l in crate::ctljunction::bench(&spec, &cspec, &mut v).map_err(|e| anyhow::anyhow!(e))? {
                 println!("{l}");
             }
+            v.finish(report_only).map_err(|e| anyhow::anyhow!(e))?;
         }
         MobfarmCmd::OddTapBench { pulse } => {
             for l in crate::oddtap::bench(&pulse).map_err(|e| anyhow::anyhow!(e))? {
@@ -12869,7 +12932,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
         }
-        MobfarmCmd::CtlRingBench { out, cycles, period, width, jitter, mirror_z } => {
+        MobfarmCmd::CtlRingBench { out, cycles, period, width, jitter, mirror_z, report_only } => {
             crate::mirror::set(mirror_z);
             if mirror_z {
                 println!("ctl-ring-bench{}", crate::mirror::tag());
@@ -12877,10 +12940,15 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let d = crate::ctlring::design();
             std::fs::write(&out, format!("# The controller's units digit: a 10-dropper ring, 8 tokens at u 0,1,2,4,5,6,7,8 (the u = 0 one unstackable), the main tap on D9 and the u-9 tap on D8 (mctas mobfarm ctl-ring-bench).\n{}", d.to_text()))?;
             let (_c, spec) = load(version, &out)?;
-            let jitter = if jitter.is_empty() { vec![0] } else { jitter };
-            for l in crate::ctlring::bench(&spec, cycles, period, width, &jitter).map_err(|e| anyhow::anyhow!(e))? {
+            // (the chain fix: the control ring, a stackable token at u 0, through the same bench path)
+            let cpath = out.with_extension("control.txt");
+            std::fs::write(&cpath, format!("# ctl-ring-bench's control: the units ring with a stackable token at u 0.\n{}", crate::ctlring::control_design().to_text()))?;
+            let (_c2, cspec) = load(version, &cpath)?;
+            let mut v = crate::verdict::Verdict::new("ctl-ring-bench");
+            for l in crate::ctlring::bench(&spec, &cspec, cycles, period, width, &jitter, &mut v).map_err(|e| anyhow::anyhow!(e))? {
                 println!("{l}");
             }
+            v.finish(report_only).map_err(|e| anyhow::anyhow!(e))?;
         }
         MobfarmCmd::RingBench { out, ticks, stretch, gone_at, speed, carts, sealed, alive } => {
             let d = crate::ringbench::design_alive(speed, carts, sealed, alive);

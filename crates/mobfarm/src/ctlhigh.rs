@@ -80,6 +80,12 @@ fn src_cell(s: i32) -> Option<P> {
 struct Trial {
     /// H_LOAD's pulses after the level change: (start offset, width).
     pulses: Vec<(i64, i64)>,
+    /// (G1's audit, defect 2) The AND's side cell's measured power at the change (the dust's power, or 15 for the
+    /// block on the side cell), and the AND's rear input (E_H's output) at its peak after the change.
+    side_power: i32,
+    rear_peak: i32,
+    /// The overrides: the level line's source move and IN_WIN's drive, each before -> after.
+    overrides: Vec<(String, String, String)>,
 }
 
 /// One trial: the level at `from` for 60 gt (settled), then `to` at t = 0; IN_WIN set (true: inside)
@@ -88,7 +94,7 @@ struct Trial {
 /// pulses recorded for 60 gt.
 fn trial(spec: &FarmSpec, from: i32, to: i32, win: Option<(i64, i64)>, win_level: i32) -> Result<Trial, String> {
     let ro = RunOpts { ai: false, ..RunOpts::steady(1, 0, WalkMode::Random) };
-    let mut run = Run::start(&crate::mirror::spec(spec)?, &ro)?;
+    let mut run = Run::start(&crate::mirror::checked(spec)?, &ro)?;
     while run.settle_tick() {}
     let on = Block::parse("minecraft:redstone_block").map_err(|e| e.to_string())?;
     let dust = Block::parse("minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]").map_err(|e| e.to_string())?;
@@ -96,39 +102,59 @@ fn trial(spec: &FarmSpec, from: i32, to: i32, win: Option<(i64, i64)>, win_level
     let air = Block::parse("minecraft:air").map_err(|e| e.to_string())?;
     let all = redsim::world::flags::ALL;
     let bp = |p: P| crate::mirror::at(p);
-    let set_level = |run: &mut Run, prev: i32, s: i32| {
+    let mut overrides: Vec<(String, String, String)> = Vec::new();
+    let set_level = |run: &mut Run, prev: i32, s: i32, ov: &mut Vec<(String, String, String)>| {
         if let Some(p) = src_cell(prev) {
             run.world.set_block(bp(p), dust.clone(), all);
         }
         if let Some(p) = src_cell(s) {
+            let before = run.world.get(bp(p)).to_string();
             run.world.set_block(bp(p), on.clone(), all);
+            ov.push((format!("the level line's source for {s} at ({},{},{})", p[0], p[1], p[2]), before, run.world.get(bp(p)).to_string()));
         }
     };
-    // (IN_WIN below 15: a dust line east from the AND's side cell, the source block 15 - level cells on, so
-    // the side cell's dust is at `win_level`; at 15 the block sits on the side cell itself)
-    let win_src: P = if win_level >= 15 { IN_WIN } else { [IN_WIN[0] + (15 - win_level), IN_WIN[1], IN_WIN[2]] };
+    // (IN_WIN below 15: a dust line east from the AND's side cell, the source block 16 - level cells on (G1's audit,
+    // defect 2: the dust touching the source reads 15 and each cell toward the side loses one, so the side cell reads
+    // 16 - (16 - level) = level); at 15 the block sits on the side cell itself)
+    let win_src: P = if win_level >= 15 { IN_WIN } else { [IN_WIN[0] + (16 - win_level), IN_WIN[1], IN_WIN[2]] };
     if win_level < 15 {
         for x in IN_WIN[0]..win_src[0] {
             run.world.set_block(bp([x, IN_WIN[1], IN_WIN[2]]), dust_ew.clone(), all);
         }
     }
-    set_level(&mut run, 0, from);
+    set_level(&mut run, 0, from, &mut overrides);
     let mut win_on = false;
     let mut pulses: Vec<(i64, i64)> = Vec::new();
     let mut was = false;
+    let (mut side_power, mut rear_peak) = (-1i32, 0i32);
+    let power_of = |run: &Run, p: P| -> i32 {
+        let s = run.world.get(bp(p)).to_string();
+        if s.contains("redstone_block") {
+            15
+        } else {
+            s.split("power=").nth(1).and_then(|r| r.split(|c: char| !c.is_ascii_digit()).next()).and_then(|n| n.parse().ok()).unwrap_or(0)
+        }
+    };
     for t in -60i64..60 {
         if t == 0 {
-            set_level(&mut run, from, to);
+            set_level(&mut run, from, to, &mut overrides);
+            side_power = power_of(&run, IN_WIN);
         }
         let want = win.is_some_and(|(a, b)| t >= a && t < b);
         if want != win_on {
             let off = if win_level >= 15 { air.clone() } else { dust_ew.clone() };
+            let before = run.world.get(bp(win_src)).to_string();
             run.world.set_block(bp(win_src), if want { on.clone() } else { off }, all);
+            if overrides.iter().filter(|o| o.0.starts_with("IN_WIN")).count() < 2 {
+                overrides.push((format!("IN_WIN's drive at ({},{},{}) {}", win_src[0], win_src[1], win_src[2], if want { "on" } else { "off" }), before, run.world.get(bp(win_src)).to_string()));
+            }
             win_on = want;
         }
         run.tick();
         let now = run.world.best_neighbor_signal(bp(H_LOAD)) > 0;
         if t >= 0 {
+            // (the AND's rear input: E_H's output signal into the AND)
+            rear_peak = rear_peak.max(run.world.best_neighbor_signal(bp(AND)).min(15).max(0));
             if now && !was {
                 pulses.push((t + 1, i64::MAX));
             }
@@ -140,76 +166,123 @@ fn trial(spec: &FarmSpec, from: i32, to: i32, win: Option<(i64, i64)>, win_level
         }
         was = now;
     }
-    Ok(Trial { pulses })
+    Ok(Trial { pulses, side_power, rear_peak, overrides })
+}
+
+/// (the chain audit, hole 25) The load request's delay and width after a 14 -> 15 rise outside the window (the counter
+/// model's H lag must equal it); None: no request.
+pub fn measured_lag(spec: &FarmSpec) -> Result<Option<i64>, String> {
+    let tr = trial(spec, 14, 15, None, 15)?;
+    Ok(tr.pulses.first().map(|p| p.0))
 }
 
 /// The bench: the H rise (14 -> 15, and the weather's 13 -> 15 jump) and fall (15 -> 14) with IN_WIN low
 /// (outside: a load request) and high (inside: none); IN_WIN's edge at every offset -12..12 around the
 /// rise (the request whole, cut, or none: the counter's pending latch takes any pulse); the request's
-/// delay after the level change (the model's H lag).
-pub fn bench(spec: &FarmSpec) -> Result<Vec<String>, String> {
-    let fmt = |v: &[(i64, i64)]| if v.is_empty() { "none".to_string() } else { v.iter().map(|(s, w)| format!("+{s} for {w}")).collect::<Vec<_>>().join(", ") };
+/// delay after the level change (the model's H lag). (The chain fix) every bar through `v`.
+pub fn bench(spec: &FarmSpec, v: &mut crate::verdict::Verdict) -> Result<Vec<String>, String> {
+    let fmt = |v: &[(i64, i64)]| if v.is_empty() { "none".to_string() } else { v.iter().map(|(s, w)| format!("+{s} for {}", if *w == i64::MAX { "open".to_string() } else { w.to_string() })).collect::<Vec<_>>().join(", ") };
     let mut lines = Vec::new();
     let mut rows = Vec::new();
-    let mut ok = true;
+    let mut all_right = true;
+    let mut ov_lines: Vec<String> = Vec::new();
     for (label, from, to, win, want) in [
         ("rise 14 -> 15, outside the window", 14, 15, None, true),
         ("rise 13 -> 15 (a weather jump), outside", 13, 15, None, true),
         ("rise 14 -> 15, inside the window", 14, 15, Some((-100, 100)), false),
         ("fall 15 -> 14, outside", 15, 14, None, false),
-        ("rise 14 -> 14 (no change: the control)", 14, 14, None, false),
     ] {
         let tr = trial(spec, from, to, win, 15)?;
         let fired = !tr.pulses.is_empty();
-        ok &= fired == want;
-        rows.push(format!("{label}: {} ({})", fmt(&tr.pulses), if fired == want { "ok" } else { "WRONG" }));
+        all_right &= fired == want;
+        for (w, b, a) in &tr.overrides {
+            ov_lines.push(v.over(&format!("{label}: {w}"), b, a));
+        }
+        rows.push(format!("{label}: {} ({})", fmt(&tr.pulses), if fired == want { "as designed" } else { "WRONG" }));
     }
+    let cases = v.bar("the rise / jump / inside / fall cases", all_right);
+    // (the no-change row is the control: a level that does not move must not fire, through the same trial)
+    let ctl_tr = trial(spec, 14, 14, None, 15)?;
+    let ctl = v.control("no level change (14 -> 14) fires nothing", 1, ctl_tr.pulses.is_empty());
     let base = trial(spec, 14, 15, None, 15)?;
-    let (lag, width) = base.pulses.first().copied().unwrap_or((-1, -1));
+    // (G1's checklist (4): the lag is read strictly; a run without the request is NOT JUDGED)
+    let first = base.pulses.first().copied();
+    let lag_word = v.bar_n("the load request's delay and width measured", usize::from(first.is_some()), first.is_some_and(|(_, w)| w != i64::MAX && w > 0));
+    let (lag, width) = first.unwrap_or((i64::MIN, i64::MIN));
     // IN_WIN's edge around the rise: inside until `k` (the window closing at the rise), and inside from `k`
     let mut cut: Vec<String> = Vec::new();
+    let (mut a_req, mut b_req) = (Vec::new(), Vec::new());
+    // (every request in the edge rows: one pulse at most, at least 2 gt wide, so the pending latch takes it)
+    let (mut cut_ok, mut cut_n) = (true, 0usize);
     for k in -12i64..=12 {
         let a = trial(spec, 14, 15, Some((-100, k)), 15)?;
         let b = trial(spec, 14, 15, Some((k, 100)), 15)?;
+        a_req.push((k, !a.pulses.is_empty()));
+        b_req.push((k, !b.pulses.is_empty()));
+        for p in [&a.pulses, &b.pulses] {
+            cut_n += p.len();
+            cut_ok &= p.len() <= 1 && p.iter().all(|&(_, w)| w != i64::MAX && w >= 2);
+        }
         cut.push(format!("{k}: {} / {}", fmt(&a.pulses), fmt(&b.pulses)));
     }
-    // (G1 on 6b9be93ea point 3, ironspec 20:55 PT (2)(4)) IN_WIN's level at the AND's side swept 1..15 inside the
-    // window at the rise: the AND (subtract) passes E_H - side, so a side at E_H's own level or above holds the
-    // request back and anything weaker leaks; the bench measures where the levels split (E_H reaches the AND
-    // below 15, through its dust) and the built OR must reach the side at or above it (a repeater gives 15). The
-    // weak levels are the control.
+    // (the window's edges judged: closing at k, the request survives while k is early enough for the AND's side to
+    // let a pulse of >= 2 gt through before the pulse's end; opening at k, it survives while the side's block lands
+    // after the pulse's start: one transition each (never a request again after it stops, or none again after it
+    // starts), and every surviving request a single pulse the pending latch takes; the flips' positions printed against
+    // the measured pulse (the side's own latency moves them))
+    let one_flip = |v: &[(i64, bool)], from_on: bool| {
+        let flips = v.windows(2).filter(|w| w[0].1 != w[1].1).count();
+        flips == 1 && v.first().is_some_and(|x| x.1 == from_on) && v.last().is_some_and(|x| x.1 != from_on)
+    };
+    let a_flip = a_req.iter().find(|x| !x.1).map(|x| x.0);
+    let b_flip = b_req.iter().find(|x| x.1).map(|x| x.0);
+    let edges_ok = first.is_some() && one_flip(&a_req, true) && one_flip(&b_req, false);
+    let edges = v.bar("IN_WIN's edges around the rise: one transition each (closing, opening)", edges_ok);
+    let cut_word = v.bar_n("IN_WIN's edge rows: every request one pulse of >= 2 gt (the pending latch takes it)", cut_n, cut_ok);
+    // (G1 on 6b9be93ea point 3, ironspec 20:55 PT (2)(4); G1's audit defect 2) IN_WIN's level at the AND's side swept
+    // 1..15 inside the window at the rise, each row printing the side's measured power and the rear's peak: the AND
+    // (subtract) passes rear - side, so with E_H at 15 on the rear only a side of 15 holds the request back; the weak
+    // levels are the control (a side of 14 must leak).
     let mut weak: Vec<String> = Vec::new();
     let mut leak_levels: Vec<i32> = Vec::new();
+    let mut measured_ok = true;
+    let mut leak14 = false;
     for s in 1..=15 {
         let tr = trial(spec, 14, 15, Some((-100, 100)), s)?;
-        if !tr.pulses.is_empty() {
+        let leaks = !tr.pulses.is_empty();
+        if leaks {
             leak_levels.push(s);
         }
-        weak.push(format!("{s}:{}", if tr.pulses.is_empty() { "held" } else { "LEAKS" }));
-    }
-    // (the least level that holds; the split is clean when every level below it leaks and every level from it
-    // holds, with 15 holding and 1 leaking)
-    let split = (1..=15).find(|s| !leak_levels.contains(s));
-    let clean_split = split.is_some_and(|t| t > 1 && (1..t).all(|s| leak_levels.contains(&s)) && (t..=15).all(|s| !leak_levels.contains(&s)));
-    lines.push(format!(
-        "the high re-phase's circuit ({BLOCKS} blocks: HI compare at 15 with a redstone block on its side, its rising edge E_H (subtract, a delay-4 side), the AND (subtract, IN_WIN on the side); + the window decode (tens 5..9: an OR of five tens taps, ~6) and the load path (tens := 5, the FF to u 9, ~4) in box piece 2): {}; {}",
-        rows.join("; "),
-        if ok { "every case right" } else { "FAIL" }
-    ));
-    lines.push(format!(
-        "  the load request H_LOAD after the level's change: +{lag} gt for {width} gt (the counter model's H lag: a request due at a detector update reaches the pending latch {lag} gt later)"
-    ));
-    lines.push(format!(
-        "  IN_WIN's edge at offset k from the rise (inside before k / inside from k: the request's pulses): {}",
-        cut.join("; ")
-    ));
-    lines.push(format!(
-        "  IN_WIN's level at the AND's side, inside the window at the rise (level:request): {}; {}",
-        weak.join(" "),
-        match (split, clean_split) {
-            (Some(t), true) => format!("the levels split at {t} (E_H's level at the AND): 1..{} leak, {t}..15 hold, so the weak-OR control bites; the requirement: the window decode's OR reaches the AND's side at {t} or more (a repeater gives 15)", t - 1),
-            _ => "FAIL: the levels do not split cleanly (a weaker level holds or a stronger one leaks)".to_string(),
+        if s == 14 {
+            leak14 = leaks;
         }
+        measured_ok &= tr.side_power == s;
+        weak.push(format!("{s} (side measured {}, rear peak {}):{}", tr.side_power, tr.rear_peak, if leaks { "LEAKS" } else { "held" }));
+    }
+    let side_ok = v.bar("each weak-OR row's side reads its label", measured_ok);
+    let split_ok = (1..=14).all(|s| leak_levels.contains(&s)) && !leak_levels.contains(&15);
+    let split = v.bar("only a side of 15 holds the request (1..14 leak)", split_ok);
+    let ctl14 = v.control("a measured side of 14 leaks", 1, leak14);
+    lines.push(format!(
+        "the high re-phase's circuit ({BLOCKS} blocks: HI compare at 15 with a redstone block on its side, its rising edge E_H (subtract, a delay-4 side), the AND (subtract, IN_WIN on the side); + the window decode (tens 5..9: an OR of five tens taps, ~6) and the load path (tens := 5, the FF to u 9, ~4) in box piece 2): {}: {cases}; the no-change control: {} ({ctl})",
+        rows.join("; "),
+        fmt(&ctl_tr.pulses)
     ));
+    lines.push(format!(
+        "  the load request H_LOAD after the level's change: {} ({lag_word}; the counter model's H lag: a request due at a detector update reaches the pending latch that much later)",
+        if first.is_some() { format!("+{lag} gt for {width} gt") } else { "NONE".to_string() }
+    ));
+    lines.push(format!(
+        "  IN_WIN's edge at offset k from the rise (inside before k / inside from k: the request's pulses): {}; the closing edge's last request at k {} and the opening edge's first at k {} against the pulse's +{lag}..+{} (one transition each: {edges}; every request one pulse of >= 2 gt: {cut_word})",
+        cut.join("; "),
+        a_flip.map_or("-".to_string(), |k| (k - 1).to_string()),
+        b_flip.map_or("-".to_string(), |k| k.to_string()),
+        if first.is_some() { (lag + width).to_string() } else { "-".to_string() }
+    ));
+    lines.push(format!(
+        "  IN_WIN's level at the AND's side, inside the window at the rise (level (measured side, rear peak):request): {} ({side_ok}); the split: {split}; the control, a side of 14: {ctl14}; the requirement: the window decode's OR reaches the AND's side at 15 (a repeater gives 15)",
+        weak.join(" ")
+    ));
+    lines.push(format!("  the overrides (each target's state before -> after): {}", ov_lines.join("; ")));
     Ok(lines)
 }

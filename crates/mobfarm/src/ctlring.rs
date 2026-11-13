@@ -135,14 +135,26 @@ fn due(u: i64) -> i32 {
     }
 }
 
-/// The bench: `cycles` clock pulses (a redstone block at the driver's input for `width` gt) every
-/// `period` gt (+ a jitter from `jitter`, cycling). Both taps read just before each next pulse: the
-/// main tap shows the token due at u = the step count (2 at u 0, 1 at an event, 0 otherwise), the u = 9
-/// tap the one due a step later. Every tick between pulses is traced: the settle time after a pulse,
-/// and between two consecutive token phases whether the main tap's level dropped to 0 (an edge an
-/// event counter could count) or held >= 1 (no edge: the counter must be clocked by the step and the
-/// tap sampled). The items in the ring at the end (8: none lost).
-pub fn bench(spec: &FarmSpec, cycles: i64, period: i64, width: i64, jitter: &[i64]) -> Result<Vec<String>, String> {
+/// One ring run's measurements.
+struct RingOut {
+    levels: Vec<i32>,
+    levels9: Vec<i32>,
+    ok: u64,
+    ok9: u64,
+    bad: Vec<String>,
+    settle_max: i64,
+    settle9_max: i64,
+    cons: u32,
+    dips: u32,
+    first_trace: Option<(usize, Vec<i32>)>,
+    items: usize,
+    in_droppers: usize,
+    in_hoppers: usize,
+    drive_before: String,
+    drive_after: String,
+}
+
+fn run_ring(spec: &FarmSpec, cycles: i64, period: i64, width: i64, jitter: &[i64]) -> Result<RingOut, String> {
     let horizon = cycles * period + 200;
     let ro = RunOpts { ai: false, ..RunOpts::steady(1, horizon as u32 + 20, WalkMode::Random) };
     let mut run = Run::start(&crate::mirror::spec(spec)?, &ro)?;
@@ -159,7 +171,7 @@ pub fn bench(spec: &FarmSpec, cycles: i64, period: i64, width: i64, jitter: &[i6
     let mut pulse_at: Vec<i64> = Vec::new();
     let mut t_next = 50i64;
     for c in 0..cycles {
-        pulse_at.push(t_next + jitter.get(c as usize % jitter.len().max(1)).copied().unwrap_or(0));
+        pulse_at.push(t_next + if jitter.is_empty() { 0 } else { jitter[c as usize % jitter.len()] });
         t_next += period;
     }
     // (per step: the main tap's least level from the pulse to the next one)
@@ -168,6 +180,7 @@ pub fn bench(spec: &FarmSpec, cycles: i64, period: i64, width: i64, jitter: &[i6
     let mut trace_now: Vec<i32> = Vec::new();
     let mut ci = 0usize;
     let (mut last, mut last9) = (0, 0);
+    let (mut drive_before, mut drive_after) = (String::new(), String::new());
     for t in 0..horizon {
         if ci < pulse_at.len() && t == pulse_at[ci] {
             // (read both taps just before the pulse: the state after the previous pulse, u = ci)
@@ -190,7 +203,13 @@ pub fn bench(spec: &FarmSpec, cycles: i64, period: i64, width: i64, jitter: &[i6
                 first_trace = Some((ci, std::mem::take(&mut trace_now)));
             }
             trace_now.clear();
+            if ci == 0 {
+                drive_before = run.world.get(drive).to_string();
+            }
             run.world.set_block(drive, on.clone(), all);
+            if ci == 0 {
+                drive_after = run.world.get(drive).to_string();
+            }
         }
         if ci < pulse_at.len() && t == pulse_at[ci] + width {
             run.world.set_block(drive, air.clone(), all);
@@ -230,32 +249,92 @@ pub fn bench(spec: &FarmSpec, cycles: i64, period: i64, width: i64, jitter: &[i6
     let hoppers: Vec<P> = design().blocks.iter().filter(|(_, s)| s.contains("hopper")).map(|(p, _)| *p).collect();
     let in_droppers: usize = DROPPERS.iter().map(|p| redsim::redstone::container::analog_output(&run.world, bp(*p)).min(1) as usize).sum();
     let in_hoppers: usize = hoppers.iter().map(|p| redsim::redstone::container::analog_output(&run.world, bp(*p)).min(1) as usize).sum();
-    let items = in_droppers + in_hoppers;
+    Ok(RingOut { levels, levels9, ok, ok9, bad, settle_max, settle9_max, cons, dips, first_trace, items: in_droppers + in_hoppers, in_droppers, in_hoppers, drive_before, drive_after })
+}
+
+/// (the chain fix: ctl-ring's positive control) The ring with its unstackable token replaced by a stackable one:
+/// the main tap reads 1 at u 0 instead of 2, which the match bar must catch.
+pub fn control_design() -> Design {
+    let mut d = design();
+    let k = token_droppers()[0];
+    d.block_entities.insert(DROPPERS[k], "{Items:[{Slot:0b,id:\"minecraft:stone\",count:1}]}".to_string());
+    d.name = "units-ring10-8tokens-control-stackable-u0".into();
+    d
+}
+
+/// The bench: `cycles` clock pulses (a redstone block at the driver's input for `width` gt) every
+/// `period` gt (+ a jitter from `jitter`, cycling). Both taps read just before each next pulse: the
+/// main tap shows the token due at u = the step count (2 at u 0, 1 at an event, 0 otherwise), the u = 9
+/// tap the one due a step later. Every tick between pulses is traced: the settle time after a pulse,
+/// and between two consecutive token phases whether the main tap's level dropped to 0 (an edge an
+/// event counter could count) or held >= 1 (no edge: the counter must be clocked by the step and the
+/// tap sampled). The items in the ring at the end (8: none lost). (The chain fix) every bar through `v`; the
+/// control (`control`: the same bench path on `control_design`) must break the match bar.
+pub fn bench(spec: &FarmSpec, control: &FarmSpec, cycles: i64, period: i64, width: i64, jitter: &[i64], v: &mut crate::verdict::Verdict) -> Result<Vec<String>, String> {
+    // (G1's checklist (6): no argument may make a bar vacuous)
+    if cycles < 20 {
+        return Err(format!("--cycles {cycles}: at least 20 (two rotations of the 10-step ring)"));
+    }
+    if width < 1 || width >= period {
+        return Err(format!("--width {width}: 1 ..< --period {period}"));
+    }
+    if let Some(j) = jitter.iter().find(|j| j.abs() * 2 >= period) {
+        return Err(format!("--jitter {j}: |jitter| < period / 2 (a jittered pulse must not reach the next)"));
+    }
+    let r = run_ring(spec, cycles, period, width, jitter)?;
     let row = |v: &[i32]| v.iter().take(20).map(|l| l.to_string()).collect::<Vec<_>>().join(" ");
     let toks = token_droppers();
+    let over = v.over("the clock's drive cell (0,0,3) at the first pulse", &r.drive_before, &r.drive_after);
+    let m_main = v.bar_n("the main tap matches before every pulse", r.levels.len(), r.ok == r.levels.len() as u64);
+    let m_9 = v.bar_n("the u-9 tap matches before every pulse", r.levels9.len(), r.ok9 == r.levels9.len() as u64);
+    // (the tap must settle inside the step: its latest change, counted from the pulse's rise, before the next pulse's rise;
+    // the next pulse comes at least period - 2 max|jitter| after this one's)
+    let jmax = jitter.iter().map(|j| j.abs()).max().unwrap_or(0);
+    let next_rise = period - 2 * jmax;
+    let s_ok = v.bar("both taps settle before the next pulse", r.settle_max < next_rise && r.settle9_max < next_rise);
+    let t_ok = v.bar("every token kept (8 containers holding a token at the end)", r.items == EVENTS.len());
+    let c = run_ring(control, cycles, period, width, jitter)?;
+    let ctl = v.control("the stackable-u0 ring (the match bar must catch the u 0 phase)", c.levels.len(), c.ok < c.levels.len() as u64);
+    let scope = v.scope("the dips between consecutive token phases", "a design input for the event counter's clocking, not a bar");
     Ok(vec![
         format!(
-            "units ring (10 droppers, {} tokens at u {{{}}}: the unstackable at D{}, stones at D{}; the main tap on D{TAP}, the u-9 tap on D{TAP9}): {cycles} pulses {width} gt wide every {period} gt (jitter {:?}): before each pulse the main tap matched (2 at u 0, 1 at an event, 0 otherwise) {ok} of {}, the u-9 tap (the token due a step later; 2 at u 9) {ok9} of {}{}",
+            "units ring (10 droppers, {} tokens at u {{{}}}: the unstackable at D{}, stones at D{}; the main tap on D{TAP}, the u-9 tap on D{TAP9}): {cycles} pulses {width} gt wide every {period} gt (jitter {:?}; {over}): before each pulse the main tap matched (2 at u 0, 1 at an event, 0 otherwise) {} of {} ({m_main}), the u-9 tap (the token due a step later; 2 at u 9) {} of {} ({m_9}){}",
             EVENTS.len(),
             EVENTS.iter().map(|e| e.to_string()).collect::<Vec<_>>().join(", "),
             toks[0],
             toks[1..].iter().map(|k| k.to_string()).collect::<Vec<_>>().join(", D"),
             jitter,
-            levels.len(),
-            levels9.len(),
-            if bad.is_empty() { String::new() } else { format!(" (FAIL: {})", bad.join("; ")) }
+            r.ok,
+            r.levels.len(),
+            r.ok9,
+            r.levels9.len(),
+            if r.bad.is_empty() { String::new() } else { format!(" (the misses: {})", r.bad.join("; ")) }
         ),
         format!(
-            "  the main tap before the first 20 pulses: {}; the u-9 tap: {}; the latest change after a pulse: main {settle_max} gt, u-9 {settle9_max} gt; containers holding a token at the end {items} ({in_droppers} droppers + {in_hoppers} hoppers; {} expected: none lost)",
-            row(&levels),
-            row(&levels9),
+            "  the main tap before the first 20 pulses: {}; the u-9 tap: {}; the latest change after a pulse's rise: main {} gt, u-9 {} gt (bar: before the next pulse's rise, {} gt after it at the earliest: {s_ok}); containers holding a token at the end {} ({} droppers + {} hoppers; {} expected, none lost: {t_ok})",
+            row(&r.levels),
+            row(&r.levels9),
+            r.settle_max,
+            r.settle9_max,
+            next_rise,
+            r.items,
+            r.in_droppers,
+            r.in_hoppers,
             EVENTS.len()
         ),
         format!(
-            "  between consecutive token phases ({cons} steps: u 0 -> 1 -> 2, 4 -> 5 -> 6 -> 7 -> 8): the main tap dropped to 0 inside {dips} of them, held >= 1 through {} ({}){}",
-            cons - dips,
-            if dips == cons { "an edge each step: an event counter may count the tap's rises" } else { "no edge between them: the event counter must be clocked by the step, the tap sampled after it settles" },
-            first_trace.map_or(String::new(), |(k, tr)| format!("; the tick-by-tick main tap through the step into u {k}: {}", tr.iter().map(|l| l.to_string()).collect::<Vec<_>>().join(" ")))
+            "  between consecutive token phases ({} steps: u 0 -> 1 -> 2, 4 -> 5 -> 6 -> 7 -> 8): the main tap dropped to 0 inside {} of them, held >= 1 through {} ({}){}; {scope}",
+            r.cons,
+            r.dips,
+            r.cons - r.dips,
+            if r.dips == r.cons { "an edge each step: an event counter may count the tap's rises" } else { "no edge between them: the event counter must be clocked by the step, the tap sampled after it settles" },
+            r.first_trace.as_ref().map_or(String::new(), |(k, tr)| format!("; the tick-by-tick main tap through the step into u {k}: {}", tr.iter().map(|l| l.to_string()).collect::<Vec<_>>().join(" ")))
+        ),
+        format!(
+            "  CONTROL (the chain fix): the same bench on the ring with a stackable token at u 0: the main tap matched {} of {} ({ctl}){}",
+            c.ok,
+            c.levels.len(),
+            if c.bad.is_empty() { String::new() } else { format!("; its first miss: {}", c.bad[0]) }
         ),
     ])
 }

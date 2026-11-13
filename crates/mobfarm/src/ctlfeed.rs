@@ -7,7 +7,9 @@
 //! head cell ((0,23,9), (4,23,9)), so their dust stands on a slime block (x-2,22,9), strongly powered from
 //! the side by day-1's delay-3 repeater: lane -1's at (-4,22,9) facing west (input the dust (-5,22,9)),
 //! lane 3's at (2,22,9) facing east (input the dust (3,22,9), under glass (3,23,9)). Both paths take 8 gt
-//! from the line's input to R (4 + 2 + 2 against 6 + 0 + 2), so R switches at D + 6 in every lane.
+//! from the line's input to R: lanes -1 / 3 6 + 0 + 2 (day-1's delay-3 repeater, the slime-supported dust,
+//! ironfarm's delay-1 driver), lane 7 4 + 2 + 2 (day-1's delay-2 switched cell, ironfarm's delay-1 repeater,
+//! its delay-1 driver): R powered 8 gt after the line's input in every lane, the bench's judged bar.
 //! (A diode's `facing` names its input side, as in the game.)
 //!
 //! The bench lays each lane's cells from the composed module (onechunk's rev 3, 213bda2bf) with the
@@ -43,11 +45,14 @@ const DUST: &str = "minecraft:redstone_wire[east=none,north=none,power=0,south=n
 const GLASS: &str = "minecraft:glass";
 
 /// One lane's cells: (the blocks, the drive cell, the powered slime under the feed dust if any, the
-/// candidate cells that must stay empty).
-fn lane_cells(l: &Lane) -> (Vec<(P, String)>, P, Option<P>, Vec<P>) {
+/// candidate cells that must stay empty). `slow`: the control lane (the chain fix), day-1's own repeater one tick
+/// slower (delay 3 -> 4 from below, 2 -> 3 for the ruled feed), which the 8-gt bar must catch.
+fn lane_cells(l: &Lane, slow: bool) -> (Vec<(P, String)>, P, Option<P>, Vec<P>) {
     let x = l.x;
     let mut b: Vec<(P, String)> = Vec::new();
     let mut put = |p: P, s: &str| b.push((p, s.to_string()));
+    let below_rep = if slow { 4 } else { 3 };
+    let east_rep = if slow { 3 } else { 2 };
     // R, its slime, the glass it leans on (an ascending rail is removed without a sturdy block in its
     // ascending direction), ironfarm's driver on its glass, the feed dust
     put([x - 2, 24, 7], "minecraft:powered_rail[powered=false,shape=ascending_south,waterlogged=false]");
@@ -68,7 +73,7 @@ fn lane_cells(l: &Lane) -> (Vec<(P, String)>, P, Option<P>, Vec<P>) {
             // its input dust (-5,22,9) on glass; the exit rail's glass (-5,23,9), (-4,23,9); the floors
             // (-1..0,21,9) (glowstone; F3's cfd6fd621 dropped (-3,21,9) and (-2,21,9), G1 on 9c30d6dc3)
             put([-3, 22, 9], "minecraft:slime_block");
-            put([-4, 22, 9], "minecraft:repeater[delay=3,facing=west,locked=false,powered=false]");
+            put([-4, 22, 9], &format!("minecraft:repeater[delay={below_rep},facing=west,locked=false,powered=false]"));
             put([-4, 21, 9], GLASS);
             put([-5, 22, 9], DUST);
             put([-5, 21, 9], GLASS);
@@ -83,7 +88,7 @@ fn lane_cells(l: &Lane) -> (Vec<(P, String)>, P, Option<P>, Vec<P>) {
             // the slime under the feed dust; day-1's delay-3 repeater (2,22,9) facing east on glass, its
             // input dust (3,22,9) on glass under glass (3,23,9); the floors (0,21,9), (4,21,9)
             put([1, 22, 9], "minecraft:slime_block");
-            put([2, 22, 9], "minecraft:repeater[delay=3,facing=east,locked=false,powered=false]");
+            put([2, 22, 9], &format!("minecraft:repeater[delay={below_rep},facing=east,locked=false,powered=false]"));
             put([2, 21, 9], GLASS);
             put([3, 22, 9], DUST);
             put([3, 21, 9], GLASS);
@@ -99,7 +104,7 @@ fn lane_cells(l: &Lane) -> (Vec<(P, String)>, P, Option<P>, Vec<P>) {
             put([x - 2, 22, 9], GLASS);
             put([x - 1, 23, 9], "minecraft:repeater[delay=1,facing=east,locked=false,powered=false]");
             put([x - 1, 22, 9], GLASS);
-            put([x, 23, 9], "minecraft:repeater[delay=2,facing=east,locked=false,powered=false]");
+            put([x, 23, 9], &format!("minecraft:repeater[delay={east_rep},facing=east,locked=false,powered=false]"));
             put([x, 22, 9], GLASS);
             put([x + 1, 23, 9], DUST);
             put([x + 1, 22, 9], GLASS);
@@ -109,8 +114,8 @@ fn lane_cells(l: &Lane) -> (Vec<(P, String)>, P, Option<P>, Vec<P>) {
     (b, drive, slime, empty)
 }
 
-fn spec(l: &Lane) -> Result<(FarmSpec, P, Option<P>, Vec<P>), String> {
-    let (cells, drive, slime, empty) = lane_cells(l);
+fn spec(l: &Lane, slow: bool) -> Result<(FarmSpec, P, Option<P>, Vec<P>), String> {
+    let (cells, drive, slime, empty) = lane_cells(l, slow);
     let mut blocks = Vec::new();
     for (p, s) in cells {
         blocks.push((BlockPos::new(p[0], p[1], p[2]), Block::parse(&s).map_err(|e| e.to_string())?));
@@ -138,14 +143,17 @@ struct Out {
     /// (G1 on 7ccd7737c point 5) every edge, so an extra pulse from a reload is seen
     rises: Vec<i64>,
     falls: Vec<i64>,
-    slime_nb: Vec<String>,
+    slime_nb: Vec<(P, String)>,
     dust: String,
     r_state: String,
     empty_ok: bool,
+    /// (the override rule) the drive cell's state before -> after the drive is placed.
+    drive_before: String,
+    drive_after: String,
 }
 
-fn run_once(l: &Lane, t0: i64, width: i64, restart: Option<(i64, crate::liveness::Restart)>) -> Result<Out, String> {
-    let (sp, drive, slime, empty) = spec(l)?;
+fn run_once(l: &Lane, t0: i64, width: i64, restart: Option<(i64, crate::liveness::Restart)>, slow: bool) -> Result<Out, String> {
+    let (sp, drive, slime, empty) = spec(l, slow)?;
     let sp = crate::mirror::checked(&sp)?;
     let ro = RunOpts { ai: false, ..RunOpts::steady(1, 0, WalkMode::Random) };
     let mut run = Run::start(&sp, &ro)?;
@@ -154,7 +162,7 @@ fn run_once(l: &Lane, t0: i64, width: i64, restart: Option<(i64, crate::liveness
     let air = Block::parse("minecraft:air").map_err(|e| e.to_string())?;
     let bp = |p: P| crate::mirror::at(p);
     let r = [l.x - 2, 24, 7];
-    let mut out = Out { rise: None, fall: None, rises: Vec::new(), falls: Vec::new(), slime_nb: Vec::new(), dust: String::new(), r_state: String::new(), empty_ok: true };
+    let mut out = Out { rise: None, fall: None, rises: Vec::new(), falls: Vec::new(), slime_nb: Vec::new(), dust: String::new(), r_state: String::new(), empty_ok: true, drive_before: String::new(), drive_after: String::new() };
     let mut was = false;
     for t in 0..(t0 + width + 40) {
         if let Some((rt, how)) = restart
@@ -163,7 +171,9 @@ fn run_once(l: &Lane, t0: i64, width: i64, restart: Option<(i64, crate::liveness
             crate::liveness::restart(&mut run.world, how)?;
         }
         if t == t0 {
+            out.drive_before = run.world.get(bp(drive)).to_string();
             run.world.set_block(bp(drive), on.clone(), redsim::world::flags::ALL);
+            out.drive_after = run.world.get(bp(drive)).to_string();
         }
         if t == t0 + width {
             run.world.set_block(bp(drive), air.clone(), redsim::world::flags::ALL);
@@ -187,8 +197,7 @@ fn run_once(l: &Lane, t0: i64, width: i64, restart: Option<(i64, crate::liveness
             if let Some(s) = slime {
                 for d in [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]] {
                     let q = [s[0] + d[0], s[1] + d[1], s[2] + d[2]];
-                    let name = run.world.get(bp(q)).to_string();
-                    out.slime_nb.push(format!("({},{},{}) {}", q[0], q[1], q[2], name.trim_start_matches("minecraft:")));
+                    out.slime_nb.push((q, run.world.get(bp(q)).to_string()));
                 }
             }
             out.dust = run.world.get(bp([l.x - 2, 23, 9])).to_string();
@@ -206,8 +215,16 @@ fn row(m: &Hist) -> String {
 }
 
 /// The bench: per lane, R's rise and fall after the drive's at 20 phases; with a restart at every tick
-/// t0 - 1 .. t0 + 10 and t1 - 1 .. t1 + 10 in every reload order; the reach facts.
-pub fn bench(width: i64) -> Result<Vec<String>, String> {
+/// t0 - 1 .. t0 + 10 and t1 - 1 .. t1 + 10 in every reload order; the reach facts. (The chain fix) every bar
+/// through `v`: R powered exactly 8 gt after the drive (the PRESENT bar's 14 = k_sw + 8, ironspec 05:03 PT), one
+/// rise and one fall per phase, every restart row the same, the dust's connections, the slime's neighbours, the
+/// candidate cells; the control: the lane with day-1's repeater one tick slower must break the 8-gt bar.
+pub fn bench(width: i64, v: &mut crate::verdict::Verdict) -> Result<Vec<String>, String> {
+    // (G1's audit, hole 16: no silent clamp; a drive of 30 gt is the design's, f1q2-run's siding input)
+    if width < 1 {
+        return Err(format!("--width {width}: at least 1 gt"));
+    }
+    const R_DELAY: i64 = 8;
     let mut lines = vec![format!(
         "the siding feeds (ironspec 11:22: lanes -1 and 3 fed from below, lane 7 as ruled), each lane's cells from rev 3 with the context touching them, the line's input driven {width} gt; R = the S-bend's powered rail (x-2,24,7); every run's spec checked: 0 cells outside its world's box{}",
         crate::mirror::tag()
@@ -217,8 +234,14 @@ pub fn bench(width: i64) -> Result<Vec<String>, String> {
         let mut base: Option<(i64, i64)> = None;
         // (G1 on 7ccd7737c point 5: a phase with no edge, or more than one, is a failure, never a drop)
         let mut edge_bad: Vec<String> = Vec::new();
+        let mut phases = 0usize;
+        let mut drive_over = String::new();
         for t0 in 40..60 {
-            let o = run_once(l, t0, width, None)?;
+            let o = run_once(l, t0, width, None, false)?;
+            phases += 1;
+            if drive_over.is_empty() {
+                drive_over = v.over(&format!("lane {}'s drive cell", l.x), &o.drive_before, &o.drive_after);
+            }
             if o.rises.len() != 1 || o.falls.len() != 1 {
                 edge_bad.push(format!("drive at t0 {t0}: R rises {:?}, falls {:?}", o.rises, o.falls));
             }
@@ -230,11 +253,14 @@ pub fn bench(width: i64) -> Result<Vec<String>, String> {
                 base.get_or_insert((r - t0, f - (t0 + width)));
             }
         }
+        let edges = v.bar_n(&format!("lane {}: one rise and one fall at every phase", l.x), phases, edge_bad.is_empty());
+        let delay_ok = !rise.is_empty() && rise.keys().all(|&k| k == R_DELAY);
+        let delay = v.bar_n(&format!("lane {}: R powered {R_DELAY} gt after the drive at every phase", l.x), rise.values().sum::<u32>() as usize, delay_ok);
         let t0 = 40;
         let (mut n, mut same, mut diff) = (0u32, 0u32, Vec::<String>::new());
         for rt in ((t0 - 1)..=(t0 + 10)).chain((t0 + width - 1)..=(t0 + width + 10)) {
             for how in crate::liveness::Restart::rows() {
-                let o = run_once(l, t0, width, Some((rt, how)))?;
+                let o = run_once(l, t0, width, Some((rt, how)), false)?;
                 n += 1;
                 // (every edge compared: exactly the base's one rise and one fall)
                 let rises: Vec<i64> = o.rises.iter().map(|r| r - t0).collect();
@@ -246,16 +272,32 @@ pub fn bench(width: i64) -> Result<Vec<String>, String> {
                 }
             }
         }
-        let facts = run_once(l, t0, width, None)?;
+        let restarts = v.bar_n(&format!("lane {}: every restart row the same as without one", l.x), n as usize, diff.is_empty() && base.is_some());
+        let facts = run_once(l, t0, width, None, false)?;
         // (from below: the dust connects only to its driver (north); the ruled feed: to ironfarm's
         // repeater (east) and its driver)
         let dust_ok = match l.feed {
             Feed::Below => facts.dust.contains("east=none") && facts.dust.contains("west=none"),
             Feed::East => facts.dust.contains("east=side") && facts.dust.contains("west=none"),
         };
-        let slime_ok = facts.slime_nb.iter().all(|s| !s.contains("rail"));
+        let dust_w = v.bar(&format!("lane {}: the feed dust's connections", l.x), dust_ok);
+        // (G1's audit, hole 16: the slime's neighbours checked against the designed set, not by a "rail" substring: the
+        // feed dust above it, day-1's repeater beside it, and air, glass or glowstone otherwise)
+        let feed_dust = [l.x - 2, 23, 9];
+        let slime_ok = facts.slime_nb.iter().all(|(q, s)| {
+            *q == feed_dust && s.contains("redstone_wire") || s.contains("minecraft:repeater") && (q[0] == -4 || q[0] == 2) && q[1] == 22 || s == "minecraft:air" || s == "minecraft:glass" || s == "minecraft:glowstone"
+        });
+        let slime_w = match l.feed {
+            Feed::Below => v.bar_n(&format!("lane {}: the powered slime's neighbours are the designed set", l.x), facts.slime_nb.len(), slime_ok),
+            Feed::East => v.scope(&format!("lane {}'s powered slime", l.x), "the ruled feed has none"),
+        };
+        let empty_w = v.bar(&format!("lane {}: the candidate cells empty", l.x), facts.empty_ok);
+        // (the control: the same lane with day-1's repeater one tick slower, through the same run)
+        let c = run_once(l, t0, width, None, true)?;
+        let c_rise = c.rise.map(|r| r - t0 + 1);
+        let ctl = v.control(&format!("lane {}'s slower repeater breaks the {R_DELAY}-gt bar", l.x), usize::from(c_rise.is_some()), c_rise.is_some_and(|k| k != R_DELAY));
         lines.push(format!(
-            "  lane {} ({}): R powered (gt after the drive, gt:count; the drive placed before tick t0, R read after each tick) {}, unpowered after the drive's removal {}; phases without exactly one rise and one fall {}{}; with a restart at every tick around both edges in every reload order, every edge compared: {same} of {n} the same{}; R with the drive on: {}; the feed dust (x-2,23,9) {} ({}); {}; the candidate cells {}",
+            "  lane {} ({}): {drive_over}; R powered (gt after the drive, gt:count; the drive placed before tick t0, R read after each tick) {} (bar {R_DELAY}: {delay}), unpowered after the drive's removal {}; phases without exactly one rise and one fall {} ({edges}){}; with a restart at every tick around both edges in every reload order, every edge compared: {same} of {n} the same ({restarts}){}; R with the drive on: {}; the feed dust (x-2,23,9) {} ({dust_w}); {}; the candidate cells {} ({empty_w}); CONTROL (the repeater one tick slower): R powered {} gt after the drive ({ctl})",
             l.x,
             match l.feed {
                 Feed::Below => "fed from below: day-1's delay-3 repeater into the slime under the feed dust",
@@ -264,17 +306,17 @@ pub fn bench(width: i64) -> Result<Vec<String>, String> {
             row(&rise),
             row(&fall),
             edge_bad.len(),
-            if edge_bad.is_empty() { String::new() } else { format!(" (FAIL: {})", edge_bad.iter().take(3).cloned().collect::<Vec<_>>().join("; ")) },
-            if diff.is_empty() { String::new() } else { format!(" (DIFFERENT: {})", diff.iter().take(3).cloned().collect::<Vec<_>>().join("; ")) },
+            if edge_bad.is_empty() { String::new() } else { format!(" ({})", edge_bad.iter().take(3).cloned().collect::<Vec<_>>().join("; ")) },
+            if diff.is_empty() { String::new() } else { format!(" (the differing rows: {})", diff.iter().take(3).cloned().collect::<Vec<_>>().join("; ")) },
             facts.r_state.trim_start_matches("minecraft:"),
             facts.dust.trim_start_matches("minecraft:"),
-            match (l.feed, dust_ok) {
-                (Feed::Below, true) => "pointing only into its driver: no east or west connection",
-                (Feed::East, true) => "fed by ironfarm's repeater from the east, into its driver",
-                _ => "UNEXPECTED connections",
+            if facts.slime_nb.is_empty() {
+                slime_w
+            } else {
+                format!("the powered slime's neighbours: {} ({slime_w})", facts.slime_nb.iter().map(|(q, s)| format!("({},{},{}) {}", q[0], q[1], q[2], s.trim_start_matches("minecraft:"))).collect::<Vec<_>>().join(", "))
             },
-            if facts.slime_nb.is_empty() { "no powered slime under the dust".to_string() } else { format!("the powered slime's neighbours: {} ({})", facts.slime_nb.join(", "), if slime_ok { "no rail" } else { "A RAIL" }) },
-            if facts.empty_ok { "empty" } else { "NOT EMPTY" }
+            if facts.empty_ok { "empty" } else { "NOT EMPTY" },
+            c_rise.map_or("NEVER".to_string(), |k| k.to_string())
         ));
     }
     Ok(lines)

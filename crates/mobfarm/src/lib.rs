@@ -43,6 +43,7 @@ pub mod linebench;
 pub mod mirror;
 pub mod recordmatch;
 pub mod settle;
+pub mod verdict;
 pub mod oddtap;
 pub mod ctlring;
 pub mod parts;

@@ -97,9 +97,19 @@ fn spec(v: Variant) -> Result<(FarmSpec, [P; 3]), String> {
     Ok((sp, sw))
 }
 
-/// One run: lane `lane`'s switch on from t0 for `width` gt; a restart between ticks; each pocket rail's
-/// first rise and fall (ticks after which it reads powered / unpowered).
-fn run_once(v: Variant, lane: usize, t0: i64, width: i64, restart: Option<(i64, crate::liveness::Restart)>) -> Result<[(Option<i64>, Option<i64>); 3], String> {
+/// One rail's record: powered at settle (before any switch), every rise and fall (the ticks after which it reads
+/// powered / unpowered).
+#[derive(Clone, Default)]
+struct RailRec {
+    at_settle: bool,
+    rises: Vec<i64>,
+    falls: Vec<i64>,
+}
+
+/// One run: lane `lane`'s switch on from t0 for `width` gt (None: no switch driven, the control's idle run); a
+/// restart between ticks; each pocket rail's every edge (G1's audit hole 17: every edge kept, so a double pulse
+/// from a restart is seen); the switch cell's state before -> after its drive.
+fn run_once(v: Variant, lane: Option<usize>, t0: i64, width: i64, restart: Option<(i64, crate::liveness::Restart)>) -> Result<([RailRec; 3], Option<(String, String)>), String> {
     let (sp, sw) = spec(v)?;
     let sp = crate::mirror::checked(&sp)?;
     let ro = RunOpts { ai: false, ..RunOpts::steady(1, 0, WalkMode::Random) };
@@ -108,14 +118,13 @@ fn run_once(v: Variant, lane: usize, t0: i64, width: i64, restart: Option<(i64, 
     let on = Block::parse("minecraft:redstone_block").map_err(|e| e.to_string())?;
     let air = Block::parse("minecraft:air").map_err(|e| e.to_string())?;
     let bp = |p: P| crate::mirror::at(p);
-    let mut out = [(None, None); 3];
+    let mut out: [RailRec; 3] = Default::default();
     let mut was = [false; 3];
+    let mut drive: Option<(String, String)> = None;
     // (the rails as settled, before any switch: the control's lane 3 is already powered by the leak)
     for (i, &x) in XS.iter().enumerate() {
         was[i] = run.world.get(bp([x, 0, 0])).to_string().contains("powered=true");
-        if was[i] {
-            out[i].0 = Some(-1);
-        }
+        out[i].at_settle = was[i];
     }
     for t in 0..(t0 + width + 30) {
         if let Some((rt, how)) = restart
@@ -123,25 +132,29 @@ fn run_once(v: Variant, lane: usize, t0: i64, width: i64, restart: Option<(i64, 
         {
             crate::liveness::restart(&mut run.world, how)?;
         }
-        if t == t0 {
-            run.world.set_block(bp(sw[lane]), on.clone(), redsim::world::flags::ALL);
-        }
-        if t == t0 + width {
-            run.world.set_block(bp(sw[lane]), air.clone(), redsim::world::flags::ALL);
+        if let Some(ln) = lane {
+            if t == t0 {
+                let before = run.world.get(bp(sw[ln])).to_string();
+                run.world.set_block(bp(sw[ln]), on.clone(), redsim::world::flags::ALL);
+                drive = Some((before, run.world.get(bp(sw[ln])).to_string()));
+            }
+            if t == t0 + width {
+                run.world.set_block(bp(sw[ln]), air.clone(), redsim::world::flags::ALL);
+            }
         }
         run.tick();
         for (i, &x) in XS.iter().enumerate() {
             let now = run.world.get(bp([x, 0, 0])).to_string().contains("powered=true");
-            if now && !was[i] && out[i].0.is_none() {
-                out[i].0 = Some(t);
+            if now && !was[i] {
+                out[i].rises.push(t);
             }
-            if !now && was[i] && out[i].1.is_none() {
-                out[i].1 = Some(t);
+            if !now && was[i] {
+                out[i].falls.push(t);
             }
             was[i] = now;
         }
     }
-    Ok(out)
+    Ok((out, drive))
 }
 
 type Hist = std::collections::BTreeMap<i64, u32>;
@@ -153,25 +166,35 @@ fn row(m: &Hist) -> String {
     m.iter().map(|(k, v)| format!("{k}:{v}")).collect::<Vec<_>>().join(" ")
 }
 
-/// The bench (see the module's doc).
-pub fn bench() -> Result<Vec<String>, String> {
+/// The bench (see the module's doc). (The chain fix) every bar through `v`: each driven lane one rise and one fall
+/// at every phase, no other pocket's rail moving (a leak), every restart row the same, (b) the same as (a) phase by
+/// phase; the control (no switch driven) must show lane 3 powered at settle by the leak.
+pub fn bench(v: &mut crate::verdict::Verdict) -> Result<Vec<String>, String> {
     let width = 30i64;
     let mut lines = vec![format!(
         "the pocket drive (ironspec 16:03: (b) M16bw final once its power rise matches (a)'s at every pocket): all three pockets of a variant laid at once, one lane's switch cell driven {width} gt at 20 phases; P = the pocket rail (x,0,0); every run's spec checked: 0 cells outside its world's box{}",
         crate::mirror::tag()
     )];
     let mut rises: std::collections::BTreeMap<(usize, &str), Vec<Option<(i64, i64)>>> = Default::default();
-    for (v, vname) in [(Variant::A, "(a) the slime support (x,-1,0) under P, its delay-1 repeater (x,-1,-1)"), (Variant::B, "(b) M16bw: the side repeater (x-1,0,0) into P, the riser (x-2,0,0), the step (x-3,-1,0), the feed (lane -1 from the west)")] {
+    for (var, vname) in [(Variant::A, "(a) the slime support (x,-1,0) under P, its delay-1 repeater (x,-1,-1)"), (Variant::B, "(b) M16bw: the side repeater (x-1,0,0) into P, the riser (x-2,0,0), the step (x-3,-1,0), the feed (lane -1 from the west)")] {
         lines.push(format!("  {vname}:"));
+        let tag = if var == Variant::A { "a" } else { "b" };
         for (i, &x) in XS.iter().enumerate() {
             let (mut rise, mut fall, mut leaks) = (Hist::new(), Hist::new(), 0u32);
             let mut base: Option<(i64, i64)> = None;
             // (G1 on dd1c4270f point 2: each phase's (rise, fall) kept, an edge-less phase a failure, and (a)
-            // against (b) compared phase by phase)
+            // against (b) compared phase by phase; G1's audit hole 17: exactly one rise and one fall)
             let mut per_phase: Vec<Option<(i64, i64)>> = Vec::new();
+            let mut drive_over = String::new();
             for t0 in 40..60 {
-                let o = run_once(v, i, t0, width, None)?;
-                if let (Some(r), Some(f)) = o[i] {
+                let (o, drive) = run_once(var, Some(i), t0, width, None)?;
+                if drive_over.is_empty()
+                    && let Some((b, a)) = &drive
+                {
+                    drive_over = v.over(&format!("({tag}) lane {x}'s switch cell"), b, a);
+                }
+                if o[i].rises.len() == 1 && o[i].falls.len() == 1 && !o[i].at_settle {
+                    let (r, f) = (o[i].rises[0], o[i].falls[0]);
                     *rise.entry(r - t0 + 1).or_default() += 1;
                     *fall.entry(f - (t0 + width) + 1).or_default() += 1;
                     base.get_or_insert((r - t0, f - (t0 + width)));
@@ -179,51 +202,54 @@ pub fn bench() -> Result<Vec<String>, String> {
                 } else {
                     per_phase.push(None);
                 }
-                leaks += o.iter().enumerate().filter(|(j, s)| *j != i && s.0.is_some()).count() as u32;
+                leaks += o.iter().enumerate().filter(|(j, s)| *j != i && (s.at_settle || !s.rises.is_empty())).count() as u32;
             }
             let edgeless = per_phase.iter().filter(|p| p.is_none()).count();
-            rises.insert((i, if v == Variant::A { "a" } else { "b" }), per_phase);
+            let edges = v.bar_n(&format!("({tag}) lane {x}: one rise and one fall at every phase"), per_phase.len(), edgeless == 0);
+            let leak_w = v.bar_n(&format!("({tag}) lane {x}: no other pocket's rail moves"), per_phase.len(), leaks == 0);
+            rises.insert((i, tag), per_phase);
             let t0 = 40;
             let (mut n, mut same, mut diff) = (0u32, 0u32, Vec::<String>::new());
             for rt in ((t0 - 1)..=(t0 + 6)).chain((t0 + width - 1)..=(t0 + width + 6)) {
                 for how in crate::liveness::Restart::rows() {
-                    let o = run_once(v, i, t0, width, Some((rt, how)))?;
+                    let (o, _) = run_once(var, Some(i), t0, width, Some((rt, how)))?;
                     n += 1;
-                    let got = (o[i].0.map(|r| r - t0), o[i].1.map(|f| f - (t0 + width)));
-                    let leak = o.iter().enumerate().any(|(j, s)| j != i && s.0.is_some());
-                    if Some((got.0.unwrap_or(-99), got.1.unwrap_or(-99))) == base && !leak {
+                    let got_r: Vec<i64> = o[i].rises.iter().map(|r| r - t0).collect();
+                    let got_f: Vec<i64> = o[i].falls.iter().map(|f| f - (t0 + width)).collect();
+                    let leak = o.iter().enumerate().any(|(j, s)| j != i && (s.at_settle || !s.rises.is_empty()));
+                    if base.is_some_and(|(br, bf)| got_r == vec![br] && got_f == vec![bf]) && !leak {
                         same += 1;
                     } else {
-                        diff.push(format!("restart at t0 + {} ({}): P rise {:?}, fall {:?}, leak {leak}", rt - t0, how.label(), got.0, got.1));
+                        diff.push(format!("restart at t0 + {} ({}): P rises {got_r:?}, falls {got_f:?}, leak {leak}", rt - t0, how.label()));
                     }
                 }
             }
+            let restarts = v.bar_n(&format!("({tag}) lane {x}: every restart row the same as without one"), n as usize, diff.is_empty() && base.is_some());
             lines.push(format!(
-                "    lane {x}: P powered (gt after the switch, gt:count) {}, unpowered after the switch's removal {}; phases without a rise and a fall {edgeless}{}; the other pockets' rails rose {leaks} times (a leak); with a restart at every tick around both edges in every reload order: {same} of {n} the same{}",
+                "    lane {x} ({drive_over}): P powered (gt after the switch, gt:count) {}, unpowered after the switch's removal {}; phases without exactly one rise and one fall {edgeless} ({edges}); the other pockets' rails moved {leaks} times (a leak; {leak_w}); with a restart at every tick around both edges in every reload order: {same} of {n} the same ({restarts}){}",
                 row(&rise),
                 row(&fall),
-                if edgeless > 0 { " (FAIL)" } else { "" },
-                if diff.is_empty() { String::new() } else { format!(" (DIFFERENT: {})", diff.iter().take(3).cloned().collect::<Vec<_>>().join("; ")) }
+                if diff.is_empty() { String::new() } else { format!(" (the differing rows: {})", diff.iter().take(3).cloned().collect::<Vec<_>>().join("; ")) }
             ));
         }
     }
-    let verdict: Vec<String> = XS
-        .iter()
-        .enumerate()
-        .map(|(i, x)| {
-            let (a, b) = (rises.get(&(i, "a")), rises.get(&(i, "b")));
-            let same = matches!((a, b), (Some(a), Some(b)) if !a.is_empty() && a == b && a.iter().all(|p| p.is_some()));
-            format!("lane {x} {}", if same { "the same at every phase" } else { "DIFFERENT (or a phase without edges)" })
-        })
-        .collect();
+    let mut verdict: Vec<String> = Vec::new();
+    for (i, x) in XS.iter().enumerate() {
+        let (a, b) = (rises.get(&(i, "a")), rises.get(&(i, "b")));
+        let same = matches!((a, b), (Some(a), Some(b)) if !a.is_empty() && a == b && a.iter().all(|p| p.is_some()));
+        let w = v.bar(&format!("lane {x}: (b)'s rise and fall the same as (a)'s at every phase"), same);
+        verdict.push(format!("lane {x} {}", w));
+    }
     lines.push(format!("  (b)'s rise against (a)'s, phase by phase: {}", verdict.join(", ")));
-    // the control: lane -1's support a redstone block (no switch driven: lane 0's run with an idle cell)
-    let o = run_once(Variant::LeakControl, 0, 1_000, width, None)?;
+    // the control: lane -1's support a redstone block, NO switch driven (G1's audit defect 3): lane 3's rail must be
+    // powered at settle by the leak, through the same run
+    let (o, drive) = run_once(Variant::LeakControl, None, 40, width, None)?;
+    let ctl = v.control("lane -1's support a redstone block powers lane 3's rail at settle (no switch driven)", 1, drive.is_none() && o[1].at_settle);
     lines.push(format!(
-        "  the control ((b)'s cells, lane -1's support (-1,-1,0) a redstone block, no switch on): lane 3's rail {} (lane 3's step dust (0,-1,0) touches that support), lane 7's {}: {}",
-        if o[1].0.is_some() { "powered" } else { "unpowered" },
-        if o[2].0.is_some() { "powered" } else { "unpowered" },
-        if o[1].0.is_some() { "the leak shows (the bench sees it)" } else { "NO LEAK SEEN (the control fails)" }
+        "  the control ((b)'s cells, lane -1's support (-1,-1,0) a redstone block, no switch driven{}): lane 3's rail at settle {} (lane 3's step dust (0,-1,0) touches that support), lane 7's {}: {ctl}",
+        if drive.is_none() { "" } else { ": A SWITCH WAS DRIVEN" },
+        if o[1].at_settle { "powered" } else { "unpowered" },
+        if o[2].at_settle { "powered" } else { "unpowered" }
     ));
     Ok(lines)
 }

@@ -889,6 +889,10 @@ pub struct LaneOpts {
     /// (ironspec 00:12 PT (2)) One forced skipped pick: on day D, the pick opportunity at cycle SLOT of the night
     /// (from the pick window's first cycle) is skipped as if its lane's napper were away.
     pub skip_pick: Option<(usize, i64)>,
+    /// (G1 07:05 PT, b8949c96's rows) The late-sleeper distribution: each visit's lie-down "asleep at +N gt" past the
+    /// stop's entry drawn from this histogram, the overrun past the normal lie-down (the second value, 89) added to its
+    /// entry -> R (the leg's walk sink outlasting the descent; no HOME lost, only time).
+    pub late_sleep: Option<(Vec<(i64, u32)>, i64)>,
     /// (Nov 12 16:50, today's return legs) Per lane: the merge hold's release -> PRESENT on the lane's
     /// siding (the rail's rise -> (4,0,7) 18, -> K(n) 79/94/110 (7b90c3f1), + 16 to PRESENT), replacing
     /// `post`; and the siding deadline: the predecessor's D pass `t_d` after its release (T_D 93/130/167),
@@ -995,6 +999,9 @@ pub struct LaneStats {
     /// (B3's clocked exit) Visits whose own R passed their tap (taking the next one), and the wait at the tap.
     pub clock_slips: u32,
     pub clock_waits: (i64, i64),
+    /// (ironspec 04:07 PT, the chain audit) Whether the forced skipped pick (`skip_pick`) took: its slot's pick would
+    /// have been made (an opportunity whose lane was free and not HELD), so the override changed its target.
+    pub skip_took: bool,
 }
 
 impl LaneOpts {
@@ -1008,7 +1015,7 @@ impl LaneOpts {
             outlier: None, post: 10, foot: 2, r_leg: 40, window: (55, 99), det: 2, lie: 80, start_dt: 12_431,
             rephase_lag: 0, truncate_after_skip: None, hold_at: None, rule2: false, windows2: false, late_latch: false, log_releases: false,
             siding_window: true, ret: 175, lock_gt: 600, remark: 0.0,
-            queue_leg: None, queue_hold: 0, to_entry: 0, held_at_divert: false, held_at_pick: false, trip_hist: None, pick_window: None, no_quota: false, ret_hist: None, ret_hist_lane: [None, None, None], pick_offsets: None, skip_pick: None, post_lane: None, t_d: None, post_spread: 0, t_d_spread: 0, siding_any: false, clock_exit: None, exit_phase: None, exit_pickup: (0, 0),
+            queue_leg: None, queue_hold: 0, to_entry: 0, held_at_divert: false, held_at_pick: false, trip_hist: None, pick_window: None, no_quota: false, ret_hist: None, ret_hist_lane: [None, None, None], pick_offsets: None, skip_pick: None, late_sleep: None, post_lane: None, t_d: None, post_spread: 0, t_d_spread: 0, siding_any: false, clock_exit: None, exit_phase: None, exit_pickup: (0, 0),
         }
     }
 }
@@ -1085,6 +1092,7 @@ pub fn simulate_lanes_scored(o: &LaneOpts) -> (String, LaneStats) {
     let mut early_lane: [u32; 3] = [0; 3];
     let mut clock_slips: u32 = 0;
     let mut clock_waits: (i64, i64) = (i64::MAX, i64::MIN);
+    let mut skip_took = false;
     let (mut back_in_lane, mut latch_margin_min) = ((i64::MAX, i64::MIN), i64::MAX);
     // (a rejoin at `t`, `dc` cycles into the night: R -> back in lane, and the away latch's margin, the lane's next
     // pick opportunity strictly after this cycle (inside the night's pick window) against the rejoin; a pick
@@ -1265,23 +1273,29 @@ pub fn simulate_lanes_scored(o: &LaneOpts) -> (String, LaneStats) {
                 if opp {
                     lane_opps[l] += 1;
                 }
-                // (ironspec 00:12 PT (2): one forced skipped pick, as if the lane's napper were away)
-                let forced_skip = opp && o.skip_pick.is_some_and(|(sd, slot)| day == sd as i64 && dc - wa == slot);
-                if forced_skip && scored {
-                    busy_skips += 1;
+                let truncated = lag_day == Some(day) && o.truncate_after_skip.is_some_and(|n| c - night_c0 >= n);
+                // ((i): HELD sampled at the divert: a napper held at the queue keeps this cart in its lane;
+                // (b), ironspec 22:05 PT: HELD set at the pick, from another napper's pick to its release)
+                let held_now = (o.held_at_divert && queue_busy.iter().any(|&(a, r)| a <= t && t < r)) || (o.held_at_pick && held_busy.iter().any(|&(p, r)| p <= t - 60 && t - 60 < r));
+                // (ironspec 00:12 PT (2): one forced skipped pick, as if the lane's napper were away; ironspec 04:07 PT: only
+                // an opportunity whose pick would have been made takes it, so the override always changes its target)
+                let would_pick = opp && (o.no_quota || lane_picks[l] < o.per_lane) && !truncated && lane_free && !held_now;
+                let forced_skip = would_pick && o.skip_pick.is_some_and(|(sd, slot)| day == sd as i64 && dc - wa == slot);
+                if forced_skip {
+                    skip_took = true;
+                    if scored {
+                        busy_skips += 1;
+                    }
                 }
                 let due = opp && !forced_skip && (o.no_quota || lane_picks[l] < o.per_lane)
                     // (the window after a skip cut to its first N releases: a daytime thunderstorm
                     // skip leaves the count a day off, so only the window's tail is at night)
-                    && !(lag_day == Some(day) && o.truncate_after_skip.is_some_and(|n| c - night_c0 >= n));
+                    && !truncated;
                 // (a pick due while the lane's previous napper is still away (in the bed or waiting on
                 // its siding) is skipped: one napper per lane, the siding never double-occupied)
                 if due && !lane_free && scored {
                     busy_skips += 1;
                 }
-                // ((i): HELD sampled at the divert: a napper held at the queue keeps this cart in its lane;
-                // (b), ironspec 22:05 PT: HELD set at the pick, from another napper's pick to its release)
-                let held_now = (o.held_at_divert && queue_busy.iter().any(|&(a, r)| a <= t && t < r)) || (o.held_at_pick && held_busy.iter().any(|&(p, r)| p <= t - 60 && t - 60 < r));
                 if due && lane_free && held_now && scored {
                     held_skips += 1;
                 }
@@ -1324,6 +1338,8 @@ pub fn simulate_lanes_scored(o: &LaneOpts) -> (String, LaneStats) {
                     Some(h) => hist_pick(h, rng.next()),
                     None => rng.range(o.trip.0, o.trip.1),
                 };
+                // (G1 07:05 PT: the late sleeper's overrun past the normal lie-down, drawn per visit)
+                let drawn = drawn + o.late_sleep.as_ref().map_or(0, |(h, n0)| (hist_pick(h, rng.next()) - n0).max(0));
                 // (strict rhythm: the one bed queues: 60 gt to the bed, sleep (trip - 120) from when
                 // the bed frees, 60 back; LAST_SLEEP at the lie-down)
                 let back = if o.turns == 3 {
@@ -1383,7 +1399,7 @@ pub fn simulate_lanes_scored(o: &LaneOpts) -> (String, LaneStats) {
                     // after the latest R the inputs allow; a visit whose own R passes its tap (the stop busy) takes the
                     // next one; then the run-up's pickup)
                     let r = if let Some(mg) = o.clock_exit {
-                        let latest = o.queue_leg.map_or(60, |(_, qh)| qh) + o.queue_hold + o.to_entry + o.trip_hist.as_ref().map_or(o.trip.1, |h| hist_range(h).1) + mg + o.exit_phase.map_or(0, |p| p[l.min(2)]);
+                        let latest = o.queue_leg.map_or(60, |(_, qh)| qh) + o.queue_hold + o.to_entry + o.trip_hist.as_ref().map_or(o.trip.1, |h| hist_range(h).1) + o.late_sleep.as_ref().map_or(0, |(h, n0)| (hist_range(h).1 - n0).max(0)) + mg + o.exit_phase.map_or(0, |p| p[l.min(2)]);
                         let mut tap = t + latest;
                         while tap < r {
                             tap += 100;
@@ -1619,7 +1635,7 @@ pub fn simulate_lanes_scored(o: &LaneOpts) -> (String, LaneStats) {
     for busy in night_busy.values() {
         util_max = util_max.max(*busy as f64 / window_gt);
     }
-    let stats = LaneStats { golems: golems as f64 / days, max_queue, max_trip, min_trip: if min_trip == i64::MAX { 0 } else { min_trip }, latest_lie, late_naps, util_max, lost_expiry: lost_expiry as f64, max_age, nap_log, release_log, min_lane: if min_lane == usize::MAX { 0 } else { min_lane }, busy_skips, late_nappers: late_nappers as u32, max_siding_wait, max_lane_away, waits, rides, held_skips, queue_max, queue_wait, least_spacing: if least_spacing == i64::MAX { 0 } else { least_spacing }, min_pick_gap: if min_pick_gap == i64::MAX { 0 } else { min_pick_gap }, hold_lane, golems_day: golems_day.clone(), seat_log, liedown_gap_min, back_in_lane, latch_margin_min, lane_opps_min, m_lane, m_low, catch_lane, ret_range, late_lane, early_lane, clock_slips, clock_waits };
+    let stats = LaneStats { golems: golems as f64 / days, max_queue, max_trip, min_trip: if min_trip == i64::MAX { 0 } else { min_trip }, latest_lie, late_naps, util_max, lost_expiry: lost_expiry as f64, max_age, nap_log, release_log, min_lane: if min_lane == usize::MAX { 0 } else { min_lane }, busy_skips, late_nappers: late_nappers as u32, max_siding_wait, max_lane_away, waits, rides, held_skips, queue_max, queue_wait, least_spacing: if least_spacing == i64::MAX { 0 } else { least_spacing }, min_pick_gap: if min_pick_gap == i64::MAX { 0 } else { min_pick_gap }, hold_lane, golems_day: golems_day.clone(), seat_log, liedown_gap_min, back_in_lane, latch_margin_min, lane_opps_min, m_lane, m_low, catch_lane, ret_range, late_lane, early_lane, clock_slips, clock_waits, skip_took };
     let per_day: Vec<String> = golems_day.iter().filter(|(d, _)| **d >= o.warmup as i64 - 1).map(|(d, g)| format!("d{d} {g}")).collect();
     let lens: Vec<String> = lane_len_hist.iter().map(|(l, n)| format!("{l}:{n}")).collect();
     let foot = if o.turns == 3 {
@@ -1724,14 +1740,39 @@ pub struct CovExtra {
     pub clock_exit: Option<i64>,
     pub exit_phase: Option<[i64; 3]>,
     pub exit_pickup: (i64, i64),
+    /// (G1 07:05 PT) The late-sleeper distribution (b8949c96's rows: each visit's "asleep at +N gt") and the normal
+    /// lie-down; the overrun past it is added to each visit's entry -> R.
+    pub late_sleep: Option<(Vec<(i64, u32)>, i64)>,
+}
+
+/// (G1 07:05 PT) b8949c96's per-row files: every "asleep at +N gt" in them, as a histogram (a file without one is an
+/// error: an empty draw would make the rows vacuous).
+pub fn late_sleep_hist(paths: &[std::path::PathBuf]) -> Result<Vec<(i64, u32)>, String> {
+    let mut counts: std::collections::BTreeMap<i64, u32> = Default::default();
+    for p in paths {
+        let text = std::fs::read_to_string(p).map_err(|e| format!("{}: {e}", p.display()))?;
+        let mut n = 0u32;
+        for part in text.split("asleep at +").skip(1) {
+            let digits: String = part.chars().take_while(|c| c.is_ascii_digit()).collect();
+            if digits.is_empty() || !part[digits.len()..].starts_with(" gt") {
+                return Err(format!("{}: an \"asleep at +\" not followed by N gt", p.display()));
+            }
+            *counts.entry(digits.parse::<i64>().map_err(|e| e.to_string())?).or_default() += 1;
+            n += 1;
+        }
+        if n == 0 {
+            return Err(format!("{}: no \"asleep at +N gt\" row", p.display()));
+        }
+    }
+    Ok(counts.into_iter().collect())
 }
 
 /// (ironspec 01:12 PT (7)) The picker search on the lane model (with identities): per-lane pick period k, the window's
 /// opportunities per lane, the lanes' phases and a per-lane count, from `base`. Normal night: 24 distinct, 0 doubles, no
 /// lie-down past the night, picks >= 300 gt apart, one at the queue at a time. Robustness: every single disturbance at
 /// every pick of one night (a skipped pick; a late rejoin of +2 gt, +1 cycle, +2 cycles): that night >= 23 distinct and
-/// the next 24.
-pub fn picker_search(base: &dyn Fn(u64) -> LaneOpts, seeds: u64, wa: i64) -> Vec<String> {
+/// the next 24. Returns the report and the passing configurations' labels (the caller judges the design's).
+pub fn picker_search(base: &dyn Fn(u64) -> LaneOpts, seeds: u64, wa: i64) -> (Vec<String>, Vec<String>) {
     let mut lines = vec![format!(
         "picker search (ironspec 01:12 PT (7), the lane model with identities; seeds 1..={seeds}; the window from cycle {wa} of the night): per configuration the normal night (24 distinct, 0 doubles, 0 lie-downs past the night, picks >= 300 gt apart, at most one at the queue) and the robustness classes (every single disturbance at every pick of night 9: a skipped pick, a late rejoin +2 gt, +100 gt (one cycle), +200 gt (two); that night >= 23 distinct and the next 24)"
     )];
@@ -1784,7 +1825,7 @@ pub fn picker_search(base: &dyn Fn(u64) -> LaneOpts, seeds: u64, wa: i64) -> Vec
                     let normal_ok = least == 24 && dbl == 0 && late_naps == 0 && gap >= 300 && qmax <= 1;
                     let label = format!("k {k}, {n_opp} opportunities a lane (window {} cycles), phases {:?}, {}", n_opp * k as i64, offs, if quota { "a per-lane count of 8" } else { "no count" });
                     if !normal_ok {
-                        lines.push(format!("  {label}: normal night FAILS (least distinct {}, doubles {dbl}, lie-downs past the night {late_naps}, least pick gap {}, at the queue at once {qmax})", if least == usize::MAX { 0 } else { least }, if gap == i64::MAX { "-".to_string() } else { gap.to_string() }));
+                        lines.push(format!("  {label}: outside the normal night's bars (least distinct {}, doubles {dbl}, lie-downs past the night {late_naps}, least pick gap {}, at the queue at once {qmax})", if least == usize::MAX { 0 } else { least }, if gap == i64::MAX { "-".to_string() } else { gap.to_string() }));
                         continue;
                     }
                     // robustness: the worst (that night, the next) distinct per class
@@ -1827,7 +1868,7 @@ pub fn picker_search(base: &dyn Fn(u64) -> LaneOpts, seeds: u64, wa: i64) -> Vec
                     let passed: Vec<&str> = classes.iter().filter(|c| c.3 > 0 && c.1 >= 23 && c.2 == 24).map(|c| c.0.as_str()).collect();
                     let row = format!(
                         "  {label}: normal night passes (the latest lie-down at in_day {lie}, the least pick gap {gap} gt); robustness {}; classes passed {} of 4",
-                        classes.iter().map(|c| format!("{}: that night least {} the next {} ({} runs{})", c.0, if c.1 == usize::MAX { "-".to_string() } else { c.1.to_string() }, if c.2 == usize::MAX { "-".to_string() } else { c.2.to_string() }, c.3, if c.3 > 0 && c.1 >= 23 && c.2 == 24 { ", pass" } else { ", FAIL" })).collect::<Vec<_>>().join("; "),
+                        classes.iter().map(|c| format!("{}: that night least {} the next {} ({} runs{})", c.0, if c.1 == usize::MAX { "-".to_string() } else { c.1.to_string() }, if c.2 == usize::MAX { "-".to_string() } else { c.2.to_string() }, c.3, if c.3 > 0 && c.1 >= 23 && c.2 == 24 { ", within" } else if c.3 == 0 { ", no injection took" } else { ", outside" })).collect::<Vec<_>>().join("; "),
                         passed.len()
                     );
                     if passed.len() == 4 {
@@ -1842,17 +1883,142 @@ pub fn picker_search(base: &dyn Fn(u64) -> LaneOpts, seeds: u64, wa: i64) -> Vec
         "=> configurations passing the normal night and all four robustness classes: {}",
         if passing.is_empty() { "NONE".to_string() } else { passing.join("; ") }
     ));
-    lines
+    (lines, passing)
 }
 
-pub fn coverage_bench(holds: &[i64], leg: (i64, i64), to_entry: i64, post: [i64; 3], t_d: [i64; 3], slot: i64, trip: (i64, i64), lock: i64, offsets: [i64; 3], late: (&[i64], i64), days: usize, seeds: u64, x: &CovExtra, fails: &mut Vec<String>) -> Vec<String> {
+/// (the chain fix) One coverage row's measurements, judged by the caller (the operating point's bars, a control's bite,
+/// or printed for reference).
+#[derive(Clone, Debug, Default)]
+pub struct RowStats {
+    pub nights: usize,
+    pub least: usize,
+    pub max_dbl: usize,
+    pub max_never: usize,
+    pub late: u32,
+    pub late_naps: usize,
+    pub qmax: usize,
+    pub lost: f64,
+    pub busy: u32,
+    pub age: i64,
+    pub trip_max: i64,
+    pub shortest: usize,
+    pub spacing: i64,
+    pub pick_gap: i64,
+    pub lmargin: i64,
+    pub seat_n: usize,
+    pub seat_margin: i64,
+    pub has_td: bool,
+    pub rule2: bool,
+    pub m_acc: [(i64, usize); 3],
+    pub catch_acc: [(i64, i64, usize); 3],
+    pub late_acc: [u32; 3],
+    pub early_acc: [u32; 3],
+    pub seeds: u64,
+    pub per_lane: usize,
+}
+
+/// (G1's checklist (4)) `--exit-phase` / `--exit-pickup` / `--return-hist-lane`, parsed strictly: three phases or none;
+/// a pickup range of two values (one value: a fixed pickup) or none; three `|`-separated lane histograms (an empty part
+/// for a lane without one).
+pub fn parse_exit_phase(v: &[i64]) -> Result<Option<[i64; 3]>, String> {
+    match v {
+        [] => Ok(None),
+        [a, b, c] => Ok(Some([*a, *b, *c])),
+        _ => Err(format!("--exit-phase takes exactly 3 values (lanes A, B, C), got {}", v.len())),
+    }
+}
+
+pub fn parse_exit_pickup(v: &[i64]) -> Result<(i64, i64), String> {
+    match v {
+        [] => Ok((0, 0)),
+        [a] if *a >= 0 => Ok((*a, *a)),
+        [a, b] if *a >= 0 && a <= b => Ok((*a, *b)),
+        _ => Err(format!("--exit-pickup takes LO,HI with 0 <= LO <= HI (or one value), got {v:?}")),
+    }
+}
+
+#[allow(clippy::type_complexity)]
+pub fn parse_hist_lanes(s: Option<&str>) -> Result<[Option<Vec<(i64, u32)>>; 3], String> {
+    let mut v: [Option<Vec<(i64, u32)>>; 3] = [None, None, None];
+    if let Some(s) = s {
+        let parts: Vec<&str> = s.split('|').collect();
+        if parts.len() != 3 {
+            return Err(format!("--return-hist-lane takes exactly 3 '|'-separated parts (lanes A, B, C; an empty part for none), got {}", parts.len()));
+        }
+        for (i, part) in parts.iter().enumerate() {
+            if !part.trim().is_empty() {
+                v[i] = Some(parse_hist(part)?);
+            }
+        }
+        if v.iter().all(|h| h.is_none()) {
+            return Err("--return-hist-lane: every part empty".into());
+        }
+    }
+    Ok(v)
+}
+
+/// (the chain fix) The operating point's bars, each over its own samples (0 samples: NOT JUDGED, a failure).
+fn judge_operating(st: &RowStats, leg: (i64, i64), what: &str, v: &mut crate::verdict::Verdict) -> String {
+    let mut w = Vec::new();
+    w.push(format!("24 distinct a night: {}", v.bar_n(&format!("{what}: 24 distinct nappers every complete night"), st.nights, st.least == 24)));
+    w.push(format!("no double pick: {}", v.bar_n(&format!("{what}: no rider picked twice in a night"), st.nights, st.max_dbl == 0)));
+    w.push(format!("none never picked: {}", v.bar_n(&format!("{what}: no rider left unpicked in a night"), st.nights, st.max_never == 0)));
+    w.push(format!("at most one napper away per lane at a summon (the shortest lane >= {}): {}", st.per_lane.saturating_sub(1), v.bar_n(&format!("{what}: at most one napper away per lane at any summon (the shortest lane >= {})", st.per_lane.saturating_sub(1)), usize::from(st.shortest != usize::MAX), st.shortest != usize::MAX && st.shortest + 1 >= st.per_lane)));
+    w.push(format!("one in flight under F1: {}", v.bar_n(&format!("{what}: one in flight under F1"), usize::from(st.pick_gap != i64::MAX), st.pick_gap != i64::MAX && st.pick_gap > 60 + leg.1 + 2)));
+    w.push(format!("the away latch (a rejoin measured, no skipped pick): {}", v.bar_n(&format!("{what}: the away latch's margin, no pick skipped for an away napper"), usize::from(st.lmargin != i64::MAX), st.busy == 0)));
+    w.push(format!("the stamp-age margin >= 3: {}", v.bar_n(&format!("{what}: the stamp-age margin >= 3"), usize::from(st.spacing != i64::MAX), st.spacing != i64::MAX && st.spacing - 32 - 599 >= 3)));
+    w.push(format!("no summon lost to an expired LAST_SLEPT: {}", v.bar_n(&format!("{what}: no summon lost to an expired LAST_SLEPT"), st.nights, st.lost == 0.0 && st.age < 24_000)));
+    w.push(format!("no lie-down past the night: {}", v.bar_n(&format!("{what}: no lie-down past the night"), st.nights, st.late_naps == 0)));
+    w.push(format!("at most one held at the queue: {}", v.bar_n(&format!("{what}: at most one held at the queue"), st.nights, st.qmax <= 1)));
+    // (on time: under the design of record's D-and-PRESENT release the deadline is the predecessor's D press, judged by the
+    // catch window below; the older siding-window model's deadline is 700 gt after the pick's divert)
+    if !st.has_td {
+        w.push(format!("every napper back by its siding window (divert -> back <= 700): {}", v.bar_n(&format!("{what}: the longest divert -> back within 700 gt"), st.nights, st.trip_max <= 700)));
+    }
+    w.push(format!("every seat stay inside its own stamp: {}", v.bar_n(&format!("{what}: every seat stay inside its own stamp"), st.seat_n, st.seat_margin > 0)));
+    if st.has_td {
+        let worst = st.m_acc.iter().filter(|x| x.1 > 0).map(|x| x.0).min();
+        let m_n = st.m_acc.iter().map(|x| x.1).min().unwrap_or(0);
+        w.push(format!("m >= 10 under a world open's lead: {}", v.bar_n(&format!("{what}: m >= 10 under a world open's lead in every lane"), m_n, worst.is_some_and(|w| w - 2 >= 10))));
+        let c_n = st.catch_acc.iter().map(|x| x.2).min().unwrap_or(0);
+        let catch_ok = st.catch_acc.iter().all(|&(lt, er, _)| lt - 2 >= 2 && er - 2 >= 2) && st.late_acc.iter().all(|&n| n == 0) && st.early_acc.iter().all(|&n| n == 0);
+        w.push(format!("the catch window: {}", v.bar_n(&format!("{what}: the catch window (both slacks >= 2 after the lead, no late or early rejoin) in every lane"), c_n, catch_ok)));
+    } else if st.rule2 {
+        w.push(v.scope(&format!("{what}: m and the catch window"), "rule 2 rejoins only behind the napper's own predecessor (the siding window's D-and-PRESENT release does not apply)"));
+        w.push(format!("no late rejoin: {}", v.bar_n(&format!("{what}: no late rejoin"), st.nights, st.late == 0)));
+    } else {
+        w.push(format!("no late rejoin: {}", v.bar_n(&format!("{what}: no late rejoin"), st.nights, st.late == 0)));
+    }
+    format!("  => {what}: {}", w.join("; "))
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn coverage_bench(holds: &[i64], operating_hold: i64, leg: (i64, i64), to_entry: i64, post: [i64; 3], t_d: [i64; 3], slot: i64, trip: (i64, i64), lock: i64, offsets: [i64; 3], late: (&[i64], i64), days: usize, seeds: u64, x: &CovExtra, v: &mut crate::verdict::Verdict) -> Result<Vec<String>, String> {
+    // (ironspec's 12 on the tenth, G1's checklist (6): no argument may make a bar vacuous)
+    if holds.is_empty() {
+        return Err("--holds: at least one hold".into());
+    }
+    if !holds.contains(&operating_hold) {
+        return Err(format!("--operating-hold {operating_hold} is not among --holds {holds:?}"));
+    }
+    let warm = LaneOpts::lead().warmup;
+    if days < warm + 4 {
+        return Err(format!("--days {days}: at least the warm-up {warm} + 4, so two complete nights are scored"));
+    }
+    if seeds < 1 {
+        return Err("--seeds: at least 1".into());
+    }
+    // (ironspec's hole on the tenth: R -> Q-up 109 = 89 + 20 holds for the hold chain's k_lock 42 only; the bench cannot
+    // see k_lock, so the leg is given explicitly)
+    let Some(_) = x.r_leg else {
+        return Err("--r-leg is required: R -> Q-up depends on the hold chain's k_lock (109 = 89 + 20 at k_lock 42; the design of record's measured 95)".into());
+    };
+    let _ = lock;
     let mut lines = vec![format!(
-        "nap coverage on the lane model (3 lanes x 8 = 24 villagers; each lane picks every k 10 cycles (the pick period, not k_lock / k_sw / K(x)) at offsets 0/3/6 from the night's start, at most 8 a night; a pick due while the lane's napper is away is skipped; the napper rejoins at its lane's siding window behind the cart then passing; the one stop; {days} days, {} warm-up, seeds 1..={seeds}). The invariant: lane-exact re-entry keeps each lane's cyclic order, and a napper misses exactly one turn, so a lane's consecutive picks (10 cycles apart, 7 carts in rotation while one is away) advance 10 - 7 = 3 places in that order; 3 is coprime with 8, so 8 picks a night visit the lane's 8 riders once each. The invariant needs every slot taken and every napper back on its siding by its window (7 cycles after its pick, behind its predecessor): a skipped slot (the lane's napper still away, or HELD at the divert) moves the next pick 3 + 10 - 8 = 5 places on, and a late rejoin (a period later, behind another cart) shifts the order; either can pick a rider twice and leave another unpicked that night, which the rows count",
-        LaneOpts::lead().warmup
+        "nap coverage on the lane model (3 lanes x 8 = 24 villagers; each lane picks every k 10 cycles (the pick period, not k_lock / k_sw / K(x)) at offsets 0/3/6 from the night's start, at most 8 a night; a pick due while the lane's napper is away is skipped; the napper rejoins at its lane's siding window behind the cart then passing; the one stop; {days} days, {} warm-up, seeds 1..={seeds}; THE OPERATING POINT: the queue's hold {operating_hold} gt). The invariant: lane-exact re-entry keeps each lane's cyclic order, and a napper misses exactly one turn, so a lane's consecutive picks (10 cycles apart, 7 carts in rotation while one is away) advance 10 - 7 = 3 places in that order; 3 is coprime with 8, so 8 picks a night visit the lane's 8 riders once each. The invariant needs every slot taken and every napper back on its siding by its window (7 cycles after its pick, behind its predecessor): a skipped slot (the lane's napper still away, or HELD at the divert) moves the next pick 3 + 10 - 8 = 5 places on, and a late rejoin (a period later, behind another cart) shifts the order; either can pick a rider twice and leave another unpicked that night, which the rows count",
+        warm
     )];
-    // (G1 on 7897f4ba7 (b): each row's failing bars, collected; the judged rows move theirs into the run's verdict)
-    let row_fails: std::cell::RefCell<Vec<String>> = std::cell::RefCell::new(Vec::new());
-    let row = |label: &str, f: &dyn Fn(u64) -> LaneOpts| -> String {
+    let row = |label: &str, f: &dyn Fn(u64) -> LaneOpts| -> (String, RowStats) {
         let (mut nights, mut least, mut max_dbl, mut max_never, mut nights_never) = (0usize, usize::MAX, 0usize, 0usize, 0usize);
         let (mut v0, mut v1, mut v2) = (0usize, 0usize, 0usize);
         let (mut age, mut lost, mut held, mut busy, mut late, mut qmax, mut qw, mut late_naps, mut golems) = (0i64, 0f64, 0u32, 0u32, 0u32, 0usize, (i64::MAX, i64::MIN), 0usize, 0f64);
@@ -1976,34 +2142,35 @@ pub fn coverage_bench(holds: &[i64], leg: (i64, i64), to_entry: i64, post: [i64;
             golems += st.golems;
             trip_max = trip_max.max(st.max_trip);
         }
-        {
-            // (G1 on 7897f4ba7 (b): this row's failing bars, by name)
-            let mut rf = row_fails.borrow_mut();
-            rf.clear();
-            if least == usize::MAX || least < 24 {
-                rf.push(format!("24 distinct nappers a night (least {})", if least == usize::MAX { 0 } else { least }));
-            }
-            if !(pick_gap != i64::MAX && pick_gap > 60 + leg.1 + 2) {
-                rf.push("one in flight under F1".to_string());
-            }
-            if lmargin == i64::MAX || busy > 0 {
-                rf.push("the away latch's margin (a skipped pick, or no rejoin measured)".to_string());
-            }
-            if spacing == i64::MAX || spacing - 32 - 599 < 3 {
-                rf.push(format!("the stamp-age margin >= 3 (lap - 32 - 599 = {})", if spacing == i64::MAX { "-".to_string() } else { (spacing - 631).to_string() }));
-            }
-            if has_td {
-                let worst = m_acc.iter().filter(|x| x.1 > 0).map(|x| x.0).min();
-                if !(m_acc.iter().all(|x| x.1 > 0) && worst.is_some_and(|w| w - 2 >= 10)) {
-                    rf.push(format!("m >= 10 under a world open's lead (least {})", worst.map_or("NOT JUDGED (0 samples)".to_string(), |w| (w - 2).to_string())));
-                }
-                if !(catch_acc.iter().all(|&(lt, er, n)| n > 0 && lt - 2 >= 2 && er - 2 >= 2) && late_acc.iter().all(|&n| n == 0) && early_acc.iter().all(|&n| n == 0)) {
-                    rf.push("the catch window (both slacks >= 2 after the lead, no late or early rejoin)".to_string());
-                }
-            }
-        }
-        format!(
-            "  {label}: complete nights {nights}: distinct nappers a night least {} of 24, never-picked a night most {max_never} (nights with one or more never-picked {nights_never}), double picks a night most {max_dbl}; villager-nights napped 0 / 1 / 2+ times: {v0} / {v1} / {v2}; the largest LAST_SLEPT age {age} gt (margin to 24,000: {}); summons lost to an expired LAST_SLEPT {lost:.0} over all seeds; picks lost to HELD (deferred: at the divert, or from another napper's pick to its release) {held}, to the lane's napper still away {busy}; late rejoins {late}; lie-downs past the night {late_naps}; held at the queue at once at most {qmax}, its waits {}; the longest divert -> back at the lane's merge hold {trip_max} gt (on time needs it by its siding window, 700 gt after the pick's divert); the shortest lane at any summon {}; the stamp-age margin at a rider's next own-pocket S (ironspec 02:41 / 03:22 PT (5), each term with its source): the least lap {} gt (the model's least turn spacing of any rider: its lane's carts in rotation x 100) - 32 (the stamp's age short of the lap: onechunk's read, a 568-gt-old stamp at a 600-gt lap, farmopt 02:00) - 599 (GOLEM_DETECTED_RECENTLY's TTL) = {} (bar >= 3; the model's lock {lock_used}); the queue holds one (ironspec 19:53 PT (2)(d)): the least gap between two picks' diverts {} gt against the arrivals' spread {} + the longest stay at the queue {}: margin {}; golems a day {:.1}",
+        let stats = RowStats {
+            nights,
+            least: if least == usize::MAX { 0 } else { least },
+            max_dbl,
+            max_never,
+            late,
+            late_naps,
+            qmax,
+            lost,
+            busy,
+            age,
+            trip_max,
+            shortest,
+            spacing,
+            pick_gap,
+            lmargin,
+            seat_n,
+            seat_margin,
+            has_td,
+            rule2: f(1).rule2,
+            m_acc,
+            catch_acc,
+            late_acc,
+            early_acc,
+            seeds,
+            per_lane: per_lane_n,
+        };
+        let text = format!(
+            "  {label}: complete nights {nights}: distinct nappers a night least {} of 24, never-picked a night most {max_never} (nights with one or more never-picked {nights_never}), double picks a night most {max_dbl}; villager-nights napped 0 / 1 / 2+ times: {v0} / {v1} / {v2}; the largest LAST_SLEPT age {age} gt (margin to 24,000: {}); summons lost to an expired LAST_SLEPT {lost:.0} over all seeds; picks lost to HELD (deferred: at the divert, or from another napper's pick to its release) {held}, to the lane's napper still away {busy}; late rejoins {late}; lie-downs past the night {late_naps}; held at the queue at once at most {qmax}, its waits {}; the longest divert -> back at the lane's merge hold {trip_max} gt (the older siding-window model's deadline 700 gt after the pick's divert; under D-and-PRESENT the catch window is the deadline); the shortest lane at any summon {}; the stamp-age margin at a rider's next own-pocket S (ironspec 02:41 / 03:22 PT (5), each term with its source): the least lap {} gt (the model's least turn spacing of any rider: its lane's carts in rotation x 100) - 32 (the stamp's age short of the lap: onechunk's read, a 568-gt-old stamp at a 600-gt lap, farmopt 02:00) - 599 (GOLEM_DETECTED_RECENTLY's TTL) = {} (bar >= 3; the model's lock {lock_used}); the queue holds one (ironspec 19:53 PT (2)(d)): the least gap between two picks' diverts {} gt against the arrivals' spread {} + the longest stay at the queue {}: margin {}; golems a day {:.1}",
             if least == usize::MAX { 0 } else { least },
             24_000 - age,
             if qw.0 == i64::MAX { "-".to_string() } else { format!("{}..{} gt", qw.0, qw.1) },
@@ -2016,22 +2183,20 @@ pub fn coverage_bench(holds: &[i64], leg: (i64, i64), to_entry: i64, post: [i64;
             if pick_gap == i64::MAX || qw.1 == i64::MIN { "-".to_string() } else { (pick_gap - (leg.1 - leg.0) - qw.1).to_string() },
             golems / seeds as f64
         ) + &format!(
-            "; ONE IN FLIGHT under F1 (ironspec 00:12 PT (3a), HELD set at the arrival): pick -> arrival at most {} gt (60 to the divert + the leg's worst {} + a world open's 2-tick lead) against the least pick spacing {}: margin {} ({})",
+            "; ONE IN FLIGHT under F1 (ironspec 00:12 PT (3a), HELD set at the arrival): pick -> arrival at most {} gt (60 to the divert + the leg's worst {} + a world open's 2-tick lead) against the least pick spacing {}: margin {}",
             60 + leg.1 + 2,
             leg.1,
-            if pick_gap == i64::MAX { "NOT JUDGED (0 samples)".to_string() } else { pick_gap.to_string() },
-            if pick_gap == i64::MAX { "-".to_string() } else { (pick_gap - (60 + leg.1 + 2)).to_string() },
-            if pick_gap != i64::MAX && pick_gap > 60 + leg.1 + 2 { "pass" } else { "FAIL" }
+            if pick_gap == i64::MAX { "NONE".to_string() } else { pick_gap.to_string() },
+            if pick_gap == i64::MAX { "-".to_string() } else { (pick_gap - (60 + leg.1 + 2)).to_string() }
         ) + &format!(
             "; R -> the next napper's lie-down at least {} gt (ironspec 22:18 PT; the inherited bar 20; the 16-ball exit is 58f770cc's measured R -> exit, set against this)",
             if liedown == i64::MAX { "-".to_string() } else { liedown.to_string() }
         ) + &format!(
-            "; R -> back in lane (the rejoin) {} (onechunk's record7d smoke night: 346..404); the away latch's least margin, a rejoin against its lane's next pick opportunity: {} (a latch still set at the pick is a skipped pick, the {busy} above: bar 0, {}); each lane's pick opportunities a night least {} against its {per_lane_n} riders (slack {}){}",
+            "; R -> back in lane (the rejoin) {} (onechunk's record7d smoke night: 346..404); the away latch's least margin, a rejoin against its lane's next pick opportunity: {} (a latch still set at the pick is a skipped pick, the {busy} above); each lane's pick opportunities a night least {} against its {per_lane_n} riders (slack {}){}",
             if bil.0 == i64::MAX { "-".to_string() } else { format!("{}..{} gt", bil.0, bil.1) },
-            if lmargin == i64::MAX { "NOT JUDGED (0 samples)".to_string() } else { format!("{lmargin} gt") },
-            if lmargin == i64::MAX { "FAIL: no rejoin measured" } else if busy == 0 { "pass" } else { "FAIL" },
+            if lmargin == i64::MAX { "NONE measured".to_string() } else { format!("{lmargin} gt") },
             opps.iter().map(|&v| if v == usize::MAX { "-".to_string() } else { v.to_string() }).collect::<Vec<_>>().join(" / "),
-            opps.iter().filter(|&&v| v != usize::MAX).map(|&v| v as i64 - per_lane_n as i64).min().map_or("NOT JUDGED (0 samples)".to_string(), |s| if s <= 0 { format!("{s}: NO SLACK, any skipped pick costs a nap") } else { s.to_string() }),
+            opps.iter().filter(|&&v| v != usize::MAX).map(|&v| v as i64 - per_lane_n as i64).min().map_or("NONE".to_string(), |s| if s <= 0 { format!("{s}: NO SLACK, any skipped pick costs a nap") } else { s.to_string() }),
             if !has_td {
                 String::new()
             } else {
@@ -2041,29 +2206,22 @@ pub fn coverage_bench(holds: &[i64], leg: (i64, i64), to_entry: i64, post: [i64;
                 let per: Vec<String> = m_acc
                     .iter()
                     .enumerate()
-                    .map(|(l, &(m, n))| if n == 0 { format!("lane {l}: NOT JUDGED (0 samples)") } else { format!("lane {l} least {m} gt ({n} samples)") })
+                    .map(|(l, &(m, n))| if n == 0 { format!("lane {l}: no samples") } else { format!("lane {l} least {m} gt ({n} samples)") })
                     .collect();
                 let worst = m_acc.iter().filter(|x| x.1 > 0).map(|x| x.0).min();
                 // (ironspec 01:27 / 01:31 PT: the catch window per lane, its late and early slack, raw and under a world
-                // open's 2-gt redstone lead; the bar >= 2 after the lead)
+                // open's 2-gt redstone lead; the bar >= 2 after the lead, judged by the caller on the operating point)
                 let catch: Vec<String> = catch_acc
                     .iter()
                     .enumerate()
-                    .map(|(l, &(lt, er, n))| if n == 0 { format!("lane {l}: NOT JUDGED (0 samples)") } else { format!("lane {l} late slack {lt} (N = 2: {}), early slack {er} (N = 2: {}), {n} visits, late rejoins {}, early rejoins {}", lt - 2, er - 2, late_acc[l], early_acc[l]) })
+                    .map(|(l, &(lt, er, n))| if n == 0 { format!("lane {l}: no samples") } else { format!("lane {l} late slack {lt} (N = 2: {}), early slack {er} (N = 2: {}), {n} visits, late rejoins {}, early rejoins {}", lt - 2, er - 2, late_acc[l], early_acc[l]) })
                     .collect();
-                let catch_ok = catch_acc.iter().all(|&(lt, er, n)| n > 0 && lt - 2 >= 2 && er - 2 >= 2) && late_acc.iter().all(|&n| n == 0) && early_acc.iter().all(|&n| n == 0);
                 format!(
-                    "; m = the predecessor's D press - PRESENT over the on-time rejoins ({sm_n} samples): {} (ironspec 00:40 PT's bar m >= max(L_latch 6 + 1, settle - 14) + 2 = 10 with ironfarm's worst settle 22 (PRESENT -> at rest at an arrival of 0.10 on K, its worst phase); with a world open's 2-gt lead m - 2: {}); samples under 9: {m_low_n}{}; the catch window (ironspec 01:31 / 01:59 PT: Q-up before the sample it catches, the late slack, and after the previous sample, the early slack; under the design of record's D-and-PRESENT release an early catch rejoins behind the cart ahead of its predecessor, so both bind): {} (bar >= 2 after the lead, late and early classes 0: {}); R -> PRESENT over the on-time visits {} (onechunk's record7d: 258..316)",
+                    "; m = the predecessor's D press - PRESENT over the on-time rejoins ({sm_n} samples): {} (ironspec 00:40 PT's bar m >= max(L_latch 6 + 1, settle - 14) + 2 = 10 with ironfarm's worst settle 22 (PRESENT -> at rest at an arrival of 0.10 on K, its worst phase); with a world open's 2-gt lead m - 2: {}); samples under 9: {m_low_n}{}; the catch window (ironspec 01:31 / 01:59 PT: Q-up before the sample it catches, the late slack, and after the previous sample, the early slack; under the design of record's D-and-PRESENT release an early catch rejoins behind the cart ahead of its predecessor, so both bind): {} (bar >= 2 after the lead, late and early classes 0); R -> PRESENT over the on-time visits {} (onechunk's record7d: 258..316)",
                     per.join(", "),
-                    match worst {
-                        Some(w) if m_acc.iter().all(|x| x.1 > 0) && w - 2 >= 10 => format!("least {} (pass)", w - 2),
-                        Some(_) if m_acc.iter().any(|x| x.1 == 0) => "FAIL: a lane with 0 samples".to_string(),
-                        Some(w) => format!("least {} (FAIL)", w - 2),
-                        None => "NOT JUDGED (0 samples): FAIL".to_string(),
-                    },
+                    worst.map_or("no samples".to_string(), |w| format!("least {}", w - 2)),
                     if m_low_list.is_empty() { String::new() } else { format!(" (the first {}: {})", m_low_list.len(), m_low_list.join("; ")) },
                     catch.join(", "),
-                    if catch_ok { "pass" } else { "FAIL" },
                     if ret_acc.0 == i64::MAX { "-".to_string() } else { format!("{}..{} gt", ret_acc.0, ret_acc.1) }
                 ) + &if cwait_acc.0 == i64::MAX {
                     String::new()
@@ -2083,27 +2241,13 @@ pub fn coverage_bench(holds: &[i64], leg: (i64, i64), to_entry: i64, post: [i64;
                 100.0 * seat_ov as f64 / seat_n as f64,
                 100.0 * below_ov as f64 / seat_n as f64
             )
-        }
+        };
+        (text, stats)
     };
-    lines.push(row("the lane model as benched (no queue: the stop's entry 60 gt after the divert; a reference row, not judged)", &|seed| LaneOpts { days, seed, ..LaneOpts::lead() }));
-    // (ironspec 16:20: the positive controls, pickers without the invariant: the napper keeping its slot
-    // (an equal-length bypass: picks advance 10 mod 8 = 2 places, not coprime with 8), and k 9 with
-    // lane-exact re-entry (9 - 7 = 2 places): each must show doubles and never-picked; G1 on 7897f4ba7 (b): a control
-    // that does not bite fails the run, its other bars are not judged)
-    let bites = |fails: &mut Vec<String>, what: &str| {
-        if !row_fails.borrow().iter().any(|f| f.starts_with("24 distinct")) {
-            fails.push(format!("{what}: the control does not bite (24 distinct)"));
-        }
-    };
-    let judge = |fails: &mut Vec<String>, what: &str| {
-        for f in row_fails.borrow().iter() {
-            fails.push(format!("{what}: {f}"));
-        }
-    };
-    lines.push(row("CONTROL: the napper keeps its slot (a bypass rejoining in place; picks advance 10 mod 8 = 2 places)", &|seed| LaneOpts { days, seed, keep_place: true, lane_exact: false, ..LaneOpts::lead() }));
-    bites(fails, "the keep-slot control");
-    lines.push(row("CONTROL: k 9 with lane-exact re-entry (picks advance 9 - 7 = 2 places)", &|seed| LaneOpts { days, seed, k: 9, ..LaneOpts::lead() }));
-    bites(fails, "the k 9 control");
+    let h_op = operating_hold;
+    // (the reference rows: printed, not judged; their scope declared once)
+    lines.push(format!("  {}", v.scope("the reference rows (the lane model as benched, the pre-contract queue matrix, the no-queue row) and the cap matrix (the holds other than the operating point)", "printed for comparison; the operating point's row is the judged one")));
+    lines.push(row("the lane model as benched (no queue: the stop's entry 60 gt after the divert; a reference row, not judged)", &|seed| LaneOpts { days, seed, ..LaneOpts::lead() }).0);
     for &h in holds {
         for held in [false, true] {
             let label = format!(
@@ -2112,10 +2256,10 @@ pub fn coverage_bench(holds: &[i64], leg: (i64, i64), to_entry: i64, post: [i64;
                 leg.1,
                 leg.0 + 60,
                 leg.1 + 60,
-                if held { "sampled at the divert ((i))" } else { "not sampled (control: the queue may hold two)" }
+                if held { "sampled at the divert ((i))" } else { "not sampled" }
             );
             // (the pre-contract queue model: a reference matrix, not judged)
-            lines.push(row(&format!("{label} (a reference row, not judged)"), &|seed| LaneOpts { days, seed, queue_leg: Some(leg), queue_hold: h, to_entry, held_at_divert: held, ..LaneOpts::lead() }));
+            lines.push(row(&format!("{label} (a reference row, not judged)"), &|seed| LaneOpts { days, seed, queue_leg: Some(leg), queue_hold: h, to_entry, held_at_divert: held, ..LaneOpts::lead() }).0);
         }
     }
     // (today's return legs: R -> rest on the merge hold 89 (tick-exact's official ride, the stop 9 down),
@@ -2142,6 +2286,7 @@ pub fn coverage_bench(holds: &[i64], leg: (i64, i64), to_entry: i64, post: [i64;
         clock_exit: x.clock_exit,
         exit_phase: x.exit_phase,
         exit_pickup: x.exit_pickup,
+        late_sleep: x.late_sleep.clone(),
         // (the batch's lanes launch s 12 apart: each lane's divert 12 gt after the one before)
         spacing: 12,
         offsets: Some(offsets),
@@ -2156,11 +2301,15 @@ pub fn coverage_bench(holds: &[i64], leg: (i64, i64), to_entry: i64, post: [i64;
         rule2: x.rule2,
         ..LaneOpts::lead()
     };
-    // (ironspec 01:12 PT (7): the picker search instead of the rows)
+    // (ironspec 01:12 PT (7): the picker search instead of the rows; the chain fix: judged, the design's own picker (k 10,
+    // phases 0/3/6, 8 opportunities a lane, no count) must be among the configurations passing every class)
     if x.search {
-        let h0 = holds.first().copied().unwrap_or(0);
-        lines.extend(picker_search(&|seed| today(seed, Some(leg), h0, true), seeds, x.pick_window.map_or(4, |w| w.0)));
-        return lines;
+        let (search_lines, passing) = picker_search(&|seed| today(seed, Some(leg), h_op, true), seeds, x.pick_window.map_or(4, |w| w.0));
+        lines.extend(search_lines);
+        let design = "k 10, 8 opportunities a lane (window 80 cycles), phases [0, 3, 6], no count";
+        let w = v.bar("the picker search: the design's picker passes the normal night and all four robustness classes", passing.iter().any(|p| p == design));
+        lines.push(format!("=> the design's picker ({design}): {w}"));
+        return Ok(lines);
     }
     // (ironspec 23:19 PT: the known-answer frame pin: b8949c96's real-rest trace mapped to this model's to_entry)
     if let Some(e) = x.frame_pin {
@@ -2188,6 +2337,17 @@ pub fn coverage_bench(holds: &[i64], leg: (i64, i64), to_entry: i64, post: [i64;
             h.iter().map(|(v, n)| format!("{v}:{n}")).collect::<Vec<_>>().join(" ")
         ));
     }
+    if let Some((h, n0)) = &x.late_sleep {
+        let (a, b) = hist_range(h);
+        let total: u64 = h.iter().map(|v| v.1 as u64).sum();
+        let late: u64 = h.iter().filter(|(v, _)| *v > n0 + 6).map(|v| v.1 as u64).sum();
+        lines.push(format!(
+            "the late sleeper (G1 07:05 PT; b8949c96's rows, pending b8949c96's review and its onGround fix): each visit's lie-down drawn from {total} rows (asleep at +{a}..+{b} gt past the stop's entry), the overrun past the normal +{n0} added to its entry -> R: late (past +{}) {late} of {total} ({:.1} %), the overrun at most {} gt",
+            n0 + 6,
+            100.0 * late as f64 / total.max(1) as f64,
+            (b - n0).max(0)
+        ));
+    }
     for (l, h) in x.ret_hist_lane.iter().enumerate() {
         if let Some(h) = h {
             let (a, b) = hist_range(h);
@@ -2213,34 +2373,64 @@ pub fn coverage_bench(holds: &[i64], leg: (i64, i64), to_entry: i64, post: [i64;
     // (G1 on 7897f4ba7 (a): the no-queue row is a reference, not a design configuration: with the stop's entry 60 gt after
     // the divert every napper is back a cycle or more before its predecessor's D press, so under the design of record's
     // D-and-PRESENT release every rejoin is early and m has no on-time sample there)
-    lines.push(row(&format!("TODAY'S RETURN (lanes s 12 apart; the stop's entry -> R {}..{}; R -> merge hold 89, the napper's pulse at REL + {slot} with k_lock, -> PRESENT {}/{}/{}, the deadline at the predecessor's D pass + {}/{}/{}), no queue (the stop's entry 60 gt after the divert; a reference row, not judged: without the queue's legs every napper is back a cycle early, so under D-and-PRESENT every rejoin is early and m has no on-time sample)", trip.0, trip.1, post[0], post[1], post[2], t_d[0], t_d[1], t_d[2]), &|seed| today(seed, None, 0, false)));
-    for (i, &h) in holds.iter().enumerate() {
-        lines.push(row(&format!("TODAY'S RETURN with the real legs ({}..{} gt to the arrival detector), the queue's hold {h} gt, the release -> entry {to_entry} gt, HELD set at the pick (reset at the release); the cap assumes the A6 fix (entry -> R <= {}: record7e's official approach stalls break it, ironspec 01:00 PT){}", leg.0, leg.1, x.trip_hist.as_ref().map_or(trip.1, |h| hist_range(h).1), if i == 0 { "; THE OPERATING POINT, judged" } else { "; the cap matrix, not judged" }), &|seed| today(seed, Some(leg), h, true)));
-        if i == 0 {
-            judge(fails, &format!("normal operation, TODAY'S RETURN at the hold {h}"));
+    lines.push(row(&format!("TODAY'S RETURN (lanes s 12 apart; the stop's entry -> R {}..{}; R -> merge hold 89, the napper's pulse at REL + {slot} with k_lock, -> PRESENT {}/{}/{}, the deadline at the predecessor's D pass + {}/{}/{}), no queue (the stop's entry 60 gt after the divert; a reference row, not judged: without the queue's legs every napper is back a cycle early, so under D-and-PRESENT every rejoin is early and m has no on-time sample)", trip.0, trip.1, post[0], post[1], post[2], t_d[0], t_d[1], t_d[2]), &|seed| today(seed, None, 0, false)).0);
+    for &h in holds {
+        let op = h == h_op;
+        let (text, st) = row(&format!("TODAY'S RETURN with the real legs ({}..{} gt to the arrival detector), the queue's hold {h} gt, the release -> entry {to_entry} gt, HELD set at the pick (reset at the release); the cap assumes the A6 fix (entry -> R <= {}: record7e's official approach stalls break it, ironspec 01:00 PT){}", leg.0, leg.1, x.trip_hist.as_ref().map_or(trip.1, |h| hist_range(h).1), if op { "; THE OPERATING POINT (--operating-hold), judged" } else { "; the cap matrix, not judged" }), &|seed| today(seed, Some(leg), h, true));
+        lines.push(text);
+        if op {
+            lines.push(judge_operating(&st, leg, &format!("normal operation, TODAY'S RETURN at the operating hold {h}"), v));
+            // (ironspec 08:43 / 08:46 / 08:49 PT: THE STOP OCCUPANCY BUDGET, each term with its source and review status.
+            // The stop is busy from a napper's queue release to its stop release R. With the clocked exit, napper i's R is
+            // its tap (its divert + the latest + its lane's phase) + its post-tap pickup p_i, and napper i+1, released at
+            // max(its divert + leg + hold, R_i), slips a period when its own release + to_entry + its entry -> R passes its
+            // tap; with a wait, substituting R_i gives: to_entry + trip_{i+1} + p_i <= the spacing of the two diverts (the
+            // latest, the clock's margin, the lane phase and the legs cancel). Without the clock the next napper waits
+            // whenever the leg's spread + to_entry + the worst entry -> R passes that spacing. The world-open shift and
+            // ironspec's 10-gt margin added; the denominator the NOMINAL least pick spacing (G1 09:11: a measured one only
+            // once every reachable case is printed).)
+            let worst = x.trip_hist.as_ref().map_or(trip.1, |hh| hist_range(hh).1) + x.late_sleep.as_ref().map_or(0, |(hh, n0)| (hist_range(hh).1 - n0).max(0));
+            let shift = 7i64;
+            let (clk_txt, clk) = match x.clock_exit {
+                Some(_) => (format!(" + the post-tap pickup's upper end {} (the clocked exit: the tap's phase, its margin and the legs cancel)", x.exit_pickup.1), x.exit_pickup.1),
+                None => (format!(" + the leg's spread {} (no clocked exit: the stop releases at the natural R)", leg.1 - leg.0), leg.1 - leg.0),
+            };
+            let nominal = 300i64;
+            let need = to_entry + worst + clk + shift + 10;
+            let w = v.bar("the stop occupancy budget: to_entry + the worst entry -> R + the release spread + the world-open shift + 10 <= the nominal least pick spacing 300", need <= nominal);
+            lines.push(format!(
+                "  => the stop occupancy budget (ironspec 08:43 PT; provisional: entry -> R from this run's stated band or distribution, the world-open term uncalibrated): to_entry {to_entry} (a parameter of this run: the way-in's measured release -> entry, its owner's) + the worst entry -> R {worst} ({}){clk_txt} + the world-open shift {shift} (\"world-open term from one ride: 0..7 gt, uncalibrated\") + 10 (ironspec's margin) = {need} against the nominal least pick spacing {nominal} (k 10, lanes 3 cycles apart; the least divert spacing measured in this run {} printed, not used: G1 09:11): spare {} ({w}); the stand-in pickup spread sits inside the measured entry -> R, the post-tap pickup counted once",
+                if x.trip_hist.is_some() { "the measured per-visit distribution's worst" } else { "the band's upper end" },
+                if st.pick_gap == i64::MAX { "NONE".to_string() } else { st.pick_gap.to_string() },
+                nominal - need
+            ));
         }
     }
-    // (ironspec 01:26 PT (c): the positive control: the return leg forced late past its sample must give late rejoins)
-    {
-        let h0 = holds.first().copied().unwrap_or(0);
-        let base_leg = x.r_leg.unwrap_or(109);
-        let late: u32 = (1..=seeds.min(2)).map(|seed| simulate_lanes_scored(&LaneOpts { r_leg: base_leg + 100, ..today(seed, Some(leg), h0, true) }).1.late_nappers).sum();
-        if late == 0 {
-            fails.push("the late-rejoin positive control does not bite".to_string());
-        }
-        lines.push(format!(
-            "CONTROL (ironspec 01:26 PT (c)): R -> Q-up forced 100 gt later ({} instead of {base_leg}: every napper misses the sample it would catch), the queue's hold {h0} gt, seeds 1..={}: late rejoins {late} ({})",
-            base_leg + 100,
-            seeds.min(2),
-            if late > 0 { "the miss is represented: the control bites" } else { "FAIL: the model does not represent a missed sample" }
-        ));
-    }
+    // (ironspec 16:20, the chain audit (hole 21): the positive controls run on the JUDGED configuration (today's legs at
+    // the operating hold), each planting its defect in what its bar reads, through the same row: the napper keeping its
+    // slot and k 9 must break the 24 distinct; R -> Q-up 100 gt later must give late rejoins (ironspec 01:26 PT (c)); HELD
+    // not set and a hold longer than the pick spacing must put two at the queue; a control without complete nights is NOT
+    // JUDGED, never a bite)
+    let (t1, c1) = row("CONTROL: the napper keeps its slot (a bypass rejoining in place; picks advance 10 mod 8 = 2 places), on the operating point", &|seed| LaneOpts { keep_place: true, lane_exact: false, ..today(seed, Some(leg), h_op, true) });
+    let w1 = v.control("the keep-slot picker breaks the 24 distinct", c1.nights, c1.least < 24);
+    lines.push(format!("{t1}; {w1}"));
+    let (t2, c2) = row("CONTROL: k 9 with lane-exact re-entry (picks advance 9 - 7 = 2 places), on the operating point", &|seed| LaneOpts { k: 9, ..today(seed, Some(leg), h_op, true) });
+    let w2 = v.control("k 9 breaks the 24 distinct", c2.nights, c2.least < 24);
+    lines.push(format!("{t2}; {w2}"));
+    let base_leg = x.r_leg.unwrap_or(109);
+    let (t3, c3) = row(&format!("CONTROL (ironspec 01:26 PT (c)): R -> Q-up forced 100 gt later ({} instead of {base_leg}: every napper misses the sample it would catch), on the operating point", base_leg + 100), &|seed| LaneOpts { r_leg: base_leg + 100, ..today(seed, Some(leg), h_op, true) });
+    let w3 = v.control("R -> Q-up 100 gt later gives late rejoins", c3.nights, c3.late > 0);
+    lines.push(format!("{t3}; {w3}"));
+    let (t4, c4) = row("CONTROL: HELD never set and the queue's hold 400 gt (longer than the least pick spacing), on the operating point's legs", &|seed| LaneOpts { held_at_pick: false, held_at_divert: false, queue_hold: 400, ..today(seed, Some(leg), h_op, true) });
+    let w4 = v.control("without HELD and with a hold past the pick spacing two are held at the queue", c4.nights, c4.qmax >= 2);
+    lines.push(format!("{t4}; {w4}"));
     // (ironspec 20:53 PT; farmopt: one late return per lane at the worst point) one napper's stop cycle `add` gt
     // longer, injected at the first pick at or after every `step` of one mid-run night; against the same seed
     // without it: the picks skipped (the lane's napper still away, or HELD), the late rejoins, the villagers
     // unnapped that night and the next (of 24), the summons lost over that day and the next two
     let (adds, step) = late;
-    let h0 = holds.first().copied().unwrap_or(0);
+    // (the stress and late rows run at the operating point's hold)
+    let h0 = h_op;
     let d_inj = LaneOpts::lead().warmup as i64 + 4;
     let distinct = |st: &LaneStats, night: i64| {
         let mut seen = [false; 64];
@@ -2252,6 +2442,8 @@ pub fn coverage_bench(holds: &[i64], leg: (i64, i64), to_entry: i64, post: [i64;
         seen.iter().filter(|&&x| x).count()
     };
     let gdays = |st: &LaneStats| (d_inj..=d_inj + 2).map(|d| st.golems_day.get(&d).copied().unwrap_or(0) as i64).sum::<i64>();
+    // (the pick slots of the design's lanes: k 10 at phases 0 / 3 / 6)
+    let offsets_pick = |slot: i64| [0i64, 3, 6].contains(&(slot % 10));
     for (vname, latch, rule2) in [("", false, false), (" WITH (A) THE LATE LATCH", true, false), (" WITH RULE 2 (a late napper waits a lane lap and rejoins behind its predecessor)", false, true)] {
     for &add in adds {
         // per lane: (injections, the most skipped, the most late rejoins, the least distinct that night, the next,
@@ -2311,17 +2503,15 @@ pub fn coverage_bench(holds: &[i64], leg: (i64, i64), to_entry: i64, post: [i64;
         // next night; a longer return is the stress class: the next night judged, its summons priced)
         let normal = add <= 2;
         let next_ok = next_min == 24;
-        let pass = worst_lost != i64::MIN && worst_lost <= 1 && next_ok;
+        // (ironspec's hole 7 on the tenth: the normal class judges that night's distinct count too)
+        let night_min = per.iter().filter(|p| p.0 > 0).map(|p| p.3).min().unwrap_or(usize::MAX);
+        let n_inj: usize = per.iter().map(|p| p.0 as usize).sum();
         let verdict = if normal {
-            if !pass {
-                fails.push(format!("normal operation: a late return of +{add} gt{vname}"));
-            }
-            format!("NORMAL OPERATION (a world open at N <= 2): <= 1 lost and 24 the next night: {}", if pass { "pass" } else { "FAIL" })
+            let w = v.bar_n(&format!("normal operation: a late return of +{add} gt{vname}: <= 1 summon lost, 24 distinct that night and the next"), n_inj, worst_lost <= 1 && night_min == 24 && next_ok);
+            format!("NORMAL OPERATION (a world open at N <= 2): <= 1 lost, 24 that night and the next: {w}")
         } else {
-            if !next_ok {
-                fails.push(format!("the stress class: a late return of +{add} gt{vname}: the next night short of 24"));
-            }
-            format!("THE STRESS CLASS (excluded from normal operation by the catch window; its summons priced): the next night 24: {}", if next_ok { "pass" } else { "FAIL" })
+            let w = v.bar_n(&format!("the stress class: a late return of +{add} gt{vname}: the next night 24"), n_inj, next_ok);
+            format!("THE STRESS CLASS (excluded from normal operation by the catch window; its summons and that night priced): the next night 24: {w}")
         };
         lines.push(format!(
             "LATE RETURN +{add} gt{vname} (one napper's stop cycle {add} gt longer, injected at the first pick at or after every {step} gt of night {d_inj} from dusk, TODAY'S RETURN with the real legs, the queue's hold {h0} gt; seeds 1..={}; against the same seed without it, whose nights {d_inj} and {} have {} distinct at least): {}; => at most {} summon(s) lost per late return, the following night {} distinct at least; {verdict}",
@@ -2335,21 +2525,26 @@ pub fn coverage_bench(holds: &[i64], leg: (i64, i64), to_entry: i64, post: [i64;
     }
     }
     // (ironspec 00:12 PT (2): (B') as a slack candidate in its own right: ONE skipped pick a night, at every slot of
-    // the window, on TODAY'S rows (the window and the count as given); against the same seed without it)
-    {
-        let (wa, wn) = x.pick_window.unwrap_or((0, 114));
+    // the window, on TODAY'S rows (the window and the count as given); against the same seed without it. The chain audit:
+    // the controller's window is required (no unsourced default), and only an injection that took (the slot's pick would
+    // have been made: picked -> skipped, ironspec 04:07 PT) counts as a sample)
+    if let Some((wa, wn)) = x.pick_window {
         let run_days = (d_inj + 5) as usize;
-        let (mut n, mut worst_lost, mut least_night, mut least_next, mut worst_slot) = (0u32, i64::MIN, usize::MAX, usize::MAX, -1i64);
+        let (mut n, mut noop, mut worst_lost, mut least_night, mut least_next, mut worst_slot) = (0u32, 0u32, i64::MIN, usize::MAX, usize::MAX, -1i64);
         for seed in 1..=seeds.min(3) {
             let base_o = LaneOpts { days: run_days, ..today(seed, Some(leg), h0, true) };
             let base = simulate_lanes_scored(&base_o).1;
             let b_g = gdays(&base);
             for slot in 0..wn {
-                if ![0i64, 3, 6].contains(&(slot % 10)) {
+                if !offsets_pick(slot) {
                     continue;
                 }
                 let o = LaneOpts { skip_pick: Some((d_inj as usize, slot)), ..base_o.clone() };
                 let st = simulate_lanes_scored(&o).1;
+                if !st.skip_took {
+                    noop += 1;
+                    continue;
+                }
                 n += 1;
                 let lost = b_g - gdays(&st);
                 if lost > worst_lost {
@@ -2360,20 +2555,18 @@ pub fn coverage_bench(holds: &[i64], leg: (i64, i64), to_entry: i64, post: [i64;
                 least_next = least_next.min(distinct(&st, d_inj + 1));
             }
         }
-        let next_ok = n > 0 && least_next == 24;
-        if !next_ok {
-            fails.push("the stress class: one skipped pick: the next night short of 24".to_string());
-        }
+        let w = v.bar_n("the stress class: one skipped pick: the next night 24", n as usize, least_next == 24);
         lines.push(format!(
-            "ONE SKIPPED PICK a night, THE STRESS CLASS (a pick lost to a world open at the divert: priced in expectation, ironspec 01:46 PT (b); ironspec 00:12 PT (2), the slack test): the pick opportunity at each slot of night {d_inj}'s window (cycles {wa}..{} from the night's start, {}) skipped as if its lane's napper were away, {n} runs (seeds 1..={}); against the same seed: summons lost over that day and the next two at most {} (the worst at slot {worst_slot}: priced), that night's distinct least {}, the next night {} (the bar: 24 the next night: {})",
+            "ONE SKIPPED PICK a night, THE STRESS CLASS (a pick lost to a world open at the divert: priced in expectation, ironspec 01:46 PT (b); ironspec 00:12 PT (2), the slack test): the pick opportunity at each slot of night {d_inj}'s window (cycles {wa}..{} from the night's start, {}) skipped as if its lane's napper were away: {n} injections took (picked -> skipped), {noop} found the slot's pick not due (the lane's napper away or HELD: no override, not counted); seeds 1..={}; against the same seed: summons lost over that day and the next two at most {} (the worst at slot {worst_slot}: priced), that night's distinct least {}, the next night {} (the bar: 24 the next night: {w})",
             wa + wn,
             if x.no_quota { "every opportunity picks" } else { "a lane stops at its 8" },
             seeds.min(3),
             if worst_lost == i64::MIN { "-".to_string() } else { worst_lost.to_string() },
-            if least_night == usize::MAX { "-".to_string() } else { least_night.to_string() },
-            if least_next == usize::MAX { "-".to_string() } else { least_next.to_string() },
-            if next_ok { "pass" } else { "FAIL" }
+            if least_night == usize::MAX { "NONE".to_string() } else { least_night.to_string() },
+            if least_next == usize::MAX { "NONE".to_string() } else { least_next.to_string() }
         ));
+    } else {
+        lines.push(format!("ONE SKIPPED PICK a night: {}", v.scope("the skipped-pick row", "no --pick-window: the slots are the controller's window's, which the run must give")));
     }
     // (ironspec 00:12 PT (2): class b's cost BEYOND the same skip with no napper held: a night skip at each in_day of
     // night d_inj, alone and with the napper picked just before it held through the day (its stop cycle 12,000 gt
@@ -2404,13 +2597,14 @@ pub fn coverage_bench(holds: &[i64], leg: (i64, i64), to_entry: i64, post: [i64;
             }
         }
         lines.push(format!(
-            "CLASS B (ironspec 00:12 PT (2)): a night skip at every 250 gt of night {d_inj} (in_day 1,000..10,750), alone and with the napper picked within 300 gt before it held in the stop through the day (stop cycle + 12,000 gt), {n} runs (seeds 1..={}): the skip alone costs at most {} summons over that day and the next two (against no skip); class b costs at most {} MORE than the same skip (the worst at in_day {worst_at})",
+            "CLASS B (ironspec 00:12 PT (2)): a night skip at every 250 gt of night {d_inj} (in_day 1,000..10,750), alone and with the napper picked within 300 gt before it held in the stop through the day (stop cycle + 12,000 gt), {n} runs (seeds 1..={}): the skip alone costs at most {} summons over that day and the next two (against no skip); class b costs at most {} MORE than the same skip (the worst at in_day {worst_at}); {}",
             seeds.min(3),
             if worst_skip == i64::MIN { "-".to_string() } else { worst_skip.to_string() },
-            if worst_extra == i64::MIN { "NOT JUDGED (0 samples)".to_string() } else { worst_extra.to_string() }
+            if worst_extra == i64::MIN { "NONE (no run held a napper)".to_string() } else { worst_extra.to_string() },
+            v.scope("class B's cost", "priced under the skip ruling, ironspec 00:12 / 01:46 PT")
         ));
     }
-    lines
+    Ok(lines)
 }
 
 /// The report line for one row.
@@ -2498,5 +2692,42 @@ mod lane_order_tests {
         let ring = LaneOpts { rule2: false, ..late.clone() };
         let (n3, b3, _) = order_breaks(&ring);
         assert!(n3 > 0 && b3 > 0, "the control (ring windows, a late napper) kept the order: {b3} of {n3}");
+    }
+
+    /// (G1's checklist (4), ironspec's hole 8 on the tenth) the coverage bench's lists parse strictly.
+    #[test]
+    fn coverage_lists_parse_strictly() {
+        assert_eq!(parse_exit_phase(&[]).unwrap(), None);
+        assert_eq!(parse_exit_phase(&[1, 2, 3]).unwrap(), Some([1, 2, 3]));
+        assert!(parse_exit_phase(&[1, 2]).is_err());
+        assert_eq!(parse_exit_pickup(&[]).unwrap(), (0, 0));
+        assert_eq!(parse_exit_pickup(&[4]).unwrap(), (4, 4));
+        assert_eq!(parse_exit_pickup(&[0, 4]).unwrap(), (0, 4));
+        assert!(parse_exit_pickup(&[4, 0]).is_err());
+        assert!(parse_exit_pickup(&[1, 2, 3]).is_err());
+        assert!(parse_hist_lanes(Some("100:1|200:1")).is_err());
+        assert!(parse_hist_lanes(Some("||")).is_err());
+        assert!(parse_hist_lanes(Some("100:1||x")).is_err());
+        let ok = parse_hist_lanes(Some("100:1||200:2")).unwrap();
+        assert!(ok[0].is_some() && ok[1].is_none() && ok[2].is_some());
+    }
+
+    /// (ironspec 04:07 PT) the forced skipped pick takes only an opportunity whose pick would have been made.
+    #[test]
+    fn the_forced_skip_reports_whether_it_took() {
+        let o = LaneOpts { days: 10, ..LaneOpts::lead() };
+        let took: Vec<bool> = (0..30i64).map(|slot| simulate_lanes_scored(&LaneOpts { skip_pick: Some((8, slot)), ..o.clone() }).1.skip_took).collect();
+        assert!(took.iter().any(|&t| t), "no slot's skip took");
+        assert!(took.iter().any(|&t| !t), "every slot's skip took (no slot without a due pick)");
+    }
+
+    /// (the chain fix) the operating point's judgement: a row with no complete night is NOT JUDGED, never a pass.
+    #[test]
+    fn an_empty_row_is_not_judged() {
+        let mut v = crate::verdict::Verdict::new("t");
+        let st = RowStats { least: 24, shortest: usize::MAX, spacing: i64::MAX, pick_gap: i64::MAX, lmargin: i64::MAX, seat_margin: i64::MAX, ..Default::default() };
+        judge_operating(&st, (98, 102), "empty", &mut v);
+        assert!(v.fails().iter().any(|f| f.contains("NOT JUDGED")));
+        assert!(v.finish(false).is_err());
     }
 }
