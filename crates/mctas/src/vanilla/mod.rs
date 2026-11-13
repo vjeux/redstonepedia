@@ -127,6 +127,51 @@ fn port_taken(log: &Path) -> bool {
     text.contains("FAILED TO BIND") || text.contains("Unable to initialise RCON") || text.contains("Address already in use")
 }
 
+/// The server's `server.properties`: the world kind (`(level-type, generator-settings,
+/// generate-structures)`), the ports and RCON password chosen for this start, and the knobs of
+/// `opts`.
+fn write_properties(dir: &Path, opts: &VanillaOptions, world: (String, String, String), game_port: u16, rcon_port: u16, password: &str) -> Result<()> {
+    let (level_type, gen_settings, structures) = world;
+    let props = [
+        ("level-name", opts.level_name.clone()),
+        ("level-type", level_type),
+        ("generator-settings", gen_settings),
+        ("generate-structures", structures),
+        ("level-seed", opts.seed.to_string()),
+        ("online-mode", "false".to_string()),
+        ("enforce-secure-profile", "false".to_string()),
+        ("server-ip", "127.0.0.1".to_string()),
+        ("server-port", game_port.to_string()),
+        ("enable-rcon", "true".to_string()),
+        ("rcon.port", rcon_port.to_string()),
+        ("rcon.password", password.to_string()),
+        ("broadcast-rcon-to-ops", "false".to_string()),
+        ("enable-query", "false".to_string()),
+        ("enable-status", "true".to_string()),
+        ("spawn-protection", "0".to_string()),
+        ("difficulty", opts.difficulty.clone()),
+        ("gamemode", opts.gamemode.clone()),
+        ("force-gamemode", opts.force_gamemode.to_string()),
+        ("allow-flight", "true".to_string()),
+        ("max-players", "4".to_string()),
+        ("max-tick-time", "-1".to_string()),
+        ("pause-when-empty-seconds", "0".to_string()),
+        ("view-distance", opts.view_distance.to_string()),
+        ("simulation-distance", opts.simulation_distance.to_string()),
+        ("network-compression-threshold", "-1".to_string()),
+        ("sync-chunk-writes", "false".to_string()),
+        // A real world compresses its region files (26.3's `deflate`; read_box reads it);
+        // the void world's files stay raw (tiny, and snapshots parse them constantly).
+        ("region-file-compression", if opts.default_world { "deflate".to_string() } else { "none".to_string() }),
+        ("log-ips", "false".to_string()),
+        ("white-list", "false".to_string()),
+        ("enforce-whitelist", "false".to_string()),
+    ];
+    let text: String = props.iter().map(|(k, v)| format!("{k}={v}\n")).collect();
+    std::fs::write(dir.join("server.properties"), text)?;
+    Ok(())
+}
+
 /// Knobs of [`VanillaServer::start`].
 #[derive(Clone, Debug)]
 pub struct VanillaOptions {
@@ -345,43 +390,7 @@ impl VanillaServer {
                 "false".to_string(),
             )
         };
-        let props = [
-            ("level-name", opts.level_name.clone()),
-            ("level-type", level_type),
-            ("generator-settings", gen_settings),
-            ("generate-structures", structures),
-            ("level-seed", opts.seed.to_string()),
-            ("online-mode", "false".to_string()),
-            ("enforce-secure-profile", "false".to_string()),
-            ("server-ip", "127.0.0.1".to_string()),
-            ("server-port", game_port.to_string()),
-            ("enable-rcon", "true".to_string()),
-            ("rcon.port", rcon_port.to_string()),
-            ("rcon.password", password.clone()),
-            ("broadcast-rcon-to-ops", "false".to_string()),
-            ("enable-query", "false".to_string()),
-            ("enable-status", "true".to_string()),
-            ("spawn-protection", "0".to_string()),
-            ("difficulty", opts.difficulty.clone()),
-            ("gamemode", opts.gamemode.clone()),
-            ("force-gamemode", opts.force_gamemode.to_string()),
-            ("allow-flight", "true".to_string()),
-            ("max-players", "4".to_string()),
-            ("max-tick-time", "-1".to_string()),
-            ("pause-when-empty-seconds", "0".to_string()),
-            ("view-distance", opts.view_distance.to_string()),
-            ("simulation-distance", opts.simulation_distance.to_string()),
-            ("network-compression-threshold", "-1".to_string()),
-            ("sync-chunk-writes", "false".to_string()),
-            // A real world compresses its region files (26.3's `deflate`; read_box reads it);
-            // the void world's files stay raw (tiny, and snapshots parse them constantly).
-            ("region-file-compression", if opts.default_world { "deflate".to_string() } else { "none".to_string() }),
-            ("log-ips", "false".to_string()),
-            ("white-list", "false".to_string()),
-            ("enforce-whitelist", "false".to_string()),
-        ];
-        let text: String = props.iter().map(|(k, v)| format!("{k}={v}\n")).collect();
-        std::fs::write(dir.join("server.properties"), text)?;
+        write_properties(&dir, opts, (level_type, gen_settings, structures), game_port, rcon_port, &password)?;
         let log = dir.join("server.log");
         let out = std::fs::File::create(&log)?;
         let repo = crate::paths::version_dir(&opts.version).join("vanilla-bundler-repo");
