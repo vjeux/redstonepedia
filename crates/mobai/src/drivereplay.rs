@@ -26,6 +26,9 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 
 const DY: i32 = 80;
+/// Mth.equal's bound (`Math.abs(b - a) < 1.0E-5F`, Mth 162-164) as a double: the game's own test for
+/// a clipped axis, used for every contact tolerance here (G1 on M #2)
+const MTH_EQUAL: f64 = 1.0E-5f32 as f64;
 const MEMS: &str = "minecraft:path,minecraft:walk_target,minecraft:nearest_hostile,minecraft:cant_reach_walk_target_since,minecraft:home,minecraft:last_slept,+poi,+sight,+hurt";
 
 struct Act {
@@ -148,6 +151,136 @@ fn parse_move(l: &str) -> Option<MoveRow> {
     let bmin = triple(bx.split(']').next()?)?;
     let bmax = triple(bx.split("-> [").nth(1)?.split(']').next()?)?;
     Some(MoveRow { req, got, hcoll, vcoll, bmin, bmax })
+}
+
+/// (G1 10:36) The drop-entry envelope from `+move` rows: per lane (x0 = -1 / 3 / 7), each cart pass
+/// through the drop region (a run of a cart's rows with no gap over 5 gt) with its off-rail ticks on
+/// C's support's top (the box's floor at y 24.000: resting on (x0,23,7)'s glass, not on a rail) and its
+/// largest lateral displacement of the box centre from the lane's centre x0 + 0.5 while at or above
+/// y 23.5; then N, min / median / max of both per lane, and the passes at each maximum.
+pub fn drop_envelope(files: &[std::path::PathBuf]) -> Result<()> {
+    struct Pass {
+        lane: i32,
+        cart: String,
+        start: u32,
+        last: u32,
+        off: u32,
+        lat: f64,
+    }
+    let mut done: Vec<(String, Pass)> = Vec::new();
+    for f in files {
+        let text = std::fs::read_to_string(f)?;
+        let mut open: BTreeMap<String, Pass> = BTreeMap::new();
+        let mut rows = 0usize;
+        for l in text.lines() {
+            let Some(rest) = l.trim_start().strip_prefix('t') else { continue };
+            let Some((ts, body)) = rest.split_once(": move cart req ") else { continue };
+            let Ok(t) = ts.parse::<u32>() else { continue };
+            let line = format!("move cart req {body}");
+            let Some(m) = parse_move(&line) else { continue };
+            let cart = body.rsplit(" @").next().unwrap_or("?").split_whitespace().next().unwrap_or("?").to_string();
+            rows += 1;
+            let cx = (m.bmin[0] + m.bmax[0]) / 2.0;
+            let y0 = m.bmin[1] - DY as f64;
+            let Some(lane) = [-1i32, 3, 7].into_iter().find(|&x0| (cx - (x0 as f64 + 0.5)).abs() < 1.5) else { continue };
+            let off = u32::from((y0 - 24.0).abs() < MTH_EQUAL);
+            let lat = if y0 >= 23.5 { (cx - (lane as f64 + 0.5)).abs() } else { 0.0 };
+            match open.get_mut(&cart) {
+                Some(p) if p.lane == lane && t <= p.last + 5 => {
+                    p.last = t;
+                    p.off += off;
+                    p.lat = p.lat.max(lat);
+                }
+                _ => {
+                    if let Some(p) = open.remove(&cart) {
+                        done.push((f.display().to_string(), p));
+                    }
+                    open.insert(cart.clone(), Pass { lane, cart, start: t, last: t, off, lat });
+                }
+            }
+        }
+        anyhow::ensure!(rows > 0, "{}: no +move rows (run drive-replay with MCTAS_REPLAY_MOVE over the drop region, unclipped)", f.display());
+        done.extend(open.into_values().map(|p| (f.display().to_string(), p)));
+    }
+    println!("drop-entry envelope over {} sample(s): {} pass(es)", files.len(), done.len());
+    for lane in [-1i32, 3, 7] {
+        let ps: Vec<&(String, Pass)> = done.iter().filter(|(_, p)| p.lane == lane).collect();
+        if ps.is_empty() {
+            println!("  lane {lane}: no passes (NOT JUDGED)");
+            continue;
+        }
+        let mut offs: Vec<u32> = ps.iter().map(|(_, p)| p.off).collect();
+        offs.sort_unstable();
+        let mut lats: Vec<f64> = ps.iter().map(|(_, p)| p.lat).collect();
+        lats.sort_by(|a, b| a.total_cmp(b));
+        let n = ps.len();
+        println!(
+            "  lane {lane}: N {n} passes; off-rail ticks on C's top min {} / median {} / max {}; lateral displacement min {:.4} / median {:.4} / max {:.4}",
+            offs[0],
+            offs[n / 2],
+            offs[n - 1],
+            lats[0],
+            lats[n / 2],
+            lats[n - 1]
+        );
+        for (f, p) in ps.iter().filter(|(_, p)| p.off == offs[n - 1] || (p.lat - lats[n - 1]).abs() < 1e-12) {
+            println!("    at a maximum: {} t{}..t{} off-rail {} lateral {:.4} ({f})", p.cart, p.start, p.last, p.off, p.lat);
+        }
+    }
+    Ok(())
+}
+
+/// (ironspec 10:38 (9)) The scene and the drive translated by `by` (the built chunk phase is +6,0,+6):
+/// every block, block entity, port and entity of the scene, and the drive's `home` / `set` act cells;
+/// `# expect` lines are dropped (their states are in the old frame), so the shifted drive is open loop.
+pub fn shift_scene(scene: &Path, drive: &Path, by: [i32; 3], scene_out: &Path, drive_out: &Path) -> Result<()> {
+    let mut d = mctas::design::Design::load(scene)?;
+    let sh = |p: &[i32; 3]| [p[0] + by[0], p[1] + by[1], p[2] + by[2]];
+    d.blocks = d.blocks.iter().map(|(p, s)| (sh(p), s.clone())).collect();
+    d.block_entities = d.block_entities.iter().map(|(p, s)| (sh(p), s.clone())).collect();
+    for p in d.ports.values_mut() {
+        *p = sh(p);
+    }
+    for e in d.entities.iter_mut() {
+        for (i, v) in e.pos.iter_mut().enumerate() {
+            *v += by[i] as f64;
+        }
+    }
+    d.save(scene_out)?;
+    let text = std::fs::read_to_string(drive)?;
+    let (mut out, mut moved, mut dropped) = (String::new(), 0usize, 0usize);
+    for l in text.lines() {
+        if l.starts_with("# expect") {
+            dropped += 1;
+            continue;
+        }
+        let w: Vec<&str> = l.split_whitespace().collect();
+        let shifted = match w.as_slice() {
+            ["act", t, "home", who, x, y, z, rest @ ..] => Some(format!("act {t} home {who} {} {} {}{}", x.parse::<i32>()? + by[0], y.parse::<i32>()? + by[1], z.parse::<i32>()? + by[2], rest.iter().map(|r| format!(" {r}")).collect::<String>())),
+            ["act", t, "set", x, y, z, rest @ ..] => Some(format!("act {t} set {} {} {}{}", x.parse::<i32>()? + by[0], y.parse::<i32>()? + by[1], z.parse::<i32>()? + by[2], rest.iter().map(|r| format!(" {r}")).collect::<String>())),
+            _ => None,
+        };
+        match shifted {
+            Some(s) => {
+                moved += 1;
+                out.push_str(&s);
+            }
+            None => out.push_str(l),
+        }
+        out.push('\n');
+    }
+    std::fs::write(drive_out, out)?;
+    println!(
+        "shift-scene by {by:?}: {} blocks, {} entities, {} ports moved -> {} (md5 {}); drive acts moved {moved}, expect lines dropped {dropped} (the shifted drive runs open loop) -> {} (md5 {})",
+        d.blocks.len(),
+        d.entities.len(),
+        d.ports.len(),
+        scene_out.display(),
+        crate::md5::md5_hex(&std::fs::read(scene_out)?),
+        drive_out.display(),
+        crate::md5::md5_hex(&std::fs::read(drive_out)?)
+    );
+    Ok(())
 }
 
 fn cell_state(srv: &mut VanillaServer, p: [i32; 3]) -> Result<String> {
@@ -343,6 +476,63 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
     srv.cmd_ok(&format!("time set {day_start}"))?;
     crate::seatclear::place_blocks(&mut srv, scene)?;
     let d = mctas::design::Design::load(scene)?;
+    // (ironspec 10:38 (7)) EVERY T in the scene asserted at t0 and after the last tick against the
+    // record's declared shape: a plain rail with rails on 3 horizontal sides (RailState's raw count:
+    // the side, one up or one down, any rail block, 90-92 / 121-129)
+    let mut switched_ts: Vec<String> = Vec::new();
+    let mut switched_cells: Vec<([i32; 3], String)> = Vec::new();
+    let t_asserts: Vec<([i32; 3], String)> = {
+        let is_rail = |p: [i32; 3]| d.blocks.get(&p).is_some_and(|s| s.split('[').next().unwrap_or("").ends_with("rail"));
+        let mut v = Vec::new();
+        for (p, s) in &d.blocks {
+            let name = s.split('[').next().unwrap_or("");
+            if name != "minecraft:rail" && name != "rail" {
+                continue;
+            }
+            let sides = [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]]
+                .iter()
+                .filter(|o| (-1..=1).any(|dy| is_rail([p[0] + o[0], p[1] + dy, p[2] + o[2]])))
+                .count();
+            if sides == 3 {
+                let shape = s.split("shape=").nth(1).and_then(|r| r.split([',', ']']).next()).ok_or_else(|| anyhow::anyhow!("the T at {p:?} declares no shape: {s}"))?;
+                // a T with a signal source within Manhattan distance 2 (every component's update
+                // reach: RailBlock.updateState re-shapes on a source's update) is SWITCHED by design:
+                // its shape follows its control's power, so it's printed, not asserted, until the
+                // record declares it (`switches:`)
+                const SOURCES: [&str; 20] = [
+                    "lever", "redstone_torch", "redstone_wall_torch", "detector_rail", "redstone_wire", "repeater", "comparator", "observer", "_button", "_pressure_plate", "redstone_block", "daylight_detector", "target", "tripwire_hook", "lectern", "trapped_chest", "sculk_sensor", "lightning_rod", "jukebox", "calibrated_sculk_sensor",
+                ];
+                let mut src: Option<String> = None;
+                for dx in -2i32..=2 {
+                    for dy in -2i32..=2 {
+                        for dz in -2i32..=2 {
+                            if dx.abs() + dy.abs() + dz.abs() > 2 || (dx, dy, dz) == (0, 0, 0) {
+                                continue;
+                            }
+                            if let Some(b) = d.blocks.get(&[p[0] + dx, p[1] + dy, p[2] + dz]) {
+                                let n = b.split('[').next().unwrap_or("");
+                                if SOURCES.iter().any(|k| n.ends_with(k)) && src.is_none() {
+                                    src = Some(format!("{n} at ({},{},{})", p[0] + dx, p[1] + dy, p[2] + dz));
+                                }
+                            }
+                        }
+                    }
+                }
+                match src {
+                    Some(sname) => {
+                        switched_ts.push(format!("({},{},{}) declared {shape}, a source within Manhattan distance 2 (a heuristic: the record's `switches:` lines replace it): {sname}", p[0], p[1], p[2]));
+                        switched_cells.push((*p, shape.to_string()));
+                    }
+                    None => v.push((*p, format!("minecraft:rail[shape={shape}]"))),
+                }
+            }
+        }
+        v
+    };
+    println!("  the scene's Ts (plain rails with rails on 3 sides): {} asserted at t0 and after the last tick; {} SWITCHED (a signal source within distance 2: printed, not asserted, until the record declares them)", t_asserts.len(), switched_ts.len());
+    for s in &switched_ts {
+        println!("    switched T {s}");
+    }
     let mut by_uuid: BTreeMap<String, usize> = BTreeMap::new();
     let mut vs: Vec<V> = Vec::new();
     let mut cart_tags: Vec<String> = Vec::new();
@@ -766,7 +956,10 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
             let taken = setup_lines.iter().filter(|l| l.starts_with("poi acquire")).count();
             // (ironspec 09:48) MCTAS_REPLAY_ASSERT="x,y,z|PREDICATE;…": block predicates asserted at t0
             // (and again after the last tick), e.g. the pocket-exit Ts' placement-order shapes
-            for (c, pred) in &block_asserts {
+            for (p, _) in &switched_cells {
+                println!("  t0 switched T ({},{},{}): {}", p[0], p[1], p[2], cell_state(&mut srv, *p)?);
+            }
+            for (c, pred) in block_asserts.iter().chain(t_asserts.iter()) {
                 let ok = crate::strict::test(&mut srv, &format!("execute if block {} {} {} {pred}", c[0], c[1] + DY, c[2]))?;
                 println!("  t0 assert ({},{},{}) {pred}: {}", c[0], c[1], c[2], if ok { "HELD" } else { "FAILED" });
                 anyhow::ensure!(ok, "t0: ({},{},{}) is not {pred}", c[0], c[1], c[2]);
@@ -815,27 +1008,33 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
                         (Some(_), None) => true,
                         (None, _) => true,
                     };
-                    let clipped = mv.as_ref().is_none_or(|m| m.hcoll || m.vcoll || (0..3).any(|i| (m.req[i] - m.got[i]).abs() > 1e-9));
+                    // (G1 on M #2) every tolerance is Mth.equal's (abs(b - a) < 1.0E-5F, Mth 162-164: the game's
+                    // own test for a clipped axis in Entity.move): a collision snaps a box face exactly onto
+                    // the blocking surface, so the face and the floor tests use the same bound
+                    let clipped = mv.as_ref().is_none_or(|m| m.hcoll || m.vcoll || (0..3).any(|i| (m.req[i] - m.got[i]).abs() >= MTH_EQUAL));
                     if keep_box && (!move_clipped_only || clipped) {
                         let mut s = l.clone();
                         for (u, name) in &uuid_names {
                             s = s.replace(u.as_str(), name);
                         }
                         if let Some(m) = &mv {
-                            // the drop's two failure forms (ironfarm 10:04): a move clipped into C's
-                            // support glass (3,23,7) at its north face, and an off-rail rest at the lip
+                            // the drop's two failure forms (ironfarm 10:04), at each lane's drop (lanes
+                            // x0 = -1, 3, 7): a move clipped into C's support (x0,23,7) at its north face,
+                            // and an off-rail rest at the lip
                             let dy = DY as f64;
-                            let into_c = m.hcoll && m.req[2] > 0.0 && m.bmin[0] < 4.0 && m.bmax[0] > 3.0 && (m.bmin[1] - dy) < 24.0 && (m.bmax[1] - dy) > 23.0 && (m.bmax[2] - 7.0).abs() < 0.02;
                             let cx = (m.bmin[0] + m.bmax[0]) / 2.0;
                             let cz = (m.bmin[2] + m.bmax[2]) / 2.0;
-                            let lip_rest = m.got.iter().all(|g| g.abs() < 1e-9) && m.req.iter().any(|r| r.abs() > 1e-9) && (m.bmin[1] - dy - 24.0).abs() < 0.05 && (3.0..4.5).contains(&cx) && (6.0..7.5).contains(&cz);
-                            if into_c {
-                                drop_clips += 1;
-                                s.push_str(" [CLIP INTO C's support (3,23,7)]");
-                            }
-                            if lip_rest {
-                                lip_rests += 1;
-                                s.push_str(" [AT REST at the lip]");
+                            for x0 in [-1.0f64, 3.0, 7.0] {
+                                let into_c = m.hcoll && m.req[2] > 0.0 && m.bmin[0] < x0 + 1.0 && m.bmax[0] > x0 && (m.bmin[1] - dy) < 24.0 && (m.bmax[1] - dy) > 23.0 && (m.bmax[2] - 7.0).abs() < MTH_EQUAL;
+                                let lip_rest = m.got.iter().all(|g| g.abs() < MTH_EQUAL) && m.req.iter().any(|r| r.abs() >= MTH_EQUAL) && (m.bmin[1] - dy - 24.0).abs() < MTH_EQUAL && (x0..x0 + 1.5).contains(&cx) && (6.0..7.5).contains(&cz);
+                                if into_c {
+                                    drop_clips += 1;
+                                    s.push_str(&format!(" [CLIP INTO lane {x0}'s C support ({x0},23,7)]"));
+                                }
+                                if lip_rest {
+                                    lip_rests += 1;
+                                    s.push_str(&format!(" [AT REST at lane {x0}'s drop lip]"));
+                                }
                             }
                         }
                         move_rows.push(format!("t{t}: {s}"));
@@ -1264,7 +1463,7 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
     }
     // the block predicates again after the last tick (the Ts must still hold their shapes)
     let mut end_asserts_bad: Vec<String> = Vec::new();
-    for (c, pred) in &block_asserts {
+    for (c, pred) in block_asserts.iter().chain(t_asserts.iter()) {
         let ok = crate::strict::test(&mut srv, &format!("execute if block {} {} {} {pred}", c[0], c[1] + DY, c[2]))?;
         println!("  end assert ({},{},{}) {pred}: {}", c[0], c[1], c[2], if ok { "HELD" } else { "FAILED" });
         if !ok {
@@ -1308,7 +1507,7 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
     }
     if let Some((a, b)) = move_window {
         println!(
-            "  minecart moves t{a}..t{b} (+move: each Entity.move's requested delta, the movement it got, the collision flags after it, the box{}{}): {} line(s); clipped into C's support (3,23,7): {drop_clips}; at rest at the drop lip: {lip_rests}",
+            "  minecart moves t{a}..t{b} (+move: each Entity.move's requested delta, the movement it got, the collision flags after it, the box{}{}): {} line(s); clipped into a lane's C support ((x0,23,7), x0 = -1 / 3 / 7): {drop_clips}; at rest at a drop lip: {lip_rests}",
             move_box.map(|r| format!("; carts meeting the frame box {r:?}")).unwrap_or_default(),
             if move_clipped_only { "; clipped moves only" } else { "" },
             move_rows.len()

@@ -623,6 +623,30 @@ pub enum MobaiCmd {
         #[arg(long, default_value = "")]
         loads: String,
     },
+    /// (tickexact 2026-11-13, G1 10:36) the drop-entry envelope from drive-replay outputs with `+move`
+    /// rows (MCTAS_REPLAY_MOVE over the drop region, unclipped): per lane (x0 = -1 / 3 / 7), every
+    /// cart pass through the drop with its off-rail ticks on C's support's top (box at y 24.000) and its
+    /// largest lateral displacement from the lane's centre, then N, min / median / max of each
+    DropEnvelope {
+        /// drive-replay outputs (one per sample)
+        files: Vec<std::path::PathBuf>,
+    },
+    /// (tickexact 2026-11-13, ironspec 10:38 (9): the BUILT chunk phase) a drive-replay scene and drive
+    /// translated by --by dx,dy,dz (blocks, block entities, ports, entities; the drive's `home` and
+    /// `set` acts); `# expect` lines are dropped (their states are in the old frame: the shifted drive
+    /// runs open loop, MCTAS_REPLAY_FIDELITY_ONLY); pass the bed shifted too
+    ShiftScene {
+        #[arg(long)]
+        scene: std::path::PathBuf,
+        #[arg(long)]
+        drive: std::path::PathBuf,
+        #[arg(long, allow_hyphen_values = true)]
+        by: String,
+        #[arg(long)]
+        scene_out: std::path::PathBuf,
+        #[arg(long)]
+        drive_out: std::path::PathBuf,
+    },
     SightControl {
         #[arg(long, default_value = "26.3")]
         version: String,
@@ -1912,6 +1936,12 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
                 .collect::<anyhow::Result<_>>()?;
             let h = f3(&home, "--home")?;
             crate::reclaim::bed_reclaim(&version, &file, &rm, f3(&day_pos, "--day-pos")?, [h[0] as i32, h[1] as i32, h[2] as i32], f3(&arm_at, "--arm-at")?, runs, after, expect, within, asleep)
+        }
+        MobaiCmd::DropEnvelope { files } => crate::drivereplay::drop_envelope(&files),
+        MobaiCmd::ShiftScene { scene, drive, by, scene_out, drive_out } => {
+            let b: Vec<i32> = by.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+            anyhow::ensure!(b.len() == 3, "--by dx,dy,dz");
+            crate::drivereplay::shift_scene(&scene, &drive, [b[0], b[1], b[2]], &scene_out, &drive_out)
         }
         MobaiCmd::DriveReplay { version, scene, drive, ticks, day_start, bed, loads } => {
             let b: Vec<i32> = bed.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
