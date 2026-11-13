@@ -386,6 +386,10 @@ pub enum Restart {
     /// the saved ticks' negative sub-ticks first), then the entities tick; later ticks keep their game-time
     /// due times, so pending redstone runs ahead of the entities by `idle` (1 or 2 at a world open). A world
     /// open is the lead's only load case; the pearl alternative's unload case is not modelled here.
+    /// A minecart's first move after the load is dry (ironspec 03:34, tick-exact's official lift-top row):
+    /// wasTouchingWater and the fluid heights aren't saved, and `AbstractMinecart.tick` updates the fluid
+    /// state after its move (redsim's `entity::minecart::tick` likewise), so a cart loaded in water moves one
+    /// tick as on land (no water speed cap or drag), and that tick's difference carries on.
     /// (Block events never cross a tick boundary: none is pending between two ticks.)
     Load { order: redsim::reload::Order, idle: i64 },
     /// STRESS, not observed in 16 official loads (ironspec 23:12 (3): tolerance prints only, never bars):
