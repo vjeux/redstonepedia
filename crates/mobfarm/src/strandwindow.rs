@@ -164,6 +164,15 @@ pub fn report(files: &[std::path::PathBuf], spacing: &[i64], lag: i64, lie_after
     for s in spacing {
         out.push(format!("P(strand | a night skip) at a visit spacing of {s} gt: {mean_all:.2} / {s} = {:.4} ({:.2} %)", mean_all / *s as f64, 100.0 * mean_all / *s as f64));
     }
+    // (G1's C18: the 0-gt windows counted apart, and the validation judged, not printed only)
+    let zero = windows.iter().filter(|w| **w == 0).count();
+    out.push(format!("rows with a 0-gt window: {zero} (the stamp cleared at the release: {}; armed but its window inside the lag: {})", n - armed, zero.saturating_sub(n - armed)));
+    if dur_lo + dur_hi > 0 {
+        out.push(format!("FAILED: {} armed rows' implied sink duration outside the game's 150..250 (under {dur_lo}, over {dur_hi}): the rows don't fit the sink's model", dur_lo + dur_hi));
+    }
+    if lie_after_entry.is_some() && no_entry > 0 {
+        out.push(format!("FAILED: {no_entry} rows with no entry recorded under --lie-after-entry"));
+    }
     Ok(out)
 }
 

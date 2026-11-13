@@ -14638,9 +14638,13 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
         }
         MobfarmCmd::StrandWindow { files, spacing, lag, lie_after_entry, rows } => {
-            for l in crate::strandwindow::report(&files, &spacing, lag, lie_after_entry, rows)? {
+            let lines = crate::strandwindow::report(&files, &spacing, lag, lie_after_entry, rows)?;
+            for l in &lines {
                 println!("{l}");
             }
+            // (G1's C18: a failed validation fails the run)
+            let failed: Vec<&String> = lines.iter().filter(|l| l.starts_with("FAILED: ")).collect();
+            anyhow::ensure!(failed.is_empty(), "strand-window: {} validation failures", failed.len());
         }
         MobfarmCmd::BedtierBench { design, from, to, speeds, after_sleep, release_after, day, empty, no_home, hide_after_wake, restart, hour, restart_phases, orders, hours, skip, skip_phases, day_off, no_presence_gate, early_release, day_gate, day_on, live_day_seated, restart_after_skip, panic_entries, pickup_injects, module_offset, queue_seat, queue_release, queue_wait, queue_waits, forced_stamp, arrival_stamp, arrival_run, arrival_hold, declare_emulated, r_bar, park_shifts, set_cell, pulse_cell, lever_on, built_release, day_lever, record, record_offset, record_margin, record_declare, head_cell, scope_excludes, visit_table, arm_delay, release_after_arm, erase_home_at, reclaim_row, reclaim_blocked, reclaim_expect, reclaim_at, restop, queue_dusk, jobs } => {
             let (_c, mut spec) = load(version, &design)?;
@@ -14832,7 +14836,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     Ok((redsim::pos::BlockPos::new(v[0], v[1], v[2]), t.trim().parse::<i64>()?, st.trim().to_string()))
                 })
                 .collect::<Result<_>>()?;
-            let faults = crate::bedtier::Faults { empty, no_home, hide_after_wake, restart, hour, skip, day_off, no_presence_gate, early_release, day_gate, day_on, live_day_seated, panic_entry: None, pickup_inject: None, approach, forced_stamp, arrival_stamp, arrival_run, arrival_hold, declared_emulated, r_bar, park_shift: None, park_shifts, declared_contacts, pulses, levers_on, built_release, day_lever, record, record_seed: from, record_speed: f64::NAN, scope_excludes, arm_delay, release_after_arm, erase_home_at, head_cells, lay_emulated, visit_table, contact_rates };
+            let faults = crate::bedtier::Faults { empty, no_home, hide_after_wake, restart, hour, skip, day_off, no_presence_gate, early_release, day_gate, day_on, live_day_seated, panic_entry: None, pickup_inject: None, approach, forced_stamp, arrival_stamp, arrival_run, arrival_hold, declared_emulated, r_bar, park_shift: None, park_shifts, declared_contacts, pulses, levers_on, built_release, day_lever, record, record_seed: from, record_speed: f64::NAN, scope_excludes, arm_delay, release_after_arm, erase_home_at, head_cells, lay_emulated, visit_table, contact_rates, built_world: module_offset.is_some() };
             crate::bedtier::bench_cmd(&spec, from, to, &speeds, after_sleep, release_after, day, &faults, [restart_phases.as_deref(), hours.as_deref(), skip_phases.as_deref(), restart_after_skip.as_deref(), panic_entries.as_deref(), pickup_injects.as_deref(), queue_waits.as_deref()], &crate::bedtier::orders(&orders)?, jobs)?;
         }
         MobfarmCmd::BedtierTwo { design, from, to, speeds, restart_phases, orders, transit, lift_delay, lift_speed, day_hold, day_off, gap, c_at, skip_phases, day_on, jobs, day_gate, a_hours, after_sleep, release_after } => {
