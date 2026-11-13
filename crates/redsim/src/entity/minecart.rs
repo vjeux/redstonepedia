@@ -594,7 +594,7 @@ fn push_by(w: &mut World, j: usize, i: usize) {
     } else {
         // (tickexact 2026-11-11, ironspec's push rule) a mob's push logged when asked
         if matches!(w.entities.list[i].kind, entity::EntityKind::Mob(_)) && w.mob.cart_pushes.is_some() {
-            let p = crate::entity::mob::CartPush { t: w.time, mob: w.entities.list[i].id, cart: w.entities.list[j].id, push: [-xa, -za], dist: dd };
+            let p = crate::entity::mob::CartPush { t: w.time, mob: w.entities.list[i].id, vehicle: w.entities.list[i].vehicle, cart: w.entities.list[j].id, push: [-xa, -za], dist: dd };
             if let Some(log) = w.mob.cart_pushes.as_mut() {
                 log.push(p);
             }
