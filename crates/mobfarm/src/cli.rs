@@ -12407,7 +12407,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let s = crate::settle::settle_check(&blocks, &bes, &ents, &decl, dt, cap).map_err(|e| anyhow::anyhow!("{}: {e}", file.display()))?;
             let fails = s.fails(allow_unchecked);
             println!(
-                "settle-check {} (cc767b78, tool unreviewed): laid as the judges lay it, {} entities held, day time {dt} ({}), {} fluid cells given their tick; {} ticks to {}; {} cells compared ({} redstone), {} shape cells checked; {} observers kicked once each ({} cells settling elsewhere after the kick: printed, the build order matters there); clocks: {} declared cells still changing, {} undeclared; new fluid cells after the settle: {} named in `# water:`, {} not (any fails: re-save with --write); designed currents (`# water:` cells in the file): {} ({} unbounded, {} holding no water); stand-ins (SURVIVAL): {} passing, {} failing; redstone cells stored unsettled {}; shape states differing {} ({} declared `# shape:` standing, {} failing); other cells stored unsettled {}; block entities changed {}; held cells {}; wall / stair cells unchecked {}{}; model notes {}: {}",
+                "settle-check {} (cc767b78, tool unreviewed): laid as the judges lay it, {} entities held, day time {dt} ({}), {} fluid cells given their tick; {} ticks to {}; {} cells compared ({} redstone), {} shape cells checked; {} observers kicked once each ({} cells settling elsewhere after the kick: print-only by ruling, a build-order-dependent cell being the whole-module build replay's to judge); clocks: {} declared cells still changing, {} undeclared; new fluid cells after the settle: {} named in `# water:`, {} not (any fails: re-save with --write); designed currents (`# water:` cells in the file): {} ({} unbounded, {} holding no water); stand-ins (SURVIVAL): {} passing, {} failing; redstone cells stored unsettled {}; shape states differing {} ({} declared `# shape:` standing, {} failing); other cells stored unsettled {}; block entities changed {}; held cells {}; wall / stair cells unchecked {}{}; model notes {}: {}",
                 file.display(),
                 ents.len(),
                 match (day_time, decl.day_time) {
@@ -12481,7 +12481,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             for (p, why) in &s.standins_failing {
                 println!("  stand-in ({},{},{}) fails SURVIVAL: {why}", p.x, p.y, p.z);
             }
-            list("settles elsewhere after an observer kick", &s.kick_sensitive);
+            list("settles elsewhere after an observer kick (print-only by ruling: the whole-module build replay judges build order)", &s.kick_sensitive);
             for p in &s.clock_undeclared {
                 println!("  undeclared clock cell ({},{},{}): {}", p.x, p.y, p.z, blocks.iter().find(|(q, _)| q == p).map_or("air".to_string(), |(_, b)| b.to_string()));
             }

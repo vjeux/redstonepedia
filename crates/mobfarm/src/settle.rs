@@ -73,6 +73,17 @@ pub fn declared(text: &str) -> Result<Declared, String> {
     };
     for line in text.lines() {
         let l = line.trim();
+        // (G1 on 9625147af: a declaration a reader would skip is a hole, so a near-miss of a declaration key
+        // (`#water:`, `# Water :`, …) is an error, never a silent comment)
+        if let Some(body) = l.strip_prefix('#')
+            && let Some((key, _)) = body.split_once(':')
+        {
+            let k = key.trim().to_ascii_lowercase();
+            const KEYS: [&str; 11] = ["clock", "water", "held", "shape", "day-time", "stand-in", "stand-in-guard", "candidate", "bench-entity", "out-of-scope", "bench-removed"];
+            if KEYS.contains(&k.as_str()) && !l.starts_with(&format!("# {k}:")) {
+                return Err(format!("{l:?}: a declaration reads `# {k}:` exactly (lower case, one space after the `#`, none before the colon): as written no reader would take it"));
+            }
+        }
         if let Some(rest) = l.strip_prefix("# clock:") {
             let (cells, why) = rest.split_once('=').ok_or_else(|| format!("{l:?}: give `# clock: x,y,z; x,y,z = REASON`"))?;
             let why = why.trim();
@@ -83,7 +94,7 @@ pub fn declared(text: &str) -> Result<Declared, String> {
                 d.clocks.push((cell(l, c)?, why.to_string()));
             }
         } else if let Some(rest) = l.strip_prefix("# water:") {
-            for entry in rest.split(';').map(str::trim).filter(|e| !e.is_empty()) {
+            for entry in split_outside(rest, ';') {
                 let (c, why) = entry.split_once('=').ok_or_else(|| format!("{l:?}: {entry}: give `x,y,z=REASON`"))?;
                 if why.trim().is_empty() {
                     return Err(format!("{l:?}: {entry}: a water cell needs its REASON"));
@@ -186,6 +197,9 @@ pub struct Settle {
     pub ticks: u32,
     /// A fixed point reached (at least [`MIN_TICKS`] run, then a tick with no change and nothing pending).
     pub fixed: bool,
+    /// With no fixed point at the cap: what `World::idle` still saw pending there (scheduled ticks, fluid
+    /// ticks, block events, moving pistons, falling blocks), each with its count where it has one.
+    pub pending_at_cap: Vec<String>,
     /// With no fixed point at the cap (or after the observers' kick): the cells that changed in the run's
     /// second half or hold a pending tick at the cap, declared `# clock:` (with each one's period: the
     /// interval its state recurs at) and not (failing: "no fixed point within the cap").
@@ -261,6 +275,11 @@ impl Settle {
         let mut v = Vec::new();
         if self.compared == 0 {
             v.push("NOT JUDGED (0 samples: no cell compared)".to_string());
+        }
+        // (no fixed point at the cap with no cell to blame (G1 on 9625147af): pending work not tied to a cell,
+        // a falling block in flight or a block event, still fails)
+        if !self.fixed && self.ticks > 0 && self.clock_declared.is_empty() && self.clock_undeclared.is_empty() {
+            v.push(format!("no fixed point within the cap: pending work not tied to a cell ({})", if self.pending_at_cap.is_empty() { "nothing idle() names".to_string() } else { self.pending_at_cap.join(", ") }));
         }
         if !self.clock_undeclared.is_empty() {
             v.push(format!(
@@ -485,6 +504,11 @@ pub fn settle_check(blocks: &[(BlockPos, Block)], block_entities: &[(BlockPos, S
         if matches!(b, Block::BubbleColumn { .. }) {
             w.schedule_tick(*p, redsim::block::Kind::BubbleColumn, 5, redsim::ticks::Priority::Normal);
         }
+        // (a falling block's own tick too, as `FallingBlock.onPlace` gives it at the build: one stored with
+        // nothing under it falls, which the file can't hold)
+        if matches!(b, Block::Falling { .. }) {
+            w.schedule_tick(*p, b.kind(), 2, redsim::ticks::Priority::Normal);
+        }
     }
     // (the laid world, kept for the stand-ins' SURVIVAL and the block entities against the fixed point)
     let laid = w.clone();
@@ -521,6 +545,26 @@ pub fn settle_check(blocks: &[(BlockPos, Block)], block_entities: &[(BlockPos, S
     let declared_cells: std::collections::HashSet<BlockPos> = decl.clocks.iter().map(|(p, _)| *p).collect();
     let held_cells: std::collections::HashSet<BlockPos> = decl.held.iter().map(|(p, _)| *p).collect();
     let mut s = Settle { ticks, fixed, model_notes: w.errors.clone(), fluid_cells, ..Default::default() };
+    if !fixed {
+        // (what `World::idle` still sees pending at the cap)
+        let mut p = Vec::new();
+        if w.ticks.count() > 0 {
+            p.push(format!("scheduled ticks {}", w.ticks.count()));
+        }
+        if w.fluid_ticks.count() > 0 {
+            p.push(format!("fluid ticks {}", w.fluid_ticks.count()));
+        }
+        if !w.events.is_empty() {
+            p.push(format!("block events {}", w.events.len()));
+        }
+        if !redsim::piston::is_idle(&w) {
+            p.push("moving pistons".to_string());
+        }
+        if !redsim::gravity::is_idle(&w) {
+            p.push("falling blocks".to_string());
+        }
+        s.pending_at_cap = p;
+    }
     // (ironspec 02:37 (4): a block whose state follows the day time (a daylight detector) is saved at its
     // file's day time, which the file declares (`# day-time:`); with none it fails)
     if decl.day_time.is_none() {
@@ -1135,6 +1179,24 @@ mod tests {
         let noon = declared("# day-time: 6000\n").unwrap();
         let s = settle_check(&d, &[], &[], &noon, 6000, CAP).unwrap();
         assert!(s.redstone.iter().any(|c| c.pos == BlockPos::new(0, 0, 0) && c.settled.contains("power=15")), "at noon it reads 15: {:?}", s.redstone);
+    }
+
+    /// G1 on 9625147af: no fixed point at the cap with no cell to blame fails. Control: a sand block 60
+    /// above the floor with a cap of 30: still falling at the cap, nothing changing in the run's second half
+    /// and no tick pending at a cell, it fails "pending work not tied to a cell (falling blocks)". And G1's
+    /// note (a): a near-miss of a declaration key is an error, not a skipped comment.
+    #[test]
+    fn pending_work_not_tied_to_a_cell() {
+        let mut d = floor(1);
+        d.push(at(0, 60, 0, "minecraft:sand"));
+        let s = settle_check(&d, &[], &[], &Declared::default(), 6000, 30).unwrap();
+        assert!(!s.fixed && s.clock_undeclared.is_empty() && s.clock_declared.is_empty(), "{} {:?} {:?}", s.fixed, s.clock_undeclared, s.pending_at_cap);
+        assert!(s.fails(false).iter().any(|f| f.starts_with("no fixed point within the cap: pending work not tied to a cell") && f.contains("falling blocks")), "{:?}", s.fails(false));
+        for bad in ["#water: 1,2,3=x\n", "# Water: 1,2,3=x\n", "# water : 1,2,3=x\n", "#  clock: 1,2,3 = x\n"] {
+            assert!(declared(bad).is_err(), "{bad:?} is refused, not skipped");
+        }
+        assert_eq!(declared("# water: 1,2,3=the lift's current (a; b)\n").unwrap().water.len(), 1, "a reason's own `;` inside parentheses is kept");
+        assert!(declared("# The return (loop frame): a comment\n").is_ok(), "other comments stand");
     }
 
     /// No vacuous pass (ironspec 23:56): an empty file is NOT JUDGED and fails.
