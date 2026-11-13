@@ -645,6 +645,46 @@ pub fn header_entries(text: &str, key: &str) -> Vec<String> {
     v
 }
 
+/// (G1 and ironspec Nov 12 18:31 / 19:4x, the T-reach evidence) The design's (and its parts')
+/// declared T-reach sources: `switch:` entries (a T's designed control: a junction's lever) and
+/// `update-only:` entries (a source whose update only re-settles a state-stable T to its held
+/// shape: a detector beside it, a siding lever), each `x,y,z=REASON`; with the kind.
+pub fn header_t_sources(text: &str) -> Result<Vec<(BlockPos, &'static str, String)>, String> {
+    let mut out = Vec::new();
+    for (key, kind) in [("switch:", "switch"), ("update-only:", "update-only")] {
+        for d in header_entries(text, key) {
+            let (c, reason) = d.split_once('=').ok_or_else(|| format!("{key} {d}: x,y,z=REASON"))?;
+            let v: Vec<i32> = c.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>().map_err(|e| format!("{key} {d}: {e}"))?;
+            if v.len() != 3 {
+                return Err(format!("{key} {d}: x,y,z=REASON"));
+            }
+            out.push((BlockPos::new(v[0], v[1], v[2]), kind, reason.trim().to_string()));
+        }
+    }
+    Ok(out)
+}
+
+/// The Ts (plain rails with 3 or 4 potential connections) and the signal sources whose updates
+/// reach each (`sources_reaching`, the same model as `tees`), with whether it is a 4-way crossing.
+pub fn tee_reach(spec: &FarmSpec) -> Vec<(BlockPos, Vec<BlockPos>, bool)> {
+    let all: HashMap<BlockPos, String> = spec.blocks.iter().map(|(p, b)| (*p, b.to_string())).collect();
+    let is_rail = |p: &BlockPos| all.get(p).is_some_and(|s| s.contains("rail"));
+    let reach = sources_reaching(spec);
+    let mut cells: Vec<&BlockPos> = all.iter().filter(|(_, s)| s.starts_with("minecraft:rail[")).map(|(p, _)| p).collect();
+    cells.sort_by_key(|c| (c.y, c.z, c.x));
+    let mut out = Vec::new();
+    for c in cells {
+        let sides = [(0, -1), (1, 0), (0, 1), (-1, 0)].iter().filter(|(dx, dz)| (-1..=1).any(|dy| is_rail(&BlockPos::new(c.x + dx, c.y + dy, c.z + dz)))).count();
+        if sides < 3 {
+            continue;
+        }
+        let mut srcs = reach.get(c).cloned().unwrap_or_default();
+        srcs.sort_by_key(|p| (p.y, p.z, p.x));
+        out.push((*c, srcs, sides >= 4));
+    }
+    out
+}
+
 fn short(s: &str) -> String {
     s.trim_start_matches("minecraft:").split(",waterlogged").next().unwrap_or(s).to_string()
 }

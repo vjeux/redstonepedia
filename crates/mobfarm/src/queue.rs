@@ -2101,9 +2101,10 @@ pub fn junction_gate_opts(spec: &FarmSpec, design_text: &str, print_all: bool) -
         if listed.is_empty() { String::new() } else { format!(", {} declared placement-order (expected FAIL)", listed.len()) },
         if flags.is_empty() { String::new() } else { format!(", {} flagged", flags.len()) }
     );
-    // (ironspec Nov 12 16:17: --all prints every junction, a failing one with its verdict and a
-    // declared placement-order one with its DECLARED line, each once)
-    let mut body: Vec<String> = if print_all {
+    // (ironspec Nov 12 16:17: --all prints every junction; G1 / ironspec 19:4x: each junction once in
+    // both modes, a failing one with its verdict and a declared placement-order one with its
+    // DECLARED line; without --all, when some fail, the failures and the declared lines only)
+    let mut body: Vec<String> = if print_all || bad.is_empty() {
         all.iter()
             .map(|l| {
                 let key = format!("{l}:");
@@ -2111,7 +2112,7 @@ pub fn junction_gate_opts(spec: &FarmSpec, design_text: &str, print_all: bool) -
             })
             .collect()
     } else {
-        let mut b: Vec<String> = if bad.is_empty() { all } else { bad.clone() };
+        let mut b: Vec<String> = bad.clone();
         b.extend(listed.iter().cloned());
         b
     };
@@ -6942,6 +6943,67 @@ pub fn rest_check(spec: &FarmSpec, o: &LoopOpts, cells: &[[i32; 3]], speeds: &[f
 /// its carts in place. A summon anywhere but the pad must find none.
 pub fn loop_spots(spec: &FarmSpec, o: &LoopOpts) -> Result<String, String> {
     golem_spots(spec, Some(o), &[], false, 40, None, &[])
+}
+
+/// (9fc3155f, ironspec Nov 12 19:20 (3c), beside the golem spots) Every position from which a pad
+/// cell is in summon reach, with the positions that can share its 10-box. The summon
+/// (`SpawnUtil.trySpawnMob(IRON_GOLEM, .., villager.blockPosition(), 10, 8, 6, ..)`) tries columns
+/// within +-8 in x and z of the summoner's block and scans its feet cell from y + 6 down to y - 6:
+/// a pad cell (golem feet) is in reach from a position whose block is within 8 of it in x and z and
+/// within 6 in y (for a pad at feet y -6: the summoner's y -12..0). The gossip summon
+/// (`spawnGolemIfNeeded(.., 5)`) counts the willing villagers whose boxes meet the summoner's box
+/// inflated by 10: two feet within 10.6 in x and z and 11.95 in y, which two cells allow at a cell
+/// difference of at most 11 in x and z and 12 in y (the feet anywhere in their cells). Each line:
+/// the position, the pad cells in reach, the stand positions in its 10-box and the other positions
+/// there (a cell a rider can be in: how many riders can be there at once is the schedule's).
+pub fn summon_reach(positions: &[BlockPos], pad: (BlockPos, BlockPos), stand: &[BlockPos], groups: &[(String, usize, Vec<BlockPos>)], list: usize) -> Vec<String> {
+    let (lo, hi) = pad;
+    let mut pos: Vec<BlockPos> = positions.to_vec();
+    for (_, _, g) in groups {
+        pos.extend(g.iter().copied());
+    }
+    pos.sort_by_key(|p| (p.y, p.z, p.x));
+    pos.dedup();
+    let pad_cells: Vec<BlockPos> = (lo.y..=hi.y).flat_map(|y| (lo.z..=hi.z).flat_map(move |z| (lo.x..=hi.x).map(move |x| BlockPos::new(x, y, z)))).collect();
+    let fmt = |p: &BlockPos| format!("{},{},{}", p.x, p.y, p.z);
+    let mut rows = Vec::new();
+    let mut worst = 0usize;
+    for p in &pos {
+        let reach: Vec<&BlockPos> = pad_cells.iter().filter(|c| (c.x - p.x).abs() <= 8 && (c.z - p.z).abs() <= 8 && (c.y - p.y).abs() <= 6).collect();
+        if reach.is_empty() {
+            continue;
+        }
+        // (the summoner's own cell counts too: it is one of the willing)
+        let in_box = |q: &BlockPos| (q.x - p.x).abs() <= 11 && (q.z - p.z).abs() <= 11 && (q.y - p.y).abs() <= 12;
+        let stands: Vec<String> = stand.iter().filter(|q| in_box(q)).map(fmt).collect();
+        // (each declared group of riders that can be in the box adds its most riders at once; a
+        // position in no group adds one rider per cell)
+        let hit: Vec<&(String, usize, Vec<BlockPos>)> = groups.iter().filter(|(_, _, g)| g.iter().any(in_box)).collect();
+        let loose: Vec<&BlockPos> = pos.iter().filter(|q| in_box(q) && !groups.iter().any(|(_, _, g)| g.contains(q))).collect();
+        let most = hit.iter().map(|(_, cap, _)| *cap).sum::<usize>() + loose.len();
+        worst = worst.max(most);
+        let (x0, x1) = (reach.iter().map(|c| c.x).min().unwrap_or(0), reach.iter().map(|c| c.x).max().unwrap_or(0));
+        let (z0, z1) = (reach.iter().map(|c| c.z).min().unwrap_or(0), reach.iter().map(|c| c.z).max().unwrap_or(0));
+        let shown: Vec<String> = loose.iter().take(list).map(|q| fmt(q)).collect();
+        rows.push(format!(
+            "  REACH {}{}: {} pad cells (x {x0}..{x1}, z {z0}..{z1}); its 10-box: at most {most} willing ({}{} positions in no group, one each{}{}); stand positions in it [{}]",
+            fmt(p),
+            if stand.contains(p) { " (a stand position)" } else { "" },
+            reach.len(),
+            hit.iter().map(|(n, cap, _)| format!("{n} {cap}, ")).collect::<String>(),
+            loose.len(),
+            if shown.is_empty() { String::new() } else { format!(": {}", shown.join(" ")) },
+            if loose.len() > shown.len() { " ..." } else { "" },
+            stands.join(" ")
+        ));
+    }
+    let mut out = vec![format!(
+        "summon reach (ironspec Nov 12 19:20 (3c) / 19:34 (3b): a position whose block is within 8 of a pad cell in x and z and 6 in y can summon onto the pad; each with the most willing villagers its 10-box can hold, by the declared rider groups (--rider-group NAME:CAP: the most riders of that group at once) and one per cell for a position in none; the gossip summon needs 5): {} of {} positions, the most willing anywhere {worst}",
+        rows.len(),
+        pos.len()
+    )];
+    out.extend(rows);
+    out
 }
 
 /// The golem-spots check (the brief's "no golem spots off the pad"): the game's summon search
@@ -15008,5 +15070,32 @@ mod paste_tests {
             assert_eq!(t, b, "{s}");
             assert_eq!(block_turned(&block_turned(&b, 1).unwrap(), 3).unwrap(), b, "{s}");
         }
+    }
+}
+
+/// (ironspec Nov 12 19:20 (3c) / 19:34 (3b)) The summon reach: a pad cell within 8 in x and z and 6
+/// in y; the 10-box's most willing by the declared groups, one per cell for the rest.
+#[cfg(test)]
+mod summon_reach_tests {
+    use super::summon_reach;
+    use redsim::pos::BlockPos;
+
+    #[test]
+    fn reach_and_most_willing() {
+        let b = |x, y, z| BlockPos::new(x, y, z);
+        // (the pad: golem feet at y -6, x -3..8, z -6..-1)
+        let pad = (b(-3, -6, -6), b(8, -6, -1));
+        // (a pocket at z 0, the merge row at z 7 (8 from the pad's z -1 row), z 8 out of reach, y 1
+        // out of reach (the scan reaches y - 6 = -5 at most), and a far rider at x 30)
+        let pos = [b(0, 0, 0), b(0, 0, 7), b(0, 0, 8), b(0, 1, 0), b(30, 0, 0)];
+        let groups = vec![("batch".to_string(), 3usize, vec![b(-1, 0, 0), b(3, 0, 0), b(7, 0, 0)]), ("napper".to_string(), 1usize, vec![b(9, -3, 8)])];
+        let l = summon_reach(&pos, pad, &[], &groups, 8);
+        let row = |c: &str| l.iter().find(|r| r.starts_with(&format!("  REACH {c}:"))).cloned();
+        assert!(row("0,0,0").is_some() && row("0,0,7").is_some(), "{l:?}");
+        assert!(row("0,0,8").is_none() && row("0,1,0").is_none() && row("30,0,0").is_none(), "{l:?}");
+        // (the pocket's box: the batch (3) and the napper (1), plus its own and the other ungrouped
+        // cells within 11 / 12: 0,0,0, 0,0,7, 0,0,8, 0,1,0 (one each))
+        assert!(row("0,0,0").unwrap().contains("at most 8 willing (batch 3, napper 1, 4 positions in no group"), "{l:?}");
+        assert!(l[0].contains("5 of 9 positions"), "{l:?}");
     }
 }

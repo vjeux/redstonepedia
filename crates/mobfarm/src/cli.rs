@@ -911,6 +911,14 @@ pub enum MobfarmCmd {
         /// (ironspec Nov 12 16:17: the split row's Ts, stored and settle shapes).
         #[arg(long)]
         all: bool,
+        /// A T's declared control, x,y,z[=REASON] (repeatable; with the design's `# switch:`
+        /// header entries): its updates reaching a T are declared.
+        #[arg(long, allow_hyphen_values = true)]
+        switch: Vec<String>,
+        /// A source whose update only re-settles a state-stable T to its held shape (a detector
+        /// beside it, a siding lever), x,y,z[=REASON] (repeatable; with `# update-only:`).
+        #[arg(long, allow_hyphen_values = true)]
+        update_only: Vec<String>,
     },
     /// (9fc3155f, ironspec Nov 11 20:55: tiling) The cross-module margins of the design tiled with
     /// a copy of itself: per --at offset (`dx,dy,dz`, or `dx,dy,dz,m` mirrored in z first), (a) a
@@ -1260,6 +1268,10 @@ pub enum MobfarmCmd {
         /// The old walk: every rail link either way (a conservative bound).
         #[arg(long)]
         two_way: bool,
+        /// (G1's note 2 on a4cd9b8b0) Print every oriented link with its source (a column, a
+        /// shape, a declaration, a chain, a junction completion marked INFERRED, a reversal).
+        #[arg(long)]
+        orient_list: bool,
         /// (ironspec Nov 12 16:52, G1) A pricing run: the gate's FAIL, the late paths, the
         /// staleness and the caller sight print without failing the run (by default each fails
         /// it); undeclared track ends still fail.
@@ -2545,6 +2557,12 @@ pub enum MobfarmCmd {
         /// scene's own stand cells and pockets.
         #[arg(long, default_value = "", allow_hyphen_values = true)]
         stand: String,
+        /// (with --pad: the summon-reach print, ironspec Nov 12 19:34 (3b)) A group of riders and
+        /// the most of them at once anywhere: NAME:CAP=FILE[@x0,y0,z0,x1,y1,z1][+FILE[@box]...],
+        /// the group's positions from positions files (x y z per line), each optionally kept to a
+        /// box (repeatable): a 10-box meeting any of its positions holds at most CAP of them.
+        #[arg(long, allow_hyphen_values = true)]
+        rider_group: Vec<String>,
     },
     /// (cc767b78) The return judge on 7b90c3f1's return-bench (ironspec's L1‴ rows, farmopt 2026-11-12
     /// 03:22 with ironspec's amendments, the measured bars 05:31): the static gates on the emitted split
@@ -7759,7 +7777,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("  {s}");
             }
         }
-        MobfarmCmd::QueueLoopSpots { design, positions, offset, within, rails, with_entities, list, pad, stand } => {
+        MobfarmCmd::QueueLoopSpots { design, positions, offset, within, rails, with_entities, list, pad, stand, rider_group } => {
             let (c, spec) = load(version, &design)?;
             let o = crate::queue::loop_opts_of(&c.clock.design.meta).ok();
             let off = match offset.as_slice() { [x, y, z] => [*x, *y, *z], [] => [0, 0, 0], _ => anyhow::bail!("--offset takes dx,dy,dz") };
@@ -7809,6 +7827,41 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
             println!("{}", crate::queue::golem_spots(&spec, o.as_ref(), &extra, with_entities, list, pad_box, &stand_cells).map_err(|e| anyhow::anyhow!(e))?);
+            // (ironspec Nov 12 19:20 (3c) / 19:34 (3b): beside the spots, every position with a pad
+            // cell in summon reach and the most willing villagers its 10-box can hold, by the
+            // declared rider groups)
+            if let Some(pb) = pad_box {
+                let mut groups: Vec<(String, usize, Vec<redsim::pos::BlockPos>)> = Vec::new();
+                for g in &rider_group {
+                    let (head, files) = g.split_once('=').ok_or_else(|| anyhow::anyhow!("--rider-group {g}: NAME:CAP=FILE[@box][+FILE[@box]...]"))?;
+                    let (name, cap) = head.split_once(':').ok_or_else(|| anyhow::anyhow!("--rider-group {g}: NAME:CAP=..."))?;
+                    let mut cells = Vec::new();
+                    for part in files.split('+') {
+                        let (f, bx) = match part.split_once('@') { Some((f, b)) => (f, Some(b)), None => (part, None) };
+                        let bxv: Option<Vec<i32>> = bx.map(|b| b.split(',').map(|n| n.trim().parse::<i32>()).collect::<Result<_, _>>()).transpose()?;
+                        anyhow::ensure!(bxv.as_ref().is_none_or(|v| v.len() == 6), "--rider-group {g}: a box takes x0,y0,z0,x1,y1,z1");
+                        for line in std::fs::read_to_string(f)?.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')) {
+                            let v: Vec<i32> = line.split([',', ' ']).filter(|s| !s.is_empty()).map(|n| n.parse::<i32>()).collect::<Result<_, _>>()?;
+                            anyhow::ensure!(v.len() == 3, "a position takes x y z: {line}");
+                            if let Some(b) = &bxv {
+                                if (0..3).any(|i| v[i] < b[i].min(b[i + 3]) || v[i] > b[i].max(b[i + 3])) {
+                                    continue;
+                                }
+                            }
+                            cells.push(redsim::pos::BlockPos::new(v[0] + off[0], v[1] + off[1], v[2] + off[2]));
+                        }
+                    }
+                    groups.push((name.trim().to_string(), cap.trim().parse()?, cells));
+                }
+                // (G1's note (d) on fa1267b75: the summoner's blockPosition is its feet cell; a
+                // rider on a slope's high end has its feet in the cell above the rail)
+                let slopes: std::collections::HashSet<redsim::pos::BlockPos> = spec.blocks.iter().filter(|(_, b)| b.to_string().contains("shape=ascending")).map(|(p, _)| *p).collect();
+                let mut reach_pos = extra.clone();
+                reach_pos.extend(extra.iter().filter(|p| slopes.contains(p)).map(|p| redsim::pos::BlockPos::new(p.x, p.y + 1, p.z)));
+                for l in crate::queue::summon_reach(&reach_pos, pb, &stand_cells, &groups, list) {
+                    println!("{l}");
+                }
+            }
         }
         MobfarmCmd::ReturnJudge { batches, ticks, boost, reverse, flat, game_ticks, dip, resync, z7, row10, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station, k_relay, napper_lane, napper_r, release_pulse, day1_taps, supp_open, pulse_gate, lift_depth, bit_delay, mirror_z, tripwire, dep_keyed, trip_lag, no_gate_control, late_logins, boosters, row_boost, offsets, spread, speeds, napper_ds, restart_napper, starts, no_restarts, ds, lead_login_max, no_jitter, late, scheduled_only, e_rise, branch_band, upper_final, napper_band, shaft_min, napper_behind, napper_ahead, junction_min, pushes_max, head_max, k_band, margin, gates_out, design_file, solve_steps, solve_ds, solve_table, jobs } => {
             anyhow::ensure!(starts.len() == 2, "--starts A,B");
@@ -11320,6 +11373,17 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             // (the declared own-route junctions and single-occupant groups: the flags and the
             // design's header lines and its parts', each anchored at a comment line's start)
             let text = std::iter::once(std::fs::read_to_string(&design)?).chain(part_texts.iter().cloned()).collect::<Vec<_>>().join("\n");
+            // (the design's T-reach declarations, G1 / ironspec Nov 12 19:4x: `switch:` a T's
+            // designed control, for the rail-T and the switched-cell scans; `update-only:` a source
+            // whose update only re-settles a state-stable T, for the rail-T scan only)
+            let mut tee_extra: Vec<redsim::pos::BlockPos> = Vec::new();
+            for (p, kind, _) in crate::pushscan::header_t_sources(&text).map_err(|e| anyhow::anyhow!(e))? {
+                if kind == "switch" {
+                    switches.push(p);
+                } else {
+                    tee_extra.push(p);
+                }
+            }
             let mut decl_txt: Vec<String> = own_route_junction.clone();
             decl_txt.extend(crate::pushscan::header_entries(&text, "own-route-junctions:"));
             let mut single_txt: Vec<String> = single_occupant.clone();
@@ -11430,7 +11494,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             for l in &lines {
                 println!("{l}");
             }
-            let (tl, undeclared) = crate::pushscan::tees(&spec, &switches);
+            let tee_list: Vec<redsim::pos::BlockPos> = switches.iter().chain(tee_extra.iter()).copied().collect();
+            let (tl, undeclared) = crate::pushscan::tees(&spec, &tee_list);
             println!("rail-T scan (plain rails with 3+ potential connections; the signal-source updates reaching each (redsim's source set, each type's 26.3 update pattern) must be declared switches; a 4-way crossing is listed, not counted): {} Ts, {undeclared} undeclared sources", tl.len());
             for l in &tl {
                 println!("{l}");
@@ -11689,22 +11754,56 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::JunctionCheck { design, all } => {
+        MobfarmCmd::JunctionCheck { design, all, switch, update_only } => {
             let (_c, spec) = load(version, &design)?;
-            let (text, failed) = crate::queue::junction_gate_opts(&spec, &std::fs::read_to_string(&design)?, all);
-            println!("{text}");
+            let text = std::fs::read_to_string(&design)?;
+            let (gate_text, failed) = crate::queue::junction_gate_opts(&spec, &text, all);
+            println!("{gate_text}");
             // (ironspec Nov 12 02:46: placement-order shapes are accepted: each T's placement order
-            // for the build guide, and the signal-source updates that can reach it)
-            let (tl, undeclared) = crate::pushscan::tees(&spec, &[]);
-            println!("placement order (a T keeps its placed shape while no signal source's update reaches it; {undeclared} reaching sources, none declared here):");
+            // for the build guide, and the signal-source updates that can reach it; 18:31 / G1: the
+            // sources by cell with the Ts each reaches are the evidence, each declared a switch or
+            // update-only in the header or on the command line, else undeclared)
+            let mut declared = crate::pushscan::header_t_sources(&text).map_err(|e| anyhow::anyhow!(e))?;
+            for (list, kind) in [(&switch, "switch"), (&update_only, "update-only")] {
+                for d in list {
+                    let (c, reason) = d.split_once('=').unwrap_or((d.as_str(), "(command line)"));
+                    let v: Vec<i32> = c.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(v.len() == 3, "--{kind} {d}: x,y,z[=REASON]");
+                    declared.push((redsim::pos::BlockPos::new(v[0], v[1], v[2]), kind, reason.trim().to_string()));
+                }
+            }
+            let decl_pos: Vec<redsim::pos::BlockPos> = declared.iter().map(|(p, _, _)| *p).collect();
+            let (tl, _) = crate::pushscan::tees(&spec, &decl_pos);
+            let reach = crate::pushscan::tee_reach(&spec);
+            let mut by_src: std::collections::BTreeMap<(i32, i32, i32), Vec<String>> = std::collections::BTreeMap::new();
+            for (t, srcs, four) in &reach {
+                for s in srcs {
+                    by_src.entry((s.y, s.z, s.x)).or_default().push(format!("T {},{},{}{}", t.x, t.y, t.z, if *four { " (a 4-way crossing: listed, never re-shaped)" } else { "" }));
+                }
+            }
+            let is_declared = |y: i32, z: i32, x: i32| decl_pos.contains(&redsim::pos::BlockPos::new(x, y, z));
+            let n_decl = by_src.keys().filter(|(y, z, x)| is_declared(*y, *z, *x)).count();
+            println!(
+                "placement order (a T keeps its placed shape while no signal source's update reaches it): {} sources reach a T, {} undeclared, {n_decl} declared (`switch:` / `update-only:` header entries or flags)",
+                by_src.len(),
+                by_src.len() - n_decl
+            );
             for l in &tl {
                 println!("{l}");
+            }
+            println!("sources reaching a T, by cell (the update-reach evidence, ironspec Nov 12 18:31): {}", if by_src.is_empty() { "none".to_string() } else { format!("{}", by_src.len()) });
+            let blocks: std::collections::HashMap<redsim::pos::BlockPos, String> = spec.blocks.iter().map(|(p, b)| (*p, b.to_string())).collect();
+            for ((y, z, x), ts) in &by_src {
+                let p = redsim::pos::BlockPos::new(*x, *y, *z);
+                let kind = blocks.get(&p).map(|s| s.trim_start_matches("minecraft:").split('[').next().unwrap_or("").to_string()).unwrap_or_default();
+                let decl = declared.iter().find(|(q, _, _)| *q == p).map(|(_, k, r)| format!("declared {k}: {r}")).unwrap_or_else(|| "UNDECLARED".to_string());
+                println!("  SOURCE {x},{y},{z} {kind} reaches {}: {decl}", ts.join(", "));
             }
             if failed {
                 std::process::exit(1);
             }
         }
-        MobfarmCmd::FleeCheck { design, home, show, foot, clearing, eye_control, pickup_control, sampled, claim, classes, fix_search, fix_pairs, fix_block, clear_rate, clear_floors, clear_all, clear_tail, clear_list, tail_rest, clear_panic_only, allow_unsupported, candidate_box, approach, late_gt, path_probe, auto_columns, track_end, caller, travel, reversal, two_way, report_only, path_watch, path_trace, scarer_search, scarer, scarer_rider, scarer_max, scarer_any_floor, scarer_walls, scarer_target, scarer_exact, scarer_check, scarer_transient, scarer_column, scarer_occlude, hide_point, hide_column, hide_rails, scarer_mix, scarer_visor, scarer_exclude, pillager, golem_reach, golem_pad, scarer_near, post_drift, drift_ticks } => {
+        MobfarmCmd::FleeCheck { design, home, show, foot, clearing, eye_control, pickup_control, sampled, claim, classes, fix_search, fix_pairs, fix_block, clear_rate, clear_floors, clear_all, clear_tail, clear_list, tail_rest, clear_panic_only, allow_unsupported, candidate_box, approach, late_gt, path_probe, auto_columns, track_end, caller, travel, reversal, two_way, orient_list, report_only, path_watch, path_trace, scarer_search, scarer, scarer_rider, scarer_max, scarer_any_floor, scarer_walls, scarer_target, scarer_exact, scarer_check, scarer_transient, scarer_column, scarer_occlude, hide_point, hide_column, hide_rails, scarer_mix, scarer_visor, scarer_exclude, pillager, golem_reach, golem_pad, scarer_near, post_drift, drift_ticks } => {
             if let Some(oc) = &scarer_occlude {
                 let v: Vec<&str> = oc.split(',').collect();
                 anyhow::ensure!(v.len() == 4, "--scarer-occlude x,y,z,pillager|zombie");
@@ -11949,24 +12048,27 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     ends_decl.push((redsim::pos::BlockPos::new(v[0], v[1], v[2]), reason.trim().to_string()));
                 }
                 // (ironspec Nov 12 16:02: the direction-aware walk, the default)
-                let mut travel_paths: Vec<Vec<redsim::pos::BlockPos>> = Vec::new();
+                let mut travel_paths: Vec<(Vec<redsim::pos::BlockPos>, String)> = Vec::new();
                 for t in &travel {
+                    // (G1's note 1 on a4cd9b8b0: A>B>...[=REASON], the reason printed in the travel line)
+                    let (cells, why) = t.split_once('=').map(|(a, b)| (a, b.trim().to_string())).unwrap_or((t.as_str(), String::new()));
                     let mut path = Vec::new();
-                    for c in t.split('>') {
+                    for c in cells.split('>') {
                         let v: Vec<i32> = c.split(',').map(|s| s.trim().parse::<i32>()).collect::<Result<_, _>>()?;
-                        anyhow::ensure!(v.len() == 3, "--travel {t}: x,y,z>x,y,z>...");
+                        anyhow::ensure!(v.len() == 3, "--travel {t}: x,y,z>x,y,z>...[=REASON]");
                         path.push(redsim::pos::BlockPos::new(v[0], v[1], v[2]));
                     }
                     anyhow::ensure!(path.len() >= 2, "--travel {t}: at least two cells");
-                    travel_paths.push(path);
+                    travel_paths.push((path, why));
                 }
-                let mut rev_cells: Vec<redsim::pos::BlockPos> = Vec::new();
+                let mut rev_cells: Vec<(redsim::pos::BlockPos, String)> = Vec::new();
                 for r in &reversal {
-                    let v: Vec<i32> = r.split(',').map(|s| s.trim().parse::<i32>()).collect::<Result<_, _>>()?;
-                    anyhow::ensure!(v.len() == 3, "--reversal {r}: x,y,z");
-                    rev_cells.push(redsim::pos::BlockPos::new(v[0], v[1], v[2]));
+                    let (cell, why) = r.split_once('=').map(|(a, b)| (a, b.trim().to_string())).unwrap_or((r.as_str(), String::new()));
+                    let v: Vec<i32> = cell.split(',').map(|s| s.trim().parse::<i32>()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(v.len() == 3, "--reversal {r}: x,y,z[=REASON]");
+                    rev_cells.push((redsim::pos::BlockPos::new(v[0], v[1], v[2]), why));
                 }
-                let (cl_lines, verdict) = crate::fleecheck::clear_all(&spec, bed, &panic_boxes, &claims, &pills, &cols, clear_tail, &rests, clear_list, !clear_panic_only, &watch, &appr, late_gt, &ends_decl, &travel_paths, &rev_cells, two_way).map_err(|e| anyhow::anyhow!(e))?;
+                let (cl_lines, verdict) = crate::fleecheck::clear_all(&spec, bed, &panic_boxes, &claims, &pills, &cols, clear_tail, &rests, clear_list, !clear_panic_only, &watch, &appr, late_gt, &ends_decl, &travel_paths, &rev_cells, two_way, orient_list).map_err(|e| anyhow::anyhow!(e))?;
                 for l in &cl_lines {
                     println!("{l}");
                 }
@@ -12002,7 +12104,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 // run prints them without failing; undeclared track ends always fail: a truncated walk
                 // reads nothing)
                 let verdict_txt = format!(
-                    "the gate FAIL at {} positions, late paths FAIL at {} nodes, staleness FAIL at {}, {blind} caller(s) seeing no scarer",
+                    "the gate FAIL at {} positions (an inherited policy), late paths FAIL at {} nodes (the 39 gt window physical), staleness FAIL at {} (an inherited policy), {blind} caller(s) seeing no scarer (an inherited policy)",
                     verdict.gate_fails, verdict.late_fails, verdict.stale
                 );
                 if report_only {

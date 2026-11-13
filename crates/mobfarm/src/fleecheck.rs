@@ -1377,7 +1377,7 @@ pub fn scarer_check(spec: &FarmSpec, extra: &[Vec3], posts: &[(BlockPos, bool)],
             if let Some(t) = t
                 && *t < HIDDEN_BAR_GT
             {
-                bad.push(format!("{s}, only {t:.1} gt after the last position it sees within {PANIC_BAR} (bar {HIDDEN_BAR_GT})"));
+                bad.push(format!("{s}, only {t:.1} gt after the last position it sees within {PANIC_BAR} (bar {HIDDEN_BAR_GT} gt, inherited: G1's CHANGES 2 on fee712f72, no measured failure)"));
             }
         }
         if !bad.is_empty() {
@@ -1469,7 +1469,7 @@ pub fn scarer_check(spec: &FarmSpec, extra: &[Vec3], posts: &[(BlockPos, bool)],
         if !*pill && !hidden_t.is_empty() {
             let least_t = hidden_t.iter().filter_map(|(_, t)| *t).fold(f64::INFINITY, f64::min);
             lines.push(format!(
-                "    hidden within {near}: {} positions (each eye ray to the zombie's eye blocked by a full-collider block; travel time from the last position it sees within {PANIC_BAR}, bar {HIDDEN_BAR_GT} gt: least {}): {}",
+                "    hidden within {near}: {} positions (each eye ray to the zombie's eye blocked by a full-collider block; travel time from the last position it sees within {PANIC_BAR}, bar {HIDDEN_BAR_GT} gt (inherited: G1's CHANGES 2 on fee712f72): least {}): {}",
                 hidden_t.len(),
                 if least_t.is_finite() { format!("{least_t:.1} gt") } else { "none reached from a seen position (never in sight within the track's reach)".to_string() },
                 hidden_t.iter().take(8).map(|(s, t)| format!("{s} ({})", t.map_or("no seen position upstream".to_string(), |t| format!("{t:.1} gt")))).collect::<Vec<_>>().join("; ")
@@ -2009,7 +2009,7 @@ fn exact_cover(pts: &[(String, Vec3)], all: &[(BlockPos, Vec<usize>, Option<(i32
     let maxgain = cand.iter().map(|c| xc_count(&c.0)).max().unwrap_or(1).max(1);
     let np = all.iter().filter(|c| c.3).count();
     let mut lines = vec![format!(
-        "exact cover (both kinds seated in boats, every valid open side: a pillager covers 8.5..15 in sight, none it sees inside 8.5; a zombie covers 6.05..7.95 in sight, none inside 6.05, sight or not): {} candidates ({np} pillager, {} zombie), {} kept after dominance, {refused} cells refused outright; {n} rider points, {} coverable{}",
+        "exact cover (both kinds seated in boats, every valid open side: a pillager covers 8.5..15 in sight, none it sees inside 8.5 (the crossbow's 8, physical, + 0.5 inherited); a zombie covers 6.05..7.95 in sight, none inside 6.05 (6 and 8 physical, the 0.05 margins inherited), sight or not): {} candidates ({np} pillager, {} zombie), {} kept after dominance, {refused} cells refused outright; {n} rider points, {} coverable{}",
         all.len(),
         all.len() - np,
         cand.len(),
@@ -2363,7 +2363,7 @@ fn report_body(places: &[Place], jobs: &[(BlockPos, String)], show: usize) -> Ve
     let declared: Vec<&Place> = places.iter().filter(|p| p.panic_declared).collect();
     let declared_bad: Vec<&Place> = declared.iter().copied().filter(|p| !p.panic_ok).collect();
     lines.push(format!(
-        "the 6-8 rule (every zombie at least {FLEE_BAR} from every rider position, where it sits in its post; a declared panic place sees one within {PANIC_BAR}): {} rider places inside {FLEE_BAR}, {} whose nearest zombie is beyond {PANIC_BAR} somewhere, {} at {FLEE_BAR}..{PANIC_BAR} throughout; {} places declared in panic:, {} of them without a seen zombie within {PANIC_BAR} at some point",
+        "the 6-8 rule (every zombie at least {FLEE_BAR} from every rider position, where it sits in its post; a declared panic place sees one within {PANIC_BAR}; the bars: SetWalkTargetAwayFrom's 6 and the sensor's 8, physical, with the 0.05 margins inherited, ironspec Nov 11 10:54): {} rider places inside {FLEE_BAR}, {} whose nearest zombie is beyond {PANIC_BAR} somewhere, {} at {FLEE_BAR}..{PANIC_BAR} throughout; {} places declared in panic:, {} of them without a seen zombie within {PANIC_BAR} at some point",
         inside.len(),
         beyond,
         places.iter().filter(|p| p.near.is_some_and(|n| n.0 >= FLEE_BAR && n.1 <= PANIC_BAR)).count(),
@@ -2764,7 +2764,7 @@ pub fn caller_sight(spec: &FarmSpec, pills: &[Vec3], callers: &[(String, Vec3)])
         ));
     }
     let mut out = vec![format!(
-        "caller sight (ironspec Nov 12 15:35, a permanent row: each pocket rider at its rest point, as at every summon tick, and each hostile within the villager's sensing range (a zombie 8, a pillager 15) with its distance, eye to eye): {}",
+        "caller sight (ironspec Nov 12 15:35, a permanent row; the bar, each caller seeing a scarer, an inherited policy: each pocket rider at its rest point, as at every summon tick, and each hostile within the villager's sensing range (a zombie 8, a pillager 15, physical) with its distance, eye to eye): {}",
         if callers.is_empty() {
             "no callers (the design's run-cells P0.. or --caller)".to_string()
         } else if blind == 0 {
@@ -2801,9 +2801,10 @@ enum TailNode {
 
 /// The track a rider travels, for the shortest-time walks (the tail, the hidden positions' times,
 /// the stale-path hazard): the design's rail cells and the `columns` (x, y_from, z, y_to, every
-/// 0.25, only from y_from toward y_to, entered at the start from the rails around it and left at
-/// the end); a `rests` cell (a hold) stops a walk. Along a rail either way, until `orient` keeps
-/// each link to the way carts travel it (ironspec Nov 12 16:02, the default).
+/// 0.25, only from y_from toward y_to, entered at the start from a rail whose exit leads into its
+/// first cell or that it drops out of, and left at the end onto the rail it feeds); a `rests` cell
+/// (a hold) stops a walk. Along a rail either way, until `orient` keeps each link to the way carts
+/// travel it (ironspec Nov 12 16:02, the default).
 struct Track<'a> {
     rails: HashMap<BlockPos, String>,
     columns: &'a [[f64; 4]],
@@ -2811,22 +2812,103 @@ struct Track<'a> {
     rests: &'a [BlockPos],
     /// (`orient`) the moves the walks may take; `None`: every move, either way along a rail.
     allowed: Option<std::collections::HashSet<(TailNode, TailNode)>>,
-    /// The design's signal sources (a lever, torch, repeater, comparator, detector rail, redstone
-    /// block or dust, button, observer, plate, ...): a junction with one within Manhattan 2 may be
-    /// switched (ironspec's rule for placement-order Ts), so its shapes orient nothing.
-    sources: Vec<BlockPos>,
+    /// (G1's note 4 on a4cd9b8b0) The switched Ts: plain rails with a neighbouring rail on 3 or 4
+    /// sides (level, one up or one down) and a signal source (a lever, torch, repeater, comparator,
+    /// detector rail, redstone block or dust, button, observer, plate, ...) within Manhattan 2
+    /// (ironspec's reach rule for placement-order Ts): a cart may take either shape, so their
+    /// moves are the union of every arm, and their shapes orient nothing.
+    switched_ts: std::collections::HashSet<BlockPos>,
+    /// The cells with a collision shape (a rail exit into one is a wall the cart stops at, not a
+    /// track end: the open ends are falls and roll-offs).
+    solid: std::collections::HashSet<BlockPos>,
 }
 
 impl<'a> Track<'a> {
     fn new(spec: &FarmSpec, columns: &'a [[f64; 4]], rests: &'a [BlockPos]) -> Track<'a> {
-        let rails = spec.blocks.iter().filter(|(_, b)| b.to_string().contains("rail")).map(|(p, b)| (*p, b.to_string())).collect();
+        let rails: HashMap<BlockPos, String> = spec.blocks.iter().filter(|(_, b)| b.to_string().contains("rail")).map(|(p, b)| (*p, b.to_string())).collect();
+        // (G1's note (c) on fa1267b75: the signal sources are redsim's own `isSignalSource`, not
+        // another list; a one-cell world answers it for dust (the default-state answer RailBlock
+        // reads))
+        let w0 = redsim::World::new(BlockPos::new(0, 0, 0), [1, 1, 1]);
+        let sources: Vec<BlockPos> = spec.blocks.iter().filter(|(_, b)| redsim::behavior::is_signal_source(&w0, b)).map(|(p, _)| *p).collect();
+        let solid = spec.blocks.iter().filter(|(_, b)| !redsim::behavior::collision_boxes(b).is_empty()).map(|(p, _)| *p).collect();
+        Track::from_parts(rails, columns, rests, sources, solid)
+    }
+
+    /// A track from its rail cells (game strings), columns, rests and signal sources.
+    fn from_parts(rails: HashMap<BlockPos, String>, columns: &'a [[f64; 4]], rests: &'a [BlockPos], sources: Vec<BlockPos>, solid: std::collections::HashSet<BlockPos>) -> Track<'a> {
         let col_len = columns.iter().map(|c| ((c[3] - c[1]).abs() / 0.25).round() as usize + 1).collect();
-        const SOURCES: [&str; 17] = ["lever", "redstone_torch", "redstone_wall_torch", "repeater", "comparator", "detector_rail", "redstone_block", "redstone_wire", "_button", "observer", "pressure_plate", "daylight_detector", "minecraft:target", "trapped_chest", "tripwire_hook", "lectern", "sculk_sensor"];
-        let sources = spec.blocks.iter().filter(|(_, b)| {
-            let s = b.to_string();
-            SOURCES.iter().any(|k| s.contains(k))
-        }).map(|(p, _)| *p).collect();
-        Track { rails, columns, col_len, rests, allowed: None, sources }
+        let mut switched_ts = std::collections::HashSet::new();
+        for (c, s) in &rails {
+            if !s.contains("minecraft:rail[") {
+                continue;
+            }
+            let arms = Track::arm_rails(&rails, *c).iter().filter(|v| !v.is_empty()).count();
+            if arms >= 3 && sources.iter().any(|q| (q.x - c.x).abs() + (q.y - c.y).abs() + (q.z - c.z).abs() <= 2) {
+                switched_ts.insert(*c);
+            }
+        }
+        Track { rails, columns, col_len, rests, allowed: None, switched_ts, solid }
+    }
+
+    /// The rails beside `c` in each horizontal direction (N, S, W, E), level, one up or one down
+    /// (a rail's potential connections, `RailState.hasNeighborRail`).
+    fn arm_rails(rails: &HashMap<BlockPos, String>, c: BlockPos) -> [Vec<BlockPos>; 4] {
+        let mut out: [Vec<BlockPos>; 4] = Default::default();
+        for (i, (dx, dz)) in [(0, -1), (0, 1), (-1, 0), (1, 0)].into_iter().enumerate() {
+            for dy in [0, 1, -1] {
+                let m = BlockPos::new(c.x + dx, c.y + dy, c.z + dz);
+                if rails.contains_key(&m) {
+                    out[i].push(m);
+                }
+            }
+        }
+        out
+    }
+
+    /// A rail cell's moves to other rail cells: its shape's two exits (level, or one down onto a
+    /// slope's foot), or for a switched T every arm (the union of its shapes).
+    fn rail_moves(&self, c: BlockPos) -> Vec<BlockPos> {
+        if self.switched_ts.contains(&c) {
+            return Track::arm_rails(&self.rails, c).into_iter().flatten().collect();
+        }
+        let mut out = Vec::new();
+        for (dx, dy, dz) in rail_exits(self.rails.get(&c).map(|s| s.as_str()).unwrap_or("")) {
+            for m in [BlockPos::new(c.x + dx, c.y + dy, c.z + dz), BlockPos::new(c.x + dx, c.y + dy - 1, c.z + dz)] {
+                if self.rails.contains_key(&m) {
+                    out.push(m);
+                }
+            }
+        }
+        out
+    }
+
+    /// The cells a rail's exits lead into (each exit's cell and the cell below it; a switched T's
+    /// every side), and the rail's own cell and the cell below it (a cart dropping out of it, a
+    /// trapdoor opening under it): a column whose first cell is one of them is entered from it.
+    fn entry_cells(&self, c: BlockPos) -> Vec<BlockPos> {
+        let mut out = vec![c, c.below()];
+        let dirs: Vec<(i32, i32, i32)> = if self.switched_ts.contains(&c) { vec![(0, 0, -1), (0, 0, 1), (-1, 0, 0), (1, 0, 0)] } else { rail_exits(self.rails.get(&c).map(|s| s.as_str()).unwrap_or("")) };
+        for (dx, dy, dz) in dirs {
+            let m = BlockPos::new(c.x + dx, c.y + dy, c.z + dz);
+            out.push(m);
+            out.push(m.below());
+        }
+        out
+    }
+
+    /// The rails a column's last position leaves onto (G1's note 3 on a4cd9b8b0): a fall (y_to
+    /// below y_from) onto the rail in its last cell or the one under it (the landing); a lift onto
+    /// a rail in its last cell or level beside it (the exit the top's current feeds).
+    fn exit_rails(&self, k: usize) -> Vec<BlockPos> {
+        let c = self.columns[k];
+        let cc = self.col_cell(k, self.col_len[k] - 1);
+        let cand: Vec<BlockPos> = if c[3] < c[1] {
+            vec![cc, cc.below()]
+        } else {
+            vec![cc, BlockPos::new(cc.x, cc.y, cc.z - 1), BlockPos::new(cc.x, cc.y, cc.z + 1), BlockPos::new(cc.x - 1, cc.y, cc.z), BlockPos::new(cc.x + 1, cc.y, cc.z)]
+        };
+        cand.into_iter().filter(|r| self.rails.contains_key(r)).collect()
     }
 
     /// (ironspec Nov 12 16:02: the direction-aware walk, the default; `--two-way` keeps the old
@@ -2839,7 +2921,10 @@ impl<'a> Track<'a> {
     /// has that one out of it (into it). A `reversal` cell (a run shows a cart turning back
     /// there) keeps its links both ways, carried along the chain the same way; a link nothing
     /// orients stays both ways (printed), and so does one oriented both ways (a conflict, printed).
-    fn orient(&mut self, travel: &[Vec<BlockPos>], reversal: &[BlockPos]) -> Vec<String> {
+    /// With `list`, every oriented link with its source (G1's note 2 on a4cd9b8b0): a column, a
+    /// shape, a declaration, a chain, a junction completion (INFERRED: at an undeclared reversal
+    /// it drops a real move, ironspec 17:34), a reversal.
+    fn orient(&mut self, travel: &[(Vec<BlockPos>, String)], reversal: &[(BlockPos, String)], list: bool) -> Vec<String> {
         use std::collections::{BTreeSet, HashSet};
         self.allowed = None;
         let mut nodes: Vec<TailNode> = self.rails.keys().map(|c| TailNode::Rail(c.x, c.y, c.z)).collect();
@@ -2848,50 +2933,47 @@ impl<'a> Track<'a> {
                 nodes.push(TailNode::Col(k, i));
             }
         }
-        let mut e: HashSet<(TailNode, TailNode)> = HashSet::new();
+        let mut e: BTreeSet<(TailNode, TailNode)> = BTreeSet::new();
         for n in &nodes {
             for (m, _) in self.edges(*n) {
                 e.insert((*n, m));
             }
         }
-        let mut adj: HashMap<TailNode, BTreeSet<TailNode>> = HashMap::new();
+        let mut adj: std::collections::BTreeMap<TailNode, BTreeSet<TailNode>> = std::collections::BTreeMap::new();
         for (a, b) in &e {
             adj.entry(*a).or_default().insert(*b);
             adj.entry(*b).or_default().insert(*a);
         }
         let rail = |c: &BlockPos| TailNode::Rail(c.x, c.y, c.z);
-        // (a junction with a signal source within Manhattan 2 may be switched: its stored shape
-        // tells nothing of the way carts take it, so a link one way by shapes there orients nothing)
-        let switched: HashSet<TailNode> = adj
-            .iter()
-            .filter(|(n, arms)| arms.len() >= 3 && matches!(n, TailNode::Rail(..)))
-            .filter_map(|(n, _)| match n {
-                TailNode::Rail(x, y, z) => self.sources.iter().any(|s| (s.x - x).abs() + (s.y - y).abs() + (s.z - z).abs() <= 2).then_some(*n),
-                _ => None,
-            })
-            .collect();
-        let mut f: HashSet<(TailNode, TailNode)> = HashSet::new();
+        // (a switched T's stored shape tells nothing of the way carts take it: a link one way by
+        // shapes there orients nothing; its moves are already every arm's)
+        let switched: BTreeSet<TailNode> = self.switched_ts.iter().map(rail).collect();
+        let mut f: BTreeSet<(TailNode, TailNode)> = BTreeSet::new();
+        let mut src: std::collections::BTreeMap<(TailNode, TailNode), &'static str> = std::collections::BTreeMap::new();
         let mut queue: Vec<(TailNode, TailNode)> = Vec::new();
         let (mut by_col, mut by_shape, mut by_decl) = (0usize, 0usize, 0usize);
         let mut warn: Vec<String> = Vec::new();
         for (a, b) in &e {
             if matches!(a, TailNode::Col(..)) || matches!(b, TailNode::Col(..)) {
                 if f.insert((*a, *b)) {
+                    src.insert((*a, *b), "column");
                     queue.push((*a, *b));
                     by_col += 1;
                 }
             } else if !e.contains(&(*b, *a)) && !switched.contains(a) && !switched.contains(b) && f.insert((*a, *b)) {
+                src.insert((*a, *b), "shape");
                 queue.push((*a, *b));
                 by_shape += 1;
             }
         }
-        for path in travel {
+        for (path, _) in travel {
             for w in path.windows(2) {
                 let (a, b) = (rail(&w[0]), rail(&w[1]));
                 if e.contains(&(a, b)) {
                     if f.insert((a, b)) {
                         queue.push((a, b));
                     }
+                    src.insert((a, b), "declared");
                     by_decl += 1;
                 } else {
                     warn.push(format!("--travel {},{},{}>{},{},{}: no move of the track joins them that way", w[0].x, w[0].y, w[0].z, w[1].x, w[1].y, w[1].z));
@@ -2900,17 +2982,17 @@ impl<'a> Track<'a> {
         }
         // (a cart leaves a 2-arm cell by its other arm; a junction with every known arm one way
         // and one unknown has that one the other way)
-        fn propagate(e: &HashSet<(TailNode, TailNode)>, adj: &HashMap<TailNode, BTreeSet<TailNode>>, f: &mut HashSet<(TailNode, TailNode)>, mut queue: Vec<(TailNode, TailNode)>) {
+        fn propagate(e: &BTreeSet<(TailNode, TailNode)>, adj: &std::collections::BTreeMap<TailNode, BTreeSet<TailNode>>, f: &mut BTreeSet<(TailNode, TailNode)>, src: &mut std::collections::BTreeMap<(TailNode, TailNode), &'static str>, mut queue: Vec<(TailNode, TailNode)>, chain_label: &'static str) {
             let is_chain = |n: &TailNode| matches!(n, TailNode::Rail(..)) && adj.get(n).is_some_and(|s| s.len() == 2);
             while let Some((a, b)) = queue.pop() {
-                let mut next: Vec<(TailNode, TailNode)> = Vec::new();
+                let mut next: Vec<(TailNode, TailNode, &'static str)> = Vec::new();
                 if is_chain(&b) {
                     let other = *adj[&b].iter().find(|x| **x != a).expect("two arms");
-                    next.push((b, other));
+                    next.push((b, other, chain_label));
                 }
                 if is_chain(&a) {
                     let other = *adj[&a].iter().find(|x| **x != b).expect("two arms");
-                    next.push((other, a));
+                    next.push((other, a, chain_label));
                 }
                 for j in [a, b] {
                     let Some(arms) = adj.get(&j) else { continue };
@@ -2922,34 +3004,36 @@ impl<'a> Track<'a> {
                     let unknown: Vec<TailNode> = arms.iter().filter(|x| !f.contains(&(**x, j)) && !f.contains(&(j, **x))).copied().collect();
                     if unknown.len() == 1 {
                         if outs == 0 && ins > 0 {
-                            next.push((j, unknown[0]));
+                            next.push((j, unknown[0], "junction (INFERRED)"));
                         } else if ins == 0 && outs > 0 {
-                            next.push((unknown[0], j));
+                            next.push((unknown[0], j, "junction (INFERRED)"));
                         }
                     }
                 }
-                for (x, y) in next {
+                for (x, y, label) in next {
                     if e.contains(&(x, y)) && f.insert((x, y)) {
+                        src.insert((x, y), label);
                         queue.push((x, y));
                     }
                 }
             }
         }
-        propagate(&e, &adj, &mut f, queue);
+        propagate(&e, &adj, &mut f, &mut src, queue, "chain");
         // (the reversals on top: a link both ways from them is a reversal's, not a conflict)
         let f1 = f.clone();
-        let rev_cells: HashSet<TailNode> = reversal.iter().map(rail).collect();
+        let rev_cells: BTreeSet<TailNode> = reversal.iter().map(|(c, _)| rail(c)).collect();
         let mut rq: Vec<(TailNode, TailNode)> = Vec::new();
         for c in &rev_cells {
             for m in adj.get(c).cloned().unwrap_or_default() {
                 for (a, b) in [(*c, m), (m, *c)] {
                     if e.contains(&(a, b)) && f.insert((a, b)) {
+                        src.insert((a, b), "reversal");
                         rq.push((a, b));
                     }
                 }
             }
         }
-        propagate(&e, &adj, &mut f, rq);
+        propagate(&e, &adj, &mut f, &mut src, rq, "reversal chain");
         let name = |n: &TailNode| match n {
             TailNode::Rail(x, y, z) => format!("{x},{y},{z}"),
             TailNode::Col(k, i) => {
@@ -2977,9 +3061,8 @@ impl<'a> Track<'a> {
                 one_way += 1;
             }
         }
-        self.allowed = Some(allowed);
         let mut out = vec![format!(
-            "travel (the direction-aware walk, ironspec Nov 12 16:02; --two-way for the old walk): {one_way} moves one way ({by_col} column moves, {by_shape} links one way by their rails' shapes away from switched junctions ({} junctions with a signal source within Manhattan 2, whose shapes orient nothing), {by_decl} declared --travel steps, the rest carried along chains and through junctions), {both} reversal moves both ways (--reversal), {} links both ways where nothing orients them, {} links oriented both ways (a conflict: kept both ways)",
+            "travel (the direction-aware walk, ironspec Nov 12 16:02; --two-way for the old walk): {one_way} moves one way ({by_col} column moves, {by_shape} links one way by their rails' shapes away from switched Ts ({} Ts with a signal source within Manhattan 2: every arm walked, their shapes orient nothing), {by_decl} declared --travel steps, the rest carried along chains and through junctions), {both} reversal moves both ways (--reversal), {} links both ways where nothing orients them, {} links oriented both ways (a conflict: kept both ways)",
             switched.len(),
             undecided.len(),
             conflict.len()
@@ -2991,6 +3074,29 @@ impl<'a> Track<'a> {
             out.push(format!("  oriented both ways (a conflict: a --reversal if a run shows one, else a wrong --travel): {}", conflict.iter().cloned().collect::<Vec<_>>().join("; ")));
         }
         out.extend(warn.into_iter().map(|w| format!("  {w}")));
+        // (G1's note 1: each declaration with its reason, the evidence it rests on)
+        for (path, why) in travel {
+            out.push(format!("  declared --travel {}: {}", path.iter().map(|c| format!("{},{},{}", c.x, c.y, c.z)).collect::<Vec<_>>().join(">"), if why.is_empty() { "(no reason given)" } else { why.as_str() }));
+        }
+        for (c, why) in reversal {
+            out.push(format!("  declared --reversal {},{},{}: {}", c.x, c.y, c.z, if why.is_empty() { "(no reason given)" } else { why.as_str() }));
+        }
+        let inferred = src.values().filter(|s| s.starts_with("junction")).count();
+        out.push(format!(
+            "  oriented links by source: {}; {inferred} by junction completion (INFERRED: at an undeclared cart reversal it drops a real move; check each against the runs){}",
+            ["column", "shape", "declared", "chain", "junction (INFERRED)", "reversal", "reversal chain"].iter().map(|k| format!("{} {k}", src.values().filter(|s| *s == k).count())).collect::<Vec<_>>().join(", "),
+            if list { "" } else { " (--orient-list prints every one)" }
+        ));
+        if list {
+            let mut all: Vec<String> = src
+                .iter()
+                .filter(|((a, b), _)| !matches!(a, TailNode::Col(..)) || !matches!(b, TailNode::Col(..)))
+                .map(|((a, b), s)| format!("  ORIENTED {} > {} ({s})", name(a), name(b)))
+                .collect();
+            all.sort();
+            out.extend(all);
+        }
+        self.allowed = Some(allowed);
         out
     }
 
@@ -3060,24 +3166,21 @@ impl<'a> Track<'a> {
     }
 
     /// The track's moves out of a node, with their times: a rail cell to the cells its shape
-    /// points to (level, or one down onto a slope's foot), and into a column starting beside it; a
-    /// column position one step on, and at its end out onto the rails beside it.
+    /// points to (level, or one down onto a slope's foot; a switched T to every arm), and into a
+    /// column it enters (`entry_cells`); a column position one step on, and at its end onto the
+    /// rails it leaves onto (`exit_rails`, G1's note 3 on a4cd9b8b0).
     fn edges(&self, n: TailNode) -> Vec<(TailNode, f64)> {
-        let near = |a: BlockPos, b: BlockPos| (a.x - b.x).abs() <= 1 && (a.y - b.y).abs() <= 1 && (a.z - b.z).abs() <= 1;
         let mut next: Vec<(TailNode, f64)> = Vec::new();
         match n {
             TailNode::Rail(x, y, z) => {
                 let c = BlockPos::new(x, y, z);
                 let own = self.cell_gt(c);
-                for (dx, dy, dz) in rail_exits(self.rails.get(&c).map(|s| s.as_str()).unwrap_or("")) {
-                    for m in [BlockPos::new(x + dx, y + dy, z + dz), BlockPos::new(x + dx, y + dy - 1, z + dz)] {
-                        if self.rails.contains_key(&m) {
-                            next.push((TailNode::Rail(m.x, m.y, m.z), 0.5 * own + 0.5 * self.cell_gt(m)));
-                        }
-                    }
+                for m in self.rail_moves(c) {
+                    next.push((TailNode::Rail(m.x, m.y, m.z), 0.5 * own + 0.5 * self.cell_gt(m)));
                 }
+                let entry = self.entry_cells(c);
                 for k in 0..self.columns.len() {
-                    if near(self.col_cell(k, 0), c) {
+                    if entry.contains(&self.col_cell(k, 0)) {
                         next.push((TailNode::Col(k, 0), 0.5 * own));
                     }
                 }
@@ -3086,9 +3189,8 @@ impl<'a> Track<'a> {
                 if i + 1 < self.col_len[k] {
                     next.push((TailNode::Col(k, i + 1), 0.25 / TAIL_COLUMN_SPEED));
                 } else {
-                    let cc = self.col_cell(k, i);
-                    for r in self.rails.keys().filter(|r| near(**r, cc)) {
-                        next.push((TailNode::Rail(r.x, r.y, r.z), 0.5 * self.cell_gt(*r)));
+                    for r in self.exit_rails(k) {
+                        next.push((TailNode::Rail(r.x, r.y, r.z), 0.5 * self.cell_gt(r)));
                     }
                 }
             }
@@ -3100,33 +3202,79 @@ impl<'a> Track<'a> {
     }
 
     /// (G1's CHANGES 1 on d3dc5aa46, ironspec Nov 12 15:03: no silent ends) Where a walk cannot go
-    /// on from node `n`: a rail exit with no rail at its cell or the cell below and no column
-    /// entered or left within 1 of the rail (a wall the cart stops at, a floor it rolls onto, a
-    /// fall nobody declared), or a column's last position with no rail within 1 of its cell; each
-    /// with the cells a declaration may name (the rail, the exit cell and the cell below it; the
-    /// column's last cell).
+    /// on from node `n`: a rail exit with no rail at its cell or the cell below, no column entered
+    /// through it (its first cell) or left onto this rail (its last), and an open cell (no
+    /// collision shape: the cart leaves the track there, a fall or a roll-off nobody declared; a
+    /// wall only stops it), that a cart can reach moving toward it (from the rail its other exit
+    /// leads to, by a move the walks allow); or a column's last position with no rail to leave
+    /// onto (`exit_rails`); each with the cells a declaration may name (the rail, the exit cell
+    /// and the cell below it; the column's last cell).
     fn open_ends(&self, n: TailNode) -> Vec<(String, Vec<BlockPos>)> {
-        let near = |a: BlockPos, b: BlockPos| (a.x - b.x).abs() <= 1 && (a.y - b.y).abs() <= 1 && (a.z - b.z).abs() <= 1;
         let mut out = Vec::new();
         match n {
             TailNode::Rail(x, y, z) => {
                 let c = BlockPos::new(x, y, z);
-                let column_here = (0..self.columns.len()).any(|k| near(self.col_cell(k, 0), c) || near(self.col_cell(k, self.col_len[k] - 1), c));
-                for (dx, dy, dz) in rail_exits(self.rails.get(&c).map(|s| s.as_str()).unwrap_or("")) {
+                // (a switched T's stored shape is one of the shapes a cart takes: its exits count
+                // like any rail's, its other arms are rails)
+                let exits = rail_exits(self.rails.get(&c).map(|s| s.as_str()).unwrap_or(""));
+                for (i, (dx, dy, dz)) in exits.iter().enumerate() {
                     let m = BlockPos::new(x + dx, y + dy, z + dz);
-                    if self.rails.contains_key(&m) || self.rails.contains_key(&m.below()) || column_here {
+                    let into_column = (0..self.columns.len()).any(|k| {
+                        let f = self.col_cell(k, 0);
+                        f == m || f == m.below() || (self.col_cell(k, self.col_len[k] - 1) == m && self.exit_rails(k).contains(&c))
+                    });
+                    if self.rails.contains_key(&m) || self.rails.contains_key(&m.below()) || into_column || self.solid.contains(&m) {
+                        continue;
+                    }
+                    let arrives = {
+                        // (a cart reaches the dead end moving toward it: from the rail its other
+                        // exit leads to, or from any rail whose move into this one runs along the
+                        // exit's direction (a free-side entry into a curve, the S-bend's merge C),
+                        // by a move the walks allow)
+                        let allowed_in = |r: BlockPos| {
+                            self.rails.contains_key(&r) && {
+                                let from = TailNode::Rail(r.x, r.y, r.z);
+                                match &self.allowed {
+                                    Some(a) => a.contains(&(from, n)),
+                                    None => self.rail_moves(r).contains(&c),
+                                }
+                            }
+                        };
+                        let through = exits.iter().enumerate().filter(|(j, _)| *j != i).any(|(_, (ex, ey, ez))| {
+                            let o = BlockPos::new(x + ex, y + ey, z + ez);
+                            [o, o.below()].into_iter().any(|r| allowed_in(r))
+                        });
+                        let along = [(0, -1), (0, 1), (-1, 0), (1, 0)].into_iter().filter(|(ddx, ddz)| -ddx * dx - ddz * dz > 0).any(|(ddx, ddz)| {
+                            [0, 1, -1].into_iter().any(|ddy| allowed_in(BlockPos::new(x + ddx, y + ddy, z + ddz)))
+                        });
+                        // (G1's CHANGES 1 on fa1267b75: a cart arriving from a column: a fall's
+                        // landing rail rolls off either way, so every open exit counts, a slope's
+                        // high exit aside (a cart dropped onto a slope slides down it: its fall
+                        // carries no speed up the slope); a lift's exit rail (level beside its last
+                        // cell) is left by an exit away from the column, by a move the walks allow)
+                        let from_col = (0..self.columns.len()).any(|k| {
+                            let last = TailNode::Col(k, self.col_len[k] - 1);
+                            let moves_in = match &self.allowed {
+                                Some(a) => a.contains(&(last, n)),
+                                None => self.exit_rails(k).contains(&c),
+                            };
+                            let col = self.columns[k];
+                            let cc = self.col_cell(k, self.col_len[k] - 1);
+                            moves_in && if col[3] < col[1] { *dy == 0 } else { (m.x - c.x, m.z - c.z) != (cc.x - c.x, cc.z - c.z) }
+                        });
+                        through || along || from_col
+                    };
+                    if !arrives {
                         continue;
                     }
                     out.push((format!("the rail {x},{y},{z}'s exit to {},{},{}", m.x, m.y, m.z), vec![c, m, m.below()]));
                 }
             }
             TailNode::Col(k, i) => {
-                if i + 1 == self.col_len[k] {
+                if i + 1 == self.col_len[k] && self.exit_rails(k).is_empty() {
                     let cc = self.col_cell(k, i);
-                    if !self.rails.keys().any(|r| near(*r, cc)) {
-                        let c = self.columns[k];
-                        out.push((format!("the column {:.1},{:.1}..{:.1},{:.1}'s end in {},{},{}", c[0], c[1], c[3], c[2], cc.x, cc.y, cc.z), vec![cc]));
-                    }
+                    let c = self.columns[k];
+                    out.push((format!("the column {:.1},{:.1}..{:.1},{:.1}'s end in {},{},{}", c[0], c[1], c[3], c[2], cc.x, cc.y, cc.z), vec![cc]));
                 }
             }
         }
@@ -3197,12 +3345,12 @@ impl<'a> Track<'a> {
 /// printed line's text). The walks follow the way carts travel each
 /// link (`Track::orient`, by the columns, one-way shapes and `travel`, `reversal` both ways),
 /// unless `two_way` (ironspec Nov 12 16:02).
-pub fn clear_all(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32; 3], [i32; 3])], claims: &[BlockPos], pills: &[Vec3], columns: &[[f64; 4]], tail_gt: f64, rests: &[BlockPos], list: bool, idle: bool, watch: &[([i32; 3], [i32; 3])], approach: &[(BlockPos, f64)], late_gt: f64, ends_declared: &[(BlockPos, String)], travel: &[Vec<BlockPos>], reversal: &[BlockPos], two_way: bool) -> Result<(Vec<String>, ClearVerdict), String> {
+pub fn clear_all(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32; 3], [i32; 3])], claims: &[BlockPos], pills: &[Vec3], columns: &[[f64; 4]], tail_gt: f64, rests: &[BlockPos], list: bool, idle: bool, watch: &[([i32; 3], [i32; 3])], approach: &[(BlockPos, f64)], late_gt: f64, ends_declared: &[(BlockPos, String)], travel: &[(Vec<BlockPos>, String)], reversal: &[(BlockPos, String)], two_way: bool, orient_list: bool) -> Result<(Vec<String>, ClearVerdict), String> {
     let mut pos = rider_positions(spec);
     let mut col_of: Vec<Option<(usize, usize)>> = vec![None; pos.len()];
     let mut track = Track::new(spec, columns, rests);
     // (ironspec Nov 12 16:02: the walks follow the way carts travel each link, by default)
-    let travel_lines = if two_way { vec!["travel: --two-way: every rail link walked either way (the old walk)".to_string()] } else { track.orient(travel, reversal) };
+    let travel_lines = if two_way { vec!["travel: --two-way: every rail link walked either way (the old walk)".to_string()] } else { track.orient(travel, reversal, orient_list) };
     let track = track;
     for (k, _) in columns.iter().enumerate() {
         // (a column x, y_from, z, y_to: riders travel from y_from to y_to, a drop downward, a lift
@@ -3483,7 +3631,7 @@ pub fn clear_all(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32; 
     }
     let panic_classes = classes.keys().filter(|(k, _, _, _)| *k < 2).count();
     let mut lines = vec![format!(
-        "every rider position a scarer makes panic (each rail cell every 0.1 along it, a slope's 0.97 too{}): {panicking} of {} positions panic ({seen_n} with a hostile in sight, {} more in a seen position's tail: within {tail_gt} gt of travel along the track, a ridden cart at most {TAIL_RAIL_SPEED} b/gt on the rails and {TAIL_COLUMN_SPEED} in a column); none-or-all at each (PANIC's draws: the 2/2 stroll and the flee): {}{}",
+        "every rider position a scarer makes panic (each rail cell every 0.1 along it, a slope's 0.97 too{}): {panicking} of {} positions panic ({seen_n} with a hostile in sight, {} more in a seen position's tail: within {tail_gt} gt of travel along the track, a ridden cart at most {TAIL_RAIL_SPEED} b/gt on the rails and {TAIL_COLUMN_SPEED} in a column); none-or-all at each (the gate, an inherited policy, ironspec Nov 12 05:56; PANIC's draws: the 2/2 stroll and the flee): {}{}",
         if columns.is_empty() { String::new() } else { format!(", {} columns every 0.25", columns.len()) },
         pos.len(),
         panicking - seen_n,
@@ -3544,11 +3692,11 @@ pub fn clear_all(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32; 
         ));
     }
     lines.push(format!(
-        "staleness (G1's CHANGES 2: a tail position within {FLEE_BAR} of a zombie, NEAREST_HOSTILE remembered within the flee bar): {}",
+        "staleness (an inherited policy, G1's CHANGES 2: a tail position within {FLEE_BAR} of a zombie, NEAREST_HOSTILE remembered within the flee bar): {}",
         if stale.is_empty() { "0".to_string() } else { format!("FAIL at {}: {}", stale.len(), stale.iter().take(12).cloned().collect::<Vec<_>>().join("; ")) }
     ));
     lines.push(format!(
-        "stale-path hazards (in one panic: a reached PANIC candidate within 2 blocks of a PANIC candidate left unreached up to {MOVE_SINK_MAX} gt of travel before, through panicking positions: MoveToTargetSink keeps that partial path): {}",
+        "stale-path hazards (printed, not enforced; in one panic: a reached PANIC candidate within 2 blocks of a PANIC candidate left unreached up to {MOVE_SINK_MAX} gt of travel before, through panicking positions: MoveToTargetSink keeps that partial path; the 2 blocks (its distSqr > 4 re-path test) and the {MOVE_SINK_MAX} gt run are physical): {}",
         if n_haz == 0 { "0".to_string() } else { format!("{n_haz} at {} upstream unreached cells", hazards.len()) }
     ));
     let mut hz: Vec<_> = hazards.into_iter().collect();
@@ -3663,7 +3811,7 @@ pub fn clear_all(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32; 
                 ));
             }
             rows.sort_by(|a, b| a.0.total_cmp(&b.0));
-            lines.push(format!("the approach to {},{},{} within {gt} gt of travel before it: {} panicking positions ({tails} in a tail only), {} with a PANIC candidate", cell.x, cell.y, cell.z, rows.len(), rows.iter().filter(|(_, r)| !r.contains("PANIC candidates 0")).count()));
+            lines.push(format!("the approach to {},{},{} within {gt} gt of travel before it (printed; a bar of 0 with a PANIC candidate, as V15's lift approach, is inherited):", cell.x, cell.y, cell.z) + &format!(" {} panicking positions ({tails} in a tail only), {} with a PANIC candidate", rows.len(), rows.iter().filter(|(_, r)| !r.contains("PANIC candidates 0")).count()));
             lines.push(format!(
                 "  candidates there ({} cells; each with the block under it, the positions drawing it, the nearest one's time to the entrance): {}",
                 by_cand.len(),
@@ -3699,7 +3847,7 @@ pub fn clear_all(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32; 
         ));
     }
     lines.push(format!(
-        "track ends the walks reach with time left (a rail exit with no rail or column beyond it, or a column's end with no rail: the walk cannot go on there): {}",
+        "track ends the walks reach with time left (a rail exit with no rail or column beyond it, or a column's end with no rail: the walk cannot go on there; 0 undeclared, an inherited policy, ironspec Nov 12 15:03): {}",
         if ends.is_empty() {
             "0".to_string()
         } else if undeclared_ends == 0 {
@@ -3747,5 +3895,131 @@ mod along_rail_tests {
         assert!(close(top.y, 22.0625), "flat top: y {}", top.y);
         let siding = along_rail(BlockPos::new(1, 24, 8), "minecraft:powered_rail[powered=false,shape=ascending_south,waterlogged=false]", 0.5);
         assert!(close(siding.y, 24.5625), "siding slope centre: y {}", siding.y);
+    }
+}
+
+#[cfg(test)]
+mod orient_tests {
+    use super::{TailNode, Track};
+    use redsim::pos::BlockPos;
+    use std::collections::HashMap;
+
+    /// A fall at x 0 z 0 (y 3 down to 1) landing on (0,0,0); a chain south to a T (0,0,2) stored
+    /// north_east, its west arm a straight pointing into it, its east arm a straight on to (2,0,2).
+    fn rails() -> HashMap<BlockPos, String> {
+        let r = |s: &str| format!("minecraft:rail[shape={s},waterlogged=false]");
+        let mut m = HashMap::new();
+        for (x, z, s) in [(0, 0, "north_south"), (0, 1, "north_south"), (0, 2, "north_east"), (1, 2, "east_west"), (2, 2, "east_west"), (-1, 2, "east_west"), (-2, 2, "east_west")] {
+            m.insert(BlockPos::new(x, 0, z), r(s));
+        }
+        m
+    }
+
+    fn n(x: i32, y: i32, z: i32) -> TailNode {
+        TailNode::Rail(x, y, z)
+    }
+
+    /// (G1's note 2 on a4cd9b8b0: orient()'s control) A chain from a column, the conservation at
+    /// a T (marked INFERRED), a conflict kept both ways, a reversal both ways and not a conflict;
+    /// the column entered only from a rail leading into it and left only onto its landing.
+    #[test]
+    fn orient_chain_junction_conflict_reversal() {
+        let cols = [[0.5, 3.0, 0.5, 1.0]];
+        let rests: [BlockPos; 0] = [];
+        let mut t = Track::from_parts(rails(), &cols, &rests, Vec::new(), Default::default());
+        assert_eq!(t.exit_rails(0), vec![BlockPos::new(0, 0, 0)], "the fall lands on the rail under its last cell only");
+        assert!(!t.edges(n(0, 0, 0)).iter().any(|(m, _)| matches!(m, TailNode::Col(..))), "the landing does not enter the fall");
+        let lines = t.orient(&[], &[], true);
+        let a = t.allowed.clone().expect("oriented");
+        assert!(a.contains(&(TailNode::Col(0, 8), n(0, 0, 0))), "{lines:?}");
+        assert!(a.contains(&(n(0, 0, 0), n(0, 0, 1))) && !a.contains(&(n(0, 0, 1), n(0, 0, 0))), "the chain from the column: {lines:?}");
+        assert!(a.contains(&(n(0, 0, 1), n(0, 0, 2))) && !a.contains(&(n(0, 0, 2), n(0, 0, 1))), "{lines:?}");
+        assert!(a.contains(&(n(-1, 0, 2), n(0, 0, 2))) && !a.contains(&(n(0, 0, 2), n(-1, 0, 2))), "one way by shape: {lines:?}");
+        assert!(a.contains(&(n(0, 0, 2), n(1, 0, 2))) && !a.contains(&(n(1, 0, 2), n(0, 0, 2))), "the conservation at the T: {lines:?}");
+        assert!(lines.iter().any(|l| l.contains("ORIENTED 0,0,2 > 1,0,2 (junction (INFERRED))")), "{lines:?}");
+        let mut t = Track::from_parts(rails(), &cols, &rests, Vec::new(), Default::default());
+        let lines = t.orient(&[(vec![BlockPos::new(0, 0, 2), BlockPos::new(1, 0, 2)], "a run".into()), (vec![BlockPos::new(1, 0, 2), BlockPos::new(0, 0, 2)], "another".into())], &[], false);
+        let a = t.allowed.clone().expect("oriented");
+        assert!(a.contains(&(n(0, 0, 2), n(1, 0, 2))) && a.contains(&(n(1, 0, 2), n(0, 0, 2))), "a conflict stays both ways: {lines:?}");
+        assert!(lines.iter().any(|l| l.contains("oriented both ways (a conflict") && l.contains("0,0,2-1,0,2")), "{lines:?}");
+        let mut t = Track::from_parts(rails(), &cols, &rests, Vec::new(), Default::default());
+        let lines = t.orient(&[], &[(BlockPos::new(0, 0, 1), "the run shows it".into())], false);
+        let a = t.allowed.clone().expect("oriented");
+        assert!(a.contains(&(n(0, 0, 1), n(0, 0, 0))) && a.contains(&(n(0, 0, 2), n(0, 0, 1))), "a reversal's links both ways: {lines:?}");
+        assert!(!lines.iter().any(|l| l.starts_with("  oriented both ways")), "{lines:?}");
+        assert!(lines.iter().any(|l| l.contains("declared --reversal 0,0,1: the run shows it")), "{lines:?}");
+    }
+
+    /// (G1's note 4 on a4cd9b8b0) A T with a signal source within Manhattan 2 moves onto every
+    /// arm (the union of its shapes); without one, its stored shape's two only.
+    #[test]
+    fn switched_t_union() {
+        let cols: [[f64; 4]; 0] = [];
+        let rests: [BlockPos; 0] = [];
+        let plain = Track::from_parts(rails(), &cols, &rests, Vec::new(), Default::default());
+        let moves = |t: &Track| {
+            let mut m: Vec<BlockPos> = t.rail_moves(BlockPos::new(0, 0, 2));
+            m.sort_by_key(|c| (c.x, c.y, c.z));
+            m
+        };
+        assert_eq!(moves(&plain), vec![BlockPos::new(0, 0, 1), BlockPos::new(1, 0, 2)]);
+        let lever = Track::from_parts(rails(), &cols, &rests, vec![BlockPos::new(0, 1, 2)], Default::default());
+        assert_eq!(moves(&lever), vec![BlockPos::new(-1, 0, 2), BlockPos::new(0, 0, 1), BlockPos::new(1, 0, 2)]);
+    }
+
+    /// (no silent ends, with the strict columns) A rail exit into an open cell that a cart reaches
+    /// moving toward it is a track end; into a wall (a collision shape) it is not; and an exit the
+    /// oriented walk never moves toward (the low rail's move into it not allowed) is not either.
+    #[test]
+    fn open_ends_falls_walls_and_direction() {
+        let cols = [[0.5, 3.0, 0.5, 1.0]];
+        let rests: [BlockPos; 0] = [];
+        let east_end = |t: &Track| t.open_ends(n(2, 0, 2)).iter().any(|(d, _)| d.contains("exit to 3,0,2"));
+        let mut t = Track::from_parts(rails(), &cols, &rests, Vec::new(), Default::default());
+        assert!(east_end(&t), "an open cell beyond the rail end, two-way");
+        t.orient(&[], &[], false);
+        assert!(east_end(&t), "an open cell beyond the rail end, reached moving east");
+        let west_end = |t: &Track| t.open_ends(n(-2, 0, 2)).iter().any(|(d, _)| d.contains("exit to -3,0,2"));
+        assert!(!west_end(&t), "the west end: the oriented walk only leaves it eastward");
+        let mut wall = Track::from_parts(rails(), &cols, &rests, Vec::new(), [BlockPos::new(3, 0, 2)].into_iter().collect());
+        wall.orient(&[], &[], false);
+        assert!(!east_end(&wall), "a wall beyond the rail end stops the cart: no track end");
+    }
+
+    /// (G1's CHANGES 1 on fa1267b75) A cart arriving from a column: a fall's landing rail with one
+    /// exit open is an end, two-way and oriented (it rolls off either way); a lift's exit rail with
+    /// its far exit open is an end, and with a rail beyond it is not.
+    #[test]
+    fn open_ends_from_columns() {
+        let rests: [BlockPos; 0] = [];
+        let ew = "minecraft:rail[shape=east_west,waterlogged=false]".to_string();
+        // (a fall from feet 5 to feet 1 over (0,1,0), landing on (0,0,0); (-1,0,0) beyond its west exit)
+        let fall = [[0.5, 5.0, 0.5, 1.0]];
+        let landing: HashMap<BlockPos, String> = [(BlockPos::new(0, 0, 0), ew.clone()), (BlockPos::new(-1, 0, 0), ew.clone())].into_iter().collect();
+        let east = |t: &Track| t.open_ends(n(0, 0, 0)).iter().any(|(d, _)| d.contains("exit to 1,0,0"));
+        let mut t = Track::from_parts(landing.clone(), &fall, &rests, Vec::new(), Default::default());
+        assert!(east(&t), "the landing's open exit, two-way");
+        t.orient(&[], &[], false);
+        assert!(east(&t), "the landing's open exit, oriented (the column moves into the landing)");
+        // (a landing on a slope: the cart slides down it, off its low exit, never up to its high one)
+        let slope: HashMap<BlockPos, String> = [(BlockPos::new(0, 0, 0), "minecraft:rail[shape=ascending_east,waterlogged=false]".to_string())].into_iter().collect();
+        let mut s = Track::from_parts(slope, &fall, &rests, Vec::new(), Default::default());
+        s.orient(&[], &[], false);
+        let ends: Vec<String> = s.open_ends(n(0, 0, 0)).into_iter().map(|(d, _)| d).collect();
+        assert!(ends.iter().any(|d| d.contains("exit to -1,0,0")) && !ends.iter().any(|d| d.contains("exit to 1,1,0")), "{ends:?}");
+        // (a lift from feet 1 to feet 5 in (0,·,0), its exit rail (1,5,0) level beside its top)
+        let lift = [[0.5, 1.0, 0.5, 5.0]];
+        let exit: HashMap<BlockPos, String> = [(BlockPos::new(1, 5, 0), ew.clone())].into_iter().collect();
+        let far = |t: &Track| t.open_ends(n(1, 5, 0)).iter().any(|(d, _)| d.contains("exit to 2,5,0"));
+        let near = |t: &Track| t.open_ends(n(1, 5, 0)).iter().any(|(d, _)| d.contains("exit to 0,5,0"));
+        let mut l = Track::from_parts(exit.clone(), &lift, &rests, Vec::new(), Default::default());
+        assert!(far(&l) && !near(&l), "the lift's exit rail: its far exit an end, two-way; the column side not");
+        l.orient(&[], &[], false);
+        assert!(far(&l), "the lift's exit rail's far exit, oriented");
+        let mut beyond = exit.clone();
+        beyond.insert(BlockPos::new(2, 5, 0), ew.clone());
+        let mut b = Track::from_parts(beyond, &lift, &rests, Vec::new(), Default::default());
+        b.orient(&[], &[], false);
+        assert!(!far(&b), "a rail beyond the far exit: no end");
     }
 }
