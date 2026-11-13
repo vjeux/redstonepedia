@@ -1,5 +1,6 @@
 # The one-chunk column's skeleton (mctas mobfarm column; no wiring): column x -6..9 z -6..10.
 # record7f (ironspec 01:07 / 01:21 PT): composed from 7b90c3f1's r3 record lift file (explore/farmopt-v15-patha-r3 8ed397b2e, designs/farms/iron/carousel-assembly/wip/lift/f1q2-lift-split-path-a.txt, --light-fix): the cell diff against record7e: (-6,8,7) glass -> glowstone and (5,-16,4) glass -> glowstone (the light fix), (-5,23,7) and (6,-3,4) air -> water[level=1] (the lifts' two top-drift currents, saved settled), (-4,0,7) air -> glass (in r3, not in record7e); the lift file's (9,25,9) east_west is its own stand-in (# stand-in:), so record7 keeps b8949c96's north_west curve there; the lift file's header lines follow (its # stand-in: and # frames: lines describe its own bench file and stay there)
+# record7f, the glass cover (-3,22,5) laid as a CANDIDATE (ironspec 06:05 PT) until 9fc3155f's statics pass (zero dark cells, sight, head space, the gate): over the F3 scarer part's glowstone (-3,21,5) (9fc3155f's file), so the air over it is no stable walk target (the PANIC stroll draw from the shared lift's (-5,20,7))
 # day-time: 18000 (the save's day time, a night placement as the build guide places the daylight detector (-5,15,3): its stored power 0 is its reading at this time; ironspec 02:37 PT (4))
 # record7f, (-4,0,7) returned to air (record7e's state; 7b90c3f1 02:05 PT drops it from its r4 lift file: no cart meets it, it holds no water, it changes no mob space)
 # record7f, dusts re-saved settled (ironspec 01:46 (2), cc767b78's settle-check finding): (-3,23,9) (the (a) feed stack's dust, stored a dot by onechunk's composition of the stack) and (7,-14,-5) (R1's NOT-ready side dust, stored south-only by onechunk's record7c recomposition) both now north+south, their settled connections
@@ -1040,7 +1041,7 @@ layer 22:
   ...............q
   ...............q
   ...............q
-  ...............h
+  ...g...........h
   .g...h...h...h.g
   gBg..g...g...g
   gg.g...g...g
