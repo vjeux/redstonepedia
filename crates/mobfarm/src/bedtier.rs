@@ -1122,6 +1122,7 @@ pub fn reclaim_row(spec: &FarmSpec, seed: u64, blocked: bool, at: Option<[f64; 3
             break;
         }
     }
+    let reclaimed = released_at.map(|_| last_home.is_some());
     out.push(format!(
         "verdict: {}",
         match (released_at, last_home, last_sleep) {
@@ -1131,6 +1132,15 @@ pub fn reclaim_row(spec: &FarmSpec, seed: u64, blocked: bool, at: Option<[f64; 3
             (Some(r), None, _) => format!("released at t {r}, NOT re-claimed by t 1200"),
         }
     ));
+    // (G1's C12: the verdict judged, never print-only: the blocked positive must NOT re-claim (else
+    // it doesn't bite); a free row is judged against the run's declared expectation)
+    if blocked && reclaimed == Some(true) {
+        return Err(format!("the blocked positive re-claimed the bed: it doesn't bite ({})", out.last().cloned().unwrap_or_default()));
+    }
+    if released_at.is_none() {
+        return Err(format!("HOME never released in 1,200 gt: the row tests nothing ({})", out.last().cloned().unwrap_or_default()));
+    }
+    out.push(format!("re-claimed: {}", reclaimed == Some(true)));
     Ok(out)
 }
 
@@ -2078,6 +2088,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
     // (the waker's consequence trace: the last printed walk target / path / stamp)
     let mut waker_last = String::new();
     let mut waker_act_last = String::new();
+    let mut waker_stamp_at_wake: Option<Option<i64>> = None;
     let (mut prev_riding, mut prev_walk_target, mut prev_cant_reach) = (false, false, false);
     // (the cart's horizontal speed on the previous tick: a declared contact's "before")
     let mut prev_cart_speed = 0f64;
@@ -2863,10 +2874,15 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                 let wt = m.walk_target.as_ref().map(|x| format!("{:?}", x.target));
                 let pa = m.path.as_ref().map(|p| (p.reached, p.nodes.first().map(|n| (n.x, n.y, n.z)), p.nodes.last().map(|n| (n.x, n.y, n.z)), p.nodes.len()));
                 let st = m.cant_reach_since;
+                // (G1's C11: a FRESH arming is a stamp set after the wake (a value the stamp didn't
+                // hold at the wake tick), not one carried in from before it)
+                if waker_stamp_at_wake.is_none() {
+                    waker_stamp_at_wake = Some(st);
+                }
                 let key = format!("{wt:?}|{pa:?}|{st:?}");
                 if key != waker_last {
                     row.waker_lines.push(format!("t {t}: walk target {}, path {}, stamp {}", wt.as_deref().unwrap_or("none"), pa.map_or("none".to_string(), |(r, s, e, n)| format!("{} ({n} nodes, start {s:?}, end {e:?})", if r { "COMPLETE" } else { "PARTIAL" })), st.map_or("none".to_string(), |s| format!("armed at t {}", s - (w.time - t)))));
-                    if st.is_some() && row.waker_stamp.is_none() {
+                    if st.is_some() && Some(st) != waker_stamp_at_wake && row.waker_stamp.is_none() {
                         row.waker_stamp = Some(t);
                     }
                     waker_last = key;
@@ -4049,7 +4065,11 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
         }
     }
     if !one {
-        for (&(seed, v), r) in pairs.iter().zip(par_map(&pairs, jobs, |&(seed, v)| bench(spec, seed, v, release_after, day, after_sleep, &Faults { approach: base.approach, declared_emulated: base.declared_emulated.clone(), ..Faults::default() }))) {
+        // (G1's C6: the reference night is the run's own setup (arm delay, pulses, levers, the day
+        // lever, emulated writes, set cells, ...) with only the rows' variations cleared (the
+        // restart, skip, hour, panic entry, pickup inject and park shift))
+        let night = Faults { restart: None, skip: None, hour: None, panic_entry: None, pickup_inject: None, park_shift: None, ..base.clone() };
+        for (&(seed, v), r) in pairs.iter().zip(par_map(&pairs, jobs, |&(seed, v)| bench(spec, seed, v, release_after, day, after_sleep, &night))) {
             if let Ok(r) = r
                 && let Some(rr) = r.r_at
             {
@@ -4881,6 +4901,11 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
         );
         if sk.landings.keys().any(|k| k == &format!("{},{},{}", PARK_A[0], PARK_A[1], PARK_A[2]) || k == &format!("{},{},{}", PARK_A2[0], PARK_A2[1], PARK_A2[2])) {
             failed.push("a rider landed in (A)'s park cell".into());
+        }
+        // (G1's C19: the at-rest bar judged (its positive control: --release-after-arm releases
+        // before the cart is at rest and must fail here))
+        if sk.release_speed_max >= 0.001 {
+            failed.push(format!("a cart moving at {:.4} b/t on a release tick (the at-rest bar: under 0.001)", sk.release_speed_max));
         }
     }
     // (ironspec 21:43 / 23:46: record-match against the design of record; the rows count only by
