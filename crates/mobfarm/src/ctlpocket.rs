@@ -109,12 +109,14 @@ struct RailRec {
 /// One run: lane `lane`'s switch on from t0 for `width` gt (None: no switch driven, the control's idle run); a
 /// restart between ticks; each pocket rail's every edge (G1's audit hole 17: every edge kept, so a double pulse
 /// from a restart is seen); the switch cell's state before -> after its drive.
-fn run_once(v: Variant, lane: Option<usize>, t0: i64, width: i64, restart: Option<(i64, crate::liveness::Restart)>) -> Result<([RailRec; 3], Option<(String, String)>), String> {
+#[allow(clippy::type_complexity)]
+fn run_once(v: Variant, lane: Option<usize>, t0: i64, width: i64, restart: Option<(i64, crate::liveness::Restart)>) -> Result<([RailRec; 3], Option<(String, String)>, Option<crate::liveness::RestartEvidence>), String> {
     let (sp, sw) = spec(v)?;
     let sp = crate::mirror::checked(&sp)?;
     let ro = RunOpts { ai: false, ..RunOpts::steady(1, 0, WalkMode::Random) };
     let mut run = Run::start(&sp, &ro)?;
     while run.settle_tick() {}
+    let mut ev: Option<crate::liveness::RestartEvidence> = None;
     let on = Block::parse("minecraft:redstone_block").map_err(|e| e.to_string())?;
     let air = Block::parse("minecraft:air").map_err(|e| e.to_string())?;
     let bp = |p: P| crate::mirror::at(p);
@@ -130,7 +132,7 @@ fn run_once(v: Variant, lane: Option<usize>, t0: i64, width: i64, restart: Optio
         if let Some((rt, how)) = restart
             && rt == t
         {
-            crate::liveness::restart(&mut run.world, how)?;
+            ev = Some(crate::liveness::restart_ev(&mut run.world, how)?);
         }
         if let Some(ln) = lane {
             if t == t0 {
@@ -154,7 +156,7 @@ fn run_once(v: Variant, lane: Option<usize>, t0: i64, width: i64, restart: Optio
             was[i] = now;
         }
     }
-    Ok((out, drive))
+    Ok((out, drive, ev))
 }
 
 type Hist = std::collections::BTreeMap<i64, u32>;
@@ -186,8 +188,14 @@ pub fn bench(v: &mut crate::verdict::Verdict) -> Result<Vec<String>, String> {
             // against (b) compared phase by phase; G1's audit hole 17: exactly one rise and one fall)
             let mut per_phase: Vec<Option<(i64, i64)>> = Vec::new();
             let mut drive_over = String::new();
+            let (mut drive_n, mut drive_unchanged) = (0usize, 0usize);
             for t0 in 40..60 {
-                let (o, drive) = run_once(var, Some(i), t0, width, None)?;
+                let (o, drive, _) = run_once(var, Some(i), t0, width, None)?;
+                // (G1's Y3: every application of the switch override judged)
+                if let Some((b, a)) = &drive {
+                    drive_n += 1;
+                    drive_unchanged += usize::from(b == a);
+                }
                 if drive_over.is_empty()
                     && let Some((b, a)) = &drive
                 {
@@ -205,15 +213,32 @@ pub fn bench(v: &mut crate::verdict::Verdict) -> Result<Vec<String>, String> {
                 leaks += o.iter().enumerate().filter(|(j, s)| *j != i && (s.at_settle || !s.rises.is_empty())).count() as u32;
             }
             let edgeless = per_phase.iter().filter(|p| p.is_none()).count();
+            if drive_unchanged > 0 || drive_n != per_phase.len() {
+                v.fail(&format!("({tag}) lane {x}'s switch override: {drive_unchanged} of its {drive_n} applications unchanged, {} phases without one", per_phase.len() - drive_n.min(per_phase.len())));
+                drive_over += " (an application UNCHANGED or missing: FAIL)";
+            } else {
+                drive_over += &format!(" (all {drive_n} applications changed it)");
+            }
             let edges = v.bar_n(&format!("({tag}) lane {x}: one rise and one fall at every phase"), per_phase.len(), edgeless == 0);
             let leak_w = v.bar_n(&format!("({tag}) lane {x}: no other pocket's rail moves"), per_phase.len(), leaks == 0);
             rises.insert((i, tag), per_phase);
             let t0 = 40;
             let (mut n, mut same, mut diff) = (0u32, 0u32, Vec::<String>::new());
+            let (mut ev_bad, mut ev_first) = (Vec::<String>::new(), String::new());
             for rt in ((t0 - 1)..=(t0 + 6)).chain((t0 + width - 1)..=(t0 + width + 6)) {
                 for how in crate::liveness::Restart::rows() {
-                    let (o, _) = run_once(var, Some(i), t0, width, Some((rt, how)))?;
+                    let (o, _, ev) = run_once(var, Some(i), t0, width, Some((rt, how)))?;
                     n += 1;
+                    // (G1's Y6: the restart shown to have happened, from its own evidence)
+                    match &ev {
+                        Some(e) if e.happened() => {
+                            if ev_first.is_empty() {
+                                ev_first = e.line();
+                            }
+                        }
+                        Some(e) => ev_bad.push(format!("restart at t0 + {} ({}): {}", rt - t0, how.label(), e.line())),
+                        None => ev_bad.push(format!("restart at t0 + {} ({}): no restart ran", rt - t0, how.label())),
+                    }
                     let got_r: Vec<i64> = o[i].rises.iter().map(|r| r - t0).collect();
                     let got_f: Vec<i64> = o[i].falls.iter().map(|f| f - (t0 + width)).collect();
                     let leak = o.iter().enumerate().any(|(j, s)| j != i && (s.at_settle || !s.rises.is_empty()));
@@ -225,6 +250,9 @@ pub fn bench(v: &mut crate::verdict::Verdict) -> Result<Vec<String>, String> {
                 }
             }
             let restarts = v.bar_n(&format!("({tag}) lane {x}: every restart row the same as without one"), n as usize, diff.is_empty() && base.is_some());
+            let ev_w = v.bar_n(&format!("({tag}) lane {x}: every restart happened (its chunks unloaded and loaded again, its scheduled ticks back)"), n as usize, ev_bad.is_empty());
+            let ev_c = v.control(&format!("({tag}) lane {x}: a stub restart's evidence fails the restart bar"), 1, !crate::liveness::RestartEvidence::default().happened());
+            let restarts = format!("{restarts}; the restarts' own evidence: {} ({ev_w}; the stub control {ev_c}){}", if ev_first.is_empty() { "none".to_string() } else { format!("e.g. {ev_first}") }, if ev_bad.is_empty() { String::new() } else { format!(": {}", ev_bad.iter().take(3).cloned().collect::<Vec<_>>().join("; ")) });
             lines.push(format!(
                 "    lane {x} ({drive_over}): P powered (gt after the switch, gt:count) {}, unpowered after the switch's removal {}; phases without exactly one rise and one fall {edgeless} ({edges}); the other pockets' rails moved {leaks} times (a leak; {leak_w}); with a restart at every tick around both edges in every reload order: {same} of {n} the same ({restarts}){}",
                 row(&rise),
@@ -243,7 +271,7 @@ pub fn bench(v: &mut crate::verdict::Verdict) -> Result<Vec<String>, String> {
     lines.push(format!("  (b)'s rise against (a)'s, phase by phase: {}", verdict.join(", ")));
     // the control: lane -1's support a redstone block, NO switch driven (G1's audit defect 3): lane 3's rail must be
     // powered at settle by the leak, through the same run
-    let (o, drive) = run_once(Variant::LeakControl, None, 40, width, None)?;
+    let (o, drive, _) = run_once(Variant::LeakControl, None, 40, width, None)?;
     let ctl = v.control("lane -1's support a redstone block powers lane 3's rail at settle (no switch driven)", 1, drive.is_none() && o[1].at_settle);
     lines.push(format!(
         "  the control ((b)'s cells, lane -1's support (-1,-1,0) a redstone block, no switch driven{}): lane 3's rail at settle {} (lane 3's step dust (0,-1,0) touches that support), lane 7's {}: {ctl}",

@@ -14,6 +14,8 @@ pub struct Verdict {
     controls: usize,
     overrides: usize,
     scoped: Vec<String>,
+    /// (G1's structural (a)) The ruled bars a design-of-record run may not scope out.
+    refused: Vec<String>,
 }
 
 impl Verdict {
@@ -70,8 +72,20 @@ impl Verdict {
 
     /// A count the run's declared scope excludes from judgement: printed with its reason, never silently passed.
     pub fn scope(&mut self, what: &str, why: &str) -> String {
+        // (G1's structural (a) on f21c9f600: a design-of-record run refuses any scope that drops a ruled bar)
+        if let Some(r) = self.refused.iter().find(|r| what.contains(r.as_str())) {
+            let r = r.clone();
+            self.fail(&format!("{what}: a design-of-record run may not scope out the ruled bar \"{r}\" ({why})"));
+            return format!("{what}: REFUSED (a ruled bar scoped out of a design-of-record run: FAIL)");
+        }
         self.scoped.push(format!("{what} ({why})"));
         format!("{what}: not judged by this run's declared scope ({why})")
+    }
+
+    /// (G1's structural (a)) A design-of-record run: any later [`scope`](Self::scope) naming one of these ruled bars fails
+    /// the run instead of dropping the bar.
+    pub fn refuse_scopes(&mut self, ruled: &[&str]) {
+        self.refused.extend(ruled.iter().map(|s| s.to_string()));
     }
 
     /// A miss recorded directly (a model error, an unparsable value, a run that errored).
@@ -156,5 +170,16 @@ mod tests {
         assert!(exact::<i64>("x", &[], 3, true).unwrap().is_none());
         assert!(exact::<i64>("x", &[], 3, false).is_err());
         assert_eq!(exact("x", &[1, 2, 3], 3, false).unwrap(), Some(vec![1, 2, 3]));
+    }
+
+    /// (G1's structural (a)) a design-of-record run refuses a scope that drops a ruled bar; other scopes still print.
+    #[test]
+    fn a_design_of_record_run_refuses_scoping_a_ruled_bar() {
+        let mut v = Verdict::new("t");
+        v.refuse_scopes(&["the catch window"]);
+        assert!(v.scope("the reference rows", "printed").contains("not judged"));
+        assert!(v.fails().is_empty());
+        assert!(v.scope("normal operation: m and the catch window", "rule 2").contains("REFUSED"));
+        assert_eq!(v.fails().len(), 1);
     }
 }

@@ -517,6 +517,11 @@ pub struct Restarted {
     /// ironspec 23:58 (2)); the row counts as unmodelled until the reload model saves and loads both
     /// dimensions (ironspec 21:23/21:24: said in the note, not silent).
     pub nether: bool,
+    /// (G1's Y6) The restart's evidence: the chunks unloaded and loaded again, and the scheduled block ticks the
+    /// unload took out and the load brought back (counted right after each, before any idle or stress tick).
+    pub chunks: usize,
+    pub ticks_out: usize,
+    pub ticks_back: usize,
 }
 
 impl std::ops::Deref for Restarted {
@@ -618,9 +623,13 @@ pub fn restart(w: &mut World, how: Restart) -> Result<Restarted, String> {
         return Err(format!("restart {}: a partial unload is active; a restart needs every chunk loaded", how.label()));
     }
     let first = w.time + 1;
+    let ticks_before = w.ticks.count();
     redsim::reload::unload_all(w);
+    let chunks = w.away.as_ref().map_or(0, |a| a.chunks.len());
+    let ticks_away = w.ticks.count();
     // (loaded at the save's game time: the saved ticks keep their save-time due times)
     redsim::reload::load_all_ordered(w, how.order());
+    let (ticks_out, ticks_back) = (ticks_before.saturating_sub(ticks_away), w.ticks.count().saturating_sub(ticks_away));
     if w.errors.len() > errors {
         return Err(format!("restart {}: {}", how.label(), w.errors[errors..].join("; ")));
     }
@@ -637,7 +646,7 @@ pub fn restart(w: &mut World, how: Restart) -> Result<Restarted, String> {
             }
         }
         let held = w.entities.list.iter().filter(|e| !e.removed).count();
-        return Ok(Restarted { ids: ids(w), first, at: w.time, entity_free: how.load_ticks(), held, created: Vec::new(), stress: false, nether: w.nether.is_some() });
+        return Ok(Restarted { ids: ids(w), first, at: w.time, entity_free: how.load_ticks(), held, created: Vec::new(), stress: false, nether: w.nether.is_some(), chunks, ticks_out, ticks_back });
     }
     // (the STRESS variant's block-only ticks: an empty entity-ticking range, so `entity_ticks_at` is false
     // everywhere and no entity ticks, its place in the list kept; the freezes they note stay in
@@ -658,12 +667,44 @@ pub fn restart(w: &mut World, how: Restart) -> Result<Restarted, String> {
     let noted: std::collections::HashSet<u32> = w.frozen[frozen..].iter().filter(|(t, _)| *t >= first && *t <= at).map(|(_, id)| *id).collect();
     let live: Vec<u32> = w.entities.list.iter().filter(|e| !e.removed).map(|e| e.id).collect();
     let (held, created) = load_held(&present, &live, &noted).map_err(|t| format!("restart {}: the stress ticks ticked entities {t:?}", how.label()))?;
-    Ok(Restarted { ids: ids(w), first, at, entity_free: how.load_ticks(), held, created, stress: true, nether: w.nether.is_some() })
+    Ok(Restarted { ids: ids(w), first, at, entity_free: how.load_ticks(), held, created, stress: true, nether: w.nether.is_some(), chunks, ticks_out, ticks_back })
 }
 
 /// An entity's current id after any restarts (from the id it had once, or any since).
 pub fn follow(w: &World, id: u32) -> u32 {
     w.renumbered.get(&id).copied().unwrap_or(id)
+}
+
+/// (G1's Y6 on f21c9f600) What a restart did, for a bench to JUDGE that it happened: the chunks unloaded and loaded
+/// again, the scheduled block ticks taken out with them and the ones that came back, the live entities before and the
+/// ids they came back under (old -> new). A no-op "restart" shows 0 chunks.
+#[derive(Clone, Debug, Default)]
+pub struct RestartEvidence {
+    pub chunks: usize,
+    pub ticks_out: usize,
+    pub ticks_back: usize,
+    pub entities: usize,
+    pub ids: std::collections::HashMap<u32, u32>,
+}
+
+impl RestartEvidence {
+    /// The restart's own bar: at least one chunk went away and came back, every scheduled tick it took out came back,
+    /// and every live entity came back under an id `follow` resolves.
+    pub fn happened(&self) -> bool {
+        self.chunks >= 1 && self.ticks_back == self.ticks_out && self.ids.len() == self.entities
+    }
+
+    pub fn line(&self) -> String {
+        format!("{} chunk(s) unloaded and loaded again, scheduled ticks out {} / back {}, live entities {} (followed {})", self.chunks, self.ticks_out, self.ticks_back, self.entities, self.ids.len())
+    }
+}
+
+/// [`restart`] with its evidence ([`RestartEvidence`]): the same restart (train 9's form: the official load's idle
+/// ticks or the STRESS variant, the NoAI flag and the per-world path uid kept), its counts read from [`Restarted`].
+pub fn restart_ev(w: &mut World, how: Restart) -> Result<RestartEvidence, String> {
+    let entities = w.entities.list.iter().filter(|e| !e.removed).count();
+    let r = restart(w, how)?;
+    Ok(RestartEvidence { chunks: r.chunks, ticks_out: r.ticks_out, ticks_back: r.ticks_back, entities, ids: r.ids.clone() })
 }
 
 #[cfg(test)]

@@ -200,37 +200,74 @@ fn clear_contacts() {
 }
 
 /// (the chain fix) The rows' undeclared contacts into the tool's verdict, one bar; the overrides; and (ironspec's
-/// summon-order rule, item 9) the summoned villagers' scope: every run here has the mob AI off.
+/// summon-order rule, item 9; G1's structural (b) on f21c9f600) the summoned villagers' scope, DERIVED from the RunOpts
+/// the runs actually used ([`payload_opts`] counts them).
 fn judge_contacts(v: &mut crate::verdict::Verdict) -> String {
     let fails = CONTACT_FAILS.with(|f| std::mem::take(&mut *f.borrow_mut()));
     let w = v.bar("every row's cart contacts declared for its geometry", fails.is_empty());
     let ov = judge_overrides(v);
-    let ai = v.scope("the summoned villagers' brain activity", "every run has the mob AI off (RunOpts ai: false): no brain ticks, so the riders and the standing villagers are payload only, for cart physics and the string's press");
+    let (off, on) = AI_RUNS.with(|c| c.replace((0, 0)));
+    let ai = if on == 0 {
+        v.scope("the summoned villagers' brain activity", &format!("every one of the {off} runs has the mob AI off (RunOpts ai: false, as the runs were started): no brain ticks, so the riders and the standing villagers are payload only, for cart physics and the string's press; riders AI off: no pushes, panic or REST steps: these rows can't speak to the lip"))
+    } else {
+        format!("the summoned villagers' brain activity: {on} of {} runs with the mob AI on", on + off)
+    };
     if fails.is_empty() { format!("the cart contacts: every one declared ({w}); {ov}; {ai}") } else { format!("the cart contacts: {} ({w}); {ov}; {ai}", fails.join("; ")) }
 }
 
 thread_local! {
-    /// (ironspec 04:07 PT, the chain audit C8) Every override the runs applied (a stand-in drive, a forced input, an
-    /// emulated line, a control's left-out cell, a restart): label -> (its target's state before, after), the first
-    /// application of each label kept.
-    static OVERRIDES: std::cell::RefCell<std::collections::BTreeMap<String, (String, String)>> = const { std::cell::RefCell::new(std::collections::BTreeMap::new()) };
+    /// (G1's structural (b)) The runs started with the mob AI off and on (from [`payload_opts`]).
+    static AI_RUNS: std::cell::Cell<(u32, u32)> = const { std::cell::Cell::new((0, 0)) };
 }
 
-/// Record an override's first application: its target's state before and after.
+/// The runs' options, counted (G1's structural (b): the AI scope printed from what the runs used).
+fn payload_opts() -> RunOpts {
+    let ro = RunOpts { ai: false, ..RunOpts::steady(1, 0, WalkMode::Random) };
+    AI_RUNS.with(|c| {
+        let (off, on) = c.get();
+        c.set(if ro.ai { (off, on + 1) } else { (off + 1, on) });
+    });
+    ro
+}
+
+thread_local! {
+    /// (ironspec 04:07 PT, the chain audit C8; G1's Y3 on f21c9f600) Every override the runs applied (a stand-in drive, a
+    /// forced input, an emulated line, a control's left-out cell, a restart): label -> (its first application's target
+    /// before, after; the applications; the unchanged applications): EVERY application judged, not the first only.
+    static OVERRIDES: std::cell::RefCell<std::collections::BTreeMap<String, (String, String, usize, usize)>> = const { std::cell::RefCell::new(std::collections::BTreeMap::new()) };
+}
+
+/// Record an override's application: its target's state before and after (every application counted; an unchanged one
+/// fails the run).
 fn note_override(label: &str, before: String, after: String) {
     OVERRIDES.with(|m| {
-        m.borrow_mut().entry(label.to_string()).or_insert((before, after));
+        let mut m = m.borrow_mut();
+        let unchanged = usize::from(before == after);
+        let e = m.entry(label.to_string()).or_insert((before, after, 0, 0));
+        e.2 += 1;
+        e.3 += unchanged;
     });
 }
 
-/// The overrides the runs applied, each judged by the override rule (an unchanged target fails the run).
+/// The overrides the runs applied, each judged by the override rule over every application (an unchanged target fails
+/// the run).
 fn judge_overrides(v: &mut crate::verdict::Verdict) -> String {
     let m = OVERRIDES.with(|m| std::mem::take(&mut *m.borrow_mut()));
     if m.is_empty() {
         return "the overrides: none applied".to_string();
     }
-    let parts: Vec<String> = m.iter().map(|(l, (b, a))| v.over(l, b, a)).collect();
-    format!("the overrides (ironspec 04:07 PT, each target before -> after): {}", parts.join("; "))
+    let parts: Vec<String> = m
+        .iter()
+        .map(|(l, (b, a, n, un))| {
+            if *un > 0 {
+                v.fail(&format!("override {l}: {un} of its {n} applications left the target unchanged"));
+                format!("{l}: {un} of {n} applications UNCHANGED (FAIL)")
+            } else {
+                format!("{} ({n} applications, every one changed its target)", v.over(l, b, a))
+            }
+        })
+        .collect();
+    format!("the overrides (ironspec 04:07 PT, each target before -> after, every application judged): {}", parts.join("; "))
 }
 
 /// Push a bench row and annotate it with the cart contacts noted while it ran.
@@ -466,25 +503,7 @@ pub fn read_gate_file(path: &str) -> Result<GateFile, String> {
 
 fn spec_gate_file(f: &GateFile, live: bool) -> Result<FarmSpec, String> {
     let b = |s: &str| Block::parse(s).map_err(|e| e.to_string());
-    let mut cells: std::collections::BTreeMap<[i32; 3], String> = std::collections::BTreeMap::new();
-    let real = spec_real(2)?;
-    let chain_or_string = |p: &BlockPos| {
-        (p.y == -2 && (8..=12).contains(&p.z) && (-2..=8).contains(&p.x)) || (p.y == -1 && (8..=11).contains(&p.z) && (-1..=6).contains(&p.x)) || (p.y == 1 && p.x == 8 && (5..=9).contains(&p.z))
-    };
-    for (p, blk) in &real.blocks {
-        if !chain_or_string(p) {
-            cells.insert([p.x, p.y, p.z], blk.to_string());
-        }
-    }
-    for x in [-1, 3, 7] {
-        for z in 4..=6 {
-            cells.insert([x, -1, z], "minecraft:redstone_block".into());
-        }
-    }
-    for x in -4..=7 {
-        cells.entry([x, -1, 7]).or_insert_with(|| "minecraft:glass".into());
-    }
-    cells.insert([5, 0, 7], "minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]".into());
+    let mut cells = gate_file_base_cells()?;
     for (p, s, is_live) in &f.cells {
         if *is_live && !live {
             // (the chain audit C8: the control's left-out live cell, its target in the layout -> in this run)
@@ -508,7 +527,7 @@ fn gate_run_file(f: &GateFile, live: bool, cycles: i64, spawn: Option<(i64, f64,
     let c = cells(Geo::Real);
     start_contacts(ContactGeo::Real);
     let sp = crate::mirror::checked(&spec_gate_file(f, live)?)?;
-    let ro = RunOpts { ai: false, ..RunOpts::steady(1, 0, WalkMode::Random) };
+    let ro = payload_opts();
     let mut run = Run::start(&sp, &ro)?;
     while run.settle_tick() {}
     let bp = |p: P| crate::mirror::at(p);
@@ -603,26 +622,34 @@ fn gate_run_file(f: &GateFile, live: bool, cycles: i64, spawn: Option<(i64, f64,
 
 /// (ironspec 04:07 PT) The gate file's overrides: each file cell's state in the base layout before it is laid and
 /// after; an override that leaves its cell as it was is a silent no-op.
-fn gate_file_overrides(f: &GateFile) -> Result<Vec<(P, String, String)>, String> {
+/// (G1's Y10) The gate file's base: the Real geometry's cells without the chain and the string, the lanes' pocket
+/// stand-ins, the merge row's glass and ARM3's detector: ONE builder, used by the run's spec and by the overrides'
+/// "before" alike (never rebuilt by hand).
+fn gate_file_base_cells() -> Result<std::collections::BTreeMap<[i32; 3], String>, String> {
+    let mut cells: std::collections::BTreeMap<[i32; 3], String> = std::collections::BTreeMap::new();
     let real = spec_real(2)?;
     let chain_or_string = |p: &BlockPos| {
         (p.y == -2 && (8..=12).contains(&p.z) && (-2..=8).contains(&p.x)) || (p.y == -1 && (8..=11).contains(&p.z) && (-1..=6).contains(&p.x)) || (p.y == 1 && p.x == 8 && (5..=9).contains(&p.z))
     };
-    let mut base: std::collections::BTreeMap<[i32; 3], String> = std::collections::BTreeMap::new();
     for (p, blk) in &real.blocks {
         if !chain_or_string(p) {
-            base.insert([p.x, p.y, p.z], blk.to_string());
+            cells.insert([p.x, p.y, p.z], blk.to_string());
         }
     }
     for x in [-1, 3, 7] {
         for z in 4..=6 {
-            base.insert([x, -1, z], "minecraft:redstone_block".into());
+            cells.insert([x, -1, z], "minecraft:redstone_block".into());
         }
     }
     for x in -4..=7 {
-        base.entry([x, -1, 7]).or_insert_with(|| "minecraft:glass".into());
+        cells.entry([x, -1, 7]).or_insert_with(|| "minecraft:glass".into());
     }
-    base.insert([5, 0, 7], "minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]".into());
+    cells.insert([5, 0, 7], "minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]".into());
+    Ok(cells)
+}
+
+fn gate_file_overrides(f: &GateFile) -> Result<Vec<(P, String, String)>, String> {
+    let base = gate_file_base_cells()?;
     let norm = |s: &str| Block::parse(s).map(|b| b.to_string()).unwrap_or_else(|_| s.to_string());
     Ok(f.cells.iter().map(|(p, s, _)| (*p, base.get(p).map_or("minecraft:air".to_string(), |b| norm(b)), norm(s))).collect())
 }
@@ -762,7 +789,7 @@ pub fn lift_trace(k: i64, depth: i32, v: f64, ticks: i64, verdict: &mut crate::v
     let res = (|| -> Result<Vec<String>, String> {
         let c = cells(Geo::Real);
         let sp = crate::mirror::checked(&spec_gate(2, true, k)?)?;
-        let ro = RunOpts { ai: false, ..RunOpts::steady(1, 0, WalkMode::Random) };
+        let ro = payload_opts();
         let mut run = Run::start(&sp, &ro)?;
         while run.settle_tick() {}
         let id = redsim::entity::spawn(&mut run.world, "minecraft:minecart", [4.5, -18.9375 - depth as f64, 4.5], Some(&format!("{{Motion:[{v}d,0.0d,0.0d],Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b}}]}}")))?;
@@ -1026,16 +1053,30 @@ fn spec_gate(extra: i64, live: bool, k: i64) -> Result<FarmSpec, String> {
     put(17, -1, 15, &rep(extra.max(1), "south"));
     put(17, -1, 14, &rep(4, "south"));
     // (the chain audit C8: each control's left-out cell and the lift's laid cells, as overrides with their target's
-    // state in the design -> in this run)
+    // state in the design -> in this run; G1's Y10: the design's state READ from the design built without the
+    // control, never a literal)
     let at = |p: [i32; 3]| cells.get(&p).cloned().unwrap_or_else(|| "minecraft:air".to_string());
+    let ungated = GATE_UNGATED.with(|c| c.get());
+    let base_cells: Option<Vec<(BlockPos, Block)>> = if !live || ungated || lift > 0 {
+        let (su, sl) = (GATE_UNGATED.with(|c| c.replace(false)), GATE_LIFT.with(|c| c.replace(0)));
+        let base = spec_gate(extra, true, k);
+        GATE_UNGATED.with(|c| c.set(su));
+        GATE_LIFT.with(|c| c.set(sl));
+        Some(base?.blocks)
+    } else {
+        None
+    };
+    let base_at = |p: [i32; 3]| {
+        base_cells.as_ref().and_then(|bs| bs.iter().find(|(q, _)| q.x == p[0] && q.y == p[1] && q.z == p[2]).map(|(_, b)| b.to_string())).unwrap_or_else(|| "minecraft:air".to_string())
+    };
     if !live {
-        note_override("the live term left out (the phantom control: P's NOT Q torch (12,-1,12))", "minecraft:redstone_wall_torch[facing=west,lit=true]".into(), at([12, -1, 12]));
+        note_override("the live term left out (the phantom control: P's NOT Q torch (12,-1,12))", base_at([12, -1, 12]), at([12, -1, 12]));
     }
-    if GATE_UNGATED.with(|c| c.get()) {
-        note_override("the ungated control (GATE_UNGATED: the AND's NOT H2 torch (8,-1,10))", "minecraft:redstone_wall_torch[facing=north,lit=true]".into(), at([8, -1, 10]));
+    if ungated {
+        note_override("the ungated control (GATE_UNGATED: the AND's NOT H2 torch (8,-1,10))", base_at([8, -1, 10]), at([8, -1, 10]));
     }
     if lift > 0 {
-        note_override(&format!("the napper lift laid {lift} down (GATE_LIFT: the soul sand under its column (6,{},4))", -20 - lift), "minecraft:air".into(), at([6, -20 - lift, 4]));
+        note_override(&format!("the napper lift laid {lift} down (GATE_LIFT: the soul sand under its column (6,{},4))", -20 - lift), base_at([6, -20 - lift, 4]), at([6, -20 - lift, 4]));
     }
     let mut blocks = Vec::new();
     for (p, s) in cells {
@@ -1079,7 +1120,7 @@ fn gate_run(extra: i64, live: bool, k: i64, cycles: i64, spawn: Option<(i64, f64
     let c = cells(Geo::Real);
     start_contacts(if GATE_LIFT.with(|c| c.get()) > 0 { ContactGeo::Lift } else { ContactGeo::Real });
     let sp = crate::mirror::checked(&spec_gate(extra, live, k)?)?;
-    let ro = RunOpts { ai: false, ..RunOpts::steady(1, 0, WalkMode::Random) };
+    let ro = payload_opts();
     let mut run = Run::start(&sp, &ro)?;
     while run.settle_tick() {}
     let on = Block::parse("minecraft:redstone_block").map_err(|e| e.to_string())?;
@@ -1100,18 +1141,17 @@ fn gate_run(extra: i64, live: bool, k: i64, cycles: i64, spawn: Option<(i64, f64
         if let Some((rt, how)) = GATE_RESTART.with(|c| c.get())
             && rt == t
         {
-            let remap = crate::liveness::restart(&mut run.world, how)?;
+            let ev = crate::liveness::restart_ev(&mut run.world, how)?;
+            let remap = &ev.ids;
             let renumbered = remap.iter().filter(|(a, b)| a != b).count();
-            // (the override's print: the entities the restart carried (liveness::restart maps every live entity's id
-            // before the restart to its id after), the first restart of this kind with one in the world (a restart at the
-            // summon tick comes before the summon and carries none))
-            if !remap.is_empty() {
-                note_override(
-                    &format!("a restart (every chunk saved and loaded, {})", how.label()),
-                    format!("{} live entities before it", remap.len()),
-                    format!("every chunk reloaded, {} carried across ({renumbered} with new ids)", remap.len()),
-                );
-            }
+            // (the override's print, G1's Y6: the restart's own evidence (its chunks unloaded and loaded again, its
+            // scheduled ticks back, every live entity followed); a restart that did nothing leaves the target "not
+            // restarted" unchanged, which fails the override rule)
+            note_override(
+                &format!("a restart (every chunk saved and loaded, {})", how.label()),
+                "not restarted".to_string(),
+                if ev.happened() { format!("{} ({renumbered} with new ids)", ev.line()) } else { "not restarted".to_string() },
+            );
             // (G1's audit hole 14: a cart missing from the remap is an error, never a stale id kept)
             if let Some(i) = id {
                 id = Some(*remap.get(&i).ok_or_else(|| format!("the restart before t{t} ({}) lost the cart {i} (no remap entry)", how.label()))?);
@@ -1696,7 +1736,7 @@ fn run_full(g: Geo, extra: i64, phase: i64, cycles: i64, place: Option<i64>, fre
     let c = cells(g);
     start_contacts(if g == Geo::Line { ContactGeo::Line } else { ContactGeo::Real });
     let sp = crate::mirror::checked(&spec(g, extra)?)?;
-    let ro = RunOpts { ai: false, ..RunOpts::steady(1, 0, WalkMode::Random) };
+    let ro = payload_opts();
     let mut run = Run::start(&sp, &ro)?;
     while run.settle_tick() {}
     let on = Block::parse("minecraft:redstone_block").map_err(|e| e.to_string())?;
@@ -1839,10 +1879,14 @@ struct FreezeOut {
 /// criterion (G1 on 6ca670551): launched (its centre off the hold cell while the hold rail is still
 /// powered, with the departure string's press credited by `departure_press`), late (off the cell with the rail
 /// unpowered at that tick: a braked roll-off or the slow creep) or missed (not off on this cycle).
+/// (G1's Y5) The typed no-pulse outcome of [`freeze_sweep`]: its reference run saw fewer than two pulses (a w-0 control
+/// bites on this error only, never on any other).
+const NO_PULSE: &str = "the reference run saw fewer than two pulses";
+
 fn freeze_sweep(g: Geo, extra: i64, len: i64) -> Result<FreezeOut, String> {
     let reference = run_once(g, extra, 0, 3, None, None)?;
     let (Some(&(rise, fall)), Some(&arm3)) = (reference.rail.get(1), reference.arm3.get(1)) else {
-        return Err("the reference run saw fewer than two pulses".into());
+        return Err(NO_PULSE.into());
     };
     let width = fall - rise;
     let (mut ok, mut late, mut miss) = (0u32, 0u32, 0u32);
@@ -1890,7 +1934,7 @@ fn freeze_sweep(g: Geo, extra: i64, len: i64) -> Result<FreezeOut, String> {
 /// hook powers within 40 gt.
 fn tripwire_control() -> Result<bool, String> {
     let sp = crate::mirror::checked(&spec_line(EXTRA)?)?;
-    let ro = RunOpts { ai: false, ..RunOpts::steady(1, 0, WalkMode::Random) };
+    let ro = payload_opts();
     let mut run = Run::start(&sp, &ro)?;
     while run.settle_tick() {}
     redsim::entity::spawn(&mut run.world, "minecraft:villager", [3.5, 1.0625, crate::mirror::zf(-1.5)], Some("{PersistenceRequired:1b}"))?;
@@ -1909,7 +1953,7 @@ fn tripwire_control() -> Result<bool, String> {
 fn lane7_rider(extra: i64) -> Result<(usize, bool), String> {
     start_contacts(ContactGeo::Real);
     let sp = crate::mirror::checked(&spec_real(extra)?)?;
-    let ro = RunOpts { ai: false, ..RunOpts::steady(1, 0, WalkMode::Random) };
+    let ro = payload_opts();
     let mut run = Run::start(&sp, &ro)?;
     while run.settle_tick() {}
     let v = if crate::mirror::on() { -0.35 } else { 0.35 };
@@ -1968,7 +2012,7 @@ fn rider_scene() -> Result<(Vec<String>, bool), String> {
     if off > 0 {
         return Err(format!("the tripwire-rider scene: {off} cell(s) outside the world's box"));
     }
-    let ro = RunOpts { ai: false, ..RunOpts::steady(1, 0, WalkMode::Random) };
+    let ro = payload_opts();
     let mut run = Run::start(&sp, &ro)?;
     while run.settle_tick() {}
     let ridden = |v: f64| format!("{{Motion:[0.0d,0.0d,{v}d],Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b}}]}}");
@@ -2011,7 +2055,7 @@ fn arrive_once(extra: i64, x0: f64, v: f64, t_spawn: i64, next_rise: i64) -> Res
     let c = cells(Geo::Real);
     start_contacts(ContactGeo::Real);
     let sp = crate::mirror::checked(&spec_real(extra)?)?;
-    let ro = RunOpts { ai: false, ..RunOpts::steady(1, 0, WalkMode::Random) };
+    let ro = payload_opts();
     let mut run = Run::start(&sp, &ro)?;
     while run.settle_tick() {}
     let on = Block::parse("minecraft:redstone_block").map_err(|e| e.to_string())?;
@@ -2282,7 +2326,9 @@ pub fn bench(step: i64, extra: i64, freeze: i64, g: Geo, v: &mut crate::verdict:
         SPLIT_DIRECT.with(|c| c.set(None));
         let (c0_text, c0_bites) = match &c0 {
             Ok(f) => (format!("{} launched, {} late, {} missed", f.ok, f.late, f.miss), f.late + f.miss > 0),
-            Err(e) => (format!("no pulse ({e})"), true),
+            // (G1's Y5: only the typed no-pulse outcome bites; any other error fails the run)
+            Err(e) if e == NO_PULSE => (format!("no pulse ({e})"), true),
+            Err(e) => return Err(format!("the direct run at 0 gt: {e}")),
         };
         let w_c0 = v.control("the direct run at 0 gt launches nothing", 1, c0_bites);
         push_row(&mut lines, format!(
@@ -2347,7 +2393,7 @@ pub fn bench(step: i64, extra: i64, freeze: i64, g: Geo, v: &mut crate::verdict:
         }
     }
     let (scene, same) = rider_scene()?;
-    let w_scene = v.control("tick-exact's recorded tripwire-rider scene, every row as the game", 5, same);
+    let w_scene = v.control("tick-exact's recorded tripwire-rider scene, every row as the game", scene.len(), same);
     push_row(&mut lines, format!("  the positive control, tick-exact's recorded tripwire-rider scene (explore/tickexact eec7361f5) cell for cell: {}; {w_scene}", scene.join("; ")));
     lines.push(tsnap_line(v)?);
     lines.push(format!("  {}", judge_contacts(v)));
@@ -2405,7 +2451,7 @@ fn tsnap_scene() -> Result<(Vec<String>, bool), String> {
     if off > 0 {
         return Err(format!("the t-snap scene: {off} cell(s) outside the world's box"));
     }
-    let ro = RunOpts { ai: false, ..RunOpts::steady(1, 0, WalkMode::Random) };
+    let ro = payload_opts();
     let mut run = Run::start(&sp, &ro)?;
     while run.settle_tick() {}
     let mut ids = Vec::new();
@@ -2453,7 +2499,7 @@ fn tsnap_scene() -> Result<(Vec<String>, bool), String> {
 /// The t-snap control's line (the arrival rows count only after it): (the chain fix) a control in the tool's verdict.
 fn tsnap_line(v: &mut crate::verdict::Verdict) -> Result<String, String> {
     let (scene, same) = tsnap_scene()?;
-    let w = v.control("tick-exact's recorded t-snap scene, every copy as the game (the arrival rows count only after it)", 8, same);
+    let w = v.control("tick-exact's recorded t-snap scene, every copy as the game (the arrival rows count only after it)", scene.len(), same);
     Ok(format!(
         "  the arrivals' positive control, tick-exact's recorded t-snap scene (explore/tickexact ff1ca056a: arrivals at the T from the north at <= ~0.26 swing the rider's box into (8,.,7)), the simulator's control with its own recorded cells (its north arm's ascending cell a plain rail on stone; the bench's arrivals ride record7's powered one): {}; {w}",
         scene.join("; ")

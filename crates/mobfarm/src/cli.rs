@@ -207,6 +207,35 @@ pub enum MobfarmCmd {
         /// The normal lie-down past the stop's entry (b8949c96: 89; onechunk's real night 89..91).
         #[arg(long, default_value_t = 89)]
         late_sleep_normal: i64,
+        /// (day-1 10:37 PT, the tap hold) The napper rests on the hold (the exit slope) this many gt before its natural R;
+        /// the hold's free-running per-lane train launches it at the first pulse at or after that arrival.
+        #[arg(long, default_value_t = 0)]
+        hold_lead: i64,
+        /// The earlier model of the clocked exit: each visit leaves on its own tap (or a later one), never an earlier
+        /// pulse (scope: a per-visit gated tap, not the free-running train).
+        #[arg(long)]
+        gated_tap: bool,
+        /// (ironspec 09:51 PT) d_RS: RS_ready set this many gt after R (the stop free only then).
+        #[arg(long, default_value_t = 0)]
+        rs_delay: i64,
+        /// (G1 10:37 PT) The clock's tolerance subtracted from the occupancy budget's spare (unset: printed "not measured").
+        #[arg(long)]
+        clock_tol: Option<i64>,
+        /// (ironspec 09:21 PT) The worst push-induced shift subtracted from the budget's spare (unset: "not measured").
+        #[arg(long)]
+        push_shift: Option<i64>,
+        /// (ironspec 07:40 / 07:41 PT) Sweep each lane's tap phase 0..99 at this step (the others at --exit-phase): each
+        /// lane's feasible interval and its edge controls. Needs --clock-exit.
+        #[arg(long)]
+        exit_phase_sweep: Option<i64>,
+        /// (ironspec 10:42 PT (1)) The per-lane taps' wait margin beyond the world-open shift (7): the measured D-press
+        /// spread + the push shift (unset: 0, printed "not measured").
+        #[arg(long)]
+        wait_margin: Option<i64>,
+        /// (G1's structural (a)) A design-of-record run: a scope dropping a ruled bar (the catch window and m, the
+        /// skipped-pick row) fails the run instead.
+        #[arg(long)]
+        design_of_record: bool,
         /// (G1 on 7897f4ba7 (b)) Print the judged bars' failures without failing the run.
         #[arg(long)]
         report_only: bool,
@@ -523,6 +552,10 @@ pub enum MobfarmCmd {
         /// (ironspec 00:12 PT (2)) The slack test: one forced skipped pick at every 100 gt of a night.
         #[arg(long)]
         skip_rows: bool,
+        /// (G1's structural (a)) A design-of-record run: a scope dropping a ruled bar (the release bars, the walk-past
+        /// control, the plain hatch's arrival) fails the run instead.
+        #[arg(long)]
+        design_of_record: bool,
         /// (G1 on 7897f4ba7 (b)) Print the judged bars' failures without failing the run.
         #[arg(long)]
         report_only: bool,
@@ -12226,7 +12259,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     [d, at, add] => Some((*d as usize, *at, *add)),
                     _ => bail!("--hold-at D,IN_DAY,ADD"),
                 };
-                let lo_ = crate::napper::LaneOpts { lanes, per_lane: carts / lanes, k, beds, turns, visits, lane_exact, keep_place, skip_per_day, lock, trip: (lo, hi), sleep_at, spacing, offsets: None, cross_at, days, warmup, seed, night_gt, day_gt: 24000, dusk_at, jump, jump_every, outlier, post, foot, r_leg, window, det, lie, start_dt, rephase_lag, truncate_after_skip, hold_at, rule2, windows2, late_latch, log_releases: false, siding_window, ret, lock_gt, remark, queue_leg: None, queue_hold: 0, to_entry: 0, held_at_divert: false, held_at_pick: false, trip_hist: None, pick_window: None, no_quota: false, ret_hist: None, ret_hist_lane: [None, None, None], pick_offsets: None, skip_pick: None, late_sleep: None, post_lane: None, t_d: None, post_spread: 0, t_d_spread: 0, siding_any: false, clock_exit: None, exit_phase: None, exit_pickup: (0, 0) };
+                let lo_ = crate::napper::LaneOpts { lanes, per_lane: carts / lanes, k, beds, turns, visits, lane_exact, keep_place, skip_per_day, lock, trip: (lo, hi), sleep_at, spacing, offsets: None, cross_at, days, warmup, seed, night_gt, day_gt: 24000, dusk_at, jump, jump_every, outlier, post, foot, r_leg, window, det, lie, start_dt, rephase_lag, truncate_after_skip, hold_at, rule2, windows2, late_latch, log_releases: false, siding_window, ret, lock_gt, remark, queue_leg: None, queue_hold: 0, to_entry: 0, held_at_divert: false, held_at_pick: false, trip_hist: None, pick_window: None, no_quota: false, ret_hist: None, ret_hist_lane: [None, None, None], pick_offsets: None, skip_pick: None, late_sleep: None, post_lane: None, t_d: None, post_spread: 0, t_d_spread: 0, siding_any: false, clock_exit: None, exit_phase: None, exit_pickup: (0, 0), hold_lead: 0, gated_tap: false, rs_delay: 0 };
                 if held_compare {
                     // (ironspec 03:53: (ii) rule 2's "already waiting at the pass" with the ring's windows
                     // (a late napper takes the next window, 10 cycles on, behind whichever cart passes)
@@ -12671,7 +12704,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::CtlCounterBench { ff_period, no_pend, window_open, window_close, gate_hi, gate_lo, load2, load1, to_bed, early_tol, last_nap, day_inhibit, drop_min, arm, weather_sweep, sweep_step, hatch_lag, no_release, rest_set, rest_reset, stale_hold, no_backpressure, day_rise_load, stop_cycle, stop_walk, stop_nap, back_after, stale_backpressure, no_lane_latch, held_at_divert, to_entry, high, stop_hist, back_hist, late_inject, lane_count, skip_rows, report_only } => {
+        MobfarmCmd::CtlCounterBench { ff_period, no_pend, window_open, window_close, gate_hi, gate_lo, load2, load1, to_bed, early_tol, last_nap, day_inhibit, drop_min, arm, weather_sweep, sweep_step, hatch_lag, no_release, rest_set, rest_reset, stale_hold, no_backpressure, day_rise_load, stop_cycle, stop_walk, stop_nap, back_after, stale_backpressure, no_lane_latch, held_at_divert, to_entry, high, stop_hist, back_hist, late_inject, lane_count, skip_rows, design_of_record, report_only } => {
             let mut o = crate::ctlcounter::CounterOpts {
                 ff_period,
                 pend: !no_pend,
@@ -12712,6 +12745,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 bail!("--stale-hold {stale_hold} / --hatch-lag {hatch_lag} / --to-entry {to_entry} / --back-after {back_after}: none negative, back-after >= 1");
             }
             let mut v = crate::verdict::Verdict::new("ctl-counter-bench");
+            if design_of_record {
+                v.refuse_scopes(&["the release bars", "the walk-past control", "the plain hatch's latest arrival"]);
+            }
             if let Some(h) = high {
                 let (p, desc) = crate::ctlcounter::high_params(&o, h).map_err(|e| anyhow::anyhow!(e))?;
                 println!("{desc}");
@@ -12818,7 +12854,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             v.finish(report_only).map_err(|e| anyhow::anyhow!(e))?;
         }
-        MobfarmCmd::CtlCoverageBench { holds, operating_hold, leg, to_entry, post_lane, t_d, slot, trip, lock, offsets, late_inject, late_step, trip_hist, pick_window, no_quota, late_latch, frame_pin, return_hist, return_hist_lane, picker_search, r_leg, post_spread, t_d_spread, siding_any, clock_exit, exit_phase, exit_pickup, late_sleep_file, late_sleep_hist, late_sleep_normal, report_only, rule2, days, seeds } => {
+        MobfarmCmd::CtlCoverageBench { holds, operating_hold, leg, to_entry, post_lane, t_d, slot, trip, lock, offsets, late_inject, late_step, trip_hist, pick_window, no_quota, late_latch, frame_pin, return_hist, return_hist_lane, picker_search, r_leg, post_spread, t_d_spread, siding_any, clock_exit, exit_phase, exit_pickup, late_sleep_file, late_sleep_hist, late_sleep_normal, hold_lead, gated_tap, rs_delay, clock_tol, push_shift, exit_phase_sweep, wait_margin, design_of_record, report_only, rule2, days, seeds } => {
             let [lo, hi] = leg[..] else { bail!("--leg takes LO,HI") };
             let [pa, pb, pc] = post_lane[..] else { bail!("--post-lane takes A,B,C") };
             let [da, db, dc] = t_d[..] else { bail!("--t-d takes A,B,C") };
@@ -12866,8 +12902,38 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     };
                     Some((h, late_sleep_normal))
                 },
+                hold_lead: {
+                    if hold_lead < 0 || rs_delay < 0 || clock_tol.is_some_and(|c| c < 0) || push_shift.is_some_and(|p| p < 0) {
+                        bail!("--hold-lead / --rs-delay / --clock-tol / --push-shift: not negative");
+                    }
+                    if (hold_lead > 0 || gated_tap || exit_phase_sweep.is_some()) && clock_exit.is_none() {
+                        bail!("--hold-lead / --gated-tap / --exit-phase-sweep need --clock-exit");
+                    }
+                    // (G1's Y17: with the clocked exit the post-tap term is a measured input, never a silent 0)
+                    if clock_exit.is_some() && exit_pickup.is_empty() {
+                        bail!("--clock-exit needs --exit-pickup LO,HI (the tap -> R term: the slope hold's departure -> R, measured)");
+                    }
+                    if exit_phase_sweep.is_some_and(|s| !(1..=50).contains(&s)) {
+                        bail!("--exit-phase-sweep: a step of 1..50");
+                    }
+                    hold_lead
+                },
+                gated_tap,
+                rs_delay,
+                clock_tol,
+                push_shift,
+                exit_phase_sweep,
+                wait_margin: {
+                    if wait_margin.is_some_and(|m| !(0..93).contains(&m)) {
+                        bail!("--wait-margin: 0..92");
+                    }
+                    wait_margin
+                },
             };
             let mut v = crate::verdict::Verdict::new(&format!("ctl-coverage-bench (the operating hold {operating_hold})"));
+            if design_of_record {
+                v.refuse_scopes(&["m and the catch window", "the skipped-pick row"]);
+            }
             let lines = crate::napper::coverage_bench(&holds, operating_hold, (lo, hi), to_entry, [pa, pb, pc], [da, db, dc], slot, (tl, th), lock, [oa, ob, oc], (&late_inject, late_step), days, seeds, &x, &mut v).map_err(|e| anyhow::anyhow!(e))?;
             for l in lines {
                 println!("{l}");

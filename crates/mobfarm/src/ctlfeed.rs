@@ -150,6 +150,8 @@ struct Out {
     /// (the override rule) the drive cell's state before -> after the drive is placed.
     drive_before: String,
     drive_after: String,
+    /// (G1's Y6) The restart's evidence, when the run restarted.
+    ev: Option<crate::liveness::RestartEvidence>,
 }
 
 fn run_once(l: &Lane, t0: i64, width: i64, restart: Option<(i64, crate::liveness::Restart)>, slow: bool) -> Result<Out, String> {
@@ -162,13 +164,13 @@ fn run_once(l: &Lane, t0: i64, width: i64, restart: Option<(i64, crate::liveness
     let air = Block::parse("minecraft:air").map_err(|e| e.to_string())?;
     let bp = |p: P| crate::mirror::at(p);
     let r = [l.x - 2, 24, 7];
-    let mut out = Out { rise: None, fall: None, rises: Vec::new(), falls: Vec::new(), slime_nb: Vec::new(), dust: String::new(), r_state: String::new(), empty_ok: true, drive_before: String::new(), drive_after: String::new() };
+    let mut out = Out { rise: None, fall: None, rises: Vec::new(), falls: Vec::new(), slime_nb: Vec::new(), dust: String::new(), r_state: String::new(), empty_ok: true, drive_before: String::new(), drive_after: String::new(), ev: None };
     let mut was = false;
     for t in 0..(t0 + width + 40) {
         if let Some((rt, how)) = restart
             && rt == t
         {
-            crate::liveness::restart(&mut run.world, how)?;
+            out.ev = Some(crate::liveness::restart_ev(&mut run.world, how)?);
         }
         if t == t0 {
             out.drive_before = run.world.get(bp(drive)).to_string();
@@ -236,9 +238,12 @@ pub fn bench(width: i64, v: &mut crate::verdict::Verdict) -> Result<Vec<String>,
         let mut edge_bad: Vec<String> = Vec::new();
         let mut phases = 0usize;
         let mut drive_over = String::new();
+        let mut drive_unchanged = 0usize;
         for t0 in 40..60 {
             let o = run_once(l, t0, width, None, false)?;
             phases += 1;
+            // (G1's Y3: every application of the drive override judged, not the first only)
+            drive_unchanged += usize::from(o.drive_before == o.drive_after);
             if drive_over.is_empty() {
                 drive_over = v.over(&format!("lane {}'s drive cell", l.x), &o.drive_before, &o.drive_after);
             }
@@ -254,14 +259,32 @@ pub fn bench(width: i64, v: &mut crate::verdict::Verdict) -> Result<Vec<String>,
             }
         }
         let edges = v.bar_n(&format!("lane {}: one rise and one fall at every phase", l.x), phases, edge_bad.is_empty());
+        if drive_unchanged > 0 {
+            v.fail(&format!("lane {}'s drive override: {drive_unchanged} of its {phases} applications left the drive cell unchanged", l.x));
+            drive_over += &format!(" ({drive_unchanged} of {phases} applications UNCHANGED: FAIL)");
+        } else {
+            drive_over += &format!(" (all {phases} applications changed it)");
+        }
         let delay_ok = !rise.is_empty() && rise.keys().all(|&k| k == R_DELAY);
         let delay = v.bar_n(&format!("lane {}: R powered {R_DELAY} gt after the drive at every phase", l.x), rise.values().sum::<u32>() as usize, delay_ok);
         let t0 = 40;
         let (mut n, mut same, mut diff) = (0u32, 0u32, Vec::<String>::new());
+        let mut ev_bad: Vec<String> = Vec::new();
+        let mut ev_first = String::new();
         for rt in ((t0 - 1)..=(t0 + 10)).chain((t0 + width - 1)..=(t0 + width + 10)) {
             for how in crate::liveness::Restart::rows() {
                 let o = run_once(l, t0, width, Some((rt, how)), false)?;
                 n += 1;
+                // (G1's Y6: the restart shown to have happened, from its own evidence)
+                match &o.ev {
+                    Some(e) if e.happened() => {
+                        if ev_first.is_empty() {
+                            ev_first = e.line();
+                        }
+                    }
+                    Some(e) => ev_bad.push(format!("restart at t0 + {} ({}): {}", rt - t0, how.label(), e.line())),
+                    None => ev_bad.push(format!("restart at t0 + {} ({}): no restart ran", rt - t0, how.label())),
+                }
                 // (every edge compared: exactly the base's one rise and one fall)
                 let rises: Vec<i64> = o.rises.iter().map(|r| r - t0).collect();
                 let falls: Vec<i64> = o.falls.iter().map(|f| f - (t0 + width)).collect();
@@ -273,6 +296,10 @@ pub fn bench(width: i64, v: &mut crate::verdict::Verdict) -> Result<Vec<String>,
             }
         }
         let restarts = v.bar_n(&format!("lane {}: every restart row the same as without one", l.x), n as usize, diff.is_empty() && base.is_some());
+        let ev_w = v.bar_n(&format!("lane {}: every restart happened (its chunks unloaded and loaded again, its scheduled ticks back)", l.x), n as usize, ev_bad.is_empty());
+        // (G1's Y6, the control: a stub restart, evidence of nothing, must fail the same predicate)
+        let ev_c = v.control(&format!("lane {}: a stub restart's evidence fails the restart bar", l.x), 1, !crate::liveness::RestartEvidence::default().happened());
+        let restarts = format!("{restarts}; the restarts' own evidence: {} ({ev_w}; the stub control {ev_c}){}", if ev_first.is_empty() { "none".to_string() } else { format!("e.g. {ev_first}") }, if ev_bad.is_empty() { String::new() } else { format!(": {}", ev_bad.join("; ")) });
         let facts = run_once(l, t0, width, None, false)?;
         // (from below: the dust connects only to its driver (north); the ruled feed: to ironfarm's
         // repeater (east) and its driver)

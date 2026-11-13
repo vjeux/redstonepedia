@@ -104,6 +104,10 @@ pub struct CounterOpts {
     /// the stop's release on the wake edge); after it, nothing (ironspec 09:45).
     pub stop_walk: i64,
     pub stop_nap: i64,
+    /// (G1's Y7 on f21c9f600) R -> the returning napper's last tick within 16 of the bed head (its climb out of the
+    /// sphere), the exposure's end point: ironspec 09:03's estimate 53, pending the composed run-out (printed with the
+    /// exposure).
+    pub climb_exit: i64,
     /// The high re-phase (ironspec 09:49): (H, the C loaded, the window lo, hi): a rise of the detector's
     /// level to H (reached only around a clear midday, so weather only delays or prevents it) while C is
     /// outside [lo, hi] (the span a natural H rise can fall in) can only follow an undetected skip; it
@@ -182,6 +186,7 @@ impl Default for CounterOpts {
             stop_cycle: 260,
             stop_walk: 120,
             stop_nap: 30,
+            climb_exit: 53,
             high: None,
             high_lag: 6,
             held_at_divert: false,
@@ -257,6 +262,10 @@ pub struct RunOut {
     pub day_off: Vec<i64>,
     /// The absolute day time at the run's end (for the complete nights).
     pub end_day: i64,
+    /// (G1's Y17) Drawn pick -> back times shorter than the entry and the stop's cycle (floored to 1; bar 0).
+    pub back_clamped: u32,
+    /// (G1's Y9) 1 when a skip's DAY rise was still pending at the run's end.
+    pub skip_unresolved: u32,
     /// The latest bed-stop arrival the queue's hatch opens for (not inhibited, and the DAY the hatch sees
     /// low when it arrives: the NOT-DAY gate), as a night day time: 12,000..23,999, or 24,000 + t past the
     /// wrap (ironspec Nov 12 06:50: bar <= 23,900, a dawn wake with the hatch open seats the napper in the
@@ -328,8 +337,10 @@ pub struct RunOut {
     pub skipped_at: Option<i64>,
     /// (G1 on 7897f4ba7 (1)) Skips that found the stop's last occupant already gone (after its R): gt since its entry.
     pub skip_empty: Vec<i64>,
-    /// (ironspec 06:31 PT) The exposure: releases while the bed is occupied (a second napper within 16 of it; bar 0).
+    /// (ironspec 06:31 PT; G1's Y7) The exposure: lie-downs before the previous occupant's own climb out of the bed's
+    /// sphere (bar 0), and the least margin (this lie-down - that climb out).
     pub exposure: u32,
+    pub exposure_margin_min: i64,
     /// (the chain audit, hole 23) Each skip's stale window as measured: the gt from the skip to the hatch seeing DAY high
     /// (the first detector update reading DAY high, + 1, + the hatch's lag); an entry classed SkipStale lies inside its
     /// skip's window by construction.
@@ -364,7 +375,7 @@ pub fn rest_entry_ok(rest_entry_max: i64, stop_walk: i64) -> bool {
 /// One run: `days` days from day time `d0` at game time 0, releases at game times = `phase` mod 100,
 /// detector updates at game times = `det_phase` mod `det_period`, the counter starting at C = `c0`.
 pub fn run(o: &CounterOpts, days: i64, d0: i64, phase: i64, det_phase: i64, c0: i64, evs: &[(i64, Ev)]) -> RunOut {
-    let mut out = RunOut { min_spacing: i64::MAX, inhibit_edge_gap: i64::MAX, latest_arrival: i64::MIN, stale_dt: (i64::MAX, i64::MIN), exit_gap_min: i64::MAX, liedown_gap_min: i64::MAX, rest_entry_max: i64::MIN, latch_margin_min: i64::MAX, ..Default::default() };
+    let mut out = RunOut { min_spacing: i64::MAX, inhibit_edge_gap: i64::MAX, latest_arrival: i64::MIN, stale_dt: (i64::MAX, i64::MIN), exit_gap_min: i64::MAX, liedown_gap_min: i64::MAX, rest_entry_max: i64::MIN, latch_margin_min: i64::MAX, exposure_margin_min: i64::MAX, ..Default::default() };
     let mut last_exit: Option<i64> = None;
     let horizon = days * 24_000;
     let mut day = d0;
@@ -390,6 +401,14 @@ pub fn run(o: &CounterOpts, days: i64, d0: i64, phase: i64, det_phase: i64, c0: 
     let mut queue: std::collections::VecDeque<i64> = std::collections::VecDeque::new();
     let mut rest_l = false;
     let mut stop_until = i64::MIN; // the stop is held until then (R's RS)
+    // (G1's Y7) the current occupant's own climb out of the bed's 16-block sphere: its own R + `climb_exit`
+    let mut occ_climb_out = i64::MIN;
+    // (G1's Y9) the skip's excuse, while its DAY rise is pending, is bounded by the worst DAY-on lag the detector's own
+    // curve allows after a skip (a skip lands at day time 0): the first day time at which the level reaches L, the
+    // worst of clear, rain and thunder, + the detector's period (its update phase); cited from `det_level`, never open
+    let skip_lag_bound = o.day_inhibit.map_or(0, |l| {
+        [(0.0f32, 0.0f32), (1.0, 0.0), (1.0, 1.0)].iter().map(|&(r, th)| (0..12_000).find(|&d| det_level(d, r, th) >= l).unwrap_or(12_000)).max().unwrap_or(0)
+    }) + o.det_period;
     // (each lane's last napper: (its pick, its return to the lane), for the away latch's margin)
     let mut last_back: [Option<(i64, i64)>; 3] = [None; 3];
     // ((B') each lane's picks this window; the forced skip once)
@@ -731,9 +750,16 @@ pub fn run(o: &CounterOpts, days: i64, d0: i64, phase: i64, det_phase: i64, c0: 
                 && (t >= stop_until || o.ignore_stop)
             {
                 queue.pop_front();
-                // (ironspec 06:31 PT: a release while the bed is occupied: a second napper within 16 of it)
-                if t < stop_until {
-                    out.exposure += 1;
+                // (ironspec 06:31 PT: a second napper within 16 of an occupied bed; G1's Y7 on f21c9f600: judged from the
+                // OCCUPANTS' OWN timelines, never the release gate's state: this napper's lie-down (its entry + 2, (A)'s
+                // lie-down on landing) against the previous occupant's own R + its climb out of the 16-block sphere
+                // (`climb_exit`))
+                let my_lie = t + o.to_entry + 2;
+                if occ_climb_out != i64::MIN {
+                    out.exposure_margin_min = out.exposure_margin_min.min(my_lie - occ_climb_out);
+                    if my_lie < occ_climb_out {
+                        out.exposure += 1;
+                    }
                 }
                 // (G1 on 6ca670551: every entry classed by its lie-down against REST's end, whatever the
                 // cause: REST runs from day time 12,000 to 24,010 (day time 10 of the next day; after a skip
@@ -756,8 +782,10 @@ pub fn run(o: &CounterOpts, days: i64, d0: i64, phase: i64, det_phase: i64, c0: 
                 let walk_past = !outside && t + o.to_entry + o.stop_walk >= rest_end;
                 let stale = outside || walk_past;
                 // (the chain audit, hole 23: the skip's stale window as measured, from the skip to the hatch seeing DAY
-                // high (`skip_window_end`), never an unsourced 200 gt; with no DAY line there is no excuse)
-                let in_skip = o.day_inhibit.is_some() && last_skip_t >= 0 && t >= last_skip_t && (skip_pending.is_some() || skip_window_end.is_some_and(|e| t < e));
+                // high (`skip_window_end`), never an unsourced 200 gt; with no DAY line there is no excuse; G1's Y9: while
+                // the DAY rise is still pending the excuse is BOUNDED by the curve's worst DAY-on lag after a skip + the
+                // detector's period (`skip_lag_bound`) + 1 + the hatch's lag)
+                let in_skip = o.day_inhibit.is_some() && last_skip_t >= 0 && t >= last_skip_t && ((skip_pending.is_some() && t < last_skip_t + skip_lag_bound + 1 + o.hatch_lag) || skip_window_end.is_some_and(|e| t < e));
                 let class = entry_class(outside, walk_past, in_skip);
                 if forced_now {
                     out.injected_class = Some(class);
@@ -784,12 +812,19 @@ pub fn run(o: &CounterOpts, days: i64, d0: i64, phase: i64, det_phase: i64, c0: 
                     // then; its nap is that evening's)
                     let wait = (12_000 - dm_now).rem_euclid(24_000);
                     stop_until = t + wait + o.stop_cycle;
+                    occ_climb_out = stop_until + o.climb_exit;
                     stale_until = stop_until;
                     out.stale_admits.push((dm_now, (dm_now + wait + o.stop_cycle).rem_euclid(24_000)));
                     // (G1's audit hole 11: back in its lane from the measured round trip's R -> back part when `--back-hist`
                     // is given (the pick -> back less the entry and the cycle), else `back_after`)
                     let back = match &o.back_hist {
-                        Some(h) => stop_until + (crate::napper::hist_pick(h, (t as u64) ^ 0x5bd1_e995) - o.to_entry - o.stop_cycle).max(1),
+                        Some(h) => {
+                            // (G1's Y17: a drawn pick -> back shorter than the entry and the cycle is a data inconsistency,
+                            // counted (a failure in the bars), never silently floored)
+                            let raw = crate::napper::hist_pick(h, (t as u64) ^ 0x5bd1_e995) - o.to_entry - o.stop_cycle;
+                            out.back_clamped += u32::from(raw < 1);
+                            stop_until + raw.max(1)
+                        }
                         None => stop_until + o.back_after,
                     };
                     back_at.push(back);
@@ -808,6 +843,7 @@ pub fn run(o: &CounterOpts, days: i64, d0: i64, phase: i64, det_phase: i64, c0: 
                         out.late_at = Some(t);
                     }
                     stop_until = t + o.to_entry + cyc;
+                    occ_climb_out = stop_until + o.climb_exit;
                     // (G1 on 9c081f615 (b): back in its lane from the measured round trip, the pick -> back, per
                     // visit, never before this visit's R; a late return comes back that much later)
                     let back = match &o.back_hist {
@@ -1024,6 +1060,9 @@ pub fn run(o: &CounterOpts, days: i64, d0: i64, phase: i64, det_phase: i64, c0: 
         day += 1;
     }
     out.end_day = day;
+    // (G1's Y9) a skip whose DAY rise was never seen by the run's end: its excuse can't be closed, so it is counted (a
+    // failure in the bars)
+    out.skip_unresolved = u32::from(skip_pending.is_some());
     out
 }
 
@@ -1121,8 +1160,14 @@ pub struct ScenOut {
     /// The most riders away from one lane at once; the longest pick -> stop entry (ironspec 12:13).
     pub lane_away_max: u32,
     pub pick_entry_max: i64,
-    /// (ironspec 06:31 PT) Releases while the bed was occupied, over the runs (bar 0).
+    /// (ironspec 06:31 PT; G1's Y7) Lie-downs before the previous occupant's own climb out of the bed's sphere, over the
+    /// runs (bar 0), and the least margin.
     pub exposure: u32,
+    pub exposure_margin_min: i64,
+    /// (G1's Y9) Runs ending with a skip's DAY rise still pending (bar 0).
+    pub skip_unresolved: u32,
+    /// (G1's Y17) Floored pick -> back draws over the runs (bar 0).
+    pub back_clamped: u32,
     /// (the chain audit) The skip stale windows measured (min, max gt; (MAX, MIN) when no skip), the entries counted
     /// apart by class (in a skip's window; walking past REST's end), and the injected control entries' classes.
     pub skip_window: (i64, i64),
@@ -1283,6 +1328,7 @@ pub fn scenario_days(o: &CounterOpts, evs: &[(i64, Ev)], phase_step: usize, det_
         liedown_gap_min: i64::MAX,
         latch_margin_min: i64::MAX,
         rest_entry_max: i64::MIN,
+        exposure_margin_min: i64::MAX,
         skip_window: (i64::MAX, i64::MIN),
         cut_naps: (u32::MAX, 0),
         ..Default::default()
@@ -1293,6 +1339,9 @@ pub fn scenario_days(o: &CounterOpts, evs: &[(i64, Ev)], phase_step: usize, det_
                 s.runs += 1;
                 let r = run(o, days, 20_000, phase, det_phase, c0, evs);
                 s.exposure += r.exposure;
+                s.exposure_margin_min = s.exposure_margin_min.min(r.exposure_margin_min);
+                s.skip_unresolved += r.skip_unresolved;
+                s.back_clamped += r.back_clamped;
                 for &w in &r.skip_windows {
                     s.skip_window = (s.skip_window.0.min(w), s.skip_window.1.max(w));
                 }
@@ -1678,6 +1727,7 @@ pub fn weather_sweep(o: &CounterOpts, step: i64, v: &mut crate::verdict::Verdict
         let mut arr_max = i64::MIN;
         let (mut qmax, mut emin, mut emax, mut outside, mut n_entries) = (0u32, i64::MAX, i64::MIN, 0u32, 0usize);
         let mut apart = 0u32;
+        let mut walk = 0u32;
         let (mut hr, mut fh, mut h_rises) = (0u32, 0u32, 0usize);
         let mut bad_d: Vec<i64> = Vec::new();
         let mut nap_bad_d: Vec<i64> = Vec::new();
@@ -1702,8 +1752,14 @@ pub fn weather_sweep(o: &CounterOpts, step: i64, v: &mut crate::verdict::Verdict
                         // outside REST with no skip counts against both bars)
                         n_entries += 1;
                         match class {
-                            EntryClass::SkipStale | EntryClass::WalkPastRest => {
+                            EntryClass::SkipStale => {
                                 apart += 1;
+                                continue;
+                            }
+                            // (G1's Y2: a walk past REST's end is judged, never only printed apart)
+                            EntryClass::WalkPastRest => {
+                                apart += 1;
+                                walk += 1;
                                 continue;
                             }
                             EntryClass::OutsideRest => outside += 1,
@@ -1755,13 +1811,15 @@ pub fn weather_sweep(o: &CounterOpts, step: i64, v: &mut crate::verdict::Verdict
         let rel_txt = if o.rest.is_some() {
             let w_e = v.bar_n(&format!("weather ({kname}): the earliest entry at or after REST's 12,000"), n_entries, emin != i64::MAX && emin >= 12_000);
             let w_l = v.bar_n(&format!("weather ({kname}): the latest entry lies down before REST's end"), n_entries, emax != i64::MIN && rest_entry_ok(emax, o.stop_walk));
+            let w_w = v.bar_n(&format!("weather ({kname}): no entry walks past REST's end (G1's Y2)"), n_entries, walk == 0);
             let w_o = v.bar_n(&format!("weather ({kname}): no entry outside REST with no skip before it"), n_entries, outside == 0);
             let w_q = v.bar_n(&format!("weather ({kname}): at most one held at the gate"), runs, qmax <= 1);
             let w_h = if o.high.is_some() { format!("; H re-phases {hr} over {h_rises} H rises (false {fh}: {})", v.bar_n(&format!("weather ({kname}): no false H re-phase"), h_rises, fh == 0)) } else { String::new() };
             format!(
-                "the release: the earliest entry {} ({w_e}), the latest {} ({w_l}), outside REST with no skip before it {outside} ({w_o}), counted apart (a skip's stale window or a walk past REST's end) {apart}, held at the gate at once at most {qmax} ({w_q}){w_h}",
+                "the release: the earliest entry {} ({w_e}), the latest {} ({w_l}), walking past REST's end {walk} ({w_w}), outside REST with no skip before it {outside} ({w_o}), counted apart in a skip's stale window {}, held at the gate at once at most {qmax} ({w_q}){w_h}",
                 if emin == i64::MAX { "NONE".to_string() } else { emin.to_string() },
-                if emax == i64::MIN { "NONE".to_string() } else { emax.to_string() }
+                if emax == i64::MIN { "NONE".to_string() } else { emax.to_string() },
+                apart - walk
             )
         } else {
             format!("the latest bed-stop arrival {} ({})", if arr_max == i64::MIN { "-".to_string() } else { arr_max.to_string() }, v.scope("the plain hatch's latest arrival", "the release model is off in this run (--no-release)"))
@@ -1777,15 +1835,35 @@ pub fn weather_sweep(o: &CounterOpts, step: i64, v: &mut crate::verdict::Verdict
         rel_entries += n_entries;
     }
     // (ironspec 07:18 PT: the DAY edges compared exactly with tick-exact's official off-edges, with +-1 controls: the
-    // detector's level falls below L at dusk at these day times in steady clear, rain and thunder)
-    let l_day = o.day_inhibit.unwrap_or(6);
+    // detector's level falls below L at dusk at these day times in steady clear, rain and thunder; G1's Y1 on f21c9f600:
+    // the controls run the SAME predicate on a SHIFTED INPUT (the detector's curve read one tick early and one tick
+    // late), which must fail it)
+    let l_day = o.day_inhibit.ok_or("the weather sweep's DAY-off rows need the DAY line's level (--day-inhibit / the design's L): no silent default")?;
     let mut dayoff_txt: Vec<String> = Vec::new();
     for (wname, rain, thunder, official) in [("clear", 0.0f32, 0.0f32, 12_230i64), ("rain", 1.0, 0.0, 12_002), ("thunder", 1.0, 1.0, 11_556)] {
-        let off = (9_000..14_000).find(|&d| det_level(d, rain, thunder) < l_day);
+        let off_of = |shift: i64| (9_000..14_000).find(|&d| det_level(d + shift, rain, thunder) < l_day);
+        let off = off_of(0);
         let w = v.bar(&format!("weather sweep: the {wname} DAY-off equals tick-exact's official {official}"), off == Some(official));
-        let c = v.control(&format!("weather sweep: the {wname} DAY-off bar tells {official} - 1 and + 1 apart"), usize::from(off.is_some()), off.is_some_and(|d| d != official - 1 && d != official + 1));
-        dayoff_txt.push(format!("{wname} {} against {official} ({w}; +-1: {c})", off.map_or("NONE".to_string(), |d| d.to_string())));
+        let (early, late) = (off_of(1), off_of(-1));
+        let c = v.control(&format!("weather sweep: the {wname} DAY-off bar fails the detector's curve shifted one tick either way"), usize::from(early.is_some() && late.is_some()), early != Some(official) && late != Some(official));
+        dayoff_txt.push(format!(
+            "{wname} {} against {official} ({w}; the curve shifted a tick: {} / {}: {c})",
+            off.map_or("NONE".to_string(), |d| d.to_string()),
+            early.map_or("NONE".to_string(), |d| d.to_string()),
+            late.map_or("NONE".to_string(), |d| d.to_string())
+        ));
     }
+    // (G1's Y2, the walk-past bar's control: the stop's walk lengthened past REST (12,100 gt, a single change), so every
+    // entry made in REST outlasts REST's end: the walk-past bar must see them)
+    let walk_ctl = if o.rest.is_some() {
+        let oc = CounterOpts { stop_walk: 12_100, ..o.clone() };
+        let r = run(&oc, 3, 20_000, 0, 0, 100, &[]);
+        let walks = r.entries.iter().filter(|e| matches!(e.2, EntryClass::WalkPastRest)).count();
+        format!("CONTROL (G1's Y2): the stop's walk lengthened to 12,100 gt: {walks} entries walk past REST's end ({})", v.control("the walk-past bar sees an entry whose walk outlasts REST", r.entries.len(), walks > 0))
+    } else {
+        v.scope("the walk-past control", "the release model is off in this run (--no-release)")
+    };
+    lines.push(walk_ctl);
     lines.insert(0, format!(
         "weather sweep (G1 Nov 12 02:43; the arm: {}; the latch: {}; L {}): every rain or thunder onset and end at every day time, the vanilla ramps (0.01/gt, thunder x rain), the detector on redsim's exact curve; its DAY-off per steady weather against tick-exact's official rows: {}; every kind's bars judged below",
         o.arm.map_or("off".to_string(), |s| format!("falling 8 for {s} gt")),
@@ -1843,6 +1921,9 @@ fn merge_release(a: &mut ScenOut, s: &ScenOut) {
     a.liedown_gap_min = a.liedown_gap_min.min(s.liedown_gap_min);
     a.rest_entry_max = a.rest_entry_max.max(s.rest_entry_max);
     a.exposure += s.exposure;
+    a.exposure_margin_min = a.exposure_margin_min.min(s.exposure_margin_min);
+    a.skip_unresolved += s.skip_unresolved;
+    a.back_clamped += s.back_clamped;
     a.skip_stale += s.skip_stale;
     a.walk_past += s.walk_past;
     a.entries_n += s.entries_n;
@@ -1941,6 +2022,7 @@ fn class_bars(o: &CounterOpts, ss: &[(String, ScenOut)], class: &str, mode: u8, 
 fn class_release(o: &CounterOpts, ss: &[(String, ScenOut)], class: &str, mode: u8, v: &mut crate::verdict::Verdict) -> String {
     let structural = mode <= 1;
     let priced = mode == 0;
+    let o_climb = o.climb_exit;
     let why = if mode == 1 { "the skip class: priced under the skip ruling, ironspec 01:46 PT (b)" } else { "the rejected comparison variant" };
     let mut a = ScenOut {
         entry_min: i64::MAX,
@@ -1957,6 +2039,7 @@ fn class_release(o: &CounterOpts, ss: &[(String, ScenOut)], class: &str, mode: u
         liedown_gap_min: i64::MAX,
         latch_margin_min: i64::MAX,
         rest_entry_max: i64::MIN,
+        exposure_margin_min: i64::MAX,
         skip_window: (i64::MAX, i64::MIN),
         ..Default::default()
     };
@@ -1984,7 +2067,23 @@ fn class_release(o: &CounterOpts, ss: &[(String, ScenOut)], class: &str, mode: u
     out += &format!("entries whose walk reaches REST's end {} ({}); ", a.walk_past, verdict_word(a.walk_past == 0, priced, why, &format!("{class}: entries walking past REST's end{}", named(&|s| s.walk_past > 0)), entries, v));
     out += &format!("the least gap between consecutive departures from the stop {} gt; the least R -> the next lie-down {} gt; ", m(a.exit_gap_min, i64::MAX), m(a.liedown_gap_min, i64::MAX));
     out += &format!("the latest entry made in REST at night time {} (bar < 24,010 - the walk {} = {}: {}); ", m(a.rest_entry_max, i64::MIN), o.stop_walk, 24_010 - o.stop_walk, verdict_word(ok_rest, structural, why, &format!("{class}: the latest entry in REST{}", named(&|s| s.rest_entry_max != i64::MIN && !rest_entry_ok(s.rest_entry_max, o.stop_walk))), entries, v));
-    out += &format!("releases while the bed was occupied (the exposure, ironspec 06:31 PT) {} ({}); ", a.exposure, verdict_word(a.exposure == 0, structural, why, &format!("{class}: the exposure{}", named(&|s| s.exposure > 0)), entries, v));
+    out += &format!(
+        "lie-downs before the previous occupant's own climb out of the bed's 16-block sphere (the exposure, ironspec 06:31 PT; G1's Y7: from the occupants' own timelines, the climb out = its R + {} (ironspec 09:03's estimate, pending the composed run-out)) {} ({}), the least margin {}; ",
+        o_climb,
+        a.exposure,
+        verdict_word(a.exposure == 0, structural, why, &format!("{class}: the exposure{}", named(&|s| s.exposure > 0)), entries, v),
+        if a.exposure_margin_min == i64::MAX { "-".to_string() } else { format!("{} gt", a.exposure_margin_min) }
+    );
+    out += &format!(
+        "runs ending with a skip's DAY rise still pending (G1's Y9: an excuse that can't close) {} ({}); ",
+        a.skip_unresolved,
+        v.bar_n(&format!("{class}: no run ends with a skip's DAY rise pending"), ss.iter().map(|(_, s)| s.runs).sum(), a.skip_unresolved == 0)
+    );
+    out += &format!(
+        "drawn pick -> back times floored (G1's Y17: shorter than the entry and the stop's cycle, a data inconsistency) {} ({}); ",
+        a.back_clamped,
+        v.bar_n(&format!("{class}: no drawn pick -> back floored"), ss.iter().map(|(_, s)| s.runs).sum(), a.back_clamped == 0)
+    );
     out += &format!("riders away from one lane at once at most {} (bar 1: {}); ", a.lane_away_max, verdict_word(a.lane_away_max <= 1, structural, why, &format!("{class}: two away from one lane{}", named(&|s| s.lane_away_max > 1)), runs, v));
     out += &format!("held at the gate at once at most {} (bar 1: {}); ", a.queue_max, verdict_word(a.queue_max <= 1, structural, why, &format!("{class}: two held at the gate{}", named(&|s| s.queue_max > 1)), runs, v));
     out += &format!("picks deferred {}; ", a.deferred);
@@ -2088,10 +2187,13 @@ fn release_report(base: &CounterOpts, scen: &[(&str, Vec<(i64, Ev)>)], v: &mut c
         let classed = s.injected.iter().all(|c| *c == EntryClass::OutsideRest);
         let bites_min = s.entry_min != i64::MAX && s.entry_min < 12_000;
         let bites_out = s.outside_rest > 0;
-        let w = v.control("the injected entry by day (6,000 on day 1): classed outside REST, seen by both release bars", s.injected.len(), classed && bites_min && bites_out);
+        // (G1's Y13: the injections counted against the runs, never self-reported: every run made its one injection)
+        let all_injected = s.injected.len() == s.runs;
+        let w = v.control("the injected entry by day (6,000 on day 1): one injection in every run, classed outside REST, seen by both release bars", s.injected.len(), all_injected && classed && bites_min && bites_out);
         lines.push(format!(
-            "CONTROL: the release bars' positive control (a napper put at the queue at day time 6,000 of day 1, its release's REST_l and DAY inputs forced; {} injections): classed {} by the model's classifier; the earliest entry {}, outside REST {} ({w})",
+            "CONTROL: the release bars' positive control (a napper put at the queue at day time 6,000 of day 1, its release's REST_l and DAY inputs forced; {} injections over {} runs): classed {} by the model's classifier; the earliest entry {}, outside REST {} ({w})",
             s.injected.len(),
+            s.runs,
             if classed { "outside REST every time".to_string() } else { format!("{:?}", s.injected.iter().take(3).collect::<Vec<_>>()) },
             if s.entry_min == i64::MAX { "no entries".to_string() } else { s.entry_min.to_string() },
             s.outside_rest
@@ -2101,15 +2203,21 @@ fn release_report(base: &CounterOpts, scen: &[(&str, Vec<(i64, Ev)>)], v: &mut c
         let inj2 = CounterOpts { inject_entry: Some(1_000), ..o.clone() };
         let s2 = scenario_days(&inj2, &[(2_000, Ev::Skip)], 5, &[0, 13], 4);
         let classed2 = s2.injected.iter().all(|c| *c == EntryClass::OutsideRest);
-        let w2 = v.control("an entry 1,000 gt after a skip (past its measured stale window) is classed outside REST", s2.injected.len(), classed2 && s2.outside_rest > 0);
+        let w2 = v.control("an entry 1,000 gt after a skip (past its measured stale window): one injection in every run, classed outside REST", s2.injected.len(), s2.injected.len() == s2.runs && classed2 && s2.outside_rest > 0);
         lines.push(format!(
-            "CONTROL: an entry injected at day time 1,000 of day 1, after a night-0 skip (its measured stale windows {} gt; {} injections): classed {} ({w2})",
+            "CONTROL: an entry injected at day time 1,000 of day 1, after a night-0 skip (its measured stale windows {} gt; {} injections over {} runs): classed {} ({w2})",
             if s2.skip_window.0 == i64::MAX { "-".to_string() } else { format!("{}..{}", s2.skip_window.0, s2.skip_window.1) },
             s2.injected.len(),
+            s2.runs,
             if classed2 { "outside REST every time".to_string() } else { format!("{:?}", s2.injected.iter().take(3).collect::<Vec<_>>()) }
         ));
     }
-    let l = o.day_inhibit.unwrap_or(6);
+    // (G1's Y16: the DAY line's level is the design's, never a silent default)
+    let Some(l) = o.day_inhibit else {
+        v.fail("the release report's DAY rows: NOT JUDGED (no DAY line level in this run: --day-inhibit)");
+        lines.push("the release report's DAY rows: NOT JUDGED (no DAY line level: --day-inhibit)".to_string());
+        return lines;
+    };
     let first = |from: i64, to: i64, want_hi: bool| (from..to).find(|&d| (det_level(d, 0.0, 0.0) >= l) == want_hi);
     if let Some(t5) = first(9_000, 14_000, false) {
         let w = v.bar("the clear dusk's DAY fall reaches the hatch at or after REST's 12,000", t5 + DAY_OUT_LAG >= 12_000);
@@ -2122,6 +2230,15 @@ fn release_report(base: &CounterOpts, scen: &[(&str, Vec<(i64, Ev)>)], v: &mut c
         v.fail("the clear dusk's DAY fall: NOT JUDGED (the clear curve never falls below L between 9,000 and 14,000)");
     }
     let t6 = first(20_000, 24_000, true);
+    // (G1's Y9) the skip excuse's bound while its DAY rise is pending, from the curve (a skip lands at day time 0)
+    let on_after_skip: Vec<(&str, i64)> = [("clear", 0.0f32, 0.0f32), ("rain", 1.0, 0.0), ("thunder", 1.0, 1.0)].iter().map(|&(n, r, th)| (n, (0..12_000).find(|&d| det_level(d, r, th) >= l).unwrap_or(12_000))).collect();
+    lines.push(format!(
+        "the skip excuse's bound while a skip's DAY rise is pending (G1's Y9): the first day time the level reaches L {l} after a skip (day time 0): {} => the worst + the detector's period {} + 1 + the hatch's lag {} = {} gt after the skip; past it, an entry outside REST is counted as one",
+        on_after_skip.iter().map(|(n, d)| format!("{n} {d}")).collect::<Vec<_>>().join(", "),
+        o.det_period,
+        o.hatch_lag,
+        on_after_skip.iter().map(|x| x.1).max().unwrap_or(0) + o.det_period + 1 + o.hatch_lag
+    ));
     let normal = scenario_with(&o, &[], 5, &[0, 7, 13, 19]);
     let load_a = if normal.c_rise.0 == i64::MAX { None } else { Some(normal.c_rise.0) };
     lines.push(format!(
@@ -2303,24 +2420,33 @@ fn release_report(base: &CounterOpts, scen: &[(&str, Vec<(i64, Ev)>)], v: &mut c
     let ctl_latch = CounterOpts { lane_latch: false, ..o.clone() };
     let ctl_stop = CounterOpts { ignore_stop: true, ..stalled.clone() };
     let (mut held2, mut away2, mut exposed, mut nruns) = (0u32, 0u32, 0u32, 0usize);
+    // (G1's Y8 on f21c9f600: each control's single-change TWIN, the design under the same 600-gt stall, run and judged:
+    // the held and exposure controls then differ from it by exactly one knob)
+    let (mut twin_held, mut twin_exposed, mut twin_runs) = (0u32, 0u32, 0usize);
     for (label, evs) in scen {
         let on = scenario_with(&o, evs, 5, &[0, 13]);
+        let twin = scenario_with(&stalled, evs, 5, &[0, 13]);
         let off = scenario_with(&ctl, evs, 5, &[0, 13]);
         let nl = scenario_with(&ctl_latch, evs, 5, &[0, 13]);
         let ns = scenario_with(&ctl_stop, evs, 5, &[0, 13]);
         nruns += off.runs;
+        twin_runs += twin.runs;
+        twin_held = twin_held.max(twin.queue_max);
+        twin_exposed += twin.exposure;
         held2 = held2.max(off.queue_max);
         away2 = away2.max(nl.lane_away_max);
         exposed += ns.exposure;
         let n = |x: u32| if x == u32::MAX { "-".to_string() } else { x.to_string() };
         lines.push(format!(
-            "  {label}: held at the gate at once at most {} (CONTROL without the back-pressure, the stop stalled to 600 gt: {}), picks deferred {}, naps a night least {} of 24 (control {}), the earliest entry {} (control {}); riders away from one lane at most {} (CONTROL without the away latch {}); releases into an occupied bed {} (CONTROL ignoring R's ready, the stop stalled to 600 gt: {})",
-            on.queue_max, off.queue_max, on.deferred, n(on.min_naps), n(off.min_naps),
+            "  {label}: held at the gate at once at most {} (the design with the stop stalled to 600 gt: {}; CONTROL that twin without the back-pressure: {}), picks deferred {}, naps a night least {} of 24 (control {}), the earliest entry {} (control {}); riders away from one lane at most {} (CONTROL without the away latch {}); lie-downs before the occupant's climb out {} (the stalled twin {}; CONTROL the twin ignoring R's ready: {})",
+            on.queue_max, twin.queue_max, off.queue_max, on.deferred, n(on.min_naps), n(off.min_naps),
             if on.entry_min == i64::MAX { "-".to_string() } else { on.entry_min.to_string() },
             if off.entry_min == i64::MAX { "-".to_string() } else { off.entry_min.to_string() },
-            on.lane_away_max, nl.lane_away_max, on.exposure, ns.exposure
+            on.lane_away_max, nl.lane_away_max, on.exposure, twin.exposure, ns.exposure
         ));
     }
+    let w_tw = v.bar_n("the design under the 600-gt stall (the controls' twin): at most one held, no exposure", twin_runs, twin_held <= 1 && twin_exposed == 0);
+    lines.push(format!("  => the controls' twin (the design with the stop stalled to 600 gt): held at most {twin_held}, exposures {twin_exposed} ({w_tw})"));
     let w_h = v.control("without the back-pressure two are held at the gate (the one-held bar can fail)", nruns, held2 >= 2);
     let w_a = v.control("without the away latch two are away from one lane (the one-away bar can fail)", nruns, away2 >= 2);
     let w_x = v.control("ignoring R's ready releases into an occupied bed (the exposure bar can fail)", nruns, exposed > 0);
@@ -2709,12 +2835,17 @@ mod tests {
         assert!(!r.pick_ts.contains(&ts), "the run with the skip still picked at {ts}");
     }
 
-    /// (ironspec 06:31 PT) the exposure is 0 with R's ready in the release and positive without it (its control).
+    /// (ironspec 06:31 PT; G1's Y7 / Y8) the exposure, judged from the occupants' own timelines: 0 with R's ready in the
+    /// release, at the design's rhythm and with the stop stalled to 600 gt (the control's single-change twin), and positive
+    /// when that stalled twin ignores R's ready (the control).
     #[test]
     fn the_exposure_and_its_control() {
         let r = run(&design(), 3, 20_000, 0, 0, 100, &[]);
         assert_eq!(r.exposure, 0);
-        let c = run(&CounterOpts { ignore_stop: true, ..design() }, 3, 20_000, 0, 0, 100, &[]);
+        let stalled = CounterOpts { stop_hist: None, stop_cycle: 600, ..design() };
+        let twin = run(&stalled, 3, 20_000, 0, 0, 100, &[]);
+        assert_eq!(twin.exposure, 0);
+        let c = run(&CounterOpts { ignore_stop: true, ..stalled }, 3, 20_000, 0, 0, 100, &[]);
         assert!(c.exposure > 0);
     }
 }

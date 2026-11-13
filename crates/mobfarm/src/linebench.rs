@@ -275,6 +275,7 @@ pub fn bench(base: &FarmSpec, label: &str, inputs: &[Input], read: P, sets: &[(P
         let mech = |s: &str| ["rail", "piston", "trapdoor", "_door", "hopper", "dropper", "dispenser", "note_block", "lamp", "bell", "observer", "fence_gate", "tnt", "crafter"].iter().any(|k| s.contains(k));
         let (mut flagged, mut decl) = (0usize, 0usize);
         let mut parts = Vec::new();
+        let mut used: std::collections::BTreeSet<P> = std::collections::BTreeSet::new();
         for c in reach {
             let mut nb = Vec::new();
             for d in [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]] {
@@ -282,6 +283,9 @@ pub fn bench(base: &FarmSpec, label: &str, inputs: &[Input], read: P, sets: &[(P
                 let s = run.world.get(BlockPos::new(q[0], q[1], q[2])).to_string();
                 let is_mech = mech(&s) && q != read;
                 let is_decl = is_mech && declared.contains(&q);
+                if is_decl {
+                    used.insert(q);
+                }
                 flagged += usize::from(is_mech && !is_decl);
                 decl += usize::from(is_decl);
                 nb.push(format!("({},{},{}) {}{}", q[0], q[1], q[2], s.trim_start_matches("minecraft:"), if is_decl { " MECHANISM (declared)" } else if is_mech { " MECHANISM (undeclared)" } else { "" }));
@@ -289,7 +293,17 @@ pub fn bench(base: &FarmSpec, label: &str, inputs: &[Input], read: P, sets: &[(P
             parts.push(format!("({},{},{}) {} [{}]", c[0], c[1], c[2], run.world.get(BlockPos::new(c[0], c[1], c[2])).to_string().trim_start_matches("minecraft:"), nb.join(", ")));
         }
         let w = v.bar(&format!("{label}: no undeclared mechanism component beside the reach cells"), flagged == 0);
-        lines.push(format!("  power reach (each cell's six neighbours, the line enabled): {}; {flagged} undeclared and {decl} declared mechanism neighbours ({w})", parts.join("; ")));
+        // (G1's Y20: a `--declare` cell never found beside a reach cell as a mechanism component is STALE, a failure)
+        let stale: Vec<String> = declared.iter().filter(|q| !used.contains(*q)).map(|q| format!("({},{},{})", q[0], q[1], q[2])).collect();
+        let ws = v.bar(&format!("{label}: every --declare cell found (none stale)"), stale.is_empty());
+        lines.push(format!(
+            "  power reach (each cell's six neighbours, the line enabled): {}; {flagged} undeclared and {decl} declared mechanism neighbours ({w}); stale declarations {} ({ws})",
+            parts.join("; "),
+            if stale.is_empty() { "none".to_string() } else { stale.join(", ") }
+        ));
+    } else if !declared.is_empty() {
+        v.fail(&format!("{label}: --declare given with no --reach: every declaration stale"));
+        lines.push("  --declare given with no --reach cells: every declaration STALE (FAIL)".to_string());
     }
     let mut all: Vec<(P, String)> = sets.to_vec();
     all.extend(control.iter().cloned());

@@ -153,8 +153,11 @@ fn trial(spec: &FarmSpec, from: i32, to: i32, win: Option<(i64, i64)>, win_level
         run.tick();
         let now = run.world.best_neighbor_signal(bp(H_LOAD)) > 0;
         if t >= 0 {
-            // (the AND's rear input: E_H's output signal into the AND)
-            rear_peak = rear_peak.max(run.world.best_neighbor_signal(bp(AND)).min(15).max(0));
+            // (the AND's rear input: E_H's output signal into the AND, read from E_H's own cell toward the AND, never the
+            // AND's strongest input (G1's Y11: that read the side too); E_H sits on the AND's south (+z), north under the
+            // z mirror)
+            let rear_dir = if crate::mirror::on() { redsim::pos::Dir::North } else { redsim::pos::Dir::South };
+            rear_peak = rear_peak.max(run.world.signal(bp(EH), rear_dir).min(15).max(0));
             if now && !was {
                 pulses.push((t + 1, i64::MAX));
             }
@@ -201,9 +204,26 @@ pub fn bench(spec: &FarmSpec, v: &mut crate::verdict::Verdict) -> Result<Vec<Str
         rows.push(format!("{label}: {} ({})", fmt(&tr.pulses), if fired == want { "as designed" } else { "WRONG" }));
     }
     let cases = v.bar("the rise / jump / inside / fall cases", all_right);
-    // (the no-change row is the control: a level that does not move must not fire, through the same trial)
+    // (G1's Y12 on f21c9f600: "no level change fires nothing" is a BAR (a dead circuit passes it); its control plants a
+    // level detector (E_H's side delay-4 repeater (-1,0,-2) removed, so E_H passes HI's level, not its edge): a steady 15
+    // must then fire, through the same trial)
     let ctl_tr = trial(spec, 14, 14, None, 15)?;
-    let ctl = v.control("no level change (14 -> 14) fires nothing", 1, ctl_tr.pulses.is_empty());
+    let still_hi = trial(spec, 15, 15, None, 15)?;
+    let nochg = v.bar("no level change (14 -> 14, 15 -> 15) fires nothing", ctl_tr.pulses.is_empty() && still_hi.pulses.is_empty());
+    let mut lvl = spec.clone();
+    // (the design's own frame: the spec is mirrored inside the trial, so the cell is the unmirrored one)
+    let side = redsim::pos::BlockPos::new(-1, 0, -2);
+    let before = lvl.blocks.len();
+    lvl.blocks.retain(|(p, _)| *p != side);
+    let removed = before - lvl.blocks.len();
+    // (a level detector passes HI's level: the request on a rise never ends while HI stays high, where the edge
+    // detector's ends after its pulse)
+    let lvl_tr = trial(&lvl, 14, 15, None, 15)?;
+    let ctl = format!(
+        "{nochg}; CONTROL (E_H's side repeater removed: {removed} block, a level detector): the rise 14 -> 15 requests {} ({})",
+        fmt(&lvl_tr.pulses),
+        v.control("a level detector (E_H's side repeater removed) holds its request open while HI stays high", removed, lvl_tr.pulses.iter().any(|&(_, w)| w == i64::MAX))
+    );
     let base = trial(spec, 14, 15, None, 15)?;
     // (G1's checklist (4): the lag is read strictly; a run without the request is NOT JUDGED)
     let first = base.pulses.first().copied();
@@ -236,8 +256,11 @@ pub fn bench(spec: &FarmSpec, v: &mut crate::verdict::Verdict) -> Result<Vec<Str
     };
     let a_flip = a_req.iter().find(|x| !x.1).map(|x| x.0);
     let b_flip = b_req.iter().find(|x| x.1).map(|x| x.0);
-    let edges_ok = first.is_some() && one_flip(&a_req, true) && one_flip(&b_req, false);
-    let edges = v.bar("IN_WIN's edges around the rise: one transition each (closing, opening)", edges_ok);
+    // (G1's Y15 on f21c9f600: each flip bounded by the measured pulse (start `lag`, width `width`) and the side's latency
+    // (at most 2 gt, a repeater's), never anywhere in -12..12)
+    let in_pulse = |k: Option<i64>| k.is_some_and(|k| first.is_some() && k >= lag - 2 && k <= lag + width + 2);
+    let edges_ok = first.is_some() && one_flip(&a_req, true) && one_flip(&b_req, false) && in_pulse(a_flip) && in_pulse(b_flip);
+    let edges = v.bar("IN_WIN's edges around the rise: one transition each (closing, opening), each inside the measured pulse +- the side's 2-gt latency", edges_ok);
     let cut_word = v.bar_n("IN_WIN's edge rows: every request one pulse of >= 2 gt (the pending latch takes it)", cut_n, cut_ok);
     // (G1 on 6b9be93ea point 3, ironspec 20:55 PT (2)(4); G1's audit defect 2) IN_WIN's level at the AND's side swept
     // 1..15 inside the window at the rise, each row printing the side's measured power and the rear's peak: the AND

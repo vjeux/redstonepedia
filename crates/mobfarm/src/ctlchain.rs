@@ -212,8 +212,10 @@ pub fn bench(b_end: i64, settle: i64, bar: i64, v: &mut crate::verdict::Verdict)
                 v.bar_n(&format!("{label}: every scenario locked at its end"), n as usize, unlocked == 0),
                 v.bar_n(&format!("{label}: (c) 0 off-phase RELs in a day of steady running"), steady_rels, steady_off == 0),
             ),
-            Some('a') => (v.control(&format!("{label} fails (a)"), n as usize, !a_ok).to_string(), "printed".to_string(), "printed".to_string(), "printed".to_string()),
-            Some(_) => ("printed".to_string(), v.control(&format!("{label} fails (b)"), n as usize, !b_ok || unlocked > 0).to_string(), "printed".to_string(), "printed".to_string()),
+            // (G1's Y4: each control bites on ITS bar's own predicate over samples it has: (a) a REL-to-REL measured under
+            // the bar, never an empty run; (b) the recovery predicate over failed-roll scenarios, not the lock bar's)
+            Some('a') => (v.control(&format!("{label} fails (a)"), if worst_int == i64::MAX || short_runs > 0 { 0 } else { n as usize }, worst_int != i64::MAX && short_runs == 0 && worst_int < bar).to_string(), "printed".to_string(), "printed".to_string(), "printed".to_string()),
+            Some(_) => ("printed".to_string(), v.control(&format!("{label} fails (b)"), n_failed as usize, !b_ok).to_string(), "printed".to_string(), "printed".to_string()),
         };
         lines.push(format!(
             "  {label}: (a) the least REL-to-REL {} ({a_w}; at {}{}); (b) from the first golem after a disturbance to the lock, at most {max_cycles} cycles with {max_lost} summons lost (off-phase RELs + skipped slots, a pulse with no REL in its cycle){}; after a failed roll ({n_failed} scenarios) at most {max_lost_failed} summons lost beyond the roll's own ({b_w}); not locked at the scenario's end {unlocked} of {n}{} ({lock_w}); (c) off-phase RELs in a day of steady running {steady_off} ({c_w})",
