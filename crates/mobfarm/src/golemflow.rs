@@ -96,6 +96,12 @@ pub struct FlowOpts {
 /// The station's design text with the posts, the piglins and the blocked row laid.
 pub fn design_text(station: &str, o: &FlowOpts) -> Result<String, String> {
     let mut d = mctas::design::Design::parse(station).map_err(|e| e.to_string())?;
+    // (the lanes' glass under R_2 at (x,17,2), a stand-in where no part lays it: R_1's high side,
+    // without which R_1 can't stand (main's would-pop refusal, onechunk's d04f8b7d9); likewise
+    // the lift's (-3,12,7) under the station's crest, path (a)'s high side)
+    for c in [[-1, 17, 2], [3, 17, 2], [7, 17, 2], [-3, 12, 7]] {
+        d.blocks.entry(c).or_insert_with(|| "minecraft:glass".into());
+    }
     for (c, st) in &o.blocks {
         d.blocks.insert(*c, if st.contains(':') { st.clone() } else { format!("minecraft:{st}") });
     }

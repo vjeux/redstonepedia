@@ -15,13 +15,15 @@ lanes' feed are emulated until the circuit is laid).
   loop (2,16,-6) came out (9fc3155f's static (c) with the summoner-only scarers: 0 never-clearing
   places without it), and with it the 6.08 question.
 - The run line (cc767b78's L1 judge runs it):
-  `drop-bench --layout station --pad --hold-y 16 --stagger 0,12,24 --rel 4 --rebrake 16 --rebrake-each --release 3 --exit-gate --open-delay 4 --pulse 12 --refill 2,10 --r-repeater --l1 --slab-stop`
+  `drop-bench --layout station --pad --hold-y 16 --stagger 0,14,24 --rel 4 --rebrake 16 --rebrake-each --release 3 --exit-gate --open-delay 4 --pulse 12 --refill 2,10 --r-repeater --l1 --slab-stop`
   (`--r-repeater`: R_1's built drive laid and driven, farmopt 10:13: per lane a repeater (delay 1)
   at (x+1,17,1) facing west into R_1 on glass (x+1,16,1), fed from the controller's cell
   (x+2,17,1); against the old glass stub, +3 glass a copy, the repeaters in the stubs' cells).
   (ironspec adopted s 12: launch offsets 0/12/24, REL = golem + 4 (day-1's release tap at stage
-  2)). The stand's summon bar is the game's rule (ironspec 05:26): at every summon >= 1 caller over
-  all 400 sensor phase pairs, with a margin of 2 callers at REL T+2..6; the 20-gt rest bar and the
+  2); ironspec 20:00/20:03/20:07: lane x 3's offset 14, final: at 12 the lane x -1 -> lane x 3 gap
+  at the lift's exit top, where carts touch, is 14 in the freeze rows, under the column bar 16). The
+  stand's summon bar is the game's rule (ironspec 05:26): at every summon >= 1 caller over all 400
+  sensor phase pairs, with a margin of 2 callers at REL T+2..6; the 20-gt rest bar and the
   all-three-panic rule are retired (the rest margins below stay as printed numbers).
 - Restarts at every phase (ironspec's reload-order rule): `--restart-sweep 0,130,1` (each tick, in
   the save order, its reverse and 8 seeded orders: cc767b78's `liveness::restart`). The cold start
@@ -38,14 +40,59 @@ lanes' feed are emulated until the circuit is laid).
 
 ## Cells (loop frame)
 
-- Pockets: north_south powered rails at (-1,0,0), (3,0,0), (7,0,0) on switched supports (x,-1,0);
-  the launcher stone (x,0,-1) with an unattached string on it (x,1,-1) (no golem spot, passes
-  sight).
+- Pockets: north_south powered rails at (-1,0,0), (3,0,0), (7,0,0) on glass supports (x,-1,0)
+  (V15: no golem floor or stroll candidate; the drive from the side, M16bw (ironspec 16:03):
+  day-1's repeater (x-1,0,0) into the rail (facing west, on glass (x-1,-1,0)), laid in this file as
+  a stand-in until day-1's file, its riser and feed west of it (day-1's); the bench drives the
+  repeater's input from a lever stand-in at (x-2,0,0) on glass (G1 on d8394ed6e, ironspec 17:46/
+  17:56: no block in the support cell), switched 1 gt ahead so the rail keeps its tick). The
+  supports stay glass and are never switched: each lane's step dust (x-3,-1,0) touches the support
+  (x-4,-1,0) west of it (with that support a redstone block, lane -1's drive reached lane 3's dust
+  and lane 3's lane 7's: both launched 9 gt early in the bench). The launcher's back (x,0,-1) slime
+  (V16s, ironspec 15:08/15:11: a cart at rest on a powered rail is kicked only away from a redstone
+  conductor; with V15's glass back all three carts stayed in their pockets; tick-exact's official
+  kick row 15:18) with an unattached string on it (x,1,-1) (no golem spot, passes sight).
+- Every drive the bench emulates is a lever stand-in at its line end (ironspec 17:46/17:49/18:34/
+  20:31): the pockets' inputs (x-2,0,0) on glass, the R line's input (x+2,17,1) on glass
+  (`--r-repeater`; the old redstone-block emulation in R_1's side cell is refused) and the napper's
+  (7,-1,8) on glass (7,-2,8) (module mode; the wall lever on (7,-1,7) was retired, ironspec 18:31:
+  its toggle updates the merge T (7,0,7)). The slope's line end (-4,12,5) gets no stand-in: on every
+  cell a lever could hang on there (glass under, over, east, west or north of it) some rider's sight
+  ray between T and S crossed the support (13..39 ray-ticks a run: lane -1 rising in the column to
+  lane 3's arriving rider falling into its pocket, lane 7 climbing to S1's and S2's posts), so the
+  bench holds the braked slope's own rail (-4,12,7) powered, from REL + release + 1 for the width:
+  the tick and the span day-1's repeater (-4,12,6) gave it from a lever on (-4,12,5). It is a
+  declared `held:` stand-in (ironspec 01:07; this file's header and the bench's `--out` header name
+  its driver and phase): the rail's own state, the same block, so the guard's list and its survival
+  pass; at each edge the bench makes the neighbour updates the build's path makes (the repeater's
+  updateNeighborsInFront, the rail's setBlock with its affectNeighborsAfterRemoval and
+  PoweredRailBlock.updateState's updates below and, ascending, above), all but the rail's own
+  re-evaluation, which the built rail answers by keeping its state and the bench's undriven one by
+  dropping, and prints the cells it updated; a plain rail with three or more potential connections
+  among those cells fails the row (G1's note on f7e3a825, a condition of its GO: these updates carry
+  the rail's kind where the build's front updates carry the repeater's, a signal source, which
+  re-settles such a rail; none today; `--block` a third rail beside an edge rail is the control); the
+  hold check fails a row whose rail reads unpowered
+  at the end of a tick inside the window or powered outside it, and `--hold-poke K` (a neighbour
+  update to the rail itself at REL + K) is its positive control (G1 on 82f9546f). The bench
+  refuses a stand-in whose properties differ from the built cell's over the full guard list
+  (ironspec 23:30, until cc767b78's `recordmatch::guard_intrinsics`): legacy-solid, a full top
+  face, full-block collision, solid-render, any collision, air, a signal source, golem-excluded, a
+  rail, dangerous, a fluid and the golem spawn-space role (each lever against its line end,
+  redstone dust); whose update reach (a lever's six neighbours and its support's) holds a rail with
+  three or more potential connections; whose power reach (its neighbours, and its support's if that
+  conducts) holds a redstone component or rail besides its input; or that can't survive where it
+  stands or is written.
 - Pocket strings (x,1,0), hooks (x+-1,1,0), glass (x+-2,1,0).
-- Departure: plain (x,0,1), the exit detector (x,0,2) (plain rails north and south, air east, west
-  and above, glass below: no powered rail, gate or junction on a face; its raw connections' rails
-  have 2 potential connections each: the detector rule holds), plain (x,0,3), boosters (x,0,4..6);
-  the merge row at z 7 (7b90c3f1's). The merge row's entry speed: 0.831 b/gt.
+- Departure: plain (x,0,1), the exit detector (x,0,2) (a plain rail north; south a plain rail in
+  lane x -1, an always-on powered rail in lanes x 3 (its booster) and x 7 (its ramp's foot), never
+  switched (G1: harmless); air east, west and above, glass below: no gate or junction on a face;
+  its raw connections' rails have 2 potential connections each: the detector rule holds). Lanes x
+  -1 and x 3: (x,0,3) plain (lane x 3's a booster, path (a)'s (1), powered through z 4's chain; z 1
+  stays plain: powered, it would chain into the pocket and kill its brake), boosters (x,0,4..6) on
+  glass powered by an always-on redstone torch (x-1,0,5) on glass (x-1,-1,5) (V15); the merge row
+  at z 7 (7b90c3f1's).
+  The merge row's entry speed: 0.831 b/gt (lane x 3's 0.950). Lane x 7: path (a)'s climb (below).
 - Holds: bottom-half trapdoors at (x,16,0), carts at y 16.1875 (riders' feet 16.19); the ring's
   glass at (x+-1,16,0) and (x,16,+-1); the north stop a bottom slab at (x,17,-1); the hold string
   (x,17,0), hooks (x+-1,17,0), their supports glowstone at (x+-2,17,0) = (-3/1/5/9,17,0)
@@ -343,6 +390,139 @@ rider comes 6.40, the nearest pad golem 8.78 (out of the boat rider's melee reac
   tick, 0 damage, the posts alive at both dawns); the 30 restart rows (10 orders x T+0/1/2) all PASS
   with S2's hits 0 (the nearest pad golem 7.81); the departing batch's re-detections after a reload
   0..35 per 500 (priced, no summon lost).
+
+## Golem-stamp path (a) (ironspec 13:09 the bar, 14:11 the package, 14:16 the braked slope)
+
+- The finding (onechunk): a departing rider still inside a next-batch caller's 10-box at the next
+  summon (T + 100) is stamped GOLEM_DETECTED_RECENTLY until T + 700; with 7 in a lane's rotation that
+  is exactly its next summon. The bar (RETIRED: ironspec 19:07 found its 20 gt inherited; the
+  physical bar, below, is out of every caller box after its move on S - 3 = T + 97): every departing
+  rider out of every caller box by T + 80. A
+  pocket rider's box inflated by 10 spans x -10.8..17.8, z -9.8..10.8 and up to y 12.0125: only
+  height clears it.
+- The bench: `drop-bench --module <onechunk's rev 3 213bda2bf> --path-a --part <7b90c3f1's
+  wip/lift/f1q2-lift-split-path-a.txt, 83878113f>` runs the assembled module (the merge row and the
+  shared lift laid) with this station's own cells and the record lift file laid over it (without
+  `--part`, `drop::PATH_A_LIFT` is a stand-in: its lift foot and powered merge-end ramp ran the
+  napper 3 gt fast; with 7b90c3f1's file the napper's rail -> y 12 is 63 gt, tick-exact's official
+  ride); the departing carts roll on and each rider is tested every tick against the three callers'
+  boxes. `--hold-drive/--hold-rail` drive the braked slope's release (the hold rail held powered
+  from the drive + 1, the declared `held:` stand-in above, where day-1's repeater (-4,12,6) from its
+  input (-4,12,5) puts the rail's rise);
+  `--napper-release` adds the napper's cart at its hold (9,0,8), its drive at (7,-1,8) through the
+  module's repeater and slime (the rail at the drive + 1, as the official ride's pulse + 1);
+  `--watch-cell` counts any cart or villager box meeting a cell (day-1's side-drive cells).
+- Today's layout (rev 3): lane x 3 out at T + 80..84 (margin 0..-4 at REL T+2..6), lane x 7 at
+  T + 100..106, stamped at T + 100 in 1300-1310 of 1310 runs per REL. Legs: launch to the station's
+  exit 25 gt, the merge row 0.4 b/gt (the cap), the lift 0.695 b/gt (the cap), the lift's entries 21
+  gt apart (the shaft bar): a single bottom-entry lift can't clear lane x 7 by T + 80.
+- The package: (2c) lane x 7 climbs from loop z 3: four ascending powered rails (7,0..3,3..6) (a
+  torch on glass at (6,1,4)), the curve (7,4,7), nine ascending rails west (6..-2,4..12,7), the first
+  two powered (a torch on glass at (6,4,6)), the other seven plain (ironspec 16:46: with all nine
+  powered the cart crested at a stored speed ~1.39, braked to rest at the slope's foot with its box
+  in the column's water, crept on the release and, after a restart as it settled (REL + 83, all 10
+  orders), rose under the lift wall's glass (-4,14,7) and stuck; plain, it crests at a crawl), the
+  crest (-3,13,7) on the lift's glass (-3,12,7), the braked slope (-4,12,7)
+  (`powered_rail[ascending_east]` in the lift's east wall, unpowered: the cart brakes to rest on it),
+  an oak wall sign (-4,13,7) over it on glass (-4,13,6) (no collision box for the cart tipping onto
+  the slope, the lift's wall glass there stopped it on the crest; dry: waterloggable, it holds the
+  column's water); (2b) the merge row's west end ramped, (-2,0,7) and (-3,1,7) ascending powered
+  rails (a torch on glass at (-3,1,6)), the intake (-4,2,7): lanes x -1 and x 3 and the napper enter
+  the lift at y 2; (1) lane x 3's booster at z 3. The lift part's cells are 7b90c3f1's.
+- Rows on the record files (bench; `--path-a --part <7b90c3f1's 83878113f>`; the pockets driven
+  through day-1's repeater stand-ins from levers, the slope tapped through day-1's repeater
+  (-4,12,6) laid, the slope rail held powered by the bench (no stand-in at its line end (-4,12,5)), the napper from a floor lever at (7,-1,8)
+  on glass (7,-2,8); in rail-rise ticks: lane x 7's slope rail L7 = REL + 96 (ironspec 16:46 /
+  18:16: the slot L7 / L7 - 32), the napper's rail L7 - 32 = REL + 64, the slope's pulse 18 gt).
+  Restarts (6,550 runs: REL T+2..6 x a restart at every tick T+0..130 in all 10 orders, on the old
+  block-only restart helper: they re-run on cc767b78's world-open model (N whole-chunk idle ticks,
+  ironspec 23:12) before they are cited; the cart rows below hold without restarts too): every lane
+  leaves its rest at + 2 (the bench's convention: the first tick the cart is more than 0.05 off its
+  pocket's centre, after REL + offset; in tick-exact's official ride its Motion is nonzero after + 0,
+  its position first changes at + 1 and its cell at + 5, every downstream tick matching; the rails
+  rise on the same tick as with the old redstone blocks; wrong 0,
+  contacts 0, stuck 0); the passes at y 12 lane x -1 REL + 54..55, lane x 3 REL + 73..74, lane x 7's
+  column entry REL + 102 in every run (its rail + 6; tick-exact's official + 6..7), the napper
+  REL + 126..127 (its rail + 63, official); lane x 3 -> lane x 7 >= 28, behind (lane x 7 -> the
+  napper) 24..25, ahead (the napper -> the next batch's lane x -1 at REL + 154) 27..28; the lane x
+  -1 -> lane x 3 foot pair (their lift entries) >= 19 (the shaft-entry bar 14 + 2 = 16, ironspec
+  20:05), at the lift's top >= 17, lane x 3 -> lane x 7 at the top >= 31; lane x 7's dip back into
+  a caller box >= 4 gt after T + 100; lane x 7 at rest on the slope from REL + 83 at x -3.286, its
+  rider's feet 12.777 (official 12.72..12.98), drift 0, the slope dry, at the lift's top in every
+  run; the arriving riders at rest >= 23 gt before the summon, landing >= 31 gt after their
+  pocket's re-brake; 0 push contacts; air >= 299; day-1's 24 side-drive cells met by no box.
+- Freezes (2,820 runs: logins of 1..3 gt and the pearl's 4 at every tick T+0..140; a freeze delays
+  lane x 7 and the napper but not the next batch): the passes lane x -1 REL + 55..59, lane x 3
+  74..78, lane x 7 102..106, the napper 127..131; lane x 3 -> lane x 7 >= 24, behind 25..29, ahead
+  >= 23, the total window >= 48; the foot pair >= 16, at the top >= 14 and >= 28; the dip >= 4; at
+  rest >= 19 gt before the summon; 0 push contacts. The napper's rail at L7 - 30 fails ahead (21);
+  L7 - 33 passes (behind >= 23 in the restart rows, ahead >= 24). With lane x 3's offset 14
+  (day-1's next grid point) the rows are in the commit's report.
+- The out-of-box bar, physical (ironspec 19:07, replacing 13:09's inherited "by T + 100 - 20"):
+  the panic path summons only at game time % 100 == 0 (vanilla `VillagerPanicTrigger.tick`; redsim
+  brain/run.rs `if t % 100 == 0 { spawn_golem_if_needed(w, i, 3) }`) and a summon stamps every
+  villager in the summoner's box inflated by 10 (`GolemSensor.golemDetected`, 600 gt; redsim
+  spawn.rs), so a departing rider must be out of every next-batch caller's box after its move on
+  S - 3 = T + 97 (1 tick for entity order + 2 margin), measured every tick in every row. Worst exits
+  (inside last): lane x -1 T + 64, lane x 3 T + 79 (restarts) / T + 83 (freezes), lane x 7 T + 81
+  (freezes): slack >= 13 for every lane.
+- On the bench's stand-in lift cells (no `--part`) the napper ran 60 gt from its rail to y 12 and
+  lane x 7 crested fast enough to rest at the slope's foot: the record file is the one to run.
+- Inherited numbers these benches print against (ironspec 19:07 (6): labelled, not physical):
+  the summon bar's margin of 2 callers (ironspec 05:26; the >= 1 caller is the game's rule); the R
+  line's 10 gt against its measured threshold 5 (the margin >= 2, ironspec 09:32); cc767b78's
+  REST_BAR = EDGE_BAR = 4 (3 gt + 1 scheduled tick, farmopt 02:39) for the landing lead over the
+  re-brake and the rest before the summon (rows: >= 31 and >= 23); every "+ 2" over a physical bar
+  (S - 3's 2, the column and foot-pair bars' 14 + 2). Retired: the T + 80 out-of-box bar (its 20 gt
+  inherited; now S - 3, physical) and the y-12 23 / window 46 (now the column bar + 2).
+- The direct summon check (`--summon-check`, ironspec 19:24..20:07; it replaces REST_BAR in
+  cc767b78's judge): the module's hostile posts kept, the bench's villagers slept as the steady runs
+  set it; at the due summon tick S = T + 100 (the bench is one cycle) the stand's three riders at
+  the tick's start (seated in their pocket, wanting a golem, >= 3 willing in their 10-box, and
+  their panic trigger ticking: VillagerPanicTrigger's 60-gt run is timed out without a tick at its
+  end + 1, tick-exact's official skip at s + 61 + 62k), the GolemTry calls up to the first success
+  and the class (golem born / spot miss / caller blocked by its own memory / fewer than 3 willing /
+  no panicking caller); every golem born is removed after its tick. The gate: every due S with >= 1
+  call from the stand; the control `--remove-rider K` (pocket K's arriving rider out) must show the
+  miss; the golem rate per callers-per-S k beside 1 - m^k, m = (1 - 40..44/289)^10 (77.4-80.9 /
+  94.9-96.3 / 98.8-99.3 % at k = 1 / 2 / 3), failing only when its binomial 99 % interval misses.
+  The rate validates the bench's pad until the bench runs on record7 (`--out` writes the composed
+  world for cc767b78's diff over the riders' search volumes, its stand-in cells listed in a
+  `# stand-in:` header line); the large-N row is onechunk's. Rows (module rev 3, lane x 3's offset
+  14, record lift file): 300 seeds x REL T+5 and T+6, no disturbance: 0 due S without a call from
+  the stand, the three riders willing and ticking at every S (k = 3), 298 / 300 golems born (99.3 %,
+  99 % interval 96.7..99.9 against 98.9..99.3 %: passes), 2 spot misses; each caller's search
+  reaches 44 / 48 / 40 spots on the pad (P0 / P1 / P2) and none elsewhere. The controls (20 seeds x
+  REL T+5, T+6, each pocket's arriving rider removed in turn): every S missed, "fewer than 3
+  willing" (the two left have 2 willing each). The restart rows share one seed, so their per-k
+  rates are correlated draws, not a binomial sample: they carry the gate (calls), not the rate.
+  Restart rows (6,550, one seed): every S without a call (122..129 per REL) comes within 30 gt after
+  a restart ("no panicking caller": the reload re-phases the panic); freeze rows (2,820): the 10 per
+  REL without a call are the freezes over S itself ("frozen at S": no entity ticks, no summon that S);
+  0 otherwise, so the gate holds at one summon per disturbance.
+- The carts' block contacts (ironspec 21:25 (4)): every tick a cart's move is stopped horizontally,
+  the blocks with a collision shape on the side it moved toward are listed per cell; a contact with
+  a cell that is not declared fails the row: the station's stops (each pocket's slime back (x,0,-1),
+  each hold's north stop (x,17,-1)) and the `# contacts:` / `# stops:` cells of each `--part` file's
+  header and of the `--module` file's (`cells=what`, cells `x,y,z` joined by '+'). The station run
+  line has none. On module rev 3 with 7b90c3f1's record lift file every row meets the lift's foot
+  entry back wall (-6,2,7) (3 ticks a run: lanes -1 and 3 and the napper), lane 7's side-entry back
+  wall (-6,12,7) / (-6,13,7) and ironfarm's lane-7 backstop (7,24,5) (4 ticks: the cart at the drop
+  entry's lip before it falls); 7b90c3f1's r3 and ironfarm's lanes file declare them (`# contacts:`,
+  with their evidence rows), so until those land the module rows fail the contacts bar.
+- The stand-ins' sight (ironspec 20:10 (2) / 23:30): a lever's support where the module of record
+  has air blocks sight rays the build leaves open, so the bench checks every villager -> scarer and
+  villager -> villager ray (eye to eye) against them on every tick from T to S, a crossing failing
+  the row; its positive control (`--sight-control`, ironspec 00:27 (A)) lays a glass support in the
+  world at T on the first villager -> scarer ray, and that row must fail by its own check: the napper's (7,-2,8), and R_1's inputs' (x+2,16,1) with
+  `--r-repeater` (the pockets' levers stand on M16bw's riser glass (x-2,-1,0), the build's own cell;
+  the pocket x 7 rider's ray to the deep zombie (-4.5,-18,3.5) crosses lane x 7's (5,-1,0) in the
+  build too; the slope's line end has no stand-in, above). The eye heights over the feet come from redsim's entity data
+  (`MobType::def().eye`, each row cited to 26.3's EntityTypes builder: villager 1.62, zombie 1.74,
+  pillager 1.6575), the data 9fc3155f's sight-diff reads; a seated villager stays standing, its
+  feet the cart's position.
+- A departing rider missing from the lift tracking (removed or never spawned) without `--dep-riders`
+  declaring it absent fails the row (G1 on 4a09c256).
 
 ## Open
 

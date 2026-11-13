@@ -3477,6 +3477,66 @@ pub enum MobfarmCmd {
         /// of the design's top (its top cells dropped at the placement).
         #[arg(long, default_value_t = 0)]
         box_short: i32,
+        /// (golem-stamp path (a), ironspec 13:09) An assembled module in the loop frame as the
+        /// world (the station's cells where the bench has them, the merge row and the shared lift
+        /// laid): the departing carts roll on and each rider is tracked against every next-batch
+        /// caller's 10-box.
+        #[arg(long)]
+        module: Option<PathBuf>,
+        /// (2c)'s hold, ironspec 14:16: the drive's input "x,y,z" (the bench's frame: loop + 6 in x
+        /// and z; day-1's repeater (-4,12,6)'s input (-4,12,5) = 2,12,11): the controller's output
+        /// from REL + `--hold-release` for `--hold-width` gt, emulated by holding the hold rail
+        /// (`--hold-rail`) powered one tick later, as the repeater would (no stand-in at the line
+        /// end: ironspec 23:30's sight rule).
+        #[arg(long)]
+        hold_drive: Option<String>,
+        /// (2c)'s hold rail "x,y,z" (the bench's frame): lane 2's rest on it, its drift, an entry
+        /// into the column before the release, its gap after lane 1's pass at y 12, its state.
+        #[arg(long)]
+        hold_rail: Option<String>,
+        /// The hold's release, gt after REL.
+        #[arg(long, default_value_t = 98)]
+        hold_release: i64,
+        /// The hold's drive width, gt.
+        #[arg(long, default_value_t = 10)]
+        hold_width: i64,
+        /// With --module: this station's own cells (path (a)'s and V15's included) and path (a)'s
+        /// lift part (`drop::PATH_A_LIFT`: the ramped merge end, the braked slope) laid over it.
+        #[arg(long)]
+        path_a: bool,
+        /// With --module: the napper's cart and rider at its hold (loop (9,0,8)), released at REL +
+        /// this (ARM3 EMULATED as a lever stand-in at (7,-1,8) for 10 gt, through the module's
+        /// repeater (8,-1,8) and the slime (9,-1,8): the built path): its passage
+        /// through the lift against lane 7's, in the contact count as lane 3.
+        #[arg(long)]
+        napper_release: Option<i64>,
+        /// With --module: the direct summon check (ironspec 19:24..20:07): the module's hostile
+        /// posts kept, the bench's villagers slept as the steady runs set it, and at the due summon
+        /// tick S = T + 100 the stand's riders (willing and ticking at the tick's start) and its
+        /// GolemTry calls up to the first success, classed golem born / spot miss / caller blocked
+        /// by its own memory / fewer than 3 willing / no panicking caller; each golem born removed.
+        #[arg(long)]
+        summon_check: bool,
+        /// The summon check's control: pocket K's arriving rider (0..2) removed before the warm-up;
+        /// its row must show the miss.
+        #[arg(long)]
+        remove_rider: Option<usize>,
+        /// The pocket drive's control (ironspec 22:03): pocket K's lever stand-in (0..2) never
+        /// switched on; its cart must stay in its pocket.
+        #[arg(long)]
+        lever_off: Option<usize>,
+        /// The sight check's positive control (ironspec 00:27 (A)): a glass stand-in support laid
+        /// at T on the first villager -> scarer ray; the row's own sight check must flag it.
+        #[arg(long)]
+        sight_control: bool,
+        /// The hold check's positive control (G1 on 82f9546f (c)): a real neighbour update to the
+        /// held slope rail itself at REL + K (inside its window); the check must fail.
+        #[arg(long)]
+        hold_poke: Option<i64>,
+        /// A cell "x,y,z" (the bench's frame) no cart's or villager's box may meet (repeatable):
+        /// the ticks any does are counted (day-1's side drive (b), ironspec 15:12).
+        #[arg(long)]
+        watch_cell: Vec<String>,
         /// (the station) The R line: the lanes' R_1 cells with the next batch on them, powered from
         /// the side "D,L": D gt after the last trapdoor shut again (needs --pulse), for L gt.
         #[arg(long, default_value = "")]
@@ -8733,7 +8793,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 Ok(fspec)
             };
             let (spec, cold_spec) = (spec_of([true; 3])?, spec_of([false; 3])?);
-            let base = crate::drop::DropOpts { layout: lo, hold_y, rel: rel[0], stagger: [stagger[0], stagger[1], stagger[2]], rebrake, release, pulse, occupancy: false, exit_gate: true, open_delay, l1: !l2, dep_absent: [false; 3], restarts: Vec::new(), panic_posts: Vec::new(), follow_range: 16.0, panic_search: None, r_repeater, box_short: 0, release_world: false, rebrake_each: true, scarers: scarers_v, refill: Some((refill[0], refill[1])), ticks, seed, freeze: None, logins: Vec::new(), trace: false };
+            let base = crate::drop::DropOpts { layout: lo, hold_y, rel: rel[0], stagger: [stagger[0], stagger[1], stagger[2]], rebrake, release, pulse, occupancy: false, exit_gate: true, open_delay, l1: !l2, dep_absent: [false; 3], restarts: Vec::new(), panic_posts: Vec::new(), follow_range: 16.0, panic_search: None, r_repeater, box_short: 0, track_lift: false, hold_drive: None, hold_rail: None, hold_release: 98, hold_width: 10, napper: None, watch: Vec::new(), summon_check: false, remove_rider: None, stops: crate::drop::station_stops(lo, hold_y), lever_off: None, sight_control: false, hold_poke: None, release_world: false, rebrake_each: true, scarers: scarers_v, refill: Some((refill[0], refill[1])), ticks, seed, freeze: None, logins: Vec::new(), trace: false };
             let o = crate::stationjudge::StationJudgeOpts { rels: rel.clone(), seeds: (seed..seed + seeds.max(1)).collect(), starts: (starts[0], starts[1]), ds: ds.clone(), restarts: !no_restarts, cold: !no_cold, launch_min, edge, rest_bar, jobs };
             println!(
                 "station judge (cc767b78, bench, tool unreviewed; the {} mode: per REL {rel:?} the control, {}the cold start{}): drop-bench --layout station --pad --hold-y {hold_y} --stagger {},{},{} --rebrake {rebrake} --rebrake-each --release {release} --exit-gate --open-delay {open_delay} --pulse {pulse} --refill {},{} --post {:?} {}--scarers {scarers}, {ticks} ticks; the launch bar {}",
@@ -8783,7 +8843,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::DropBench { layout, login, hold_y, rel, stagger, rebrake, release, pulse, occupancy, exit_gate, release_world, pad, rebrake_each, scarers, block, posts, slab_stop, open_delay, l1, restart, restart_sweep, write_design, panic_post, part, follow_range, panic_search, r_repeater, box_short, refill, dep_riders, arr_riders, freezes, freeze_sweep, ticks, seed, seeds, summary, out, trace } => {
+        MobfarmCmd::DropBench { layout, login, hold_y, rel, stagger, rebrake, release, pulse, occupancy, exit_gate, release_world, pad, rebrake_each, scarers, block, posts, slab_stop, open_delay, l1, restart, restart_sweep, write_design, panic_post, part, follow_range, panic_search, r_repeater, box_short, module, hold_drive, hold_rail, hold_release, hold_width, path_a, napper_release, summon_check, remove_rider, lever_off, sight_control, hold_poke, watch_cell, refill, dep_riders, arr_riders, freezes, freeze_sweep, ticks, seed, seeds, summary, out, trace } => {
             let posts_v: Vec<(i32, i32, i32)> = posts
                 .iter()
                 .map(|s| -> anyhow::Result<(i32, i32, i32)> {
@@ -8792,6 +8852,16 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     Ok((v[0], v[1], v[2]))
                 })
                 .collect::<anyhow::Result<_>>()?;
+            let cell3 = |s: &Option<String>, what: &str| -> anyhow::Result<Option<(i32, i32, i32)>> {
+                let Some(s) = s else { return Ok(None) };
+                let v: Vec<i32> = s.split(',').map(|x| x.trim().parse::<i32>()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(v.len() == 3, "{what} x,y,z");
+                Ok(Some((v[0], v[1], v[2])))
+            };
+            let hold_drive_v = cell3(&hold_drive, "--hold-drive")?;
+            let hold_rail_v = cell3(&hold_rail, "--hold-rail")?;
+            let watch_v: Vec<(i32, i32, i32)> = watch_cell.iter().map(|s| cell3(&Some(s.clone()), "--watch-cell").map(|c| c.unwrap())).collect::<anyhow::Result<_>>()?;
+            anyhow::ensure!(hold_drive_v.is_none() || module.is_some(), "--hold-drive runs with --module (the lift laid)");
             // (extra blocks "x,y,z,STATE": the state may hold commas)
             let mut blocks_v: Vec<(i32, i32, i32, String)> = block
                 .iter()
@@ -8808,13 +8878,24 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             // - 0.7 for a zombie: 9fc3155f); laid at file = loop + (6,0,6))
             let mut panic_v: Vec<(char, redsim::entity::Vec3)> = Vec::new();
             // (a part file in the loop frame, e.g. 9fc3155f's F3 part: its blocks laid at file =
-            // loop + (6,0,6); its entities left out, the scarers come from --panic-post)
+            // loop + (6,0,6); its entities left out, the scarers come from --panic-post; its header's
+            // `# contacts:` and `# stops:` lines' cells "(x,y,z)" are declared cart contacts,
+            // ironspec 21:25 (4) / 22:05)
+            let mut part_contacts: Vec<(i32, i32, i32)> = Vec::new();
             for path in &part {
                 let text = std::fs::read_to_string(path).map_err(|e| anyhow::anyhow!("--part {path}: {e}"))?;
                 let d = mctas::design::Design::parse(&text).map_err(|e| anyhow::anyhow!("--part {path}: {e}"))?;
                 for (p, st) in &d.blocks {
                     blocks_v.push((p[0] + 6, p[1], p[2] + 6, st.trim_start_matches("minecraft:").to_string()));
                 }
+                for c in crate::drop::declared_contacts(&text) {
+                    part_contacts.push((c.0 + 6, c.1, c.2 + 6));
+                }
+            }
+            // (the module's own header declares its parts' contacts too: record7 copies them)
+            if let Some(mf) = &module {
+                let text = std::fs::read_to_string(mf).map_err(|e| anyhow::anyhow!("--module {}: {e}", mf.display()))?;
+                part_contacts.extend(crate::drop::declared_contacts(&text).into_iter().map(|(x, y, z)| (x + 6, y, z + 6)));
             }
             for s in &panic_post {
                 let p = crate::golemflow::parse_post(s).map_err(|e| anyhow::anyhow!(e))?;
@@ -8926,7 +9007,68 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 };
                 for h in &holds {
                     let ex = crate::drop::Extras { blocks: blocks_v.clone(), posts: posts_v.clone(), slab_stop, r_repeater };
-                    let text = crate::drop::design_extra(lo, *h as i32, dep, arr, pad, refill_v.is_some(), &ex);
+                    let text = match &module {
+                        // (golem-stamp path (a): the assembled module as the world; with --path-a
+                        // this station's own cells (path (a)'s and V15's included) and the lift
+                        // part's laid over it)
+                        Some(mf) => {
+                            anyhow::ensure!(lo == crate::drop::DropLayout::Station, "--module: the station layout only");
+                            let mut over: Vec<(i32, i32, i32, String)> = Vec::new();
+                            if path_a {
+                                let st = mctas::design::Design::parse(&crate::drop::design_extra(lo, *h as i32, [true; 3], [true; 3], false, true, &ex)).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                                over.extend(st.blocks.iter().map(|(p, s)| (p[0], p[1], p[2], s.clone())));
+                                // (drop::PATH_A_LIFT: a stand-in for 7b90c3f1's lift cells; its
+                                // record file goes in with --part, laid after it)
+                                over.extend(crate::drop::PATH_A_LIFT.iter().map(|(x, y, z, s)| (x + 6, *y, z + 6, s.to_string())));
+                            }
+                            // (the stand-in cells, for cc767b78's diff against the module of record: the
+                            // `# stand-in:` header line of the composed world, in the bench's frame)
+                            let mut stand_in: Vec<(i32, i32, i32)> = Vec::new();
+                            if path_a && part.is_empty() {
+                                stand_in.extend(crate::drop::PATH_A_LIFT.iter().map(|(x, y, z, _)| (x + 6, *y, z + 6)));
+                            }
+                            let first_drive = over.len();
+                            // (the drives' stand-ins, ironspec 17:46/17:56: day-1's pocket repeaters
+                            // (x-1,0,0) with lever inputs (x-2,0,0), each on glass; the hold's and the
+                            // napper's lever inputs on glass)
+                            for (x, _, z) in crate::drop::DropLayout::Station.pockets() {
+                                over.push((x - 1, 0, z, "repeater[delay=1,facing=west,locked=false,powered=false]".into()));
+                                over.push((x - 1, -1, z, "glass".into()));
+                                over.push((x - 2, 0, z, "lever[face=floor,facing=east,powered=false]".into()));
+                                over.push((x - 2, -1, z, "glass".into()));
+                            }
+                            // (the slope's line end (-4,12,5) gets no stand-in: the bench holds the hold
+                            // rail powered itself, ironspec 23:30: every lever support there blocked a
+                            // rider's sight ray between T and S)
+                            if napper_release.is_some() {
+                                // (a floor lever on new glass (7,-2,8): ironspec 18:31 retired the wall
+                                // lever on (7,-1,7), whose toggle updates the merge T (7,0,7))
+                                over.push((13, -1, 14, "lever[face=floor,facing=east,powered=false]".into()));
+                                over.push((13, -2, 14, "glass".into()));
+                            }
+                            stand_in.extend(over[first_drive..].iter().map(|(x, y, z, _)| (*x, *y, *z)));
+                            over.extend(blocks_v.iter().cloned());
+                            let t = crate::drop::module_text(&std::fs::read_to_string(mf)?, *h as i32, &over, napper_release.is_some(), summon_check).map_err(|e| anyhow::anyhow!(e))?;
+                            let held = hold_drive_v.map(|(x, y, z)| {
+                                let (rx, ry, rz) = hold_rail_v.unwrap_or((x, y, z + 2));
+                                format!(
+                                    "# held: {rx},{ry},{rz} powered=true (driver: day-1's repeater {x},{y},{} from its line end {x},{y},{z}, the lane-7 tap's line; phase REL + {} .. REL + {}; bench frame = loop + (6,0,6); ironspec 01:07)\n",
+                                    z + 1,
+                                    hold_release + 1,
+                                    hold_release + hold_width
+                                )
+                            });
+                            // (cc767b78: the bench's whole declared stop set in the bench frame, so a
+                            // world-file judge reads the file as it is: the station's stops and the
+                            // `# contacts:` / `# stops:` cells of the --part and --module headers, + 6)
+                            let stops_line = format!(
+                                "# stops: {}=the bench's declared cart contacts (the station's stops; the --part and --module headers' contacts), bench frame\n",
+                                crate::drop::station_stops(lo, *h as i32).into_iter().chain(part_contacts.iter().copied()).map(|(x, y, z)| format!("{x},{y},{z}")).collect::<Vec<_>>().join("+")
+                            );
+                            format!("# stand-in: {}\n{}{stops_line}{t}", stand_in.iter().map(|(x, y, z)| format!("{x},{y},{z}")).collect::<Vec<_>>().join("; "), held.unwrap_or_default())
+                        }
+                        None => crate::drop::design_extra(lo, *h as i32, dep, arr, pad, refill_v.is_some(), &ex),
+                    };
                     // (onechunk's module: the station as a committed design in the loop frame)
                     if let Some(wd) = &write_design {
                         anyhow::ensure!(lo == crate::drop::DropLayout::Station, "--write-design: the station layout only");
@@ -8939,13 +9081,14 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                                 rebrake,
                                 stagger
                             ),
-                            "Cells: pockets P0..2 at (x,0,0), x -1/3/7, north_south powered rails on switched supports (x,-1,0) (stone; a redstone block while powered); the launcher stone (x,0,-1) under an unattached string (x,1,-1); the pocket strings (x,1,0); departure (x,0,1) plain, the exit detector D_k (x,0,2), (x,0,3) plain, boosters (x,0,4..6): the merge row at z 7.".into(),
+                            "Cells: pockets P0..2 at (x,0,0), x -1/3/7, north_south powered rails on glass (x,-1,0) (V15: no golem floor; the drive from the side, M16bw: day-1's repeater (x-1,0,0), facing west on glass (x-1,-1,0), into the rail, laid here as a stand-in until day-1's file; its input (x-2,0,0) is day-1's riser, a lever stand-in in the bench; nothing is written in the support cell); the launcher's slime (x,0,-1) (V16s: a conductor for the kick; tick-exact's official kick row) under an unattached string (x,1,-1); the pocket strings (x,1,0); departure (x,0,1) plain, the exit detector D_k (x,0,2); lanes x -1 and x 3: (x,0,3) plain (lane x 3's a booster, path (a)'s (1), powered through z 4's chain), boosters (x,0,4..6) on glass powered by an always-on redstone torch (x-1,0,5) on glass (x-1,-1,5), the chain the other two (V15): the merge row at z 7; lane x 7 (path (a)'s (2c), ironspec 14:11/14:16/16:46): four ascending powered rails (7,0..3,3..6) on glass (a redstone torch (6,1,4) on glass (6,0,4) powers the chain), the curve (7,4,7) on glass, nine ascending rails west (6..-2,4..12,7) on glass, the first two powered (a redstone torch (6,4,6) on glass (6,3,6)) and the other seven plain (the cart crests at a crawl and rests near the slope's top), the crest (-3,13,7) on the lift's glass (-3,12,7) (7b90c3f1's), then the lift's braked slope (-4,12,7): 7b90c3f1's record lift file wip/lift/f1q2-lift-split-path-a.txt (explore/farmopt-v15-patha 83878113f). R_1's high side (x,17,2) glass.".into(),
                             format!("Holds H0..2 at (x,{0},0): bottom-half trapdoors (open: the drop), the ring's glass, the north stop a bottom slab (x,{1},-1), the hold string (x,{1},0); R_1 (x,{1},1) a powered rail ascending south, {2}. The pad: portals x -2..7 rows z -5 and -2, golem feet -6 (PAD0..PAD1).", *h, *h + 1, if r_repeater { format!("driven by its built repeater (x+1,{0},1) (delay 1, facing west into R_1, on glass (x+1,{1},1)), fed from the controller's cell (x+2,{0},1)", *h + 1, *h) } else { format!("side-powered at (x+1,{},1) (glass; a redstone block while powered)", *h + 1) }),
-                            format!("Events (L1, game ticks, every drive EMULATED until the circuit is laid; T the summon tick): 1. pocket k's support powered at REL + offset k, unpowered 16 gt later (the re-brake). 2. pocket k's gate: D_k rises after REL + offset k, or pocket k's string is off then (the cold start); trapdoor k opens 4 gt after, not before T+3. 3. trapdoor k shuts pulse gt after it opens. 4. all three shut: + 2 gt, {} for 10 gt (the next batch rolls into the holds; R_1's threshold 5 gt with the built drive, NOTES).", if r_repeater { "every R_1 repeater's input powered" } else { "every R_1 side-powered" }),
+                            format!("Events (L1, game ticks, every drive EMULATED until the circuit is laid, each from a lever stand-in at its line end; T the summon tick): 1. pocket k's rail powered through day-1's repeater (x-1,0,0) at REL + offset k (its input lever (x-2,0,0) on at REL + offset k - 1), unpowered 16 gt later (the re-brake). 2. pocket k's gate: D_k rises after REL + offset k, or pocket k's string is off then (the cold start); trapdoor k opens 4 gt after, not before T+3. 3. trapdoor k shuts pulse gt after it opens. 4. all three shut: + 2 gt, {} for 10 gt (the next batch rolls into the holds; R_1's threshold 5 gt with the built drive, NOTES).", if r_repeater { "every R_1 repeater's input powered" } else { "every R_1 side-powered" }),
                             "Carts: the batch in the pockets and the next in the holds (riders), the hold carts where the lane leaves them (0.49 into the cell, against the ring's north glass: tickexact's lane-handoff ca3cdb2ed); the lanes' carts (R_1 on) and R_2 are the lanes' file's. The pad's seal: cobblestone at y -8 under the floor rows, x -2..7 (40 blocks).".into(),
                             "The Nether part is the bench's PLACEHOLDER, not the build: the shared kill room's portal at the pads' y replaces it.".into(),
                             "Read path: the hold strings' hook supports (x+-2,17,0) are glowstone (golem-proof, lit, a solid-render stroll destination, a sturdy hook face); glowstone conducts no power, so each hold string is read from its hooks directly (dust or a repeater beside the hook), never through the support.".into(),
-                            format!("R_1's power cell (x+1,17,1) sits face-adjacent (south) to the hold string's hook (x+1,17,0): the built driver is a repeater facing west into R_1, its input from the east (x+2,17,1), which no hook can drive (never dust, nor a repeater or comparator reading from the north); {}. R_1's high side's support (x,17,2), the lanes' glass under their R_2, comes from the lanes' file: `design would-pop` on this file alone lists R_1 x3, safe in the build (R_1 takes its slope once R_2 is placed).", if r_repeater { "this file lays it (repeater[delay=1,facing=east] on glass at (x+1,16,1)); its input cell (x+2,17,1) is the controller's (the bench: a redstone block there for the R line's pulse)" } else { "this file holds glass there, the bench's emulation (a redstone block while the R line is on)" }),
+                            format!("R_1's power cell (x+1,17,1) sits face-adjacent (south) to the hold string's hook (x+1,17,0): the built driver is a repeater facing west into R_1, its input from the east (x+2,17,1), which no hook can drive (never dust, nor a repeater or comparator reading from the north); {}. R_1's high side (x,17,2) is glass in this file (9fc3155f's rail-floor scan, ironspec 20:31: R_1 stands on it without the lanes' file).", if r_repeater { "this file lays it (repeater[delay=1,facing=east] on glass at (x+1,16,1)); its input cell (x+2,17,1) is the controller's line end (the bench: a lever stand-in on glass there, on for the R line's pulse)" } else { "this file holds glass there, the bench's emulation (a redstone block while the R line is on)" }),
+                            "held: -4,12,7 powered=true (driver: day-1's repeater (-4,12,6) from its line end (-4,12,5), the lane-7 tap's line; phase REL + 96 .. REL + 113, the module rows' --hold-release 95 --hold-width 18: the module bench holds the braked slope's rail, 7b90c3f1's lift cell, with the edge updates the build makes, and no stand-in at the line end; ironspec 01:07, G1 on 82f9546f)".to_string(),
                         ];
                         let loop_text = crate::drop::station_loop_text(&text, *h as i32, &header).map_err(|e| anyhow::anyhow!(e))?;
                         std::fs::write(wd, &loop_text)?;
@@ -8966,7 +9109,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             for rb in &rebrakes {
                                 for rl in &releases {
                                     for s in seed..seed + seeds {
-                                        let o = crate::drop::DropOpts { layout: lo, hold_y: *h as i32, rel: *r, stagger: [st[0], st[1], st[2]], rebrake: *rb, release: *rl, pulse, occupancy, exit_gate, open_delay, l1, dep_absent: dep_x, restarts: rset.clone(), panic_posts: panic_v.clone(), follow_range, panic_search, r_repeater, box_short, release_world, rebrake_each, scarers: scarers_v.clone(), refill: refill_v, ticks, seed: s, freeze: *f, logins: logins_v.clone(), trace };
+                                        let o = crate::drop::DropOpts { layout: lo, hold_y: *h as i32, rel: *r, stagger: [st[0], st[1], st[2]], rebrake: *rb, release: *rl, pulse, occupancy, exit_gate, open_delay, l1, dep_absent: dep_x, restarts: rset.clone(), panic_posts: panic_v.clone(), follow_range, panic_search, r_repeater, box_short, track_lift: module.is_some(), hold_drive: hold_drive_v, hold_rail: hold_rail_v, hold_release, hold_width, napper: napper_release, watch: watch_v.clone(), summon_check, remove_rider, stops: crate::drop::station_stops(lo, *h as i32).into_iter().chain(part_contacts.iter().copied()).collect(), lever_off, sight_control, hold_poke, release_world, rebrake_each, scarers: scarers_v.clone(), refill: refill_v, ticks, seed: s, freeze: *f, logins: logins_v.clone(), trace };
                                         let (lines, stats) = crate::drop::bench(&fspec, &o).map_err(|e| anyhow::anyhow!(e))?;
                                         by_rel.entry(*r).or_default().push(stats.clone());
                                         runs.push(stats);
@@ -8984,9 +9127,18 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     }
                     println!("{}", crate::drop::summary(&format!("SUMMARY {lo:?}, hold y {h}, REL {rel}, re-brake {rebrake}, trapdoors {release}{}{}, {} freezes, {} restart rows", if occupancy { ", gated on the strings" } else { "" }, if l1 { ", L1" } else { ", L2" }, frz.len(), reload_sets.len()), &runs));
                     // (farmopt 03:25: the rest margin and the landing lead at each REL)
+                    if !watch_v.is_empty() {
+                        println!(
+                            "  the watched cells ({}): a cart's or villager's box met one on {} ticks in {} of {} runs",
+                            watch_v.len(),
+                            runs.iter().map(|s| s.watch_hits).sum::<u32>(),
+                            runs.iter().filter(|s| s.watch_hits > 0).count(),
+                            runs.len()
+                        );
+                    }
                     if by_rel.len() > 1 {
                         for (r, rs) in &by_rel {
-                            let fails: usize = rs.iter().map(|s| s.wrong + s.contacts + s.hurt + s.stuck + s.shut_onto).sum();
+                            let fails: usize = rs.iter().map(|s| s.wrong + s.contacts + s.hurt + s.stuck + s.shut_onto + s.lift_last.iter().filter(|l| l.is_some_and(|t| t >= 97)).count() + usize::from(s.undeclared_contacts > 0) + usize::from(s.sight_hit_count > 0) + s.missing_riders as usize + usize::from(s.hold_breaks > 0)).sum();
                             let pan: Vec<String> = (0..3)
                                 .filter_map(|k| {
                                     let v: Vec<(i64, i64)> = rs.iter().filter_map(|s| s.panic[k].map(|x| (x.1, x.2))).collect();
@@ -8995,6 +9147,108 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                                 })
                                 .collect();
                             let least = rs.iter().filter_map(|s| s.panic_callers).min();
+                            // (golem-stamp path (a): per lane the last tick inside a caller box and its
+                            // slack over the physical bar, ironspec 19:07: the panic path summons only at
+                            // game time % 100 == 0 (S = T + 100) and stamps every villager in the
+                            // caller's 10-box, so the rider is out after its move on S - 3 (1 tick for
+                            // entity order + 2 margin), measured every tick)
+                            let lift: Vec<String> = (0..3)
+                                .filter(|n| rs.iter().any(|s| s.lift_last[*n].is_some()))
+                                .map(|n| {
+                                    let last = rs.iter().filter_map(|s| s.lift_last[n]).max().unwrap_or(-1);
+                                    format!(
+                                        "lane {n} inside last at T+{last} (out from T+{}: the slack over S - 3 {}), its feet at T+80 at least {}, inside at S in {} runs",
+                                        last + 1,
+                                        97 - (last + 1),
+                                        rs.iter().filter_map(|s| s.lift_y80[n]).fold(f64::INFINITY, f64::min),
+                                        rs.iter().filter(|s| s.lift_in100[n]).count()
+                                    )
+                                })
+                                .collect();
+                            if !lift.is_empty() {
+                                println!("  REL T+{r}: {} runs; the departing riders (the bar: out of every next-batch caller's box after its move on S - 3 = T+97, physical; the old T+80 was inherited and is retired): {}", rs.len(), lift.join("; "));
+                                let tops: Vec<String> = (0..3)
+                                    .filter(|n| rs.iter().any(|s| s.lift_top[*n].is_some()))
+                                    .map(|n| {
+                                        let v: Vec<(i64, f64, f64)> = rs.iter().filter_map(|s| s.lift_top[n]).collect();
+                                        format!(
+                                            "lane {n} T+{}..{} rising {:.3}..{:.3} ({} of {} runs)",
+                                            v.iter().map(|x| x.0).min().unwrap(),
+                                            v.iter().map(|x| x.0).max().unwrap(),
+                                            v.iter().map(|x| x.2).fold(f64::INFINITY, f64::min),
+                                            v.iter().map(|x| x.2).fold(f64::NEG_INFINITY, f64::max),
+                                            v.len(),
+                                            rs.len()
+                                        )
+                                    })
+                                    .collect();
+                                let held: Vec<&crate::drop::DropStats> = rs.iter().filter(|s| s.hold_on.is_some()).collect();
+                                // (path (a): each lane's pass at y 12 after REL, the napper's against lane 7's)
+                                let passes: Vec<String> = (0..3)
+                                    .filter(|n| rs.iter().any(|s| s.lift_y12[*n].is_some()))
+                                    .map(|n| {
+                                        let v: Vec<i64> = rs.iter().filter_map(|s| if n == 2 && s.hold_on.is_some() { s.lift_entry[2] } else { s.lift_y12[n] }).collect();
+                                        format!("lane {n} REL+{}..{}", v.iter().min().map_or(-1, |t| t - r), v.iter().max().map_or(-1, |t| t - r))
+                                    })
+                                    .collect();
+                                let nap: Vec<&crate::drop::DropStats> = rs.iter().filter(|s| s.nap_y12.is_some()).collect();
+                                println!(
+                                    "  REL T+{r}: the passes at y 12 (lane 2 held: its entry into the column) {}; lane 0 -> lane 1 at the lift's foot (their entries) at least {} gt; lane 2 back in a caller's box (its column entry's dip) from T+{}..{} (the margin after the summon at T+100: {}); lane 1's pass to lane 2's entry at least {} gt; the riders' least air (of 300) {}{}",
+                                    passes.join(", "),
+                                    rs.iter().filter_map(|s| Some(s.lift_entry[1]? - s.lift_entry[0]?)).min().map_or("-".to_string(), |g| g.to_string()),
+                                    rs.iter().filter_map(|s| s.lift_dip[2]).min().map_or("-".to_string(), |t| t.to_string()),
+                                    rs.iter().filter_map(|s| s.lift_dip[2]).max().map_or("-".to_string(), |t| t.to_string()),
+                                    rs.iter().filter_map(|s| s.lift_dip[2]).min().map_or("-".to_string(), |t| (t - 100).to_string()),
+                                    rs.iter().filter_map(|s| Some(s.lift_entry[2]? - s.lift_y12[1]?)).min().map_or("-".to_string(), |g| g.to_string()),
+                                    (0..4).map(|n| format!("{} {}", if n == 3 { "the napper".to_string() } else { format!("lane {n}") }, rs.iter().filter_map(|s| s.lift_air[n]).min().map_or("-".to_string(), |a| a.to_string()))).collect::<Vec<_>>().join(", "),
+                                    if nap.is_empty() {
+                                        String::new()
+                                    } else {
+                                        format!(
+                                            "; the napper's pass REL+{}..{} ({} of {} runs), after lane 2's entry by {}..{} gt, before the next batch's lane 0 (its pass + 100) by {}..{} gt, its top exit REL+{}..{}",
+                                            nap.iter().filter_map(|s| s.nap_y12).min().unwrap() - r,
+                                            nap.iter().filter_map(|s| s.nap_y12).max().unwrap() - r,
+                                            nap.len(),
+                                            rs.len(),
+                                            nap.iter().filter_map(|s| Some(s.nap_y12? - s.lift_entry[2]?)).min().map_or("-".to_string(), |g| g.to_string()),
+                                            nap.iter().filter_map(|s| Some(s.nap_y12? - s.lift_entry[2]?)).max().map_or("-".to_string(), |g| g.to_string()),
+                                            nap.iter().filter_map(|s| Some(s.lift_y12[0]? + 100 - s.nap_y12?)).min().map_or("-".to_string(), |g| g.to_string()),
+                                            nap.iter().filter_map(|s| Some(s.lift_y12[0]? + 100 - s.nap_y12?)).max().map_or("-".to_string(), |g| g.to_string()),
+                                            nap.iter().filter_map(|s| s.nap_top).min().map_or(-1, |t| t - r),
+                                            nap.iter().filter_map(|s| s.nap_top).max().map_or(-1, |t| t - r)
+                                        )
+                                    }
+                                );
+                                println!(
+                                    "  REL T+{r}: the lift's top exits {} (lane 0 -> lane 1 at the top at least {} gt, lane 1 -> lane 2 at least {} gt); the departing carts' least clearance overlapping in y {}, push contacts {} in {} runs{}",
+                                    tops.join(", "),
+                                    rs.iter().filter_map(|s| Some(s.lift_top[1]?.0 - s.lift_top[0]?.0)).min().map_or("-".to_string(), |g| g.to_string()),
+                                    rs.iter().filter_map(|s| Some(s.lift_top[2]?.0 - s.lift_top[1]?.0)).min().map_or("-".to_string(), |g| g.to_string()),
+                                    rs.iter().filter_map(|s| s.lift_clear).fold(f64::INFINITY, f64::min),
+                                    rs.iter().map(|s| s.lift_push).sum::<u32>(),
+                                    rs.iter().filter(|s| s.lift_push > 0).count(),
+                                    if held.is_empty() {
+                                        String::new()
+                                    } else {
+                                        format!(
+                                            "; the hold: released T+{}..{}, lane 2 at rest in {} of {} runs from T+{}..{}, x {:.3}..{:.3} (loop), its rider's feet at least {:.3}, the largest drift while held {:.4}, in the column before the release in {} runs, its entry after lane 1's pass at y 12 at least {} gt (the bar 21), the hold rail not a dry powered rail on {} ticks",
+                                            held.iter().filter_map(|s| s.hold_on).min().unwrap(),
+                                            held.iter().filter_map(|s| s.hold_on).max().unwrap(),
+                                            held.iter().filter(|s| s.hold_rest.is_some()).count(),
+                                            held.len(),
+                                            held.iter().filter_map(|s| s.hold_rest.map(|h| h.0)).min().unwrap_or(-1),
+                                            held.iter().filter_map(|s| s.hold_rest.map(|h| h.0)).max().unwrap_or(-1),
+                                            held.iter().filter_map(|s| s.hold_rest.map(|h| h.1 - 6.0)).fold(f64::INFINITY, f64::min),
+                                            held.iter().filter_map(|s| s.hold_rest.map(|h| h.1 - 6.0)).fold(f64::NEG_INFINITY, f64::max),
+                                            held.iter().filter_map(|s| s.hold_rest.map(|h| h.2)).fold(f64::INFINITY, f64::min),
+                                            held.iter().map(|s| s.hold_drift).fold(0.0, f64::max),
+                                            held.iter().filter(|s| s.hold_overshoot).count(),
+                                            held.iter().filter_map(|s| s.hold_gap).min().map_or("-".to_string(), |g| g.to_string()),
+                                            held.iter().map(|s| s.hold_wet).sum::<u32>()
+                                        )
+                                    }
+                                );
+                            }
                             println!(
                                 "  REL T+{r}: {} runs; at rest least {} gt before the next summon, the landing lead least {} gt; failures {fails}{}",
                                 rs.len(),
@@ -9002,6 +9256,107 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                                 rs.iter().filter_map(|s| s.brake_lead).min().map_or("-".to_string(), |v| v.to_string()),
                                 if pan.is_empty() { String::new() } else { format!("; the panic (window margins in range / seen, phase pairs calling of 400): {}; least callers {}", pan.join(", "), least.map_or("-".to_string(), |c| c.to_string())) }
                             );
+                            // (the direct summon check, ironspec 19:24..20:07: per due S the stand's
+                            // calls, the classes, callers-per-S, and the golem rate per k beside
+                            // 1 - m^k, m = (1 - 40..44/289)^10, failing only when the binomial 99 %
+                            // interval misses that range)
+                            if summon_check {
+                                let dues: Vec<&crate::drop::SummonDue> = rs.iter().flat_map(|s| s.summon_due.iter()).collect();
+                                let mut classes: Vec<(&str, usize)> = Vec::new();
+                                for d in &dues {
+                                    match classes.iter_mut().find(|c| c.0 == d.class) {
+                                        Some(c) => c.1 += 1,
+                                        None => classes.push((d.class, 1)),
+                                    }
+                                }
+                                let missed = dues.iter().filter(|d| d.calls == 0).count();
+                                // (the misses after a restart within 30 gt before S: the reload
+                                // re-phases the panic, one summon per disturbance, ironspec 20:07)
+                                let missed_restart = dues.iter().filter(|d| d.calls == 0 && d.restart_before.is_some_and(|t| d.s - t <= 30)).count();
+                                let missed_frozen = dues.iter().filter(|d| d.calls == 0 && d.class.starts_with("frozen at S")).count();
+                                let spots: Vec<String> = (0..3)
+                                    .map(|k| {
+                                        let (p0, p1) = (dues.iter().map(|d| d.spots_pad[k]).min().unwrap_or(0), dues.iter().map(|d| d.spots_pad[k]).max().unwrap_or(0));
+                                        let (o0, o1) = (dues.iter().map(|d| d.spots_off[k]).min().unwrap_or(0), dues.iter().map(|d| d.spots_off[k]).max().unwrap_or(0));
+                                        format!("P{k} {p0}..{p1} on the pad, {o0}..{o1} elsewhere")
+                                    })
+                                    .collect();
+                                let range = |k: i32| (1.0 - (1.0f64 - 40.0 / 289.0).powi(10).powi(k), 1.0 - (1.0f64 - 44.0 / 289.0).powi(10).powi(k));
+                                let rate: Vec<String> = (0..=3)
+                                    .rev()
+                                    .map(|k| {
+                                        let at: Vec<&&crate::drop::SummonDue> = dues.iter().filter(|d| d.eligible as i32 == k).collect();
+                                        let born = at.iter().filter(|d| d.born).count();
+                                        if k == 0 || at.is_empty() {
+                                            return format!("k {k}: {} S, {born} born", at.len());
+                                        }
+                                        let (lo, hi) = range(k);
+                                        let (n, p, z) = (at.len() as f64, born as f64 / at.len() as f64, 2.576);
+                                        let c = (p + z * z / (2.0 * n)) / (1.0 + z * z / n);
+                                        let h = z / (1.0 + z * z / n) * (p * (1.0 - p) / n + z * z / (4.0 * n * n)).sqrt();
+                                        format!(
+                                            "k {k}: {born} / {} born ({:.1} %, 99 % interval {:.1}..{:.1}) against {:.1}..{:.1} %{}",
+                                            at.len(),
+                                            100.0 * p,
+                                            100.0 * (c - h),
+                                            100.0 * (c + h),
+                                            100.0 * lo,
+                                            100.0 * hi,
+                                            if c + h < lo || c - h > hi { ": FAILS" } else { "" }
+                                        )
+                                    })
+                                    .collect();
+                                println!(
+                                    "  REL T+{r}: the direct summon check at S = T+100: {} due S, {missed} with no call from the stand ({missed_restart} of them within 30 gt after a restart, {missed_frozen} frozen at S: one summon per disturbance; the gate: 0 otherwise); {}; callers willing and ticking per S (a binomial sample only across independent seeds: restart and freeze rows share one): {}; the golem search's spots per caller (of 289; the rate's expectation assumes 40..44): {}; golems removed {}",
+                                    dues.len(),
+                                    classes.iter().map(|(c, n)| format!("{c} {n}")).collect::<Vec<_>>().join(", "),
+                                    rate.join("; "),
+                                    spots.join(", "),
+                                    rs.iter().map(|s| s.golems_removed).sum::<u32>()
+                                );
+                            }
+                            // (ironspec 21:25 (4): the carts' block contacts over the runs, per cell)
+                            {
+                                let mut cells: Vec<(redsim::pos::BlockPos, String, u32, bool, usize)> = Vec::new();
+                                for s in rs.iter() {
+                                    for (c, b, n, d) in &s.block_contacts {
+                                        match cells.iter_mut().find(|k| k.0 == *c) {
+                                            Some(k) => {
+                                                k.2 += n;
+                                                k.4 += 1;
+                                            }
+                                            None => cells.push((*c, b.clone(), *n, *d, 1)),
+                                        }
+                                    }
+                                }
+                                println!(
+                                    "  REL T+{r}: the carts' block contacts (ironspec 21:25; declared: the station's stops): {}; undeclared in {} runs",
+                                    if cells.is_empty() { "none".to_string() } else { cells.iter().map(|(c, b, n, d, k)| format!("{c} {b} {n} ticks in {k} runs{}", if *d { " (declared)" } else { " UNDECLARED" })).collect::<Vec<_>>().join("; ") },
+                                    rs.iter().filter(|s| s.undeclared_contacts > 0).count()
+                                );
+                            }
+                            if rs.iter().any(|s| s.sight_hit_count > 0 || s.sight_control || s.sight_scarers) {
+                                println!(
+                                    "  REL T+{r}: the stand-ins' sight (ironspec 20:10/23:30/00:27, every tick T..S, a failure): rays crossing a lever's support in {} of {} runs{}; positive-control rows (a glass support laid on a villager -> scarer ray) {}; villager -> scarer rays judged in {} runs",
+                                    rs.iter().filter(|s| s.sight_hit_count > 0).count(),
+                                    rs.len(),
+                                    rs.iter().find_map(|s| s.sight_hits.first()).map_or(String::new(), |h| format!(" (the first: {h})")),
+                                    rs.iter().filter(|s| s.sight_control).count(),
+                                    rs.iter().filter(|s| s.sight_scarers).count()
+                                );
+                            }
+                            if rs.iter().any(|s| s.missing_riders > 0) {
+                                println!("  REL T+{r}: a departing rider missing (no dep_absent) in {} runs: a failure", rs.iter().filter(|s| s.missing_riders > 0).count());
+                            }
+                            if rs.iter().any(|s| !s.held_edges.is_empty()) {
+                                println!(
+                                    "  REL T+{r}: the held slope rail (a declared `held:` stand-in, ironspec 01:07): the hold check broken in {} of {} runs{}; its edges' neighbour updates (the first run): {}",
+                                    rs.iter().filter(|s| s.hold_breaks > 0).count(),
+                                    rs.len(),
+                                    rs.iter().find_map(|s| s.hold_break_first.clone()).map_or(String::new(), |f| format!(" (the first: {f})")),
+                                    rs.iter().find(|s| !s.held_edges.is_empty()).map_or(String::new(), |s| s.held_edges.join("; "))
+                                );
+                            }
                         }
                     }
                 }

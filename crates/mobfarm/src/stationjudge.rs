@@ -74,6 +74,29 @@ pub fn fails(s: &DropStats, launch_min: i64, edge: i64, rest_bar: i64) -> Vec<&'
     if s.stuck > 0 {
         v.push("a departing cart stuck");
     }
+    // (golem-stamp path (a), ironspec 19:07: a departing rider inside a next-batch caller's box
+    // after its move on S - 3 = T + 97 (the summon at game time % 100 == 0 stamps every villager in
+    // the caller's 10-box), a verdict, G1 on 3939d2012)
+    if s.lift_last.iter().any(|l| l.is_some_and(|t| t >= 97)) {
+        v.push("a departing rider in a caller's box after S - 3");
+    }
+    // (ironspec 21:25 (4): a cart's move stopped by a block that is no declared stop or buffer)
+    if s.undeclared_contacts > 0 {
+        v.push("a cart's undeclared block contact");
+    }
+    // (ironspec 23:30: a sight ray crossing a stand-in's support between T and S, or the sight
+    // check's positive control not flagging while a scarer is in sight range; a departing rider
+    // missing without dep_absent)
+    if s.sight_hit_count > 0 {
+        v.push("a sight ray crossing a stand-in's support");
+    }
+    if s.missing_riders > 0 {
+        v.push("a departing rider missing");
+    }
+    // (G1 on 82f9546f (c): the held slope rail off its window's state at a tick's end)
+    if s.hold_breaks > 0 {
+        v.push("the held slope rail off its window (a bench artefact)");
+    }
     if s.refill_fail > 0 {
         v.push("the refill failed");
     }

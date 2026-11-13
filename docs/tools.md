@@ -247,9 +247,53 @@ tick of its own life it crossed in, bar 2), its targets and the posts' (printed 
 taken or dealt, the posts alive at each dawn, golems in the overworld at a summon tick and the
 summoners' sightings, a reload's priced costs apart; `--block-row` the positive control,
 `--restart-noop` the restarts' control). `--r-repeater` (drop-bench and station-judge) drives the R
-line through R_1's built driver (a repeater facing west into R_1, fed by the controller's block at
-(x+2,17,1)) and prints each lane's rail power and its cart's first move (a launch after the power
-ended, or none, fails).
+line through R_1's built driver (a repeater facing west into R_1, fed at (x+2,17,1), the
+controller's line end, by a lever stand-in on glass) and prints each lane's rail power and its
+cart's first move (a launch after the power ended, or none, fails). `--box-short N` (drop-bench and golem-flow) builds the world N cells short of
+the design's top: the placement's positive control (since onechunk's 0f375d1c0 the run refuses the
+out-of-box cells, the control's "fires"); golem-flow's `--block x,y,z,STATE` lays extra cells.
+Golem-stamp path (a), the station's departures through the merge row and the shared lift:
+`drop-bench --layout station --module <assembled module, loop frame> [--path-a] [--part <the record
+lift file>] [--hold-drive x,y,z --hold-rail x,y,z [--hold-release R] [--hold-width W]]
+[--napper-release K] [--watch-cell x,y,z]... [--summon-check [--remove-rider K]] [--out FILE]` runs
+the module as the world (only its six station carts kept; with `--path-a` this station's cells and
+`drop::PATH_A_LIFT`, a stand-in for 7b90c3f1's lift cells, laid over it, then `--part` and
+`--block` cells; `--out` writes that composed world), lets the departing carts roll on and tests
+each rider every tick against the three callers' boxes (the bar, a verdict: out of every caller box
+after its move on S - 3 = T+97, the summon at game time % 100 == 0 stamping every villager in a
+caller's 10-box), with each lane's pass at y 12, its lift entry (the foot pairs) and top exit (the
+top pairs), the braked slope's hold (the slope's rail held powered from REL + R + 1 for W gt, a
+declared `held:` stand-in with the build's edge updates (a plain rail with three or more potential
+connections among the updated cells fails) and the hold check, `--hold-poke K` its
+control; no stand-in at its line end: the cart's rest, drift, overshoot, the gap after lane 1's pass,
+the rail's dry state), the napper's
+cart released at REL + K (its pass against lane 2's entry and the next batch's lane 0), the
+departing carts' least clearance and push contacts (boxes inflated 0.2), the riders' least air, and
+the watched cells' box contacts; every cell in the bench's frame (loop + 6). `--summon-check` keeps
+the module's hostile posts and prints the direct summon check at S = T+100: the stand's riders
+willing and ticking at the tick's start (seated, wanting a golem, >= 3 willing in their 10-box, the
+panic trigger ticking: not at its run's end + 1), the GolemTry calls up to the first success, the
+class (golem born / spot miss / caller blocked by its own memory / fewer than 3 willing / no
+panicking caller), and the golem rate per callers-per-S k against 1 - m^k, m = (1 - 40..44/289)^10
+(failing only when the binomial 99 % interval misses it); `--remove-rider K` is its control (pocket
+K's arriving rider removed: the S must show the miss); `--lever-off K` the pocket drive's control
+(pocket K's lever stand-in never switched: its cart must stay). Every row also lists the carts'
+block contacts (a move stopped horizontally, charged to the blocks on the side of the motion) and
+fails on one that is not a declared stop (the station's: each pocket's slime back (x,0,-1), each
+hold's north stop (x,17,-1)).
+Every drive the bench emulates is a lever stand-in at its line end (the pockets' inputs through
+day-1's repeater stand-ins, the R line's input with `--r-repeater`, the napper's input; the slope's
+hold has none: the bench holds the slope's rail powered): the bench refuses a stand-in
+whose properties differ from the built cell's over the full guard list (legacy-solid, a full top
+face, full-block collision, solid-render, any collision, air, a signal source, golem-excluded, a
+rail, dangerous, a fluid, the golem spawn-space role; each lever against its line end, redstone
+dust), checks each lever's update reach (its six neighbours and its support's: no rail with three
+or more potential connections), power reach (its neighbours, and its support's if it conducts:
+nothing beyond its input) and survival, and fails a row in which a sight ray (villager to scarer,
+villager to villager, eye to eye, every tick from T to S, the eye heights from redsim's entity
+data) crosses a lever's support; `--sight-control` is its positive control, laying a glass support
+at T on the first villager -> scarer ray for the row's own check to flag: ironspec's
+17:46/18:34/20:10/20:31/23:30/00:27 guard. A departing rider missing without `--dep-riders` fails too.
 The portal-loop loaders, benched in redsim: `mctas mobfarm l1-bench [--ticks N] [--hold 320]
 [--pulse 20] [--stagger A1,B1,A2] [--freeze T,D[,ow|nether|both]]... [--piglin T]...
 [--design-out F]` (L1′, the cart loop: an overworld portal and its Nether twin, each side an exit
