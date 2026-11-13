@@ -160,6 +160,11 @@ pub struct Opts {
     pub rel_gate_armed: bool,
     /// (farmopt 13:30) the lanes' pocket offsets after REL (None: 0 / 14 / 24).
     pub lane_offsets: Option<[i64; 3]>,
+    /// (day-1 13:43) the no-string ring with its clock-locked L's (L_J3(1), L_J7(1), L_J7(2), L_J7(3),
+    /// L_J(-1)(3)); None: today's ring.
+    pub ring_timed: Option<[i64; 5]>,
+    /// (day-1 13:43) the ring's world-open term k.
+    pub ring_k: i64,
     /// (ironspec 10:51 (g)) the longest designed rest on a station hold H's trapdoor, gt.
     pub h_rest_bound: i64,
     /// (ironspec 10:51 (f)) the siding check's positive: a batch cart planted on lane -1's siding R.
@@ -905,6 +910,23 @@ struct Ctl {
     rel_delays: Vec<(i64, i64)>,
     /// (dfb89499 / farmopt 13:30) each lane's pocket offset after REL (default OFFS, 0 / 14 / 24)
     offs: [i64; 3],
+    /// (day-1 13:43, --ring-timed) the no-string ring: on; its clock-locked L's (L_J3(1), L_J7(1),
+    /// L_J7(2), L_J7(3), L_J(-1)(3)) and k; each batch's (REL, pick); the J lever writes pending; the
+    /// holds; J(3)'s latch; the holds' resets pending and done; the timed D(7)s; the re-arm events;
+    /// its log
+    ring_timed: bool,
+    ring_l: [i64; 5],
+    ring_k: i64,
+    rt_batches: Vec<(i64, Option<usize>)>,
+    rt_writes: Vec<(i64, i32, bool)>,
+    rt_hold3: bool,
+    rt_hold7: bool,
+    rt_j3_latch: bool,
+    rt_resets: Vec<(i64, i32, i64, usize)>,
+    rt_reset_log: Vec<(i64, i32, i64, usize)>,
+    rt_timed_d7: Vec<i64>,
+    rt_rearm_events: Vec<i64>,
+    rt_log: Vec<String>,
     /// (G1 10:47 blocking 4's control) the eject-on-R control: armed, and its sample (tick, lane,
     /// the napper, PRESENT_l right after)
     eject_control: bool,
@@ -1451,7 +1473,11 @@ impl Ctl {
         // held off; the split's own writes don't turn them on)
         let held_off = |x: i32, dv: Option<(u32, usize)>| dv.is_some_and(|(_, k)| x >= LANES[k]);
         let dv = self.divert;
-        if b0 && !self.branch_prev[0] {
+        // (day-1 13:43, ironspec 13:37: the no-string ring, --ring-timed) its own latch writes
+        if self.ring_timed {
+            self.ring_timed_step(w, now, b0, b1, row)?;
+        }
+        if !self.ring_timed && b0 && !self.branch_prev[0] {
             self.b0_edges += 1;
             if self.misroute_left > 0 && self.b0_edges > 10 {
                 // (G1 10:24 (c)) the misroute control: J(-1) left on, J(3) untouched: the next
@@ -1466,12 +1492,12 @@ impl Ctl {
                 }
             }
         }
-        if b1 && !self.branch_prev[1] {
+        if !self.ring_timed && b1 && !self.branch_prev[1] {
             set(w, [3, 26, 9], &lever(false), flags::ALL)?;
         }
         // (an eastbound napper's window keeps J(-1) from re-arming)
         let j_blocked = self.j_block.is_some_and(|(a, b)| now >= a && now < b);
-        if row && !self.row_prev && !j_blocked && !held_off(-1, dv) {
+        if !self.ring_timed && row && !self.row_prev && !j_blocked && !held_off(-1, dv) {
             set(w, [-1, 26, 9], &lever(true), flags::ALL)?;
         }
         self.branch_prev = [b0, b1];
@@ -1506,9 +1532,12 @@ impl Ctl {
                             self.divert = Some((cid, k));
                             self.divert_cleared = [false; 3];
                             self.divert_log.push((now, cid));
-                            for x in [-1, 3, 7] {
-                                if x >= LANES[k] {
-                                    set(w, [x, 26, 9], &lever(false), flags::ALL)?;
+                            // (--ring-timed: day-1's HOLD_3 / HOLD_7 do the holding, keyed on REL)
+                            if !self.ring_timed {
+                                for x in [-1, 3, 7] {
+                                    if x >= LANES[k] {
+                                        set(w, [x, 26, 9], &lever(false), flags::ALL)?;
+                                    }
                                 }
                             }
                             self.note(now, format!("the picker: lane x {}'s cart {cid} on the row at {c:?}: J({}) and every J east held off", LANES[k], LANES[k]));
@@ -1518,6 +1547,7 @@ impl Ctl {
                         && c[0] < 9
                         && !self.picker_hold_to_leg
                         && !self.evidence_keyed
+                        && !self.ring_timed
                     {
                         // (day-1 11:40: the picker emulation's R6 error) each J the outbound napper
                         // clears is released at once, as that J's own D rise would leave it with the
@@ -1544,7 +1574,9 @@ impl Ctl {
                         // its lane: lane -1's D rise (J(-1) off, J(3) on), lane 3's (J(3) off),
                         // lane 7's (J(-1) re-armed); J(7) back on; since day-1 11:40 each J was
                         // released as the napper cleared it, unless --picker-hold-to-leg)
+                        // (--ring-timed: the ring's own timed writes, nothing restored here)
                         match k {
+                            _ if self.ring_timed => {}
                             0 => {
                                 if !self.divert_cleared[1] {
                                     set(w, [3, 26, 9], &lever(true), flags::ALL)?;
@@ -1557,7 +1589,7 @@ impl Ctl {
                                 }
                             }
                         }
-                        if !self.divert_cleared[2] {
+                        if !self.divert_cleared[2] && !self.ring_timed {
                             set(w, [7, 26, 9], &lever(true), flags::ALL)?;
                         }
                         self.divert_cleared = [false; 3];
@@ -1631,6 +1663,116 @@ impl Ctl {
         }
         if self.napper {
             self.nap_step(w, now, [b0, b1, row])?;
+        }
+        Ok(())
+    }
+
+    /// (day-1 13:43, ironspec 13:37: the no-string ring, --ring-timed) Each latch write one stage (2 gt)
+    /// after its trigger, each J's switch 4 gt after its drive (the lever written then):
+    /// - a D(-1) press: J(-1) off, J(3) on (held while HOLD_3); on lane 3's pick, the emulated D(3) at
+    ///   the press + 2 jumps J(3) to J(7) at once (J(3) never armed for the napper);
+    /// - a D(3) press: J(3) off;
+    /// - a D(7) press: the re-arm event E = the press + 2 (J(-1) on), the next batch's hold event;
+    /// - at E, the current batch's pick: lane -1: HOLD_3 and HOLD_7 set, the emulated D(-1) (J(-1)
+    ///   never armed for the napper, J(3) on but held); lane 3 / 7: HOLD_7 set; the holds' resets at
+    ///   REL + L + k (L the slot's clock-locked last tick in that J); lane 7's pick: the emulated D(7)
+    ///   TIMED at REL + L_J(-1)(3) + k, its re-arm event (no D(7) press keys it).
+    fn ring_timed_step(&mut self, w: &mut redsim::world::World, now: i64, b0: bool, b1: bool, row: bool) -> Result<(), String> {
+        use redsim::world::flags;
+        let lever = |on: bool| format!("minecraft:lever[face=ceiling,facing=north,powered={on}]");
+        let [lj3_1, lj7_1, lj7_2, lj7_3, ljm1_3] = self.ring_l;
+        let k = self.ring_k;
+        let cur = self.rt_batches.last().copied();
+        if b0 && !self.branch_prev[0] {
+            // J(-1) off; J(3) on unless held; lane 3's pick: the emulated D(3) keeps J(3) off (the
+            // pressing cart's batch: the one whose REL lies 85..125 gt before the press, slot 1's
+            // clock-locked D(-1) press)
+            self.rt_writes.push((now + 6, -1, false));
+            let lane3_pick = self.rt_batches.iter().rev().find(|(r, _)| now - r >= 85 && now - r <= 125).is_some_and(|(_, p)| *p == Some(1));
+            if lane3_pick {
+                self.rt_writes.push((now + 6, 3, false));
+                self.rt_log.push(format!("t {now}: D(-1) pressed: J(-1) off; lane 3's pick: the emulated D(3) at t {} (J(3) never armed)", now + 2));
+            } else {
+                self.rt_j3_latch = true;
+                if !self.rt_hold3 {
+                    self.rt_writes.push((now + 6, 3, true));
+                }
+            }
+        }
+        if b1 && !self.branch_prev[1] {
+            self.rt_j3_latch = false;
+            self.rt_writes.push((now + 6, 3, false));
+        }
+        let mut events: Vec<i64> = Vec::new();
+        if row && !self.row_prev {
+            events.push(now + 2);
+        }
+        // the timed emulated D(7) of a lane-7 pick
+        if self.rt_timed_d7.first().is_some_and(|t| *t == now) {
+            self.rt_timed_d7.remove(0);
+            events.push(now);
+            self.rt_log.push(format!("t {now}: the TIMED emulated D(7) (lane 7's pick): the re-arm event"));
+        }
+        for e in events {
+            self.rt_rearm_events.push(e);
+            if let Some((rel, p)) = cur {
+                match p {
+                    Some(0) => {
+                        // HOLD_3, HOLD_7 set; the emulated D(-1): J(-1) never re-armed for the napper
+                        self.rt_hold3 = true;
+                        self.rt_hold7 = true;
+                        self.rt_j3_latch = true;
+                        self.rt_writes.push((e + 4, 3, false));
+                        self.rt_writes.push((e + 4, 7, false));
+                        self.rt_writes.push((e + 6, -1, false));
+                        self.rt_resets.push((rel + lj3_1 + k, 3, rel, 0));
+                        self.rt_resets.push((rel + lj7_1 + k, 7, rel, 0));
+                        self.rt_log.push(format!("t {e}: the re-arm event for REL {rel} (lane -1's pick): HOLD_3 and HOLD_7 set, the emulated D(-1) at t {}", e + 2));
+                    }
+                    Some(pk) => {
+                        self.rt_hold7 = true;
+                        self.rt_writes.push((e + 4, -1, true));
+                        self.rt_writes.push((e + 4, 7, false));
+                        let l7 = if pk == 1 { lj7_2 } else { lj7_3 };
+                        self.rt_resets.push((rel + l7 + k, 7, rel, pk));
+                        if pk == 2 {
+                            self.rt_timed_d7.push(rel + ljm1_3 + k);
+                            self.rt_timed_d7.sort();
+                        }
+                        self.rt_log.push(format!("t {e}: the re-arm event for REL {rel} (lane x {}'s pick): J(-1) armed, HOLD_7 set", LANES[pk]));
+                    }
+                    None => {
+                        self.rt_writes.push((e + 4, -1, true));
+                    }
+                }
+            } else {
+                self.rt_writes.push((e + 4, -1, true));
+            }
+        }
+        // the holds' resets: the latch's own state comes back 4 gt after (J(3) on if its latch is
+        // set; J(7) always on)
+        let due: Vec<(i64, i32, i64, usize)> = self.rt_resets.iter().filter(|r| r.0 == now).copied().collect();
+        self.rt_resets.retain(|r| r.0 != now);
+        for (t, jx, rel, pk) in due {
+            if jx == 3 {
+                self.rt_hold3 = false;
+                if self.rt_j3_latch {
+                    self.rt_writes.push((t + 4, 3, true));
+                }
+            } else {
+                self.rt_hold7 = false;
+                self.rt_writes.push((t + 4, 7, true));
+            }
+            self.rt_reset_log.push((t, jx, rel, pk));
+            self.rt_log.push(format!("t {t}: HOLD_{jx} reset (REL {rel}): J({jx}) switches at t {}", t + 4));
+        }
+        // the writes due now (each J's lever)
+        let writes: Vec<(i64, i32, bool)> = self.rt_writes.iter().filter(|x| x.0 == now).copied().collect();
+        self.rt_writes.retain(|x| x.0 != now);
+        for (_, jx, on) in writes {
+            // a held J stays off whatever its latch says
+            let held = (jx == 3 && self.rt_hold3) || (jx == 7 && self.rt_hold7);
+            set(w, [jx, 26, 9], &lever(on && !held), flags::ALL)?;
         }
         Ok(())
     }
@@ -2176,6 +2318,8 @@ impl Ctl {
     }
 
     fn start(&mut self, rel: i64) {
+        // (--ring-timed) each batch's REL and its pick (set when the pick is decided)
+        self.rt_batches.push((rel, None));
         self.busy = true;
         self.rel = Some(rel);
         // (path (a): lane 7's slope at L7 = REL + 96, queued: it falls after the next start)
@@ -2238,6 +2382,9 @@ impl Ctl {
                         self.pick_overwrites.push(format!("t {rel}: lane x {}'s pick decided while lane x {}'s was still pending", LANES[k], LANES[p]));
                     }
                     self.pick = Some(k);
+                    if let Some(b) = self.rt_batches.last_mut() {
+                        b.1 = Some(k);
+                    }
                     self.pick_opps.push((rel, self.rel_count, k, "picked".to_string()));
                 }
             }
@@ -3152,6 +3299,11 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         ctl.evidence_delay = o.evidence_delay;
         ctl.rel_gate_armed = o.rel_gate_armed;
         ctl.offs = o.lane_offsets.unwrap_or(OFFS);
+        if let Some(l) = o.ring_timed {
+            ctl.ring_timed = true;
+            ctl.ring_l = l;
+            ctl.ring_k = o.ring_k;
+        }
     }
     // (day-1 06:07 PT, ctlcounter.rs; G1's blocker 3: the counter's state at the first release, a
     // clear clock's: C = 141 + ceil((d - 12,540) / 100) for a first release at day time d between
@@ -9266,6 +9418,99 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             "the lip arrivals' classes (ironfarm 13:36, mobfarm::lipclass 9a3c61c2d: a 9th cart / rollback / a gap under 23 / UNCLASSIFIED / slow entry / clear, in that order; information): {}; the arrival before each off-rail rest: {}\n",
             per_lane.join(" | "),
             if rests.is_empty() { "no rest".to_string() } else { rests.join("; ") }
+        ));
+    }
+    // (day-1 13:43, ironspec 13:47) the per-batch passage table: each batch's (REL) pocket releases'
+    // carts (slot 1 / 2 / 3 = lanes -1 / 3 / 7), each one's first and LAST tick in J(-1) / J(3) / J(7)
+    // relative to REL, split by the batch's pick; design figures = the least L's over seeds x positions
+    {
+        let mut exits: Vec<(i64, u32, usize)> = Vec::new();
+        for (cid, ents) in cart_entries.iter() {
+            for p in ents.windows(2) {
+                if let Some(k) = LANES.iter().position(|x| p[0].1 == [*x, 0, 0]) && p[1].1 != p[0].1 {
+                    exits.push((p[1].0, *cid, k));
+                }
+            }
+        }
+        // per (pick lane or none, slot, J): (min first, max first, min last, max last)
+        let mut table: BTreeMap<(i32, usize, i32), (i64, i64, i64, i64)> = BTreeMap::new();
+        for (rel, pick) in ctl.rt_batches.iter() {
+            for (t, cid, slot) in exits.iter().filter(|(t, _, _)| *t >= *rel && *t <= *rel + 40) {
+                let Some(ents) = cart_entries.get(cid) else { continue };
+                for jx in [-1, 3, 7] {
+                    let cellj = [jx, 25, 9];
+                    let Some(i) = ents.iter().position(|(et, c)| *et > *t && *c == cellj) else { continue };
+                    let first = ents[i].0 - rel;
+                    let last = ents.get(i + 1).map_or(first, |n| n.0 - 1 - rel);
+                    let key = (pick.map_or(-9, |p| LANES[p]), *slot + 1, jx);
+                    let e = table.entry(key).or_insert((i64::MAX, i64::MIN, i64::MAX, i64::MIN));
+                    *e = (e.0.min(first), e.1.max(first), e.2.min(last), e.3.max(last));
+                }
+            }
+        }
+        let rows: Vec<String> = table
+            .iter()
+            .map(|((p, slot, jx), (f0, f1, l0, l1))| format!("{} slot {slot} J({jx}): first {f0}..{f1}, last {l0}..{l1}", if *p == -9 { "no pick".to_string() } else { format!("lane x {p}'s pick") }))
+            .collect();
+        s.push_str(&format!(
+            "the per-batch passage table (day-1 13:43 / ironspec 13:47: each batch's pocket-released carts (slot 1 / 2 / 3 = lanes -1 / 3 / 7), first and LAST tick in J(-1) / J(3) / J(7) relative to REL, by the batch's pick; information): {} batches; {}\n",
+            ctl.rt_batches.len(),
+            if rows.is_empty() { "none".to_string() } else { rows.join("; ") }
+        ));
+    }
+    // (day-1 13:43, --ring-timed) the no-string ring's margins per pick: HOLD_3 (lane -1's pick: lane 3's
+    // cart's first tick in J(3) - (reset + 4)), HOLD_7 (the next cart's first tick in J(7) - (reset +
+    // 4)), lane 7's pick's re-arm (the next batch's first cart at J(-1) - (the timed D(7) + 4)); J(-1)
+    // re-armed at every batch's end; bars >= 10, >= 10, printed, every batch
+    if o.ring_timed.is_some() {
+        let first_after = |jx: i32, after: i64| junction_passes.iter().filter(|p| p.1 == [jx, 25, 9] && (p.2 == "batch" || p.2 == "empty") && p.0 > after).map(|p| p.0).min();
+        let mut rows: Vec<String> = Vec::new();
+        let mut least3: Option<i64> = None;
+        let mut least7: Option<i64> = None;
+        for (t, jx, rel, pk) in ctl.rt_reset_log.iter() {
+            // the napper's own pass of that J ends near its L: the next non-napper cart after REL + L - 10
+            let l = match (jx, pk) {
+                (3, _) => ctl.ring_l[0],
+                (_, 0) => ctl.ring_l[1],
+                (_, 1) => ctl.ring_l[2],
+                _ => ctl.ring_l[3],
+            };
+            match first_after(*jx, rel + l - 10) {
+                Some(f) => {
+                    let m = f - (t + 4);
+                    rows.push(format!("REL {rel} lane x {}'s pick: HOLD_{jx} reset t {t}, the next cart in J({jx}) t {f}, margin {m}", LANES[*pk]));
+                    let slot = if *jx == 3 { &mut least3 } else { &mut least7 };
+                    if slot.is_none_or(|x| m < x) {
+                        *slot = Some(m);
+                    }
+                }
+                None => rows.push(format!("REL {rel} lane x {}'s pick: HOLD_{jx} reset t {t}, no cart after it in J({jx})", LANES[*pk])),
+            }
+        }
+        let mut rearm_rows: Vec<String> = Vec::new();
+        for (rel, p) in ctl.rt_batches.iter().filter(|(_, p)| *p == Some(2)) {
+            let td = rel + ctl.ring_l[4] + ctl.ring_k;
+            if let Some(f) = first_after(-1, td) {
+                rearm_rows.push(format!("REL {rel}: the timed D(7) t {td}, the next batch's first cart at J(-1) t {f}, margin {}", f - (td + 4)));
+            }
+            let _ = p;
+        }
+        // J(-1) re-armed at every batch's end: a re-arm event within REL + 50 .. REL + 260 of each
+        // batch with time left after it
+        let end = o.ticks as i64;
+        let unarmed: Vec<i64> = ctl.rt_batches.iter().map(|b| b.0).filter(|r| *r + 300 < end && !ctl.rt_rearm_events.iter().any(|e| *e > r + 50 && *e < r + 260)).collect();
+        let ok = least3.is_none_or(|m| m >= 10) && least7.is_none_or(|m| m >= 10) && unarmed.is_empty() && !ctl.rt_reset_log.is_empty();
+        s.push_str(&format!(
+            "the no-string ring (day-1 13:43, --ring-timed: L's {:?}, k {}): the least HOLD_3 margin {} (bar >= 10), the least HOLD_7 margin {} (bar >= 10); lane 7's picks' re-arm margins: {}; batches with no re-arm event {} ({}); per pick: {} ({})\n",
+            ctl.ring_l,
+            ctl.ring_k,
+            least3.map_or("none".to_string(), |m| m.to_string()),
+            least7.map_or("none".to_string(), |m| m.to_string()),
+            if rearm_rows.is_empty() { "none".to_string() } else { rearm_rows.join("; ") },
+            unarmed.len(),
+            if unarmed.is_empty() { "none".to_string() } else { unarmed.iter().map(|r| format!("REL {r}")).collect::<Vec<_>>().join(", ") },
+            if rows.is_empty() { "no pick".to_string() } else { rows.join("; ") },
+            if ctl.rt_reset_log.is_empty() { "NOT JUDGED (no pick): FAIL" } else if ok { "PASS" } else { "FAIL" }
         ));
     }
     // (ironspec 13:04 (1) / 12:41 (4), R6 per pick) each outbound napper's pass of each J at or east of
