@@ -26,7 +26,7 @@ use redsim::entity::EntityKind;
 use redsim::pos::BlockPos;
 
 /// The bench's options.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct ReturnOpts {
     /// Batches of three, a batch every 100 gt.
     pub batches: usize,
@@ -131,6 +131,23 @@ pub struct ReturnOpts {
     /// `speed`; the real pocket release reaches that later: dfb89499's lane -1 passes y 12 ~11 gt
     /// after this bench's at lag 0). REL (lane 7's release, ARM3 := REL + c) stays the cycle's start.
     pub station_lag: i64,
+    /// `path_a`'s y-12 bar on the batch pairs (barred in clean() at G1's ask on 83878113f; the number
+    /// is the column bar 14 + 2 = 16, ironspec 19:07 / 20:01 PT): lane 3 -> lane 7 and lane 7 -> the
+    /// next batch's lane -1 when no napper is between; with the column order.
+    pub y12_min: i64,
+    /// The napper's y-12 pairs (after its batch's lane 7, before the next batch's first): the column
+    /// bar 14 + 2 = 16 (ironspec 19:07 / 20:01 PT).
+    pub y12_nap_min: i64,
+    /// `path_a`: lane 7's release pulse length (gt) at its drive (EMULATED).
+    pub lane7_pulse: i64,
+    /// `day1_taps`: day-1's K-set taps this many gt later (day-1 17:59: +4 under path (a)).
+    pub kset_shift: i64,
+    /// ironspec 19:38 (3) / day-1: every junction switch through day-1's driver, the rail switching 4 gt
+    /// after a set edge and 6 after a reset edge (the detector-triggered ones; the taps carry it).
+    pub driver_latency: bool,
+    /// ironspec 20:01 PT (2): lane 7's entry at least this many gt after the preceding cart's box has
+    /// fully cleared the mouth cell at y 12 (its feet at y 13), in every row.
+    pub mouth_min: i64,
     /// For the arrival-phase sweep's bookkeeping: the waiting bit (set on (7,-3,4)) counts as
     /// consumed by the first arming whose E rise is at least this many gt after it was set.
     pub bit_delay: i64,
@@ -292,9 +309,18 @@ fn build(o: &ReturnOpts) -> Result<FarmSpec, String> {
         // its input cell or the stone: a repeater beside the rail at (8,0,8) would take its input
         // at (7,0,8), a face of lane 7's curve T (7,0,7), whose placement-order shape a signal
         // source's update there would re-settle)
-        put(9, -1, 8, &if torches { slime.clone() } else { Block::parse("minecraft:stone")? });
+        // (G1 / V15: the hold's support (9,-1,8) is slime, as the stone was a conductor: the repeater's
+        // strong power reaches the rail through it; --no-torches keeps it slime too)
+        put(9, -1, 8, &slime);
         put(8, -1, 8, &Block::parse("minecraft:repeater[delay=1,facing=west,locked=false,powered=false]")?);
         put(8, -2, 8, &glass);
+        // (ironspec 18:16 (6) / 18:24: day-1's input (7,-1,8) EMULATED by a conforming stand-in, a
+        // floor lever on glass (7,-2,8), toggled for the pulse (not a redstone block: that one was a
+        // candidate and an off-pad golem spot); a floor lever, not 9fc3155f's wall lever on (7,-1,7):
+        // a wall lever's toggle updates (7,-1,7)'s neighbours, among them V15's T (7,0,7), whose
+        // stored shape differs from its unpowered settle; on (7,-2,8) its updates reach no T)
+        put(7, -1, 8, &Block::parse("minecraft:lever[face=floor,facing=north,powered=false]")?);
+        put(7, -2, 8, &glass);
         // (`tripwire` (day-1 10:08, option (b)'s departure sensor): a string over the napper-only
         // cell (8,0,7) at (8,1,7), hooks at (8,1,6) facing south and (8,1,8) facing north on glass
         // anchors (8,1,5), (8,1,9); the bench prints when it trips against the napper's departure)
@@ -335,6 +361,9 @@ fn build(o: &ReturnOpts) -> Result<FarmSpec, String> {
         put(-3, 1, mz, &rail("ascending_west")?);
         put(-3, 0, mz, &glass);
         put(-4, 2, mz, &rail("east_west")?);
+        // (G1 on dfb89499's d8394ed6e: the old intake cell (-4,0,mz) defined: glass, the closed wall
+        // entry under the entry's glass (-4,1,mz))
+        put(-4, 0, mz, &glass);
     }
     put(-4, 1, mz, &glass);
     // (the shared lift: water to `top`, the exit one over it; `flat`: the lift one lower and the
@@ -367,8 +396,11 @@ fn build(o: &ReturnOpts) -> Result<FarmSpec, String> {
         // new glass (-4,13,mz-1))
         put(-4, 13, mz, &Block::parse("minecraft:oak_wall_sign[facing=south,waterlogged=false]")?);
         put(-4, 13, mz - 1, &glass);
-        put(-4, 12, mz - 1, &Block::parse("minecraft:repeater[delay=1,facing=north,locked=false,powered=false]")?);
-        put(-4, 11, mz - 1, &glass);
+        // (G1 on 5ec2749b3 / onechunk's record7: day-1's drive EMULATED by a ceiling lever (-4,12,mz-1)
+        // hung from the sign's glass (-4,13,mz-1), no new support (no glass where the build has air:
+        // the sight property), toggled for the pulse in place of day-1's repeater (-4,12,mz-1) and its
+        // input (-4,12,mz-2); not this file's)
+        put(-4, 12, mz - 1, &Block::parse("minecraft:lever[face=ceiling,facing=north,powered=false]")?);
         put(-3, 13, mz, &rail("east_west")?);
         put(-3, 12, mz, &glass);
     }
@@ -712,6 +744,10 @@ struct Cart {
     w_rest0: Option<i64>,
     /// First tick in the lift's column at y >= 12 (path (a)'s side entry level).
     w_y12: Option<i64>,
+    /// First tick in the lift's column with its feet at y >= 13 (its box out of the mouth cell).
+    w_y13: Option<i64>,
+    /// First tick on the exit booster's cell (-5,ex,mz+1): the column's contact point.
+    w_top_exit: Option<i64>,
     /// The napper's stored speed entering the T (9,0,7) from the staircase.
     v_t: Option<f64>,
     launch_t: i64,
@@ -756,6 +792,59 @@ fn in_wall(w: &redsim::world::World, x: f64, feet: f64, z: f64) -> bool {
 /// it (x, y - 1, z) is a redstone block while powered and glass while not, and the game's own rail
 /// update shapes the T (NW powered, NE unpowered: `RailBlock.updateState` -> `updateDir`); without,
 /// the shape set directly (the older splits).
+/// The (2c) switch rule's margins, one convention for every junction line (G1 on 5ec2749b3).
+///
+/// The bench's loop index t is: the controller's reads (detector states, as the previous tick left
+/// them) and writes (the latches' `drive_j`, the taps, the drives), then `run.tick()`, the game tick
+/// t (block phase, then each cart reads the rail under it at the start of its entity tick and moves),
+/// then the per-cart records (positions at the end of tick t). So a cart recorded in a junction's cell
+/// at indices e..=l starts ticks e + 1..=l + 1 there and reads the junction in those ticks, and a
+/// switch written at index s is read from tick s. The rule (tick-exact's official boundary row): a
+/// switch lands strictly after the old-state cart's last read and no later than the new-state cart's
+/// first: settle = (e + 1) - s >= 0 and clear = s - (l + 1) - 1 >= 0 are the physical edges; the bar
+/// adds the cause's window (block phase 1 gt, entity phase 2) + 2. A timed tap (the K taps, J(-1)'s
+/// re-arm, day-1's driver output) is written at its tick, the block phase's equivalent: its margins as
+/// written. A detector press happens in the entity phase of tick p and reaches the bench's controller
+/// at index p + 1 (`drive_j` there, read from tick p + 1), so its margins timed from the press tick
+/// (`from_press`, ironspec 19:08 / 19:14) are settle + 1 and clear - 1.
+pub fn settle_margin(s: i64, first_rec: i64, from_press: bool) -> i64 {
+    (first_rec + 1) - s + i64::from(from_press)
+}
+
+/// See [`settle_margin`]: the clear side, against the old-state cart's last record in the cell.
+pub fn clear_margin(s: i64, last_rec: i64, from_press: bool) -> i64 {
+    s - (last_rec + 1) - 1 - i64::from(from_press)
+}
+
+#[cfg(test)]
+mod switch_margin_tests {
+    use super::{clear_margin, settle_margin};
+
+    /// A scripted timeline: an old-state cart recorded in the junction's cell at indices 9..=11 (so it
+    /// reads the junction in ticks 10..=12), a new-state cart first recorded there at 19 (first read in
+    /// tick 20).
+    #[test]
+    fn the_2c_edges() {
+        // (a tap written at 13, read from tick 13: strictly after the old cart's last read 12: clear 0,
+        // the edge; written at 12 the old cart reads the new shape in its last tick: a violation)
+        assert_eq!(clear_margin(13, 11, false), 0);
+        assert_eq!(clear_margin(12, 11, false), -1);
+        // (written at 20, the new cart's first read: settle 0, the edge; at 21 it reads the old shape)
+        assert_eq!(settle_margin(20, 19, false), 0);
+        assert_eq!(settle_margin(21, 19, false), -1);
+        // (a press in tick 15 reaches the controller at index 16: timed from the press tick, settle + 1
+        // and clear - 1 against the bench's switch at 16)
+        assert_eq!(settle_margin(16, 19, true), 20 - 15);
+        assert_eq!(clear_margin(16, 11, true), 15 - 12 - 1);
+        assert_eq!(settle_margin(16, 19, true), settle_margin(16, 19, false) + 1);
+        assert_eq!(clear_margin(16, 11, true), clear_margin(16, 11, false) - 1);
+        // (day-1's driver: a set press in tick 15, seen at index 16, queued to 16 + 3 = 19 = press + 4,
+        // read from tick 19 (block phase): margins as written; a reset to 16 + 5 = 21 = press + 6)
+        assert_eq!(settle_margin(16 + 3, 19, false), 1);
+        assert_eq!(clear_margin(16 + 5, 11, false), 21 - 12 - 1);
+    }
+}
+
 fn drive_j(w: &mut redsim::world::World, real: bool, x: i32, y: i32, z: i32, on: bool) -> Result<(), String> {
     if real {
         // (a lever over the junction (face ceiling, on the glass two over it): its toggle is a signal
@@ -831,6 +920,37 @@ pub struct Summary {
     /// >= 21 gt both sides at y 12, path (a)).
     pub gap12_behind: Option<i64>,
     pub gap12_ahead: Option<i64>,
+    /// `path_a`'s y-12 pairs, least over the batches: [lane -1 -> lane 3 (the foot pair: barred by
+    /// the shaft entry's gap, printed here), lane 3 -> lane 7, lane 7 -> the napper, the napper -> the
+    /// next batch's lane -1, lane 7 -> the next batch's lane -1 with no napper between]; whether a
+    /// barred pair is under `y12_min`, a cart never passed y 12, or the column order is wrong.
+    pub y12_pairs: [Option<i64>; 5],
+    pub y12_order_bad: bool,
+    pub y12_bad: bool,
+    /// Why the path (a) y-12 bar failed ("" when it passed; "lane 7's mouth clearance unmeasured"
+    /// apart from a margin under its bar: G1 on 5ec2749b3).
+    pub y12_why: &'static str,
+    /// The most stored speed on J(-1), J(3), J(7) over every cart (ironspec 17:20 (b)).
+    pub j_vmax: [f64; 3],
+    /// [J(-1), J(3)]: the least settle (switch -> the first cart needing the new state) and clear
+    /// (the last cart needing the old state out of the cell -> the switch), ironspec 17:20 (b).
+    pub j_settle: [Option<i64>; 2],
+    pub j_clear: [Option<i64>; 2],
+    pub j_clear_cart: [Option<i64>; 2],
+    /// The napper's K under day-1's timed taps: on clear / settle, off margin (the napper out first) /
+    /// the next batch cart after off (ironspec 18:16 (3)).
+    pub k_clear: Option<i64>,
+    pub k_settle: Option<i64>,
+    pub k_off_margin: Option<i64>,
+    pub k_off_settle: Option<i64>,
+    /// Per switch cause (ironspec 19:14): [K set, K reset, J(-1) re-arm, J(-1) set, J(-1) reset,
+    /// J(3) set, J(3) reset]: the least settle and clear (a press timed from the press tick).
+    pub cause_settle: [Option<i64>; 7],
+    pub cause_clear: [Option<i64>; 7],
+    /// The run was `path_a` (its foot pair and y-12 bars).
+    pub path_a: bool,
+    /// ironspec 20:35 PT: the game-time delta across the run's restart (bar exactly 1).
+    pub restart_dt: Option<i64>,
     /// E rises within k of a fired pulse (ironspec 14:41 (2)).
     pub e_within_k: usize,
     /// The napper's departure off the hold after its own ARM3 (gt).
@@ -860,17 +980,19 @@ pub struct Summary {
 
 impl Summary {
     pub fn clean(&self) -> bool {
-        self.wrong == 0 && self.pushes == 0 && !self.napper_off && self.riders_bad == 0 && self.hold_intrusions == 0 && self.extra_busy == 0 && !self.release_bad
+        self.wrong == 0 && self.pushes == 0 && !self.napper_off && self.riders_bad == 0 && self.hold_intrusions == 0 && self.extra_busy == 0 && !self.release_bad && !self.y12_bad && self.restart_dt.is_none_or(|d| d == 1)
     }
 
-    /// Every bar (ironspec): clean, the shaft-entry gaps >= 21, the napper >= 28 behind and >= 21
-    /// ahead, the heads under the roof's underside at 28, each lane's delivery (stored, entering its
-    /// merge cell) inside ironfarm's 0.30..0.48.
+    /// Every bar: clean; the column bar 14 + 2 = 16 on the shaft-entry (foot) gaps and the napper's
+    /// gaps there (ironspec 19:38 / 19:07 PT: 14 is the exit-top contact boundary, 13 touches; the
+    /// inherited 21 / 28 / 21 retired; under `path_a` only the foot pair lane -1 -> lane 3 enters at the
+    /// foot and the napper's pairs are the y-12 ones in clean()); the heads under the roof's underside
+    /// at 28 (geometry); each lane's delivery inside ironfarm's 0.30..0.48 (its part spec, inherited).
     pub fn bars(&self) -> bool {
         self.clean()
-            && self.gap_min >= 21
-            && self.napper_behind.is_none_or(|g| g >= 28)
-            && self.napper_ahead.is_none_or(|g| g >= 21)
+            && self.gap_min >= 16
+            && (self.path_a || self.napper_behind.is_none_or(|g| g >= 16))
+            && (self.path_a || self.napper_ahead.is_none_or(|g| g >= 16))
             && self.head < 28.0
             && (!self.v_merge.0.is_finite() || (self.v_merge.0 >= 0.30 && self.v_merge.1 <= 0.48))
     }
@@ -913,7 +1035,7 @@ fn verdict(v: &[(String, Result<Summary, String>)]) -> String {
         .filter(|(_, r)| !r.as_ref().is_ok_and(Summary::bars))
         .map(|(l, r)| match r {
             Ok(s) => format!(
-                "{l}: wrong {} pushes {} napper {} riders {} gap {} napper {:?}/{:?} head {:.2}",
+                "{l}: wrong {} pushes {} napper {} riders {} gap {} napper {:?}/{:?} head {:.2}{}",
                 s.wrong,
                 s.pushes,
                 if s.napper_off { "OFF" } else { "ok" },
@@ -921,7 +1043,8 @@ fn verdict(v: &[(String, Result<Summary, String>)]) -> String {
                 s.gap_min,
                 s.napper_behind,
                 s.napper_ahead,
-                s.head
+                s.head,
+                if s.y12_why.is_empty() { String::new() } else { format!(" y-12: {}", s.y12_why) } + &s.restart_dt.filter(|d| *d != 1).map_or(String::new(), |d| format!(" restart game-time delta {d} (bar 1: re-run)"))
             ),
             Err(e) => format!("{l}: error {e}"),
         })
@@ -954,7 +1077,7 @@ fn verdict(v: &[(String, Result<Summary, String>)]) -> String {
         rng(ok.iter().filter_map(|s| s.j1.1).collect())
     );
     let kj = format!(
-        "{kj}; pulses per run {}; pulses after the napper's release that found a cart on the hold (bar 0) {}; the string's rising edge after the departure off the hold {}; the napper entering the T (9,0,7) at stored {}, reaching the hold {} gt after the latest arming; the napper from the stop (R) to its K {}; presence samples at fired pulses: rolling {}, not on the hold {} (bar 0 each); the approach detector's own rise -> rest {} (|v| = 0: {})",
+        "{kj}; pulses per run {}; pulses after the napper's release that found a cart on the hold (bar 0) {}; the string's rising edge after the departure off the hold {}; the napper entering the T (9,0,7) at stored {}, reaching the hold {} gt after the latest arming; the napper from the stop (R) to its K {}; presence samples at fired pulses: rolling {}, not on the hold {} (bar 0 each); the approach detector's own rise -> rest {} (|v| = 0: {}; the rise read at the start of a tick, the rest at its end: + 1 counted from the tick the detector powers, as the official counts)",
         rng(ok.iter().map(|s| s.pulses_run as i64).collect()),
         ok.iter().map(|s| s.extra_busy).sum::<usize>(),
         rng(ok.iter().filter_map(|s| s.trip_after_dep).collect()),
@@ -976,8 +1099,63 @@ fn verdict(v: &[(String, Result<Summary, String>)]) -> String {
     let y12s = |i: usize| rng(ok.iter().filter_map(|s| s.y12_rel.get(i).copied().flatten()).collect());
     let nidx = ok.first().map_or(0, |s| s.nap_index.min(15));
     let cm: Vec<f64> = ok.iter().filter_map(|s| s.col_min).collect();
+    // (ironspec 16:46: lane 7's entry after lane 3's y-12 pass, and the window from lane 7's entry to
+    // the next batch's lane -1 (cart 3(b+1)), per batch, least over the rows)
+    let y = |s: &Summary, i: usize| s.y12_rel.get(i).copied().flatten();
+    let l7_after_l3: Vec<i64> = ok.iter().flat_map(|s| (0..s.nap_index / 3).filter_map(|b| Some(y(s, 3 * b + 2)? - y(s, 3 * b + 1)?)).collect::<Vec<_>>()).collect();
+    let win: Vec<i64> = ok.iter().flat_map(|s| (0..(s.nap_index / 3).saturating_sub(1)).filter_map(|b| Some(y(s, 3 * (b + 1))? + 100 - y(s, 3 * b + 2)?)).collect::<Vec<_>>()).collect();
     let kj = format!(
-        "{kj}; ARM3 - REL (c) {}; the napper's fired pulse -> its y-12 pass {}; y-12 passes after REL: carts 0/1/2 {} / {} / {}, the napper {}; the napper's least y-12 gap behind {} and ahead {}; the least distance between two carts in the column {}; E rises within k of a fired pulse {}",
+        "{kj}; lane 7's y-12 pass after lane 3's, least {}; the window from lane 7's y-12 pass to the next batch's lane -1's, least {} (most {})",
+        l7_after_l3.iter().min().map_or("-".into(), |v| v.to_string()),
+        win.iter().min().map_or("-".into(), |v| v.to_string()),
+        win.iter().max().map_or("-".into(), |v| v.to_string())
+    );
+    // (G1 on 83878113f: path (a)'s y-12 pairs, least per pair over every row, and the rows with the
+    // column order wrong (barred in clean() under --path-a))
+    let pl = |i: usize| ok.iter().filter_map(|s| s.y12_pairs[i]).min().map_or("-".to_string(), |v| v.to_string());
+    let kj = format!(
+        "{kj}; y-12 pairs, least over the rows: lane -1 -> lane 3 {} (the foot pair), lane 3 -> lane 7 {}, lane 7 -> the napper {}, the napper -> the next lane -1 {}, lane 7 -> the next lane -1 (no napper between) {}; rows with the column order wrong at y 12 {}",
+        pl(0),
+        pl(1),
+        pl(2),
+        pl(3),
+        pl(4),
+        ok.iter().filter(|s| s.y12_order_bad).count()
+    );
+    let jm = |i: usize| ok.iter().map(|s| s.j_vmax[i]).fold(0.0f64, f64::max);
+    let kj = format!("{kj}; the most stored speed on J(-1) / J(3) / J(7) over every cart and row {:.3} / {:.3} / {:.3}", jm(0), jm(1), jm(2));
+    let jl = |f: &dyn Fn(&Summary) -> Option<i64>| ok.iter().filter_map(|s| f(s)).min().map_or("-".to_string(), |v| v.to_string());
+    // (ironspec 20:35 PT: the restart harness's game-time delta across each restart, exactly 1)
+    let dts: Vec<i64> = ok.iter().filter_map(|s| s.restart_dt).collect();
+    let kj = if dts.is_empty() {
+        kj
+    } else {
+        format!(
+            "{kj}; the restarts' game-time delta {}..{} (bar exactly 1; rows off it {})",
+            dts.iter().min().copied().unwrap_or(0),
+            dts.iter().max().copied().unwrap_or(0),
+            dts.iter().filter(|d| **d != 1).count()
+        )
+    };
+    let kj = format!(
+        "{kj}; junction settle / clear, least over the rows (ironspec 17:20 (b): >= bar + 2 each): J(-1) settle {}, clear at day-1's timed re-arm {}, clear at its cart-triggered switches {} (the switching cart itself: >= 0 by construction); J(3) settle {}, clear (cart-triggered) {}; the napper's K under day-1's timed taps (ironspec 18:16 (3)): on clear {}, on settle {}, the napper out of K before off {}, off -> the next batch cart {}",
+        jl(&|s| s.j_settle[0]),
+        jl(&|s| s.j_clear[0]),
+        jl(&|s| s.j_clear_cart[0]),
+        jl(&|s| s.j_settle[1]),
+        jl(&|s| s.j_clear_cart[1]),
+        jl(&|s| s.k_clear),
+        jl(&|s| s.k_settle),
+        jl(&|s| s.k_off_margin),
+        jl(&|s| s.k_off_settle)
+    );
+    let names = ["K set", "K reset", "J(-1) re-arm", "J(-1) set", "J(-1) reset", "J(3) set", "J(3) reset"];
+    let kj = format!(
+        "{kj}; by cause, least settle / clear over the rows (ironspec 19:14; a press timed from the press tick): {}",
+        (0..7).map(|i| format!("{} {} / {}", names[i], jl(&|s: &Summary| s.cause_settle[i]), jl(&|s: &Summary| s.cause_clear[i]))).collect::<Vec<_>>().join(", ")
+    );
+    let kj = format!(
+        "{kj}; ARM3 - REL (c) {}; the napper's fired pulse -> its y-12 pass {} (the rail's rise read at the start of a tick: + 1 counted from the game tick it rises); y-12 passes after REL: carts 0/1/2 {} / {} / {}, the napper {}; the napper's least y-12 gap behind {} and ahead {}; the least distance between two carts in the column {}; E rises within k after a reset {}",
         rng(cs),
         rng(ok.iter().filter_map(|s| s.pulse_to_y12).collect()),
         y12s(0),
@@ -1004,7 +1182,28 @@ fn verdict(v: &[(String, Result<Summary, String>)]) -> String {
         v.iter().filter(|(_, r)| !r.as_ref().is_ok_and(Summary::clean)).count(),
         bad.len(),
         if bad.is_empty() { String::new() } else { format!(": {}", bad.iter().take(30).cloned().collect::<Vec<_>>().join("; ")) }
-    )
+    ) + &{
+        // (ironspec 18:16 (5): the rows holding each least junction / K margin, for a single re-run)
+        let at = |f: &dyn Fn(&Summary) -> Option<i64>, what: &str| {
+            v.iter()
+                .filter_map(|(l, r)| r.as_ref().ok().and_then(|s| f(s)).map(|g| (g, l)))
+                .min_by_key(|x| x.0)
+                .map(|(g, l)| format!("{what} {g} at {l}"))
+        };
+        let rows: Vec<String> = [
+            at(&|s| s.j_settle[0], "J(-1)'s least settle"),
+            at(&|s| s.j_clear[0], "J(-1)'s least clear at the timed re-arm"),
+            at(&|s| s.k_clear, "K's least on clear"),
+            at(&|s| s.k_settle, "K's least on settle"),
+            at(&|s| s.k_off_margin, "the napper's least margin out of K before off"),
+            at(&|s| s.cause_settle[3], "J(-1) set's (lane 7's D press) least settle"),
+            at(&|s| s.cause_clear[2], "J(-1) re-arm's least clear"),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        if rows.is_empty() { String::new() } else { format!("; the rows at the least margins: {}", rows.join("; ")) }
+    }
 }
 
 /// The restart sweep (ironspec's L1 rows, G1): the bench once per tick T in `from..=to` and per
@@ -1082,7 +1281,11 @@ pub fn phase_sweep(o: &ReturnOpts, r_from: i64, r_to: i64, off_from: i64, off_to
         if mism.is_empty() { String::new() } else { format!(" (e.g. {})", mism.iter().take(6).map(|s| s.as_str()).collect::<Vec<_>>().join("; ")) },
         never,
         verdict(&v)
-    ))
+    ) + &{
+        // (G1 on 83878113f: the first rows failing a path (a) y-12 bar, for a single re-run)
+        let y12f: Vec<&String> = v.iter().filter(|(_, r)| r.as_ref().is_ok_and(|s| s.y12_bad)).map(|(k, _)| k).collect();
+        if y12f.is_empty() { String::new() } else { format!("; rows failing a y-12 bar {} (e.g. {})", y12f.len(), y12f.iter().take(4).map(|s| s.as_str()).collect::<Vec<_>>().join("; ")) }
+    })
 }
 
 /// ironspec 14:36's cross-check: per napper start speed at R, a restart (each liveness order) at the
@@ -1092,7 +1295,7 @@ pub fn phase_sweep(o: &ReturnOpts, r_from: i64, r_to: i64, off_from: i64, off_to
 pub fn top_restart(o: &ReturnOpts, speeds: &[f64]) -> Result<String, String> {
     let rows = crate::liveness::Restart::rows();
     let mut out = vec![format!(
-        "top-exit restart cross-check (the napper from R at each start speed; a restart, every liveness order ({}), at the tick it first reaches the lift's top cell (6,-3,4), and at that tick -2..+2; the approach detector (7,-3,4)'s own rise -> rest on the hold (|v| < 0.005 / |v| = 0)):",
+        "top-exit restart cross-check (the napper from R at each start speed; a restart, every liveness order ({}), at the tick it first reaches the lift's top cell (6,-3,4), and at that tick -2..+2; the approach detector (7,-3,4)'s own rise -> rest on the hold (|v| < 0.005 / |v| = 0); the rise is read at the start of a tick (it powered in the tick before), the rest at a tick's end, so the official count (from the tick the detector powers) is these + 1):",
         rows.iter().map(|r| r.label()).collect::<Vec<_>>().join(", ")
     )];
     let fmt = |v: &[i64]| if v.is_empty() { "-".to_string() } else { format!("{}..{}", v.iter().min().unwrap_or(&0), v.iter().max().unwrap_or(&0)) };
@@ -1178,7 +1381,7 @@ fn write_design(o: &ReturnOpts, spec: &FarmSpec, w: &redsim::world::World, path:
         // (`path_a`: day-1's intake repeater (-4,12,mz-1) and its glass, dfb89499's climb-top
         // stand-in (-3,13,mz): not this file's; the glass under that stand-in (-3,12,mz) is, as the
         // slope's high-side support (would_pop: an ascending rail needs a rigid block on its high side))
-        let foreign = o.path_a && ((p.x == -4 && p.z == mz - 1 && (p.y == 12 || p.y == 11)) || (p.x == -3 && p.z == mz && p.y == 13));
+        let foreign = (o.path_a && ((p.x == -4 && (p.z == mz - 1 || p.z == mz - 2) && (p.y == 12 || p.y == 11)) || (p.x == -3 && p.z == mz && p.y == 13))) || (o.napper_lift && p.x == 7 && (p.y == -1 || p.y == -2) && p.z == 8);
         if station || branch || stop || r_stand || foreign {
             continue;
         }
@@ -1283,17 +1486,18 @@ fn write_design(o: &ReturnOpts, spec: &FarmSpec, w: &redsim::world::World, path:
         o.napper_delay.map_or(String::new(), |d| format!(" --napper-delay {d}")),
         if o.napper_lift && o.arm_station { " --napper-lift --arm-station" } else if o.napper_lift { " --napper-lift" } else { "" },
         if o.napper_lift && o.release_pulse != 8 { format!(" --release-pulse {}", o.release_pulse) } else { String::new() },
-        o.pulse_gate.filter(|_| o.napper_lift).map_or(String::new(), |x| format!(" --pulse-gate {x}{}", if o.gate_delayed_only { " --gate-delayed-only" } else { "" })) + if o.tripwire { " --tripwire" } else { "" } + &if o.napper_lift && o.lift_depth != 0 { format!(" --lift-depth {}", o.lift_depth) } else { String::new() } + &if o.path_a { format!(" --path-a --lane7-rel {}", o.lane7_rel) } else { String::new() } + &if o.station_lag != 0 { format!(" --station-lag {}", o.station_lag) } else { String::new() } + &o.arm_rel.map_or(String::new(), |c| format!(" --arm-rel {c}")) + if o.no_torches { " --no-torches" } else { "" }
+        o.pulse_gate.filter(|_| o.napper_lift).map_or(String::new(), |x| format!(" --pulse-gate {x}{}", if o.gate_delayed_only { " --gate-delayed-only" } else { "" })) + if o.tripwire { " --tripwire" } else { "" } + &if o.napper_lift && o.lift_depth != 9 { format!(" --lift-depth {}", o.lift_depth) } else { String::new() } + &if o.path_a { format!(" --path-a --lane7-rel {}", o.lane7_rel) } else { String::new() } + &if o.station_lag != 0 { format!(" --station-lag {}", o.station_lag) } else { String::new() } + &if o.path_a && o.lane7_pulse != 10 { format!(" --lane7-pulse {}", o.lane7_pulse) } else { String::new() } + &if o.kset_shift != 0 { format!(" --kset-shift {}", o.kset_shift) } else { String::new() } + if o.driver_latency { " --driver-latency" } else { "" } + &o.arm_rel.map_or(String::new(), |c| format!(" --arm-rel {c}")) + if o.no_torches { " --no-torches" } else { "" }
     );
     let lift = {
         let y8top = if o.boost_exit { top - 1 } else { top };
+        let l7r = o.lane7_rel;
         format!(
             "# - shared lift: {foot_txt}{}; the top cell (-5,{ex},7) with glass over it (-5,{},7) and beside it (-6,{ex},7), (-4,{ex},7); the current's source (-5,{ex},6) boxed by glass (-5,{ex},5), (-6,{ex},6), (-4,{ex},6), (-5,{},6).",
             if o.boost_exit { format!(", the redstone block (-5,{top},8) under the exit's booster as the south wall's top cell") } else { String::new() },
             ex + 1,
             ex + 1,
             foot_txt = if o.path_a {
-                format!("soul sand (-5,1,7) on glass (-5,0,7), the bubble column (-5,2..{top},7), glass walls (-6,y,7), (-5,y,6) for y 2..{top}, (-5,y,8) for y 2..{y8top} and (-4,y,7) for y 3..{top} but y 12 (the entry (-4,2,7) on glass (-4,1,7), the merge row's); the intake (2c): the braked powered slope (-4,12,7) ascending_east (off) on the wall's glass (-4,11,7), lane 7's rest, released at REL + 100 for 10 gt by day-1's repeater (-4,12,6) (not here; dfb89499's climb tops at (-3,13,7)), the cell over it an oak wall sign (-4,13,7) facing south on glass (-4,13,6) (no collision box; it keeps the column's water in)")
+                format!("soul sand (-5,1,7) on glass (-5,0,7), the bubble column (-5,2..{top},7), glass walls (-6,y,7), (-5,y,6) for y 2..{top}, (-5,y,8) for y 2..{y8top} and (-4,y,7) for y 3..{top} but y 12 (the entry (-4,2,7) on glass (-4,1,7), the merge row's); the intake (2c): the braked powered slope (-4,12,7) ascending_east (off) on the wall's glass (-4,11,7), lane 7's rest, released at REL + {l7r} by day-1's drive at (-4,12,6) (not here; dfb89499's climb tops at (-3,13,7)), the cell over it an oak wall sign (-4,13,7) facing south on glass (-4,13,6) (no collision box; it keeps the column's water in)")
             } else {
                 format!("soul sand (-5,-1,7) on glass (-5,-2,7), the bubble column (-5,0..{top},7), glass walls (-6,y,7), (-5,y,6) for y 0..{top}, (-5,y,8) for y 0..{y8top} and (-4,y,7) for y 1..{top} (panes to come; (-4,0,7) is the wall entry)")
             }
@@ -1349,9 +1553,9 @@ fn write_design(o: &ReturnOpts, spec: &FarmSpec, w: &redsim::world::World, path:
         "# The return for F1 + Q2 at 24 (7b90c3f1; bench, tool unreviewed): loop frame, paste with no move. Made by `mctas mobfarm return-bench --out` from the bench's own world; every coordinate in this header is generated from the same options.".into(),
         format!("# run line: {run_line}"),
         if o.path_a {
-            "# - merge row along z 7 (path (a)): lane 7 off it (its own ramp and climb, dfb89499's), so (7,0,7) a plain rail east_west joining the hold's line (8,0,7) to the row; Ts (3,0,7) and (-1,0,7) north_west; the main line (x,0,7) x -1..6 on glass ((5,0,7) a plain rail: ARM3 := REL + c, day-1); the west end ramped (2b): (-2,0,7) and (-3,1,7) ascending_west on glass (-2,-1,7), (-3,0,7), the entry (-4,2,7) east_west on glass (-4,1,7) into the lift at y 2; the station's tracks and boosters (z 1..6) are dfb89499's, not here.".into()
+            "# - merge row along z 7 (path (a)): lane 7 off it (its own ramp and climb, dfb89499's), so (7,0,7) a plain rail east_west joining the hold's line (8,0,7) to the row; Ts (3,0,7) and (-1,0,7) north_west; the main line (x,0,7) x -1..6 on glass ((5,0,7) a plain rail: ARM3 := REL + c, day-1); the west end ramped (2b): (-2,0,7) and (-3,1,7) ascending_west on glass (-2,-1,7), (-3,0,7), the entry (-4,2,7) east_west on glass (-4,1,7) into the lift at y 2, the old intake cell (-4,0,7) glass (the closed wall entry); the station's tracks and boosters (z 1..6) are dfb89499's, not here (the bench's station torches (x-1,0,5) on glass (x-1,-1,5), x -1/3/7, are EMULATED: dfb89499's cells).".into()
         } else {
-            "# - merge row along z 7: lane 7's curve (7,0,7) north_west (a T once the hold's line joins from (8,0,7)), Ts (3,0,7) and (-1,0,7) north_west, the main line (x,0,7) x -4..6 on glass, glass over the wall entry (-4,1,7); the station's tracks and boosters (z 1..6) are dfb89499's, not here.".into()
+            "# - merge row along z 7: lane 7's curve (7,0,7) north_west (a T once the hold's line joins from (8,0,7)), Ts (3,0,7) and (-1,0,7) north_west, the main line (x,0,7) x -4..6 on glass, glass over the wall entry (-4,1,7); the station's tracks and boosters (z 1..6) are dfb89499's, not here (the bench's station torches (x-1,0,5) on glass (x-1,-1,5), x -1/3/7, are EMULATED: dfb89499's cells).".into()
         },
         lift,
         exit,
@@ -1386,16 +1590,30 @@ fn write_design(o: &ReturnOpts, spec: &FarmSpec, w: &redsim::world::World, path:
         }
     }
     if o.napper_lift {
-        head.push(format!("# single-occupant: 9,0,8+9,0,7+8,0,7=one napper released per nap trip, on a fired pulse only (the gate); every arm of the T (9,0,7) carries only that napper's route (in from the staircase, rest on the hold (9,0,8) against the slime stop (9,0,9), out west on (8,0,7)); {t77} (return-bench: 0 batch carts on the hold's route over its late, jitter, restart and arrival-phase sweeps); consecutive nappers leave the bed stop >= 312 gt apart (day-1) and the stop -> hold trip spreads by <= 4 gt ({}, return-bench), against the bar {} (the hold's longest wait {} + the 12-gt pulse + clear + 20; ironspec 11:49 / 14:15): {} to spare",
+        head.push(format!("# single-occupant: 9,0,8+9,0,7+8,0,7=one napper released per nap trip, on a fired pulse only (the gate); every arm of the T (9,0,7) carries only that napper's route (in from the staircase, rest on the hold (9,0,8) against the slime stop (9,0,9), out west on (8,0,7)); {t77} (return-bench: 0 batch carts on the hold's route over its late, jitter, restart and arrival-phase sweeps); consecutive nappers leave the bed stop >= 312 gt apart (day-1) and the stop -> hold trip spreads by <= 4 gt ({}, return-bench), against the hold's longest wait {} + the 12-gt pulse + clear: {}, a margin of {} gt (printed only: ironspec 19:07 PT (5) retired the inherited + 20 and measures the occupancy directly, the 0 batch carts above)",
             match o.lift_depth { 0 => "75..79".to_string(), 9 => "88..92".to_string(), d => format!("measured at depths 0 and 9; depth {d} not measured") },
-            100 + o.pulse_gate.unwrap_or(38) + 39,
             100 + o.pulse_gate.unwrap_or(38),
-            312 - (100 + o.pulse_gate.unwrap_or(38) + 39),
+            100 + o.pulse_gate.unwrap_or(38) + 19,
+            312 - (100 + o.pulse_gate.unwrap_or(38) + 19),
             t77 = if o.path_a { "(7,0,7) is a plain rail joining the hold's line to the row (path (a): lane 7 off the merge row), so no batch cart enters" } else { "lane 7's merge T (7,0,7) joins north and west only, so no batch cart enters" }
         ));
         if o.tripwire {
             head.push("# - --tripwire (option (b), not the adopted release): a north-south tripwire string (8,1,7) over the napper-only (8,0,7), hooks (8,1,6) facing south and (8,1,8) facing north on glass anchors (8,1,5), (8,1,9); with --dep-keyed the taps key to its rising edge".to_string());
         }
+    }
+    // (ironspec 17:46 / 17:49: every write the bench makes outside this file, declared EMULATED, with
+    // its golem / path properties, to be checked against its owner's built cell with the statics run
+    // there)
+    if o.napper_lift {
+        let d = o.lift_depth;
+        head.push(format!(
+            "# emulated (ironspec 17:46 / 17:49; the bench's writes outside this file, each to be checked against its owner's built cell with the statics run there): dfb89499's station z 1..6 (each lane's rails, its exit detector and boosters on glass{}){}; the bed stop's R (4,{},4) a rail on glass (4,{},4) (58f770cc's); ironfarm's merge cells (x,24,7) rails on glass (x,23,7), x -1/3/7; day-1's hold input (7,-1,8) (a conforming stand-in: a floor lever on glass (7,-2,8), toggled for the pulse; a wall lever on (7,-1,7) would update V15's T (7,0,7)){}. The bench's blocks: rails, the detector, levers and the repeater non-solid with no full top face; glass solid with a full top face and full-block collision, not solid-render, and refused by LEGACY_IRON_GOLEM spawning; the two inputs are non-solid line ends in the build (ironspec 18:24): the hold's a floor lever on glass, lane 7's a ceiling lever under existing glass, the same rise ticks as the redstone blocks they replace. In this file but standing in for day-1's drive: the levers over each J and K (x,26,9) (the latches' outputs, declared switches at each T).",
+            if o.boosters && !o.no_torches { ", the torches (x-1,0,5) on glass (x-1,-1,5)" } else { "" },
+            if o.path_a { "; dfb89499's climb top (-3,13,7) a rail" } else { "" },
+            -19 - d,
+            -20 - d,
+            if o.path_a { "; day-1's lane 7 drive at (-4,12,6) (a conforming stand-in, onechunk's record7: a ceiling lever hung from the sign's glass (-4,13,6), no new support, toggled for the pulse in place of day-1's repeater (-4,12,6) and its input (-4,12,5))" } else { "" }
+        ));
     }
     head.extend(ts.iter().map(|t| format!("# {t}")));
     head.push(format!("# placement-order cells (not Ts): {}", if place_order.is_empty() { "none".to_string() } else { place_order.join("; ") }));
@@ -1591,7 +1809,7 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
     // (the branch detectors' level: `dip`'s climbing slopes (x,21,7); the others' (x,22,7))
     let bdy = if o.row10 || o.row9 { 24 } else if o.dip { 21 } else { 22 };
     let total = n + usize::from(o.napper_delay.is_some());
-    let mut carts: Vec<Cart> = (0..total).map(|_| Cart { id: None, rider: None, launch_live: 0, lane: None, branch_v: None, merge_v: None, branch_t: None, least_air: i32::MAX, hurt: 0.0, health0: None, eye_in_wall: 0, dismounted: None, met_shaft: None, reach12: None, head: f64::NEG_INFINITY, w_d: None, w_lift12: None, w_hold: None, w_merge: None, w_k: None, v_k: None, w_j1: None, on_hold_route: false, w_exit: None, w_rest: None, w_leave: None, w_line: None, w_top: None, w_rest0: None, w_y12: None, v_t: None, air_trace: Vec::new(), launch_t: 0, merge_min: None, split_min: None, prev: None, end: None }).collect();
+    let mut carts: Vec<Cart> = (0..total).map(|_| Cart { id: None, rider: None, launch_live: 0, lane: None, branch_v: None, merge_v: None, branch_t: None, least_air: i32::MAX, hurt: 0.0, health0: None, eye_in_wall: 0, dismounted: None, met_shaft: None, reach12: None, head: f64::NEG_INFINITY, w_d: None, w_lift12: None, w_hold: None, w_merge: None, w_k: None, v_k: None, w_j1: None, on_hold_route: false, w_exit: None, w_rest: None, w_leave: None, w_line: None, w_top: None, w_rest0: None, w_y12: None, w_y13: None, w_top_exit: None, v_t: None, air_trace: Vec::new(), launch_t: 0, merge_min: None, split_min: None, prev: None, end: None }).collect();
     let arm_lane = if o.reverse { 7 } else { -1 };
     let (mut arm_was, mut arm_at, mut window, mut napper_past) = (false, None::<i64>, false, false);
     let (mut pulses, mut pulse_count): (Vec<i64>, usize) = (Vec::new(), 0);
@@ -1613,13 +1831,18 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
     let mut was = [false; 5];
     let (mut last_rise, mut resyncs, mut seeded) = (0i64, Vec::<i64>::new(), false);
     let mut turns: Vec<(i64, i32, bool)> = Vec::new();
+    let mut timed_turns: Vec<i64> = Vec::new();
+    let mut pending_j: Vec<(i64, i32, bool)> = Vec::new();
     let mut at_j: Vec<(i64, i32, usize)> = Vec::new();
+    let mut at_j_v: Vec<f64> = Vec::new();
+    let mut j_last: std::collections::HashMap<(i32, usize), i64> = std::collections::HashMap::new();
     let mut frozen_ticks = 0i64;
     let mut freeze_box: Option<[i32; 4]> = None;
     let mut touches = crate::liftbench::Touches::default();
     let mut trace: Vec<String> = Vec::new();
     let mut shaft_gap = f64::INFINITY;
     let mut restarted = 0usize;
+    let (mut restart_g0, mut restart_dt): (Option<i64>, Option<i64>) = (None, None);
     let (mut k_on, mut j_deferred) = (false, false);
     // (`day1_taps`: the napper's own ARM3 (its releasing pulse - D) and the batch whose arming it was)
     let mut nap_arm: Option<i64> = None;
@@ -1627,6 +1850,9 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
     let mut arms: Vec<i64> = Vec::new();
     let mut det_rise: Option<i64> = None;
     let mut col_min: Option<(f64, usize, usize, i64)> = None;
+    let mut j_vmax = [0.0f64; 3];
+    let mut slope_rises: Vec<i64> = Vec::new();
+    let mut slope_was = false;
     let mut extra_busy: usize = 0;
     let mut rel_at: Option<i64> = None;
     // (each fired pulse's presence sample at E's rise (ARM3 + 2): the napper at rest on the hold, or
@@ -1639,9 +1865,14 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
     let (mut thru_v_k, mut hold_intrusions): (Option<f64>, usize) = (None, 0);
     let mut thru_v_k_hi: Option<f64> = None;
     let (mut nap_b, mut k_on_at): (Option<usize>, Option<i64>) = (None, None);
+    let mut k_off_at: Option<i64> = None;
+    let mut k_first: Vec<Option<i64>> = vec![None; total];
+    let mut k_last: Vec<Option<i64>> = vec![None; total];
     let (mut hold_released, mut hold_wait): (bool, Option<(f64, f64, f64)>) = (false, None);
     let (mut t_offset, mut t_cross, mut t_det) = (0.0f64, 0usize, Vec::<String>::new());
     for t in 0..run_ticks {
+        // (J(-1)'s switch this tick came from day-1's timed re-arm tap (ARM3 + 127 + 4), not a cart)
+        let mut lm_timed = false;
         let frozen = o.login.is_some_and(|(f, l)| t >= f && t < f + l);
         // (G1: `liveness::freeze32` with the `levels` assert (pearl-alternative rows only))
         if let Some((f, l)) = o.login {
@@ -1695,27 +1926,17 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
         // ((c)'s napper: the arming detector's first rise (the batch 0 third cart), the hold's
         // release D gt after it (a repeater chain: game ticks in L1, live in L2), the napper
         // leaving (8,0,8) west at 0.4)
-        // (`path_a`: lane 7's release, the slope (-4,12,mz) powered from REL + lane7_rel for 10 gt
-        // (EMULATED: a redstone block at the repeater's input (-4,12,mz-2) from 2 gt before))
-        if o.path_a {
-            let clock = if o.game_ticks { t } else { live };
-            let prel = if o.napper_lift { 100 } else { 0 };
-            for b in 0..o.batches as i64 {
-                let r0 = prel + 100 * b + o.lane7_rel - 2;
-                if clock == r0 {
-                    run.world.set_block(BlockPos::new(-4, 12, zf(mz - 2)), Block::parse("minecraft:redstone_block")?, redsim::world::flags::ALL);
-                }
-                if clock == r0 + 10 {
-                    run.world.set_block(BlockPos::new(-4, 12, zf(mz - 2)), Block::parse("minecraft:air")?, redsim::world::flags::ALL);
-                }
-            }
-        }
+        // (`path_a`: lane 7's release is toggled with the controller's writes, just before the tick:
+        // see `lane7_drive` below)
         if let Some(d) = o.napper_delay {
             let a = if let Some(c0) = o.arm_rel {
                 // (ARM3 := REL + c (day-1 14:41): the arming at a fixed tick of each cycle)
                 let clock = if o.game_ticks { t } else { live };
                 let prel = if o.napper_lift { 100 } else { 0 };
-                (0..o.batches as i64).any(|b| clock == prel + 100 * b + c0)
+                // (`arm_rel` c is ARM3's rise in game ticks after REL: the emulated arming seen at the
+                // start of tick REL + c + 1, as a signal risen in tick REL + c; the hold rail then rises
+                // in tick REL + c + D)
+                (0..o.batches as i64).any(|b| clock == prel + 100 * b + c0 + 1)
             } else if o.napper_lift && o.arm_station {
                 // (`arm_station`: the station's own exit detector on lane 7 (7,0,2), before the boosters)
                 on(&run.world, 7, 0, 2)
@@ -1814,7 +2035,7 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
                 }
                 hold_was_on = hold_on;
                 if pulses.iter().any(|p| *p - 2 == clock) {
-                    run.world.set_block(BlockPos::new(7, -1, zf(8)), Block::parse("minecraft:redstone_block")?, redsim::world::flags::ALL);
+                    run.world.set_block(BlockPos::new(7, -1, zf(8)), Block::parse(&format!("minecraft:lever[face=floor,facing={},powered=true]", if o.mirror_z { "south" } else { "north" }))?, redsim::world::flags::ALL);
                 }
                 // (a napper on the hold at any tick of a pulse is launched by it: released by that
                 // pulse (a napper arriving mid-pulse leaves on the pulse's tail, later than one
@@ -1852,7 +2073,7 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
                     }
                 }
                 if pulses.iter().any(|p| *p - 2 + o.release_pulse == clock) {
-                    run.world.set_block(BlockPos::new(7, -1, zf(8)), Block::parse("minecraft:air")?, redsim::world::flags::ALL);
+                    run.world.set_block(BlockPos::new(7, -1, zf(8)), Block::parse(&format!("minecraft:lever[face=floor,facing={},powered=false]", if o.mirror_z { "south" } else { "north" }))?, redsim::world::flags::ALL);
                 }
             }
         }
@@ -1895,6 +2116,9 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
                     3 => (108, 140),
                     _ => (124, 156),
                 };
+                // (day-1 17:59: the K-set taps `kset_shift` later (path (a): +4, K-on 8..11 after the
+                // third cart); the reset, PRESENT edge and J(-1) re-arm stay)
+                let set = set + o.kset_shift;
                 // (`dep_keyed` (ironspec 10:09, option (b)): every tap keyed to the napper's departure
                 // off the hold (its first tick off (9,0,8), ARM3 + 16 in the nominal row), day-1's
                 // dep + 77/92/108, + 109/124/140, J(-1) + 111: the same numbers less 16)
@@ -1915,11 +2139,13 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
                     }
                     if clock == a + reset + shift + 6 && k_on {
                         k_on = false;
+                        k_off_at = Some(t);
                         drive_j(&mut run.world, true, o.napper_lane - 2, ex, zf(rz), false)?;
                     }
                     if o.napper_lane != -1 && clock == a + 127 + shift + 4 {
                         j_deferred = false;
                         lm = true;
+                        lm_timed = true;
                     }
                 }
                 if rise(4) {
@@ -2058,13 +2284,35 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
             seeded = true;
         }
         was = now;
+        // (`driver_latency` (day-1, ironspec 19:38 (3)): day-1's driver switches the rail 4 gt after a
+        // set edge and 6 after a reset edge, the edge being the press in tick p; the bench's
+        // controller sees that press at t = p + 1 (see `settle_margin`), so the switch is queued to
+        // t + 3 (set) / t + 5 (reset): written at p + 4 / p + 6, read from those ticks (block phase);
+        // the taps already carry the driver's +4 / +6)
         if l3 != p3 {
-            drive_j(&mut run.world, o.row9 || o.row10, 3, ex, zf(rz), l3)?;
-            turns.push((t, 3, l3));
+            if o.driver_latency {
+                pending_j.push((t + if l3 { 3 } else { 5 }, 3, l3));
+            } else {
+                drive_j(&mut run.world, o.row9 || o.row10, 3, ex, zf(rz), l3)?;
+                turns.push((t, 3, l3));
+            }
         }
         if lm != pm {
-            drive_j(&mut run.world, o.row9 || o.row10, -1, ex, zf(rz), lm)?;
-            turns.push((t, -1, lm));
+            if o.driver_latency && !lm_timed {
+                pending_j.push((t + if lm { 3 } else { 5 }, -1, lm));
+            } else {
+                drive_j(&mut run.world, o.row9 || o.row10, -1, ex, zf(rz), lm)?;
+                turns.push((t, -1, lm));
+                if lm_timed {
+                    timed_turns.push(t);
+                }
+            }
+        }
+        let due: Vec<(i64, i32, bool)> = pending_j.iter().copied().filter(|p| p.0 == t).collect();
+        pending_j.retain(|p| p.0 != t);
+        for (_, j, st) in due {
+            drive_j(&mut run.world, o.row9 || o.row10, j, ex, zf(rz), st)?;
+            turns.push((t, j, st));
         }
         // (`restart`: a save, stop and start between two ticks (the lead's L1 rows), through the
         // shared helper (cc767b78's `liveness::restart`, in the given entity order); the carts and
@@ -2072,6 +2320,7 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
         if let Some((rt, how)) = o.restart
             && rt == t
         {
+            restart_g0 = Some(run.world.time);
             let moved = crate::liveness::restart(&mut run.world, how)?;
             restarted = moved.iter().filter(|(a, b)| a != b).count();
             for c in carts.iter_mut() {
@@ -2079,10 +2328,38 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
                 c.rider = c.rider.map(|i| crate::liveness::follow(&run.world, i));
             }
         }
+        // (`lane7_drive`, `path_a`: lane 7's release, the slope (-4,12,mz) powered for `lane7_pulse`
+        // gt by the ceiling lever stand-in (-4,12,mz-1), written with the controller's writes before
+        // tick R (R = REL + `lane7_rel`): the carts see the rail powered from tick R, as day-1's
+        // repeater chain powered it in tick R's block phase (its tap written before tick R - 1); the
+        // per-tick records (taken after each tick) first show it at R: the printed slope-rail rise
+        // equals `lane7_rel`)
+        if o.path_a {
+            let clock = if o.game_ticks { t } else { live };
+            let prel = if o.napper_lift { 100 } else { 0 };
+            for b in 0..o.batches as i64 {
+                let r0 = prel + 100 * b + o.lane7_rel;
+                if clock == r0 || clock == r0 + o.lane7_pulse {
+                    run.world.set_block(BlockPos::new(-4, 12, zf(mz - 1)), Block::parse(&format!("minecraft:lever[face=ceiling,facing={},powered={}]", if o.mirror_z { "south" } else { "north" }, clock == r0))?, redsim::world::flags::ALL);
+                }
+            }
+        }
         run.tick();
+        // (ironspec 20:35 PT: the restart harness's game-time delta across the restart is exactly 1)
+        if let Some(g0) = restart_g0.take() {
+            restart_dt = Some(run.world.time - g0);
+        }
         let mut sink: Vec<u32> = Vec::new();
         let mut close_window = false;
         let st: Vec<Option<crate::liftbench::CartState>> = carts.iter().map(|c| c.id.and_then(|id| redsim::entity::index_of(&run.world, id)).map(|i| crate::liftbench::CartState::of(&run.world.entities.list[i]))).collect();
+        // (`path_a`: lane 7's slope rail's rises, as the tick's end shows them)
+        if o.path_a {
+            let on = matches!(run.world.get(BlockPos::new(-4, 12, zf(mz))), Block::Rail { powered: true, .. });
+            if on && !slope_was {
+                slope_rises.push(t);
+            }
+            slope_was = on;
+        }
         // (the least centre distance between two carts both in the lift's column (x -5, z mz), and
         // which pair (ironspec 14:41: 0 push contacts in the column, the least distance printed))
         {
@@ -2205,6 +2482,23 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
             if c.w_y12.is_none() && bp.x == -5 && bp.z == mz && y >= 12.0 {
                 c.w_y12 = Some(t);
             }
+            // (ironspec 20:01 PT (2): the tick a cart's box fully clears the mouth cell at y 12 (its
+            // feet at y >= 13 in the column), against lane 7's entry)
+            if c.w_y13.is_none() && bp.x == -5 && bp.z == mz && y >= 13.0 {
+                c.w_y13 = Some(t);
+            }
+            // (ironspec 20:03 PT: the column bar is measured at the exit top, the contact point: each
+            // cart's first tick on the exit booster's cell (-5,ex,mz+1))
+            if c.w_top_exit.is_none() && bp.x == -5 && bp.y == ex && bp.z == mz + 1 {
+                c.w_top_exit = Some(t);
+            }
+            // (ironspec 17:20 (b): the stored speeds the geometry produces on each J (J(-1), J(3), J(7))
+            // over every cart, for J(-1)'s junction-settle bar)
+            if bp.y == ex && bp.z == rz
+                && let Some(i) = [-1, 3, 7].iter().position(|&jx| jx == bp.x)
+            {
+                j_vmax[i] = j_vmax[i].max((s.vx * s.vx + s.vz * s.vz).sqrt());
+            }
             // (G1 / ironspec: every cart on a T (the merge's (3,0,mz), (-1,0,mz), lane 7's curve with the
             // hold, the split's J(-1), J(3), J(7)): its sideways offset from the row's line, and any
             // branch detector (x,bdy,bdz) of another lane its box meets (a through cart tripping it))
@@ -2221,8 +2515,17 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
                     t_det.push(format!("cart {k} on lane {lx}'s detector at t {t}"));
                 }
             }
-            if bp.y == ex && bp.z == rz && (bp.x == 3 || bp.x == -1) && at_j.last().is_none_or(|l| l.2 != k || l.1 != bp.x) {
-                at_j.push((t, bp.x, k));
+            if bp.y == ex && bp.z == rz && (bp.x == 3 || bp.x == -1) {
+                if at_j.last().is_none_or(|l| l.2 != k || l.1 != bp.x) {
+                    at_j.push((t, bp.x, k));
+                    at_j_v.push((s.vx * s.vx + s.vz * s.vz).sqrt());
+                }
+                j_last.insert((bp.x, k), t);
+            }
+            // (ironspec 18:16 (3): every cart's ticks in the napper's K's cell (napper_lane - 2, ex, rz))
+            if o.k_relay && bp.y == ex && bp.z == rz && bp.x == o.napper_lane - 2 {
+                k_first[k].get_or_insert(t);
+                k_last[k] = Some(t);
             }
             // (the branch speed where the lane takes it (`row10`: entering (x,24,9), ironfarm's v_in),
             // the sink at the branch's end (`row10`: the lane's merge curve (x,24,7)))
@@ -2357,7 +2660,7 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
     let mv = carts.iter().take(n).filter_map(|c| c.merge_v).fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), v| (a.min(v), b.max(v)));
     let rng = |r: (f64, f64)| if r.0.is_finite() { format!("{:.3}..{:.3}", r.0, r.1) } else { "-".into() };
     out.push(format!(
-        "split: {wrong} wrong lane(s) of {n}; the batch carts' stored speed entering their branch {}, entering their lane's merge cell {} (ironfarm's delivery band 0.30..0.48, margins {}); the least gap from a junction's turn to the next cart at it: {}; the shaft's closest pair {}",
+        "split: {wrong} wrong lane(s) of {n}; the batch carts' stored speed entering their branch {}, entering their lane's merge cell {} (ironfarm's delivery band 0.30..0.48, inherited from its part spec, margins {}); the least gap from a junction's turn to the next cart at it: {}; the shaft's closest pair {}",
         rng(bv),
         rng(mv),
         if mv.0.is_finite() { format!("{:.3} / {:.3}", mv.0 - 0.30, 0.48 - mv.1) } else { "-".into() },
@@ -2365,6 +2668,140 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
         if shaft_gap.is_finite() { format!("{shaft_gap:.3}") } else { "-".into() }
     ));
     out.push(format!("pairs: {}", touches.line()));
+    // (ironspec 17:20 (b), cc767b78: per J(-1) / J(3) switch, settle = the switch -> the first cart
+    // needing its new state entering the cell, clear = the last cart needing its old state leaving
+    // the cell -> the switch; each least with its switch and cart. A batch cart needs its own lane's
+    // J set and every J west of it reset; the napper needs every J it reaches reset)
+    let need_on = |k: usize, j: i32| k < n && order[k % 3] == j;
+    let mut jsc: Vec<String> = Vec::new();
+    let mut j_settle: [Option<i64>; 2] = [None; 2];
+    let mut j_clear: [Option<i64>; 2] = [None; 2];
+    let mut j_clear_cart: [Option<i64>; 2] = [None; 2];
+    for (ji, j) in [-1, 3].into_iter().enumerate() {
+        let mut best_s: Option<(i64, i64, bool, usize, f64)> = None;
+        // (the clear side split: day-1's timed switches (the re-arm tap) against the cart-triggered
+        // ones (a D rise: the switching cart has left the junction by construction))
+        let mut best_c: Option<(i64, i64, bool, usize)> = None;
+        let mut best_cc: Option<(i64, i64, bool, usize)> = None;
+        for &(tt, jj, s) in turns.iter().filter(|x| x.1 == j) {
+            if let Some((idx, &(ta, _, k))) = at_j.iter().enumerate().find(|(_, a)| a.1 == jj && a.0 >= tt && need_on(a.2, j) == s) {
+                let g = settle_margin(tt, ta, false);
+                if best_s.is_none_or(|b| g < b.0) {
+                    best_s = Some((g, tt, s, k, at_j_v.get(idx).copied().unwrap_or(f64::NAN)));
+                }
+            }
+            if let Some(&(_, _, k)) = at_j.iter().filter(|a| a.1 == jj && a.0 < tt && need_on(a.2, j) != s).last()
+                && let Some(&last) = j_last.get(&(jj, k))
+            {
+                let g = clear_margin(tt, last, false);
+                let slot = if j == -1 && timed_turns.contains(&tt) { &mut best_c } else { &mut best_cc };
+                if slot.is_none_or(|b| g < b.0) {
+                    *slot = Some((g, tt, s, k));
+                }
+            }
+        }
+        j_settle[ji] = best_s.map(|b| b.0);
+        j_clear[ji] = best_c.map(|b| b.0);
+        j_clear_cart[ji] = best_cc.map(|b| b.0);
+        let who = |k: usize| if k < n { format!("cart {k} (batch {}, lane {})", k / 3, order[k % 3]) } else { format!("cart {k} (the napper)") };
+        let sr = |s: bool| if s { "set" } else { "reset" };
+        let cl = |b: Option<(i64, i64, bool, usize)>| b.map_or("-".to_string(), |(g, tt, s, k)| format!("{g} gt ({} out of the cell, then its {} at t {tt})", who(k), sr(s)));
+        jsc.push(format!(
+            "J({j}): settle {}, clear at its timed switches {}, clear at its cart-triggered switches {}",
+            best_s.map_or("-".to_string(), |(g, tt, s, k, v)| format!("{g} gt (its {} at t {tt}, then {} entering at stored {v:.3})", sr(s), who(k))),
+            cl(best_c),
+            cl(best_cc)
+        ));
+    }
+    out.push(format!("junction settle / clear (ironspec 17:20 (b): each switch against the first cart needing its new state and the last needing its old one, least per junction): {}", jsc.join("; ")));
+    // (ironspec 18:16 (3): the napper's K(n-2) under day-1's timed taps: on: clear (the last batch cart
+    // through K out of its cell -> K on) and settle (K on -> the napper entering); off: the napper out
+    // of K's cell -> K off, and K off -> the next batch cart entering)
+    let (k_clear, k_settle, k_off_margin, k_off_settle) = if o.k_relay && o.day1_taps {
+        let thru_before = k_on_at.and_then(|on| (0..n).filter(|&k| k_first[k].is_some_and(|f| f < on)).filter_map(|k| k_last[k].map(|l| (l, k))).max());
+        let kc = k_on_at.zip(thru_before).map(|(on, (l, k))| (clear_margin(on, l, false), k));
+        let ks = k_on_at.zip(k_first.get(n).copied().flatten()).map(|(on, f)| settle_margin(on, f, false));
+        let km = k_off_at.zip(k_last.get(n).copied().flatten()).map(|(off, l)| clear_margin(off, l, false));
+        let next_after = k_off_at.and_then(|off| (0..n).filter_map(|k| k_first[k].filter(|f| *f > off).map(|f| (f, k))).min());
+        let kos = k_off_at.zip(next_after).map(|(off, (f, k))| (settle_margin(off, f, false), k));
+        let who = |k: usize| format!("cart {k} (batch {}, lane {})", k / 3, order[k % 3]);
+        out.push(format!(
+            "K({}) under day-1's timed taps (ironspec 18:16 (3)): on at t {}: clear {} , settle {}; off at t {}: the napper out of K's cell {} before it, the next batch cart into K {} after it",
+            o.napper_lane - 2,
+            k_on_at.map_or("-".to_string(), |v| v.to_string()),
+            kc.map_or("-".to_string(), |(g, k)| format!("{g} gt ({} out of the cell, then K on)", who(k))),
+            ks.map_or("-".to_string(), |g| format!("{g} gt (K on, then the napper entering)")),
+            k_off_at.map_or("-".to_string(), |v| v.to_string()),
+            km.map_or("-".to_string(), |g| format!("{g} gt")),
+            kos.map_or("-".to_string(), |(g, k)| format!("{g} gt ({})", who(k)))
+        ));
+        (kc.map(|x| x.0), ks, km, kos.map(|x| x.0))
+    } else {
+        (None, None, None, None)
+    };
+    // (ironspec 19:14 / cc767b78: one entry per switch cause, with its phase: the K taps and J(-1)'s
+    // re-arm are taps (block); the D presses are entity-phase raw (timed from the press tick: settle
+    // + 1, clear - 1 against the bench's toggle) or block-phase through day-1's driver under
+    // `driver_latency`. Order: K set, K reset, J(-1) re-arm, J(-1) set, J(-1) reset, J(3) set, J(3) reset)
+    let (cause_settle, cause_clear) = {
+        let press_phase = if o.driver_latency { "block" } else { "entity" };
+        let who = |k: usize| if k < n { format!("cart {k} (batch {}, lane {})", k / 3, order[k % 3]) } else { format!("cart {k} (the napper)") };
+        // (the J causes: (name, cause, junction, state, timed))
+        let jc: [(&str, &str, i32, bool, bool); 5] = [
+            ("J(-1) re-arm", "tap", -1, true, true),
+            ("J(-1) set", "lane 7's D press", -1, true, false),
+            ("J(-1) reset", "lane -1's D press", -1, false, false),
+            ("J(3) set", "lane -1's D press", 3, true, false),
+            ("J(3) reset", "lane 3's D press", 3, false, false),
+        ];
+        let mut cs: [Option<i64>; 7] = [None; 7];
+        let mut cc: [Option<i64>; 7] = [None; 7];
+        let mut entries: Vec<String> = Vec::new();
+        let kname = format!("K({})", o.napper_lane - 2);
+        let opt = |v: Option<i64>, what: String| v.map_or("-".to_string(), |g| format!("{g} gt ({what})"));
+        cs[0] = k_settle;
+        cc[0] = k_clear;
+        cs[1] = k_off_settle;
+        cc[1] = k_off_margin;
+        entries.push(format!("{kname} set (tap, block): settle {}, clear {}", opt(k_settle, "K on, then the napper in".into()), opt(k_clear, "the last batch cart out, then K on".into())));
+        entries.push(format!("{kname} reset (tap, block): settle {}, clear {}", opt(k_off_settle, "K off, then the next batch cart in".into()), opt(k_off_margin, "the napper out, then K off".into())));
+        for (i, (name, cause, j, st, timed)) in jc.iter().enumerate() {
+            // (a D press without the driver: entity phase, timed from the press tick)
+            let from_press = !*timed && !o.driver_latency;
+            let mut bs: Option<(i64, i64, usize)> = None;
+            let mut bc: Option<(i64, i64, usize)> = None;
+            for &(tt, jj, s) in turns.iter().filter(|x| x.1 == *j && x.2 == *st) {
+                let is_timed = *j == -1 && timed_turns.contains(&tt);
+                if is_timed != *timed {
+                    continue;
+                }
+                if let Some(&(ta, _, k)) = at_j.iter().find(|a| a.1 == jj && a.0 >= tt && need_on(a.2, *j) == s) {
+                    let g = settle_margin(tt, ta, from_press);
+                    if bs.is_none_or(|b| g < b.0) {
+                        bs = Some((g, tt, k));
+                    }
+                }
+                if let Some(&(_, _, k)) = at_j.iter().filter(|a| a.1 == jj && a.0 < tt && need_on(a.2, *j) != s).last()
+                    && let Some(&last) = j_last.get(&(jj, k))
+                {
+                    let g = clear_margin(tt, last, from_press);
+                    if bc.is_none_or(|b| g < b.0) {
+                        bc = Some((g, tt, k));
+                    }
+                }
+            }
+            cs[i + 2] = bs.map(|b| b.0);
+            cc[i + 2] = bc.map(|b| b.0);
+            let phase = if *timed { "block" } else { press_phase };
+            entries.push(format!(
+                "{name} ({cause}, {phase}): settle {}, clear {}",
+                bs.map_or("-".to_string(), |(g, tt, k)| format!("{g} gt (the switch at t {tt}, then {} in)", who(k))),
+                bc.map_or("-".to_string(), |(g, tt, k)| format!("{g} gt ({} out, then the switch at t {tt})", who(k)))
+            ));
+        }
+        out.push(format!("junction settle / clear by cause (ironspec 19:14; a press timed from the press tick): {}", entries.join("; ")));
+        (cs, cc)
+    };
     out.push(format!(
         "T crossings (the game's shapes: NE unpowered, NW powered): {t_cross} cart-ticks on a T, the largest sideways offset from the row's line {t_offset:.3}; another lane's branch detector met by a through cart: {}",
         if t_det.is_empty() { "none".to_string() } else { t_det.iter().take(6).cloned().collect::<Vec<_>>().join(", ") }
@@ -2417,6 +2854,13 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
             _ => format!("at t {a}: nothing"),
         },
     };
+    // (ironspec 20:01 PT (2): lane 7's entry into the column against the preceding cart's box fully
+    // out of the mouth cell (its feet at y >= 13): the least over the batches, with the batch)
+    let mouth: Option<(i64, usize, i64)> = if o.path_a {
+        (0..n / 3).filter_map(|b| Some((carts[3 * b + 2].w_y12? - carts[3 * b + 1].w_y13?, b, carts[3 * b + 1].w_y13?))).min_by_key(|x| x.0)
+    } else {
+        None
+    };
     let hold_line = format!(
         "hold release: pulses fired {} (while the napper rested: {}), skipped {}; the napper's departure {}; creeps {} (the napper off the hold with no pulse); FIFO pops without a departure {}; fired pulses without that cycle's departure {}{}; the napper's second ARM3 rise {}; presence samples at E's rise: {}",
         pulses.len(),
@@ -2434,13 +2878,15 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
         nap_rise_s,
         if samples.is_empty() { "none".to_string() } else { samples.join("; ") }
     );
-    // (ironspec 14:41 (2): every E rise (ARM3 + 2) and every fired pulse's rail rise, and the E rises
-    // within K = the gate's k gt after a fired pulse's own E (0 everywhere: the live term comes out))
+    // (ironspec 14:41 (2) / 18:01: every E rise (ARM3 + 2), every fired pulse's E rise (the reset of
+    // the waiting bit) and its rail rise, and the E rises in (reset, reset + k], k the gate's
+    // (0 everywhere: the live term comes out))
     let kk = o.pulse_gate.unwrap_or(42);
     let e_within: Vec<i64> = arms.iter().copied().filter(|a| fired_arms.iter().any(|f| *a > *f && *a <= *f + kk)).map(|a| a + 2).collect();
     let hold_line = format!(
-        "{hold_line}; E rises: {}; fired pulse rises: {}; E rises within {kk} gt after a fired pulse: {}{}",
+        "{hold_line}; E rises: {}; fired E rises (resets): {}; fired pulse rises: {}; E rises within {kk} gt after a reset: {}{}",
         if arms.is_empty() { "none".to_string() } else { arms.iter().map(|a| format!("t {}", a + 2)).collect::<Vec<_>>().join(", ") },
+        if fired_arms.is_empty() { "none".to_string() } else { fired_arms.iter().map(|a| format!("t {}", a + 2)).collect::<Vec<_>>().join(", ") },
         if fired_arms.is_empty() { "none".to_string() } else { pulses.iter().map(|p| format!("t {p}")).collect::<Vec<_>>().join(", ") },
         e_within.len(),
         if e_within.is_empty() { String::new() } else { format!(" (t {})", e_within.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ")) }
@@ -2482,10 +2928,22 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
         }
         if o.path_a {
             out.push(format!(
-                "path (a): ARM3 - REL per batch {:?}; y-12 passes after REL: {}; the least distance between two carts in the column {}",
+                "path (a), in game ticks after REL (the tick a state first shows at a tick's end): lane 7's slope rail rises {:?}; ARM3 rises {:?}; the napper's hold rail rises {}; y-12 passes after REL: {}; the napper's y-12 gap behind {} and ahead {}; lane 7's mouth clearance {}; the least distance between two carts in the column {}",
                 {
                     let prel = if o.napper_lift { 100 } else { 0 };
-                    (0..o.batches as i64).filter_map(|b| arms.iter().copied().find(|a| *a >= prel + 100 * b && *a < prel + 100 * (b + 1)).map(|a| a - (prel + 100 * b))).collect::<Vec<_>>()
+                    slope_rises.iter().map(|r| r - prel - 100 * ((r - prel) / 100)).collect::<Vec<_>>()
+                },
+                {
+                    let prel = if o.napper_lift { 100 } else { 0 };
+                    (0..o.batches as i64).filter_map(|b| arms.iter().copied().find(|a| *a >= prel + 100 * b && *a < prel + 100 * (b + 1)).map(|a| a - 1 - (prel + 100 * b))).collect::<Vec<_>>()
+                },
+                {
+                    let prel = if o.napper_lift { 100 } else { 0 };
+                    on_fired.map_or("- (none fired)".to_string(), |(k, _)| {
+                        let p = pulses[k - 1] - 1;
+                        let b = nap_b_pulse.map_or((p - prel).div_euclid(100), |b| b as i64);
+                        format!("REL + {} (batch {b}'s REL)", p - (prel + 100 * b))
+                    })
                 },
                 carts
                     .iter()
@@ -2497,6 +2955,15 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
                     })
                     .collect::<Vec<_>>()
                     .join(", "),
+                {
+                    let ny = carts.get(n).and_then(|c| c.w_y12);
+                    ny.and_then(|t| carts[..n].iter().filter_map(|c| c.w_y12).filter(|y| *y <= t).max().map(|y| t - y)).map_or("-".to_string(), |v| v.to_string())
+                },
+                {
+                    let ny = carts.get(n).and_then(|c| c.w_y12);
+                    ny.and_then(|t| carts[..n].iter().filter_map(|c| c.w_y12).filter(|y| *y > t).min().map(|y| y - t)).map_or("- (no batch after it in the run)".to_string(), |v| v.to_string())
+                },
+                mouth.map_or("- (unmeasured)".to_string(), |(g, b, t13)| format!("{g} gt (batch {b}: lane 3's box out of the mouth cell, feet at y 13, at t {t13}; lane 7 into the column {g} gt later)")),
                 col_min.map_or("-".into(), |(d, a, b, tt)| format!("{d:.3} (carts {a} and {b} at t {tt})"))
             ));
         }
@@ -2529,12 +2996,135 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
     };
     let gap_min = (0..o.batches)
         .filter_map(|b| match (met_abs[b * 3], met_abs[b * 3 + 1], met_abs[b * 3 + 2]) {
-            (Some(a0), Some(a1), Some(a2)) => Some((a1 - a0).min(a2 - a1)),
+            // (`path_a`: lane 7 enters at y 12, so the foot pair is lane -1 -> lane 3 only)
+            (Some(a0), Some(a1), Some(a2)) => Some(if o.path_a { a1 - a0 } else { (a1 - a0).min(a2 - a1) }),
             _ => None,
         })
         .min()
         .unwrap_or(i64::MIN);
+    // (G1 on 83878113f: path (a)'s y-12 pairs barred in clean(), and the column order)
+    let (y12_pairs, y12_order_bad, y12_bad, y12_why) = {
+        fn upd(s: &mut Option<i64>, v: i64) {
+            *s = Some(s.map_or(v, |m| m.min(v)));
+        }
+        let w: Vec<Option<i64>> = carts.iter().map(|c| c.w_y12).collect();
+        let nb = n / 3;
+        let mut p: [Option<i64>; 5] = [None; 5];
+        let mut missing = false;
+        let ny = w.get(n).copied().flatten();
+        // (the napper's batch: the last whose lane 7 passed y 12 before it)
+        let nap_b = ny.and_then(|t| (0..nb).filter(|&b| w[3 * b + 2].is_some_and(|l7| l7 <= t)).max());
+        for b in 0..nb {
+            let (a, l3, l7) = (w[3 * b], w[3 * b + 1], w[3 * b + 2]);
+            if let (Some(x), Some(y)) = (a, l3) {
+                upd(&mut p[0], y - x);
+            }
+            match (l3, l7) {
+                (Some(x), Some(y)) => upd(&mut p[1], y - x),
+                _ => missing = true,
+            }
+            let next = if b + 1 < nb { w[3 * (b + 1)] } else { None };
+            if nap_b == Some(b) {
+                if let (Some(x), Some(t)) = (l7, ny) {
+                    upd(&mut p[2], t - x);
+                }
+                if let (Some(t), Some(nx)) = (ny, next) {
+                    upd(&mut p[3], nx - t);
+                }
+            } else if let (Some(x), Some(nx)) = (l7, next) {
+                upd(&mut p[4], nx - x);
+            }
+        }
+        let mut seq: Vec<(i64, usize)> = w.iter().enumerate().filter_map(|(k, t)| t.map(|t| (t, k))).collect();
+        seq.sort();
+        let expect: Vec<usize> = (0..nb)
+            .flat_map(|b| {
+                let mut v = vec![3 * b, 3 * b + 1, 3 * b + 2];
+                if nap_b == Some(b) {
+                    v.push(n);
+                }
+                v
+            })
+            .collect();
+        let order_bad = seq.iter().map(|(_, k)| *k).collect::<Vec<_>>() != expect;
+        // (the column bar 14 + 2 = 16 on every pair (ironspec 19:07 / 20:01 PT): the batch pairs
+        // (lane 3 -> lane 7, lane 7 -> the next lane -1 with no napper between) at --y12-min, the
+        // napper's (after lane 7, before the next batch's first) at --y12-nap-min; lane 7's mouth
+        // clearance at --mouth-min, an unmeasured one failing as "unmeasured", not as a margin)
+        let why = if !o.path_a {
+            ""
+        } else if missing {
+            "a cart never passed y 12"
+        } else if order_bad {
+            "the column order at y 12"
+        } else if [p[1], p[4]].iter().any(|v| v.is_some_and(|v| v < o.y12_min)) || [p[2], p[3]].iter().any(|v| v.is_some_and(|v| v < o.y12_nap_min)) {
+            "a y-12 pair under its bar"
+        } else if mouth.is_none() {
+            "lane 7's mouth clearance unmeasured"
+        } else if mouth.is_some_and(|m| m.0 < o.mouth_min) {
+            "lane 7's mouth clearance under its bar"
+        } else {
+            ""
+        };
+        (p, order_bad, !why.is_empty(), why)
+    };
+    if o.path_a {
+        let s = |v: Option<i64>| v.map_or("-".to_string(), |v| v.to_string());
+        // (ironspec 20:03 PT: the same pairs at the exit top, the contact point: each cart's first
+        // tick on the exit booster's cell; the column bar 14 + 2 is read here)
+        let top: Vec<Option<i64>> = carts.iter().map(|c| c.w_top_exit).collect();
+        let tp = |a: usize, b: usize| -> Option<i64> { Some(top.get(b).copied().flatten()? - top.get(a).copied().flatten()?) };
+        let nb = n / 3;
+        let ny_top = top.get(n).copied().flatten();
+        let nap_bt = ny_top.and_then(|t| (0..nb).filter(|&b| top[3 * b + 2].is_some_and(|l7| l7 <= t)).max());
+        let mut tops: [Option<i64>; 4] = [None; 4];
+        let upd = |slot: &mut Option<i64>, v: Option<i64>| {
+            if let Some(v) = v {
+                *slot = Some(slot.map_or(v, |m: i64| m.min(v)));
+            }
+        };
+        for b in 0..nb {
+            upd(&mut tops[0], tp(3 * b, 3 * b + 1));
+            upd(&mut tops[1], tp(3 * b + 1, 3 * b + 2));
+            if nap_bt == Some(b) {
+                upd(&mut tops[2], tp(3 * b + 2, n));
+                if b + 1 < nb {
+                    upd(&mut tops[3], tp(n, 3 * (b + 1)));
+                }
+            }
+        }
+        out.push(format!(
+            "path (a) y-12 pairs (bar >= {}: the column bar 14 + 2): lane -1 -> lane 3 {} (the foot pair: the shaft entry's gap bars it), lane 3 -> lane 7 {}, lane 7 -> the napper {}, the napper -> the next batch's lane -1 {}, lane 7 -> the next batch's lane -1 with no napper between {}; the column order at y 12 {}; the same pairs at the exit top (the contact point, the exit booster's cell): lane -1 -> lane 3 {}, lane 3 -> lane 7 {}, lane 7 -> the napper {}, the napper -> the next lane -1 {}",
+            o.y12_min,
+            s(y12_pairs[0]),
+            s(y12_pairs[1]),
+            s(y12_pairs[2]),
+            s(y12_pairs[3]),
+            s(y12_pairs[4]),
+            if y12_order_bad { "WRONG" } else { "-1, 3, 7 per batch, the napper after its batch's lane 7" },
+            s(tops[0]),
+            s(tops[1]),
+            s(tops[2]),
+            s(tops[3])
+        ));
+    }
     let summary = Summary {
+        y12_pairs,
+        y12_order_bad,
+        y12_bad,
+        y12_why,
+        j_vmax,
+        j_settle,
+        j_clear,
+        j_clear_cart,
+        k_clear,
+        k_settle,
+        k_off_margin,
+        k_off_settle,
+        cause_settle,
+        cause_clear,
+        path_a: o.path_a,
+        restart_dt,
         wrong,
         pushes: touches.pushes,
         napper_off: o.napper_delay.is_some() && carts.get(n).is_none_or(|c| c.lane != Some(if o.k_relay { o.napper_lane } else { 9 })),
@@ -2624,4 +3214,67 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
     };
     out.extend(trace);
     Ok((out.join("\n"), summary))
+}
+
+#[cfg(test)]
+mod record_file_tests {
+    use super::*;
+
+    /// The design of record's run line (`f1q2-lift-split-path-a.txt`'s header): these options, every
+    /// other flag at its CLI default (the lift depth 9 among them, ironspec 20:53 PT).
+    fn record_opts(out: &str) -> ReturnOpts {
+        ReturnOpts {
+            batches: 3,
+            spacing: 14,
+            speed: 0.4,
+            ticks: 450,
+            supp_open: 73,
+            napper_speed: 0.2,
+            y12_min: 16,
+            y12_nap_min: 16,
+            mouth_min: 2,
+            bit_delay: 36,
+            z7: true,
+            row9: true,
+            k_relay: true,
+            napper_lane: 3,
+            day1_taps: true,
+            reverse: true,
+            boosters: true,
+            game_ticks: true,
+            offsets: vec![0, 12, 24],
+            napper_delay: Some(12),
+            napper_lift: true,
+            release_pulse: 12,
+            pulse_gate: Some(42),
+            lift_depth: 9,
+            path_a: true,
+            lane7_rel: 95,
+            station_lag: 11,
+            lane7_pulse: 18,
+            kset_shift: 4,
+            driver_latency: true,
+            arm_rel: Some(51),
+            out: Some(out.to_string()),
+            ..Default::default()
+        }
+    }
+
+    /// ironspec 20:53 PT: the committed path (a) lift file (record7's lift) is the bench's emission
+    /// of its own run line, byte for byte, so a verdict run needs no flag beyond that line.
+    #[test]
+    fn the_record_lift_file_is_the_default_emission() {
+        let committed = include_str!("../../../designs/farms/iron/carousel-assembly/wip/lift/f1q2-lift-split-path-a.txt");
+        let path = std::env::temp_dir().join(format!("f1q2-lift-split-path-a-{}.txt", std::process::id()));
+        let p = path.to_str().expect("a utf-8 temp path");
+        let o = record_opts(p);
+        let spec = build(&o).expect("the record geometry builds");
+        let ro = RunOpts { ai: true, ..RunOpts::steady(1, 100, WalkMode::Random) };
+        let mut run = Run::start(&spec, &ro).expect("the record world starts");
+        while run.settle_tick() {}
+        write_design(&o, &spec, &run.world, p, 7).expect("the emitter's static gates pass");
+        let emitted = std::fs::read_to_string(&path).expect("the emitted file");
+        let _ = std::fs::remove_file(&path);
+        assert!(emitted == committed, "the committed record lift file differs from the bench's emission of its run line: re-emit it with that run line");
+    }
 }
