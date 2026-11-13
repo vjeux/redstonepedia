@@ -137,6 +137,8 @@ pub struct Opts {
     /// (G1 10:47 blocking 4's control) the first napper seated on its siding's R with PRESENT_l set
     /// after t 1,000 is dismounted there: PRESENT_l must stay set.
     pub eject_control: bool,
+    /// (day-1 11:40) hold the outbound napper's J's off until (8,25,9), as before the per-J release.
+    pub picker_hold_to_leg: bool,
     /// (ironspec 10:51 (g)) the longest designed rest on a station hold H's trapdoor, gt.
     pub h_rest_bound: i64,
     /// (ironspec 10:51 (f)) the siding check's positive: a batch cart planted on lane -1's siding R.
@@ -858,6 +860,10 @@ struct Ctl {
     /// (G1 10:47 blocking 4) the nappers' ids, set by the run each tick: PRESENT_l resets only on a
     /// departure from R carrying one
     napper_ids: std::collections::BTreeSet<u32>,
+    /// (day-1 11:40) the picker's per-J release: which of J(-1) / J(3) / J(7) the outbound napper has
+    /// cleared this pass, and whether to hold them all to (8,25,9) as before (--picker-hold-to-leg)
+    divert_cleared: [bool; 3],
+    picker_hold_to_leg: bool,
     /// (G1 10:47 blocking 4's control) the eject-on-R control: armed, and its sample (tick, lane,
     /// the napper, PRESENT_l right after)
     eject_control: bool,
@@ -1428,6 +1434,7 @@ impl Ctl {
                             self.note(now, format!("the picker: lane x {}'s cart {cid} on the row with the queue HELD: no divert", LANES[k]));
                         } else {
                             self.divert = Some((cid, k));
+                            self.divert_cleared = [false; 3];
                             self.divert_log.push((now, cid));
                             for x in [-1, 3, 7] {
                                 if x >= LANES[k] {
@@ -1436,22 +1443,53 @@ impl Ctl {
                             }
                             self.note(now, format!("the picker: lane x {}'s cart {cid} on the row at {c:?}: J({}) and every J east held off", LANES[k], LANES[k]));
                         }
+                    } else if let Some((dcid, dk)) = self.divert
+                        && dcid == cid
+                        && c[0] < 9
+                        && !self.picker_hold_to_leg
+                    {
+                        // (day-1 11:40: the picker emulation's R6 error) each J the outbound napper
+                        // clears is released at once, as that J's own D rise would leave it with the
+                        // napper standing in for its lane's batch cart: past J(3) (x > 3) with lane -1's
+                        // napper, J(3) on for the batch's next cart; past J(7) (x > 7), J(7) on, and with
+                        // lane 7's napper J(-1) re-armed; not held to (8,25,9) (--picker-hold-to-leg)
+                        if c[0] > 3 && !self.divert_cleared[1] {
+                            self.divert_cleared[1] = true;
+                            if dk == 0 {
+                                set(w, [3, 26, 9], &lever(true), flags::ALL)?;
+                                self.note(now, format!("the picker: cart {cid} past J(3): J(3) on for the batch's next cart"));
+                            }
+                        }
+                        if c[0] > 7 && !self.divert_cleared[2] {
+                            self.divert_cleared[2] = true;
+                            if dk == 2 && !j_blocked {
+                                set(w, [-1, 26, 9], &lever(true), flags::ALL)?;
+                            }
+                            set(w, [7, 26, 9], &lever(true), flags::ALL)?;
+                            self.note(now, format!("the picker: cart {cid} past J(7): J(7) on{}", if dk == 2 { ", J(-1) re-armed" } else { "" }));
+                        }
                     } else if self.divert.is_some() && c[0] == 9 {
                         // (past (8,25,9) on the leg's curve: the split as if the cart had taken
                         // its lane: lane -1's D rise (J(-1) off, J(3) on), lane 3's (J(3) off),
-                        // lane 7's (J(-1) re-armed); J(7) back on)
+                        // lane 7's (J(-1) re-armed); J(7) back on; since day-1 11:40 each J was
+                        // released as the napper cleared it, unless --picker-hold-to-leg)
                         match k {
                             0 => {
-                                set(w, [3, 26, 9], &lever(true), flags::ALL)?;
+                                if !self.divert_cleared[1] {
+                                    set(w, [3, 26, 9], &lever(true), flags::ALL)?;
+                                }
                             }
                             1 => {}
                             _ => {
-                                if !j_blocked {
+                                if !j_blocked && !self.divert_cleared[2] {
                                     set(w, [-1, 26, 9], &lever(true), flags::ALL)?;
                                 }
                             }
                         }
-                        set(w, [7, 26, 9], &lever(true), flags::ALL)?;
+                        if !self.divert_cleared[2] {
+                            set(w, [7, 26, 9], &lever(true), flags::ALL)?;
+                        }
+                        self.divert_cleared = [false; 3];
                         self.divert = None;
                         self.pick_cart = None;
                         if let Some(v) = rider {
@@ -2917,6 +2955,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         ctl.strand_control = o.strand_control;
         ctl.misroute_left = if o.misroute_control { 2 } else { 0 };
         ctl.eject_control = o.eject_control;
+        ctl.picker_hold_to_leg = o.picker_hold_to_leg;
     }
     // (day-1 06:07 PT, ctlcounter.rs; G1's blocker 3: the counter's state at the first release, a
     // clear clock's: C = 141 + ceil((d - 12,540) / 100) for a first release at day time d between
@@ -3254,6 +3293,8 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     let mut ledger: [Vec<(i64, u32, i64, String)>; 3] = [Vec::new(), Vec::new(), Vec::new()];
     // (onechunk 11:16) every napper's cart dropping into a lane not its own, with its split turns
     let mut napper_wrong_lane: Vec<String> = Vec::new();
+    // (day-1 11:36) every cart's entry into a split junction's cell: (tick, x, class, napper's lane)
+    let mut junction_passes: Vec<(i64, i32, &'static str, Option<usize>)> = Vec::new();
     // (ironspec 11:23, R4) the westbound carts on the split row: the open episodes and each one's row
     let mut westbound_open: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
     let mut westbound_rows: Vec<String> = Vec::new();
@@ -6209,6 +6250,20 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             // (ironspec 10:29 (3): the denominator) a drop pass: the drop cell (x,24,6) into the column
             // (x,23,6); a C deflection: C (x,24,7) west into c3 (x-1,24,7) by any cart but a napper's
             if let Some(p) = c_prev_cell.get(&e.id).copied() {
+                // (day-1 11:36 / ironspec 11:40 (3)) every cart's entry into a split junction's cell
+                // (J (x,25,9) or K (x-2,25,9)): its tick and class (a batch cart, the outbound napper
+                // (the picker's diverted cart), a returning napper)
+                if c[1] == 25 && c[2] == 9 && [-3, -1, 1, 3, 5, 7].contains(&c[0]) && p != c {
+                    let class = match e.passengers.first() {
+                        Some(r) if nappers.iter().any(|(v, _, _)| v == r) => {
+                            if ctl.divert.is_some_and(|(dc, _)| dc == e.id) { "outbound napper" } else { "returning napper" }
+                        }
+                        Some(_) => "batch",
+                        None => "empty",
+                    };
+                    let lane = e.passengers.first().and_then(|r| nappers.iter().find(|(v, _, _)| v == r).map(|(_, k, _)| *k));
+                    junction_passes.push((rel, c[0], class, lane));
+                }
                 // (ironspec 11:23 / G1 11:19 F4 (b), R4) a westbound cart on the split row (x,25,9):
                 // each episode's first tick, bar 0
                 if c[1] == 25 && c[2] == 9 && e.delta_movement.x < -0.01 && !(p[1] == 25 && p[2] == 9 && westbound_open.contains(&e.id)) {
@@ -8810,6 +8865,34 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             if r_unridden_rows.is_empty() { "PASS" } else { "FAIL" },
             if r_unridden_rows.is_empty() { String::new() } else { format!(": {}", r_unridden_rows.iter().take(8).cloned().collect::<Vec<_>>().join("; ")) }
         );
+        // (day-1 11:36 / ironspec 11:40 (3)) the passage ticks at each split junction by class, as
+        // phases on the station's clock (t mod 100; REL is at 5 mod 100), with their circular spread
+        let s = {
+            let phase_txt = |ts: Vec<i64>| -> String {
+                if ts.is_empty() {
+                    return "none".to_string();
+                }
+                let mut ph: Vec<i64> = ts.iter().map(|t| t.rem_euclid(100)).collect();
+                ph.sort();
+                let widest = ph.windows(2).map(|p| p[1] - p[0]).chain(std::iter::once(ph[0] + 100 - ph[ph.len() - 1])).max().unwrap_or(100);
+                format!("n {}, phases min {} / median {} / max {}, the circular spread {}", ph.len(), ph[0], ph[ph.len() / 2], ph[ph.len() - 1], if ph.len() < 2 { 0 } else { 100 - widest })
+            };
+            let mut rows: Vec<String> = Vec::new();
+            for (name, x) in [("J(-1)", -1), ("J(3)", 3), ("J(7)", 7), ("K(-1)", -3), ("K(3)", 1), ("K(7)", 5)] {
+                for class in ["batch", "outbound napper", "returning napper"] {
+                    let ts: Vec<i64> = junction_passes.iter().filter(|p| p.1 == x && p.2 == class).map(|p| p.0).collect();
+                    if !ts.is_empty() {
+                        rows.push(format!("{name} {class}: {}", phase_txt(ts)));
+                    }
+                }
+                // a K's own returning nappers (its lane's)
+                if let Some(k) = LANES.iter().position(|l| l - 2 == x) {
+                    let ts: Vec<i64> = junction_passes.iter().filter(|p| p.1 == x && p.2 == "returning napper" && p.3 == Some(k)).map(|p| p.0).collect();
+                    rows.push(format!("{name} its own lane's returning nappers: {}", phase_txt(ts)));
+                }
+            }
+            format!("{s}the split junctions' passage ticks (day-1 11:36 / ironspec 11:40 (3): each cart's entry into J (x,25,9) / K (x-2,25,9) by class, t mod 100 on the station's clock, REL at 5; information): {}\n", rows.join("; "))
+        };
         // (onechunk 11:16) the nappers' misroutes, bar 0
         let s = format!(
             "{s}the westbound carts on the split row (ironspec 11:23 / G1 11:19 F4 (b), R4: a cart on (x,25,9) moving west, each episode; bar 0): {} ({}){}\n",
