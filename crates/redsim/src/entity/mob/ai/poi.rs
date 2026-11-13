@@ -108,20 +108,14 @@ pub fn index(w: &mut World) -> &[(BlockPos, PoiKind)] {
     w.mob.ai.pois.as_deref().unwrap()
 }
 
-/// `PoiManager`'s tickets made explicit (from the memories' claims at that moment): a record's
-/// taken tickets live with the record, so a POI block broken and replaced is a fresh record with
-/// none taken while its old claimant keeps its memory (corrupt-poi-entity R1).
+/// `PoiManager`'s tickets: a record's taken tickets live with the record (its own state in the POI data),
+/// taken and given back only by `take` / `release` (AcquirePoi, a bench's explicit take): a memory never
+/// takes one. A HOME (or job site, meeting point) memory set from NBT, set directly or kept through a world
+/// load takes no ticket, as in the game (ironspec 06:31 (2) / 06:42 real: a summoned villager's HOME leaves
+/// its bed's ticket free). A POI block broken and replaced is a fresh record with none taken while its old
+/// claimant keeps its memory (corrupt-poi-entity R1).
 fn ensure_tickets(w: &mut World) -> &mut std::collections::BTreeMap<(i32, i32, i32), u32> {
-    if w.mob.ai.poi_tickets.is_none() {
-        let mut t = std::collections::BTreeMap::new();
-        for p in claimed_by_memory(w) {
-            if poi_of(&w.get(p)).is_some() {
-                *t.entry((p.x, p.y, p.z)).or_insert(0) += 1;
-            }
-        }
-        w.mob.ai.poi_tickets = Some(t);
-    }
-    w.mob.ai.poi_tickets.as_mut().unwrap()
+    w.mob.ai.poi_tickets.get_or_insert_with(std::collections::BTreeMap::new)
 }
 
 /// `PoiManager.take`: a ticket of the record at `p` taken.
@@ -213,40 +207,13 @@ pub fn on_block_changed(w: &mut World, pos: BlockPos, old: &Block, new: &Block) 
     }
 }
 
-/// The POIs a villager holds (taken tickets): with explicit tickets (`poi_tickets`, from the first
-/// take, release or record change on), the records with a ticket taken; before that the
-/// villagers' memories: its home, and with the exact brain its job site, potential job site and
-/// meeting point.
+/// The POIs whose records have a ticket taken (`poi_tickets`; none before the first take): a memory alone
+/// claims nothing (see [`ensure_tickets`]).
 pub fn claimed(w: &World) -> Vec<BlockPos> {
-    if let Some(t) = w.mob.ai.poi_tickets.as_ref() {
-        return t.iter().filter(|(_, n)| **n > 0).map(|(k, _)| BlockPos::new(k.0, k.1, k.2)).collect();
+    match w.mob.ai.poi_tickets.as_ref() {
+        Some(t) => t.iter().filter(|(_, n)| **n > 0).map(|(k, _)| BlockPos::new(k.0, k.1, k.2)).collect(),
+        None => Vec::new(),
     }
-    claimed_by_memory(w)
-}
-
-fn claimed_by_memory(w: &World) -> Vec<BlockPos> {
-    let mut out = Vec::new();
-    let mut add = |h: Option<BlockPos>| {
-        if let Some(h) = h
-            && !out.contains(&h)
-        {
-            out.push(h);
-        }
-    };
-    for e in w.entities.list.iter().filter(|e| !e.removed) {
-        if let EntityKind::Mob(m) = &e.kind
-            && let Some(b) = m.brain.as_deref()
-        {
-            // (in order: its home, then its job site, potential job site and meeting point)
-            add(b.home);
-            if let Some(x) = b.ex.as_deref() {
-                add(x.mem.job_site);
-                add(x.mem.potential_job_site);
-                add(x.mem.meeting_point);
-            }
-        }
-    }
-    out
 }
 
 /// `PoiManager.getInRange(any type, center, radius, IS_OCCUPIED)`'s positions (the order among
@@ -415,7 +382,7 @@ pub fn first_meeting_within(w: &mut World, center: BlockPos, radius: i32) -> Opt
 fn pois_ordered(w: &mut World, center: BlockPos, radius: i32, keep: impl Fn(PoiKind, bool) -> bool) -> Vec<BlockPos> {
     let held: Vec<(BlockPos, u32)> = match w.mob.ai.poi_tickets.as_ref() {
         Some(t) => t.iter().map(|(k, n)| (BlockPos::new(k.0, k.1, k.2), *n)).collect(),
-        None => claimed_by_memory(w).into_iter().map(|p| (p, 1)).collect(),
+        None => Vec::new(),
     };
     let full = |p: BlockPos, kind: PoiKind| held.iter().find(|(q, _)| *q == p).map_or(0, |(_, n)| *n) >= if kind == PoiKind::Meeting { 32 } else { 1 };
     let all: Vec<(BlockPos, PoiKind)> = index(w).to_vec();
@@ -494,4 +461,95 @@ fn free_pois_unordered(w: &mut World, sel: PoiSel, center: BlockPos, radius: i32
         })
         .map(|(p, _)| *p)
         .collect()
+}
+
+#[cfg(test)]
+mod ticket_tests {
+    use super::*;
+
+    /// A world with a bed (its head at (0,0,2)) on a stone floor, the mob AI on, at day time `day`.
+    fn bed_world(day: i64) -> (World, BlockPos) {
+        let mut w = World::new(BlockPos::new(-8, -4, -8), [16, 8, 16]);
+        let stone = Block::parse("minecraft:stone").unwrap();
+        for x in -6..=6 {
+            for z in -6..=6 {
+                w.set_block(BlockPos::new(x, -1, z), stone.clone(), crate::world::flags::ALL);
+            }
+        }
+        w.set_block(BlockPos::new(0, 0, 1), Block::parse("minecraft:red_bed[facing=south,occupied=false,part=foot]").unwrap(), crate::world::flags::ALL);
+        w.set_block(BlockPos::new(0, 0, 2), Block::parse("minecraft:red_bed[facing=south,occupied=false,part=head]").unwrap(), crate::world::flags::ALL);
+        w.mob.seed(7, day);
+        w.mob.ai.on = true;
+        (w, BlockPos::new(0, 0, 2))
+    }
+
+    const HOME: &str = "{Brain:{memories:{\"minecraft:home\":{value:{dimension:\"minecraft:overworld\",pos:[I;0,0,2]}}}}}";
+
+    /// ironspec 06:31 (2) / 06:42 real: a HOME memory takes no ticket on any path that sets it. (1) A villager
+    /// summoned with HOME NBT (`entity::spawn`, 58f770cc's and b8949c96's path): its bed's free tickets stay 1
+    /// whether the tickets were read before the summon or not (the old lazy count from the memories read 0 when
+    /// they weren't). (2) A HOME set directly on the brain: 1. (3) A world load (every chunk saved, unloaded and
+    /// loaded): the reloaded villager's HOME takes none, 1; a ticket AcquirePoi took (`take_if_free`) is the
+    /// record's and stays taken through the load, 0.
+    #[test]
+    fn a_home_memory_takes_no_ticket() {
+        // (1) the summon, the tickets untouched before it (b8949c96's bench) and read before it (58f770cc's)
+        for read_first in [false, true] {
+            let (mut w, bed) = bed_world(13_800);
+            if read_first {
+                assert_eq!(free_tickets(&mut w, bed), Some(1));
+            }
+            let v = crate::entity::spawn(&mut w, "minecraft:villager", [0.5, 0.0, -2.5], Some(HOME)).unwrap();
+            let i = crate::entity::index_of(&w, v).unwrap();
+            assert_eq!(crate::entity::mob::ai::brain::brain(&w, i).home, Some(bed), "the HOME loaded");
+            assert_eq!(free_tickets(&mut w, bed), Some(1), "summoned with HOME NBT (tickets read first: {read_first})");
+            w.tick();
+            assert_eq!(free_tickets(&mut w, bed), Some(1), "and after its first tick");
+        }
+        // (2) the memory set directly
+        let (mut w, bed) = bed_world(13_800);
+        let v = crate::entity::spawn(&mut w, "minecraft:villager", [0.5, 0.0, -2.5], None).unwrap();
+        let i = crate::entity::index_of(&w, v).unwrap();
+        crate::entity::mob::ai::brain::brain_mut(&mut w, i).home = Some(bed);
+        assert_eq!(free_tickets(&mut w, bed), Some(1), "a HOME set directly");
+        // (3) a world load: the summoned villager's HOME through it, and a taken ticket kept
+        let (mut w, bed) = bed_world(13_800);
+        crate::entity::spawn(&mut w, "minecraft:villager", [0.5, 0.0, -2.5], Some(HOME)).unwrap();
+        crate::reload::unload_all(&mut w);
+        crate::reload::load_all(&mut w);
+        assert_eq!(free_tickets(&mut w, bed), Some(1), "a HOME through a world load");
+        assert!(take_if_free(&mut w, PoiSel::Home, bed), "AcquirePoi's take");
+        assert_eq!(free_tickets(&mut w, bed), Some(0));
+        crate::reload::unload_all(&mut w);
+        crate::reload::load_all(&mut w);
+        assert_eq!(free_tickets(&mut w, bed), Some(0), "the record's taken ticket kept through the load");
+    }
+
+    /// G1, the order dependence itself (the old lazy count): a freshly placed bed starts at free 1 (the
+    /// game's new POI record), and a villager whose HOME is that bed, set by a summon's NBT or directly, leaves
+    /// it at 1 whether the tickets were (a) touched before the HOME was set or (b) first read after it; (c) an
+    /// explicit `take` makes it 0 in both orders.
+    #[test]
+    fn ticket_reads_are_order_independent() {
+        let (mut fresh, bed) = bed_world(13_800);
+        assert_eq!(free_tickets(&mut fresh, bed), Some(1), "a freshly placed bed: free 1");
+        for summon in [true, false] {
+            for touched_first in [true, false] {
+                let (mut w, bed) = bed_world(13_800);
+                if touched_first {
+                    let _ = claimed(&w);
+                    release(&mut w, bed);
+                }
+                let v = crate::entity::spawn(&mut w, "minecraft:villager", [0.5, 0.0, -2.5], if summon { Some(HOME) } else { None }).unwrap();
+                if !summon {
+                    let i = crate::entity::index_of(&w, v).unwrap();
+                    crate::entity::mob::ai::brain::brain_mut(&mut w, i).home = Some(bed);
+                }
+                assert_eq!(free_tickets(&mut w, bed), Some(1), "HOME by {} (tickets touched first: {touched_first})", if summon { "NBT" } else { "a direct set" });
+                assert!(!claimed(&w).contains(&bed), "claimed lists no memory");
+                take(&mut w, bed);
+                assert_eq!(free_tickets(&mut w, bed), Some(0), "an explicit take (tickets touched first: {touched_first})");
+            }
+        }
+    }
 }
