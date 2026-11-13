@@ -39,11 +39,30 @@ fn a_daylight_detector_toggling_beside_a_t_reshapes_it() {
     // (the detector's power goes 0 -> 15, as its 20-gt update does at dawn: a source's change)
     w.set_block(BlockPos::new(0, 1, -1), Block::parse("daylight_detector[inverted=false,power=15]").unwrap(), flags::ALL);
     assert_eq!(shape_of(&w.get(c)), j.powered, "re-shaped to its powered settle");
-    // (a control: the same change made by a block that is no signal source re-shapes nothing)
-    let (mut w, c) = t_world("glass");
-    let j = junction_at(&w, c).unwrap();
-    w.set_block(BlockPos::new(0, 1, -1), Block::parse("stone").unwrap(), flags::ALL);
-    assert_eq!(shape_of(&w.get(c)), j.unpowered, "a non-source change leaves it");
+}
+
+/// (G1's CHANGES 2 on bc9a03fee: a control that bites) The T powered by a redstone block laid RAW
+/// beside it (no update) sits in its unpowered settle while powered: a non-source neighbour change
+/// leaves it as it is (a gate passing every change would re-shape it), a source change (a lever
+/// toggled at another neighbour) re-shapes it.
+#[test]
+fn only_a_source_change_reshapes_a_powered_t() {
+    let powered_t = || {
+        let (mut w, c) = t_world("redstone_block");
+        // (a ceiling for a lever over the T, laid RAW)
+        w.place_raw(&[(BlockPos::new(0, 3, 0), Block::parse("stone").unwrap())]);
+        let j = junction_at(&w, c).unwrap();
+        assert!(j.signal, "the redstone block powers the T");
+        assert_eq!(shape_of(&w.get(c)), j.unpowered, "laid RAW: still its unpowered settle");
+        (w, c, j)
+    };
+    let (mut w, c, j) = powered_t();
+    w.set_block(BlockPos::new(0, 2, 0), Block::parse("glass").unwrap(), flags::ALL);
+    assert_eq!(shape_of(&w.get(c)), j.unpowered, "a non-source change leaves the powered T as it is");
+    let (mut w, c, j) = powered_t();
+    w.place_raw(&[(BlockPos::new(0, 2, 0), Block::parse("lever[face=ceiling,facing=north,powered=false]").unwrap())]);
+    w.set_block(BlockPos::new(0, 2, 0), Block::parse("lever[face=ceiling,facing=north,powered=true]").unwrap(), flags::ALL);
+    assert_eq!(shape_of(&w.get(c)), j.powered, "a lever's toggle re-shapes it to its powered settle");
 }
 
 #[test]
