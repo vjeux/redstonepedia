@@ -4351,6 +4351,7 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
     let mut hold_needed = i64::MIN;
     let mut window_rows: Vec<String> = Vec::new();
     let (mut clear_after_close, mut delta_ruled, mut board_wait_max, mut resleeps) = (Vec::<i64>::new(), i64::MIN, i64::MIN, 0usize);
+    let mut clear_never = 0usize;
     let (mut contact_speeds, mut park_xs) = (Vec::<(f64, String)>::new(), Vec::<(f64, Option<f64>, String)>::new());
     let (mut multi_board, mut stand_home_min, mut resleep_lines) = (0usize, f64::MAX, Vec::<String>::new());
     let mut post_contact_min: std::collections::BTreeMap<String, f64> = std::collections::BTreeMap::new();
@@ -4431,6 +4432,11 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
                                 // into (-2,0,5) >= close + 27 on every wake: the delta it needs)
                                 if let (Some(cl), Some(e)) = (r.close_at, r.mem_empty_at) {
                                     clear_after_close.push(e - cl);
+                                }
+                                // (G1's Q4: a wake whose NEAREST_HOSTILE never clears after the
+                                // close is a failing sample, not a dropped one)
+                                if r.close_at.is_some() && r.mem_empty_at.is_none() {
+                                    clear_never += 1;
                                 }
                                 if let (Some(cl), Some(c)) = (r.close_at, r.cell25_at) {
                                     delta_ruled = delta_ruled.max(cl + 27 - c);
@@ -5064,13 +5070,23 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
                 *hist.entry(*x).or_default() += 1;
             }
             let worst = *d.last().unwrap();
-            println!("NEAREST_HOSTILE's clear after the window's close (G1 09:13 (2): the sensor's 20-gt period + VillagerCalmDown's tick + the boarding read; asserted <= 22): over {} wakes, min {} max {worst} gt, by value {hist:?}{}", d.len(), d[0], if worst > 22 { " -- EXCEEDS 22: delta re-derived" } else { "" });
+            println!("NEAREST_HOSTILE's clear after the window's close (G1 09:13 (2): the sensor's 20-gt period + VillagerCalmDown's tick + the boarding read; asserted <= 22): over {} wakes, min {} max {worst} gt, by value {hist:?}; wakes it never cleared after the close: {clear_never}{}", d.len(), d[0], if worst > 22 { " -- EXCEEDS 22: delta re-derived" } else { "" });
             if worst > 22 {
                 failed.push("NEAREST_HOSTILE's clear more than 22 gt after the window's close on a wake (delta = 5 re-derived)".to_string());
             }
+        } else if waker_wakes > 0 {
+            println!("NEAREST_HOSTILE's clear after the window's close: NOT JUDGED (no wake with a close and a clear)");
+            failed.push("NEAREST_HOSTILE's clear after the close: NOT JUDGED (G1's Q4)".to_string());
+        }
+        // (G1's Q4: a never-clearing wake fails the bar)
+        if clear_never > 0 {
+            failed.push(format!("{clear_never} wakes whose NEAREST_HOSTILE never cleared after the window's close"));
         }
         if delta_ruled > i64::MIN {
-            println!("the hold delta ruled (ironspec 09:11 (2): the cart's first entry into (-2,0,5) >= the window's close + 27 on every wake): {} gt over this sweep's wakes (0 = already met with the release at the wake edge)", delta_ruled.max(0));
+            println!("the hold delta ruled (ironspec 09:11 (2): the cart's first entry into (-2,0,5) >= the window's close + 27 on every wake): this run's release (--release-after {release_after}) and close (--close-after {}) miss it by {} gt at worst (0 = met on every wake; G1's Q4: judged)", base.close_after.max(1), delta_ruled.max(0));
+            if delta_ruled > 0 {
+                failed.push(format!("the cart's first entry into (-2,0,5) came {delta_ruled} gt before the window's close + 27 on a wake (raise --release-after: delta = close + 4)"));
+            }
         }
         {
             println!("the re-sleep lock (G1 09:12 / ironspec 09:13): P's feet ~(-1.5, 0.06, 4.5) to HOME's centre (-2.5, 0.5, 4.5): {:.2} (SleepInBed's 2.0: within, so the lock is live); lie-downs after the wake before the pickup (bar 0): {resleeps}; the longest wake -> boarding {} (stated margin < 80 under LAST_WOKEN's 100)", ((1.0f64).powi(2) + (0.44f64).powi(2)).sqrt(), if board_wait_max > i64::MIN { format!("{board_wait_max} gt") } else { "- (no boarding)".to_string() });
