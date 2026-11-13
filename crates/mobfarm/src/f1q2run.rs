@@ -167,6 +167,8 @@ pub struct Opts {
     pub ring_k: i64,
     /// (G1 14:11's control) a pick moving nap_lane inside each napper's window.
     pub nap_lane_control: bool,
+    /// (G1 14:21's control) the old defect restored: each K write's cell from nap_lane at fire time.
+    pub stuck_k_control: bool,
     /// (ironspec 10:51 (g)) the longest designed rest on a station hold H's trapdoor, gt.
     pub h_rest_bound: i64,
     /// (ironspec 10:51 (f)) the siding check's positive: a batch cart planted on lane -1's siding R.
@@ -951,6 +953,7 @@ struct Ctl {
     /// (G1 14:11's control) --nap-lane-control: on; the forced nap_lane moves pending; each napper's
     /// window (its H2 sample, lane, K cell); every K write fired (tick, cell, on)
     nap_lane_control: bool,
+    stuck_k_control: bool,
     nap_lane_moves: Vec<(i64, usize)>,
     k_windows: Vec<(i64, usize, i32)>,
     k_fired: Vec<(i64, i32, bool)>,
@@ -2232,8 +2235,16 @@ impl Ctl {
             self.nap_lane = nk;
             self.note(now, format!("the nap-lane control: nap_lane moved to lane x {} inside a window", LANES[nk]));
         }
-        let due: Vec<(i64, i32, bool)> = self.k_events.iter().filter(|e| e.0 == now).copied().collect();
+        let mut due: Vec<(i64, i32, bool)> = self.k_events.iter().filter(|e| e.0 == now).copied().collect();
         self.k_events.retain(|e| e.0 != now);
+        // (G1 14:21's control, --stuck-k-control: the old defect restored, each K write's cell taken
+        // from nap_lane at the fire tick; with --nap-lane-control it must FAIL the K-write audit)
+        if self.stuck_k_control {
+            let kx_now = LANES[self.nap_lane] - 2;
+            for e in due.iter_mut() {
+                e.1 = kx_now;
+            }
+        }
         for (_, kx, on) in due.iter() {
             self.k_fired.push((now, *kx, *on));
         }
@@ -3353,6 +3364,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         ctl.rel_gate_armed = o.rel_gate_armed;
         ctl.offs = o.lane_offsets.unwrap_or(OFFS);
         ctl.nap_lane_control = o.nap_lane_control;
+        ctl.stuck_k_control = o.stuck_k_control;
         if let Some(l) = o.ring_timed {
             ctl.ring_timed = true;
             ctl.ring_l = l;
