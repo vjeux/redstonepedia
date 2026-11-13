@@ -139,7 +139,13 @@ pub const WAKER_SHUT: [i32; 3] = [-5, 1, 9];
 pub const WAKER_CTRL: [i32; 3] = [-5, 1, 8];
 
 pub fn layout(w: &World) -> Layout {
-    let at = |c: [i32; 3]| format!("{}", w.get(BlockPos::new(c[0], c[1], c[2])));
+    layout_at(w, [0, 0, 0])
+}
+
+/// [`layout`] on a world built at `off` (the bench's `--offset`): the cells read at design + off,
+/// the layout returned in the design frame.
+pub fn layout_at(w: &World, off: [i32; 3]) -> Layout {
+    let at = |c: [i32; 3]| format!("{}", w.get(BlockPos::new(c[0] + off[0], c[1] + off[1], c[2] + off[2])));
     let hatch = vec![HATCH_CTRL, HATCH_CTRL_HI];
     if at(E_A2).contains("activator_rail") {
         let hatch_ctrl = if at(WAKER_SHUT).contains("iron_trapdoor") { vec![WAKER_CTRL] } else { hatch };
@@ -1491,6 +1497,10 @@ pub struct Faults {
     /// (G1's C20) The run is on the built world (the module over the stop, --module-offset): the
     /// lightning bar is judged there (the stop alone is open to the sky by construction).
     pub built_world: bool,
+    /// (ironspec 11:39 / G1: the build positions) The whole design built at design + offset (every
+    /// laid cell, entity and stand-in write), every design-frame cell read there and the rows
+    /// printed back in the design frame; the stop's own bench only.
+    pub offset: [i32; 3],
     /// (ironspec 10:47) Each declared contact's `rate=k/n` from a band run: STALE fails only when
     /// (1 - k/n)^N < 0.001 for the run's N visits; a rate-less declaration is always expected.
     pub contact_rates: Vec<([i32; 3], (u32, u32))>,
@@ -1736,7 +1746,13 @@ pub fn parse_contact_rates(text: &str, shift: [i32; 3]) -> Vec<([i32; 3], (u32, 
 /// conductor never heard the change). A cell that isn't a lever, or already in the state, is
 /// written raw.
 pub fn ctl_set(w: &mut World, c: [i32; 3], st: &str) {
-    let p = BlockPos::new(c[0], c[1], c[2]);
+    ctl_set_at(w, c, [0, 0, 0], st)
+}
+
+/// [`ctl_set`] on a world built at `off` (the bench's `--offset`): `c` in the design frame (its kind
+/// read from the design cell), written at c + off.
+pub fn ctl_set_at(w: &mut World, c: [i32; 3], off: [i32; 3], st: &str) {
+    let p = BlockPos::new(c[0] + off[0], c[1] + off[1], c[2] + off[2]);
     let want = match block(&ctl_block(c, st)) {
         Ok(b) => b,
         Err(e) => {
@@ -1916,17 +1932,23 @@ pub fn ctl_block(c: [i32; 3], st: &str) -> String {
 /// The direction of a villager's current path from the pickup cell: its first node off the cell
 /// (north is up the approach, toward the arriving cart).
 fn path_dir(w: &World, i: usize) -> Option<&'static str> {
+    path_dir_at(w, i, [0, 0, 0])
+}
+
+/// [`path_dir`] on a world built at `off` (the bench's `--offset`): the path's nodes read back in
+/// the design frame.
+fn path_dir_at(w: &World, i: usize, off: [i32; 3]) -> Option<&'static str> {
     use redsim::entity::mob::ai::brain;
     if !brain::has_exact(w, i) {
         return None;
     }
     let p = brain::ex(w, i).mem.path.as_ref()?;
-    let n = p.nodes.iter().skip(p.next_node_index).find(|n| (n.x, n.z) != (SWEPT[0][0], SWEPT[0][2]))?;
-    Some(if n.z < SWEPT[0][2] {
+    let n = p.nodes.iter().skip(p.next_node_index).map(|n| (n.x - off[0], n.z - off[2])).find(|n| *n != (SWEPT[0][0], SWEPT[0][2]))?;
+    Some(if n.1 < SWEPT[0][2] {
         "north"
-    } else if n.z > SWEPT[0][2] {
+    } else if n.1 > SWEPT[0][2] {
         "south"
-    } else if n.x > SWEPT[0][0] {
+    } else if n.0 > SWEPT[0][0] {
         "east"
     } else {
         "west"
@@ -1938,6 +1960,27 @@ fn path_dir(w: &World, i: usize) -> Option<&'static str> {
 /// release (the park's supports to redstone blocks) `release_after` gt after F, until the cart is a
 /// block past R or 2400 gt; the controller on game ticks.
 pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bool, after_sleep: i64, f: &Faults) -> Result<Row, String> {
+    // (ironspec 11:39 / G1: the build positions: `--offset` builds the whole design at design + off
+    // (every laid cell, entity and stand-in write) and reads every design-frame cell there, the rows
+    // printed back in the design frame; the frame-dependent motion is the game's)
+    let off = f.offset;
+    // (the offset is the stop's own bench: no module, queue, record or line-bench levers with it)
+    if off != [0, 0, 0] && (f.approach.is_some() || f.record.is_some() || !f.lay_emulated.is_empty() || f.built_release.is_some() || !f.levers_on.is_empty() || f.day_lever.is_some()) {
+        return Err("--offset runs the stop's own bench only (no --module-offset, --record, line-bench levers or emulated module cells with it)".into());
+    }
+    let shifted;
+    let spec = if off != [0, 0, 0] {
+        shifted = shift_spec(spec, off);
+        &shifted
+    } else {
+        spec
+    };
+    let wp = |x: i32, y: i32, z: i32| BlockPos::new(x + off[0], y + off[1], z + off[2]);
+    let wc = |c: [i32; 3]| BlockPos::new(c[0] + off[0], c[1] + off[1], c[2] + off[2]);
+    let dcell = |p: BlockPos| [p.x - off[0], p.y - off[1], p.z - off[2]];
+    let dbp = |p: BlockPos| BlockPos::new(p.x - off[0], p.y - off[1], p.z - off[2]);
+    let dpos = |v: Vec3| Vec3::new(v.x - off[0] as f64, v.y - off[1] as f64, v.z - off[2] as f64);
+    let (ox, oy, oz) = (off[0] as f64, off[1] as f64, off[2] as f64);
     let ro = RunOpts { ai: true, ..RunOpts::steady(seed as i64, 3 * 24000, WalkMode::Random) };
     let (mut run, _) = crate::placing::start(spec, &ro, crate::placing::Placement::Judge, &crate::placing::BuildPlan::default())?;
     // (the daylight detectors the start held back (they'd read the settle's sky), placed as
@@ -1965,9 +2008,9 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
     let dropped = spec.blocks.iter().filter(|(p, _)| !run.world.contains(*p)).count();
     let mut zid = run.world.entities.list.iter().find(|e| e.id >= first && matches!(&e.kind, redsim::entity::EntityKind::Mob(m) if m.ty == redsim::entity::mob::types::MobType::Zombie)).map(|e| e.id);
     // ((A)'s exit-slope hold present: the slope (1,-1,5) a powered rail (ironspec 09:38))
-    let hold_slope_on = format!("{}", run.world.get(BlockPos::new(1, -1, 5))).contains("powered_rail");
+    let hold_slope_on = format!("{}", run.world.get(wp(1, -1, 5))).contains("powered_rail");
     // (Z1's design: the waker's shutter at WAKER_SHUT (an iron trapdoor))
-    let z1_design = format!("{}", run.world.get(BlockPos::new(WAKER_SHUT[0], WAKER_SHUT[1], WAKER_SHUT[2]))).contains("iron_trapdoor");
+    let z1_design = format!("{}", run.world.get(wc(WAKER_SHUT))).contains("iron_trapdoor");
     let mut row = Row { seed, speed, fluid_scheduled, ..Default::default() };
     if dropped > 0 {
         row.problems.push(format!("{dropped} of the design's cells outside the world's box"));
@@ -1983,8 +2026,8 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             return Err("never reached the visit's hour".into());
         }
     }
-    // the visitor at the entry, HOME = the bed (as the game loads the memory)
-    let h = BED_HEAD;
+    // the visitor at the entry, HOME = the bed (as the game loads the memory; at the build position)
+    let h = [BED_HEAD[0] + off[0], BED_HEAD[1] + off[1], BED_HEAD[2] + off[2]];
     let nbt = if f.empty {
         "{Rotation:[0f,0f]}".to_string()
     } else if f.no_home {
@@ -1992,7 +2035,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
     } else {
         format!("{{Rotation:[0f,0f],Passengers:[{{id:\"minecraft:villager\",Brain:{{memories:{{\"minecraft:home\":{{value:{{dimension:\"minecraft:overworld\",pos:[I;{},{},{}]}}}}}}}}}}]}}", h[0], h[1], h[2])
     };
-    let start = f.approach.map_or([ENTRY[0] as f64 + 0.5, ENTRY[1] as f64 + 0.0625, ENTRY[2] as f64 + 0.5], |a| a.seat);
+    let start = f.approach.map_or([ENTRY[0] as f64 + 0.5 + ox, ENTRY[1] as f64 + 0.0625 + oy, ENTRY[2] as f64 + 0.5 + oz], |a| a.seat);
     let mut cart_id = redsim::entity::spawn(&mut run.world, "minecraft:minecart", start, Some(&nbt))?;
     let mut vill = run.world.entities.list.iter().find(|e| e.id == cart_id).and_then(|e| e.passengers.first().copied());
     if vill.is_none() && !f.empty {
@@ -2013,12 +2056,12 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             }
         }
     }
-    let set = |w: &mut World, c: [i32; 3], st: &str| ctl_set(w, c, st);
+    let set = |w: &mut World, c: [i32; 3], st: &str| ctl_set_at(w, c, off, st);
     // (ironspec 17:46, the stand-in guard: every emulated write this bench makes, checked against
     // the built cell's golem and path properties before the run: the controller's levers, and the
     // queue's release with --module-offset)
-    let (act_cell, act_ctrl) = act_cells(&run.world);
-    let lay = layout(&run.world);
+    let (act_cell, act_ctrl) = { let l = layout_at(&run.world, off); (l.act, l.act_ctrl) };
+    let lay = layout_at(&run.world, off);
     for c in lay.hatch_ctrl.iter().copied().chain([act_ctrl]).chain(lay.park_ctrl.iter().copied()) {
         // (a built always-on source the bench never writes ((A) with the run-up's activator torch)
         // is no stand-in: nothing to check)
@@ -2026,10 +2069,10 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             continue;
         }
         for st in ["redstone_block", "stone"] {
-            emulated_write_check(&run.world, BlockPos::new(c[0], c[1], c[2]), &block(&ctl_block(c, st))?, &f.declared_emulated)?;
+            emulated_write_check(&run.world, wc(c), &block(&ctl_block(c, st))?, &f.declared_emulated)?;
         }
         // (the reach half: the built lever's own power reach is the target set)
-        let p = BlockPos::new(c[0], c[1], c[2]);
+        let p = wc(c);
         let on = block(&ctl_block(c, "redstone_block"))?;
         let built = standin_reach(&run.world, p, &run.world.get(p))?.1;
         row.standin.push(standin_reach_check(&run.world, p, &on, &built, &f.declared_emulated)?);
@@ -2270,7 +2313,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                 m.cant_reach_since = Some(now - age);
             }
             if f.arrival_run {
-                m.walk_target = Some(redsim::entity::mob::ai::brain::WalkTarget::at_point(Vec3::new(BED_HEAD[0] as f64 + 0.5, BED_HEAD[1] as f64, BED_HEAD[2] as f64 + 0.5), 0.5, 1));
+                m.walk_target = Some(redsim::entity::mob::ai::brain::WalkTarget::at_point(Vec3::new(BED_HEAD[0] as f64 + 0.5 + ox, BED_HEAD[1] as f64 + oy, BED_HEAD[2] as f64 + 0.5 + oz), 0.5, 1));
             }
         }
         // (the held run's remaining hold (ironspec 17:52: b8949c96 measures the leg's run dropped
@@ -2290,7 +2333,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
         // control (ironspec 14:58) arms it there if it isn't)
         if !entry_seen
             && let Some(ci) = idx(&run.world, cart_id)
-            && run.world.entities.list[ci].block_position() == BlockPos::new(ENTRY[0], ENTRY[1], ENTRY[2])
+            && run.world.entities.list[ci].block_position() == wc(ENTRY)
         {
             entry_seen = true;
             // (G1's C5: this read is before the tick, the cart's state after the previous tick: the
@@ -2318,7 +2361,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
         // ((A)'s arming detector: the first tick it is powered, this cart's passage)
         if let Some(a) = lay.arm
             && row.armed_at.is_none()
-            && format!("{}", run.world.get(BlockPos::new(a[0], a[1], a[2]))).contains("powered=true")
+            && format!("{}", run.world.get(wc(a))).contains("powered=true")
         {
             row.armed_at = Some(t);
         }
@@ -2337,7 +2380,8 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                 let ve = redsim::entity::Vec3::new(v.pos.x, v.pos.y + veh, v.pos.z);
                 let ze = redsim::entity::Vec3::new(z.pos.x, z.pos.y + z.kind.eye_height() as f64, z.pos.z);
                 let hit = redsim::entity::mob::los::first_hit(w, ve, ze);
-                format!("the napper's eye ({:.2},{:.2},{:.2}) to the waker's eye ({:.2},{:.2},{:.2}), {:.2} apart: {}", ve.x, ve.y, ve.z, ze.x, ze.y, ze.z, ((ve.x - ze.x).powi(2) + (ve.y - ze.y).powi(2) + (ve.z - ze.z).powi(2)).sqrt(), hit.map_or("CLEAR".to_string(), |p| format!("blocked at ({},{},{}) {}", p.x, p.y, p.z, w.get(p))))
+                let (vd, zd) = (dpos(ve), dpos(ze));
+                format!("the napper's eye ({:.2},{:.2},{:.2}) to the waker's eye ({:.2},{:.2},{:.2}), {:.2} apart: {}", vd.x, vd.y, vd.z, zd.x, zd.y, zd.z, ((ve.x - ze.x).powi(2) + (ve.y - ze.y).powi(2) + (ve.z - ze.z).powi(2)).sqrt(), hit.map_or("CLEAR".to_string(), |p| { let q = dbp(p); format!("blocked at ({},{},{}) {}", q.x, q.y, q.z, w.get(p)) }))
             };
             let before = ray(&run.world);
             for c in lay.hatch_ctrl.clone() {
@@ -2363,7 +2407,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             }
         }
         let w = &run.world;
-        if f.day_gate && day_state && idx(w, cart_id).is_some_and(|ci| w.entities.list[ci].block_position() == BlockPos::new(act_cell[0], act_cell[1], act_cell[2])) {
+        if f.day_gate && day_state && idx(w, cart_id).is_some_and(|ci| w.entities.list[ci].block_position() == wc(act_cell)) {
             rider_kept = true;
         }
         if f.day_gate && day && row.slept_at.is_none() && row.release_at.is_none() && abort_at.is_none() {
@@ -2435,11 +2479,11 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                 // cell north of it, at the slope's middle; (A) with the run-up: the run-up's first
                 // flat (0,0,4) heading west)
                 let (pos, vel) = if lay.name == "(A) run-up" {
-                    (Vec3::new(0.5, 0.0625, 4.5), Vec3::new(-v, 0.0, 0.0))
+                    (Vec3::new(0.5 + ox, 0.0625 + oy, 4.5 + oz), Vec3::new(-v, 0.0, 0.0))
                 } else if lay.arm.is_some() {
-                    (Vec3::new(PARK_A[0] as f64 + 0.5, PARK_A[1] as f64 + 0.5625, PARK_A[2] as f64 + 0.5), Vec3::new(0.0, 0.0, v))
+                    (Vec3::new(PARK_A[0] as f64 + 0.5 + ox, PARK_A[1] as f64 + 0.5625 + oy, PARK_A[2] as f64 + 0.5 + oz), Vec3::new(0.0, 0.0, v))
                 } else {
-                    (Vec3::new(SWEPT[0][0] as f64 + 0.5, SWEPT[0][1] as f64 + 0.0625, SWEPT[0][2] as f64 - 1.5), Vec3::new(0.0, 0.0, v))
+                    (Vec3::new(SWEPT[0][0] as f64 + 0.5 + ox, SWEPT[0][1] as f64 + 0.0625 + oy, SWEPT[0][2] as f64 - 1.5 + oz), Vec3::new(0.0, 0.0, v))
                 };
                 w.entities.list[i].pos = pos;
                 w.entities.list[i].delta_movement = vel;
@@ -2468,7 +2512,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             };
             w.entities.list[i].pos = Vec3::new(p.x + d * dx, p.y + d * dy, p.z + d * dz);
             w.entities.list[i].delta_movement = Vec3::new(0.0, 0.0, 0.0);
-            row.park_moved = Some([p.x + d * dx, p.y + d * dy, p.z + d * dz]);
+            row.park_moved = Some([p.x + d * dx - ox, p.y + d * dy - oy, p.z + d * dz - oz]);
         }
         let before = idx(&run.world, cart_id).map(|i| run.world.entities.list[i].pos);
         // (the panic's tail: NEAREST_HOSTILE held on the zombie through `panic_entry` gt)
@@ -2483,15 +2527,17 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
         // near the path's midpoint, `ServerLevel.sendBlockUpdated` -> `shouldRecomputePath`))
         for (p, at, st) in &f.pulses {
             if *at == t {
-                let old = run.world.get(*p);
+                // (the cell named in the design frame, written at its build position)
+                let wpp = BlockPos::new(p.x + off[0], p.y + off[1], p.z + off[2]);
+                let old = run.world.get(wpp);
                 let new = block(st)?;
                 // (ironspec 04:07: an override that doesn't change its cell fails the run)
                 if old == new {
                     return Err(format!("--pulse-cell ({},{},{}) at t {t}: the cell already holds {old} (an override that changes nothing fails the run, ironspec 04:07)", p.x, p.y, p.z));
                 }
-                let changed = redsim::entity::collide::boxes_at(&run.world, &old, *p) != redsim::entity::collide::boxes_at(&run.world, &new, *p);
+                let changed = redsim::entity::collide::boxes_at(&run.world, &old, wpp) != redsim::entity::collide::boxes_at(&run.world, &new, wpp);
                 let before = vill.and_then(|v| idx(&run.world, v)).map(|vi| redsim::entity::mob::ai::ai(&run.world, vi).nav.time_last_recompute);
-                run.world.set_block(*p, new.clone(), redsim::world::flags::ALL);
+                run.world.set_block(wpp, new.clone(), redsim::world::flags::ALL);
                 let after = vill.and_then(|v| idx(&run.world, v)).map(|vi| redsim::entity::mob::ai::ai(&run.world, vi).nav.time_last_recompute);
                 row.pulses.push(format!("t {t}: ({},{},{}) {old} -> {new}: collision shape changed {changed}; the napper's last path recompute {before:?} -> {after:?}", p.x, p.y, p.z));
             }
@@ -2536,7 +2582,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             && let Some(vi) = vill.and_then(|v| idx(&run.world, v))
         {
             redsim::entity::mob::ai::brain::brain_mut(&mut run.world, vi).home = None;
-            let bp = BlockPos::new(BED_HEAD[0], BED_HEAD[1], BED_HEAD[2]);
+            let bp = wc(BED_HEAD);
             let before = redsim::entity::mob::ai::poi::free_tickets(&mut run.world, bp);
             redsim::entity::mob::ai::poi::take(&mut run.world, bp);
             let after = redsim::entity::mob::ai::poi::free_tickets(&mut run.world, bp);
@@ -2575,7 +2621,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                 let ew = wd as f64 * 0.4;
                 let eb = redsim::entity::Aabb::new(e.pos.x - ew, ey - 5e-7, e.pos.z - ew, e.pos.x + ew, ey + 5e-7, e.pos.z + ew);
                 for c in &f.head_cells {
-                    let p = BlockPos::new(c[0], c[1], c[2]);
+                    let p = wc(*c);
                     let boxes = redsim::entity::collide::boxes_at(w, &w.get(p), p);
                     if boxes.iter().any(|b| b.intersects(bx)) {
                         row.head_box_hits += 1;
@@ -2583,7 +2629,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                     if boxes.iter().any(|b| b.intersects(eb)) {
                         row.head_eye_hits += 1;
                         if row.head_eye_hits <= 3 {
-                            row.problems.push(format!("t {t}: a villager's eye box at ({:.2},{:.2},{:.2}) meets the new solid cell ({},{},{}) (the head-space bar: 0)", e.pos.x, ey, e.pos.z, c[0], c[1], c[2]));
+                            row.problems.push(format!("t {t}: a villager's eye box at ({:.2},{:.2},{:.2}) meets the new solid cell ({},{},{}) (the head-space bar: 0)", e.pos.x - ox, ey - oy, e.pos.z - oz, c[0], c[1], c[2]));
                         }
                     }
                 }
@@ -2594,8 +2640,12 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             break;
         };
         let c = &w.entities.list[ci];
+        // (the cart's cell and position in the design frame: every design-frame comparison and
+        // print below reads these)
+        let cbp = dbp(c.block_position());
+        let cpos = dpos(c.pos);
         // (ironspec 07:03 (3): the exit booster reached ((A) with --exit-south: (-1,0,6)))
-        if c.block_position() == BlockPos::new(-1, 0, 6) && row.booster_at.is_none() {
+        if cbp == BlockPos::new(-1, 0, 6) && row.booster_at.is_none() {
             row.booster_at = Some(t);
         }
         // (ironspec 09:38 / 09:40 (b), the tap hold at the exit slope (1,-1,5), the napper aboard:
@@ -2603,11 +2653,11 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
         // NEAREST_HOSTILE and stamp over the hold, the sight to the waker in both shutter states at
         // the rest, the launch's speed per cell to R)
         if hold_slope_on && row.pickup.is_some() {
-            let in_hold = c.block_position() == BlockPos::new(1, -1, 5);
+            let in_hold = cbp == BlockPos::new(1, -1, 5);
             let sp = (c.delta_movement.x.powi(2) + c.delta_movement.y.powi(2) + c.delta_movement.z.powi(2)).sqrt();
             if in_hold && row.hold_rest_at.is_none() && sp < 1e-4 && !c.passengers.is_empty() {
                 row.hold_rest_at = Some(t);
-                row.hold_rest_pos = Some([c.pos.x, c.pos.y, c.pos.z]);
+                row.hold_rest_pos = Some([cpos.x, cpos.y, cpos.z]);
                 // (the sight from the held rider to the waker: as the world stands (the shutter
                 // shut since the wake), and with the shutter as F leaves it (unpowered: the window
                 // open), on a copy)
@@ -2618,16 +2668,17 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                     let dist = ((v.pos.x - z.pos.x).powi(2) + (v.pos.y - z.pos.y).powi(2) + (v.pos.z - z.pos.z).powi(2)).sqrt();
                     let shut = redsim::entity::mob::los::first_hit(w, ve, ze);
                     let mut w2 = w.clone();
-                    let sh = BlockPos::new(WAKER_SHUT[0], WAKER_SHUT[1], WAKER_SHUT[2]);
+                    let sh = wc(WAKER_SHUT);
                     let open_state = format!("{}", w2.get(sh)).replace("open=true", "open=false").replace("powered=true", "powered=false");
                     w2.set_block(sh, block(open_state.trim_start_matches("minecraft:"))?, 0);
                     let open = redsim::entity::mob::los::first_hit(&w2, ve, ze);
-                    let name = |h: Option<BlockPos>, ww: &World| h.map_or("CLEAR".to_string(), |p| format!("blocked at ({},{},{}) {}", p.x, p.y, p.z, ww.get(p)));
-                    row.hold_lines.push(format!("t {t}: the loaded cart at rest on the slope at ({:.3},{:.3},{:.3}); the rider's feet {dist:.2} from the waker's; its eye ({:.2},{:.2},{:.2}) to the waker's eye: shutter as now {}; shutter open (F's state, on a copy) {}", c.pos.x, c.pos.y, c.pos.z, ve.x, ve.y, ve.z, name(shut, w), name(open, &w2)));
+                    let name = |h: Option<BlockPos>, ww: &World| h.map_or("CLEAR".to_string(), |p| { let q = dbp(p); format!("blocked at ({},{},{}) {}", q.x, q.y, q.z, ww.get(p)) });
+                    let vd = dpos(ve);
+                    row.hold_lines.push(format!("t {t}: the loaded cart at rest on the slope at ({:.3},{:.3},{:.3}); the rider's feet {dist:.2} from the waker's; its eye ({:.2},{:.2},{:.2}) to the waker's eye: shutter as now {}; shutter open (F's state, on a copy) {}", cpos.x, cpos.y, cpos.z, vd.x, vd.y, vd.z, name(shut, w), name(open, &w2)));
                 }
             }
             if let (Some(_), None, Some(p0)) = (row.hold_rest_at, row.hold_depart_at, row.hold_rest_pos) {
-                let d = ((c.pos.x - p0[0]).powi(2) + (c.pos.y - p0[1]).powi(2) + (c.pos.z - p0[2]).powi(2)).sqrt();
+                let d = ((cpos.x - p0[0]).powi(2) + (cpos.y - p0[1]).powi(2) + (cpos.z - p0[2]).powi(2)).sqrt();
                 if d > 0.01 || !in_hold {
                     row.hold_depart_at = Some(t);
                     // (day-1 10:38: which tap launched it: the last stand-in write powering the
@@ -2650,14 +2701,14 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                 }
             }
             if row.hold_depart_at.is_some() && row.r_at.is_none() {
-                let cell = [c.block_position().x, c.block_position().y, c.block_position().z];
+                let cell = [cbp.x, cbp.y, cbp.z];
                 if row.launch_cells.last().is_none_or(|l: &([i32; 3], f64)| l.0 != cell) {
                     row.launch_cells.push((cell, c.delta_movement.x.hypot(c.delta_movement.z)));
                 }
             }
         }
         // (ironspec 09:04: the cart's first entry into (-2,0,5) after the pickup)
-        if row.pickup.is_some() && c.block_position() == BlockPos::new(-2, 0, 5) && row.cell25_at.is_none() {
+        if row.pickup.is_some() && cbp == BlockPos::new(-2, 0, 5) && row.cell25_at.is_none() {
             row.cell25_at = Some(t);
         }
         // (the cart's block contacts, per tick, by the SHARED judge (G1's CHANGES C10 on 58f770cc's
@@ -2699,12 +2750,15 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                 }
             }
             for (p, k) in hits {
-                let cell = [p.x, p.y, p.z];
+                // (p is the contacted block in the world; its cell in the design frame keys the
+                // declaration)
+                let cell = dcell(p);
+                let q = dbp(p);
                 let declared = f.declared_contacts.contains(&cell);
                 if !declared && !row.contacts.iter().any(|x| x.2 == k && x.3 == cell) {
-                    row.problems.push(format!("t {t}: the cart's {k} contact with {} at ({},{},{}) (the cart at ({:.2},{:.2},{:.2}), cell {},{},{}), not declared in the design's `# contacts:` (ironspec 21:25; the shared face_contacts judge)", w.get(p), p.x, p.y, p.z, c.pos.x, c.pos.y, c.pos.z, bp.x, bp.y, bp.z));
+                    row.problems.push(format!("t {t}: the cart's {k} contact with {} at ({},{},{}) (the cart at ({:.2},{:.2},{:.2}), cell {},{},{}), not declared in the design's `# contacts:` (ironspec 21:25; the shared face_contacts judge)", w.get(p), q.x, q.y, q.z, cpos.x, cpos.y, cpos.z, cbp.x, cbp.y, cbp.z));
                 }
-                row.contacts.push((t, [c.pos.x, c.pos.y, c.pos.z], k, cell));
+                row.contacts.push((t, [cpos.x, cpos.y, cpos.z], k, cell));
                 // (ironspec 07:03 (2): a DECLARED contact printed per visit: its tick, its depth (the
                 // cart's box against the contacted block's boxes: the largest overlap, 0 = flush), the
                 // speed before and after; G1's bound: depth <= 0.01 and one tick per visit)
@@ -2719,11 +2773,11 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                         }
                     }
                     let after = c.delta_movement.x.hypot(c.delta_movement.z);
-                    row.declared_contact_lines.push(format!("t {t}: the declared {k} contact with {} at ({},{},{}): the cart at ({:.3},{:.3},{:.3}) in cell ({},{},{}), depth {:.4} (0 = flush; negative = a gap), speed {prev_cart_speed:.3} -> {after:.3}", w.get(p), p.x, p.y, p.z, c.pos.x, c.pos.y, c.pos.z, bp.x, bp.y, bp.z, depth));
+                    row.declared_contact_lines.push(format!("t {t}: the declared {k} contact with {} at ({},{},{}): the cart at ({:.3},{:.3},{:.3}) in cell ({},{},{}), depth {:.4} (0 = flush; negative = a gap), speed {prev_cart_speed:.3} -> {after:.3}", w.get(p), q.x, q.y, q.z, cpos.x, cpos.y, cpos.z, cbp.x, cbp.y, cbp.z, depth));
                     row.declared_contact_ticks += 1;
                     // (G1 10:17: the bed (head and foot: part, facing, OCCUPIED) unchanged across the
                     // contact tick: the contact never moves or alters the napper's POI)
-                    let bed_now = (format!("{}", w.get(BlockPos::new(BED_HEAD[0], BED_HEAD[1], BED_HEAD[2]))), format!("{}", w.get(BlockPos::new(BED_HEAD[0], BED_HEAD[1], BED_HEAD[2] - 1))));
+                    let bed_now = (format!("{}", w.get(wc(BED_HEAD))), format!("{}", w.get(wp(BED_HEAD[0], BED_HEAD[1], BED_HEAD[2] - 1))));
                     if prev_bed.as_ref().is_some_and(|b| *b != bed_now) {
                         row.problems.push(format!("t {t}: the bed changed across the declared contact tick: {:?} -> {bed_now:?}", prev_bed));
                     }
@@ -2731,16 +2785,16 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                     row.declared_hit.push(cell);
                     row.post_contact_speed = Some(row.post_contact_speed.map_or(after, |s: f64| s.min(after)));
                     if depth > 0.01 {
-                        row.problems.push(format!("t {t}: the declared contact at ({},{},{}) {depth:.4} deep (bound 0.01)", p.x, p.y, p.z));
+                        row.problems.push(format!("t {t}: the declared contact at ({},{},{}) {depth:.4} deep (bound 0.01)", q.x, q.y, q.z));
                     }
                     if row.declared_contact_ticks == 2 {
-                        row.problems.push(format!("t {t}: the declared contact at ({},{},{}) on a second tick this visit (bound: one)", p.x, p.y, p.z));
+                        row.problems.push(format!("t {t}: the declared contact at ({},{},{}) on a second tick this visit (bound: one)", q.x, q.y, q.z));
                     }
                     // (the declaration's speed bound: the cart leaves the hand-off above 0.040 b/t,
                     // where the exit boost carries it on (G1 10:53: a design reason, not the
                     // observed minimum))
                     if after < 0.040 {
-                        row.problems.push(format!("t {t}: the declared contact at ({},{},{}) left the cart at {after:.3} b/t (bound >= 0.040)", p.x, p.y, p.z));
+                        row.problems.push(format!("t {t}: the declared contact at ({},{},{}) left the cart at {after:.3} b/t (bound >= 0.040)", q.x, q.y, q.z));
                     }
                 }
             }
@@ -2754,7 +2808,10 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
         let mut riding = false;
         if let Some(vi) = vi {
             let v = &w.entities.list[vi];
-            let vcell = [v.pos.x.floor() as i32, (v.pos.y + 0.01).floor() as i32, v.pos.z.floor() as i32];
+            // (the napper's position in the design frame: every design-frame cell, distance and
+            // print below reads it; world-frame physics and sight read v.pos)
+            let vp = dpos(v.pos);
+            let vcell = [vp.x.floor() as i32, (vp.y + 0.01).floor() as i32, vp.z.floor() as i32];
             riding = v.vehicle.is_some();
             // (the napper's HOME every tick; its loss is a problem)
             let has_home = redsim::entity::mob::ai::brain::brain(w, vi).home.is_some();
@@ -2809,7 +2866,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             // own heightmap (with --module-offset: the module over the stop))
             {
                 let vb = BlockPos::new(v.pos.x.floor() as i32, v.pos.y.floor() as i32, v.pos.z.floor() as i32);
-                let key = [vb.x, vb.y, vb.z];
+                let key = dcell(vb);
                 if !bolt_seen.contains_key(&key) {
                     let sky = redsim::weather::can_see_sky(w, vb).unwrap_or(true);
                     let bb = v.bb;
@@ -2818,7 +2875,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                         for cz in (bb.min_z.floor() as i32 - 4)..=(bb.max_z.floor() as i32 + 4) {
                             let h = redsim::weather::motion_blocking_height(w, cx, cz);
                             if reach.is_none() && redsim::weather::lightning::hit_box_at(Vec3::new(cx as f64 + 0.5, h as f64, cz as f64 + 0.5)).intersects(bb) {
-                                reach = Some([cx, h, cz]);
+                                reach = Some([cx - off[0], h - off[1], cz - off[2]]);
                             }
                         }
                     }
@@ -2854,7 +2911,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                 *stay.entry(vcell).or_default() += 1;
             }
             let bc = Vec3::new(BED_HEAD[0] as f64 + 0.5, BED_HEAD[1] as f64 + 0.5, BED_HEAD[2] as f64 + 0.5);
-            if rest && !riding && !asleep && row.eligible_at.is_none() && v.pos.distance_to_sqr(bc) < 4.0 {
+            if rest && !riding && !asleep && row.eligible_at.is_none() && vp.distance_to_sqr(bc) < 4.0 {
                 row.eligible_at = Some(t);
             }
             if rest && !asleep && redsim::entity::mob::ai::brain::brain(w, vi).nearest_hostile.is_none() && redsim::entity::mob::ai::brain::has_exact(w, vi)
@@ -2886,7 +2943,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                 // (the dismount itself: its tick and the rider's position there, before any
                 // lie-down moves it)
                 row.dismount_at = Some(t);
-                row.landing_pos = Some([v.pos.x, v.pos.y, v.pos.z]);
+                row.landing_pos = Some([vp.x, vp.y, vp.z]);
             }
             if !riding && row.landed.is_none() && v.on_ground {
                 row.landed = Some((vcell, t));
@@ -2900,7 +2957,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                 }
             }
             if !asleep && !riding {
-                last_awake = Some(v.pos);
+                last_awake = Some(vp);
             }
             // (ironspec 06:40 (2), the waker's consequence judged directly: from the wake to the
             // pickup + 40 gt, every change of the napper's walk target, path (complete or partial,
@@ -2985,17 +3042,17 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                 row.wakes.push(t);
                 row.stood = Some(vcell);
                 row.stood_up.push(vcell);
-                let bed = BlockPos::new(BED_HEAD[0], BED_HEAD[1], BED_HEAD[2]);
+                let bed = wc(BED_HEAD);
                 if let Block::Bed { facing, .. } = w.get(bed) {
                     for side in [facing.clockwise(), facing.clockwise().opposite()] {
                         let s = redsim::entity::mob::villager::stand_up_with_side(w, redsim::entity::mob::types::MobType::Villager, bed, facing, side);
-                        let cell = s.map(|q| [q.x.floor() as i32, (q.y + 0.01).floor() as i32, q.z.floor() as i32]);
+                        let cell = s.map(|q| [q.x.floor() as i32 - off[0], (q.y + 0.01).floor() as i32 - off[1], q.z.floor() as i32 - off[2]]);
                         if !row.standup_check.contains(&cell) {
                             row.standup_check.push(cell);
                         }
                     }
                 }
-                let cc = c.block_position();
+                let cc = cbp;
                 if !row.cart_at_wake.contains(&[cc.x, cc.y, cc.z]) {
                     row.cart_at_wake.push([cc.x, cc.y, cc.z]);
                 }
@@ -3009,7 +3066,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                 && let Some(p) = &redsim::entity::mob::ai::brain::ex(w, vi).mem.path
             {
                 for n in &p.nodes {
-                    row.path_nodes.insert([n.x, n.y, n.z]);
+                    row.path_nodes.insert([n.x - off[0], n.y - off[1], n.z - off[2]]);
                 }
             }
             // (after the wake: the woken napper's path off the pickup cell, by direction; north is up
@@ -3018,7 +3075,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                 && !riding
                 && !asleep
                 && vcell == SWEPT[0]
-                && let Some(d) = path_dir(w, vi)
+                && let Some(d) = path_dir_at(w, vi, off)
             {
                 if !row.paths_after_wake.contains(&d) {
                     row.paths_after_wake.push(d);
@@ -3041,7 +3098,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                     let place = if asleep {
                         "asleep".to_string()
                     } else if riding {
-                        let cc = c.block_position();
+                        let cc = cbp;
                         format!("riding {},{},{}", cc.x, cc.y, cc.z)
                     } else {
                         format!("on foot {},{},{}", vcell[0], vcell[1], vcell[2])
@@ -3057,11 +3114,11 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                     && let Some(wt) = &x.mem.walk_target
                 {
                     let p = match wt.target {
-                        redsim::entity::mob::ai::brain::Tracker::Block(b) => [b.x, b.y, b.z],
-                        redsim::entity::mob::ai::brain::Tracker::Point(q) => [q.x.floor() as i32, q.y.floor() as i32, q.z.floor() as i32],
+                        redsim::entity::mob::ai::brain::Tracker::Block(b) => dcell(b),
+                        redsim::entity::mob::ai::brain::Tracker::Point(q) => [q.x.floor() as i32 - off[0], q.y.floor() as i32 - off[1], q.z.floor() as i32 - off[2]],
                         redsim::entity::mob::ai::brain::Tracker::Entity { .. } => [i32::MIN, 0, 0],
                     };
-                    let from = if riding { format!("riding {},{},{}", c.block_position().x, c.block_position().y, c.block_position().z) } else { format!("on foot {},{},{}", vcell[0], vcell[1], vcell[2]) };
+                    let from = if riding { format!("riding {},{},{}", cbp.x, cbp.y, cbp.z) } else { format!("on foot {},{},{}", vcell[0], vcell[1], vcell[2]) };
                     if !row.panic_targets.contains(&(from.clone(), p)) {
                         row.panic_targets.push((from, p));
                     }
@@ -3071,7 +3128,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                     && let Some(c0) = x.mem.cant_reach_since
                     && c0 >= w.time - (t - wk)
                 {
-                    let at = if riding { format!("riding {},{},{}", c.block_position().x, c.block_position().y, c.block_position().z) } else { format!("on foot {},{},{}", vcell[0], vcell[1], vcell[2]) };
+                    let at = if riding { format!("riding {},{},{}", cbp.x, cbp.y, cbp.z) } else { format!("on foot {},{},{}", vcell[0], vcell[1], vcell[2]) };
                     row.stamp_armed = Some((c0 - (w.time - (t - wk)), at));
                 }
             }
@@ -3110,7 +3167,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                 // = the previous tick's, after = now))
                 let bb = redsim::entity::mob::ai::brain::brain(w, vi);
                 let wt_now = redsim::entity::mob::ai::brain::has_exact(w, vi) && redsim::entity::mob::ai::brain::ex(w, vi).mem.walk_target.is_some();
-                row.resleep_line = Some(format!("t {t}: SleepInBed started (the napper asleep again, sleeping_pos {:?}) at feet ({:.3},{:.3},{:.3}); LAST_WOKEN {:?} (gameTime - LAST_WOKEN = {:?}); WALK_TARGET {} -> {}; CANT_REACH {} -> {}", redsim::entity::mob::mob(w, vi).sleeping_pos, v.pos.x, v.pos.y, v.pos.z, bb.last_woken, bb.last_woken.map(|lw| w.time - lw), prev_walk_target, wt_now, prev_cant_reach, redsim::entity::mob::ai::brain::has_exact(w, vi) && redsim::entity::mob::ai::brain::ex(w, vi).mem.cant_reach_since.is_some()));
+                row.resleep_line = Some(format!("t {t}: SleepInBed started (the napper asleep again, sleeping_pos {:?}) at feet ({:.3},{:.3},{:.3}); LAST_WOKEN {:?} (gameTime - LAST_WOKEN = {:?}); WALK_TARGET {} -> {}; CANT_REACH {} -> {}", redsim::entity::mob::mob(w, vi).sleeping_pos.map(dbp), vp.x, vp.y, vp.z, bb.last_woken, bb.last_woken.map(|lw| w.time - lw), prev_walk_target, wt_now, prev_cant_reach, redsim::entity::mob::ai::brain::has_exact(w, vi) && redsim::entity::mob::ai::brain::ex(w, vi).mem.cant_reach_since.is_some()));
             }
             // (G1 09:19 (1): the boardings per visit (more than one: a pickup fault); (2) the least
             // distance from HOME's head centre over the standing window, the wake to the last boarding)
@@ -3118,7 +3175,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                 row.boardings += 1;
             }
             if !riding && row.woke_at.is_some_and(|w0| t >= w0) && !asleep && row.out_at.is_none() && row.boardings < 2 {
-                let d = ((v.pos.x - (BED_HEAD[0] as f64 + 0.5)).powi(2) + (v.pos.y - (BED_HEAD[1] as f64 + 0.5)).powi(2) + (v.pos.z - (BED_HEAD[2] as f64 + 0.5)).powi(2)).sqrt();
+                let d = ((vp.x - (BED_HEAD[0] as f64 + 0.5)).powi(2) + (vp.y - (BED_HEAD[1] as f64 + 0.5)).powi(2) + (vp.z - (BED_HEAD[2] as f64 + 0.5)).powi(2)).sqrt();
                 row.stand_min_home = Some(row.stand_min_home.map_or(d, |m: f64| m.min(d)));
             }
             prev_riding = riding;
@@ -3164,7 +3221,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
         let moved = (cp[0] - last_cart[0]).abs() + (cp[2] - last_cart[2]).abs() + (cp[1] - last_cart[1]).abs();
         still = if moved < 1e-4 { still + 1 } else { 0 };
         if still == 10 && row.parked.is_none() && row.release_at.is_none() {
-            row.parked = Some((cp, t));
+            row.parked = Some(([cpos.x, cpos.y, cpos.z], t));
             shift_pending = f.park_shift;
         }
         last_cart = cp;
@@ -3177,36 +3234,37 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             prev_cart_bb = Some(ce.bb);
             prev_cart_motion = (d.x, d.y, d.z);
         }
-        prev_bed = Some((format!("{}", w.get(BlockPos::new(BED_HEAD[0], BED_HEAD[1], BED_HEAD[2]))), format!("{}", w.get(BlockPos::new(BED_HEAD[0], BED_HEAD[1], BED_HEAD[2] - 1)))));
+        prev_bed = Some((format!("{}", w.get(wc(BED_HEAD))), format!("{}", w.get(wp(BED_HEAD[0], BED_HEAD[1], BED_HEAD[2] - 1)))));
         // (ironspec 17:35 (a): the released cart in the pickup cell before the napper's wake)
         if row.release_at.is_some()
             && row.woke_at.is_none()
-            && SWEPT.iter().any(|s| c.block_position() == BlockPos::new(s[0], s[1], s[2]))
+            && SWEPT.iter().any(|s| cbp == BlockPos::new(s[0], s[1], s[2]))
         {
             row.cart_at_pickup_before_wake = true;
         }
         if let Some(bp) = before
             && row.release_at.is_some()
         {
+            let bpz = bp.z - oz;
             for s in SWEPT {
                 let zc = s[2] as f64 + 0.5;
-                if (bp.z < zc) != (c.pos.z < zc) && (c.pos.x - (s[0] as f64 + 0.5)).abs() < 0.3 && !crossed.contains(&s) {
+                if (bpz < zc) != (cpos.z < zc) && (cpos.x - (s[0] as f64 + 0.5)).abs() < 0.3 && !crossed.contains(&s) {
                     crossed.push(s);
                     row.swept_speed.push((s, c.delta_movement.x.hypot(c.delta_movement.z)));
                 }
             }
         }
         // (R and out: the exit runs east along R's row)
-        let on_exit_row = (c.pos.z - (EXIT_DET[2] as f64 + 0.5)).abs() < 0.3;
-        if on_exit_row && c.pos.x > EXIT_DET[0] as f64 + 0.5 && row.r_at.is_none() {
+        let on_exit_row = (cpos.z - (EXIT_DET[2] as f64 + 0.5)).abs() < 0.3;
+        if on_exit_row && cpos.x > EXIT_DET[0] as f64 + 0.5 && row.r_at.is_none() {
             row.r_at = Some(t);
         }
         // (ironspec 22:14 (3a): R's real rise, the detector rail powered (the cart's box meeting its
         // detection box), beside the emulated R above)
-        if row.r_real_at.is_none() && format!("{}", w.get(BlockPos::new(EXIT_DET[0], EXIT_DET[1], EXIT_DET[2]))).contains("powered=true") {
+        if row.r_real_at.is_none() && format!("{}", w.get(wc(EXIT_DET))).contains("powered=true") {
             row.r_real_at = Some(t);
         }
-        if on_exit_row && c.pos.x > EXIT_DET[0] as f64 + 1.5 {
+        if on_exit_row && cpos.x > EXIT_DET[0] as f64 + 1.5 {
             row.out_at = Some(t);
             row.seated_out = riding;
             break;
@@ -3307,7 +3365,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                     if wet(&s) {
                         now_wet.insert([x, y, z]);
                         if !design_wet.contains(&[x, y, z]) {
-                            new_wet.push(format!("({x},{y},{z}) {s}"));
+                            new_wet.push(format!("({},{},{}) {s}", x - off[0], y - off[1], z - off[2]));
                         }
                     }
                 }
@@ -4056,6 +4114,9 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
     // (G1's C15: no environment teleport in a judged run)
     anyhow::ensure!(std::env::var("MCTAS_BT_TP").is_err(), "MCTAS_BT_TP is set: an environment teleport; unset it (no judged run carries one)");
     println!("bench setup: --arm-delay {} gt, --release-after {release_after} gt, --scope-excludes {:?}", base.arm_delay, base.scope_excludes);
+    if base.offset != [0, 0, 0] {
+        println!("bench setup: --offset {},{},{}: the whole stop built at design + offset (every laid cell, entity and stand-in write), every row in the design frame", base.offset[0], base.offset[1], base.offset[2]);
+    }
     // ((A)'s exit-slope hold (ironspec 09:38): the design's slope a powered rail; the tap is the
     // bench's `--pulse-cell 1,-1,6@T=...` write (DAY-1's tap cells in the build))
     let hold_design = spec.blocks.iter().any(|(p, b)| *p == BlockPos::new(1, -1, 5) && format!("{b}").contains("powered_rail"));
