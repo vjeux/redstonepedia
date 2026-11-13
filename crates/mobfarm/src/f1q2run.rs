@@ -3130,14 +3130,12 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     let drive_ticks = (o.ticks + 200) as u32;
     // (cc767b78 11:15, G1 10:50: the build-position term) --offset: the world's build stands at the
     // design + the offset (blocks, entities, block entities, the output, the box, the Nether
-    // anchor), while every cell the controller and the report use stays in the design frame
-    if o.offset != [0, 0, 0] {
-        if o.offset[0].rem_euclid(16) != 0 || o.offset[2].rem_euclid(16) != 0 {
-            return Err(format!("--offset {},{},{}: x and z move by whole chunks (multiples of 16)", o.offset[0], o.offset[1], o.offset[2]));
-        }
-        if drive_on {
-            return Err("--offset with --drive-out: the drive's acts are written in the design frame (not supported)".to_string());
-        }
+    // anchor), while every cell the controller and the report use stays in the design frame.
+    // (onechunk 15:08: any offset; the column convention, the module anchor (-6,0,-6) at a world chunk
+    // corner, is x and z = 6 mod 16, printed by the report; offset 0 puts the anchor at (-6,_,-6), the
+    // module straddling the world's chunk lines x = 0 and z = 0)
+    if o.offset != [0, 0, 0] && drive_on {
+        return Err("--offset with --drive-out: the drive's acts are written in the design frame (not supported)".to_string());
     }
     FRAME_OFFSET.with(|c| c.set(o.offset));
     struct FrameReset;
@@ -7747,6 +7745,19 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         control_id.map(|_| format!(", the positive control on v{}", o.control_rider.unwrap_or(0))).unwrap_or_default()
     );
     // (ironspec 14:57's rule) the spawning scope, explicit
+    s.push_str(&format!(
+        "the build position (onechunk 15:08, ironspec 15:05 (e)): offset ({},{},{}); the loop origin at world ({},{},{}); the module anchor (-6,0,-6) at world ({},{},{}): {}\n",
+        o.offset[0],
+        o.offset[1],
+        o.offset[2],
+        o.offset[0],
+        o.offset[1],
+        o.offset[2],
+        o.offset[0] - 6,
+        o.offset[1],
+        o.offset[2] - 6,
+        if (o.offset[0] - 6).rem_euclid(16) == 0 && (o.offset[2] - 6).rem_euclid(16) == 0 { "a world chunk corner (the column convention: the module in one chunk)" } else { "NOT a world chunk corner (off the column convention: the module straddles chunk lines)" }
+    ));
     s.push_str(&format!(
         "the spawning scope (ironspec 14:57): natural spawning OFF, set explicitly (no bar here counts a natural spawn; the hostiles are the design's own scarers){}\n",
         if natural_was { " (the run's options had a spawner on: turned off)" } else { "" }
