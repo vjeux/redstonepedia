@@ -721,12 +721,15 @@ pub fn design_a2(bench: bool, loop_booster: bool) -> Result<String> {
     put(&mut b, [PARK_A2[0], -1, PARK_A2[2]], "glass")?;
     put(&mut b, PARK_CTRL_A2, &ctl_block(PARK_CTRL_A2, "stone"))?;
     put(&mut b, [PARK_CTRL_A2[0], PARK_CTRL_A2[1] - 1, PARK_CTRL_A2[2]], "glass")?;
-    // the run-up: two flats along z 4 into P, glass over the one next to P only (a napper on P can't
-    // step east; the flat at the park slope's foot stays open: a cart coming down the slope rides
-    // with its box's top above y 1 until it's on the flat, and a block over that flat stopped it,
-    // the box's west edge against it)
+    // the run-up: two flats along z 4 into P, WATERLOGGED (a minecart in water moves at most
+    // getMaxSpeed() = 4 / 20 = 0.2 b per tick per axis: every step into the napper on P is within the
+    // pickup's 0.2 inflation, so the cart can't clip into the napper's box before the pickup check
+    // (vanilla's minecart collides with pushable entities: Boat.canVehicleCollide); the empty cart
+    // leaves the park slope at ~0.35); glass over the one next to P only (a napper on P can't step
+    // east; the flat at the park slope's foot stays open: a cart coming down the slope rides with its
+    // box's top above y 1 until it's on the flat, and a block over that flat stopped it)
     for x in -1..=0 {
-        put(&mut b, [x, 0, 4], &rail("east_west"))?;
+        put(&mut b, [x, 0, 4], "rail[shape=east_west,waterlogged=true]")?;
         put(&mut b, [x, -1, 4], "glass")?;
     }
     put(&mut b, [-1, 1, 4], "glass")?;
@@ -992,6 +995,8 @@ pub struct Row {
     pub pickup: Option<([i32; 3], i64)>,
     /// The cart's horizontal speed in the tick it seated the napper.
     pub pickup_speed: Option<f64>,
+    /// The cart's horizontal step on the pickup tick (position delta).
+    pub pickup_step: Option<f64>,
     /// (ironspec 17:46/18:34) The stand-in guard's reach lines (one per stand-in the bench writes).
     pub standin: Vec<String>,
     /// (ironspec 17:35 (a)) Seated before its wake or off the bed while asleep.
@@ -2422,6 +2427,9 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             if riding && row.release_at.is_some() && row.pickup.is_none() {
                 row.pickup = Some((row.cells_after_wake.last().copied().unwrap_or(vcell), t));
                 row.pickup_speed = Some(c.delta_movement.x.hypot(c.delta_movement.z));
+                // (the cart's actual horizontal step on the pickup tick: the 0.2-step clip's quantity;
+                // in water the move is clamped to 0.2 per axis while the velocity can be higher)
+                row.pickup_step = Some((c.pos.x - last_cart[0]).hypot(c.pos.z - last_cart[2]));
                 // (ironspec 17:35 (a), bar 0: a pickup before the wake, or off the bed while asleep)
                 if row.woke_at.is_none() || asleep_prev {
                     row.pickup_unwoken = true;
@@ -3338,6 +3346,9 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
     let mut lie_max = 0f64;
     let mut lie_min = f64::MAX;
     let (mut min_pick, mut max_pick) = (f64::MAX, 0f64);
+    // (the pickups' steps: the cart's position delta on the pickup tick, the 0.2-step clip's
+    // quantity, and how many exceed 0.2)
+    let (mut min_step, mut max_step, mut steps_over) = (f64::MAX, 0f64, 0usize);
     let mut delays: Vec<i64> = Vec::new();
     let mut sk = SkipTotals::default();
     // (record-match, computed once: the visit `from` at the first speed, on the base row's world
@@ -3377,6 +3388,13 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
                         if let Some(s) = r.pickup_speed {
                             min_pick = min_pick.min(s);
                             max_pick = max_pick.max(s);
+                        }
+                        if let Some(s) = r.pickup_step {
+                            min_step = min_step.min(s);
+                            max_step = max_step.max(s);
+                            if s > 0.2 + 1e-9 {
+                                steps_over += 1;
+                            }
                         }
                         if let Some(s) = r.slept_at {
                             napped += 1;
@@ -3605,7 +3623,7 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
                             sk.seated += r.seated_out as usize;
                         }
                         if one {
-                            println!("seed {seed} speed {v}: landed {:?}, parked {:?}, slept {:?}, woke {:?}, release {:?}, pickup {:?} at {:?} b/t, R {:?}, out {:?}, seated {}{}", r.landed, r.parked.map(|(p, t)| (format!("{:.2},{:.2},{:.2}", p[0], p[1], p[2]), t)), r.slept_at, r.woke_at, r.release_at, r.pickup, r.pickup_speed.map(|s| format!("{s:.3}")), r.r_at, r.out_at, r.seated_out, if r.problems.is_empty() { String::new() } else { format!(" PROBLEMS {:?}", r.problems) });
+                            println!("seed {seed} speed {v}: landed {:?}, parked {:?}, slept {:?}, woke {:?}, release {:?}, pickup {:?} at {:?} b/t (the cart's step that tick {:?}), R {:?}, out {:?}, seated {}{}", r.landed, r.parked.map(|(p, t)| (format!("{:.2},{:.2},{:.2}", p[0], p[1], p[2]), t)), r.slept_at, r.woke_at, r.release_at, r.pickup, r.pickup_speed.map(|s| format!("{s:.3}")), r.pickup_step.map(|s| format!("{s:.3}")), r.r_at, r.out_at, r.seated_out, if r.problems.is_empty() { String::new() } else { format!(" PROBLEMS {:?}", r.problems) });
                             for m in &r.pulses {
                                 println!("  pulse {m}");
                             }
@@ -3639,6 +3657,9 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
     delays.sort();
     let pct = |p: f64| delays.get(((delays.len() as f64 - 1.0) * p).round() as usize).copied();
     println!("bed stop bench: {tot} visits ({} rows), {clean} clean, seated {seated}; not out {not_out}; HOME lost {lost}; pickup speeds {:.3}..{:.3}; exit later than the night's (gt): min {:?}, median {:?}, p99 {:?}, max {:?}; after a restart, visits with a path off the pickup cell by direction {dirs:?}; after the wake in any row {dirs_wake:?}; lie-downs' reach to the bed head's centre {:.4}..{:.4} (SleepInBed's bar 2)", rows.len(), if min_pick == f64::MAX { 0.0 } else { min_pick }, max_pick, delays.first(), pct(0.5), pct(0.99), delays.last(), if lie_min == f64::MAX { 0.0 } else { lie_min }, lie_max);
+    if max_step > 0.0 {
+        println!("the pickups' steps (the cart's horizontal position change on the pickup tick: the 0.2-step clip's quantity; the velocity above may be higher where the move is clamped, in water to 0.2 per axis): {:.3}..{max_step:.3}; over 0.2: {steps_over}", if min_step == f64::MAX { 0.0 } else { min_step });
+    }
     if sk.visits > 0 {
         sk.tail_naps.sort();
         sk.rest_naps.sort();
