@@ -93,6 +93,9 @@ pub struct ReturnRead {
     /// The gaps line carries the napper's clause (its values may be `-`: the napper or the next batch's
     /// first never into the shaft, a failure).
     pub napper_clause: bool,
+    /// The napper reached its lane by the lane's own branch (`branch speed V`), not handed on into its
+    /// siding: it took a batch cart's path (a failure).
+    pub napper_by_branch: bool,
     /// The bench's "(c)'s napper lift" line was read (`--napper-lift`).
     pub lift_seen: bool,
     /// From that line: whether the napper was on the hold at a pulse's rise (a scheduled departure);
@@ -151,6 +154,12 @@ pub struct HoldRelease {
     /// `None` when the line has no such field; `Some(Some(true))` fired a pulse (a phantom),
     /// `Some(Some(false))` fired nothing, `Some(None)` no second rise in the run.
     pub second_rise: Option<Option<bool>>,
+    /// Every E rise (arming rise + 2, fired or not) and every fired pulse's rail rise, when printed
+    /// (path (a), ironspec 14:41), and the bench's own count of E rises within K gt after a fired pulse
+    /// (K, the count).
+    pub e_rises: Vec<i64>,
+    pub fired_rises: Vec<i64>,
+    pub e_within: Option<(i64, usize)>,
 }
 
 /// The count right after `key` (spaces skipped); an error when absent or not a number.
@@ -219,6 +228,34 @@ pub fn read_hold(rest: &str, errors: &mut Vec<String>) -> HoldRelease {
             }
         }
     }
+    // (path (a), ironspec 14:41: `; E rises: t a, t b, …; fired pulse rises: t p, t q, …; E rises within K
+    // gt after a fired pulse: N (t …)`; each list `none` when empty)
+    let ticks = |key: &str, errors: &mut Vec<String>| -> Vec<i64> {
+        let Some((_, r)) = rest.split_once(key) else { return Vec::new() };
+        let list = r.split(';').next().unwrap_or("").trim();
+        if list == "none" || list.is_empty() {
+            return Vec::new();
+        }
+        list.split(", ")
+            .filter_map(|t| match t.trim().trim_start_matches("t ").parse::<i64>() {
+                Ok(x) => Some(x),
+                Err(_) => {
+                    errors.push(format!("hold release: a tick {t:?} unreadable after {key:?}"));
+                    None
+                }
+            })
+            .collect()
+    };
+    h.e_rises = ticks("; E rises: ", errors);
+    h.fired_rises = ticks("; fired pulse rises: ", errors);
+    if let Some((_, r)) = rest.split_once("E rises within ") {
+        let k = r.split(' ').next().and_then(|x| x.parse::<i64>().ok());
+        let n = r.split_once("after a fired pulse: ").and_then(|(_, x)| x.split(|c: char| !c.is_ascii_digit()).next()).and_then(|x| x.parse::<usize>().ok());
+        match (k, n) {
+            (Some(k), Some(n)) => h.e_within = Some((k, n)),
+            _ => errors.push(format!("hold release: the E rises within K line unreadable: {:?}", r.chars().take(80).collect::<String>())),
+        }
+    }
     h
 }
 
@@ -271,9 +308,12 @@ pub fn read(text: &str, napper: bool, k_cell: Option<(i32, i32, i32)>) -> Return
             let arrived = !wrong && !never;
             let head: String = l.chars().take(40).collect();
             if is_napper {
-                // (`branch speed - (handed on by the 4th route at M stored, X/gt)`)
+                // (`branch speed - (handed on by the 4th route at M stored, X/gt)`; a napper in its lane by
+                // the lane's own branch (`branch speed V`, not handed on into its siding) took a batch cart's
+                // path: a failure, not a reading (the ungated control's creeping napper, lane 7))
                 match num_after(l, "handed on by the 4th route at ") {
                     Some(m) => r.napper_entry = Some(m),
+                    None if arrived && num_after(l, "; branch speed ").is_some() => r.napper_by_branch = true,
                     None if arrived => r.errors.push(format!("{head}...: on its route without its hand-on speed")),
                     None => {}
                 }
@@ -403,7 +443,7 @@ pub fn read(text: &str, napper: bool, k_cell: Option<(i32, i32, i32)>) -> Return
     if napper && !r.napper_clause {
         r.missing.push("the napper's window");
     }
-    if napper && k_cell.is_some() && r.napper_k.is_none() && r.wrong == 0 && r.never == 0 {
+    if napper && k_cell.is_some() && r.napper_k.is_none() && r.wrong == 0 && r.never == 0 && !r.napper_by_branch {
         r.missing.push("the napper's arrival on its K cell (the trace)");
     }
     r
@@ -449,6 +489,9 @@ pub fn fails(r: &ReturnRead, b: &ReturnBars, napper: bool) -> Vec<String> {
             v.push("the napper's window unmeasured (it or the next batch's first never into the shaft)".into());
         }
         // (ironspec 10:02: the napper never rides with a batch; its departure only at a scheduled pulse)
+        if r.napper_by_branch {
+            v.push("the napper into its lane by the lane's own branch, not handed on into its siding".into());
+        }
         if r.napper_ahead.is_some_and(|g| g < 0) || r.napper_behind.is_some_and(|g| g < 0) {
             v.push(format!("the napper rode with a batch (behind {}, ahead {})", r.napper_behind.map_or("-".into(), |g| g.to_string()), r.napper_ahead.map_or("-".into(), |g| g.to_string())));
         }
@@ -539,6 +582,9 @@ pub enum Row {
     LateLogin(i64, i64, i64),
     /// The presence gate's positive control: the nominal corner with `--gate-delayed-only`.
     GateControl,
+    /// The ungated-pulse control (ironspec 14:41): a late row (the napper from R at this tick, one more
+    /// batch) without `--pulse-gate`.
+    UngatedLate(i64),
 }
 
 /// A row's short label.
@@ -551,6 +597,7 @@ pub fn row_label(row: &Row) -> String {
         Row::Late(r) => format!("the napper from R at t {r}"),
         Row::LateLogin(r, off, d) => format!("the napper from R at t {r} with a {d}-gt login at +{off}"),
         Row::GateControl => "the gate's positive control (--gate-delayed-only)".to_string(),
+        Row::UngatedLate(r) => format!("the ungated control: the napper from R at t {r}"),
     }
 }
 
@@ -645,6 +692,11 @@ pub struct ReturnJudgeOpts {
     /// `--gate-delayed-only` (the live term removed) must fire the phantom pulse at the napper's second
     /// ARM3 rise; a control that does not is a failure of the judge's own check.
     pub gate_control: bool,
+    /// The ungated-pulse control (ironspec 14:41, replacing the phantom control under path (a)): each
+    /// nominal corner's late rows run without `--pulse-gate` must fail (a pulse onto an empty hold, a pop
+    /// without a departure, a launch before rest); a corner whose ungated late rows all pass means the
+    /// release bars cannot see an ungated pulse: a failure.
+    pub ungated_control: bool,
     /// The arrivals x freezes rows (R_FROM, R_TO, OFF_FROM, OFF_TO): the napper leaving R at every tick
     /// R_FROM..=R_TO with a login of each of the lead's lengths at every offset OFF_FROM..=OFF_TO after
     /// its start (ironspec 11:43/11:48: the departure on the fired pulse at every freeze offset and every
@@ -732,6 +784,12 @@ fn opts(base: &ReturnOpts, c: &Corner, row: Row) -> ReturnOpts {
             lo.ticks = base.ticks + 100;
         }
         Row::GateControl => lo.gate_delayed_only = true,
+        Row::UngatedLate(r) => {
+            lo.pulse_gate = None;
+            lo.napper_r = r;
+            lo.batches = base.batches + 1;
+            lo.ticks = base.ticks + 100;
+        }
     }
     // (the napper is the cart after the batches: its index set once the batches are)
     lo.trace = (lo.k_relay && c.napper.is_some()).then_some(lo.batches * 3);
@@ -783,6 +841,11 @@ pub fn judge(base: &ReturnOpts, o: &ReturnJudgeOpts) -> Result<(Vec<String>, usi
         if o.gate_control {
             push(c, Row::GateControl);
         }
+        if let (true, Some((a, b))) = (o.ungated_control, o.late) {
+            for r in a..=b {
+                push(c, Row::UngatedLate(r));
+            }
+        }
     }
     let results = run_all(base, &runs, o.jobs)?;
     type Res = ((Corner, Row), ReturnRead);
@@ -826,7 +889,29 @@ pub fn judge(base: &ReturnOpts, o: &ReturnJudgeOpts) -> Result<(Vec<String>, usi
             },
             rolling.len(),
             if rolling.is_empty() { String::new() } else { format!(" (up to {:.3})", rolling.iter().copied().fold(0.0, f64::max)) }
-        )
+        ) + &{
+            // (path (a), ironspec 14:41: the E rises within k of a fired pulse, the bench's count summed over
+            // the runs printing it (0 everywhere: the live term comes out); the judge's own count from the
+            // two tick lists beside it)
+            let ew: Vec<(i64, usize)> = hs.iter().filter_map(|h| h.e_within).collect();
+            if ew.is_empty() {
+                String::new()
+            } else {
+                let mine: usize = hs
+                    .iter()
+                    .filter_map(|h| h.e_within.map(|(k, _)| (k, h)))
+                    .map(|(k, h)| h.e_rises.iter().filter(|e| h.fired_rises.iter().any(|p| **e > *p && **e <= *p + k)).count())
+                    .sum();
+                let ks: std::collections::BTreeSet<i64> = ew.iter().map(|(k, _)| *k).collect();
+                format!(
+                    ", E rises within k ({}) gt after a fired pulse {} in {} runs (from the tick lists: {})",
+                    ks.iter().map(|k| k.to_string()).collect::<Vec<_>>().join("/"),
+                    ew.iter().map(|(_, n)| n).sum::<usize>(),
+                    ew.len(),
+                    mine
+                )
+            }
+        }
     };
     let napper_text = |rs: &[&ReturnRead]| -> String {
         let entry: Vec<f64> = rs.iter().filter_map(|r| r.napper_entry).collect();
@@ -1069,8 +1154,31 @@ pub fn judge(base: &ReturnOpts, o: &ReturnJudgeOpts) -> Result<(Vec<String>, usi
             }
         ));
     }
+    // (the ungated-pulse control (ironspec 14:41): each corner's late rows without --pulse-gate must
+    // fail; a corner whose ungated rows all pass is a failure of the release bars themselves)
+    for c in &o.phase_corners {
+        let rows: Vec<&Res> = results.iter().filter(|((cc, row), _)| cc == c && matches!(row, Row::UngatedLate(_))).collect();
+        if rows.is_empty() {
+            continue;
+        }
+        let bad: Vec<&&Res> = rows.iter().filter(|((cc, _), r)| !fl(cc, r).is_empty()).collect();
+        if bad.is_empty() {
+            total += 1;
+        }
+        let kinds: std::collections::BTreeSet<String> = bad.iter().flat_map(|((cc, _), r)| fl(cc, r).into_iter().map(|k| kind(&k))).collect();
+        let rs: Vec<&ReturnRead> = rows.iter().map(|(_, r)| r).collect();
+        out.push(format!(
+            "the ungated-pulse control at {} (the late rows without --pulse-gate): {} of {} fail ({}); {}: {}",
+            c.label(),
+            bad.len(),
+            rows.len(),
+            kinds.into_iter().collect::<Vec<_>>().join(", "),
+            hold_text(&rs),
+            if bad.is_empty() { "FAIL: none failed, the control did not bite" } else { "the release bars see an ungated pulse" }
+        ));
+    }
     // (the hold release over every lead row ((c′)): one line for ironspec's bar)
-    let lead_rows: Vec<&ReturnRead> = results.iter().filter(|((_, row), _)| !matches!(row, Row::GateControl) && !matches!(row, Row::Login(_, d) if *d > o.lead_login_max)).map(|(_, r)| r).collect();
+    let lead_rows: Vec<&ReturnRead> = results.iter().filter(|((_, row), _)| !matches!(row, Row::GateControl | Row::UngatedLate(_)) && !matches!(row, Row::Login(_, d) if *d > o.lead_login_max)).map(|(_, r)| r).collect();
     if o.bars.hold_required || lead_rows.iter().any(|r| r.hold.is_some()) {
         // (the runs made beside those carrying the line, so the counts reconcile: 3 controls, one a
         // corner, plus each corner's families; G1's CHANGES 1 on 67d161436)
@@ -1083,7 +1191,7 @@ pub fn judge(base: &ReturnOpts, o: &ReturnJudgeOpts) -> Result<(Vec<String>, usi
     // names them))
     let spread: Vec<(i64, &Res)> = results
         .iter()
-        .filter(|((_, row), _)| !matches!(row, Row::GateControl) && !matches!(row, Row::Login(_, d) if *d > o.lead_login_max))
+        .filter(|((_, row), _)| !matches!(row, Row::GateControl | Row::UngatedLate(_)) && !matches!(row, Row::Login(_, d) if *d > o.lead_login_max))
         .filter_map(|res| res.1.hold.as_ref().and_then(|h| h.departure_arm3).map(|x| (x - o.e_rise, res)))
         .collect();
     if let (Some(lo), Some(hi)) = (spread.iter().min_by_key(|(d, _)| *d), spread.iter().max_by_key(|(d, _)| *d)) {
@@ -1774,6 +1882,11 @@ mod tests {
         assert!(!read(&lift("somewhere"), true).errors.is_empty());
         assert!(!read(T, true).lift_seen);
         let rode = read(&T.replace("the napper 30 behind batch 0's third cart, 24 ahead of batch 1's first", "the napper 100 behind batch 0's third cart, -45 ahead of the next batch's first"), true);
+        // (a napper in its lane by the lane's own branch, not handed on into its siding: a failure, read,
+        // not an error (the ungated control's creeping napper on lane 7))
+        let by_branch = read(&T.replace("branch speed - (handed on by the 4th route at 0.261 stored, 0.196/gt)", "branch speed 0.293 (entering the merge cell 0.359)"), true);
+        assert!(by_branch.errors.is_empty() && by_branch.napper_by_branch, "{:?}", by_branch.errors);
+        assert!(fails(&by_branch, &bars(), true).iter().any(|f| f.contains("by the lane's own branch")), "{:?}", fails(&by_branch, &bars(), true));
         assert!(fails(&rode, &bars(), true).iter().any(|f| f.contains("rode with a batch (behind 100, ahead -45)")), "{:?}", fails(&rode, &bars(), true));
     }
 
@@ -1822,6 +1935,14 @@ mod tests {
         let rolling = read(&with(&good.replace("t 200: at rest on the hold (0.000)", "t 200: rolling on the hold (0.031)")), true);
         assert!(fails(&rolling, &gated, true).iter().any(|f| f.contains("presence sampled on a rolling cart at E's rise (1 sample(s), up to 0.031)")), "{:?}", fails(&rolling, &gated, true));
         assert!(fails(&rolling, &bars(), true).is_empty());
+        // (path (a), ironspec 14:41: the E rise and fired pulse tick lists and the bench's count read)
+        let pa = read(&with(&format!("{good}; E rises: t 146, t 246, t 290; fired pulse rises: t 256; E rises within 42 gt after a fired pulse: 1 (t 290)")), true);
+        assert!(pa.errors.is_empty(), "{:?}", pa.errors);
+        let h = pa.hold.expect("the hold line");
+        assert_eq!((h.e_rises.clone(), h.fired_rises.clone(), h.e_within), (vec![146, 246, 290], vec![256], Some((42, 1))));
+        let none = read(&with(&format!("{good}; E rises: none; fired pulse rises: none; E rises within 42 gt after a fired pulse: 0")), true);
+        assert!(none.errors.is_empty() && none.hold.as_ref().is_some_and(|h| h.e_rises.is_empty() && h.e_within == Some((42, 0))), "{:?}", none.errors);
+        assert!(!read(&with(&format!("{good}; E rises: t x")), true).errors.is_empty());
     }
 
     /// ironspec's T rule bites (a positive control): a switched T with arms N/W/E (a row along x, its

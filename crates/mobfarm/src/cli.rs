@@ -2602,6 +2602,22 @@ pub enum MobfarmCmd {
         /// (4,-19-N,4); 7b90c3f1's bb0a33575).
         #[arg(long, default_value_t = 0)]
         lift_depth: i32,
+        /// The bench's V15 and path (a) options (7b90c3f1's 83878113f, ironspec 13:56..16:04): `--no-torches`
+        /// (the always-on sources' opt-out), `--napper-speed` (the napper's start speed at R), `--path-a`
+        /// (lane 7 waiting on the braked slope, released at REL + `--lane7-rel`), `--arm-rel C` (ARM3 :=
+        /// REL + C, the arming detector a plain rail), `--station-lag`.
+        #[arg(long)]
+        no_torches: bool,
+        #[arg(long, default_value_t = 0.2)]
+        napper_speed: f64,
+        #[arg(long)]
+        path_a: bool,
+        #[arg(long)]
+        arm_rel: Option<i64>,
+        #[arg(long, default_value_t = 100)]
+        lane7_rel: i64,
+        #[arg(long, default_value_t = 0)]
+        station_lag: i64,
         /// The bench's `--bit-delay` (its arrival-phase bookkeeping).
         #[arg(long, default_value_t = 36)]
         bit_delay: i64,
@@ -2620,6 +2636,10 @@ pub enum MobfarmCmd {
         /// second ARM3 rise, ironspec 11:49).
         #[arg(long)]
         no_gate_control: bool,
+        /// Skip the ungated-pulse control (with --pulse-gate: each nominal corner's late rows run without
+        /// it must fail, ironspec 14:41).
+        #[arg(long)]
+        no_ungated_control: bool,
         /// The arrivals x freezes rows: the napper leaving R at every tick R_FROM..=R_TO with a login of
         /// each of the lead's lengths (1..=--lead-login-max) at every offset OFF_FROM..=OFF_TO after its
         /// start (R_FROM,R_TO,OFF_FROM,OFF_TO; `-1,-1,-1,-1`: none; with --napper-lift).
@@ -7814,7 +7834,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             println!("{}", crate::queue::golem_spots(&spec, o.as_ref(), &extra, with_entities, list, pad_box, &stand_cells).map_err(|e| anyhow::anyhow!(e))?);
         }
-        MobfarmCmd::ReturnJudge { batches, ticks, boost, reverse, flat, game_ticks, dip, resync, z7, row10, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station, k_relay, napper_lane, napper_r, release_pulse, day1_taps, supp_open, pulse_gate, lift_depth, bit_delay, mirror_z, tripwire, dep_keyed, trip_lag, no_gate_control, late_logins, boosters, row_boost, offsets, spread, speeds, napper_ds, restart_napper, starts, no_restarts, ds, lead_login_max, no_jitter, late, scheduled_only, e_rise, branch_band, upper_final, napper_band, shaft_min, napper_behind, napper_ahead, junction_min, pushes_max, head_max, k_band, margin, gates_out, design_file, solve_steps, solve_ds, solve_table, jobs } => {
+        MobfarmCmd::ReturnJudge { batches, ticks, boost, reverse, flat, game_ticks, dip, resync, z7, row10, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station, k_relay, napper_lane, napper_r, release_pulse, day1_taps, supp_open, pulse_gate, lift_depth, no_torches, napper_speed, path_a, arm_rel, lane7_rel, station_lag, bit_delay, mirror_z, tripwire, dep_keyed, trip_lag, no_gate_control, no_ungated_control, late_logins, boosters, row_boost, offsets, spread, speeds, napper_ds, restart_napper, starts, no_restarts, ds, lead_login_max, no_jitter, late, scheduled_only, e_rise, branch_band, upper_final, napper_band, shaft_min, napper_behind, napper_ahead, junction_min, pushes_max, head_max, k_band, margin, gates_out, design_file, solve_steps, solve_ds, solve_table, jobs } => {
             anyhow::ensure!(starts.len() == 2, "--starts A,B");
             anyhow::ensure!(offsets.len() == 3, "--offsets A,B,C");
             anyhow::ensure!(spread.len() == 2, "--spread LO,HI");
@@ -7831,7 +7851,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let prelude = if napper_lift { 100 } else { 0 };
             let ticks = ticks + prelude;
             let starts = vec![starts[0], starts[1] + prelude];
-            let base = crate::returnbench::ReturnOpts { batches, spacing: 14, speed: 0.4, ticks, login: None, boost, trace: None, reverse, offsets: offsets.clone(), jitter: Vec::new(), flat, game_ticks, napper_delay: (restart_napper >= 0).then_some(restart_napper), dip, resync, seed_miss: None, restart: None, z7, row10, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station, k_relay, napper_lane, napper_r, release_pulse, boosters, row_boost, out: None, mirror_z, day1_taps, supp_open, pulse_gate, gate_delayed_only: false, lift_depth, no_torches: false, napper_speed: 0.2, path_a: false, arm_rel: None, lane7_rel: 100, station_lag: 0, y12_min: 16, y12_nap_min: 16, lane7_pulse: 10, kset_shift: 0, driver_latency: false, mouth_min: 2, bit_delay, tripwire, dep_keyed, trip_lag };
+            let base = crate::returnbench::ReturnOpts { batches, spacing: 14, speed: 0.4, ticks, login: None, boost, trace: None, reverse, offsets: offsets.clone(), jitter: Vec::new(), flat, game_ticks, napper_delay: (restart_napper >= 0).then_some(restart_napper), dip, resync, seed_miss: None, restart: None, z7, row10, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station, k_relay, napper_lane, napper_r, release_pulse, boosters, row_boost, out: None, mirror_z, day1_taps, supp_open, pulse_gate, gate_delayed_only: false, lift_depth, no_torches, napper_speed, path_a, arm_rel, lane7_rel, station_lag, y12_min: 16, y12_nap_min: 16, lane7_pulse: 10, kset_shift: 0, driver_latency: false, mouth_min: 2, bit_delay, tripwire, dep_keyed, trip_lag };
             anyhow::ensure!(k_band.len() == 2, "--k-band LO,HI");
             let bars = crate::returnjudge::ReturnBars { branch_band: (branch_band[0], branch_band[1]), napper_band: (napper_band[0], napper_band[1]), shaft_min, napper_behind, napper_ahead, junction_min: jm.clone(), pushes_max, head_max, k_band: k_relay.then_some((k_band[0], k_band[1])), scheduled_only, hold_required: napper_lift && pulse_gate.is_some() };
             let line = format!(
@@ -7849,7 +7869,21 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         if napper_r != 0 { format!("--napper-r {napper_r} ") } else { String::new() },
                         if day1_taps { format!("--day1-taps {}", if supp_open != 73 { format!("--supp-open {supp_open} ") } else { String::new() }) } else { String::new() },
                         pulse_gate.map_or(String::new(), |x| format!("--pulse-gate {x} ")),
-                        format!("{}{}{}{}", if lift_depth != 0 { format!("--lift-depth {lift_depth} ") } else { String::new() }, if tripwire { "--tripwire " } else { "" }, if dep_keyed { "--dep-keyed " } else { "" }, if trip_lag != 0 { format!("--trip-lag {trip_lag} ") } else { String::new() })
+                        format!(
+                            "{}{}{}{}{}",
+                            if lift_depth != 0 { format!("--lift-depth {lift_depth} ") } else { String::new() },
+                            if tripwire { "--tripwire " } else { "" },
+                            if dep_keyed { "--dep-keyed " } else { "" },
+                            if trip_lag != 0 { format!("--trip-lag {trip_lag} ") } else { String::new() },
+                            format!(
+                                "{}{}{}{}{}",
+                                if path_a { format!("--path-a {}", if lane7_rel != 100 { format!("--lane7-rel {lane7_rel} ") } else { String::new() }) } else { String::new() },
+                                arm_rel.map_or(String::new(), |c| format!("--arm-rel {c} ")),
+                                if station_lag != 0 { format!("--station-lag {station_lag} ") } else { String::new() },
+                                if no_torches { "--no-torches " } else { "" },
+                                if (napper_speed - 0.2).abs() > 1e-9 { format!("--napper-speed {napper_speed} ") } else { String::new() }
+                            )
+                        )
                     )
                 } else {
                     String::new()
@@ -7922,7 +7956,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
             let phase_corners: Vec<crate::returnjudge::Corner> = speeds.iter().map(|&sp| crate::returnjudge::Corner { offsets: offsets.clone(), speed: sp, napper: (restart_napper >= 0).then_some(restart_napper) }).collect();
-            let o = crate::returnjudge::ReturnJudgeOpts { corners, phase_corners, starts: (starts[0], starts[1]), restarts: !no_restarts, ds: ds.clone(), lead_login_max, jitter: !no_jitter, late: (napper_lift && late.len() == 2 && late[0] >= 0).then(|| (late[0], late[1])), taps_follow_departure: day1_taps && (pulse_gate.is_some() || dep_keyed), e_rise, gate_control: pulse_gate.is_some() && !no_gate_control, late_logins: (napper_lift && late_logins.len() == 4 && late_logins[0] >= 0).then(|| (late_logins[0], late_logins[1], late_logins[2], late_logins[3])), bars, margin, jobs };
+            let o = crate::returnjudge::ReturnJudgeOpts { corners, phase_corners, starts: (starts[0], starts[1]), restarts: !no_restarts, ds: ds.clone(), lead_login_max, jitter: !no_jitter, late: (napper_lift && late.len() == 2 && late[0] >= 0).then(|| (late[0], late[1])), taps_follow_departure: day1_taps && (pulse_gate.is_some() || dep_keyed), e_rise, gate_control: pulse_gate.is_some() && !no_gate_control && !path_a, ungated_control: napper_lift && pulse_gate.is_some() && !no_ungated_control, late_logins: (napper_lift && late_logins.len() == 4 && late_logins[0] >= 0).then(|| (late_logins[0], late_logins[1], late_logins[2], late_logins[3])), bars, margin, jobs };
             println!(
                 "return judge (cc767b78, bench, tool unreviewed; the lead's rows: the controls at {} corners (offsets {:?}, the departure spread {}..{} gt on each, releases {speeds:?}, napper {}), at the nominal corners every gt bar's margin >= {margin} and a save/stop/start at every phase t {}..{} in the 10 orders, the cold start = the control{}): {line}, {batches} batches, {ticks} ticks; {d_means}",
                 o.corners.len(),
