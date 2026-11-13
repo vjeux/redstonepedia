@@ -96,6 +96,46 @@ pub enum MobfarmCmd {
         #[arg(long, value_delimiter = ',', default_values_t = vec![2i64, 4, 5, 6, 7, 8, 9, 10])]
         pulse: Vec<i64>,
     },
+    /// (ironspec 16:08 / 16:10) Nap coverage on the lane model with b8949c96's way-in: per complete night
+    /// each villager's naps, double picks and the never-picked, the largest LAST_SLEPT age, at each queue
+    /// hold with HELD sampled at the divert ((i)) and without (control).
+    CtlCoverageBench {
+        /// The queue holds to run (gt after the arrival detector).
+        #[arg(long, value_delimiter = ',', default_values_t = vec![80i64, 130, 173])]
+        holds: Vec<i64>,
+        /// The divert to the queue's arrival detector, LO,HI gt (b8949c96: pick -> arrival 185..230, the
+        /// divert 60 gt after the pick).
+        #[arg(long, value_delimiter = ',', default_values_t = vec![125i64, 170])]
+        leg: Vec<i64>,
+        /// The queue's release to the stop's entry (gt; 110 before (C)).
+        #[arg(long, default_value_t = 110)]
+        to_entry: i64,
+        /// Today's return: the hold rail's rise -> PRESENT per lane A,B,C (7b90c3f1: 18 + 79/94/110 + 16).
+        #[arg(long, value_delimiter = ',', default_values_t = vec![113i64, 128, 144])]
+        post_lane: Vec<i64>,
+        /// Today's deadline: the predecessor's D pass after its release, per lane A,B,C (T_D).
+        #[arg(long, value_delimiter = ',', default_values_t = vec![93i64, 130, 167])]
+        t_d: Vec<i64>,
+        /// The napper's hold-rail rise, gt after REL (ARM3 + 12: c' 57 -> 69; 7b90c3f1's centring 66).
+        #[arg(long, default_value_t = 69)]
+        slot: i64,
+        /// Today's stop: its entry -> R, LO,HI gt (58f770cc; 196..198 the lane model's).
+        #[arg(long, value_delimiter = ',', default_values_t = vec![196i64, 198])]
+        trip: Vec<i64>,
+        #[arg(long, default_value_t = 30)]
+        days: usize,
+        #[arg(long, default_value_t = 5)]
+        seeds: u64,
+    },
+    /// The pocket drive (`ctlpocket.rs`, ironspec 16:03): (a) the slime support's repeater against (b)
+    /// M16bw's side drive, all three pockets laid; each lane's P rise and fall after its switch at 20
+    /// phases and under a restart at every tick around both edges in every reload order; the leaks into
+    /// the other pockets; the control (lane -1's support a redstone block) must leak into lane 3.
+    CtlPocketBench {
+        /// Run the bench z-mirrored (`mirror.rs`).
+        #[arg(long)]
+        mirror_z: bool,
+    },
     /// The siding feeds (`ctlfeed.rs`, ironspec Nov 12 11:22): lanes -1 and 3 fed from below (day-1's
     /// delay-3 repeater into a slime under ironfarm's feed dust), lane 7 as ruled; R's rise and fall after
     /// the line's at 20 phases, with a restart at every tick around both edges in every reload order; the
@@ -253,9 +293,10 @@ pub enum MobfarmCmd {
         rest_set: i64,
         #[arg(long, default_value_t = 15)]
         rest_reset: i64,
-        /// The queue's hold before the release (>= the stale window: <= 53 at the DAY out + the gate's 2 +
-        /// the DAY line + a margin).
-        #[arg(long, default_value_t = 80)]
+        /// The queue's hold before the release, gt after the arrival (ironspec 17:16: the gate's 80-gt hold
+        /// term goes; every visit's dwell, the wait for the stop included, <= 50 once the way-in booster and
+        /// lane A's cut are in, <= 5 until then: the round trip against the siding window).
+        #[arg(long, default_value_t = 0)]
         stale_hold: i64,
         /// No back-pressure (the control: picks go on while a napper is held at the queue).
         #[arg(long)]
@@ -284,6 +325,13 @@ pub enum MobfarmCmd {
         /// away) is on by default; this turns it off.
         #[arg(long)]
         no_lane_latch: bool,
+        /// (ironspec 15:57: day-1's (i)) The back-pressure's HELD sampled at the divert (60 gt after the
+        /// pick) instead of at the pick: a cart finding a napper held at the queue rides on in its lane.
+        #[arg(long)]
+        held_at_divert: bool,
+        /// The queue's release to the stop's entry, gt (b8949c96's way-in: 110 before (C)).
+        #[arg(long, default_value_t = 0)]
+        to_entry: i64,
         /// The high re-phase at threshold H (ironspec 09:49; 15: a clear midday only): the load and the
         /// window are derived from a clear run and printed.
         #[arg(long)]
@@ -11988,7 +12036,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     [d, at, add] => Some((*d as usize, *at, *add)),
                     _ => bail!("--hold-at D,IN_DAY,ADD"),
                 };
-                let lo_ = crate::napper::LaneOpts { lanes, per_lane: carts / lanes, k, beds, turns, visits, lane_exact, keep_place, skip_per_day, lock, trip: (lo, hi), sleep_at, spacing, cross_at, days, warmup, seed, night_gt, day_gt: 24000, dusk_at, jump, jump_every, outlier, post, foot, r_leg, window, det, lie, start_dt, rephase_lag, truncate_after_skip, hold_at, rule2, windows2, late_latch, log_releases: false, siding_window, ret, lock_gt, remark };
+                let lo_ = crate::napper::LaneOpts { lanes, per_lane: carts / lanes, k, beds, turns, visits, lane_exact, keep_place, skip_per_day, lock, trip: (lo, hi), sleep_at, spacing, cross_at, days, warmup, seed, night_gt, day_gt: 24000, dusk_at, jump, jump_every, outlier, post, foot, r_leg, window, det, lie, start_dt, rephase_lag, truncate_after_skip, hold_at, rule2, windows2, late_latch, log_releases: false, siding_window, ret, lock_gt, remark, queue_leg: None, queue_hold: 0, to_entry: 0, held_at_divert: false, post_lane: None, t_d: None };
                 if held_compare {
                     // (ironspec 03:53: (ii) rule 2's "already waiting at the pass" with the ring's windows
                     // (a late napper takes the next window, 10 cycles on, behind whichever cart passes)
@@ -12433,7 +12481,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::CtlCounterBench { ff_period, no_pend, window_open, window_close, gate_hi, gate_lo, load2, load1, to_bed, early_tol, last_nap, day_inhibit, drop_min, arm, weather_sweep, sweep_step, hatch_lag, no_release, rest_set, rest_reset, stale_hold, no_backpressure, day_rise_load, stop_cycle, stop_walk, stop_nap, back_after, stale_backpressure, no_lane_latch, high } => {
+        MobfarmCmd::CtlCounterBench { ff_period, no_pend, window_open, window_close, gate_hi, gate_lo, load2, load1, to_bed, early_tol, last_nap, day_inhibit, drop_min, arm, weather_sweep, sweep_step, hatch_lag, no_release, rest_set, rest_reset, stale_hold, no_backpressure, day_rise_load, stop_cycle, stop_walk, stop_nap, back_after, stale_backpressure, no_lane_latch, held_at_divert, to_entry, high } => {
             let mut o = crate::ctlcounter::CounterOpts {
                 ff_period,
                 pend: !no_pend,
@@ -12458,6 +12506,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 back_after,
                 stale_backpressure,
                 lane_latch: !no_lane_latch,
+                held_at_divert,
+                to_entry,
                 ..Default::default()
             };
             if let Some(h) = high {
@@ -12519,6 +12569,21 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 for l in crate::holdpulse::bench(step.max(1), extra, freeze, g).map_err(|e| anyhow::anyhow!(e))? {
                     println!("{l}");
                 }
+            }
+        }
+        MobfarmCmd::CtlPocketBench { mirror_z } => {
+            crate::mirror::set(mirror_z);
+            for l in crate::ctlpocket::bench().map_err(|e| anyhow::anyhow!(e))? {
+                println!("{l}");
+            }
+        }
+        MobfarmCmd::CtlCoverageBench { holds, leg, to_entry, post_lane, t_d, slot, trip, days, seeds } => {
+            let [lo, hi] = leg[..] else { bail!("--leg takes LO,HI") };
+            let [pa, pb, pc] = post_lane[..] else { bail!("--post-lane takes A,B,C") };
+            let [da, db, dc] = t_d[..] else { bail!("--t-d takes A,B,C") };
+            let [tl, th] = trip[..] else { bail!("--trip takes LO,HI") };
+            for l in crate::napper::coverage_bench(&holds, (lo, hi), to_entry, [pa, pb, pc], [da, db, dc], slot, (tl, th), days, seeds) {
+                println!("{l}");
             }
         }
         MobfarmCmd::CtlFeedBench { width, mirror_z } => {
