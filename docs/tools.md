@@ -461,7 +461,9 @@ DAY edges; each visit (from its pick to the same napper's next pick) also prints
 caught with the catch window's late and early slacks, its K leg, PRESENT, its lane's D presses
 around the siding's R, and its decomposition (ironspec 01:59 PT): the pick's C and u, pick -> queue
 arrival, dwell, the way-in leg, entry -> lie-down, lie-down -> wake, wake -> a cart at P, P -> R,
-R -> the lift exit, the lift exit -> Q-up (k_lock), Q-up -> H2. The run starts as the build guide
+R -> the lift exit, the lift exit -> Q-up (k_lock), Q-up -> H2, and its calm -> release row
+(ironspec 04:56 PT): its first calm tick and its CANT_REACH arming on the way to the queue, the
+queue arrival, the release, armed -> release. The run starts as the build guide
 does (ironspec 01:59 PT): every napper in its lane and the queue empty (the module's queued cart
 dropped); `--seed-queued-napper` keeps the old seeding (the napper queued at the way-in, its lane
 one slope cart short). DAY (the queue release's NOT DAY and the picker's row sample) is the module's

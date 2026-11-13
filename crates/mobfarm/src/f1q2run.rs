@@ -3632,6 +3632,17 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     r.queue_age = Some(age);
                     mark(r, "at the queue's arrival");
                 }
+                // (ironspec 04:56 PT: the calm -> release distribution) on its way to the queue, the
+                // first tick it isn't panicking and the first tick its CANT_REACH stamp is armed
+                // (the leg path's calm)
+                if !r.milestones.iter().any(|(w, _)| w == "at the queue's arrival") {
+                    if !panic {
+                        mark(r, "calm before the queue");
+                    }
+                    if stamp.is_some() {
+                        mark(r, "CANT_REACH armed before the queue");
+                    }
+                }
                 if c[0] == 6 && (-19 + sy..=-4).contains(&c[1]) && c[2] == 4 {
                     mark(r, "in the napper lift");
                 }
@@ -4840,6 +4851,18 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     let exit = rr.and_then(|r| ctl.lift_exit_log.iter().find(|x| **x >= r).copied());
                     let qup = exit.and_then(|x| ctl.k_lock.map(|kl| x + kl));
                     let c_at = ctl.pick_opps.iter().find(|x| x.0 == *t).map_or("-".to_string(), |x| x.1.to_string());
+                    // (ironspec 04:56 PT: the calm -> release distribution) its first calm tick and
+                    // its CANT_REACH arming on the way to the queue
+                    let calm = msn(*v, "calm before the queue", *t, to);
+                    let armed = msn(*v, "CANT_REACH armed before the queue", *t, to);
+                    let calm_row = format!(
+                        "the calm -> release row (ironspec 04:56 PT): calm before the queue t {}, CANT_REACH armed before the queue t {}, queue arrival t {}, release t {}, armed -> release {} gt",
+                        o(calm),
+                        o(armed),
+                        o(arr),
+                        o(reln),
+                        dd(armed, reln)
+                    );
                     let decomposition = format!(
                         "the decomposition: pick at C {c_at} (u {}), pick -> queue arrival {}, dwell {}, way-in leg (release -> A6's entry) {}, entry -> lie-down (descent, any stall) {}, lie-down -> wake {}, wake -> a cart at P {}, P -> R {}, R -> lift exit {}, lift exit -> Q-up {}, Q-up -> H2 {}",
                         c_at.parse::<i64>().map_or("-".to_string(), |c| (c % 10).to_string()),
@@ -4871,7 +4894,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                         ms(*v, "back in its lane", *t, to),
                         presses.join(" "),
                         match (next_press, sr) { (Some(p), Some(r)) => format!("{:+}", p - r), _ => "-".to_string() }
-                    ) + "; " + &decomposition
+                    ) + "; " + &decomposition + "; " + &calm_row
                 })
                 .collect();
             s.push_str(&format!(
