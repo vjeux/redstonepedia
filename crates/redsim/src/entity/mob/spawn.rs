@@ -22,12 +22,21 @@ pub fn spawn_golem_if_needed(w: &mut World, i: usize, needed: usize) {
     }
     let wants = |w: &World, j: usize| mob(w, j).brain.as_deref().is_some_and(|b| b.wants_golem(t));
     if !wants(w, i) {
+        // (ironspec 19:58) the caller itself not willing: no roll (covered by this tick's golem or
+        // blocked by an older stamp: the reader tells them apart)
+        let b = w.entities.list[i].block_position();
+        let villager = w.entities.list[i].id;
+        w.mob.events.push(MobEvent::GolemCall { t, villager, willing: 0, needed: needed as u8, from: [b.x, b.y, b.z], caller_willing: false });
         return;
     }
     let bb = w.entities.list[i].bb.inflate(10.0, 10.0, 10.0);
     let nearby: Vec<usize> = w.get_entities(bb, |e| matches!(&e.kind, EntityKind::Mob(m) if m.ty == MobType::Villager));
     let willing = nearby.iter().filter(|&&j| wants(w, j)).take(5).count();
     if willing < needed {
+        // (G1 / ironspec 19:51) the call short of willing: no roll
+        let b = w.entities.list[i].block_position();
+        let villager = w.entities.list[i].id;
+        w.mob.events.push(MobEvent::GolemCall { t, villager, willing: willing as u32, needed: needed as u8, from: [b.x, b.y, b.z], caller_willing: true });
         return;
     }
     let start = w.entities.list[i].block_position();
@@ -37,7 +46,8 @@ pub fn spawn_golem_if_needed(w: &mut World, i: usize, needed: usize) {
         let b = w.entities.list[g].block_position();
         [b.x, b.y, b.z]
     });
-    w.mob.events.push(MobEvent::GolemTry { t, villager, willing: willing as u32, golem, at });
+    let tries = w.mob.spawn_tries.last().map_or(0, |x| x.1.len()) as u8;
+    w.mob.events.push(MobEvent::GolemTry { t, villager, willing: willing as u32, golem, at, needed: needed as u8, from: [start.x, start.y, start.z], tries });
     if let Some(g) = golem {
         for j in nearby {
             if mob(w, j).brain.is_some() {

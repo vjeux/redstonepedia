@@ -537,3 +537,38 @@ pub mod detector {
         }
     }
 }
+
+#[cfg(test)]
+mod source_list_tests {
+    use super::*;
+
+    /// The modeled blocks beyond the plain ones, by name (a name redsim doesn't parse is skipped).
+    const NAMES: &[&str] = &[
+        "redstone_wire", "redstone_torch", "redstone_wall_torch", "lever", "stone_button", "oak_button", "polished_blackstone_button", "repeater", "comparator", "observer", "target",
+        "sculk_sensor", "calibrated_sculk_sensor", "stone_pressure_plate", "oak_pressure_plate", "light_weighted_pressure_plate", "heavy_weighted_pressure_plate", "tripwire_hook",
+        "tripwire", "detector_rail", "rail", "powered_rail", "activator_rail", "daylight_detector", "jukebox", "lightning_rod", "exposed_lightning_rod", "weathered_lightning_rod",
+        "oxidized_lightning_rod", "waxed_lightning_rod", "redstone_block", "piston", "sticky_piston", "hopper", "dropper", "dispenser", "note_block", "redstone_lamp", "iron_trapdoor",
+        "oak_trapdoor", "iron_door", "oak_door", "oak_fence_gate", "copper_bulb", "crafter", "chest", "barrel", "composter", "slime_block", "honey_block", "water", "lava",
+        "bubble_column", "soul_sand", "magma_block", "scaffolding", "cactus", "sugar_cane", "kelp", "bamboo", "big_dripleaf", "lantern", "torch", "wall_torch", "glass", "stone_slab",
+        "oak_leaves", "farmland", "melon_stem", "cake", "fire", "oak_sign", "oak_wall_sign", "oak_fence", "white_bed",
+    ];
+
+    /// (ironspec 20:19 PT (2a), G1) every modeled block's default state: the rail's update gate
+    /// (`kind_is_signal_source`, RailBlock.updateState reads the source's default state) agrees
+    /// with `behavior::is_signal_source` (dust: its default state's answer, true; the two lists
+    /// drifted once: the daylight detector, the jukebox, the lightning rod).
+    #[test]
+    fn the_rail_gate_matches_the_predicate_on_every_modeled_block() {
+        let w = World::new(BlockPos::new(0, 0, 0), [1, 1, 1]);
+        let mut names: Vec<String> = crate::block::Simple::names().iter().map(|n| n.to_string()).collect();
+        names.extend(NAMES.iter().map(|n| n.to_string()));
+        let mut checked = 0;
+        for n in &names {
+            let Ok(b) = Block::parse(&format!("minecraft:{n}")) else { continue };
+            let pred = matches!(b, Block::Wire { .. }) || crate::behavior::is_signal_source(&w, &b);
+            assert_eq!(kind_is_signal_source(b.kind()), pred, "{n}");
+            checked += 1;
+        }
+        assert!(checked >= 40, "{checked} names parsed");
+    }
+}

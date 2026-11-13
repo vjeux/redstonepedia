@@ -554,7 +554,10 @@ fn rebuild_villager_brain(w: &mut World, id: u32, stand_in: Option<i64>) {
         x.mem.meeting_point = ox.mem.meeting_point;
         // (SECONDARY_JOB_SITE is registered without a codec: not saved, dropped on a reload until
         // the secondary POI sensor scans again)
-        x.last_gossip = ox.last_gossip;
+        // (lastGossipTime isn't saved: a reload starts it at 0, opening every pair's 1,200-gt gate;
+        // tick-exact on 26.3, G1's item 2 / ironspec 19:34 (3c))
+        x.last_gossip = 0;
+        let _ = ox.last_gossip;
         x.last_schedule_update = t;
         let sched = scheduled(day);
         x.active = match sched {
@@ -583,5 +586,30 @@ mod tests {
         let mut sorted = slots.clone();
         sorted.sort_by(|a, b| b.cmp(a));
         assert_eq!(slots, sorted);
+    }
+
+    /// (G1's item 2, ironspec 19:34 (3c)) lastGossipTime isn't saved: a reload's rebuilt brain
+    /// starts it at 0 (the live brain had it at 777).
+    #[test]
+    fn a_reload_resets_the_last_gossip_time() {
+        let mut w = World::new(BlockPos::new(-4, -2, -4), [8, 6, 8]);
+        w.mob.ai.on = true;
+        w.exact_seed = Some(7);
+        let id = crate::entity::spawn(&mut w, "minecraft:villager", [0.5, 0.0, 0.5], None).expect("a villager");
+        let i = crate::entity::index_of(&w, id).unwrap();
+        {
+            let (t, day) = (w.time, w.day_time());
+            let e = &mut w.entities.list[i];
+            let own = e.random.as_mut().expect("its random");
+            let crate::entity::EntityKind::Mob(m) = &mut e.kind else { panic!("a mob") };
+            let b = m.brain.as_deref_mut().expect("a brain");
+            if b.ex.is_none() {
+                crate::entity::mob::ai::brain::attach(b, own, 7, t, day);
+            }
+            b.ex.as_deref_mut().unwrap().last_gossip = 777;
+        }
+        rebuild_villager_brain(&mut w, id, None);
+        let i = crate::entity::index_of(&w, id).unwrap();
+        assert_eq!(crate::entity::mob::ai::brain::ex(&w, i).last_gossip, 0);
     }
 }

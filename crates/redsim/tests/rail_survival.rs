@@ -62,3 +62,18 @@ fn an_ascending_rail_is_refused_when_its_high_side_is_water() {
         assert!(!redsim::rails::would_pop(&held, rail), "{r}: glass on the high side holds");
     }
 }
+
+/// (G1's note (a) on 4e0e058d4) The powered path's own high-side check at run time
+/// (`redstone::blocks::rail::should_be_removed`, through its neighbour update): an ascending powered
+/// rail whose high side turns to water pops; turned to stone instead, it stays.
+#[test]
+fn an_ascending_powered_rail_pops_when_its_high_side_turns_to_water() {
+    use redsim::world::flags;
+    let rail = BlockPos::new(0, 1, 0);
+    for (high, pops) in [("water[level=0]", true), ("stone", false)] {
+        let mut w = world(&[((0, 0, 0), "glass"), ((0, 1, 0), "powered_rail[powered=false,shape=ascending_south]"), ((0, 1, 1), "glass")]);
+        w.set_block(BlockPos::new(0, 1, 1), Block::parse(high).unwrap(), flags::ALL);
+        let still = w.get(rail).to_string().contains("powered_rail");
+        assert_eq!(!still, pops, "the high side turned to {high}: the rail {}", if still { "stayed" } else { "popped" });
+    }
+}
