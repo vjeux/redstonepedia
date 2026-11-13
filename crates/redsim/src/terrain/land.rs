@@ -801,9 +801,9 @@ impl World {
     }
 
     fn note_light_error(&self, e: String) {
-        if let Ok(mut v) = self.sky_cache.read_errors.lock()
-            && !v.contains(&e)
-        {
+        // (a poisoned lock still records it: G1 14:55 H7)
+        let mut v = self.sky_cache.read_errors.lock().unwrap_or_else(|p| p.into_inner());
+        if !v.contains(&e) {
             v.push(e);
         }
     }
@@ -811,7 +811,8 @@ impl World {
     /// The light reads that failed since the last tick (or the last take), taken: a judge that reads
     /// light without ticking refuses its verdict on any.
     pub fn take_light_errors(&self) -> Vec<String> {
-        self.sky_cache.read_errors.lock().map(|mut v| std::mem::take(&mut *v)).unwrap_or_else(|_| vec!["the light read errors' lock is poisoned".to_string()])
+        // (a poisoned lock still gives them: G1 14:55 H7)
+        std::mem::take(&mut *self.sky_cache.read_errors.lock().unwrap_or_else(|p| p.into_inner()))
     }
 
     /// `getRawBrightness(pos, darken)` = `max(block, sky - darken)`.

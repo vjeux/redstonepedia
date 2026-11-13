@@ -1508,7 +1508,16 @@ fn finish(w: &World, rep: &mut RunReport, tr: &Track, spec: &FarmSpec) {
     if accounted != rep.iron_dropped && rep.failures.is_empty() {
         rep.fail(format!("{} iron ingots dropped, {} in the chest, {} in the farm's containers, {} loose, {} burnt: {} lost", rep.iron_dropped, rep.iron_in_chest, rep.iron_in_containers, loose, rep.iron_burnt, rep.iron_dropped as i64 - accounted as i64));
     }
-    for e in &w.errors {
+    // (the world's errors, its light reads that failed since its last tick (cc767b78, G1 14:55 H1: a
+    // failed read in the final tick, or by the judge after the loop, would otherwise never surface),
+    // and the same from its Nether part)
+    let mut errors: Vec<String> = w.errors.clone();
+    errors.extend(w.take_light_errors());
+    if let Some(n) = w.nether.as_deref() {
+        errors.extend(n.errors.iter().map(|e| format!("the Nether: {e}")));
+        errors.extend(n.take_light_errors().into_iter().map(|e| format!("the Nether: {e}")));
+    }
+    for e in &errors {
         if !rep.errors.contains(e) && rep.errors.len() < 8 {
             rep.errors.push(e.clone());
         }
@@ -1539,5 +1548,24 @@ mod start_refusal_tests {
             assert!(e.contains("no support") || e.contains("popped at placement"), "raw {raw}: {e}");
             assert!(Run::start(&spec(true), &o).is_ok(), "raw {raw}: the slope with its high side refused");
         }
+    }
+
+    /// (cc767b78, G1 14:55 H1) A light read that failed after the run's last tick (a read in the final
+    /// tick's tail, or the judge's after the loop) still fails the run: `finish` takes the pending light
+    /// errors into the report, so `passed()` is false.
+    #[test]
+    fn a_failed_light_read_after_the_last_tick_fails_the_run() {
+        let stone = Block::parse("minecraft:stone").unwrap();
+        let spec = FarmSpec { blocks: vec![(BlockPos::new(0, 0, 0), stone)], entities: Vec::new(), output: BlockPos::new(-2, 1, 0), lo: BlockPos::new(-4, -2, -4), hi: BlockPos::new(4, 4, 4), block_entities: Vec::new(), rock: false, nether: None, land: false };
+        let r = Run::start(&spec, &RunOpts::steady(1, 0, WalkMode::Random)).unwrap();
+        let tr = Track::new(&r, &spec);
+        let mut clean = RunReport::default();
+        finish(&r.world, &mut clean, &tr, &spec);
+        assert!(!clean.errors.iter().any(|e| e.contains("planted")));
+        let _ = r.world.light_or(Err("the block light at (1,2,3): planted after the last tick".to_string()), 0);
+        let mut rep = RunReport::default();
+        finish(&r.world, &mut rep, &tr, &spec);
+        assert!(rep.errors.iter().any(|e| e.contains("planted after the last tick")), "{:?}", rep.errors);
+        assert!(!rep.passed());
     }
 }

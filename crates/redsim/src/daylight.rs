@@ -230,7 +230,7 @@ impl Clone for SkyCache {
     /// demand from its own cells), and carries the light read errors still pending (ironspec 14:27
     /// (b): a copy made between a failed read and the next tick would otherwise lose them).
     fn clone(&self) -> Self {
-        let pending = self.read_errors.lock().map(|v| v.clone()).unwrap_or_else(|_| vec!["the light read errors' lock is poisoned".to_string()]);
+        let pending = self.read_errors.lock().unwrap_or_else(|p| p.into_inner()).clone();
         SkyCache { read_errors: std::sync::Mutex::new(pending), ..SkyCache::default() }
     }
 }
@@ -320,7 +320,7 @@ fn props(b: &Block) -> Result<Props, String> {
         // the designs' blocks, read from the server by `mctas terrain blockinfo`)
         _ => match crate::terrain::light::props_of(b) {
             Ok(lp) => Props { dampening: lp.dampening as i32, faces: lp.faces.and_then(|id| crate::terrain::blocks::props(id).faces.as_ref()) },
-            Err(_) => return Err(format!("the sky light through {b} is not modeled")),
+            Err(_) => return Err(format!("the light behaviour of {b} (its light dampening and occluding faces) is not modeled")),
         },
     })
 }
@@ -751,6 +751,13 @@ mod tests {
         assert_eq!(at(&w, 0, 2, 0), Ok(0));
         w.place_raw(&[(BlockPos::new(0, 1, 0), glow)]);
         assert_eq!(at(&w, 0, 2, 0), Ok(14), "place_raw");
+        // set_block, after a first read built the list (G1 14:55 H11: a missing `note_write` shows here)
+        let mut w = base();
+        assert_eq!(at(&w, 4, 2, 4), Ok(0));
+        w.set_block(BlockPos::new(4, 1, 4), Block::parse("torch").unwrap(), crate::world::flags::ALL);
+        assert_eq!(at(&w, 4, 1, 4), Ok(14), "set_block: the torch's own cell");
+        w.set_block(BlockPos::new(4, 1, 4), Block::Air, crate::world::flags::ALL);
+        assert_eq!(at(&w, 4, 1, 4), Ok(0), "set_block: the torch taken away");
         // a piston's push: the glowstone from (-1,1,0) to (0,1,0)
         let mut w = base();
         w.set_block(BlockPos::new(-2, 1, 0), Block::parse("piston[extended=false,facing=east]").unwrap(), crate::world::flags::ALL);
