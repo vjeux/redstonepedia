@@ -365,8 +365,10 @@ none of its `unreachable:` line's cells (the stop owner's evidence that no walk 
 the floor, eye + 1.62), and every zombie but the stop's own stays at least 6.05 from every stop cell, sight or not;
 its `keep-clear:` cells must hold no block and its `keep-block: x,y,z=BLOCK[props]` cells that
 block (the assembly check);
-the pre-wake state (the closed hatch's thin plates) rests on tick-exact's official scene, not this
-test; `--sight-path NAME=x,z,y0,y1` adds a vertical rider path (a fall shaft; napper A's lift
+the pre-wake state (the open hatch's plates, hiding the zombie until F shuts them) rests on tick-exact's
+official scene, not this test; the feet stand on the top of the cell's own collision shape (a bed
+0.5625, a chest 0.875, a slab 0.5, a closed trapdoor 0.1875) or on the full cube under an empty cell,
+with 1.95 of head room free above them, and a chest landing's rows are printed; `--sight-path NAME=x,z,y0,y1` adds a vertical rider path (a fall shaft; napper A's lift
 follows the stop's y). It also prints the golem detection across the tiling (ironspec 12:14, G1's
 per-axis rule: detected iff every box gap < 16), the pad's spawn cells moved to each neighbour (east,
 west, and the southern copies mirrored in z), per rider class (the lanes, the split row and sidings,
@@ -444,7 +446,16 @@ later); S is the module with the seeded carts appended as entity lines. Not with
 with the way-in, the queue's gate is driven (b8949c96, day-1's to build): the release a redstone
 block at (8,y+13,-4) when RS_ready (set at power-up and by A6's R), the hold (80 gt from the arrival
 detector (9,y+14,-5)), REST (day time >= 12,000) and NOT DAY (the daylight detector (-5,15,3) at 0)
-all hold, taken away at the departure detector (9,y+12,-3), which resets RS_ready.
+all hold, taken away at the departure detector (9,y+12,-3), which resets RS_ready. day-1's picker
+(EMULATED, 14:46; the lanes per 7b90c3f1): a pick at the controller's releases 0 / 3 / 6 of each 10
+(lanes A / B / C = x -1 / 3 / 7, each every 1,000 gt), gated by HELD (the queue occupied, from the
+arrival to the departure) and the lane's away latch (set at its pick, reset when its napper is back
+in its lane); the picked lane's batch cart is the one its launch sends; DAY (the daylight detector
+above 0) at its row arrival turns it away; otherwise its own J and every J east of it are held off
+until it passes (8,25,9) onto the leg, then the split as if it had taken its lane (lane -1's D rise:
+J(3) on; lane 7's: J(-1) re-armed; J(7) back on). Each napper prints its stamp's age at its queue
+arrival, at R and at its first clear after R, and its first call back in its lane against its memory's
+last setting (margin >= 20); the worst queue-arrival age and the picks gated or turned away.
 redsim's `Run::start` (every run built from a design without a site world) refuses a design with a
 non-air cell outside the world's box, a cell the placement popped, or a cell where `can_survive`
 fails (dust or a repeater over air, a hook without its anchor, a rail `rails::would_pop` refuses:

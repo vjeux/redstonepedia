@@ -1972,9 +1972,9 @@ pub enum MobfarmCmd {
         /// (mob-AI 14:14) The run as a mobai drive v1 (`mctas mobai fixture` replays it on the 26.3
         /// bridge and on redsim): the world started as every bench's (`Run::start` with the drive's
         /// options, the settle, then the scene's entity lines spawned in file order), the riders'
-        /// HOME and LAST_SLEPT as acts, every emulated block write an `act t set`, the napper
-        /// parked on A6's first park rail from the start and teleported to the entry at its
-        /// seeding. Needs `--scene-out` (the module with the seeded carts as entity lines).
+        /// HOME and LAST_SLEPT as acts, every emulated block write an `act t set`; with `--napper`
+        /// the module needs b8949c96's way-in (the napper starts queued there; the drive spawns
+        /// nothing later). Needs `--scene-out` (the module with the seeded carts as entity lines).
         #[arg(long)]
         drive_out: Option<PathBuf>,
         #[arg(long)]
@@ -7130,10 +7130,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             anyhow::ensure!(drive_out.is_some() == scene_out.is_some(), "--drive-out and --scene-out go together (the drive names the scene's entity lines)");
             anyhow::ensure!(drive_out.is_none() || restarts.is_empty(), "--drive-out: no --restart-every (the drive format's reload acts aren't written)");
             let drive_rec = drive_out.as_ref().map(|_| format!(
-                "mctas mobfarm f1q2-run <design> --lane-carts{} --drive{} --seed {seed} --ticks {ticks}{} --drive-out F --scene-out S",
+                "mctas mobfarm f1q2-run <design> --lane-carts{} --drive{} --seed {seed} --ticks {ticks} --drive-out F --scene-out S",
                 if per_lane != 8 { format!(" --per-lane {per_lane}") } else { String::new() },
-                if napper { " --napper" } else { "" },
-                neighbour.map_or(String::new(), |n| format!(" --neighbour-golems {},{},{}", n[0], n[1], n[2]))
+                if napper { " --napper" } else { "" }
             ));
             let o = crate::f1q2run::Opts { seed, ticks, day0, lane_carts, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour, cart_trace, restarts, restart, control_rider, trace, bed, drive, drive_rec };
             let (rep, out) = crate::f1q2run::run_driven(&spec, &o).map_err(|e| anyhow::anyhow!(e))?;

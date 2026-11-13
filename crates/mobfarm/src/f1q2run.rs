@@ -207,6 +207,9 @@ struct Ctl {
     pending: bool,
     rel: Option<i64>,
     support_off: [Option<i64>; 3],
+    /// (V15, 9fc3155f 15:01: glass under the pockets) each pocket's support cell (x,-1,0) as
+    /// built, restored after its release block.
+    support_base: [Option<String>; 3],
     d_prev: [bool; 3],
     armed: [bool; 3],
     trap_open: [Option<i64>; 3],
@@ -246,6 +249,20 @@ struct Ctl {
     q_arr_prev: bool,
     q_dep_prev: bool,
     q_released: Vec<i64>,
+    /// HELD: the queue occupied (the arrival sets it, the departure resets it).
+    q_held: bool,
+    /// (day-1's picker) the REL count, the pick waiting for its lane's launch, the picked cart
+    /// (its id and lane), the divert in progress (the levers of its J and every J east held off
+    /// until it passes (8,25,9)), each lane's away latch, the nappers it made (rider, lane, tick)
+    /// for the run to record, the picks its gates held back and the row arrivals DAY turned away.
+    rel_count: i64,
+    pick: Option<usize>,
+    pick_cart: Option<(u32, usize)>,
+    divert: Option<(u32, usize)>,
+    away: [bool; 3],
+    new_nappers: Vec<(u32, usize, i64)>,
+    picks_gated: i64,
+    picks_day: i64,
     /// The hold (c' as built): the waiting RS set by the lift exit (7,-3,4) (its delayed Q 38 gt
     /// later), reset by the fired pulse; the input (7,-1,8) on at ARM3 + 10 for 12 gt.
     rs_set: Option<i64>,
@@ -342,6 +359,15 @@ impl Ctl {
             for k in 0..3 {
                 let x = LANES[k];
                 if now == r + OFFS[k] {
+                    // (day-1's picker: the picked lane's batch cart, the one this launch sends)
+                    if self.pick == Some(k) {
+                        if let Some(cid) = w.entities.list.iter().find(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && !e.passengers.is_empty() && cell(e.pos) == [x, 0, 0]).map(|e| e.id) {
+                            self.pick_cart = Some((cid, k));
+                            self.away[k] = true;
+                            self.note(now, format!("the picker: lane x {x}'s batch cart {cid} picked"));
+                        }
+                        self.pick = None;
+                    }
                     set(w, [x, -1, 0], "minecraft:redstone_block", flags::ALL)?;
                     self.support_off[k] = Some(now + 16);
                     self.armed[k] = true;
@@ -352,7 +378,8 @@ impl Ctl {
                     }
                 }
                 if self.support_off[k] == Some(now) {
-                    set(w, [x, -1, 0], "minecraft:stone", flags::ALL)?;
+                    let base = self.support_base[k].clone().unwrap_or_else(|| "minecraft:stone".to_string());
+                    set(w, [x, -1, 0], &base, flags::ALL)?;
                     self.support_off[k] = None;
                 }
                 let d = powered(w, [x, 0, 2]);
@@ -424,20 +451,78 @@ impl Ctl {
         let b1 = powered(w, [3, 24, 8]);
         let row = powered(w, [7, 24, 8]);
         let lever = |on: bool| format!("minecraft:lever[face=ceiling,facing=north,powered={on}]");
+        // (day-1's picker: while a picked cart passes the row, its own J and every J east of it
+        // held off; the split's own writes don't turn them on)
+        let held_off = |x: i32, dv: Option<(u32, usize)>| dv.is_some_and(|(_, k)| x >= LANES[k]);
+        let dv = self.divert;
         if b0 && !self.branch_prev[0] {
             set(w, [-1, 26, 9], &lever(false), flags::ALL)?;
-            set(w, [3, 26, 9], &lever(true), flags::ALL)?;
+            if !held_off(3, dv) {
+                set(w, [3, 26, 9], &lever(true), flags::ALL)?;
+            }
         }
         if b1 && !self.branch_prev[1] {
             set(w, [3, 26, 9], &lever(false), flags::ALL)?;
         }
         // (an eastbound napper's window keeps J(-1) from re-arming)
         let j_blocked = self.j_block.is_some_and(|(a, b)| now >= a && now < b);
-        if row && !self.row_prev && !j_blocked {
+        if row && !self.row_prev && !j_blocked && !held_off(-1, dv) {
             set(w, [-1, 26, 9], &lever(true), flags::ALL)?;
         }
         self.branch_prev = [b0, b1];
         self.row_prev = row;
+        if let Some((cid, k)) = self.pick_cart {
+            match w.entities.list.iter().find(|e| e.id == cid && !e.removed).map(|e| (cell(e.pos), e.passengers.first().copied())) {
+                None => {
+                    self.pick_cart = None;
+                    self.divert = None;
+                    self.away[k] = false;
+                }
+                Some((c, rider)) => {
+                    if self.divert.is_none() && c[1] == 25 && c[2] == 9 {
+                        // (the row arrival: DAY sampled once, the module's daylight detector)
+                        let sensor = w.get(redsim::pos::BlockPos::new(-5, 15, 3)).to_string();
+                        let power: u32 = sensor.split("power=").nth(1).and_then(|r| r.split([',', ']']).next()).and_then(|v| v.parse().ok()).unwrap_or(0);
+                        if power > 0 {
+                            self.pick_cart = None;
+                            self.away[k] = false;
+                            self.picks_day += 1;
+                            self.note(now, format!("the picker: lane x {}'s cart {cid} on the row in DAY (power {power}): no divert", LANES[k]));
+                        } else {
+                            self.divert = Some((cid, k));
+                            for x in [-1, 3, 7] {
+                                if x >= LANES[k] {
+                                    set(w, [x, 26, 9], &lever(false), flags::ALL)?;
+                                }
+                            }
+                            self.note(now, format!("the picker: lane x {}'s cart {cid} on the row at {c:?}: J({}) and every J east held off", LANES[k], LANES[k]));
+                        }
+                    } else if self.divert.is_some() && c[0] == 9 {
+                        // (past (8,25,9) on the leg's curve: the split as if the cart had taken
+                        // its lane: lane -1's D rise (J(-1) off, J(3) on), lane 3's (J(3) off),
+                        // lane 7's (J(-1) re-armed); J(7) back on)
+                        match k {
+                            0 => {
+                                set(w, [3, 26, 9], &lever(true), flags::ALL)?;
+                            }
+                            1 => {}
+                            _ => {
+                                if !j_blocked {
+                                    set(w, [-1, 26, 9], &lever(true), flags::ALL)?;
+                                }
+                            }
+                        }
+                        set(w, [7, 26, 9], &lever(true), flags::ALL)?;
+                        self.divert = None;
+                        self.pick_cart = None;
+                        if let Some(v) = rider {
+                            self.new_nappers.push((v, k, now));
+                        }
+                        self.note(now, format!("the picker: cart {cid} past (8,25,9) onto the leg; the split restored"));
+                    }
+                }
+            }
+        }
         if self.napper {
             self.nap_step(w, now, [b0, b1, row])?;
         }
@@ -550,12 +635,14 @@ impl Ctl {
             let a = powered(w, arr);
             if a && !self.q_arr_prev {
                 self.q_hold_since = Some(now);
+                self.q_held = true;
                 self.nap_events.push(format!("t {now}: the queue's arrival ({},{},{}): HELD, the hold from now", arr[0], arr[1], arr[2]));
             }
             self.q_arr_prev = a;
             let dp = powered(w, dep);
             if dp && !self.q_dep_prev {
                 self.q_rs_ready = false;
+                self.q_held = false;
                 self.q_hold_since = None;
                 if self.q_release_on {
                     set(w, rel_cell, "minecraft:air", flags::ALL)?;
@@ -700,6 +787,21 @@ impl Ctl {
         self.rel = Some(rel);
         self.armed = [false; 3];
         self.arm3 = None;
+        // (day-1's picker, 14:46, EMULATED: a pick at the window's releases 0 / 3 / 6 of each 10,
+        // lanes A / B / C = x -1 / 3 / 7 (7b90c3f1), gated by HELD and the lane's away latch; DAY is
+        // sampled at the picked cart's row arrival)
+        if self.wayin {
+            let slot = self.rel_count.rem_euclid(10);
+            if slot % 3 == 0 && slot < 9 {
+                let k = (slot / 3) as usize;
+                if self.q_held || self.away[k] || self.pick_cart.is_some() {
+                    self.picks_gated += 1;
+                } else {
+                    self.pick = Some(k);
+                }
+            }
+            self.rel_count += 1;
+        }
     }
 
     /// The idle state at the start (the split's latches): J(-1) on (into lane -1), J(3) off
@@ -707,6 +809,9 @@ impl Ctl {
     fn init(&mut self, w: &mut redsim::world::World) -> Result<(), String> {
         use redsim::world::flags;
         let lever = |on: bool| format!("minecraft:lever[face=ceiling,facing=north,powered={on}]");
+        for (k, x) in LANES.iter().enumerate() {
+            self.support_base[k] = Some(w.get(redsim::pos::BlockPos::new(*x, -1, 0)).to_string());
+        }
         for (x, on) in [(-1, true), (3, false), (7, true)] {
             if !w.get(redsim::pos::BlockPos::new(x, 26, 9)).to_string().contains("lever") {
                 return Err(format!("no junction lever at ({x},26,9): the drive takes c85331aaf's in-chunk split"));
@@ -790,6 +895,11 @@ struct Rec {
     /// (ironspec 12:13) the lane whose pocket, drop, H or slopes the rider last rode (x = the lane,
     /// y 0..22, z 0..6).
     lane: Option<i32>,
+    /// (a napper, ironspec 13:44 / 14:41 / 14:47) its stamp's age at its queue arrival, at R and
+    /// at its first clear after R; the queue arrival's age; its first call back in its lane.
+    nap_stamps: Vec<String>,
+    queue_age: Option<Option<i64>>,
+    nap_call: Option<String>,
     /// (ironspec 12:48) who set the memory last; a bystander's stamp (tick, position) pending its
     /// next summon.
     gdr_setter: Option<&'static str>,
@@ -1047,6 +1157,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         ctl.wayin = o.napper && w.get(redsim::pos::BlockPos::new(q_cell[0], q_cell[1], q_cell[2])).to_string().contains("powered_rail") && w.get(redsim::pos::BlockPos::new(8, q_cell[1], -4)).is_air();
         if ctl.wayin {
             ctl.q_rs_ready = true;
+            ctl.q_held = true;
             let qv = w.entities.list.iter().find(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && cell(e.pos) == q_cell).and_then(|e| e.passengers.first().copied()).ok_or("the way-in's queue holds no napper")?;
             let k = o.seed.rem_euclid(3) as usize % 3;
             recs.insert(qv, Rec { label: format!("napper0 (id {qv}, lane x {}, queued at the way-in)", LANES[k]), home_at_start: Some([bed.x, bed.y, bed.z]), prev_home: Some([bed.x, bed.y, bed.z]), ..Default::default() });
@@ -1064,6 +1175,9 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     let mut renew = Renewals::default();
     let mut willing_at: (i64, std::collections::BTreeSet<u32>) = (-1, std::collections::BTreeSet::new());
     let mut callers_now: Vec<(u32, i64)> = Vec::new();
+    let mut ball_exits: Vec<(String, i64)> = Vec::new();
+    let mut nights: BTreeMap<i64, std::collections::BTreeSet<u32>> = BTreeMap::new();
+    let day_start = run.world.day_time();
     let mut stacked: Vec<String> = Vec::new();
     let mut stacked_ticks = 0i64;
     let mut turns = [Turns::default(); 3];
@@ -1251,6 +1365,21 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         }
         // (ironspec 12:48) each caller's pending bystander stamp against its summon tick
         for (id, t) in callers_now.drain(..) {
+            // (ironspec 14:41) a napper's first call back in its lane: its memory's last setting
+            // against it (margin >= 20)
+            if nappers.iter().any(|n| n.0 == id)
+                && let Some(r) = recs.get_mut(&id)
+                && r.nap_call.is_none()
+                && r.milestones.iter().any(|(w, _)| w == "back in its lane")
+            {
+                r.nap_call = Some(match r.gdr_set {
+                    Some(s) => {
+                        let margin = t - (s + redsim::entity::mob::villager::GOLEM_MEMORY_TTL);
+                        format!("t {}, its memory last set t {} by {}: margin {margin:+} gt ({})", t - t0, s - t0, r.gdr_setter.unwrap_or("?"), if margin >= 20 { "PASS" } else { "FAIL" })
+                    }
+                    None => format!("t {}, its memory never set: free", t - t0),
+                });
+            }
             if let Some(r) = recs.get_mut(&id)
                 && let Some((s, p)) = r.bystander_stamp.take()
             {
@@ -1264,6 +1393,21 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         run.tick();
         if o.drive {
             ctl.step(&mut run.world, rel)?;
+            // (day-1's picker: the carts it sent down the leg are nappers now)
+            for (vid, k, at) in std::mem::take(&mut ctl.new_nappers) {
+                let n = nappers.len();
+                if let Some(r) = recs.get_mut(&vid) {
+                    r.label = format!("napper{n} (id {vid}, lane x {}, picked at t {at})", LANES[k]);
+                    r.milestones.clear();
+                    r.route.clear();
+                    r.ball_exit_after_r = None;
+                    // (the last trip's first call back kept with its stamps)
+                    if let Some(c) = r.nap_call.take() {
+                        r.nap_stamps.push(format!("its first call back after that trip {c}"));
+                    }
+                }
+                nappers.push((vid, k, at));
+            }
         }
         let w = &mut run.world;
         let now = w.time;
@@ -1556,6 +1700,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     {
                         r.milestones.push(("out of the bed's 16-ball".to_string(), now - t0));
                         r.ball_exit_after_r = Some(now - t0 - rt);
+                        ball_exits.push((format!("{} at t {}", r.label.split(' ').next().unwrap_or(""), now - t0), now - t0 - rt));
                     }
                 }
             }
@@ -1582,14 +1727,30 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 let lx = LANES[k];
                 if sleeping {
                     mark(r, "asleep in the bed");
+                    // (ironspec 15:43: naps per full night, bar 24)
+                    nights.entry(w.day_time().div_euclid(24_000)).or_default().insert(id);
                 }
                 if c == [4, -19 + sy, 4] {
+                    if !r.milestones.iter().any(|(w, _)| w == "at R") {
+                        // (ironspec 13:44) its stamp's age at R
+                        r.nap_stamps.push(format!("at R {}", stamp.map_or("unarmed".to_string(), |s| format!("{} gt", now - s))));
+                    }
                     mark(r, "at R");
+                }
+                if c == [9, sy - 4, -5] && !r.milestones.iter().any(|(w, _)| w == "at the queue's arrival") {
+                    // (ironspec 14:47) its stamp's age at its queue arrival (the way-in's landing
+                    // detector)
+                    let age = stamp.map(|s| now - s);
+                    r.nap_stamps.push(format!("at the queue's arrival {}", age.map_or("unarmed".to_string(), |a| format!("{a} gt"))));
+                    r.queue_age = Some(age);
+                    mark(r, "at the queue's arrival");
                 }
                 if c[0] == 6 && (-19 + sy..=-4).contains(&c[1]) && c[2] == 4 {
                     mark(r, "in the napper lift");
                 }
                 if c == [9, 0, 8] {
+                    // (the hold's K follows the napper on it)
+                    ctl.nap_lane = k;
                     mark(r, "on the hold (9,0,8)");
                 }
                 if c[1] == 0 && c[2] == 7 && c[0] <= 4 {
@@ -1606,8 +1767,12 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 }
                 if c[0] == lx && (18..=22).contains(&c[1]) && c[2] >= 2 && c[2] <= 6 {
                     mark(r, "back in its lane");
+                    // (day-1's picker: the lane's away latch resets on its napper's return)
+                    ctl.away[k] = false;
                 }
-                if c[2] == 9 && c[1] == 25 && c[0] != lx - 2 && c[0] > lx - 2 {
+                // (a returning napper on the row past its own K, before its lane: a wrong lane;
+                // a picked cart on its way to the leg passes its K by design)
+                if c[2] == 9 && c[1] == 25 && c[0] != lx - 2 && c[0] > lx - 2 && r.milestones.iter().any(|(w, _)| w == "on its K") && !r.milestones.iter().any(|(w, _)| w == "back in its lane") {
                     mark(r, "past its K on the row (a wrong lane?)");
                 }
                 // (ironspec 11:19: the napper's route against the designed one) its cells in order,
@@ -1650,7 +1815,11 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     r.reload_drops += 1;
                 }
                 r.reloaded = false;
-            } else if let (Some(_), None) = (r.prev_stamp, stamp) {
+            } else if let (Some(ps), None) = (r.prev_stamp, stamp) {
+                // (ironspec 13:44) a napper's first clear after R: the stamp's age then
+                if r.milestones.iter().any(|(w, _)| w == "at R") && !r.nap_stamps.iter().any(|s| s.starts_with("at its first clear after R")) && nappers.iter().any(|n| n.0 == id) {
+                    r.nap_stamps.push(format!("at its first clear after R (t {}) {} gt", now - t0, now - ps));
+                }
                 let napped = sleeping || last_slept == Some(now);
                 let what = match r.prev_target {
                     Some(t) => {
@@ -2188,7 +2357,18 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         usize::from(!nappers.is_empty()),
         if summons.rows.is_empty() { String::new() } else { format!(": {}", summons.rows.join("; ")) }
     ));
-    for (vid, _, _) in &nappers {
+    // (ironspec 11:29: out of the bed's 16-ball within 152 gt of reaching R) every trip
+    if !ball_exits.is_empty() {
+        let worst = ball_exits.iter().map(|(_, g)| *g).max().unwrap_or(0);
+        s.push_str(&format!(
+            "the departing nappers (ironspec 11:29: out of the bed's 16-ball within 152 gt of reaching R): {} trips, the worst {worst} gt ({}){}\n",
+            ball_exits.len(),
+            if worst <= 152 { "PASS" } else { "FAIL" },
+            if worst > 152 { format!(": {}", ball_exits.iter().filter(|(_, g)| *g > 152).map(|(w, g)| format!("{w} {g} gt")).collect::<Vec<_>>().join("; ")) } else { String::new() }
+        ));
+    }
+    // (a trip that reached R and never left the ball: its own row)
+    for (vid, _, _) in nappers.iter().filter(|(v, _, _)| recs.get(v).is_some_and(|r| r.ball_exit_after_r.is_none())) {
         if let Some(r) = recs.get(vid)
             && let Some(at_r) = r.milestones.iter().find(|(w, _)| w == "at R").map(|(_, t)| *t)
         {
@@ -2248,8 +2428,19 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         s.push_str(&format!("  the cells (villager-ticks): {}\n", cs.iter().take(40).map(|(c, n)| format!("{c:?} {n}")).collect::<Vec<_>>().join(", ")));
     }
     if o.napper {
-        s.push_str(&format!("phase 3a, the nappers (EMULATED drives: day-1's events 10:00, 58f770cc's stop): {} seeded\n", nappers.len()));
-        for (vid, k, at) in &nappers {
+        // (one row a napper villager, its last trip's milestones and every trip's stamps; the trips
+        // counted)
+        let mut seen_v: Vec<u32> = Vec::new();
+        let trips = |v: u32| nappers.iter().filter(|n| n.0 == v).count();
+        s.push_str(&format!("phase 3a, the nappers (EMULATED drives: day-1's events 10:00, 58f770cc's stop, b8949c96's way-in gate, day-1's picker): {} trips by {} villagers\n", nappers.len(), nappers.iter().map(|n| n.0).collect::<std::collections::BTreeSet<_>>().len()));
+        for (vid, k, at) in nappers.iter().rev() {
+            if seen_v.contains(vid) {
+                continue;
+            }
+            seen_v.push(*vid);
+            if trips(*vid) > 1 {
+                s.push_str(&format!("  ({} trips; the last below)\n", trips(*vid)));
+            }
             if let Some(r) = recs.get(vid) {
                 let x = LANES[*k];
                 let designed: Vec<[i32; 3]> = vec![[x - 2, 25, 9], [x - 2, 25, 8], [x - 2, 24, 7], [x - 2, 24, 6], [x - 1, 24, 6], [x - 1, 24, 7], [x, 24, 7]];
@@ -2267,16 +2458,43 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     format!("DIFFERS from the designed {} (FAIL)", designed.iter().map(|c| format!("({},{},{})", c[0], c[1], c[2])).collect::<Vec<_>>().join(" "))
                 };
                 s.push_str(&format!(
-                    "  {} (seeded t {at}, lane x {}): {}; slept {}; HOME at the end {}; its route from K: {}: {verdict}\n",
+                    "  {} (seeded t {at}, lane x {}): {}; slept {}; HOME at the end {}; its route from K: {}: {verdict}; its stamp: {}; its first call back in its lane: {}\n",
                     r.label.split(' ').next().unwrap_or(""),
                     LANES[*k],
                     if r.milestones.is_empty() { "no milestone".to_string() } else { r.milestones.iter().map(|(w, t)| format!("{w} t {t}")).collect::<Vec<_>>().join(", ") },
                     r.naps,
                     if r.home_lost.is_empty() { "kept" } else { "LOST" },
-                    r.route.iter().take(40).map(|c| format!("({},{},{})", c[0], c[1], c[2])).collect::<Vec<_>>().join(" ")
+                    r.route.iter().take(40).map(|c| format!("({},{},{})", c[0], c[1], c[2])).collect::<Vec<_>>().join(" "),
+                    if r.nap_stamps.is_empty() { "none seen".to_string() } else { r.nap_stamps.join(", ") },
+                    r.nap_call.clone().unwrap_or_else(|| "none in the run".to_string())
                 ));
             }
         }
+        // (ironspec 14:47) the worst stamp age at a queue arrival (b8949c96's all-day row starts
+        // from it)
+        let worst = nappers.iter().filter_map(|(v, _, _)| recs.get(v).and_then(|r| r.queue_age)).max();
+        // (ironspec 15:43) the villagers that slept in each night (day time 12,000..24,000), the
+        // full nights inside the run held to 24
+        let day_end = run.world.day_time();
+        let night_rows: Vec<String> = nights
+            .iter()
+            .map(|(d, vs)| {
+                let full = d * 24_000 + 12_000 >= day_start && (d + 1) * 24_000 <= day_end;
+                format!("night {d}{}: {} villagers napped{}", if full { "" } else { " (partial)" }, vs.len(), if full { if vs.len() >= 24 { " (PASS)" } else { " (FAIL, bar 24)" } } else { "" })
+            })
+            .collect();
+        s.push_str(&format!("  naps per night (ironspec 15:43, bar 24 a full night): {}\n", if night_rows.is_empty() { "no nap".to_string() } else { night_rows.join("; ") }));
+        s.push_str(&format!(
+            "  the nappers' stamp at their queue arrival: {}; the picker: {} picks gated (HELD, away), {} turned away by DAY at the row; the queue's releases at t {}\n",
+            match worst {
+                None => "no arrival seen".to_string(),
+                Some(None) => "unarmed at every arrival".to_string(),
+                Some(Some(a)) => format!("the worst {a} gt"),
+            },
+            ctl.picks_gated,
+            ctl.picks_day,
+            ctl.q_released.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(", ")
+        ));
         s.push_str(&format!("  the hold's pulses fired with the hold empty: {} (bar 0); fired with the napper still rolling: {} (bar 0)\n", ctl.empty_pulses, ctl.rolling_pulses));
         s.push_str(&format!("  the drives: {}\n", ctl.nap_events.iter().take(120).cloned().collect::<Vec<_>>().join("; ")));
         if !nap_trace_rows.is_empty() {

@@ -133,6 +133,9 @@ pub struct Part {
     pub positions: Vec<P>,
     /// Its `declared:` states, placed (cells and control blocks moved).
     pub declared: Vec<crate::declared::Decl>,
+    /// (G1 on 39925b692) a `%BASE` part's cells BASE also holds with another state: left to BASE's
+    /// parts, each wants a `--block` override.
+    pub base_changed: Vec<String>,
 }
 
 /// A reserved box (`NAME=x0,y0,z0,x1,y1,z1`, the column's frame): a part not yet laid out for the
@@ -228,12 +231,14 @@ fn named_cells_moved(l: &str, key: &str, by: P) -> Result<Vec<String>, String> {
 pub fn load_part(spec: &PartSpec) -> Result<Part, String> {
     let text = std::fs::read_to_string(&spec.file).map_err(|e| format!("{}: {e}", spec.file.display()))?;
     let mut d = Design::parse(&text).map_err(|e| format!("{}: {e}", spec.file.display()))?;
+    let mut base_changed: Vec<String> = Vec::new();
     if let Some(base) = &spec.base {
         // (`%BASE`: only what the file adds to BASE, b8949c96's way-in laid onto the module: its
         // cells BASE leaves empty, its entities BASE lacks; a cell both hold, changed or not, stays
         // BASE's part's, so a changed one is an override)
         let bt = std::fs::read_to_string(base).map_err(|e| format!("{}: {e}", base.display()))?;
         let b = Design::parse(&bt).map_err(|e| format!("{}: {e}", base.display()))?;
+        base_changed = d.blocks.iter().filter(|(p, s)| b.blocks.get(*p).is_some_and(|bs| bs != *s)).map(|(p, s)| format!("({},{},{}) {} in {}, {} in BASE", p[0], p[1], p[2], s, spec.file.display(), b.blocks[p])).collect();
         d.blocks.retain(|p, _| !b.blocks.contains_key(p));
         d.block_entities.retain(|p, _| !b.block_entities.contains_key(p));
         d.entities.retain(|e| !b.entities.contains(e));
@@ -265,7 +270,7 @@ pub fn load_part(spec: &PartSpec) -> Result<Part, String> {
         .filter(|x| spec.keep.is_none_or(|b| inside(&x.cell, &b)))
         .map(|x| crate::declared::Decl { cell: add(x.cell, by), ctl: x.ctl.map(|c| add(c, by)), ..x })
         .collect();
-    Ok(Part { spec: spec.clone(), committed, placed, positions, declared })
+    Ok(Part { spec: spec.clone(), committed, placed, positions, declared, base_changed })
 }
 
 /// The column: its cells x0..=x1, z0..=z1 in the frame, and the chunk lines' phase (a line at
@@ -332,6 +337,10 @@ fn part_lines(p: &Part, f: &Frame) -> String {
     let c = span(&p.committed);
     let t = span(&p.placed);
     let mut s = format!("part {} ({}{}): {}\n", p.spec.name, p.spec.file.display(), p.spec.keep.map(|k| format!(", kept {}", fmt_box(&k))).unwrap_or_default(), counts(&p.committed));
+    if !p.base_changed.is_empty() {
+        // (G1 on 39925b692: what `%BASE` leaves to BASE's parts, each a `--block` override to lay)
+        s.push_str(&format!("  {} cells BASE also holds with another state (left to BASE's parts: each wants a --block override): {}\n", p.base_changed.len(), p.base_changed.join("; ")));
+    }
     s.push_str(&format!("  committed in the frame (file + {:?}): {}; {}\n", p.spec.frame, fmt_box(&c), lines_text(&c, f)));
     if let Some(e) = entity_box(&p.committed) {
         s.push_str(&format!("  its entities' cells: x {}..{} y {}..{} z {}..{}\n", e.0[0], e.1[0], e.0[1], e.1[1], e.0[2], e.1[2]));
@@ -759,7 +768,7 @@ pub fn sketch_part(tracks: &[(String, Vec<P>, [bool; 2])], carts: &[(P, Option<f
     }
     let part = |d: Design, file: &str| {
         let spec = PartSpec { name: d.name.clone(), file: PathBuf::from(file), base: None, frame: [0; 3], tier: [0; 3], keep: None, relay: true, nether: false };
-        Part { spec, committed: d.clone(), placed: d, positions: Vec::new(), declared: Vec::new() }
+        Part { spec, committed: d.clone(), placed: d, positions: Vec::new(), declared: Vec::new(), base_changed: Vec::new() }
     };
     let mut out: Vec<Part> = track_designs.into_iter().filter(|t| !t.blocks.is_empty()).map(|t| part(t, "(sketch track)")).collect();
     if !d.blocks.is_empty() || !d.entities.is_empty() {
@@ -1212,14 +1221,32 @@ pub fn flee_sight(d: &Design, declared: &[[i32; 3]], extra: &[(String, f64, f64,
     // further vertical path the caller names: a fall shaft, `extra`: name, x, z, y0, y1)
     let mut paths: Vec<(String, f64, f64, f64, f64)> = lift_paths(d);
     paths.extend(extra.iter().cloned());
-    // (G1's CHANGES 2 on 1b2f0442f) the stop's on-foot positions: every cell of the stop's box
-    // (x -6..4, z -6..5, the bed head's y - 2 to + 5) a villager can stand in (no full cube in it
-    // or the cell above, a full cube under it: its feet on that floor; or a bed's top, its feet at
-    // 0.5625), labelled by cell like the rails, so the declared waker places match by cell
+    // (G1's CHANGES 2 on 1b2f0442f and 39925b692) the stop's on-foot positions: every cell of the
+    // stop's box (x -6..4, z -6..5, the bed head's y - 2 to + 5) a villager can stand in, its feet
+    // on top of the cell's own collision shape or on the full cube under an empty cell, 1.95 of
+    // head room free above them; labelled by cell like the rails, so the declared waker places
+    // match by cell
     let stop_box = d.ports.get("home").map(|h| ([-6, h[1] - 2, -6], [4, h[1] + 5, 5]));
     let full = |c: [i32; 3]| d.blocks.get(&c).and_then(|s| redsim::block::Block::parse(s).ok()).is_some_and(|b| redsim::behavior::full_cube(&b));
-    let liquid = |c: [i32; 3]| d.blocks.get(&c).is_some_and(|s| s.contains("water") || s.contains("lava") || s.contains("bubble_column"));
+    let liquid = |c: [i32; 3]| d.blocks.get(&c).is_some_and(|s| matches!(s.trim_start_matches("minecraft:").split('[').next(), Some("water" | "lava" | "bubble_column")));
+    // (a cell's collision boxes, 1/16 units [x0, x1, y0, y1, z0, z1]; none for air, rails, levers,
+    // dust, signs)
+    let boxes = |c: [i32; 3]| -> Vec<redsim::behavior::Box16> { d.blocks.get(&c).and_then(|s| redsim::block::Block::parse(s).ok()).map(|b| redsim::behavior::collision_boxes(&b)).unwrap_or_default() };
+    // (the villager's box from `feet` up 1.95 over its 0.6 footprint, 0.2..0.8 of the cell: no
+    // collider in it)
+    let head_room = |c: [i32; 3], feet: f64| -> bool {
+        (0..=2).all(|dy| {
+            let cc = [c[0], c[1] + dy, c[2]];
+            boxes(cc).iter().all(|b| {
+                let (y0, y1) = (cc[1] as f64 + b[2] as f64 / 16.0, cc[1] as f64 + b[3] as f64 / 16.0);
+                let (x0, x1, z0, z1) = (b[0] as f64 / 16.0, b[1] as f64 / 16.0, b[4] as f64 / 16.0, b[5] as f64 / 16.0);
+                let overlaps = y1 > feet + 1e-9 && y0 < feet + 1.95 - 1e-9 && x1 > 0.2 && x0 < 0.8 && z1 > 0.2 && z0 < 0.8;
+                !overlaps
+            })
+        })
+    };
     let mut stop_points: Vec<(String, Vec3)> = Vec::new();
+    let mut chest_labels: Vec<String> = Vec::new();
     let mut unreachable_cells = 0usize;
     // (a cell an entity sits in, the zombie's boat: no villager stands there)
     let seated: Vec<[i32; 3]> = d.entities.iter().map(|e| [e.pos[0].floor() as i32, e.pos[1].floor() as i32, e.pos[2].floor() as i32]).collect();
@@ -1238,11 +1265,32 @@ pub fn flee_sight(d: &Design, declared: &[[i32; 3]], extra: &[(String, f64, f64,
                         continue;
                     }
                     let bed_here = d.blocks.get(&c).is_some_and(|s| s.contains("_bed"));
-                    if bed_here && !full(up) && !liquid(up) {
-                        stop_points.push((format!("({x},{y},{z})"), Vec3::new(x as f64 + 0.5, y as f64 + 0.5625, z as f64 + 0.5)));
-                    } else if !full(c) && !full(up) && !liquid(c) && !liquid(up) && !bed_here && full(down) {
-                        stop_points.push((format!("({x},{y},{z})"), Vec3::new(x as f64 + 0.5, y as f64, z as f64 + 0.5)));
+                    let _ = bed_here;
+                    // (G1's CHANGES 2 on 39925b692) the feet on the top of the cell's own collision
+                    // shape (a bed 0.5625, a chest 0.875, a slab 0.5, a closed trapdoor 0.1875), or
+                    // on the full cube under an empty cell, with 1.95 of head room above the feet
+                    // free of colliders over the villager's 0.6 footprint
+                    let own = boxes(c);
+                    let feet = if own.is_empty() {
+                        if !full(down) {
+                            continue;
+                        }
+                        y as f64
+                    } else {
+                        let top = own.iter().map(|b| b[3]).max().unwrap_or(0);
+                        if top >= 16 {
+                            continue;
+                        }
+                        y as f64 + top as f64 / 16.0
+                    };
+                    if liquid(c) || liquid(up) || !head_room(c, feet) {
+                        continue;
                     }
+                    let label = format!("({x},{y},{z})");
+                    if d.blocks.get(&c).is_some_and(|s| s.contains("chest")) {
+                        chest_labels.push(label.clone());
+                    }
+                    stop_points.push((label, Vec3::new(x as f64 + 0.5, feet, z as f64 + 0.5)));
                 }
             }
         }
@@ -1262,6 +1310,7 @@ pub fn flee_sight(d: &Design, declared: &[[i32; 3]], extra: &[(String, f64, f64,
         redsim::behavior::full_cube(&b).then(|| s.clone())
     };
     let mut in_sight: Vec<String> = Vec::new();
+    let mut landing_rows: Vec<String> = Vec::new();
     let mut hidden: Vec<String> = Vec::new();
     let mut waker: Vec<String> = Vec::new();
     let mut clear = 0usize;
@@ -1294,6 +1343,14 @@ pub fn flee_sight(d: &Design, declared: &[[i32; 3]], extra: &[(String, f64, f64,
                 }
             }
             let row = format!("{place} at ({:.2},{:.2},{:.2}), the zombie at ({:.2},{:.2},{:.2}) {dist:.2} away", p.x, p.y, p.z, z.x, z.y, z.z);
+            let class = match &block {
+                Some((c, s)) => format!("hidden by ({},{},{}) {s}", c[0], c[1], c[2]),
+                None if declared_place => "in sight, a declared waker place".to_string(),
+                None => "IN SIGHT".to_string(),
+            };
+            if chest_labels.contains(place) && landing_rows.len() < 8 {
+                landing_rows.push(format!("{row}: {class}"));
+            }
             match block {
                 Some((c, s)) => hidden.push(format!("{row}: hidden by ({},{},{}) {s}", c[0], c[1], c[2])),
                 None if declared_place => waker.push(row),
@@ -1302,24 +1359,28 @@ pub fn flee_sight(d: &Design, declared: &[[i32; 3]], extra: &[(String, f64, f64,
         }
         if !near {
             clear += 1;
+            if chest_labels.contains(place) && landing_rows.len() < 8 {
+                landing_rows.push(format!("{place} at ({:.2},{:.2},{:.2}): no zombie within 6.05", p.x, p.y, p.z));
+            }
         }
     }
     let list = |v: &[String]| v.iter().take(30).cloned().collect::<Vec<_>>().join("; ");
     // (ironspec 12:23 / G1: every zombie but the stop's own waker stays at least 6.05 from every
-    // stop cell, sight or not: the queue's post among them)
+    // stop cell, sight or not: the queue's post among them; every rider position in the stop's
+    // box, its rails and its on-foot cells)
     let in_box = |p: &Vec3| stop_box.is_some_and(|(lo, hi)| p.x >= lo[0] as f64 && p.x < hi[0] as f64 + 1.0 && p.y >= lo[1] as f64 - 1.0 && p.y < hi[1] as f64 + 1.0 && p.z >= lo[2] as f64 && p.z < hi[2] as f64 + 1.0);
     let mut stop_rows: Vec<String> = Vec::new();
     let mut stop_ok = true;
     for z in zombies.iter().filter(|z| !in_box(z)) {
-        if let Some((d, place, p)) = stop_points.iter().map(|(place, p)| (((p.x - z.x).powi(2) + (p.y - z.y).powi(2) + (p.z - z.z).powi(2)).sqrt(), place, p)).min_by(|a, b| a.0.total_cmp(&b.0)) {
+        if let Some((d, place, p)) = points.iter().filter(|(_, p)| in_box(p)).map(|(place, p)| (((p.x - z.x).powi(2) + (p.y - z.y).powi(2) + (p.z - z.z).powi(2)).sqrt(), place, p)).min_by(|a, b| a.0.total_cmp(&b.0)) {
             let pass = d >= 6.05;
             stop_ok &= pass;
-            stop_rows.push(format!("the zombie at ({:.2},{:.2},{:.2}): {d:.2} from the nearest stop cell {place} ({:.2},{:.2},{:.2}) ({})", z.x, z.y, z.z, p.x, p.y, p.z, if pass { "ok" } else { "FAIL" }));
+            stop_rows.push(format!("the zombie at ({:.2},{:.2},{:.2}): {d:.2} from the nearest stop position {place} ({:.2},{:.2},{:.2}) ({})", z.x, z.y, z.z, p.x, p.y, p.z, if pass { "ok" } else { "FAIL" }));
         }
     }
     let ok = in_sight.is_empty() && stop_ok;
     let s = format!(
-        "the 6.05 flee bar, sight-gated ({} rider positions every 0.1 along every rail and both lifts ({} riderless rail cells declared and left out), and {} on-foot positions in the stop's box ({} standable cells declared unreachable and left out), {} zombies; the eye at the cart (or the feet) + 1.62, the zombie's at its feet + 1.74; hidden: a full-collider block on the eye-to-eye ray; {} declared waker places): IN SIGHT within 6.05 {}{}; the waker's declared places in sight within 6.05 {}{}; hidden within 6.05 {}{}; clear {}; every other zombie at least 6.05 from every stop cell (sight or not): {}; the pre-wake state (the closed hatch's thin plates) is not a full-collider test: it rests on tick-exact's official A6 scene (NEAREST_HOSTILE never set with the door closed); {}\n",
+        "the 6.05 flee bar, sight-gated ({} rider positions every 0.1 along every rail and both lifts ({} riderless rail cells declared and left out), and {} on-foot positions in the stop's box, the feet on the cell's own collision shape or the full cube under it ({} standable cells declared unreachable and left out), {} zombies; the eye at the cart (or the feet) + 1.62, the zombie's at its feet + 1.74; hidden: a full-collider block on the eye-to-eye ray; {} declared waker places): IN SIGHT within 6.05 {}{}; the waker's declared places in sight within 6.05 {}{}; hidden within 6.05 {}{}; clear {}; every other zombie at least 6.05 from every stop position (sight or not): {}; the landings on a chest (G1): {}; the pre-wake state (the open hatch's plates, hiding the zombie until F shuts them) is not a full-collider test: it rests on tick-exact's official A6 scene (NEAREST_HOSTILE never set with the hatch open); {}\n",
         points.len() - stop_points.len(),
         riderless_cells,
         stop_points.len(),
@@ -1334,6 +1395,7 @@ pub fn flee_sight(d: &Design, declared: &[[i32; 3]], extra: &[(String, f64, f64,
         if hidden.is_empty() { String::new() } else { format!(": {}", list(&hidden)) },
         clear,
         if stop_rows.is_empty() { "no zombie outside the stop".to_string() } else { stop_rows.join("; ") },
+        if chest_labels.is_empty() { "no chest in the stop".to_string() } else if landing_rows.is_empty() { format!("{} (no position)", chest_labels.join(" ")) } else { landing_rows.join("; ") },
         if ok { "PASS" } else { "FAIL" }
     );
     (s, ok)
@@ -1507,7 +1569,11 @@ pub fn keep_block_check(d: &Design, text: &str) -> (String, bool) {
                 }
                 let held = d.blocks.get(&[n[0], n[1], n[2]]);
                 let good = held.is_some_and(|b| {
-                    b.trim_start_matches("minecraft:").split('[').next() == Some(name) && props.split(',').filter(|p| !p.is_empty()).all(|p| b.contains(p))
+                    b.trim_start_matches("minecraft:").split('[').next() == Some(name) && {
+                        // (key=value exactly: `shape=east` doesn't match `shape=east_west`)
+                        let held: Vec<&str> = b.split_once('[').map_or("", |(_, r)| r.trim_end_matches(']')).split(',').collect();
+                        props.split(',').filter(|p| !p.is_empty()).all(|p| held.contains(&p))
+                    }
                 });
                 ok &= good;
                 rows.push(format!("({},{},{}) {spec}: {} ({})", n[0], n[1], n[2], held.map_or("no block".to_string(), |b| b.clone()), if good { "PASS" } else { "FAIL" }));
@@ -1912,7 +1978,7 @@ pub fn pocket_part(name: &str, start: P, dir: &str, n: usize, rstar: bool) -> Re
         cells.push((format!("{name}_R{kk}"), r));
     }
     let spec = PartSpec { name: d.name.clone(), file: PathBuf::from("(pocket chain)"), base: None, frame: [0; 3], tier: [0; 3], keep: None, relay: true, nether: false };
-    Ok((Part { spec, committed: d.clone(), placed: d, positions: Vec::new(), declared: Vec::new() }, gates, cells))
+    Ok((Part { spec, committed: d.clone(), placed: d, positions: Vec::new(), declared: Vec::new(), base_changed: Vec::new() }, gates, cells))
 }
 
 /// Single blocks (`--block x,y,z=STATE`): a part of its own (gates, detectors, powered rails, a
@@ -1923,7 +1989,7 @@ pub fn block_part(blocks: &[(P, String)]) -> Part {
         d.blocks.insert(*c, if s.contains(':') { s.clone() } else { format!("minecraft:{s}") });
     }
     let spec = PartSpec { name: "blocks".into(), file: PathBuf::from("(--block)"), base: None, frame: [0; 3], tier: [0; 3], keep: None, relay: true, nether: false };
-    Part { spec, committed: d.clone(), placed: d, positions: Vec::new(), declared: Vec::new() }
+    Part { spec, committed: d.clone(), placed: d, positions: Vec::new(), declared: Vec::new(), base_changed: Vec::new() }
 }
 
 /// The waiting positions' clearance from the pad (onechunk's lateral layout, ironspec's worst-case
