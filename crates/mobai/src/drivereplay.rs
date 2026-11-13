@@ -281,6 +281,52 @@ pub fn drop_envelope(files: &[std::path::PathBuf]) -> Result<()> {
 /// (ironspec 10:38 (9)) The scene and the drive translated by `by` (the built chunk phase is +6,0,+6):
 /// every block, block entity, port and entity of the scene, and the drive's `home` / `set` act cells;
 /// `# expect` lines are dropped (their states are in the old frame), so the shifted drive is open loop.
+/// (G1 on U) Translate every coordinate triplet (`x,y,z`, three integers) at parenthesis depth 0 of a
+/// record's metadata value by `by`; text in parentheses (notes, often in another frame: an offset, a
+/// module's local cells) is kept as written. A run of 4 or more comma-joined integers at depth 0 is
+/// ambiguous and refuses. Returns the new value and how many triplets moved.
+pub(crate) fn shift_meta_value(s: &str, by: [i32; 3]) -> Result<(String, usize)> {
+    let mut out = String::new();
+    let mut word = String::new();
+    let mut depth = 0i32;
+    let mut moved = 0usize;
+    let flush = |word: &mut String, out: &mut String, depth: i32, moved: &mut usize| -> Result<()> {
+        // a list's separating commas around the word are kept as they were
+        let lead = word.len() - word.trim_start_matches(',').len();
+        let core = word.trim_matches(',');
+        let trail = word.len() - lead - core.len();
+        let parts: Vec<&str> = core.split(',').collect();
+        let ints = parts.iter().filter(|x| x.parse::<i32>().is_ok()).count();
+        if depth == 0 && parts.len() == 3 && ints == 3 {
+            let v: Vec<i32> = parts.iter().map(|x| x.parse::<i32>().unwrap_or(0)).collect();
+            out.push_str(&word[..lead]);
+            out.push_str(&format!("{},{},{}", v[0] + by[0], v[1] + by[1], v[2] + by[2]));
+            out.push_str(&word[word.len() - trail..]);
+            *moved += 1;
+        } else {
+            anyhow::ensure!(depth != 0 || ints < 4 || ints != parts.len(), "an ambiguous run of {ints} integers `{core}` (not one x,y,z)");
+            out.push_str(word);
+        }
+        word.clear();
+        Ok(())
+    };
+    for c in s.chars() {
+        if c.is_ascii_digit() || c == '-' || c == ',' {
+            word.push(c);
+        } else {
+            flush(&mut word, &mut out, depth, &mut moved)?;
+            if c == '(' {
+                depth += 1;
+            } else if c == ')' {
+                depth -= 1;
+            }
+            out.push(c);
+        }
+    }
+    flush(&mut word, &mut out, depth, &mut moved)?;
+    Ok((out, moved))
+}
+
 pub fn shift_scene(scene: &Path, drive: &Path, by: [i32; 3], scene_out: &Path, drive_out: &Path) -> Result<()> {
     let mut d = mctas::design::Design::load(scene)?;
     let sh = |p: &[i32; 3]| [p[0] + by[0], p[1] + by[1], p[2] + by[2]];
@@ -324,9 +370,21 @@ pub fn shift_scene(scene: &Path, drive: &Path, by: [i32; 3], scene_out: &Path, d
     for p in d.nether_ports.values_mut() {
         *p = sh(p);
     }
-    // the record's metadata is written as it was: name the keys whose values carry coordinates
-    let triplet = |s: &str| s.split(|c: char| !(c.is_ascii_digit() || c == '-' || c == ',')).any(|w| w.split(',').filter(|x| !x.is_empty()).count() == 3 && w.split(',').all(|x| x.parse::<i32>().is_ok()));
-    let meta_kept: Vec<String> = d.meta.iter().filter(|(_, v)| triplet(v)).map(|(k, _)| k.clone()).collect();
+    // (G1 on U) the record's metadata: every coordinate triplet at the top level of every value is
+    // translated (the keys are cell lists: positions, run-cells, keep-*, placement-order-ts, update-only-ts,
+    // held-ts, …), text in parentheses kept as written (notes, often in another frame); an ambiguous run of
+    // integers refuses by key; `shifted-by` records the cumulative shift
+    let mut meta_moved: Vec<String> = Vec::new();
+    for (k, v) in d.meta.iter_mut() {
+        let (nv, n) = shift_meta_value(v, by).map_err(|e| anyhow::anyhow!("shift-scene refuses: metadata key `{k}`: {e}"))?;
+        if n > 0 {
+            meta_moved.push(format!("{k} ({n})"));
+            *v = nv;
+        }
+    }
+    if !d.meta.contains_key("shifted-by") {
+        d.meta.insert("shifted-by".into(), format!("{},{},{} (the cells at each value's top level translated; text in parentheses as written, in its own frame)", by[0], by[1], by[2]));
+    }
     d.save(scene_out)?;
     let text = std::fs::read_to_string(drive)?;
     let (mut out, mut moved, mut dropped) = (String::new(), 0usize, 0usize);
@@ -367,10 +425,10 @@ pub fn shift_scene(scene: &Path, drive: &Path, by: [i32; 3], scene_out: &Path, d
         crate::md5::md5_hex(&std::fs::read(drive_out)?)
     );
     println!(
-        "  entity NBT positions (pos:[I;…]) moved {nbt_moved}; the Nether part moved with it ({} blocks, {} ports); the record's metadata written as it was: keys carrying coordinates NOT translated: {}",
+        "  entity NBT positions (pos:[I;…]) moved {nbt_moved}; the Nether part moved with it ({} blocks, {} ports); the record's metadata: every coordinate triplet translated in the keys {}",
         d.nether_blocks.len(),
         d.nether_ports.len(),
-        if meta_kept.is_empty() { "none".to_string() } else { meta_kept.join(", ") }
+        if meta_moved.is_empty() { "(none)".to_string() } else { meta_moved.join(", ") }
     );
     Ok(())
 }
@@ -2024,7 +2082,7 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
 
 #[cfg(test)]
 mod tests {
-    use super::tagged;
+    use super::{shift_meta_value, shift_scene, tagged};
 
     #[test]
     fn tags_vehicle_and_passengers() {
@@ -2034,5 +2092,67 @@ mod tests {
         let (s, k) = tagged("", 3);
         assert_eq!(s, "{Tags:[\"e3\"]}");
         assert!(k.is_empty());
+    }
+
+    /// (G1 on U, the control) every coordinate-carrying metadata key comes out translated at its top
+    /// level, its notes as written; held-ts too; the acts and the NBT HOME move; refusals by name
+    #[test]
+    fn shift_scene_translates_metadata_and_refuses_by_name() {
+        let by = [6, 0, 6];
+        let cases = [
+            ("positions", "-1,0,0 -1,16,0 3,0,0", "5,0,6 5,16,6 9,0,6"),
+            ("run-cells", "P0 -1,0,0; D0 -1,0,2", "P0 5,0,6; D0 5,0,8"),
+            ("keep-clear", "-3,-26,3 -3,-25,3 (A6's header, + (0,-27,-1): the bed's column)", "3,-26,9 3,-25,9 (A6's header, + (0,-27,-1): the bed's column)"),
+            ("keep-block", "-5,-24,3=oak_leaves[distance=7,persistent=true] (A6's local (-5,3,4))", "1,-24,9=oak_leaves[distance=7,persistent=true] (A6's local (-5,3,4))"),
+            ("keep-out", "10,-2,3 10,-2,4", "16,-2,9 16,-2,10"),
+            ("riderless", "1,-26,-5+0,-27,-5=the stop's", "7,-26,1+6,-27,1=the stop's"),
+            ("placement-order-ts", "-1,0,7=the merge T at lane -1 (placed after (-1,0,6))", "5,0,13=the merge T at lane -1 (placed after (-1,0,6))"),
+            ("update-only-ts", "1,25,9+5,25,9=the split's K junctions", "7,25,15+11,25,15=the split's K junctions"),
+            ("held-ts", "1,25,9=north_west (lever (1,26,9)); 5,25,9=north_east", "7,25,15=north_west (lever (1,26,9)); 11,25,15=north_east"),
+            ("emulated", "7,-2,8=glass (a lever at (7,-1,8))", "13,-2,14=glass (a lever at (7,-1,8))"),
+            ("list", "-1,0,0, 3,0,0", "5,0,6, 9,0,6"),
+            ("dwell-cap", "15 (PROVISIONAL, line 3)", "15 (PROVISIONAL, line 3)"),
+        ];
+        for (k, v, want) in cases {
+            let (got, _) = shift_meta_value(v, by).unwrap();
+            assert_eq!(got, want, "key {k}");
+        }
+        assert!(shift_meta_value("1,2,3,4,5,6", by).is_err(), "an ambiguous run refuses");
+        let dir = std::env::temp_dir().join(format!("shift-scene-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut d = mctas::design::Design { name: "t".into(), ..Default::default() };
+        for (k, v, _) in cases {
+            d.meta.insert(k.into(), v.into());
+        }
+        d.blocks.insert([0, 0, 0], "minecraft:stone".into());
+        d.ports.insert("home".into(), [-3, -27, 3]);
+        d.entities.push(mctas::design::EntitySpec {
+            kind: "minecraft:minecart".into(),
+            pos: [-0.5, 0.0625, 0.5],
+            nbt: Some("{Passengers:[{id:\"minecraft:villager\",Brain:{memories:{\"minecraft:home\":{value:{dimension:\"minecraft:overworld\",pos:[I;-3,-27,3]}}}}}]}".into()),
+        });
+        let (scene, drive, so, dout) = (dir.join("s.txt"), dir.join("d.txt"), dir.join("so.txt"), dir.join("do.txt"));
+        d.save(&scene).unwrap();
+        std::fs::write(&drive, "act 0 home e0.p0 -3 -27 3\nact 0 last-slept e0.p0 -100\nact 5 set 1 2 3 minecraft:stone\n# expect t5 x\n").unwrap();
+        shift_scene(&scene, &drive, by, &so, &dout).unwrap();
+        let o = mctas::design::Design::load(&so).unwrap();
+        for (k, _, want) in cases {
+            assert_eq!(o.meta.get(k).map(|s| s.as_str()), Some(want), "key {k} in the shifted file");
+        }
+        assert!(o.meta.get("shifted-by").is_some_and(|v| v.starts_with("6,0,6 ")));
+        assert_eq!(o.ports.get("home"), Some(&[3, -27, 9]));
+        assert!(o.entities[0].nbt.as_deref().unwrap_or("").contains("pos:[I;3,-27,9]"));
+        assert_eq!(std::fs::read_to_string(&dout).unwrap(), "act 0 home e0.p0 3 -27 9\nact 0 last-slept e0.p0 -100\nact 5 set 7 2 9 minecraft:stone\n");
+        // refusals, by name
+        std::fs::write(&drive, "act 3 frob 1 2 3\n").unwrap();
+        let e = shift_scene(&scene, &drive, by, &so, &dout).unwrap_err().to_string();
+        assert!(e.contains("act verb `frob`"), "{e}");
+        let mut bad = d.clone();
+        bad.meta.insert("cells".into(), "1,2,3,4".into());
+        bad.save(&scene).unwrap();
+        std::fs::write(&drive, "").unwrap();
+        let e = shift_scene(&scene, &drive, by, &so, &dout).unwrap_err().to_string();
+        assert!(e.contains("metadata key `cells`"), "{e}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
