@@ -3165,6 +3165,11 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     // (ironspec 13:04 (1), cc767b78's switch) a seated rider's doPush onto carts off, from the first
     // tick: a counterfactual measurement with no game twin
     run.world.mob.rider_cart_push_off = o.rider_push_off;
+    // (ironspec 14:57's rule) the natural spawner OFF EXPLICITLY: no bar of f1q2-run counts natural
+    // spawns (the only hostiles are the design's own scarers), so its scope never rides a light-read
+    // default; the report's first line says so
+    let natural_was = run.world.mob.natural.is_some();
+    run.world.mob.natural = None;
     let bed = dbp(o.bed[0], o.bed[1], o.bed[2]);
     // (ironspec 08:05 platform (2), cc767b78's check 2) with --c7-placement, the HOME holders after
     // each setup phase, to find the setter of the stored riders' HOME
@@ -7741,6 +7746,11 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         if o.restarts.is_empty() { String::new() } else { format!(", {} restarts (order {})", o.restarts.len(), o.restart.label()) },
         control_id.map(|_| format!(", the positive control on v{}", o.control_rider.unwrap_or(0))).unwrap_or_default()
     );
+    // (ironspec 14:57's rule) the spawning scope, explicit
+    s.push_str(&format!(
+        "the spawning scope (ironspec 14:57): natural spawning OFF, set explicitly (no bar here counts a natural spawn; the hostiles are the design's own scarers){}\n",
+        if natural_was { " (the run's options had a spawner on: turned off)" } else { "" }
+    ));
     s.push_str(&format!(
         "the world as built: {} rails whose shape differs from the file (0 required: the file pasted unsettled){}\n",
         rail_mismatch.len(),
