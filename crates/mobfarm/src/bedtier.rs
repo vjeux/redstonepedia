@@ -104,7 +104,10 @@ pub const E_A2: [i32; 3] = [-2, 0, 2];
 pub const ACT_CTRL_A2: [i32; 3] = [-2, 1, 2];
 pub const ARM_A2: [i32; 3] = [-2, 0, 1];
 pub const PARK_A2: [i32; 3] = [1, 0, 4];
-pub const PARK_CTRL_A2: [i32; 3] = [1, 0, 5];
+/// (the park's lever hung from glass over the park cell, its updates reaching the park and the
+/// U-turn's curve (2 connections) only: south of the park it reached the exit slope (1,-1,5), a
+/// rail with 3 potential connections that a signal source's update can reshape)
+pub const PARK_CTRL_A2: [i32; 3] = [1, 1, 4];
 
 /// The stop's variant cells in a built world: (A) when E holds an activator rail, T5b when the
 /// entry does, else A6.
@@ -691,11 +694,12 @@ pub fn design_a2(bench: bool) -> Result<String> {
     put(&mut b, [2, 0, 3], "glass")?;
     put(&mut b, [2, 1, 4], &rail("north_west"))?;
     put(&mut b, [2, 0, 4], "glass")?;
-    // the park: one braked powered rail descending west, its lever on the glass south of it
+    // the park: one braked powered rail descending west, its lever hung from glass over it (its
+    // updates reach the park and the U-turn's curve only)
     put(&mut b, PARK_A2, "powered_rail[powered=false,shape=ascending_east,waterlogged=false]")?;
     put(&mut b, [PARK_A2[0], -1, PARK_A2[2]], "glass")?;
     put(&mut b, PARK_CTRL_A2, &ctl_block(PARK_CTRL_A2, "stone"))?;
-    put(&mut b, [PARK_CTRL_A2[0], 0, PARK_CTRL_A2[2] + 1], "glass")?;
+    put(&mut b, [PARK_CTRL_A2[0], PARK_CTRL_A2[1] + 1, PARK_CTRL_A2[2]], "glass")?;
     // the run-up: two flats along z 4 into P, glass over them (the empty cart passes under; a
     // napper on P can't step east)
     for x in -1..=0 {
@@ -776,7 +780,7 @@ pub fn design_a2(bench: bool) -> Result<String> {
     let lines: Vec<String> = vec![
         "The bed stop (A) with the run-up (B3, ironspec 02:27; local frame; loop = local + (0,-27,-1); the bed's head at (-3,0,4)): A6's arrival (the entry booster, plain rails down the old park's slope, the capped flat, the curve south, the flats), the arming detector (-2,0,1), the activator E (-2,0,2) over the bed foot's north-east corner (always on, its lever hung from the glass over it), the curve east (-2,0,3), a flat, a booster, the climb, the U-turn at y 1, the park (1,0,4) one braked powered rail descending west, two run-up flats along z 4, the pickup cell P (-2,0,4) a curve turning south, A6's exit (the curve east, the capped booster, the capped flat, the slope down, two flats, R). No solid-render block anywhere in the stop.".to_string(),
         "E sets the rider down on the bed foot's top (a southbound cart's dismount: W, E, NW and NE full blocks, SW the first valid place), 1.00 from the bed head's centre: SleepInBed fires at once whatever path it carries. The empty cart runs the loop and brakes on the park. The hatch's two iron trapdoors stand open and hide the zombie; F (the lie-down + 2, and not before the arming detector's edge + 70: the napper's 60-gt boarding cooldown less the park -> P travel, plus the detector -> E time and a margin) SHUTS them: the zombie wakes it, it stands up on P (its only stand-up cell), the park releases at the wake edge, and the cart runs the run-up into P under 0.2 b/t, seats it and runs on to R, whose rise opens the hatch again and resets the park's release and the arming latch. Precondition and single release as A6's: one cart per visit, the park released only at the wake edge.".to_string(),
-        "switch: -4,0,3=the hatch's lower lever (day-1's line end: F shuts, R opens); -4,1,5=the hatch's upper lever (the same line); -2,1,2=the activator's lever (day-1's line end, held on); 1,0,5=the park's lever (day-1's line end: the release); -1,2,-4=a golem-proofing stone button over the capped flat (never pressed); -1,2,5=a golem-proofing stone button over the exit booster's cap (never pressed); 0,2,5=a golem-proofing stone button over the exit flat's cap (never pressed); -3,3,3=a golem-proofing stone button over the bed foot's roof (never pressed)".to_string(),
+        "switch: -4,0,3=the hatch's lower lever (day-1's line end: F shuts, R opens); -4,1,5=the hatch's upper lever (the same line); -2,1,2=the activator's lever (day-1's line end, held on); 1,1,4=the park's lever (day-1's line end: the release); -1,2,-4=a golem-proofing stone button over the capped flat (never pressed); -1,2,5=a golem-proofing stone button over the exit booster's cap (never pressed); 0,2,5=a golem-proofing stone button over the exit flat's cap (never pressed); -3,3,3=a golem-proofing stone button over the bed foot's roof (never pressed)".to_string(),
         "always-on: 3,2,-5=the entry booster's redstone torch, on glass (3,1,-5): it never toggles; 0,0,2=the loop booster's redstone torch, on glass (0,-1,2): it never toggles; -1,0,6=the exit booster's redstone torch, on glass (-1,-1,6): it never toggles".to_string(),
         "a6-pickup: -2,0,4=the pickup cell (the napper's only stand-up cell); stranded bound: no cart at it by the wake edge + 60 gt fails (to restate from these rows)".to_string(),
     ];
@@ -1351,7 +1355,7 @@ pub fn ctl_block(c: [i32; 3], st: &str) -> String {
             return format!("lever[face=ceiling,facing=north,powered={on}]");
         }
         if c == PARK_CTRL_A2 {
-            return format!("lever[face=wall,facing=north,powered={on}]");
+            return format!("lever[face=ceiling,facing=north,powered={on}]");
         }
         return st.to_string();
     }
