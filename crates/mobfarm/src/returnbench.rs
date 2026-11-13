@@ -2772,12 +2772,14 @@ fn write_design(o: &ReturnOpts, spec: &FarmSpec, w: &redsim::world::World, path:
             // (their update re-settles the T they reach); the levers are switches)
             let mut upd: Vec<String> = [-1, 3, 7]
                 .iter()
-                .map(|x| format!("{x},24,8=J({x})'s branch detector D, its own north arm's sensor: its change reaches no T (tick-exact 10:40 PT: D (x,24,8) and J (x,25,9) are Manhattan 2 apart, outside DetectorRailBlock's update sets; updatePowerToConnected passes the connected rail's own, non-source block): J ({x},25,9) is switched by its lever ({x},26,9) (`# switches:`), north_west on, north_east off (return-bench's D-on-J line: every D change of every row, J off its lever's settle after one 0)"))
+                .map(|x| format!("{x},24,8=J({x})'s branch detector D, its own north arm's sensor: its change re-settles the T ({x},25,9) (tick-exact 14:04, the game row and 26.3's source, redsim matching: the ascending D's flip runs BaseRailBlock's after-removal on D.above(), whose neighbours include J; a no-op at J's lever settle; `LevelChunk.setBlockState` 317-318, `BaseRailBlock.affectNeighborsAfterRemoval` 117-127); J is switched by its lever ({x},26,9) (`# switches:`)"))
                 .collect();
             // (9fc3155f's grammar, via farmopt 10:49: `switches:` takes the T RAIL's cell, `update-only:`
-            // the source's, as information; the exit detector reaches no T)
+            // the source's, as information; G1 14:06: each detector's reach re-derived with the rail's
+            // after-removal footprint (n6(pos.above()) for an ascending one): the flat exit detector's holds
+            // no T)
             if o.napper_lift && o.napper_delay.is_some() && o.pulse_gate.is_some() {
-                upd.push("7,-3,4=the napper climb's exit detector, day-1's approach detector E (the waiting bit's source): it reaches no T; the powered rail it reaches, (8,-3,4), is held on by its redstone block (8,-4,4)".to_string());
+                upd.push("7,-3,4=the napper climb's exit detector (flat, east_west), day-1's approach detector E (the waiting bit's source): its game footprint reaches no T (a flat straight rail: `affectNeighborsAfterRemoval` updates n6(pos) and n6(pos.below()), no pos.above(); plus `updatePowerToConnected`'s connections, the water cell (6,-3,4) and the powered slope (8,-3,4), which only recomputes; the file's Ts are the six J / K at y 25 and (-1,0,7), (3,0,7), (9,0,7), none among them); the powered rail (8,-3,4) is held on by its redstone block (8,-4,4)".to_string());
             }
             head.push(format!("# update-only: {}", upd.join("; ")));
             let mut sw: Vec<String> = Vec::new();
@@ -5698,7 +5700,7 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
     }
     if o.path_a && !o.mirror_z {
         out.push(format!(
-            "D-on-J (the `# update-only:` declarations: each branch detector D (x,24,8)'s rise or fall reaches no T (tick-exact 10:40 PT: Manhattan 2 from J (x,25,9)); J follows its lever; checked here: J's T against its lever's settle at each D change): {}; the T off its power's settle at a tick's end (any tick; G1's stale-T check) J(-1) {} / J(3) {} / J(7) {} ticks",
+            "D-on-J (J at its lever's settle one tick after each D change; D's after-removal re-settle is a no-op at settle; checked here: J's T against its lever's settle at each D change): {}; the T off its power's settle at a tick's end (any tick; G1's stale-T check) J(-1) {} / J(3) {} / J(7) {} ticks",
             ["J(-1)", "J(3)", "J(7)"].iter().zip(dj.iter()).map(|(n, d)| if d.0 == 0 { format!("{n} NOT JUDGED (0 samples: no detector change)") } else { format!("{n} {} detector changes (the samples), the T off its power's settle after one {}, re-shaped by the update {}", d.0, d.1, d.2) }).collect::<Vec<_>>().join("; "),
             dj_any[0],
             dj_any[1],
