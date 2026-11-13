@@ -1412,6 +1412,10 @@ impl Block {
                 };
                 Block::Chest { facing: hdir_of("facing", Dir::North)?, kind, waterlogged: bool_of("waterlogged", false)? }
             }
+            // (ironspec 20:05 (4): signal sources redsim doesn't model are refused by name, never
+            // read as a look-alike that drops their signal)
+            "trapped_chest" => return Err(format!("a trapped chest is not modeled by redsim (its redstone signal and the rails' update from it would be dropped): {s:?}")),
+            "lectern" => return Err(format!("a lectern is not modeled by redsim (its page-turn signal and the rails' update from it would be dropped): {s:?}")),
             _ => return Err(format!("block {name:?} is not modeled by redsim")),
         })
     }

@@ -351,7 +351,10 @@ fn should_be_removed(w: &World, p: BlockPos, shape: RailShape) -> bool {
     }
 }
 
-/// `block.defaultBlockState().isSignalSource()` of a neighbor update's source.
+/// `block.defaultBlockState().isSignalSource()` of a neighbor update's source: every modeled
+/// block whose 26.3 `isSignalSource()` is true (`behavior::is_signal_source`), the daylight
+/// detector, the jukebox and the lightning rod included (G1 / ironspec 19:55; a trapped chest and a
+/// lectern aren't modeled: `Block::parse` refuses them).
 fn kind_is_signal_source(k: Kind) -> bool {
     matches!(
         k,
@@ -369,6 +372,9 @@ fn kind_is_signal_source(k: Kind) -> bool {
             | Kind::Plate(_)
             | Kind::TripwireHook
             | Kind::DetectorRail
+            | Kind::DaylightDetector
+            | Kind::Jukebox
+            | Kind::LightningRod(_)
     )
 }
 
