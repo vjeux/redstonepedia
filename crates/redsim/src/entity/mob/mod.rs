@@ -1835,3 +1835,303 @@ pub fn ride_tick(w: &mut World, j: usize) {
     }
     w.entities.list[j].fall_distance = 0.0;
 }
+
+#[cfg(test)]
+mod rider_tests {
+    use crate::block::Block;
+    use crate::pos::BlockPos;
+    use crate::world::World;
+
+    /// tick-exact's 26.3 citations (Entity.rideTick 2444-2450, LivingEntity.travelInAir 2465-2479,
+    /// Entity.move 791-794): a seated rider moves by its zeroed motion, gravity going to the next motion
+    /// only, so it reads onGround false every tick and getStart takes the scan-down branch. A villager in a
+    /// cart at rest on a flat rail reads on_ground false on each of 40 ticks, and a path from it starts in
+    /// the cart's own cell (the cell above the rail's support).
+    #[test]
+    fn a_seated_rider_is_never_on_ground() {
+        let mut w = World::new(BlockPos::new(-8, -4, -8), [16, 8, 16]);
+        let stone = Block::parse("minecraft:stone").unwrap();
+        for x in -6..=6 {
+            for z in -6..=6 {
+                w.set_block(BlockPos::new(x, -1, z), stone.clone(), crate::world::flags::ALL);
+            }
+        }
+        w.set_block(BlockPos::new(0, 0, 0), Block::parse("minecraft:rail[shape=east_west,waterlogged=false]").unwrap(), crate::world::flags::ALL);
+        w.mob.seed(7, 13_800);
+        w.mob.ai.on = true;
+        let cart = crate::entity::spawn(&mut w, "minecraft:minecart", [0.5, 0.0, 0.5], Some("{Passengers:[{id:\"minecraft:villager\"}]}")).unwrap();
+        let ci = crate::entity::index_of(&w, cart).unwrap();
+        let rider = *w.entities.list[ci].passengers.first().expect("the villager seated");
+        for t in 0..40 {
+            w.tick();
+            let i = crate::entity::index_of(&w, rider).unwrap();
+            assert!(w.entities.list[i].vehicle.is_some(), "still seated at tick {t}");
+            assert!(!w.entities.list[i].on_ground, "a seated rider reads on_ground false (tick {t})");
+        }
+        let i = crate::entity::index_of(&w, rider).unwrap();
+        let path = crate::entity::mob::ai::with_nav(&mut w, i, |w, nm, nav, arena| nav.create_path_pos(w, nm, BlockPos::new(5, 0, 5), 0, arena));
+        let p = path.expect("a path from the seat");
+        assert_eq!((p.nodes[0].x, p.nodes[0].y, p.nodes[0].z), (0, 0, 0), "the scan-down start: the cart's own cell");
+    }
+
+    /// The scan-down start `WalkNodeEvaluator.getStart` takes for a rider off the ground (dry): from
+    /// floor(y + 1) down while the block below is air or land-pathfindable.
+    fn scan_down(w: &World, x: f64, y: f64, z: f64) -> BlockPos {
+        let (bx, bz) = (x.floor() as i32, z.floor() as i32);
+        let mut ry = (y + 1.0).floor() as i32;
+        let mut start = ry;
+        while ry > w.min.y - 64 {
+            start = ry;
+            ry -= 1;
+            let below = w.get(BlockPos::new(bx, ry, bz));
+            if !below.is_air() && !crate::entity::mob::ai::path::path_type::pathfindable_land(&below) {
+                break;
+            }
+        }
+        BlockPos::new(bx, start, bz)
+    }
+
+    /// G1 for the on_ground pin: a seated rider on an ascending rail, (b) held at rest there (the cart set
+    /// back to its spot with no motion before every tick) and (c) moving down it from t = 0.2, 0.44 and 0.7
+    /// of the slope cell, reads on_ground false on every tick, and a path from it starts at the scan-down
+    /// cell (never the ground branch's floor(y + 0.5) where they differ).
+    #[test]
+    fn a_seated_rider_on_a_slope_starts_by_the_scan_down() {
+        let stone = Block::parse("minecraft:stone").unwrap();
+        let world = || {
+            let mut w = World::new(BlockPos::new(-8, -4, -8), [16, 10, 16]);
+            for x in -6..=6 {
+                for z in -6..=6 {
+                    w.set_block(BlockPos::new(x, -1, z), stone.clone(), crate::world::flags::ALL);
+                }
+            }
+            // (the slope (0,0,0) rises east onto the stone (1,0,0) and its flat rail (1,1,0); a flat rail west
+            // of the slope's foot)
+            w.set_block(BlockPos::new(1, 0, 0), stone.clone(), crate::world::flags::ALL);
+            w.set_block(BlockPos::new(-1, 0, 0), Block::parse("minecraft:rail[shape=east_west,waterlogged=false]").unwrap(), crate::world::flags::ALL);
+            w.set_block(BlockPos::new(0, 0, 0), Block::parse("minecraft:rail[shape=ascending_east,waterlogged=false]").unwrap(), crate::world::flags::ALL);
+            w.set_block(BlockPos::new(1, 1, 0), Block::parse("minecraft:rail[shape=east_west,waterlogged=false]").unwrap(), crate::world::flags::ALL);
+            w.mob.seed(7, 13_800);
+            w.mob.ai.on = true;
+            w
+        };
+        let mut differs = 0;
+        for (held, t) in [(true, 0.44), (false, 0.2), (false, 0.44), (false, 0.7)] {
+            let mut w = world();
+            let at = [t, t + 0.0625, 0.5];
+            let cart = crate::entity::spawn(&mut w, "minecraft:minecart", at, Some("{Passengers:[{id:\"minecraft:villager\"}]}")).unwrap();
+            let ci = crate::entity::index_of(&w, cart).unwrap();
+            let rider = *w.entities.list[ci].passengers.first().expect("the villager seated");
+            let ticks = if held { 20 } else { 3 };
+            for k in 0..ticks {
+                if held {
+                    let ci = crate::entity::index_of(&w, cart).unwrap();
+                    w.entities.set_pos(ci, crate::entity::Vec3::new(at[0], at[1], at[2]));
+                    w.entities.list[ci].delta_movement = crate::entity::Vec3::ZERO;
+                }
+                w.tick();
+                let i = crate::entity::index_of(&w, rider).unwrap();
+                let e = &w.entities.list[i];
+                assert!(e.vehicle.is_some() && !e.on_ground, "held {held} t {t} tick {k}: seated, on_ground false");
+                let (x, y, z) = (e.pos.x, e.pos.y, e.pos.z);
+                let want = scan_down(&w, x, y, z);
+                let path = crate::entity::mob::ai::with_nav(&mut w, i, |w, nm, nav, arena| nav.create_path_pos(w, nm, BlockPos::new(-5, 0, 0), 0, arena));
+                let p = path.expect("a path from the seat");
+                let got = BlockPos::new(p.nodes[0].x, p.nodes[0].y, p.nodes[0].z);
+                assert_eq!(got, want, "held {held} t {t} tick {k}: the start at ({x:.3},{y:.4},{z:.3}) is the scan-down cell");
+                if (y + 0.5).floor() as i32 != want.y {
+                    differs += 1;
+                }
+            }
+        }
+        println!("ticks where the ground branch's floor(y + 0.5) would differ from the scan-down start: {differs}");
+    }
+
+    /// farmopt's night question: a villager seated in a cart at rest at night (13,800: REST from its first
+    /// tick), its HOME a bed 12 blocks east behind a wall it can't path through, sets the HOME walk target,
+    /// computes a partial path and arms CANT_REACH within its first REST ticks, as the game's riders do.
+    #[test]
+    fn a_seated_rider_in_rest_paths_home() {
+        let mut w = World::new(BlockPos::new(-8, -4, -8), [32, 8, 16]);
+        let stone = Block::parse("minecraft:stone").unwrap();
+        for x in -6..=22 {
+            for z in -6..=6 {
+                w.set_block(BlockPos::new(x, -1, z), stone.clone(), crate::world::flags::ALL);
+            }
+        }
+        for z in -7..=7 {
+            for y in 0..=3 {
+                w.set_block(BlockPos::new(6, y, z), stone.clone(), crate::world::flags::ALL);
+            }
+        }
+        w.set_block(BlockPos::new(12, 0, 1), Block::parse("minecraft:red_bed[facing=south,occupied=false,part=foot]").unwrap(), crate::world::flags::ALL);
+        w.set_block(BlockPos::new(12, 0, 2), Block::parse("minecraft:red_bed[facing=south,occupied=false,part=head]").unwrap(), crate::world::flags::ALL);
+        w.set_block(BlockPos::new(0, 0, 0), Block::parse("minecraft:rail[shape=east_west,waterlogged=false]").unwrap(), crate::world::flags::ALL);
+        w.mob.seed(7, 13_800);
+        w.mob.ai.on = true;
+        let nbt = "{Passengers:[{id:\"minecraft:villager\",Brain:{memories:{\"minecraft:home\":{value:{dimension:\"minecraft:overworld\",pos:[I;12,0,2]}}}}}]}";
+        let cart = crate::entity::spawn(&mut w, "minecraft:minecart", [0.5, 0.0, 0.5], Some(nbt)).unwrap();
+        let ci = crate::entity::index_of(&w, cart).unwrap();
+        let rider = *w.entities.list[ci].passengers.first().expect("the villager seated");
+        let (mut target_at, mut path_at, mut armed_at) = (None, None, None);
+        for t in 1..=40 {
+            w.tick();
+            let i = crate::entity::index_of(&w, rider).unwrap();
+            let b = crate::entity::mob::ai::brain::brain(&w, i);
+            let x = b.ex.as_ref().expect("the exact brain");
+            assert_eq!(x.active, crate::entity::mob::ai::brain::Act::Rest, "REST at tick {t}");
+            if target_at.is_none() && x.mem.walk_target.is_some() {
+                target_at = Some(t);
+            }
+            if path_at.is_none() && x.mem.path.as_ref().is_some_and(|p| !p.reached) {
+                path_at = Some(t);
+            }
+            if armed_at.is_none() && x.mem.cant_reach_since.is_some() {
+                armed_at = Some(t);
+            }
+        }
+        assert!(target_at.is_some_and(|t| t <= 2) && path_at.is_some_and(|t| t <= 3) && armed_at.is_some_and(|t| t <= 3), "the HOME walk target, a partial path and the stamp in the first REST ticks: {target_at:?} {path_at:?} {armed_at:?}");
+    }
+
+    /// G1 on b8949c96's #23 trace (tick-exact's citation: MoveToTargetSink.tryComputePath sets and erases
+    /// CANT_REACH; PathNavigation.recomputePath touches no brain memory): a navigation recompute to a
+    /// complete path LEAVES the stamp. The rider of `a_seated_rider_in_rest_paths_home`, its partial HOME
+    /// path armed; the wall opened (a block update near the path: `shouldRecomputePath`, `recomputePath`):
+    /// the navigation's new path reaches HOME, the brain's PATH takes it on the sink's next tick, and
+    /// CANT_REACH keeps its first stamp throughout.
+    #[test]
+    fn a_navigation_recompute_leaves_the_stamp() {
+        let mut w = World::new(BlockPos::new(-8, -4, -8), [32, 8, 16]);
+        let stone = Block::parse("minecraft:stone").unwrap();
+        for x in -6..=22 {
+            for z in -6..=6 {
+                w.set_block(BlockPos::new(x, -1, z), stone.clone(), crate::world::flags::ALL);
+            }
+        }
+        for z in -7..=7 {
+            for y in 0..=3 {
+                w.set_block(BlockPos::new(6, y, z), stone.clone(), crate::world::flags::ALL);
+            }
+        }
+        w.set_block(BlockPos::new(12, 0, 1), Block::parse("minecraft:red_bed[facing=south,occupied=false,part=foot]").unwrap(), crate::world::flags::ALL);
+        w.set_block(BlockPos::new(12, 0, 2), Block::parse("minecraft:red_bed[facing=south,occupied=false,part=head]").unwrap(), crate::world::flags::ALL);
+        w.set_block(BlockPos::new(0, 0, 0), Block::parse("minecraft:rail[shape=east_west,waterlogged=false]").unwrap(), crate::world::flags::ALL);
+        w.mob.seed(7, 13_800);
+        w.mob.ai.on = true;
+        let nbt = "{Passengers:[{id:\"minecraft:villager\",Brain:{memories:{\"minecraft:home\":{value:{dimension:\"minecraft:overworld\",pos:[I;12,0,2]}}}}}]}";
+        let cart = crate::entity::spawn(&mut w, "minecraft:minecart", [0.5, 0.0, 0.5], Some(nbt)).unwrap();
+        let ci = crate::entity::index_of(&w, cart).unwrap();
+        let rider = *w.entities.list[ci].passengers.first().expect("the villager seated");
+        let mem = |w: &World| {
+            let i = crate::entity::index_of(w, rider).unwrap();
+            let x = crate::entity::mob::ai::brain::brain(w, i).ex.as_ref().expect("the exact brain");
+            (x.mem.path.as_ref().map(|p| p.reached), x.mem.cant_reach_since, crate::entity::mob::ai::ai(w, i).nav.path.as_ref().map(|p| p.reached))
+        };
+        // (the partial HOME path and its stamp; then past the navigation's 20-gt recompute spacing)
+        for _ in 0..30 {
+            w.tick();
+        }
+        let (path0, stamp0, nav0) = mem(&w);
+        assert!(path0 == Some(false) && nav0 == Some(false) && stamp0.is_some(), "the partial HOME path, armed: {path0:?} {nav0:?} {stamp0:?}");
+        // (the wall opened beside the path: its upper block silently (no client update), then the lower one
+        // with the block update, so the navigation recomputes once with the doorway open)
+        w.set_block(BlockPos::new(6, 1, 0), Block::Air, crate::world::flags::ALL & !crate::world::flags::CLIENTS);
+        w.set_block(BlockPos::new(6, 0, 0), Block::Air, crate::world::flags::ALL);
+        let (_, stamp1, nav1) = mem(&w);
+        assert_eq!(nav1, Some(true), "the navigation's recomputed path reaches HOME");
+        assert_eq!(stamp1, stamp0, "the recompute left the stamp");
+        w.tick();
+        let (path2, stamp2, _) = mem(&w);
+        assert_eq!(path2, Some(true), "the sink's tick takes the new path into PATH");
+        assert_eq!(stamp2, stamp0, "and CANT_REACH keeps its first stamp");
+    }
+
+    /// ironspec 06:33's question, the mechanism behind onechunk's 891: a rider out of PANIC carries PANIC's
+    /// flee target into REST (an activity switch erases no memory, here as in the game), and REST's
+    /// SetWalkTargetFromBlockMemory sets HOME only while WALK_TARGET is absent; so the HOME target comes only
+    /// after MoveToTargetSink lets the flee target go (its stuck stop or its duration end), not at the switch.
+    /// A villager seated in a cart at night, HOME walled off, a zombie behind glass in its sight: PANIC with
+    /// a walk target that isn't HOME; the zombie removed: REST with that walk target still set, no HOME
+    /// target yet; then the sink stops and REST sets HOME, a partial path and the stamp follow.
+    #[test]
+    fn a_flee_target_outlives_the_switch_to_rest() {
+        let mut w = World::new(BlockPos::new(-8, -4, -8), [32, 8, 16]);
+        let stone = Block::parse("minecraft:stone").unwrap();
+        for x in -6..=22 {
+            for z in -6..=6 {
+                w.set_block(BlockPos::new(x, -1, z), stone.clone(), crate::world::flags::ALL);
+            }
+        }
+        for z in -7..=7 {
+            for y in 0..=3 {
+                w.set_block(BlockPos::new(6, y, z), stone.clone(), crate::world::flags::ALL);
+            }
+        }
+        w.set_block(BlockPos::new(12, 0, 1), Block::parse("minecraft:red_bed[facing=south,occupied=false,part=foot]").unwrap(), crate::world::flags::ALL);
+        w.set_block(BlockPos::new(12, 0, 2), Block::parse("minecraft:red_bed[facing=south,occupied=false,part=head]").unwrap(), crate::world::flags::ALL);
+        w.set_block(BlockPos::new(0, 0, 0), Block::parse("minecraft:rail[shape=east_west,waterlogged=false]").unwrap(), crate::world::flags::ALL);
+        // (the zombie in a 3-deep trench south of the cart (x -2..2, z 2..5, its floor at y -4): in the
+        // rider's sight over the trench's lip, out of reach (glass would block the sight: the COLLIDER clip))
+        for x in -3..=3 {
+            for z in 1..=6 {
+                for y in -4..=-1 {
+                    let trench = (-2..=2).contains(&x) && (2..=5).contains(&z) && y >= -3;
+                    w.set_block(BlockPos::new(x, y, z), if trench { Block::Air } else { stone.clone() }, crate::world::flags::ALL);
+                }
+            }
+        }
+        w.mob.seed(7, 13_800);
+        w.mob.ai.on = true;
+        let nbt = "{Passengers:[{id:\"minecraft:villager\",Brain:{memories:{\"minecraft:home\":{value:{dimension:\"minecraft:overworld\",pos:[I;12,0,2]}}}}}]}";
+        let cart = crate::entity::spawn(&mut w, "minecraft:minecart", [0.5, 0.0, 0.5], Some(nbt)).unwrap();
+        let ci = crate::entity::index_of(&w, cart).unwrap();
+        let rider = *w.entities.list[ci].passengers.first().expect("the villager seated");
+        let zombie = crate::entity::spawn(&mut w, "minecraft:zombie", [0.5, -3.0, 4.5], Some("{PersistenceRequired:1b}")).unwrap();
+        use crate::entity::mob::ai::brain::{Act, brain};
+        let home = BlockPos::new(12, 0, 2);
+        let state = |w: &World| {
+            let i = crate::entity::index_of(w, rider).unwrap();
+            let x = brain(w, i).ex.as_ref().expect("the exact brain").clone();
+            let home_target = x.mem.walk_target.as_ref().is_some_and(|t| matches!(t.target, crate::entity::mob::ai::brain::Tracker::Block(p) if p == home));
+            (x.active, x.mem.walk_target.is_some(), home_target, x.mem.path.as_ref().is_some_and(|p| !p.reached), x.mem.cant_reach_since.is_some())
+        };
+        // (PANIC with a flee target)
+        let mut panicked = false;
+        for _ in 0..80 {
+            w.tick();
+            let (act, target, home_target, _, _) = state(&w);
+            if act == Act::Panic && target && !home_target {
+                panicked = true;
+                break;
+            }
+        }
+        assert!(panicked, "the zombie in sight: PANIC with a walk target that isn't HOME");
+        // (the zombie gone: REST, the flee target still set, no HOME target at the switch)
+        let zi = crate::entity::index_of(&w, zombie).unwrap();
+        w.entities.list[zi].removed = true;
+        let mut rest_at = None;
+        for t in 0..200 {
+            w.tick();
+            let (act, target, home_target, _, _) = state(&w);
+            if act == Act::Rest {
+                assert!(target && !home_target, "at the switch to REST the flee target stands, no HOME target");
+                rest_at = Some(t);
+                break;
+            }
+        }
+        assert!(rest_at.is_some(), "the zombie gone: back to REST");
+        // (then the sink lets the flee target go and REST sets HOME: a partial path and the stamp)
+        let mut home_at = None;
+        for t in 0..400 {
+            w.tick();
+            let (act, _, home_target, partial, armed) = state(&w);
+            assert_eq!(act, Act::Rest);
+            if home_target && partial && armed {
+                home_at = Some(t);
+                break;
+            }
+        }
+        assert!(home_at.is_some_and(|t| t > 0), "HOME's target, a partial path and the stamp only after the flee target goes: {home_at:?} ticks after the switch");
+        println!("PANIC -> REST at +{:?}, HOME target with a partial path and the stamp {:?} ticks after the switch", rest_at, home_at);
+    }
+}

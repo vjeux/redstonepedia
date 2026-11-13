@@ -621,6 +621,42 @@ fn update_signal_strength(w: &mut World, pos: BlockPos) {
 mod tests {
     use super::*;
 
+    /// An open detector's power at day time `day` with the weather levels held (`rain`, `thunder`): the
+    /// detector's own computation (`updateSignalStrength`) on an open sky of 15.
+    fn open_power(day: i64, rain: f32, thunder: f32) -> i32 {
+        let darken = if rain == 0.0 && thunder == 0.0 { sky_darken(day) } else { crate::weather::sky_darken_at(day, rain, thunder) };
+        let mut target = (15 - darken).max(0);
+        let mut sun = sun_angle(day) * (std::f64::consts::PI / 180.0) as f32;
+        if target > 0 {
+            let offset = if sun < std::f64::consts::PI as f32 { 0.0f32 } else { (std::f64::consts::PI * 2.0) as f32 };
+            sun += (offset - sun) * 0.2f32;
+            target = round_f32(target as f32 * crate::entity::mth::cos(sun as f64));
+        }
+        target.clamp(0, 15)
+    }
+
+    /// tick-exact's official 26.3 rows (artifact 1871762297585648: an open detector, each weather held 320
+    /// gt so its levels sit at 1.0 or 0, read at every 20-gt update): the first update at each power level,
+    /// and the DAY-off edge (the first day time, bisected, whose power is 5 or less) for clear, rain and
+    /// thunder; redsim reproduces each (the DAY comparison's "11,603 / 10,958" were the 7 -> 6 steps).
+    #[test]
+    fn official_weather_detector_edges() {
+        let rows: [(&str, f32, f32, &[(i32, i64)], i64); 3] = [
+            ("clear", 0.0, 0.0, &[(9, 11_080), (8, 11_480), (7, 11_840), (6, 12_040), (5, 12_240), (4, 12_480)], 12_230),
+            ("rain", 1.0, 0.0, &[(7, 11_120), (6, 11_620), (5, 12_020), (4, 12_240), (3, 12_480)], 12_002),
+            ("thunder", 1.0, 1.0, &[(6, 10_960), (5, 11_560), (4, 11_940), (3, 12_300)], 11_556),
+        ];
+        for (name, rain, thunder, levels, off) in rows {
+            for &(level, day) in levels {
+                let first = (10_000..=13_000).step_by(20).find(|d| open_power(*d, rain, thunder) <= level);
+                assert_eq!(first, Some(day), "{name}: the first update at power {level}");
+            }
+            let edge = (10_000..=13_000).find(|d| open_power(*d, rain, thunder) <= 5);
+            assert_eq!(edge, Some(off), "{name}: the DAY-off edge (first day time at power 5 or less)");
+        }
+        assert_eq!((open_power(6_000, 0.0, 0.0), open_power(6_000, 1.0, 0.0), open_power(6_000, 1.0, 1.0)), (15, 12, 10), "noon: 15 / 12 / 10");
+    }
+
     /// (b8949c96 2026-11-12) A door, iron or oak, either half, shut or open, lets the sky through
     /// like air (`DoorBlock`'s noOcclusion; its panel is never a full shape): the cell under one
     /// under the open sky reads 15, as under a lightning rod; a stone cap reads less (the check
