@@ -2447,6 +2447,137 @@ fn rail_exits(state: &str) -> Vec<(i32, i32, i32)> {
     }
 }
 
+/// (G1's CHANGES 1 on d3dc5aa46, ironspec Nov 12 15:03) A walk's track ends with time left: every
+/// node it reached with `window - d` > 0 that has an open end (`Track::open_ends`), not a rest; the
+/// remainder kept per slot (0 the tail, 1 the late-path walks, 2 the approach walks), the most over
+/// the walks.
+fn record_ends(track: &Track, reached: &HashMap<TailNode, f64>, window: f64, slot: usize, ends: &mut std::collections::BTreeMap<String, (Vec<BlockPos>, [f64; 3])>) {
+    for (n, d) in reached {
+        if let TailNode::Rail(x, y, z) = n
+            && track.rests.contains(&BlockPos::new(*x, *y, *z))
+        {
+            continue;
+        }
+        let left = window - d;
+        if left <= 0.0 {
+            continue;
+        }
+        for (desc, cells) in track.open_ends(*n) {
+            let e = ends.entry(desc).or_insert((cells, [0.0; 3]));
+            e.1[slot] = e.1[slot].max(left);
+        }
+    }
+}
+
+/// (G1's CHANGES 1 on d3dc5aa46, ironspec Nov 12 15:02 / 15:03: a path computed in free fall starts
+/// at the landing, getStart's airborne scan; a path computed just above a lift's surface starts at
+/// its foot, ff1ca056a) The design's own columns for the walks, beside the declared ones: every
+/// bubble column (a vertical run of bubble_column cells: up over soul sand, down over magma), an up
+/// column with its exit cell above the surface when that cell is open (no collision shape, no
+/// rail): the cart lifted out of the water before the flow pushes it onto the exit rail; and every
+/// free fall: a rail exit whose cell and the cell below hold no rail and have no collision shape,
+/// and from which no column is entered, down from the exit cell to the first rail (the landing) or
+/// collision block (a floor without a rail: its end is a track end); a bubble run at an x,z a
+/// declared column covers is skipped, a fall out of the design's box is left to the ends report.
+/// Timed like a column (1 block a tick: a bound, the fall is slower). Returns the columns and a line
+/// for each.
+pub fn auto_columns(spec: &FarmSpec, declared: &[[f64; 4]]) -> (Vec<[f64; 4]>, Vec<String>) {
+    let blk: HashMap<BlockPos, redsim::block::Block> = spec.blocks.iter().map(|(p, b)| (*p, *b)).collect();
+    let name = |p: BlockPos| blk.get(&p).map(|b| b.to_string()).unwrap_or_else(|| "minecraft:air".to_string());
+    let short = |p: BlockPos| name(p).trim_start_matches("minecraft:").split('[').next().unwrap_or("").to_string();
+    let rail = |p: BlockPos| name(p).contains("rail");
+    let open = |p: BlockPos| blk.get(&p).is_none_or(|b| redsim::behavior::collision_boxes(b).is_empty());
+    let near = |a: BlockPos, b: BlockPos| (a.x - b.x).abs() <= 1 && (a.y - b.y).abs() <= 1 && (a.z - b.z).abs() <= 1;
+    let first = |c: &[f64; 4]| BlockPos::new(c[0].floor() as i32, c[1].floor() as i32, c[2].floor() as i32);
+    let last = |c: &[f64; 4]| BlockPos::new(c[0].floor() as i32, c[3].floor() as i32, c[2].floor() as i32);
+    let mut out: Vec<[f64; 4]> = Vec::new();
+    let mut lines = Vec::new();
+    // (the bubble columns)
+    let mut cells: std::collections::BTreeMap<(i32, i32), Vec<(i32, bool)>> = std::collections::BTreeMap::new();
+    for (p, b) in &spec.blocks {
+        let s = b.to_string();
+        if s.contains("bubble_column") {
+            cells.entry((p.x, p.z)).or_default().push((p.y, s.contains("drag=true")));
+        }
+    }
+    for ((x, z), mut ys) in cells {
+        if declared.iter().any(|c| c[0].floor() as i32 == x && c[2].floor() as i32 == z) {
+            continue;
+        }
+        ys.sort();
+        let mut start = 0;
+        for k in 1..=ys.len() {
+            if k == ys.len() || ys[k].0 != ys[k - 1].0 + 1 {
+                let (lo, hi, down) = (ys[start].0, ys[k - 1].0, ys[start].1);
+                if down {
+                    out.push([x as f64 + 0.5, hi as f64, z as f64 + 0.5, lo as f64]);
+                    lines.push(format!("auto column: x {x} z {z} y {lo}..{hi} (down, magma)"));
+                } else {
+                    let top = BlockPos::new(x, hi + 1, z);
+                    let ext = open(top) && !rail(top);
+                    out.push([x as f64 + 0.5, lo as f64, z as f64 + 0.5, if ext { (hi + 1) as f64 } else { hi as f64 }]);
+                    lines.push(format!(
+                        "auto column: x {x} z {z} y {lo}..{hi} (up, soul sand){}",
+                        if ext { format!(", with its exit cell above the surface {x},{},{z} ({}): a path computed there starts at the column's foot", hi + 1, short(top)) } else { String::new() }
+                    ));
+                }
+                start = k;
+            }
+        }
+    }
+    // (the free falls)
+    let mut rails: Vec<(BlockPos, String)> = spec.blocks.iter().filter(|(_, b)| b.to_string().contains("rail")).map(|(p, b)| (*p, b.to_string())).collect();
+    rails.sort_by_key(|(p, _)| (p.y, p.z, p.x));
+    for (c, s) in &rails {
+        for (dx, dy, dz) in rail_exits(s) {
+            if dx == 0 && dz == 0 {
+                continue;
+            }
+            let m = BlockPos::new(c.x + dx, c.y + dy, c.z + dz);
+            if rail(m) || rail(m.below()) || !open(m) || !open(m.below()) {
+                continue;
+            }
+            if declared.iter().chain(out.iter()).any(|k| near(first(k), *c) || near(last(k), *c)) {
+                continue;
+            }
+            let mut y = m.y - 1;
+            let mut land: Option<(BlockPos, bool)> = None;
+            while y >= spec.lo.y {
+                let q = BlockPos::new(m.x, y, m.z);
+                if rail(q) {
+                    land = Some((q, true));
+                    break;
+                }
+                if !open(q) {
+                    land = Some((q, false));
+                    break;
+                }
+                y -= 1;
+            }
+            let Some((l, on_rail)) = land else { continue };
+            let beyond = BlockPos::new(m.x + dx, m.y, m.z + dz);
+            let stop = if open(beyond) { format!("nothing stops it at {},{},{}: it may fly on, the fall taken straight down from the exit cell", beyond.x, beyond.y, beyond.z) } else { format!("{} {},{},{} stops it", short(beyond), beyond.x, beyond.y, beyond.z) };
+            out.push([m.x as f64 + 0.5, m.y as f64, m.z as f64 + 0.5, (l.y + 1) as f64]);
+            lines.push(format!(
+                "auto column: a free fall off the rail end {},{},{} into {},{},{} ({stop}), down {} blocks to {} {},{},{}{}",
+                c.x,
+                c.y,
+                c.z,
+                m.x,
+                m.y,
+                m.z,
+                m.y - l.y - 1,
+                if on_rail { "the rail" } else { "the floor" },
+                l.x,
+                l.y,
+                l.z,
+                if on_rail { String::new() } else { format!(" ({}: no rail, a track end)", short(l)) }
+            ));
+        }
+    }
+    (out, lines)
+}
+
 /// (farmopt / ironspec Nov 12 11:13-11:14: the statics refuse an unsupported attachable) Every block
 /// of the design that would not survive where it is placed, on the paste: redsim's
 /// `behavior::can_survive` for the design's own block (dust or a diode without a sturdy top under
@@ -2570,6 +2701,69 @@ pub fn path_probe(spec: &FarmSpec, cart_at: Vec3, target: BlockPos) -> Result<St
             p.nodes.iter().map(|n| format!("{},{},{}", n.x, n.y, n.z)).collect::<Vec<_>>().join(" ")
         ),
     })
+}
+
+/// (ironspec Nov 12 15:35: a permanent statics row) Every caller's scarers: each pocket rider at its
+/// rest point (the stand at rest, as at every summon tick: the scarers sit still), every hostile
+/// within the villager's sensing range (VillagerHostilesSensor: a zombie 8, a pillager 15), its
+/// distance and whether the rider sees it eye to eye; a caller that sees none does not panic and
+/// its summon does not run: FAIL. Lines and the count of blind callers.
+pub fn caller_sight(spec: &FarmSpec, pills: &[Vec3], callers: &[(String, Vec3)]) -> Result<(Vec<String>, usize), String> {
+    let o = RunOpts { ai: true, ..RunOpts::steady(1, 0, WalkMode::Random) };
+    let mut run = Run::start(spec, &o)?;
+    while run.settle_tick() {}
+    let w = &run.world;
+    let zs = hostiles(spec);
+    let seat = zombie_seat();
+    let dist = |a: Vec3, b: Vec3| ((a.x - b.x).powi(2) + (a.y - b.y).powi(2) + (a.z - b.z).powi(2)).sqrt();
+    let mut lines = Vec::new();
+    let mut blind = 0usize;
+    for (name, p) in callers {
+        let eye = Vec3::new(p.x, p.y + 1.62, p.z);
+        let (mut seen, mut hidden): (Vec<(f64, String)>, Vec<(f64, String)>) = (Vec::new(), Vec::new());
+        for z in &zs {
+            let f = Vec3::new(z.x, z.y + seat, z.z);
+            let d = dist(f, *p);
+            if d > 8.0 {
+                continue;
+            }
+            let s = redsim::entity::mob::los::has_line_of_sight(w, eye, Vec3::new(f.x, f.y + 1.74, f.z));
+            (if s { &mut seen } else { &mut hidden }).push((d, format!("the zombie at {:.1},{:.1},{:.1} at {d:.2}", z.x, z.y, z.z)));
+        }
+        for f in pills {
+            let d = dist(*f, *p);
+            if d > PILLAGER_BAR {
+                continue;
+            }
+            let s = redsim::entity::mob::los::has_line_of_sight(w, eye, Vec3::new(f.x, f.y + PILLAGER_EYE, f.z));
+            (if s { &mut seen } else { &mut hidden }).push((d, format!("the pillager at {:.1},{:.1},{:.1} at {d:.2}", f.x, f.y, f.z)));
+        }
+        seen.sort_by(|a, b| a.0.total_cmp(&b.0));
+        hidden.sort_by(|a, b| a.0.total_cmp(&b.0));
+        if seen.is_empty() {
+            blind += 1;
+        }
+        lines.push(format!(
+            "  CALLER {name} rider {:.2},{:.2},{:.2}: {}{}",
+            p.x,
+            p.y,
+            p.z,
+            if seen.is_empty() { "sees NO scarer: FAIL (it does not panic; its summon does not run)".to_string() } else { format!("sees {}", seen.iter().map(|(_, s)| s.clone()).collect::<Vec<_>>().join(", ")) },
+            if hidden.is_empty() { String::new() } else { format!("; in range but hidden: {}", hidden.iter().map(|(_, s)| s.clone()).collect::<Vec<_>>().join(", ")) }
+        ));
+    }
+    let mut out = vec![format!(
+        "caller sight (ironspec Nov 12 15:35, a permanent row: each pocket rider at its rest point, as at every summon tick, and each hostile within the villager's sensing range (a zombie 8, a pillager 15) with its distance, eye to eye): {}",
+        if callers.is_empty() {
+            "no callers (the design's run-cells P0.. or --caller)".to_string()
+        } else if blind == 0 {
+            format!("every one of {} callers sees a scarer", callers.len())
+        } else {
+            format!("FAIL: {blind} of {} callers see none", callers.len())
+        }
+    )];
+    out.extend(lines);
+    Ok((out, blind))
 }
 
 /// (G1's CHANGES 2 on fee712f72) A zombie's hidden position within the flee bar needs this travel
@@ -2714,6 +2908,40 @@ impl<'a> Track<'a> {
         next
     }
 
+    /// (G1's CHANGES 1 on d3dc5aa46, ironspec Nov 12 15:03: no silent ends) Where a walk cannot go
+    /// on from node `n`: a rail exit with no rail at its cell or the cell below and no column
+    /// entered or left within 1 of the rail (a wall the cart stops at, a floor it rolls onto, a
+    /// fall nobody declared), or a column's last position with no rail within 1 of its cell; each
+    /// with the cells a declaration may name (the rail, the exit cell and the cell below it; the
+    /// column's last cell).
+    fn open_ends(&self, n: TailNode) -> Vec<(String, Vec<BlockPos>)> {
+        let near = |a: BlockPos, b: BlockPos| (a.x - b.x).abs() <= 1 && (a.y - b.y).abs() <= 1 && (a.z - b.z).abs() <= 1;
+        let mut out = Vec::new();
+        match n {
+            TailNode::Rail(x, y, z) => {
+                let c = BlockPos::new(x, y, z);
+                let column_here = (0..self.columns.len()).any(|k| near(self.col_cell(k, 0), c) || near(self.col_cell(k, self.col_len[k] - 1), c));
+                for (dx, dy, dz) in rail_exits(self.rails.get(&c).map(|s| s.as_str()).unwrap_or("")) {
+                    let m = BlockPos::new(x + dx, y + dy, z + dz);
+                    if self.rails.contains_key(&m) || self.rails.contains_key(&m.below()) || column_here {
+                        continue;
+                    }
+                    out.push((format!("the rail {x},{y},{z}'s exit to {},{},{}", m.x, m.y, m.z), vec![c, m, m.below()]));
+                }
+            }
+            TailNode::Col(k, i) => {
+                if i + 1 == self.col_len[k] {
+                    let cc = self.col_cell(k, i);
+                    if !self.rails.keys().any(|r| near(*r, cc)) {
+                        let c = self.columns[k];
+                        out.push((format!("the column {:.1},{:.1}..{:.1},{:.1}'s end in {},{},{}", c[0], c[1], c[3], c[2], cc.x, cc.y, cc.z), vec![cc]));
+                    }
+                }
+            }
+        }
+        out
+    }
+
     /// The nodes from which a cart reaches one of `seeds` within `max` gt, with that time: the walk
     /// over the moves reversed (a merge through a curve's open side counts: the cart rolling on
     /// a straight into the curve's side follows the curve), a rest cell never left.
@@ -2773,8 +3001,10 @@ impl<'a> Track<'a> {
 /// 2/2) and each one's reachability from that position by the villager's own pathfinder, a partial
 /// path counting as not reached; FAIL at every panicking position with an unreached candidate,
 /// printed by class (each unreached candidate cell with the positions that draw it, how many of
-/// them in a tail); with `list` every panicking position too.
-pub fn clear_all(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32; 3], [i32; 3])], claims: &[BlockPos], pills: &[Vec3], columns: &[[f64; 4]], tail_gt: f64, rests: &[BlockPos], list: bool, idle: bool, watch: &[([i32; 3], [i32; 3])], approach: &[(BlockPos, f64)], late_gt: f64) -> Result<Vec<String>, String> {
+/// them in a tail); with `list` every panicking position too. Returns the lines and the count of
+/// undeclared track ends a walk reaches with time left (ironspec Nov 12 16:23: the caller fails
+/// on that number, never on a printed line's text).
+pub fn clear_all(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32; 3], [i32; 3])], claims: &[BlockPos], pills: &[Vec3], columns: &[[f64; 4]], tail_gt: f64, rests: &[BlockPos], list: bool, idle: bool, watch: &[([i32; 3], [i32; 3])], approach: &[(BlockPos, f64)], late_gt: f64, ends_declared: &[(BlockPos, String)]) -> Result<(Vec<String>, usize), String> {
     let mut pos = rider_positions(spec);
     let mut col_of: Vec<Option<(usize, usize)>> = vec![None; pos.len()];
     let track = Track::new(spec, columns, rests);
@@ -2798,6 +3028,9 @@ pub fn clear_all(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32; 
     // the tail: a shortest-time walk (game ticks) from every seen position along the track
     let seeds: Vec<TailNode> = if tail_gt > 0.0 { ps.iter().enumerate().filter(|(_, pl)| pl.seen > 0).map(|(idx, _)| node_of(idx)).collect() } else { Vec::new() };
     let best = track.walk(&seeds, tail_gt);
+    // (G1's CHANGES 1 on d3dc5aa46: every track end a walk reaches with time left, by walk)
+    let mut ends: std::collections::BTreeMap<String, (Vec<BlockPos>, [f64; 3])> = std::collections::BTreeMap::new();
+    record_ends(&track, &best, tail_gt, 0, &mut ends);
     // (ironspec Nov 12 12:36, tick-exact's ff1ca056a: from inside a bubble column the panic stroll's
     // path starts at the water's surface, one node, partial: a panicking position inside a water
     // column with any PANIC candidate fails the gate, whatever a path from its own cell reads)
@@ -2979,7 +3212,7 @@ pub fn clear_all(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32; 
     // onward) from that node's rider position (a rail cell's middle, a column's position): a late
     // FAIL where any of them leaves it unreached (inside a water column the path is the water's
     // surface, one node: redsim's passenger start rule, the official row's shape))
-    let mut late: std::collections::BTreeMap<(i32, i32, i32), Vec<String>> = std::collections::BTreeMap::new();
+    let mut late: std::collections::BTreeMap<(i32, i32, i32), Vec<(String, String, f64)>> = std::collections::BTreeMap::new();
     let mut late_positions = 0usize;
     if late_gt > 0.0 {
         let node_pos = |n: &TailNode| -> Option<Vec3> {
@@ -3011,6 +3244,7 @@ pub fn clear_all(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32; 
                 continue;
             }
             let after = track.walk(&[*nd], late_gt);
+            record_ends(&track, &after, late_gt, 1, &mut ends);
             for (q, dt) in &after {
                 if q == nd {
                     continue;
@@ -3047,7 +3281,7 @@ pub fn clear_all(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32; 
                     format!("column {:.2},{:.2},{:.2}", p.x, p.y, p.z)
                 }
             };
-            late.entry(x).or_default().push(format!("drawn at {ns}, pathed {dt:.1} gt later from {qs}"));
+            late.entry(x).or_default().push((ns, qs, dt));
         }
         late_positions = failed_nodes.len();
     }
@@ -3097,7 +3331,21 @@ pub fn clear_all(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32; 
     let mut lt: Vec<_> = late.into_iter().collect();
     lt.sort_by_key(|(_, v)| std::cmp::Reverse(v.len()));
     for ((x, y, z), v) in lt {
-        lines.push(format!("  LATE {x},{y},{z}: {} (draw, later node) pairs unreached: {}", v.len(), v.iter().take(6).cloned().collect::<Vec<_>>().join("; ")));
+        // (by draw node: its pairs and the earliest later node that leaves the candidate unreached)
+        let mut by_draw: std::collections::BTreeMap<String, (usize, f64, String)> = std::collections::BTreeMap::new();
+        for (ns, qs, dt) in &v {
+            let e = by_draw.entry(ns.clone()).or_insert((0, f64::INFINITY, String::new()));
+            e.0 += 1;
+            if *dt < e.1 {
+                e.1 = *dt;
+                e.2 = qs.clone();
+            }
+        }
+        lines.push(format!(
+            "  LATE {x},{y},{z}: {} (draw, later node) pairs unreached; by draw node: {}",
+            v.len(),
+            by_draw.iter().map(|(ns, (n, dt, qs))| format!("drawn at {ns}: {n} pairs, the first pathed {dt:.1} gt later from {qs}")).collect::<Vec<_>>().join("; ")
+        ));
     }
     lines.push(format!(
         "staleness (G1's CHANGES 2: a tail position within {FLEE_BAR} of a zombie, NEAREST_HOSTILE remembered within the flee bar): {}",
@@ -3138,6 +3386,7 @@ pub fn clear_all(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32; 
         for (cell, gt) in approach {
             // (the positions BEFORE the entrance: the walk over the track's moves reversed)
             let reach = track.walk_rev(&[TailNode::Rail(cell.x, cell.y, cell.z)], *gt);
+            record_ends(&track, &reach, *gt, 2, &mut ends);
             let mut rows: Vec<(f64, String)> = Vec::new();
             // (the pricing inputs: each candidate cell with the block under it, how many positions
             // draw it and the nearest's time to the entrance; each hostile with the positions it sees)
@@ -3181,13 +3430,27 @@ pub fn clear_all(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32; 
                     e.1 += 1;
                     e.2 = e.2.min(*dt);
                 }
+                // (G1's note on d3dc5aa46: the flee's candidates too, where the flee runs (a hostile
+                // within its range at this position), for the pricing; marked)
+                let fl = if pl.flee_from > 0 { Some(&pl.flee) } else { None };
+                if let Some(f) = fl {
+                    for (u, _) in f.reached.iter().chain(f.unreached.iter()) {
+                        let e = by_cand.entry((u.x, u.y, u.z)).or_insert((format!("{} [flee]", w.get(u.below()).to_string().trim_start_matches("minecraft:").split('[').next().unwrap_or("")), 0, f64::INFINITY));
+                        e.1 += 1;
+                        e.2 = e.2.min(*dt);
+                    }
+                }
+                let flee_txt = fl.map_or(String::new(), |f| {
+                    let v: Vec<String> = f.reached.iter().map(|(u, _)| (u, true)).chain(f.unreached.iter().map(|(u, _)| (u, false))).map(|(u, r)| format!("{},{},{}{}", u.x, u.y, u.z, if r { "" } else { " (unreached)" })).collect();
+                    format!("; flee candidates {}{}", v.len(), if v.is_empty() { String::new() } else { format!(": {}", v.join(", ")) })
+                });
                 let s = &pl.panic_stroll;
                 let cands: Vec<String> = s.reached.iter().map(|(u, _)| (u, true)).chain(s.unreached.iter().map(|(u, _)| (u, false))).map(|(u, r)| format!("{},{},{} on {}{}", u.x, u.y, u.z, w.get(u.below()).to_string().trim_start_matches("minecraft:").split('[').next().unwrap_or(""), if r { "" } else { " (unreached)" })).collect();
                 let share: f64 = s.reached_share + s.unreached.iter().map(|(_, sh)| *sh).sum::<f64>();
                 rows.push((
                     *dt,
                     format!(
-                        "  APPROACH {},{},{} {} rider {:.2},{:.2},{:.2}: {:.1} gt from the entrance; {}; PANIC candidates {}{}; P_null {:.3}",
+                        "  APPROACH {},{},{} {} rider {:.2},{:.2},{:.2}: {:.1} gt from the entrance; {}; PANIC candidates {}{}; P_null {:.3}{flee_txt}",
                         c.x,
                         c.y,
                         c.z,
@@ -3217,8 +3480,41 @@ pub fn clear_all(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32; 
             lines.extend(rows.into_iter().map(|(_, r)| r));
         }
     }
+    // (G1's CHANGES 1 on d3dc5aa46, ironspec Nov 12 15:03: no silent ends) every track end a walk
+    // reached with time left, each declared (a --track-end or --tail-rest naming one of its cells)
+    // or failing the run: an undeclared end truncates the tail, late-path or approach walk there
+    let mut undeclared_ends = 0usize;
+    let mut end_lines = Vec::new();
+    let gt = |v: f64| if v > 0.0 { format!("{v:.1} gt") } else { "-".to_string() };
+    for (desc, (cells, left)) in &ends {
+        let decl = ends_declared.iter().find(|(p, _)| cells.contains(p)).map(|(_, r)| r.clone()).or_else(|| rests.iter().find(|p| cells.contains(p)).map(|p| format!("the --tail-rest {},{},{}", p.x, p.y, p.z)));
+        if decl.is_none() {
+            undeclared_ends += 1;
+        }
+        end_lines.push(format!(
+            "  END {desc}: tail {} left, late-path {} left, approach {} left{}",
+            gt(left[0]),
+            gt(left[1]),
+            gt(left[2]),
+            match decl {
+                Some(r) => format!(" (declared: {r})"),
+                None => " UNDECLARED".to_string(),
+            }
+        ));
+    }
+    lines.push(format!(
+        "track ends the walks reach with time left (a rail exit with no rail or column beyond it, or a column's end with no rail: the walk cannot go on there): {}",
+        if ends.is_empty() {
+            "0".to_string()
+        } else if undeclared_ends == 0 {
+            format!("{}, every one declared", ends.len())
+        } else {
+            format!("FAIL: {undeclared_ends} undeclared of {} (each truncates a walk with time left: declare it with --track-end x,y,z=REASON or a --tail-rest, pass the fall or column it leads into, or lay the missing track)", ends.len())
+        }
+    ));
+    lines.extend(end_lines);
     lines.extend(listed);
-    Ok(lines)
+    Ok((lines, undeclared_ends))
 }
 
 #[cfg(test)]

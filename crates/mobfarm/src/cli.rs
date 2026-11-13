@@ -1228,11 +1228,25 @@ pub enum MobfarmCmd {
         #[arg(long, allow_hyphen_values = true)]
         path_probe: Vec<String>,
         /// With --clear-all: every bubble column of the design as a --scarer-column (ironspec Nov 12
-        /// 12:36: every bubble-column position in the gate): each vertical run of bubble_column
-        /// cells, riders going up a soul-sand column (drag=false) and down a magma one; a run at an
-        /// x,z a --scarer-column already gives is skipped.
+        /// 12:36: every bubble-column position in the gate), an up column with its exit cell above
+        /// the surface, and every free fall off a rail end down to its landing (G1's CHANGES 1 on
+        /// d3dc5aa46, ironspec 15:02 / 15:03), each printed; a bubble run at an x,z a --scarer-column
+        /// already gives is skipped.
         #[arg(long)]
         auto_columns: bool,
+        /// With --clear-all: a declared track end x,y,z=REASON (repeatable): a cell of an end the
+        /// walks reach with time left (the rail, its exit cell or the cell below it, or a column's
+        /// last cell), printed with REASON; an undeclared end with time left fails the run (ironspec
+        /// Nov 12 15:03). A --tail-rest declares its cell too.
+        #[arg(long, allow_hyphen_values = true)]
+        track_end: Vec<String>,
+        /// A caller's rest point x,y,z (a pocket rider's cart, repeatable; default: the design's
+        /// `run-cells:` P0, P1, ... cells, the cart at the cell's centre over the rail): the caller
+        /// sight row (ironspec Nov 12 15:35, permanent with --clear-all): every hostile within the
+        /// villager's sensing range, its distance and whether the caller sees it; a caller that
+        /// sees none fails the run.
+        #[arg(long, allow_hyphen_values = true)]
+        caller: Vec<String>,
         /// With --clear-all: the panic sources only (PANIC's stroll and flee, the gate), without IDLE's
         /// at the calm positions (its stroll 10/7 and its walks to a rider it sees within 8, the stamp
         /// bar's input, printed apart as STAMP classes by default; ironspec Nov 12 10:24 / 10:49).
@@ -10498,7 +10512,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 std::process::exit(1);
             }
         }
-        MobfarmCmd::FleeCheck { design, home, show, foot, clearing, eye_control, pickup_control, sampled, claim, classes, fix_search, fix_pairs, fix_block, clear_rate, clear_floors, clear_all, clear_tail, clear_list, tail_rest, clear_panic_only, allow_unsupported, candidate_box, approach, late_gt, path_probe, auto_columns, path_watch, path_trace, scarer_search, scarer, scarer_rider, scarer_max, scarer_any_floor, scarer_walls, scarer_target, scarer_exact, scarer_check, scarer_transient, scarer_column, scarer_occlude, hide_point, hide_column, hide_rails, scarer_mix, scarer_visor, scarer_exclude, pillager, golem_reach, golem_pad, scarer_near, post_drift, drift_ticks } => {
+        MobfarmCmd::FleeCheck { design, home, show, foot, clearing, eye_control, pickup_control, sampled, claim, classes, fix_search, fix_pairs, fix_block, clear_rate, clear_floors, clear_all, clear_tail, clear_list, tail_rest, clear_panic_only, allow_unsupported, candidate_box, approach, late_gt, path_probe, auto_columns, track_end, caller, path_watch, path_trace, scarer_search, scarer, scarer_rider, scarer_max, scarer_any_floor, scarer_walls, scarer_target, scarer_exact, scarer_check, scarer_transient, scarer_column, scarer_occlude, hide_point, hide_column, hide_rails, scarer_mix, scarer_visor, scarer_exclude, pillager, golem_reach, golem_pad, scarer_near, post_drift, drift_ticks } => {
             if let Some(oc) = &scarer_occlude {
                 let v: Vec<&str> = oc.split(',').collect();
                 anyhow::ensure!(v.len() == 4, "--scarer-occlude x,y,z,pillager|zombie");
@@ -10709,30 +10723,13 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     cols.push([q[0], q[1], q[2], q[3]]);
                 }
                 if auto_columns {
-                    // (every vertical run of bubble_column cells: up over soul sand, down over magma)
-                    let mut cells: std::collections::BTreeMap<(i32, i32), Vec<(i32, bool)>> = std::collections::BTreeMap::new();
-                    for (p, b) in &spec.blocks {
-                        let s = b.to_string();
-                        if s.contains("bubble_column") {
-                            cells.entry((p.x, p.z)).or_default().push((p.y, s.contains("drag=true")));
-                        }
+                    // (G1's CHANGES 1 on d3dc5aa46: the bubble columns with their exit cells above
+                    // the surface, and the free falls)
+                    let (auto, why) = crate::fleecheck::auto_columns(&spec, &cols);
+                    for l in &why {
+                        println!("{l}");
                     }
-                    for ((x, z), mut ys) in cells {
-                        if cols.iter().any(|c: &[f64; 4]| c[0].floor() as i32 == x && c[2].floor() as i32 == z) {
-                            continue;
-                        }
-                        ys.sort();
-                        let mut start = 0;
-                        for k in 1..=ys.len() {
-                            if k == ys.len() || ys[k].0 != ys[k - 1].0 + 1 {
-                                let (lo, hi, down) = (ys[start].0, ys[k - 1].0, ys[start].1);
-                                let (a, b) = if down { (hi as f64, lo as f64) } else { (lo as f64, hi as f64) };
-                                cols.push([x as f64 + 0.5, a, z as f64 + 0.5, b]);
-                                println!("auto column: x {x} z {z} y {lo}..{hi} ({})", if down { "down, magma" } else { "up, soul sand" });
-                                start = k;
-                            }
-                        }
-                    }
+                    cols.extend(auto);
                 }
                 let mut rests = Vec::new();
                 for s in &tail_rest {
@@ -10752,9 +10749,45 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     anyhow::ensure!(q.len() == 4, "--approach x,y,z,gt");
                     appr.push((redsim::pos::BlockPos::new(q[0] as i32, q[1] as i32, q[2] as i32), q[3]));
                 }
-                for l in crate::fleecheck::clear_all(&spec, bed, &panic_boxes, &claims, &pills, &cols, clear_tail, &rests, clear_list, !clear_panic_only, &watch, &appr, late_gt).map_err(|e| anyhow::anyhow!(e))? {
+                let mut ends_decl = Vec::new();
+                for e in &track_end {
+                    let (c, reason) = e.split_once('=').ok_or_else(|| anyhow::anyhow!("--track-end {e}: x,y,z=REASON"))?;
+                    let v: Vec<i32> = c.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(v.len() == 3, "--track-end {e}: x,y,z=REASON");
+                    ends_decl.push((redsim::pos::BlockPos::new(v[0], v[1], v[2]), reason.trim().to_string()));
+                }
+                let (cl_lines, undeclared_ends) = crate::fleecheck::clear_all(&spec, bed, &panic_boxes, &claims, &pills, &cols, clear_tail, &rests, clear_list, !clear_panic_only, &watch, &appr, late_gt, &ends_decl).map_err(|e| anyhow::anyhow!(e))?;
+                for l in &cl_lines {
                     println!("{l}");
                 }
+                // (ironspec Nov 12 15:03: a non-zero remainder at an undeclared end fails the run;
+                // 16:23: on the count clear_all returns, never on a printed line's text)
+                anyhow::ensure!(undeclared_ends == 0, "--clear-all: {undeclared_ends} undeclared track end(s) with time left (the track ends line): the walks were truncated there");
+                // (ironspec Nov 12 15:35, permanent: every caller's scarers at its rest point)
+                let mut callers: Vec<(String, redsim::entity::Vec3)> = Vec::new();
+                for s in &caller {
+                    let q: Vec<f64> = s.split(',').map(|t| t.trim().parse::<f64>()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(q.len() == 3, "--caller x,y,z");
+                    callers.push((format!("{:.2},{:.2},{:.2}", q[0], q[1], q[2]), redsim::entity::Vec3::new(q[0], q[1], q[2])));
+                }
+                if callers.is_empty() {
+                    let meta = &_c.clock.design.meta;
+                    for item in meta.get("run-cells").map(String::as_str).unwrap_or("").split(';').map(str::trim).filter(|s| !s.is_empty()) {
+                        let Some((name, rest)) = item.split_once(' ') else { continue };
+                        let is_pocket = name.starts_with('P') && name[1..].chars().all(|c| c.is_ascii_digit()) && name.len() > 1;
+                        if !is_pocket {
+                            continue;
+                        }
+                        let v: Vec<i32> = rest.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>()?;
+                        anyhow::ensure!(v.len() == 3, "run-cells {item}: want NAME x,y,z");
+                        callers.push((format!("{name} {},{},{}", v[0], v[1], v[2]), redsim::entity::Vec3::new(v[0] as f64 + 0.5, v[1] as f64 + 0.0625, v[2] as f64 + 0.5)));
+                    }
+                }
+                let (cl, blind) = crate::fleecheck::caller_sight(&spec, &pills, &callers).map_err(|e| anyhow::anyhow!(e))?;
+                for l in &cl {
+                    println!("{l}");
+                }
+                anyhow::ensure!(blind == 0, "--clear-all: {blind} caller(s) see no scarer (the caller sight row)");
             }
             for s in &clear_rate {
                 // (x,y,z integers: a rail cell; with a decimal point: a cart position, the place at it)

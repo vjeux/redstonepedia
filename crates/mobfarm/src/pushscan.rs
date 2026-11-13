@@ -1289,7 +1289,9 @@ pub fn switched(spec: &FarmSpec, switches: &[BlockPos], always_on: &[(BlockPos, 
                     None
                 }
             });
-            let always_on = support.filter(|q| all.contains_key(q) && !conductor(q));
+            // (G1's note on d3dc5aa46: nor a signal source: an observer conducts nothing but can
+            // signal into the torch, a redstone block holds it off)
+            let always_on = support.filter(|q| all.contains_key(q) && !conductor(q) && blk.get(q).is_none_or(|b| power_out(*q, b).is_none()));
             let declared = always_on_decl(p);
             // (a declared always-on source that can't toggle: a redstone block, or a torch on a
             // support that conducts no power)
@@ -1304,7 +1306,7 @@ pub fn switched(spec: &FarmSpec, switches: &[BlockPos], always_on: &[(BlockPos, 
             } else if fixed {
                 " (fixed)".to_string()
             } else if declared.is_some() {
-                " DECLARED ALWAYS-ON BUT CAN TOGGLE (its support conducts power)".to_string()
+                " DECLARED ALWAYS-ON BUT CAN TOGGLE OR IS HELD OFF (its support conducts power or is a signal source)".to_string()
             } else if let Some(q) = always_on {
                 format!(
                     " UNDECLARED (a torch on {} {},{},{}, which conducts no power: it never toggles; declare it `always-on: {},{},{}=REASON`)",
