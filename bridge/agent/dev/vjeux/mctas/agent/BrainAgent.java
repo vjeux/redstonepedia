@@ -55,6 +55,46 @@ public final class BrainAgent {
     private static final String MINECART_CLASS = "net/minecraft/world/entity/vehicle/minecart/AbstractMinecart";
     private static final ThreadLocal<Object> PUSH_DELTA = new ThreadLocal<>();
     private static final ThreadLocal<Object> PUSHER_DELTA = new ThreadLocal<>();
+    /** (ironspec 09:47 / 09:53: the hand-off contact, the lift-top jam's holding contact) {@code +move}:
+     * every minecart's Entity.move(MoverType, Vec3): the requested delta, the movement it got (the
+     * position change) and the collision flags after it. */
+    private static volatile boolean moveOn = false;
+    private static final String MOVE_IN = "mctas.brain.movein";
+    private static final String MOVE_OUT = "mctas.brain.moveout";
+    private static final ThreadLocal<Object[]> MOVE_STATE = new ThreadLocal<>();
+
+    static void onMoveIn(Object e, Object delta) {
+        try {
+            if (!e.getClass().getSimpleName().contains("Minecart")) {
+                return;
+            }
+            MOVE_STATE.set(new Object[] {call(e, "position"), delta});
+        } catch (Throwable t) {
+            System.err.println("mctas brain agent: move in (unread): " + t);
+        }
+    }
+
+    static void onMoveOut(Object e, Object delta) {
+        try {
+            if (!e.getClass().getSimpleName().contains("Minecart")) {
+                return;
+            }
+            Object[] s = MOVE_STATE.get();
+            if (s == null) {
+                return;
+            }
+            MOVE_STATE.remove();
+            Object before = s[0];
+            Object after = call(e, "position");
+            double ax = (Double) after.getClass().getMethod("x").invoke(after) - (Double) before.getClass().getMethod("x").invoke(before);
+            double ay = (Double) after.getClass().getMethod("y").invoke(after) - (Double) before.getClass().getMethod("y").invoke(before);
+            double az = (Double) after.getClass().getMethod("z").invoke(after) - (Double) before.getClass().getMethod("z").invoke(before);
+            String uuid = (String) e.getClass().getMethod("getStringUUID").invoke(e);
+            System.err.println("mctas brain agent: move cart req " + s[1] + " got (" + ax + ", " + ay + ", " + az + ") hcoll " + e.getClass().getField("horizontalCollision").getBoolean(e) + " vcoll " + e.getClass().getField("verticalCollision").getBoolean(e) + " box " + call(e, "getBoundingBox") + " @" + uuid);
+        } catch (Throwable t) {
+            System.err.println("mctas brain agent: move out (unread): " + t);
+        }
+    }
 
     static void onPushIn(Object cart, Object pusher) {
         try {
@@ -110,6 +150,10 @@ public final class BrainAgent {
      * `outKey` is set, before each of its returns (the same arguments). (ironspec 09:28 (a)) the
      * method is matched by its exact descriptor, never by name and arity. */
     static byte[] entryExitHook(ClassLoader loader, byte[] bytes, String method, String descriptor, String inKey, String outKey, String what) {
+        return entryExitHook(loader, bytes, method, descriptor, inKey, outKey, what, 1);
+    }
+
+    static byte[] entryExitHook(ClassLoader loader, byte[] bytes, String method, String descriptor, String inKey, String outKey, String what, int argSlot) {
         int params = java.lang.constant.MethodTypeDesc.ofDescriptor(descriptor).parameterCount();
         ClassHierarchyResolver resolver = ClassHierarchyResolver.defaultResolver();
         if (loader != null) {
@@ -132,8 +176,8 @@ public final class BrainAgent {
                         b.invokevirtual(properties, "get", MethodTypeDesc.of(ConstantDescs.CD_Object, ConstantDescs.CD_Object));
                         b.checkcast(biConsumer);
                         b.aload(0);
-                        if (params >= 1) {
-                            b.aload(1);
+                        if (params >= argSlot && argSlot >= 1) {
+                            b.aload(argSlot);
                         } else {
                             b.aconst_null();
                         }
@@ -500,10 +544,13 @@ public final class BrainAgent {
             sightOn = java.util.Arrays.asList(memories).contains("+sight");
             hurtOn = java.util.Arrays.asList(memories).contains("+hurt");
             pushOn = java.util.Arrays.asList(memories).contains("+push");
+            moveOn = java.util.Arrays.asList(memories).contains("+move");
         }
         System.getProperties().put(PUSH_IN, (BiConsumer<Object, Object>) BrainAgent::onPushIn);
         System.getProperties().put(PUSH_OUT, (BiConsumer<Object, Object>) BrainAgent::onPushOut);
         System.getProperties().put(PUSH_LIST, (BiConsumer<Object, Object>) BrainAgent::onPushList);
+        System.getProperties().put(MOVE_IN, (BiConsumer<Object, Object>) BrainAgent::onMoveIn);
+        System.getProperties().put(MOVE_OUT, (BiConsumer<Object, Object>) BrainAgent::onMoveOut);
         System.getProperties().put(HURT_HOOK, (BiConsumer<Object, Object>) BrainAgent::onHurt);
         System.getProperties().put(POI_HOOK, (BiConsumer<Object, Object>) BrainAgent::onPoi);
         System.getProperties().put(ACQUIRE_HOOK, (BiConsumer<Object, Object>) BrainAgent::onAcquire);
@@ -558,6 +605,9 @@ public final class BrainAgent {
                     }
                     if (pushOn && MINECART_CLASS.equals(name)) {
                         return entryExitHook(loader, bytes, "push", "(Lnet/minecraft/world/entity/Entity;)V", PUSH_IN, PUSH_OUT, "AbstractMinecart.push(Entity)");
+                    }
+                    if (moveOn && "net/minecraft/world/entity/Entity".equals(name)) {
+                        return entryExitHook(loader, bytes, "move", "(Lnet/minecraft/world/entity/MoverType;Lnet/minecraft/world/phys/Vec3;)V", MOVE_IN, MOVE_OUT, "Entity.move(MoverType, Vec3)", 2);
                     }
                     return null;
                 } catch (Throwable t) {

@@ -125,6 +125,31 @@ fn tagged(nbt: &str, n: usize) -> (String, Vec<String>) {
     (res, kinds)
 }
 
+/// One `+move` line: "move cart req (x, y, z) got (x, y, z) hcoll B vcoll B box AABB[x, y, z] -> [x, y, z] @…"
+struct MoveRow {
+    req: [f64; 3],
+    got: [f64; 3],
+    hcoll: bool,
+    vcoll: bool,
+    bmin: [f64; 3],
+    bmax: [f64; 3],
+}
+
+fn parse_move(l: &str) -> Option<MoveRow> {
+    let triple = |s: &str| -> Option<[f64; 3]> {
+        let v: Vec<f64> = s.split(',').map(|n| n.trim().parse().ok()).collect::<Option<_>>()?;
+        (v.len() == 3).then(|| [v[0], v[1], v[2]])
+    };
+    let req = triple(l.split("req (").nth(1)?.split(')').next()?)?;
+    let got = triple(l.split("got (").nth(1)?.split(')').next()?)?;
+    let hcoll = l.split("hcoll ").nth(1)?.starts_with("true");
+    let vcoll = l.split("vcoll ").nth(1)?.starts_with("true");
+    let bx = l.split("box AABB[").nth(1)?;
+    let bmin = triple(bx.split(']').next()?)?;
+    let bmax = triple(bx.split("-> [").nth(1)?.split(']').next()?)?;
+    Some(MoveRow { req, got, hcoll, vcoll, bmin, bmax })
+}
+
 fn cell_state(srv: &mut VanillaServer, p: [i32; 3]) -> Result<String> {
     let q = [p[0], p[1] + DY, p[2]];
     let snap = srv.snapshot(q, q)?;
@@ -241,6 +266,9 @@ struct V {
     has_home: bool,
     slept: Vec<u32>,
     at_stop: Option<(u32, bool)>,
+    stop_least: f64,
+    near_stop: bool,
+    stop_done: bool,
     /// the least air supply read (every 20 gt): (air, tick, position)
     min_air: Option<(i32, u32, String)>,
     activity: String,
@@ -286,6 +314,15 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
         }
         Err(_) => None,
     };
+    // (ironspec 09:47 / 09:53) MCTAS_REPLAY_MOVE=<from>-<to>: every minecart's Entity.move in the window
+    // (requested delta, the movement it got, the collision flags), named by scene tag
+    let move_window: Option<(u32, u32)> = match std::env::var("MCTAS_REPLAY_MOVE") {
+        Ok(s) => {
+            let (a, b) = s.split_once('-').ok_or_else(|| anyhow::anyhow!("MCTAS_REPLAY_MOVE=from-to, got {s}"))?;
+            Some((a.trim().parse()?, b.trim().parse()?))
+        }
+        Err(_) => None,
+    };
     let opts = |world: Option<std::path::PathBuf>| VanillaOptions {
         version: version.to_string(),
         difficulty: "normal".into(),
@@ -294,7 +331,7 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
         tick_rate: 1000,
         keep_dir: true,
         world,
-        java_agent: Some(std::path::PathBuf::from(format!("{}={MEMS}{}", jar.display(), if push_window.is_some() { ",+push" } else { "" }))),
+        java_agent: Some(std::path::PathBuf::from(format!("{}={MEMS}{}{}", jar.display(), if push_window.is_some() { ",+push" } else { "" }, if move_window.is_some() { ",+move" } else { "" }))),
         ..Default::default()
     };
     let mut srv = VanillaServer::start(&opts(None))?;
@@ -328,7 +365,7 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
         }
         if e.kind.contains("minecart") {
             cart_tags.push(format!("e{n}"));
-            if push_window.is_some() {
+            if push_window.is_some() || move_window.is_some() {
                 uuid_names.push((uuid_hex(&mut srv, &format!("@e[tag=e{n},limit=1]"))?, format!("e{n}")));
             }
         }
@@ -400,6 +437,7 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
     let (mut home_set_t0, mut slept_set_t0) = (0usize, 0usize);
     let mut declared_home: BTreeSet<String> = BTreeSet::new();
     let mut farm_stop: Vec<String> = Vec::new();
+    let mut stop_visits: Vec<String> = Vec::new();
     // (G1 on G #6) the agent hooks this replay reads must have installed (N > 0), and a positive:
     // a scratch villager given 1 drowning damage must print its `hurt drown` line
     {
@@ -415,8 +453,16 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
         }
         // (ironspec 09:28 (a)) with the push window on, each push hook hooks EXACTLY one method (matched
         // by its descriptor), so a renamed or doubled method can't read as "no pushes"
-        if push_window.is_some() {
-            for (what, needle) in [("+push AbstractMinecart.push(Entity)", "AbstractMinecart.push(Entity) reports its entry and returns ("), ("+push LivingEntity.pushEntities", "LivingEntity.pushEntities reports its entry (")] {
+        if push_window.is_some() || move_window.is_some() {
+            let mut hooks: Vec<(&str, &str)> = Vec::new();
+            if push_window.is_some() {
+                hooks.push(("+push AbstractMinecart.push(Entity)", "AbstractMinecart.push(Entity) reports its entry and returns ("));
+                hooks.push(("+push LivingEntity.pushEntities", "LivingEntity.pushEntities reports its entry ("));
+            }
+            if move_window.is_some() {
+                hooks.push(("+move Entity.move(MoverType, Vec3)", "Entity.move(MoverType, Vec3) reports its entry and returns ("));
+            }
+            for (what, needle) in hooks {
                 let n: Option<u32> = text.lines().find_map(|l| l.split(needle).nth(1)).and_then(|r| r.split_whitespace().next()).and_then(|s| s.parse().ok());
                 println!("  agent hook {what}: {}", n.map(|n| format!("{n} method(s) hooked")).unwrap_or_else(|| "NOT installed".into()));
                 anyhow::ensure!(n == Some(1), "the agent hook {what} hooked {n:?} method(s), not exactly 1: the run fails");
@@ -505,13 +551,18 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
         anyhow::ensure!(v.len() == 3, "x,y,z, got {s}");
         Ok([v[0], v[1], v[2]])
     };
-    let swap: Option<([i32; 3], String, u32, u32)> = match std::env::var("MCTAS_REPLAY_SWAP") {
-        Ok(s) => {
-            let f: Vec<&str> = s.split(';').collect();
-            anyhow::ensure!(f.len() == 4, "MCTAS_REPLAY_SWAP=x,y,z;STATE;t0;t1, got {s}");
-            Some((cell3(f[0])?, f[1].trim().to_string(), f[2].trim().parse()?, f[3].trim().parse()?))
-        }
-        Err(_) => None,
+    let swaps: Vec<([i32; 3], String, u32, u32)> = match std::env::var("MCTAS_REPLAY_SWAP") {
+        // several swaps separated by '/', each x,y,z;STATE;t0;t1
+        Ok(s) => s
+            .split('/')
+            .filter(|e| !e.trim().is_empty())
+            .map(|e| -> Result<([i32; 3], String, u32, u32)> {
+                let f: Vec<&str> = e.split(';').collect();
+                anyhow::ensure!(f.len() == 4, "MCTAS_REPLAY_SWAP=x,y,z;STATE;t0;t1[/…], got {e}");
+                Ok((cell3(f[0])?, f[1].trim().to_string(), f[2].trim().parse()?, f[3].trim().parse()?))
+            })
+            .collect::<Result<_>>()?,
+        Err(_) => Vec::new(),
     };
     let hold: Option<([i32; 3], u32, u32)> = match std::env::var("MCTAS_REPLAY_HOLDCART") {
         Ok(s) => {
@@ -521,7 +572,18 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
         }
         Err(_) => None,
     };
-    let mut swap_old: Option<String> = None;
+    let mut swap_old: Vec<Option<String>> = vec![None; swaps.len()];
+    let mut move_rows: Vec<String> = Vec::new();
+    let move_box: Option<[f64; 6]> = match std::env::var("MCTAS_REPLAY_MOVE_BOX") {
+        Ok(s) => {
+            let v: Vec<f64> = s.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+            anyhow::ensure!(v.len() == 6, "MCTAS_REPLAY_MOVE_BOX=x0,y0,z0,x1,y1,z1 (frame), got {s}");
+            Some([v[0], v[1], v[2], v[3], v[4], v[5]])
+        }
+        Err(_) => None,
+    };
+    let move_clipped_only = std::env::var_os("MCTAS_REPLAY_MOVE_CLIPPED").is_some();
+    let (mut drop_clips, mut lip_rests) = (0usize, 0usize);
     let block_asserts: Vec<([i32; 3], String)> = match std::env::var("MCTAS_REPLAY_ASSERT") {
         Ok(s) => s
             .split(';')
@@ -560,15 +622,15 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
         // set to STATE before tick t0 and its own state restored before t1 (each write must change it);
         // MCTAS_REPLAY_HOLDCART="x,y,z;t0;t1": an EMPTY minecart summoned on the cell before t0 and held
         // there (position and zero motion re-set before every tick) until t1, then removed
-        if let Some((c, st, a, b)) = swap.as_ref() {
+        for (k, (c, st, a, b)) in swaps.iter().enumerate() {
             let cmd_at = |s: &str| format!("setblock {} {} {} {s}", c[0], c[1] + DY, c[2]);
             if t == *a {
-                swap_old = Some(cell_state(&mut srv, *c)?);
+                swap_old[k] = Some(cell_state(&mut srv, *c)?);
                 let out = srv.cmd(&cmd_at(st))?;
                 anyhow::ensure!(out.contains("Changed the block"), "MCTAS_REPLAY_SWAP at t{t}: {}", out.trim());
-                events.push(format!("t{t}: SWAP ({},{},{}) {} -> {st}", c[0], c[1], c[2], swap_old.clone().unwrap_or_default()));
+                events.push(format!("t{t}: SWAP ({},{},{}) {} -> {st}", c[0], c[1], c[2], swap_old[k].clone().unwrap_or_default()));
             } else if t == *b {
-                let old = swap_old.clone().ok_or_else(|| anyhow::anyhow!("MCTAS_REPLAY_SWAP: no state saved"))?;
+                let old = swap_old[k].clone().ok_or_else(|| anyhow::anyhow!("MCTAS_REPLAY_SWAP: no state saved"))?;
                 let out = srv.cmd(&cmd_at(&old))?;
                 anyhow::ensure!(out.contains("Changed the block"), "MCTAS_REPLAY_SWAP restore at t{t}: {}", out.trim());
                 events.push(format!("t{t}: SWAP ({},{},{}) restored to {old}", c[0], c[1], c[2]));
@@ -739,9 +801,58 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
                 unread.push(format!("t{t}: {l}"));
                 continue;
             }
+            if l.starts_with("move cart req ") {
+                if move_window.is_some_and(|(a, b)| (a..=b).contains(&t)) {
+                    // (G1 10:04, ironspec 10:06: the drop-entry row) MCTAS_REPLAY_MOVE_BOX limits the
+                    // rows to carts whose box meets that frame box; MCTAS_REPLAY_MOVE_CLIPPED keeps only
+                    // moves that collided (a flag set) or got less than they asked
+                    let mv = parse_move(&l);
+                    let keep_box = match (&move_box, &mv) {
+                        (Some(r), Some(m)) => {
+                            let dy = DY as f64;
+                            m.bmin[0] < r[3] && m.bmax[0] > r[0] && (m.bmin[1] - dy) < r[4] && (m.bmax[1] - dy) > r[1] && m.bmin[2] < r[5] && m.bmax[2] > r[2]
+                        }
+                        (Some(_), None) => true,
+                        (None, _) => true,
+                    };
+                    let clipped = mv.as_ref().is_none_or(|m| m.hcoll || m.vcoll || (0..3).any(|i| (m.req[i] - m.got[i]).abs() > 1e-9));
+                    if keep_box && (!move_clipped_only || clipped) {
+                        let mut s = l.clone();
+                        for (u, name) in &uuid_names {
+                            s = s.replace(u.as_str(), name);
+                        }
+                        if let Some(m) = &mv {
+                            // the drop's two failure forms (ironfarm 10:04): a move clipped into C's
+                            // support glass (3,23,7) at its north face, and an off-rail rest at the lip
+                            let dy = DY as f64;
+                            let into_c = m.hcoll && m.req[2] > 0.0 && m.bmin[0] < 4.0 && m.bmax[0] > 3.0 && (m.bmin[1] - dy) < 24.0 && (m.bmax[1] - dy) > 23.0 && (m.bmax[2] - 7.0).abs() < 0.02;
+                            let cx = (m.bmin[0] + m.bmax[0]) / 2.0;
+                            let cz = (m.bmin[2] + m.bmax[2]) / 2.0;
+                            let lip_rest = m.got.iter().all(|g| g.abs() < 1e-9) && m.req.iter().any(|r| r.abs() > 1e-9) && (m.bmin[1] - dy - 24.0).abs() < 0.05 && (3.0..4.5).contains(&cx) && (6.0..7.5).contains(&cz);
+                            if into_c {
+                                drop_clips += 1;
+                                s.push_str(" [CLIP INTO C's support (3,23,7)]");
+                            }
+                            if lip_rest {
+                                lip_rests += 1;
+                                s.push_str(" [AT REST at the lip]");
+                            }
+                        }
+                        move_rows.push(format!("t{t}: {s}"));
+                    }
+                }
+                continue;
+            }
             if l.starts_with("push cart by ") || l.starts_with("pushlist ") {
                 if push_window.is_some_and(|(a, b)| (a..=b).contains(&t)) {
                     let mut s = l.clone();
+                    // (ironspec 10:09) per push: the pusher's activity and walk target
+                    if let Some(pu) = l.strip_prefix("push cart by Villager ").and_then(|r| r.split_whitespace().next())
+                        && let Some(&pi) = by_uuid.get(pu)
+                    {
+                        let p = &vs[pi];
+                        s.push_str(&format!(" [pusher activity {}, walk target by {}]", if p.activity.is_empty() { "?" } else { p.activity.as_str() }, p.wt.as_deref().unwrap_or("none")));
+                    }
                     for (u, name) in &uuid_names {
                         s = s.replace(u.as_str(), name);
                     }
@@ -888,7 +999,9 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
                 let v = &mut vs[vi];
                 v.slept.push(t);
                 if let Some((s, _)) = v.at_stop.take() {
-                    events.push(format!("t{t}: {tag} LIE-DOWN (at the stop since t{s})"));
+                    v.stop_done = true;
+                    events.push(format!("t{t}: {tag} LIE-DOWN (at the stop since t{s}, least distance {:.3})", v.stop_least));
+                    stop_visits.push(format!("{tag} t{s}: least {:.3}, lay down at t{t} (+{} gt)", v.stop_least, t - s));
                 }
             } else if l.starts_with("poi ") {
                 events.push(format!("t{t}: {tag} {body}"));
@@ -1031,30 +1144,44 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
                 v.dawn.push(format!("t{t}: stamp {}", v.stamp.map(|s| format!("age {}", now - s)).unwrap_or_else(|| "none".into())));
             }
         }
-        // (ironspec 09:42 (R1)) FARM-STOP: at night, every 5 gt, a villager (not gone) within SleepInBed's
-        // 2.0 of the bed head's centre is at the stop: it must hold HOME on arrival and lie down
-        // (LAST_SLEPT set) within the 900-gt follow window, or before it leaves (> 3.0)
-        if night && t % 5 == 0 {
+        // (ironspec 09:42 (R1)) FARM-STOP: at night a villager (not gone) that comes within 3.0 of the bed
+        // head's centre starts a stop visit; it must hold HOME on arrival and lie down (its LAST_SLEPT
+        // set) within the 900-gt follow window, or before it leaves past 4.0. (G1 on L) each visit
+        // prints its least distance (so a napper standing at ~2.05, outside SleepInBed's strict 2.0,
+        // fails visibly) and its arrival -> lie-down time; villagers within 4.0 are sampled every tick,
+        // the rest every 5 gt
+        if night {
             for v in vs.iter_mut() {
-                if v.gone.is_some() {
+                if v.gone.is_some() || !(t % 5 == 0 || v.near_stop) {
                     continue;
                 }
                 let Some(p) = pos_of(&mut srv, &format!("@e[tag={},limit=1]", v.tag))? else { continue };
                 let dist = ((p[0] - centre[0]).powi(2) + (p[1] - centre[1]).powi(2) + (p[2] - centre[2]).powi(2)).sqrt();
+                v.near_stop = dist < 4.0;
+                // a villager that lay down starts no new visit until it has left past 4.0 (its sleep
+                // and the release's wake-up are the same visit)
+                if v.stop_done && dist > 4.0 {
+                    v.stop_done = false;
+                }
                 match v.at_stop {
-                    None if dist < 2.0 && v.slept.last().is_none_or(|&s| s + 5 < t) => {
+                    None if dist < 3.0 && !v.stop_done => {
                         v.at_stop = Some((t, v.has_home));
+                        v.stop_least = dist;
                         if !v.has_home {
                             farm_stop.push(format!("t{t}: {} at the stop ({dist:.2} from the head's centre) WITHOUT HOME", v.tag));
                         }
                     }
-                    Some((s, _)) if t > s + 900 => {
-                        farm_stop.push(format!("t{t}: {} at the stop since t{s}, no lie-down within 900 gt", v.tag));
-                        v.at_stop = None;
-                    }
-                    Some((s, _)) if dist > 3.0 => {
-                        farm_stop.push(format!("t{t}: {} left the stop ({dist:.2}) after t{s} without lying down", v.tag));
-                        v.at_stop = None;
+                    Some((s, _)) => {
+                        v.stop_least = v.stop_least.min(dist);
+                        if t > s + 900 {
+                            farm_stop.push(format!("t{t}: {} at the stop since t{s} (least distance {:.3}), no lie-down within 900 gt", v.tag, v.stop_least));
+                            stop_visits.push(format!("{} t{s}: least {:.3}, NO lie-down within 900 gt", v.tag, v.stop_least));
+                            v.at_stop = None;
+                        } else if dist > 4.0 {
+                            farm_stop.push(format!("t{t}: {} left the stop ({dist:.2}) after t{s} (least distance {:.3}) without lying down", v.tag, v.stop_least));
+                            stop_visits.push(format!("{} t{s}: least {:.3}, left at t{t} without lying down", v.tag, v.stop_least));
+                            v.at_stop = None;
+                        }
                     }
                     _ => {}
                 }
@@ -1179,6 +1306,17 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
             v.least_occupied.map(|(d, t)| format!("{d:.2} (t{t})")).unwrap_or_else(|| "- (never occupied at a read)".into())
         );
     }
+    if let Some((a, b)) = move_window {
+        println!(
+            "  minecart moves t{a}..t{b} (+move: each Entity.move's requested delta, the movement it got, the collision flags after it, the box{}{}): {} line(s); clipped into C's support (3,23,7): {drop_clips}; at rest at the drop lip: {lip_rests}",
+            move_box.map(|r| format!("; carts meeting the frame box {r:?}")).unwrap_or_default(),
+            if move_clipped_only { "; clipped moves only" } else { "" },
+            move_rows.len()
+        );
+        for r in &move_rows {
+            println!("    {r}");
+        }
+    }
     if let Some((a, b)) = push_window {
         println!("  pushes t{a}..t{b} (+push: every AbstractMinecart.push with the cart's delta before -> after and both boxes; every seated villager's pushEntities list; in the game's own order within each tick): {} line(s)", push_rows.len());
         for r in &push_rows {
@@ -1289,8 +1427,13 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
     }
     for v in vs.iter() {
         if let Some((s, _)) = v.at_stop {
-            farm_stop.push(format!("{} at the stop since t{s} at the run's end, no lie-down", v.tag));
+            farm_stop.push(format!("{} at the stop since t{s} at the run's end (least distance {:.3}), no lie-down", v.tag, v.stop_least));
+            stop_visits.push(format!("{} t{s}: least {:.3}, still at the stop at the run's end", v.tag, v.stop_least));
         }
+    }
+    println!("  stop visits (within 3.0 of the bed head's centre at night; per visit: the least distance, the arrival -> lie-down time): {}", stop_visits.len());
+    for sv in &stop_visits {
+        println!("    visit {sv}");
     }
     println!(
         "  printed only (ironspec 09:42 (R1)): night REST ticks without a complete HOME path {partial} of {judged} villager-ticks (trips excluded: {complete}); villagers whose stamp ever reached 1,000 gt: {old}"
