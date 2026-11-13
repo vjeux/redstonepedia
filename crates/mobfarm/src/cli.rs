@@ -926,9 +926,10 @@ pub enum MobfarmCmd {
         /// Run ticks after t0.
         #[arg(long, default_value_t = 720)]
         ticks: i64,
-        /// The day time at t0 (tick-exact's --day-start).
-        #[arg(long, default_value_t = 11_000)]
-        day0: i64,
+        /// The day time at t0 (tick-exact's --day-start; a bench's `RunOpts::day0`). The drive's own `# day0 N`
+        /// line gives it when present (a contradicting --day0 is refused); a drive without one needs it given.
+        #[arg(long)]
+        day0: Option<i64>,
         #[arg(long)]
         noai: bool,
         /// Traced lines and windows: `e11,e12:0-720;e16:440-720`.
@@ -974,6 +975,10 @@ pub enum MobfarmCmd {
         /// and consecutive-entry gaps on and off (the push → time shift).
         #[arg(long)]
         push_shift: bool,
+        /// Replay a prefix of the drive: its acts and `# expect` lines past --ticks are counted and named, not
+        /// failures (without it they fail: a drive replayed short is said so).
+        #[arg(long)]
+        partial: bool,
     },
     /// (ironspec 2026-11-12 23:19 (3) / 23:21 / 23:38 / 23:48) A design file must be saved settled: laid as
     /// the judges lay a design, its entities held (present, never ticked), daylight at the file's declared
@@ -14141,7 +14146,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::DriveReplay { scene, drive, ticks, day0, noai, trace, pushes, compare, pos_tol, gaps_at, offset, push_off, hold_cart, pass_cells, nappers, keep_port_home, push_shift } => {
+        MobfarmCmd::DriveReplay { scene, drive, ticks, day0, noai, trace, pushes, compare, pos_tol, gaps_at, offset, push_off, hold_cart, pass_cells, nappers, keep_port_home, push_shift, partial } => {
             anyhow::ensure!(offset.len() == 3, "--offset DX,DY,DZ");
             let mut lines_n: Vec<usize> = Vec::new();
             for s in nappers.split(',').map(str::trim).filter(|s| !s.is_empty()) {
@@ -14151,7 +14156,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 anyhow::ensure!(!lines_n.contains(&n), "--nappers e{n} given twice");
                 lines_n.push(n);
             }
-            let o = crate::drivereplay::Opts { scene, drive, ticks, day0, noai, trace: crate::drivereplay::parse_trace(&trace)?, pushes, compare, pos_tol, gaps_at, offset: [offset[0], offset[1], offset[2]], push_off, hold_cart: crate::drivereplay::parse_hold_cart(&hold_cart)?, pass_cells: crate::drivereplay::parse_cells(&pass_cells)?, nappers: lines_n, keep_port_home };
+            let o = crate::drivereplay::Opts { scene, drive, ticks, day0, noai, trace: crate::drivereplay::parse_trace(&trace)?, pushes, compare, pos_tol, gaps_at, offset: [offset[0], offset[1], offset[2]], push_off, hold_cart: crate::drivereplay::parse_hold_cart(&hold_cart)?, pass_cells: crate::drivereplay::parse_cells(&pass_cells)?, nappers: lines_n, keep_port_home, partial, push_shift };
             let r = if push_shift { crate::drivereplay::push_shift(&o)? } else { crate::drivereplay::run(&o)? };
             for l in &r.lines {
                 println!("{l}");
