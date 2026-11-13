@@ -6779,6 +6779,14 @@ pub enum MobfarmCmd {
         #[arg(long)]
         rows: bool,
     },
+    /// (58f770cc, the waker's placement) Every non-air block of a design inside a box, one
+    /// `x,y,z state` per line (the design's own frame), with the box's free cells counted per layer.
+    Cells {
+        design: PathBuf,
+        /// The box's two corners, `x0,y0,z0:x1,y1,z1` (inclusive).
+        #[arg(long, allow_hyphen_values = true)]
+        r#box: String,
+    },
     BedtierBench {
         design: PathBuf,
         #[arg(long, default_value_t = 1)]
@@ -16418,6 +16426,32 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             for l in crate::bedtier::waker_lines(&spec).map_err(|e| anyhow::anyhow!(e))? {
                 println!("waker: {l}");
+            }
+        }
+        MobfarmCmd::Cells { design, r#box } => {
+            let (_c, spec) = load(version, &design)?;
+            let (a, b) = r#box.split_once(':').ok_or_else(|| anyhow::anyhow!("--box x0,y0,z0:x1,y1,z1"))?;
+            let p = |s: &str| -> Result<[i32; 3]> {
+                let v: Vec<i32> = s.split(',').map(|x| x.trim().parse::<i32>()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(v.len() == 3, "a corner is x,y,z");
+                Ok([v[0], v[1], v[2]])
+            };
+            let (a, b) = (p(a)?, p(b)?);
+            let lo = [a[0].min(b[0]), a[1].min(b[1]), a[2].min(b[2])];
+            let hi = [a[0].max(b[0]), a[1].max(b[1]), a[2].max(b[2])];
+            let mut cells: std::collections::BTreeMap<(i32, i32, i32), String> = std::collections::BTreeMap::new();
+            for (q, blk) in &spec.blocks {
+                if (lo[0]..=hi[0]).contains(&q.x) && (lo[1]..=hi[1]).contains(&q.y) && (lo[2]..=hi[2]).contains(&q.z) && !blk.is_air() {
+                    cells.insert((q.y, q.z, q.x), format!("{blk}"));
+                }
+            }
+            for ((y, z, x), s) in &cells {
+                println!("{x},{y},{z} {s}");
+            }
+            let per_layer = (hi[0] - lo[0] + 1) * (hi[2] - lo[2] + 1);
+            for y in lo[1]..=hi[1] {
+                let n = cells.keys().filter(|k| k.0 == y).count() as i32;
+                println!("layer y {y}: {n} blocks, {} free of {per_layer}", per_layer - n);
             }
         }
         MobfarmCmd::StrandWindow { files, spacing, lag, lie_after_entry, rows } => {
