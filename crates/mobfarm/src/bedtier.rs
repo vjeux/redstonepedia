@@ -1179,6 +1179,8 @@ pub struct Row {
     pub hold_stamp_at_depart: Option<Option<i64>>,
     pub hold_lines: Vec<String>,
     pub launch_cells: Vec<([i32; 3], f64)>,
+    /// (G1 C16) The cells holding water at the visit's end (the design's own water is the bar).
+    pub water_cells: usize,
     /// Boardings after the release (1 expected; more is a pickup fault).
     pub boardings: usize,
     /// The least distance from HOME's head centre to the napper's feet while it stands after the
@@ -1842,6 +1844,8 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
     let mut zid = run.world.entities.list.iter().find(|e| e.id >= first && matches!(&e.kind, redsim::entity::EntityKind::Mob(m) if m.ty == redsim::entity::mob::types::MobType::Zombie)).map(|e| e.id);
     // ((A)'s exit-slope hold present: the slope (1,-1,5) a powered rail (ironspec 09:38))
     let hold_slope_on = format!("{}", run.world.get(BlockPos::new(1, -1, 5))).contains("powered_rail");
+    // (Z1's design: the waker's shutter at WAKER_SHUT (an iron trapdoor))
+    let z1_design = format!("{}", run.world.get(BlockPos::new(WAKER_SHUT[0], WAKER_SHUT[1], WAKER_SHUT[2]))).contains("iron_trapdoor");
     let mut row = Row { seed, speed, fluid_scheduled, ..Default::default() };
     if dropped > 0 {
         row.problems.push(format!("{dropped} of the design's cells outside the world's box"));
@@ -2098,7 +2102,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                 // (record7's built R1: NOT-ready falls; N on, the built repeaters power the queue rail;
                 // an edge: a no-op write is refused (G1's C14))
                 if !set_lever(&mut run.world, BlockPos::new(c[0], c[1], c[2]), false)? {
-                    anyhow::bail!("the built release lever ({},{},{}) was already off at the queue release (an expected edge wrote nothing)", c[0], c[1], c[2]);
+                    return Err(format!("the built release lever ({},{},{}) was already off at the queue release (an expected edge wrote nothing)", c[0], c[1], c[2]));
                 }
             } else {
                 let (_, driver, facing) = release_cells(&a);
@@ -2116,7 +2120,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
         {
             departed = true;
             if !set_lever(&mut run.world, BlockPos::new(c[0], c[1], c[2]), true)? {
-                anyhow::bail!("the built release lever ({},{},{}) was already on at the departure (an expected edge wrote nothing)", c[0], c[1], c[2]);
+                return Err(format!("the built release lever ({},{},{}) was already on at the departure (an expected edge wrote nothing)", c[0], c[1], c[2]));
             }
         }
         // (DAY's lever: the daylight detector updates at game time % 20 only)
@@ -2251,7 +2255,10 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             row.release_at = Some(t);
             row.stamp_at_release = vill.and_then(|v| idx(&run.world, v)).filter(|&vi| redsim::entity::mob::ai::brain::has_exact(&run.world, vi)).map(|vi| redsim::entity::mob::ai::brain::ex(&run.world, vi).mem.cant_reach_since.map(|c| run.world.time - c));
         }
-        if f.hide_after_wake && !hidden && row.woke_at.is_some() {
+        // (the window shut on the wake edge: Z1's design does it as its normal operation (its
+        // shutter's drive powered again by the wake: F's line), any other design only under the
+        // --hide-after-wake fault)
+        if (f.hide_after_wake || z1_design) && !hidden && row.woke_at.is_some() {
             for c in lay.hatch_ctrl.clone() {
                 set(&mut run.world, c, "redstone_block");
             }
@@ -3117,11 +3124,14 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
     if row.paths_after_wake.contains(&"north") {
         row.problems.push(if row.paths_after_restart.contains(&"north") { "a northward path off the pickup cell after the restart" } else { "a northward path off the pickup cell" }.into());
     }
-    let expect_seated = !f.empty && !f.no_home && !f.hide_after_wake;
+    // (--hide-after-wake is a FAULT only off Z1's design; on Z1 the shut window is the normal
+    // operation, so the seated and swept-cell checks apply)
+    let hide_fault = f.hide_after_wake && !z1_design;
+    let expect_seated = !f.empty && !f.no_home && !hide_fault;
     if expect_seated && !row.seated_out {
         row.problems.push("the napper not seated".into());
     }
-    if !f.hide_after_wake {
+    if !hide_fault {
         for c in &row.cells_after_wake {
             if !SWEPT.contains(c) {
                 row.problems.push(format!("the woken napper stood on {c:?}, outside the swept cells"));
@@ -3130,6 +3140,36 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
     }
     if !run.world.errors.is_empty() {
         row.problems.push(format!("world: {}", run.world.errors.join("; ")));
+    }
+    // (G1's CHANGES C16, the water bar: every cell holding water at the visit's end (a water block
+    // or a waterlogged state) against the design's own water cells: new water (an escape) or water
+    // gone fails the row)
+    {
+        let wet = |s: &str| s.starts_with("minecraft:water") || s.contains("waterlogged=true");
+        let design_wet: std::collections::BTreeSet<[i32; 3]> = spec.blocks.iter().filter(|(_, b)| wet(&format!("{b}"))).map(|(p, _)| [p.x, p.y, p.z]).collect();
+        let mut new_wet = Vec::new();
+        let mut now_wet = std::collections::BTreeSet::new();
+        for x in spec.lo.x..=spec.hi.x {
+            for y in spec.lo.y..=spec.hi.y {
+                for z in spec.lo.z..=spec.hi.z {
+                    let s = format!("{}", run.world.get(BlockPos::new(x, y, z)));
+                    if wet(&s) {
+                        now_wet.insert([x, y, z]);
+                        if !design_wet.contains(&[x, y, z]) {
+                            new_wet.push(format!("({x},{y},{z}) {s}"));
+                        }
+                    }
+                }
+            }
+        }
+        let gone: Vec<&[i32; 3]> = design_wet.iter().filter(|c| !now_wet.contains(*c)).collect();
+        row.water_cells = now_wet.len();
+        if !new_wet.is_empty() {
+            row.problems.push(format!("new water at the visit's end (an escape; G1 C16): {} cells: {}", new_wet.len(), new_wet.iter().take(4).cloned().collect::<Vec<_>>().join("; ")));
+        }
+        if !gone.is_empty() {
+            row.problems.push(format!("the design's water gone at the visit's end (G1 C16): {gone:?}"));
+        }
     }
     Ok(row)
 }
