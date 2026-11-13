@@ -8,7 +8,7 @@ riderless: 1,-26,-5+0,-27,-5+-1,-27,-5+-2,-27,-5+-2,-27,-4+-2,-27,-3+-2,-27,-2+-
 run-cells: P0 -1,0,0; D0 -1,0,2; H0 -1,16,0; P1 3,0,0; D1 3,0,2; H1 3,16,0; P2 7,0,0; D2 7,0,2; H2 7,16,0; PAD0 -3,-6,-6; PAD1 8,-6,-1; wayin.P0 -1,0,0; wayin.D0 -1,0,2; wayin.H0 -1,16,0; wayin.P1 3,0,0; wayin.D1 3,0,2; wayin.H1 3,16,0; wayin.P2 7,0,0; wayin.D2 7,0,2; wayin.H2 7,16,0; wayin.PAD0 -3,-6,-6; wayin.PAD1 8,-6,-1
 unreachable: -4,-26,4=A6's top-hatch lever cell (58f770cc 14:22, ironspec 14:23: the bed top's diagonal into it blocked on both sides by the hatch's trapdoor (-4,-26,3) and the glass (-3,-26,4); flee-check from 42 places draws nothing there; no visit stood or waited there in 100,000)
 waker-places: -3,-27,3=asleep in the bed, woken by F (2.04); -2,-27,3=standing up on the pickup cell and seated there (3.03); -2,-27,4+0,-27,4+1,-27,4+1,-28,4+2,-28,4=riding out past the hatch to R (3.08..6.66) (58f770cc's A6 b36302af8, its local cells + (0,-27,-1))
-way-in: b8949c96 way-cell --write: the queue rail [9, -14, -4] (the staircase descending south), the post [2, -12, -6] (a zombie in an oak boat, its cells among the extra cells), 80 extra cell(s) (the leg, the walls, the run), laid on /tmp/oc-89f/stop9-89f8d159e.txt (WIP, bench, tool unreviewed)
+way-in: b8949c96 way-cell --write: the queue rail [9, -14, -4] (the staircase descending south), the post [2, -12, -6] (a zombie in an oak boat, its cells among the extra cells), 19 extra cell(s) (the leg, the walls, the run), laid on /tmp/wayin-before.txt (WIP, bench, tool unreviewed)
 port home: -3 -27 3
 port nether-anchor: -6 0 -6
 port nether-axis: -5 0 -6
@@ -27,12 +27,15 @@ entity: minecraft:oak_boat -4.5 2 -4.5 {Passengers:[{id:"minecraft:zombie",Persi
 entity: minecraft:oak_boat 1.5 25 -4.5 {Passengers:[{id:"minecraft:pillager",PersistenceRequired:1b}]}
 origin: -6 0 -6
 palette:
-  0 minecraft:stone_button[face=floor,facing=north,powered=false]
-  1 minecraft:tripwire[attached=false,disarmed=false,east=false,north=false,powered=false,south=false,west=false]
-  2 minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]
-  3 minecraft:tripwire_hook[attached=true,facing=east,powered=false]
-  4 minecraft:tripwire_hook[attached=true,facing=west,powered=false]
-  5 minecraft:water[level=0]
+  0 minecraft:slime_block
+  1 minecraft:smooth_stone_slab[type=bottom,waterlogged=false]
+  2 minecraft:soul_sand
+  3 minecraft:stone_button[face=floor,facing=north,powered=false]
+  4 minecraft:tripwire[attached=false,disarmed=false,east=false,north=false,powered=false,south=false,west=false]
+  5 minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]
+  6 minecraft:tripwire_hook[attached=true,facing=east,powered=false]
+  7 minecraft:tripwire_hook[attached=true,facing=west,powered=false]
+  8 minecraft:water[level=0]
   A minecraft:activator_rail[powered=true,shape=east_west,waterlogged=false]
   B minecraft:bubble_column[drag=false]
   C minecraft:chest[facing=south,type=single,waterlogged=false]
@@ -47,44 +50,44 @@ palette:
   L minecraft:lever[face=ceiling,facing=north,powered=false]
   M minecraft:lever[face=floor,facing=north,powered=true]
   N minecraft:lightning_rod[facing=up,powered=false,waterlogged=false]
-  O minecraft:oak_leaves[distance=7,persistent=true,waterlogged=false]
-  P minecraft:oak_wall_sign[facing=south,waterlogged=false]
-  Q minecraft:obsidian
-  R minecraft:powered_rail[powered=false,shape=ascending_north,waterlogged=false]
-  S minecraft:powered_rail[powered=false,shape=ascending_south,waterlogged=false]
-  T minecraft:powered_rail[powered=false,shape=north_south,waterlogged=false]
-  U minecraft:powered_rail[powered=true,shape=ascending_east,waterlogged=false]
-  V minecraft:powered_rail[powered=true,shape=ascending_south,waterlogged=false]
-  W minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]
-  X minecraft:powered_rail[powered=true,shape=north_south,waterlogged=false]
-  Y minecraft:rail[shape=ascending_north,waterlogged=false]
-  Z minecraft:rail[shape=ascending_south,waterlogged=false]
-  a minecraft:rail[shape=ascending_west,waterlogged=false]
-  b minecraft:rail[shape=east_west,waterlogged=false]
+  O minecraft:oak_fence
+  P minecraft:oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]
+  Q minecraft:oak_wall_sign[facing=south,waterlogged=false]
+  R minecraft:obsidian
+  S minecraft:powered_rail[powered=false,shape=ascending_north,waterlogged=false]
+  T minecraft:powered_rail[powered=false,shape=ascending_south,waterlogged=false]
+  U minecraft:powered_rail[powered=false,shape=north_south,waterlogged=false]
+  V minecraft:powered_rail[powered=true,shape=ascending_east,waterlogged=false]
+  W minecraft:powered_rail[powered=true,shape=ascending_south,waterlogged=false]
+  X minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]
+  Y minecraft:powered_rail[powered=true,shape=north_south,waterlogged=false]
+  Z minecraft:rail[shape=ascending_north,waterlogged=false]
+  a minecraft:rail[shape=ascending_south,waterlogged=false]
+  b minecraft:rail[shape=ascending_west,waterlogged=false]
   c minecraft:cobblestone
   d minecraft:detector_rail[powered=false,shape=ascending_north,waterlogged=false]
-  e minecraft:rail[shape=north_east,waterlogged=false]
-  f minecraft:rail[shape=north_south,waterlogged=false]
+  e minecraft:rail[shape=east_west,waterlogged=false]
+  f minecraft:rail[shape=east_west,waterlogged=true]
   g minecraft:glass
-  h minecraft:rail[shape=north_west,waterlogged=false]
+  h minecraft:rail[shape=north_east,waterlogged=false]
   i minecraft:iron_trapdoor[facing=west,half=bottom,open=true,powered=true,waterlogged=false]
-  j minecraft:rail[shape=south_east,waterlogged=false]
-  k minecraft:rail[shape=south_west,waterlogged=false]
+  j minecraft:rail[shape=north_south,waterlogged=false]
+  k minecraft:rail[shape=north_west,waterlogged=false]
   l minecraft:lever[face=ceiling,facing=north,powered=true]
-  m minecraft:red_bed[facing=south,occupied=false,part=foot]
+  m minecraft:rail[shape=south_east,waterlogged=false]
   n minecraft:nether_portal[axis=x]
-  o minecraft:oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]
+  o minecraft:oak_leaves[distance=7,persistent=true,waterlogged=false]
   p minecraft:powered_rail[powered=false,shape=ascending_east,waterlogged=false]
-  q minecraft:red_bed[facing=south,occupied=false,part=head]
+  q minecraft:rail[shape=south_east,waterlogged=true]
   r minecraft:rail[shape=ascending_east,waterlogged=false]
-  s minecraft:redstone_block
-  t minecraft:redstone_torch[lit=true]
-  u minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
-  v minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
-  w minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
-  x minecraft:slime_block
-  y minecraft:smooth_stone_slab[type=bottom,waterlogged=false]
-  z minecraft:soul_sand
+  s minecraft:rail[shape=south_west,waterlogged=false]
+  t minecraft:red_bed[facing=south,occupied=false,part=foot]
+  u minecraft:red_bed[facing=south,occupied=false,part=head]
+  v minecraft:redstone_block
+  w minecraft:redstone_torch[lit=true]
+  x minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+  y minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  z minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
 layer -29:
   .
   .
@@ -96,7 +99,7 @@ layer -29:
   .
   .
   ............g
-  .......gggggzg
+  .......ggggg2g
   ............g
   .
   .
@@ -113,7 +116,7 @@ layer -28:
   ....g
   ..ggg
   .g.gg.......g
-  ....gggabbFbBg
+  ....gggbeeFeBg
   .....g......g
   .
   .
@@ -121,17 +124,17 @@ layer -28:
   .
 layer -27:
   ......Kg
-  ....jbpg
-  ....f
-  ....f
-  ....f
-  ....fg
-  ....fg
-  ...gfg
-  .gMmfg
-  g.iqfg......g
-  .gggeWb....gBg
-  .....t......g
+  ....mepg
+  ....j
+  ....j
+  ....j
+  ....jg
+  ....jg
+  ...gjg
+  .gMtjg
+  g.iujg......g
+  .ggghXe....gBg
+  .....w......g
   .
   .
   .
@@ -154,17 +157,17 @@ layer -26:
   .
   .
 layer -25:
-  ........Mt
-  .....0..AWbbbbbk
-  .......gCg.....f
-  .......g.g.....Z
+  ........Mwgggg
+  .....3..AXffffes
+  .......gCggggg.j
+  .......g.g.....a
   ....gggg.g.....g
   ...g.....g
   ...g.gggg
   ..g..g
-  ..g0g
+  ..g3g
   .gg.g.......g
-  ...gg00....gBg
+  ...gg33....gBg
   ............g
   .
   .
@@ -175,12 +178,12 @@ layer -24:
   .......gg
   .......g.g
   .......g.g
-  ....gggg.g.....S
+  ....gggg.g.....a
   ...g.....g..gggg
   ...g.gggg...g
   ..g..g
   ..g.g
-  .Og.g.......g
+  .og.g.......g
   ...g.......gBg
   ............g
   .
@@ -192,9 +195,9 @@ layer -23:
   .........g
   .
   .
-  .
-  ............jbbh
-  ............Z
+  ............O.O
+  ...........Oqefk
+  ............a.O
   ............g
   .
   .g.g........g
@@ -212,7 +215,7 @@ layer -22:
   .
   .
   .
-  ............Z
+  ............a
   ............gg
   ............g
   ...........gBg
@@ -230,7 +233,7 @@ layer -21:
   .
   .
   .
-  ............erg
+  ............hrg
   ............g
   ...........gBg
   ............g
@@ -263,8 +266,8 @@ layer -19:
   .
   .
   ...............g
-  ...............Y
-  ...............h
+  ...............Z
+  ...............k
   ............g
   ...........gBg
   ............g
@@ -279,7 +282,7 @@ layer -18:
   .
   .
   ...............g
-  ...............Y
+  ...............Z
   .
   .
   ............g
@@ -295,7 +298,7 @@ layer -17:
   .
   .
   ...............g
-  ...............Y
+  ...............Z
   .
   .
   .
@@ -311,7 +314,7 @@ layer -16:
   .
   .
   ...............g
-  ...............Y
+  ...............Z
   .
   .
   .
@@ -343,7 +346,7 @@ layer -15:
 layer -14:
   .
   ...............g
-  ...............R
+  ...............S
   .
   .
   .
@@ -427,10 +430,10 @@ layer -10:
   .
 layer -9:
   .
-  ....QQQQQQQQQQ
+  ....RRRRRRRRRR
   .
   .
-  ....QQQQQQQQQQ
+  ....RRRRRRRRRR
   .
   .
   .
@@ -444,10 +447,10 @@ layer -9:
   .
 layer -8:
   ....cccccccccc
-  ...QnnnnnnnnnnQ
+  ...RnnnnnnnnnnR
   ....cccccccccc
   ....cccccccccc
-  ...QnnnnnnnnnnQ
+  ...RnnnnnnnnnnR
   ....cccccccccc
   .
   .
@@ -461,10 +464,10 @@ layer -8:
   .
 layer -7:
   ...cccccccccccc
-  ...QnnnnnnnnnnQ
+  ...RnnnnnnnnnnR
   ...cccccccccccc
   ...cccccccccccc
-  ...QnnnnnnnnnnQ
+  ...RnnnnnnnnnnR
   ...cccccccccccc
   .
   .
@@ -478,10 +481,10 @@ layer -7:
   .
 layer -6:
   .
-  ...QnnnnnnnnnnQ
+  ...RnnnnnnnnnnR
   .
   .
-  ...QnnnnnnnnnnQ
+  ...RnnnnnnnnnnR
   .
   .
   .
@@ -495,10 +498,10 @@ layer -6:
   .
 layer -5:
   .
-  ...QQQQQQQQQQQQ
+  ...RRRRRRRRRRRR
   .
   .
-  ...QQQQQQQQQQQQ
+  ...RRRRRRRRRRRR
   .
   .
   .
@@ -521,7 +524,7 @@ layer -4:
   .
   .
   ............g
-  ...........gBgs
+  ...........gBgv
   ............g
   .
   .
@@ -538,7 +541,7 @@ layer -3:
   .
   .
   ...........gg
-  ..........g5.bUg
+  ..........g8.eVg
   ...........gg.gg
   .
   ..............g
@@ -555,10 +558,10 @@ layer -2:
   .
   .
   .
-  ...........gg..k
-  ..............tV
+  ...........gg..s
+  ..............wW
   ...............g
-  .g............t
+  .g............w
   ..............g
   .
 layer -1:
@@ -574,9 +577,9 @@ layer -1:
   .....g...g...g
   .....g...g...g
   ....gg..gg..gg
-  .....g...g...g.V
-  .zggggggggggggxg
-  ..............wx
+  .....g...g...g.W
+  .2gggggggggggg0g
+  ..............z0
   .
 layer 0:
   .g
@@ -584,25 +587,25 @@ layer 0:
   .g
   .
   .
-  .....x...x...x
-  .....T...T...T
-  .....f...f...f
+  .....0...0...0
+  .....U...U...U
+  .....j...j...j
   .....G...G...G
-  .....f...f...f
-  .....X...X...X
-  ....tX..tX..tX
-  .g...X...X...X
-  gBbbbhbbbhbFbhWk
-  .g.............T
-  ...............x
+  .....j...j...j
+  .....Y...Y...Y
+  ....wY..wY..wY
+  .g...Y...Y...Y
+  gBeeekeeekeFekXs
+  .g.............U
+  ...............0
 layer 1:
   .
   .g
   .
   .
   .
-  .....1...1...1
-  ...g324g324g324g
+  .....4...4...4
+  ...g657g657g657g
   .
   .
   .
@@ -813,7 +816,7 @@ layer 13:
   .
   .
   .gg
-  gBP
+  gBQ
   .g
   .
 layer 14:
@@ -857,7 +860,7 @@ layer 16:
   .
   .
   .....g...g...g
-  ....gog.gog.gog
+  ....gPg.gPg.gPg
   ...H.ggH.ggH.gg
   .
   .
@@ -873,9 +876,9 @@ layer 17:
   .
   .
   .
-  .....y...y...y
-  ...H324H324H324H
-  .....Su..Su..Su
+  .....1...1...1
+  ...H657H657H657H
+  .....Tx..Tx..Tx
   ....Hg.H.g.H.g
   .
   .
@@ -893,7 +896,7 @@ layer 18:
   .
   .
   ......g...g...g
-  .....Z...Z...Z
+  .....a...a...a
   ....Hg..Hg..Hg
   .
   .
@@ -911,7 +914,7 @@ layer 19:
   .
   .
   .
-  .....Z...Z...Z
+  .....a...a...a
   ....Hg..Hg..Hg
   .
   .g
@@ -929,7 +932,7 @@ layer 20:
   .
   .
   .
-  .....Z...Z...Z
+  .....a...a...a
   .....g...g...g
   .g
   gBg
@@ -947,7 +950,7 @@ layer 21:
   ...............g
   ...............g
   ...............g
-  ..HHHZ...Z...Z.g
+  ..HHHa...a...a.g
   .g...gH..gH..g
   gBg...H...H
   .g....H...H
@@ -955,20 +958,20 @@ layer 21:
 layer 22:
   ...............g
   ..............g
-  ...............f
-  .........g.....f
-  ...............f
-  ...............f
-  ...............f
-  ...............f
-  ...............f
-  ...............f
-  ...............f
-  ...............Z
-  .g...Z...Z...Z.g
+  ...............j
+  .........g.....j
+  ...............j
+  ...............j
+  ...............j
+  ...............j
+  ...............j
+  ...............j
+  ...............j
+  ...............a
+  .g...a...a...a.g
   gBg..g...g...g
   gg.g...g...g
-  ...x
+  ...0
 layer 23:
   .
   .
@@ -982,9 +985,9 @@ layer 23:
   .
   .
   .g
-  g5ggg..gg..gg..Z
-  g.gxgg.xgg.xgg.g
-  tV.v.g.v.g.v.g
+  g8ggg..gg..gg..a
+  g.g0gg.0gg.0gg.g
+  wW.y.g.y.g.y.g
   .gg
 layer 24:
   .
@@ -999,10 +1002,10 @@ layer 24:
   .
   .
   .....g...g...g
-  .g.jk..jk..jk
-  .g.Seh.Seh.Seh.Z
+  .g.ms..ms..ms
+  .g.Thk.Thk.Thk.a
   g..g.E.g.E.g.E.g
-  .erggggggggggggg
+  .hrggggggggggggg
 layer 25:
   .......g
   ......g
@@ -1018,8 +1021,8 @@ layer 25:
   .
   .
   .
-  ...f...f...f...f
-  ...ebebebebebhbh
+  ...j...j...j...j
+  ...hehehehehekek
 layer 26:
   .......g
   ......g.g
@@ -1055,22 +1058,22 @@ layer 27:
   .
   ...g.g.g.g.g.g
 layer 28:
-  yyyyyyyyyyyyyyyy
-  yyyyyyyyyyyyyyyy
-  yyyyyyyyyyyyyyyy
-  yyyyyyyyyyyyyyyy
-  yyyyyyyyyyyyyyyy
-  yyyyyyyyyyyyyyyy
-  yyyyyyyyyyyyyyyy
-  yyyyyyyyyyyyyyyy
-  yyyyyyyyyyyyyyyy
-  ygyyyyyyyyyyyyyy
-  yyyyyyyyyyyyyyyy
-  yyyyyyyyyyyyyyyy
-  yyyyyyyyyyyyyyyy
-  yyyyyyyyyyyyyyyy
-  yyyyyyyyyyyyyyyy
-  yyyyyyyyyyyyyyyy
+  1111111111111111
+  1111111111111111
+  1111111111111111
+  1111111111111111
+  1111111111111111
+  1111111111111111
+  1111111111111111
+  1111111111111111
+  1111111111111111
+  1g11111111111111
+  1111111111111111
+  1111111111111111
+  1111111111111111
+  1111111111111111
+  1111111111111111
+  1111111111111111
 layer 29:
   N
   .
@@ -1090,12 +1093,12 @@ layer 29:
   .
 nether-origin: 0 0 0
 nether layer 64:
-  .QQ
+  .RR
 nether layer 65:
-  QnnQ
+  RnnR
 nether layer 66:
-  QnnQ
+  RnnR
 nether layer 67:
-  QnnQ
+  RnnR
 nether layer 68:
-  .QQ
+  .RR
