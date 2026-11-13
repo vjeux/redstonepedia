@@ -8101,8 +8101,12 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             print!("{rep}");
             if let (Some(df), Some(sf), Some((drive_text, scene_entities))) = (&drive_out, &scene_out, out) {
                 // (tick-exact 07:12 PT) the module's text without its entity lines, then the run's
-                // whole spawn list, each line named as the drive names it
-                let mut scene: String = std::fs::read_to_string(&design)?.lines().filter(|l| !l.starts_with("entity:")).map(|l| format!("{l}\n")).collect();
+                // whole spawn list, each line named as the drive names it; (cc767b78 13:57) without
+                // its `port home:` line: the spawned villagers already carry its HOME (their Brain
+                // NBT) and the drive's t0 acts set every villager's HOME and LAST_SLEPT, so a replay
+                // rebuilds the recording's setup from the scene and the drive alone (the game knows no
+                // port line; redsim's loader refuses one beside Brain data)
+                let mut scene: String = std::fs::read_to_string(&design)?.lines().filter(|l| !l.starts_with("entity:") && !l.starts_with("port home:")).map(|l| format!("{l}\n")).collect();
                 scene.push_str("# (f1q2-run --scene-out: every entity the run spawned, in its spawn order, each named `# eN` as the drive names it (eN.pK its K-th passenger))\n");
                 scene.push_str(&scene_entities);
                 std::fs::write(sf, scene)?;
