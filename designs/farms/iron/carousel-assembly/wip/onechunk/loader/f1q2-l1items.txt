@@ -1,4 +1,5 @@
 # The one-chunk column's skeleton (mctas mobfarm column; no wiring): column x -6..25 z -6..41.
+# MOVED to the odd-odd gap chunk (1,1) (ironspec Nov 13 05:12 / 05:16 real: the budget's rule, which tick-exact's logged-out rows validated with the bench loop at (1,1); at (1,2) the module's chunk (0,0) sits at Chebyshev 2, ticket level 32): the overworld part by (0,0,-16) (origin 14 0 33 -> 14 0 17, its ports' z 16 less) and the Nether twin by (0,0,-2) (nether-origin -1 0 -3 -> -1 0 -5, still at the overworld portal's position / 8); every overworld z in the lines below reads 16 less (the portal interior z 33 -> 17, the droppers (16,y,34) -> (16,y,18), the hopper floor z 34..35 -> 18..19, the backstop z 36 -> 20), every Nether z 2 less.
 # F1 + Q2 budget (9fc3155f, main da6a01b66 wip/c3/f1q2-budget.txt) with L1''' laid in the shared gap chunk (1,2) (onechunk, Nov 11 23:50; ironspec's pick: the item loop; bench, tool unreviewed): the budget's reserved boxes as they are (loader-inside dropped), the loop frame (file = loop + 6,0,6), y = the level pocket rails.
 # L1''' overworld: portal interior x 15..19 y 5..7 z 33 (axis x), frame x 14..20 y 4..8; the firing dropper (16,5,34) facing north fed by the up-facing dropper (16,4,34); the hopper floor x 17..19 y 4 z 34..35 into it; the glass backstop x 17..20 y 5..7 z 36; the clock (EMULATED in the bench; a hopper clock ~200 gt + a line to both droppers, ~10 blocks, not laid) beside them at x 15 y 4..5 z 34. Inside chunk (1,2) (loop x 10..25 z 26..41): no chunk line; arrivals' PORTAL ticket in (1,2), its 3x3 the 4 modules around it.
 # L1''' Nether twin: the same cells (Nether part), its portal at the overworld portal's position / 8 (absolute), same y; each side fires from its own column (overworld 1, Nether 3 of the 5) so the other side's items come out clear of it.
@@ -27,14 +28,14 @@
 # reserved (no blocks): scarer-lift x -3..-2 y 5..19 z 6..6
 name: f1q2-l1items
 circuit: mob-farm iron_ingot
-port nether-anchor: 15 -5 33
-port nether-axis: 16 -5 33
-port output: 26 5 41
+port nether-anchor: 15 -5 17
+port nether-axis: 16 -5 17
+port output: 26 5 25
 nbt: 16 4 34 {Items:[{Slot:0b,id:"minecraft:cobblestone",count:2}]}
 nbt: 16 5 34 {Items:[{Slot:0b,id:"minecraft:cobblestone",count:1}]}
 nether nbt: 3 9 -1 {Items:[{Slot:0b,id:"minecraft:cobblestone",count:2}]}
 nether nbt: 3 10 -1 {Items:[{Slot:0b,id:"minecraft:cobblestone",count:1}]}
-origin: 14 0 33
+origin: 14 0 17
 palette:
   A minecraft:dropper[facing=up,triggered=false]
   B minecraft:hopper[enabled=true,facing=south]
@@ -71,7 +72,7 @@ layer 8:
   .
   .
   .
-nether-origin: -1 0 -3
+nether-origin: -1 0 -5
 nether layer 9:
   .
   .BBB
