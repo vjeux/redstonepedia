@@ -2625,6 +2625,10 @@ pub enum MobfarmCmd {
         at: Vec<String>,
         #[arg(long, allow_hyphen_values = true)]
         cart: Vec<String>,
+        /// A boarded-exit rail cell x,y,z (repeatable; G1 08:20): its bar is NONE OR COMPLETE
+        /// (a seated rider's complete path clears; only an unreached candidate fails).
+        #[arg(long, allow_hyphen_values = true)]
+        exit_at: Vec<String>,
         /// The hostile's feet x,y,z (as seated).
         #[arg(long, allow_hyphen_values = true)]
         from: String,
@@ -2654,6 +2658,9 @@ pub enum MobfarmCmd {
         at: Vec<String>,
         #[arg(long, allow_hyphen_values = true)]
         cart: Vec<String>,
+        /// A boarded-exit rail cell x,y,z (repeatable; G1 08:20): its bar is NONE OR COMPLETE.
+        #[arg(long, allow_hyphen_values = true)]
+        exit_at: Vec<String>,
         /// The run's declared start state: free | taken (the claims, as flee-check's).
         #[arg(long)]
         start_state: String,
@@ -2667,6 +2674,18 @@ pub enum MobfarmCmd {
         surround: String,
         #[arg(long, allow_hyphen_values = true)]
         pocket: Option<String>,
+    },
+    /// (ironspec Nov 13 08:26) Every rider position within `--radius` (default 16) of `--cell`'s
+    /// centre (the bed head: the exposure bar's subject), grouped by cell; `--column x,y0,z,y1`
+    /// adds a column's positions every 0.25.
+    NearPositions {
+        design: PathBuf,
+        #[arg(long, allow_hyphen_values = true)]
+        cell: String,
+        #[arg(long, default_value_t = 16.0)]
+        radius: f64,
+        #[arg(long, allow_hyphen_values = true)]
+        column: Vec<String>,
     },
     /// (ironspec Nov 13 06:11 platform, farmopt 06:31) The night coverage map: every rider position
     /// (each rail cell every 0.1, a slope's 0.97, each `--column` every 0.25) against every hostile
@@ -6595,6 +6614,7 @@ fn p_static_run(
     spec: &redsim::entity::mob::farm::FarmSpec,
     at: &[String],
     cart: &[String],
+    exit_at: &[String],
     set: &[String],
     hold: &[String],
     column_of: &[String],
@@ -6612,12 +6632,15 @@ fn p_static_run(
     }
     let holds = holds_with_header(hold, design)?;
     let columns = cells_of(column_of, "--column-of")?;
-    let mut places: Vec<(redsim::pos::BlockPos, Option<redsim::entity::Vec3>)> = cells_of(at, "--at")?.into_iter().map(|c| (c, None)).collect();
+    // (G1 08:20, the per-place bar: `--at` / `--cart` places (P) NONE; `--exit-at` places (the
+    // boarded exit) NONE OR COMPLETE)
+    let mut places: Vec<(redsim::pos::BlockPos, Option<redsim::entity::Vec3>, bool)> = cells_of(at, "--at")?.into_iter().map(|c| (c, None, false)).collect();
     for s in cart {
         let v: Vec<f64> = s.split(',').map(|t| t.trim().parse::<f64>()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("--cart {s}: {e}"))?;
         anyhow::ensure!(v.len() == 3, "--cart x,y,z: {s}");
-        places.push((redsim::pos::BlockPos::new(v[0].floor() as i32, (v[1] + 1e-6).floor() as i32, v[2].floor() as i32), Some(redsim::entity::Vec3::new(v[0], v[1], v[2]))));
+        places.push((redsim::pos::BlockPos::new(v[0].floor() as i32, (v[1] + 1e-6).floor() as i32, v[2].floor() as i32), Some(redsim::entity::Vec3::new(v[0], v[1], v[2])), false));
     }
+    places.extend(cells_of(exit_at, "--exit-at")?.into_iter().map(|c| (c, None, true)));
     anyhow::ensure!(!places.is_empty(), "the P static: no place given (NOT JUDGED)");
     let pocket = match pocket {
         Some(s) => {
@@ -6634,8 +6657,8 @@ fn p_static_run(
     };
     anyhow::ensure!(pocket.is_none() || variants.iter().any(|v| matches!(v, crate::fleecheck::Surround::Buried { .. })), "--pocket without a buried variant: UNUSED");
     let mut failing: Vec<String> = Vec::new();
-    let boxes: Vec<(redsim::pos::BlockPos, redsim::pos::BlockPos)> = places.iter().flat_map(|(c, _)| crate::fleecheck::read_boxes(*c, flee.is_some())).collect();
-    let riders: Vec<redsim::pos::BlockPos> = places.iter().map(|(c, _)| *c).collect();
+    let boxes: Vec<(redsim::pos::BlockPos, redsim::pos::BlockPos)> = places.iter().flat_map(|(c, _, _)| crate::fleecheck::read_boxes(*c, flee.is_some())).collect();
+    let riders: Vec<redsim::pos::BlockPos> = places.iter().map(|(c, _, _)| *c).collect();
     for v in &variants {
         let label = match v {
             crate::fleecheck::Surround::Floating => "FLOATING (floating site: void outside the box, envelope covered)".to_string(),
@@ -6647,17 +6670,18 @@ fn p_static_run(
         for l in &slines {
             println!("{l}");
         }
+        let open_shell = slines.iter().any(|l| l.contains("THE SHELL IS OPEN"));
         println!(
-            "the depth a site rule must clear under the given places (ironspec 07:46 (2)): {} (the {} box's stability cell), the idle strolls' y - 8",
-            places.iter().map(|(c, _)| format!("{},{},{}: y {}", c.x, c.y, c.z, c.y - if flee.is_some() { 8 } else { 3 })).collect::<Vec<_>>().join(", "),
+            "the depth a site rule must clear under the given places (ironspec 07:46 (2), G1 08:20): {} (the {} box's stability cell); the envelope's own depth is every rider position's idle stroll, y - 8 (the larger box rules)",
+            places.iter().map(|(c, _, _)| format!("{},{},{}: y {}", c.x, c.y, c.z, c.y - if flee.is_some() { 8 } else { 3 })).collect::<Vec<_>>().join(", "),
             if flee.is_some() { "flee's 16 / 7" } else { "stop's stroll 2 / 2" }
         );
         let mut total = 0usize;
         let mut outside = 0usize;
-        for (c, e) in &places {
+        for (c, e, complete_ok) in &places {
             let (lines, n, out) = match flee {
-                Some((h, he)) => crate::fleecheck::flee_candidates_at(&s2, *c, *e, h, he, &sets, &holds, &columns, (spec.lo, spec.hi)),
-                None => crate::fleecheck::stroll_candidates(&s2, claims, *c, *e, &sets, &holds, &columns, (spec.lo, spec.hi)),
+                Some((h, he)) => crate::fleecheck::flee_candidates_at(&s2, *c, *e, h, he, &sets, &holds, &columns, (spec.lo, spec.hi), *complete_ok),
+                None => crate::fleecheck::stroll_candidates(&s2, claims, *c, *e, &sets, &holds, &columns, (spec.lo, spec.hi), *complete_ok),
             }
             .map_err(|e| anyhow::anyhow!(e))?;
             for l in &lines {
@@ -6666,12 +6690,21 @@ fn p_static_run(
             total += n;
             outside += out;
         }
-        println!("the {} static, {label}: {total} candidate(s) or failure(s), {outside} candidate(s) outside the design's box: {}", if flee.is_some() { "flee" } else { "stroll" }, if total == 0 { "PASS" } else { "FAIL" });
-        if total > 0 {
+        // (G1 08:20: an open shell's flood fills only outside the design's box, an understated
+        // buried case: it can support a FAIL, never a PASS)
+        let verdict = if total > 0 {
+            "FAIL"
+        } else if open_shell && matches!(v, crate::fleecheck::Surround::Buried { .. }) {
+            "NOT JUDGED (an open shell: the flood filled only outside the design's box, so no buried PASS)"
+        } else {
+            "PASS"
+        };
+        println!("the {} static, {label}: {total} failing candidate(s) or failure(s) by the per-place bars, {outside} candidate(s) outside the design's box: {verdict}", if flee.is_some() { "flee" } else { "stroll" });
+        if verdict != "PASS" {
             failing.push(label);
         }
     }
-    anyhow::ensure!(failing.is_empty(), "the P static (the bar is NONE): FAIL in {}", failing.join("; "));
+    anyhow::ensure!(failing.is_empty(), "the P static (P: NONE; the boarded exit: NONE OR COMPLETE): FAIL or NOT JUDGED in {}", failing.join("; "));
     Ok(())
 }
 
@@ -8342,7 +8375,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 std::process::exit(1);
             }
         }
-        MobfarmCmd::StrollNone { design, at, cart, start_state, set, hold, column_of, surround, pocket } => {
+        MobfarmCmd::StrollNone { design, at, cart, exit_at, start_state, set, hold, column_of, surround, pocket } => {
             let (_c, spec_file) = load(version, &design)?;
             let (spec, _) = crate::fleecheck::settled_design(&spec_file).map_err(|e| anyhow::anyhow!(e))?;
             let taken = match start_state.as_str() {
@@ -8351,7 +8384,22 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 o => anyhow::bail!("--start-state {o}: free | taken"),
             };
             let (claims, _) = crate::fleecheck::design_claims(&spec, taken);
-            p_static_run(&design, &spec_file, &at, &cart, &set, &hold, &column_of, &surround, pocket.as_deref(), None, &claims)?;
+            p_static_run(&design, &spec_file, &at, &cart, &exit_at, &set, &hold, &column_of, &surround, pocket.as_deref(), None, &claims)?;
+        }
+        MobfarmCmd::NearPositions { design, cell, radius, column } => {
+            let (_c, spec_file) = load(version, &design)?;
+            let (spec, _) = crate::fleecheck::settled_design(&spec_file).map_err(|e| anyhow::anyhow!(e))?;
+            anyhow::ensure!(radius > 0.0 && radius <= 64.0, "--radius {radius}: (0, 64]");
+            let c = cells_of(&[cell.clone()], "--cell")?[0];
+            let mut cols: Vec<[f64; 4]> = Vec::new();
+            for s in &column {
+                let v: Vec<f64> = s.split(',').map(|t| t.trim().parse::<f64>()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("--column {s}: {e}"))?;
+                anyhow::ensure!(v.len() == 4, "--column x,y0,z,y1");
+                cols.push([v[0], v[1], v[2], v[3]]);
+            }
+            for l in crate::fleecheck::near_positions(&spec, &cols, c, radius) {
+                println!("{l}");
+            }
         }
         MobfarmCmd::Coverage { design, column, cell, feet, feet_file } => {
             let (_c, spec_file) = load(version, &design)?;
@@ -8475,13 +8523,13 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 std::process::exit(1);
             }
         }
-        MobfarmCmd::FleeNone { design, at, cart, from, eye, set, hold, column_of, surround, pocket } => {
+        MobfarmCmd::FleeNone { design, at, cart, exit_at, from, eye, set, hold, column_of, surround, pocket } => {
             let (_c, spec_file) = load(version, &design)?;
             let f: Vec<f64> = from.split(',').map(|t| t.trim().parse::<f64>()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("--from {from}: {e}"))?;
             anyhow::ensure!(f.len() == 3, "--from x,y,z");
             let hostile = redsim::entity::Vec3::new(f[0], f[1], f[2]);
             let heye = eye.unwrap_or_else(|| crate::fleecheck::eye_of(redsim::entity::mob::types::MobType::Zombie));
-            p_static_run(&design, &spec_file, &at, &cart, &set, &hold, &column_of, &surround, pocket.as_deref(), Some((hostile, heye)), &[])?;
+            p_static_run(&design, &spec_file, &at, &cart, &exit_at, &set, &hold, &column_of, &surround, pocket.as_deref(), Some((hostile, heye)), &[])?;
         }
         MobfarmCmd::SensorAt { design, at, feet, exclude, set, hold, through } => {
             let (_c, spec) = load(version, &design)?;
@@ -13021,7 +13069,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 "buried" => {
                     let rails: Vec<redsim::pos::BlockPos> = spec_file0.blocks.iter().filter(|(_, b)| b.to_string().contains("rail")).map(|(p, _)| *p).collect();
                     let boxes: Vec<(redsim::pos::BlockPos, redsim::pos::BlockPos)> = rails.iter().flat_map(|p| crate::fleecheck::read_boxes(*p, false)).collect();
-                    let (s2, lines) = crate::fleecheck::surround_spec(&spec_file0, crate::fleecheck::Surround::Buried { pocket: None }, &boxes, &[]).map_err(|e| anyhow::anyhow!(e))?;
+                    let (s2, lines) = crate::fleecheck::surround_spec(&spec_file0, crate::fleecheck::Surround::Buried { pocket: None }, &boxes, &rails).map_err(|e| anyhow::anyhow!(e))?;
                     for l in &lines {
                         println!("{l}");
                     }
