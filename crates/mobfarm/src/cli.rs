@@ -12407,7 +12407,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let s = crate::settle::settle_check(&blocks, &bes, &ents, &decl, dt, cap).map_err(|e| anyhow::anyhow!("{}: {e}", file.display()))?;
             let fails = s.fails(allow_unchecked);
             println!(
-                "settle-check {} (cc767b78, tool unreviewed): laid as the judges lay it, {} entities held, day time {dt}, {} fluid cells given their tick; {} ticks to {}; {} cells compared ({} redstone), {} shape cells checked; {} observers kicked once each ({} cells settling elsewhere after the kick: printed, the build order matters there); clocks: {} declared cells still changing, {} undeclared; new fluid cells after the settle: {} named in `# water:`, {} not (any fails: re-save with --write); designed currents (`# water:` cells in the file): {} ({} unbounded, {} holding no water); redstone cells stored unsettled {}; shape states differing {}; other changes {} (printed); wall / stair cells unchecked {}{}; model notes {}: {}",
+                "settle-check {} (cc767b78, tool unreviewed): laid as the judges lay it, {} entities held, day time {dt}, {} fluid cells given their tick; {} ticks to {}; {} cells compared ({} redstone), {} shape cells checked; {} observers kicked once each ({} cells settling elsewhere after the kick: printed, the build order matters there); clocks: {} declared cells still changing, {} undeclared; new fluid cells after the settle: {} named in `# water:`, {} not (any fails: re-save with --write); designed currents (`# water:` cells in the file): {} ({} unbounded, {} holding no water); stand-ins (SURVIVAL): {} passing, {} failing; redstone cells stored unsettled {}; shape states differing {}; other changes {} (printed); wall / stair cells unchecked {}{}; model notes {}: {}",
                 file.display(),
                 ents.len(),
                 s.fluid_cells,
@@ -12425,6 +12425,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 s.currents.len(),
                 s.currents_unbounded.len(),
                 s.currents_missing.len(),
+                s.standins_ok,
+                s.standins_failing.len(),
                 s.redstone.len(),
                 s.shapes.len(),
                 s.other.len(),
@@ -12449,6 +12451,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             for (p, q, b) in &s.currents_unbounded {
                 println!("  designed current ({},{},{}) UNBOUNDED: ({},{},{}) {b}", p.x, p.y, p.z, q.x, q.y, q.z);
+            }
+            for (p, why) in &s.standins_failing {
+                println!("  stand-in ({},{},{}) fails SURVIVAL: {why}", p.x, p.y, p.z);
             }
             list("settles elsewhere after an observer kick", &s.kick_sensitive);
             for p in &s.clock_undeclared {
