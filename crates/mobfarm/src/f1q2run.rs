@@ -56,6 +56,9 @@ pub struct Opts {
     /// (the design's L-6 line: 6; 1 is the positive control that must reproduce the lost window
     /// picks).
     pub day_threshold: u32,
+    /// (ironspec 06:31 / 06:38 PT) State (ii): the bench takes the bed's single POI ticket at the
+    /// start. Off (the default): the design start (i), every HOME a memory and the ticket free.
+    pub bed_ticket_taken: bool,
     /// (ironspec 11:15, 9fc3155f's statics) S-bend seats whose stamp resets are counted: `NAME`,
     /// the seat's rail cell, its clearing candidates (a complete draw to one of them while a rider
     /// sits on the seat resets its stamp).
@@ -2068,9 +2071,15 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             "# drive v1: {rec}\n# caption the F1 + Q2 module's day as f1q2-run drives it: the station's controller, the napper hold's release (c'), the A6 stop's levers and the way-in queue's gate written as blocks (EMULATED); the napper starts queued on the way-in\n# seed {}\n# days 1\n# ticks {drive_ticks}\n# walk random\n# ai on\n# start Run::start(the scene's spec, RunOpts {{ ai: true, ..RunOpts::steady(seed, ticks, WalkMode::Random) }}), the settle run out, then the scene's entity lines spawned in file order (`drive::spawn_lines`)\n# build: the scene as pasted (no build order)\n# act t: applied when the world's time is t0 + t, before the run's next tick (f1q2-run's writes after its tick, in its order)\n",
             o.seed
         ));
-        drive_push(format!("act 0 poi-take {} {} {}", bed.x, bed.y, bed.z));
+        if o.bed_ticket_taken {
+            drive_push(format!("act 0 poi-take {} {} {}", bed.x, bed.y, bed.z));
+        }
     }
-    redsim::entity::mob::ai::poi::take(&mut run.world, bed);
+    // (ironspec 06:31 / 06:38 PT: the design start (i) leaves the bed's single ticket FREE, every
+    // villager's HOME a memory only; `--bed-ticket-taken` is state (ii), the bench taking it)
+    if o.bed_ticket_taken {
+        redsim::entity::mob::ai::poi::take(&mut run.world, bed);
+    }
     // (the drive's names: line N's entity eN, its passenger K eN.pK)
     let mut names: BTreeMap<u32, (usize, usize)> = BTreeMap::new();
     for (n, id) in lines.iter().enumerate() {
@@ -2276,8 +2285,16 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     // (ironspec 23:56 PT (4)) the positive controls exercised in this run
     let mut controls_done: Vec<String> = Vec::new();
     let mut bystander_tries = 0u32;
-    // (ironspec 02:48 PT) the napper the bystander control stamped
-    let mut bystander_target: Option<u32> = None;
+    // (ironspec 02:48 PT) the napper the bystander control stamped, and the stamp's tick
+    let mut bystander_target: Option<(u32, i64)> = None;
+    // (ironspec 02:37 PT) every napper's first call back in its lane: (napper, tick, its margin
+    // from the memory's latest set (None: never set), the setter)
+    let mut nap_margins: Vec<(u32, i64, Option<i64>, &'static str)> = Vec::new();
+    // (ironspec 06:31 PT) the riders in REST within 16 of the bed while someone sleeps in it, per
+    // night: (villager-ticks, the first rows)
+    let mut rest_near_bed: BTreeMap<i64, i64> = BTreeMap::new();
+    let mut rest_near_rows: Vec<String> = Vec::new();
+    let mut bed_ever_occupied = false;
     let mut golem_birth_at: BTreeMap<u32, ([f64; 3], String)> = BTreeMap::new();
     let mut golem_summon: BTreeMap<u32, (i64, u32, u32, Option<[i32; 3]>, Option<[f64; 3]>)> = BTreeMap::new();
     #[allow(clippy::type_complexity)]
@@ -2677,6 +2694,8 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                         let margin = t - (s + redsim::entity::mob::villager::GOLEM_MEMORY_TTL);
                         let orig = r.last_stamp.map(|o| t - (o + redsim::entity::mob::villager::GOLEM_MEMORY_TTL));
                         let pass = margin >= 3 && orig.is_none_or(|m| m >= 23);
+                        // (ironspec 02:37 PT: the harm bar reads every napper's first call back)
+                        nap_margins.push((id, t - t0, Some(margin), r.gdr_setter.unwrap_or("?")));
                         format!(
                             "t {}, its memory last set t {} by {}: margin {margin:+} gt from the latest set (bar >= 3){} ({})",
                             t - t0,
@@ -2686,7 +2705,10 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                             if pass { "PASS" } else { "FAIL" }
                         )
                     }
-                    None => format!("t {}, its memory never set: free", t - t0),
+                    None => {
+                        nap_margins.push((id, t - t0, None, "never set"));
+                        format!("t {}, its memory never set: free", t - t0)
+                    }
                 });
             }
             if let Some(r) = recs.get_mut(&id)
@@ -2769,12 +2791,12 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                                 && recs.get(v).is_some_and(|r| r.milestones.iter().any(|(m, _)| m == "back in its lane") && r.nap_call.is_none())
                         }
                         _ => {
-                            // (an outbound napper a pocket rider's 10-box reaches AT an S tick, so
-                            // the summon's other stamps are the ones that S lays anyway: its picked
-                            // cart before the divert, or its visit before the queue)
-                            s_phase == 0
-                                && (ctl.pick_cart.is_some_and(|(pc, _)| pc == e.id)
-                                    || (nappers.iter().any(|n| n.0 == *v) && recs.get(v).is_some_and(|r| !r.milestones.iter().any(|(m, _)| m == "at the queue's arrival"))))
+                            // (an outbound napper anywhere a pocket rider's 10-box reaches: its
+                            // picked cart before the divert, or its visit before the queue; the
+                            // call's willing pocket riders are its summoners, so their stamps are a
+                            // summon's own)
+                            ctl.pick_cart.is_some_and(|(pc, _)| pc == e.id)
+                                || (nappers.iter().any(|n| n.0 == *v) && recs.get(v).is_some_and(|r| !r.milestones.iter().any(|(m, _)| m == "at the queue's arrival")))
                         }
                     }
                 })
@@ -2800,10 +2822,34 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             {
                 bystander_tries += 1;
                 let before = w.mob.events.len();
+                // (the call's own willing villagers, `wantsToSpawnGolem` in the caller's 10-box, are
+                // its summoners: their stamps are a summon's, not a bystander's; a stamped napper
+                // that isn't willing is the bystander)
+                let cp = w.entities.list[k].pos;
+                let willing: std::collections::BTreeSet<u32> = (0..w.entities.list.len())
+                    .filter(|&j| {
+                        let e = &w.entities.list[j];
+                        !e.removed
+                            && matches!(&e.kind, EntityKind::Mob(m) if m.ty == redsim::entity::mob::types::MobType::Villager)
+                            && (e.pos.x - cp.x).abs() <= 10.6
+                            && (e.pos.z - cp.z).abs() <= 10.6
+                            && e.pos.y + 1.95 >= cp.y - 10.0
+                            && e.pos.y <= cp.y + 1.95 + 10.0
+                            && redsim::entity::mob::ai::brain::brain(w, j).wants_golem(now)
+                    })
+                    .map(|j| w.entities.list[j].id)
+                    .collect();
                 redsim::entity::mob::spawn::spawn_golem_if_needed(w, k, 3);
-                let born = w.mob.events[before..].iter().any(|e| matches!(e, redsim::entity::mob::MobEvent::GolemTry { golem: Some(_), .. }));
+                let born_at = w.mob.events[before..].iter().find_map(|e| match e {
+                    redsim::entity::mob::MobEvent::GolemTry { golem: Some(_), t, .. } => Some(*t),
+                    _ => None,
+                });
+                let born = born_at.is_some();
+                if let Some(bt) = born_at {
+                    willing_at = (bt, willing);
+                }
                 if born {
-                    bystander_target = Some(tv);
+                    bystander_target = Some((tv, now - t0));
                     controls_done.push(format!(
                         "the bystander control ({variant}) at t {}: a real summon from #{v} stamped napper #{tv} at ({:.1},{:.1},{:.1}), {} (after {bystander_tries} calls; the harm bar must {})",
                         now - t0,
@@ -2818,6 +2864,29 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         }
         // (ironspec 09:59) the bed occupied this tick: a villager asleep in it
         let bed_occupied = w.entities.list.iter().any(|e| !e.removed && matches!(&e.kind, EntityKind::Mob(m) if m.sleeping_pos.is_some_and(|p| [p.x, p.y, p.z] == o.bed)));
+        // (ironspec 06:31 / 06:38 PT: ValidateNearbyPoi's 16-block exposure) while someone sleeps in
+        // the bed, every other villager in REST within 16 of it, per night
+        if o.napper && bed_occupied {
+            bed_ever_occupied = true;
+            // (ValidateNearbyPoi's predicate: the bed head's centre within 16 of the villager's feet,
+            // `BlockPos.closerToCenterThan(position, 16)`, strict)
+            let bc = redsim::entity::Vec3::new(o.bed[0] as f64 + 0.5, o.bed[1] as f64 + 0.5, o.bed[2] as f64 + 0.5);
+            for j in 0..w.entities.list.len() {
+                let e = &w.entities.list[j];
+                let EntityKind::Mob(m) = &e.kind else { continue };
+                if e.removed || m.ty != redsim::entity::mob::types::MobType::Villager || m.sleeping_pos.is_some() {
+                    continue;
+                }
+                let d = ((e.pos.x - bc.x).powi(2) + (e.pos.y - bc.y).powi(2) + (e.pos.z - bc.z).powi(2)).sqrt();
+                let rest = redsim::entity::mob::ai::brain::brain(w, j).ex.as_deref().is_some_and(|x| x.active == redsim::entity::mob::ai::brain::Act::Rest);
+                if d < 16.0 && rest {
+                    *rest_near_bed.entry(w.day_time().div_euclid(24_000)).or_default() += 1;
+                    if rest_near_rows.len() < 12 {
+                        rest_near_rows.push(format!("t {} {} at ({:.1},{:.1},{:.1}), {:.1} from the bed", now - t0, recs.get(&e.id).map_or(format!("#{}", e.id), |r| r.label.split(' ').next().unwrap_or("").to_string()), e.pos.x, e.pos.y, e.pos.z, d));
+                    }
+                }
+            }
+        }
         // (ironspec 19:29 (a)) the stop's track (its box: x -6..4, z -6..5, the bed's y - 2 .. + 5)
         // holding carts of two napper riders at once
         {
@@ -4282,18 +4351,28 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         if renew.bystander_rows.is_empty() { String::new() } else { format!("; the bystanders: {}", renew.bystander_rows.join("; ")) }
     ));
     s.push_str(&format!(
-        "the bystander stamps (ironspec 02:37 PT, restated as the harm: every stamp printed with its stamping summoner and its margin at the stamped rider's next own-pocket summon; the bar is that margin, the free caller's >= 3, and the summon check's 'other stamp' blocks stay the gate): {} on riders out of their pockets ({} in locked running){}; the margins at the next own-pocket summon: {}; {} stamps with no next summon inside the run; the least margin {} ({})\n",
+        "the bystander stamps (ironspec 02:37 PT, restated as the harm: every stamp printed with its trip, its stamping summoner and the stamped rider's margin at its next own-pocket summon; the bar is every napper's first call back in its lane, its memory, whatever its source, cleared with the free caller's margin >= 3; the summon check's 'other stamp' blocks stay the gate): {} on riders out of their pockets ({} in locked running){}; the margins at the next own-pocket summon: {}; {} stamps with no next summon inside the run; the nappers' first calls back: {}; the least {} ({})\n",
         renew.departing_bystanders,
         renew.departing_locked,
         if renew.departing_rows.is_empty() { String::new() } else { format!(": {}", renew.departing_rows.join("; ")) },
         if renew.bystander_rows.is_empty() { "none".to_string() } else { renew.bystander_rows.join("; ") },
         recs.values().filter(|r| r.bystander_stamp.is_some()).count(),
-        renew.bystander_margin.map_or("-".to_string(), |m| format!("{m:+} gt")),
-        match renew.bystander_margin {
-            Some(m) if m < 3 => "FAIL",
-            _ if renew.departing_bystanders == 0 => "PASS: no stamp on a rider out of its pocket",
-            None => "NOT JUDGED (no stamped rider reached its next summon): FAIL",
-            Some(_) => "PASS",
+        if nap_margins.is_empty() {
+            "none".to_string()
+        } else {
+            nap_margins
+                .iter()
+                .map(|(v, t, m, by)| format!("{} t {t} {}", recs.get(v).map_or(format!("#{v}"), |r| r.label.split(' ').next().unwrap_or("").to_string()), m.map_or("free (never set)".to_string(), |m| format!("{m:+} gt (set by {by})"))))
+                .collect::<Vec<_>>()
+                .join(", ")
+        },
+        nap_margins.iter().filter_map(|x| x.2).min().map_or("-".to_string(), |m| format!("{m:+} gt")),
+        if nap_margins.is_empty() {
+            "NOT JUDGED (0 nappers called back inside the run): FAIL"
+        } else if nap_margins.iter().any(|x| x.2.is_some_and(|m| m < 3)) {
+            "FAIL"
+        } else {
+            "PASS"
         }
     ));
     // (ironspec 02:37 PT, farmopt 02:42) the successful summons by the caller's place: a pocket
@@ -4507,10 +4586,13 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     if o.gossip_control || o.bystander_control.is_some() {
         // (ironspec 02:48 PT) the bystander control's stamped napper: its margin at its next
         // own-pocket summon, from the harm bar's rows
-        let target_margin = bystander_target.map(|tv| {
+        let target_margin = bystander_target.map(|(tv, at)| {
             let label = recs.get(&tv).map_or(format!("#{tv}"), |r| r.label.split(' ').next().unwrap_or("").to_string());
-            let row = renew.bystander_rows.iter().find(|r| r.starts_with(&format!("{label} ")));
-            format!("; the stamped napper {label}'s margin at its next own-pocket summon: {}", row.map_or("no next summon inside the run".to_string(), |r| r.rsplit(": ").next().unwrap_or("").to_string()))
+            let call = nap_margins.iter().find(|(v, t, _, _)| *v == tv && *t >= at);
+            format!(
+                "; the stamped napper {label}'s first call back after the stamp: {}",
+                call.map_or("none inside the run (NOT JUDGED: FAIL)".to_string(), |(_, t, m, by)| format!("t {t}, margin {} ({})", m.map_or("free".to_string(), |m| format!("{m:+} gt, set by {by}")), if m.is_none_or(|m| m >= 3) { "PASS" } else { "FAIL" }))
+            )
         });
         s.push_str(&format!(
             "the positive controls exercised (ironspec 23:56 PT: each must make its bar FAIL; the bystander control's early variant must leave the harm bar PASSING): {}{}\n",
@@ -4726,6 +4808,15 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             })
             .collect();
         s.push_str(&format!("  naps per night (ironspec 15:43, bar 24 a full night): {}\n", if night_rows.is_empty() { "no nap".to_string() } else { night_rows.join("; ") }));
+        // (ironspec 06:31 / 06:38 PT) ValidateNearbyPoi's 16-block exposure per night, bar 0; the
+        // bed ticket's state the run started in
+        s.push_str(&format!(
+            "  the riders in REST within 16 of the bed while someone sleeps in it (ironspec 06:31 / 06:38 PT: ValidateNearbyPoi's exposure, bar 0 each night; the run's start: {}): {}{} ({})\n",
+            if o.bed_ticket_taken { "state (ii), the bed's ticket taken by the bench (--bed-ticket-taken)" } else { "the design start (i), every HOME a memory and the bed's ticket free" },
+            if rest_near_bed.is_empty() { "none".to_string() } else { rest_near_bed.iter().map(|(n, c)| format!("night {n}: {c} villager-ticks")).collect::<Vec<_>>().join(", ") },
+            if rest_near_rows.is_empty() { String::new() } else { format!("; the first: {}", rest_near_rows.join("; ")) },
+            if !bed_ever_occupied { "NOT JUDGED (the bed never occupied): FAIL" } else if rest_near_bed.is_empty() { "PASS" } else { "FAIL" }
+        ));
         // (ironspec 16:10 (1)) per night: the villagers picked twice and the riders never picked;
         // and per villager its naps and picks
         {
