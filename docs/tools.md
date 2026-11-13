@@ -451,8 +451,13 @@ golem and birth tick, or none alive: a departed golem in a stale list; how many 
 the rider's own stamp), or the emulated neighbour. The stop's drives, the napper's seeding and its
 milestones follow the stop's y (the `home` port's y against rev 3's -18). A stop with levers at its
 control cells is 58f770cc's A6 (b36302af8): the hatch's levers (-4,y,2) and (-4,y+1,4) off at F (the
-lie-down + 10), the park's (1,y+1,-6) and (0,y,-6) on 30 gt after the bed's wake edge, R's detector
+lie-down + 10), the park's (1,y+1,-6) and (0,y,-6) on at the bed's wake edge + 1 gt (today's A6, 58f770cc
+00:39 PT: the release at the wake edge, the bench's landing 1 gt after the recorded wake), R's detector
 (4,y-1,4) re-arming both (y the bed head's); otherwise d907's stop (its release 30 gt after F).
+`f1q2-run` also prints the per-pick trace (day-1 01:10 PT): every pick opportunity (tick, C, lane,
+verdict: picked, HELD with its holder, the away latch, unrouted), every picked napper's divert, queue
+arrival, release, departure, stop entry, R, siding's R and back in lane, and the night's REST_l and
+DAY edges.
 `--drive-out F --scene-out S` (mob-AI) records the run as a mobai drive v1 for `mctas mobai
 fixture` (the 26.3 bridge and redsim, tick for tick): the world started as every bench's drive
 (`Run::start` with the drive's options, the settle, the scene's entity lines spawned in file order),
