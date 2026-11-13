@@ -1812,6 +1812,15 @@ pub enum MobfarmCmd {
         /// at every visit row's release, already AGE gt old (kept long enough it must lose HOME).
         #[arg(long)]
         visit_plant_stamp: Option<i64>,
+        /// (G1 05:41 / 05:44, the HOME LOST bar's known positive, in the world) a second villager
+        /// asleep in the napper's bed from every visit row's start: within 16 of the occupied bed
+        /// ValidateNearbyPoi erases the napper's HOME and the sleeper keeps the ticket (no re-claim).
+        #[arg(long)]
+        visit_plant_erase: bool,
+        /// (G1 05:50) start state (ii): the napper holds its bed's ticket at the summon (the default
+        /// is (i), the design start: HOME a memory, the ticket free).
+        #[arg(long)]
+        visit_start_held: bool,
         /// (tick-exact's forced holds) the visit's cart summoned at `--leg`'s position and held there:
         /// no leg, the rows start at once; a hold past the row's end never releases.
         #[arg(long)]
@@ -7385,7 +7394,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             );
             print!("{}", crate::killguard::bench(&spec, &c, &o).map_err(|e| anyhow::anyhow!(e))?);
         }
-        MobfarmCmd::WayCell { design, positions, move_positions, s9, c_descent, brakes, queue, post, own, napper, keep_clear, chunk, pad, draws, write, rail, extra, ride_to, custom_post, wait, bed, leg, hold, south, deep, ride_ticks, release_phases, restart_at, stamp, follow, queue_glass, leg_day, release_sweep, visit, visit_holds, visit_no_post, path_probe, seat_at, restart_every, freeze_every, band, r1_built, visit_skip, bystander, watch_cells, visit_clear_stamp, visit_plant_stamp, visit_at_rest, probe_every_tick, freeze_lens, water_restart_row, water_scan, scan_box, water_search, search_rests, search_sweep } => {
+        MobfarmCmd::WayCell { design, positions, move_positions, s9, c_descent, brakes, queue, post, own, napper, keep_clear, chunk, pad, draws, write, rail, extra, ride_to, custom_post, wait, bed, leg, hold, south, deep, ride_ticks, release_phases, restart_at, stamp, follow, queue_glass, leg_day, release_sweep, visit, visit_holds, visit_no_post, path_probe, seat_at, restart_every, freeze_every, band, r1_built, visit_skip, bystander, watch_cells, visit_clear_stamp, visit_plant_stamp, visit_plant_erase, visit_start_held, visit_at_rest, probe_every_tick, freeze_lens, water_restart_row, water_scan, scan_box, water_search, search_rests, search_sweep } => {
             if let [a, b] = water_restart_row[..] {
                 let ticks: Vec<i64> = (a..=b).collect();
                 for how in crate::liveness::Restart::rows() {
@@ -7459,6 +7468,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     .collect::<Result<Vec<_>>>()?,
                 visit_clear_stamp,
                 visit_plant_stamp,
+                visit_plant_erase,
+                visit_start_held,
                 visit_at_rest,
                 probe_bed: (probe_every_tick && bed.len() == 3).then(|| [bed[0], bed[1], bed[2]]),
                 custom_post,

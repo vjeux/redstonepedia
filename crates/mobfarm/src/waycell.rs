@@ -78,6 +78,12 @@ pub struct Opts {
     /// (G1 via farmopt 05:08, the "0 HOME lost" bar's known positive) a CANT_REACH stamp planted at
     /// every visit row's release, already this many gt old.
     pub visit_plant_stamp: Option<i64>,
+    /// (G1 05:41 / 05:44, the HOME LOST bar's known positive, in the world) a second villager asleep in
+    /// the napper's bed from every visit row's start.
+    pub visit_plant_erase: bool,
+    /// (G1 05:50) start state (ii): the napper holds its bed's ticket (the default is (i), the design
+    /// start: HOME a memory, the ticket free).
+    pub visit_start_held: bool,
     /// (tick-exact's forced holds, 04:29) the visit's cart summoned where `--leg` says and held there:
     /// no leg to the arrival detector, the rows start at once (a hold past the row's end never releases).
     pub visit_at_rest: bool,
@@ -1894,6 +1900,24 @@ pub fn sweep_lines(spec: &FarmSpec, o: &Opts, post: P, start: i64, ticks: u32, b
 /// and the entry with their walk targets, the first calm REST tick after the release with its HOME
 /// path, the stamp and HOME at the entry.
 #[allow(clippy::too_many_arguments)]
+/// (ironspec 06:31 (2)) a bed's ticket line: the POI's free tickets, its occupied flag and every
+/// villager whose HOME memory names the bed (a HOME loaded from NBT takes no ticket in the game).
+fn bed_line(w: &mut redsim::world::World, bp: BlockPos) -> String {
+    let occ = matches!(w.get(bp), Block::Bed { occupied: true, .. });
+    let free = redsim::entity::mob::ai::poi::free_tickets(w, bp);
+    let holders: Vec<u32> = w
+        .entities
+        .list
+        .iter()
+        .filter(|e| !e.removed)
+        .filter_map(|e| match &e.kind {
+            redsim::entity::EntityKind::Mob(m) => m.brain.as_deref().filter(|b| b.home == Some(bp)).map(|_| e.id),
+            _ => None,
+        })
+        .collect();
+    format!("the bed {bp}: free tickets {}, occupied {occ}, HOME memory holders {holders:?}", free.map_or("-".to_string(), |f| f.to_string()))
+}
+
 pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], motion: [f64; 3], bed: P, day: i64, phases: u32, holds: &[u32], restart_ticks: &[i64], entry: P, follow: u32) -> Result<Vec<String>, String> {
     // (ironspec 22:10 (2)) the visit followed past A6's entry this many gt (the held walk's clear,
     // the sleep, HOME, armings, how far the napper gets)
@@ -1943,7 +1967,10 @@ pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], 
         out.push(format!("(overrides) a NoAI villager (persistent) spawned at ({:.2},{:.2},{:.2}) at every visit row's start (the positive control's look target)", b[0], b[1], b[2]));
     }
     if let Some(age) = o.visit_plant_stamp {
-        out.push(format!("(overrides) every row's CANT_REACH stamp PLANTED at the release, {age} gt old (the \"0 HOME lost\" bar's known positive: kept long enough it must lose HOME)"));
+        out.push(format!("(overrides) every row's CANT_REACH stamp PLANTED at the release, {age} gt old (the HOME RELEASED count's known positive: kept long enough it must release HOME)"));
+    }
+    if o.visit_plant_erase {
+        out.push(format!("(overrides) a second villager asleep in the napper's bed ({},{},{}) from every row's start (the HOME LOST bar's known positive, in the world: within 16 of the occupied bed ValidateNearbyPoi erases the napper's HOME and the sleeper keeps the ticket, so no re-claim can follow)", bed[0], bed[1], bed[2]));
     }
     if o.visit_clear_stamp {
         out.push("(overrides) every row's CANT_REACH stamp ERASED at the release (the would-arm class's positive control)".to_string());
@@ -1962,6 +1989,10 @@ pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], 
     // (farmopt 04:11) rows with a partial descent recompute: the stamp cleared at the release (the
     // "would arm" class, or erased by the control) / still armed (a partial recompute keeps it)
     let (mut would_arm_n, mut partial_stamped_n) = (0u32, 0u32);
+    // rows whose napper released HOME (a Released event), even when it re-acquired a bed at once
+    let mut home_released_n = 0u32;
+    // (ironspec 06:31 (1)) rows with the napper without HOME at any tick at the bed stop
+    let mut farm_stop_n = 0u32;
     // (ironspec 05:10 real) the CARRIED fraction (rows whose stamp is armed at the release) and the
     // WINDOW lengths (the running sink's ticks left at the release in those rows)
     let mut carried_n = 0u32;
@@ -1992,6 +2023,34 @@ pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], 
             }
         }
         let rider = w0.world.entities.list.iter().find(|e| !e.removed && e.vehicle == Some(cart)).map(|e| e.id).ok_or("no rider")?;
+        // (G1 05:50: the start state) (i), the DESIGN start: the napper holds HOME as a memory only and
+        // the bed's ticket is FREE (onechunk's composed runs); (ii): the napper holds the ticket too.
+        // The summon's HOME memory takes the ticket in redsim, so (i) gives it back
+        let bed_bp = BlockPos::new(bed[0], bed[1], bed[2]);
+        let summon_line = bed_line(&mut w0.world, bed_bp);
+        let free0 = redsim::entity::mob::ai::poi::free_tickets(&mut w0.world, bed_bp);
+        // (G1 05:50 / 05:56, ironspec 07:06) the start state, measured at the summon: (i), the design
+        // start and the default, the napper holding HOME as a memory only and the bed's ticket FREE;
+        // (ii) with --visit-start-held, the napper holding the ticket too. Whichever the summon left
+        // (redsim's lazy ticket map counts the memories' claims at its first use: built before the
+        // summon here, the ticket stays free), a DECLARED override sets the asked state, printed before
+        // -> after; none is laid when the summon already left it
+        let mut set_line = String::new();
+        if o.visit_start_held && free0 == Some(1) {
+            redsim::entity::mob::ai::poi::take(&mut w0.world, bed_bp);
+            set_line = format!("; the napper's ticket TAKEN (a declared override for state (ii)), after: {}", bed_line(&mut w0.world, bed_bp));
+        } else if !o.visit_start_held && free0 == Some(0) {
+            redsim::entity::mob::ai::poi::release(&mut w0.world, bed_bp);
+            set_line = format!("; the ticket GIVEN BACK (a declared stand-in for redsim's summon taking it), after: {}", bed_line(&mut w0.world, bed_bp));
+        }
+        let free1 = redsim::entity::mob::ai::poi::free_tickets(&mut w0.world, bed_bp);
+        if free1 != Some(if o.visit_start_held { 0 } else { 1 }) {
+            return Err(format!("the start state {} could not be set: at the summon {summon_line}{set_line}", if o.visit_start_held { "(ii)" } else { "(i)" }));
+        }
+        let start_state = format!(
+            "start state {} (ticket state uncertain: pre-fix redsim) (at the summon {summon_line}{set_line})",
+            if o.visit_start_held { "(ii) the napper holds the ticket" } else { "(i) the design: HOME a memory, the ticket free" },
+        );
         let mut held_since: Option<u32> = None;
         let mut t_arr = None;
         // (ironspec 04:22: tick-exact's official repeats start AT THE REST) a cart summoned in the
@@ -2041,8 +2100,27 @@ pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], 
                 if let Some(b) = o.bystander {
                     redsim::entity::spawn(&mut r.world, "minecraft:villager", b, Some("{NoAI:1b,PersistenceRequired:1b}"))?;
                 }
+                // (G1 05:44: the HOME LOST bar's known positive, IN THE WORLD) a second villager asleep in
+                // the napper's bed from the row's start: once the napper comes within 16 of it,
+                // ValidateNearbyPoi erases its HOME and, the bed's sleeper keeping the ticket, no
+                // re-claim can follow (the exposure path itself)
+                if o.visit_plant_erase {
+                    let bp = BlockPos::new(bed[0], bed[1], bed[2]);
+                    let sid = redsim::entity::spawn(&mut r.world, "minecraft:villager", [bed[0] as f64 + 0.5, bed[1] as f64 + 0.5625, bed[2] as f64 + 0.5], Some("{PersistenceRequired:1b}"))?;
+                    let si = idx(&r.world, sid).ok_or("the sleeper lost")?;
+                    if !redsim::entity::mob::villager::start_sleeping(&mut r.world, si, bp) {
+                        return Err(format!("--visit-plant-erase: the second villager could not lie down in the bed {bp}"));
+                    }
+                }
                 let skip_label = skip.map_or(String::new(), |s| format!(", the night skipped at release + {s}"));
                 let mut rider = rider;
+                // (G1's positive, 05:36: a HOME released then re-acquired at once shows as "kept" at the
+                // sample points) the row's Released events for its napper, counted from the row's start
+                let (ev0, rider0) = (r.world.mob.events.len(), rider);
+                let mut home_prev = idx(&r.world, rider).is_some_and(|ii| redsim::entity::mob::ai::brain::brain(&r.world, ii).home.is_some());
+                let mut home_events: Vec<String> = Vec::new();
+                let mut dt_prev = (r.world.time + r.world.mob.day_offset).rem_euclid(24000);
+                let (mut erased_at, mut reclaim_delays, mut acq_attempts, mut acq_next_prev): (Option<u32>, Vec<String>, Vec<String>, i64) = (None, Vec::new(), Vec::new(), i64::MIN);
                 let mut cart = cart;
                 let (mut held_end, mut cleared, mut armed_after, mut first_calm, mut at_entry, mut stamp_entry, mut home_entry) =
                     (None::<u32>, None::<(u32, String)>, Vec::<(u32, String)>::new(), None::<String>, None::<u32>, None::<Option<i64>>, None::<bool>);
@@ -2089,13 +2167,15 @@ pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], 
                             }
                             // (G1 via farmopt 05:08: the "0 HOME lost" bar's known positive) a stamp
                             // PLANTED at the release, already `age` gt old: kept long enough, it must
-                            // lose HOME
+                            // release HOME (a strand event)
                             if let Some(age) = o.visit_plant_stamp {
                                 if redsim::entity::mob::ai::brain::has_exact(&r.world, ii) {
                                     let now = r.world.time;
                                     redsim::entity::mob::ai::brain::ex_mut(&mut r.world, ii).mem.cant_reach_since = Some(now - age);
                                 }
                             }
+                            // (G1 05:44: the HOME LOST bar's known positive, planted IN THE WORLD, not
+                            // through an internal erase) see `visit_occupy_bed` at the row's start
                         }
                         release_game = Some(r.world.time);
                     }
@@ -2173,7 +2253,53 @@ pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], 
                         }
                     }
                     let Some((since, wt, act)) = mem(&r.world, i) else { continue };
-                    // (ironspec 02:27 (B3): 0 recomputes at partial positions in normal operation)
+                    // (G1 05:47: "no re-claim follows" SHOWN) every change of the napper's HOME (lost /
+                    // regained) with the bed's free tickets, occupied flag and HOME memory holders
+                    // (ironspec 06:31 (2)) at that tick
+                    {
+                        let home_now = redsim::entity::mob::ai::brain::brain(&r.world, i).home.is_some();
+                        let when = if released { format!("release + {}", t - h) } else { format!("hold t {t}") };
+                        if home_now != home_prev {
+                            let bl = bed_line(&mut r.world, BlockPos::new(bed[0], bed[1], bed[2]));
+                            home_events.push(format!("{when} {} ({bl})", if home_now { "HOME REGAINED" } else { "HOME ERASED" }));
+                            if !home_now {
+                                erased_at = Some(t);
+                            } else if let Some(e0) = erased_at.take() {
+                                // (ironspec 07:30 real (2)) the RE-CLAIM delay: from the release to the
+                                // bed regained, and where the cart was (past A6's entry or not)
+                                reclaim_delays.push(format!("{} gt (regained {}{})", t - e0, when, at_entry.map_or(" before A6's entry".to_string(), |te| format!(", {} gt past A6's entry", t - te))));
+                            }
+                            home_prev = home_now;
+                        }
+                        // (ironspec 07:30 real (2)) every AcquirePoi(HOME) ATTEMPT of the napper (its
+                        // node's next schedule redrawn), with the bed's retry marker (previous, next,
+                        // back-off delay) after it
+                        if redsim::entity::mob::ai::brain::has_exact(&r.world, i) {
+                            let x = redsim::entity::mob::ai::brain::ex(&r.world, i);
+                            for n in &x.nodes {
+                                if let redsim::entity::mob::ai::brain::tree::Kind::AcquirePoi { acquire: redsim::entity::mob::ai::brain::M::Home, next_scheduled, batch, .. } = &n.kind {
+                                    if *next_scheduled != acq_next_prev {
+                                        if acq_next_prev != i64::MIN {
+                                            let bp = BlockPos::new(bed[0], bed[1], bed[2]);
+                                            let mk = batch.iter().find(|(q, _)| *q == bp).map(|(_, m)| format!("the bed's marker previous {} next {} delay {}", m.previous, m.next, m.delay));
+                                            acq_attempts.push(format!("{when} (next try at game time {next_scheduled}{})", mk.map_or(String::new(), |s| format!("; {s}"))));
+                                        }
+                                        acq_next_prev = *next_scheduled;
+                                    }
+                                }
+                            }
+                        }
+                        // (ironspec 07:02 real: the FARM-STOP bar is sampled at the visit's END, see
+                        // below; a release healed by a re-claim inside the visit is (a), priced)
+                        // (G1 05:50) the bed's tickets at each DUSK the row crosses (the orphaned
+                        // ticket: taken with no live holder)
+                        let dt_now = (r.world.time + r.world.mob.day_offset).rem_euclid(24000);
+                        if dt_prev < 12000 && dt_now >= 12000 {
+                            let bl = bed_line(&mut r.world, BlockPos::new(bed[0], bed[1], bed[2]));
+                            home_events.push(format!("DUSK at {when} ({bl}; the napper's HOME {})", if home_now { "present" } else { "ABSENT" }));
+                        }
+                        dt_prev = dt_now;
+                    }
                     // every new path object (`Path.uid`) the rider's brain holds after the release,
                     // with the cart's cell and whether it reaches its target; a partial one before
                     // A6's entry is a recompute at a partial position
@@ -2267,6 +2393,8 @@ pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], 
                     prev_since = since;
                 }
                 rows_n += 1;
+                let released = r.world.mob.events.get(ev0..).map_or(0, |evs| evs.iter().filter(|e| matches!(e, redsim::entity::mob::MobEvent::Released { id, .. } if *id == rider0 || *id == rider)).count());
+                home_released_n += (released > 0) as u32;
                 let before = cleared.as_ref().is_some_and(|(t, _)| *t < h) || (stamp_arr.is_none() && cleared.is_none());
                 before_n += before as u32;
                 armed_after_n += (!armed_after.is_empty() || !a6_armed.is_empty()) as u32;
@@ -2318,7 +2446,7 @@ pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], 
                 }
                 if restart.is_none() {
                     out.push(format!(
-                        "(visit) phase +{k}, hold {h}{skip_label}: summoned at game time {summon_game} (arrival detector at summon + {}), released before game time {} (NOT-ready off); the stamp at the release {stamp_rel_s}{}; the sink's ticks left at the release {}; the paths the ride set: {}",
+                        "(visit) phase +{k}, hold {h}{skip_label}: {start_state}; summoned at game time {summon_game} (arrival detector at summon + {}), released before game time {} (NOT-ready off); the stamp at the release {stamp_rel_s}{}; the sink's ticks left at the release {}; the paths the ride set: {}",
                         t_arr + 1,
                         release_game.map_or("-".to_string(), |g| g.to_string()),
                         if o.visit_clear_stamp { " (ERASED at the release: the positive control)" } else { "" },
@@ -2334,6 +2462,26 @@ pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], 
                         if dt >= 12000 { ", past dusk" } else { ", before dusk" },
                         idx(&r.world, rider).and_then(|i| mem(&r.world, i)).and_then(|m| m.0).map_or("none".to_string(), |s| format!("{} gt old", r.world.time - s)),
                         match a6_home { Some(true) => "kept", Some(false) => "LOST", None => "-" }
+                    ));
+                }
+                // (G1 05:47) the HOME changes with the bed's tickets, occupied flag and HOME memory
+                // holders, and the bed at the row's end, on every row where HOME changed or a positive
+                // was planted. (ironspec 06:31 (1) / 07:02 real, the FARM-STOP bar, 0) sampled at the
+                // VISIT's END: a visit that reached A6 and ends without the napper having lain down, or
+                // with the napper without HOME, fails
+                let home_end = idx(&r.world, rider).is_some_and(|ii| redsim::entity::mob::ai::brain::brain(&r.world, ii).home.is_some());
+                let farm_stop = at_entry.is_some() && (a6_sleep.is_none() || !home_end);
+                farm_stop_n += farm_stop as u32;
+                if !home_events.is_empty() || o.visit_plant_erase || o.visit_plant_stamp.is_some() || farm_stop {
+                    let bl = bed_line(&mut r.world, BlockPos::new(bed[0], bed[1], bed[2]));
+                    out.push(format!(
+                        "(visit) phase +{k}, hold {h}{skip_label}: HOME changes {}; Released events {released}; AcquirePoi(HOME) attempts {}; re-claim delays {}; at the visit's end the napper {} and its HOME {}{}; {bl}",
+                        if home_events.is_empty() { "none".to_string() } else { home_events.join("; ") },
+                        if acq_attempts.is_empty() { "none".to_string() } else { format!("{}: {}", acq_attempts.len(), acq_attempts.join("; ")) },
+                        if reclaim_delays.is_empty() { if erased_at.is_some() { "NOT RE-CLAIMED in the row".to_string() } else { "none".to_string() } } else { reclaim_delays.join("; ") },
+                        match a6_sleep { Some(s) => format!("lay down at + {s} gt past the entry"), None => "NEVER LAY DOWN".to_string() },
+                        if home_end { "present" } else { "ABSENT" },
+                        if farm_stop { " (FARM-STOP)" } else { "" },
                     ));
                 }
                 match a6_sleep {
@@ -2377,7 +2525,7 @@ pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], 
         }
     }
     out.push(format!(
-        "(visit) {rows_n} rows ({phases} arrival phases x holds {holds:?} x (plain + restarts at {restart_ticks:?} in 10 orders)), the post {}, followed {follow} gt past A6's entry: the queue rest z {} (rows holding >= 20 gt with no rest: {no_rest_n}); rows with a seat panic before the release {seat_panic_rows}; path computations in the descent (release to A6's entry) {descent_paths_n}, PARTIAL {descent_partial_n}{}; rows with a partial descent recompute: {would_arm_n} with the stamp cleared at the release (the WOULD-ARM class{}), {partial_stamped_n} with it still armed (kept, not re-armed); the leg's stamp CARRIED to the release in {carried_n} of {rows_n} rows, its sink's ticks left at the release (the WINDOW) {}; the latest sleep after the entry +{sleep_latest} gt, rows entered and never asleep {never_slept}; the stamp cleared before the release in {before_n}; stamped at the entry {entry_stamped_n}, of them not cleared inside A6 {not_cleared_n}; the stamp's largest age over 1,000 in {over_1000_n}; armed after the release or in A6 in {armed_after_n}; HOME lost {home_lost_n}; escaped {escaped_n}: the held walk {} (entry -> R: 58f770cc's harness)",
+        "(visit) {rows_n} rows ({phases} arrival phases x holds {holds:?} x (plain + restarts at {restart_ticks:?} in 10 orders)), the post {}, followed {follow} gt past A6's entry: the queue rest z {} (rows holding >= 20 gt with no rest: {no_rest_n}); rows with a seat panic before the release {seat_panic_rows}; path computations in the descent (release to A6's entry) {descent_paths_n}, PARTIAL {descent_partial_n}{}; rows with a partial descent recompute: {would_arm_n} with the stamp cleared at the release (the WOULD-ARM class{}), {partial_stamped_n} with it still armed (kept, not re-armed); the leg's stamp CARRIED to the release in {carried_n} of {rows_n} rows, its sink's ticks left at the release (the WINDOW) {}; the latest sleep after the entry +{sleep_latest} gt, rows entered and never asleep {never_slept}; the stamp cleared before the release in {before_n}; stamped at the entry {entry_stamped_n}, of them not cleared inside A6 {not_cleared_n}; the stamp's largest age over 1,000 in {over_1000_n}; armed after the release or in A6 in {armed_after_n}; HOME LOST (no HOME at the entry or at the follow window's end: no re-claim; the window's end a CONSERVATIVE PROXY for 'by the next dusk'; the bar, 0) {home_lost_n}; the FARM-STOP bar (at the visit's end: a visit that reached A6 ending with the napper never lain down or without HOME; 0) in {farm_stop_n}; HOME RELEASED (a strand event: a Released event, a bed re-claimed at once included; priced, not barred) in {home_released_n}; escaped {escaped_n}: the held walk {} (entry -> R: 58f770cc's harness)",
         if post.is_some() { "in place" } else { "ABSENT (the (C') hatch shut at night / (C''))" },
         if rest_lo.is_finite() { format!("{rest_lo:.4}..{rest_hi:.4}") } else { "never reached".to_string() },
         if partial_where.is_empty() { String::new() } else { format!(" [{}]", partial_where.join("; ")) },
@@ -2391,8 +2539,8 @@ pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], 
         },
         if rows_n == 0 || i_samples == 0 || followed_n == 0 || entry_stamped_n == 0 {
             format!("NOT JUDGED (samples: {rows_n} rows, (i) {i_samples} rows with a stamp, (ii) {entry_stamped_n} rows stamped at the entry, (iii)/(v) {followed_n} rows followed into A6): FAILS")
-        } else if over_1000_n == 0 && not_cleared_n == 0 && armed_after_n == 0 && home_lost_n == 0 && escaped_n == 0 {
-            format!("PASSES (i) over {i_samples} rows with a stamp, (ii) over {entry_stamped_n} stamped at the entry, (iii) and (v) over {followed_n} rows followed into A6")
+        } else if over_1000_n == 0 && not_cleared_n == 0 && armed_after_n == 0 && home_lost_n == 0 && farm_stop_n == 0 && escaped_n == 0 {
+            format!("PASSES within its scope: (i) over {i_samples} rows with a stamp, (ii) over {entry_stamped_n} stamped at the entry, (iii) and (v) over {followed_n} rows followed into A6, of {rows_n} rows on one world (its seed fixed; the rows differ in the arrival phase and the hold)")
         } else {
             "FAILS".to_string()
         }
