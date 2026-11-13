@@ -4127,11 +4127,16 @@ pub enum MobfarmCmd {
         /// max(7, settle - (k_sw + feed)) + 2. Every row prints which.
         #[arg(long)]
         present_latch_unclocked: bool,
-        /// The outcome bar's positive control (G1): R powered N gt before the design's feed would
-        /// power it (a redstone block beside R at each release + the drive delay - N); the napper must
-        /// fail "at rest when R powers" where its rest is within N gt of R's powering.
+        /// The outcome bar's positive control (G1 / ironspec 07:31): the release switch on N gt before
+        /// each release, so R powers N gt early through the design's own feed path (1 <= N <= the
+        /// release wait k); the napper must fail "at rest when R powers" where its rest is within N gt
+        /// of R's powering. Exits 0 when the control is caught, 1 when it is not.
         #[arg(long)]
         early_r: Option<i64>,
+        /// The unpowered-release control (G1 (2)): the release switch held off for the first napper
+        /// release; the row must count "R never powered after a release". Exits 0 when caught.
+        #[arg(long)]
+        hold_switch_off: bool,
         /// With --siding: write the bench's world as laid and settled (every non-air cell of its box,
         /// the design format, the lanes file's loop frame) to this path, for `mobfarm record-match`
         /// (ironspec 21:43).
@@ -9162,12 +9167,22 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 anyhow::bail!("frame-check failed");
             }
         }
-        MobfarmCmd::EscapeBench { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, login_matrix, restart, restart_matrix, restart_base, phase_step, intake_flat, v_in, siding, nap_k, nap_every, nap_ret, nap_pulse, merge_curve, slopes, nap_guard, nap_early, nap_any_pass, nap_ring, nap_pick_u, nap_win_du, nap_win_tap, nap_ai, nap_stamp_at_arrival, nap_late_latch, nap_post, k_row, k_offsets, nap_feed_v, flat_detector, siding_north, emit_with_row, fill_scene, top_flat, mirror_z, start_steady, r_support, rest_sweep, rest_phases, emit_rest_range, feed_path, feed_z8, feed_slime, combos, no_walkway, nap_present_k, curve_bar, d_gate, inject_sweep, inject_feed_vs, inject_nap_rets, r_joint_control, held_rider_control, stray_ctl, push_grid_run, grid_speeds, grid_entries, grid_delays, push_grid_out, push_grid, present_settle_worst, present_latch_unclocked, early_r, inject_release, flat_d, lip_bar, out, nap_feed_phase, siding_dx, siding_dy, ns_merge, guard_det, guard_dz, drop_entry, no_top_support, side_real, side_ctl, siding_matrix, rets, v_ins, nap_rets, corners, nap_ks, jobs, emit_lanes_design, r_boost, floor_bottom, empty, freeze32 } => {
+        MobfarmCmd::EscapeBench { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, login_matrix, restart, restart_matrix, restart_base, phase_step, intake_flat, v_in, siding, nap_k, nap_every, nap_ret, nap_pulse, merge_curve, slopes, nap_guard, nap_early, nap_any_pass, nap_ring, nap_pick_u, nap_win_du, nap_win_tap, nap_ai, nap_stamp_at_arrival, nap_late_latch, nap_post, k_row, k_offsets, nap_feed_v, flat_detector, siding_north, emit_with_row, fill_scene, top_flat, mirror_z, start_steady, r_support, rest_sweep, rest_phases, emit_rest_range, feed_path, feed_z8, feed_slime, combos, no_walkway, nap_present_k, curve_bar, d_gate, inject_sweep, inject_feed_vs, inject_nap_rets, r_joint_control, held_rider_control, stray_ctl, push_grid_run, grid_speeds, grid_entries, grid_delays, push_grid_out, push_grid, present_settle_worst, present_latch_unclocked, early_r, hold_switch_off, inject_release, flat_d, lip_bar, out, nap_feed_phase, siding_dx, siding_dy, ns_merge, guard_det, guard_dz, drop_entry, no_top_support, side_real, side_ctl, siding_matrix, rets, v_ins, nap_rets, corners, nap_ks, jobs, emit_lanes_design, r_boost, floor_bottom, empty, freeze32 } => {
             // (--curve-bar 0: the curve rule printed only; --lip-bar: the S-bend's gate)
             let curve_bar: Option<i64> = (curve_bar > 0).then_some(curve_bar);
             // (ironspec 04:14 (9): a negative lip bar would pass contact (a margin of -1 is the napper
             // touching its leader's rider): refused)
             anyhow::ensure!(lip_bar >= 0, "--lip-bar {lip_bar}: the lip bar is a margin of 0 or more gt (ironspec 22:31: 2); a negative bar would pass contact, so it is refused");
+            // (ironspec 07:28 C4: the controls' and probes' ranges: --early-r shifts R's power by 1 to k
+            // gt (0 is no control; above k the switch would go on before the leader's pass);
+            // --inject-release is a tick of the run; --present-settle-worst is a settle in gt)
+            if let Some(n) = early_r {
+                anyhow::ensure!(n >= 1 && n <= nap_k, "--early-r {n}: 1 to the release wait k ({nap_k}) gt (0 is no control; more than k would switch before the leader's pass)");
+            }
+            if let Some(ti) = inject_release {
+                anyhow::ensure!(ti >= 0, "--inject-release {ti}: a tick of the run (0 or more)");
+            }
+            anyhow::ensure!(present_settle_worst > 0, "--present-settle-worst {present_settle_worst}: a settle in gt (more than 0)");
             let lip_bar: Option<i64> = Some(lip_bar);
             if let Some(path) = emit_lanes_design {
                 let text = crate::sidingbench::lanes_design(slopes, siding_north, emit_with_row, r_support.as_deref(), emit_rest_range.as_deref()).map_err(|e| anyhow::anyhow!(e))?;
@@ -9224,7 +9239,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         let fill: Vec<(i32, i32, i32)> = f.split(';').filter(|c| !c.trim().is_empty()).map(cell).collect::<anyhow::Result<Vec<_>>>()?;
                         Some((fill, cell(seat)?))
                     }
-                }, top_flat, mirror_z, start_steady, r_support: r_support.clone(), nap_feed_phase, feed_path, feed_z8, feed_slime, no_walkway, present_k: nap_present_k, no_d_gate, inject_release, r_joint_control, held_rider_control, stray_ctl, inject_pass: None, push_grid: match push_grid.as_deref() { Some(f) => Some(crate::sidingbench::parse_push_grid(&std::fs::read_to_string(f).map_err(|e| anyhow::anyhow!("--push-grid {f}: {e}"))?).map_err(|e| anyhow::anyhow!(e))?), None => None }, present_settle_worst, present_latch_unclocked, early_r, d_slope: !flat_d, out: out.clone(), siding_dx, siding_dy, ns_merge, guard_det, guard_dz, drop_entry, no_top_support, side_real, side_ctl: side_ctl.clone() };
+                }, top_flat, mirror_z, start_steady, r_support: r_support.clone(), nap_feed_phase, feed_path, feed_z8, feed_slime, no_walkway, present_k: nap_present_k, no_d_gate, inject_release, r_joint_control, held_rider_control, stray_ctl, inject_pass: None, push_grid: match push_grid.as_deref() { Some(f) => Some(crate::sidingbench::parse_push_grid(&std::fs::read_to_string(f).map_err(|e| anyhow::anyhow!("--push-grid {f}: {e}"))?).map_err(|e| anyhow::anyhow!(e))?), None => None }, present_settle_worst, present_latch_unclocked, early_r, hold_switch_off, d_slope: !flat_d, out: out.clone(), siding_dx, siding_dy, ns_merge, guard_det, guard_dz, drop_entry, no_top_support, side_real, side_ctl: side_ctl.clone() };
                 if let Some(pg) = push_grid_run.as_deref() {
                     // (the push grid (ironspec 03:00, the citable grid behind `# push-pair:`): every rest
                     // position the napper's arrival on K produces (lo..hi by step, `rest_phases` entry
@@ -9256,7 +9271,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                                 }
                             }
                         }
-                        grid.push((ri, 0.30, 0.5, 1, true));
+                        // (the planted control: its own speed 0.05 b/gt and position are set in the
+                        // bench (sidingbench's injected pass); the speed and entry fields are unused)
+                        grid.push((ri, 0.05, 0.5, 1, true));
                     }
                     let res = crate::sidingbench::par_map(grid.len(), jobs, |i| {
                         let (ri, gv, frac, gd, planted) = grid[i];
@@ -9302,7 +9319,10 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             no_rest += 1;
                             continue;
                         }
-                        let (pd, _, po) = p.7.unwrap_or((0.0, 0.0, 0));
+                        let Some((pd, _, po)) = p.7 else {
+                            // (G1 (7): every rest has its planted run; a missing one is an error)
+                            anyhow::bail!("the push grid: the rest at arrival {:.3} phase {:.4} has no planted control run", rests[ri].0, rests[ri].1);
+                        };
                         table.push_str(&format!("{:.4} {:.3} {:.4} {} {:.6} {:.6} {:.3} {:.6}\n", p.0, rests[ri].0, rests[ri].1, p.1, p.2, p.3, if p.6 == f64::MAX { -1.0 } else { p.6 }, pd));
                         missed += p.4;
                         gap_lo = gap_lo.min(p.6);
@@ -9342,10 +9362,6 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         if worst.2.is_empty() { "-".to_string() } else { worst.2.clone() },
                         if passes_total == 0 { " NOT JUDGED (0 samples): FAIL" } else { "" }
                     );
-                    if let Some(f) = push_grid_out.as_deref() {
-                        std::fs::write(f, &table)?;
-                        println!("wrote {f} ({} rows)", zs.len());
-                    }
                     // (ironspec 04:14 (3b): the grid run itself fails on any displacement, a missed pass, a
                     // rest never reached, no samples, or a control that doesn't bite: a non-zero exit)
                     let mut gf: Vec<String> = Vec::new();
@@ -9363,6 +9379,17 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     }
                     if planted_fail {
                         gf.push(format!("the planted control: reached {planted_reach} rests, bit at {planted_bit}"));
+                    }
+                    // (G1 (5) / ironspec 07:28 C1: the table is written only by a passing grid, with its
+                    // verdict line; `--push-grid` accepts only such a table)
+                    if let Some(f) = push_grid_out.as_deref() {
+                        if gf.is_empty() {
+                            table.push_str(&format!("# verdict: PASS ({} rests, {passes_total} passes met, 0 missed, 0 never reached, displacement 0; the planted control bit at {planted_bit} of {planted_reach} reachable rests)\n", zs.len()));
+                            std::fs::write(f, &table)?;
+                            println!("wrote {f} ({} rows)", zs.len());
+                        } else {
+                            println!("not written: {f} (the grid FAILS; a failing grid leaves no table)");
+                        }
                     }
                     if !gf.is_empty() {
                         anyhow::bail!("the push grid FAILS: {}", gf.join("; "));
@@ -9457,6 +9484,21 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         grid.len(),
                         k_rest_by_v.iter().map(|(k, (lo, hi, n))| format!("{k}: {lo}..{hi} ({n}), {}..{}, bar {}", lo - 2, hi - 2, bar(hi - 2))).collect::<Vec<_>>().join("; ")
                     );
+                    // (G1's question, the sweeps' exit: an incomplete range (runs with no napper at rest)
+                    // or a quantity with 0 samples fails the sweep, a non-zero exit)
+                    let mut sf: Vec<String> = Vec::new();
+                    if none > 0 {
+                        sf.push(format!("{none} runs with no napper at rest (the range is incomplete)"));
+                    }
+                    if s_lo.is_none() {
+                        sf.push("the settle NOT JUDGED (0 samples)".to_string());
+                    }
+                    if kr_hi.is_none() {
+                        sf.push("PRESENT -> at rest NOT JUDGED (0 samples)".to_string());
+                    }
+                    if !sf.is_empty() {
+                        anyhow::bail!("the rest sweep FAILS: {}", sf.join("; "));
+                    }
                     return Ok(());
                 }
                 // (--combos RULES:STARTS (the parent's 11:58: one command for every variant, no shell
@@ -9539,7 +9581,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         lp_lo = lp_lo.min(row.lip_min.unwrap_or(i64::MAX));
                         lip_nv += row.lip_never;
                         rj_total += row.r_joint;
-                        let reasons = row.failures(lip_bar, curve_bar);
+                        // (the arrivals over 0.46 are judged against the control (no restart) here: the
+                        // start state's own arrivals are not the restart's)
+                        let reasons: Vec<(&str, usize)> = row.failures(lip_bar, curve_bar).into_iter().filter(|r| r.0 != "arrivals over 0.46").collect();
                         let bad: usize = reasons.iter().map(|f| f.1).sum();
                         if bad > 0 || row.arrivals_over > ctl.arrivals_over {
                             fails.entry(r.label()).or_default().push(format!(
@@ -9654,24 +9698,39 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     let clean = |r: &crate::sidingbench::SidingRow| {
                         r.touching == 0 && r.off_rail == 0 && r.empty_releases == 0 && r.not_one == 0 && r.order_broken == 0 && r.knocked == 0 && r.lip_stuck == 0 && r.arrival_max <= 0.508 && !r.nap_cr.is_empty() && r.nap_follow_min.is_none_or(|f| f >= 0)
                     };
+                    // (the evidence's NOT JUDGED fails the sweep (G1 (4)): a non-zero exit at its end)
+                    let mut evidence_fail = String::new();
                     {
                         // (the rows by their lip outcome over the qualifying rows (a PRESENT margin the
-                        // controller's latch takes, >= L_latch + 1 = 7 (day-1); a forced release with no PRESENT margin (the napper not yet at K by its leader's press) is outside normal operation), clean or failing (ironspec 00:02 (2)); a failing
-                        // row is classed by its ACTUAL contact (ironspec 04:14 (5)): STUCK, the napper beside
-                        // its LEADER over the merge (the contact the lip margin measures, at whatever
-                        // margin), or failing other bars with no contact with its leader)
+                        // controller's latch takes, >= L_latch + 1 = 7 (day-1)); the excluded rows are
+                        // counted and printed: a forced release with no PRESENT margin (the napper not yet
+                        // at K by its leader's press) and PRESENT under 7 are outside normal operation.
+                        // Each row is classed by its ACTUAL contact (ironspec 04:14 (5), G1 (4)): STUCK;
+                        // the lip's contact, the napper reaching its leader's RIDER before the drop (a
+                        // lip margin of -1 or less: by the margin's definition the napper's move cut at
+                        // the rider's face) or its leader's CART while the rider is up; beside the
+                        // leader's cart after the rider dropped (a leader stuck in the merge); or none)
                         let qual: Vec<&(Option<f64>, i64, i64, crate::sidingbench::SidingRow)> = rows.iter().filter(|r| r.3.present_margin_min.is_some_and(|p| p >= 7)).collect();
+                        let no_present = rows.iter().filter(|r| r.3.present_margin_min.is_none()).count();
+                        let under7 = rows.iter().filter(|r| r.3.present_margin_min.is_some_and(|p| p < 7)).count();
+                        let lip_contact = |r: &crate::sidingbench::SidingRow| r.lip_min.is_some_and(|q| q <= -1) || r.touch_leader > 0;
                         let mut tally: std::collections::BTreeMap<(bool, String), (usize, i64, i64)> = Default::default();
                         for r in &qual {
                             let cl = clean(&r.3);
-                            let class = match (cl, r.3.lip_stuck > 0, r.3.touch_leader > 0, r.3.lip_min, r.3.lip_never > 0) {
-                                (_, true, _, _, _) => "STUCK (a held rider)",
-                                (false, _, true, _, _) => "the napper beside its leader while the leader's rider is up (the lip's contact)",
-                                (false, _, false, _, _) if r.3.touch_leader_late > 0 => "the napper beside its leader's cart after the rider dropped (a leader stuck in the merge)",
-                                (false, _, false, _, _) => "other bars, no contact with its leader",
-                                (true, _, _, Some(_), _) => "margin",
-                                (true, _, _, None, true) => "never reaches the rider",
-                                (true, _, _, None, false) => "no sample",
+                            let class = if r.3.lip_stuck > 0 {
+                                "STUCK (a held rider)"
+                            } else if lip_contact(&r.3) {
+                                "the lip's contact (the napper reached its leader's rider before the drop, margin -1 or less, or its cart with the rider up)"
+                            } else if r.3.touch_leader_late > 0 {
+                                "the napper beside its leader's cart after the rider dropped (a leader stuck in the merge)"
+                            } else if !cl {
+                                "other bars, no contact with its leader or its rider"
+                            } else if r.3.lip_min.is_some() {
+                                "margin, no contact"
+                            } else if r.3.lip_never > 0 {
+                                "never reaches the rider"
+                            } else {
+                                "no sample"
                             };
                             let e = tally.entry((cl, class.to_string())).or_insert((0, i64::MAX, i64::MIN));
                             e.0 += 1;
@@ -9681,7 +9740,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             }
                         }
                         println!(
-                            "inject rows by the lip outcome (ironspec 00:02 (2), 04:14 (5); the qualifying rows {} of {}): {}",
+                            "inject rows by the lip outcome (ironspec 00:02 (2), 04:14 (5), G1 (4); the qualifying rows {} of {}; excluded, outside normal operation: no PRESENT margin {no_present} (a forced release with the napper not yet at K by its leader's press), PRESENT under 7 {under7}): {}",
                             qual.len(),
                             rows.len(),
                             tally
@@ -9690,22 +9749,33 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                                 .collect::<Vec<_>>()
                                 .join(", ")
                         );
-                        // (the lip bar's evidence from the actual margins (ironspec 22:31 / 00:02 (2) /
-                        // 04:14 (5)): the least clean margin with no row whose napper touched its leader at
-                        // or above it, + 2; beside it the highest margin of ANY failing row, and what the
-                        // failing rows at or above the bar fail (their bars and contacts, counted))
-                        let clean_lo = qual.iter().filter(|r| clean(&r.3)).filter_map(|r| r.3.lip_min).min();
-                        let lip_fail_hi = qual.iter().filter(|r| !clean(&r.3) && r.3.touch_leader > 0).filter_map(|r| r.3.lip_min).max();
+                        // (the lip bar's evidence from the actual margins and contacts (ironspec 22:31 /
+                        // 00:02 (2) / 04:14 (5), G1 (4)): the least clean margin of a row with no lip
+                        // contact, past every lip-contact row's margin, + 2; beside it the highest margin of
+                        // ANY failing row, and what the failing rows at or above the bar fail (their bars,
+                        // the clean() terms and contacts, counted))
+                        let clean_lo = qual.iter().filter(|r| clean(&r.3) && !lip_contact(&r.3)).filter_map(|r| r.3.lip_min).min();
+                        let lip_fail_hi = qual.iter().filter(|r| lip_contact(&r.3)).filter_map(|r| r.3.lip_min).max();
                         let any_fail_hi = qual.iter().filter(|r| !clean(&r.3)).filter_map(|r| r.3.lip_min).max();
                         let held = qual.iter().filter(|r| r.3.lip_stuck > 0).count();
                         if let Some(lo) = clean_lo {
                             let b = lip_fail_hi.map_or(lo, |h| lo.max(h + 1));
                             let mut above: std::collections::BTreeMap<String, usize> = Default::default();
                             let mut above_n = 0usize;
-                            for r in qual.iter().filter(|r| !clean(&r.3) && r.3.lip_min.is_some_and(|q| q >= b + 2)) {
+                            for r in qual.iter().filter(|r| (!clean(&r.3) || lip_contact(&r.3)) && r.3.lip_min.is_some_and(|q| q >= b + 2)) {
                                 above_n += 1;
                                 for (k, _) in r.3.failures(None, None) {
                                     *above.entry(k.to_string()).or_default() += 1;
+                                }
+                                // (the clean() terms the failure list doesn't carry)
+                                if r.3.arrival_max > 0.508 {
+                                    *above.entry("an arrival over the official 0.508".to_string()).or_default() += 1;
+                                }
+                                if r.3.nap_cr.is_empty() {
+                                    *above.entry("no curve rule (the napper never entered the merge)".to_string()).or_default() += 1;
+                                }
+                                if r.3.nap_follow_min.is_some_and(|f| f < 0) {
+                                    *above.entry("the follower overlapping the napper (a negative follower margin)".to_string()).or_default() += 1;
                                 }
                                 if r.3.touch_follower > 0 {
                                     *above.entry("the napper beside another cart over the merge (its follower or a cart still there)".to_string()).or_default() += 1;
@@ -9713,19 +9783,20 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                                 if r.3.touch_leader_late > 0 {
                                     *above.entry("the napper beside its leader's cart after the rider dropped (a leader stuck in the merge)".to_string()).or_default() += 1;
                                 }
-                                if r.3.touch_leader > 0 {
-                                    *above.entry("the napper beside its LEADER while its rider is up (the lip's contact)".to_string()).or_default() += 1;
+                                if lip_contact(&r.3) {
+                                    *above.entry("the lip's contact".to_string()).or_default() += 1;
                                 }
                             }
                             println!(
-                                "the lip bar's evidence over the qualifying rows (from the actual margins and contacts): the least clean margin {lo} gt; the highest margin of a row whose napper touched its leader while the leader's rider was up (the lip's contact) {}; held riders (STUCK, no margin) {held}; the least clean margin with no such row at or above it {b} gt: the bar {} gt; the highest margin of any failing row {}; failing rows at or above the bar {above_n}, by what they fail: {}",
+                                "the lip bar's evidence over the qualifying rows (from the actual margins and contacts): the least clean margin with no lip contact {lo} gt; the highest margin of a lip-contact row (the napper reaching its leader's rider, margin -1 or less, or its cart with the rider up) {}; held riders (STUCK, no margin) {held}; the least clean margin past every lip-contact row {b} gt: the bar {} gt; the highest margin of any failing row {}; failing or contact rows at or above the bar {above_n}, by what they fail: {}",
                                 lip_fail_hi.map_or("-".to_string(), |h| format!("{h} gt")),
                                 b + 2,
                                 any_fail_hi.map_or("-".to_string(), |h| format!("{h} gt")),
                                 if above.is_empty() { "none".to_string() } else { above.iter().map(|(k, n)| format!("{k} {n}")).collect::<Vec<_>>().join(", ") }
                             );
                         } else {
-                            println!("the lip bar's evidence over the qualifying rows: NOT JUDGED (0 samples: no clean row with a margin)");
+                            println!("the lip bar's evidence over the qualifying rows: NOT JUDGED (0 samples: no clean row with a margin and no lip contact): FAIL");
+                            evidence_fail = "the lip bar's evidence NOT JUDGED (no clean row with a margin)".to_string();
                         }
                     }
                     let mut worst: Option<(i64, String)> = None;
@@ -9794,6 +9865,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             lip_clean_hi + 2
                         );
                     }
+                    if !evidence_fail.is_empty() {
+                        anyhow::bail!("the inject sweep FAILS: {evidence_fail}");
+                    }
                     return Ok(());
                 }
                 if login_matrix {
@@ -9841,7 +9915,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         lp_lo = lp_lo.min(row.lip_min.unwrap_or(i64::MAX));
                         lip_nv += row.lip_never;
                         rj_total += row.r_joint;
-                            let reasons = row.failures(lip_bar, curve_bar);
+                            // (the arrivals over 0.46 against the control (no freeze), as in the restart rows)
+                            let reasons: Vec<(&str, usize)> = row.failures(lip_bar, curve_bar).into_iter().filter(|r| r.0 != "arrivals over 0.46").collect();
                             let bad: usize = reasons.iter().map(|f| f.1).sum();
                             if bad > 0 || row.arrivals_over > ctl.arrivals_over {
                                 fails.push(format!(
@@ -9929,6 +10004,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     let mut rj_rows = 0usize;
                     let (mut lp_min, mut lip_nv_rows, mut pm_min) = (i64::MAX, 0usize, i64::MAX);
                     let mut gate = crate::sidingbench::GateAgg::default();
+                    let mut proxy_vs_outcome = 0usize;
                     let (mut v_start_total, mut late_total) = (0usize, 0usize);
                     let mut by_v: std::collections::BTreeMap<String, (usize, usize, f64, f64)> = Default::default();
                     for (i, res) in res.into_iter().enumerate() {
@@ -9942,13 +10018,25 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         let nmax = row.nap_contacts.iter().copied().fold(0.0f64, f64::max);
                         worst_nap = worst_nap.max(nmax);
                         let reasons = row.failures(lip_bar, curve_bar);
-                        let bad: usize = reasons.iter().map(|f| f.1).sum::<usize>() + row.arrivals_over;
+                        let bad: usize = reasons.iter().map(|f| f.1).sum::<usize>();
                         fails += (bad > 0) as usize;
+                        // (G1 / ironspec 07:23: the PRESENT proxy beside the outcome, and the rows where
+                        // the proxy passes but the outcome fails (0 keeps the brief's "the floor is
+                        // conservative"); printed under this row's line below)
+                        let proxy_pass_outcome_fail = row.present_under == 0 && row.not_rest_at_power > 0;
+                        proxy_vs_outcome += proxy_pass_outcome_fail as usize;
+                        let proxy_line = format!(
+                            "    the PRESENT proxy (information): the least margin {}, the bar {}, releases under it {}; the outcome: R powered with the napper not at rest {}{}",
+                            row.present_margin_min.map_or("-".to_string(), |m| format!("{m} gt")),
+                            row.present_bar.map_or("-".to_string(), |b| format!("{b} gt")),
+                            row.present_under,
+                            row.not_rest_at_power,
+                            if proxy_pass_outcome_fail { " (THE PROXY PASSES BUT THE OUTCOME FAILS)" } else { "" }
+                        );
                         if bad > 0 {
                             fail_notes.push(format!(
-                                "nap_ret {nr} ret {r} v_in {v:.2} corner {c:+} k_sw {kk}: {}{}",
-                                reasons.iter().map(|(k, n)| format!("{k} {n}")).collect::<Vec<_>>().join(", "),
-                                if row.arrivals_over > 0 { format!("{}arrivals over 0.46 {}", if reasons.is_empty() { "" } else { ", " }, row.arrivals_over) } else { String::new() }
+                                "nap_ret {nr} ret {r} v_in {v:.2} corner {c:+} k_sw {kk}: {}",
+                                reasons.iter().map(|(k, n)| format!("{k} {n}")).collect::<Vec<_>>().join(", ")
                             ));
                         }
                         println!(
@@ -9976,6 +10064,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             row.restage_max,
                             if row.stuck { " NAPPER STUCK" } else { "" }
                         );
+                        println!("{proxy_line}");
                         if nap_ai {
                             println!(
                                 "    windows: tracked {} of {}; the oldest stamp at a calm REST tick with no walk target: siding {} gt, after the release {} gt (above 1,000: {}); ended by a clear after the release {}, at the drop uncleared {} (the stamp there up to {} gt); HOME lost {}",
@@ -10052,6 +10141,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     );
                     let (gl, gnj) = gate.line(lip_bar, so.k_row.is_some());
                     println!("{label}{gl}{}", if gnj > 0 { format!(" -- {gnj} bar(s) NOT JUDGED: the matrix FAILS") } else { String::new() });
+                    println!("{label}rows where the PRESENT proxy passes but the outcome fails (G1 / ironspec 07:23; 0 keeps the brief's \"the floor is conservative\"): {proxy_vs_outcome}");
                     for f in fail_notes.iter().take(8) {
                         println!("  {label}failing: {f}");
                     }
@@ -10063,13 +10153,23 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     }
                     return Ok(());
                 }
-                // (a single row: printed, then judged by the same failure list; a failing row (a control
-                // that bites included) exits non-zero (ironspec 04:14 (1)))
+                // (a single row: printed, then judged by the same failure list (ironspec 04:14 (1)). A
+                // CONTROL run (ironspec 07:28 C1) reports through its own bar: CAUGHT (exit 0) when every
+                // control it ran bit, the row's other failures being the controls' own; NOT CAUGHT
+                // (exit 1) otherwise. A plain row exits 1 on any failure)
                 let row = crate::sidingbench::siding_row(&o, &so).map_err(|e| anyhow::anyhow!(e))?;
                 println!("{}", row.text);
                 let reasons = row.failures(lip_bar, curve_bar);
+                let fails = reasons.iter().map(|(k, n)| format!("{k} {n}")).collect::<Vec<_>>().join(", ");
+                if row.controls_n > 0 {
+                    if row.control_fail > 0 {
+                        anyhow::bail!("CONTROL NOT CAUGHT: {} of {} controls did not bite (the row's failures: {fails})", row.control_fail, row.controls_n);
+                    }
+                    println!("CONTROL CAUGHT: {} of {} controls bit (the row's failures, the controls' own: {})", row.controls_n, row.controls_n, if fails.is_empty() { "none".to_string() } else { fails });
+                    return Ok(());
+                }
                 if !reasons.is_empty() {
-                    anyhow::bail!("the row FAILS: {}", reasons.iter().map(|(k, n)| format!("{k} {n}")).collect::<Vec<_>>().join(", "));
+                    anyhow::bail!("the row FAILS: {fails}");
                 }
                 return Ok(());
             }

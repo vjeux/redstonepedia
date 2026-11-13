@@ -208,52 +208,82 @@ pub struct GridRow {
     pub passes: usize,
     pub disp: f64,
     pub speed: f64,
+    /// The least box gap between a passing cart's box and the resting napper's push box.
+    pub gap: f64,
+    /// The planted control's displacement at this rest.
+    pub planted: f64,
 }
 
-/// The push grid's table, as --push-grid-out writes it: '#' lines are comments, every other line
-/// "rest-z arrival phase passes displacement speed [least-gap planted-displacement]" (the last two
-/// since ironspec 04:05 / 04:06; an older 6-column table still reads).
+/// The push grid's table, as --push-grid-out writes it (only for a passing grid): '#' lines are
+/// comments, the provenance header and the verdict line required, every other line "rest-z arrival
+/// phase passes displacement speed least-gap planted-displacement" (8 columns).
 pub fn parse_push_grid(text: &str) -> Result<Vec<GridRow>, String> {
+    // (G1 (5) / ironspec 07:28 C4: only a passing grid's own table covers a rest: its provenance
+    // header, its verdict line, and every row's 8 columns, the planted control's included)
+    if !text.lines().any(|l| l.starts_with("# push grid (ironfarm escape-bench")) {
+        return Err("push grid: no provenance header (# push grid (ironfarm escape-bench ...): not a grid run's table".to_string());
+    }
+    if !text.lines().any(|l| l.starts_with("# verdict: PASS")) {
+        return Err("push grid: no \"# verdict: PASS\" line: a failing or unfinished grid's table covers nothing".to_string());
+    }
     let mut out = Vec::new();
     for l in text.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')) {
         let v: Vec<&str> = l.split_whitespace().collect();
-        if v.len() != 6 && v.len() != 8 {
-            return Err(format!("push grid: {} columns in {l:?} (6 or 8)", v.len()));
+        if v.len() != 8 {
+            return Err(format!("push grid: {} columns in {l:?} (8: rest-z arrival phase passes displacement speed least-gap planted-displacement)", v.len()));
         }
-        let f = |i: usize| v.get(i).and_then(|s| s.parse::<f64>().ok()).ok_or(format!("push grid: bad line {l:?}"));
-        out.push(GridRow { z: f(0)?, arrival: f(1)?, phase: f(2)?, passes: f(3)? as usize, disp: f(4)?, speed: f(5)? });
+        let f = |i: usize| v.get(i).and_then(|s| s.parse::<f64>().ok()).ok_or(format!("push grid: bad column {} in {l:?}", i + 1));
+        let (gap, planted) = (f(6)?, f(7)?);
+        out.push(GridRow { z: f(0)?, arrival: f(1)?, phase: f(2)?, passes: f(3)? as usize, disp: f(4)?, speed: f(5)?, gap, planted });
+    }
+    if out.is_empty() {
+        return Err("push grid: no rows".to_string());
     }
     Ok(out)
 }
 
 /// The bench's run-time overrides, checked (ironspec Nov 13 04:07: an override that leaves its cell
-/// unchanged is a silent no-op, a failure): per kind, the sets and the no-ops, and the controls' cells
-/// before and after.
+/// unchanged is a silent no-op, a failure): per kind, the sets and the no-ops, every override's cell
+/// before -> after (counted per distinct transition), and the controls' cells.
 #[derive(Default)]
 struct Overrides {
     counts: std::collections::BTreeMap<&'static str, (usize, usize)>,
+    trans: std::collections::BTreeMap<(&'static str, String), usize>,
     notes: Vec<String>,
 }
 
 impl Overrides {
-    /// Set `blk` at `pos` (world frame), recording the cell's state before and after; `note`: print
-    /// this one (a control's cell) beside the counts.
-    fn set(&mut self, w: &mut redsim::world::World, pos: BlockPos, blk: &Block, kind: &'static str, note: bool) {
+    /// Set `blk` at `pos` (world frame) with `flags`, recording the cell's state before and after;
+    /// `note`: print this one (a control's cell) beside the counts.
+    fn set_with(&mut self, w: &mut redsim::world::World, pos: BlockPos, blk: &Block, kind: &'static str, note: bool, flags: u32) {
         let before = w.get(pos);
-        w.set_block(pos, blk.clone(), redsim::world::flags::ALL);
+        w.set_block(pos, blk.clone(), flags);
         let after = w.get(pos);
         let e = self.counts.entry(kind).or_default();
         e.0 += 1;
         if before == after {
             e.1 += 1;
         }
+        *self.trans.entry((kind, format!("{before} -> {after}"))).or_default() += 1;
         if note || before == after {
             self.notes.push(format!("{kind} ({},{},{}): {before} -> {after}{}", pos.x, pos.y, pos.z, if before == after { " (NO CHANGE)" } else { "" }));
         }
     }
 
+    fn set(&mut self, w: &mut redsim::world::World, pos: BlockPos, blk: &Block, kind: &'static str, note: bool) {
+        self.set_with(w, pos, blk, kind, note, redsim::world::flags::ALL);
+    }
+
     fn noops(&self) -> usize {
         self.counts.values().map(|c| c.1).sum()
+    }
+
+    /// Every override kind's transitions, before -> after with their counts.
+    fn transitions(&self) -> String {
+        if self.trans.is_empty() {
+            return "none".to_string();
+        }
+        self.trans.iter().map(|((k, t), n)| format!("{k}: {t} x{n}")).collect::<Vec<_>>().join("; ")
     }
 }
 
@@ -398,13 +428,19 @@ pub struct SidingOpts {
     /// the grid row covering each rest z, and a rest z no grid row covers fails.
     pub push_grid: Option<Vec<GridRow>>,
     /// The worst PRESENT -> at rest of the rest sweep (gt), for a row whose nappers never came to rest
-    /// (ironspec 04:14 (7): the PRESENT bar m >= max(7, settle - 14) + 2).
+    /// (ironspec 04:14 (7)): 22 by default, the rest sweep's worst (`--rest-sweep` over arrivals
+    /// 0.10..0.44, its "PRESENT -> at rest" line: 22 gt at 0.10); a row that measures its own settle
+    /// (the test's 0.10 @ 820: 21) uses its own.
     pub present_settle_worst: i64,
     /// Day-1's confirmation, declared, that the PRESENT -> latch -> AND path is triggered and
     /// unclocked (ironspec 06:08 real): the world-open lead then applies to the settle term only.
     pub present_latch_unclocked: bool,
-    /// The outcome bar's positive control (G1): R powered N gt early, by a redstone block beside it.
+    /// The outcome bar's positive control (G1 / ironspec 07:31): the release switch on N gt before
+    /// each release, so R powers N gt early through the design's own feed path (1 <= N <= k).
     pub early_r: Option<i64>,
+    /// The unpowered-release control (G1 (2)): the release switch held off for the first napper
+    /// release, so R is never powered after it.
+    pub hold_switch_off: bool,
     /// The module of record's branch (7b90c3f1's split row): D an ascending_south detector, the cells
     /// south of it solid (tick-exact's official S-bend row); default the bench's flat D.
     pub d_slope: bool,
@@ -848,15 +884,26 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
         }
         std::fs::write(path, out).map_err(|e| format!("--out {path}: {e}"))?;
     }
+    // (poi::take, checked like an override (ironspec 07:28 C8): the bed's free tickets before -> after)
+    let mut take_note = String::new();
     if so.ai {
+        let before = redsim::entity::mob::ai::poi::free_tickets(&mut run.world, bed);
         redsim::entity::mob::ai::poi::take(&mut run.world, bed);
+        let after = redsim::entity::mob::ai::poi::free_tickets(&mut run.world, bed);
+        take_note = format!("; poi::take's free tickets before -> after: {} -> {}", before.map_or("-".to_string(), |n| n.to_string()), after.map_or("-".to_string(), |n| n.to_string()));
+        if before == after {
+            return Err(format!("--nap-ai: poi::take left the bed's free tickets at {before:?} (a no-op override, ironspec 04:07)"));
+        }
     }
+    // (the riders at t 1 (read in the loop) and riders without the bed's HOME there (--nap-ai))
+    let mut t1_line = String::from("the riders at t 1 (ironspec 07:28, read from the world): not read (the run ended before t 1)");
+    let mut t1_unhomed = 0usize;
     // (ironspec 06:42 real, the redsim HOME-ticket gap (redsim's summon with HOME takes the bed's
     // ticket; the game's loaded HOME takes none): the bed's free tickets and holders at the start,
     // and how this bench stands with it)
     let bed_start_line = if so.ai {
         format!(
-            "the bed at the start (ironspec 06:42 real, the HOME-ticket gap): START STATE (ii) (G1: the design start (i) leaves the bed's ticket free): the shared bed ({},{},{}) laid, its one ticket taken once by the bench at the start (poi::take, a declared stand-in); free tickets after it {}; holders: every rider, its HOME set in the brain at its spawn (farm_rider), no HOME NBT, so no summon takes a ticket (the gap doesn't arise)",
+            "the bed at the start (ironspec 06:42 real, the HOME-ticket gap): START STATE (ii) (G1: the design start (i) leaves the bed's ticket free): the shared bed ({},{},{}) laid, its one ticket taken once by the bench at the start (poi::take, a declared stand-in{take_note}); free tickets after it {}; holders: read from the riders' brains at t 1 (the riders line), their HOME set in the brain at their spawn (farm_rider), no HOME NBT, so no summon takes a ticket (the gap doesn't arise)",
             BED.0,
             BED.1,
             BED.2,
@@ -1153,12 +1200,19 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
     // powered with the napper not at rest)
     let mut power_judged = 0usize;
     let mut not_rest_at_power: Vec<i64> = Vec::new();
-    // (the napper at rest at the end of the previous tick; --early-r's block's neighbours, laid and 1 gt
-    // after (G1: only R may change))
+    // (the napper at rest at the end of the previous tick; --early-r's switch-on ticks (the release
+    // switch on N gt before each release, the real path's power shifted))
     let mut nap_rest_prev = false;
-    let mut early_nb: Option<(i64, Vec<(BlockPos, Block)>)> = None;
-    let mut early_nb_notes: Vec<String> = Vec::new();
-    let mut early_nb_changed = 0usize;
+    let mut early_switch_at: Vec<i64> = Vec::new();
+    // (the release -> R powered measured from the switch-on (the design's own delay) and from the
+    // release, and the releases R never powered after (G1 (2)))
+    let mut switch_on_at: Option<i64> = None;
+    let mut feed_from_switch: Vec<i64> = Vec::new();
+    let mut r_never_powered: Vec<i64> = Vec::new();
+    // (per release: the napper's rest tick and R's first power tick, for the tie)
+    let mut rest_power_ticks: Vec<(Option<i64>, i64)> = Vec::new();
+    let mut nap_rest_tick: Option<i64> = None;
+    let mut nap_release_n = 0usize;
     // (the bench's run-time overrides, each cell's state before and after (ironspec 04:07))
     let mut overrides = Overrides::default();
     // (r_joint's positive control's cart, once spawned)
@@ -1238,6 +1292,41 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
     let mut latch_at: Option<i64> = None;
     let mut released_by_latch = false;
     for t in 0..ticks {
+        // (ironspec 07:28: the riders' state at t 1, read from the world: the day time, every
+        // villager's active activity and HOME (with --nap-ai, the bed's holders counted from the
+        // brains, not stated), and the bed's free tickets)
+        if t == 1 {
+            let mut acts: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+            let (mut vill, mut homed, mut other_home) = (0usize, 0usize, 0usize);
+            for e in run.world.entities.list.iter().filter(|e| !e.removed) {
+                if let redsim::entity::EntityKind::Mob(mb) = &e.kind
+                    && let Some(b) = mb.brain.as_deref()
+                {
+                    vill += 1;
+                    *acts.entry(format!("{:?}", b.activity)).or_default() += 1;
+                    match b.home {
+                        Some(h) if h == bed => homed += 1,
+                        Some(_) => other_home += 1,
+                        None => {}
+                    }
+                }
+            }
+            t1_line = format!(
+                "the riders at t 1 (ironspec 07:28, read from the world): day time {}; villagers {vill}; their active activities {}; HOME at the bed ({},{},{}) {homed}, elsewhere {other_home}, none {}; the bed's free tickets {}",
+                run.world.day_time(),
+                if acts.is_empty() { "none".to_string() } else { acts.iter().map(|(k, n)| format!("{k} x{n}")).collect::<Vec<_>>().join(", ") },
+                BED.0,
+                BED.1,
+                BED.2,
+                vill - homed - other_home,
+                if so.ai { redsim::entity::mob::ai::poi::free_tickets(&mut run.world, bed).map_or("- (no POI)".to_string(), |n| n.to_string()) } else { "- (no bed laid)".to_string() }
+            );
+            // (with --nap-ai every rider holds the bed as HOME from its spawn (START STATE (ii));
+            // a rider without it fails the row)
+            if so.ai {
+                t1_unhomed = vill - homed;
+            }
+        }
         // (the logins and freezes as one schedule: frozen while any interval covers t, returns waiting
         // while frozen)
         let want_frozen = o.login.iter().chain(o.freeze32.iter()).any(|(a, d)| t >= *a && t < a + d);
@@ -1348,10 +1437,16 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
             // (--push-grid-run's injected pass (ironspec 03:00): one K-row cart at the grid's speed and
             // entry x through the row's west cell, `delay` gt after the napper comes to rest, the K
             // row's own spawns off; planted (the grid's positive control THROUGH the K-zone gate,
-            // ironspec 04:14 (4)): a cart in K's cell near its north edge (z mz+2.14, on the curve's
-            // line), rolling north at 0.05 b/gt (its heading north, so AbstractMinecart.push's
-            // 0.8-alignment admits the napper due north), counted as a K-row pass like any other, its
-            // push box reaching a napper at rest past z ~7.86 while it is still in K's zone)
+            // ironspec 04:14 (4)): a cart in K's cell near its north edge, counted as a K-row pass like
+            // any other (the grid's speed field is unused for it). Its constants (ironspec 07:28 C6):
+            // z frac 0.14, inside K's cell (z > 9: still in K's zone) with its box front 0.49 north of
+            // its centre; x frac 0.64 = 0.5 + 0.14, on the north_east curve's own line (the rail's path
+            // from the north exit (0.5, 0) to the east exit (1, 0.5), x - 0.5 = z frac), so the snap
+            // doesn't move it; rolling north at 0.05 b/gt: above the 0.0316 b/gt a cart's heading needs
+            // (a horizontal move squared over 0.001) so it heads north and AbstractMinecart.push's
+            // 0.8-alignment admits the napper due north, and slow enough to stay in K's zone 3 gt
+            // (0.14 / 0.05) while its push box meets the napper's; where it reaches (the table's
+            // planted column) the napper rests past z ~7.86)
             if let Some((iv, frac, delay, planted)) = so.inject_pass
                 && !inject_pass_done
                 && released_at.is_none()
@@ -1501,6 +1596,24 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
                 pred_pass = last_any_pass.map(|(pp, _)| pp);
                 release_lead = last_any_pass.map(|(_, pc)| pc);
             }
+            // (--early-r N (G1 / ironspec 07:31): the release switch on N gt before the release tick,
+            // through the release's pulse, so R powers N gt early through the design's own feed path;
+            // the release itself (released_at, the bench's bookkeeping) stays at its tick)
+            if let Some(en) = so.early_r
+                && so.inject_release.is_none()
+                && nap.is_some()
+                && released_at.is_none()
+                && present
+                && (so.no_d_gate || !guard_on)
+                && let Some((pp, _)) = last_any_pass
+                && t == pp + so.k - en
+                && present_at.is_some_and(|r| r <= pp)
+                && via.is_some()
+                && !early_switch_at.contains(&t)
+            {
+                s_until = pp + so.k + so.nap_pulse;
+                early_switch_at.push(t);
+            }
             if so.inject_release.is_none()
                 && nap.is_some()
                 && released_at.is_none()
@@ -1593,9 +1706,15 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
             r_is = want_r;
             overrides.set(&mut run.world, wp(BlockPos::new(lx + 1, 17, 1)), if want_r { &rblock } else { &air }, "R_1's switch (x+1,17,1)", false);
         }
-        let want_s = t < s_until;
+        // (--hold-switch-off (G1 (2)'s control): the switch held off through the first napper release;
+        // `nap_release_n` counts that release later in this iteration, hence the tick test)
+        let first_release = released_at.is_some() && nap_release_n + (released_at == Some(t)) as usize == 1;
+        let want_s = t < s_until && !(so.hold_switch_off && first_release);
         if want_s != s_is {
             s_is = want_s;
+            if want_s {
+                switch_on_at = Some(t);
+            }
             overrides.set(&mut run.world, wp(s_switch), if want_s { &rblock } else { &air }, "the siding's switch", false);
         }
         // (--held-rider-control: at the napper's release, glass two cells under the lip in the drop
@@ -1618,40 +1737,11 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
                 overrides.set(&mut run.world, wp(BlockPos::new(sx - 1, m, mz)), &air, "--stray-ctl's redstone block", true);
             }
         }
-        // (--early-r N: the outcome bar's positive control (G1, ironspec 06:15 real): R powered N gt
-        // before the design's feed would power it, by a redstone block beside R (x-3,m,mz) laid at
-        // each release + the drive delay - N and taken away 4 gt after the feed's own power; the
-        // napper must then fail "at rest when R powers" where its rest is within N gt of R's powering.
-        // The block's six neighbours are read as it is laid and 1 gt after: only R may change (G1), or
-        // the control bites through a path the design doesn't have)
-        if let Some((t1, before)) = early_nb.take() {
-            if t == t1 {
-                for (p, b0) in &before {
-                    let b1 = run.world.get(*p);
-                    let is_r = *p == wp(rest_pos);
-                    if b1 != *b0 && !is_r {
-                        early_nb_changed += 1;
-                    }
-                    if early_nb_notes.len() < 6 {
-                        early_nb_notes.push(format!("({},{},{}){} {b0} -> {b1}", p.x, p.y, mzc(p.z), if is_r { " R" } else { "" }));
-                    }
-                }
-            } else {
-                early_nb = Some((t1, before));
-            }
-        }
-        if let Some(en) = so.early_r
-            && let Some(rt) = released_at
-        {
-            if t == rt + drive_delay - en {
-                let c = wp(BlockPos::new(sx - 1, m, mz));
-                let nb: Vec<(BlockPos, Block)> = [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)].iter().map(|(dx, dy, dz)| BlockPos::new(c.x + dx, c.y + dy, c.z + dz)).map(|p| (p, run.world.get(p))).collect();
-                overrides.set(&mut run.world, c, &rblock, "--early-r's redstone block", true);
-                early_nb = Some((t + 1, nb));
-            } else if t == rt + drive_delay + 4 {
-                overrides.set(&mut run.world, wp(BlockPos::new(sx - 1, m, mz)), &air, "--early-r's redstone block", true);
-            }
-        }
+        // (--early-r N: the outcome bar's positive control through the design's own cells (G1 /
+        // ironspec 07:31: "shift the MEASURED R power through the real cells"): the release switch goes
+        // on N gt before the release tick (see the release logic), so R powers N gt early through the
+        // real feed path, in a tick's block phase like the design's own power, and the bar judges it
+        // the same way)
         // (the napper's rest window for the push bar's computed scope: at rest -> its release)
         if released_at == Some(t)
             && let Some(r) = nap_rested_at
@@ -1669,18 +1759,34 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
         // (the feed delay as the design runs it (ironspec 05:03, hole 7): each release to the first
         // tick R is powered after it)
         if released_at == Some(t) {
+            nap_release_n += 1;
+            // (a release still waiting for R's power when the next one comes was never powered
+            // (G1 (2)): a failure, not a dropped sample)
+            if let Some(t0) = feed_wait.take() {
+                r_never_powered.push(t0);
+            }
             feed_wait = Some(t);
         }
-        // (the napper's state at the start of this iteration = at the end of the previous tick)
+        // (the napper's state at the start of this iteration = at the end of the previous tick; the
+        // loop runs `run.tick()` after these readings, so every reading here is the world at the end of
+        // tick t - 1, R's power included)
         let nap_rest_now = nap.and_then(|(nc, _)| carts[nc]).and_then(|id| st(&run.world, id)).is_some_and(|p| p.0.floor() as i32 == sx && (p.1 + 1e-6).floor() as i32 == rest_y && p.2.floor() as i32 == rest_z && p.3 < 0.001);
+        if nap_rest_now && !nap_rest_prev {
+            nap_rest_tick = Some(t);
+        }
         if rest_powered && let Some(t0) = feed_wait.take() {
             feed_meas.push(t - t0);
+            if let Some(s0) = switch_on_at {
+                feed_from_switch.push(t - s0);
+            }
+            rest_power_ticks.push((nap_rest_tick.take(), t));
             // (ironspec 06:15 real, the outcome the PRESENT bar proxies, judged directly: the napper
             // AT REST on R (its block position R's cell, speed < 0.001) when R first powers after its
-            // release. The moment read (G1, the tie): R reads powered here at the end of the tick whose
-            // BLOCK phase powered it, before that tick's entities moved, so the napper is judged as it
-            // stood at the end of the tick BEFORE (the previous iteration's reading): a napper coming to
-            // rest in the same tick's entity phase was not at rest when R powered)
+            // release. The moment read (G1, the tie): R powers in a tick's BLOCK phase (the feed's
+            // repeaters, and --early-r's switch through the same path), before that tick's entities
+            // move; it reads powered here, at the end of that tick, so the napper is judged as it stood
+            // at the end of the tick BEFORE (the previous iteration's reading): a napper coming to rest
+            // in the same tick's entity phase was not at rest when R powered)
             power_judged += 1;
             if !nap_rest_prev {
                 not_rest_at_power.push(t);
@@ -2609,6 +2715,7 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
         if o.login.is_empty() && o.freeze32.is_empty() { String::new() } else { format!(", logins {:?} {:?}", o.login, o.freeze32) }
     )];
     lines.push(bed_start_line);
+    lines.push(format!("{t1_line}; riders without the bed's HOME at t 1 under --nap-ai (the bar: 0): {t1_unhomed}"));
     lines.push(format!("carts per release (exactly 1): {}; empty releases after the first (golems lost: a batch of 2 can't summon): {empty_releases}; late nappers (a lane-lap wait): {late_naps}", ph.iter().map(|(a, b2)| format!("{a}: {b2}")).collect::<Vec<_>>().join(", ")));
     lines.push(format!("nappers through the siding: {}", if nap_rows.is_empty() { "none".to_string() } else { nap_rows.join(" | ") }));
     {
@@ -2812,10 +2919,27 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
             present_margins.len(),
             under.len()
         ));
+        // (G1 (2): every napper release is judged once: R powered after it (the outcome), or R never
+        // powered after it (a failure); a release in the run's last drive delay + 2 gt is printed apart)
+        let mut never = r_never_powered.clone();
+        let mut ended_waiting = 0usize;
+        if let Some(t0) = feed_wait {
+            if ticks - t0 > drive_delay + 2 {
+                never.push(t0);
+            } else {
+                ended_waiting += 1;
+            }
+        }
         lines.push(format!(
-            "the napper at rest when R powers (ironspec 06:15 real: the outcome the PRESENT bar proxies, judged directly; R's power read from the world (its block's powered state); at rest = the cart's block position R's cell and speed < 0.001; the moment read (G1, the tie): the napper as it stood at the end of the tick BEFORE the one whose block phase powered R): releases judged {power_judged}; R powered with the napper not at rest (the bar: 0): {}{}",
+            "the napper at rest when R powers (ironspec 06:15 real: the outcome the PRESENT bar proxies, judged directly; R's power read from the world (its block's powered state); at rest = the cart's block position R's cell and speed < 0.001; the moment read (G1, the tie): the napper as it stood at the end of the tick BEFORE the one whose block phase powered R): napper releases {nap_release_n}; releases judged {power_judged}; R powered with the napper not at rest (the bar: 0): {}{}; R never powered after a release (the bar: 0): {}{}; a release in the run's last {} gt (not judged) {ended_waiting}; per release the napper's first tick at rest -> R's first power reading (the tie at 0: R powered in the block phase of the tick the napper came to rest) [{}]; the switch on -> R powered {} gt (the design's own feed), the release -> R powered {} gt",
             not_rest_at_power.len(),
-            if not_rest_at_power.is_empty() { String::new() } else { format!(" (t {})", not_rest_at_power.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(", ")) }
+            if not_rest_at_power.is_empty() { String::new() } else { format!(" (t {})", not_rest_at_power.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(", ")) },
+            never.len(),
+            if never.is_empty() { String::new() } else { format!(" (released t {})", never.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(", ")) },
+            drive_delay + 2,
+            rest_power_ticks.iter().map(|(q, p)| match q { Some(q) => format!("{q} -> {p} ({})", p - q), None => format!("never at rest -> {p}") }).collect::<Vec<_>>().join(", "),
+            if feed_from_switch.is_empty() { "-".to_string() } else { format!("{}..{}", feed_from_switch.iter().min().unwrap_or(&0), feed_from_switch.iter().max().unwrap_or(&0)) },
+            if feed_meas.is_empty() { "-".to_string() } else { format!("{}..{}", feed_meas.iter().min().unwrap_or(&0), feed_meas.iter().max().unwrap_or(&0)) }
         ));
     }
     lines.push(format!(
@@ -3068,8 +3192,9 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
         // (ironspec 04:07: every run-time override prints its cell's state before and after it is laid;
         // one that leaves its cell unchanged is a silent no-op and fails the row)
         lines.push(format!(
-            "the bench's overrides (ironspec 04:07: an override that leaves its cell unchanged fails): {}; the controls' cells: {}; no-op overrides (the bar: 0): {}",
+            "the bench's overrides (ironspec 04:07: an override that leaves its cell unchanged fails): {}; every override's cell before -> after: {}; the controls' cells: {}; no-op overrides (the bar: 0): {}",
             if overrides.counts.is_empty() { "none".to_string() } else { overrides.counts.iter().map(|(k, (n, z))| format!("{k} {n} sets, {z} no-ops")).collect::<Vec<_>>().join("; ") },
+            overrides.transitions(),
             if overrides.notes.is_empty() { "none".to_string() } else { overrides.notes.join("; ") },
             overrides.noops()
         ));
@@ -3080,7 +3205,9 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
         let mut ctl: Vec<String> = Vec::new();
         let mut ctl_notes: Vec<String> = Vec::new();
         let mut ctl_fail = 0usize;
+        let mut ctl_n = 0usize;
         let mut judge = |what: String, ok: bool, seen: String, pass_txt: &str, fail_txt: &str| {
+            ctl_n += 1;
             if !ok {
                 ctl_fail += 1;
             }
@@ -3121,26 +3248,45 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
             }
         }
         if let Some(en) = so.early_r {
+            // (the outcome bar's positive control through the design's own cells: the release switch on
+            // N gt before each release, R's power shifted by the real feed path; before -> after measured
+            // in this run: the switch on -> R powered (the design's own delay) and the release -> R
+            // powered (shifted); the control needs an early switch to have happened, the shift measured
+            // as N, and a release failing the outcome)
+            let shift_ok = !early_switch_at.is_empty() && feed_from_switch.iter().zip(feed_meas.iter()).all(|(a, b)| a - b == en);
             judge(
                 format!(
-                    "the outcome bar's positive control (G1: --early-r {en}: R powered {en} gt before the design's feed, by a redstone block beside R at each release + {drive_delay} - {en}; the release -> R powered before {drive_delay} gt -> after {}; the block's neighbours as laid -> 1 gt after: {}; neighbours changed besides R (expected 0): {early_nb_changed})",
-                    if feed_meas.is_empty() { "-".to_string() } else { format!("{}..{} gt", feed_meas.iter().min().unwrap_or(&0), feed_meas.iter().max().unwrap_or(&0)) },
-                    if early_nb_notes.is_empty() { "none read".to_string() } else { early_nb_notes.join("; ") }
+                    "the outcome bar's positive control (G1 / ironspec 07:31: --early-r {en}: the release switch on {en} gt before each release (t {}), so R powers {en} gt early through the design's own feed path; measured: the switch on -> R powered {} gt (the design's delay), the release -> R powered {} gt (shifted))",
+                    if early_switch_at.is_empty() { "never".to_string() } else { early_switch_at.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(", ") },
+                    if feed_from_switch.is_empty() { "-".to_string() } else { format!("{}..{}", feed_from_switch.iter().min().unwrap_or(&0), feed_from_switch.iter().max().unwrap_or(&0)) },
+                    if feed_meas.is_empty() { "-".to_string() } else { format!("{}..{}", feed_meas.iter().min().unwrap_or(&0), feed_meas.iter().max().unwrap_or(&0)) }
                 ),
-                !not_rest_at_power.is_empty() && early_nb_changed == 0 && !early_nb_notes.is_empty(),
-                format!("{} releases with R powered and the napper not at rest (expected > 0), {early_nb_changed} other neighbours changed (expected 0)", not_rest_at_power.len()),
-                "the control bites, through R alone",
-                "FAIL, the control does NOT bite, or bites through a path other than R",
+                shift_ok && !not_rest_at_power.is_empty(),
+                format!("{} releases with R powered and the napper not at rest (expected > 0); the shift measured {} (expected {en})", not_rest_at_power.len(), if shift_ok { "as expected" } else { "WRONG or not measured" }),
+                "the control bites",
+                "FAIL, the control does NOT bite",
             );
         }
         if so.held_rider_control {
             let held = lip_qs.iter().filter(|q| matches!(q, Ok(Lip::Held(_)))).count();
             judge("the lip bar's positive control (--held-rider-control: glass two cells under the lip, the leader held one block down with its rider above the floor)".to_string(), held > 0, format!("{held} nappers STUCK at the held rider (expected > 0)"), "the control bites", "FAIL, the control does NOT bite");
         }
+        // (G1 (2): the unpowered-release control: --hold-switch-off holds the release switch off for
+        // the run's first napper release, so R is never powered after it; the row must count it)
+        if so.hold_switch_off {
+            let never_n = r_never_powered.len() + feed_wait.is_some_and(|t0| ticks - t0 > drive_delay + 2) as usize;
+            judge(
+                "the unpowered-release control (G1 (2): --hold-switch-off, the release switch held off for the first napper release)".to_string(),
+                never_n > 0,
+                format!("{never_n} releases R never powered after (expected > 0)"),
+                "the control bites",
+                "FAIL, the control does NOT bite",
+            );
+        }
         drop(judge);
         ctl.extend(ctl_notes);
         lines.push(format!(
-            "the controls (ironspec 00:02 (3): each asserts its own expected failure): {}; controls failing (the bar: 0): {ctl_fail}",
+            "the controls (ironspec 00:02 (3): each asserts its own expected failure): {}; controls judged {ctl_n}; controls failing (the bar: 0): {ctl_fail}",
             if ctl.is_empty() { "none in this run".to_string() } else { ctl.join("; ") }
         ));
     }
@@ -3598,6 +3744,8 @@ pub struct SidingRow {
     pub nap_q: Vec<i64>,
     /// The napper's curve-rule margins at the merge (its entry minus its predecessor's clear, gt).
     pub nap_cr: Vec<i64>,
+    /// Nappers whose curve rule printed "-" (no merge entry or no predecessor's clear; G1 (6)).
+    pub nap_no_curve: usize,
     /// The longest napper wait on the siding (gt).
     pub nap_wait_max: i64,
     /// (--nap-ai) The oldest CANT_REACH stamp at a calm REST tick with no walk target held over the
@@ -3667,6 +3815,8 @@ pub struct SidingRow {
     pub not_judged: usize,
     /// Controls in the run that did not bite (ironspec 00:02 (3)).
     pub control_fail: usize,
+    /// The controls this run judged (0: a plain row).
+    pub controls_n: usize,
     /// The nappers' settle on R (day-1): the first tick on R's cell to speed < 0.001, (least, most).
     pub settle: Option<(i64, i64)>,
     /// The nappers' K tick to their rest on R, (least, most): the settle PRESENT's bar uses is this
@@ -3700,10 +3850,16 @@ pub struct SidingRow {
     pub releases_n: usize,
     /// PRESENT margins under the row's proxy bar (ironspec 04:14 (7); information since 06:15 real).
     pub present_under: usize,
+    /// The PRESENT proxy's bar this row computed (information; None when not computed).
+    pub present_bar: Option<i64>,
     /// The releases judged at R's first power after them, and those with the napper not at rest
     /// then (ironspec 06:15 real: the outcome the PRESENT bar proxies; failures).
     pub power_judged: usize,
     pub not_rest_at_power: usize,
+    /// Riders without the bed's HOME at t 1 under --nap-ai (ironspec 07:28): failures.
+    pub t1_unhomed: usize,
+    /// Napper releases R never powered after (G1 (2)): failures.
+    pub r_never_powered: usize,
     /// The napper's z at the push grid's injected pass (ironspec 04:14 (3c)).
     pub inject_rest_z: Option<f64>,
     /// Ticks a K-zone cart's push box met the resting napper's box (the planted control's
@@ -3794,6 +3950,9 @@ impl SidingRow {
             ("rests the push grid doesn't cover", self.push_uncovered),
             ("no-op overrides", self.override_noops),
             ("the napper not at rest when R powered", self.not_rest_at_power),
+            ("R never powered after a release", self.r_never_powered),
+            ("riders without the bed's HOME at t 1 (--nap-ai)", self.t1_unhomed),
+            ("arrivals over 0.46", self.arrivals_over),
             ("the resting napper pushed", (self.push_disp > 1e-6 || self.push_speed > 1e-6) as usize),
             ("the lip margin under the bar", lip_bar.map_or(0, |b| self.lip_min.is_some_and(|q| q < b) as usize)),
             ("curve rules under the curve bar", curve_bar.map_or(0, |b| self.nap_cr.iter().filter(|c| **c < b).count())),
@@ -3806,6 +3965,12 @@ impl SidingRow {
 /// The bench's numbers read back from its own text (one source of truth: the printed lines).
 pub fn siding_row(o: &DropOpts, so: &SidingOpts) -> Result<SidingRow, String> {
     let text = siding_bench(o, so)?;
+    parse_siding_row(text, so)
+}
+
+/// `siding_row`'s strict reader of a bench text (every bar's line required; a missing or unparsable
+/// count, or counts that don't reconcile, an error).
+pub fn parse_siding_row(text: String, so: &SidingOpts) -> Result<SidingRow, String> {
     let mut r = SidingRow { min_health: f32::MAX, stamp_calm_max: -1, stamp_siding_max: -1, stamp_lane_max: -1, drop_stamp_max: -1, merge_v_min: -1.0, merge_v_max: -1.0, rest_z_min: -1.0, rest_z_max: -1.0, th_min_exit: -1.0, th_zgap: f64::MAX, ..Default::default() };
     let num_after = |s: &str, key: &str| -> Option<f64> {
         let i = s.find(key)? + key.len();
@@ -3833,25 +3998,37 @@ pub fn siding_row(o: &DropOpts, so: &SidingOpts) -> Result<SidingRow, String> {
             r.empty_releases = req(l, "golems lost: a batch of 2 can't summon): ")? as usize;
             r.late_naps = req(l, "late nappers (a lane-lap wait): ")? as usize;
         } else if l.starts_with("nappers through the siding: ") {
-            // (every napper's segment carries its contact figure (ironspec 04:14 (6)))
+            // (every napper's segment carries its contact figure (ironspec 04:14 (6)); its curve rule
+            // and its q are a number or an explicit "-" (no merge entry; no contact sample), anything
+            // else an error (G1 (6)))
             let body = l.trim_start_matches("nappers through the siding: ");
             if body != "none" {
                 for seg in body.split(" | ") {
                     let v = num_after(seg, "its contact ").ok_or(format!("siding_row: a napper with no contact figure in: {seg}"))?;
-                    if let Some(cr) = num_after(seg, "minus the predecessor's clear) ") {
-                        r.nap_cr.push(cr as i64);
+                    let after = |key: &str| seg.find(key).map(|i| &seg[i + key.len()..]);
+                    match after("minus the predecessor's clear) ") {
+                        Some(s) if s.starts_with("- ") => r.nap_no_curve += 1,
+                        Some(_) => r.nap_cr.push(num_after(seg, "minus the predecessor's clear) ").ok_or(format!("siding_row: a napper's curve rule neither a number nor \"-\" in: {seg}"))? as i64),
+                        None => return Err(format!("siding_row: a napper with no curve rule in: {seg}")),
                     }
                     r.nap_contacts.push(v);
-                    r.nap_q.push(num_after(seg, " at q ").map_or(-1, |q| q as i64));
+                    match after(" at q ") {
+                        Some(s) if s.starts_with('-') && !s[1..].starts_with(|c: char| c.is_ascii_digit()) => r.nap_q.push(-1),
+                        Some(_) => r.nap_q.push(num_after(seg, " at q ").ok_or(format!("siding_row: a napper's q neither a number nor \"-\" in: {seg}"))? as i64),
+                        None => return Err(format!("siding_row: a napper with no q in: {seg}")),
+                    }
                 }
             }
         } else if l.starts_with("the bench's overrides (ironspec 04:07") {
             r.override_noops = req(l, "no-op overrides (the bar: 0): ")? as usize;
+        } else if l.starts_with("the riders at t 1 (ironspec 07:28") {
+            r.t1_unhomed = req(l, "riders without the bed's HOME at t 1 under --nap-ai (the bar: 0): ")? as usize;
         } else if l.starts_with("the K-row push bar's scope (ironspec 03:00)") {
             r.push_excluded = l.contains("push: out of scope (computed");
             r.push_uncovered = req(l, "rests the push grid doesn't cover (the bar: 0): ")? as usize;
         } else if l.starts_with("the controls (ironspec 00:02 (3)") {
             r.control_fail = req(l, "controls failing (the bar: 0): ")? as usize;
+            r.controls_n = req(l, "controls judged ")? as usize;
         } else if l.starts_with("the bars' samples (ironspec 23:56") {
             r.not_judged = req(l, "NOT JUDGED (0 samples): ")? as usize;
             r.releases_n = req(l, "fails): releases ")? as usize;
@@ -3894,9 +4071,18 @@ pub fn siding_row(o: &DropOpts, so: &SidingOpts) -> Result<SidingRow, String> {
             r.nap_gap_min = l.split("departure from R: ").nth(1).and_then(|s| s.split_once("..")).and_then(|(a, _)| a.trim().parse().ok());
         } else if l.starts_with("the PRESENT proxy bar") {
             r.present_under = req(l, "under the proxy bar (information): ")? as usize;
+            r.present_bar = num_after(l, "-> the proxy bar ").map(|b| b as i64);
         } else if l.starts_with("the napper at rest when R powers") {
             r.power_judged = req(l, "releases judged ")? as usize;
             r.not_rest_at_power = req(l, "R powered with the napper not at rest (the bar: 0): ")? as usize;
+            r.r_never_powered = req(l, "R never powered after a release (the bar: 0): ")? as usize;
+            let releases = req(l, "napper releases ")? as usize;
+            let ended = req(l, "gt (not judged) ")? as usize;
+            // (G1 (2): every napper release judged once: R powered after it, never powered, or the
+            // run's end; a mismatch is an error, not a silent pass)
+            if r.power_judged + r.r_never_powered + ended != releases {
+                return Err(format!("siding_row: {releases} napper releases but {} judged + {} never powered + {ended} at the run's end in: {l}", r.power_judged, r.r_never_powered));
+            }
         } else if l.starts_with("the longest napper wait on the siding") {
             r.nap_wait_max = req(l, "to its release): ")? as i64;
         } else if l.starts_with("the branch returns' stored speed entering the merge cell") {
@@ -4037,7 +4223,7 @@ pub fn siding_row(o: &DropOpts, so: &SidingOpts) -> Result<SidingRow, String> {
     if so.flat_detector && !text.lines().any(|l| l.starts_with("the siding flat's detector")) {
         return Err("siding_row: --flat-detector, but the bench printed no detector line".to_string());
     }
-    for key in ["the branch returns' stored speed entering the merge cell", "nappers came to rest on the siding at z ", "lane carts in push contact with the waiting napper", "lane carts on the siding's cells", "the nappers' launches from the rest", "the lane's top cell V", "the lane's occupancy at the releases from the steady state", "the carts' block contacts (ironspec 21:25 (4)", "the controls (ironspec 00:02 (3)", "the bench's overrides (ironspec 04:07", "the bed at the start (ironspec 06:42 real", "the PRESENT proxy bar", "the napper at rest when R powers", "the K-row push bar's scope (ironspec 03:00)", "the bars' samples (ironspec 23:56", "the lip margin (ironspec 21:14 (2)", "the nappers' PRESENT margins before their leader's press", "the napper's settle on R (day-1", "the cart after each napper into the merge", "the siding's single occupancy", "the resting napper across the K row's passes", "the nappers at their release"] {
+    for key in ["the branch returns' stored speed entering the merge cell", "nappers came to rest on the siding at z ", "lane carts in push contact with the waiting napper", "lane carts on the siding's cells", "the nappers' launches from the rest", "the lane's top cell V", "the lane's occupancy at the releases from the steady state", "the carts' block contacts (ironspec 21:25 (4)", "the controls (ironspec 00:02 (3)", "the bench's overrides (ironspec 04:07", "the bed at the start (ironspec 06:42 real", "the riders at t 1 (ironspec 07:28", "the PRESENT proxy bar", "the napper at rest when R powers", "the K-row push bar's scope (ironspec 03:00)", "the bars' samples (ironspec 23:56", "the lip margin (ironspec 21:14 (2)", "the nappers' PRESENT margins before their leader's press", "the napper's settle on R (day-1", "the cart after each napper into the merge", "the siding's single occupancy", "the resting napper across the K row's passes", "the nappers at their release"] {
         if !text.lines().any(|l| l.starts_with(key)) {
             return Err(format!("siding_row: the bench printed no \"{key}\" line"));
         }
@@ -4215,6 +4401,7 @@ mod official_row_tests {
             present_settle_worst: 22,
             present_latch_unclocked: false,
             early_r: None,
+            hold_switch_off: false,
             d_slope: true,
             out: None,
             no_walkway: false,
@@ -4314,28 +4501,188 @@ mod official_row_tests {
         assert!(l.contains("-> the proxy bar 7 gt") && l.contains("--present-latch-unclocked declared"), "{l}");
     }
 
-    /// The outcome bar's positive control (G1): R powered 2 gt early at a phase whose napper comes to
-    /// rest 1 gt before the design's feed powers R (0.10, nap_ret 820: PRESENT margin 10, settle 21,
-    /// k 4 + feed 8): plain, every release finds the napper at rest; with --early-r 2 a release fails
-    /// "at rest when R powers" through the same row, and the control says it bites.
+    /// The outcome bar's positive control through the design's own cells (G1 / ironspec 07:31): the
+    /// release switch on N gt early shifts R's power N gt through the real feed path, measured in the
+    /// same run. THE TIE TEST: at a phase where the plain row finds the napper first at rest exactly one
+    /// reading before R's power (the official k 4 row at 0.10, searched over nap_ret 815..823), the
+    /// plain row passes; --early-r 1 moves R's power reading onto the very reading at which the plain
+    /// napper first shows at rest (R powered in the block phase of the tick whose entity phase would
+    /// bring it to rest: the tie), and the bar must fail it (the napper, boosted, never rests);
+    /// --early-r 2 fails too. Both controls are caught, the shift measured as N.
     #[test]
     fn early_r_control_fails_the_outcome() {
         let (o, mut so) = official();
         so.nap_feed_v = Some(0.10);
-        so.nap_ret = 820;
-        let plain = siding_row(&o, &so).unwrap();
         let line = |r: &SidingRow| r.text.lines().find(|l| l.starts_with("the napper at rest when R powers")).unwrap_or("-").to_string();
-        assert!(plain.power_judged > 0 && plain.not_rest_at_power == 0, "plain: {}", line(&plain));
+        // (per release: the napper's first reading at rest (None: never at rest before R) and R's
+        // first power reading)
+        let ticks = |r: &SidingRow| -> Vec<(Option<i64>, i64)> {
+            let l = line(r);
+            let Some(i) = l.find("(the tie at 0: R powered in the block phase of the tick the napper came to rest) [") else { return Vec::new() };
+            let body = &l[i..];
+            let body = &body[body.find('[').unwrap_or(0) + 1..body.find(']').unwrap_or(body.len())];
+            body.split(", ")
+                .filter_map(|e| {
+                    let (q, p) = e.split_once(" -> ")?;
+                    let p: i64 = p.split_whitespace().next()?.parse().ok()?;
+                    Some((q.trim().parse::<i64>().ok(), p))
+                })
+                .collect()
+        };
+        let mut found = None;
+        for nr in [820, 819, 821, 818, 822, 817, 816, 815, 823] {
+            so.nap_ret = nr;
+            so.early_r = None;
+            let plain = siding_row(&o, &so).unwrap();
+            let t = ticks(&plain);
+            if plain.power_judged > 0 && plain.not_rest_at_power == 0 && plain.r_never_powered == 0 && !t.is_empty() && t.iter().all(|(q, p)| q.is_some_and(|q| p - q >= 1)) && t.iter().any(|(q, p)| q.is_some_and(|q| p - q == 1)) {
+                found = Some((nr, t));
+                break;
+            }
+        }
+        let (nr, plain_t) = found.expect("a plain phase at 0.10 whose napper first rests exactly one reading before R's power");
+        so.nap_ret = nr;
+        so.early_r = Some(1);
+        let tie = siding_row(&o, &so).unwrap();
+        let tie_t = ticks(&tie);
+        // (the tie: for every release whose plain napper rested one reading before R, the control's R
+        // power reading is that very reading; the bar fails it)
+        let tied: Vec<(i64, i64)> = plain_t.iter().filter_map(|(q, p)| q.filter(|q| p - q == 1).map(|q| (q, *p))).collect();
+        assert!(!tied.is_empty() && tied.iter().all(|(q, _)| tie_t.iter().any(|(_, p1)| p1 == q)), "nap_ret {nr}: plain {plain_t:?}, --early-r 1 {tie_t:?}");
+        assert!(tie.not_rest_at_power > 0, "--early-r 1 at nap_ret {nr} (the tie): {}", line(&tie));
+        let ctl = |r: &SidingRow| r.text.lines().find(|l| l.starts_with("the controls")).unwrap_or("-").to_string();
+        assert!(tie.control_fail == 0 && tie.controls_n == 1 && ctl(&tie).contains("the shift measured as expected"), "{}", ctl(&tie));
         so.early_r = Some(2);
         let early = siding_row(&o, &so).unwrap();
         assert!(early.not_rest_at_power > 0, "--early-r 2: {}", line(&early));
-        assert_eq!(early.control_fail, 0, "{}", early.text.lines().find(|l| l.starts_with("the controls")).unwrap_or("-"));
-        // (the tie (G1): --early-r 1 puts R's power in the block phase of the tick whose entity phase
-        // brings the napper to rest; the bar reads the napper before that block phase, so it must fail)
-        so.early_r = Some(1);
-        let tie = siding_row(&o, &so).unwrap();
-        assert!(tie.not_rest_at_power > 0, "--early-r 1 (the tie): {}", line(&tie));
-        assert_eq!(tie.control_fail, 0, "{}", tie.text.lines().find(|l| l.starts_with("the controls")).unwrap_or("-"));
+        assert!(early.control_fail == 0 && early.controls_n == 1, "{}", ctl(&early));
+    }
+
+    /// G1 (2): a release R never powers after is a failure, not a dropped sample; the control holds
+    /// the release switch off for the first napper release, and the row counts it.
+    #[test]
+    fn hold_switch_off_counts_an_unpowered_release() {
+        let (o, mut so) = official();
+        so.hold_switch_off = true;
+        let r = siding_row(&o, &so).unwrap();
+        let line = r.text.lines().find(|l| l.starts_with("the napper at rest when R powers")).unwrap_or("-").to_string();
+        assert!(r.r_never_powered > 0, "{line}");
+        assert!(r.failures(None, None).iter().any(|f| f.0 == "R never powered after a release"), "{line}");
+        assert_eq!((r.control_fail, r.controls_n), (0, 1), "{}", r.text.lines().find(|l| l.starts_with("the controls")).unwrap_or("-"));
+    }
+
+    /// G1 (2), the parse: every napper release judged once; a text whose counts don't reconcile is an
+    /// error (here the official row's text with one release more than it judged).
+    #[test]
+    fn unreconciled_releases_are_an_error() {
+        let (o, so) = official();
+        let text = siding_bench(&o, &so).unwrap();
+        assert!(parse_siding_row(text.clone(), &so).is_ok());
+        let l = text.lines().find(|l| l.starts_with("the napper at rest when R powers")).unwrap().to_string();
+        let i = l.find("napper releases ").unwrap() + "napper releases ".len();
+        let n: usize = l[i..].chars().take_while(|c| c.is_ascii_digit()).collect::<String>().parse().unwrap();
+        let bad = text.replace(&l, &l.replacen(&format!("napper releases {n}"), &format!("napper releases {}", n + 1), 1));
+        assert!(parse_siding_row(bad, &so).is_err());
+    }
+
+    /// ironspec 04:07 / 07:28 C8: an override that leaves its cell unchanged is counted as a no-op,
+    /// and every override prints its cell's before -> after.
+    #[test]
+    fn an_override_that_changes_nothing_is_a_noop() {
+        let mut w = redsim::world::World::new(BlockPos::new(0, 0, 0), [4, 4, 4]);
+        let glass = Block::parse("minecraft:glass").unwrap();
+        let mut ov = Overrides::default();
+        ov.set(&mut w, BlockPos::new(1, 1, 1), &glass, "test glass", false);
+        assert_eq!(ov.noops(), 0);
+        ov.set(&mut w, BlockPos::new(1, 1, 1), &glass, "test glass", false);
+        assert_eq!(ov.noops(), 1);
+        let t = ov.transitions();
+        assert!(t.contains("minecraft:air -> minecraft:glass x1") && t.contains("minecraft:glass -> minecraft:glass x1"), "{t}");
+    }
+
+    /// The grid's "missed" count (G1 / ironspec 07:28 C7): an injected pass that comes after the
+    /// napper has left its rest meets nothing (push passes 0), which the grid counts as a missed pass.
+    #[test]
+    fn a_pass_after_the_rest_is_missed() {
+        let (o, mut so) = official();
+        so.inject_pass = Some((0.30, 0.5, 400, false));
+        let r = siding_row(&o, &so).unwrap();
+        assert_eq!(r.push_passes, 0, "{}", r.text.lines().find(|l| l.starts_with("the resting napper across the K row's passes")).unwrap_or("-"));
+    }
+
+    /// ironspec 07:28 C7, the push scope's NOT JUDGED: K-row passes meeting the napper while it rolls
+    /// on R (the turn control at 0.10, nap_ret 760, t 2108: 9 pass ticks) are NOT JUDGED (the push
+    /// is measured only at rest) and counted in the samples line.
+    #[test]
+    fn a_pass_meeting_the_rolling_napper_is_not_judged() {
+        let (o, mut so) = official();
+        so.nap_feed_v = Some(0.10);
+        so.nap_ret = 760;
+        so.r_joint_control = Some(("turn".to_string(), 2108));
+        let r = siding_row(&o, &so).unwrap();
+        let s = r.text.lines().find(|l| l.starts_with("the bars' samples")).unwrap_or("-").to_string();
+        assert!(r.not_judged >= 1 && s.contains("met the napper while it rolled on R or launched"), "{s}");
+    }
+
+    /// ironspec 07:28 C7 / G1 (2), a dead K row: with the K row on but no pass ever at K (its spawns
+    /// past the run's end), the K row's bars are NOT JUDGED and the row fails.
+    #[test]
+    fn a_dead_k_row_is_not_judged() {
+        let (o, mut so) = official();
+        so.k_offsets = vec![100_000];
+        let r = siding_row(&o, &so).unwrap();
+        let s = r.text.lines().find(|l| l.starts_with("the bars' samples")).unwrap_or("-").to_string();
+        assert!(r.not_judged >= 1 && s.contains("the K row's passes at K (the K row alive)"), "{s}");
+        assert!(r.failures(None, None).iter().any(|f| f.0 == "bars NOT JUDGED"), "{s}");
+    }
+
+    /// ironspec 07:28 C7, the new 0-sample counts: a run too short for a steady window (2 cycles)
+    /// has no occupancy, V, lip, curve, follower, PRESENT or R-power samples: each NOT JUDGED.
+    #[test]
+    fn an_empty_steady_window_is_not_judged() {
+        let (mut o, so) = official();
+        o.cycles = 2;
+        let r = siding_row(&o, &so).unwrap();
+        let s = r.text.lines().find(|l| l.starts_with("the bars' samples")).unwrap_or("-").to_string();
+        for k in ["the releases from the steady state (the occupancy bars", "the steady window's ticks (the V bar)", "the nappers' curve rules at the merge", "the followers' margins behind a napper", "the releases judged at R's first power (the napper at rest)"] {
+            assert!(s.contains(k), "{k} not NOT JUDGED in: {s}");
+        }
+        assert!(r.failures(None, None).iter().any(|f| f.0 == "bars NOT JUDGED"));
+    }
+
+    /// ironspec 07:28 C7, the lip classes: a forced release (k_sw 6, arrival 0.25, nap_ret 822,
+    /// released at t 2128) whose napper meets its leader in the merge cell while the leader's rider is
+    /// still above its floor: counted as the lip's contact (beside its leader), not as a stuck leader.
+    #[test]
+    fn the_lip_contact_with_the_leader_is_classed() {
+        let (o, mut so) = official();
+        so.k = 6;
+        so.nap_feed_v = Some(0.25);
+        so.nap_ret = 822;
+        so.inject_release = Some(2128);
+        let r = siding_row(&o, &so).unwrap();
+        let l = r.text.lines().find(|l| l.starts_with("ticks with two carts over the merge")).unwrap_or("-").to_string();
+        assert!(r.touch_leader > 0 && r.touch_leader_late == 0, "{l}");
+        assert!(r.lip_min.is_some_and(|q| q <= -1), "the lip margin {:?}", r.lip_min);
+    }
+
+    /// G1 (1): arrivals over 0.46 are in the failure list, so a single row with them fails alone as it
+    /// does in a matrix. The drop entry fixes the lane-back arrival at 0.260 whatever the stored speed
+    /// (v_in 0.26 .. 0.80 all arrive at 0.260: no row of the design trips it), so the control is the
+    /// old curve entry (no drop entry) at a stored 0.60, whose arrivals reach 0.520.
+    #[test]
+    fn arrivals_over_the_bar_fail_a_single_row() {
+        let (mut o, mut so) = official();
+        o.v_in = 0.60;
+        so.drop_entry = false;
+        let r = siding_row(&o, &so).unwrap();
+        let f = r.failures(None, None);
+        assert!(r.arrivals_over > 0 && f.iter().any(|x| x.0 == "arrivals over 0.46" && x.1 == r.arrivals_over), "no drop entry, v_in 0.60: {f:?}");
+        // (the design's own drop entry at a stored 0.26: every arrival at 0.260, none over)
+        let (mut o2, so2) = official();
+        o2.v_in = 0.26;
+        let r2 = siding_row(&o2, &so2).unwrap();
+        assert_eq!(r2.arrivals_over, 0);
     }
 
     /// The lip bar's positive control through the rows' own code path (ironspec 00:27): the official
@@ -4415,13 +4762,21 @@ mod official_row_tests {
     /// line is an error, not a skipped row.
     #[test]
     fn push_grid_table_parses() {
-        let g = parse_push_grid("# rest-z arrival phase passes displacement speed\n7.8950 0.100 0.0000 40 0.000000 0.000000\n7.5700 0.300 0.0375 40 0.000000 0.000000\n").unwrap();
+        // (G1 (5): only a passing grid's table, its provenance header and verdict line present, every
+        // row 8 columns)
+        let head = "# push grid (ironfarm escape-bench --siding --push-grid-run 0.10,0.44,0.01 ...)\n";
+        let pass = "# verdict: PASS (2 rests ...)\n";
+        let rows = "7.8950 0.100 0.0000 80 0.000000 0.000000 0.092 0.181000\n7.5700 0.300 0.0375 80 0.000000 0.000000 0.130 0.000000\n";
+        let g = parse_push_grid(&format!("{head}{rows}{pass}")).unwrap();
         assert_eq!(g.len(), 2);
-        assert_eq!(g[1], GridRow { z: 7.57, arrival: 0.3, phase: 0.0375, passes: 40, disp: 0.0, speed: 0.0 });
-        assert!(parse_push_grid("7.8950 0.100\n").is_err());
-        // (the 8-column table: the least gap and the planted push's displacement too)
-        let g8 = parse_push_grid("7.8950 0.100 0.0000 80 0.000000 0.000000 0.092 0.181000\n").unwrap();
-        assert_eq!(g8[0].z, 7.895);
+        assert_eq!(g[1], GridRow { z: 7.57, arrival: 0.3, phase: 0.0375, passes: 80, disp: 0.0, speed: 0.0, gap: 0.13, planted: 0.0 });
+        assert_eq!((g[0].z, g[0].planted), (7.895, 0.181));
+        // (no verdict line: a failing grid's table; no header; a 6-column row; a short row; no rows)
+        assert!(parse_push_grid(&format!("{head}{rows}")).is_err());
+        assert!(parse_push_grid(&format!("{rows}{pass}")).is_err());
+        assert!(parse_push_grid(&format!("{head}7.8950 0.100 0.0000 40 0.000000 0.000000\n{pass}")).is_err());
+        assert!(parse_push_grid(&format!("{head}7.8950 0.100\n{pass}")).is_err());
+        assert!(parse_push_grid(&format!("{head}{pass}")).is_err());
     }
 
     /// The lip margin's known answer at the worst qualifying phase (ironspec 22:22 (1)): tick-exact's

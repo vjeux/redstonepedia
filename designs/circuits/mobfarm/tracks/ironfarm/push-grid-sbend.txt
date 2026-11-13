@@ -280,3 +280,4 @@
 7.5778 0.440 0.2750 80 0.000000 0.000000 0.394 0.084269
 7.6064 0.440 0.3300 80 0.000000 0.000000 0.366 0.057683
 7.6349 0.440 0.3850 80 0.000000 0.000000 0.337 0.057539
+# verdict: PASS (280 rests, 22400 passes met, 0 missed, 0 never reached, displacement 0; the planted control bit at 43 of 43 reachable rests)
