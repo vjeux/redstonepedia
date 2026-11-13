@@ -359,7 +359,7 @@ pub fn flood_from(w: &World, b: Body, exclude: &HashSet<BlockPos>, bounds: (Bloc
         })
     };
     // (the light a spawn roll reads at night: `getMaxLocalRawBrightness`, the sky darkened by 11)
-    let night = |p: BlockPos| w.block_light(p).unwrap_or(0).max(w.sky_light(p).unwrap_or(15) - 11);
+    let night = |p: BlockPos| w.light_or(w.block_light(p), 0).max(w.light_or(w.sky_light(p), 15) - 11);
     let may_start = |p: BlockPos| -> bool {
         if ring(p) || (b.name == "enderman" && !rules) {
             return true;
@@ -380,7 +380,7 @@ pub fn flood_from(w: &World, b: Body, exclude: &HashSet<BlockPos>, bounds: (Bloc
         // spawn start, ironspec's fix for a lit built-in access. Slimes, pillagers, bats and foxes
         // keep their own rules: any light here)
         let monster = matches!(b.name, "zombie" | "baby zombie" | "skeleton" | "creeper" | "spider" | "cave spider") || (rules && b.name == "enderman");
-        if monster && w.block_light(p).unwrap_or(0) > 0 {
+        if monster && w.light_or(w.block_light(p), 0) > 0 {
             return false;
         }
         if rules {
@@ -389,10 +389,10 @@ pub fn flood_from(w: &World, b: Body, exclude: &HashSet<BlockPos>, bounds: (Bloc
             if !fits(w, &b, p, p.y as f64) {
                 return false;
             }
-            let raw = || w.block_light(p).unwrap_or(0).max(w.sky_light(p).unwrap_or(15));
+            let raw = || w.light_or(w.block_light(p), 0).max(w.light_or(w.sky_light(p), 15));
             let ok = match b.name {
                 // a patrol's pillager: on the surface only, block light 8 or less
-                "pillager" => p.y == w.height(crate::terrain::Heightmap::MotionBlockingNoLeaves, p.x, p.z) && w.block_light(p).unwrap_or(0) <= 8,
+                "pillager" => p.y == w.height(crate::terrain::Heightmap::MotionBlockingNoLeaves, p.x, p.z) && w.light_or(w.block_light(p), 0) <= 8,
                 // a slime: in a slime chunk below y 40 at any light; or in a swamp at y 51 to 69 at
                 // night light 7 or less (`#allows_surface_slime_spawns`, the moon's roll passing;
                 // where the biome isn't known, there too)
@@ -593,7 +593,10 @@ fn dist2(a: Vec3, b: Vec3) -> f64 {
 ///
 /// C1's test at one cell, [`can_spawn_at`]: `mctas mobfarm spawn-rules` checks it against the
 /// game's own `SpawnPlacements` at every interior cell of a farm built in a terrain sample.
-pub fn check(w: &World, farm: &Farm, village_golem: bool) -> Vec<Exposure> {
+///
+/// An error when a light read the channels need failed (cc767b78, ironspec 12:54: no light read is
+/// silently defaulted; `World::light_or` records them, taken here).
+pub fn check(w: &World, farm: &Farm, village_golem: bool) -> Result<Vec<Exposure>, String> {
     let mut ex = Exposures::default();
     let interior: HashSet<BlockPos> = farm.interior.iter().copied().collect();
     // C1: a natural spawn inside: any type listed at the cell (structure overrides included) whose
@@ -786,7 +789,7 @@ pub fn check(w: &World, farm: &Farm, village_golem: bool) -> Vec<Exposure> {
     // player who has not slept for 3 days (`PhantomSpawner`) when the player's cell sees the sky,
     // and the AFK player never sleeps
     let afk_cell = BlockPos::new(farm.afk.x.floor() as i32, farm.afk.y.floor() as i32, farm.afk.z.floor() as i32);
-    if afk_cell.y >= 63 && w.can_see_sky(afk_cell).unwrap_or(false) {
+    if afk_cell.y >= 63 && w.sees_or(w.can_see_sky(afk_cell), false) {
         ex.add("C10 flyers", "a phantom", "spawns over the AFK player (no sleep for 3 days; the AFK cell sees the sky)", afk_cell);
     }
     // C5 ranged: a skeleton shoots an iron golem (`AbstractSkeleton` targets players, iron golems
@@ -835,7 +838,7 @@ pub fn check(w: &World, farm: &Farm, village_golem: bool) -> Vec<Exposure> {
             Block::Terrain(id) => blocks::props(id).burn_odds > 0,
             _ => blocks::id_of(&st.to_string()).is_some_and(|id| blocks::props(id).burn_odds > 0),
         };
-        if flammable && w.can_see_sky(b.above()).unwrap_or(false) {
+        if flammable && w.sees_or(w.can_see_sky(b.above()), false) {
             ex.add("C11 fire", "lightning", "can set fire to a flammable farm block open to the sky", *b);
         }
     }
@@ -926,7 +929,7 @@ pub fn check(w: &World, farm: &Farm, village_golem: bool) -> Vec<Exposure> {
                         }
                         let y = w.height(crate::terrain::Heightmap::MotionBlockingNoLeaves, x, z);
                         let p = BlockPos::new(x, y, z);
-                        if empty_ok(w, p) && w.block_light(p).unwrap_or(0) <= 8 && valid_spawn_floor(w, p.below(), "minecraft:pillager") {
+                        if empty_ok(w, p, "minecraft:pillager") && w.light_or(w.block_light(p), 0) <= 8 && valid_spawn_floor(w, p.below(), "minecraft:pillager") {
                             ex.add("C14 patrols", "a pillager patrol", "can spawn 24-47 blocks from the AFK player (it is more than 2 sections from a village; from day 5)", p);
                         }
                     }
@@ -945,11 +948,15 @@ pub fn check(w: &World, farm: &Farm, village_golem: bool) -> Vec<Exposure> {
     // C16: a farm villager's eye sees the sky (lightning turns it into a witch)
     for e in &farm.villager_eyes {
         let c = BlockPos::new(e.x.floor() as i32, e.y.floor() as i32, e.z.floor() as i32);
-        if w.can_see_sky(c).unwrap_or(false) {
+        if w.sees_or(w.can_see_sky(c), false) {
             ex.add("C16 lightning", "lightning", "can strike a farm villager whose eye sees the sky (a witch)", c);
         }
     }
-    ex.done()
+    let errors = w.take_light_errors();
+    if !errors.is_empty() {
+        return Err(format!("the hostile checks: {} light read(s) failed: {}", errors.len(), errors.join("; ")));
+    }
+    Ok(ex.done())
 }
 
 /// C1 at one cell: can a natural spawn of type `k` happen at `p` at all — its placement
@@ -965,7 +972,7 @@ pub fn can_spawn_at(w: &World, k: &super::natural::Kind, p: BlockPos) -> bool {
 pub fn spawn_parts(w: &World, k: &super::natural::Kind, p: BlockPos) -> (bool, bool, bool) {
     let rules = super::natural::rules_can_pass(w, k, p, super::natural::Difficulty::Hard);
     let placement = match k.placement {
-        super::natural::Placement::OnGround => valid_spawn_floor(w, p.below(), k.id) && empty_ok(w, p) && empty_ok(w, p.above()),
+        super::natural::Placement::OnGround => valid_spawn_floor(w, p.below(), k.id) && empty_ok(w, p, k.id) && empty_ok(w, p.above(), k.id),
         super::natural::Placement::InWater => fluid(w, p),
         super::natural::Placement::NoRestrictions => true,
     };
@@ -989,9 +996,12 @@ fn valid_spawn_floor(w: &World, below: BlockPos, type_id: &str) -> bool {
     }
 }
 
-fn empty_ok(w: &World, p: BlockPos) -> bool {
-    let b = w.get(p);
-    !crate::behavior::full_cube(&b) && !crate::behavior::is_signal_source(w, &b) && !fluid(w, p)
+/// `NaturalSpawner.isValidEmptySpawnBlock(level, pos, state, fluid, type)` (cc767b78, G1 12:07, ironspec 12:54: this
+/// check lacked its last two parts, `#prevent_mob_spawning_inside` and `EntityType.isBlockDangerous`): the natural
+/// spawner's own reading of it ([`super::natural::valid_empty`]: not a full collision cube, not a signal source, no
+/// fluid, not in the tag (the table's, and redsim's own rails), not dangerous to the type by the table's column).
+fn empty_ok(w: &World, p: BlockPos, type_id: &str) -> bool {
+    super::natural::valid_empty(w, p, type_id)
 }
 
 /// Whether the block at `p` is in the `enderman_holdable` tag (an enderman can take it).
@@ -1042,6 +1052,57 @@ pub fn sections_to_village(w: &World, p: BlockPos, extra: &[BlockPos]) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// (cc767b78, G1 12:07, ironspec 12:54) `isValidEmptySpawnBlock`'s last two checks, as the natural spawner reads
+    /// them: each rail kind refuses a spawn inside it (`#prevent_mob_spawning_inside`); `isBlockDangerous` refuses a
+    /// zombie in a cactus, powder snow, fire, a magma block or a lit campfire, not in an unlit campfire or air; a
+    /// stray is immune to powder snow, a skeleton isn't. (Wither roses and sweet berry bushes are neither redsim
+    /// blocks nor block-table rows, so no redsim world holds one.)
+    #[test]
+    fn empty_spawn_cells_refuse_rails_and_dangerous_blocks() {
+        let mut w = World::new(BlockPos::new(-2, -2, -2), [20, 4, 4]);
+        let at = |x: i32| BlockPos::new(x, 0, 0);
+        let cells: &[(i32, &str)] = &[
+            (0, "minecraft:rail[shape=north_south,waterlogged=false]"),
+            (1, "minecraft:powered_rail[powered=false,shape=north_south,waterlogged=false]"),
+            (2, "minecraft:detector_rail[powered=false,shape=north_south,waterlogged=false]"),
+            (3, "minecraft:activator_rail[powered=false,shape=north_south,waterlogged=false]"),
+            (4, "minecraft:cactus[age=0]"),
+            (5, "minecraft:powder_snow"),
+            (6, "minecraft:fire[age=0,east=false,north=false,south=false,up=false,west=false]"),
+            (7, "minecraft:magma_block"),
+            (8, "minecraft:campfire[facing=north,lit=true,signal_fire=false,waterlogged=false]"),
+            (9, "minecraft:campfire[facing=north,lit=false,signal_fire=false,waterlogged=false]"),
+        ];
+        for &(x, s) in cells {
+            // (a block redsim doesn't model as its own: the terrain cell a world holds it as, its table row)
+            let b = Block::parse(s).ok().or_else(|| blocks::id_of(s).map(Block::Terrain)).unwrap_or_else(|| panic!("{s}: neither modeled nor in the block table"));
+            w.place_raw(&[(at(x), b)]);
+        }
+        let ok = |x: i32, ty: &str| empty_ok(&w, at(x), ty);
+        for x in 0..=3 {
+            assert!(!ok(x, "minecraft:zombie"), "{} refuses a spawn inside it", w.get(at(x)));
+        }
+        for x in 4..=8 {
+            assert!(!ok(x, "minecraft:zombie"), "{} is dangerous to a zombie", w.get(at(x)));
+        }
+        assert!(ok(9, "minecraft:zombie"), "an unlit campfire burns nothing");
+        assert!(ok(15, "minecraft:zombie"), "air passes");
+        assert!(ok(5, "minecraft:stray") && !ok(5, "minecraft:skeleton"), "a stray is immune to powder snow, a skeleton isn't");
+    }
+
+    /// (cc767b78, ironspec 12:54) The hostile checks refuse when a light read failed (recorded by
+    /// `World::light_or`), naming it; with none, the same farm's check is a verdict.
+    #[test]
+    fn the_hostile_checks_refuse_on_a_failed_light_read() {
+        let w = World::new(BlockPos::new(0, 0, 0), [8, 8, 8]);
+        let farm = Farm::default();
+        assert!(check(&w, &farm, true).is_ok(), "no failed read: a verdict");
+        let _ = w.light_or(Err("the block light at (1,2,3): planted".to_string()), 0);
+        let r = check(&w, &farm, true);
+        assert!(r.as_ref().is_err_and(|e| e.contains("planted")), "{r:?}");
+        assert!(check(&w, &farm, true).is_ok(), "taken: the next check is a verdict again");
+    }
 
     /// A closed room: a shell of `wall` round the interior x and z `lo..=lo+4`, y `y0..=y0+2`, its
     /// floor `floor` and its roof `roof`.
