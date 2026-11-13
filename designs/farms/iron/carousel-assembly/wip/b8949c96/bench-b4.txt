@@ -1,0 +1,1 @@
+8,25,9=powered_rail[powered=true,shape=east_west,waterlogged=false];8,24,9=redstone_block;9,25,8=powered_rail[powered=true,shape=north_south,waterlogged=false];9,24,8=redstone_block
