@@ -1789,6 +1789,38 @@ pub enum MobfarmCmd {
         /// lever (8,-14,-5) on, flipped off as the release) instead of the torch stand-in.
         #[arg(long)]
         r1_built: bool,
+        /// (ironspec 02:33 / 03:01, B3's daytime bar) visit rows with the night SKIPPED this many gt
+        /// after the release (the day time set to the next morning that tick; one row per value):
+        /// the napper rides the rest of the descent by day. Every path the ride computes is printed.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        visit_skip: Vec<i64>,
+        /// (ironspec 03:01 (2), the positive control) a real villager (NoAI, persistent) standing at
+        /// x,y,z through every visit row: in sight within 8 of a partial position it must draw a path
+        /// there, arm the stamp and lose HOME at dusk.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        bystander: Vec<f64>,
+        /// (G1 03:27, ironspec 03:30 (2)) the cells the ride rows watch, `x,y,z;...`: the rider's box
+        /// and in-wall eye box against each one's full cube every tick (bar 0 eye overlaps where the
+        /// cell is solid; a block planted in a rider's head space is the positive control).
+        #[arg(long, allow_hyphen_values = true, default_value = "8,-26,-4;8,-25,-4;8,-24,-4")]
+        watch_cells: String,
+        /// (farmopt 04:11, the positive control) every visit row's CANT_REACH stamp erased at the
+        /// release: a partial recompute in the descent must then arm it.
+        #[arg(long)]
+        visit_clear_stamp: bool,
+        /// (G1 via farmopt 05:08, the "0 HOME lost" bar's known positive) a CANT_REACH stamp planted
+        /// at every visit row's release, already AGE gt old (kept long enough it must lose HOME).
+        #[arg(long)]
+        visit_plant_stamp: Option<i64>,
+        /// (tick-exact's forced holds) the visit's cart summoned at `--leg`'s position and held there:
+        /// no leg, the rows start at once; a hold past the row's end never releases.
+        #[arg(long)]
+        visit_at_rest: bool,
+        /// (ironspec 05:09) the ride rows' per-tick HOME probe toward `--bed`: the path from the
+        /// rider's actual state (its box, its water state) at every descent tick of every row (bar 0
+        /// partial; R58-m8t's (7.745, -22.9375, -0.5) is the known positive).
+        #[arg(long)]
+        probe_every_tick: bool,
         #[arg(long, value_delimiter = ',', default_value = "1,2,3,4")]
         freeze_lens: Vec<i64>,
         /// (tick-exact's official restart row) tick-exact's mixed water rig (6 dry slopes onto 12
@@ -1802,6 +1834,23 @@ pub enum MobfarmCmd {
         water_scan: Option<u32>,
         #[arg(long, value_delimiter = ',', allow_hyphen_values = true, default_value = "2,-27,-8,9,-20,3")]
         scan_box: Vec<i32>,
+        /// (ironspec 00:27 (5)) The water-layout search: a data file of candidates, one per line
+        /// `NAME: x,y,z=block;...` (`--extra` syntax; `#` lines and blank lines skipped), each laid
+        /// on the design and gated in order: the water rule, containment (--water-scan gt, default
+        /// 1200, every water cell scheduled), the seat's HOME path (--bed), the rests x
+        /// --release-phases in the band with 0 contacts (--ride-to); its cost and, for survivors, the
+        /// descent probe's partial positions.
+        #[arg(long)]
+        water_search: Option<String>,
+        /// The rests the search rides from (cart positions x,y,z;...; the first one is the seat
+        /// probed): default the five rest points z -3.831..-3.931.
+        #[arg(long, default_value = "9.5,-13.107,-3.831;9.5,-13.082,-3.856;9.5,-13.057,-3.881;9.5,-13.032,-3.906;9.5,-13.007,-3.931")]
+        search_rests: String,
+        /// The search's survivors also get the full ride sweep (every rest x phases x a restart at
+        /// every tick 1..110 in 10 orders x 1..4-gt freezes at every tick 0..110) and containment
+        /// over 24,000 gt.
+        #[arg(long)]
+        search_sweep: bool,
     },
     /// (onechunk 2026-11-11; farmopt 22:07, ironspec's self-contained loaders) L1′, the cart-loop
     /// loader, benched in redsim (`mobfarm::l1bench`): writes its design (--design-out) or runs it:
@@ -7336,7 +7385,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             );
             print!("{}", crate::killguard::bench(&spec, &c, &o).map_err(|e| anyhow::anyhow!(e))?);
         }
-        MobfarmCmd::WayCell { design, positions, move_positions, s9, c_descent, brakes, queue, post, own, napper, keep_clear, chunk, pad, draws, write, rail, extra, ride_to, custom_post, wait, bed, leg, hold, south, deep, ride_ticks, release_phases, restart_at, stamp, follow, queue_glass, leg_day, release_sweep, visit, visit_holds, visit_no_post, path_probe, seat_at, restart_every, freeze_every, band, r1_built, freeze_lens, water_restart_row, water_scan, scan_box } => {
+        MobfarmCmd::WayCell { design, positions, move_positions, s9, c_descent, brakes, queue, post, own, napper, keep_clear, chunk, pad, draws, write, rail, extra, ride_to, custom_post, wait, bed, leg, hold, south, deep, ride_ticks, release_phases, restart_at, stamp, follow, queue_glass, leg_day, release_sweep, visit, visit_holds, visit_no_post, path_probe, seat_at, restart_every, freeze_every, band, r1_built, visit_skip, bystander, watch_cells, visit_clear_stamp, visit_plant_stamp, visit_at_rest, probe_every_tick, freeze_lens, water_restart_row, water_scan, scan_box, water_search, search_rests, search_sweep } => {
             if let [a, b] = water_restart_row[..] {
                 let ticks: Vec<i64> = (a..=b).collect();
                 for how in crate::liveness::Restart::rows() {
@@ -7397,6 +7446,21 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 seat_at: (seat_at.len() == 3).then(|| [seat_at[0], seat_at[1], seat_at[2]]),
                 band: if band.len() == 2 { [band[0], band[1]] } else { [0.11, 0.24] },
                 r1_built,
+                visit_skip: visit_skip.clone(),
+                bystander: (bystander.len() == 3).then(|| [bystander[0], bystander[1], bystander[2]]),
+                watch_cells: watch_cells
+                    .split(';')
+                    .filter(|s| !s.trim().is_empty())
+                    .map(|s| {
+                        let v: Vec<i32> = s.split(',').map(|x| x.trim().parse::<i32>().map_err(|e| anyhow::anyhow!("--watch-cells {s:?}: {e}"))).collect::<Result<_>>()?;
+                        anyhow::ensure!(v.len() == 3, "--watch-cells {s:?}: x,y,z");
+                        Ok([v[0], v[1], v[2]])
+                    })
+                    .collect::<Result<Vec<_>>>()?,
+                visit_clear_stamp,
+                visit_plant_stamp,
+                visit_at_rest,
+                probe_bed: (probe_every_tick && bed.len() == 3).then(|| [bed[0], bed[1], bed[2]]),
                 custom_post,
             };
             if let Some(n) = deep {
@@ -7437,6 +7501,59 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             println!("{}: the queue cell {:?}, {} villager positions", design.display(), o.queue, o.positions.len());
             if let (Some(out), Some(p)) = (&write, o.post) {
                 for l in crate::waycell::write_layout(&design, out, &o, p).map_err(|e| anyhow::anyhow!(e))? {
+                    println!("{l}");
+                }
+                return Ok(());
+            }
+            if let (Some(f), 6, 3, 3) = (water_search.as_deref(), scan_box.len(), bed.len(), ride_to.len()) {
+                let text = std::fs::read_to_string(f).map_err(|e| anyhow::anyhow!("--water-search {f}: {e}"))?;
+                // (ironspec 05:09 / 05:50, the dry branch) a `brakes: x,y,z=SHAPE; ...` line expands into
+                // every single brake and every pair: unpowered powered rails of that shape replacing
+                // the rails there (named B[x,y,z] / B[a]+[b])
+                let mut cands: Vec<(String, String)> = Vec::new();
+                for l in text.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')) {
+                    if let Some(list) = l.strip_prefix("brakes:") {
+                        let cells: Vec<(String, String)> = list
+                            .split(';')
+                            .map(str::trim)
+                            .filter(|c| !c.is_empty())
+                            .map(|c| c.split_once('=').map(|(p, s)| (p.trim().to_string(), format!("!{}=powered_rail[shape={},powered=false,waterlogged=false]", p.trim(), s.trim()))).ok_or_else(|| anyhow::anyhow!("--water-search {f}: brakes: x,y,z=SHAPE; ... ({c:?})")))
+                            .collect::<anyhow::Result<_>>()?;
+                        for (k, (p, c)) in cells.iter().enumerate() {
+                            cands.push((format!("B[{p}]"), c.clone()));
+                            for (q, d) in &cells[k + 1..] {
+                                cands.push((format!("B[{p}]+[{q}]"), format!("{c};{d}")));
+                            }
+                        }
+                        continue;
+                    }
+                    cands.push(l.split_once(": ").map(|(n, c)| (n.trim().to_string(), c.trim().to_string())).ok_or_else(|| anyhow::anyhow!("--water-search {f}: {l:?}: NAME: cells"))?);
+                }
+                let rests: Vec<[f64; 3]> = search_rests
+                    .split(';')
+                    .map(|c| {
+                        let n: Vec<f64> = c.split(',').map(|x| x.trim().parse::<f64>().map_err(|e| anyhow::anyhow!("--search-rests {c}: {e}"))).collect::<anyhow::Result<_>>()?;
+                        if n.len() != 3 {
+                            anyhow::bail!("--search-rests x,y,z;...");
+                        }
+                        Ok([n[0], n[1], n[2]])
+                    })
+                    .collect::<anyhow::Result<_>>()?;
+                let lines = crate::waycell::water_search_lines(
+                    &spec,
+                    &o,
+                    &cands,
+                    &rests,
+                    [bed[0], bed[1], bed[2]],
+                    [ride_to[0], ride_to[1], ride_to[2]],
+                    release_phases,
+                    water_scan.unwrap_or(1200),
+                    [scan_box[0], scan_box[1], scan_box[2]],
+                    [scan_box[3], scan_box[4], scan_box[5]],
+                    search_sweep,
+                )
+                .map_err(|e| anyhow::anyhow!(e))?;
+                for l in lines {
                     println!("{l}");
                 }
                 return Ok(());
