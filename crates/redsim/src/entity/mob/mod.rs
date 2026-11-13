@@ -537,6 +537,10 @@ pub struct MobWorld {
     /// Day time = `day_offset + game time` (`ServerLevel.tickTime` advances both by one a tick
     /// while `advance_time` holds).
     pub day_offset: i64,
+    /// Game rule `advance_time` (`doDaylightCycle`): false holds the day time while game time runs
+    /// (`ServerLevel.tickTime` sets the day time + 1 only while it holds): [`World::tick_time`] moves
+    /// `day_offset` back by the tick. Default true.
+    pub advance_time: bool,
     /// Game rule `maxEntityCramming`.
     pub cramming: i32,
     /// The record (cleared by whoever reads it).
@@ -605,7 +609,7 @@ pub struct CartPush {
 
 impl Default for MobWorld {
     fn default() -> MobWorld {
-        MobWorld { rng: None, day_offset: 0, cramming: 24, events: Vec::new(), spawn_tries: Vec::new(), golem_walk: walk::Walk::Still, golem_spawning: true, natural: None, custom: None, ai: ai::AiWorld::default(), cart_pushes: None, cart_cart_pushes: None }
+        MobWorld { rng: None, day_offset: 0, advance_time: true, cramming: 24, events: Vec::new(), spawn_tries: Vec::new(), golem_walk: walk::Walk::Still, golem_spawning: true, natural: None, custom: None, ai: ai::AiWorld::default(), cart_pushes: None, cart_cart_pushes: None }
     }
 }
 

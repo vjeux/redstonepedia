@@ -1249,7 +1249,7 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
         }
         // (a restart between ticks t - 1 and t (cc767b78's helper, 58f6f0084): a save/stop/start in a
         // load order, the carts followed to their new ids; the bench's controller runs on (its timers
-        // are game ticks, and no game time passes). The cold start is no restart: it is the fresh
+        // are game ticks; a world open's N idle ticks advance game time with nothing ticking). The cold start is no restart: it is the fresh
         // design started at every phase (`--corners 0..period-1`).)
         for (rt, how) in &o.restart {
             if *rt == t {
