@@ -19,8 +19,28 @@ use redsim::world::World;
 /// The settle loop's cap (ironspec 23:21).
 pub const CAP: u32 = 200;
 
-/// The ticks before the cap whose changes mark a cell as still changing: a clock.
-pub const CLOCK_WINDOW: u32 = 40;
+/// The ticks a fixed point needs at least: one daylight detector cycle (its 20-gt check), so a detector
+/// stored at the wrong power shows.
+pub const MIN_TICKS: u32 = 21;
+
+/// Split on `sep` outside parentheses (a declaration's note can hold the separator).
+fn split_outside(s: &str, sep: char) -> Vec<String> {
+    let (mut out, mut cur, mut depth) = (Vec::new(), String::new(), 0i32);
+    for ch in s.chars() {
+        match ch {
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            _ => {}
+        }
+        if ch == sep && depth == 0 {
+            out.push(std::mem::take(&mut cur));
+        } else {
+            cur.push(ch);
+        }
+    }
+    out.push(cur);
+    out.into_iter().map(|e| e.trim().to_string()).filter(|e| !e.is_empty()).collect()
+}
 
 /// The file's declarations: its clocks (`# clock: x,y,z; x,y,z = REASON`, each cell with its reason)
 /// and its declared day time (`# day-time: N`).
@@ -32,9 +52,13 @@ pub struct Declared {
     /// a lift's top-drift current, 7b90c3f1's key, farmopt 01:06), each with its reason.
     pub water: Vec<(BlockPos, String)>,
     /// The file's stand-ins (`# stand-in:` lines, read as record-match reads them) and the ones its
-    /// bench holds (`# held: x,y,z=REAL DRIVER, CONTROLLER PHASE; …`, ironspec 01:07 (d)).
+    /// bench holds (`# held: x,y,z STATE (driver: …; phase …)` or `x,y,z=DRIVER, PHASE`, ironspec 01:07
+    /// (d)), each with its note.
     pub standins: Vec<BlockPos>,
     pub held: Vec<(BlockPos, String)>,
+    /// The declared stored shapes (`# shape: x,y,z=STORED (reason; evidence; build step)`, ironspec 01:49
+    /// (1)): (cell, the stored state as declared, the note).
+    pub shapes: Vec<(BlockPos, String, String)>,
 }
 
 /// The declarations read from the file's comment lines.
@@ -67,12 +91,25 @@ pub fn declared(text: &str) -> Result<Declared, String> {
                 d.water.push((cell(l, c)?, why.trim().to_string()));
             }
         } else if let Some(rest) = l.strip_prefix("# held:") {
-            for entry in rest.split(';').map(str::trim).filter(|e| !e.is_empty()) {
-                let (c, why) = entry.split_once('=').ok_or_else(|| format!("{l:?}: {entry}: give `x,y,z=REAL DRIVER, CONTROLLER PHASE`"))?;
-                if why.trim().is_empty() {
+            for entry in split_outside(rest, ';') {
+                let cut = entry.find(|c: char| c == '=' || c.is_whitespace()).ok_or_else(|| format!("{l:?}: {entry}: give `x,y,z STATE (driver: …; phase …)`"))?;
+                let (c, why) = (&entry[..cut], entry[cut..].trim_start_matches('=').trim());
+                if why.is_empty() {
                     return Err(format!("{l:?}: {entry}: a held stand-in names its real driver and controller phase"));
                 }
-                d.held.push((cell(l, c)?, why.trim().to_string()));
+                d.held.push((cell(l, c)?, why.to_string()));
+            }
+        } else if let Some(rest) = l.strip_prefix("# shape:") {
+            for entry in split_outside(rest, ';') {
+                let (c, stored) = entry.split_once('=').ok_or_else(|| format!("{l:?}: {entry}: give `x,y,z=STORED (reason; evidence; build step)`"))?;
+                let (state, note) = match stored.find(" (") {
+                    Some(i) => (stored[..i].trim(), stored[i..].trim().trim_start_matches('(').trim_end_matches(')').trim()),
+                    None => (stored.trim(), ""),
+                };
+                if state.is_empty() || note.is_empty() {
+                    return Err(format!("{l:?}: {entry}: a declared shape gives its stored state and its note (reason; evidence; build step)"));
+                }
+                d.shapes.push((cell(l, c)?, state.to_string(), note.to_string()));
             }
         } else if let Some(rest) = l.strip_prefix("# day-time:") {
             d.day_time = Some(rest.trim().parse::<i64>().map_err(|e| format!("{l:?}: {e}"))?);
@@ -114,12 +151,32 @@ pub fn class_of(b: &Block) -> Class {
     Class::Other
 }
 
-/// One differing cell: its position, the stored state, the fixed point's (or the computed shape's).
+/// One differing cell: its position, the stored state, the fixed point's (or the computed shape's), and
+/// its class (redstone, shape, fluid, popped, fell, block).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Cell {
     pub pos: BlockPos,
     pub stored: String,
     pub settled: String,
+    pub class: &'static str,
+}
+
+/// A difference's class label (G1's CHANGES 2 (1): every difference fails, labelled).
+fn label(st: &Block, now: &Block) -> &'static str {
+    let fluid = |b: &Block| !matches!(redsim::fluid::fluid_state_of(b).fluid, redsim::fluid::Fluid::Empty) || matches!(b, Block::BubbleColumn { .. });
+    if class_of(st) == Class::Redstone || class_of(now) == Class::Redstone {
+        "redstone"
+    } else if fluid(st) || fluid(now) {
+        "fluid"
+    } else if !st.is_air() && now.is_air() {
+        "popped"
+    } else if st.is_air() && !now.is_air() {
+        "fell or moved in"
+    } else if class_of(st) == Class::Shape {
+        "shape"
+    } else {
+        "block"
+    }
 }
 
 /// The check's result.
@@ -127,18 +184,29 @@ pub struct Cell {
 pub struct Settle {
     /// The ticks run: to the fixed point, or the cap.
     pub ticks: u32,
-    /// A fixed point reached (a tick with no change and nothing pending).
+    /// A fixed point reached (at least [`MIN_TICKS`] run, then a tick with no change and nothing pending).
     pub fixed: bool,
-    /// Cells still changing in the last [`CLOCK_WINDOW`] ticks before the cap, declared and not.
+    /// With no fixed point at the cap (or after the observers' kick): the cells that changed in the run's
+    /// second half or hold a pending tick at the cap, declared `# clock:` (with each one's period: the
+    /// interval its state recurs at) and not (failing: "no fixed point within the cap").
     pub clock_declared: Vec<BlockPos>,
+    pub clock_periods: Vec<(BlockPos, Option<u32>)>,
     pub clock_undeclared: Vec<BlockPos>,
-    /// Redstone cells whose fixed point differs from the stored state (the declared clocks' cells
-    /// excluded).
+    /// `# clock:` cells never seen recurring (ironspec 02:41 (i)): false declarations, failing; their
+    /// differences judged as any cell's.
+    pub clock_false: Vec<BlockPos>,
+    /// Redstone cells whose fixed point differs from the stored state (the declared clocks' and held
+    /// cells excluded): failing.
     pub redstone: Vec<Cell>,
-    /// Shape-bearing cells whose computed shape differs from the stored state.
+    /// Shape-bearing cells whose computed shape differs from the stored state (a declared stable `# shape:`
+    /// excepted): failing.
     pub shapes: Vec<Cell>,
-    /// Other cells that changed (printed, not failing: fluids, plants).
+    /// Every other cell whose fixed point differs from the stored state (fluids changing level or
+    /// receding, bubble columns, popped or fallen blocks, plants, …): failing, labelled by class (G1's
+    /// CHANGES 2 (1), ironspec 01:49 (2a)).
     pub other: Vec<Cell>,
+    /// Block entities whose contents the settle changed (a hopper's item moving on, …): failing.
+    pub block_entities: Vec<(BlockPos, String, String)>,
     /// Fluid cells the settle made where the file holds none (a source spreading, the infinite rule):
     /// named in a `# water:` line (with its purpose) or not; either way the saved file must hold them
     /// (ironspec 01:07 (b)): nonzero fails.
@@ -152,6 +220,11 @@ pub struct Settle {
     pub currents_unbounded: Vec<(BlockPos, BlockPos, String)>,
     /// Walls and stairs: no shape update in redsim, unchecked.
     pub unchecked: Vec<Cell>,
+    /// Time-dependent blocks (daylight detectors) in a file with no `# day-time:` (ironspec 02:37 (4)):
+    /// failing.
+    pub time_undeclared: Vec<BlockPos>,
+    /// Cells that can't survive where they stand at the fixed point (an attachable on air): failing.
+    pub unsupported: Vec<Cell>,
     /// The model notes redsim recorded laying and settling the file (`World::errors`: water reaching a
     /// waterloggable block redsim keeps dry, …): the fixed point isn't modelled there, so the check fails.
     pub model_notes: Vec<String>,
@@ -164,6 +237,13 @@ pub struct Settle {
     /// failing with why.
     pub standins_ok: usize,
     pub standins_failing: Vec<(BlockPos, String)>,
+    /// The held cells (`# held:`), out of the compare like the clocks: (cell, stored, at the fixed point,
+    /// the declared driver and phase): both phase states printed.
+    pub held_states: Vec<(BlockPos, String, String, String)>,
+    /// The `# shape:` declarations (ironspec 01:46 / 01:49): stable in operation, so the stored shape
+    /// stands (with the reason); and failing (with why: not a rail, not as stored, re-shaping, unsupported).
+    pub shapes_declared: Vec<(BlockPos, String)>,
+    pub shapes_declared_failing: Vec<(BlockPos, String)>,
     /// The samples: the cells compared, the redstone cells among them, the shape cells checked, the fluid
     /// cells given their tick (ironspec 00:27 (B): printed).
     pub compared: usize,
@@ -183,7 +263,38 @@ impl Settle {
             v.push("NOT JUDGED (0 samples: no cell compared)".to_string());
         }
         if !self.clock_undeclared.is_empty() {
-            v.push(format!("an undeclared clock: {} cells still changing at the cap ({})", self.clock_undeclared.len(), cells(&self.clock_undeclared)));
+            v.push(format!(
+                "no fixed point within the cap: {} undeclared cells changing in the run's second half or holding a pending tick at the cap ({})",
+                self.clock_undeclared.len(),
+                cells(&self.clock_undeclared)
+            ));
+        }
+        if !self.clock_false.is_empty() {
+            v.push(format!(
+                "{} `# clock:` cells never seen recurring (false declarations: a `# clock:` excuses only a cell that changes, ironspec 02:41 (i)): {}",
+                self.clock_false.len(),
+                cells(&self.clock_false)
+            ));
+        }
+        if !self.other.is_empty() {
+            let mut by: Vec<(&str, usize)> = Vec::new();
+            for c in &self.other {
+                match by.iter_mut().find(|b| b.0 == c.class) {
+                    Some(b) => b.1 += 1,
+                    None => by.push((c.class, 1)),
+                }
+            }
+            v.push(format!("{} other cells stored unsettled ({})", self.other.len(), by.iter().map(|(c, n)| format!("{c} {n}")).collect::<Vec<_>>().join(", ")));
+        }
+        if !self.block_entities.is_empty() {
+            v.push(format!("{} block entities the settle changes ({})", self.block_entities.len(), cells(&self.block_entities.iter().map(|b| b.0).collect::<Vec<_>>())));
+        }
+        if !self.shapes_declared_failing.is_empty() {
+            v.push(format!(
+                "{} `# shape:` declarations failing ({})",
+                self.shapes_declared_failing.len(),
+                self.shapes_declared_failing.iter().take(6).map(|(p, why)| format!("({},{},{}) {why}", p.x, p.y, p.z)).collect::<Vec<_>>().join("; ")
+            ));
         }
         if !self.water_undeclared.is_empty() || !self.water_declared.is_empty() {
             v.push(format!(
@@ -214,6 +325,16 @@ impl Settle {
         }
         if !self.shapes.is_empty() {
             v.push(format!("{} shape states differing from their shape update", self.shapes.len()));
+        }
+        if !self.time_undeclared.is_empty() {
+            v.push(format!(
+                "{} time-dependent blocks (daylight detectors) in a file with no `# day-time:` ({}): it declares its save's day time (ironspec 02:37 (4))",
+                self.time_undeclared.len(),
+                cells(&self.time_undeclared)
+            ));
+        }
+        if !self.unsupported.is_empty() {
+            v.push(format!("{} cells can't survive where they stand (they pop at their first update: {})", self.unsupported.len(), cells(&self.unsupported.iter().map(|c| c.pos).collect::<Vec<_>>())));
         }
         if !self.unchecked.is_empty() && !allow_unchecked {
             v.push(format!("{} wall / stair cells UNCHECKED (redsim models no wall or stair shape update)", self.unchecked.len()));
@@ -335,6 +456,9 @@ pub fn settle_check(blocks: &[(BlockPos, Block)], block_entities: &[(BlockPos, S
     let hi = BlockPos::new(hi.x + 2, hi.y + 2, hi.z + 2);
     let mut w = World::new(lo, [hi.x - lo.x + 1, hi.y - lo.y + 1, hi.z - lo.z + 1]);
     w.time = day_time;
+    // (the mob layer's clock on at day offset 0, so the daylight detectors and the sky darkening read the
+    // file's day time, not the frozen DAY_TIME of the judges' sandboxes; its entities stay held below)
+    w.mob.seed(0, 0);
     w.place_raw(blocks);
     redsim::redstone::container::apply_block_entities(&mut w, block_entities.iter().map(|(p, s)| (*p, s.as_str())))?;
     w.place_updates(blocks);
@@ -355,52 +479,91 @@ pub fn settle_check(blocks: &[(BlockPos, Block)], block_entities: &[(BlockPos, S
             w.schedule_fluid_tick(*p, f.fluid, d);
             fluid_cells += 1;
         }
+        // (a bubble column's own tick too, as its shape update from the block below gives it at the build:
+        // `BubbleColumnBlock.tick` sets its drag from what is under it, so a column stored with the wrong
+        // drag shows)
+        if matches!(b, Block::BubbleColumn { .. }) {
+            w.schedule_tick(*p, redsim::block::Kind::BubbleColumn, 5, redsim::ticks::Priority::Normal);
+        }
     }
-    // (the laid world, kept for the stand-ins' SURVIVAL against the fixed point)
+    // (the laid world, kept for the stand-ins' SURVIVAL and the block entities against the fixed point)
     let laid = w.clone();
     let stored: std::collections::HashMap<BlockPos, Block> = blocks.iter().cloned().collect();
     let all: Vec<BlockPos> = (lo.x..=hi.x).flat_map(|x| (lo.y..=hi.y).flat_map(move |y| (lo.z..=hi.z).map(move |z| BlockPos::new(x, y, z)))).collect();
     let snap = |w: &World| -> Vec<Block> { all.iter().map(|p| w.get(*p)).collect() };
-    let mut prev = snap(&w);
-    let mut last_change: Vec<u32> = vec![0; all.len()];
-    let mut changed_ever: Vec<bool> = vec![false; all.len()];
-    let (mut ticks, mut fixed) = (0u32, false);
-    for t in 1..=cap {
-        w.tick();
-        ticks = t;
-        let now = snap(&w);
-        let mut any = false;
-        for i in 0..all.len() {
-            if now[i] != prev[i] {
-                any = true;
-                last_change[i] = t;
-                changed_ever[i] = true;
-            }
-        }
-        prev = now;
-        if !any && w.idle() {
-            fixed = true;
-            break;
-        }
-    }
-    let declared_cells: std::collections::HashSet<BlockPos> = decl.clocks.iter().map(|(p, _)| *p).collect();
-    let mut s = Settle { ticks, fixed, model_notes: w.errors.clone(), fluid_cells, ..Default::default() };
-    if !fixed {
-        for (i, p) in all.iter().enumerate() {
-            if changed_ever[i] && last_change[i] + CLOCK_WINDOW > ticks {
-                if declared_cells.contains(p) {
-                    s.clock_declared.push(*p);
-                } else {
-                    s.clock_undeclared.push(*p);
+    // (each cell's change ticks; a fixed point: at least MIN_TICKS run, then a tick with no change and
+    // nothing pending: `World::idle`, no scheduled or fluid tick, no block event, no moving piston, no
+    // falling block; a hopper's cooldown and a detector's next 20-gt check are not pending, the first
+    // caught by the block-entity compare, the second by MIN_TICKS. A hopper's items moving change no block
+    // state, so this loop can call a world fixed while hoppers still move: the block-entity compare below
+    // then fails it, which is why that compare stays (G1 on 6cee60380))
+    let run = |w: &mut World| -> (u32, bool, Vec<Vec<u32>>) {
+        let mut prev = snap(w);
+        let mut history: Vec<Vec<u32>> = vec![Vec::new(); all.len()];
+        for t in 1..=cap {
+            w.tick();
+            let now = snap(w);
+            let mut any = false;
+            for i in 0..all.len() {
+                if now[i] != prev[i] {
+                    any = true;
+                    history[i].push(t);
                 }
             }
+            prev = now;
+            if !any && w.idle() && t >= MIN_TICKS {
+                return (t, true, history);
+            }
         }
+        (cap, false, history)
+    };
+    let (ticks, fixed, history) = run(&mut w);
+    let declared_cells: std::collections::HashSet<BlockPos> = decl.clocks.iter().map(|(p, _)| *p).collect();
+    let held_cells: std::collections::HashSet<BlockPos> = decl.held.iter().map(|(p, _)| *p).collect();
+    let mut s = Settle { ticks, fixed, model_notes: w.errors.clone(), fluid_cells, ..Default::default() };
+    // (ironspec 02:37 (4): a block whose state follows the day time (a daylight detector) is saved at its
+    // file's day time, which the file declares (`# day-time:`); with none it fails)
+    if decl.day_time.is_none() {
+        s.time_undeclared = blocks.iter().filter(|(_, b)| matches!(b, Block::DaylightDetector { .. })).map(|(p, _)| *p).collect();
+    }
+    // (no fixed point at the cap (G1's CHANGES 2 (2), ironspec 01:49 (2b)): every cell that changed in the
+    // run's second half or holds a pending tick at the cap must be a declared clock, its period printed (the
+    // interval its state recurs at); any other fails "no fixed point within the cap")
+    let clocks_of = |w: &World, history: &[Vec<u32>], s: &mut Settle| {
+        let pending: std::collections::HashSet<BlockPos> = w.ticks.all().into_iter().map(|t| t.pos).chain(w.fluid_ticks.all().into_iter().map(|t| t.pos)).collect();
+        for (i, p) in all.iter().enumerate() {
+            let late: Vec<u32> = history[i].iter().copied().filter(|t| *t > cap / 2).collect();
+            if late.is_empty() && !pending.contains(p) {
+                continue;
+            }
+            if declared_cells.contains(p) {
+                // (a declared cell SEEN RECURRING (ironspec 02:41 (i)): 2 changes or more in the second half,
+                // or a pending tick at the cap; one late change alone recurs not, and the cell stays a false
+                // declaration below)
+                if late.len() < 2 && !pending.contains(p) {
+                    continue;
+                }
+                // (the period: the commonest interval between a change and the one two after it)
+                let mut gaps: Vec<u32> = late.windows(3).map(|v| v[2] - v[0]).collect();
+                gaps.sort();
+                let period = gaps.chunk_by(|a, b| a == b).max_by_key(|g| g.len()).map(|g| g[0]);
+                if !s.clock_declared.contains(p) {
+                    s.clock_declared.push(*p);
+                    s.clock_periods.push((*p, period));
+                }
+            } else if !s.clock_undeclared.contains(p) {
+                s.clock_undeclared.push(*p);
+            }
+        }
+    };
+    if !fixed {
+        clocks_of(&w, &history, &mut s);
     } else {
         // (the observers' kick: a build places each observer's target before it or after it, and the
         // judges' placement runs no observer's shape update; one pulse per unpowered observer, on a copy
         // of the fixed point, finds an observer clock that never starts from the placement (ironspec
-        // 23:21: an undeclared observer clock fails). A kick that settles elsewhere is printed: the state
-        // depends on the build order there.)
+        // 23:21: an undeclared observer clock fails); a kick that settles elsewhere is printed: the state
+        // depends on the build order there)
         let observers: Vec<BlockPos> = all.iter().copied().filter(|p| matches!(w.get(*p), Block::Observer { powered: false, .. })).collect();
         s.observers_kicked = observers.len();
         if !observers.is_empty() {
@@ -409,38 +572,77 @@ pub fn settle_check(blocks: &[(BlockPos, Block)], block_entities: &[(BlockPos, S
                 let kind = k.get(*p).kind();
                 k.schedule_tick(*p, kind, 2, redsim::ticks::Priority::Normal);
             }
-            let mut prev = snap(&k);
-            let mut last: Vec<u32> = vec![0; all.len()];
-            let mut ever: Vec<bool> = vec![false; all.len()];
-            let mut settled_again = false;
-            for t in 1..=cap {
-                k.tick();
-                let now = snap(&k);
-                let mut any = false;
-                for i in 0..all.len() {
-                    if now[i] != prev[i] {
-                        any = true;
-                        last[i] = t;
-                        ever[i] = true;
+            let (_, settled_again, kh) = run(&mut k);
+            if !settled_again {
+                clocks_of(&k, &kh, &mut s);
+            } else {
+                for p in &all {
+                    if k.get(*p) != w.get(*p) {
+                        s.kick_sensitive.push(Cell { pos: *p, stored: w.get(*p).to_string(), settled: k.get(*p).to_string(), class: label(&w.get(*p), &k.get(*p)) });
                     }
                 }
-                prev = now;
-                if !any && k.idle() {
-                    settled_again = true;
-                    break;
+            }
+        }
+    }
+    // (a `# clock:` excuses only a cell seen recurring, in the main run or the kicked one (ironspec 02:41
+    // (i)); a declared cell never seen recurring is a FALSE DECLARATION, failing, and its stored-vs-fixed-point
+    // difference is judged as any cell's)
+    let recurring: std::collections::HashSet<BlockPos> = s.clock_declared.iter().copied().collect();
+    s.clock_false = decl.clocks.iter().map(|(p, _)| *p).filter(|p| !recurring.contains(p)).collect();
+    // (the block entities: their contents laid against the fixed point's; a change fails, outside the
+    // recurring clocks and held cells)
+    let slots = |w: &World| -> std::collections::BTreeMap<(i32, i32, i32), String> { w.containers.map.iter().map(|(p, c)| ((p.x, p.y, p.z), format!("{:?}", c.slots))).collect() };
+    let (before, after) = (slots(&laid), slots(&w));
+    for (k, b) in &before {
+        let p = BlockPos::new(k.0, k.1, k.2);
+        let a = after.get(k).cloned().unwrap_or_else(|| "gone".into());
+        if &a != b && !recurring.contains(&p) && !held_cells.contains(&p) {
+            s.block_entities.push((p, b.clone(), a));
+        }
+    }
+    // (the declared shapes, ironspec 01:46 / 01:49: a rail stored as declared and stable in operation, its
+    // shape then standing)
+    let mut shape_ok: std::collections::HashSet<BlockPos> = std::collections::HashSet::new();
+    for (p, state, note) in &decl.shapes {
+        let st = stored.get(p).copied();
+        let verdict = (|| -> Result<(), String> {
+            let st = st.ok_or("no block in the file there")?;
+            let want = block_of(state).map_err(|e| format!("its declared state {state}: {e}"))?;
+            if want != st {
+                return Err(format!("stored {st}, declared {state}"));
+            }
+            if !redsim::rails::is_rail(&st) {
+                return Err(format!("{st} re-shapes on any neighbour update: only rails can be declared (ironspec 01:49 (1))"));
+            }
+            if redsim::rails::would_pop(&laid, *p) {
+                return Err("its support is missing: it pops".into());
+            }
+            if matches!(st, Block::PlainRail { .. }) && redsim::rails::RailState::new(*p, st).count_potential_connections(&laid) >= 3 {
+                // (a signal source's toggle updates cells up to Manhattan 2 away (a torch's or lever's its
+                // neighbours' neighbours, the lever through its support; a repeater's or observer's its front
+                // cell and that cell's neighbours; a detector rail's own and its support's neighbours), so the
+                // junction must have none that can change within 2 (ironspec 02:41 (ii); a redstone block is
+                // constant)
+                let near = (-2i32..=2).flat_map(|dx| (-2i32..=2).flat_map(move |dy| (-2i32..=2).map(move |dz| (dx, dy, dz)))).filter(|(dx, dy, dz)| (1..=2).contains(&(dx.abs() + dy.abs() + dz.abs())));
+                let changing_source = near.map(|(dx, dy, dz)| BlockPos::new(p.x + dx, p.y + dy, p.z + dz)).find(|q| {
+                    let b = laid.get(*q);
+                    redsim::behavior::is_signal_source(&laid, &b) && !matches!(b, Block::RedstoneBlock)
+                });
+                if let Some(q) = changing_source {
+                    return Err(format!("a junction within 2 of a signal source that can change ({},{},{} {}): it re-shapes when that source toggles", q.x, q.y, q.z, laid.get(q)));
                 }
             }
-            for (i, p) in all.iter().enumerate() {
-                if !settled_again && ever[i] && last[i] + CLOCK_WINDOW > cap {
-                    if declared_cells.contains(p) {
-                        s.clock_declared.push(*p);
-                    } else {
-                        s.clock_undeclared.push(*p);
-                    }
-                } else if settled_again && k.get(*p) != w.get(*p) {
-                    s.kick_sensitive.push(Cell { pos: *p, stored: w.get(*p).to_string(), settled: k.get(*p).to_string() });
-                }
+            if w.get(*p) != st {
+                return Err(format!("the settle changes it to {}", w.get(*p)));
             }
+            Ok(())
+        })();
+        match verdict {
+            Ok(()) => {
+                shape_ok.insert(*p);
+                s.shapes_declared.push((*p, note.clone()));
+            }
+            Err(why) => s.shapes_declared_failing.push((*p, why)),
         }
     }
     let air = Block::parse("minecraft:air").map_err(|e| e.to_string())?;
@@ -458,11 +660,15 @@ pub fn settle_check(blocks: &[(BlockPos, Block)], block_entities: &[(BlockPos, S
             s.redstone_cells += 1;
         }
         let mut out = now;
-        if declared_cells.contains(p) {
+        if recurring.contains(p) {
+            out = st;
+        } else if let Some((_, note)) = decl.held.iter().find(|(q, _)| q == p) {
+            // (a held cell, out of the compare like a clock: both phase states printed)
+            s.held_states.push((*p, st.to_string(), now.to_string(), note.clone()));
             out = st;
         } else if st != now {
-            let cell = Cell { pos: *p, stored: st.to_string(), settled: now.to_string() };
-            // (a fluid cell laid by no build: declared in a `# water:` line, or UNDECLARED, failing)
+            let cell = Cell { pos: *p, stored: st.to_string(), settled: now.to_string(), class: label(&st, &now) };
+            // (a fluid cell laid by no build: named in a `# water:` line or not, it fails (ironspec 01:07 (b)))
             let new_fluid = matches!(redsim::fluid::fluid_state_of(&st).fluid, redsim::fluid::Fluid::Empty) && !matches!(redsim::fluid::fluid_state_of(&now).fluid, redsim::fluid::Fluid::Empty);
             if new_fluid {
                 match decl.water.iter().find(|(q, _)| q == p) {
@@ -476,18 +682,25 @@ pub fn settle_check(blocks: &[(BlockPos, Block)], block_entities: &[(BlockPos, S
                 }
             }
         }
-        // (the shape rule: the fixed point's shape-bearing cells against their own shape update)
+        // (the shape rule: the fixed point's shape-bearing cells against their own shape update; a declared
+        // stable `# shape:` stands)
+        let unheld = !recurring.contains(p) && !held_cells.contains(p);
         if let Some((ok, want)) = shape_rule(&w, &mut scratch, *p) {
             s.shape_cells += 1;
-            let clocked = declared_cells.contains(p);
-            if !ok && !clocked && !s.redstone.iter().any(|x| x.pos == *p) {
-                s.shapes.push(Cell { pos: *p, stored: st.to_string(), settled: want.to_string() });
+            if !ok && unheld && !shape_ok.contains(p) && !s.redstone.iter().any(|x| x.pos == *p) {
+                s.shapes.push(Cell { pos: *p, stored: st.to_string(), settled: want.to_string(), class: "shape" });
             }
-            if !clocked {
+            if unheld && !shape_ok.contains(p) {
                 out = want;
             }
         } else if class == Class::Shape && !st.is_air() {
-            s.unchecked.push(Cell { pos: *p, stored: st.to_string(), settled: now.to_string() });
+            s.unchecked.push(Cell { pos: *p, stored: st.to_string(), settled: now.to_string(), class: "shape" });
+        }
+        // (a cell that can't survive where it stands pops at its first update, which the judges'
+        // placement may never give it (an attachable on air): it fails as popped, as the farm loader's
+        // survival check refuses it)
+        if !now.is_air() && unheld && (!redsim::behavior::can_survive(&w, &now, *p) || redsim::rails::would_pop(&w, *p)) {
+            s.unsupported.push(Cell { pos: *p, stored: st.to_string(), settled: "minecraft:air (no support: it pops at its first update)".into(), class: "popped" });
         }
         if !out.is_air() || !st.is_air() {
             s.settled.push((*p, out));
@@ -612,7 +825,7 @@ mod tests {
         ]);
         let s = check(&ring, &Declared::default());
         assert!(!s.fixed && s.ticks == CAP && !s.clock_undeclared.is_empty(), "{:?} {:?}", s.fixed, s.clock_undeclared);
-        assert!(s.fails(false).iter().any(|f| f.starts_with("an undeclared clock")), "{:?}", s.fails(false));
+        assert!(s.fails(false).iter().any(|f| f.starts_with("no fixed point within the cap")), "{:?}", s.fails(false));
         let decl = declared("# clock: 0,0,0; 1,0,0; 1,0,1; 1,0,2; 0,0,2; -1,0,2; -1,0,1; -1,0,0 = the repeater ring's pulse\n").unwrap();
         let s = check(&ring, &decl);
         assert!(s.clock_undeclared.is_empty() && !s.clock_declared.is_empty() && s.fails(false).is_empty(), "{:?} {:?} {:?}", s.clock_undeclared, s.fails(false), s.redstone);
@@ -627,7 +840,7 @@ mod tests {
         pair.extend([at(0, 0, 0, "minecraft:observer[facing=east,powered=false]"), at(1, 0, 0, "minecraft:observer[facing=west,powered=false]")]);
         let s = check(&pair, &Declared::default());
         assert!(s.fixed && s.observers_kicked == 2, "{} {}", s.fixed, s.observers_kicked);
-        assert!(!s.clock_undeclared.is_empty() && s.fails(false).iter().any(|f| f.starts_with("an undeclared clock")), "{:?} {:?}", s.clock_undeclared, s.fails(false));
+        assert!(!s.clock_undeclared.is_empty() && s.fails(false).iter().any(|f| f.starts_with("no fixed point within the cap")), "{:?} {:?}", s.clock_undeclared, s.fails(false));
         let decl = declared("# clock: 0,0,0; 1,0,0 = the observer pair\n").unwrap();
         let s = check(&pair, &decl);
         assert!(s.clock_undeclared.is_empty() && s.clock_declared.len() == 2 && s.fails(false).is_empty(), "{:?} {:?}", s.clock_undeclared, s.fails(false));
@@ -782,6 +995,146 @@ mod tests {
         let v = stand_in_survival(&laid, &[BlockPos::new(1, 0, 0)], &[], CAP);
         assert!(matches!(&v[0].1, Err(e) if e.contains("can't survive")), "{v:?}");
         assert!(declared("# held: 3,0,0").is_err() && declared("# held: 3,0,0=").is_err());
+    }
+
+    /// G1's CHANGES 2 (1), ironspec 01:49 (2a): every difference fails, labelled by class. Controls: a
+    /// receding current (a flowing cell with no source), a bubble column over soul sand stored with the
+    /// wrong drag, a torch hung on air (it can't survive: popped), a hopper over a chest holding an item
+    /// (the item moves on: a changed block entity).
+    #[test]
+    fn every_difference_fails() {
+        let mut recede = floor(2);
+        recede.push(at(0, 0, 0, "minecraft:water[level=1]"));
+        let s = check(&recede, &Declared::default());
+        assert!(s.other.iter().any(|c| c.pos == BlockPos::new(0, 0, 0) && c.class == "fluid"), "{:?}", s.other);
+        assert!(s.fails(false).iter().any(|f| f.contains("other cells stored unsettled (fluid")), "{:?}", s.fails(false));
+        let mut column = floor(2);
+        column.extend([at(0, -1, 0, "minecraft:soul_sand"), at(0, 0, 0, "minecraft:bubble_column[drag=true]"), at(0, 1, 0, "minecraft:water[level=0]")]);
+        for (x, z) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
+            column.push(at(x, 0, z, "minecraft:glass"));
+            column.push(at(x, 1, z, "minecraft:glass"));
+        }
+        column.push(at(0, 2, 0, "minecraft:glass"));
+        let s = check(&column, &Declared::default());
+        assert!(s.other.iter().any(|c| c.pos == BlockPos::new(0, 0, 0) && c.settled.contains("drag=false")), "{:?} {:?}", s.other, s.model_notes);
+        let mut torch = floor(2);
+        torch.push(at(1, 1, 0, "minecraft:redstone_wall_torch[facing=east,lit=true]"));
+        let s = check(&torch, &Declared::default());
+        assert!(s.unsupported.iter().any(|c| c.pos == BlockPos::new(1, 1, 0)) || s.other.iter().chain(s.redstone.iter()).any(|c| c.pos == BlockPos::new(1, 1, 0) && c.settled.contains("air")), "{:?} {:?}", s.unsupported, s.redstone);
+        assert!(!s.fails(false).is_empty());
+        let mut hopper = floor(2);
+        hopper.extend([at(0, 0, 0, "minecraft:chest[facing=north,type=single,waterlogged=false]"), at(0, 1, 0, "minecraft:hopper[enabled=true,facing=down]")]);
+        let item = vec![(BlockPos::new(0, 1, 0), "{Items:[{Slot:0b,id:\"minecraft:iron_ingot\",count:1}]}".to_string())];
+        let s = settle_check(&hopper, &item, &[], &Declared::default(), 6000, CAP).unwrap();
+        assert!(s.block_entities.iter().any(|(p, _, _)| *p == BlockPos::new(0, 1, 0)), "{:?}", s.block_entities);
+        assert!(s.fails(false).iter().any(|f| f.contains("block entities the settle changes")), "{:?}", s.fails(false));
+    }
+
+    /// G1's CHANGES 2 (2), ironspec 01:49 (2b): a slow clock with a quiet phase longer than 40 gt (a ring
+    /// of eight delay-4 repeaters, one pulse: each cell quiet 56 of its 64 gt) has no fixed point at the cap:
+    /// undeclared it fails, declared it passes with its period printed (64 gt).
+    #[test]
+    fn slow_clock() {
+        let mut ring: Vec<(BlockPos, Block)> = (-1..=4).flat_map(|x| (-1..=4).map(move |z| at(x, -1, z, "minecraft:stone"))).collect();
+        let dot = "minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]";
+        let rep = |x: i32, z: i32, facing: &str, on: bool| at(x, 0, z, &format!("minecraft:repeater[delay=4,facing={facing},locked=false,powered={on}]"));
+        ring.extend([
+            at(0, 0, 0, dot),
+            rep(1, 0, "west", true),
+            rep(2, 0, "west", false),
+            at(3, 0, 0, dot),
+            rep(3, 1, "north", false),
+            rep(3, 2, "north", false),
+            at(3, 0, 3, dot),
+            rep(2, 3, "east", false),
+            rep(1, 3, "east", false),
+            at(0, 0, 3, dot),
+            rep(0, 2, "south", false),
+            rep(0, 1, "south", false),
+        ]);
+        let s = check(&ring, &Declared::default());
+        assert!(!s.fixed && !s.clock_undeclared.is_empty() && s.fails(false).iter().any(|f| f.starts_with("no fixed point within the cap")), "{} {:?}", s.fixed, s.fails(false));
+        let cells = ["0,0,0", "1,0,0", "2,0,0", "3,0,0", "3,0,1", "3,0,2", "3,0,3", "2,0,3", "1,0,3", "0,0,3", "0,0,2", "0,0,1"];
+        let decl = declared(&format!("# clock: {} = the slow ring\n", cells.join("; "))).unwrap();
+        let s = check(&ring, &decl);
+        assert!(s.clock_undeclared.is_empty() && s.fails(false).is_empty(), "{:?} {:?}", s.clock_undeclared, s.fails(false));
+        assert!(s.clock_periods.iter().any(|(p, period)| *p == BlockPos::new(2, 0, 0) && *period == Some(64)), "{:?}", s.clock_periods);
+    }
+
+    /// `# shape:` (ironspec 01:46 / 01:49): a declared stable rail stands (a ramp stored ascending with no
+    /// rail above it, the shape rule's mismatch otherwise); a declared dust fails (only rails); a declared
+    /// junction beside a lever fails (it re-shapes when its power changes).
+    #[test]
+    fn declared_shapes() {
+        let mut r = floor(3);
+        r.extend([at(0, 0, 0, "minecraft:rail[shape=north_south,waterlogged=false]"), at(0, 0, 1, "minecraft:rail[shape=ascending_south,waterlogged=false]"), at(0, 0, 2, "minecraft:stone")]);
+        let s = check(&r, &Declared::default());
+        assert!(s.shapes.iter().any(|c| c.pos == BlockPos::new(0, 0, 1)), "the ramp is a mismatch undeclared: {:?}", s.shapes);
+        let decl = declared("# shape: 0,0,1=minecraft:rail[shape=ascending_south,waterlogged=false] (the lane's ramp; tick-exact's row; laid against a temporary rail)\n").unwrap();
+        let s = check(&r, &decl);
+        assert!(s.shapes.is_empty() && s.shapes_declared.len() == 1 && s.fails(false).is_empty(), "{:?} {:?} {:?}", s.shapes, s.shapes_declared_failing, s.fails(false));
+        let dust = declared("# shape: 0,0,0=minecraft:rail[shape=east_west,waterlogged=false] (wrong state; x; y)\n").unwrap();
+        let s = check(&r, &dust);
+        assert!(s.shapes_declared_failing.iter().any(|(_, why)| why.contains("declared")), "{:?}", s.shapes_declared_failing);
+        let mut d = floor(3);
+        d.push(at(1, 0, 0, "minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]"));
+        let s = check(&d, &declared("# shape: 1,0,0=minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none] (x; y; z)\n").unwrap());
+        assert!(s.shapes_declared_failing.iter().any(|(_, why)| why.contains("only rails")), "{:?}", s.shapes_declared_failing);
+        let mut t = floor(3);
+        t.extend((-1..=3).map(|x| at(x, -1, 2, "minecraft:stone")));
+        t.extend([
+            at(0, 0, 1, "minecraft:rail[shape=east_west,waterlogged=false]"),
+            at(2, 0, 1, "minecraft:rail[shape=east_west,waterlogged=false]"),
+            at(1, 0, 2, "minecraft:rail[shape=north_south,waterlogged=false]"),
+            at(1, 0, 1, "minecraft:rail[shape=south_east,waterlogged=false]"),
+            at(1, 0, 0, "minecraft:lever[face=floor,facing=east,powered=false]"),
+        ]);
+        let s = check(&t, &declared("# shape: 1,0,1=minecraft:rail[shape=south_east,waterlogged=false] (x; y; z)\n").unwrap());
+        assert!(s.shapes_declared_failing.iter().any(|(p, why)| *p == BlockPos::new(1, 0, 1) && why.contains("signal source")), "{:?}", s.shapes_declared_failing);
+        // (ironspec 02:41 (ii)'s control: a lever two cells away, through its support (a wall lever on a stone
+        // beside the junction), fails; with no source within 2 the junction stands)
+        let mut t2: Vec<(BlockPos, Block)> = t.iter().copied().filter(|(p, _)| *p != BlockPos::new(1, 0, 0)).collect();
+        t2.extend([at(1, 0, 0, "minecraft:stone"), at(1, 0, -1, "minecraft:lever[face=wall,facing=north,powered=false]")]);
+        let s = check(&t2, &declared("# shape: 1,0,1=minecraft:rail[shape=south_east,waterlogged=false] (x; y; z)\n").unwrap());
+        assert!(s.shapes_declared_failing.iter().any(|(p, why)| *p == BlockPos::new(1, 0, 1) && why.contains("within 2")), "{:?}", s.shapes_declared_failing);
+        let t3: Vec<(BlockPos, Block)> = t.iter().copied().filter(|(p, _)| *p != BlockPos::new(1, 0, 0)).collect();
+        let s = check(&t3, &declared("# shape: 1,0,1=minecraft:rail[shape=south_east,waterlogged=false] (x; y; z)\n").unwrap());
+        assert!(s.shapes_declared.iter().any(|(p, _)| *p == BlockPos::new(1, 0, 1)) && s.shapes_declared_failing.is_empty(), "{:?}", s.shapes_declared_failing);
+        assert!(declared("# shape: 1,0,1=minecraft:rail[shape=south_east,waterlogged=false]").is_err(), "a declaration gives its note");
+        assert_eq!(declared("# held: 2,12,13 powered=true (driver: day-1's repeater 2,12,12; phase REL + 96 .. REL + 113; bench frame)\n").unwrap().held.len(), 1, "dfb89499's held format");
+    }
+
+    /// ironspec 02:41 (i): a `# clock:` excuses only a cell seen recurring. Control: a repeater stored
+    /// unpowered behind a lever that's on, declared a clock: the run reaches its fixed point, the cell never
+    /// recurs, so it fails as a false declaration and its difference is judged (a redstone cell unsettled).
+    #[test]
+    fn false_clock_declaration() {
+        let mut d = floor(3);
+        d.extend([
+            at(0, 0, 0, "minecraft:lever[face=floor,facing=east,powered=true]"),
+            at(1, 0, 0, "minecraft:repeater[delay=1,facing=west,locked=false,powered=false]"),
+            at(2, 0, 0, "minecraft:redstone_lamp[lit=false]"),
+        ]);
+        let s = check(&d, &declared("# clock: 1,0,0 = not a clock\n").unwrap());
+        assert!(s.fixed && s.clock_false == vec![BlockPos::new(1, 0, 0)] && s.fails(false).iter().any(|f| f.contains("false declarations")), "{} {:?} {:?}", s.fixed, s.clock_false, s.fails(false));
+        assert!(s.redstone.iter().any(|c| c.pos == BlockPos::new(1, 0, 0)), "its difference judged as any cell's: {:?}", s.redstone);
+    }
+
+    /// ironspec 02:37 (4): a daylight detector is saved at its file's day time: with no `# day-time:` it
+    /// fails; at a declared midnight one stored at 0 is settled; at a declared noon the same file fails (the
+    /// detector reads 15 there: settle-check settles at the declared time, the mob layer's clock on).
+    #[test]
+    fn time_dependent_needs_day_time() {
+        let mut d = floor(2);
+        d.push(at(0, 0, 0, "minecraft:daylight_detector[inverted=false,power=0]"));
+        let s = check(&d, &Declared::default());
+        assert!(s.time_undeclared == vec![BlockPos::new(0, 0, 0)] && s.fails(false).iter().any(|f| f.contains("no `# day-time:`")), "{:?} {:?}", s.time_undeclared, s.fails(false));
+        let night = declared("# day-time: 18000\n").unwrap();
+        let s = settle_check(&d, &[], &[], &night, 18000, CAP).unwrap();
+        assert!(s.fails(false).is_empty(), "a night save holds the detector at 0: {:?} {:?}", s.fails(false), s.redstone);
+        let noon = declared("# day-time: 6000\n").unwrap();
+        let s = settle_check(&d, &[], &[], &noon, 6000, CAP).unwrap();
+        assert!(s.redstone.iter().any(|c| c.pos == BlockPos::new(0, 0, 0) && c.settled.contains("power=15")), "at noon it reads 15: {:?}", s.redstone);
     }
 
     /// No vacuous pass (ironspec 23:56): an empty file is NOT JUDGED and fails.

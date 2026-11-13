@@ -12407,9 +12407,14 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let s = crate::settle::settle_check(&blocks, &bes, &ents, &decl, dt, cap).map_err(|e| anyhow::anyhow!("{}: {e}", file.display()))?;
             let fails = s.fails(allow_unchecked);
             println!(
-                "settle-check {} (cc767b78, tool unreviewed): laid as the judges lay it, {} entities held, day time {dt}, {} fluid cells given their tick; {} ticks to {}; {} cells compared ({} redstone), {} shape cells checked; {} observers kicked once each ({} cells settling elsewhere after the kick: printed, the build order matters there); clocks: {} declared cells still changing, {} undeclared; new fluid cells after the settle: {} named in `# water:`, {} not (any fails: re-save with --write); designed currents (`# water:` cells in the file): {} ({} unbounded, {} holding no water); stand-ins (SURVIVAL): {} passing, {} failing; redstone cells stored unsettled {}; shape states differing {}; other changes {} (printed); wall / stair cells unchecked {}{}; model notes {}: {}",
+                "settle-check {} (cc767b78, tool unreviewed): laid as the judges lay it, {} entities held, day time {dt} ({}), {} fluid cells given their tick; {} ticks to {}; {} cells compared ({} redstone), {} shape cells checked; {} observers kicked once each ({} cells settling elsewhere after the kick: printed, the build order matters there); clocks: {} declared cells still changing, {} undeclared; new fluid cells after the settle: {} named in `# water:`, {} not (any fails: re-save with --write); designed currents (`# water:` cells in the file): {} ({} unbounded, {} holding no water); stand-ins (SURVIVAL): {} passing, {} failing; redstone cells stored unsettled {}; shape states differing {} ({} declared `# shape:` standing, {} failing); other cells stored unsettled {}; block entities changed {}; held cells {}; wall / stair cells unchecked {}{}; model notes {}: {}",
                 file.display(),
                 ents.len(),
+                match (day_time, decl.day_time) {
+                    (Some(_), _) => "--day-time",
+                    (None, Some(_)) => "the file's `# day-time:`",
+                    (None, None) => "none declared: 6000",
+                },
                 s.fluid_cells,
                 s.ticks,
                 if s.fixed { "the fixed point" } else { "the cap (no fixed point)" },
@@ -12429,7 +12434,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 s.standins_failing.len(),
                 s.redstone.len(),
                 s.shapes.len(),
+                s.shapes_declared.len(),
+                s.shapes_declared_failing.len(),
                 s.other.len(),
+                s.block_entities.len(),
+                s.held_states.len(),
                 s.unchecked.len(),
                 if allow_unchecked && !s.unchecked.is_empty() { " (allowed)" } else { "" },
                 s.model_notes.len(),
@@ -12437,11 +12446,28 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             );
             let list = |title: &str, v: &[crate::settle::Cell]| {
                 for c in v {
-                    println!("  {title} ({},{},{}): stored {} -> {}", c.pos.x, c.pos.y, c.pos.z, c.stored, c.settled);
+                    println!("  {title}, {} ({},{},{}): stored {} -> {}", c.class, c.pos.x, c.pos.y, c.pos.z, c.stored, c.settled);
                 }
             };
             list("unsettled", &s.redstone);
+            list("unsettled", &s.other);
+            list("can't survive", &s.unsupported);
             list("shape", &s.shapes);
+            for (p, b, a) in &s.block_entities {
+                println!("  block entity changed ({},{},{}): {b} -> {a}", p.x, p.y, p.z);
+            }
+            for (p, period) in &s.clock_periods {
+                println!("  declared clock cell ({},{},{}): recurring, period {}", p.x, p.y, p.z, period.map_or("unseen (fewer than 3 changes in the run's second half)".to_string(), |v| format!("{v} gt")));
+            }
+            for (p, st, now, note) in &s.held_states {
+                println!("  held ({},{},{}): stored {st}, at the fixed point {now} ({note})", p.x, p.y, p.z);
+            }
+            for (p, note) in &s.shapes_declared {
+                println!("  declared shape ({},{},{}): stable in operation, stands ({note})", p.x, p.y, p.z);
+            }
+            for (p, why) in &s.shapes_declared_failing {
+                println!("  declared shape ({},{},{}) FAILS: {why}", p.x, p.y, p.z);
+            }
             list("new fluid cell, not named", &s.water_undeclared);
             for (c, why) in &s.water_declared {
                 println!("  new fluid cell, named in `# water:` ({},{},{}): {} ({why}): save it in the file", c.pos.x, c.pos.y, c.pos.z, c.settled);
@@ -12459,17 +12485,27 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             for p in &s.clock_undeclared {
                 println!("  undeclared clock cell ({},{},{}): {}", p.x, p.y, p.z, blocks.iter().find(|(q, _)| q == p).map_or("air".to_string(), |(_, b)| b.to_string()));
             }
+            for p in &s.clock_false {
+                println!("  false `# clock:` declaration ({},{},{}): never seen recurring", p.x, p.y, p.z);
+            }
+            for p in &s.time_undeclared {
+                println!("  time-dependent block with no `# day-time:` ({},{},{})", p.x, p.y, p.z);
+            }
             if all || !allow_unchecked {
                 list("unchecked", &s.unchecked);
             }
-            if all {
-                list("other", &s.other);
-            }
             if let Some(out) = write {
+                // (G1's note on CHANGES 2: a comment line after the header would vanish from the copy; a
+                // declaration there would be lost, so the write refuses and lists them)
+                let header = crate::settle::header_lines(&text).len();
+                let dropped: Vec<&str> = text.lines().filter(|l| l.trim_start().starts_with('#')).skip(header).collect();
+                if !dropped.is_empty() {
+                    anyhow::bail!("--write {}: {} comment lines after the header would be dropped (move them into the leading header first): {}", out.display(), dropped.len(), dropped.join(" | "));
+                }
                 let written = crate::settle::settled_text(&text, &d, &s.settled);
                 std::fs::write(&out, &written)?;
                 println!(
-                    "wrote {} (the fixed point, the computed shapes, the declared clocks as stored; header: {} lines kept verbatim; comment lines after the header are not kept)",
+                    "wrote {} (the fixed point, the computed shapes, the declared clocks and held cells as stored; header: {} lines kept verbatim)",
                     out.display(),
                     crate::settle::header_lines(&written).len()
                 );
