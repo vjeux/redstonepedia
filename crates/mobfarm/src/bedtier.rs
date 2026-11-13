@@ -883,7 +883,7 @@ pub fn reclaim_row(spec: &FarmSpec, seed: u64, blocked: bool, at: Option<[f64; 3
     }
     let tickets = |w: &mut World| redsim::entity::mob::ai::poi::free_tickets(w, bed);
     let t0 = tickets(&mut run.world);
-    out.push(format!("start (day time {want}): the napper {nid} at ({:.2},{:.2},{:.2}), HOME = the bed, a stamp armed 1,300 gt ago; the bed's free tickets {t0:?} (redsim takes no ticket for an NBT-loaded HOME: the holders are the record), holders {:?}{}", spot[0], spot[1], spot[2], holders(&run.world), other.map_or(String::new(), |o| format!(" (the known positive: villager {o} holds the bed)"))));
+    out.push(format!("start (day time {want}): the napper {nid} at ({:.2},{:.2},{:.2}), HOME = the bed, a stamp armed 1,300 gt ago; the bed's free tickets {t0:?} (ticket state uncertain: pre-fix redsim), holders {:?}{}", spot[0], spot[1], spot[2], holders(&run.world), other.map_or(String::new(), |o| format!(" (the known positive: villager {o} holds the bed)"))));
     // (G1: the re-claim's path, probed on a copy of the world (the napper's own navigation, the
     // bed's head as AcquirePoi's target with HOME's valid range 1): its start node, end node, the
     // end's distance to the head, `reached`; the attempts themselves and their backoff are
@@ -973,6 +973,10 @@ pub struct Row {
     pub wakes: Vec<i64>,
     /// The first tick the napper had no HOME memory (it arrived with one).
     pub home_lost_at: Option<i64>,
+    /// The napper's HOME at the visit's end (the farm-stop bar).
+    pub home_at_end: bool,
+    /// A release at the stop healed by a re-claim before the visit's end (printed, priced).
+    pub healed_release: Option<i64>,
     /// (a skip row) The skip's tick, the cells the napper waited in awake before its next nap, the
     /// day time of that nap, its CANT_REACH stamp's age at the first REST tick after the skip (None
     /// inside: no stamp), and its LAST_SLEPT (game time) at the end.
@@ -2146,11 +2150,21 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                 eprintln!("t {t}: the napper's path recomputed (time_last_recompute {recompute0} -> {r})");
             }
         }
-        // (the farm-stop bar's known positive: the planted erasure, after this tick's own tick)
+        // (the farm-stop bar's known positive: the planted erasure, after this tick's own tick,
+        // with the bed's ticket TAKEN as by another claimant (ironspec 07:02 real: a positive a
+        // healing geometry can't re-claim through), before -> after printed, a no-op refused)
         if f.erase_home_at == Some(t)
             && let Some(vi) = vill.and_then(|v| idx(&run.world, v))
         {
             redsim::entity::mob::ai::brain::brain_mut(&mut run.world, vi).home = None;
+            let bp = BlockPos::new(BED_HEAD[0], BED_HEAD[1], BED_HEAD[2]);
+            let before = redsim::entity::mob::ai::poi::free_tickets(&mut run.world, bp);
+            redsim::entity::mob::ai::poi::take(&mut run.world, bp);
+            let after = redsim::entity::mob::ai::poi::free_tickets(&mut run.world, bp);
+            if before == after {
+                return Err(format!("--erase-home-at {t}: the bed's ticket take changed nothing ({before:?} -> {after:?}): the positive can't block a re-claim"));
+            }
+            eprintln!("t {t}: the planted erasure: the napper's HOME erased, the bed's ticket taken by a declared stand-in claimant (free tickets {before:?} -> {after:?})");
         }
         let w = &run.world;
         // (ironspec 05:20, a bench rule: the world's day set before the summon (the visit's hour is
@@ -2606,8 +2620,16 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
     if row.out_at.is_some() && !row.seated_out {
         row.problems.push("a riderless cart left the stop".into());
     }
+    // (ironspec 07:02 real, the farm-stop bar at the visit's END: a visit ending without the
+    // napper having lain down, or with it leaving without HOME, fails; a release at the stop healed
+    // by a re-claim is printed and priced, not failed)
+    row.home_at_end = had_home;
     if let Some(t) = row.home_lost_at {
-        row.problems.push(format!("the napper's HOME lost at t {t}"));
+        if had_home {
+            row.healed_release = Some(t);
+        } else {
+            row.problems.push(format!("the napper's HOME lost at t {t} and not back by the visit's end"));
+        }
     }
     if row.paths_after_wake.contains(&"north") {
         row.problems.push(if row.paths_after_restart.contains(&"north") { "a northward path off the pickup cell after the restart" } else { "a northward path off the pickup cell" }.into());
@@ -3402,6 +3424,9 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
     let tasks: Vec<(usize, u64, f64)> = (0..rows.len()).flat_map(|ri| pairs.iter().map(move |&(s, v)| (ri, s, v))).collect();
     let mut results = par_map(&tasks, jobs, |&(ri, seed, v)| bench(spec, seed, v, release_after, day, after_sleep, &rows[ri].1)).into_iter();
     let (mut tot, mut clean, mut seated, mut not_out, mut lost) = (0, 0, 0, 0, 0);
+    // (ironspec 07:02 real, the farm-stop bar at the visit's end: visits ending without a lie-down
+    // or without HOME; healed releases printed and priced)
+    let (mut stop_bar, mut healed, mut stop_judged) = (0usize, 0usize, 0usize);
     // (after a restart, the woken napper's paths off the pickup cell: visits with each direction)
     let mut dirs: std::collections::BTreeMap<&'static str, usize> = std::collections::BTreeMap::new();
     let mut dirs_wake: std::collections::BTreeMap<&'static str, usize> = std::collections::BTreeMap::new();
@@ -3438,6 +3463,11 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
                         seated_here += r.seated_out as usize;
                         not_out += r.out_at.is_none() as usize;
                         lost += r.home_lost_at.is_some() as usize;
+                        if !f.empty {
+                            stop_judged += 1;
+                            stop_bar += (r.slept_at.is_none() || !r.home_at_end) as usize;
+                            healed += r.healed_release.is_some() as usize;
+                        }
                         for d in &r.paths_after_restart {
                             *dirs.entry(d).or_default() += 1;
                         }
@@ -3893,10 +3923,13 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
     if park_failed {
         failed.push("the release by park position NOT met".into());
     }
-    // (ironspec 06:31 real, the farm-stop bar: no napper without HOME at the bed stop at any tick;
-    // its known positive is --erase-home-at, the planted erasure)
-    if lost > 0 {
-        failed.push(format!("the farm-stop bar: {lost} visits with the napper's HOME gone at the stop (bar 0)"));
+    // (ironspec 07:02 real, the farm-stop bar at the visit's END: a visit ending without the napper
+    // having lain down, or with it leaving without HOME, fails; a release healed by a re-claim is
+    // printed and priced; its known positive is --erase-home-at, the erasure with the bed's ticket
+    // held by another claimant)
+    println!("the farm-stop bar (visits ending without a lie-down or without HOME; bar 0): {stop_bar} of {stop_judged} visits judged{}; releases healed by a re-claim before the visit's end (priced, not failed): {healed} (ticket state uncertain: pre-fix redsim)", if stop_judged == 0 { " (NOT JUDGED)" } else { "" });
+    if stop_bar > 0 {
+        failed.push(format!("the farm-stop bar: {stop_bar} visits ended without a lie-down or without HOME (bar 0)"));
     }
     if sk.pickup_unwoken > 0 {
         failed.push("pickups before the wake or off the bed while asleep".into());
