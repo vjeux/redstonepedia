@@ -2891,7 +2891,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         }
         // (the drive teleports only at rest, and a cart at rest on A6's entry booster doesn't
         // start: the napper comes from b8949c96's queue, released by its gate)
-        if o.napper && !sp.blocks.iter().any(|(p, b)| *p == dbp(9, by + 13, -4) && b.to_string().contains("powered_rail")) {
+        if o.napper && !sp.blocks.iter().any(|(p, b)| *p == redsim::pos::BlockPos::new(9, by + 13, -4) && b.to_string().contains("powered_rail")) {
             return Err(format!("--drive-out --napper: no way-in queue at (9,{},-4) (b8949c96's e9f0f4cbf): the napper must start from it", by + 13));
         }
     }
@@ -3113,7 +3113,8 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         .iter()
         .filter(|(_, b)| redsim::rails::is_rail(b))
         .filter_map(|(p, b)| {
-            let now = run.world.get(*p);
+            // (the spec's cells are the design frame's; the world's at + the offset)
+            let now = run.world.get(dbp(p.x, p.y, p.z));
             (now != *b).then(|| format!("({},{},{}) {} built as {}", p.x, p.y, p.z, b, now))
         })
         .collect();
@@ -5283,8 +5284,15 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 let panic = ex.map_or(b.panic_running, |x| x.active == Act::Panic);
                 let sleeping = matches!(&w.entities.list[i].kind, EntityKind::Mob(m) if m.sleeping_pos.is_some());
                 let target = ex.and_then(|x| x.mem.walk_target.as_ref()).and_then(|t| match t.target {
-                    redsim::entity::mob::ai::brain::Tracker::Block(p) => Some([p.x as f64 + 0.5, p.y as f64, p.z as f64 + 0.5]),
-                    redsim::entity::mob::ai::brain::Tracker::Point(v) => Some([v.x, v.y, v.z]),
+                    // (cc767b78 11:15: every position in the design frame)
+                    redsim::entity::mob::ai::brain::Tracker::Block(p) => {
+                        let o = frame_offset();
+                        Some([(p.x - o[0]) as f64 + 0.5, (p.y - o[1]) as f64, (p.z - o[2]) as f64 + 0.5])
+                    }
+                    redsim::entity::mob::ai::brain::Tracker::Point(v) => {
+                        let q = dpos(v);
+                        Some([q.x, q.y, q.z])
+                    }
                     redsim::entity::mob::ai::brain::Tracker::Entity { id, .. } => redsim::entity::index_of(w, id).map(|k| {
                         let q = dpos(w.entities.list[k].pos);
                         [q.x, q.y, q.z]
@@ -5312,17 +5320,18 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 // (the path the sink holds: complete (`canReach`) or not)
                 let reach = ex.and_then(|x| x.mem.path.as_ref()).map(|p| p.can_reach());
                 // (the path's own target: a path computed for an earlier target is stale)
-                let path_target = ex.and_then(|x| x.mem.path.as_ref()).map(|p| [p.target.x, p.target.y, p.target.z]);
-                let path_end = ex.and_then(|x| x.mem.path.as_ref()).and_then(|p| p.nodes.last().map(|n| [n.x, n.y, n.z]));
+                let fo = frame_offset();
+                let path_target = ex.and_then(|x| x.mem.path.as_ref()).map(|p| [p.target.x - fo[0], p.target.y - fo[1], p.target.z - fo[2]]);
+                let path_end = ex.and_then(|x| x.mem.path.as_ref()).and_then(|p| p.nodes.last().map(|n| [n.x - fo[0], n.y - fo[1], n.z - fo[2]]));
                 // (the path's first node and length: where it was computed from)
-                let path_from = ex.and_then(|x| x.mem.path.as_ref()).map(|p| (p.nodes.first().map(|n| [n.x, n.y, n.z]), p.nodes.len()));
+                let path_from = ex.and_then(|x| x.mem.path.as_ref()).map(|p| (p.nodes.first().map(|n| [n.x - fo[0], n.y - fo[1], n.z - fo[2]]), p.nodes.len()));
                 let hostile = b.nearest_hostile;
                 // (MoveToTargetSink's remainingCooldown)
                 let sink_cd = ex.and_then(|x| x.nodes.iter().find_map(|n| match &n.kind {
                     redsim::entity::mob::ai::brain::tree::Kind::MoveToTargetSink { remaining_cooldown, .. } => Some(*remaining_cooldown),
                     _ => None,
                 }));
-                (b.home.map(|h| [h.x, h.y, h.z]), rest, panic, sleeping, ex.and_then(|x| x.mem.cant_reach_since), target, b.last_slept, reach, sink_cd, path_target, path_end, hostile, target_kind, activity, target_key, path_from, target_close)
+                (b.home.map(|h| [h.x - fo[0], h.y - fo[1], h.z - fo[2]]), rest, panic, sleeping, ex.and_then(|x| x.mem.cant_reach_since), target, b.last_slept, reach, sink_cd, path_target, path_end, hostile, target_kind, activity, target_key, path_from, target_close)
             };
             // (G1 12:21, #43's late lie-down) --villager-trace ID,FROM,TO: the villager's own state per
             // tick (position, vehicle, activity, sleeping, its walk target, the path, the stamp, the
@@ -5347,10 +5356,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     target_kind.clone().unwrap_or_default(),
                     target_close.map_or("-".to_string(), |c| c.to_string()),
                     reach.map_or("-".to_string(), |r| r.to_string()),
-                    path_end.map_or("-".to_string(), |p| {
-                        let o = frame_offset();
-                        format!("({},{},{})", p[0] - o[0], p[1] - o[1], p[2] - o[2])
-                    }),
+                    path_end.map_or("-".to_string(), |p| format!("({},{},{})", p[0], p[1], p[2])),
                     stamp.map_or("none".to_string(), |s| format!("{} gt old", now - s)),
                     hostile.map_or("none".to_string(), |h| format!("#{h}")),
                     sink_cd.map_or("-".to_string(), |c| c.to_string())
@@ -7312,8 +7318,14 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 let ex = b.ex.as_deref();
                 let act = ex.map_or("-".to_string(), |x| format!("{:?}", x.active));
                 let wt = ex.and_then(|x| x.mem.walk_target.as_ref()).map(|t| match t.target {
-                    redsim::entity::mob::ai::brain::Tracker::Block(p) => format!("({},{},{})", p.x, p.y, p.z),
-                    redsim::entity::mob::ai::brain::Tracker::Point(v) => format!("({:.1},{:.1},{:.1})", v.x, v.y, v.z),
+                    redsim::entity::mob::ai::brain::Tracker::Block(p) => {
+                        let o = frame_offset();
+                        format!("({},{},{})", p.x - o[0], p.y - o[1], p.z - o[2])
+                    }
+                    redsim::entity::mob::ai::brain::Tracker::Point(v) => {
+                        let q = dpos(v);
+                        format!("({:.1},{:.1},{:.1})", q.x, q.y, q.z)
+                    }
                     redsim::entity::mob::ai::brain::Tracker::Entity { id, .. } => format!("#{id}"),
                 });
                 let sleeping = matches!(&e.kind, EntityKind::Mob(m) if m.sleeping_pos.is_some());
