@@ -211,6 +211,35 @@ pub fn fails(s: &DropStats, launch_min: i64, edge: i64) -> Vec<&'static str> {
     if s.rail_t_stop {
         v.push("a held rail's driver edge reaching a rail T");
     }
+    // (ironspec 13:04, the drive-integrity bar: a pocket drive off its clock slot is a counted fault)
+    if s.drive_off > 0 {
+        v.push("a pocket drive off its clock slot");
+    }
+    // (G1 on 407a29682 (N4): the --lever-off pocket's own drive, apart from the bar's other pockets)
+    if s.drive_off_control > 0 {
+        v.push("the lever-off control's pocket drive never fired");
+    }
+    // (ironfarm's C-fix rows, ironspec 10:29 (2) / 10:56: no cart leaves a watched cell westward;
+    // no cart rests off its rails at the lip; G1 on 407a29682 (N1): a check that saw no cart is
+    // NOT JUDGED, a failure)
+    if s.west_leaves > 0 {
+        v.push("a cart left a watched cell westward");
+    }
+    if s.watch_unseen {
+        v.push("NOT JUDGED (a watched cell no cart entered): the westward-exit check");
+    }
+    if s.offrail > 0 {
+        v.push("a cart at rest off its rails");
+    }
+    if s.offrail_unseen {
+        v.push("NOT JUDGED (no cart at rest at or above the line): the off-rail check");
+    }
+    // (G1 on e2d9333bc (B2): the hold strings' lead before the R line, a bar)
+    match s.hold_lead_bad.as_deref() {
+        Some(b) if b.starts_with("NOT JUDGED") => v.push("NOT JUDGED (the R line never rose): the hold-string lead bar"),
+        Some(_) => v.push("a hold string's release under 2 gt before the R line (or none, or pressed at the rise)"),
+        None => {}
+    }
     if s.refill_fail > 0 {
         v.push("the refill failed");
     }
@@ -353,6 +382,9 @@ pub struct StationJudgeOpts {
     /// (G1 on 834d6329d (T6)) A control run's failure string: the run's verdict is that string in
     /// every lead run (the count of lead runs without it fails), not the failure count.
     pub bite: Option<&'static str>,
+    /// (ironspec 14:47 (c)) The control's declared collateral (exact failure strings): any other
+    /// failure of a control lead run fails it.
+    pub bite_collateral: Vec<&'static str>,
     pub jobs: usize,
 }
 
@@ -457,8 +489,27 @@ pub fn judge(spec: &FarmSpec, cold_spec: &FarmSpec, base: &DropOpts, o: &Station
         match o.bite {
             Some(b) => {
                 let n = lead.iter().filter(|(_, s)| fl(s).contains(&b)).count();
-                out.push(format!("REL T+{r}: the control bites in {n} of {} lead runs (its failure: \"{b}\"; a control run's verdict, G1 on 834d6329d (T6))", lead.len()));
-                total += lead.len() - n + usize::from(lead.is_empty());
+                // (ironspec 14:47 (c): T1's rule here too: every other failure of a control lead run is
+                // the control's declared collateral (exact strings) or a failure)
+                let mut others: Vec<(&str, usize, bool)> = Vec::new();
+                for (_, s) in &lead {
+                    for f in fl(s) {
+                        if f == b {
+                            continue;
+                        }
+                        match others.iter_mut().find(|x| x.0 == f) {
+                            Some(x) => x.1 += 1,
+                            None => others.push((f, 1, o.bite_collateral.contains(&f))),
+                        }
+                    }
+                }
+                let undeclared_runs = lead.iter().filter(|(_, s)| fl(s).iter().any(|f| *f != b && !o.bite_collateral.contains(f))).count();
+                out.push(format!(
+                    "REL T+{r}: the control bites in {n} of {} lead runs (its failure: \"{b}\"; a control run's verdict, G1 on 834d6329d (T6)); its other failures (declared collateral, or a failure: ironspec 14:47 (c)): {}",
+                    lead.len(),
+                    if others.is_empty() { "none".to_string() } else { others.iter().map(|(f, k, d)| format!("{f} ({k}){}", if *d { "" } else { " UNDECLARED" })).collect::<Vec<_>>().join("; ") }
+                ));
+                total += lead.len() - n + usize::from(lead.is_empty()) + undeclared_runs;
             }
             None => total += failing.len() + control_fails,
         }

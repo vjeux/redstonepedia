@@ -1066,6 +1066,15 @@ fn pocket_of(w: &redsim::world::World, pockets: &[(i32, i32, i32)], id: u32) -> 
 /// passes) at least this many game ticks apart; the y-12 23 and the 46-gt window retired.
 pub const COLUMN_BAR: i64 = 16;
 
+/// (ironspec 13:04, the drive-integrity bar) A pocket drive's first powered tick against its clock
+/// slot REL + offset k in the bench's counting (the post-tick of iteration dt is game tick
+/// T + dt + 1; the lever stand-in leads the slot by the repeater's 1 gt): a bench measurement of
+/// the station's own clock, pinned (G1 on 407a29682: not a game constant), the constant every drive
+/// must keep within --drive-slack: +1, every pocket in all 10 runs at REL 5 and REL 6 of the
+/// record7f12 module rows at 0 / 14 / 24 ("pocket k slot+1"; artifact 1695639112231349, md5
+/// 3bc27a8613a4774c70f6ec7ea301eecb, with the edge controls).
+pub const DRIVE_SLOT_DELTA: i64 = 1;
+
 /// (the checklist audit (5)) The due summon tick S relative to T on the summon's own clock: the
 /// first game tick after T's at game time % 100 == 0 (redsim: the bench's iteration dt runs game
 /// tick T + dt + 1, so S runs in iteration S - 1 and its end is that iteration's post-tick state).
@@ -1512,6 +1521,28 @@ pub struct DropOpts {
     /// (G1 on 834d6329d (T3)) The t1 activity check's control: rider 0's activity set off its
     /// schedule before the read.
     pub activity_control: bool,
+    /// (G1 10:10, the T-shape bar's negative row) The same lever planted and switched on / off
+    /// beside the first station T, with the T's constant source laid (form (C)): the T must NOT
+    /// re-shape; the row bites when the lever switched and the T held.
+    pub t_hold: bool,
+    /// (ironspec 13:04) The drive-integrity bar's control: pocket K's drive fired D gt late.
+    pub late_drive: Option<(usize, i64)>,
+    /// (ironspec 13:04) The drive-integrity bar's slack j: each pocket drive's first powered tick
+    /// within j of its clock slot REL + offset k (+ the bench's measured constant).
+    pub drive_slack: i64,
+    /// (ironfarm 11:56, ironspec's forced-V row) Ridden carts (a villager in each) planted at
+    /// T + k: (the cart's position, k).
+    pub plant_carts: Vec<([f64; 3], i64)>,
+    /// (ironfarm 11:56) Blocks planted at T + k (with their updates): (cell, state, k).
+    pub plant_blocks: Vec<(BlockPos, Block, i64)>,
+    /// (ironfarm's C-fix rows) Cells no cart may leave westward (each lane's C at the lip): a cart
+    /// crossing out of one through its west face fails ("a cart left a watched cell westward"); a
+    /// cell no cart entered is NOT JUDGED.
+    pub watch_west: Vec<BlockPos>,
+    /// (ironfarm's C-fix rows) A cart at or above this y at rest by ironspec 10:42's stall rule with
+    /// no rail in its cell nor the cell below fails ("a cart at rest off its rails"); no cart at
+    /// rest there is NOT JUDGED.
+    pub offrail_y: Option<f64>,
     /// (ironspec 08:23) The run's day time at its start (RunOpts' day0; None: steady's random day
     /// time in 10..12,000): a night value (12,000..23,999) samples the riders' REST entries.
     pub day0: Option<i64>,
@@ -1604,6 +1635,8 @@ pub struct SummonDue {
 /// One drop run's figures for a grid's summary.
 #[derive(Clone, Debug, Default)]
 pub struct DropStats {
+    /// (ironspec 14:47 (f)) The run had a freeze, a login or a restart (not a normal-operation row).
+    pub disturbed: bool,
     /// The farthest a waiting cart sat from its cell's centre at the release (hundredths).
     pub spread: i64,
     /// The longest fall (gt; i64::MAX: a cart never landed).
@@ -1792,6 +1825,28 @@ pub struct DropStats {
     pub t_list: Vec<String>,
     /// (G1 on 834d6329d (T1)) The run stopped at a held rail's driver edge reaching a rail T.
     pub rail_t_stop: bool,
+    /// (G1 10:10) The T-shape controls' lever, when planted.
+    pub t_lever: Option<String>,
+    /// (G1 12:27) Each lane's hold string's first press after the R line starts.
+    pub hold_press: [Option<i64>; 3],
+    /// (ironspec 13:00) The least lead of a hold string's last release before the R line rises.
+    pub hold_release_lead: Option<i64>,
+    /// (G1 on e2d9333bc (B2)) The hold-string lead bar's failures (a lead under 2 gt, no release
+    /// before the rise, pressed at the rise; or NOT JUDGED when the R line never rose).
+    pub hold_lead_bad: Option<String>,
+    /// (ironspec 13:04) Pocket drives off their clock slot (the drive-integrity bar).
+    pub drive_off: u32,
+    /// (G1 on 407a29682 (N4)) The --lever-off pocket's drive that never fired (the control's own
+    /// collateral, apart from the bar's other pockets).
+    pub drive_off_control: u32,
+    /// (ironfarm's C-fix rows) Carts that left a watched cell westward; carts at rest off their
+    /// rails above the off-rail line.
+    pub west_leaves: u32,
+    pub offrail: u32,
+    /// (G1 on 407a29682 (N1)) A watched cell no cart entered; no cart at rest at or above the
+    /// off-rail line: each check NOT JUDGED, a failure.
+    pub watch_unseen: bool,
+    pub offrail_unseen: bool,
     /// (ironspec 21:25 (4)) The carts' block contacts (a move stopped horizontally by a block with a
     /// collision shape): per cell, its block, the ticks, and whether it is a declared stop.
     pub block_contacts: Vec<(BlockPos, String, u32, bool)>,
@@ -1945,6 +2000,28 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
     let spec_run = spec_for_run(spec_in, o.box_short);
     let spec = &spec_run;
     let mut run = Run::start(spec, &ro)?;
+    // (ironspec 14:57: a bench turns the natural spawner off explicitly, its scope printed, never a
+    // light-read default: the bench runs no terrain site and no natural spawning)
+    run.world.mob.natural = None;
+    // (G1 10:10, the T-shape bar's negative row: the first station T's constant source, form (C)
+    // (ironspec 10:24: slime under the T, a lit torch under the slime, on glass; build: torch last),
+    // laid BEFORE the settle, so the T holds its powered shape at T and through the lever's edges)
+    let mut t_hold_overrides: Vec<String> = Vec::new();
+    if o.t_hold {
+        let (px, _, pz) = o.layout.pockets()[0];
+        let t = BlockPos::new(px, 0, pz + 7);
+        let below = |k: i32| BlockPos::new(t.x, t.y - k, t.z);
+        for (c, s) in [(below(3), "minecraft:glass"), (below(1), "minecraft:slime_block"), (below(2), "minecraft:redstone_torch[lit=true]")] {
+            let before = run.world.get(c);
+            let after = Block::parse(s).map_err(|e| e.to_string())?;
+            run.world.set_block(c, after.clone(), redsim::world::flags::ALL);
+            // (G1 on 407a29682 (N5): each source cell read back)
+            if run.world.get(c) != after {
+                return Err(format!("--t-hold-control: the source cell {c} reads back {} (wanted {})", run.world.get(c), after));
+            }
+            t_hold_overrides.push(format!("{c} {} -> {}", before.to_string().trim_start_matches("minecraft:"), s.trim_start_matches("minecraft:")));
+        }
+    }
     let place_drop = placement_drops(spec_in, &run.world);
     let rec_place = oob_records(&run.world);
     // (ironspec 00:27: every fluid cell of the laid design gets its tick scheduled, as the game's
@@ -2003,9 +2080,19 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
     if o.napper.is_some() && napper_cart.is_none() {
         return Err("--napper-release: no cart at the napper's hold (loop (9,0,8))".into());
     }
-    // (the design of record's other carts, which record-match keeps (its queue's cart at loop y
-    // -13.4), are no station carts)
-    let carts: Vec<u32> = run.world.entities.list.iter().filter(|e| matches!(e.kind, EntityKind::Minecart(_)) && Some(e.id) != napper_cart && e.pos.y > -3.0).map(|e| e.id).collect();
+    // (ironspec 14:47 (g): the station's carts by their declared cells: each pocket's column, from the
+    // pocket up to its hold and the R line's queue over R_1 (loop z 0..2.5); the design of record's
+    // other carts (its queue's cart, loop (9.5,-13.44,-3.5)) sit in no pocket column, whatever the
+    // frame. G1 on e2d9333bc (B13), the bounds: x within 0.6 of the column's centre (a cart's
+    // half-width 0.49, plus 0.11 for its rest spread); z from the pocket cell's north face - 0.1 (a
+    // pocket or hold cart's box starts at its cell's z, the hold cart at 0.49 against the north
+    // glass) to + 2.5 (R_1's queue cart at z 1.30 / slot 2 at 1.5, + its half-width); y from the
+    // pocket's y - 1 (the pocket cart at y + 0.0625) to hold_y + 3 (R_1's cart at y 17.34 and the
+    // slot-2 cart one up the slope))
+    let in_station = |p: Vec3| {
+        o.layout != DropLayout::Station || o.layout.pockets().iter().any(|(x, y, z)| (p.x - (*x as f64 + 0.5)).abs() < 0.6 && p.z >= *z as f64 - 0.1 && p.z < *z as f64 + 2.5 && p.y > *y as f64 - 1.0 && p.y < (o.hold_y + 3) as f64)
+    };
+    let carts: Vec<u32> = run.world.entities.list.iter().filter(|e| matches!(e.kind, EntityKind::Minecart(_)) && Some(e.id) != napper_cart && in_station(e.pos)).map(|e| e.id).collect();
     if carts.len() != 6 && carts.len() != 9 {
         return Err(format!("{} carts", carts.len()));
     }
@@ -2407,6 +2494,27 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
     let mut dep_stamped = 0u32;
     let mut summon_events = 0u32;
     let mut rail_t_stop: Option<String> = None;
+    let mut hold_press: [Option<i64>; 3] = [None; 3];
+    let mut hold_release: [Option<i64>; 3] = [None; 3];
+    let mut hold_was: [bool; 3] = [false; 3];
+    let mut drive_fire: [Option<i64>; 3] = [None; 3];
+    // (ironfarm's C-fix rows: every minecart's last position, its still ticks, the west leaves and
+    // the off-rail rests)
+    let mut cart_last: std::collections::HashMap<u32, Vec3> = std::collections::HashMap::new();
+    let mut cart_still: std::collections::HashMap<u32, i64> = std::collections::HashMap::new();
+    let mut west_leaves: Vec<String> = Vec::new();
+    let mut offrail: Vec<(u32, String)> = Vec::new();
+    // (G1 on 407a29682 (N1): each watched cell's carts and exits; the carts at rest at or above the
+    // off-rail line, on rails or not)
+    let mut watch_in: Vec<(BlockPos, Vec<u32>)> = o.watch_west.iter().map(|c| (*c, Vec::new())).collect();
+    let mut watch_exits: Vec<String> = Vec::new();
+    let mut rest_seen: Vec<u32> = Vec::new();
+    let mut planted: Vec<String> = Vec::new();
+    let mut plants_done = 0usize;
+    // (G1 on e2d9333bc (B4): a plant at T + k past the run never fires: refused before the run)
+    if let Some(k) = o.plant_carts.iter().map(|(_, k)| *k).chain(o.plant_blocks.iter().map(|(_, _, k)| *k)).find(|k| *k < 0 || *k >= o.ticks) {
+        return Err(format!("--plant-cart / --plant-block at T+{k}: outside the run (T+0..T+{})", o.ticks.saturating_sub(1)));
+    }
     let mut t_shapes: Vec<(BlockPos, String)> = Vec::new();
     let mut t_reshaped: Vec<(BlockPos, String)> = Vec::new();
     let mut t_control_lever: Option<BlockPos> = None;
@@ -2465,7 +2573,10 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
             }
             let (x, y, z) = pockets[k];
             if o.layout == DropLayout::Station {
-                let lead = clock + 1 >= o.rel + o.stagger[k] && clock + 1 < off_at && o.lever_off != Some(k);
+                // (the drive-integrity bar's control: `--late-drive-control K,D` fires pocket K's
+                // drive D gt late)
+                let late = o.late_drive.filter(|(lk, _)| *lk == k).map_or(0, |(_, d)| d);
+                let lead = clock + 1 >= o.rel + o.stagger[k] + late && clock + 1 < off_at + late && o.lever_off != Some(k);
                 let lever = o.pocket_levers.map_or(BlockPos::new(x - 2, y, z), |l| BlockPos::new(l[k].0, l[k].1, l[k].2));
                 let edge = lever_edge(&mut lever_seen, lever, lead);
                 if !set_lever(&mut run.world, lever, lead)? && edge {
@@ -2813,8 +2924,16 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
                     }
                 }
             }
-            if o.t_control {
+            if o.t_control || o.t_hold {
                 let target = t_shapes.iter().map(|(p, _)| *p).find(|p| pockets.iter().any(|(px, _, _)| p.x == *px && p.y == 0)).ok_or("--t-control: no station T (a plain rail with 3 potential connections on a pocket's exit) to plant beside")?;
+                // (G1 on e2d9333bc (B7): the T-hold control's constant source sits under the same T
+                // the lever is planted beside)
+                if o.t_hold {
+                    let (px, _, pz) = o.layout.pockets()[0];
+                    if target != BlockPos::new(px, 0, pz + 7) {
+                        return Err(format!("--t-hold-control: the lever's T {target} is not the T over the constant source ({},0,{})", px, pz + 7));
+                    }
+                }
                 let lp = target.rel(redsim::Dir::South);
                 let sp = lp.rel(redsim::Dir::Down);
                 if !run.world.get(lp).is_air() {
@@ -2830,6 +2949,9 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
                 ov.push(format!("{lp} air -> lever[face=floor] (on at T+5, off at T+10)"));
                 // (G1 on 834d6329d (T8): the control's overrides printed, before -> after)
                 out.push(format!("the T-shape control's overrides beside the T {target} (G1 on 834d6329d (T8)): {}", ov.join(", ")));
+                if o.t_hold {
+                    out.push(format!("the T-hold control's constant source under the T, laid before the settle (form (C), torch last): {}", t_hold_overrides.join(", ")));
+                }
                 t_control_lever = Some(lp);
             }
         }
@@ -2843,16 +2965,131 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
                 }
             }
         }
+        // (ironfarm 11:56: the planted carts and blocks, at T + k before the tick; G1 on e2d9333bc
+        // (B4): each write read back: a no-op, a mismatch or a cart without its rider refuses)
+        for (p, k) in o.plant_carts.iter().filter(|(_, k)| *k == dt) {
+            let id = redsim::entity::spawn(&mut run.world, "minecraft:minecart", *p, Some("{Rotation:[0f,0f],Passengers:[{id:\"minecraft:villager\"}]}"))?;
+            // (G1 on 407a29682 (N8): the planted cart's position read back)
+            let at = run.world.entities.list.iter().find(|e| e.id == id).map(|e| e.pos);
+            if at.is_none_or(|a| (a.x - p[0]).abs() > 1e-9 || (a.y - p[1]).abs() > 1e-9 || (a.z - p[2]).abs() > 1e-9) {
+                return Err(format!("--plant-cart {:.4},{:.4},{:.4}@{k}: the cart (id {id}) reads back at {at:?}", p[0], p[1], p[2]));
+            }
+            let rider = run.world.entities.list.iter().find(|e| e.id == id).and_then(|e| e.passengers.first().copied());
+            if rider.is_none_or(|r| !run.world.entities.list.iter().any(|e| e.id == r && e.vehicle == Some(id))) {
+                return Err(format!("--plant-cart {:.2},{:.2},{:.2}@{k}: the cart (id {id}) has no villager riding it", p[0], p[1], p[2]));
+            }
+            planted.push(format!("a ridden cart (id {id}, its rider {}) at ({:.2},{:.2},{:.2}) at T+{k}", rider.unwrap_or(0), p[0], p[1], p[2]));
+            plants_done += 1;
+        }
+        for (c, b, k) in o.plant_blocks.iter().filter(|(_, _, k)| *k == dt) {
+            let before = run.world.get(*c);
+            if before == *b {
+                return Err(format!("--plant-block {c}={}@{k}: the cell already holds that state (a no-op)", b.to_string().trim_start_matches("minecraft:")));
+            }
+            run.world.set_block(*c, b.clone(), redsim::world::flags::ALL);
+            let after = run.world.get(*c);
+            if after != *b {
+                return Err(format!("--plant-block {c}={}@{k}: read back {} (outside the world's box, or the world changed it)", b.to_string().trim_start_matches("minecraft:"), after.to_string().trim_start_matches("minecraft:")));
+            }
+            planted.push(format!("{c} {} -> {} at T+{k} (read back)", before.to_string().trim_start_matches("minecraft:"), after.to_string().trim_start_matches("minecraft:")));
+            plants_done += 1;
+        }
         let ev0 = run.world.mob.events.len();
         // (each cart's motion before the tick: a contact is charged to the blocks on the side it
         // was moving toward)
         let before: Vec<(u32, Vec3)> = carts.iter().copied().chain(napper_cart).filter_map(|id| run.world.entities.list.iter().find(|e| e.id == id && !e.removed).map(|e| (id, e.delta_movement))).collect();
         run.tick();
+        // (G1 12:27: the detector-ended R_1 pulse's evidence: each lane's hold string (x,17,0)
+        // pressed again after the R line starts, the new hold cart's rider: its first press tick;
+        // ironspec 13:00: each hold string's last release before the R line rises, >= 2 gt before)
+        for (k, (x, _, z)) in pockets.iter().enumerate() {
+            let pressed = run.world.get(BlockPos::new(*x, o.hold_y + 1, *z)).to_string().contains("powered=true");
+            // (G1 on 407a29682 (N6): the rise tick itself still updates, so a cart landing on a
+            // string in that tick reads "pressed at the rise", and a release in it a lead under 2)
+            if r_from.is_none_or(|a| a == dt) {
+                if hold_was[k] && !pressed {
+                    hold_release[k] = Some(dt + 1);
+                }
+                // (G1 on e2d9333bc (B2): pressed again before the rise, the earlier release no
+                // longer counts: a release must follow)
+                if !hold_was[k] && pressed {
+                    hold_release[k] = None;
+                }
+                hold_was[k] = pressed;
+            }
+        }
+        if let Some(a) = r_from {
+            for (k, (x, _, z)) in pockets.iter().enumerate() {
+                if hold_press[k].is_none() && dt >= a && run.world.get(BlockPos::new(*x, o.hold_y + 1, *z)).to_string().contains("powered=true") {
+                    hold_press[k] = Some(dt + 1);
+                }
+            }
+        }
+        // (ironspec 13:04, the drive-integrity bar: each pocket drive's first powered tick from T (G1
+        // on e2d9333bc (B8): not from REL, so an early drive is seen), against its clock slot REL +
+        // offset k)
+        for k in 0..3 {
+            if drive_fire[k].is_none() && pocket_powered(&run.world, k) {
+                drive_fire[k] = Some(dt + 1);
+            }
+        }
         // (the Ts' shapes at this tick's end: a change is a runtime re-shape)
         for (p, s0) in &t_shapes {
             let now = run.world.get(*p).to_string();
             if now != *s0 && !t_reshaped.iter().any(|(q, _)| q == p) {
                 t_reshaped.push((*p, format!("{p} {} -> {} at T+{}", s0.trim_start_matches("minecraft:"), now.trim_start_matches("minecraft:"), dt + 1)));
+            }
+        }
+        // (ironfarm's C-fix rows: every minecart this tick: a crossing out of a watched cell through
+        // its west face, and a still cart above the off-rail line with no rail in its cell)
+        if !o.watch_west.is_empty() || o.offrail_y.is_some() {
+            let carts_now: Vec<(u32, Vec3, f64)> = run
+                .world
+                .entities
+                .list
+                .iter()
+                .filter(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)))
+                .map(|e| (e.id, e.pos, (e.delta_movement.x * e.delta_movement.x + e.delta_movement.y * e.delta_movement.y + e.delta_movement.z * e.delta_movement.z).sqrt()))
+                .collect();
+            for (id, p, _v) in carts_now {
+                let last = cart_last.get(&id).copied();
+                let pc = BlockPos::new(p.x.floor() as i32, p.y.floor() as i32, p.z.floor() as i32);
+                // (G1 on 407a29682 (N1): every watched cell's carts counted, and the face each left
+                // by, so a "none" can't come from a cell no cart entered)
+                if let Some(w) = watch_in.iter_mut().find(|w| w.0 == pc) {
+                    if !w.1.contains(&id) {
+                        w.1.push(id);
+                    }
+                }
+                if let Some(q) = last {
+                    let qc = BlockPos::new(q.x.floor() as i32, q.y.floor() as i32, q.z.floor() as i32);
+                    if qc != pc && o.watch_west.contains(&qc) {
+                        let face = if pc.x < qc.x { "west" } else if pc.x > qc.x { "east" } else if pc.z < qc.z { "north" } else if pc.z > qc.z { "south" } else if pc.y > qc.y { "up" } else { "down" };
+                        watch_exits.push(format!("cart {id} left {qc} by its {face} face at T+{}", dt + 1));
+                        if face == "west" && !west_leaves.iter().any(|l| l.starts_with(&format!("cart {id} "))) {
+                            west_leaves.push(format!("cart {id} left {qc} westward at T+{} (at ({:.2},{:.2},{:.2}))", dt + 1, p.x, p.y, p.z));
+                        }
+                    }
+                }
+                cart_last.insert(id, p);
+                if let Some(y0) = o.offrail_y {
+                    // (at rest by ironspec 10:42's stall rule: no horizontal move of 0.003 and no
+                    // vertical move (a fall, or a rise in a bubble column, is a move) for more than 5
+                    // ticks, frozen ticks not counted (G1 (N9)); on its rails by the game's own test,
+                    // AbstractMinecart.tick: the cart's cell, or the cell below it when that holds a
+                    // rail, is a rail)
+                    let rest = last.is_some_and(|q| ((p.x - q.x).powi(2) + (p.z - q.z).powi(2)).sqrt() < 0.003 && (p.y - q.y).abs() < 1e-9);
+                    let prev = cart_still.get(&id).copied().unwrap_or(0);
+                    let still = if frozen_now { prev } else if rest && p.y >= y0 { prev + 1 } else { 0 };
+                    cart_still.insert(id, still);
+                    let on_rail = redsim::rails::is_rail(&run.world.get(pc)) || redsim::rails::is_rail(&run.world.get(pc.rel(redsim::Dir::Down)));
+                    if still >= 6 && !rest_seen.contains(&id) {
+                        rest_seen.push(id);
+                    }
+                    if still >= 6 && !on_rail && !offrail.iter().any(|(c, _)| *c == id) {
+                        offrail.push((id, format!("cart {id} at rest off its rails at ({:.2},{:.2},{:.2}) from T+{} (its cell {pc} {}, the cell below {})", p.x, p.y, p.z, dt + 1 - 5, run.world.get(pc).to_string().trim_start_matches("minecraft:"), run.world.get(pc.rel(redsim::Dir::Down)).to_string().trim_start_matches("minecraft:"))));
+                    }
+                }
             }
         }
         // (G1 on a3b306a05 (5): the summon's scope from the WORLD, not the flag: every GolemTry
@@ -3662,6 +3899,113 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
         out.push(format!("the run STOPPED at a held rail's edge (G1 on 834d6329d (T1): a failure in its list): {r}"));
     }
     stats.rail_t_stop = rail_t_stop.is_some();
+    stats.disturbed = o.freeze.is_some() || !o.logins.is_empty() || !o.restarts.is_empty();
+    stats.t_lever = t_control_lever.map(|p| format!("{p}"));
+    // (ironfarm's C-fix rows: the planted cells, the west leaves, the off-rail rests, and where every
+    // cart above the off-rail line ended)
+    if !planted.is_empty() {
+        out.push(format!("planted (ironfarm 11:56): {}", planted.join("; ")));
+    }
+    // (G1 on e2d9333bc (B4): every plant ran, unless the run stopped at a rail-T edge first)
+    if rail_t_stop.is_none() && plants_done != o.plant_carts.len() + o.plant_blocks.len() {
+        return Err(format!("--plant-cart / --plant-block: {plants_done} of {} plants ran", o.plant_carts.len() + o.plant_blocks.len()));
+    }
+    if !o.watch_west.is_empty() {
+        out.push(format!(
+            "the watched cells (ironfarm's C-fix rows; G1 on 407a29682 (N1): each cell's carts and the face each left by; a cell no cart entered reads NOT JUDGED, a failure): {}; the exits: {}; left westward: {}",
+            watch_in.iter().map(|(c, ids)| format!("{c} entered by {} cart(s){}", ids.len(), if ids.is_empty() { ": NOT JUDGED" } else { "" })).collect::<Vec<_>>().join(", "),
+            if watch_exits.is_empty() { "none".to_string() } else { watch_exits.join("; ") },
+            if west_leaves.is_empty() { "none".to_string() } else { west_leaves.join("; ") }
+        ));
+    }
+    if let Some(y0) = o.offrail_y {
+        let ends: Vec<String> = run
+            .world
+            .entities
+            .list
+            .iter()
+            .filter(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && e.pos.y >= y0)
+            .map(|e| format!("cart {} at ({:.2},{:.2},{:.2}) on {}", e.id, e.pos.x, e.pos.y, e.pos.z, run.world.get(BlockPos::new(e.pos.x.floor() as i32, e.pos.y.floor() as i32, e.pos.z.floor() as i32)).to_string().trim_start_matches("minecraft:").split('[').next().unwrap_or("")))
+            .collect();
+        out.push(format!(
+            "the carts at rest at or above y {y0} (ironspec 10:42's stall rule: no horizontal move of 0.003 and no vertical move for more than 5 ticks, frozen ticks not counted; G1 on 407a29682 (N1): none at rest reads NOT JUDGED, a failure): {}{}; of them off their rails (the game's rail test: the cart's cell or the one below it a rail): {}; the carts there at the end: {}",
+            rest_seen.len(),
+            if rest_seen.is_empty() { ": NOT JUDGED" } else { "" },
+            if offrail.is_empty() { "none".to_string() } else { offrail.iter().map(|(_, l)| l.clone()).collect::<Vec<_>>().join("; ") },
+            if ends.is_empty() { "none".to_string() } else { ends.join("; ") }
+        ));
+    }
+    stats.west_leaves = west_leaves.len() as u32;
+    stats.offrail = offrail.len() as u32;
+    stats.watch_unseen = watch_in.iter().any(|(_, ids)| ids.is_empty());
+    stats.offrail_unseen = o.offrail_y.is_some() && rest_seen.is_empty();
+    // (G1 12:27) the hold strings' first press after the R line starts, per lane
+    if o.refill.is_some() {
+        out.push(format!(
+            "the hold strings around the R line (the detector-ended R_1 pulse, G1 12:27 / ironspec 13:00: each string's last release before the R line rises, >= 2 gt before it, and its first press after, where the pulse would end): the R line rises at {}; {}",
+            r_from.map_or("never".to_string(), |a| format!("T+{a}")),
+            (0..3)
+                .map(|k| format!(
+                    "lane {k}: released T+{} ({} before the rise), pressed again T+{}",
+                    hold_release[k].map_or("-".to_string(), |t| t.to_string()),
+                    hold_release[k].zip(r_from).map_or("-".to_string(), |(t, a)| format!("{} gt", a - t)),
+                    hold_press[k].map_or("-".to_string(), |t| t.to_string())
+                ))
+                .collect::<Vec<_>>()
+                .join("; ")
+        ));
+        stats.hold_press = hold_press;
+        stats.hold_release_lead = (0..3).filter_map(|k| hold_release[k].zip(r_from).map(|(t, a)| a - t)).min();
+        // (G1 on e2d9333bc (B2): the lead is a bar (ironspec 13:00: each hold string's last release
+        // >= 2 gt before the R line rises; 16:28: the measured leads adopted): a lead under 2, a
+        // string with no release before the rise, or one still pressed at the rise fails; an R line
+        // that never rose leaves it NOT JUDGED, a failure)
+        stats.hold_lead_bad = match r_from {
+            None => Some("NOT JUDGED (the R line never rose): the hold-string lead bar".to_string()),
+            Some(a) => {
+                let bad: Vec<String> = (0..3)
+                    .filter_map(|k| {
+                        if hold_was[k] {
+                            Some(format!("lane {k} pressed at the rise"))
+                        } else {
+                            match hold_release[k] {
+                                None => Some(format!("lane {k} no release before the rise")),
+                                Some(t) if a - t < 2 => Some(format!("lane {k} released {} gt before the rise", a - t)),
+                                Some(_) => None,
+                            }
+                        }
+                    })
+                    .collect();
+                (!bad.is_empty()).then(|| bad.join(", "))
+            }
+        };
+        if let Some(b) = &stats.hold_lead_bad {
+            out.push(format!("the hold-string lead bar FAILS: {b}"));
+        }
+    }
+    // (ironspec 13:04, the drive-integrity bar: each pocket drive's first powered tick against its
+    // clock slot REL + offset k; the bench's constant DRIVE_SLOT_DELTA, the slack j = --drive-slack)
+    if o.layout == DropLayout::Station {
+        let deltas: Vec<Option<i64>> = (0..3).map(|k| drive_fire[k].map(|t| t - (o.rel + o.stagger[k]))).collect();
+        let off: Vec<(usize, String)> = (0..3)
+            .filter_map(|k| match deltas[k] {
+                Some(d) if (d - DRIVE_SLOT_DELTA).abs() <= o.drive_slack => None,
+                Some(d) => Some((k, format!("pocket {k} fired at its slot {:+}", d - DRIVE_SLOT_DELTA))),
+                None => Some((k, format!("pocket {k} never fired"))),
+            })
+            .collect();
+        out.push(format!(
+            "the pocket drives (the drive-integrity bar, ironspec 13:04: each first powered tick within {} gt of its clock slot REL + offset k + {DRIVE_SLOT_DELTA}): {}{}",
+            o.drive_slack,
+            (0..3).map(|k| deltas[k].map_or(format!("pocket {k} -"), |d| format!("pocket {k} slot{:+}", d - DRIVE_SLOT_DELTA))).collect::<Vec<_>>().join(", "),
+            if off.is_empty() { String::new() } else { format!("; OFF ITS CLOCK: {}", off.iter().map(|(_, l)| l.as_str()).collect::<Vec<_>>().join("; ")) }
+        ));
+        // (G1 on 407a29682 (N4): only the --lever-off pocket's own unfired drive is that control's
+        // collateral; any other pocket off its clock stays the bar's failure)
+        let control_pocket = |k: usize| o.lever_off == Some(k) && deltas[k].is_none();
+        stats.drive_off = off.iter().filter(|(k, _)| !control_pocket(*k)).count() as u32;
+        stats.drive_off_control = off.iter().filter(|(k, _)| control_pocket(*k)).count() as u32;
+    }
     out.push(format!(
         "the least distance from a HOME holder's feet to its HOME head block's centre over the run (the exposure bar's reach, strictly < 16; ironspec 09:03): {}",
         home_least.map_or("no HOME holder".to_string(), |d| format!("{d:.2}"))
@@ -3686,6 +4030,20 @@ pub fn bench(spec_in: &FarmSpec, o: &DropOpts) -> Result<(Vec<String>, DropStats
         "the laid design's fluid cells (ironspec 00:27; G1 on a3b306a05 (1): each one's pending tick read back from the scheduler): {fluid_cells}, {fluid_scheduled} with their tick pending{}",
         if fluid_scheduled < fluid_cells { format!(": {} WITHOUT, a failure", fluid_cells - fluid_scheduled) } else { String::new() }
     ));
+    out.push("natural spawning: OFF, set explicitly (ironspec 14:57: the bench's scope is the station's own mobs and its scarers; no terrain site, no light-read default)".to_string());
+    // (ironspec 15:37: a bench whose verdicts depend on a controller gate emulates it per day-1's
+    // canonical gate list (rev 15:37) or names it as a stand-in; none is silently missing)
+    if o.layout == DropLayout::Station {
+        out.push(format!(
+            "controller gates (day-1's canonical list rev 15:37, ironspec 15:37): G8 F1 (REL = the three slot-1 strings pressed AND RE_ARMED): a STAND-IN, the bench's REL given (REL T+{}), every hold full at the release by construction, RE_ARMED not modeled; G9 (REL-keyed timings off the gated REL): every bench timing keys off that given REL; G15 the keyed hold pulse: {}; G5 the hold's at-most-one gate: out of scope (one napper a run); the R line (the refill from the cycle's release): {}; lane x 7's slope tap: {}; G1..G4, G6, G7, G10..G14, G16..G22 (the stop, the sidings, the ring, the returning napper, the shutter): out of the station bench's scope (none in its world)",
+            o.rel,
+            o.napper.map_or("not in this run (no napper)".to_string(), |n| format!("a STAND-IN, the napper hold's pulse driven at REL + {n} (its held window the declared drop::HELD_NAPPER REL + {}..{})", HELD_NAPPER.0, HELD_NAPPER.1)),
+            o.refill.map_or("not in this run (no refill)".to_string(), |(a, b)| format!("a STAND-IN, the R line's input levers on at the last shut + {a} for {b} gt")),
+            o.hold_drive.map_or("not in this run (no slope hold)".to_string(), |_| format!("a STAND-IN, the slope's hold released at REL + {} (the declared drop::HELD_SLOPE REL + {}..{})", o.hold_release, HELD_SLOPE.0, HELD_SLOPE.1))
+        ));
+        // (G1 on e2d9333bc (B6): the standing labels of every station figure, printed with the run)
+        out.push("every figure of this run carries: (the controller's REL, refill, hold and slope pulses as stand-ins at their declared phases: G8 / G15 not emulated) (ironspec 15:46); (declared phases: day-1's controller cells not laid) (ironspec 16:06)".to_string());
+    }
     stats.block_contacts = block_contacts;
     stats.undeclared_contacts = undeclared_contacts;
     if !stats.block_contacts.is_empty() {
@@ -4430,6 +4788,25 @@ mod tests {
         assert!(super::declared_contacts("# contacts: 1,2,3=\n").is_err());
         assert!(super::declared_contacts("# contacts: =a wall\n").is_err());
         assert_eq!(super::declared_contacts("name: x\n").unwrap(), vec![]);
+    }
+
+    /// (ironspec 14:47 (a)) The station file as written: its `# contacts:` line (with "; " inside
+    /// its evidence parentheses and a trailing clause with no `=`) reads as ONE entry of three
+    /// cells, through the bench's strict reader and main's bounded and strict readers alike.
+    #[test]
+    fn the_station_files_contacts_line_is_one_entry() {
+        let t = include_str!("../../../designs/farms/iron/carousel-assembly/wip/station/f1q2-station.txt");
+        let cells = vec![((-1, 16, -1), false), ((3, 16, -1), false), ((7, 16, -1), false)];
+        assert_eq!(super::declared_contacts(t).unwrap(), cells);
+        let bounded = crate::contacts::declared_contacts_bounded(t).unwrap();
+        assert_eq!(bounded.len(), 1, "{bounded:?}");
+        assert_eq!(bounded[0].cells, vec![redsim::pos::BlockPos::new(-1, 16, -1), redsim::pos::BlockPos::new(3, 16, -1), redsim::pos::BlockPos::new(7, 16, -1)]);
+        assert!(bounded[0].reason.contains("no other station cell is a declared contact"), "{:?}", bounded[0].reason);
+        let strict = crate::contacts::declared_contacts_strict(t).unwrap();
+        assert_eq!(strict.len(), 3, "{strict:?}");
+        assert!(strict.iter().all(|(_, r)| *r == strict[0].1), "{strict:?}");
+        // (G1 on e2d9333bc (B12): both readers keep the same reason)
+        assert_eq!(strict[0].1, bounded[0].reason);
     }
 
     /// (the checklist audit (3)) The stand-in guard refuses a stand-in that differs from its built

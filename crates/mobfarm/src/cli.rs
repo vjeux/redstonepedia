@@ -4495,6 +4495,38 @@ pub enum MobfarmCmd {
         /// the run fail on it.
         #[arg(long)]
         t_control: bool,
+        /// The T-shape bar's negative row (G1 10:10): the same lever planted beside the first
+        /// station T and switched on at T+5, off at T+10, with the T's constant source laid (form
+        /// (C), by --block): the T must hold its shape; the row bites when the lever switched and
+        /// the T held.
+        #[arg(long)]
+        t_hold_control: bool,
+        /// The drive-integrity bar's control (ironspec 13:04): "K,D" fires pocket K's drive D gt
+        /// late (D negative: early); the bar must fail ("a pocket drive off its clock slot").
+        #[arg(long, allow_hyphen_values = true)]
+        late_drive_control: Option<String>,
+        /// The drive-integrity bar's slack j (ironspec 13:04): each pocket drive's first powered
+        /// tick within j gt of its clock slot.
+        #[arg(long, default_value_t = 0)]
+        drive_slack: i64,
+        /// (ironfarm 11:56, ironspec's forced-V row) A ridden cart (a villager in it) planted at
+        /// T + k: "x,y,z@k", the cart's position in the bench frame (repeatable).
+        #[arg(long, allow_hyphen_values = true)]
+        plant_cart: Vec<String>,
+        /// (ironfarm 11:56) A block planted at T + k with its updates: "x,y,z=STATE@k" (repeatable).
+        #[arg(long, allow_hyphen_values = true)]
+        plant_block: Vec<String>,
+        /// (ironfarm's C-fix rows) A cell no cart may leave westward, x,y,z (each lane's C;
+        /// repeatable): a crossing fails; each cell's carts and exit faces are counted, and a cell no
+        /// cart entered is NOT JUDGED, a failure.
+        #[arg(long, allow_hyphen_values = true)]
+        watch_west: Vec<String>,
+        /// (ironfarm's C-fix rows) Carts at or above this y at rest by ironspec 10:42's stall rule
+        /// (no horizontal move of 0.003 and no vertical move for more than 5 ticks) with no rail in
+        /// their cell nor the cell below fail; the carts at rest there are counted (none: NOT
+        /// JUDGED, a failure) and every cart there is printed at the end.
+        #[arg(long, allow_hyphen_values = true)]
+        offrail_y: Option<f64>,
         /// (ironspec 08:23) The runs' day time at their start (a night value 12000..23999 samples
         /// the station riders' REST entries); default: each seed's random day time.
         #[arg(long)]
@@ -4530,6 +4562,40 @@ pub enum MobfarmCmd {
         out: Option<PathBuf>,
         #[arg(long)]
         trace: bool,
+    },
+    /// (ironspec 09:44 / 10:12 / 10:23, form (C)) The build-order test for a rail junction
+    /// (crates/mobfarm/src/buildorder.rs): the junction's cells placed into the design around them
+    /// in EVERY order the game allows (a block never before the block it is mounted on), each rail
+    /// placed in its default shape from the player's facing (every facing combination) and shaped by
+    /// its onPlace, every block by the player's placement path (redsim's `World::set_block` flags 3
+    /// in the game's order: the chunk write, the old block's affectNeighborsAfterRemoval, the new
+    /// block's onPlace, then the neighbour updates with the old block's kind; a torch's
+    /// notifyNeighbors reaching 0 / 2); two pastes; and named `--sequence`s of placements and
+    /// removals; every build or sequence off its wanted shape fails (exit 1), and so does a test
+    /// that built no order.
+    BuildOrder {
+        /// The design the junction sits in (its own frame).
+        design: PathBuf,
+        /// The junction's T, x,y,z.
+        #[arg(long, allow_hyphen_values = true)]
+        t: String,
+        /// A junction cell "x,y,z=STATE" (repeatable; the T among them; a cell the design holds is
+        /// left out of the base and placed by the test).
+        #[arg(long, allow_hyphen_values = true)]
+        cell: Vec<String>,
+        /// The shape every build of the cells must end in.
+        #[arg(long, default_value = "north_west")]
+        want: String,
+        /// A named sequence "NAME|WANT|x,y,z=STATE;x,y,z=air;..." from the base without the cells
+        /// (repeatable): a wrong order, a repair, a parity positive (WANT the shape it must end in).
+        #[arg(long, allow_hyphen_values = true)]
+        sequence: Vec<String>,
+        /// The build rule's cell placed last, x,y,z (repeatable; form (C): the torch last): orders
+        /// with it before another cell are outside the rule, counted apart and not built.
+        #[arg(long, allow_hyphen_values = true)]
+        last: Vec<String>,
+        #[arg(long, default_value = "26.3")]
+        version: String,
     },
     /// (cc767b78; ironspec's L1‴ rows) The judge of the F1 + Q2 station in the L1 mode: per `--rel`
     /// its control, a save/stop/start at every phase `--starts A,B` (bench ticks from T), the cold
@@ -10362,6 +10428,38 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
+        MobfarmCmd::BuildOrder { design, t, cell, want, sequence, last, version } => {
+            let (_c, spec) = load(&version, &design)?;
+            let parse_pos = |s: &str| -> anyhow::Result<redsim::pos::BlockPos> {
+                let v: Vec<i32> = s.split(',').map(|x| x.trim().parse::<i32>()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("a cell x,y,z: {s}: {e}"))?;
+                anyhow::ensure!(v.len() == 3, "a cell x,y,z: {s}");
+                Ok(redsim::pos::BlockPos::new(v[0], v[1], v[2]))
+            };
+            let parse_cell = |s: &str| -> anyhow::Result<(redsim::pos::BlockPos, redsim::block::Block)> {
+                let (c, st) = s.split_once('=').ok_or_else(|| anyhow::anyhow!("a cell x,y,z=STATE: {s}"))?;
+                let st = if st.contains(':') { st.to_string() } else { format!("minecraft:{st}") };
+                Ok((parse_pos(c)?, redsim::block::Block::parse(&st).map_err(|e| anyhow::anyhow!("{s}: {e}"))?))
+            };
+            let cells = cell.iter().map(|s| parse_cell(s)).collect::<anyhow::Result<Vec<_>>>()?;
+            let mut sequences = Vec::new();
+            for s in &sequence {
+                let mut it = s.splitn(3, '|');
+                let (Some(name), Some(w), Some(steps)) = (it.next(), it.next(), it.next()) else {
+                    anyhow::bail!("--sequence NAME|WANT|x,y,z=STATE;...: {s}");
+                };
+                let steps = steps.split(';').filter(|x| !x.trim().is_empty()).map(|x| parse_cell(x.trim())).collect::<anyhow::Result<Vec<_>>>()?;
+                anyhow::ensure!(!steps.is_empty(), "--sequence {name}: no steps");
+                sequences.push(crate::buildorder::Sequence { name: name.to_string(), steps, want: w.to_string() });
+            }
+            let last = last.iter().map(|s| parse_pos(s)).collect::<anyhow::Result<Vec<_>>>()?;
+            let o = crate::buildorder::BuildOrderOpts { t: parse_pos(&t)?, cells, want, sequences, last };
+            println!("build-order (the player's placement path, redsim's World::set_block flags 3 in the game's order (cc767b78 17:09: 26.3 LevelChunk 267-349 / Level 216-262): the chunk write, the old block's affectNeighborsAfterRemoval, the new block's onPlace (a rail placed in its default shape from the player's facing, north_south or east_west, then shaped by RailState.place with its power; a redstone torch's notifyNeighbors: the neighbours of each of its six neighbours, reach 0 / 2, never 1), then Level.setBlock's neighbour updates with the OLD block's kind (flag 1) and the shape updates; a removal sends the removed block's kind; not the /setblock path)");
+            let (lines, failing) = crate::buildorder::run(&spec.blocks, &o).map_err(|e| anyhow::anyhow!(e))?;
+            for l in lines {
+                println!("{l}");
+            }
+            anyhow::ensure!(failing == 0, "build-order: {failing} build(s) or sequence(s) off their wanted shape");
+        }
         MobfarmCmd::StationJudge { hold_y, world, hold_drive, hold_rail, hold_release, hold_width, napper_release, no_refill, day_time, record, sight_control, rel, stagger, rebrake, release, open_delay, pulse, refill, r_repeater, posts, no_slab_stop, scarers, l2, ticks, seed, seeds, edge, no_summon_gate, starts, ds, no_restarts, no_cold, launch_min, rebrakes, pulses, open_delays, refill_delays, refill_lens, staggers, jobs } => {
             anyhow::ensure!(starts.len() == 2, "--starts A,B");
             anyhow::ensure!(stagger.len() == 3, "--stagger A,B,C");
@@ -10425,8 +10523,15 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 (None, None) => crate::drop::station_reference(&crate::drop::design_extra(lo, hold_y, [true; 3], [true; 3], true, true, &ex), lo, hold_y).map_err(|e| anyhow::anyhow!(e))?,
             });
             anyhow::ensure!(day_time.is_none_or(|d| (0..24000).contains(&d)), "--day-time: a day time 0..23999");
-            let base = crate::drop::DropOpts { layout: lo, hold_y, rel: rel[0], stagger: [stagger[0], stagger[1], stagger[2]], rebrake, release, pulse, occupancy: false, exit_gate: true, open_delay, l1: !l2, dep_absent: [false; 3], restarts: Vec::new(), panic_posts: Vec::new(), follow_range: 16.0, panic_search: None, r_repeater, box_short: 0, track_lift: world.is_some(), hold_drive: hold_drive_v, hold_rail: hold_rail_v, hold_release, hold_width, napper: napper_release, watch: Vec::new(), summon_check: false, remove_rider: None, stops: crate::drop::station_stops(lo, hold_y).into_iter().chain(world_stops.iter().copied()).collect(), provisional: Vec::new(), lever_off: None, sight_control, hold_poke: None, pocket_levers: None, napper_held: None, sight_ref: Some(judge_ref.clone()), remove_departing: None, rate_control: false, foreign_caller: false, reseat: false, fluid_control: false, t_control: false, activity_control: false, day0: day_time, release_world: false, rebrake_each: true, scarers: scarers_v, refill: if no_refill { None } else { Some((refill[0], refill[1])) }, ticks, seed, freeze: None, logins: Vec::new(), trace: false };
-            let o = crate::stationjudge::StationJudgeOpts { rels: rel.clone(), seeds: (seed..seed + seeds.max(1)).collect(), starts: (starts[0], starts[1]), ds: ds.clone(), restarts: !no_restarts, cold: !no_cold, launch_min, edge, summon_gate: !no_summon_gate, declared: world_stops.clone(), bite: sight_control.then_some("a sight ray crossing a stand-in's support"), jobs };
+            let base = crate::drop::DropOpts { layout: lo, hold_y, rel: rel[0], stagger: [stagger[0], stagger[1], stagger[2]], rebrake, release, pulse, occupancy: false, exit_gate: true, open_delay, l1: !l2, dep_absent: [false; 3], restarts: Vec::new(), panic_posts: Vec::new(), follow_range: 16.0, panic_search: None, r_repeater, box_short: 0, track_lift: world.is_some(), hold_drive: hold_drive_v, hold_rail: hold_rail_v, hold_release, hold_width, napper: napper_release, watch: Vec::new(), summon_check: false, remove_rider: None, stops: crate::drop::station_stops(lo, hold_y).into_iter().chain(world_stops.iter().copied()).collect(), provisional: Vec::new(), lever_off: None, sight_control, hold_poke: None, pocket_levers: None, napper_held: None, sight_ref: Some(judge_ref.clone()), remove_departing: None, rate_control: false, foreign_caller: false, reseat: false, fluid_control: false, t_control: false, activity_control: false, t_hold: false, late_drive: None, drive_slack: 0, plant_carts: Vec::new(), plant_blocks: Vec::new(), watch_west: Vec::new(), offrail_y: None, day0: day_time, release_world: false, rebrake_each: true, scarers: scarers_v, refill: if no_refill { None } else { Some((refill[0], refill[1])) }, ticks, seed, freeze: None, logins: Vec::new(), trace: false };
+            let o = crate::stationjudge::StationJudgeOpts { rels: rel.clone(), seeds: (seed..seed + seeds.max(1)).collect(), starts: (starts[0], starts[1]), ds: ds.clone(), restarts: !no_restarts, cold: !no_cold, launch_min, edge, summon_gate: !no_summon_gate, declared: world_stops.clone(), bite: sight_control.then_some("a sight ray crossing a stand-in's support"), bite_collateral: if sight_control { vec!["a cart never landed", "not all at rest", "a wrong pocket", "a rider hurt", "NOT JUDGED (summons in the world, the check not run): the summon gate, the stamps and the rate"] } else { vec![] }, jobs };
+            // (the sight control's declared collateral, ironspec 14:47 (c), each caused by its own
+            // glass: laid on a villager -> villager segment inside the station, it stands in a falling
+            // cart's path (the cart never lands, not all at rest, a wrong pocket), its rider is hurt
+            // against it and panics, so the world summons with the check off (--no-summon-gate's
+            // station-only world has no other panic))
+            // (G1 on 407a29682 (B6): the standing labels printed with station-judge's own output)
+            println!("every figure of this judge carries: (the controller's REL, refill, hold and slope pulses as stand-ins at their declared phases: G8 / G15 not emulated) (ironspec 15:46); (declared phases: day-1's controller cells not laid) (ironspec 16:06)");
             println!(
                 "station judge (cc767b78, bench, tool unreviewed; the {} mode: per REL {rel:?} the control, {}the cold start{}): drop-bench --layout station --pad --hold-y {hold_y} --stagger {},{},{} --rebrake {rebrake} --rebrake-each --release {release} --exit-gate --open-delay {open_delay} --pulse {pulse} --refill {},{} --post {:?} {}--scarers {scarers}, {ticks} ticks; the launch bar {}",
                 if l2 { "L2" } else { "L1" },
@@ -10502,7 +10607,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             // rows fail (the threshold rows are a passing-range report))
             anyhow::ensure!(fails == 0, "station-judge: {fails} failing runs in the lead's rows");
         }
-        MobfarmCmd::DropBench { layout, login, hold_y, rel, stagger, rebrake, release, pulse, occupancy, exit_gate, release_world, pad, rebrake_each, scarers, block, posts, slab_stop, open_delay, l1, restart, restart_sweep, write_design, panic_post, part, follow_range, panic_search, r_repeater, box_short, module, hold_drive, hold_rail, hold_release, hold_width, path_a, napper_release, summon_check, remove_rider, lever_off, sight_control, hold_poke, pocket_lever, napper_held, record, declare, rail_t_control, rail_t_negative, contact_control, missing_control, rate_control, push_control, watch_control, foreign_caller_control, reseat_control, fluid_control, t_control, activity_control, day_time, watch_cell, refill, dep_riders, arr_riders, freezes, freeze_sweep, ticks, seed, seeds, summary, out, trace } => {
+        MobfarmCmd::DropBench { layout, login, hold_y, rel, stagger, rebrake, release, pulse, occupancy, exit_gate, release_world, pad, rebrake_each, scarers, block, posts, slab_stop, open_delay, l1, restart, restart_sweep, write_design, panic_post, part, follow_range, panic_search, r_repeater, box_short, module, hold_drive, hold_rail, hold_release, hold_width, path_a, napper_release, summon_check, remove_rider, lever_off, sight_control, hold_poke, pocket_lever, napper_held, record, declare, rail_t_control, rail_t_negative, contact_control, missing_control, rate_control, push_control, watch_control, foreign_caller_control, reseat_control, fluid_control, t_control, activity_control, t_hold_control, late_drive_control, drive_slack, plant_cart, plant_block, watch_west, offrail_y, day_time, watch_cell, refill, dep_riders, arr_riders, freezes, freeze_sweep, ticks, seed, seeds, summary, out, trace } => {
             let posts_v: Vec<(i32, i32, i32)> = posts
                 .iter()
                 .map(|s| -> anyhow::Result<(i32, i32, i32)> {
@@ -10556,6 +10661,48 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             anyhow::ensure!(remove_rider.is_none() || summon_check, "--remove-rider runs with --summon-check (its bite is the summon check's miss)");
             anyhow::ensure!(!foreign_caller_control || summon_check, "--foreign-caller-control runs with --summon-check");
             anyhow::ensure!(!reseat_control || summon_check, "--reseat-control runs with --summon-check");
+            // (ironspec 13:04: the drive-integrity bar's control, "K,D")
+            let late_drive_v: Option<(usize, i64)> = match &late_drive_control {
+                Some(s) => {
+                    let v: Vec<i64> = s.split(',').map(|x| x.trim().parse::<i64>()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("--late-drive-control K,D: {e}"))?;
+                    anyhow::ensure!(v.len() == 2 && (0..3).contains(&v[0]) && v[1] != 0, "--late-drive-control K,D: K 0..2, D != 0 (negative: early)");
+                    Some((v[0] as usize, v[1]))
+                }
+                None => None,
+            };
+            anyhow::ensure!(drive_slack >= 0, "--drive-slack: j >= 0");
+            // (ironfarm 11:56: the planted carts and blocks, the watched cells; G1 on 407a29682 (N8):
+            // the off-rail line a finite number)
+            anyhow::ensure!(offrail_y.is_none_or(|y| y.is_finite()), "--offrail-y Y: a finite number");
+            let split_at = |s: &str| -> anyhow::Result<(String, i64)> {
+                let (a, k) = s.rsplit_once('@').ok_or_else(|| anyhow::anyhow!("{s}: ...@k (the tick after T)"))?;
+                let k: i64 = k.trim().parse().map_err(|e| anyhow::anyhow!("{s}: @k: {e}"))?;
+                anyhow::ensure!(k >= 0, "{s}: @k >= 0");
+                Ok((a.to_string(), k))
+            };
+            let mut plant_carts_v: Vec<([f64; 3], i64)> = Vec::new();
+            for s in &plant_cart {
+                let (a, k) = split_at(s)?;
+                let v: Vec<f64> = a.split(',').map(|x| x.trim().parse::<f64>()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("--plant-cart x,y,z@k: {s}: {e}"))?;
+                anyhow::ensure!(v.len() == 3 && v.iter().all(|x| x.is_finite()), "--plant-cart x,y,z@k: {s} (three finite numbers)");
+                plant_carts_v.push(([v[0], v[1], v[2]], k));
+            }
+            let mut plant_blocks_v: Vec<(redsim::pos::BlockPos, redsim::block::Block, i64)> = Vec::new();
+            for s in &plant_block {
+                let (a, k) = split_at(s)?;
+                let (c, st) = a.split_once('=').ok_or_else(|| anyhow::anyhow!("--plant-block x,y,z=STATE@k: {s}"))?;
+                let v: Vec<i32> = c.split(',').map(|x| x.trim().parse::<i32>()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("--plant-block: {s}: {e}"))?;
+                anyhow::ensure!(v.len() == 3, "--plant-block x,y,z=STATE@k: {s}");
+                let st = if st.contains(':') { st.to_string() } else { format!("minecraft:{st}") };
+                plant_blocks_v.push((redsim::pos::BlockPos::new(v[0], v[1], v[2]), redsim::block::Block::parse(&st).map_err(|e| anyhow::anyhow!("--plant-block {s}: {e}"))?, k));
+            }
+            let mut watch_west_v: Vec<redsim::pos::BlockPos> = Vec::new();
+            for s in &watch_west {
+                let v: Vec<i32> = s.split(',').map(|x| x.trim().parse::<i32>()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("--watch-west x,y,z: {s}: {e}"))?;
+                anyhow::ensure!(v.len() == 3, "--watch-west x,y,z: {s}");
+                watch_west_v.push(redsim::pos::BlockPos::new(v[0], v[1], v[2]));
+            }
+            anyhow::ensure!(!(t_control && t_hold_control), "--t-control and --t-hold-control are two rows: one at a time");
             // (G1 on a3b306a05: every flag ranged)
             anyhow::ensure!(day_time.is_none_or(|d| (0..24000).contains(&d)), "--day-time: a day time 0..23999");
             anyhow::ensure!(napper_release.is_none_or(|k| k > 0), "--napper-release: K > 0 (gt after REL)");
@@ -10926,7 +11073,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             for rb in &rebrakes {
                                 for rl in &releases {
                                     for s in seed..seed + seeds {
-                                        let o = crate::drop::DropOpts { layout: lo, hold_y: *h as i32, rel: *r, stagger: [st[0], st[1], st[2]], rebrake: *rb, release: *rl, pulse, occupancy, exit_gate, open_delay, l1, dep_absent: dep_x, restarts: rset.clone(), panic_posts: panic_v.clone(), follow_range, panic_search, r_repeater, box_short, track_lift: module.is_some(), hold_drive: hold_drive_v, hold_rail: hold_rail_v, hold_release, hold_width, napper: napper_release, watch: watch_v.clone(), summon_check, remove_rider, stops: crate::drop::station_stops(lo, *h as i32).into_iter().chain(part_contacts.iter().copied()).collect(), provisional: provisional_contacts.clone(), lever_off, sight_control, hold_poke, pocket_levers: pocket_levers_o, napper_held: napper_held_v, sight_ref: sight_ref_v.clone(), remove_departing: missing_control, rate_control, foreign_caller: foreign_caller_control, reseat: reseat_control, fluid_control, t_control, activity_control, day0: day_time, release_world, rebrake_each, scarers: scarers_v.clone(), refill: refill_v, ticks, seed: s, freeze: *f, logins: logins_v.clone(), trace };
+                                        let o = crate::drop::DropOpts { layout: lo, hold_y: *h as i32, rel: *r, stagger: [st[0], st[1], st[2]], rebrake: *rb, release: *rl, pulse, occupancy, exit_gate, open_delay, l1, dep_absent: dep_x, restarts: rset.clone(), panic_posts: panic_v.clone(), follow_range, panic_search, r_repeater, box_short, track_lift: module.is_some(), hold_drive: hold_drive_v, hold_rail: hold_rail_v, hold_release, hold_width, napper: napper_release, watch: watch_v.clone(), summon_check, remove_rider, stops: crate::drop::station_stops(lo, *h as i32).into_iter().chain(part_contacts.iter().copied()).collect(), provisional: provisional_contacts.clone(), lever_off, sight_control, hold_poke, pocket_levers: pocket_levers_o, napper_held: napper_held_v, sight_ref: sight_ref_v.clone(), remove_departing: missing_control, rate_control, foreign_caller: foreign_caller_control, reseat: reseat_control, fluid_control, t_control, activity_control, t_hold: t_hold_control, late_drive: late_drive_v, drive_slack, plant_carts: plant_carts_v.clone(), plant_blocks: plant_blocks_v.clone(), watch_west: watch_west_v.clone(), offrail_y, day0: day_time, release_world, rebrake_each, scarers: scarers_v.clone(), refill: refill_v, ticks, seed: s, freeze: *f, logins: logins_v.clone(), trace };
                                         // (G1 on 834d6329d (T1): the rail-T check's positive control
                                         // bites through the failure list: the run stops at the edge
                                         // with "a held rail's driver edge reaching a rail T")
@@ -10952,7 +11099,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     // verdicts, the napper's cart a declared bench input; the rows count toward the
                     // module's bars only when the verdict (the bars involve mob behaviour) is the
                     // module's)
-                    let mut rel_fail: Vec<String> = Vec::new();
+                    // (ironspec 14:47 (d): each REL-level failure carries its exact kind, the name a
+                    // control's collateral matches)
+                    let mut rel_fail: Vec<(&'static str, String)> = Vec::new();
                     if let (Some(rt), Some(rp), true) = (&record_text, &record, module.is_some()) {
                         let r = mctas::design::Design::parse(rt).map_err(|e| anyhow::anyhow!("--record: {e}"))?;
                         let b = mctas::design::Design::parse(&text).map_err(|e| anyhow::anyhow!("the composed world: {e}"))?;
@@ -11009,7 +11158,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             crate::recordmatch::Counts::Module => println!("  the rows count toward the module's bars (record-match: the module's)"),
                             c => {
                                 println!("  the rows do NOT count toward the module's bars (record-match: {c:?})");
-                                rel_fail.push(format!("record-match: the rows don't count toward the module's bars ({c:?})"));
+                                rel_fail.push(("record-match: the rows don't count toward the module's bars", format!("record-match: the rows don't count toward the module's bars ({c:?})")));
                             }
                         }
                         // (the emitted world declares its box, the stand-ins' bench verdicts and the
@@ -11125,13 +11274,20 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                                         String::new()
                                     } else {
                                         format!(
-                                            "; the napper's pass REL+{}..{} ({} of {} runs), after lane 2's entry by {}..{} gt, before the next batch's lane 0 (its pass + 100) by {}..{} gt, its top exit REL+{}..{}",
+                                            "; the napper's pass REL+{}..{} ({} of {} runs), after lane 2's entry by {}..{} gt (the physical column bar 16; ironspec 14:47 (f): on the normal-operation rows also the timed-class bar 23 with the same-chunk k <= 1: least {} - 1 = {} against 23{}), before the next batch's lane 0 (its pass + 100) by {}..{} gt, its top exit REL+{}..{}",
                                             nap.iter().filter_map(|s| s.nap_y12).min().unwrap() - r,
                                             nap.iter().filter_map(|s| s.nap_y12).max().unwrap() - r,
                                             nap.len(),
                                             rs.len(),
                                             nap.iter().filter_map(|s| Some(s.nap_y12? - s.lift_entry[2]?)).min().map_or("-".to_string(), |g| g.to_string()),
                                             nap.iter().filter_map(|s| Some(s.nap_y12? - s.lift_entry[2]?)).max().map_or("-".to_string(), |g| g.to_string()),
+                                            nap.iter().filter(|s| !s.disturbed).filter_map(|s| Some(s.nap_y12? - s.lift_entry[2]?)).min().map_or("-".to_string(), |g| g.to_string()),
+                                            nap.iter().filter(|s| !s.disturbed).filter_map(|s| Some(s.nap_y12? - s.lift_entry[2]?)).min().map_or("-".to_string(), |g| (g - 1).to_string()),
+                                            match nap.iter().filter(|s| !s.disturbed).filter_map(|s| Some(s.nap_y12? - s.lift_entry[2]?)).min() {
+                                                Some(g) if g - 1 < 23 => ": UNDER, printed (the timed-class bar's judgment is ironspec's ring rows')",
+                                                Some(_) => ": holds",
+                                                None => ": no normal-operation row",
+                                            },
                                             nap.iter().filter_map(|s| Some(s.lift_y12[0]? + 100 - s.nap_y12?)).min().map_or("-".to_string(), |g| g.to_string()),
                                             nap.iter().filter_map(|s| Some(s.lift_y12[0]? + 100 - s.nap_y12?)).max().map_or("-".to_string(), |g| g.to_string()),
                                             nap.iter().filter_map(|s| s.nap_top).min().map_or(-1, |t| t - r),
@@ -11226,7 +11382,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                                         let h = z / (1.0 + z * z / n) * (p * (1.0 - p) / n + z * z / (4.0 * n * n)).sqrt();
                                         let fails = c + h < lo || c - h > hi;
                                         if fails {
-                                            rel_fail.push(format!("REL T+{r}: the golem rate at k {k} ({born} / {}): its 99 % interval misses {:.1}..{:.1} %", at.len(), 100.0 * lo, 100.0 * hi));
+                                            rel_fail.push(("the golem rate", format!("REL T+{r}: the golem rate at k {k} ({born} / {}): its 99 % interval misses {:.1}..{:.1} %", at.len(), 100.0 * lo, 100.0 * hi)));
                                         }
                                         format!(
                                             "k {k}: {born} / {} born ({:.1} %, 99 % interval {:.1}..{:.1}) against {:.1}..{:.1} %{}",
@@ -11243,7 +11399,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                                 // (the audit (2): no judged bucket (every due S at k = 0, or none):
                                 // the rate NOT JUDGED, a failure)
                                 if judged_k == 0 && rate_scope {
-                                    rel_fail.push(format!("REL T+{r}: NOT JUDGED (an empty or k = 0 rate bucket): the golem rate"));
+                                    rel_fail.push(("NOT JUDGED (an empty or k = 0 rate bucket): the golem rate", format!("REL T+{r}: NOT JUDGED (an empty or k = 0 rate bucket): the golem rate")));
                                 }
                                 if !rate_scope {
                                     println!("  REL T+{r}: the golem rate: out of this run's scope (computed: no independent row, every row frozen, logged in or restarted; those rows share their seed's draws)");
@@ -11332,6 +11488,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         runs.iter().find_map(|s| s.rest_list.first()).map_or(String::new(), |l| format!("; the first: {l}")),
                         runs.iter().filter_map(|s| s.home_least).fold(None, |m: Option<f64>, d| Some(m.map_or(d, |m| m.min(d)))).map_or("no HOME holder".to_string(), |d| format!("{d:.2}"))
                     );
+                    // (G1 on 407a29682 (B6): the standing labels printed with every station verdict,
+                    // --summary included)
+                    if lo == crate::drop::DropLayout::Station {
+                        println!("every figure of these rows carries: (the controller's REL, refill, hold and slope pulses as stand-ins at their declared phases: G8 / G15 not emulated) (ironspec 15:46); (declared phases: day-1's controller cells not laid) (ironspec 16:06)");
+                    }
                     let row_fail = |s: &crate::drop::DropStats| crate::stationjudge::fails(s, 0, crate::stationjudge::EDGE_BAR);
                     // (G1 on a3b306a05 (2), ironspec 09:28: each control bites THROUGH the failure
                     // list (its own fail string in the run's row_fail) and the exit status; G1 on
@@ -11350,15 +11511,15 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     }
                     if remove_rider.is_some() {
                         let f = "the stand's call missed at a due S";
-                        bites.push(("--remove-rider", by_fail(f), Some(f), vec!["NOT JUDGED (0 samples): the S - 3 bar", "a station rider's id not found in the world", "NOT JUDGED (an empty or k = 0 rate bucket)"]));
+                        bites.push(("--remove-rider", by_fail(f), Some(f), vec!["NOT JUDGED (0 samples): the S - 3 bar", "a station rider's id not found in the world", "NOT JUDGED (an empty or k = 0 rate bucket): the golem rate"]));
                     }
                     if lever_off.is_some() {
                         let f = "a departing cart stuck";
-                        bites.push(("--lever-off", by_fail(f), Some(f), vec!["a cart never landed", "not all at rest", "a wrong pocket", "a departing rider in a caller's box after S - 3", "NOT JUDGED (a pair unmeasured): the column bar"]));
+                        bites.push(("--lever-off", by_fail(f), Some(f), vec!["a cart never landed", "not all at rest", "a wrong pocket", "a departing rider in a caller's box after S - 3", "NOT JUDGED (a pair unmeasured): the column bar", "the lever-off control's pocket drive never fired"]));
                     }
                     if contact_control.is_some() {
                         let f = "a cart's undeclared block contact";
-                        bites.push(("--contact-control", by_fail(f), Some(f), vec!["at rest after the next summon", "a departing rider in a caller's box after S - 3", "NOT JUDGED (a pair unmeasured): the column bar", "a push contact between carts", "a contact", "record-match: the rows don't count"]));
+                        bites.push(("--contact-control", by_fail(f), Some(f), vec!["at rest after the next summon", "a departing rider in a caller's box after S - 3", "NOT JUDGED (a pair unmeasured): the column bar", "a push contact between carts", "a contact", "record-match: the rows don't count toward the module's bars"]));
                     }
                     if missing_control.is_some() {
                         let f = "a departing rider missing";
@@ -11383,6 +11544,20 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         let f = "a rider's activity at T is not its schedule's";
                         bites.push(("--activity-control", by_fail(f), Some(f), vec![]));
                     }
+                    if t_hold_control {
+                        // (the negative row: the lever switched beside the T and the T held its
+                        // shape: no re-shape in the run's failure list)
+                        bites.push((
+                            "--t-hold-control (the lever switched beside the T, the T held: no re-shape)",
+                            runs.iter().filter(|s| s.t_lever.is_some() && !row_fail(s).contains(&"a T re-shaped at runtime")).count(),
+                            None,
+                            vec![],
+                        ));
+                    }
+                    if let Some((k, _)) = late_drive_v {
+                        let f = "a pocket drive off its clock slot";
+                        bites.push((["--late-drive-control (pocket 0)", "--late-drive-control (pocket 1)", "--late-drive-control (pocket 2)"][k.min(2)], by_fail(f), Some(f), vec![]));
+                    }
                     if foreign_caller_control {
                         // (the stand's miss through the failure list, while the non-pocket calls
                         // happen at that S)
@@ -11391,7 +11566,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             "--foreign-caller-control (and non-pocket calls at the missed S)",
                             runs.iter().filter(|s| row_fail(s).contains(&f) && s.summon_due.iter().any(|d| d.calls == 0 && d.foreign_calls > 0)).count(),
                             Some(f),
-                            vec!["a rider unseated", "NOT JUDGED (an empty or k = 0 rate bucket)"],
+                            vec!["a rider unseated", "NOT JUDGED (an empty or k = 0 rate bucket): the golem rate"],
                         ));
                     }
                     if reseat_control {
@@ -11418,17 +11593,17 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         // (through the failure list, negatively: the T is among the rail-kind cells
                         // printed, and no run reads the rail-T failure)
                         let f = "a held rail's driver edge reaching a rail T";
-                        bites.push(("--rail-t-negative (a T among the rail-kind cells printed, no rail-T failure)", runs.iter().filter(|s| s.held_edges.iter().any(|e| e.contains("no re-settle")) && !row_fail(s).contains(&f)).count(), None, vec!["a sight ray crossing a stand-in's support", "record-match: the rows don't count"]));
+                        bites.push(("--rail-t-negative (a T among the rail-kind cells printed, no rail-T failure)", runs.iter().filter(|s| s.held_edges.iter().any(|e| e.contains("no re-settle")) && !row_fail(s).contains(&f)).count(), None, vec!["a sight ray crossing a stand-in's support", "record-match: the rows don't count toward the module's bars"]));
                     }
                     if rate_control {
                         // (the REL-level verdict through the REL-level failure list: the rate fails AND
                         // no golem was born at any due S)
                         let none_born = runs.iter().all(|s| s.summon_due.iter().all(|d| !d.born)) && runs.iter().any(|s| !s.summon_due.is_empty());
-                        bites.push(("--rate-control (the REL-level golem rate fails, no golem born)", if none_born && rel_fail.iter().any(|f| f.contains("the golem rate at k")) { runs.len() } else { 0 }, None, vec!["a sight ray crossing a stand-in's support", "the golem rate at k"]));
+                        bites.push(("--rate-control (the REL-level golem rate fails, no golem born)", if none_born && rel_fail.iter().any(|(k, _)| *k == "the golem rate") { runs.len() } else { 0 }, None, vec!["a sight ray crossing a stand-in's support", "the golem rate"]));
                     }
                     if rail_t_control {
                         let f = "a held rail's driver edge reaching a rail T";
-                        bites.push(("--rail-t-control (the run stopped at the on edge)", by_fail(f), Some(f), vec!["a cart never landed", "not all at rest", "a wrong pocket", "a departing cart stuck", "a departing rider in a caller's box after S - 3", "NOT JUDGED (a pair unmeasured): the column bar", "NOT JUDGED (0 samples): the S - 3 bar", "NOT JUDGED (0 due S): the summon check", "NOT JUDGED (no edge): the held rails' rail-T and hold checks", "at rest after the next summon", "at rest within the rest bar of the next summon", "a sight ray crossing a stand-in's support", "record-match: the rows don't count"]));
+                        bites.push(("--rail-t-control (the run stopped at the on edge)", by_fail(f), Some(f), vec!["a cart never landed", "not all at rest", "a wrong pocket", "a departing cart stuck", "a departing rider in a caller's box after S - 3", "NOT JUDGED (a pair unmeasured): the column bar", "NOT JUDGED (0 samples): the S - 3 bar", "NOT JUDGED (0 due S): the summon check", "NOT JUDGED (no edge): the held rails' rail-T and hold checks", "at rest after the next summon", "a sight ray crossing a stand-in's support", "record-match: the rows don't count toward the module's bars"]));
                     }
                     if !bites.is_empty() {
                         let total = runs.len();
@@ -11439,12 +11614,23 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         // the exit; common to every control: a 2-seed sample's golem rate at the REL
                         // level, and, in a run without --summon-check, the summon's NOT JUDGED)
                         let mut allowed: Vec<&str> = bites.iter().flat_map(|b| b.2.into_iter().chain(b.3.iter().copied())).collect();
-                        allowed.push("the golem rate at k");
-                        allowed.push("NOT JUDGED (an empty or k = 0 rate bucket)");
-                        if !summon_check {
-                            allowed.push("NOT JUDGED (summons in the world, the check not run)");
+                        // (G1 on 407a29682 (N7): the golem rate is the unperturbed rows' bar, judged on
+                        // their 300-seed samples; a control's sample of fewer than 50 runs (the module
+                        // rows' smallest; the controls run 2 seeds) gives no rate verdict: a single spot
+                        // miss in 2 runs already puts the 99 % interval off the band; its miss is
+                        // printed and excused; a control sample of 50 or more must meet the rate or
+                        // declare it)
+                        if runs.len() < 50 {
+                            allowed.push("the golem rate");
+                            println!("the golem rate in this control run: excused ({} runs: a control's sample under 50 runs gives no rate verdict; the rate is judged on the unperturbed 300-seed rows)", runs.len());
                         }
-                        let declared = |f: &str| allowed.iter().any(|a| f.contains(a));
+                        allowed.push("NOT JUDGED (an empty or k = 0 rate bucket): the golem rate");
+                        if !summon_check {
+                            allowed.push("NOT JUDGED (summons in the world, the check not run): the summon gate, the stamps and the rate");
+                        }
+                        // (ironspec 14:47 (d): a failure is declared only by its EXACT string: the
+                        // row-level list's own strings, the REL-level kinds)
+                        let declared = |f: &str| allowed.contains(&f);
                         let mut others: Vec<(&str, usize, bool)> = Vec::new();
                         for s in &runs {
                             for f in row_fail(s) {
@@ -11457,20 +11643,20 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                                 }
                             }
                         }
-                        let rel_undeclared: Vec<&String> = rel_fail.iter().filter(|f| !declared(f)).collect();
+                        let rel_undeclared: Vec<&String> = rel_fail.iter().filter(|(k, _)| !declared(k)).map(|(_, t)| t).collect();
                         println!(
                             "the control run's other failures (each declared collateral of the control's own world change, or a failure): {}{}",
                             if others.is_empty() { "none".to_string() } else { others.iter().map(|(f, n, d)| format!("{f} ({n}){}", if *d { "" } else { " UNDECLARED" })).collect::<Vec<_>>().join("; ") },
-                            if rel_fail.is_empty() { String::new() } else { format!("; REL-level: {}", rel_fail.iter().map(|f| format!("{f}{}", if declared(f) { "" } else { " UNDECLARED" })).collect::<Vec<_>>().join("; ")) }
+                            if rel_fail.is_empty() { String::new() } else { format!("; REL-level: {}", rel_fail.iter().map(|(k, f)| format!("{f}{}", if declared(k) { "" } else { " UNDECLARED" })).collect::<Vec<_>>().join("; ")) }
                         );
                         anyhow::ensure!(bites.iter().all(|(_, n, _, _)| *n == total && total > 0), "a control did not bite in every run (the checklist audit (3)): {}", bites.iter().filter(|(_, n, _, _)| *n != total || total == 0).map(|(w, n, _, _)| format!("{w} {n} of {total}")).collect::<Vec<_>>().join("; "));
                         anyhow::ensure!(others.iter().all(|o| o.2) && rel_undeclared.is_empty(), "a control run's undeclared failure (G1 on 834d6329d (T1)): {}", others.iter().filter(|o| !o.2).map(|o| o.0.to_string()).chain(rel_undeclared.iter().map(|f| f.to_string())).collect::<Vec<_>>().join("; "));
                     } else {
                         let failing = runs.iter().filter(|s| !row_fail(s).is_empty()).count();
                         if failing > 0 || !rel_fail.is_empty() {
-                            anyhow::bail!("{failing} of {} rows fail{}", runs.len(), if rel_fail.is_empty() { String::new() } else { format!("; {}", rel_fail.join("; ")) });
+                            anyhow::bail!("{failing} of {} rows fail{}", runs.len(), if rel_fail.is_empty() { String::new() } else { format!("; {}", rel_fail.iter().map(|(_, t)| t.as_str()).collect::<Vec<_>>().join("; ")) });
                         }
-                        println!("every row passes (the checklist audit's one failure list, NOT JUDGED included)");
+                        println!("every row passes (the checklist audit's one failure list, NOT JUDGED included){}", if lo == crate::drop::DropLayout::Station { "; every figure (the controller's REL, refill, hold and slope pulses as stand-ins at their declared phases: G8 / G15 not emulated) (declared phases: day-1's controller cells not laid)" } else { "" });
                     }
                 }
             }

@@ -56,6 +56,7 @@ pub mod bars;
 pub mod standlab;
 pub mod climb;
 pub mod drop;
+pub mod buildorder;
 pub mod golemflow;
 pub mod stationjudge;
 pub mod liftbench;
