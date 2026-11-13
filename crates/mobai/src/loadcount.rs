@@ -378,6 +378,16 @@ pub fn load_count_farm(version: &str, scene: &std::path::Path, cases: u32, run_m
     srv.cmd_ok(&format!("setblock 6 {CY} 6 minecraft:repeater[facing=west,delay=4]"))?;
     srv.cmd_ok(&format!("setblock 7 {CY} 6 minecraft:command_block[facing=east]{{Command:\"execute if score #fire lc matches 0 store result score #fire lc run time query gametime\"}}"))?;
     let source = format!("5 {CY} 6");
+    // (ironspec 14:53) two ticks due INSIDE the idle, in this same chunk: an impulse command block powered
+    // with the source (its own tick due at save + 1, stamping #c1) and a repeater (delay 1: its tick due at
+    // save + 2) whose output powers a second impulse command block (stamping #c2 one tick after the repeater)
+    srv.cmd_ok(&format!("setblock 6 {CY} 9 minecraft:command_block[facing=east]{{Command:\"execute if score #c1 lc matches 0 store result score #c1 lc run time query gametime\"}}"))?;
+    srv.cmd_ok(&format!("setblock 5 {CY} 10 minecraft:repeater[facing=north,delay=1]"))?;
+    srv.cmd_ok(&format!("setblock 5 {CY} 11 minecraft:command_block[facing=east]{{Command:\"execute if score #c2 lc matches 0 store result score #c2 lc run time query gametime\"}}"))?;
+    let source2 = format!("5 {CY} 9");
+    for p in ["#c1", "#c2"] {
+        srv.cmd_ok(&format!("scoreboard players set {p} lc 0"))?;
+    }
     // the login spawn: a glass pad on the farm's top
     srv.cmd_ok(&format!("setblock 4 {} 4 minecraft:glass", DY + 30))?;
     srv.cmd_ok(&format!("setworldspawn 4 {} 4", DY + 31))?;
@@ -405,6 +415,8 @@ pub fn load_count_farm(version: &str, scene: &std::path::Path, cases: u32, run_m
             }
         }
         srv.cmd_ok("scoreboard players set #fire lc 0")?;
+        srv.cmd_ok("scoreboard players set #c1 lc 0")?;
+        srv.cmd_ok("scoreboard players set #c2 lc 0")?;
         Ok(())
     };
     // per event: (same-chunk worst k, j; cross-chunk worst k, j; entity-vs-entity skew; the chunks' first
@@ -412,6 +424,7 @@ pub fn load_count_farm(version: &str, scene: &std::path::Path, cases: u32, run_m
     let mut read_counts = |srv: &mut VanillaServer, label: &str, gt0: i64| -> Result<[i64; 6]> {
         srv.cmd_ok("tick freeze")?;
         let fire = score(srv, "#fire")?;
+        let (c1, c2) = (score(srv, "#c1")?, score(srv, "#c2")?);
         let mut w = [0i64; 6];
         let mut lines: Vec<String> = Vec::new();
         let mut firsts: Vec<i64> = Vec::new();
@@ -442,8 +455,19 @@ pub fn load_count_farm(version: &str, scene: &std::path::Path, cases: u32, run_m
         let spread = firsts.iter().max().unwrap_or(&0) - firsts.iter().min().unwrap_or(&0);
         w[5] = w[5].max(spread);
         println!(
-            "  {label}: the pending repeater {}; the chunks' first block ticks within {spread} gt\n    {}",
+            "  {label}: the pending repeater {}; the in-idle pair (same chunk): {}; the chunks' first block ticks within {spread} gt\n    {}",
             if fire > 0 { format!("stamped at save + {} (due at save + 8)", fire - gt0) } else { "-".into() },
+            if c1 > 0 && c2 > 0 {
+                format!(
+                    "the command block due at save + 1 ran at save + {}, the repeater due at save + 2 at save + {} (its command block at save + {}): {}",
+                    c1 - gt0,
+                    c2 - 1 - gt0,
+                    c2 - gt0,
+                    if c1 == c2 - 1 { "ONE tick" } else { "different ticks" }
+                )
+            } else {
+                "-".into()
+            },
             lines.join("\n    ")
         );
         Ok(w)
@@ -456,12 +480,14 @@ pub fn load_count_farm(version: &str, scene: &std::path::Path, cases: u32, run_m
     let mut opens = [0i64; 6];
     for c in 1..=cases {
         srv.cmd(&format!("setblock {source} minecraft:air"))?;
+        srv.cmd(&format!("setblock {source2} minecraft:air"))?;
         srv.cmd_ok("tick unfreeze")?;
         std::thread::sleep(std::time::Duration::from_millis(1000));
         srv.cmd_ok("tick freeze")?;
         reset_counts(&mut srv)?;
         let gt0 = srv.game_time()?;
         srv.cmd_ok(&format!("setblock {source} minecraft:redstone_block"))?;
+        srv.cmd_ok(&format!("setblock {source2} minecraft:redstone_block"))?;
         srv.cmd_ok("save-on")?;
         srv.cmd_ok("save-all flush")?;
         let old = srv.dir.clone();

@@ -306,3 +306,163 @@ pub fn sleep_pickup(version: &str, v: f64, settle: u32, watch: u32, max_wait: u3
     );
     Ok(())
 }
+
+/// (cc767b78 14:47 / 15:20, ironspec 14:49) A lie-down on the STOP's OWN CELLS: 58f770cc's bench file placed
+/// whole at +80 (its stand-in levers as laid: the shutter's lever on, the hatch open and the zombie hidden;
+/// the park's lever off), at night, a villager homed to the bed head (-3,0,4):
+/// - `eject`: riding a cart summoned on the flat north of the arming detector (-2,0,1) heading south at the
+///   stored speed `v`; the always-on activator E (-2,0,2) sets it down and SleepInBed fires;
+/// - `hurt`: standing on P (-2,0,4), 1.00 from the head's centre, hurt (1 generic damage) before its first
+///   tick: it panics, and lies down when the panic ends (HURT_BY gone 40 gt after the hit).
+/// Printed per tick from the start to the lie-down + 15: the villager's Pos, Motion and OnGround, riding or
+/// not, the head's OCCUPIED; the lie-down tick's move after setPosToBed; the settled position. Then
+/// `release_after` gt after the lie-down the park's lever is pulled with NO shutter close (the sleeper stays
+/// asleep) and the empty cart runs the run-up into P: per tick near the bed its position, the gap between
+/// its box inflated 0.2 horizontally (OldMinecartBehavior's pickup box) and the sleeper's 0.2 x 0.2 box
+/// (the larger of the x and z separations: 0 = overlapping), and whether it seats the sleeper.
+pub fn sleep_stop(version: &str, bench: &std::path::Path, mode: &str, v: f64, release_after: u32, watch: u32, wake_yaw: Option<f32>) -> Result<()> {
+    const DY: i32 = 80;
+    anyhow::ensure!(mode == "eject" || mode == "hurt", "--mode eject|hurt, got {mode}");
+    let opts = VanillaOptions {
+        version: version.to_string(),
+        difficulty: "normal".into(),
+        with_bot: false,
+        biome: "minecraft:plains".into(),
+        tick_rate: 1000,
+        ..Default::default()
+    };
+    let mut srv = VanillaServer::start(&opts)?;
+    srv.cmd_ok("forceload add -32 -32 31 31")?;
+    srv.cmd_ok("gamerule spawn_mobs false")?;
+    srv.cmd_ok("time set 13000")?;
+    srv.cmd_ok("gamerule advance_time false")?;
+    crate::seatclear::place_part(&mut srv, bench)?;
+    let head = format!("-3 {DY} 4");
+    anyhow::ensure!(crate::strict::test(&mut srv, &format!("execute if block {head} minecraft:red_bed[part=head,facing=south]"))?, "the bench's bed head is not at local (-3,0,4)");
+    anyhow::ensure!(crate::strict::test(&mut srv, &format!("execute if block -2 {DY} 2 minecraft:activator_rail[powered=true]"))?, "the activator E (-2,0,2) is not powered");
+    anyhow::ensure!(crate::strict::test(&mut srv, &format!("execute if block 3 {DY} 4 minecraft:lever[powered=false]"))?, "the park's stand-in lever (3,0,4) is not laid off");
+    let villager = format!("id:\"minecraft:villager\",Tags:[\"sv\"],PersistenceRequired:1b,Brain:{{memories:{{\"minecraft:home\":{{value:{{dimension:\"minecraft:overworld\",pos:[I;-3,{DY},4]}}}}}}}}");
+    if mode == "eject" {
+        let out = srv.cmd(&format!("summon minecraft:minecart -1.5 {} 0.5 {{Tags:[\"sp\"],Motion:[0.0d,0.0d,{v:?}d],Passengers:[{{{villager}}}]}}", DY as f64 + 0.0625))?;
+        anyhow::ensure!(out.contains("Summoned new"), "the napper's cart: {}", out.trim());
+    } else {
+        let out = srv.cmd(&format!("summon minecraft:villager -1.5 {} 4.5 {{{}}}", DY as f64 + 0.0625, villager.trim_start_matches("id:\"minecraft:villager\",")))?;
+        anyhow::ensure!(out.contains("Summoned new"), "the villager on P: {}", out.trim());
+        srv.cmd_ok("damage @e[tag=sv,limit=1] 1 minecraft:generic")?;
+        // the empty cart braked on the park (1,0,4), released later down the run-up into P
+        let out = srv.cmd(&format!("summon minecraft:minecart 1.5 {} 4.5 {{Tags:[\"sp\"]}}", DY as f64 + 0.5625))?;
+        anyhow::ensure!(out.contains("Summoned new"), "the park's cart: {}", out.trim());
+    }
+    println!(
+        "== a lie-down on the stop's own cells ({mode}), official {version}: {} at +{DY}; {}; the shutter not closed (the sleeper stays asleep); the park released {release_after} gt after the last lie-down",
+        bench.display(),
+        if mode == "eject" { format!("the napper's cart summoned at (-1.5, {}, 0.5) heading south at stored {v:.3}", DY as f64 + 0.0625) } else { "the villager standing on P (-1.5, ., 4.5), hurt (1 generic) before its first tick; an empty cart braked on the park (1,0,4)".into() }
+    );
+    let field = |srv: &mut VanillaServer, sel: &str, f: &str| -> Result<String> { Ok(srv.cmd_long(&format!("data get entity {sel} {f}"))?.split("data: ").nth(1).unwrap_or("-").trim().to_string()) };
+    let occupied = |srv: &mut VanillaServer| crate::strict::test(srv, &format!("execute if block {head} minecraft:red_bed[occupied=true]"));
+    // every lie-down (the head's OCCUPIED rising) and wake (falling); `eject` stops at its first lie-down + 15,
+    // `hurt` at its second (the re-sleep after the panic) + 15
+    let (mut lies, mut wakes, mut off) = (Vec::<u32>::new(), Vec::<u32>::new(), None::<u32>);
+    let mut was = false;
+    let want = if mode == "eject" { 1 } else { 2 };
+    let mut rows: Vec<String> = Vec::new();
+    for t in 1..=600u32 {
+        srv.step(1)?;
+        let riding = mode == "eject" && srv.cmd_long("data get entity @e[tag=sp,limit=1] Passengers")?.contains("villager");
+        if mode == "eject" && !riding && off.is_none() {
+            off = Some(t);
+        }
+        let occ = occupied(&mut srv)?;
+        rows.push(format!(
+            "t{t}: Pos {} Motion {} OnGround {} | {}head {}",
+            field(&mut srv, "@e[tag=sv,limit=1]", "Pos")?,
+            field(&mut srv, "@e[tag=sv,limit=1]", "Motion")?,
+            field(&mut srv, "@e[tag=sv,limit=1]", "OnGround")?,
+            if mode == "eject" { if riding { "riding | " } else { "set down | " } } else { "" },
+            if occ { "OCCUPIED" } else { "free" }
+        ));
+        if occ && !was {
+            lies.push(t);
+        }
+        if !occ && was {
+            wakes.push(t);
+        }
+        was = occ;
+        if lies.len() >= want && t >= lies[want - 1] + 15 {
+            break;
+        }
+    }
+    anyhow::ensure!(!lies.is_empty(), "the villager never lay down within 600 gt (set down at {off:?})");
+    for &l in &lies {
+        for r in rows.iter().skip((l as usize).saturating_sub(4)).take(19) {
+            println!("  {r}");
+        }
+        println!("  --");
+    }
+    println!("  lie-downs at {lies:?}, wakes at {wakes:?}");
+    let lie = *lies.last().unwrap_or(&0);
+    if let Some(o) = off {
+        println!("  set down at t{o}, lay down at t{lie} ({} after the set-down)", lie as i64 - o as i64);
+    }
+    // the lie-down tick's move after setPosToBed: its position minus the head's centre (setPosToBed puts it
+    // at x + 0.5, y + 0.6875, z + 0.5)
+    let lie_row = rows.get(lie as usize - 1).cloned().unwrap_or_default();
+    println!("  the lie-down tick t{lie} (setPosToBed puts the sleeper at (-2.5, {:.4}, 4.5); its move that tick is its Pos minus that): {lie_row}", DY as f64 + 0.6875);
+    // (G1 15:47) the stand-up cell: AbstractBedBlock.findStandUpPosition takes `side` = the bed's clockwise
+    // side unless the sleeper's yaw faces it: with --wake-yaw the sleeper's Rotation is set, it is hurt
+    // (stopSleeping at once) and the cell it stands up on is printed, then the run ends
+    if let Some(yaw) = wake_yaw {
+        srv.step(20)?;
+        srv.cmd_ok(&format!("data merge entity @e[tag=sv,limit=1] {{Rotation:[{yaw:?}f,0.0f]}}"))?;
+        srv.cmd_ok("damage @e[tag=sv,limit=1] 1 minecraft:generic")?;
+        let p = pos_of(&mut srv, "@e[tag=sv,limit=1]")?.ok_or_else(|| anyhow::anyhow!("the villager is gone"))?;
+        let occ = occupied(&mut srv)?;
+        println!(
+            "  WAKE at yaw {yaw}: stood up at ({:.4}, {:.4}, {:.4}) = local cell ({},{},{}); the head {}",
+            p[0],
+            p[1],
+            p[2],
+            p[0].floor() as i32,
+            p[1].floor() as i32 - DY,
+            p[2].floor() as i32,
+            if occ { "still OCCUPIED" } else { "free" }
+        );
+        return Ok(());
+    }
+    srv.step(release_after.saturating_sub(15).max(1))?;
+    let sp = pos_of(&mut srv, "@e[tag=sv,limit=1]")?.ok_or_else(|| anyhow::anyhow!("the sleeper is gone"))?;
+    println!("  the settled sleeper at ({:.6}, {:.4}, {:.6}): {:+.6} / {:+.6} off the head's centre (-2.5, 4.5)", sp[0], sp[1], sp[2], sp[0] + 2.5, sp[2] - 4.5);
+    srv.cmd_ok(&format!("setblock 3 {DY} 4 minecraft:lever[face=wall,facing=east,powered=true]"))?;
+    // a lever set by command updates only its own neighbours, not the attached conductor's (a pull would
+    // update both): the park rail (1,0,4) beside the conductor (2,0,4) is set powered, as the pull powers it
+    for shape in ["ascending_east", "ascending_west"] {
+        if crate::strict::test(&mut srv, &format!("execute if block 1 {DY} 4 minecraft:powered_rail[shape={shape}]"))? {
+            srv.cmd_ok(&format!("setblock 1 {DY} 4 minecraft:powered_rail[shape={shape},powered=true]"))?;
+        }
+    }
+    if let Some(c) = pos_of(&mut srv, "@e[type=minecraft:minecart,limit=1,sort=nearest,x=1.5,y=80,z=4.5]")? {
+        println!("  at the release: the cart nearest the park (1,0,4) at ({:.3}, {:.4}, {:.3}) (local y {:.4})", c[0], c[1], c[2], c[1] - DY as f64);
+    }
+    let (mut least, mut picked) = (f64::MAX, None::<u32>);
+    for j in 1..=watch {
+        srv.step(1)?;
+        let Some(c) = pos_of(&mut srv, "@e[type=minecraft:minecart,limit=1,sort=nearest,x=-1.5,y=80,z=4.5]")? else { continue };
+        let gx = ((c[0] - sp[0]).abs() - (0.49 + 0.2 + 0.1)).max(0.0);
+        let gz = ((c[2] - sp[2]).abs() - (0.49 + 0.2 + 0.1)).max(0.0);
+        let gap = gx.max(gz);
+        least = least.min(gap);
+        let pass = srv.cmd_long("execute as @e[type=minecraft:minecart] on passengers run data get entity @s Tags")?.contains("sv");
+        if pass && picked.is_none() {
+            picked = Some(j);
+        }
+        if gap < 1.0 || pass {
+            println!("  release + {j}: the nearest cart ({:.3}, {:.4}, {:.3}) | gap {gap:.4} | {} | head {}", c[0], c[1], c[2], if pass { "SEATED" } else { "not riding" }, if occupied(&mut srv)? { "OCCUPIED" } else { "free" });
+        }
+    }
+    println!(
+        "  result (one sample, AI villager): {}; the least gap between a cart's pickup box and the sleeper's box over the pass {} (a measurement)",
+        picked.map(|j| format!("SEATED at release + {j}")).unwrap_or("never seated".into()),
+        if least == f64::MAX { "- (no cart came near)".to_string() } else { format!("{least:.4}") }
+    );
+    Ok(())
+}

@@ -17,6 +17,11 @@ use mctas::vanilla::{VanillaOptions, VanillaServer};
 
 const DY: i32 = 80;
 
+/// The frame: world = local + `AT` (set once per run by `side_slope`; the record's own frame is (0, 80, 0)).
+fn w(at: [i32; 3], p: [i32; 3]) -> [i32; 3] {
+    [p[0] + at[0], p[1] + at[1], p[2] + at[2]]
+}
+
 fn nums(s: &str) -> Vec<f64> {
     s.split("entity data: ").nth(1).unwrap_or("").trim().trim_matches(|c| c == '[' || c == ']').split(',').filter_map(|t| t.trim().trim_end_matches(['d', 'f', 's', 'b']).parse().ok()).collect()
 }
@@ -26,7 +31,7 @@ fn opts(version: &str, world: Option<std::path::PathBuf>) -> VanillaOptions {
 }
 
 /// The first of the candidate states the cell holds (`execute if block`), else "other".
-fn state_of(srv: &mut VanillaServer, p: [i32; 3]) -> Result<String> {
+fn state_of(srv: &mut VanillaServer, at: [i32; 3], p: [i32; 3]) -> Result<String> {
     let mut cands: Vec<String> = vec![
         "minecraft:oak_wall_sign[waterlogged=true]".into(),
         "minecraft:oak_wall_sign[waterlogged=false]".into(),
@@ -44,7 +49,8 @@ fn state_of(srv: &mut VanillaServer, p: [i32; 3]) -> Result<String> {
         cands.push(format!("minecraft:water[level={l}]"));
     }
     for c in cands {
-        if srv.cmd_long(&format!("execute if block {} {} {} {c}", p[0], p[1] + DY, p[2]))?.contains("passed") {
+        let q = w(at, p);
+        if srv.cmd_long(&format!("execute if block {} {} {} {c}", q[0], q[1], q[2]))?.contains("passed") {
             return Ok(c.trim_start_matches("minecraft:").to_string());
         }
     }
@@ -52,11 +58,26 @@ fn state_of(srv: &mut VanillaServer, p: [i32; 3]) -> Result<String> {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn side_slope(version: &str, module: &std::path::Path, speeds: &[f64], waterlogged: bool, release_at: u32, restarts: &[u32], max_ticks: u32) -> Result<()> {
+pub fn side_slope(version: &str, module: &std::path::Path, speeds: &[f64], waterlogged: bool, release_at: u32, restarts: &[u32], max_ticks: u32, at: [i32; 3]) -> Result<()> {
+    // (ironspec 15:11 / 15:23) the record placed at local + at: shifted by (at.x, at.y - 80, at.z) and laid
+    // at +80; the record's loop anchor (-6,0,-6) lands at its world cell, printed with its chunk-corner state
+    let anchor = w(at, [-6, 0, -6]);
+    let placed = std::env::temp_dir().join(format!("side-slope-module-{}-{}-{}-{}.txt", std::process::id(), at[0], at[1], at[2]));
+    let mut d = mctas::design::Design::load(module)?;
+    crate::drivereplay::shift_design(&mut d, [at[0], at[1] - DY, at[2]])?;
+    d.save(&placed)?;
+    let fl = format!("forceload add {} {} {} {}", at[0] - 32, at[2] - 32, at[0] + 31, at[2] + 31);
     println!(
-        "== side-slope on the official {version} server: {} (its shared lift), the side entry laid (slope (-4,12,7), crest (-3,13,7), climb (-2,12,7), flat (-1,12,7)), the wall sign at (-4,13,7) {}; a ridden cart west at {speeds:?}; the slope powered from t{release_at} for 10 gt; restarts at t{restarts:?}",
+        "== side-slope on the official {version} server: {} (its shared lift), the side entry laid (slope (-4,12,7), crest (-3,13,7), climb (-2,12,7), flat (-1,12,7)), the wall sign at (-4,13,7) {}; a ridden cart west at {speeds:?}; the slope powered from t{release_at} for 10 gt; restarts at t{restarts:?}; the frame: local + ({},{},{}), the loop anchor (-6,0,-6) at world ({},{},{}): {}",
         module.display(),
-        if waterlogged { "WATERLOGGED" } else { "dry" }
+        if waterlogged { "WATERLOGGED" } else { "dry" },
+        at[0],
+        at[1],
+        at[2],
+        anchor[0],
+        anchor[1],
+        anchor[2],
+        crate::railkick::corner(anchor)
     );
     let watch: [[i32; 3]; 7] = [[-4, 13, 7], [-5, 13, 7], [-3, 13, 7], [-4, 14, 7], [-4, 12, 7], [-4, 13, 6], [-4, 13, 8]];
     for &v in speeds {
@@ -67,12 +88,12 @@ pub fn side_slope(version: &str, module: &std::path::Path, speeds: &[f64], water
             srv.cmd_ok("gamerule advance_time false")?;
             srv.cmd_ok("gamerule spawn_mobs false")?;
             srv.cmd_ok("time set 1000")?;
-            srv.cmd_ok("forceload add -32 -32 31 31")?;
+            srv.cmd_ok(&fl)?;
             srv.step(40)?;
-            crate::seatclear::place_part(&mut srv, module)?;
+            crate::seatclear::place_part(&mut srv, &placed)?;
             let mut before = Vec::new();
             for p in [[-3, 12, 7], [-2, 11, 7], [-1, 11, 7], [-3, 13, 7], [-2, 12, 7], [-1, 12, 7], [-4, 13, 6]] {
-                before.push(format!("({},{},{}) {}", p[0], p[1], p[2], state_of(&mut srv, p)?));
+                before.push(format!("({},{},{}) {}", p[0], p[1], p[2], state_of(&mut srv, at, p)?));
             }
             for (p, s) in [
                 ([-4, 11, 7], "minecraft:glass".to_string()),
@@ -86,35 +107,40 @@ pub fn side_slope(version: &str, module: &std::path::Path, speeds: &[f64], water
                 ([-1, 12, 7], "minecraft:rail[shape=east_west]".into()),
                 ([-4, 13, 7], format!("minecraft:oak_wall_sign[facing=south,waterlogged={waterlogged}]")),
             ] {
-                srv.cmd(&format!("setblock {} {} {} {s}", p[0], p[1] + DY, p[2]))?;
+                let q = w(at, p);
+                srv.cmd(&format!("setblock {} {} {} {s}", q[0], q[1], q[2]))?;
             }
             if restart.is_none() && v == speeds[0] {
                 println!("  the module's cells before the entry was laid: {}", before.join(", "));
             }
             srv.step(5)?;
             srv.cmd_ok(&format!(
-                "summon minecraft:minecart -0.5 {} 7.5 {{Tags:[\"ssc\"],Motion:[{}d,0.0d,0.0d],Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b,Tags:[\"ssv\"]}}]}}",
-                12.0625 + DY as f64,
+                "summon minecraft:minecart {} {} {} {{Tags:[\"ssc\"],Motion:[{}d,0.0d,0.0d],Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b,Tags:[\"ssv\"]}}]}}",
+                -0.5 + at[0] as f64,
+                12.0625 + at[1] as f64,
+                7.5 + at[2] as f64,
                 -v
             ))?;
             let mut states: Vec<String> = Vec::new();
             for p in &watch {
-                states.push(state_of(&mut srv, *p)?);
+                states.push(state_of(&mut srv, at, *p)?);
             }
             let mut changes: Vec<String> = Vec::new();
             let (mut rest, mut rest_y, mut airs, mut entry, mut exit, mut restarted) = (None::<u32>, f64::NAN, Vec::<(u32, i64)>::new(), None::<u32>, None::<(u32, [f64; 3])>, None::<u32>);
             let mut reload_note: Option<crate::restartcheck::Reload> = None;
             let (mut on_slope, mut creep) = (None::<u32>, Vec::<String>::new());
+            let mut wall_gap = f64::MAX;
             for t in 1..=max_ticks {
+                let rel = w(at, [-4, 11, 7]);
                 if t == release_at {
-                    srv.cmd_ok(&format!("setblock -4 {} 7 minecraft:redstone_block", 11 + DY))?;
+                    srv.cmd_ok(&format!("setblock {} {} {} minecraft:redstone_block", rel[0], rel[1], rel[2]))?;
                 }
                 if t == release_at + 10 {
-                    srv.cmd_ok(&format!("setblock -4 {} 7 minecraft:glass", 11 + DY))?;
+                    srv.cmd_ok(&format!("setblock {} {} {} minecraft:glass", rel[0], rel[1], rel[2]))?;
                 }
                 srv.step(1)?;
                 for (i, p) in watch.iter().enumerate() {
-                    let s = state_of(&mut srv, *p)?;
+                    let s = state_of(&mut srv, at, *p)?;
                     if s != states[i] {
                         changes.push(format!("t{t} ({},{},{}) {} -> {s}", p[0], p[1], p[2], states[i]));
                         states[i] = s;
@@ -126,7 +152,7 @@ pub fn side_slope(version: &str, module: &std::path::Path, speeds: &[f64], water
                     changes.push(format!("t{t}: no cart"));
                     break;
                 }
-                let pos = [pp[0], pp[1] - DY as f64, pp[2]];
+                let pos = [pp[0] - at[0] as f64, pp[1] - at[1] as f64, pp[2] - at[2] as f64];
                 let speed = (m[0] * m[0] + m[2] * m[2]).sqrt();
                 let cell = [pos[0].floor() as i32, pos[1].floor() as i32, pos[2].floor() as i32];
                 if rest.is_none() && t < release_at && cell == [-4, 12, 7] && speed < 0.005 && m[1].abs() < 0.005 {
@@ -148,6 +174,11 @@ pub fn side_slope(version: &str, module: &std::path::Path, speeds: &[f64], water
                 if entry.is_none() && t >= release_at && cell[0] == -5 {
                     entry = Some(t);
                 }
+                // (G1 15:10 (b)) the contact's distance: the cart's west face to the back wall's east face
+                // (x -5.0) while it is in the column's cell
+                if cell[0] == -5 {
+                    wall_gap = wall_gap.min(pos[0] - 0.49 + 5.0);
+                }
                 if entry.is_some() && exit.is_none() && pos[1] >= 23.0 {
                     exit = Some((t, pos));
                 }
@@ -157,7 +188,7 @@ pub fn side_slope(version: &str, module: &std::path::Path, speeds: &[f64], water
                 {
                     let (s, rl) = crate::restartcheck::reload(srv, |w| opts(version, Some(w)), Some("@e[tag=ssc,limit=1]"))?;
                     srv = s;
-                    srv.cmd_ok("forceload add -32 -32 31 31")?;
+                    srv.cmd_ok(&fl)?;
                     restarted = Some(t);
                     reload_note = Some(rl);
                     changes.push(format!("t{t}: RESTART (the cart at ({:.3},{:.4},{:.3})); {}", pos[0], pos[1], pos[2], rl.describe()));
@@ -167,13 +198,14 @@ pub fn side_slope(version: &str, module: &std::path::Path, speeds: &[f64], water
                 }
             }
             println!(
-                "  {v} b/gt, {}: on the slope from {}; rest on it at {} (feet y {rest_y:.4}); the rider's air on the slope {}; the cart before the release {}; the entry into the column at {}; the exit at the top at {}{}",
+                "  {v} b/gt, {}: on the slope from {}; rest on it at {} (feet y {rest_y:.6}); the rider's air on the slope {}; the cart before the release {}; the entry into the column at {}; the cart's west face to the back wall's face (x -5.0) in the column, least {}; the exit at the top at {}{}",
                 restart.map(|r| format!("a restart at t{r}")).unwrap_or_else(|| "no restart".into()),
                 on_slope.map(|t| format!("t{t}")).unwrap_or_else(|| "never".into()),
                 rest.map(|t| format!("t{t}")).unwrap_or_else(|| "never".into()),
                 if airs.is_empty() { "-".to_string() } else { airs.iter().take(10).map(|(t, a)| format!("t{t} {a}")).collect::<Vec<_>>().join(", ") },
                 if creep.is_empty() { "-".to_string() } else { creep.join(", ") },
                 entry.map(|t| format!("t{t} (release + {})", t as i64 - release_at as i64)).unwrap_or_else(|| "never".into()),
+                if wall_gap == f64::MAX { "- (never in the column's cell)".to_string() } else { format!("{wall_gap:.6}") },
                 exit.map(|(t, p)| format!("t{t} ({:.3},{:.3},{:.3})", p[0], p[1], p[2])).unwrap_or_else(|| "never".into()),
                 reload_note.map(|x| format!("; {}", x.describe())).unwrap_or_default()
             );
@@ -183,5 +215,6 @@ pub fn side_slope(version: &str, module: &std::path::Path, speeds: &[f64], water
             let _ = std::fs::remove_dir_all(&srv.dir);
         }
     }
+    let _ = std::fs::remove_file(&placed);
     Ok(())
 }

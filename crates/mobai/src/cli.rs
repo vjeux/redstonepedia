@@ -671,6 +671,27 @@ pub enum MobaiCmd {
         #[arg(long)]
         trace: bool,
     },
+    /// (cc767b78 14:47 / 15:20, ironspec 14:49) a lie-down on the stop's own cells (58f770cc's bench file):
+    /// `eject` (set down by E from a southbound cart) or `hurt` (hurt on P, lying down when its panic ends);
+    /// the lie-down tick's move, the settled position, then the park released with the sleeper asleep
+    SleepStop {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        #[arg(long)]
+        bench: std::path::PathBuf,
+        #[arg(long, default_value = "eject")]
+        mode: String,
+        /// the napper's cart's stored speed heading south (eject)
+        #[arg(long, default_value_t = 0.3)]
+        v: f64,
+        #[arg(long, default_value_t = 200)]
+        release_after: u32,
+        #[arg(long, default_value_t = 200)]
+        watch: u32,
+        /// (G1 15:47) wake the sleeper with this yaw (deg) set and print its stand-up cell, then end
+        #[arg(long, allow_hyphen_values = true)]
+        wake_yaw: Option<f32>,
+    },
     /// (G1 13:37) does a minecart passing P beside the bed seat a sleeping villager? (the stop's local cells)
     SleepPickup {
         #[arg(long, default_value = "26.3")]
@@ -1031,6 +1052,10 @@ pub enum MobaiCmd {
         restarts: String,
         #[arg(long, default_value_t = 260)]
         max_ticks: u32,
+        /// (ironspec 15:11 / 15:23) the frame: world = the record's local cell + this offset (P1 6,80,6;
+        /// P3 6,240,6; P4 16390,80,16390); the default is the record's own frame at +80
+        #[arg(long, default_value = "0,80,0", allow_hyphen_values = true)]
+        at: String,
     },
     /// (tickexact 2026-11-12, ironspec: the pocket backs) A cart at rest on a north_south powered
     /// rail powered with a block at its north end: the first tick's velocity, whether it leaves
@@ -1046,6 +1071,10 @@ pub enum MobaiCmd {
         /// Restart rows at these ticks (before the power), a,b
         #[arg(long, default_value = "")]
         restarts: String,
+        /// (ironspec 15:11 / 15:23) the frame: world = the bench's local cell + this offset (its copies at
+        /// local x 0, 8, 16, ..., y 0, z 0; P4 16390,80,16390); the default is the bench's own (0,64,0)
+        #[arg(long, default_value = "0,64,0", allow_hyphen_values = true)]
+        at: String,
     },
     /// (tickexact 2026-11-12, G1 on b8949c96's way-in) The queue's release, the second fall and the
     /// roll into A6's entry: the entry tick and speed, the rider's health, restarts mid-ride
@@ -2065,6 +2094,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
             let list: Vec<f64> = (0..=n).map(|i| s[0] + s[2] * i as f64).collect();
             crate::launchsweep::launch_sweep(&version, &scene, &list, &phases, sbend_straight, bar, trace)
         }
+        MobaiCmd::SleepStop { version, bench, mode, v, release_after, watch, wake_yaw } => crate::sleepmerge::sleep_stop(&version, &bench, &mode, v, release_after, watch, wake_yaw),
         MobaiCmd::SleepPickup { version, v, settle, watch, stop, max_wait } => crate::sleepmerge::sleep_pickup(&version, v, settle, watch, max_wait, stop),
         MobaiCmd::SleepMerge { version, mode, k, watch, guard, max_wait } => crate::sleepmerge::sleep_merge(&version, &mode, k, watch, guard, max_wait),
         MobaiCmd::PresenceString { version, ticks, open_at, depart_at, rise, slope } => {
@@ -2236,15 +2266,15 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
             }
             crate::pathprobegame::path_probe_game(&version, &design, &part_list, &at, &targets, &cells, reach, nodes, tick)
         }
-        MobaiCmd::SideSlope { version, module, speeds, waterlogged, release_at, restarts, max_ticks } => {
+        MobaiCmd::SideSlope { version, module, speeds, waterlogged, release_at, restarts, max_ticks, at } => {
             let speeds: Vec<f64> = speeds.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
             let restarts: Vec<u32> = restarts.split(',').filter(|n| !n.trim().is_empty()).map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
-            crate::sideslope::side_slope(&version, &module, &speeds, waterlogged, release_at, &restarts, max_ticks)
+            crate::sideslope::side_slope(&version, &module, &speeds, waterlogged, release_at, &restarts, max_ticks, crate::railkick::cell3(&at)?)
         }
-        MobaiCmd::RailKick { version, blocks, power_at, watch, restarts } => {
+        MobaiCmd::RailKick { version, blocks, power_at, watch, restarts, at } => {
             let blocks: Vec<String> = blocks.split(',').map(|b| b.trim().to_string()).filter(|b| !b.is_empty()).collect();
             let restarts: Vec<u32> = restarts.split(',').filter(|n| !n.trim().is_empty()).map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
-            crate::railkick::rail_kick(&version, &blocks, power_at, watch, &restarts)
+            crate::railkick::rail_kick(&version, &blocks, power_at, watch, &restarts, crate::railkick::cell3(&at)?)
         }
         MobaiCmd::QueueRoll { version, module, start, release_cell, release_at, release_len, until_departure, entry, restarts, max_ticks } => {
             let f3 = |s: &str| -> anyhow::Result<[f64; 3]> {
