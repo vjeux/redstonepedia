@@ -3135,6 +3135,22 @@ pub enum MobfarmCmd {
         /// bar's positive: the risers stack at the lift top for N gt; ironspec 06:37 PT (3)).
         #[arg(long, value_delimiter = ',')]
         block_exit: Vec<i64>,
+        /// Skip the positive controls the tool runs after the rows (ironspec 07:26 PT C3); without
+        /// them the run claims no verdict.
+        #[arg(long)]
+        no_controls: bool,
+        /// `SEED`: forced thunder, one seeded roll a tick at a random column of the box (the no-rod
+        /// positive, ironspec 07:52 / 07:59 PT); the riders struck fail the row.
+        #[arg(long, allow_hyphen_values = true)]
+        thunder: Option<i64>,
+        /// `X,Y,Z`: a lightning rod laid there (facing up); its bolt box, column top, flammables and
+        /// pulse reach checked (ironspec 07:52 PT's conditions).
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        rod: Vec<i32>,
+        /// `X,Y,Z,T1,T2`: the block there (a lever laid with `--set`) switched on before tick T1 and
+        /// off before tick T2 (the planted-source control for the merge row's join Ts).
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        toggle: Vec<i64>,
     },
     /// (7b90c3f1, farmopt Nov 11 20:58) The vertical lift bench: a soul-sand bubble column built
     /// alone, an entry flat at its foot (its east wall open `--entry-h` cells: 1 = the rail cell,
@@ -8299,7 +8315,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let prelude = if napper_lift { 100 } else { 0 };
             let ticks = ticks + prelude;
             let starts = vec![starts[0], starts[1] + prelude];
-            let base = crate::returnbench::ReturnOpts { batches, spacing: 14, speed: 0.4, ticks, login: None, boost, trace: None, reverse, offsets: offsets.clone(), jitter: Vec::new(), flat, game_ticks, napper_delay: (restart_napper >= 0).then_some(restart_napper), dip, resync, seed_miss: None, restart: None, z7, row10, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station, k_relay, napper_lane, napper_r, release_pulse, boosters, row_boost, out: None, mirror_z, day1_taps, supp_open, pulse_gate, gate_delayed_only: false, lift_depth, no_torches: false, napper_speed: 0.2, path_a: false, arm_rel: None, lane7_rel: 100, station_lag: 0, y12_min: 16, y12_nap_min: 16, lane7_pulse: 10, kset_shift: 0, driver_latency: false, mouth_min: 2, station_part: None, light_fix: false, set_cells: Vec::new(), undeclare_contact: Vec::new(), record: None, stale_t: None, block_exit: None, bit_delay, tripwire, dep_keyed, trip_lag };
+            let base = crate::returnbench::ReturnOpts { batches, spacing: 14, speed: 0.4, ticks, login: None, boost, trace: None, reverse, offsets: offsets.clone(), jitter: Vec::new(), flat, game_ticks, napper_delay: (restart_napper >= 0).then_some(restart_napper), dip, resync, seed_miss: None, restart: None, z7, row10, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station, k_relay, napper_lane, napper_r, release_pulse, boosters, row_boost, out: None, mirror_z, day1_taps, supp_open, pulse_gate, gate_delayed_only: false, lift_depth, no_torches: false, napper_speed: 0.2, path_a: false, arm_rel: None, lane7_rel: 100, station_lag: 0, y12_min: 16, y12_nap_min: 16, lane7_pulse: 10, kset_shift: 0, driver_latency: false, mouth_min: 2, station_part: None, light_fix: false, set_cells: Vec::new(), undeclare_contact: Vec::new(), record: None, stale_t: None, block_exit: None, controls: false, record_poke: false, hold_early: false, thunder: None, rod: None, toggle: None, bit_delay, tripwire, dep_keyed, trip_lag };
             anyhow::ensure!(k_band.len() == 2, "--k-band LO,HI");
             let bars = crate::returnjudge::ReturnBars { branch_band: (branch_band[0], branch_band[1]), napper_band: (napper_band[0], napper_band[1]), shaft_min, napper_behind, napper_ahead, junction_min: jm.clone(), pushes_max, head_max, k_band: k_relay.then_some((k_band[0], k_band[1])), scheduled_only, hold_required: napper_lift && pulse_gate.is_some() };
             let line = format!(
@@ -8416,28 +8432,66 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 if fails == 0 && gfails == 0 { "PASSES" } else { "FAILS" }
             );
         }
-        MobfarmCmd::ReturnBench { batches, spacing, speed, ticks, login, boost, trace, reverse, offsets, jitter, jitter_sweep, flat, game_ticks, napper_delay, dip, resync, seed_miss, restart, restart_sweep, z7, row10, boosters, row_boost, out, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station, k_relay, mirror_z, day1_taps, supp_open, pulse_gate, gate_delayed_only, lift_depth, no_torches, napper_speed, path_a, arm_rel, lane7_rel, station_lag, y12_min, y12_nap_min, lane7_pulse, kset_shift, driver_latency, mouth_min, station_part, light_fix, set_cells, undeclare_contact, record, stale_t, block_exit, top_restart, lift_pair, t_snap, bit_delay, phase_sweep, tripwire, dep_keyed, trip_lag, napper_lane, napper_r, release_pulse, late_sweep, login_sweep } => {
+        MobfarmCmd::ReturnBench { batches, spacing, speed, ticks, login, boost, trace, reverse, offsets, jitter, jitter_sweep, flat, game_ticks, napper_delay, dip, resync, seed_miss, restart, restart_sweep, z7, row10, boosters, row_boost, out, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station, k_relay, mirror_z, day1_taps, supp_open, pulse_gate, gate_delayed_only, lift_depth, no_torches, napper_speed, path_a, arm_rel, lane7_rel, station_lag, y12_min, y12_nap_min, lane7_pulse, kset_shift, driver_latency, mouth_min, station_part, light_fix, set_cells, undeclare_contact, record, stale_t, block_exit, no_controls, thunder, rod, toggle, top_restart, lift_pair, t_snap, bit_delay, phase_sweep, tripwire, dep_keyed, trip_lag, napper_lane, napper_r, release_pulse, late_sweep, login_sweep } => {
             let restart = restart.as_deref().map(crate::liveness::parse_restart).transpose().map_err(|e| anyhow::anyhow!(e))?;
-            let o = crate::returnbench::ReturnOpts { batches, spacing, speed, ticks, login: (login.len() == 2).then(|| (login[0], login[1])), boost, trace, reverse, offsets, jitter, flat, game_ticks, napper_delay, dip, resync, seed_miss, restart, z7, row10, boosters, row_boost, out, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station, k_relay, mirror_z, day1_taps, supp_open, pulse_gate, gate_delayed_only, lift_depth, no_torches, napper_speed, path_a, arm_rel, lane7_rel, station_lag, y12_min, y12_nap_min, lane7_pulse, kset_shift, driver_latency, mouth_min, station_part, light_fix, set_cells, undeclare_contact, record, stale_t, block_exit: (block_exit.len() == 2).then(|| (block_exit[0], block_exit[1])), bit_delay, tripwire, dep_keyed, trip_lag, napper_lane, napper_r, release_pulse };
-            if lift_pair.len() == 2 {
-                println!("{}", crate::returnbench::lift_pair(&o, lift_pair[0], lift_pair[1]).map_err(|e| anyhow::anyhow!(e))?);
-            } else if !top_restart.is_empty() {
-                println!("{}", crate::returnbench::top_restart(&o, &top_restart).map_err(|e| anyhow::anyhow!(e))?);
-            } else if let Some(m) = t_snap {
-                println!("{}", crate::returnbench::t_snap(&m, !no_torches).map_err(|e| anyhow::anyhow!(e))?);
-            } else if restart_sweep.len() == 2 {
-                println!("{}", crate::returnbench::restart_sweep(&o, restart_sweep[0], restart_sweep[1]).map_err(|e| anyhow::anyhow!(e))?);
-            } else if late_sweep.len() == 2 {
-                println!("{}", crate::returnbench::late_sweep(&o, late_sweep[0], late_sweep[1]).map_err(|e| anyhow::anyhow!(e))?);
-            } else if login_sweep.len() == 3 {
-                println!("{}", crate::returnbench::login_sweep(&o, login_sweep[0], login_sweep[1], login_sweep[2]).map_err(|e| anyhow::anyhow!(e))?);
-            } else if phase_sweep.len() == 5 {
-                println!("{}", crate::returnbench::phase_sweep(&o, phase_sweep[0], phase_sweep[1], phase_sweep[2], phase_sweep[3], phase_sweep[4]).map_err(|e| anyhow::anyhow!(e))?);
-            } else if jitter_sweep {
-                println!("{}", crate::returnbench::jitter_sweep(&o).map_err(|e| anyhow::anyhow!(e))?);
-            } else {
-                println!("{}", crate::returnbench::return_bench(&o).map_err(|e| anyhow::anyhow!(e))?);
+            // (ironspec 07:26 PT C4: `--block-exit` takes exactly T,N)
+            anyhow::ensure!(block_exit.is_empty() || block_exit.len() == 2, "--block-exit T,N: two values, not {}", block_exit.len());
+            anyhow::ensure!(rod.is_empty() || rod.len() == 3, "--rod X,Y,Z: three values, not {}", rod.len());
+            anyhow::ensure!(toggle.is_empty() || toggle.len() == 5, "--toggle X,Y,Z,T1,T2: five values, not {}", toggle.len());
+            let o = crate::returnbench::ReturnOpts { batches, spacing, speed, ticks, login: (login.len() == 2).then(|| (login[0], login[1])), boost, trace, reverse, offsets, jitter, flat, game_ticks, napper_delay, dip, resync, seed_miss, restart, z7, row10, boosters, row_boost, out, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station, k_relay, mirror_z, day1_taps, supp_open, pulse_gate, gate_delayed_only, lift_depth, no_torches, napper_speed, path_a, arm_rel, lane7_rel, station_lag, y12_min, y12_nap_min, lane7_pulse, kset_shift, driver_latency, mouth_min, station_part, light_fix, set_cells, undeclare_contact, record, stale_t, block_exit: (block_exit.len() == 2).then(|| (block_exit[0], block_exit[1])), controls: !no_controls, record_poke: false, hold_early: false, thunder, rod: (rod.len() == 3).then(|| (rod[0], rod[1], rod[2])), toggle: (toggle.len() == 5).then(|| (toggle[0] as i32, toggle[1] as i32, toggle[2] as i32, toggle[3], toggle[4])), bit_delay, tripwire, dep_keyed, trip_lag, napper_lane, napper_r, release_pulse };
+            // (ironspec 07:26 PT C3: the positive controls, in the tool, after the rows (not the
+            // lift-pair, top-restart or T-snap benches); one that doesn't bite fails the command)
+            let other_bench = lift_pair.len() == 2 || !top_restart.is_empty() || t_snap.is_some();
+            // (G1 on 2dc7e46bb H16 / 84cd993fd (4): each mode's value counts strict, one mode at a time,
+            // and r4's flags refused where the mode doesn't read them)
+            anyhow::ensure!(lift_pair.is_empty() || lift_pair.len() == 2, "--lift-pair FROM,TO: two values, not {}", lift_pair.len());
+            anyhow::ensure!(restart_sweep.is_empty() || restart_sweep.len() == 2, "--restart-sweep FROM,TO: two values");
+            anyhow::ensure!(late_sweep.is_empty() || late_sweep.len() == 2, "--late-sweep FROM,TO: two values");
+            anyhow::ensure!(login_sweep.is_empty() || login_sweep.len() == 3, "--login-sweep FROM,TO,LEN: three values");
+            anyhow::ensure!(phase_sweep.is_empty() || phase_sweep.len() == 5, "--phase-sweep R_FROM,R_TO,OFF_FROM,OFF_TO,LEN: five values");
+            let modes = [lift_pair.len() == 2, !top_restart.is_empty(), t_snap.is_some(), restart_sweep.len() == 2, late_sweep.len() == 2, login_sweep.len() == 3, phase_sweep.len() == 5, jitter_sweep].iter().filter(|m| **m).count();
+            anyhow::ensure!(modes <= 1, "one mode at a time: --lift-pair, --top-restart, --t-snap and the sweeps exclude each other");
+            if other_bench {
+                anyhow::ensure!(
+                    o.record.is_none() && o.set_cells.is_empty() && o.undeclare_contact.is_empty() && o.stale_t.is_none() && o.block_exit.is_none() && o.thunder.is_none() && o.rod.is_none() && o.toggle.is_none(),
+                    "--lift-pair, --top-restart and --t-snap don't read --record, --set, --undeclare-contact, --stale-t, --block-exit, --thunder, --rod or --toggle"
+                );
             }
+            anyhow::ensure!(o.y12_min >= 1 && o.y12_nap_min >= 1 && o.mouth_min >= 1, "--y12-min, --y12-nap-min and --mouth-min are bars: at least 1");
+            let (text, fails) = if lift_pair.len() == 2 {
+                crate::returnbench::lift_pair(&o, lift_pair[0], lift_pair[1]).map_err(|e| anyhow::anyhow!(e))?
+            } else if !top_restart.is_empty() {
+                crate::returnbench::top_restart(&o, &top_restart).map_err(|e| anyhow::anyhow!(e))?
+            } else if let Some(m) = &t_snap {
+                (crate::returnbench::t_snap(m, !no_torches).map_err(|e| anyhow::anyhow!(e))?, 0)
+            } else if restart_sweep.len() == 2 {
+                crate::returnbench::restart_sweep(&o, restart_sweep[0], restart_sweep[1]).map_err(|e| anyhow::anyhow!(e))?
+            } else if late_sweep.len() == 2 {
+                crate::returnbench::late_sweep(&o, late_sweep[0], late_sweep[1]).map_err(|e| anyhow::anyhow!(e))?
+            } else if login_sweep.len() == 3 {
+                crate::returnbench::login_sweep(&o, login_sweep[0], login_sweep[1], login_sweep[2]).map_err(|e| anyhow::anyhow!(e))?
+            } else if phase_sweep.len() == 5 {
+                crate::returnbench::phase_sweep(&o, phase_sweep[0], phase_sweep[1], phase_sweep[2], phase_sweep[3], phase_sweep[4]).map_err(|e| anyhow::anyhow!(e))?
+            } else if jitter_sweep {
+                crate::returnbench::jitter_sweep(&o).map_err(|e| anyhow::anyhow!(e))?
+            } else {
+                crate::returnbench::return_bench_judged(&o).map_err(|e| anyhow::anyhow!(e))?
+            };
+            println!("{text}");
+            // (the controls, after the rows)
+            let mut missed = 0usize;
+            if !other_bench {
+                if o.controls {
+                    let (ctext, m) = crate::returnbench::controls(&o).map_err(|e| anyhow::anyhow!(e))?;
+                    println!("{ctext}");
+                    missed = m;
+                } else {
+                    println!("controls skipped (--no-controls): the run claims no verdict");
+                }
+            }
+            // (G1 H1: every bar reaches the exit code)
+            println!("exit: {fails} failure(s) (rows failing a bar, erroring or STALE, or no row judged), {missed} control(s) not biting");
+            anyhow::ensure!(fails == 0 && missed == 0, "{fails} failure(s), {missed} control(s) not biting");
         }
         MobfarmCmd::LiftBench { height, entry_len, entry_h, speed, carts, spacing, ticks, exit, trace, ceiling, freeze, exit_slope, merge3, split3, pane_walls, reach_dy, detector_at, napper_at, stopper, game_ticks } => {
             let o = crate::liftbench::LiftOpts { height, entry_len, entry_h, speed, carts, spacing, ticks, exit, trace, ceiling, freeze: (freeze.len() == 2).then(|| (freeze[0], freeze[1])), exit_slope, merge3, split3, pane_walls, reach_dy, detector_at, napper_at, stopper, game_ticks };
