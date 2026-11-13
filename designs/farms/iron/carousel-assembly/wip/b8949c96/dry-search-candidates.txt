@@ -1,0 +1,11 @@
+# R2 search (ironspec 05:09), (a) DRY layouts on the dry (C) descent over record7f (dry-search-base-r7f.txt: no water, no containment cells, the slope (9,-24,-2) plain): one unpowered powered rail (a brake) per candidate
+B-slope: !9,-24,-2=powered_rail[shape=ascending_south,powered=false,waterlogged=false]
+B-s3: !9,-25,-3=powered_rail[shape=ascending_south,powered=false,waterlogged=false]
+B-n4: !9,-25,-4=powered_rail[shape=north_south,powered=false,waterlogged=false]
+B-r8: !8,-25,-5=powered_rail[shape=east_west,powered=false,waterlogged=false]
+B-r7: !7,-25,-5=powered_rail[shape=east_west,powered=false,waterlogged=false]
+B-r6: !6,-25,-5=powered_rail[shape=east_west,powered=false,waterlogged=false]
+B-r5: !5,-25,-5=powered_rail[shape=east_west,powered=false,waterlogged=false]
+B-r4: !4,-25,-5=powered_rail[shape=east_west,powered=false,waterlogged=false]
+B-f7: !7,-23,-1=powered_rail[shape=east_west,powered=false,waterlogged=false]
+B-f8: !8,-23,-1=powered_rail[shape=east_west,powered=false,waterlogged=false]
