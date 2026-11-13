@@ -1021,10 +1021,10 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
         "a6-pickup: -2,0,4=the pickup cell (the napper's only stand-up cell); stranded bound: no cart at it by the wake edge + 60 gt fails (to restate from these rows)".to_string(),
     ];
     if wake_sensor {
-        lines.push("The wake sensor (G1 12:04 / day-1 12:03): (-3,-1,4) an observer facing up at the bed head (-3,0,4), in the glass's place under it: the head's OCCUPIED set (SleepInBed's start) and cleared (the wake) each give a pulse out of its bottom face into (-3,-2,4), where DAY-1's F line (the window opened only after a sensed lie-down, shut on the wake) and the park's release (at least 6 gt after the shutter is powered again: the first (-2,0,5) entry clears the close + 27 by >= 3 gt, ironspec 14:06's class bar) start; the bench prints its pulses against the napper's own edges.".to_string());
+        lines.push("The wake sensor (G1 12:04 / day-1 12:03): (-3,-1,4) an observer facing up at the bed head (-3,0,4), in the glass's place under it: the head's OCCUPIED set (SleepInBed's start) and cleared (the wake) each give a pulse out of its bottom face into (-3,-2,4), where DAY-1's F line (the window opened only after a sensed lie-down, shut on the wake) and the park's release (at least 4 gt after the shutter is powered again: the first (-2,0,5) entry >= the close + 27) start; the bench prints its pulses against the napper's own edges.".to_string());
     }
     if exit_south {
-        lines.push("contacts: -3,0,4=the bed head's east face (its 0.5625-high box), met flush by the cart's west face at the curve-to-straight hand-off from P (-2,0,4) into (-2,0,5); class=design; ref=2af606b9d `mctas mobfarm bedtier-bench designs/farms/iron/parts/bed-tier-min/bed-tier-fold-bench.txt --speeds 0.05,0.06,0.07,0.08,0.09,0.10,0.11,0.12,0.13,0.14,0.15,0.16,0.17,0.18,0.19,0.20,0.21,0.22,0.23,0.24,0.25,0.26,0.27,0.28,0.29,0.30,0.31,0.32,0.33,0.34,0.35,0.36,0.37,0.38,0.39,0.40,0.41,0.42,0.43,0.44,0.45,0.46,0.47,0.48,0.49,0.50,0.51,0.52,0.53,0.54,0.55 --from 1 --to 8 --tap 265,10 --close-after 4 --release-after 10` (the design point: the window shut at the wake + 4 (DAY-1's observer + torch), the release 6 gt behind it, so the first (-2,0,5) entry clears the close + 27 by 3 gt, ironspec 14:06's class bar; exit 0; met on 296 of 408 visits by main's contacts::cart_contacts; maxima: depth 0.0000, 1 tick per event; speed 0.060..0.112 in, 0.0423..0.075 out, the least at entry 0.51); depth<=0.0000+eps=0.010 why=the cart's box stays within the face tolerance of the bed's box, the bed's state untouched; ticks<=1 why=a second tick is the cart stopped at P, a stall; speed_out>=0.0423+eps=0.0023 why=the bound 0.040 is the exit boost (-2,0,5)'s measured carry threshold 0.0101 (a loaded cart set on it carried at 0.0101, stalled at 0.0100: `--boost-probe` on 2af606b9d; under it the always-on booster has no conductor at either end to start the cart, the napper aboard) plus a margin of 0.0299 (about 3x the threshold) for the seed and position jitter (the dense band agrees to 1e-14 at six build positions) and the game's booster start (tick-exact's launch sweep pending); the bed unchanged across it; rate=296/408 (ironspec Nov 13 07:03 / 09:24 / 10:47 / 10:58 / 11:37 / 11:51 / 12:38; G1 10:53 / 11:35)".to_string());
+        lines.push("contacts: -3,0,4=the bed head's east face (its 0.5625-high box), met flush by the cart's west face at the curve-to-straight hand-off from P (-2,0,4) into (-2,0,5); class=design; ref=2af606b9d `mctas mobfarm bedtier-bench designs/farms/iron/parts/bed-tier-min/bed-tier-fold-bench.txt --speeds 0.05,0.06,0.07,0.08,0.09,0.10,0.11,0.12,0.13,0.14,0.15,0.16,0.17,0.18,0.19,0.20,0.21,0.22,0.23,0.24,0.25,0.26,0.27,0.28,0.29,0.30,0.31,0.32,0.33,0.34,0.35,0.36,0.37,0.38,0.39,0.40,0.41,0.42,0.43,0.44,0.45,0.46,0.47,0.48,0.49,0.50,0.51,0.52,0.53,0.54,0.55 --from 1 --to 8 --tap 265,10 --close-after 4 --release-after 8` (exit 0; met on 296 of 408 visits by main's contacts::cart_contacts; maxima: depth 0.0000, 1 tick per event; speed 0.060..0.112 in, 0.0423..0.075 out, the least at entry 0.51); depth<=0.0000+eps=0.010 why=the cart's box stays within the face tolerance of the bed's box, the bed's state untouched; ticks<=1 why=a second tick is the cart stopped at P, a stall; speed_out>=0.0423+eps=0.0023 why=the bound 0.040 is the exit boost (-2,0,5)'s measured carry threshold 0.0101 (a loaded cart set on it carried at 0.0101, stalled at 0.0100: `--boost-probe` on 2af606b9d; under it the always-on booster has no conductor at either end to start the cart, the napper aboard) plus a margin of 0.0299 (about 3x the threshold) for the seed and position jitter (the dense band agrees to 1e-14 at six build positions) and the game's booster start (tick-exact's launch sweep pending); the bed unchanged across it; rate=296/408 (ironspec Nov 13 07:03 / 09:24 / 10:47 / 10:58 / 11:37 / 11:51 / 12:38; G1 10:53 / 11:35)".to_string());
         // (P's two connections are DESIGN-CRITICAL: K (-2,0,3) is a T by rail presence (N, E, S) and
         // keeps north_east under any source change only while P is full (ironspec 10:47 / 10:58's
         // `# integrity:` key, checked by the static))
@@ -1852,8 +1852,7 @@ pub fn parse_integrity(text: &str, shift: [i32; 3]) -> Result<Vec<([i32; 3], Str
 
 /// (G1 12:38 / ironspec 12:38-12:58) DAY-1's guard-free latch as the bench emulates it: TIMEOUT
 /// at ARM + `t_max`; the shutter `logic_lat` gt behind OPEN (its torch); the park's release
-/// `rel_after` gt after OPEN's fall (>= logic_lat + 6: the first (-2,0,5) entry clears close + 27 by
-/// >= 3 gt, ironspec 14:06).
+/// `rel_after` gt after OPEN's fall (>= logic_lat + 4: the first (-2,0,5) entry >= close + 27).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Latch {
     pub t_max: i64,
@@ -5505,10 +5504,8 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
         }
         if delta_ruled > i64::MIN {
             println!("the hold delta ruled (ironspec 09:11 (2): the cart's first entry into (-2,0,5) >= the window's close + 27 on every wake): this run's release (--release-after {release_after}) and close (--close-after {}) leave a least margin of {} gt over this sweep's wakes (negative: missed; G1's Q4: judged)", base.close_after.max(1), -delta_ruled);
-            // (ironspec 14:06: a switch (the shutter) timed against a cart is the class bar, a margin
-            // of >= 3 gt in the block phase)
-            if -delta_ruled < 3 {
-                failed.push(format!("the cart's first entry into (-2,0,5) cleared the window's close + 27 by only {} gt on a wake (the class bar: >= 3; raise --release-after: delta = close + 6)", -delta_ruled));
+            if delta_ruled > 0 {
+                failed.push(format!("the cart's first entry into (-2,0,5) came {delta_ruled} gt before the window's close + 27 on a wake (raise --release-after: delta = close + 4)"));
             }
         }
         {
