@@ -926,6 +926,10 @@ pub struct Row {
     /// The longest stand-still after the eject (gt awake on foot, unmoved), before the first
     /// lie-down or the pickup.
     pub stand_after_eject: i64,
+    /// (the head-space check) Ticks x villagers with their box, and with their eye box, meeting a
+    /// declared new solid cell.
+    pub head_box_hits: usize,
+    pub head_eye_hits: usize,
     pub stamp_cleared_at: Option<i64>,
     /// (ironspec 22:56 (iii)) The napper's cells a bolt could reach (sees the sky, or inside a
     /// column top's bolt hit box).
@@ -1011,6 +1015,10 @@ pub struct Faults {
     /// (ironspec 00:31) The module's declared emulated cells (its `emulated:` meta line, the stop's
     /// frame), laid before the run (record-match counts them as the declared candidate
     /// "emulated").
+    /// ((A), ironspec 03:30 / G1's head-space flag) New solid cells (the stop's frame) checked every
+    /// tick against every villager's box and eye box (its eye height, +- 0.4 x its width, as
+    /// `isInWall`): bar 0 eye overlap.
+    pub head_cells: Vec<[i32; 3]>,
     pub lay_emulated: Vec<([i32; 3], String)>,
     /// (ironspec 23:56) Bars this run's declared scope excludes (`visits`, `pickups`, `riderless`):
     /// their 0 samples print NOT JUDGED without failing.
@@ -1928,6 +1936,34 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             }
         }
         let w = &run.world;
+        // (the head-space check, ironspec 03:30: every villager's box and eye box against each
+        // declared new solid cell, every tick)
+        if !f.head_cells.is_empty() {
+            for e in w.entities.list.iter().filter(|e| !e.removed) {
+                let redsim::entity::EntityKind::Mob(m) = &e.kind else { continue };
+                if m.ty != redsim::entity::mob::types::MobType::Villager {
+                    continue;
+                }
+                let (wd, ht) = e.kind.dims();
+                let (hw, ey) = (wd as f64 / 2.0, e.pos.y + e.kind.eye_height() as f64);
+                let bx = redsim::entity::Aabb::new(e.pos.x - hw, e.pos.y, e.pos.z - hw, e.pos.x + hw, e.pos.y + ht as f64, e.pos.z + hw);
+                let ew = wd as f64 * 0.4;
+                let eb = redsim::entity::Aabb::new(e.pos.x - ew, ey - 5e-7, e.pos.z - ew, e.pos.x + ew, ey + 5e-7, e.pos.z + ew);
+                for c in &f.head_cells {
+                    let p = BlockPos::new(c[0], c[1], c[2]);
+                    let boxes = redsim::entity::collide::boxes_at(w, &w.get(p), p);
+                    if boxes.iter().any(|b| b.intersects(bx)) {
+                        row.head_box_hits += 1;
+                    }
+                    if boxes.iter().any(|b| b.intersects(eb)) {
+                        row.head_eye_hits += 1;
+                        if row.head_eye_hits <= 3 {
+                            row.problems.push(format!("t {t}: a villager's eye box at ({:.2},{:.2},{:.2}) meets the new solid cell ({},{},{}) (the head-space bar: 0)", e.pos.x, ey, e.pos.z, c[0], c[1], c[2]));
+                        }
+                    }
+                }
+            }
+        }
         let Some(ci) = idx(w, cart_id) else {
             row.problems.push(format!("t {t}: the cart is gone"));
             break;
@@ -3333,6 +3369,8 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
                         }
                         sk.stamp_visit_max = sk.stamp_visit_max.max(r.stamp_visit_max);
                         sk.stand_max = sk.stand_max.max(r.stand_after_eject);
+                        sk.head_box_hits += r.head_box_hits;
+                        sk.head_eye_hits += r.head_eye_hits;
                         if r.stand_after_eject > 20 {
                             sk.stand_over_20 += 1;
                         }
@@ -3635,6 +3673,12 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
     if sk.stand_over_20 > 0 && !excluded("stand") {
         failed.push(format!("{} visits stood still over 20 gt after the eject", sk.stand_over_20));
     }
+    if !base.head_cells.is_empty() {
+        println!("the head-space check (ironspec 03:30: every villager's box and eye box against the new solid cells {:?}, every tick): box overlaps {} tick-villagers, eye overlaps {} (bar 0)", base.head_cells, sk.head_box_hits, sk.head_eye_hits);
+        if sk.head_eye_hits > 0 && !excluded("head") {
+            failed.push(format!("{} eye overlaps with a new solid cell", sk.head_eye_hits));
+        }
+    }
     // (ironspec 00:27: every fluid cell's tick scheduled at load, the count printed)
     println!("fluid cells whose tick the bench scheduled at load (ironspec 00:27; the most in one visit's world): {}", sk.fluid_scheduled);
     // ((A), ironspec 00:37 (1)/(2b): the landings (every one within SleepInBed's 2 of the bed
@@ -3745,6 +3789,8 @@ struct SkipTotals {
     /// the longest stand-still after the eject, and the visits over 20 gt
     stand_max: i64,
     stand_over_20: usize,
+    head_box_hits: usize,
+    head_eye_hits: usize,
     r_real_missing: usize,
     drops: usize,
     drop_max: f64,
