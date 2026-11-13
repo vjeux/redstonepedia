@@ -285,3 +285,33 @@ fire), the steady-state judge, the exit flood under 9 walking policies, the game
 The common first step for every hostile-mob farm is natural spawning with light levels: the light
 engine is only partly classified (`daylight.rs` props) and spawning needs block light and sky light
 everywhere in the spawning volume.
+
+## The Q2 lane benches' bars: physical or inherited (ironspec Nov 12 19:07, the bar audit)
+
+`mctas mobfarm escape-bench --siding` (crates/mobfarm/src/sidingbench.rs) and `mctas mobfarm
+push-scan` (pushscan.rs). The full table, with the commit that set each bar:
+https://artifacts.internalmeta.com/a/1169491299367704. Every run's last line lists the inherited
+numbers again.
+
+- **Physical** (a game rule, or a failure measured at the boundary):
+  - touching at the merge and the order of arrivals;
+  - carts off the rails, riders' eyes in a block, stray power on R;
+  - a napper knocked loose, rails popped, the wrong way at the merge;
+  - the push test (boxes 0.98 x 0.7, inflated 0.2) against the waiting napper, for lane carts and through-carts;
+  - the siding detector's false trips, carts stacked, HOME lost;
+  - the napper stuck on R, a launch after the pulse;
+  - the siding's single occupancy: 0 ticks with a cart on R while another turns at K or rides F. These are push-scan's R (x−2,24,7) <- K (x−2,25,9) pairs (ironspec 19:58), and the bench prints each next napper's K tick against the previous napper's departure off R;
+  - push-scan's swept boxes and its bridged margin > 0.
+- **Inherited** (no failure measured at the number), with the physical basis first where one exists:
+  - arrivals at the lanes' backs and landings <= 0.46: the brief's gravity-run rule. Physical: the bump bound 0.508, which is official. The 0.46 stands;
+  - the calm-REST stamp <= 1,000 gt: a margin under vanilla's tooLongUnreachableDuration 1,200;
+  - occupancy 8 and V never held: ironspec's slot-8 rulings;
+  - lane carts off the siding: the S-bend ruling;
+  - exactly 1 cart per release: the brief;
+  - full ring windows: day-1's ring;
+  - the delivery 0.30..0.48: the return bench's `v_merge`. Physical floor 0.27 (first failure 0.22).
+- **Mine** (inherited): the windows at rest off the rails (20 gt), V held (20 gt), the launch (40 gt), stray power past the drive delay (+ 2 gt), and push-scan's creep allowance along the rest's own axis (+ 0.5).
+- **The S-bend curve bar** (`--curve-bar`) is the forced boundary + 2, both sides of the napper (ironspec 19:52).
+  - `--inject-sweep` forces the napper's release tick by tick. At rest, arrival 0.30: clean down to a curve rule of 6 (release at the leader's D edge − 3). At D − 4 (curve rule 5) the boxes meet at C: touching, off-rail, a cart lost.
+  - The bar is 8 until tick-exact's official row confirms it. The 21 it replaces came from the return bench's `Summary::bars` and retires.
+  - Day-1's release rule (`--no-d-gate`, K = 4) clears 8 in every row; the least is 9, under 4-gt freezes.

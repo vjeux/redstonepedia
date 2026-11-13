@@ -266,6 +266,17 @@ pub struct SidingOpts {
     /// With --feed-path: day-1's lane -1 layout (the feed dust on slime, day-1's delay-3 repeater
     /// (x-3,22,9) strongly powering it; the switched cell (x-4,22,9)).
     pub feed_slime: bool,
+    /// The napper counts as present for the siding's release sample this many gt after its K tick
+    /// (its spawn on K's cell with --nap-feed-v), whether or not it has come to rest on R (ironspec
+    /// 17:58 / 18:06, day-1's PRESENT moved from K + 16 to K + 2); None: present once at rest on R.
+    pub present_k: Option<i64>,
+    /// day-1's release rule (v6 §7, day-1 18:24): the siding's switch fires K gt after D's rising
+    /// edge whenever WINDOW and PRESENT held at that edge, with no wait for D off (the bench's
+    /// default waits for D off, about 20 gt after the edge: the detector's recheck).
+    pub no_d_gate: bool,
+    /// The boundary probe (ironspec 19:52): the napper's release forced at this tick, whatever the
+    /// window, PRESENT and D say (one napper; --inject-sweep runs one row per tick).
+    pub inject_release: Option<i64>,
     /// --siding-north: leave out the lane-top walkway (glass (lx-3..lx-1, m-3, mz-2)), the control.
     pub no_walkway: bool,
     /// The siding's flat (x-1,m,mz) a detector rail (east_west): the proposed siding sensor; with
@@ -786,6 +797,9 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
     // (the curve rule: who is on the curve (x-1,22,6) and the merge (x,22,6), entry and clear ticks)
     let in_cell = |p: (f64, f64, f64), cx: i32, cy: i32, cz: i32| p.0 + 0.49 > cx as f64 && p.0 - 0.49 < (cx + 1) as f64 && p.2 + 0.49 > cz as f64 && p.2 - 0.49 < (cz + 1) as f64 && p.1 > cy as f64 - 0.5 && p.1 < cy as f64 + 1.0;
     let mut merge_occ: Vec<(usize, i64, Option<i64>)> = Vec::new();
+    // (each napper's merge entry, for the follower's margin at the run's end: the next cart into the
+    // merge after the napper, its entry minus the napper's clear (ironspec 19:04 (b)))
+    let mut nap_merges: Vec<(usize, i64)> = Vec::new();
     let mut touching = 0usize;
     let mut last_pass: Vec<Option<i64>> = vec![None; n];
     let mut lap_wait = false;
@@ -830,12 +844,23 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
         vec![(sx, m + 1, mz + 2), (sx, m, mz + 1), (sx, m, mz), (sx + 1, m, mz)]
     };
     let mut nap_spawned_t: Option<i64> = None;
+    // (--nap-present-k (ironspec 17:58 / 18:06, day-1's PRESENT moved to K + 2): the napper's K tick,
+    // and each release's state: (release minus the K tick, at rest on R or still rolling, z, speed))
+    let mut nap_k_at: Option<i64> = None;
+    // (push-scan's pairs R (x-2,24,7) <- K (x-2,25,9): a cart turning at K into F against a cart on R
+    // (ironspec 19:58): the previous napper's departure from R, each next napper's K tick minus it, and
+    // the ticks with a cart on R while another turned at K or rode F)
+    let mut nap_departed_at: Option<i64> = None;
+    let mut nap_gaps: Vec<i64> = Vec::new();
+    let mut r_joint = 0usize;
+    let mut release_states: Vec<(i64, bool, f64, f64)> = Vec::new();
     let mut transits: Vec<i64> = Vec::new();
     let mut pass_of: Vec<Option<i64>> = vec![None; n];
     let (mut d_to_entry, mut d_to_clear): (Vec<i64>, Vec<i64>) = (Vec::new(), Vec::new());
     let mut queue_rest: std::collections::BTreeMap<usize, Vec<Vec<(f64, f64, f64)>>> = Default::default();
     let mut first_snaps: Vec<(i64, Vec<(f64, f64, f64, f64)>)> = Vec::new();
     let (mut occ_max, mut occ8, mut occ_start_max) = (0usize, 0usize, 0usize);
+    let mut occ_min = usize::MAX;
     let nbt_feed = so.nap_feed_v.map(|v| format!("{{Motion:[0.0d,0.0d,{:.4}d]{rider}}}", vz(-v)));
     let nbt_row = so.k_row.map(|v| format!("{{Motion:[{v:.4}d,0.0d,0.0d]{rider}}}"));
     let mut switch_last_on = -1000i64;
@@ -950,7 +975,10 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
                 && released_at.is_none()
                 && latch_at.is_none()
                 && window_open(t, &rel_times).is_some()
-                && !nap_rested_at.is_some_and(|r| r <= t)
+                && !(match so.present_k {
+                    Some(d) => nap_k_at.is_some_and(|k| k + d <= t),
+                    None => nap_rested_at.is_some_and(|r| r <= t),
+                })
             {
                 latch_at = Some(t);
             }
@@ -1096,18 +1124,51 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
         // --nap-late-latch (ironspec 05:15, fix (A)) a window passing without its napper waiting sets
         // the lane's late latch, and the napper then goes K after the first pass it is waiting for)
         let via = last_any_pass.and_then(|(pp, _)| window_open(pp, &rel_times).or_else(|| latch_at.filter(|la| pp > *la).map(|_| LATCH)));
+        // (the napper present for the sample: at rest on R (the bench's default), or with
+        // --nap-present-k N from N gt after its K tick whether or not it has come to rest)
+        let present = match so.present_k {
+            Some(d) => nap_k_at.is_some_and(|k| t >= k + d),
+            None => nap_ready,
+        };
+        let present_at = match so.present_k {
+            Some(d) => nap_k_at.map(|k| k + d),
+            None => nap_rested_at,
+        };
         if so.any_pass || so.ring > 0 {
-            if nap.is_some()
+            // (--inject-release T: the boundary probe (ironspec 19:52): the napper's release forced at
+            // tick T, before or after its leader's pass, whatever the window and PRESENT say)
+            if let Some(ti) = so.inject_release
+                && t == ti
+                && nap.is_some()
                 && released_at.is_none()
-                && nap_ready
-                && !guard_on
+            {
+                s_until = t + so.nap_pulse;
+                released_at = Some(t);
+                if let Some((nc, _)) = nap
+                    && let Some(p) = carts[nc].and_then(|id| st(&run.world, id))
+                {
+                    release_states.push((nap_k_at.map_or(-1, |k| t - k), !nap_ready, p.2, p.3));
+                }
+                pred_pass = last_any_pass.map(|(pp, _)| pp);
+                release_lead = last_any_pass.map(|(_, pc)| pc);
+            }
+            if so.inject_release.is_none()
+                && nap.is_some()
+                && released_at.is_none()
+                && present
+                && (so.no_d_gate || !guard_on)
                 && let Some((pp, pc)) = last_any_pass
                 && t >= pp + so.k
-                && nap_rested_at.is_some_and(|r| r <= pp)
+                && present_at.is_some_and(|r| r <= pp)
                 && let Some(wj) = via
             {
                 s_until = t + so.nap_pulse;
                 released_at = Some(t);
+                if let Some((nc, _)) = nap
+                    && let Some(p) = carts[nc].and_then(|id| st(&run.world, id))
+                {
+                    release_states.push((nap_k_at.map_or(-1, |k| t - k), !nap_ready, p.2, p.3));
+                }
                 pred_pass = Some(pp);
                 release_lead = Some(pc);
                 release_window = (wj != usize::MAX && wj != LATCH).then_some(wj);
@@ -1116,7 +1177,7 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
         } else if let Some((nc, pred)) = nap
             && released_at.is_none()
             && nap_ready
-            && !guard_on
+            && (so.no_d_gate || !guard_on)
             && let Some(pp) = last_pass[pred]
             && t >= pp + so.k
             && (!so.early_only || nap_rested_at.is_some_and(|r| pp >= r))
@@ -1147,6 +1208,7 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
             // and the releases at 8 (the 8th slot is the top cell (x,m-2,mz-1)))
             if t >= steady_from {
                 occ_max = occ_max.max(lane_now.len());
+                occ_min = occ_min.min(lane_now.len());
                 if lane_now.len() >= 8 {
                     occ8 += 1;
                 }
@@ -1221,6 +1283,14 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
                     None => redsim::entity::spawn(&mut run.world, "minecraft:minecart", [sx as f64 + 0.5, rest_y as f64 + 0.5 + 0.0625, mzf(rest_z as f64 + 0.5)], Some(&nbt0))?,
                 };
                 nap_spawned_t = Some(t);
+                // (the napper's K tick: with --nap-feed-v it is spawned on K's cell moving north; the
+                // PRESENT bit (--nap-present-k) counts from here)
+                if nbt_feed.is_some() {
+                    nap_k_at = Some(t);
+                    if let Some(d) = nap_departed_at {
+                        nap_gaps.push(t - d);
+                    }
+                }
                 if so.ai {
                     farm_rider(&mut run.world, id, bed, so.stamp_at_arrival);
                     // (one window per napper cart: a window still open when its own cart is picked
@@ -1484,6 +1554,20 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
             }
         }
         let on_merge = (0..n).filter(|c| now[*c].is_some_and(|p| in_cell((p.0, p.1, p.2), lx, m, mz))).count();
+        // (R against K's turn: a cart's centre in R's cell while another's is in F's cell, or in K's
+        // cell north of the K row's centre line (turned toward F; the K row's own passes stay on it))
+        {
+            let cell = |p: &(f64, f64, f64, f64), x: i32, y: i32, z: i32| p.0.floor() as i32 == x && (p.1 + 0.5).floor() as i32 == y && p.2.floor() as i32 == z;
+            let on_r: Vec<usize> = (0..n).filter(|c| now[*c].is_some_and(|p| cell(&p, sx, rest_y, rest_z))).collect();
+            if !on_r.is_empty()
+                && (0..n).any(|c| {
+                    !on_r.contains(&c)
+                        && now[c].is_some_and(|p| cell(&p, sx, m + 1, mz + 1) || (cell(&p, sx, m + 1, mz + 2) && p.2 < (mz + 2) as f64 + 0.45))
+                })
+            {
+                r_joint += 1;
+            }
+        }
         if on_merge > 1 {
             touching += 1;
             if touch_note.len() < 4 {
@@ -1643,6 +1727,7 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
                         nap_since = t;
                         lap_wait = false;
                         nap_rested_at = None;
+                        nap_k_at = None;
                         knocked_this = false;
                         release_lead = None;
                         release_window = None;
@@ -1658,17 +1743,19 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
                     fell[c] = false;
                 }
             }
-            // (the napper's launch from the rest (ironspec 09:01, R on slime: slime's stepOn scales a
-            // grounded cart's horizontal motion by 0.4 when |vy| < 0.1): the first tick after its
-            // release its centre is off the rest's cell, its speed then; not off 40 gt after its
-            // release: a stuck launch)
+            // (the napper's launch from R (ironspec 09:01, R on slime: slime's stepOn scales a grounded
+            // cart's horizontal motion by 0.4 when |vy| < 0.1): the first tick after its release its
+            // centre is past R's north end (below R's cell in z; a napper still rolling onto R at its
+            // release, --nap-present-k, counts from there too), its speed and R's power then; not past
+            // it 40 gt after its release: a stuck launch)
             if let (Some((nc, _)), Some(ra)) = (nap, released_at)
                 && nc == c
                 && launch_for != Some(ra)
                 && t > ra
             {
-                let in_rest = x.floor() as i32 == sx && z.floor() as i32 == rest_z;
-                if !in_rest {
+                let left = (z.floor() as i32) < rest_z;
+                if left {
+                    nap_departed_at = Some(t);
                     // (R's own powered flag at the departure tick: a launch after R's power ended)
                     let r_on = run.world.get(wp(BlockPos::new(sx, m, rest_z))).to_string().contains("powered=true");
                     launches.push((t - ra, v, r_on));
@@ -1692,8 +1779,23 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
                 let lead = release_lead.unwrap_or(pred);
                 let first_window = nap_pick_i + so.win_du;
                 let late_rejoin = if so.ring > 0 { released_by_latch || release_window.is_some_and(|wj| wj as i64 > first_window) } else { so.any_pass && lead != pred };
-                let m_pred = merge_occ.iter().rev().find(|mo| mo.0 == lead && mo.1 <= ra).and_then(|mo| mo.2);
                 let m_nap = merge_occ.iter().rev().find(|mo| mo.0 == c).map(|mo| mo.1);
+                // (the cart ahead of the napper at the merge: the latest other cart into the merge
+                // before the napper's entry (its leader in fact; the release's lead when the napper is
+                // released before its leader reaches the merge would pair it with an older pass); its
+                // clear, or the napper's entry when it had not cleared yet (an overlap: negative))
+                let m_pred = match m_nap {
+                    Some(en) => merge_occ
+                        .iter()
+                        .filter(|mo| mo.0 != c && mo.1 < en)
+                        .max_by_key(|mo| mo.1)
+                        .map(|mo| mo.2.unwrap_or(en + 1))
+                        .or_else(|| merge_occ.iter().rev().find(|mo| mo.0 == lead && mo.1 <= ra).and_then(|mo| mo.2)),
+                    None => merge_occ.iter().rev().find(|mo| mo.0 == lead && mo.1 <= ra).and_then(|mo| mo.2),
+                };
+                if let Some(en) = m_nap {
+                    nap_merges.push((c, en));
+                }
                 let curve_rule = match (m_pred, m_nap) { (Some(cl), Some(en)) => format!("{}", en - cl), _ => "-".to_string() };
                 let c_nap = contacts.iter().filter(|k| k.0 == c && k.4).map(|k| k.1).fold(0.0f64, f64::max);
                 let q_nap = contacts.iter().rev().find(|k| k.0 == c && k.4).map_or("-".to_string(), |k| format!("{}", k.3 as usize));
@@ -1753,6 +1855,23 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
     )];
     lines.push(format!("carts per release (exactly 1): {}; empty releases after the first (golems lost: a batch of 2 can't summon): {empty_releases}; late nappers (a lane-lap wait): {late_naps}", ph.iter().map(|(a, b2)| format!("{a}: {b2}")).collect::<Vec<_>>().join(", ")));
     lines.push(format!("nappers through the siding: {}", if nap_rows.is_empty() { "none".to_string() } else { nap_rows.join(" | ") }));
+    {
+        // (the follower's margin behind each napper at the merge: the next cart's entry minus the
+        // napper's clear; "-" when no cart entered after it before the run's end)
+        let follow: Vec<i64> = nap_merges
+            .iter()
+            .filter_map(|(c, en)| {
+                let clear = merge_occ.iter().find(|mo| mo.0 == *c && mo.1 == *en).and_then(|mo| mo.2)?;
+                let next = merge_occ.iter().filter(|mo| mo.1 > *en && mo.0 != *c).map(|mo| mo.1).min()?;
+                Some(next - clear)
+            })
+            .collect();
+        lines.push(format!(
+            "the cart after each napper into the merge (its entry minus the napper's clear): {} over {} nappers",
+            if follow.is_empty() { "-".to_string() } else { format!("{}..{} gt", follow.iter().min().unwrap_or(&0), follow.iter().max().unwrap_or(&0)) },
+            follow.len()
+        ));
+    }
     lines.push(format!(
         "the longest napper wait on the siding (at rest there to its release): {nap_wait_max} gt [{}]",
         if so.ring > 0 {
@@ -1792,7 +1911,7 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
         })
         .collect();
     lines.push(format!("the queue at rest at the releases (lane x {lx}; carts' positions, slot 1 the hold H, by z; x, y, z ranges): {}", if queue_txt.is_empty() { "none".to_string() } else { queue_txt.join(" | ") }));
-    lines.push(format!("the lane's occupancy at the releases from the steady state (t {steady_from}): the largest {occ_max}, releases at 8 (the 8th slot is the top cell; the bar: 0): {occ8}; before it (the start's full lane) up to {occ_start_max}"));
+    lines.push(format!("the lane's occupancy at the releases from the steady state (t {steady_from}): the largest {occ_max}, releases at 8 (the 8th slot is the top cell; the bar: 0): {occ8}; before it (the start's full lane) up to {occ_start_max}; the smallest at a release from the steady state {}", if occ_min == usize::MAX { "-".to_string() } else { occ_min.to_string() }));
     // (the first three releases' queues against the steady slots (H (16.188, 0.490), then 0.79 apart
     // from (17.343, 1.280)): each cart's offset from its slot, the carts moving at the release tick)
     let slot = |i: usize| if i == 0 { (16.1875, 0.49) } else { let z = 1.28 + 0.79 * (i - 1) as f64; (slope_y(z), z) };
@@ -1811,7 +1930,7 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
         if merge_west == f64::MAX { " none".to_string() } else { format!("{:+.3}", merge_west) }
     ));
     lines.push(format!(
-        "the nappers' launches from the rest (its centre off the rest's cell after the release; the rest's support {}): {} launches, departure {} gt after the release, speed then {}; stuck (still on the rest 40 gt after its release; the bar: 0): {launch_stuck}; the launch threshold (the latest departure, counted from the switch; R powers {} gt after it) {} gt against the pulse {} gt; launches after the pulse ended (R unpowered at the departure tick; the bar: 0): {}",
+        "the nappers' launches from the rest (its centre past R's north end after the release; the rest's support {}): {} launches, departure {} gt after the release, speed then {}; stuck (still on the rest 40 gt after its release; the bar: 0): {launch_stuck}; the launch threshold (the latest departure, counted from the switch; R powers {} gt after it) {} gt against the pulse {} gt; launches after the pulse ended (R unpowered at the departure tick; the bar: 0): {}",
         if so.siding_north { so.r_support.as_deref().unwrap_or("minecraft:stone") } else { "-" },
         launches.len(),
         if launches.is_empty() { "-".to_string() } else { format!("{}..{}", launches.iter().map(|l| l.0).min().unwrap_or(0), launches.iter().map(|l| l.0).max().unwrap_or(0)) },
@@ -1821,6 +1940,20 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
         so.nap_pulse,
         launches.iter().filter(|l| !l.2).count()
     ));
+    {
+        let rolling: Vec<&(i64, bool, f64, f64)> = release_states.iter().filter(|r| r.1).collect();
+        let ks: Vec<i64> = release_states.iter().map(|r| r.0).filter(|k| *k >= 0).collect();
+        lines.push(format!(
+            "the nappers at their release (the PRESENT bit: {}): {} releases, {} while still rolling onto R (not yet at rest; their z {} and speed {} at the release), the release {} gt after the napper's K tick; R powers {drive_delay} gt after the release; the napper's K tick to its rest on R {} gt",
+            match so.present_k { Some(d) => format!("{d} gt after the napper's K tick"), None => "the napper at rest on R".to_string() },
+            release_states.len(),
+            rolling.len(),
+            if rolling.is_empty() { "-".to_string() } else { format!("{:.2}..{:.2}", rolling.iter().map(|r| r.2).fold(f64::MAX, f64::min), rolling.iter().map(|r| r.2).fold(f64::MIN, f64::max)) },
+            if rolling.is_empty() { "-".to_string() } else { format!("{:.3}..{:.3}", rolling.iter().map(|r| r.3).fold(f64::MAX, f64::min), rolling.iter().map(|r| r.3).fold(f64::MIN, f64::max)) },
+            if ks.is_empty() { "-".to_string() } else { format!("{}..{}", ks.iter().min().unwrap_or(&0), ks.iter().max().unwrap_or(&0)) },
+            if transits.is_empty() { "-".to_string() } else { format!("{}..{}", transits.iter().min().unwrap_or(&0), transits.iter().max().unwrap_or(&0)) }
+        ));
+    }
     lines.push(format!(
         "nappers came to rest on the siding at z {} over {} nappers ({}; a napper resting above z {:.2} reaches above the split row's cart floor {:.4}; the static worst z gap to a through-cart projected onto K's north edge (z {:.1}, moveAlongTrack's entry at x fraction 0), from the highest rest: {})",
         mm(&rest_zs),
@@ -1969,6 +2102,24 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
             if waited > lap + so.nap_ret { format!(" — stuck (over a lane-lap, {lap} gt, past its return)") } else { format!(" — within a lane-lap ({lap} gt) of its return: the run's end cut its wait") }
         ));
     }
+    lines.push(format!(
+        "the siding's single occupancy (push-scan's pairs R ({sx},{rest_y},{rest_z}) <- K ({sx},{},{}), a cart turning at K into F; ironspec 19:58): ticks with a cart on R while another turned at K or rode F (the bar: 0): {r_joint}; each next napper's K tick minus the previous napper's departure from R: {} over {} pairs (the contact boundary: the K -> R push-range travel, about 12 gt; the bar: the boundary + 2)",
+        m + 1,
+        mz + 2,
+        if nap_gaps.is_empty() { "-".to_string() } else { format!("{}..{} gt", nap_gaps.iter().min().unwrap_or(&0), nap_gaps.iter().max().unwrap_or(&0)) },
+        nap_gaps.len()
+    ));
+    // (ironspec 19:07, the bar audit: every inherited number this bench enforces, printed "inherited",
+    // with its physical basis first where one exists; the other bars are physical: game rules or
+    // measured boundaries, see designs/circuits/mobfarm/tracks/ironfarm/NOTES.md)
+    lines.push(
+        "the bars' numbers that are inherited (no failure measured at them; physical basis first): the arrivals at the lanes' backs and the landings <= 0.46 \
+         (inherited: the brief's gravity-run rule; physical: the bump bound 0.508, official); the calm-REST stamp <= 1,000 gt (inherited margin; physical: vanilla's \
+         tooLongUnreachableDuration 1,200); releases at occupancy 8 and V held 0 (inherited: ironspec's slot-8 rulings); lane carts on the siding's cells 0 \
+         (inherited: the S-bend ruling); exactly 1 cart per release (inherited: the brief's 3 a slot from 3 lanes); windows cut short 0 (inherited: day-1's ring); \
+         this bench's windows (inherited: mine): at rest off the rails 20 gt, V held 20 gt, the napper on R 40 gt after its release, a stray power past the drive delay + 2 gt"
+            .to_string(),
+    );
     Ok(lines.join("\n"))
 }
 
@@ -2384,6 +2535,15 @@ pub struct SidingRow {
     pub v_holds: usize,
     /// V holds in the start's transient (before the steady state; the full-lane start's only).
     pub v_holds_start: usize,
+    /// Releases while the napper was still rolling onto R (--nap-present-k).
+    pub rolling_releases: usize,
+    /// The least margin of the cart after a napper into the merge (its entry minus the napper's
+    /// clear), gt.
+    pub nap_follow_min: Option<i64>,
+    /// Ticks with a cart on R while another turned at K or rode F (push-scan's R <- K pairs).
+    pub r_joint: usize,
+    /// The least gap from a napper's departure off R to the next napper's K tick, gt.
+    pub nap_gap_min: Option<i64>,
     pub drop_stamp_max: i64,
     /// The branch returns' merge-entry stored speed (min, max; -1 none); the nappers' rest z (min,
     /// max; -1 none); --k-row: through-carts slowed, lost, ticks in push range of the waiting napper,
@@ -2403,6 +2563,8 @@ pub struct SidingRow {
     pub lane_on_siding: usize,
     /// The lane's largest occupancy at a release from the steady state; releases at 8.
     pub occ_max: usize,
+    /// The lane's smallest occupancy at a release from the steady state.
+    pub occ_min: Option<usize>,
     pub occ8: usize,
     pub wrong: usize,
     pub knocked: usize,
@@ -2463,6 +2625,11 @@ pub fn siding_row(o: &DropOpts, so: &SidingOpts) -> Result<SidingRow, String> {
                     r.nap_q.push(num_after(seg, " at q ").map_or(-1, |q| q as i64));
                 }
             }
+        } else if l.starts_with("the cart after each napper into the merge") {
+            r.nap_follow_min = l.split("napper's clear): ").nth(1).and_then(|s| s.split_once("..")).and_then(|(a, _)| a.trim().parse().ok());
+        } else if l.starts_with("the siding's single occupancy") {
+            r.r_joint = req(l, "rode F (the bar: 0): ")? as usize;
+            r.nap_gap_min = l.split("departure from R: ").nth(1).and_then(|s| s.split_once("..")).and_then(|(a, _)| a.trim().parse().ok());
         } else if l.starts_with("the longest napper wait on the siding") {
             r.nap_wait_max = req(l, "to its release): ")? as i64;
         } else if l.starts_with("the branch returns' stored speed entering the merge cell") {
@@ -2477,6 +2644,8 @@ pub fn siding_row(o: &DropOpts, so: &SidingOpts) -> Result<SidingRow, String> {
             r.v_holds = req(l, "carts holding V 20 gt (V held as a queue slot: slot 8; the bar: 0): ")? as usize;
             r.v_holds_start = req(l, "V held before the steady state (the start's transient) ")? as usize;
             r.v_rest_occ = l.split(", the first at the lane's occupancy ").nth(1).and_then(|s| s.split(';').next()).and_then(|s| s.trim().parse().ok());
+        } else if l.starts_with("the nappers at their release") {
+            r.rolling_releases = l.split(" releases, ").nth(1).and_then(|s| s.split(' ').next()).and_then(|s| s.parse().ok()).unwrap_or(0);
         } else if l.starts_with("the nappers' launches from the rest") {
             r.launch_stuck = req(l, "stuck (still on the rest 40 gt after its release; the bar: 0): ")? as usize + req(l, "launches after the pulse ended (R unpowered at the departure tick; the bar: 0): ")? as usize;
             if let Some(s) = l.split("departure ").nth(1).and_then(|s| s.split(" gt").next())
@@ -2498,6 +2667,7 @@ pub fn siding_row(o: &DropOpts, so: &SidingOpts) -> Result<SidingRow, String> {
             }
         } else if l.starts_with("the lane's occupancy at the releases from the steady state") {
             r.occ_max = req(l, "the largest ")? as usize;
+            r.occ_min = l.split("the smallest at a release from the steady state ").nth(1).and_then(|s| s.trim().parse().ok());
             r.occ8 = req(l, "releases at 8 (the 8th slot is the top cell; the bar: 0): ")? as usize;
         } else if l.starts_with("lane carts on the siding's cells") {
             r.lane_on_siding = req(l, "or the old siding's cells; the bar: 0): ")? as usize;
