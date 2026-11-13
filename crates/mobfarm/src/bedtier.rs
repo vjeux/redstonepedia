@@ -2485,7 +2485,9 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             && (a.dusk..24_000).contains(&run.world.day_time().rem_euclid(24000))
         {
             queue_released = true;
-            row.queue_release_at = Some(t);
+            // (G1's Q10: a write before tick t is stamped t - 1, the tick boundary it sits on, as
+            // the post-tick reads are (R, the wake): intervals against them count every tick)
+            row.queue_release_at = Some(t - 1);
             if let Some(vi) = vill.and_then(|v| idx(&run.world, v))
                 && redsim::entity::mob::ai::brain::has_exact(&run.world, vi)
             {
@@ -2584,12 +2586,13 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                 run.world.entities.list[vi].pos = Vec3::new(v[0], v[1], v[2]);
             }
         }
-        // ((A)'s arming detector: the first tick it is powered, this cart's passage)
+        // ((A)'s arming detector: the first tick it is powered, this cart's passage; G1's Q10: read
+        // before tick t, the detector's state after tick t - 1: stamped t - 1, as the entry (C5))
         if let Some(a) = lay.arm
             && row.armed_at.is_none()
             && format!("{}", run.world.get(wc(a))).contains("powered=true")
         {
-            row.armed_at = Some(t);
+            row.armed_at = Some(t - 1);
         }
         // (G1 12:38 / ironspec 12:38-12:58: DAY-1's guard-free latch, emulated on the REAL wake
         // sensor's pulses (the observer in the design): SLEPT a T flip-flop toggled by each pulse
@@ -2616,8 +2619,9 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                     row.latch_lines.push(format!("t {r}: the wake sensor's pulse: SLEPT -> {latch_slept}"));
                 }
             }
-            let armed70 = row.armed_at.is_some_and(|a| t >= a + f.arm_delay);
-            let timeout = row.armed_at.is_some_and(|a| t >= a + l.t_max);
+            // (armed_at is a post-tick stamp (G1's Q10); a write before tick t sits at t - 1)
+            let armed70 = row.armed_at.is_some_and(|a| t - 1 >= a + f.arm_delay);
+            let timeout = row.armed_at.is_some_and(|a| t - 1 >= a + l.t_max);
             if !latch_once && armed70 && latch_slept && !timeout {
                 latch_once = true;
                 latch_open_at = Some(t);
@@ -2674,7 +2678,8 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
         // (F: `after_sleep` gt after the lie-down (the bed observer's edge): the hatch shut, the
         // zombie seen; (A): and not before the arming detector's edge + `arm_delay` (the worst-case
         // braking interval, ironspec 00:37 (2b)))
-        let armed_ok = lay.arm.is_none() || row.armed_at.is_some_and(|a| t >= a + f.arm_delay);
+        // (armed_at is a post-tick stamp (G1's Q10): F's write before tick t sits at t - 1)
+        let armed_ok = lay.arm.is_none() || row.armed_at.is_some_and(|a| t - 1 >= a + f.arm_delay);
         if f.latch.is_none() && !f_fired && f_live.is_some_and(|x| live >= x) && armed_ok {
             f_fired = true;
             // (G1: the sleeper's eye-to-eye COLLIDER ray to the waker in both window states, the
@@ -2753,7 +2758,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
         let go = if let Some(n) = f.release_after_arm {
             // ((A)'s at-rest bar's positive control: the park released `n` gt after the arming
             // detector's edge, whatever the napper does)
-            row.armed_at.is_some_and(|a| t >= a + n)
+            row.armed_at.is_some_and(|a| t - 1 >= a + n)
         } else if f.early_release {
             row.slept_at.is_some_and(|s| t >= s + release_after)
         } else if f.no_presence_gate {
@@ -4827,6 +4832,9 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
                         if let (Some(q), Some(e)) = (r.queue_release_at, r.entry_at) {
                             sk.release_to_entry.push(e - q);
                         }
+                        if let (Some(q), Some(rr)) = (r.queue_release_at, r.r_at) {
+                            sk.qrel_to_r.push(rr - q);
+                        }
                         // (ironspec 09:45's outcome classes: (a) slept in the REST it came in and
                         // picked up; (b) waited on foot through IDLE, napped at the next REST and
                         // left; (c) released unslept by the abort)
@@ -5102,7 +5110,12 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
     sk.lie_ticks.sort();
     sk.wake_ticks.sort();
     println!("first lie-down at entry + {:?}..{:?}, first wake at entry + {:?}..{:?}; skip offsets by outcome class (min, max): {:?}", sk.lie_ticks.first(), sk.lie_ticks.last(), sk.wake_ticks.first(), sk.wake_ticks.last(), sk.skip_class);
-    println!("{} (the stop clear for the next napper): {:?} / median {:?} / {:?} gt over {} visits; outcome classes (ironspec 09:45: a slept and picked up, b waited through IDLE then napped, c the abort's unslept return): {:?}", if f_approach { "the spawn (the queue release) to R (G1's C4: approach mode's raw count; entry -> R is the per-speed line)" } else { "entry to R" }, sk.r_ats.first(), sk.r_ats.get(sk.r_ats.len() / 2), sk.r_ats.last(), sk.r_ats.len(), sk.classes);
+    println!("{} (the stop clear for the next napper): {:?} / median {:?} / {:?} gt over {} visits; outcome classes (ironspec 09:45: a slept and picked up, b waited through IDLE then napped, c the abort's unslept return): {:?}", if f_approach { "the spawn (t 0, NOT the queue release under --queue-wait / the dusk gate: that column is below) to R (G1's C4 / Q11: approach mode's raw count; entry -> R is the per-speed line)" } else { "entry to R" }, sk.r_ats.first(), sk.r_ats.get(sk.r_ats.len() / 2), sk.r_ats.last(), sk.r_ats.len(), sk.classes);
+    if f_approach && !sk.qrel_to_r.is_empty() {
+        let mut v = sk.qrel_to_r.clone();
+        v.sort();
+        println!("the queue's release (the write's tick boundary, G1's Q10) to R (G1's Q11): {:?} / median {:?} / {:?} gt over {} visits", v.first(), v.get(v.len() / 2), v.last(), v.len());
+    }
     // (ironspec 19:18 (2a): entry to R per entry speed, and v_slow against the timing bar)
     let mut speed_failed = false;
     // (G1's C2: every run, one speed or many, checks that every visit reached R)
@@ -5659,6 +5672,8 @@ struct SkipTotals {
     bed_occupied_end: usize,
     release_to_board: Vec<i64>,
     latch_lines_shown: usize,
+    /// (G1's Q11) the queue's release to R per visit (approach mode)
+    qrel_to_r: Vec<i64>,
     lightning: std::collections::BTreeMap<String, usize>,
     /// (ironspec 00:27) the most fluid cells a visit's world scheduled at load
     fluid_scheduled: usize,
