@@ -816,6 +816,10 @@ pub struct Faults {
     pub record: Option<std::sync::Arc<RecordCtx>>,
     pub record_seed: u64,
     pub record_speed: f64,
+    /// (ironspec 00:31) The module's declared emulated cells (its `emulated:` meta line, the stop's
+    /// frame), laid before the run (record-match counts them as the declared candidate
+    /// "emulated").
+    pub lay_emulated: Vec<([i32; 3], String)>,
     /// (ironspec 23:56) Bars this run's declared scope excludes (`visits`, `pickups`, `riderless`):
     /// their 0 samples print NOT JUDGED without failing.
     pub scope_excludes: Vec<String>,
@@ -972,6 +976,49 @@ pub fn emulated_write_check(w: &World, p: BlockPos, new: &Block, declared: &[[i3
 /// (ironspec 20:31 (4b), the stand-in guard's sixth property: survival) Every laid or written
 /// block at `cells` must survive where it stands (`can_survive`), and no rail may pop
 /// (`rails::would_pop`); else the run fails.
+/// (ironspec 23:13 / 00:31) A module's declared emulated cells, its `emulated: CELLS=BLOCK (why); …`
+/// meta line (record7's: the line-bench levers and their glass, laid by the bench, not in the
+/// file's cells), each CELLS one `x,y,z` or several joined by `+`; moved into the bench's frame by
+/// `shift` (bench = file - shift).
+pub fn emulated_entries(text: &str, shift: [i32; 3]) -> Result<Vec<([i32; 3], String)>, String> {
+    let mut out = Vec::new();
+    for l in text.lines() {
+        let Some(body) = l.trim_start().strip_prefix("emulated:") else { continue };
+        let mut entries: Vec<String> = Vec::new();
+        let mut cur = String::new();
+        for part in body.split(';') {
+            let head = part.trim_start();
+            let starts = head.split_once('=').is_some_and(|(c, _)| c.split(['+', ',']).count() % 3 == 0 && c.split(['+', ',']).all(|t| t.trim().parse::<i32>().is_ok()));
+            if starts && !cur.trim().is_empty() {
+                entries.push(cur.trim().to_string());
+                cur = String::new();
+            }
+            if !cur.is_empty() {
+                cur.push(';');
+            }
+            cur.push_str(part);
+        }
+        if !cur.trim().is_empty() {
+            entries.push(cur.trim().to_string());
+        }
+        for e in entries {
+            let Some((cells, rest)) = e.split_once('=') else { continue };
+            let st = rest.trim().split([' ', '(']).next().unwrap_or("").trim().to_string();
+            if st.is_empty() {
+                return Err(format!("emulated {e:?}: CELLS=BLOCK (why)"));
+            }
+            for c in cells.split('+') {
+                let v: Vec<i32> = c.split(',').map(|x| x.trim().parse::<i32>()).collect::<Result<_, _>>().map_err(|err| format!("emulated {e:?}: {err}"))?;
+                match v.as_slice() {
+                    &[x, y, z] => out.push(([x - shift[0], y - shift[1], z - shift[2]], st.clone())),
+                    _ => return Err(format!("emulated {e:?}: x,y,z")),
+                }
+            }
+        }
+    }
+    Ok(out)
+}
+
 /// (ironspec 21:25) The design's declared cart contacts, `# contacts: CELLS=REASON; …`, each CELLS
 /// one `x,y,z` or several joined by `+` (record7's header), moved into the bench's frame by `shift`
 /// (bench = file - shift).
@@ -1283,6 +1330,14 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             }
         }
         survival_check(&run.world, &cells)?;
+    }
+    // (ironspec 00:31: the module's declared emulated cells (record7's line-bench levers and their
+    // glass), laid as its own bench lays them; each must survive where it stands)
+    for (c, st) in &f.lay_emulated {
+        run.world.set_block(BlockPos::new(c[0], c[1], c[2]), block(st), redsim::world::flags::ALL);
+    }
+    if !f.lay_emulated.is_empty() {
+        survival_check(&run.world, &f.lay_emulated.iter().map(|(c, _)| BlockPos::new(c[0], c[1], c[2])).collect::<Vec<_>>())?;
     }
     // (ironspec 21:43 / 23:46: record-match against the design of record, on this world at the
     // visit's start after every bench write, the declared levers' night states aside (inputs, set
