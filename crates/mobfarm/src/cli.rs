@@ -6818,9 +6818,12 @@ pub enum MobfarmCmd {
         /// defaults are the accepted design; 10 is the pre-cut control).
         #[arg(long, default_value_t = 2)]
         after_sleep: i64,
-        /// The park's release, gt after the wake edge: the accepted design's 0 (ironspec 19:18; 30
-        /// is the pre-cut control).
-        #[arg(long, default_value_t = 0)]
+        /// The park's release, gt after the wake edge: the (b+) ruling's 5 (ironspec 08:53 / 09:38 /
+        /// 10:12: delta = 5 at the park, the window closed at the wake + 1; G1's Q4: the first
+        /// (-2,0,5) entry >= the close + 27 is judged, so 0 fails; a real line through the wake
+        /// sensor closes later: pass --close-after and --release-after = close + 4; 30 is the
+        /// pre-cut control).
+        #[arg(long, default_value_t = 5)]
         release_after: i64,
         /// By day (2,000): the napper should not sleep.
         #[arg(long)]
