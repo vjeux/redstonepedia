@@ -282,8 +282,12 @@ pub fn exposures_of(site: &'static redsim::entity::mob::site::Site, moved: &Farm
         redsim::entity::mob::site::villager_cells(&with)
     };
     let farm = hostile_farm(&w, moved, site.afk, &summoners);
-    let ex = redsim::entity::mob::hostile::check(&w, &farm, true);
     let at = format!("in {} ({},{})", site.sample, site.offset[0], site.offset[2]);
+    // (a failed light read refuses the verdict, as a breaking channel: cc767b78, ironspec 12:54)
+    let ex = match redsim::entity::mob::hostile::check(&w, &farm, true) {
+        Ok(ex) => ex,
+        Err(e) => return (format!("{at}: REFUSED ({e})"), vec![format!("refused: {e}")]),
+    };
     if ex.is_empty() {
         return (format!("{at}: none"), Vec::new());
     }

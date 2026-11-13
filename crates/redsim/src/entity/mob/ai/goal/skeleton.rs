@@ -115,7 +115,7 @@ pub fn flee_sun_can_use(w: &mut World, i: usize, g: &mut FleeSun) -> bool {
         return false;
     }
     let pos = w.entities.list[i].block_position();
-    if !w.can_see_sky(pos).unwrap_or(false) {
+    if !w.sees_or(w.can_see_sky(pos), false) {
         return false;
     }
     // `mob.getItemBySlot(HEAD).isEmpty() && setWantedPos()`
@@ -126,7 +126,7 @@ pub fn flee_sun_can_use(w: &mut World, i: usize, g: &mut FleeSun) -> bool {
         let r = w.entities.list[i].random.as_mut().expect("random");
         let (dx, dy, dz) = (r.next_int(20) - 10, r.next_int(6) - 3, r.next_int(20) - 10);
         let p = BlockPos::new(pos.x + dx, pos.y + dy, pos.z + dz);
-        if !w.can_see_sky(p).unwrap_or(true) && super::stroll::walk_target_value(w, i, p) < 0.0 {
+        if !w.sees_or(w.can_see_sky(p), true) && super::stroll::walk_target_value(w, i, p) < 0.0 {
             g.wanted = Vec3::new(p.x as f64 + 0.5, p.y as f64, p.z as f64 + 0.5);
             return true;
         }
