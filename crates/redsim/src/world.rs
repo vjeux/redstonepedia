@@ -1278,10 +1278,15 @@ impl World {
 
     // ------------------------------------------------------------------ the tick
 
-    /// The tick's time phase (`ServerLevel.tickTime`, then `advanceWeatherCycle`): game time + 1, the
-    /// day time with it while the `advance_time` game rule holds (held otherwise: `day_offset` moves
-    /// back by the tick), then the weather (mobinfra; off: nothing). Every tick runs it first; a
-    /// restart's idle ticks (`mobfarm::liveness::restart`) run it alone.
+    /// The tick's time phase, in redsim's own order: game time + 1, the day time with it while the
+    /// `advance_time` game rule holds (held otherwise: `day_offset` moves back by the tick), then the
+    /// weather (mobinfra; off: nothing). Vanilla (26.3's `ServerLevel.tick`, tick-exact's citation) runs
+    /// `advanceWeatherCycle` first (ServerLevel.java 368) and `tickTime` after it (387); its weather step
+    /// reads no time, so the order changes no time or weather value, only the level random's draw order on a
+    /// tick where a weather counter expires (redsim's weather step reads the game time only for a `weather`
+    /// command due at it). Matching vanilla (the weather, then `updateSkyBrightness` from the pre-increment
+    /// day time, then time + 1) is a follow-up (ironspec 00:36 (1) / 00:39 (1)). Every tick runs it first;
+    /// a restart's idle ticks (`mobfarm::liveness::restart`) run it alone.
     pub fn tick_time(&mut self) {
         self.time += 1;
         if !self.mob.advance_time {
