@@ -137,7 +137,13 @@ fn row(version: &str, how: &str) -> Result<(bool, Option<i64>)> {
     wait_until(&mut srv, "SleepTimer 60", 10, |s| Ok(nbt_num(s, &bot, "SleepTimer")?.is_some_and(|t| t >= 60)))?;
     let lie0 = score(&mut srv, "#lie")?;
     let timer = nbt_num(&mut srv, &bot, "SleepTimer")?.unwrap_or(-1);
+    // (G1 on 7354e3025) the chain's own positive control: the same asleep selector must have counted
+    // the pre-save sleep (about SleepTimer's ticks) before the stamps are cleared, or the post-load
+    // "asleep at its first tick" bar could pass on a chain that never sees a sleeper
+    let counted = score(&mut srv, "#asleepn")?;
     let gt0 = srv.game_time()?;
+    println!("  {how}: the chain counted the pre-save sleep: {counted} ticks asleep (SleepTimer {timer}); its lie-down stamp gt {lie0}");
+    anyhow::ensure!(lie0 > 0 && counted >= timer - 5 && counted > 0, "{how}: the chain's asleep selector counted {counted} ticks of a {timer}-tick sleep (lie-down stamp {lie0}): it can't see a sleeper, the bar would be vacuous: the run fails");
     reset(&mut srv)?;
     let world = srv.dir.join(&srv.level_name);
     let old = srv.dir.clone();

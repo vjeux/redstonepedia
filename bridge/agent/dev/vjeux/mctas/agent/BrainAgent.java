@@ -35,6 +35,172 @@ public final class BrainAgent {
     private static volatile String[] memories = new String[0];
     private static volatile boolean panicOn = false;
     private static volatile boolean pathOn = false;
+    /** (tickexact 2026-11-13, cc767b78 04:2x: the navigation's state for a carried rider) {@code +nav}. */
+    private static volatile boolean navOn = false;
+    private static final String NAV_HOOK = "mctas.brain.nav";
+    private static final String NAV_CLASS = "net/minecraft/world/entity/ai/navigation/PathNavigation";
+    private static final String SINK_CLASS = "net/minecraft/world/entity/ai/behavior/MoveToTargetSink";
+    /** The mob whose brain is ticking, the object itself (for the PATH set's rider state). */
+    private static final ThreadLocal<Object> CURRENT_BODY = new ThreadLocal<>();
+
+    private static Object field(Object o, Class<?> from, String name) throws ReflectiveOperationException {
+        for (Class<?> c = from; c != null; c = c.getSuperclass()) {
+            try {
+                java.lang.reflect.Field f = c.getDeclaredField(name);
+                f.setAccessible(true);
+                return f.get(o);
+            } catch (NoSuchFieldException e) {
+                // the superclass
+            }
+        }
+        throw new NoSuchFieldException(name);
+    }
+
+    private static Object call(Object o, String name) throws ReflectiveOperationException {
+        for (Class<?> c = o.getClass(); c != null; c = c.getSuperclass()) {
+            try {
+                java.lang.reflect.Method m = c.getDeclaredMethod(name);
+                m.setAccessible(true);
+                return m.invoke(o);
+            } catch (NoSuchMethodException e) {
+                // the superclass
+            }
+        }
+        throw new NoSuchMethodException(name);
+    }
+
+    /** A rider's state: position, box x range, isInWater, isPassenger, getSpeed. */
+    private static String riderState(Object mob) throws ReflectiveOperationException {
+        Object pos = call(mob, "position");
+        Object bb = call(mob, "getBoundingBox");
+        Object minX = field(bb, bb.getClass(), "minX");
+        Object maxX = field(bb, bb.getClass(), "maxX");
+        Object minY = field(bb, bb.getClass(), "minY");
+        return "pos " + pos + " box x " + minX + ".." + maxX + " y " + minY + " inWater " + call(mob, "isInWater") + " passenger " + call(mob, "isPassenger") + " speed " + call(mob, "getSpeed");
+    }
+
+    /** (+nav) PathNavigation.doStuckDetection (every followed tick), timeoutPath and stop, and
+     * MoveToTargetSink.stop with its cause, for villagers only. */
+    static void onNav(Object what, Object args) {
+        Object[] a = (Object[]) args;
+        try {
+            Object self = a[0];
+            if (what.equals("sink-stop")) {
+                Object body = a[1];
+                if (!body.getClass().getSimpleName().contains("Villager")) {
+                    return;
+                }
+                Object level = call(body, "level");
+                long now = (Long) level.getClass().getMethod("getGameTime").invoke(level);
+                long end = (Long) field(self, self.getClass(), "endTimestamp");
+                Object nav = call(body, "getNavigation");
+                System.err.println("mctas brain agent: nav sink-stop at " + now + " endTimestamp " + end + " timedOut " + (now > end) + " navDone " + nav.getClass().getMethod("isDone").invoke(nav) + " stuck " + nav.getClass().getMethod("isStuck").invoke(nav) + " " + riderState(body) + " @" + body.getClass().getMethod("getStringUUID").invoke(body));
+                return;
+            }
+            Class<?> navClass = self.getClass();
+            while (navClass != null && !navClass.getSimpleName().equals("PathNavigation")) {
+                navClass = navClass.getSuperclass();
+            }
+            Object mob = field(self, navClass, "mob");
+            if (!mob.getClass().getSimpleName().contains("Villager")) {
+                return;
+            }
+            String uuid = (String) mob.getClass().getMethod("getStringUUID").invoke(mob);
+            if (what.equals("stuck-check")) {
+                Object path = field(self, navClass, "path");
+                String p = "none";
+                if (path != null) {
+                    p = "next " + path.getClass().getMethod("getNextNodeIndex").invoke(path) + " of " + path.getClass().getMethod("getNodeCount").invoke(path) + " done " + path.getClass().getMethod("isDone").invoke(path) + " id " + System.identityHashCode(path);
+                }
+                System.err.println("mctas brain agent: nav tick " + field(self, navClass, "tick") + " path " + p + " timeoutTimer " + field(self, navClass, "timeoutTimer") + " timeoutLimit " + field(self, navClass, "timeoutLimit") + " cachedNode " + field(self, navClass, "timeoutCachedNode") + " lastStuckCheck " + field(self, navClass, "lastStuckCheck") + " stuck " + field(self, navClass, "isStuck") + " " + riderState(mob) + " @" + uuid);
+            } else {
+                // timeoutPath or stop: the caller frames
+                StringBuilder by = new StringBuilder();
+                int n = 0;
+                for (StackTraceElement e : new Throwable().getStackTrace()) {
+                    String c = e.getClassName();
+                    if (c.startsWith("net.minecraft.") && n < 3) {
+                        by.append(by.length() == 0 ? "" : " < ").append(c.substring(c.lastIndexOf('.') + 1)).append('.').append(e.getMethodName()).append(':').append(e.getLineNumber());
+                        n++;
+                    }
+                }
+                System.err.println("mctas brain agent: nav " + what + " by " + by + " @" + uuid);
+            }
+        } catch (Throwable t) {
+            System.err.println("mctas brain agent: nav " + what + " (unread): " + t);
+        }
+    }
+
+    /** The entry hooks: PathNavigation.doStuckDetection(Vec3) / timeoutPath() / stop(), and
+     * MoveToTargetSink.stop(ServerLevel, Mob, long). */
+    static byte[] navHook(ClassLoader loader, byte[] bytes, String name) {
+        ClassHierarchyResolver resolver = ClassHierarchyResolver.defaultResolver();
+        if (loader != null) {
+            resolver = ClassHierarchyResolver.ofClassLoading(loader).orElse(resolver);
+        }
+        ClassFile cf = ClassFile.of(ClassFile.ClassHierarchyResolverOption.of(resolver));
+        ClassModel model = cf.parse(bytes);
+        boolean sink = SINK_CLASS.equals(name);
+        int[] hooked = {0};
+        byte[] out = cf.transformClass(model, (cb, ce) -> {
+            if (ce instanceof java.lang.classfile.MethodModel m && m.code().isPresent() && !m.flags().has(java.lang.reflect.AccessFlag.BRIDGE) && !m.flags().has(java.lang.reflect.AccessFlag.SYNTHETIC)) {
+                String n = m.methodName().stringValue();
+                int params = m.methodTypeSymbol().parameterCount();
+                String what = null;
+                if (sink && n.equals("stop") && params == 3) {
+                    what = "sink-stop";
+                } else if (!sink && n.equals("doStuckDetection") && params == 1) {
+                    what = "stuck-check";
+                } else if (!sink && n.equals("timeoutPath") && params == 0) {
+                    what = "timeoutPath";
+                } else if (!sink && n.equals("stop") && params == 0) {
+                    what = "stop";
+                }
+                if (what == null) {
+                    cb.with(ce);
+                    return;
+                }
+                hooked[0]++;
+                final String w = what;
+                cb.transformMethod(m, java.lang.classfile.MethodTransform.transformingCode(new java.lang.classfile.CodeTransform() {
+                    boolean first = true;
+
+                    @Override
+                    public void accept(CodeBuilder b, java.lang.classfile.CodeElement e) {
+                        if (first) {
+                            first = false;
+                            ClassDesc properties = ClassDesc.of("java.util.Properties");
+                            ClassDesc biConsumer = ClassDesc.of("java.util.function.BiConsumer");
+                            b.invokestatic(ClassDesc.of("java.lang.System"), "getProperties", MethodTypeDesc.of(properties));
+                            b.ldc(NAV_HOOK);
+                            b.invokevirtual(properties, "get", MethodTypeDesc.of(ConstantDescs.CD_Object, ConstantDescs.CD_Object));
+                            b.checkcast(biConsumer);
+                            b.ldc(w);
+                            // new Object[] { this, (sink-stop: the body, local 2) }
+                            b.iconst_2();
+                            b.anewarray(ConstantDescs.CD_Object);
+                            b.dup();
+                            b.iconst_0();
+                            b.aload(0);
+                            b.aastore();
+                            if (w.equals("sink-stop")) {
+                                b.dup();
+                                b.iconst_1();
+                                b.aload(2);
+                                b.aastore();
+                            }
+                            b.invokeinterface(biConsumer, "accept", MethodTypeDesc.of(ConstantDescs.CD_void, ConstantDescs.CD_Object, ConstantDescs.CD_Object));
+                        }
+                        b.with(e);
+                    }
+                }));
+            } else {
+                cb.with(ce);
+            }
+        });
+        System.err.println("mctas brain agent: " + name + " reports " + (sink ? "stop" : "doStuckDetection, timeoutPath, stop") + " (" + hooked[0] + " methods)");
+        return out;
+    }
 
     private BrainAgent() {}
 
@@ -43,7 +209,9 @@ public final class BrainAgent {
             memories = args.split(",");
             panicOn = java.util.Arrays.asList(memories).contains("+panic");
             pathOn = java.util.Arrays.asList(memories).contains("+path");
+            navOn = java.util.Arrays.asList(memories).contains("+nav");
         }
+        System.getProperties().put(NAV_HOOK, (BiConsumer<Object, Object>) BrainAgent::onNav);
         System.getProperties().put(ERASE, (BiConsumer<Object, Object>) BrainAgent::onErase);
         System.getProperties().put(SET, (BiConsumer<Object, Object>) BrainAgent::onSet);
         System.getProperties().put(ACTIVITY, (BiConsumer<Object, Object>) BrainAgent::onActivity);
@@ -72,6 +240,9 @@ public final class BrainAgent {
                     }
                     if (PATH_CLASS.equals(name) && pathOn) {
                         return pathHook(loader, bytes);
+                    }
+                    if (navOn && (NAV_CLASS.equals(name) || SINK_CLASS.equals(name))) {
+                        return navHook(loader, bytes, name);
                     }
                     return null;
                 } catch (Throwable t) {
@@ -292,6 +463,7 @@ public final class BrainAgent {
     private static final ThreadLocal<String> CURRENT = new ThreadLocal<>();
 
     static void onOwner(Object brain, Object body) {
+        CURRENT_BODY.set(body);
         try {
             CURRENT.set((String) body.getClass().getMethod("getStringUUID").invoke(body));
         } catch (ReflectiveOperationException e) {
@@ -450,7 +622,16 @@ public final class BrainAgent {
         if (!watched(type)) {
             return;
         }
-        System.err.println("mctas brain agent: " + (value == null ? "erase " + type : "set " + type + " = " + describe(value)) + " by " + source() + owner());
+        // (+nav) a PATH set carries the rider's own state: position, box, isInWater, getSpeed
+        String rider = "";
+        if (navOn && value != null && value.getClass().getSimpleName().equals("Path") && CURRENT_BODY.get() != null && !owner().equals(" @none")) {
+            try {
+                rider = " | rider " + riderState(CURRENT_BODY.get());
+            } catch (ReflectiveOperationException e) {
+                rider = " | rider (unread: " + e + ")";
+            }
+        }
+        System.err.println("mctas brain agent: " + (value == null ? "erase " + type : "set " + type + " = " + describe(value)) + " by " + source() + rider + owner());
     }
 
     static void onActivity(Object brain, Object activity) {

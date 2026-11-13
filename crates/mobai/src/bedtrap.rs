@@ -15,9 +15,19 @@ use mctas::vanilla::{VanillaOptions, VanillaServer};
 use std::io::{Read as _, Seek as _, SeekFrom};
 
 const DY: i32 = 80;
+
+/// The overrides' before/after are printed once per run (the first trial).
+static OVERRIDES_PRINTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// One cell's state as the saved region files hold it (the frame's y).
+fn cell_state(srv: &mut VanillaServer, p: [i32; 3]) -> Result<String> {
+    let q = [p[0], p[1] + DY, p[2]];
+    let snap = srv.snapshot(q, q)?;
+    Ok(snap.region.get(q).unwrap_or("?").to_string())
+}
 /// The brain agent's watch list: the villager's PATH and WALK_TARGET sets, and (+path) every Path's
 /// node-index moves (ironspec 22:11 PT: the mechanism, not only the outcome)
-const MEMS: &str = "minecraft:path,minecraft:walk_target,minecraft:nearest_hostile,minecraft:cant_reach_walk_target_since,+path";
+const MEMS: &str = "minecraft:path,minecraft:walk_target,minecraft:nearest_hostile,minecraft:cant_reach_walk_target_since,minecraft:home,+path";
 
 fn uuid_of(srv: &mut VanillaServer, sel: &str) -> Result<String> {
     let u = srv.cmd_long(&format!("data get entity {sel} UUID"))?;
@@ -40,7 +50,8 @@ fn opts(version: &str, jar: &std::path::Path, world: Option<std::path::PathBuf>)
         tick_rate: 1000,
         keep_dir: true,
         world,
-        java_agent: Some(std::path::PathBuf::from(format!("{}={MEMS}", jar.display()))),
+        // (cc767b78 04:2x) MCTAS_BED_TRAP_NAV: the agent's navigation hooks too (+nav)
+        java_agent: Some(std::path::PathBuf::from(format!("{}={MEMS}{}", jar.display(), if std::env::var_os("MCTAS_BED_TRAP_NAV").is_some() { ",+nav" } else { "" }))),
         ..Default::default()
     }
 }
@@ -109,10 +120,17 @@ fn trial(version: &str, jar: &std::path::Path, file: &std::path::Path, set: &[([
     srv.cmd_ok("forceload add -32 -32 31 31")?;
     srv.step(40)?;
     crate::seatclear::place_part(&mut srv, file)?;
+    // (ironspec 04:07 PT) a bench override that doesn't change its cell fails the run: each --set cell
+    // is laid and the server must report it changed (overlay cells equal to the file's own are left
+    // out by the CLI, so they never reach here); the first trial prints each override's before/after
+    let first = !OVERRIDES_PRINTED.swap(true, std::sync::atomic::Ordering::Relaxed);
     for (p, s) in set {
-        // an overlay cell may already hold its state (the same module under both files)
+        let before = if first { cell_state(&mut srv, *p)? } else { String::new() };
         let out = srv.cmd(&format!("setblock {} {} {} {s}", p[0], p[1] + DY, p[2]))?;
-        anyhow::ensure!(out.contains("Changed the block") || out.contains("Could not set the block"), "--set {p:?} {s}: {out}");
+        anyhow::ensure!(out.contains("Changed the block"), "the override ({},{},{}) = {s} changed nothing ({}): a bench override must change its cell (ironspec 04:07): the run fails", p[0], p[1], p[2], out.trim());
+        if first {
+            println!("  override ({},{},{}): {before} -> {s}", p[0], p[1], p[2]);
+        }
     }
     srv.cmd_ok(if approach.is_some_and(|a| a.day) { "time set 1000" } else { "time set 13800" })?;
     srv.step(20)?;
@@ -194,11 +212,21 @@ fn trial(version: &str, jar: &std::path::Path, file: &std::path::Path, set: &[([
             log.at = 0;
             srv.cmd_ok("forceload add -32 -32 31 31")?;
             r.reload = Some(rl);
-            r.paths.push(format!("t{t}: RESTART ({})", rl.describe()));
+            // (G1 on 6ec22ffd8 #7) a world open drops every codec-less memory, the stamp included
+            stamp = None;
+            r.paths.push(format!("t{t}: RESTART ({}); CANT_REACH dropped with the load (codec-less)", rl.describe()));
+        }
+        // (ironspec 04:50 (3)) MCTAS_BED_TRAP_SKIP_AT=T: the night skip's effect at tick T (the clock
+        // set to the next morning, 24000) and the day let run (advance_time on), the stamp printed
+        if std::env::var("MCTAS_BED_TRAP_SKIP_AT").ok().and_then(|v| v.parse::<u32>().ok()) == Some(t) {
+            srv.cmd_ok("time set 24000")?;
+            srv.cmd_ok("gamerule advance_time true")?;
+            r.paths.push(format!("t{t}: NIGHT SKIP (the clock set to 24000, the day running); CANT_REACH {}", stamp.map(|s| s.to_string()).unwrap_or_else(|| "none".into())));
         }
         srv.step(1)?;
         // the mechanism's window: until the lie-down (or 200 gt after the eject)
-        let window = r.sleep.is_none() && r.eject.map(|(e, _)| t <= e + 200).unwrap_or(true);
+        let skip_run = std::env::var_os("MCTAS_BED_TRAP_SKIP_AT").is_some();
+        let window = r.sleep.is_none() && (skip_run || r.eject.map(|(e, _)| t <= e + 200).unwrap_or(true));
         for l in log.drain(&srv)? {
             if l.contains("minecraft:cant_reach_walk_target_since") && l.contains(&me) {
                 if l.starts_with("set ") {
@@ -248,6 +276,10 @@ fn trial(version: &str, jar: &std::path::Path, file: &std::path::Path, set: &[([
                 if window && ids.iter().any(|i| i == id) {
                     r.paths.push(format!("t{t}: {l}"));
                 }
+            } else if l.starts_with("nav ") && l.contains(&me) && window {
+                // (+nav, MCTAS_BED_TRAP_NAV) the navigation's per-tick state, timeouts, stops and the
+                // sink's stop causes
+                r.paths.push(format!("t{t}: {l}"));
             }
         }
         let p = nums(&srv.cmd_long("data get entity @e[tag=btv,limit=1] Pos")?);

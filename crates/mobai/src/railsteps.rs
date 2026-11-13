@@ -250,6 +250,7 @@ pub fn rail_script(version: &str, file: &std::path::Path, script: &str, extra: &
     let mut expects: Vec<([i32; 3], String)> = Vec::new();
     let mut counts: Vec<[i32; 3]> = Vec::new();
     let mut empties: Vec<[i32; 3]> = Vec::new();
+    let mut requires: Vec<([i32; 3], String)> = Vec::new();
     let mut watch = |p: [i32; 3], w: &mut Vec<[i32; 3]>| {
         if !w.contains(&p) {
             w.push(p);
@@ -262,6 +263,13 @@ pub fn rail_script(version: &str, file: &std::path::Path, script: &str, extra: &
                 let p = cell(rest)?;
                 watch(p, &mut watched);
                 empties.push(p);
+            }
+            "require" => {
+                // (G1 on 7354e3025) a precondition, not an override: the cell's state as pasted
+                let (p, st) = rest.split_once('=').ok_or_else(|| anyhow::anyhow!("require x,y,z=STATE, got {s}"))?;
+                let p = cell(p)?;
+                watch(p, &mut watched);
+                requires.push((p, st.trim().to_string()));
             }
             "set" => {
                 let (p, st) = rest.split_once('=').ok_or_else(|| anyhow::anyhow!("set x,y,z=STATE, got {s}"))?;
@@ -286,16 +294,22 @@ pub fn rail_script(version: &str, file: &std::path::Path, script: &str, extra: &
                 watch(p, &mut watched);
                 counts.push(p);
             }
-            other => bail!("--script: unknown step {other:?} (empty, set, air, wait, expect, count)"),
+            other => bail!("--script: unknown step {other:?} (empty, require, set, air, wait, expect, count)"),
         }
     }
     let label = |p: &[i32; 3]| format!("({},{},{})", p[0], p[1], p[2]);
     let before = read(&mut srv, &watched)?;
     println!("  as pasted: {}", watched.iter().zip(&before).map(|(p, s)| format!("{} {}", label(p), short(s))).collect::<Vec<_>>().join("; "));
+    for (p, want) in &requires {
+        let i = watched.iter().position(|w| w == p).unwrap_or(0);
+        anyhow::ensure!(&before[i] == want, "require {}: the module holds {} there, not {want}: the run fails", label(p), before[i]);
+        println!("  require {}: {want}: as pasted", label(p));
+    }
     for p in &empties {
-        // an `empty` cell may already be air (a temporary cell's place)
+        // (ironspec 04:07) an override must change its cell: emptying an air cell fails (state the
+        // precondition with `require x,y,z=minecraft:air` instead)
         let out = srv.cmd(&format!("setblock {} {} {} minecraft:air strict", p[0], p[1] + DY, p[2]))?;
-        anyhow::ensure!(out.contains("Changed the block") || out.contains("Could not set the block"), "empty {}: {out}", label(p));
+        anyhow::ensure!(out.contains("Changed the block"), "empty {}: changed nothing ({}): a bench override must change its cell; use `require` for a precondition: the run fails", label(p), out.trim());
     }
     for (k, (s, cmd)) in steps.iter().enumerate() {
         if cmd.is_empty() {

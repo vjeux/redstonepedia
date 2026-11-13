@@ -475,9 +475,17 @@ fn start_placed(version: &str, module: &std::path::Path, strict_rails: bool) -> 
 /// module file's -5.0 was the dropped +0.5; 58f770cc's fix). Held night: S2 burns by day under its
 /// glass roof.
 fn posts(srv: &mut VanillaServer) -> Result<()> {
-    // S2's ruled glowstone roof (9fc3155f's sky check; night is held anyway)
-    // (a module that already has it, rev 3, leaves the cell unchanged: `cmd`, not `cmd_ok`)
-    srv.cmd(&format!("setblock -5 {} -2 minecraft:glowstone", DY - 2))?;
+    // S2's ruled glowstone roof (9fc3155f's sky check; night is held anyway). (ironspec 04:07: an
+    // override must change its cell) A module that already has it (rev 3) isn't overridden: the
+    // cell is tested first and laid only when absent, and a lay must change it
+    let roof = format!("-5 {} -2", DY - 2);
+    if srv.cmd(&format!("execute if block {roof} minecraft:glowstone"))?.contains("passed") {
+        println!("  S2's glowstone roof (-5,-2,-2): already in the module (no override)");
+    } else {
+        let out = srv.cmd(&format!("setblock {roof} minecraft:glowstone"))?;
+        anyhow::ensure!(out.contains("Changed the block"), "S2's glowstone roof override (-5,-2,-2) changed nothing ({}): the run fails", out.trim());
+        println!("  S2's glowstone roof (-5,-2,-2): laid (override)");
+    }
     srv.cmd_ok(&format!("summon minecraft:oak_boat {} {{Passengers:[{{id:\"minecraft:pillager\",PersistenceRequired:1b,Tags:[\"s1\"],equipment:{{mainhand:{{id:\"minecraft:crossbow\",count:1}}}}}}]}}", at(-4.5, -1.0, -4.5)))?;
     srv.cmd_ok(&format!("summon minecraft:oak_boat {} {{Passengers:[{{id:\"minecraft:zombie\",PersistenceRequired:1b,Tags:[\"s2\"]}}]}}", at(-4.5, -4.0, -1.5)))?;
     srv.cmd_ok(&format!("summon minecraft:oak_boat {} {{Passengers:[{{id:\"minecraft:zombie\",PersistenceRequired:1b,Tags:[\"bz\"]}}]}}", at(-4.5, -18.0, 3.5)))?;

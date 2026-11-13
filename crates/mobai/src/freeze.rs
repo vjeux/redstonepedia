@@ -235,11 +235,12 @@ fn status(level: Option<i32>) -> &'static str {
 
 /// Per farm chunk over the agent's lines from game time `from`: the worst best-level and its
 /// status, the ticks it was entity-ticking, the ticks blocks ran with entities frozen, the least
-/// entities ticked a tick.
-fn report(log: &str, farm: &[(i32, i32)], from: i64, label: &str) {
+/// entities ticked a tick. Returns (chunk, entity-ticking ticks, frozen ticks, ticks) per chunk.
+fn report(log: &str, farm: &[(i32, i32)], from: i64, label: &str) -> Vec<((i32, i32), u32, u32, usize)> {
     let lines: Vec<_> = parse(log).into_iter().filter(|l| l.1 >= from).collect();
     let tk = ticket_lines(log, "overworld");
     println!("  {label}: {} ticks", lines.len());
+    let mut stats = Vec::new();
     for &c in farm {
         let mut worst: Option<(i32, i64, String)> = None;
         for (gt, m) in tk.iter().filter(|(gt, _)| *gt >= from) {
@@ -285,7 +286,9 @@ fn report(log: &str, farm: &[(i32, i32)], from: i64, label: &str) {
             lines.len(),
             if least == u32::MAX { "-".to_string() } else { least.to_string() }
         );
+        stats.push((c, et, frozen, lines.len()));
     }
+    stats
 }
 
 /// The lowest y of the group's twin portal (its portal blocks at z 2), from the group file.
@@ -556,7 +559,23 @@ pub fn freeze_rows(version: &str, loader: &Path, module: &Path, n: u32, place: &
     }
     let riders = srv.cmd_long("execute if entity @e[tag=farmrider]")?;
     let log = std::fs::read_to_string(&srv.log)?;
-    report(&log, &farm, from, &format!("(a) the loop running {ticks} gt with the player {place}"));
+    let stats = report(&log, &farm, from, &format!("(a) the loop running {ticks} gt with the player {place}"));
+    // (G1 on 7354e3025) the logout row's bar: every farm chunk entity-ticking at every tick after the
+    // logout, no tick with its blocks running and its entities frozen; the control, chunk (3,3)
+    // (Chebyshev 2 from the loader's portal ticket at (1,1): level 32, blocks only), must show the
+    // drop through the same count, or the bar can't see one
+    if place == "logout" {
+        let bad: Vec<String> = stats.iter().filter(|(_, et, frozen, n)| (*et as usize) < *n || *frozen > 0 || *n == 0).map(|(c, et, frozen, n)| format!("({},{}) entity-ticking {et} of {n}, frozen {frozen}", c.0, c.1)).collect();
+        let ctl = report(&log, &[(3, 3)], from, "(a) the control chunk (3,3), outside the loop's entity-ticking ring (level 32 from the portal ticket)");
+        let caught = ctl.iter().all(|(_, et, _, n)| *n > 0 && (*et as usize) < *n);
+        println!(
+            "  the logout bar (every farm chunk entity-ticking every tick after the logout): {}; its control (3,3): {}",
+            if bad.is_empty() { "HELD".to_string() } else { format!("FAILED: {}", bad.join("; ")) },
+            if caught { "the drop caught" } else { "NOT CAUGHT" }
+        );
+        anyhow::ensure!(caught, "the logout bar's control (3,3) was not caught: the count can't see a chunk leaving entity-ticking: the run fails");
+        anyhow::ensure!(bad.is_empty(), "a farm chunk left entity-ticking after the logout: {}: a loader defect, the run fails", bad.join("; "));
+    }
     println!("  riders alive at the end: {}", riders.trim());
     // (b) a save, stop and start with the player there
     srv.cmd_ok("save-on")?;

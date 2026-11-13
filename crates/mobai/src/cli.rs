@@ -568,6 +568,17 @@ pub enum MobaiCmd {
         #[arg(long, allow_hyphen_values = true, default_value = "")]
         overlay_box: String,
     },
+    /// (tickexact 2026-11-13, G1 / ironspec 03:36 PT: a cheap confirmation) A seated villager and a
+    /// zombie in a boat 4 east; the column the eye-to-eye ray crosses: open, glass, solid, a gap
+    SightControl {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        /// open, glass, solid, gap, comma-separated
+        #[arg(long, default_value = "open,glass,solid,gap")]
+        cases: String,
+        #[arg(long, default_value_t = 60)]
+        ticks: u32,
+    },
     /// (tickexact 2026-11-13, ironspec 02:27 PT: B3) A bot in bed at the save, the world closed
     /// (a restart with the bot connected, save-and-quit, a crash) and opened again: whether a player
     /// is asleep at its first tick, and the night skip against the first post-load lie-down
@@ -1725,12 +1736,19 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
                 let b: Vec<i32> = overlay_box.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
                 anyhow::ensure!(b.len() == 6, "--overlay-box x0,y0,z0,x1,y1,z1");
                 let d = mctas::design::Design::load(o)?;
+                // (ironspec 04:07) an overlay cell equal to the file's own cell isn't an override: left out
+                let base = mctas::design::Design::load(&file)?;
+                let mut same = 0usize;
                 for (p, s) in d.blocks.iter() {
                     if (b[0]..=b[3]).contains(&p[0]) && (b[1]..=b[4]).contains(&p[1]) && (b[2]..=b[5]).contains(&p[2]) {
+                        if base.blocks.get(p) == Some(s) {
+                            same += 1;
+                            continue;
+                        }
                         cells.push(([p[0], p[1], p[2]], s.clone()));
                     }
                 }
-                println!("--overlay {}: {} cells inside {overlay_box} laid before --set", o.display(), cells.len());
+                println!("--overlay {}: {} cells inside {overlay_box} laid before --set ({same} more equal to the file's own, left out)", o.display(), cells.len());
             }
             for e in set.split(';').filter(|e| !e.trim().is_empty()) {
                 let (p, st) = e.split_once('=').ok_or_else(|| anyhow::anyhow!("x,y,z=STATE, got {e}"))?;
@@ -1790,6 +1808,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
             };
             crate::bedtrap::bed_trap(&version, &file, &cells, &speeds, approach, &restarts, repeats, ticks, held_only)
         }
+        MobaiCmd::SightControl { version, cases, ticks } => crate::sightctl::sight_control(&version, &cases.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect::<Vec<_>>(), ticks),
         MobaiCmd::PlayerSleep { version, how } => crate::playersleep::player_sleep(&version, &how.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect::<Vec<_>>()),
         MobaiCmd::RailSteps { version, file, lanes, case, power, script, watch } => {
             if let Some(s) = script {
