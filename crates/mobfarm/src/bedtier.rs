@@ -990,7 +990,7 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
         "a6-pickup: -2,0,4=the pickup cell (the napper's only stand-up cell); stranded bound: no cart at it by the wake edge + 60 gt fails (to restate from these rows)".to_string(),
     ];
     if exit_south {
-        lines.push("contacts: -3,0,4=the bed head's east face (its 0.5625-high box), met flush by the cart's west face at the curve-to-straight hand-off from P (-2,0,4) into (-2,0,5): class=design; bounds: ticks<=1 a visit, depth<=0.010 (measured 0.0000), speed out >= 0.040 b/t (measured 0.047..0.075 from 0.070..0.103 in), every cart then at the booster, the bed unchanged across it; rate=296/408 (b38's band, 0.05..0.55 x 8 seeds; 58f770cc's rows on the shared face_contacts judge, keyed on the contacted block; ironspec Nov 13 07:03 / 09:24 / 10:47)".to_string());
+        lines.push("contacts: -3,0,4=the bed head's east face (its 0.5625-high box), met flush by the cart's west face at the curve-to-straight hand-off from P (-2,0,4) into (-2,0,5): class=design; reference: b38 = 8c3eb08fd, `mctas mobfarm bedtier-bench <(A) bench file> --speeds 0.05..0.55/0.01 --from 1 --to 8` (exit 0), met on 296 of 408 visits: depth max 0.0000, 1 tick per event, speed 0.070..0.103 in, 0.047..0.075 out; bounds judged on every other run: depth <= reference max + 0.010 (epsilon 0.010: the cart's box then stays within the face tolerance of the bed's box, the bed's state untouched), ticks <= 1 a visit (a second tick is the cart stopped at P: a stall), speed out >= 0.040 b/t (above it the exit boost on (-2,0,5) carries the cart on; a braked cart under ~0.03 stops dead); the bed unchanged across it; rate=296/408 (ironspec Nov 13 07:03 / 09:24 / 10:47; G1 10:53)".to_string());
         // (P's two connections are DESIGN-CRITICAL: K (-2,0,3) is a T by rail presence (N, E, S) and
         // keeps north_east under any source change only while P is full (ironspec 10:47))
         lines.push("P-integrity (design-critical, ironspec 10:47) -- P (-2,0,4) south_east carries both its connections, (-1,0,4) and (-2,0,5); while it does, K (-2,0,3), a T by rail presence (the activator N, the loop flat E, P S), re-shapes to north_east whatever its power (its connectable arms N and E only); a P with a free connection would let K settle south_east at the torch (-3,0,2)'s next change.".to_string());
@@ -2667,6 +2667,12 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                     }
                     if row.declared_contact_ticks == 2 {
                         row.problems.push(format!("t {t}: the declared contact at ({},{},{}) on a second tick this visit (bound: one)", p.x, p.y, p.z));
+                    }
+                    // (the declaration's speed bound: the cart leaves the hand-off above 0.040 b/t,
+                    // where the exit boost carries it on (G1 10:53: a design reason, not the
+                    // observed minimum))
+                    if after < 0.040 {
+                        row.problems.push(format!("t {t}: the declared contact at ({},{},{}) left the cart at {after:.3} b/t (bound >= 0.040)", p.x, p.y, p.z));
                     }
                 }
             }
