@@ -14851,6 +14851,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             // --module-offset)
             let declared_contacts: Vec<[i32; 3]> = crate::bedtier::parse_contacts(&std::fs::read_to_string(&design)?, shift).map_err(|e| anyhow::anyhow!(e))?;
             let contact_rates = crate::bedtier::parse_contact_rates(&std::fs::read_to_string(&design)?, shift);
+            // (G1's Q13: the design's `# integrity:` shapes, judged every tick)
+            let integrity = crate::bedtier::parse_integrity(&std::fs::read_to_string(&design)?, shift).map_err(|e| anyhow::anyhow!(e))?;
             // (`--pulse-cell x,y,z@T=state`, the stop's frame)
             let pulses: Vec<(redsim::pos::BlockPos, i64, String)> = pulse_cell
                 .iter()
@@ -14868,7 +14870,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 3 => [offset[0], offset[1], offset[2]],
                 _ => anyhow::bail!("--offset wants dx,dy,dz"),
             };
-            let faults = crate::bedtier::Faults { empty, no_home, hide_after_wake, restart, hour, skip, day_off, no_presence_gate, early_release, day_gate, day_on, live_day_seated, panic_entry: None, pickup_inject: None, approach, forced_stamp, arrival_stamp, arrival_run, arrival_hold, declared_emulated, r_bar, park_shift: None, park_shifts, declared_contacts, pulses, levers_on, built_release, day_lever, record, record_seed: from, record_speed: f64::NAN, scope_excludes, arm_delay, release_after_arm, erase_home_at, head_cells, lay_emulated, visit_table, contact_rates, built_world: module_offset.is_some(), offset, close_after };
+            let faults = crate::bedtier::Faults { empty, no_home, hide_after_wake, restart, hour, skip, day_off, no_presence_gate, early_release, day_gate, day_on, live_day_seated, panic_entry: None, pickup_inject: None, approach, forced_stamp, arrival_stamp, arrival_run, arrival_hold, declared_emulated, r_bar, park_shift: None, park_shifts, declared_contacts, pulses, levers_on, built_release, day_lever, record, record_seed: from, record_speed: f64::NAN, scope_excludes, arm_delay, release_after_arm, erase_home_at, head_cells, lay_emulated, visit_table, contact_rates, built_world: module_offset.is_some(), offset, close_after, integrity };
             crate::bedtier::bench_cmd(&spec, from, to, &speeds, after_sleep, release_after, day, &faults, [restart_phases.as_deref(), hours.as_deref(), skip_phases.as_deref(), restart_after_skip.as_deref(), panic_entries.as_deref(), pickup_injects.as_deref(), queue_waits.as_deref()], &crate::bedtier::orders(&orders)?, jobs)?;
         }
         MobfarmCmd::BedtierTwo { design, from, to, speeds, restart_phases, orders, transit, lift_delay, lift_speed, day_hold, day_off, gap, c_at, skip_phases, day_on, jobs, day_gate, a_hours, after_sleep, release_after } => {
