@@ -296,7 +296,8 @@ rail with >= 3 potential connections at T (a T) has its shape checked at every t
 re-shape fails the row. The villagers sleep as in the design's world whatever `--summon-check`
 says, so a run without the check that summons reads NOT JUDGED and fails.
 station-judge takes `--record` (its sight
-reference) and `--sight-control` (its verdict: the sight failure in every lead run), and exits 1 when
+reference) and `--sight-control` (its verdict: the sight failure in every lead run, every other
+failure of those runs its declared collateral), and exits 1 when
 its lead's rows fail. With `--record` on the
 station layout, the design of record is the sight check's reference (no record-match there). The
 station riders' activities are read every tick and each REST entry is printed with its stamp (a
@@ -320,7 +321,29 @@ through, every tick from T to S read at its end; `--sight-control` is its positi
 block laid in the world at T on a live villager -> scarer segment (a world with no scarer, as
 station-judge's: on a villager -> villager segment): ironspec's
 17:46/18:34/20:10/20:31/23:30/00:27 guard, G1's audit (1). A departing rider missing without
-`--dep-riders` fails too.
+`--dep-riders` fails too. The bench turns redsim's natural spawner off explicitly and prints the
+controller gates it depends on (day-1's canonical list): F1 (G8), the keyed hold pulse (G15), the R
+line and the slope tap are stand-ins at their declared phases, the rest out of its scope (ironspec
+14:57 / 15:37). The drive-integrity bar: each pocket drive's first powered tick within
+`--drive-slack j` of its clock slot REL + offset k + `drop::DRIVE_SLOT_DELTA` (+1, measured), else
+"a pocket drive off its clock slot"; `--late-drive-control K,D` (pocket K's drive D gt late) must
+fail by it. `--t-hold-control` is the T-shape bar's negative row: the first station T's constant
+source (form (C): slime under the T, a lit torch under the slime, on glass) laid before the settle,
+the same lever switched on and off beside it: the T must not re-shape. The hold strings' last
+release before the R line rises and first press after it print per lane. ironfarm's C-fix rows:
+`--plant-cart x,y,z@k` (a ridden cart planted at T + k, its rider checked), `--plant-block
+x,y,z=STATE@k` (read back; a no-op refuses), `--watch-west x,y,z` (a cart leaving that cell westward
+fails), `--offrail-y Y` (a cart at or above Y at rest by ironspec 10:42's stall rule, with no rail in
+its cell nor, as the game's minecart checks, in the cell below, fails). The hold strings' leads
+before the R line are a bar: under 2 gt, no release before the rise, or pressed at the rise fails.
+`mctas mobfarm build-order DESIGN --t x,y,z --cell x,y,z=STATE... [--want SHAPE] [--last x,y,z]...
+[--sequence NAME|WANT|x,y,z=STATE;...]...`: a rail junction's cells placed into the design around
+them in every order the game allows (a block never before the block it is mounted on; `--last`
+cells, the build rule's, placed last), each rail in both placement facings (its default north_south
+or east_west), each by the player's placement path (redsim's `World::set_block` in the game's order:
+onPlace, then the neighbour updates with the old block's kind), plus two pastes and named sequences
+(a wrong order, a repair, a parity positive); every build or sequence off its wanted shape fails,
+and so does a test that built no order.
 The portal-loop loaders, benched in redsim: `mctas mobfarm l1-bench [--ticks N] [--hold 320]
 [--pulse 20] [--stagger A1,B1,A2] [--freeze T,D[,ow|nether|both]]... [--piglin T]...
 [--design-out F]` (L1′, the cart loop: an overworld portal and its Nether twin, each side an exit
