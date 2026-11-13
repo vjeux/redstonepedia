@@ -6678,6 +6678,17 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 for p in push_hist.iter().filter(|p| p.0 == rel && p.2 == *cid) {
                     pw.pushed.push(format!("t {rel} by #{}", p.1));
                 }
+                // (ironspec 12:08 V-EMPTY's 4th sub-bar, G1 12:20) V empty of any cart, moving or not,
+                // during the pass window: any other cart in V (x,22,6) or the column (x,23,6) is a hit
+                // (a rollback included), once per cart
+                for f in w.entities.list.iter().filter(|f| !f.removed && f.id != *cid && matches!(f.kind, EntityKind::Minecart(_)) && (cell(f.pos) == [x, 22, 6] || cell(f.pos) == [x, 23, 6])) {
+                    if pw.seen.insert(f.id) {
+                        let d = f.delta_movement;
+                        let still = d.x * d.x + d.y * d.y + d.z * d.z < 0.003 * 0.003;
+                        let fc = cell(f.pos);
+                        pw.hits.push((still, format!("t {rel}: cart #{} in V's volume at ({},{},{}) {} (V not empty)", f.id, fc[0], fc[1], fc[2], if still { "at rest" } else { "moving" }), f.id));
+                    }
+                }
             }
             for (cid, why, at) in closed {
                 if let Some(pw) = pass_open.remove(&cid) {
@@ -9235,7 +9246,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             })
             .collect();
         format!(
-            "{s}the lip passes clipped or pushed (ironspec 11:08 (2) / 11:37, G1's P1: each arrival's pass window from its entry into C until its box falls below y 23.0 (or 60 gt: the game envelope's 12 off-rail gt plus the pass's ~15, with margin; or it leaves the lane's C / lip / column), every tick: any other cart's or rider's box intersecting the arrival's box inflated 0.015 horizontally (tick-exact 11:33's in-tick step), at rest or moving, and every push on it; bar 0; a lane with no judged pass NOT JUDGED): {total} ({}): {}\n",
+            "{s}the lip passes clipped or pushed (ironspec 11:08 (2) / 11:37, G1's P1: each arrival's pass window from its entry into C until its box falls below y 23.0 (or 60 gt: the game envelope's 12 off-rail gt plus the pass's ~15, with margin; or it leaves the lane's C / lip / column), every tick: any other cart's or rider's box intersecting the arrival's box inflated 0.015 horizontally (tick-exact 11:33's in-tick step), at rest or moving, every other cart in V's volume (x,22..23,6) during the window (ironspec 12:08 V-EMPTY's 4th sub-bar, G1 12:20: a rollback included), and every push on it; bar 0; a lane with no judged pass NOT JUDGED): {total} ({}): {}\n",
             if !unjudged.is_empty() { format!("NOT JUDGED on {}: FAIL", unjudged.join(", ")) } else if total == 0 { "PASS".to_string() } else { "FAIL".to_string() },
             per.join("; ")
         )
