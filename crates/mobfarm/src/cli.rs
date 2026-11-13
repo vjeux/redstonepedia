@@ -2782,6 +2782,14 @@ pub enum MobfarmCmd {
         b: PathBuf,
         #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
         shift: Vec<i32>,
+        /// (b8949c96, the (b+) combined file) the A -> B delta written to this file as a way-cell
+        /// `--extra` override list (`!x,y,z=BLOCK;...`: B's block at every added or changed cell, air at
+        /// every removed one), each cell moved by --extra-at: a part's change laid into a record
+        #[arg(long)]
+        extra_out: Option<PathBuf>,
+        /// The move from the two designs' frame into the record's for --extra-out: DX,DY,DZ
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        extra_at: Vec<i32>,
     },
     /// The golem-spots check (the brief's "no golem spots off the pad"): the game's summon search
     /// from every position a villager can occupy: a loop scene's rail cells, plus the positions
@@ -7488,6 +7496,14 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 visit_at_rest,
                 probe_bed: (probe_every_tick && bed.len() == 3).then(|| [bed[0], bed[1], bed[2]]),
                 custom_post,
+                // (b8949c96 09:51; ironspec 10:02: ONE CONTACT RULE) the design's declared contacts
+                // (its `# contacts:` / `# stops:` entries) read by the SHARED strict reader: touched,
+                // they print as declared, not as a contact failure; a malformed entry is an error
+                declared_contacts: crate::contacts::declared_contacts_strict(&std::fs::read_to_string(&design)?)
+                    .map_err(|e| anyhow::anyhow!(e))?
+                    .into_iter()
+                    .map(|(p, _)| [p.x, p.y, p.z])
+                    .collect(),
             };
             if let Some(n) = deep {
                 // the deep queue's leg, stop wall and climb (ironspec 11:52), every n-th slope powered
@@ -7565,7 +7581,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         Ok([n[0], n[1], n[2]])
                     })
                     .collect::<anyhow::Result<_>>()?;
-                let lines = crate::waycell::water_search_lines(
+                let (lines, pass) = crate::waycell::water_search_lines(
                     &spec,
                     &o,
                     &cands,
@@ -7581,6 +7597,13 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 .map_err(|e| anyhow::anyhow!(e))?;
                 for l in lines {
                     println!("{l}");
+                }
+                // (G1 07:16 (3)) no surviving candidate is the exit status (--report-only: exit 0)
+                if !pass {
+                    println!("way-cell water search: no candidate survives{}", if report_only { " (--report-only: exit 0)" } else { " (exit 1)" });
+                    if !report_only {
+                        std::process::exit(1);
+                    }
                 }
                 return Ok(());
             }
@@ -7624,8 +7647,16 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 return Ok(());
             }
             if let (2, Some(p), 3, 3, true) = (wait.len(), o.post, bed.len(), ride_to.len(), release_sweep > 0) {
-                for l in crate::waycell::sweep_lines(&spec, &o, p, wait[0], wait[1] as u32, [bed[0], bed[1], bed[2]], stamp, release_sweep, follow.max(200), [ride_to[0], ride_to[1], ride_to[2]], &restart_at).map_err(|e| anyhow::anyhow!(e))? {
+                let (lines, pass) = crate::waycell::sweep_lines(&spec, &o, p, wait[0], wait[1] as u32, [bed[0], bed[1], bed[2]], stamp, release_sweep, follow.max(200), [ride_to[0], ride_to[1], ride_to[2]], &restart_at).map_err(|e| anyhow::anyhow!(e))?;
+                for l in lines {
                     println!("{l}");
+                }
+                // (G1 07:00 / 08:12) the sweep's verdict is the exit status (--report-only: exit 0)
+                if !pass {
+                    println!("way-cell sweep: FAIL{}", if report_only { " (--report-only: exit 0)" } else { " (exit 1)" });
+                    if !report_only {
+                        std::process::exit(1);
+                    }
                 }
                 return Ok(());
             }
@@ -7639,12 +7670,19 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     [a, b] => (a..=b).flat_map(|s| freeze_lens.iter().map(move |&l| (s, l))).collect(),
                     _ => Vec::new(),
                 };
-                let lines = crate::waycell::ride_rows_with(&spec, &o, [ride_to[0], ride_to[1], ride_to[2]], ride_ticks, release_phases.max(1), &restarts, &freezes, landing).map_err(|e| anyhow::anyhow!(e))?;
+                let (lines, pass) = crate::waycell::ride_rows_with(&spec, &o, [ride_to[0], ride_to[1], ride_to[2]], ride_ticks, release_phases.max(1), &restarts, &freezes, landing).map_err(|e| anyhow::anyhow!(e))?;
                 // a long sweep prints its failing rows and the summary only
                 let long = restarts.len() + freezes.len() > 40;
                 for l in lines {
                     if !long || l.contains(" rows: ") || l.contains("NEVER") || l.contains("OFF THE RAILS") || l.contains("MOVED BACK") || l.contains("OUT OF THE BAR") || l.contains("EYE IN WATER") || l.contains("CONTACTS") || l.contains("GAME TIME NOT") || !l.contains("hurt 0.0;") {
                         println!("{l}");
+                    }
+                }
+                // (G1 07:00 / 08:12) the ride rows' verdict is the exit status (--report-only: exit 0)
+                if !pass {
+                    println!("way-cell ride rows: FAIL{}", if report_only { " (--report-only: exit 0)" } else { " (exit 1)" });
+                    if !report_only {
+                        std::process::exit(1);
                     }
                 }
                 return Ok(());
@@ -8387,7 +8425,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 std::process::exit(1);
             }
         }
-        MobfarmCmd::CellDiff { a, b, shift } => {
+        MobfarmCmd::CellDiff { a, b, shift, extra_out, extra_at } => {
             let (_, sa) = load(version, &a)?;
             let (_, sb) = load(version, &b)?;
             let (dx, dz) = match shift.as_slice() { [x, z] => (*x, *z), [] => (0, 0), _ => anyhow::bail!("--shift takes X,Z") };
@@ -8410,6 +8448,18 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             println!("CHANGED ({})", changed.len());
             for s in &changed {
                 println!("  {s}");
+            }
+            if let Some(out) = extra_out {
+                let (ex, ey, ez) = match extra_at.as_slice() { [x, y, z] => (*x, *y, *z), [] => (0, 0, 0), _ => anyhow::bail!("--extra-at takes DX,DY,DZ") };
+                let mut cells: Vec<String> = Vec::new();
+                for (p, s) in mb.iter().filter(|(p, s)| ma.get(*p) != Some(*s)) {
+                    cells.push(format!("!{},{},{}={s}", p[0] + ex, p[1] + ey, p[2] + ez));
+                }
+                for p in ma.keys().filter(|p| !mb.contains_key(*p)) {
+                    cells.push(format!("!{},{},{}=air", p[0] + ex, p[1] + ey, p[2] + ez));
+                }
+                std::fs::write(&out, cells.join(";"))?;
+                println!("the A -> B delta as {} --extra override(s) moved by ({ex},{ey},{ez}) written to {} ({} laid, {} to air)", cells.len(), out.display(), added.len() + changed.len(), removed.len());
             }
         }
         MobfarmCmd::WetSpawn { design, wet } => {
