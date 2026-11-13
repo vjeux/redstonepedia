@@ -1309,6 +1309,114 @@ pub fn eye_of(t: redsim::entity::mob::types::MobType) -> f64 {
 mod eye_tests {
     use redsim::entity::mob::types::MobType;
 
+    fn spec_of(cells: &[(redsim::pos::BlockPos, &str)]) -> redsim::entity::mob::farm::FarmSpec {
+        let blocks = cells.iter().map(|(p, b)| (*p, redsim::block::Block::parse(b).unwrap())).collect();
+        redsim::entity::mob::farm::FarmSpec { blocks, entities: Vec::new(), output: redsim::pos::BlockPos::new(3, 3, 3), lo: redsim::pos::BlockPos::new(-3, -1, -3), hi: redsim::pos::BlockPos::new(3, 4, 3), block_entities: Vec::new(), rock: false, nether: None, land: false }
+    }
+
+    /// (ironspec Nov 13 03:32 (3)) The cat reach: a rider's rail on the ground in the open, a cat
+    /// walking up beside it is in sight (FAIL, the positive control); the same rail inside a glass
+    /// box three high on the ground, no cat cell in sight (the box can't be climbed: PASS).
+    #[test]
+    fn cat_reach_open_and_boxed() {
+        let b = |x, y, z| redsim::pos::BlockPos::new(x, y, z);
+        let open = spec_of(&[(b(0, 0, 0), "minecraft:stone"), (b(0, 1, 0), "minecraft:rail[shape=north_south,waterlogged=false]")]);
+        let (l, n) = super::cat_reach(&open, 0, 4).unwrap();
+        assert!(n > 0 && l[0].ends_with("(FAIL)") && l.iter().any(|x| x.starts_with("  IN SIGHT ") && x.contains("of the rider at 0,1,0")), "{l:?}");
+        let mut cells: Vec<(redsim::pos::BlockPos, &str)> = vec![(b(0, 0, 0), "minecraft:stone"), (b(0, 1, 0), "minecraft:rail[shape=north_south,waterlogged=false]")];
+        for x in -1i32..=1 {
+            for z in -1i32..=1 {
+                for y in 1i32..=3 {
+                    if x != 0 || z != 0 {
+                        cells.push((b(x, y, z), "minecraft:glass"));
+                    }
+                }
+                cells.push((b(x, 4, z), "minecraft:glass"));
+                if x != 0 || z != 0 {
+                    cells.push((b(x, 0, z), "minecraft:glass"));
+                }
+            }
+        }
+        let (l2, n2) = super::cat_reach(&spec_of(&cells), -1, 4).unwrap();
+        assert!(n2 == 0 && l2[0].ends_with("(PASS)"), "{l2:?}");
+    }
+
+    /// (ironspec Nov 13 04:07) An override that leaves its cell as the design has it FAILS, named;
+    /// a real one prints its cell before and after; a hold naming no stand-in fails; a hold on a
+    /// stand-in the settle leaves as stated fails (it re-places nothing).
+    #[test]
+    fn noop_overrides_fail() {
+        let b = |x, y, z| redsim::pos::BlockPos::new(x, y, z);
+        let glass = redsim::block::Block::parse("minecraft:glass").unwrap();
+        let stone = redsim::block::Block::parse("minecraft:stone").unwrap();
+        let spec = spec_of(&[(b(1, 1, 1), "minecraft:glass")]);
+        let mut l = Vec::new();
+        assert_eq!(super::override_report(&spec, &[(b(1, 1, 1), glass)], &[], &mut l), 1);
+        assert!(l[0].starts_with("NO-OP OVERRIDE 1,1,1: the design already holds glass"), "{l:?}");
+        let mut l2 = Vec::new();
+        assert_eq!(super::override_report(&spec, &[(b(1, 1, 1), stone)], &[(b(2, 2, 2), "a driver (a phase)".to_string())], &mut l2), 1);
+        assert!(l2[0] == "override 1,1,1: glass -> stone" && l2[1].starts_with("NO-OP HOLD 2,2,2: no stand-in there"), "{l2:?}");
+        let mut w = redsim::World::new(b(0, 0, 0), [3, 3, 3]);
+        w.put(b(1, 1, 1), stone);
+        let mut l3 = Vec::new();
+        assert_eq!(super::standin_survival(&mut w, &[(b(1, 1, 1), stone)], &[(b(1, 1, 1), "a driver (a phase)".to_string())], &mut l3), 1);
+        assert!(l3[0].starts_with("NO-OP HOLD 1,1,1: the stand-in survives the settle unheld"), "{l3:?}");
+    }
+
+    /// (ironspec Nov 13 03:22 / 03:27 / 03:43, tick-exact's 26.3 flags) The wind-burst static: a
+    /// lever, an oak trapdoor, a stone button and an oak fence gate counted; an iron trapdoor not
+    /// (iron never opens by wind charge); an oak trapdoor held powered by a redstone block exempt; one
+    /// powered with no constant source counted; a lever an `emulated:` line names listed apart as a
+    /// declared stand-in.
+    #[test]
+    fn burst_reactive_counts_and_standins() {
+        let b = |x, y, z| redsim::pos::BlockPos::new(x, y, z);
+        let spec = spec_of(&[
+            (b(0, 1, 0), "minecraft:lever[face=floor,facing=north,powered=false]"),
+            (b(1, 1, 0), "minecraft:oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]"),
+            (b(2, 1, 0), "minecraft:iron_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]"),
+            (b(0, 1, 2), "minecraft:lever[face=floor,facing=north,powered=false]"),
+            (b(1, 1, 2), "minecraft:oak_trapdoor[facing=north,half=bottom,open=true,powered=true,waterlogged=false]"),
+            (b(1, 0, 2), "minecraft:redstone_block"),
+            (b(2, 1, 2), "minecraft:stone_button[face=floor,facing=north,powered=false]"),
+            (b(-2, 1, 0), "minecraft:oak_fence_gate[facing=north,in_wall=false,open=false,powered=false]"),
+            (b(-2, 1, 2), "minecraft:oak_trapdoor[facing=north,half=bottom,open=true,powered=true,waterlogged=false]"),
+        ]);
+        let text = "emulated: 0,0,2=glass (the line's end: a floor lever on it at (0,1,2))\n# switch: 0,1,0=the T's lever\n";
+        let (l, n) = super::burst_reactive(&spec, text);
+        assert_eq!(n, 5, "{l:?}");
+        assert!(l[0].contains("7 cells, 5 counted (bar 0), 1 exempt (held powered by a constant source), 1 declared stand-ins apart (FAIL)"), "{l:?}");
+        assert!(l.iter().any(|x| x.starts_with("  0,1,0 lever") && x.contains("switch: 0,1,0=the T's lever")), "{l:?}");
+        assert!(l.iter().any(|x| x.starts_with("  STAND-IN 0,1,2 lever")), "{l:?}");
+        assert!(l.iter().any(|x| x.starts_with("  EXEMPT 1,1,2 oak_trapdoor")), "{l:?}");
+        assert!(l.iter().any(|x| x.starts_with("  -2,1,2 oak_trapdoor")), "powered with no constant source: counted: {l:?}");
+        assert!(!l.iter().any(|x| x.contains("iron_trapdoor")), "the iron trapdoor is not listed: {l:?}");
+    }
+
+    /// (ironspec Nov 13 03:24 (2)) The outside-sight static: a villager in a glass box sees no cell
+    /// outside it (glass blocks a COLLIDER clip: EMPTY); one wall cell open, the cells beyond it in
+    /// sight, the opening named (the positive control).
+    #[test]
+    fn outside_sight_glass_box_and_an_opening() {
+        let b = |x, y, z| redsim::pos::BlockPos::new(x, y, z);
+        let mut cells: Vec<(redsim::pos::BlockPos, &str)> = Vec::new();
+        for x in -3i32..=3 {
+            for y in -1i32..=4 {
+                for z in -3i32..=3 {
+                    if x.abs() == 3 || z.abs() == 3 || y == -1 || y == 4 {
+                        cells.push((b(x, y, z), "minecraft:glass"));
+                    }
+                }
+            }
+        }
+        let feet = [redsim::entity::Vec3::new(0.5, 0.0, 0.5)];
+        let (l, n) = super::outside_sight(&spec_of(&cells), &feet).unwrap();
+        assert!(n == 0 && l[0].ends_with("(EMPTY)"), "{l:?}");
+        let open: Vec<(redsim::pos::BlockPos, &str)> = cells.iter().copied().filter(|(p, _)| *p != b(3, 1, 0)).collect();
+        let (l2, n2) = super::outside_sight(&spec_of(&open), &feet).unwrap();
+        assert!(n2 > 0 && l2.iter().any(|x| x.starts_with("  IN SIGHT 4,1,0 through 3,1,0")), "{l2:?}");
+    }
+
     /// (farmopt / ironspec Nov 13 01:07) A stand-in the settled world doesn't hold (an iron trapdoor
     /// stated open, closed with no power) fails survival; declared held, it is re-placed as stated
     /// and printed with its driver and phase.
@@ -1339,6 +1447,32 @@ mod eye_tests {
     }
 }
 
+/// (ironspec Nov 13 04:07: a bench override that doesn't change its cell FAILS the run) Each
+/// override's cell before (the design's stored block) and after it is laid; an override leaving its
+/// cell as the design has it is a silent no-op and FAILS, as does a hold naming no stand-in. Pushes
+/// the lines; returns the failures.
+pub fn override_report(spec: &FarmSpec, sets: &[(BlockPos, redsim::block::Block)], hold: &[(BlockPos, String)], lines: &mut Vec<String>) -> usize {
+    let stored: std::collections::HashMap<BlockPos, redsim::block::Block> = spec.blocks.iter().map(|(p, b)| (*p, *b)).collect();
+    let mut fails = 0usize;
+    for (p, b) in sets {
+        let before = stored.get(p).copied().unwrap_or(redsim::block::Block::Air);
+        let (bs, ns) = (before.to_string().trim_start_matches("minecraft:").to_string(), b.to_string().trim_start_matches("minecraft:").to_string());
+        if before == *b {
+            fails += 1;
+            lines.push(format!("NO-OP OVERRIDE {},{},{}: the design already holds {bs} (FAILS: an override that doesn't change its cell, ironspec Nov 13 04:07)", p.x, p.y, p.z));
+        } else {
+            lines.push(format!("override {},{},{}: {bs} -> {ns}", p.x, p.y, p.z));
+        }
+    }
+    for (p, why) in hold {
+        if !sets.iter().any(|(q, _)| q == p) {
+            fails += 1;
+            lines.push(format!("NO-OP HOLD {},{},{}: no stand-in there to hold ({why}) (FAILS)", p.x, p.y, p.z));
+        }
+    }
+    fails
+}
+
 /// (farmopt / ironspec Nov 13 01:03-01:07: the seven-property guard's survival property) Each
 /// stand-in against the settled world: one the settle leaves as stated survives; one it changes
 /// (an unpowered iron trapdoor stated open closes) FAILS with its before / after state, unless
@@ -1350,6 +1484,12 @@ pub fn standin_survival(w: &mut redsim::World, sets: &[(BlockPos, redsim::block:
     for (p, b) in sets {
         let now = w.get(*p);
         if now == *b {
+            // (ironspec Nov 13 04:07: a hold on a stand-in the settle leaves as stated re-places
+            // nothing: a silent no-op, FAILS)
+            if let Some((_, why)) = hold.iter().find(|(q, _)| q == p) {
+                fails += 1;
+                lines.push(format!("NO-OP HOLD {},{},{}: the stand-in survives the settle unheld ({why}) (FAILS)", p.x, p.y, p.z));
+            }
             continue;
         }
         let (stated, left) = (b.to_string().trim_start_matches("minecraft:").to_string(), now.to_string().trim_start_matches("minecraft:").to_string());
@@ -1385,7 +1525,8 @@ pub fn sight_diff_counts(spec: &FarmSpec, sets: &[(BlockPos, redsim::block::Bloc
     // (farmopt Nov 13 01:02: a stand-in the settle re-evaluates (an iron trapdoor with no power
     // closes) is held: re-placed raw after the settle, as the stand-in states it, and listed)
     let mut held: Vec<String> = Vec::new();
-    let survival_fails = standin_survival(&mut wb, sets, hold, &mut held);
+    let noops = override_report(spec, sets, hold, &mut held);
+    let survival_fails = standin_survival(&mut wb, sets, hold, &mut held) + noops;
     let wb = wb;
     // (the scarers' eyes: each boat's seat, as the flee-check's posts)
     let mut scarers: Vec<(Vec3, String)> = Vec::new();
@@ -1504,9 +1645,346 @@ fn hostile_range(id: &str) -> Option<f64> {
 /// over the visible list). For each boat hostile in it at some point, the occluder search
 /// ([`occlude`]): glass on every ray to the points, none on a ray it covers now. Returns the lines
 /// and the samples (points x hostiles).
+/// The module's shell box: the bounding box of the design's blocks (the design's own box is
+/// padded; the statics of what lies outside the module start past its blocks).
+pub fn shell_box(spec: &FarmSpec) -> (BlockPos, BlockPos) {
+    let mut lo = BlockPos::new(i32::MAX, i32::MAX, i32::MAX);
+    let mut hi = BlockPos::new(i32::MIN, i32::MIN, i32::MIN);
+    for (p, b) in &spec.blocks {
+        if b.is_air() {
+            continue;
+        }
+        lo = BlockPos::new(lo.x.min(p.x), lo.y.min(p.y), lo.z.min(p.z));
+        hi = BlockPos::new(hi.x.max(p.x), hi.y.max(p.y), hi.z.max(p.z));
+    }
+    if lo.x > hi.x { (spec.lo, spec.hi) } else { (lo, hi) }
+}
+
+/// (ironspec Nov 13 03:22) The blocks a wind burst (a breeze's wind charge, `onExplosionHit` with
+/// `canTriggerBlocks`) can change, by 26.3's block classes: levers (pulled), buttons (pressed),
+/// doors, trapdoors and fence gates whose BlockSetType opens by wind charge (wood and copper, never
+/// iron), bells (rung), candles (put out), beehives and bee nests, creaking hearts; each with the
+/// design's header line that names its cell (its role and owner). Returns the lines and the count
+/// (the bar is 0).
+pub fn burst_reactive(spec: &FarmSpec, text: &str) -> (Vec<String>, usize) {
+    let reactive = |id: &str| -> Option<&'static str> {
+        let id = id.trim_start_matches("minecraft:");
+        if id == "lever" {
+            Some("a lever (pulled)")
+        } else if id.ends_with("_button") {
+            Some("a button (pressed)")
+        } else if id.ends_with("_door") && id != "iron_door" {
+            Some("a door (opened or shut)")
+        } else if id.ends_with("_trapdoor") && id != "iron_trapdoor" {
+            Some("a trapdoor (opened or shut)")
+        } else if id.ends_with("_fence_gate") {
+            Some("a fence gate (opened or shut)")
+        } else if id == "bell" {
+            Some("a bell (rung)")
+        } else if id == "candle" || id.ends_with("_candle") {
+            Some("a candle (put out)")
+        } else if id == "beehive" || id == "bee_nest" {
+            Some("a beehive")
+        } else if id == "creaking_heart" {
+            Some("a creaking heart")
+        } else {
+            None
+        }
+    };
+    let mut cells: Vec<(BlockPos, String, &'static str)> = spec
+        .blocks
+        .iter()
+        .filter_map(|(p, b)| {
+            let s = b.to_string();
+            reactive(s.split('[').next().unwrap_or("")).map(|k| (*p, s, k))
+        })
+        .collect();
+    cells.sort_by_key(|(p, _, _)| (p.y, p.z, p.x));
+    let blocks: std::collections::HashMap<BlockPos, String> = spec.blocks.iter().map(|(p, b)| (*p, b.to_string())).collect();
+    let mut lines = Vec::new();
+    let mut standins: Vec<String> = Vec::new();
+    let mut conditional: Vec<String> = Vec::new();
+    let mut counted = 0usize;
+    for (p, s, k) in &cells {
+        let key = format!("{},{},{}", p.x, p.y, p.z);
+        // (the header lines naming the cell: its role and owner)
+        let naming: Vec<&str> = text.lines().filter(|l| l.contains(&key) && (l.starts_with('#') || l.split_once(':').is_some_and(|(k, _)| !k.contains(' ')))).collect();
+        let roles: Vec<String> = naming
+            .iter()
+            .map(|l| {
+                let at = l.find(&key).unwrap_or(0);
+                let tail: String = l[at..].chars().take(140).collect();
+                let head: String = l.chars().take_while(|c| *c != ':').collect();
+                format!("{}: {tail}", head.trim_start_matches('#').trim())
+            })
+            .take(3)
+            .collect();
+        // (ironspec Nov 13 03:27: a declared stand-in (an `emulated:` cell's or a line calling it a
+        // stand-in) on its own line until its real line replaces it)
+        let standin = naming.iter().any(|l| l.trim_start_matches('#').trim_start().starts_with("emulated:") || l.contains("stand-in"));
+        // (tick-exact's 26.3 flags, farmopt 03:41 / ironspec 03:43: a door, trapdoor, fence gate or
+        // button is skipped while POWERED, so it is exempt only when held powered by a CONSTANT
+        // source in every phase: a redstone block beside it, its power surviving the settle; an
+        // intermittently powered one counts; a lever always pulls)
+        let gated = s.contains("_door[") || s.contains("_trapdoor[") || s.contains("_fence_gate[");
+        let constant = gated && s.contains("powered=true") && [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)].iter().any(|(dx, dy, dz)| blocks.get(&BlockPos::new(p.x + dx, p.y + dy, p.z + dz)).is_some_and(|n| n.starts_with("minecraft:redstone_block")));
+        let powered_skip = constant;
+        let row = format!("  {key} {} ({k}){}", s.trim_start_matches("minecraft:"), if roles.is_empty() { "; no header line names it".to_string() } else { format!("; {}", roles.join(" | ")) });
+        if standin {
+            standins.push(row);
+        } else if powered_skip {
+            conditional.push(row);
+        } else {
+            counted += 1;
+            lines.push(row);
+        }
+    }
+    let mut out = vec![format!(
+        "wind-burst reactive blocks (ironspec Nov 13 03:22 / 03:27 / 03:43, tick-exact's 26.3 flags: levers and buttons always count; doors and trapdoors of any set but iron, and fence gates, unless held powered by a constant source in every phase (a redstone block beside it); bells, candles, beehives, creaking hearts): {} cells, {counted} counted (bar 0), {} exempt (held powered by a constant source), {} declared stand-ins apart{}",
+        cells.len(),
+        conditional.len(),
+        standins.len(),
+        if counted == 0 { " (PASS)" } else { " (FAIL)" }
+    )];
+    out.extend(lines);
+    if !conditional.is_empty() {
+        out.push(format!("  exempt (held powered by a constant source in every phase: a redstone block beside it): {}", conditional.len()));
+        out.extend(conditional.into_iter().map(|r| format!("  EXEMPT {}", r.trim_start())));
+    }
+    if !standins.is_empty() {
+        out.push(format!("  declared stand-ins (until their real lines replace them): {}", standins.len()));
+        out.extend(standins.into_iter().map(|r| format!("  STAND-IN {}", r.trim_start())));
+    }
+    (out, counted)
+}
+
+/// (ironspec Nov 13 03:24 (2)) The sources outside the module: every cell outside the design's
+/// box within 8 of a villager's eye (its feet + 1.62) and in sight of it (LivingEntity.hasLineOfSight,
+/// a COLLIDER clip: glass blocks the ray), to the cell's centre or its top; each with the module's
+/// last cell the ray leaves through (the wall an opaque swap would close). Returns the lines and the
+/// cells in sight.
+pub fn outside_sight(spec: &FarmSpec, points: &[Vec3]) -> Result<(Vec<String>, usize), String> {
+    use redsim::entity::mob::types::MobType;
+    let o = RunOpts { ai: true, ..RunOpts::steady(1, 0, WalkMode::Random) };
+    let mut run = Run::start(spec, &o)?;
+    while run.settle_tick() {}
+    let w = &run.world;
+    let veye = eye_of(MobType::Villager);
+    // (the module's shell: the bounding box of its blocks, not the design's padded box, so a ray
+    // leaving through a shell opening names that cell)
+    let (lo, hi) = shell_box(spec);
+    let inside = |c: &BlockPos| c.x >= lo.x && c.x <= hi.x && c.y >= lo.y && c.y <= hi.y && c.z >= lo.z && c.z <= hi.z;
+    let mut seen: std::collections::BTreeMap<(i32, i32, i32), (String, Vec<String>)> = std::collections::BTreeMap::new();
+    let mut tested = 0usize;
+    for p in points {
+        let e = Vec3::new(p.x, p.y + veye, p.z);
+        for x in (e.x - 9.0).floor() as i32..=(e.x + 9.0).ceil() as i32 {
+            for y in (e.y - 9.0).floor() as i32..=(e.y + 9.0).ceil() as i32 {
+                for z in (e.z - 9.0).floor() as i32..=(e.z + 9.0).ceil() as i32 {
+                    let c = BlockPos::new(x, y, z);
+                    if inside(&c) {
+                        continue;
+                    }
+                    let targets = [Vec3::new(x as f64 + 0.5, y as f64 + 0.5, z as f64 + 0.5), Vec3::new(x as f64 + 0.5, y as f64 + 0.95, z as f64 + 0.5)];
+                    let near: Vec<&Vec3> = targets.iter().filter(|t| ((t.x - e.x).powi(2) + (t.y - e.y).powi(2) + (t.z - e.z).powi(2)).sqrt() <= 8.0).collect();
+                    if near.is_empty() {
+                        continue;
+                    }
+                    tested += 1;
+                    if let Some(t) = near.iter().find(|t| redsim::entity::mob::los::has_line_of_sight(w, e, ***t)) {
+                        // (the last module cell on the ray: the wall it leaves through)
+                        let wall = ray_cells(e, **t).into_iter().filter(|q| inside(q)).last().map(|q| format!("{},{},{} ({})", q.x, q.y, q.z, w.get(q).to_string().trim_start_matches("minecraft:").split('[').next().unwrap_or(""))).unwrap_or_else(|| "none".to_string());
+                        let entry = seen.entry((x, y, z)).or_insert((wall, Vec::new()));
+                        entry.1.push(format!("{:.2},{:.3},{:.2}", p.x, p.y, p.z));
+                    }
+                }
+            }
+        }
+    }
+    let mut lines = vec![format!(
+        "sources outside the module (ironspec Nov 13 03:24 (2) / 03:36: every cell outside the module's shell box (its blocks' bounds) ({},{},{})..({},{},{}) within 8 of a villager's eye (feet + {veye:.2}) and in sight: the single eye-to-eye segment clipped against the composed collision shapes (COLLIDER, fluids ignored; glass shields; the openings are air, collision-less blocks and partial colliders' gaps)): {} feet points, {} outside cells within 8 tested, {} in sight{}",
+        lo.x,
+        lo.y,
+        lo.z,
+        hi.x,
+        hi.y,
+        hi.z,
+        points.len(),
+        tested,
+        seen.len(),
+        if tested == 0 { " (NOT JUDGED: 0 samples)" } else if seen.is_empty() { " (EMPTY)" } else { "" }
+    )];
+    for ((x, y, z), (wall, from)) in &seen {
+        lines.push(format!("  IN SIGHT {x},{y},{z} through {wall}, from {} point(s): {}", from.len(), from.iter().take(4).cloned().collect::<Vec<_>>().join(" ")));
+    }
+    Ok((lines, if tested == 0 { usize::MAX } else { seen.len() }))
+}
+
+/// (ironspec Nov 13 03:22, tick-exact's knockback numbers) The wind-burst exposure: every rider and
+/// cart position (each rail cell's cart at its middle, a waiting napper included) with a clear
+/// COLLIDER line from a point of its box (feet, waist, head) to an outside air cell within 10 (a
+/// breeze or a player can stand there; the burst's exposure is getSeenPercent over the box's points),
+/// with the nearest such cell and its reach class (a player's wind charge 2.4, a breeze's 6.0, the
+/// Wind Burst mace 7.0, the Wind Charged death burst 6-10). Returns the lines and the exposed
+/// positions.
+pub fn burst_exposure(spec: &FarmSpec) -> Result<(Vec<String>, usize), String> {
+    let o = RunOpts { ai: true, ..RunOpts::steady(1, 0, WalkMode::Random) };
+    let mut run = Run::start(spec, &o)?;
+    while run.settle_tick() {}
+    let w = &run.world;
+    let (lo, hi) = shell_box(spec);
+    let inside = |c: &BlockPos| c.x >= lo.x && c.x <= hi.x && c.y >= lo.y && c.y <= hi.y && c.z >= lo.z && c.z <= hi.z;
+    let mut rails: Vec<(BlockPos, String)> = spec.blocks.iter().map(|(p, b)| (*p, b.to_string())).filter(|(_, s)| s.contains("rail[")).collect();
+    rails.sort_by_key(|(p, _)| (p.y, p.z, p.x));
+    let class = |d: f64| if d <= 2.4 { "a player's wind charge (2.4)" } else if d <= 6.0 { "a breeze's charge (6.0)" } else if d <= 7.0 { "the Wind Burst mace (7.0)" } else { "the Wind Charged death burst (6-10)" };
+    let mut lines = Vec::new();
+    let mut exposed = 0usize;
+    for (c, s) in &rails {
+        let cart = along_rail(*c, s, 0.5);
+        let pts = [Vec3::new(cart.x, cart.y + 0.3, cart.z), Vec3::new(cart.x, cart.y + 1.0, cart.z), Vec3::new(cart.x, cart.y + 1.9, cart.z)];
+        let mid = pts[1];
+        let mut best: Option<(f64, BlockPos)> = None;
+        for x in (mid.x - 11.0).floor() as i32..=(mid.x + 11.0).ceil() as i32 {
+            for y in (mid.y - 11.0).floor() as i32..=(mid.y + 11.0).ceil() as i32 {
+                for z in (mid.z - 11.0).floor() as i32..=(mid.z + 11.0).ceil() as i32 {
+                    let q = BlockPos::new(x, y, z);
+                    if inside(&q) {
+                        continue;
+                    }
+                    let t = Vec3::new(x as f64 + 0.5, y as f64 + 0.5, z as f64 + 0.5);
+                    let d = ((t.x - mid.x).powi(2) + (t.y - mid.y).powi(2) + (t.z - mid.z).powi(2)).sqrt();
+                    if d > 10.0 || best.is_some_and(|(bd, _)| bd <= d) {
+                        continue;
+                    }
+                    if pts.iter().any(|p| redsim::entity::mob::los::has_line_of_sight(w, *p, t)) {
+                        best = Some((d, q));
+                    }
+                }
+            }
+        }
+        if let Some((d, q)) = best {
+            exposed += 1;
+            lines.push(format!("  EXPOSED {},{},{} ({}): the outside air cell {},{},{} at {d:.2}, {}", c.x, c.y, c.z, s.trim_start_matches("minecraft:").split('[').next().unwrap_or(""), q.x, q.y, q.z, class(d)));
+        }
+    }
+    let mut out = vec![format!(
+        "wind-burst exposure (ironspec Nov 13 03:22, tick-exact's knockback: reach 2 x radius, exposure getSeenPercent over COLLIDER clips): {} rider / cart positions (each rail cell's cart), {} with a clear line to an outside air cell within 10{}",
+        rails.len(),
+        exposed,
+        if rails.is_empty() { " (NOT JUDGED: 0 samples)" } else if exposed == 0 { " (none exposed: no breeze siting rule)" } else { "" }
+    )];
+    out.extend(lines);
+    Ok((out, if rails.is_empty() { usize::MAX } else { exposed }))
+}
+
+/// (ironspec Nov 13 03:32 (3)) The cat reach: every cell a cat (0.6 x 0.7, eye 0.35) can stand on
+/// that connects by cat-walkable moves to ground where cats can spawn, within 8 of a rider's eye and
+/// in sight of it (the eye-to-eye segment, COLLIDER, fluids ignored). The ground is a plane at
+/// `ground_y` (its top face) around the design's box widened by `margin`; the moves are a step to a
+/// side cell whose floor rises at most 1 (a jump), or a drop of at most 3 (Mob.getMaxFallDistance);
+/// a cat stands where its box fits on a collision top (a full block below, or a low shape in its own
+/// cell). Rider eyes: each rail cell's cart at its middle + 1.62. Returns the lines and the cells
+/// within 8 and in sight (the bar is 0).
+pub fn cat_reach(spec: &FarmSpec, ground_y: i32, margin: i32) -> Result<(Vec<String>, usize), String> {
+    use redsim::entity::Aabb;
+    let o = RunOpts { ai: true, ..RunOpts::steady(1, 0, WalkMode::Random) };
+    let mut run = Run::start(spec, &o)?;
+    while run.settle_tick() {}
+    let w = &run.world;
+    let (lo, hi) = shell_box(spec);
+    let (x0, x1, z0, z1) = (lo.x - margin, hi.x + margin, lo.z - margin, hi.z + margin);
+    let (y0, y1) = (ground_y + 1, hi.y + 2);
+    let in_box = |c: &BlockPos| c.x >= lo.x && c.x <= hi.x && c.y >= lo.y && c.y <= hi.y && c.z >= lo.z && c.z <= hi.z;
+    // (the feet height a cat stands at in cell c, if its box fits there: the highest collision top
+    // under its box between c.y - 0.5 and c.y + 0.5 (a full block below: c.y; a slab or carpet in
+    // c: above it), or the ground plane's top)
+    let feet = |c: BlockPos| -> Option<f64> {
+        let ground = (c.y == ground_y + 1 && !in_box(&BlockPos::new(c.x, ground_y, c.z))).then_some(c.y as f64);
+        let probe = Aabb::new(c.x as f64 + 0.2, c.y as f64 - 0.5, c.z as f64 + 0.2, c.x as f64 + 0.8, c.y as f64 + 0.5, c.z as f64 + 0.8);
+        let shape = w.collision_shapes(probe).iter().map(|a| a.max_y).filter(|t| *t >= c.y as f64 - 0.5 && *t <= c.y as f64 + 0.5 + 1e-9).fold(None, |m: Option<f64>, t| Some(m.map_or(t, |m: f64| m.max(t))));
+        let f = match (ground, shape) {
+            (Some(g), Some(s)) => g.max(s),
+            (g, s) => g.or(s)?,
+        };
+        let bb = Aabb::new(c.x as f64 + 0.2, f + 1e-6, c.z as f64 + 0.2, c.x as f64 + 0.8, f + 0.7, c.z as f64 + 0.8);
+        if w.collision_shapes(bb).is_empty() { Some(f) } else { None }
+    };
+    let mut reached: std::collections::HashMap<BlockPos, f64> = std::collections::HashMap::new();
+    let mut queue: std::collections::VecDeque<BlockPos> = std::collections::VecDeque::new();
+    for x in x0..=x1 {
+        for z in z0..=z1 {
+            let c = BlockPos::new(x, ground_y + 1, z);
+            if in_box(&c) {
+                continue;
+            }
+            if let Some(f) = feet(c) {
+                reached.insert(c, f);
+                queue.push_back(c);
+            }
+        }
+    }
+    let seeds = reached.len();
+    while let Some(c) = queue.pop_front() {
+        let fc = reached[&c];
+        for (dx, dz) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+            // (a step up to 1, level, or a drop of up to 3: the first standable cell down the column)
+            for dy in [1, 0, -1, -2, -3] {
+                let n = BlockPos::new(c.x + dx, c.y + dy, c.z + dz);
+                if n.x < x0 || n.x > x1 || n.z < z0 || n.z > z1 || n.y < y0 || n.y > y1 || reached.contains_key(&n) {
+                    continue;
+                }
+                let Some(fnb) = feet(n) else { continue };
+                if fnb - fc > 1.0 + 1e-9 || fc - fnb > 3.0 + 1e-9 {
+                    continue;
+                }
+                // (a step up needs the head room over the cat where it stands; a drop needs the
+                // column over the landing clear down from the cat's level)
+                let clear = |q: BlockPos, f: f64, h: f64| w.collision_shapes(Aabb::new(q.x as f64 + 0.2, f + 1e-6, q.z as f64 + 0.2, q.x as f64 + 0.8, f + h, q.z as f64 + 0.8)).is_empty();
+                if dy == 1 && !clear(c, fc, 1.7) {
+                    continue;
+                }
+                if dy < 0 && !clear(BlockPos::new(n.x, c.y, n.z), fnb, (fc - fnb) + 0.7) {
+                    continue;
+                }
+                reached.insert(n, fnb);
+                queue.push_back(n);
+                break;
+            }
+        }
+    }
+    let mut rails: Vec<(BlockPos, String)> = spec.blocks.iter().map(|(p, b)| (*p, b.to_string())).filter(|(_, s)| s.contains("rail[")).collect();
+    rails.sort_by_key(|(p, _)| (p.y, p.z, p.x));
+    let eyes: Vec<(BlockPos, Vec3)> = rails.iter().map(|(c, s)| { let p = along_rail(*c, s, 0.5); (*c, Vec3::new(p.x, p.y + 1.62, p.z)) }).collect();
+    let mut hits: Vec<(BlockPos, BlockPos, f64)> = Vec::new();
+    let mut cells: Vec<(&BlockPos, &f64)> = reached.iter().collect();
+    cells.sort_by_key(|(p, _)| (p.y, p.z, p.x));
+    for (c, f) in cells {
+        let ce = Vec3::new(c.x as f64 + 0.5, f + 0.35, c.z as f64 + 0.5);
+        if let Some((rc, d)) = eyes.iter().filter_map(|(rc, e)| { let d = ((e.x - ce.x).powi(2) + (e.y - ce.y).powi(2) + (e.z - ce.z).powi(2)).sqrt(); (d <= 8.0 && redsim::entity::mob::los::has_line_of_sight(w, *e, ce)).then_some((*rc, d)) }).min_by(|a, b| a.1.total_cmp(&b.1)) {
+            hits.push((*c, rc, d));
+        }
+    }
+    let top = reached.keys().filter(|c| c.y > ground_y + 1).map(|c| c.y).max();
+    let mut lines = vec![format!(
+        "cat reach (ironspec Nov 13 03:32 (3): a cat 0.6 x 0.7, eye 0.35; steps up 1, drops up to 3; sight eye to eye, COLLIDER): the ground plane's top at y {} around the box widened by {margin}; {seeds} ground cells; {} cells reached; the highest above the ground: {}; {} rider positions (each rail cell's cart); {} reached cells within 8 and in sight of a rider (bar 0){}",
+        ground_y + 1,
+        reached.len(),
+        top.map(|y| format!("y {y}")).unwrap_or_else(|| "none (the ground only)".to_string()),
+        eyes.len(),
+        hits.len(),
+        if seeds == 0 || eyes.is_empty() { " (NOT JUDGED: 0 samples)" } else if hits.is_empty() { " (PASS)" } else { " (FAIL)" }
+    )];
+    for (c, rc, d) in &hits {
+        lines.push(format!("  IN SIGHT {},{},{} (a cat standing there) of the rider at {},{},{} ({d:.2})", c.x, c.y, c.z, rc.x, rc.y, rc.z));
+    }
+    Ok((lines, if seeds == 0 || eyes.is_empty() { usize::MAX } else { hits.len() }))
+}
+
 pub fn sensor_at(spec: &FarmSpec, points: &[Vec3], exclude: &[([i32; 3], [i32; 3])], sets: &[(BlockPos, redsim::block::Block)], hold: &[(BlockPos, String)], through: &[BlockPos]) -> Result<(Vec<String>, usize, usize), String> {
     use redsim::entity::mob::types::MobType;
     let o = RunOpts { ai: true, ..RunOpts::steady(1, 0, WalkMode::Random) };
+    let mut held: Vec<String> = Vec::new();
+    let noops = override_report(spec, sets, hold, &mut held);
     let mut bench = spec.clone();
     for (p, b) in sets {
         bench.blocks.retain(|(q, _)| q != p);
@@ -1519,8 +1997,7 @@ pub fn sensor_at(spec: &FarmSpec, points: &[Vec3], exclude: &[([i32; 3], [i32; 3
     while run.settle_tick() {}
     // (farmopt Nov 13 01:02: a stand-in the settle re-evaluates, an unpowered hatch stated open,
     // is held: re-placed raw after the settle as stated, and listed)
-    let mut held: Vec<String> = Vec::new();
-    let survival_fails = standin_survival(&mut run.world, sets, hold, &mut held);
+    let survival_fails = standin_survival(&mut run.world, sets, hold, &mut held) + noops;
     let w = &run.world;
     // (the hostiles: (label, id, feet, eye, the boat's post when seated in one))
     let mut hostiles: Vec<(String, String, Vec3, Vec3, Option<BlockPos>)> = Vec::new();
