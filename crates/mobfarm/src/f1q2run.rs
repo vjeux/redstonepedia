@@ -6466,9 +6466,20 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 // napper) and (ironspec 11:55 (2), checklist 1c) its STORED speed (deltaMovement)
                 let tracked = (c[1] == 25 && c[2] == 9 && [-3, -1, 1, 3, 5, 7, 8].contains(&c[0])) || (c[1] == 24 && c[2] == 8 && LANES.contains(&c[0]));
                 if tracked && p != c {
+                    // (day-1 11:36) a napper's cart is the OUTBOUND napper while the picker diverts it,
+                    // a RETURNING napper from its stop's R ("at R") until "back in its lane" on its
+                    // current visit, and otherwise rides as a batch cart (a former napper back in its
+                    // lane is batch until picked again)
                     let class = match e.passengers.first() {
                         Some(r) if nappers.iter().any(|(v, _, _)| v == r) => {
-                            if ctl.divert.is_some_and(|(dc, _)| dc == e.id) { "outbound napper" } else { "returning napper" }
+                            let ms = recs.get(r).map(|rr| (rr.milestones.iter().any(|(m, _)| m == "at R"), rr.milestones.iter().any(|(m, _)| m == "back in its lane")));
+                            if ctl.divert.is_some_and(|(dc, _)| dc == e.id) {
+                                "outbound napper"
+                            } else if ms.is_some_and(|(at_r, back)| at_r && !back) {
+                                "returning napper"
+                            } else {
+                                "batch"
+                            }
                         }
                         Some(_) => "batch",
                         None => "empty",
