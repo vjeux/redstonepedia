@@ -158,6 +158,8 @@ pub struct Opts {
     pub evidence_delay: i64,
     /// (ironspec 12:54 (2)) F1's REL gated by J(-1)'s armed latch.
     pub rel_gate_armed: bool,
+    /// (farmopt 13:30) the lanes' pocket offsets after REL (None: 0 / 14 / 24).
+    pub lane_offsets: Option<[i64; 3]>,
     /// (ironspec 10:51 (g)) the longest designed rest on a station hold H's trapdoor, gt.
     pub h_rest_bound: i64,
     /// (ironspec 10:51 (f)) the siding check's positive: a batch cart planted on lane -1's siding R.
@@ -901,6 +903,8 @@ struct Ctl {
     rel_gate_armed: bool,
     gated_since: Option<i64>,
     rel_delays: Vec<(i64, i64)>,
+    /// (dfb89499 / farmopt 13:30) each lane's pocket offset after REL (default OFFS, 0 / 14 / 24)
+    offs: [i64; 3],
     /// (G1 10:47 blocking 4's control) the eject-on-R control: armed, and its sample (tick, lane,
     /// the napper, PRESENT_l right after)
     eject_control: bool,
@@ -1334,7 +1338,7 @@ impl Ctl {
         if let Some(r) = self.rel {
             for k in 0..3 {
                 let x = LANES[k];
-                if now == r + OFFS[k] {
+                if now == r + self.offs[k] {
                     // (day-1's picker: the picked lane's batch cart, the one this launch sends)
                     if self.pick == Some(k) {
                         if let Some(cid) = w.entities.list.iter().find(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && !e.passengers.is_empty() && cell(e.pos) == [x, 0, 0]).map(|e| e.id) {
@@ -1380,7 +1384,7 @@ impl Ctl {
                     self.support_off[k] = None;
                 }
                 let d = powered(w, [x, 0, 2]);
-                if self.armed[k] && d && !self.d_prev[k] && now >= r + OFFS[k] {
+                if self.armed[k] && d && !self.d_prev[k] && now >= r + self.offs[k] {
                     self.trap_open[k] = Some(now + 4);
                     self.armed[k] = false;
                 }
@@ -3147,6 +3151,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         ctl.evidence_keyed = o.evidence_keyed;
         ctl.evidence_delay = o.evidence_delay;
         ctl.rel_gate_armed = o.rel_gate_armed;
+        ctl.offs = o.lane_offsets.unwrap_or(OFFS);
     }
     // (day-1 06:07 PT, ctlcounter.rs; G1's blocker 3: the counter's state at the first release, a
     // clear clock's: C = 141 + ceil((d - 12,540) / 100) for a first release at day time d between
