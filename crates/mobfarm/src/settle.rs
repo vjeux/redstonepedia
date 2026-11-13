@@ -248,6 +248,13 @@ pub struct Settle {
     pub time_undeclared: Vec<BlockPos>,
     /// Cells that can't survive where they stand at the fixed point (an attachable on air): failing.
     pub unsupported: Vec<Cell>,
+    /// Fluid that falls out of the compared box (the file's cells + 2): the design leaking there, failing,
+    /// each `(x,y,z): state` as the world refused it.
+    pub fluid_escapes: Vec<String>,
+    /// Doors and trapdoors stored against their neighbour signal at the fixed point (ironspec 02:48's
+    /// follow-up): any one's POWERED, and an iron one's OPEN, must equal the signal (an iron door can't be
+    /// built open unpowered, and the first neighbour update moves either one): failing.
+    pub update_states: Vec<Cell>,
     /// The model notes redsim recorded laying and settling the file (`World::errors`: water reaching a
     /// waterloggable block redsim keeps dry, …): the fixed point isn't modelled there, so the check fails.
     pub model_notes: Vec<String>,
@@ -359,6 +366,16 @@ impl Settle {
                 "{} time-dependent blocks (daylight detectors) in a file with no `# day-time:` ({}): it declares its save's day time (ironspec 02:37 (4))",
                 self.time_undeclared.len(),
                 cells(&self.time_undeclared)
+            ));
+        }
+        if !self.fluid_escapes.is_empty() {
+            v.push(format!("{} fluid cells fall out of the compared box (the design leaks: {})", self.fluid_escapes.len(), self.fluid_escapes.iter().take(6).cloned().collect::<Vec<_>>().join("; ")));
+        }
+        if !self.update_states.is_empty() {
+            v.push(format!(
+                "{} doors / trapdoors stored against their neighbour signal (an iron one's OPEN, or any one's POWERED, isn't the signal at the fixed point: unmakeable, or moved by the first update): {}",
+                self.update_states.len(),
+                cells(&self.update_states.iter().map(|c| c.pos).collect::<Vec<_>>())
             ));
         }
         if !self.unsupported.is_empty() {
@@ -485,8 +502,11 @@ pub fn settle_check(blocks: &[(BlockPos, Block)], block_entities: &[(BlockPos, S
     let mut w = World::new(lo, [hi.x - lo.x + 1, hi.y - lo.y + 1, hi.z - lo.z + 1]);
     w.time = day_time;
     // (the mob layer's clock on at day offset 0, so the daylight detectors and the sky darkening read the
-    // file's day time, not the frozen DAY_TIME of the judges' sandboxes; its entities stay held below)
+    // file's day time, not the frozen DAY_TIME of the judges' sandboxes; its entities stay held below. The
+    // seed sets only the mob layer's random and day offset: natural spawning (`mob.natural`), random ticks
+    // (`random_ticks`) and the weather (`weather.on`) stay off, asserted here (G1 on 9625147af))
     w.mob.seed(0, 0);
+    assert!(w.mob.natural.is_none() && w.random_ticks.is_none() && !w.weather.on, "settle-check's world: the day clock alone");
     w.place_raw(blocks);
     redsim::redstone::container::apply_block_entities(&mut w, block_entities.iter().map(|(p, s)| (*p, s.as_str())))?;
     w.place_updates(blocks);
@@ -496,6 +516,8 @@ pub fn settle_check(blocks: &[(BlockPos, Block)], block_entities: &[(BlockPos, S
     for (kind, pos, nbt) in entities {
         redsim::entity::spawn(&mut w, kind, *pos, nbt.as_deref())?;
     }
+    // (the entities laid, their passengers from NBT included: the count the settle must keep)
+    let laid_entities = w.entities.list.len();
     // (every water, lava and waterlogged cell gets its fluid tick, so a file that isn't fluid-settled
     // shows it (farmopt 00:27, C7's leak: a dry rail between two sources over a solid block becomes a
     // source, FlowingFluid.getNewLiquid's infinite rule); a model note on the way fails the check)
@@ -551,9 +573,22 @@ pub fn settle_check(blocks: &[(BlockPos, Block)], block_entities: &[(BlockPos, S
         (cap, false, history)
     };
     let (ticks, fixed, history) = run(&mut w);
+    // (the same three checked directly after the settle (G1 on the follow-up): no entity spawned (none
+    // natural, none custom), no random tick could run (no random-tick settings, no chunk order), the weather
+    // still off; so a later change to `seed` can't slip past)
+    assert!(
+        w.entities.list.len() == laid_entities && w.mob.natural.is_none() && w.mob.custom.is_none() && w.random_ticks.is_none() && w.chunk_order.is_empty() && !w.weather.on,
+        "settle-check's world after the settle: the day clock alone ({} entities for the {} laid)",
+        w.entities.list.len(),
+        laid_entities
+    );
     let declared_cells: std::collections::HashSet<BlockPos> = decl.clocks.iter().map(|(p, _)| *p).collect();
     let held_cells: std::collections::HashSet<BlockPos> = decl.held.iter().map(|(p, _)| *p).collect();
-    let mut s = Settle { ticks, fixed, model_notes: w.errors.clone(), fluid_cells, ..Default::default() };
+    // (a fluid falling out of the compared box is the design leaking, its own failure, not a model note
+    // (G1 on 9625147af): the world's "setBlock outside the box" notes for water or lava split off)
+    let (escapes, notes): (Vec<String>, Vec<String>) = w.errors.iter().cloned().partition(|e| e.starts_with("setBlock outside the box at ") && (e.contains("minecraft:water") || e.contains("minecraft:lava")));
+    let mut s = Settle { ticks, fixed, model_notes: notes, fluid_cells, ..Default::default() };
+    s.fluid_escapes = escapes.iter().map(|e| e.trim_start_matches("setBlock outside the box at ").to_string()).collect();
     if !fixed {
         // (what `World::idle` still sees pending at the cap)
         let mut p = Vec::new();
@@ -754,6 +789,24 @@ pub fn settle_check(blocks: &[(BlockPos, Block)], block_entities: &[(BlockPos, S
         // survival check refuses it)
         if !now.is_air() && unheld && (!redsim::behavior::can_survive(&w, &now, *p) || redsim::rails::would_pop(&w, *p)) {
             s.unsupported.push(Cell { pos: *p, stored: st.to_string(), settled: "minecraft:air (no support: it pops at its first update)".into(), class: "popped" });
+        }
+        // (a door or trapdoor stored against its neighbour signal (ironspec 02:48): its POWERED follows the
+        // signal at the first neighbour update (a door reads both halves), and an iron one's OPEN with it (no
+        // hand can open it): the STORED state against the fixed point's signal, so a door the placement never
+        // updates is judged too (one it updated already differs, judged above)
+        let gate = match st {
+            Block::Door { iron, upper, open, powered, .. } => {
+                let other = if upper { p.below() } else { p.above() };
+                Some((iron, open, powered, w.has_neighbor_signal(*p) || w.has_neighbor_signal(other), "door"))
+            }
+            Block::Trapdoor { iron, open, powered, .. } => Some((iron, open, powered, w.has_neighbor_signal(*p), "trapdoor")),
+            _ => None,
+        };
+        if let Some((iron, open, powered, signal, class)) = gate
+            && unheld
+            && (powered != signal || (iron && open != signal))
+        {
+            s.update_states.push(Cell { pos: *p, stored: st.to_string(), settled: format!("the neighbour signal {}", if signal { "on" } else { "off" }), class });
         }
         if !out.is_air() || !st.is_air() {
             s.settled.push((*p, out));
@@ -1225,6 +1278,51 @@ mod tests {
         let ok = declared("# water: 1,2,3=a current (fed by its source; bounded by glass); 4,5,6=another (b)\n").unwrap();
         assert_eq!(ok.water.iter().map(|(p, _)| *p).collect::<Vec<_>>(), vec![BlockPos::new(1, 2, 3), BlockPos::new(4, 5, 6)]);
         assert_eq!(declared("# day-time: 6000\n").unwrap().day_time, Some(6000));
+    }
+
+    /// A fluid falling out of the compared box is its own failure, not a model note (G1 on 9625147af): a
+    /// source on the file's lowest layer with air under it falls past the box (the file + 2 below).
+    #[test]
+    fn fluid_escapes_the_box() {
+        let d = vec![at(1, 0, 0, "minecraft:stone"), at(0, 0, 0, "minecraft:water[level=0]"), at(0, 1, 0, "minecraft:stone")];
+        let s = check(&d, &Declared::default());
+        assert!(!s.fluid_escapes.is_empty() && s.model_notes.is_empty(), "{:?} {:?}", s.fluid_escapes, s.model_notes);
+        assert!(s.fails(false).iter().any(|f| f.contains("fall out of the compared box")) && !s.fails(false).iter().any(|f| f.starts_with("NOT MODELLED")), "{:?}", s.fails(false));
+    }
+
+    /// Doors and trapdoors against their neighbour signal (ironspec 02:48's follow-up): an iron trapdoor
+    /// stored open with no signal fails (unmakeable), and one stored open and powered beside a lever that's on
+    /// passes; an oak trapdoor open with no signal passes (a hand opens it), but one stored powered with no
+    /// signal fails (the first update moves it). (The settle world's flags, the day clock alone, are asserted
+    /// inside settle_check on every run, these included.)
+    #[test]
+    fn update_driven_states() {
+        let mut d = floor(3);
+        d.push(at(0, 0, 0, "minecraft:iron_trapdoor[facing=north,half=bottom,open=true,powered=false,waterlogged=false]"));
+        let s = check(&d, &Declared::default());
+        assert!(s.update_states.iter().any(|c| c.pos == BlockPos::new(0, 0, 0)) && s.fails(false).iter().any(|f| f.contains("against their neighbour signal")), "{:?}", s.update_states);
+        let mut on = floor(3);
+        on.extend([at(0, 0, 0, "minecraft:iron_trapdoor[facing=north,half=bottom,open=true,powered=true,waterlogged=false]"), at(1, 0, 0, "minecraft:lever[face=floor,facing=east,powered=true]")]);
+        let s = check(&on, &Declared::default());
+        assert!(s.update_states.is_empty(), "{:?} {:?}", s.update_states, s.fails(false));
+        let mut oak = floor(3);
+        oak.push(at(0, 0, 0, "minecraft:oak_trapdoor[facing=north,half=bottom,open=true,powered=false,waterlogged=false]"));
+        let s = check(&oak, &Declared::default());
+        assert!(s.update_states.is_empty(), "{:?}", s.update_states);
+        let mut oakp = floor(3);
+        oakp.push(at(0, 0, 0, "minecraft:oak_trapdoor[facing=north,half=bottom,open=false,powered=true,waterlogged=false]"));
+        let s = check(&oakp, &Declared::default());
+        assert!(s.update_states.iter().any(|c| c.pos == BlockPos::new(0, 0, 0)), "{:?}", s.update_states);
+    }
+
+    /// A file's entity carrying a passenger in its NBT lays as two entities, both held: the settle keeps that
+    /// count (the after-settle assertion compares the laid count, not the file's lines).
+    #[test]
+    fn entities_with_passengers_held() {
+        let d = floor(2);
+        let ents = vec![("minecraft:minecart".to_string(), [0.5, 0.0, 0.5], Some("{Passengers:[{id:\"minecraft:villager\"}]}".to_string()))];
+        let s = settle_check(&d, &[], &ents, &Declared::default(), 6000, CAP).unwrap();
+        assert!(s.fails(false).is_empty(), "{:?}", s.fails(false));
     }
 
     /// No vacuous pass (ironspec 23:56): an empty file is NOT JUDGED and fails.
