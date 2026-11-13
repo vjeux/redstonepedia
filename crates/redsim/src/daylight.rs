@@ -602,7 +602,18 @@ fn update_signal_strength(w: &mut World, pos: BlockPos) {
     // runs, a mob farm's day passes, else the frozen DAY_TIME every other study's sandbox has;
     // mobinfra: with the level's rain and thunder)
     let day = if w.mob.rng.is_some() { w.day_time() } else { DAY_TIME };
-    let mut target = (sky - w.sky_darken()).max(0);
+    let target = detector_power(sky, w.sky_darken(), day, inverted);
+    if power != target {
+        w.set_block_and_update(pos, Block::DaylightDetector { inverted, power: target });
+    }
+}
+
+/// The power `DaylightDetectorBlock.updateSignalStrength` computes from the cell's sky light, the
+/// level's sky darkening and the day time (the sun angle), inverted or not: one formula for the
+/// block's update and for a bench that asks when a detector's level crosses a threshold under each
+/// weather (`crate::weather::sky_darken_at`).
+pub fn detector_power(sky: i32, darken: i32, day: i64, inverted: bool) -> u8 {
+    let mut target = (sky - darken).max(0);
     let mut sun = sun_angle(day) * (std::f64::consts::PI / 180.0) as f32;
     if inverted {
         target = 15 - target;
@@ -611,10 +622,7 @@ fn update_signal_strength(w: &mut World, pos: BlockPos) {
         sun += (offset - sun) * 0.2f32;
         target = round_f32(target as f32 * crate::entity::mth::cos(sun as f64));
     }
-    let target = target.clamp(0, 15) as u8;
-    if power != target {
-        w.set_block_and_update(pos, Block::DaylightDetector { inverted, power: target });
-    }
+    target.clamp(0, 15) as u8
 }
 
 #[cfg(test)]

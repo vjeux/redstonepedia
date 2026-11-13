@@ -372,9 +372,6 @@ struct Ctl {
     held_set: Option<(i64, String)>,
     held_log: Vec<String>,
     held_stuck: Vec<(i64, String)>,
-    /// (ironspec 00:12 PT) each queue arrival's pick -> arrival (the one-in-flight timing bar
-    /// against the 300-gt pick spacing).
-    pick_to_arrival: Vec<i64>,
     /// (ironspec 00:16 PT) the napper's rest at the seat after the last arrival, and the module's
     /// dwell cap (HELD's bound: rest + the cap + R1's 4 gt).
     q_rest_at: Option<i64>,
@@ -699,6 +696,15 @@ fn powered(w: &redsim::world::World, p: [i32; 3]) -> bool {
 }
 
 impl Ctl {
+    /// (ironspec 02:37 PT) every divert with its napper: each divert's cart joined to the pick that
+    /// sent it (the latest pick of that cart at or before the divert).
+    fn diverts(&self) -> Vec<(i64, u32)> {
+        self.divert_log
+            .iter()
+            .filter_map(|(dt, c)| self.pick_carts.iter().filter(|(pt, pc, _, _)| pc == c && pt <= dt).max_by_key(|x| x.0).map(|x| (*dt, x.2)))
+            .collect()
+    }
+
     fn note(&mut self, t: i64, s: String) {
         if self.log.len() < 400 {
             self.log.push(format!("t {t}: {s}"));
@@ -1123,12 +1129,6 @@ impl Ctl {
                 self.held_by = w.entities.list.iter().find(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && (cell(e.pos) == arr || cell(e.pos) == q)).and_then(|e| e.passengers.first().copied());
                 self.held_log.push(format!("t {now}: HELD set by the queue's arrival"));
                 self.q_arrivals.push(now);
-                // (the one-in-flight timing bar) this arrival's pick -> arrival
-                if let Some((pt, _)) = self.pick_log.last()
-                    && *pt <= now
-                {
-                    self.pick_to_arrival.push(now - pt);
-                }
                 self.nap_events.push(format!("t {now}: the queue's arrival ({},{},{}): HELD, the hold from now; the hatch (6,{},-5) {}", arr[0], arr[1], arr[2], by + 15, if w.get(redsim::pos::BlockPos::new(6, by + 15, -5)).to_string().contains("open=true") { "open" } else { "closed" }));
             }
             self.q_arr_prev = a;
@@ -2230,6 +2230,8 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     let mut sight_hits: Vec<i64> = vec![0; sight_cells.len()];
     let mut sight_rows: Vec<String> = Vec::new();
     let mut sight_classes: BTreeMap<String, i64> = BTreeMap::new();
+    // (ironspec 02:37 PT (3)) the detector's falls under each weather, at the run's start
+    let day_rows = if o.napper && o.drive { day_weather_rows(&run.world, o.day_threshold) } else { String::new() };
     // (ironspec 21:25 PT) the carts' contacts with blocks: cell -> (ticks, the first tick, block)
     let mut contacts: BTreeMap<[i32; 3], (i64, i64, String)> = BTreeMap::new();
     // (ironspec 20:40 PT) the feed stack's direct bench: instead of the run
@@ -4198,12 +4200,39 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         if renew.bystander_rows.is_empty() { String::new() } else { format!("; the bystanders: {}", renew.bystander_rows.join("; ")) }
     ));
     s.push_str(&format!(
-        "the bystander stamps on departing riders (ironspec 19:07 PT: out of their pockets when a summon stamped them; bar 0 in locked running): {} ({} in locked running: {}){}\n",
+        "the bystander stamps (ironspec 02:37 PT, restated as the harm: every stamp printed with its stamping summoner and its margin at the stamped rider's next own-pocket summon; the bar is that margin, the free caller's >= 3, and the summon check's 'other stamp' blocks stay the gate): {} on riders out of their pockets ({} in locked running){}; the margins at the next own-pocket summon: {}; {} stamps with no next summon inside the run; the least margin {} ({})\n",
         renew.departing_bystanders,
         renew.departing_locked,
-        if renew.departing_locked == 0 { "PASS" } else { "FAIL" },
-        if renew.departing_rows.is_empty() { String::new() } else { format!(": {}", renew.departing_rows.join("; ")) }
+        if renew.departing_rows.is_empty() { String::new() } else { format!(": {}", renew.departing_rows.join("; ")) },
+        if renew.bystander_rows.is_empty() { "none".to_string() } else { renew.bystander_rows.join("; ") },
+        recs.values().filter(|r| r.bystander_stamp.is_some()).count(),
+        renew.bystander_margin.map_or("-".to_string(), |m| format!("{m:+} gt")),
+        match renew.bystander_margin {
+            Some(m) if m < 3 => "FAIL",
+            _ if renew.departing_bystanders == 0 => "PASS: no stamp on a rider out of its pocket",
+            None => "NOT JUDGED (no stamped rider reached its next summon): FAIL",
+            Some(_) => "PASS",
+        }
     ));
+    // (ironspec 02:37 PT, farmopt 02:42) the successful summons by the caller's place: a pocket
+    // rider (y 0), a hold rider (y 16: can't reach the pad, so expected 0), anywhere else (named)
+    {
+        let (mut pocket, mut hold, mut other) = (0usize, 0usize, Vec::new());
+        for (t, v, _, _, p) in golem_summon.values() {
+            match p.map(|p| p[1].floor() as i32) {
+                Some(0) => pocket += 1,
+                Some(16) => hold += 1,
+                _ => other.push(format!("t {} #{v} at {}", t - t0, p.map_or("?".to_string(), |p| format!("({:.2},{:.2},{:.2})", p[0], p[1], p[2])))),
+            }
+        }
+        s.push_str(&format!(
+            "the successful summons by the caller's place (ironspec 02:37 PT: hold riders never stamp): {} golems, by pocket riders {pocket}, by hold riders {hold} (expected 0: {}), elsewhere {}{}\n",
+            golem_summon.len(),
+            if hold == 0 { "PASS" } else { "FAIL" },
+            other.len(),
+            if other.is_empty() { String::new() } else { format!(": {}", other.join(", ")) }
+        ));
+    }
     s.push_str(&format!(
         "the summons from the pockets (farmopt 12:10, ironspec 12:13: the stand is the pocket; at each summon tick T every scared, slept villager in a pocket cell (x,0,0) calls, the villagers in its box inflated by 10 counted or rejected; a memory present at T: a ttl of 1 or more before the tick): {} calls, {} callers blocked by their own GOLEM_DETECTED_RECENTLY (by setter: {}), {} villagers in the boxes rejected for it (not callers: informational), {} summons blocked by those rejections (participations blocked: callers blocked + summons blocked, bar 0: {}); the least free caller's margin (T - (last set + 599)) {}; each lane's least rotation at a summon tick (the riders whose last lane is it, a napper out while away; bar >= 7): {}; the most nappers away from one lane at once: {}{}\n",
         summons.attempts,
@@ -4636,32 +4665,41 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 if ctl.held_stuck.is_empty() { "PASS" } else { "FAIL" },
                 if ctl.held_log.is_empty() { "none".to_string() } else { ctl.held_log.iter().take(60).cloned().collect::<Vec<_>>().join("; ") }
             ));
-            // (ironspec 00:12 / 00:16 PT) the one-in-flight timing bar: each picked napper's launch
-            // -> arrival at the queue against the next pick's launch (the margin must stay > 0; a
-            // world open's N = 2 lead and the leg's spread print with the restart rows)
-            let worst_pa = ctl.pick_to_arrival.iter().copied().max();
+            // (ironspec 00:12 / 00:16 PT; 02:37 PT: measured from the DIVERT, since a pick the divert
+            // turns away never enters the way-in) the one-in-flight timing bar: each diverted
+            // napper's divert -> arrival at the queue against the next divert (the margin must stay
+            // > 0; a world open's N = 2 lead and the leg's spread print with the restart rows); the
+            // turned-away picks print apart, with their causes
+            let diverts: Vec<(i64, u32)> = ctl.diverts();
+            let div_to_arr: Vec<i64> = diverts.iter().filter_map(|(dt, _)| ctl.q_arrivals.iter().find(|a| **a >= *dt).map(|a| a - dt)).collect();
+            let worst_pa = div_to_arr.iter().copied().max();
             let mut least_margin: Option<(i64, i64)> = None;
-            for (i, (pt, _)) in ctl.pick_log.iter().enumerate() {
-                let next = ctl.pick_log.get(i + 1).map(|p| p.0);
-                if let Some(a) = ctl.q_arrivals.iter().find(|a| **a >= *pt).copied()
+            for (i, (dt, _)) in diverts.iter().enumerate() {
+                let next = diverts.get(i + 1).map(|p| p.0);
+                if let Some(a) = ctl.q_arrivals.iter().find(|a| **a >= *dt).copied()
                     && let Some(nx) = next
                 {
                     let m = nx - a;
                     if least_margin.is_none_or(|(lm, _)| m < lm) {
-                        least_margin = Some((m, *pt));
+                        least_margin = Some((m, *dt));
                     }
                 }
             }
+            let lost: Vec<&String> = ctl.held_log.iter().filter(|l| l.contains("LOST PICK")).collect();
             s.push_str(&format!(
-                "  one in flight, the timing bar (ironspec 00:12 / 00:16 PT: each launch -> arrival against the next pick's launch): {} arrivals after a pick, the largest launch -> arrival {}, the least margin to the next launch {} ({})\n",
-                ctl.pick_to_arrival.len(),
+                "  one in flight, the timing bar (ironspec 00:12 / 00:16 / 02:37 PT: each divert -> queue arrival against the next divert): {} diverts, {} arrivals after a divert, the largest divert -> arrival {}, the least margin to the next divert {} ({}); the picks turned away before the way-in (not in flight): {} ({} by DAY at the row){}\n",
+                diverts.len(),
+                div_to_arr.len(),
                 worst_pa.map_or("-".to_string(), |w| format!("{w} gt")),
-                least_margin.map_or("-".to_string(), |(m, pt)| format!("{m} gt (the pick at t {pt})")),
+                least_margin.map_or("-".to_string(), |(m, dt)| format!("{m} gt (the divert at t {dt})")),
                 match least_margin {
                     None => "NOT JUDGED (0 samples): FAIL",
                     Some((m, _)) if m > 0 => "PASS",
                     Some(_) => "FAIL",
-                }
+                },
+                lost.len(),
+                ctl.picks_day,
+                if lost.is_empty() { String::new() } else { format!(": {}", lost.iter().take(12).map(|l| l.as_str()).collect::<Vec<_>>().join("; ")) }
             ));
             s.push_str(&format!(
                 "  a pick decided while another was pending (G1: an overwrite): {}{} (bar 0: {})\n",
@@ -4836,9 +4874,11 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     ctl.release_log.len(),
                     fa.map_or(String::new(), |f| format!(", the first: {f}"))
                 ));
-                let (nb, fb) = overlap(&ctl.pick_log, &ctl.dep_log);
+                let diverts = ctl.diverts();
+                let (nb, fb) = overlap(&diverts, &ctl.dep_log);
                 s.push_str(&format!(
-                    "  (b) one napper in flight (ironspec 19:29: one from its pick to the queue's departure): {} picks, {nb} while another was in flight{} (bar 0: {})\n",
+                    "  (b) one napper in flight (ironspec 19:29 / 02:37 PT: one from its divert to the queue's departure; a pick the divert turns away is not in flight): {} diverts of {} picks, {nb} while another was in flight{} (bar 0: {})\n",
+                    diverts.len(),
                     ctl.pick_log.len(),
                     fb.as_ref().map_or(String::new(), |f| format!(", the first: {f}")),
                     if nb == 0 { "PASS" } else { "FAIL" }
@@ -5022,13 +5062,14 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         }
         // (ironspec 02:18 PT (2)) DAY's validation row
         s.push_str(&format!(
-            "  the DAY stand-in's validation (ironspec 02:18 PT (2): DAY = the detector at level >= {} against the design's level >= 6, each tick; clear weather only: redsim's sky darkening models no rain or thunder, so those rows are tick-exact's): {} ticks read, {} detector updates, {} ticks where the stand-in differs from the design ({}); the DAY edges: {}\n",
+            "  the DAY stand-in's validation (ironspec 02:18 PT (2): DAY = the detector at level >= {} against the design's level >= 6, each tick; the run's weather is clear): {} ticks read, {} detector updates, {} ticks where the stand-in differs from the design ({}); the DAY edges: {}; the weather rows (ironspec 02:37 PT (3)): {}\n",
             ctl.day_threshold,
             ctl.day_ticks,
             ctl.day_updates,
             ctl.day_mismatch,
             if ctl.day_ticks == 0 { "NOT JUDGED (0 samples): FAIL" } else if ctl.day_mismatch == 0 { "PASS" } else if ctl.day_threshold != 6 { "FAIL: the positive control's threshold" } else { "FAIL" },
-            if ctl.day_edges.is_empty() { "none".to_string() } else { ctl.day_edges.join(", ") }
+            if ctl.day_edges.is_empty() { "none".to_string() } else { ctl.day_edges.join(", ") },
+            day_rows
         ));
         s.push_str(&format!(
             "  stranded nappers (ironspec 00:33 PT: a napper waking in A6 with no cart at P by its wake + the bound fails; P and the bound from the module's `# a6-pickup:`): {}\n",
@@ -5174,6 +5215,40 @@ fn anyhow_free(ok: bool, why: &str) -> Result<(), String> {
 /// the same line still counts.
 pub fn fail_lines(rep: &str) -> Vec<&str> {
     rep.lines().filter(|l| l.replace("expected FAIL", "").contains("FAIL")).collect()
+}
+
+/// (ironspec 02:37 PT (3)) The module's daylight detector (-5,15,3) under each weather: the day
+/// time its level first falls below `threshold` in the evening and first reaches it again at dawn,
+/// from redsim's detector formula (`daylight::detector_power`) at the cell's sky light with
+/// `weather::sky_darken_at(day, rain, thunder)`, against tick-exact's official falls (clear 12,230,
+/// rain 11,603, thunder 10,958); the detector updates every 20 gt, so a fall inside the 20 gt before
+/// the official one passes.
+pub fn day_weather_rows(w: &redsim::world::World, threshold: u32) -> String {
+    let pos = redsim::pos::BlockPos::new(-5, 15, 3);
+    let sky = match redsim::daylight::sky_light(w, pos) {
+        Ok(s) => s,
+        Err(e) => return format!("the detector's sky light unreadable ({e}): NOT JUDGED: FAIL"),
+    };
+    let power = |d: i64, rain: f32, thunder: f32| redsim::daylight::detector_power(sky, redsim::weather::sky_darken_at(d, rain, thunder), d, false) as u32;
+    let rows: Vec<String> = [("clear", 0.0f32, 0.0f32, 12_230i64), ("rain", 1.0, 0.0, 11_603), ("thunder", 1.0, 1.0, 10_958)]
+        .iter()
+        .map(|(name, rain, thunder, official)| {
+            let fall = (6_000..18_000i64).find(|d| power(*d, *rain, *thunder) < threshold);
+            let rise = (18_000..30_000i64).find(|d| power(d.rem_euclid(24_000), *rain, *thunder) >= threshold).map(|d| d.rem_euclid(24_000));
+            let verdict = match fall {
+                Some(f) if f > official - 20 && f <= *official => "PASS",
+                Some(_) => "FAIL",
+                None => "NOT JUDGED (no fall): FAIL",
+            };
+            format!(
+                "{name}: falls below {threshold} at day time {} (tick-exact's official {official}: {}), back at {}",
+                fall.map_or("-".to_string(), |f| f.to_string()),
+                fall.map_or("-".to_string(), |f| format!("{:+} gt, {verdict}", f - official)),
+                rise.map_or("-".to_string(), |r| r.to_string())
+            )
+        })
+        .collect();
+    format!("the detector's sky light {sky}; {}", rows.join("; "))
 }
 
 /// The picker's C at the first release from its day time `d` (day-1's model: C 141 at the release
