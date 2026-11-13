@@ -680,7 +680,14 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
     put(&mut b, ARM_A2, "detector_rail[powered=false,shape=north_south,waterlogged=false]")?;
     put(&mut b, [ARM_A2[0], -1, ARM_A2[2]], "glass")?;
     put(&mut b, E_A2, "activator_rail[powered=true,shape=north_south,waterlogged=false]")?;
-    put(&mut b, [E_A2[0], -1, E_A2[2]], "magma_block")?;
+    // (E's floor glass, not solid-render: E is no stable stroll destination from P (ironspec 07:16
+    // (ii): the panic stroll drew it, unreachable); a top-half trapdoor over E (its collision at
+    // 1.8125..2.0, under it 1.81 of clear height) keeps E out of findStandUpPosition's answers
+    // (both passes: the 1.95-tall box won't fit) where the magma floor did it before; the seated
+    // rider's eye (cart + 1.62) passes under it; a plain rail on its top (golem-proofing))
+    put(&mut b, [E_A2[0], -1, E_A2[2]], "glass")?;
+    put(&mut b, [E_A2[0], 1, E_A2[2]], cap)?;
+    put(&mut b, [E_A2[0], 2, E_A2[2]], button)?;
     put(&mut b, ACT_CTRL_A2, &ctl_block(ACT_CTRL_A2, "redstone_block"))?;
     put(&mut b, [ACT_CTRL_A2[0], -1, ACT_CTRL_A2[2]], "glass")?;
     put(&mut b, [ACT_CTRL_A2[0], 1, ACT_CTRL_A2[2]], "glass")?;
