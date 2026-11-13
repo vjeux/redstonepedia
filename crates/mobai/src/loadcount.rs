@@ -191,7 +191,7 @@ pub fn load_count(version: &str, cases: u32, run_ms: u64) -> Result<()> {
             not_judged += 1;
             println!("    the pending repeater: NOT JUDGED (0 samples: no stamp)");
         } else if fire - gt0 != 9 {
-            bad.push(format!("world open {k}: the pending repeater stamped at save + {} (the model: save + 9, its save-time due time)", fire - gt0));
+            bad.push(format!("world open {k}: the pending repeater stamped at save + {} (the model: due at save + 8, stamped at save + 9)", fire - gt0));
         }
     }
     // logins: per case the chunk held (forced) while the 96-gt line is set off, the forced ticket

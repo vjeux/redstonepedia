@@ -32,6 +32,9 @@ struct Act {
     t: u32,
     verb: String,
     args: Vec<String>,
+    /// (onechunk's closed-loop drive) redsim's state just before this write: `carts …; holds …;
+    /// pockets …`, names as eN / eN.pK
+    expect: Option<String>,
 }
 
 /// The drive file: its t0 and its acts, sorted by t (stable: file order within a tick).
@@ -49,7 +52,21 @@ fn parse_drive(path: &Path) -> Result<(u32, Vec<Act>)> {
             let verb = w.next().ok_or_else(|| anyhow::anyhow!("line {}: act with no verb", i + 1))?.to_string();
             let args: Vec<String> = w.map(|s| s.to_string()).collect();
             anyhow::ensure!(["home", "last-slept", "set"].contains(&verb.as_str()), "line {}: unknown act verb {verb}", i + 1);
-            acts.push(Act { t, verb, args });
+            acts.push(Act { t, verb, args, expect: None });
+        } else if let Some(rest) = l.strip_prefix("# expect ") {
+            // `# expect t x y z: …` follows the set act it describes
+            let (head, text) = rest.split_once(": ").ok_or_else(|| anyhow::anyhow!("line {}: an expect line with no ': '", i + 1))?;
+            let h: Vec<&str> = head.split_whitespace().collect();
+            let last = acts.last_mut().ok_or_else(|| anyhow::anyhow!("line {}: an expect line before any act", i + 1))?;
+            anyhow::ensure!(
+                h.len() == 4 && last.verb == "set" && h[0] == last.t.to_string() && h[1..] == last.args[..3],
+                "line {}: the expect line ({head}) doesn't follow its set act (t{} {} {:?})",
+                i + 1,
+                last.t,
+                last.verb,
+                last.args
+            );
+            last.expect = Some(text.trim().to_string());
         } else if !l.is_empty() && !l.starts_with('#') {
             bail!("line {}: neither a comment nor an act: {l}", i + 1);
         }
@@ -124,11 +141,100 @@ fn fmt_pos(p: Option<[f64; 3]>) -> String {
     p.map(|p| format!("({:.2},{:.2},{:.2})", p[0], p[1], p[2])).unwrap_or_else(|| "?".into())
 }
 
+/// (G1's divergence check) every scene cart's block (frame y) and rider, from the game.
+fn cart_states(srv: &mut VanillaServer, carts: &[String]) -> Result<Vec<(String, [i32; 3], Option<String>)>> {
+    let mut out = Vec::new();
+    for c in carts {
+        let Some(p) = pos_of(srv, &format!("@e[tag={c},limit=1]"))? else { continue };
+        let r = srv.cmd_long(&format!("execute as @e[tag={c},limit=1] on passengers run data get entity @s Tags"))?;
+        let rider = r.split('"').find(|s| s.starts_with('e') && s.contains('p') && s[1..].chars().all(|ch| ch.is_ascii_digit() || ch == 'p')).map(|s| s.to_string());
+        out.push((c.clone(), [p[0].floor() as i32, p[1].floor() as i32, p[2].floor() as i32], rider));
+    }
+    Ok(out)
+}
+
+/// The game's state in the drive's `# expect` form for a write at `cell` (names without the dot),
+/// each scene index renamed through `names` (the drive's own numbering, where it differs).
+fn expect_form(states: &[(String, [i32; 3], Option<String>)], cell: [i32; 3], names: &BTreeMap<usize, usize>) -> String {
+    let rn = |s: &str| -> String {
+        // eN or eNpK
+        let body = &s[1..];
+        let (n, rest) = match body.find('p') {
+            Some(i) => (&body[..i], &body[i..]),
+            None => (body, ""),
+        };
+        match n.parse::<usize>() {
+            Ok(k) => format!("e{}{rest}", names.get(&k).copied().unwrap_or(k)),
+            Err(_) => s.to_string(),
+        }
+    };
+    let who = |c: &str, r: &Option<String>| match r {
+        Some(r) => format!("{} with {}", rn(c), rn(r)),
+        None => rn(c),
+    };
+    let col: Vec<String> = states
+        .iter()
+        .filter(|(_, b, _)| b[0] == cell[0] && b[2] == cell[2] && (cell[1] - 1..=cell[1] + 1).contains(&b[1]))
+        .map(|(c, b, r)| format!("{} at y{:+}", who(c, r), b[1] - cell[1]))
+        .collect();
+    let at = |q: [i32; 3]| states.iter().find(|(_, b, _)| *b == q).map(|(c, _, r)| who(c, r)).unwrap_or_else(|| "none".into());
+    format!(
+        "carts {}; holds -1:{} 3:{} 7:{}; pockets -1:{} 3:{} 7:{}",
+        if col.is_empty() { "none".to_string() } else { col.join(", ") },
+        at([-1, 16, 0]),
+        at([3, 16, 0]),
+        at([7, 16, 0]),
+        at([-1, 0, 0]),
+        at([3, 0, 0]),
+        at([7, 0, 0])
+    )
+}
+
+#[derive(Default)]
+struct Spell {
+    start: u32,
+    at: String,
+    hostile: bool,
+    wt_at_entry: Option<String>,
+    sink_stop: Option<u32>,
+    home_set: Option<(u32, String)>,
+    home_path: Option<(bool, String)>,
+    armed: Option<u32>,
+    released: Option<(u32, String)>,
+    sight: String,
+}
+
+impl Spell {
+    fn describe(&self, end: Option<u32>) -> String {
+        format!(
+            "REST t{}..{} ({} gt) at {} hostile {}; WALK_TARGET at entry {}; the sink's stop {}; HOME targeted {}; its path {}; stamp armed {}; released {}{}",
+            self.start,
+            end.map(|e| format!("t{e}")).unwrap_or_else(|| "(open)".into()),
+            end.map(|e| (e - self.start).to_string()).unwrap_or_else(|| "?".into()),
+            self.at,
+            self.hostile,
+            self.wt_at_entry.clone().unwrap_or_else(|| "absent".into()),
+            self.sink_stop.map(|t| format!("t{t}")).unwrap_or_else(|| "-".into()),
+            self.home_set.as_ref().map(|(t, a)| format!("t{t} (stamp age then {a})")).unwrap_or_else(|| "never in the spell".into()),
+            self.home_path.as_ref().map(|(c, s)| format!("{} start {s}", if *c { "complete" } else { "PARTIAL" })).unwrap_or_else(|| "-".into()),
+            self.armed.map(|t| format!("t{t}")).unwrap_or_else(|| "-".into()),
+            self.released.as_ref().map(|(t, a)| format!("t{t} (stamp age then {a})")).unwrap_or_else(|| "-".into()),
+            if self.sight.is_empty() { String::new() } else { format!("; sight: {}", self.sight) }
+        )
+    }
+}
+
 #[derive(Default)]
 struct V {
     tag: String,
     gone: Option<String>,
     hurts: Vec<String>,
+    /// WALK_TARGET held (its source) or absent
+    wt: Option<String>,
+    spell: Option<Spell>,
+    spells: Vec<String>,
+    /// at-entry judgements: (tick, stamp age or none) at each first SetWalkTargetFromBlockMemory run per spell
+    entry_judged: Vec<(u32, Option<i64>)>,
     /// the least air supply read (every 20 gt): (air, tick, position)
     min_air: Option<(i32, u32, String)>,
     activity: String,
@@ -158,7 +264,11 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
         bed[1],
         bed[2]
     );
-    println!("  OPEN LOOP: the drive carries no recorded state per act, so the divergence check (the rider / cart each act assumes) is UNAVAILABLE: the controller's coverage is NOT JUDGED by this row; its bars judge the mechanics it reaches");
+    if !acts.iter().any(|a| a.expect.is_some()) {
+        println!("  OPEN LOOP: the drive carries no recorded state per act, so the divergence check (the rider / cart each act assumes) is UNAVAILABLE: the controller's coverage is NOT JUDGED by this row; its bars judge the mechanics it reaches");
+    } else {
+        println!("  CLOSED-LOOP CHECKED: {} write(s) carry redsim's recorded state (`# expect`), compared with the game's before each write (exact: the carts in the act's column with their riders and block-y offsets, each hold's and pocket's cart and rider); acts are applied between ticks with the server frozen (`tick step`), as f1q2-run applies them after its tick", acts.iter().filter(|a| a.expect.is_some()).count());
+    }
     let jar = mctas::bridge::brain_agent(version)?;
     let opts = |world: Option<std::path::PathBuf>| VanillaOptions {
         version: version.to_string(),
@@ -178,10 +288,14 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
     let d = mctas::design::Design::load(scene)?;
     let mut by_uuid: BTreeMap<String, usize> = BTreeMap::new();
     let mut vs: Vec<V> = Vec::new();
+    let mut cart_tags: Vec<String> = Vec::new();
     for (n, e) in d.entities.iter().enumerate() {
         let (nbt, kinds) = tagged(e.nbt.as_deref().unwrap_or(""), n);
         let out = srv.cmd(&format!("summon {} {} {} {} {nbt}", e.kind, e.pos[0], e.pos[1] + DY as f64, e.pos[2]))?;
         anyhow::ensure!(out.contains("Summoned new"), "entity line {n} ({} at {:?}): {}", e.kind, e.pos, out.trim());
+        if e.kind.contains("minecart") {
+            cart_tags.push(format!("e{n}"));
+        }
         for (k, kind) in kinds.iter().enumerate() {
             if kind == "minecraft:villager" {
                 let tag = format!("e{n}p{k}");
@@ -197,6 +311,28 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
     srv.cmd_ok("gamerule advance_time true")?;
     let gt0 = srv.game_time()?;
     let mut log = Log { at: 0 };
+    // (G1 on G #6) the agent hooks this replay reads must have installed (N > 0), and a positive:
+    // a scratch villager given 1 drowning damage must print its `hurt drown` line
+    {
+        let text = std::fs::read_to_string(&srv.log)?;
+        for (what, needle) in [("+hurt", "LivingEntity reports hurtServer ("), ("+poi acquire", "AcquirePoi reports findPathToPois's path ("), ("+poi tickets", "PoiRecord reports acquireTicket and releaseTicket (")] {
+            let n: Option<u32> = text.lines().find_map(|l| l.split(needle).nth(1)).and_then(|r| r.split_whitespace().next()).and_then(|s| s.parse().ok());
+            println!("  agent hook {what}: {}", n.map(|n| format!("{n} installed")).unwrap_or_else(|| "NOT installed".into()));
+            anyhow::ensure!(n.is_some_and(|n| n > 0), "the agent hook {what} did not install: its absence of lines would read as no events");
+        }
+        srv.cmd_ok(&format!("setblock 28 {} 28 minecraft:glass", 100 + DY))?;
+        srv.cmd_ok(&format!("summon minecraft:villager 28.5 {} 28.5 {{NoAI:1b,Tags:[\"scratchv\"]}}", 101 + DY))?;
+        let su = uuid_hex(&mut srv, "@e[tag=scratchv,limit=1]")?;
+        log.at = std::fs::metadata(&srv.log)?.len();
+        let out = srv.cmd("damage @e[tag=scratchv,limit=1] 1 minecraft:drown")?;
+        srv.step(1)?;
+        let lines = log.drain(&srv)?;
+        let hit = lines.iter().any(|l| l.starts_with("hurt drown") && l.ends_with(&format!("@{su}")));
+        srv.cmd("kill @e[tag=scratchv]")?;
+        srv.cmd(&format!("setblock 28 {} 28 minecraft:air", 100 + DY))?;
+        println!("  the +hurt positive (a scratch villager, `damage … 1 minecraft:drown`: {}): {}", out.trim(), if hit { "its `hurt drown` line printed" } else { "NO line" });
+        anyhow::ensure!(hit, "the +hurt positive printed no `hurt drown` line: a drowning would go unseen");
+    }
     log.drain(&srv)?;
     let centre = [bed[0] as f64 + 0.5, bed[1] as f64 + 0.5, bed[2] as f64 + 0.5];
     let home_target = format!("BlockPos{{x={}, y={}, z={}}}", bed[0], bed[1] + DY, bed[2]);
@@ -216,6 +352,45 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
     let mut lane_hist: Vec<String> = Vec::new();
     let mut activity_rows: Vec<String> = Vec::new();
     let mut reloaded = false;
+    let air_watch = std::env::var("MCTAS_REPLAY_AIR").ok();
+    let mut air_rows: Vec<String> = Vec::new();
+    let mut state_at: Option<(u32, Vec<(String, [i32; 3], Option<String>)>)> = None;
+    let (mut expects_checked, mut first_div, mut divergences) = (0usize, None::<u32>, Vec::<String>::new());
+    let plant_at: Option<u32> = std::env::var("MCTAS_REPLAY_PLANT_EXPECT").ok().map(|s| s.parse()).transpose()?;
+    let mut planted: Option<u32> = None;
+    // (tick of a diverged write, redsim's holds / pockets then, the tick the game first matched them)
+    let mut pending: Vec<(u32, String, Option<u32>)> = Vec::new();
+    let trace_spec: Option<(String, u32, u32)> = match std::env::var("MCTAS_REPLAY_TRACE") {
+        Ok(s) => {
+            let (who, w) = s.split_once(':').ok_or_else(|| anyhow::anyhow!("MCTAS_REPLAY_TRACE=eN:from-to, got {s}"))?;
+            let (a, b) = w.split_once('-').ok_or_else(|| anyhow::anyhow!("MCTAS_REPLAY_TRACE=eN:from-to, got {s}"))?;
+            Some((who.to_string(), a.parse()?, b.parse()?))
+        }
+        Err(_) => None,
+    };
+    let mut trace_rows: Vec<String> = Vec::new();
+    let mut unread: Vec<String> = Vec::new();
+    let mut day_base: i64 = day_start;
+    // MCTAS_REPLAY_NAMES="7=28,8-11=7-10,12-28=11-27": scene index -> the drive's eN, where the drive
+    // numbers its entities in another order (its spawn order)
+    let mut names: BTreeMap<usize, usize> = BTreeMap::new();
+    if let Ok(spec) = std::env::var("MCTAS_REPLAY_NAMES") {
+        for part in spec.split(',').filter(|p| !p.trim().is_empty()) {
+            let (a, b) = part.split_once('=').ok_or_else(|| anyhow::anyhow!("MCTAS_REPLAY_NAMES: a=b or a-b=c-d, got {part}"))?;
+            let range = |s: &str| -> Result<(usize, usize)> {
+                Ok(match s.split_once('-') {
+                    Some((x, y)) => (x.trim().parse()?, y.trim().parse()?),
+                    None => (s.trim().parse()?, s.trim().parse()?),
+                })
+            };
+            let ((a0, a1), (b0, b1)) = (range(a)?, range(b)?);
+            anyhow::ensure!(a1 >= a0 && a1 - a0 == b1.wrapping_sub(b0), "MCTAS_REPLAY_NAMES: {part}: ranges of different lengths");
+            for k in 0..=a1 - a0 {
+                names.insert(a0 + k, b0 + k);
+            }
+        }
+        println!("  names: scene index -> the drive's eN: {}", names.iter().map(|(a, b)| format!("{a}->{b}")).collect::<Vec<_>>().join(" "));
+    }
     for t in 0..=ticks {
         if loads.contains(&t) {
             reloaded = true;
@@ -225,8 +400,13 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
             srv.cmd_ok("forceload add -32 -32 31 31")?;
             srv.cmd_ok("gamerule advance_time true")?;
             srv.cmd_ok("weather clear 1000000")?;
-            let day_now = srv.cmd_long("time query daytime")?;
-            events.push(format!("t{t}: WORLD OPEN ({}); {}", rl.describe(), day_now.trim()));
+            // (G1 on G #2) the clock re-based from the game after the load: `time query time` is the
+            // overworld clock (26.3: "Clock minecraft:overworld is at N tick(s)"); the tick about to
+            // run reads N + 1
+            let clock = srv.cmd_long("time query time")?;
+            let n: i64 = clock.split(" is at ").nth(1).and_then(|r| r.split_whitespace().next()).and_then(|s| s.parse().ok()).ok_or_else(|| anyhow::anyhow!("time query time: unreadable: {}", clock.trim()))?;
+            day_base = n - t as i64;
+            events.push(format!("t{t}: WORLD OPEN ({}); the clock {n} (day {})", rl.describe(), n.rem_euclid(24000)));
             detail_until = Some(t + 60);
             // a world open wipes every codec-less memory: the tracked activity, hostile, stamp, path
             for v in vs.iter_mut() {
@@ -254,6 +434,39 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
                     anyhow::ensure!(a.args.len() == 4, "t{t}: set x y z STATE");
                     let p: Vec<i32> = a.args[..3].iter().map(|s| s.parse()).collect::<Result<_, _>>()?;
                     let cell = [p[0], p[1], p[2]];
+                    // (G1's divergence check) redsim's recorded state before the write against the
+                    // game's: carts in the act's column, each hold and pocket
+                    if let Some(exp) = &a.expect {
+                        if state_at.as_ref().is_none_or(|(st, _)| *st != t) {
+                            state_at = Some((t, cart_states(&mut srv, &cart_tags)?));
+                        }
+                        let game = expect_form(&state_at.as_ref().expect("set above").1, cell, &names);
+                        let mut want = exp.replace(".p", "p");
+                        // (G1's control) MCTAS_REPLAY_PLANT_EXPECT=t: the first expected state at or
+                        // after t is planted wrong and must be counted as a divergence
+                        if plant_at.is_some_and(|p| t >= p) && planted.is_none() {
+                            want = format!("{want} (planted)");
+                            planted = Some(t);
+                        }
+                        expects_checked += 1;
+                        // (G1) the divergence's size: when the game's holds and pockets first reach
+                        // the state redsim had at each diverged write
+                        let game_hp = game.split_once("; ").map(|(_, r)| r.to_string()).unwrap_or_default();
+                        for p in pending.iter_mut() {
+                            // (a state matched within 100 gt; later the lap repeats the same names)
+                            if p.2.is_none() && t <= p.0 + 100 && p.1 == game_hp {
+                                p.2 = Some(t);
+                            }
+                        }
+                        if game != want {
+                            first_div.get_or_insert(t);
+                            divergences.push(format!("t{t} ({},{},{}): redsim {want} | game {game}", cell[0], cell[1], cell[2]));
+                            let want_hp = want.split_once("; ").map(|(_, r)| r.to_string()).unwrap_or_default();
+                            if want_hp != game_hp && pending.len() < 400 {
+                                pending.push((t, want_hp, None));
+                            }
+                        }
+                    }
                     // (the harness's snapshot toggles a save marker per chunk, tracked per server
                     // instance: after a world open a new instance can't read it; not read then)
                     let before = if first_seen.insert(cell) { Some(if reloaded { "(not read after a world open)".to_string() } else { cell_state(&mut srv, cell)? }) } else { None };
@@ -274,8 +487,13 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
         }
         srv.step(1)?;
         let now = gt0 + t as i64 + 1;
-        let day = (day_start + t as i64 + 1).rem_euclid(24000);
+        let day = (day_base + t as i64 + 1).rem_euclid(24000);
         for l in log.drain(&srv)? {
+            // (G1 on G #6) a hook that couldn't read its values fails the run, never reads as "no event"
+            if l.contains("(unread)") {
+                unread.push(format!("t{t}: {l}"));
+                continue;
+            }
             let Some(&vi) = l.rsplit(" @").next().and_then(|u| by_uuid.get(u.trim())) else {
                 if l.starts_with("poi ") {
                     events.push(format!("t{t}: (no named villager's brain) {l}"));
@@ -290,14 +508,47 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
             if let Some(rest) = l.strip_prefix("activity ") {
                 // Activity's toString is its bare name ("rest", "panic", "idle")
                 let act = rest.split_whitespace().next().unwrap_or("").trim_start_matches("minecraft:").to_string();
+                // a REST spell closes when the activity leaves REST
+                if vs[vi].activity == "rest" && act != "rest" {
+                    if let Some(sp) = vs[vi].spell.take() {
+                        let d = sp.describe(Some(t));
+                        vs[vi].spells.push(d);
+                    }
+                }
                 if act == "rest" {
                     let at = pos_of(&mut srv, &format!("@e[tag={tag},limit=1]"))?;
                     let v = &mut vs[vi];
                     let age = v.stamp.map(|s| (now - s).to_string()).unwrap_or_else(|| "none".into());
                     v.rest_entries.push(format!("t{t} at {} hostile {} stamp age {age}", fmt_pos(at), v.hostile));
+                    v.spell = Some(Spell { start: t, at: fmt_pos(at), hostile: v.hostile, wt_at_entry: v.wt.clone(), ..Default::default() });
                 }
                 events.push(format!("t{t}: {tag} activity {act}"));
                 vs[vi].activity = act;
+            } else if l.starts_with("set minecraft:walk_target") {
+                let by = body.split(" by ").nth(1).unwrap_or("?").to_string();
+                let v = &mut vs[vi];
+                v.wt = Some(by.clone());
+                if by.starts_with("SetWalkTargetFromBlockMemory") {
+                    let age = v.stamp.map(|s| now - s);
+                    if let Some(sp) = v.spell.as_mut()
+                        && sp.home_set.is_none()
+                        && sp.released.is_none()
+                    {
+                        sp.home_set = Some((t, age.map(|a| a.to_string()).unwrap_or_else(|| "none".into())));
+                        v.entry_judged.push((t, age));
+                    }
+                }
+            } else if l.starts_with("erase minecraft:walk_target") {
+                let by = body.split(" by ").nth(1).unwrap_or("?").to_string();
+                let v = &mut vs[vi];
+                v.wt = None;
+                v.home_path = None;
+                if by.starts_with("MoveToTargetSink.stop")
+                    && let Some(sp) = v.spell.as_mut()
+                    && sp.sink_stop.is_none()
+                {
+                    sp.sink_stop = Some(t);
+                }
             } else if l.starts_with("set minecraft:nearest_hostile") {
                 vs[vi].hostile = true;
             } else if l.starts_with("erase minecraft:nearest_hostile") {
@@ -309,8 +560,17 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
                     if !complete && vs[vi].activity == "rest" {
                         events.push(format!("t{t}: {tag} PARTIAL HOME path in REST, start {start}"));
                     }
+                    if let Some(sp) = vs[vi].spell.as_mut() {
+                        sp.home_path = Some((complete, start.clone()));
+                    }
                     vs[vi].home_path = Some((complete, start));
+                } else {
+                    // another path replaces the HOME one
+                    vs[vi].home_path = None;
                 }
+            } else if l.starts_with("erase minecraft:path") {
+                // (G1 on G #2) a finished, stopped or erased path is no longer a complete HOME path
+                vs[vi].home_path = None;
             } else if l.contains("minecraft:cant_reach_walk_target_since") {
                 if l.starts_with("set ") {
                     let s: Option<i64> = l.split(" = ").nth(1).and_then(|r| r.split_whitespace().next()).and_then(|n| n.parse().ok());
@@ -319,6 +579,12 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
                     let v = &mut vs[vi];
                     v.stamp = s;
                     let by = body.split(" by ").nth(1).unwrap_or("?").to_string();
+                    if by.starts_with("MoveToTargetSink")
+                        && let Some(sp) = v.spell.as_mut()
+                        && sp.armed.is_none()
+                    {
+                        sp.armed = Some(t);
+                    }
                     v.stamps_armed.push(format!("t{t} day {day} {} at {} by {by}", v.activity.trim_start_matches("minecraft:"), fmt_pos(at)));
                 } else if l.starts_with("erase ") && l.contains("(had it)") {
                     vs[vi].stamp = None;
@@ -336,6 +602,20 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
                 }
                 let dist = at.map(|p| ((p[0] - centre[0]).powi(2) + (p[1] - centre[1]).powi(2) + (p[2] - centre[2]).powi(2)).sqrt());
                 let what = format!("t{t} by {by} at {} (distance to the bed's centre {}; the bed occupied {occ}; asleep: {})", fmt_pos(at), dist.map(|d| format!("{d:.2}")).unwrap_or_else(|| "?".into()), if sleepers.is_empty() { "nobody".to_string() } else { sleepers.join(" ") });
+                // a release by SetWalkTargetFromBlockMemory is that spell's first run of it
+                if by.starts_with("SetWalkTargetFromBlockMemory") {
+                    let v = &mut vs[vi];
+                    let age = v.stamp.map(|s| now - s);
+                    if let Some(sp) = v.spell.as_mut()
+                        && sp.released.is_none()
+                    {
+                        let first_run = sp.home_set.is_none();
+                        sp.released = Some((t, age.map(|a| a.to_string()).unwrap_or_else(|| "none".into())));
+                        if first_run {
+                            v.entry_judged.push((t, age));
+                        }
+                    }
+                }
                 vs[vi].home_lost.push(what.clone());
                 events.push(format!("t{t}: {tag} HOME ERASED {}", what.trim_start_matches(&format!("t{t} "))));
             } else if l.starts_with("set minecraft:home") {
@@ -357,12 +637,84 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
                 if let Some(last) = vs[vi].rest_entries.last_mut() {
                     last.push_str(&format!("; sight: {what}"));
                 }
+                if let Some(sp) = vs[vi].spell.as_mut()
+                    && sp.sight.is_empty()
+                {
+                    sp.sight = what.clone();
+                }
                 events.push(format!("t{t}: {tag} sight at its REST entry: {what}"));
             }
         }
-        // per tick: the REST counters, the stamps' ages, the dawn reads
+        // (G1 on G #9) the brains' activity at t1 asserted: summoned under the scene's time, every
+        // villager must have taken the run's own schedule activity (IDLE by day, or PANIC on a hostile)
+        if t == 0 && (0..11990).contains(&day) {
+            let wrong: Vec<String> = vs.iter().filter(|v| v.gone.is_none() && !matches!(v.activity.as_str(), "idle" | "panic")).map(|v| format!("{} {}", v.tag, if v.activity.is_empty() { "(no switch line)" } else { v.activity.as_str() })).collect();
+            println!("  the brains at t1 (day {day}): {}", if wrong.is_empty() { "every villager IDLE or PANIC".to_string() } else { format!("NOT on the schedule: {}", wrong.join(", ")) });
+            anyhow::ensure!(wrong.is_empty(), "at t1 {} villager(s) not on the run's schedule activity: {}", wrong.len(), wrong.join(", "));
+        }
+        // (G1's air-model fidelity row) MCTAS_REPLAY_AIR=<tag>: that villager's air supply every tick
+        // while it is inside the main lift's box (x -6..-3, y 0..25, z 5..9): its position, eye
+        // height, whether its eye's block is a bubble column or other water, its vehicle
+        if let Some(who) = air_watch.as_deref()
+            && vs.iter().any(|v| v.tag == who && v.gone.is_none())
+        {
+            let at = pos_of(&mut srv, &format!("@e[tag={who},limit=1]"))?;
+            if let Some(p) = at
+                && (-6.0..-3.0).contains(&p[0])
+                && (0.0..25.0).contains(&p[1])
+                && (5.0..9.0).contains(&p[2])
+            {
+                let air = srv.cmd_long(&format!("data get entity @e[tag={who},limit=1] Air"))?;
+                let a = air.split("data: ").nth(1).map(|s| s.trim().to_string()).unwrap_or_else(|| air.trim().to_string());
+                // the eye's cell: a marker summoned at the eyes, read back, then tested by absolute
+                // block coordinates (a forked `execute as … if block` prints no test reply)
+                srv.cmd(&format!("execute as @e[tag={who},limit=1] at @s anchored eyes positioned ^ ^ ^ run summon minecraft:marker ~ ~ ~ {{Tags:[\"airm\"]}}"))?;
+                let eye = pos_of(&mut srv, "@e[type=minecraft:marker,tag=airm,limit=1]")?;
+                srv.cmd("kill @e[type=minecraft:marker,tag=airm]")?;
+                let e = eye.ok_or_else(|| anyhow::anyhow!("t{t}: {who}'s eye marker unreadable"))?;
+                let (bx, by, bz) = (e[0].floor() as i32, e[1].floor() as i32 + DY, e[2].floor() as i32);
+                let bubble = crate::strict::test(&mut srv, &format!("execute if block {bx} {by} {bz} minecraft:bubble_column"))?;
+                let water = crate::strict::test(&mut srv, &format!("execute if block {bx} {by} {bz} minecraft:water"))?;
+                let riding = crate::strict::test_on(&mut srv, &format!("execute as @e[tag={who},limit=1] on vehicle if entity @s"))?;
+                air_rows.push(format!(
+                    "t{t}: air {a} at {} eye y {:.3} (cell {bx},{},{bz}) eye in bubble_column {bubble} / water {water}; seated {riding}",
+                    fmt_pos(at),
+                    e[1],
+                    by - DY
+                ));
+            }
+        }
+        // (cc767b78's divergence trace) MCTAS_REPLAY_TRACE=<eN>:<from>-<to>: that cart's position,
+        // motion, rider and the rail block under it every tick in the window
+        if let Some((whos, from, to)) = trace_spec.as_ref()
+            && (*from..=*to).contains(&t)
+        {
+          for who in whos.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()) {
+            let p = pos_of(&mut srv, &format!("@e[tag={who},limit=1]"))?;
+            let m = srv.cmd_long(&format!("data get entity @e[tag={who},limit=1] Motion"))?;
+            let rider = srv.cmd_long(&format!("execute as @e[tag={who},limit=1] on passengers run data get entity @s Tags"))?;
+            let mut rail = String::from("?");
+            if let Some(q) = p {
+                let (bx, by, bz) = (q[0].floor() as i32, q[1].floor() as i32 + DY, q[2].floor() as i32);
+                for kind in ["minecraft:powered_rail[powered=true]", "minecraft:powered_rail[powered=false]", "minecraft:detector_rail", "minecraft:activator_rail", "minecraft:rail", "minecraft:water", "minecraft:bubble_column", "minecraft:air"] {
+                    if crate::strict::test(&mut srv, &format!("execute if block {bx} {by} {bz} {kind}"))? {
+                        rail = format!("{kind} at ({bx},{},{bz})", by - DY);
+                        break;
+                    }
+                }
+            }
+            trace_rows.push(format!(
+                "t{t}: {who} pos {} motion {} rider {} block {rail}",
+                p.map(|q| format!("({:.6},{:.6},{:.6})", q[0], q[1], q[2])).unwrap_or_else(|| "gone".into()),
+                m.split("data: ").nth(1).unwrap_or("?").trim(),
+                rider.split('"').find(|s| s.starts_with('e') && s.contains('p')).unwrap_or("none")
+            ));
+          }
+        }
+        // per tick: the REST counters, the stamps' ages, the dawn reads (G1 on G #2: the night from
+        // 11,990 in numerator and denominator alike)
         let night = day >= 11990;
-        if night && day >= 12000 {
+        if night {
             night_ticks += 1;
         }
         // (ironspec 06:13 platform (3)) every villager's activity per tick across day 11,990..12,040, and
@@ -401,7 +753,7 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
                 }
                 let air = srv.cmd_long(&format!("data get entity @e[tag={},limit=1] Air", v.tag))?;
                 if air.contains("No entity was found") {
-                    let log_text = std::fs::read_to_string(&srv.log).unwrap_or_default();
+                    let log_text = std::fs::read_to_string(&srv.log)?;
                     let deaths: Vec<&str> = log_text.lines().filter(|l| l.contains("died, message")).collect();
                     let why = deaths.last().map(|l| l.split("]: ").last().unwrap_or(l).to_string()).unwrap_or_else(|| "no death line in the log".into());
                     v.gone = Some(format!("t{t}: {why}"));
@@ -412,6 +764,25 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
                 if a < 300 && v.min_air.as_ref().is_none_or(|m| a < m.0) {
                     let at = pos_of(&mut srv, &format!("@e[tag={},limit=1]", v.tag))?;
                     v.min_air = Some((a, t, fmt_pos(at)));
+                }
+                // (ironspec 06:28 platform: the drowned-rider trace) a rider losing air: where it
+                // stands, its cart's position and motion, the lift-top exit booster (-5,23,8), every
+                // cart within 3 blocks
+                if a < 250 {
+                    let at = pos_of(&mut srv, &format!("@e[tag={},limit=1]", v.tag))?;
+                    let cart = srv.cmd_long(&format!("execute as @e[tag={},limit=1] on vehicle run data get entity @s Pos", v.tag))?;
+                    let motion = srv.cmd_long(&format!("execute as @e[tag={},limit=1] on vehicle run data get entity @s Motion", v.tag))?;
+                    let booster = crate::strict::test(&mut srv, &format!("execute if block -5 {} 8 minecraft:powered_rail[powered=true]", 23 + DY))?;
+                    let near = srv.cmd_long(&format!("execute as @e[tag={},limit=1] at @s as @e[type=#minecraft:minecart,distance=..3] run data get entity @s Pos", v.tag))?;
+                    let carts: Vec<String> = near.split("entity data: ").skip(1).map(|r| r.split(']').next().unwrap_or("").trim_start_matches('[').to_string()).collect();
+                    events.push(format!(
+                        "t{t}: {} AIR LOW {a} at {}; cart {} motion {}; the exit booster (-5,23,8) powered {booster}; carts within 3: {}",
+                        v.tag,
+                        fmt_pos(at),
+                        cart.split("entity data: ").nth(1).unwrap_or("none").trim(),
+                        motion.split("entity data: ").nth(1).unwrap_or("none").trim(),
+                        carts.join(" | ")
+                    ));
                 }
             }
             let mut row = Vec::new();
@@ -428,11 +799,12 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
                 lane_hist.push(format!("t{t}:{}", row.join("/")));
             }
         }
-        if t % 100 == 0 {
+        // (G1 on G #2) the 16-block exposure sampled every tick for the villagers in REST
+        if vs.iter().any(|v| v.activity == "rest" && v.gone.is_none()) {
             let occ = crate::strict::test(&mut srv, &format!("execute if block {} {} {} #minecraft:beds[occupied=true]", bed[0], bed[1] + DY, bed[2]))?;
             if occ {
                 for v in vs.iter_mut() {
-                    if v.gone.is_some() {
+                    if v.gone.is_some() || v.activity != "rest" {
                         continue;
                     }
                     let Some(p) = pos_of(&mut srv, &format!("@e[tag={},limit=1]", v.tag))? else { continue };
@@ -482,6 +854,89 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
         );
     }
     let judged = night_ticks as u64 * vs.len() as u64;
+    if let Some((who, from, to)) = trace_spec.as_ref() {
+        println!("  {who}'s trace t{from}..t{to} (game side; position after each tick, the block at its feet):");
+        for r in &trace_rows {
+            println!("    {r}");
+        }
+        anyhow::ensure!(!trace_rows.is_empty(), "MCTAS_REPLAY_TRACE: no tick traced");
+    }
+    // (G1's divergence check) the replay counts only while the game matches redsim's recorded state
+    println!(
+        "  divergence check (redsim's `# expect` state before each write vs the game's: carts in the act's column, each hold and pocket): {} of {expects_checked} write(s) diverged{}",
+        divergences.len(),
+        match first_div {
+            Some(f) => format!("; the FIRST at t{f}: every result after it is the open-loop drive's, not the design's"),
+            None if expects_checked == 0 => " (the drive carries no `# expect` lines: OPEN LOOP, NOT JUDGED as a design run)".to_string(),
+            None => " (faithful through the run)".to_string(),
+        }
+    );
+    for d in divergences.iter().take(40) {
+        println!("    {d}");
+    }
+    // the size of each hold / pocket divergence: the game reaching redsim's state that many gt later
+    // (or never within the run)
+    let lags: Vec<String> = pending.iter().take(60).map(|(t, _, m)| format!("t{t}: {}", m.map(|x| format!("+{} gt", x - t)).unwrap_or_else(|| "not within 100 gt".into()))).collect();
+    if !lags.is_empty() {
+        println!("  hold / pocket divergences, the game reaching redsim's state (first 60): {}", lags.join("; "));
+    }
+    if let Some(p) = plant_at {
+        let caught = planted.is_some_and(|pt| divergences.iter().any(|d| d.starts_with(&format!("t{pt} ")) && d.contains("(planted)")));
+        println!("  the planted control (a wrong expected state at the first write at or after t{p}): {}", match planted {
+            Some(pt) if caught => format!("planted at t{pt}, CAUGHT"),
+            Some(pt) => format!("planted at t{pt}, NOT caught"),
+            None => "never planted (no expect line at or after it)".into(),
+        });
+        anyhow::ensure!(caught, "the planted divergence control failed: the comparison can't be trusted");
+    }
+    if let Some(who) = air_watch.as_deref() {
+        println!("  {who}'s air supply per tick inside the main lift's box ({} tick(s)):", air_rows.len());
+        for r in &air_rows {
+            println!("    {r}");
+        }
+        anyhow::ensure!(!air_rows.is_empty(), "MCTAS_REPLAY_AIR={who}: no tick inside the lift's box: NOT JUDGED");
+    }
+    // (ironspec 06:35 / 06:37 platform) every REST spell: its length, WALK_TARGET at entry and its
+    // source, the sink's stop, the HOME-target tick or "never in the spell", the path, any arming or
+    // release; the at-entry stamp bar judged at each spell's first SetWalkTargetFromBlockMemory run
+    let mut at_entry_bad: Vec<String> = Vec::new();
+    let mut at_entry_n = 0usize;
+    let mut at_entry_after = 0usize;
+    let mut h_spells = 0usize;
+    for v in vs.iter_mut() {
+        if let Some(sp) = v.spell.take() {
+            let d = sp.describe(None);
+            v.spells.push(d);
+        }
+        println!("  {}: {} REST spell(s)", v.tag, v.spells.len());
+        for s in &v.spells {
+            println!("    {s}");
+            // H = the holds (x -0.5 / 3.5 / 7.5, y 15.9..17.2, z 0..1)
+            if let Some(p) = s.split(" at (").nth(1).and_then(|r| r.split(')').next()) {
+                let c: Vec<f64> = p.split(',').filter_map(|n| n.trim().parse().ok()).collect();
+                if c.len() == 3 && [-0.5, 3.5, 7.5].iter().any(|x| (c[0] - x).abs() < 0.3) && (15.9..17.2).contains(&c[1]) && (0.0..1.0).contains(&c[2]) {
+                    h_spells += 1;
+                }
+            }
+        }
+        for (t, age) in &v.entry_judged {
+            // (ironspec 07:02 (1)) after the first divergence a result is the drift's, NOT JUDGED
+            if first_div.is_some_and(|f| *t >= f) {
+                at_entry_after += 1;
+                continue;
+            }
+            at_entry_n += 1;
+            if age.is_some_and(|a| a >= 1000) {
+                at_entry_bad.push(format!("{} t{t} stamp age {}", v.tag, age.unwrap_or(0)));
+            }
+        }
+    }
+    println!(
+        "  the at-entry stamp bar (< 1,000 gt at each spell's first SetWalkTargetFromBlockMemory run): {} of {at_entry_n} judged spell(s) at or over 1,000{}; spells at H: {h_spells}{}",
+        at_entry_bad.len(),
+        if at_entry_n == 0 { " (NOT JUDGED: 0 samples)".to_string() } else if at_entry_bad.is_empty() { " (HELD)".to_string() } else { format!(" (FAILED: {})", at_entry_bad.join("; ")) },
+        first_div.map(|f| format!("; {at_entry_after} spell(s) from t{f} on NOT JUDGED (after the first divergence)")).unwrap_or_default()
+    );
     let gone: Vec<String> = vs.iter().filter_map(|v| v.gone.as_ref().map(|g| format!("{} {g}", v.tag))).collect();
     println!("  villagers lost: {} {:?}", gone.len(), gone);
     let drowning: Vec<String> = vs.iter().flat_map(|v| v.hurts.iter().filter(|h| h.contains("hurt drown")).map(move |h| format!("{} {h}", v.tag))).collect();
@@ -507,8 +962,10 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
     for n in &noop {
         println!("    no-op act {n}");
     }
+    anyhow::ensure!(unread.is_empty(), "{} agent line(s) unread (first: {}): the run fails", unread.len(), unread.first().map(|s| s.as_str()).unwrap_or(""));
     anyhow::ensure!(judged > 0, "no night tick judged: NOT JUDGED, the run fails");
     anyhow::ensure!(applied == acts.len(), "only {applied} of {} acts applied within {ticks} gt", acts.len());
+    anyhow::ensure!(first_div.is_none() || expects_checked == 0, "the replay diverged from redsim's recorded state at t{}: every design result after it is NOT JUDGED (drift): the run fails as a design run", first_div.unwrap_or(0));
     anyhow::ensure!(partial == 0 && old == 0 && collisions.is_empty() && lost == 0 && noop.is_empty() && gone.is_empty() && drowning.is_empty(), "a bar failed (REST without a complete HOME path {partial}, stamps >= 1000 {old}, collisions {}, HOME erased {lost}, no-op acts {}, villagers lost {}, drowning hits {})", collisions.len(), noop.len(), gone.len(), drowning.len());
     Ok(())
 }

@@ -126,6 +126,14 @@ pub struct Approach {
 
 #[allow(clippy::too_many_arguments)]
 fn trial(version: &str, jar: &std::path::Path, file: &std::path::Path, set: &[([i32; 3], String)], v: f64, approach: Option<Approach>, restart: Option<u32>, ticks: u32) -> Result<Row> {
+    // (G1 on G #8) MCTAS_BED_TRAP_SKIP_AT parsed once, strictly; PLANT / WATCHBED only with it
+    let skip_at: Option<u32> = match std::env::var("MCTAS_BED_TRAP_SKIP_AT") {
+        Ok(v) => Some(v.trim().parse().map_err(|_| anyhow::anyhow!("MCTAS_BED_TRAP_SKIP_AT={v}: not a tick"))?),
+        Err(_) => None,
+    };
+    for needs in ["MCTAS_BED_TRAP_PLANT", "MCTAS_BED_TRAP_WATCHBED"] {
+        anyhow::ensure!(skip_at.is_some() || std::env::var_os(needs).is_none(), "{needs} needs MCTAS_BED_TRAP_SKIP_AT (it acts only in a skip run): refused");
+    }
     let mut srv = VanillaServer::start(&opts(version, jar, None))?;
     srv.cmd_ok("gamerule advance_time false")?;
     srv.cmd_ok("gamerule spawn_mobs false")?;
@@ -254,6 +262,10 @@ fn trial(version: &str, jar: &std::path::Path, file: &std::path::Path, set: &[([
             }
         }
         println!("  the farm's other riders: {lane_riders} live (lanes {lanes:?} as (x, riders)), HOME on ({},{},{}) as memory (no ticket); seated {seated}; at distance >= 16 from the bed's centre {far} of {lane_riders} (ValidateNearbyPoi: closerToCenterThan(position, 16.0))", bed[0], bed[1], bed[2]);
+        // (G1 on G #8) the lanes as laid: every rider seated (unless the file's own design leaves one
+        // standing: none does) and every rider beyond the 16 of ValidateNearbyPoi at the start
+        anyhow::ensure!(seated == lane_riders, "MCTAS_BED_TRAP_LANES: {seated} of {lane_riders} riders seated after the settle: the run fails");
+        anyhow::ensure!(far == lane_riders, "MCTAS_BED_TRAP_LANES: {} rider(s) within 16 of the bed's centre at the start: the run fails", lane_riders - far);
         let _ = &xs;
         // each rider's UUID, so the agent's " @uuid" lines name it
         let mut names = Vec::new();
@@ -358,7 +370,7 @@ fn trial(version: &str, jar: &std::path::Path, file: &std::path::Path, set: &[([
         }
         // (ironspec 04:50 (3)) MCTAS_BED_TRAP_SKIP_AT=T: the night skip's effect at tick T (the clock
         // set to the next morning, 24000) and the day let run (advance_time on), the stamp printed
-        if std::env::var("MCTAS_BED_TRAP_SKIP_AT").ok().and_then(|v| v.parse::<u32>().ok()) == Some(t) {
+        if skip_at == Some(t) {
             srv.cmd_ok("time set 24000")?;
             srv.cmd_ok("gamerule advance_time true")?;
             r.paths.push(format!("t{t}: NIGHT SKIP (the clock set to 24000, the day running); CANT_REACH {}", stamp.map(|s| s.to_string()).unwrap_or_else(|| "none".into())));
@@ -428,7 +440,7 @@ fn trial(version: &str, jar: &std::path::Path, file: &std::path::Path, set: &[([
             }
         }
         // (G1 05:5x (2)) with a skip, every 6000 gt after it: the napper's HOME and LAST_SLEPT
-        if let Some(k) = std::env::var("MCTAS_BED_TRAP_SKIP_AT").ok().and_then(|v| v.parse::<u32>().ok()) {
+        if let Some(k) = skip_at {
             // (G1 05:3x real) MCTAS_BED_TRAP_PLANT="T;x,y,z": the composed row's own known positive:
             // lane rider btr0 taken out of its cart and stood at (x,y,z) beside the bed at tick T (with
             // the napper asleep in it, ValidateNearbyPoi must erase btr0's HOME for good)
@@ -437,7 +449,9 @@ fn trial(version: &str, jar: &std::path::Path, file: &std::path::Path, set: &[([
                 anyhow::ensure!(f.len() == 2 && lane_riders > 0, "MCTAS_BED_TRAP_PLANT=T;x,y,z needs MCTAS_BED_TRAP_LANES");
                 if t == f[0].trim().parse::<u32>()? {
                     let q = triple(f[1])?;
-                    srv.cmd("ride @e[tag=btr0,limit=1] dismount")?;
+                    // (G1 on G #8) the dismount's reply read
+                    let out = srv.cmd("ride @e[tag=btr0,limit=1] dismount")?;
+                    anyhow::ensure!(out.contains("stopped riding"), "MCTAS_BED_TRAP_PLANT: btr0's dismount: {}", out.trim());
                     srv.cmd_ok(&format!("tp @e[tag=btr0,limit=1] {} {} {}", q[0], q[1] + DY as f64, q[2]))?;
                     r.paths.push(format!("t{t}: PLANTED: lane rider btr0 stood at ({},{},{}) beside the bed", q[0], q[1], q[2]));
                 }
@@ -450,7 +464,9 @@ fn trial(version: &str, jar: &std::path::Path, file: &std::path::Path, set: &[([
                 let mut near = Vec::new();
                 for j in 0..lane_riders {
                     let p: Vec<f64> = srv.cmd_long(&format!("data get entity @e[tag=btr{j},limit=1] Pos"))?.split('[').nth(1).unwrap_or("").split(',').filter_map(|s| s.trim().trim_end_matches(|c: char| c == ']' || c == 'd' || c.is_whitespace()).parse().ok()).collect();
-                    if p.len() == 3 {
+                    // (G1 on G #7) an unreadable rider fails the exposure, never drops out of it
+                    anyhow::ensure!(p.len() == 3, "t{t}: EXPOSURE: lane rider btr{j}'s position unreadable");
+                    {
                         let d = ((p[0] - (bed[0] as f64 + 0.5)).powi(2) + (p[1] - DY as f64 - (bed[1] as f64 + 0.5)).powi(2) + (p[2] - (bed[2] as f64 + 0.5)).powi(2)).sqrt();
                         if d < 16.0 {
                             near.push(format!("btr{j} at {d:.2}"));
@@ -471,22 +487,23 @@ fn trial(version: &str, jar: &std::path::Path, file: &std::path::Path, set: &[([
                 if t >= t0 && t < t0 + 600 && (t - t0) % every == 0 {
                     let occ = crate::strict::test(&mut srv, &format!("execute if block {} {} {} #minecraft:beds[occupied=true]", b[0], b[1] as i32 + DY, b[2]))?;
                     let comp = srv.cmd_long("data get entity @e[tag=btcomp,limit=1] Pos")?;
-                    let chome = srv.cmd_long("data get entity @e[tag=btcomp,limit=1] Brain.memories.\"minecraft:home\"")?;
+                    let chome = crate::strict::data_value(&mut srv, "data get entity @e[tag=btcomp,limit=1] Brain.memories.\"minecraft:home\"")?;
                     r.paths.push(format!(
                         "t{t}: WATCHBED: the bed occupied {occ}; the competitor {}; its HOME {}",
-                        comp.split("data: ").nth(1).map(|s| s.trim().to_string()).unwrap_or_else(|| comp.trim().to_string()),
-                        chome.split("data: ").nth(1).map(|s| s.trim().to_string()).unwrap_or_else(|| "absent".into())
+                        comp.split("data: ").nth(1).map(|s| s.trim().to_string()).ok_or_else(|| anyhow::anyhow!("t{t}: WATCHBED: the competitor's position unreadable: {}", comp.trim()))?,
+                        chome.unwrap_or_else(|| "absent".into())
                     ));
                 }
             }
             if t > k && (t - k) % 6000 == 0 {
-                let home = srv.cmd_long("data get entity @e[tag=btv,limit=1] Brain.memories.\"minecraft:home\"")?;
-                let slept = srv.cmd_long("data get entity @e[tag=btv,limit=1] Brain.memories.\"minecraft:last_slept\"")?;
+                // (G1 on G #7) strict reads: "absent" only on "Found no elements matching"
+                let home = crate::strict::data_value(&mut srv, "data get entity @e[tag=btv,limit=1] Brain.memories.\"minecraft:home\"")?;
+                let slept = crate::strict::data_value(&mut srv, "data get entity @e[tag=btv,limit=1] Brain.memories.\"minecraft:last_slept\"")?;
                 r.paths.push(format!(
                     "t{t}: STATE (skip + {}): HOME {}; LAST_SLEPT {}; game time {}",
                     t - k,
-                    home.split("data: ").nth(1).map(|s| s.trim().to_string()).unwrap_or_else(|| "absent".into()),
-                    slept.split("data: ").nth(1).map(|s| s.trim().to_string()).unwrap_or_else(|| "absent".into()),
+                    home.unwrap_or_else(|| "absent".into()),
+                    slept.unwrap_or_else(|| "absent".into()),
                     srv.game_time()?
                 ));
                 // every lane rider's HOME at the same instants (the dusk and dawn reads), and where each is
@@ -507,7 +524,7 @@ fn trial(version: &str, jar: &std::path::Path, file: &std::path::Path, set: &[([
         }
         srv.step(1)?;
         // the mechanism's window: until the lie-down (or 200 gt after the eject)
-        let skip_run = std::env::var_os("MCTAS_BED_TRAP_SKIP_AT").is_some();
+        let skip_run = skip_at.is_some();
         // (G1 05:5x (2): the 24-h horizon) a skip run keeps every line to its end, past the lie-down
         let window = skip_run || (r.sleep.is_none() && r.eject.map(|(e, _)| t <= e + 200).unwrap_or(true));
         for l in log.drain(&srv)? {

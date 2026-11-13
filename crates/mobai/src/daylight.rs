@@ -105,6 +105,9 @@ pub fn edges(version: &str) -> Result<()> {
     srv.cmd_ok(&format!("setblock {} {} {} minecraft:daylight_detector", DETECTOR[0], DETECTOR[1], DETECTOR[2]))?;
     srv.step(20)?;
     let mut found = 0;
+    let mut bad: Vec<String> = Vec::new();
+    // (G1 on G #4) the off-edges asserted: the values redsim's own model gives and the first run read
+    let expected = [("clear", 12230i64), ("rain", 12002), ("thunder", 11556)];
     for w in ["clear", "rain", "thunder"] {
         set_weather(&mut srv, w)?;
         srv.cmd_ok("time set 6000")?;
@@ -112,10 +115,26 @@ pub fn edges(version: &str) -> Result<()> {
         let e = first_where(&mut srv, 10000, 13000, |p| p <= 5)?;
         // every update from 10,800 to 12,600 (cc767b78's per-update comparison)
         let mut every = Vec::new();
+        let mut scan: Vec<(i64, i64)> = Vec::new();
         for d in (10800..=12600).step_by(20) {
-            every.push(format!("{d}:{}", sample_at(&mut srv, d)?));
+            let l = sample_at(&mut srv, d)?;
+            every.push(format!("{d}:{l}"));
+            scan.push((d, l as i64));
         }
         println!("  {w}: every update 10,800..12,600 (day time:level): {}", every.join(" "));
+        // the bisection against the scan: the edge must lie after the scan's last update reading >= 6
+        // before its first reading <= 5, and at or before that first reading
+        let first_low = scan.iter().find(|(_, l)| *l <= 5).map(|(d, _)| *d);
+        let last_high = first_low.and_then(|f| scan.iter().filter(|(d, l)| *d < f && *l >= 6).map(|(d, _)| *d).last());
+        match (e, first_low, last_high) {
+            (Some(e), Some(f), Some(h)) if h < e && e <= f => {}
+            (e, f, h) => bad.push(format!("{w}: the bisected edge {e:?} is not inside the scan's step ({h:?}, {f:?}]")),
+        }
+        if let Some(&(_, want)) = expected.iter().find(|(n, _)| *n == w)
+            && e != Some(want)
+        {
+            bad.push(format!("{w}: the edge {e:?}, expected {want}"));
+        }
         let around = match e {
             Some(e) => {
                 found += 1;
@@ -132,6 +151,8 @@ pub fn edges(version: &str) -> Result<()> {
     }
     let _ = std::fs::remove_dir_all(&srv.dir);
     anyhow::ensure!(found == 3, "{} of 3 weathers found no edge: NOT JUDGED, the run fails", 3 - found);
+    println!("  bars (each edge = its expected value, inside its 20-gt scan step): {}", if bad.is_empty() { "HELD".to_string() } else { format!("FAILED: {}", bad.join("; ")) });
+    anyhow::ensure!(bad.is_empty(), "{}", bad.join("; "));
     Ok(())
 }
 

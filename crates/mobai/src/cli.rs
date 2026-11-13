@@ -592,6 +592,15 @@ pub enum MobaiCmd {
         /// gt after the dusk
         #[arg(long, default_value_t = 2000)]
         after: u32,
+        /// (G1 on G #3) the expected outcome: reclaimed | not-reclaimed (each run barred)
+        #[arg(long)]
+        expect: Option<String>,
+        /// with --expect reclaimed: the re-claim within this many gt of the release
+        #[arg(long, default_value_t = 100)]
+        within: u32,
+        /// with --expect reclaimed: the napper asleep too
+        #[arg(long)]
+        asleep: bool,
     },
     /// (tickexact 2026-11-13, ironspec 06:08 real msg-id: the composed night, live controller) onechunk's
     /// f1q2-run act list (`--drive-out`) replayed open loop over its scene (`--scene-out`)
@@ -1713,6 +1722,8 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         MobaiCmd::RecPaneattach { path } => crate::fixture::rec_paneattach(&path),
         MobaiCmd::SentinelVanilla { case, version } => crate::bedreload::sentinel_vanilla(&version, &case),
         MobaiCmd::LoadWindow { case, runs, version, design, mobs, item } => {
+            // (G1 on G #10) no 0-run row (the pending control would be its only restart)
+            anyhow::ensure!(runs >= 1, "--runs 0: no sample (NOT JUDGED)");
             let _ = crate::loadwindow::LOOP_ITEM.set(item);
             crate::loadwindow::load_window(&version, &case, runs, design.as_deref(), mobs.as_deref())
         }
@@ -1884,7 +1895,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
             };
             crate::bedtrap::bed_trap(&version, &file, &cells, &speeds, approach, &restarts, repeats, ticks, held_only)
         }
-        MobaiCmd::BedReclaim { version, file, remove, day_pos, home, arm_at, runs, after } => {
+        MobaiCmd::BedReclaim { version, file, remove, day_pos, home, arm_at, runs, after, expect, within, asleep } => {
             let f3 = |s: &str, n: &str| -> anyhow::Result<[f64; 3]> {
                 let v: Vec<f64> = s.split(',').map(|x| x.trim().parse()).collect::<Result<_, _>>()?;
                 anyhow::ensure!(v.len() == 3, "{n} x,y,z");
@@ -1900,7 +1911,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
                 })
                 .collect::<anyhow::Result<_>>()?;
             let h = f3(&home, "--home")?;
-            crate::reclaim::bed_reclaim(&version, &file, &rm, f3(&day_pos, "--day-pos")?, [h[0] as i32, h[1] as i32, h[2] as i32], f3(&arm_at, "--arm-at")?, runs, after)
+            crate::reclaim::bed_reclaim(&version, &file, &rm, f3(&day_pos, "--day-pos")?, [h[0] as i32, h[1] as i32, h[2] as i32], f3(&arm_at, "--arm-at")?, runs, after, expect, within, asleep)
         }
         MobaiCmd::DriveReplay { version, scene, drive, ticks, day_start, bed, loads } => {
             let b: Vec<i32> = bed.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
@@ -1937,6 +1948,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         }
         MobaiCmd::WaterSettle { version, file, set, ticks, controls } => {
             if controls && file.is_none() {
+                anyhow::ensure!(ticks >= 1, "--ticks 0: no settling judged (NOT JUDGED)");
                 return crate::watersettle::controls(&version, ticks);
             }
             let file = file.ok_or_else(|| anyhow::anyhow!("water-settle: a design file (or --controls)"))?;

@@ -43,8 +43,9 @@ fn uuid_hex(srv: &mut VanillaServer, sel: &str) -> Result<String> {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn bed_reclaim(version: &str, file: &Path, remove: &[[i32; 3]], day_pos: [f64; 3], home: [i32; 3], arm_at: [f64; 3], runs: u32, after: u32) -> Result<()> {
+pub fn bed_reclaim(version: &str, file: &Path, remove: &[[i32; 3]], day_pos: [f64; 3], home: [i32; 3], arm_at: [f64; 3], runs: u32, after: u32, expect: Option<String>, within: u32, want_asleep: bool) -> Result<()> {
     anyhow::ensure!(runs >= 1, "--runs 0: no sample (NOT JUDGED)");
+    let mut mismatched: Vec<String> = Vec::new();
     println!(
         "== bed-reclaim on the official {version} server: {} (+{DY} y){}; the napper armed by night in a glass cell at ({},{},{}), then stood by day on ({},{},{}) for 1300 gt, then into dusk and {after} gt on; HOME ({},{},{}); {runs} run(s)",
         file.display(),
@@ -200,12 +201,30 @@ pub fn bed_reclaim(version: &str, file: &Path, remove: &[[i32; 3]], day_pos: [f6
             (Some(r), Some(c)) => format!("run {run}: released +{r}, re-claimed +{c} ({} gt later) after {attempts} AcquirePoi attempt(s); asleep {}; HOME at the end {home_end}", c - r, slept.map(|s| format!("+{s}")).unwrap_or_else(|| "never".into())),
             (Some(r), None) => format!("run {run}: released +{r}, NOT re-claimed within {after} gt ({attempts} AcquirePoi attempt(s)); asleep {}; HOME at the end {home_end}", slept.map(|s| format!("+{s}")).unwrap_or_else(|| "never".into())),
         });
+        // (G1 on G #3) the outcome barred against --expect: re-claimed within --within gt of the
+        // release (and asleep, with --asleep), or not
+        if let (Some(want), Some(r)) = (expect.as_deref(), released) {
+            let reclaimed = claimed.is_some_and(|c| c - r <= within) && (!want_asleep || slept.is_some());
+            let ok = match want {
+                "reclaimed" => reclaimed,
+                "not-reclaimed" => claimed.is_none() && slept.is_none() && !home_end,
+                other => anyhow::bail!("--expect {other}: reclaimed | not-reclaimed"),
+            };
+            if !ok {
+                mismatched.push(format!("run {run}: expected {want}{}", if want == "reclaimed" { format!(" within {within} gt{}", if want_asleep { ", asleep" } else { "" }) } else { String::new() }));
+            }
+        }
     }
     for v in &verdicts {
         println!("  {v}");
     }
     let judged = verdicts.iter().filter(|v| !v.contains("NOT JUDGED")).count();
-    println!("  {judged} of {runs} run(s) judged");
-    anyhow::ensure!(judged > 0, "no run judged: the run fails");
+    println!("  {judged} of {runs} run(s) judged{}", match expect.as_deref() {
+        Some(w) => format!("; --expect {w}: {}", if mismatched.is_empty() { "HELD".to_string() } else { format!("FAILED ({})", mismatched.join("; ")) }),
+        None => String::new(),
+    });
+    // (G1 on G #3) every run judged, not just one
+    anyhow::ensure!(judged as u32 == runs, "{} of {runs} run(s) NOT JUDGED: the run fails", runs - judged as u32);
+    anyhow::ensure!(mismatched.is_empty(), "the expected outcome failed: {}", mismatched.join("; "));
     Ok(())
 }

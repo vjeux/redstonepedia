@@ -884,12 +884,18 @@ public final class BrainAgent {
                 double my = (Double) call(m, "getEyeY");
                 double mz = (Double) call(m, "getZ");
                 double d = Math.sqrt((mx - bx) * (mx - bx) + (my - by) * (my - by) + (mz - bz) * (mz - bz));
+                // (G1 on G #6) the sensor's own distance (distanceToSqr: feet to feet), filtered to 16
+                double fy = (Double) call(m, "getY") - (Double) call(body, "getY");
+                double feet = Math.sqrt((mx - bx) * (mx - bx) + fy * fy + (mz - bz) * (mz - bz));
+                if (feet > 16.0) {
+                    continue;
+                }
                 boolean seen = (Boolean) los.invoke(body, m);
                 Object to = vec3C.getConstructor(double.class, double.class, double.class).newInstance(mx, my, mz);
                 Object hit = clip.invoke(level, ccNew.newInstance(from, to, collider, none, body));
                 String type = String.valueOf(call(hit, "getType"));
                 String cell = type.equals("MISS") ? "MISS" : String.valueOf(hit.getClass().getMethod("getBlockPos").invoke(hit)) + " " + level.getClass().getMethod("getBlockState", Class.forName("net.minecraft.core.BlockPos", false, cl)).invoke(level, hit.getClass().getMethod("getBlockPos").invoke(hit));
-                sb.append(n++ == 0 ? "" : "; ").append(m.getClass().getSimpleName()).append(String.format(" at (%.2f,%.2f,%.2f) d %.2f los %s clip %s", mx, my - 80.0, mz, d, seen, cell));
+                sb.append(n++ == 0 ? "" : "; ").append(m.getClass().getSimpleName()).append(String.format(" at (%.2f,%.2f,%.2f) d %.2f (eye to eye %.2f) los %s clip %s", mx, my - 80.0, mz, feet, d, seen, cell));
             }
             System.err.println("mctas brain agent: sight at rest " + uuid + " eye (" + String.format("%.2f,%.2f,%.2f", bx, by - 80.0, bz) + "): " + (n == 0 ? "no Monster within 16" : sb.toString()) + " @" + uuid);
         } catch (Throwable t) {
