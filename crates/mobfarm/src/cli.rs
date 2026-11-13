@@ -14606,13 +14606,24 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 let mut cells: Vec<redsim::pos::BlockPos> = mo.keys().chain(mn.keys()).copied().filter(|p| mo.get(p) != mn.get(p)).collect();
                 cells.sort_by_key(|p| (p.y, p.x, p.z));
                 cells.dedup();
+                let mut not_old = Vec::new();
                 for p in &cells {
+                    let cur = spec.blocks.iter().find(|(q, _)| q == p).map(|(_, b)| *b);
+                    if cur != mo.get(p).copied() {
+                        not_old.push(format!("({},{},{}) the module {} vs OLD {}", p.x, p.y, p.z, cur.map_or("air".to_string(), |b| format!("{b}")), mo.get(p).map_or("air".to_string(), |b| format!("{b}"))));
+                    }
                     spec.blocks.retain(|(q, _)| q != p);
                     if let Some(b) = mn.get(p) {
                         spec.blocks.push((*p, *b));
                     }
                 }
+                // (ironspec 04:07: every replaced cell held OLD's block, else the override isn't the
+                // update it claims)
+                anyhow::ensure!(not_old.is_empty(), "--restop: the module doesn't hold OLD's stop at {} cell(s): {}", not_old.len(), not_old.join("; "));
                 println!("the module's stop brought up to date: {} cells differ between {old} and {new}: {}", cells.len(), cells.iter().map(|p| format!("({},{},{}) {}", p.x, p.y, p.z, mn.get(p).map_or("air".to_string(), |b| format!("{b}")))).collect::<Vec<_>>().join("; "));
+                // (ironspec 04:07: the override must change the module: the cells of the module's
+                // stop before it, OLD's, else the module doesn't hold OLD's stop)
+                anyhow::ensure!(!cells.is_empty(), "--restop {pair}: OLD and NEW don't differ (an override that changes nothing fails the run, ironspec 04:07)");
             }
             // (the experiment's cells: set in the (moved) design before the runs)
             for s in &set_cell {
@@ -14621,11 +14632,15 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 let [x, y, z] = v.as_slice() else { anyhow::bail!("--set-cell {s:?}: x,y,z=state") };
                 let p = redsim::pos::BlockPos::new(*x, *y, *z);
                 let b = redsim::block::Block::parse(&format!("minecraft:{}", st.trim_start_matches("minecraft:"))).map_err(|e| anyhow::anyhow!(e))?;
+                // (ironspec 04:07: an override that doesn't change its cell fails the run; the cell's
+                // state before and after printed)
+                let before = spec.blocks.iter().find(|(q, _)| *q == p).map(|(_, b)| *b).unwrap_or(redsim::block::Block::Air);
+                anyhow::ensure!(before != b, "--set-cell {s:?}: the cell already holds {before} (an override that changes nothing fails the run, ironspec 04:07)");
                 spec.blocks.retain(|(q, _)| *q != p);
                 if !b.is_air() {
                     spec.blocks.push((p, b));
                 }
-                println!("set {x},{y},{z} = {st}");
+                println!("set {x},{y},{z}: {before} -> {b}");
             }
             let shift = triple(&module_offset)?.map(|[x, y, z]| [x as i32, y as i32, z as i32]).unwrap_or([0, 0, 0]);
             let declared_emulated: Vec<[i32; 3]> = declare_emulated
