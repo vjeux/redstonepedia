@@ -339,6 +339,17 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
         }
     }
     println!("  the scene's entity lines summoned: {}; villagers named: {} ({})", d.entities.len(), vs.len(), vs.iter().map(|v| v.tag.as_str()).collect::<Vec<_>>().join(" "));
+    // (ironspec 09:21 (2)(a)) MCTAS_REPLAY_NOAI=1: the pure-cart control: every rider NoAI (no brain,
+    // no travel: Mob.isEffectiveAi 1311-1312, LivingEntity.aiStep 3087 / 3135), still seated and still
+    // pushing from its previous seat; cart timing only (no REST, no PANIC)
+    let noai = std::env::var_os("MCTAS_REPLAY_NOAI").is_some();
+    if noai {
+        for v in &vs {
+            srv.cmd_ok(&format!("data merge entity @e[tag={},limit=1] {{NoAI:1b}}", v.tag))?;
+            anyhow::ensure!(crate::strict::classify_test("noai", &srv.cmd_long(&format!("execute if entity @e[tag={},nbt={{NoAI:1b}},limit=1]", v.tag))?)?, "{}: NoAI not set", v.tag);
+        }
+        println!("  PURE-CART CONTROL: every rider NoAI:1b (no brain, no travel); a fidelity-only row (cart timing)");
+    }
     // (G1 / ironspec 07:57 (2)) the scene's own `# eN` names asserted at t0: each tagged line's name is
     // its spawn index (the replay's tag), and the game's entity has the line's type and position
     {
@@ -392,6 +403,15 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
             let n: Option<u32> = text.lines().find_map(|l| l.split(needle).nth(1)).and_then(|r| r.split_whitespace().next()).and_then(|s| s.parse().ok());
             println!("  agent hook {what}: {}", n.map(|n| format!("{n} installed")).unwrap_or_else(|| "NOT installed".into()));
             anyhow::ensure!(n.is_some_and(|n| n > 0), "the agent hook {what} did not install: its absence of lines would read as no events");
+        }
+        // (ironspec 09:28 (a)) with the push window on, each push hook hooks EXACTLY one method (matched
+        // by its descriptor), so a renamed or doubled method can't read as "no pushes"
+        if push_window.is_some() {
+            for (what, needle) in [("+push AbstractMinecart.push(Entity)", "AbstractMinecart.push(Entity) reports its entry and returns ("), ("+push LivingEntity.pushEntities", "LivingEntity.pushEntities reports its entry (")] {
+                let n: Option<u32> = text.lines().find_map(|l| l.split(needle).nth(1)).and_then(|r| r.split_whitespace().next()).and_then(|s| s.parse().ok());
+                println!("  agent hook {what}: {}", n.map(|n| format!("{n} method(s) hooked")).unwrap_or_else(|| "NOT installed".into()));
+                anyhow::ensure!(n == Some(1), "the agent hook {what} hooked {n:?} method(s), not exactly 1: the run fails");
+            }
         }
         srv.cmd_ok(&format!("setblock 28 {} 28 minecraft:glass", 100 + DY))?;
         srv.cmd_ok(&format!("summon minecraft:villager 28.5 {} 28.5 {{NoAI:1b,Tags:[\"scratchv\"]}}", 101 + DY))?;
@@ -603,9 +623,12 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
         if t == 0 {
             let taken = setup_lines.iter().filter(|l| l.starts_with("poi acquire")).count();
             println!(
-                "  t0: the run's start day {day_start} (scene {}, drive {}); HOME written and read back for {home_set_t0} villager(s), LAST_SLEPT for {slept_set_t0}, of {}; tickets taken during the setup: {taken} (start state (i): the ticket free){}",
+                "  t0: the run's start day {day_start} (scene {} md5 {}, drive {} md5 {}{}); HOME written and read back for {home_set_t0} villager(s), LAST_SLEPT for {slept_set_t0}, of {}; tickets taken during the setup: {taken} (start state (i): the ticket free){}",
                 scene.display(),
+                crate::md5::md5_hex(&std::fs::read(scene)?),
                 drive.display(),
+                crate::md5::md5_hex(&std::fs::read(drive)?),
+                std::env::var("MCTAS_REPLAY_MODULE_MD5").map(|m| format!(", built from module md5 {m}")).unwrap_or_default(),
                 vs.len(),
                 if home_set_t0 == vs.len() { "" } else { " (NOT every villager holds HOME)" }
             );
@@ -784,17 +807,20 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
         }
         // (G1 on G #9, on H #2) the brains' activity at t1 asserted: by day the run's schedule activity
         // (IDLE, or PANIC on a hostile); by night REST, or PANIC with a hostile sensed
-        if t == 0 {
+        if t == 0 && !noai {
             // (G1 on I) night as the schedule's keyframes give it (Timelines 186-198: REST from 12,000
             // to the IDLE keyframe at 10 of the next day), the day time taken mod 24,000
             let d0 = day.rem_euclid(24_000);
             let night0 = d0 >= 12_000 || d0 < 10;
+            // (ironspec 09:28 (d)) within 20 gt of the REST / IDLE keyframes (12,000 and 10) the
+            // brain's > 20-gt update cadence allows either side's activity
+            let near_edge = (d0 - 12_000).abs() < 20 || d0 < 30 || d0 > 23_990;
             let wrong: Vec<String> = vs
                 .iter()
                 .filter(|v| v.gone.is_none())
                 .filter(|v| match v.activity.as_str() {
-                    "idle" => night0,
-                    "rest" => !night0,
+                    "idle" => night0 && !near_edge,
+                    "rest" => !night0 && !near_edge,
                     "panic" => !v.hostile && night0,
                     _ => true,
                 })
@@ -1128,12 +1154,14 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
     // isn't a pass), and an open-loop drive is no design run: it exits non-zero unless declared
     // fidelity-only (MCTAS_REPLAY_FIDELITY_ONLY=1, printed)
     let expect_lines = acts.iter().filter(|a| a.expect.is_some()).count();
+    // a run shorter than the drive checks the expect lines inside its own ticks
+    let expect_in_run = acts.iter().filter(|a| a.expect.is_some() && a.t <= ticks).count();
     let fidelity_only = std::env::var_os("MCTAS_REPLAY_FIDELITY_ONLY").is_some();
     println!(
-        "  run kind: {}; expect lines {expect_lines}, checked {expects_checked}",
+        "  run kind: {}; expect lines {expect_lines} ({expect_in_run} inside the run), checked {expects_checked}",
         if expect_lines > 0 { "closed-loop checked (a design run)" } else if fidelity_only { "OPEN LOOP, declared fidelity-only (MCTAS_REPLAY_FIDELITY_ONLY): mechanics only, no design verdict" } else { "OPEN LOOP (no `# expect` lines): not a design run" }
     );
-    anyhow::ensure!(expects_checked == expect_lines, "{expects_checked} of {expect_lines} `# expect` line(s) checked: the run fails");
+    anyhow::ensure!(expects_checked == expect_in_run, "{expects_checked} of the {expect_in_run} `# expect` line(s) inside the run's {ticks} gt checked: the run fails");
     anyhow::ensure!(expect_lines > 0 || fidelity_only, "an OPEN-LOOP drive (no `# expect` lines) is no design run: declare it with MCTAS_REPLAY_FIDELITY_ONLY=1 for a mechanics-only row; the run fails");
     anyhow::ensure!(judged > 0, "no night tick judged: NOT JUDGED, the run fails");
     anyhow::ensure!(applied == acts.len(), "only {applied} of {} acts applied within {ticks} gt", acts.len());

@@ -54,10 +54,13 @@ public final class BrainAgent {
     private static final String PUSH_LIST = "mctas.brain.pushlist";
     private static final String MINECART_CLASS = "net/minecraft/world/entity/vehicle/minecart/AbstractMinecart";
     private static final ThreadLocal<Object> PUSH_DELTA = new ThreadLocal<>();
+    private static final ThreadLocal<Object> PUSHER_DELTA = new ThreadLocal<>();
 
     static void onPushIn(Object cart, Object pusher) {
         try {
             PUSH_DELTA.set(call(cart, "getDeltaMovement"));
+            // (ironspec 09:28 (b)) a cart-on-cart push changes both carts: the pusher's delta too
+            PUSHER_DELTA.set(pusher.getClass().getSimpleName().contains("Minecart") ? call(pusher, "getDeltaMovement") : null);
         } catch (Throwable t) {
             System.err.println("mctas brain agent: push in (unread): " + t);
         }
@@ -69,7 +72,9 @@ public final class BrainAgent {
             String pu = (String) pusher.getClass().getMethod("getStringUUID").invoke(pusher);
             Object veh = call(pusher, "getVehicle");
             String vu = veh == null ? "none" : (String) veh.getClass().getMethod("getStringUUID").invoke(veh);
-            System.err.println("mctas brain agent: push cart by " + pusher.getClass().getSimpleName() + " " + pu + " (its vehicle " + vu + ") cartbox " + call(cart, "getBoundingBox") + " pusherbox " + call(pusher, "getBoundingBox") + " delta " + PUSH_DELTA.get() + " -> " + call(cart, "getDeltaMovement") + " @" + cu);
+            Object pd = PUSHER_DELTA.get();
+            String pusherDelta = pd == null ? "" : " pusher delta " + pd + " -> " + call(pusher, "getDeltaMovement");
+            System.err.println("mctas brain agent: push cart by " + pusher.getClass().getSimpleName() + " " + pu + " (its vehicle " + vu + ") cartbox " + call(cart, "getBoundingBox") + " pusherbox " + call(pusher, "getBoundingBox") + " delta " + PUSH_DELTA.get() + " -> " + call(cart, "getDeltaMovement") + pusherDelta + " @" + cu);
         } catch (Throwable t) {
             System.err.println("mctas brain agent: push out (unread): " + t);
         }
@@ -102,8 +107,10 @@ public final class BrainAgent {
     }
 
     /** A hook at a method's entry (BiConsumer key `inKey`, given this and local 1 or null) and, when
-     * `outKey` is set, before each of its returns (the same arguments). */
-    static byte[] entryExitHook(ClassLoader loader, byte[] bytes, String method, int params, String inKey, String outKey, String what) {
+     * `outKey` is set, before each of its returns (the same arguments). (ironspec 09:28 (a)) the
+     * method is matched by its exact descriptor, never by name and arity. */
+    static byte[] entryExitHook(ClassLoader loader, byte[] bytes, String method, String descriptor, String inKey, String outKey, String what) {
+        int params = java.lang.constant.MethodTypeDesc.ofDescriptor(descriptor).parameterCount();
         ClassHierarchyResolver resolver = ClassHierarchyResolver.defaultResolver();
         if (loader != null) {
             resolver = ClassHierarchyResolver.ofClassLoading(loader).orElse(resolver);
@@ -112,7 +119,7 @@ public final class BrainAgent {
         ClassModel model = cf.parse(bytes);
         int[] hooked = {0};
         byte[] out = cf.transformClass(model, (cb, ce) -> {
-            if (ce instanceof java.lang.classfile.MethodModel m && m.code().isPresent() && m.methodName().equalsString(method) && m.methodTypeSymbol().parameterCount() == params) {
+            if (ce instanceof java.lang.classfile.MethodModel m && m.code().isPresent() && m.methodName().equalsString(method) && m.methodTypeSymbol().descriptorString().equals(descriptor)) {
                 hooked[0]++;
                 cb.transformMethod(m, java.lang.classfile.MethodTransform.transformingCode(new java.lang.classfile.CodeTransform() {
                     boolean first = true;
@@ -545,12 +552,12 @@ public final class BrainAgent {
                             b = hurtHook(loader, b);
                         }
                         if (pushOn) {
-                            b = entryExitHook(loader, b, "pushEntities", 0, PUSH_LIST, null, "LivingEntity.pushEntities");
+                            b = entryExitHook(loader, b, "pushEntities", "()V", PUSH_LIST, null, "LivingEntity.pushEntities");
                         }
                         return b;
                     }
                     if (pushOn && MINECART_CLASS.equals(name)) {
-                        return entryExitHook(loader, bytes, "push", 1, PUSH_IN, PUSH_OUT, "AbstractMinecart.push(Entity)");
+                        return entryExitHook(loader, bytes, "push", "(Lnet/minecraft/world/entity/Entity;)V", PUSH_IN, PUSH_OUT, "AbstractMinecart.push(Entity)");
                     }
                     return null;
                 } catch (Throwable t) {

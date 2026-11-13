@@ -61,6 +61,7 @@ pub mod playersleep;
 pub mod sightctl;
 pub mod strict;
 pub mod drivereplay;
+pub mod md5;
 pub mod reclaim;
 pub mod threebeds;
 pub mod daylight;
