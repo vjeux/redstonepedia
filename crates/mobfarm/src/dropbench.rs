@@ -479,5 +479,11 @@ pub fn drop_bench(o: &DropOpts) -> Result<String, String> {
     }
     let amax = arrivals.iter().map(|a| a.1).fold(0.0f64, f64::max);
     lines.push(format!("arrivals at the lanes' backs (the ideal returns and the trains closing up): {}, {} above 0.46, the hardest {amax:.3}", arrivals.len(), arrivals.iter().filter(|a| a.1 > 0.46).count()));
+    // (ironspec 07:28: the start-state line on the escape bench without --siding too: no bed, no AI;
+    // the riders summoned with no HOME, so the redsim HOME-ticket gap doesn't arise)
+    lines.push(format!(
+        "the bed at the start (ironspec 06:42 real, the HOME-ticket gap; ironspec 07:28): no bed laid; the riders are summoned with no HOME ({}), so no ticket exists or is taken (the gap doesn't arise)",
+        if o.riders { "Passengers: a villager, PersistenceRequired only" } else { "empty carts: no riders" }
+    ));
     Ok(lines.join("\n"))
 }
