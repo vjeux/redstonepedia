@@ -152,6 +152,12 @@ pub struct Opts {
     pub lip_dump: Option<std::path::PathBuf>,
     /// (G1 12:21) A villager's per-tick state over FROM..TO: (id, from, to).
     pub villager_trace: Option<(u32, i64, i64)>,
+    /// (day-1 12:49 / ironspec 12:52) The outbound J release evidence-keyed (tripwires east of each J).
+    pub evidence_keyed: bool,
+    /// The evidence keying's delay from a press to the J's hold-off end (gt).
+    pub evidence_delay: i64,
+    /// (ironspec 12:54 (2)) F1's REL gated by J(-1)'s armed latch.
+    pub rel_gate_armed: bool,
     /// (ironspec 10:51 (g)) the longest designed rest on a station hold H's trapdoor, gt.
     pub h_rest_bound: i64,
     /// (ironspec 10:51 (f)) the siding check's positive: a batch cart planted on lane -1's siding R.
@@ -879,6 +885,20 @@ struct Ctl {
     picker_hold_to_leg: bool,
     /// (day-1's Delta, ironspec 12:41 (4)) the hold pulse's shift in gt (and the taps keyed off it)
     hold_delta: i64,
+    /// (day-1 12:49 / 12:53, ironspec 12:52) the outbound J release evidence-keyed (the tripwires at
+    /// (0,26,9) / (4,26,9) / (8,26,9) ANDed with each J's hold-off), its delay, the pending releases,
+    /// every press (tick, J, presser cart, the napper's), and the presses by a cart not the napper's
+    evidence_keyed: bool,
+    evidence_delay: i64,
+    ev_release_at: [Option<i64>; 3],
+    ev_presses: Vec<(i64, i32, u32, bool)>,
+    ev_faults: Vec<String>,
+    ev_releases: Vec<(i64, i32, u32)>,
+    /// (ironspec 12:54 (2)) REL gated by J(-1)'s armed latch: on, the request held since, and each
+    /// held start's (request, delay)
+    rel_gate_armed: bool,
+    gated_since: Option<i64>,
+    rel_delays: Vec<(i64, i64)>,
     /// (G1 10:47 blocking 4's control) the eject-on-R control: armed, and its sample (tick, lane,
     /// the napper, PRESENT_l right after)
     eject_control: bool,
@@ -1205,6 +1225,19 @@ impl Ctl {
         use redsim::world::flags;
         let now = rel;
         self.day_now = w.day_time().rem_euclid(24_000);
+        // (ironspec 12:54 (2), day-1's spec: F1's REL AND J(-1) ARMED, "armed" read from J(-1)'s latch,
+        // the lever (-1,26,9)) with --rel-gate-armed, a start requested while J(-1) isn't armed waits
+        // until it is; the delay per batch printed
+        let j_armed = w.get(dbp(-1, 26, 9)).to_string().contains("powered=true");
+        if self.rel_gate_armed
+            && let Some(since) = self.gated_since
+            && j_armed
+        {
+            self.gated_since = None;
+            self.rel_delays.push((since, now - since));
+            self.start(now + 2 + 4);
+            self.note(now, format!("the REL gate: J(-1) armed: REL at t {} ({} gt after the request)", now + 6, now - since));
+        }
         // the golem pulse: a golem appeared
         let new: Vec<u32> = w.entities.list.iter().filter(|e| !e.removed && matches!(&e.kind, EntityKind::Mob(m) if matches!(m.ty, redsim::entity::mob::types::MobType::IronGolem))).map(|e| e.id).filter(|id| !self.golems.contains(id)).collect();
         for id in new {
@@ -1218,6 +1251,11 @@ impl Ctl {
                 self.pending = true;
                 self.rearms += 1;
                 self.note(now, format!("golem {id}: the pulse during B: B re-armed to t {}, P latched", now + 100));
+            } else if self.rel_gate_armed && !j_armed {
+                if self.gated_since.is_none() {
+                    self.gated_since = Some(now);
+                }
+                self.note(now, format!("golem {id}: the pulse; REL held by the gate (J(-1) not armed)"));
             } else {
                 self.start(now + 2 + 4);
                 self.note(now, format!("golem {id}: the pulse; REL at t {}", now + 6));
@@ -1232,15 +1270,27 @@ impl Ctl {
             if self.busy {
                 self.restarted_busy += 1;
             }
-            self.start(now + 2 + 4);
-            self.note(now, format!("B's expiry with P: REL at t {}", now + 6));
-        } else if self.watchdog > 0 && now >= self.b_until && now - self.last_start.unwrap_or(0) >= self.watchdog {
+            if self.rel_gate_armed && !j_armed {
+                if self.gated_since.is_none() {
+                    self.gated_since = Some(now);
+                }
+                self.note(now, "B's expiry with P: REL held by the gate (J(-1) not armed)".to_string());
+            } else {
+                self.start(now + 2 + 4);
+                self.note(now, format!("B's expiry with P: REL at t {}", now + 6));
+            }
+        } else if self.watchdog > 0 && now >= self.b_until && now - self.last_start.unwrap_or(0) >= self.watchdog && self.gated_since.is_none() {
             self.watchdog_starts += 1;
             if self.busy {
                 self.restarted_busy += 1;
             }
-            self.start(now + 2 + 4);
-            self.note(now, format!("the flywheel: no cycle within {} gt; REL at t {}", self.watchdog, now + 6));
+            if self.rel_gate_armed && !j_armed {
+                self.gated_since = Some(now);
+                self.note(now, "the flywheel: REL held by the gate (J(-1) not armed)".to_string());
+            } else {
+                self.start(now + 2 + 4);
+                self.note(now, format!("the flywheel: no cycle within {} gt; REL at t {}", self.watchdog, now + 6));
+            }
         }
         // (day-1 16:14: the counter's daily re-phase from the daylight detector: C := 0 at RISE
         // (0 -> 1), C := 19 at EIGHT (7 -> 8) when C >= 136 or C <= 15)
@@ -1461,6 +1511,7 @@ impl Ctl {
                         && dcid == cid
                         && c[0] < 9
                         && !self.picker_hold_to_leg
+                        && !self.evidence_keyed
                     {
                         // (day-1 11:40: the picker emulation's R6 error) each J the outbound napper
                         // clears is released at once, as that J's own D rise would leave it with the
@@ -1511,6 +1562,64 @@ impl Ctl {
                         }
                         self.note(now, format!("the picker: cart {cid} past (8,25,9) onto the leg; the split restored"));
                     }
+                }
+            }
+        }
+        // (day-1 12:49 / 12:53, ironspec 12:52 / 12:54: the outbound napper's J release EVIDENCE-KEYED)
+        // with --evidence-keyed, each held-off J (x) ends its hold-off at the first press of its tripwire
+        // east of it, the string at (x+1,26,9) (its hooks at (x+1,26,8) / (x+1,26,10)) ANDed with the hold-
+        // off, + --evidence-delay gt; a press is any rider's box meeting the attached string's shape
+        // (y 26 + 1/16 .. 26 + 2.5/16); a press by any cart but the napper's is a fault row (it ends the
+        // hold-off as the built AND would); the napper's press is the emulated D(x) for the ring
+        if self.evidence_keyed
+            && let Some((dcid, dk)) = self.divert
+        {
+            for (jk, jx) in [(1usize, 3i32), (2, 7)] {
+                if jx < LANES[dk] || self.divert_cleared[jk] || self.ev_release_at[jk].is_some() {
+                    continue;
+                }
+                let sx = jx + 1;
+                let o = frame_offset();
+                let (x0, x1) = ((sx + o[0]) as f64, (sx + 1 + o[0]) as f64);
+                let (y0, y1) = ((26 + o[1]) as f64 + 1.0 / 16.0, (26 + o[1]) as f64 + 2.5 / 16.0);
+                let (z0, z1) = ((9 + o[2]) as f64, (10 + o[2]) as f64);
+                let pressers: Vec<u32> = w
+                    .entities
+                    .list
+                    .iter()
+                    .filter(|e| !e.removed && matches!(e.kind, EntityKind::Mob(_)) && e.vehicle.is_some())
+                    .filter(|e| e.bb.max_x > x0 && e.bb.min_x < x1 && e.bb.max_y > y0 && e.bb.min_y < y1 && e.bb.max_z > z0 && e.bb.min_z < z1)
+                    .filter_map(|e| e.vehicle)
+                    .collect();
+                if pressers.is_empty() {
+                    continue;
+                }
+                self.ev_release_at[jk] = Some(now + self.evidence_delay);
+                for p in &pressers {
+                    if *p == dcid {
+                        self.ev_presses.push((now, jx, *p, true));
+                    } else {
+                        self.ev_presses.push((now, jx, *p, false));
+                        self.ev_faults.push(format!("t {now}: cart #{p} (not the napper's #{dcid}) pressed held-off J({jx})'s tripwire ({sx},26,9)"));
+                    }
+                }
+                self.note(now, format!("the evidence keying: J({jx})'s tripwire ({sx},26,9) pressed by {:?}: its hold-off ends at t {}", pressers, now + self.evidence_delay));
+            }
+            for (jk, jx) in [(1usize, 3i32), (2, 7)] {
+                if self.ev_release_at[jk] == Some(now) {
+                    self.ev_release_at[jk] = None;
+                    self.divert_cleared[jk] = true;
+                    if jk == 1 && dk == 0 {
+                        set(w, [3, 26, 9], &lever(true), flags::ALL)?;
+                    }
+                    if jk == 2 {
+                        if dk == 2 && !self.j_block.is_some_and(|(a, b)| now >= a && now < b) {
+                            set(w, [-1, 26, 9], &lever(true), flags::ALL)?;
+                        }
+                        set(w, [7, 26, 9], &lever(true), flags::ALL)?;
+                    }
+                    self.note(now, format!("the evidence keying: J({jx})'s hold-off ended"));
+                    self.ev_releases.push((now, jx, dcid));
                 }
             }
         }
@@ -3029,6 +3138,9 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         ctl.eject_control = o.eject_control;
         ctl.picker_hold_to_leg = o.picker_hold_to_leg;
         ctl.hold_delta = o.hold_pulse_delta;
+        ctl.evidence_keyed = o.evidence_keyed;
+        ctl.evidence_delay = o.evidence_delay;
+        ctl.rel_gate_armed = o.rel_gate_armed;
     }
     // (day-1 06:07 PT, ctlcounter.rs; G1's blocker 3: the counter's state at the first release, a
     // clear clock's: C = 141 + ceil((d - 12,540) / 100) for a first release at day time d between
@@ -9087,6 +9199,48 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             let n = run.world.mob.rider_cart_pushes_skipped;
             s.push_str(&format!("rider doPush onto carts: off (a counterfactual, no game twin; cc767b78's switch): {n} pushes skipped ({})\n", if n > 0 { "PASS" } else { "FAIL: it measured nothing" }));
         }
+        // (day-1 12:49 / 12:53, ironspec 12:52 / 12:54) the evidence keying's bars: only the napper
+        // presses a held-off J's tripwire (bar 0); each J's settle margin per pick, the next batch
+        // cart's entry into J minus the J's hold-off end, bar >= 3
+        if o.rel_gate_armed {
+            let mx = ctl.rel_delays.iter().map(|d| d.1).max();
+            s.push_str(&format!(
+                "the REL gate (ironspec 12:54 (2): F1's REL AND J(-1) armed, read from J(-1)'s latch): {} starts held, the longest {} gt{}{}; information\n",
+                ctl.rel_delays.len(),
+                mx.map_or("-".to_string(), |m| m.to_string()),
+                if ctl.rel_delays.is_empty() { String::new() } else { format!(": {}", ctl.rel_delays.iter().map(|(t, d)| format!("requested t {t} held {d} gt")).collect::<Vec<_>>().join(", ")) },
+                if ctl.gated_since.is_some() { "; a request still held at the end".to_string() } else { String::new() }
+            ));
+        }
+        if o.evidence_keyed {
+            let mut rows: Vec<String> = Vec::new();
+            let mut least: Option<(i64, String)> = None;
+            for (tr, jx, ncid) in ctl.ev_releases.iter() {
+                let b = junction_passes.iter().filter(|p| p.1 == [*jx, 25, 9] && p.2 == "batch" && p.0 > *tr).map(|p| p.0).min();
+                match b {
+                    Some(b) => {
+                        let m = b - tr;
+                        rows.push(format!("J({jx}) released t {tr} (napper cart #{ncid}): the next batch cart at t {b}, settle margin {m}"));
+                        if least.as_ref().is_none_or(|l| m < l.0) {
+                            least = Some((m, format!("J({jx}) t {tr}")));
+                        }
+                    }
+                    None => rows.push(format!("J({jx}) released t {tr} (napper cart #{ncid}): no batch cart after it")),
+                }
+            }
+            let napper_presses = ctl.ev_presses.iter().filter(|p| p.3).count();
+            let ok = ctl.ev_faults.is_empty() && least.as_ref().is_none_or(|l| l.0 >= 3) && !ctl.ev_releases.is_empty();
+            s.push_str(&format!(
+                "the evidence-keyed outbound release (day-1 12:49 / 12:53, ironspec 12:52 / 12:54: the tripwires (0,26,9) / (4,26,9) / (8,26,9) ANDed with each J's hold-off, + {} gt): {} presses by the napper, {} by another cart (bar 0){}; the least settle margin {} (bar >= 3); {} ({})\n",
+                o.evidence_delay,
+                napper_presses,
+                ctl.ev_faults.len(),
+                if ctl.ev_faults.is_empty() { String::new() } else { format!(": {}", ctl.ev_faults.join("; ")) },
+                least.as_ref().map_or("none".to_string(), |(m, w)| format!("{m} gt ({w})")),
+                if rows.is_empty() { "no release".to_string() } else { rows.join("; ") },
+                if ctl.ev_releases.is_empty() { "NOT JUDGED (no release): FAIL" } else if ok { "PASS" } else { "FAIL" }
+            ));
+        }
     }
     // (G1 blocking 8 / U11: nothing silently dropped) the run log and the controller's log, each cut
     // at a stated length with the count of the lines not printed
@@ -9563,10 +9717,60 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     format!("{a} -> {b}: n {}, the least {} gt, median {}", v.len(), v[0], v[v.len() / 2])
                 })
                 .collect();
+            let napper_least = per.iter().filter(|((a, b), _)| *a == "napper" || *b == "napper").map(|(_, v)| v[0]).min();
+            let batch_least = per.get(&("batch", "batch")).map(|v| v[0]);
+            let ok = napper_least.is_none_or(|m| m >= 23) && batch_least.is_none_or(|m| m >= 13);
             format!(
-                "{s}the shared lift's mouth gaps (ironspec 12:58: each cart's entry into the lift column (-5,1..3,7) from outside it; the gap to the cart before, per pair class (a returning napper, else batch); against the lift-pair clean gap + margin: that gap from the lift bench, pending; information): {} entries; {}\n",
+                "{s}the shared lift's mouth gaps (ironspec 12:58 / 12:38 / 12:51: each cart's entry into the lift column (-5,1..3,7) from outside it; the gap to the cart before, per pair class (a returning napper, else batch); bars: batch -> batch >= 13 (the lift-pair bar), every pair with a napper >= 13 + 10 = 23): {} entries; {} ({})\n",
                 lift_entries.len(),
-                if rows.is_empty() { "no pair".to_string() } else { rows.join("; ") }
+                if rows.is_empty() { "no pair".to_string() } else { rows.join("; ") },
+                if lift_entries.len() < 2 { "NOT JUDGED (no pair): FAIL" } else if ok { "PASS" } else { "FAIL" }
+            )
+        };
+        // (G1 12:50 / ironspec 12:54 (1), evidence keying's swaps) the in-batch swap rate: each REL's
+        // pocket releases (a cart leaving P (x,0,0), grouped within 40 gt) against their order of
+        // arrival at the split row's first J (-1,25,9)
+        let s = {
+            let mut exits: Vec<(i64, u32, usize)> = Vec::new();
+            for (cid, ents) in cart_entries.iter() {
+                for p in ents.windows(2) {
+                    if let Some(k) = LANES.iter().position(|x| p[0].1 == [*x, 0, 0]) && p[1].1 != p[0].1 {
+                        exits.push((p[1].0, *cid, k));
+                    }
+                }
+            }
+            exits.sort();
+            let mut batches: Vec<Vec<(i64, u32, usize)>> = Vec::new();
+            for e in exits {
+                match batches.last_mut() {
+                    Some(b) if e.0 - b[0].0 <= 40 => b.push(e),
+                    _ => batches.push(vec![e]),
+                }
+            }
+            let mut judged = 0usize;
+            let mut swapped: Vec<String> = Vec::new();
+            for b in batches.iter().filter(|b| b.len() >= 2) {
+                let arr: Vec<Option<i64>> = b.iter().map(|(t, cid, _)| cart_entries.get(cid).and_then(|v| v.iter().find(|(et, c)| *et > *t && *c == [-1, 25, 9]).map(|(et, _)| *et))).collect();
+                if arr.iter().any(|a| a.is_none()) {
+                    continue;
+                }
+                judged += 1;
+                let mut order: Vec<usize> = (0..b.len()).collect();
+                order.sort_by_key(|i| arr[*i]);
+                if order.iter().enumerate().any(|(n, i)| n != *i) {
+                    swapped.push(format!(
+                        "released t {} (lanes {}) arrived as lanes {}",
+                        b[0].0,
+                        b.iter().map(|x| LANES[x.2].to_string()).collect::<Vec<_>>().join(" / "),
+                        order.iter().map(|i| LANES[b[*i].2].to_string()).collect::<Vec<_>>().join(" / ")
+                    ));
+                }
+            }
+            format!(
+                "{s}the in-batch swaps (G1 12:50 / ironspec 12:54 (1): each REL's pocket releases (a cart leaving P (x,0,0), grouped within 40 gt) against their arrival order at J(-1) (-1,25,9); information): {} of {} batches swapped{}\n",
+                swapped.len(),
+                judged,
+                if swapped.is_empty() { String::new() } else { format!(": {}", swapped.join("; ")) }
             )
         };
         // (onechunk 11:16) the nappers' misroutes, bar 0
