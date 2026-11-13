@@ -95,6 +95,16 @@ pub const PARK_CTRL_A: [i32; 3] = [-1, 0, 3];
 /// (A)'s arming detector, the flat before E: this cart's passage arms the gate (F waits for it plus
 /// the worst-case braking interval, ironspec 00:37 (2b)).
 pub const ARM_A: [i32; 3] = [-2, 1, 1];
+/// (A) with the run-up (B3, ironspec 02:27): E at the flats' own level (-2,0,2), its lever hung from
+/// glass over it; after E the curve east (-2,0,3), a booster, a climb, the U-turn at y 1, the park
+/// (1,0,4) one braked powered rail descending west, two run-up flats along z 4 into P (-2,0,4), a
+/// curve turning south onto A6's exit curve. The run-up's friction brings the released cart to P
+/// under 0.2 b/t (the 0.2-step clip).
+pub const E_A2: [i32; 3] = [-2, 0, 2];
+pub const ACT_CTRL_A2: [i32; 3] = [-2, 1, 2];
+pub const ARM_A2: [i32; 3] = [-2, 0, 1];
+pub const PARK_A2: [i32; 3] = [1, 0, 4];
+pub const PARK_CTRL_A2: [i32; 3] = [1, 0, 5];
 
 /// The stop's variant cells in a built world: (A) when E holds an activator rail, T5b when the
 /// entry does, else A6.
@@ -109,7 +119,9 @@ pub struct Layout {
 
 pub fn layout(w: &World) -> Layout {
     let at = |c: [i32; 3]| format!("{}", w.get(BlockPos::new(c[0], c[1], c[2])));
-    if at(E_A).contains("activator_rail") {
+    if at(E_A2).contains("activator_rail") {
+        Layout { name: "(A) run-up", act: E_A2, act_ctrl: ACT_CTRL_A2, park_ctrl: vec![PARK_CTRL_A2], arm: Some(ARM_A2) }
+    } else if at(E_A).contains("activator_rail") {
         Layout { name: "(A)", act: E_A, act_ctrl: ACT_CTRL_A, park_ctrl: vec![PARK_CTRL_A], arm: Some(ARM_A) }
     } else if at(ENTRY).contains("activator_rail") {
         Layout { name: "T5b", act: ENTRY, act_ctrl: ACT_CTRL_T5B, park_ctrl: PARK_CTRL.to_vec(), arm: None }
@@ -605,6 +617,168 @@ pub fn design_a(bench: bool) -> Result<String> {
         "switch: -4,0,3=the hatch's lower lever (day-1's line end: F shuts, R opens); -4,1,5=the hatch's upper lever (the same line); -1,1,2=the activator's lever (day-1's line end, held on); -1,0,3=the park's lever (day-1's line end: the release); -1,2,5=a golem-proofing stone button over the exit booster's cap (never pressed); 0,2,5=a golem-proofing stone button over the exit flat's cap (never pressed); -3,3,3=a golem-proofing stone button over the bed foot's roof (never pressed)".to_string(),
         "always-on: -1,0,6=the exit booster's redstone torch, on glass (-1,-1,6): it never toggles".to_string(),
         "a6-pickup: -2,0,4=the pickup cell (the napper's only stand-up cell); stranded bound: no cart at it by the wake edge + 60 gt fails (to restate from (A)'s rows)".to_string(),
+    ];
+    let refs: Vec<&str> = lines.iter().map(|s| s.as_str()).collect();
+    Ok(b.text(&refs))
+}
+
+/// (A) with the run-up (B3, ironspec 02:27): A6's arrival at its own levels to E (-2,0,2) over the
+/// bed foot's north-east corner (the dismount's SW at E's level is the bed foot's top, a floor from
+/// its own cell), the curve east (-2,0,3), a booster and a climb to the U-turn at y 1, the park (1,0,4)
+/// one braked powered rail descending west, two run-up flats along z 4, P (-2,0,4) a curve turning
+/// south onto A6's exit. The run-up's empty-cart drag brings the released cart to P under 0.2 b/t
+/// (a step over 0.2 can clip into the standing napper's box and stop dead).
+pub fn design_a2(bench: bool) -> Result<String> {
+    let mut b = Builder::new(if bench { "bed-tier-a2-bench" } else { "bed-tier-a2" });
+    let rail = |s: &str| format!("rail[shape={s},waterlogged=false]");
+    let cap = "iron_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]";
+    let button = "stone_button[face=floor,facing=north,powered=false]";
+    let wall = |b: &mut Builder, c: [i32; 3]| -> Result<()> {
+        if !b.d.blocks.contains_key(&c) {
+            put(b, c, "glass")?;
+        }
+        Ok(())
+    };
+    // the arrival at A6's levels: the entry booster (always on), plain rails down the old park's
+    // slope, A6's capped flat, the curve south, the flats, the arming detector, E
+    put(&mut b, ENTRY, "powered_rail[powered=true,shape=east_west,waterlogged=false]")?;
+    put(&mut b, [ENTRY[0], 1, ENTRY[2]], "glass")?;
+    put(&mut b, [ENTRY[0], 2, ENTRY[2] - 1], "redstone_torch[lit=true]")?;
+    put(&mut b, [ENTRY[0], 1, ENTRY[2] - 1], "glass")?;
+    put(&mut b, ACTIVATOR, &rail("east_west"))?;
+    put(&mut b, [ACTIVATOR[0], 1, ACTIVATOR[2]], "glass")?;
+    for p in PARK {
+        put(&mut b, p, &rail("ascending_east"))?;
+        put(&mut b, [p[0], p[1] - 1, p[2]], "glass")?;
+    }
+    put(&mut b, [-1, 0, -4], &rail("east_west"))?;
+    put(&mut b, [-1, -1, -4], "glass")?;
+    put(&mut b, [-1, 1, -4], cap)?;
+    put(&mut b, [-1, 2, -4], button)?;
+    put(&mut b, [-2, 0, -4], &rail("south_east"))?;
+    put(&mut b, [-2, -1, -4], "glass")?;
+    put(&mut b, [-2, 1, -4], "glass")?;
+    put(&mut b, [1, 3, -4], "glass")?;
+    for z in -3..=0 {
+        put(&mut b, [-2, 0, z], &rail("north_south"))?;
+        put(&mut b, [-2, -1, z], "glass")?;
+    }
+    put(&mut b, ARM_A2, "detector_rail[powered=false,shape=north_south,waterlogged=false]")?;
+    put(&mut b, [ARM_A2[0], -1, ARM_A2[2]], "glass")?;
+    put(&mut b, E_A2, "activator_rail[powered=true,shape=north_south,waterlogged=false]")?;
+    put(&mut b, [E_A2[0], -1, E_A2[2]], "glass")?;
+    put(&mut b, ACT_CTRL_A2, &ctl_block(ACT_CTRL_A2, "redstone_block"))?;
+    put(&mut b, [ACT_CTRL_A2[0], 2, ACT_CTRL_A2[2]], "glass")?;
+    // (the dismount at E, a southbound cart: W, E, NW, NE at E's level full blocks, then SW, the bed
+    // foot's top: the first valid place, 1.00 from the bed head's centre)
+    for c in [[-3, 0, 2], [-1, 0, 2], [-3, 0, 1], [-1, 0, 1]] {
+        put(&mut b, c, "glass")?;
+    }
+    // K, the curve east after E (glass over it: P's way north is 1 high), a flat, a booster (always
+    // on: the climb's speed), the climb, the U-turn at y 1 on glass
+    put(&mut b, [-2, 0, 3], &rail("north_east"))?;
+    put(&mut b, [-2, -1, 3], "glass")?;
+    put(&mut b, [-2, 1, 3], "glass")?;
+    put(&mut b, [-1, 0, 3], &rail("east_west"))?;
+    put(&mut b, [-1, -1, 3], "glass")?;
+    put(&mut b, [0, 0, 3], "powered_rail[powered=true,shape=east_west,waterlogged=false]")?;
+    put(&mut b, [0, -1, 3], "glass")?;
+    put(&mut b, [0, 0, 2], "redstone_torch[lit=true]")?;
+    put(&mut b, [0, -1, 2], "glass")?;
+    put(&mut b, [1, 0, 3], &rail("ascending_east"))?;
+    put(&mut b, [1, -1, 3], "glass")?;
+    put(&mut b, [2, 1, 3], &rail("south_west"))?;
+    put(&mut b, [2, 0, 3], "glass")?;
+    put(&mut b, [2, 1, 4], &rail("north_west"))?;
+    put(&mut b, [2, 0, 4], "glass")?;
+    // the park: one braked powered rail descending west, its lever on the glass south of it
+    put(&mut b, PARK_A2, "powered_rail[powered=false,shape=ascending_east,waterlogged=false]")?;
+    put(&mut b, [PARK_A2[0], -1, PARK_A2[2]], "glass")?;
+    put(&mut b, PARK_CTRL_A2, &ctl_block(PARK_CTRL_A2, "stone"))?;
+    put(&mut b, [PARK_CTRL_A2[0], 0, PARK_CTRL_A2[2] + 1], "glass")?;
+    // the run-up: two flats along z 4 into P, glass over them (the empty cart passes under; a
+    // napper on P can't step east)
+    for x in -1..=0 {
+        put(&mut b, [x, 0, 4], &rail("east_west"))?;
+        put(&mut b, [x, -1, 4], "glass")?;
+        put(&mut b, [x, 1, 4], "glass")?;
+    }
+    // P, a curve turning south onto A6's exit curve, and A6's exit
+    put(&mut b, SWEPT[0], &rail("south_east"))?;
+    put(&mut b, [SWEPT[0][0], -1, SWEPT[0][2]], "glass")?;
+    put(&mut b, [-2, 0, 5], &rail("north_east"))?;
+    put(&mut b, [-2, -1, 5], "glass")?;
+    put(&mut b, [-2, 1, 5], cap)?;
+    put(&mut b, [-2, 2, 5], "glass")?;
+    put(&mut b, [-1, 0, 5], "powered_rail[powered=true,shape=east_west,waterlogged=false]")?;
+    put(&mut b, [-1, -1, 5], "glass")?;
+    put(&mut b, [-1, 0, 6], "redstone_torch[lit=true]")?;
+    put(&mut b, [-1, -1, 6], "glass")?;
+    put(&mut b, [-1, 1, 5], cap)?;
+    put(&mut b, [0, 0, 5], &rail("east_west"))?;
+    put(&mut b, [0, -1, 5], "glass")?;
+    put(&mut b, [0, 1, 5], cap)?;
+    for x in -1..=0 {
+        put(&mut b, [x, 2, 5], button)?;
+    }
+    put(&mut b, [1, -1, 5], &rail("ascending_west"))?;
+    put(&mut b, [1, -2, 5], "glass")?;
+    for x in 2..=3 {
+        put(&mut b, [x, -1, 5], &rail("east_west"))?;
+        put(&mut b, [x, -2, 5], "glass")?;
+    }
+    put(&mut b, EXIT_DET, "detector_rail[powered=false,shape=east_west,waterlogged=false]")?;
+    put(&mut b, [EXIT_DET[0], -2, EXIT_DET[2]], "glass")?;
+    // the bed, its foot's roof a top-half trapdoor at y 2 (the dismount's box clear under it), a
+    // floor button over it; glass over the head (its top 1.44 high: not standable) and round it
+    put(&mut b, BED_HEAD, "red_bed[facing=south,occupied=false,part=head]")?;
+    put(&mut b, [-3, 0, 3], "red_bed[facing=south,occupied=false,part=foot]")?;
+    put(&mut b, [-3, -1, 3], "glass")?;
+    put(&mut b, [-3, -1, 4], "glass")?;
+    put(&mut b, [-3, 2, 3], cap)?;
+    put(&mut b, [-3, 3, 3], button)?;
+    for c in [[-3, 2, 4], [-3, 1, 5], [-4, 2, 4], [-2, 2, 4]] {
+        put(&mut b, c, "glass")?;
+    }
+    // the hatch and the zombie's post (A6's)
+    put(&mut b, HATCH, "iron_trapdoor[facing=west,half=bottom,open=true,powered=true,waterlogged=false]")?;
+    put(&mut b, HATCH_HI, "iron_trapdoor[facing=west,half=top,open=true,powered=true,waterlogged=false]")?;
+    put(&mut b, HATCH_CTRL, &ctl_block(HATCH_CTRL, "redstone_block"))?;
+    put(&mut b, [HATCH_CTRL[0], -1, HATCH_CTRL[2]], "glass")?;
+    put(&mut b, HATCH_CTRL_HI, &ctl_block(HATCH_CTRL_HI, "redstone_block"))?;
+    put(&mut b, [-5, -1, 4], "glass")?;
+    put(&mut b, [-5, 2, 4], "glass")?;
+    for y in 0..=1 {
+        put(&mut b, [-5, y, 3], "glass")?;
+        put(&mut b, [-5, y, 5], "glass")?;
+        put(&mut b, [-6, y, 4], "glass")?;
+    }
+    put(&mut b, [-4, 0, 5], "glass")?;
+    put(&mut b, [-4, 1, 3], "glass")?;
+    put(&mut b, [-5, 3, 4], "oak_leaves[distance=7,persistent=true,waterlogged=false]")?;
+    b.entity("oak_boat", [ZOMBIE_POST[0] as f64 + 0.5, ZOMBIE_POST[1] as f64, ZOMBIE_POST[2] as f64 + 0.5], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}"));
+    for y in 0..=1 {
+        wall(&mut b, [-3, y, 5])?;
+    }
+    if bench {
+        for x in EXIT_DET[0] + 1..=EXIT_DET[0] + 6 {
+            put(&mut b, [x, -1, EXIT_DET[2]], &rail("east_west"))?;
+            put(&mut b, [x, -2, EXIT_DET[2]], "glass")?;
+        }
+        put(&mut b, [EXIT_DET[0] + 7, -1, EXIT_DET[2]], "glass")?;
+        put(&mut b, QUEUE, &rail("east_west"))?;
+        put(&mut b, [QUEUE[0], QUEUE[1] - 1, QUEUE[2]], "glass")?;
+    }
+    b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
+    b.d.meta.insert("keep-block".into(), "-5,3,4=oak_leaves[distance=7,persistent=true] (the zombie's cover: its eye's sky light 14 or less, no burning by day)".into());
+    b.d.ports.insert("output".into(), [12, 0, 6]);
+    b.d.ports.insert("home".into(), BED_HEAD);
+    let lines: Vec<String> = vec![
+        "The bed stop (A) with the run-up (B3, ironspec 02:27; local frame; loop = local + (0,-27,-1); the bed's head at (-3,0,4)): A6's arrival (the entry booster, plain rails down the old park's slope, the capped flat, the curve south, the flats), the arming detector (-2,0,1), the activator E (-2,0,2) over the bed foot's north-east corner (always on, its lever hung from the glass over it), the curve east (-2,0,3), a flat, a booster, the climb, the U-turn at y 1, the park (1,0,4) one braked powered rail descending west, two run-up flats along z 4, the pickup cell P (-2,0,4) a curve turning south, A6's exit (the curve east, the capped booster, the capped flat, the slope down, two flats, R). No solid-render block anywhere in the stop.".to_string(),
+        "E sets the rider down on the bed foot's top (a southbound cart's dismount: W, E, NW and NE full blocks, SW the first valid place), 1.00 from the bed head's centre: SleepInBed fires at once whatever path it carries. The empty cart runs the loop and brakes on the park. The hatch's two iron trapdoors stand open and hide the zombie; F (the lie-down + 2, and not before the arming detector's edge + 70: the napper's 60-gt boarding cooldown less the park -> P travel, plus the detector -> E time and a margin) SHUTS them: the zombie wakes it, it stands up on P (its only stand-up cell), the park releases at the wake edge, and the cart runs the run-up into P under 0.2 b/t, seats it and runs on to R, whose rise opens the hatch again and resets the park's release and the arming latch. Precondition and single release as A6's: one cart per visit, the park released only at the wake edge.".to_string(),
+        "switch: -4,0,3=the hatch's lower lever (day-1's line end: F shuts, R opens); -4,1,5=the hatch's upper lever (the same line); -2,1,2=the activator's lever (day-1's line end, held on); 1,0,5=the park's lever (day-1's line end: the release); -1,2,-4=a golem-proofing stone button over the capped flat (never pressed); -1,2,5=a golem-proofing stone button over the exit booster's cap (never pressed); 0,2,5=a golem-proofing stone button over the exit flat's cap (never pressed); -3,3,3=a golem-proofing stone button over the bed foot's roof (never pressed)".to_string(),
+        "always-on: 3,2,-5=the entry booster's redstone torch, on glass (3,1,-5): it never toggles; 0,0,2=the loop booster's redstone torch, on glass (0,-1,2): it never toggles; -1,0,6=the exit booster's redstone torch, on glass (-1,-1,6): it never toggles".to_string(),
+        "a6-pickup: -2,0,4=the pickup cell (the napper's only stand-up cell); stranded bound: no cart at it by the wake edge + 60 gt fails (to restate from these rows)".to_string(),
     ];
     let refs: Vec<&str> = lines.iter().map(|s| s.as_str()).collect();
     Ok(b.text(&refs))
@@ -1171,6 +1345,14 @@ pub fn ctl_block(c: [i32; 3], st: &str) -> String {
         other => return other.to_string(),
     };
     if !([HATCH_CTRL, HATCH_CTRL_HI, ACT_CTRL, ACT_CTRL_T5B, ACT_CTRL_A, PARK_CTRL_A].contains(&c) || PARK_CTRL.contains(&c)) {
+        // ((A) with the run-up: the activator's lever hung from the glass over E, the park's on
+        // the glass south of it)
+        if c == ACT_CTRL_A2 {
+            return format!("lever[face=ceiling,facing=north,powered={on}]");
+        }
+        if c == PARK_CTRL_A2 {
+            return format!("lever[face=wall,facing=north,powered={on}]");
+        }
         return st.to_string();
     }
     format!("lever[face=floor,facing=north,powered={on}]")
@@ -1632,13 +1814,17 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             {
                 let w = &mut run.world;
                 // (A6: two cells north of the pickup cell on the flats; (A): the park's slope, one
-                // cell north of it, at the slope's middle)
-                w.entities.list[i].pos = if lay.arm.is_some() {
-                    Vec3::new(PARK_A[0] as f64 + 0.5, PARK_A[1] as f64 + 0.5625, PARK_A[2] as f64 + 0.5)
+                // cell north of it, at the slope's middle; (A) with the run-up: the run-up's first
+                // flat (0,0,4) heading west)
+                let (pos, vel) = if lay.name == "(A) run-up" {
+                    (Vec3::new(0.5, 0.0625, 4.5), Vec3::new(-v, 0.0, 0.0))
+                } else if lay.arm.is_some() {
+                    (Vec3::new(PARK_A[0] as f64 + 0.5, PARK_A[1] as f64 + 0.5625, PARK_A[2] as f64 + 0.5), Vec3::new(0.0, 0.0, v))
                 } else {
-                    Vec3::new(SWEPT[0][0] as f64 + 0.5, SWEPT[0][1] as f64 + 0.0625, SWEPT[0][2] as f64 - 1.5)
+                    (Vec3::new(SWEPT[0][0] as f64 + 0.5, SWEPT[0][1] as f64 + 0.0625, SWEPT[0][2] as f64 - 1.5), Vec3::new(0.0, 0.0, v))
                 };
-                w.entities.list[i].delta_movement = Vec3::new(0.0, 0.0, v);
+                w.entities.list[i].pos = pos;
+                w.entities.list[i].delta_movement = vel;
             }
         }
         // (ironspec 20:31 (2): the parked cart moved along its rail by `park_shift` before the
@@ -3429,7 +3615,7 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
             sk.release_speed_max,
             sk.cooldown_margin
         );
-        if sk.landings.keys().any(|k| k == &format!("{},{},{}", PARK_A[0], PARK_A[1], PARK_A[2])) {
+        if sk.landings.keys().any(|k| k == &format!("{},{},{}", PARK_A[0], PARK_A[1], PARK_A[2]) || k == &format!("{},{},{}", PARK_A2[0], PARK_A2[1], PARK_A2[2])) {
             failed.push("a rider landed in (A)'s park cell".into());
         }
     }
