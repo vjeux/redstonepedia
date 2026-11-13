@@ -159,7 +159,41 @@ fn a_popped_waterlogged_rail_leaves_its_water_source() {
 /// across the load (game time +1: one idle tick), as (the first tick after the load, every tick's
 /// (t, y - 100, z, vz)); the rows a harness artefact MOVED are not citable and left out.
 fn official_restarts() -> Vec<(u32, Vec<(u32, f64, f64, f64)>)> {
-    let text = include_str!("fixtures/water_rails_restarts_official.txt");
+    parse_restarts(include_str!("fixtures/water_rails_restarts_official.txt"))
+}
+
+/// One restart row's shape (G1's checklist on 994cf61e0, holes 1 and 2): ticks parsed, consecutive
+/// from t1 (the run ticks once per line), and the load's tick among them (the load step runs).
+fn row_shape(first: u32, ticks: &[(u32, f64, f64, f64)]) {
+    assert!(!ticks.is_empty(), "the restart before t {first}: no tick parsed");
+    for (k, &(t, ..)) in ticks.iter().enumerate() {
+        assert_eq!(t as usize, k + 1, "the restart before t {first}: the fixture's ticks not consecutive from t1 (line {k})");
+    }
+    assert!(ticks.iter().any(|x| x.0 == first), "the restart before t {first}: its load step would never run (no fixture tick t {first})");
+}
+
+#[test]
+#[should_panic(expected = "neither a tick nor a note")]
+fn a_corrupted_fixture_line_fails_the_parse() {
+    // (G1's hole 3, its negative) a damaged line inside a row block panics, it isn't skipped
+    parse_restarts("  restart between t2 and t3 (t3 the first tick after the load): the cart held still across the load\n    1, 1, 0.5, 0.5, 0.5, 0, 0, 0, (0,0,0)\n    x2, a garbled line\n");
+}
+
+#[test]
+#[should_panic(expected = "no tick parsed")]
+fn a_restart_row_with_no_tick_fails() {
+    // (G1's hole 1, its negative)
+    row_shape(3, &[]);
+}
+
+#[test]
+#[should_panic(expected = "its load step would never run")]
+fn a_restart_row_without_its_load_tick_fails() {
+    // (G1's hole 2, its negative) the ticks stop before the load's tick
+    row_shape(3, &[(1, 0.5, 0.5, 0.0), (2, 0.5, 0.5, 0.0)]);
+}
+
+fn parse_restarts(text: &str) -> Vec<(u32, Vec<(u32, f64, f64, f64)>)> {
     let mut rows: Vec<(u32, Vec<(u32, f64, f64, f64)>)> = Vec::new();
     let mut cur: Option<(u32, Vec<(u32, f64, f64, f64)>)> = None;
     for l in text.lines() {
@@ -181,9 +215,15 @@ fn official_restarts() -> Vec<(u32, Vec<(u32, f64, f64, f64)>)> {
             continue;
         }
         let Some((_, ticks)) = cur.as_mut() else { continue };
+        // (G1's checklist on 994cf61e0, hole 3) inside a row block every line is a tick's data line
+        // or a parenthesised note; anything else is a corrupted fixture line and fails loudly
+        // instead of silently shrinking the comparison
+        if l.trim_start().starts_with('(') {
+            continue;
+        }
         let f: Vec<&str> = l.split(',').map(|s| s.trim()).collect();
-        let Some(Ok(t)) = f.first().map(|s| s.parse::<u32>()) else { continue };
-        let n = |k: usize| f[k].parse::<f64>().unwrap_or_else(|e| panic!("{l}: {e}"));
+        let t = f.first().and_then(|s| s.parse::<u32>().ok()).unwrap_or_else(|| panic!("a row block's line is neither a tick nor a note: {l:?}"));
+        let n = |k: usize| f.get(k).unwrap_or_else(|| panic!("{l}: no field {k}")).parse::<f64>().unwrap_or_else(|e| panic!("{l}: {e}"));
         ticks.push((t, n(3), n(4), n(7)));
     }
     if let Some(r) = cur.take() {
@@ -214,31 +254,43 @@ fn the_restart_rows_match_the_official_ones_every_tick() {
     assert!(rows.len() >= 15, "the official held-still restart rows ({})", rows.len());
     let mut worst = 0.0f64;
     let mut wet_before = 0u32;
+    let mut compared_total = 0usize;
     for (first, ticks) in &rows {
+        // (G1's checklist on 994cf61e0, holes 1 and 2) every row compares its whole fixture, its
+        // ticks consecutive from t1 (the run ticks once per line), and its load step runs
+        row_shape(*first, ticks);
+        let mut loaded = false;
+        let mut compared = 0usize;
         let mut w = World::new(BlockPos::new(-4, 88, -22), [12, 18, 28]);
         rig_mixed(&mut w, 0);
         redsim::entity::spawn(&mut w, "minecraft:minecart", [0.5, 100.5625, 0.5], Some("{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}")).unwrap();
         for &(t, oy, oz, ovz) in ticks {
             if t == *first {
+                loaded = true;
                 // (G1 on aeeaaecf0, note 1) the row tests the dry first tick only if the cart was in
                 // water on the tick before the load: counted, and at least one required
                 let wet = w.entities.list.iter().find(|e| !e.removed && matches!(e.kind, redsim::entity::EntityKind::Minecart(_))).is_some_and(|e| e.was_touching_water);
                 wet_before += wet as u32;
                 redsim::reload::unload_all(&mut w);
                 redsim::reload::load_all_ordered(&mut w, redsim::reload::Order::Save);
-                // the world open's one idle tick: game time +1, nothing of the world ticks (the rig
-                // has no weather and its day time is never read; `World::tick_time` once main has it)
-                w.time += 1;
+                // the world open's one idle tick: the tick's own time phase (`World::tick_time`: game
+                // time +1, day time, weather), nothing else of the world ticks (G1 on aeeaaecf0,
+                // note 2: one load path, the same idle tick as liveness::restart's)
+                w.tick_time();
             }
             w.tick();
             let e = w.entities.list.iter().find(|e| !e.removed && matches!(e.kind, redsim::entity::EntityKind::Minecart(_))).expect("the cart");
             let (y, z, vz) = (e.pos.y - 100.0, e.pos.z, e.delta_movement.z);
             let d = (y - oy).abs().max((z - oz).abs()).max((vz - ovz).abs());
             worst = worst.max(d);
+            compared += 1;
             assert!(d <= 0.005, "the restart before t {first}, t {t}: ours y {y:.6} z {z:.6} vz {vz:.6}, official y {oy:.6} z {oz:.6} vz {ovz:.6}");
         }
+        assert!(loaded, "the restart before t {first}: its load step never ran (no fixture tick t {first})");
+        assert_eq!(compared, ticks.len(), "the restart before t {first}: compared {compared} of its {} fixture ticks", ticks.len());
+        compared_total += compared;
     }
-    eprintln!("{} official restart rows, every tick within {worst:.6}; {wet_before} of them with the cart in water on the tick before the load", rows.len());
+    eprintln!("{} official restart rows, {compared_total} ticks compared, every tick within {worst:.6}; {wet_before} of them with the cart in water on the tick before the load", rows.len());
     assert!(wet_before >= 1, "no restart row loads a cart that was in water: the dry first tick is untested");
 }
 
