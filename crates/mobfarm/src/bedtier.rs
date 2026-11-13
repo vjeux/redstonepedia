@@ -638,7 +638,7 @@ pub fn design_a(bench: bool) -> Result<String> {
 /// one braked powered rail descending west, two run-up flats along z 4, P (-2,0,4) a curve turning
 /// south onto A6's exit. The run-up's empty-cart drag brings the released cart to P under 0.2 b/t
 /// (a step over 0.2 can clip into the standing napper's box and stop dead).
-pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool) -> Result<String> {
+pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: bool) -> Result<String> {
     let mut b = Builder::new(if bench { "bed-tier-a2-bench" } else { "bed-tier-a2" });
     let rail = |s: &str| format!("rail[shape={s},waterlogged=false]");
     let cap = "iron_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]";
@@ -736,6 +736,43 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool) -> Result<Str
     // P, a curve turning south onto A6's exit curve, and A6's exit
     put(&mut b, SWEPT[0], &rail("south_east"))?;
     put(&mut b, [SWEPT[0][0], -1, SWEPT[0][2]], "glass")?;
+    if exit_south {
+        // (the exit one cell further south: P's curve onto a straight (-2,0,5), the curve east at
+        // (-2,0,6): no curve-to-curve junction beside the bed head (there the cart overshot to x
+        // -1.51, its box's west face against the head's base: a contact that stalled the slowest
+        // carts); the exit along z 6, down to y -1 and back to z 5 at x 2 before R)
+        put(&mut b, [-2, 0, 5], &rail("north_south"))?;
+        put(&mut b, [-2, -1, 5], "glass")?;
+        put(&mut b, [-2, 1, 5], cap)?;
+        put(&mut b, [-2, 2, 5], "glass")?;
+        put(&mut b, [-2, 0, 6], &rail("north_east"))?;
+        put(&mut b, [-2, -1, 6], "glass")?;
+        put(&mut b, [-2, 1, 6], cap)?;
+        put(&mut b, [-2, 2, 6], "glass")?;
+        put(&mut b, [-1, 0, 6], "powered_rail[powered=true,shape=east_west,waterlogged=false]")?;
+        put(&mut b, [-1, -1, 6], "glass")?;
+        put(&mut b, [-1, 0, 7], "redstone_torch[lit=true]")?;
+        put(&mut b, [-1, -1, 7], "glass")?;
+        put(&mut b, [-1, 1, 6], cap)?;
+        put(&mut b, [0, 0, 6], &rail("east_west"))?;
+        put(&mut b, [0, -1, 6], "glass")?;
+        put(&mut b, [0, 1, 6], cap)?;
+        for x in -1..=0 {
+            put(&mut b, [x, 2, 6], button)?;
+        }
+        put(&mut b, [1, -1, 6], &rail("ascending_west"))?;
+        put(&mut b, [1, -2, 6], "glass")?;
+        put(&mut b, [2, -1, 6], &rail("north_west"))?;
+        put(&mut b, [2, -2, 6], "glass")?;
+        put(&mut b, [2, -1, 5], &rail("south_east"))?;
+        put(&mut b, [2, -2, 5], "glass")?;
+        put(&mut b, [3, -1, 5], &rail("east_west"))?;
+        put(&mut b, [3, -2, 5], "glass")?;
+        // (the old exit's cells east of (-2,0,5) closed)
+        for x in -1..=0 {
+            put(&mut b, [x, 0, 5], "glass")?;
+        }
+    } else {
     put(&mut b, [-2, 0, 5], &rail("north_east"))?;
     put(&mut b, [-2, -1, 5], "glass")?;
     put(&mut b, [-2, 1, 5], cap)?;
@@ -756,6 +793,7 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool) -> Result<Str
     for x in 2..=3 {
         put(&mut b, [x, -1, 5], &rail("east_west"))?;
         put(&mut b, [x, -2, 5], "glass")?;
+    }
     }
     put(&mut b, EXIT_DET, "detector_rail[powered=false,shape=east_west,waterlogged=false]")?;
     put(&mut b, [EXIT_DET[0], -2, EXIT_DET[2]], "glass")?;
@@ -813,7 +851,7 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool) -> Result<Str
         "The bed stop (A) with the run-up (B3, ironspec 02:27; local frame; loop = local + (0,-27,-1); the bed's head at (-3,0,4)): A6's arrival (the entry booster, plain rails down the old park's slope, the capped flat, the curve south, the flats), the arming detector (-2,0,1), the activator E (-2,0,2) over the bed foot's north-east corner (always on: a redstone torch on glass west of it, glass over the torch), the curve east (-2,0,3), a flat, a booster, the climb, the U-turn at y 1, the park (1,0,4) one braked powered rail descending west, two run-up flats along z 4, the pickup cell P (-2,0,4) a curve turning south, A6's exit (the curve east, the capped booster, the capped flat, the slope down, two flats, R). One solid-render block in the stop: the park's conductor (2,0,4) under the U-turn's curve, glass over the curve (the cell over the conductor 1 high: no stroll target).".to_string(),
         "E sets the rider down on the bed foot's top (a southbound cart's dismount: W, E, NW and NE full blocks, SW the first valid place), 1.00 from the bed head's centre: SleepInBed fires at once whatever path it carries. The empty cart runs the loop and brakes on the park. The hatch's two iron trapdoors stand open and hide the zombie; F (the lie-down + 2, and not before the arming detector's edge + 70: the napper's 60-gt boarding cooldown less the park -> P travel, plus the detector -> E time and a margin) SHUTS them: the zombie wakes it, it stands up on P (its only stand-up cell), the park releases at the wake edge, and the cart runs the run-up into P under 0.2 b/t, seats it and runs on to R, whose rise opens the hatch again and resets the park's release and the arming latch. Precondition and single release as A6's: one cart per visit, the park released only at the wake edge.".to_string(),
         "switch: -4,0,3=the hatch's lower lever (day-1's line end stand-in: F shuts, R opens; no lever in the build); -4,1,5=the hatch's upper lever (the same line); 3,0,4=the park's drive (day-1's repeater output stand-in: a wall lever on the conductor (2,0,4); the release; no lever in the build)".to_string(),
-        format!("always-on: 3,2,-5=the entry booster's redstone torch, on glass (3,1,-5): it never toggles; -3,0,2=the activator's redstone torch, on glass (-3,-1,2): it never toggles (ironspec 03:22: no lever a wind burst can flip); {}-1,0,6=the exit booster's redstone torch, on glass (-1,-1,6): it never toggles", if loop_booster { "0,0,2=the loop booster's redstone torch, on glass (0,-1,2): it never toggles; " } else { "" }),
+        format!("always-on: 3,2,-5=the entry booster's redstone torch, on glass (3,1,-5): it never toggles; -3,0,2=the activator's redstone torch, on glass (-3,-1,2): it never toggles (ironspec 03:22: no lever a wind burst can flip); {}{}", if loop_booster { "0,0,2=the loop booster's redstone torch, on glass (0,-1,2): it never toggles; " } else { "" }, if exit_south { "-1,0,7=the exit booster's redstone torch, on glass (-1,-1,7): it never toggles" } else { "-1,0,6=the exit booster's redstone torch, on glass (-1,-1,6): it never toggles" }),
         "a6-pickup: -2,0,4=the pickup cell (the napper's only stand-up cell); stranded bound: no cart at it by the wake edge + 60 gt fails (to restate from these rows)".to_string(),
     ];
     let refs: Vec<&str> = lines.iter().map(|s| s.as_str()).collect();
@@ -977,6 +1015,8 @@ pub struct Row {
     pub home_at_end: bool,
     /// A release at the stop healed by a re-claim before the visit's end (printed, priced).
     pub healed_release: Option<i64>,
+    /// The re-claim's tick after a release (the delay = this - home_lost_at).
+    pub reclaimed_at: Option<i64>,
     /// (a skip row) The skip's tick, the cells the napper waited in awake before its next nap, the
     /// day time of that nap, its CANT_REACH stamp's age at the first REST tick after the skip (None
     /// inside: no stamp), and its LAST_SLEPT (game time) at the end.
@@ -2251,6 +2291,10 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             if had_home && !has_home && row.home_lost_at.is_none() {
                 row.home_lost_at = Some(t);
             }
+            // (ironspec 07:30: a released napper's re-claim at the stop, its delay priced)
+            if !had_home && has_home && row.home_lost_at.is_some() && row.reclaimed_at.is_none() {
+                row.reclaimed_at = Some(t);
+            }
             had_home = has_home;
             let asleep = redsim::entity::mob::mob(w, vi).sleeping_pos.is_some();
             // (ironspec 16:29, the escape row: the napper on foot on the entry or the approach (x 3
@@ -3427,6 +3471,7 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
     // (ironspec 07:02 real, the farm-stop bar at the visit's end: visits ending without a lie-down
     // or without HOME; healed releases printed and priced)
     let (mut stop_bar, mut healed, mut stop_judged) = (0usize, 0usize, 0usize);
+    let mut reclaim_delays: Vec<i64> = Vec::new();
     // (after a restart, the woken napper's paths off the pickup cell: visits with each direction)
     let mut dirs: std::collections::BTreeMap<&'static str, usize> = std::collections::BTreeMap::new();
     let mut dirs_wake: std::collections::BTreeMap<&'static str, usize> = std::collections::BTreeMap::new();
@@ -3467,6 +3512,9 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
                             stop_judged += 1;
                             stop_bar += (r.slept_at.is_none() || !r.home_at_end) as usize;
                             healed += r.healed_release.is_some() as usize;
+                            if let (Some(a), Some(b)) = (r.home_lost_at, r.reclaimed_at) {
+                                reclaim_delays.push(b - a);
+                            }
                         }
                         for d in &r.paths_after_restart {
                             *dirs.entry(d).or_default() += 1;
@@ -3927,7 +3975,7 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
     // having lain down, or with it leaving without HOME, fails; a release healed by a re-claim is
     // printed and priced; its known positive is --erase-home-at, the erasure with the bed's ticket
     // held by another claimant)
-    println!("the farm-stop bar (visits ending without a lie-down or without HOME; bar 0): {stop_bar} of {stop_judged} visits judged{}; releases healed by a re-claim before the visit's end (priced, not failed): {healed} (ticket state uncertain: pre-fix redsim)", if stop_judged == 0 { " (NOT JUDGED)" } else { "" });
+    println!("the farm-stop bar (visits ending without a lie-down or without HOME; bar 0): {stop_bar} of {stop_judged} visits judged{}; releases healed by a re-claim before the visit's end (priced, not failed): {healed}, re-claim delays (gt, the release to the re-claim; AcquirePoi's attempts in MCTAS_TRACE_ACQUIRE) {reclaim_delays:?} (ticket state uncertain: pre-fix redsim)", if stop_judged == 0 { " (NOT JUDGED)" } else { "" });
     if stop_bar > 0 {
         failed.push(format!("the farm-stop bar: {stop_bar} visits ended without a lie-down or without HOME (bar 0)"));
     }
