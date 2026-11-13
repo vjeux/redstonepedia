@@ -3372,6 +3372,8 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     let mut napper_drops = 0usize;
     // (day-1 11:36) every cart's entry into a split junction's cell: (tick, x, class, napper's lane)
     let mut junction_passes: Vec<(i64, [i32; 3], &'static str, Option<usize>, f64)> = Vec::new();
+    // (ironspec 12:58) every entry into the shared lift's mouth: (tick, cart, class)
+    let mut lift_entries: Vec<(i64, u32, &'static str)> = Vec::new();
     // (ironspec 11:48 / 11:50) per lane each returning napper's stored speed entering its own K (speed,
     // tick, cart), and each napper cart's first rest on its siding's R (z in the design frame, tick,
     // cart); the open R visits (cart -> resting already recorded)
@@ -6533,6 +6535,12 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             // (ironspec 10:29 (3): the denominator) a drop pass: the drop cell (x,24,6) into the column
             // (x,23,6); a C deflection: C (x,24,7) west into c3 (x-1,24,7) by any cart but a napper's
             if let Some(p) = c_prev_cell.get(&e.id).copied() {
+                // (ironspec 12:58) the shared lift's mouth: a cart entering the lift column (-5,y,7)
+                // (y 1..3) from outside it, with its class (a returning napper, else batch)
+                if c[0] == -5 && c[2] == 7 && (1..=3).contains(&c[1]) && !(p[0] == -5 && p[2] == 7) {
+                    let napper = e.passengers.first().is_some_and(|r| nappers.iter().any(|(v, _, _)| v == r) && recs.get(r).is_some_and(|rr| rr.milestones.iter().any(|(m, _)| m == "at R") && !rr.milestones.iter().any(|(m, _)| m == "back in its lane")));
+                    lift_entries.push((rel, e.id, if napper { "napper" } else { "batch" }));
+                }
                 // (day-1 11:36 / ironspec 11:40 (3)) every cart's entry into a split junction's cell
                 // (J (x,25,9) or K (x-2,25,9)), a lane's D (x,24,8) or the row's end (8,25,9): its tick,
                 // class (a batch cart, the outbound napper (the picker's diverted cart), a returning
@@ -9405,6 +9413,25 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 rows.push(format!("C({}) every arrival: n {}{}", LANES[k], c_arrivals[k].len(), speed_txt(c_arrivals[k].iter().map(|a| a.1).collect())));
             }
             format!("{s}the split junctions' passage ticks and stored speeds (day-1 11:36 / ironspec 11:40 (3) / 11:55 (2), checklist 1c: each cart's entry into J (x,25,9) / K (x-2,25,9) / the row's end (8,25,9) / D (x,24,8) by class, t mod 100 on the station's clock, REL at 5, and its STORED speed (deltaMovement); each C arrival's stored speed; information): {}\n", rows.join("; "))
+        };
+        // (ironspec 12:58) the least lift-mouth gap between consecutive carts, per pair class
+        let s = {
+            let mut per: BTreeMap<(&'static str, &'static str), Vec<i64>> = BTreeMap::new();
+            for w2 in lift_entries.windows(2) {
+                per.entry((w2[0].2, w2[1].2)).or_default().push(w2[1].0 - w2[0].0);
+            }
+            let rows: Vec<String> = per
+                .iter_mut()
+                .map(|((a, b), v)| {
+                    v.sort();
+                    format!("{a} -> {b}: n {}, the least {} gt, median {}", v.len(), v[0], v[v.len() / 2])
+                })
+                .collect();
+            format!(
+                "{s}the shared lift's mouth gaps (ironspec 12:58: each cart's entry into the lift column (-5,1..3,7) from outside it; the gap to the cart before, per pair class (a returning napper, else batch); against the lift-pair clean gap + margin: that gap from the lift bench, pending; information): {} entries; {}\n",
+                lift_entries.len(),
+                if rows.is_empty() { "no pair".to_string() } else { rows.join("; ") }
+            )
         };
         // (onechunk 11:16) the nappers' misroutes, bar 0
         let s = format!(
