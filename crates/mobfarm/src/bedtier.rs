@@ -1024,7 +1024,7 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
         lines.push("The wake sensor (G1 12:04 / day-1 12:03): (-3,-1,4) an observer facing up at the bed head (-3,0,4), in the glass's place under it: the head's OCCUPIED set (SleepInBed's start) and cleared (the wake) each give a pulse out of its bottom face into (-3,-2,4), where DAY-1's F line (the window opened only after a sensed lie-down, shut on the wake) and the park's release (at least 4 gt after the shutter is powered again: the first (-2,0,5) entry >= the close + 27) start; the bench prints its pulses against the napper's own edges.".to_string());
     }
     if exit_south {
-        lines.push("contacts: -3,0,4=the bed head's east face (its 0.5625-high box), met flush by the cart's west face at the curve-to-straight hand-off from P (-2,0,4) into (-2,0,5); class=design; ref=2af606b9d `mctas mobfarm bedtier-bench designs/farms/iron/parts/bed-tier-min/bed-tier-fold-bench.txt --speeds 0.05,0.06,0.07,0.08,0.09,0.10,0.11,0.12,0.13,0.14,0.15,0.16,0.17,0.18,0.19,0.20,0.21,0.22,0.23,0.24,0.25,0.26,0.27,0.28,0.29,0.30,0.31,0.32,0.33,0.34,0.35,0.36,0.37,0.38,0.39,0.40,0.41,0.42,0.43,0.44,0.45,0.46,0.47,0.48,0.49,0.50,0.51,0.52,0.53,0.54,0.55 --from 1 --to 8 --tap 265,10 --close-after 4 --release-after 8` (exit 0; met on 296 of 408 visits by main's contacts::cart_contacts; maxima: depth 0.0000, 1 tick per event; speed 0.060..0.112 in, 0.0423..0.075 out, the least at entry 0.51); depth<=0.0000+eps=0.010 why=the cart's box stays within the face tolerance of the bed's box, the bed's state untouched; ticks<=1 why=a second tick is the cart stopped at P, a stall; speed_out>=0.0423+eps=0.0023 why=the bound 0.040 is the exit boost (-2,0,5)'s measured carry threshold 0.0101 (a loaded cart set on it carried at 0.0101, stalled at 0.0100: `--boost-probe` on 2af606b9d; under it the always-on booster has no conductor at either end to start the cart, the napper aboard) plus a margin of 0.0299 (about 3x the threshold) for the seed and position jitter (the dense band agrees to 1e-14 at six build positions) and the game's booster start (tick-exact's launch sweep pending); the bed unchanged across it; rate=296/408 (ironspec Nov 13 07:03 / 09:24 / 10:47 / 10:58 / 11:37 / 11:51 / 12:38; G1 10:53 / 11:35)".to_string());
+        lines.push("contacts: -3,0,4=the bed head's east face (its 0.5625-high box), met flush by the cart's west face at the curve-to-straight hand-off from P (-2,0,4) into (-2,0,5), the bed unchanged across it | class=design | face=east | ticks<=1 why=a second tick is the cart stopped at P, a stall | events<=1 why=one hand-off per visit, a second is the cart back at P | depth<=0.10 why=provisional, restated from the reference run on main's contacts::judge (its depth is the clipped amount, not the overlap) | speed_out>=0.0105 why=provisional, the exit boost's carry threshold (--boost-probe on 2af606b9d: 0.0101 carried, 0.0100 stalled) | ref=2af606b9d `mctas mobfarm bedtier-bench designs/farms/iron/parts/bed-tier-min/bed-tier-fold-bench.txt --speeds 0.05..0.55/0.01 --from 1 --to 8 --tap 265,10 --close-after 4 --release-after 8` (provisional: re-derived on main's ONE judge next)".to_string());
         // (P's two connections are DESIGN-CRITICAL: K (-2,0,3) is a T by rail presence (N, E, S) and
         // keeps north_east under any source change only while P is full (ironspec 10:47 / 10:58's
         // `# integrity:` key, checked by the static))
@@ -1275,9 +1275,13 @@ pub struct Row {
     /// their tick count this visit (bound: one) and the least speed right after one.
     pub declared_contact_lines: Vec<String>,
     pub declared_contact_ticks: usize,
-    /// (G1's Q6) the declared contacts' ticks this visit, per contacted cell.
-    pub declared_ticks_by_cell: std::collections::BTreeMap<[i32; 3], usize>,
     pub post_contact_speed: Option<f64>,
+    /// (ironspec Nov 13 10:42 (3) / 10:58: the ONE bounded judge on main) every contact hit of the
+    /// cart this visit, horizontal (`contacts::cart_hits`) and vertical (`cart_vertical_hits`), its
+    /// cell in the design frame; and the cart's motion per tick (world tick, horizontal speed, vy:
+    /// the judge's NO STALL reads it).
+    pub hits: Vec<crate::contacts::Hit>,
+    pub motion: Vec<(i64, f64, f64)>,
     /// The first tick the cart is in the exit booster's cell ((A) --exit-south: (-1,0,6)).
     pub booster_at: Option<i64>,
     /// (ironspec 09:04) After the wake: the first tick NEAREST_HOSTILE is empty, the first tick
@@ -1567,16 +1571,18 @@ pub struct Faults {
     /// (G1's Q2) The slope hold's tap on the built path: its stand-in input lever (TAP_CTRL, into
     /// DAY-1's repeater TAP_REP) on at tick T for W gt, again every PERIOD gt when given.
     pub tap: Option<(i64, i64, Option<i64>)>,
-    /// (G1's Q6) Each declared contact's bounds, parsed from its `# contacts:` declaration.
-    pub contact_bounds: Vec<([i32; 3], ContactBounds)>,
+    /// (ironspec Nov 13 10:42 (3) / 10:58) The design's bounded `# contacts:` / `# stops:`
+    /// declarations, parsed by main's `contacts::declared_contacts_bounded` (bench = file - shift):
+    /// the ONE judge reads them over every visit's hits.
+    pub contact_decls: Vec<crate::contacts::Decl>,
+    /// Fail when a declaration's stated bounds don't equal this run's measured extremes (the
+    /// reference re-run check, `contacts::reference_check`: for the declaration's own `ref=` run).
+    pub reference_check: bool,
     /// (G1 12:38 / ironspec 12:38) DAY-1's guard-free latch emulated on the real wake sensor's
     /// pulses, replacing the bench's stand-in F / close / release.
     pub latch: Option<Latch>,
     /// (G1 12:38: the merge row) A hurt this many gt after the lie-down (a reverse merge at <= 3).
     pub hurt_after_lie: Option<i64>,
-    /// (ironspec 10:47) Each declared contact's `rate=k/n` from a band run: STALE fails only when
-    /// (1 - k/n)^N < 0.001 for the run's N visits; a rate-less declaration is always expected.
-    pub contact_rates: Vec<([i32; 3], (u32, u32))>,
     /// ((A), ironspec 00:37 (2b)) F waits for the arming detector's edge + this many gt (the
     /// worst-case braking interval + 3).
     pub arm_delay: i64,
@@ -1860,89 +1866,52 @@ pub struct Latch {
     pub rel_after: i64,
 }
 
-/// (G1's Q6 on 94e90d6b2) A declared contact's bounds, as its `# contacts:` declaration states them:
-/// `depth<=V+eps=E` (the deepest overlap: V + E), `ticks<=N` (contact ticks per visit at the cell),
-/// `speed_out>=V+eps=E` (the least speed right after it: V - E; ironfarm's bounded form, the value
-/// the reference's extreme); a bound the declaration doesn't state is None (not judged).
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
-pub struct ContactBounds {
-    pub depth_max: Option<f64>,
-    pub ticks_max: Option<usize>,
-    pub speed_out_min: Option<f64>,
+/// (ironspec Nov 13 10:42 (3) / 10:58) The design's bounded contact declarations, parsed by main's
+/// ONE reader (`contacts::declared_contacts_bounded`: strict, the design class's every bound with
+/// its margin), their cells shifted into the bench's frame (bench = file - shift).
+pub fn bounded_decls(text: &str, shift: [i32; 3]) -> Result<Vec<crate::contacts::Decl>, String> {
+    let mut ds = crate::contacts::declared_contacts_bounded(text)?;
+    for d in &mut ds {
+        for c in &mut d.cells {
+            *c = BlockPos::new(c.x - shift[0], c.y - shift[1], c.z - shift[2]);
+        }
+    }
+    Ok(ds)
 }
 
-/// The `# contacts:` declarations' bounds per cell, strictly parsed (a bound key with a malformed
-/// value is an error; bench = file - shift).
-pub fn parse_contact_bounds(text: &str, shift: [i32; 3]) -> Result<Vec<([i32; 3], ContactBounds)>, String> {
-    // (a number at the start of `s`, and the rest)
-    fn num(s: &str) -> Option<(f64, &str)> {
-        let end = s.find(|ch: char| !(ch.is_ascii_digit() || ch == '.' || ch == '-')).unwrap_or(s.len());
-        s[..end].parse::<f64>().ok().map(|v| (v, &s[end..]))
+/// One declaration's measured extremes over `hits` (the judge's events: maximal runs of consecutive
+/// ticks per cart and face on its cells): the events, the samples met, the longest event's ticks, the
+/// most events of one cart, the deepest tick, the speed in at an event's first tick and out at its
+/// last (least..largest): what a `ref=` run states as the declaration's values.
+pub fn decl_extremes(d: &crate::contacts::Decl, hits: &[crate::contacts::Hit]) -> String {
+    let mut groups: std::collections::BTreeMap<(u32, &'static str), Vec<&crate::contacts::Hit>> = std::collections::BTreeMap::new();
+    for h in hits.iter().filter(|h| d.cells.contains(&h.cell) && d.face.is_none_or(|f| f == h.face)) {
+        groups.entry((h.cart, h.face.name())).or_default().push(h);
     }
-    // (`V` or `V+eps=E` after a key)
-    fn bound(rest: &str, d: &str, key: &str) -> Result<(f64, f64), String> {
-        let (v, after) = num(rest).ok_or(format!("contacts {d:?}: `{key}` wants a number"))?;
-        if let Some(e) = after.strip_prefix("+eps=") {
-            let (eps, _) = num(e).ok_or(format!("contacts {d:?}: `{key}V+eps=E` wants a number after eps="))?;
-            if eps < 0.0 {
-                return Err(format!("contacts {d:?}: a negative eps"));
-            }
-            Ok((v, eps))
-        } else {
-            Ok((v, 0.0))
-        }
-    }
-    let mut out = Vec::new();
-    for d in crate::pushscan::header_entries(text, "contacts:") {
-        let Some((cells, reason)) = d.split_once('=') else { return Err(format!("contacts {d:?}: x,y,z[+x,y,z...]=REASON")) };
-        let mut b = ContactBounds::default();
-        if let Some(i) = reason.find("depth<=") {
-            let (v, e) = bound(&reason[i + 7..], &d, "depth<=")?;
-            b.depth_max = Some(v + e);
-        }
-        if let Some(i) = reason.find("ticks<=") {
-            let (v, e) = bound(&reason[i + 7..], &d, "ticks<=")?;
-            if e != 0.0 || v < 0.0 || v.fract() != 0.0 {
-                return Err(format!("contacts {d:?}: `ticks<=N` wants a whole count"));
-            }
-            b.ticks_max = Some(v as usize);
-        }
-        if let Some(i) = reason.find("speed_out>=") {
-            let (v, e) = bound(&reason[i + 11..], &d, "speed_out>=")?;
-            b.speed_out_min = Some(v - e);
-        }
-        for c in cells.split('+') {
-            let v: Vec<i32> = c.split(',').map(|x| x.trim().parse::<i32>()).collect::<Result<_, _>>().map_err(|e| format!("contacts {d:?}: x,y,z ({e})"))?;
-            match v.as_slice() {
-                &[x, y, z] => out.push(([x - shift[0], y - shift[1], z - shift[2]], b)),
-                _ => return Err(format!("contacts {d:?}: x,y,z")),
+    let samples: std::collections::BTreeSet<u64> = groups.values().flatten().filter_map(|h| h.sample).collect();
+    let (mut events, mut max_ticks, mut max_depth) = (0usize, 0i64, 0.0f64);
+    let mut per_cart: std::collections::BTreeMap<u32, usize> = std::collections::BTreeMap::new();
+    let (mut sin, mut sout): (Vec<f64>, Vec<f64>) = (Vec::new(), Vec::new());
+    for ((cart, _), hs) in &mut groups {
+        hs.sort_by_key(|h| h.tick);
+        let mut runs: Vec<Vec<&crate::contacts::Hit>> = Vec::new();
+        for h in hs.iter() {
+            match runs.last_mut() {
+                Some(r) if r.last().is_some_and(|l| h.tick <= l.tick + 1) => r.push(h),
+                _ => runs.push(vec![h]),
             }
         }
-    }
-    Ok(out)
-}
-
-/// (ironspec 10:47) The `rate=k/n` each `# contacts:` declaration carries (from a band run), by cell;
-/// strictly parsed (G1's Q14: a malformed rate, n = 0 or k > n is an error, never skipped).
-pub fn parse_contact_rates(text: &str, shift: [i32; 3]) -> Result<Vec<([i32; 3], (u32, u32))>, String> {
-    let mut out = Vec::new();
-    for d in crate::pushscan::header_entries(text, "contacts:") {
-        let Some((cells, reason)) = d.split_once('=') else { return Err(format!("contacts {d:?}: x,y,z[+x,y,z...]=REASON")) };
-        let Some(r) = reason.split("rate=").nth(1) else { continue };
-        let r: String = r.chars().take_while(|ch| ch.is_ascii_digit() || *ch == '/').collect();
-        let (k, n) = r.split_once('/').and_then(|(k, n)| Some((k.parse::<u32>().ok()?, n.parse::<u32>().ok()?))).ok_or(format!("contacts {d:?}: rate=k/n wants two whole counts"))?;
-        if n == 0 || k > n {
-            return Err(format!("contacts {d:?}: rate={k}/{n} (wants 0 <= k <= n, n > 0)"));
-        }
-        for c in cells.split('+') {
-            let v: Vec<i32> = c.split(',').map(|x| x.trim().parse::<i32>()).collect::<Result<_, _>>().map_err(|e| format!("contacts {d:?}: x,y,z ({e})"))?;
-            match v.as_slice() {
-                &[x, y, z] => out.push(([x - shift[0], y - shift[1], z - shift[2]], (k, n))),
-                _ => return Err(format!("contacts {d:?}: x,y,z")),
-            }
+        for r in runs {
+            events += 1;
+            max_ticks = max_ticks.max(r[r.len() - 1].tick - r[0].tick + 1);
+            max_depth = max_depth.max(r.iter().map(|h| h.depth).fold(0.0, f64::max));
+            sin.push(r[0].speed_in);
+            sout.push(r[r.len() - 1].speed_out);
+            *per_cart.entry(*cart).or_default() += 1;
         }
     }
-    Ok(out)
+    let range = |v: &[f64]| if v.is_empty() { "none".to_string() } else { format!("{:.4}..{:.4}", v.iter().copied().fold(f64::MAX, f64::min), v.iter().copied().fold(f64::MIN, f64::max)) };
+    format!("{events} events over {} samples; the longest {max_ticks} ticks; at most {} per cart; the deepest {max_depth:.4}; speed_in {}; speed_out {}", samples.len(), per_cart.values().copied().max().unwrap_or(0), range(&sin), range(&sout))
 }
 
 /// A controller cell set to its on ("redstone_block") or off ("stone") state the way the game
@@ -3189,33 +3158,17 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                     row.declared_contact_lines.push(format!("t {t}: the bed across the contact tick: unchanged {} (head {}, foot {})", prev_bed.as_ref().is_some_and(|b| *b == bed_now), bed_now.0, bed_now.1));
                     row.declared_hit.push(cell);
                     row.post_contact_speed = Some(row.post_contact_speed.map_or(after, |s: f64| s.min(after)));
-                    // (G1's Q6: the bounds parsed from THIS cell's declaration (`depth<=V+eps=E`,
-                    // `ticks<=N`, `speed_out>=V+eps=E`), the ticks counted per cell; a bound the
-                    // declaration doesn't state isn't judged here (the summary says so))
-                    let ticks_here = {
-                        let e = row.declared_ticks_by_cell.entry(cell).or_default();
-                        *e += 1;
-                        *e
-                    };
-                    if let Some(b) = f.contact_bounds.iter().find(|(c, _)| *c == cell).map(|(_, b)| *b) {
-                        if let Some(dmax) = b.depth_max
-                            && depth > dmax + 1e-12
-                        {
-                            row.problems.push(format!("t {t}: the declared contact at ({},{},{}) {depth:.4} deep (its declared bound {dmax:.4})", q.x, q.y, q.z));
-                        }
-                        if let Some(n) = b.ticks_max
-                            && ticks_here == n + 1
-                        {
-                            row.problems.push(format!("t {t}: the declared contact at ({},{},{}) on tick {ticks_here} this visit (its declared bound {n})", q.x, q.y, q.z));
-                        }
-                        if let Some(smin) = b.speed_out_min
-                            && after < smin - 1e-12
-                        {
-                            row.problems.push(format!("t {t}: the declared contact at ({},{},{}) left the cart at {after:.4} b/t (its declared bound >= {smin:.4})", q.x, q.y, q.z));
-                        }
-                    }
                 }
             }
+            // (ironspec Nov 13 10:42 (3) / 10:58: the ONE bounded judge's input: the cart's hits this
+            // tick, horizontal and vertical (main's `contacts::cart_hits` / `cart_vertical_hits`), the
+            // contacted cell in the design frame; the judge runs over every visit in the summary)
+            for mut h in crate::contacts::cart_hits(w, ci).into_iter().chain(crate::contacts::cart_vertical_hits(w, ci).into_iter().map(crate::contacts::Hit::from)) {
+                let dc = dcell(h.cell);
+                h.cell = BlockPos::new(dc[0], dc[1], dc[2]);
+                row.hits.push(h);
+            }
+            row.motion.push((w.time, c.delta_movement.x.hypot(c.delta_movement.z), c.delta_movement.y));
         }
         let vi = vill.and_then(|id| idx(w, id));
         if vill.is_some() && vi.is_none() {
@@ -4608,8 +4561,9 @@ fn par_map<T: Sync, R: Send>(items: &[T], jobs: usize, f: impl Fn(&T) -> R + Syn
 #[allow(clippy::too_many_arguments)]
 pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep: i64, release_after: i64, day: bool, base: &Faults, sweeps: [Option<&str>; 7], orders: &[crate::liveness::Restart], jobs: usize) -> Result<()> {
     // (G1's CHANGES C7: --scope-excludes names only bars that can be out of a run's scope; the
-    // every-visit bars ("visits") never are; an unknown name is refused, not ignored)
-    const SCOPE_BARS: [&str; 6] = ["pickups", "riderless", "stand", "head", "waker", "contacts-stale"];
+    // every-visit bars ("visits") never are; an unknown name is refused, not ignored; the contacts'
+    // STALE is the ONE judge's, judged on the run's visits, never excluded)
+    const SCOPE_BARS: [&str; 5] = ["pickups", "riderless", "stand", "head", "waker"];
     for b in &base.scope_excludes {
         anyhow::ensure!(SCOPE_BARS.contains(&b.as_str()), "--scope-excludes {b}: not a bar a run can exclude (allowed: {}; the every-visit bars never are)", SCOPE_BARS.join(", "));
     }
@@ -4753,6 +4707,21 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
                 tot += 1;
                 match results.next().unwrap_or_else(|| Err("no result".into())) {
                     Ok(r) => {
+                        // (the ONE bounded judge's input: this visit's hits, its cart a sample of
+                        // its own)
+                        {
+                            let vi = sk.judge_visits as u32;
+                            sk.judge_visits += 1;
+                            for h in &r.hits {
+                                let mut h = h.clone();
+                                h.cart = vi;
+                                h.sample = Some(vi as u64);
+                                sk.judge_hits.push(h);
+                            }
+                            for &(t, sp, vy) in &r.motion {
+                                sk.judge_motion.insert((vi, t), (sp, vy));
+                            }
+                        }
                         seated += r.seated_out as usize;
                         seated_here += r.seated_out as usize;
                         not_out += r.out_at.is_none() as usize;
@@ -5609,40 +5578,42 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
     if steps_over > 0 {
         failed.push(format!("{steps_over} pickups with a step over 0.2 (G1 C9)"));
     }
-    // (G1's Q6: the bounds each declaration states, as parsed and judged per cell)
-    for c in &base.declared_contacts {
-        let b = base.contact_bounds.iter().find(|(x, _)| x == c).map(|(_, b)| *b).unwrap_or_default();
-        let s = |o: Option<String>| o.unwrap_or_else(|| "NOT STATED (not judged)".to_string());
-        println!("the declared contact at ({},{},{}): bounds judged per visit at this cell: depth <= {}, ticks <= {}, speed out >= {}", c[0], c[1], c[2], s(b.depth_max.map(|v| format!("{v:.4}"))), s(b.ticks_max.map(|v| v.to_string())), s(b.speed_out_min.map(|v| format!("{v:.4}"))));
-    }
-    // (ironspec 07:47: a declared contact no visit meets is STALE and fails)
-    let stale: Vec<[i32; 3]> = base.declared_contacts.iter().copied().filter(|d| !sk.declared_hit.contains(d)).collect();
-    // (ironspec 10:47: a declaration with `rate=k/n` is judged STALE only when the run's N visits
-    // make a miss improbable: (1 - k/n)^N < 0.001; else "stale not judged"; rate-less: always
-    // expected)
-    for d in &stale {
-        match base.contact_rates.iter().find(|(c, _)| c == d).map(|(_, r)| *r) {
-            Some((k, n)) if n > 0 => {
-                let p_miss = (1.0 - k as f64 / n as f64).powi(tot as i32);
-                if p_miss < 0.001 {
-                    // (G1's Q7: an exclusion waives only a 0-sample NOT JUDGED; a STALE verdict
-                    // rests on `tot` visits)
-                    if excluded("contacts-stale") {
-                        println!("--scope-excludes contacts-stale: EXCLUDED (n={tot}) but not waived: the STALE verdict rests on {tot} visits");
-                    }
-                    failed.push(format!("the declared contact {d:?} met by no visit of {tot} (rate {k}/{n}: a miss this long has probability {p_miss:.2e} < 0.001: STALE)"));
-                } else {
-                    println!("the declared contact {d:?}: stale not judged: {tot} visits too few for rate {k}/{n} (a miss this long has probability {p_miss:.3})");
+    // (ironspec Nov 13 10:42 (3) / 10:58, G1 11:12 / 11:20: the ONE bounded judge on main over every
+    // visit's hits (each visit's cart its own id and its own sample, counted in visits): undeclared
+    // contacts (cell and face), bounds exceeded (ticks, events, depth, speed), NO STALL (IRONSPEC_1042:
+    // a move over 0.003 b/t or a fall within 5 ticks of an event's end), STALE (by `rate=` over this
+    // run's visits); each declaration's measured extremes printed, and with --reference-check its
+    // stated bounds must equal them (`contacts::reference_check`))
+    {
+        let v = crate::contacts::judge(&base.contact_decls, &sk.judge_hits, &|c, t| sk.judge_motion.get(&(c, t)).copied(), crate::contacts::StallRule::IRONSPEC_1042, Some((sk.judge_visits as u64, "visits")));
+        println!("the ONE bounded contact judge (main's contacts::judge over {} visits, {} hits, NO STALL by IRONSPEC_1042): {} declarations, their events {:?}; undeclared {}; exceeded {}; stalls {}; stale {}; stale not judged {}; wiring errors {}", sk.judge_visits, sk.judge_hits.len(), base.contact_decls.len(), v.events, v.undeclared.len(), v.exceeded.len(), v.stalls.len(), v.stale.len(), v.stale_not_judged.len(), v.errors.len());
+        let mut und: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+        for h in &v.undeclared {
+            *und.entry(format!("({},{},{}) {} face", h.cell.x, h.cell.y, h.cell.z, h.face.name())).or_default() += 1;
+        }
+        if !und.is_empty() {
+            println!("  undeclared contacts by cell and face (hit ticks): {und:?}");
+        }
+        for s in v.exceeded.iter().chain(&v.stalls).chain(&v.stale).chain(&v.stale_not_judged).chain(&v.errors).take(12) {
+            println!("  {s}");
+        }
+        for d in &base.contact_decls {
+            let cells: Vec<String> = d.cells.iter().map(|c| format!("({},{},{})", c.x, c.y, c.z)).collect();
+            println!("the declaration {} ({:?}{}): measured {}", cells.join("+"), d.class, d.face.map_or(String::new(), |f| format!(", face {}", f.name())), decl_extremes(d, &sk.judge_hits));
+            let mism = crate::contacts::reference_check(d, &sk.judge_hits);
+            if mism.is_empty() {
+                println!("  its stated bounds equal this run's extremes (the reference re-run check)");
+            } else {
+                for m in &mism {
+                    println!("  reference re-run check: {m}");
+                }
+                if base.reference_check {
+                    failed.push(format!("the declaration {}: its stated bounds don't equal this run's extremes (--reference-check: {})", cells.join("+"), mism.join("; ")));
                 }
             }
-            _ => {
-                if tot > 0 {
-                    if excluded("contacts-stale") {
-                        println!("--scope-excludes contacts-stale: EXCLUDED (n={tot}) but not waived: the STALE verdict rests on {tot} visits");
-                    }
-                    failed.push(format!("the declared contact {d:?} met by no visit (STALE, ironspec 07:47; it carries no rate=k/n)"));
-                }
-            }
+        }
+        if v.failed() {
+            failed.push(format!("the ONE bounded contact judge: undeclared {}, exceeded {}, stalls {}, stale {}, wiring errors {}", v.undeclared.len(), v.exceeded.len(), v.stalls.len(), v.stale.len(), v.errors.len()));
         }
     }
     if speed_failed {
@@ -5741,6 +5712,11 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
 /// A skip sweep's totals (`bench_cmd`).
 #[derive(Default)]
 struct SkipTotals {
+    /// (the ONE bounded judge's input over the run: every visit's hits, its cart renamed to the
+    /// visit's index (its sample), and each visit's cart motion by (visit, world tick))
+    judge_hits: Vec<crate::contacts::Hit>,
+    judge_motion: std::collections::HashMap<(u32, i64), (f64, f64)>,
+    judge_visits: usize,
     idle_targets: std::collections::BTreeMap<[i32; 3], usize>,
     idle_stamps: usize,
     post_lost: usize,
