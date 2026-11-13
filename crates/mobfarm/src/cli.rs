@@ -8332,6 +8332,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             // (G1 on 2dc7e46bb H16 / 84cd993fd (4): each mode's value counts strict, one mode at a time,
             // and r4's flags refused where the mode doesn't read them)
             anyhow::ensure!(lift_pair.is_empty() || lift_pair.len() == 2, "--lift-pair FROM,TO: two values, not {}", lift_pair.len());
+            // (G1 on 9a213943f (h): the range must straddle the bar's boundary, FROM <= 14 and TO >= 16,
+            // or a pass is vacuous)
+            anyhow::ensure!(lift_pair.is_empty() || (lift_pair[0] <= 14 && lift_pair[1] >= 16), "--lift-pair {},{}: FROM <= 14 and TO >= 16 (the range must hold the bar's boundary)", lift_pair.first().copied().unwrap_or(0), lift_pair.get(1).copied().unwrap_or(0));
             anyhow::ensure!(restart_sweep.is_empty() || restart_sweep.len() == 2, "--restart-sweep FROM,TO: two values");
             anyhow::ensure!(late_sweep.is_empty() || late_sweep.len() == 2, "--late-sweep FROM,TO: two values");
             anyhow::ensure!(login_sweep.is_empty() || login_sweep.len() == 3, "--login-sweep FROM,TO,LEN: three values");
@@ -8350,7 +8353,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             } else if !top_restart.is_empty() {
                 crate::returnbench::top_restart(&o, &top_restart).map_err(|e| anyhow::anyhow!(e))?
             } else if let Some(m) = &t_snap {
-                (crate::returnbench::t_snap(m, !no_torches).map_err(|e| anyhow::anyhow!(e))?, 0)
+                // (G1 on 9a213943f (a): t-snap is tick-exact's comparison table, with no bar of its own:
+                // it says so, and claims no verdict, rather than reporting a constant 0 as a pass)
+                (format!("{}\nt-snap claims no verdict: a table for tick-exact's official comparison (the reader compares; no bar is judged here)", crate::returnbench::t_snap(m, !no_torches).map_err(|e| anyhow::anyhow!(e))?), 0)
             } else if restart_sweep.len() == 2 {
                 crate::returnbench::restart_sweep(&o, restart_sweep[0], restart_sweep[1]).map_err(|e| anyhow::anyhow!(e))?
             } else if late_sweep.len() == 2 {
