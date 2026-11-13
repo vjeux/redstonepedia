@@ -7031,6 +7031,17 @@ pub fn loop_spots(spec: &FarmSpec, o: &LoopOpts) -> Result<String, String> {
 /// the position, the pad cells in reach, the stand positions in its 10-box and the other positions
 /// there (a cell a rider can be in: how many riders can be there at once is the schedule's).
 pub fn summon_reach(positions: &[BlockPos], pad: (BlockPos, BlockPos), stand: &[BlockPos], groups: &[(String, usize, Vec<BlockPos>)], list: usize) -> Vec<String> {
+    summon_reach_act(positions, pad, stand, groups, &[], list)
+}
+
+/// [`summon_reach`], with each group's activities (`acts[i]` for `groups[i]`; empty: unknown) (ironspec
+/// Nov 12 22:54, tick-exact's 26.3 citation: TradeWithVillager, the only caller of
+/// `Villager.gossip` and so of the gossip summon, runs only in the MEET and IDLE packages): a
+/// position can host a gossip summoner only when a group holding it can be in MEET or IDLE (or
+/// none declares its activity); the willing count in its box counts every rider whatever its
+/// activity (`wantsToSpawnGolem` reads no activity).
+pub fn summon_reach_act(positions: &[BlockPos], pad: (BlockPos, BlockPos), stand: &[BlockPos], groups: &[(String, usize, Vec<BlockPos>)], acts: &[Vec<String>], list: usize) -> Vec<String> {
+    let gossips = |i: usize| acts.get(i).is_none_or(|a| a.is_empty() || a.iter().any(|x| x == "idle" || x == "meet"));
     let (lo, hi) = pad;
     let mut pos: Vec<BlockPos> = positions.to_vec();
     for (_, _, g) in groups {
@@ -7042,6 +7053,7 @@ pub fn summon_reach(positions: &[BlockPos], pad: (BlockPos, BlockPos), stand: &[
     let fmt = |p: &BlockPos| format!("{},{},{}", p.x, p.y, p.z);
     let mut rows = Vec::new();
     let mut worst = 0usize;
+    let mut worst_gossip = 0usize;
     for p in &pos {
         let reach: Vec<&BlockPos> = pad_cells.iter().filter(|c| (c.x - p.x).abs() <= 8 && (c.z - p.z).abs() <= 8 && (c.y - p.y).abs() <= 6).collect();
         if reach.is_empty() {
@@ -7056,11 +7068,18 @@ pub fn summon_reach(positions: &[BlockPos], pad: (BlockPos, BlockPos), stand: &[
         let loose: Vec<&BlockPos> = pos.iter().filter(|q| in_box(q) && !groups.iter().any(|(_, _, g)| g.contains(q))).collect();
         let most = hit.iter().map(|(_, cap, _)| *cap).sum::<usize>() + loose.len();
         worst = worst.max(most);
+        // (a gossip summoner here: the position in no group (its activity unknown), or in a group
+        // that can be in MEET or IDLE)
+        let holders: Vec<usize> = groups.iter().enumerate().filter(|(_, (_, _, g))| g.contains(p)).map(|(i, _)| i).collect();
+        let can_gossip = holders.is_empty() || holders.iter().any(|i| gossips(*i));
+        if can_gossip {
+            worst_gossip = worst_gossip.max(most);
+        }
         let (x0, x1) = (reach.iter().map(|c| c.x).min().unwrap_or(0), reach.iter().map(|c| c.x).max().unwrap_or(0));
         let (z0, z1) = (reach.iter().map(|c| c.z).min().unwrap_or(0), reach.iter().map(|c| c.z).max().unwrap_or(0));
         let shown: Vec<String> = loose.iter().take(list).map(|q| fmt(q)).collect();
         rows.push(format!(
-            "  REACH {}{}: {} pad cells (x {x0}..{x1}, z {z0}..{z1}); its 10-box: at most {most} willing ({}{} positions in no group, one each{}{}); stand positions in it [{}]",
+            "  REACH {}{}: {} pad cells (x {x0}..{x1}, z {z0}..{z1}); its 10-box: at most {most} willing ({}{} positions in no group, one each{}{}); a gossip summoner here: {}; stand positions in it [{}]",
             fmt(p),
             if stand.contains(p) { " (a stand position)" } else { "" },
             reach.len(),
@@ -7068,11 +7087,12 @@ pub fn summon_reach(positions: &[BlockPos], pad: (BlockPos, BlockPos), stand: &[
             loose.len(),
             if shown.is_empty() { String::new() } else { format!(": {}", shown.join(" ")) },
             if loose.len() > shown.len() { " ..." } else { "" },
+            if holders.is_empty() { "possible (no group: its activity unknown)".to_string() } else if can_gossip { format!("possible ({})", holders.iter().filter(|i| gossips(**i)).map(|i| groups[*i].0.clone()).collect::<Vec<_>>().join(", ")) } else { format!("no ({} never in MEET or IDLE)", holders.iter().map(|i| format!("{}: {}", groups[*i].0, acts.get(*i).map(|a| a.join("/")).unwrap_or_default())).collect::<Vec<_>>().join(", ")) },
             stands.join(" ")
         ));
     }
     let mut out = vec![format!(
-        "summon reach (ironspec Nov 12 19:20 (3c) / 19:34 (3b): a position whose block is within 8 of a pad cell in x and z and 6 in y can summon onto the pad; each with the most willing villagers its 10-box can hold, by the declared rider groups (--rider-group NAME:CAP: the most riders of that group at once) and one per cell for a position in none; the gossip summon needs 5): {} of {} positions, the most willing anywhere {worst}",
+        "summon reach (ironspec Nov 12 19:20 (3c) / 19:34 (3b) / 22:54: a position whose block is within 8 of a pad cell in x and z and 6 in y can summon onto the pad; each with the most willing villagers its 10-box can hold, by the declared rider groups (--rider-group NAME:CAP[:ACTIVITIES]: the most riders of that group at once, and the activities they can be in) and one per cell for a position in none; the gossip summon needs 5, its summoner in MEET or IDLE): {} of {} positions, the most willing anywhere {worst}, at a position a gossip summoner can be in {worst_gossip}",
         rows.len(),
         pos.len()
     )];
@@ -15171,5 +15191,22 @@ mod summon_reach_tests {
         // cells within 11 / 12: 0,0,0, 0,0,7, 0,0,8, 0,1,0 (one each))
         assert!(row("0,0,0").unwrap().contains("at most 8 willing (batch 3, napper 1, 4 positions in no group"), "{l:?}");
         assert!(l[0].contains("5 of 9 positions"), "{l:?}");
+    }
+
+    /// (ironspec Nov 12 22:54) A position only in a group never in MEET or IDLE hosts no gossip
+    /// summoner; the most willing at a summoner's position leaves it out.
+    #[test]
+    fn activity_closes_a_summoner_position() {
+        let b = |x, y, z| BlockPos::new(x, y, z);
+        let pad = (b(-3, -6, -6), b(8, -6, -1));
+        let groups = vec![("batch".to_string(), 3usize, vec![b(-1, 0, 0), b(3, 0, 0), b(7, 0, 0)]), ("seat".to_string(), 1usize, vec![b(9, -6, -4)])];
+        let acts = vec![vec!["idle".to_string(), "rest".to_string()], vec!["rest".to_string(), "panic".to_string()]];
+        let l = super::summon_reach_act(&[], pad, &[], &groups, &acts, 8);
+        let seat = l.iter().find(|r| r.starts_with("  REACH 9,-6,-4:")).cloned().unwrap();
+        assert!(seat.contains("a gossip summoner here: no (seat: rest/panic never in MEET or IDLE)"), "{seat}");
+        let pocket = l.iter().find(|r| r.starts_with("  REACH -1,0,0:")).cloned().unwrap();
+        assert!(pocket.contains("a gossip summoner here: possible (batch)"), "{pocket}");
+        // (the seat's box holds the batch and the seat (4); the pocket's the batch and the seat too)
+        assert!(l[0].contains("the most willing anywhere 4, at a position a gossip summoner can be in 4"), "{l:?}");
     }
 }
