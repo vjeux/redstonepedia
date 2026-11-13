@@ -638,7 +638,7 @@ pub fn design_a(bench: bool) -> Result<String> {
 /// one braked powered rail descending west, two run-up flats along z 4, P (-2,0,4) a curve turning
 /// south onto A6's exit. The run-up's empty-cart drag brings the released cart to P under 0.2 b/t
 /// (a step over 0.2 can clip into the standing napper's box and stop dead).
-pub fn design_a2(bench: bool, loop_booster: bool) -> Result<String> {
+pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool) -> Result<String> {
     let mut b = Builder::new(if bench { "bed-tier-a2-bench" } else { "bed-tier-a2" });
     let rail = |s: &str| format!("rail[shape={s},waterlogged=false]");
     let cap = "iron_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]";
@@ -768,6 +768,12 @@ pub fn design_a2(bench: bool, loop_booster: bool) -> Result<String> {
     put(&mut b, [-3, 2, 3], cap)?;
     put(&mut b, [-3, 3, 3], button)?;
     for c in [[-3, 2, 4], [-3, 1, 5], [-4, 2, 4], [-2, 2, 4]] {
+        if head_open && c == [-3, 2, 4] {
+            // (ironspec 06:31 real, the re-claim path: no glass over the head, so the cell over it
+            // is a path node within HOME's valid range 1 of the head for a napper whose path
+            // starts over the foot (getStart's floor(y + 0.5)))
+            continue;
+        }
         put(&mut b, c, "glass")?;
     }
     // the hatch and the zombie's post (A6's)
@@ -843,8 +849,19 @@ pub fn reclaim_row(spec: &FarmSpec, seed: u64, blocked: bool, at: Option<[f64; 3
     let spot = at.unwrap_or([BED_HEAD[0] as f64 + 0.5, 0.5625, BED_HEAD[2] as f64 - 0.5]);
     let nid = redsim::entity::spawn(&mut run.world, "minecraft:villager", spot, Some(&format!("{{{home}}}")))?;
     let other = if blocked {
-        // (the known positive: a second villager holding the bed's ticket, sealed on the run-out)
-        Some(redsim::entity::spawn(&mut run.world, "minecraft:villager", [EXIT_DET[0] as f64 + 4.5, -1.0, EXIT_DET[2] as f64 + 0.5], Some(&format!("{{{home}}}")))?)
+        // (the known positive: a second villager holding the bed, sealed on the run-out; a loaded
+        // HOME takes no ticket (as in the game: ironspec 06:31 real), so its ticket is TAKEN here
+        // explicitly, a declared stand-in for a claimant that acquired it: before -> after printed)
+        let o = redsim::entity::spawn(&mut run.world, "minecraft:villager", [EXIT_DET[0] as f64 + 4.5, -1.0, EXIT_DET[2] as f64 + 0.5], Some(&format!("{{{home}}}")))?;
+        let bp = BlockPos::new(h[0], h[1], h[2]);
+        let before = redsim::entity::mob::ai::poi::free_tickets(&mut run.world, bp);
+        redsim::entity::mob::ai::poi::take(&mut run.world, bp);
+        let after = redsim::entity::mob::ai::poi::free_tickets(&mut run.world, bp);
+        if before == after {
+            return Err(format!("the known positive's ticket take changed nothing ({before:?} -> {after:?}): the positive can't block"));
+        }
+        out.push(format!("the known positive's stand-in: villager {o} holds HOME = the bed and its ticket taken (the bed's free tickets {before:?} -> {after:?})"));
+        Some(o)
     } else {
         None
     };
@@ -1171,6 +1188,8 @@ pub struct Faults {
     /// ((A)'s at-rest bar's positive control) The park released this many gt after the arming
     /// detector's edge, whatever the napper does.
     pub release_after_arm: Option<i64>,
+    /// (the farm-stop bar's known positive) The napper's HOME erased at this tick.
+    pub erase_home_at: Option<i64>,
     /// The 09:00 shape (a control since ironspec 09:45): DAY gates the activator and the abort
     /// releases an unslept napper by day. Without it the activator is always on and an unslept
     /// napper waits for REST.
@@ -2208,6 +2227,10 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             let vcell = [v.pos.x.floor() as i32, (v.pos.y + 0.01).floor() as i32, v.pos.z.floor() as i32];
             riding = v.vehicle.is_some();
             // (the napper's HOME every tick; its loss is a problem)
+            if f.erase_home_at == Some(t) {
+                // (the farm-stop bar's known positive: the planted erasure)
+                redsim::entity::mob::ai::brain::brain_mut(w, vi).home = None;
+            }
             let has_home = redsim::entity::mob::ai::brain::brain(w, vi).home.is_some();
             if had_home && !has_home && row.home_lost_at.is_none() {
                 row.home_lost_at = Some(t);
@@ -3867,6 +3890,11 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
     let mut failed: Vec<String> = Vec::new();
     if park_failed {
         failed.push("the release by park position NOT met".into());
+    }
+    // (ironspec 06:31 real, the farm-stop bar: no napper without HOME at the bed stop at any tick;
+    // its known positive is --erase-home-at, the planted erasure)
+    if lost > 0 {
+        failed.push(format!("the farm-stop bar: {lost} visits with the napper's HOME gone at the stop (bar 0)"));
     }
     if sk.pickup_unwoken > 0 {
         failed.push("pickups before the wake or off the bed while asleep".into());
