@@ -193,3 +193,116 @@ pub fn sleep_merge(version: &str, mode: &str, k: u32, watch: u32, guard: bool, m
     );
     Ok(())
 }
+
+/// (G1 13:37, the deciding row) Does a minecart passing P beside the bed seat a SLEEPING villager?
+/// The stop's local cells: the bed facing south (foot (0,Y,-1), head (0,Y,0)), P (1,Y,0) a south_east
+/// rail east of the head, a north-south approach (1,Y,1..6) and an east-west exit (2..7,Y,0), inside a
+/// glass room; a villager homed to the head lies down at night; `settle` gt after the lie-down a cart is
+/// summoned on the approach heading north at the STORED speed v. Printed per tick around the pass: the
+/// cart's position, the villager's, the bed's OCCUPIED, whether the villager is the cart's passenger and
+/// whether it still has a sleeping position; then the bed and the villager for `watch` gt.
+pub fn sleep_pickup(version: &str, v: f64, settle: u32, watch: u32, max_wait: u32, stop: bool) -> Result<()> {
+    let opts = VanillaOptions {
+        version: version.to_string(),
+        difficulty: "normal".into(),
+        with_bot: false,
+        biome: "minecraft:plains".into(),
+        tick_rate: 1000,
+        ..Default::default()
+    };
+    let mut srv = VanillaServer::start(&opts)?;
+    srv.cmd_ok("forceload add -16 -16 15 15")?;
+    srv.cmd_ok("time set 13000")?;
+    srv.cmd_ok("gamerule advance_time false")?;
+    srv.cmd_ok(&format!("fill -3 {} -3 8 {} 7 minecraft:glass", Y - 1, Y - 1))?;
+    for (a, b) in [((-3, -3), (8, -3)), ((-3, 7), (8, 7)), ((-3, -3), (-3, 7)), ((8, -3), (8, 7))] {
+        srv.cmd_ok(&format!("fill {} {Y} {} {} {} {} minecraft:glass", a.0, a.1, b.0, Y + 2, b.1))?;
+    }
+    srv.cmd_ok(&format!("setblock 0 {Y} -1 minecraft:red_bed[facing=south,part=foot,occupied=false]"))?;
+    srv.cmd_ok(&format!("setblock 0 {Y} 0 minecraft:red_bed[facing=south,part=head,occupied=false]"))?;
+    srv.cmd_ok(&format!("fill 1 {Y} 1 1 {Y} 6 minecraft:rail[shape=north_south,waterlogged=false]"))?;
+    srv.cmd_ok(&format!("fill 2 {Y} 0 7 {Y} 0 minecraft:rail[shape=east_west,waterlogged=false]"))?;
+    srv.cmd_ok(&format!("setblock 1 {Y} 0 minecraft:rail[shape=south_east,waterlogged=false] strict"))?;
+    anyhow::ensure!(crate::strict::test(&mut srv, &format!("execute if block 1 {Y} 0 minecraft:rail[shape=south_east]"))?, "P is not south_east");
+    // (58f770cc 13:46, the stop's own approach with `--stop`) the napper walks in from the eject E north
+    // of P (it left its cart there), the released cart comes WEST along the run-up flats into P and turns
+    // south onto the hand-off; else the villager walks in from the south-west and the cart comes north
+    let (vx, vz) = if stop { (1.5, -1.5) } else { (-1.5, 3.5) };
+    let out = srv.cmd(&format!(
+        "summon minecraft:villager {vx} {Y} {vz} {{Tags:[\"sv\"],PersistenceRequired:1b,Brain:{{memories:{{\"minecraft:home\":{{value:{{dimension:\"minecraft:overworld\",pos:[I;0,{Y},0]}}}}}}}}}}"
+    ))?;
+    anyhow::ensure!(out.contains("Summoned new"), "the villager: {}", out.trim());
+    println!("== the pickup of a sleeping villager on the official {version} server: the bed facing south (head (0,{Y},0)), P (1,{Y},0) south_east east of the head, the approach north-south at x 1; a cart summoned at (1.5, {}, 5.5) heading north at stored v {v:.3} {settle} gt after the lie-down", Y as f64 + 0.0625);
+    let occupied = |srv: &mut VanillaServer| crate::strict::test(srv, &format!("execute if block 0 {Y} 0 minecraft:red_bed[occupied=true]"));
+    let mut lie = None::<u32>;
+    // (cc767b78 14:00, the post-lie-down drift) every tick's position and Motion, the last 3 before the
+    // lie-down and 15 after it printed at full precision
+    let rowf = |srv: &mut VanillaServer| -> Result<String> {
+        let p = srv.cmd_long("data get entity @e[tag=sv,limit=1] Pos")?;
+        let m = srv.cmd_long("data get entity @e[tag=sv,limit=1] Motion")?;
+        Ok(format!("Pos {} Motion {}", p.split("data: ").nth(1).unwrap_or("-").trim(), m.split("data: ").nth(1).unwrap_or("-").trim()))
+    };
+    let mut ring: std::collections::VecDeque<String> = std::collections::VecDeque::new();
+    for t in 0..max_wait {
+        srv.step(1)?;
+        let r = rowf(&mut srv)?;
+        if occupied(&mut srv)? {
+            for (i, row) in ring.iter().enumerate() {
+                println!("  lie-down {}: {row}", i as i64 - ring.len() as i64);
+            }
+            println!("  lie-down +0 (t{t}, the head reads occupied): {r}");
+            lie = Some(t);
+            break;
+        }
+        ring.push_back(format!("t{t}: {r}"));
+        if ring.len() > 3 {
+            ring.pop_front();
+        }
+    }
+    let Some(lie) = lie else { anyhow::bail!("the villager never lay down within {max_wait} gt") };
+    for j in 1..=15u32 {
+        srv.step(1)?;
+        println!("  lie-down +{j}: {}", rowf(&mut srv)?);
+    }
+    srv.step(settle.saturating_sub(15).max(1))?;
+    let sp = pos_of(&mut srv, "@e[tag=sv,limit=1]")?;
+    println!("  t{lie}: LIE-DOWN; after {settle} gt the sleeper at {}", sp.map(|p| format!("({:.4},{:.4},{:.4})", p[0], p[1], p[2])).unwrap_or("-".into()));
+    let out = if stop {
+        // just east of P, so the cart enters P at about v (an empty cart loses 4 % a tick on the flats)
+        srv.cmd(&format!("summon minecraft:minecart 2.45 {} 0.5 {{Tags:[\"sp\"],Motion:[{:?}d,0.0d,0.0d]}}", Y as f64 + 0.0625, -v))?
+    } else {
+        srv.cmd(&format!("summon minecraft:minecart 1.5 {} 5.5 {{Tags:[\"sp\"],Motion:[0.0d,0.0d,{:?}d]}}", Y as f64 + 0.0625, -v))?
+    };
+    anyhow::ensure!(out.contains("Summoned new"), "the cart: {}", out.trim());
+    let (mut picked, mut freed) = (None::<u32>, None::<u32>);
+    for j in 1..=watch {
+        srv.step(1)?;
+        let c = pos_of(&mut srv, "@e[tag=sp,limit=1]")?;
+        let p = pos_of(&mut srv, "@e[tag=sv,limit=1]")?;
+        let occ = occupied(&mut srv)?;
+        let pass = srv.cmd_long("data get entity @e[tag=sp,limit=1] Passengers")?.contains("villager");
+        let sleeping = srv.cmd_long("data get entity @e[tag=sv,limit=1] SleepingX")?.contains("data:");
+        if pass && picked.is_none() {
+            picked = Some(j);
+        }
+        if !occ && freed.is_none() {
+            freed = Some(j);
+        }
+        if j <= 30 || j % 10 == 0 {
+            println!(
+                "  +{j}: cart {} | villager {} | bed {} | {} | {}",
+                c.map(|p| format!("({:.3},{:.3},{:.3})", p[0], p[1], p[2])).unwrap_or("-".into()),
+                p.map(|p| format!("({:.3},{:.4},{:.3})", p[0], p[1], p[2])).unwrap_or("-".into()),
+                if occ { "OCCUPIED" } else { "free" },
+                if pass { "the cart's PASSENGER" } else { "not riding" },
+                if sleeping { "sleeping pos set" } else { "no sleeping pos" }
+            );
+        }
+    }
+    println!(
+        "  result (one sample, AI rider): picked up {}; the bed freed {} (a measurement)",
+        picked.map(|j| format!("at +{j} gt after the summon")).unwrap_or("NEVER (the cart passed P without seating it)".into()),
+        freed.map(|j| format!("at +{j}")).unwrap_or("never in the watch".into())
+    );
+    Ok(())
+}

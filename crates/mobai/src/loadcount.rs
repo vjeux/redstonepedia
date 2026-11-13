@@ -292,3 +292,178 @@ pub fn load_count(version: &str, cases: u32, run_ms: u64) -> Result<()> {
     anyhow::ensure!(bad.is_empty(), "{} bar(s) failed: {}", bad.len(), bad.join("; "));
     Ok(())
 }
+
+/// (ironspec 13:37 / 13:52, G1 13:50: the farm-chunk k and j) The same counters on the decisive scene's
+/// own chunks with the farm's entities loaded: the scene placed at +80 with its entities (24 carts, 24
+/// riders, the scarers), its four chunks (-1..0, -1..0) forced (the loader's stand-in), and one probe
+/// item per chunk at y 30 under the farm (an item counts its own entity ticks in its Age; a chunk's
+/// entities load together). A repeating command-block chain in chunk (0,0) runs every block tick and,
+/// per probe: counts the block ticks where its Age did not move since the previous block tick (k: the
+/// entities behind the blocks, counted one tick late) and stores its Age at the first block tick after
+/// the reset (j = that Age minus its Age at the save / unload: the entity ticks that ran before the first
+/// block tick, the blocks behind the entities). A repeater pending at each save stamps where the first
+/// overdue scheduled tick lands. Events: `cases` world opens (save, stop, start on the world) and `cases`
+/// logins (the forced tickets removed, the chunks unloaded, the player joins on the farm's top).
+pub fn load_count_farm(version: &str, scene: &std::path::Path, cases: u32, run_ms: u64) -> Result<()> {
+    anyhow::ensure!(cases >= 1, "--cases 0: no sample (NOT JUDGED)");
+    const DY: i32 = 80;
+    const CY: i32 = 30;
+    let probes: [(i32, i32); 4] = [(-8, -8), (-8, 8), (8, -8), (8, 12)];
+    println!(
+        "== load-count on the farm's chunks, official {version} at 20 TPS: {} at +{DY} with its entities, chunks (-1..0, -1..0) forced; probe items at y {CY} in each chunk {probes:?}; {cases} world opens and {cases} logins, each read {run_ms} ms after the load",
+        scene.display()
+    );
+    let mut srv = VanillaServer::start(&opts(version, None))?;
+    srv.cmd_ok("tick freeze")?;
+    srv.cmd_ok("gamerule spawn_mobs false")?;
+    for rule in ["spawn_chunk_radius", "spawnChunkRadius"] {
+        if srv.cmd(&format!("gamerule {rule} 0"))?.to_ascii_lowercase().contains("set to") {
+            break;
+        }
+    }
+    for rule in ["respawn_radius", "spawn_radius"] {
+        if srv.cmd(&format!("gamerule {rule} 0"))?.to_ascii_lowercase().contains("set to") {
+            break;
+        }
+    }
+    srv.cmd_ok("gamerule command_block_output false").or_else(|_| srv.cmd_ok("gamerule commandBlockOutput false"))?;
+    srv.cmd_ok("forceload add -16 -16 15 15")?;
+    srv.step(5)?;
+    crate::seatclear::place_part(&mut srv, scene)?;
+    srv.cmd_ok("scoreboard objectives add lc dummy")?;
+    for k in 0..probes.len() {
+        for p in ["a", "ap", "e", "af", "a0", "ab"] {
+            srv.cmd_ok(&format!("scoreboard players set #{p}{k} lc 0"))?;
+        }
+    }
+    for p in ["#b", "#bfirst", "#fire"] {
+        srv.cmd_ok(&format!("scoreboard players set {p} lc 0"))?;
+    }
+    srv.cmd_ok(&format!("fill -15 {} -15 15 {} 15 minecraft:stone", CY - 1, CY - 1))?;
+    for (k, (x, z)) in probes.iter().enumerate() {
+        srv.cmd_ok(&format!("summon minecraft:item {x}.5 {CY} {z}.5 {{Item:{{id:\"minecraft:stone\",count:1}},Age:-20000s,PickupDelay:32767s,Tags:[\"lcp{k}\"]}}"))?;
+    }
+    // per probe: a block tick with the probe absent (its chunk's entities not loaded yet) or with its Age
+    // unmoved counts as entity-free; its Age at the first block tick (or its absence there) is stored
+    let mut cmds: Vec<String> = Vec::new();
+    for k in 0..probes.len() {
+        cmds.push(format!("execute unless entity @e[tag=lcp{k}] run scoreboard players add #e{k} lc 1"));
+        cmds.push(format!("execute if score #bfirst lc matches 0 unless entity @e[tag=lcp{k}] run scoreboard players set #ab{k} lc 1"));
+        cmds.push(format!("execute if entity @e[tag=lcp{k}] store result score #a{k} lc run data get entity @e[tag=lcp{k},limit=1] Age"));
+        cmds.push(format!("execute if entity @e[tag=lcp{k}] if score #a{k} lc = #ap{k} lc run scoreboard players add #e{k} lc 1"));
+        cmds.push(format!("execute if entity @e[tag=lcp{k}] run scoreboard players operation #ap{k} lc = #a{k} lc"));
+        cmds.push(format!("execute if score #bfirst lc matches 0 if entity @e[tag=lcp{k}] run scoreboard players operation #af{k} lc = #a{k} lc"));
+    }
+    cmds.push("scoreboard players add #b lc 1".to_string());
+    cmds.push("execute if score #bfirst lc matches 0 store result score #bfirst lc run time query gametime".to_string());
+    // the chain in chunk (0,0): east along z 1 (x 0..15), then west along z 2
+    for (i, c) in cmds.iter().enumerate() {
+        let (x, z, facing) = if i < 15 { (i as i32, 1, "east") } else if i == 15 { (15, 1, "south") } else { (15 - (i as i32 - 16), 2, "west") };
+        anyhow::ensure!(x >= 0, "the chain overflows chunk (0,0)");
+        let kind = if i == 0 { "repeating_command_block" } else { "chain_command_block" };
+        srv.cmd_ok(&format!("setblock {x} {CY} {z} minecraft:{kind}[facing={facing}]{{auto:1b,Command:\"{}\"}}", c.replace('"', "\\\"")))?;
+    }
+    // a repeater (delay 4 = 8 gt) whose input gets a redstone block just before each save, into an impulse
+    // command block stamping its first firing after the reset (where the first overdue tick lands)
+    srv.cmd_ok(&format!("setblock 6 {CY} 6 minecraft:repeater[facing=west,delay=4]"))?;
+    srv.cmd_ok(&format!("setblock 7 {CY} 6 minecraft:command_block[facing=east]{{Command:\"execute if score #fire lc matches 0 store result score #fire lc run time query gametime\"}}"))?;
+    let source = format!("5 {CY} 6");
+    // the login spawn: a glass pad on the farm's top
+    srv.cmd_ok(&format!("setblock 4 {} 4 minecraft:glass", DY + 30))?;
+    srv.cmd_ok(&format!("setworldspawn 4 {} 4", DY + 31))?;
+    srv.cmd_ok("tick unfreeze")?;
+    std::thread::sleep(std::time::Duration::from_millis(2000));
+    srv.cmd_ok("tick freeze")?;
+    println!("  built: the chain runs (#b {}, probe ages {:?})", score(&mut srv, "#b")?, (0..probes.len()).map(|k| score(&mut srv, &format!("#a{k}"))).collect::<Result<Vec<_>>>()?);
+    let mut worst_k = 0i64;
+    let mut worst_j = 0i64;
+    let mut not_judged = 0u32;
+    let reset_counts = |srv: &mut VanillaServer| -> Result<()> {
+        for k in 0..probes.len() {
+            srv.cmd_ok(&format!("scoreboard players set #e{k} lc 0"))?;
+            srv.cmd_ok(&format!("scoreboard players set #af{k} lc 0"))?;
+            srv.cmd_ok(&format!("scoreboard players set #ab{k} lc 0"))?;
+            srv.cmd_ok(&format!("execute store result score #a0{k} lc run data get entity @e[tag=lcp{k},limit=1] Age"))?;
+            srv.cmd_ok(&format!("scoreboard players operation #ap{k} lc = #a0{k} lc"))?;
+        }
+        for p in ["#b", "#bfirst", "#fire"] {
+            srv.cmd_ok(&format!("scoreboard players set {p} lc 0"))?;
+        }
+        Ok(())
+    };
+    let mut read_counts = |srv: &mut VanillaServer, label: &str, gt0: i64, worst_k: &mut i64, worst_j: &mut i64| -> Result<()> {
+        srv.cmd_ok("tick freeze")?;
+        let (b, bfirst, fire) = (score(srv, "#b")?, score(srv, "#bfirst")?, score(srv, "#fire")?);
+        let mut per: Vec<String> = Vec::new();
+        for k in 0..probes.len() {
+            let (e, af, a0, ab) = (score(srv, &format!("#e{k}"))?, score(srv, &format!("#af{k}"))?, score(srv, &format!("#a0{k}"))?, score(srv, &format!("#ab{k}"))?);
+            // absent at the first block tick: its entities had not run before the blocks (j 0; k counts it)
+            let j = if bfirst <= 0 { -1 } else if ab == 1 { 0 } else { af - a0 };
+            *worst_k = (*worst_k).max(e);
+            *worst_j = (*worst_j).max(j);
+            per.push(format!("chunk {:?}: k {e} j {j}{}", ((probes[k].0).div_euclid(16), (probes[k].1).div_euclid(16)), if ab == 1 { " (the probe absent at the first block tick)" } else { "" }));
+        }
+        if b == 0 {
+            not_judged += 1;
+        }
+        println!(
+            "  {label}: block ticks {b}, the first at reset + {}; {}; the pending repeater {}",
+            if bfirst > 0 { (bfirst - gt0).to_string() } else { "- (NOT JUDGED)".into() },
+            per.join(", "),
+            if fire > 0 { format!("stamped at save + {} (due at save + 8)", fire - gt0) } else { "-".into() }
+        );
+        Ok(())
+    };
+    for c in 1..=cases {
+        srv.cmd(&format!("setblock {source} minecraft:air"))?;
+        srv.cmd_ok("tick unfreeze")?;
+        std::thread::sleep(std::time::Duration::from_millis(1000));
+        srv.cmd_ok("tick freeze")?;
+        reset_counts(&mut srv)?;
+        let gt0 = srv.game_time()?;
+        srv.cmd_ok(&format!("setblock {source} minecraft:redstone_block"))?;
+        srv.cmd_ok("save-on")?;
+        srv.cmd_ok("save-all flush")?;
+        let old = srv.dir.clone();
+        let world = old.join(&srv.level_name);
+        drop(srv);
+        srv = VanillaServer::start(&opts(version, Some(world)))?;
+        let _ = std::fs::remove_dir_all(&old);
+        std::thread::sleep(std::time::Duration::from_millis(run_ms));
+        read_counts(&mut srv, &format!("world open {c}"), gt0, &mut worst_k, &mut worst_j)?;
+    }
+    let (wk_open, wj_open) = (worst_k, worst_j);
+    worst_k = 0;
+    worst_j = 0;
+    for c in 1..=cases {
+        srv.cmd(&format!("setblock {source} minecraft:air"))?;
+        srv.cmd_ok("forceload add -16 -16 15 15")?;
+        srv.cmd_ok("tick unfreeze")?;
+        std::thread::sleep(std::time::Duration::from_millis(1500));
+        srv.cmd_ok("tick freeze")?;
+        reset_counts(&mut srv)?;
+        let gt0 = srv.game_time()?;
+        srv.cmd_ok("forceload remove all")?;
+        srv.cmd_ok("tick unfreeze")?;
+        let t0 = std::time::Instant::now();
+        while crate::strict::test(&mut srv, &format!("execute if loaded 1 {CY} 1"))? && t0.elapsed() < std::time::Duration::from_secs(30) {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        anyhow::ensure!(!crate::strict::test(&mut srv, &format!("execute if loaded 1 {CY} 1"))?, "login {c}: the farm's chunk is still loaded after 30 s");
+        std::thread::sleep(std::time::Duration::from_millis(1000));
+        srv.cmd_ok("tick freeze")?;
+        // the ages at the unload: the probes are not loaded now, so the reset's #a0 (read while held) stands
+        srv.cmd_ok("tick unfreeze")?;
+        srv.bot = Some(mctas::vanilla::bot::Bot::connect(srv.game_port(), "mctas_bot")?);
+        std::thread::sleep(std::time::Duration::from_millis(run_ms.max(7000)));
+        read_counts(&mut srv, &format!("login {c}"), gt0, &mut worst_k, &mut worst_j)?;
+        srv.bot = None;
+    }
+    let _ = std::fs::remove_dir_all(&srv.dir);
+    println!(
+        "  summary: world opens ({cases}): worst k {wk_open} (entity-free block ticks), worst j {wj_open} (entity ticks before the first block tick); logins ({cases}): worst k {worst_k}, worst j {worst_j}; samples {} per kind (a measurement)",
+        cases
+    );
+    anyhow::ensure!(not_judged == 0, "{not_judged} event(s) with no block tick: NOT JUDGED, the run fails");
+    Ok(())
+}

@@ -671,6 +671,24 @@ pub enum MobaiCmd {
         #[arg(long)]
         trace: bool,
     },
+    /// (G1 13:37) does a minecart passing P beside the bed seat a sleeping villager? (the stop's local cells)
+    SleepPickup {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        /// the cart's stored speed heading north on the approach
+        #[arg(long, default_value_t = 0.3)]
+        v: f64,
+        #[arg(long, default_value_t = 40)]
+        settle: u32,
+        #[arg(long, default_value_t = 80)]
+        watch: u32,
+        /// the stop's own approach: the napper walks in from the eject north of P, the cart comes west into
+        /// P and turns south (58f770cc 13:46)
+        #[arg(long)]
+        stop: bool,
+        #[arg(long, default_value_t = 1200)]
+        max_wait: u32,
+    },
     /// (tickexact 2026-11-13, day-1 12:27) the reverse merge: a villager lies down in a bed watched by an
     /// observer; at the lie-down + k it is hurt or a hostile appears in view (or nothing); the observer's
     /// pulses, the wake, the villager's path; `--guard` adds a string in the cell above the bed head
@@ -819,6 +837,9 @@ pub enum MobaiCmd {
         /// Real milliseconds the server runs after each load before the counters are read
         #[arg(long, default_value_t = 4000)]
         run_ms: u64,
+        /// (ironspec 13:37) count on this scene's own chunks with its entities (the farm-chunk k / j)
+        #[arg(long)]
+        scene: Option<std::path::PathBuf>,
     },
     /// (tickexact 2026-11-12, ironspec 19:51 PT) VillagerPanicTrigger's start/tick calls every tick
     /// on continuously panicking villagers: the 60-gt behaviour's skip against the summon ticks
@@ -2044,6 +2065,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
             let list: Vec<f64> = (0..=n).map(|i| s[0] + s[2] * i as f64).collect();
             crate::launchsweep::launch_sweep(&version, &scene, &list, &phases, sbend_straight, bar, trace)
         }
+        MobaiCmd::SleepPickup { version, v, settle, watch, stop, max_wait } => crate::sleepmerge::sleep_pickup(&version, v, settle, watch, max_wait, stop),
         MobaiCmd::SleepMerge { version, mode, k, watch, guard, max_wait } => crate::sleepmerge::sleep_merge(&version, &mode, k, watch, guard, max_wait),
         MobaiCmd::PresenceString { version, ticks, open_at, depart_at, rise, slope } => {
             if slope {
@@ -2107,7 +2129,10 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
             crate::watersettle::water_settle(&version, &file, &cells, ticks)
         }
         MobaiCmd::GolemTtl { version, restart_after, runs, ticks, boundary } => crate::golemttl::golem_ttl(&version, restart_after, runs, ticks, boundary),
-        MobaiCmd::LoadCount { version, cases, run_ms } => crate::loadcount::load_count(&version, cases, run_ms),
+        MobaiCmd::LoadCount { version, cases, run_ms, scene } => match scene {
+            Some(s) => crate::loadcount::load_count_farm(&version, &s, cases, run_ms),
+            None => crate::loadcount::load_count(&version, cases, run_ms),
+        },
         MobaiCmd::PanicTicks { version, villagers, ticks, restart_at } => crate::panicticks::panic_ticks(&version, villagers, ticks, restart_at),
         MobaiCmd::GossipRow { version, layout, day_time, ticks, restart_after } => crate::gossiprow::gossip_row(&version, &layout, day_time, ticks, restart_after),
         MobaiCmd::SbendBoundary { version, module, lanes, napper, leader_v, offsets, ticks, leader_first, napper_roll } => {

@@ -285,19 +285,52 @@ pub fn shift_scene(scene: &Path, drive: &Path, by: [i32; 3], scene_out: &Path, d
     let mut d = mctas::design::Design::load(scene)?;
     let sh = |p: &[i32; 3]| [p[0] + by[0], p[1] + by[1], p[2] + by[2]];
     d.blocks = d.blocks.iter().map(|(p, s)| (sh(p), s.clone())).collect();
+    // (ironspec 13:43 (b)) coordinates inside block-entity data can't be translated: refused by cell
+    let be_bad: Vec<String> = d.block_entities.iter().filter(|(_, s)| s.contains("[I;") || s.contains("Command")).map(|(p, _)| format!("({},{},{})", p[0], p[1], p[2])).collect();
+    anyhow::ensure!(be_bad.is_empty(), "shift-scene refuses: block entities at {be_bad:?} carry data with coordinates it doesn't translate");
     d.block_entities = d.block_entities.iter().map(|(p, s)| (sh(p), s.clone())).collect();
     for p in d.ports.values_mut() {
         *p = sh(p);
     }
-    for e in d.entities.iter_mut() {
+    // (ironspec 13:43 (b)) an entity's NBT positions: each `pos:[I;x,y,z]` (a brain memory's GlobalPos,
+    // e.g. HOME) is translated; any other int array is refused by name
+    let mut nbt_moved = 0usize;
+    for (ei, e) in d.entities.iter_mut().enumerate() {
         for (i, v) in e.pos.iter_mut().enumerate() {
             *v += by[i] as f64;
         }
+        if let Some(n) = e.nbt.as_mut() {
+            let mut out = String::new();
+            let mut rest = n.as_str();
+            while let Some(i) = rest.find("pos:[I;") {
+                out.push_str(&rest[..i + 7]);
+                let after = &rest[i + 7..];
+                let end = after.find(']').ok_or_else(|| anyhow::anyhow!("shift-scene: entity {ei}: an unclosed pos:[I; array"))?;
+                let v: Vec<i32> = after[..end].split(',').map(|s| s.trim().parse::<i32>()).collect::<std::result::Result<_, _>>()?;
+                anyhow::ensure!(v.len() == 3, "shift-scene: entity {ei}: pos:[I;…] with {} values", v.len());
+                out.push_str(&format!("{},{},{}", v[0] + by[0], v[1] + by[1], v[2] + by[2]));
+                nbt_moved += 1;
+                rest = &after[end..];
+            }
+            out.push_str(rest);
+            let stray = out.matches("[I;").count() - out.matches("pos:[I;").count();
+            anyhow::ensure!(stray == 0, "shift-scene refuses: entity {ei} ({}) carries {stray} int array(s) other than pos:[I;…] it doesn't translate", e.kind);
+            *n = out;
+        }
     }
+    // the Nether part (the bench's placeholder) moves with the rest, keeping its own layout
+    d.nether_blocks = d.nether_blocks.iter().map(|(p, s)| (sh(p), s.clone())).collect();
+    d.nether_block_entities = d.nether_block_entities.iter().map(|(p, s)| (sh(p), s.clone())).collect();
+    for p in d.nether_ports.values_mut() {
+        *p = sh(p);
+    }
+    // the record's metadata is written as it was: name the keys whose values carry coordinates
+    let triplet = |s: &str| s.split(|c: char| !(c.is_ascii_digit() || c == '-' || c == ',')).any(|w| w.split(',').filter(|x| !x.is_empty()).count() == 3 && w.split(',').all(|x| x.parse::<i32>().is_ok()));
+    let meta_kept: Vec<String> = d.meta.iter().filter(|(_, v)| triplet(v)).map(|(k, _)| k.clone()).collect();
     d.save(scene_out)?;
     let text = std::fs::read_to_string(drive)?;
     let (mut out, mut moved, mut dropped) = (String::new(), 0usize, 0usize);
-    for l in text.lines() {
+    for (li, l) in text.lines().enumerate() {
         if l.starts_with("# expect") {
             dropped += 1;
             continue;
@@ -305,7 +338,12 @@ pub fn shift_scene(scene: &Path, drive: &Path, by: [i32; 3], scene_out: &Path, d
         let w: Vec<&str> = l.split_whitespace().collect();
         let shifted = match w.as_slice() {
             ["act", t, "home", who, x, y, z, rest @ ..] => Some(format!("act {t} home {who} {} {} {}{}", x.parse::<i32>()? + by[0], y.parse::<i32>()? + by[1], z.parse::<i32>()? + by[2], rest.iter().map(|r| format!(" {r}")).collect::<String>())),
+            ["act", _, "set", _, _, _, rest @ ..] if rest.iter().any(|r| r.contains('{')) => {
+                anyhow::bail!("shift-scene refuses: drive line {}: a set act with block-entity data ({}), whose coordinates it doesn't translate", li + 1, l.trim())
+            }
             ["act", t, "set", x, y, z, rest @ ..] => Some(format!("act {t} set {} {} {}{}", x.parse::<i32>()? + by[0], y.parse::<i32>()? + by[1], z.parse::<i32>()? + by[2], rest.iter().map(|r| format!(" {r}")).collect::<String>())),
+            ["act", _, "last-slept", ..] => None,
+            ["act", _, verb, ..] => anyhow::bail!("shift-scene refuses: drive line {}: an act verb `{verb}` it doesn't translate", li + 1),
             _ => None,
         };
         match shifted {
@@ -327,6 +365,12 @@ pub fn shift_scene(scene: &Path, drive: &Path, by: [i32; 3], scene_out: &Path, d
         crate::md5::md5_hex(&std::fs::read(scene_out)?),
         drive_out.display(),
         crate::md5::md5_hex(&std::fs::read(drive_out)?)
+    );
+    println!(
+        "  entity NBT positions (pos:[I;…]) moved {nbt_moved}; the Nether part moved with it ({} blocks, {} ports); the record's metadata written as it was: keys carrying coordinates NOT translated: {}",
+        d.nether_blocks.len(),
+        d.nether_ports.len(),
+        if meta_kept.is_empty() { "none".to_string() } else { meta_kept.join(", ") }
     );
     Ok(())
 }
@@ -929,7 +973,7 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
     let mut probe_last: Vec<Option<bool>> = vec![None; probes.len()];
     let mut probe_yes: Vec<u32> = vec![0; probes.len()];
     let mut probe_rows: Vec<String> = Vec::new();
-    let block_asserts: Vec<([i32; 3], String)> = match std::env::var("MCTAS_REPLAY_ASSERT") {
+    let mut block_asserts: Vec<([i32; 3], String)> = match std::env::var("MCTAS_REPLAY_ASSERT") {
         Ok(s) => s
             .split(';')
             .filter(|e| !e.trim().is_empty())
@@ -940,6 +984,17 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
             .collect::<Result<_>>()?,
         Err(_) => Vec::new(),
     };
+    // (ironspec 13:43 (a)) the record's HELD Ts (`held-ts: x,y,z=SHAPE[ (note)]; …`): a T held in one shape
+    // must sit in THAT shape at t0 and after the last tick (the switched-T check accepts any legal shape)
+    if let Some(v) = d.meta.get("held-ts") {
+        for entry in v.split(';').filter(|e| !e.trim().is_empty()) {
+            let (c, rest) = entry.trim().split_once('=').ok_or_else(|| anyhow::anyhow!("held-ts: x,y,z=SHAPE, got {entry}"))?;
+            let shape = rest.split_whitespace().next().unwrap_or("");
+            anyhow::ensure!(!shape.is_empty() && shape.chars().all(|ch| ch.is_ascii_lowercase() || ch == '_'), "held-ts: {entry}: no shape");
+            block_asserts.push((cell3(c)?, format!("minecraft:rail[shape={shape}]")));
+        }
+        println!("  the record's held Ts: {} (each asserted at its held shape at t0 and after the last tick)", v.trim());
+    }
     let mut unread: Vec<String> = Vec::new();
     let mut day_base: i64 = day_start;
     // MCTAS_REPLAY_NAMES="7=28,8-11=7-10,12-28=11-27": scene index -> the drive's eN, where the drive
@@ -970,7 +1025,16 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
         for (k, (c, st, a, b)) in swaps.iter().enumerate() {
             let cmd_at = |s: &str| format!("setblock {} {} {} {s}", c[0], c[1] + DY, c[2]);
             if t == *a {
-                swap_old[k] = Some(if reloaded { "(not read after a world open)".to_string() } else { cell_state(&mut srv, *c)? });
+                // (G1 on T) after a world open the old state can't be read (the fresh server's snapshot
+                // markers), so the restore could never complete: refuse the swap at its start, by name
+                anyhow::ensure!(
+                    !reloaded,
+                    "MCTAS_REPLAY_SWAP ({},{},{}) starts at t{t}, after a world open: its old state can't be read there, so its restore could never run; start it before the open",
+                    c[0],
+                    c[1],
+                    c[2]
+                );
+                swap_old[k] = Some(cell_state(&mut srv, *c)?);
                 let out = srv.cmd(&cmd_at(st))?;
                 anyhow::ensure!(out.contains("Changed the block"), "MCTAS_REPLAY_SWAP at t{t}: {}", out.trim());
                 events.push(format!("t{t}: SWAP ({},{},{}) {} -> {st}", c[0], c[1], c[2], swap_old[k].clone().unwrap_or_default()));
