@@ -1130,6 +1130,11 @@ pub struct Row {
     pub post_contact_speed: Option<f64>,
     /// The first tick the cart is in the exit booster's cell ((A) --exit-south: (-1,0,6)).
     pub booster_at: Option<i64>,
+    /// (ironspec 09:04) After the wake: the first tick NEAREST_HOSTILE is empty, the first tick
+    /// out of PANIC, and the cart's first tick in (-2,0,5) after the pickup.
+    pub mem_empty_at: Option<i64>,
+    pub panic_end_at: Option<i64>,
+    pub cell25_at: Option<i64>,
     /// (a skip row) The skip's tick, the cells the napper waited in awake before its next nap, the
     /// day time of that nap, its CANT_REACH stamp's age at the first REST tick after the skip (None
     /// inside: no stamp), and its LAST_SLEPT (game time) at the end.
@@ -2394,6 +2399,10 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
         if c.block_position() == BlockPos::new(-1, 0, 6) && row.booster_at.is_none() {
             row.booster_at = Some(t);
         }
+        // (ironspec 09:04: the cart's first entry into (-2,0,5) after the pickup)
+        if row.pickup.is_some() && c.block_position() == BlockPos::new(-2, 0, 5) && row.cell25_at.is_none() {
+            row.cell25_at = Some(t);
+        }
         // (ironspec 21:25: the cart's contacts with blocks, per tick; a vertical one counts only off
         // a rail (on a rail the cart rides its own track))
         {
@@ -2619,6 +2628,14 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                 if ak != waker_act_last {
                     row.waker_lines.push(format!("t {t}: activity {}, NEAREST_HOSTILE {}", bb.activity.name(), if bb.nearest_hostile.is_some() { "remembered" } else { "empty" }));
                     waker_act_last = ak;
+                }
+                // (ironspec 09:04: per wake, the tick NEAREST_HOSTILE empties and the tick PANIC is
+                // over, against the cart's first entry into (-2,0,5) (~5.9 from Z1))
+                if bb.nearest_hostile.is_none() && row.mem_empty_at.is_none() {
+                    row.mem_empty_at = Some(t);
+                }
+                if bb.activity != redsim::entity::mob::villager::Activity::Panic && row.panic_end_at.is_none() {
+                    row.panic_end_at = Some(t);
                 }
                 let m = &redsim::entity::mob::ai::brain::ex(w, vi).mem;
                 let wt = m.walk_target.as_ref().map(|x| format!("{:?}", x.target));
@@ -3732,6 +3749,8 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
     // those not cleared by the visit's watch end (the pickup + 40))
     let (mut waker_wakes, mut waker_stamps, mut waker_uncleared) = (0usize, 0usize, 0usize);
     let (mut waker_flee, mut waker_memory, mut waker_dmin, mut waker_seen_dmin) = (0usize, 0usize, f64::MAX, f64::MAX);
+    let mut hold_needed = i64::MIN;
+    let mut window_rows: Vec<String> = Vec::new();
     let mut post_contact_min: std::collections::BTreeMap<String, f64> = std::collections::BTreeMap::new();
     let (mut picked_up, mut missed_booster) = (0usize, 0usize);
     // ((A) --exit-south: its exit booster at (-1,0,6); every picked-up cart must reach it)
@@ -3785,6 +3804,12 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
                                 waker_uncleared += (r.waker_stamp.is_some() && r.waker_cleared.is_none()) as usize;
                                 waker_flee += r.waker_flee_ticks;
                                 waker_memory += r.waker_memory_ticks;
+                                // (ironspec 09:04: the hold needed so the cart enters (-2,0,5) only
+                                // after the memory is empty: max over wakes of (empty - entry + 1))
+                                if let (Some(e), Some(c)) = (r.mem_empty_at.max(r.panic_end_at), r.cell25_at) {
+                                    hold_needed = hold_needed.max(e - c + 1);
+                                    window_rows.push(format!("seed {seed} speed {v}: wake {:?}, close {:?}, release {:?}, boarding {:?}, first in (-2,0,5) {c}, NEAREST_HOSTILE empty {:?}, PANIC over {:?}, R {:?}", r.woke_at, r.woke_at.map(|w| w + 1), r.release_at, r.pickup.map(|p| p.1), r.mem_empty_at, r.panic_end_at, r.r_at));
+                                }
                                 if let Some(d) = r.waker_dist_min {
                                     waker_dmin = waker_dmin.min(d);
                                 }
@@ -4275,6 +4300,12 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
     println!("the waker's consequence (ironspec 06:40 (2); the per-visit `waker` lines with one row): {waker_wakes} wakes judged{}; a CANT_REACH stamp present after the wake in {waker_stamps}; not cleared by the pickup + 40 gt in {waker_uncleared} (the at-entry bar judges a stamp the napper rides on with)", if waker_wakes == 0 { " (NOT JUDGED)" } else { "" });
     if waker_wakes > 0 {
         println!("the waker's distance (G1 / ironspec 07:47; the napper's feet to the waker zombie's, from the wake to the pickup + 40 gt): least {}, least with eye-to-eye sight {}; ticks under 6 with sight (flee triggers, bar 0): {waker_flee}; ticks under 6 with NEAREST_HOSTILE remembered (bar 0): {waker_memory}", if waker_dmin == f64::MAX { "-".to_string() } else { format!("{waker_dmin:.2}") }, if waker_seen_dmin == f64::MAX { "never in sight".to_string() } else { format!("{waker_seen_dmin:.2}") });
+        for l in &window_rows {
+            println!("  window {l}");
+        }
+        if hold_needed > i64::MIN {
+            println!("the panic window against the cart (ironspec 09:04): the extra hold needed so the cart enters (-2,0,5) only after NEAREST_HOSTILE is empty AND PANIC is over, on every wake: {} gt (0 = already after)", hold_needed.max(0));
+        }
     }
     if exit_booster {
         println!("the declared contact (ironspec 07:03 (3)): the least speed right after it, per entry speed {post_contact_min:?}; picked-up carts {picked_up}, of them never at the exit booster (-1,0,6): {missed_booster}");
