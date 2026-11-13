@@ -273,7 +273,7 @@ fn closest_rods(rods: &[BlockPos], center: BlockPos) -> Vec<BlockPos> {
 /// entities in the order they entered it).
 pub fn entity_candidates(w: &World, center: BlockPos) -> Vec<usize> {
     let search = search_box(w, center);
-    w.get_entities(search, |e| living_alive(e) && can_see_sky(w, e.block_position()).unwrap_or(false))
+    w.get_entities(search, |e| living_alive(e) && w.sees_or(can_see_sky(w, e.block_position()), false))
 }
 
 /// The column box `findLightningTargetAround` searches: `encapsulatingFullBlocks(center,
@@ -305,7 +305,7 @@ pub fn targets(w: &World, center: BlockPos) -> Vec<(BlockPos, Target)> {
     for (k, p) in w.mob.ai.players.iter().enumerate() {
         let bb = crate::entity::make_bounding_box(p.pos, crate::entity::mob::ai::target::PLAYER_WIDTH, crate::entity::mob::ai::target::PLAYER_HEIGHT);
         let at = BlockPos::new(p.pos.x.floor() as i32, p.pos.y.floor() as i32, p.pos.z.floor() as i32);
-        if bb.intersects(search) && can_see_sky(w, at).unwrap_or(false) {
+        if bb.intersects(search) && w.sees_or(can_see_sky(w, at), false) {
             let section = [at.x >> 4, at.y >> 4, at.z >> 4];
             keyed.push((crate::entity::section_order(section), k as u64, at, Target::Entity(crate::entity::mob::ai::PLAYER_ID_BASE + k as u32)));
         }
@@ -739,7 +739,7 @@ fn spawn_fire(w: &mut World, k: usize, additional: i32) {
 /// Rain reaches block `p` (`isRainingAt` while it rains: no motion-blocking block above, sky
 /// light 15, plains).
 fn rain_reaches(w: &World, p: BlockPos) -> bool {
-    motion_blocking_height(w, p.x, p.z) <= p.y && can_see_sky(w, p).unwrap_or(false)
+    motion_blocking_height(w, p.x, p.z) <= p.y && w.sees_or(can_see_sky(w, p), false)
 }
 
 /// [`rain_reaches`] where the sky must be decided (the card's measure): an undecidable sky is an
@@ -801,7 +801,7 @@ pub fn static_check(w: &World, golem_cells: &[BlockPos], drop_cells: &[BlockPos]
             }
             _ => continue,
         };
-        if can_see_sky(w, e.block_position()).unwrap_or(false) {
+        if w.sees_or(can_see_sky(w, e.block_position()), false) {
             statics.push((e.block_position(), e.bb, what.to_string()));
         }
     }
@@ -810,7 +810,7 @@ pub fn static_check(w: &World, golem_cells: &[BlockPos], drop_cells: &[BlockPos]
     }
     let golems: Vec<(BlockPos, Aabb)> = golem_cells
         .iter()
-        .filter(|c| can_see_sky(w, **c).unwrap_or(false))
+        .filter(|c| w.sees_or(can_see_sky(w, **c), false))
         .map(|c| (*c, Aabb::new(c.x as f64 + 0.5 - 0.7, c.y as f64, c.z as f64 + 0.5 - 0.7, c.x as f64 + 0.5 + 0.7, c.y as f64 + 2.7, c.z as f64 + 0.5 + 0.7)))
         .collect();
     let mut bolts: Vec<(BlockPos, String, bool)> = Vec::new();
@@ -976,7 +976,7 @@ impl<'a> FireReach<'a> {
         if let Some(r) = self.rained.borrow().get(&p) {
             return *r;
         }
-        let r = motion_blocking_height(self.w, p.x, p.z) <= p.y && can_see_sky(self.w, p).unwrap_or(false);
+        let r = motion_blocking_height(self.w, p.x, p.z) <= p.y && self.w.sees_or(can_see_sky(self.w, p), false);
         self.rained.borrow_mut().insert(p, r);
         r
     }

@@ -2825,8 +2825,9 @@ fn write_design(o: &ReturnOpts, spec: &FarmSpec, w: &redsim::world::World, path:
                 } else {
                     format!("({},{},{})", p.x, p.y, p.z)
                 };
-                let sky = redsim::daylight::sky_light(w, *p).unwrap_or(-1);
-                let blk = redsim::daylight::block_light_cached(w, *p, 1).unwrap_or(-1);
+                // (a failed light read refuses the design write, never a printed -1: cc767b78's light series)
+                let sky = redsim::daylight::sky_light(w, *p).map_err(|e| format!("return-bench: the sky light at {},{},{} unreadable: {e}", p.x, p.y, p.z))?;
+                let blk = redsim::daylight::block_light_cached(w, *p, 1).map_err(|e| format!("return-bench: the block light at {},{},{} unreadable: {e}", p.x, p.y, p.z))?;
                 let e = groups.entry(key).or_insert((i32::MAX, i32::MIN, i32::MAX, i32::MIN, 0));
                 *e = (e.0.min(sky), e.1.max(sky), e.2.min(blk), e.3.max(blk), e.4 + 1);
             }

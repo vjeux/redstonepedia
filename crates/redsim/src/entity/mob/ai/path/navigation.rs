@@ -449,12 +449,12 @@ impl Navigation {
         }
         if self.avoid_sun {
             let here = BlockPos::new(mth::floor(m.pos.x), mth::floor(m.pos.y + 0.5), mth::floor(m.pos.z));
-            if w.can_see_sky(here).unwrap_or(false) {
+            if w.sees_or(w.can_see_sky(here), false) {
                 return;
             }
             let p = self.path.as_mut().expect("checked");
             for i in 0..p.node_count() {
-                if w.can_see_sky(p.nodes[i].pos()).unwrap_or(false) {
+                if w.sees_or(w.can_see_sky(p.nodes[i].pos()), false) {
                     p.truncate_nodes(i);
                     return;
                 }

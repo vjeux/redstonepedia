@@ -380,10 +380,11 @@ fn dug_in_afk(w: &mut World, afk: Vec3, bed: Option<BlockPos>, farm: (BlockPos, 
     Ok((Vec3::new(c.x as f64 + 0.5, feet.y as f64, c.z as f64 + 0.5), cost))
 }
 
-/// The block light at `p`: the terrain world's light engine, else the mob layer's light sources
-/// (a void bench).
-fn block_light_at(w: &World, p: BlockPos) -> i32 {
-    w.block_light(p).or_else(|_| redsim::daylight::block_light_cached(w, p, 15)).unwrap_or(0)
+/// The block light at `p`: the terrain world's light engine, or a land-less world's block light from
+/// the block table's sources (cc767b78, ironspec 12:54: `World::block_light` models both; an
+/// unreadable light is an error, never a silent 0).
+fn block_light_at(w: &World, p: BlockPos) -> Result<i32, String> {
+    w.block_light(p)
 }
 
 /// The block spawners with the AFK player at `at` within their player range (`BaseSpawner`:
@@ -568,9 +569,14 @@ fn site_lines(p: &Placed) -> Vec<(bool, String)> {
         let feet = cell_of(p.afk);
         let here = p.w.get(feet);
         let lamp = matches!(here, Block::Torch { .. } | Block::WallTorch { .. }) || name_of(&here).contains("torch") || name_of(&here).contains("lantern");
-        let light = if lamp { 14 } else { block_light_at(&p.w, feet) };
-        let dark = light == 0 && redsim::behavior::full_cube(&p.w.get(feet.below()));
-        lines.push((!dark, if dark { format!("AFK cell: dark (block light 0) on a solid floor at {}: a zombie, skeleton, creeper or witch spawns in it while the player is 24 to 128 blocks away", at(feet)) } else { format!("AFK cell: no monster spawns in it (block light {light} at {})", at(feet)) }));
+        let light = if lamp { Ok(14) } else { block_light_at(&p.w, feet) };
+        match light {
+            Ok(light) => {
+                let dark = light == 0 && redsim::behavior::full_cube(&p.w.get(feet.below()));
+                lines.push((!dark, if dark { format!("AFK cell: dark (block light 0) on a solid floor at {}: a zombie, skeleton, creeper or witch spawns in it while the player is 24 to 128 blocks away", at(feet)) } else { format!("AFK cell: no monster spawns in it (block light {light} at {})", at(feet)) }));
+            }
+            Err(e) => lines.push((false, format!("AFK cell: its block light at {} is unreadable ({e})", at(feet)))),
+        }
     }
     // the off-pad golem spots on natural ground (ironspec 2026-11-11: every eligible rider tries a
     // summon every 100 gt, searching 8 sideways and 6 up or down; the column is narrower than that
@@ -1486,7 +1492,22 @@ pub fn lightning(p: &Placed) -> Verdict {
         .chain(p.golem_cells.iter().map(|g| ("a golem cell".to_string(), *g)))
         .chain(std::iter::once(("the AFK player".to_string(), cell_of(p.afk))))
         .collect();
-    let sky: Vec<String> = living.iter().filter(|(_, q)| redsim::weather::can_see_sky(&p.w, *q).unwrap_or(true)).map(|(w, q)| format!("{w} at {}", at(*q))).collect();
+    // (an unreadable sky: listed as seeing it, and a failing line names it: cc767b78, ironspec 12:54)
+    let mut unreadable: Vec<String> = Vec::new();
+    let sky: Vec<String> = living
+        .iter()
+        .filter(|(_, q)| match redsim::weather::can_see_sky(&p.w, *q) {
+            Ok(s) => s,
+            Err(e) => {
+                unreadable.push(format!("{} ({e})", at(*q)));
+                true
+            }
+        })
+        .map(|(w, q)| format!("{w} at {}", at(*q)))
+        .collect();
+    if !unreadable.is_empty() {
+        lines.push((false, format!("sky view: unreadable at {}", unreadable.join(", "))));
+    }
     lines.push((sky.is_empty(), if sky.is_empty() { format!("sky view: no ({} farm living entities' blocks, golem cells and the AFK player's feet, none sees the sky)", living.len()) } else { format!("sky view: yes, {} ({})", sky.len(), sky.iter().take(4).cloned().collect::<Vec<_>>().join("; ")) }));
     // (iii) fire: every surface strike over the farm (its columns and 8 around), its fires
     let flammable: Vec<BlockPos> = p.farm_blocks.iter().copied().filter(|q| redsim::weather::lightning::flammable(&p.w.get(*q)).is_some()).collect();
@@ -1669,7 +1690,23 @@ pub fn zombies_stay(p: &Placed) -> Verdict {
     if p.zombies.is_empty() {
         return Verdict { lines: vec![(true, "zombies: none in the farm".to_string())] };
     }
-    let sky: Vec<String> = p.zombies.iter().filter(|z| redsim::weather::can_see_sky(&p.w, cell_of(z.eye())).unwrap_or(true)).map(|z| vat(z.eye())).collect();
+    // (an unreadable sky: listed as seeing it, and a failing line names it: cc767b78, ironspec 12:54)
+    let mut unreadable: Vec<String> = Vec::new();
+    let sky: Vec<String> = p
+        .zombies
+        .iter()
+        .filter(|z| match redsim::weather::can_see_sky(&p.w, cell_of(z.eye())) {
+            Ok(s) => s,
+            Err(e) => {
+                unreadable.push(format!("{} ({e})", vat(z.eye())));
+                true
+            }
+        })
+        .map(|z| vat(z.eye()))
+        .collect();
+    if !unreadable.is_empty() {
+        lines.push((false, format!("sky: unreadable at {}", unreadable.join(", "))));
+    }
     lines.push((sky.is_empty(), if sky.is_empty() { format!("sky: none of the {} zombies sees the sky from its eye cell", p.zombies.len()) } else { format!("sky: {} zombies see the sky from their eye cells (they burn in daylight): {}", sky.len(), sky.iter().take(4).cloned().collect::<Vec<_>>().join(" ")) }));
     let loose: Vec<String> = p.zombies.iter().filter(|z| !z.riding && !z.persistent).map(|z| vat(centre(&z.bb))).collect();
     lines.push((loose.is_empty(), if loose.is_empty() { format!("persistence: every zombie rides ({}) or is name-tagged or persistent ({}); the world never on Peaceful (the build guide)", p.zombies.iter().filter(|z| z.riding).count(), p.zombies.iter().filter(|z| !z.riding && z.persistent).count()) } else { format!("persistence: {} zombies neither ride nor carry a name tag (they despawn): {}", loose.len(), loose.iter().take(4).cloned().collect::<Vec<_>>().join(" ")) }));
@@ -1826,6 +1863,12 @@ pub fn natural_mobs_hits(p: &Placed, extra: &[(Body, BlockPos)]) -> (Verdict, Ve
     let fl = floods(p, extra);
     let cells = |name: &str| fl.iter().filter(|(b, _)| b.name == name).flat_map(|(b, c)| c.iter().map(move |x| (*b, x.0, x.1))).collect::<Vec<_>>();
     let mut lines = Vec::new();
+    // (a light read the floods' spawn rules needed that failed: a failing line naming each, cc767b78,
+    // ironspec 12:54)
+    let light_errors = p.w.take_light_errors();
+    if !light_errors.is_empty() {
+        lines.push((false, format!("light: {} read(s) failed in the floods' spawn rules: {}", light_errors.len(), light_errors.join("; "))));
+    }
     let posts: Vec<Aabb> = p.zombies.iter().flat_map(|z| z.boxes()).collect();
     // (golems and the AFK player are targets too: a trap's skeletons, and every skeleton and
     // zombie, attack iron golems and players; ironspec 2026-11-11)
@@ -2028,7 +2071,12 @@ pub fn natural_mobs_hits(p: &Placed, extra: &[(Body, BlockPos)]) -> (Verdict, Ve
     // the other spawners
     let sea = 63;
     let afk_cell = cell_of(p.afk);
-    let phantom = p.afk.y >= sea as f64 && redsim::weather::can_see_sky(&p.w, afk_cell).unwrap_or(true);
+    // (an unreadable sky at the AFK cell: a failing line naming it, cc767b78, ironspec 12:54)
+    let afk_sky = redsim::weather::can_see_sky(&p.w, afk_cell);
+    if let Err(e) = &afk_sky {
+        lines.push((false, format!("phantoms: the AFK cell {}'s sky is unreadable ({e})", at(afk_cell))));
+    }
+    let phantom = p.afk.y >= sea as f64 && afk_sky.unwrap_or(true);
     lines.push((!phantom, if phantom { format!("phantoms: the AFK cell {} sees the sky at y >= {sea}", at(afk_cell)) } else { format!("phantoms: none (the AFK cell {} {})", at(afk_cell), if p.afk.y < sea as f64 { "is below sea level" } else { "is under a roof" }) }));
     if let Some(bed) = p.shared_bed {
         let d = sec_dist(afk_cell, bed);
@@ -2185,8 +2233,14 @@ pub fn controls(p: &Placed) -> Vec<(u8, Control)> {
         let f = corner(&mut q);
         q.zombies.push(Zombie { bb: hostile::box_at(&hostile::ZOMBIE, f, f.y as f64), boat: None, riding: true, persistent: true, hands: None });
         let v = lightning(&q);
-        let bites = redsim::weather::can_see_sky(&q.w, f).unwrap_or(false) && v.failing("sky view").is_some();
-        out.push((1, Control { name: format!("a zombie at {} with sky view", at(f)), bites, why: v.failing("sky view").map(str::to_string).unwrap_or_else(|| "sky view: passes".to_string()) }));
+        // (an unreadable sky: the control can't bite, its error named: cc767b78, ironspec 12:54)
+        let sees = redsim::weather::can_see_sky(&q.w, f);
+        let bites = sees == Ok(true) && v.failing("sky view").is_some();
+        let why = match &sees {
+            Err(e) => format!("the sky at {} is unreadable ({e})", at(f)),
+            Ok(_) => v.failing("sky view").map(str::to_string).unwrap_or_else(|| "sky view: passes".to_string()),
+        };
+        out.push((1, Control { name: format!("a zombie at {} with sky view", at(f)), bites, why }));
     }
     {
         // (ironspec asked a wooden trapdoor; trapdoors do not burn in 26.3: `FireBlock.bootStrap`
@@ -2404,9 +2458,15 @@ pub fn controls(p: &Placed) -> Vec<(u8, Control)> {
             }
         }
         let (with_trap, with_stone) = (shaft(trapdoor), shaft(stone));
-        let sees = |q: &Placed| redsim::weather::can_see_sky(&q.w, cell_of(q.afk)).unwrap_or(false);
+        // (an unreadable sky: the control can't bite, its error named: cc767b78, ironspec 12:54)
+        let sees = |q: &Placed| redsim::weather::can_see_sky(&q.w, cell_of(q.afk));
         let lt = lightning(&with_trap).failing("sky view").map(str::to_string);
-        out.push((1, Control { name: format!("the AFK shaft at {} topped with an oak trapdoor (the same shaft capped with stone: the AFK player out of the sky)", at(cell_of(with_trap.afk))), bites: sees(&with_trap) && !sees(&with_stone) && lt.is_some(), why: lt.unwrap_or_else(|| "sky view: passes".to_string()) }));
+        let (st, ss) = (sees(&with_trap), sees(&with_stone));
+        let why = match (&st, &ss) {
+            (Err(e), _) | (_, Err(e)) => format!("the AFK cell's sky is unreadable ({e})"),
+            _ => lt.clone().unwrap_or_else(|| "sky view: passes".to_string()),
+        };
+        out.push((1, Control { name: format!("the AFK shaft at {} topped with an oak trapdoor (the same shaft capped with stone: the AFK player out of the sky)", at(cell_of(with_trap.afk))), bites: st == Ok(true) && ss == Ok(false) && lt.is_some(), why }));
         // (C.3, G1 2026-11-11: a strike cell lit by a torch is still a skeleton source, since the
         // floods seed every standable cell at any light: a floor 4 to 8 sideways of a villager,
         // outside the farm, the column's top, a torch beside it, in a skeleton's sight and range)
