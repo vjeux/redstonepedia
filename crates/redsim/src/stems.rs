@@ -25,8 +25,9 @@ use crate::world::{World, flags};
 
 // ------------------------------------------------------------------ the loot random sequences
 
-/// MD5 (RFC 1321), for `RandomSupport.seedFromHashOf` (Guava's `Hashing.md5()` of the id).
-fn md5(input: &[u8]) -> [u8; 16] {
+/// MD5 (RFC 1321), for `RandomSupport.seedFromHashOf` (Guava's `Hashing.md5()` of the id); public for the
+/// tools that name a file by its digest (mobfarm's drive-replay).
+pub fn md5(input: &[u8]) -> [u8; 16] {
     const S: [u32; 64] = [
         7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16,
         23, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21,
