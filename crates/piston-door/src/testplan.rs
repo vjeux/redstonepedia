@@ -18,7 +18,12 @@
 //! * a DESIGN (a door, clock, circuit or farm) picks THAT design's judge (`door verify
 //!   --extra-offsets 28`, `clock verify`, `circuit verify`, a gadget's `door drive`), plus its
 //!   study's checks when it is one of their calibration or selftest files;
-//! * docs, the site, the viewer and the videos pick nothing (publishing runs no tests).
+//! * a TOOL crate no calibration piece covers (the mob farm tools, the farm optimizer, the site's
+//!   and the viewer's code, the video and download code...) picks its own unit tests
+//!   (`unit:<crate>`: `cargo test --release -p <crate> --all-targets`, PASS only when at least
+//!   one test runs; then clippy where the toolchain has it, its errors failing), and a change under crates/ that still picks nothing fails (ironspec
+//!   2026-11-12: three crates/mobfarm commits landed on "0 pieces, nothing to run");
+//! * docs and web/ pick nothing (publishing runs no tests).
 //!
 //! The plan is printed with the files behind every piece, the pieces run in parallel sized from
 //! the machine (cores and free memory; MCTAS_MAX_WORKERS caps every pool, as everywhere), each
@@ -110,7 +115,8 @@ pub enum Pick {
     Sim(&'static [&'static str]),
     /// the simulator areas AND these studies (a crate that is both)
     SimAnd(&'static [&'static str], &'static [Group]),
-    /// nothing, and why
+    /// nothing from the calibration pieces, and why (a path under crates/ still picks its crate's
+    /// own unit tests: `unit_piece`)
     Nothing(&'static str),
 }
 
@@ -321,6 +327,27 @@ pub fn pick(path: &str) -> Option<Pick> {
     RULES.iter().find(|(p, _)| path.starts_with(p)).map(|(_, k)| *k)
 }
 
+/// The crate a path under crates/ belongs to (`crates/<name>/...`).
+pub fn crate_of(path: &str) -> Option<&str> {
+    path.strip_prefix("crates/")?.split('/').next().filter(|s| !s.is_empty())
+}
+
+/// Every crate a Nothing rule covers (some of its code picks no calibration piece), so its own
+/// unit tests are a piece: the workspace's crates/ directories (from the repository root, or the
+/// workspace this binary was built in) matched against RULES.
+pub fn unit_crates() -> Vec<String> {
+    let dir = if Path::new("crates").is_dir() { PathBuf::from("crates") } else { Path::new(env!("CARGO_MANIFEST_DIR")).join("..") };
+    let mut out: Vec<String> = std::fs::read_dir(&dir)
+        .map(|rd| rd.flatten().filter(|e| e.path().join("Cargo.toml").is_file()).map(|e| e.file_name().to_string_lossy().to_string()).collect())
+        .unwrap_or_default();
+    out.retain(|name| {
+        let base = format!("crates/{name}/");
+        RULES.iter().any(|(p, k)| matches!(k, Pick::Nothing(_)) && p.starts_with("crates/") && (p.starts_with(&base) || base.starts_with(p)))
+    });
+    out.sort();
+    out
+}
+
 /// The design files a check's commands read (its arguments under designs/): touching one picks
 /// the check.
 pub(crate) fn check_designs(c: &Check) -> Vec<String> {
@@ -510,6 +537,10 @@ pub fn plan(files: Option<&[String]>, groups: &[Group], designs: &[String], ever
     let rec_deps = recording_deps();
     let mut designs: Vec<String> = designs.to_vec();
     let mut lints: Vec<String> = Vec::new();
+    // the crates whose code changed with no calibration piece: their own unit tests
+    let mut units: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    // every crate's own tests too: `--all`, "git cannot say", or a path every piece goes through
+    let mut every_unit = everything || files.is_none();
     for f in files.unwrap_or(&[]) {
         if f.starts_with("designs/") {
             let line = pick_design_file(f, &mut p, &rec_deps, &mut designs, &mut lints);
@@ -521,6 +552,7 @@ pub fn plan(files: Option<&[String]>, groups: &[Group], designs: &[String], ever
             Some(Pick::Everything) => {
                 out.push(format!("  {f} -> everything (every piece goes through it)"));
                 p.everything(&format!("{f}: every piece goes through it"));
+                every_unit = true;
             }
             Some(Pick::Groups(gs)) => {
                 out.push(format!("  {f} -> the {} checks", names(gs)));
@@ -539,10 +571,19 @@ pub fn plan(files: Option<&[String]>, groups: &[Group], designs: &[String], ever
                     p.group(*g, &[], f);
                 }
             }
-            Some(Pick::Nothing(what)) => out.push(format!("  {f} -> nothing ({what})")),
+            Some(Pick::Nothing(what)) => match crate_of(f) {
+                // a crate's code that no calibration piece covers: the crate's own unit tests
+                // (ironspec 2026-11-12: a code change never picks nothing)
+                Some(k) => {
+                    out.push(format!("  {f} -> unit:{k} (no calibration pieces: {what}; the crate's own tests)"));
+                    units.entry(k.to_string()).or_default().push(f.clone());
+                }
+                None => out.push(format!("  {f} -> nothing ({what})")),
+            },
             None => {
                 out.push(format!("  {f} -> everything (no rule in testplan::RULES for it: add one)"));
                 p.everything(&format!("{f}: no rule, everything"));
+                every_unit = true;
             }
         }
     }
@@ -560,6 +601,18 @@ pub fn plan(files: Option<&[String]>, groups: &[Group], designs: &[String], ever
     for d in designs {
         if let Some(piece) = design_piece(&d) {
             pieces.push(piece);
+        }
+    }
+    for (k, fs) in &units {
+        pieces.push(unit_piece(k, fs));
+    }
+    // `--all`, "git cannot say" and a path every piece goes through run every crate's own tests
+    // too: a full suite never runs less than a targeted run (ironspec 2026-11-12 18:27)
+    if every_unit {
+        for k in unit_crates() {
+            if !units.contains_key(&k) {
+                pieces.push(unit_piece(&k, &[]));
+            }
         }
     }
     if stair_lint && !lints.is_empty() {
@@ -592,6 +645,130 @@ fn stair_lint_piece(files: &[String]) -> Piece {
     });
     let check = Check { name: "lint:stair-lint".into(), what: "the capped-climb check on the changed wired layouts (a read net cut from its driver by a capped climb)", quick: true, jvm: false, steps: vec![argv], timeout: 600, pred };
     Piece { check, group: "lint".into(), workers: 0, cpu: 1, cost: 5, why: files.iter().map(|f| format!("{f}: a changed wired layout")).collect() }
+}
+
+/// A crate's own unit tests as one piece (`unit:<crate>`): `cargo test --release -p <crate>
+/// --all-targets` (no doc tests: they need rustdoc on PATH, as `sim:redsim-tests`). Three
+/// outcomes: no "test result:" line is a build failure (FAIL, with its first `error[` line and the
+/// compile tail); a result not ok, or cargo's "error: test failed" line (a test binary that crashed
+/// or was killed, even after earlier binaries passed), FAILS; every result ok passes, a crate with
+/// 0 tests saying "no unit tests in <crate>"
+/// (no code gate for our process: the parent's ruling, ironspec 2026-11-12 19:42 PT). Then clippy
+/// where the toolchain has it, scoped to the change ([`clippy_verdict`]).
+fn unit_piece(krate: &str, files: &[String]) -> Piece {
+    if WASM_ONLY.contains(&krate) {
+        return wasm_piece(krate, files);
+    }
+    // `?`: the step's exit is read by the verdict below (a build failure prints its tail)
+    let argv: Vec<String> = ["?@cargo", "test", "--release", "-p", krate, "--all-targets"].iter().map(|s| s.to_string()).collect();
+    let lint: Vec<String> = ["?@cargo", "clippy", "--release", "-p", krate, "--all-targets"].iter().map(|s| s.to_string()).collect();
+    let name = krate.to_string();
+    let changed: Vec<String> = files.to_vec();
+    let pred: crate::selftest::Pred = Box::new(move |o: &[String]| {
+        let out = &o[0];
+        let results: Vec<&str> = out.lines().filter(|l| l.starts_with("test result: ")).collect();
+        if let Some(bad) = results.iter().find(|l| !l.starts_with("test result: ok.")) {
+            return Err(bad.to_string());
+        }
+        // a test binary that crashed or was killed (SIGKILL on a loaded box, a segfault, a stack
+        // overflow) prints no result line of its own and cargo stops there: cargo's own line
+        // decides, never the earlier binaries' "ok." (G1 on 1e66e5edc)
+        if let Some(failed) = out.lines().find(|l| l.starts_with("error: test failed")) {
+            let why = out.lines().find(|l| l.contains("process didn't exit successfully")).map(|l| format!(" ({})", l.trim())).unwrap_or_default();
+            return Err(format!("crates/{name}: {failed}{why}"));
+        }
+        if results.is_empty() {
+            let first = out.lines().find(|l| l.starts_with("error[")).map(|l| format!("{l}; ")).unwrap_or_default();
+            return Err(format!("crates/{name} did not build: {first}{}", crate::selftest::tail(out)));
+        }
+        let passed: usize = results.iter().filter_map(|l| l.split_whitespace().nth(3).and_then(|n| n.parse::<usize>().ok())).sum();
+        let tests = if passed == 0 { format!("no unit tests in {name} (it builds; {} test binaries)", results.len()) } else { format!("{passed} {name} tests pass ({} test binaries)", results.len()) };
+        Ok(format!("{tests}; {}", clippy_verdict(o.get(1).map(|s| s.as_str()), &changed)?))
+    });
+    let check = Check { name: format!("unit:{krate}"), what: "the crate's own unit tests (`cargo test --release -p <crate> --all-targets`: a build failure or a failing test fails, a crate with no tests passes saying so) and clippy where the toolchain has it (a deny-level error fails only in the changed files)", quick: true, jvm: false, steps: vec![argv, lint], timeout: UNIT_TIMEOUT, pred };
+    let why = if files.is_empty() { vec!["--all: every crate's own tests".to_string()] } else { files.iter().map(|f| format!("{f}: its crate's own tests (no calibration piece covers it)")).collect() };
+    Piece { check, group: "unit".into(), workers: 0, cpu: 16, cost: 90, why }
+}
+
+/// clippy's verdict, scoped to the change (no repo-wide gate: ironspec 2026-11-12 19:42 PT): a
+/// deny-level error fails only when its `-->` location is a changed file; every other error, every
+/// warning, and every finding of a full run (no changed files) is counted and never fails. clippy
+/// absent from the toolchain is said.
+fn clippy_verdict(out: Option<&str>, changed: &[String]) -> Result<String, String> {
+    let Some(c) = out else { return Ok("clippy not run".to_string()) };
+    if c.contains("no such command") || c.contains("no such subcommand") || c.contains("is not installed") {
+        return Ok("clippy is not on this toolchain: not run".to_string());
+    }
+    let diags = clippy_diagnostics(c);
+    let touched = |p: &Option<String>| p.as_deref().is_some_and(|p| changed.iter().any(|f| f == p));
+    if let Some((_, p, head)) = diags.iter().find(|(err, p, _)| *err && touched(p)) {
+        return Err(format!("clippy: a deny-level error in a changed file ({}): {head}", p.as_deref().unwrap_or("?")));
+    }
+    let errors = diags.iter().filter(|d| d.0).count();
+    let warnings = diags.len() - errors;
+    let mine = diags.iter().filter(|(err, p, _)| !*err && touched(p)).count();
+    let crate_wide = format!("{errors} error(s) and {warnings} warning(s) in the crate, counted, not failing");
+    Ok(if changed.is_empty() { format!("clippy: {crate_wide}") } else { format!("clippy: {mine} warning(s) in the changed files; {crate_wide}") })
+}
+
+/// clippy's diagnostics as (deny-level, the file of its `-->` line, its first line): a multi-line
+/// diagnostic is attributed by its location line, not its header. The summary lines ("could not
+/// compile", "aborting due to", "generated N warnings") are not diagnostics.
+fn clippy_diagnostics(c: &str) -> Vec<(bool, Option<String>, String)> {
+    let lines: Vec<&str> = c.lines().collect();
+    let mut out = Vec::new();
+    for (i, l) in lines.iter().enumerate() {
+        let err = l.starts_with("error");
+        if !(err || l.starts_with("warning")) || l.contains("could not compile") || l.contains("aborting due to") || l.contains(" generated ") {
+            continue;
+        }
+        // the location: the first `-->` line before the next diagnostic
+        let path = lines[i + 1..].iter().take_while(|n| !n.starts_with("error") && !n.starts_with("warning")).find_map(|n| n.trim_start().strip_prefix("--> ")).map(|s| s.split(':').next().unwrap_or(s).to_string());
+        out.push((err, path, l.to_string()));
+    }
+    out
+}
+
+/// A unit piece's step timeout: the unit pieces share the target directory's build lock, so a
+/// full run builds their test binaries one after another and the last waits for the others
+/// (`--all` on 2026-11-12: unit:mobfarm finished 1,208 s after it started).
+const UNIT_TIMEOUT: u64 = 3600;
+
+/// Crates compiled only for wasm32, empty on native targets (no native test can run): their
+/// piece builds them for the browser as `mctas web bundle` does, where the toolchain has the
+/// wasm32 target.
+const WASM_ONLY: &[&str] = &["mcview-web"];
+
+/// A wasm-only crate's piece (`unit:<crate>`): `cargo build -p <crate> --profile web --target
+/// wasm32-unknown-unknown`. With no wasm32 target on the toolchain, a change to the crate fails
+/// (it must be built somewhere that can) and a full run says it was not built, as clippy's
+/// absence is said.
+fn wasm_piece(krate: &str, files: &[String]) -> Piece {
+    let argv: Vec<String> = ["?@cargo", "build", "-p", krate, "--profile", "web", "--target", "wasm32-unknown-unknown"].iter().map(|s| s.to_string()).collect();
+    let name = krate.to_string();
+    let changed = !files.is_empty();
+    let pred: crate::selftest::Pred = Box::new(move |o: &[String]| {
+        let out = &o[0];
+        let missing = out.contains("target may not be installed") || out.contains("can't find crate for `core`") || out.contains("can't find crate for `std`");
+        if missing {
+            return if changed {
+                Err(format!("a change to {name} must build for wasm32, and the wasm32-unknown-unknown target is not on this toolchain: run `mctas test` where it is"))
+            } else {
+                Ok(format!("{NOT_RUN}{name} not built: the wasm32-unknown-unknown target is not on this toolchain ({name} is wasm only; `mctas web bundle` builds it where it is)"))
+            };
+        }
+        if let Some(e) = out.lines().find(|l| l.starts_with("error")) {
+            return Err(e.to_string());
+        }
+        if out.lines().any(|l| l.trim_start().starts_with("Finished")) {
+            Ok(format!("{name} builds for wasm32 (its native build is empty)"))
+        } else {
+            Err(format!("cargo build of {name} for wasm32 did not finish: {}", crate::selftest::tail(out)))
+        }
+    });
+    let check = Check { name: format!("unit:{krate}"), what: "a wasm-only crate built for the browser (`cargo build -p <crate> --profile web --target wasm32-unknown-unknown`)", quick: true, jvm: false, steps: vec![argv], timeout: UNIT_TIMEOUT, pred };
+    let why = if files.is_empty() { vec!["--all: every crate's own check".to_string()] } else { files.iter().map(|f| format!("{f}: its crate builds for wasm32 (no native test can run)")).collect() };
+    Piece { check, group: "unit".into(), workers: 0, cpu: 16, cost: 90, why }
 }
 
 /// A design's own judge as a piece.
@@ -741,7 +918,7 @@ pub fn run(pieces: Vec<Piece>, o: &RunOpts, commit_line: &str) -> Result<()> {
                     },
                 };
                 let secs = tc.elapsed().as_secs_f64();
-                println!("{} {:<40} {:>6.1} s  [{:>5.0} s]  {}", if ok { "PASS" } else { "FAIL" }, p.check.name, secs, t0.elapsed().as_secs_f64(), msg);
+                println!("{} {:<40} {:>6.1} s  [{:>5.0} s]  {}", if !ok { "FAIL" } else if msg.starts_with(NOT_RUN) { "SKIP" } else { "PASS" }, p.check.name, secs, t0.elapsed().as_secs_f64(), msg);
                 if !ok && o.fail_fast {
                     stop.store(true, Ordering::Relaxed);
                 }
@@ -756,15 +933,41 @@ pub fn run(pieces: Vec<Piece>, o: &RunOpts, commit_line: &str) -> Result<()> {
     by_time.sort_by(|a, b| b.3.partial_cmp(&a.3).unwrap());
     let slow: Vec<String> = by_time.iter().take(5).map(|r| format!("{} {:.0} s", pieces[r.0].check.name, r.3)).collect();
     let total = t0.elapsed().as_secs_f64();
-    println!("mctas test: {} passed, {} failed{} in {total:.0} s; slowest: {}", res.len() - failed.len(), failed.len(), if skipped > 0 { format!(", {skipped} not run (--fail-fast)") } else { String::new() }, slow.join(", "));
+    let line = summary(&res.iter().map(|r| (pieces[r.0].check.name.as_str(), r.1, r.2.as_str())).collect::<Vec<_>>());
+    println!("mctas test: {line}{} in {total:.0} s; slowest: {}", if skipped > 0 { format!(", {skipped} not run (--fail-fast)") } else { String::new() }, slow.join(", "));
     if failed.is_empty() && skipped == 0 {
-        println!("{commit_line}: all PASS in {total:.0} s");
+        // a piece this box could not run is never folded into "passed" (ironspec 2026-11-12 20:35)
+        if line.contains("not run") || line.contains("clippy") {
+            println!("{commit_line}: {line} in {total:.0} s");
+        } else {
+            println!("{commit_line}: all PASS in {total:.0} s");
+        }
         if !o.keep {
             let _ = std::fs::remove_dir_all(&root);
         }
         return Ok(());
     }
     bail!("mctas test FAILED: {} (outputs in {})", failed.join(", "), root.display())
+}
+
+/// The verdict a piece gives when this box cannot run it (a wasm-only crate with no wasm32 target):
+/// the piece shows SKIP and the summary counts it apart, never as passed.
+pub const NOT_RUN: &str = "NOT RUN: ";
+
+/// The summary's counts over (name, ok, verdict): passed, failed, the pieces this box could not run
+/// (named, with their reason) and the unit pieces whose clippy was not on the toolchain.
+fn summary(res: &[(&str, bool, &str)]) -> String {
+    let failed = res.iter().filter(|r| !r.1).count();
+    let not_run: Vec<String> = res.iter().filter(|r| r.1 && r.2.starts_with(NOT_RUN)).map(|r| format!("{} ({})", r.0, r.2.trim_start_matches(NOT_RUN))).collect();
+    let no_clippy = res.iter().filter(|r| r.1 && r.2.contains("clippy is not on this toolchain")).count();
+    let mut s = format!("{} passed, {failed} failed", res.len() - failed - not_run.len());
+    if !not_run.is_empty() {
+        s += &format!(", {} not run on this box: {}", not_run.len(), not_run.join("; "));
+    }
+    if no_clippy > 0 {
+        s += &format!(", clippy not run in {no_clippy} unit piece(s) (not on this toolchain)");
+    }
+    s
 }
 
 /// A piece's JVM workers: what it can use, capped by MCTAS_MAX_WORKERS (every pool's cap) and
@@ -824,15 +1027,90 @@ mod tests {
     #[test]
     fn a_redsim_change_picks_no_judge_and_a_judge_change_no_live_simulator_test() {
         let mut out = Vec::new();
-        let p = plan(Some(&["crates/redsim/src/piston/moving.rs".to_string()]), &[], &[], false, &mut out);
+        let p = plan(Some(&["crates/redsim/src/piston/moving.rs".to_string()]), &[], &[], false, true, &mut out);
         assert!(!p.is_empty() && p.iter().all(|p| p.group.starts_with("sim")), "{:?}", p.iter().map(|p| &p.check.name).collect::<Vec<_>>());
         assert!(p.iter().any(|p| p.check.name.starts_with("sim:fuzz-pistons-")) && !p.iter().any(|p| p.check.name == "sim:fuzz-sculk"));
         // a study's code: its checks, and the recordings that replay through it (seconds), never a
         // live fuzzer
-        let p = plan(Some(&["crates/circuit/src/sorter.rs".to_string()]), &[], &[], false, &mut out);
+        let p = plan(Some(&["crates/circuit/src/sorter.rs".to_string()]), &[], &[], false, true, &mut out);
         assert!(p.iter().all(|p| !p.group.starts_with("sim") || p.group == "sim traces") && p.iter().any(|p| p.check.name == "circuit:sorter-judge"));
         assert!(!p.iter().any(|p| p.check.name.starts_with("judge:") || p.check.name.starts_with("clock:")));
-        let p = plan(Some(&["docs/tools.md".to_string(), "web/site/index.html".to_string(), "crates/site/src/lib.rs".to_string()]), &[], &[], false, &mut out);
+        // docs and web/: nothing; the site's code: its crate's own tests only
+        let p = plan(Some(&["docs/tools.md".to_string(), "web/site/index.html".to_string()]), &[], &[], false, true, &mut out);
         assert!(p.is_empty());
+        let p = plan(Some(&["crates/site/src/lib.rs".to_string()]), &[], &[], false, true, &mut out);
+        assert_eq!(p.iter().map(|p| p.name()).collect::<Vec<_>>(), ["unit:site"]);
+    }
+
+    #[test]
+    fn a_full_suite_runs_every_unit_piece() {
+        // ironspec 2026-11-12 18:27: `--all` never runs less than a targeted run
+        let units = unit_crates();
+        assert!(units.iter().any(|k| k == "mobfarm") && units.iter().any(|k| k == "farmopt-iron") && units.iter().any(|k| k == "mctas") && units.iter().any(|k| k == "circuit"), "{units:?}");
+        let mut out = Vec::new();
+        for p in [plan(Some(&[]), &[], &[], true, true, &mut out), plan(Some(&["crates/piston-door/src/testplan.rs".to_string()]), &[], &[], false, true, &mut out)] {
+            let names: Vec<&str> = p.iter().map(|p| p.name()).collect();
+            for k in &units {
+                assert!(names.contains(&format!("unit:{k}").as_str()), "unit:{k} missing from a full run");
+            }
+        }
+    }
+
+    #[test]
+    fn a_code_change_never_picks_nothing() {
+        let mut out = Vec::new();
+        // the mob farm tools: one piece for the crate, every touched file behind it
+        let p = plan(Some(&["crates/mobfarm/src/bedtier.rs".to_string(), "crates/mobfarm/src/cli.rs".to_string()]), &[], &[], false, true, &mut out);
+        assert_eq!(p.iter().map(|p| p.name()).collect::<Vec<_>>(), ["unit:mobfarm"], "{out:?}");
+        assert_eq!(p[0].why.len(), 2);
+        assert_eq!(p[0].check.steps[0].join(" "), "?@cargo test --release -p mobfarm --all-targets");
+        assert_eq!(p[0].check.steps[1].join(" "), "?@cargo clippy --release -p mobfarm --all-targets");
+        // a prefix rule ("crates/farmopt") and a study file inside a judge crate: each its own crate
+        let p = plan(Some(&["crates/farmopt-iron/src/lib.rs".to_string(), "crates/circuit/src/studies/mobfarm.rs".to_string()]), &[], &[], false, true, &mut out);
+        assert_eq!(p.iter().map(|p| p.name()).collect::<Vec<_>>(), ["unit:circuit", "unit:farmopt-iron"]);
+        // every rule under crates/ picks at least one piece
+        for (prefix, _) in RULES.iter().filter(|(p, _)| p.starts_with("crates/")) {
+            let probe = if prefix.ends_with(".rs") { prefix.to_string() } else if prefix.ends_with('/') { format!("{prefix}src/lib.rs") } else { format!("{prefix}/src/lib.rs") };
+            let p = plan(Some(&[probe.clone()]), &[], &[], false, true, &mut out);
+            assert!(!p.is_empty(), "{probe} (rule {prefix}) picks no piece");
+        }
+        // the unit piece's verdict, three outcomes: no "test result:" line is a build failure (its
+        // tail printed), any result not ok fails, every result ok passes, a crate with 0 tests
+        // saying so (no code gate: the parent's ruling, ironspec 19:42 PT)
+        let u = unit_piece("trends", &["crates/trends/src/lib.rs".to_string()]);
+        let pred = |a: &str, b: &str| (u.check.pred)(&[a.to_string(), b.to_string()]);
+        assert!(pred("   Compiling trends v0.1.0\nerror[E0425]: cannot find value `x` in this scope\nerror: could not compile `trends` (lib) due to 1 previous error", "").is_err_and(|e| e.contains("did not build") && e.contains("E0425")));
+        assert!(pred("test result: ok. 0 passed; 0 failed; 0 ignored", "").is_ok_and(|s| s.starts_with("no unit tests in trends (it builds; 1 test binaries)")));
+        assert!(pred("test result: ok. 3 passed; 0 failed\ntest result: FAILED. 1 passed; 1 failed", "").is_err());
+        // a binary killed after an earlier one passed: cargo's own failure line decides
+        let killed = "test result: ok. 3 passed; 0 failed; 0 ignored\nerror: test failed, to rerun pass `--test big`\n\nCaused by:\n  process didn't exit successfully: `/t/target/release/deps/big-0f1e` (signal: 9, SIGKILL: kill)";
+        assert!(pred(killed, "").is_err_and(|e| e.contains("SIGKILL")));
+        let ok = "test result: ok. 3 passed; 0 failed\ntest result: ok. 2 passed; 0 failed";
+        assert_eq!(pred(ok, "    Finished `release` profile"), Ok("5 trends tests pass (2 test binaries); clippy: 0 warning(s) in the changed files; 0 error(s) and 0 warning(s) in the crate, counted, not failing".to_string()));
+        assert_eq!(pred(ok, "warning: unused\n  --> crates/trends/src/lib.rs:3:5\nwarning: unused\n  --> crates/redsim/src/lib.rs:9:1"), Ok("5 trends tests pass (2 test binaries); clippy: 1 warning(s) in the changed files; 0 error(s) and 2 warning(s) in the crate, counted, not failing".to_string()));
+        // clippy, scoped to the change: a deny-level error located in a changed file fails, by its
+        // `-->` line (a multi-line diagnostic), not its header; one in an untouched file is counted
+        let in_changed = "error: this comparison involving the minimum or maximum element\n   |\n  --> crates/trends/src/lib.rs:3:5\n   |\n3  |     x < u32::MIN\n   = help: because `u32::MIN` is the minimum value";
+        assert!(pred(ok, in_changed).is_err_and(|e| e.contains("crates/trends/src/lib.rs")));
+        let elsewhere = "error: this comparison involving the minimum or maximum element\n  --> crates/trends/src/main.rs:9:1\nerror: could not compile `trends` (bin \"trends\") due to 1 previous error";
+        assert_eq!(pred(ok, elsewhere), Ok("5 trends tests pass (2 test binaries); clippy: 0 warning(s) in the changed files; 1 error(s) and 0 warning(s) in the crate, counted, not failing".to_string()));
+        // a full run (no changed files) never fails on clippy
+        let all = unit_piece("trends", &[]);
+        assert!((all.check.pred)(&[ok.to_string(), in_changed.to_string()]).is_ok_and(|s| s.ends_with("clippy: 1 error(s) and 0 warning(s) in the crate, counted, not failing")));
+        assert_eq!(pred(ok, "error: no such command: `clippy`"), Ok("5 trends tests pass (2 test binaries); clippy is not on this toolchain: not run".to_string()));
+        // a wasm-only crate: built for wasm32; with no wasm32 target a full run says it was not
+        // built and a change to it fails; any other error fails
+        let w = unit_piece("mcview-web", &[]);
+        assert_eq!(w.check.steps[0].join(" "), "?@cargo build -p mcview-web --profile web --target wasm32-unknown-unknown");
+        let missing = "error[E0463]: can't find crate for `core`\n  = note: the `wasm32-unknown-unknown` target may not be installed".to_string();
+        assert!((w.check.pred)(std::slice::from_ref(&missing)).is_ok_and(|s| s.starts_with(NOT_RUN) && s.contains("not built")));
+        let wc = unit_piece("mcview-web", &["crates/mcview-web/src/lib.rs".to_string()]);
+        assert!((wc.check.pred)(std::slice::from_ref(&missing)).is_err());
+        assert!((wc.check.pred)(&["    Finished `web` profile [optimized] target(s) in 40.2s".to_string()]).is_ok());
+        assert!((wc.check.pred)(&["error: could not compile `mcview-web` (lib) due to 1 previous error".to_string()]).is_err());
+        // the summary never folds a piece the box could not run into "passed" (ironspec 20:35)
+        let nr = format!("{NOT_RUN}mcview-web not built: no wasm32 target");
+        assert_eq!(summary(&[("unit:site", true, "103 site tests pass (1 test binaries); clippy is not on this toolchain: not run"), ("unit:mcview-web", true, &nr), ("sim:x", true, "ok")]), "2 passed, 0 failed, 1 not run on this box: unit:mcview-web (mcview-web not built: no wasm32 target), clippy not run in 1 unit piece(s) (not on this toolchain)");
+        assert_eq!(summary(&[("sim:x", true, "ok"), ("sim:y", false, "bad")]), "1 passed, 1 failed");
     }
 }

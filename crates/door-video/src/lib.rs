@@ -55,3 +55,21 @@ pub fn run(version: &str, cmd: DoorCmd) -> Result<()> {
         DoorCmd::World(a) => cmd::world::cmd_world(version, a),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use clap::{CommandFactory, Parser};
+
+    #[derive(Parser)]
+    struct Probe {
+        #[command(subcommand)]
+        cmd: super::DoorCmd,
+    }
+
+    /// The video commands' clap definitions hold together (a duplicate flag, a bad default or a
+    /// clashing name fails here, not at the first `door video` run; `mctas test`'s unit piece).
+    #[test]
+    fn the_cli_definition_is_valid() {
+        Probe::command().debug_assert();
+    }
+}

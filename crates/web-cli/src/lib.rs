@@ -3708,6 +3708,20 @@ fn clock_pair(text: &str, horizon: u32, probe: Option<&mut mcview::tools::WasmPr
 
 #[cfg(test)]
 mod tests {
+    /// The page attributes `web unsimulated` reads back: `tag_attr` finds an attribute only as a
+    /// whole name and undoes the quoting `html_escape` writes for quotes and ampersands (the one
+    /// test `mctas test`'s unit piece runs here; the judge-run test below is `--ignored`).
+    #[test]
+    fn tag_attr_reads_back_escaped_attributes() {
+        let v = "a \"quoted\" & 'single' value";
+        let tag = format!("<div class=\"mcview\" data-design=\"{}\" data-tick=\"40\">", super::html_escape(v));
+        assert_eq!(super::tag_attr(&tag, "data-design").as_deref(), Some(v));
+        assert_eq!(super::tag_attr(&tag, "data-tick").as_deref(), Some("40"));
+        assert_eq!(super::tag_attr(&tag, "tick"), None);
+        assert_eq!(super::tag_attr(&tag, "data-src"), None);
+        assert_eq!(super::html_escape("<a>"), "&lt;a&gt;");
+    }
+
     /// D1U's judge build 7 seed 1769114314 (`judge_seed(7, 4)`): the viewer's session is the
     /// judge's runner every tick over the 5 days (2026-11-09: both stopped at t103206 on natural
     /// water pouring past the sample's west edge, until b686373716; it had looked like a wasm
