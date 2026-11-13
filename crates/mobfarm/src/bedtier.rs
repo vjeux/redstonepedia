@@ -1079,7 +1079,9 @@ pub fn boost_probe(spec: &FarmSpec, speeds: &[f64]) -> Result<Vec<String>, Strin
                 break;
             }
         }
-        let ok = at_r.is_some();
+        // (carried: the next booster (-1,0,6) within 60 gt, so the probe judges the exit boost alone,
+        // with or without the slope hold downstream; a stalled cart creeps there after 200 gt or never)
+        let ok = at_booster.is_some_and(|tb| tb <= 60);
         if ok {
             least_ok = Some(least_ok.map_or(v, |m: f64| m.min(v)));
         } else {
@@ -4723,6 +4725,10 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
                                 sk.arm_to_lie.push(s - a);
                             }
                         }
+                        // (day-1 12:22: its TIMEOUT T_max is sized from ARM -> wake)
+                        if let (Some(a), Some(wk)) = (r.armed_at, r.woke_at) {
+                            sk.arm_to_wake.push(wk - a);
+                        }
                         if let Some(wk) = r.woke_at {
                             sk.wake_ticks.push(wk);
                         }
@@ -4770,7 +4776,7 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
                         }
                         // (day-1 10:49: one line per visit, the hold lead's data)
                         if base.visit_table {
-                            println!("visit\tseed {seed}\tentry {v}\twoke {:?}\trelease {:?}\tpickup {:?}\trest on the slope {:?}\tdeparted the slope {:?}\tR {:?}\twait on the slope {:?}", r.woke_at, r.release_at, r.pickup.map(|p| p.1), r.hold_rest_at, r.hold_depart_at, r.r_at, r.hold_rest_at.zip(r.hold_depart_at).map(|(a, d)| d - a));
+                            println!("visit\tseed {seed}\tentry {v}\tarmed {:?}\tslept {:?}\twoke {:?}\tARM->wake {:?}\tclose {:?}\trelease {:?}\tpickup {:?}\trest on the slope {:?}\tdeparted the slope {:?}\tR {:?}\twait on the slope {:?}", r.armed_at, r.slept_at, r.woke_at, r.armed_at.zip(r.woke_at).map(|(a, w)| w - a), r.close_at, r.release_at, r.pickup.map(|p| p.1), r.hold_rest_at, r.hold_depart_at, r.r_at, r.hold_rest_at.zip(r.hold_depart_at).map(|(a, d)| d - a));
                         }
                     }
                     Err(e) => {
@@ -4990,6 +4996,11 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
         if sk.arm_to_lie.iter().any(|&d| d < 0) {
             failed.push("a lie-down before the arming edge (day-1's SLEPT latch would miss it)".into());
         }
+    }
+    if !sk.arm_to_wake.is_empty() {
+        let mut v = sk.arm_to_wake.clone();
+        v.sort();
+        println!("the arming edge (ARM (-2,0,1)) to the wake (day-1 12:22: its TIMEOUT T_max is sized from it): {:?}..{:?} gt over {} visits (median {:?})", v.first(), v.last(), v.len(), v.get(v.len() / 2));
     }
     if sk.sensor_seen {
         let mm = |v: &Vec<i64>| (v.iter().min().copied(), v.iter().max().copied());
@@ -5289,6 +5300,8 @@ struct SkipTotals {
     lie_ticks: Vec<i64>,
     /// (day-1 12:09) the arming edge to the lie-down per visit (gt; negative: the lie-down first)
     arm_to_lie: Vec<i64>,
+    /// (day-1 12:22) the arming edge to the wake per visit (gt)
+    arm_to_wake: Vec<i64>,
     wake_ticks: Vec<i64>,
     skip_class: std::collections::BTreeMap<&'static str, (i64, i64)>,
     r_ats: Vec<i64>,
