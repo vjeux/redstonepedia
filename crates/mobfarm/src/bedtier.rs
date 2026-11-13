@@ -535,6 +535,9 @@ pub struct Row {
     /// (ironspec 22:56 (iii)) The napper's cells a bolt could reach (sees the sky, or inside a
     /// column top's bolt hit box).
     pub lightning: Vec<String>,
+    /// (`--pulse-cell`) Each pulse: the block change, whether its collision shape changed, the
+    /// napper's last path recompute before and after.
+    pub pulses: Vec<String>,
     pub problems: Vec<String>,
 }
 
@@ -572,6 +575,9 @@ pub struct Faults {
     /// (ironspec 21:25) The cells where the design declares a cart contact (`# contacts:`, a stop
     /// or a buffer), in the bench's frame.
     pub declared_contacts: Vec<[i32; 3]>,
+    /// (ironspec 00:03 (2c)) `--pulse-cell`: blocks set at a tick (bench frame), to measure the
+    /// navigation's recompute trigger.
+    pub pulses: Vec<(BlockPos, i64, String)>,
     /// The 09:00 shape (a control since ironspec 09:45): DAY gates the activator and the abort
     /// releases an unslept napper by day. Without it the activator is always on and an unslept
     /// napper waits for REST.
@@ -1226,7 +1232,53 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
         {
             redsim::entity::mob::ai::brain::brain_mut(&mut run.world, vi).nearest_hostile = Some(z);
         }
+        // (ironspec 00:03 (2c): `--pulse-cell X,Y,Z@T=STATE`, a block set at tick T before the
+        // tick, to measure the navigation's recompute trigger (vanilla's: a COLLISION-shape change
+        // near the path's midpoint, `ServerLevel.sendBlockUpdated` -> `shouldRecomputePath`))
+        for (p, at, st) in &f.pulses {
+            if *at == t {
+                let old = run.world.get(*p);
+                let new = block(st);
+                let changed = redsim::entity::collide::boxes_at(&run.world, &old, *p) != redsim::entity::collide::boxes_at(&run.world, &new, *p);
+                let before = vill.and_then(|v| idx(&run.world, v)).map(|vi| redsim::entity::mob::ai::ai(&run.world, vi).nav.time_last_recompute);
+                run.world.set_block(*p, new.clone(), redsim::world::flags::ALL);
+                let after = vill.and_then(|v| idx(&run.world, v)).map(|vi| redsim::entity::mob::ai::ai(&run.world, vi).nav.time_last_recompute);
+                row.pulses.push(format!("t {t}: ({},{},{}) {old} -> {new}: collision shape changed {changed}; the napper's last path recompute {before:?} -> {after:?}", p.x, p.y, p.z));
+            }
+        }
+        // (`MCTAS_BT_TRACE=shapes`: every collision-shape change within 12 of the napper, and every
+        // recompute of its path, per tick)
+        let shapes_trace = std::env::var("MCTAS_BT_TRACE").is_ok_and(|x| x == "shapes");
+        let shape_snap = |w: &World, c: Vec3| -> std::collections::HashMap<BlockPos, (String, Vec<redsim::entity::Aabb>)> {
+            let mut m = std::collections::HashMap::new();
+            for x in (c.x.floor() as i32 - 12)..=(c.x.floor() as i32 + 12) {
+                for y in (c.y.floor() as i32 - 8)..=(c.y.floor() as i32 + 8) {
+                    for z in (c.z.floor() as i32 - 12)..=(c.z.floor() as i32 + 12) {
+                        let p = BlockPos::new(x, y, z);
+                        let b = w.get(p);
+                        m.insert(p, (format!("{b}"), redsim::entity::collide::boxes_at(w, &b, p)));
+                    }
+                }
+            }
+            m
+        };
+        let pre = if shapes_trace { vill.and_then(|v| idx(&run.world, v)).map(|vi| (shape_snap(&run.world, run.world.entities.list[vi].pos), redsim::entity::mob::ai::ai(&run.world, vi).nav.time_last_recompute)) } else { None };
         run.tick();
+        if let Some((snap, recompute0)) = pre
+            && let Some(vi) = vill.and_then(|v| idx(&run.world, v))
+        {
+            for (p, (s0, b0)) in &snap {
+                let b = run.world.get(*p);
+                let b1 = redsim::entity::collide::boxes_at(&run.world, &b, *p);
+                if *b0 != b1 {
+                    eprintln!("t {t}: collision shape changed at ({},{},{}): {s0} -> {b}", p.x, p.y, p.z);
+                }
+            }
+            let r = redsim::entity::mob::ai::ai(&run.world, vi).nav.time_last_recompute;
+            if r != recompute0 {
+                eprintln!("t {t}: the napper's path recomputed (time_last_recompute {recompute0} -> {r})");
+            }
+        }
         let w = &run.world;
         let Some(ci) = idx(w, cart_id) else {
             row.problems.push(format!("t {t}: the cart is gone"));
@@ -2638,6 +2690,9 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
                         }
                         if one {
                             println!("seed {seed} speed {v}: landed {:?}, parked {:?}, slept {:?}, woke {:?}, release {:?}, pickup {:?} at {:?} b/t, R {:?}, out {:?}, seated {}{}", r.landed, r.parked.map(|(p, t)| (format!("{:.2},{:.2},{:.2}", p[0], p[1], p[2]), t)), r.slept_at, r.woke_at, r.release_at, r.pickup, r.pickup_speed.map(|s| format!("{s:.3}")), r.r_at, r.out_at, r.seated_out, if r.problems.is_empty() { String::new() } else { format!(" PROBLEMS {:?}", r.problems) });
+                            for m in &r.pulses {
+                                println!("  pulse {m}");
+                            }
                         }
                         if r.problems.is_empty() {
                             ok += 1;

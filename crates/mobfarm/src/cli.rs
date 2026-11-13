@@ -6348,6 +6348,12 @@ pub enum MobfarmCmd {
         /// --module-offset in the stop's frame): an experiment on the composed geometry.
         #[arg(long)]
         set_cell: Vec<String>,
+        /// A block set at a tick of every visit, before the tick (`x,y,z@T=state`, repeatable; the
+        /// stop's frame like --set-cell): measures the navigation's recompute trigger (a
+        /// collision-shape change near the path, ironspec 00:03 (2c)); each prints whether the
+        /// collision shape changed and the napper's last recompute before and after.
+        #[arg(long)]
+        pulse_cell: Vec<String>,
         /// With --module-offset: the module's stop brought up to date, `OLD,NEW` (two stop files
         /// in the stop's frame): every cell where they differ set in the moved module to NEW's
         /// block (air where NEW has none), the cells they agree on left as composed.
@@ -14458,7 +14464,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("waker: {l}");
             }
         }
-        MobfarmCmd::BedtierBench { design, from, to, speeds, after_sleep, release_after, day, empty, no_home, hide_after_wake, restart, hour, restart_phases, orders, hours, skip, skip_phases, day_off, no_presence_gate, early_release, day_gate, day_on, live_day_seated, restart_after_skip, panic_entries, pickup_injects, module_offset, queue_seat, queue_release, queue_wait, queue_waits, forced_stamp, arrival_stamp, arrival_run, arrival_hold, declare_emulated, r_bar, park_shifts, set_cell, restop, queue_dusk, jobs } => {
+        MobfarmCmd::BedtierBench { design, from, to, speeds, after_sleep, release_after, day, empty, no_home, hide_after_wake, restart, hour, restart_phases, orders, hours, skip, skip_phases, day_off, no_presence_gate, early_release, day_gate, day_on, live_day_seated, restart_after_skip, panic_entries, pickup_injects, module_offset, queue_seat, queue_release, queue_wait, queue_waits, forced_stamp, arrival_stamp, arrival_run, arrival_hold, declare_emulated, r_bar, park_shifts, set_cell, pulse_cell, restop, queue_dusk, jobs } => {
             let (_c, mut spec) = load(version, &design)?;
             anyhow::ensure!(release_after >= 0 && after_sleep >= 0, "--release-after and --after-sleep can't be negative (the release waits for the wake edge, F for the lie-down edge)");
             let restart = restart.as_deref().map(crate::liveness::parse_restart).transpose().map_err(|e| anyhow::anyhow!(e))?;
@@ -14549,7 +14555,18 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     }
                 })
                 .collect::<Result<_>>()?;
-            let faults = crate::bedtier::Faults { empty, no_home, hide_after_wake, restart, hour, skip, day_off, no_presence_gate, early_release, day_gate, day_on, live_day_seated, panic_entry: None, pickup_inject: None, approach, forced_stamp, arrival_stamp, arrival_run, arrival_hold, declared_emulated, r_bar, park_shift: None, park_shifts, declared_contacts };
+            // (`--pulse-cell x,y,z@T=state`, the stop's frame)
+            let pulses: Vec<(redsim::pos::BlockPos, i64, String)> = pulse_cell
+                .iter()
+                .map(|s| {
+                    let (c, rest) = s.split_once('@').ok_or_else(|| anyhow::anyhow!("--pulse-cell {s:?}: x,y,z@T=state"))?;
+                    let (t, st) = rest.split_once('=').ok_or_else(|| anyhow::anyhow!("--pulse-cell {s:?}: x,y,z@T=state"))?;
+                    let v: Vec<i32> = c.split(',').map(|x| x.trim().parse::<i32>()).collect::<std::result::Result<_, _>>()?;
+                    anyhow::ensure!(v.len() == 3, "--pulse-cell {s:?}: x,y,z@T=state");
+                    Ok((redsim::pos::BlockPos::new(v[0], v[1], v[2]), t.trim().parse::<i64>()?, st.trim().to_string()))
+                })
+                .collect::<Result<_>>()?;
+            let faults = crate::bedtier::Faults { empty, no_home, hide_after_wake, restart, hour, skip, day_off, no_presence_gate, early_release, day_gate, day_on, live_day_seated, panic_entry: None, pickup_inject: None, approach, forced_stamp, arrival_stamp, arrival_run, arrival_hold, declared_emulated, r_bar, park_shift: None, park_shifts, declared_contacts, pulses };
             crate::bedtier::bench_cmd(&spec, from, to, &speeds, after_sleep, release_after, day, &faults, [restart_phases.as_deref(), hours.as_deref(), skip_phases.as_deref(), restart_after_skip.as_deref(), panic_entries.as_deref(), pickup_injects.as_deref(), queue_waits.as_deref()], &crate::bedtier::orders(&orders)?, jobs)?;
         }
         MobfarmCmd::BedtierTwo { design, from, to, speeds, restart_phases, orders, transit, lift_delay, lift_speed, day_hold, day_off, gap, c_at, skip_phases, day_on, jobs, day_gate, a_hours, after_sleep, release_after } => {
