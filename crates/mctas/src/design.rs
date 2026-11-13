@@ -41,6 +41,10 @@ use anyhow::{Context, Result, anyhow, bail};
 use std::collections::BTreeMap;
 use std::path::Path;
 
+/// A tool's header check that every [`Design::parse`] runs when one is registered (mobfarm registers its
+/// declaration keys' near-miss check, `mobfarm::declkeys`; door and other tools register none).
+pub static HEADER_CHECK: std::sync::OnceLock<fn(&str) -> Result<(), String>> = std::sync::OnceLock::new();
+
 /// An entity of a design: its type (`minecraft:minecart`), its position (the entity's feet, world
 /// coordinates as decimals) and optional SNBT data (`{Rotation:[90f,0f]}`).
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -276,6 +280,11 @@ impl Design {
     }
 
     pub fn parse(text: &str) -> Result<Design> {
+        // (a tool's header check, when one registered: mobfarm's declaration keys' near-miss check; door
+        // and other tools register none, so their designs parse as before)
+        if let Some(check) = HEADER_CHECK.get() {
+            check(text).map_err(|e| anyhow::anyhow!(e))?;
+        }
         Design::parse_with(text, BlankRows::Refuse)
     }
 

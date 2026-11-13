@@ -61,6 +61,7 @@ pub mod merge;
 pub mod crosspush;
 pub mod flight;
 pub mod declared;
+pub mod declkeys;
 pub mod slot_drop;
 pub mod drive;
 pub mod linear;
