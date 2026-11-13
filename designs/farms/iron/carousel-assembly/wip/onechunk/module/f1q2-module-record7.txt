@@ -1,9 +1,7 @@
 # The one-chunk column's skeleton (mctas mobfarm column; no wiring): column x -6..9 z -6..10.
-# + module: /tmp/onechunk/f1q2-module-record7bh.txt moved by 0,0,0 into the frame, then 0,0,0 into its tier
-# cleared first (committed cells a lane re-lays): x 6..6 y -12..-12 z -3..-3
-# cleared first (committed cells a lane re-lays): x 5..5 y -13..-13 z -3..-3
-# cleared first (committed cells a lane re-lays): x 5..5 y -14..-14 z -4..-4
-# cleared first (committed cells a lane re-lays): x 7..7 y -14..-14 z -5..-5
+# + module: /tmp/onechunk/f1q2-module-record7c.txt moved by 0,0,0 into the frame, then 0,0,0 into its tier
+# cleared first (committed cells a lane re-lays): x 6..6 y -13..-13 z -3..-3
+# cleared first (committed cells a lane re-lays): x 5..5 y -14..-14 z -3..-3
 # placement order (every rail placed last into the finished build: the ones whose designed shape, or a neighbouring rail's, vanilla placement changes; place them in an order or with a temporary helper): 17
 # placement order: (-2,24,7) placed last: (-1,24,7) north_west -> east_west
 # placement order: (-1,0,7) placed last: (-1,0,7) north_west -> north_east
@@ -51,7 +49,7 @@ update-only-ts: 1,25,9+5,25,9=the split's K junctions of lanes 3 and 7, state-st
 # the module of record with path (a) (ironspec 19:44), onechunk's composition (bench, tool unreviewed). The parts' sources (the /tmp paths below are copies of these):
 #   station = dfb89499's explore/farmopt-station-panic 3939d2012 wip/station/f1q2-station.txt (path (a): lane 7's climb, lane 3's booster, V15/V16s/M16bw's pocket repeaters (x-1,0,0) on glass, R_1's high-side glass (x,17,2), which the lanes part holds too: cleared and laid once); lanes = ironfarm's 71b76c221 wip/lanes/f1q2-lanes-sbend.txt (R on slime); lift-split = 7b90c3f1's explore/farmopt-v15-patha 83878113f wip/lift/f1q2-lift-split-path-a.txt (the merge row along z 7, the intake (-4,12,7), the settle lock 42), its lower 10 levels moved down 9 and 9 levels inserted (napper A's lift for the stop 9 down);
 #   bedstop = 58f770cc's explore/bedtier-stop 27bfc5dcd designs/farms/iron/parts/bed-tier-min/bed-tier-fold.txt at loop + (0,-27,-1) (the second landing); wayin = b8949c96's explore/farmopt-waycell3 e9f0f4cbf wip/b8949c96/f1q2-module-wayin.txt over onechunk's f52f712d7 module (%BASE: only its cells), its curve (9,25,9) an override; sky, scarers = this directory; f3 = 9fc3155f's f17304792 (explore/farmopt-c3-tools3) wip/c3/f1q2-scarer-f3.txt;
-#   overrides: V15's 31 cells (9fc3155f 15:01) but the pocket backs (x,0,-1) slime (ironspec 15:08); the 8 hiding glass (ironspec 16:03); M16bw's side drive (day-1, 9fc3155f 16:08); lane -1's (a) feed stack (ironspec 16:11); the hold's stop (9,0,9) slime; day-1's queue release R1 (19:19): the comparator (7,-14,-4) subtract facing west and the repeater (8,-14,-4) facing west (the queue rail's switch), N's line (5,-13,-3), (5,-14,-4) dust and the repeater (6,-14,-4), the hatch: the iron trapdoor (6,-12,-5), the repeater (6,-12,-4) facing south, the dust (6,-12,-3), N's comparator (6,-12,-2) subtract facing south, DAY's repeater (5,-12,-2) facing west, the latch's side dust (7,-14,-5), each on glass one below
+#   overrides: V15's 31 cells (9fc3155f 15:01) but the pocket backs (x,0,-1) slime (ironspec 15:08); the 8 hiding glass (ironspec 16:03); M16bw's side drive (day-1, 9fc3155f 16:08); lane -1's (a) feed stack (ironspec 16:11); the hold's stop (9,0,9) slime; day-1's queue release R1 (19:19): the comparator (7,-14,-4) subtract facing west and the repeater (8,-14,-4) facing west (the queue rail's switch), N's line (5,-13,-3), (5,-14,-4) dust and the repeater (6,-14,-4), the hatch: the iron trapdoor (6,-12,-5), the repeater (6,-12,-4) facing south, the dust (6,-12,-3), N's comparator (6,-12,-2) subtract facing south, DAY's repeater (5,-12,-2) facing west, the latch's side dust (7,-14,-5), each on glass one below; but the N line's two step supports (6,-13,-3) and (5,-14,-3) smooth stone (day-1 21:41: a dust signal descends a step only over a conductor, RedStoneWireBlock.calculateTargetStrength)
 positions: -1,0,0 -1,16,0 3,0,0 3,16,0 7,0,0 7,16,0
 run-cells: P0 -1,0,0; D0 -1,0,2; H0 -1,16,0; P1 3,0,0; D1 3,0,2; H1 3,16,0; P2 7,0,0; D2 7,0,2; H2 7,16,0; PAD0 -3,-6,-6; PAD1 8,-6,-1; wayin.P0 -1,0,0; wayin.D0 -1,0,2; wayin.H0 -1,16,0; wayin.P1 3,0,0; wayin.D1 3,0,2; wayin.H1 3,16,0; wayin.P2 7,0,0; wayin.D2 7,0,2; wayin.H2 7,16,0; wayin.PAD0 -3,-6,-6; wayin.PAD1 8,-6,-1
 port home: -3 -27 3
@@ -72,12 +70,12 @@ entity: minecraft:oak_boat -4.5 2 -4.5 {Passengers:[{id:"minecraft:zombie",Persi
 entity: minecraft:oak_boat 1.5 25 -4.5 {Passengers:[{id:"minecraft:pillager",PersistenceRequired:1b}]}
 origin: -6 0 -6
 palette:
-  ! minecraft:water[level=0]
-  $ minecraft:smooth_stone_slab[type=bottom,waterlogged=false]
-  % minecraft:soul_sand
-  & minecraft:stone_button[face=floor,facing=north,powered=false]
-  * minecraft:tripwire[attached=false,disarmed=false,east=false,north=false,powered=false,south=false,west=false]
-  + minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]
+  ! minecraft:tripwire_hook[attached=true,facing=west,powered=false]
+  $ minecraft:smooth_stone
+  % minecraft:smooth_stone_slab[type=bottom,waterlogged=false]
+  & minecraft:soul_sand
+  * minecraft:stone_button[face=floor,facing=north,powered=false]
+  + minecraft:tripwire[attached=false,disarmed=false,east=false,north=false,powered=false,south=false,west=false]
   0 minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
   1 minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=side]
   2 minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
@@ -88,8 +86,9 @@ palette:
   7 minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
   8 minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
   9 minecraft:repeater[delay=3,facing=west,locked=false,powered=false]
-  = minecraft:tripwire_hook[attached=true,facing=east,powered=false]
-  ? minecraft:tripwire_hook[attached=true,facing=west,powered=false]
+  < minecraft:water[level=0]
+  = minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]
+  ? minecraft:tripwire_hook[attached=true,facing=east,powered=false]
   @ minecraft:slime_block
   A minecraft:activator_rail[powered=true,shape=east_west,waterlogged=false]
   B minecraft:bubble_column[drag=false]
@@ -154,7 +153,7 @@ layer -29:
   .
   .
   ............g
-  .......ggggg%g
+  .......ggggg&g
   ............g
   .
   .
@@ -213,16 +212,16 @@ layer -26:
   .
 layer -25:
   ........Qx
-  .....&..Abjjjjjt
+  .....*..Abjjjjjt
   .......gCCg....m
   .......g.g.....f
   ....gggg.g.....g
   ...g.....g.....g
   ...g.gggg
   ..g..g
-  ..g&g
+  ..g*g
   .gg.g.......g
-  ...gg&&....gBg
+  ...gg**....gBg
   ............g
   .
   .
@@ -402,7 +401,7 @@ layer -14:
   .
   .............z.g
   ...........38E8V
-  ...........g
+  ...........$
   .
   .
   .
@@ -419,7 +418,7 @@ layer -13:
   ........g......g
   ...............F
   ............g
-  ...........5g
+  ...........5$
   ...........gg
   .
   .
@@ -596,7 +595,7 @@ layer -3:
   .
   .
   ...........gg
-  ..........g!.HYg
+  ..........g<.HYg
   ...........gg.gg
   .
   ..............g
@@ -659,15 +658,15 @@ layer 1:
   .
   .
   .
-  .....*...*...*
-  ...g=+?g=+?g=+?g
+  .....+...+...+
+  ...g?=!g?=!g?=!g
   .
   .
   .
   ............xZ
   .............g
   .
-  .%gh
+  .&gh
   .
   ...............g
 layer 2:
@@ -931,8 +930,8 @@ layer 17:
   .
   .
   .
-  .....$...$...$
-  ...J=+?J=+?J=+?J
+  .....%...%...%
+  ...J?=!J?=!J?=!J
   .....W6..W6..W6
   ....Jg.J.g.J.g
   .
@@ -1040,7 +1039,7 @@ layer 23:
   .
   .
   .g
-  g!ggg..gg..gg..f
+  g<ggg..gg..gg..f
   g.g@gg.@gg.@gg.g
   xZ.7.g.7.g.7.g
   .ggy
@@ -1113,22 +1112,22 @@ layer 27:
   .
   ...g.g.g.g.g.g
 layer 28:
-  $$$$$$$$$$$$$$$$
-  $$$$$$$$$$$$$$$$
-  $$$$$$$$$$$$$$$$
-  $$$$$$$$$$$$$$$$
-  $$$$$$$$$$$$$$$$
-  $$$$$$$$$$$$$$$$
-  $$$$$$$$$$$$$$$$
-  $$$$$$$$$$$$$$$$
-  $$$$$$$$$$$$$$$$
-  $g$$$$$$$$$$$$$$
-  $$$$$$$$$$$$$$$$
-  $$$$$$$$$$$$$$$$
-  $$$$$$$$$$$$$$$$
-  $$$$$$$$$$$$$$$$
-  $$$$$$$$$$$$$$$$
-  $$$$$$$$$$$$$$$$
+  %%%%%%%%%%%%%%%%
+  %%%%%%%%%%%%%%%%
+  %%%%%%%%%%%%%%%%
+  %%%%%%%%%%%%%%%%
+  %%%%%%%%%%%%%%%%
+  %%%%%%%%%%%%%%%%
+  %%%%%%%%%%%%%%%%
+  %%%%%%%%%%%%%%%%
+  %%%%%%%%%%%%%%%%
+  %g%%%%%%%%%%%%%%
+  %%%%%%%%%%%%%%%%
+  %%%%%%%%%%%%%%%%
+  %%%%%%%%%%%%%%%%
+  %%%%%%%%%%%%%%%%
+  %%%%%%%%%%%%%%%%
+  %%%%%%%%%%%%%%%%
 layer 29:
   R
   .
