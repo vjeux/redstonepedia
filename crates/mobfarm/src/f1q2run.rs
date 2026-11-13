@@ -125,6 +125,15 @@ pub struct Opts {
     /// (9fc3155f / G1 09:39) --cart-cells' box (default the split row's region y 22..26, z 5..10, x
     /// -6..10).
     pub cart_cells_box: Option<([i32; 3], [i32; 3])>,
+    /// (G1 10:24 (c)) the per-lane count bar's positive control: two misroutes into lane -1.
+    pub misroute_control: bool,
+    /// (G1 10:34) the forced lip row: the first cart on a drop cell after t 1,000 held this many gt.
+    pub lip_hold: Option<i64>,
+    /// (G1 10:36) the drop-entry envelope: the most off-rail ticks on the drop cell and the largest
+    /// lateral displacement of a normal pass (tick-exact's game rows: ~5 gt, 0.198).
+    pub lip_envelope: (i64, f64),
+    /// (G1 10:34) the siding trace's window.
+    pub siding_trace: Option<(i64, i64)>,
     /// (ironspec 11:15, 9fc3155f's statics) S-bend seats whose stamp resets are counted: `NAME`,
     /// the seat's rail cell, its clearing candidates (a complete draw to one of them while a rider
     /// sits on the seat resets its stamp).
@@ -742,9 +751,19 @@ struct Ctl {
     /// departure past R; and every reset.
     r_cart_prev: [bool; 3],
     present_resets: Vec<(i64, usize)>,
+    /// (G1 10:34) the ridden cart on each lane's R (cart, rider) last tick, and every ridden departure
+    /// from R: (tick, lane, cart, rider, PRESENT_l set at the departure)
+    r_cart_id_prev: [Option<(u32, Option<u32>)>; 3],
+    r_departures: Vec<(i64, usize, u32, Option<u32>, bool)>,
     /// (G1 / ironspec 08:41) the unrouted bar's positive: armed, and done.
     strand_control: bool,
     strand_done: bool,
+    /// (G1 10:24 (c)) the per-lane count bar's positive: the split's J(-1) kept on through this many
+    /// of lane -1's branch-detector edges (after the first 10), sending the next arrival into lane -1
+    /// too; the edges seen and the misroutes done
+    misroute_left: u32,
+    b0_edges: u32,
+    misroute_at: Vec<i64>,
     /// J(-1) kept from re-arming from ARM3 + 72 to ARM3 + 127 for an eastbound napper (lanes 3, 7),
     /// re-armed at its end.
     j_block: Option<(i64, i64)>,
@@ -1250,9 +1269,18 @@ impl Ctl {
         let held_off = |x: i32, dv: Option<(u32, usize)>| dv.is_some_and(|(_, k)| x >= LANES[k]);
         let dv = self.divert;
         if b0 && !self.branch_prev[0] {
-            set(w, [-1, 26, 9], &lever(false), flags::ALL)?;
-            if !held_off(3, dv) {
-                set(w, [3, 26, 9], &lever(true), flags::ALL)?;
+            self.b0_edges += 1;
+            if self.misroute_left > 0 && self.b0_edges > 10 {
+                // (G1 10:24 (c)) the misroute control: J(-1) left on, J(3) untouched: the next
+                // arrival turns into lane -1 as well
+                self.misroute_left -= 1;
+                self.misroute_at.push(now);
+                self.note(now, "the misroute control: J(-1) left on through lane -1's branch edge (the next arrival into lane -1 too)".to_string());
+            } else {
+                set(w, [-1, 26, 9], &lever(false), flags::ALL)?;
+                if !held_off(3, dv) {
+                    set(w, [3, 26, 9], &lever(true), flags::ALL)?;
+                }
             }
         }
         if b1 && !self.branch_prev[1] {
@@ -1782,7 +1810,15 @@ impl Ctl {
             }
             let sx = LANES[k] - 2;
             // (day-1 08:31) PRESENT_l's reset: the napper's ridden cart leaving the siding's R
-            let r_cart = w.entities.list.iter().any(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && !e.passengers.is_empty() && cell(e.pos) == [sx, 24, 7]);
+            let r_on: Option<(u32, Option<u32>)> = w.entities.list.iter().find(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && !e.passengers.is_empty() && cell(e.pos) == [sx, 24, 7]).map(|e| (e.id, e.passengers.first().copied()));
+            let r_cart = r_on.is_some();
+            // (G1 10:34) every ridden departure from R: the cart, its rider, and whether PRESENT_l was set
+            if self.r_cart_prev[k] && !r_cart
+                && let Some((cid, rider)) = self.r_cart_id_prev[k]
+            {
+                self.r_departures.push((now, k, cid, rider, self.present[k]));
+            }
+            self.r_cart_id_prev[k] = r_on;
             // (G1 08:41 / ironspec 08:41 platform: the unrouted bar's positive) --strand-control: the
             // first napper reaching its siding's R after t0 + 1,000 has PRESENT_l reset on arrival, so
             // no release follows: it must strand and fail the bar on its own sample
@@ -2758,6 +2794,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         ctl.rs_early = o.rs_ready_early_control;
         ctl.day_phase_control = o.day_phase_control;
         ctl.strand_control = o.strand_control;
+        ctl.misroute_left = if o.misroute_control { 2 } else { 0 };
     }
     // (day-1 06:07 PT, ctlcounter.rs; G1's blocker 3: the counter's state at the first release, a
     // clear clock's: C = 141 + ceil((d - 12,540) / 100) for a first release at day time d between
@@ -2980,6 +3017,15 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     let mut lift_blocker: Option<u32> = None;
     // (ironspec 08:26 / 08:41 platform) the late-return control's held cart (id, from, where) and rider
     let mut late_hold: Option<(u32, i64, [f64; 3])> = None;
+    // (G1 10:34) the forced lip hold's cart (id, from, where)
+    let mut lip_hold_cart: Option<(u32, i64, [f64; 3])> = None;
+    // (G1 10:36, the drop-entry envelope) each cart's off-rail ticks on its lane's drop cell (x,24,6)
+    // since it arrived there and its largest lateral displacement there (|x - the lane's centre|),
+    // and per pass (lane, those ticks, that displacement, a cart at C / D behind it at any of them)
+    let mut lip_state: BTreeMap<u32, (i64, f64, bool)> = BTreeMap::new();
+    let mut lip_passes: Vec<(usize, i64, f64, bool)> = Vec::new();
+    // (G1 10:34) the siding trace's rows
+    let mut siding_rows: Vec<String> = Vec::new();
     let mut late_rider: Option<u32> = None;
     // (G1 X35) the riders in the lift column at the hold's start
     let mut lift_stack_at_hold: Vec<u32> = Vec::new();
@@ -3004,6 +3050,16 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         .map(|(p, b)| ([p.x, p.y, p.z], format!("{:?}", redsim::rails::shape_of(b))))
         .collect();
     let mut t_changes: Vec<(i64, [i32; 3], String, String)> = Vec::new();
+    // (G1 10:24 (a)) the per-lane count: per lane a histogram (count -> ticks), the max and its first
+    // tick, and the first tick at 9 or more
+    let mut lane_count_hist: [BTreeMap<usize, i64>; 3] = [BTreeMap::new(), BTreeMap::new(), BTreeMap::new()];
+    let mut lane_count_max: [(usize, i64); 3] = [(0, 0); 3];
+    let mut lane_count_nine: [Option<i64>; 3] = [None; 3];
+    // (G1 10:24, the cascade's seed) per lane, a cart off its rail in the drop region (the drop cell
+    // (x,24,6) or the column (x,23,6)) while another cart is at C or D: the open episode (from, the
+    // cart, the one behind) and every episode (lane, from, length, cart, behind)
+    let mut lip_seed_open: [Option<(i64, u32, u32)>; 3] = [None; 3];
+    let mut lip_seeds: Vec<(usize, i64, i64, u32, u32)> = Vec::new();
     // (G1 07:59 PT) the lift column around the lift-block control
     let mut lift_rows: Vec<String> = Vec::new();
     // (ironspec 08:13 / 08:14 platform, G1 08:12 PT) each lane's most carts (count, tick, tail) and
@@ -3019,6 +3075,11 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     // each cart's previous cell
     let mut c_arrivals: [Vec<(i64, f64, String, u32, f64, f64)>; 3] = [Vec::new(), Vec::new(), Vec::new()];
     let mut c_prev_cell: BTreeMap<u32, [i32; 3]> = BTreeMap::new();
+    // (ironspec 10:29 (3)) per lane: the drop passes, the C deflections (C west into c3 by a cart not
+    // a napper's) and the off-rail rests in the drop region
+    let mut drop_passes = [0i64; 3];
+    let mut c_deflections: [Vec<String>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+    let mut lip_rests = [0i64; 3];
     // (ironspec 09:21-09:25 platform) every mob-on-cart push: tick, cart, its lane at t0, the pusher's
     // activity, |impulse|, its component along the cart's motion
     let mut pushes: Vec<(i64, u32, Option<usize>, String, f64, f64)> = Vec::new();
@@ -3316,6 +3377,24 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         // ridden cart reaching a siding's last cell before its R, (sx,25,8), after t 1,000 is held
         // there 130 gt (more than a D period and its 30-gt release window): it must miss that release,
         // wait on R under the built latch, leave at the lane's next D press and pass the unrouted bar
+        // (G1 10:34, the forced-lip row) --lip-hold N: the first cart reaching a lane's drop cell
+        // (x,24,6) after t 1,000 is held there N gt (its position pinned, its motion zeroed), then let go
+        if let Some(n) = o.lip_hold {
+            let w = &mut run.world;
+            if lip_hold_cart.is_none() && rel >= 1_000 {
+                if let Some(e) = w.entities.list.iter().find(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && LANES.iter().any(|x| cell(e.pos) == [*x, 24, 6])) {
+                    lip_hold_cart = Some((e.id, rel, [e.pos.x, e.pos.y, e.pos.z]));
+                    controls_done.push(format!("the lip hold at t {rel}: cart #{} held {n} gt on the drop cell ({},24,6)", e.id, cell(e.pos)[0]));
+                }
+            }
+            if let Some((cart, t, p)) = lip_hold_cart
+                && rel < t + n
+                && let Some(ci) = redsim::entity::index_of(w, cart)
+            {
+                w.entities.set_pos(ci, redsim::entity::Vec3::new(p[0], p[1], p[2]));
+                w.entities.list[ci].delta_movement = redsim::entity::Vec3::ZERO;
+            }
+        }
         if o.late_return_control {
             let w = &mut run.world;
             if late_hold.is_none() && rel >= 1_000 {
@@ -3407,6 +3486,8 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             let fw = |id: u32| m.get(&id).copied().unwrap_or(id);
             lift_blocker = lift_blocker.map(fw);
             late_hold = late_hold.map(|(c, t, p)| (fw(c), t, p));
+            lip_hold_cart = lip_hold_cart.map(|(c, t, p)| (fw(c), t, p));
+            lip_state = lip_state.into_iter().map(|(c, v)| (fw(c), v)).collect();
             late_rider = late_rider.map(fw);
             if let Some(h) = air_held.as_mut() {
                 h.0 = fw(h.0);
@@ -5675,6 +5756,18 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         // its horizontal speed, its z phase (the position's fraction) and its rider's activity
         for e in w.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_))) {
             let c = cell(e.pos);
+            // (ironspec 10:29 (3): the denominator) a drop pass: the drop cell (x,24,6) into the column
+            // (x,23,6); a C deflection: C (x,24,7) west into c3 (x-1,24,7) by any cart but a napper's
+            if let Some(p) = c_prev_cell.get(&e.id).copied() {
+                for (k, x) in LANES.iter().enumerate() {
+                    if p == [*x, 24, 6] && c == [*x, 23, 6] {
+                        drop_passes[k] += 1;
+                    }
+                    if p == [*x, 24, 7] && c == [x - 1, 24, 7] && !e.passengers.first().is_some_and(|r| nappers.iter().any(|(v, _, _)| v == r)) {
+                        c_deflections[k].push(format!("t {rel} cart #{}", e.id));
+                    }
+                }
+            }
             if let Some(k) = LANES.iter().position(|x| c == [*x, 24, 7])
                 && c_prev_cell.get(&e.id) != Some(&c)
             {
@@ -5733,6 +5826,18 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 if n > lane_max[k].0 {
                     lane_max[k] = (n, rel, tail);
                 }
+                // (G1 10:24 (a): the per-lane COUNT, the conservation premise) every cart, on a rail
+                // or not, on the lane's rails (H, R_1 and the slopes), in its drop column (x,23..24,6)
+                // or at its merge (C (x,24,7), D (x,24,8)), every tick; a 9th FAILS
+                let in_lane = |c: [i32; 3]| c[0] == *x && ((16..=22).contains(&c[1]) && (0..=6).contains(&c[2]) || (23..=24).contains(&c[1]) && c[2] == 6 || c[1] == 24 && (7..=8).contains(&c[2]));
+                let count = w.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && in_lane(cell(e.pos))).count();
+                *lane_count_hist[k].entry(count).or_default() += 1;
+                if count > lane_count_max[k].0 {
+                    lane_count_max[k] = (count, rel);
+                }
+                if count >= 9 && lane_count_nine[k].is_none() {
+                    lane_count_nine[k] = Some(rel);
+                }
                 if let Some(t) = tail
                     && lane_tail_max[k].is_none_or(|m: [i32; 3]| (t[2], t[1]) > (m[2], m[1]))
                 {
@@ -5770,6 +5875,9 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                         && n >= 10
                     {
                         off_rest_rows.push(format!("cart #{} at ({},{},{}) from t {t0}, {n} gt", e.id, c0[0], c0[1], c0[2]));
+                        if let Some(k) = LANES.iter().position(|x| c0[0] == *x && c0[2] == 6 && (23..=24).contains(&c0[1])) {
+                            lip_rests[k] += 1;
+                        }
                     }
                     continue;
                 }
@@ -5781,6 +5889,9 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                         && n >= 10
                     {
                         off_rest_rows.push(format!("cart #{} at ({},{},{}) from t {t0}, {n} gt", e.id, c0[0], c0[1], c0[2]));
+                        if let Some(k) = LANES.iter().position(|x| c0[0] == *x && c0[2] == 6 && (23..=24).contains(&c0[1])) {
+                            lip_rests[k] += 1;
+                        }
                     }
                     *off_moving.entry(c).or_default() += 1;
                 }
@@ -5795,6 +5906,80 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     if k.1.is_none() {
                         k.1 = Some(format!("t {rel} cart #{} at ({},{},{})", e.id, c[0], c[1], c[2]));
                     }
+                }
+            }
+            // (G1 10:36, the drop-entry envelope) per cart on a lane's drop cell (x,24,6): its off-rail
+            // ticks there and its largest lateral displacement; at the pass into the column its row
+            for e in w.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_))) {
+                let c = cell(e.pos);
+                if let Some(k) = LANES.iter().position(|x| c == [*x, 24, 6]) {
+                    let behind = w.entities.list.iter().any(|f| !f.removed && f.id != e.id && matches!(f.kind, EntityKind::Minecart(_)) && [[LANES[k], 24, 7], [LANES[k], 24, 8]].contains(&cell(f.pos)));
+                    let st = lip_state.entry(e.id).or_insert((0, 0.0, false));
+                    st.0 += 1;
+                    st.1 = st.1.max((e.pos.x - (LANES[k] as f64 + 0.5)).abs());
+                    st.2 |= behind;
+                } else if let Some((n, dx, behind)) = lip_state.remove(&e.id)
+                    && let Some(k) = LANES.iter().position(|x| c == [*x, 23, 6])
+                {
+                    lip_passes.push((k, n, dx, behind));
+                }
+            }
+            // (G1 10:34) --siding-trace FROM,TO: per tick, each lane's PRESENT_l, the carts on its
+            // siding's cells (K, the drop to R, R, the S-bend) with their riders, and every napper's place
+            if let Some((a, b)) = o.siding_trace
+                && rel >= a
+                && rel <= b
+            {
+                let mut row = format!("t {rel}:");
+                for (k, x) in LANES.iter().enumerate() {
+                    let cells = [[x - 2, 25, 9], [x - 2, 25, 8], [x - 2, 24, 7], [x - 2, 24, 6], [x - 1, 24, 6], [x - 1, 24, 7], [*x, 24, 7], [*x, 24, 6]];
+                    let on: Vec<String> = w
+                        .entities
+                        .list
+                        .iter()
+                        .filter(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && cells.contains(&cell(e.pos)))
+                        .map(|e| {
+                            let c = cell(e.pos);
+                            let r = match e.passengers.first() {
+                                None => "empty".to_string(),
+                                Some(p) if nappers.iter().any(|(v, _, _)| v == p) => format!("napper #{p}"),
+                                Some(p) => format!("batch #{p}"),
+                            };
+                            format!("#{} ({},{},{}) {r}", e.id, c[0], c[1], c[2])
+                        })
+                        .collect();
+                    row.push_str(&format!(" lane x {x}: PRESENT {} siding [{}];", if ctl.present[k] { 1 } else { 0 }, on.join(", ")));
+                }
+                let np: Vec<String> = nappers.iter().filter_map(|(v, _, _)| redsim::entity::index_of(w, *v).map(|i| {
+                    let p = w.entities.list[i].pos;
+                    format!("#{v} ({:.2},{:.2},{:.2})", p.x, p.y, p.z)
+                })).collect();
+                row.push_str(&format!(" nappers {}", np.join(" ")));
+                siding_rows.push(row);
+            }
+            // (G1 10:24, the cascade's seed) per lane: a cart off its rail in the drop region while
+            // another cart is at C or D, one episode per contiguous run
+            for (k, x) in LANES.iter().enumerate() {
+                let at = |cells: &[[i32; 3]], need_off: bool| -> Option<u32> {
+                    w.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_))).find_map(|e| {
+                        let c = cell(e.pos);
+                        if !cells.contains(&c) {
+                            return None;
+                        }
+                        let on = redsim::rails::is_rail(&w.get(redsim::pos::BlockPos::new(c[0], c[1], c[2]))) || redsim::rails::is_rail(&w.get(redsim::pos::BlockPos::new(c[0], c[1] - 1, c[2])));
+                        (!need_off || !on).then_some(e.id)
+                    })
+                };
+                let lip = at(&[[*x, 24, 6], [*x, 23, 6]], true);
+                let behind = at(&[[*x, 24, 7], [*x, 24, 8]], false);
+                match (lip, behind, lip_seed_open[k]) {
+                    (Some(a), Some(b), None) => lip_seed_open[k] = Some((rel, a, b)),
+                    (Some(_), Some(_), Some(_)) => {}
+                    (_, _, Some((t0, a, b))) => {
+                        lip_seeds.push((k, t0, rel - t0, a, b));
+                        lip_seed_open[k] = None;
+                    }
+                    _ => {}
                 }
             }
             // (ironspec 09:44 / 09:48, G1 09:45 (c): the T shapes per tick) every plain-rail T's shape;
@@ -7701,6 +7886,12 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         let missed = late_rider.is_some_and(|v| late_rejoin.iter().any(|(rv, _, _)| *rv == v));
         controls.push(("--late-return-control".to_string(), "  no napper unrouted", false, late_hold.is_some() && missed, true));
     }
+    // (G1 10:24 (c)) the misroute control: two extra arrivals sent into lane -1 must take it to a
+    // 9th cart (the count bar failing on lane -1 alone)
+    if o.misroute_control {
+        let own = lane_count_nine[0].is_some() && lane_count_nine[1].is_none() && lane_count_nine[2].is_none();
+        controls.push(("--misroute-control".to_string(), "the per-lane cart count", true, ctl.misroute_at.len() == 2, own));
+    }
     // (G1 X35, ironspec 07:57: fault rows) --lift-block of 25 gt or more is the jam positive: the air
     // bar must fail, every drowning a rider of the lift column at the hold's start; a shorter hold is a
     // fault row printed as information (its air verdict stands as printed)
@@ -7742,7 +7933,56 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             }
         }
         format!(
-            "{s}the carts at rest off the rails (ironspec 10:04 / 10:06, G1 10:04 (d): every drop lip and every other cell; no rail in the cart's cell or the one below, its motion under 0.003 a tick for 10 gt or more; bar 0): {} ({}){}\n  the carts off the rails while moving (information: the drop columns' falls), cart-ticks per cell: {}\n  the carts on a siding's cells (x-2,25,9), (x-2,25,8), (x-2,24,7) by rider (ironspec 10:04: a batch villager there FAILS): {} ({})\n  the arrivals at each lane's C (x,24,7) (G1 10:14, information beside ironfarm's bench: speed in b/gt, spacing in gt): {}\nthe rail Ts' shapes per tick (ironspec 09:44 / 09:48, G1 09:45 (c); runtime evidence: every plain rail with 3+ rail neighbours at t0, {} Ts; a change of a declared never-switched T, the design's placement-order-ts {}, FAILS): {} changes in all; the declared Ts changed {} times ({}){}; per T: {}\n",
+            "{s}the per-lane cart count (G1 10:24 (a), the conservation premise under order routing: every cart on the lane's rails H / R_1 / slopes, in its drop column (x,23..24,6) or at C (x,24,7) / D (x,24,8), every tick; a 9th FAILS): {} ({}){}\n  the cascade's seeds (G1 10:24: a cart off its rail in the drop region (x,24,6) / (x,23,6) for 1 gt or more while another cart is at C or D; information, the lip fix's target 0): {}{}\n  the drop region's denominator (ironspec 10:29 (3): per lane the drop passes (the drop cell into the column), the off-rail rests there (>= 10 gt), the C deflections (C west into c3 by any cart but a napper's) and the cascade's seeds, each a rate per pass with its 95% upper bound (Wilson)): {}\n  the C deflections (bar 0, ironspec 10:29 (2): no cart but the napper leaves C westward): {} ({}){}\nthe carts at rest off the rails (ironspec 10:04 / 10:06, G1 10:04 (d): every drop lip and every other cell; no rail in the cart's cell or the one below, its motion under 0.003 a tick for 10 gt or more; bar 0): {} ({}){}\n  the carts off the rails while moving (information: the drop columns' falls), cart-ticks per cell: {}\n  the carts on a siding's cells (x-2,25,9), (x-2,25,8), (x-2,24,7) by rider (ironspec 10:04: a batch villager there FAILS): {} ({})\n  the arrivals at each lane's C (x,24,7) (G1 10:14, information beside ironfarm's bench: speed in b/gt, spacing in gt): {}\nthe rail Ts' shapes per tick (ironspec 09:44 / 09:48, G1 09:45 (c); runtime evidence: every plain rail with 3+ rail neighbours at t0, {} Ts; a change of a declared never-switched T, the design's placement-order-ts {}, FAILS): {} changes in all; the declared Ts changed {} times ({}){}; per T: {}\n",
+            (0..3).map(|k| format!("lane x {}: the most {} (first at t {}), ticks by count {}", LANES[k], lane_count_max[k].0, lane_count_max[k].1, lane_count_hist[k].iter().map(|(n, t)| format!("{n}: {t}")).collect::<Vec<_>>().join(", "))).collect::<Vec<_>>().join("; "),
+            if lane_count_nine.iter().all(|t| t.is_none()) { "PASS" } else { "FAIL" },
+            if lane_count_nine.iter().all(|t| t.is_none()) { String::new() } else { format!(": {}", (0..3).filter_map(|k| lane_count_nine[k].map(|t| format!("lane x {} at 9 from t {t}", LANES[k]))).collect::<Vec<_>>().join("; ")) },
+            {
+                let mut all = lip_seeds.clone();
+                all.extend((0..3).filter_map(|k| lip_seed_open[k].map(|(t0, a, b)| (k, t0, o.ticks - t0, a, b))));
+                let per: Vec<String> = (0..3).map(|k| {
+                    let v: Vec<&(usize, i64, i64, u32, u32)> = all.iter().filter(|e| e.0 == k).collect();
+                    format!("lane x {}: {} (the longest {} gt)", LANES[k], v.len(), v.iter().map(|e| e.2).max().unwrap_or(0))
+                }).collect();
+                per.join("; ")
+            },
+            {
+                let mut all = lip_seeds.clone();
+                all.extend((0..3).filter_map(|k| lip_seed_open[k].map(|(t0, a, b)| (k, t0, o.ticks - t0, a, b))));
+                all.sort_by_key(|e| std::cmp::Reverse(e.2));
+                if all.is_empty() { String::new() } else { format!("; the longest: {}", all.iter().take(12).map(|e| format!("lane x {} t {} {} gt: cart #{} off its rail, #{} behind", LANES[e.0], e.1, e.2, e.3, e.4)).collect::<Vec<_>>().join("; ")) }
+            },
+            {
+                // (Wilson's 95% upper bound of k events in n passes)
+                let wilson = |k: i64, n: i64| -> f64 {
+                    if n == 0 {
+                        return 1.0;
+                    }
+                    let (k, n, z) = (k as f64, n as f64, 1.96f64);
+                    let p = k / n;
+                    ((p + z * z / (2.0 * n)) + z * (p * (1.0 - p) / n + z * z / (4.0 * n * n)).sqrt()) / (1.0 + z * z / n)
+                };
+                let mut seeds_per = [0i64; 3];
+                for e in &lip_seeds {
+                    seeds_per[e.0] += 1;
+                }
+                for (k, open) in lip_seed_open.iter().enumerate() {
+                    if open.is_some() {
+                        seeds_per[k] += 1;
+                    }
+                }
+                (0..3)
+                    .map(|k| {
+                        let n = drop_passes[k];
+                        let r = |e: i64| format!("{e} ({:.4} a pass, <= {:.4})", if n == 0 { 0.0 } else { e as f64 / n as f64 }, wilson(e, n));
+                        format!("lane x {}: {n} passes; off-rail rests {}; C deflections {}; cascade seeds {}", LANES[k], r(lip_rests[k]), r(c_deflections[k].len() as i64), r(seeds_per[k]))
+                    })
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            },
+            c_deflections.iter().map(|v| v.len()).sum::<usize>(),
+            if c_deflections.iter().all(|v| v.is_empty()) { "PASS" } else { "FAIL" },
+            if c_deflections.iter().all(|v| v.is_empty()) { String::new() } else { format!(": {}", (0..3).filter(|k| !c_deflections[*k].is_empty()).map(|k| format!("lane x {}: {}", LANES[k], c_deflections[k].iter().take(10).cloned().collect::<Vec<_>>().join(", "))).collect::<Vec<_>>().join("; ")) },
             rows.len(),
             if rows.is_empty() { "PASS" } else { "FAIL" },
             if rows.is_empty() { String::new() } else { format!(": {}", rows.join("; ")) },
@@ -7786,6 +8026,47 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             if stable.is_empty() { "NOT JUDGED: no declared T" } else if bad_t.is_empty() { "PASS" } else { "FAIL" },
             if bad_t.is_empty() { String::new() } else { format!(": {}", bad_t.join("; ")) },
             if per_t.is_empty() { "no change".to_string() } else { per_t.iter().map(|(p, (n, first))| format!("({},{},{}) {n} ({})", p[0], p[1], p[2], first.join(", "))).collect::<Vec<_>>().join("; ") }
+        )
+    };
+    // (G1 10:34) every ridden departure from a siding's R by rider kind (a batch rider's departure, the
+    // detector pressed by a cart not the napper's, FAILS), each with whether PRESENT_l was set; (G1
+    // 10:36) the drop-entry envelope per pass; --lip-hold's control line; the siding trace
+    let s = {
+        let (ok_d, bad_d): (Vec<&(i64, usize, u32, Option<u32>, bool)>, Vec<&(i64, usize, u32, Option<u32>, bool)>) = ctl.r_departures.iter().partition(|(_, _, _, r, _)| r.is_some_and(|r| nappers.iter().any(|(v, _, _)| *v == r)));
+        let (eg, edx) = o.lip_envelope;
+        let mut per = String::new();
+        for k in 0..3 {
+            let v: Vec<&(usize, i64, f64, bool)> = lip_passes.iter().filter(|p| p.0 == k).collect();
+            let mut t: Vec<i64> = v.iter().map(|p| p.1).collect();
+            t.sort();
+            let mut d: Vec<f64> = v.iter().map(|p| p.2).collect();
+            d.sort_by(|a, b| a.total_cmp(b));
+            let beyond: Vec<String> = v.iter().filter(|p| p.3 && (p.1 > eg || p.2 > edx)).map(|p| format!("{} gt / {:.3}", p.1, p.2)).collect();
+            per.push_str(&format!(
+                "{}lane x {}: {} passes; off-rail ticks on the drop cell {}; lateral displacement {}; beyond the envelope with a cart behind: {}{}",
+                if k == 0 { "" } else { "; " },
+                LANES[k],
+                v.len(),
+                if t.is_empty() { "-".to_string() } else { format!("min {}, median {}, max {}", t[0], t[t.len() / 2], t[t.len() - 1]) },
+                if d.is_empty() { "-".to_string() } else { format!("min {:.3}, median {:.3}, max {:.3}", d[0], d[d.len() / 2], d[d.len() - 1]) },
+                beyond.len(),
+                if beyond.is_empty() { String::new() } else { format!(" ({})", beyond.iter().take(8).cloned().collect::<Vec<_>>().join(", ")) }
+            ));
+        }
+        let n_beyond = lip_passes.iter().filter(|p| p.3 && (p.1 > eg || p.2 > edx)).count();
+        format!(
+            "{s}the ridden departures from a siding's R (G1 10:34: R's departure, the detector that resets PRESENT_l; a cart not the napper's pressing it FAILS): {} by nappers, {} by others ({}){}\nthe drop-entry envelope (G1 10:36: per pass, the off-rail ticks on the drop cell (x,24,6) and the largest lateral displacement there; a pass beyond the envelope ({eg} gt / {edx:.3} b; tick-exact's game: ~5 off-rail ticks, +-0.198 diagonal) with a cart at C or D behind it FAILS): {n_beyond} ({}); {per}\n{}{}",
+            ok_d.len(),
+            bad_d.len(),
+            if bad_d.is_empty() { "PASS" } else { "FAIL" },
+            if bad_d.is_empty() { String::new() } else { format!(": {}", bad_d.iter().take(12).map(|(t, k, c, r, p)| format!("t {t} lane x {} cart #{c} rider {} (PRESENT_l {})", LANES[*k], r.map_or("-".to_string(), |r| format!("#{r}")), if *p { "set: CLEARED by it" } else { "not set" })).collect::<Vec<_>>().join("; ")) },
+            if n_beyond == 0 { "PASS" } else { "FAIL" },
+            match (o.lip_hold, lip_hold_cart) {
+                (Some(n), Some((c, t, _))) => format!("the forced lip row (G1 10:34): cart #{c} held {n} gt on the drop cell from t {t}\n"),
+                (Some(n), None) => format!("the forced lip row (G1 10:34): --lip-hold {n}: no cart reached a drop cell after t 1,000: NOT JUDGED: FAIL\n"),
+                _ => String::new(),
+            },
+            if siding_rows.is_empty() { String::new() } else { format!("the siding trace (G1 10:34), per tick:\n{}\n", siding_rows.join("\n")) }
         )
     };
     let s = if let Some((a, b)) = o.chain_trace {

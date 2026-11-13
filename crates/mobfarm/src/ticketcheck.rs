@@ -13,10 +13,18 @@
 //! crosses at least every 300 gt.
 //!
 //! The placements (the budget's tiling, wip/c3/f1q2-budget.txt: modules on even chunks, loops at
-//! the odd-odd gap chunks; flag (a)'s fallback mirrors the southern modules in z): the loader at its
-//! frame + (17, 0, 17) (gap chunk (1,1)); N = 1 a module at chunk (0,0) (its frame + (6, 0, 6));
-//! N = 4 also (2,0) (+ (38, 0, 6)) and the southern two, mirrored in z (world z = 41 - frame z) or
-//! not (+ (6 / 38, 0, 38)).
+//! the odd-odd gap chunks; ironspec Nov 13 10:26: TRANSLATE ONLY, a mirrored copy is a different
+//! machine, `--mirror` an exploration whose output never counts as design evidence): the loader at
+//! its frame + (6, 0, 6) like the modules (the column frame to the world's: since 4f6bf5812 the loader
+//! file carries its gap-chunk place in the column frame, origin 14 0 17, so its overworld part sits
+//! at chunk (1,1); the old + (17, 0, 17) assumed a loader at its file's origin and double-shifted the
+//! moved file into (1,2) / (2,2)); N = 1 a module at chunk (0,0) (its frame + (6, 0, 6)); N = 4 also
+//! (2,0) (+ (38, 0, 6)) and the southern two (+ (6 / 38, 0, 38)), or mirrored in z under `--mirror`
+//! (world z = 41 - frame z).
+
+/// (the loader's move from its file's frame to the world's: the column frame's (6, 0, 6))
+const LOADER_DX: i32 = 6;
+const LOADER_DZ: i32 = 6;
 
 use mctas::design::Design;
 
@@ -56,7 +64,7 @@ pub fn overlap_report(module: &Design, loader: &Design, n: usize, mirror: bool, 
         }
     }
     for p in loader.blocks.keys() {
-        let w = [p[0] + 17, p[1], p[2] + 17];
+        let w = [p[0] + LOADER_DX, p[1], p[2] + LOADER_DZ];
         chunks.entry((chunk(w[0]), chunk(w[2]))).or_default().insert("the loader".to_string());
         if let Some(o) = owner.insert(w, "the loader".to_string()) {
             clashes.push(format!("({},{},{}) {o} and the loader", w[0], w[1], w[2]));
@@ -194,7 +202,7 @@ pub fn report(module: &Design, loader: &Design, n: usize, mirror: bool) -> Resul
     let mut tickets: Vec<(i32, i32)> = Vec::new();
     for (p, s) in &loader.blocks {
         if s.contains("nether_portal") {
-            let c = (chunk(p[0] + 17), chunk(p[2] + 17));
+            let c = (chunk(p[0] + LOADER_DX), chunk(p[2] + LOADER_DZ));
             if !tickets.contains(&c) {
                 tickets.push(c);
             }

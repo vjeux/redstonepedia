@@ -2008,7 +2008,12 @@ pub enum MobfarmCmd {
         loader: PathBuf,
         #[arg(long, default_value_t = 4)]
         tiling: usize,
-        /// The southern modules not mirrored (flag (a)'s open case).
+        /// (ironspec Nov 13 10:26: TRANSLATE ONLY is the tiling rule) The southern modules mirrored in
+        /// z: an EXPLORATION whose output never counts as design evidence (a mirrored copy is a
+        /// different machine).
+        #[arg(long)]
+        mirror: bool,
+        /// (the default since ironspec Nov 13 10:26; kept for old command lines, a no-op)
         #[arg(long)]
         no_mirror: bool,
         /// Also print the pad portals' random-tick piglins a copy (difficulty id: 1 easy, 2
@@ -2169,6 +2174,23 @@ pub enum MobfarmCmd {
         /// -6,22,5,10,26,10; the y 0 merge row and the foot ramp: -6,-1,5,10,3,9).
         #[arg(long, allow_hyphen_values = true)]
         cart_cells_box: Option<String>,
+        /// (G1 10:24 (c)) the per-lane count bar's positive control: J(-1) left on through two of lane
+        /// -1's branch edges (after the first 10), two extra arrivals into lane -1: the count bar must
+        /// fail on lane -1 alone.
+        #[arg(long)]
+        misroute_control: bool,
+        /// (G1 10:34, the forced lip row) Hold the first cart reaching a lane's drop cell (x,24,6) after
+        /// t 1,000 there this many gt.
+        #[arg(long)]
+        lip_hold: Option<i64>,
+        /// (G1 10:36) The drop-entry envelope GT,DX: a normal pass's most off-rail ticks on the drop
+        /// cell and largest lateral displacement (tick-exact's game rows: ~5 gt, 0.198).
+        #[arg(long, default_value = "5,0.2")]
+        lip_envelope: String,
+        /// (G1 10:34) Per tick in FROM,TO: each lane's PRESENT_l, the carts on its siding's cells with
+        /// their riders, every napper's place.
+        #[arg(long, value_delimiter = ',')]
+        siding_trace: Vec<i64>,
         /// (ironspec 11:15) An S-bend seat whose stamp resets are counted:
         /// `NAME=x,y,z:cx,cy,cz+cx,cy,cz...` (the seat's rail cell, its clearing candidates).
         /// Repeatable.
@@ -7524,7 +7546,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             // (G1 / ironspec 10:05) the tiling invariant: every part on the chunk grid
             if assert_aligned {
                 let off: Vec<String> = specs.iter().filter(|s| [s.frame[0], s.frame[2], s.tier[0], s.tier[2]].iter().any(|v| v.rem_euclid(16) != 0)).map(|s| format!("{} (@{},{},{} ^{},{},{})", s.name, s.frame[0], s.frame[1], s.frame[2], s.tier[0], s.tier[1], s.tier[2])).collect();
-                println!("the tiling invariant (G1 / ironspec 10:05: every part's move a multiple of 16 in x and z): {} of {} parts off the grid ({})", off.len(), specs.len(), if off.is_empty() { "PASS".to_string() } else { format!("FAIL: {}", off.join(", ")) });
+                println!("the tiling invariant (G1 / ironspec 10:05 / 10:26: every part's move a multiple of 16 in x and z; translate only: the composer has no mirror or rotation, so no part is mirrored or rotated): {} of {} parts off the grid ({})", off.len(), specs.len(), if off.is_empty() { "PASS".to_string() } else { format!("FAIL: {}", off.join(", ")) });
                 anyhow::ensure!(off.is_empty(), "--assert-aligned: {} part(s) off the chunk grid: {}", off.len(), off.join(", "));
             }
             let mut reserves = reserves;
@@ -7713,10 +7735,14 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 std::process::exit(1);
             }
         }
-        MobfarmCmd::TicketCheck { module, loader, tiling, no_mirror, piglins, difficulty, nether_group, twin_y, keep_out } => {
+        MobfarmCmd::TicketCheck { module, loader, tiling, mirror, no_mirror, piglins, difficulty, nether_group, twin_y, keep_out } => {
+            let _ = no_mirror;
             let m = mctas::design::Design::parse(&std::fs::read_to_string(&module)?)?;
             let l = mctas::design::Design::parse(&std::fs::read_to_string(&loader)?)?;
-            let (rep, mut ok) = crate::ticketcheck::report(&m, &l, tiling, !no_mirror).map_err(|e| anyhow::anyhow!(e))?;
+            if mirror {
+                println!("--mirror: an EXPLORATION (ironspec Nov 13 10:26: translate only is the tiling rule; a mirrored copy is a different machine): this output never counts as design evidence");
+            }
+            let (rep, mut ok) = crate::ticketcheck::report(&m, &l, tiling, mirror).map_err(|e| anyhow::anyhow!(e))?;
             print!("{}: {rep}", module.display());
             // (the tiling's cells: clashes between copies and the loader, keep-outs, chunks used)
             let boxes: Vec<([i32; 3], [i32; 3])> = keep_out
@@ -7727,7 +7753,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     Ok(([v[0], v[1], v[2]], [v[3], v[4], v[5]]))
                 })
                 .collect::<Result<_>>()?;
-            let (orep, ook) = crate::ticketcheck::overlap_report(&m, &l, tiling, !no_mirror, &boxes).map_err(|e| anyhow::anyhow!(e))?;
+            let (orep, ook) = crate::ticketcheck::overlap_report(&m, &l, tiling, mirror, &boxes).map_err(|e| anyhow::anyhow!(e))?;
             print!("{orep}");
             ok &= ook;
             if let Some(g) = nether_group {
@@ -7743,7 +7769,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 std::process::exit(1);
             }
         }
-        MobfarmCmd::F1q2Run { design, seed, ticks, day0, lane_carts, restart_every, restart_at, restart_order, control_rider, trace, drive, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour_golems, cart_trace, drive_out, scene_out, watchdog, stale_start, held_at_divert, report_only, queue_hold, empty_pocket, stack_bench, inert_control, gossip_control, bystander_control, seed_queued_napper, day_threshold, bed_ticket_taken, stamp_control, home_erase_control, air_control, rider_trace, rs_ready_early_control, bystander_dud, day_phase_control, c7_placement, c7_home_stored, lift_block, trace_entity, with_part, pair_check, chain_trace, strand_control, cart_cells, at_entry_control, late_return_control, cart_cells_box } => {
+        MobfarmCmd::F1q2Run { design, seed, ticks, day0, lane_carts, restart_every, restart_at, restart_order, control_rider, trace, drive, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour_golems, cart_trace, drive_out, scene_out, watchdog, stale_start, held_at_divert, report_only, queue_hold, empty_pocket, stack_bench, inert_control, gossip_control, bystander_control, seed_queued_napper, day_threshold, bed_ticket_taken, stamp_control, home_erase_control, air_control, rider_trace, rs_ready_early_control, bystander_dud, day_phase_control, c7_placement, c7_home_stored, lift_block, trace_entity, with_part, pair_check, chain_trace, strand_control, cart_cells, at_entry_control, late_return_control, cart_cells_box, misroute_control, lip_hold, lip_envelope, siding_trace } => {
             let (c, spec) = load(version, &design)?;
             // (ironspec 08:16 platform, onechunk's 23rd) the c7 reconciliation loads the record's own
             // villagers HOME-less (spec_of's PortHome::Skip), as tick-exact's game setup has them
@@ -7915,6 +7941,12 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             anyhow::ensure!(chain_trace.is_empty() || chain_trace.len() == 2, "--chain-trace FROM,TO");
             let chain_trace = (chain_trace.len() == 2).then(|| (chain_trace[0], chain_trace[1]));
+            anyhow::ensure!(siding_trace.is_empty() || siding_trace.len() == 2, "--siding-trace FROM,TO");
+            let siding_trace = (siding_trace.len() == 2).then(|| (siding_trace[0], siding_trace[1]));
+            let lip_envelope: (i64, f64) = {
+                let (a, b) = lip_envelope.split_once(',').ok_or_else(|| anyhow::anyhow!("--lip-envelope GT,DX"))?;
+                (a.trim().parse()?, b.trim().parse()?)
+            };
             let cart_cells_box: Option<([i32; 3], [i32; 3])> = match cart_cells_box.as_deref() {
                 None => None,
                 Some(b) => {
@@ -7937,7 +7969,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     })
                     .collect()
             };
-            let o = crate::f1q2run::Opts { seed, ticks, day0, lane_carts, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour, cart_trace, restarts, restart, control_rider, trace, bed, drive, drive_rec, watchdog, stale_start, held_at_divert, queue_hold, emulated, emulated_states, ts, update_only, empty_pocket, dwell_cap, stack_bench, stops, k_lock, k_sw, inert, always_on, push_pairs, way_in_composed, inert_control, watch_reasons, gossip_control, bystander_control, a6_pickup, seed_queued_napper, day_threshold, bed_ticket_taken, block_standins, stamp_control, home_erase_control, air_control, rider_trace, rs_ready_early_control, bystander_dud, day_phase_control, c7_placement, c7_home_stored, lift_block, trace_entity, pair_checks, chain_trace, strand_control, cart_cells, at_entry_control, late_return_control, stable_ts, cart_cells_box };
+            let o = crate::f1q2run::Opts { seed, ticks, day0, lane_carts, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour, cart_trace, restarts, restart, control_rider, trace, bed, drive, drive_rec, watchdog, stale_start, held_at_divert, queue_hold, emulated, emulated_states, ts, update_only, empty_pocket, dwell_cap, stack_bench, stops, k_lock, k_sw, inert, always_on, push_pairs, way_in_composed, inert_control, watch_reasons, gossip_control, bystander_control, a6_pickup, seed_queued_napper, day_threshold, bed_ticket_taken, block_standins, stamp_control, home_erase_control, air_control, rider_trace, rs_ready_early_control, bystander_dud, day_phase_control, c7_placement, c7_home_stored, lift_block, trace_entity, pair_checks, chain_trace, strand_control, cart_cells, at_entry_control, late_return_control, stable_ts, cart_cells_box, misroute_control, lip_hold, lip_envelope, siding_trace };
             let (rep, out) = crate::f1q2run::run_driven(&spec, &o).map_err(|e| anyhow::anyhow!(e))?;
             for l in &with_part_lines {
                 println!("the composed part (--with-part, ironspec 07:57 / 08:18 platform): {l}");
