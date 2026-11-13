@@ -270,6 +270,36 @@ pub fn scene_entity_lines(entities: &[(String, [f64; 3], Option<String>)]) -> St
     entities.iter().enumerate().map(|(n, (ty, p, nbt))| format!("# e{n}\nentity: {ty} {} {} {} {}\n", p[0], p[1], p[2], nbt.as_deref().unwrap_or(""))).collect()
 }
 
+/// (G1 07:28 PT) The air control's own sample: every drowned rider is the held one or rode a cart
+/// stacked below it in its column at the hold's start; a drowning anywhere else is a natural failure
+/// beside the control.
+pub fn air_control_own(drowned: &[u32], held: u32, stacked: &[u32]) -> bool {
+    drowned.contains(&held) && drowned.iter().all(|d| *d == held || stacked.contains(d))
+}
+
+/// (G1 07:28 PT, ironspec 07:09 platform) A clearing event: the brain's CANT_REACH_WALK_TARGET_SINCE
+/// erased, which only the sleep start, MoveToTargetSink's reached test (the target block within its
+/// close-enough Manhattan distance) or the sink's own tryComputePath reaching canReach do; a
+/// navigation recompute erases nothing, so while the stamp stays set there's no clearing, whatever the
+/// path. `target` is the walk target's block and close-enough distance, `me` the villager's block.
+pub fn clearing_source(prev_stamp: Option<i64>, stamp: Option<i64>, napped: bool, target: Option<([i32; 3], i32)>, me: [i32; 3], kind: &str) -> Option<String> {
+    if prev_stamp.is_none() || stamp.is_some() {
+        return None;
+    }
+    Some(match target {
+        _ if napped => format!("a nap (the sleep start erases it{})", if kind.is_empty() { String::new() } else { format!("; target {kind}") }),
+        Some((tb, close)) => {
+            let m = (tb[0] - me[0]).abs() + (tb[1] - me[1]).abs() + (tb[2] - me[2]).abs();
+            if m <= close {
+                format!("its target reached (MoveToTargetSink's reached test: {kind} at Manhattan {m} <= close {close})")
+            } else {
+                format!("the sink's own tryComputePath reaching canReach ({kind} at Manhattan {m}, close {close})")
+            }
+        }
+        None => "no target on record (a model case to report)".to_string(),
+    })
+}
+
 /// An activity strip run-length encoded: `P×120 R×3 P×50`.
 fn rle(s: &str) -> String {
     let mut out: Vec<String> = Vec::new();
@@ -1790,6 +1820,9 @@ struct Rec {
     prev_stamp: Option<i64>,
     prev_home: Option<[i32; 3]>,
     prev_target: Option<[f64; 3]>,
+    /// (G1 07:28 PT) the previous tick's WALK_TARGET close-enough distance (MoveToTargetSink's
+    /// reached test: the target block within it, Manhattan).
+    prev_target_close: Option<i32>,
     naps: i64,
     /// The pocket turn in progress.
     turn: Option<Turn>,
@@ -1890,6 +1923,8 @@ struct Rec {
     /// (ironspec 06:55 platform (3)) its first REST tick in that window: the tick, the cell and the
     /// scarer sight then.
     switch_rest_at: Option<String>,
+    /// (G1 07:28 PT) that row waits for the clip and the covered / dark call later in the tick.
+    switch_pending: bool,
     /// (ironspec 07:30 real (1), G1) every CANT_REACH arming and its clearing: (armed, cleared,
     /// how); the arming in progress.
     arm_open: Option<i64>,
@@ -2450,7 +2485,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     let start_free = redsim::entity::mob::ai::poi::free_tickets(&mut run.world, bed);
     let start_holders = holders_of(&run.world);
     let start_state_line = format!(
-        "the start-state line (ironspec 06:42 real): the bed's free tickets {}, HOME memory holders {}; {}; the pre-fix ticket gap: the early ticket read (a declared stand-in, built before any HOME was set: {} free then) against redsim's own lazy table from the memories, {} -> {} free{}{}",
+        "the start-state line (ironspec 06:42 real; the surroundings, ironspec 07:43 platform: VOID, the site not modelled, so every stamp / HOME result in this report is labelled \"(void surroundings: the site not modelled)\"): the bed's free tickets {}, HOME memory holders {}; {}; the pre-fix ticket gap: the early ticket read (a declared stand-in, built before any HOME was set: {} free then) against redsim's own lazy table from the memories, {} -> {} free{}{}",
         start_free.map_or("- (no POI at the bed)".to_string(), |f| f.to_string()),
         start_holders.len(),
         if o.bed_ticket_taken { "state (ii), the bench taking the ticket (--bed-ticket-taken)" } else { "the design start (i)" },
@@ -2709,6 +2744,8 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     // (G1: the air bar's positive) the held rider: (id, from, the cart's held position, the cart, its
     // air at the hold, its least air in the hold)
     let mut air_held: Option<(u32, i64, [f64; 3], u32, i32, i32)> = None;
+    // (G1 07:28 PT) the riders stacked below the held cart in its column at the hold's start
+    let mut air_stacked: Vec<u32> = Vec::new();
     // (the lift-block control's cart)
     let mut lift_blocker: Option<u32> = None;
     // (cc767b78) the traced entity's per-tick rows
@@ -3967,7 +4004,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         for id in ids {
             let Some(i) = redsim::entity::index_of(w, id) else { continue };
             let pos = w.entities.list[i].pos;
-            let (home, activity_rest, panic, sleeping, stamp, target, last_slept, reach, sink_cd, path_target, path_end, hostile, target_kind, activity, target_key, path_from) = {
+            let (home, activity_rest, panic, sleeping, stamp, target, last_slept, reach, sink_cd, path_target, path_end, hostile, target_kind, activity, target_key, path_from, target_close) = {
                 use redsim::entity::mob::ai::brain::Act;
                 let b = redsim::entity::mob::ai::brain::brain(w, i);
                 let ex = b.ex.as_deref();
@@ -3991,6 +4028,9 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                         [q.x, q.y, q.z]
                     }),
                 });
+                // (G1 07:28 PT) the walk target's close-enough distance, for MoveToTargetSink's
+                // reached test
+                let target_close = ex.and_then(|x| x.mem.walk_target.as_ref()).map(|t| t.close);
                 // (what kind of target: a point (a flee or a stroll), a block (HOME, a POI) or another
                 // entity (the walk to a villager seen within 8: SetWalkTargetFromLookTarget), and the
                 // activity it was drawn in)
@@ -4020,7 +4060,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     redsim::entity::mob::ai::brain::tree::Kind::MoveToTargetSink { remaining_cooldown, .. } => Some(*remaining_cooldown),
                     _ => None,
                 }));
-                (b.home.map(|h| [h.x, h.y, h.z]), rest, panic, sleeping, ex.and_then(|x| x.mem.cant_reach_since), target, b.last_slept, reach, sink_cd, path_target, path_end, hostile, target_kind, activity, target_key, path_from)
+                (b.home.map(|h| [h.x, h.y, h.z]), rest, panic, sleeping, ex.and_then(|x| x.mem.cant_reach_since), target, b.last_slept, reach, sink_cd, path_target, path_end, hostile, target_kind, activity, target_key, path_from, target_close)
             };
             let r = recs.get_mut(&id).unwrap();
             let c = cell(pos);
@@ -4104,6 +4144,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                         r.switch_strip.push(if panic { 'P' } else if activity_rest && in_trip { 'r' } else if activity_rest { 'R' } else { '.' });
                         if activity_rest && !in_trip && r.switch_rest_at.is_none() {
                             r.switch_rest_at = Some(format!("day time {dt} at ({:.1},{:.1},{:.1}) {:?}{}, {}", pos.x, pos.y, pos.z, c, if riding { " riding" } else { "" }, sight(w)));
+                            r.switch_pending = true;
                         }
                     }
                 }
@@ -4134,6 +4175,20 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                         if let Some(ci) = redsim::entity::index_of(w, cv) {
                             let cp = w.entities.list[ci].pos;
                             air_held = Some((id, now - t0, [cp.x, cp.y, cp.z], cv, air, air));
+                            // (G1 07:28 PT) the hold's footprint by entity id and column geometry:
+                            // the riders of the carts in the held cart's column below it, from the
+                            // hold's start
+                            let col = cell(cp);
+                            air_stacked = w
+                                .entities
+                                .list
+                                .iter()
+                                .filter(|e| !e.removed && e.id != cv && matches!(e.kind, EntityKind::Minecart(_)) && {
+                                    let ec = cell(e.pos);
+                                    ec[0] == col[0] && ec[2] == col[2] && e.pos.y < cp.y
+                                })
+                                .flat_map(|e| e.passengers.iter().copied())
+                                .collect();
                             controls_done.push(format!("the air control at t {}: {who}'s cart held at ({:.2},{:.2},{:.2}) for 340 gt from its first tick in water (air {air}) (the air-supply bar must catch it)", now - t0, cp.x, cp.y, cp.z));
                         }
                     }
@@ -4209,6 +4264,30 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     r.last_h_visit = Some(now - t0);
                 }
                 r.on_h_prev = on_h;
+                // (G1 07:28 PT, ironspec 07:27 platform) each switch-window REST rider: the scarer's
+                // eye-to-eye clip, covered or dark (a hostile of the sensor's range for its type, in
+                // sight), and why its PANIC ended or never started
+                if r.switch_pending {
+                    r.switch_pending = false;
+                    let eye = redsim::entity::mob::villager::eye_pos(w, i);
+                    let covered = w.entities.list.iter().enumerate().any(|(j, e)| {
+                        let EntityKind::Mob(m) = &e.kind else { return false };
+                        let range = match format!("{:?}", m.ty).as_str() {
+                            "Zombie" | "Husk" | "Drowned" | "ZombieVillager" | "Vex" => 8.0,
+                            "Vindicator" => 10.0,
+                            "Evoker" | "Illusioner" | "Ravager" => 12.0,
+                            "Pillager" => 15.0,
+                            _ => return false,
+                        };
+                        let d2 = (e.pos.x - pos.x).powi(2) + (e.pos.y - pos.y).powi(2) + (e.pos.z - pos.z).powi(2);
+                        !e.removed && d2 < range * range && redsim::entity::mob::los::has_line_of_sight(w, eye, redsim::entity::mob::ai::eye_pos(w, j))
+                    });
+                    let had_panic = r.switch_strip.contains('P');
+                    let why = if had_panic { "its PANIC ended in the window (VillagerCalmDown: no hostile or hurt memory left), then REST" } else { "no PANIC in the window before it (no hostile in its memory at the 12,000 schedule update: IDLE -> REST)" };
+                    if let Some(row) = r.switch_rest_at.as_mut() {
+                        row.push_str(&format!("; {}; {why}; {}", nearest(w), if covered { "COVERED (a hostile in its sensor range and in sight): G1's one-tick question" } else { "DARK (no hostile in sensor range and sight): the dark-spell class, judged by the at-entry bar" }));
+                    }
+                }
                 // (ironspec 06:40 platform, G1 1c) every wake: the flee target the waker set, its path
                 // (brain: the rider's own path memory), the stamp; closed at the next REST entry
                 if r.sleeping_prev && !sleeping {
@@ -4761,6 +4840,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     ex.mem.cant_reach_since = r.prev_stamp;
                 }
                 r.prev_target = target;
+                r.prev_target_close = target_close;
                 r.prev_key = target_key;
                 continue;
             }
@@ -4797,12 +4877,11 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 let napped = sleeping || last_slept == Some(now);
                 let what = match r.prev_target {
                     Some(t) => {
-                        let d = ((pos.x - t[0]).powi(2) + (pos.y - t[1]).powi(2) + (pos.z - t[2]).powi(2)).sqrt();
                         let tc = [t[0].floor() as i32, t[1].floor() as i32, t[2].floor() as i32];
                         let kind = if r.prev_home.is_some_and(|h| h == tc) { "the bed" } else if panic { "a flee point" } else { "a stroll point" };
-                        if napped { format!("a nap (target {kind})") } else if d <= 1.5 { format!("its target reached ({kind}, {d:.2} away)") } else { format!("a complete path to its target ({kind}, {d:.2} away)") }
+                        clearing_source(r.prev_stamp, stamp, napped, Some((tc, r.prev_target_close.unwrap_or(0))), c, kind).unwrap_or_default()
                     }
-                    None => if napped { "a nap".to_string() } else { "no target on record (a model case to report)".to_string() },
+                    None => clearing_source(r.prev_stamp, stamp, napped, None, c, "").unwrap_or_default(),
                 };
                 r.clears.push(format!("t {} at {:?}: {what}", now - t0, c));
                 if let Some(a) = r.arm_open.take() {
@@ -4813,7 +4892,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     r.day_clears[place_of(c)] += 1;
                 }
                 // (the clears by place and cause, and the stretch since the last clear)
-                let cause = if what.starts_with("a nap") { 0 } else if what.starts_with("its target reached") { 1 } else if what.starts_with("a complete path") { 2 } else { 3 };
+                let cause = if what.starts_with("a nap") { 0 } else if what.starts_with("its target reached") { 1 } else if what.starts_with("the sink's own tryComputePath") { 2 } else { 3 };
                 r.clears_by[place_of(c)][cause] += 1;
                 if let Some(l) = r.last_clear {
                     let gap = now - t0 - l;
@@ -5093,6 +5172,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             r.prev_stamp = stamp;
             r.prev_home = home;
             r.prev_target = target;
+            r.prev_target_close = target_close;
             r.prev_key = target_key;
         }
         // (ironfarm 11:40) the traced cart's cells, and each lane's H..V occupancy at every release
@@ -5317,7 +5397,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     let lapsf = laps.max(1) as f64;
     for (p, name) in ["the pocket", "the lane (R_1, the slopes)", "the siding (K, F, R)", "elsewhere"].iter().enumerate() {
         s.push_str(&format!(
-            "clears at {name}, all riders: a nap {} ({:.2} a lap), the target reached {} ({:.2}), a complete path {} ({:.2}), no target on record {}\n",
+            "clears at {name}, all riders (G1 07:28 PT: the sources that erase the stamp; no navigation recompute counts): a nap (the sleep start) {} ({:.2} a lap), the target reached (MoveToTargetSink's Manhattan test) {} ({:.2}), the sink's own tryComputePath {} ({:.2}), no target on record {}\n",
             by[p][0],
             by[p][0] as f64 / lapsf,
             by[p][1],
@@ -5926,10 +6006,10 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 .map(|r| format!("{} {}", r.label.split(' ').next().unwrap_or(""), r.trips.iter().map(|(a, b)| format!("t {a}..{}", b.map_or("end".to_string(), |b| b.to_string()))).collect::<Vec<_>>().join(", ")))
                 .collect();
             s.push_str(&format!(
-                "  the lane riders in REST at night outside their own trip (ironspec 06:24 / 06:31 real, the decisive bar: bar 0; a napper's trip is its pick to R): {} entries, {} REST ticks ({}); of them at a design position (riding) with a partial HOME path: {} (bar 0: {}); the night window t {}; the entries by cell (9fc3155f's coverage fix, the most first): {}; each napper's excluded trips: {}; every REST entry ({} in all, sleepers and trips included): {}\n",
+                "  the lane riders in REST at night outside their own trip (ironspec 06:24 / 06:31 real; since ironspec 06:33 platform / 07:27 platform the COVERAGE count, information: the at-entry stamp bar is the gate; a napper's trip is its pick to R): {} entries, {} REST ticks ({}); of them at a design position (riding) with a partial HOME path: {} (bar 0: {}); the night window t {}; the entries by cell (9fc3155f's coverage fix, the most first): {}; each napper's excluded trips: {}; every REST entry ({} in all, sleepers and trips included): {}\n",
                 lane_rest_entries,
                 lane_rest_ticks,
-                if night_window.is_none() { "NOT JUDGED (no night in the run): FAIL" } else if lane_rest_entries == 0 { "PASS" } else { "FAIL" },
+                if night_window.is_none() { "NOT JUDGED (no night in the run): information" } else { "information" },
                 partial,
                 if night_window.is_none() { "NOT JUDGED: FAIL" } else if partial == 0 { "PASS" } else { "FAIL" },
                 night_window.map_or("- (none)".to_string(), |(a, b)| format!("{a}..{b} (day time 12,000..24,000)")),
@@ -5971,7 +6051,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             // (ironspec 06:33 / 06:37 platform, G1) the at-entry stamp bar: the stamp at each REST
             // spell's first HOME-targeting tick
             s.push_str(&format!(
-                "  the at-entry stamp bar (ironspec 06:33 / 06:37 platform: at every REST spell's first tick SetWalkTargetFromBlockMemory ran (HOME targeted), the stamp < 1,000 gt, any position): {} spells judged, the worst {} gt, {} at >= 1,000 ({})\n",
+                "  the at-entry stamp bar (ironspec 06:33 / 06:37 platform: at every REST spell's first tick SetWalkTargetFromBlockMemory ran (HOME targeted), the stamp < 1,000 gt, any position; void surroundings: the site not modelled): {} spells judged, the worst {} gt, {} at >= 1,000 ({})\n",
                 at_home_target_n,
                 at_home_target_max,
                 at_home_target_over,
@@ -6776,11 +6856,11 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         controls.push(("--home-erase-control".to_string(), "  the farm-stop bar", true, home_erased, own));
     }
     if o.air_control {
-        // (the held rider and every rider whose drowning transit began inside the 340-gt hold: the
-        // hold's own consequence, the cart behind it included)
-        let own = air_held.is_some_and(|h| {
-            recs.iter().all(|(id, r)| r.air_transits.iter().chain(r.air_open.iter()).filter(|t| t.1 < 0).all(|t| *id == h.0 || (t.0 >= h.1 && t.0 < h.1 + 340)))
-        });
+        // (G1 07:28 PT) the hold's own consequence by entity id and column geometry: the held rider
+        // and the riders of the carts below it in its column at the hold's start; any other
+        // drowning fails the control
+        let drowned: Vec<u32> = recs.iter().filter(|(_, r)| r.air_transits.iter().chain(r.air_open.iter()).any(|t| t.1 < 0)).map(|(id, _)| *id).collect();
+        let own = air_held.is_some_and(|h| air_control_own(&drowned, h.0, &air_stacked));
         controls.push(("--air-control".to_string(), "  the air-supply bar", true, air_held.is_some(), own));
     }
     if o.rs_ready_early_control {
@@ -6959,6 +7039,33 @@ mod counter_tests {
         assert!(c(15.99, 0.0, 0.0) && c(0.0, -15.99, 0.0) && c(0.0, 0.0, 15.99));
         assert!(!c(16.01, 0.0, 0.0) && !c(0.0, 16.01, 0.0) && !c(0.0, 0.0, -16.01));
         assert!(!c(16.0, 0.0, 0.0), "strict: exactly 16 is outside");
+    }
+
+    /// (G1 07:28 PT) the air control's footprint: the held rider and those stacked below it count as
+    /// its own; a natural drowning elsewhere in the same run leaves it NOT CAUGHT ALONE
+    #[test]
+    fn the_air_controls_own_sample_is_its_column() {
+        assert!(super::air_control_own(&[7], 7, &[9, 11]));
+        assert!(super::air_control_own(&[7, 9], 7, &[9, 11]), "the cart stacked below it");
+        assert!(!super::air_control_own(&[7, 9, 30], 7, &[9, 11]), "a natural drowning elsewhere");
+        assert!(!super::air_control_own(&[9], 7, &[9, 11]), "the held rider itself must drown");
+    }
+
+    /// (G1 07:28 PT) a clearing is the stamp erased, nothing else: a complete path (a navigation
+    /// recompute) with the stamp still set is no clearing; the sources named by the game's tests
+    #[test]
+    fn a_recompute_with_the_stamp_set_is_no_clearing() {
+        let me = [-2, 0, 4];
+        // the stamp still set after any path change: no clearing
+        assert_eq!(super::clearing_source(Some(100), Some(100), false, Some(([-9, 0, 9], 0)), me, "a flee point"), None);
+        // no stamp before: nothing to clear
+        assert_eq!(super::clearing_source(None, None, false, None, me, ""), None);
+        // erased within close-enough Manhattan (P is Manhattan 1 from the bed head, HOME's close 1)
+        assert!(super::clearing_source(Some(100), None, false, Some(([-3, 0, 4], 1)), me, "the bed").unwrap().starts_with("its target reached"));
+        // erased farther away: the sink's own tryComputePath
+        assert!(super::clearing_source(Some(100), None, false, Some(([-3, 0, 6], 1)), me, "the bed").unwrap().starts_with("the sink's own tryComputePath"));
+        // the sleep start first
+        assert!(super::clearing_source(Some(100), None, true, Some(([-3, 0, 6], 1)), me, "the bed").unwrap().starts_with("a nap"));
     }
 
     /// (ironspec's E7 control) a nap lying down at 23,990 and still asleep past 24,000 is one nap of
