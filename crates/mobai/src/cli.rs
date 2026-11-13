@@ -570,6 +570,50 @@ pub enum MobaiCmd {
     },
     /// (tickexact 2026-11-13, G1 / ironspec 03:36 PT: a cheap confirmation) A seated villager and a
     /// zombie in a boat 4 east; the column the eye-to-eye ray crosses: open, glass, solid, a gap
+    /// (tickexact 2026-11-13, ironspec 06:31 real msg-id) The official (A)-geometry re-claim row: a
+    /// napper armed with a stamp, stood by day on the bed foot's top, released at dusk; every
+    /// AcquirePoi attempt's path and the re-claim
+    BedReclaim {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        #[arg(long)]
+        file: std::path::PathBuf,
+        /// Cells set to air first, x,y,z;... (each must change)
+        #[arg(long, default_value = "", allow_hyphen_values = true)]
+        remove: String,
+        #[arg(long, default_value = "-2.5,0.5625,3.5", allow_hyphen_values = true)]
+        day_pos: String,
+        #[arg(long, default_value = "-3,0,4", allow_hyphen_values = true)]
+        home: String,
+        #[arg(long, default_value = "-2.5,0,30.5", allow_hyphen_values = true)]
+        arm_at: String,
+        #[arg(long, default_value_t = 2)]
+        runs: u32,
+        /// gt after the dusk
+        #[arg(long, default_value_t = 2000)]
+        after: u32,
+    },
+    /// (tickexact 2026-11-13, ironspec 06:08 real msg-id: the composed night, live controller) onechunk's
+    /// f1q2-run act list (`--drive-out`) replayed open loop over its scene (`--scene-out`)
+    DriveReplay {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        #[arg(long)]
+        scene: std::path::PathBuf,
+        #[arg(long)]
+        drive: std::path::PathBuf,
+        #[arg(long, default_value_t = 14200)]
+        ticks: u32,
+        /// The day time at the drive's t = 0
+        #[arg(long, default_value_t = 11200)]
+        day_start: i64,
+        /// The bed head, x,y,z (frame)
+        #[arg(long, default_value = "-3,-27,3", allow_hyphen_values = true)]
+        bed: String,
+        /// World opens (save, stop, start) before these ticks, comma-separated
+        #[arg(long, default_value = "")]
+        loads: String,
+    },
     SightControl {
         #[arg(long, default_value = "26.3")]
         version: String,
@@ -1448,6 +1492,10 @@ pub enum MobaiCmd {
         /// set to the model's threshold - 1 .. + 2 (ironspec 00:36 PT)
         #[arg(long)]
         dawn: bool,
+        /// (tickexact 2026-11-13) On the official server: the DAY line's off-edge (the first dusk
+        /// update reading <= 5) in clear, rain and thunder, each at its end levels
+        #[arg(long)]
+        edges: bool,
     },
     /// (tickexact 2026-11-11, the parent's shared-bed overload across reloads) Scene bed-reload-<case>'s
     /// recording at its checkpoints: every villager's HOME and LAST_SLEPT, the bed, the naps
@@ -1749,6 +1797,8 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
                     }
                 }
                 println!("--overlay {}: {} cells inside {overlay_box} laid before --set ({same} more equal to the file's own, left out)", o.display(), cells.len());
+                // (G1 on 6ec22ffd8 #9) an overlay that lays nothing is no overlay
+                anyhow::ensure!(!cells.is_empty(), "--overlay {}: no cell inside {overlay_box} differs from the file's own: the overlay lays nothing, the run fails", o.display());
             }
             for e in set.split(';').filter(|e| !e.trim().is_empty()) {
                 let (p, st) = e.split_once('=').ok_or_else(|| anyhow::anyhow!("x,y,z=STATE, got {e}"))?;
@@ -1758,6 +1808,29 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
             }
             let speeds: Vec<f64> = speeds.split(',').map(|v| v.trim().parse()).collect::<Result<_, _>>()?;
             let restarts: Vec<u32> = restarts.split(',').filter(|n| !n.trim().is_empty()).map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+            // (G1 on 6ec22ffd8 #3, #5, #10) no 0-sample run, no restart past the run's end, no flag
+            // that does nothing silently
+            anyhow::ensure!(repeats >= 1, "--repeats 0: no sample (NOT JUDGED); the run fails");
+            anyhow::ensure!(!speeds.is_empty(), "--speeds: none given");
+            if let Some(bad) = restarts.iter().find(|&&r| r == 0 || r > ticks) {
+                anyhow::bail!("--restarts {bad}: outside the run's 1..={ticks} ticks, so the restart row would never restart");
+            }
+            if approach.is_none() {
+                let silent: Vec<&str> = [
+                    ("--day", day),
+                    ("--watch", watch.is_some()),
+                    ("--clear", clear.is_some()),
+                    ("--release-lever", release_lever),
+                    ("--cart-pos", cart_pos.is_some()),
+                    ("--file-cart", file_cart),
+                    ("--start-vx", start_vx != 0.0),
+                ]
+                .iter()
+                .filter(|(_, on)| *on)
+                .map(|(n, _)| *n)
+                .collect();
+                anyhow::ensure!(silent.is_empty(), "{} only act(s) with --approach: refused rather than ignored", silent.join(", "));
+            }
             let approach = match approach {
                 Some(s) => {
                     let p: Vec<f64> = s.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
@@ -1774,6 +1847,9 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
                     };
                     let h: Vec<i32> = home.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
                     anyhow::ensure!(p.len() == 3 && h.len() == 3 && t1 <= t2, "--approach x,y,z --release x,y,z,t --home x,y,z");
+                    // (G1 #10) the release must fall inside the run (9999 = "never" is allowed as the
+                    // explicit no-release probe)
+                    anyhow::ensure!(t2 < ticks || t1 == 9999, "--release tick {t2} is not inside the run's {ticks} ticks (use 9999 for an explicit no-release probe)");
                     let watch = match &watch {
                         Some(w) => {
                             let v: Vec<i32> = w.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
@@ -1808,6 +1884,31 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
             };
             crate::bedtrap::bed_trap(&version, &file, &cells, &speeds, approach, &restarts, repeats, ticks, held_only)
         }
+        MobaiCmd::BedReclaim { version, file, remove, day_pos, home, arm_at, runs, after } => {
+            let f3 = |s: &str, n: &str| -> anyhow::Result<[f64; 3]> {
+                let v: Vec<f64> = s.split(',').map(|x| x.trim().parse()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(v.len() == 3, "{n} x,y,z");
+                Ok([v[0], v[1], v[2]])
+            };
+            let rm: Vec<[i32; 3]> = remove
+                .split(';')
+                .filter(|e| !e.trim().is_empty())
+                .map(|e| -> anyhow::Result<[i32; 3]> {
+                    let v: Vec<i32> = e.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(v.len() == 3, "--remove x,y,z;…");
+                    Ok([v[0], v[1], v[2]])
+                })
+                .collect::<anyhow::Result<_>>()?;
+            let h = f3(&home, "--home")?;
+            crate::reclaim::bed_reclaim(&version, &file, &rm, f3(&day_pos, "--day-pos")?, [h[0] as i32, h[1] as i32, h[2] as i32], f3(&arm_at, "--arm-at")?, runs, after)
+        }
+        MobaiCmd::DriveReplay { version, scene, drive, ticks, day_start, bed, loads } => {
+            let b: Vec<i32> = bed.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+            anyhow::ensure!(b.len() == 3, "--bed x,y,z");
+            let loads: Vec<u32> = loads.split(',').filter(|s| !s.trim().is_empty()).map(|s| s.trim().parse()).collect::<Result<_, _>>()?;
+            anyhow::ensure!(loads.iter().all(|&l| l > 0 && l <= ticks), "--loads: each inside 1..={ticks}");
+            crate::drivereplay::drive_replay(&version, &scene, &drive, ticks, day_start, [b[0], b[1], b[2]], &loads)
+        }
         MobaiCmd::SightControl { version, cases, ticks } => crate::sightctl::sight_control(&version, &cases.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect::<Vec<_>>(), ticks),
         MobaiCmd::PlayerSleep { version, how } => crate::playersleep::player_sleep(&version, &how.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect::<Vec<_>>()),
         MobaiCmd::RailSteps { version, file, lanes, case, power, script, watch } => {
@@ -1835,7 +1936,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
             crate::railsteps::rail_steps(&version, &file, &lanes, &case, power)
         }
         MobaiCmd::WaterSettle { version, file, set, ticks, controls } => {
-            if controls {
+            if controls && file.is_none() {
                 return crate::watersettle::controls(&version, ticks);
             }
             let file = file.ok_or_else(|| anyhow::anyhow!("water-settle: a design file (or --controls)"))?;
@@ -2264,8 +2365,10 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         }
         MobaiCmd::RailT { version } => crate::railt::rail_t(&version),
         MobaiCmd::ThreeBeds { version } => crate::threebeds::three_beds(&version),
-        MobaiCmd::Daylight { version, latency, levels, weather_row, dawn } => {
-            if dawn {
+        MobaiCmd::Daylight { version, latency, levels, weather_row, dawn, edges } => {
+            if edges {
+                crate::daylight::edges(&version)
+            } else if dawn {
                 crate::daylight::dawn_edge(&version)
             } else if levels {
                 crate::daylight::levels()

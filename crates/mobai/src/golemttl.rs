@@ -66,9 +66,22 @@ fn memories(srv: &mut VanillaServer) -> Result<String> {
     let mut out = Vec::new();
     for i in 0..3 {
         let s = srv.cmd_long(&format!("data get entity @e[tag=gtv{i},limit=1] Brain.memories.\"minecraft:golem_detected_recently\""))?;
-        out.push(format!("v{i} {}", s.split("entity data: ").nth(1).map(|r| r.trim().to_string()).unwrap_or_else(|| "none".into())));
+        // (G1 on 6ec22ffd8 #6) strict: a failed reply fails, never reads as "absent"
+        let v = if let Some(r) = s.split("entity data: ").nth(1) {
+            r.trim().to_string()
+        } else if s.contains("Found no elements matching") {
+            "none".to_string()
+        } else {
+            anyhow::bail!("v{i}'s golem_detected_recently: unreadable reply: {}", s.trim());
+        };
+        out.push(format!("v{i} {v}"));
     }
     Ok(out.join("; "))
+}
+
+/// The ttls in a `memories` string, in order (v0, v1, v2; None where absent).
+fn ttls(m: &str) -> Vec<Option<i64>> {
+    m.split("; ").map(|p| p.split("ttl: ").nth(1).and_then(|r| r.trim_end_matches(|c: char| !c.is_ascii_digit()).split(|c: char| !c.is_ascii_digit()).next()).and_then(|n| n.parse().ok())).collect()
 }
 
 /// A brain-agent line with its villager named (v0..v2) instead of its UUID.
@@ -81,8 +94,9 @@ fn named(l: &str, uuids: &[String]) -> String {
 }
 
 /// One run: the first golem's game time T, the next golem's offset from T (None if none came), the
-/// notes.
-fn run(version: &str, jar: &std::path::Path, restart_after: Option<u32>, boundary: Option<u32>, ticks: u32) -> Result<(Option<i64>, Option<i64>, Vec<String>)> {
+/// notes, whether the restart happened, and the trio's ttls before / after the load.
+#[allow(clippy::type_complexity)]
+fn run(version: &str, jar: &std::path::Path, restart_after: Option<u32>, boundary: Option<u32>, ticks: u32, covered: bool) -> Result<(Option<i64>, Option<i64>, Vec<String>, bool, Option<(Vec<Option<i64>>, Vec<Option<i64>>)>, usize)> {
     let mut srv = VanillaServer::start(&opts(version, jar, None))?;
     srv.cmd_ok("gamerule advance_time false")?;
     srv.cmd_ok("time set 1000")?;
@@ -91,8 +105,10 @@ fn run(version: &str, jar: &std::path::Path, restart_after: Option<u32>, boundar
     srv.step(200)?;
     srv.cmd_ok(&format!("fill -10 {} -10 10 {} 14 minecraft:glass", Y - 1, Y - 1))?;
     // the pad (golem-pad's): 5 x 3 cobblestone on the glass, the only cells a golem can spawn on
-    // (LEGACY_IRON_GOLEM never spawns on glass)
-    srv.cmd_ok(&format!("fill 2 {Y} 0 4 {Y} 4 minecraft:cobblestone"))?;
+    // (LEGACY_IRON_GOLEM never spawns on glass); `covered` (the no-spot control) leaves it glass
+    if !covered {
+        srv.cmd_ok(&format!("fill 2 {Y} 0 4 {Y} 4 minecraft:cobblestone"))?;
+    }
     let mut uuids = Vec::new();
     for (i, dz) in [0, 2, 4].iter().enumerate() {
         srv.cmd(&format!("setblock 0 {Y} {dz} minecraft:rail"))?;
@@ -108,6 +124,8 @@ fn run(version: &str, jar: &std::path::Path, restart_after: Option<u32>, boundar
     let mut notes = Vec::new();
     let (mut first, mut next) = (None::<i64>, None::<i64>);
     let mut restarted = false;
+    let mut across: Option<(Vec<Option<i64>>, Vec<Option<i64>>)> = None;
+    let mut no_spot_lines = 0usize;
     let restart_at = if boundary.is_some() { restart_after.map(|_| 200) } else { restart_after };
     for _ in 0..ticks {
         let gt = srv.game_time()?;
@@ -126,14 +144,17 @@ fn run(version: &str, jar: &std::path::Path, restart_after: Option<u32>, boundar
                 && !restarted
                 && gt == t0 + r as i64
             {
-                notes.push(format!("before the save (T + {r}): {}", memories(&mut srv)?));
+                let before = memories(&mut srv)?;
+                notes.push(format!("before the save (T + {r}): {before}"));
                 let (s, rl) = crate::restartcheck::reload(srv, |w| opts(version, jar, Some(w)), None)?;
                 srv = s;
                 log = Log { at: 0 };
                 log.drain(&srv)?;
                 srv.cmd_ok("forceload add -16 -16 16 24")?;
                 notes.push(format!("the load: {}", rl.describe()));
-                notes.push(format!("after the load (game time {}): {}", srv.game_time()?, memories(&mut srv)?));
+                let after = memories(&mut srv)?;
+                notes.push(format!("after the load (game time {}): {after}", srv.game_time()?));
+                across = Some((ttls(&before), ttls(&after)));
                 restarted = true;
             }
             // from T + 500 (or the boundary's slot), the trio's memories the tick before each slot
@@ -145,6 +166,10 @@ fn run(version: &str, jar: &std::path::Path, restart_after: Option<u32>, boundar
         srv.step(1)?;
         let t = srv.game_time()?;
         let lines = log.drain(&srv)?;
+        no_spot_lines += lines.iter().filter(|l| l.starts_with("no spot")).count();
+        if covered && t > 600 {
+            break;
+        }
         srv.cmd("kill @e[type=minecraft:iron_golem,tag=gt_old]")?;
         let born = golems(&mut srv)? > 0;
         if let Some(t0) = first
@@ -166,16 +191,19 @@ fn run(version: &str, jar: &std::path::Path, restart_after: Option<u32>, boundar
                 }
                 Some(t0) if next.is_none() => {
                     next = Some(t - t0);
-                    srv.cmd("tag @e[type=minecraft:iron_golem,tag=!gt_old] add gt_old")?;
+                    let out = srv.cmd("tag @e[type=minecraft:iron_golem,tag=!gt_old] add gt_old")?;
+                    anyhow::ensure!(out.contains("Added tag"), "tagging the golem: {}", out.trim());
                     break;
                 }
                 _ => {}
             }
-            srv.cmd("tag @e[type=minecraft:iron_golem,tag=!gt_old] add gt_old")?;
+            // (G1 on 6ec22ffd8 #6) the setup's replies read: an untagged golem would count twice
+            let out = srv.cmd("tag @e[type=minecraft:iron_golem,tag=!gt_old] add gt_old")?;
+            anyhow::ensure!(out.contains("Added tag"), "tagging the golem: {}", out.trim());
         }
     }
     let _ = std::fs::remove_dir_all(&srv.dir);
-    Ok((first, next, notes))
+    Ok((first, next, notes, restarted, across, no_spot_lines))
 }
 
 pub fn golem_ttl(version: &str, restart_after: u32, runs: u32, ticks: u32, boundary: Option<u32>) -> Result<()> {
@@ -186,12 +214,24 @@ pub fn golem_ttl(version: &str, restart_after: u32, runs: u32, ticks: u32, bound
             None => format!("with a restart at T + {restart_after} (save, stop, start) and without"),
         }
     );
+    // (G1 on 6ec22ffd8 #3 / #9) no 0-sample run; the boundary's ttl must be a positive count
+    anyhow::ensure!(runs >= 1, "--runs 0: no sample (NOT JUDGED)");
+    if let Some(m) = boundary {
+        anyhow::ensure!(m < 299, "--boundary {m}: the memories' ttl 400 - m - 101 would be {} (it must be positive): refused", 400 - m as i64 - 101);
+    }
     let jar = mctas::bridge::brain_agent(version)?;
+    // (G1 #6) the no-spot control: the pad left glass, the trio panicking: the first summon must print
+    // the agent's `no spot by` line, or "no spot (no call)" can't be told from a missing call
+    let (_, _, _, _, _, ctl_spots) = run(version, &jar, None, None, 700, true)?;
+    println!("  the no-spot control (the pad covered: glass): `no spot by` lines {ctl_spots}");
+    anyhow::ensure!(ctl_spots > 0, "the no-spot control printed no `no spot by` line: the 'no call' reading can't be trusted: the run fails");
     let mut summary = Vec::new();
     let mut not_judged = 0u32;
-    for (label, restart) in [("control (no restart)", None), ("restart", Some(restart_after))] {
+    let mut bad: Vec<String> = Vec::new();
+    let mut nexts: [Vec<i64>; 2] = [Vec::new(), Vec::new()];
+    for (row, (label, restart)) in [("control (no restart)", None), ("restart", Some(restart_after))].into_iter().enumerate() {
         for k in 1..=runs {
-            let (first, next, notes) = run(version, &jar, restart, boundary, ticks)?;
+            let (first, next, notes, restarted, across, _) = run(version, &jar, restart, boundary, ticks, false)?;
             println!(
                 "  {label}, run {k}: the first golem at {}; the next golem at T + {}",
                 first.map(|t| format!("game time {t}")).unwrap_or_else(|| "none".into()),
@@ -204,10 +244,45 @@ pub fn golem_ttl(version: &str, restart_after: u32, runs: u32, ticks: u32, bound
             if next.is_none() {
                 not_judged += 1;
             }
+            // (G1 #5 / #6) the bars: a restart row restarted; T and the next golem on the 100-gt
+            // slots; the trio's ttls unchanged across the load
+            if restart.is_some() && !restarted {
+                bad.push(format!("{label} run {k}: the restart never happened"));
+            }
+            if let Some(t) = first
+                && t.rem_euclid(100) != 0
+            {
+                bad.push(format!("{label} run {k}: T = {t} is not a panic slot (% 100 = {})", t.rem_euclid(100)));
+            }
+            if let Some(d) = next {
+                if d.rem_euclid(100) != 0 {
+                    bad.push(format!("{label} run {k}: the next golem at T + {d}, not a slot"));
+                }
+                nexts[row].push(d);
+            }
+            if let Some((b, a)) = across
+                && b != a
+            {
+                bad.push(format!("{label} run {k}: the trio's ttls changed across the load: {b:?} -> {a:?}"));
+            }
         }
     }
     println!("  next golem: {}", summary.join(", "));
+    // (G1 #6) "a world open costs exactly one slot": every restart row's next golem one slot (100 gt)
+    // after every control row's (the control's offset is the same in every run)
+    if boundary.is_none() && !nexts[0].is_empty() && !nexts[1].is_empty() {
+        let c = nexts[0][0];
+        if nexts[0].iter().any(|&d| d != c) {
+            bad.push(format!("the control rows disagree: {:?}", nexts[0]));
+        }
+        if nexts[1].iter().any(|&d| d != c + 100) {
+            bad.push(format!("the restart rows' next golem {:?}, not one slot after the control's T + {c}", nexts[1]));
+        }
+        println!("  a world open costs exactly one summon slot (restart = control + 100): {}", if bad.iter().any(|b| b.contains("one slot") || b.contains("disagree")) { "NOT shown" } else { "HELD" });
+    }
+    println!("  bars: {}", if bad.is_empty() { "HELD".to_string() } else { format!("FAILED: {}", bad.join("; ")) });
     // (ironspec 23:56 PT: no vacuous passes)
     anyhow::ensure!(not_judged == 0, "{not_judged} row(s) NOT JUDGED (0 samples): the run fails");
+    anyhow::ensure!(bad.is_empty(), "{} bar(s) failed: {}", bad.len(), bad.join("; "));
     Ok(())
 }

@@ -282,7 +282,11 @@ pub(crate) fn wilson95_pub(k: u32, n: u32) -> (f64, f64) {
 /// A cell whose stated block holds water: a fluid cell (rule B, ironspec 00:27 PT: every fluid
 /// cell's tick is scheduled at the paste).
 pub(crate) fn holds_water(s: &str) -> bool {
-    s.starts_with("minecraft:water") || s.starts_with("minecraft:bubble_column") || s.contains("waterlogged=true")
+    // (G1 on 6ec22ffd8 #11) the water block itself (not water_cauldron, whose fluid state is empty),
+    // bubble columns, waterlogged blocks, and the always-water plants (kelp, kelp_plant, seagrass,
+    // tall_seagrass)
+    let id = s.split('[').next().unwrap_or(s);
+    matches!(id, "minecraft:water" | "minecraft:bubble_column" | "minecraft:kelp" | "minecraft:kelp_plant" | "minecraft:seagrass" | "minecraft:tall_seagrass") || s.contains("waterlogged=true")
 }
 
 /// A part file laid over the module (9fc3155f's F3 scarer part: its glass and glowstone, its seated
@@ -301,6 +305,16 @@ pub(crate) fn place_part(srv: &mut VanillaServer, part: &std::path::Path) -> Res
 /// onPlace, no scheduled tick) and left out of the guard: only water-settle's control uses it, to
 /// plant a fluid cell with no tick of its own.
 pub(crate) fn place_part_skipping(srv: &mut VanillaServer, part: &std::path::Path, skip_fresh: &[[i32; 3]]) -> Result<()> {
+    place_part_inner(srv, part, skip_fresh, true)
+}
+
+/// [`place_part`]'s blocks and fluids only, the design's entity lines left to the caller (the drive
+/// replayer summons them itself, tagged by line).
+pub(crate) fn place_blocks(srv: &mut VanillaServer, part: &std::path::Path) -> Result<()> {
+    place_part_inner(srv, part, &[], false)
+}
+
+fn place_part_inner(srv: &mut VanillaServer, part: &std::path::Path, skip_fresh: &[[i32; 3]], entities: bool) -> Result<()> {
     let d = mctas::design::Design::load(part)?;
     // the other blocks first, then the rails as stated (strict, as the module's); a cell already in
     // that state is left as it is (`cmd`: the setblock then reports no change), and module-check
@@ -352,6 +366,9 @@ pub(crate) fn place_part_skipping(srv: &mut VanillaServer, part: &std::path::Pat
         if skip_fresh.is_empty() { String::new() } else { format!(" (+{} planted without a tick: a control)", skip_fresh.len()) }
     );
     anyhow::ensure!(unscheduled.is_empty() && water + logged == fluid, "place_part: {} of {fluid} fluid cells not placed fresh (no onPlace, no scheduled tick): {}: the run fails", unscheduled.len(), unscheduled.join("; "));
+    if !entities {
+        return Ok(());
+    }
     for e in &d.entities {
         let nbt = e.nbt.clone().unwrap_or_default().replace(
             "id:\"minecraft:pillager\"",

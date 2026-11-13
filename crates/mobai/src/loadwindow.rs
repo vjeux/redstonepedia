@@ -814,7 +814,12 @@ fn item_loop(version: &str, runs: u32) -> Result<()> {
 /// each side (its probe cell) is loaded right after the start, and the loop's arrivals, items and
 /// failed pulses over the 1,200 gt after it.
 fn loop_restarts(mut srv: VanillaServer, opts: &dyn Fn(Option<PathBuf>) -> VanillaOptions, sides: &[LoopSide], runs: u32, nether_probe: [i32; 3], over_probe: [i32; 3], mobs: Option<&MobRow>, pending: bool) -> Result<VanillaServer> {
-    for run in 0..runs {
+    // (G1 on 6ec22ffd8 #1) the pending repeater's verdict is a bar: the stamp at save + 9 exactly, a
+    // missing stamp NOT JUDGED; and one more restart as its control, the input NOT set before the save,
+    // which must show no stamp (else the check can't see a missing pending tick)
+    let mut pending_bad: Vec<String> = Vec::new();
+    for run in 0..runs + u32::from(pending) {
+        let control = pending && run == runs;
         // (ironspec 23:35 PT) the pending repeater's input cleared, so the line settles off during
         // the run below
         if pending {
@@ -824,7 +829,10 @@ fn loop_restarts(mut srv: VanillaServer, opts: &dyn Fn(Option<PathBuf>) -> Vanil
         let _ = run_item_loop(&mut srv, sides, 37 + 76 * run as i64, mobs)?;
         if pending {
             srv.cmd_ok("scoreboard players set #fire lc 0")?;
-            srv.cmd_ok(&format!("setblock {} minecraft:redstone_block", PENDING_SOURCE))?;
+            if !control {
+                let out = srv.cmd(&format!("setblock {} minecraft:redstone_block", PENDING_SOURCE))?;
+                anyhow::ensure!(out.contains("Changed the block"), "the pending repeater's input: {}", out.trim());
+            }
         }
         srv.cmd_ok("save-on")?;
         srv.cmd_ok("save-all flush")?;
@@ -878,19 +886,25 @@ fn loop_restarts(mut srv: VanillaServer, opts: &dyn Fn(Option<PathBuf>) -> Vanil
         }
         if pending {
             let s = srv.cmd("scoreboard players get #fire lc")?;
-            let f: i64 = s.split(" has ").nth(1).and_then(|r| r.split_whitespace().next()).and_then(|n| n.parse().ok()).unwrap_or(-1);
+            let f: i64 = s.split(" has ").nth(1).and_then(|r| r.split_whitespace().next()).and_then(|n| n.parse().ok()).ok_or_else(|| anyhow::anyhow!("#fire unreadable: {}", s.trim()))?;
             println!(
-                "  the pending repeater (delay 4 = 8 gt; its input set at the save, game time {gt}; an impulse command block on its output stamps the game time, one tick after its power): {}",
+                "  the pending repeater{} (delay 4 = 8 gt; its input set at the save, game time {gt}; an impulse command block on its output stamps the game time, one tick after its power): {}",
+                if control { " CONTROL (its input NOT set: must show no stamp)" } else { "" },
                 if f > 0 {
-                    format!(
-                        "the command block stamped gt {f} = save + {}, so the repeater fired at save + {} (the save-time due time: fired at save + 8, stamped at save + 9)",
-                        f - gt,
-                        f - gt - 1
-                    )
+                    format!("the command block stamped gt {f} = save + {}, so the repeater fired at save + {}", f - gt, f - gt - 1)
                 } else {
-                    "NOT JUDGED (0 samples): no stamp".to_string()
+                    "no stamp".to_string()
                 }
             );
+            if control {
+                if f > 0 {
+                    pending_bad.push(format!("the control (no input) stamped save + {}: the check can't see a missing pending tick", f - gt));
+                }
+            } else if f <= 0 {
+                pending_bad.push(format!("run {run}: NOT JUDGED (0 samples): no stamp"));
+            } else if f - gt != 9 {
+                pending_bad.push(format!("run {run}: stamped at save + {} (the bar: save + 9, fired at save + 8)", f - gt));
+            }
         }
         println!(
             "  after it, 1,200 gt: overworld {}, nether {}; items in all {lo}..{hi}; failed pulses {}; droppers stuck TRIGGERED after the run: {}",
@@ -902,6 +916,10 @@ fn loop_restarts(mut srv: VanillaServer, opts: &dyn Fn(Option<PathBuf>) -> Vanil
         for f in failed.iter().take(3) {
             println!("    {f}");
         }
+    }
+    if pending {
+        println!("  the pending repeater's bar (stamp at save + 9 every run; the no-input control shows none): {}", if pending_bad.is_empty() { "HELD".to_string() } else { format!("FAILED: {}", pending_bad.join("; ")) });
+        anyhow::ensure!(pending_bad.is_empty(), "the pending repeater's bar failed: {}", pending_bad.join("; "));
     }
     Ok(srv)
 }

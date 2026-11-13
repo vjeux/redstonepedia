@@ -82,6 +82,59 @@ fn set_weather(srv: &mut VanillaServer, w: &str) -> Result<()> {
     Ok(())
 }
 
+/// (tickexact 2026-11-13, ironspec 06:08 real (5) / cc767b78: the DAY line's off-edge per weather)
+/// `mctas mobai daylight --edges`: an open detector; for clear, rain and thunder (each set and held
+/// 120 + 200 gt so both levels sit at their end values before any reading), the first day time in
+/// 10,000..13,000 whose detector update reads <= 5 (the DAY line's L >= 6 turning off), found by
+/// bisection on single updates at frozen day times, with the readings from 40 before it to 40 after
+pub fn edges(version: &str) -> Result<()> {
+    println!("== daylight --edges on the official {version} server: the first dusk update reading <= 5 (DAY off at L = 6) per weather, each weather held 320 gt first");
+    let mut srv = VanillaServer::start(&VanillaOptions {
+        version: version.to_string(),
+        difficulty: "peaceful".into(),
+        with_bot: false,
+        biome: "minecraft:plains".into(),
+        tick_rate: 1000,
+        ..Default::default()
+    })?;
+    // the detector's chunk held loaded with nobody online
+    srv.cmd_ok(&format!("forceload add {} {}", DETECTOR[0], DETECTOR[2]))?;
+    srv.cmd_ok("gamerule advance_time false")?;
+    srv.cmd_ok("gamerule advance_weather true")?;
+    srv.cmd_ok("fill -4 63 -4 8 63 4 minecraft:stone")?;
+    srv.cmd_ok(&format!("setblock {} {} {} minecraft:daylight_detector", DETECTOR[0], DETECTOR[1], DETECTOR[2]))?;
+    srv.step(20)?;
+    let mut found = 0;
+    for w in ["clear", "rain", "thunder"] {
+        set_weather(&mut srv, w)?;
+        srv.cmd_ok("time set 6000")?;
+        srv.step(200)?;
+        let e = first_where(&mut srv, 10000, 13000, |p| p <= 5)?;
+        // every update from 10,800 to 12,600 (cc767b78's per-update comparison)
+        let mut every = Vec::new();
+        for d in (10800..=12600).step_by(20) {
+            every.push(format!("{d}:{}", sample_at(&mut srv, d)?));
+        }
+        println!("  {w}: every update 10,800..12,600 (day time:level): {}", every.join(" "));
+        let around = match e {
+            Some(e) => {
+                found += 1;
+                let mut seq = Vec::new();
+                for d in (e - 40..=e + 40).step_by(10) {
+                    seq.push(format!("{d}:{}", sample_at(&mut srv, d)?));
+                }
+                seq.join(" ")
+            }
+            None => "-".into(),
+        };
+        let noon = sample_at(&mut srv, 6000)?;
+        println!("  {w}: noon reads {noon}; DAY off (first update <= 5) at day time {}; around it (day time:level) {around}", e.map(|x| x.to_string()).unwrap_or_else(|| "none in 10,000..13,000".into()));
+    }
+    let _ = std::fs::remove_dir_all(&srv.dir);
+    anyhow::ensure!(found == 3, "{} of 3 weathers found no edge: NOT JUDGED, the run fails", 3 - found);
+    Ok(())
+}
+
 /// Whether the bot can lie down at day time `t` (time frozen) in weather `w`; wakes it again (in
 /// thunder a sleeper stays asleep at noon: the sky is cleared until it wakes, then `w` restored).
 fn can_sleep(srv: &mut VanillaServer, t: i64, w: &str) -> Result<bool> {

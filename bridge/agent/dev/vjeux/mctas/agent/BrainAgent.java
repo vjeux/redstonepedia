@@ -37,6 +37,178 @@ public final class BrainAgent {
     private static volatile boolean pathOn = false;
     /** (tickexact 2026-11-13, cc767b78 04:2x: the navigation's state for a carried rider) {@code +nav}. */
     private static volatile boolean navOn = false;
+    /** (tickexact 2026-11-13, G1 05:5x: the shared bed's ticket) {@code +poi}: every POI ticket
+     * acquired or released, with the record's position, its free tickets before, the source
+     * behaviour and the mob whose brain is ticking. */
+    private static volatile boolean poiOn = false;
+    private static final String POI_HOOK = "mctas.brain.poi";
+    private static final String POI_RECORD = "net/minecraft/world/entity/ai/village/poi/PoiRecord";
+    private static final String ACQUIRE_HOOK = "mctas.brain.acquire";
+    private static final String ACQUIRE_CLASS = "net/minecraft/world/entity/ai/behavior/AcquirePoi";
+    /** (tickexact 2026-11-13, ironspec 06:22 platform: the drowned rider) {@code +hurt}: every
+     * LivingEntity.hurtServer call on a villager, entered: the damage source, the amount, where, the
+     * air supply and the vehicle. */
+    private static volatile boolean hurtOn = false;
+    private static final String HURT_HOOK = "mctas.brain.hurt";
+    private static final String LIVING_CLASS = "net/minecraft/world/entity/LivingEntity";
+
+    static void onHurt(Object body, Object args) {
+        try {
+            if (!body.getClass().getSimpleName().contains("Villager")) {
+                return;
+            }
+            Object[] a = (Object[]) args;
+            Object source = a[0];
+            String id = String.valueOf(source.getClass().getMethod("getMsgId").invoke(source));
+            String uuid = (String) body.getClass().getMethod("getStringUUID").invoke(body);
+            Object vehicle = call(body, "getVehicle");
+            System.err.println("mctas brain agent: hurt " + id + " " + a[1] + " at " + call(body, "position") + " eyeY " + call(body, "getEyeY") + " air " + call(body, "getAirSupply") + " vehicle " + (vehicle == null ? "none" : vehicle.getClass().getSimpleName() + " " + call(vehicle, "position")) + " @" + uuid);
+        } catch (Throwable t) {
+            System.err.println("mctas brain agent: hurt (unread): " + t);
+        }
+    }
+
+    /** The entry hook of LivingEntity.hurtServer(ServerLevel, DamageSource, float). */
+    static byte[] hurtHook(ClassLoader loader, byte[] bytes) {
+        ClassHierarchyResolver resolver = ClassHierarchyResolver.defaultResolver();
+        if (loader != null) {
+            resolver = ClassHierarchyResolver.ofClassLoading(loader).orElse(resolver);
+        }
+        ClassFile cf = ClassFile.of(ClassFile.ClassHierarchyResolverOption.of(resolver));
+        ClassModel model = cf.parse(bytes);
+        int[] hooked = {0};
+        byte[] out = cf.transformClass(model, (cb, ce) -> {
+            if (ce instanceof java.lang.classfile.MethodModel m && m.code().isPresent() && m.methodName().equalsString("hurtServer") && m.methodTypeSymbol().parameterCount() == 3) {
+                hooked[0]++;
+                cb.transformMethod(m, java.lang.classfile.MethodTransform.transformingCode(new java.lang.classfile.CodeTransform() {
+                    boolean first = true;
+
+                    @Override
+                    public void accept(CodeBuilder b, java.lang.classfile.CodeElement e) {
+                        if (first) {
+                            first = false;
+                            ClassDesc properties = ClassDesc.of("java.util.Properties");
+                            ClassDesc biConsumer = ClassDesc.of("java.util.function.BiConsumer");
+                            b.invokestatic(ClassDesc.of("java.lang.System"), "getProperties", MethodTypeDesc.of(properties));
+                            b.ldc(HURT_HOOK);
+                            b.invokevirtual(properties, "get", MethodTypeDesc.of(ConstantDescs.CD_Object, ConstantDescs.CD_Object));
+                            b.checkcast(biConsumer);
+                            b.aload(0);
+                            // new Object[] { source (local 2), Float.valueOf(damage (local 3)) }
+                            b.iconst_2();
+                            b.anewarray(ConstantDescs.CD_Object);
+                            b.dup();
+                            b.iconst_0();
+                            b.aload(2);
+                            b.aastore();
+                            b.dup();
+                            b.iconst_1();
+                            b.fload(3);
+                            b.invokestatic(ClassDesc.of("java.lang.Float"), "valueOf", MethodTypeDesc.of(ClassDesc.of("java.lang.Float"), ConstantDescs.CD_float));
+                            b.aastore();
+                            b.invokeinterface(biConsumer, "accept", MethodTypeDesc.of(ConstantDescs.CD_void, ConstantDescs.CD_Object, ConstantDescs.CD_Object));
+                        }
+                        b.with(e);
+                    }
+                }));
+            } else {
+                cb.with(ce);
+            }
+        });
+        System.err.println("mctas brain agent: LivingEntity reports hurtServer (" + hooked[0] + " methods)");
+        return out;
+    }
+
+    /** (+poi, tickexact 2026-11-13: (A)'s re-claim) the Path AcquirePoi.findPathToPois returned, at
+     * its call in AcquirePoi's behaviour: none, or its nodes, reach, start and end. */
+    static void onAcquire(Object path, Object unused) {
+        System.err.println("mctas brain agent: acquire path " + (path == null ? "none (no candidate POI)" : describe(path)) + owner());
+    }
+
+    /** After AcquirePoi's own call to findPathToPois: [Path] -> [Path], the Path printed. */
+    static byte[] acquireHook(ClassLoader loader, byte[] bytes) {
+        ClassHierarchyResolver resolver = ClassHierarchyResolver.defaultResolver();
+        if (loader != null) {
+            resolver = ClassHierarchyResolver.ofClassLoading(loader).orElse(resolver);
+        }
+        ClassFile cf = ClassFile.of(ClassFile.ClassHierarchyResolverOption.of(resolver));
+        ClassModel model = cf.parse(bytes);
+        ClassDesc properties = ClassDesc.of("java.util.Properties");
+        ClassDesc biConsumer = ClassDesc.of("java.util.function.BiConsumer");
+        int[] calls = {0};
+        byte[] out = cf.transformClass(model, ClassTransform.transformingMethodBodies(
+            m -> !m.methodName().equalsString("findPathToPois"),
+            (b, e) -> {
+                b.with(e);
+                if (e instanceof InvokeInstruction i
+                        && i.owner().asInternalName().equals(ACQUIRE_CLASS)
+                        && i.name().equalsString("findPathToPois")) {
+                    calls[0]++;
+                    b.dup();
+                    b.invokestatic(ClassDesc.of("java.lang.System"), "getProperties", MethodTypeDesc.of(properties));
+                    b.ldc(ACQUIRE_HOOK);
+                    b.invokevirtual(properties, "get", MethodTypeDesc.of(ConstantDescs.CD_Object, ConstantDescs.CD_Object));
+                    b.checkcast(biConsumer);
+                    b.swap();
+                    b.aconst_null();
+                    b.invokeinterface(biConsumer, "accept", MethodTypeDesc.of(ConstantDescs.CD_void, ConstantDescs.CD_Object, ConstantDescs.CD_Object));
+                }
+            }));
+        System.err.println("mctas brain agent: AcquirePoi reports findPathToPois's path (" + calls[0] + " call sites)");
+        return out;
+    }
+
+    static void onPoi(Object what, Object record) {
+        try {
+            Object pos = field(record, record.getClass(), "pos");
+            Object free = field(record, record.getClass(), "freeTickets");
+            System.err.println("mctas brain agent: poi " + what + " at " + pos + " free " + free + " by " + source() + owner());
+        } catch (Throwable t) {
+            System.err.println("mctas brain agent: poi " + what + " (unread): " + t);
+        }
+    }
+
+    /** The entry hooks of PoiRecord.acquireTicket() and releaseTicket(). */
+    static byte[] poiHook(ClassLoader loader, byte[] bytes) {
+        ClassHierarchyResolver resolver = ClassHierarchyResolver.defaultResolver();
+        if (loader != null) {
+            resolver = ClassHierarchyResolver.ofClassLoading(loader).orElse(resolver);
+        }
+        ClassFile cf = ClassFile.of(ClassFile.ClassHierarchyResolverOption.of(resolver));
+        ClassModel model = cf.parse(bytes);
+        int[] hooked = {0};
+        byte[] out = cf.transformClass(model, (cb, ce) -> {
+            if (ce instanceof java.lang.classfile.MethodModel m && m.code().isPresent() && m.methodTypeSymbol().parameterCount() == 0
+                    && (m.methodName().equalsString("acquireTicket") || m.methodName().equalsString("releaseTicket"))) {
+                String what = m.methodName().equalsString("acquireTicket") ? "acquire" : "release";
+                hooked[0]++;
+                cb.transformMethod(m, java.lang.classfile.MethodTransform.transformingCode(new java.lang.classfile.CodeTransform() {
+                    boolean first = true;
+
+                    @Override
+                    public void accept(CodeBuilder b, java.lang.classfile.CodeElement e) {
+                        if (first) {
+                            first = false;
+                            ClassDesc properties = ClassDesc.of("java.util.Properties");
+                            ClassDesc biConsumer = ClassDesc.of("java.util.function.BiConsumer");
+                            b.invokestatic(ClassDesc.of("java.lang.System"), "getProperties", MethodTypeDesc.of(properties));
+                            b.ldc(POI_HOOK);
+                            b.invokevirtual(properties, "get", MethodTypeDesc.of(ConstantDescs.CD_Object, ConstantDescs.CD_Object));
+                            b.checkcast(biConsumer);
+                            b.ldc(what);
+                            b.aload(0);
+                            b.invokeinterface(biConsumer, "accept", MethodTypeDesc.of(ConstantDescs.CD_void, ConstantDescs.CD_Object, ConstantDescs.CD_Object));
+                        }
+                        b.with(e);
+                    }
+                }));
+            } else {
+                cb.with(ce);
+            }
+        });
+        System.err.println("mctas brain agent: PoiRecord reports acquireTicket and releaseTicket (" + hooked[0] + " methods)");
+        return out;
+    }
     private static final String NAV_HOOK = "mctas.brain.nav";
     private static final String NAV_CLASS = "net/minecraft/world/entity/ai/navigation/PathNavigation";
     private static final String SINK_CLASS = "net/minecraft/world/entity/ai/behavior/MoveToTargetSink";
@@ -210,7 +382,13 @@ public final class BrainAgent {
             panicOn = java.util.Arrays.asList(memories).contains("+panic");
             pathOn = java.util.Arrays.asList(memories).contains("+path");
             navOn = java.util.Arrays.asList(memories).contains("+nav");
+            poiOn = java.util.Arrays.asList(memories).contains("+poi");
+            sightOn = java.util.Arrays.asList(memories).contains("+sight");
+            hurtOn = java.util.Arrays.asList(memories).contains("+hurt");
         }
+        System.getProperties().put(HURT_HOOK, (BiConsumer<Object, Object>) BrainAgent::onHurt);
+        System.getProperties().put(POI_HOOK, (BiConsumer<Object, Object>) BrainAgent::onPoi);
+        System.getProperties().put(ACQUIRE_HOOK, (BiConsumer<Object, Object>) BrainAgent::onAcquire);
         System.getProperties().put(NAV_HOOK, (BiConsumer<Object, Object>) BrainAgent::onNav);
         System.getProperties().put(ERASE, (BiConsumer<Object, Object>) BrainAgent::onErase);
         System.getProperties().put(SET, (BiConsumer<Object, Object>) BrainAgent::onSet);
@@ -243,6 +421,15 @@ public final class BrainAgent {
                     }
                     if (navOn && (NAV_CLASS.equals(name) || SINK_CLASS.equals(name))) {
                         return navHook(loader, bytes, name);
+                    }
+                    if (poiOn && POI_RECORD.equals(name)) {
+                        return poiHook(loader, bytes);
+                    }
+                    if (poiOn && ACQUIRE_CLASS.equals(name)) {
+                        return acquireHook(loader, bytes);
+                    }
+                    if (hurtOn && LIVING_CLASS.equals(name)) {
+                        return hurtHook(loader, bytes);
                     }
                     return null;
                 } catch (Throwable t) {
@@ -644,6 +831,70 @@ public final class BrainAgent {
             // print it anyway
         }
         System.err.println("mctas brain agent: activity " + activity + " by " + source() + sink(brain) + owner());
+        if (sightOn && (String.valueOf(activity).equals("rest") || String.valueOf(activity).equals("minecraft:rest")) && CURRENT_BODY.get() != null && !owner().equals(" @none")) {
+            sight(CURRENT_BODY.get());
+        }
+    }
+
+    /** (tickexact 2026-11-13, ironspec 06:50 real msg-id) {@code +sight}: at a villager's switch to REST,
+     * every Monster within 16 of it: its type, distance (eye to eye), the villager's own
+     * hasLineOfSight verdict, and the clip of the same ray (LivingEntity.hasLineOfSight 3338-3350:
+     * from (x, eyeY, z) to (target x, target eyeY, target z), ClipContext COLLIDER / Fluid NONE)
+     * naming the blocking cell when it hits. */
+    private static volatile boolean sightOn = false;
+
+    static void sight(Object body) {
+        try {
+            ClassLoader cl = body.getClass().getClassLoader();
+            Class<?> entityC = Class.forName("net.minecraft.world.entity.Entity", false, cl);
+            Class<?> monsterC = Class.forName("net.minecraft.world.entity.monster.Monster", false, cl);
+            Class<?> vec3C = Class.forName("net.minecraft.world.phys.Vec3", false, cl);
+            Class<?> aabbC = Class.forName("net.minecraft.world.phys.AABB", false, cl);
+            Class<?> ccC = Class.forName("net.minecraft.world.level.ClipContext", false, cl);
+            Class<?> blockE = Class.forName("net.minecraft.world.level.ClipContext$Block", false, cl);
+            Class<?> fluidE = Class.forName("net.minecraft.world.level.ClipContext$Fluid", false, cl);
+            Object level = call(body, "level");
+            Object bb = call(body, "getBoundingBox");
+            Object box = aabbC.getMethod("inflate", double.class).invoke(bb, 16.0);
+            java.util.List<?> mons = (java.util.List<?>) level.getClass().getMethod("getEntitiesOfClass", Class.class, aabbC).invoke(level, monsterC, box);
+            String uuid = (String) body.getClass().getMethod("getStringUUID").invoke(body);
+            double bx = (Double) call(body, "getX");
+            double by = (Double) call(body, "getEyeY");
+            double bz = (Double) call(body, "getZ");
+            Object from = vec3C.getConstructor(double.class, double.class, double.class).newInstance(bx, by, bz);
+            @SuppressWarnings({"unchecked", "rawtypes"})
+            Object collider = Enum.valueOf((Class) blockE, "COLLIDER");
+            @SuppressWarnings({"unchecked", "rawtypes"})
+            Object none = Enum.valueOf((Class) fluidE, "NONE");
+            java.lang.reflect.Constructor<?> ccNew = ccC.getConstructor(vec3C, vec3C, blockE, fluidE, entityC);
+            java.lang.reflect.Method clip = null;
+            for (Class<?> c = level.getClass(); c != null && clip == null; c = c.getSuperclass()) {
+                for (java.lang.reflect.Method m : c.getMethods()) {
+                    if (m.getName().equals("clip") && m.getParameterCount() == 1 && m.getParameterTypes()[0] == ccC) {
+                        clip = m;
+                        break;
+                    }
+                }
+            }
+            java.lang.reflect.Method los = body.getClass().getMethod("hasLineOfSight", entityC);
+            StringBuilder sb = new StringBuilder();
+            int n = 0;
+            for (Object m : mons) {
+                double mx = (Double) call(m, "getX");
+                double my = (Double) call(m, "getEyeY");
+                double mz = (Double) call(m, "getZ");
+                double d = Math.sqrt((mx - bx) * (mx - bx) + (my - by) * (my - by) + (mz - bz) * (mz - bz));
+                boolean seen = (Boolean) los.invoke(body, m);
+                Object to = vec3C.getConstructor(double.class, double.class, double.class).newInstance(mx, my, mz);
+                Object hit = clip.invoke(level, ccNew.newInstance(from, to, collider, none, body));
+                String type = String.valueOf(call(hit, "getType"));
+                String cell = type.equals("MISS") ? "MISS" : String.valueOf(hit.getClass().getMethod("getBlockPos").invoke(hit)) + " " + level.getClass().getMethod("getBlockState", Class.forName("net.minecraft.core.BlockPos", false, cl)).invoke(level, hit.getClass().getMethod("getBlockPos").invoke(hit));
+                sb.append(n++ == 0 ? "" : "; ").append(m.getClass().getSimpleName()).append(String.format(" at (%.2f,%.2f,%.2f) d %.2f los %s clip %s", mx, my - 80.0, mz, d, seen, cell));
+            }
+            System.err.println("mctas brain agent: sight at rest " + uuid + " eye (" + String.format("%.2f,%.2f,%.2f", bx, by - 80.0, bz) + "): " + (n == 0 ? "no Monster within 16" : sb.toString()) + " @" + uuid);
+        } catch (Throwable t) {
+            System.err.println("mctas brain agent: sight (unread): " + t);
+        }
     }
 
     /** MoveToTargetSink's state (its status, remainingCooldown), read from the brain's behaviours. */

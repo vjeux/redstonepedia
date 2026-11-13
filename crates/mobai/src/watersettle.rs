@@ -86,7 +86,9 @@ fn settle_skipping(version: &str, file: &std::path::Path, set: &[([i32; 3], Stri
     srv.step(40)?;
     crate::seatclear::place_part_skipping(&mut srv, file, skip_fresh)?;
     for (p, s) in set {
-        srv.cmd_ok(&format!("setblock {} {} {} {s}", p[0], p[1] + DY, p[2]))?;
+        // (G1 on 6ec22ffd8 #9, ironspec 04:07) an override must change its cell
+        let out = srv.cmd(&format!("setblock {} {} {} {s}", p[0], p[1] + DY, p[2]))?;
+        anyhow::ensure!(out.contains("Changed the block"), "--set ({},{},{}) = {s} changed nothing ({}): the run fails", p[0], p[1], p[2], out.trim());
     }
     let s0 = snapshot(&mut srv, lo, hi)?;
     let fluid = stated.values().filter(|s| crate::seatclear::holds_water(s)).count();
@@ -115,7 +117,8 @@ fn settle_skipping(version: &str, file: &std::path::Path, set: &[([i32; 3], Stri
         for y in lo[1]..=hi[1] {
             for z in lo[2]..=hi[2] {
                 let want = stated.get(&[x, y, z]).map(|s| s.as_str()).unwrap_or("minecraft:air");
-                let got = s1.region.get([x, y + DY, z]).unwrap_or("?");
+                // (G1 on 6ec22ffd8 #11) an unreadable cell fails, never reads as dry
+                let got = s1.region.get([x, y + DY, z]).ok_or_else(|| anyhow::anyhow!("({x},{y},{z}): unreadable in the saved region files"))?;
                 let (w, g) = (crate::seatclear::holds_water(want), crate::seatclear::holds_water(got));
                 // (G1 on b00a076b0, the brief 38a136e2f) `# water:` only annotates a current the file
                 // already holds as water: it exempts no difference
@@ -153,6 +156,10 @@ fn settle_skipping(version: &str, file: &std::path::Path, set: &[([i32; 3], Stri
 }
 
 pub fn water_settle(version: &str, file: &std::path::Path, set: &[([i32; 3], String)], ticks: u32) -> Result<()> {
+    // (G1 on 6ec22ffd8 #3 / #11) no 0-tick run; a design run runs the controls first through the same
+    // code path (each must be caught), so a design is never judged without them
+    anyhow::ensure!(ticks >= 1, "--ticks 0: no settling judged (NOT JUDGED)");
+    controls(version, ticks)?;
     let o = settle(version, file, set, ticks)?;
     anyhow::ensure!(o.shortfall == 0, "rule B: {} stated fluid cell(s) without a scheduled tick: the run fails", o.shortfall);
     anyhow::ensure!(o.new + o.lost + o.changed == 0, "rule C: NEW {} / LOST {} / CHANGED {}: the water moved from its stored state, the run fails", o.new, o.lost, o.changed);
