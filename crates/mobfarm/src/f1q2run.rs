@@ -2398,6 +2398,23 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         (Run::new_homeless(&sp, &ro)?, Vec::new())
     };
     let bed = redsim::pos::BlockPos::new(o.bed[0], o.bed[1], o.bed[2]);
+    // (ironspec 08:05 platform (2), cc767b78's check 2) with --c7-placement, the HOME holders after
+    // each setup phase, to find the setter of the stored riders' HOME
+    let home_holders = |w: &redsim::world::World| -> Vec<u32> { w.entities.list.iter().filter(|e| !e.removed && matches!(&e.kind, EntityKind::Mob(m) if m.brain.as_deref().is_some_and(|b| b.home.is_some()))).map(|e| e.id).collect() };
+    let mut c7_phase_seen: Vec<(&'static str, Vec<u32>)> = Vec::new();
+    if o.c7_placement.is_some() {
+        c7_phase_seen.push(("after Run::start, the settle and the entity spawn", home_holders(&run.world)));
+    }
+    // (ironspec 07:43 / 07:57 / 08:05 platform, G1 07:50, cc767b78: redsim reads AIR outside the
+    // build, so a run is a FLOATING site whose envelope holds the design's own neighbouring parts
+    // only when its file composes them: the N = 1 loop part at the gap chunk (1,1), within the idle
+    // strolls' 10 / 7 of the riders near the module's +x / +z faces; the BURIED variant waits for
+    // 9fc3155f's shared site code (fleecheck::surround_spec), one definition for runs and statics)
+    let loop_composed = sp.blocks.iter().any(|(p, b)| p.x >= 14 && p.z >= 16 && b.to_string().contains("obsidian"));
+    let site_line = format!(
+        "the site (ironspec 07:43 / 07:57 platform, G1 07:50): FLOATING (redsim reads air outside the build); {}",
+        if loop_composed { "the N = 1 loop part composed in (an obsidian frame at the gap chunk (1,1)): \"(floating site: void outside the box, envelope covered)\"" } else { "the N = 1 loop part NOT composed in this file (no obsidian at x >= 14, z >= 16): \"(floating site, envelope partly covered: the loop part at chunk (1,1) missing)\"" }
+    );
     let t0 = run.world.time;
     let mut drive_head: Option<String> = None;
     if let Some(rec) = &o.drive_rec {
@@ -2471,6 +2488,31 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     for (_, a) in memory_acts {
         drive_push(a);
     }
+    if o.c7_placement.is_some() {
+        c7_phase_seen.push(("after f1q2-run's HOME loop (it skips every villager in c7 mode)", home_holders(&run.world)));
+    }
+    // (tick-exact 06:09 PT / ironspec 08:05 platform (2)) the c7 placement's stored riders must start
+    // HOME-less, as tick-exact's game setup has them: a HOME found on any after the setup FAILS the
+    // run (which rider, the HOME, the setup phase it was first seen at), never cleared silently
+    let c7_holders: Vec<String> = if o.c7_placement.is_some() && !o.c7_home_stored {
+        run.world
+            .entities
+            .list
+            .iter()
+            .filter(|e| !e.removed && matches!(&e.kind, EntityKind::Mob(m) if m.brain.as_deref().is_some_and(|b| b.home.is_some())))
+            .map(|e| {
+                let h = match &e.kind {
+                    EntityKind::Mob(m) => m.brain.as_deref().and_then(|b| b.home),
+                    _ => None,
+                };
+                let first = c7_phase_seen.iter().find(|(_, ids)| ids.contains(&e.id)).map_or("after the HOME loop", |(ph, _)| *ph);
+                format!("#{} at ({:.2},{:.2},{:.2}) HOME {:?}, first seen {first}", e.id, e.pos.x, e.pos.y, e.pos.z, h.map(|h| [h.x, h.y, h.z]))
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let c7_free_t0 = if o.c7_placement.is_some() { redsim::entity::mob::ai::poi::free_tickets(&mut run.world, bed) } else { None };
     // (ironspec 06:42 real) the START-STATE LINE: the bed's free tickets and the HOME memory
     // holders after the setup, and how the run handles the ticket gap; (farmopt 06:04 PT) the early
     // read is a declared stand-in under the override rule: the free count redsim's own lazy table
@@ -2485,7 +2527,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     let start_free = redsim::entity::mob::ai::poi::free_tickets(&mut run.world, bed);
     let start_holders = holders_of(&run.world);
     let start_state_line = format!(
-        "the start-state line (ironspec 06:42 real; the surroundings, ironspec 07:43 platform: VOID, the site not modelled, so every stamp / HOME result in this report is labelled \"(void surroundings: the site not modelled)\"): the bed's free tickets {}, HOME memory holders {}; {}; the pre-fix ticket gap: the early ticket read (a declared stand-in, built before any HOME was set: {} free then) against redsim's own lazy table from the memories, {} -> {} free{}{}",
+        "the start-state line (ironspec 06:42 real; the surroundings: the report's site line (G1 07:50: a plain run is a FLOATING site, redsim reading air outside the build; `--site-buried` the BURIED variant)): the bed's free tickets {}, HOME memory holders {}; {}; the pre-fix ticket gap: the early ticket read (a declared stand-in, built before any HOME was set: {} free then) against redsim's own lazy table from the memories, {} -> {} free{}{}",
         start_free.map_or("- (no POI at the bed)".to_string(), |f| f.to_string()),
         start_holders.len(),
         if o.bed_ticket_taken { "state (ii), the bench taking the ticket (--bed-ticket-taken)" } else { "the design start (i)" },
@@ -2750,6 +2792,8 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     let mut lift_blocker: Option<u32> = None;
     // (cc767b78) the traced entity's per-tick rows
     let mut trace_rows: Vec<String> = Vec::new();
+    // (G1 07:59 PT) the lift column around the lift-block control
+    let mut lift_rows: Vec<String> = Vec::new();
     // (ironspec 06:31 / 06:42 real) the ticket lines: the bed's free tickets and the HOME memory
     // holders at the start and at every change
     let mut ticket_prev: Option<(Option<u32>, Vec<u32>)> = Some(start_ticket);
@@ -3045,6 +3089,22 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     lift_blocker = None;
                     log.push(format!("t {rel}: the lift-block control: the exit freed"));
                 }
+            }
+            // (G1 07:59 PT: the bench difference named) every cart in the lift column and its top
+            // (x -5, z 6..8, y >= 2), from 5 gt before the hold to 150 gt after its start: id,
+            // position, motion, its rider
+            if rel >= tb - 5 && rel <= tb + 150 {
+                let carts: Vec<String> = w
+                    .entities
+                    .list
+                    .iter()
+                    .filter(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && Some(e.id) != lift_blocker && {
+                        let c = cell(e.pos);
+                        c[0] == -5 && (6..=8).contains(&c[2]) && c[1] >= 2
+                    })
+                    .map(|e| format!("#{} ({:.3},{:.3},{:.3}) v({:.3},{:.3},{:.3}){}", e.id, e.pos.x, e.pos.y, e.pos.z, e.delta_movement.x, e.delta_movement.y, e.delta_movement.z, if e.passengers.is_empty() { " empty" } else { "" }))
+                    .collect();
+                lift_rows.push(format!("t {rel}: {}", if carts.is_empty() { "none".to_string() } else { carts.join(", ") }));
             }
         }
         if o.restarts.contains(&rel) {
@@ -5323,6 +5383,20 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         rail_mismatch.len(),
         rail_mismatch.iter().take(6).map(|m| format!("; {m}")).collect::<String>()
     ));
+    // (ironspec 07:43 platform, G1 07:50) the site the run stands in
+    s.push_str(&format!("{site_line}\n"));
+    // (tick-exact 06:09 PT, ironspec 07:57 platform (4) / (5)) the c7 placement's start: a FIDELITY
+    // row only (no controller, static queues, no rotation: not the design's operation)
+    if o.c7_placement.is_some() {
+        s.push_str(&format!(
+            "the c7 placement (tick-exact's farm-c7 reconciliation row, FIDELITY ONLY; AcquirePoi fidelity pending: HOME-less villagers near the bed; ticket state uncertain: pre-fix redsim): the stored riders' HOME {} at t 0; the HOME holders after each setup phase: {}; the bed's free tickets at t 0 {} (tick-exact's game: free); the stored riders holding HOME after the setup: {} ({})\n",
+            if o.c7_home_stored { "the bed (--c7-home-stored)" } else { "none, as tick-exact's game setup" },
+            c7_phase_seen.iter().map(|(ph, ids)| format!("{ph} {}", ids.len())).collect::<Vec<_>>().join(", "),
+            c7_free_t0.map_or("unreadable".to_string(), |n| n.to_string()),
+            if c7_holders.is_empty() { "none".to_string() } else { c7_holders.join("; ") },
+            if o.c7_home_stored { "not judged: --c7-home-stored" } else if c7_holders.is_empty() { "PASS" } else { "FAIL: the setter unknown (cc767b78 pins it)" }
+        ));
+    }
     if o.drive {
         s.push_str(&format!("the controller (EMULATED): {} golems seen, {} cycles completed\n", ctl.golems.len(), ctl.cycles));
         for (k, t) in turns.iter().enumerate() {
@@ -5891,7 +5965,9 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         cs.sort_by_key(|x| -x.1);
         s.push_str(&format!("  the cells (villager-ticks): {}\n", cs.iter().take(40).map(|(c, n)| format!("{c:?} {n}")).collect::<Vec<_>>().join(", ")));
     }
-    if o.napper {
+    // (tick-exact 06:09 PT, the reconciliation row) the c7 placement prints the rider-state section
+    // too, its napper rows empty
+    if o.napper || o.c7_placement.is_some() {
         // (one row a napper villager, its last trip's milestones and every trip's stamps; the trips
         // counted)
         let mut seen_v: Vec<u32> = Vec::new();
@@ -6051,7 +6127,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             // (ironspec 06:33 / 06:37 platform, G1) the at-entry stamp bar: the stamp at each REST
             // spell's first HOME-targeting tick
             s.push_str(&format!(
-                "  the at-entry stamp bar (ironspec 06:33 / 06:37 platform: at every REST spell's first tick SetWalkTargetFromBlockMemory ran (HOME targeted), the stamp < 1,000 gt, any position; void surroundings: the site not modelled): {} spells judged, the worst {} gt, {} at >= 1,000 ({})\n",
+                "  the at-entry stamp bar (ironspec 06:33 / 06:37 platform: at every REST spell's first tick SetWalkTargetFromBlockMemory ran (HOME targeted), the stamp < 1,000 gt, any position; the site as the report's site line states (floating unless --site-buried)): {} spells judged, the worst {} gt, {} at >= 1,000 ({})\n",
                 at_home_target_n,
                 at_home_target_max,
                 at_home_target_over,
@@ -6878,6 +6954,12 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     // (cc767b78) the traced entity's rows
     let s = if let Some((n, a, b)) = o.trace_entity {
         format!("{s}the traced entity e{n} over run ticks {a}..={b} (cc767b78, after each tick): {}\n", if trace_rows.is_empty() { "no row".to_string() } else { trace_rows.join("; ") })
+    } else {
+        s
+    };
+    // (G1 07:59 PT) the lift column around the lift-block control, per tick
+    let s = if let Some((tb, nb)) = o.lift_block {
+        format!("{s}the lift column (x -5, z 6..8, y >= 2) from t {} to t {} around the lift-block control (an empty cart held still on the exit booster (-5,23,8) from t {tb} for {nb} gt; a fault row, ironspec 07:57): {}\n", tb - 5, tb + 150, lift_rows.join("; "))
     } else {
         s
     };
