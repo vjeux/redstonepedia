@@ -902,6 +902,37 @@ pub enum MobfarmCmd {
         #[arg(long, value_delimiter = ',')]
         villagers: Vec<usize>,
     },
+    /// (ironspec 2026-11-12 21:43, a general rule) A bench's cells against the design of record: every
+    /// cell of the bench's world box (its `# world box: x0,y0,z0..x1,y1,z1` header line, else --box, else
+    /// its cells' bounds widened by --margin) against the record's, shifted by --offset into the bench's
+    /// frame; each differing cell a declared STAND-IN (the bench file's `# stand-in:` lines, its owner's
+    /// verdicts in `# stand-in-guard:` lines; golem / path / late-path / sight filled from the blocks),
+    /// a declared CANDIDATE (`# candidate: NAME: …`) or UNDECLARED (mobfarm::recordmatch). Exit status 1
+    /// when the rows don't count toward any bar (an undeclared cell or an unguarded stand-in).
+    RecordMatch {
+        /// The bench's emitted world (its `--out` / `--write-design` file).
+        #[arg(long)]
+        bench: PathBuf,
+        /// The design of record (record7, or the part's package file).
+        #[arg(long)]
+        record: PathBuf,
+        /// The record's frame + OFFSET = the bench's (dx,dy,dz).
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true, default_value = "0,0,0")]
+        offset: Vec<i32>,
+        /// The bench's world box x0,y0,z0,x1,y1,z1 (over its header line).
+        #[arg(long = "box", value_delimiter = ',', allow_hyphen_values = true)]
+        world_box: Vec<i32>,
+        /// With neither a header line nor --box: the bench's cells' bounds widened by this.
+        #[arg(long, default_value_t = 0)]
+        margin: i32,
+        /// Every differing cell printed, one a line, after the summary.
+        #[arg(long)]
+        all: bool,
+        /// More declarations, in the same header-line format, from a file beside the bench's
+        /// (repeatable; merged with the bench file's own).
+        #[arg(long)]
+        declare: Vec<PathBuf>,
+    },
     /// (ironspec 2026-11-11 12:50) The rail-junction check: every plain rail joined to three or four
     /// rails, its stored shape against the game's settle order for its signal at rest (both power
     /// states printed); exit status 1 when a stored shape would re-settle at its first update.
@@ -11687,6 +11718,45 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     }
                   }
                 }
+            }
+        }
+        MobfarmCmd::RecordMatch { bench, record, offset, world_box, margin, all, declare } => {
+            anyhow::ensure!(offset.len() == 3, "--offset dx,dy,dz");
+            let (bt, rt) = (std::fs::read_to_string(&bench)?, std::fs::read_to_string(&record)?);
+            let b = mctas::design::Design::parse(&bt).map_err(|e| anyhow::anyhow!("{}: {e}", bench.display()))?;
+            let r = mctas::design::Design::parse(&rt).map_err(|e| anyhow::anyhow!("{}: {e}", record.display()))?;
+            let mut header = bt.clone();
+            for f in &declare {
+                header.push('\n');
+                header.push_str(&std::fs::read_to_string(f).map_err(|e| anyhow::anyhow!("--declare {}: {e}", f.display()))?);
+            }
+            let declared = crate::recordmatch::declared_from_header(&header).map_err(|e| anyhow::anyhow!("{}: {e}", bench.display()))?;
+            let (lo, hi) = if world_box.len() == 6 {
+                ([world_box[0], world_box[1], world_box[2]], [world_box[3], world_box[4], world_box[5]])
+            } else if let Some(bx) = crate::recordmatch::world_box_from_header(&bt) {
+                anyhow::ensure!(world_box.is_empty(), "--box x0,y0,z0,x1,y1,z1");
+                bx
+            } else {
+                anyhow::ensure!(world_box.is_empty(), "--box x0,y0,z0,x1,y1,z1");
+                anyhow::ensure!(!b.blocks.is_empty(), "{}: no cells and no world box", bench.display());
+                let (mut lo, mut hi) = ([i32::MAX; 3], [i32::MIN; 3]);
+                for p in b.blocks.keys() {
+                    for k in 0..3 {
+                        lo[k] = lo[k].min(p[k] - margin);
+                        hi[k] = hi[k].max(p[k] + margin);
+                    }
+                }
+                (lo, hi)
+            };
+            let m = crate::recordmatch::compare(&b.blocks, &r.blocks, [offset[0], offset[1], offset[2]], lo, hi, &declared, &record.display().to_string());
+            println!("{}", m.line());
+            if all {
+                for d in &m.diffs {
+                    println!("  ({},{},{}) {:?}: bench {} vs record {}{}", d.cell[0], d.cell[1], d.cell[2], d.class, d.bench, d.record, if d.gaps.is_empty() { String::new() } else { format!(" ({})", d.gaps.join(", ")) });
+                }
+            }
+            if matches!(m.counts(), crate::recordmatch::Counts::No(_)) {
+                std::process::exit(1);
             }
         }
         MobfarmCmd::JunctionCheck { design, all } => {
