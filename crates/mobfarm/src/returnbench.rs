@@ -173,6 +173,11 @@ pub struct ReturnOpts {
     pub row_boost: bool,
     /// Write the return's own cells as a design file (loop frame) to this path.
     pub out: Option<String>,
+    /// ironspec 20:16: dfb89499's record station part (a design file, loop frame) composed over the
+    /// bench's world instead of the emulated station; the batch carts start at rest in its pockets
+    /// (x,0,0) and leave through its own drive (a lever stand-in at (x-2,0,0) on glass, on at
+    /// REL + offset - 1 for 16 gt, into day-1's repeater (x-1,0,0)).
+    pub station_part: Option<String>,
 }
 
 const LANES: [i32; 3] = [7, 3, -1];
@@ -197,6 +202,11 @@ fn build(o: &ReturnOpts) -> Result<FarmSpec, String> {
         // to the braked slope (-4,12,mz) in the lift's east wall; not modelled here (the bench starts
         // lane 7's cart at rest on that slope))
         if o.path_a && x == 7 {
+            continue;
+        }
+        // (`station_part` (ironspec 20:16): dfb89499's record station composed instead: no emulated
+        // station cells)
+        if o.station_part.is_some() {
             continue;
         }
         for z in 1..mz {
@@ -401,7 +411,9 @@ fn build(o: &ReturnOpts) -> Result<FarmSpec, String> {
         // the sight property), toggled for the pulse in place of day-1's repeater (-4,12,mz-1) and its
         // input (-4,12,mz-2); not this file's)
         put(-4, 12, mz - 1, &Block::parse("minecraft:lever[face=ceiling,facing=north,powered=false]")?);
-        put(-3, 13, mz, &rail("east_west")?);
+        if o.station_part.is_none() {
+            put(-3, 13, mz, &rail("east_west")?);
+        }
         put(-3, 12, mz, &glass);
     }
     put(-6, ex, mz, &glass);
@@ -748,6 +760,10 @@ struct Cart {
     w_y13: Option<i64>,
     /// First tick on the exit booster's cell (-5,ex,mz+1): the column's contact point.
     w_top_exit: Option<i64>,
+    /// `station_part`: the first tick the cart moves (its departure from the pocket), and its first
+    /// tick on its lane's merge-row cell (x,0,mz) with its speed there (ironspec 20:16's observables).
+    w_dep: Option<i64>,
+    w_row: Option<(i64, f64)>,
     /// The napper's stored speed entering the T (9,0,7) from the staircase.
     v_t: Option<f64>,
     launch_t: i64,
@@ -949,8 +965,12 @@ pub struct Summary {
     pub cause_clear: [Option<i64>; 7],
     /// The run was `path_a` (its foot pair and y-12 bars).
     pub path_a: bool,
-    /// ironspec 20:35 PT: the game-time delta across the run's restart (bar exactly 1).
+    /// ironspec 21:07 / 21:13 PT: across the run's restart (the helper's call, the official load: one
+    /// block-only tick): its game-time delta (the official 1) and the moving carts' largest
+    /// displacement (cart, distance; None: none moving; held = 0). Printed; barred once the helper
+    /// runs the block-only tick (cc767b78's `liveness::restart`, pending).
     pub restart_dt: Option<i64>,
+    pub restart_moved: Option<Option<(usize, f64)>>,
     /// E rises within k of a fired pulse (ironspec 14:41 (2)).
     pub e_within_k: usize,
     /// The napper's departure off the hold after its own ARM3 (gt).
@@ -980,7 +1000,7 @@ pub struct Summary {
 
 impl Summary {
     pub fn clean(&self) -> bool {
-        self.wrong == 0 && self.pushes == 0 && !self.napper_off && self.riders_bad == 0 && self.hold_intrusions == 0 && self.extra_busy == 0 && !self.release_bad && !self.y12_bad && self.restart_dt.is_none_or(|d| d == 1)
+        self.wrong == 0 && self.pushes == 0 && !self.napper_off && self.riders_bad == 0 && self.hold_intrusions == 0 && self.extra_busy == 0 && !self.release_bad && !self.y12_bad
     }
 
     /// Every bar: clean; the column bar 14 + 2 = 16 on the shaft-entry (foot) gaps and the napper's
@@ -1044,7 +1064,7 @@ fn verdict(v: &[(String, Result<Summary, String>)]) -> String {
                 s.napper_behind,
                 s.napper_ahead,
                 s.head,
-                if s.y12_why.is_empty() { String::new() } else { format!(" y-12: {}", s.y12_why) } + &s.restart_dt.filter(|d| *d != 1).map_or(String::new(), |d| format!(" restart game-time delta {d} (bar 1: re-run)"))
+                if s.y12_why.is_empty() { String::new() } else { format!(" y-12: {}", s.y12_why) }
             ),
             Err(e) => format!("{l}: error {e}"),
         })
@@ -1125,16 +1145,23 @@ fn verdict(v: &[(String, Result<Summary, String>)]) -> String {
     let jm = |i: usize| ok.iter().map(|s| s.j_vmax[i]).fold(0.0f64, f64::max);
     let kj = format!("{kj}; the most stored speed on J(-1) / J(3) / J(7) over every cart and row {:.3} / {:.3} / {:.3}", jm(0), jm(1), jm(2));
     let jl = |f: &dyn Fn(&Summary) -> Option<i64>| ok.iter().filter_map(|s| f(s)).min().map_or("-".to_string(), |v| v.to_string());
-    // (ironspec 20:35 PT: the restart harness's game-time delta across each restart, exactly 1)
+    // (ironspec 21:07 / 21:13 PT: across each restart (the helper's call, the official load: one
+    // block-only tick): the game-time delta (officially 1) and whether the moving carts held
+    // (officially yes); printed: this bench's helper runs no block-only tick yet (delta 0), so the bar
+    // waits for cc767b78's `liveness::restart`)
     let dts: Vec<i64> = ok.iter().filter_map(|s| s.restart_dt).collect();
     let kj = if dts.is_empty() {
         kj
     } else {
+        let mv: Vec<Option<(usize, f64)>> = ok.iter().filter_map(|s| s.restart_moved).collect();
         format!(
-            "{kj}; the restarts' game-time delta {}..{} (bar exactly 1; rows off it {})",
+            "{kj}; across the restarts (the load; officially one block-only tick: delta 1, carts held; this bench's restart helper runs no block-only tick yet): the game-time delta {}..{}, moving carts held in {} rows, moved in {} (the most {:.4}), none moving in {}",
             dts.iter().min().copied().unwrap_or(0),
             dts.iter().max().copied().unwrap_or(0),
-            dts.iter().filter(|d| **d != 1).count()
+            mv.iter().filter(|m| m.is_some_and(|(_, d)| d <= 1e-9)).count(),
+            mv.iter().filter(|m| m.is_some_and(|(_, d)| d > 1e-9)).count(),
+            mv.iter().flatten().map(|(_, d)| *d).fold(0.0f64, f64::max),
+            mv.iter().filter(|m| m.is_none()).count()
         )
     };
     let kj = format!(
@@ -1286,6 +1313,214 @@ pub fn phase_sweep(o: &ReturnOpts, r_from: i64, r_to: i64, off_from: i64, off_to
         let y12f: Vec<&String> = v.iter().filter(|(_, r)| r.as_ref().is_ok_and(|s| s.y12_bad)).map(|(k, _)| k).collect();
         if y12f.is_empty() { String::new() } else { format!("; rows failing a y-12 bar {} (e.g. {})", y12f.len(), y12f.iter().take(4).map(|s| s.as_str()).collect::<Vec<_>>().join("; ")) }
     })
+}
+
+/// ironspec 20:14 PT (b): tick-exact's official lift-pair configuration (`mctas mobai lift-pair` on
+/// 83878113f: lane 7's side-slope entry) run in redsim: the path (a) lift; two carts with villager
+/// riders on lane 7's route; the leader rolls onto the braked slope (-4,12,mz) from the climb's top and
+/// settles; a redstone block at (-4,12,mz-1) (in place of day-1's repeater) releases it for 10 gt; the
+/// follower is placed at the leader's rest, at rest, the tick that pulse ends, and released the same
+/// way `gap` gt after the leader. Per gap: the least box gap (the largest per-axis separation of the
+/// two 0.98 x 0.7 x 0.98 boxes, least over the scene; < 0 overlaps); the least vertical distance while
+/// the boxes overlap sideways; the first box contact, the first push-box (0.2-inflated sideways)
+/// contact and the first push that acts; the first tick each cart departs from its solo ride (the same
+/// scene without the other cart). Ticks after the leader's release; "clean" = no contact of either
+/// kind and both rides undisturbed (ironspec 20:14 PT).
+pub fn lift_pair(o: &ReturnOpts, from: i64, to: i64) -> Result<String, String> {
+    use crate::liftbench::CartState;
+    // (per tick: the cart's state and its rider's feet position)
+    type Track = Vec<Option<(CartState, Option<[f64; 3]>)>>;
+    if o.mirror_z {
+        return Err("--lift-pair runs unmirrored".into());
+    }
+    if from < 10 || to < from {
+        return Err("--lift-pair FROM,TO: gaps FROM <= TO, at least 10 (the follower is placed when the leader's 10-gt pulse ends)".into());
+    }
+    let mz = if o.z7 { 7 } else { 8 };
+    let base = ReturnOpts { path_a: true, batches: 0, napper_delay: None, napper_lift: false, trace: None, out: None, login: None, restart: None, ..o.clone() };
+    // (the leader's release, absolute; the scene's length)
+    const REL: i64 = 40;
+    let len = REL + to + 140;
+    // (the cell's resting block between the pulses: the lane-7 drive stand-in, the ceiling lever)
+    let rep = Block::parse("minecraft:lever[face=ceiling,facing=north,powered=false]")?;
+    let rb = Block::parse("minecraft:redstone_block")?;
+    let slope_in = BlockPos::new(-4, 12, mz - 1);
+    let rider = "Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]";
+    // (one scene: the leader if `lead`; the follower placed at `rest` at REL + 10 and released at
+    // REL + gap if given; each cart's state at each tick's end)
+    let scene = |lead: bool, fol: Option<(i64, [f64; 3])>| -> Result<(Track, Track), String> {
+        let spec = build(&base)?;
+        let ro = RunOpts { ai: true, ..RunOpts::steady(1, (len + 50) as u32, WalkMode::Random) };
+        let mut run = Run::start(&spec, &ro)?;
+        while run.settle_tick() {}
+        let (mut lt, mut ft): (Track, Track) = (vec![None; len as usize], vec![None; len as usize]);
+        let (mut lid, mut fid): (Option<u32>, Option<u32>) = (None, None);
+        for t in 0..len {
+            if t == 0 && lead {
+                lid = Some(redsim::entity::spawn(&mut run.world, "minecraft:minecart", [-2.5, 13.0625, mz as f64 + 0.5], Some(&format!("{{Motion:[-0.1d,0.0d,0.0d],{rider}}}")))?);
+            }
+            if lead && t == REL {
+                run.world.set_block(slope_in, rb.clone(), redsim::world::flags::ALL);
+            }
+            if lead && t == REL + 10 {
+                run.world.set_block(slope_in, rep.clone(), redsim::world::flags::ALL);
+            }
+            if let Some((gap, rest)) = fol {
+                if t == REL + 10 {
+                    fid = Some(redsim::entity::spawn(&mut run.world, "minecraft:minecart", rest, Some(&format!("{{Motion:[0.0d,0.0d,0.0d],{rider}}}")))?);
+                }
+                if t == REL + gap {
+                    run.world.set_block(slope_in, rb.clone(), redsim::world::flags::ALL);
+                }
+                if t == REL + gap + 10 {
+                    run.world.set_block(slope_in, rep.clone(), redsim::world::flags::ALL);
+                }
+            }
+            run.tick();
+            let grab = |id: Option<u32>, w: &redsim::world::World| {
+                id.and_then(|i| redsim::entity::index_of(w, i)).map(|i| {
+                    let e = &w.entities.list[i];
+                    let rider = e.passengers.first().and_then(|r| redsim::entity::index_of(w, *r)).map(|j| {
+                        let p = &w.entities.list[j].pos;
+                        [p.x, p.y, p.z]
+                    });
+                    (CartState::of(e), rider)
+                })
+            };
+            lt[t as usize] = grab(lid, &run.world);
+            ft[t as usize] = grab(fid, &run.world);
+        }
+        Ok((lt, ft))
+    };
+    let (lsolo, _) = scene(true, None)?;
+    let r = lsolo[(REL - 1) as usize].ok_or("the leader never reached the slope")?.0;
+    let rest = [r.x, r.y, r.z];
+    let mut lines = vec![format!(
+        "lift-pair (ironspec 20:14 PT (b): tick-exact's configuration in redsim on the record lift file's path (a) geometry; riders seated): the leader settled on the slope at {:.4},{:.4},{:.4} (|v| {:.4}), released by a redstone block at (-4,12,{}) at t 0 for 10 gt; the follower placed there at rest at t 10 and released the same way at t gap; trace convention (ironspec 21:07 PT): t = game ticks after the leader's release, the block written before tick 0 (the leader's first kick in tick 0), each state as it stands at the end of tick t (absolute t + {REL}); a second shared event per cart, its column entry (its first end-of-tick in the column cell, x < -4); \"clean\" = no box or push-box contact and both rides as solo:",
+        r.x,
+        r.y,
+        r.z,
+        (r.vx * r.vx + r.vy * r.vy + r.vz * r.vz).sqrt(),
+        mz - 1
+    )];
+    // (a box's separation from another (> 0 apart, < 0 overlapping): a cart 0.98 wide x 0.7 tall, a
+    // villager rider 0.6 x 1.95, feet at y; `inflate` widens the pair sideways (a cart's push query,
+    // its box inflated 0.2 sideways))
+    fn sep(a: [f64; 3], wa: f64, ha: f64, b: [f64; 3], wb: f64, hb: f64, inflate: f64) -> f64 {
+        let half = (wa + wb) / 2.0 + inflate;
+        let dx = (a[0] - b[0]).abs() - half;
+        let dz = (a[2] - b[2]).abs() - half;
+        let dy = (a[1] - (b[1] + hb)).max(b[1] - (a[1] + ha));
+        dx.max(dz).max(dy)
+    }
+    let kind_names = ["cart-cart", "the leader's rider vs the follower's cart", "the follower's rider vs the leader's cart", "rider-rider"];
+    let mut clean: Vec<(i64, bool)> = Vec::new();
+    let mut kept: Vec<(i64, Track, Track, Option<i64>)> = Vec::new();
+    for gap in from..=to {
+        let (pl, pf) = scene(true, Some((gap, rest)))?;
+        let (_, fsolo) = scene(false, Some((gap, rest)))?;
+        // (the first tick a cart or its rider departs from its solo ride, and by how much)
+        let departs = |a: &Track, b: &Track| -> Option<(i64, f64)> {
+            (0..len as usize).find_map(|t| match (a[t], b[t]) {
+                (Some((x, xr)), Some((y, yr))) => {
+                    let mut d = (x.x - y.x).abs().max((x.y - y.y).abs()).max((x.z - y.z).abs());
+                    if let (Some(p), Some(q)) = (xr, yr) {
+                        d = d.max((p[0] - q[0]).abs()).max((p[1] - q[1]).abs()).max((p[2] - q[2]).abs());
+                    }
+                    (d > 1e-9).then_some((t as i64 - REL, d))
+                }
+                (None, None) => None,
+                _ => Some((t as i64 - REL, f64::INFINITY)),
+            })
+        };
+        let (dl, df) = (departs(&pl, &lsolo), departs(&pf, &fsolo));
+        let mut least: [Option<(f64, i64)>; 4] = [None; 4];
+        let mut first_box: Option<(i64, usize)> = None;
+        let mut first_pbox: Option<(i64, usize)> = None;
+        let mut first_push: Option<i64> = None;
+        for t in 0..len as usize {
+            if let (Some((a, ar)), Some((b, br))) = (pl[t], pf[t]) {
+                let tt = t as i64 - REL;
+                let (ac, bc) = ([a.x, a.y, a.z], [b.x, b.y, b.z]);
+                let mut kinds: Vec<(usize, f64, f64)> = vec![(0, sep(ac, 0.98, 0.7, bc, 0.98, 0.7, 0.0), sep(ac, 0.98, 0.7, bc, 0.98, 0.7, 0.2))];
+                if let Some(r) = ar {
+                    kinds.push((1, sep(r, 0.6, 1.95, bc, 0.98, 0.7, 0.0), sep(r, 0.6, 1.95, bc, 0.98, 0.7, 0.2)));
+                }
+                if let Some(r) = br {
+                    kinds.push((2, sep(r, 0.6, 1.95, ac, 0.98, 0.7, 0.0), sep(r, 0.6, 1.95, ac, 0.98, 0.7, 0.2)));
+                }
+                if let (Some(p), Some(q)) = (ar, br) {
+                    kinds.push((3, sep(p, 0.6, 1.95, q, 0.6, 1.95, 0.0), f64::INFINITY));
+                }
+                for (i, s, sp) in kinds {
+                    if least[i].is_none_or(|g| s < g.0) {
+                        least[i] = Some((s, tt));
+                    }
+                    if s < 0.0 && first_box.is_none() {
+                        first_box = Some((tt, i));
+                    }
+                    if sp < 0.0 && first_pbox.is_none() {
+                        first_pbox = Some((tt, i));
+                    }
+                }
+                if let Some((true, _)) = crate::liftbench::touch(&a, &b) {
+                    first_push.get_or_insert(tt);
+                }
+            }
+        }
+        let ok = first_box.is_none() && first_pbox.is_none() && dl.is_none() && df.is_none();
+        clean.push((gap, ok));
+        let centre = [dl.map(|x| x.0), df.map(|x| x.0), first_pbox.map(|x| x.0), first_box.map(|x| x.0)].into_iter().flatten().min().or(least[0].map(|x| x.1));
+        let ct = |v: Option<(i64, usize)>| v.map_or("none".to_string(), |(t, i)| format!("t {t} ({})", kind_names[i]));
+        let dep = |v: Option<(i64, f64)>| v.map_or("never".to_string(), |(t, d)| format!("at t {t} (by {d:.4})"));
+        // (each cart's column entry: its first end-of-tick with x < -4 in the column cell's z)
+        let entry = |tr: &Track| (0..len as usize).find(|&t| tr[t].is_some_and(|(s, _)| s.x < -4.0 && s.z.floor() as i32 == mz)).map_or("-".to_string(), |t| format!("t {}", t as i64 - REL));
+        lines.push(format!(
+            "  gap {gap}: {}; column entries: the leader {}, the follower {}; least separations: {}; first box contact {}; first push-box contact {}; first cart push acting {}; the leader departs from its solo ride {}, the follower {}",
+            if ok { "CLEAN" } else { "DISTURBED" },
+            entry(&pl),
+            entry(&pf),
+            (0..4).filter_map(|i| least[i].map(|(s, t)| format!("{} {s:.3} at t {t}", kind_names[i]))).collect::<Vec<_>>().join(", "),
+            ct(first_box),
+            ct(first_pbox),
+            first_push.map_or("none".to_string(), |t| format!("t {t}")),
+            dep(dl),
+            dep(df)
+        ));
+        kept.push((gap, pl, pf, centre));
+    }
+    let least_clean = clean.iter().rev().take_while(|x| x.1).last().map(|x| x.0);
+    lines.push(format!(
+        "least clean gap (it and every larger gap in {from}..={to} clean): {}",
+        least_clean.map_or("none in the range".to_string(), |g| g.to_string())
+    ));
+    // (ironspec 20:28 PT: the per-tick boxes at the boundary, the last disturbed gap and the first
+    // clean one, around the first divergence / contact / least separation)
+    let worst = clean.iter().filter(|x| !x.1).map(|x| x.0).max();
+    for (gap, pl, pf, centre) in kept.iter().filter(|k| worst.is_some_and(|w| k.0 == w || k.0 == w + 1)) {
+        let Some(c) = *centre else { continue };
+        lines.push(format!("  per tick at gap {gap} (t: the leader's cart x,y,z / rider feet y; the follower's cart x,y,z / rider feet y; cart-cart separation, push-box separation):"));
+        for t in (c - 4)..=(c + 6) {
+            let i = (t + REL) as usize;
+            if let (Some(Some((a, ar))), Some(Some((b, br)))) = (pl.get(i), pf.get(i)) {
+                let (ac, bc) = ([a.x, a.y, a.z], [b.x, b.y, b.z]);
+                lines.push(format!(
+                    "    t {t}: {:.4},{:.4},{:.4} / {}; {:.4},{:.4},{:.4} / {}; {:.4}, {:.4}",
+                    a.x,
+                    a.y,
+                    a.z,
+                    ar.map_or("-".to_string(), |r| format!("{:.4}", r[1])),
+                    b.x,
+                    b.y,
+                    b.z,
+                    br.map_or("-".to_string(), |r| format!("{:.4}", r[1])),
+                    sep(ac, 0.98, 0.7, bc, 0.98, 0.7, 0.0),
+                    sep(ac, 0.98, 0.7, bc, 0.98, 0.7, 0.2)
+                ));
+            }
+        }
+    }
+    Ok(lines.join("\n"))
 }
 
 /// ironspec 14:36's cross-check: per napper start speed at R, a restart (each liveness order) at the
@@ -1764,6 +1999,45 @@ pub fn t_snap(mode: &str, torches: bool) -> Result<String, String> {
     Ok(out.join("\n"))
 }
 
+/// `station_part` (ironspec 20:16): dfb89499's record station laid over the bench's world, each cell
+/// replacing the bench's (the box grown to hold it), its Nether placeholder left out (obsidian and
+/// nether_portal: "the bench's PLACEHOLDER, not the build", its header); the pockets' drive
+/// stand-ins added: a floor lever (x-2,0,0) on glass (x-2,-1,0) per lane, refused if the part holds
+/// either cell. Returns a line for the report.
+fn lay_station(spec: &mut FarmSpec, path: &str) -> Result<String, String> {
+    let text = std::fs::read_to_string(path).map_err(|e| format!("--station-part {path}: {e}"))?;
+    let d = mctas::design::Design::parse(&text).map_err(|e| format!("--station-part {path}: {e}"))?;
+    let mut map: std::collections::HashMap<BlockPos, Block> = spec.blocks.drain(..).collect();
+    let (mut laid, mut skipped, mut replaced) = (0usize, 0usize, 0usize);
+    for (p, s) in &d.blocks {
+        if s.starts_with("minecraft:obsidian") || s.starts_with("minecraft:nether_portal") {
+            skipped += 1;
+            continue;
+        }
+        let bp = BlockPos::new(p[0], p[1], p[2]);
+        spec.lo = BlockPos::new(spec.lo.x.min(bp.x), spec.lo.y.min(bp.y), spec.lo.z.min(bp.z));
+        spec.hi = BlockPos::new(spec.hi.x.max(bp.x), spec.hi.y.max(bp.y), spec.hi.z.max(bp.z));
+        if map.insert(bp, Block::parse(s)?).is_some() {
+            replaced += 1;
+        }
+        laid += 1;
+    }
+    for x in LANES {
+        let (lv, sup) = (BlockPos::new(x - 2, 0, 0), BlockPos::new(x - 2, -1, 0));
+        if map.contains_key(&lv) || map.contains_key(&sup) {
+            return Err(format!("--station-part: the pocket drive's stand-in cells ({},0,0) / ({},-1,0) are taken in the part", x - 2, x - 2));
+        }
+        map.insert(lv, Block::parse("minecraft:lever[face=floor,facing=north,powered=false]")?);
+        map.insert(sup, Block::parse("minecraft:glass")?);
+    }
+    let mut v: Vec<(BlockPos, Block)> = map.into_iter().collect();
+    v.sort_by_key(|(p, _)| (p.x, p.y, p.z));
+    spec.blocks = v;
+    Ok(format!(
+        "station part {path}: {laid} cells laid ({replaced} replacing the bench's), {skipped} Nether-placeholder cells left out, the pockets' drive levers at (x-2,0,0) on glass (x-2,-1,0) (EMULATED)"
+    ))
+}
+
 /// One run: the report and its failure counts.
 fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
     let mz = if o.z7 { 7 } else { 8 };
@@ -1771,6 +2045,19 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
     if o.mirror_z && o.out.is_some() {
         return Err("--out with --mirror-z: emit the design unmirrored (the mirrored copy is onechunk's)".into());
     }
+    // (`station_part`: dfb89499's record station composed (ironspec 20:16); the file's own cells
+    // come from the bench without it, so --out refuses it)
+    let mut station_line = None;
+    let spec = if let Some(path) = &o.station_part {
+        if o.out.is_some() || o.mirror_z || !o.napper_lift {
+            return Err("--station-part: not with --out or --mirror-z; needs --napper-lift (the 100-gt prelude: each batch's carts sit in the pockets 30 gt before its REL)".into());
+        }
+        let mut s = spec;
+        station_line = Some(lay_station(&mut s, path)?);
+        s
+    } else {
+        spec
+    };
     // (`mirror_z`: the world built mirrored, z' = 3 - z, every block's north and south swapped)
     let spec = if o.mirror_z { mirror_spec(&spec)? } else { spec };
     // (ironspec 11:05: `place_raw` skips cells outside the world's box silently; refuse them)
@@ -1799,6 +2086,9 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
         o.speed,
         if o.boost { "; a powered rail at (-4,23,9)" } else { "" }
     )];
+    if let Some(l) = &station_line {
+        out.push(l.clone());
+    }
     let n = o.batches * 3;
     // (the split's junction level: the exit's (23; `flat` 22) or `dip`'s main line one under it)
     let ex = if o.row9 { 25 } else if o.row10 { 24 } else if o.dip { 21 } else if o.flat { 22 } else { 23 };
@@ -1809,7 +2099,7 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
     // (the branch detectors' level: `dip`'s climbing slopes (x,21,7); the others' (x,22,7))
     let bdy = if o.row10 || o.row9 { 24 } else if o.dip { 21 } else { 22 };
     let total = n + usize::from(o.napper_delay.is_some());
-    let mut carts: Vec<Cart> = (0..total).map(|_| Cart { id: None, rider: None, launch_live: 0, lane: None, branch_v: None, merge_v: None, branch_t: None, least_air: i32::MAX, hurt: 0.0, health0: None, eye_in_wall: 0, dismounted: None, met_shaft: None, reach12: None, head: f64::NEG_INFINITY, w_d: None, w_lift12: None, w_hold: None, w_merge: None, w_k: None, v_k: None, w_j1: None, on_hold_route: false, w_exit: None, w_rest: None, w_leave: None, w_line: None, w_top: None, w_rest0: None, w_y12: None, w_y13: None, w_top_exit: None, v_t: None, air_trace: Vec::new(), launch_t: 0, merge_min: None, split_min: None, prev: None, end: None }).collect();
+    let mut carts: Vec<Cart> = (0..total).map(|_| Cart { id: None, rider: None, launch_live: 0, lane: None, branch_v: None, merge_v: None, branch_t: None, least_air: i32::MAX, hurt: 0.0, health0: None, eye_in_wall: 0, dismounted: None, met_shaft: None, reach12: None, head: f64::NEG_INFINITY, w_d: None, w_lift12: None, w_hold: None, w_merge: None, w_k: None, v_k: None, w_j1: None, on_hold_route: false, w_exit: None, w_rest: None, w_leave: None, w_line: None, w_top: None, w_rest0: None, w_y12: None, w_y13: None, w_top_exit: None, w_dep: None, w_row: None, v_t: None, air_trace: Vec::new(), launch_t: 0, merge_min: None, split_min: None, prev: None, end: None }).collect();
     let arm_lane = if o.reverse { 7 } else { -1 };
     let (mut arm_was, mut arm_at, mut window, mut napper_past) = (false, None::<i64>, false, false);
     let (mut pulses, mut pulse_count): (Vec<i64>, usize) = (Vec::new(), 0);
@@ -1842,7 +2132,7 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
     let mut trace: Vec<String> = Vec::new();
     let mut shaft_gap = f64::INFINITY;
     let mut restarted = 0usize;
-    let (mut restart_g0, mut restart_dt): (Option<i64>, Option<i64>) = (None, None);
+    let (mut restart_dt, mut restart_moved): (Option<i64>, Option<Option<(usize, f64)>>) = (None, None);
     let (mut k_on, mut j_deferred) = (false, false);
     // (`day1_taps`: the napper's own ARM3 (its releasing pulse - D) and the batch whose arming it was)
     let mut nap_arm: Option<i64> = None;
@@ -1902,11 +2192,16 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
             // to the hold) waits on the hold before its release)
             let prelude = if o.napper_lift { 100 } else { 0 };
             let at = prelude + o.station_lag + (k as i64 / 3) * 100 + offsets[k % 3] + o.jitter.get(k).copied().unwrap_or(0);
+            // (`station_part`: the cart placed at rest in its pocket (x,0,0) 30 gt before its batch's
+            // REL (the holds' refill not modelled); it leaves on the pocket's own drive below)
+            let at = if o.station_part.is_some() { prelude + (k as i64 / 3) * 100 - 30 } else { at };
             if c.id.is_none() && (o.game_ticks || !frozen) && (if o.game_ticks { t } else { live }) >= at {
                 let x = order[k % 3];
                 // (`path_a`: lane 7's cart starts at rest on the braked slope (-4,12,mz) (dfb89499's
                 // ramp and climb not modelled: it waits there before its release))
-                let (pos, nbt) = if o.path_a && x == 7 {
+                let (pos, nbt) = if o.station_part.is_some() {
+                    ([x as f64 + 0.5, 0.0625, 0.5], "{Motion:[0.0d,0.0d,0.0d],Rotation:[0f,0f],Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}".to_string())
+                } else if o.path_a && x == 7 {
                     // (it arrives from the climb's top (-3,13,mz) rolling west at 0.1 and settles on the
                     // braked slope by itself, near its crest, as tick-exact's official rows rest it)
                     ([-2.5, 13.0625, if o.mirror_z { 3.5 - mz as f64 } else { mz as f64 + 0.5 }], "{Motion:[-0.1d,0.0d,0.0d],Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}".to_string())
@@ -1918,9 +2213,23 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
                 };
                 let id = redsim::entity::spawn(&mut run.world, "minecraft:minecart", pos, Some(&nbt))?;
                 c.id = Some(id);
-                c.launch_live = live;
+                // (`station_part`: the launch is the pocket's drive (the lever on at REL + offset - 1))
+                c.launch_live = if o.station_part.is_some() { live + (prelude + (k as i64 / 3) * 100 + offsets[k % 3] + o.jitter.get(k).copied().unwrap_or(0) - 1 - at) } else { live };
                 c.launch_t = t;
                 c.rider = redsim::entity::index_of(&run.world, id).and_then(|i| run.world.entities.list[i].passengers.first().copied());
+            }
+        }
+        // (`station_part`: each pocket's drive (dfb89499 19:55): the lever stand-in (x-2,0,0) on at
+        // REL + offset - 1 into day-1's repeater (x-1,0,0) (the part's), the pocket's rail rising at
+        // REL + offset, off 16 gt later (the re-brake))
+        if o.station_part.is_some() {
+            let clock = if o.game_ticks { t } else { live };
+            let prel = if o.napper_lift { 100 } else { 0 };
+            for k in 0..n {
+                let on = prel + (k as i64 / 3) * 100 + offsets[k % 3] + o.jitter.get(k).copied().unwrap_or(0) - 1;
+                if clock == on || clock == on + 16 {
+                    run.world.set_block(BlockPos::new(order[k % 3] - 2, 0, 0), Block::parse(&format!("minecraft:lever[face=floor,facing=north,powered={}]", clock == on))?, redsim::world::flags::ALL);
+                }
             }
         }
         // ((c)'s napper: the arming detector's first rise (the batch 0 third cart), the hold's
@@ -2317,16 +2626,41 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
         // (`restart`: a save, stop and start between two ticks (the lead's L1 rows), through the
         // shared helper (cc767b78's `liveness::restart`, in the given entity order); the carts and
         // riders followed to their new ids)
+        // (ironspec 21:07 / 21:13 PT, tick-exact: the official load is one block-only tick (game time
+        // + 1, redstone and scheduled ticks run, no entity moves); measured across the helper's call:
+        // its game-time delta and each moving cart's position (held = clean, moved = re-run))
         if let Some((rt, how)) = o.restart
             && rt == t
         {
-            restart_g0 = Some(run.world.time);
+            let g0 = run.world.time;
+            let before: Vec<Option<(f64, f64, f64, bool)>> = carts
+                .iter()
+                .map(|c| c.id.and_then(|id| redsim::entity::index_of(&run.world, id)).map(|i| {
+                    let e = &run.world.entities.list[i];
+                    let s = crate::liftbench::CartState::of(e);
+                    (s.x, s.y, s.z, s.vx * s.vx + s.vy * s.vy + s.vz * s.vz > 1e-12)
+                }))
+                .collect();
             let moved = crate::liveness::restart(&mut run.world, how)?;
             restarted = moved.iter().filter(|(a, b)| a != b).count();
             for c in carts.iter_mut() {
                 c.id = c.id.map(|i| crate::liveness::follow(&run.world, i));
                 c.rider = c.rider.map(|i| crate::liveness::follow(&run.world, i));
             }
+            restart_dt = Some(run.world.time - g0);
+            let mut worst: Option<(usize, f64)> = None;
+            for (k, b) in before.iter().enumerate() {
+                if let Some((x, y, z, true)) = b
+                    && let Some(i) = carts[k].id.and_then(|id| redsim::entity::index_of(&run.world, id))
+                {
+                    let p = &run.world.entities.list[i].pos;
+                    let d = ((p.x - x).powi(2) + (p.y - y).powi(2) + (p.z - z).powi(2)).sqrt();
+                    if worst.is_none_or(|w| d > w.1) {
+                        worst = Some((k, d));
+                    }
+                }
+            }
+            restart_moved = Some(worst);
         }
         // (`lane7_drive`, `path_a`: lane 7's release, the slope (-4,12,mz) powered for `lane7_pulse`
         // gt by the ceiling lever stand-in (-4,12,mz-1), written with the controller's writes before
@@ -2345,10 +2679,6 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
             }
         }
         run.tick();
-        // (ironspec 20:35 PT: the restart harness's game-time delta across the restart is exactly 1)
-        if let Some(g0) = restart_g0.take() {
-            restart_dt = Some(run.world.time - g0);
-        }
         let mut sink: Vec<u32> = Vec::new();
         let mut close_window = false;
         let st: Vec<Option<crate::liftbench::CartState>> = carts.iter().map(|c| c.id.and_then(|id| redsim::entity::index_of(&run.world, id)).map(|i| crate::liftbench::CartState::of(&run.world.entities.list[i]))).collect();
@@ -2491,6 +2821,14 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
             // cart's first tick on the exit booster's cell (-5,ex,mz+1))
             if c.w_top_exit.is_none() && bp.x == -5 && bp.y == ex && bp.z == mz + 1 {
                 c.w_top_exit = Some(t);
+            }
+            // (`station_part`'s observables: the departure, the merge-row entry and its speed)
+            let hv = (s.vx * s.vx + s.vz * s.vz).sqrt();
+            if c.w_dep.is_none() && (hv > 1e-9 || s.vy.abs() > 1e-9) {
+                c.w_dep = Some(t);
+            }
+            if c.w_row.is_none() && k < n && bp.y == 0 && bp.z == mz && bp.x == order[k % 3] {
+                c.w_row = Some((t, hv));
             }
             // (ironspec 17:20 (b): the stored speeds the geometry produces on each J (J(-1), J(3), J(7))
             // over every cart, for J(-1)'s junction-settle bar)
@@ -2926,6 +3264,32 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
                 c.hurt
             ));
         }
+        // (`station_part`, ironspec 20:16: each batch cart's observables from the real station's
+        // cells, REL-relative: its departure from the pocket, its merge-row entry and speed there,
+        // its y-12 pass, for tick-exact's official station ride (within 1 gt / 0.005 b/gt))
+        if o.station_part.is_some() {
+            let prel = if o.napper_lift { 100 } else { 0 };
+            out.push(format!(
+                "station (the record part's cells), after each batch's REL: {}",
+                carts
+                    .iter()
+                    .enumerate()
+                    .take(n)
+                    .map(|(k, c)| {
+                        let rel = prel + 100 * (k / 3) as i64;
+                        format!(
+                            "b{} lane {}: departs REL + {}, the merge row REL + {}, y 12 REL + {}",
+                            k / 3,
+                            order[k % 3],
+                            c.w_dep.map_or("-".to_string(), |t| (t - rel).to_string()),
+                            c.w_row.map_or("- (path (a)'s lane 7: its climb)".to_string(), |(t, v)| format!("{} at |v| {v:.3}", t - rel)),
+                            c.w_y12.map_or("-".to_string(), |t| (t - rel).to_string())
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            ));
+        }
         if o.path_a {
             out.push(format!(
                 "path (a), in game ticks after REL (the tick a state first shows at a tick's end): lane 7's slope rail rises {:?}; ARM3 rises {:?}; the napper's hold rail rises {}; y-12 passes after REL: {}; the napper's y-12 gap behind {} and ahead {}; lane 7's mouth clearance {}; the least distance between two carts in the column {}",
@@ -3108,6 +3472,17 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
             s(tops[3])
         ));
     }
+    // (cc767b78's wording: the restart's game-time delta and a moving cart's position across the load)
+    if let Some(d) = restart_dt {
+        out.push(format!(
+            "restart game-time delta {d}; a moving cart's position across the load: {} (the official load is one block-only tick: delta 1, carts held; this bench's restart helper runs no block-only tick yet)",
+            match restart_moved.flatten() {
+                None => "none moving".to_string(),
+                Some((_, dd)) if dd <= 1e-9 => "held".to_string(),
+                Some((k, dd)) => format!("moved (cart {k}, delta {dd:.4})"),
+            }
+        ));
+    }
     let summary = Summary {
         y12_pairs,
         y12_order_bad,
@@ -3125,6 +3500,7 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
         cause_clear,
         path_a: o.path_a,
         restart_dt,
+        restart_moved,
         wrong,
         pushes: touches.pushes,
         napper_off: o.napper_delay.is_some() && carts.get(n).is_none_or(|c| c.lane != Some(if o.k_relay { o.napper_lane } else { 9 })),
