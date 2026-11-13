@@ -4787,6 +4787,7 @@ pub fn spawn_static(spec: &FarmSpec, biome: &'static str, lit: bool) -> Result<(
     inner.dedup();
     let mut lit_off = 0usize;
     let mut marginal: Vec<(BlockPos, i32)> = Vec::new();
+    let emit_cache: std::cell::RefCell<HashMap<redsim::block::Block, i32>> = std::cell::RefCell::new(HashMap::new());
     let mut test = |cells: &[BlockPos]| -> Result<Vec<(BlockPos, Vec<&'static str>, i32)>, String> {
         let mut hits = Vec::new();
         for p in cells {
@@ -4800,7 +4801,29 @@ pub fn spawn_static(spec: &FarmSpec, biome: &'static str, lit: bool) -> Result<(
             if kinds.is_empty() {
                 continue;
             }
-            let light = if lit { redsim::daylight::block_light_cached(&w, *p, 1)? } else { 0 };
+            // (the game's isValidEmptySpawnBlock also refuses a block in
+            // #prevent_mob_spawning_inside, the rails: redsim's empty test lacks it, so a rail cell
+            // is skipped here)
+            if redsim::rails::is_rail(&w.get(*p)) {
+                continue;
+            }
+            // (the light: redsim's block-light engine with the mob layer's emitters and each block's
+            // own luminance from the game's block table (the nether portal's 11, crying obsidian's
+            // 10: the sun table lacks them), memoised per block state)
+            let emission = |b: &redsim::block::Block| -> i32 {
+                if let Some(e) = emit_cache.borrow().get(b) {
+                    return *e;
+                }
+                let e = redsim::entity::mob::sun::emission(b);
+                let tid = match b {
+                    redsim::block::Block::Terrain(id) => Some(*id),
+                    _ => redsim::terrain::blocks::id_of(&b.to_string()),
+                };
+                let e = e.max(tid.map_or(0, |id| redsim::terrain::blocks::props(id).emission as i32));
+                emit_cache.borrow_mut().insert(*b, e);
+                e
+            };
+            let light = if lit { redsim::daylight::block_light_from(&w, *p, 1, &emission)? } else { 0 };
             if light > 0 {
                 lit_off += 1;
                 // (ironspec 11:31: a cell cleared by block light 1 or 2 gets a game light read or
@@ -5049,7 +5072,12 @@ pub fn t_exposure(spec: &FarmSpec, declared: &[(BlockPos, String)], integrity: &
                     v.sort();
                     v
                 });
-                let holds = why.split(';').nth(1).and_then(|s| s.trim().strip_prefix("holds")).and_then(|s| s.trim().split_once('=')).and_then(|(t, sh)| parse3(t).map(|t| (t, sh.trim().to_string())));
+                let holds = why.split(';').nth(1).and_then(|s| s.trim().strip_prefix("holds")).and_then(|s| s.trim().split_once('=')).and_then(|(t, sh)| {
+                    // (the shape is the entry's first word: a note may follow it, "north_east ((A)'s,
+                    // local + (0,-27,-1))")
+                    let word: String = sh.trim().chars().take_while(|ch| ch.is_ascii_alphabetic() || *ch == '_').collect();
+                    parse3(t).map(|t| (t, word))
+                });
                 match (stated, holds) {
                     (Some(st), Some((t, sh))) if st == real && t == *c && sh == now.name() => integrity_ok.push(format!("{},{},{}", m.x, m.y, m.z)),
                     (st, h) => integrity_bad.push(format!(
@@ -7518,13 +7546,6 @@ mod gate_tests {
     #[test]
     fn t_exposure_fails_undeclared_operating() {
         let p = |s: &str| redsim::block::Block::parse(s).unwrap();
-        // (the operating torch of the first case: on stone, the stone powered by a ceiling lever)
-        let with_det_held = |bl: &Vec<(redsim::pos::BlockPos, redsim::block::Block)>| {
-            let mut v = bl.clone();
-            v.push((b(0, 1, 1), p("minecraft:redstone_torch[lit=true]")));
-            v.push((b(0, -1, 1), p("minecraft:lever[face=ceiling,facing=north,powered=false]")));
-            v
-        };
         let mut blocks = Vec::new();
         for x in -3..=4 {
             for z in -3..=3 {
@@ -7595,41 +7616,6 @@ mod gate_tests {
         det.push((b(0, 0, -1), p("minecraft:detector_rail[powered=false,shape=ascending_south,waterlogged=false]")));
         let (l8, f8) = super::t_exposure(&mk(det), &[], &[]).unwrap();
         assert!(f8 == 0 && l8.iter().any(|x| x.contains("quiet T 0,1,0")), "{l8:?}");
-        // (58f770cc / G1 10:46: the W arm made full (a north_south rail between two that point
-        // back): it can't join, so the T is HELD, not failing, under the operating torch, its
-        // integrity condition printed)
-        let mut held = with_det_held(&blocks);
-        held.retain(|(q, _)| *q != b(-1, 1, 0));
-        for (x, z) in [(-1, -1), (-1, 0), (-1, 1)] {
-            held.push((b(x, 1, z), p("minecraft:rail[shape=north_south,waterlogged=false]")));
-        }
-        let (l9, f9) = super::t_exposure(&mk(held.clone()), &[], &[]).unwrap();
-        // (two Ts hold each other here: the full arm (-1,1,0) is itself a T (N, S and E rails) held
-        // by (0,1,0); each needs the other's entry)
-        assert!(f9 == 3 && l9.iter().any(|x| x.contains("FAIL T 0,1,0") && x.contains("the arm(s) -1,1,0 can't join") && x.contains("-1,1,0 has no `integrity:` entry")), "{l9:?}");
-        // (ironspec 10:54 / 9fc3155f 11:01: the holding cells declared with their real connections
-        // and the Ts they hold: HELD passes, the entries cited; a wrong stated connection: stale)
-        let entries = |a: &str| vec![(b(-1, 1, 0), a.to_string()), (b(0, 1, 0), "connections 0,1,-1+1,1,0; holds -1,1,0=north_south".to_string())];
-        let (l9b, f9b) = super::t_exposure(&mk(held.clone()), &[], &entries("connections -1,1,-1+-1,1,1; holds 0,1,0=north_east")).unwrap();
-        // (G1 11:19: the two Ts hold each other: a MUTUAL HOLD cycle; the operating torch is no
-        // constant source and no member has a non-T blocked arm, so it FAILS even with both
-        // integrity entries)
-        assert!(f9b == 1 && l9b.iter().any(|x| x.contains("HELD T 0,1,0") && x.contains("declared and matching for -1,1,0")) && l9b.iter().any(|x| x.contains("FAIL MUTUAL HOLD")), "{l9b:?}");
-        // (with a constant torch instead (on glass, nothing powering it), the cycle is broken)
-        let mut held_c = held.clone();
-        held_c.retain(|(q, _)| *q != b(0, -1, 1) && *q != b(0, 0, 1));
-        held_c.push((b(0, 0, 1), p("minecraft:glass")));
-        let (l9d, f9d) = super::t_exposure(&mk(held_c), &[], &entries("connections -1,1,-1+-1,1,1; holds 0,1,0=north_east")).unwrap();
-        assert!(f9d == 0 && l9d.iter().any(|x| x.contains("MUTUAL HOLD") && x.contains("broken by a CONSTANT source")), "{l9d:?}");
-        let (l9c, f9c) = super::t_exposure(&mk(held.clone()), &[], &entries("connections -1,1,-1+-2,1,0; holds 0,1,0=north_east")).unwrap();
-        assert!(f9c == 2 && l9c.iter().any(|x| x.contains("FAIL T 0,1,0") && x.contains("entry stale")), "{l9c:?}");
-        // (ironspec 10:47 (2)'s control, (A)'s P-integrity in miniature: free one of the full arm's
-        // connections (its south rail gone): the arm joins, the powered T re-settles north_west
-        // against its stored north_east: FAIL)
-        let mut freed = held;
-        freed.retain(|(q, _)| *q != b(-1, 1, 1));
-        let (l10, f10) = super::t_exposure(&mk(freed), &[], &[]).unwrap();
-        assert!(f10 == 1 && l10.iter().any(|x| x.contains("FAIL T 0,1,0") && x.contains("SHAPE MISMATCH, stored north_east")), "{l10:?}");
         // (ironspec 09:53 (B): a standing torch on glass never changes: constant, quiet)
         let mut with_tg = blocks;
         with_tg.retain(|(q, _)| *q != b(0, 0, 1));
@@ -7637,6 +7623,47 @@ mod gate_tests {
         with_tg.push((b(0, 1, 1), p("minecraft:redstone_torch[lit=true]")));
         let (l4, f4) = super::t_exposure(&mk(nw(with_tg)), &[], &[]).unwrap();
         assert!(f4 == 0 && l4.iter().any(|x| x.contains("quiet T 0,1,0") && x.contains("1 constant")), "{l4:?}");
+    }
+
+    /// (G1 Nov 13 10:46 / 11:19 / 12:09, ironspec 10:47 (2) / 10:54) The HELD T's integrity entries
+    /// and the MUTUAL HOLD rule, as their own controls: a T (0,1,0) whose W arm (-1,1,0) is full (a
+    /// north_south rail between two that point back) is HELD under an operating torch, and that arm
+    /// is itself a T held by (0,1,0): a two-T cycle. With no entries: 3 fails (two missing entries,
+    /// the unbroken cycle); one stale entry: 2 (stale, the cycle); both entries matching: 1 (the
+    /// cycle still unbroken by an operating torch); the torch made CONSTANT (on glass): broken, 0;
+    /// the full arm freed of a connection: SHAPE MISMATCH.
+    #[test]
+    fn held_integrity_and_mutual_hold_controls() {
+        let p = |s: &str| redsim::block::Block::parse(s).unwrap();
+        let mut held = Vec::new();
+        for x in -3..=4 {
+            for z in -3..=3 {
+                held.push((b(x, 0, z), p("minecraft:stone")));
+            }
+        }
+        for (x, z, s) in [(0, 0, "north_east"), (0, -1, "north_south"), (1, 0, "east_west"), (-1, -1, "north_south"), (-1, 0, "north_south"), (-1, 1, "north_south")] {
+            held.push((b(x, 1, z), p(&format!("minecraft:rail[shape={s},waterlogged=false]"))));
+        }
+        // (the operating torch: on stone, the stone powered by a ceiling lever)
+        held.push((b(0, 1, 1), p("minecraft:redstone_torch[lit=true]")));
+        held.push((b(0, -1, 1), p("minecraft:lever[face=ceiling,facing=north,powered=false]")));
+        let mk = |bl: Vec<(redsim::pos::BlockPos, redsim::block::Block)>| redsim::entity::mob::farm::FarmSpec { blocks: bl, entities: Vec::new(), output: b(4, 1, 3), lo: b(-5, -1, -5), hi: b(6, 5, 5), block_entities: Vec::new(), rock: false, nether: None, land: false };
+        let (l9, f9) = super::t_exposure(&mk(held.clone()), &[], &[]).unwrap();
+        assert!(f9 == 3 && l9.iter().any(|x| x.contains("FAIL T 0,1,0") && x.contains("the arm(s) -1,1,0 can't join") && x.contains("-1,1,0 has no `integrity:` entry")) && l9.iter().any(|x| x.contains("FAIL MUTUAL HOLD")), "{l9:?}");
+        let entries = |a: &str| vec![(b(-1, 1, 0), a.to_string()), (b(0, 1, 0), "connections 0,1,-1+1,1,0; holds -1,1,0=north_south (a note after the shape is allowed)".to_string())];
+        let (l9b, f9b) = super::t_exposure(&mk(held.clone()), &[], &entries("connections -1,1,-1+-1,1,1; holds 0,1,0=north_east")).unwrap();
+        assert!(f9b == 1 && l9b.iter().any(|x| x.contains("HELD T 0,1,0") && x.contains("declared and matching for -1,1,0")) && l9b.iter().any(|x| x.contains("FAIL MUTUAL HOLD")), "{l9b:?}");
+        let (l9c, f9c) = super::t_exposure(&mk(held.clone()), &[], &entries("connections -1,1,-1+-2,1,0; holds 0,1,0=north_east")).unwrap();
+        assert!(f9c == 2 && l9c.iter().any(|x| x.contains("FAIL T 0,1,0") && x.contains("entry stale")), "{l9c:?}");
+        let mut held_c = held.clone();
+        held_c.retain(|(q, _)| *q != b(0, -1, 1) && *q != b(0, 0, 1));
+        held_c.push((b(0, 0, 1), p("minecraft:glass")));
+        let (l9d, f9d) = super::t_exposure(&mk(held_c), &[], &entries("connections -1,1,-1+-1,1,1; holds 0,1,0=north_east")).unwrap();
+        assert!(f9d == 0 && l9d.iter().any(|x| x.contains("MUTUAL HOLD") && x.contains("broken by a CONSTANT source")), "{l9d:?}");
+        let mut freed = held;
+        freed.retain(|(q, _)| *q != b(-1, 1, 1));
+        let (l10, f10) = super::t_exposure(&mk(freed), &[], &[]).unwrap();
+        assert!(f10 == 1 && l10.iter().any(|x| x.contains("FAIL T 0,1,0") && x.contains("SHAPE MISMATCH, stored north_east")), "{l10:?}");
     }
 
     /// (ironspec Nov 13 08:18 (e): the exterior static's control) A stone platform floating in the
@@ -7666,6 +7693,17 @@ mod gate_tests {
         assert!(out3 == 0 && l3[0].contains("LIGHT-AWARE") && l3[0].contains("are lit (block light > 0)"), "{l3:?}");
         let (l4, _, out4) = super::spawn_static(&glow, "minecraft:plains", false).unwrap_or_else(|e| panic!("{e}"));
         assert!(out4 > 0 && l4[0].contains("ALL DARK"), "{l4:?}");
+        // (a terrain-modeled emitter's own luminance counts (crying obsidian's 10, as the nether
+        // portal's 11): the sun table alone would leave the platform dark)
+        let mut cry = plat("minecraft:stone");
+        cry.blocks.push((b(2, 1, 2), p("minecraft:crying_obsidian")));
+        let (l5, _, out5) = super::spawn_static(&cry, "minecraft:plains", true).unwrap_or_else(|e| panic!("{e}"));
+        assert!(out5 == 0, "a terrain emitter lights the platform: {l5:?}");
+        // (#prevent_mob_spawning_inside: a rail cell is never a spawn cell)
+        let mut rail = plat("minecraft:stone");
+        rail.blocks.push((b(2, 1, 2), p("minecraft:rail[shape=north_south,waterlogged=false]")));
+        let (l6, _, _) = super::spawn_static(&rail, "minecraft:plains", false).unwrap_or_else(|e| panic!("{e}"));
+        assert!(!l6.iter().any(|x| x.contains("SPAWNABLE OUTSIDE 2,1,2 ") || x.contains("SPAWNABLE INSIDE 2,1,2 ")), "{l6:?}");
     }
 
     /// (9fc3155f's correction 10:35, G1's no-vacuous-pass rule) The floating site's spawn check
