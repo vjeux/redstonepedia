@@ -692,9 +692,12 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
     put(&mut b, [ACT_CTRL_A2[0], -1, ACT_CTRL_A2[2]], "glass")?;
     put(&mut b, [ACT_CTRL_A2[0], 1, ACT_CTRL_A2[2]], "glass")?;
     // (the dismount at E, a southbound cart: W the torch's cell under glass (1 high), E, NW, NE at
-    // E's level full blocks, then SW, the bed foot's top: the first valid place, 1.00 from the bed
-    // head's centre)
-    for c in [[-1, 0, 2], [-3, 0, 1], [-1, 0, 1]] {
+    // E's level blocked, then SW, the bed foot's top: the first valid place, 1.00 from the bed
+    // head's centre; E's own blocker (-1,0,2) a top-half trapdoor (its collision 0.8125..1.0, over
+    // the cart's box, 0.76: glass there met the box of a cart turning east at K, a contact that
+    // stalled 2 of 72 band visits; a 1.95 box still won't fit under it))
+    put(&mut b, [-1, 0, 2], "iron_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]")?;
+    for c in [[-3, 0, 1], [-1, 0, 1]] {
         put(&mut b, c, "glass")?;
     }
     // K, the curve east after E (glass over it: P's way north is 1 high), a flat, a booster (always
@@ -777,6 +780,11 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
             put(&mut b, [x, -1, 5], &rail("east_west"))?;
             put(&mut b, [x, -2, 5], "glass")?;
         }
+        // ((-1,0,5), the old exit's cell between P's straight and the new curve: a top-half
+        // trapdoor: it keeps the run-up's water ((-1,0,4) is waterlogged) from flowing out through
+        // it (with the cell empty and unfloored the water fell out of the build), its collision over
+        // the carts' boxes on both curves, no stand-up or stable place)
+        put(&mut b, [-1, 0, 5], "iron_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]")?;
     } else {
     put(&mut b, [-2, 0, 5], &rail("north_east"))?;
     put(&mut b, [-2, -1, 5], "glass")?;
