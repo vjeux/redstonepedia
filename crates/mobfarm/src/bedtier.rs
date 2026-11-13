@@ -2314,9 +2314,9 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                                 let q = BlockPos::new(bp.x + dx, bp.y + dy, bp.z + dz);
                                 let qb = w.get(q);
                                 for bx in redsim::entity::collide::boxes_at(w, &qb, q) {
-                                    let ox = c.bb.max.x.min(bx.max.x) - c.bb.min.x.max(bx.min.x);
-                                    let oy = c.bb.max.y.min(bx.max.y) - c.bb.min.y.max(bx.min.y);
-                                    let oz = c.bb.max.z.min(bx.max.z) - c.bb.min.z.max(bx.min.z);
+                                    let ox = c.bb.max_x.min(bx.max_x) - c.bb.min_x.max(bx.min_x);
+                                    let oy = c.bb.max_y.min(bx.max_y) - c.bb.min_y.max(bx.min_y);
+                                    let oz = c.bb.max_z.min(bx.max_z) - c.bb.min_z.max(bx.min_z);
                                     if oy > 0.0 {
                                         depth = depth.max(ox.min(oz));
                                     }
