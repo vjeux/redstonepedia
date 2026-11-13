@@ -858,8 +858,10 @@ pub fn settle_check(blocks: &[(BlockPos, Block)], block_entities: &[(BlockPos, S
         }
     }
     // (the designed currents, ironspec 01:07 (c): each `# water:` cell the file holds as fluid, bounded
-    // in the saved design: no neighbour below or beside it that is air, washed away by fluids or a dry
-    // waterloggable block, so its spread stays blocked)
+    // in the saved design: no neighbour below or beside it its fluid would spread into, by the fluid model's
+    // own acceptance (ironspec 05:55 real (2): `redsim::fluid::spread_state_into` on the design as laid: a
+    // flowing current's FLOWING state can't enter a dry waterloggable block, a cell where `getNewLiquid`
+    // forms a source takes one), so its spread stays blocked)
     // (and every stored current, a flowing or falling water cell, is declared (ironspec 06:21 (b)): a
     // mistyped key can't skip a current's boundedness check)
     let declared_water: std::collections::HashSet<BlockPos> = decl.water.iter().map(|(p, _)| *p).collect();
@@ -879,7 +881,7 @@ pub fn settle_check(blocks: &[(BlockPos, Block)], block_entities: &[(BlockPos, S
         for d in [Dir::Down, Dir::North, Dir::East, Dir::South, Dir::West] {
             let q = p.rel(d);
             let nb = stored.get(&q).copied().unwrap_or(air);
-            let open = !is_fluid(&nb) && (nb.is_air() || redsim::fluid::natural_washed_away(&nb.to_string()) || redsim::fluid::waterlogged(&nb) == Some(false));
+            let open = !is_fluid(&nb) && redsim::fluid::spread_state_into(&laid, *p, d).is_some();
             if open {
                 s.currents_unbounded.push((*p, q, nb.to_string()));
             }
@@ -1399,6 +1401,69 @@ mod tests {
         let ents = vec![("minecraft:minecart".to_string(), [0.5, 0.0, 0.5], Some("{Passengers:[{id:\"minecraft:villager\"}]}".to_string()))];
         let s = settle_check(&d, &[], &ents, &Declared::default(), 6000, CAP).unwrap();
         assert!(s.fails(false).is_empty(), "{:?}", s.fails(false));
+    }
+
+    /// The current bound check through the fluid model's own spread acceptance (ironspec 05:55 real (2)): a
+    /// level-1 current beside a dry rail is bounded (its FLOWING state can't enter a waterloggable block); a
+    /// single source beside a dry rail is bounded too (it spreads FLOWING water sideways: `getNewLiquid` at the
+    /// rail's cell sees one source); two sources flanking a dry rail on stone are unbounded (`getNewLiquid` forms
+    /// a source there, which the rail takes) and the settle's new-fluid check fails it too; a current beside
+    /// air is unbounded.
+    #[test]
+    fn current_bounds_follow_the_spread() {
+        let walls = |cells: &mut Vec<(BlockPos, Block)>, xs: std::ops::RangeInclusive<i32>| {
+            for x in xs {
+                cells.push(at(x, 0, -1, "minecraft:stone"));
+                cells.push(at(x, 0, 1, "minecraft:stone"));
+            }
+        };
+        let rail = "minecraft:rail[shape=east_west,waterlogged=false]";
+        // (a level-1 current fed by its source, a dry rail beyond it, stone round both)
+        let mut flowing = floor(4);
+        flowing.extend([at(-1, 0, 0, "minecraft:stone"), at(0, 0, 0, "minecraft:water[level=0]"), at(1, 0, 0, "minecraft:water[level=1]"), at(2, 0, 0, rail), at(3, 0, 0, "minecraft:stone")]);
+        walls(&mut flowing, -1..=3);
+        let d = declared("# water: 1,0,0=a current (level 1, fed by its source)\n").unwrap();
+        let s = check(&flowing, &d);
+        assert!(s.currents.len() == 1 && s.currents_unbounded.is_empty() && s.water_undeclared.is_empty(), "{:?} {:?} {:?}", s.currents_unbounded, s.water_undeclared, s.fails(false));
+        // (a single source beside a dry rail)
+        let mut one = floor(4);
+        one.extend([at(-1, 0, 0, "minecraft:stone"), at(0, 0, 0, "minecraft:water[level=0]"), at(1, 0, 0, rail), at(2, 0, 0, "minecraft:stone")]);
+        walls(&mut one, -1..=2);
+        let d = declared("# water: 0,0,0=a source (beside the rail)\n").unwrap();
+        let s = check(&one, &d);
+        assert!(s.currents_unbounded.is_empty() && s.water_undeclared.is_empty(), "{:?} {:?}", s.currents_unbounded, s.water_undeclared);
+        // (two sources flanking a dry rail on stone)
+        let mut two = floor(4);
+        two.extend([at(-1, 0, 0, "minecraft:stone"), at(0, 0, 0, "minecraft:water[level=0]"), at(1, 0, 0, rail), at(2, 0, 0, "minecraft:water[level=0]"), at(3, 0, 0, "minecraft:stone")]);
+        walls(&mut two, -1..=3);
+        let d = declared("# water: 0,0,0=a source (west of the rail); 2,0,0=a source (east of the rail)\n").unwrap();
+        let s = check(&two, &d);
+        assert!(s.currents_unbounded.iter().any(|(_, q, _)| *q == BlockPos::new(1, 0, 0)), "{:?}", s.currents_unbounded);
+        assert!(s.water_undeclared.iter().any(|c| c.pos == BlockPos::new(1, 0, 0)) && s.fails(false).iter().any(|f| f.contains("designed currents unbounded")) && s.fails(false).iter().any(|f| f.contains("new fluid cells after the settle")), "{:?}", s.fails(false));
+        // (a current beside air)
+        let mut open = flowing.clone();
+        open.retain(|(p, _)| *p != BlockPos::new(2, 0, 0));
+        let d = declared("# water: 1,0,0=a current (level 1, fed by its source)\n").unwrap();
+        let s = check(&open, &d);
+        assert!(s.currents_unbounded.iter().any(|(_, q, _)| *q == BlockPos::new(2, 0, 0)), "{:?}", s.currents_unbounded);
+        // (G1: the floor condition, the fact on record from C7's leak: two flanking sources make the middle a
+        // source only over a floor that's solid or a source: iron bars between two sources over AIR stay dry,
+        // bounded; over stone they take water, unbounded and new water after the settle)
+        let bars = "minecraft:iron_bars[east=false,north=true,south=true,waterlogged=false,west=false]";
+        let flank = |floor_under_bars: bool| {
+            let mut c = floor(4);
+            if !floor_under_bars {
+                c.retain(|(p, _)| *p != BlockPos::new(1, -1, 0));
+            }
+            c.extend([at(-1, 0, 0, "minecraft:stone"), at(0, 0, 0, "minecraft:water[level=0]"), at(1, 0, 0, bars), at(2, 0, 0, "minecraft:water[level=0]"), at(3, 0, 0, "minecraft:stone")]);
+            walls(&mut c, -1..=3);
+            c
+        };
+        let d = declared("# water: 0,0,0=a source (west of the bars); 2,0,0=a source (east of the bars)\n").unwrap();
+        let s = check(&flank(false), &d);
+        assert!(!s.currents_unbounded.iter().any(|(_, q, _)| *q == BlockPos::new(1, 0, 0)) && !s.water_undeclared.iter().any(|c| c.pos == BlockPos::new(1, 0, 0)), "over air: {:?} {:?}", s.currents_unbounded, s.water_undeclared);
+        let s = check(&flank(true), &d);
+        assert!(s.currents_unbounded.iter().any(|(_, q, _)| *q == BlockPos::new(1, 0, 0)) && s.water_undeclared.iter().any(|c| c.pos == BlockPos::new(1, 0, 0)), "over stone: {:?} {:?}", s.currents_unbounded, s.water_undeclared);
     }
 
     /// No vacuous pass (ironspec 23:56): an empty file is NOT JUDGED and fails.
