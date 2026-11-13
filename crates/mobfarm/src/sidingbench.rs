@@ -197,6 +197,31 @@ fn mirror_state_z(s: &str) -> String {
     out
 }
 
+/// One row of the push grid (ironspec 03:00): a rest position (the napper's arrival on K and its
+/// entry phase), the injected K-row passes that met the rest, and the resting napper's largest
+/// displacement and speed over them.
+#[derive(Clone, Debug, PartialEq)]
+pub struct GridRow {
+    pub z: f64,
+    pub arrival: f64,
+    pub phase: f64,
+    pub passes: usize,
+    pub disp: f64,
+    pub speed: f64,
+}
+
+/// The push grid's table, as --push-grid-out writes it: '#' lines are comments, every other line
+/// "rest-z arrival phase passes displacement speed".
+pub fn parse_push_grid(text: &str) -> Result<Vec<GridRow>, String> {
+    let mut out = Vec::new();
+    for l in text.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')) {
+        let v: Vec<&str> = l.split_whitespace().collect();
+        let f = |i: usize| v.get(i).and_then(|s| s.parse::<f64>().ok()).ok_or(format!("push grid: bad line {l:?}"));
+        out.push(GridRow { z: f(0)?, arrival: f(1)?, phase: f(2)?, passes: f(3)? as usize, disp: f(4)?, speed: f(5)? });
+    }
+    Ok(out)
+}
+
 /// The lip margin's outcome for one napper and its leader's rider (ironspec 00:02 (1): three outcomes,
 /// G1's CHANGES 1 on a191f3dfb).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -329,6 +354,12 @@ pub struct SidingOpts {
     /// The S-bend's stray-power positive control (ironspec 02:18): a redstone block beside R
     /// (x-3,m,mz) from tick T for 10 gt, R powered with its switch off: the stray count must bite.
     pub stray_ctl: Option<i64>,
+    /// The push grid's injected pass (ironspec 03:00): (speed, entry fraction through the row's west
+    /// cell, delay after the napper comes to rest); the K row's own spawns are off.
+    pub inject_pass: Option<(f64, f64, i64)>,
+    /// The push grid's table (--push-grid): a row with no K-row pass meeting the napper's rest names
+    /// the grid row covering each rest z, and a rest z no grid row covers fails.
+    pub push_grid: Option<Vec<GridRow>>,
     /// The module of record's branch (7b90c3f1's split row): D an ascending_south detector, the cells
     /// south of it solid (tick-exact's official S-bend row); default the bench's flat D.
     pub d_slope: bool,
@@ -1017,6 +1048,13 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
     let (mut push_passes, mut push_disp_max, mut push_v_max) = (0usize, 0.0f64, 0.0f64);
     let mut push_rest_ref: Option<(f64, f64)> = None;
     let mut push_in_pass = false;
+    // (the push bar's computed scope: every K-row pass tick and each napper's rest window (at rest ->
+    // release, or the run's end); the injected pass of the push grid)
+    let mut k_pass_ticks: Vec<i64> = Vec::new();
+    let mut rest_windows: Vec<(i64, i64)> = Vec::new();
+    // (the napper's spans in R's cell: (cart, first tick, last tick))
+    let mut r_windows: Vec<(usize, i64, i64)> = Vec::new();
+    let mut inject_pass_done = false;
     // (r_joint's positive control's cart, once spawned)
     let mut control_cart: Option<u32> = None;
     let mut release_states: Vec<(i64, bool, f64, f64)> = Vec::new();
@@ -1179,7 +1217,8 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
         // inflated 0.2 in x and z (the push test) meets the napper's box while the napper waits)
         if let (Some(v), Some(nr)) = (so.k_row, nbt_row.as_ref()) {
             let entering = nap.is_some() && nap_rested_at.is_none();
-            if !entering
+            if so.inject_pass.is_none()
+                && !entering
                 && frozen32.is_none()
                 && let Some(&rt) = rel_times.last()
                 && so.k_offsets.contains(&(t - rt))
@@ -1195,6 +1234,23 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
                 }
                 through.push((id, t));
                 th_spawned += 1;
+            }
+            // (--push-grid-run's injected pass (ironspec 03:00): one K-row cart at the grid's speed and
+            // entry x through the row's west cell, `delay` gt after the napper comes to rest, the K
+            // row's own spawns off)
+            if let Some((iv, frac, delay)) = so.inject_pass
+                && !inject_pass_done
+                && released_at.is_none()
+                && nap_rested_at.is_some_and(|r| t == r + delay)
+            {
+                let x0 = (sx - 2) as f64 + 0.05 + frac.clamp(0.0, 1.0) * 0.9;
+                let id = redsim::entity::spawn(&mut run.world, "minecraft:minecart", [x0, (m + 1) as f64 + 0.0625, mzf((mz + 2) as f64 + 0.5)], Some(&format!("{{Motion:[{iv:.4}d,0.0d,0.0d]{rider}}}")))?;
+                if so.ai {
+                    farm_rider(&mut run.world, id, bed, None);
+                }
+                through.push((id, t));
+                th_spawned += 1;
+                inject_pass_done = true;
             }
             let napbox = nap.and_then(|(nc, _)| carts[nc]).and_then(|id| st(&run.world, id)).filter(|_| nap_rested_at.is_some() && released_at.is_none());
             let mut keep: Vec<(u32, i64)> = Vec::new();
@@ -1442,6 +1498,12 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
                 run.world.set_block(wp(BlockPos::new(sx - 1, m, mz)), air.clone(), redsim::world::flags::ALL);
             }
         }
+        // (the napper's rest window for the push bar's computed scope: at rest -> its release)
+        if released_at == Some(t)
+            && let Some(r) = nap_rested_at
+        {
+            rest_windows.push((r, t));
+        }
         if s_is {
             switch_last_on = t;
         }
@@ -1570,6 +1632,19 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
             }
         }
         cart_motion = run.world.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, redsim::entity::EntityKind::Minecart(_))).map(|e| (e.id, (e.delta_movement.x, e.delta_movement.z))).collect();
+        // (the napper's windows on R for the push bar's computed scope (ironspec 03:00): every tick its
+        // centre is in R's cell, resting or still rolling onto it, as spans)
+        if let Some((nc, _)) = nap
+            && let Some(p) = now[nc]
+            && p.0.floor() as i32 == sx
+            && (p.1 + 1e-6).floor() as i32 == rest_y
+            && p.2.floor() as i32 == rest_z
+        {
+            match r_windows.last_mut() {
+                Some(w) if w.0 == nc && t <= w.2 + 2 => w.2 = t,
+                _ => r_windows.push((nc, t, t)),
+            }
+        }
         // (the napper's settle on R: its first tick on R's cell, then its first tick there at speed
         // < 0.001, positions and speeds after the tick)
         if let Some((nc, _)) = nap
@@ -1592,15 +1667,20 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
             }
         }
         // (the resting napper across the K row's passes: its displacement and speed while a K-row
-        // cart is beside K)
+        // cart is beside K; every K-row pass tick is kept, resting napper or not, for the push bar's
+        // computed scope (ironspec 03:00: the rest windows against the pass ticks, shown))
         {
+            let kx = sx as f64 + 0.5;
+            let row_z = (mz + 2) as f64;
+            let k_row_passing = through.iter().filter_map(|(id, _)| st(&run.world, *id)).any(|q| (q.0 - kx).abs() < 1.5 && q.2 > row_z && q.2 < row_z + 1.0);
+            if k_row_passing {
+                k_pass_ticks.push(t);
+            }
             let resting = nap.and_then(|(nc, _)| now[nc]).filter(|_| nap_rested_at.is_some() && released_at.is_none());
             match resting {
                 Some(p) => {
                     let (rx, rz) = *push_rest_ref.get_or_insert((p.0, p.2));
-                    let kx = sx as f64 + 0.5;
-                    let row_z = (mz + 2) as f64;
-                    let passing = through.iter().filter_map(|(id, _)| st(&run.world, *id)).any(|q| (q.0 - kx).abs() < 1.5 && q.2 > row_z && q.2 < row_z + 1.0)
+                    let passing = k_row_passing
                         // (r_joint's control cart, while it lives, counts as a pass: the turn control,
                         // rolling north at K into F and R, is the push measurement's positive control)
                         || control_cart.and_then(|id| st(&run.world, id)).is_some();
@@ -2601,6 +2681,60 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
         m + 1,
         mz + 2
     ));
+    {
+        // (the push bar's computed scope (ironspec 03:00): the napper's windows on R (every span its
+        // centre is in R's cell, resting or still rolling onto it: a superset of its rest windows)
+        // against every K-row pass tick, both printed, so an empty intersection is shown, not
+        // asserted; a row with no pass in a window is out of scope only while its K row is alive
+        // (passes at other times, G1's guard), and each of its rest positions names the push-grid row
+        // covering it (a rest no grid row covers fails the row; a napper released before it came to
+        // rest has no rest position to cover))
+        let mut windows: Vec<(i64, i64)> = r_windows.iter().map(|w| (w.1, w.2)).collect();
+        for w in rest_windows.iter().copied().chain(nap_rested_at.filter(|_| released_at.is_none()).map(|r| (r, ticks))) {
+            if !windows.iter().any(|v| w.0 >= v.0 && w.1 <= v.1) {
+                windows.push(w);
+            }
+        }
+        windows.sort();
+        let meet = k_pass_ticks.iter().filter(|pt| windows.iter().any(|w| **pt >= w.0 && **pt <= w.1)).count();
+        let ranges = {
+            let mut v: Vec<(i64, i64)> = Vec::new();
+            for &pt in &k_pass_ticks {
+                match v.last_mut() {
+                    Some(l) if pt == l.1 + 1 => l.1 = pt,
+                    _ => v.push((pt, pt)),
+                }
+            }
+            v.iter().map(|(a, b)| if a == b { a.to_string() } else { format!("{a}..{b}") }).collect::<Vec<_>>().join(" ")
+        };
+        let mut uncovered = 0usize;
+        let verdict = if so.k_row.is_none() {
+            "no K row in this run".to_string()
+        } else if push_passes > 0 || meet > 0 {
+            "judged (the passes above)".to_string()
+        } else if k_pass_ticks.is_empty() {
+            "NOT JUDGED: no K-row cart passed K in the run (a dead K row)".to_string()
+        } else {
+            let cover: Vec<String> = rest_zs
+                .iter()
+                .map(|z| match so.push_grid.as_ref().and_then(|g| g.iter().filter(|r| (r.z - z).abs() <= 0.0015).min_by(|a, b| (a.z - z).abs().total_cmp(&(b.z - z).abs()))) {
+                    Some(r) => format!("rest z {z:.4}: the grid row arrival {:.3} phase {:.4} (rest z {:.4}, {} passes, displacement {:.6})", r.arrival, r.phase, r.z, r.passes, r.disp),
+                    None => {
+                        uncovered += 1;
+                        format!("rest z {z:.4}: NOT COVERED by the push grid{}", if so.push_grid.is_none() { " (no --push-grid given)" } else { "" })
+                    }
+                })
+                .collect();
+            format!(
+                "push: out of scope (computed: no K-row pass falls in a window on R; the K row alive); {}",
+                if cover.is_empty() { "no rest position (each napper released before it came to rest on R)".to_string() } else { cover.join("; ") }
+            )
+        };
+        lines.push(format!(
+            "the K-row push bar's scope (ironspec 03:00): the napper's windows on R (in R's cell, resting or rolling onto it) {}; the K-row pass ticks [{ranges}]; ticks where they meet {meet}; {verdict}; rests the push grid doesn't cover (the bar: 0): {uncovered}",
+            if windows.is_empty() { "none".to_string() } else { windows.iter().map(|w| format!("[{}, {}]", w.0, w.1)).collect::<Vec<_>>().join(" ") }
+        ));
+    }
     // (ironspec 19:07, the bar audit: every inherited number this bench enforces, printed "inherited",
     // with its physical basis first where one exists; the other bars are physical: game rules or
     // measured boundaries, see designs/circuits/mobfarm/tracks/ironfarm/NOTES.md)
@@ -2879,7 +3013,7 @@ pub fn lanes_design(ns: i32, sbend: bool, row: bool, r_support: Option<&str>, re
             "# push-pair: {}\n",
             [-1, 3, 7]
                 .iter()
-                .map(|x| format!("{},{m},{}+{},{},{}=the napper resting on R against the K row's carts passing K: the measured bound is 0, no displacement and no speed of the resting napper in any pass (ironfarm escape-bench --siding's line \"the resting napper across the K row's passes\" over the k_sw = 6 matrix, 8 arrivals x 16 qualifying phases x 4 variants, and its 1-4-gt freezes; its positive control --r-joint-control turn:T bites; a push beyond 0 in any run fails that run)", x - 2, mz, x - 2, m + 1, mz + 2))
+                .map(|x| format!("{},{m},{}+{},{},{}=the napper resting on R against the K row's carts passing K: the measured bound is 0, no displacement and no speed of the resting napper in any pass (the push grid, ironspec 03:00: every rest position the napper's arrival on K produces, 0.10..0.44 by 0.01 x 8 entry phases, rest z 7.343..7.912, each with injected K-row passes at 0.28..0.44 b/gt by 0.04 across 8 entry x's, 1 and 20 gt after the rest, 22,400 passes, displacement 0.000000; the table designs/circuits/mobfarm/tracks/ironfarm/push-grid-sbend.txt, by ironfarm escape-bench --siding --push-grid-run; with the k_sw = 6 matrix's own passes, 8 arrivals x 16 qualifying phases x 4 variants, and its 1-4-gt freezes; its positive control --r-joint-control turn:T bites; a push beyond 0 in any run fails that run)", x - 2, mz, x - 2, m + 1, mz + 2))
                 .collect::<Vec<_>>()
                 .join("; ")
         ));
@@ -3186,6 +3320,13 @@ pub struct SidingRow {
     pub rest_z_min: f64,
     pub rest_z_max: f64,
     pub th_slowed: usize,
+    /// The K row's through-carts that passed K in the run (the K row alive: G1's guard on
+    /// --push-out-of-scope).
+    pub th_passed: usize,
+    /// The push bar computed out of scope in this row (ironspec 03:00: no K-row pass in a rest, the K
+    /// row alive), and its rests no push-grid row covers (failures).
+    pub push_excluded: bool,
+    pub push_uncovered: usize,
     pub th_lost: usize,
     pub th_push: usize,
     pub th_overlap: usize,
@@ -3260,6 +3401,9 @@ pub fn siding_row(o: &DropOpts, so: &SidingOpts) -> Result<SidingRow, String> {
                     r.nap_q.push(num_after(seg, " at q ").map_or(-1, |q| q as i64));
                 }
             }
+        } else if l.starts_with("the K-row push bar's scope (ironspec 03:00)") {
+            r.push_excluded = l.contains("push: out of scope (computed");
+            r.push_uncovered = req(l, "rests the push grid doesn't cover (the bar: 0): ")? as usize;
         } else if l.starts_with("the controls (ironspec 00:02 (3)") {
             r.control_fail = req(l, "controls failing (the bar: 0): ")? as usize;
         } else if l.starts_with("the bars' samples (ironspec 23:56") {
@@ -3348,6 +3492,7 @@ pub fn siding_row(o: &DropOpts, so: &SidingOpts) -> Result<SidingRow, String> {
         } else if l.starts_with("lane carts in push contact with the waiting napper") {
             r.lane_push = req(l, "y ranges overlapping; the bar: 0): ")? as usize;
         } else if l.starts_with("the split row's through-carts past K") {
+            r.th_passed = req(l, "passed ")? as usize;
             r.th_slowed = req(l, "slowed below 0.95 of it ")? as usize;
             r.th_lost = req(l, "), lost ")? as usize;
             r.th_push = req(l, "in push range of the waiting napper (the bar: 0): ")? as usize;
@@ -3430,7 +3575,7 @@ pub fn siding_row(o: &DropOpts, so: &SidingOpts) -> Result<SidingRow, String> {
     if so.flat_detector && !text.lines().any(|l| l.starts_with("the siding flat's detector")) {
         return Err("siding_row: --flat-detector, but the bench printed no detector line".to_string());
     }
-    for key in ["the branch returns' stored speed entering the merge cell", "nappers came to rest on the siding at z ", "lane carts in push contact with the waiting napper", "lane carts on the siding's cells", "the nappers' launches from the rest", "the lane's top cell V", "the lane's occupancy at the releases from the steady state", "the carts' block contacts (ironspec 21:25 (4)", "the controls (ironspec 00:02 (3)", "the bars' samples (ironspec 23:56", "the lip margin (ironspec 21:14 (2)", "the nappers' PRESENT margins before their leader's press", "the napper's settle on R (day-1", "the cart after each napper into the merge", "the siding's single occupancy", "the resting napper across the K row's passes", "the nappers at their release"] {
+    for key in ["the branch returns' stored speed entering the merge cell", "nappers came to rest on the siding at z ", "lane carts in push contact with the waiting napper", "lane carts on the siding's cells", "the nappers' launches from the rest", "the lane's top cell V", "the lane's occupancy at the releases from the steady state", "the carts' block contacts (ironspec 21:25 (4)", "the controls (ironspec 00:02 (3)", "the K-row push bar's scope (ironspec 03:00)", "the bars' samples (ironspec 23:56", "the lip margin (ironspec 21:14 (2)", "the nappers' PRESENT margins before their leader's press", "the napper's settle on R (day-1", "the cart after each napper into the merge", "the siding's single occupancy", "the resting napper across the K row's passes", "the nappers at their release"] {
         if !text.lines().any(|l| l.starts_with(key)) {
             return Err(format!("siding_row: the bench printed no \"{key}\" line"));
         }
@@ -3454,6 +3599,13 @@ pub struct GateAgg {
     pub push_passes: usize,
     pub push_worst: Option<(f64, f64, String)>,
     pub contacts_early: usize,
+    /// The K row's through-carts that passed K over the rows (the K row alive).
+    pub k_row_passed: usize,
+    /// The rows, and those whose push bar was computed out of scope (ironspec 03:00).
+    pub rows: usize,
+    pub push_excluded: usize,
+    /// Rests no push-grid row covers, over the rows (each fails its row).
+    pub push_uncovered: usize,
 }
 
 impl GateAgg {
@@ -3477,22 +3629,35 @@ impl GateAgg {
             self.push_worst = Some((r.push_disp, r.push_speed, at.to_string()));
         }
         self.contacts_early += r.contacts_early;
+        self.k_row_passed += r.th_passed;
+        self.rows += 1;
+        self.push_excluded += r.push_excluded as usize;
+        self.push_uncovered += r.push_uncovered;
     }
 
-    /// The gate line and the matrix-level failures it adds (NOT JUDGED bars).
+    /// The gate line and the matrix-level failures it adds (NOT JUDGED bars). The K-row push bar with
+    /// no pass in any rest stands only as the rows' COMPUTED exclusion (ironspec 03:00): every row out
+    /// of scope by its own printed rest windows and pass ticks, its K row alive (G1's guard: a dead K
+    /// row is NOT JUDGED), each rest covered by a push-grid row (an uncovered rest fails its row);
+    /// otherwise NOT JUDGED, a failure. Passes that do occur are judged.
     pub fn line(&self, lip_bar: Option<i64>, k_row: bool) -> (String, usize) {
         let mut nj = 0usize;
         let lip_nj = if self.samples == 0 {
             nj += 1;
-            "; NOT JUDGED (0 samples): FAIL"
+            "; NOT JUDGED (0 samples): FAIL".to_string()
         } else {
-            ""
+            String::new()
         };
-        let push_nj = if k_row && self.push_passes == 0 {
+        let push_nj = if k_row && self.push_passes == 0 && self.rows > 0 && self.push_excluded == self.rows {
+            format!(
+                "; OUT OF SCOPE (computed in all {} rows: no K-row pass falls in a napper's window on R, each row's windows and pass ticks printed; the K row alive, {} carts passed K; rests the push grid doesn't cover {})",
+                self.rows, self.k_row_passed, self.push_uncovered
+            )
+        } else if k_row && self.push_passes == 0 {
             nj += 1;
-            "; NOT JUDGED (0 samples): FAIL"
+            format!("; NOT JUDGED (0 samples; computed out of scope in {} of {} rows): FAIL", self.push_excluded, self.rows)
         } else {
-            ""
+            String::new()
         };
         let (pd, pv, pat) = self.push_worst.clone().unwrap_or((0.0, 0.0, "-".to_string()));
         (
@@ -3583,6 +3748,8 @@ mod official_row_tests {
             r_joint_control: None,
             held_rider_control: false,
             stray_ctl: None,
+            inject_pass: None,
+            push_grid: None,
             d_slope: true,
             out: None,
             no_walkway: false,
@@ -3690,10 +3857,33 @@ mod official_row_tests {
         let (line, nj) = g.line(Some(2), false);
         assert_eq!(nj, 1, "{line}");
         assert!(line.contains("NOT JUDGED (0 samples): FAIL"), "{line}");
-        // (the K-row pass bar with no pass in a --k-row matrix: NOT JUDGED too)
+        // (the K-row pass bar with no pass in a --k-row matrix and no row computed out of scope (a
+        // dead K row is never computed out of scope): NOT JUDGED too)
         let mut g = GateAgg::default();
         g.add(&row, "held");
+        let (line, nj) = g.line(Some(2), true);
+        assert_eq!(nj, 1, "{line}");
+        assert!(line.contains("computed out of scope in 0 of 1 rows"), "{line}");
+        // (every row computed out of scope (ironspec 03:00), its K row alive: printed so, not a
+        // failure and never a pass; one row not out of scope keeps the matrix NOT JUDGED)
+        let out = SidingRow { lip_stuck: 1, lip_samples: 1, th_passed: 9, push_excluded: true, ..Default::default() };
+        let mut g = GateAgg::default();
+        g.add(&out, "out");
+        let (line, nj) = g.line(Some(2), true);
+        assert_eq!(nj, 0, "{line}");
+        assert!(line.contains("OUT OF SCOPE (computed in all 1 rows") && line.contains("9 carts passed K"), "{line}");
+        g.add(&row, "held");
         assert_eq!(g.line(Some(2), true).1, 1);
+    }
+
+    /// The push grid's table round-trips (--push-grid-out's lines, '#' comments skipped), and a bad
+    /// line is an error, not a skipped row.
+    #[test]
+    fn push_grid_table_parses() {
+        let g = parse_push_grid("# rest-z arrival phase passes displacement speed\n7.8950 0.100 0.0000 40 0.000000 0.000000\n7.5700 0.300 0.0375 40 0.000000 0.000000\n").unwrap();
+        assert_eq!(g.len(), 2);
+        assert_eq!(g[1], GridRow { z: 7.57, arrival: 0.3, phase: 0.0375, passes: 40, disp: 0.0, speed: 0.0 });
+        assert!(parse_push_grid("7.8950 0.100\n").is_err());
     }
 
     /// The lip margin's known answer at the worst qualifying phase (ironspec 22:22 (1)): tick-exact's

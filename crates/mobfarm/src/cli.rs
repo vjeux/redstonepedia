@@ -4162,6 +4162,32 @@ pub enum MobfarmCmd {
         /// (mid-cycle).
         #[arg(long)]
         stray_ctl: Option<i64>,
+        /// The push grid (ironspec 03:00, the citable grid behind `# push-pair:`), "lo,hi,step": the
+        /// napper's arrival on K's cell swept like --rest-sweep (each at --rest-phases entry phases),
+        /// and at each rest one K-row pass injected while the napper rests (--grid-speeds, across
+        /// --grid-entries entry x's through the row's west cell, the normal K row off): each grid
+        /// row's rest z, the passes and the resting napper's largest displacement and speed (the bar:
+        /// 0); --push-grid-out writes the table the matrices read with --push-grid.
+        #[arg(long)]
+        push_grid_run: Option<String>,
+        /// The push grid's pass speeds (b/gt).
+        #[arg(long, value_delimiter = ',', default_value = "0.28,0.32,0.36,0.40,0.44")]
+        grid_speeds: Vec<f64>,
+        /// The push grid's entry x's through the row's west cell.
+        #[arg(long, default_value_t = 8)]
+        grid_entries: usize,
+        /// The push grid's injection delays after the napper comes to rest, gt (G1: just after the
+        /// rest, while the napper may still settle, and mid-window; the worse is reported).
+        #[arg(long, value_delimiter = ',', default_value = "1,20")]
+        grid_delays: Vec<i64>,
+        /// Where --push-grid-run writes its table.
+        #[arg(long)]
+        push_grid_out: Option<String>,
+        /// A push grid table (--push-grid-out's file): a row with no K-row pass meeting the napper's
+        /// rest (the computed exclusion, ironspec 03:00) names the grid row covering its rest z, and
+        /// a rest z no grid row covers fails.
+        #[arg(long)]
+        push_grid: Option<String>,
         /// THE CONTROL ONLY (ironspec 20:40: the bench's geometry is the module's): the bench's old
         /// flat D and flat rail at (x,24,9). Default: the module of record's branch (7b90c3f1's split
         /// row; tick-exact's official S-bend row): D an ascending_south detector rising toward the
@@ -9116,7 +9142,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 anyhow::bail!("frame-check failed");
             }
         }
-        MobfarmCmd::EscapeBench { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, login_matrix, restart, restart_matrix, restart_base, phase_step, intake_flat, v_in, siding, nap_k, nap_every, nap_ret, nap_pulse, merge_curve, slopes, nap_guard, nap_early, nap_any_pass, nap_ring, nap_pick_u, nap_win_du, nap_win_tap, nap_ai, nap_stamp_at_arrival, nap_late_latch, nap_post, k_row, k_offsets, nap_feed_v, flat_detector, siding_north, emit_with_row, fill_scene, top_flat, mirror_z, start_steady, r_support, rest_sweep, rest_phases, emit_rest_range, feed_path, feed_z8, feed_slime, combos, no_walkway, nap_present_k, curve_bar, d_gate, inject_sweep, inject_feed_vs, inject_nap_rets, r_joint_control, held_rider_control, stray_ctl, flat_d, lip_bar, out, nap_feed_phase, siding_dx, siding_dy, ns_merge, guard_det, guard_dz, drop_entry, no_top_support, side_real, side_ctl, siding_matrix, rets, v_ins, nap_rets, corners, nap_ks, jobs, emit_lanes_design, r_boost, floor_bottom, empty, freeze32 } => {
+        MobfarmCmd::EscapeBench { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, login_matrix, restart, restart_matrix, restart_base, phase_step, intake_flat, v_in, siding, nap_k, nap_every, nap_ret, nap_pulse, merge_curve, slopes, nap_guard, nap_early, nap_any_pass, nap_ring, nap_pick_u, nap_win_du, nap_win_tap, nap_ai, nap_stamp_at_arrival, nap_late_latch, nap_post, k_row, k_offsets, nap_feed_v, flat_detector, siding_north, emit_with_row, fill_scene, top_flat, mirror_z, start_steady, r_support, rest_sweep, rest_phases, emit_rest_range, feed_path, feed_z8, feed_slime, combos, no_walkway, nap_present_k, curve_bar, d_gate, inject_sweep, inject_feed_vs, inject_nap_rets, r_joint_control, held_rider_control, stray_ctl, push_grid_run, grid_speeds, grid_entries, grid_delays, push_grid_out, push_grid, flat_d, lip_bar, out, nap_feed_phase, siding_dx, siding_dy, ns_merge, guard_det, guard_dz, drop_entry, no_top_support, side_real, side_ctl, siding_matrix, rets, v_ins, nap_rets, corners, nap_ks, jobs, emit_lanes_design, r_boost, floor_bottom, empty, freeze32 } => {
             // (--curve-bar 0: the curve rule printed only; --lip-bar: the S-bend's gate)
             let curve_bar: Option<i64> = (curve_bar > 0).then_some(curve_bar);
             let lip_bar: Option<i64> = Some(lip_bar);
@@ -9175,7 +9201,101 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         let fill: Vec<(i32, i32, i32)> = f.split(';').filter(|c| !c.trim().is_empty()).map(cell).collect::<anyhow::Result<Vec<_>>>()?;
                         Some((fill, cell(seat)?))
                     }
-                }, top_flat, mirror_z, start_steady, r_support: r_support.clone(), nap_feed_phase, feed_path, feed_z8, feed_slime, no_walkway, present_k: nap_present_k, no_d_gate, inject_release: None, r_joint_control, held_rider_control, stray_ctl, d_slope: !flat_d, out: out.clone(), siding_dx, siding_dy, ns_merge, guard_det, guard_dz, drop_entry, no_top_support, side_real, side_ctl: side_ctl.clone() };
+                }, top_flat, mirror_z, start_steady, r_support: r_support.clone(), nap_feed_phase, feed_path, feed_z8, feed_slime, no_walkway, present_k: nap_present_k, no_d_gate, inject_release: None, r_joint_control, held_rider_control, stray_ctl, inject_pass: None, push_grid: match push_grid.as_deref() { Some(f) => Some(crate::sidingbench::parse_push_grid(&std::fs::read_to_string(f).map_err(|e| anyhow::anyhow!("--push-grid {f}: {e}"))?).map_err(|e| anyhow::anyhow!(e))?), None => None }, d_slope: !flat_d, out: out.clone(), siding_dx, siding_dy, ns_merge, guard_det, guard_dz, drop_entry, no_top_support, side_real, side_ctl: side_ctl.clone() };
+                if let Some(pg) = push_grid_run.as_deref() {
+                    // (the push grid (ironspec 03:00, the citable grid behind `# push-pair:`): every rest
+                    // position the napper's arrival on K produces (lo..hi by step, `rest_phases` entry
+                    // phases each, as the rest sweep), and at each one K-row pass injected 1 gt after
+                    // the napper comes to rest, at every --grid-speeds speed and --grid-entries entry x
+                    // through the row's west cell, the K row's own spawns off: the resting napper's
+                    // largest displacement and speed over the passes that met its rest (the bar: 0))
+                    let v: Vec<f64> = pg.split(',').map(|t| t.trim().parse::<f64>()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(v.len() == 3 && v[2] > 0.0 && v[0] <= v[1], "--push-grid-run lo,hi,step");
+                    anyhow::ensure!(so.k_row.is_some(), "--push-grid-run needs --k-row (the K row's cells and through-cart tracking)");
+                    let mut rests: Vec<(f64, f64)> = Vec::new();
+                    let mut s = v[0];
+                    while s <= v[1] + 1e-9 {
+                        for k in 0..rest_phases.max(1) {
+                            rests.push((s, s * k as f64 / rest_phases.max(1) as f64));
+                        }
+                        s += v[2];
+                    }
+                    let mut grid: Vec<(usize, f64, f64, i64)> = Vec::new();
+                    for ri in 0..rests.len() {
+                        for &gv in &grid_speeds {
+                            for e in 0..grid_entries.max(1) {
+                                for &gd in &grid_delays {
+                                    grid.push((ri, gv, (e as f64 + 0.5) / grid_entries.max(1) as f64, gd.max(1)));
+                                }
+                            }
+                        }
+                    }
+                    let res = crate::sidingbench::par_map(grid.len(), jobs, |i| {
+                        let (ri, gv, frac, gd) = grid[i];
+                        let mut sso = so.clone();
+                        sso.nap_feed_v = Some(rests[ri].0);
+                        sso.nap_feed_phase = rests[ri].1;
+                        sso.inject_pass = Some((gv, frac, gd));
+                        crate::sidingbench::siding_row(&o, &sso)
+                    });
+                    // (per rest: its z, the passes that met it, the largest displacement and speed, and the
+                    // runs whose pass missed the rest)
+                    let mut per: Vec<(f64, usize, f64, f64, usize, usize)> = vec![(-1.0, 0, 0.0, 0.0, 0, 0); rests.len()];
+                    for (i, row) in res.into_iter().enumerate() {
+                        let row = row.map_err(|e| anyhow::anyhow!(e))?;
+                        let p = &mut per[grid[i].0];
+                        if row.rest_z_max >= 0.0 {
+                            p.0 = row.rest_z_max;
+                        }
+                        p.1 += row.push_passes;
+                        p.2 = p.2.max(row.push_disp);
+                        p.3 = p.3.max(row.push_speed);
+                        p.4 += (row.push_passes == 0) as usize;
+                        p.5 += 1;
+                    }
+                    let mut table = format!(
+                        "# push grid (ironfarm escape-bench --siding --push-grid-run {pg}, --rest-phases {rest_phases}, --grid-speeds {}, --grid-entries {grid_entries}, --grid-delays {}; bench, tool unreviewed): rest-z arrival phase passes displacement speed (the worst over the speeds, entries and delays)\n",
+                        grid_speeds.iter().map(|g| format!("{g:.2}")).collect::<Vec<_>>().join(","),
+                        grid_delays.iter().map(|d| d.to_string()).collect::<Vec<_>>().join(",")
+                    );
+                    let (mut worst, mut missed, mut no_rest) = ((0.0f64, 0.0f64, String::new()), 0usize, 0usize);
+                    for (ri, p) in per.iter().enumerate() {
+                        if p.0 < 0.0 {
+                            no_rest += 1;
+                            continue;
+                        }
+                        table.push_str(&format!("{:.4} {:.3} {:.4} {} {:.6} {:.6}\n", p.0, rests[ri].0, rests[ri].1, p.1, p.2, p.3));
+                        missed += p.4;
+                        if p.2 > worst.0 || (p.2 == worst.0 && p.3 > worst.1) {
+                            worst = (p.2, p.3, format!("arrival {:.3} phase {:.4} (rest z {:.4})", rests[ri].0, rests[ri].1, p.0));
+                        }
+                    }
+                    let zs: Vec<f64> = per.iter().map(|p| p.0).filter(|z| *z >= 0.0).collect();
+                    println!(
+                        "the push grid (ironspec 03:00): {} rests (arrival {}..{} by {}, {} entry phases each; rest z {}), each with {} injected K-row passes ({} speeds x {} entry x's x {} delays after the rest, {:?} gt); passes that met a rest {}; runs whose pass missed the rest {missed}; rests never reached {no_rest}; the resting napper's largest displacement {:.6} and speed {:.6} ({}; the bar: 0){}",
+                        rests.len(),
+                        v[0],
+                        v[1],
+                        v[2],
+                        rest_phases.max(1),
+                        if zs.is_empty() { "-".to_string() } else { format!("{:.4}..{:.4}", zs.iter().copied().fold(f64::MAX, f64::min), zs.iter().copied().fold(f64::MIN, f64::max)) },
+                        grid_speeds.len() * grid_entries.max(1) * grid_delays.len(),
+                        grid_speeds.len(),
+                        grid_entries.max(1),
+                        grid_delays.len(),
+                        grid_delays,
+                        per.iter().map(|p| p.1).sum::<usize>(),
+                        worst.0,
+                        worst.1,
+                        if worst.2.is_empty() { "-".to_string() } else { worst.2.clone() },
+                        if per.iter().map(|p| p.1).sum::<usize>() == 0 { " NOT JUDGED (0 samples): FAIL" } else { "" }
+                    );
+                    if let Some(f) = push_grid_out.as_deref() {
+                        std::fs::write(f, &table)?;
+                        println!("wrote {f} ({} rows)", zs.len());
+                    }
+                    return Ok(());
+                }
                 if let Some(rs) = rest_sweep.as_deref() {
                     // (the rest sweep (G1's band note, the bridge's nap-rest-z): the napper's arrival on
                     // K's cell from lo to hi by step, each at `rest_phases` entry phases (its spawn moved
@@ -9345,7 +9465,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         lp_lo = lp_lo.min(row.lip_min.unwrap_or(i64::MAX));
                         lip_nv += row.lip_never;
                         rj_total += row.r_joint;
-                        let bad = row.empty_releases + row.not_one + row.wrong + row.knocked + row.touching + row.order_broken + row.off_rail + row.eyes + row.landing_over + row.popped + row.stray_power + row.stuck as usize + row.th_push + row.th_lost + row.lane_push + row.lane_on_siding + row.flat_false + row.occ8 + row.home_lost + row.stamp_over_1000 + row.win_cut + row.launch_stuck + row.stacked + row.v_holds + row.r_joint + row.occ_low + row.contacts_undeclared + row.not_judged + row.lip_stuck + row.control_fail + (row.push_disp > 1e-6 || row.push_speed > 1e-6) as usize + lip_bar.map_or(0, |b| row.lip_min.is_some_and(|q| q < b) as usize) + curve_bar.map_or(0, |b| row.nap_cr.iter().filter(|c| **c < b).count() + row.nap_follow_min.is_some_and(|f| f < b) as usize);
+                        let bad = row.empty_releases + row.not_one + row.wrong + row.knocked + row.touching + row.order_broken + row.off_rail + row.eyes + row.landing_over + row.popped + row.stray_power + row.stuck as usize + row.th_push + row.th_lost + row.lane_push + row.lane_on_siding + row.flat_false + row.occ8 + row.home_lost + row.stamp_over_1000 + row.win_cut + row.launch_stuck + row.stacked + row.v_holds + row.r_joint + row.occ_low + row.contacts_undeclared + row.not_judged + row.lip_stuck + row.control_fail + row.push_uncovered + (row.push_disp > 1e-6 || row.push_speed > 1e-6) as usize + lip_bar.map_or(0, |b| row.lip_min.is_some_and(|q| q < b) as usize) + curve_bar.map_or(0, |b| row.nap_cr.iter().filter(|c| **c < b).count() + row.nap_follow_min.is_some_and(|f| f < b) as usize);
                         if bad > 0 || row.arrivals_over > ctl.arrivals_over {
                             fails.entry(r.label()).or_default().push(format!("phase {p}: lost {} not-1 {} wrong {} knocked {} touching {} order {} off-rail {} eyes {} landings over 0.46 {} popped {} stray power {} over 0.46 {} (control {}); through-carts in push range {} lost {}, lane carts in push contact {} on the siding {}, detector false {}, releases at occupancy 8 {}{}", row.empty_releases, row.not_one, row.wrong, row.knocked, row.touching, row.order_broken, row.off_rail, row.eyes, row.landing_over, row.popped, row.stray_power, row.arrivals_over, ctl.arrivals_over, row.th_push, row.th_lost, row.lane_push, row.lane_on_siding, row.flat_false, row.occ8, if row.stuck { " napper stuck" } else { "" }));
                         }
@@ -9607,7 +9727,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         lp_lo = lp_lo.min(row.lip_min.unwrap_or(i64::MAX));
                         lip_nv += row.lip_never;
                         rj_total += row.r_joint;
-                            let bad = row.empty_releases + row.not_one + row.wrong + row.knocked + row.touching + row.order_broken + row.off_rail + row.eyes + row.landing_over + row.popped + row.stray_power + row.stuck as usize + row.th_push + row.th_lost + row.lane_push + row.lane_on_siding + row.flat_false + row.occ8 + row.home_lost + row.stamp_over_1000 + row.win_cut + row.launch_stuck + row.stacked + row.v_holds + row.r_joint + row.occ_low + row.contacts_undeclared + row.not_judged + row.lip_stuck + row.control_fail + (row.push_disp > 1e-6 || row.push_speed > 1e-6) as usize + lip_bar.map_or(0, |b| row.lip_min.is_some_and(|q| q < b) as usize) + curve_bar.map_or(0, |b| row.nap_cr.iter().filter(|c| **c < b).count() + row.nap_follow_min.is_some_and(|f| f < b) as usize);
+                            let bad = row.empty_releases + row.not_one + row.wrong + row.knocked + row.touching + row.order_broken + row.off_rail + row.eyes + row.landing_over + row.popped + row.stray_power + row.stuck as usize + row.th_push + row.th_lost + row.lane_push + row.lane_on_siding + row.flat_false + row.occ8 + row.home_lost + row.stamp_over_1000 + row.win_cut + row.launch_stuck + row.stacked + row.v_holds + row.r_joint + row.occ_low + row.contacts_undeclared + row.not_judged + row.lip_stuck + row.control_fail + row.push_uncovered + (row.push_disp > 1e-6 || row.push_speed > 1e-6) as usize + lip_bar.map_or(0, |b| row.lip_min.is_some_and(|q| q < b) as usize) + curve_bar.map_or(0, |b| row.nap_cr.iter().filter(|c| **c < b).count() + row.nap_follow_min.is_some_and(|f| f < b) as usize);
                             if bad > 0 || row.arrivals_over > ctl.arrivals_over {
                                 fails.push(format!("login {d} gt at phase {p}: lost {} not-1 {} wrong {} knocked {} touching {} order {} off-rail {} stray power {} over 0.46 {} (control {}); launches stuck or late {}; curve rule {:?}", row.empty_releases, row.not_one, row.wrong, row.knocked, row.touching, row.order_broken, row.off_rail, row.stray_power, row.arrivals_over, ctl.arrivals_over, row.launch_stuck, row.nap_cr));
                             }
@@ -9695,7 +9815,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         }
                         let nmax = row.nap_contacts.iter().copied().fold(0.0f64, f64::max);
                         worst_nap = worst_nap.max(nmax);
-                        let bad = row.empty_releases + row.not_one + row.wrong + row.knocked + row.touching + row.arrivals_over + row.order_broken + row.off_rail + row.eyes + row.landing_over + row.popped + row.stray_power + row.home_lost + row.stuck as usize + row.th_push + row.th_lost + row.flat_false + row.lane_push + row.lane_on_siding + row.occ8 + row.stamp_over_1000 + row.win_cut + row.launch_stuck + row.stacked + row.v_holds + row.r_joint + row.occ_low + row.contacts_undeclared + row.not_judged + row.lip_stuck + row.control_fail + (row.push_disp > 1e-6 || row.push_speed > 1e-6) as usize + lip_bar.map_or(0, |b| row.lip_min.is_some_and(|q| q < b) as usize) + curve_bar.map_or(0, |b| row.nap_cr.iter().filter(|c| **c < b).count() + row.nap_follow_min.is_some_and(|f| f < b) as usize);
+                        let bad = row.empty_releases + row.not_one + row.wrong + row.knocked + row.touching + row.arrivals_over + row.order_broken + row.off_rail + row.eyes + row.landing_over + row.popped + row.stray_power + row.home_lost + row.stuck as usize + row.th_push + row.th_lost + row.flat_false + row.lane_push + row.lane_on_siding + row.occ8 + row.stamp_over_1000 + row.win_cut + row.launch_stuck + row.stacked + row.v_holds + row.r_joint + row.occ_low + row.contacts_undeclared + row.not_judged + row.lip_stuck + row.control_fail + row.push_uncovered + (row.push_disp > 1e-6 || row.push_speed > 1e-6) as usize + lip_bar.map_or(0, |b| row.lip_min.is_some_and(|q| q < b) as usize) + curve_bar.map_or(0, |b| row.nap_cr.iter().filter(|c| **c < b).count() + row.nap_follow_min.is_some_and(|f| f < b) as usize);
                         fails += (bad > 0) as usize;
                         println!(
                             "ret {r} v_in {v:.2} nap_ret {nr} corner {c:+} k_sw {kk}: arrivals by q {}; over 0.46 {} (max {:.3}); landings meeting a cart {} ({} over 0.46), the landing cell held at q {}; top cell {}; nappers {} (late {}; curve rule {}; the longest wait on the siding {} gt); lost {} not-1 {} wrong {} knocked {} touching {} order {} off-rail {} eyes {} health {} restage {} gt{}",

@@ -354,5 +354,17 @@ the inherited numbers again.
     - a non-slime `--r-support`;
     - `--held-rider-control`.
   - The resting napper across the K row's passes (ironspec 23:15 (2)): its displacement and speed during every pass, with a bar of 0. This closes push-scan's R ← K pairs by measurement, as the lanes file's `# push-pair:` declares. The turn control is the positive control.
+    - **Each row's computed scope** (ironspec 03:00). Each row prints:
+      - the napper's windows on R (in R's cell, resting or rolling onto it);
+      - every K-row pass tick;
+      - the ticks where the two meet.
+
+      Where they meet, the push is judged. A row where they never meet is "push: out of scope (computed)" only while its K row is alive (G1's guard: a dead K row is NOT JUDGED). Each such row names the push-grid row covering its rest z (`--push-grid`); an uncovered rest fails the row. No flag can declare the scope.
+    - **The push grid** (`--push-grid-run`), the citable grid behind `# push-pair:`:
+      - every rest position (arrival on K 0.10..0.44 by 0.01 × 8 entry phases, rest z 7.343..7.912);
+      - at each one, K-row passes injected at 0.28..0.44 b/gt across 8 entry x's, 1 and 20 gt after the rest;
+      - 22,400 passes, all of which met their rest, with displacement 0.000000.
+
+      The table is `push-grid-sbend.txt` in this folder.
   - The napper's settle on R (day-1; ironspec 01:33 (1)). The bar uses PRESENT → at rest, which is the K tick → rest minus 2. The rest sweep prints it per arrival and phase, with the bar it implies, m ≥ max(7, settle − 14) + 2. The first tick on R's cell → rest is printed too.
   - `--out`: the bench's world as laid, for `mobfarm record-match` (ironspec 21:43).
