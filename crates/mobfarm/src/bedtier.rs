@@ -101,7 +101,12 @@ pub const ARM_A: [i32; 3] = [-2, 1, 1];
 /// curve turning south onto A6's exit curve. The run-up's friction brings the released cart to P
 /// under 0.2 b/t (the 0.2-step clip).
 pub const E_A2: [i32; 3] = [-2, 0, 2];
-pub const ACT_CTRL_A2: [i32; 3] = [-2, 1, 2];
+/// (A) with the run-up's activator power (ironspec 03:22, no block a wind burst can change): a
+/// redstone torch on glass west of E (the glass under it never powered), glass over it (the
+/// dismount's W at E's level a 1-high cell); always on, no off state. Its placement updates no
+/// plain rail with exactly 3 potential connections (ironspec 03:26): east of E it updated the
+/// loop's flat (-1,0,3).
+pub const ACT_CTRL_A2: [i32; 3] = [-3, 0, 2];
 pub const ARM_A2: [i32; 3] = [-2, 0, 1];
 pub const PARK_A2: [i32; 3] = [1, 0, 4];
 /// (the park's lever hung from glass over the park cell, its updates reaching the park and the
@@ -635,7 +640,11 @@ pub fn design_a2(bench: bool) -> Result<String> {
     let mut b = Builder::new(if bench { "bed-tier-a2-bench" } else { "bed-tier-a2" });
     let rail = |s: &str| format!("rail[shape={s},waterlogged=false]");
     let cap = "iron_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]";
-    let button = "stone_button[face=floor,facing=north,powered=false]";
+    // (golem-proofing over the caps, ironspec 03:22 / day-1's lever map / G1's head-space flag: a
+    // plain rail on each cap's top (no collision: no solid block in a rider's box; rails keep a
+    // golem's spawn space out (PREVENT_MOB_SPAWNING_INSIDE); no wind reaction), not A6's stone
+    // buttons (a wind burst presses an unpowered button); each rail alone, no rail beside it)
+    let button = "rail[shape=north_south,waterlogged=false]";
     let wall = |b: &mut Builder, c: [i32; 3]| -> Result<()> {
         if !b.d.blocks.contains_key(&c) {
             put(b, c, "glass")?;
@@ -671,10 +680,12 @@ pub fn design_a2(bench: bool) -> Result<String> {
     put(&mut b, E_A2, "activator_rail[powered=true,shape=north_south,waterlogged=false]")?;
     put(&mut b, [E_A2[0], -1, E_A2[2]], "glass")?;
     put(&mut b, ACT_CTRL_A2, &ctl_block(ACT_CTRL_A2, "redstone_block"))?;
-    put(&mut b, [ACT_CTRL_A2[0], 2, ACT_CTRL_A2[2]], "glass")?;
-    // (the dismount at E, a southbound cart: W, E, NW, NE at E's level full blocks, then SW, the bed
-    // foot's top: the first valid place, 1.00 from the bed head's centre)
-    for c in [[-3, 0, 2], [-1, 0, 2], [-3, 0, 1], [-1, 0, 1]] {
+    put(&mut b, [ACT_CTRL_A2[0], -1, ACT_CTRL_A2[2]], "glass")?;
+    put(&mut b, [ACT_CTRL_A2[0], 1, ACT_CTRL_A2[2]], "glass")?;
+    // (the dismount at E, a southbound cart: W the torch's cell under glass (1 high), E, NW, NE at
+    // E's level full blocks, then SW, the bed foot's top: the first valid place, 1.00 from the bed
+    // head's centre)
+    for c in [[-1, 0, 2], [-3, 0, 1], [-1, 0, 1]] {
         put(&mut b, c, "glass")?;
     }
     // K, the curve east after E (glass over it: P's way north is 1 high), a flat, a booster (always
@@ -778,10 +789,10 @@ pub fn design_a2(bench: bool) -> Result<String> {
     b.d.ports.insert("output".into(), [12, 0, 6]);
     b.d.ports.insert("home".into(), BED_HEAD);
     let lines: Vec<String> = vec![
-        "The bed stop (A) with the run-up (B3, ironspec 02:27; local frame; loop = local + (0,-27,-1); the bed's head at (-3,0,4)): A6's arrival (the entry booster, plain rails down the old park's slope, the capped flat, the curve south, the flats), the arming detector (-2,0,1), the activator E (-2,0,2) over the bed foot's north-east corner (always on, its lever hung from the glass over it), the curve east (-2,0,3), a flat, a booster, the climb, the U-turn at y 1, the park (1,0,4) one braked powered rail descending west, two run-up flats along z 4, the pickup cell P (-2,0,4) a curve turning south, A6's exit (the curve east, the capped booster, the capped flat, the slope down, two flats, R). No solid-render block anywhere in the stop.".to_string(),
+        "The bed stop (A) with the run-up (B3, ironspec 02:27; local frame; loop = local + (0,-27,-1); the bed's head at (-3,0,4)): A6's arrival (the entry booster, plain rails down the old park's slope, the capped flat, the curve south, the flats), the arming detector (-2,0,1), the activator E (-2,0,2) over the bed foot's north-east corner (always on: a redstone torch on glass west of it, glass over the torch), the curve east (-2,0,3), a flat, a booster, the climb, the U-turn at y 1, the park (1,0,4) one braked powered rail descending west, two run-up flats along z 4, the pickup cell P (-2,0,4) a curve turning south, A6's exit (the curve east, the capped booster, the capped flat, the slope down, two flats, R). No solid-render block anywhere in the stop.".to_string(),
         "E sets the rider down on the bed foot's top (a southbound cart's dismount: W, E, NW and NE full blocks, SW the first valid place), 1.00 from the bed head's centre: SleepInBed fires at once whatever path it carries. The empty cart runs the loop and brakes on the park. The hatch's two iron trapdoors stand open and hide the zombie; F (the lie-down + 2, and not before the arming detector's edge + 70: the napper's 60-gt boarding cooldown less the park -> P travel, plus the detector -> E time and a margin) SHUTS them: the zombie wakes it, it stands up on P (its only stand-up cell), the park releases at the wake edge, and the cart runs the run-up into P under 0.2 b/t, seats it and runs on to R, whose rise opens the hatch again and resets the park's release and the arming latch. Precondition and single release as A6's: one cart per visit, the park released only at the wake edge.".to_string(),
-        "switch: -4,0,3=the hatch's lower lever (day-1's line end: F shuts, R opens); -4,1,5=the hatch's upper lever (the same line); -2,1,2=the activator's lever (day-1's line end, held on); 1,1,4=the park's lever (day-1's line end: the release); -1,2,-4=a golem-proofing stone button over the capped flat (never pressed); -1,2,5=a golem-proofing stone button over the exit booster's cap (never pressed); 0,2,5=a golem-proofing stone button over the exit flat's cap (never pressed); -3,3,3=a golem-proofing stone button over the bed foot's roof (never pressed)".to_string(),
-        "always-on: 3,2,-5=the entry booster's redstone torch, on glass (3,1,-5): it never toggles; 0,0,2=the loop booster's redstone torch, on glass (0,-1,2): it never toggles; -1,0,6=the exit booster's redstone torch, on glass (-1,-1,6): it never toggles".to_string(),
+        "switch: -4,0,3=the hatch's lower lever (day-1's line end stand-in: F shuts, R opens; no lever in the build); -4,1,5=the hatch's upper lever (the same line); 1,1,4=the park's lever (day-1's line end stand-in: the release; no lever in the build)".to_string(),
+        "always-on: 3,2,-5=the entry booster's redstone torch, on glass (3,1,-5): it never toggles; -3,0,2=the activator's redstone torch, on glass (-3,-1,2): it never toggles (ironspec 03:22: no lever a wind burst can flip); 0,0,2=the loop booster's redstone torch, on glass (0,-1,2): it never toggles; -1,0,6=the exit booster's redstone torch, on glass (-1,-1,6): it never toggles".to_string(),
         "a6-pickup: -2,0,4=the pickup cell (the napper's only stand-up cell); stranded bound: no cart at it by the wake edge + 60 gt fails (to restate from these rows)".to_string(),
     ];
     let refs: Vec<&str> = lines.iter().map(|s| s.as_str()).collect();
@@ -912,6 +923,9 @@ pub struct Row {
     /// (ironspec 22:10) The stamp's largest age over the visit, and the tick (from the entry) it
     /// cleared inside A6.
     pub stamp_visit_max: i64,
+    /// The longest stand-still after the eject (gt awake on foot, unmoved), before the first
+    /// lie-down or the pickup.
+    pub stand_after_eject: i64,
     pub stamp_cleared_at: Option<i64>,
     /// (ironspec 22:56 (iii)) The napper's cells a bolt could reach (sees the sky, or inside a
     /// column top's bolt hit box).
@@ -1352,7 +1366,7 @@ pub fn ctl_block(c: [i32; 3], st: &str) -> String {
         // ((A) with the run-up: the activator's lever hung from the glass over E, the park's on
         // the glass south of it)
         if c == ACT_CTRL_A2 {
-            return format!("lever[face=ceiling,facing=north,powered={on}]");
+            return "redstone_torch[lit=true]".to_string();
         }
         if c == PARK_CTRL_A2 {
             return format!("lever[face=ceiling,facing=north,powered={on}]");
@@ -1565,6 +1579,8 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
     }
     let mut was_asleep = false;
     let mut last_awake: Option<Vec3> = None;
+    let mut last_v_pos: Option<Vec3> = None;
+    let mut stand_run = 0i64;
     let mut last_cart = [0f64; 3];
     let mut still = 0;
     let mut crossed: Vec<[i32; 3]> = Vec::new();
@@ -2212,6 +2228,15 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                     row.problems.push(format!("t {t}: seated {} (the unbridged pickup)", if asleep_prev { "off the bed while asleep" } else { "before its wake" }));
                 }
             }
+            // (ironspec 00:03 / 00:07 (3): no stand-still after the eject over 20 gt: the longest
+            // run of ticks awake on foot, unmoved (under 0.01), from the dismount to the first
+            // lie-down or the pickup)
+            if row.dismount_at.is_some() && !riding && !asleep && row.slept_at.is_none() && row.pickup.is_none() {
+                let moved = last_v_pos.map_or(1.0, |p: Vec3| (v.pos.x - p.x).abs() + (v.pos.y - p.y).abs() + (v.pos.z - p.z).abs());
+                stand_run = if moved < 0.01 { stand_run + 1 } else { 0 };
+                row.stand_after_eject = row.stand_after_eject.max(stand_run);
+            }
+            last_v_pos = Some(v.pos);
             asleep_prev = asleep;
             if row.release_at.is_none() && row.landed.is_some() && riding && t > 5 {
                 row.problems.push(format!("t {t}: the napper back in a cart before the release (at {vcell:?})"));
@@ -3307,6 +3332,10 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
                             }
                         }
                         sk.stamp_visit_max = sk.stamp_visit_max.max(r.stamp_visit_max);
+                        sk.stand_max = sk.stand_max.max(r.stand_after_eject);
+                        if r.stand_after_eject > 20 {
+                            sk.stand_over_20 += 1;
+                        }
                         if !r.lightning.is_empty() {
                             sk.lightning_visits += 1;
                             for m in &r.lightning {
@@ -3601,6 +3630,11 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
     if sk.riderless > 0 && !excluded("riderless") {
         failed.push(format!("{} riderless carts out", sk.riderless));
     }
+    // (ironspec 00:03 / 00:07 (3): no stand-still after the eject over 20 gt)
+    println!("the stand-still after the eject (gt awake on foot, unmoved, from the dismount to the first lie-down or the pickup; bar 20): the longest {} gt; visits over 20: {}", sk.stand_max, sk.stand_over_20);
+    if sk.stand_over_20 > 0 && !excluded("stand") {
+        failed.push(format!("{} visits stood still over 20 gt after the eject", sk.stand_over_20));
+    }
     // (ironspec 00:27: every fluid cell's tick scheduled at load, the count printed)
     println!("fluid cells whose tick the bench scheduled at load (ironspec 00:27; the most in one visit's world): {}", sk.fluid_scheduled);
     // ((A), ironspec 00:37 (1)/(2b): the landings (every one within SleepInBed's 2 of the bed
@@ -3708,6 +3742,9 @@ struct SkipTotals {
     release_speed_max: f64,
     /// ((A)) the least (pickup - dismount - 60) over the visits: the boarding cooldown's margin
     cooldown_margin: Option<i64>,
+    /// the longest stand-still after the eject, and the visits over 20 gt
+    stand_max: i64,
+    stand_over_20: usize,
     r_real_missing: usize,
     drops: usize,
     drop_max: f64,
