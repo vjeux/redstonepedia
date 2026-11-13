@@ -165,6 +165,8 @@ pub struct Opts {
     pub ring_timed: Option<[i64; 5]>,
     /// (day-1 13:43) the ring's world-open term k.
     pub ring_k: i64,
+    /// (G1 14:11's control) a pick moving nap_lane inside each napper's window.
+    pub nap_lane_control: bool,
     /// (ironspec 10:51 (g)) the longest designed rest on a station hold H's trapdoor, gt.
     pub h_rest_bound: i64,
     /// (ironspec 10:51 (f)) the siding check's positive: a batch cart planted on lane -1's siding R.
@@ -942,7 +944,16 @@ struct Ctl {
     misroute_at: Vec<i64>,
     /// J(-1) kept from re-arming from ARM3 + 72 to ARM3 + 127 for an eastbound napper (lanes 3, 7),
     /// re-armed at its end.
-    j_block: Option<(i64, i64)>,
+    j_blocks: Vec<(i64, i64)>,
+    /// (G1 14:11, CHANGES 2 on ed4978c0c) each napper's H2 sample taken while an earlier napper's
+    /// window was still pending (K events, PRESENT, the hold's pulse, J(-1)'s block): a failure
+    overlaps: Vec<String>,
+    /// (G1 14:11's control) --nap-lane-control: on; the forced nap_lane moves pending; each napper's
+    /// window (its H2 sample, lane, K cell); every K write fired (tick, cell, on)
+    nap_lane_control: bool,
+    nap_lane_moves: Vec<(i64, usize)>,
+    k_windows: Vec<(i64, usize, i32)>,
+    k_fired: Vec<(i64, i32, bool)>,
     /// The siding's release: D's rise at (x,24,8) while PRESENT_l: the input (x-2,23,9) on 4 gt
     /// later for 30 gt.
     siding_on: [Option<i64>; 3],
@@ -1496,7 +1507,7 @@ impl Ctl {
             set(w, [3, 26, 9], &lever(false), flags::ALL)?;
         }
         // (an eastbound napper's window keeps J(-1) from re-arming)
-        let j_blocked = self.j_block.is_some_and(|(a, b)| now >= a && now < b);
+        let j_blocked = self.j_blocks.iter().any(|(a, b)| now >= *a && now < *b);
         if !self.ring_timed && row && !self.row_prev && !j_blocked && !held_off(-1, dv) {
             set(w, [-1, 26, 9], &lever(true), flags::ALL)?;
         }
@@ -1651,7 +1662,7 @@ impl Ctl {
                         set(w, [3, 26, 9], &lever(true), flags::ALL)?;
                     }
                     if jk == 2 {
-                        if dk == 2 && !self.j_block.is_some_and(|(a, b)| now >= a && now < b) {
+                        if dk == 2 && !self.j_blocks.iter().any(|(a, b)| now >= *a && now < *b) {
                             set(w, [-1, 26, 9], &lever(true), flags::ALL)?;
                         }
                         set(w, [7, 26, 9], &lever(true), flags::ALL)?;
@@ -2138,10 +2149,40 @@ impl Ctl {
             // (day-1's Delta, ironspec 12:41 (4): --hold-pulse-delta shifts the hold's pulse and every
             // tap keyed off the fired pulse (the K windows, PRESENT, J(-1)'s block) by Delta gt)
             let a = a + self.hold_delta;
+            // (G1 14:11, CHANGES 2 on ed4978c0c) a napper's H2 sample while an earlier napper's
+            // window is still pending is a FAILURE (F4(a): K windows disjoint, one napper), counted
+            // and printed, never an overwrite: a K set / reset or PRESENT still queued, the hold's
+            // pulse not yet ended, J(-1)'s block not yet ended, or the K's / J(-1)'s window of the
+            // previous napper still open
+            {
+                let mut pend: Vec<String> = Vec::new();
+                if self.k_events.iter().any(|e| e.0 >= now) {
+                    pend.push(format!("K events {:?}", self.k_events));
+                }
+                if !self.present_events.is_empty() {
+                    pend.push(format!("PRESENT {:?}", self.present_events));
+                }
+                if self.hold_off.is_some_and(|t| t >= now) {
+                    pend.push(format!("the hold's pulse until t {}", self.hold_off.unwrap_or_default()));
+                }
+                if self.j_blocks.iter().any(|(_, b)| *b >= now) {
+                    pend.push(format!("J(-1)'s block {:?}", self.j_blocks));
+                }
+                if !pend.is_empty() {
+                    self.overlaps.push(format!("t {now}: lane x {}'s napper sampled with the previous napper's window pending ({})", LANES[k], pend.join("; ")));
+                }
+            }
             self.hold_on = Some(a + 10);
             self.hold_off = Some(a + 22);
             self.rs_set = None;
             self.nap_arm3 = Some(a);
+            // (G1 14:11's control, --nap-lane-control) a pick moving nap_lane inside the window: 30 gt
+            // after this sample nap_lane becomes another lane; every K / PRESENT event of this window
+            // must still fire on this napper's own cells
+            if self.nap_lane_control {
+                self.nap_lane_moves.push((now + 30, (k + 1) % 3));
+            }
+            self.k_windows.push((now, k, LANES[k] - 2));
             // (day-1 19:19, K = 4: the K-set + 4 at a + 97 / 112 / 128, the reset at K + 16 =
             // a + 125 / 140 / 156, PRESENT's set edge on its own tap at K + 2 = a + 111 / 126 / 142;
             // ironspec's E5, day-1 06:51 PT: PRESENT_l is a two-torch RS NOR whose output reaches the
@@ -2152,7 +2193,8 @@ impl Ctl {
             self.k_events.push((a + [125, 140, 156][k], kx0, false));
             self.present_events.push((a + [115, 130, 146][k], k));
             if k > 0 {
-                self.j_block = Some((a + 72, a + 127));
+                // (G1 14:11: queued, each window its own; an overlap is counted above)
+                self.j_blocks.push((a + 72, a + 127));
             }
             if !on_hold {
                 self.empty_pulses += 1;
@@ -2183,8 +2225,18 @@ impl Ctl {
         }
         // (each K event its own cell, keyed at its napper's H2 sample: the sets, PRESENT, then the
         // resets, in the tick's order as before)
+        // (--nap-lane-control: the forced nap_lane moves due now)
+        let moves: Vec<(i64, usize)> = self.nap_lane_moves.iter().filter(|m| m.0 == now).copied().collect();
+        self.nap_lane_moves.retain(|m| m.0 != now);
+        for (_, nk) in moves {
+            self.nap_lane = nk;
+            self.note(now, format!("the nap-lane control: nap_lane moved to lane x {} inside a window", LANES[nk]));
+        }
         let due: Vec<(i64, i32, bool)> = self.k_events.iter().filter(|e| e.0 == now).copied().collect();
         self.k_events.retain(|e| e.0 != now);
+        for (_, kx, on) in due.iter() {
+            self.k_fired.push((now, *kx, *on));
+        }
         for (_, kx, _) in due.iter().filter(|e| e.2) {
             set(w, [*kx, 26, 9], &lever(true), flags::ALL)?;
             self.nap_events.push(format!("t {now}: K({kx}) on"));
@@ -2199,11 +2251,12 @@ impl Ctl {
             set(w, [*kx, 26, 9], &lever(false), flags::ALL)?;
             self.nap_events.push(format!("t {now}: K({kx}) off"));
         }
-        if let Some((_, b)) = self.j_block
-            && now == b
-        {
-            set(w, [-1, 26, 9], &lever(true), flags::ALL)?;
-            self.j_block = None;
+        if self.j_blocks.iter().any(|(_, b)| now == *b) {
+            self.j_blocks.retain(|(_, b)| now != *b);
+            // (re-armed only when no other napper's block is still open)
+            if !self.j_blocks.iter().any(|(a, b)| now >= *a && now < *b) {
+                set(w, [-1, 26, 9], &lever(true), flags::ALL)?;
+            }
             self.nap_events.push(format!("t {now}: J(-1) re-armed (the napper's block ends)"));
         }
         // the siding: D's rise while PRESENT_l (the branch detectors' rises, this tick)
@@ -3299,6 +3352,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         ctl.evidence_delay = o.evidence_delay;
         ctl.rel_gate_armed = o.rel_gate_armed;
         ctl.offs = o.lane_offsets.unwrap_or(OFFS);
+        ctl.nap_lane_control = o.nap_lane_control;
         if let Some(l) = o.ring_timed {
             ctl.ring_timed = true;
             ctl.ring_l = l;
@@ -9335,6 +9389,29 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             r.clears.iter().take(4).map(|c| format!("; {c}")).collect::<String>(),
             r.home_lost.len(),
             r.home_lost.iter().map(|c| format!("; {c}")).collect::<String>()
+        ));
+    }
+    // (G1 14:11, CHANGES 2 on ed4978c0c) the window overlaps (bar 0) and each napper's K writes on its
+    // own lane's K cell (the --nap-lane-control moves nap_lane inside every window: still all its own)
+    {
+        let mut mism: Vec<String> = Vec::new();
+        for (i, (t, k, kx)) in ctl.k_windows.iter().enumerate() {
+            let next = ctl.k_windows.get(i + 1).map_or(i64::MAX, |w| w.0);
+            // its window's writes: ticks t + 93 .. t + 156 + delta (before the next sample)
+            for (ft, fx, on) in ctl.k_fired.iter().filter(|f| f.0 > *t && f.0 <= (*t + 160 + o.hold_pulse_delta).min(next + 93)) {
+                if fx != kx {
+                    mism.push(format!("lane x {}'s window (sample t {t}): K({fx}) {} at t {ft}, not its K({kx})", LANES[*k], if *on { "on" } else { "off" }));
+                }
+            }
+        }
+        s.push_str(&format!(
+            "the nappers' windows (G1 14:11, F4(a): K windows disjoint, one napper; an H2 sample with an earlier window pending is a failure): {} overlaps ({}){}; each napper's K writes on its own lane's K cell{}: {} writes off its cell ({})\n",
+            ctl.overlaps.len(),
+            if ctl.overlaps.is_empty() { "PASS" } else { "FAIL" },
+            if ctl.overlaps.is_empty() { String::new() } else { format!(": {}", ctl.overlaps.join("; ")) },
+            if o.nap_lane_control { " (--nap-lane-control: nap_lane moved inside every window)" } else { "" },
+            mism.len(),
+            if mism.is_empty() { "PASS".to_string() } else { format!("FAIL: {}", mism.join("; ")) }
         ));
     }
     // (ironfarm 12:47, --lip-dump) every lip rest's lane over its 60 gt before, to the file
