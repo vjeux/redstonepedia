@@ -6743,6 +6743,11 @@ pub enum MobfarmCmd {
         /// beside the bed head.
         #[arg(long)]
         exit_south: bool,
+        /// (A) with the run-up: the waker moved south beyond the flee's 6 from P (58f770cc's Z1:
+        /// a zombie in a boat at (-5,0,10), its shutter (-5,1,9), the sight channel and screens;
+        /// A6's hatch and post gone). With --exit-south.
+        #[arg(long)]
+        waker_south: bool,
     },
     /// The bed stop's one-visit bench (a `bedtier --bench` design) over seeds and entry speeds: F
     /// --after-sleep gt after the lie-down, the release --release-after gt after the wake edge (the
@@ -16405,11 +16410,12 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             compare_cmd(version, &design, &opts, twin)?;
         }
-        MobfarmCmd::Bedtier { out, bench, trapdoor_caps, eject_at_entry, curve_glass, eject_at_bed, runup, no_loop_booster, head_glass, exit_south } => {
+        MobfarmCmd::Bedtier { out, bench, trapdoor_caps, eject_at_entry, curve_glass, eject_at_bed, runup, no_loop_booster, head_glass, exit_south, waker_south } => {
             anyhow::ensure!(!(eject_at_bed && (eject_at_entry || trapdoor_caps || curve_glass)), "--eject-at-bed is its own layout: no --eject-at-entry, --trapdoor-caps or --curve-glass with it");
             anyhow::ensure!(!runup || eject_at_bed, "--runup is (A)'s variant: with --eject-at-bed");
             anyhow::ensure!(!(head_glass || exit_south) || runup, "--head-glass and --exit-south are (A) with the run-up's variants: with --runup");
-            std::fs::write(&out, if eject_at_bed && runup { crate::bedtier::design_a2(bench, !no_loop_booster, !head_glass, exit_south)? } else if eject_at_bed { crate::bedtier::design_a(bench)? } else { crate::bedtier::design(bench, trapdoor_caps, eject_at_entry, curve_glass)? })?;
+            anyhow::ensure!(!waker_south || exit_south, "--waker-south goes with --exit-south (its channel crosses the old exit's cells)");
+            std::fs::write(&out, if eject_at_bed && runup { crate::bedtier::design_a2(bench, !no_loop_booster, !head_glass, exit_south, waker_south)? } else if eject_at_bed { crate::bedtier::design_a(bench)? } else { crate::bedtier::design(bench, trapdoor_caps, eject_at_entry, curve_glass)? })?;
             println!("wrote {}", out.display());
             // (the placement-order cells: what the guide's build order leaves unlike the file)
             let (_c, spec) = load(version, &out)?;

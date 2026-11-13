@@ -125,18 +125,31 @@ pub struct Layout {
     pub act_ctrl: [i32; 3],
     pub park_ctrl: Vec<[i32; 3]>,
     pub arm: Option<[i32; 3]>,
+    /// The waker window's controllers (F turns them off: the window opens): A6's two hatch levers,
+    /// or (A)'s moved waker's shutter lever (`--waker-south`).
+    pub hatch_ctrl: Vec<[i32; 3]>,
 }
+
+/// (ironspec 07:12 / 07:39, the waker beyond the flee's 6: 58f770cc's Z1) The moved waker's post
+/// (a zombie in a boat, its feet 6.73 from P's, 6.43 from the sleeper's), its shutter (an iron
+/// trapdoor, open (powered) its plate cuts every line out of the post; shut (F) the sleeper's line
+/// passes under its slab) and the shutter's lever (the bench's controller, day-1's F line end).
+pub const WAKER_POST_S: [i32; 3] = [-5, 0, 10];
+pub const WAKER_SHUT: [i32; 3] = [-5, 1, 9];
+pub const WAKER_CTRL: [i32; 3] = [-5, 1, 8];
 
 pub fn layout(w: &World) -> Layout {
     let at = |c: [i32; 3]| format!("{}", w.get(BlockPos::new(c[0], c[1], c[2])));
+    let hatch = vec![HATCH_CTRL, HATCH_CTRL_HI];
     if at(E_A2).contains("activator_rail") {
-        Layout { name: "(A) run-up", act: E_A2, act_ctrl: ACT_CTRL_A2, park_ctrl: vec![PARK_CTRL_A2], arm: Some(ARM_A2) }
+        let hatch_ctrl = if at(WAKER_SHUT).contains("iron_trapdoor") { vec![WAKER_CTRL] } else { hatch };
+        Layout { name: "(A) run-up", act: E_A2, act_ctrl: ACT_CTRL_A2, park_ctrl: vec![PARK_CTRL_A2], arm: Some(ARM_A2), hatch_ctrl }
     } else if at(E_A).contains("activator_rail") {
-        Layout { name: "(A)", act: E_A, act_ctrl: ACT_CTRL_A, park_ctrl: vec![PARK_CTRL_A], arm: Some(ARM_A) }
+        Layout { name: "(A)", act: E_A, act_ctrl: ACT_CTRL_A, park_ctrl: vec![PARK_CTRL_A], arm: Some(ARM_A), hatch_ctrl: hatch }
     } else if at(ENTRY).contains("activator_rail") {
-        Layout { name: "T5b", act: ENTRY, act_ctrl: ACT_CTRL_T5B, park_ctrl: PARK_CTRL.to_vec(), arm: None }
+        Layout { name: "T5b", act: ENTRY, act_ctrl: ACT_CTRL_T5B, park_ctrl: PARK_CTRL.to_vec(), arm: None, hatch_ctrl: hatch }
     } else {
-        Layout { name: "A6", act: ACTIVATOR, act_ctrl: ACT_CTRL, park_ctrl: PARK_CTRL.to_vec(), arm: None }
+        Layout { name: "A6", act: ACTIVATOR, act_ctrl: ACT_CTRL, park_ctrl: PARK_CTRL.to_vec(), arm: None, hatch_ctrl: hatch }
     }
 }
 
@@ -638,7 +651,7 @@ pub fn design_a(bench: bool) -> Result<String> {
 /// one braked powered rail descending west, two run-up flats along z 4, P (-2,0,4) a curve turning
 /// south onto A6's exit. The run-up's empty-cart drag brings the released cart to P under 0.2 b/t
 /// (a step over 0.2 can clip into the standing napper's box and stop dead).
-pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: bool) -> Result<String> {
+pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: bool, waker_south: bool) -> Result<String> {
     let mut b = Builder::new(if bench { "bed-tier-a2-bench" } else { "bed-tier-a2" });
     let rail = |s: &str| format!("rail[shape={s},waterlogged=false]");
     let cap = "iron_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]";
@@ -827,7 +840,43 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
         }
         put(&mut b, c, "glass")?;
     }
-    // the hatch and the zombie's post (A6's)
+    // the hatch and the zombie's post (A6's), or (--waker-south) the moved waker
+    if waker_south {
+        // (58f770cc's Z1, ironspec 07:12 / 07:39: the waker beyond SetWalkTargetAwayFrom's 6 from
+        // P, the stand-up cell and every exit position in its sight; within the sensor's 8 of the
+        // sleeper: a zombie in a boat at WAKER_POST_S (feet ~(-4.5,-0.5,10.5): 6.73 from P's feet,
+        // 6.43 from the sleeper's), walled in glass, glass and persistent leaves over it (no sky:
+        // no sunburn), its one window the shutter WAKER_SHUT north of it (an iron trapdoor, top
+        // half: powered (the night state) it stands open, its plate across the cell's face, every
+        // line out cut; F unpowers it: shut, its slab at 1.8125 and the sleeper's line (eye
+        // ~(-2.5,0.89,4.5) to ~(-4.5,1.24,10.5)) passes under it through the open channel
+        // (-3,0,5), (-3..-4,0,6), (-4,1,6..9)); the screens (-3,1,6), (-3,1,7), (-2,1,7), (-1,1,7)
+        // cut the lines to the exit's rider positions within 6 (on (-2,0,5), (-2,0,6), (-1,0,6));
+        // the bed head's west side glass where A6's hatch was)
+        let p = WAKER_POST_S;
+        put(&mut b, [p[0], -1, p[2]], "glass")?;
+        put(&mut b, [p[0], 2, p[2]], "glass")?;
+        put(&mut b, [p[0], 3, p[2]], "oak_leaves[distance=7,persistent=true,waterlogged=false]")?;
+        for y in 0..=1 {
+            put(&mut b, [p[0] - 1, y, p[2]], "glass")?;
+            put(&mut b, [p[0] + 1, y, p[2]], "glass")?;
+            put(&mut b, [p[0], y, p[2] + 1], "glass")?;
+        }
+        put(&mut b, [p[0], 0, p[2] - 1], "glass")?;
+        put(&mut b, WAKER_SHUT, "iron_trapdoor[facing=north,half=top,open=true,powered=true,waterlogged=false]")?;
+        put(&mut b, WAKER_CTRL, &ctl_block(WAKER_CTRL, "redstone_block"))?;
+        put(&mut b, [WAKER_CTRL[0], 0, WAKER_CTRL[2]], "glass")?;
+        b.entity("oak_boat", [p[0] as f64 + 0.5, p[1] as f64, p[2] as f64 + 0.5], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}"));
+        for c in [[-3, 1, 6], [-3, 1, 7], [-2, 1, 7], [-1, 1, 7]] {
+            put(&mut b, c, "glass")?;
+        }
+        for c in [[-4, 0, 4], [-4, 1, 4], [-4, 0, 3], [-4, 1, 3], [-4, 0, 5]] {
+            put(&mut b, c, "glass")?;
+        }
+        // ((-3,0,5) stays air with no floor: the sleeper's line crosses it at y ~0.92; (-3,1,5)
+        // glass over it, so still no stand-up place, and nothing beside the cart's box)
+        put(&mut b, [-3, 1, 5], "glass")?;
+    } else {
     put(&mut b, HATCH, "iron_trapdoor[facing=west,half=bottom,open=true,powered=true,waterlogged=false]")?;
     put(&mut b, HATCH_HI, "iron_trapdoor[facing=west,half=top,open=true,powered=true,waterlogged=false]")?;
     put(&mut b, HATCH_CTRL, &ctl_block(HATCH_CTRL, "redstone_block"))?;
@@ -854,6 +903,7 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
     for y in 0..=1 {
         wall(&mut b, [-3, y, 5])?;
     }
+    }
     if bench {
         for x in EXIT_DET[0] + 1..=EXIT_DET[0] + 6 {
             put(&mut b, [x, -1, EXIT_DET[2]], &rail("east_west"))?;
@@ -871,7 +921,7 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
     let mut lines: Vec<String> = vec![
         "The bed stop (A) with the run-up (B3, ironspec 02:27; local frame; loop = local + (0,-27,-1); the bed's head at (-3,0,4)): A6's arrival (the entry booster, plain rails down the old park's slope, the capped flat, the curve south, the flats), the arming detector (-2,0,1), the activator E (-2,0,2) over the bed foot's north-east corner (always on: a redstone torch on glass west of it, glass over the torch), the curve east (-2,0,3), a flat, a booster, the climb, the U-turn at y 1, the park (1,0,4) one braked powered rail descending west, two run-up flats along z 4, the pickup cell P (-2,0,4) a curve turning south, A6's exit (the curve east, the capped booster, the capped flat, the slope down, two flats, R). One solid-render block in the stop: the park's conductor (2,0,4) under the U-turn's curve, glass over the curve (the cell over the conductor 1 high: no stroll target).".to_string(),
         "E sets the rider down on the bed foot's top (a southbound cart's dismount: W, E, NW and NE full blocks, SW the first valid place), 1.00 from the bed head's centre: SleepInBed fires at once whatever path it carries. The empty cart runs the loop and brakes on the park. The hatch's two iron trapdoors stand open and hide the zombie; F (the lie-down + 2, and not before the arming detector's edge + 70: the napper's 60-gt boarding cooldown less the park -> P travel, plus the detector -> E time and a margin) SHUTS them: the zombie wakes it, it stands up on P (its only stand-up cell), the park releases at the wake edge, and the cart runs the run-up into P under 0.2 b/t, seats it and runs on to R, whose rise opens the hatch again and resets the park's release and the arming latch. Precondition and single release as A6's: one cart per visit, the park released only at the wake edge.".to_string(),
-        "switch: -4,0,3=the hatch's lower lever (day-1's line end stand-in: F shuts, R opens; no lever in the build); -4,1,5=the hatch's upper lever (the same line); 3,0,4=the park's drive (day-1's repeater output stand-in: a wall lever on the conductor (2,0,4); the release; no lever in the build)".to_string(),
+        if waker_south { "switch: -5,1,8=the waker shutter's lever (day-1's line end stand-in: F shuts the shutter (unpowers it: the window opens), R powers it again; no lever in the build); 3,0,4=the park's drive (day-1's repeater output stand-in: a wall lever on the conductor (2,0,4); the release; no lever in the build)".to_string() } else { "switch: -4,0,3=the hatch's lower lever (day-1's line end stand-in: F shuts, R opens; no lever in the build); -4,1,5=the hatch's upper lever (the same line); 3,0,4=the park's drive (day-1's repeater output stand-in: a wall lever on the conductor (2,0,4); the release; no lever in the build)".to_string() },
         format!("always-on: 3,2,-5=the entry booster's redstone torch, on glass (3,1,-5): it never toggles; -3,0,2=the activator's redstone torch, on glass (-3,-1,2): it never toggles (ironspec 03:22: no lever a wind burst can flip); {}{}", if loop_booster { "0,0,2=the loop booster's redstone torch, on glass (0,-1,2): it never toggles; " } else { "" }, if exit_south { "-1,0,7=the exit booster's redstone torch, on glass (-1,-1,7): it never toggles" } else { "-1,0,6=the exit booster's redstone torch, on glass (-1,-1,6): it never toggles" }),
         "a6-pickup: -2,0,4=the pickup cell (the napper's only stand-up cell); stranded bound: no cart at it by the wake edge + 60 gt fails (to restate from these rows)".to_string(),
     ];
@@ -1046,6 +1096,13 @@ pub struct Row {
     pub waker_lines: Vec<String>,
     pub waker_stamp: Option<i64>,
     pub waker_cleared: Option<i64>,
+    /// (G1) The napper's feet to the waker zombie's from the wake to the pickup + 40: the least
+    /// distance, the least with eye-to-eye sight, and the ticks under 6 with sight (flee triggers).
+    pub waker_dist_min: Option<f64>,
+    pub waker_seen_dist_min: Option<f64>,
+    pub waker_flee_ticks: usize,
+    /// Ticks within 6 of the waker with NEAREST_HOSTILE remembered (ironspec 07:47 (a): bar 0).
+    pub waker_memory_ticks: usize,
     /// (ironspec 07:03) The declared contacts' per-tick lines (tick, depth, speed before / after),
     /// their tick count this visit (bound: one) and the least speed right after one.
     pub declared_contact_lines: Vec<String>,
@@ -1639,7 +1696,7 @@ pub fn ctl_block(c: [i32; 3], st: &str) -> String {
         "stone" => false,
         other => return other.to_string(),
     };
-    if !([HATCH_CTRL, HATCH_CTRL_HI, ACT_CTRL, ACT_CTRL_T5B, ACT_CTRL_A, PARK_CTRL_A].contains(&c) || PARK_CTRL.contains(&c)) {
+    if !([HATCH_CTRL, HATCH_CTRL_HI, ACT_CTRL, ACT_CTRL_T5B, ACT_CTRL_A, PARK_CTRL_A, WAKER_CTRL].contains(&c) || PARK_CTRL.contains(&c)) {
         // ((A) with the run-up: the activator's lever hung from the glass over E, the park's on
         // the glass south of it)
         if c == ACT_CTRL_A2 {
@@ -1755,7 +1812,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
     // queue's release with --module-offset)
     let (act_cell, act_ctrl) = act_cells(&run.world);
     let lay = layout(&run.world);
-    for c in [HATCH_CTRL, HATCH_CTRL_HI, act_ctrl].into_iter().chain(lay.park_ctrl.iter().copied()) {
+    for c in lay.hatch_ctrl.iter().copied().chain([act_ctrl]).chain(lay.park_ctrl.iter().copied()) {
         // (a built always-on source the bench never writes ((A) with the run-up's activator torch)
         // is no stand-in: nothing to check)
         if ctl_block(c, "redstone_block") == ctl_block(c, "stone") {
@@ -2050,8 +2107,9 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
         let armed_ok = lay.arm.is_none() || row.armed_at.is_some_and(|a| t >= a + f.arm_delay);
         if !f_fired && f_live.is_some_and(|x| live >= x) && armed_ok {
             f_fired = true;
-            set(&mut run.world, HATCH_CTRL, "stone");
-            set(&mut run.world, HATCH_CTRL_HI, "stone");
+            for c in lay.hatch_ctrl.clone() {
+                set(&mut run.world, c, "stone");
+            }
         }
         // (with `day_gate` (the 09:00 shape, a control now): DAY from the daylight detector (high
         // from `day_on` to `day_off`) gates the activator, and the abort, level-sensitive (DAY high,
@@ -2090,8 +2148,9 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             row.stamp_at_release = vill.and_then(|v| idx(&run.world, v)).filter(|&vi| redsim::entity::mob::ai::brain::has_exact(&run.world, vi)).map(|vi| redsim::entity::mob::ai::brain::ex(&run.world, vi).mem.cant_reach_since.map(|c| run.world.time - c));
         }
         if f.hide_after_wake && !hidden && row.woke_at.is_some() {
-            set(&mut run.world, HATCH_CTRL, "redstone_block");
-            set(&mut run.world, HATCH_CTRL_HI, "redstone_block");
+            for c in lay.hatch_ctrl.clone() {
+                set(&mut run.world, c, "redstone_block");
+            }
             hidden = true;
         }
         // (the release (ironspec 09:45, outcome (a)): `release_after` gt after the bed observer's
@@ -2531,6 +2590,34 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                 }
                 if st.is_none() && row.waker_stamp.is_some() && row.waker_cleared.is_none() {
                     row.waker_cleared = Some(t);
+                }
+            }
+            // (G1, Z1's flee margin measured: from the wake to the pickup + 40 gt, the napper's feet
+            // to the waker zombie's feet each tick, and its eye-to-eye line of sight; a tick under 6
+            // with sight is a flee trigger (SetWalkTargetAwayFrom's strict < 6))
+            if row.woke_at.is_some()
+                && row.pickup.is_none_or(|(_, tp)| t <= tp + 40)
+                && let Some(zi) = zid.and_then(|z| idx(w, z))
+            {
+                let z = &w.entities.list[zi];
+                let d = ((v.pos.x - z.pos.x).powi(2) + (v.pos.y - z.pos.y).powi(2) + (v.pos.z - z.pos.z).powi(2)).sqrt();
+                let ve = redsim::entity::Vec3::new(v.pos.x, v.pos.y + v.eye_height() as f64, v.pos.z);
+                let ze = redsim::entity::Vec3::new(z.pos.x, z.pos.y + z.eye_height() as f64, z.pos.z);
+                let seen = redsim::entity::mob::los::has_line_of_sight(w, ve, ze);
+                row.waker_dist_min = Some(row.waker_dist_min.map_or(d, |m: f64| m.min(d)));
+                if seen {
+                    row.waker_seen_dist_min = Some(row.waker_seen_dist_min.map_or(d, |m: f64| m.min(d)));
+                    if d < 6.0 {
+                        row.waker_flee_ticks += 1;
+                    }
+                }
+                // (ironspec 07:47 (a): NEAREST_HOSTILE is a memory; within 6 of the waker it must
+                // be absent whether the waker is in sight or not)
+                if d < 6.0 && redsim::entity::mob::ai::brain::brain(w, vi).nearest_hostile.is_some() {
+                    row.waker_memory_ticks += 1;
+                }
+                if row.pickup.is_some_and(|(_, tp)| tp == t) {
+                    row.waker_lines.push(format!("t {t} (the pickup): NEAREST_HOSTILE {:?}, the waker {d:.2} feet to feet, in sight {seen}", redsim::entity::mob::ai::brain::brain(w, vi).nearest_hostile));
                 }
             }
             if asleep && row.slept_at.is_none() {
@@ -3326,8 +3413,10 @@ pub fn zombie_post_lines(spec: &FarmSpec) -> Result<Vec<String>, String> {
         for _ in 0..t {
             run.tick();
         }
+        // (the post: A6's, or the moved waker's when the design holds its shutter)
+        let post = if run.world.get(BlockPos::new(WAKER_SHUT[0], WAKER_SHUT[1], WAKER_SHUT[2])).kind() == redsim::block::Kind::Trapdoor(true) { WAKER_POST_S } else { ZOMBIE_POST };
         for e in run.world.entities.list.iter().filter(|e| !e.removed && e.id >= first) {
-            let inside = e.pos.x >= ZOMBIE_POST[0] as f64 && e.pos.x <= ZOMBIE_POST[0] as f64 + 1.0 && e.pos.z >= ZOMBIE_POST[2] as f64 && e.pos.z <= ZOMBIE_POST[2] as f64 + 1.0;
+            let inside = e.pos.x >= post[0] as f64 && e.pos.x <= post[0] as f64 + 1.0 && e.pos.z >= post[2] as f64 && e.pos.z <= post[2] as f64 + 1.0;
             let name = match &e.kind {
                 redsim::entity::EntityKind::Boat(_) => "the boat".to_string(),
                 redsim::entity::EntityKind::Mob(m) => format!("the {:?}", m.ty),
@@ -3597,6 +3686,7 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
     // (ironspec 06:40 (2): the waker's consequence: wakes judged, stamps seen after the wake, and
     // those not cleared by the visit's watch end (the pickup + 40))
     let (mut waker_wakes, mut waker_stamps, mut waker_uncleared) = (0usize, 0usize, 0usize);
+    let (mut waker_flee, mut waker_memory, mut waker_dmin, mut waker_seen_dmin) = (0usize, 0usize, f64::MAX, f64::MAX);
     let mut post_contact_min: std::collections::BTreeMap<String, f64> = std::collections::BTreeMap::new();
     let (mut picked_up, mut missed_booster) = (0usize, 0usize);
     // ((A) --exit-south: its exit booster at (-1,0,6); every picked-up cart must reach it)
@@ -3648,6 +3738,14 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
                                 waker_wakes += 1;
                                 waker_stamps += r.waker_stamp.is_some() as usize;
                                 waker_uncleared += (r.waker_stamp.is_some() && r.waker_cleared.is_none()) as usize;
+                                waker_flee += r.waker_flee_ticks;
+                                waker_memory += r.waker_memory_ticks;
+                                if let Some(d) = r.waker_dist_min {
+                                    waker_dmin = waker_dmin.min(d);
+                                }
+                                if let Some(d) = r.waker_seen_dist_min {
+                                    waker_seen_dmin = waker_seen_dmin.min(d);
+                                }
                             }
                             // (ironspec 07:03 (3): the declared contact's least post-contact speed per
                             // entry, and every cart at the exit booster)
@@ -4130,6 +4228,9 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
         failed.push(format!("the farm-stop bar: {stop_bar} visits ended without a lie-down or without HOME (bar 0)"));
     }
     println!("the waker's consequence (ironspec 06:40 (2); the per-visit `waker` lines with one row): {waker_wakes} wakes judged{}; a CANT_REACH stamp present after the wake in {waker_stamps}; not cleared by the pickup + 40 gt in {waker_uncleared} (the at-entry bar judges a stamp the napper rides on with)", if waker_wakes == 0 { " (NOT JUDGED)" } else { "" });
+    if waker_wakes > 0 {
+        println!("the waker's distance (G1 / ironspec 07:47; the napper's feet to the waker zombie's, from the wake to the pickup + 40 gt): least {}, least with eye-to-eye sight {}; ticks under 6 with sight (flee triggers, bar 0): {waker_flee}; ticks under 6 with NEAREST_HOSTILE remembered (bar 0): {waker_memory}", if waker_dmin == f64::MAX { "-".to_string() } else { format!("{waker_dmin:.2}") }, if waker_seen_dmin == f64::MAX { "never in sight".to_string() } else { format!("{waker_seen_dmin:.2}") });
+    }
     if exit_booster {
         println!("the declared contact (ironspec 07:03 (3)): the least speed right after it, per entry speed {post_contact_min:?}; picked-up carts {picked_up}, of them never at the exit booster (-1,0,6): {missed_booster}");
         if missed_booster > 0 {
