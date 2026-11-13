@@ -16056,7 +16056,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             let p = at(x, y, z);
                             let b = w.get(p);
                             if let Some((ig, bu)) = redsim::weather::lightning::flammable(&b) {
-                                let sky = redsim::weather::can_see_sky(&w, p.above()).map(|s| if s { "sees the sky" } else { "under cover" }).unwrap_or("sky unknown");
+                                let sky = redsim::weather::can_see_sky(&w, p.above()).map_or_else(|e| format!("the sky unreadable ({e})"), |s| if s { "sees the sky".to_string() } else { "under cover".to_string() });
                                 let built = spec.blocks.iter().any(|(q, _)| *q == redsim::BlockPos::new(x, y, z));
                                 println!("{x} {y} {z}: {b} (ignite {ig}, burn {bu}; {}; {sky})", if built { "the design's" } else { "natural" });
                                 n += 1;
@@ -16204,7 +16204,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 redsim::entity::mob::site::villager_cells(&with)
             };
             let farm = circuit::mobfarm::hostile_farm(&w, &moved, site.afk, &summoners);
-            let ex = redsim::entity::mob::hostile::check(&w, &farm, true);
+            let ex = redsim::entity::mob::hostile::check(&w, &farm, true).map_err(|e| anyhow::anyhow!(e))?;
             println!("{} in {} at offset {:?}: {} placed + {} filled + {} sealed, {} dug (the cheapest of {} spots, block time {:.0}-{:.0} s); {} golem cells, {} interior cells", design.display(), site.sample, site.offset, site.placed, site.fills.len(), site.seals.len(), site.dug, site.spots, site.build_range.0, site.build_range.1, farm.golem_cells.len(), farm.interior.len());
             // the village's saved mobs against the farm's villagers: a village villager within the
             // 10-box of a farm summoner (`spawnGolemIfNeeded`: inflate 10, 10, 10) counts toward
@@ -16598,7 +16598,7 @@ fn exposures_of(version: &str, design: &std::path::Path, terrain: &str) -> Resul
         redsim::entity::mob::site::villager_cells(&with)
     };
     let farm = circuit::mobfarm::hostile_farm(&w, &moved, site.afk, &summoners);
-    let ex = redsim::entity::mob::hostile::check(&w, &farm, true);
+    let ex = redsim::entity::mob::hostile::check(&w, &farm, true).map_err(|e| anyhow::anyhow!(e))?;
     Ok((site.offset, farm.golem_cells.len(), farm.interior.len(), ex))
 }
 

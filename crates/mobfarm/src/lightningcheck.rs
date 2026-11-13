@@ -77,8 +77,13 @@ pub fn check_parts(spec: &FarmSpec, o: &Opts) -> Result<(Vec<String>, usize, usi
     for c in &riders {
         protect.push((Aabb::new(c.x as f64, c.y as f64, c.z as f64, (c.x + 1) as f64, c.y as f64 + 0.5625 + 1.95, (c.z + 1) as f64), *c, format!("a rider at {},{},{}", c.x, c.y, c.z)));
     }
-    let sees_sky = |p: BlockPos| redsim::weather::can_see_sky(&w, p).unwrap_or(false);
-    let statics: Vec<(BlockPos, Aabb, String)> = protect.iter().filter(|(_, p, what)| !what.ends_with("(a vehicle)") && sees_sky(*p)).map(|(bb, p, what)| (*p, *bb, what.clone())).collect();
+    // (a failed sky read refuses the check, never a silent "unexposed": cc767b78's light series on train 11's code)
+    let mut statics: Vec<(BlockPos, Aabb, String)> = Vec::new();
+    for (bb, p, what) in protect.iter().filter(|(_, _, what)| !what.ends_with("(a vehicle)")) {
+        if redsim::weather::can_see_sky(&w, *p).map_err(|e| format!("lightning-check: the sky at {},{},{} ({what}) unreadable: {e}", p.x, p.y, p.z))? {
+            statics.push((*p, *bb, what.clone()));
+        }
+    }
     // (every strike: the columns within 3 of the farm's box)
     let mut bolts: Vec<(BlockPos, String, bool)> = Vec::new();
     let (x0, x1) = (w.min.x - 3, w.min.x + w.size[0] + 2);
@@ -111,7 +116,10 @@ pub fn check_parts(spec: &FarmSpec, o: &Opts) -> Result<(Vec<String>, usize, usi
             }
         }
     }
-    let rain = |p: BlockPos| redsim::weather::motion_blocking_height(&w, p.x, p.z) <= p.y && sees_sky(p);
+    // (a failed sky read refuses the check: cc767b78's light series)
+    let rain = |p: BlockPos| -> Result<bool, String> {
+        Ok(redsim::weather::motion_blocking_height(&w, p.x, p.z) <= p.y && redsim::weather::can_see_sky(&w, p).map_err(|e| format!("lightning-check: the sky at {},{},{} unreadable: {e}", p.x, p.y, p.z))?)
+    };
     let mut lines = Vec::new();
     let mut findings = 0usize;
     let mut hits: Vec<String> = Vec::new();
@@ -119,7 +127,7 @@ pub fn check_parts(spec: &FarmSpec, o: &Opts) -> Result<(Vec<String>, usize, usi
     let mut struck_entities: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     let n_rod_bolts = bolts.iter().filter(|(_, _, r)| *r).count();
     for (b, why, is_rod) in &bolts {
-        if !rain(*b) {
+        if !rain(*b)? {
             continue;
         }
         let hit = lt::hit_box_at(Vec3::new(b.x as f64 + 0.5, b.y as f64, b.z as f64 + 0.5));

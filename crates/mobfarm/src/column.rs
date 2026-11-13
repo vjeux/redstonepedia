@@ -1707,17 +1707,21 @@ pub fn creeper_report(spec: &redsim::entity::mob::farm::FarmSpec, glass: bool, u
     near.sort_by(|a, b| a.0.total_cmp(&b.0));
     charged.sort_by(|a, b| a.0.total_cmp(&b.0));
     // (ironspec 05:05) the spawn origins: the reached cells a creeper can spawn at (block light 0
-    // by the land world's propagation, its floor and its box: `hostile::spawn_parts`)
+    // by the land world's propagation, its floor and its box: `hostile::spawn_parts`); an
+    // unreadable light refuses the report (cc767b78, ironspec 12:54)
     let kind = redsim::entity::mob::natural::kind_of("minecraft:creeper");
-    let starts: Vec<(BlockPos, f64)> = reach
-        .cells
-        .iter()
-        .filter(|(c, _)| !rail_cells.contains(c) && w.block_light(*c).unwrap_or(0) == 0 && kind.is_none_or(|k| {
-            let (_, placement, free) = hostile::spawn_parts(&w, k, *c);
+    let mut starts: Vec<(BlockPos, f64)> = Vec::new();
+    for &(c, f) in reach.cells.iter() {
+        if rail_cells.contains(&c) || w.block_light(c)? != 0 {
+            continue;
+        }
+        if kind.is_none_or(|k| {
+            let (_, placement, free) = hostile::spawn_parts(&w, k, c);
             placement && free
-        }))
-        .copied()
-        .collect();
+        }) {
+            starts.push((c, f));
+        }
+    }
     // (the light at every spawn space beside a target: an air cell face-adjacent to it with a
     // floor below)
     let mut spaces: Vec<(BlockPos, i32)> = Vec::new();
@@ -1726,9 +1730,14 @@ pub fn creeper_report(spec: &redsim::entity::mob::farm::FarmSpec, glass: bool, u
             let air = w.get(q).to_string().trim_start_matches("minecraft:").starts_with("air");
             let floor = !w.get(q.below()).to_string().trim_start_matches("minecraft:").starts_with("air");
             if air && floor && !spaces.iter().any(|(p, _)| *p == q) {
-                spaces.push((q, w.block_light(q).unwrap_or(-1)));
+                spaces.push((q, w.block_light(q)?));
             }
         }
+    }
+    // (a light read inside the spawn rules that failed: the report is refused)
+    let light_errors = w.take_light_errors();
+    if !light_errors.is_empty() {
+        return Err(format!("creeper report: {} light read(s) failed: {}", light_errors.len(), light_errors.join("; ")));
     }
     let lmin = spaces.iter().map(|x| x.1).min().unwrap_or(0);
     let lmax = spaces.iter().map(|x| x.1).max().unwrap_or(0);

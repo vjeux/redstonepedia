@@ -224,6 +224,10 @@ pub struct World {
     /// Problems the model met (a write outside the box, an unmodeled case): a run with any is
     /// not trustworthy.
     pub errors: Vec<String>,
+    /// (cc767b78, train 11's spawn static on the light series) A conservative dark bound: every block light read
+    /// answers 0 (no source credited), as a land-less world read before block light was modeled there. Off by
+    /// default; set only by a judge that asks for the dark bound (fleecheck's `spawn_static` without `--lit`).
+    pub block_light_zero: bool,
     /// TNT primed (`TntBlock.prime`: a `PrimedTnt` in the game, not simulated: its motion draws
     /// from `level.random` and the judge removes primed TNT before it explodes): (game time, the
     /// TNT's cell; the entity spawns at its bottom center).
@@ -458,6 +462,7 @@ impl World {
             log_writes: false,
             writes: Vec::new(),
             errors: Vec::new(),
+            block_light_zero: false,
             primed: Vec::new(),
             remove_primed: false,
             skip_block_entities: false,
@@ -867,9 +872,16 @@ impl World {
                 }
                 let old = self.cells[i];
                 self.cells[i] = s;
-                // the light answers hold while no cell's light behaviour or emission changes
-                if old != s && (crate::daylight::light_differs(&old, &s) || crate::entity::mob::sun::emission(&old) != crate::entity::mob::sun::emission(&s)) {
-                    self.light_version += 1;
+                // the light answers hold while no cell's light behaviour or emission changes; a
+                // land-less world's light sources follow an emission's change
+                if old != s {
+                    let emission_changed = crate::entity::mob::sun::emission(&old) != crate::entity::mob::sun::emission(&s);
+                    if emission_changed || crate::daylight::light_differs(&old, &s) {
+                        self.light_version += 1;
+                    }
+                    if emission_changed {
+                        crate::daylight::note_write(self, p, &s);
+                    }
                 }
                 // the section's ticking count (`LevelChunkSection.setBlockState`)
                 if old != s
@@ -933,6 +945,7 @@ impl World {
         assert_eq!(cells.len(), self.cells.len(), "load_cells: the box holds {} cells", self.cells.len());
         self.cells = Cells(cells);
         self.light_version += 1;
+        crate::daylight::note_fill(self);
         // the sections' ticking counts are recalculated on the next chunk tick (a section's load)
         self.ticking_sections = None;
     }
@@ -1354,6 +1367,13 @@ impl World {
     /// The tick's work ([`World::tick`]).
     fn tick_level(&mut self) {
         self.handling_tick = true;
+        // the light reads that failed since the last tick, where their callers couldn't return the
+        // error (`World::light_or`): into the world's errors, which a run's judge fails on
+        for e in self.take_light_errors() {
+            if !self.errors.contains(&e) {
+                self.errors.push(e);
+            }
+        }
         // terrain worlds: the light engine settles last tick's changes between ticks (it reads no time)
         if self.land.is_some() {
             self.settle_light();

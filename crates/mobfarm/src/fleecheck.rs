@@ -4797,7 +4797,8 @@ pub fn void_exposures(spec: &FarmSpec, biome: &'static str) -> Result<(Vec3, red
         redsim::entity::mob::site::villager_cells(&with)
     };
     let farm = circuit::mobfarm::hostile_farm(&w, spec, afk, &summoners);
-    let ex = redsim::entity::mob::hostile::check(&w, &farm, true);
+    // (a light read that failed refuses the exposures: cc767b78's light series, ironspec 16:22's list)
+    let ex = redsim::entity::mob::hostile::check(&w, &farm, true)?;
     Ok((afk, farm, ex))
 }
 
@@ -4833,6 +4834,9 @@ pub fn spawn_static(spec: &FarmSpec, biome: &'static str, lit: bool) -> Result<(
         return Err(format!("the site biome {biome}: no such biome in redsim's table"));
     }
     let mut w = settled_world_void(spec)?;
+    // (the dark bound: no block light credited anywhere, the spawn rules included, as the void read before
+    // land-less block light was modeled: cc767b78's light series on train 11's spawn static)
+    w.block_light_zero = !lit;
     let afk = Vec3::new(spec.output.x as f64 + 0.5, (spec.lo.y - 60) as f64, spec.output.z as f64 + 0.5);
     use redsim::entity::mob::natural::{Category, Difficulty, Natural, kind_of, mobs_at};
     w.mob.natural = Some(Natural { void_biome: Some(biome), ..Natural::new(vec![afk], Difficulty::Hard) });
@@ -7998,6 +8002,33 @@ mod gate_tests {
         rail.blocks.push((b(2, 1, 2), p("minecraft:rail[shape=north_south,waterlogged=false]")));
         let (l6, _, _) = super::spawn_static(&rail, "minecraft:plains", false).unwrap_or_else(|e| panic!("{e}"));
         assert!(!l6.iter().any(|x| x.contains("SPAWNABLE OUTSIDE 2,1,2 ") || x.contains("SPAWNABLE INSIDE 2,1,2 ")), "{l6:?}");
+    }
+
+    /// (cc767b78, G1 18:08 (b): the light series' fold on train 11's caller) A light read that fails during
+    /// `void_exposures` refuses it with the read's message, never an empty list: the dark stone room with a brewing
+    /// stand on its floor (a block whose light behaviour redsim doesn't model, so the spawn cells' block light
+    /// can't be read) is refused; the same room without it reads.
+    #[test]
+    fn void_exposures_refuses_through_a_failed_light_read() {
+        let p = |s: &str| redsim::block::Block::parse(s).unwrap();
+        let mut blocks = Vec::new();
+        for x in 0..=4 {
+            for z in 0..=4 {
+                for y in 0..=4 {
+                    let edge = x == 0 || x == 4 || z == 0 || z == 4 || y == 4;
+                    let s = if y == 0 || edge { "minecraft:stone" } else { "minecraft:air" };
+                    blocks.push((b(x, y, z), p(s)));
+                }
+            }
+        }
+        let spec = |blocks: Vec<(redsim::pos::BlockPos, redsim::block::Block)>| redsim::entity::mob::farm::FarmSpec { blocks, entities: Vec::new(), output: b(2, 1, 2), lo: b(0, 0, 0), hi: b(4, 4, 4), block_entities: Vec::new(), rock: false, nether: None, land: false };
+        assert!(super::void_exposures(&spec(blocks.clone()), "minecraft:plains").is_ok(), "the plain room reads");
+        blocks.retain(|(q, _)| *q != b(1, 1, 1));
+        blocks.push((b(1, 1, 1), p("minecraft:brewing_stand")));
+        match super::void_exposures(&spec(blocks), "minecraft:plains") {
+            Ok((_, _, ex)) => panic!("a failed light read must refuse void_exposures, not give {} exposure(s)", ex.len()),
+            Err(e) => assert!(e.contains("light"), "the refusal names the light read: {e}"),
+        }
     }
 
     /// (9fc3155f's correction 10:35, G1's no-vacuous-pass rule) The floating site's spawn check

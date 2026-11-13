@@ -1499,8 +1499,12 @@ pub fn compare(version: &str, design: &std::path::Path, opts: &Opts, draws_at: O
                 let gs = region.as_ref().and_then(|g| g.get([p[0], y, p[2]])).map(|s| s.to_string()).unwrap_or_default();
                 let rs = run.world.get(q).to_string();
                 let gl = (sky.get(i).copied().unwrap_or(0) as i32, block.get(i).copied().unwrap_or(0) as i32);
-                let rl = (run.world.sky_light(q).unwrap_or(-1), run.world.block_light(q).unwrap_or(-1));
-                if gs != rs || gl != rl {
+                // (an unreadable redsim light counts as a difference, its error printed: cc767b78, ironspec 12:54)
+                let rl = match (run.world.sky_light(q), run.world.block_light(q)) {
+                    (Ok(s), Ok(b)) => Ok((s, b)),
+                    (s, b) => Err(format!("unreadable ({:?}, {:?})", s.err(), b.err())),
+                };
+                if gs != rs || rl.as_ref() != Ok(&gl) {
                     differ += 1;
                     eprintln!("traced tick {} {} {}{}: the game {gs} light {gl:?} | redsim {rs} light {rl:?}", p[0], p[1], p[2], if i == 1 { " (above)" } else { "" });
                 }
@@ -1525,10 +1529,11 @@ pub fn compare(version: &str, design: &std::path::Path, opts: &Opts, draws_at: O
                     for x in from[0]..=to[0] {
                         let p = redsim::BlockPos::new(x, y, z);
                         let (gs, gb) = (sky.get(i).copied().unwrap_or(0) as i32, block.get(i).copied().unwrap_or(0) as i32);
-                        let (rs, rb) = (run.world.sky_light(p).unwrap_or(-1), run.world.block_light(p).unwrap_or(-1));
-                        if (gs, gb) != (rs, rb) {
+                        // (an unreadable redsim light counts as a difference, its error printed: cc767b78, ironspec 12:54)
+                        let (rs, rb) = (run.world.sky_light(p), run.world.block_light(p));
+                        if rs.as_ref() != Ok(&gs) || rb.as_ref() != Ok(&gb) {
                             differ += 1;
-                            eprintln!("light {x} {y} {z} ({}): the game's sky {gs} block {gb} | redsim's sky {rs} block {rb}", run.world.get(p));
+                            eprintln!("light {x} {y} {z} ({}): the game's sky {gs} block {gb} | redsim's sky {rs:?} block {rb:?}", run.world.get(p));
                         }
                         i += 1;
                     }
