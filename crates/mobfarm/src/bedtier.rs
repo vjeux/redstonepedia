@@ -2185,7 +2185,9 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             && run.world.entities.list[ci].block_position() == BlockPos::new(ENTRY[0], ENTRY[1], ENTRY[2])
         {
             entry_seen = true;
-            row.entry_at = Some(t);
+            // (G1's C5: this read is before the tick, the cart's state after the previous tick: the
+            // entry's post-tick time is t - 1, on R's footing (R is read after its tick))
+            row.entry_at = Some(t - 1);
             if let Some(vi) = vill.and_then(|v| idx(&run.world, v))
                 && redsim::entity::mob::ai::brain::has_exact(&run.world, vi)
             {
@@ -4474,10 +4476,11 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
     sk.lie_ticks.sort();
     sk.wake_ticks.sort();
     println!("first lie-down at entry + {:?}..{:?}, first wake at entry + {:?}..{:?}; skip offsets by outcome class (min, max): {:?}", sk.lie_ticks.first(), sk.lie_ticks.last(), sk.wake_ticks.first(), sk.wake_ticks.last(), sk.skip_class);
-    println!("entry to R (the stop clear for the next napper): {:?} / median {:?} / {:?} gt over {} visits; outcome classes (ironspec 09:45: a slept and picked up, b waited through IDLE then napped, c the abort's unslept return): {:?}", sk.r_ats.first(), sk.r_ats.get(sk.r_ats.len() / 2), sk.r_ats.last(), sk.r_ats.len(), sk.classes);
+    println!("{} (the stop clear for the next napper): {:?} / median {:?} / {:?} gt over {} visits; outcome classes (ironspec 09:45: a slept and picked up, b waited through IDLE then napped, c the abort's unslept return): {:?}", if f_approach { "the spawn (the queue release) to R (G1's C4: approach mode's raw count; entry -> R is the per-speed line)" } else { "entry to R" }, sk.r_ats.first(), sk.r_ats.get(sk.r_ats.len() / 2), sk.r_ats.last(), sk.r_ats.len(), sk.classes);
     // (ironspec 19:18 (2a): entry to R per entry speed, and v_slow against the timing bar)
     let mut speed_failed = false;
-    if sk.visits_by_speed.len() > 1 {
+    // (G1's C2: every run, one speed or many, checks that every visit reached R)
+    if !sk.visits_by_speed.is_empty() {
         // (every speed with visits; n of m reached R; a speed missing any R fails v_slow)
         let (rbs, vbs) = (&mut sk.r_by_speed, &sk.visits_by_speed);
         let mut per: Vec<(f64, Option<(i64, i64, i64)>, usize, usize)> = vbs
