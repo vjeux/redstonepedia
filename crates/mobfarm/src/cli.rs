@@ -1365,6 +1365,10 @@ pub enum MobfarmCmd {
         /// union of every rail cell's idle-stroll and golem-summon boxes, filled with stone).
         #[arg(long, default_value = "floating")]
         surround: String,
+        /// (ironspec Nov 13 09:01 (c)) A declared late-path exemption, x,y,z=REASON (a draw cell;
+        /// repeatable): its pairs print as information with the exemption's conditions.
+        #[arg(long, allow_hyphen_values = true)]
+        late_exempt: Vec<String>,
         /// A caller's rest point x,y,z (a pocket rider's cart, repeatable; default: the design's
         /// `run-cells:` P0, P1, ... cells, the cart at the cell's centre over the rail): the caller
         /// sight row (ironspec Nov 12 15:35, permanent with --clear-all): every hostile within the
@@ -2704,6 +2708,10 @@ pub enum MobfarmCmd {
         #[arg(long, allow_hyphen_values = true)]
         pocket: Option<String>,
     },
+    /// (ironspec Nov 13 09:44) The T exposure static: every plain rail with three potential
+    /// connections, its signal sources within Manhattan 2 (constant or operating) and its
+    /// `switches:` declaration; an undeclared T beside an operating source fails (exit 1).
+    TExposure { design: PathBuf },
     /// (ironspec Nov 13 08:26) Every rider position within `--radius` (default 16) of `--cell`'s
     /// centre (the bed head: the exposure bar's subject), grouped by cell; `--column x,y0,z,y1`
     /// adds a column's positions every 0.25.
@@ -8503,6 +8511,16 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let (claims, _) = crate::fleecheck::design_claims(&spec, taken);
             p_static_run(&design, &spec_file, &at, &cart, &exit_at, &set, &hold, &column_of, &surround, pocket.as_deref(), None, &claims)?;
         }
+        MobfarmCmd::TExposure { design } => {
+            let (c, spec_file) = load(version, &design)?;
+            let (spec, _) = crate::fleecheck::settled_design(&spec_file).map_err(|e| anyhow::anyhow!(e))?;
+            let classes = crate::fleecheck::PlaceClasses::from_meta(&c.clock.design.meta).map_err(|e| anyhow::anyhow!(e))?;
+            let (lines, fails) = crate::fleecheck::t_exposure(&spec, &classes.switches);
+            for l in &lines {
+                println!("{l}");
+            }
+            anyhow::ensure!(fails == 0, "the T exposure: {fails} undeclared T(s) beside an operating source");
+        }
         MobfarmCmd::NearPositions { design, cell, radius, column } => {
             let (_c, spec_file) = load(version, &design)?;
             let (spec, _) = crate::fleecheck::settled_design(&spec_file).map_err(|e| anyhow::anyhow!(e))?;
@@ -13566,7 +13584,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 std::process::exit(1);
             }
         }
-        MobfarmCmd::FleeCheck { design, home, show, foot, clearing, eye_control, pickup_control, sampled, claim, classes, fix_search, fix_pairs, fix_block, clear_rate, clear_floors, clear_all, clear_tail, clear_list, tail_rest, clear_panic_only, allow_unsupported, candidate_box, approach, late_gt, path_probe, auto_columns, track_end, caller, travel, reversal, two_way, orient_list, report_only, start_state, surround, path_watch, path_trace, scarer_search, scarer, scarer_rider, scarer_max, scarer_any_floor, scarer_walls, scarer_target, scarer_exact, scarer_check, scarer_transient, scarer_column, scarer_occlude, hide_point, hide_column, hide_rails, scarer_mix, scarer_visor, scarer_exclude, pillager, golem_reach, golem_pad, scarer_near, post_drift, drift_ticks } => {
+        MobfarmCmd::FleeCheck { design, home, show, foot, clearing, eye_control, pickup_control, sampled, claim, classes, fix_search, fix_pairs, fix_block, clear_rate, clear_floors, clear_all, clear_tail, clear_list, tail_rest, clear_panic_only, allow_unsupported, candidate_box, approach, late_gt, path_probe, auto_columns, track_end, caller, travel, reversal, two_way, orient_list, report_only, start_state, surround, late_exempt, path_watch, path_trace, scarer_search, scarer, scarer_rider, scarer_max, scarer_any_floor, scarer_walls, scarer_target, scarer_exact, scarer_check, scarer_transient, scarer_column, scarer_occlude, hide_point, hide_column, hide_rails, scarer_mix, scarer_visor, scarer_exclude, pillager, golem_reach, golem_pad, scarer_near, post_drift, drift_ticks } => {
             // (ironspec Nov 13 06:00 real, RANGES / WEAKENERS: the windows ranged; a weakening flag
             // announces itself (a run with one is never cited))
             anyhow::ensure!((0.0..=250.0).contains(&clear_tail), "--clear-tail {clear_tail}: 0..=250 gt");
@@ -13681,7 +13699,13 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             // coverage evidence is GEOMETRIC; the seed's day time printed)
             let o_day = redsim::entity::mob::farm::RunOpts::steady(1, 0, redsim::entity::mob::farm::WalkMode::Random);
             println!("flee-check's worlds: seed 1, day0 {} (by day; no brain ticked: PANIC / IDLE are this model's labels, the evidence GEOMETRIC)", o_day.day0);
-            let place_classes = crate::fleecheck::PlaceClasses::from_meta(&_c.clock.design.meta).map_err(|e| anyhow::anyhow!(e))?;
+            let mut place_classes = crate::fleecheck::PlaceClasses::from_meta(&_c.clock.design.meta).map_err(|e| anyhow::anyhow!(e))?;
+            // (ironspec Nov 13 09:01 (c): a declared late-path exemption on the command line joins
+            // the design's `late-exempt:` lines, each printed)
+            place_classes.late_exempt.extend(holds_of(&late_exempt)?);
+            for (p, why) in &place_classes.late_exempt {
+                println!("late-exempt {},{},{}: {why}", p.x, p.y, p.z);
+            }
             if !path_probe.is_empty() {
                 for s in &path_probe {
                     let q: Vec<f64> = s.split(',').map(|t| t.trim().parse::<f64>()).collect::<Result<_, _>>()?;
@@ -13925,7 +13949,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
                 // (ironspec Nov 12 16:02: the direction-aware walk, the default)
                 let mut travel_paths: Vec<(Vec<redsim::pos::BlockPos>, String)> = Vec::new();
-                for t in &travel {
+                // (dfb89499 Nov 13 09:34: the routing lives in the design's header too, `# travel:
+                // A>B>...=REASON` lines (one path each), merged with --travel)
+                let mut travel_all: Vec<String> = travel.clone();
+                travel_all.extend(crate::pushscan::header_entries(&std::fs::read_to_string(&design)?, "travel:"));
+                for t in &travel_all {
                     // (G1's note 1 on a4cd9b8b0: A>B>...[=REASON], the reason printed in the travel line)
                     let (cells, why) = t.split_once('=').map(|(a, b)| (a, b.trim().to_string())).unwrap_or((t.as_str(), String::new()));
                     let mut path = Vec::new();
@@ -13954,6 +13982,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 // (ironspec Nov 13 06:00 real: the track-end bar with no walk is NOT JUDGED)
                 anyhow::ensure!(verdict.track_walks > 0 || report_only, "--clear-all: the track-end bar ran 0 walks (NOT JUDGED)");
                 anyhow::ensure!(verdict.unused_decls == 0, "--clear-all: {} declaration(s) that change nothing (the UNUSED lines)", verdict.unused_decls);
+                // (G1 Nov 13 09:42: a declared travel link against the shape-read direction FAILS:
+                // the owners settle the geometry; the run never silently takes one side)
+                anyhow::ensure!(report_only || verdict.declared_conflicts == 0, "--clear-all: {} declared travel link(s) conflict with the shape-read direction (the 'oriented both ways' line): the geometry or the declaration is wrong", verdict.declared_conflicts);
                 // (ironspec Nov 12 15:35, permanent: every caller's scarers at its rest point)
                 let mut callers: Vec<(String, redsim::entity::Vec3)> = Vec::new();
                 for s in &caller {
@@ -15343,6 +15374,32 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
         }
         MobfarmCmd::SpawnRules { design, terrain, tries, day_time } => crate::spawnrules::run(version, &design, &terrain, tries, day_time)?,
         MobfarmCmd::Exposures { design, terrain, cells, against } => {
+            if terrain == "void" {
+                // (ironspec Nov 13 08:33 (2): the FLOATING site's exterior spawns: the hostile
+                // checks on the design's own settled world in the void (redsim reads AIR outside
+                // the box, cc767b78), the AFK player at the run's default (60 under the chest))
+                anyhow::ensure!(against.is_none(), "--against with --terrain void: not supported");
+                let (_c, spec) = load(version, &design)?;
+                let w = crate::fleecheck::settled_world_void(&spec).map_err(|e| anyhow::anyhow!(e))?;
+                let summoners = {
+                    let mut with = w.clone();
+                    for (k, p, n) in &spec.entities {
+                        let _ = redsim::entity::spawn(&mut with, k, *p, n.as_deref());
+                    }
+                    redsim::entity::mob::site::villager_cells(&with)
+                };
+                let afk = redsim::entity::Vec3::new(spec.output.x as f64 + 0.5, (spec.lo.y - 60) as f64, spec.output.z as f64 + 0.5);
+                let farm = circuit::mobfarm::hostile_farm(&w, &spec, afk, &summoners);
+                let ex = redsim::entity::mob::hostile::check(&w, &farm, true);
+                println!("{} in the VOID (a floating site: void outside the box, cc767b78's World::get), the AFK player at {:.1},{:.1},{:.1}: {} golem cells, {} interior cells; {} exposure class(es)", design.display(), afk.x, afk.y, afk.z, farm.golem_cells.len(), farm.interior.len(), ex.len());
+                for e in &ex {
+                    println!("  {e:?}");
+                }
+                if cells {
+                    println!("(--cells: the exposure lines above carry their cells)");
+                }
+                return Ok(());
+            }
             if let Some(before) = against {
                 return exposures_against(version, &before, &design, &terrain);
             }
