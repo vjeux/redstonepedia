@@ -45,6 +45,7 @@ pub fn rail_kick(version: &str, blocks: &[String], power_at: u32, watch: u32, re
             }
         }
         let mut restarted = false;
+        let mut reload_note: Option<crate::restartcheck::Reload> = None;
         let mut first: Vec<Option<[f64; 3]>> = vec![None; copies.len()];
         let mut left: Vec<Option<(u32, [f64; 3])>> = vec![None; copies.len()];
         for t in 1..=power_at + watch {
@@ -74,18 +75,19 @@ pub fn rail_kick(version: &str, blocks: &[String], power_at: u32, watch: u32, re
                 && !restarted
                 && t == r
             {
-                srv.cmd_ok("save-on")?;
-                srv.cmd_ok("save-all flush")?;
-                let old = srv.dir.clone();
-                let world = old.join(&srv.level_name);
-                drop(srv);
-                srv = VanillaServer::start(&opts(version, Some(world)))?;
-                let _ = std::fs::remove_dir_all(&old);
+                let probe = copies.first().map(|c| format!("@e[tag={},limit=1]", c.4));
+                let (s, rl) = crate::restartcheck::reload(srv, |w| opts(version, Some(w)), probe.as_deref())?;
+                srv = s;
                 srv.cmd_ok("forceload add -16 -16 127 31")?;
                 restarted = true;
+                reload_note = Some(rl);
             }
         }
-        println!("  {}:", restart.map(|r| format!("a restart at t{r} (at rest)")).unwrap_or_else(|| "no restart".into()));
+        println!(
+            "  {}{}:",
+            restart.map(|r| format!("a restart at t{r} (at rest)")).unwrap_or_else(|| "no restart".into()),
+            reload_note.map(|x| format!(" ({})", x.describe())).unwrap_or_default()
+        );
         for (i, (b, ridden, x, z, _)) in copies.iter().enumerate() {
             println!(
                 "    north end {b}, {}: the first tick's velocity {}; {}",

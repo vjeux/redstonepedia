@@ -34,6 +34,7 @@ public final class BrainAgent {
     private static final String BRAIN = "net/minecraft/world/entity/ai/Brain";
     private static volatile String[] memories = new String[0];
     private static volatile boolean panicOn = false;
+    private static volatile boolean pathOn = false;
 
     private BrainAgent() {}
 
@@ -41,6 +42,7 @@ public final class BrainAgent {
         if (args != null && !args.isEmpty()) {
             memories = args.split(",");
             panicOn = java.util.Arrays.asList(memories).contains("+panic");
+            pathOn = java.util.Arrays.asList(memories).contains("+path");
         }
         System.getProperties().put(ERASE, (BiConsumer<Object, Object>) BrainAgent::onErase);
         System.getProperties().put(SET, (BiConsumer<Object, Object>) BrainAgent::onSet);
@@ -49,6 +51,7 @@ public final class BrainAgent {
         System.getProperties().put(OWNER, (BiConsumer<Object, Object>) BrainAgent::onOwner);
         System.getProperties().put(SPOT, (BiFunction<Object, Object, Object>) BrainAgent::onSpot);
         System.getProperties().put(PANIC, (BiConsumer<Object, Object>) BrainAgent::onPanic);
+        System.getProperties().put(PATH_HOOK, (BiConsumer<Object, Object>) BrainAgent::onPath);
         inst.addTransformer(new ClassFileTransformer() {
             @Override
             public byte[] transform(ClassLoader loader, String name, Class<?> redefined, ProtectionDomain domain, byte[] bytes) {
@@ -67,6 +70,9 @@ public final class BrainAgent {
                     if (PANIC_TRIGGER.equals(name)) {
                         return panic(loader, bytes);
                     }
+                    if (PATH_CLASS.equals(name) && pathOn) {
+                        return pathHook(loader, bytes);
+                    }
                     return null;
                 } catch (Throwable t) {
                     System.err.println("mctas brain agent: could not instrument " + name + ": " + t);
@@ -81,8 +87,79 @@ public final class BrainAgent {
     private static final String OWNER = "mctas.brain.owner";
     private static final String SPOT = "mctas.brain.spot";
     private static final String PANIC = "mctas.brain.panic";
+    private static final String PATH_HOOK = "mctas.brain.path";
     private static final String VILLAGER = "net/minecraft/world/entity/npc/villager/Villager";
     private static final String PANIC_TRIGGER = "net/minecraft/world/entity/ai/behavior/VillagerPanicTrigger";
+    private static final String PATH_CLASS = "net/minecraft/world/level/pathfinder/Path";
+
+    /** (ironspec 22:11 PT: A6's restart trap, the mechanism) a Path's node index moving: `advance()`
+     * and `setNextNodeIndex(int)`, entered, printed as {@code path <id> advance from <i>} or
+     * {@code path <id> set index <i> (was <j>)} when the agent's argument list holds {@code +path};
+     * the id is the Path's identity hash, as the PATH memory's set line prints it. */
+    static void onPath(Object path, Object arg) {
+        if (!pathOn) {
+            return;
+        }
+        try {
+            int was = (Integer) path.getClass().getMethod("getNextNodeIndex").invoke(path);
+            int id = System.identityHashCode(path);
+            if (arg == null) {
+                System.err.println("mctas brain agent: path " + id + " advance from " + was);
+            } else {
+                System.err.println("mctas brain agent: path " + id + " set index " + arg + " (was " + was + ")");
+            }
+        } catch (ReflectiveOperationException e) {
+            System.err.println("mctas brain agent: path (unread): " + e);
+        }
+    }
+
+    /** The hook at the entry of Path's `advance()` and `setNextNodeIndex(int)`. */
+    static byte[] pathHook(ClassLoader loader, byte[] bytes) {
+        ClassHierarchyResolver resolver = ClassHierarchyResolver.defaultResolver();
+        if (loader != null) {
+            resolver = ClassHierarchyResolver.ofClassLoading(loader).orElse(resolver);
+        }
+        ClassFile cf = ClassFile.of(ClassFile.ClassHierarchyResolverOption.of(resolver));
+        ClassModel model = cf.parse(bytes);
+        int[] hooked = {0};
+        byte[] out = cf.transformClass(model, (cb, ce) -> {
+            if (ce instanceof java.lang.classfile.MethodModel m && m.code().isPresent()
+                    && ((m.methodName().equalsString("advance") && m.methodTypeSymbol().parameterCount() == 0)
+                        || (m.methodName().equalsString("setNextNodeIndex") && m.methodTypeSymbol().parameterCount() == 1))) {
+                boolean set = m.methodName().equalsString("setNextNodeIndex");
+                hooked[0]++;
+                cb.transformMethod(m, java.lang.classfile.MethodTransform.transformingCode(new java.lang.classfile.CodeTransform() {
+                    boolean first = true;
+
+                    @Override
+                    public void accept(CodeBuilder b, java.lang.classfile.CodeElement e) {
+                        if (first) {
+                            first = false;
+                            ClassDesc properties = ClassDesc.of("java.util.Properties");
+                            ClassDesc biConsumer = ClassDesc.of("java.util.function.BiConsumer");
+                            b.invokestatic(ClassDesc.of("java.lang.System"), "getProperties", MethodTypeDesc.of(properties));
+                            b.ldc(PATH_HOOK);
+                            b.invokevirtual(properties, "get", MethodTypeDesc.of(ConstantDescs.CD_Object, ConstantDescs.CD_Object));
+                            b.checkcast(biConsumer);
+                            b.aload(0);
+                            if (set) {
+                                b.iload(1);
+                                b.invokestatic(ClassDesc.of("java.lang.Integer"), "valueOf", MethodTypeDesc.of(ClassDesc.of("java.lang.Integer"), ConstantDescs.CD_int));
+                            } else {
+                                b.aconst_null();
+                            }
+                            b.invokeinterface(biConsumer, "accept", MethodTypeDesc.of(ConstantDescs.CD_void, ConstantDescs.CD_Object, ConstantDescs.CD_Object));
+                        }
+                        b.with(e);
+                    }
+                }));
+            } else {
+                cb.with(ce);
+            }
+        });
+        System.err.println("mctas brain agent: Path reports advance and setNextNodeIndex (" + hooked[0] + " methods)");
+        return out;
+    }
 
     /** (ironspec 19:51 PT: the 60-gt behaviour's skip) VillagerPanicTrigger's own `start` and `tick`
      * (level, villager, timestamp), entered: printed as {@code panic <start|tick> by <UUID> at <t>}
@@ -335,7 +412,17 @@ public final class BrainAgent {
                 if (node != null) {
                     end = " end (" + node.getClass().getField("x").get(node) + ", " + node.getClass().getField("y").get(node) + ", " + node.getClass().getField("z").get(node) + ")";
                 }
-                return "path to " + target + " nodes " + nodes + " reach " + reach + start + end;
+                // (+path) the identity id, the next index and every node, for the advance lines
+                String all = "";
+                if (pathOn) {
+                    StringBuilder sb = new StringBuilder(" id " + System.identityHashCode(v) + " next " + v.getClass().getMethod("getNextNodeIndex").invoke(v) + " nodes [");
+                    for (int i = 0; i < (Integer) nodes; i++) {
+                        Object n = v.getClass().getMethod("getNode", int.class).invoke(v, i);
+                        sb.append(i == 0 ? "" : " ").append("(").append(n.getClass().getField("x").get(n)).append(",").append(n.getClass().getField("y").get(n)).append(",").append(n.getClass().getField("z").get(n)).append(")");
+                    }
+                    all = sb.append("]").toString();
+                }
+                return "path to " + target + " nodes " + nodes + " reach " + reach + start + end + all;
             }
         } catch (ReflectiveOperationException e) {
             return String.valueOf(v);

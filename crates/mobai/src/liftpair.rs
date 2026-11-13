@@ -34,13 +34,19 @@ fn run(version: &str, module: &std::path::Path, slope: [f64; 3], release_cell: [
     anyhow::ensure!(srv.cmd_long(&format!("execute if block {rx} {ry} {rz} minecraft:air"))?.contains("passed"), "the release cell ({},{},{}) is not air", release_cell[0], release_cell[1], release_cell[2]);
     let summon = |srv: &mut VanillaServer, tag: &str| -> Result<()> {
         srv.cmd_ok(&format!(
-            "summon minecraft:minecart {} {} {} {{Tags:[\"{tag}\"],Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b,NoAI:1b}}]}}",
+            "summon minecraft:minecart {} {} {} {{Tags:[\"{tag}\"],Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b,NoAI:1b,Tags:[\"{tag}v\"]}}]}}",
             slope[0],
             slope[1] + DY as f64,
             slope[2]
         ))?;
         Ok(())
     };
+    // (7b90c3f1's question) MCTAS_LIFTPAIR_RIDERS=a,b prints both carts' and riders' positions
+    // (the rider's feet; its box 0.6 x 1.95) every tick from a to b
+    let window: Option<(u32, u32)> = std::env::var("MCTAS_LIFTPAIR_RIDERS").ok().and_then(|s| {
+        let v: Vec<u32> = s.split(',').filter_map(|n| n.trim().parse().ok()).collect();
+        (v.len() == 2).then(|| (v[0], v[1]))
+    });
     summon(&mut srv, "lp0")?;
     let slope_cell = [slope[0].floor() as i32, slope[1].floor() as i32, slope[2].floor() as i32];
     let mut out: [Vec<Option<[f64; 3]>>; 2] = [Vec::new(), Vec::new()];
@@ -69,6 +75,34 @@ fn run(version: &str, module: &std::path::Path, slope: [f64; 3], release_cell: [
         for (k, row) in out.iter_mut().enumerate() {
             let p = nums(&srv.cmd_long(&format!("data get entity @e[tag=lp{k},limit=1] Pos"))?);
             row.push(if p.len() == 3 { Some([p[0], p[1] - DY as f64, p[2]]) } else { None });
+        }
+        if let Some((a, b)) = window
+            && t >= a
+            && t <= b
+        {
+            let mut line = format!("    gap {} t{t}:", gap.map(|g| g.to_string()).unwrap_or("-".into()));
+            for k in 0..2 {
+                let c = nums(&srv.cmd_long(&format!("data get entity @e[tag=lp{k},limit=1] Pos"))?);
+                let v = nums(&srv.cmd_long(&format!("data get entity @e[tag=lp{k}v,limit=1] Pos"))?);
+                let who = if k == 0 { "leader" } else { "follower" };
+                if c.len() == 3 && v.len() == 3 {
+                    line += &format!(
+                        " {who} cart ({:.4},{:.4},{:.4}) rider feet ({:.4},{:.4},{:.4}) (rider - cart y {:+.4}; box y {:.4}..{:.4});",
+                        c[0],
+                        c[1] - DY as f64,
+                        c[2],
+                        v[0],
+                        v[1] - DY as f64,
+                        v[2],
+                        v[1] - c[1],
+                        v[1] - DY as f64,
+                        v[1] - DY as f64 + 1.95
+                    );
+                } else {
+                    line += &format!(" {who} -;");
+                }
+            }
+            println!("{line}");
         }
     }
     let _ = std::fs::remove_dir_all(&srv.dir);

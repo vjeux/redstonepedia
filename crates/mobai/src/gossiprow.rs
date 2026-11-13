@@ -100,13 +100,10 @@ pub fn gossip_row(version: &str, layout: &str, day_time: i64, ticks: u32, restar
             && restarted.is_none()
             && t == f + r
         {
-            srv.cmd_ok("save-on")?;
-            srv.cmd_ok("save-all flush")?;
-            let old = srv.dir.clone();
-            let world = old.join(&srv.level_name);
-            drop(srv);
-            srv = VanillaServer::start(&opts(version, &jar, Some(world)))?;
-            let _ = std::fs::remove_dir_all(&old);
+            // the probe: villager A (seated riders hold still; a standing one may wander)
+            let (s, rl) = crate::restartcheck::reload(srv, |w| opts(version, &jar, Some(w)), Some("@e[tag=gv0,limit=1]"))?;
+            srv = s;
+            println!("  t{t}: restart ({})", rl.describe());
             srv.cmd_ok("forceload add -16 -16 16 16")?;
             log.at = 0;
             restarted = Some(t);

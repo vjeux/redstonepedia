@@ -51,6 +51,8 @@ pub mod gossiprow;
 pub mod sbendrow;
 pub mod panicticks;
 pub mod stationride;
+pub mod restartcheck;
+pub mod bedtrap;
 pub mod threebeds;
 pub mod daylight;
 pub mod cli;

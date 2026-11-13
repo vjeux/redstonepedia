@@ -78,13 +78,11 @@ pub fn panic_ticks(version: &str, villagers: u32, ticks: u32, restart_at: Option
     let t0 = srv.game_time()?;
     for t in 1..=ticks {
         if restart_at == Some(t) {
-            srv.cmd_ok("save-on")?;
-            srv.cmd_ok("save-all flush")?;
-            let old = srv.dir.clone();
-            let world = old.join(&srv.level_name);
-            drop(srv);
-            srv = VanillaServer::start(&opts(version, &jar, Some(world)))?;
-            let _ = std::fs::remove_dir_all(&old);
+            // the probe: the first panicking villager (panic-ticks reads game timestamps, so its
+            // rows are immune to uncounted ticks; the check is printed for the record)
+            let (s, rl) = crate::restartcheck::reload(srv, |w| opts(version, &jar, Some(w)), Some("@e[type=minecraft:villager,limit=1,sort=nearest,x=0,y=64,z=0]"))?;
+            srv = s;
+            println!("  t{t}: restart ({})", rl.describe());
             srv.cmd_ok("forceload add -16 -16 16 16")?;
             log.at = 0;
             restarted_at = Some(srv.game_time()?);

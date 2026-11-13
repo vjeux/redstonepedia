@@ -55,6 +55,7 @@ pub fn hold_pulse(version: &str, module: &std::path::Path, rest: [f64; 3], pulse
             ))?;
             let air_before = srv.cmd_long(&format!("execute if block {} {} {} minecraft:air", pulse_cell[0], pulse_cell[1] + DY, pulse_cell[2]))?.contains("passed");
             let (mut rise, mut first_motion, mut left, mut t_cell, mut ramp, mut column, mut pass, mut restarted) = (None::<u32>, None::<u32>, None::<u32>, None::<u32>, None::<u32>, None::<u32>, None::<(u32, [f64; 3])>, None::<u32>);
+            let mut reload_note: Option<crate::restartcheck::Reload> = None;
             let mut path: Vec<String> = Vec::new();
             for t in 1..=max_ticks {
                 if t == p {
@@ -99,16 +100,12 @@ pub fn hold_pulse(version: &str, module: &std::path::Path, rest: [f64; 3], pulse
                     && restarted.is_none()
                     && t == rs + r
                 {
-                    srv.cmd_ok("save-on")?;
-                    srv.cmd_ok("save-all flush")?;
-                    let old = srv.dir.clone();
-                    let world = old.join(&srv.level_name);
-                    drop(srv);
-                    srv = VanillaServer::start(&opts(version, Some(world)))?;
-                    let _ = std::fs::remove_dir_all(&old);
+                    let (s, rl) = crate::restartcheck::reload(srv, |w| opts(version, Some(w)), Some("@e[tag=hpc,limit=1]"))?;
+                    srv = s;
                     srv.cmd_ok("forceload add -32 -32 31 31")?;
                     restarted = Some(t);
-                    path.push(format!("t{t}: RESTART at ({:.3},{:.3},{:.3})", pos[0], pos[1], pos[2]));
+                    reload_note = Some(rl);
+                    path.push(format!("t{t}: RESTART at ({:.3},{:.3},{:.3}); {}", pos[0], pos[1], pos[2], rl.describe()));
                 }
                 if pass.is_some() {
                     break;
@@ -119,7 +116,7 @@ pub fn hold_pulse(version: &str, module: &std::path::Path, rest: [f64; 3], pulse
                 _ => "-".into(),
             };
             println!(
-                "  pulse at t{p}, {}: the pulse cell {}; the rise at {}; first motion {}; out of the hold's cell {}; the T {}; the ramp {}; the column {}; y {pass_y} at {}{}",
+                "  pulse at t{p}, {}: the pulse cell {}; the rise at {}; first motion {}; out of the hold's cell {}; the T {}; the ramp {}; the column {}; y {pass_y} at {}{}{}",
                 restart.map(|r| format!("restart at rise + {r}")).unwrap_or_else(|| "no restart".into()),
                 if air_before { "air before" } else { "NOT air before" },
                 rise.map(|t| format!("t{t} (pulse + {})", t as i64 - p as i64)).unwrap_or_else(|| "never".into()),
@@ -132,7 +129,8 @@ pub fn hold_pulse(version: &str, module: &std::path::Path, rest: [f64; 3], pulse
                 match (pass, rise) {
                     (Some((pt, pos)), Some(r)) => format!(" = {} gt from the rise ({} from the tick after it), at ({:.3},{:.3},{:.3})", pt - r, pt - r - 1, pos[0], pos[1], pos[2]),
                     _ => String::new(),
-                }
+                },
+                reload_note.map(|x| format!("; {}", x.describe())).unwrap_or_default()
             );
             if std::env::var_os("MCTAS_HOLD_PULSE_PATH").is_some() {
                 println!("    {}", path.join("; "));

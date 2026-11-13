@@ -35,7 +35,7 @@ struct Pass {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn run(version: &str, module: &std::path::Path, lanes: &std::path::Path, napper: [f64; 3], leader_v: f64, switch_at: Option<u32>, ticks: u32, show_cells: bool) -> Result<Pass> {
+fn run(version: &str, module: &std::path::Path, lanes: &std::path::Path, napper: [f64; 3], leader_v: f64, switch_at: Option<u32>, ticks: u32, show_cells: bool, leader_first: bool, napper_roll: Option<[f64; 6]>) -> Result<Pass> {
     let mut srv = VanillaServer::start(&VanillaOptions { version: version.to_string(), difficulty: "normal".into(), with_bot: false, tick_rate: 1000, ..Default::default() })?;
     srv.cmd_ok("gamerule advance_time false")?;
     srv.cmd_ok("gamerule spawn_mobs false")?;
@@ -81,19 +81,50 @@ fn run(version: &str, module: &std::path::Path, lanes: &std::path::Path, napper:
         }
         println!("  the drive laid at {laid:?}; cells: {}", states.join("; "));
     }
-    srv.cmd_ok(&format!(
-        "summon minecraft:minecart {} {} {} {{Tags:[\"sb1\"],Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b,NoAI:1b,Tags:[\"sbv1\"]}}]}}",
-        napper[0],
-        napper[1] + DY as f64,
-        napper[2]
-    ))?;
+    // (ironspec 20:28 PT) the leader first in the entity list: summoned before the napper, parked
+    // 40 above on its own rail, teleported into place with its motion at LEAD
+    if leader_first {
+        srv.cmd_ok(&format!("setblock 3 {} 9 minecraft:glass", 24 + DY + 39))?;
+        srv.cmd_ok(&format!("setblock 3 {} 9 minecraft:rail[shape=north_south]", 24 + DY + 40))?;
+        srv.cmd_ok(&format!(
+            "summon minecraft:minecart 3.5 {} 9.5 {{Tags:[\"sb0\"],Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b,NoAI:1b,Tags:[\"sbv0\"]}}]}}",
+            24.0625 + DY as f64 + 40.0
+        ))?;
+    }
+    if napper_roll.is_none() {
+        srv.cmd_ok(&format!(
+            "summon minecraft:minecart {} {} {} {{Tags:[\"sb1\"],Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b,NoAI:1b,Tags:[\"sbv1\"]}}]}}",
+            napper[0],
+            napper[1] + DY as f64,
+            napper[2]
+        ))?;
+    }
     srv.step(30)?;
-    // the leader summoned at LEAD (t10): D comes a tick later, so a switch at D - 6.. can still be
-    // laid before it
+    // the leader summoned at LEAD (t10) = P, its press in its first tick (D reads powered after
+    // t11): a switch at D - 6.. can still be laid before it
     const LEAD: u32 = 10;
     let mut p = Pass { carts: [Vec::new(), Vec::new()], riders: [Vec::new(), Vec::new()], d_edge: None };
     for t in 1..=ticks {
-        if t == LEAD {
+        // (ironfarm's qualifying phase) the napper rolling: summoned at P with its state after
+        // P - 1, before the leader (napper first in the entity list)
+        if t == LEAD
+            && let Some(s) = napper_roll
+        {
+            srv.cmd_ok(&format!(
+                "summon minecraft:minecart {} {} {} {{Tags:[\"sb1\"],Motion:[{}d,{}d,{}d],Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b,NoAI:1b,Tags:[\"sbv1\"]}}]}}",
+                s[0],
+                s[1] + DY as f64,
+                s[2],
+                s[3],
+                s[4],
+                s[5]
+            ))?;
+        }
+        if t == LEAD && leader_first {
+            srv.cmd_ok(&format!("tp @e[tag=sb0,limit=1] 3.5 {} 9.5", 24.0625 + DY as f64))?;
+            srv.cmd_ok(&format!("data merge entity @e[tag=sb0,limit=1] {{Motion:[0.0d,0.0d,{}d]}}", -leader_v))?;
+        }
+        if t == LEAD && !leader_first {
             srv.cmd_ok(&format!(
                 "summon minecraft:minecart 3.5 {} 9.5 {{Tags:[\"sb0\"],Motion:[0.0d,0.0d,{}d],Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b,NoAI:1b,Tags:[\"sbv0\"]}}]}}",
                 24.0625 + DY as f64,
@@ -138,16 +169,17 @@ fn boxes(a: [f64; 3], wa: f64, ha: f64, b: [f64; 3], wb: f64, hb: f64) -> bool {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn sbend_boundary(version: &str, module: &std::path::Path, lanes: &std::path::Path, napper: [f64; 3], leader_v: f64, offsets: &[i32], ticks: u32) -> Result<()> {
+pub fn sbend_boundary(version: &str, module: &std::path::Path, lanes: &std::path::Path, napper: [f64; 3], leader_v: f64, offsets: &[i32], ticks: u32, leader_first: bool, napper_roll: Option<[f64; 6]>) -> Result<()> {
     println!(
-        "== sbend-boundary on the official {version} server: {} + {} (lane 3); the napper at rest at ({},{},{}), the leader from (3.5, 24.0625, 9.5) at {leader_v} b/gt -z; the switch (a redstone block at (-1,22,9)) at D + {offsets:?}",
+        "== sbend-boundary on the official {version} server: {} + {} (lane 3); the napper {}, the leader from (3.5, 24.0625, 9.5) at {leader_v} b/gt -z summoned at P = t10 (its press in its first tick; D reads powered after t11); the switch (a redstone block at (-1,22,9)) at D + {offsets:?}",
         module.display(),
         lanes.display(),
-        napper[0],
-        napper[1],
-        napper[2]
+        match napper_roll {
+            Some(s) => format!("rolling: summoned at P before the leader at ({},{},{}) with motion ({},{},{})", s[0], s[1], s[2], s[3], s[4], s[5]),
+            None => format!("at rest at ({},{},{})", napper[0], napper[1], napper[2]),
+        }
     );
-    let nominal = run(version, module, lanes, napper, leader_v, None, ticks, true)?;
+    let nominal = run(version, module, lanes, napper, leader_v, None, ticks, true, leader_first, napper_roll)?;
     let Some(d) = nominal.d_edge else {
         println!("  the detector (3,24,8) never rose: the leader {:?}", nominal.carts[0].iter().rev().flatten().next());
         return Ok(());
@@ -155,7 +187,7 @@ pub fn sbend_boundary(version: &str, module: &std::path::Path, lanes: &std::path
     println!("  no switch: D (detector (3,24,8) powered) at t{d}");
     for &off in offsets {
         let Some(at) = u32::try_from(d as i64 + off as i64).ok().filter(|&t| t >= 1) else { continue };
-        let p = run(version, module, lanes, napper, leader_v, Some(at), ticks, false)?;
+        let p = run(version, module, lanes, napper, leader_v, Some(at), ticks, false, leader_first, napper_roll)?;
         let mut touch = Vec::new();
         let (mut cart_contact, mut rider_contact) = (Vec::new(), Vec::new());
         let mut first_motion = None;
@@ -181,10 +213,27 @@ pub fn sbend_boundary(version: &str, module: &std::path::Path, lanes: &std::path
         let stop = first_motion.and_then(|f| {
             (f as usize..ticks as usize).find(|&t| (t..(t + 20).min(ticks as usize)).all(|u| p.carts[1][u].map(|(_, v)| v < 0.002).unwrap_or(false)) && t + 20 <= ticks as usize).map(|t| (t as u32 + 1, p.carts[1][t].map(|(q, _)| q)))
         });
+        // (ironfarm's lip margin, sidingbench::lip_margin) N: the first tick whose napper move brings
+        // its box front (z - 0.49) to or past the leader's rider's back face (its z + 0.3) where the
+        // rider stood after the previous tick, the boxes sharing x (|dx| < 0.79); R: the first tick
+        // after which the rider's top (feet + 1.95) is below the napper's floor 24.0; margin N - R - 1
+        let lip_n = (1..ticks as usize).find(|&t| match (p.carts[1][t], p.riders[0][t - 1]) {
+            // "to or past" within 1e-4 (a cut move leaves the front exactly on the face)
+            (Some((n, _)), Some(r)) => n[2] - 0.49 <= r[2] + 0.3 + 1e-4 && (n[0] - r[0]).abs() < 0.79,
+            _ => false,
+        });
+        let lip_r = (0..ticks as usize).find(|&t| p.riders[0][t].map(|r| r[1] + 1.95 < 24.0).unwrap_or(false));
+        let lip = match (lip_n, lip_r) {
+            (Some(n), Some(r)) => format!("lip margin {} (N t{}, R t{})", n as i64 - r as i64 - 1, n + 1, r + 1),
+            (None, Some(r)) => format!("lip margin never (the napper never reaches the rider; R t{})", r + 1),
+            _ => "lip margin -".into(),
+        };
         println!(
-            "  switch at D {}{} (t{at}): D t{}; the napper's first motion t{}; both over C at {touch:?}; cart boxes meeting at {cart_contact:?}; a cart against the other's rider at {rider_contact:?}; the napper {}",
+            "  switch at D {}{} (t{at} = P {}{}): D t{}; the napper's first motion t{}; both over C at {touch:?}; cart boxes meeting at {cart_contact:?}; a cart against the other's rider at {rider_contact:?}; {lip}; the napper {}",
             if off < 0 { "-" } else { "+" },
             off.abs(),
+            if at >= 10 { "+" } else { "-" },
+            (at as i64 - 10).abs(),
             p.d_edge.map(|t| t.to_string()).unwrap_or("-".into()),
             first_motion.map(|t| t.to_string()).unwrap_or("-".into()),
             match stop {

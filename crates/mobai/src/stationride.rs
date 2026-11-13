@@ -27,19 +27,26 @@ fn opts(version: &str, world: Option<std::path::PathBuf>) -> VanillaOptions {
 #[derive(Default, Clone)]
 struct Lane {
     first_motion: Option<u32>,
+    moved: Option<u32>,
+    /// (dfb89499's "leaves its rest", ironspec 20:35 PT (1)) the first tick the cart is more than
+    /// 0.05 off its pocket's centre horizontally
+    off05: Option<u32>,
     left: Option<u32>,
     merge: Option<(u32, f64, [f64; 3])>,
+    z7_any: Option<(u32, f64, [f64; 3])>,
+    slope_rest: Option<(u32, f64)>,
     column: Option<u32>,
     y12: Option<u32>,
     last: Option<[f64; 3]>,
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn station_ride(version: &str, lift: &std::path::Path, station: &std::path::Path, rel: u32, offsets: &[u32], restarts: &[u32], ticks: u32) -> Result<()> {
+pub fn station_ride(version: &str, lift: &std::path::Path, station: &std::path::Path, rel: u32, offsets: &[u32], restarts: &[u32], ticks: u32, lane7_release: Option<(u32, u32)>) -> Result<()> {
     println!(
-        "== station-ride on the official {version} server: {} + {} (loop frame, entities summoned), day time 1000 held; pocket k's lever (x-2,0,0) on at REL + offset k - 1 for 16 gt, REL t{rel}, offsets {offsets:?}",
+        "== station-ride on the official {version} server: {} + {} (loop frame, entities summoned), day time 1000 held; pocket k's lever (x-2,0,0) on at REL + offset k - 1 for 16 gt, REL t{rel}, offsets {offsets:?}{}",
         lift.display(),
-        station.display()
+        station.display(),
+        lane7_release.map(|(at, len)| format!("; lane 7's side slope released by a redstone block at (-4,12,6) at REL + {at} for {len} gt")).unwrap_or_default()
     );
     let mut rows: Vec<Option<u32>> = vec![None];
     rows.extend(restarts.iter().map(|&r| Some(r)));
@@ -53,9 +60,14 @@ pub fn station_ride(version: &str, lift: &std::path::Path, station: &std::path::
         crate::seatclear::place_part(&mut srv, lift)?;
         crate::seatclear::place_part(&mut srv, station)?;
         srv.step(5)?;
-        // the pocket carts: the minecarts nearest each pocket's centre, tagged
+        // the pocket carts: the minecart nearest each pocket's centre, tagged; exactly one each
+        // (G1's note: an untagged lane errors instead of printing nothing)
         for (k, x) in LANES.iter().enumerate() {
-            srv.cmd_ok(&format!("tag @e[type=minecraft:minecart,x={}.5,y={},z=0.5,distance=..0.6,limit=1] add sr{k}", x, DY))?;
+            srv.cmd_ok(&format!("tag @e[type=minecraft:minecart,x={},y={},z=0.5,distance=..0.6,limit=1] add sr{k}", *x as f64 + 0.5, DY))?;
+            let n = srv.cmd_long(&format!("execute if entity @e[tag=sr{k}]"))?;
+            let count = pass_count(&n);
+            println!("  lane x {x}: tagged ({})", n.trim());
+            anyhow::ensure!(count == 1, "lane x {x}: {count} tagged carts at its pocket ({})", n.trim());
         }
         let mut lanes = vec![Lane::default(); 3];
         let mut restarted = None;
@@ -66,17 +78,23 @@ pub fn station_ride(version: &str, lift: &std::path::Path, station: &std::path::
                     srv.cmd_ok(&format!("setblock {} {} 0 minecraft:lever[face=floor,facing=north,powered={}]", x - 2, DY, t == on))?;
                 }
             }
+            if let Some((at, len)) = lane7_release {
+                if t == rel + at {
+                    srv.cmd_ok(&format!("setblock -4 {} 6 minecraft:redstone_block", 12 + DY))?;
+                }
+                if t == rel + at + len {
+                    srv.cmd_ok(&format!("setblock -4 {} 6 minecraft:air", 12 + DY))?;
+                }
+            }
             if let Some(r) = restart
                 && restarted.is_none()
                 && t == rel + r
             {
-                srv.cmd_ok("save-on")?;
-                srv.cmd_ok("save-all flush")?;
-                let old = srv.dir.clone();
-                let world = old.join(&srv.level_name);
-                drop(srv);
-                srv = VanillaServer::start(&opts(version, Some(world)))?;
-                let _ = std::fs::remove_dir_all(&old);
+                // the probe: the latest lane already released (a moving cart; lane -1 if none is)
+                let k = (0..3).rev().find(|&k| rel + offsets[k] < t).unwrap_or(0);
+                let (s, rl) = crate::restartcheck::reload(srv, |w| opts(version, Some(w)), Some(&format!("@e[tag=sr{k},limit=1]")))?;
+                srv = s;
+                println!("  t{t}: restart, probe lane x {} ({})", LANES[k], rl.describe());
                 srv.cmd_ok("forceload add -32 -32 31 31")?;
                 restarted = Some(t);
             }
@@ -93,6 +111,22 @@ pub fn station_ride(version: &str, lift: &std::path::Path, station: &std::path::
                 if t >= base.saturating_sub(1) {
                     if l.first_motion.is_none() && (m[0].abs() > 1e-6 || m[2].abs() > 1e-6) {
                         l.first_motion = Some(t);
+                    }
+                    if l.moved.is_none()
+                        && let Some(q) = l.last
+                        && ((q[0] - pos[0]).abs() > 1e-6 || (q[1] - pos[1]).abs() > 1e-6 || (q[2] - pos[2]).abs() > 1e-6)
+                    {
+                        l.moved = Some(t);
+                    }
+                    if l.off05.is_none() && (pos[0] - (x as f64 + 0.5)).hypot(pos[2] - 0.5) > 0.05 {
+                        l.off05 = Some(t);
+                    }
+                    if l.z7_any.is_none() && pos[2].floor() as i32 >= 7 {
+                        l.z7_any = Some((t, m[0].hypot(m[2]), pos));
+                    }
+                    // at rest on the side slope (-4,12,7) (lane 7's intake)
+                    if l.slope_rest.is_none() && pos[0].floor() as i32 == -4 && pos[1].floor() as i32 == 12 && pos[2].floor() as i32 == 7 && m[0].hypot(m[2]) < 0.002 {
+                        l.slope_rest = Some((t, pos[1]));
                     }
                     if l.left.is_none() && (pos[0].floor() as i32 != x || pos[2].floor() as i32 != 0 || pos[1].floor() as i32 != 0) {
                         l.left = Some(t);
@@ -116,18 +150,52 @@ pub fn station_ride(version: &str, lift: &std::path::Path, station: &std::path::
             let base = rel + offsets[k];
             let l = &lanes[k];
             println!(
-                "    lane x {x} (REL + {}): first motion {}, out of the pocket {}, the merge row (z 7) {}{}, the column (x -5) {}, y >= 12 there {}; last at {}",
+                "    lane x {x} (REL + {}): first motion {}, first move {}, > 0.05 off the pocket's centre {}, out of the pocket {}, the merge row (z 7, y 0) {}{}, first at z >= 7 (any y) {}{}, the column (x -5) {}, y >= 12 there {}{}; last at {}",
                 offsets[k],
                 rel_s(l.first_motion, base),
+                rel_s(l.moved, base),
+                rel_s(l.off05, base),
                 rel_s(l.left, base),
                 rel_s(l.merge.map(|m| m.0), base),
                 l.merge.map(|(_, v, p)| format!(" at {v:.4} b/gt ({:.3},{:.3},{:.3})", p[0], p[1], p[2])).unwrap_or_default(),
+                rel_s(l.z7_any.map(|m| m.0), base),
+                l.z7_any.map(|(_, v, p)| format!(" at {v:.4} b/gt ({:.3},{:.3},{:.3})", p[0], p[1], p[2])).unwrap_or_default(),
                 rel_s(l.column, base),
                 rel_s(l.y12, base),
+                match (l.slope_rest, lane7_release) {
+                    (Some((t, feet)), rel7) => format!(
+                        "; at rest on the side slope from {} (feet {feet:.4}){}",
+                        rel_s(Some(t), base),
+                        match (rel7, l.column) {
+                            (Some((at, _)), Some(c)) => format!(", the column entry at the slope's release + {}", c as i64 - (rel + at) as i64),
+                            _ => String::new(),
+                        }
+                    ),
+                    _ => String::new(),
+                },
                 l.last.map(|p| format!("({:.2},{:.2},{:.2})", p[0], p[1], p[2])).unwrap_or("-".into())
             );
         }
         let _ = std::fs::remove_dir_all(&srv.dir);
     }
     Ok(())
+}
+
+/// The count in an `execute if entity` reply (26.3's `commands.execute.conditional.pass_count`,
+/// "Test passed. Count: %s"; a failed test, "Test failed", is 0).
+fn pass_count(reply: &str) -> u32 {
+    reply.to_ascii_lowercase().split("count:").nth(1).and_then(|s| s.trim().split(|c: char| !c.is_ascii_digit()).next().and_then(|d| d.parse::<u32>().ok())).unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::pass_count;
+
+    /// Replies recorded from the official 26.3 server over RCON (station-ride's own lines).
+    #[test]
+    fn pass_count_reads_the_servers_reply() {
+        assert_eq!(pass_count("Test passed. Count: 1"), 1);
+        assert_eq!(pass_count("Test passed. Count: 12"), 12);
+        assert_eq!(pass_count("Test failed"), 0);
+    }
 }

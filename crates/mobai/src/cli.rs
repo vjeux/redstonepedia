@@ -470,7 +470,7 @@ pub enum MobaiCmd {
     GossipRow {
         #[arg(long, default_value = "26.3")]
         version: String,
-        /// side | line
+        /// side | line | standing (the positive control: two villagers on foot in a glass pen)
         #[arg(long, default_value = "side")]
         layout: String,
         #[arg(long, default_value_t = 100)]
@@ -496,6 +496,31 @@ pub enum MobaiCmd {
         #[arg(long, default_value = "")]
         restarts: String,
         #[arg(long, default_value_t = 200)]
+        ticks: u32,
+        /// Lane 7's side-slope release: a redstone block at (-4,12,6) at REL + a for b gt, a,b
+        #[arg(long, default_value = "")]
+        lane7_release: String,
+    },
+    /// (tickexact 2026-11-12, ironspec 20:53 PT (1)) A6's restart trap: the bed stop with its
+    /// run-out, a ridden cart from the entry at v, a restart before tick T: the eject, the stall
+    /// after it, the lie-down
+    BedTrap {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        #[arg(long, default_value = "designs/farms/iron/parts/bed-tier-min/bed-tier-fold-bench.txt")]
+        file: std::path::PathBuf,
+        /// Cells set over the file after it is pasted (local frame), "x,y,z=STATE;..." (a candidate
+        /// such as T5b as cell changes on the bench file)
+        #[arg(long, allow_hyphen_values = true, default_value = "")]
+        set: String,
+        #[arg(long, default_value = "0.13,0.15,0.175")]
+        speeds: String,
+        /// T: a restart between ticks T-1 and T, a,b,c
+        #[arg(long, default_value = "1,2,3,4,5,6")]
+        restarts: String,
+        #[arg(long, default_value_t = 1)]
+        repeats: u32,
+        #[arg(long, default_value_t = 500)]
         ticks: u32,
     },
     /// (tickexact 2026-11-12, ironspec 19:51 PT) VillagerPanicTrigger's start/tick calls every tick
@@ -526,6 +551,13 @@ pub enum MobaiCmd {
         offsets: String,
         #[arg(long, default_value_t = 120)]
         ticks: u32,
+        /// The leader first in the entity list (parked, teleported in at its start)
+        #[arg(long)]
+        leader_first: bool,
+        /// The napper rolling instead of at rest: summoned at P (the leader's summon tick, t10),
+        /// before the leader, with this state (after P - 1): x,y,z,vx,vy,vz
+        #[arg(long, allow_hyphen_values = true)]
+        napper_roll: Option<String>,
     },
     /// (tickexact 2026-11-12, ironspec 18:46) A ridden cart down dry vs waterlogged slopes and flats
     WaterRails {
@@ -542,6 +574,17 @@ pub enum MobaiCmd {
         /// Every tick's position and motion (t, x, y, z, vx, vy, vz, cell) for both rides
         #[arg(long)]
         every_tick: bool,
+        /// Restart rows instead (dry slopes, wet flats): one save/stop/start at each listed tick
+        #[arg(long, default_value = "")]
+        restarts: String,
+        /// With --restarts: the speed where the cart leaves this many flats
+        #[arg(long, default_value_t = 5)]
+        measure: i32,
+        /// With --restarts: attempts continue (up to 16) until an attempt whose cart moved across
+        /// the load (uncounted harness ticks, a harness artefact) is caught beside the held row, and
+        /// the two are compared by world tick
+        #[arg(long)]
+        both_branches: bool,
     },
     /// (tickexact 2026-11-12, ironspec 16:29 (c)) Watched cells' states every tick over restarts
     BlockWatch {
@@ -1537,21 +1580,50 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
             let gaps: Vec<u32> = gaps.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
             crate::liftpair::lift_pair(&version, &module, [s[0], s[1], s[2]], [r[0], r[1], r[2]], release_at, &gaps, ticks)
         }
-        MobaiCmd::StationRide { version, lift, station, rel, offsets, restarts, ticks } => {
+        MobaiCmd::StationRide { version, lift, station, rel, offsets, restarts, ticks, lane7_release } => {
             let offsets: Vec<u32> = offsets.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
             anyhow::ensure!(offsets.len() == 3 && offsets.iter().all(|&o| o + rel >= 1), "--offsets: three, with REL + offset >= 1");
             let restarts: Vec<u32> = restarts.split(',').filter(|n| !n.trim().is_empty()).map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
-            crate::stationride::station_ride(&version, &lift, &station, rel, &offsets, &restarts, ticks)
+            let l7: Vec<u32> = lane7_release.split(',').filter(|n| !n.trim().is_empty()).map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+            anyhow::ensure!(l7.is_empty() || l7.len() == 2, "--lane7-release a,b");
+            crate::stationride::station_ride(&version, &lift, &station, rel, &offsets, &restarts, ticks, if l7.len() == 2 { Some((l7[0], l7[1])) } else { None })
+        }
+        MobaiCmd::BedTrap { version, file, set, speeds, restarts, repeats, ticks } => {
+            let mut cells = Vec::new();
+            for e in set.split(';').filter(|e| !e.trim().is_empty()) {
+                let (p, st) = e.split_once('=').ok_or_else(|| anyhow::anyhow!("x,y,z=STATE, got {e}"))?;
+                let v: Vec<i32> = p.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(v.len() == 3, "x,y,z=STATE, got {e}");
+                cells.push(([v[0], v[1], v[2]], st.trim().to_string()));
+            }
+            let speeds: Vec<f64> = speeds.split(',').map(|v| v.trim().parse()).collect::<Result<_, _>>()?;
+            let restarts: Vec<u32> = restarts.split(',').filter(|n| !n.trim().is_empty()).map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+            crate::bedtrap::bed_trap(&version, &file, &cells, &speeds, &restarts, repeats, ticks)
         }
         MobaiCmd::PanicTicks { version, villagers, ticks, restart_at } => crate::panicticks::panic_ticks(&version, villagers, ticks, restart_at),
         MobaiCmd::GossipRow { version, layout, day_time, ticks, restart_after } => crate::gossiprow::gossip_row(&version, &layout, day_time, ticks, restart_after),
-        MobaiCmd::SbendBoundary { version, module, lanes, napper, leader_v, offsets, ticks } => {
+        MobaiCmd::SbendBoundary { version, module, lanes, napper, leader_v, offsets, ticks, leader_first, napper_roll } => {
             let n: Vec<f64> = napper.split(',').map(|v| v.trim().parse()).collect::<Result<_, _>>()?;
             anyhow::ensure!(n.len() == 3, "--napper x,y,z");
             let offsets: Vec<i32> = offsets.split(',').map(|v| v.trim().parse()).collect::<Result<_, _>>()?;
-            crate::sbendrow::sbend_boundary(&version, &module, &lanes, [n[0], n[1], n[2]], leader_v, &offsets, ticks)
+            let roll = match napper_roll {
+                Some(s) => {
+                    let v: Vec<f64> = s.split(',').map(|x| x.trim().parse()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(v.len() == 6, "--napper-roll x,y,z,vx,vy,vz");
+                    Some([v[0], v[1], v[2], v[3], v[4], v[5]])
+                }
+                None => None,
+            };
+            crate::sbendrow::sbend_boundary(&version, &module, &lanes, [n[0], n[1], n[2]], leader_v, &offsets, ticks, leader_first, roll)
         }
-        MobaiCmd::WaterRails { version, slopes, flat, start, ticks, every_tick } => crate::waterrails::water_rails(&version, slopes, flat, start, ticks, every_tick),
+        MobaiCmd::WaterRails { version, slopes, flat, start, ticks, every_tick, restarts, measure, both_branches } => {
+            let restarts: Vec<u32> = restarts.split(',').filter(|n| !n.trim().is_empty()).map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+            if restarts.is_empty() {
+                crate::waterrails::water_rails(&version, slopes, flat, start, ticks, every_tick)
+            } else {
+                crate::waterrails::water_restarts(&version, slopes, flat, measure, &restarts, ticks, every_tick, both_branches)
+            }
+        }
         MobaiCmd::BlockWatch { version, module, set, watch, restarts, ticks } => {
             let cells_of = |s: &str| -> anyhow::Result<Vec<([i32; 3], String)>> {
                 let mut out = Vec::new();

@@ -25,7 +25,7 @@ fn nums(s: &str) -> Vec<f64> {
 /// `cause`: `lever` (a lever on the T's north side switched by a command between ticks),
 /// `repeater` (a repeater (x0,Y,-1) facing north into the T, its input a redstone block placed at
 /// (x0,Y,-2): the T switches in the block-tick phase 2 gt later), `detector-after` / `detector-before`
-/// (a detector rail (x0,Y+1,-1) on a stone (x0,Y,-1) beside the T, pressed in the entity phase by a
+/// (a detector rail (x0,Y+2,0) on a stone (x0,Y+1,0) over the T, pressed in the entity phase by a
 /// cart summoned onto it at the trigger tick (after the test cart in the entity list) or teleported
 /// onto it from a parking rail (summoned before the test cart)).
 fn pass(version: &str, v: f64, cause: &str, switches: &[Option<u32>], ticks: u32) -> Result<(Vec<Vec<[f64; 3]>>, Vec<Option<u32>>)> {

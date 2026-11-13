@@ -66,18 +66,15 @@ impl Log {
 
 /// A save, stop and start of the world (the villager, its sleep and the levers reloaded).
 /// A save, stop and start of the world (the villager, its sleep and the levers reloaded): the old
-/// server stopped before the new one starts on its world (as napper-ride and queue-roll restart).
-fn restart(mut srv: VanillaServer, log: &mut Log, version: &str, jar: &std::path::Path) -> Result<VanillaServer> {
-    srv.cmd_ok("save-on")?;
-    srv.cmd_ok("save-all flush")?;
-    let old = srv.dir.clone();
-    let world = old.join(&srv.level_name);
-    drop(srv);
-    let mut fresh = VanillaServer::start(&nap_opts(version, jar, Some(world)))?;
-    let _ = std::fs::remove_dir_all(&old);
+/// server stopped before the new one starts on its world (as napper-ride and queue-roll restart),
+/// through `restartcheck::reload` (no moving probe: the sleeper lies still; the game time's jump
+/// is printed).
+fn restart(srv: VanillaServer, log: &mut Log, version: &str, jar: &std::path::Path) -> Result<(VanillaServer, bool)> {
+    let (mut fresh, rl) = crate::restartcheck::reload(srv, |w| nap_opts(version, jar, Some(w)), None)?;
+    println!("    (restart: {})", rl.describe());
     fresh.cmd_ok("forceload add -32 -32 31 31")?;
     log.at = 0;
-    Ok(fresh)
+    Ok((fresh, rl.clean()))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -149,13 +146,17 @@ pub fn nap_wake(version: &str, file: &std::path::Path, trials: u32, flip_after: 
         // the wait to F, the hatch hiding: any NEAREST_HOSTILE then is a leak
         let mut early = None::<u32>;
         let mut restarted: Option<i64> = None;
+        // (ironspec 23:17 PT) a load with no probe and a game-time jump other than 1 fails the trial
+        let mut uncounted = false;
         for t in 1..=flip_after {
             if let Some(off) = restart_at
                 && off < 0
                 && restarted.is_none()
                 && t as i64 == flip_after as i64 + off
             {
-                srv = restart(srv, &mut log, version, &jar)?;
+                let (s, ok) = restart(srv, &mut log, version, &jar)?;
+                srv = s;
+                uncounted |= !ok;
                 restarted = Some(off);
             }
             srv.step(1)?;
@@ -178,7 +179,9 @@ pub fn nap_wake(version: &str, file: &std::path::Path, trials: u32, flip_after: 
             levers(&mut srv, false)?;
         }
         if restart_at == Some(0) && restarted.is_none() {
-            srv = restart(srv, &mut log, version, &jar)?;
+            let (s, ok) = restart(srv, &mut log, version, &jar)?;
+            srv = s;
+            uncounted |= !ok;
             restarted = Some(0);
         }
         // (G1 on 02e012c7f: stopSleeping picks the stand-up side with the yaw the villager has
@@ -190,7 +193,9 @@ pub fn nap_wake(version: &str, file: &std::path::Path, trials: u32, flip_after: 
                 && restarted.is_none()
                 && t as i64 == off
             {
-                srv = restart(srv, &mut log, version, &jar)?;
+                let (s, ok) = restart(srv, &mut log, version, &jar)?;
+                srv = s;
+                uncounted |= !ok;
                 restarted = Some(off);
             }
             srv.step(1)?;
@@ -218,7 +223,8 @@ pub fn nap_wake(version: &str, file: &std::path::Path, trials: u32, flip_after: 
             woke += 1;
         }
         println!(
-            "  trial {i}: {}lay down at +{lie} (game time {lie_time}; LAST_SLEPT {last_slept}{}); {}{}; NEAREST_HOSTILE {}; {}",
+            "  trial {i}: {}{}lay down at +{lie} (game time {lie_time}; LAST_SLEPT {last_slept}{}); {}{}; NEAREST_HOSTILE {}; {}",
+            if uncounted { "FAILED (uncounted ticks across a load): " } else { "" },
             yaw.map(|y| format!("yaw {y} at the summon; ")).unwrap_or_default(),
             if last_slept.parse::<i64>().ok() == Some(lie_time) { ": the lie-down tick" } else { "" },
             if rest_end { format!("the day time set to 23950 at lie-down + {flip_after} (levers on)") } else { format!("levers off at lie-down + {flip_after}") },

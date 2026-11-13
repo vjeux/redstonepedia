@@ -54,6 +54,7 @@ pub fn queue_roll(version: &str, module: &std::path::Path, start: [f64; 3], rele
         ))?;
         let before = srv.cmd_long(&format!("execute if block {} {} {} minecraft:air", release_cell[0], release_cell[1] + DY, release_cell[2]))?.contains("passed");
         let (mut ent, mut least, mut hurts, mut restarted) = (None::<(u32, f64)>, f64::MAX, Vec::new(), None::<u32>);
+        let mut reload_note: Option<crate::restartcheck::Reload> = None;
         let mut path = Vec::new();
         let mut removed: Option<u32> = None;
         for t in 1..=max_ticks {
@@ -98,23 +99,19 @@ pub fn queue_roll(version: &str, module: &std::path::Path, start: [f64; 3], rele
                 && restarted.is_none()
                 && t == release_at + r
             {
-                srv.cmd_ok("save-on")?;
-                srv.cmd_ok("save-all flush")?;
-                let old = srv.dir.clone();
-                let world = old.join(&srv.level_name);
-                drop(srv);
-                srv = VanillaServer::start(&opts(version, Some(world)))?;
-                let _ = std::fs::remove_dir_all(&old);
+                let (s, rl) = crate::restartcheck::reload(srv, |w| opts(version, Some(w)), Some("@e[tag=qrc,limit=1]"))?;
+                srv = s;
                 srv.cmd_ok("forceload add -32 -32 31 31")?;
                 restarted = Some(t);
-                path.push(format!("t{t}: RESTART at ({:.3},{:.3},{:.3})", pos[0], pos[1], pos[2]));
+                reload_note = Some(rl);
+                path.push(format!("t{t}: RESTART at ({:.3},{:.3},{:.3}); {}", pos[0], pos[1], pos[2], rl.describe()));
             }
             if ent.is_some_and(|(e, _)| t > e + 3) {
                 break;
             }
         }
         println!(
-            "  {}: the release cell {}; the release block removed at {}; the entry ({},{},{}) at {}; the rider's least health {least}; hurt at {}",
+            "  {}: the release cell {}; the release block removed at {}; the entry ({},{},{}) at {}; the rider's least health {least}; hurt at {}{}",
             restart.map(|r| format!("restart at release + {r}")).unwrap_or_else(|| "no restart".into()),
             if before { "air before" } else { "NOT air before" },
             removed.map(|t| format!("release + {}", t as i64 - release_at as i64)).unwrap_or_else(|| "never".into()),
@@ -122,7 +119,8 @@ pub fn queue_roll(version: &str, module: &std::path::Path, start: [f64; 3], rele
             entry[1],
             entry[2],
             ent.map(|(t, s)| format!("t{t} = release + {} ({s:.4} b/gt)", t as i64 - release_at as i64)).unwrap_or_else(|| "never".into()),
-            if hurts.is_empty() { "no tick".to_string() } else { format!("{:?}", hurts) }
+            if hurts.is_empty() { "no tick".to_string() } else { format!("{:?}", hurts) },
+            reload_note.map(|x| format!("; {}", x.describe())).unwrap_or_default()
         );
         if std::env::var_os("MCTAS_QUEUE_ROLL_PATH").is_some() {
             println!("    {}", path.join("; "));
