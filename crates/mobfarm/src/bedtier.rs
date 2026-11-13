@@ -78,10 +78,21 @@ pub const LANDING2_CTRL: [i32; 3] = [3, 4, -3];
 /// The activator's power (always on since A4: a lever on glass in the bench; the 09:00 day-gate
 /// control turns it off by day).
 pub const ACT_CTRL: [i32; 3] = [2, 2, -5];
+/// T5b's activator lever (ironspec 22:20, the restart trap's fix): the activator in the entry cell,
+/// held on by a floor lever north of it (where the entry booster's torch was).
+pub const ACT_CTRL_T5B: [i32; 3] = [3, 2, -5];
+
+/// The activator's cell and its lever in the built world: T5b's (the entry cell's activator) when
+/// the entry holds an activator rail, else the stop's (the activator west of the entry booster).
+pub fn act_cells(w: &World) -> ([i32; 3], [i32; 3]) {
+    if format!("{}", w.get(BlockPos::new(ENTRY[0], ENTRY[1], ENTRY[2]))).contains("activator_rail") { (ENTRY, ACT_CTRL_T5B) } else { (ACTIVATOR, ACT_CTRL) }
+}
 
 /// The design (`bench`: with a run-out past R and the queue cell's rail; `trapdoor_caps`: the
-/// approach flats covered by top-half trapdoors, the contact mode's positive control).
-pub fn design(bench: bool, trapdoor_caps: bool) -> Result<String> {
+/// approach flats covered by top-half trapdoors, the contact mode's positive control;
+/// `eject_at_entry`: T5b, the restart trap's fix candidate; `curve_clear`: the wall east of the
+/// pickup cell a closed top-half trapdoor, the curve contact's fix candidate).
+pub fn design(bench: bool, trapdoor_caps: bool, eject_at_entry: bool, curve_clear: bool) -> Result<String> {
     let mut b = Builder::new(if bench { "bed-tier-fold-bench" } else { "bed-tier-fold" });
     let rail = |s: &str| format!("rail[shape={s},waterlogged=false]");
     let cap = "iron_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]";
@@ -107,6 +118,26 @@ pub fn design(bench: bool, trapdoor_caps: bool) -> Result<String> {
     put(&mut b, [ACTIVATOR[0], 1, ACTIVATOR[2]], "glass")?;
     put(&mut b, ACT_CTRL, &ctl_block(ACT_CTRL, "redstone_block"))?;
     put(&mut b, [ACT_CTRL[0], 1, ACT_CTRL[2]], "glass")?;
+    if eject_at_entry {
+        // (T5b, ironspec 22:11 / 22:20, the restart trap's fix: the eject at the entry cell onto
+        // the second chest. The activator in the entry's cell, held on by a floor lever on the
+        // glass north of it (day-1's activator line end, where the booster's torch was); a plain
+        // rail where the activator was (no booster after the eject: a powered rail beside the park
+        // carries its power into the park's braked rails); glass over the lever's cell so the
+        // dismount's first choice (north) is blocked and its second (south) is the second chest. A
+        // path computed in the entry cell has the second chest's top as its node 1: from the
+        // landing, shouldTargetNextNodeInDirection skips the entry node (dot -0.66). The old
+        // activator lever and its glass go)
+        b.d.blocks.remove(&ENTRY);
+        b.d.blocks.remove(&ACT_CTRL_T5B);
+        b.d.blocks.remove(&ACTIVATOR);
+        put(&mut b, ENTRY, "activator_rail[powered=true,shape=east_west,waterlogged=false]")?;
+        put(&mut b, ACT_CTRL_T5B, &ctl_block(ACT_CTRL_T5B, "redstone_block"))?;
+        put(&mut b, [ACT_CTRL_T5B[0], 3, ACT_CTRL_T5B[2]], "glass")?;
+        put(&mut b, ACTIVATOR, &rail("east_west"))?;
+        b.d.blocks.remove(&ACT_CTRL);
+        b.d.blocks.remove(&[ACT_CTRL[0], 1, ACT_CTRL[2]]);
+    }
     // (golem-proofing, ironspec 04:33: a closed top-half trapdoor is a golem floor (a legacy-solid
     // top). Neither the entry nor the activator is capped since the chest landing: the rider's HOME
     // path, computed while it rides, starts from the first cell over the rider that is not air or
@@ -254,6 +285,15 @@ pub fn design(bench: bool, trapdoor_caps: bool) -> Result<String> {
             wall(&mut b, [-1, y, z])?;
         }
     }
+    if curve_clear {
+        // (ironspec 23:19 (4b), the curve contact: a cart picking up near 0.154 b/t caught this
+        // wall's glass (x -1, the cell east of the pickup cell) with its box's east face as it turned
+        // the curve (-2,0,5) east (0.148 -> 0.104 b/t). A closed top-half iron trapdoor there (its
+        // collision 0.8125..1.0, above the cart's top at 0.7625) still blocks the napper on the pickup
+        // cell (its box 0..1.95), with glass over it (no golem spawn space on its top))
+        b.d.blocks.remove(&[-1, 0, 4]);
+        put(&mut b, [-1, 0, 4], "iron_trapdoor[facing=west,half=top,open=false,powered=false,waterlogged=false]")?;
+    }
     // the landing L (2,2,-3) south of the activator (its north side under glass at 1 of headroom: the
     // dismount's first choice, blocked), the ledge (A6, all at y 2 (loop -16): out of the stroll
     // band of the pad's portal cells at loop -8): south to (2,2,0), west along z 0 to (-2,2,0) over
@@ -344,12 +384,33 @@ pub fn design(bench: bool, trapdoor_caps: bool) -> Result<String> {
     );
     b.d.ports.insert("output".into(), [12, 0, 6]);
     b.d.ports.insert("home".into(), BED_HEAD);
-    Ok(b.text(&[
+    let mut lines: Vec<String> = [
         "The bed stop (local frame; under the station, the stop 9 down: loop = local + (0,-27,-1); the bed's head at (-3,0,4)): a booster entry and an activator heading west (always on, both open above), two braked park rails down a slope, a capped flat, a curve south, seven flats (glass over the last four), the pickup cell beside the bed's head, the curve east, a capped booster, a capped flat, the slope down, two flats, R. No solid-render block anywhere in the stop (rails, torches and levers on glass; the landing a chest): no IDLE stroll candidate.",
-        "The activator sets the rider down onto the chest south of it (the landing; a second chest south of the entry, an iron trapdoor held open over it (the pathfinder's way in from the approach, its plate keeping nappers off the entry)); it walks the glass ledge round over the approach's covers onto the bed's foot roof and steps south into the open column over the bed's head: a 1.44 drop onto the bed, the bed column's first non-solid cell (-3,1,4), so the HOME path's target, reached (the walk arms no CANT_REACH stamp). It lies down on the way (REST) or waits standing on the bed (IDLE) until REST. The hatch's two iron trapdoors stand open (their levers on) and hide the zombie; F (the lie-down + 2, day-1's controller since ironspec 19:33) SHUTS them (their levers off): the zombie wakes it, it stands up on the pickup cell (its only stand-up cell), the park releases at the wake edge (+ 0, ironspec 19:18), and the cart seats it (at 0.143..0.207 b/t in every bench row) and runs on to R, whose pulse opens the hatch again. Operating entry band [0.11, 0.24] (ironspec 19:31, widened 21:25). Keep (-3,1,4), (-3,2,4) and (-3,3,4) clear; the persistent leaves at (-5,3,4) must stay (keep-block: the zombie's cover).",
+        "The activator sets the rider down onto the chest south of it (the landing; a second chest south of the entry, an iron trapdoor held open over it (the pathfinder's way in from the approach, its plate keeping nappers off the entry)); it walks the glass ledge round over the approach's covers onto the bed's foot roof and steps south into the open column over the bed's head: a 1.44 drop onto the bed, the bed column's first non-solid cell (-3,1,4), so the HOME path's target, reached (the walk arms no CANT_REACH stamp). It lies down on the way (REST) or waits standing on the bed (IDLE) until REST. The hatch's two iron trapdoors stand open (their levers on) and hide the zombie; F (the lie-down + 2, day-1's controller since ironspec 19:33) SHUTS them (their levers off): the zombie wakes it, it stands up on the pickup cell (its only stand-up cell), the park releases at the wake edge (+ 0, ironspec 19:18), and the cart seats it (at 0.143..0.207 b/t in every bench row) and runs on to R, whose rise opens the hatch again and resets the park's release (its levers off: the park braked for the next arrival; ironspec 22:56 (ii)). Precondition and single release (ironspec 22:58 (1)): one cart per visit (the queue's (a2) guard: RS_ready = R's rise + 8, never a second napper before the current one's R), and the park released only at the wake edge (nothing else releases it: no abort; a napper that never sleeps keeps its cart parked until its nap). Operating entry band [0.11, 0.24] (ironspec 19:31, widened 21:25). Keep (-3,1,4), (-3,2,4) and (-3,3,4) clear; the persistent leaves at (-5,3,4) must stay (keep-block: the zombie's cover).",
         "switch: -4,0,3=the hatch's lower lever (day-1's line end: F shuts, R opens); -4,1,5=the hatch's upper lever (the same line); 2,2,-5=the activator's lever (day-1's line end, held on); 1,1,-5=the park's upper lever (day-1's line end: the release); 0,0,-5=the park's lower lever (the same line); 3,4,-3=the second landing trapdoor's ceiling lever (held on; its state not load-bearing); -1,2,-4=a golem-proofing stone button over the flat's cap (never pressed); -1,2,5=a golem-proofing stone button over the exit booster's cap (never pressed); 0,2,5=a golem-proofing stone button over the exit flat's cap (never pressed); -3,2,3=a golem-proofing stone button over the bed foot's roof (never pressed)",
         "always-on: 3,2,-5=the entry booster's redstone torch, on glass (3,1,-5): it never toggles; -1,0,6=the exit booster's redstone torch, on glass (-1,-1,6): it never toggles",
-    ]))
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+    if eject_at_entry {
+        // (T5b's header: the same stop with the eject in the entry cell)
+        lines[0] = lines[0].replace(
+            "a booster entry and an activator heading west (always on, both open above)",
+            "an activator entry heading west (T5b, ironspec 22:20, the restart trap's fix: the eject in the entry cell; always on, open above), a plain rail (no booster: a powered rail beside the park would power its brakes)",
+        );
+        lines[1] = lines[1].replace(
+            "The activator sets the rider down onto the chest south of it (the landing; a second chest south of the entry, an iron trapdoor held open over it (the pathfinder's way in from the approach, its plate keeping nappers off the entry)); it walks",
+            "The activator, in the entry's cell, sets the rider down onto the second chest south of it (the landing, under an iron trapdoor held open: the pathfinder's way in from the approach, its plate keeping nappers off the entry; a riding path computed in the entry cell has this chest's top as its node 1, so the napper skips the entry node from here); it steps west onto the first chest and walks",
+        );
+        lines[2] = lines[2].replace("2,2,-5=the activator's lever (day-1's line end, held on)", "3,2,-5=the activator's lever (day-1's line end, held on; T5b: where the entry booster's torch was)");
+        lines[3] = "always-on: -1,0,6=the exit booster's redstone torch, on glass (-1,-1,6): it never toggles".to_string();
+    }
+    if curve_clear {
+        lines[0].push_str(" The wall east of the pickup cell (-1,0,4) is a closed top-half iron trapdoor, above the cart's top (the curve contact's fix, ironspec 23:19 (4b)).");
+    }
+    let refs: Vec<&str> = lines.iter().map(|s| s.as_str()).collect();
+    Ok(b.text(&refs))
 }
 
 /// One visit's unit-bench row (ticks counted from the cart's spawn at the entry).
@@ -471,6 +532,9 @@ pub struct Row {
     /// cleared inside A6.
     pub stamp_visit_max: i64,
     pub stamp_cleared_at: Option<i64>,
+    /// (ironspec 22:56 (iii)) The napper's cells a bolt could reach (sees the sky, or inside a
+    /// column top's bolt hit box).
+    pub lightning: Vec<String>,
     pub problems: Vec<String>,
 }
 
@@ -777,7 +841,7 @@ pub fn ctl_block(c: [i32; 3], st: &str) -> String {
         "stone" => false,
         other => return other.to_string(),
     };
-    if !([HATCH_CTRL, HATCH_CTRL_HI, ACT_CTRL].contains(&c) || PARK_CTRL.contains(&c)) {
+    if !([HATCH_CTRL, HATCH_CTRL_HI, ACT_CTRL, ACT_CTRL_T5B].contains(&c) || PARK_CTRL.contains(&c)) {
         return st.to_string();
     }
     format!("lever[face=floor,facing=north,powered={on}]")
@@ -867,7 +931,8 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
     // (ironspec 17:46, the stand-in guard: every emulated write this bench makes, checked against
     // the built cell's golem and path properties before the run: the controller's levers, and the
     // queue's release with --module-offset)
-    for c in [HATCH_CTRL, HATCH_CTRL_HI, ACT_CTRL].into_iter().chain(PARK_CTRL) {
+    let (act_cell, act_ctrl) = act_cells(&run.world);
+    for c in [HATCH_CTRL, HATCH_CTRL_HI, act_ctrl].into_iter().chain(PARK_CTRL) {
         for st in ["redstone_block", "stone"] {
             emulated_write_check(&run.world, BlockPos::new(c[0], c[1], c[2]), &block(&ctl_block(c, st)), &f.declared_emulated)?;
         }
@@ -954,9 +1019,10 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
     let mut airborne: Option<f32> = None;
     let mut max_fall = 0f64;
     let mut stay: std::collections::HashMap<[i32; 3], i64> = std::collections::HashMap::new();
-    set(&mut run.world, ACT_CTRL, if f.day_gate && day_state { "stone" } else { "redstone_block" });
+    set(&mut run.world, act_ctrl, if f.day_gate && day_state { "stone" } else { "redstone_block" });
     let mut trace_last_path = String::new();
     let mut prev_stamp: Option<i64> = None;
+    let mut bolt_seen: std::collections::HashMap<[i32; 3], (bool, Option<[i32; 3]>)> = std::collections::HashMap::new();
     for t in 1..=limit {
         // (a night skip at the start of tick t: the day time to the next day time 0, game time on)
         if f.skip == Some(t) {
@@ -1068,14 +1134,14 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
         if day != day_state {
             day_state = day;
             if f.day_gate {
-                set(&mut run.world, ACT_CTRL, if day { "stone" } else { "redstone_block" });
+                set(&mut run.world, act_ctrl, if day { "stone" } else { "redstone_block" });
             }
             if day {
                 day_since = t;
             }
         }
         let w = &run.world;
-        if f.day_gate && day_state && idx(w, cart_id).is_some_and(|ci| w.entities.list[ci].block_position() == BlockPos::new(ACTIVATOR[0], ACTIVATOR[1], ACTIVATOR[2])) {
+        if f.day_gate && day_state && idx(w, cart_id).is_some_and(|ci| w.entities.list[ci].block_position() == BlockPos::new(act_cell[0], act_cell[1], act_cell[2])) {
             rider_kept = true;
         }
         if f.day_gate && day && row.slept_at.is_none() && row.release_at.is_none() && abort_at.is_none() {
@@ -1240,6 +1306,36 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                     row.stamp_cleared_at = Some(t - row.entry_at.unwrap_or(0));
                 }
                 prev_stamp = cr;
+            }
+            // (ironspec 22:56 (iii): lightning never removes a napper mid-visit: its block never sees
+            // the sky (no bolt aims at it), and no column top within a bolt's hit box of its box (x,
+            // z +-3, y -3..+9 around the strike, `hit_box_at`); per distinct cell, the built world's
+            // own heightmap (with --module-offset: the module over the stop))
+            {
+                let vb = BlockPos::new(v.pos.x.floor() as i32, v.pos.y.floor() as i32, v.pos.z.floor() as i32);
+                let key = [vb.x, vb.y, vb.z];
+                if !bolt_seen.contains_key(&key) {
+                    let sky = redsim::weather::can_see_sky(w, vb).unwrap_or(true);
+                    let bb = v.bb;
+                    let mut reach: Option<[i32; 3]> = None;
+                    for cx in (bb.min_x.floor() as i32 - 4)..=(bb.max_x.floor() as i32 + 4) {
+                        for cz in (bb.min_z.floor() as i32 - 4)..=(bb.max_z.floor() as i32 + 4) {
+                            let h = redsim::weather::motion_blocking_height(w, cx, cz);
+                            if reach.is_none() && redsim::weather::lightning::hit_box_at(Vec3::new(cx as f64 + 0.5, h as f64, cz as f64 + 0.5)).intersects(bb) {
+                                reach = Some([cx, h, cz]);
+                            }
+                        }
+                    }
+                    bolt_seen.insert(key, (sky, reach));
+                }
+                if let Some((sky, reach)) = bolt_seen.get(&key).copied()
+                    && (sky || reach.is_some())
+                {
+                    let m = format!("the napper at cell ({},{},{}) {} (ironspec 22:56 (iii))", key[0], key[1], key[2], if sky { "sees the sky: a bolt can aim at it".to_string() } else { format!("is inside the hit box of a bolt on the column top {reach:?}") });
+                    if !row.lightning.contains(&m) {
+                        row.lightning.push(m);
+                    }
+                }
             }
             // (the napper's drops: the fall distance off the ground at the landing (or at a lie-down
             // in the air) and the health lost there; its stay per cell before its first nap or its
@@ -1653,7 +1749,8 @@ pub fn two_visit_bench(spec: &FarmSpec, seed: u64, speed: f64, o: &TwoOpts) -> R
     }
     let set = |w: &mut World, c: [i32; 3], st: &str| w.set_block(BlockPos::new(c[0], c[1], c[2]), block(&ctl_block(c, st)), redsim::world::flags::ALL);
     // (ironspec 17:46, the stand-in guard: the controller's levers checked against the built cells)
-    for c in [HATCH_CTRL, HATCH_CTRL_HI, ACT_CTRL].into_iter().chain(PARK_CTRL) {
+    let (act_cell, act_ctrl) = act_cells(&run.world);
+    for c in [HATCH_CTRL, HATCH_CTRL_HI, act_ctrl].into_iter().chain(PARK_CTRL) {
         for st in ["redstone_block", "stone"] {
             emulated_write_check(&run.world, BlockPos::new(c[0], c[1], c[2]), &block(&ctl_block(c, st)), &[])?;
         }
@@ -1717,7 +1814,7 @@ pub fn two_visit_bench(spec: &FarmSpec, seed: u64, speed: f64, o: &TwoOpts) -> R
     // power and the abort's state; the queue's release gated on NOT DAY (the queue's gate))
     let day_fall = o.day_hold.map_or(o.day_off, |d| d.1);
     let mut day_state = { let d = run.world.day_time().rem_euclid(24000); d >= o.day_on && d < day_fall };
-    set(&mut run.world, ACT_CTRL, if o.day_gate && day_state { "stone" } else { "redstone_block" });
+    set(&mut run.world, act_ctrl, if o.day_gate && day_state { "stone" } else { "redstone_block" });
     let mut abort_at: Option<i64> = None;
     let mut visit_slept = false;
     let mut visit_woke: Option<i64> = None;
@@ -1781,7 +1878,7 @@ pub fn two_visit_bench(spec: &FarmSpec, seed: u64, speed: f64, o: &TwoOpts) -> R
         if day != day_state {
             day_state = day;
             if o.day_gate {
-                set(&mut run.world, ACT_CTRL, if day { "stone" } else { "redstone_block" });
+                set(&mut run.world, act_ctrl, if day { "stone" } else { "redstone_block" });
             }
         }
         // (the seated term (the day-gate control): the activator unpowered when the visit's cart
@@ -1789,7 +1886,7 @@ pub fn two_visit_bench(spec: &FarmSpec, seed: u64, speed: f64, o: &TwoOpts) -> R
         {
             let w = &run.world;
             let cid = if visit == 1 { cart1 } else { c2.map_or(cart1, |(cc, _)| cc) };
-            if o.day_gate && day_state && idx(w, cid).is_some_and(|ci| w.entities.list[ci].block_position() == BlockPos::new(ACTIVATOR[0], ACTIVATOR[1], ACTIVATOR[2])) {
+            if o.day_gate && day_state && idx(w, cid).is_some_and(|ci| w.entities.list[ci].block_position() == BlockPos::new(act_cell[0], act_cell[1], act_cell[2])) {
                 rider_kept = true;
             }
         }
@@ -2478,6 +2575,12 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
                             }
                         }
                         sk.stamp_visit_max = sk.stamp_visit_max.max(r.stamp_visit_max);
+                        if !r.lightning.is_empty() {
+                            sk.lightning_visits += 1;
+                            for m in &r.lightning {
+                                *sk.lightning.entry(m.clone()).or_default() += 1;
+                            }
+                        }
                         if let (Some(e), Some(rr)) = (r.r_at, r.r_real_at) {
                             sk.r_real_by_speed.entry(format!("{:.3}", r.speed)).or_default().push(e - rr);
                         } else if r.r_at.is_some() {
@@ -2492,6 +2595,14 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
                                 (false, _) => sk.r_by_speed.entry(format!("{:.3}", r.speed)).or_default().push(rr),
                                 (true, Some(e)) => sk.r_by_speed.entry(format!("{:.3}", r.speed)).or_default().push(rr - e),
                                 (true, None) => sk.entry_missing += 1,
+                            }
+                        }
+                        // (G1's note (b) on c0a745cfa: the timing band on the real R too, the
+                        // detector's rise)
+                        if let Some(rr) = r.r_real_at {
+                            let from = if f_approach { r.entry_at } else { Some(0) };
+                            if let Some(e) = from {
+                                sk.r_real_entry_by_speed.entry(format!("{:.3}", r.speed)).or_default().push(rr - e);
                             }
                         }
                         if let Some(s) = r.slept_at {
@@ -2616,6 +2727,23 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
         );
         println!("v_slow (every speed up to it with every visit out and a maximum of {r_bar} gt or less): {v_slow:?}; the largest such speed: {own:?}");
     }
+    if !sk.r_real_entry_by_speed.is_empty() {
+        let mut all: Vec<i64> = sk.r_real_entry_by_speed.values().flatten().copied().collect();
+        all.sort();
+        println!(
+            "entry to the REAL R (the detector's rise; G1's note (b): the timing band on the real R) by entry speed, min / median / max gt: {}; over every visit: {:?}..{:?}",
+            sk.r_real_entry_by_speed
+                .iter_mut()
+                .map(|(k, v)| {
+                    v.sort();
+                    format!("{k} {}/{}/{}", v[0], v[v.len() / 2], v[v.len() - 1])
+                })
+                .collect::<Vec<_>>()
+                .join(", "),
+            all.first(),
+            all.last()
+        );
+    }
     if sk.entry_missing > 0 {
         println!("visits out with no recorded A6 entry: {} (a failure: entry to R not measured from the spawn)", sk.entry_missing);
     }
@@ -2624,6 +2752,11 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
         base.declared_contacts, sk.contact_visits, sk.contacts
     );
     sk.stamp_cleared.sort();
+    println!(
+        "lightning (ironspec 22:56 (iii): a napper's cell that sees the sky, or inside a bolt's hit box from a column top, in the built world (the module over the stop with --module-offset; the bench's stop alone is open to the sky)): {} visits; {:?}",
+        sk.lightning_visits,
+        sk.lightning.iter().take(12).collect::<Vec<_>>()
+    );
     println!(
         "R's real rise (ironspec 22:14 (3a): the detector rail at (4,-1,5) powered) against the emulated R (the cart's centre past x 4.5), the emulated minus the real, min / median / max gt per speed: {}; visits with an emulated R and no real rise: {}",
         sk.r_real_by_speed
@@ -2765,6 +2898,9 @@ struct SkipTotals {
     stamp_visit_max: i64,
     stamp_cleared: Vec<i64>,
     r_real_by_speed: std::collections::BTreeMap<String, Vec<i64>>,
+    r_real_entry_by_speed: std::collections::BTreeMap<String, Vec<i64>>,
+    lightning_visits: usize,
+    lightning: std::collections::BTreeMap<String, usize>,
     r_real_missing: usize,
     drops: usize,
     drop_max: f64,

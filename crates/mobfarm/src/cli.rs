@@ -6202,6 +6202,15 @@ pub enum MobfarmCmd {
         /// The approach flats covered by top-half trapdoors (the contact mode's positive control).
         #[arg(long)]
         trapdoor_caps: bool,
+        /// T5b (ironspec 22:11 / 22:20, the restart trap's fix candidate): the activator in the
+        /// entry's cell (the eject onto the second chest), its lever where the entry booster's torch
+        /// was, a plain rail where the activator was, glass over the lever.
+        #[arg(long)]
+        eject_at_entry: bool,
+        /// The curve contact's fix candidate (ironspec 23:19 (4b)): the wall east of the pickup cell
+        /// (-1,0,4) a closed top-half iron trapdoor (above the cart's top), not glass.
+        #[arg(long)]
+        curve_clear: bool,
     },
     /// The bed stop's one-visit bench (a `bedtier --bench` design) over seeds and entry speeds: F
     /// --after-sleep gt after the lie-down, the release --release-after gt after the wake edge (the
@@ -14429,8 +14438,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             compare_cmd(version, &design, &opts, twin)?;
         }
-        MobfarmCmd::Bedtier { out, bench, trapdoor_caps } => {
-            std::fs::write(&out, crate::bedtier::design(bench, trapdoor_caps)?)?;
+        MobfarmCmd::Bedtier { out, bench, trapdoor_caps, eject_at_entry, curve_clear } => {
+            std::fs::write(&out, crate::bedtier::design(bench, trapdoor_caps, eject_at_entry, curve_clear)?)?;
             println!("wrote {}", out.display());
             // (the placement-order cells: what the guide's build order leaves unlike the file)
             let (_c, spec) = load(version, &out)?;
