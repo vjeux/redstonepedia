@@ -1046,7 +1046,9 @@ pub fn set_lever(w: &mut World, p: BlockPos, on: bool) -> Result<(), String> {
     }
     let t = if on { s.replace("powered=false", "powered=true") } else { s.replace("powered=true", "powered=false") };
     if t != s {
-        w.set_block(p, block(&t), redsim::world::flags::ALL);
+        // (the state's own text, namespaced as Display prints it)
+        let nb = Block::parse(&t).map_err(|e| format!("({},{},{}) {t}: {e}", p.x, p.y, p.z))?;
+        w.set_block(p, nb, redsim::world::flags::ALL);
     }
     Ok(())
 }
