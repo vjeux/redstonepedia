@@ -836,16 +836,26 @@ pub fn surround_spec(spec: &FarmSpec, s: Surround, boxes: &[(BlockPos, BlockPos)
             None => "; the shell closed: the exterior air inside the design's box filled too".to_string(),
         }
     )];
-    for r in riders {
-        let near = fill.iter().map(|p| (((p.x - r.x).pow(2) + (p.y - r.y).pow(2) + (p.z - r.z).pow(2)) as f64).sqrt()).fold(f64::INFINITY, f64::min);
-        let at = fill.iter().min_by_key(|p| (p.x - r.x).pow(2) + (p.y - r.y).pow(2) + (p.z - r.z).pow(2));
+    // (the nearest filled cell per rider cell; over many rider cells (a whole module's rails) the
+    // least one and the count, the per-cell list only for a short list)
+    let nearest = |r: &BlockPos| fill.iter().min_by_key(|p| (p.x - r.x).pow(2) + (p.y - r.y).pow(2) + (p.z - r.z).pow(2)).map(|p| (*p, (((p.x - r.x).pow(2) + (p.y - r.y).pow(2) + (p.z - r.z).pow(2)) as f64).sqrt()));
+    if riders.len() > 12 {
+        let best = riders.iter().filter_map(|r| nearest(r).map(|(p, d)| (*r, p, d))).min_by(|a, b| a.2.total_cmp(&b.2));
         lines.push(format!(
-            "  the nearest filled cell to rider cell {},{},{}: {}",
-            r.x,
-            r.y,
-            r.z,
-            at.map_or("none".to_string(), |p| format!("{},{},{} at {near:.2}", p.x, p.y, p.z))
+            "  the nearest filled cell over {} rider cell(s): {}",
+            riders.len(),
+            best.map_or("none".to_string(), |(r, p, d)| format!("{},{},{} at {d:.2} from rider cell {},{},{}", p.x, p.y, p.z, r.x, r.y, r.z))
         ));
+    } else {
+        for r in riders {
+            lines.push(format!(
+                "  the nearest filled cell to rider cell {},{},{}: {}",
+                r.x,
+                r.y,
+                r.z,
+                nearest(r).map_or("none".to_string(), |(p, d)| format!("{},{},{} at {d:.2}", p.x, p.y, p.z))
+            ));
+        }
     }
     Ok((out, lines))
 }
@@ -918,16 +928,18 @@ fn seat_rider(w: &mut redsim::World, place: BlockPos, exact: Option<Vec3>) -> Re
 /// on it (ironspec 07:36: stability is tested at the DRAWN cell, then moveUpOutOfSolid lifts it with
 /// no second test: a draw AT the cell, or into a solid run under it whose own floor renders solid,
 /// within the draw's `v` of the rider's y). Returns the rows and the number outside the box.
-fn candidate_rows(w: &mut redsim::World, i: usize, shares: &[(BlockPos, f64)], v: i32, box_lo: BlockPos, box_hi: BlockPos, label: &str) -> (Vec<String>, usize) {
+fn candidate_rows(w: &mut redsim::World, i: usize, shares: &[(BlockPos, f64)], v: i32, box_lo: BlockPos, box_hi: BlockPos, label: &str) -> (Vec<String>, usize, usize) {
     use redsim::entity::mob::ai::goal::stroll;
     let me_y = w.entities.list[i].pos.y;
     let mut rows = Vec::new();
     let mut outside = 0usize;
+    let mut unreached = 0usize;
     for (c, sh) in shares {
         let reached = redsim::entity::mob::ai::with_nav(w, i, |w, nm, nav, arena| {
             let mut copy = nav.clone();
             copy.create_path_pos(w, nm, *c, 0, arena).is_some_and(|p| p.reached)
         });
+        unreached += usize::from(!reached);
         let below = w.get(c.below());
         let out = !(c.x >= box_lo.x && c.x <= box_hi.x && c.y >= box_lo.y && c.y <= box_hi.y && c.z >= box_lo.z && c.z <= box_hi.z);
         outside += usize::from(out);
@@ -954,7 +966,7 @@ fn candidate_rows(w: &mut redsim::World, i: usize, shares: &[(BlockPos, f64)], v
             if landings.is_empty() { "none found in the column".to_string() } else { landings.join(", ") }
         ));
     }
-    (rows, outside)
+    (rows, outside, unreached)
 }
 
 /// A column's cells under `top` (ironspec 07:36: E's column (-2,-1..-8,2)), each with isSolid and
@@ -994,8 +1006,11 @@ pub fn column_print(w: &redsim::World, i: usize, top: BlockPos, depth: i32) -> S
 /// section closest to the village within 2, or a land draw when that section is its own) at a
 /// rider place, on [`p_world`]'s world (stand-ins through the override rule, re-settled): each
 /// candidate with its share, reach, floor, box and landings. The bar is NONE: any candidate FAILS
-/// (an arming point at a stop). `exact`: the rider's own position.
-pub fn stroll_candidates(spec: &FarmSpec, claims: &[BlockPos], place: BlockPos, exact: Option<Vec3>, sets: &[(BlockPos, redsim::block::Block)], holds: &[(BlockPos, String)], columns: &[BlockPos], box_of: (BlockPos, BlockPos)) -> Result<(Vec<String>, usize, usize), String> {
+/// (an arming point at a stop). `exact`: the rider's own position. `complete_ok` (G1 08:20, the
+/// per-place bar): a boarded-exit place's bar is NONE OR COMPLETE (a seated rider's complete path
+/// clears the stamp: only an unreached candidate fails); P's is NONE.
+#[allow(clippy::too_many_arguments)]
+pub fn stroll_candidates(spec: &FarmSpec, claims: &[BlockPos], place: BlockPos, exact: Option<Vec3>, sets: &[(BlockPos, redsim::block::Block)], holds: &[(BlockPos, String)], columns: &[BlockPos], box_of: (BlockPos, BlockPos), complete_ok: bool) -> Result<(Vec<String>, usize, usize), String> {
     use redsim::entity::mob::ai::goal::stroll;
     let (mut run, mut lines, fails) = p_world(spec, sets, holds, claims)?;
     let w = &mut run.world;
@@ -1011,13 +1026,14 @@ pub fn stroll_candidates(spec: &FarmSpec, claims: &[BlockPos], place: BlockPos, 
     } else {
         stroll::pick_shares(w, i, 2.0, 2, None, true, 10)
     };
-    let (rows, outside) = candidate_rows(w, i, &shares, 2, box_of.0, box_of.1, "CANDIDATE");
+    let (rows, outside, unreached) = candidate_rows(w, i, &shares, 2, box_of.0, box_of.1, "CANDIDATE");
     for c in columns {
         lines.push(column_print(w, i, *c, 8));
     }
     model_errors(w)?;
+    let failing = if complete_ok { unreached } else { shares.len() };
     lines.push(format!(
-        "the PANIC stroll's candidates at {},{},{} (the rider at {:.3},{:.4},{:.3}; VillageBoundRandomStroll 2/2, priority 3 in the panic package; {}; the bar: NONE): {} candidate cell(s), {outside} outside the design's box{}",
+        "the PANIC stroll's candidates at {},{},{} (the rider at {:.3},{:.4},{:.3}; VillageBoundRandomStroll 2/2, priority 3 in the panic package; {}; the bar: {}): {} candidate cell(s), {unreached} unreached, {outside} outside the design's box{}",
         place.x,
         place.y,
         place.z,
@@ -1025,11 +1041,12 @@ pub fn stroll_candidates(spec: &FarmSpec, claims: &[BlockPos], place: BlockPos, 
         me.y,
         me.z,
         if best != s { "toward the village section" } else { "a land draw around" },
+        if complete_ok { "NONE OR COMPLETE (a boarded-exit place: an unreached candidate fails)" } else { "NONE (P: a reachable candidate walks the napper off P)" },
         shares.len(),
-        if shares.is_empty() && fails == 0 { " (PASS)" } else { " (FAIL)" }
+        if failing == 0 && fails == 0 { " (PASS)" } else { " (FAIL)" }
     ));
     lines.extend(rows);
-    Ok((lines, shares.len() + fails, outside))
+    Ok((lines, failing + fails, outside))
 }
 
 /// (ironspec Nov 13 07:27 / 07:31 / 07:36, G1's three terms: P's FLEE candidates) The flee's
@@ -1040,7 +1057,8 @@ pub fn stroll_candidates(spec: &FarmSpec, claims: &[BlockPos], place: BlockPos, 
 /// share, reach, floor, box and landings. The bar is NONE (a reachable candidate fails too: the
 /// napper would walk off P); the hostile's distance and clip are printed (a flee outside 6 or out of
 /// sight never runs: printed, the candidates still listed).
-pub fn flee_candidates_at(spec: &FarmSpec, place: BlockPos, exact: Option<Vec3>, hostile: Vec3, hostile_eye: f64, sets: &[(BlockPos, redsim::block::Block)], holds: &[(BlockPos, String)], columns: &[BlockPos], box_of: (BlockPos, BlockPos)) -> Result<(Vec<String>, usize, usize), String> {
+#[allow(clippy::too_many_arguments)]
+pub fn flee_candidates_at(spec: &FarmSpec, place: BlockPos, exact: Option<Vec3>, hostile: Vec3, hostile_eye: f64, sets: &[(BlockPos, redsim::block::Block)], holds: &[(BlockPos, String)], columns: &[BlockPos], box_of: (BlockPos, BlockPos), complete_ok: bool) -> Result<(Vec<String>, usize, usize), String> {
     let (mut run, mut lines, fails) = p_world(spec, sets, holds, &[])?;
     let w = &mut run.world;
     let i = seat_rider(w, place, exact)?;
@@ -1055,29 +1073,31 @@ pub fn flee_candidates_at(spec: &FarmSpec, place: BlockPos, exact: Option<Vec3>,
             shares.push((c, 0.0));
         }
     }
-    let (rows, outside) = candidate_rows(w, i, &shares, 7, box_of.0, box_of.1, "FLEE CANDIDATE");
+    let (rows, outside, unreached) = candidate_rows(w, i, &shares, 7, box_of.0, box_of.1, "FLEE CANDIDATE");
     for c in columns {
         lines.push(column_print(w, i, *c, 8));
     }
     model_errors(w)?;
+    let failing = if complete_ok { unreached } else { shares.len() };
     lines.push(format!(
-        "the FLEE's candidates at {},{},{} (the rider at {:.3},{:.4},{:.3}; SetWalkTargetAwayFrom: getPosAway 16 / 7) from the hostile's feet {:.2},{:.3},{:.2}: {d:.2} away ({}), the clip {}; {} candidate(s), {outside} outside the design's box{}",
+        "the FLEE's candidates at {},{},{} (the rider at {:.3},{:.4},{:.3}; SetWalkTargetAwayFrom: getPosAway 16 / 7; the bar: {}) from the hostile's feet {:.2},{:.3},{:.2}: {d:.2} away ({}), the clip {}; {} candidate(s), {unreached} unreached, {outside} outside the design's box{}",
         place.x,
         place.y,
         place.z,
         me.x,
         me.y,
         me.z,
+        if complete_ok { "NONE OR COMPLETE (a boarded-exit place)" } else { "NONE (P)" },
         hostile.x,
         hostile.y,
         hostile.z,
         if d < 6.0 { "inside the flee's 6" } else { "beyond the flee's 6: the flee never runs" },
         if seen { "CLEAR" } else { "BLOCKED: the flee never runs" },
         shares.len(),
-        if shares.is_empty() && fails == 0 { " (PASS)" } else { " (FAIL)" }
+        if failing == 0 && fails == 0 { " (PASS)" } else { " (FAIL)" }
     ));
     lines.extend(rows);
-    Ok((lines, shares.len() + fails, outside))
+    Ok((lines, failing + fails, outside))
 }
 
 /// [`check_claims`], only the rider place at `only` (the others skipped: the fix search's runs).
@@ -3209,10 +3229,21 @@ pub fn sensor_at(spec: &FarmSpec, points: &[Vec3], exclude: &[([i32; 3], [i32; 3
         if any {
             sensed.push(i);
         }
-        // (tick-exact Nov 13 07:50, G1 07:51: undead burn when the EYE CELL's sky light is 15
-        // (canSeeSky: sky brightness >= 15, not geometric); glass and iron trapdoors don't cut it;
-        // the bar < 15 at every undead's eye cell, the column above it named)
-        let undead = !id.contains("pillager") && !id.contains("vindicator") && !id.contains("evoker") && !id.contains("illusioner") && !id.contains("ravager") && !id.contains("vex") && !id.contains("husk");
+        // (tick-exact Nov 13 07:50 / 08:26, G1 07:51 / 08:22: a mob burns when the EYE CELL's sky
+        // light is 15 (canSeeSky: sky brightness >= 15, not geometric); glass and iron trapdoors
+        // don't cut it; the bar < 15. The sun-burn set is EXACTLY the entity-type tag
+        // #minecraft:burn_in_daylight (Mob.aiStep 456-460, the tag the only switch): skeleton,
+        // stray, wither_skeleton (tagged; its fire immunity uncited), bogged, zombie, zombie_horse,
+        // zombie_villager, drowned, zombie_nautilus, phantom; a known type outside it says so; an
+        // unknown type is an error)
+        let name = id.trim_start_matches("minecraft:");
+        const BURN_IN_DAYLIGHT: [&str; 10] = ["skeleton", "stray", "wither_skeleton", "bogged", "zombie", "zombie_horse", "zombie_villager", "drowned", "zombie_nautilus", "phantom"];
+        const KNOWN_SAFE: [&str; 22] = ["pillager", "vindicator", "evoker", "illusioner", "ravager", "vex", "husk", "zoglin", "witch", "creeper", "spider", "cave_spider", "zombified_piglin", "piglin", "piglin_brute", "hoglin", "blaze", "ghast", "enderman", "silverfish", "breeze", "warden"];
+        let undead = BURN_IN_DAYLIGHT.contains(&name);
+        if !undead && !KNOWN_SAFE.contains(&name) {
+            return Err(format!("the sunburn census: {id} is neither in #minecraft:burn_in_daylight nor a known type outside it (an unknown type is an error)"));
+        }
+        let tag_note = if name == "wither_skeleton" { " (tagged burn_in_daylight; its fire immunity uncited)" } else { "" };
         let ec = BlockPos::new(eye.x.floor() as i32, eye.y.floor() as i32, eye.z.floor() as i32);
         let sky_line = match redsim::daylight::sky_light(w, ec) {
             Ok(l) => {
@@ -3221,11 +3252,11 @@ pub fn sensor_at(spec: &FarmSpec, points: &[Vec3], exclude: &[([i32; 3], [i32; 3
                     (!b.is_air()).then(|| format!("{} at y {y}", b.to_string().trim_start_matches("minecraft:")))
                 }).collect();
                 format!(
-                    "the eye cell {},{},{} sky light {l}{}; the column above: {}",
+                    "the eye cell {},{},{} sky light {l}{}{tag_note}; the column above: {}",
                     ec.x,
                     ec.y,
                     ec.z,
-                    if !undead { " (does not burn)" } else if l >= 15 { ": BURNS by day (FAILS the bar < 15)" } else { ": under cover (passes the bar < 15)" },
+                    if !undead { " (not in #minecraft:burn_in_daylight: does not burn)" } else if l >= 15 { ": BURNS by day (FAILS the bar < 15)" } else { ": under cover (passes the bar < 15)" },
                     if above.is_empty() { "open sky".to_string() } else { above.join(", ") }
                 )
             }
@@ -4576,6 +4607,51 @@ pub fn rail_positions_in(spec: &FarmSpec, lo: [i32; 3], hi: [i32; 3]) -> Vec<Vec
 /// cell: covered / dark positions; for each dark position the nearest hostile in range, the eye
 /// used and the blocking cell. Settled world, the design's zombies summoned (N5), its pillager
 /// boats seated (redsim spawns none). Returns the lines and the count of dark positions.
+/// (ironspec Nov 13 08:26, day-1's fail-safe answer) Every rider position within `radius` of a
+/// cell's centre (the bed head: a REST villager within 16 of an occupied bed is the exposure bar's
+/// subject): each rail cell every 0.1 along it (a slope's 0.97 too) and each `column` every 0.25,
+/// the rider's feet, grouped by cell with the least and greatest distance.
+pub fn near_positions(spec: &FarmSpec, columns: &[[f64; 4]], center: BlockPos, radius: f64) -> Vec<String> {
+    let c = Vec3::new(center.x as f64 + 0.5, center.y as f64 + 0.5, center.z as f64 + 0.5);
+    let d = |p: &Vec3| ((p.x - c.x).powi(2) + (p.y - c.y).powi(2) + (p.z - c.z).powi(2)).sqrt();
+    let mut by: std::collections::BTreeMap<(i32, i32, i32), (String, usize, f64, f64)> = std::collections::BTreeMap::new();
+    for (cell, _, p) in rider_positions(spec) {
+        let dd = d(&p);
+        if dd <= radius {
+            let e = by.entry((cell.x, cell.y, cell.z)).or_insert(("rail".into(), 0, f64::INFINITY, 0.0));
+            e.1 += 1;
+            e.2 = e.2.min(dd);
+            e.3 = e.3.max(dd);
+        }
+    }
+    for col in columns {
+        let n = ((col[3] - col[1]).abs() / 0.25).round() as usize;
+        for i in 0..=n {
+            let y = col[1] + if col[3] >= col[1] { 1.0 } else { -1.0 } * i as f64 * 0.25;
+            let p = Vec3::new(col[0], y, col[2]);
+            let dd = d(&p);
+            if dd <= radius {
+                let e = by.entry((p.x.floor() as i32, p.y.floor() as i32, p.z.floor() as i32)).or_insert(("column".into(), 0, f64::INFINITY, 0.0));
+                e.1 += 1;
+                e.2 = e.2.min(dd);
+                e.3 = e.3.max(dd);
+            }
+        }
+    }
+    let total: usize = by.values().map(|v| v.1).sum();
+    let mut lines = vec![format!(
+        "rider positions within {radius} of {},{},{}'s centre (ironspec Nov 13 08:26: the exposure bar's subject; each rail cell every 0.1, each column every 0.25, the rider's feet): {total} positions in {} cells",
+        center.x,
+        center.y,
+        center.z,
+        by.len()
+    )];
+    for ((x, y, z), (kind, n, lo, hi)) in &by {
+        lines.push(format!("  {kind} {x},{y},{z}: {n} positions, {lo:.2}..{hi:.2}"));
+    }
+    lines
+}
+
 pub fn coverage_map(spec: &FarmSpec, columns: &[[f64; 4]], cells_only: &[BlockPos], feet_extra: &[(String, Vec3)]) -> Result<(Vec<String>, usize), String> {
     let o = RunOpts { ai: true, ..RunOpts::steady(1, 0, WalkMode::Random) };
     let mut run = Run::start(spec, &o)?;
@@ -5090,6 +5166,24 @@ impl<'a> Track<'a> {
     /// A track from its rail cells (game strings), columns, rests and signal sources.
     fn from_parts(rails: HashMap<BlockPos, String>, columns: &'a [[f64; 4]], rests: &'a [BlockPos], sources: Vec<BlockPos>, solid: HashMap<BlockPos, Vec<redsim::behavior::Box16>>) -> Track<'a> {
         let col_len = columns.iter().map(|c| ((c[3] - c[1]).abs() / 0.25).round() as usize + 1).collect();
+        // (G1 Nov 13 09:02: a fixed S-bend is no switched T) RailState.place re-shapes a T from
+        // the neighbours that CAN connect to it (hasConnection: the neighbour, its soft
+        // connections removed, `canConnectTo` this rail: it already points here, or it holds fewer
+        // than 2 connections); a neighbour whose shape points to two other rails that point back
+        // (a full one) never joins, so a T whose third arm is such a rail keeps its shape
+        let targets = |c: BlockPos| -> Vec<BlockPos> {
+            let mut out = Vec::new();
+            for (dx, dy, dz) in rail_exits(rails.get(&c).map(|s| s.as_str()).unwrap_or("")) {
+                for m in [BlockPos::new(c.x + dx, c.y + dy, c.z + dz), BlockPos::new(c.x + dx, c.y + dy - 1, c.z + dz)] {
+                    if rails.contains_key(&m) {
+                        out.push(m);
+                    }
+                }
+            }
+            out
+        };
+        let hard = |m: BlockPos| targets(m).into_iter().filter(|t| targets(*t).contains(&m)).count();
+        let can_connect = |m: BlockPos, c: BlockPos| targets(m).contains(&c) || hard(m) < 2;
         let mut switched_ts = std::collections::HashSet::new();
         for (c, s) in &rails {
             if !s.contains("minecraft:rail[") {
@@ -5098,8 +5192,10 @@ impl<'a> Track<'a> {
             // (tick-exact's official junction row: RailBlock.updateState re-shapes a plain rail only
             // when countPotentialConnections() == 3 (RailBlock.java 22-25): a 4th rail in a side's
             // column, a detector beside it say, keeps its placed shape for good)
-            let arms = Track::arm_rails(&rails, *c).iter().filter(|v| !v.is_empty()).count();
-            if arms == 3 && sources.iter().any(|q| (q.x - c.x).abs() + (q.y - c.y).abs() + (q.z - c.z).abs() <= 2) {
+            let sides = Track::arm_rails(&rails, *c);
+            let arms = sides.iter().filter(|v| !v.is_empty()).count();
+            let joinable = sides.iter().filter(|v| v.iter().any(|m| can_connect(*m, *c))).count();
+            if arms == 3 && joinable == 3 && sources.iter().any(|q| (q.x - c.x).abs() + (q.y - c.y).abs() + (q.z - c.z).abs() <= 2) {
                 switched_ts.insert(*c);
             }
         }
@@ -5252,7 +5348,7 @@ impl<'a> Track<'a> {
         }
         // (a cart leaves a 2-arm cell by its other arm; a junction with every known arm one way
         // and one unknown has that one the other way)
-        fn propagate(e: &BTreeSet<(TailNode, TailNode)>, adj: &std::collections::BTreeMap<TailNode, BTreeSet<TailNode>>, f: &mut BTreeSet<(TailNode, TailNode)>, src: &mut std::collections::BTreeMap<(TailNode, TailNode), &'static str>, mut queue: Vec<(TailNode, TailNode)>, chain_label: &'static str) {
+        fn propagate(e: &BTreeSet<(TailNode, TailNode)>, adj: &std::collections::BTreeMap<TailNode, BTreeSet<TailNode>>, f: &mut BTreeSet<(TailNode, TailNode)>, src: &mut std::collections::BTreeMap<(TailNode, TailNode), &'static str>, mut queue: Vec<(TailNode, TailNode)>, chain_label: &'static str, shape_dirs: &std::collections::BTreeMap<TailNode, Vec<(i32, i32)>>) {
             let is_chain = |n: &TailNode| matches!(n, TailNode::Rail(..)) && adj.get(n).is_some_and(|s| s.len() == 2);
             while let Some((a, b)) = queue.pop() {
                 let mut next: Vec<(TailNode, TailNode, &'static str)> = Vec::new();
@@ -5277,6 +5373,35 @@ impl<'a> Track<'a> {
                             next.push((j, unknown[0], "junction (INFERRED)"));
                         } else if ins == 0 && outs > 0 {
                             next.push((unknown[0], j, "junction (INFERRED)"));
+                        } else if let (TailNode::Rail(jx, _, jz), Some(dirs)) = (j, shape_dirs.get(&j)) {
+                            // (G1 Nov 13 09:02, the forward exit: a cart leaves a cell only by a
+                            // shape exit, the one ahead of its motion: through a shape arm, the
+                            // other shape arm; from a free side, the shape exit opposite it (a
+                            // curve's free side faces one of its exits). With one unknown SHAPE arm
+                            // that no inflow's forward exit is, the arm can only be an inflow: a
+                            // merge curve's other arm, the siding's S-bend into C)
+                            let dir_of = |n: &TailNode| match n {
+                                TailNode::Rail(x, _, z) => Some(((*x - jx).signum(), (*z - jz).signum())),
+                                TailNode::Col(..) => None,
+                            };
+                            let u = unknown[0];
+                            if let Some(ud) = dir_of(&u)
+                                && dirs.contains(&ud)
+                            {
+                                let fwd = |a: &TailNode| -> Option<(i32, i32)> {
+                                    let d = dir_of(a)?;
+                                    if dirs.contains(&d) {
+                                        dirs.iter().find(|x| **x != d).copied()
+                                    } else {
+                                        let o = (-d.0, -d.1);
+                                        dirs.contains(&o).then_some(o)
+                                    }
+                                };
+                                let fwds: Vec<Option<(i32, i32)>> = arms.iter().filter(|x| f.contains(&(**x, j))).map(fwd).collect();
+                                if !fwds.is_empty() && fwds.iter().all(|x| x.is_some()) && !fwds.contains(&Some(ud)) {
+                                    next.push((u, j, "forward exit (INFERRED)"));
+                                }
+                            }
                         }
                     }
                 }
@@ -5288,7 +5413,15 @@ impl<'a> Track<'a> {
                 }
             }
         }
-        propagate(&e, &adj, &mut f, &mut src, queue, "chain");
+        // (the forward-exit rule's shapes: each fixed rail's two exits, horizontally)
+        let shape_dirs: std::collections::BTreeMap<TailNode, Vec<(i32, i32)>> = self
+            .rails
+            .iter()
+            .filter(|(c, _)| !self.switched_ts.contains(c))
+            .map(|(c, s)| (rail(c), rail_exits(s).into_iter().map(|(dx, _, dz)| (dx, dz)).collect::<Vec<_>>()))
+            .filter(|(_, v)| v.len() == 2)
+            .collect();
+        propagate(&e, &adj, &mut f, &mut src, queue, "chain", &shape_dirs);
         // (the reversals on top: a link both ways from them is a reversal's, not a conflict)
         let f1 = f.clone();
         let rev_cells: BTreeSet<TailNode> = reversal.iter().map(|(c, _)| rail(c)).collect();
@@ -5303,7 +5436,7 @@ impl<'a> Track<'a> {
                 }
             }
         }
-        propagate(&e, &adj, &mut f, &mut src, rq, "reversal chain");
+        propagate(&e, &adj, &mut f, &mut src, rq, "reversal chain", &shape_dirs);
         let name = |n: &TailNode| match n {
             TailNode::Rail(x, y, z) => format!("{x},{y},{z}"),
             TailNode::Col(k, i) => {
@@ -5354,7 +5487,7 @@ impl<'a> Track<'a> {
         let inferred = src.values().filter(|s| s.starts_with("junction")).count();
         out.push(format!(
             "  oriented links by source: {}; {inferred} by junction completion (INFERRED: at an undeclared cart reversal it drops a real move; check each against the runs){}",
-            ["column", "shape", "declared", "chain", "junction (INFERRED)", "reversal", "reversal chain"].iter().map(|k| format!("{} {k}", src.values().filter(|s| *s == k).count())).collect::<Vec<_>>().join(", "),
+            ["column", "shape", "declared", "chain", "junction (INFERRED)", "forward exit (INFERRED)", "reversal", "reversal chain"].iter().map(|k| format!("{} {k}", src.values().filter(|s| *s == k).count())).collect::<Vec<_>>().join(", "),
             if list { "" } else { " (--orient-list prints every one)" }
         ));
         if list {
@@ -5442,6 +5575,58 @@ impl<'a> Track<'a> {
     /// The shortest travel time (gt) from any seed to every node within `max`.
     fn walk(&self, seeds: &[TailNode], max: f64) -> HashMap<TailNode, f64> {
         self.walk_within(seeds, max, None)
+    }
+
+    /// (G1 08:22: the late pairs' routes) The walk's route from `from` to `to` within `max`, each
+    /// node with its arrival time, along the same edges and rests as [`Track::walk`].
+    fn walk_path(&self, from: TailNode, to: TailNode, max: f64) -> Option<Vec<(TailNode, f64)>> {
+        let mut best: HashMap<TailNode, f64> = HashMap::new();
+        let mut parent: HashMap<TailNode, TailNode> = HashMap::new();
+        let mut heap: std::collections::BinaryHeap<std::cmp::Reverse<(u64, TailNode)>> = std::collections::BinaryHeap::new();
+        best.insert(from, 0.0);
+        heap.push(std::cmp::Reverse((0, from)));
+        while let Some(std::cmp::Reverse((_, n))) = heap.pop() {
+            if n == to {
+                break;
+            }
+            let d = best[&n];
+            let next = match n {
+                TailNode::Rail(x, y, z) if self.rests.contains(&BlockPos::new(x, y, z)) && d > 0.0 => Vec::new(),
+                _ => self.edges(n),
+            };
+            for (m, w) in next {
+                let nd = d + w;
+                if nd <= max && best.get(&m).is_none_or(|b| nd < *b) {
+                    best.insert(m, nd);
+                    parent.insert(m, n);
+                    heap.push(std::cmp::Reverse(((nd * 1000.0) as u64, m)));
+                }
+            }
+        }
+        let t = *best.get(&to)?;
+        let mut path = vec![(to, t)];
+        let mut c = to;
+        while c != from {
+            let p = *parent.get(&c)?;
+            path.push((p, best[&p]));
+            c = p;
+        }
+        path.reverse();
+        Some(path)
+    }
+
+    /// A node as a route prints it: a rail cell with its shape, or a column position.
+    fn node_label(&self, n: TailNode) -> String {
+        match n {
+            TailNode::Rail(x, y, z) => {
+                let s = self.rails.get(&BlockPos::new(x, y, z)).map(|s| s.split("shape=").nth(1).and_then(|r| r.split([',', ']']).next()).unwrap_or("?").to_string()).unwrap_or_else(|| "?".into());
+                format!("{x},{y},{z} {s}")
+            }
+            TailNode::Col(k, i) => {
+                let p = self.col_pos(k, i);
+                format!("column {:.2},{:.2},{:.2}", p.x, p.y, p.z)
+            }
+        }
     }
 
     /// `walk`, through the `allowed` nodes only (when given).
@@ -5898,7 +6083,7 @@ pub fn clear_all(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32; 
     // onward) from that node's rider positions (a rail cell's three, a column's position): a late
     // FAIL where any of them leaves it unreached (inside a water column the path is the water's
     // surface, one node: redsim's passenger start rule, the official row's shape))
-    let mut late: std::collections::BTreeMap<(i32, i32, i32), Vec<(String, String, f64)>> = std::collections::BTreeMap::new();
+    let mut late: std::collections::BTreeMap<(i32, i32, i32), Vec<(String, String, f64, TailNode, TailNode)>> = std::collections::BTreeMap::new();
     let mut late_positions = 0usize;
     // (G1 Nov 13 05:20, hole 3: the late paths' samples are the paths computed inside the window:
     // each (draw node, candidate, later node within --late-gt) check; none (no node a panicking
@@ -5979,7 +6164,7 @@ pub fn clear_all(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32; 
                     format!("column {:.2},{:.2},{:.2}", p.x, p.y, p.z)
                 }
             };
-            late.entry(x).or_default().push((ns, qs, dt));
+            late.entry(x).or_default().push((ns, qs, dt, nd, q));
         }
         late_positions = failed_nodes.len();
     }
@@ -6030,20 +6215,29 @@ pub fn clear_all(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32; 
     lt.sort_by_key(|(_, v)| std::cmp::Reverse(v.len()));
     for ((x, y, z), v) in lt {
         // (by draw node: its pairs and the earliest later node that leaves the candidate unreached)
-        let mut by_draw: std::collections::BTreeMap<String, (usize, f64, String)> = std::collections::BTreeMap::new();
-        for (ns, qs, dt) in &v {
-            let e = by_draw.entry(ns.clone()).or_insert((0, f64::INFINITY, String::new()));
+        let mut by_draw: std::collections::BTreeMap<String, (usize, f64, String, Option<(TailNode, TailNode)>)> = std::collections::BTreeMap::new();
+        for (ns, qs, dt, nd, q) in &v {
+            let e = by_draw.entry(ns.clone()).or_insert((0, f64::INFINITY, String::new(), None));
             e.0 += 1;
             if *dt < e.1 {
                 e.1 = *dt;
                 e.2 = qs.clone();
+                e.3 = Some((*nd, *q));
             }
         }
         lines.push(format!(
             "  LATE {x},{y},{z}: {} (draw, later node) pairs unreached; by draw node: {}",
             v.len(),
-            by_draw.iter().map(|(ns, (n, dt, qs))| format!("drawn at {ns}: {n} pairs, the first pathed {dt:.1} gt later from {qs}")).collect::<Vec<_>>().join("; ")
+            by_draw.iter().map(|(ns, (n, dt, qs, _))| format!("drawn at {ns}: {n} pairs, the first pathed {dt:.1} gt later from {qs}")).collect::<Vec<_>>().join("; ")
         ));
+        // (G1 08:22: each draw node's first pair with orient's route link by link, the rail shapes
+        // it reads, so a pair no cart rides shows the link that makes it)
+        for (ns, (_, _, _, nq)) in &by_draw {
+            if let Some((nd, q)) = nq {
+                let route = track.walk_path(*nd, *q, late_gt).map(|p| p.iter().map(|(n, t2)| format!("{} @{t2:.1}", track.node_label(*n))).collect::<Vec<_>>().join(" > "));
+                lines.push(format!("    ROUTE drawn at {ns}: {}", route.unwrap_or_else(|| "none found".into())));
+            }
+        }
     }
     lines.push(format!(
         "staleness (an inherited policy, G1's CHANGES 2: a tail position within {FLEE_BAR} of a hostile (a zombie, or a pillager, G1 N22), NEAREST_HOSTILE remembered within the flee bar; {tails} tail positions judged, {riderless_tails} at `riderless:` cells apart): {}",
@@ -6332,6 +6526,35 @@ mod orient_tests {
         TailNode::Rail(x, y, z)
     }
 
+    /// (G1 Nov 13 09:02: a fixed S-bend orients one way) A siding's S-bend (R a slope, two curves,
+    /// C a curve into a fall) with a detector rail within Manhattan 2 of its middle: the middle has
+    /// rails on 3 sides, but its third neighbour R is full (both its ends taken by rails pointing
+    /// back), so RailState.place can't re-shape it: NOT a switched T, and with the fall oriented the
+    /// walk from C reaches no cell of the bend; a T whose third neighbour points at it IS switched.
+    #[test]
+    fn s_bend_is_no_switched_t() {
+        let r = |s: &str| format!("minecraft:rail[shape={s},waterlogged=false]");
+        let mut m = HashMap::new();
+        for (x, y, z, s) in [(0, 0, 1, "ascending_south"), (0, 1, 2, "north_south"), (0, 0, 0, "south_east"), (1, 0, 0, "south_west"), (1, 0, 1, "north_east"), (2, 0, 1, "north_west")] {
+            m.insert(BlockPos::new(x, y, z), r(s));
+        }
+        m.insert(BlockPos::new(2, 0, 2), "minecraft:detector_rail[powered=false,shape=north_south,waterlogged=false]".to_string());
+        let cols = [[2.5, 0.0, 0.5, -3.0]];
+        let rests: [BlockPos; 0] = [];
+        let sources = vec![BlockPos::new(2, 0, 2)];
+        let mut t = Track::from_parts(m.clone(), &cols, &rests, sources.clone(), Default::default());
+        assert!(!t.switched_ts.contains(&BlockPos::new(1, 0, 1)), "the bend's middle is no switched T: {:?}", t.switched_ts);
+        let _ = t.orient(&[], &[], false);
+        let after = t.walk(&[n(2, 0, 1)], 40.0);
+        assert!(!after.contains_key(&n(1, 0, 1)) && !after.contains_key(&n(0, 0, 1)), "no backward ride from C into the bend: {after:?}");
+        // (a T whose third neighbour points at it: switched)
+        let mut m2 = m.clone();
+        m2.insert(BlockPos::new(0, 0, 1), r("east_west"));
+        m2.remove(&BlockPos::new(0, 1, 2));
+        let t2 = Track::from_parts(m2, &cols, &rests, sources, Default::default());
+        assert!(t2.switched_ts.contains(&BlockPos::new(1, 0, 1)), "a joinable third arm: {:?}", t2.switched_ts);
+    }
+
     /// (G1 on f4e5482ee, N18 / N39's late-path control) The late window's walk on a ONE-WAY line: a
     /// travel declared south along x 0 (z 0 -> 4); from a draw at (0,0,2) the walk within 6 gt reaches
     /// the FORWARD node (0,0,3) and never the BACKWARD (0,0,1): the late check walks exactly this
@@ -6557,17 +6780,17 @@ mod gate_tests {
     fn stroll_none_and_the_planted_cell() {
         let s = glass_room();
         let bx = (s.lo, s.hi);
-        let (l, n, _) = super::stroll_candidates(&s, &[], b(0, 1, 0), None, &[], &[], &[], bx).unwrap();
+        let (l, n, _) = super::stroll_candidates(&s, &[], b(0, 1, 0), None, &[], &[], &[], bx, false).unwrap();
         assert!(n == 0 && header(&l, "the PANIC stroll").ends_with("(PASS)"), "{l:?}");
         let mut planted = s.clone();
         planted.blocks.retain(|(p, _)| *p != b(2, 0, 1));
         planted.blocks.push((b(2, 0, 1), redsim::block::Block::parse("minecraft:stone").unwrap()));
-        let (l2, n2, _) = super::stroll_candidates(&planted, &[], b(0, 1, 0), None, &[], &[], &[], bx).unwrap();
+        let (l2, n2, _) = super::stroll_candidates(&planted, &[], b(0, 1, 0), None, &[], &[], &[], bx, false).unwrap();
         assert!(n2 > 0 && header(&l2, "the PANIC stroll").ends_with("(FAIL)") && l2.iter().any(|x| x.contains("CANDIDATE 2,1,1") && x.contains("drawn at it")), "{l2:?}");
         let mut under = s.clone();
         under.blocks.push((b(2, -1, 1), redsim::block::Block::parse("minecraft:stone").unwrap()));
         under.lo = b(under.lo.x, -2, under.lo.z);
-        let (l3, n3, _) = super::stroll_candidates(&under, &[], b(0, 1, 0), None, &[], &[], &[b(2, 1, 1)], (under.lo, under.hi)).unwrap();
+        let (l3, n3, _) = super::stroll_candidates(&under, &[], b(0, 1, 0), None, &[], &[], &[b(2, 1, 1)], (under.lo, under.hi), false).unwrap();
         assert!(n3 > 0 && l3.iter().any(|x| x.contains("CANDIDATE 2,1,1") && x.contains("drawn at 2,0,1") && x.contains("moved up 1")), "the up-move form: {l3:?}");
         assert!(l3.iter().any(|x| x.starts_with("the column under 2,1,1") && x.contains("2,0,1 glass (isSolid true, isSolidRender false)") && x.contains("2,-1,1 stone (isSolid true, isSolidRender true)")), "{l3:?}");
     }
@@ -6583,24 +6806,24 @@ mod gate_tests {
         s.entities.clear();
         let bx = (s.lo, s.hi);
         let zombie = redsim::entity::Vec3::new(3.5, 1.0, 0.5);
-        let (l, n, _) = super::flee_candidates_at(&s, b(0, 1, 0), None, zombie, 1.74, &[], &[], &[], bx).unwrap();
+        let (l, n, _) = super::flee_candidates_at(&s, b(0, 1, 0), None, zombie, 1.74, &[], &[], &[], bx, false).unwrap();
         let h = header(&l, "the FLEE's");
         assert!(n == 0 && h.ends_with("(PASS)") && h.contains("inside the flee's 6"), "{l:?}");
         let mut planted = s.clone();
         planted.blocks.retain(|(p, _)| *p != b(-3, 0, 0));
         planted.blocks.push((b(-3, 0, 0), redsim::block::Block::parse("minecraft:stone").unwrap()));
-        let (l2, n2, _) = super::flee_candidates_at(&planted, b(0, 1, 0), None, zombie, 1.74, &[], &[], &[], bx).unwrap();
+        let (l2, n2, _) = super::flee_candidates_at(&planted, b(0, 1, 0), None, zombie, 1.74, &[], &[], &[], bx, false).unwrap();
         assert!(n2 > 0 && header(&l2, "the FLEE's").ends_with("(FAIL)") && l2.iter().any(|x| x.contains("FLEE CANDIDATE -3,1,0")), "{l2:?}");
         let mut under = s.clone();
         under.blocks.push((b(-3, -1, 0), redsim::block::Block::parse("minecraft:stone").unwrap()));
         under.lo = b(under.lo.x, -2, under.lo.z);
-        let (l3, n3, _) = super::flee_candidates_at(&under, b(0, 1, 0), None, zombie, 1.74, &[], &[], &[], (under.lo, under.hi)).unwrap();
+        let (l3, n3, _) = super::flee_candidates_at(&under, b(0, 1, 0), None, zombie, 1.74, &[], &[], &[], (under.lo, under.hi), false).unwrap();
         assert!(n3 > 0 && l3.iter().any(|x| x.contains("FLEE CANDIDATE -3,1,0") && x.contains("drawn at -3,0,0") && x.contains("moved up 1")), "the up-move form: {l3:?}");
         // BURIED: the fill's own top surface lies outside the flee box's reach in this room only if
         // no air sits on it; a cave pocket west of the room (away from the zombie) is the positive
         let pocket = b(s.lo.x - 2, 1, 0);
         let (buried, _) = super::surround_spec(&s, super::Surround::Buried { pocket: Some(pocket) }, &super::read_boxes(b(0, 1, 0), true), &[b(0, 1, 0)]).unwrap();
-        let (l4, _, out4) = super::flee_candidates_at(&buried, b(0, 1, 0), None, zombie, 1.74, &[], &[], &[], bx).unwrap();
+        let (l4, _, out4) = super::flee_candidates_at(&buried, b(0, 1, 0), None, zombie, 1.74, &[], &[], &[], bx, false).unwrap();
         assert!(out4 > 0 && l4.iter().any(|x| x.contains(&format!("FLEE CANDIDATE {},{},{}", pocket.x, pocket.y, pocket.z)) && x.contains("OUTSIDE the design's box")), "the buried pocket: {l4:?}");
     }
 
