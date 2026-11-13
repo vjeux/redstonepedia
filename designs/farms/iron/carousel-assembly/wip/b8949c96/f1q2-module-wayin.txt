@@ -50,7 +50,7 @@ palette:
   L minecraft:lever[face=ceiling,facing=north,powered=false]
   M minecraft:lever[face=floor,facing=north,powered=true]
   N minecraft:lightning_rod[facing=up,powered=false,waterlogged=false]
-  O minecraft:oak_fence
+  O minecraft:oak_fence[east=false,north=false,south=false,waterlogged=false,west=false]
   P minecraft:oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]
   Q minecraft:oak_wall_sign[facing=south,waterlogged=false]
   R minecraft:obsidian

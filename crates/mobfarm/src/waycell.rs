@@ -63,6 +63,12 @@ pub struct Opts {
     pub queue_glass: bool,
     /// The ride rows' cart spawned here instead of the queue rail's centre (a real rest point).
     pub seat_at: Option<[f64; 3]>,
+    /// (C)'s entry bar at A6's entry (ironspec 21:25: A6's operating band [0.11, 0.24], inherited from
+    /// 58f770cc's park sweep).
+    pub band: [f64; 2],
+    /// (ironspec 22:19 (1)) record7's built R1 with day-1's line-bench levers instead of the torch
+    /// stand-in; the release is NOT-ready's lever flipped off.
+    pub r1_built: bool,
 }
 
 /// `x,y,z=block;...` (a block state, `minecraft:` optional; a leading `!` on a cell replaces what
@@ -199,6 +205,7 @@ fn scene(spec: &FarmSpec, o: &Opts, post: Option<P>) -> Result<(redsim::world::W
     let mut extra = o.extra.iter().map(|(p, b)| Ok((BlockPos::new(p[0], p[1], p[2]), Block::parse(b).map_err(|e| format!("{b}: {e}"))?))).collect::<Result<Vec<_>, String>>()?;
     extra.extend(r1_cells(o));
     place_checked(&mut w, &extra)?;
+    settle_r1(&mut w, o);
     if let Some(p) = post {
         if !o.custom_post {
             place_checked(
@@ -495,12 +502,97 @@ pub fn seat_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, draws: usize) -> R
 /// cell on glowstone (unpowered it brakes and holds the cart; day-1's gate powers it as a level),
 /// the departure detector rail (queue - (1, 1, 0): its pulse resets the held latch and the RS), each
 /// on its support.
+/// record7's BUILT R1 and its hatch branch (day-1, onechunk's record7 aefff19cb) with day-1's
+/// line-bench inputs (the three levers and the two lever supports are the declared stand-ins).
+pub const R1_BUILT: [([i32; 3], &str); 28] = [
+    // N's comparator: rear REST_l, side DAY's repeater
+    ([6, -13, -2], "minecraft:glass"),
+    ([6, -12, -2], "minecraft:comparator[facing=south,mode=subtract,powered=false]"),
+    ([5, -13, -2], "minecraft:glass"),
+    ([5, -12, -2], "minecraft:repeater[delay=1,facing=west,locked=false,powered=false]"),
+    // N's dust and the hatch branch
+    ([6, -13, -3], "minecraft:smooth_stone"),
+    ([6, -12, -3], "minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=side]"),
+    ([6, -13, -4], "minecraft:glass"),
+    ([6, -12, -4], "minecraft:repeater[delay=1,facing=south,locked=false,powered=false]"),
+    ([6, -12, -5], "minecraft:iron_trapdoor[facing=east,half=bottom,open=false,powered=false,waterlogged=false]"),
+    // the N line's steps down to R1
+    ([5, -14, -3], "minecraft:smooth_stone"),
+    ([5, -13, -3], "minecraft:redstone_wire[east=up,north=side,power=0,south=none,west=none]"),
+    ([5, -15, -4], "minecraft:glass"),
+    ([5, -14, -4], "minecraft:redstone_wire[east=side,north=none,power=0,south=up,west=none]"),
+    ([6, -15, -4], "minecraft:glass"),
+    ([6, -14, -4], "minecraft:repeater[delay=1,facing=west,locked=false,powered=false]"),
+    // R1's comparator (rear the N line, side the latch's dust) and the rail's repeater
+    ([7, -15, -4], "minecraft:glass"),
+    ([7, -14, -4], "minecraft:comparator[facing=west,mode=subtract,powered=false]"),
+    ([7, -15, -5], "minecraft:glass"),
+    ([7, -14, -5], "minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=none]"),
+    ([8, -15, -4], "minecraft:glass"),
+    ([8, -14, -4], "minecraft:repeater[delay=1,facing=west,locked=false,powered=false]"),
+    // the line-bench inputs (declared stand-ins): REST_l ON, DAY OFF, NOT-ready ON
+    ([6, -13, -1], "minecraft:glass"),
+    ([6, -12, -1], "minecraft:lever[face=floor,facing=north,powered=true]"),
+    ([4, -13, -2], "minecraft:glass"),
+    ([4, -12, -2], "minecraft:lever[face=floor,facing=north,powered=false]"),
+    ([8, -14, -5], "minecraft:lever[face=wall,facing=west,powered=true]"),
+    // the WIP's old (C') hatch repeater and its support, replaced by record7's (6,-12,-4)
+    ([6, -12, -6], "minecraft:air"),
+    ([6, -13, -6], "minecraft:air"),
+];
+
+/// (ironspec 22:09 (a)) The gap between the cart's box and the nearest fence collision box (the post
+/// and every arm as the fence stands in the world, `behavior::collision_boxes`) within 2 blocks: the
+/// largest axis gap of the closest fence box (0 = touching or overlapping), None when no fence is near.
+fn fence_gap(w: &redsim::world::World, bb: &redsim::entity::vec3::Aabb) -> Option<f64> {
+    let mut best: Option<f64> = None;
+    for x in (bb.min_x.floor() as i32 - 2)..=(bb.max_x.floor() as i32 + 2) {
+        for y in (bb.min_y.floor() as i32 - 1)..=(bb.max_y.floor() as i32 + 1) {
+            for z in (bb.min_z.floor() as i32 - 2)..=(bb.max_z.floor() as i32 + 2) {
+                let s = w.get(BlockPos::new(x, y, z));
+                if !matches!(s, Block::Fence { .. }) {
+                    continue;
+                }
+                for b in redsim::behavior::collision_boxes(&s) {
+                    let (x0, x1) = (x as f64 + b[0] as f64 / 16.0, x as f64 + b[1] as f64 / 16.0);
+                    let (y0, y1) = (y as f64 + b[2] as f64 / 16.0, y as f64 + b[3] as f64 / 16.0);
+                    let (z0, z1) = (z as f64 + b[4] as f64 / 16.0, z as f64 + b[5] as f64 / 16.0);
+                    let gap = [x0 - bb.max_x, bb.min_x - x1, y0 - bb.max_y, bb.min_y - y1, z0 - bb.max_z, bb.min_z - z1].into_iter().fold(f64::NEG_INFINITY, f64::max).max(0.0);
+                    best = Some(best.map_or(gap, |g: f64| g.min(gap)));
+                }
+            }
+        }
+    }
+    best
+}
+
+/// The built R1 laid raw (no updates) never computes its line: each of its cells placed again with
+/// updates, in [`R1_BUILT`]'s order (supports first, the inputs last), so the N line, the latch's
+/// dust and R1's comparator settle from the levers as a built circuit does (the bench's settle ticks
+/// then run the repeaters' delays). Nothing for the torch stand-in.
+fn settle_r1(w: &mut redsim::world::World, o: &Opts) {
+    if !(o.south && o.r1_built) {
+        return;
+    }
+    for (p, b) in r1_cells(o) {
+        w.set_block(p, Block::Air, redsim::world::flags::ALL);
+        w.set_block(p, b, redsim::world::flags::ALL);
+    }
+}
+
 /// day-1's release stage R1 (17:57), laid in every bench world as emulated cells (not written into
 /// the design: they are day-1's): the repeaters (8,-14,-4) and (7,-14,-4) facing west (input west)
-/// into the queue rail, each on glass; none solid-render.
+/// into the queue rail, each on glass; none solid-render. With `o.r1_built` (ironspec 22:19 (1)):
+/// record7's BUILT R1 instead (day-1's 19:19 + 21:41 cells, read off onechunk's record7
+/// aefff19cb) with day-1's line-bench inputs: REST_l a floor lever ON at (6,-12,-1) on glass
+/// (6,-13,-1), DAY a floor lever OFF at (4,-12,-2) on glass (4,-13,-2), NOT-ready onechunk's wall
+/// lever ON at (8,-14,-5) on the file's glass (9,-14,-5); the release is that lever flipped OFF.
 pub fn r1_cells(o: &Opts) -> Vec<(BlockPos, Block)> {
     if !o.south {
         return Vec::new();
+    }
+    if o.r1_built {
+        return R1_BUILT.iter().map(|(p, s)| (BlockPos::new(p[0], p[1], p[2]), Block::parse(s).unwrap_or_else(|e| panic!("{s}: {e}")))).collect();
     }
     let q = o.queue;
     let g = Block::parse("minecraft:glass").unwrap();
@@ -519,6 +611,12 @@ pub fn r1_cells(o: &Opts) -> Vec<(BlockPos, Block)> {
 /// (its old emulation).
 fn release(w: &mut redsim::world::World, o: &Opts) -> Result<(), String> {
     let q = o.queue;
+    if o.south && o.r1_built {
+        // NOT-ready's fall: onechunk's wall lever (8,-14,-5) flipped OFF between ticks
+        let p = BlockPos::new(8, -14, -5);
+        w.set_block(p, Block::parse("minecraft:lever[face=wall,facing=west,powered=false]").map_err(|e| e.to_string())?, redsim::world::flags::ALL);
+        return Ok(());
+    }
     if o.south {
         for (p, b) in r1_cells(o) {
             if w.get(p) != b {
@@ -756,6 +854,7 @@ pub fn ride_lines(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32) -> Result<Vec
     }
     cells.extend(r1_cells(o));
     place_checked(&mut run.world, &cells)?;
+    settle_r1(&mut run.world, o);
     let cart = redsim::entity::spawn(&mut run.world, "minecraft:minecart", [q[0] as f64 + 0.5, q[1] as f64 + 0.5625, q[2] as f64 + 0.5], Some("{Passengers:[{id:\"minecraft:villager\"}]}"))?;
     // settle on the braked rail, then release
     for _ in 0..40 {
@@ -836,6 +935,7 @@ pub fn ride_rows_with(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u
     }
     cells.extend(r1_cells(o));
     place_checked(&mut base.world, &cells)?;
+    settle_r1(&mut base.world, o);
     let spawn_at = o.seat_at.unwrap_or([q[0] as f64 + 0.5, q[1] as f64 + 0.5625, q[2] as f64 + 0.5]);
     let cart0 = redsim::entity::spawn(&mut base.world, "minecraft:minecart", spawn_at, Some("{Passengers:[{id:\"minecraft:villager\"}]}"))?;
     for _ in 0..40 {
@@ -852,6 +952,9 @@ pub fn ride_rows_with(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u
     for &(s, len) in freezes {
         specs.push((format!("frozen t {s}..{}", s + len), 0, None, Some((s, len))));
     }
+    let trace = std::env::var("WAYCELL_RIDE_TRACE").ok();
+    // (ironspec 22:09 (a)) the closest any fence box (post and arms as laid) comes to the cart's box
+    let mut fence_min = f64::INFINITY;
     for (label, k, restart, freeze) in specs {
         let mut run = base.clone();
         for _ in 0..k {
@@ -868,6 +971,8 @@ pub fn ride_rows_with(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u
         let (mut box_z_max, mut vz_max) = (f64::NEG_INFINITY, f64::NEG_INFINITY);
         let mut restart_cell: Option<P> = None;
         let mut eye_wet = 0u32;
+        let mut contacts = 0u32;
+        let mut time_jumps = 0u32;
         for t in 0..ticks {
             if let Some((rt, how)) = restart {
                 if t as i64 == rt {
@@ -887,10 +992,42 @@ pub fn ride_rows_with(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u
                     }
                 }
             }
+            // (ironspec 20:35: the game-time continuity check) every step of the row one game tick,
+            // across restarts and freezes too
+            let t_before = run.world.time;
             run.tick();
+            if run.world.time - t_before != 1 {
+                time_jumps += 1;
+            }
             let Some(e) = run.world.entities.list.iter().find(|e| e.id == cart && !e.removed) else { break };
+            // (ironspec 18:46 (a): 0 contacts) the cart's box against a block
+            if e.horizontal_collision {
+                contacts += 1;
+            }
+            if let Some(g) = fence_gap(&run.world, &e.bb) {
+                fence_min = fence_min.min(g);
+            }
             last_seen = Some(([e.pos.x.floor() as i32, e.pos.y.floor() as i32, e.pos.z.floor() as i32], (e.delta_movement.x.powi(2) + e.delta_movement.z.powi(2)).sqrt()));
             let c = [e.pos.x.floor() as i32, e.pos.y.floor() as i32, e.pos.z.floor() as i32];
+            // (ironspec 20:21: name the freeze rows' extra speed) WAYCELL_RIDE_TRACE=<a label's text>:
+            // that row tick by tick
+            if trace.as_deref().is_some_and(|f| label.contains(f)) {
+                let cell = BlockPos::new(c[0], c[1], c[2]);
+                eprintln!(
+                    "ride-trace [{label}] t {t}: cart ({:.4},{:.4},{:.4}) v ({:.4},{:.4},{:.4}) wet {} frozen {} ticking {} cell {} below {}",
+                    e.pos.x,
+                    e.pos.y,
+                    e.pos.z,
+                    e.delta_movement.x,
+                    e.delta_movement.y,
+                    e.delta_movement.z,
+                    e.was_touching_water,
+                    frozen.is_some(),
+                    run.world.entity_ticks_at(e.pos.x, e.pos.z),
+                    run.world.get(cell),
+                    run.world.get(cell.below())
+                );
+            }
             let (pz, vz) = (e.pos.z, e.delta_movement.z);
             let v = e.delta_movement;
             if let Some(i) = rider_of(&run.world, cart) {
@@ -925,10 +1062,12 @@ pub fn ride_rows_with(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u
         }
         rows.push((
             format!(
-                "{label}{}{}{} [after the landing: the box's z at most {box_z_max:.4}, vz at most {vz_max:.4}]",
+                "{label}{}{}{}{}{} [after the landing: the box's z at most {box_z_max:.4}, vz at most {vz_max:.4}]",
                 restart_cell.map_or(String::new(), |c| format!(" (the cart at {c:?} at the restart)")),
                 if eye_wet > 0 { format!(" (the rider's EYE IN WATER {eye_wet} ticks)") } else { String::new() },
-                if at_entry.is_none() { last_seen.map_or(" (the cart gone)".to_string(), |(c, s)| format!(" (the cart last at {c:?} at {s:.4} b/t)")) } else { String::new() }
+                if at_entry.is_none() { last_seen.map_or(" (the cart gone)".to_string(), |(c, s)| format!(" (the cart last at {c:?} at {s:.4} b/t)")) } else { String::new() },
+                if time_jumps > 0 { format!(" (GAME TIME NOT CONTINUOUS at {time_jumps} steps)") } else { String::new() },
+                if contacts > 0 { format!(" (CONTACTS {contacts} ticks)") } else { String::new() }
             ),
             at_entry,
             v_entry,
@@ -938,11 +1077,12 @@ pub fn ride_rows_with(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u
         ));
     }
     let mut out = Vec::new();
-    // (ironspec 19:31: (C)'s entry bar narrowed to A6's measured [0.11, 0.21] heading west (A6 is
-    // capped, not fixed); inherited from 58f770cc's A6 park sweep)
+    // (C)'s entry bar at A6's entry heading west: `o.band` (ironspec 21:25: A6's operating band
+    // [0.11, 0.24]; inherited from 58f770cc's A6 park sweep)
+    let band = o.band;
     let ok_v = |v: &Vec3| {
         let s = (v.x * v.x + v.z * v.z).sqrt();
-        (0.11..=0.21).contains(&s) && v.x < 0.0 && v.x.abs() > v.z.abs()
+        (band[0]..=band[1]).contains(&s) && v.x < 0.0 && v.x.abs() > v.z.abs()
     };
     for (label, t, v, hurt, derail, back) in &rows {
         out.push(format!(
@@ -956,15 +1096,18 @@ pub fn ride_rows_with(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u
     }
     let ts: Vec<u32> = rows.iter().filter_map(|r| r.1).collect();
     let ss: Vec<f64> = rows.iter().filter_map(|r| r.2.map(|v| (v.x * v.x + v.z * v.z).sqrt())).collect();
-    let all_ok = rows.iter().all(|r| r.1.is_some() && r.2.as_ref().is_some_and(ok_v) && r.3 <= 0.0 && !r.4 && !r.5 && !r.0.contains("EYE IN WATER"));
+    let all_ok = rows.iter().all(|r| r.1.is_some() && r.2.as_ref().is_some_and(ok_v) && r.3 <= 0.0 && !r.4 && !r.5 && !r.0.contains("EYE IN WATER") && !r.0.contains("CONTACTS") && !r.0.contains("GAME TIME NOT"));
     out.push(format!(
-        "(ride) {} rows: the entry at t {}..{} after the release, {:.4}..{:.4} b/t heading west (the bar [0.11, 0.21], inherited: ironspec 19:31 from 58f770cc's A6 park sweep); 0 hurt, on rails, never back south: {}",
+        "(ride) {} rows: the entry at t {}..{} after the release, {:.4}..{:.4} b/t heading west (the bar [{}, {}], inherited: ironspec 21:25 from 58f770cc's A6 park sweep); 0 hurt, on rails, never back south, 0 contacts, game time continuous; the closest fence box (post and arms as laid) to the cart's box over every row {}: {}",
         rows.len(),
         ts.iter().min().copied().unwrap_or(0),
         ts.iter().max().copied().unwrap_or(0),
         ss.iter().cloned().fold(f64::INFINITY, f64::min),
         ss.iter().cloned().fold(0.0, f64::max),
-        if all_ok { "PASS" } else { "FAIL" }
+        band[0],
+        band[1],
+        if fence_min.is_finite() { format!("{fence_min:.4} blocks") } else { "none near".to_string() },
+        if all_ok && !(fence_min.is_finite() && fence_min <= 0.0) { "PASS" } else { "FAIL" }
     ));
     Ok(out)
 }
@@ -988,6 +1131,7 @@ pub fn wait_lines(spec: &FarmSpec, o: &Opts, post: P, start: i64, ticks: u32, be
     }
     cells.extend(r1_cells(o));
     place_checked(&mut run.world, &cells)?;
+    settle_r1(&mut run.world, o);
     redsim::entity::spawn(&mut run.world, "minecraft:oak_boat", [post[0] as f64 + 0.5, post[1] as f64, post[2] as f64 + 0.5], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}"))?;
     let nbt = format!(
         "{{Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b,Brain:{{memories:{{\"minecraft:home\":{{value:{{dimension:\"minecraft:overworld\",pos:[I;{},{},{}]}}}}}}}}}}]}}",
@@ -1126,6 +1270,7 @@ pub fn sweep_lines(spec: &FarmSpec, o: &Opts, post: P, start: i64, ticks: u32, b
     }
     cells.extend(r1_cells(o));
     place_checked(&mut base.world, &cells)?;
+    settle_r1(&mut base.world, o);
     redsim::entity::spawn(&mut base.world, "minecraft:oak_boat", [post[0] as f64 + 0.5, post[1] as f64, post[2] as f64 + 0.5], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}"))?;
     let nbt = format!(
         "{{Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b,Brain:{{memories:{{\"minecraft:home\":{{value:{{dimension:\"minecraft:overworld\",pos:[I;{},{},{}]}}}}}}}}}}]}}",
@@ -1355,9 +1500,12 @@ pub fn sweep_lines(spec: &FarmSpec, o: &Opts, post: P, start: i64, ticks: u32, b
 /// and the entry with their walk targets, the first calm REST tick after the release with its HOME
 /// path, the stamp and HOME at the entry.
 #[allow(clippy::too_many_arguments)]
-pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], motion: [f64; 3], bed: P, day: i64, phases: u32, holds: &[u32], restart_ticks: &[i64], entry: P) -> Result<Vec<String>, String> {
+pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], motion: [f64; 3], bed: P, day: i64, phases: u32, holds: &[u32], restart_ticks: &[i64], entry: P, follow: u32) -> Result<Vec<String>, String> {
+    // (ironspec 22:10 (2)) the visit followed past A6's entry this many gt (the held walk's clear,
+    // the sleep, HOME, armings, how far the napper gets)
+    let follow = if follow == 0 { 600 } else { follow };
     let max_hold = holds.iter().copied().max().unwrap_or(80);
-    let ro = RunOpts { ai: true, ..RunOpts::steady(1, phases + 900 + max_hold, WalkMode::Random) };
+    let ro = RunOpts { ai: true, ..RunOpts::steady(1, phases + 900 + max_hold + follow, WalkMode::Random) };
     let (mut base, _) = crate::placing::start(&widened(spec, o), &ro, crate::placing::Placement::Judge, &crate::placing::BuildPlan::default())?;
     let mut cells: Vec<(BlockPos, Block)> = Vec::new();
     for (p, b) in o.extra.iter().map(|(p, b)| (*p, b.clone())).chain(queue_cells(o).into_iter().map(|(p, b, _)| (p, b.to_string()))) {
@@ -1365,6 +1513,7 @@ pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], 
     }
     cells.extend(r1_cells(o));
     place_checked(&mut base.world, &cells)?;
+    settle_r1(&mut base.world, o);
     if let Some(p) = post {
         redsim::entity::spawn(&mut base.world, "minecraft:oak_boat", [p[0] as f64 + 0.5, p[1] as f64, p[2] as f64 + 0.5], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}"))?;
     }
@@ -1397,6 +1546,7 @@ pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], 
     };
     let mut out = Vec::new();
     let (mut rows_n, mut before_n, mut armed_after_n, mut home_lost_n, mut entry_stamped_n) = (0u32, 0u32, 0u32, 0u32, 0u32);
+    let (mut over_1000_n, mut not_cleared_n, mut escaped_n) = (0u32, 0u32, 0u32);
     for k in 0..phases {
         // the leg and the shaft down to the arrival detector, shared by this phase's rows
         let mut w0 = base.clone();
@@ -1450,7 +1600,8 @@ pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], 
                 // (farmopt 17:07) the seat's own HOME path at its first calm REST tick before the release
                 let mut seat_calm: Option<String> = None;
                 let (mut cart_last, mut entry_v): (Option<([i32; 3], f64)>, Option<f64>) = (None, None);
-                for t in 0..(h + 400) {
+                let (mut a6_clear, mut a6_armed, mut a6_sleep, mut a6_far, mut a6_home, mut stamp_max) = (None::<u32>, Vec::<u32>::new(), None::<u32>, 0.0f64, None::<bool>, 0i64);
+                for t in 0..(h + 400 + follow) {
                     if let Some((rt, how)) = restart {
                         if t as i64 == rt {
                             let map = crate::liveness::restart(&mut r.world, how)?;
@@ -1501,20 +1652,53 @@ pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], 
                             entry_v = cart_last.map(|c| c.1);
                             stamp_entry = Some(since.map(|s| r.world.time - s));
                             home_entry = Some(redsim::entity::mob::ai::brain::brain(&r.world, i).home.is_some());
-                            break;
                         }
+                        // (ironspec 22:10 (2): the held walk into A6) past the entry: the stamp's clear,
+                        // new armings, the sleep, HOME, how far from the bed's head the napper gets
+                        if let Some(te) = at_entry {
+                            let after = t - h - te;
+                            if since.is_none() && prev_since.is_some() && a6_clear.is_none() {
+                                a6_clear = Some(after);
+                            }
+                            if after > 0 && since.is_some() && since != prev_since {
+                                a6_armed.push(after);
+                            }
+                            if a6_sleep.is_none() && redsim::entity::mob::mob(&r.world, i).sleeping_pos.is_some() {
+                                a6_sleep = Some(after);
+                            }
+                            let d = ((p.x - (bed[0] as f64 + 0.5)).powi(2) + (p.y - bed[1] as f64).powi(2) + (p.z - (bed[2] as f64 + 0.5)).powi(2)).sqrt();
+                            a6_far = a6_far.max(d);
+                            a6_home = Some(redsim::entity::mob::ai::brain::brain(&r.world, i).home.is_some());
+                            if after >= follow {
+                                break;
+                            }
+                        }
+                    }
+                    if let Some(s) = since {
+                        stamp_max = stamp_max.max(r.world.time - s);
                     }
                     prev_since = since;
                 }
                 rows_n += 1;
                 let before = cleared.as_ref().is_some_and(|(t, _)| *t < h) || (stamp_arr.is_none() && cleared.is_none());
                 before_n += before as u32;
-                armed_after_n += (!armed_after.is_empty()) as u32;
-                home_lost_n += (home_entry == Some(false)) as u32;
+                armed_after_n += (!armed_after.is_empty() || !a6_armed.is_empty()) as u32;
+                home_lost_n += (home_entry == Some(false) || a6_home == Some(false)) as u32;
                 entry_stamped_n += matches!(stamp_entry, Some(Some(_))) as u32;
-                if restart.is_none() || !before || !armed_after.is_empty() || home_entry != Some(true) {
+                // (ironspec 22:10 (2)) the held walk into A6 passes when: (i) the stamp's largest age
+                // over the visit <= 1,000 (inherited margin under the physical 1,200); (ii) a stamp at
+                // the entry clears inside A6; (iii) HOME kept; (v) 0 armings, 0 escapes (the napper
+                // past 16 of the bed's head); (iv) entry -> R is 58f770cc's harness's
+                let i_ok = stamp_max <= 1000;
+                let ii_ok = !matches!(stamp_entry, Some(Some(_))) || a6_clear.is_some();
+                let esc = a6_far > 16.0;
+                over_1000_n += (!i_ok) as u32;
+                not_cleared_n += (!ii_ok) as u32;
+                escaped_n += esc as u32;
+                let held_ok = i_ok && ii_ok && !esc && armed_after.is_empty() && a6_armed.is_empty() && home_entry == Some(true) && a6_home != Some(false);
+                if restart.is_none() || !held_ok {
                     out.push(format!(
-                        "(visit) phase +{k}, hold {h}{}: arrival at t {t_arr} with the stamp {}; the held walk {} ; the seat's first calm REST tick {}; the stamp cleared {}; armings after the release {}; the first calm REST tick after it {}; at the entry {}: the stamp {}, HOME {}",
+                        "(visit) phase +{k}, hold {h}{}: arrival at t {t_arr} with the stamp {}; the held walk {} ; the seat's first calm REST tick {}; the stamp cleared {}; armings after the release {}; the first calm REST tick after it {}; at the entry {}: the stamp {}, HOME {}; held walk: stamp {} at entry, cleared at {} in A6, the largest age {stamp_max} gt (<= 1,000: {}), asleep at {}, armings in A6 {}, HOME at +{follow} {}, the farthest from the bed's head {a6_far:.2}{}",
                         restart.map_or(String::new(), |(rt, how)| format!(", restart at +{rt} ({})", how.label())),
                         stamp_arr.map_or("none".to_string(), |a| format!("{a} gt")),
                         match (held_since, held_end) {
@@ -1528,16 +1712,23 @@ pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], 
                         first_calm.as_deref().unwrap_or("none"),
                         at_entry.map_or_else(|| format!("NEVER (the cart last at {:?})", cart_last), |t| format!("+{t} gt after the release at {:.4} b/t", entry_v.unwrap_or(0.0))),
                         stamp_entry.map_or("-".to_string(), |s| s.map_or("none".to_string(), |a| format!("{a} gt"))),
-                        home_entry.map_or("-".to_string(), |b| if b { "kept".to_string() } else { "LOST".to_string() })
+                        home_entry.map_or("-".to_string(), |b| if b { "kept".to_string() } else { "LOST".to_string() }),
+                        stamp_entry.flatten().map_or("none".to_string(), |a| a.to_string()),
+                        a6_clear.map_or(if matches!(stamp_entry, Some(Some(_))) { "NEVER".to_string() } else { "-".to_string() }, |c| format!("+{c} gt")),
+                        if i_ok { "yes" } else { "NO" },
+                        a6_sleep.map_or("never".to_string(), |s| format!("+{s} gt")),
+                        if a6_armed.is_empty() { "none".to_string() } else { format!("{a6_armed:?}") },
+                        a6_home.map_or("-".to_string(), |b| if b { "kept".to_string() } else { "LOST".to_string() }),
+                        if esc { " (ESCAPED past 16)" } else { "" }
                     ));
                 }
             }
         }
     }
     out.push(format!(
-        "(visit) {rows_n} rows ({phases} arrival phases x holds {holds:?} x (plain + restarts at {restart_ticks:?} in 10 orders)), the post {}: the stamp cleared before the release in {before_n}; armed after the release in {armed_after_n}; stamped at the entry {entry_stamped_n}; HOME lost {home_lost_n}: {}",
+        "(visit) {rows_n} rows ({phases} arrival phases x holds {holds:?} x (plain + restarts at {restart_ticks:?} in 10 orders)), the post {}, followed {follow} gt past A6's entry: the stamp cleared before the release in {before_n}; stamped at the entry {entry_stamped_n}, of them not cleared inside A6 {not_cleared_n}; the stamp's largest age over 1,000 in {over_1000_n}; armed after the release or in A6 in {armed_after_n}; HOME lost {home_lost_n}; escaped {escaped_n}: the held walk {} (entry -> R: 58f770cc's harness)",
         if post.is_some() { "in place" } else { "ABSENT (the (C') hatch shut at night / (C''))" },
-        if before_n == rows_n && armed_after_n == 0 && home_lost_n == 0 { "PASS" } else { "FAIL" }
+        if over_1000_n == 0 && not_cleared_n == 0 && armed_after_n == 0 && home_lost_n == 0 && escaped_n == 0 { "PASSES (i), (ii), (iii), (v)" } else { "FAILS" }
     ));
     Ok(out)
 }
@@ -1554,6 +1745,7 @@ pub fn path_probe_lines(spec: &FarmSpec, o: &Opts, at: &[[f64; 3]], bed: P) -> R
     }
     cells.extend(r1_cells(o));
     place_checked(&mut base.world, &cells)?;
+    settle_r1(&mut base.world, o);
     let bed_p = BlockPos::new(bed[0], bed[1], bed[2]);
     let mut out = Vec::new();
     for a in at {
@@ -1587,6 +1779,143 @@ pub fn path_probe_lines(spec: &FarmSpec, o: &Opts, at: &[[f64; 3]], bed: P) -> R
     Ok(out)
 }
 
+/// (farmopt 20:16: tick-exact's official restart row) tick-exact's water rig mixed: six DRY slopes
+/// ascending south (the cart rolls north from rest) onto twelve WATERLOGGED flats, glass under every
+/// rail and walls at x +- 1, the stop glass at z -18, a ridden cart summoned at (0.5, 100.5625,
+/// 0.5); a restart (`how`) between ticks t - 1 and t for each t of `ticks` (and none): the tick and
+/// the speed at which the cart leaves the 5th wet flat (z below -10), and its move on the reload
+/// tick.
+pub fn water_restart_rows(ticks: &[i64], how: crate::liveness::Restart) -> Result<Vec<String>, String> {
+    use redsim::world::{flags, World};
+    fn set(w: &mut World, p: (i32, i32, i32), s: &str) -> Result<(), String> {
+        w.set_block(BlockPos::new(p.0, p.1, p.2), Block::parse(s).map_err(|e| format!("{s}: {e}"))?, flags::ALL);
+        Ok(())
+    }
+    let mut w0 = World::new(BlockPos::new(-4, 88, -22), [12, 18, 28]);
+    let slope = "rail[shape=ascending_south,waterlogged=false]";
+    let flat = "rail[shape=north_south,waterlogged=true]";
+    for i in 0..6 {
+        set(&mut w0, (0, 99 - i, -i), "glass")?;
+        for y in (99 - i)..=(101 - i) {
+            set(&mut w0, (-1, y, -i), "glass")?;
+            set(&mut w0, (1, y, -i), "glass")?;
+        }
+        set(&mut w0, (0, 100 - i, -i), slope)?;
+    }
+    for j in 0..12 {
+        let z = -6 - j;
+        set(&mut w0, (0, 93, z), "glass")?;
+        for y in 93..=95 {
+            set(&mut w0, (-1, y, z), "glass")?;
+            set(&mut w0, (1, y, z), "glass")?;
+        }
+        set(&mut w0, (0, 94, z), flat)?;
+    }
+    set(&mut w0, (0, 94, -18), "glass")?;
+    set(&mut w0, (0, 95, -18), "glass")?;
+    set(&mut w0, (0, 100, 1), "glass")?;
+    for y in 100..=102 {
+        set(&mut w0, (-1, y, 1), "glass")?;
+        set(&mut w0, (1, y, 1), "glass")?;
+    }
+    set(&mut w0, (0, 101, 1), "rail[shape=north_south,waterlogged=false]")?;
+    set(&mut w0, (0, 101, 2), "glass")?;
+    set(&mut w0, (0, 102, 2), "glass")?;
+    for i in 0..6 {
+        set(&mut w0, (0, 100 - i, -i), slope)?;
+    }
+    let cart0 = redsim::entity::spawn(&mut w0, "minecraft:minecart", [0.5, 100.5625, 0.5], Some("{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}"))?;
+    let mut out = Vec::new();
+    for rt in std::iter::once(None).chain(ticks.iter().map(|&t| Some(t))) {
+        let mut w = w0.clone();
+        let mut cart = cart0;
+        let (mut left, mut reload_move) = (None::<(u32, f64)>, None::<(f64, f64, f64, f64)>);
+        for t in 1..=200u32 {
+            let before = w.entities.list.iter().find(|e| e.id == cart && !e.removed).map(|e| (e.pos.z, e.delta_movement.z.abs()));
+            if rt == Some(t as i64) {
+                let map = crate::liveness::restart(&mut w, how)?;
+                cart = *map.get(&cart).ok_or("the cart lost in the restart")?;
+            }
+            w.tick();
+            let Some(e) = w.entities.list.iter().find(|e| e.id == cart && !e.removed) else { break };
+            if rt == Some(t as i64) {
+                if let Some((z0, v0)) = before {
+                    reload_move = Some((z0, e.pos.z, v0, e.delta_movement.z.abs()));
+                }
+            }
+            if left.is_none() && e.pos.z < -10.0 {
+                left = Some((t, e.delta_movement.z.abs()));
+                break;
+            }
+        }
+        out.push(format!(
+            "(water-restart) {}: leaves the 5th wet flat at {}{}",
+            rt.map_or("no restart".to_string(), |t| format!("a restart at t {t} ({})", how.label())),
+            left.map_or("NEVER".to_string(), |(t, v)| format!("t {t} at {v:.4} b/t")),
+            reload_move.map_or(String::new(), |(z0, z1, v0, v1)| format!("; the reload tick z {z0:.3} -> {z1:.3}, v {v0:.4} -> {v1:.4}"))
+        ));
+    }
+    Ok(out)
+}
+
+/// (ironspec 19:12 (c): containment) The module with the extra cells (the way-in's water) run for
+/// `ticks` gt: every water cell in the box `lo..=hi` that isn't a waterlogged rail (flowing or source
+/// water outside the rails), at checkpoints and at the end; the bar: none.
+pub fn water_scan_lines(spec: &FarmSpec, o: &Opts, ticks: u32, lo: P, hi: P) -> Result<Vec<String>, String> {
+    let ro = RunOpts { ai: true, ..RunOpts::steady(1, ticks + 10, WalkMode::Random) };
+    let (mut run, _) = crate::placing::start(&widened(spec, o), &ro, crate::placing::Placement::Judge, &crate::placing::BuildPlan::default())?;
+    let mut cells: Vec<(BlockPos, Block)> = Vec::new();
+    for (p, b) in o.extra.iter().map(|(p, b)| (*p, b.clone())).chain(queue_cells(o).into_iter().map(|(p, b, _)| (p, b.to_string()))) {
+        cells.push((BlockPos::new(p[0], p[1], p[2]), Block::parse(&b).map_err(|e| format!("{b}: {e}"))?));
+    }
+    place_checked(&mut run.world, &cells)?;
+    // a paste with updates: each waterlogged cell's water tick, as its updateShape schedules it when
+    // a neighbour lands (place_checked puts raw, which schedules nothing; without this the water
+    // could never spread and the scan would prove nothing)
+    for (p, b) in &cells {
+        if redsim::fluid::waterlogged(b) == Some(true) || redsim::fluid::fluid_state_of(b).fluid.is_water() {
+            run.world.schedule_fluid_tick(*p, redsim::fluid::Fluid::Water, 5);
+        }
+    }
+    let scan = |w: &redsim::world::World| -> (usize, Vec<String>) {
+        let (mut wet_rails, mut loose) = (0usize, Vec::new());
+        for x in lo[0]..=hi[0] {
+            for y in lo[1]..=hi[1] {
+                for z in lo[2]..=hi[2] {
+                    let p = BlockPos::new(x, y, z);
+                    if !redsim::fluid::fluid_state(w, p).fluid.is_water() {
+                        continue;
+                    }
+                    let b = w.get(p);
+                    if redsim::rails::is_rail(&b) && redsim::fluid::waterlogged(&b) == Some(true) {
+                        wet_rails += 1;
+                    } else {
+                        loose.push(format!("({x},{y},{z}) {b}"));
+                    }
+                }
+            }
+        }
+        (wet_rails, loose)
+    };
+    let mut out = Vec::new();
+    let mut t = 0u32;
+    let mut worst = 0usize;
+    for cp in [1u32, 20, 200, 1200, 6000, ticks] {
+        if cp > ticks || cp < t {
+            continue;
+        }
+        while t < cp {
+            run.tick();
+            t += 1;
+        }
+        let (wet, loose) = scan(&run.world);
+        worst = worst.max(loose.len());
+        out.push(format!("(water-scan) t {t}: {wet} waterlogged rail(s), {} other water cell(s) in the box {lo:?}..{hi:?}{}", loose.len(), if loose.is_empty() { String::new() } else { format!(": {}", loose.join(", ")) }));
+    }
+    out.push(format!("(water-scan) over {ticks} gt: the most water cells outside the rails at a checkpoint {worst}: {}", if worst == 0 { "PASS" } else { "FAIL" }));
+    Ok(out)
+}
+
 /// The napper's way down (the leg, the shaft, the queue): a cart with its rider started at `start`
 /// with `motion`, followed until it rests on the queue rail: the tick it is on the HOLD detector
 /// (`hold`), the tick it first comes within 16 of the bed's head (`bed`: ValidateNearbyPoi's
@@ -1601,6 +1930,7 @@ pub fn leg_lines(spec: &FarmSpec, o: &Opts, start: [f64; 3], motion: [f64; 3], h
     }
     cells.extend(r1_cells(o));
     place_checked(&mut run.world, &cells)?;
+    settle_r1(&mut run.world, o);
     // (ironspec 14:58: the real arrival stamp per visit) with `day`, the rider carries its HOME (the
     // bed) and the ride starts at that day time: a calm REST rider computes its HOME walk from the
     // falling cart, partial, and may arrive with its stamp armed
