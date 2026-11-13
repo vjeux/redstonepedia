@@ -902,6 +902,32 @@ pub enum MobfarmCmd {
         #[arg(long, value_delimiter = ',')]
         villagers: Vec<usize>,
     },
+    /// (ironspec 2026-11-12 23:19 (3) / 23:21 / 23:38 / 23:48) A design file must be saved settled: laid as
+    /// the judges lay a design, its entities held (present, never ticked), daylight at the file's declared
+    /// time (`# day-time: N`, else --day-time, else noon), then block ticks until no cell changes and nothing
+    /// is pending (capped at --cap 200); a component still changing at the cap is a clock and must be
+    /// declared (`# clock: x,y,z; x,y,z = REASON`). The fixed point against the stored states: a changed
+    /// redstone cell fails, as does a shape state other than its own shape update (fence / pane / bars arms,
+    /// rail shapes, dust connections); wall and stair cells are UNCHECKED (no shape update in redsim) and
+    /// fail unless --allow-unchecked. --write re-emits the file settled (its leading comment lines kept).
+    /// Exit status 1 on a failure (mobfarm::settle).
+    SettleCheck {
+        file: PathBuf,
+        /// Write the settled file here.
+        #[arg(long)]
+        write: Option<PathBuf>,
+        #[arg(long, default_value_t = crate::settle::CAP)]
+        cap: u32,
+        /// The daylight's time (default: the file's `# day-time:` line, else 6000).
+        #[arg(long)]
+        day_time: Option<i64>,
+        /// Let wall and stair cells stand unchecked (printed).
+        #[arg(long)]
+        allow_unchecked: bool,
+        /// List every differing cell (the failing ones are listed anyway).
+        #[arg(long)]
+        all: bool,
+    },
     /// (ironspec 2026-11-12 21:43, a general rule; 22:37's specifics) A bench's cells and entities against
     /// the design of record: every cell of the bench's world box (REQUIRED: its `# world box:
     /// x0,y0,z0..x1,y1,z1` header line or --box; never inferred) widened by --margin (2: update and power
@@ -12364,6 +12390,87 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     }
                   }
                 }
+            }
+        }
+        MobfarmCmd::SettleCheck { file, write, cap, day_time, allow_unchecked, all } => {
+            let text = std::fs::read_to_string(&file)?;
+            let d = mctas::design::Design::parse(&text).map_err(|e| anyhow::anyhow!("{}: {e}", file.display()))?;
+            let decl = crate::settle::declared(&text).map_err(|e| anyhow::anyhow!("{}: {e}", file.display()))?;
+            let mut blocks = Vec::new();
+            for (p, s) in &d.blocks {
+                let b = crate::settle::block_of(s).map_err(|e| anyhow::anyhow!("{}: {s} at {},{},{}: not modelled by redsim: {e}", file.display(), p[0], p[1], p[2]))?;
+                blocks.push((redsim::pos::BlockPos::new(p[0], p[1], p[2]), b));
+            }
+            let bes: Vec<(redsim::pos::BlockPos, String)> = d.block_entities.iter().map(|(p, s)| (redsim::pos::BlockPos::new(p[0], p[1], p[2]), s.clone())).collect();
+            let ents: Vec<(String, [f64; 3], Option<String>)> = d.entities.iter().map(|e| (e.kind.clone(), e.pos, e.nbt.clone())).collect();
+            let dt = day_time.or(decl.day_time).unwrap_or(6000);
+            let s = crate::settle::settle_check(&blocks, &bes, &ents, &decl, dt, cap).map_err(|e| anyhow::anyhow!("{}: {e}", file.display()))?;
+            let fails = s.fails(allow_unchecked);
+            println!(
+                "settle-check {} (cc767b78, tool unreviewed): laid as the judges lay it, {} entities held, day time {dt}, {} fluid cells given their tick; {} ticks to {}; {} cells compared ({} redstone), {} shape cells checked; {} observers kicked once each ({} cells settling elsewhere after the kick: printed, the build order matters there); clocks: {} declared cells still changing, {} undeclared; new fluid cells after the settle: {} named in `# water:`, {} not (any fails: re-save with --write); designed currents (`# water:` cells in the file): {} ({} unbounded, {} holding no water); redstone cells stored unsettled {}; shape states differing {}; other changes {} (printed); wall / stair cells unchecked {}{}; model notes {}: {}",
+                file.display(),
+                ents.len(),
+                s.fluid_cells,
+                s.ticks,
+                if s.fixed { "the fixed point" } else { "the cap (no fixed point)" },
+                s.compared,
+                s.redstone_cells,
+                s.shape_cells,
+                s.observers_kicked,
+                s.kick_sensitive.len(),
+                s.clock_declared.len(),
+                s.clock_undeclared.len(),
+                s.water_declared.len(),
+                s.water_undeclared.len(),
+                s.currents.len(),
+                s.currents_unbounded.len(),
+                s.currents_missing.len(),
+                s.redstone.len(),
+                s.shapes.len(),
+                s.other.len(),
+                s.unchecked.len(),
+                if allow_unchecked && !s.unchecked.is_empty() { " (allowed)" } else { "" },
+                s.model_notes.len(),
+                if fails.is_empty() { "PASS".to_string() } else { format!("FAILS ({})", fails.join("; ")) }
+            );
+            let list = |title: &str, v: &[crate::settle::Cell]| {
+                for c in v {
+                    println!("  {title} ({},{},{}): stored {} -> {}", c.pos.x, c.pos.y, c.pos.z, c.stored, c.settled);
+                }
+            };
+            list("unsettled", &s.redstone);
+            list("shape", &s.shapes);
+            list("new fluid cell, not named", &s.water_undeclared);
+            for (c, why) in &s.water_declared {
+                println!("  new fluid cell, named in `# water:` ({},{},{}): {} ({why}): save it in the file", c.pos.x, c.pos.y, c.pos.z, c.settled);
+            }
+            for (p, why) in &s.currents {
+                println!("  designed current ({},{},{}): {why}", p.x, p.y, p.z);
+            }
+            for (p, q, b) in &s.currents_unbounded {
+                println!("  designed current ({},{},{}) UNBOUNDED: ({},{},{}) {b}", p.x, p.y, p.z, q.x, q.y, q.z);
+            }
+            list("settles elsewhere after an observer kick", &s.kick_sensitive);
+            for p in &s.clock_undeclared {
+                println!("  undeclared clock cell ({},{},{}): {}", p.x, p.y, p.z, blocks.iter().find(|(q, _)| q == p).map_or("air".to_string(), |(_, b)| b.to_string()));
+            }
+            if all || !allow_unchecked {
+                list("unchecked", &s.unchecked);
+            }
+            if all {
+                list("other", &s.other);
+            }
+            if let Some(out) = write {
+                let written = crate::settle::settled_text(&text, &d, &s.settled);
+                std::fs::write(&out, &written)?;
+                println!(
+                    "wrote {} (the fixed point, the computed shapes, the declared clocks as stored; header: {} lines kept verbatim; comment lines after the header are not kept)",
+                    out.display(),
+                    crate::settle::header_lines(&written).len()
+                );
+            }
+            if !fails.is_empty() {
+                std::process::exit(1);
             }
         }
         MobfarmCmd::RecordMatch { bench, record, offset, world_box, margin, all, declare } => {
