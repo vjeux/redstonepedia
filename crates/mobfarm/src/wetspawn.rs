@@ -18,13 +18,17 @@ use redsim::pos::BlockPos;
 use std::collections::HashMap;
 
 /// The species and the test each needs beyond the placement and the box.
-pub const SPECIES: [(&str, &str); 10] = [
+pub const SPECIES: [(&str, &str); 11] = [
     ("squid", "surface"),
     ("dolphin", "surface"),
     ("cod", "surface"),
     ("salmon", "surface"),
     ("pufferfish", "surface"),
     ("tropical_fish", "surface"),
+    // (tick-exact Nov 13 03:57: AbstractNautilus.checkNautilusSpawnRules 134-147, IN_WATER: water
+    // below, the WATER block above, sea level - 25 <= y <= sea level - 5; the worst case takes the
+    // band as passing)
+    ("nautilus", "surface"),
     ("glow_squid", "water_block"),
     ("drowned", "water_below"),
     ("guardian", "water_below"),
@@ -39,28 +43,45 @@ pub const SPECIES: [(&str, &str); 10] = [
 /// stated basis, light or the site's biome and y): a candidate there is printed apart with its
 /// reason and does not fail.
 /// (ironspec Nov 12 22:34 (5a)) The 26.3 table from the game's own data (redsim's biome table,
-/// 26.3's `Biome.getMobSettings`): every biome among `biomes` whose spawn lists hold a water mob or
-/// the drowned, each spawner with its category, weight and group size, and the rules each species
-/// spawns under (placement IN_WATER for all but the axolotl's ON_GROUND-like clay rule).
+/// 26.3's `Biome.getMobSettings`): every biome among `biomes` whose spawn lists hold a water
+/// category's species or a water-placed monster (the drowned, the guardians), EVERY such species
+/// with its category, weight, group size and the rule it spawns under, or "NO RULE (unmodelled)"
+/// (G1 Nov 13 03:51: no filter hides an unnamed water species).
 pub fn biome_table(biomes: &[String]) -> Vec<String> {
-    const WATERY: [&str; 10] = ["drowned", "squid", "glow_squid", "dolphin", "cod", "salmon", "pufferfish", "tropical_fish", "axolotl", "guardian"];
     let mut out = vec![
-        "the 26.3 table (redsim's terrain/biomes.tsv, 26.3's biome spawn settings; the rules as tick-exact cited them): biome: category type weight (group min-max)".to_string(),
-        "  rules: drowned (monster; Drowned 139-156): IN_WATER, water below and at the cell, block light 0 (the overworld's monster limit; the sky and raw-brightness draws can pass at night or in a thunderstorm), y < sea level - 5 unless the biome is tagged more_frequent_drowned_spawns (river, frozen_river); glow squid (underground_water_creature; GlowSquid 111-119): y <= sea level - 33, raw brightness 0, a water block; squid, dolphin (water_creature; AgeableWaterCreature 66-79), cod, salmon, pufferfish, tropical fish (water_ambient; WaterAnimal 70-82): sea level - 13 <= y <= sea level, water below, a water block above; axolotl (axolotls; Axolotl 563-571): clay below".to_string(),
+        "the 26.3 table (redsim's terrain/biomes.tsv, 26.3's biome spawn settings; the rules as tick-exact cited them): biome: category type weight (group min-max): rule".to_string(),
+        "  rules: drowned (monster; Drowned 139-156): IN_WATER, water below and at the cell, block light 0 (the overworld's monster limit; the sky and raw-brightness draws can pass at night or in a thunderstorm), y < sea level - 5 unless the biome is tagged more_frequent_drowned_spawns (river, frozen_river); glow squid (underground_water_creature; GlowSquid 111-119): y <= sea level - 33, raw brightness 0, a water block; squid, dolphin (water_creature; AgeableWaterCreature 66-79), cod, salmon, pufferfish, tropical fish (water_ambient; WaterAnimal 70-82): sea level - 13 <= y <= sea level, water below, a water block above; nautilus (water_creature; AbstractNautilus 134-147, tick-exact Nov 13 03:57): sea level - 25 <= y <= sea level - 5, water below, the WATER block above (a bubble column fails), no light test; axolotl (axolotls; Axolotl 563-571): clay below".to_string(),
     ];
     for name in biomes {
         let Some(bio) = redsim::terrain::biome::biome(name) else { continue };
         let rows: Vec<String> = bio
             .spawners
             .iter()
-            .filter(|s| WATERY.contains(&s.ty.trim_start_matches("minecraft:")))
-            .map(|s| format!("{} {} {} ({}-{})", s.category, s.ty.trim_start_matches("minecraft:"), s.weight, s.min, s.max))
+            .filter(|s| WATER_CATEGORIES.contains(&s.category.as_str()) || (s.category == "monster" && species_rule(&s.ty).is_some()))
+            .map(|s| format!("{} {} {} ({}-{}): {}", s.category, s.ty.trim_start_matches("minecraft:"), s.weight, s.min, s.max, species_rule(&s.ty).unwrap_or("NO RULE (unmodelled)")))
             .collect();
         if rows.is_empty() {
             continue;
         }
         let tag = if bio.has_tag("minecraft:more_frequent_drowned_spawns") || bio.has_tag("more_frequent_drowned_spawns") { " [more_frequent_drowned_spawns: no depth rule]" } else { "" };
         out.push(format!("  {name}{tag}: {}", rows.join("; ")));
+    }
+    out
+}
+
+/// (G1 Nov 13 03:51) The species the 26.3 lists of `biomes` hold in a water category with no rule
+/// modelled: (species, category, the biomes listing it).
+pub fn unmodelled_species(biomes: &[String]) -> Vec<(String, String, Vec<String>)> {
+    let mut out: Vec<(String, String, Vec<String>)> = Vec::new();
+    for name in biomes {
+        let Some(bio) = redsim::terrain::biome::biome(name) else { continue };
+        for s in bio.spawners.iter().filter(|s| WATER_CATEGORIES.contains(&s.category.as_str()) && species_rule(&s.ty).is_none()) {
+            let ty = s.ty.trim_start_matches("minecraft:").to_string();
+            match out.iter_mut().find(|(t, c, _)| *t == ty && *c == s.category) {
+                Some((_, _, bs)) => bs.push(name.trim_start_matches("minecraft:").to_string()),
+                None => out.push((ty, s.category.clone(), vec![name.trim_start_matches("minecraft:").to_string()])),
+            }
+        }
     }
     out
 }
@@ -417,6 +438,30 @@ impl Site {
 /// and the candidates outside the declared `water-spawn:` cells. ONE STATE SOURCE, as [`scan`]:
 /// every condition and the light read `spec`, the settled world the caller passes.
 pub fn site_scan(spec: &FarmSpec, wet_cells: &[BlockPos], declared: &[(BlockPos, String)], site: &Site) -> Result<(Vec<String>, usize), String> {
+    site_scan_with(spec, wet_cells, declared, site, &|n| redsim::terrain::biome::biome(n).cloned())
+}
+
+/// The rule a water-placed species spawns under, by its 26.3 class (None: no rule modelled).
+pub fn species_rule(ty: &str) -> Option<&'static str> {
+    match ty.trim_start_matches("minecraft:") {
+        "drowned" => Some("drowned"),
+        "glow_squid" => Some("glow_squid"),
+        "squid" | "dolphin" | "cod" | "salmon" | "pufferfish" | "tropical_fish" => Some("surface"),
+        // (tick-exact Nov 13 03:57: AbstractNautilus.checkNautilusSpawnRules 134-147)
+        "nautilus" => Some("nautilus"),
+        "axolotl" => Some("axolotl"),
+        "guardian" | "elder_guardian" => Some("guardian"),
+        _ => None,
+    }
+}
+
+/// The spawn categories whose every species is water-placed (G1 Nov 13 03:51: an unnamed species
+/// in one of them FAILS as "no rule for <species> (unmodelled)"; `monster` keeps skipping its land
+/// mobs).
+pub const WATER_CATEGORIES: [&str; 4] = ["water_creature", "water_ambient", "underground_water_creature", "axolotls"];
+
+/// [`site_scan`] over a biome lookup (the game's table; a stub row in the unit tests).
+pub fn site_scan_with(spec: &FarmSpec, wet_cells: &[BlockPos], declared: &[(BlockPos, String)], site: &Site, lookup: &dyn Fn(&str) -> Option<redsim::terrain::biome::Biome>) -> Result<(Vec<String>, usize), String> {
     use redsim::entity::mob::farm::{Run, RunOpts, WalkMode};
     let run = if spec.has_bed() { Run::new(spec, &RunOpts::steady(0, 0, WalkMode::Random)) } else { Run::new_homeless(spec, &RunOpts::steady(0, 0, WalkMode::Random)) }?;
     let w = run.world;
@@ -480,20 +525,25 @@ pub fn site_scan(spec: &FarmSpec, wet_cells: &[BlockPos], declared: &[(BlockPos,
     }
     lines.push(format!("  light as composed (the module alone under the open sky): {}", runs.join("; ")));
     let mut failing = 0usize;
+    // (the heights that keep the module in the overworld: y -64..319)
+    let (y0_min, y0_max) = (-64 - spec.lo.y, 319 - spec.hi.y);
+    let mut excluded_lines: Vec<String> = Vec::new();
     for name in &site.biomes {
-        let Some(bio) = redsim::terrain::biome::biome(name) else { continue };
+        let Some(bio) = lookup(name) else { continue };
         let river = bio.has_tag("minecraft:more_frequent_drowned_spawns") || bio.has_tag("more_frequent_drowned_spawns");
         let mut per: Vec<(String, Vec<BlockPos>)> = Vec::new();
+        let mut unmodelled: Vec<String> = Vec::new();
+        let mut excluded: Vec<(i32, i32, String)> = Vec::new();
         for cat in ["monster", "water_creature", "water_ambient", "underground_water_creature", "axolotls"] {
             for sp in bio.mobs(cat) {
                 let ty = sp.ty.trim_start_matches("minecraft:");
-                let rule = match ty {
-                    "drowned" => "drowned",
-                    "glow_squid" => "glow_squid",
-                    "squid" | "dolphin" | "cod" | "salmon" | "pufferfish" | "tropical_fish" => "surface",
-                    "axolotl" => "axolotl",
-                    "guardian" | "elder_guardian" => "guardian",
-                    _ => continue,
+                let Some(rule) = species_rule(ty) else {
+                    // (G1 Nov 13 03:51: never skipped silently: a water category's species with no
+                    // rule fails the row, named)
+                    if cat != "monster" {
+                        unmodelled.push(format!("no rule for {ty} ({cat}, unmodelled)"));
+                    }
+                    continue;
                 };
                 let mut cells = Vec::new();
                 for p in &wet {
@@ -502,14 +552,26 @@ pub fn site_scan(spec: &FarmSpec, wet_cells: &[BlockPos], declared: &[(BlockPos,
                         continue;
                     }
                     let (sky, blk) = light[p];
-                    let ok = match rule {
-                        "drowned" => water(&below) && water(p) && blk == 0 && (river || a + p.y < sea - 5),
-                        "glow_squid" => water_block(p) && a + p.y <= sea - 33 && sky == 0 && blk == 0,
-                        "surface" => water(&below) && water_block(&above) && a + p.y <= sea && b + p.y >= sea - 13,
-                        "axolotl" => clay(&below),
-                        _ => water(&below) && water(p),
+                    // (the rule's block tests, and the module y0 values its height band admits at
+                    // this cell: candidate at the site iff the tests pass and the band meets y0's
+                    // range; the band printed per biome as the excluded y0, farmopt / ironspec 03:59)
+                    let all = (i32::MIN / 4, i32::MAX / 4);
+                    let (tests, band) = match rule {
+                        "drowned" => (water(&below) && water(p) && blk == 0, if river { all } else { (all.0, sea - 6 - p.y) }),
+                        "glow_squid" => (water_block(p) && sky == 0 && blk == 0, (all.0, sea - 33 - p.y)),
+                        "surface" => (water(&below) && water_block(&above), (sea - 13 - p.y, sea - p.y)),
+                        // (tick-exact Nov 13 03:57: IN_WATER; water fluid below, the WATER block
+                        // itself above (a bubble column, a waterlogged block or air fails), sea level
+                        // - 25 <= y <= sea level - 5; no light test)
+                        "nautilus" => (water(&below) && water_block(&above), (sea - 25 - p.y, sea - 5 - p.y)),
+                        "axolotl" => (clay(&below), all),
+                        _ => (water(&below) && water(p), all),
                     };
-                    if ok {
+                    if !tests {
+                        continue;
+                    }
+                    excluded.push((band.0.max(y0_min), band.1.min(y0_max), format!("{ty} {},{},{}", p.x, p.y, p.z)));
+                    if band.0 <= b && band.1 >= a {
                         cells.push(*p);
                     }
                 }
@@ -518,7 +580,32 @@ pub fn site_scan(spec: &FarmSpec, wet_cells: &[BlockPos], declared: &[(BlockPos,
                 }
             }
         }
-        if per.is_empty() {
+        // (the y0 values each biome excludes: the union over every wet cell and species whose block
+        // tests pass of the band its rule admits, within the heights that keep the module in the
+        // world)
+        excluded.retain(|(lo, hi, _)| lo <= hi);
+        excluded.sort();
+        let mut merged: Vec<(i32, i32, Vec<String>)> = Vec::new();
+        for (lo, hi, why) in excluded.drain(..) {
+            match merged.last_mut() {
+                Some((_, mhi, ws)) if lo <= *mhi + 1 => {
+                    *mhi = (*mhi).max(hi);
+                    if !ws.contains(&why) {
+                        ws.push(why);
+                    }
+                }
+                _ => merged.push((lo, hi, vec![why])),
+            }
+        }
+        excluded_lines.push(format!(
+            "  y0 excluded in {name}: {}",
+            if merged.is_empty() {
+                "none".to_string()
+            } else {
+                merged.iter().map(|(lo, hi, ws)| format!("{lo}..{hi} ({}{})", ws.iter().take(6).cloned().collect::<Vec<_>>().join(", "), if ws.len() > 6 { format!(", +{} more", ws.len() - 6) } else { String::new() })).collect::<Vec<_>>().join("; ")
+            }
+        ));
+        if per.is_empty() && unmodelled.is_empty() {
             continue;
         }
         let mut biome_fail = 0usize;
@@ -533,9 +620,14 @@ pub fn site_scan(spec: &FarmSpec, wet_cells: &[BlockPos], declared: &[(BlockPos,
                 if dec.is_empty() { String::new() } else { format!(", {} at declared cells", dec.len()) }
             ));
         }
+        // (G1 Nov 13 03:51: each unmodelled water species fails the row by itself)
+        biome_fail += unmodelled.len();
+        parts.extend(unmodelled);
         failing += biome_fail;
         lines.push(format!("  {} {name}{}: {}", if biome_fail > 0 { "FAIL" } else { "DECLARED" }, if river { " (more-frequent-drowned: no depth rule)" } else { "" }, parts.join("; ")));
     }
+    lines.push(format!("  the y0 each biome excludes (the module's y 0 kept in {y0_min}..{y0_max}; the union over every wet cell whose block tests pass of its rule's band):"));
+    lines.extend(excluded_lines);
     lines[0].push_str(&format!(": {failing} candidates{}", if failing == 0 { " (PASS)" } else { " (FAIL)" }));
     Ok((lines, failing))
 }
@@ -607,6 +699,69 @@ mod tests {
         assert!(l3.iter().any(|x| x.starts_with("  SPILL 0,0,0 (source) flows West into -1,0,0 (air)")), "{l3:?}");
     }
 
+    /// (tick-exact Nov 13 03:57 / ironspec 03:59, the nautilus's positive control through
+    /// `site_scan`'s own path) At an ocean site, a 3-high plain-water column with its middle cell at
+    /// sea level - 10 admits the nautilus there; the same column under a bubble-column cell (a
+    /// supported bubble column: `Block::BubbleColumn` is not `Block::Water`, as the game's
+    /// `is(Blocks.WATER)`) does not; at sea level - 3 the nautilus is refused while the surface rule
+    /// (the squid) admits it; the excluded y0 printed per biome.
+    #[test]
+    fn nautilus_band_and_water_block_above() {
+        let b = |x, y, z| BlockPos::new(x, y, z);
+        let spec = spec_of(&[
+            (b(0, 0, 0), "minecraft:water[level=0]"),
+            (b(0, 1, 0), "minecraft:water[level=0]"),
+            (b(0, 2, 0), "minecraft:water[level=0]"),
+            (b(3, -1, 0), "minecraft:soul_sand"),
+            (b(3, 0, 0), "minecraft:bubble_column[drag=false]"),
+            (b(3, 1, 0), "minecraft:bubble_column[drag=false]"),
+            (b(3, 2, 0), "minecraft:bubble_column[drag=false]"),
+        ]);
+        assert!(!matches!(Block::parse("minecraft:bubble_column[drag=false]").unwrap(), Block::Water { .. }), "a bubble column is not the WATER block");
+        let at = |y0: i32| Site::parse(&format!("biomes=minecraft:ocean; sea_level=63; y0={y0}..{y0}")).unwrap();
+        // (the cells (0,1,0) and (3,1,0) at y 53 = sea level - 10)
+        let (l, _) = site_scan(&spec, &[], &[], &at(52)).unwrap();
+        let row = l.iter().find(|x| x.starts_with("  FAIL minecraft:ocean")).unwrap_or_else(|| panic!("{l:?}"));
+        // (the nautilus admits the plain column's middle cell only: 1 cell, not (3,1,0) under the
+        // bubble column; the drowned, water below and at, take both)
+        assert!(row.contains("nautilus 1 cells (0,1,0);"), "{row}");
+        // (at y 60 = sea level - 3: the squid yes, the nautilus no)
+        let (l3, _) = site_scan(&spec, &[], &[], &at(59)).unwrap();
+        let row3 = l3.iter().find(|x| x.starts_with("  FAIL minecraft:ocean")).unwrap_or_else(|| panic!("{l3:?}"));
+        assert!(row3.contains("squid 1 cells (0,1,0)") && !row3.contains("nautilus"), "{row3}");
+        // (the excluded y0 in the ocean: the drowned's band below sea level - 5 from the lowest
+        // height that keeps the module in the world (-60), the nautilus's 37..57 and the surface
+        // animals' 49..62 at the plain column's middle cell, merged: -60..62)
+        assert!(l3.iter().any(|x| x.starts_with("  y0 excluded in minecraft:ocean: -60..62 (") && x.contains("nautilus 0,1,0")), "{l3:?}");
+    }
+
+    /// (G1 Nov 13 03:51, the positive control) An unnamed species in a water category is never
+    /// skipped: a stub ocean row whose only water spawn is an unmodelled `water_creature` species
+    /// fails the row, naming it, through `site_scan_with`'s own path; the printed table names every
+    /// water-category species with its rule or "NO RULE".
+    #[test]
+    fn unmodelled_water_species_fails_named() {
+        let b = |x, y, z| BlockPos::new(x, y, z);
+        let column = spec_of(&[(b(0, 0, 0), "minecraft:water[level=0]"), (b(0, 1, 0), "minecraft:water[level=0]"), (b(0, -1, 0), "minecraft:glass")]);
+        let ocean = Site::parse("biomes=minecraft:ocean; sea_level=63; y0=200..200").unwrap();
+        let stub = |n: &str| {
+            let mut bio = redsim::terrain::biome::biome(n).cloned()?;
+            bio.spawners = vec![redsim::terrain::biome::Spawner { category: "water_creature".to_string(), ty: "minecraft:stub_fish".to_string(), weight: 1, min: 1, max: 1 }];
+            Some(bio)
+        };
+        let (l, n) = site_scan_with(&column, &[], &[], &ocean, &stub).unwrap();
+        assert!(n == 1 && l.iter().any(|x| x.starts_with("  FAIL minecraft:ocean") && x.contains("no rule for stub_fish (water_creature, unmodelled)")), "{l:?}");
+        // (the game's own ocean at the same height: every species has its rule (the nautilus since
+        // tick-exact's 03:57 citation), no candidate cell so high)
+        let (lr, n_real) = site_scan(&column, &[], &[], &ocean).unwrap();
+        assert_eq!(n_real, 0, "{lr:?}");
+        let t = biome_table(&["minecraft:ocean".to_string(), "minecraft:lush_caves".to_string()]);
+        assert!(t.iter().any(|x| x.starts_with("  minecraft:ocean") && x.contains("water_creature squid") && x.contains(": surface") && x.contains("water_creature nautilus 5 (1-1): nautilus")), "{t:?}");
+        assert!(t.iter().any(|x| x.starts_with("  minecraft:lush_caves") && x.contains("axolotls axolotl") && x.contains(": axolotl")), "{t:?}");
+        let um = unmodelled_species(&overworld_biomes());
+        assert!(um.is_empty(), "every water-category species of 26.3's overworld lists has a rule: {um:?}");
+    }
+
     /// (G1 Nov 13 02:23 (a), the general positive control through the scan's own path) Open water
     /// the official rules allow is FOUND: a water column three deep (stored water blocks) at an ocean
     /// site with its middle cell in sea level - 13..sea level admits the squid and the cod there.
@@ -646,8 +801,9 @@ mod tests {
         assert!(diffs.iter().any(|d| d.starts_with("0,1,0 air -> water")), "the settle makes the current: {diffs:?}");
         let (l, n) = site_scan(&s, &[], &[], &ocean).unwrap();
         assert!(n >= 1 && l.iter().any(|x| x.starts_with("  FAIL minecraft:ocean") && x.contains("squid 1 cells (0,0,0)")), "{l:?}");
-        let (_, n_file) = site_scan(&spec, &[], &[], &ocean).unwrap();
-        assert_eq!(n_file, 0, "on the file's blocks the current is air: no water block above");
+        let (lf, n_file) = site_scan(&spec, &[], &[], &ocean).unwrap();
+        // (on the file's blocks the current is air: no water block above, no candidate)
+        assert!(n_file == 0 && !lf.iter().any(|x| x.contains("squid")), "{lf:?}");
     }
 
     /// (ironspec Nov 12 22:36) The site evaluation: a dark water column (water below and at, block
