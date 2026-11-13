@@ -630,8 +630,13 @@ pub fn is_solid_render(b: &Block) -> bool {
         | Block::Jukebox { .. }
         | Block::Furnace { .. }
         | Block::Tnt { .. }
-        | Block::RespawnAnchor { .. } => true,
+        | Block::RespawnAnchor { .. }
+        // (G1's N38: a jack o'lantern and a froglight are full opaque cubes, solid-render in the game)
+        | Block::JackOLantern { .. }
+        | Block::Froglight { .. } => true,
         Block::Slab { kind } | Block::StoneSlab { kind } => kind == 2,
+        // (a double slab of any material is a full cube too; a waterlogged slab is never double)
+        Block::AnySlab { kind, .. } => kind == 2,
         Block::Piston { extended, .. } => !extended,
         _ => false,
     }
@@ -639,3 +644,25 @@ pub fn is_solid_render(b: &Block) -> bool {
 
 #[allow(dead_code)]
 fn _unused(_t: PathType) {}
+
+#[cfg(test)]
+mod solid_render_tests {
+    use super::*;
+
+    /// G1's N38: a jack o'lantern, a froglight and a double slab of any material are full opaque cubes,
+    /// solid-render in the game; glass and a bottom slab aren't. A candidate cell on a froglight floor is a
+    /// stable destination (it never was before).
+    #[test]
+    fn full_opaque_cubes_render_solid() {
+        for s in ["minecraft:jack_o_lantern[facing=north]", "minecraft:ochre_froglight[axis=y]", "minecraft:prismarine_slab[type=double,waterlogged=false]"] {
+            assert!(is_solid_render(&Block::parse(s).unwrap()), "{s} renders solid");
+        }
+        for s in ["minecraft:glass", "minecraft:prismarine_slab[type=bottom,waterlogged=false]"] {
+            assert!(!is_solid_render(&Block::parse(s).unwrap()), "{s} doesn't");
+        }
+        let mut w = World::new(BlockPos::new(-2, -2, -2), [5, 5, 5]);
+        w.set_block(BlockPos::new(0, -1, 0), Block::parse("minecraft:verdant_froglight[axis=y]").unwrap(), crate::world::flags::ALL);
+        assert!(is_stable_destination(&w, BlockPos::new(0, 0, 0)), "a candidate cell on a froglight floor is a stable destination");
+        assert!(!is_stable_destination(&w, BlockPos::new(1, 0, 0)), "and one on air isn't");
+    }
+}
