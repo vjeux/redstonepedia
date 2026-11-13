@@ -739,6 +739,10 @@ struct Ctl {
     /// (G1's [4]) R's detector power over the last 9 ticks: RS_ready's set input is its value 8 gt
     /// ago.
     rdet_hist: std::collections::VecDeque<bool>,
+    /// (ironspec 15:23 (3), rider-keyed RS_ready) R's detector held by an empty cart last tick, and
+    /// the empty presses counted (none sets RS_ready)
+    rdet_empty_prev: bool,
+    rdet_empty_presses: u32,
     q_hold_since: Option<i64>,
     /// (ironspec 17:16) the queue's hold term in gt (0: none, the release as soon as the stop is
     /// free); every arrival (the dwell: arrival to release); every PRESENT_l set and every D pass
@@ -1916,15 +1920,24 @@ impl Ctl {
         }
         self.rdet_prev = rdet;
         // (ironspec 22:40 PT (2), G1's [4]) the latch's set input is R's detector power delayed
-        // 8 gt, as day-1's line-7 design builds it: RS_ready set while rdet(now - 8) is high (its
-        // level, not its rise), reset at the queue's departure
-        self.rdet_hist.push_back(rdet);
-        while self.rdet_hist.len() > 9 {
+        // (day-1 15:26: d_RS = 10 gt, the repeaters 2 + 3) as day-1's line-7 design builds it:
+        // RS_ready set while rdet(now - 10) is high (its level, not its rise), reset at the queue's
+        // departure; (ironspec 15:23 (3), 12:50 bought) RIDER-KEYED: R's press counts only with a
+        // RIDDEN cart on R's detector, an empty cart never sets it
+        let ridden_on_r = rdet
+            && w.entities.list.iter().any(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && !e.passengers.is_empty() && (cell(e.pos) == [4, by - 1, 4] || cell(e.pos) == [4, by, 4]));
+        if rdet && !ridden_on_r && !self.rdet_empty_prev {
+            self.nap_events.push(format!("t {now}: R's detector pressed by an EMPTY cart: RS_ready not set (rider-keyed)"));
+            self.rdet_empty_presses += 1;
+        }
+        self.rdet_empty_prev = rdet && !ridden_on_r;
+        self.rdet_hist.push_back(ridden_on_r);
+        while self.rdet_hist.len() > 11 {
             self.rdet_hist.pop_front();
         }
-        if self.wayin && self.rdet_hist.len() == 9 && self.rdet_hist[0] {
+        if self.wayin && self.rdet_hist.len() == 11 && self.rdet_hist[0] {
             if !self.q_rs_ready {
-                self.nap_events.push(format!("t {now}: RS_ready set (R's detector powered at t {})", now - 8));
+                self.nap_events.push(format!("t {now}: RS_ready set (R's detector pressed by a ridden cart at t {})", now - 10));
             }
             self.q_rs_ready = true;
         }
@@ -3057,6 +3070,9 @@ pub fn run_driven(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, 
     Ok((rep, drive_text.map(|(head, t0)| {
         let mut s = head;
         s.push_str(&format!("# t0 {t0}\n"));
+        // (onechunk 15:24, cc767b78's replay) the run's own day0 (RunOpts::steady's draw), which the
+        // replay's RunOpts must equal: the scene's `# day-time:` is the save's, not the run's
+        s.push_str(&format!("# day0 {}\n", RunOpts::steady(o.seed, 0, WalkMode::Random).day0));
         for a in log.map(|l| l.1).unwrap_or_default() {
             s.push_str(&a);
             s.push('\n');

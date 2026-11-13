@@ -1813,6 +1813,12 @@ pub enum MobfarmCmd {
         /// lane re-lays). Repeatable.
         #[arg(long = "clear", allow_hyphen_values = true)]
         clears: Vec<String>,
+        /// (onechunk 15:29, 58f770cc's recipe for the (A) recomposition) A part's file and its move,
+        /// `FILE@dx,dy,dz`, whose every non-air cell (moved) is cleared as a one-cell `--clear` box:
+        /// takes a composed part out cell for cell where a box cut can't separate it (A6's fold
+        /// beside the napper lift). Repeatable.
+        #[arg(long = "clear-part", allow_hyphen_values = true)]
+        clear_parts: Vec<String>,
         /// The column's cells x0,z0,x1,z1 in the frame.
         #[arg(long, default_value = "-6,-6,9,9", allow_hyphen_values = true)]
         column: String,
@@ -7627,7 +7633,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let o = crate::columnrun::Opts { cycles, warm, seed, close_at, slope_delay, g2_plus, hold_shut_delay, pulse, laps, trace };
             print!("{}", crate::columnrun::run(&spec, &c.clock.design.meta, &o).map_err(|e| anyhow::anyhow!(e))?);
         }
-        MobfarmCmd::Column { parts, reserves, reserves_from, reserve_skip, ports, tracks, carts, posts, clears, column, chunk_phase, plan, name, assert_aligned, no_settle, settle, ground, out_shift, no_riders, positions_out, path, notes, bed, bed_exempt, sentinel, sections, summon_box, golem_box, run_gate, run_cell, run_controller, notes_file, pockets, block, wait_box, out, verify, keep_clear, sight_path } => {
+        MobfarmCmd::Column { parts, reserves, reserves_from, reserve_skip, ports, tracks, carts, posts, clears, clear_parts, column, chunk_phase, plan, name, assert_aligned, no_settle, settle, ground, out_shift, no_riders, positions_out, path, notes, bed, bed_exempt, sentinel, sections, summon_box, golem_box, run_gate, run_cell, run_controller, notes_file, pockets, block, wait_box, out, verify, keep_clear, sight_path } => {
             let mut notes = notes;
             if let Some(nf) = &notes_file {
                 notes.extend(std::fs::read_to_string(nf)?.lines().map(str::trim).filter(|l| !l.is_empty()).map(String::from));
@@ -7672,7 +7678,23 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 Some(b) => Some(crate::column::Reserve::parse(&format!("golem={b}")).map_err(|e| anyhow::anyhow!(e))?.b),
             };
             anyhow::ensure!(summoners.is_empty() || golem_b.is_some(), "--summon-box needs --golem-box");
-            let clear: Vec<([i32; 3], [i32; 3])> = clears.iter().map(|s| crate::column::Reserve::parse(&format!("clear={s}")).map(|r| r.b)).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!(e))?;
+            let mut clear: Vec<([i32; 3], [i32; 3])> = clears.iter().map(|s| crate::column::Reserve::parse(&format!("clear={s}")).map(|r| r.b)).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!(e))?;
+            // (onechunk 15:29) --clear-part FILE@dx,dy,dz: each of that file's non-air cells, moved,
+            // a one-cell clear box
+            for cp in &clear_parts {
+                let (file, mv) = cp.rsplit_once('@').ok_or_else(|| anyhow::anyhow!("--clear-part takes FILE@dx,dy,dz"))?;
+                let d: Vec<i32> = mv.split(',').map(|t| t.trim().parse::<i32>()).collect::<std::result::Result<_, _>>()?;
+                anyhow::ensure!(d.len() == 3, "--clear-part takes FILE@dx,dy,dz");
+                let (_c, part) = load(version, &PathBuf::from(file))?;
+                let before = clear.len();
+                for (p, b) in &part.blocks {
+                    if b.to_string() != "minecraft:air" {
+                        let c = [p.x + d[0], p.y + d[1], p.z + d[2]];
+                        clear.push((c, c));
+                    }
+                }
+                println!("--clear-part {cp}: {} cells cleared", clear.len() - before);
+            }
             let specs: Vec<crate::column::PartSpec> = parts.iter().map(|s| crate::column::PartSpec::parse(s)).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!(e))?;
             // (G1 / ironspec 10:05) the tiling invariant: every part on the chunk grid
             if assert_aligned {
