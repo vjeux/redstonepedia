@@ -452,6 +452,38 @@ pub struct AiWorld {
     /// (until a centre comes within 5 again). Also the centres already counted.
     pub village_seen: std::sync::Arc<std::collections::HashSet<(i32, i32, i32)>>,
     pub village_noted: std::collections::HashSet<(i32, i32, i32)>,
+    /// (b8949c96, ironspec 08:13: the at-entry bar's record) when `Some`, every run of
+    /// `SetWalkTargetFromBlockMemory` is appended: its tick, the villager, the memory it walks to, the
+    /// branch it took and the CANT_REACH age it SAW (the pre-run stamp; the release branch then sets the
+    /// stamp to the run's tick). `None` (the default): nothing is recorded.
+    pub walk_memory_runs: Option<Vec<WalkMemoryRun>>,
+}
+
+/// (b8949c96, ironspec 08:13) one run of `SetWalkTargetFromBlockMemory` ([`AiWorld::walk_memory_runs`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WalkMemoryRun {
+    pub t: i64,
+    pub id: u32,
+    pub mem: brain::M,
+    pub branch: WalkMemoryBranch,
+    /// The CANT_REACH age the behaviour saw (`None`: no stamp).
+    pub stamp_age_seen: Option<i64>,
+}
+
+/// (b8949c96, ironspec 08:13) the branch a `SetWalkTargetFromBlockMemory` run took.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WalkMemoryBranch {
+    /// Too long unreachable (the stamp older than `tooLongUnreachableDuration`): releasePoi, the memory
+    /// erased, the stamp set to the run's tick.
+    Release,
+    /// Too far, 1,000 tries without a random target in range: the same three steps.
+    ReleaseAfterTries,
+    /// Too far: a random target toward the memory's block.
+    Toward,
+    /// The memory's block as the walk target.
+    Target,
+    /// Within the close distance: no walk target set.
+    Nothing,
 }
 
 /// A mob whose AI is not modeled: no goals and no targets (villagers have their brain, bats their
@@ -462,7 +494,7 @@ pub fn unmodeled(ty: MobType, a: &MobAi) -> bool {
 
 impl Default for AiWorld {
     fn default() -> AiWorld {
-        AiWorld { on: false, difficulty: super::natural::Difficulty::Normal, players: Vec::new(), mob_griefing: true, attacker: None, projectile_motion: None, pois: None, poi_seq: std::collections::HashMap::new(), poi_next: 0, poi_tickets: Some(std::collections::BTreeMap::new()), lights: None, sky_cache: std::collections::HashMap::new(), collections: None, block_cache: std::collections::HashMap::new(), poi_hashes: None, strict: false, legacy: std::collections::BTreeSet::new(), bodies: Vec::new(), player_moved: false, village_seen: Default::default(), village_noted: std::collections::HashSet::new() }
+        AiWorld { on: false, difficulty: super::natural::Difficulty::Normal, players: Vec::new(), mob_griefing: true, attacker: None, projectile_motion: None, pois: None, poi_seq: std::collections::HashMap::new(), poi_next: 0, poi_tickets: Some(std::collections::BTreeMap::new()), lights: None, sky_cache: std::collections::HashMap::new(), collections: None, block_cache: std::collections::HashMap::new(), poi_hashes: None, strict: false, legacy: std::collections::BTreeSet::new(), bodies: Vec::new(), player_moved: false, village_seen: Default::default(), village_noted: std::collections::HashSet::new(), walk_memory_runs: None }
     }
 }
 

@@ -1326,6 +1326,14 @@ fn walk_from_block_memory(w: &mut World, i: usize, mem: M, speed: f32, close: i3
     }
     .expect("a block memory");
     let cant = ex(w, i).mem.cant_reach_since;
+    // (b8949c96, ironspec 08:13) the run recorded when asked: the branch and the stamp age it SAW
+    let seen = cant.map(|c| w.time - c);
+    let record = |w: &mut World, branch: crate::entity::mob::ai::WalkMemoryBranch| {
+        let id = w.entities.list[i].id;
+        if let Some(log) = w.mob.ai.walk_memory_runs.as_mut() {
+            log.push(crate::entity::mob::ai::WalkMemoryRun { t, id, mem, branch, stamp_age_seen: seen });
+        }
+    };
     let me = w.entities.list[i].block_position();
     let dist = |a: BlockPos, b: BlockPos| (a.x - b.x).abs() + (a.y - b.y).abs() + (a.z - b.z).abs();
     if cant.is_none_or(|c| w.time - c <= too_long) {
@@ -1339,6 +1347,7 @@ fn walk_from_block_memory(w: &mut World, i: usize, mem: M, speed: f32, close: i3
                     && dist(super::containing(p), me) <= too_far
                 {
                     ex_mut(w, i).mem.walk_target = Some(WalkTarget::at_point(p, speed, close));
+                    record(w, crate::entity::mob::ai::WalkMemoryBranch::Toward);
                     break;
                 }
                 tries += 1;
@@ -1349,11 +1358,15 @@ fn walk_from_block_memory(w: &mut World, i: usize, mem: M, speed: f32, close: i3
                     release_poi(w, i, mem);
                     erase(w, i, mem);
                     ex_mut(w, i).mem.cant_reach_since = Some(t);
+                    record(w, crate::entity::mob::ai::WalkMemoryBranch::ReleaseAfterTries);
                     return true;
                 }
             }
         } else if dist(target, me) > close {
             ex_mut(w, i).mem.walk_target = Some(WalkTarget { target: Tracker::Block(target), speed, close });
+            record(w, crate::entity::mob::ai::WalkMemoryBranch::Target);
+        } else {
+            record(w, crate::entity::mob::ai::WalkMemoryBranch::Nothing);
         }
     } else {
         // too long unreachable: releasePoi (the record's ticket back; no passenger check), then the
@@ -1363,6 +1376,7 @@ fn walk_from_block_memory(w: &mut World, i: usize, mem: M, speed: f32, close: i3
         release_poi(w, i, mem);
         erase(w, i, mem);
         ex_mut(w, i).mem.cant_reach_since = Some(t);
+        record(w, crate::entity::mob::ai::WalkMemoryBranch::Release);
     }
     true
 }
