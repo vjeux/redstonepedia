@@ -266,6 +266,8 @@ pub struct SidingOpts {
     /// With --feed-path: day-1's lane -1 layout (the feed dust on slime, day-1's delay-3 repeater
     /// (x-3,22,9) strongly powering it; the switched cell (x-4,22,9)).
     pub feed_slime: bool,
+    /// --siding-north: leave out the lane-top walkway (glass (lx-3..lx-1, m-3, mz-2)), the control.
+    pub no_walkway: bool,
     /// The siding's flat (x-1,m,mz) a detector rail (east_west): the proposed siding sensor; with
     /// --siding-north the feed F a detector rail (north_south).
     pub flat_detector: bool,
@@ -471,6 +473,14 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
             put(sx + 1, m - 1, mz - 1, &glass);
             put(sx + 1, m, mz, &curve_ne);
             put(sx + 1, m - 1, mz, &glass);
+            // (the lane-top walkway (ironspec 16:12, the late-path fix for lanes 3 and 7): glass
+            // (lx-3..lx-1, m-3, mz-2), as the S-bend file lays it, so the bench's cells are the file's;
+            // --no-walkway, the control)
+            if !so.no_walkway {
+                for d in 1..=3 {
+                    put(lx - d, m - 3, mz - 2, &glass);
+                }
+            }
         } else {
             put(sx, m, mz + 1, &pslope_s);
             put(sx, m - 1, mz + 1, &glass);
@@ -2047,6 +2057,15 @@ pub fn lanes_design(ns: i32, sbend: bool, row: bool, r_support: Option<&str>, re
             put(x - 1, m - 1, mz - 1, glass);
             put(x - 1, m, mz, curve_ne);
             put(x - 1, m - 1, mz, glass);
+            // (the lane-top walkway (lanes 3 and 7; ironspec 16:12, the late-path FAIL of 16:02): glass
+            // (x-3..x-1, m-3, mz-2) under (x-3..x-1, m-2, mz-2), joining the lane top's drop (its start
+            // node (x,m-2,mz-1), then (x,m-2,mz-2) over slope k=3) to F3's west seat candidates
+            // (x-3,m-2,mz-1..mz+2); lane -1 has the same join through F3's glowstone (-4..-2,21,5))
+            if x == 3 || x == 7 {
+                for d in 1..=3 {
+                    put(x - d, m - 3, mz - 2, glass);
+                }
+            }
             continue;
         }
         put(x, m, mz - 1, tripwire_ew);
@@ -2123,6 +2142,7 @@ pub fn lanes_design(ns: i32, sbend: bool, row: bool, r_support: Option<&str>, re
         if support == "minecraft:slime_block" {
             out.push_str("# R's slime support: lay it only together with F3's z 9 floors (9fc3155f's 4d76acbfb: lay with it, not before): each S-bend seat loses its own R cell as a stroll candidate (one of four at each seat in 8fb667bca's prints). Cited: tick-exact's napper release on the official server (`mctas mobai napper-release`, de0bcdeae; the stone baseline artifact 1012303384495744, the slime run matching it: the cart leaves R +9/+8/+7 gt from the input pulse at 0.37..0.52 b/gt from the rests 7.895 / 7.740 / 7.435; a cart on rails is never onGround, so slime's stepOn does not run). Pending: the seats' official P_null re-measured on slime.\n");
         }
+        out.push_str(&format!("# The lane-top walkway (lanes 3 and 7; ironspec 16:12, the late-path FAIL of 16:02): glass (x-3..x-1,{},{}) under the walkway (x-3..x-1,{},{}) joins the lane top to F3's west seat candidates (x-3,{},{}..{}). A PANIC draw made in the S-bend (R, c1, c2, c3) is pathed up to 39 gt later (MoveToTargetSink's cooldown), possibly from the airborne drop off C's north end, whose start node is the top slope (x,{},{}) with rail nodes blocked; from there the route is (x,{},{}) over slope k=3, the walkway, the candidate, crossing no rail. 9fc3155f's --path-probe on the module of record 89f8d159e: without the walkway, partial from the drop's top (y 24.0); with it, reached in 6..10 nodes from y 24.0 / 23.5 / 23.0 / 22.7. Lane -1 has the same join through F3's glowstone (-4..-2,21,5). Glass is not solid-render: no new stroll candidate.\n", m - 3, mz - 2, m - 2, mz - 2, m - 2, mz - 1, mz + 2, m - 2, mz - 1, m - 2, mz - 2));
         if let Some(rr) = rest_range {
             out.push_str("# The speeds line's nap-rest-z: the rest sweep (escape-bench --siding-north --k-row 0.30 --r-support slime_block --rest-sweep): 0.10..0.44 by 0.01 at 8 entry phases 7.343..7.912; 0.10..0.14 by 0.005 at 32 phases up to 7.920; 0.100..0.112 by 0.002 at 64 phases the ceiling 7.922 (arrival 0.102, phase 0.0606); no run without a napper at rest.\n");
             out.push_str(&format!("# speeds: nap-rest-z={rr}\n"));
