@@ -2589,6 +2589,42 @@ pub enum MobfarmCmd {
         #[arg(long, allow_hyphen_values = true)]
         scope_excludes: Vec<String>,
     },
+    /// (ironspec Nov 13 03:22) Every block a wind burst can change (levers, buttons, wooden and
+    /// copper doors, trapdoors and fence gates, bells, candles, beehives, creaking hearts), each with
+    /// the header line naming its role and owner; the bar is 0.
+    BurstReactive {
+        design: PathBuf,
+    },
+    /// (ironspec Nov 13 03:32 (3)) The cat reach: every cell a cat can stand on that connects by
+    /// cat-walkable moves to the ground, within 8 and in sight of a rider; the bar is 0.
+    CatReach {
+        design: PathBuf,
+        /// The ground plane's block y (its top face at y + 1; default: one below the module's
+        /// lowest block, the module standing on the ground).
+        #[arg(long, allow_hyphen_values = true)]
+        ground_y: Option<i32>,
+        /// How far the ground reaches past the module's shell on each side.
+        #[arg(long, default_value_t = 12)]
+        margin: i32,
+    },
+    /// (ironspec Nov 13 03:22, tick-exact's knockback numbers) Every rider and cart position with a
+    /// clear COLLIDER line to an outside air cell within 10, with the reach class.
+    BurstExposure {
+        design: PathBuf,
+    },
+    /// (ironspec Nov 13 03:24 (2)) The sources outside the module: every cell outside the design's
+    /// box within 8 of a villager's eye and in sight (a COLLIDER clip: glass blocks it), with the
+    /// wall cell its ray leaves through.
+    OutsideSight {
+        design: PathBuf,
+        /// A rail cell x,y,z: a seated villager at its cart's positions along the rail (t 0, 0.25,
+        /// 0.5, 0.75, 1; repeatable).
+        #[arg(long, allow_hyphen_values = true)]
+        at: Vec<String>,
+        /// A villager's exact feet x,y,z (repeatable).
+        #[arg(long, allow_hyphen_values = true)]
+        feet: Vec<String>,
+    },
     /// (farmopt / tick-exact Nov 13 00:16) The hostile sensor at a villager's position: every hostile
     /// the design holds, its sensor range, the feet-to-feet distance and the eye-to-eye sight ray;
     /// those in NEAREST_HOSTILE with an occluder each (glass on every ray to the points, none on a
@@ -8038,6 +8074,61 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 std::process::exit(1);
             }
         }
+        MobfarmCmd::BurstReactive { design } => {
+            let (_c, spec) = load(version, &design)?;
+            let (lines, n) = crate::fleecheck::burst_reactive(&spec, &std::fs::read_to_string(&design)?);
+            for l in &lines {
+                println!("{l}");
+            }
+            if n > 0 {
+                std::process::exit(1);
+            }
+        }
+        MobfarmCmd::CatReach { design, ground_y, margin } => {
+            let (_c, spec) = load(version, &design)?;
+            let g = ground_y.unwrap_or_else(|| crate::fleecheck::shell_box(&spec).0.y - 1);
+            let (lines, n) = crate::fleecheck::cat_reach(&spec, g, margin).map_err(|e| anyhow::anyhow!(e))?;
+            for l in &lines {
+                println!("{l}");
+            }
+            if n > 0 {
+                std::process::exit(1);
+            }
+        }
+        MobfarmCmd::BurstExposure { design } => {
+            let (_c, spec) = load(version, &design)?;
+            let (lines, n) = crate::fleecheck::burst_exposure(&spec).map_err(|e| anyhow::anyhow!(e))?;
+            for l in &lines {
+                println!("{l}");
+            }
+            if n > 0 {
+                std::process::exit(1);
+            }
+        }
+        MobfarmCmd::OutsideSight { design, at, feet } => {
+            let (_c, spec) = load(version, &design)?;
+            let blocks: std::collections::HashMap<redsim::pos::BlockPos, String> = spec.blocks.iter().map(|(p, b)| (*p, b.to_string())).collect();
+            let mut points: Vec<redsim::entity::Vec3> = Vec::new();
+            for a in &at {
+                let c = cells_of(&[a.clone()], "--at")?[0];
+                let s = blocks.get(&c).filter(|s| s.contains("rail")).ok_or_else(|| anyhow::anyhow!("--at {a}: not a rail cell"))?;
+                for k in 0..=4 {
+                    points.push(crate::fleecheck::along_rail(c, s, k as f64 * 0.25));
+                }
+            }
+            for f in &feet {
+                let v: Vec<f64> = f.split(',').map(|t| t.trim().parse::<f64>()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(v.len() == 3, "--feet x,y,z: {f}");
+                points.push(redsim::entity::Vec3::new(v[0], v[1], v[2]));
+            }
+            let (lines, n) = crate::fleecheck::outside_sight(&spec, &points).map_err(|e| anyhow::anyhow!(e))?;
+            for l in &lines {
+                println!("{l}");
+            }
+            if n > 0 {
+                std::process::exit(1);
+            }
+        }
         MobfarmCmd::SensorAt { design, at, feet, exclude, set, hold, through } => {
             let (_c, spec) = load(version, &design)?;
             let holds = holds_with_header(&hold, &design)?;
@@ -8115,6 +8206,18 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             // (the spawn statics judge the settled world: each cell the settle changed takes its
             // settled state, so a current stored as air is a water block above a column's top)
             let spec = settled_s;
+            // (ironspec Nov 13 04:07: a `--wet` cell already holding water in the settled world is a
+            // silent no-op and fails; each printed before and after)
+            let settled_wet_now = crate::wetspawn::wet_cells_of(&spec, &[]);
+            let mut wet_noops = 0usize;
+            for c in &cells {
+                if settled_wet_now.contains(c) {
+                    wet_noops += 1;
+                    println!("NO-OP --wet {},{},{}: the settled world already holds water there (FAILS: an override that doesn't change its cell, ironspec Nov 13 04:07)", c.x, c.y, c.z);
+                } else {
+                    println!("--wet {},{},{}: dry -> counted as holding water", c.x, c.y, c.z);
+                }
+            }
             let lines = crate::wetspawn::scan(&spec, &cells, &declared);
             for l in &lines {
                 println!("{l}");
@@ -8139,12 +8242,21 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     }
                     n
                 }
-                None => usize::from(!lines[0].ends_with("(PASS)")),
+                None => {
+                    // (G1 Nov 13 03:51: the worst case names the species it can't judge, and fails
+                    // on each)
+                    let um = crate::wetspawn::unmodelled_species(&crate::wetspawn::overworld_biomes());
+                    println!(
+                        "unmodelled water species in 26.3's overworld lists (no rule: the worst case can't judge them): {}",
+                        if um.is_empty() { "none".to_string() } else { um.iter().map(|(t, c, bs)| format!("no rule for {t} ({c}, unmodelled; {} biomes: {})", bs.len(), bs.join(", "))).collect::<Vec<_>>().join("; ") }
+                    );
+                    usize::from(!lines[0].ends_with("(PASS)")) + um.len()
+                }
             };
             // (ironspec Nov 12 23:56: the bar's samples, the wet cells; none is NOT JUDGED)
             let (v, failed) = scope.verdict("wet-spawn", crate::wetspawn::wet_cells_of(&spec, &cells).len(), "wet cells", fails);
             println!("wet-spawn verdict{}: {v}", if site.is_some() { " (the declared site's)" } else { " (the worst case: no site declared)" });
-            if failed || wf || unscheduled {
+            if failed || wf || unscheduled || wet_noops > 0 {
                 std::process::exit(1);
             }
         }
@@ -13977,6 +14089,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     anyhow::ensure!(v.len() == 3, "--set x,y,z=state, not {s:?}");
                     let state = state.trim();
                     let full = if state.contains(':') { state.to_string() } else { format!("minecraft:{state}") };
+                    // (ironspec Nov 13 04:07: each edit's cell before and after; an edit that
+                    // leaves its cell as it was is a silent no-op and fails)
+                    let before = d.blocks.get(&[v[0], v[1], v[2]]).cloned().unwrap_or_else(|| "minecraft:air".to_string());
+                    anyhow::ensure!(before != full, "NO-OP --set {},{},{}: the design already holds {before} (an override that doesn't change its cell fails, ironspec Nov 13 04:07)", v[0], v[1], v[2]);
+                    println!("set {},{},{}: {} -> {}", v[0], v[1], v[2], before.trim_start_matches("minecraft:"), full.trim_start_matches("minecraft:"));
                     if full == "minecraft:air" {
                         d.blocks.remove(&[v[0], v[1], v[2]]);
                     } else {
