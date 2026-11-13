@@ -32,8 +32,9 @@ pub struct Opts {
     pub drive: PathBuf,
     /// Run ticks after t0.
     pub ticks: i64,
-    /// The day time at t0 (the settle ends there): tick-exact's `--day-start`.
-    pub day0: i64,
+    /// The day time at t0 (the settle ends there): tick-exact's `--day-start`, a bench's `RunOpts::day0`. None:
+    /// the drive's own `# day0` line gives it (a drive with neither is refused; a contradicting one too).
+    pub day0: Option<i64>,
     pub noai: bool,
     /// Traced entity lines and their run-tick windows: (line N, from, to).
     pub trace: Vec<(usize, i64, i64)>,
@@ -60,6 +61,11 @@ pub struct Opts {
     /// Keep the scene's `port home:` line (redsim's bench-side HOME injection, which the game replayer
     /// doesn't know): the recording's own setup, which its `# expect` lines need.
     pub keep_port_home: bool,
+    /// (G1 15:17 N10) A prefix of the drive on purpose: its acts and `# expect` lines past `ticks` are counted
+    /// and named, not failures.
+    pub partial: bool,
+    /// The run is [`push_shift`]'s on/off pair (its own outputs; G1 15:17 N11: the flags it would drop refused).
+    pub push_shift: bool,
 }
 
 /// `x,y,z;x,y,z;..`: the watched cells (design frame).
@@ -318,6 +324,13 @@ fn validate(o: &Opts) -> Result<()> {
     for &n in &o.nappers {
         ensure!(!o.pass_cells.is_empty(), "--nappers e{n} without --pass-cells");
     }
+    // (G1 15:17 N11: the on/off pair prints its own comparison; a flag it would override or drop is refused)
+    if o.push_shift {
+        for (on, f) in [(o.push_off, "--push-off"), (!o.trace.is_empty(), "--trace"), (o.pushes, "--pushes"), (!o.gaps_at.is_empty(), "--gaps-at"), (o.compare.is_some(), "--compare")] {
+            ensure!(!on, "--push-shift runs its own on/off pair: {f} would be overridden or dropped");
+        }
+        ensure!(!o.pass_cells.is_empty(), "--push-shift needs --pass-cells (the cells whose entries it compares)");
+    }
     Ok(())
 }
 
@@ -340,22 +353,42 @@ pub fn run(o: &Opts) -> Result<Replay> {
     let mut spec = circuit::mobfarm::spec_of(&c).map_err(|e| anyhow!(e))?;
     let off = o.offset;
     if off != [0, 0, 0] {
-        // (G1 12:19 (10): the entities' data isn't moved, so a block position in it (a Brain memory) would point
-        // into the unmoved frame; frozen by --noai it is never read)
-        let carrying: Vec<&str> = spec.entities.iter().filter(|(_, _, nbt)| nbt.as_deref().is_some_and(|t| t.contains("pos:[I;"))).map(|(ty, ..)| ty.as_str()).collect();
-        ensure!(o.noai || carrying.is_empty(), "--offset {off:?} without --noai: {} scene entities carry block positions in their data (Brain memories), which the offset doesn't move", carrying.len());
+        // (G1 12:19 (10), ironspec 15:05 (b): the entities' data isn't moved, so a block position in it (a Brain
+        // memory, a raider's patrol target, any int-array position) would point into the unmoved frame; --noai
+        // freezes villagers only, so only a villager's Brain memory positions pass with it, and none without it)
+        let int_arrays = |t: &str| t.matches("[I;").count();
+        let brain_positions = |t: &str| if t.contains("minecraft:villager") && t.contains("Brain:{memories:") { t.matches("pos:[I;").count() } else { 0 };
+        let unfrozen: Vec<&str> = spec.entities.iter().filter(|(_, _, nbt)| nbt.as_deref().is_some_and(|t| int_arrays(t) > if o.noai { brain_positions(t) } else { 0 })).map(|(ty, ..)| ty.as_str()).collect();
+        ensure!(
+            unfrozen.is_empty(),
+            "--offset {off:?}: {} scene entities carry int-array positions in their data, which the offset doesn't move{}",
+            unfrozen.len(),
+            if o.noai { " and --noai doesn't freeze (it freezes villagers' Brain memories only)" } else { " (with --noai, villagers' Brain memories are frozen; any other is refused)" }
+        );
         offset_round_trip(&spec, &d, off)?;
         shift_spec(&mut spec, off)?;
         shift_drive(&mut d, off);
     }
-    let opts = RunOpts { day0: o.day0, ..d.opts() };
+    // (the day start: the drive's own `# day0`, or --day0 when it has none; both given must agree; neither is
+    // refused: onechunk's seed-1 pair differed in 238 of 3,760 expects at 11000 and in none at its 10778)
+    let day0 = match (d.day0, o.day0) {
+        (Some(a), Some(b)) => {
+            ensure!(a == b, "--day0 {b} contradicts the drive's `# day0 {a}`");
+            a
+        }
+        (Some(a), None) => a,
+        (None, Some(b)) => b,
+        (None, None) => bail!("the drive gives no `# day0` and no --day0 was given: the day start decides the run (give the recording's own)"),
+    };
+    let opts = RunOpts { day0, ..d.opts() };
     let mut run = Run::start(&spec, &opts).map_err(|e| anyhow!(e))?;
     while run.settle_tick() {}
     let lines = redsim::entity::mob::drive::spawn_lines(&mut run, &spec).map_err(|e| anyhow!(e))?;
     let t0 = run.world.time;
-    if let Some(want) = d.t0 {
-        ensure!(want == t0, "the replay's t0 {t0} is not the drive's {want} (its settle differs)");
-    }
+    // (G1 15:17 H12: the recording's t0 required, and the day at t0 checked)
+    let want = d.t0.ok_or_else(|| anyhow!("the drive gives no `# t0`: the replay's settle can't be checked against the recording's"))?;
+    ensure!(want == t0, "the replay's t0 {t0} is not the drive's {want} (its settle differs)");
+    ensure!(run.world.day_time() == day0, "the replay's day time at t0 is {}, not day0 {day0}", run.world.day_time());
     for &(n, ..) in &o.trace {
         ensure!(n < lines.len(), "--trace e{n}: the scene has {} entity lines", lines.len());
     }
@@ -505,8 +538,28 @@ pub fn run(o: &Opts) -> Result<Replay> {
         format!("the drive's expect lines: {} not judged (the replay changes the recording's conditions: {})", expects.len(), changed.join(", "))
     } else {
         let unjudged = expects.len() - expects_judged;
-        format!("the drive's expect lines: {expects_judged} judged, {differing} differing{}", if unjudged > 0 { format!(", {unjudged} past the run's {} ticks (not judged)", o.ticks) } else { String::new() })
+        // (G1 15:17 N10: a drive replayed short says so, and fails unless --partial asks for a prefix)
+        if unjudged > 0 && !o.partial {
+            failures.push(format!("{unjudged} `# expect` lines past the run's {} ticks not judged: replay the whole drive, or say --partial", o.ticks));
+        }
+        format!("the drive's expect lines: {expects_judged} judged, {differing} differing{}", if unjudged > 0 { format!(", {unjudged} past the run's {} ticks (not judged{})", o.ticks, if o.partial { ": --partial" } else { "" }) } else { String::new() })
     });
+    // (G1 15:17 N7: the drive's own `expect <t> <what>` / `expect-end <what>` lines are a bench's words this replay
+    // can't read: counted, named NOT JUDGED, and failing)
+    let bench = d.expects.len() + d.ends.len();
+    if bench > 0 {
+        out.push(format!("the drive's own expect lines: {} `expect` and {} `expect-end` (a bench's words): NOT JUDGED by this replay", d.expects.len(), d.ends.len()));
+        failures.push(format!("{bench} drive `expect` / `expect-end` lines not judged (this replay judges `# expect` lines only)"));
+    }
+    // (G1 15:17 N10: the acts past the run, counted and named; failing unless --partial)
+    let past = d.acts.len() - cur.next;
+    if past > 0 {
+        let first = d.acts[cur.next].0;
+        out.push(format!("{past} acts past the run's {} ticks (not applied; the first at t{first}){}", o.ticks, if o.partial { ": --partial" } else { "" }));
+        if !o.partial {
+            failures.push(format!("{past} acts past the run's {} ticks not applied (the first at t{first}): replay the whole drive, or say --partial", o.ticks));
+        }
+    }
     if o.push_off {
         let skipped = run.world.mob.rider_cart_pushes_skipped;
         out.push(format!("PUSH-OFF COUNTERFACTUAL: {skipped} rider pushes onto carts skipped"));
@@ -530,12 +583,21 @@ pub fn run(o: &Opts) -> Result<Replay> {
     for c in &o.pass_cells {
         let mut at: Vec<&Visit> = visits.iter().filter(|v| v.cell == *c).collect();
         at.sort_by_key(|v| (v.first, v.line));
+        // (G1 15:17 N13: a watched cell no line visited measured nothing: a failure, like the push-off's 0 skips)
+        if at.is_empty() {
+            failures.push(format!("watched cell ({},{},{}): no entity line visited it (a vacuous watch)", c[0], c[1], c[2]));
+        }
         let kind = |n: usize| if o.nappers.contains(&n) { "napper " } else { "" };
         out.push(format!("visits to ({},{},{}): {}", c[0], c[1], c[2], at.iter().map(|v| format!("{}e{} t{}..{}", kind(v.line), v.line, v.first, v.last)).collect::<Vec<_>>().join(", ")));
         if !o.nappers.is_empty() {
             for m in margins(&visits, *c, &o.nappers) {
                 out.push(format!("  {m}"));
             }
+        }
+    }
+    for &n in &o.nappers {
+        if !visits.iter().any(|v| v.line == n) {
+            failures.push(format!("--nappers e{n}: it visited no watched cell (no margin measured)"));
         }
     }
     out.push(if failures.is_empty() { "drive-replay: 0 failures".to_string() } else { format!("drive-replay: {} FAILURE(S): {}", failures.len(), failures.iter().take(12).cloned().collect::<Vec<_>>().join(" | ")) });
@@ -586,10 +648,10 @@ fn margins(visits: &[Visit], cell: [i32; 3], nappers: &[usize]) -> Vec<String> {
 /// napper visit's margin to the next batch cart on and off. Open loop: past the first difference, the drive's acts
 /// no longer match either run, so the pairing measures divergence, not the push.
 pub fn push_shift(o: &Opts) -> Result<Replay> {
-    ensure!(!o.pass_cells.is_empty(), "--push-shift needs --pass-cells");
-    ensure!(o.compare.is_none(), "--push-shift runs a counterfactual: no --compare");
-    let on = run(&Opts { push_off: false, ..o.clone() })?;
-    let off = run(&Opts { push_off: true, ..o.clone() })?;
+    ensure!(o.push_shift, "push_shift: the options' push_shift flag (validated as the pair's)");
+    validate(o)?;
+    let on = run(&Opts { push_off: false, push_shift: false, ..o.clone() })?;
+    let off = run(&Opts { push_off: true, push_shift: false, ..o.clone() })?;
     let mut out = vec![format!("push shift (cc767b78; OPEN LOOP): the replay with the riders' cart pushes ON (the game) and OFF (rider doPush onto carts: off, a counterfactual with no game twin); {}", on.lines.iter().find(|l| l.starts_with("drive-replay (")).cloned().unwrap_or_default())];
     out.extend(off.lines.iter().filter(|l| l.starts_with("PUSH-OFF COUNTERFACTUAL:")).cloned());
     let stat = |v: &[i64]| -> String {
@@ -625,7 +687,9 @@ pub fn push_shift(o: &Opts) -> Result<Replay> {
         out.push(format!("  {}", rows.join(", ")));
         if !o.nappers.is_empty() {
             let m = |r: &Replay| margin_values(&r.visits, *c, &o.nappers).into_iter().filter_map(|(_, a, next)| next.map(|(_, b)| b - a - 4)).collect::<Vec<i64>>();
-            out.push(format!("  napper margins (b - a - 4) on: {}; off: {}", stat(&m(&on)), stat(&m(&off))));
+            // (G1 15:17 N15: a napper visit with no later batch cart has no margin: counted, not dropped)
+            let none = |r: &Replay| margin_values(&r.visits, *c, &o.nappers).iter().filter(|(_, _, next)| next.is_none()).count();
+            out.push(format!("  napper margins (b - a - 4) on: {}; off: {}; napper visits with no later batch cart (no margin) on {}, off {}", stat(&m(&on)), stat(&m(&off)), none(&on), none(&off)));
             for line in margins(&on.visits, *c, &o.nappers) {
                 out.push(format!("    on: {line}"));
             }
@@ -711,12 +775,17 @@ fn ulp(x: f64) -> f64 {
     f64::from_bits(a.to_bits() + 1) - a
 }
 
-/// The replay's rows against the game's (G1 12:19 (1)-(4)): every traced row needs a game row and every game row a
-/// traced row; motions match by their bits (a zero's sign aside: the game rows print zero unsigned), positions
-/// within `pos_tol` + 1 ULP of the game's (its 6-decimal print), NaN never; a gone entity matches only a gone one.
-/// Per line: the rows compared, the mismatches and the first one; each mismatch, missing or extra row a failure.
+/// The replay's rows against the game's (G1 12:19 (1)-(4), 15:17 N3 / N4): every traced row needs a game row and
+/// every game row a traced row; motions match by their bits, a zero's sign aside (no game row can show one:
+/// `DoubleTag.valueOf`, net/minecraft/nbt/DoubleTag 46–48, `return data == 0.0 ? ZERO : new DoubleTag(data);` with
+/// `ZERO = new DoubleTag(0.0)` at line 10, turns every −0.0 into +0.0 on its way through `data get`, and the game
+/// replayer prints the reply as it comes, crates/mobai/src/drivereplay.rs:1714 on tick-exact's tree; tick-exact
+/// 15:29), and a NaN on either side never matches; positions within `pos_tol` + 1 ULP of the game's (its
+/// 6-decimal print), NaN never; a gone entity matches only a gone one. Per line: the rows compared, the mismatches
+/// and the first one; each mismatch, missing or extra row a failure.
 pub fn compare(mine: &BTreeMap<(i64, usize), Option<[f64; 6]>>, game: &BTreeMap<(i64, usize), Option<[f64; 6]>>, pos_tol: f64, file: &std::path::Path) -> (Vec<String>, Vec<String>) {
     let names = ["x", "y", "z", "vx", "vy", "vz"];
+    // (the zero's sign: see above, DoubleTag 46–48)
     let zero = |x: f64| if x == 0.0 { 0.0f64 } else { x };
     let mut out = vec![format!("the comparison against {} ({} game rows): motions by bits, positions within {pos_tol:e} + 1 ULP:", file.display(), game.len())];
     let mut failures = Vec::new();
@@ -733,7 +802,7 @@ pub fn compare(mine: &BTreeMap<(i64, usize), Option<[f64; 6]>>, game: &BTreeMap<
             (Some(_), None) => Some("gone in the game only".to_string()),
             (None, Some(_)) => Some("gone in redsim only".to_string()),
             (Some(v), Some(gv)) => (0..6).find_map(|k| {
-                let bad = if k < 3 { !((v[k] - gv[k]).abs() <= pos_tol + ulp(gv[k])) } else { zero(v[k]).to_bits() != zero(gv[k]).to_bits() };
+                let bad = if k < 3 { !((v[k] - gv[k]).abs() <= pos_tol + ulp(gv[k])) } else { v[k].is_nan() || gv[k].is_nan() || zero(v[k]).to_bits() != zero(gv[k]).to_bits() };
                 bad.then(|| format!("{} redsim {:?} game {:?}", names[k], v[k], gv[k]))
             }),
         };
@@ -818,6 +887,24 @@ mod tests {
         let mut m3 = mine.clone();
         m3.insert((0, 12), Some([-0.5, f64::NAN, 2.494141, 0.0, 0.0, -0.00808203125]));
         assert_eq!(compare(&m3, &game, 5e-7, f).1.len(), 1, "NaN never matches");
+        // (G1 15:17 N3, ironspec 15:05 (a)) a NaN motion on BOTH sides, the same bits, still fails
+        let nan_game = parse_rows("t0: e12 pos (-0.500000,18.556641,2.494141) motion [NaN, 0.0d, -0.00808203125d]").unwrap();
+        let mut nan_mine: BTreeMap<(i64, usize), Option<[f64; 6]>> = BTreeMap::new();
+        nan_mine.insert((0, 12), Some([-0.5, 18.556641, 2.494141, f64::NAN, 0.0, -0.00808203125]));
+        let (_, fails) = compare(&nan_mine, &nan_game, 5e-7, f);
+        assert!(fails.len() == 1 && fails[0].starts_with("e12 t0: vx"), "a NaN pair in vx fails: {fails:?}");
+        // (G1 15:17 N5) the tolerance's edges: 5e-7 + 2 ULP off fails; a 1/128 tie printed to 6 decimals passes
+        let edge = |mine_x: f64, game_x: &str| {
+            let g = parse_rows(&format!("t0: e1 pos ({game_x},0.000000,0.000000) motion [0.0d, 0.0d, 0.0d]")).unwrap();
+            let mut m: BTreeMap<(i64, usize), Option<[f64; 6]>> = BTreeMap::new();
+            m.insert((0, 1), Some([mine_x, 0.0, 0.0, 0.0, 0.0, 0.0]));
+            compare(&m, &g, 5e-7, f).1
+        };
+        let gx: f64 = "3.500000".parse().unwrap();
+        let two_ulps = f64::from_bits((gx + 5e-7).to_bits() + 2);
+        assert_eq!(edge(two_ulps, "3.500000").len(), 1, "5e-7 + 2 ULP off fails");
+        assert!(edge(3.0078125, "3.007813").is_empty(), "a 1/128 tie (3.0078125 printed 3.007813) passes");
+        assert!(edge(3.0078125, "3.007812").is_empty(), "and printed the other way, 3.007812");
         let mut m4 = mine.clone();
         m4.insert((2, 12), Some([-0.5, 18.5, 2.47, 0.0, 0.0, 0.0]));
         assert!(compare(&m4, &game, 5e-7, f).1[0].contains("gone in the game only"));
@@ -847,8 +934,8 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let scene = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../designs/farms/iron/middle/carousel-gate.txt");
         let drive = dir.join("drive.txt");
-        std::fs::write(&drive, "# drive v1\n# seed 1\n# days 1\n# walk random\n# ai on\n").unwrap();
-        let o = Opts { scene: scene.clone(), drive: drive.clone(), ticks: 40, day0: 11_000, noai: true, trace: vec![(1, 0, 39), (2, 0, 39)], pushes: false, compare: None, pos_tol: 5e-7, gaps_at: Vec::new(), offset: [0, 0, 0], push_off: false, hold_cart: None, pass_cells: Vec::new(), nappers: Vec::new(), keep_port_home: false };
+        std::fs::write(&drive, "# drive v1\n# seed 1\n# days 1\n# walk random\n# ai on\n# t0 200\n").unwrap();
+        let o = Opts { scene: scene.clone(), drive: drive.clone(), ticks: 40, day0: Some(11_000), noai: true, trace: vec![(1, 0, 39), (2, 0, 39)], pushes: false, compare: None, pos_tol: 5e-7, gaps_at: Vec::new(), offset: [0, 0, 0], push_off: false, hold_cart: None, pass_cells: Vec::new(), nappers: Vec::new(), keep_port_home: false, partial: false, push_shift: false };
         let r = run(&o).unwrap();
         assert!(r.failures.is_empty(), "{:?}", r.failures);
         let rows: Vec<String> = r.lines.iter().filter(|l| l.starts_with('t') && l.contains(": e")).cloned().collect();
@@ -871,6 +958,34 @@ mod tests {
         assert!(run(&Opts { push_off: true, compare: Some(game.clone()), ..o.clone() }).is_err(), "push-off refuses --compare");
         assert!(run(&Opts { compare: Some(game), trace: Vec::new(), ..o.clone() }).is_err(), "--compare without --trace refused");
         assert!(run(&Opts { ticks: 0, ..o.clone() }).is_err() && run(&Opts { trace: vec![(1, 0, 40)], ..o.clone() }).is_err(), "--ticks 0 and a trace past the run refused");
+        // (G1 15:17 H12) the day start: neither the drive's `# day0` nor --day0 refused; both disagreeing refused; the
+        // drive's own taken; a drive without `# t0` refused
+        assert!(run(&Opts { day0: None, ..o.clone() }).is_err(), "no day0 anywhere: refused");
+        let with_day0 = dir.join("drive-day0.txt");
+        std::fs::write(&with_day0, "# drive v1\n# seed 1\n# days 1\n# walk random\n# ai on\n# t0 200\n# day0 10778\n").unwrap();
+        assert!(run(&Opts { drive: with_day0.clone(), ..o.clone() }).is_err(), "--day0 11000 against the drive's 10778: refused");
+        let r = run(&Opts { drive: with_day0, day0: None, ..o.clone() }).unwrap();
+        assert!(r.lines.iter().any(|l| l.contains(", day 10778 at t0 200,")), "the drive's day0 taken: {:?}", r.lines.first());
+        let no_t0 = dir.join("drive-no-t0.txt");
+        std::fs::write(&no_t0, "# drive v1\n# seed 1\n# days 1\n# walk random\n# ai on\n").unwrap();
+        assert!(run(&Opts { drive: no_t0, ..o.clone() }).is_err(), "a drive without `# t0`: refused");
+        // (G1 15:17 N7) the drive's own `expect` / `expect-end` lines: NOT JUDGED, failing
+        let bench = dir.join("drive-bench-expect.txt");
+        std::fs::write(&bench, "# drive v1\n# seed 1\n# days 1\n# walk random\n# ai on\n# t0 200\nexpect 10 golem g0 1 3 -1\nexpect-end golems 239\n").unwrap();
+        let r = run(&Opts { drive: bench, ..o.clone() }).unwrap();
+        assert!(r.failures.len() == 1 && r.failures[0].starts_with("2 drive `expect` / `expect-end` lines not judged"), "{:?}", r.failures);
+        // (G1 15:17 N10) acts past the run: failing, unless --partial (then counted and named)
+        let long = dir.join("drive-long.txt");
+        std::fs::write(&long, "# drive v1\n# seed 1\n# days 1\n# walk random\n# ai on\n# t0 200\nact 5 last-slept e1.p0 -100\nact 60 last-slept e1.p0 -100\nact 61 last-slept e1.p0 -100\n").unwrap();
+        let r = run(&Opts { drive: long.clone(), ..o.clone() }).unwrap();
+        assert!(r.failures.len() == 1 && r.failures[0].starts_with("2 acts past the run's 40 ticks not applied (the first at t60)"), "{:?}", r.failures);
+        let r = run(&Opts { drive: long, partial: true, ..o.clone() }).unwrap();
+        assert!(r.failures.is_empty() && r.lines.iter().any(|l| l == "2 acts past the run's 40 ticks (not applied; the first at t60): --partial"), "{:?}", r.failures);
+        // (G1 15:17 N13) a watched cell no line visits, and a napper that visits none: failures
+        let r = run(&Opts { pass_cells: vec![[100, 0, 100]], nappers: vec![1], ..o.clone() }).unwrap();
+        assert!(r.failures.iter().any(|f| f.starts_with("watched cell (100,0,100): no entity line visited it")) && r.failures.iter().any(|f| f.starts_with("--nappers e1: it visited no watched cell")), "{:?}", r.failures);
+        // (G1 15:17 N11) --push-shift refuses the flags its pair would override or drop
+        assert!(push_shift(&Opts { push_shift: true, pass_cells: vec![[100, 0, 100]], ..o.clone() }).is_err(), "--push-shift with --trace refused");
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -885,11 +1000,14 @@ mod tests {
         let drive = dir.join("drive.txt");
         // (a cell no cart reaches: "carts none", and its lane's hold and pocket empty; then the same cell with a
         // cart that isn't there; then one past the run)
-        std::fs::write(&drive, "# drive v1\n# seed 1\n# days 1\n# walk random\n# ai on\n# expect 5 100 0 100: carts none; holds 100:none; pockets 100:none\n# expect 6 100 0 100: carts e1 (empty) at y+0; holds 100:none; pockets 100:none\n# expect 50 100 0 100: carts none; holds 100:none; pockets 100:none\n").unwrap();
-        let o = Opts { scene, drive, ticks: 10, day0: 11_000, noai: false, trace: Vec::new(), pushes: false, compare: None, pos_tol: 5e-7, gaps_at: Vec::new(), offset: [0, 0, 0], push_off: false, hold_cart: None, pass_cells: Vec::new(), nappers: Vec::new(), keep_port_home: true };
+        std::fs::write(&drive, "# drive v1\n# seed 1\n# days 1\n# walk random\n# ai on\n# t0 200\n# expect 5 100 0 100: carts none; holds 100:none; pockets 100:none\n# expect 6 100 0 100: carts e1 (empty) at y+0; holds 100:none; pockets 100:none\n# expect 50 100 0 100: carts none; holds 100:none; pockets 100:none\n").unwrap();
+        let o = Opts { scene, drive, ticks: 10, day0: Some(11_000), noai: false, trace: Vec::new(), pushes: false, compare: None, pos_tol: 5e-7, gaps_at: Vec::new(), offset: [0, 0, 0], push_off: false, hold_cart: None, pass_cells: Vec::new(), nappers: Vec::new(), keep_port_home: true, partial: true, push_shift: false };
         let r = run(&o).unwrap();
         assert!(r.failures.len() == 1 && r.failures[0].starts_with("expect t6 at (100,0,100)"), "{:?}", r.failures);
-        assert!(r.lines.iter().any(|l| l == "the drive's expect lines: 2 judged, 1 differing, 1 past the run's 10 ticks (not judged)"), "{:?}", r.lines.iter().filter(|l| l.contains("expect lines")).collect::<Vec<_>>());
+        assert!(r.lines.iter().any(|l| l == "the drive's expect lines: 2 judged, 1 differing, 1 past the run's 10 ticks (not judged: --partial)"), "{:?}", r.lines.iter().filter(|l| l.contains("expect lines")).collect::<Vec<_>>());
+        // (G1 15:17 N10: without --partial the expect past the run fails too)
+        let r = run(&Opts { partial: false, ..o.clone() }).unwrap();
+        assert!(r.failures.len() == 2 && r.failures[1].starts_with("1 `# expect` lines past the run's 10 ticks not judged"), "{:?}", r.failures);
         let r = run(&Opts { noai: true, ..o }).unwrap();
         assert!(r.failures.is_empty(), "{:?}", r.failures);
         assert!(r.lines.iter().any(|l| l == "the drive's expect lines: 3 not judged (the replay changes the recording's conditions: --noai)"));

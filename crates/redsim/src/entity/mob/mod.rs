@@ -2170,16 +2170,20 @@ mod rider_tests {
         assert!(run(Some(",NoAI:1b"), 1.35, 0.0).0.is_empty(), "B 0.1 further: the boxes miss, no push");
     }
 
-    /// (onechunk 10:17, G1 10:20 / 12:19) The push-off counterfactual (`MobWorld::rider_cart_push_off`, "rider
-    /// doPush onto carts: off", a measurement switch with no game twin): with the switch left at its default, the
-    /// seated NoAI rider of the pin above gives its one push to the bit (the rider onto B, logged with A as its
-    /// vehicle, (0, 0.1F * 0.5)); on, it pushes nothing (no push logged, B's motion exactly 0), while a villager on
-    /// foot whose box meets B still pushes it (logged with no vehicle).
+    /// (onechunk 10:17, G1 10:20 / 12:19 / 15:17) The push-off counterfactual (`MobWorld::rider_cart_push_off`,
+    /// "rider doPush onto carts: off", a measurement switch with no game twin): with the switch left at its
+    /// default, the seated NoAI rider of the pin above gives its one push to the bit (the rider onto B, logged with
+    /// A as its vehicle, (0, 0.1F * 0.5)), skipping nothing; on, it pushes nothing (B's motion exactly 0) and the
+    /// switch counts exactly the rider pushes the default made; and it REMOVES EXACTLY those: with a villager on
+    /// foot pushing A, the switch's push log over both ticks is the default's with its rider pushes taken out, to
+    /// the bit, and the cart-on-cart checks are the same (their outcomes follow B's motion, which the removed push
+    /// changes).
     #[test]
     fn the_push_off_switch_skips_only_rider_pushes() {
-        // (the pushes over the logged tick (pusher, its vehicle, cart, push), B's motion after it, A's rider, A, B,
-        // the switch's skipped count over both ticks)
-        let run = |off: Option<bool>, on_foot: bool| -> (Vec<(u32, Option<u32>, u32, [f64; 2])>, crate::entity::Vec3, u32, u32, u32, u64) {
+        type Push = (u32, Option<u32>, u32, [u64; 2]);
+        // (every mob push over both ticks (pusher, its vehicle, cart, the push's bits), the cart-on-cart pushes over
+        // both ticks, B's motion after the logged tick, A's rider, A, B, the switch's skipped count over both ticks)
+        let run = |off: Option<bool>, on_foot: bool| -> (Vec<Push>, Vec<crate::entity::mob::CartCartPush>, crate::entity::Vec3, u32, u32, u32, u64) {
             let mut w = World::new(BlockPos::new(-4, -2, -4), [8, 6, 8]);
             let stone = Block::parse("minecraft:stone").unwrap();
             let rail = Block::parse("minecraft:rail[shape=north_south,waterlogged=false]").unwrap();
@@ -2191,6 +2195,7 @@ mod rider_tests {
                 w.set_block(BlockPos::new(0, 0, z), stone.clone(), crate::world::flags::ALL);
                 w.set_block(BlockPos::new(0, 1, z), rail.clone(), crate::world::flags::ALL);
             }
+            w.set_block(BlockPos::new(-1, -1, 0), stone.clone(), crate::world::flags::ALL);
             w.mob.seed(7, 6_000);
             w.mob.ai.on = true;
             if let Some(off) = off {
@@ -2200,9 +2205,12 @@ mod rider_tests {
             let b = crate::entity::spawn(&mut w, "minecraft:minecart", [0.5, 1.0, 1.25], None).unwrap();
             let rider = w.entities.list[crate::entity::index_of(&w, a).unwrap()].passengers[0];
             if on_foot {
-                // (a NoAI villager standing on the stone beside B, its box meeting B's)
-                crate::entity::spawn(&mut w, "minecraft:villager", [1.25, 1.0, 1.25], Some("{NoAI:1b}")).unwrap();
+                // (a NoAI villager standing on the stone west of A, its box meeting A's (z -0.1 .. 0.5), never B's
+                // (z 0.76 and beyond): its push can't depend on where B went)
+                crate::entity::spawn(&mut w, "minecraft:villager", [-0.25, 0.0, 0.2], Some("{NoAI:1b}")).unwrap();
             }
+            crate::entity::minecart::log_cart_pushes(&mut w);
+            crate::entity::minecart::log_cart_cart_pushes(&mut w);
             // (as in the pin: a first tick seats the rider, then both carts put back at rest and one tick logged)
             w.tick();
             let ai = crate::entity::index_of(&w, a).unwrap();
@@ -2211,26 +2219,74 @@ mod rider_tests {
             let bi = crate::entity::index_of(&w, b).unwrap();
             w.entities.set_pos(bi, crate::entity::Vec3::new(0.5, 1.0, 1.25));
             w.entities.list[bi].delta_movement = crate::entity::Vec3::ZERO;
-            crate::entity::minecart::log_cart_pushes(&mut w);
             w.tick();
-            let pushes = crate::entity::minecart::take_cart_pushes(&mut w).into_iter().map(|p| (p.mob, p.vehicle, p.cart, p.push)).collect();
+            let pushes = crate::entity::minecart::take_cart_pushes(&mut w).into_iter().map(|p| (p.mob, p.vehicle, p.cart, [p.push[0].to_bits(), p.push[1].to_bits()])).collect();
+            let carts = crate::entity::minecart::take_cart_cart_pushes(&mut w);
             let bi = crate::entity::index_of(&w, b).unwrap();
-            (pushes, w.entities.list[bi].delta_movement, rider, a, b, w.mob.rider_cart_pushes_skipped)
+            (pushes, carts, w.entities.list[bi].delta_movement, rider, a, b, w.mob.rider_cart_pushes_skipped)
         };
         let exact = (0.1f32 as f64) * 0.5;
-        // the default (the switch never touched): the pin's push, to the bit, nothing skipped
-        let (on, _, rider, a, b, skipped) = run(None, false);
-        assert_eq!(on.len(), 1, "the default: the rider's one push ({on:?})");
-        assert_eq!((on[0].0, on[0].1, on[0].2), (rider, Some(a), b), "A's rider onto B, logged with A as its vehicle");
-        assert!(on[0].3[0] == 0.0 && on[0].3[1].to_bits() == exact.to_bits(), "(0, 0.1F * 0.5) to the bit: {on:?}");
+        // the default (the switch never touched): the pin's push in the logged tick, to the bit, nothing skipped
+        let (on, _, _, rider, a, b, skipped) = run(None, false);
+        let rider_pushes: Vec<&Push> = on.iter().filter(|p| p.1.is_some()).collect();
+        assert!(!rider_pushes.is_empty() && rider_pushes.iter().all(|p| (p.0, p.1, p.2) == (rider, Some(a), b)), "the default: A's rider onto B, logged with A as its vehicle ({on:?})");
+        let last = rider_pushes.last().unwrap();
+        assert!(f64::from_bits(last.3[0]) == 0.0 && last.3[1] == exact.to_bits(), "(0, 0.1F * 0.5) to the bit: {on:?}");
         assert_eq!(skipped, 0, "the default skips nothing");
-        // on: no push from the rider, B left exactly at rest, the skip counted
-        let (off, b_off, .., skipped) = run(Some(true), false);
+        // on: no push from the rider, B left exactly at rest, exactly the default's rider pushes counted as skipped
+        let (off, _, b_off, .., skipped_off) = run(Some(true), false);
         assert!(off.is_empty() && b_off.x == 0.0 && b_off.y == 0.0 && b_off.z == 0.0, "rider doPush onto carts off: none, B at rest ({off:?}, {b_off:?})");
-        assert!(skipped >= 1, "the switch counted its skips ({skipped})");
-        // on, with a villager on foot meeting B: its push stays, no rider's
-        let (foot, ..) = run(Some(true), true);
-        assert!(foot.iter().all(|p| p.1.is_none()) && foot.iter().any(|p| p.2 == b), "a villager on foot still pushes B (and A beside it), no rider does ({foot:?})");
+        assert_eq!(skipped_off, rider_pushes.len() as u64, "the switch skipped exactly the default's rider pushes");
+        // removes exactly: a villager on foot pushing A; the switch's log is the default's without its rider pushes
+        let (on_v, carts_on, ..) = run(None, true);
+        let (off_v, carts_off, .., skipped_v) = run(Some(true), true);
+        let foot: Vec<Push> = on_v.iter().copied().filter(|p| p.1.is_none()).collect();
+        assert!(!foot.is_empty() && foot.iter().all(|p| p.2 == a), "the villager on foot pushes A ({on_v:?})");
+        assert_eq!(off_v, foot, "push-off removes exactly the rider pushes, every other push to the bit");
+        assert_eq!(skipped_v, (on_v.len() - foot.len()) as u64, "and counts exactly them");
+        // (the cart-on-cart path: the same checks between the same carts at the same ticks in both runs (the switch
+        // removes none); their outcomes follow B's motion, which the removed rider push changes, so they're not
+        // compared here: the cart-on-cart push under the switch is the pickup control's below)
+        let pairs = |c: &[crate::entity::mob::CartCartPush]| c.iter().map(|p| (p.t, p.this, p.other)).collect::<Vec<_>>();
+        assert!(!carts_on.is_empty() && pairs(&carts_on) == pairs(&carts_off), "the same cart-on-cart checks: {carts_on:?} / {carts_off:?}");
+    }
+
+    /// (G1 15:17, e46035a0c's pickup control) The switch leaves the cart-on-cart push alone: an empty cart at 0.2
+    /// b/t running into a cart whose seated rider's doPush the switch removes is still pushed back by the cart
+    /// (`AbstractMinecart.push` -> `pushOtherMinecart`, applied), and picks up no one (the rider stays seated).
+    #[test]
+    fn the_push_off_switch_keeps_the_cart_on_cart_push() {
+        let mut w = World::new(BlockPos::new(-4, -2, -6), [8, 6, 12]);
+        let stone = Block::parse("minecraft:stone").unwrap();
+        let rail = Block::parse("minecraft:rail[shape=north_south,waterlogged=false]").unwrap();
+        for z in -4..=4 {
+            w.set_block(BlockPos::new(0, -1, z), stone.clone(), crate::world::flags::ALL);
+            w.set_block(BlockPos::new(0, 0, z), rail.clone(), crate::world::flags::ALL);
+        }
+        w.mob.seed(7, 6_000);
+        w.mob.ai.on = true;
+        w.mob.rider_cart_push_off = true;
+        let a = crate::entity::spawn(&mut w, "minecraft:minecart", [0.5, 0.0, 0.5], Some("{Passengers:[{id:\"minecraft:villager\",NoAI:1b}]}")).unwrap();
+        let rider = w.entities.list[crate::entity::index_of(&w, a).unwrap()].passengers[0];
+        let b = crate::entity::spawn(&mut w, "minecraft:minecart", [0.5, 0.0, 3.5], None).unwrap();
+        crate::entity::minecart::log_cart_cart_pushes(&mut w);
+        let mut applied = None;
+        for _ in 0..30 {
+            let bi = crate::entity::index_of(&w, b).unwrap();
+            if applied.is_none() {
+                w.entities.list[bi].delta_movement = crate::entity::Vec3::new(0.0, 0.0, -0.2);
+            }
+            w.tick();
+            if applied.is_none() {
+                applied = crate::entity::minecart::take_cart_cart_pushes(&mut w).into_iter().find(|p| p.what == "applied" && p.this == b && p.other == a);
+            }
+        }
+        let p = applied.expect("the empty cart met the rider's cart and the cart-on-cart push applied");
+        assert!(p.after[1] > p.before[1], "the empty cart pushed back: its z motion {} -> {}", p.before[1], p.after[1]);
+        let bi = crate::entity::index_of(&w, b).unwrap();
+        let ai = crate::entity::index_of(&w, a).unwrap();
+        assert!(w.entities.list[bi].passengers.is_empty(), "the empty cart picked up no one");
+        assert_eq!(w.entities.list[ai].passengers, vec![rider], "the rider still seated in its cart");
     }
 
     /// (G1 10:57 (3)) The travel gate's own control: a NoAI villager standing free (not riding), summoned 3

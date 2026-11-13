@@ -608,4 +608,38 @@ mod tests {
         let after: Vec<u8> = t.collect(10).iter().map(|x| x.kind).collect();
         assert_eq!(after, vec![2, 1]);
     }
+
+    /// (cc767b78; tick-exact 15:25 from 26.3's `LevelChunkTicks.unpack` 109–119, `int subTickBase =
+    /// -this.pendingTicks.size(); … pendingTick.unpack(currentTick, subTickBase++)`, and
+    /// `SavedTick.unpack` 51–53; ironspec 14:53) A load's overdue ticks: two chunks' saved ticks, due
+    /// at save + 1 and save + 2 in each, numbered -2, -1 per chunk; the world then idles past both
+    /// (a world open's idle: no block tick runs). At the first block tick every one is due: in each
+    /// chunk in due order; across the chunks the heads compare on (priority, sub), the first tie broken
+    /// by the containers' heap order (A-2, then B-2); and `drainFromCurrentContainer` keeps draining the
+    /// current chunk while its next tick is not STRICTLY after the other chunk's head (26.3
+    /// `LevelTicks.drainFromCurrentContainer` line 164, `|| nextFromNextContainer != null &&
+    /// ScheduledTick.INTRA_TICK_DRAIN_ORDER.compare(nextFromCurrentContainer, nextFromNextContainer) > 0)`
+    /// then `break;`: a tie does not break; tick-exact 15:38), so B's -1 runs before A's -1: A-2, B-2,
+    /// B-1, A-1. A tick scheduled after the load (a positive sub from the level's counter) runs after
+    /// all of them at equal priority, even with an earlier trigger.
+    #[test]
+    fn a_loads_overdue_ticks_interleave_across_chunks() {
+        let mut t: LevelTicks<u8> = LevelTicks::default();
+        let (a, b, c) = (BlockPos::new(1, 0, 1), BlockPos::new(17, 0, 1), BlockPos::new(33, 0, 1));
+        // saved at game time 10: chunk A's ticks due at 11 and 12, chunk B's the same
+        t.schedule(1, a, 11, Priority::Normal, 1);
+        t.schedule(2, a.offset(1, 0, 0), 12, Priority::Normal, 2);
+        t.schedule(3, b, 11, Priority::Normal, 3);
+        t.schedule(4, b.offset(1, 0, 0), 12, Priority::Normal, 4);
+        t.reload(&[(0, 0), (1, 0)], &[(0, 0), (1, 0)], 0);
+        let subs: Vec<(u8, i64)> = t.all().iter().map(|x| (x.kind, x.sub)).collect();
+        for (k, s) in [(1u8, -2i64), (2, -1), (3, -2), (4, -1)] {
+            assert!(subs.contains(&(k, s)), "tick {k} numbered {s} after the load: {subs:?}");
+        }
+        // after the load, a fresh tick in a third chunk, due earliest of all (the level's counter: sub 7)
+        t.schedule(5, c, 10, Priority::Normal, 7);
+        // the idle: the first block tick is at 20, everything overdue
+        let order: Vec<u8> = t.collect(20).iter().map(|x| x.kind).collect();
+        assert_eq!(order, vec![1, 3, 4, 2, 5], "A-2, B-2, B-1 (the tie keeps draining B), A-1, then the fresh one");
+    }
 }

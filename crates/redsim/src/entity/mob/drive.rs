@@ -79,6 +79,9 @@ pub struct Drive {
     pub caption: Option<String>,
     /// The world's time once the entities are spawned, as the bench saw it (None: not given).
     pub t0: Option<i64>,
+    /// (onechunk t19, cc767b78 15:27) The day time at t0 the bench ran at (`# day0 N`: its
+    /// `RunOpts::day0`; None: not given, and a replay must be told it).
+    pub day0: Option<i64>,
     /// The acts, by t, in the bench's order within one t.
     pub acts: Vec<(i64, Act)>,
     /// `expect <t> <what>` (the rest of the line) and `expect-end <what>`.
@@ -138,6 +141,7 @@ impl Drive {
                     Some("days") => d.days = w.get(1).and_then(|v| v.parse().ok()).ok_or_else(|| format!("{l:?}: a number of days"))?,
                     Some("ticks") => d.ticks = Some(w.get(1).and_then(|v| v.parse().ok()).ok_or_else(|| format!("{l:?}: a number of ticks"))?),
                     Some("t0") => d.t0 = Some(w.get(1).and_then(|v| v.parse().ok()).ok_or_else(|| format!("{l:?}: a time"))?),
+                    Some("day0") => d.day0 = Some(w.get(1).and_then(|v| v.parse().ok()).ok_or_else(|| format!("{l:?}: a day time"))?),
                     Some("caption") => d.caption = Some(h.trim_start().trim_start_matches("caption").trim().to_string()).filter(|c| !c.is_empty()),
                     Some("walk") => walk_ok = w.get(1) == Some(&"random"),
                     Some("ai") if w.get(1) != Some(&"on") => return Err(format!("{l:?}: the benches run with the mob AI on")),
@@ -147,7 +151,7 @@ impl Drive {
             }
             let w: Vec<&str> = l.split_whitespace().collect();
             // (a header line written bare, without its `#`: ironfarm's queue loop's first lines)
-            if matches!(w.first().copied(), Some("seed" | "days" | "walk" | "ai" | "ticks" | "t0" | "caption")) {
+            if matches!(w.first().copied(), Some("seed" | "days" | "walk" | "ai" | "ticks" | "t0" | "day0" | "caption")) {
                 let h = format!("#{l}");
                 let mut sub = Drive::parse(&h)?;
                 if w[0] == "caption" {
@@ -160,6 +164,8 @@ impl Drive {
                     d.ticks = sub.ticks.take();
                 } else if w[0] == "t0" {
                     d.t0 = sub.t0;
+                } else if w[0] == "day0" {
+                    d.day0 = sub.day0;
                 } else if w[0] == "walk" {
                     walk_ok = w.get(1) == Some(&"random");
                 }
