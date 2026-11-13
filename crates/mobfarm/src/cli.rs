@@ -6490,6 +6490,10 @@ pub enum MobfarmCmd {
         /// (G1 C12) A free `--reclaim-row`'s expected outcome, judged: reclaimed | not-reclaimed.
         #[arg(long)]
         reclaim_expect: Option<String>,
+        /// (ironspec 11:37 (3)) The exit boost's carry threshold: a loaded cart set on (-2,0,5)
+        /// moving south at each listed speed (comma-separated), carried to R or stalled.
+        #[arg(long)]
+        boost_probe: Option<String>,
         /// With --reclaim-row: the napper's feet at X,Y,Z instead of the bed foot's top (A6's
         /// control: its landing, 2.5,2,-2.5).
         #[arg(long, allow_hyphen_values = true)]
@@ -14646,10 +14650,18 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let failed: Vec<&String> = lines.iter().filter(|l| l.starts_with("FAILED: ")).collect();
             anyhow::ensure!(failed.is_empty(), "strand-window: {} validation failures", failed.len());
         }
-        MobfarmCmd::BedtierBench { design, from, to, speeds, after_sleep, release_after, day, empty, no_home, hide_after_wake, restart, hour, restart_phases, orders, hours, skip, skip_phases, day_off, no_presence_gate, early_release, day_gate, day_on, live_day_seated, restart_after_skip, panic_entries, pickup_injects, module_offset, queue_seat, queue_release, queue_wait, queue_waits, forced_stamp, arrival_stamp, arrival_run, arrival_hold, declare_emulated, r_bar, park_shifts, set_cell, pulse_cell, lever_on, built_release, day_lever, record, record_offset, record_margin, record_declare, head_cell, scope_excludes, visit_table, arm_delay, release_after_arm, erase_home_at, reclaim_row, reclaim_blocked, reclaim_expect, reclaim_at, restop, queue_dusk, jobs } => {
+        MobfarmCmd::BedtierBench { design, from, to, speeds, after_sleep, release_after, day, empty, no_home, hide_after_wake, restart, hour, restart_phases, orders, hours, skip, skip_phases, day_off, no_presence_gate, early_release, day_gate, day_on, live_day_seated, restart_after_skip, panic_entries, pickup_injects, module_offset, queue_seat, queue_release, queue_wait, queue_waits, forced_stamp, arrival_stamp, arrival_run, arrival_hold, declare_emulated, r_bar, park_shifts, set_cell, pulse_cell, lever_on, built_release, day_lever, record, record_offset, record_margin, record_declare, head_cell, scope_excludes, visit_table, arm_delay, release_after_arm, erase_home_at, reclaim_row, reclaim_blocked, reclaim_expect, boost_probe, reclaim_at, restop, queue_dusk, jobs } => {
             let (_c, mut spec) = load(version, &design)?;
             anyhow::ensure!(release_after >= 0 && after_sleep >= 0, "--release-after and --after-sleep can't be negative (the release waits for the wake edge, F for the lie-down edge)");
             // (ironspec 06:14: the strand's dusk, the re-claim row)
+            // (ironspec 11:37 (3): the exit boost's carry threshold, a forced row)
+            if let Some(s) = &boost_probe {
+                let vs: Vec<f64> = s.split(',').map(|x| x.trim().parse::<f64>()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("--boost-probe {s}: {e}"))?;
+                for l in crate::bedtier::boost_probe(&spec, &vs).map_err(|e| anyhow::anyhow!(e))? {
+                    println!("{l}");
+                }
+                return Ok(());
+            }
             if reclaim_row {
                 let at = match &reclaim_at {
                     None => None,

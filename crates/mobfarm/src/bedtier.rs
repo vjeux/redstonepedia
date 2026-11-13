@@ -1007,6 +1007,60 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
 /// re-claim (AcquirePoi) and the lie-down. Printed per tick of note: HOME, the bed's free tickets and
 /// every villager holding it. `blocked`: the known positive, a second villager (sealed in the
 /// run-out, HOME = the same bed) holding the bed's ticket, so the re-claim can't happen.
+/// (ironspec 11:37 (3)) The exit boost's real carry threshold, a FORCED ROW: a LOADED cart (a seated
+/// villager: a ridden cart's friction) set on the exit boost (-2,0,5)'s centre moving south at each
+/// speed, run until it reaches R (4,-1,5) or 400 gt pass; per speed: reached the next booster
+/// (-1,0,6) and R or not, the least speed on the way. The bound `speed_out>=` cites the least speed
+/// that carries and the greatest that stalls.
+pub fn boost_probe(spec: &FarmSpec, speeds: &[f64]) -> Result<Vec<String>, String> {
+    let mut out = Vec::new();
+    let (mut least_ok, mut most_fail): (Option<f64>, Option<f64>) = (None, None);
+    for &v in speeds {
+        let ro = RunOpts { ai: true, ..RunOpts::steady(1, 24000, WalkMode::Random) };
+        let (mut run, _) = crate::placing::start(spec, &ro, crate::placing::Placement::Judge, &crate::placing::BuildPlan::default())?;
+        run.place_detectors();
+        let start = [-1.5, 0.0625, 5.5];
+        let id = redsim::entity::spawn(&mut run.world, "minecraft:minecart", start, Some("{Rotation:[0f,0f],Passengers:[{id:\"minecraft:villager\"}]}"))?;
+        {
+            let w = &mut run.world;
+            let i = w.entities.list.iter().position(|e| e.id == id).ok_or("the probe cart is gone")?;
+            w.entities.list[i].pos = Vec3::new(start[0], start[1], start[2]);
+            w.entities.list[i].delta_movement = Vec3::new(0.0, 0.0, v);
+            for pid in w.entities.list[i].passengers.clone() {
+                if let Some(j) = w.entities.list.iter().position(|e| e.id == pid) {
+                    redsim::entity::position_rider(w, i, j);
+                }
+            }
+        }
+        let (mut at_booster, mut at_r, mut least) = (None, None, v);
+        for t in 1..=400 {
+            run.tick();
+            let Some(c) = run.world.entities.list.iter().find(|e| e.id == id && !e.removed) else { break };
+            let s = c.delta_movement.x.hypot(c.delta_movement.z);
+            if at_booster.is_none() {
+                least = least.min(s);
+            }
+            let b = c.block_position();
+            if b == BlockPos::new(-1, 0, 6) && at_booster.is_none() {
+                at_booster = Some(t);
+            }
+            if b == BlockPos::new(4, -1, 5) {
+                at_r = Some(t);
+                break;
+            }
+        }
+        let ok = at_r.is_some();
+        if ok {
+            least_ok = Some(least_ok.map_or(v, |m: f64| m.min(v)));
+        } else {
+            most_fail = Some(most_fail.map_or(v, |m: f64| m.max(v)));
+        }
+        out.push(format!("boost probe: a loaded cart set on (-2,0,5) moving south at {v:.4} b/t: the next booster (-1,0,6) at t {at_booster:?}, R at t {at_r:?}, its least speed before the booster {least:.4}: {}", if ok { "carried" } else { "STALLED" }));
+    }
+    out.push(format!("boost probe: the least speed that carries {least_ok:?}; the greatest that stalls {most_fail:?}{}", if most_fail.is_none() { " (no stall in the sweep: extend it down)" } else { "" }));
+    Ok(out)
+}
+
 pub fn reclaim_row(spec: &FarmSpec, seed: u64, blocked: bool, at: Option<[f64; 3]>) -> Result<Vec<String>, String> {
     let ro = RunOpts { ai: true, ..RunOpts::steady(seed as i64, 3 * 24000, WalkMode::Random) };
     let (mut run, _) = crate::placing::start(spec, &ro, crate::placing::Placement::Judge, &crate::placing::BuildPlan::default())?;
