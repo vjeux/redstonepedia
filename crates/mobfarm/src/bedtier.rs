@@ -2605,8 +2605,9 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             {
                 let z = &w.entities.list[zi];
                 let d = ((v.pos.x - z.pos.x).powi(2) + (v.pos.y - z.pos.y).powi(2) + (v.pos.z - z.pos.z).powi(2)).sqrt();
-                let ve = redsim::entity::Vec3::new(v.pos.x, v.pos.y + v.eye_height() as f64, v.pos.z);
-                let ze = redsim::entity::Vec3::new(z.pos.x, z.pos.y + z.eye_height() as f64, z.pos.z);
+                let veh = if matches!(&v.kind, redsim::entity::EntityKind::Mob(m) if m.sleeping_pos.is_some()) { 0.2 } else { v.kind.eye_height() as f64 };
+                let ve = redsim::entity::Vec3::new(v.pos.x, v.pos.y + veh, v.pos.z);
+                let ze = redsim::entity::Vec3::new(z.pos.x, z.pos.y + z.kind.eye_height() as f64, z.pos.z);
                 let seen = redsim::entity::mob::los::has_line_of_sight(w, ve, ze);
                 row.waker_dist_min = Some(row.waker_dist_min.map_or(d, |m: f64| m.min(d)));
                 if seen {
