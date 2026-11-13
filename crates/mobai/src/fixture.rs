@@ -10796,7 +10796,8 @@ pub fn flee_control(name: &str) -> Result<()> {
     println!("reach-control: {} of {} as expected{}", rc.len() - rbad, rc.len(), if rbad == 0 { " (PASS)" } else { "" });
     // (the eye check's positive control: a stone at a seated rider's eye must fail it)
     let (n, hits) = mobfarm::fleecheck::eye_check(&spec, true).map_err(|e| anyhow!(e))?;
-    let (_, eye_fails) = mobfarm::fleecheck::eye_lines(n, &hits, 0);
+    let (_, eye_places) = mobfarm::fleecheck::eye_lines(n, &hits, 0);
+    let eye_fails = eye_places > 0;
     println!("eye-control (a stone at the first rail cell's rider eye): the suffocation gate {}", if eye_fails { "FAILS, as it must (PASS)" } else { "passes  DIFFERS" });
     // (the blindness pair, ironspec Nov 11 14:08: the eye point inside a shape is blind; an eye
     // box only grazing a shape, the point outside, is sighted)
@@ -10807,7 +10808,8 @@ pub fn flee_control(name: &str) -> Result<()> {
     let bbad = bc.iter().filter(|b| !b.2).count();
     println!("blind-control: {} of {} as expected{}", bc.len() - bbad, bc.len(), if bbad == 0 { " (PASS)" } else { "" });
     // (the pickup gate's positive control: a boated zombie 0.1 beside a cart's box must fail it)
-    let (_, pk) = mobfarm::fleecheck::pickup_check(&spec, true);
+    let (_, _, pk_overlaps) = mobfarm::fleecheck::pickup_check(&spec, true);
+    let pk = pk_overlaps > 0;
     println!("pickup-control (a boated zombie 0.1 beside the first rail cell's cart): the pickup gate {}", if pk { "FAILS, as it must (PASS)" } else { "passes  DIFFERS" });
     let bad = bad + rbad + (!eye_fails) as usize + bbad + (!pk) as usize;
     if bad > 0 {
