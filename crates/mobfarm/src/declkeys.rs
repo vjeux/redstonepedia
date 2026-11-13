@@ -30,11 +30,16 @@ pub const COMMENT_KEYS: &[&str] = &[
 ];
 
 /// Keys read from a comment line or a header line alike (the push / water-spawn readers strip an optional
-/// `#`).
-pub const EITHER_KEYS: &[&str] = &["push-pair", "switch", "switches", "update-only", "inert", "water-spawn"];
+/// `#`; flee-check's `PlaceClasses::from_design` reads `integrity:` both ways, `bars::Scope::from_text`
+/// `scope-excludes:`, `wetspawn::Site::from_text` `site:`). `travel` is the one key two readers share in
+/// different forms: flee-check reads `# travel: A>B>…=REASON` comment lines (`pushscan::header_entries`,
+/// 9fc3155f's chain), while the piston-extender circuits' own `travel: x y z` header line belongs to the
+/// door tools (designs/circuits/pext): both forms stand, a mis-form of either still errors.
+pub const EITHER_KEYS: &[&str] = &["push-pair", "switch", "switches", "update-only", "inert", "water-spawn", "integrity", "scope-excludes", "site", "travel"];
 
-/// Keys read only from a header line, `key: …` (`column::header_cells`, `header_cell_states`).
-pub const META_KEYS: &[&str] = &["riderless", "emulated", "waker-places", "placement-order-ts", "unreachable", "update-only-ts"];
+/// Keys read only from a header line, `key: …` (`column::header_cells`, `header_cell_states`;
+/// `late-exempt:` through `PlaceClasses::from_meta`).
+pub const META_KEYS: &[&str] = &["riderless", "emulated", "waker-places", "placement-order-ts", "unreachable", "update-only-ts", "late-exempt"];
 
 /// Levenshtein distance, capped at 2 (all the check needs).
 fn distance(a: &str, b: &str) -> usize {
