@@ -3509,6 +3509,12 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     // (ironfarm 12:47, --lip-dump) per lane the last 60 gt of its carts, and the dumps taken at rests
     let mut lip_ring: [std::collections::VecDeque<String>; 3] = [std::collections::VecDeque::new(), std::collections::VecDeque::new(), std::collections::VecDeque::new()];
     let mut lip_dumps: Vec<String> = Vec::new();
+    // (ironfarm 13:36) the lip classifier per lane (its lip in the world frame), its arrivals, and each
+    // off-rail rest's (tick, lane, cart) for the class of the arrival before it
+    let fo0 = frame_offset();
+    let mut lip_lanes: [crate::lipclass::LipLane; 3] = LANES.map(|x| crate::lipclass::LipLane::new(x + fo0[0], 24 + fo0[1], 7 + fo0[2], None));
+    let mut lipc_arrivals: [Vec<crate::lipclass::LipArrival>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+    let mut off_rest_events: Vec<(i64, usize, u32)> = Vec::new();
     // (G1 12:21) --villager-trace's rows
     let mut vtrace_rows: Vec<String> = Vec::new();
     // (onechunk 11:16) every napper's cart dropping into a lane not its own, with its split turns
@@ -6959,6 +6965,14 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 }
                 // (ironfarm 12:47, --lip-dump) the lane's carts this tick (the region + the lip, C, D):
                 // each centre, stored motion and its rider's box, in a 60-gt ring per lane
+                // (ironfarm 13:36, mobfarm::lipclass: the one lip-arrival classifier, fed every tick
+                // with the lane's carts in the world frame, its lane's lip given in the world frame)
+                {
+                    let ids: Vec<u32> = w.entities.list.iter().filter(|f| !f.removed && matches!(f.kind, EntityKind::Minecart(_)) && in_lane_region(cell(f.pos), *x)).map(|f| f.id).collect();
+                    for a in lip_lanes[k].tick(rel, &crate::lipclass::observe(w, &ids)) {
+                        lipc_arrivals[k].push(a);
+                    }
+                }
                 if o.lip_dump.is_some() {
                     let rows: Vec<String> = w
                         .entities
@@ -7156,6 +7170,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                                 format!("t {t} by #{m} ({act}; {trigger}) {}", veh.map_or("on foot".to_string(), |(v, vc)| format!("riding cart #{v} at {}", vc.map_or("?".to_string(), |c| format!("({},{},{})", c[0], c[1], c[2])))))
                             }).collect();
                             // (ironfarm 12:47, --lip-dump) the stalled lane's last 60 gt, dumped once per rest
+                            off_rest_events.push((rel, k, e.id));
                             if o.lip_dump.is_some() {
                                 lip_dumps.push(format!("== cart #{} at rest off the rails in lane x {x}'s drop region from t {rel}: the lane's carts over the 60 gt before (centre, stored motion, rider box; design frame)\n{}", e.id, lip_ring[k].iter().cloned().collect::<Vec<_>>().join("\n")));
                             }
@@ -9216,6 +9231,41 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             if o.rider_push_off { "off (a counterfactual, no game twin)" } else { "on (the game)" },
             fmt(&least_before),
             fmt(&least_after)
+        ));
+    }
+    // (ironfarm 13:36, mobfarm::lipclass) every lip arrival's class per lane, and the class of the
+    // arrival before each off-rail rest in a drop region (ironspec 13:25 (4)'s per-night classification)
+    {
+        let mut per_lane: Vec<String> = Vec::new();
+        for k in 0..3 {
+            let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+            for a in &lipc_arrivals[k] {
+                *counts.entry(a.class.name()).or_default() += 1;
+            }
+            let odd: Vec<String> = lipc_arrivals[k]
+                .iter()
+                .filter(|a| !matches!(a.class, crate::lipclass::LipClass::Clear))
+                .map(|a| format!("t {} cart #{} {} (others in the slots {}, gap {}, step {:.3}, occupants {:?})", a.tick, a.cart, a.class.name(), a.others_in_slots, a.gap.map_or("-".to_string(), |g| g.to_string()), a.step, a.occupants))
+                .collect();
+            per_lane.push(format!(
+                "lane x {}: {} arrivals ({}){}",
+                LANES[k],
+                lipc_arrivals[k].len(),
+                counts.iter().map(|(c, n)| format!("{c} {n}")).collect::<Vec<_>>().join(", "),
+                if odd.is_empty() { String::new() } else { format!(": {}", odd.join("; ")) }
+            ));
+        }
+        let rests: Vec<String> = off_rest_events
+            .iter()
+            .map(|(t, k, cid)| {
+                let before = lipc_arrivals[*k].iter().rev().find(|a| a.tick <= *t);
+                format!("cart #{cid} at rest in lane x {}'s drop region from t {t}: the arrival before it {}", LANES[*k], before.map_or("none".to_string(), |a| format!("t {} cart #{} {}{}", a.tick, a.cart, a.class.name(), if a.class.explains_a_stall() { " (explains a stall)" } else { "" })))
+            })
+            .collect();
+        s.push_str(&format!(
+            "the lip arrivals' classes (ironfarm 13:36, mobfarm::lipclass 9a3c61c2d: a 9th cart / rollback / a gap under 23 / UNCLASSIFIED / slow entry / clear, in that order; information): {}; the arrival before each off-rail rest: {}\n",
+            per_lane.join(" | "),
+            if rests.is_empty() { "no rest".to_string() } else { rests.join("; ") }
         ));
     }
     // (ironspec 13:04 (1) / 12:41 (4), R6 per pick) each outbound napper's pass of each J at or east of
