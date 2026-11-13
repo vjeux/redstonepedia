@@ -2215,16 +2215,22 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     // (a stand-in with no collision box, a lever, can't cross a sight ray: a mob's sight clips
     // against colliders (`ClipContext.Block.COLLIDER`), so its cell isn't watched)
     let mut sight_skipped: Vec<[i32; 3]> = Vec::new();
+    // (ironspec 04:07 PT: a bench override that doesn't change its cell fails the run) each
+    // emulated cell's state before and after it's laid
+    let mut overrides: Vec<([i32; 3], String, String)> = Vec::new();
     if o.drive {
         for (c, state) in &o.emulated_states {
-            if run.world.get(redsim::pos::BlockPos::new(c[0], c[1], c[2])).is_air() {
+            let p = redsim::pos::BlockPos::new(c[0], c[1], c[2]);
+            let before = run.world.get(p).to_string();
+            if run.world.get(p).is_air() {
                 set(&mut run.world, *c, state, redsim::world::flags::ALL)?;
-                if redsim::behavior::collision_boxes(&run.world.get(redsim::pos::BlockPos::new(c[0], c[1], c[2]))).is_empty() {
+                if redsim::behavior::collision_boxes(&run.world.get(p)).is_empty() {
                     sight_skipped.push(*c);
                 } else {
                     sight_cells.push(*c);
                 }
             }
+            overrides.push((*c, before, run.world.get(p).to_string()));
         }
     }
     let mut sight_hits: Vec<i64> = vec![0; sight_cells.len()];
@@ -4406,6 +4412,16 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 if declared.is_empty() { String::new() } else { format!("; declared: {}", declared.join("; ")) }
             ));
         }
+        // (ironspec 04:07 PT) every bench override with its cell's state before and after; one that
+        // doesn't change its cell fails the run
+        let noops: Vec<&([i32; 3], String, String)> = overrides.iter().filter(|(_, b, a)| b == a).collect();
+        s.push_str(&format!(
+            "the bench overrides (ironspec 04:07 PT: each emulated cell's state before and after it's laid; an override that doesn't change its cell fails the run): {} overrides: {}; no-ops {} ({})\n",
+            overrides.len(),
+            if overrides.is_empty() { "none".to_string() } else { overrides.iter().map(|(c, b, a)| format!("({},{},{}) {} -> {}", c[0], c[1], c[2], b.trim_start_matches("minecraft:"), a.trim_start_matches("minecraft:"))).collect::<Vec<_>>().join(", ") },
+            noops.len(),
+            if noops.is_empty() { "PASS".to_string() } else { format!("FAIL: {}", noops.iter().map(|(c, b, _)| format!("({},{},{}) already {}", c[0], c[1], c[2], b.trim_start_matches("minecraft:"))).collect::<Vec<_>>().join(", ")) }
+        ));
         s.push_str(&format!(
             "the stand-ins' 7th property, SIGHT (ironspec 20:10 / 20:19 PT (2c): each emulated support laid where the build has air against every villager's eye to every living entity's eye within 16, each tick; bar 0 crossings): {}{}{}\n",
             if sight_cells.is_empty() { "no support laid on air".to_string() } else { sight_cells.iter().zip(sight_hits.iter()).map(|(c, n)| format!("({},{},{}) {n} ({})", c[0], c[1], c[2], if *n == 0 { "PASS" } else { "FAIL" })).collect::<Vec<_>>().join(", ") },

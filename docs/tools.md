@@ -589,7 +589,10 @@ it, before the whole round trip (the summon's other stamps are the ones that S l
 harm bar must pass; the run prints the stamped napper's
 margin), and `--empty-pocket X` for the summon check. The stand-in guard
 is record-match's `guard_intrinsics` (golem as a floor and as a spawn space, the full PathType,
-late-path, sight); the counter's C is derived at the first release from its own day time.
+late-path, sight); the counter's C is derived at the first release from its own day time. Every
+bench override (each emulated cell laid at the start) prints its cell's state before and after it's
+laid, and one that doesn't change its cell (the built cell isn't air, or already holds the state)
+fails the run (ironspec 04:07 PT).
 The stranded-napper bar (ironspec 00:33 PT): a napper waking in A6 with no cart at the pickup cell P
 by its wake edge + the bound fails; P and the bound come from the module's `# a6-pickup: x,y,z=…
 wake edge + N gt …` line (no line: NOT JUDGED, a failure). The stand-ins' SIGHT check (ironspec
