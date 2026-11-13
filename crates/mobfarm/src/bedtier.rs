@@ -118,6 +118,14 @@ pub const PARK_CTRL_A2: [i32; 3] = [3, 0, 4];
 /// (A)'s wake sensor (G1 12:04 / day-1 12:03): an observer under the bed head, facing up at it;
 /// its output face down into (-3,-2,4).
 pub const WAKE_SENSOR: [i32; 3] = [-3, -1, 4];
+/// (G1's Q3 / Q15) The budget's term for the slope's departure -> R (ironspec's provisional
+/// budget 73 + 170 + 15 + d_RS 10 + 7 + 10 = 285 <= 300).
+pub const HOLD_TO_R_BUDGET: i64 = 15;
+/// (G1's Q2 on 94e90d6b2) The slope hold's tap on its built path: DAY-1's repeater (module
+/// (1,-29,3)) facing north, its output into the slope's slime support (1,-2,5); the bench file
+/// lays it with its stand-in input lever at TAP_CTRL (a declared bench override).
+pub const TAP_REP: [i32; 3] = [1, -2, 4];
+pub const TAP_CTRL: [i32; 3] = [1, -2, 3];
 
 /// The stop's variant cells in a built world: (A) when E holds an activator rail, T5b when the
 /// entry does, else A6.
@@ -833,8 +841,15 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
         }
         // (the slope's support: with the hold, DAY-1's built tap cell, a SLIME block fed by its
         // repeater at (1,-2,4) (module (1,-29,3), facing north; day-1 10:38): placed here as the
-        // support, its drive day-1's; the bench's stand-in powers the rail from beside it)
+        // support, its drive day-1's; the bench file lays that repeater and its stand-in input
+        // lever (G1's Q2: the tap on the built path, through the stand-in guard))
         put(&mut b, [1, -2, 5], if hold_slope { "slime_block" } else { "glass" })?;
+        if hold_slope && bench {
+            put(&mut b, TAP_REP, "repeater[delay=1,facing=north,locked=false,powered=false]")?;
+            put(&mut b, [TAP_REP[0], TAP_REP[1] - 1, TAP_REP[2]], "glass")?;
+            put(&mut b, TAP_CTRL, &ctl_block(TAP_CTRL, "stone"))?;
+            put(&mut b, [TAP_CTRL[0], TAP_CTRL[1] - 1, TAP_CTRL[2]], "glass")?;
+        }
         for x in 2..=3 {
             put(&mut b, [x, -1, 5], &rail("east_west"))?;
             put(&mut b, [x, -2, 5], "glass")?;
@@ -1288,6 +1303,13 @@ pub struct Row {
     pub sensor_present: bool,
     /// (G1's Q13) ticks with a declared `# integrity:` shape off.
     pub integrity_breaks: usize,
+    /// (G1's Q2) the tap's stand-in writes (tick, on).
+    pub tap_writes: Vec<(i64, bool)>,
+    /// (G1's Q2) the loaded cart reached the slope (1,-1,5) while the slope was powered (the tap's
+    /// pulse on: it rolls through, an early launch).
+    pub hold_arrival_powered: bool,
+    /// (G1's Q3) the held rider's sight to the waker CLEAR in either shutter state at the rest.
+    pub hold_sight_clear: bool,
     pub launch_cells: Vec<([i32; 3], f64)>,
     /// (G1 C16) The cells holding water at the visit's end (the design's own water is the bar).
     pub water_cells: usize,
@@ -1523,6 +1545,9 @@ pub struct Faults {
     pub close_after: i64,
     /// (G1's Q13) The design's `# integrity:` shapes (design frame), judged every tick.
     pub integrity: Vec<([i32; 3], String)>,
+    /// (G1's Q2) The slope hold's tap on the built path: its stand-in input lever (TAP_CTRL, into
+    /// DAY-1's repeater TAP_REP) on at tick T for W gt, again every PERIOD gt when given.
+    pub tap: Option<(i64, i64, Option<i64>)>,
     /// (ironspec 10:47) Each declared contact's `rate=k/n` from a band run: STALE fails only when
     /// (1 - k/n)^N < 0.001 for the run's N visits; a rate-less declaration is always expected.
     pub contact_rates: Vec<([i32; 3], (u32, u32))>,
@@ -1993,7 +2018,7 @@ pub fn ctl_block(c: [i32; 3], st: &str) -> String {
         "stone" => false,
         other => return other.to_string(),
     };
-    if !([HATCH_CTRL, HATCH_CTRL_HI, ACT_CTRL, ACT_CTRL_T5B, ACT_CTRL_A, PARK_CTRL_A, WAKER_CTRL].contains(&c) || PARK_CTRL.contains(&c)) {
+    if !([HATCH_CTRL, HATCH_CTRL_HI, ACT_CTRL, ACT_CTRL_T5B, ACT_CTRL_A, PARK_CTRL_A, WAKER_CTRL, TAP_CTRL].contains(&c) || PARK_CTRL.contains(&c)) {
         // ((A) with the run-up: the activator's lever hung from the glass over E, the park's on
         // the glass south of it)
         if c == ACT_CTRL_A2 {
@@ -2141,7 +2166,14 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
     // queue's release with --module-offset)
     let (act_cell, act_ctrl) = { let l = layout_at(&run.world, off); (l.act, l.act_ctrl) };
     let lay = layout_at(&run.world, off);
-    for c in lay.hatch_ctrl.iter().copied().chain([act_ctrl]).chain(lay.park_ctrl.iter().copied()) {
+    // (G1's Q2: the slope hold's tap stand-in, the input lever into DAY-1's repeater, through the
+    // same guard; its reach must be the repeater alone)
+    let tap_built = format!("{}", run.world.get(wc(TAP_REP))).contains("repeater");
+    if f.tap.is_some() && !tap_built {
+        return Err("--tap: no repeater at (1,-2,4) (the tap's built path is the bench file's: `bedtier --bench --hold-slope`)".into());
+    }
+    let tap_ctl: Vec<[i32; 3]> = if tap_built { vec![TAP_CTRL] } else { Vec::new() };
+    for c in lay.hatch_ctrl.iter().copied().chain([act_ctrl]).chain(lay.park_ctrl.iter().copied()).chain(tap_ctl.iter().copied()) {
         // (a built always-on source the bench never writes ((A) with the run-up's activator torch)
         // is no stand-in: nothing to check)
         if ctl_block(c, "redstone_block") == ctl_block(c, "stone") {
@@ -2150,10 +2182,11 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
         for st in ["redstone_block", "stone"] {
             emulated_write_check(&run.world, wc(c), &block(&ctl_block(c, st))?, &f.declared_emulated)?;
         }
-        // (the reach half: the built lever's own power reach is the target set)
+        // (the reach half: the built lever's own power reach is the target set; the tap's: DAY-1's
+        // repeater alone)
         let p = wc(c);
         let on = block(&ctl_block(c, "redstone_block"))?;
-        let built = standin_reach(&run.world, p, &run.world.get(p))?.1;
+        let built = if c == TAP_CTRL { vec![wc(TAP_REP)] } else { standin_reach(&run.world, p, &run.world.get(p))?.1 };
         row.standin.push(standin_reach_check(&run.world, p, &on, &built, &f.declared_emulated)?);
     }
     // (the queue's release, the conforming stand-in (ironspec 18:10): never a redstone block in the
@@ -2274,6 +2307,8 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
     // (the bed's head and foot states after the previous tick: the contact's bed check)
     let mut prev_bed: Option<(String, String)> = None;
     let mut sensor_prev = false;
+    let mut tap_on = false;
+    let mut hold_entered = false;
     let mut prev_cart_motion = (0f64, 0f64, 0f64);
     let mut still = 0;
     let mut crossed: Vec<[i32; 3]> = Vec::new();
@@ -2603,6 +2638,19 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
         {
             redsim::entity::mob::ai::brain::brain_mut(&mut run.world, vi).nearest_hostile = Some(z);
         }
+        // (G1's Q2: the slope hold's tap on its built path: the stand-in input lever into DAY-1's
+        // repeater, on at T for W gt, again every PERIOD gt; each write through `set` (a lever pull))
+        if let Some((t0, wd, per)) = f.tap {
+            let on = t >= t0 && match per {
+                Some(p) if p > 0 => (t - t0) % p < wd,
+                _ => t - t0 < wd,
+            };
+            if on != tap_on {
+                set(&mut run.world, TAP_CTRL, if on { "redstone_block" } else { "stone" });
+                tap_on = on;
+                row.tap_writes.push((t, on));
+            }
+        }
         // (ironspec 00:03 (2c): `--pulse-cell X,Y,Z@T=STATE`, a block set at tick T before the
         // tick, to measure the navigation's recompute trigger (vanilla's: a COLLISION-shape change
         // near the path's midpoint, `ServerLevel.sendBlockUpdated` -> `shouldRecomputePath`))
@@ -2735,6 +2783,15 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
         // the rest, the launch's speed per cell to R)
         if hold_slope_on && row.pickup.is_some() {
             let in_hold = cbp == BlockPos::new(1, -1, 5);
+            // (G1's Q2: the cart's first entry into the slope with the slope powered: an arrival
+            // during the tap's pulse (it rolls through: an early launch))
+            if in_hold && row.hold_rest_at.is_none() && !hold_entered {
+                hold_entered = true;
+                if format!("{}", w.get(wp(1, -1, 5))).contains("powered=true") {
+                    row.hold_arrival_powered = true;
+                    row.problems.push(format!("t {t}: the loaded cart reached the slope (1,-1,5) during the tap's pulse (the slope powered: it rolls through, an early launch)"));
+                }
+            }
             let sp = (c.delta_movement.x.powi(2) + c.delta_movement.y.powi(2) + c.delta_movement.z.powi(2)).sqrt();
             if in_hold && row.hold_rest_at.is_none() && sp < 1e-4 && !c.passengers.is_empty() {
                 row.hold_rest_at = Some(t);
@@ -2756,6 +2813,11 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                     let name = |h: Option<BlockPos>, ww: &World| h.map_or("CLEAR".to_string(), |p| { let q = dbp(p); format!("blocked at ({},{},{}) {}", q.x, q.y, q.z, ww.get(p)) });
                     let vd = dpos(ve);
                     row.hold_lines.push(format!("t {t}: the loaded cart at rest on the slope at ({:.3},{:.3},{:.3}); the rider's feet {dist:.2} from the waker's; its eye ({:.2},{:.2},{:.2}) to the waker's eye: shutter as now {}; shutter open (F's state, on a copy) {}", cpos.x, cpos.y, cpos.z, vd.x, vd.y, vd.z, name(shut, w), name(open, &w2)));
+                    // (G1's Q3: the held rider never sees the waker, in either shutter state)
+                    if shut.is_none() || open.is_none() {
+                        row.hold_sight_clear = true;
+                        row.problems.push(format!("t {t}: the held rider's line to the waker CLEAR with the shutter {} (bar: blocked in both states)", if shut.is_none() { "as now" } else { "open" }));
+                    }
                 }
             }
             if let (Some(_), None, Some(p0)) = (row.hold_rest_at, row.hold_depart_at, row.hold_rest_pos) {
@@ -2765,7 +2827,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                     // (day-1 10:38: which tap launched it: the last stand-in write powering the
                     // slope at or before the departure, and the wait (a free-running tap launches
                     // a cart waiting a period or more early: the periodic-pulse row shows it))
-                    let launching = f.pulses.iter().filter(|(p, at, st)| *p == BlockPos::new(1, -1, 6) && st.contains("redstone_block") && *at <= t).map(|(_, at, _)| *at).max();
+                    let launching = row.tap_writes.iter().filter(|(at, on)| *on && *at <= t).map(|(at, _)| *at).max();
                     row.hold_lines.push(format!("t {t}: departed the slope: arrived at rest t {:?}, launched by the tap write at t {launching:?}, waited {:?} gt", row.hold_rest_at, row.hold_rest_at.map(|a| t - a)));
                     if let Some(vi) = vill.and_then(|v| idx(w, v))
                         && redsim::entity::mob::ai::brain::has_exact(w, vi)
@@ -4223,9 +4285,12 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
     // ((A)'s exit-slope hold (ironspec 09:38): the design's slope a powered rail; the tap is the
     // bench's `--pulse-cell 1,-1,6@T=...` write (DAY-1's tap cells in the build))
     let hold_design = spec.blocks.iter().any(|(p, b)| *p == BlockPos::new(1, -1, 5) && format!("{b}").contains("powered_rail"));
-    let tap_at: Option<i64> = base.pulses.iter().find(|(p, _, _)| *p == BlockPos::new(1, -1, 6)).map(|(_, at, _)| *at);
+    let tap_at: Option<i64> = base.tap.map(|(t, _, _)| t);
     if hold_design {
-        println!("the exit-slope hold: the tap (the bench's stand-in write at (1,-1,6)) at t {tap_at:?} of every visit (one shared absolute phase)");
+        println!("the exit-slope hold: the tap on its built path (G1's Q2: the stand-in lever (1,-2,3) into DAY-1's repeater (1,-2,4) facing north, into the slope's slime support) {:?} (T, W, PERIOD) of every visit (one shared absolute phase)", base.tap);
+    }
+    if base.pulses.iter().any(|(p, _, _)| *p == BlockPos::new(1, -1, 6)) {
+        anyhow::bail!("--pulse-cell 1,-1,6 is the retired step stand-in for the slope hold's tap: use --tap T,W[,PERIOD] (G1's Q2)");
     }
     let sp: Vec<f64> = list(Some(speeds))?;
     // (ironspec 19:18: entry to R per entry speed against the lane's timing bar)
@@ -4620,6 +4685,8 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
                             }
                             sk.hold_creep = sk.hold_creep.max(r.hold_creep);
                             sk.hold_hostile += r.hold_hostile_ticks;
+                            sk.hold_arrival_powered += r.hold_arrival_powered as usize;
+                            sk.hold_sight_clear += r.hold_sight_clear as usize;
                             sk.hold_stamped += r.hold_stamp_at_depart.is_some_and(|s| s.is_some()) as usize;
                             for (cell, s) in &r.launch_cells {
                                 let e = sk.launch.entry(format!("{},{},{}", cell[0], cell[1], cell[2])).or_insert((f64::MAX, 0f64));
@@ -5065,8 +5132,7 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
     if hold_design {
         sk.hold_spans.sort();
         sk.hold_to_r.sort();
-        println!("the exit-slope hold (ironspec 09:38 / 09:40 (b)): picked-up carts {}, at rest on the slope {} (bar: all); left before the tap {} (bar 0); the longest creep while held {:.4} (departure is a move over 0.01); held {:?}..{:?} gt; the rider's NEAREST_HOSTILE ticks over the hold {} (bar 0); stamps at the slope's departure {} (bar 0); departure -> R {:?}..{:?} gt; the launch's speed per cell (least, greatest) {:?}", sk.hold_picked, sk.hold_rested, sk.hold_early, sk.hold_creep, sk.hold_spans.first(), sk.hold_spans.last(), sk.hold_hostile, sk.hold_stamped, sk.hold_to_r.first(), sk.hold_to_r.last(), sk.launch);
-        println!("the exposure term in this bench (ironspec 09:40 (a)): the bed is free through the hold (one napper per visit here); R -> the held napper's last tick within 16 of the head needs the composed run-out (this bench's run-out ends ~12.6 from the head)");
+        println!("the exit-slope hold (ironspec 09:38 / 09:40 (b)): picked-up carts {}, at rest on the slope {} (bar: all); left before the tap {} (bar 0); arrivals during the tap's pulse {} (bar 0); the longest creep while held {:.4} (departure is a move over 0.01); held {:?}..{:?} gt (bar: under one tap period); the rider's NEAREST_HOSTILE ticks over the hold {} (bar 0); stamps at the slope's departure {} (bar 0); a CLEAR line to the waker in a shutter state {} (bar 0); departure -> R {:?}..{:?} gt (bar: the budget's {HOLD_TO_R_BUDGET}); the launch's speed per cell (least, greatest) {:?}", sk.hold_picked, sk.hold_rested, sk.hold_early, sk.hold_arrival_powered, sk.hold_creep, sk.hold_spans.first(), sk.hold_spans.last(), sk.hold_hostile, sk.hold_stamped, sk.hold_sight_clear, sk.hold_to_r.first(), sk.hold_to_r.last(), sk.launch);
         if sk.hold_rested < sk.hold_picked {
             failed.push(format!("{} picked-up carts never at rest on the exit slope (the hold)", sk.hold_picked - sk.hold_rested));
         }
@@ -5080,7 +5146,31 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
             failed.push(format!("{} held riders with a CANT_REACH stamp at the slope's departure", sk.hold_stamped));
         }
         if tap_at.is_none() {
-            failed.push("the hold design with no tap (--pulse-cell 1,-1,6@T=redstone_block)".to_string());
+            failed.push("the hold design with no tap (--tap T,W[,PERIOD], G1's Q2)".to_string());
+        }
+        // (G1's Q2: an arrival during a pulse rolls through (an early launch); a wait of one period
+        // or more missed a launch)
+        if sk.hold_arrival_powered > 0 {
+            failed.push(format!("{} loaded carts reached the slope during the tap's pulse (an early launch)", sk.hold_arrival_powered));
+        }
+        if let Some((_, _, Some(p))) = base.tap
+            && let Some(&longest) = sk.hold_spans.last()
+            && longest >= p
+        {
+            failed.push(format!("a held cart waited {longest} gt on the slope, a full tap period ({p} gt) or more: it missed a launch"));
+        }
+        // (G1's Q3: the held rider's sight CLEAR in either shutter state; departure -> R against the
+        // budget's 15-gt term)
+        if sk.hold_sight_clear > 0 {
+            failed.push(format!("{} held riders with a CLEAR line to the waker in a shutter state", sk.hold_sight_clear));
+        }
+        if let Some(&worst) = sk.hold_to_r.last()
+            && worst > HOLD_TO_R_BUDGET
+        {
+            failed.push(format!("the slope's departure -> R took {worst} gt, over the budget's {HOLD_TO_R_BUDGET}-gt term"));
+        }
+        if sk.hold_to_r.is_empty() && sk.hold_picked > 0 {
+            failed.push("the slope's departure -> R: NOT JUDGED (no held cart reached R)".into());
         }
     }
     if sk.pickup_unwoken > 0 {
@@ -5258,6 +5348,9 @@ struct SkipTotals {
     hold_creep: f64,
     hold_hostile: usize,
     hold_stamped: usize,
+    /// (G1's Q2 / Q3) loaded carts reaching the slope during a pulse; held riders with a CLEAR line
+    hold_arrival_powered: usize,
+    hold_sight_clear: usize,
     launch: std::collections::BTreeMap<String, (f64, f64)>,
     hold_lines_shown: usize,
     stamp_visit_max: i64,
