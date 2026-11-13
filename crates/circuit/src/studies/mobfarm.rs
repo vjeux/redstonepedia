@@ -732,9 +732,10 @@ fn with_passenger_home(n: &str, home: &str) -> std::result::Result<String, Strin
         if after[..end].contains("Brain:") {
             return Err(format!("a villager passenger with its own Brain data and `port home`: {n}"));
         }
-        // (ironspec 08:16 platform, onechunk's 23rd) a passenger marked `Tags:["no-home"]` stays
-        // HOME-less: the per-villager opt-out (the game reads the same tag as plain data)
-        if after[..end].contains(NO_HOME_TAG) {
+        // (ironspec 08:16 platform, onechunk's 23rd; G1 10:47 O12: the passenger's OWN tag, exactly) a
+        // passenger marked `Tags:["no-home"]` stays HOME-less: the per-villager opt-out (the game reads
+        // the same tag as plain data)
+        if has_no_home_tag(&after[..end]) {
             out.push_str(&rest[..i + key.len()]);
             rest = after;
             continue;
@@ -751,6 +752,75 @@ fn with_passenger_home(n: &str, home: &str) -> std::result::Result<String, Strin
 /// (ironspec 08:16 platform) The per-villager opt-out of `port home`: a villager (or a villager
 /// passenger) whose own data carries this tag is loaded HOME-less.
 pub const NO_HOME_TAG: &str = "Tags:[\"no-home\"]";
+
+/// (G1 10:47 O12) Whether an entity compound's OWN top-level `Tags` list holds the tag "no-home"
+/// exactly: a nested passenger's tags don't count, another tag beside it doesn't hide it, and a tag
+/// that merely contains the text ("no-home-x") isn't it. The compound may come with or without its
+/// outer braces.
+pub fn has_no_home_tag(compound: &str) -> bool {
+    let s = compound.trim();
+    let s = s.strip_prefix('{').map(|t| t.strip_suffix('}').unwrap_or(t)).unwrap_or(s);
+    let b = s.as_bytes();
+    let (mut depth, mut i, mut quoted) = (0i32, 0usize, false);
+    while i < b.len() {
+        let ch = b[i];
+        if quoted {
+            if ch == b'\\' {
+                i += 2;
+                continue;
+            }
+            if ch == b'"' {
+                quoted = false;
+            }
+            i += 1;
+            continue;
+        }
+        match ch {
+            b'"' => quoted = true,
+            b'{' | b'[' => depth += 1,
+            b'}' | b']' => depth -= 1,
+            _ => {}
+        }
+        if depth == 0 && s[i..].starts_with("Tags:[") && (i == 0 || matches!(b[i - 1], b',' | b' ' | b'{')) {
+            // the list's elements up to its closing bracket, each a quoted string or a bare word
+            let body = &s[i + "Tags:[".len()..];
+            let close = body.find(']').unwrap_or(body.len());
+            return body[..close].split(',').map(|t| t.trim().trim_matches('"')).any(|t| t == "no-home");
+        }
+        i += 1;
+    }
+    false
+}
+
+/// (G1 10:47 blocking 5) A villager's loaded data with HOME added (`home` given: [`PortHome::Load`]'s
+/// memory compound) or left as it is (`home` None: [`PortHome::Skip`]), the top-level villager and
+/// every villager passenger alike, a `no-home`-tagged one (its own tag) left HOME-less.
+pub fn entity_nbt_with_home(kind: &str, nbt: Option<&str>, home: Option<&str>) -> std::result::Result<Option<String>, String> {
+    let mut nbt = nbt.map(str::to_string);
+    if let Some(h) = home
+        && kind.trim_start_matches("minecraft:") == "villager"
+        && !nbt.as_deref().is_some_and(has_no_home_tag)
+    {
+        nbt = Some(match nbt.as_deref().map(str::trim) {
+            Some(n) if n.contains("Brain:") => return Err(format!("a villager with its own Brain data and `port home`: {n}")),
+            Some(n) if n.len() > 2 => format!("{},{h}}}", n.strip_suffix('}').unwrap_or(n)),
+            _ => format!("{{{h}}}"),
+        });
+    }
+    if let Some(h) = home
+        && let Some(n) = nbt.as_deref()
+        && n.contains("Passengers:[")
+    {
+        nbt = Some(with_passenger_home(n, h)?);
+    }
+    Ok(nbt)
+}
+
+/// (G1 10:47 blocking 5) How many villagers each entity's loaded data holds HOME for (itself and its
+/// passengers), by entity index.
+pub fn home_holders(entities: &[(String, [f64; 3], Option<String>)]) -> Vec<(usize, usize)> {
+    entities.iter().enumerate().filter_map(|(i, (_, _, n))| n.as_deref().map(|n| (i, n.matches("minecraft:home").count())).filter(|(_, k)| *k > 0)).collect()
+}
 
 /// (ironspec 08:16 platform) Whether [`spec_of_with`] loads a `port home` design's villagers with
 /// HOME = that bed: every villager but the `no-home`-tagged ones ([`PortHome::Load`], `spec_of`'s),
@@ -792,25 +862,7 @@ pub fn spec_of_with(c: &Circuit, port_home: PortHome) -> std::result::Result<Far
     let home = if port_home == PortHome::Load { d.ports.get("home").map(|h| format!("Brain:{{memories:{{\"minecraft:home\":{{value:{{dimension:\"minecraft:overworld\",pos:[I;{},{},{}]}}}}}}}}", h[0], h[1], h[2])) } else { None };
     let mut entities = Vec::new();
     for e in &d.entities {
-        let mut nbt = e.nbt.clone();
-        if let Some(h) = &home
-            && e.kind.trim_start_matches("minecraft:") == "villager"
-            && !nbt.as_deref().is_some_and(|n| n.contains(NO_HOME_TAG))
-        {
-            nbt = Some(match nbt.as_deref().map(str::trim) {
-                Some(n) if n.contains("Brain:") => return Err(format!("a villager with its own Brain data and `port home`: {n}")),
-                Some(n) if n.len() > 2 => format!("{},{h}}}", n.strip_suffix('}').unwrap_or(n)),
-                _ => format!("{{{h}}}"),
-            });
-        }
-        // (farmopt 2026-11-10) a villager riding a vehicle (`Passengers:[{id:"minecraft:villager"..}]`,
-        // the carousel's carts) holds the same HOME: the memory goes into its own compound
-        if let Some(h) = &home
-            && let Some(n) = nbt.as_deref()
-            && n.contains("Passengers:[")
-        {
-            nbt = Some(with_passenger_home(n, h)?);
-        }
+        let nbt = entity_nbt_with_home(&e.kind, e.nbt.as_deref(), home.as_deref())?;
         entities.push((e.kind.clone(), e.pos, nbt));
     }
     let block_entities = d.block_entities.iter().map(|(p, s)| (bp(*p), s.clone())).collect();
@@ -1742,6 +1794,31 @@ mod tests {
         let out = with_passenger_home(n, h).unwrap();
         assert_eq!(out, format!("{{Passengers:[{{id:\"minecraft:villager\",Tags:[\"no-home\"]}},{{id:\"minecraft:villager\",{h}}}]}}"));
         assert_eq!(out.matches("minecraft:home").count(), 1);
+    }
+
+    /// (G1 10:47 blocking 5 / O12) the opt-outs: PortHome::Skip (home None) adds HOME to no villager,
+    /// top-level or passenger; PortHome::Load adds it to every villager but one carrying its OWN exact
+    /// `no-home` tag (a nested passenger's tag or a longer tag doesn't opt the carrier out); the
+    /// holders counted per entity
+    #[test]
+    fn port_home_skip_and_the_exact_tag() {
+        let h = "Brain:{memories:{\"minecraft:home\":{value:{dimension:\"minecraft:overworld\",pos:[I;1,2,3]}}}}";
+        let cart = "{Passengers:[{id:\"minecraft:villager\"},{id:\"minecraft:villager\",Tags:[\"a\",\"no-home\"]}]}";
+        // Skip: nothing added anywhere
+        assert_eq!(entity_nbt_with_home("minecraft:minecart", Some(cart), None).unwrap().as_deref(), Some(cart));
+        assert_eq!(entity_nbt_with_home("minecraft:villager", None, None).unwrap(), None);
+        // Load: the untagged passenger gets HOME, the tagged one (its tag beside another) doesn't
+        let loaded = entity_nbt_with_home("minecraft:minecart", Some(cart), Some(h)).unwrap().unwrap();
+        assert_eq!(loaded.matches("minecraft:home").count(), 1, "{loaded}");
+        // a top-level villager carrying a passenger with the tag still gets HOME itself
+        let rider = "{Passengers:[{id:\"minecraft:villager\",Tags:[\"no-home\"]}]}";
+        let v = entity_nbt_with_home("minecraft:villager", Some(rider), Some(h)).unwrap().unwrap();
+        assert!(v.starts_with("{Passengers:") && v.matches("minecraft:home").count() == 1, "{v}");
+        // the exact tag only
+        assert!(has_no_home_tag("{Tags:[\"no-home\"]}") && has_no_home_tag("Tags:[\"x\",\"no-home\"],Health:20f") && !has_no_home_tag("{Tags:[\"no-home-x\"]}") && !has_no_home_tag("{Passengers:[{Tags:[\"no-home\"]}]}"));
+        // the holders per entity
+        let ents = vec![("minecraft:minecart".to_string(), [0.0; 3], Some(loaded)), ("minecraft:minecart".to_string(), [0.0; 3], Some(cart.to_string()))];
+        assert_eq!(home_holders(&ents), vec![(0, 1)]);
     }
 
     /// The tier is the kind's last word (one site page per tier): day-1, middle, fastest, or none.

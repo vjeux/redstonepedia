@@ -2184,13 +2184,28 @@ pub enum MobfarmCmd {
         #[arg(long)]
         lip_hold: Option<i64>,
         /// (G1 10:36) The drop-entry envelope GT,DX: a normal pass's most off-rail ticks on the drop
-        /// cell and largest lateral displacement (tick-exact's game rows: ~5 gt, 0.198).
-        #[arg(long, default_value = "5,0.2")]
+        /// cell and largest lateral displacement (default the game's normal passes, tick-exact 10:55:
+        /// lane -1 max 12 gt / 1.382, lane 3 max 10 gt / 1.430).
+        #[arg(long, default_value = "12,1.43")]
         lip_envelope: String,
+        /// (ironspec 10:51 (g)) The longest designed rest of a cart on a station hold H (x,16,0)'s
+        /// closed trapdoor, in gt (default 2 D periods + the longest release wait: 2 x 100 + 100); a
+        /// longer H rest FAILS.
+        #[arg(long, default_value_t = 300)]
+        h_rest_bound: i64,
+        /// (ironspec 10:51 (f): the siding check's positive) At t 1,000 a batch cart (a lane cart not a
+        /// napper's, ridden) is planted at rest on lane -1's siding R (-3,24,7): the siding bar must fail
+        /// on it alone.
+        #[arg(long)]
+        siding_plant_control: bool,
         /// (G1 10:34) Per tick in FROM,TO: each lane's PRESENT_l, the carts on its siding's cells with
         /// their riders, every napper's place.
         #[arg(long, value_delimiter = ',')]
         siding_trace: Vec<i64>,
+        /// (G1 10:47 blocking 4's control) Dismount the first napper seated on its siding's R with
+        /// PRESENT_l set after t 1,000: PRESENT_l must stay set (a dismount departs nothing).
+        #[arg(long)]
+        eject_control: bool,
         /// (ironspec 11:15) An S-bend seat whose stamp resets are counted:
         /// `NAME=x,y,z:cx,cy,cz+cx,cy,cz...` (the seat's rail cell, its clearing candidates).
         /// Repeatable.
@@ -7769,11 +7784,32 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 std::process::exit(1);
             }
         }
-        MobfarmCmd::F1q2Run { design, seed, ticks, day0, lane_carts, restart_every, restart_at, restart_order, control_rider, trace, drive, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour_golems, cart_trace, drive_out, scene_out, watchdog, stale_start, held_at_divert, report_only, queue_hold, empty_pocket, stack_bench, inert_control, gossip_control, bystander_control, seed_queued_napper, day_threshold, bed_ticket_taken, stamp_control, home_erase_control, air_control, rider_trace, rs_ready_early_control, bystander_dud, day_phase_control, c7_placement, c7_home_stored, lift_block, trace_entity, with_part, pair_check, chain_trace, strand_control, cart_cells, at_entry_control, late_return_control, cart_cells_box, misroute_control, lip_hold, lip_envelope, siding_trace } => {
+        MobfarmCmd::F1q2Run { design, seed, ticks, day0, lane_carts, restart_every, restart_at, restart_order, control_rider, trace, drive, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour_golems, cart_trace, drive_out, scene_out, watchdog, stale_start, held_at_divert, report_only, queue_hold, empty_pocket, stack_bench, inert_control, gossip_control, bystander_control, seed_queued_napper, day_threshold, bed_ticket_taken, stamp_control, home_erase_control, air_control, rider_trace, rs_ready_early_control, bystander_dud, day_phase_control, c7_placement, c7_home_stored, lift_block, trace_entity, with_part, pair_check, chain_trace, strand_control, cart_cells, at_entry_control, late_return_control, cart_cells_box, misroute_control, lip_hold, lip_envelope, siding_trace, eject_control, h_rest_bound, siding_plant_control } => {
             let (c, spec) = load(version, &design)?;
             // (ironspec 08:16 platform, onechunk's 23rd) the c7 reconciliation loads the record's own
             // villagers HOME-less (spec_of's PortHome::Skip), as tick-exact's game setup has them
+            // (G1 10:47 blocking 5) the c7 opt-out's effect per entity: the HOME holders PortHome::Load
+            // would load against the spec loaded (Skip), a no-op (nothing changed) FAILS; (O12) the
+            // design's `no-home`-tagged villagers (a design run with one FAILS)
+            let load_holders = circuit::mobfarm::home_holders(&spec.entities);
+            let no_home_tagged: usize = c.clock.design.entities.iter().filter_map(|e| e.nbt.as_deref()).map(|n| n.matches("\"no-home\"").count()).sum();
             let spec = if c7_placement.is_some() && !c7_home_stored { circuit::mobfarm::spec_of_with(&c, circuit::mobfarm::PortHome::Skip).map_err(|e| anyhow::anyhow!(e))? } else { spec };
+            let c7_port_home: Vec<String> = if c7_placement.is_some() && !c7_home_stored {
+                let skip_holders = circuit::mobfarm::home_holders(&spec.entities);
+                let mut rows: Vec<String> = load_holders
+                    .iter()
+                    .map(|(i, n)| {
+                        let m = skip_holders.iter().find(|(j, _)| j == i).map_or(0, |(_, m)| *m);
+                        let (kind, pos, _) = &spec.entities[*i];
+                        format!("entity {i} ({} at {:.1},{:.1},{:.1}): {n} -> {m}", kind.trim_start_matches("minecraft:"), pos[0], pos[1], pos[2])
+                    })
+                    .collect();
+                let changed = load_holders.iter().any(|(i, n)| skip_holders.iter().find(|(j, _)| j == i).map_or(0, |(_, m)| *m) != *n);
+                rows.push(if changed { "the opt-out changed the HOME holders (PASS)".to_string() } else { "the opt-out changed nothing: a no-op (FAIL)".to_string() });
+                rows
+            } else {
+                Vec::new()
+            };
             // (ironspec 07:57 / 08:18 platform: a floating-site run composes the design's own
             // neighbouring parts) each --with-part FILE@dx,dy,dz: that part's overworld blocks and
             // block entities moved by d and added to the run's world (a cell the design already
@@ -7969,7 +8005,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     })
                     .collect()
             };
-            let o = crate::f1q2run::Opts { seed, ticks, day0, lane_carts, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour, cart_trace, restarts, restart, control_rider, trace, bed, drive, drive_rec, watchdog, stale_start, held_at_divert, queue_hold, emulated, emulated_states, ts, update_only, empty_pocket, dwell_cap, stack_bench, stops, k_lock, k_sw, inert, always_on, push_pairs, way_in_composed, inert_control, watch_reasons, gossip_control, bystander_control, a6_pickup, seed_queued_napper, day_threshold, bed_ticket_taken, block_standins, stamp_control, home_erase_control, air_control, rider_trace, rs_ready_early_control, bystander_dud, day_phase_control, c7_placement, c7_home_stored, lift_block, trace_entity, pair_checks, chain_trace, strand_control, cart_cells, at_entry_control, late_return_control, stable_ts, cart_cells_box, misroute_control, lip_hold, lip_envelope, siding_trace };
+            let o = crate::f1q2run::Opts { seed, ticks, day0, lane_carts, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour, cart_trace, restarts, restart, control_rider, trace, bed, drive, drive_rec, watchdog, stale_start, held_at_divert, queue_hold, emulated, emulated_states, ts, update_only, empty_pocket, dwell_cap, stack_bench, stops, k_lock, k_sw, inert, always_on, push_pairs, way_in_composed, inert_control, watch_reasons, gossip_control, bystander_control, a6_pickup, seed_queued_napper, day_threshold, bed_ticket_taken, block_standins, stamp_control, home_erase_control, air_control, rider_trace, rs_ready_early_control, bystander_dud, day_phase_control, c7_placement, c7_home_stored, lift_block, trace_entity, pair_checks, chain_trace, strand_control, cart_cells, at_entry_control, late_return_control, stable_ts, cart_cells_box, misroute_control, lip_hold, lip_envelope, siding_trace, eject_control, h_rest_bound, siding_plant_control, c7_port_home, no_home_tagged };
             let (rep, out) = crate::f1q2run::run_driven(&spec, &o).map_err(|e| anyhow::anyhow!(e))?;
             for l in &with_part_lines {
                 println!("the composed part (--with-part, ironspec 07:57 / 08:18 platform): {l}");
