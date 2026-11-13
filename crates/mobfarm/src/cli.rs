@@ -3952,8 +3952,12 @@ pub enum MobfarmCmd {
         /// coordinates, with the branch, the merge and the siding.
         #[arg(long)]
         siding: bool,
-        /// The siding: release the napper this long after its predecessor's merge pass.
-        #[arg(long, default_value_t = 4)]
+        /// k_sw (ironspec 22:03, the precondition table's line 14; distinct from k_lock = 42, the
+        /// (c') settle lock, and K(x), the split's K Ts): the siding's switch this long after the
+        /// window's pass (the press tick of D's rising edge); R powers 8 gt later through the feed
+        /// (R at D + k_sw + 8). Default 6: k_sw = 6, adopted by ironspec 21:35 (k_sw = 4 missed the
+        /// interim curve bar 11 under 1-4-gt freezes at rest).
+        #[arg(long, default_value_t = 6)]
         nap_k: i64,
         /// The siding: every this many drops a napper (0: none).
         #[arg(long, default_value_t = 3)]
@@ -4090,29 +4094,69 @@ pub enum MobfarmCmd {
         #[arg(long)]
         no_walkway: bool,
         /// The napper counts as present for the siding's release sample N gt after its K tick
-        /// (--nap-feed-v's spawn on K's cell), at rest or still rolling (ironspec 17:58 / 18:06:
-        /// day-1's PRESENT at K + 2); absent, once at rest on R.
-        #[arg(long)]
+        /// (--nap-feed-v's spawn on K's cell), at rest or still rolling. Default with --nap-feed-v:
+        /// 2, day-1's PRESENT at K + 2 (accepted, ironspec 19:29); a negative N: once at rest on R
+        /// (the old rule). Without --nap-feed-v the napper spawns at rest and PRESENT is its rest.
+        #[arg(long, allow_hyphen_values = true)]
         nap_present_k: Option<i64>,
         /// The merge's curve bar N gt, both sides: a napper entering the merge less than N gt after the
         /// cart ahead's clear, or the next cart entering less than N gt after the napper's clear,
-        /// counts as a failure in the matrices' rows; absent, printed only. Its basis (ironspec 19:07,
-        /// 19:52): the forced boundary + 2, the boundary from --inject-sweep (bench: the least clean
-        /// curve rule 6, contact at 5; tick-exact's official row pending); 21 (ironspec 18:06) was
-        /// inherited from the return bench's Summary::bars and retires.
+        /// counts as a failure in the matrices' rows; 0 (the default): printed only. The curve rule is
+        /// information since ironspec 22:31: the S-bend's gate is the lip margin (--lip-bar). (11: the
+        /// interim bar, ironspec 21:14, retired onto the lip bar; 8: the boundary at arrival 0.30 at
+        /// rest + 2; 21: inherited from the return bench's Summary::bars; all retired.)
+        #[arg(long, default_value_t = 0)]
+        curve_bar: i64,
+        /// The lip margin's bar (sidingbench::lip_margin, the S-bend's gate quantity at the point of
+        /// contact, adopted by ironspec 22:22): a napper whose lip margin is under N counts as a
+        /// failure in the matrices' rows (a napper that never reaches its leader's rider at the lip
+        /// passes). Default 2 (ironspec 22:31): the band sweep on the module geometry over every
+        /// qualifying arrival and phase (PRESENT >= 7) has clean rows at 0, 1 and 2 and no stuck row
+        /// at or above 0, so the least clean margin is 0, + 2; pinned by the official rows' known
+        /// answers (0.15 rolling: P - 2 -> -1 stuck, P - 1 -> 2; 0.30 at rest: D - 5 -> -1, D - 4 -> 0).
+        #[arg(long, default_value_t = 2, allow_hyphen_values = true)]
+        lip_bar: i64,
+        /// With --siding: write the bench's world as laid and settled (every non-air cell of its box,
+        /// the design format, the lanes file's loop frame) to this path, for `mobfarm record-match`
+        /// (ironspec 21:43).
         #[arg(long)]
-        curve_bar: Option<i64>,
-        /// day-1's release rule (v6 §7): the siding's switch K gt after D's rising edge when WINDOW
-        /// and PRESENT held at the edge, without waiting for D off (with --feed-slime's 8-gt drive,
-        /// R powers at D's edge + 12, every built lane's figure).
+        out: Option<String>,
+        /// The old release wait: the siding's switch K gt after D's rising edge only once D is off
+        /// (about 20 gt after the edge, the detector's recheck). Default: day-1's release rule (v6 §7,
+        /// accepted, ironspec 19:29): the switch K gt after D's edge when WINDOW and PRESENT held at
+        /// the edge, with no wait for D off (with --feed-slime's 8-gt drive, R powers at D's edge + 12,
+        /// every built lane's figure).
         #[arg(long)]
-        no_d_gate: bool,
+        d_gate: bool,
         /// The boundary probe (ironspec 19:52): "FROM,TO", one row per tick T in FROM..=TO with the
         /// napper's release forced at T (before or after its leader's pass); each row prints its curve
         /// rule at the merge (negative: the boxes overlap there), touching, the order, the napper's
         /// contact at the lane's back and the hardest arrival.
         #[arg(long)]
         inject_sweep: Option<String>,
+        /// With --inject-sweep: the arrival speeds (--nap-feed-v values, comma-separated) to sweep,
+        /// each with its own boundary line (the napper's rest z follows its arrival).
+        #[arg(long)]
+        inject_feed_vs: Option<String>,
+        /// With --inject-sweep: the napper's return times (--nap-ret values, comma-separated) to
+        /// sweep, each a phase of its K tick against the leader's pass (a napper still rolling onto
+        /// R, or at rest, at the forced release), each with its own boundary line.
+        #[arg(long)]
+        inject_nap_rets: Option<String>,
+        /// r_joint's positive control (G1's CHANGES 1 on f1c00f223): "turn:T" spawns a second cart on
+        /// K's cell at tick T moving north toward F while the napper rests on R (the siding's
+        /// single-occupancy count must print > 0, a failure); "pass:T" one on the K row's west cell
+        /// eastbound through K's cell (it must print 0).
+        #[arg(long)]
+        r_joint_control: Option<String>,
+        /// THE CONTROL ONLY (ironspec 20:40: the bench's geometry is the module's): the bench's old
+        /// flat D and flat rail at (x,24,9). Default: the module of record's branch (7b90c3f1's split
+        /// row; tick-exact's official S-bend row): D an ascending_south detector rising toward the
+        /// row's junction, the cell south of it solid (glass); the returns, summoned at (x + 0.5,
+        /// m + 0.0625, mz + 2.5), ride onto D's slope. The flat D moves the leader 1 tick later to the
+        /// drop's lip (the boundary row's 1-gt timeline offset).
+        #[arg(long)]
+        flat_d: bool,
         /// With --nap-feed-v: the napper's spawn moved this far back along its path (an entry
         /// phase; the rest sweep's ceiling is arrival 0.102 at phase 0.0606).
         #[arg(long, default_value_t = 0.0)]
@@ -9059,7 +9103,10 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 anyhow::bail!("frame-check failed");
             }
         }
-        MobfarmCmd::EscapeBench { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, login_matrix, restart, restart_matrix, restart_base, phase_step, intake_flat, v_in, siding, nap_k, nap_every, nap_ret, nap_pulse, merge_curve, slopes, nap_guard, nap_early, nap_any_pass, nap_ring, nap_pick_u, nap_win_du, nap_win_tap, nap_ai, nap_stamp_at_arrival, nap_late_latch, nap_post, k_row, k_offsets, nap_feed_v, flat_detector, siding_north, emit_with_row, fill_scene, top_flat, mirror_z, start_steady, r_support, rest_sweep, rest_phases, emit_rest_range, feed_path, feed_z8, feed_slime, combos, no_walkway, nap_present_k, curve_bar, no_d_gate, inject_sweep, nap_feed_phase, siding_dx, siding_dy, ns_merge, guard_det, guard_dz, drop_entry, no_top_support, side_real, side_ctl, siding_matrix, rets, v_ins, nap_rets, corners, nap_ks, jobs, emit_lanes_design, r_boost, floor_bottom, empty, freeze32 } => {
+        MobfarmCmd::EscapeBench { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, login_matrix, restart, restart_matrix, restart_base, phase_step, intake_flat, v_in, siding, nap_k, nap_every, nap_ret, nap_pulse, merge_curve, slopes, nap_guard, nap_early, nap_any_pass, nap_ring, nap_pick_u, nap_win_du, nap_win_tap, nap_ai, nap_stamp_at_arrival, nap_late_latch, nap_post, k_row, k_offsets, nap_feed_v, flat_detector, siding_north, emit_with_row, fill_scene, top_flat, mirror_z, start_steady, r_support, rest_sweep, rest_phases, emit_rest_range, feed_path, feed_z8, feed_slime, combos, no_walkway, nap_present_k, curve_bar, d_gate, inject_sweep, inject_feed_vs, inject_nap_rets, r_joint_control, flat_d, lip_bar, out, nap_feed_phase, siding_dx, siding_dy, ns_merge, guard_det, guard_dz, drop_entry, no_top_support, side_real, side_ctl, siding_matrix, rets, v_ins, nap_rets, corners, nap_ks, jobs, emit_lanes_design, r_boost, floor_bottom, empty, freeze32 } => {
+            // (--curve-bar 0: the curve rule printed only; --lip-bar: the S-bend's gate)
+            let curve_bar: Option<i64> = (curve_bar > 0).then_some(curve_bar);
+            let lip_bar: Option<i64> = Some(lip_bar);
             if let Some(path) = emit_lanes_design {
                 let text = crate::sidingbench::lanes_design(slopes, siding_north, emit_with_row, r_support.as_deref(), emit_rest_range.as_deref()).map_err(|e| anyhow::anyhow!(e))?;
                 if let Some(dir) = std::path::Path::new(&path).parent() {
@@ -9080,12 +9127,30 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let restart: Vec<(i64, crate::liveness::Restart)> = restart.iter().map(|s| crate::liveness::parse_restart(s)).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!(e))?;
             let o = crate::dropbench::DropOpts { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, intake_flat, v_in, r_boost, floor_bottom, riders: !empty, freeze32, restart };
             if siding {
-                if nap_present_k.is_some() && nap_feed_v.is_none() {
+                if nap_present_k.is_some_and(|k| k >= 0) && nap_feed_v.is_none() {
                     anyhow::bail!("--nap-present-k counts from the napper's K tick: it needs --nap-feed-v (the napper spawned on K's cell)");
                 }
                 if inject_sweep.is_some() && nap_ring == 0 && !nap_any_pass {
                     anyhow::bail!("--inject-sweep forces the release of option (ii) or the ring: it needs --nap-ring or --nap-any-pass");
                 }
+                // (the defaults are the accepted design (ironspec 20:25 (1)(a)): PRESENT at K + 2 with
+                // --nap-feed-v, day-1's release rule without --d-gate, the curve bar 8 (0: printed only))
+                let nap_present_k = match nap_present_k {
+                    Some(k) if k < 0 => None,
+                    Some(k) => Some(k),
+                    None => nap_feed_v.map(|_| 2),
+                };
+                let no_d_gate = !d_gate;
+                let r_joint_control = match r_joint_control.as_deref() {
+                    None => None,
+                    Some(s) => {
+                        let (kind, tick) = s.split_once(':').ok_or_else(|| anyhow::anyhow!("--r-joint-control {s}: turn:T or pass:T"))?;
+                        if kind != "turn" && kind != "pass" {
+                            anyhow::bail!("--r-joint-control {s}: turn:T or pass:T");
+                        }
+                        Some((kind.to_string(), tick.trim().parse::<i64>()?))
+                    }
+                };
                 let so = crate::sidingbench::SidingOpts { k: nap_k, nap_every, nap_ret, nap_pulse, merge_curve, slopes, guard: nap_guard, early_only: nap_early, any_pass: nap_any_pass, ring: nap_ring, pick_u: nap_pick_u, win_du: nap_win_du, win_tap: nap_win_tap, ai: nap_ai, stamp_at_arrival: nap_stamp_at_arrival, late_latch: nap_late_latch, posts: nap_post.iter().map(|s| { let v: Vec<i32> = s.split(',').filter_map(|x| x.trim().parse().ok()).collect(); if v.len() == 3 { Ok((v[0], v[1], v[2])) } else { Err(anyhow::anyhow!("--nap-post {s}: X,Y,Z")) } }).collect::<anyhow::Result<Vec<_>>>()?, k_row, k_offsets: k_offsets.clone(), nap_feed_v, flat_detector, siding_north, fill_scene: match fill_scene.as_deref() {
                     None => None,
                     Some(s) => {
@@ -9097,7 +9162,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         let fill: Vec<(i32, i32, i32)> = f.split(';').filter(|c| !c.trim().is_empty()).map(cell).collect::<anyhow::Result<Vec<_>>>()?;
                         Some((fill, cell(seat)?))
                     }
-                }, top_flat, mirror_z, start_steady, r_support: r_support.clone(), nap_feed_phase, feed_path, feed_z8, feed_slime, no_walkway, present_k: nap_present_k, no_d_gate, inject_release: None, siding_dx, siding_dy, ns_merge, guard_det, guard_dz, drop_entry, no_top_support, side_real, side_ctl: side_ctl.clone() };
+                }, top_flat, mirror_z, start_steady, r_support: r_support.clone(), nap_feed_phase, feed_path, feed_z8, feed_slime, no_walkway, present_k: nap_present_k, no_d_gate, inject_release: None, r_joint_control, d_slope: !flat_d, out: out.clone(), siding_dx, siding_dy, ns_merge, guard_det, guard_dz, drop_entry, no_top_support, side_real, side_ctl: side_ctl.clone() };
                 if let Some(rs) = rest_sweep.as_deref() {
                     // (the rest sweep (G1's band note, the bridge's nap-rest-z): the napper's arrival on
                     // K's cell from lo to hi by step, each at `rest_phases` entry phases (its spawn moved
@@ -9213,6 +9278,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     let (mut roll_total, mut cr_lo) = (0usize, i64::MAX);
                     let mut fo_lo = i64::MAX;
                     let mut gp_lo = i64::MAX;
+                    let mut rj_total = 0usize;
+                    let (mut lp_lo, mut lip_nv) = (i64::MAX, 0usize);
                     for (i, row) in res.into_iter().enumerate() {
                         let (r, p) = grid[i];
                         let row = row.map_err(|e| anyhow::anyhow!(e))?;
@@ -9225,14 +9292,17 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         cr_lo = cr_lo.min(row.nap_cr.iter().copied().min().unwrap_or(i64::MAX));
                         fo_lo = fo_lo.min(row.nap_follow_min.unwrap_or(i64::MAX));
                         gp_lo = gp_lo.min(row.nap_gap_min.unwrap_or(i64::MAX));
-                        let bad = row.empty_releases + row.not_one + row.wrong + row.knocked + row.touching + row.order_broken + row.off_rail + row.eyes + row.landing_over + row.popped + row.stray_power + row.stuck as usize + row.th_push + row.th_lost + row.lane_push + row.lane_on_siding + row.flat_false + row.occ8 + row.home_lost + row.stamp_over_1000 + row.win_cut + row.launch_stuck + row.stacked + row.v_holds + row.r_joint + curve_bar.map_or(0, |b| row.nap_cr.iter().filter(|c| **c < b).count() + row.nap_follow_min.is_some_and(|f| f < b) as usize);
+                        lp_lo = lp_lo.min(row.lip_min.unwrap_or(i64::MAX));
+                        lip_nv += row.lip_never;
+                        rj_total += row.r_joint;
+                        let bad = row.empty_releases + row.not_one + row.wrong + row.knocked + row.touching + row.order_broken + row.off_rail + row.eyes + row.landing_over + row.popped + row.stray_power + row.stuck as usize + row.th_push + row.th_lost + row.lane_push + row.lane_on_siding + row.flat_false + row.occ8 + row.home_lost + row.stamp_over_1000 + row.win_cut + row.launch_stuck + row.stacked + row.v_holds + row.r_joint + row.occ_low + row.contacts_undeclared + lip_bar.map_or(0, |b| row.lip_min.is_some_and(|q| q < b) as usize) + curve_bar.map_or(0, |b| row.nap_cr.iter().filter(|c| **c < b).count() + row.nap_follow_min.is_some_and(|f| f < b) as usize);
                         if bad > 0 || row.arrivals_over > ctl.arrivals_over {
                             fails.entry(r.label()).or_default().push(format!("phase {p}: lost {} not-1 {} wrong {} knocked {} touching {} order {} off-rail {} eyes {} landings over 0.46 {} popped {} stray power {} over 0.46 {} (control {}); through-carts in push range {} lost {}, lane carts in push contact {} on the siding {}, detector false {}, releases at occupancy 8 {}{}", row.empty_releases, row.not_one, row.wrong, row.knocked, row.touching, row.order_broken, row.off_rail, row.eyes, row.landing_over, row.popped, row.stray_power, row.arrivals_over, ctl.arrivals_over, row.th_push, row.th_lost, row.lane_push, row.lane_on_siding, row.flat_false, row.occ8, if row.stuck { " napper stuck" } else { "" }));
                         }
                     }
                     print!("{label}[late_latch {}, start_steady {}] ", so.late_latch, so.start_steady);
                     println!(
-                        "siding restart matrix (ironspec's L1‴ rows: save, reverse and seed:1..8 at every {}-gt phase of a {period}-gt cycle): {} runs, {} failing; the hardest arrival {worst:.3}; the lane's largest occupancy at a release from the steady state {occ_hi} (the smallest {}) (releases at 8: {occ8_total}); control: lost {} over 0.46 {} (max {:.3}); the variant's own figures: late nappers over the runs {late_runs}, the control's {} and its V holds in the start's transient {}; releases while the napper still rolled onto R {roll_total} (the control's {}); the least curve rule over the runs {} gt, the least margin of the cart after a napper into the merge {} gt, the least gap from a napper's departure off R to the next napper's K tick {} gt (the bar {})",
+                        "siding restart matrix (ironspec's L1‴ rows: save, reverse and seed:1..8 at every {}-gt phase of a {period}-gt cycle): {} runs, {} failing; the hardest arrival {worst:.3}; the lane's largest occupancy at a release from the steady state {occ_hi} (the smallest {}) (releases at 8: {occ8_total}); control: lost {} over 0.46 {} (max {:.3}); the variant's own figures: late nappers over the runs {late_runs}, the control's {} and its V holds in the start's transient {}; releases while the napper still rolled onto R {roll_total} (the control's {}); the least curve rule over the runs {} gt and the least margin of the cart after a napper into the merge {} gt (each against the curve bar {}); the siding's single occupancy over the runs: ticks with a cart on R while another turned at K or rode F {} (the bar: 0), the least gap from a napper's departure off R to the next napper's K tick {} gt (a reported margin, no bar; its contact boundary, about 12 gt, is ESTIMATED); the least lip margin over the runs {} (the bar {}; never-reaching nappers {}); the control's PRESENT margin before the leader's press {} (under 7: outside normal operation)",
                         phase_step.max(1),
                         grid.len(),
                         fails.values().map(|v| v.len()).sum::<usize>(),
@@ -9245,8 +9315,13 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         ctl.rolling_releases,
                         if cr_lo == i64::MAX { "-".to_string() } else { cr_lo.to_string() },
                         if fo_lo == i64::MAX { "-".to_string() } else { fo_lo.to_string() },
+                        curve_bar.map_or("none (printed only)".to_string(), |b| b.to_string()),
+                        rj_total,
                         if gp_lo == i64::MAX { "-".to_string() } else { gp_lo.to_string() },
-                        curve_bar.map_or("none".to_string(), |b| b.to_string())
+                        if lp_lo == i64::MAX { "-".to_string() } else { format!("{lp_lo} gt") },
+                        lip_bar.map_or("none: printed only".to_string(), |b| b.to_string()),
+                        lip_nv,
+                        ctl.present_margin_min.map_or("-".to_string(), |p| format!("{p} gt"))
                     );
                     for (k, v) in &fails {
                         println!("  {k}: {} failing: {}", v.len(), v.iter().take(4).cloned().collect::<Vec<_>>().join(" | "));
@@ -9255,21 +9330,39 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     return Ok(());
                 }
                 if let Some(sw) = inject_sweep.as_deref() {
-                    // (the boundary probe: one row per forced release tick)
+                    // (the boundary probe: one row per forced release tick, for each arrival speed of
+                    // --inject-feed-vs (default --nap-feed-v's); then each speed's boundary: going down
+                    // from the latest tick, the least curve rule of an unbroken clean run and the first
+                    // failure below it (G1's note (a) on f1c00f223: the boundary over the arrival band))
                     let (a, b2) = sw.split_once(',').ok_or_else(|| anyhow::anyhow!("--inject-sweep FROM,TO"))?;
                     let (from, to): (i64, i64) = (a.trim().parse()?, b2.trim().parse()?);
-                    let ticks: Vec<i64> = (from..=to).collect();
-                    let res = crate::sidingbench::par_map(ticks.len(), jobs, |i| {
+                    let vs: Vec<Option<f64>> = match inject_feed_vs.as_deref() {
+                        Some(s) => s.split(',').map(|x| x.trim().parse::<f64>().map(Some)).collect::<Result<_, _>>()?,
+                        None => vec![so.nap_feed_v],
+                    };
+                    let nrs: Vec<i64> = match inject_nap_rets.as_deref() {
+                        Some(s) => s.split(',').map(|x| x.trim().parse::<i64>()).collect::<Result<_, _>>()?,
+                        None => vec![so.nap_ret],
+                    };
+                    let grid: Vec<(Option<f64>, i64, i64)> = vs.iter().flat_map(|v| nrs.iter().flat_map(move |nr| (from..=to).map(move |t| (*v, *nr, t)))).collect();
+                    let res = crate::sidingbench::par_map(grid.len(), jobs, |i| {
                         let mut sso = so.clone();
-                        sso.inject_release = Some(ticks[i]);
+                        sso.nap_feed_v = grid[i].0;
+                        sso.nap_ret = grid[i].1;
+                        sso.inject_release = Some(grid[i].2);
                         crate::sidingbench::siding_row(&o, &sso)
                     });
+                    let mut rows: Vec<(Option<f64>, i64, i64, crate::sidingbench::SidingRow)> = Vec::new();
                     for (i, row) in res.into_iter().enumerate() {
                         let row = row.map_err(|e| anyhow::anyhow!(e))?;
                         println!(
-                            "inject release t {}: the napper's curve rule at the merge {:?} gt (negative: its box overlapped the cart ahead's there), touching {}, order broken {}, its contact at the lane's back {:?}, the hardest arrival {:.3}, the cart after it into the merge {}, knocked {}, lost {}, not-1 {}, off-rail {}",
-                            ticks[i],
+                            "inject release t {} (arrival {}, nap_ret {}): the napper's curve rule at the merge {:?} gt (negative: its box overlapped the cart ahead's there), the lip margin {}, PRESENT before the leader's press {}, touching {}, order broken {}, its contact at the lane's back {:?}, the hardest arrival {:.3}, the cart after it into the merge {}, knocked {}, lost {}, not-1 {}, off-rail {}, released while rolling {}",
+                            grid[i].2,
+                            grid[i].0.map_or("at rest".to_string(), |v| format!("{v}")),
+                            grid[i].1,
                             row.nap_cr,
+                            row.lip_min.map_or(if row.lip_never > 0 { "never".to_string() } else { "-".to_string() }, |q| format!("{q} gt")),
+                            row.present_margin_min.map_or("-".to_string(), |p| format!("{p} gt")),
                             row.touching,
                             row.order_broken,
                             row.nap_contacts.iter().map(|x| (x * 1000.0).round() / 1000.0).collect::<Vec<_>>(),
@@ -9278,7 +9371,80 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             row.knocked,
                             row.empty_releases,
                             row.not_one,
-                            row.off_rail
+                            row.off_rail,
+                            row.rolling_releases
+                        );
+                        rows.push((grid[i].0, grid[i].1, grid[i].2, row));
+                    }
+                    // (clean: no touching, off-rail, loss, not-1, broken order or knock, a merge entry
+                    // and a follower not overlapping, and no bump above the official 0.508)
+                    let clean = |r: &crate::sidingbench::SidingRow| {
+                        r.touching == 0 && r.off_rail == 0 && r.empty_releases == 0 && r.not_one == 0 && r.order_broken == 0 && r.knocked == 0 && r.arrival_max <= 0.508 && !r.nap_cr.is_empty() && r.nap_follow_min.is_none_or(|f| f >= 0)
+                    };
+                    let mut worst: Option<(i64, String)> = None;
+                    // (the lip margin over the qualifying cases: each case's least clean lip margin and its
+                    // stuck neighbour's (the positive control: -1 or less))
+                    let (mut lip_clean_lo, mut lip_clean_hi, mut lip_stuck_hi) = (i64::MAX, i64::MIN, i64::MIN);
+                    for v in &vs {
+                        for nr in &nrs {
+                            let mut mine: Vec<&(Option<f64>, i64, i64, crate::sidingbench::SidingRow)> = rows.iter().filter(|r| r.0 == *v && r.1 == *nr).collect();
+                            mine.sort_by_key(|r| -r.2);
+                            let mut least: Option<(i64, i64, bool, Option<i64>, Option<i64>)> = None;
+                            let mut fail: Option<(i64, String, bool, Option<i64>)> = None;
+                            for r in &mine {
+                                if clean(&r.3) {
+                                    least = r.3.nap_cr.iter().min().map(|c| (*c, r.2, r.3.rolling_releases > 0, r.3.lip_min, r.3.present_margin_min));
+                                } else {
+                                    // (a row whose napper never reached the merge (released before it
+                                    // arrived on R: the pulse ended first) ends the scan without being a
+                                    // contact failure: the boundary is not reached there)
+                                    let contact = !r.3.nap_cr.is_empty();
+                                    fail = Some((r.2, format!("curve rule {:?}, the lip margin {}, touching {}, off-rail {}, lost {}, order {}, the hardest arrival {:.3}{}", r.3.nap_cr, r.3.lip_min.map_or("-".to_string(), |q| format!("{q} gt")), r.3.touching, r.3.off_rail, r.3.empty_releases, r.3.order_broken, r.3.arrival_max, if contact { "" } else { " (the napper never reached the merge: released before it arrived on R; no contact boundary)" }), contact, r.3.lip_min));
+                                    break;
+                                }
+                            }
+                            let rz = mine.first().map(|r| (r.3.rest_z_min, r.3.rest_z_max));
+                            let vlab = format!("{}, nap_ret {nr}", v.map_or("at rest".to_string(), |v| format!("{v}")));
+                            let pm = least.and_then(|l| l.4);
+                            let qualifies = pm.is_none_or(|p| p >= 7);
+                            println!(
+                                "inject boundary, arrival {vlab} (the napper's rest z {}; PRESENT before the press {}{}): clean down to curve rule {} (release t {}, {}; the lip margin there {}), the first failure below it {}",
+                                rz.map_or("-".to_string(), |(a, b)| format!("{a:.3}..{b:.3}")),
+                                pm.map_or("-".to_string(), |p| format!("{p} gt")),
+                                if qualifies { "" } else { ": OUTSIDE NORMAL OPERATION (under 7), not counted" },
+                                least.map_or("-".to_string(), |l| l.0.to_string()),
+                                least.map_or("-".to_string(), |l| l.1.to_string()),
+                                least.map_or("-", |l| if l.2 { "the napper still rolling onto R at it" } else { "the napper at rest" }),
+                                least.and_then(|l| l.3).map_or("-".to_string(), |q| format!("{q} gt")),
+                                fail.as_ref().map_or("none in the sweep (not reached: widen the sweep)".to_string(), |(t, w, _, _)| format!("at t {t}: {w}"))
+                            );
+                            if qualifies
+                                && let Some((c, _, _, lq, _)) = least
+                                && let Some(f) = fail.as_ref().filter(|f| f.2)
+                            {
+                                if worst.as_ref().is_none_or(|w| c > w.0) {
+                                    worst = Some((c, vlab.clone()));
+                                }
+                                if let Some(q) = lq {
+                                    lip_clean_lo = lip_clean_lo.min(q);
+                                    lip_clean_hi = lip_clean_hi.max(q);
+                                }
+                                if let Some(q) = f.3 {
+                                    lip_stuck_hi = lip_stuck_hi.max(q);
+                                }
+                            }
+                        }
+                    }
+                    if let Some((c, v)) = worst {
+                        println!("inject boundary over the sweep (only the qualifying cases whose sweep reached a contact failure): the least clean curve rule is highest at arrival {v}: {c} gt (the bar it implies: {} gt)", c + 2);
+                    }
+                    if lip_clean_hi > i64::MIN {
+                        println!(
+                            "inject boundary in the lip margin over the same cases: the least clean {}..{} gt (stable across the cases if it is the contact's physics), the stuck neighbours' highest {} (the positive control: -1 or less); the bar it implies: the highest least clean + 2 = {} gt",
+                            lip_clean_lo,
+                            lip_clean_hi,
+                            if lip_stuck_hi > i64::MIN { format!("{lip_stuck_hi} gt") } else { "-".to_string() },
+                            lip_clean_hi + 2
                         );
                     }
                     return Ok(());
@@ -9312,6 +9478,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         let (mut fails, mut roll_total, mut cr_lo, mut worst) = (Vec::new(), 0usize, i64::MAX, 0.0f64);
                         let mut fo_lo = i64::MAX;
                     let mut gp_lo = i64::MAX;
+                    let mut rj_total = 0usize;
+                    let (mut lp_lo, mut lip_nv) = (i64::MAX, 0usize);
                         for (i, row) in res.into_iter().enumerate() {
                             let (d, p) = grid[i];
                             let row = row.map_err(|e| anyhow::anyhow!(e))?;
@@ -9320,22 +9488,30 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             cr_lo = cr_lo.min(row.nap_cr.iter().copied().min().unwrap_or(i64::MAX));
                             fo_lo = fo_lo.min(row.nap_follow_min.unwrap_or(i64::MAX));
                         gp_lo = gp_lo.min(row.nap_gap_min.unwrap_or(i64::MAX));
-                            let bad = row.empty_releases + row.not_one + row.wrong + row.knocked + row.touching + row.order_broken + row.off_rail + row.eyes + row.landing_over + row.popped + row.stray_power + row.stuck as usize + row.th_push + row.th_lost + row.lane_push + row.lane_on_siding + row.flat_false + row.occ8 + row.home_lost + row.stamp_over_1000 + row.win_cut + row.launch_stuck + row.stacked + row.v_holds + row.r_joint + curve_bar.map_or(0, |b| row.nap_cr.iter().filter(|c| **c < b).count() + row.nap_follow_min.is_some_and(|f| f < b) as usize);
+                        lp_lo = lp_lo.min(row.lip_min.unwrap_or(i64::MAX));
+                        lip_nv += row.lip_never;
+                        rj_total += row.r_joint;
+                            let bad = row.empty_releases + row.not_one + row.wrong + row.knocked + row.touching + row.order_broken + row.off_rail + row.eyes + row.landing_over + row.popped + row.stray_power + row.stuck as usize + row.th_push + row.th_lost + row.lane_push + row.lane_on_siding + row.flat_false + row.occ8 + row.home_lost + row.stamp_over_1000 + row.win_cut + row.launch_stuck + row.stacked + row.v_holds + row.r_joint + row.occ_low + row.contacts_undeclared + lip_bar.map_or(0, |b| row.lip_min.is_some_and(|q| q < b) as usize) + curve_bar.map_or(0, |b| row.nap_cr.iter().filter(|c| **c < b).count() + row.nap_follow_min.is_some_and(|f| f < b) as usize);
                             if bad > 0 || row.arrivals_over > ctl.arrivals_over {
                                 fails.push(format!("login {d} gt at phase {p}: lost {} not-1 {} wrong {} knocked {} touching {} order {} off-rail {} stray power {} over 0.46 {} (control {}); launches stuck or late {}; curve rule {:?}", row.empty_releases, row.not_one, row.wrong, row.knocked, row.touching, row.order_broken, row.off_rail, row.stray_power, row.arrivals_over, ctl.arrivals_over, row.launch_stuck, row.nap_cr));
                             }
                         }
                         print!("{label}[late_latch {}, start_steady {}] ", so.late_latch, so.start_steady);
                         println!(
-                            "siding login matrix (the entities held 1..4 gt while the blocks run, at every {}-gt phase of a {period}-gt cycle from t {base_t}): {} runs, {} failing; the hardest arrival {worst:.3}; releases while the napper still rolled onto R {roll_total} (the control's {}); the least curve rule over the runs {} gt, the least margin of the cart after a napper into the merge {} gt, the least gap from a napper's departure off R to the next napper's K tick {} gt (the bar {})",
+                            "siding login matrix (the entities held 1..4 gt while the blocks run, at every {}-gt phase of a {period}-gt cycle from t {base_t}): {} runs, {} failing; the hardest arrival {worst:.3}; releases while the napper still rolled onto R {roll_total} (the control's {}); the least curve rule over the runs {} gt and the least margin of the cart after a napper into the merge {} gt (each against the curve bar {}); the siding's single occupancy over the runs: ticks with a cart on R while another turned at K or rode F {} (the bar: 0), the least gap from a napper's departure off R to the next napper's K tick {} gt (a reported margin, no bar; its contact boundary, about 12 gt, is ESTIMATED); the least lip margin over the runs {} (the bar {}; never-reaching nappers {}); the control's PRESENT margin before the leader's press {} (under 7: outside normal operation)",
                             phase_step.max(1),
                             grid.len(),
                             fails.len(),
                             ctl.rolling_releases,
                             if cr_lo == i64::MAX { "-".to_string() } else { cr_lo.to_string() },
                             if fo_lo == i64::MAX { "-".to_string() } else { fo_lo.to_string() },
-                        if gp_lo == i64::MAX { "-".to_string() } else { gp_lo.to_string() },
-                            curve_bar.map_or("none".to_string(), |b| b.to_string())
+                            curve_bar.map_or("none (printed only)".to_string(), |b| b.to_string()),
+                            rj_total,
+                            if gp_lo == i64::MAX { "-".to_string() } else { gp_lo.to_string() },
+                            if lp_lo == i64::MAX { "-".to_string() } else { format!("{lp_lo} gt") },
+                            lip_bar.map_or("none: printed only".to_string(), |b| b.to_string()),
+                            lip_nv,
+                            ctl.present_margin_min.map_or("-".to_string(), |p| format!("{p} gt"))
                         );
                         for f in fails.iter().take(6) {
                             println!("  {f}");
@@ -9386,6 +9562,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     let (mut roll_rows, mut cr_min) = (0usize, i64::MAX);
                     let mut fo_min = i64::MAX;
                     let mut gp_min = i64::MAX;
+                    let mut rj_rows = 0usize;
+                    let (mut lp_min, mut lip_nv_rows, mut pm_min) = (i64::MAX, 0usize, i64::MAX);
                     let (mut v_start_total, mut late_total) = (0usize, 0usize);
                     let mut by_v: std::collections::BTreeMap<String, (usize, usize, f64, f64)> = Default::default();
                     for (i, res) in res.into_iter().enumerate() {
@@ -9397,10 +9575,10 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         }
                         let nmax = row.nap_contacts.iter().copied().fold(0.0f64, f64::max);
                         worst_nap = worst_nap.max(nmax);
-                        let bad = row.empty_releases + row.not_one + row.wrong + row.knocked + row.touching + row.arrivals_over + row.order_broken + row.off_rail + row.eyes + row.landing_over + row.popped + row.stray_power + row.home_lost + row.stuck as usize + row.th_push + row.th_lost + row.flat_false + row.lane_push + row.lane_on_siding + row.occ8 + row.stamp_over_1000 + row.win_cut + row.launch_stuck + row.stacked + row.v_holds + row.r_joint + curve_bar.map_or(0, |b| row.nap_cr.iter().filter(|c| **c < b).count() + row.nap_follow_min.is_some_and(|f| f < b) as usize);
+                        let bad = row.empty_releases + row.not_one + row.wrong + row.knocked + row.touching + row.arrivals_over + row.order_broken + row.off_rail + row.eyes + row.landing_over + row.popped + row.stray_power + row.home_lost + row.stuck as usize + row.th_push + row.th_lost + row.flat_false + row.lane_push + row.lane_on_siding + row.occ8 + row.stamp_over_1000 + row.win_cut + row.launch_stuck + row.stacked + row.v_holds + row.r_joint + row.occ_low + row.contacts_undeclared + lip_bar.map_or(0, |b| row.lip_min.is_some_and(|q| q < b) as usize) + curve_bar.map_or(0, |b| row.nap_cr.iter().filter(|c| **c < b).count() + row.nap_follow_min.is_some_and(|f| f < b) as usize);
                         fails += (bad > 0) as usize;
                         println!(
-                            "ret {r} v_in {v:.2} nap_ret {nr} corner {c:+} K {kk}: arrivals by q {}; over 0.46 {} (max {:.3}); landings meeting a cart {} ({} over 0.46), the landing cell held at q {}; top cell {}; nappers {} (late {}; curve rule {}; the longest wait on the siding {} gt); lost {} not-1 {} wrong {} knocked {} touching {} order {} off-rail {} eyes {} health {} restage {} gt{}",
+                            "ret {r} v_in {v:.2} nap_ret {nr} corner {c:+} k_sw {kk}: arrivals by q {}; over 0.46 {} (max {:.3}); landings meeting a cart {} ({} over 0.46), the landing cell held at q {}; top cell {}; nappers {} (late {}; curve rule {}; the longest wait on the siding {} gt); lost {} not-1 {} wrong {} knocked {} touching {} order {} off-rail {} eyes {} health {} restage {} gt{}",
                             row.by_q.iter().map(|(q, x)| format!("{q}:{x:.3}")).collect::<Vec<_>>().join(" "),
                             row.arrivals_over,
                             row.arrival_max,
@@ -9455,10 +9633,14 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         occ8_total += row.occ8;
                         zgap_lo = zgap_lo.min(row.th_zgap);
                         stacked_total += row.stacked;
+                        lp_min = lp_min.min(row.lip_min.unwrap_or(i64::MAX));
+                        lip_nv_rows += row.lip_never;
+                        pm_min = pm_min.min(row.present_margin_min.unwrap_or(i64::MAX));
                         roll_rows += row.rolling_releases;
                         cr_min = cr_min.min(row.nap_cr.iter().copied().min().unwrap_or(i64::MAX));
                         fo_min = fo_min.min(row.nap_follow_min.unwrap_or(i64::MAX));
                         gp_min = gp_min.min(row.nap_gap_min.unwrap_or(i64::MAX));
+                        rj_rows += row.r_joint;
                         v_holds_total += row.v_holds;
                         v_start_total += row.v_holds_start;
                         late_total += row.late_naps;
@@ -9475,7 +9657,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     }
                     print!("{label}[late_latch {}, start_steady {}; the variant's own figures: late nappers {late_total}, V held in the start's transient {v_start_total}] ", so.late_latch, so.start_steady);
                     println!(
-                        "siding matrix: {} rows, {fails} with a failing count; the hardest arrival by q over all rows: {}; the hardest napper {worst_nap:.3}; the merge-entry speed over all rows {:.3}..{:.3}; the lane's largest occupancy at a release from the steady state {occ_hi} (the smallest {}) (releases at 8, the top cell at rest: {occ8_total}); the least z gap between a through-cart's box and the waiting napper's push box over all rows: {}; carts holding the lane's top cell V 20 gt from the steady state (slot 8; the bar: 0) {v_holds_total}, the lowest occupancy at a hold {} (lowest over the rows), carts resting on another cart's top (the overflow; the bar: 0) {stacked_total} cart-ticks; releases while the napper still rolled onto R {roll_rows}; the least curve rule over all rows {} gt, the least margin of the cart after a napper into the merge {} gt, the least gap from a napper's departure off R to the next napper's K tick {} gt (the bar {}); failing rows by v_in (stored at spawn: merge entry): {}",
+                        "siding matrix: {} rows, {fails} with a failing count; the hardest arrival by q over all rows: {}; the hardest napper {worst_nap:.3}; the merge-entry speed over all rows {:.3}..{:.3}; the lane's largest occupancy at a release from the steady state {occ_hi} (the smallest {}) (releases at 8, the top cell at rest: {occ8_total}); the least z gap between a through-cart's box and the waiting napper's push box over all rows: {}; carts holding the lane's top cell V 20 gt from the steady state (slot 8; the bar: 0) {v_holds_total}, the lowest occupancy at a hold {} (lowest over the rows), carts resting on another cart's top (the overflow; the bar: 0) {stacked_total} cart-ticks; releases while the napper still rolled onto R {roll_rows}; the least curve rule over all rows {} gt and the least margin of the cart after a napper into the merge {} gt (each against the curve bar {}); the siding's single occupancy over all rows: ticks with a cart on R while another turned at K or rode F {} (the bar: 0), the least gap from a napper's departure off R to the next napper's K tick {} gt (a reported margin, no bar; its contact boundary, about 12 gt, is ESTIMATED); the least lip margin over all rows {} (the bar {}; never-reaching nappers {}); the least PRESENT margin before the leader's press {} (under 7: outside normal operation); failing rows by v_in (stored at spawn: merge entry): {}",
                         rows.len(),
                         worst_q.iter().map(|(q, x)| format!("{q}:{x:.3}")).collect::<Vec<_>>().join(" "),
                         merge_lo,
@@ -9485,8 +9667,13 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         if v_occ_lo == usize::MAX { "never".to_string() } else { v_occ_lo.to_string() },
                         if cr_min == i64::MAX { "-".to_string() } else { cr_min.to_string() },
                         if fo_min == i64::MAX { "-".to_string() } else { fo_min.to_string() },
+                        curve_bar.map_or("none (printed only)".to_string(), |b| b.to_string()),
+                        rj_rows,
                         if gp_min == i64::MAX { "-".to_string() } else { gp_min.to_string() },
-                        curve_bar.map_or("none".to_string(), |b| b.to_string()),
+                        if lp_min == i64::MAX { "-".to_string() } else { format!("{lp_min} gt") },
+                        lip_bar.map_or("none: printed only".to_string(), |b| b.to_string()),
+                        lip_nv_rows,
+                        if pm_min == i64::MAX { "-".to_string() } else { format!("{pm_min} gt") },
                         by_v.iter().map(|(v, (n, f, lo, hi))| format!("{v} ({lo:.3}..{hi:.3}): {f}/{n}")).collect::<Vec<_>>().join(", ")
                     );
                     }

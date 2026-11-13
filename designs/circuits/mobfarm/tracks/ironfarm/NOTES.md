@@ -289,9 +289,10 @@ everywhere in the spawning volume.
 ## The Q2 lane benches' bars: physical or inherited (ironspec Nov 12 19:07, the bar audit)
 
 `mctas mobfarm escape-bench --siding` (crates/mobfarm/src/sidingbench.rs) and `mctas mobfarm
-push-scan` (pushscan.rs). The full table, with the commit that set each bar:
-https://artifacts.internalmeta.com/a/1169491299367704. Every run's last line lists the inherited
-numbers again.
+push-scan` (pushscan.rs). The full table (the maintained bar audit, farmopt):
+https://artifacts.internalmeta.com/a/2276791626224129; ironfarm's own 31-bar list, with the commit
+that set each bar: https://artifacts.internalmeta.com/a/1169491299367704. Every run's last line lists
+the inherited numbers again.
 
 - **Physical** (a game rule, or a failure measured at the boundary):
   - touching at the merge and the order of arrivals;
@@ -311,7 +312,21 @@ numbers again.
   - full ring windows: day-1's ring;
   - the delivery 0.30..0.48: the return bench's `v_merge`. Physical floor 0.27 (first failure 0.22).
 - **Mine** (inherited): the windows at rest off the rails (20 gt), V held (20 gt), the launch (40 gt), stray power past the drive delay (+ 2 gt), and push-scan's creep allowance along the rest's own axis (+ 0.5).
-- **The S-bend curve bar** (`--curve-bar`) is the forced boundary + 2, both sides of the napper (ironspec 19:52).
-  - `--inject-sweep` forces the napper's release tick by tick. At rest, arrival 0.30: clean down to a curve rule of 6 (release at the leader's D edge − 3). At D − 4 (curve rule 5) the boxes meet at C: touching, off-rail, a cart lost.
-  - The bar is 8 until tick-exact's official row confirms it. The 21 it replaces came from the return bench's `Summary::bars` and retires.
-  - Day-1's release rule (`--no-d-gate`, K = 4) clears 8 in every row; the least is 9, under 4-gt freezes.
+- **The S-bend's geometry is the module's** (ironspec 20:40). D is an ascending_south detector with glass at (x,24,9), as in 7b90c3f1's split row. The old flat D and flat rail at (x,24,9) stay only as the labelled control `--flat-d`. The flat D moved the leader one tick later to the drop's lip: that was the bench's whole 1-gt offset from tick-exact's official row.
+- **The pass is dated at the press tick.** The state the bench reads before a tick is the previous tick's, so the press happened then. The siding's switch comes `k_sw` gt after the press and R powers 8 gt later, as day-1's controller builds it (R at D + k_sw + 8).
+  - The replica of tick-exact's official row matches it tick for tick: both carts, the press tick, and stuck at D − 5 / clean from D − 4 (ironspec 21:07).
+  - The unit test `official_sbend_boundary_and_k4` pins it: D − 5 stuck at curve rule 5, D − 4 clean at 6, k_sw = 4 gives 14.
+- **The curve rule** (`--curve-bar`, default 0: printed only) is information since ironspec 22:31: the S-bend's gate is the lip margin. The interim bar 11 (the band's largest curve-rule boundary over the qualifying phases, 9 at arrival 0.15 rolling, + 2) is retired onto it, with 8 and 21 before it.
+  - The qualifying phases have PRESENT at least 7 gt before the leader's press; each phase prints its margin, and those under 7 are printed apart as outside normal operation.
+  - `k_sw` = 6 (ironspec 21:35; `--nap-k`, default 6). k_sw = 4 missed the interim curve bar under 1–4-gt freezes at rest (least 10). k_sw = 6 is re-judged against the lip bar.
+- **The lip margin** (`sidingbench::lip_margin`; adopted ironspec 22:22) is the gate quantity at the point of contact, with a **bar of 2** (`--lip-bar`, default 2; ironspec 22:31).
+  - **N** is the first tick whose napper move brings its box front to the leader's rider's box back face (within 1e-4), as the rider stood after the previous tick (napper first), over the lip region (the merge's south face to 3 cells north).
+  - **R** is the first tick after which the rider's box top is below the napper's floor y 24.0.
+  - The margin is N − R − 1. −1 or less is contact (stuck under napper-first); "never" means the napper never reaches the rider at the lip.
+  - **The bar's evidence:** the band sweep on the module's geometry over every qualifying arrival and phase (3,200 rows) has clean rows at 0, 1 and 2 and no stuck row at or above 0, so 0 + 2 = 2. At −1 the bench's outcome depends on the tick order (the napper rolls on in half the rows); that is a redsim fidelity follow-up, below the bar.
+  - **The known answers, pinned on tick-exact's official per-tick rows:**
+    - `lip_margin_on_official_rows`: 0.30 at rest, D − 5 → −1, D − 4 → 0;
+    - `lip_margin_on_official_rolling_row`: 0.15 rolling with its K tick 12 gt before the press, P − 2 → −1, P − 1 → 2.
+- **Other per-row checks:**
+  - The carts' block contacts (ironspec 21:25 (4)). A cart's move stopped by a block face counts; the hold's trapdoor (x,16,0), the station's stop, is declared. Any other contact fails the row.
+  - `--out`: the bench's world as laid, for `mobfarm record-match` (ironspec 21:43).
