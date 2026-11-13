@@ -52,6 +52,10 @@ pub struct Opts {
     /// lane one slope cart short. Off (the default): the build guide's start, the module's queued
     /// cart dropped and every lane full.
     pub seed_queued_napper: bool,
+    /// (ironspec 02:18 PT (2)) DAY's level: the daylight detector at this power or above is DAY
+    /// (the design's L-6 line: 6; 1 is the positive control that must reproduce the lost window
+    /// picks).
+    pub day_threshold: u32,
     /// (ironspec 11:15, 9fc3155f's statics) S-bend seats whose stamp resets are counted: `NAME`,
     /// the seat's rail cell, its clearing candidates (a complete draw to one of them while a rider
     /// sits on the seat resets its stamp).
@@ -391,6 +395,16 @@ struct Ctl {
     dpress_log: Vec<(i64, usize)>,
     /// (ironspec 01:59 PT, each visit's decomposition) every lift-exit pass (the waiting RS set).
     lift_exit_log: Vec<i64>,
+    /// (ironspec 02:18 PT (2)) DAY at the design's threshold (level >= this, 6) and the stand-in's
+    /// validation: the ticks read, the ticks where the threshold's DAY differs from level >= 6, the
+    /// detector's updates, the last power and DAY state, the edges.
+    day_threshold: u32,
+    day_ticks: i64,
+    day_mismatch: i64,
+    day_updates: i64,
+    day_power_prev: Option<u32>,
+    day_state_prev: Option<bool>,
+    day_edges: Vec<String>,
     /// (G1's note) a pick decided while another was still pending (an overwrite).
     pick_overwrites: Vec<String>,
     /// (day-1's R1) the line ends held as levels (their built states), the queue rail's power last
@@ -913,10 +927,11 @@ impl Ctl {
                 }
                 Some((c, rider)) => {
                     if self.divert.is_none() && c[1] == 25 && c[2] == 9 {
-                        // (the row arrival: DAY sampled once, the module's daylight detector)
+                        // (the row arrival: DAY sampled once, the module's daylight detector at
+                        // the design's threshold, level >= `--day-threshold` (6: ironspec 02:18 PT))
                         let sensor = w.get(redsim::pos::BlockPos::new(-5, 15, 3)).to_string();
                         let power: u32 = sensor.split("power=").nth(1).and_then(|r| r.split([',', ']']).next()).and_then(|v| v.parse().ok()).unwrap_or(0);
-                        if power > 0 {
+                        if power >= self.day_threshold {
                             self.pick_cart = None;
                             self.away[k] = false;
                             self.picks_day += 1;
@@ -1163,9 +1178,29 @@ impl Ctl {
             let present = w.entities.list.iter().any(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && !e.passengers.is_empty() && cell(e.pos) == q);
             let rest = w.day_time().rem_euclid(24_000) >= 12_000;
             let sensor = w.get(redsim::pos::BlockPos::new(-5, 15, 3)).to_string();
-            // (NOT DAY: the module's daylight detector (-5,15,3) at power 0)
+            // (NOT DAY: the module's daylight detector (-5,15,3) below the design's DAY level,
+            // `--day-threshold` (6, ironspec 02:18 PT: the real line's L-6 threshold); the detector
+            // updates its power every 20 gt, so the level is sampled at its updates)
             let power: Option<u32> = sensor.split("power=").nth(1).and_then(|r| r.split([',', ']']).next()).and_then(|v| v.parse().ok());
-            let not_day = sensor.contains("daylight_detector") && power == Some(0);
+            let not_day = sensor.contains("daylight_detector") && power.is_some_and(|p| p < self.day_threshold);
+            // (ironspec 02:18 PT (2): the stand-in's validation row against the design's DAY, level
+            // >= 6, at every tick; the DAY edges with the day time and the detector's power)
+            if let Some(p) = power {
+                self.day_ticks += 1;
+                if (p >= self.day_threshold) != (p >= 6) {
+                    self.day_mismatch += 1;
+                }
+                if self.day_power_prev != Some(p) {
+                    self.day_updates += 1;
+                    self.day_power_prev = Some(p);
+                }
+                if self.day_state_prev != Some(!not_day) {
+                    if self.day_edges.len() < 24 {
+                        self.day_edges.push(format!("t {now} (day time {}) DAY {} at power {p}", w.day_time().rem_euclid(24_000), if not_day { "off" } else { "on" }));
+                    }
+                    self.day_state_prev = Some(!not_day);
+                }
+            }
             // (day-1's R1, 19:19: the release is the built gate (the comparator (7,y+13,-4)
             // subtracting NOT-ready from N, the repeater (8,y+13,-4) into the queue rail); the
             // emulation drives only its unlaid line ends as levels: NOT-ready at the side dust
@@ -1416,7 +1451,7 @@ impl Ctl {
                 self.counter_pending = false;
                 let d = self.day_now;
                 if (290..=23_000).contains(&d) {
-                    self.rel_count = 141 + ((d - 12_490) as f64 / 100.0).round() as i64 - 1;
+                    self.rel_count = counter_c(d) - 1;
                     self.counter_log.push(format!("C {} at the first release (day {d}; the model's C 141 at the release nearest day 12,490)", self.rel_count + 1));
                 } else {
                     self.counter_unmodelled = Some(d);
@@ -2107,7 +2142,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     let mut v_held: BTreeMap<i32, i64> = BTreeMap::new();
     // (the stop's cells move with it: its bed head's y against rev 3's -18)
     let sy = o.bed[1] + 18;
-    let mut ctl = Ctl { napper: o.napper, stop_dy: sy, watchdog: o.watchdog, held_at_divert: o.held_at_divert, queue_hold: o.queue_hold, ..Ctl::default() };
+    let mut ctl = Ctl { napper: o.napper, stop_dy: sy, watchdog: o.watchdog, held_at_divert: o.held_at_divert, queue_hold: o.queue_hold, day_threshold: o.day_threshold, ..Ctl::default() };
     if o.napper && o.drive {
         ctl.k_lock = Some(o.k_lock.ok_or("the module declares no `k-lock: N (why)` line (the hold gate's delayed Q, ironspec 22:09)")?);
         ctl.k_sw = Some(o.k_sw.ok_or("the module declares no `k-sw: N (why)` line (the siding's repeater after D, ironspec 22:03)")?);
@@ -2194,6 +2229,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     }
     let mut sight_hits: Vec<i64> = vec![0; sight_cells.len()];
     let mut sight_rows: Vec<String> = Vec::new();
+    let mut sight_classes: BTreeMap<String, i64> = BTreeMap::new();
     // (ironspec 21:25 PT) the carts' contacts with blocks: cell -> (ticks, the first tick, block)
     let mut contacts: BTreeMap<[i32; 3], (i64, i64, String)> = BTreeMap::new();
     // (ironspec 20:40 PT) the feed stack's direct bench: instead of the run
@@ -2217,6 +2253,12 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     type SeatPath = (Option<[i32; 3]>, Option<[i32; 3]>);
     let mut seat_paths_last: BTreeMap<u32, SeatPath> = BTreeMap::new();
     let mut seat_paths: Vec<String> = Vec::new();
+    // (ironspec 02:18 PT (3a)) each lane's H..V carts at the first release, the least, the most
+    // away, the rows with more than one away
+    let mut occ_full: Option<[i64; 3]> = None;
+    let mut occ_min = [i64::MAX; 3];
+    let mut away_max = [0i64; 3];
+    let mut away_rows: Vec<String> = Vec::new();
     // (ironspec 00:33 PT) the stranded-napper bar's state: each napper's sleep last tick, the wakes
     // waiting for a cart at P (villager -> deadline), the wakes seen and the stranded ones
     let mut sleep_prev: BTreeMap<u32, bool> = BTreeMap::new();
@@ -2676,10 +2718,10 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         // `--gossip-control`: a gossip attempt (path 5, 5 willing) logged from lane x -1's pocket at
         // t 1,000, in the event shape redsim's gossip path emits (cited: redsim's
         // `a_gossip_call_logs_its_threshold_and_caller` test), which the gossip bars must count;
-        // `--bystander-control`: a REAL summon (`spawn_golem_if_needed`, threshold 3) called from lane
-        // x -1's pocket rider at the first ticks from t 1,000 with a rider out of its pocket near the
-        // stand, until a golem is born: the summon stamps every villager in its 10-box, the departing
-        // rider included, which the departing-bystander bar must count
+        // `--bystander-control`: a REAL summon (`spawn_golem_if_needed`, threshold 3) called from a
+        // pocket rider at the first ticks from t 1,000 with a rider out of its pocket inside the
+        // caller's 10-box, until a golem is born: the summon stamps every villager in its 10-box, the
+        // rider out of its pocket included, which the departing-bystander bar must count
         if o.gossip_control && now - t0 == 1_000 {
             let v = w.entities.list.iter().find(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && cell(e.pos) == [-1, 0, 0]).and_then(|e| e.passengers.first().copied());
             if let Some(villager) = v {
@@ -2687,14 +2729,23 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 controls_done.push(format!("the gossip control at t 1000 (villager {villager})"));
             }
         }
-        if o.bystander_control && now - t0 >= 1_000 && !controls_done.iter().any(|c| c.starts_with("the bystander control")) && bystander_tries < 200 {
-            let departing = w.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && !e.passengers.is_empty()).any(|e| {
-                let c = cell(e.pos);
-                c[1] == 0 && (1..=6).contains(&c[2]) && LANES.contains(&c[0])
+        if o.bystander_control && now - t0 >= 1_000 && !controls_done.iter().any(|c| c.starts_with("the bystander control")) && bystander_tries < 400 {
+            // (a pocket rider as the caller, and a rider out of its pocket inside the caller's
+            // 10-box: the merge row's carts are, at the S ticks, as the night's own stamps show)
+            let caller = w
+                .entities
+                .list
+                .iter()
+                .find(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && !e.passengers.is_empty() && { let c = cell(e.pos); c[1] == 0 && c[2] == 0 && LANES.contains(&c[0]) })
+                .and_then(|e| e.passengers.first().copied().map(|v| (v, e.pos)));
+            let departing = caller.is_some_and(|(_, cp)| {
+                w.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && !e.passengers.is_empty()).any(|e| {
+                    let c = cell(e.pos);
+                    !(c[1] == 0 && c[2] == 0 && LANES.contains(&c[0])) && (e.pos.x - cp.x).abs() <= 10.3 && (e.pos.y - cp.y).abs() <= 10.0 && (e.pos.z - cp.z).abs() <= 10.3
+                })
             });
-            let caller = w.entities.list.iter().find(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && cell(e.pos) == [-1, 0, 0]).and_then(|e| e.passengers.first().copied());
             if departing
-                && let Some(v) = caller
+                && let Some((v, _)) = caller
                 && let Some(k) = redsim::entity::index_of(w, v)
             {
                 bystander_tries += 1;
@@ -2958,7 +3009,10 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                             a.intersects(bb) && !(a.max_y <= e.bb.min_y + 1e-6)
                         });
                         if hit {
-                            let k = contacts.entry([x, y, z]).or_insert((0, now - t0, name.trim_start_matches("minecraft:").split('[').next().unwrap_or("").to_string()));
+                            // (farmopt 02:38 PT, ironfarm: the first contact's cart, its position
+                            // and its motion, printed with the cell)
+                            let first = format!("cart {} at ({:.3},{:.3},{:.3}) moving ({:.3},{:.3},{:.3})", e.id, e.pos.x, e.pos.y, e.pos.z, e.delta_movement.x, e.delta_movement.y, e.delta_movement.z);
+                            let k = contacts.entry([x, y, z]).or_insert((0, now - t0, format!("{} [{first}]", name.trim_start_matches("minecraft:").split('[').next().unwrap_or(""))));
                             k.0 += 1;
                         }
                     }
@@ -2990,8 +3044,20 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     for (k, c) in sight_cells.iter().enumerate() {
                         if seg_hits_cell(*ea, *eb, *c) {
                             sight_hits[k] += 1;
+                            // (ironspec 02:18 PT: the ray classes) each entity by its label or
+                            // mob type, the crossings counted per cell and class
+                            let what = |i: usize| -> String {
+                                let e = &w.entities.list[i];
+                                match &e.kind {
+                                    EntityKind::Mob(m) => recs.get(&e.id).map_or(format!("{:?}", m.ty), |r| r.label.split(' ').next().unwrap_or("villager").to_string()),
+                                    _ => "entity".to_string(),
+                                }
+                            };
+                            let class = |s: String| s.trim_end_matches(|ch: char| ch.is_ascii_digit()).to_string();
+                            *sight_classes.entry(format!("({},{},{}) {} -> {}", c[0], c[1], c[2], class(what(*a)), class(what(*b)))).or_default() += 1;
                             if sight_rows.len() < 12 {
-                                sight_rows.push(format!("t {}: ({},{},{}) on the ray from entity {} to {}", now - t0, c[0], c[1], c[2], w.entities.list[*a].id, w.entities.list[*b].id));
+                                let (pa, pb) = (w.entities.list[*a].pos, w.entities.list[*b].pos);
+                                sight_rows.push(format!("t {}: ({},{},{}) on the ray from {} #{} at ({:.1},{:.1},{:.1}) to {} #{} at ({:.1},{:.1},{:.1})", now - t0, c[0], c[1], c[2], what(*a), w.entities.list[*a].id, pa.x, pa.y, pa.z, what(*b), w.entities.list[*b].id, pb.x, pb.y, pb.z));
                             }
                         }
                     }
@@ -3355,7 +3421,9 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                                     renew.departing_locked += 1;
                                 }
                                 if renew.departing_rows.len() < 12 {
-                                    renew.departing_rows.push(format!("t {} {} at ({:.1},{:.1},{:.1}){}", now - t0, r.label.split(' ').next().unwrap_or(""), pos.x, pos.y, pos.z, if locked { " (locked)" } else { "" }));
+                                    // (farmopt 02:21 PT: which summoner's golem stamped it)
+                                    let by = golem_summon.values().find(|g| g.0 == now).map_or(String::new(), |g| format!(", stamped by #{}'s summon{}", g.1, g.4.map_or(String::new(), |p| format!(" at ({:.1},{:.1},{:.1})", p[0], p[1], p[2]))));
+                                    renew.departing_rows.push(format!("t {} {} at ({:.1},{:.1},{:.1}){}{by}", now - t0, r.label.split(' ').next().unwrap_or(""), pos.x, pos.y, pos.z, if locked { " (locked)" } else { "" }));
                                 }
                             }
                         }
@@ -3864,6 +3932,29 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             r.prev_key = target_key;
         }
         // (ironfarm 11:40) the traced cart's cells, and each lane's H..V occupancy at every release
+        // (ironspec 02:18 PT (3a)) each lane's away count at every release: the lane's H..V carts
+        // against its count at the first release (the build guide's start: every lane full)
+        if o.napper && ctl.rel == Some(rel) {
+            let occ: [i64; 3] = [0usize, 1, 2].map(|k| {
+                let x = LANES[k];
+                w.entities
+                    .list
+                    .iter()
+                    .filter(|e| {
+                        let c = cell(e.pos);
+                        !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && c[0] == x && (16..=22).contains(&c[1]) && (0..=6).contains(&c[2])
+                    })
+                    .count() as i64
+            });
+            let full = *occ_full.get_or_insert(occ);
+            for k in 0..3 {
+                occ_min[k] = occ_min[k].min(occ[k]);
+                away_max[k] = away_max[k].max(full[k] - occ[k]);
+                if full[k] - occ[k] > 1 && away_rows.len() < 12 {
+                    away_rows.push(format!("t {rel}: lane x {} {} away ({} of {} carts)", LANES[k], full[k] - occ[k], occ[k], full[k]));
+                }
+            }
+        }
         if let Some((cid, a, b)) = o.cart_trace
             && rel >= a
             && rel <= b
@@ -4225,7 +4316,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             "the stand-ins' 7th property, SIGHT (ironspec 20:10 / 20:19 PT (2c): each emulated support laid where the build has air against every villager's eye to every living entity's eye within 16, each tick; bar 0 crossings): {}{}{}\n",
             if sight_cells.is_empty() { "no support laid on air".to_string() } else { sight_cells.iter().zip(sight_hits.iter()).map(|(c, n)| format!("({},{},{}) {n} ({})", c[0], c[1], c[2], if *n == 0 { "PASS" } else { "FAIL" })).collect::<Vec<_>>().join(", ") },
             if sight_skipped.is_empty() { String::new() } else { format!("; not watched, no collision box (a sight ray clips only against colliders): {}", sight_skipped.iter().map(|c| format!("({},{},{})", c[0], c[1], c[2])).collect::<Vec<_>>().join(", ")) },
-            if sight_rows.is_empty() { String::new() } else { format!(": {}", sight_rows.join("; ")) }
+            if sight_rows.is_empty() { String::new() } else { format!(": {}; the crossings by class: {}", sight_rows.join("; "), sight_classes.iter().map(|(k, n)| format!("{k} {n}")).collect::<Vec<_>>().join(", ")) }
         ));
         let t_missing: i64 = tsplit.missing.iter().sum();
         s.push_str(&format!(
@@ -4914,6 +5005,31 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             if seat_paths.is_empty() { "none".to_string() } else { seat_paths.join("; ") }
         ));
         // (ironspec 00:33 PT) the stranded-napper bar
+        // (ironspec 02:18 PT (3a)) each lane's away at every release, bar <= 1, and the free
+        // caller's margin at the lane's least occupancy, (carts + 1) x 100 - 32 - 599 (69 at 6
+        // carts), bar >= 3
+        if let Some(full) = occ_full {
+            let margin = |c: i64| (c + 1) * 100 - 32 - 599;
+            let ok = (0..3).all(|k| away_max[k] <= 1 && margin(occ_min[k]) >= 3);
+            s.push_str(&format!(
+                "  each lane's away at every release (ironspec 02:18 PT (3a): the away latch allows <= 1 per lane; the free caller's margin at the lane's least occupancy, (carts + 1) x 100 - 32 - 599, bar >= 3): {}{} ({})\n",
+                (0..3).map(|k| format!("lane x {}: {} carts at the first release, the least {}, the most away {}, the margin there {:+}", LANES[k], full[k], occ_min[k], away_max[k], margin(occ_min[k]))).collect::<Vec<_>>().join("; "),
+                if away_rows.is_empty() { String::new() } else { format!("; more than one away: {}", away_rows.join(", ")) },
+                if ok { "PASS" } else { "FAIL" }
+            ));
+        } else {
+            s.push_str("  each lane's away at every release (ironspec 02:18 PT (3a)): NOT JUDGED (0 releases): FAIL\n");
+        }
+        // (ironspec 02:18 PT (2)) DAY's validation row
+        s.push_str(&format!(
+            "  the DAY stand-in's validation (ironspec 02:18 PT (2): DAY = the detector at level >= {} against the design's level >= 6, each tick; clear weather only: redsim's sky darkening models no rain or thunder, so those rows are tick-exact's): {} ticks read, {} detector updates, {} ticks where the stand-in differs from the design ({}); the DAY edges: {}\n",
+            ctl.day_threshold,
+            ctl.day_ticks,
+            ctl.day_updates,
+            ctl.day_mismatch,
+            if ctl.day_ticks == 0 { "NOT JUDGED (0 samples): FAIL" } else if ctl.day_mismatch == 0 { "PASS" } else if ctl.day_threshold != 6 { "FAIL: the positive control's threshold" } else { "FAIL" },
+            if ctl.day_edges.is_empty() { "none".to_string() } else { ctl.day_edges.join(", ") }
+        ));
         s.push_str(&format!(
             "  stranded nappers (ironspec 00:33 PT: a napper waking in A6 with no cart at P by its wake + the bound fails; P and the bound from the module's `# a6-pickup:`): {}\n",
             match o.a6_pickup {
@@ -5058,6 +5174,26 @@ fn anyhow_free(ok: bool, why: &str) -> Result<(), String> {
 /// the same line still counts.
 pub fn fail_lines(rep: &str) -> Vec<&str> {
     rep.lines().filter(|l| l.replace("expected FAIL", "").contains("FAIL")).collect()
+}
+
+/// The picker's C at the first release from its day time `d` (day-1's model: C 141 at the release
+/// nearest day 12,490, one count per 100-gt release): `141 + round((d - 12,490) / 100)`. A release
+/// exactly 50 gt off the grid is a tie, which `f64::round` breaks away from zero (G1's note: +50
+/// gives 142, -50 gives 140); the built counter's value at that tick is day-1's model's to confirm.
+pub fn counter_c(d: i64) -> i64 {
+    141 + ((d - 12_490) as f64 / 100.0).round() as i64
+}
+
+#[cfg(test)]
+mod counter_tests {
+    /// (G1's note on 6248be579) C at a first release 49 / 50 / 51 gt either side of the 12,490 grid
+    #[test]
+    fn the_first_release_s_c_at_the_grid_s_ties() {
+        let c = |off: i64| super::counter_c(12_490 + off);
+        assert_eq!([c(49), c(50), c(51)], [141, 142, 142]);
+        assert_eq!([c(-49), c(-50), c(-51)], [141, 140, 140]);
+        assert_eq!([c(0), c(100), c(-100)], [141, 142, 140]);
+    }
 }
 
 #[cfg(test)]

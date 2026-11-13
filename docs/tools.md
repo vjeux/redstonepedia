@@ -508,7 +508,15 @@ arrival, dwell, the way-in leg, entry -> lie-down, lie-down -> wake, wake -> a c
 R -> the lift exit, the lift exit -> Q-up (k_lock), Q-up -> H2. The run starts as the build guide
 does (ironspec 01:59 PT): every napper in its lane and the queue empty (the module's queued cart
 dropped); `--seed-queued-napper` keeps the old seeding (the napper queued at the way-in, its lane
-one slope cart short).
+one slope cart short). DAY (the queue release's NOT DAY and the picker's row sample) is the module's
+daylight detector at level >= `--day-threshold` (default 6, the design's L-6 line; ironspec 02:18
+PT), with its validation row (each tick the stand-in against level >= 6, the detector's updates,
+the DAY edges; clear weather only, since redsim's sky darkening models no rain or thunder) and
+`--day-threshold 1` as the positive control. Each lane's away count at every release (its H..V
+carts against the first release's) is a bar (<= 1, ironspec 02:18 PT), printed with the free
+caller's margin at the lane's least occupancy ((carts + 1) x 100 - 32 - 599, bar >= 3). The
+bystander rows name the summoner whose golem stamped the rider, and SIGHT prints its crossings by
+ray class (each entity by its label or mob type).
 `--drive-out F --scene-out S` (mob-AI) records the run as a mobai drive v1 for `mctas mobai
 fixture` (the 26.3 bridge and redsim, tick for tick): the world started as every bench's drive
 (`Run::start` with the drive's options, the settle, the scene's entity lines spawned in file order),
@@ -610,9 +618,9 @@ pick spacing. The positive
 controls: `--inert-control` (J(-1)'s lever declared inert: the watch must fail), `--gossip-control`
 (a gossip attempt logged from lane x -1's pocket at t 1,000, in the shape redsim's gossip path emits,
 cited by its test `a_gossip_call_logs_its_threshold_and_caller`: the gossip bars must fail),
-`--bystander-control` (a real summon, `spawn_golem_if_needed` at threshold 3, called from lane x -1's
-pocket rider from t 1,000 while a rider departs, until a golem is born: its stamps reach the
-departing rider and the departing-bystander bar must fail), and `--empty-pocket X` for the summon check. The stand-in guard
+`--bystander-control` (a real summon, `spawn_golem_if_needed` at threshold 3, called from a pocket
+rider from t 1,000 while a rider out of its pocket is inside the caller's 10-box, until a golem is
+born: its stamps reach that rider and the departing-bystander bar must fail), and `--empty-pocket X` for the summon check. The stand-in guard
 is record-match's `guard_intrinsics` (golem as a floor and as a spawn space, the full PathType,
 late-path, sight); the counter's C is derived at the first release from its own day time.
 The stranded-napper bar (ironspec 00:33 PT): a napper waking in A6 with no cart at the pickup cell P
