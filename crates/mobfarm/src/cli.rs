@@ -2095,6 +2095,15 @@ pub enum MobfarmCmd {
         /// release as soon as the stop is free; 80 the old gate).
         #[arg(long, default_value_t = 0)]
         queue_hold: i64,
+        /// (ironspec 19:24, the direct summon check's control) remove lane X's pocket rider at the
+        /// start: that pocket misses every summon tick.
+        #[arg(long, allow_hyphen_values = true)]
+        empty_pocket: Option<i32>,
+        /// (ironspec 20:40 PT) Instead of the run, the feed stack's direct bench: its dust (-3,23,9)
+        /// forced through both power states with the T (-3,25,9)'s lever in each, the T's shape
+        /// printed against its power's settle.
+        #[arg(long)]
+        stack_bench: bool,
     },
     /// Where a stand's zombie can stand under the 6-8 rule (ironspec 2026-11-11): every candidate
     /// cell of `--region` (a zombie's feet at its centre, y as given), scored against every rider
@@ -7579,7 +7588,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 std::process::exit(1);
             }
         }
-        MobfarmCmd::F1q2Run { design, seed, ticks, day0, lane_carts, restart_every, restart_order, control_rider, trace, drive, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour_golems, cart_trace, drive_out, scene_out, watchdog, stale_start, held_at_divert, report_only, queue_hold } => {
+        MobfarmCmd::F1q2Run { design, seed, ticks, day0, lane_carts, restart_every, restart_order, control_rider, trace, drive, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour_golems, cart_trace, drive_out, scene_out, watchdog, stale_start, held_at_divert, report_only, queue_hold, empty_pocket, stack_bench } => {
             let (c, spec) = load(version, &design)?;
             let bed = *c.clock.design.ports.get("home").ok_or_else(|| anyhow::anyhow!("{}: no `home` port (the shared bed's head)", design.display()))?;
             // (the seats: NAME=x,y,z:cx,cy,cz+...)
@@ -7620,7 +7629,17 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             anyhow::ensure!(emulated_states.len() == emulated.len(), "{}: every `emulated:` cell names its stand-in state (CELL=STATE (why); G1's note (c))", design.display());
             let ts = crate::column::header_cells(&text, "placement-order-ts:");
             let update_only = crate::column::header_cells(&text, "update-only-ts:");
-            let o = crate::f1q2run::Opts { seed, ticks, day0, lane_carts, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour, cart_trace, restarts, restart, control_rider, trace, bed, drive, drive_rec, watchdog, stale_start, held_at_divert, queue_hold, emulated, emulated_states, ts, update_only };
+            // (ironspec 20:34 PT) the dwell cap from the module's `dwell-cap: N (why)` line
+            let dwell_cap: Option<i64> = text.lines().find_map(|l| l.strip_prefix("dwell-cap:")).and_then(|r| r.split_whitespace().next()).and_then(|n| n.parse().ok());
+            // (ironspec 21:25 / 22:05 PT) the declared stops and contacts (walls a cart rides
+            // against: `# contacts: CELLS=REASON (evidence row)`)
+            let mut stops = crate::column::header_cells(&text, "stops:");
+            stops.extend(crate::column::header_cells(&text, "# contacts:"));
+            stops.extend(crate::column::header_cells(&text, "contacts:"));
+            // (ironspec 22:03 / 22:09 PT) k_lock and k_sw from the module
+            let num = |key: &str| -> Option<i64> { text.lines().find_map(|l| l.strip_prefix(key)).and_then(|r| r.split_whitespace().next()).and_then(|n| n.parse().ok()) };
+            let (k_lock, k_sw) = (num("k-lock:"), num("k-sw:"));
+            let o = crate::f1q2run::Opts { seed, ticks, day0, lane_carts, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour, cart_trace, restarts, restart, control_rider, trace, bed, drive, drive_rec, watchdog, stale_start, held_at_divert, queue_hold, emulated, emulated_states, ts, update_only, empty_pocket, dwell_cap, stack_bench, stops, k_lock, k_sw };
             let (rep, out) = crate::f1q2run::run_driven(&spec, &o).map_err(|e| anyhow::anyhow!(e))?;
             print!("{rep}");
             if let (Some(df), Some(sf), Some((drive_text, scene_entities))) = (&drive_out, &scene_out, out) {

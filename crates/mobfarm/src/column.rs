@@ -947,14 +947,7 @@ pub fn t_rails(spec: &redsim::entity::mob::farm::FarmSpec) -> Result<Vec<String>
     // or hangs on (a detector rail's block below, a lever's, a hook's or a button's support (below
     // a floor one, above a ceiling one, else behind its facing), a repeater's, comparator's or
     // observer's front, a wire's or a torch's neighbours): each source's reach set, scanned for Ts
-    let source = |s: &str| {
-        let n = s.trim_start_matches("minecraft:");
-        let n = n.split('[').next().unwrap_or(n);
-        matches!(n, "detector_rail" | "redstone_wire" | "redstone_torch" | "redstone_wall_torch" | "repeater" | "comparator" | "observer" | "lever" | "tripwire_hook" | "daylight_detector" | "target" | "trapped_chest" | "lectern" | "sculk_sensor" | "calibrated_sculk_sensor" | "lightning_rod" | "redstone_block" | "jukebox")
-            || n.ends_with("_lightning_rod")
-            || n.ends_with("_button")
-            || n.ends_with("_pressure_plate")
-    };
+    let source = |s: &str| is_source_name(s);
     let sources: Vec<(redsim::pos::BlockPos, String)> = spec.blocks.iter().filter(|(_, b)| source(&b.to_string())).map(|(p, b)| (*p, b.to_string())).collect();
     // (each source's own update reach, 26.3: the cells whose neighborChanged its state change
     // calls; a redstone block never changes, so it reaches nothing (an emulated switched cell is air
@@ -1565,6 +1558,22 @@ pub fn header_cells(text: &str, key: &str) -> Vec<[i32; 3]> {
     v
 }
 
+/// (ironspec 20:19 PT (2a), G1) Whether a block state string names a signal source, from redsim's
+/// own predicate (`behavior::is_signal_source` on the parsed state; dust counts, as a rail reads
+/// its default state's answer: `shouldSignal` toggles only inside its own recalculation), so the
+/// T-reach scan's list can't drift from the simulator's; a block redsim doesn't parse is refused
+/// earlier, by the design's own parse.
+pub fn is_source_name(s: &str) -> bool {
+    thread_local! {
+        static PROBE: redsim::world::World = redsim::world::World::new(redsim::pos::BlockPos::new(0, 0, 0), [1, 1, 1]);
+    }
+    let s = if s.contains(':') { s.to_string() } else { format!("minecraft:{s}") };
+    match redsim::block::Block::parse(&s) {
+        Ok(b) => matches!(b, redsim::block::Block::Wire { .. }) || PROBE.with(|w| redsim::behavior::is_signal_source(w, &b)),
+        Err(_) => false,
+    }
+}
+
 /// The cells of a header line's groups with the state each names (`KEY CELLS=STATE (why); ...`:
 /// the state is the first token after `=`, `minecraft:` added when it has no namespace; G1's
 /// note (c) on 961090aef: the statics lay exactly what the run lays).
@@ -2158,6 +2167,24 @@ pub fn sentinel(parts: &[Part], s: (P, P), bed: Option<P>, shift: P) -> (String,
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// (ironspec 20:19 PT (2a), G1) the T-reach scan's sources are redsim's predicate: spot pins
+    /// (the jukebox and the lightning rods are sources, a trapped chest and a lectern are refused
+    /// at the parse, dust counts) and agreement with `behavior::is_signal_source` on named blocks
+    #[test]
+    fn the_source_names_follow_the_predicate() {
+        assert!(is_source_name("minecraft:jukebox"));
+        assert!(is_source_name("lightning_rod"));
+        assert!(is_source_name("minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]"));
+        assert!(!is_source_name("minecraft:trapped_chest[facing=north,type=single,waterlogged=false]"));
+        assert!(!is_source_name("lectern"));
+        assert!(!is_source_name("glass"));
+        let w = redsim::world::World::new(redsim::pos::BlockPos::new(0, 0, 0), [1, 1, 1]);
+        for n in ["lever", "stone_button", "repeater", "comparator", "observer", "target", "detector_rail", "daylight_detector", "redstone_block", "redstone_torch", "sculk_sensor", "stone_pressure_plate", "tripwire_hook", "rail", "powered_rail", "hopper", "piston", "slime_block", "iron_trapdoor", "note_block", "redstone_lamp"] {
+            let Ok(b) = redsim::block::Block::parse(&format!("minecraft:{n}")) else { continue };
+            assert_eq!(is_source_name(n), redsim::behavior::is_signal_source(&w, &b), "{n}");
+        }
+    }
 
     #[test]
     fn sections_per_phase() {
