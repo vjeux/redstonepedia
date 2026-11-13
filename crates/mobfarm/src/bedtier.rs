@@ -4617,11 +4617,6 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
         base.declared_contacts, sk.contact_visits, sk.contacts, sk.declared_hit
     );
     sk.stamp_cleared.sort();
-    // (G1's C20: lightning judged on the built world; on the stop alone it is printed only, the
-    // stop being open to the sky by construction there)
-    if base.built_world && sk.lightning_visits > 0 {
-        failed.push(format!("{} visits with a napper exposed to lightning in the built world (a sky-seeing cell or a bolt's hit box)", sk.lightning_visits));
-    }
     println!(
         "lightning (ironspec 22:56 (iii): a napper's cell that sees the sky, or inside a bolt's hit box from a column top, in the built world (the module over the stop with --module-offset; the bench's stop alone is open to the sky)): {} visits; {:?}",
         sk.lightning_visits,
@@ -4707,6 +4702,11 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
     let mut failed: Vec<String> = Vec::new();
     // (the declared scope: G1's C7, only the named bars, validated at the start)
     let excluded = |bar: &str| base.scope_excludes.iter().any(|b| b == bar);
+    // (G1's C20: lightning judged on the built world; on the stop alone it is printed only, the
+    // stop being open to the sky by construction there)
+    if base.built_world && sk.lightning_visits > 0 {
+        failed.push(format!("{} visits with a napper exposed to lightning in the built world (a sky-seeing cell or a bolt's hit box)", sk.lightning_visits));
+    }
     if park_failed {
         failed.push("the release by park position NOT met".into());
     }
