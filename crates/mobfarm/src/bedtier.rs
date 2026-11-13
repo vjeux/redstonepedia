@@ -1135,6 +1135,13 @@ pub struct Row {
     pub mem_empty_at: Option<i64>,
     pub panic_end_at: Option<i64>,
     pub cell25_at: Option<i64>,
+    /// The waker's window shut on the wake edge (`--hide-after-wake`): its tick.
+    pub close_at: Option<i64>,
+    /// The cart's horizontal speed (and the tick) when its pickup box first met the napper on foot
+    /// after the release (seated only above 0.1).
+    pub napper_contact: Option<(f64, i64)>,
+    /// A lie-down after the wake, before the pickup (the re-sleep lock: bar none).
+    pub resleep_at: Option<i64>,
     /// (a skip row) The skip's tick, the cells the napper waited in awake before its next nap, the
     /// day time of that nap, its CANT_REACH stamp's age at the first REST tick after the skip (None
     /// inside: no stamp), and its LAST_SLEPT (game time) at the end.
@@ -2192,6 +2199,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                 set(&mut run.world, c, "redstone_block");
             }
             row.waker_lines.push(format!("t {t}: the window shut (--hide-after-wake: the waker's controllers powered again)"));
+            row.close_at = Some(t);
             hidden = true;
         }
         // (the release (ironspec 09:45, outcome (a)): `release_after` gt after the bed observer's
@@ -2794,6 +2802,23 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                 let b = redsim::entity::mob::ai::brain::brain(w, vi);
                 let nav = redsim::entity::mob::ai::brain::has_exact(w, vi).then(|| redsim::entity::mob::ai::brain::ex(w, vi).mem.path.as_ref().map(|p| (p.next_node_index, p.nodes.len(), p.nodes.last().map(|n| (n.x, n.y, n.z))))).flatten();
                 eprintln!("t {t}: villager {:.3} {:.3} {:.3} v {:.3} {:.3} {:.3} riding {riding} asleep {asleep} home {:?} hostile {:?} path {:?} | cart {:.2} {:.2} {:.2} v {:.3} {:.3} {:.3}", v.pos.x, v.pos.y, v.pos.z, v.delta_movement.x, v.delta_movement.y, v.delta_movement.z, b.home, b.nearest_hostile, nav, c.pos.x, c.pos.y, c.pos.z, c.delta_movement.x, c.delta_movement.y, c.delta_movement.z);
+            }
+            // (G1 / ironspec 09:13, the 0.56 class by its mechanism: the cart's horizontal speed on
+            // the first tick after the release that its pickup box (inflated 0.2, 0, 0.2) meets the
+            // napper on foot; AbstractMinecart seats it only above 0.1 b/t (horizontalDistanceSqr
+            // > 0.01), below that the cart stops against the napper)
+            if row.release_at.is_some() && row.pickup.is_none() && !riding && row.napper_contact.is_none() {
+                let (cb, vb) = (&c.bb, &v.bb);
+                if cb.min_x - 0.2 < vb.max_x && cb.max_x + 0.2 > vb.min_x && cb.min_y < vb.max_y && cb.max_y > vb.min_y && cb.min_z - 0.2 < vb.max_z && cb.max_z + 0.2 > vb.min_z {
+                    row.napper_contact = Some((c.delta_movement.x.hypot(c.delta_movement.z), t));
+                }
+            }
+            // (G1 09:12 / ironspec 09:13, the re-sleep lock: a lie-down after the wake, before the
+            // pickup (SleepInBed: LAST_WOKEN's cooldown over, not a passenger, the head not OCCUPIED,
+            // within 2.0 of its centre))
+            if asleep && row.woke_at.is_some_and(|w0| t > w0) && row.pickup.is_none() && row.resleep_at.is_none() {
+                row.resleep_at = Some(t);
+                row.problems.push(format!("t {t}: the napper lay back down after its wake (woke t {:?}) before the pickup: the re-sleep lock", row.woke_at));
             }
             if riding && row.release_at.is_some() && row.pickup.is_none() {
                 row.pickup = Some((row.cells_after_wake.last().copied().unwrap_or(vcell), t));
@@ -3751,6 +3776,8 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
     let (mut waker_flee, mut waker_memory, mut waker_dmin, mut waker_seen_dmin) = (0usize, 0usize, f64::MAX, f64::MAX);
     let mut hold_needed = i64::MIN;
     let mut window_rows: Vec<String> = Vec::new();
+    let (mut clear_after_close, mut delta_ruled, mut board_wait_max, mut resleeps) = (Vec::<i64>::new(), i64::MIN, i64::MIN, 0usize);
+    let (mut contact_speeds, mut park_xs) = (Vec::<(f64, String)>::new(), Vec::<(f64, Option<f64>, String)>::new());
     let mut post_contact_min: std::collections::BTreeMap<String, f64> = std::collections::BTreeMap::new();
     let (mut picked_up, mut missed_booster) = (0usize, 0usize);
     // ((A) --exit-south: its exit booster at (-1,0,6); every picked-up cart must reach it)
@@ -3799,6 +3826,13 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
                                 reclaim_delays.push(b - a);
                             }
                             if r.woke_at.is_some() {
+                                resleeps += r.resleep_at.is_some() as usize;
+                                if let Some((s, _)) = r.napper_contact {
+                                    contact_speeds.push((s, format!("{seed}/{v}")));
+                                }
+                                if let Some((p, _)) = r.parked {
+                                    park_xs.push((p[0], r.napper_contact.map(|n| n.0), format!("{seed}/{v}")));
+                                }
                                 waker_wakes += 1;
                                 waker_stamps += r.waker_stamp.is_some() as usize;
                                 waker_uncleared += (r.waker_stamp.is_some() && r.waker_cleared.is_none()) as usize;
@@ -3808,7 +3842,21 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
                                 // after the memory is empty: max over wakes of (empty - entry + 1))
                                 if let (Some(e), Some(c)) = (r.mem_empty_at.max(r.panic_end_at), r.cell25_at) {
                                     hold_needed = hold_needed.max(e - c + 1);
-                                    window_rows.push(format!("seed {seed} speed {v}: wake {:?}, close {:?}, release {:?}, boarding {:?}, first in (-2,0,5) {c}, NEAREST_HOSTILE empty {:?}, PANIC over {:?}, R {:?}", r.woke_at, r.woke_at.map(|w| w + 1), r.release_at, r.pickup.map(|p| p.1), r.mem_empty_at, r.panic_end_at, r.r_at));
+                                    window_rows.push(format!("seed {seed} speed {v}: wake {:?}, close {:?}, release {:?}, boarding {:?}, first in (-2,0,5) {c}, NEAREST_HOSTILE empty {:?}, PANIC over {:?}, R {:?}", r.woke_at, r.close_at, r.release_at, r.pickup.map(|p| p.1), r.mem_empty_at, r.panic_end_at, r.r_at));
+                                }
+                                // (G1 09:13 (2) / ironspec 09:14: the measured (clear - close) over
+                                // every wake, asserted <= 22; ironspec 09:11 (2): the first entry
+                                // into (-2,0,5) >= close + 27 on every wake: the delta it needs)
+                                if let (Some(cl), Some(e)) = (r.close_at, r.mem_empty_at) {
+                                    clear_after_close.push(e - cl);
+                                }
+                                if let (Some(cl), Some(c)) = (r.close_at, r.cell25_at) {
+                                    delta_ruled = delta_ruled.max(cl + 27 - c);
+                                }
+                                // (the boarding wait: the wake to the pickup, the re-sleep lock's
+                                // margin < 80 under LAST_WOKEN's ~100)
+                                if let (Some(w0), Some((_, tp))) = (r.woke_at, r.pickup) {
+                                    board_wait_max = board_wait_max.max(tp - w0);
                                 }
                                 if let Some(d) = r.waker_dist_min {
                                     waker_dmin = waker_dmin.min(d);
@@ -4306,6 +4354,45 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
         if hold_needed > i64::MIN {
             println!("the panic window against the cart (ironspec 09:04): the extra hold needed so the cart enters (-2,0,5) only after NEAREST_HOSTILE is empty AND PANIC is over, on every wake: {} gt (0 = already after)", hold_needed.max(0));
         }
+        if !clear_after_close.is_empty() {
+            let mut d = clear_after_close.clone();
+            d.sort();
+            let mut hist: std::collections::BTreeMap<i64, usize> = Default::default();
+            for x in &d {
+                *hist.entry(*x).or_default() += 1;
+            }
+            let worst = *d.last().unwrap();
+            println!("NEAREST_HOSTILE's clear after the window's close (G1 09:13 (2): the sensor's 20-gt period + VillagerCalmDown's tick + the boarding read; asserted <= 22): over {} wakes, min {} max {worst} gt, by value {hist:?}{}", d.len(), d[0], if worst > 22 { " -- EXCEEDS 22: delta re-derived" } else { "" });
+            if worst > 22 {
+                failed.push("NEAREST_HOSTILE's clear more than 22 gt after the window's close on a wake (delta = 5 re-derived)".to_string());
+            }
+        }
+        if delta_ruled > i64::MIN {
+            println!("the hold delta ruled (ironspec 09:11 (2): the cart's first entry into (-2,0,5) >= the window's close + 27 on every wake): {} gt over this sweep's wakes (0 = already met with the release at the wake edge)", delta_ruled.max(0));
+        }
+        if board_wait_max > i64::MIN {
+            println!("the re-sleep lock (G1 09:12 / ironspec 09:13): P's feet ~(-1.5, 0.06, 4.5) to HOME's centre (-2.5, 0.5, 4.5): {:.2} (SleepInBed's 2.0: within, so the lock is live); lie-downs after the wake before the pickup (bar 0): {resleeps}; the longest wake -> boarding {board_wait_max} gt (stated margin < 80 under LAST_WOKEN's ~100)", ((1.0f64).powi(2) + (0.44f64).powi(2)).sqrt());
+            if resleeps > 0 {
+                failed.push(format!("{resleeps} visits with the napper lying back down after its wake before the pickup (the re-sleep lock)"));
+            }
+        }
+    }
+    if !contact_speeds.is_empty() {
+        // (the 0.56 class by its mechanism (G1 / ironspec 09:13): the cart's speed when its pickup
+        // box first meets the napper on foot after the release; seated only above 0.1)
+        let lo = contact_speeds.iter().cloned().fold((f64::MAX, String::new()), |a, b| if b.0 < a.0 { b } else { a });
+        let below = contact_speeds.iter().filter(|s| s.0 <= 0.1).count();
+        println!("the cart's speed at the napper contact (the pickup box (inflated 0.2) first meeting the napper on foot after the release; AbstractMinecart seats only above 0.1 b/t): over {} visits, least {:.4} (seed/entry {}), margin to 0.1 {:+.4}; at or under 0.1 (a stall against the napper): {below}", contact_speeds.len(), lo.0, lo.1, lo.0 - 0.1);
+    }
+    if !park_xs.is_empty() {
+        // (the same class by its upstream cause, the park position at the release (ironspec
+        // 09:13): its distribution, beside the contact speed it led to)
+        let mut xs: Vec<(f64, Option<f64>, String)> = park_xs.clone();
+        xs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+        let fails: Vec<&(f64, Option<f64>, String)> = xs.iter().filter(|p| p.1.is_some_and(|s| s <= 0.1)).collect();
+        let x_fail = fails.iter().map(|p| p.0).fold(f64::MIN, f64::max);
+        let passing_least = xs.iter().filter(|p| p.1.is_some_and(|s| s > 0.1)).map(|p| p.0).fold(f64::MAX, f64::min);
+        println!("the park position at the release (the cart's x, at rest 10 gt; the stall's upstream cause): over {} visits, least {:.3} ({}), greatest {:.3}; the greatest x that stalled {}; the least x that seated {}", xs.len(), xs[0].0, xs[0].2, xs[xs.len() - 1].0, if fails.is_empty() { "none".to_string() } else { format!("{x_fail:.3}") }, if passing_least == f64::MAX { "-".to_string() } else { format!("{passing_least:.3}") });
     }
     if exit_booster {
         println!("the declared contact (ironspec 07:03 (3)): the least speed right after it, per entry speed {post_contact_min:?}; picked-up carts {picked_up}, of them never at the exit booster (-1,0,6): {missed_booster}");
