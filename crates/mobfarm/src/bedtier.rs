@@ -821,7 +821,7 @@ pub fn design_a2(bench: bool, loop_booster: bool) -> Result<String> {
 /// re-claim (AcquirePoi) and the lie-down. Printed per tick of note: HOME, the bed's free tickets and
 /// every villager holding it. `blocked`: the known positive, a second villager (sealed in the
 /// run-out, HOME = the same bed) holding the bed's ticket, so the re-claim can't happen.
-pub fn reclaim_row(spec: &FarmSpec, seed: u64, blocked: bool) -> Result<Vec<String>, String> {
+pub fn reclaim_row(spec: &FarmSpec, seed: u64, blocked: bool, at: Option<[f64; 3]>) -> Result<Vec<String>, String> {
     let ro = RunOpts { ai: true, ..RunOpts::steady(seed as i64, 3 * 24000, WalkMode::Random) };
     let (mut run, _) = crate::placing::start(spec, &ro, crate::placing::Placement::Judge, &crate::placing::BuildPlan::default())?;
     run.place_detectors();
@@ -840,7 +840,8 @@ pub fn reclaim_row(spec: &FarmSpec, seed: u64, blocked: bool) -> Result<Vec<Stri
     }
     let h = BED_HEAD;
     let home = format!("Brain:{{memories:{{\"minecraft:home\":{{value:{{dimension:\"minecraft:overworld\",pos:[I;{},{},{}]}}}}}}}}", h[0], h[1], h[2]);
-    let nid = redsim::entity::spawn(&mut run.world, "minecraft:villager", [BED_HEAD[0] as f64 + 0.5, 0.5625, BED_HEAD[2] as f64 - 0.5], Some(&format!("{{{home}}}")))?;
+    let spot = at.unwrap_or([BED_HEAD[0] as f64 + 0.5, 0.5625, BED_HEAD[2] as f64 - 0.5]);
+    let nid = redsim::entity::spawn(&mut run.world, "minecraft:villager", spot, Some(&format!("{{{home}}}")))?;
     let other = if blocked {
         // (the known positive: a second villager holding the bed's ticket, sealed on the run-out)
         Some(redsim::entity::spawn(&mut run.world, "minecraft:villager", [EXIT_DET[0] as f64 + 4.5, -1.0, EXIT_DET[2] as f64 + 0.5], Some(&format!("{{{home}}}")))?)
@@ -865,8 +866,30 @@ pub fn reclaim_row(spec: &FarmSpec, seed: u64, blocked: bool) -> Result<Vec<Stri
     }
     let tickets = |w: &mut World| redsim::entity::mob::ai::poi::free_tickets(w, bed);
     let t0 = tickets(&mut run.world);
-    out.push(format!("start (day time {want}): the napper {nid} on the bed foot's top, HOME = the bed, a stamp armed 1,300 gt ago; the bed's free tickets {t0:?}, holders {:?}{}", holders(&run.world), other.map_or(String::new(), |o| format!(" (the known positive: villager {o} holds the bed)"))));
+    out.push(format!("start (day time {want}): the napper {nid} at ({:.2},{:.2},{:.2}), HOME = the bed, a stamp armed 1,300 gt ago; the bed's free tickets {t0:?} (redsim takes no ticket for an NBT-loaded HOME: the holders are the record), holders {:?}{}", spot[0], spot[1], spot[2], holders(&run.world), other.map_or(String::new(), |o| format!(" (the known positive: villager {o} holds the bed)"))));
+    // (G1: the re-claim's path, probed on a copy of the world (the napper's own navigation, the
+    // bed's head as AcquirePoi's target with HOME's valid range 1): its start node, end node, the
+    // end's distance to the head, `reached`; the attempts themselves and their backoff are
+    // redsim's MCTAS_TRACE_ACQUIRE lines)
+    let probe = |w: &World, vi: usize| -> String {
+        let mut wc = w.clone();
+        let p = redsim::entity::mob::ai::with_nav(&mut wc, vi, |w, nm, nav, arena| nav.create_path_positions(w, nm, &[bed], 1, arena));
+        match p {
+            None => "no path".to_string(),
+            Some(p) => {
+                let s = p.nodes.first().map(|n| (n.x, n.y, n.z));
+                let e = p.nodes.last().map(|n| (n.x, n.y, n.z));
+                let d = e.map(|(x, y, z)| (((x - bed.x).pow(2) + (y - bed.y).pow(2) + (z - bed.z).pow(2)) as f64).sqrt());
+                let m = e.map(|(x, y, z)| (x - bed.x).abs() + (y - bed.y).abs() + (z - bed.z).abs());
+                format!("start node {s:?}, end node {e:?} ({} nodes), the end's distance to the head {:.2} (manhattan {m:?}), reached {}", p.nodes.len(), d.unwrap_or(f64::NAN), p.reached)
+            }
+        }
+    };
+    if let Some(vi) = idx(&run.world, nid) {
+        out.push(format!("t 0: the re-claim path probe: {}", probe(&run.world, vi)));
+    }
     let (mut last_home, mut last_act, mut last_sleep) = (Some(bed), None, false);
+    let mut released_at: Option<i64> = None;
     for t in 1..=1200 {
         run.tick();
         let Some(vi) = idx(&run.world, nid) else {
@@ -876,11 +899,15 @@ pub fn reclaim_row(spec: &FarmSpec, seed: u64, blocked: bool) -> Result<Vec<Stri
         let b = redsim::entity::mob::ai::brain::brain(&run.world, vi);
         let (home, act) = (b.home, b.activity);
         let asleep = matches!(&run.world.entities.list[vi].kind, redsim::entity::EntityKind::Mob(m) if m.sleeping_pos.is_some());
+        if home.is_none() && released_at.is_none() {
+            released_at = Some(t);
+        }
         if home != last_home || Some(act) != last_act || asleep != last_sleep {
             let tk = tickets(&mut run.world);
+            let pr = probe(&run.world, vi);
             let w = &run.world;
             out.push(format!(
-                "t {t} (day time {}): activity {}, HOME {home:?}, asleep {asleep}, at ({:.2},{:.2},{:.2}); the bed's free tickets {tk:?}, holders {:?}",
+                "t {t} (day time {}): activity {}, HOME {home:?}, asleep {asleep}, at ({:.2},{:.2},{:.2}); the bed's free tickets {tk:?}, holders {:?}; the re-claim path probe: {pr}",
                 w.day_time().rem_euclid(24000),
                 act.name(),
                 w.entities.list[vi].pos.x,
@@ -891,11 +918,22 @@ pub fn reclaim_row(spec: &FarmSpec, seed: u64, blocked: bool) -> Result<Vec<Stri
             last_home = home;
             last_act = Some(act);
             last_sleep = asleep;
+        } else if released_at.is_some_and(|r| (t - r) % 100 == 0) {
+            out.push(format!("t {t}: still HOME {home:?}, asleep {asleep}; the re-claim path probe: {}", probe(&run.world, vi)));
         }
         if asleep && t > 20 {
             break;
         }
     }
+    out.push(format!(
+        "verdict: {}",
+        match (released_at, last_home, last_sleep) {
+            (None, _, _) => "HOME never released in 1,200 gt".to_string(),
+            (Some(r), Some(_), true) => format!("released at t {r}, re-claimed and asleep"),
+            (Some(r), Some(_), false) => format!("released at t {r}, re-claimed, not asleep by the end"),
+            (Some(r), None, _) => format!("released at t {r}, NOT re-claimed by t 1200"),
+        }
+    ));
     Ok(out)
 }
 
