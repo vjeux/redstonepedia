@@ -41,12 +41,15 @@ pub fn spawn_golem_if_needed(w: &mut World, i: usize, needed: usize) {
     }
     let start = w.entities.list[i].block_position();
     let villager = w.entities.list[i].id;
+    // (G1's note on 57a3dc34d) the spot tries are read only from the entry this call pushed: the
+    // log's length before and after, None when it pushed none
+    let logged = w.mob.spawn_tries.len();
     let golem = try_spawn_golem(w, start);
     let at = golem.and_then(|id| crate::entity::index_of(w, id)).map(|g| {
         let b = w.entities.list[g].block_position();
         [b.x, b.y, b.z]
     });
-    let tries = w.mob.spawn_tries.last().map_or(0, |x| x.1.len()) as u8;
+    let tries = (w.mob.spawn_tries.len() == logged + 1).then(|| w.mob.spawn_tries.last().map_or(0, |x| x.1.len()) as u8);
     w.mob.events.push(MobEvent::GolemTry { t, villager, willing: willing as u32, golem, at, needed: needed as u8, from: [start.x, start.y, start.z], tries });
     if let Some(g) = golem {
         for j in nearby {
