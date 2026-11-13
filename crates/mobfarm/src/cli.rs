@@ -963,6 +963,25 @@ pub enum MobfarmCmd {
         #[arg(long)]
         declare: Vec<PathBuf>,
     },
+    /// (onechunk Nov 13; G1 10:01 / ironspec 10:02's chunk design check, G1 10:04's drop-entry cells)
+    /// Every non-air cell of a design inside a box, one a line: its cell, its block as stored, and its
+    /// chunk for each tile offset (chunk lines at x = PX + 16k, z = PZ + 16k; the composer's column
+    /// convention is -6,-6). The frame is the file's.
+    Cells {
+        design: PathBuf,
+        /// The box, x0,y0,z0,x1,y1,z1 (inclusive).
+        #[arg(long = "box", allow_hyphen_values = true)]
+        r#box: String,
+        /// The chunk lines' phase, PX,PZ (the composer's column: -6,-6; the runner's own frame: 0,0).
+        #[arg(long, default_value = "-6,-6", allow_hyphen_values = true)]
+        chunk_phase: String,
+        /// A tile offset dx,dz added to every cell before its chunk is read (repeatable; default 0,0).
+        #[arg(long = "tile", allow_hyphen_values = true)]
+        tiles: Vec<String>,
+        /// Only cells whose block name contains one of these (repeatable; default every block).
+        #[arg(long = "only")]
+        only: Vec<String>,
+    },
     /// (ironspec 2026-11-11 12:50) The rail-junction check: every plain rail joined to three or four
     /// rails, its stored shape against the game's settle order for its signal at rest (both power
     /// states printed); exit status 1 when a stored shape would re-settle at its first update.
@@ -1806,10 +1825,21 @@ pub enum MobfarmCmd {
         plan: bool,
         #[arg(long, default_value = "onechunk-skeleton")]
         name: String,
-        /// Leave every rail junction as stored (by default each is set to the shape its as-placed
-        /// power settles it to and listed, as `mobfarm paste` does).
+        /// (G1 / ironspec 10:05: the tiling invariant, asserted) Every part's move into the frame (`@`)
+        /// and into its tier (`^`) a multiple of 16 in x and z: a module copy or the loop part off the
+        /// chunk grid FAILS the compose (for tiling compositions; a part placed inside a module, the
+        /// bed stop's 0,-27,-1, is not a tile).
+        #[arg(long)]
+        assert_aligned: bool,
+        /// (the default since ironspec Nov 13 09:48: every rail junction is left as stored; kept
+        /// for old command lines, a no-op)
         #[arg(long)]
         no_settle: bool,
+        /// (ironspec Nov 13 09:48: an opt-in settle that changes a source cell FAILS naming it) Check
+        /// every plain-rail junction against the shape its as-placed power settles it to: exit 1,
+        /// each cell named, when any part's stored shape would change (nothing is rewritten).
+        #[arg(long)]
+        settle: bool,
         /// The skeleton's `ground:` (the design y lying at the natural ground layer, in the
         /// column's frame): `mobfarm bill --terrain` then digs the column in under it.
         #[arg(long, allow_hyphen_values = true)]
@@ -2135,6 +2165,10 @@ pub enum MobfarmCmd {
         /// siding's last cell before R after t 1,000 is held 130 gt; it must rejoin late and pass.
         #[arg(long)]
         late_return_control: bool,
+        /// (9fc3155f / G1 09:39) --cart-cells' box, x0,y0,z0,x1,y1,z1 (default the split row's region
+        /// -6,22,5,10,26,10; the y 0 merge row and the foot ramp: -6,-1,5,10,3,9).
+        #[arg(long, allow_hyphen_values = true)]
+        cart_cells_box: Option<String>,
         /// (ironspec 11:15) An S-bend seat whose stamp resets are counted:
         /// `NAME=x,y,z:cx,cy,cz+cx,cy,cz...` (the seat's rail cell, its clearing candidates).
         /// Repeatable.
@@ -6616,12 +6650,25 @@ fn column_sketch(tracks: &[String], carts: &[String], posts: &[String]) -> Resul
 /// written frame, the header naming both), then every rail junction settled to the shape its
 /// as-placed power gives (paste's default, ironspec Nov 11 15:56), each listed.
 #[allow(clippy::too_many_arguments)]
-fn column_write(version: &str, out: &PathBuf, d: mctas::design::Design, head: &str, f: &crate::column::Frame, ground: Option<i32>, shift: [i32; 3], no_settle: bool) -> Result<()> {
+fn column_write(version: &str, out: &PathBuf, d: mctas::design::Design, head: &str, f: &crate::column::Frame, ground: Option<i32>, shift: [i32; 3], settle: bool, carried: &(Vec<String>, Vec<(String, String)>)) -> Result<()> {
     let mut d = d;
     if let Some(g) = ground {
         d.meta.insert("ground".into(), g.to_string());
     }
     let mut d = crate::column::shifted(&d, shift).map_err(|e| anyhow::anyhow!(e))?;
+    // (ironspec Nov 13 09:43 / 09:48, G1 09:45: a composed record keeps its parts' declarations)
+    for (k, v) in &carried.1 {
+        d.meta.insert(k.clone(), v.clone());
+    }
+    let head = format!(
+        "{head}{}",
+        if carried.0.is_empty() && carried.1.is_empty() {
+            "# the parts' rail declarations carried: none\n".to_string()
+        } else {
+            format!("# the parts' rail declarations carried (moved like their cells; the meta lines {}):\n{}", carried.1.iter().map(|(k, _)| k.as_str()).collect::<Vec<_>>().join(", "), carried.0.iter().map(|l| format!("{l}\n")).collect::<String>())
+        }
+    );
+    let head = head.as_str();
     let title = format!(
         "# The one-chunk column's skeleton (mctas mobfarm column; no wiring): column x {}..{} z {}..{}{}.\n",
         f.x0,
@@ -6631,22 +6678,16 @@ fn column_write(version: &str, out: &PathBuf, d: mctas::design::Design, head: &s
         if shift == [0, 0, 0] { String::new() } else { format!(", WRITTEN in the frame column + ({},{},{}): every cell below is the column's moved by that", shift[0], shift[1], shift[2]) }
     );
     std::fs::write(out, format!("{title}{head}{}", d.to_text()))?;
-    if !no_settle {
+    if settle {
+        // (ironspec Nov 13 09:48) a check, never a rewrite: any part's junction the game would
+        // settle to another shape fails the composition, each named
         let (_c, spec) = load(version, out)?;
         let settled = crate::queue::settled_junctions(&spec).map_err(|e| anyhow::anyhow!(e))?;
-        let mut lines = String::new();
         for (c, from, to, sig) in &settled {
-            let line = format!("{},{},{}: stored {}, settled to {} (its signal {})", c[0], c[1], c[2], from.name(), to.name(), if *sig { "on" } else { "off" });
-            if let Some(s) = d.blocks.get_mut(c) {
-                *s = s.replace(&format!("shape={}", from.name()), &format!("shape={}", to.name()));
-            }
-            println!("settled: {line}");
-            lines.push_str(&format!("# settled junction: {line}\n"));
+            println!("settle: {},{},{}: stored {}, the game settles it to {} (its signal {})", c[0], c[1], c[2], from.name(), to.name(), if *sig { "on" } else { "off" });
         }
-        println!("junctions settled: {}", settled.len());
-        if !settled.is_empty() {
-            std::fs::write(out, format!("{title}{head}{lines}{}", d.to_text()))?;
-        }
+        println!("junctions the settle would change: {}", settled.len());
+        anyhow::ensure!(settled.is_empty(), "--settle: {} source cell(s) would change ({}): the composition keeps every part's shape; declare each as a placement-order T or fix the part", settled.len(), settled.iter().map(|(c, ..)| format!("{},{},{}", c[0], c[1], c[2])).collect::<Vec<_>>().join(" "));
     } else {
         // (ironspec 03:37: pasted with no settle, the file lists the rails a builder must place in
         // an order or with a temporary helper; a file the circuit loader refuses (a Nether layout
@@ -7433,7 +7474,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let o = crate::columnrun::Opts { cycles, warm, seed, close_at, slope_delay, g2_plus, hold_shut_delay, pulse, laps, trace };
             print!("{}", crate::columnrun::run(&spec, &c.clock.design.meta, &o).map_err(|e| anyhow::anyhow!(e))?);
         }
-        MobfarmCmd::Column { parts, reserves, reserves_from, reserve_skip, ports, tracks, carts, posts, clears, column, chunk_phase, plan, name, no_settle, ground, out_shift, no_riders, positions_out, path, notes, bed, bed_exempt, sentinel, sections, summon_box, golem_box, run_gate, run_cell, run_controller, notes_file, pockets, block, wait_box, out, verify, keep_clear, sight_path } => {
+        MobfarmCmd::Column { parts, reserves, reserves_from, reserve_skip, ports, tracks, carts, posts, clears, column, chunk_phase, plan, name, assert_aligned, no_settle, settle, ground, out_shift, no_riders, positions_out, path, notes, bed, bed_exempt, sentinel, sections, summon_box, golem_box, run_gate, run_cell, run_controller, notes_file, pockets, block, wait_box, out, verify, keep_clear, sight_path } => {
             let mut notes = notes;
             if let Some(nf) = &notes_file {
                 notes.extend(std::fs::read_to_string(nf)?.lines().map(str::trim).filter(|l| !l.is_empty()).map(String::from));
@@ -7480,6 +7521,12 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             anyhow::ensure!(summoners.is_empty() || golem_b.is_some(), "--summon-box needs --golem-box");
             let clear: Vec<([i32; 3], [i32; 3])> = clears.iter().map(|s| crate::column::Reserve::parse(&format!("clear={s}")).map(|r| r.b)).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!(e))?;
             let specs: Vec<crate::column::PartSpec> = parts.iter().map(|s| crate::column::PartSpec::parse(s)).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!(e))?;
+            // (G1 / ironspec 10:05) the tiling invariant: every part on the chunk grid
+            if assert_aligned {
+                let off: Vec<String> = specs.iter().filter(|s| [s.frame[0], s.frame[2], s.tier[0], s.tier[2]].iter().any(|v| v.rem_euclid(16) != 0)).map(|s| format!("{} (@{},{},{} ^{},{},{})", s.name, s.frame[0], s.frame[1], s.frame[2], s.tier[0], s.tier[1], s.tier[2])).collect();
+                println!("the tiling invariant (G1 / ironspec 10:05: every part's move a multiple of 16 in x and z): {} of {} parts off the grid ({})", off.len(), specs.len(), if off.is_empty() { "PASS".to_string() } else { format!("FAIL: {}", off.join(", ")) });
+                anyhow::ensure!(off.is_empty(), "--assert-aligned: {} part(s) off the chunk grid: {}", off.len(), off.join(", "));
+            }
             let mut reserves = reserves;
             if let Some(f) = &reserves_from {
                 reserves.extend(crate::column::reserves_from_header(&std::fs::read_to_string(f)?, &reserve_skip));
@@ -7643,7 +7690,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         [n[0], n[1], n[2]]
                     }
                 };
-                column_write(version, &out, d, &head, &f, ground, shift, no_settle)?;
+                // (ironspec Nov 13 09:43 / 09:48, G1 09:45) the parts' rail declarations carried,
+                // moved like their cells; the junctions left as stored unless --settle checks them
+                let _ = no_settle;
+                let carried = crate::column::carried_declarations(&specs, shift).map_err(|e| anyhow::anyhow!(e))?;
+                column_write(version, &out, d, &head, &f, ground, shift, settle, &carried)?;
             }
             if !bed_ok {
                 std::process::exit(1);
@@ -7692,7 +7743,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 std::process::exit(1);
             }
         }
-        MobfarmCmd::F1q2Run { design, seed, ticks, day0, lane_carts, restart_every, restart_at, restart_order, control_rider, trace, drive, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour_golems, cart_trace, drive_out, scene_out, watchdog, stale_start, held_at_divert, report_only, queue_hold, empty_pocket, stack_bench, inert_control, gossip_control, bystander_control, seed_queued_napper, day_threshold, bed_ticket_taken, stamp_control, home_erase_control, air_control, rider_trace, rs_ready_early_control, bystander_dud, day_phase_control, c7_placement, c7_home_stored, lift_block, trace_entity, with_part, pair_check, chain_trace, strand_control, cart_cells, at_entry_control, late_return_control } => {
+        MobfarmCmd::F1q2Run { design, seed, ticks, day0, lane_carts, restart_every, restart_at, restart_order, control_rider, trace, drive, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour_golems, cart_trace, drive_out, scene_out, watchdog, stale_start, held_at_divert, report_only, queue_hold, empty_pocket, stack_bench, inert_control, gossip_control, bystander_control, seed_queued_napper, day_threshold, bed_ticket_taken, stamp_control, home_erase_control, air_control, rider_trace, rs_ready_early_control, bystander_dud, day_phase_control, c7_placement, c7_home_stored, lift_block, trace_entity, with_part, pair_check, chain_trace, strand_control, cart_cells, at_entry_control, late_return_control, cart_cells_box } => {
             let (c, spec) = load(version, &design)?;
             // (ironspec 08:16 platform, onechunk's 23rd) the c7 reconciliation loads the record's own
             // villagers HOME-less (spec_of's PortHome::Skip), as tick-exact's game setup has them
@@ -7864,7 +7915,29 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             anyhow::ensure!(chain_trace.is_empty() || chain_trace.len() == 2, "--chain-trace FROM,TO");
             let chain_trace = (chain_trace.len() == 2).then(|| (chain_trace[0], chain_trace[1]));
-            let o = crate::f1q2run::Opts { seed, ticks, day0, lane_carts, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour, cart_trace, restarts, restart, control_rider, trace, bed, drive, drive_rec, watchdog, stale_start, held_at_divert, queue_hold, emulated, emulated_states, ts, update_only, empty_pocket, dwell_cap, stack_bench, stops, k_lock, k_sw, inert, always_on, push_pairs, way_in_composed, inert_control, watch_reasons, gossip_control, bystander_control, a6_pickup, seed_queued_napper, day_threshold, bed_ticket_taken, block_standins, stamp_control, home_erase_control, air_control, rider_trace, rs_ready_early_control, bystander_dud, day_phase_control, c7_placement, c7_home_stored, lift_block, trace_entity, pair_checks, chain_trace, strand_control, cart_cells, at_entry_control, late_return_control };
+            let cart_cells_box: Option<([i32; 3], [i32; 3])> = match cart_cells_box.as_deref() {
+                None => None,
+                Some(b) => {
+                    let v: Vec<i32> = b.split(',').map(|t| t.trim().parse()).collect::<std::result::Result<_, _>>()?;
+                    anyhow::ensure!(v.len() == 6, "--cart-cells-box x0,y0,z0,x1,y1,z1");
+                    Some(([v[0].min(v[3]), v[1].min(v[4]), v[2].min(v[5])], [v[0].max(v[3]), v[1].max(v[4]), v[2].max(v[5])]))
+                }
+            };
+            // (ironspec 09:44 / 09:48, G1 09:45) the design's declared never-switched Ts, from its
+            // `placement-order-ts:` line
+            let stable_ts: Vec<[i32; 3]> = {
+                let text = std::fs::read_to_string(&design)?;
+                text.lines()
+                    .filter(|l| l.starts_with("placement-order-ts:"))
+                    .flat_map(|l| crate::pushscan::header_entries(&format!("# {l}"), "placement-order-ts:"))
+                    .filter_map(|e| {
+                        let (c, _) = e.split_once('=')?;
+                        let v: Vec<i32> = c.split(',').map(|t| t.trim().parse::<i32>()).collect::<std::result::Result<_, _>>().ok()?;
+                        (v.len() == 3).then(|| [v[0], v[1], v[2]])
+                    })
+                    .collect()
+            };
+            let o = crate::f1q2run::Opts { seed, ticks, day0, lane_carts, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour, cart_trace, restarts, restart, control_rider, trace, bed, drive, drive_rec, watchdog, stale_start, held_at_divert, queue_hold, emulated, emulated_states, ts, update_only, empty_pocket, dwell_cap, stack_bench, stops, k_lock, k_sw, inert, always_on, push_pairs, way_in_composed, inert_control, watch_reasons, gossip_control, bystander_control, a6_pickup, seed_queued_napper, day_threshold, bed_ticket_taken, block_standins, stamp_control, home_erase_control, air_control, rider_trace, rs_ready_early_control, bystander_dud, day_phase_control, c7_placement, c7_home_stored, lift_block, trace_entity, pair_checks, chain_trace, strand_control, cart_cells, at_entry_control, late_return_control, stable_ts, cart_cells_box };
             let (rep, out) = crate::f1q2run::run_driven(&spec, &o).map_err(|e| anyhow::anyhow!(e))?;
             for l in &with_part_lines {
                 println!("the composed part (--with-part, ironspec 07:57 / 08:18 platform): {l}");
@@ -12881,6 +12954,40 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             if matches!(m.counts_mob(), crate::recordmatch::Counts::No(_)) {
                 std::process::exit(2);
             }
+        }
+        MobfarmCmd::Cells { design, r#box, chunk_phase, tiles, only } => {
+            let d = mctas::design::Design::load(&design)?;
+            let n: Vec<i32> = r#box.split(',').map(|t| t.trim().parse()).collect::<Result<_, _>>()?;
+            anyhow::ensure!(n.len() == 6, "--box x0,y0,z0,x1,y1,z1");
+            let (a, b) = ([n[0].min(n[3]), n[1].min(n[4]), n[2].min(n[5])], [n[0].max(n[3]), n[1].max(n[4]), n[2].max(n[5])]);
+            let ph: Vec<i32> = chunk_phase.split(',').map(|t| t.trim().parse()).collect::<Result<_, _>>()?;
+            anyhow::ensure!(ph.len() == 2, "--chunk-phase PX,PZ");
+            let tiles: Vec<[i32; 2]> = if tiles.is_empty() {
+                vec![[0, 0]]
+            } else {
+                tiles.iter().map(|t| {
+                    let v: Vec<i32> = t.split(',').map(|s| s.trim().parse()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(v.len() == 2, "--tile dx,dz");
+                    Ok([v[0], v[1]])
+                }).collect::<Result<_>>()?
+            };
+            println!("{}: the non-air cells in ({},{},{})..=({},{},{}){}; chunk lines at x = {} + 16k, z = {} + 16k; per tile offset {}", design.display(), a[0], a[1], a[2], b[0], b[1], b[2], if only.is_empty() { String::new() } else { format!(" whose block names one of {}", only.join(", ")) }, ph[0], ph[1], tiles.iter().map(|t| format!("({},{})", t[0], t[1])).collect::<Vec<_>>().join(" "));
+            let mut chunks: std::collections::BTreeMap<[i32; 2], std::collections::BTreeMap<[i32; 2], usize>> = std::collections::BTreeMap::new();
+            let mut n_cells = 0usize;
+            for (p, s) in &d.blocks {
+                let c = *p;
+                if (0..3).any(|i| c[i] < a[i] || c[i] > b[i]) || s.contains("air") && !s.contains("stair") || !only.is_empty() && !only.iter().any(|o| s.contains(o.as_str())) {
+                    continue;
+                }
+                n_cells += 1;
+                let per: Vec<String> = tiles.iter().map(|t| {
+                    let ch = [(c[0] + t[0] - ph[0]).div_euclid(16), (c[2] + t[1] - ph[1]).div_euclid(16)];
+                    *chunks.entry(*t).or_default().entry(ch).or_default() += 1;
+                    format!("tile ({},{}): chunk ({},{})", t[0], t[1], ch[0], ch[1])
+                }).collect();
+                println!("  ({},{},{}) {s}: {}", c[0], c[1], c[2], per.join("; "));
+            }
+            println!("{n_cells} cells; per tile, the chunks they occupy: {}", chunks.iter().map(|(t, m)| format!("tile ({},{}): {}", t[0], t[1], m.iter().map(|(ch, k)| format!("chunk ({},{}) {k}", ch[0], ch[1])).collect::<Vec<_>>().join(", "))).collect::<Vec<_>>().join("; "));
         }
         MobfarmCmd::JunctionCheck { design, all, switch, update_only } => {
             let (c, spec) = load(version, &design)?;

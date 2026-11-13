@@ -43,6 +43,169 @@ fn ints(s: &str) -> Result<Vec<i32>, String> {
     s.split(',').map(|t| t.trim().parse::<i32>().map_err(|e| format!("{t:?}: {e}"))).collect()
 }
 
+/// (onechunk Nov 13; ironspec 09:43 / 09:48 / 09:55 / 09:57, G1 09:45 / 09:54: a composed record
+/// carries every one of its parts' meta lines) Each part's declarations moved into the composed
+/// record like its cells (`@` frame + `^` tier + the output shift), an entry kept only where the
+/// part's `#` box keeps every cell it names, each naming the part it came from (the prose inside a
+/// reason stays in the part's frame). The kinds: ENTRY lists (`x,y,z[+x,y,z]=REASON; ...`: the meta
+/// lines in `ENTRY_META`, the `# key:` lines in `ENTRY_HASH`), a LEADING cell (`# stand-in: x,y,z
+/// (why)`), cell LISTS (`keep-clear:` / `keep-out:`: cells, then the reason), NAMED cells
+/// (`run-cells:` / `run-gates:`: `NAME x,y,z[/x,y,z]; ...`) and SCALARS (one value for every part,
+/// else the compose fails). The composer's own meta (`name`, `origin`, `nether-origin`, `palette`,
+/// `positions`, `declared`, `ground`, `entity`) and its generated `#` lines (`placement order`, `rail
+/// T(s)`, `settled junction`) are left to it. Any other meta line, or a `# key:` line whose value
+/// starts with a cell, is a declaration the composer can't carry: the compose FAILS naming it.
+/// Returns (the `#` lines, the meta lines as (key, value)).
+pub fn carried_declarations(specs: &[PartSpec], shift: P) -> Result<(Vec<String>, Vec<(String, String)>), String> {
+    const ENTRY_META: [&str; 7] = ["placement-order-ts", "update-only-ts", "emulated", "keep-block", "unreachable", "waker-places", "riderless"];
+    const ENTRY_HASH: [&str; 15] = ["shape", "switch", "switches", "update-only", "contacts", "travel", "always-on", "out-of-scope", "water", "single-occupant", "own-route-junctions", "one-way", "a6-pickup", "stand-in-guard", "candidate"];
+    const LEAD_HASH: [&str; 1] = ["stand-in"];
+    const LIST_META: [&str; 2] = ["keep-clear", "keep-out"];
+    const NAMED_META: [&str; 2] = ["run-cells", "run-gates"];
+    const SCALAR_META: [&str; 4] = ["circuit", "dwell-cap", "k-lock", "k-sw"];
+    const SCALAR_HASH: [&str; 1] = ["day-time"];
+    const OWN_META: [&str; 8] = ["name", "origin", "nether-origin", "palette", "positions", "declared", "ground", "entity"];
+    const OWN_HASH: [&str; 5] = ["placement order", "rail T", "rail Ts", "settled junction", "+ "];
+    let cell3 = |t: &str| -> Option<[i32; 3]> {
+        let v: Vec<i32> = t.trim().trim_start_matches('(').trim_end_matches(')').split(',').map(|n| n.trim().parse::<i32>()).collect::<Result<_, _>>().ok()?;
+        (v.len() == 3).then(|| [v[0], v[1], v[2]])
+    };
+    let mut heads: Vec<String> = Vec::new();
+    let mut metas: Vec<(String, Vec<String>)> = Vec::new();
+    let mut scalars: Vec<(String, String, String)> = Vec::new();
+    let push_meta = |k: &str, v: String, metas: &mut Vec<(String, Vec<String>)>| match metas.iter_mut().find(|(m, _)| m == k) {
+        Some((_, l)) => l.push(v),
+        None => metas.push((k.to_string(), vec![v])),
+    };
+    for s in specs.iter().filter(|s| !s.nether) {
+        let text = std::fs::read_to_string(&s.file).map_err(|e| format!("part {}: {}: {e}", s.name, s.file.display()))?;
+        let d = [s.frame[0] + s.tier[0] + shift[0], s.frame[1] + s.tier[1] + shift[1], s.frame[2] + s.tier[2] + shift[2]];
+        let kept = |c: [i32; 3]| s.keep.is_none_or(|(a, b)| (0..3).all(|i| c[i] >= a[i].min(b[i]) && c[i] <= a[i].max(b[i])));
+        let mv = |c: [i32; 3]| format!("{},{},{}", c[0] + d[0], c[1] + d[1], c[2] + d[2]);
+        let tag = format!("(carried from part {}, moved by {},{},{})", s.name, d[0], d[1], d[2]);
+        // an ENTRY (`cells=REASON`): None when the box drops one of its cells, Err when its head
+        // isn't cells
+        let entry = |e: &str| -> Result<Option<String>, String> {
+            let (head, why) = e.split_once('=').ok_or_else(|| format!("part {}: {e:?}: not CELLS=REASON", s.name))?;
+            let mut cells: Vec<String> = Vec::new();
+            for c in head.split('+') {
+                let c = cell3(c).ok_or_else(|| format!("part {}: {e:?}: {c:?} is not a cell", s.name))?;
+                if !kept(c) {
+                    return Ok(None);
+                }
+                cells.push(mv(c));
+            }
+            Ok(Some(format!("{}={} {tag}", cells.join("+"), why.trim())))
+        };
+        for l in text.lines() {
+            let t = l.trim_end();
+            if t.is_empty() || t.starts_with("layer") || t.starts_with("nether") && !t.starts_with("nether-origin") {
+                continue;
+            }
+            if let Some(body) = t.strip_prefix('#') {
+                let body = body.trim_start();
+                let Some((key, val)) = body.split_once(':') else { continue };
+                let key = key.trim();
+                if OWN_HASH.iter().any(|k| key.starts_with(k)) || key.contains(' ') && !OWN_HASH.contains(&key) && !val.trim_start().split([' ', '=', '+', ';']).next().is_some_and(|c| cell3(c).is_some()) {
+                    continue;
+                }
+                let first_is_cell = val.trim_start().split([' ', '=', '+', ';']).next().is_some_and(|c| cell3(c).is_some());
+                if ENTRY_HASH.contains(&key) {
+                    for e in crate::pushscan::header_entries(t, &format!("{key}:")) {
+                        if let Some(m) = entry(&e)? {
+                            heads.push(format!("# {key}: {m}"));
+                        }
+                    }
+                } else if LEAD_HASH.contains(&key) {
+                    let v = val.trim_start();
+                    let (c, rest) = v.split_once(' ').unwrap_or((v, ""));
+                    let c3 = cell3(c).ok_or_else(|| format!("part {}: `# {key}: {v}`: no leading cell", s.name))?;
+                    if kept(c3) {
+                        heads.push(format!("# {key}: {} {} {tag}", mv(c3), rest.trim()));
+                    }
+                } else if SCALAR_HASH.contains(&key) {
+                    scalars.push((format!("# {key}"), val.trim().to_string(), s.name.clone()));
+                } else if first_is_cell {
+                    return Err(format!("part {} ({}): the declaration `# {key}:` is a kind the composer can't carry (G1 09:54: an unknown meta line fails the compose): {}", s.name, s.file.display(), t.chars().take(120).collect::<String>()));
+                }
+                continue;
+            }
+            let Some((key, val)) = t.split_once(':') else { continue };
+            let key = key.trim();
+            if key.contains(' ') || !key.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-') {
+                continue;
+            }
+            if OWN_META.contains(&key) {
+                continue;
+            }
+            if ENTRY_META.contains(&key) {
+                for e in crate::pushscan::header_entries(&format!("# {t}"), &format!("{key}:")) {
+                    if let Some(m) = entry(&e)? {
+                        push_meta(key, m, &mut metas);
+                    }
+                }
+            } else if LIST_META.contains(&key) {
+                let v = val.trim();
+                let (cells, why) = match v.find('(') {
+                    Some(i) => (&v[..i], v[i..].trim()),
+                    None => (v, ""),
+                };
+                let mut out: Vec<String> = Vec::new();
+                for c in cells.split_whitespace() {
+                    let c3 = cell3(c).ok_or_else(|| format!("part {}: `{key}: {v}`: {c:?} is not a cell", s.name))?;
+                    if kept(c3) {
+                        out.push(mv(c3));
+                    }
+                }
+                if !out.is_empty() {
+                    push_meta(key, format!("{} {why} {tag}", out.join(" ")), &mut metas);
+                }
+            } else if NAMED_META.contains(&key) {
+                for e in val.split(';').map(str::trim).filter(|e| !e.is_empty()) {
+                    let (name, cells) = e.split_once(' ').ok_or_else(|| format!("part {}: `{key}`: {e:?}: not NAME x,y,z", s.name))?;
+                    let mut out: Vec<String> = Vec::new();
+                    let mut keep = true;
+                    for c in cells.trim().split('/') {
+                        let c3 = cell3(c).ok_or_else(|| format!("part {}: `{key}`: {e:?}: {c:?} is not a cell", s.name))?;
+                        keep &= kept(c3);
+                        out.push(mv(c3));
+                    }
+                    if keep {
+                        push_meta(key, format!("{name} {}", out.join("/")), &mut metas);
+                    }
+                }
+            } else if SCALAR_META.contains(&key) {
+                scalars.push((key.to_string(), val.trim().to_string(), s.name.clone()));
+            } else {
+                return Err(format!("part {} ({}): the meta line `{key}:` is a kind the composer can't carry (G1 09:54: an unknown meta line fails the compose)", s.name, s.file.display()));
+            }
+        }
+    }
+    // (a scalar: one value across the parts, else the compose fails)
+    let mut out_meta: Vec<(String, String)> = Vec::new();
+    for (k, v, part) in &scalars {
+        if let Some((_, v0, p0)) = scalars.iter().find(|(k2, _, _)| k2 == k)
+            && v0 != v
+        {
+            return Err(format!("the scalar `{k}` differs across parts ({p0}: {v0:?}; {part}: {v:?}): the compose can't carry both"));
+        }
+        if k.starts_with('#') {
+            let l = format!("{k}: {v}");
+            if !heads.contains(&l) {
+                heads.push(l);
+            }
+        } else if !out_meta.iter().any(|(k2, _)| k2 == k) {
+            out_meta.push((k.clone(), v.clone()));
+        }
+    }
+    let sep = |k: &str| if NAMED_META.contains(&k) { "; " } else if LIST_META.contains(&k) { " " } else { "; " };
+    out_meta.extend(metas.into_iter().map(|(k, v)| {
+        let j = v.join(sep(&k));
+        (k, j)
+    }));
+    Ok((heads, out_meta))
+}
+
 fn triple(s: &str) -> Result<P, String> {
     match ints(s)?.as_slice() {
         [x, y, z] => Ok([*x, *y, *z]),
@@ -2351,6 +2514,116 @@ mod tests {
 #[cfg(test)]
 mod column_tests {
     use super::*;
+
+    /// (onechunk Nov 13; ironspec 09:43 / 09:48 / 09:55 / 09:57, G1 09:45 / 09:54) a composed record
+    /// carries every meta line of its parts: a part with one of each kind composed twice (A at its
+    /// place, B moved 32 east, both raised by a tier step and the output shift), every declaration
+    /// on both copies at its moved cell, a reason holding `;` kept whole, an entry outside the
+    /// part's `#` box dropped, a scalar once, a prose note ignored; an unknown meta line, an unknown
+    /// `# key:` declaration and a scalar that differs between parts each FAIL the compose
+    #[test]
+    fn a_composed_record_carries_its_parts_declarations() {
+        let dir = std::env::temp_dir().join(format!("carry-decl-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("part.txt");
+        let lines = [
+            "name: part",
+            "circuit: mob-farm iron_ingot",
+            "dwell-cap: 15 (provisional)",
+            "k-lock: 42",
+            "k-sw: 6",
+            "emulated: 7,-2,8=glass (the hold input's support at (7,-1,8))",
+            "keep-block: -5,-4,3=oak_leaves (cover)",
+            "keep-clear: -3,-6,3 -3,-5,3 (the bed's column)",
+            "keep-out: 10,-2,3 10,-2,4 (the swing)",
+            "placement-order-ts: -1,0,7=the merge T (never switched; placed north_west after (-1,0,6)); 3,0,7=the other T",
+            "update-only-ts: 1,5,9+5,5,9=the K junctions",
+            "unreachable: -4,-6,4=a lever cell",
+            "waker-places: -3,-7,3=asleep in the bed",
+            "riderless: 1,-6,-5+0,-7,-5=the empty cart",
+            "run-cells: P0 -1,0,0; D0 -1,0,2",
+            "run-gates: G0 1,0,1/1,0,2",
+            "# stand-in: -1,6,9 (J(-1)'s lever)",
+            "# contacts: -1,4,5+3,4,5=the backstop",
+            "# shape: 1,0,7=rail[shape=north_west] (build step: after the north arm)",
+            "# switch: 9,0,9=its lever; 30,0,30=far away",
+            "# switches: -4,-7,2=a hatch lever",
+            "# update-only: -1,4,8=the branch detector",
+            "# travel: -1,5,9+-1,4,8=the batch chain",
+            "# always-on: -2,0,5=torch on glass",
+            "# out-of-scope: 2,2,2=a far cell",
+            "# water: -5,3,7=designed current",
+            "# single-occupant: 9,0,8+9,0,7=one napper",
+            "# own-route-junctions: -2,4,7=c3",
+            "# one-way: -3,0,0=the step dust",
+            "# a6-pickup: -2,-7,3=the pickup cell",
+            "# stand-in-guard: -1,6,9=golem PASS",
+            "# candidate: 4,4,4=a candidate",
+            "# day-time: 18000",
+            "# placement order: (-1,0,7) placed last",
+            "# a note: see (1,0,7) for the T",
+        ];
+        std::fs::write(&f, lines.join("\n") + "\n").unwrap();
+        let a = PartSpec::parse(&format!("A={}^0,1,0#-10,-10,-10,12,12,12", f.display())).unwrap();
+        let b = PartSpec::parse(&format!("B={}@32,0,0^0,1,0#-10,-10,-10,12,12,12", f.display())).unwrap();
+        let (heads, metas) = carried_declarations(&[a, b], [0, 0, 5]).unwrap();
+        let all: String = heads.iter().map(|h| format!("{h}\n")).chain(metas.iter().map(|(k, v)| format!("{k}: {v}\n"))).collect();
+        // every declaration on both copies, at its cell + (0,1,5) for A and + (32,1,5) for B
+        for (part, dx) in [("A", 0), ("B", 32)] {
+            let m = |x: i32, y: i32, z: i32| format!("{},{},{}", x + dx, y + 1, z + 5);
+            let tag = format!("(carried from part {part}, moved by {dx},1,5)");
+            for want in [
+                format!("{}=glass (the hold input's support at (7,-1,8)) {tag}", m(7, -2, 8)),
+                format!("{}=oak_leaves (cover) {tag}", m(-5, -4, 3)),
+                format!("{} {} (the bed's column) {tag}", m(-3, -6, 3), m(-3, -5, 3)),
+                format!("{} {} (the swing) {tag}", m(10, -2, 3), m(10, -2, 4)),
+                format!("{}=the merge T (never switched; placed north_west after (-1,0,6)) {tag}", m(-1, 0, 7)),
+                format!("{}=the other T {tag}", m(3, 0, 7)),
+                format!("{}+{}=the K junctions {tag}", m(1, 5, 9), m(5, 5, 9)),
+                format!("{}=a lever cell {tag}", m(-4, -6, 4)),
+                format!("{}=asleep in the bed {tag}", m(-3, -7, 3)),
+                format!("{}+{}=the empty cart {tag}", m(1, -6, -5), m(0, -7, -5)),
+                format!("P0 {}", m(-1, 0, 0)),
+                format!("D0 {}", m(-1, 0, 2)),
+                format!("G0 {}/{}", m(1, 0, 1), m(1, 0, 2)),
+                format!("# stand-in: {} (J(-1)'s lever) {tag}", m(-1, 6, 9)),
+                format!("# contacts: {}+{}=the backstop {tag}", m(-1, 4, 5), m(3, 4, 5)),
+                format!("# shape: {}=rail[shape=north_west] (build step: after the north arm) {tag}", m(1, 0, 7)),
+                format!("# switch: {}=its lever {tag}", m(9, 0, 9)),
+                format!("# switches: {}=a hatch lever {tag}", m(-4, -7, 2)),
+                format!("# update-only: {}=the branch detector {tag}", m(-1, 4, 8)),
+                format!("# travel: {}+{}=the batch chain {tag}", m(-1, 5, 9), m(-1, 4, 8)),
+                format!("# always-on: {}=torch on glass {tag}", m(-2, 0, 5)),
+                format!("# out-of-scope: {}=a far cell {tag}", m(2, 2, 2)),
+                format!("# water: {}=designed current {tag}", m(-5, 3, 7)),
+                format!("# single-occupant: {}+{}=one napper {tag}", m(9, 0, 8), m(9, 0, 7)),
+                format!("# own-route-junctions: {}=c3 {tag}", m(-2, 4, 7)),
+                format!("# one-way: {}=the step dust {tag}", m(-3, 0, 0)),
+                format!("# a6-pickup: {}=the pickup cell {tag}", m(-2, -7, 3)),
+                format!("# stand-in-guard: {}=golem PASS {tag}", m(-1, 6, 9)),
+                format!("# candidate: {}=a candidate {tag}", m(4, 4, 4)),
+            ] {
+                assert!(all.contains(&want), "missing {want:?} in:\n{all}");
+            }
+            assert!(!all.contains(&m(30, 0, 30)), "the entry outside the box is dropped");
+        }
+        // a scalar once; the composer's own lines and a prose note not carried
+        for (want, n) in [("circuit: mob-farm iron_ingot\n", 1), ("dwell-cap: 15 (provisional)\n", 1), ("k-lock: 42\n", 1), ("k-sw: 6\n", 1), ("# day-time: 18000\n", 1), ("name:", 0), ("placement order", 0), ("a note", 0)] {
+            assert_eq!(all.matches(want).count(), n, "{want:?} in:\n{all}");
+        }
+        // an unknown meta line, an unknown declaration and a differing scalar fail the compose
+        for (extra, why) in [("bar: 7", "meta line `bar:`"), ("# foo: 1,2,3=x", "declaration `# foo:`")] {
+            let g = dir.join("bad.txt");
+            std::fs::write(&g, format!("{}\n{extra}\n", lines.join("\n"))).unwrap();
+            let e = carried_declarations(&[PartSpec::parse(&format!("A={}", g.display())).unwrap()], [0, 0, 0]).unwrap_err();
+            assert!(e.contains(why), "{e}");
+        }
+        let h = dir.join("other.txt");
+        std::fs::write(&h, "k-lock: 40\n").unwrap();
+        let e = carried_declarations(&[PartSpec::parse(&format!("A={}", f.display())).unwrap(), PartSpec::parse(&format!("C={}", h.display())).unwrap()], [0, 0, 0]).unwrap_err();
+        assert!(e.contains("the scalar `k-lock` differs"), "{e}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
 
     #[test]
     fn part_spec_parses() {

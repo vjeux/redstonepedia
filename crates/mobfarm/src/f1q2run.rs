@@ -119,6 +119,12 @@ pub struct Opts {
     /// (ironspec 08:26 / 08:41 platform) the fail-safe's control: the first napper cart at a siding's
     /// last cell before R after t 1,000 is held 130 gt; it must rejoin a D period late and pass.
     pub late_return_control: bool,
+    /// (ironspec 09:44 / 09:48, G1 09:45) the design's declared never-switched Ts (its
+    /// `placement-order-ts:` cells): any change of their shape during the run FAILS.
+    pub stable_ts: Vec<[i32; 3]>,
+    /// (9fc3155f / G1 09:39) --cart-cells' box (default the split row's region y 22..26, z 5..10, x
+    /// -6..10).
+    pub cart_cells_box: Option<([i32; 3], [i32; 3])>,
     /// (ironspec 11:15, 9fc3155f's statics) S-bend seats whose stamp resets are counted: `NAME`,
     /// the seat's rail cell, its clearing candidates (a complete draw to one of them while a rider
     /// sits on the seat resets its stamp).
@@ -2541,7 +2547,9 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     // gone, every seeded cart is there)
     let scene_entities: String = scene_entity_lines(&sp.entities);
     anyhow_free(sp.has_bed(), "the module holds no bed: no villager gets a HOME")?;
-    let ro = RunOpts { ai: true, day0: if o.official_lane3 { 18_000 } else { o.day0 }, slept: true, ..RunOpts::steady(o.seed, (o.ticks + 200) as u32, WalkMode::Random) };
+    // (cc767b78 09:38 / ironspec 09:33: no bench moves the day after its villagers' brains are built)
+    // --official-lane3 builds at 18,000 and holds it; the c7 placement builds at tick-exact's 13,800
+    let ro = RunOpts { ai: true, day0: if o.official_lane3 { 18_000 } else if o.c7_placement.is_some() { 13_800 } else { o.day0 }, slept: true, ..RunOpts::steady(o.seed, (o.ticks + 200) as u32, WalkMode::Random) };
     // (the shared bed, as the station bench sets it: the farm built homeless, the bed's POI taken,
     // every villager's HOME the bed and LAST_SLEPT 100 gt back; with the drive, the world started
     // as every bench's drive starts it, `Run::start` with the drive's options, the settle run out
@@ -2894,6 +2902,8 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     // renews the keys)
     let mut cart_lane0: BTreeMap<u32, usize> = lane_ids_t0.iter().enumerate().flat_map(|(k, ids)| ids.iter().map(move |id| (*id, k))).collect();
     let mut wrong_lane: Vec<(u32, String)> = Vec::new();
+    // (G1 X31) carts in a lane that weren't lane carts at t0 (the strays, bar 0)
+    let mut stray_carts: Vec<(u32, String)> = Vec::new();
     let mut occ_min = [i64::MAX; 3];
     let mut away_max = [0i64; 3];
     let mut away_rows: Vec<String> = Vec::new();
@@ -2977,6 +2987,23 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     let mut trace_rows: Vec<String> = Vec::new();
     // (ironspec 08:26 platform (3)) the chain trace's rows
     let mut chain_rows: Vec<String> = Vec::new();
+    // (ironspec 09:06 / 09:33 platform) the t1 activity assert's line
+    let mut t1_line = String::from("the t1 activity assert: no tick 1 (the run is shorter): NOT JUDGED: FAIL");
+    // (ironspec 10:04 / 10:06) off-rail rests (cart -> (from, cell, ticks)), their rows, the moving
+    // off-rail ticks per cell, and the siding's carts by rider kind (count, first)
+    let mut off_rest: BTreeMap<u32, (i64, [i32; 3], i64)> = BTreeMap::new();
+    let mut off_rest_rows: Vec<String> = Vec::new();
+    let mut off_moving: BTreeMap<[i32; 3], i64> = BTreeMap::new();
+    let mut siding_by: BTreeMap<&'static str, (i64, Option<String>)> = BTreeMap::new();
+    // (ironspec 09:44 / 09:48, G1 09:45) every plain-rail T at t0 (3+ rail neighbours) and its shape,
+    // and every change
+    let mut t_shapes: BTreeMap<[i32; 3], String> = spec
+        .blocks
+        .iter()
+        .filter(|(p, _)| redsim::rails::junction_at(&run.world, *p).is_some())
+        .map(|(p, b)| ([p.x, p.y, p.z], format!("{:?}", redsim::rails::shape_of(b))))
+        .collect();
+    let mut t_changes: Vec<(i64, [i32; 3], String, String)> = Vec::new();
     // (G1 07:59 PT) the lift column around the lift-block control
     let mut lift_rows: Vec<String> = Vec::new();
     // (ironspec 08:13 / 08:14 platform, G1 08:12 PT) each lane's most carts (count, tick, tail) and
@@ -2988,6 +3015,10 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     let mut stopped_ticks: i64 = 0;
     // (G1 08:21 PT) every cart's cell entries (tick, cell), for --pair-check
     let mut cart_entries: BTreeMap<u32, Vec<(i64, [i32; 3])>> = BTreeMap::new();
+    // (G1 10:14) the arrivals at each lane's C (x,24,7): (tick, horizontal speed, ridden, cart), and
+    // each cart's previous cell
+    let mut c_arrivals: [Vec<(i64, f64, String, u32, f64, f64)>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+    let mut c_prev_cell: BTreeMap<u32, [i32; 3]> = BTreeMap::new();
     // (ironspec 09:21-09:25 platform) every mob-on-cart push: tick, cart, its lane at t0, the pusher's
     // activity, |impulse|, its component along the cart's motion
     let mut pushes: Vec<(i64, u32, Option<usize>, String, f64, f64)> = Vec::new();
@@ -3228,10 +3259,12 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     let after = w.get(p).to_string();
                     log.push(format!("c7 override ({},{},{}): {before} -> {after}{}", c[0], c[1], c[2], if before == after { " (NO CHANGE: FAIL)" } else { "" }));
                 }
-                // (time set 13800, advance_time false: the night held)
+                // (time set 13800, advance_time false: the night held; the run was built at 13,800, so
+                // this write moves nothing: asserted)
+                let before = w.day_time();
                 w.mob.day_offset = 13_800 - w.time;
                 w.mob.advance_time = false;
-                log.push(format!("c7 t {}: the night held at day time {}", rel - c0, w.day_time()));
+                log.push(format!("c7 t {}: the night held at day time {} (it read {before} before the hold{})", rel - c0, w.day_time(), if before == 13_800 { "" } else { ": the day MOVED after the brains were built: FAIL" }));
             }
             if rel >= 20 && rel < 20 + 30 * n as i64 && (rel - 20) % 30 == 0 {
                 // (a round: one cart a lane at (x + 0.6, 24.0, 6.49), a villager with HOME riding it)
@@ -5638,6 +5671,28 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 }
             }
         }
+        // (G1 10:14: the drop-lip disagreement) every cart's arrival at a lane's C (x,24,7): its tick,
+        // its horizontal speed, its z phase (the position's fraction) and its rider's activity
+        for e in w.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_))) {
+            let c = cell(e.pos);
+            if let Some(k) = LANES.iter().position(|x| c == [*x, 24, 7])
+                && c_prev_cell.get(&e.id) != Some(&c)
+            {
+                let v = e.delta_movement;
+                let act = e.passengers.first().and_then(|p| redsim::entity::index_of(w, *p)).map_or("empty".to_string(), |i| {
+                    let r = &w.entities.list[i];
+                    format!(
+                        "{} (riding, its box {:+.3},{:+.3},{:+.3} from the cart)",
+                        redsim::entity::mob::ai::brain::brain(w, i).ex.as_deref().map_or("-".to_string(), |x| format!("{:?}", x.active)),
+                        r.pos.x - e.pos.x,
+                        r.pos.y - e.pos.y,
+                        r.pos.z - e.pos.z
+                    )
+                });
+                c_arrivals[k].push((rel, (v.x * v.x + v.z * v.z).sqrt(), act, e.id, e.pos.z - e.pos.z.floor(), e.pos.y));
+            }
+            c_prev_cell.insert(e.id, c);
+        }
         // (ironspec 08:13 / 08:14 platform (2), G1 08:12 PT) the cart-conservation check: each lane's
         // carts on its lane (H, R_1 and the slopes) with the farthest-back one, and any cart standing
         // still (motion under 0.001 two ticks running) on the exit booster, the exit row or the
@@ -5648,18 +5703,30 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 let mut tail: Option<[i32; 3]> = None;
                 for e in w.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_))) {
                     let c = cell(e.pos);
+                    // (G1 10:08 / ironspec 10:06: a cart counts as in its lane only on a rail or falling
+                    // in the drop column; an off-rail rest is its own state, failing on its own bar)
+                    let on_rail = redsim::rails::is_rail(&w.get(redsim::pos::BlockPos::new(c[0], c[1], c[2]))) || redsim::rails::is_rail(&w.get(redsim::pos::BlockPos::new(c[0], c[1] - 1, c[2])));
+                    let v = e.delta_movement;
+                    if !on_rail && v.x * v.x + v.y * v.y + v.z * v.z < 0.003 * 0.003 {
+                        continue;
+                    }
                     if c[0] == *x && (16..=22).contains(&c[1]) && (0..=6).contains(&c[2]) {
                         n += 1;
                         if tail.is_none_or(|t| (c[2], c[1]) > (t[2], t[1])) {
                             tail = Some(c);
                         }
-                        // (G1 X31 / ironspec 08:13: wrong-lane routing, bar 0) a cart in a lane other
-                        // than its lane at t0, by id
+                        // (G1 X31 / ironspec 08:13: the lane carts by id) a cart in a lane other than
+                        // its lane at t0 (information: the split's J latches send a batch's 1st / 2nd
+                        // / 3rd arrival to lanes -1 / 3 / 7 by arrival order, not by origin); a cart
+                        // that wasn't a lane cart at t0 in a lane is a stray (bar 0)
                         if let Some(k0) = cart_lane0.get(&e.id).copied()
                             && k0 != k
                             && !wrong_lane.iter().any(|(id, _)| *id == e.id)
                         {
                             wrong_lane.push((e.id, format!("t {rel}: cart #{} (lane x {} at t0) in lane x {} at ({},{},{})", e.id, LANES[k0], x, c[0], c[1], c[2])));
+                        }
+                        if !cart_lane0.contains_key(&e.id) && !stray_carts.iter().any(|(id, _)| *id == e.id) {
+                            stray_carts.push((e.id, format!("t {rel}: cart #{} (not a lane cart at t0) in lane x {x} at ({},{},{})", e.id, c[0], c[1], c[2])));
                         }
                     }
                 }
@@ -5685,6 +5752,88 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 }
                 still_prev.insert(e.id, watched && still);
             }
+        }
+        // (ironspec 10:04 / 10:06, G1 10:04 (d): conservation extends to every drop lip) every cart off
+        // the rails (no rail in its cell or the cell below, the game's own test) each tick: at rest (its
+        // motion under 0.003 a tick) 10 gt or more is a rest (bar 0, any cell); off the rails while
+        // moving (the drop columns' falls) counted per cell as information; and the cars on a siding's
+        // cells (x-2,25,9), (x-2,25,8), (x-2,24,7) by rider: a batch villager there FAILS
+        {
+            let w = &*w;
+            for e in w.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_))) {
+                let c = cell(e.pos);
+                let on = redsim::rails::is_rail(&w.get(redsim::pos::BlockPos::new(c[0], c[1], c[2]))) || redsim::rails::is_rail(&w.get(redsim::pos::BlockPos::new(c[0], c[1] - 1, c[2])));
+                let v = e.delta_movement;
+                let resting = v.x * v.x + v.y * v.y + v.z * v.z < 0.003 * 0.003;
+                if on {
+                    if let Some((t0, c0, n)) = off_rest.remove(&e.id)
+                        && n >= 10
+                    {
+                        off_rest_rows.push(format!("cart #{} at ({},{},{}) from t {t0}, {n} gt", e.id, c0[0], c0[1], c0[2]));
+                    }
+                    continue;
+                }
+                if resting {
+                    let ent = off_rest.entry(e.id).or_insert((rel, c, 0));
+                    ent.2 += 1;
+                } else {
+                    if let Some((t0, c0, n)) = off_rest.remove(&e.id)
+                        && n >= 10
+                    {
+                        off_rest_rows.push(format!("cart #{} at ({},{},{}) from t {t0}, {n} gt", e.id, c0[0], c0[1], c0[2]));
+                    }
+                    *off_moving.entry(c).or_default() += 1;
+                }
+                if LANES.iter().any(|x| [[x - 2, 25, 9], [x - 2, 25, 8], [x - 2, 24, 7]].contains(&c)) {
+                    let kind = match e.passengers.first() {
+                        None => "empty",
+                        Some(p) if nappers.iter().any(|(v, _, _)| v == p) => "napper",
+                        Some(_) => "batch villager",
+                    };
+                    let k = siding_by.entry(kind).or_insert((0, None));
+                    k.0 += 1;
+                    if k.1.is_none() {
+                        k.1 = Some(format!("t {rel} cart #{} at ({},{},{})", e.id, c[0], c[1], c[2]));
+                    }
+                }
+            }
+            // (ironspec 09:44 / 09:48, G1 09:45 (c): the T shapes per tick) every plain-rail T's shape;
+            // a change of a declared never-switched T (the design's placement-order-ts) FAILS
+            for (p, prev) in t_shapes.iter_mut() {
+                let b = w.get(redsim::pos::BlockPos::new(p[0], p[1], p[2]));
+                let now = if matches!(b, redsim::block::Block::PlainRail { .. }) { format!("{:?}", redsim::rails::shape_of(&b)) } else { format!("not a plain rail ({b:?})") };
+                if now != *prev {
+                    t_changes.push((rel, *p, prev.clone(), now.clone()));
+                    *prev = now;
+                }
+            }
+        }
+        // (G1 / ironspec 09:06 / 09:33 platform: the t1 activity assert) at the run's first tick every
+        // villager's activity and the day time it reads: by day IDLE (or PANIC), at night REST (or
+        // PANIC); any other is a bench that moved the day after building the brains
+        if rel == 1 {
+            let dt = w.day_time().rem_euclid(24_000);
+            let night = (12_000..24_000).contains(&dt);
+            let mut by: BTreeMap<String, usize> = BTreeMap::new();
+            let mut off: Vec<String> = Vec::new();
+            for (i, e) in w.entities.list.iter().enumerate() {
+                if e.removed || !matches!(&e.kind, EntityKind::Mob(m) if m.ty == redsim::entity::mob::types::MobType::Villager) {
+                    continue;
+                }
+                let act = redsim::entity::mob::ai::brain::brain(w, i).ex.as_deref().map_or("-".to_string(), |x| format!("{:?}", x.active));
+                let ok = act == "Panic" || if night { act == "Rest" } else { act == "Idle" };
+                if !ok && off.len() < 8 {
+                    off.push(format!("#{} {act}", e.id));
+                }
+                *by.entry(act).or_default() += 1;
+            }
+            t1_line = format!(
+                "the t1 activity assert (ironspec 09:06 / 09:33 platform: the day time each villager's brain sees at the run's first tick): day time {dt} ({}); {}; {} off ({})",
+                if night { "night: REST expected" } else { "day: IDLE expected" },
+                by.iter().map(|(a, n)| format!("{a} {n}")).collect::<Vec<_>>().join(", "),
+                off.len(),
+                if off.is_empty() { "PASS".to_string() } else { format!("FAIL: {}", off.join(", ")) }
+            );
         }
         // (ironspec 08:26 platform (3)) the chain trace: per tick in FROM..=TO, every napper (a villager
         // that was ever picked): its position, its cart or none, its activity, HOME, WALK_TARGET and
@@ -7573,6 +7722,72 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         s
     };
     // (G1 07:59 PT) the lift column around the lift-block control, per tick
+    // (ironspec 08:26 platform (3)) the chain trace, per tick
+    let s = format!("{s}{t1_line}\n");
+    // (ironspec 10:04 / 10:06, G1 10:04 (d)) the off-rail rests anywhere, the moving off-rail ticks,
+    // the siding's carts by rider; (ironspec 09:44 / 09:48, G1 09:45 (c)) the T shapes per tick
+    let s = {
+        let mut rows = off_rest_rows.clone();
+        rows.extend(off_rest.iter().filter(|(_, (_, _, n))| *n >= 10).map(|(id, (t0, c, n))| format!("cart #{id} at ({},{},{}) from t {t0}, {n} gt (at the end)", c[0], c[1], c[2])));
+        let moving: Vec<String> = off_moving.iter().map(|(c, n)| format!("({},{},{}) {n}", c[0], c[1], c[2])).collect();
+        let batch = siding_by.get("batch villager").map_or(0, |(n, _)| *n);
+        let stable: Vec<[i32; 3]> = o.stable_ts.clone();
+        let bad_t: Vec<String> = t_changes.iter().filter(|(_, p, _, _)| stable.contains(p)).map(|(t, p, a, b)| format!("t {t} ({},{},{}) {a} -> {b}", p[0], p[1], p[2])).collect();
+        let mut per_t: BTreeMap<[i32; 3], (usize, Vec<String>)> = BTreeMap::new();
+        for (t, p, a, b) in &t_changes {
+            let e = per_t.entry(*p).or_default();
+            e.0 += 1;
+            if e.1.len() < 3 {
+                e.1.push(format!("t {t} {a} -> {b}"));
+            }
+        }
+        format!(
+            "{s}the carts at rest off the rails (ironspec 10:04 / 10:06, G1 10:04 (d): every drop lip and every other cell; no rail in the cart's cell or the one below, its motion under 0.003 a tick for 10 gt or more; bar 0): {} ({}){}\n  the carts off the rails while moving (information: the drop columns' falls), cart-ticks per cell: {}\n  the carts on a siding's cells (x-2,25,9), (x-2,25,8), (x-2,24,7) by rider (ironspec 10:04: a batch villager there FAILS): {} ({})\n  the arrivals at each lane's C (x,24,7) (G1 10:14, information beside ironfarm's bench: speed in b/gt, spacing in gt): {}\nthe rail Ts' shapes per tick (ironspec 09:44 / 09:48, G1 09:45 (c); runtime evidence: every plain rail with 3+ rail neighbours at t0, {} Ts; a change of a declared never-switched T, the design's placement-order-ts {}, FAILS): {} changes in all; the declared Ts changed {} times ({}){}; per T: {}\n",
+            rows.len(),
+            if rows.is_empty() { "PASS" } else { "FAIL" },
+            if rows.is_empty() { String::new() } else { format!(": {}", rows.join("; ")) },
+            if moving.is_empty() { "none".to_string() } else { moving.join(", ") },
+            if siding_by.is_empty() { "none".to_string() } else { siding_by.iter().map(|(k, (n, first))| format!("{k} {n} cart-ticks (the first {})", first.clone().unwrap_or_default())).collect::<Vec<_>>().join("; ") },
+            if batch == 0 { "PASS" } else { "FAIL" },
+            (0..3)
+                .map(|k| {
+                    let a = &c_arrivals[k];
+                    let q = |mut v: Vec<f64>| -> String {
+                        if v.is_empty() {
+                            return "-".to_string();
+                        }
+                        v.sort_by(|x, y| x.total_cmp(y));
+                        format!("min {:.3}, median {:.3}, max {:.3}", v[0], v[v.len() / 2], v[v.len() - 1])
+                    };
+                    let gaps: Vec<f64> = a.windows(2).map(|w| (w[1].0 - w[0].0) as f64).collect();
+                    let mut acts: BTreeMap<String, usize> = BTreeMap::new();
+                    for r in a {
+                        // (the activity alone for the count; each arrival's own row below)
+                        *acts.entry(r.2.split(" (").next().unwrap_or("").to_string()).or_default() += 1;
+                    }
+                    format!(
+                        "lane x {}: {} arrivals (the rider: {}); speed {}; y {}; z phase {}; spacing {}; each: {}",
+                        LANES[k],
+                        a.len(),
+                        acts.iter().map(|(k, n)| format!("{k} {n}")).collect::<Vec<_>>().join(", "),
+                        q(a.iter().map(|r| r.1).collect()),
+                        q(a.iter().map(|r| r.5).collect()),
+                        q(a.iter().map(|r| r.4).collect()),
+                        q(gaps),
+                        a.iter().map(|r| format!("t {} #{} speed {:.3} y {:.3} z phase {:.3} rider {}", r.0, r.3, r.1, r.5, r.4, r.2)).collect::<Vec<_>>().join(" | ")
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("; "),
+            t_shapes.len(),
+            if stable.is_empty() { "none declared".to_string() } else { stable.iter().map(|p| format!("({},{},{})", p[0], p[1], p[2])).collect::<Vec<_>>().join(" ") },
+            t_changes.len(),
+            bad_t.len(),
+            if stable.is_empty() { "NOT JUDGED: no declared T" } else if bad_t.is_empty() { "PASS" } else { "FAIL" },
+            if bad_t.is_empty() { String::new() } else { format!(": {}", bad_t.join("; ")) },
+            if per_t.is_empty() { "no change".to_string() } else { per_t.iter().map(|(p, (n, first))| format!("({},{},{}) {n} ({})", p[0], p[1], p[2], first.join(", "))).collect::<Vec<_>>().join("; ") }
+        )
+    };
     let s = if let Some((a, b)) = o.chain_trace {
         format!("{s}the chain trace over run ticks {a}..={b} (ironspec 08:26 platform (3): every napper's position, cart, activity, HOME, WALK_TARGET and stamp; the bed's occupant; RS_ready; each lane's siding R occupancy):\n{}\n", chain_rows.join("\n"))
     } else {
@@ -7584,12 +7799,23 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         s
     };
     // (G1 X16) the emulation's no-op writes: each listed; a write of a cell's existing state is no
-    // write in the game (setBlock returns early), so an emulation that issues one is asserting a
-    // level it should only drive on an edge: bar 0
+    // write in the game (setBlock returns early). Justified per writer (G1: "FAIL emulated no-ops,
+    // or justify each writer"): the split's J / K latch levers (x,26,9), set / reset on their branch
+    // detectors' edges, pulse an RS latch into the state it holds (no change in the built latch
+    // either); any other writer's no-op FAILS
     let s = {
         let n = NOOP_WRITES.with(|n| *n.borrow());
         let rows = NOOP_ROWS.with(|r| r.borrow().clone());
-        format!("{s}the emulation's no-op writes (G1 X16: a write of the cell's existing state; bar 0): {n} ({}){}\n", if n == 0 { "PASS" } else { "FAIL" }, if rows.is_empty() { String::new() } else { format!(": {}", rows.join("; ")) })
+        let latch = |r: &str| [-3, -1, 1, 3, 5, 7].iter().any(|x| r.contains(&format!(" ({x},26,9) ")));
+        let (ok, bad): (Vec<&String>, Vec<&String>) = rows.iter().partition(|r| latch(r));
+        format!(
+            "{s}the emulation's no-op writes (G1 X16: a write of the cell's existing state; each writer justified or FAIL): {n} ({} the split's J / K latch levers (x,26,9), set / reset on their branch detectors' edges into the state they hold: justified; {} by another writer: {}){}{}\n",
+            ok.len(),
+            bad.len(),
+            if bad.is_empty() && rows.len() as i64 == n { "PASS" } else if bad.is_empty() { "the list is capped at 40: NOT JUDGED past it: FAIL" } else { "FAIL" },
+            if ok.is_empty() { String::new() } else { format!("; justified: {}", ok.iter().map(|r| r.as_str()).collect::<Vec<_>>().join("; ")) },
+            if bad.is_empty() { String::new() } else { format!("; UNJUSTIFIED: {}", bad.iter().map(|r| r.as_str()).collect::<Vec<_>>().join("; ")) }
+        )
     };
     // (ironspec 08:13 / 08:14 platform (2), G1 08:12 PT) the cart-conservation check
     let s = format!(
@@ -7600,13 +7826,23 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         if stopped_rows.is_empty() { String::new() } else { format!(": {}", stopped_rows.iter().map(|(_, r)| r.clone()).collect::<Vec<_>>().join("; ")) },
         if o.lift_block.is_some() { "not judged: --lift-block's fault row" } else if stopped_ticks == 0 { "PASS" } else { "FAIL" }
     );
-    // (G1 X31, ironspec 08:13: wrong-lane routing, bar 0) every lane cart stays in its t0 lane, by id
+    // (G1 X31, ironspec 08:13: the lane carts by id) every lane cart at t0 still in the world at the
+    // end and no stray cart in a lane (bar 0); the lane changes by id as information (the split's J
+    // latches route a batch's arrivals by order: 1st to lane -1, 2nd to 3, 3rd through to 7)
+    let lost_carts: Vec<u32> = {
+        let alive: std::collections::BTreeSet<u32> = run.world.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_))).map(|e| e.id).collect();
+        cart_lane0.keys().filter(|id| !alive.contains(id)).copied().collect()
+    };
     let s = format!(
-        "{s}no wrong-lane routing (G1 X31 / ironspec 08:13: each lane cart, by its id at t0, only ever in its own lane's H, R_1 and slopes; bar 0): {} carts tracked, {} in another lane ({}){}\n",
+        "{s}the lane carts by id (G1 X31 / ironspec 08:13: every lane cart at t0 still in the world at the end, no stray cart in a lane; bar 0): {} carts tracked, {} lost{}, {} strays{} ({}); lane changes by id (information: the split's J latches route a batch's 1st / 2nd / 3rd arrival to lanes x -1 / 3 / 7 by arrival order, not by origin): {}{}\n",
         cart_lane0.len(),
+        lost_carts.len(),
+        if lost_carts.is_empty() { String::new() } else { format!(" ({})", lost_carts.iter().map(|id| format!("#{id}")).collect::<Vec<_>>().join(", ")) },
+        stray_carts.len(),
+        if stray_carts.is_empty() { String::new() } else { format!(" ({})", stray_carts.iter().map(|(_, r)| r.clone()).collect::<Vec<_>>().join("; ")) },
+        if cart_lane0.is_empty() { "NOT JUDGED (no lane carts at t0): FAIL" } else if lost_carts.is_empty() && stray_carts.is_empty() { "PASS" } else { "FAIL" },
         wrong_lane.len(),
-        if cart_lane0.is_empty() { "NOT JUDGED (no lane carts at t0): FAIL" } else if wrong_lane.is_empty() { "PASS" } else { "FAIL" },
-        if wrong_lane.is_empty() { String::new() } else { format!(": {}", wrong_lane.iter().map(|(_, r)| r.clone()).collect::<Vec<_>>().join("; ")) }
+        if wrong_lane.is_empty() { String::new() } else { format!(" (the first: {})", wrong_lane.iter().take(6).map(|(_, r)| r.clone()).collect::<Vec<_>>().join("; ")) }
     );
     // (G1 08:21 PT) each late-path pair against the actual cart trajectories: the carts that were in
     // the draw cell and then entered the path cell within the pair's interval
@@ -7678,8 +7914,11 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     // the S-bends and the drops (y 22..26, z 5..10, x -6..10), one line each: cart, its lane at t0,
     // tick, from -> to
     if let Some(path) = &o.cart_cells {
-        let inside = |c: &[i32; 3]| (22..=26).contains(&c[1]) && (5..=10).contains(&c[2]) && (-6..=10).contains(&c[0]);
-        let mut out = String::from("# onechunk f1q2-run --cart-cells: cart, its lane at t0 (or -), run tick, from -> to, for every cell change with either cell in y 22..26, z 5..10, x -6..10\n");
+        // (9fc3155f / G1 09:39: the y 0 merge row and the foot ramp too) the box, by default the split
+        // row's region, else --cart-cells-box
+        let (ba, bb) = o.cart_cells_box.unwrap_or(([-6, 22, 5], [10, 26, 10]));
+        let inside = |c: &[i32; 3]| (0..3).all(|i| c[i] >= ba[i] && c[i] <= bb[i]);
+        let mut out = format!("# onechunk f1q2-run --cart-cells: cart, its lane at t0 (or -), run tick, from -> to, for every cell change with either cell in ({},{},{})..=({},{},{})\n", ba[0], ba[1], ba[2], bb[0], bb[1], bb[2]);
         let mut n = 0usize;
         for (id, v) in &cart_entries {
             let lane = cart_lane0.get(id).map_or("-".to_string(), |k| LANES[*k].to_string());

@@ -587,6 +587,15 @@ FILE@dx,dy,dz` (a part composed into the run), and the controls `--strand-contro
 the emulation's keys follow a world open; the at-entry bar judges every HOME-target set on the pre-tick
 stamp beside the HOME losses by mechanism; the scene check parses the written scene against the spawned
 entities; the rider pushes are summarized per lane.
+
+The 25th: `mobfarm column` keeps every rail as stored (`--settle` is a check that fails naming each cell the
+game would re-settle), carries every meta line of its parts moved like their cells (an unknown kind fails
+the compose) and, with `--assert-aligned`, fails a part moved off the 16-block chunk grid; `mobfarm cells
+DESIGN --box … [--chunk-phase PX,PZ] [--tile dx,dz]…` prints each cell with its chunk per tile. f1q2-run
+adds the off-rail rest bar (any cell), the siding cells' carts by rider, every arrival at a lane's C
+(x,24,7) (speed, y, z phase, rider), every plain-rail T's shape per tick (a declared placement-order T
+changing fails), the t1 activity assert, `--late-return-control`, `--cart-cells-box`, and builds the c7
+placement's world at day 13,800.
 The one-in-flight bars run from the divert (a pick the divert turns away never enters the way-in;
 those print apart with their causes). SIGHT prints its crossings by ray class (each entity by its
 label or mob type).
