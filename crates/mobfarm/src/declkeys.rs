@@ -27,6 +27,8 @@ pub const COMMENT_KEYS: &[&str] = &[
     "single-occupant",
     "speeds",
     "bridged-pairs",
+    // (58f770cc's bed stop: the declared rail shapes, judged every tick by bedtier-bench (G1's Q13))
+    "integrity",
 ];
 
 /// Keys read from a comment line or a header line alike (the push / water-spawn readers strip an optional

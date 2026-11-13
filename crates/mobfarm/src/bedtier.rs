@@ -1024,7 +1024,7 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
         lines.push("The wake sensor (G1 12:04 / day-1 12:03): (-3,-1,4) an observer facing up at the bed head (-3,0,4), in the glass's place under it: the head's OCCUPIED set (SleepInBed's start) and cleared (the wake) each give a pulse out of its bottom face into (-3,-2,4), where DAY-1's F line (the window opened only after a sensed lie-down, shut on the wake) and the park's release (at least 4 gt after the shutter is powered again: the first (-2,0,5) entry >= the close + 27) start; the bench prints its pulses against the napper's own edges.".to_string());
     }
     if exit_south {
-        lines.push("contacts: -3,0,4=the bed head's east face (its 0.5625-high box), met flush by the cart's west face at the curve-to-straight hand-off from P (-2,0,4) into (-2,0,5); class=design; ref=8c3eb08fd `mctas mobfarm bedtier-bench <(A) bench file> --speeds 0.05..0.55/0.01 --from 1 --to 8` (exit 0; met on 296 of 408 visits; maxima: depth 0.0000, 1 tick per event; speed 0.070..0.103 in, 0.047..0.075 out); depth<=0.0000+eps=0.010 why=the cart's box stays within the face tolerance of the bed's box, the bed's state untouched; ticks<=1 why=a second tick is the cart stopped at P, a stall; speed_out>=0.040 why=four times the exit booster's 0.01 start threshold: at or under 0.01 the cart stalls on the always-on booster (-2,0,5) (no conductor at either end to kick it), the napper aboard; the bed unchanged across it; rate=296/408 (ironspec Nov 13 07:03 / 09:24 / 10:47 / 10:58; G1 10:53 / 11:35)".to_string());
+        lines.push("contacts: -3,0,4=the bed head's east face (its 0.5625-high box), met flush by the cart's west face at the curve-to-straight hand-off from P (-2,0,4) into (-2,0,5); class=design; ref=2af606b9d `mctas mobfarm bedtier-bench designs/farms/iron/parts/bed-tier-min/bed-tier-fold-bench.txt --speeds 0.05,0.06,0.07,0.08,0.09,0.10,0.11,0.12,0.13,0.14,0.15,0.16,0.17,0.18,0.19,0.20,0.21,0.22,0.23,0.24,0.25,0.26,0.27,0.28,0.29,0.30,0.31,0.32,0.33,0.34,0.35,0.36,0.37,0.38,0.39,0.40,0.41,0.42,0.43,0.44,0.45,0.46,0.47,0.48,0.49,0.50,0.51,0.52,0.53,0.54,0.55 --from 1 --to 8 --tap 265,10 --close-after 4 --release-after 8` (exit 0; met on 296 of 408 visits by main's contacts::cart_contacts; maxima: depth 0.0000, 1 tick per event; speed 0.060..0.112 in, 0.0423..0.075 out, the least at entry 0.51); depth<=0.0000+eps=0.010 why=the cart's box stays within the face tolerance of the bed's box, the bed's state untouched; ticks<=1 why=a second tick is the cart stopped at P, a stall; speed_out>=0.0423+eps=0.0023 why=the bound 0.040 is the exit boost (-2,0,5)'s measured carry threshold 0.0101 (a loaded cart set on it carried at 0.0101, stalled at 0.0100: `--boost-probe` on 2af606b9d; under it the always-on booster has no conductor at either end to start the cart, the napper aboard) plus a margin of 0.0299 (about 3x the threshold) for the seed and position jitter (the dense band agrees to 1e-14 at six build positions) and the game's booster start (tick-exact's launch sweep pending); the bed unchanged across it; rate=296/408 (ironspec Nov 13 07:03 / 09:24 / 10:47 / 10:58 / 11:37 / 11:51 / 12:38; G1 10:53 / 11:35)".to_string());
         // (P's two connections are DESIGN-CRITICAL: K (-2,0,3) is a T by rail presence (N, E, S) and
         // keeps north_east under any source change only while P is full (ironspec 10:47 / 10:58's
         // `# integrity:` key, checked by the static))
@@ -4548,17 +4548,30 @@ where
     T::Err: std::error::Error + Send + Sync + 'static,
 {
     // (each comma-separated item a value, or a range `a..b` (both ends in) with an optional step
-    // `a..b/s`, for integer lists)
+    // `a..b/s`: integer lists, and decimal ones (each value formatted to the range's decimals and
+    // parsed, so it is the same double as the written decimal: `0.05..0.55/0.01` = `0.05,0.06,...`))
     let mut out = Vec::new();
     for x in s.into_iter().flat_map(|s| s.split(',')) {
         let x = x.trim();
         if let Some((a, rest)) = x.split_once("..") {
             let (b, step) = rest.split_once('/').unwrap_or((rest, "1"));
-            let (a, b, step): (i64, i64, i64) = (a.trim().parse()?, b.trim().parse()?, step.trim().parse()?);
-            let mut v = a;
-            while v <= b {
-                out.push(v.to_string().parse()?);
-                v += step.max(1);
+            if let (Ok(a), Ok(b), Ok(step)) = (a.trim().parse::<i64>(), b.trim().parse::<i64>(), step.trim().parse::<i64>()) {
+                let mut v = a;
+                while v <= b {
+                    out.push(v.to_string().parse()?);
+                    v += step.max(1);
+                }
+            } else {
+                let dec = |t: &str| t.trim().split_once('.').map_or(0, |(_, f)| f.len());
+                let prec = dec(a).max(dec(b)).max(dec(step));
+                let (af, bf, sf): (f64, f64, f64) = (a.trim().parse()?, b.trim().parse()?, step.trim().parse()?);
+                if sf <= 0.0 || bf < af {
+                    bail!("range {x}: a..b/s with a <= b and s > 0");
+                }
+                let n = ((bf - af) / sf + 1e-9).floor() as i64;
+                for i in 0..=n {
+                    out.push(format!("{:.prec$}", af + i as f64 * sf).parse()?);
+                }
             }
         } else {
             out.push(x.parse()?);
