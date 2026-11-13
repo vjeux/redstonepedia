@@ -1314,6 +1314,13 @@ pub struct Row {
     pub hold_arrival_powered: bool,
     /// (G1's Q3) the held rider's sight to the waker CLEAR in either shutter state at the rest.
     pub hold_sight_clear: bool,
+    /// (the emulated DAY-1 latch) its events, whether TIMEOUT released the visit, and whether the
+    /// release found the napper asleep (normal-operation bar 0)
+    pub latch_lines: Vec<String>,
+    pub latch_timeout: bool,
+    pub released_asleep: bool,
+    /// the bed head OCCUPIED at the visit's end (the bed not free for the next napper)
+    pub bed_occupied_at_end: bool,
     pub launch_cells: Vec<([i32; 3], f64)>,
     /// (G1 C16) The cells holding water at the visit's end (the design's own water is the bar).
     pub water_cells: usize,
@@ -1554,6 +1561,11 @@ pub struct Faults {
     pub tap: Option<(i64, i64, Option<i64>)>,
     /// (G1's Q6) Each declared contact's bounds, parsed from its `# contacts:` declaration.
     pub contact_bounds: Vec<([i32; 3], ContactBounds)>,
+    /// (G1 12:38 / ironspec 12:38) DAY-1's guard-free latch emulated on the real wake sensor's
+    /// pulses, replacing the bench's stand-in F / close / release.
+    pub latch: Option<Latch>,
+    /// (G1 12:38: the merge row) A hurt this many gt after the lie-down (a reverse merge at <= 3).
+    pub hurt_after_lie: Option<i64>,
     /// (ironspec 10:47) Each declared contact's `rate=k/n` from a band run: STALE fails only when
     /// (1 - k/n)^N < 0.001 for the run's N visits; a rate-less declaration is always expected.
     pub contact_rates: Vec<([i32; 3], (u32, u32))>,
@@ -1828,6 +1840,16 @@ pub fn parse_integrity(text: &str, shift: [i32; 3]) -> Result<Vec<([i32; 3], Str
         }
     }
     Ok(out)
+}
+
+/// (G1 12:38 / ironspec 12:38-12:58) DAY-1's guard-free latch as the bench emulates it: TIMEOUT
+/// at ARM + `t_max`; the shutter `logic_lat` gt behind OPEN (its torch); the park's release
+/// `rel_after` gt after OPEN's fall (>= logic_lat + 4: the first (-2,0,5) entry >= close + 27).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Latch {
+    pub t_max: i64,
+    pub logic_lat: i64,
+    pub rel_after: i64,
 }
 
 /// (G1's Q6 on 94e90d6b2) A declared contact's bounds, as its `# contacts:` declaration states them:
@@ -2192,6 +2214,9 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
     let z1_design = format!("{}", run.world.get(wc(WAKER_SHUT))).contains("iron_trapdoor");
     let mut row = Row { seed, speed, fluid_scheduled, ..Default::default() };
     row.sensor_present = format!("{}", run.world.get(wc(WAKE_SENSOR))).contains("observer");
+    if f.latch.is_some() && !row.sensor_present {
+        return Err("--latch runs on the real wake sensor: a design with the observer (bedtier --wake-sensor)".into());
+    }
     if dropped > 0 {
         row.problems.push(format!("{dropped} of the design's cells outside the world's box"));
     }
@@ -2384,6 +2409,10 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
     let mut sensor_prev = false;
     let mut tap_on = false;
     let mut hold_entered = false;
+    // (the emulated DAY-1 latch's state, `f.latch`)
+    let (mut latch_seen, mut latch_slept, mut latch_once, mut latch_window_open) = (0usize, false, false, false);
+    let (mut latch_open_at, mut latch_fall_at, mut release_due): (Option<i64>, Option<i64>, Option<i64>) = (None, None, None);
+    let mut hurt_done = false;
     let mut still = 0;
     let mut crossed: Vec<[i32; 3]> = Vec::new();
     let mut hidden = false;
@@ -2554,11 +2583,91 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
         {
             row.armed_at = Some(t);
         }
+        // (G1 12:38 / ironspec 12:38-12:58: DAY-1's guard-free latch, emulated on the REAL wake
+        // sensor's pulses (the observer in the design): SLEPT a T flip-flop toggled by each pulse
+        // after ARM's edge; OPEN set once per visit on (ARMED70 AND SLEPT), reset when SLEPT falls
+        // or at TIMEOUT (ARM + t_max); the shutter = NOT OPEN, `logic_lat` gt behind OPEN; the
+        // park's release `rel_after` gt after OPEN's fall, or after TIMEOUT when OPEN never set
+        // (the missed-nap path); every visit releases once. The forced fault rows: a hurt
+        // `--hurt-after-lie k` gt after the lie-down (a reverse merge at k <= 3))
+        if let Some(k) = f.hurt_after_lie
+            && !hurt_done
+            && row.slept_at.is_some_and(|s| t >= s + k.max(1))
+            && let Some(vi) = vill.and_then(|v| idx(&run.world, v))
+        {
+            hurt_done = true;
+            let woke = redsim::entity::mob::living::hurt(&mut run.world, vi, redsim::entity::mob::Damage::InWall, 1.0);
+            row.latch_lines.push(format!("t {t}: the forced hurt ({k} gt after the lie-down at t {:?}): damage taken {woke}, asleep after it {}", row.slept_at, redsim::entity::mob::mob(&run.world, vi).sleeping_pos.is_some()));
+        }
+        if let Some(l) = f.latch {
+            while latch_seen < row.sensor_rises.len() {
+                let r = row.sensor_rises[latch_seen];
+                latch_seen += 1;
+                if row.armed_at.is_some_and(|a| r >= a) {
+                    latch_slept = !latch_slept;
+                    row.latch_lines.push(format!("t {r}: the wake sensor's pulse: SLEPT -> {latch_slept}"));
+                }
+            }
+            let armed70 = row.armed_at.is_some_and(|a| t >= a + f.arm_delay);
+            let timeout = row.armed_at.is_some_and(|a| t >= a + l.t_max);
+            if !latch_once && armed70 && latch_slept && !timeout {
+                latch_once = true;
+                latch_open_at = Some(t);
+                row.latch_lines.push(format!("t {t}: OPEN set (ARMED70 and SLEPT)"));
+            }
+            if latch_open_at.is_some() && latch_fall_at.is_none() && (!latch_slept || timeout) {
+                latch_fall_at = Some(t);
+                release_due = Some(t + l.rel_after);
+                row.latch_lines.push(format!("t {t}: OPEN reset ({}); the release due at t {}", if timeout { "TIMEOUT" } else { "SLEPT fell" }, t + l.rel_after));
+                if timeout {
+                    row.latch_timeout = true;
+                }
+            }
+            if !latch_once && timeout {
+                latch_once = true;
+                latch_fall_at = Some(t);
+                release_due = Some(t + l.rel_after);
+                row.latch_timeout = true;
+                row.latch_lines.push(format!("t {t}: TIMEOUT with OPEN never set (the missed-nap path); the release due at t {}", t + l.rel_after));
+            }
+            let want_open = latch_open_at.is_some_and(|o| t >= o + l.logic_lat) && !latch_fall_at.is_some_and(|fa| t >= fa + l.logic_lat);
+            if want_open != latch_window_open {
+                latch_window_open = want_open;
+                for c in lay.hatch_ctrl.clone() {
+                    set(&mut run.world, c, if want_open { "stone" } else { "redstone_block" });
+                }
+                if want_open {
+                    f_fired = true;
+                    row.waker_lines.push(format!("t {t} (F, the emulated latch): the window open"));
+                } else {
+                    row.close_at.get_or_insert(t);
+                    hidden = true;
+                    row.waker_lines.push(format!("t {t}: the window shut (the emulated latch: OPEN's fall + {} gt)", l.logic_lat));
+                }
+            }
+            if release_due == Some(t) && row.release_at.is_none() {
+                if let Some(vi) = vill.and_then(|v| idx(&run.world, v))
+                    && redsim::entity::mob::mob(&run.world, vi).sleeping_pos.is_some()
+                {
+                    row.released_asleep = true;
+                    row.problems.push(format!("t {t}: the park released with the napper asleep (normal-operation bar 0)"));
+                }
+                if let Some(i) = idx(&run.world, cart_id) {
+                    let d = run.world.entities.list[i].delta_movement;
+                    row.speed_at_release = Some((d.x * d.x + d.y * d.y + d.z * d.z).sqrt());
+                }
+                for &c in &lay.park_ctrl {
+                    set(&mut run.world, c, "redstone_block");
+                }
+                row.release_at = Some(t);
+                row.latch_lines.push(format!("t {t}: the park released"));
+            }
+        }
         // (F: `after_sleep` gt after the lie-down (the bed observer's edge): the hatch shut, the
         // zombie seen; (A): and not before the arming detector's edge + `arm_delay` (the worst-case
         // braking interval, ironspec 00:37 (2b)))
         let armed_ok = lay.arm.is_none() || row.armed_at.is_some_and(|a| t >= a + f.arm_delay);
-        if !f_fired && f_live.is_some_and(|x| live >= x) && armed_ok {
+        if f.latch.is_none() && !f_fired && f_live.is_some_and(|x| live >= x) && armed_ok {
             f_fired = true;
             // (G1: the sleeper's eye-to-eye COLLIDER ray to the waker in both window states, the
             // blocking cell named: before F (window closed) and after F's write (window open))
@@ -2619,7 +2728,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
         // shutter's drive powered again by the wake: F's line), any other design only under the
         // --hide-after-wake fault; `close_after` gt after the wake (1: the earliest, the bench's
         // stand-in; a real line through the wake sensor closes later, day-1 12:03))
-        if (f.hide_after_wake || z1_design) && !hidden && row.woke_at.is_some_and(|wk| t >= wk + f.close_after.max(1)) {
+        if f.latch.is_none() && (f.hide_after_wake || z1_design) && !hidden && row.woke_at.is_some_and(|wk| t >= wk + f.close_after.max(1)) {
             for c in lay.hatch_ctrl.clone() {
                 set(&mut run.world, c, "redstone_block");
             }
@@ -2644,7 +2753,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
         } else {
             row.woke_at.is_some_and(|wk| t >= wk + release_after)
         };
-        if row.release_at.is_none() && go {
+        if f.latch.is_none() && row.release_at.is_none() && go {
             // ((A)'s at-rest bar, ironspec 00:37 (2b): the cart at rest at the park on the release
             // tick)
             if let Some(i) = idx(&run.world, cart_id) {
@@ -3499,6 +3608,8 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
     if row.out_at.is_none() {
         row.problems.push("the cart not out in 2400 gt".into());
     }
+    // (the bed free for the next napper: its head not OCCUPIED at the visit's end)
+    row.bed_occupied_at_end = format!("{}", run.world.get(wc(BED_HEAD))).contains("occupied=true");
     // (ironspec 10:40: the post-exit ride: the napper's HOME and its CANT_REACH stamp at calm REST
     // ticks for 1,500 gt after the exit, its cart run on to the run-out's stop; a stamp carried out
     // of the stop would drop HOME at its first calm REST tick past 1,200)
@@ -4767,6 +4878,19 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
                             sk.stand_over_20 += 1;
                         }
                         sk.integrity_breaks += r.integrity_breaks;
+                        // (the emulated DAY-1 latch's per-visit outcomes; the park -> P ride)
+                        sk.latch_timeouts += r.latch_timeout as usize;
+                        sk.released_asleep += r.released_asleep as usize;
+                        sk.bed_occupied_end += r.bed_occupied_at_end as usize;
+                        if let (Some(rel), Some((_, tp))) = (r.release_at, r.pickup) {
+                            sk.release_to_board.push(tp - rel);
+                        }
+                        if base.latch.is_some() && (one || sk.latch_lines_shown < 4) {
+                            for l in &r.latch_lines {
+                                println!("  latch seed {seed} speed {v}: {l}");
+                            }
+                            sk.latch_lines_shown += 1;
+                        }
                         // (the wake sensor: its first rise after each napper edge, the missed edges
                         // and the rises with no edge before them, within 10 gt)
                         if r.sensor_present {
@@ -5077,6 +5201,27 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
     // stop being open to the sky by construction there)
     if base.built_world && sk.lightning_visits > 0 {
         failed.push(format!("{} visits with a napper exposed to lightning in the built world (a sky-seeing cell or a bolt's hit box)", sk.lightning_visits));
+    }
+    // (G1's Q13: the integrity shapes, judged every tick in every visit)
+    // (the park -> P ride: the release to the boarding, per visit (day-1's D_pick))
+    if !sk.release_to_board.is_empty() {
+        let mut v = sk.release_to_board.clone();
+        v.sort();
+        println!("the park's release to the boarding at P (day-1's D_pick): {:?}..{:?} gt over {} visits (median {:?})", v.first(), v.last(), v.len(), v.get(v.len() / 2));
+    }
+    // (the emulated DAY-1 latch's normal-operation bars, ironspec 12:38: 0 releases while asleep,
+    // 0 re-sleeps (the re-sleep bar below), the bed free for the next napper)
+    if let Some(l) = base.latch {
+        println!("DAY-1's latch (emulated on the wake sensor's pulses: TIMEOUT ARM + {}, the shutter OPEN's fall + {} gt, the release OPEN's fall + {} gt): TIMEOUT releases {}; releases with the napper asleep {} (bar 0); visits ending with the bed occupied {} (bar 0)", l.t_max, l.logic_lat, l.rel_after, sk.latch_timeouts, sk.released_asleep, sk.bed_occupied_end);
+        if sk.released_asleep > 0 {
+            failed.push(format!("{} releases with the napper asleep (the latch)", sk.released_asleep));
+        }
+        if sk.bed_occupied_end > 0 {
+            failed.push(format!("{} visits ending with the bed occupied (not free for the next napper)", sk.bed_occupied_end));
+        }
+        if base.hurt_after_lie.is_none() && sk.latch_timeouts > 0 {
+            failed.push(format!("{} visits released by TIMEOUT in normal operation (bar 0)", sk.latch_timeouts));
+        }
     }
     // (G1's Q13: the integrity shapes, judged every tick in every visit)
     if base.integrity.is_empty() {
@@ -5453,6 +5598,13 @@ struct SkipTotals {
     sensor_seen: bool,
     /// (G1's Q13) ticks with a declared `# integrity:` shape off, over every visit
     integrity_breaks: usize,
+    /// (the emulated DAY-1 latch) TIMEOUT releases, releases with the napper asleep, visits ending
+    /// with the bed occupied; the release -> boarding ride per visit; latch lines shown
+    latch_timeouts: usize,
+    released_asleep: usize,
+    bed_occupied_end: usize,
+    release_to_board: Vec<i64>,
+    latch_lines_shown: usize,
     lightning: std::collections::BTreeMap<String, usize>,
     /// (ironspec 00:27) the most fluid cells a visit's world scheduled at load
     fluid_scheduled: usize,
