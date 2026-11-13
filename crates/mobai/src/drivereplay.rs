@@ -970,7 +970,7 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
         for (k, (c, st, a, b)) in swaps.iter().enumerate() {
             let cmd_at = |s: &str| format!("setblock {} {} {} {s}", c[0], c[1] + DY, c[2]);
             if t == *a {
-                swap_old[k] = Some(cell_state(&mut srv, *c)?);
+                swap_old[k] = Some(if reloaded { "(not read after a world open)".to_string() } else { cell_state(&mut srv, *c)? });
                 let out = srv.cmd(&cmd_at(st))?;
                 anyhow::ensure!(out.contains("Changed the block"), "MCTAS_REPLAY_SWAP at t{t}: {}", out.trim());
                 events.push(format!("t{t}: SWAP ({},{},{}) {} -> {st}", c[0], c[1], c[2], swap_old[k].clone().unwrap_or_default()));
@@ -1608,6 +1608,9 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
                             farm_stop.push(format!("t{t}: {} at the stop since t{s} (least distance {:.3}), no lie-down within 900 gt", v.tag, v.stop_least));
                             stop_visits.push(format!("{} t{s}: least {:.3}, NO lie-down within 900 gt", v.tag, v.stop_least));
                             v.at_stop = None;
+                            // (ironspec 13:31 on L) the visit is over: it re-arms only after the villager has
+                            // left past 4.0, as after a lie-down (no second failure for the same stay)
+                            v.stop_done = true;
                         } else if dist > 4.0 {
                             farm_stop.push(format!("t{t}: {} left the stop ({dist:.2}) after t{s} (least distance {:.3}) without lying down", v.tag, v.stop_least));
                             stop_visits.push(format!("{} t{s}: least {:.3}, left at t{t} without lying down", v.tag, v.stop_least));
@@ -1696,7 +1699,20 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
     // the block predicates again after the last tick (the Ts must still hold their shapes)
     let mut end_asserts_bad: Vec<String> = Vec::new();
     for (p, legal) in &switched_cells {
-        let st = cell_state(&mut srv, *p)?;
+        // after a world open the fresh server's snapshot markers start over while the world on disk keeps
+        // the old ones (the marker setblock then reports no change): read the shape by block tests there
+        let st = if reloaded {
+            let mut found = None;
+            for l in legal {
+                if crate::strict::test(&mut srv, &format!("execute if block {} {} {} minecraft:rail[shape={l}]", p[0], p[1] + DY, p[2]))? {
+                    found = Some(format!("minecraft:rail[shape={l}] (block test after a world open)"));
+                    break;
+                }
+            }
+            found.unwrap_or_else(|| "none of its legal rail shapes (block test after a world open)".to_string())
+        } else {
+            cell_state(&mut srv, *p)?
+        };
         let shape = st.split("shape=").nth(1).and_then(|r| r.split([',', ']']).next()).unwrap_or("").to_string();
         let ok = legal.iter().any(|l| *l == shape);
         println!("  end switched T ({},{},{}): {st} ({} of its legal shapes)", p[0], p[1], p[2], if ok { "one" } else { "NONE" });

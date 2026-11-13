@@ -450,5 +450,187 @@ pub fn row_string(version: &str, speeds: &[f64], phases: &[f64], empties: &[f64]
         if misses.is_empty() { "no miss".to_string() } else { format!("{} note(s): {}", misses.len(), misses.iter().take(6).cloned().collect::<Vec<_>>().join("; ")) }
     );
     let _ = std::fs::remove_dir_all(&srv.dir);
+    // (G1 on S) the bar: A pressed on every ridden pass, B and every empty pass never; no pass is NOT JUDGED
+    anyhow::ensure!(n_ridden > 0, "no ridden pass ran: NOT JUDGED, the row fails");
+    anyhow::ensure!(
+        a_ridden == n_ridden && b_ridden == 0 && a_empty == 0 && b_empty == 0,
+        "the row-string bar FAILS: A {a_ridden}/{n_ridden} ridden, B {b_ridden} ridden, empty A {a_empty} B {b_empty}"
+    );
+    Ok(())
+}
+
+fn num_of(srv: &mut VanillaServer, sel: &str, path: &str) -> Result<Option<f64>> {
+    let out = srv.cmd_long(&format!("data get entity {sel} {path}"))?;
+    Ok(out.split("data: ").nth(1).and_then(|r| r.trim().trim_end_matches(['d', 'f', 's', 'b']).parse().ok()))
+}
+
+fn pos3(srv: &mut VanillaServer, sel: &str) -> Result<Option<[f64; 3]>> {
+    let out = srv.cmd_long(&format!("data get entity {sel} Pos"))?;
+    let Some(list) = out.split("data: [").nth(1) else { return Ok(None) };
+    let v: Vec<f64> = list.trim_end_matches(']').split(',').filter_map(|s| s.trim().trim_end_matches('d').parse().ok()).collect();
+    Ok(if v.len() == 3 { Some([v[0], v[1], v[2]]) } else { None })
+}
+
+/// (farmopt 13:13 PRIORITY, day-1's x4 re-form, G1 13:11 (2)) A full glass block one cell above a row
+/// rail (the rider layer, y 26 over the row at y 25): ridden carts passing under it on a straight line and
+/// turning under it at a curve (east -> north, the K -> F turn), beside the same two lines with no glass
+/// (the controls), all four at the same stored speed and phase; empty carts too. Per pass: pass or
+/// blocked, the cart's speed before / under / after the glass cell (beside the control's), the rider's
+/// height over its cart and horizontal offset (dismount: the rider left behind), its health (damage).
+pub fn row_glass(version: &str, speeds: &[f64], phases: &[f64], empties: &[f64]) -> Result<()> {
+    let opts = VanillaOptions {
+        version: version.to_string(),
+        difficulty: "normal".into(),
+        with_bot: false,
+        biome: "minecraft:plains".into(),
+        tick_rate: 1000,
+        ..Default::default()
+    };
+    let mut srv = VanillaServer::start(&opts)?;
+    srv.cmd_ok("forceload add -32 -16 31 143")?;
+    srv.cmd_ok("time set 6000")?;
+    srv.cmd_ok("gamerule advance_time false")?;
+    // (z, turn, glass)
+    let lines: [(i32, bool, bool); 4] = [(0, false, true), (40, true, true), (80, false, false), (120, true, false)];
+    for (zl, turn, glass) in lines {
+        let x_end = if turn { -1 } else { 23 };
+        srv.cmd_ok(&format!("fill -24 {} {zl} {x_end} {} {zl} minecraft:glass", Y - 1, Y - 1))?;
+        srv.cmd_ok(&format!("fill -23 {Y} {zl} {x_end} {Y} {zl} minecraft:rail[shape=east_west,waterlogged=false]"))?;
+        srv.cmd_ok(&format!("setblock -24 {Y} {zl} minecraft:glass"))?;
+        if turn {
+            srv.cmd_ok(&format!("fill 0 {} {} 0 {} {zl} minecraft:glass", Y - 1, zl - 20, Y - 1))?;
+            srv.cmd_ok(&format!("setblock 0 {Y} {zl} minecraft:rail[shape=north_west,waterlogged=false]"))?;
+            srv.cmd_ok(&format!("fill 0 {Y} {} 0 {Y} {} minecraft:rail[shape=north_south,waterlogged=false]", zl - 19, zl - 1))?;
+            srv.cmd_ok(&format!("setblock 0 {Y} {} minecraft:glass", zl - 20))?;
+        } else {
+            srv.cmd_ok(&format!("setblock 24 {Y} {zl} minecraft:glass"))?;
+        }
+        if glass {
+            srv.cmd_ok(&format!("setblock 0 {} {zl} minecraft:glass", Y + 1))?;
+        }
+        let ok = crate::strict::test(&mut srv, &format!("execute if block 0 {Y} {zl} minecraft:rail[shape={}]", if turn { "north_west" } else { "east_west" }))?;
+        anyhow::ensure!(ok, "line z {zl}: the rail at (0,{Y},{zl}) is not as built");
+    }
+    println!(
+        "== a glass block over a row rail on the official {version} server: rails at y {Y}; line z 0 straight with glass at (0,{},0), line z 40 the east -> north curve at (0,{Y},40) with glass over it, lines z 80 / 120 the same with no glass (controls); a rider's box top on a flat rail {:.4}, the glass bottom {}",
+        Y + 1,
+        Y as f64 + 0.0625 + 1.95,
+        Y + 1
+    );
+    let mut passes: Vec<(f64, f64, bool)> = Vec::new();
+    for &v in speeds {
+        for &ph in phases {
+            passes.push((v, ph, true));
+        }
+    }
+    for &v in empties {
+        for &ph in phases {
+            passes.push((v, ph, false));
+        }
+    }
+    let mut blocked: Vec<String> = Vec::new();
+    let mut hurt: Vec<String> = Vec::new();
+    for &(v, ph, ridden) in &passes {
+        for (i, (zl, _, _)) in lines.iter().enumerate() {
+            let pass = if ridden { format!(",Passengers:[{{id:\"minecraft:villager\",Tags:[\"rg{i}p\"],PersistenceRequired:1b}}]") } else { String::new() };
+            let x0 = if ridden { -6.0 } else { -4.0 } + ph;
+            let out = srv.cmd(&format!("summon minecraft:minecart {x0} {} {} {{Tags:[\"rg{i}\"],Motion:[{v:?}d,0.0d,0.0d]{pass}}}", Y as f64 + 0.0625, *zl as f64 + 0.5))?;
+            anyhow::ensure!(out.contains("Summoned new"), "line {i}: {}", out.trim());
+        }
+        // per line: (speed before at x in [-2.5,-1.5), under at the glass cell, after (x >= 1.5 or z <= zl - 1.5)),
+        // the rider's dy / horizontal offset extremes, the least health, the end position
+        let mut sp: Vec<[Option<f64>; 3]> = vec![[None; 3]; lines.len()];
+        let mut dy: Vec<(f64, f64)> = vec![(f64::MAX, f64::MIN); lines.len()];
+        let mut off: Vec<f64> = vec![0.0; lines.len()];
+        let mut hp: Vec<f64> = vec![f64::MAX; lines.len()];
+        let mut prev: Vec<Option<[f64; 3]>> = vec![None; lines.len()];
+        let mut end: Vec<Option<[f64; 3]>> = vec![None; lines.len()];
+        for _ in 0..100u32 {
+            srv.step(1)?;
+            let mut all_done = true;
+            for (i, (zl, turn, _)) in lines.iter().enumerate() {
+                let c = pos3(&mut srv, &format!("@e[tag=rg{i},limit=1]"))?;
+                let Some(c) = c else { continue };
+                let step = prev[i].map(|q| ((c[0] - q[0]).powi(2) + (c[2] - q[2]).powi(2)).sqrt());
+                prev[i] = Some(c);
+                end[i] = Some(c);
+                let zl = *zl as f64;
+                let phase_slot = if *turn {
+                    if c[2] <= zl - 1.0 { 2 } else if c[0] >= -0.5 { 1 } else if c[0] >= -2.5 { 0 } else { 3 }
+                } else if c[0] >= 1.5 {
+                    2
+                } else if c[0] >= -0.5 {
+                    1
+                } else if c[0] >= -2.5 {
+                    0
+                } else {
+                    3
+                };
+                if phase_slot < 3 && sp[i][phase_slot].is_none() {
+                    sp[i][phase_slot] = step;
+                }
+                if ridden {
+                    if let Some(r) = pos3(&mut srv, &format!("@e[tag=rg{i}p,limit=1]"))? {
+                        dy[i] = (dy[i].0.min(r[1] - c[1]), dy[i].1.max(r[1] - c[1]));
+                        off[i] = off[i].max(((r[0] - c[0]).powi(2) + (r[2] - c[2]).powi(2)).sqrt());
+                    }
+                    if let Some(h) = num_of(&mut srv, &format!("@e[tag=rg{i}p,limit=1]"), "Health")? {
+                        hp[i] = hp[i].min(h);
+                    }
+                }
+                let done = if *turn { c[2] <= zl - 3.0 } else { c[0] >= 3.5 };
+                if !done && step.is_some_and(|s| s > 1e-6) {
+                    all_done = false;
+                }
+                if !done && step.is_none() {
+                    all_done = false;
+                }
+            }
+            if all_done {
+                break;
+            }
+        }
+        for (i, (zl, turn, glass)) in lines.iter().enumerate() {
+            let e = end[i];
+            // passed: carried clear of the glass cell (east of it on the straight, north of it after the turn)
+            let passed = e.is_some_and(|c| if *turn { c[2] <= *zl as f64 - 1.0 } else { c[0] >= 1.5 });
+            let f = |o: Option<f64>| o.map(|s| format!("{s:.3}")).unwrap_or("-".into());
+            println!(
+                "  stored v {v:.3} phase {ph:.2} {} {} {}: {} | speed before {} under {} after {} | {}",
+                if ridden { "ridden" } else { "EMPTY " },
+                if *turn { "turn    " } else { "straight" },
+                if *glass { "GLASS   " } else { "no glass" },
+                if passed { "PASS" } else { "BLOCKED" },
+                f(sp[i][0]),
+                f(sp[i][1]),
+                f(sp[i][2]),
+                if ridden {
+                    format!("rider over its cart dy {:.4}..{:.4}, horizontal offset max {:.4}, least health {}", dy[i].0, dy[i].1, off[i], if hp[i] == f64::MAX { "-".to_string() } else { format!("{:.1}", hp[i]) })
+                } else {
+                    String::new()
+                }
+            );
+            if !passed {
+                blocked.push(format!("v {v:.3} phase {ph:.2} {} {} {}", if ridden { "ridden" } else { "empty" }, if *turn { "turn" } else { "straight" }, if *glass { "glass" } else { "no glass" }));
+            }
+            if ridden && (hp[i] < 20.0 || off[i] > 0.05) {
+                hurt.push(format!("v {v:.3} phase {ph:.2} {} {}: health {:.1}, offset {:.4}", if *turn { "turn" } else { "straight" }, if *glass { "glass" } else { "no glass" }, hp[i], off[i]));
+            }
+            srv.cmd_ok(&format!("tp @e[tag=rg{i}p] 0 {} 0", Y - 40))?;
+            srv.cmd(&format!("kill @e[tag=rg{i}p]"))?;
+            srv.cmd(&format!("kill @e[tag=rg{i}]"))?;
+        }
+        srv.cmd("kill @e[type=minecraft:item]")?;
+        srv.step(5)?;
+    }
+    println!(
+        "  summary: {} passes x 4 lines; blocked: {} {:?}; damage or rider offset > 0.05: {} {:?} (a measurement: compare the glass lines' speeds with the controls')",
+        passes.len(),
+        blocked.len(),
+        blocked.iter().take(8).collect::<Vec<_>>(),
+        hurt.len(),
+        hurt.iter().take(8).collect::<Vec<_>>()
+    );
+    let _ = std::fs::remove_dir_all(&srv.dir);
     Ok(())
 }

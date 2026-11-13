@@ -623,6 +623,18 @@ pub enum MobaiCmd {
         #[arg(long, default_value = "")]
         loads: String,
     },
+    /// (farmopt 13:13, day-1's x4 re-form) a glass block one cell above a row rail: ridden carts passing
+    /// under it straight and turning under it (east -> north), beside no-glass controls
+    RowGlass {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        #[arg(long, default_value = "0.35,0.60,0.05")]
+        speeds: String,
+        #[arg(long, value_delimiter = ',', default_value = "0.00,0.11,0.23,0.37")]
+        phases: Vec<f64>,
+        #[arg(long, value_delimiter = ',', default_value = "0.45,0.60")]
+        empties: Vec<f64>,
+    },
     /// (G1 12:55) the row strings: carts rolling east under a north-south string one cell (A) and two
     /// cells (B) above a flat rail line, at stored speeds x phases, ridden and empty
     RowString {
@@ -2010,6 +2022,13 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
                 .collect::<anyhow::Result<_>>()?;
             let h = f3(&home, "--home")?;
             crate::reclaim::bed_reclaim(&version, &file, &rm, f3(&day_pos, "--day-pos")?, [h[0] as i32, h[1] as i32, h[2] as i32], f3(&arm_at, "--arm-at")?, runs, after, expect, within, asleep)
+        }
+        MobaiCmd::RowGlass { version, speeds, phases, empties } => {
+            let s: Vec<f64> = speeds.split(',').map(|v| v.trim().parse::<f64>()).collect::<std::result::Result<_, _>>()?;
+            anyhow::ensure!(s.len() == 3 && s[2] > 0.0 && s[1] >= s[0], "--speeds from,to,step, got {speeds}");
+            let n = ((s[1] - s[0]) / s[2]).round() as usize;
+            let list: Vec<f64> = (0..=n).map(|i| s[0] + s[2] * i as f64).collect();
+            crate::presencestring::row_glass(&version, &list, &phases, &empties)
         }
         MobaiCmd::RowString { version, speeds, phases, empties } => {
             let s: Vec<f64> = speeds.split(',').map(|v| v.trim().parse::<f64>()).collect::<std::result::Result<_, _>>()?;
