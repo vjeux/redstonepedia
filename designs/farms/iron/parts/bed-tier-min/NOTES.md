@@ -362,3 +362,66 @@ stand-ins:
 
 - In the hidden-waker control, the cart seated the sleeping napper off its bed. Not bridged; the
   design must not rely on it.
+
+## The curve contact's fix (ironspec 23:19 (4b); adopted 00:32)
+
+A cart picking up near 0.154 b/t caught the glass east of the pickup cell, (-1,0,4), with its box's
+east face as it turned the curve (-2,0,5) east (0.148 -> 0.104 b/t). The band sweep with contacts
+counted (entries 0.11..0.24 every 0.005 x restarts +1..+30 every gt x 10 orders x park -0.05 / 0 /
++0.05 x 8 seeds, 194,400 visits; bench, tool unreviewed, pre-official-load): the glass, 14,400 visits
+with the contact (entries 0.14..0.165); the fix, a closed top-half iron trapdoor there
+(`iron_trapdoor[facing=west,half=top,open=false,powered=false,waterlogged=false]`, collision
+0.8125..1.0, above the cart's top at 0.7625; nothing powers it), 194,400 clean, 0 contacts, the park
+bar met, pickups 0.143..0.207, HOME lost 0. The napper on the pickup cell still can't step east (its
+box 0..1.95 meets the slab, glass over it). The statics' summaries (golem flood, push-scan,
+flee-check, sight) are the same as the glass's. It is A6's design now; `--curve-glass` is the
+contact's positive control. record7e (onechunk, 1336ad6c3) carries it at (-1,-27,3).
+
+## The shared stand-in guard and record-match (ironspec 22:37 / 23:13 / 23:46)
+
+The bench's emulated writes now go through `recordmatch::guard_intrinsics` (the one shared
+definition: golem in both roles, the full path classification, late-path, sight), its update reach,
+power reach and survival staying this bench's own checks. `--record FILE` prints record-match's line
+for the bench's world (the visit `--from` at the first speed, after every bench write, the declared
+levers' night states aside) and its verdicts fail the run; `--record-declare` adds declaration lines;
+on a module, its `emulated:` cells are laid and declared as a candidate. record7's line-bench levers:
+`--lever-on` (REST_l), `--built-release` (NOT-ready: off at the release, on again at the departure;
+no R1 stand-ins), `--day-lever` (DAY written only at game time % 20). Every fluid cell's tick is
+scheduled at load (the count printed); every bar prints its samples (0: NOT JUDGED, a failure unless
+`--scope-excludes`); riderless carts out > 0 fails; the PATH right after every load is printed.
+
+## (A), the eject within SleepInBed's reach: parked (ironspec 00:07 (4A) -> 02:18)
+
+`mctas mobfarm bedtier --eject-at-bed`: the flats along x -2 raised to y 1, the arming detector
+(-2,1,1), the activator E (-2,1,2) over the bed foot's north-east corner, the park one braked powered
+rail ascending north (-2,0,3), the pickup cell P (-2,0,4) as A6's; the landing chests, the ledge and
+the drop column gone. Findings (bench, tool unreviewed, A6 alone):
+
+- **The dismount.** Height 0's SW (the cell over the bed foot) is no floor: the fallback from the
+  cell below counts only a full-height block (the bed's top is 0.5625). So every place at E's level
+  and the one above is made invalid (five glass cells round E at y 1..2, glass over the park's
+  trapdoor instead of A6-style's golem-proofing button, which it replaces in that role too), and the
+  first valid place is height -1's SW, the bed foot: 28/28 riders set on it, asleep the same tick
+  (SleepInBed: 1.00 from the bed head's centre; startSleeping erases WALK_TARGET and CANT_REACH).
+- **The boarding cooldown.** A rider dismounted at E can't board any cart for 60 gt
+  (`Entity.boardingCooldown`, set on stopRiding; A6's 85+ gt walk never met it). So the gate is F =
+  the lie-down + 2 AND the arming edge + 70 (the cooldown less the park -> P travel, plus the
+  detector -> E time and a margin), the release the wake edge (no release without a wake: a stranded
+  napper keeps the cart parked; the napper sleeps through the delay, awake at P 3..5 gt). With delay
+  0 (the positive control) the cart is moving on the release tick or reaches P inside the cooldown and
+  stops against the napper: 8/8 not out. With 70: the cart at rest on every release tick, the pickup
+  >= dismount + 67, 28/28 seated. **Entry -> R 146..185** against A6's 154..183: the cooldown
+  replaces the walk, so no cap gain.
+- **The 0.2-step clip.** A minecart's own move collides with a pushable entity's box (vanilla
+  `canVehicleCollide`): a cart stepping more than ~0.2 per gt can carry its front past the standing
+  napper's back face in one tick, the move clips it there and zeroes its velocity, and the pickup
+  that follows needs > 0.1 b/t: stopped dead, the napper stranded. A6's seven flats bring the cart
+  under 0.2 before P. (A)'s one-cell park gives pickups of 0.145 / 0.214 / 0.284 by park position, and
+  the park sweep (every 0.01, z 2.91..3.71) has a failure gap at z 3.23..3.25 between nominal parks at
+  3.22 and 3.27: a robust FAIL. Fixes (a run-up of 3..4 flats after the park, a saturated uniform
+  park, a non-boosting release) are not priced: (A) is parked behind B1.
+- **B2's IDLE clearer.** LandRandomPos can't pick the bed foot (the bed is legacy-solid, its raw
+  sample fails `isNotStable`); a reachable stable own cell beside the bed (P with a solid-render
+  block under it) clears by dusk with P ~33% only (10 samples of 6,615 per attempt, ~260 attempts in
+  a 12,000-gt day); a block-only yard needs K >= ~41 reachable stable cells for P(no clear) <= 1e-7.
+  Not priced (02:18).

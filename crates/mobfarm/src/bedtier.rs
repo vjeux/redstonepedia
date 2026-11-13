@@ -927,8 +927,8 @@ pub struct Row {
 
 /// The bench's fault and control rows.
 /// (ironspec 21:43 / 23:46) The design of record a bench is compared against: its cells and
-/// entities, the offset (bench cell + offset = record cell), the margin over the bench's world box,
-/// the declarations (stand-ins, candidates, bench entities) and its name.
+/// entities, the offset (record-match's: a record cell + offset = the bench's cell), the margin over
+/// the bench's world box, the declarations (stand-ins, candidates, bench entities) and its name.
 #[derive(Debug, Default, Clone)]
 pub struct RecordCtx {
     pub cells: std::collections::BTreeMap<crate::recordmatch::Cell, String>,
