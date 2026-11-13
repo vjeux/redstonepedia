@@ -6,13 +6,17 @@ Owner: session 58f770cc. Rulings: ironspec (3883f332), farmopt (ca87cf44), G1 (8
 
 ## Files
 
-- `bed-tier-fold.txt`: the stop, design A6 (ironspec 10:46-16:29). 17.2 build minutes at middle
-  prices (`mctas mobfarm bill`), the leaves' shears, the two landing chests and the trapdoor's iron
-  included. Not built:
-  F and the release from the bed observer (the controller's: day-1's line ends at the hatch's two
-  levers and the park's two; the bench's levers are stand-ins, so onechunk's verify re-runs on
-  day-1's real line ends when laid). The way-in (b8949c96) ends at the entry booster.
-- `bed-tier-fold-bench.txt`: the same with a run-out past R and the two-visit bench's queue rail.
+- `bed-tier-fold.txt`: the stop of record for stack (b+), (A) with the run-up (G1's Q17, regenerated
+  Nov 13): `mctas mobfarm bedtier --out bed-tier-fold.txt --eject-at-bed --runup --no-loop-booster
+  --exit-south --waker-south --exit-boost --hold-slope --wake-sensor` (local frame; loop = local +
+  (0,-27,-1)). No lever and no stand-in in it: (-5,1,8) (F's line output) and (3,0,4) (the park
+  drive's input) are empty for DAY-1's cells, Z1's shutter (-5,1,9) is stored unpowered (its stable
+  state with no drive), the slope hold's tap repeater (1,-2,4) is DAY-1's. The design A6 it replaced
+  is in git history (cc17d2a8f) and the sections below.
+- `bed-tier-fold-bench.txt`: the same with `--bench`: a run-out past R, the queue cell's rail, and the
+  stand-ins as declared bench overrides: the shutter's drive lever (-5,1,8), the park drive's lever
+  (3,0,4), the slope hold's tap repeater (1,-2,4) with its input lever (1,-2,3) (`--tap`).
+- A6's own lines below describe the files as they were before Nov 13.
 - Header lines:
   - `keep-clear:` the bed's column (-3,1..3,4): the HOME path's target and the walk's drop (a block
     there moves the target or blocks the drop);
