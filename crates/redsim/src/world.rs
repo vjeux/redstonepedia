@@ -363,6 +363,10 @@ pub struct World {
     /// The level's weather: `WeatherData`, the rain and thunder levels, lightning (its bolts).
     /// Off by default (no weather: nothing drawn, nothing changes).
     pub weather: crate::weather::Weather,
+    /// The next path's identity (`Path::uid`, standing in for Java's reference comparison of paths): the
+    /// world's own counter, from 1, so a world's paths and traces don't depend on other worlds built in the
+    /// same process or thread (G1 / b8949c96 08:36: it replaced a process-wide counter).
+    pub path_uid: PathUids,
     /// The AFK player's position (a farm judge's declared spot): fire spreads and lava lights fire
     /// only within 128 blocks of a player (`ServerLevel.canSpreadFireAround`). `None` (the
     /// default, as in the bridge's sandboxes): no player.
@@ -382,7 +386,40 @@ pub struct World {
     pub ticking_sections: Option<crate::crops::TickingSections>,
 }
 
+/// A world's path-identity counter ([`World::path_uid`]): drawn through the path finder's shared `&World`,
+/// atomic so a `World` stays `Sync` (a site's cache shares its template world), and cloned with its count.
+#[derive(Debug)]
+pub struct PathUids(std::sync::atomic::AtomicU64);
+
+impl PathUids {
+    /// A fresh world's: its first path is 1.
+    pub fn new() -> PathUids {
+        PathUids(std::sync::atomic::AtomicU64::new(1))
+    }
+
+    /// The id the next path will take.
+    pub fn peek(&self) -> u64 {
+        self.0.load(std::sync::atomic::Ordering::Relaxed)
+    }
+}
+
+impl Default for PathUids {
+    fn default() -> PathUids {
+        PathUids::new()
+    }
+}
+
+impl Clone for PathUids {
+    fn clone(&self) -> PathUids {
+        PathUids(std::sync::atomic::AtomicU64::new(self.peek()))
+    }
+}
+
 impl World {
+    /// The next path identity of this world ([`World::path_uid`]): 1, 2, … in the order its paths are found.
+    pub fn next_path_uid(&self) -> u64 {
+        self.path_uid.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    }
     /// An empty world covering `min..min+size` (exclusive).
     pub fn new(min: BlockPos, size: [i32; 3]) -> World {
         let n = (size[0] * size[1] * size[2]) as usize;
@@ -461,6 +498,7 @@ impl World {
             explosions: Vec::new(),
             land: None,
             weather: Default::default(),
+            path_uid: PathUids::new(),
             afk: None,
             outside: Vec::new(),
             outer: Default::default(),

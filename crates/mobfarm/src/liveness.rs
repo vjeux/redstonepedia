@@ -1025,7 +1025,7 @@ mod tests {
             let ex = b.ex.as_mut().expect("the villager's exact brain (AI on)");
             ex.mem.cant_reach_since = Some(t);
             ex.mem.walk_target = Some(redsim::entity::mob::ai::brain::WalkTarget::at_point(redsim::entity::Vec3::new(3.5, 0.0, 3.5), 0.5, 1));
-            ex.mem.path = Some(redsim::entity::mob::ai::path::Path::new(Vec::new(), BlockPos::new(3, 0, 3), false));
+            ex.mem.path = Some(redsim::entity::mob::ai::path::Path::new(Vec::new(), BlockPos::new(3, 0, 3), false, 0));
         }
         // (no vacuous pass, G1: the four codec-less memories are present before the save)
         {
