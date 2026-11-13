@@ -1430,6 +1430,23 @@ pub fn home_walk(spec: &FarmSpec, head: BlockPos, feet: &[Vec3]) -> Result<(Vec<
     Ok((lines, if feet.is_empty() { usize::MAX } else { fails }))
 }
 
+/// The `KEY: x,y,z+x,y,z...=REASON; ...` entries of a design text's lines (bare `KEY:` meta lines
+/// reach here as `# KEY:`; `#`-header lines are read as they stand), each cell with its reason.
+fn parse_cell_entries(text: &str, key: &str) -> Result<Vec<(BlockPos, String)>, String> {
+    let mut out = Vec::new();
+    for e in crate::pushscan::header_entries(text, &format!("{key}:")) {
+        let (cs, why) = e.split_once('=').ok_or_else(|| format!("{key} {e}: x,y,z+...=REASON"))?;
+        for c in cs.split('+') {
+            let n: Vec<i32> = c.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>().map_err(|err| format!("{key} {e}: {err}"))?;
+            if n.len() != 3 {
+                return Err(format!("{key} {e}: x,y,z+...=REASON"));
+            }
+            out.push((BlockPos::new(n[0], n[1], n[2]), why.trim().to_string()));
+        }
+    }
+    Ok(out)
+}
+
 /// (ironspec Nov 12 21:49 (4)) The design's place classes: `riderless:` cells (an empty cart's
 /// path: no rider there, dropped from the rider places and printed as such) and `waker-places:`
 /// (a declared design exception, the woken napper's places: printed apart with their reason and
@@ -1447,26 +1464,37 @@ pub struct PlaceClasses {
     /// or line): when given, the walk's switched set is exactly these; an inferred T that isn't
     /// declared is printed.
     pub switches: Vec<(BlockPos, String)>,
+    /// (7b90c3f1 / day-1 Nov 13 10:37-10:41) `update-only:` sources whose updates only re-settle a
+    /// switched T to its own power's shape (a detector, a feed dust): printed with the Ts they
+    /// reach; information (the T itself must be declared in `switches:`).
+    pub update_only: Vec<(BlockPos, String)>,
 }
 
 impl PlaceClasses {
     pub fn from_meta(meta: &std::collections::BTreeMap<String, String>) -> Result<PlaceClasses, String> {
         let parse = |key: &str| -> Result<Vec<(BlockPos, String)>, String> {
             let Some(v) = meta.get(key) else { return Ok(Vec::new()) };
-            let mut out = Vec::new();
-            for e in crate::pushscan::header_entries(&format!("# {key}: {v}"), &format!("{key}:")) {
-                let (cs, why) = e.split_once('=').ok_or_else(|| format!("{key} {e}: x,y,z+...=REASON"))?;
-                for c in cs.split('+') {
-                    let n: Vec<i32> = c.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>().map_err(|err| format!("{key} {e}: {err}"))?;
-                    if n.len() != 3 {
-                        return Err(format!("{key} {e}: x,y,z+...=REASON"));
-                    }
-                    out.push((BlockPos::new(n[0], n[1], n[2]), why.trim().to_string()));
-                }
-            }
-            Ok(out)
+            parse_cell_entries(&format!("# {key}: {v}"), key)
         };
-        Ok(PlaceClasses { riderless: parse("riderless")?, waker: parse("waker-places")?, late_exempt: parse("late-exempt")?, switches: parse("switches")? })
+        Ok(PlaceClasses { riderless: parse("riderless")?, waker: parse("waker-places")?, late_exempt: parse("late-exempt")?, switches: parse("switches")?, update_only: parse("update-only")? })
+    }
+
+    /// (7b90c3f1 Nov 13 10:37) The classes from the meta lines AND the design text's `# switches:`
+    /// / `# update-only:` header lines (the lift file carries them there): each entry
+    /// `x,y,z=REASON`, x,y,z the T RAIL's cell for `switches:`, the SOURCE's cell for `update-only:`.
+    pub fn from_design(meta: &std::collections::BTreeMap<String, String>, text: &str) -> Result<PlaceClasses, String> {
+        let mut c = PlaceClasses::from_meta(meta)?;
+        for (p, why) in parse_cell_entries(text, "switches")? {
+            if !c.switches.iter().any(|(q, _)| *q == p) {
+                c.switches.push((p, why));
+            }
+        }
+        for (p, why) in parse_cell_entries(text, "update-only")? {
+            if !c.update_only.iter().any(|(q, _)| *q == p) {
+                c.update_only.push((p, why));
+            }
+        }
+        Ok(c)
     }
 
     fn riderless(&self, c: &BlockPos) -> bool {
@@ -4674,6 +4702,82 @@ pub fn settled_world_void(spec: &FarmSpec) -> Result<redsim::World, String> {
     Ok(run.world)
 }
 
+/// (ironspec Nov 13 08:33 (2); 9fc3155f's correction 10:35) The hostile checks (`hostile::check`) on
+/// the FLOATING site: the design's own settled world in the void (redsim reads AIR outside the box),
+/// the AFK player at the run's default (60 under the chest) as the natural spawner's player, and
+/// the SITE BIOME set (plains: the terrain runs' level biome outside their sample) so the spawn
+/// lists are the site's. Without a biome every spawn list is empty and C1 ("can spawn inside the
+/// farm") could never fire: a vacuous pass (the 10:33 rows' fault). Returns the AFK spot, the farm
+/// and the exposures.
+pub fn void_exposures(spec: &FarmSpec, biome: &'static str) -> Result<(Vec3, redsim::entity::mob::hostile::Farm, Vec<redsim::entity::mob::hostile::Exposure>), String> {
+    // (ironspec Nov 13 10:38: plains AND ocean / river: the biome named, refused when unknown)
+    if redsim::terrain::biome::biome(biome).is_none() {
+        return Err(format!("the site biome {biome}: no such biome in redsim's table"));
+    }
+    let mut w = settled_world_void(spec)?;
+    let afk = Vec3::new(spec.output.x as f64 + 0.5, (spec.lo.y - 60) as f64, spec.output.z as f64 + 0.5);
+    use redsim::entity::mob::natural::{Difficulty, Natural};
+    w.mob.natural = Some(Natural { void_biome: Some(biome), ..Natural::new(vec![afk], Difficulty::Hard) });
+    let summoners = {
+        let mut with = w.clone();
+        for (k, p, n) in &spec.entities {
+            let _ = redsim::entity::spawn(&mut with, k, *p, n.as_deref());
+        }
+        redsim::entity::mob::site::villager_cells(&with)
+    };
+    let farm = circuit::mobfarm::hostile_farm(&w, spec, afk, &summoners);
+    let ex = redsim::entity::mob::hostile::check(&w, &farm, true);
+    Ok((afk, farm, ex))
+}
+
+/// (ironspec Nov 13 08:18 (e): the exterior hostile-spawn static on the FLOATING site) Every cell
+/// on the build's outside a natural monster could spawn in at night: each cell right above a block
+/// of the design (a top surface, the lightning rod's included) that is no design block itself and
+/// not the farm's interior (`hostile_farm`'s), tested as C1 tests the inside (`mobs_at` over the
+/// site biome's Monster list, then `can_spawn_at`: the floor tags, the 2-high space, no collision,
+/// the darkest night sky; a world without land models no block light, so every cell is taken as
+/// dark: a torch credits nothing here). The bar: 0 spawnable cells. Returns the lines and the
+/// spawnable count.
+pub fn exterior_spawns(spec: &FarmSpec, biome: &'static str) -> Result<(Vec<String>, usize), String> {
+    if redsim::terrain::biome::biome(biome).is_none() {
+        return Err(format!("the site biome {biome}: no such biome in redsim's table"));
+    }
+    let mut w = settled_world_void(spec)?;
+    let afk = Vec3::new(spec.output.x as f64 + 0.5, (spec.lo.y - 60) as f64, spec.output.z as f64 + 0.5);
+    use redsim::entity::mob::natural::{Category, Difficulty, Natural, kind_of, mobs_at};
+    w.mob.natural = Some(Natural { void_biome: Some(biome), ..Natural::new(vec![afk], Difficulty::Hard) });
+    let farm = circuit::mobfarm::hostile_farm(&w, spec, afk, &[]);
+    let interior: std::collections::HashSet<BlockPos> = farm.interior.iter().copied().collect();
+    let design: std::collections::HashSet<BlockPos> = spec.blocks.iter().filter(|(_, b)| !matches!(b, redsim::block::Block::Air)).map(|(p, _)| *p).collect();
+    let mut tops: Vec<BlockPos> = design.iter().map(|q| q.above()).filter(|p| !design.contains(p) && !interior.contains(p)).collect();
+    tops.sort_by_key(|p| (p.y, p.z, p.x));
+    tops.dedup();
+    let mut hits: Vec<(BlockPos, Vec<&'static str>)> = Vec::new();
+    for p in &tops {
+        let mut kinds: Vec<&'static str> = Vec::new();
+        for s in mobs_at(&w, Category::Monster, *p) {
+            let Some(k) = kind_of(&s.ty) else { continue };
+            if redsim::entity::mob::hostile::can_spawn_at(&w, k, *p) && !kinds.contains(&k.id) {
+                kinds.push(k.id);
+            }
+        }
+        if !kinds.is_empty() {
+            hits.push((*p, kinds));
+        }
+    }
+    let mut lines = vec![format!(
+        "the exterior spawn static (ironspec Nov 13 08:18 (e), the FLOATING site: void outside the box, the site biome {biome}, the darkest night sky; no block light modeled in the void, so no torch credited): {} top-surface cells outside the interior, {} spawnable{}",
+        tops.len(),
+        hits.len(),
+        if hits.is_empty() { " (PASS: bar 0)" } else { " (FAIL: bar 0)" }
+    )];
+    for (p, kinds) in &hits {
+        let below = spec.blocks.iter().find(|(q, _)| *q == p.below()).map(|(_, b)| b.to_string()).unwrap_or_default();
+        lines.push(format!("  SPAWNABLE {},{},{} on {}: {}", p.x, p.y, p.z, below.trim_start_matches("minecraft:"), kinds.iter().map(|k| k.trim_start_matches("minecraft:")).collect::<Vec<_>>().join(", ")));
+    }
+    Ok((lines, hits.len()))
+}
+
 /// (ironspec Nov 13 09:44 / 09:55, G1 09:51 / 09:58) A signal source's class, DERIVED: its update
 /// footprint (settle-check's `update_reach`) and whether its output can change in operation. A
 /// redstone block is CONSTANT unless a piston can reach it (any piston within 13: it could be
@@ -4703,6 +4807,17 @@ pub fn source_classes(spec: &FarmSpec) -> Vec<SourceClass> {
     let mut out = Vec::new();
     for (p, b) in &spec.blocks {
         let Some((kind, reach)) = crate::pushscan::update_reach(*p, b) else { continue };
+        // (tick-exact Nov 13 10:40, DetectorRailBlock.checkPressed 80-115: a detector's press
+        // change notifies with a signal-source source only its 6 neighbours and the 6 of the block
+        // under it (updatePowerToConnected's neighborChanged carries the connected rail's own
+        // block, no source); a slope reaches nothing above. settle-check's update_reach adds a
+        // sloped detector's above-cell faces: not applied here, the divergence named to its owner)
+        let reach = if kind == "detector rail" {
+            let n6 = |c: BlockPos| [c.rel(redsim::pos::Dir::Up), c.rel(redsim::pos::Dir::Down), c.rel(redsim::pos::Dir::North), c.rel(redsim::pos::Dir::South), c.rel(redsim::pos::Dir::West), c.rel(redsim::pos::Dir::East)];
+            n6(*p).into_iter().chain(n6(p.rel(redsim::pos::Dir::Down))).collect()
+        } else {
+            reach
+        };
         let (operating, why) = match kind {
             "redstone block" => match pistons.iter().find(|q| (q.x - p.x).abs().max((q.y - p.y).abs()).max((q.z - p.z).abs()) <= 13) {
                 Some(q) => (true, format!("a piston at {},{},{} within 13 could move it", q.x, q.y, q.z)),
@@ -4714,9 +4829,21 @@ pub fn source_classes(spec: &FarmSpec) -> Vec<SourceClass> {
                     _ => p.rel(redsim::pos::Dir::Down),
                 };
                 let sb = block_at(support);
+                let feeders: Vec<BlockPos> = powered_cells.iter().filter(|(s, c)| *c == support && s != p).map(|(s, _)| *s).collect();
+                // (G1 Nov 13 10:38 (b): a support powered only by CONSTANT sources holds the torch
+                // permanently OFF: a dead torch, a design error flagged by name)
+                let constant_feeder = |q: &BlockPos| -> bool {
+                    match block_at(*q) {
+                        redsim::block::Block::RedstoneBlock => !pistons.iter().any(|r| (r.x - q.x).abs().max((r.y - q.y).abs()).max((r.z - q.z).abs()) <= 13),
+                        _ => false,
+                    }
+                };
                 if !redsim::behavior::is_conductor(&w0, &sb, support) {
                     (false, format!("its support {},{},{} ({}) is no conductor: nothing powers it", support.x, support.y, support.z, sb.to_string().trim_start_matches("minecraft:")))
-                } else if let Some((src, _)) = powered_cells.iter().find(|(s, c)| *c == support && s != p) {
+                } else if !feeders.is_empty() && feeders.iter().all(constant_feeder) {
+                    let q = feeders[0];
+                    (false, format!("DEAD TORCH (a design error, G1 Nov 13 10:38 (b)): its support {},{},{} is powered by the CONSTANT redstone block at {},{},{}, so the torch is permanently off", support.x, support.y, support.z, q.x, q.y, q.z))
+                } else if let Some(src) = feeders.first() {
                     (true, format!("its support {},{},{} is powered from {},{},{}", support.x, support.y, support.z, src.x, src.y, src.z))
                 } else {
                     (false, format!("no source's power reaches its support {},{},{}", support.x, support.y, support.z))
@@ -4736,9 +4863,13 @@ pub fn source_classes(spec: &FarmSpec) -> Vec<SourceClass> {
 /// declares it in `switches:`. The bar: an UNDECLARED T inside an OPERATING source's footprint
 /// FAILS (its shape can flip at runtime); a declared one is by design. Returns the lines and the
 /// fails.
-pub fn t_exposure(spec: &FarmSpec, declared: &[(BlockPos, String)]) -> (Vec<String>, usize) {
+pub fn t_exposure(spec: &FarmSpec, declared: &[(BlockPos, String)]) -> Result<(Vec<String>, usize), String> {
     let rails: HashMap<BlockPos, String> = spec.blocks.iter().filter(|(_, b)| b.to_string().contains("rail")).map(|(p, b)| (*p, b.to_string())).collect();
     let classes = source_classes(spec);
+    // (ironspec Nov 13 10:47 (2), the rule made exact: the game's own re-settle shape, from redsim's
+    // RailState on the settled world: the CONNECTABLE arms (canConnectTo) and the cell's own power
+    // (hasNeighborSignal) now; for every T within any source's reach the stored shape must equal it)
+    let w = settled_world_void(spec)?;
     let mut lines = Vec::new();
     let mut fails = 0usize;
     let mut ts: Vec<(BlockPos, String)> = rails.iter().filter(|(_, s)| s.contains("minecraft:rail[")).map(|(c, s)| (*c, s.clone())).filter(|(c, _)| Track::arm_rails(&rails, *c).iter().filter(|v| !v.is_empty()).count() == 3).collect();
@@ -4747,12 +4878,46 @@ pub fn t_exposure(spec: &FarmSpec, declared: &[(BlockPos, String)]) -> (Vec<Stri
         let near: Vec<&SourceClass> = classes.iter().filter(|k| k.reach.contains(c)).collect();
         let operating: Vec<String> = near.iter().filter(|k| k.operating).map(|k| format!("{},{},{} {} ({}): OPERATING, {}", k.pos.x, k.pos.y, k.pos.z, k.kind, k.block.trim_start_matches("minecraft:"), k.why)).collect();
         let constants: Vec<String> = near.iter().filter(|k| !k.operating).map(|k| format!("{},{},{} {}: CONSTANT, {}", k.pos.x, k.pos.y, k.pos.z, k.kind, k.why)).collect();
+        // (the game's re-settle: RailState.place from the connectable arms, by the cell's power)
+        let state = w.get(*c);
+        let stored = redsim::rails::shape_of(&state);
+        let r = redsim::rails::RailState::new(*c, state);
+        let raw = r.count_potential_connections(&w);
+        let signal = w.has_neighbor_signal(*c);
+        let (now, unpowered, powered) = (r.shape_for(&w, signal, stored), r.shape_for(&w, false, stored), r.shape_for(&w, true, stored));
+        let shape_bad = !near.is_empty() && raw == 3 && now != stored;
+        let shape_note = format!(
+            "; the game's re-settle (connectable arms, its power {}): {} now (unpowered {}, powered {}){}",
+            if signal { "ON" } else { "off" },
+            now.name(),
+            unpowered.name(),
+            powered.name(),
+            if shape_bad { format!(": SHAPE MISMATCH, stored {} (ironspec 10:47 (2): a T within a source's reach must store the shape the game re-settles it to)", stored.name()) } else { String::new() }
+        );
         let decl = declared.iter().find(|(p, _)| p == c).map(|(_, w)| w.as_str());
-        let fail = decl.is_none() && !operating.is_empty();
+        // (58f770cc / G1 10:46: a T whose arms can't all join (a neighbour already full with 2
+        // connections) re-resolves to the same shape on any update: HELD while that neighbour
+        // stays full; the condition is printed by name)
+        let (_, per) = Track::joinable_arms(&rails, *c);
+        let blocked: Vec<String> = per.iter().filter(|(_, ok)| !ok).map(|(m, _)| format!("{},{},{}", m.x, m.y, m.z)).collect();
+        let held = !blocked.is_empty();
+        // (ironspec 10:47 (2): an undeclared T inside an operating footprint fails when its
+        // re-settle shape changes with its power; one whose shape can't change (unpowered ==
+        // powered: its connectable arms leave one shape) is HELD, its condition printed)
+        let can_flip = unpowered != powered;
+        let fail = shape_bad || (decl.is_none() && !operating.is_empty() && can_flip);
         fails += usize::from(fail);
         lines.push(format!(
-            "  {} T {},{},{} {}: {} operating source(s) whose update footprint holds it{}{}{}",
-            if fail { "FAIL" } else if decl.is_some() { "DECLARED" } else { "quiet" },
+            "  {} T {},{},{} {}: {} operating source(s) whose update footprint holds it{}{}{}{}{}",
+            if fail {
+                "FAIL"
+            } else if decl.is_some() {
+                "DECLARED"
+            } else if !operating.is_empty() {
+                "HELD"
+            } else {
+                "quiet"
+            },
             c.x,
             c.y,
             c.z,
@@ -4760,19 +4925,27 @@ pub fn t_exposure(spec: &FarmSpec, declared: &[(BlockPos, String)]) -> (Vec<Stri
             operating.len(),
             if operating.is_empty() { String::new() } else { format!(" ({})", operating.join("; ")) },
             if constants.is_empty() { String::new() } else { format!("; {} constant: {}", constants.len(), constants.join("; ")) },
+            shape_note,
+            if held { format!("; HELD by its neighbours: the arm(s) {} can't join (each already carries 2 connections): it keeps its shape on any update while they stay full (the integrity condition: if one loses a connection, the T can re-shape)", blocked.join(", ")) } else { String::new() },
             decl.map_or(String::new(), |w| format!("; declared in `switches:`: {w}"))
         ));
     }
+    // (G1 Nov 13 10:38 (b): every DEAD torch (its support held powered by a constant source: the
+    // torch permanently off) is a design error, listed by name and failing)
+    let dead: Vec<String> = classes.iter().filter(|k| k.why.starts_with("DEAD TORCH")).map(|k| format!("  DEAD TORCH {},{},{} ({}): {}", k.pos.x, k.pos.y, k.pos.z, k.block.trim_start_matches("minecraft:"), k.why)).collect();
+    fails += dead.len();
+    lines.extend(dead.iter().cloned());
     lines.insert(
         0,
         format!(
-            "the T exposure (ironspec Nov 13 09:44, G1 09:51: every plain rail with countPotentialConnections == 3, the signal sources whose UPDATE FOOTPRINT (settle-check's update_reach per type) holds it, CONSTANT (a redstone block) or OPERATING; an undeclared T inside an operating source's footprint FAILS, a `switches:` T is by design): {} T(s), {} declared, {fails} failing{}",
+            "the T exposure (ironspec Nov 13 09:44, G1 09:51 / 10:38: every plain rail with countPotentialConnections == 3, the signal sources whose UPDATE FOOTPRINT (settle-check's update_reach per type) holds it, CONSTANT or OPERATING as derived (each source's reason printed); an undeclared T inside an operating source's footprint FAILS, a `switches:` T is by design; a dead torch (support held powered by a constant source) FAILS as a design error): {} T(s), {} declared, {} dead torch(es), {fails} failing{}",
             ts.len(),
             ts.iter().filter(|(c, _)| declared.iter().any(|(p, _)| p == c)).count(),
+            dead.len(),
             if fails == 0 { " (PASS)" } else { " (FAIL)" }
         ),
     );
-    (lines, fails)
+    Ok((lines, fails))
 }
 
 pub fn coverage_map(spec: &FarmSpec, columns: &[[f64; 4]], cells_only: &[BlockPos], feet_extra: &[(String, Vec3)]) -> Result<(Vec<String>, usize), String> {
@@ -5261,10 +5434,10 @@ struct Track<'a> {
     rests: &'a [BlockPos],
     /// (`orient`) the moves the walks may take; `None`: every move, either way along a rail.
     allowed: Option<std::collections::HashSet<(TailNode, TailNode)>>,
-    /// (G1's note 4 on a4cd9b8b0) The switched Ts: plain rails with a neighbouring rail on 3 or 4
-    /// sides (level, one up or one down) and a signal source (a lever, torch, repeater, comparator,
-    /// detector rail, redstone block or dust, button, observer, plate, ...) within Manhattan 2
-    /// (ironspec's reach rule for placement-order Ts): a cart may take either shape, so their
+    /// (G1's note 4 on a4cd9b8b0; G1 Nov 13 09:02 / 09:58) The switched Ts: plain rails with three
+    /// neighbouring rails that can join them (level, one up or one down) inside the update footprint
+    /// of an OPERATING signal source (`source_classes`: derived, a constant source holds a shape),
+    /// or the record's `switches:` Ts when it declares them: a cart may take either shape, so their
     /// moves are the union of every arm, and their shapes orient nothing.
     switched_ts: std::collections::HashSet<BlockPos>,
     /// The cells with a collision shape, with its boxes (1/16): a rail exit into one whose boxes
@@ -5292,11 +5465,32 @@ impl<'a> Track<'a> {
     /// A track from its rail cells (game strings), columns, rests and signal sources.
     fn from_parts(rails: HashMap<BlockPos, String>, columns: &'a [[f64; 4]], rests: &'a [BlockPos], sources: Vec<BlockPos>, solid: HashMap<BlockPos, Vec<redsim::behavior::Box16>>) -> Track<'a> {
         let col_len = columns.iter().map(|c| ((c[3] - c[1]).abs() / 0.25).round() as usize + 1).collect();
-        // (G1 Nov 13 09:02: a fixed S-bend is no switched T) RailState.place re-shapes a T from
-        // the neighbours that CAN connect to it (hasConnection: the neighbour, its soft
-        // connections removed, `canConnectTo` this rail: it already points here, or it holds fewer
-        // than 2 connections); a neighbour whose shape points to two other rails that point back
-        // (a full one) never joins, so a T whose third arm is such a rail keeps its shape
+        let mut switched_ts = std::collections::HashSet::new();
+        for (c, s) in &rails {
+            if !s.contains("minecraft:rail[") {
+                continue;
+            }
+            // (tick-exact's official junction row: RailBlock.updateState re-shapes a plain rail only
+            // when countPotentialConnections() == 3 (RailBlock.java 22-25): a 4th rail in a side's
+            // column, a detector beside it say, keeps its placed shape for good)
+            let (arms, sides) = Track::joinable_arms(&rails, *c);
+            let joinable = sides.iter().filter(|(_, ok)| *ok).count();
+            // (`sources`: the cells inside an OPERATING source's update footprint: Track::new derives
+            // them; a T there with three joinable arms can re-shape)
+            if arms == 3 && joinable == 3 && sources.contains(c) {
+                switched_ts.insert(*c);
+            }
+        }
+        Track { rails, columns, col_len, rests, allowed: None, switched_ts, solid, declared_conflicts: Vec::new() }
+    }
+
+    /// (G1 Nov 13 09:02; 58f770cc 10:46) A rail cell's potential connections (`arms`: the sides
+    /// with a rail level, one up or one down: countPotentialConnections, raw presence) and, per
+    /// side, the first rail there and whether it CAN join this one: RailState.place re-shapes from
+    /// the neighbours that can connect (hasConnection: the neighbour, its soft connections removed,
+    /// `canConnectTo` this rail: it already points here, or it holds fewer than 2 connections); a
+    /// neighbour whose shape points to two other rails that point back (a full one) never joins.
+    fn joinable_arms(rails: &HashMap<BlockPos, String>, c: BlockPos) -> (usize, Vec<(BlockPos, bool)>) {
         let targets = |c: BlockPos| -> Vec<BlockPos> {
             let mut out = Vec::new();
             for (dx, dy, dz) in rail_exits(rails.get(&c).map(|s| s.as_str()).unwrap_or("")) {
@@ -5310,24 +5504,10 @@ impl<'a> Track<'a> {
         };
         let hard = |m: BlockPos| targets(m).into_iter().filter(|t| targets(*t).contains(&m)).count();
         let can_connect = |m: BlockPos, c: BlockPos| targets(m).contains(&c) || hard(m) < 2;
-        let mut switched_ts = std::collections::HashSet::new();
-        for (c, s) in &rails {
-            if !s.contains("minecraft:rail[") {
-                continue;
-            }
-            // (tick-exact's official junction row: RailBlock.updateState re-shapes a plain rail only
-            // when countPotentialConnections() == 3 (RailBlock.java 22-25): a 4th rail in a side's
-            // column, a detector beside it say, keeps its placed shape for good)
-            let sides = Track::arm_rails(&rails, *c);
-            let arms = sides.iter().filter(|v| !v.is_empty()).count();
-            let joinable = sides.iter().filter(|v| v.iter().any(|m| can_connect(*m, *c))).count();
-            // (`sources`: the cells inside an OPERATING source's update footprint: Track::new derives
-            // them; a T there with three joinable arms can re-shape)
-            if arms == 3 && joinable == 3 && sources.contains(c) {
-                switched_ts.insert(*c);
-            }
-        }
-        Track { rails, columns, col_len, rests, allowed: None, switched_ts, solid, declared_conflicts: Vec::new() }
+        let sides = Track::arm_rails(rails, c);
+        let arms = sides.iter().filter(|v| !v.is_empty()).count();
+        let per: Vec<(BlockPos, bool)> = sides.iter().filter(|v| !v.is_empty()).map(|v| (v[0], v.iter().any(|m| can_connect(*m, c)))).collect();
+        (arms, per)
     }
 
     /// The rails beside `c` in each horizontal direction (N, S, W, E), level, one up or one down
@@ -5599,7 +5779,7 @@ impl<'a> Track<'a> {
             }
         }
         let mut out = vec![format!(
-            "travel (the direction-aware walk, ironspec Nov 12 16:02; --two-way for the old walk): {one_way} moves one way ({by_col} column moves, {by_shape} links one way by their rails' shapes away from switched Ts ({} Ts with a signal source within Manhattan 2: every arm walked, their shapes orient nothing), {by_decl} declared --travel steps, the rest carried along chains and through junctions), {both} reversal moves both ways (--reversal), {} links both ways where nothing orients them, {} links oriented both ways (a conflict: kept both ways)",
+            "travel (the direction-aware walk, ironspec Nov 12 16:02; --two-way for the old walk): {one_way} moves one way ({by_col} column moves, {by_shape} links one way by their rails' shapes away from switched Ts ({} switched Ts: three joinable arms inside an OPERATING source's update footprint (source_classes, derived) or declared in `switches:`: every arm walked, their shapes orient nothing), {by_decl} declared --travel steps, the rest carried along chains and through junctions), {both} reversal moves both ways (--reversal), {} links both ways where nothing orients them, {} links oriented both ways (a conflict: kept both ways)",
             switched.len(),
             undecided.len(),
             conflict.len()
@@ -6375,11 +6555,21 @@ pub fn clear_all(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32; 
     }
     lines.push(format!(
         "late paths (tick-exact's panic-lift row: a PANIC draw pathed up to {late_gt} gt later, after MoveToTargetSink's cooldown, from where the cart has rolled; a reached candidate that some later node leaves unreached): {}",
-        if late_gt <= 0.0 { "not checked".to_string() } else if late.is_empty() { "0".to_string() } else { format!("FAIL at {late_positions} panicking nodes, {} candidate cells", late.len()) }
+        if late_gt <= 0.0 {
+            "not checked".to_string()
+        } else if late.is_empty() && !late_exempt_hits.is_empty() {
+            // (G1 Nov 13 10:38 (a): a late PASS leaning on an exemption is PENDING until the runs
+            // that judge its conditions pass)
+            format!("0 failing, PENDING: it leans on {} declared late-exempt draw cell(s) whose conditions are NOT JUDGED here", late_exempt_hits.len())
+        } else if late.is_empty() {
+            "0".to_string()
+        } else {
+            format!("FAIL at {late_positions} panicking nodes, {} candidate cells", late.len())
+        }
     ));
     for ((x, y, z), (why, n, dt)) in &late_exempt_hits {
         lines.push(format!(
-            "  EXEMPT (declared late-exempt: {why}) drawn at {x},{y},{z}: {n} (draw, later node) pairs, the first {dt:.1} gt later; information, not a failing node; its conditions, judged by the composed runs (G1 Nov 13 08:23): a napper-only position (every entity seated there printed), the stamp erased at the napper's lie-down (SleepInBed.start: before / after printed), arming -> lie-down under 1,000 gt with no SetWalkTargetFromBlockMemory run at >= 1,000 between"
+            "  EXEMPT (declared late-exempt: {why}) drawn at {x},{y},{z}: {n} (draw, later node) pairs, the first {dt:.1} gt later; information, not a failing node; its conditions are NOT JUDGED here (G1 Nov 13 10:38 (a): the composed runs judge them, and the late result leaning on this exemption stays PENDING until they pass): a napper-only position (every entity seated there printed), the stamp erased at the napper's lie-down (SleepInBed.start: before / after printed), arming -> lie-down under 1,000 gt with no SetWalkTargetFromBlockMemory run at >= 1,000 between"
         ));
     }
     let mut lt: Vec<_> = late.into_iter().collect();
@@ -6786,8 +6976,8 @@ mod orient_tests {
         assert!(lines.iter().any(|l| l.contains("declared --reversal 0,0,1: the run shows it")), "{lines:?}");
     }
 
-    /// (G1's note 4 on a4cd9b8b0) A T with a signal source within Manhattan 2 moves onto every
-    /// arm (the union of its shapes); without one, its stored shape's two only.
+    /// (G1's note 4 on a4cd9b8b0) A T inside an operating source's update footprint moves onto
+    /// every arm (the union of its shapes); outside every one, its stored shape's two only.
     #[test]
     fn switched_t_union() {
         let cols: [[f64; 4]; 0] = [];
@@ -6839,6 +7029,11 @@ mod orient_tests {
         assert_eq!(c.waker(&BlockPos::new(0, -27, 4)), Some("riding out past the hatch (A6 b36302af8)"));
         assert_eq!(c.waker(&BlockPos::new(-3, -27, 3)), Some("asleep in the bed (2.04)"));
         assert!(PlaceClasses::from_meta(&std::collections::BTreeMap::new()).unwrap().waker.is_empty());
+        // (7b90c3f1 10:37: `# switches:` / `# update-only:` header lines join the meta lines)
+        let text = "# switches: -1,25,9=J(-1): the lever (-1,26,9), on north_west, off north_east\n# update-only: -3,23,9=lane -1's feed dust: re-settles K(-1)\nname: x\n";
+        let c3 = PlaceClasses::from_design(&std::collections::BTreeMap::new(), text).unwrap();
+        assert_eq!(c3.switches, vec![(BlockPos::new(-1, 25, 9), "J(-1): the lever (-1,26,9), on north_west, off north_east".to_string())]);
+        assert_eq!(c3.update_only.len(), 1);
         // (ironspec Nov 13 09:01 (c): `late-exempt:` draw cells, each with its reason)
         meta.insert("late-exempt".to_string(), "9,-14,-4+9,-13,-5=the descent seat: napper-only, its stamp erased at (A)'s lie-down".to_string());
         let c2 = PlaceClasses::from_meta(&meta).unwrap();
@@ -7103,6 +7298,13 @@ mod gate_tests {
     #[test]
     fn t_exposure_fails_undeclared_operating() {
         let p = |s: &str| redsim::block::Block::parse(s).unwrap();
+        // (the operating torch of the first case: on stone, the stone powered by a ceiling lever)
+        let with_det_held = |bl: &Vec<(redsim::pos::BlockPos, redsim::block::Block)>| {
+            let mut v = bl.clone();
+            v.push((b(0, 1, 1), p("minecraft:redstone_torch[lit=true]")));
+            v.push((b(0, -1, 1), p("minecraft:lever[face=ceiling,facing=north,powered=false]")));
+            v
+        };
         let mut blocks = Vec::new();
         for x in -3..=4 {
             for z in -3..=3 {
@@ -7118,30 +7320,127 @@ mod gate_tests {
         // so the torch can change: OPERATING)
         with_det.push((b(0, -1, 1), p("minecraft:lever[face=ceiling,facing=north,powered=false]")));
         let mk = |bl: Vec<(redsim::pos::BlockPos, redsim::block::Block)>| redsim::entity::mob::farm::FarmSpec { blocks: bl, entities: Vec::new(), output: b(4, 1, 3), lo: b(-5, -1, -5), hi: b(6, 5, 5), block_entities: Vec::new(), rock: false, nether: None, land: false };
-        let (l, f) = super::t_exposure(&mk(with_det.clone()), &[]);
+        // (ironspec 10:47 (2): a T a lit torch or a redstone block powers re-settles north_west
+        // (N, W, E all joinable, powered: the last-match order ends on north_west): the fixtures
+        // that power it store that shape, so only the rule under test decides)
+        let nw = |mut v: Vec<(redsim::pos::BlockPos, redsim::block::Block)>| {
+            v.retain(|(q, _)| *q != b(0, 1, 0));
+            v.push((b(0, 1, 0), p("minecraft:rail[shape=north_west,waterlogged=false]")));
+            v
+        };
+        let (l, f) = super::t_exposure(&mk(nw(with_det.clone())), &[]).unwrap();
         assert!(f == 1 && l.iter().any(|x| x.contains("FAIL T 0,1,0") && x.contains("OPERATING, its support 0,0,1 is powered from 0,-1,1")), "{l:?}");
-        let (l2, f2) = super::t_exposure(&mk(with_det), &[(b(0, 1, 0), "the switch lever".into())]);
+        let (l2, f2) = super::t_exposure(&mk(nw(with_det.clone())), &[(b(0, 1, 0), "the switch lever".into())]).unwrap();
         assert!(f2 == 0 && l2.iter().any(|x| x.contains("DECLARED T 0,1,0")), "{l2:?}");
+        // (the exact rule's positive: the stored shape north_east while the lit torch powers the T,
+        // so the game re-settles it north_west: a SHAPE MISMATCH fails even when declared)
+        let (l2b, f2b) = super::t_exposure(&mk(with_det), &[(b(0, 1, 0), "the switch lever".into())]).unwrap();
+        assert!(f2b == 1 && l2b.iter().any(|x| x.contains("FAIL T 0,1,0") && x.contains("SHAPE MISMATCH, stored north_east")), "{l2b:?}");
         // (the same torch on the same conductor with nothing powering it: CONSTANT, quiet)
         let mut with_t = blocks.clone();
         with_t.push((b(0, 1, 1), p("minecraft:redstone_torch[lit=true]")));
-        let (l5, f5) = super::t_exposure(&mk(with_t), &[]);
+        let (l5, f5) = super::t_exposure(&mk(nw(with_t)), &[]).unwrap();
         assert!(f5 == 0 && l5.iter().any(|x| x.contains("quiet T 0,1,0") && x.contains("CONSTANT, no source's power reaches its support 0,0,1")), "{l5:?}");
         let mut with_rb = blocks.clone();
         with_rb.push((b(0, 1, 1), p("minecraft:redstone_block")));
-        let (l3, f3) = super::t_exposure(&mk(with_rb.clone()), &[]);
+        let (l3, f3) = super::t_exposure(&mk(nw(with_rb.clone())), &[]).unwrap();
         assert!(f3 == 0 && l3.iter().any(|x| x.contains("quiet T 0,1,0") && x.contains("1 constant") && x.contains("no piston within 13")), "{l3:?}");
         // (a piston that could move the redstone block: OPERATING)
         with_rb.push((b(3, 1, 3), p("minecraft:piston[extended=false,facing=west]")));
-        let (l6, f6) = super::t_exposure(&mk(with_rb), &[]);
+        let (l6, f6) = super::t_exposure(&mk(nw(with_rb)), &[]).unwrap();
         assert!(f6 == 1 && l6.iter().any(|x| x.contains("FAIL T 0,1,0") && x.contains("a piston at 3,1,3 within 13 could move it")), "{l6:?}");
+        // (G1 10:38 (b): a torch on a support a constant redstone block powers is permanently off:
+        // a DEAD TORCH, a design error by name)
+        let mut dead = blocks.clone();
+        dead.push((b(3, 1, -2), p("minecraft:redstone_torch[lit=false]")));
+        dead.retain(|(q, _)| *q != b(3, -1, -2));
+        dead.push((b(3, -1, -2), p("minecraft:redstone_block")));
+        let (l7, f7) = super::t_exposure(&mk(dead), &[]).unwrap();
+        assert!(f7 == 1 && l7.iter().any(|x| x.contains("DEAD TORCH 3,1,-2") && x.contains("CONSTANT redstone block at 3,-1,-2")), "{l7:?}");
+        // (tick-exact 10:40: a sloped detector one down and one over from a T, ascending into it
+        // (D under J's arm, as the lanes' D (x,24,8) under J (x,25,9)), never reaches it: quiet)
+        let mut det = blocks.clone();
+        det.retain(|(q, _)| *q != b(0, 0, -1) && *q != b(0, 1, -1));
+        det.push((b(0, -1, -1), p("minecraft:stone")));
+        det.push((b(0, 0, -1), p("minecraft:detector_rail[powered=false,shape=ascending_south,waterlogged=false]")));
+        let (l8, f8) = super::t_exposure(&mk(det), &[]).unwrap();
+        assert!(f8 == 0 && l8.iter().any(|x| x.contains("quiet T 0,1,0")), "{l8:?}");
+        // (58f770cc / G1 10:46: the W arm made full (a north_south rail between two that point
+        // back): it can't join, so the T is HELD, not failing, under the operating torch, its
+        // integrity condition printed)
+        let mut held = with_det_held(&blocks);
+        held.retain(|(q, _)| *q != b(-1, 1, 0));
+        for (x, z) in [(-1, -1), (-1, 0), (-1, 1)] {
+            held.push((b(x, 1, z), p("minecraft:rail[shape=north_south,waterlogged=false]")));
+        }
+        let (l9, f9) = super::t_exposure(&mk(held.clone()), &[]).unwrap();
+        assert!(f9 == 0 && l9.iter().any(|x| x.contains("HELD T 0,1,0") && x.contains("the arm(s) -1,1,0 can't join")), "{l9:?}");
+        // (ironspec 10:47 (2)'s control, (A)'s P-integrity in miniature: free one of the full arm's
+        // connections (its south rail gone): the arm joins, the powered T re-settles north_west
+        // against its stored north_east: FAIL)
+        let mut freed = held;
+        freed.retain(|(q, _)| *q != b(-1, 1, 1));
+        let (l10, f10) = super::t_exposure(&mk(freed), &[]).unwrap();
+        assert!(f10 == 1 && l10.iter().any(|x| x.contains("FAIL T 0,1,0") && x.contains("SHAPE MISMATCH, stored north_east")), "{l10:?}");
         // (ironspec 09:53 (B): a standing torch on glass never changes: constant, quiet)
         let mut with_tg = blocks;
         with_tg.retain(|(q, _)| *q != b(0, 0, 1));
         with_tg.push((b(0, 0, 1), p("minecraft:glass")));
         with_tg.push((b(0, 1, 1), p("minecraft:redstone_torch[lit=true]")));
-        let (l4, f4) = super::t_exposure(&mk(with_tg), &[]);
+        let (l4, f4) = super::t_exposure(&mk(nw(with_tg)), &[]).unwrap();
         assert!(f4 == 0 && l4.iter().any(|x| x.contains("quiet T 0,1,0") && x.contains("1 constant")), "{l4:?}");
+    }
+
+    /// (ironspec Nov 13 08:18 (e): the exterior static's control) A stone platform floating in the
+    /// void spawns monsters on its top at night (cells listed, the bar fails); a glass platform
+    /// spawns none.
+    #[test]
+    fn exterior_spawns_bite() {
+        let p = |s: &str| redsim::block::Block::parse(s).unwrap();
+        let plat = |s: &str| {
+            let mut blocks = Vec::new();
+            for x in 0..=4 {
+                for z in 0..=4 {
+                    blocks.push((b(x, 0, z), p(s)));
+                }
+            }
+            redsim::entity::mob::farm::FarmSpec { blocks, entities: Vec::new(), output: b(2, 0, 2), lo: b(0, 0, 0), hi: b(4, 3, 4), block_entities: Vec::new(), rock: false, nether: None, land: false }
+        };
+        let (l, n) = super::exterior_spawns(&plat("minecraft:stone"), "minecraft:plains").unwrap_or_else(|e| panic!("{e}"));
+        assert!(n > 0 && l.iter().any(|x| x.contains("SPAWNABLE") && x.contains("zombie")), "{l:?}");
+        let (l2, n2) = super::exterior_spawns(&plat("minecraft:glass"), "minecraft:plains").unwrap_or_else(|e| panic!("{e}"));
+        assert!(n2 == 0 && l2[0].contains("PASS"), "{l2:?}");
+    }
+
+    /// (9fc3155f's correction 10:35, G1's no-vacuous-pass rule) The floating site's spawn check
+    /// bites: a closed dark room in the void with a stone floor gives C1 ("can spawn inside the
+    /// farm", a zombie among them, the site biome set); the same room floored with glass gives none.
+    #[test]
+    fn void_exposures_c1_bites() {
+        let p = |s: &str| redsim::block::Block::parse(s).unwrap();
+        let room = |floor: &str| {
+            let mut blocks = Vec::new();
+            for x in 0..=4 {
+                for z in 0..=4 {
+                    for y in 0..=4 {
+                        let edge = x == 0 || x == 4 || z == 0 || z == 4 || y == 4;
+                        let s = if y == 0 { floor } else if edge { "minecraft:stone" } else { "minecraft:air" };
+                        blocks.push((b(x, y, z), p(s)));
+                    }
+                }
+            }
+            redsim::entity::mob::farm::FarmSpec { blocks, entities: Vec::new(), output: b(2, 1, 2), lo: b(0, 0, 0), hi: b(4, 4, 4), block_entities: Vec::new(), rock: false, nether: None, land: false }
+        };
+        let c1 = |spec: &redsim::entity::mob::farm::FarmSpec| -> Vec<String> {
+            let (_, _, ex) = super::void_exposures(spec, "minecraft:plains").unwrap_or_else(|e| panic!("{e}"));
+            ex.iter().map(|e| format!("{e:?}")).filter(|e| e.contains("C1 natural spawn inside")).collect()
+        };
+        let stone = c1(&room("minecraft:stone"));
+        assert!(stone.iter().any(|e| e.contains("\"zombie\"")), "a dark stone floor in the void: C1 must fire: {stone:?}");
+        let glass = c1(&room("minecraft:glass"));
+        assert!(glass.is_empty(), "a glass floor: no C1: {glass:?}");
+        // (an unknown biome is refused, never a silent empty list)
+        assert!(super::void_exposures(&room("minecraft:stone"), "minecraft:no_such_biome").is_err());
     }
 
     /// (ironspec Nov 13 06:18 platform (2)) flee-check's own controls bite on this build.
