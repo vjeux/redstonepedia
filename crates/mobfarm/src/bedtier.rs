@@ -1009,7 +1009,7 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
         // (P's two connections are DESIGN-CRITICAL: K (-2,0,3) is a T by rail presence (N, E, S) and
         // keeps north_east under any source change only while P is full (ironspec 10:47 / 10:58's
         // `# integrity:` key, checked by the static))
-        lines.push("integrity: -2,0,4=connections -1,0,4+-2,0,5; holds -2,0,3=north_east".to_string());
+        lines.push("integrity: -2,0,4=connections -1,0,4+-2,0,5; holds -2,0,3=north_east; holds -1,0,3=east_west; holds -1,0,4=east_west".to_string());
     }
     let refs: Vec<&str> = lines.iter().map(|s| s.as_str()).collect();
     Ok(b.text(&refs))
@@ -1286,6 +1286,8 @@ pub struct Row {
     pub sensor_rises: Vec<i64>,
     /// The design holds the wake sensor (an observer at WAKE_SENSOR).
     pub sensor_present: bool,
+    /// (G1's Q13) ticks with a declared `# integrity:` shape off.
+    pub integrity_breaks: usize,
     pub launch_cells: Vec<([i32; 3], f64)>,
     /// (G1 C16) The cells holding water at the visit's end (the design's own water is the bar).
     pub water_cells: usize,
@@ -1519,6 +1521,8 @@ pub struct Faults {
     /// (day-1 12:03) The window shut this many gt after the wake edge (0 or 1: the earliest, the
     /// bench's stand-in; a real line through the wake sensor closes later).
     pub close_after: i64,
+    /// (G1's Q13) The design's `# integrity:` shapes (design frame), judged every tick.
+    pub integrity: Vec<([i32; 3], String)>,
     /// (ironspec 10:47) Each declared contact's `rate=k/n` from a band run: STALE fails only when
     /// (1 - k/n)^N < 0.001 for the run's N visits; a rate-less declaration is always expected.
     pub contact_rates: Vec<([i32; 3], (u32, u32))>,
@@ -1734,6 +1738,62 @@ pub fn parse_contacts(text: &str, shift: [i32; 3]) -> Result<Vec<[i32; 3]>, Stri
                 &[x, y, z] => out.push([x - shift[0], y - shift[1], z - shift[2]]),
                 _ => return Err(format!("contacts {d:?}: x,y,z[+x,y,z…]=REASON")),
             }
+        }
+    }
+    Ok(out)
+}
+
+/// (G1's Q13 on 94e90d6b2: the `# integrity:` key judged, not a label) The design's declared rail
+/// shapes: `holds X,Y,Z=SHAPE` (that shape on every tick) and `X,Y,Z=connections A+B` (the rail at X
+/// joining the cells A and B: the shape their two directions make), strictly parsed (bench = file -
+/// shift).
+pub fn parse_integrity(text: &str, shift: [i32; 3]) -> Result<Vec<([i32; 3], String)>, String> {
+    let cell = |s: &str, d: &str| -> Result<[i32; 3], String> {
+        let v: Vec<i32> = s.split(',').map(|x| x.trim().parse::<i32>()).collect::<Result<_, _>>().map_err(|e| format!("integrity {d:?}: a cell x,y,z ({e})"))?;
+        match v.as_slice() {
+            &[x, y, z] => Ok([x - shift[0], y - shift[1], z - shift[2]]),
+            _ => Err(format!("integrity {d:?}: a cell x,y,z")),
+        }
+    };
+    let mut out = Vec::new();
+    // (the entries split on ';' here: `holds ...` entries don't start with a cell list, so the
+    // shared header_entries would merge them into the entry before)
+    let entries: Vec<String> = text.lines().filter_map(|l| l.trim_start().strip_prefix('#').map(str::trim_start).and_then(|t| t.strip_prefix("integrity:"))).flat_map(|b| b.split(';').map(|s| s.trim().to_string()).collect::<Vec<_>>()).filter(|s| !s.is_empty()).collect();
+    for d in entries {
+        if let Some(rest) = d.strip_prefix("holds ") {
+            let (c, shape) = rest.split_once('=').ok_or(format!("integrity {d:?}: holds x,y,z=SHAPE"))?;
+            let shape = shape.trim();
+            if !["north_south", "east_west", "north_east", "north_west", "south_east", "south_west"].contains(&shape) {
+                return Err(format!("integrity {d:?}: {shape:?} is no flat rail shape"));
+            }
+            out.push((cell(c, &d)?, shape.to_string()));
+        } else if let Some((c, rest)) = d.split_once("=connections ") {
+            let x = cell(c, &d)?;
+            let (a, b) = rest.split_once('+').ok_or(format!("integrity {d:?}: x,y,z=connections A+B"))?;
+            let (a, b) = (cell(a, &d)?, cell(b, &d)?);
+            let dir = |p: [i32; 3]| -> Result<&'static str, String> {
+                match (p[0] - x[0], p[2] - x[2]) {
+                    (0, -1) => Ok("north"),
+                    (0, 1) => Ok("south"),
+                    (1, 0) => Ok("east"),
+                    (-1, 0) => Ok("west"),
+                    _ => Err(format!("integrity {d:?}: ({},{},{}) isn't beside ({},{},{})", p[0], p[1], p[2], x[0], x[1], x[2])),
+                }
+            };
+            let mut ds = [dir(a)?, dir(b)?];
+            ds.sort_by_key(|s| ["north", "south", "east", "west"].iter().position(|t| t == s));
+            let shape = match ds {
+                ["north", "south"] => "north_south",
+                ["east", "west"] => "east_west",
+                ["north", "east"] => "north_east",
+                ["north", "west"] => "north_west",
+                ["south", "east"] => "south_east",
+                ["south", "west"] => "south_west",
+                _ => return Err(format!("integrity {d:?}: two different directions")),
+            };
+            out.push((x, shape.to_string()));
+        } else {
+            return Err(format!("integrity {d:?}: `holds x,y,z=SHAPE` or `x,y,z=connections A+B`"));
         }
     }
     Ok(out)
@@ -3267,6 +3327,17 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                 sensor_prev = on;
             }
         }
+        // (G1's Q13: the design's `# integrity:` shapes judged every tick (the mutual hold
+        // (-1,0,3) <-> (-1,0,4) and K's T among them); a shape off its declared one fails the visit)
+        for (cell, shape) in &f.integrity {
+            let s = format!("{}", w.get(wc(*cell)));
+            if !s.contains(&format!("shape={shape}")) {
+                row.integrity_breaks += 1;
+                if row.integrity_breaks <= 3 {
+                    row.problems.push(format!("t {t}: ({},{},{}) holds {s}, declared shape={shape} (the design's `# integrity:`)", cell[0], cell[1], cell[2]));
+                }
+            }
+        }
         // (ironspec 17:35 (a): the released cart in the pickup cell before the napper's wake)
         if row.release_at.is_some()
             && row.woke_at.is_none()
@@ -4569,6 +4640,7 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
                         if r.stand_after_eject > 20 {
                             sk.stand_over_20 += 1;
                         }
+                        sk.integrity_breaks += r.integrity_breaks;
                         // (the wake sensor: its first rise after each napper edge, the missed edges
                         // and the rises with no edge before them, within 10 gt)
                         if r.sensor_present {
@@ -4875,6 +4947,15 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
     // stop being open to the sky by construction there)
     if base.built_world && sk.lightning_visits > 0 {
         failed.push(format!("{} visits with a napper exposed to lightning in the built world (a sky-seeing cell or a bolt's hit box)", sk.lightning_visits));
+    }
+    // (G1's Q13: the integrity shapes, judged every tick in every visit)
+    if base.integrity.is_empty() {
+        println!("the design's `# integrity:` shapes: none declared (NOT JUDGED)");
+    } else {
+        println!("the design's `# integrity:` shapes judged every tick: {} cells ({}); ticks off their declared shape over every visit: {}", base.integrity.len(), base.integrity.iter().map(|(c, s)| format!("({},{},{})={s}", c[0], c[1], c[2])).collect::<Vec<_>>().join(", "), sk.integrity_breaks);
+        if sk.integrity_breaks > 0 {
+            failed.push(format!("{} ticks with a declared integrity shape off", sk.integrity_breaks));
+        }
     }
     // (G1 12:04 / day-1 12:03: the wake sensor judged: every lie-down and wake seen within 10 gt,
     // no rise without an edge)
@@ -5191,6 +5272,8 @@ struct SkipTotals {
     sensor_missed: usize,
     sensor_spurious: usize,
     sensor_seen: bool,
+    /// (G1's Q13) ticks with a declared `# integrity:` shape off, over every visit
+    integrity_breaks: usize,
     lightning: std::collections::BTreeMap<String, usize>,
     /// (ironspec 00:27) the most fluid cells a visit's world scheduled at load
     fluid_scheduled: usize,
