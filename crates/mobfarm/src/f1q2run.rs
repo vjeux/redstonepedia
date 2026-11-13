@@ -10715,7 +10715,27 @@ fn anyhow_free(ok: bool, why: &str) -> Result<(), String> {
 /// every "expected FAIL" token (a declared placement-order T) is stripped first, so a real FAIL on
 /// the same line still counts.
 pub fn fail_lines(rep: &str) -> Vec<&str> {
-    rep.lines().filter(|l| strip_expected(l).contains("FAIL")).collect()
+    rep.lines().filter(|l| has_fail_verdict(&strip_expected(l))).collect()
+}
+
+/// (onechunk 14:26, G1's P10 sharpened) Whether a line carries a FAIL VERDICT: a whole-word "FAIL"
+/// (no letter after it: "FAILS" in a bar's description is no verdict) that isn't the description of
+/// a log's "FAIL lines" (the uncapped log judges print "the run log's FAIL lines …: 0 (PASS)").
+/// Before this, any "FAIL" substring counted, so every PASS line describing what FAILS was a
+/// "FAIL line" (18–22 per composed night).
+pub fn has_fail_verdict(l: &str) -> bool {
+    let b = l.as_bytes();
+    let mut from = 0;
+    while let Some(i) = l[from..].find("FAIL").map(|i| i + from) {
+        let before_ok = i == 0 || !(b[i - 1] as char).is_ascii_alphanumeric();
+        let after = &l[i + 4..];
+        let after_ok = after.chars().next().is_none_or(|c| !c.is_ascii_alphabetic());
+        if before_ok && after_ok && !after.starts_with(" lines") {
+            return true;
+        }
+        from = i + 4;
+    }
+    false
 }
 
 /// (G1's P10) A line with every "expected FAIL" token removed, a token counting only as a whole
@@ -10830,6 +10850,31 @@ mod counter_tests {
         let l = super::log_fail_line("run log", &log);
         assert!(l.contains(": 1 (FAIL)") && l.contains("line 230"), "{l}");
         assert_eq!(super::fail_lines("x: 3 (expected FAIL)\ny: unexpected FAIL\nz: PASS"), vec!["y: unexpected FAIL"]);
+    }
+
+    /// (onechunk 14:26) a FAIL verdict is a whole-word FAIL, not a bar's description of what FAILS
+    /// nor a log judge's "FAIL lines"; every verdict form the report prints still fails
+    #[test]
+    fn only_a_fail_verdict_fails_a_line() {
+        for pass in [
+            "the ridden departures (a cart not the napper's pressing it FAILS): 22 by nappers, 0 by others (PASS)",
+            "the run log's FAIL lines over all its 0 lines (G1's P10: judged uncapped): 0 (PASS)",
+            "the per-lane cart count (a 9th FAILS): lane x -1 the most 8 (PASS)",
+            "a FAILED word and FAILURE are no verdicts: PASS",
+        ] {
+            assert!(!super::has_fail_verdict(pass), "{pass}");
+        }
+        for fail in [
+            "naps per night: night 0: 14 villagers napped (FAIL, bar 24)",
+            "the catch window: the least late slack 1 gt (bar >= 2: FAIL), the least early",
+            "F4(a)'s bars: (i) a K switched: 8 (FAIL): t 4669",
+            "the no-string ring: NOT JUDGED (no pick): FAIL",
+            "each napper's K writes: 2 writes off its cell (FAIL: lane x 3's window)",
+            "the run log's FAIL lines over all its 9 lines: 1 (FAIL): line 3",
+            "FAIL",
+        ] {
+            assert!(super::has_fail_verdict(fail), "{fail}");
+        }
     }
 
     /// (G1 10:47 blocking 1, G1's P9) across a world open: a renewed id follows; a live id the open
