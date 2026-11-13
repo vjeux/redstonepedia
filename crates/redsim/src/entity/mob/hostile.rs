@@ -1104,6 +1104,35 @@ mod tests {
         assert!(check(&w, &farm, true).is_ok(), "taken: the next check is a verdict again");
     }
 
+    /// (G1 14:55 H4) The refusals through real reads: a land-less world with a torch beside a brewing
+    /// stand (a block whose light behaviour isn't modeled): the block light near them is an error;
+    /// `spawn_parts` there records it (its spawn rule's light read); and `check` refuses on a farm
+    /// villager's eye under a brewing stand (C16's sky read through it).
+    #[test]
+    fn the_hostile_checks_refuse_through_a_real_failed_read() {
+        let mut w = World::new(BlockPos::new(-8, -2, -8), [17, 10, 17]);
+        let stone = Block::parse("stone").unwrap();
+        for x in -6..=6 {
+            for z in -6..=6 {
+                w.set_block(BlockPos::new(x, 0, z), stone, crate::world::flags::ALL);
+            }
+        }
+        let stand = Block::parse("minecraft:brewing_stand[has_bottle_0=false,has_bottle_1=false,has_bottle_2=false]").unwrap();
+        w.place_raw(&[(BlockPos::new(2, 1, 0), stand), (BlockPos::new(1, 1, 0), Block::parse("torch").unwrap())]);
+        let r = w.block_light(BlockPos::new(0, 1, 0));
+        assert!(r.as_ref().is_err_and(|e| e.contains("brewing_stand")), "{r:?}");
+        // spawn_parts: its spawn rule reads the light there
+        let zombie = super::super::natural::kind_of("minecraft:zombie").expect("the zombie's kind");
+        let _ = spawn_parts(&w, &zombie, BlockPos::new(0, 1, 0));
+        let errs = w.take_light_errors();
+        assert!(errs.iter().any(|e| e.contains("brewing_stand")), "spawn_parts recorded it: {errs:?}");
+        // check: a farm villager's eye under a brewing stand
+        w.place_raw(&[(BlockPos::new(-3, 4, -3), stand)]);
+        let farm = Farm { villager_eyes: vec![Vec3::new(-2.5, 2.6, -2.5)], ..Farm::default() };
+        let r = check(&w, &farm, true);
+        assert!(r.as_ref().is_err_and(|e| e.contains("brewing_stand")), "{r:?}");
+    }
+
     /// A closed room: a shell of `wall` round the interior x and z `lo..=lo+4`, y `y0..=y0+2`, its
     /// floor `floor` and its roof `roof`.
     fn room(cells: &mut Vec<(BlockPos, Block)>, lo: i32, y0: i32, floor: Block, wall: Block, roof: Block) {

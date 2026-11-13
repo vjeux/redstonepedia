@@ -146,7 +146,7 @@ pub fn dangerous_for(s: &Block, type_id: &str) -> bool {
     if immune.contains(&id) {
         return false;
     }
-    let fire_immune = super::types::MobType::from_id(type_id).is_some_and(|t| t.def().fire_immune);
+    let fire_immune = super::types::MobType::from_id(type_id).unwrap_or_else(|| panic!("isBlockDangerous for {type_id}: not a modeled entity type (its immunities unknown: G1 14:55 H8)")).def().fire_immune;
     is_dangerous(s, fire_immune)
 }
 

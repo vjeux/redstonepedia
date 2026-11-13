@@ -567,15 +567,14 @@ fn site_lines(p: &Placed) -> Vec<(bool, String)> {
     // the return (walking off and back is normal operation)
     if p.afk_dug {
         let feet = cell_of(p.afk);
-        let here = p.w.get(feet);
-        let lamp = matches!(here, Block::Torch { .. } | Block::WallTorch { .. }) || name_of(&here).contains("torch") || name_of(&here).contains("lantern");
-        let light = if lamp { Ok(14) } else { block_light_at(&p.w, feet) };
-        match light {
+        // (cc767b78, G1 14:55 H3: the light read always, the block table giving a torch's 14 and a
+        // redstone torch's 7 / 0; an unreadable light is its own failing line, not an "AFK cell" bite)
+        match block_light_at(&p.w, feet) {
             Ok(light) => {
                 let dark = light == 0 && redsim::behavior::full_cube(&p.w.get(feet.below()));
                 lines.push((!dark, if dark { format!("AFK cell: dark (block light 0) on a solid floor at {}: a zombie, skeleton, creeper or witch spawns in it while the player is 24 to 128 blocks away", at(feet)) } else { format!("AFK cell: no monster spawns in it (block light {light} at {})", at(feet)) }));
             }
-            Err(e) => lines.push((false, format!("AFK cell: its block light at {} is unreadable ({e})", at(feet)))),
+            Err(e) => lines.push((false, format!("light read: the AFK cell's block light at {} is unreadable ({e})", at(feet)))),
         }
     }
     // the off-pad golem spots on natural ground (ironspec 2026-11-11: every eligible rider tries a
@@ -1546,6 +1545,11 @@ pub fn lightning(p: &Placed) -> Verdict {
         starts.sort_by_key(|q| (q.x, q.y, q.z));
         starts.dedup();
         let reaching = redsim::weather::lightning::fires_reaching(&p.w, &flammable, &starts);
+        // (G1 14:55 H6: the fire reach's own failed light reads, under their own label)
+        let fire_errors = p.w.take_light_errors();
+        if !fire_errors.is_empty() {
+            lines.push((false, format!("light read: {} failed in the fire reach (pending since the world's last tick or take: some may predate it): {}", fire_errors.len(), fire_errors.join("; "))));
+        }
         let near = nearest.map(|(d, f, s)| format!("the nearest flammable farm block {} is {d:.1} blocks from the strike at {}", at(f), at(s))).unwrap_or_default();
         lines.push((reaching.is_empty(), if reaching.is_empty() { format!("fire: no surface strike's fire reaches any of the {} flammable farm blocks ({near})", flammable.len()) } else { format!("fire: {} strike fires reach a flammable farm block, e.g. from {} ({near})", reaching.len(), reaching.iter().take(3).map(|q| at(*q)).collect::<Vec<_>>().join(" ")) }));
     }
@@ -2428,7 +2432,13 @@ pub fn controls(p: &Placed) -> Vec<(u8, Control)> {
             };
             let (dark, lit) = (cell(false), cell(true));
             let (ld, ll) = (line(&dark, "AFK cell"), line(&lit, "AFK cell"));
-            out.push((2, Control { name: format!("the dug AFK cell at {} left dark (the same cell with its wall torch passes)", at(cell_of(dark.afk))), bites: ld.is_some() && ll.is_none(), why: ld.unwrap_or_else(|| "AFK cell: passes".to_string()) }));
+            // (G1 14:55 H3: the control bites only when the light itself is read: 0 in the dark cell, the
+            // wall torch's 14 in the lit one)
+            let (bd, bl) = (block_light_at(&dark.w, cell_of(dark.afk)), block_light_at(&lit.w, cell_of(lit.afk)));
+            let read = bd == Ok(0) && bl == Ok(14);
+            let bites = read && ld.is_some() && ll.is_none();
+            let why = if read { ld.unwrap_or_else(|| "AFK cell: passes".to_string()) } else { format!("the light reads: dark {bd:?}, lit {bl:?} (want 0 and 14)") };
+            out.push((2, Control { name: format!("the dug AFK cell at {} left dark (the same cell with its wall torch passes)", at(cell_of(dark.afk))), bites, why }));
         }
         // (ironspec 2026-11-11: the AFK cell back inside a villager's summon band: a 1 x 1 shaft
         // over a natural floor 7 sideways of a villager position, outside the farm, is a golem spot)
@@ -2707,6 +2717,24 @@ mod tests {
         let (v, ch) = natural_mobs_hits(&q, &[]);
         assert!(ch.iter().any(|(n, cells)| *n == "pickup" && cells.is_empty()), "every track slow: no pickup");
         assert!(v.lines.iter().any(|(_, l)| l.starts_with("pickup") && l.contains("from the runner trace: the 0 of")), "the mode is printed");
+    }
+
+    /// (cc767b78, G1 14:55 H4) The natural-mob verdict refuses through a real failed read: a torch
+    /// beside a brewing stand (a block whose light behaviour isn't modeled) on top of the carousel v0a in
+    /// the void: the block light near them is an error, the floods' spawn rules read it, and the verdict
+    /// gains its failing `light:` line.
+    #[test]
+    fn natural_mobs_refuse_through_a_real_failed_read() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../designs/farms/iron/carousel-assembly/carousel-v0a.txt");
+        let c = circuit::Circuit::load(&path).unwrap();
+        let spec = circuit::mobfarm::spec_of(&c).unwrap();
+        let mut p = place(&c, &spec, None, &[], true, None, None).unwrap();
+        let top = p.farm_blocks.iter().copied().max_by_key(|b| (b.y, b.x, b.z)).expect("a farm block").above();
+        let stand = Block::parse("minecraft:brewing_stand[has_bottle_0=false,has_bottle_1=false,has_bottle_2=false]").unwrap();
+        p.w.place_raw(&[(top, stand), (top.offset(1, 0, 0), Block::parse("minecraft:torch").unwrap())]);
+        assert!(p.w.block_light(top.offset(1, 0, 0)).is_err(), "the light beside the stand is an error");
+        let (v, _) = natural_mobs_hits(&p, &[]);
+        assert!(v.lines.iter().any(|(ok, l)| !ok && l.starts_with("light:") && l.contains("brewing_stand")), "{:?}", v.lines.iter().filter(|(ok, _)| !ok).collect::<Vec<_>>());
     }
 
     #[test]
