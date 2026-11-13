@@ -127,6 +127,21 @@ pub enum MobfarmCmd {
         #[arg(long, default_value_t = 5)]
         seeds: u64,
     },
+    /// (ironspec 15:23 (3), 18:06 (3), 18:40 (4)/(5)) The cycle start's least REL-to-REL interval and phase lock
+    /// (`ctlchain.rs`): P from the golem pulse or the watchdog; the chain as built, B held 100 gt with a
+    /// pulse latched to its end (the controls), and B re-armed to the pulse + 100 (with and without the
+    /// W-100 flywheel), at every W and scenario (normal, a failed roll, summons absent, freezes, a cold start).
+    CtlChainInterval {
+        /// B's end after stage 1 as built (gt: the chain's 15 stages).
+        #[arg(long, default_value_t = 30)]
+        b_end: i64,
+        /// The hold settled again this long after a start (gt; 0 = the worst case for the interval).
+        #[arg(long, default_value_t = 0)]
+        settle: i64,
+        /// The bar (ironspec 18:06: >= 100).
+        #[arg(long, default_value_t = 100)]
+        bar: i64,
+    },
     /// The pocket drive (`ctlpocket.rs`, ironspec 16:03): (a) the slime support's repeater against (b)
     /// M16bw's side drive, all three pockets laid; each lane's P rise and fall after its switch at 20
     /// phases and under a restart at every tick around both edges in every reload order; the leaks into
@@ -10159,6 +10174,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 for l in crate::holdpulse::bench(step.max(1), extra, freeze, g).map_err(|e| anyhow::anyhow!(e))? {
                     println!("{l}");
                 }
+            }
+        }
+        MobfarmCmd::CtlChainInterval { b_end, settle, bar } => {
+            for l in crate::ctlchain::bench(b_end, settle, bar) {
+                println!("{l}");
             }
         }
         MobfarmCmd::CtlPocketBench { mirror_z } => {
