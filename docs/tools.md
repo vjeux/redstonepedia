@@ -392,13 +392,20 @@ at the stop's entry (3,-16,-5), west at 0.2, HOME the bed, its lane rotating -1 
 seed's (seeds 1 / 2 / 3 start at 3 / 7 / -1), and drives the stop (F 10 gt after the lie-down: the
 hatch's controls to stone; the release 30 gt after F: the park's supports to redstone blocks; R's
 detector re-arms it), and the hold's release (c') as built (ironspec 11:49): the lift exit (7,-3,4)
-as a detector rail sets the waiting RS, its Q delayed 38 gt; E samples live Q AND delayed Q at its
-edge (ARM3 + 2, ARM3 the main line's detector (5,0,7) risen at or after REL + 24); locked, the 12-gt
+as a detector rail sets the waiting RS, its Q delayed k_lock gt (the module's `k-lock:` line, 42 for record7, ironspec 22:03 / 22:09); H2 samples live Q AND delayed Q at
+the built gate's instant (E + 2 = ARM3 + 4, ARM3 the main line's detector (5,0,7) risen at or after REL + 24, or with path (a),
+where (5,0,7) is a plain rail, ARM3 := REL + 52); locked, the 12-gt
 pulse fires (the input (7,-1,8) at ARM3 + 10) and resets the RS (the departing napper's second
-ARM3 rise fires nothing), and keys K(n) on at ARM3 + 93 / 108 / 124 and off at ARM3 + 125 / 140 / 156
-(PRESENT_l at the reset) and J(-1)'s block ARM3 + 72..127 for an eastbound napper (7b90c3f1's
-numbers), and the siding's release (D's rise + 4 while PRESENT_l: the input (x-2,23,9) on 30 gt; where
-day-1's (a) feed stack is laid, its input (x-4,22,9)); the pockets' releases go under the pocket rail
+ARM3 rise fires nothing, an empty hold fires nothing), and keys K(x) on at ARM3 + 97 / 112 / 128 (day-1's K-set + 4) and off at
+ARM3 + 125 / 140 / 156, PRESENT_l on its own tap at ARM3 + 111 / 126 / 142 (day-1 19:19), and
+J(-1)'s block ARM3 + 72..127 for an eastbound napper, and the siding's release (D's rise while
+PRESENT_l, R powered at D + k_sw + 8 = D + 14, k_sw = 6: the input on 30 gt at that tick less its line's latency, 2 gt through the
+siding repeater from (x-2,23,9), 8 gt from day-1's (a) feed stack's input (x-4,22,9)); with path (a)
+(the braked slope (-4,12,7) laid) lane 7's slope is released at REL + 96 for 18 gt by a lever
+at (-4,12,6); with day-1's R1 laid (a repeater at the queue's release (8,y+13,-4)) the queue's gate
+is the built one, its unlaid line ends held as levels (NOT-ready at the side dust (7,y+13,-5) from the
+departure's rise until A6's R, REST_l at (6,y+15,-1), DAY at (4,y+15,-2)) and the release read off
+the queue rail's power; the pockets' releases go under the pocket rail
 (x,-1,0), or, where M16bw's side drive is laid (a repeater (x-1,0,0) fed by the riser dust
 (x-2,0,0) and the step dust (x-3,-1,0)), as a floor lever in the riser's cell on its glass for the
 pulse, the dust restored after (ironspec 18:10: no solid stand-in); the way-in queue's release is a
@@ -465,8 +472,8 @@ predecessor's D pass (the predecessor passes its siding's D first). The golems b
 names them too. day-1's picker
 (EMULATED, 14:46 / 16:14; the lanes per 7b90c3f1): the counter C steps on each release (C := 0 at
 the daylight detector's morning RISE 0 -> 1, C := 19 at its EIGHT 7 -> 8 when C >= 136 or C <= 15);
-a pick when C mod 10 is 1 / 4 / 7 (lanes A / B / C = x -1 / 3 / 7, each every 10 releases), gated by HELD (the queue occupied, from the
-arrival to the departure) and the lane's away latch (set at its pick, reset when its napper is back
+a pick when C mod 10 is 1 / 4 / 7 (lanes A / B / C = x -1 / 3 / 7, each every 10 releases), gated by HELD (one napper in flight:
+set at the pick, reset at the queue's departure, day-1's contract 22:05) and the lane's away latch (set at its pick, reset when its napper is back
 in its lane); the picked lane's batch cart is the one its launch sends; DAY (the daylight detector
 above 0) at its row arrival turns it away; otherwise its own J and every J east of it are held off
 until it passes (8,25,9) onto the leg, then the split as if it had taken its lane (lane -1's D rise:
@@ -486,7 +493,40 @@ golem, the cycles off the locked phase by day. (a1) calm REST within 16 of the o
 0); (a2) two nappers (carts, or one asleep) in the stop's box at once (bar 0; the first tick and
 riders), with the queue releases made before the previous napper's 16-ball exit as information;
 (b) a pick while another napper is between its pick and the queue's departure (bar 0, the first
-named). `--stale-start` (the recovery
+named). (a1)'s margin (ironspec 19:07 PT): each lie-down against the previous napper's 16-ball exit,
+the least printed (bar > 0); the departing nappers' 16-ball exit after R prints as information (the
+152 bound retired 19:07 PT). PRESENT before its predecessor's D pass: the least margin (bar >= 7). A
+napper's first call back in its lane and the free callers' margins: from the latest observed set,
+renewals included (bar >= 3), and from the stamp's original tick, its own summon or a bystander
+stamp (bar >= 23). The bystander stamps on departing riders (out of their pockets; bar 0 in locked
+running, the last REL at 5 mod 100). The summon paths (ironspec 19:20 / 19:34; redsim's GolemTry
+carries the path's threshold and the caller's block position): the golems born on the panic
+schedule (game time = 0 mod 100; bar: all), born by gossip (path 5; bar 0), and every gossip attempt
+by the caller's position (at y <= 0, pad-reachable: bar 0, even when the roll finds no spot). The
+direct summon check (ironspec 19:58 PT, G1), per copy's stand (its three pockets together): every
+trigger call from the pockets at each due summon tick S in its order (redsim's GolemTry, threshold
+3: the rolls up to the first golem, each with its caller, willing count and spot tries; redsim's
+GolemCall: a rider covered by this S's golem, blocked by an older stamp (a neighbour's golem,
+gossip, an earlier S, a sensor renewal), or short of willing); bar: a roll from the stand at every
+due S in locked running; `--empty-pocket X` (lane X's pocket rider removed at the start) is its
+control; the golem rate by the willing-and-ticking count k at the tick's start against
+1 - 0.209^k (about 99 / 95.6 / 79 % for 3 / 2 / 1), a rider whose trigger misses S (S = s + 61
+(mod 62) of its panic start s, tick-exact's row) counted as a skip. Each summon tick's class
+(19:33 PT, information): golem born, spot miss (a ready caller, no golem), caller blocked by its
+own memory, fewer than 3 willing, no panicking caller, with the spot-miss rate beside the pad's
+expected (about 21%: 40-44 of 289 spots, 10 tries), and the riders' states at S (seated,
+panicking, slept, no memory, 3 willing; information). The carts' contacts with blocks (ironspec
+21:25 PT): each tick a cart's move is stopped sideways or from above, the non-rail blocks its box
+(grown 0.02) meets; a cell the header declares neither as a stop (`stops: CELLS (why)`) nor as a
+contact (`# contacts: CELLS=REASON (evidence row)`, walls a cart rides against, ironspec 22:05) fails
+the row.
+`--stack-bench`, instead of the run: the (a) feed stack's dust (-3,23,9) forced through both power
+states with the T (-3,25,9)'s lever off and on (the T's shape against its power's settle after each
+step), and day-1's R1 gate with its line ends in four states (each gate cell and the queue rail).
+Two classes print apart from
+the bars until their parts land (ironspec 19:57 / 19:31 PT): "the way-in's fall (C pending)", a
+stamp peak or HOME loss in the way-in's cells (x 4..9, y <= -13, z <= 0), and A6's entries outside
+[0.11, 0.21] (each napper's speed at A6's entry booster (3,y+2,-5)). `--stale-start` (the recovery
 row) starts every LAST_SLEPT 24,100 gt old: the first call with 3 willing villagers at the stand and
 the first golem after it are printed. The summons by day: the calls, those with 3 willing in the box,
 the golems, and the willing villagers counted per call. `--held-at-divert` (divert sampling (i)):
