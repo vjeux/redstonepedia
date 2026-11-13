@@ -226,9 +226,12 @@ pub fn block_light_landless(w: &World, p: BlockPos) -> Result<i32, String> {
 }
 
 impl Clone for SkyCache {
-    /// A copy of a world starts with no answers (they are recomputed on demand).
+    /// A copy of a world starts with no answers and no light-source list (they are recomputed on
+    /// demand from its own cells), and carries the light read errors still pending (ironspec 14:27
+    /// (b): a copy made between a failed read and the next tick would otherwise lose them).
     fn clone(&self) -> Self {
-        SkyCache::default()
+        let pending = self.read_errors.lock().map(|v| v.clone()).unwrap_or_else(|_| vec!["the light read errors' lock is poisoned".to_string()]);
+        SkyCache { read_errors: std::sync::Mutex::new(pending), ..SkyCache::default() }
     }
 }
 
@@ -722,6 +725,81 @@ mod tests {
         w.set_block(BlockPos::new(5, 1, 0), Block::Air, crate::world::flags::ALL);
         assert_eq!(at(&w, 6, 1, 0), Ok(3), "the torch gone: the glowstone's light, 11 steps along the floor");
         assert_eq!(at(&w, 5, 1, 0), Ok(4));
+    }
+
+    /// (cc767b78, ironspec 14:27 (a)) The land-less light-source list follows every cell-write path: a
+    /// `place_raw` write, a piston's move (the pushed glowstone's light moves with it), a whole-box
+    /// `load_cells`, `site::crop`'s bulk row copy, and a clone (its own list; the original unchanged).
+    /// (`set_block` is the first test's path; every write but the whole-box fills and the crop's copy
+    /// goes through `World::put`.)
+    #[test]
+    fn the_landless_sources_follow_every_write_path() {
+        let glow = Block::parse("glowstone").unwrap();
+        let base = || {
+            let mut w = World::new(BlockPos::new(-8, -2, -8), [17, 8, 17]);
+            let stone = Block::parse("stone").unwrap();
+            for x in -6..=6 {
+                for z in -6..=6 {
+                    w.set_block(BlockPos::new(x, 0, z), stone, crate::world::flags::ALL);
+                }
+            }
+            w
+        };
+        let at = |w: &World, x: i32, y: i32, z: i32| w.block_light(BlockPos::new(x, y, z));
+        // place_raw, after a first read built the list
+        let mut w = base();
+        assert_eq!(at(&w, 0, 2, 0), Ok(0));
+        w.place_raw(&[(BlockPos::new(0, 1, 0), glow)]);
+        assert_eq!(at(&w, 0, 2, 0), Ok(14), "place_raw");
+        // a piston's push: the glowstone from (-1,1,0) to (0,1,0)
+        let mut w = base();
+        w.set_block(BlockPos::new(-2, 1, 0), Block::parse("piston[extended=false,facing=east]").unwrap(), crate::world::flags::ALL);
+        w.set_block(BlockPos::new(-1, 1, 0), glow, crate::world::flags::ALL);
+        assert_eq!(at(&w, 1, 2, 0), Ok(12), "before the push: 3 steps from the glowstone");
+        w.set_block(BlockPos::new(-3, 1, 0), Block::parse("redstone_block").unwrap(), crate::world::flags::ALL);
+        for _ in 0..6 {
+            w.tick();
+        }
+        assert_eq!(w.get(BlockPos::new(0, 1, 0)), glow, "pushed");
+        // (an extended piston's light behaviour isn't modeled: a read near it is an error, as it should
+        // be; the piston retracted, the cells read again)
+        assert!(at(&w, 1, 2, 0).is_err(), "near the extended piston: an error, not a value");
+        w.set_block(BlockPos::new(-3, 1, 0), Block::Air, crate::world::flags::ALL);
+        for _ in 0..6 {
+            w.tick();
+        }
+        assert!(matches!(w.get(BlockPos::new(-2, 1, 0)), Block::Piston { extended: false, .. }), "retracted: {}", w.get(BlockPos::new(-2, 1, 0)));
+        assert_eq!(at(&w, 1, 2, 0), Ok(13), "after the push: 2 steps from it");
+        // load_cells
+        let mut w = base();
+        assert_eq!(at(&w, 3, 2, 3), Ok(0));
+        let mut cells = w.cells.0.clone();
+        cells[w.index(BlockPos::new(3, 1, 3)).unwrap()] = glow;
+        w.load_cells(cells);
+        assert_eq!(at(&w, 3, 2, 3), Ok(14), "load_cells");
+        // site::crop
+        let mut w = base();
+        w.set_block(BlockPos::new(2, 1, 2), glow, crate::world::flags::ALL);
+        let c = crate::entity::mob::site::crop(&w, BlockPos::new(-4, -1, -4), BlockPos::new(4, 4, 4));
+        assert_eq!(at(&c, 2, 2, 2), Ok(14), "crop");
+        // a clone: its own list
+        let w = base();
+        assert_eq!(at(&w, 0, 2, 0), Ok(0));
+        let mut k = w.clone();
+        k.set_block(BlockPos::new(0, 1, 0), glow, crate::world::flags::ALL);
+        assert_eq!(at(&k, 0, 2, 0), Ok(14), "the clone's write");
+        assert_eq!(at(&w, 0, 2, 0), Ok(0), "the original unchanged");
+    }
+
+    /// (ironspec 14:27 (b)) A copy of a world made between a failed light read and the next tick carries
+    /// the pending error.
+    #[test]
+    fn a_clone_carries_the_pending_light_errors() {
+        let w = World::new(BlockPos::new(0, 0, 0), [4, 4, 4]);
+        let _ = w.light_or(Err("pending".to_string()), 0);
+        let k = w.clone();
+        assert_eq!(k.take_light_errors(), vec!["pending".to_string()]);
+        assert_eq!(w.take_light_errors(), vec!["pending".to_string()], "the original keeps its own");
     }
 
     /// (cc767b78, ironspec 12:54) A light read whose caller can't return the error surfaces:

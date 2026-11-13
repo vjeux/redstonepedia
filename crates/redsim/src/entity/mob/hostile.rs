@@ -954,7 +954,7 @@ pub fn check(w: &World, farm: &Farm, village_golem: bool) -> Result<Vec<Exposure
     }
     let errors = w.take_light_errors();
     if !errors.is_empty() {
-        return Err(format!("the hostile checks: {} light read(s) failed: {}", errors.len(), errors.join("; ")));
+        return Err(format!("the hostile checks: {} light read(s) failed (pending since the world's last tick or take: some may predate this check): {}", errors.len(), errors.join("; ")));
     }
     Ok(ex.done())
 }
