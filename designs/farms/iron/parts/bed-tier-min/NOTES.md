@@ -447,8 +447,8 @@ branch, unlanded)" until `cart_contacts` (329b5acc3) is on main.
   sleeper's eye (-2.50,0.76,4.48) sees the zombie's eye (-4.50,1.23,10.50), 6.36 apart, through the
   channel (-3,0,5), (-4,0..1,5..8); the window shuts again on the wake edge. (-4,0,5), A6's old hatch
   wall, cut that line at its corner (no wake on 6 of 6) and is air. Screens (-3,1,6), (-3,1,7),
-  (-2,1,7), (-1,1,7) keep the exit out of sight. The record holds a redstone block at (-5,1,8), the
-  shutter's drive in its night state, until F's built line; no lever anywhere in the record.
+  (-2,1,7), (-1,1,7) keep the exit out of sight. (Superseded the same afternoon: the record leaves
+  (-5,1,8) empty for F's built line and stores the shutter unpowered; see the next section.)
 - **The exit boost.** A booster on (-2,0,5) right after P, powered through a slime support by a torch
   at (-2,-2,5): the exit's crawl (carts leaving the hand-off at ~0.07) was the whole slow tail of
   entry -> R (166..203 before, 141..170 after).
@@ -475,3 +475,54 @@ branch, unlanded)" until `cart_contacts` (329b5acc3) is on main.
   re-sleeps at the wake + 100 (8/8 seeds; 0.55 and 0.57..0.60 pass). Standing condition (ironspec
   08:53): any change that could lift the entry above 0.50 (the landing booster's power, the slope, the
   cart's speed into the landing) widens the park's catch first and re-sweeps to 0.60.
+
+## The rebased tip: main's contact rule, the wake sensor, the tap's built path (Nov 13 afternoon)
+
+Rebased onto main 1ea7bf39a (train 8: the shared contact rule); bench rows on 2af606b9d unless named.
+
+- **Contacts through main's `contacts::cart_contacts`** (G1's Q1; the 84dff165a copy gone): the clipped
+  axes of each recorded SELF move, keyed on the contacted block. The bed-head contact re-derived on it
+  at the design point (below): 296 / 408 visits, depth 0.0000, 1 tick each, speed 0.060..0.112 in,
+  0.0423..0.075 out (the least at entry 0.51). Declared with `ref=2af606b9d` and its full command;
+  `speed_out>=0.0423+eps=0.0023`: the bound 0.040 is the exit boost's measured carry threshold (a
+  loaded cart set on (-2,0,5) carried at 0.0101, stalled at 0.0100: `--boost-probe`) plus a 0.0299
+  margin. The bench parses each declaration's depth / ticks / speed_out bounds per cell (Q6).
+- **The wake sensor** (`--wake-sensor`, G1 12:04 / day-1 12:03): an observer at (-3,-1,4) facing up at
+  the bed head, in the glass's place; OCCUPIED's set and clear each give a pulse into (-3,-2,4) 2 gt
+  after the edge (tick-exact confirmed in 26.3). On every one of 408 lie-downs and 408 wakes it rose at
+  +2, none missed, none spurious. DAY-1's F line keys on it: SLEPT (toggled by its pulses, reset at the
+  release), OPEN on (ARM + 70) and SLEPT, the shutter = NOT OPEN, the release behind OPEN's fall.
+- **The record holds no stand-in:** (-5,1,8) (F's line output) and (3,0,4) (the park drive's input)
+  empty for DAY-1's cells; Z1's shutter stored unpowered, its one stable state with no drive (Q16: the
+  generator fails on a trapdoor that changes at its next update). The bench's file lays the stand-ins
+  as declared overrides.
+- **The slope hold's tap on its built path** (`--tap T,W[,PERIOD]`, Q2): the bench file's stand-in
+  lever (1,-2,3) into DAY-1's repeater (1,-2,4) facing north, into the slime support (1,-2,5), through
+  the stand-in guard (its reach: the repeater alone). A PERIOD makes it a free-running train at phase
+  T. Bars: an arrival during a pulse, a wait of a full period, a CLEAR line to Z1 in either shutter
+  state, departure -> R over the budget's 15 gt (Q3). The retired `--pulse-cell 1,-1,6` is refused.
+- **The design point:** the window shut at the wake + 4 (DAY-1's observer 2 + torch 2), the release
+  at the wake + 8 (`--close-after 4 --release-after 8`). 0.05..0.55 x 8 seeds, 408 / 408 clean: ARM
+  -> lie-down 4..5 gt (every lie-down after ARM), ARM -> wake 71..90, the window's opening -> wake
+  1..20, release -> boarding 13..19, NEAREST_HOSTILE's clear 16 gt after the close on every wake, the
+  first (-2,0,5) entry clears the close + 27 by 1 gt at least (entity-to-entity, ironspec 14:08), 0
+  re-sleeps, the longest wake -> boarding 27. close-after 8 / 10 with delta = close + 4 also 408 / 408.
+- **The slope hold at the design's waits** (W 10, period 100, three phases: held 16..45 / 36..65 /
+  56..85; single late pulses, the RETURN gate's held launches: held 166..195 / 186..215): every bar
+  passes (0 arrivals during a pulse, creep 0.0083, 0 NEAREST_HOSTILE ticks, 0 stamps, 0 CLEAR lines,
+  departure -> R 13..15). Controls fail: W = 4 (carts stuck), a pulse over the arrivals, a planted
+  re-shape of (-1,0,3) (integrity), `--release-after-arm 1` (at rest).
+- **Frame independence** (`--offset`, the whole stop built at design + offset): the dense band at six
+  generic positions (+80 / -40 in y, (16384,0,16384), the chunk phase (+6,0,+6), their sum) and at
+  every module copy of onechunk's N = 4 (A..D, each also +80): every judged outcome identical, the
+  least speed out 0.04678174225627934 at 0.395 at all 14; offset 0 byte-identical to the code before.
+- **The mutual hold (-1,0,3) <-> (-1,0,4):** both `holds ...=east_west` in `integrity:`, judged every
+  tick (Q13); tick-exact's both-orders build replay keeps both east_west in the game.
+- **DAY-1's latch emulated** (`--latch T_MAX,LOGIC_LAT,REL_AFTER` on the real sensor) and the merge
+  row (`--hurt-after-lie k`): a hurt within 3 gt of the lie-down merges into one pulse; the napper
+  stands awake on P, re-sleeps in the bed at the wake + ~100 (LAST_WOKEN), its pulse resets OPEN and
+  the latch releases with it asleep (12..16 of 16 forced visits; 0 / 408 in normal operation). The
+  P-eye static: from 25 eye positions on P, Z1 is in view from 0 with the window open (the screens
+  (-3,1,5..6)), so an awake napper on P never re-acquires it. Tick-exact: in 26.3 a cart at P does
+  NOT seat a sleeper in this bed (9 / 9), so the awake guard is bought (DAY-1 places it: a string at P
+  + 1). A never-slept napper (by day) stays on the bed foot (-3,0,3) the whole visit, never on P.
