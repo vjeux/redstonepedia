@@ -1782,8 +1782,26 @@ pub enum MobfarmCmd {
         /// the release, for each of --freeze-lens gt.
         #[arg(long, value_delimiter = ',')]
         freeze_every: Vec<i64>,
+        /// (C)'s entry bar at A6's entry (ironspec 21:25: A6's operating band, inherited).
+        #[arg(long, value_delimiter = ',', default_value = "0.11,0.24")]
+        band: Vec<f64>,
+        /// record7's BUILT R1 with day-1's line-bench levers (REST_l on, DAY off, NOT-ready's wall
+        /// lever (8,-14,-5) on, flipped off as the release) instead of the torch stand-in.
+        #[arg(long)]
+        r1_built: bool,
         #[arg(long, value_delimiter = ',', default_value = "1,2,3,4")]
         freeze_lens: Vec<i64>,
+        /// (tick-exact's official restart row) tick-exact's mixed water rig (6 dry slopes onto 12
+        /// wet flats), a restart at every tick FROM..=TO: the tick and speed leaving the 5th wet
+        /// flat. Needs no design (pass any).
+        #[arg(long, value_delimiter = ',')]
+        water_restart_row: Vec<i64>,
+        /// Containment: run the module with the extra cells this many gt and list the water outside
+        /// waterlogged rails in the box --scan-box x0,y0,z0,x1,y1,z1 (default the way-in's descent).
+        #[arg(long)]
+        water_scan: Option<u32>,
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true, default_value = "2,-27,-8,9,-20,3")]
+        scan_box: Vec<i32>,
     },
     /// (onechunk 2026-11-11; farmopt 22:07, ironspec's self-contained loaders) L1′, the cart-loop
     /// loader, benched in redsim (`mobfarm::l1bench`): writes its design (--design-out) or runs it:
@@ -7318,7 +7336,16 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             );
             print!("{}", crate::killguard::bench(&spec, &c, &o).map_err(|e| anyhow::anyhow!(e))?);
         }
-        MobfarmCmd::WayCell { design, positions, move_positions, s9, c_descent, brakes, queue, post, own, napper, keep_clear, chunk, pad, draws, write, rail, extra, ride_to, custom_post, wait, bed, leg, hold, south, deep, ride_ticks, release_phases, restart_at, stamp, follow, queue_glass, leg_day, release_sweep, visit, visit_holds, visit_no_post, path_probe, seat_at, restart_every, freeze_every, freeze_lens } => {
+        MobfarmCmd::WayCell { design, positions, move_positions, s9, c_descent, brakes, queue, post, own, napper, keep_clear, chunk, pad, draws, write, rail, extra, ride_to, custom_post, wait, bed, leg, hold, south, deep, ride_ticks, release_phases, restart_at, stamp, follow, queue_glass, leg_day, release_sweep, visit, visit_holds, visit_no_post, path_probe, seat_at, restart_every, freeze_every, band, r1_built, freeze_lens, water_restart_row, water_scan, scan_box } => {
+            if let [a, b] = water_restart_row[..] {
+                let ticks: Vec<i64> = (a..=b).collect();
+                for how in crate::liveness::Restart::rows() {
+                    for l in crate::waycell::water_restart_rows(&ticks, how).map_err(|e| anyhow::anyhow!(e))? {
+                        println!("{l}");
+                    }
+                }
+                return Ok(());
+            }
             let (_c, mut spec) = load(version, &design)?;
             // (a module that already carries the way-in: its queue cart and its post's boat are the
             // benches' own to place, so the design's copies are left out of the runs)
@@ -7368,6 +7395,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 south,
                 queue_glass,
                 seat_at: (seat_at.len() == 3).then(|| [seat_at[0], seat_at[1], seat_at[2]]),
+                band: if band.len() == 2 { [band[0], band[1]] } else { [0.11, 0.24] },
+                r1_built,
                 custom_post,
             };
             if let Some(n) = deep {
@@ -7412,6 +7441,12 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
                 return Ok(());
             }
+            if let (Some(n), 6) = (water_scan, scan_box.len()) {
+                for l in crate::waycell::water_scan_lines(&spec, &o, n, [scan_box[0], scan_box[1], scan_box[2]], [scan_box[3], scan_box[4], scan_box[5]]).map_err(|e| anyhow::anyhow!(e))? {
+                    println!("{l}");
+                }
+                return Ok(());
+            }
             if let (Some(pp), 3) = (path_probe.as_deref(), bed.len()) {
                 let at: Vec<[f64; 3]> = pp
                     .split(';')
@@ -7431,7 +7466,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             if let (true, 6, 3, 3, Some(d)) = (visit > 0, leg.len(), bed.len(), ride_to.len(), leg_day) {
                 let holds = if visit_holds.is_empty() { vec![80, 90, 100, 110] } else { visit_holds.clone() };
                 let post_at = if visit_no_post { None } else { o.post };
-                for l in crate::waycell::visit_lines(&spec, &o, post_at, [leg[0], leg[1], leg[2]], [leg[3], leg[4], leg[5]], [bed[0], bed[1], bed[2]], d, visit, &holds, &restart_at, [ride_to[0], ride_to[1], ride_to[2]]).map_err(|e| anyhow::anyhow!(e))? {
+                for l in crate::waycell::visit_lines(&spec, &o, post_at, [leg[0], leg[1], leg[2]], [leg[3], leg[4], leg[5]], [bed[0], bed[1], bed[2]], d, visit, &holds, &restart_at, [ride_to[0], ride_to[1], ride_to[2]], follow).map_err(|e| anyhow::anyhow!(e))? {
                     println!("{l}");
                 }
                 return Ok(());
@@ -7456,7 +7491,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 // a long sweep prints its failing rows and the summary only
                 let long = restarts.len() + freezes.len() > 40;
                 for l in lines {
-                    if !long || l.contains(" rows: ") || l.contains("NEVER") || l.contains("OFF THE RAILS") || l.contains("MOVED BACK") || l.contains("OUT OF THE BAR") || l.contains("EYE IN WATER") || !l.contains("hurt 0.0;") {
+                    if !long || l.contains(" rows: ") || l.contains("NEVER") || l.contains("OFF THE RAILS") || l.contains("MOVED BACK") || l.contains("OUT OF THE BAR") || l.contains("EYE IN WATER") || l.contains("CONTACTS") || l.contains("GAME TIME NOT") || !l.contains("hurt 0.0;") {
                         println!("{l}");
                     }
                 }

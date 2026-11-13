@@ -77,7 +77,7 @@ palette:
   l minecraft:lever[face=ceiling,facing=north,powered=true]
   m minecraft:rail[shape=north_west,waterlogged=false]
   n minecraft:nether_portal[axis=x]
-  o minecraft:oak_fence
+  o minecraft:oak_fence[east=false,north=false,south=false,waterlogged=false,west=false]
   p minecraft:powered_rail[powered=false,shape=ascending_east,waterlogged=false]
   q minecraft:rail[shape=south_east,waterlogged=false]
   r minecraft:rail[shape=ascending_east,waterlogged=false]
