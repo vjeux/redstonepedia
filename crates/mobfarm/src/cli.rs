@@ -8609,13 +8609,21 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     cells.push(redsim::pos::BlockPos::new(v[0], v[1], v[2]));
                 }
             }
-            let (lines, findings, samples) = crate::lightningcheck::check(&spec, &crate::lightningcheck::Opts { positions: cells, rails }).map_err(|e| anyhow::anyhow!(e))?;
+            let (lines, entity_fails, samples, rod_fails, rods) = crate::lightningcheck::check_parts(&spec, &crate::lightningcheck::Opts { positions: cells, rails }).map_err(|e| anyhow::anyhow!(e))?;
             for l in &lines {
                 println!("{l}");
             }
-            let (v, failed) = scope.verdict("lightning", samples, "farm entities", findings);
+            // (G1 Nov 13 12:52, R1: two bars, the farm entities' and the rods'; an exclusion never
+            // covers a failure)
+            let (v, failed_e) = scope.verdict("lightning", samples, "farm entities", entity_fails);
             println!("lightning verdict: {v}");
-            if failed {
+            let (rv, failed_r) = scope.verdict("lightning-rods", rods, "rods", rod_fails);
+            println!("lightning-rods verdict: {rv}");
+            let (unused, unused_fail) = scope.unused();
+            for l in &unused {
+                println!("{l}");
+            }
+            if failed_e || failed_r || unused_fail {
                 std::process::exit(1);
             }
         }
@@ -8936,7 +8944,12 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             // (ironspec Nov 12 23:56: the bar's samples, the wet cells; none is NOT JUDGED)
             let (v, failed) = scope.verdict("wet-spawn", crate::wetspawn::wet_cells_of(&spec, &cells).len(), "wet cells", fails);
             println!("wet-spawn verdict{}: {v}", if site.is_some() { " (the declared site's)" } else { " (the worst case: no site declared)" });
-            if failed || wf || unscheduled || wet_noops > 0 {
+            // (G1 Nov 13 12:52 (a): a flag exclusion naming no bar of this tool FAILS)
+            let (unused, unused_fail) = scope.unused();
+            for l in &unused {
+                println!("{l}");
+            }
+            if failed || wf || unscheduled || wet_noops > 0 || unused_fail {
                 std::process::exit(1);
             }
         }
@@ -8981,7 +8994,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             let (v, failed) = scope.verdict("sight", samples, "rays compared", changed);
             println!("sight verdict: {v}");
-            if failed {
+            let (unused, unused_fail) = scope.unused();
+            for l in &unused {
+                println!("{l}");
+            }
+            if failed || unused_fail {
                 std::process::exit(1);
             }
         }
@@ -13242,6 +13259,13 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 bar_fails.push(format!("one-way {ow_v}"));
             }
             println!("one-way verdict: {ow_v}");
+            let (unused, unused_fail) = scope.unused();
+            for l in &unused {
+                println!("{l}");
+            }
+            if unused_fail {
+                bar_fails.push("an unused --scope-excludes flag entry".to_string());
+            }
             println!(
                 "push-scan: 4 bars (push-range, rail-T, switched-cell, one-way), {}{}",
                 bar_fails.len(),
@@ -13671,10 +13695,10 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let (c, spec) = load(version, &design)?;
             let text = std::fs::read_to_string(&design)?;
             let scope = crate::bars::Scope::from_text(&text, &scope_excludes).map_err(|e| anyhow::anyhow!(e))?;
-            let (gate_text, failed) = crate::queue::junction_gate_opts(&spec, &text, all);
+            let (gate_text, failed, n_junctions) = crate::queue::junction_gate_counted(&spec, &text, all);
             println!("{gate_text}");
-            // (ironspec Nov 12 23:56: the gate's sample count, its junctions)
-            let n_junctions: usize = gate_text.lines().next().and_then(|h| h.split("): ").nth(1)).and_then(|t| t.split_whitespace().next()).and_then(|n| n.parse().ok()).unwrap_or(0);
+            // (ironspec Nov 12 23:56: the gate's sample count, its junctions; 13 12:52 (b): returned
+            // by the gate, not parsed back out of its text)
             let (jv, jf) = scope.verdict("rail-junctions", n_junctions, "junctions", usize::from(failed));
             println!("rail-junctions verdict: {jv}");
             // (ironspec Nov 12 02:46: placement-order shapes are accepted: each T's placement order
@@ -13774,7 +13798,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             let (tv, tf) = scope.verdict("T-static", tsl.len(), "switched Ts", tfail);
             println!("T-static verdict: {tv}");
-            if tf || jf {
+            let (unused, unused_fail) = scope.unused();
+            for l in &unused {
+                println!("{l}");
+            }
+            if tf || jf || unused_fail {
                 std::process::exit(1);
             }
         }
