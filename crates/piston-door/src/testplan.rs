@@ -584,6 +584,13 @@ fn plan_in(files: Option<&[String]>, groups: &[Group], designs: &[String], every
             continue;
         }
         let names = |gs: &[Group]| gs.iter().map(|g| g.name()).collect::<Vec<_>>().join(", ");
+        // a NON-CODE file directly under crates/ (a README) belongs to no crate: it picks nothing,
+        // like docs/ (no process gates: ironspec 2026-11-12 21:39 PT); a .rs or .toml there could be
+        // pulled into a crate (`#[path]`, `include!`), so it keeps the no-rule → everything path
+        if f.starts_with("crates/") && crate_of(f).is_none() && !f.ends_with(".rs") && !f.ends_with(".toml") {
+            out.push(format!("  {f} -> nothing (a non-code file outside every crate)"));
+            continue;
+        }
         let unit = crate_of(f).filter(|k| !TESTS_RUN_BY.iter().any(|(c, _)| c == k));
         let and_unit = unit.map(|k| format!(" and unit:{k}")).unwrap_or_default();
         match pick(f) {
@@ -1128,6 +1135,10 @@ mod tests {
         // a file directly under crates/ belongs to no crate
         assert_eq!(crate_of("crates/README.md"), None);
         assert_eq!(crate_of("crates/mobfarm/src/lib.rs"), Some("mobfarm"));
+        // and a non-code one there picks nothing, like docs/ (ironspec 21:39 PT); a .rs or .toml
+        // there keeps the no-rule → everything path (`#[path]` / `include!` could pull it in)
+        assert!(plan_in(Some(&["crates/README.md".to_string()]), &[], &[], false, true, &mut Vec::new(), &|| Ok(vec!["mobfarm".to_string()])).is_empty());
+        assert!(!plan_in(Some(&["crates/shared.rs".to_string()]), &[], &[], false, true, &mut Vec::new(), &|| Ok(vec!["mobfarm".to_string()])).is_empty());
         let mut out = Vec::new();
         for p in [plan(Some(&[]), &[], &[], true, true, &mut out), plan(Some(&["crates/piston-door/src/testplan.rs".to_string()]), &[], &[], false, true, &mut out)] {
             let names: Vec<&str> = p.iter().map(|p| p.name()).collect();
