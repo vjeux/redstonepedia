@@ -490,10 +490,10 @@ pub fn parse_restart(s: &str) -> Result<(i64, Restart), String> {
 }
 
 /// What a [`restart`] did (ironspec 21:13: nothing silently dropped): the entities' new ids (old -> new;
-/// it reads as that map), the load ticks' game times (`first..=at`), the entity-free ticks the restart
-/// itself ran (`entity_free`: 1 + its extra load ticks, measured as the ticks run with no entity ticking)
-/// and the entities they held (`held`: for the official load the entities it brought back, which were away
-/// through its idle ticks; for the STRESS variant each noted frozen at its first load tick in
+/// it reads as that map), the restart's game times (`first..=at`), the entity-free ticks the restart
+/// itself ran (`entity_free`: a world open's N idle ticks, or the stress variant's 1 + F block-only ticks)
+/// and the entities they held (`held`: for the official load the entities it brought back, present and
+/// unticked through its idle ticks; for the STRESS variant each noted frozen at its first load tick in
 /// `World::frozen`, kept there, so a freeze that goes on from the load reads as starting on it).
 #[derive(Clone, Debug, Default)]
 pub struct Restarted {
@@ -508,9 +508,10 @@ pub struct Restarted {
     pub created: Vec<u32>,
     /// The STRESS variant (not observed in 16 official loads): the row prints, never bars.
     pub stress: bool,
-    /// The world has a Nether part (`World::nether`): the reload model doesn't save it, so it ticks normally
-    /// through the load ticks and keeps its in-memory state; the row counts as unmodelled until the reload
-    /// model saves and loads both dimensions (ironspec 21:23/21:24: said in the note, not silent).
+    /// The world has a Nether part (`World::nether`): the reload model doesn't save it, so it keeps its
+    /// in-memory state through the restart, its clock advanced with the overworld's (game time is global,
+    /// ironspec 23:58 (2)); the row counts as unmodelled until the reload model saves and loads both
+    /// dimensions (ironspec 21:23/21:24: said in the note, not silent).
     pub nether: bool,
 }
 
@@ -555,7 +556,11 @@ impl Restarted {
         format!(
             "{body}{}){}",
             if f > 0 { format!(" + a {f}-gt level-32 freeze from it") } else { String::new() },
-            if self.nether { "; Nether restart not modelled in redsim (the Nether part ticked normally through the load and kept its in-memory state): this row UNMODELLED" } else { "" }
+            match (self.nether, self.stress) {
+                (false, _) => "",
+                (true, false) => "; Nether restart not modelled in redsim (the Nether part kept its in-memory state, its clock advanced with the overworld's): this row UNMODELLED",
+                (true, true) => "; Nether restart not modelled in redsim (the Nether part ticked normally through the block-only ticks and kept its in-memory state): this row UNMODELLED",
+            }
         )
     }
 }
@@ -620,9 +625,11 @@ pub fn restart(w: &mut World, how: Restart) -> Result<Restarted, String> {
         // (the world open's idle ticks: game time and day time advance, the level's weather with them;
         // nothing of the world ticks, so every tick due inside them fires at the first ticking tick)
         for _ in 0..idle.max(1) {
-            w.time += 1;
-            if w.weather.on {
-                redsim::weather::tick(w);
+            // (the tick's own time phase: game time, the day time while `advance_time` holds, the
+            // weather; the Nether part's clock with the overworld's: game time is global)
+            w.tick_time();
+            if let Some(n) = w.nether.as_mut() {
+                n.time = w.time;
             }
         }
         let held = w.entities.list.iter().filter(|e| !e.removed).count();
@@ -923,7 +930,7 @@ mod tests {
             assert_eq!(before, vec![b, a], "scheduled b then a, both due at save + 1");
             restart(&mut w, Restart::load(redsim::reload::Order::Save).with_idle(n)).unwrap();
             assert!(!powered(&w, a) && !powered(&w, b), "N = {n}: nothing fired in the idle");
-            let order: Vec<BlockPos> = w.ticks.all().into_iter().filter(|t| t.trigger <= w.time + 1).map(|t| t.pos).collect();
+            let order: Vec<BlockPos> = w.clone().ticks.collect(w.time + 1).into_iter().map(|t| t.pos).collect();
             assert_eq!(order, vec![b, a], "N = {n}: the overdue ticks keep their saved order");
             w.tick();
             assert_eq!(w.time, save + n + 1);
@@ -943,11 +950,91 @@ mod tests {
             w.schedule_tick(lo, r1.kind(), 1, redsim::ticks::Priority::High);
             w.schedule_tick(hi, r1.kind(), 1, redsim::ticks::Priority::ExtremelyHigh);
             restart(&mut w, Restart::load(redsim::reload::Order::Save).with_idle(n)).unwrap();
-            let due: Vec<(BlockPos, redsim::ticks::Priority)> = w.ticks.all().into_iter().filter(|t| t.trigger <= w.time + 1).map(|t| (t.pos, t.priority)).collect();
+            // (asserted through the drain the tick itself runs (`LevelTicks::collect` at the first ticking
+            // tick's game time), on a copy)
+            let due: Vec<(BlockPos, redsim::ticks::Priority)> = w.clone().ticks.collect(w.time + 1).into_iter().map(|t| (t.pos, t.priority)).collect();
             assert_eq!(due, vec![(hi, redsim::ticks::Priority::ExtremelyHigh), (lo, redsim::ticks::Priority::High)], "N = {n}: the higher priority first, though saved second");
             w.tick();
             assert!(powered(&w, lo) && powered(&w, hi), "N = {n}: both fire at the first ticking tick");
         }
+    }
+
+    /// The idle runs the tick's own time phase (ironspec 23:58 (1)): with the day cycle held (the
+    /// `advance_time` game rule off, as A6's night and the bed trap's 13,800 hold it) game time moves by N
+    /// and the day time stays; with it on both move. Game time is global (23:58 (2)): a world's Nether part
+    /// keeps its clock with the overworld's through the idle, and the note says what the code does.
+    #[test]
+    fn world_open_time_phase() {
+        for (advance, dday) in [(false, 0), (true, 2)] {
+            let mut w = World::new(BlockPos::new(-8, -4, -8), [16, 8, 16]);
+            w.time = 500;
+            w.mob.day_offset = 13_300;
+            w.mob.advance_time = advance;
+            let (t0, d0) = (w.time, w.day_time());
+            restart(&mut w, Restart::load(redsim::reload::Order::Save)).unwrap();
+            assert_eq!((w.time - t0, w.day_time() - d0), (2, dday), "advance_time {advance}");
+            // (and a normal tick keeps the rule)
+            w.tick();
+            assert_eq!((w.time - t0, w.day_time() - d0), (3, dday * 3 / 2), "advance_time {advance}, a tick after");
+        }
+        let mut wn = World::new(BlockPos::new(-8, -4, -8), [16, 8, 16]);
+        wn.time = 800;
+        let mut nether = World::new(BlockPos::new(-8, -4, -8), [16, 8, 16]);
+        nether.time = 800;
+        wn.nether = Some(Box::new(nether));
+        let r = restart(&mut wn, Restart::load(redsim::reload::Order::Save).with_idle(1)).unwrap();
+        assert_eq!((wn.time, wn.nether.as_ref().map(|n| n.time)), (801, Some(801)), "both clocks agree after the idle");
+        assert!(r.note(0).ends_with("; Nether restart not modelled in redsim (the Nether part kept its in-memory state, its clock advanced with the overworld's): this row UNMODELLED"), "{}", r.note(0));
+        wn.tick();
+        assert_eq!((wn.time, wn.nether.as_ref().map(|n| n.time)), (802, Some(802)));
+    }
+
+    /// G1's TTL point (ironspec 00:00 (2)): GOLEM_DETECTED_RECENTLY counts down once per brain tick
+    /// (`ExpirableValue.tick`; redsim's `forget_outdated`) and is carried across a reload as its remaining
+    /// TTL, so a tick in which the villager doesn't tick extends it by that tick in game time: a 600 memory
+    /// frozen F ticks expires F later than the unfrozen control (T + 600 + F), across a world open N later
+    /// (T + 600 + N).
+    #[test]
+    fn ttl_memory_extends() {
+        let expiry = |freeze: i64, open: Option<i64>| -> i64 {
+            let stone = redsim::block::Block::parse("minecraft:stone").unwrap();
+            let mut w = World::new(BlockPos::new(-8, -4, -8), [16, 8, 16]);
+            for x in -6..=6 {
+                for z in -6..=6 {
+                    w.set_block(BlockPos::new(x, -1, z), stone.clone(), redsim::world::flags::ALL);
+                }
+            }
+            w.mob.seed(7, 1000);
+            w.mob.ai.on = true;
+            let v = redsim::entity::spawn(&mut w, "minecraft:villager", [0.5, 0.0, 0.5], None).unwrap();
+            let i = redsim::entity::index_of(&w, v).unwrap();
+            redsim::entity::mob::ai::brain::brain_mut(&mut w, i).golem_detected = Some(600);
+            let t0 = w.time;
+            if freeze > 0 {
+                let ec = w.entity_chunks;
+                w.entity_chunks = Some([1, 1, 0, 0]);
+                for _ in 0..freeze {
+                    w.tick();
+                }
+                w.entity_chunks = ec;
+            }
+            if let Some(n) = open {
+                restart(&mut w, Restart::load(redsim::reload::Order::Save).with_idle(n)).unwrap();
+            }
+            loop {
+                let i = redsim::entity::index_of(&w, follow(&w, v)).unwrap();
+                if redsim::entity::mob::ai::brain::brain(&w, i).golem_detected.is_none() {
+                    return w.time - t0;
+                }
+                assert!(w.time - t0 < 2000, "the memory never expired");
+                w.tick();
+            }
+        };
+        let e0 = expiry(0, None);
+        assert!((600..=602).contains(&e0), "the control expires at T + 600 (+ the countdown's own tick): {e0}");
+        assert_eq!(expiry(30, None), e0 + 30, "a 30-gt freeze");
+        assert_eq!(expiry(0, Some(1)), e0 + 1, "a world open, N = 1");
+        assert_eq!(expiry(0, Some(2)), e0 + 2, "a world open, N = 2");
     }
 
     /// The STRESS variant (not observed in 16 official loads, ironspec 23:12 (3); 26.3's tick order, 22:16

@@ -1590,8 +1590,9 @@ pub enum MobfarmCmd {
         /// 2N + 1, 3N + 2, ...: every phase).
         #[arg(long)]
         stop_every: Option<i64>,
-        /// The restarts' entity load order: save, reverse, seed:K (+F: a slow load's F extra load ticks), or
-        /// all (the 10 orders of liveness::Restart::rows(), one pass each).
+        /// The restarts' load: save, reverse or seed:K (the entity order), each a world open with 2 idle
+        /// ticks; /idle:N for N idle ticks, /stress:F for the STRESS variant's 1 + F block-only ticks (printed
+        /// only); or all (the 20 rows of liveness::Restart::rows(): 10 orders x N = 1 and 2, one pass each).
         #[arg(long, default_value = "save")]
         restart_order: String,
         /// A mob (loot pickup on, empty hand) placed in a bottom row at column X at time T, on
@@ -1991,6 +1992,8 @@ pub enum MobfarmCmd {
         /// Restarts (liveness::restart) every N gt (0: none).
         #[arg(long, default_value_t = 0)]
         restart_every: i64,
+        /// The restarts' load: save, reverse or seed:K, each a world open with 2 idle ticks; /idle:N for
+        /// N; /stress:F for the STRESS variant (printed only).
         #[arg(long, default_value = "save")]
         restart_order: String,
         /// The positive control: the N-th villager's clears undone (it must release HOME).
@@ -2646,7 +2649,8 @@ pub enum MobfarmCmd {
     /// 03:22 with ironspec's amendments, the measured bars 05:31): the static gates on the emitted split
     /// file, the controls at every corner (the launch offsets with the measured departure spread
     /// `--spread`, the release speeds, the napper's delays), and at the nominal corners every gt bar's
-    /// margin (`--margin`) and a save/stop/start at every phase in the 10 orders, the logins reported;
+    /// margin (`--margin`) and a save/stop/start at every phase in the 20 restart rows (10 orders x a world
+    /// open's N = 1 and 2), the logins reported;
     /// or with `--solve-steps` the solve over launch steps and napper delays.
     ReturnJudge {
         #[arg(long, default_value_t = 3)]
@@ -2917,7 +2921,7 @@ pub enum MobfarmCmd {
         #[arg(long)]
         restart: Option<String>,
         /// The restart sweep: `FROM,TO` runs the bench once per tick T in FROM..=TO and per order in
-        /// `Restart::rows()` (save, reverse, seed:1..8), on 16 threads, and prints the rows that fail
+        /// `Restart::rows()` (save, reverse, seed:1..8, each a world open with N = 1 and 2), on 16 threads, and prints the rows that fail
         /// (a wrong lane, a push, a napper off its route, a hurt, eye-in-wall or dismounted rider).
         #[arg(long, value_delimiter = ',')]
         restart_sweep: Vec<i64>,
@@ -3292,7 +3296,7 @@ pub enum MobfarmCmd {
     /// game day with the scarer posts laid, every golem followed to its portal crossing (the tick
     /// of its own life it crossed in, its targets, its least overlap with a portal row, its move),
     /// the cadence, the next batch's golem sightings; push sources (`--twin`, `--piglins`);
-    /// restarts after each summon in the 10 orders (`--restart-phases`); the positive control
+    /// restarts after each summon in the 20 restart rows (`--restart-phases`); the positive control
     /// (`--block-row`). A pillager post seats redsim's pillager (9fc3155f: its box, seat and eye;
     /// a villager, or a golem off a portal, it sees within 8 is a loud model error; a golem
     /// overlapping a portal block with cooldown 0 is exempt); its crossbow AI is not modeled (the
@@ -3437,8 +3441,8 @@ pub enum MobfarmCmd {
         /// cold start is the fresh design's row (--dep-riders x,x,x).
         #[arg(long)]
         restart: Vec<String>,
-        /// The restart at every phase "FROM,TO,STEP": one run per tick and per order of the
-        /// reload-order rule (save, reverse, seed:1..8).
+        /// The restart at every phase "FROM,TO,STEP": one run per tick and per row of
+        /// liveness::Restart::rows() (save, reverse, seed:1..8, each a world open with N = 1 and 2).
         #[arg(long, value_delimiter = ',')]
         restart_sweep: Vec<i64>,
         /// (the station) Write the station as a committed design in the loop frame (onechunk's
@@ -4010,7 +4014,7 @@ pub enum MobfarmCmd {
         #[arg(long)]
         restart: Vec<String>,
         /// The restart matrix (ironspec's L1‴ rows): every row of Restart::rows() (save, reverse,
-        /// seed:1..8) at every --phase-step phase of the third cycle, against the control.
+        /// seed:1..8, each a world open with N = 1 and 2) at every --phase-step phase of the third cycle, against the control.
         #[arg(long)]
         restart_matrix: bool,
         /// The restart matrix's first restart tick (default: the third cycle, 300 + 2 periods); set it
@@ -7130,7 +7134,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let orders: Vec<crate::liveness::Restart> = if restart_order == "all" {
                 crate::liveness::Restart::rows()
             } else {
-                vec![crate::liveness::Restart::parse(&restart_order).ok_or_else(|| anyhow::anyhow!("--restart-order {restart_order}: save, reverse, seed:K or all"))?]
+                vec![crate::liveness::Restart::parse(&restart_order).ok_or_else(|| anyhow::anyhow!("--restart-order {restart_order}: save, reverse or seed:K (with /idle:N or /stress:F), or all"))?]
             };
             println!("{}", path.display());
             print!("{}", crate::l1items::spawn_report(width, height, fire_y, far_rows, hopper_floor));
@@ -7479,7 +7483,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     Ok((name.to_string(), three(seat)?, cands.split('+').map(three).collect::<Result<Vec<_>>>()?))
                 })
                 .collect::<Result<_>>()?;
-            let restart = crate::liveness::Restart::parse(&restart_order).ok_or_else(|| anyhow::anyhow!("--restart-order {restart_order}: save, reverse or seed:K"))?;
+            let restart = crate::liveness::Restart::parse(&restart_order).ok_or_else(|| anyhow::anyhow!("--restart-order {restart_order}: save, reverse or seed:K (with /idle:N or /stress:F)"))?;
             let restarts: Vec<i64> = if restart_every > 0 { (1..).map(|k| k * restart_every).take_while(|t| *t < ticks).collect() } else { Vec::new() };
             anyhow::ensure!(nap_trace.is_empty() || nap_trace.len() == 2, "--nap-trace FROM,TO");
             let nap_trace = (nap_trace.len() == 2).then(|| (nap_trace[0], nap_trace[1]));
@@ -8734,7 +8738,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             println!(
                 "station judge (cc767b78, bench, tool unreviewed; the {} mode: per REL {rel:?} the control, {}the cold start{}): drop-bench --layout station --pad --hold-y {hold_y} --stagger {},{},{} --rebrake {rebrake} --rebrake-each --release {release} --exit-gate --open-delay {open_delay} --pulse {pulse} --refill {},{} --post {:?} {}--scarers {scarers}, {ticks} ticks; the launch bar {}",
                 if l2 { "L2" } else { "L1" },
-                if no_restarts { String::new() } else { format!("a save/stop/start at every phase T+{}..T+{} in each of the 10 orders (save, reverse, seed:1..8), ", starts[0], starts[1]) },
+                if no_restarts { String::new() } else { format!("a save/stop/start at every phase T+{}..T+{} in each of the 20 restart rows (save, reverse, seed:1..8, each a world open with N = 1 and 2), ", starts[0], starts[1]) },
                 if ds.is_empty() { String::new() } else { format!(", logins of {ds:?} gt at every phase (the pearl alternative)") },
                 stagger[0],
                 stagger[1],

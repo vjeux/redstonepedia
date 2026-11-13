@@ -861,7 +861,7 @@ fn verdict(v: &[(String, Result<Summary, String>)]) -> String {
 }
 
 /// The restart sweep (ironspec's L1 rows, G1): the bench once per tick T in `from..=to` and per
-/// order in `liveness::Restart::rows()` (save, reverse, seed:1..8), on 16 threads; the rows against
+/// order in `liveness::Restart::rows()` (save, reverse, seed:1..8, each a world open with N = 1 and 2), on 16 threads; the rows against
 /// every bar, and the same configuration without a restart.
 pub fn restart_sweep(o: &ReturnOpts, from: i64, to: i64) -> Result<String, String> {
     let quiet = |r: Option<(i64, crate::liveness::Restart)>| ReturnOpts { restart: r, trace: None, out: None, ..o.clone() };

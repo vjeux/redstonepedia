@@ -485,7 +485,8 @@ pub struct Faults {
     /// control (the napper should go back to bed).
     pub hide_after_wake: bool,
     /// A save, stop and start between ticks T - 1 and T (T gt after the entry) in this load order
-    /// (`liveness::restart`: no game time passes; the lead's rows run all 10 orders).
+    /// (`liveness::restart`: a world open, N idle ticks of game time with nothing ticking; the lead's rows
+    /// run all 20 restart rows).
     pub restart: Option<(i64, crate::liveness::Restart)>,
     /// The visit's day time exactly (in place of the seeded night hour).
     pub hour: Option<i64>,
@@ -963,8 +964,8 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             run.world.mob.day_offset += 24000 - dt.rem_euclid(24000);
             row.skipped_at = Some(t);
         }
-        // (a save, stop and start between ticks t - 1 and t: no game time passes; every entity back
-        // as a new object under a new id, in the row's load order)
+        // (a save, stop and start between ticks t - 1 and t: a world open's N idle ticks of game time with
+        // nothing ticking; every entity back as a new object under a new id, in the row's load order)
         if let Some((at, how)) = f.restart
             && t == at
         {
