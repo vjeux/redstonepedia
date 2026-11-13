@@ -36,6 +36,7 @@ pub mod ctllatch;
 pub mod holdpulse;
 pub mod mirror;
 pub mod recordmatch;
+pub mod settle;
 pub mod oddtap;
 pub mod ctlring;
 pub mod parts;
