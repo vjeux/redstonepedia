@@ -911,6 +911,70 @@ pub enum MobfarmCmd {
         #[arg(long, value_delimiter = ',')]
         villagers: Vec<usize>,
     },
+    /// (ironspec 2026-11-13 09:21 / 09:25 (a), the lane-timing reconciliation) redsim's side of tick-exact's
+    /// closed-loop replay: a bench's drive (`--drive-out`) played open loop on its scene (`--scene-out`) as the
+    /// game replayer plays it (`Run::start` at --day0, the settle, the entity lines in file order, each act at t
+    /// applied before the tick at t0 + t); --noai sets every villager NoAI after the summon (the deterministic
+    /// control); per tick the --trace lines' rows (eN:FROM-TO; after the tick: position, motion, rider, the
+    /// block at the feet) and, with --pushes, every mob-on-cart push (redsim's push log) by drive name
+    /// (mobfarm::drivereplay; bench, tool unreviewed).
+    DriveReplay {
+        #[arg(long)]
+        scene: PathBuf,
+        #[arg(long)]
+        drive: PathBuf,
+        /// Run ticks after t0.
+        #[arg(long, default_value_t = 720)]
+        ticks: i64,
+        /// The day time at t0 (tick-exact's --day-start).
+        #[arg(long, default_value_t = 11_000)]
+        day0: i64,
+        #[arg(long)]
+        noai: bool,
+        /// Traced lines and windows: `e11,e12:0-720;e16:440-720`.
+        #[arg(long, default_value = "")]
+        trace: String,
+        #[arg(long)]
+        pushes: bool,
+        /// The game replayer's rows to compare against (tick-exact's trace file): every traced row needs a game
+        /// row and every game row a traced row; motions by their bits, positions within --pos-tol + 1 ULP; any
+        /// difference, missing or extra row exits non-zero.
+        #[arg(long)]
+        compare: Option<PathBuf>,
+        /// The position tolerance beside 1 ULP: the game rows print positions to 6 decimals (5e-7).
+        #[arg(long, default_value_t = 5e-7)]
+        pos_tol: f64,
+        /// Print the queued pairs' gaps (consecutive traced lines' dy, dz; at rest or not) at these run ticks.
+        #[arg(long, value_delimiter = ',')]
+        gaps_at: Vec<i64>,
+        /// Run in the frame moved by DX,DY,DZ (the scene and drive shifted, rows printed back): the game's
+        /// replays hold the scene at 0,80,0 (x and z by whole chunks).
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true, default_values_t = [0, 0, 0])]
+        offset: Vec<i32>,
+        /// "rider doPush onto carts: off" (a counterfactual with no game twin; refused with --compare; fails when
+        /// it skipped no push).
+        #[arg(long)]
+        push_off: bool,
+        /// tick-exact's held cart: `X,Y,Z;T0;T1` (an empty minecart summoned there at rest at act time T0, held
+        /// there until T1, removed at T1).
+        #[arg(long, default_value = "", allow_hyphen_values = true)]
+        hold_cart: String,
+        /// Watched cells `x,y,z;..` (design frame): each entity line's visits (its box meeting the cell), by tick.
+        #[arg(long, default_value = "", allow_hyphen_values = true)]
+        pass_cells: String,
+        /// The entity lines that are nappers (`e0,e3,..`; the rest batch carts): each napper visit's margin to
+        /// the next batch cart in the watched cells (day-1's (b) - (a) - 4).
+        #[arg(long, default_value = "")]
+        nappers: String,
+        /// Keep the scene's `port home:` line (redsim's bench-side HOME injection, which the game replayer
+        /// doesn't know; dropped by default): the recording's own setup, which its `# expect` lines need.
+        #[arg(long)]
+        keep_port_home: bool,
+        /// Run the replay twice, the riders' cart pushes on and off, and report each watched cell's entry shift
+        /// and consecutive-entry gaps on and off (the push → time shift).
+        #[arg(long)]
+        push_shift: bool,
+    },
     /// (ironspec 2026-11-12 23:19 (3) / 23:21 / 23:38 / 23:48) A design file must be saved settled: laid as
     /// the judges lay a design, its entities held (present, never ticked), daylight at the file's declared
     /// time (`# day-time: N`, else --day-time, else noon), then block ticks until no cell changes and nothing
@@ -14076,6 +14140,24 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                   }
                 }
             }
+        }
+        MobfarmCmd::DriveReplay { scene, drive, ticks, day0, noai, trace, pushes, compare, pos_tol, gaps_at, offset, push_off, hold_cart, pass_cells, nappers, keep_port_home, push_shift } => {
+            anyhow::ensure!(offset.len() == 3, "--offset DX,DY,DZ");
+            let mut lines_n: Vec<usize> = Vec::new();
+            for s in nappers.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+                let digits = s.strip_prefix('e').unwrap_or(s);
+                anyhow::ensure!(!digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit()), "--nappers {s}: a line eN");
+                let n: usize = digits.parse()?;
+                anyhow::ensure!(!lines_n.contains(&n), "--nappers e{n} given twice");
+                lines_n.push(n);
+            }
+            let o = crate::drivereplay::Opts { scene, drive, ticks, day0, noai, trace: crate::drivereplay::parse_trace(&trace)?, pushes, compare, pos_tol, gaps_at, offset: [offset[0], offset[1], offset[2]], push_off, hold_cart: crate::drivereplay::parse_hold_cart(&hold_cart)?, pass_cells: crate::drivereplay::parse_cells(&pass_cells)?, nappers: lines_n, keep_port_home };
+            let r = if push_shift { crate::drivereplay::push_shift(&o)? } else { crate::drivereplay::run(&o)? };
+            for l in &r.lines {
+                println!("{l}");
+            }
+            // (G1 12:19 (1): a mismatch, an uncompared row, a failed expect or a vacuous counterfactual exits non-zero)
+            anyhow::ensure!(r.failures.is_empty(), "drive-replay: {} failure(s), the first: {}", r.failures.len(), r.failures[0]);
         }
         MobfarmCmd::SettleCheck { file, write, cap, day_time, allow_unchecked, all } => {
             let text = std::fs::read_to_string(&file)?;
