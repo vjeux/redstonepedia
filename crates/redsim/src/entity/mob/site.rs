@@ -601,6 +601,8 @@ pub fn crop(w: &World, lo: BlockPos, hi: BlockPos) -> World {
         c.set_block(p, b, crate::world::flags::RAW);
     }
     c.light_version += 1;
+    // (the rows were copied in bulk: a land-less light-source list, if one was built, is listed again)
+    crate::daylight::note_fill(&c);
     c
 }
 
