@@ -16394,6 +16394,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 Ok([v[0] - off[0], v[1] - off[1], v[2] - off[2]])
             };
             let levers_on: Vec<[i32; 3]> = lever_on.iter().map(|s| to_stop(s)).collect::<Result<_>>()?;
+            // (ironspec 00:31: the module's declared emulated cells, laid by the bench)
+            let lay_emulated = if module_offset.is_some() { crate::bedtier::emulated_entries(&std::fs::read_to_string(&design)?, off).map_err(|e| anyhow::anyhow!(e))? } else { Vec::new() };
             let built_release = built_release.as_deref().map(to_stop).transpose()?;
             let day_lever = day_lever.as_deref().map(to_stop).transpose()?;
             // (record-match: the design of record, the offset (default: the module offset), the
@@ -16415,7 +16417,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         header.push('\n');
                         header.push_str(&std::fs::read_to_string(f).map_err(|e| anyhow::anyhow!("--record-declare {}: {e}", f.display()))?);
                     }
-                    let declared = crate::recordmatch::declared_from_header(&header).map_err(|e| anyhow::anyhow!("{}: {e}", design.display()))?;
+                    let mut declared = crate::recordmatch::declared_from_header(&header).map_err(|e| anyhow::anyhow!("{}: {e}", design.display()))?;
+                    // (the module's declared emulated cells: a declared candidate for record-match)
+                    for (c, _) in &lay_emulated {
+                        declared.candidates.insert(*c, "emulated (the module's `emulated:` line)".to_string());
+                    }
                     let ents = r.entities.iter().map(|e| crate::recordmatch::Ent { kind: e.kind.clone(), pos: e.pos }).collect();
                     Some(std::sync::Arc::new(crate::bedtier::RecordCtx { cells: r.blocks, ents, offset, margin: record_margin, declared, name: rp.display().to_string() }))
                 }
@@ -16480,7 +16486,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     Ok((redsim::pos::BlockPos::new(v[0], v[1], v[2]), t.trim().parse::<i64>()?, st.trim().to_string()))
                 })
                 .collect::<Result<_>>()?;
-            let faults = crate::bedtier::Faults { empty, no_home, hide_after_wake, restart, hour, skip, day_off, no_presence_gate, early_release, day_gate, day_on, live_day_seated, panic_entry: None, pickup_inject: None, approach, forced_stamp, arrival_stamp, arrival_run, arrival_hold, declared_emulated, r_bar, park_shift: None, park_shifts, declared_contacts, pulses, levers_on, built_release, day_lever, record, record_seed: from, record_speed: f64::NAN, scope_excludes, arm_delay, release_after_arm };
+            let faults = crate::bedtier::Faults { empty, no_home, hide_after_wake, restart, hour, skip, day_off, no_presence_gate, early_release, day_gate, day_on, live_day_seated, panic_entry: None, pickup_inject: None, approach, forced_stamp, arrival_stamp, arrival_run, arrival_hold, declared_emulated, r_bar, park_shift: None, park_shifts, declared_contacts, pulses, levers_on, built_release, day_lever, record, record_seed: from, record_speed: f64::NAN, scope_excludes, arm_delay, release_after_arm, lay_emulated };
             crate::bedtier::bench_cmd(&spec, from, to, &speeds, after_sleep, release_after, day, &faults, [restart_phases.as_deref(), hours.as_deref(), skip_phases.as_deref(), restart_after_skip.as_deref(), panic_entries.as_deref(), pickup_injects.as_deref(), queue_waits.as_deref()], &crate::bedtier::orders(&orders)?, jobs)?;
         }
         MobfarmCmd::BedtierTwo { design, from, to, speeds, restart_phases, orders, transit, lift_delay, lift_speed, day_hold, day_off, gap, c_at, skip_phases, day_on, jobs, day_gate, a_hours, after_sleep, release_after } => {
