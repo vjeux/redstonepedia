@@ -2660,8 +2660,9 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             row.armed_at = Some(t - 1);
         }
         // (G1 12:38 / ironspec 12:38-12:58: DAY-1's guard-free latch, emulated on the REAL wake
-        // sensor's pulses (the observer in the design): SLEPT a T flip-flop toggled by each pulse
-        // after ARM's edge; OPEN set once per visit on (ARMED70 AND SLEPT), reset when SLEPT falls
+        // sensor's pulses (the observer in the design): SLEPT a T flip-flop toggled by each pulse,
+        // reset at each visit's release (day-1 13:22); OPEN set once per visit on (ARMED70 AND
+        // SLEPT), reset when SLEPT falls
         // or at TIMEOUT (ARM + t_max); the shutter = NOT OPEN, `logic_lat` gt behind OPEN; the
         // park's release `rel_after` gt after OPEN's fall, or after TIMEOUT when OPEN never set
         // (the missed-nap path); every visit releases once. The forced fault rows: a hurt
@@ -2679,10 +2680,11 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             while latch_seen < row.sensor_rises.len() {
                 let r = row.sensor_rises[latch_seen];
                 latch_seen += 1;
-                if row.armed_at.is_some_and(|a| r >= a) {
-                    latch_slept = !latch_slept;
-                    row.latch_lines.push(format!("t {r}: the wake sensor's pulse: SLEPT -> {latch_slept}"));
-                }
+                // (day-1 13:22: SLEPT toggles on every pulse, reset at each visit's release, not at
+                // ARM: an ARM-edge reset (ARM + 2..4) can't clear the lie-down pulse (ARM + 5..6) by
+                // 2 gt)
+                latch_slept = !latch_slept;
+                row.latch_lines.push(format!("t {r}: the wake sensor's pulse: SLEPT -> {latch_slept}"));
             }
             // (armed_at is a post-tick stamp (G1's Q10); a write before tick t sits at t - 1)
             let armed70 = row.armed_at.is_some_and(|a| t - 1 >= a + f.arm_delay);
@@ -2741,7 +2743,9 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                     }
                 }
                 row.release_at = Some(t);
-                row.latch_lines.push(format!("t {t}: the park released"));
+                // (day-1 13:22: the release resets SLEPT (and ARMED70) for the next visit)
+                latch_slept = false;
+                row.latch_lines.push(format!("t {t}: the park released (SLEPT reset)"));
             }
         }
         // (F: `after_sleep` gt after the lie-down (the bed observer's edge): the hatch shut, the
