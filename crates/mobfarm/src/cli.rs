@@ -122,12 +122,64 @@ pub enum MobfarmCmd {
         /// Today's stop: its entry -> R, LO,HI gt (58f770cc; 196..198 the lane model's).
         #[arg(long, value_delimiter = ',', default_values_t = vec![196i64, 198])]
         trip: Vec<i64>,
+        /// The self-lock in TODAY'S rows: a rider counts again at ticks >= T + this (600: tick-exact's code
+        /// read; ironspec 19:40 PT: 599 + the 20-gt re-stamp + 1 + 2 = 622).
+        #[arg(long, default_value_t = 600)]
+        lock: i64,
+        /// Each lane's launch offset after the first's in TODAY'S rows (ironspec 20:07 PT: 0 / 14 / 24).
+        #[arg(long, value_delimiter = ',', default_values_t = vec![0i64, 14, 24])]
+        offsets: Vec<i64>,
+        /// (ironspec 20:53 PT; farmopt) Late returns to inject, gt each (e.g. 112,145): one napper's stop cycle
+        /// that much longer, at every pick of one night (stepped by --late-step), on TODAY'S rows with the
+        /// first --holds value; per lane the skipped picks, late rejoins, unnapped villagers that night and
+        /// the next, and summons lost over the following days, each against the same seed without it.
+        #[arg(long, value_delimiter = ',')]
+        late_inject: Vec<i64>,
+        #[arg(long, default_value_t = 50)]
+        late_step: i64,
         #[arg(long, default_value_t = 30)]
         days: usize,
         #[arg(long, default_value_t = 5)]
         seeds: u64,
     },
     /// (ironspec 15:23 (3), 18:06 (3), 18:40 (4)/(5)) The cycle start's least REL-to-REL interval and phase lock
+    /// (`ctlchain.rs`): P from the golem pulse or the watchdog; the chain as built, B held 100 gt with a
+    /// pulse latched to its end (the controls), and B re-armed to the pulse + 100 (with and without the
+    /// W-100 flywheel), at every W and scenario (normal, a failed roll, summons absent, freezes, a cold start).
+    LineBench {
+        /// The design of record (record7), loaded unchanged (its entities left out).
+        design: PathBuf,
+        /// The line's name in the report.
+        #[arg(long, default_value = "a controller line")]
+        label: String,
+        /// An input's stand-in: NAME=x,y,z=ON_STATE/OFF_STATE (repeatable).
+        #[arg(long)]
+        input: Vec<String>,
+        /// The consumer cell, read as powered.
+        #[arg(long)]
+        read: String,
+        /// A candidate or stand-in support cell laid over the design: x,y,z=STATE (repeatable).
+        #[arg(long)]
+        set: Vec<String>,
+        /// The positive control's cells laid over the candidate, x,y,z=STATE;...: the consumer must be dead in
+        /// every combination.
+        #[arg(long, default_value = "")]
+        control: String,
+        /// The expected function, a conjunction of the inputs' literals, e.g. REST&!DAY&!NR.
+        #[arg(long)]
+        expect: String,
+        /// Cells whose states print with the line enabled, x,y,z;...
+        #[arg(long, default_value = "")]
+        probe: String,
+        /// Cells whose six neighbours print (power reach), x,y,z;...
+        #[arg(long, default_value = "")]
+        reach: String,
+        #[arg(long, default_value_t = 40)]
+        settle: i64,
+        /// The edges at this many phases (each after settle + 0..PHASES gt).
+        #[arg(long, default_value_t = 20)]
+        phases: i64,
+    },
     /// (`ctlchain.rs`): P from the golem pulse or the watchdog; the chain as built, B held 100 gt with a
     /// pulse latched to its end (the controls), and B re-armed to the pulse + 100 (with and without the
     /// W-100 flywheel), at every W and scenario (normal, a failed roll, summons absent, freezes, a cold start).
@@ -9641,7 +9693,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     [d, at, add] => Some((*d as usize, *at, *add)),
                     _ => bail!("--hold-at D,IN_DAY,ADD"),
                 };
-                let lo_ = crate::napper::LaneOpts { lanes, per_lane: carts / lanes, k, beds, turns, visits, lane_exact, keep_place, skip_per_day, lock, trip: (lo, hi), sleep_at, spacing, cross_at, days, warmup, seed, night_gt, day_gt: 24000, dusk_at, jump, jump_every, outlier, post, foot, r_leg, window, det, lie, start_dt, rephase_lag, truncate_after_skip, hold_at, rule2, windows2, late_latch, log_releases: false, siding_window, ret, lock_gt, remark, queue_leg: None, queue_hold: 0, to_entry: 0, held_at_divert: false, post_lane: None, t_d: None };
+                let lo_ = crate::napper::LaneOpts { lanes, per_lane: carts / lanes, k, beds, turns, visits, lane_exact, keep_place, skip_per_day, lock, trip: (lo, hi), sleep_at, spacing, offsets: None, cross_at, days, warmup, seed, night_gt, day_gt: 24000, dusk_at, jump, jump_every, outlier, post, foot, r_leg, window, det, lie, start_dt, rephase_lag, truncate_after_skip, hold_at, rule2, windows2, late_latch, log_releases: false, siding_window, ret, lock_gt, remark, queue_leg: None, queue_hold: 0, to_entry: 0, held_at_divert: false, held_at_pick: false, post_lane: None, t_d: None };
                 if held_compare {
                     // (ironspec 03:53: (ii) rule 2's "already waiting at the pass" with the ring's windows
                     // (a late napper takes the next window, 10 cycles on, behind whichever cart passes)
@@ -10116,7 +10168,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 ..Default::default()
             };
             if let Some(h) = high {
-                let (p, desc) = crate::ctlcounter::high_params(&o, h);
+                let (p, desc) = crate::ctlcounter::high_params(&o, h).map_err(|e| anyhow::anyhow!(e))?;
                 println!("{desc}");
                 o.high = Some(p);
             }
@@ -10187,12 +10239,27 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
         }
-        MobfarmCmd::CtlCoverageBench { holds, leg, to_entry, post_lane, t_d, slot, trip, days, seeds } => {
+        MobfarmCmd::LineBench { design, label, input, read, set, control, expect, probe, reach, settle, phases } => {
+            let (_c, spec) = load(version, &design)?;
+            let inputs: Vec<crate::linebench::Input> = input.iter().map(|s| crate::linebench::parse_input(s)).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!(e))?;
+            let read = crate::linebench::parse_cell(&read).map_err(|e| anyhow::anyhow!(e))?;
+            let sets: Vec<([i32; 3], String)> = set.iter().map(|s| crate::linebench::parse_set(s)).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!(e))?;
+            let control: Vec<([i32; 3], String)> = control.split(';').map(str::trim).filter(|s| !s.is_empty()).map(crate::linebench::parse_set).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!(e))?;
+            let cells = |s: &str| -> Result<Vec<[i32; 3]>> { s.split(';').map(str::trim).filter(|s| !s.is_empty()).map(|c| crate::linebench::parse_cell(c).map_err(|e| anyhow::anyhow!(e))).collect() };
+            let probes = cells(&probe)?;
+            let reach = cells(&reach)?;
+            println!("{}", design.display());
+            for l in crate::linebench::bench(&spec, &label, &inputs, read, &sets, &control, &expect, &probes, &reach, settle, phases).map_err(|e| anyhow::anyhow!(e))? {
+                println!("{l}");
+            }
+        }
+        MobfarmCmd::CtlCoverageBench { holds, leg, to_entry, post_lane, t_d, slot, trip, lock, offsets, late_inject, late_step, days, seeds } => {
             let [lo, hi] = leg[..] else { bail!("--leg takes LO,HI") };
             let [pa, pb, pc] = post_lane[..] else { bail!("--post-lane takes A,B,C") };
             let [da, db, dc] = t_d[..] else { bail!("--t-d takes A,B,C") };
             let [tl, th] = trip[..] else { bail!("--trip takes LO,HI") };
-            for l in crate::napper::coverage_bench(&holds, (lo, hi), to_entry, [pa, pb, pc], [da, db, dc], slot, (tl, th), days, seeds) {
+            let [oa, ob, oc] = offsets[..] else { bail!("--offsets takes A,B,C") };
+            for l in crate::napper::coverage_bench(&holds, (lo, hi), to_entry, [pa, pb, pc], [da, db, dc], slot, (tl, th), lock, [oa, ob, oc], (&late_inject, late_step.max(1)), days, seeds) {
                 println!("{l}");
             }
         }

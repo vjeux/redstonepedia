@@ -224,7 +224,9 @@ pub fn bench(spec: &FarmSpec, cycles: i64, period: i64, width: i64, jitter: &[i6
             }
         }
     }
-    // (the ring's items: eight tokens, none lost; droppers and hoppers both)
+    // (the ring's items: eight tokens, none lost; droppers and hoppers both. G1's note: `.min(1)` counts the
+    // containers holding anything, not the items: two tokens in one container count once, so a merge reads
+    // as a loss (a FAIL) and nothing can read as more tokens than there are)
     let hoppers: Vec<P> = design().blocks.iter().filter(|(_, s)| s.contains("hopper")).map(|(p, _)| *p).collect();
     let in_droppers: usize = DROPPERS.iter().map(|p| redsim::redstone::container::analog_output(&run.world, bp(*p)).min(1) as usize).sum();
     let in_hoppers: usize = hoppers.iter().map(|p| redsim::redstone::container::analog_output(&run.world, bp(*p)).min(1) as usize).sum();

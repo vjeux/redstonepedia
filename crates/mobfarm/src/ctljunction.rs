@@ -168,7 +168,7 @@ pub fn bench(spec: &FarmSpec) -> Result<Vec<String>, String> {
     let worst = sw.iter().chain(rel.iter()).max().copied();
     Ok(vec![
         format!(
-            "J/K junction driver ({} blocks: the set and reset repeaters, the RS NOR napper-present latch, one driver repeater into the junction rail's cell): at 20 phases the junction switches {} gt after the routing edge and returns {} gt after the reset edge{}; the worst is {} gt against the bar <= {BAR} (s 12's least junction gap 14 under the +4 rule; every cause block-phase): {}",
+            "J/K junction driver ({} blocks: the set and reset repeaters, the RS NOR napper-present latch, one driver repeater into the junction rail's cell): at 20 phases the junction switches {} gt after the routing edge and returns {} gt after the reset edge{}; the worst is {} gt against the bar <= {BAR} (inherited, no measured failure: s 12's least junction gap 14 under the +4 rule, until the (2c)-based junction bar replaces it; every cause block-phase): {}",
             piece_blocks(),
             span(&sw),
             span(&rel),

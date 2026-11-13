@@ -6,7 +6,9 @@
 //! the side: an 8-gt pulse at the rise, none at the fall) -> the AND (subtract: E_H in the rear, the window
 //! decode's IN_WIN on the side: E_H passes only while C is outside the window) -> H_LOAD, the load request
 //! into the counter's pending latch (tens := 5, the FF to u 9 on the D8 tap: box piece 2's load path).
-//! IN_WIN is the decode of the tens digit 5..9 (an OR of five tens taps); the bench drives it as a level.
+//! IN_WIN is the decode of the tens digit 5..9 (an OR of five tens taps); the bench drives it as a level,
+//! at 15 (the requirement: the OR reaches the AND's side through a repeater) and swept 1..15 as the weak-OR
+//! control (G1 on 6b9be93ea point 3).
 //! The detector's level is a 16-dust line whose end feeds HI's rear (a redstone block on the cell 16 - s
 //! from the end gives the end level s; a reading change moves the block in one tick, as the drop latch's
 //! bench does).
@@ -37,11 +39,14 @@ pub fn design() -> Design {
     };
     let dust = "minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]";
     let dust_ns = "minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]";
-    // floors
+    // floors (and, for the bench's weak-OR rows only, a floor east of IN_WIN for its dust line: x 2..17 at z -3)
     for x in -3..=2 {
         for z in -5..=17 {
             put([x, -1, z], "minecraft:stone");
         }
+    }
+    for x in 3..=17 {
+        put([x, -1, -3], "minecraft:stone");
     }
     // the level line
     for z in LINE_END..=16 {
@@ -78,13 +83,16 @@ struct Trial {
 }
 
 /// One trial: the level at `from` for 60 gt (settled), then `to` at t = 0; IN_WIN set (true: inside)
-/// over [win_from, win_to) relative to the change (None: never inside); H_LOAD's pulses recorded for 60 gt.
-fn trial(spec: &FarmSpec, from: i32, to: i32, win: Option<(i64, i64)>) -> Result<Trial, String> {
+/// over [win_from, win_to) relative to the change (None: never inside), reaching the AND's side at
+/// `win_level` (15: a repeater's or a block's; less: a weak OR's dust, G1 on 6b9be93ea point 3); H_LOAD's
+/// pulses recorded for 60 gt.
+fn trial(spec: &FarmSpec, from: i32, to: i32, win: Option<(i64, i64)>, win_level: i32) -> Result<Trial, String> {
     let ro = RunOpts { ai: false, ..RunOpts::steady(1, 0, WalkMode::Random) };
     let mut run = Run::start(&crate::mirror::spec(spec)?, &ro)?;
     while run.settle_tick() {}
     let on = Block::parse("minecraft:redstone_block").map_err(|e| e.to_string())?;
     let dust = Block::parse("minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]").map_err(|e| e.to_string())?;
+    let dust_ew = Block::parse("minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]").map_err(|e| e.to_string())?;
     let air = Block::parse("minecraft:air").map_err(|e| e.to_string())?;
     let all = redsim::world::flags::ALL;
     let bp = |p: P| crate::mirror::at(p);
@@ -96,6 +104,14 @@ fn trial(spec: &FarmSpec, from: i32, to: i32, win: Option<(i64, i64)>) -> Result
             run.world.set_block(bp(p), on.clone(), all);
         }
     };
+    // (IN_WIN below 15: a dust line east from the AND's side cell, the source block 15 - level cells on, so
+    // the side cell's dust is at `win_level`; at 15 the block sits on the side cell itself)
+    let win_src: P = if win_level >= 15 { IN_WIN } else { [IN_WIN[0] + (15 - win_level), IN_WIN[1], IN_WIN[2]] };
+    if win_level < 15 {
+        for x in IN_WIN[0]..win_src[0] {
+            run.world.set_block(bp([x, IN_WIN[1], IN_WIN[2]]), dust_ew.clone(), all);
+        }
+    }
     set_level(&mut run, 0, from);
     let mut win_on = false;
     let mut pulses: Vec<(i64, i64)> = Vec::new();
@@ -106,7 +122,8 @@ fn trial(spec: &FarmSpec, from: i32, to: i32, win: Option<(i64, i64)>) -> Result
         }
         let want = win.is_some_and(|(a, b)| t >= a && t < b);
         if want != win_on {
-            run.world.set_block(bp(IN_WIN), if want { on.clone() } else { air.clone() }, all);
+            let off = if win_level >= 15 { air.clone() } else { dust_ew.clone() };
+            run.world.set_block(bp(win_src), if want { on.clone() } else { off }, all);
             win_on = want;
         }
         run.tick();
@@ -142,20 +159,33 @@ pub fn bench(spec: &FarmSpec) -> Result<Vec<String>, String> {
         ("fall 15 -> 14, outside", 15, 14, None, false),
         ("rise 14 -> 14 (no change: the control)", 14, 14, None, false),
     ] {
-        let tr = trial(spec, from, to, win)?;
+        let tr = trial(spec, from, to, win, 15)?;
         let fired = !tr.pulses.is_empty();
         ok &= fired == want;
         rows.push(format!("{label}: {} ({})", fmt(&tr.pulses), if fired == want { "ok" } else { "WRONG" }));
     }
-    let base = trial(spec, 14, 15, None)?;
+    let base = trial(spec, 14, 15, None, 15)?;
     let (lag, width) = base.pulses.first().copied().unwrap_or((-1, -1));
     // IN_WIN's edge around the rise: inside until `k` (the window closing at the rise), and inside from `k`
     let mut cut: Vec<String> = Vec::new();
     for k in -12i64..=12 {
-        let a = trial(spec, 14, 15, Some((-100, k)))?;
-        let b = trial(spec, 14, 15, Some((k, 100)))?;
+        let a = trial(spec, 14, 15, Some((-100, k)), 15)?;
+        let b = trial(spec, 14, 15, Some((k, 100)), 15)?;
         cut.push(format!("{k}: {} / {}", fmt(&a.pulses), fmt(&b.pulses)));
     }
+    // (G1 on 6b9be93ea point 3, ironspec 20:55 PT (2)(4)) IN_WIN's level at the AND's side swept 1..15 inside the
+    // window at the rise: the AND (subtract) passes E_H - side, so only a side at 15 holds the request back;
+    // the built OR must reach the side through a repeater (15). The weak levels are the control.
+    let mut weak: Vec<String> = Vec::new();
+    let mut leak_levels: Vec<i32> = Vec::new();
+    for s in 1..=15 {
+        let tr = trial(spec, 14, 15, Some((-100, 100)), s)?;
+        if !tr.pulses.is_empty() {
+            leak_levels.push(s);
+        }
+        weak.push(format!("{s}:{}", if tr.pulses.is_empty() { "held" } else { "LEAKS" }));
+    }
+    let only_15_holds = !leak_levels.contains(&15) && (1..15).all(|s| leak_levels.contains(&s));
     lines.push(format!(
         "the high re-phase's circuit ({BLOCKS} blocks: HI compare at 15 with a redstone block on its side, its rising edge E_H (subtract, a delay-4 side), the AND (subtract, IN_WIN on the side); + the window decode (tens 5..9: an OR of five tens taps, ~6) and the load path (tens := 5, the FF to u 9, ~4) in box piece 2): {}; {}",
         rows.join("; "),
@@ -167,6 +197,11 @@ pub fn bench(spec: &FarmSpec) -> Result<Vec<String>, String> {
     lines.push(format!(
         "  IN_WIN's edge at offset k from the rise (inside before k / inside from k: the request's pulses): {}",
         cut.join("; ")
+    ));
+    lines.push(format!(
+        "  IN_WIN's level at the AND's side, inside the window at the rise (level:request): {}; {} (the requirement: the window decode's OR reaches the AND's side through a repeater, at 15)",
+        weak.join(" "),
+        if only_15_holds { "only 15 holds the request back, every weaker level leaks: the weak-OR control bites" } else { "FAIL: the levels do not split at 15" }
     ));
     Ok(lines)
 }
