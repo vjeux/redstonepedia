@@ -55,7 +55,14 @@ R (4,-1,5).
   the chests and down the ledge, complete (72 of 72 unstamped); the plate stops a napper on the
   chests walking north onto the entry and back up the approach (the escape row below: 0 escapes in
   every row; the positive control, the lever first tried east of the chest on glass at (4,3,-3)
-  with no glass over it, walked 205 of 320 nappers out).
+  with no glass over it, walked 205 of 320 nappers out). The lever's state is not load-bearing:
+  with the trapdoor closed (lever off) the path still runs complete (72 of 72 unstamped; the
+  pathfinder takes any trapdoor's cell for a TRAPDOOR node, G1) and the stop still contains (the
+  closed trapdoor over the second chest leaves 1.81 under the glass (3,5,-3), no standing room: 0
+  escapes in 320 rides). The partial control is glass in (3,3,-3): 56 of 72 stamped. A napper
+  ejected onto the first chest can follow its riding path east onto the second chest before turning
+  back to the ledge (79 of 320 waited there, up to 156 gt, on e9f0f4cbf's ride); the walk timing
+  rows include that detour.
 - **The entry and the activator are uncapped**, the entry open above. A riding napper in calm REST
   paths from its cart, and keeps following that path after the eject. Its start is the first cell
   over the rider that is not air or passable: under a cap, the cap's own cell, a 1-node partial
@@ -151,6 +158,7 @@ exit's rails, the entry): never the declared-unreachable (-4,1,5), never the unc
 | skip x restart 1..200 gt after it x 10 orders | 13,200 / 13,200 | |
 | stale x restarts at 50..11,500 x 10 orders | 4,800 / 4,800 | |
 | entries 0.25..0.62 (the night row) | 40 / 40 | lie-down entry + 87..222, waiting about 144 gt on the chest first; stamp at most 5 |
+| entry 0.171 b/t ((C)'s descent, ironspec 16:20): night, restarts +1..+250 every 3 gt x 10 orders, skip at every gt +1..+300, panic tail 0..40 | 8 + 6,720 + 2,400 + 168, all clean | lie-down entry + 85..91 (night 87), R 199..252; stamp at most 38 |
 | pickup margin: the released cart at a forced speed | 64 / 88 | seated at measured 0.100..0.354 but the injected 0.143 (measured below 0.100) and 0.322..0.35 (the dead-stop window, above) |
 | two visits, restarts every gt over +1..+321 x 10 orders | 77,064 / 77,064 | A within 17 at C's lie-down 0; A's R to C's lie-down 122..361 gt |
 | two visits, A at day time 0..80, C queued | 192 / 216 | HOME losses by place: 0 rows in the stop's box, 24 only outside it (C at the bench's queue cell, at 12,013, before its entry) |

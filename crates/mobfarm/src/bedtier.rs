@@ -333,7 +333,7 @@ pub fn design(bench: bool, trapdoor_caps: bool) -> Result<String> {
     // (onechunk 14:23: standable cells no napper can reach, left out of its verify's on-foot set)
     b.d.meta.insert(
         "unreachable".into(),
-        "-4,1,5=the top hatch's lever cell: glass east (-3,1,5), west (-5,1,5) and under it (-4,0,5), the hatch's top trapdoor north (no floor under the hatch); the only napper cell touching it is the bed top (-3,1,4), diagonally, both orthogonals blocked (the trapdoor, the glass (-3,1,5)); flee-check from 42 places: no draw on it; no bench visit ever stood there (100,000+ visits)".into(),
+        "-4,1,5=the top hatch's lever cell: glass east (-3,1,5), west (-5,1,5) and under it (-4,0,5), the hatch's top trapdoor north (no floor under the hatch); the only napper cell touching it is the bed top (-3,1,4), diagonally, both orthogonals blocked (the trapdoor, the glass (-3,1,5)); flee-check from 43 places: no draw on it; no bench visit ever stood there (100,000+ visits)".into(),
     );
     // (ironspec/farmopt 11:01: the waker's in-sight places, declared: every place a napper has the
     // zombie in sight within 8 once F shows it, from the bench's sight log (none before F in any
