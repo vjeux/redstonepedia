@@ -109,10 +109,12 @@ pub const E_A2: [i32; 3] = [-2, 0, 2];
 pub const ACT_CTRL_A2: [i32; 3] = [-3, 0, 2];
 pub const ARM_A2: [i32; 3] = [-2, 0, 1];
 pub const PARK_A2: [i32; 3] = [1, 0, 4];
-/// (the park's lever hung from glass over the park cell, its updates reaching the park and the
-/// U-turn's curve (2 connections) only: south of the park it reached the exit slope (1,-1,5), a
-/// rail with 3 potential connections that a signal source's update can reshape)
-pub const PARK_CTRL_A2: [i32; 3] = [1, 1, 4];
+/// (the park's drive: day-1's repeater output east of the U-turn's support, which is a redstone
+/// conductor (smooth stone) powering the park rail west of it; the bench's stand-in a wall lever
+/// there attached to the conductor. Its updates and the conductor's reach the park and the U-turn's
+/// curve (2 connections) only: a drive into the park's support updated the exit slope (1,-1,5), a
+/// rail with exactly 3 potential connections, from a signal-source block (ironspec 03:26))
+pub const PARK_CTRL_A2: [i32; 3] = [3, 0, 4];
 
 /// The stop's variant cells in a built world: (A) when E holds an activator rail, T5b when the
 /// entry does, else A6.
@@ -704,13 +706,16 @@ pub fn design_a2(bench: bool) -> Result<String> {
     put(&mut b, [2, 1, 3], &rail("south_west"))?;
     put(&mut b, [2, 0, 3], "glass")?;
     put(&mut b, [2, 1, 4], &rail("north_west"))?;
-    put(&mut b, [2, 0, 4], "glass")?;
-    // the park: one braked powered rail descending west, its lever hung from glass over it (its
-    // updates reach the park and the U-turn's curve only)
+    // (the U-turn's south support a redstone conductor, smooth stone: the park's drive; glass over
+    // the curve (its cell 1 high: no stroll target on the conductor; the cart passes under))
+    put(&mut b, [2, 0, 4], "smooth_stone")?;
+    put(&mut b, [2, 2, 4], "glass")?;
+    // the park: one braked powered rail descending west, powered through the conductor east of it
+    // by day-1's repeater at (3,0,4) (the bench's stand-in a wall lever on the conductor's east face)
     put(&mut b, PARK_A2, "powered_rail[powered=false,shape=ascending_east,waterlogged=false]")?;
     put(&mut b, [PARK_A2[0], -1, PARK_A2[2]], "glass")?;
     put(&mut b, PARK_CTRL_A2, &ctl_block(PARK_CTRL_A2, "stone"))?;
-    put(&mut b, [PARK_CTRL_A2[0], PARK_CTRL_A2[1] + 1, PARK_CTRL_A2[2]], "glass")?;
+    put(&mut b, [PARK_CTRL_A2[0], PARK_CTRL_A2[1] - 1, PARK_CTRL_A2[2]], "glass")?;
     // the run-up: two flats along z 4 into P, glass over them (the empty cart passes under; a
     // napper on P can't step east)
     for x in -1..=0 {
@@ -789,9 +794,9 @@ pub fn design_a2(bench: bool) -> Result<String> {
     b.d.ports.insert("output".into(), [12, 0, 6]);
     b.d.ports.insert("home".into(), BED_HEAD);
     let lines: Vec<String> = vec![
-        "The bed stop (A) with the run-up (B3, ironspec 02:27; local frame; loop = local + (0,-27,-1); the bed's head at (-3,0,4)): A6's arrival (the entry booster, plain rails down the old park's slope, the capped flat, the curve south, the flats), the arming detector (-2,0,1), the activator E (-2,0,2) over the bed foot's north-east corner (always on: a redstone torch on glass west of it, glass over the torch), the curve east (-2,0,3), a flat, a booster, the climb, the U-turn at y 1, the park (1,0,4) one braked powered rail descending west, two run-up flats along z 4, the pickup cell P (-2,0,4) a curve turning south, A6's exit (the curve east, the capped booster, the capped flat, the slope down, two flats, R). No solid-render block anywhere in the stop.".to_string(),
+        "The bed stop (A) with the run-up (B3, ironspec 02:27; local frame; loop = local + (0,-27,-1); the bed's head at (-3,0,4)): A6's arrival (the entry booster, plain rails down the old park's slope, the capped flat, the curve south, the flats), the arming detector (-2,0,1), the activator E (-2,0,2) over the bed foot's north-east corner (always on: a redstone torch on glass west of it, glass over the torch), the curve east (-2,0,3), a flat, a booster, the climb, the U-turn at y 1, the park (1,0,4) one braked powered rail descending west, two run-up flats along z 4, the pickup cell P (-2,0,4) a curve turning south, A6's exit (the curve east, the capped booster, the capped flat, the slope down, two flats, R). One solid-render block in the stop: the park's conductor (2,0,4) under the U-turn's curve, glass over the curve (the cell over the conductor 1 high: no stroll target).".to_string(),
         "E sets the rider down on the bed foot's top (a southbound cart's dismount: W, E, NW and NE full blocks, SW the first valid place), 1.00 from the bed head's centre: SleepInBed fires at once whatever path it carries. The empty cart runs the loop and brakes on the park. The hatch's two iron trapdoors stand open and hide the zombie; F (the lie-down + 2, and not before the arming detector's edge + 70: the napper's 60-gt boarding cooldown less the park -> P travel, plus the detector -> E time and a margin) SHUTS them: the zombie wakes it, it stands up on P (its only stand-up cell), the park releases at the wake edge, and the cart runs the run-up into P under 0.2 b/t, seats it and runs on to R, whose rise opens the hatch again and resets the park's release and the arming latch. Precondition and single release as A6's: one cart per visit, the park released only at the wake edge.".to_string(),
-        "switch: -4,0,3=the hatch's lower lever (day-1's line end stand-in: F shuts, R opens; no lever in the build); -4,1,5=the hatch's upper lever (the same line); 1,1,4=the park's lever (day-1's line end stand-in: the release; no lever in the build)".to_string(),
+        "switch: -4,0,3=the hatch's lower lever (day-1's line end stand-in: F shuts, R opens; no lever in the build); -4,1,5=the hatch's upper lever (the same line); 3,0,4=the park's drive (day-1's repeater output stand-in: a wall lever on the conductor (2,0,4); the release; no lever in the build)".to_string(),
         "always-on: 3,2,-5=the entry booster's redstone torch, on glass (3,1,-5): it never toggles; -3,0,2=the activator's redstone torch, on glass (-3,-1,2): it never toggles (ironspec 03:22: no lever a wind burst can flip); 0,0,2=the loop booster's redstone torch, on glass (0,-1,2): it never toggles; -1,0,6=the exit booster's redstone torch, on glass (-1,-1,6): it never toggles".to_string(),
         "a6-pickup: -2,0,4=the pickup cell (the napper's only stand-up cell); stranded bound: no cart at it by the wake edge + 60 gt fails (to restate from these rows)".to_string(),
     ];
@@ -1377,7 +1382,7 @@ pub fn ctl_block(c: [i32; 3], st: &str) -> String {
             return "redstone_torch[lit=true]".to_string();
         }
         if c == PARK_CTRL_A2 {
-            return format!("lever[face=ceiling,facing=north,powered={on}]");
+            return format!("lever[face=wall,facing=east,powered={on}]");
         }
         return st.to_string();
     }
@@ -1483,6 +1488,11 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
     let (act_cell, act_ctrl) = act_cells(&run.world);
     let lay = layout(&run.world);
     for c in [HATCH_CTRL, HATCH_CTRL_HI, act_ctrl].into_iter().chain(lay.park_ctrl.iter().copied()) {
+        // (a built always-on source the bench never writes ((A) with the run-up's activator torch)
+        // is no stand-in: nothing to check)
+        if ctl_block(c, "redstone_block") == ctl_block(c, "stone") {
+            continue;
+        }
         for st in ["redstone_block", "stone"] {
             emulated_write_check(&run.world, BlockPos::new(c[0], c[1], c[2]), &block(&ctl_block(c, st)), &f.declared_emulated)?;
         }
