@@ -115,6 +115,35 @@ fn at(r: &[(u32, f64, f64, f64)], t: u32) -> (f64, f64) {
 }
 
 #[test]
+fn a_popped_waterlogged_rail_leaves_its_water_source() {
+    // (G1 on 4b6ee86e5) the other half of survival: a rail that can't stand any more is destroyed
+    // (Level.destroyBlock / removeBlock keep the cell's fluid: the fluid's legacy block), so a wet
+    // rail whose support goes leaves a water source in its cell; a dry one leaves air
+    for (s, wet) in [
+        ("rail[shape=north_south,waterlogged=true]", true),
+        ("powered_rail[powered=false,shape=north_south,waterlogged=true]", true),
+        ("detector_rail[powered=false,shape=north_south,waterlogged=true]", true),
+        ("rail[shape=north_south,waterlogged=false]", false),
+    ] {
+        let mut w = World::new(BlockPos::new(-3, -3, -3), [7, 7, 7]);
+        set(&mut w, (0, 0, 0), "glass");
+        set(&mut w, (0, 1, 0), s);
+        set(&mut w, (0, 0, 0), "air");
+        for _ in 0..3 {
+            w.tick();
+        }
+        let got = w.get(BlockPos::new(0, 1, 0));
+        assert!(!redsim::rails::is_rail(&got), "{s}: the rail popped (got {got})");
+        let f = redsim::fluid::fluid_state(&w, BlockPos::new(0, 1, 0));
+        if wet {
+            assert!(f.fluid.is_water(), "{s}: its cell holds water (got {got})");
+        } else {
+            assert!(!f.fluid.is_water() && got.is_air(), "{s}: a dry rail leaves air (got {got})");
+        }
+    }
+}
+
+#[test]
 fn the_wet_rig_spills_exactly_the_official_seven_cells() {
     // tick-exact: the wet copy's flowing (non-source) water within 3 of its rail column after the
     // ride: 7 cells, each the cell over the next lower slope (and over the top slope, fed by the top
