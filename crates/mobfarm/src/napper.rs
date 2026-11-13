@@ -1473,10 +1473,10 @@ pub fn coverage_bench(holds: &[i64], leg: (i64, i64), to_entry: i64, post: [i64;
         }
     }
     // (today's return legs: R -> rest on the merge hold 89 (tick-exact's official ride, the stop 9 down),
-    // released by the napper's own pulse at REL + `slot` (69 at c' 57: ARM3 + 12) once at rest 10 gt before
-    // its detector-to-H2 lock allows (the k-42 lock: detector + 42), the rail's rise -> PRESENT `post` (7b90c3f1:
-    // 18 + 79 / 94 / 110, + 16), the deadline the predecessor's D pass at its release + `t_d` (v6 §7: 93 /
-    // 130 / 167))
+    // released by the napper's own pulse at REL + `slot` once at rest 20 gt before the rail's rise (the k-42
+    // lock: the bit at H2 is set at rest + 10 and sampled at E + 2, the rail at E + 12), the rail's rise ->
+    // PRESENT `post` (7b90c3f1: 18 + 79 / 94 / 110, + 16), the deadline the predecessor's D pass at its release
+    // + `t_d` (v6 §7: 93 / 130 / 167))
     let today = |seed: u64, q: Option<(i64, i64)>, h: i64, held: bool| LaneOpts {
         days,
         seed,
@@ -1484,7 +1484,7 @@ pub fn coverage_bench(holds: &[i64], leg: (i64, i64), to_entry: i64, post: [i64;
         queue_hold: h,
         to_entry: if q.is_some() { to_entry } else { 0 },
         held_at_divert: held,
-        r_leg: 99,
+        r_leg: 109,
         window: (slot, slot),
         post_lane: Some(post),
         t_d: Some(t_d),

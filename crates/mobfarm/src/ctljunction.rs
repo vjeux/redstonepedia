@@ -4,7 +4,9 @@
 //! drop latch's) set by the routing edge, its output repeater pointing into the junction rail's cell. A
 //! T-junction rail's curve flips with power, so the junction's switch time is the edge to the rail's
 //! shape change, and its release the reset edge to the shape's return. Redsim settles the rail in the
-//! same gt; the bench prints both against the bar (redsim's 1-gt settle added, as ironspec counts it).
+//! same gt as its driver (rails::neighbor_changed re-shapes on the spot, as vanilla's RailBlock does; G1
+//! 19:47), so the bench prints the measured switch and return against the bar with no allowance (the 1-gt
+//! allowance ironspec's 05:35 rule added is dropped, ironspec 20:05).
 
 use mctas::design::Design;
 use redsim::block::Block;
@@ -16,7 +18,7 @@ pub const SET_DRIVE: P = [1, 1, 0];
 pub const RESET_DRIVE: P = [-4, 1, 2];
 /// The junction rail (a T: arms west and east, the stem south; the driver repeater on its north).
 pub const JUNCTION: P = [-1, 1, 2];
-/// The bar: switch time + redsim's 1-gt settle + 4 <= s 12's least gap 14.
+/// The bar: switch time + 4 <= s 12's least gap 14.
 pub const BAR: i64 = 10;
 /// The design's output port: an air cell clear of the circuit.
 const PORT: P = [3, 1, 6];
@@ -166,13 +168,13 @@ pub fn bench(spec: &FarmSpec) -> Result<Vec<String>, String> {
     let worst = sw.iter().chain(rel.iter()).max().copied();
     Ok(vec![
         format!(
-            "J/K junction driver ({} blocks: the set and reset repeaters, the RS NOR napper-present latch, one driver repeater into the junction rail's cell): at 20 phases the junction switches {} gt after the routing edge and returns {} gt after the reset edge{}; with redsim's 1-gt settle the worst is {} gt against the bar <= {BAR} (s 12's least junction gap 14 under the +4 rule): {}",
+            "J/K junction driver ({} blocks: the set and reset repeaters, the RS NOR napper-present latch, one driver repeater into the junction rail's cell): at 20 phases the junction switches {} gt after the routing edge and returns {} gt after the reset edge{}; the worst is {} gt against the bar <= {BAR} (s 12's least junction gap 14 under the +4 rule; every cause block-phase): {}",
             piece_blocks(),
             span(&sw),
             span(&rel),
             if bad.is_empty() { String::new() } else { format!(" (FAIL: {})", bad.join("; ")) },
-            worst.map_or("-".into(), |w| (w + 1).to_string()),
-            if bad.is_empty() && worst.is_some_and(|w| w + 1 <= BAR) { "PASS" } else { "FAIL" }
+            worst.map_or("-".into(), |w| w.to_string()),
+            if bad.is_empty() && worst.is_some_and(|w| w <= BAR) { "PASS" } else { "FAIL" }
         ),
         format!("  the junction rail: idle {} -> forced {}", shapes.0.replace("minecraft:", ""), shapes.1.replace("minecraft:", "")),
     ])
