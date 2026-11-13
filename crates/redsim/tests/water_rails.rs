@@ -118,7 +118,9 @@ fn at(r: &[(u32, f64, f64, f64)], t: u32) -> (f64, f64) {
 fn a_popped_waterlogged_rail_leaves_its_water_source() {
     // (G1 on 4b6ee86e5) the other half of survival: a rail that can't stand any more is destroyed
     // (Level.destroyBlock / removeBlock keep the cell's fluid: the fluid's legacy block), so a wet
-    // rail whose support goes leaves a water source in its cell; a dry one leaves air
+    // rail whose support goes leaves a water source in its cell; a dry one leaves air.
+    // (ironspec 20:27 (a), G1 on bdc3b682f) a LEVEL-0 SOURCE on the pop tick itself: the rail pops
+    // in the support's own neighbour update, before any tick, and the cell then holds water[level=0]
     for (s, wet) in [
         ("rail[shape=north_south,waterlogged=true]", true),
         ("powered_rail[powered=false,shape=north_south,waterlogged=true]", true),
@@ -129,6 +131,15 @@ fn a_popped_waterlogged_rail_leaves_its_water_source() {
         set(&mut w, (0, 0, 0), "glass");
         set(&mut w, (0, 1, 0), s);
         set(&mut w, (0, 0, 0), "air");
+        // the pop tick: the support's update has run, no tick yet
+        let got = w.get(BlockPos::new(0, 1, 0));
+        assert!(!redsim::rails::is_rail(&got), "{s}: the rail popped on its support's update (got {got})");
+        if wet {
+            assert_eq!(got, Block::Water { level: 0 }, "{s}: a level-0 water source on the pop tick (got {got})");
+            assert!(redsim::fluid::fluid_state(&w, BlockPos::new(0, 1, 0)).is_source(), "{s}: its fluid a source on the pop tick");
+        } else {
+            assert!(got.is_air(), "{s}: a dry rail leaves air on the pop tick (got {got})");
+        }
         for _ in 0..3 {
             w.tick();
         }
@@ -136,10 +147,114 @@ fn a_popped_waterlogged_rail_leaves_its_water_source() {
         assert!(!redsim::rails::is_rail(&got), "{s}: the rail popped (got {got})");
         let f = redsim::fluid::fluid_state(&w, BlockPos::new(0, 1, 0));
         if wet {
-            assert!(f.fluid.is_water(), "{s}: its cell holds water (got {got})");
+            assert!(f.fluid.is_water() && f.is_source(), "{s}: its cell still holds a water source 3 ticks on (got {got})");
         } else {
             assert!(!f.fluid.is_water() && got.is_air(), "{s}: a dry rail leaves air (got {got})");
         }
+    }
+}
+
+/// tick-exact's official restart rows on the wet copy (tests/fixtures/water_rails_restarts_official.txt,
+/// re-recorded with `mctas mobai water-rails --restarts`, 0ff8adad0): each row whose cart HELD STILL
+/// across the load (game time +1: one idle tick), as (the first tick after the load, every tick's
+/// (t, y - 100, z, vz)); the rows a harness artefact MOVED are not citable and left out.
+fn official_restarts() -> Vec<(u32, Vec<(u32, f64, f64, f64)>)> {
+    let text = include_str!("fixtures/water_rails_restarts_official.txt");
+    let mut rows: Vec<(u32, Vec<(u32, f64, f64, f64)>)> = Vec::new();
+    let mut cur: Option<(u32, Vec<(u32, f64, f64, f64)>)> = None;
+    for l in text.lines() {
+        if let Some(rest) = l.strip_prefix("  restart between t") {
+            if let Some(r) = cur.take() {
+                rows.push(r);
+            }
+            if !l.contains("held still") {
+                continue;
+            }
+            let first = rest.split(" (t").nth(1).and_then(|s| s.split(' ').next()).and_then(|s| s.parse::<u32>().ok()).unwrap_or_else(|| panic!("{l}"));
+            cur = Some((first, Vec::new()));
+            continue;
+        }
+        if l.starts_with("  ") && !l.starts_with("    ") {
+            if let Some(r) = cur.take() {
+                rows.push(r);
+            }
+            continue;
+        }
+        let Some((_, ticks)) = cur.as_mut() else { continue };
+        let f: Vec<&str> = l.split(',').map(|s| s.trim()).collect();
+        let Some(Ok(t)) = f.first().map(|s| s.parse::<u32>()) else { continue };
+        let n = |k: usize| f[k].parse::<f64>().unwrap_or_else(|e| panic!("{l}: {e}"));
+        ticks.push((t, n(3), n(4), n(7)));
+    }
+    if let Some(r) = cur.take() {
+        rows.push(r);
+    }
+    rows
+}
+
+/// tick-exact's MIXED rig of the restart rows (`water-rails --both-branches`' wet copy): `rig`'s cells
+/// with the six slopes and the top end DRY and the twelve flats waterlogged.
+fn rig_mixed(w: &mut World, x: i32) {
+    rig(w, x, true);
+    for i in 0..6 {
+        set(w, (x, 100 - i, -i), "rail[shape=ascending_south,waterlogged=false]");
+    }
+    set(w, (x, 101, 1), "rail[shape=north_south,waterlogged=false]");
+}
+
+#[test]
+fn the_restart_rows_match_the_official_ones_every_tick() {
+    // (ironspec 20:27 (b), G1 on bdc3b682f) the DRY FIRST TICK after a load: AbstractMinecart.tick runs
+    // its behaviour before the fluid update and wasTouchingWater isn't saved, so the first tick after a
+    // load moves the wet cart as a dry one. Every held-still official restart row, every tick, on the
+    // fixture's mixed rig (dry slopes onto wet flats): the load between t - 1 and t as the official one
+    // at a world open with one idle tick (game time +1): every chunk saved, unloaded and loaded again in
+    // the save order, then one whole-chunk idle tick
+    let rows = official_restarts();
+    assert!(rows.len() >= 15, "the official held-still restart rows ({})", rows.len());
+    let mut worst = 0.0f64;
+    let mut wet_before = 0u32;
+    for (first, ticks) in &rows {
+        let mut w = World::new(BlockPos::new(-4, 88, -22), [12, 18, 28]);
+        rig_mixed(&mut w, 0);
+        redsim::entity::spawn(&mut w, "minecraft:minecart", [0.5, 100.5625, 0.5], Some("{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}")).unwrap();
+        for &(t, oy, oz, ovz) in ticks {
+            if t == *first {
+                // (G1 on aeeaaecf0, note 1) the row tests the dry first tick only if the cart was in
+                // water on the tick before the load: counted, and at least one required
+                let wet = w.entities.list.iter().find(|e| !e.removed && matches!(e.kind, redsim::entity::EntityKind::Minecart(_))).is_some_and(|e| e.was_touching_water);
+                wet_before += wet as u32;
+                redsim::reload::unload_all(&mut w);
+                redsim::reload::load_all_ordered(&mut w, redsim::reload::Order::Save);
+                // the world open's one idle tick: game time +1, nothing of the world ticks (the rig
+                // has no weather and its day time is never read; `World::tick_time` once main has it)
+                w.time += 1;
+            }
+            w.tick();
+            let e = w.entities.list.iter().find(|e| !e.removed && matches!(e.kind, redsim::entity::EntityKind::Minecart(_))).expect("the cart");
+            let (y, z, vz) = (e.pos.y - 100.0, e.pos.z, e.delta_movement.z);
+            let d = (y - oy).abs().max((z - oz).abs()).max((vz - ovz).abs());
+            worst = worst.max(d);
+            assert!(d <= 0.005, "the restart before t {first}, t {t}: ours y {y:.6} z {z:.6} vz {vz:.6}, official y {oy:.6} z {oz:.6} vz {ovz:.6}");
+        }
+    }
+    eprintln!("{} official restart rows, every tick within {worst:.6}; {wet_before} of them with the cart in water on the tick before the load", rows.len());
+    assert!(wet_before >= 1, "no restart row loads a cart that was in water: the dry first tick is untested");
+}
+
+#[test]
+fn motion_blocking_counts_a_waterlogged_rail_by_its_fluid() {
+    // (ironspec 20:27 (c), G1 on bdc3b682f) Heightmap.Types.MOTION_BLOCKING is
+    // `blocksMotion() || !getFluidState().isEmpty()`: a waterlogged rail (no collision) tops the
+    // column by its water, a dry one doesn't; WORLD_SURFACE takes either (not air)
+    use redsim::terrain::Heightmap;
+    for (s, motion, surface) in [("rail[shape=north_south,waterlogged=true]", 2, 2), ("rail[shape=north_south,waterlogged=false]", 1, 2)] {
+        let mut w = World::new(BlockPos::new(-2, -2, -2), [5, 6, 5]);
+        set(&mut w, (0, 0, 0), "glass");
+        set(&mut w, (0, 1, 0), s);
+        assert_eq!(w.height(Heightmap::MotionBlocking, 0, 0), motion, "{s}: MOTION_BLOCKING's first free y");
+        assert_eq!(w.height(Heightmap::MotionBlockingNoLeaves, 0, 0), motion, "{s}: MOTION_BLOCKING_NO_LEAVES's first free y");
+        assert_eq!(w.height(Heightmap::WorldSurface, 0, 0), surface, "{s}: WORLD_SURFACE's first free y");
     }
 }
 
