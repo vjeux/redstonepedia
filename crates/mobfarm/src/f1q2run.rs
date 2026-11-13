@@ -4085,8 +4085,10 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             r.prev_key = target_key;
         }
         // (ironfarm 11:40) the traced cart's cells, and each lane's H..V occupancy at every release
-        // (ironspec 02:18 PT (3a)) each lane's away count at every release: the lane's H..V carts
-        // against its count at the first release (the build guide's start: every lane full)
+        // (ironspec 02:18 PT (3a)) each lane's away count at every release: its nappers picked and
+        // not yet back in their lane (the away latch's count); the lane's H..V carts at the first
+        // release (the build guide's start: every lane full) give the free caller's margin at the
+        // lane's least occupancy, the full count less the most away
         if o.napper && ctl.rel == Some(rel) {
             let occ: [i64; 3] = [0usize, 1, 2].map(|k| {
                 let x = LANES[k];
@@ -4100,11 +4102,16 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     .count() as i64
             });
             let full = *occ_full.get_or_insert(occ);
+            let mut last_lane: BTreeMap<u32, usize> = BTreeMap::new();
+            for (v, k, _) in &nappers {
+                last_lane.insert(*v, *k);
+            }
+            let away: [i64; 3] = [0usize, 1, 2].map(|k| last_lane.iter().filter(|(v, kk)| **kk == k && recs.get(v).is_some_and(|r| !r.milestones.iter().any(|(m, _)| m == "back in its lane"))).count() as i64);
             for k in 0..3 {
-                occ_min[k] = occ_min[k].min(occ[k]);
-                away_max[k] = away_max[k].max(full[k] - occ[k]);
-                if full[k] - occ[k] > 1 && away_rows.len() < 12 {
-                    away_rows.push(format!("t {rel}: lane x {} {} away ({} of {} carts)", LANES[k], full[k] - occ[k], occ[k], full[k]));
+                occ_min[k] = occ_min[k].min(full[k] - away[k]);
+                away_max[k] = away_max[k].max(away[k]);
+                if away[k] > 1 && away_rows.len() < 12 {
+                    away_rows.push(format!("t {rel}: lane x {} {} away", LANES[k], away[k]));
                 }
             }
         }
