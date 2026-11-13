@@ -1280,13 +1280,16 @@ impl World {
 
     /// The tick's time phase, in redsim's own order: game time + 1, the day time with it while the
     /// `advance_time` game rule holds (held otherwise: `day_offset` moves back by the tick), then the
-    /// weather (mobinfra; off: nothing). Vanilla (26.3's `ServerLevel.tick`, tick-exact's citation) runs
-    /// `advanceWeatherCycle` first (ServerLevel.java 368) and `tickTime` after it (387); its weather step
-    /// reads no time, so the order changes no time or weather value, only the level random's draw order on a
-    /// tick where a weather counter expires (redsim's weather step reads the game time only for a `weather`
-    /// command due at it). Matching vanilla (the weather, then `updateSkyBrightness` from the pre-increment
-    /// day time, then time + 1) is a follow-up (ironspec 00:36 (1) / 00:39 (1)). Every tick runs it first;
-    /// a restart's idle ticks (`mobfarm::liveness::restart`) run it alone.
+    /// weather (mobinfra; off: nothing). Vanilla (26.3, tick-exact's citation): the day time advances in
+    /// `MinecraftServer.tickChildren` before the levels tick; then `ServerLevel.tick` runs
+    /// `advanceWeatherCycle` (ServerLevel.java 368), `updateSkyBrightness` at that advanced day time, and
+    /// `tickTime` (387: game time + 1) before the block ticks. So every reader of the day time in the tick (a
+    /// daylight detector's 20-gt check, the sky darkening) sees the advanced day time in both (test
+    /// `mobfarm::liveness::detector_split_rows`: tick-exact's six split rows); only the weather step's place
+    /// differs, which changes no time or weather value, only the level random's draw order on a tick where a
+    /// weather counter expires (redsim's weather step reads the game time only for a `weather` command due at
+    /// it: the weather-command rows). Every tick runs it first; a restart's idle ticks
+    /// (`mobfarm::liveness::restart`) run it alone.
     pub fn tick_time(&mut self) {
         self.time += 1;
         if !self.mob.advance_time {

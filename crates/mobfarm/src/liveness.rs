@@ -384,8 +384,8 @@ pub enum Restart {
     /// advance, the level's weather with them; nothing of the world ticks); then normal ticks: at the first
     /// ticking tick every tick due inside the window fires (by due time, then priority, then sub-tick order,
     /// the saved ticks' negative sub-ticks first), then the entities tick; later ticks keep their game-time
-    /// due times, so pending redstone runs ahead of the entities by `idle` (1 or 2 at a world open). A login's
-    /// semantics are pending tick-exact's run.
+    /// due times, so pending redstone runs ahead of the entities by `idle` (1 or 2 at a world open). A world
+    /// open is the lead's only load case; the pearl alternative's unload case is not modelled here.
     /// (Block events never cross a tick boundary: none is pending between two ticks.)
     Load { order: redsim::reload::Order, idle: i64 },
     /// STRESS, not observed in 16 official loads (ironspec 23:12 (3): tolerance prints only, never bars):
@@ -443,7 +443,7 @@ impl Restart {
         }
     }
 
-    /// The same official load with `n` idle ticks (a world open's 1 or 2; a login's semantics pending).
+    /// The same official load with `n` idle ticks (a world open's 1 or 2).
     pub fn with_idle(self, n: i64) -> Restart {
         Restart::Load { order: self.order(), idle: n.max(1) }
     }
@@ -531,7 +531,7 @@ impl Restarted {
 
     /// The text every restart row prints (ironspec 21:13): the official load's `entity-free ticks N (a world
     /// open: N whole-chunk idle ticks at gt A..=B, nothing ticked, game and day time advanced, the ticks due in
-    /// them firing at the first ticking tick; H entities back; a login's case pending tick-exact's run)`; the
+    /// them firing at the first ticking tick; H entities back; the lead's only load case; the pearl alternative's unload case not modelled here)`; the
     /// STRESS variant's `STRESS (not observed in 16 official loads; prints only): entity-free ticks 1 + F = N
     /// (block-only ticks at gt A..=B holding H entities[, C created in them])`; `[ + a F-gt level-32 freeze
     /// from it]`; and with a Nether part `; Nether restart not modelled in redsim (…): this row UNMODELLED`
@@ -547,7 +547,7 @@ impl Restarted {
             )
         } else {
             format!(
-                "entity-free ticks {} (a world open: {} whole-chunk idle ticks at {span}, nothing ticked, game and day time advanced, the ticks due in them firing at the first ticking tick; {} entities back; a login's case pending tick-exact's run",
+                "entity-free ticks {} (a world open: {} whole-chunk idle ticks at {span}, nothing ticked, game and day time advanced, the ticks due in them firing at the first ticking tick; {} entities back; the lead's only load case; the pearl alternative's unload case not modelled here",
                 self.with_freeze(f),
                 self.entity_free,
                 self.held
@@ -591,8 +591,8 @@ pub fn load_held(present: &std::collections::HashSet<u32>, live: &[u32], noted: 
 /// tick due inside the window fires (by due time, then priority, then sub-tick order, as vanilla's
 /// `LevelTicks` sorts them: redsim's `collect` takes every due trigger in that order, a chunk's saved ticks
 /// carrying negative sub-ticks in saved order, ahead of new ones), then the entities tick; later ticks keep their
-/// game-time due times, so pending redstone runs ahead of the entities by N (1 or 2). A login's semantics
-/// are pending tick-exact's run.
+/// game-time due times, so pending redstone runs ahead of the entities by N (1 or 2). A world open is the
+/// lead's only load case; the pearl alternative's unload case is not modelled here.
 ///
 /// The STRESS variant (not observed in 16 official loads; tolerance prints only, never bars): loaded at
 /// once, then 1 + F block-only ticks: game time + 1 each, the scheduled ticks, block events and redstone
@@ -861,7 +861,7 @@ mod tests {
         assert!(held_in(&w, hp) == 1 && held_in(&w, chest) == 0 && crafting(&w), "no block entity ticked");
         let p1 = pos_of(&w, now);
         assert!((p1.x - p0.x).abs() < 1e-9 && (p1.z - p0.z).abs() < 1e-9, "the cart back where it was saved: {p0:?} -> {p1:?}");
-        assert_eq!(r.note(0), format!("entity-free ticks 2 (a world open: 2 whole-chunk idle ticks at gt {}..={}, nothing ticked, game and day time advanced, the ticks due in them firing at the first ticking tick; 1 entities back; a login's case pending tick-exact's run)", t0 + 1, t0 + 2));
+        assert_eq!(r.note(0), format!("entity-free ticks 2 (a world open: 2 whole-chunk idle ticks at gt {}..={}, nothing ticked, game and day time advanced, the ticks due in them firing at the first ticking tick; 1 entities back; the lead's only load case; the pearl alternative's unload case not modelled here)", t0 + 1, t0 + 2));
         // (the first ticking tick: entities and block entities resume together)
         w.tick();
         assert!(pos_of(&w, now).x > p1.x, "the cart moves on the first ticking tick");
@@ -987,6 +987,206 @@ mod tests {
         assert!(r.note(0).ends_with("; Nether restart not modelled in redsim (the Nether part kept its in-memory state, its clock advanced with the overworld's): this row UNMODELLED"), "{}", r.note(0));
         wn.tick();
         assert_eq!((wn.time, wn.nether.as_ref().map(|n| n.time)), (802, Some(802)));
+    }
+
+    /// A world open drops every memory registered without a codec and keeps the codec'd ones (ironspec 01:49
+    /// (4); tick-exact 01:36: 26.3's MemoryModuleType registers CANT_REACH_WALK_TARGET_SINCE without a codec
+    /// (MemoryModuleType.java 63) and `Brain.pack` writes only the `canSerialize()` memories). redsim's load
+    /// (`reload::rebuild_villager_brain`, its list from 26.3's registrations: HOME, LAST_SLEPT, LAST_WOKEN,
+    /// GOLEM_DETECTED_RECENTLY with its time left, JOB_SITE, POTENTIAL_JOB_SITE, MEETING_POINT kept; the
+    /// sensed ones, NEAREST_HOSTILE, HURT_BY, CANT_REACH_WALK_TARGET_SINCE, WALK_TARGET, PATH, LOOK_TARGET and
+    /// SECONDARY_JOB_SITE dropped) builds a new brain from the codec'd memories alone, and `restore_fresh` a
+    /// new navigation: one world open keeps HOME, LAST_SLEPT and GOLEM_DETECTED_RECENTLY (its TTL left) and
+    /// drops CANT_REACH_WALK_TARGET_SINCE, PATH, WALK_TARGET and NEAREST_HOSTILE.
+    #[test]
+    fn world_open_drops_codecless_memories() {
+        let stone = redsim::block::Block::parse("minecraft:stone").unwrap();
+        let mut w = World::new(BlockPos::new(-8, -4, -8), [16, 8, 16]);
+        for x in -6..=6 {
+            for z in -6..=6 {
+                w.set_block(BlockPos::new(x, -1, z), stone.clone(), redsim::world::flags::ALL);
+            }
+        }
+        w.mob.seed(7, 1000);
+        w.mob.ai.on = true;
+        let v = redsim::entity::spawn(&mut w, "minecraft:villager", [0.5, 0.0, 0.5], None).unwrap();
+        w.tick();
+        let (t, i) = (w.time, redsim::entity::index_of(&w, v).unwrap());
+        {
+            let b = redsim::entity::mob::ai::brain::brain_mut(&mut w, i);
+            b.home = Some(BlockPos::new(2, 0, 2));
+            b.last_slept = Some(t - 100);
+            b.golem_detected = Some(450);
+            b.nearest_hostile = Some(v);
+            let ex = b.ex.as_mut().expect("the villager's exact brain (AI on)");
+            ex.mem.cant_reach_since = Some(t);
+            ex.mem.walk_target = Some(redsim::entity::mob::ai::brain::WalkTarget::at_point(redsim::entity::Vec3::new(3.5, 0.0, 3.5), 0.5, 1));
+            ex.mem.path = Some(redsim::entity::mob::ai::path::Path::new(Vec::new(), BlockPos::new(3, 0, 3), false));
+        }
+        // (no vacuous pass, G1: the four codec-less memories are present before the save)
+        {
+            let b = redsim::entity::mob::ai::brain::brain(&w, i);
+            let ex = b.ex.as_ref().expect("the exact brain");
+            assert_eq!((b.nearest_hostile, ex.mem.cant_reach_since, ex.mem.walk_target.is_some(), ex.mem.path.is_some()), (Some(v), Some(t), true, true), "NEAREST_HOSTILE, CANT_REACH_WALK_TARGET_SINCE, WALK_TARGET and PATH set before the world open");
+        }
+        restart(&mut w, Restart::load(redsim::reload::Order::Save)).unwrap();
+        let i = redsim::entity::index_of(&w, follow(&w, v)).unwrap();
+        let b = redsim::entity::mob::ai::brain::brain(&w, i);
+        assert_eq!((b.home, b.last_slept, b.golem_detected), (Some(BlockPos::new(2, 0, 2)), Some(t - 100), Some(450)), "HOME, LAST_SLEPT and GOLEM_DETECTED_RECENTLY (its time left) kept");
+        assert_eq!(b.nearest_hostile, None, "NEAREST_HOSTILE (no codec) dropped");
+        let ex = b.ex.as_ref().expect("the exact brain rebuilt");
+        assert_eq!((ex.mem.cant_reach_since, ex.mem.walk_target.is_some(), ex.mem.path.is_some()), (None, false, false), "CANT_REACH_WALK_TARGET_SINCE, WALK_TARGET and PATH (no codec) dropped");
+    }
+
+    /// The vanilla time order at a detector (tick-exact's six split rows): 26.3 advances the day time in
+    /// tickChildren before the levels tick, then the level runs its weather, `updateSkyBrightness` at that
+    /// day time, `tickTime` (game time + 1) and the block entities, so a daylight detector updating on a
+    /// game time multiple of 20 reads this tick's advanced day time. At day times 12031 / 12687 / 13670 /
+    /// 22331 / 23314 / 23970 (each a step of the detector's power) it reads 6 / 3 / 0 / 1 / 4 / 7: in a plain
+    /// tick, and on the first ticking tick after a world open of N = 1 and 2 (the idle ticks move both
+    /// clocks and update nothing).
+    #[test]
+    fn detector_split_rows() {
+        let rows: [(i64, u8); 6] = [(12031, 6), (12687, 3), (13670, 0), (22331, 1), (23314, 4), (23970, 7)];
+        let power_at = |day: i64, open: Option<i64>| -> u8 {
+            let stone = redsim::block::Block::parse("minecraft:stone").unwrap();
+            let mut w = World::new(BlockPos::new(-4, -2, -4), [9, 12, 9]);
+            for x in -2..=2 {
+                for z in -2..=2 {
+                    w.set_block(BlockPos::new(x, -1, z), stone.clone(), redsim::world::flags::ALL);
+                }
+            }
+            w.set_block(BlockPos::new(0, 0, 0), redsim::block::Block::parse("minecraft:daylight_detector[inverted=false,power=15]").unwrap(), redsim::world::flags::ALL);
+            w.mob.seed(7, 1000);
+            // (the tick that reads: game time 1000 after its tickTime, day time `day` after its advance)
+            let idle = open.unwrap_or(0);
+            w.time = 999 - idle;
+            w.mob.day_offset = day - 1 - 999;
+            if let Some(n) = open {
+                restart(&mut w, Restart::load(redsim::reload::Order::Save).with_idle(n)).unwrap();
+            }
+            assert_eq!((w.time, w.day_time().rem_euclid(24000)), (999, (day - 1).rem_euclid(24000)), "the reading tick's eve");
+            w.tick();
+            assert!(w.errors.is_empty(), "{:?}", w.errors);
+            match w.get(BlockPos::new(0, 0, 0)) {
+                redsim::block::Block::DaylightDetector { power, .. } => power,
+                b => panic!("{b}"),
+            }
+        };
+        for (day, want) in rows {
+            assert_eq!(power_at(day, None), want, "day time {day}, a plain tick");
+            for n in [1, 2] {
+                assert_eq!(power_at(day, Some(n)), want, "day time {day}, after a world open with N = {n}");
+            }
+        }
+    }
+
+    /// tick-exact's golem-ttl rows on the official 26.3 server (artifact 1798171348126791; ironspec 00:30):
+    /// one golem stand (a glass floor at y 63, three villagers in carts at z 0.5 / 2.5 / 4.5 in brain order v0,
+    /// v1, v2, a husk in a boat at (-4.5, 64, 2.5), a 5 x 3 cobblestone pad at x 2..4, z 0..4), T the first
+    /// golem's tick. In brain order each villager's MemorySlot.tick runs (a TTL of 0 clears, else it counts
+    /// down) before its panic tick, and a villager calls only when the three memories are clear; the setter
+    /// stamps 599 on the three and those after it in that tick read 598. So the CALL (a GolemTry, the golem
+    /// itself the pad's luck) comes: setter v0 or v1, at T + 600 by the setter; a world open at T + 300 (N = 1:
+    /// one tick with no brain tick), none at T + 600 and the next at T + 700; the trio set at T + 100 to clear
+    /// 1 tick before S = T + 400 (TTL 298) with a world open at T + 200, one call at S, by v2 alone; set to
+    /// clear 2 ticks before (TTL 297), a call at S by v0; with no world open both call at S by v0.
+    #[test]
+    fn golem_ttl_order_dependence() {
+        use redsim::block::Block;
+        use redsim::entity::mob::ai::brain::brain_mut;
+        let stand = |seed: i64| -> (World, [u32; 3]) {
+            let (glass, cobble) = (Block::parse("minecraft:glass").unwrap(), Block::parse("minecraft:cobblestone").unwrap());
+            let mut w = World::new(BlockPos::new(-14, 52, -10), [30, 24, 24]);
+            for x in -10..=10 {
+                for z in -6..=10 {
+                    let b = if (2..=4).contains(&x) && (0..=4).contains(&z) { cobble.clone() } else { glass.clone() };
+                    w.set_block(BlockPos::new(x, 63, z), b, redsim::world::flags::ALL);
+                }
+            }
+            w.mob.seed(seed, 6000);
+            let mut v = [0u32; 3];
+            for (k, z) in [0.5, 2.5, 4.5].into_iter().enumerate() {
+                let cart = redsim::entity::spawn(&mut w, "minecraft:minecart", [0.5, 64.0, z], None).unwrap();
+                let vil = redsim::entity::spawn(&mut w, "minecraft:villager", [0.5, 64.0625, z], None).unwrap();
+                redsim::entity::mob::mount(&mut w, vil, cart).unwrap();
+                v[k] = vil;
+            }
+            let boat = redsim::entity::spawn(&mut w, "minecraft:oak_boat", [-4.5, 64.0, 2.5], None).unwrap();
+            // (redsim models no husk: a zombie, its sky roofed over at y 67 so it doesn't burn at noon,
+            // `Mob.burnUndead`; the villagers' hostiles sensor takes either at 8)
+            let husk = redsim::entity::spawn(&mut w, "minecraft:zombie", [-4.5, 64.0, 2.5], None).unwrap();
+            w.set_block(BlockPos::new(-5, 67, 2), Block::parse("minecraft:stone").unwrap(), redsim::world::flags::ALL);
+            redsim::entity::mob::mount(&mut w, husk, boat).unwrap();
+            for id in v {
+                let i = redsim::entity::index_of(&w, id).unwrap();
+                brain_mut(&mut w, i).last_slept = Some(0);
+            }
+            (w, v)
+        };
+        // (one tick: the calls it made (tick, villager, a golem born), every golem killed before its second tick)
+        let step = |w: &mut World, calls: &mut Vec<(i64, u32, bool)>| {
+            w.tick();
+            for e in std::mem::take(&mut w.mob.events) {
+                if let redsim::entity::mob::MobEvent::GolemTry { t, villager, golem, .. } = e {
+                    calls.push((t, villager, golem.is_some()));
+                }
+            }
+            w.entities.list.retain(|e| !matches!(&e.kind, redsim::entity::EntityKind::Mob(m) if m.ty == redsim::entity::mob::types::MobType::IronGolem));
+        };
+        let (mut w, v) = stand(3);
+        let mut calls = Vec::new();
+        let t = loop {
+            step(&mut w, &mut calls);
+            assert!(w.time < 3000, "no first golem by 3000: calls {calls:?}");
+            if calls.iter().any(|c| c.2) {
+                break w.time;
+            }
+        };
+        let set = |w: &mut World, ttl: [i64; 3]| {
+            for (k, id) in v.iter().enumerate() {
+                let i = redsim::entity::index_of(w, follow(w, *id)).unwrap();
+                brain_mut(w, i).golem_detected = Some(ttl[k]);
+            }
+        };
+        // (a row: from T with the setter's stamps, an optional reset at T + 100, a world open at `open`; the
+        // calls up to `until`)
+        let row = |setter: usize, reset: Option<i64>, open: Option<i64>, until: i64| -> Vec<(i64, usize)> {
+            let mut w = w.clone();
+            set(&mut w, [0, 1, 2].map(|k| if k <= setter { 599 } else { 598 }));
+            let mut calls = Vec::new();
+            while w.time < t + until {
+                if w.time == t + 100
+                    && let Some(r) = reset
+                {
+                    set(&mut w, [r; 3]);
+                }
+                if Some(w.time - t) == open {
+                    restart(&mut w, Restart::load(redsim::reload::Order::Save).with_idle(1)).unwrap();
+                    continue;
+                }
+                step(&mut w, &mut calls);
+            }
+            calls.into_iter().map(|(ct, id, _)| (ct - t, v.iter().position(|o| follow(&w, *o) == id).expect("a stand villager's call"))).collect()
+        };
+        let first = |c: &[(i64, usize)]| c.first().map(|x| x.0);
+        let at = |c: &[(i64, usize)], s: i64| c.iter().filter(|x| x.0 == s).map(|x| x.1).collect::<Vec<_>>();
+        for setter in [0, 1] {
+            let c = row(setter, None, None, 650);
+            assert_eq!((first(&c), at(&c, 600).first().copied()), (Some(600), Some(setter)), "c-{}: the setter v{setter} calls at T + 600: {c:?}", setter + 1);
+            let r = row(setter, None, Some(300), 750);
+            assert_eq!(first(&r), Some(700), "r-{}: a world open at T + 300: no call at T + 600, the next at T + 700: {r:?}", setter + 1);
+        }
+        for (m, ttl, open_who) in [(1, 298, vec![2]), (2, 297, vec![0])] {
+            let c = row(0, Some(ttl), None, 450);
+            assert_eq!((first(&c), at(&c, 400).first().copied()), (Some(400), Some(0)), "boundary m = {m}, no world open: v0 calls at S: {c:?}");
+            let r = row(0, Some(ttl), Some(200), 450);
+            assert_eq!(first(&r), Some(400), "boundary m = {m} with a world open at T + 200: {r:?}");
+            assert_eq!(at(&r, 400)[..1], open_who[..], "boundary m = {m} with a world open: who calls first at S: {r:?}");
+            if m == 1 {
+                assert_eq!(at(&r, 400), vec![2], "m = 1: v2 alone calls at S");
+            }
+        }
     }
 
     /// G1's TTL point (ironspec 00:00 (2)): GOLEM_DETECTED_RECENTLY counts down once per brain tick
