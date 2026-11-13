@@ -1726,6 +1726,16 @@ pub enum MobfarmCmd {
         /// The ride rows' cart spawned at this cart position (a real rest point), not the centre.
         #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
         seat_at: Vec<f64>,
+        /// The ride rows: a restart (in every order) at every tick FROM..=TO after the release, on top
+        /// of --restart-at.
+        #[arg(long, value_delimiter = ',')]
+        restart_every: Vec<i64>,
+        /// The ride rows: an entity freeze (the part at level 32) begun at every tick FROM..=TO after
+        /// the release, for each of --freeze-lens gt.
+        #[arg(long, value_delimiter = ',')]
+        freeze_every: Vec<i64>,
+        #[arg(long, value_delimiter = ',', default_value = "1,2,3,4")]
+        freeze_lens: Vec<i64>,
     },
     /// (onechunk 2026-11-11; farmopt 22:07, ironspec's self-contained loaders) L1′, the cart-loop
     /// loader, benched in redsim (`mobfarm::l1bench`): writes its design (--design-out) or runs it:
@@ -7145,7 +7155,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             );
             print!("{}", crate::killguard::bench(&spec, &c, &o).map_err(|e| anyhow::anyhow!(e))?);
         }
-        MobfarmCmd::WayCell { design, positions, move_positions, s9, c_descent, brakes, queue, post, own, napper, keep_clear, chunk, pad, draws, write, rail, extra, ride_to, custom_post, wait, bed, leg, hold, south, deep, ride_ticks, release_phases, restart_at, stamp, follow, queue_glass, leg_day, release_sweep, visit, visit_holds, visit_no_post, path_probe, seat_at } => {
+        MobfarmCmd::WayCell { design, positions, move_positions, s9, c_descent, brakes, queue, post, own, napper, keep_clear, chunk, pad, draws, write, rail, extra, ride_to, custom_post, wait, bed, leg, hold, south, deep, ride_ticks, release_phases, restart_at, stamp, follow, queue_glass, leg_day, release_sweep, visit, visit_holds, visit_no_post, path_probe, seat_at, restart_every, freeze_every, freeze_lens } => {
             let (_c, mut spec) = load(version, &design)?;
             // (a module that already carries the way-in: its queue cart and its post's boat are the
             // benches' own to place, so the design's copies are left out of the runs)
@@ -7269,10 +7279,23 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
                 return Ok(());
             }
-            if ride_to.len() == 3 && (release_phases > 0 || !restart_at.is_empty()) {
+            if ride_to.len() == 3 && (release_phases > 0 || !restart_at.is_empty() || restart_every.len() == 2 || freeze_every.len() == 2) {
                 let landing = (s9 && !c_descent).then_some([9, -24, -1]);
-                for l in crate::waycell::ride_rows(&spec, &o, [ride_to[0], ride_to[1], ride_to[2]], ride_ticks, release_phases.max(1), &restart_at, landing).map_err(|e| anyhow::anyhow!(e))? {
-                    println!("{l}");
+                let mut restarts = restart_at.clone();
+                if let [a, b] = restart_every[..] {
+                    restarts.extend(a..=b);
+                }
+                let freezes: Vec<(i64, i64)> = match freeze_every[..] {
+                    [a, b] => (a..=b).flat_map(|s| freeze_lens.iter().map(move |&l| (s, l))).collect(),
+                    _ => Vec::new(),
+                };
+                let lines = crate::waycell::ride_rows_with(&spec, &o, [ride_to[0], ride_to[1], ride_to[2]], ride_ticks, release_phases.max(1), &restarts, &freezes, landing).map_err(|e| anyhow::anyhow!(e))?;
+                // a long sweep prints its failing rows and the summary only
+                let long = restarts.len() + freezes.len() > 40;
+                for l in lines {
+                    if !long || l.contains(" rows: ") || l.contains("NEVER") || l.contains("OFF THE RAILS") || l.contains("MOVED BACK") || l.contains("OUT OF THE BAR") || l.contains("EYE IN WATER") || !l.contains("hurt 0.0;") {
+                        println!("{l}");
+                    }
                 }
                 return Ok(());
             }
