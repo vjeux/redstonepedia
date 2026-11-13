@@ -17,7 +17,7 @@
 
 use super::types::MobType;
 use super::{mob, mob_mut};
-use crate::block::{Block, Simple};
+use crate::block::Block;
 use crate::pos::BlockPos;
 use crate::weather::WeatherEvent;
 use crate::world::World;
@@ -43,27 +43,177 @@ pub fn magic_value(raw: i32) -> f32 {
     crate::weather::lerp(0.0, curved, 1.0)
 }
 
-/// The light a block gives off (`lightEmission`) among the modeled blocks.
+/// The light a block gives off (`BlockState.getLightEmission`) (cc767b78, G1 12:07 / 12:38, ironspec
+/// 12:54: the hand list this replaces lacked the plain torch's 14, the soul torch's 10, crying
+/// obsidian's 10, the nether portal's 11, jack o'lanterns' and froglights' 15, and gave a sculk sensor
+/// 1 only while active): the game's block table (`terrain::light::props_of`: the natural-state rows
+/// read from the server, a terrain cell's own row, fire's), and for a modeled state the table doesn't
+/// hold, [`modeled_emission`], which names every variant.
 pub fn emission(b: &Block) -> i32 {
+    match crate::terrain::light::props_of(b) {
+        Ok(p) => p.emission as i32,
+        Err(_) => modeled_emission(b),
+    }
+}
+
+/// The light of each redsim-modeled block by the game's block definitions (every variant named, no
+/// default: a new one must say its light), for the states the block table doesn't hold: the copper
+/// bulbs (Blocks 5331-5349, `WeatheringCopperCollection.registerBlocks`: `litBlockEmission`, 15 / 12 /
+/// 8 / 4 by weathering when lit, the waxed ones the same), the respawn anchor (Blocks 4955-4965:
+/// `getScaledChargeLevel(state, 15)`, 0 / 3 / 7 / 11 / 15 by charge) and the sculk sensors, calibrated
+/// or not, in every phase (Blocks 5202-5210: `lightLevel(state -> 1)`; the ACTIVE-only part is
+/// `emissiveRendering`, client rendering), all as tick-exact read them in the 26.3 source on
+/// 2026-11-13; the others as the game's `lightLevel`s (`Blocks`): a lit redstone torch 7, a lit lamp
+/// 15, the end portal frame 1, lanterns 15 and soul lanterns 10, torches 14 and soul torches 10, jack
+/// o'lanterns and froglights 15, a lit campfire 15 (soul 10), the end rod 14, a live (waterlogged) sea
+/// pickle 3 + 3 x its count, a lit candle 3 x its count, a lit furnace 13, the brewing stand 1, lava 15,
+/// fire 15 (soul fire 10), glowstone, sea lanterns and shroomlights 15, crying obsidian 10, magma 3;
+/// every other modeled block 0.
+pub fn modeled_emission(b: &Block) -> i32 {
+    use crate::block::{Oxid, Simple as S};
     match *b {
-        Block::Lava { .. } => 15,
-        Block::Fire { soul: false, .. } => 15,
-        Block::Fire { soul: true, .. } => 10,
-        Block::Torch { lit: true } | Block::WallTorch { lit: true, .. } => 7,
-        Block::Lamp { lit: true } => 15,
-        Block::Lantern { .. } => 15,
-        Block::Furnace { lit: true, .. } => 13,
-        Block::Bulb { lit: true, oxid, .. } => match oxid {
-            crate::block::Oxid::Unaffected => 15,
-            crate::block::Oxid::Exposed => 12,
-            crate::block::Oxid::Weathered => 8,
-            crate::block::Oxid::Oxidized => 4,
+        Block::Terrain(id) => crate::terrain::blocks::props(id).emission as i32,
+        Block::Simple(s) => match s {
+            S::Glowstone | S::SeaLantern | S::Shroomlight => 15,
+            S::CryingObsidian => 10,
+            S::MagmaBlock => 3,
+            _ => 0,
         },
+        Block::Torch { lit } | Block::WallTorch { lit, .. } => {
+            if lit {
+                7
+            } else {
+                0
+            }
+        }
+        Block::Lamp { lit } => {
+            if lit {
+                15
+            } else {
+                0
+            }
+        }
+        Block::Bulb { lit, oxid, .. } => match (lit, oxid) {
+            (false, _) => 0,
+            (true, Oxid::Unaffected) => 15,
+            (true, Oxid::Exposed) => 12,
+            (true, Oxid::Weathered) => 8,
+            (true, Oxid::Oxidized) => 4,
+        },
+        Block::EndPortalFrame { .. } => 1,
         Block::RespawnAnchor { charges } => [0, 3, 7, 11, 15][charges.min(4) as usize],
-        Block::Simple(Simple::Glowstone | Simple::SeaLantern | Simple::Shroomlight) => 15,
-        Block::Simple(Simple::MagmaBlock) => 3,
-        Block::Sculk { phase: 1, .. } => 1,
-        _ => 0,
+        Block::Sculk { .. } => 1,
+        Block::Lantern { .. } | Block::JackOLantern { .. } | Block::Froglight { .. } => 15,
+        Block::SoulLantern { .. } => 10,
+        Block::PlainTorch { soul } | Block::PlainWallTorch { soul, .. } => {
+            if soul {
+                10
+            } else {
+                14
+            }
+        }
+        Block::Campfire { lit, soul, .. } => match (lit, soul) {
+            (false, _) => 0,
+            (true, false) => 15,
+            (true, true) => 10,
+        },
+        Block::EndRod { .. } => 14,
+        Block::SeaPickle { pickles, waterlogged } => {
+            if waterlogged {
+                3 + 3 * pickles as i32
+            } else {
+                0
+            }
+        }
+        Block::Candle { candles, lit } => {
+            if lit {
+                3 * candles as i32
+            } else {
+                0
+            }
+        }
+        Block::Furnace { lit, .. } => {
+            if lit {
+                13
+            } else {
+                0
+            }
+        }
+        Block::BrewingStand { .. } => 1,
+        Block::Lava { .. } => 15,
+        Block::Fire { soul, .. } => {
+            if soul {
+                10
+            } else {
+                15
+            }
+        }
+        Block::Air
+        | Block::Glazed { .. }
+        | Block::Wire { .. }
+        | Block::RedstoneBlock
+        | Block::Lever { .. }
+        | Block::Button { .. }
+        | Block::Repeater { .. }
+        | Block::Comparator { .. }
+        | Block::Observer { .. }
+        | Block::Note { .. }
+        | Block::Target { .. }
+        | Block::Trapdoor { .. }
+        | Block::Door { .. }
+        | Block::FenceGate { .. }
+        | Block::Rail { .. }
+        | Block::Dispenser { .. }
+        | Block::Crafter { .. }
+        | Block::Hopper { .. }
+        | Block::Slab { .. }
+        | Block::Leaves { .. }
+        | Block::Scaffolding { .. }
+        | Block::Log { .. }
+        | Block::Skull { .. }
+        | Block::WallSkull { .. }
+        | Block::Cake { .. }
+        | Block::Composter { .. }
+        | Block::Piston { .. }
+        | Block::PistonHead { .. }
+        | Block::MovingPiston { .. }
+        | Block::Falling { .. }
+        | Block::Plate { .. }
+        | Block::Tripwire { .. }
+        | Block::TripwireHook { .. }
+        | Block::WallBanner { .. }
+        | Block::StoneSlab { .. }
+        | Block::AnySlab { .. }
+        | Block::PlainRail { .. }
+        | Block::DetectorRail { .. }
+        | Block::BigDripleaf { .. }
+        | Block::ChiseledBookshelf { .. }
+        | Block::DaylightDetector { .. }
+        | Block::PowderSnow
+        | Block::Jukebox { .. }
+        | Block::Water { .. }
+        | Block::BubbleColumn { .. }
+        | Block::Tnt { .. }
+        | Block::CoralFan { .. }
+        | Block::CoralWallFan { .. }
+        | Block::ShulkerBox { .. }
+        | Block::Chest { .. }
+        | Block::Fence { .. }
+        | Block::Pane { .. }
+        | Block::SugarCane { .. }
+        | Block::WaterloggedGrate
+        | Block::Bamboo { .. }
+        | Block::BambooSapling
+        | Block::Kelp { .. }
+        | Block::KelpPlant
+        | Block::Farmland { .. }
+        | Block::Stem { .. }
+        | Block::AttachedStem { .. }
+        | Block::Cactus { .. }
+        | Block::CactusFlower
+        | Block::Bed { .. }
+        | Block::Sign { .. }
+        | Block::LightningRod { .. } => 0,
     }
 }
 
@@ -199,5 +349,90 @@ mod tests {
         // in rain at noon the open sky gives 15 - 3 = 12 (a mob under glass can burn), thunder 10
         assert_eq!(crate::weather::sky_darken_at(6000, 1.0, 0.0), 3);
         assert_eq!(crate::weather::sky_darken_at(6000, 1.0, 1.0), 5);
+    }
+
+    /// (cc767b78, G1 12:07 / 12:38, ironspec 12:54) Every emitter's light from the game's block table,
+    /// a row each: the ones the old hand list lacked (the plain and soul torch, their wall forms, crying
+    /// obsidian, the nether portal, jack o'lanterns, froglights) and the ones it had (lava, fire, the
+    /// redstone torch lit and out, the lamp lit and out, lanterns, the furnace lit and out, glowstone,
+    /// sea lanterns, shroomlights, magma, the copper bulb by oxidation, the respawn anchor by charge).
+    #[test]
+    fn every_emitter_from_the_block_table() {
+        let rows: &[(&str, i32)] = &[
+            ("minecraft:torch", 14),
+            ("minecraft:wall_torch[facing=north]", 14),
+            ("minecraft:soul_torch", 10),
+            ("minecraft:soul_wall_torch[facing=north]", 10),
+            ("minecraft:crying_obsidian", 10),
+            ("minecraft:jack_o_lantern[facing=north]", 15),
+            ("minecraft:ochre_froglight[axis=y]", 15),
+            ("minecraft:verdant_froglight[axis=y]", 15),
+            ("minecraft:pearlescent_froglight[axis=y]", 15),
+            ("minecraft:lava[level=0]", 15),
+            ("minecraft:fire[age=0,east=false,north=false,south=false,up=false,west=false]", 15),
+            ("minecraft:soul_fire", 10),
+            ("minecraft:redstone_torch[lit=true]", 7),
+            ("minecraft:redstone_torch[lit=false]", 0),
+            ("minecraft:redstone_lamp[lit=true]", 15),
+            ("minecraft:redstone_lamp[lit=false]", 0),
+            ("minecraft:lantern[hanging=false,waterlogged=false]", 15),
+            ("minecraft:soul_lantern[hanging=false,waterlogged=false]", 10),
+            ("minecraft:furnace[facing=north,lit=true]", 13),
+            ("minecraft:furnace[facing=north,lit=false]", 0),
+            ("minecraft:glowstone", 15),
+            ("minecraft:sea_lantern", 15),
+            ("minecraft:shroomlight", 15),
+            ("minecraft:magma_block", 3),
+            ("minecraft:copper_bulb[lit=true,powered=false]", 15),
+            ("minecraft:exposed_copper_bulb[lit=true,powered=false]", 12),
+            ("minecraft:weathered_copper_bulb[lit=true,powered=false]", 8),
+            ("minecraft:oxidized_copper_bulb[lit=true,powered=false]", 4),
+            ("minecraft:copper_bulb[lit=false,powered=false]", 0),
+            ("minecraft:respawn_anchor[charges=0]", 0),
+            ("minecraft:respawn_anchor[charges=2]", 7),
+            ("minecraft:respawn_anchor[charges=4]", 15),
+            ("minecraft:end_rod[facing=up]", 14),
+            ("minecraft:sea_pickle[pickles=2,waterlogged=true]", 9),
+            ("minecraft:sea_pickle[pickles=4,waterlogged=true]", 15),
+            ("minecraft:sea_pickle[pickles=2,waterlogged=false]", 0),
+            ("minecraft:candle[candles=3,lit=true,waterlogged=false]", 9),
+            ("minecraft:candle[candles=3,lit=false,waterlogged=false]", 0),
+            ("minecraft:brewing_stand[has_bottle_0=false,has_bottle_1=false,has_bottle_2=false]", 1),
+            ("minecraft:end_portal_frame[eye=false,facing=north]", 1),
+            ("minecraft:campfire[facing=north,lit=true,signal_fire=false,waterlogged=false]", 15),
+            ("minecraft:soul_campfire[facing=north,lit=true,signal_fire=false,waterlogged=false]", 10),
+            ("minecraft:campfire[facing=north,lit=false,signal_fire=false,waterlogged=false]", 0),
+            ("minecraft:blast_furnace[facing=north,lit=true]", 13),
+            ("minecraft:sculk_sensor[power=0,sculk_sensor_phase=active,waterlogged=false]", 1),
+            ("minecraft:sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false]", 1),
+            ("minecraft:sculk_sensor[power=0,sculk_sensor_phase=cooldown,waterlogged=false]", 1),
+            ("minecraft:calibrated_sculk_sensor[facing=north,power=0,sculk_sensor_phase=inactive,waterlogged=false]", 1),
+            ("minecraft:stone", 0),
+            ("minecraft:air", 0),
+        ];
+        let mut bad = Vec::new();
+        for &(s, want) in rows {
+            match Block::parse(s) {
+                Ok(b) => {
+                    let got = emission(&b);
+                    if got != want {
+                        bad.push(format!("{s}: {got}, the game's {want}"));
+                    }
+                    // (where the table holds the state, redsim's own model agrees with it)
+                    if let Ok(row) = crate::terrain::light::props_of(&b)
+                        && row.emission as i32 != modeled_emission(&b)
+                    {
+                        bad.push(format!("{s}: the table's {} but the model's {}", row.emission, modeled_emission(&b)));
+                    }
+                }
+                Err(e) => bad.push(format!("{s}: {e}")),
+            }
+        }
+        // (a block redsim doesn't model, as a terrain world holds it: the nether portal, its table row)
+        match crate::terrain::blocks::id_of("minecraft:nether_portal[axis=x]").map(Block::Terrain) {
+            Some(b) if emission(&b) == 11 => {}
+            got => bad.push(format!("minecraft:nether_portal[axis=x] (a terrain cell): {:?}, the game's 11", got.map(|b| emission(&b)))),
+        }
+        assert!(bad.is_empty(), "{bad:#?}");
     }
 }
