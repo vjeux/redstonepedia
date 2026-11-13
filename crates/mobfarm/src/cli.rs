@@ -2096,10 +2096,11 @@ pub enum MobfarmCmd {
         /// x -1's pocket at t 1,000; the gossip bars must fail.
         #[arg(long)]
         gossip_control: bool,
-        /// (ironspec 23:56 PT (4)) The departing-bystander bar's positive control: a golem birth
-        /// logged and a departing rider's GOLEM_DETECTED_RECENTLY set from t 1,000; the bar must fail.
-        #[arg(long)]
-        bystander_control: bool,
+        /// (ironspec 02:48 PT) The harm bar's control: a real summon stamping a napper, `late` on
+        /// its return across the merge row (the harm bar must FAIL) or `early` at its own launch
+        /// (the same stamp before the whole round trip: it must PASS).
+        #[arg(long, value_parser = ["late", "early"])]
+        bystander_control: Option<String>,
     },
     /// Where a stand's zombie can stand under the 6-8 rule (ironspec 2026-11-11): every candidate
     /// cell of `--region` (a zombie's feet at its centre, y as given), scored against every rider

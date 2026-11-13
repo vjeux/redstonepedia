@@ -580,9 +580,14 @@ pick spacing. The positive
 controls: `--inert-control` (J(-1)'s lever declared inert: the watch must fail), `--gossip-control`
 (a gossip attempt logged from lane x -1's pocket at t 1,000, in the shape redsim's gossip path emits,
 cited by its test `a_gossip_call_logs_its_threshold_and_caller`: the gossip bars must fail),
-`--bystander-control` (a real summon, `spawn_golem_if_needed` at threshold 3, called from a pocket
-rider from t 1,000 while a rider out of its pocket is inside the caller's 10-box, until a golem is
-born: its stamps reach that rider and the departing-bystander bar must fail), and `--empty-pocket X` for the summon check. The stand-in guard
+`--bystander-control late|early` (the harm bar's control, ironspec 02:48 PT: a real summon,
+`spawn_golem_if_needed` at threshold 3 from a pocket rider whose 10-box holds the target napper;
+`late` stamps a napper back in its own pocket 25..35 gt before its first own-pocket summon, and the
+harm bar must fail; `early` plants the same stamp at an S tick on the napper's outbound trip (its
+picked cart before the divert, or its visit before the queue), where a pocket rider's 10-box reaches
+it, before the whole round trip (the summon's other stamps are the ones that S lays anyway), and the
+harm bar must pass; the run prints the stamped napper's
+margin), and `--empty-pocket X` for the summon check. The stand-in guard
 is record-match's `guard_intrinsics` (golem as a floor and as a spawn space, the full PathType,
 late-path, sight); the counter's C is derived at the first release from its own day time.
 The stranded-napper bar (ironspec 00:33 PT): a napper waking in A6 with no cart at the pickup cell P
