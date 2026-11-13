@@ -45,6 +45,113 @@ public final class BrainAgent {
     private static final String POI_RECORD = "net/minecraft/world/entity/ai/village/poi/PoiRecord";
     private static final String ACQUIRE_HOOK = "mctas.brain.acquire";
     private static final String ACQUIRE_CLASS = "net/minecraft/world/entity/ai/behavior/AcquirePoi";
+    /** (tickexact 2026-11-13, cc767b78: the t166 brake on the slope) {@code +push}: every
+     * AbstractMinecart.push(Entity) with the cart's delta before and after, both boxes and the
+     * pusher's vehicle; every passenger villager's pushEntities list. */
+    private static volatile boolean pushOn = false;
+    private static final String PUSH_IN = "mctas.brain.pushin";
+    private static final String PUSH_OUT = "mctas.brain.pushout";
+    private static final String PUSH_LIST = "mctas.brain.pushlist";
+    private static final String MINECART_CLASS = "net/minecraft/world/entity/vehicle/minecart/AbstractMinecart";
+    private static final ThreadLocal<Object> PUSH_DELTA = new ThreadLocal<>();
+
+    static void onPushIn(Object cart, Object pusher) {
+        try {
+            PUSH_DELTA.set(call(cart, "getDeltaMovement"));
+        } catch (Throwable t) {
+            System.err.println("mctas brain agent: push in (unread): " + t);
+        }
+    }
+
+    static void onPushOut(Object cart, Object pusher) {
+        try {
+            String cu = (String) cart.getClass().getMethod("getStringUUID").invoke(cart);
+            String pu = (String) pusher.getClass().getMethod("getStringUUID").invoke(pusher);
+            Object veh = call(pusher, "getVehicle");
+            String vu = veh == null ? "none" : (String) veh.getClass().getMethod("getStringUUID").invoke(veh);
+            System.err.println("mctas brain agent: push cart by " + pusher.getClass().getSimpleName() + " " + pu + " (its vehicle " + vu + ") cartbox " + call(cart, "getBoundingBox") + " pusherbox " + call(pusher, "getBoundingBox") + " delta " + PUSH_DELTA.get() + " -> " + call(cart, "getDeltaMovement") + " @" + cu);
+        } catch (Throwable t) {
+            System.err.println("mctas brain agent: push out (unread): " + t);
+        }
+    }
+
+    static void onPushList(Object body, Object unused) {
+        try {
+            if (!body.getClass().getSimpleName().contains("Villager") || !(Boolean) call(body, "isPassenger")) {
+                return;
+            }
+            Object level = call(body, "level");
+            Object bb = call(body, "getBoundingBox");
+            java.lang.reflect.Method gpe = null;
+            for (java.lang.reflect.Method m : level.getClass().getMethods()) {
+                if (m.getName().equals("getPushableEntities") && m.getParameterCount() == 2) {
+                    gpe = m;
+                    break;
+                }
+            }
+            java.util.List<?> list = (java.util.List<?>) gpe.invoke(level, body, bb);
+            StringBuilder sb = new StringBuilder();
+            for (Object o : list) {
+                sb.append(sb.length() == 0 ? "" : ", ").append(o.getClass().getSimpleName()).append(' ').append((String) o.getClass().getMethod("getStringUUID").invoke(o));
+            }
+            String uuid = (String) body.getClass().getMethod("getStringUUID").invoke(body);
+            System.err.println("mctas brain agent: pushlist box " + bb + ": [" + sb + "] @" + uuid);
+        } catch (Throwable t) {
+            System.err.println("mctas brain agent: pushlist (unread): " + t);
+        }
+    }
+
+    /** A hook at a method's entry (BiConsumer key `inKey`, given this and local 1 or null) and, when
+     * `outKey` is set, before each of its returns (the same arguments). */
+    static byte[] entryExitHook(ClassLoader loader, byte[] bytes, String method, int params, String inKey, String outKey, String what) {
+        ClassHierarchyResolver resolver = ClassHierarchyResolver.defaultResolver();
+        if (loader != null) {
+            resolver = ClassHierarchyResolver.ofClassLoading(loader).orElse(resolver);
+        }
+        ClassFile cf = ClassFile.of(ClassFile.ClassHierarchyResolverOption.of(resolver));
+        ClassModel model = cf.parse(bytes);
+        int[] hooked = {0};
+        byte[] out = cf.transformClass(model, (cb, ce) -> {
+            if (ce instanceof java.lang.classfile.MethodModel m && m.code().isPresent() && m.methodName().equalsString(method) && m.methodTypeSymbol().parameterCount() == params) {
+                hooked[0]++;
+                cb.transformMethod(m, java.lang.classfile.MethodTransform.transformingCode(new java.lang.classfile.CodeTransform() {
+                    boolean first = true;
+
+                    void emit(CodeBuilder b, String key) {
+                        ClassDesc properties = ClassDesc.of("java.util.Properties");
+                        ClassDesc biConsumer = ClassDesc.of("java.util.function.BiConsumer");
+                        b.invokestatic(ClassDesc.of("java.lang.System"), "getProperties", MethodTypeDesc.of(properties));
+                        b.ldc(key);
+                        b.invokevirtual(properties, "get", MethodTypeDesc.of(ConstantDescs.CD_Object, ConstantDescs.CD_Object));
+                        b.checkcast(biConsumer);
+                        b.aload(0);
+                        if (params >= 1) {
+                            b.aload(1);
+                        } else {
+                            b.aconst_null();
+                        }
+                        b.invokeinterface(biConsumer, "accept", MethodTypeDesc.of(ConstantDescs.CD_void, ConstantDescs.CD_Object, ConstantDescs.CD_Object));
+                    }
+
+                    @Override
+                    public void accept(CodeBuilder b, java.lang.classfile.CodeElement e) {
+                        if (first) {
+                            first = false;
+                            emit(b, inKey);
+                        }
+                        if (outKey != null && e instanceof java.lang.classfile.instruction.ReturnInstruction) {
+                            emit(b, outKey);
+                        }
+                        b.with(e);
+                    }
+                }));
+            } else {
+                cb.with(ce);
+            }
+        });
+        System.err.println("mctas brain agent: " + what + " reports its entry" + (outKey != null ? " and returns" : "") + " (" + hooked[0] + " methods)");
+        return out;
+    }
     /** (tickexact 2026-11-13, ironspec 06:22 platform: the drowned rider) {@code +hurt}: every
      * LivingEntity.hurtServer call on a villager, entered: the damage source, the amount, where, the
      * air supply and the vehicle. */
@@ -385,7 +492,11 @@ public final class BrainAgent {
             poiOn = java.util.Arrays.asList(memories).contains("+poi");
             sightOn = java.util.Arrays.asList(memories).contains("+sight");
             hurtOn = java.util.Arrays.asList(memories).contains("+hurt");
+            pushOn = java.util.Arrays.asList(memories).contains("+push");
         }
+        System.getProperties().put(PUSH_IN, (BiConsumer<Object, Object>) BrainAgent::onPushIn);
+        System.getProperties().put(PUSH_OUT, (BiConsumer<Object, Object>) BrainAgent::onPushOut);
+        System.getProperties().put(PUSH_LIST, (BiConsumer<Object, Object>) BrainAgent::onPushList);
         System.getProperties().put(HURT_HOOK, (BiConsumer<Object, Object>) BrainAgent::onHurt);
         System.getProperties().put(POI_HOOK, (BiConsumer<Object, Object>) BrainAgent::onPoi);
         System.getProperties().put(ACQUIRE_HOOK, (BiConsumer<Object, Object>) BrainAgent::onAcquire);
@@ -428,8 +539,18 @@ public final class BrainAgent {
                     if (poiOn && ACQUIRE_CLASS.equals(name)) {
                         return acquireHook(loader, bytes);
                     }
-                    if (hurtOn && LIVING_CLASS.equals(name)) {
-                        return hurtHook(loader, bytes);
+                    if (LIVING_CLASS.equals(name) && (hurtOn || pushOn)) {
+                        byte[] b = bytes;
+                        if (hurtOn) {
+                            b = hurtHook(loader, b);
+                        }
+                        if (pushOn) {
+                            b = entryExitHook(loader, b, "pushEntities", 0, PUSH_LIST, null, "LivingEntity.pushEntities");
+                        }
+                        return b;
+                    }
+                    if (pushOn && MINECART_CLASS.equals(name)) {
+                        return entryExitHook(loader, bytes, "push", 1, PUSH_IN, PUSH_OUT, "AbstractMinecart.push(Entity)");
                     }
                     return null;
                 } catch (Throwable t) {

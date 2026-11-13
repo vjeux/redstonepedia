@@ -270,6 +270,16 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
         println!("  CLOSED-LOOP CHECKED: {} write(s) carry redsim's recorded state (`# expect`), compared with the game's before each write (exact: the carts in the act's column with their riders and block-y offsets, each hold's and pocket's cart and rider); acts are applied between ticks with the server frozen (`tick step`), as f1q2-run applies them after its tick", acts.iter().filter(|a| a.expect.is_some()).count());
     }
     let jar = mctas::bridge::brain_agent(version)?;
+    // (cc767b78's t166 brake) MCTAS_REPLAY_PUSH=<from>-<to>: every minecart push (the cart's delta
+    // before / after, both boxes, the pusher and its vehicle) and every seated villager's push list in
+    // that window, entities named by their scene tags
+    let push_window: Option<(u32, u32)> = match std::env::var("MCTAS_REPLAY_PUSH") {
+        Ok(s) => {
+            let (a, b) = s.split_once('-').ok_or_else(|| anyhow::anyhow!("MCTAS_REPLAY_PUSH=from-to, got {s}"))?;
+            Some((a.trim().parse()?, b.trim().parse()?))
+        }
+        Err(_) => None,
+    };
     let opts = |world: Option<std::path::PathBuf>| VanillaOptions {
         version: version.to_string(),
         difficulty: "normal".into(),
@@ -278,7 +288,7 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
         tick_rate: 1000,
         keep_dir: true,
         world,
-        java_agent: Some(std::path::PathBuf::from(format!("{}={MEMS}", jar.display()))),
+        java_agent: Some(std::path::PathBuf::from(format!("{}={MEMS}{}", jar.display(), if push_window.is_some() { ",+push" } else { "" }))),
         ..Default::default()
     };
     let mut srv = VanillaServer::start(&opts(None))?;
@@ -293,6 +303,8 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
     let mut by_uuid: BTreeMap<String, usize> = BTreeMap::new();
     let mut vs: Vec<V> = Vec::new();
     let mut cart_tags: Vec<String> = Vec::new();
+    let mut uuid_names: Vec<(String, String)> = Vec::new();
+    let mut push_rows: Vec<String> = Vec::new();
     // (G1 on H #2) each villager's activity as its brain is built at the summon: the agent prints it
     // before the brain knows its owner ("@none"), so the lines between two summons are that entity's
     let mut slog = Log { at: std::fs::metadata(&srv.log)?.len() };
@@ -310,11 +322,17 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
         }
         if e.kind.contains("minecart") {
             cart_tags.push(format!("e{n}"));
+            if push_window.is_some() {
+                uuid_names.push((uuid_hex(&mut srv, &format!("@e[tag=e{n},limit=1]"))?, format!("e{n}")));
+            }
         }
         for (k, kind) in kinds.iter().enumerate() {
             if kind == "minecraft:villager" {
                 let tag = format!("e{n}p{k}");
                 let u = uuid_hex(&mut srv, &format!("@e[tag={tag},limit=1]"))?;
+                if push_window.is_some() {
+                    uuid_names.push((u.clone(), tag.clone()));
+                }
                 by_uuid.insert(u, vs.len());
                 vs.push(V { tag, ..Default::default() });
             }
@@ -585,7 +603,9 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
         if t == 0 {
             let taken = setup_lines.iter().filter(|l| l.starts_with("poi acquire")).count();
             println!(
-                "  t0: HOME written and read back for {home_set_t0} villager(s), LAST_SLEPT for {slept_set_t0}, of {}; tickets taken during the setup: {taken} (start state (i): the ticket free){}",
+                "  t0: the run's start day {day_start} (scene {}, drive {}); HOME written and read back for {home_set_t0} villager(s), LAST_SLEPT for {slept_set_t0}, of {}; tickets taken during the setup: {taken} (start state (i): the ticket free){}",
+                scene.display(),
+                drive.display(),
                 vs.len(),
                 if home_set_t0 == vs.len() { "" } else { " (NOT every villager holds HOME)" }
             );
@@ -599,6 +619,16 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
             // (G1 on G #6) a hook that couldn't read its values fails the run, never reads as "no event"
             if l.contains("(unread)") {
                 unread.push(format!("t{t}: {l}"));
+                continue;
+            }
+            if l.starts_with("push cart by ") || l.starts_with("pushlist ") {
+                if push_window.is_some_and(|(a, b)| (a..=b).contains(&t)) {
+                    let mut s = l.clone();
+                    for (u, name) in &uuid_names {
+                        s = s.replace(u.as_str(), name);
+                    }
+                    push_rows.push(format!("t{t}: {s}"));
+                }
                 continue;
             }
             let Some(&vi) = l.rsplit(" @").next().and_then(|u| by_uuid.get(u.trim())) else {
@@ -755,7 +785,10 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
         // (G1 on G #9, on H #2) the brains' activity at t1 asserted: by day the run's schedule activity
         // (IDLE, or PANIC on a hostile); by night REST, or PANIC with a hostile sensed
         if t == 0 {
-            let night0 = !(0..11990).contains(&day);
+            // (G1 on I) night as the schedule's keyframes give it (Timelines 186-198: REST from 12,000
+            // to the IDLE keyframe at 10 of the next day), the day time taken mod 24,000
+            let d0 = day.rem_euclid(24_000);
+            let night0 = d0 >= 12_000 || d0 < 10;
             let wrong: Vec<String> = vs
                 .iter()
                 .filter(|v| v.gone.is_none())
@@ -974,6 +1007,12 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
             v.home_set,
             v.least_occupied.map(|(d, t)| format!("{d:.2} (t{t})")).unwrap_or_else(|| "- (never occupied at a read)".into())
         );
+    }
+    if let Some((a, b)) = push_window {
+        println!("  pushes t{a}..t{b} (+push: every AbstractMinecart.push with the cart's delta before -> after and both boxes; every seated villager's pushEntities list; in the game's own order within each tick): {} line(s)", push_rows.len());
+        for r in &push_rows {
+            println!("    {r}");
+        }
     }
     let judged = night_ticks as u64 * vs.len() as u64;
     if let Some((who, from, to)) = trace_spec.as_ref() {
