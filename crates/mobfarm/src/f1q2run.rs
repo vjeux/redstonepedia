@@ -3209,6 +3209,15 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     // and the split levers (x,26,9)'s states, each change (tick, on)
     let t_shapes0: BTreeMap<[i32; 3], String> = t_shapes.clone();
     let mut lever_hist: BTreeMap<i32, Vec<(i64, bool)>> = BTreeMap::new();
+    // (ironspec 11:33, F4(a)'s bars) (i) a K switched while another lane's napper is on the split row,
+    // (ii) a K armed with its R occupied, (iii) more than one napper between the stop's exit and the
+    // K's: each one's rows, and the open episodes
+    let mut f4_rows: [Vec<String>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+    let mut f4_open = [false; 3];
+    let mut f4_between_open = false;
+    // (ironspec 11:29 / 11:33) an unridden cart at rest on a siding's R: per lane (cart, since, flagged)
+    let mut r_unridden: [Option<(u32, i64, bool)>; 3] = [None, None, None];
+    let mut r_unridden_rows: Vec<String> = Vec::new();
     // (G1 10:24 (a)) the per-lane count: per lane a histogram (count -> ticks), the max and its first
     // tick, and the first tick at 9 or more
     let mut lane_count_hist: [BTreeMap<usize, i64>; 3] = [BTreeMap::new(), BTreeMap::new(), BTreeMap::new()];
@@ -6123,8 +6132,73 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             for x in [-3, -1, 1, 3, 5, 7] {
                 let on = matches!(w.get(redsim::pos::BlockPos::new(x, 26, 9)), redsim::block::Block::Lever { powered: true, .. });
                 let h = lever_hist.entry(x).or_default();
+                let rose = on && h.last().map(|(_, s)| *s) == Some(false);
                 if h.last().map(|(_, s)| *s) != Some(on) {
                     h.push((rel, on));
+                }
+                // (ironspec 11:33, F4(a)'s bars) at a K(l) lever (l-2,26,9)'s rising edge (K arming), (ii)
+                // its R (l-2,24,7) must be empty
+                if let Some(k) = LANES.iter().position(|l| l - 2 == x)
+                    && rose
+                    && let Some(rc) = w.entities.list.iter().find(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && cell(e.pos) == [x, 24, 7])
+                {
+                    f4_rows[1].push(format!("t {rel}: K({}) armed with cart #{} on its R ({},24,7)", LANES[k], rc.id, x));
+                }
+            }
+            // (ironspec 11:33, F4(a)'s bars) (i) K(l) switched (its lever on) while another lane's napper
+            // is on the split row, each episode's first tick; (iii) at most one napper between the
+            // stop's exit (its A6 R passed this visit) and its K
+            for (k, l) in LANES.iter().enumerate() {
+                let kx = l - 2;
+                let on = lever_hist.get(&kx).and_then(|h| h.last()).is_some_and(|(_, s)| *s);
+                let foreign = if on {
+                    w.entities.list.iter().find(|e| {
+                        let c = cell(e.pos);
+                        !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && c[1] == 25 && c[2] == 9 && e.passengers.first().is_some_and(|r| nappers.iter().any(|(v, nk, _)| v == r && *nk != k))
+                    }).map(|e| (e.id, cell(e.pos)))
+                } else {
+                    None
+                };
+                match (foreign, f4_open[k]) {
+                    (Some((id, c)), false) => {
+                        f4_open[k] = true;
+                        f4_rows[0].push(format!("t {rel}: K({l}) switched with another lane's napper cart #{id} on the split row at ({},{},{})", c[0], c[1], c[2]));
+                    }
+                    (None, true) => f4_open[k] = false,
+                    _ => {}
+                }
+            }
+            let between: Vec<u32> = nappers
+                .iter()
+                .filter(|(v, _, t)| {
+                    let to = ctl.pick_carts.iter().filter(|(pt, _, pv, _)| pv == v && pt > t).map(|x| x.0).min().unwrap_or(i64::MAX);
+                    let ms = |what: &str| recs.get(v).and_then(|r| r.milestones.iter().find(|(m, mt)| m == what && *mt >= *t && *mt < to).map(|(_, mt)| *mt));
+                    ms("at R").is_some() && ms("on its K").is_none()
+                })
+                .map(|(v, _, _)| *v)
+                .collect();
+            if between.len() > 1 && !f4_between_open {
+                f4_between_open = true;
+                f4_rows[2].push(format!("t {rel}: {} nappers between the stop's exit and their K's ({})", between.len(), between.iter().map(|v| format!("#{v}")).collect::<Vec<_>>().join(", ")));
+            } else if between.len() <= 1 {
+                f4_between_open = false;
+            }
+            // (ironspec 11:29 / 11:33) an unridden cart at rest on a siding's R for 20 gt or more: "siding
+            // blocked by an unridden cart", each episode
+            for (k, l) in LANES.iter().enumerate() {
+                let empty_rest = w.entities.list.iter().find(|e| {
+                    let d = e.delta_movement;
+                    !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && cell(e.pos) == [l - 2, 24, 7] && e.passengers.is_empty() && d.x * d.x + d.y * d.y + d.z * d.z < 0.003 * 0.003
+                }).map(|e| e.id);
+                match (empty_rest, r_unridden[k]) {
+                    (Some(id), Some((oid, since, flagged))) if id == oid => {
+                        if !flagged && rel - since >= 20 {
+                            r_unridden[k] = Some((id, since, true));
+                            r_unridden_rows.push(format!("t {since}: lane x {l}'s R ({},24,7) blocked by unridden cart #{id} (20 gt at rest by t {rel})", l - 2));
+                        }
+                    }
+                    (Some(id), _) => r_unridden[k] = Some((id, rel, false)),
+                    (None, _) => r_unridden[k] = None,
                 }
             }
         }
@@ -8717,6 +8791,25 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             ));
         }
         let s = format!("{s}the conservation ledger (ironspec 11:09 (1): per lane its t0 carts + the carts dropped into its queue - the carts leaving its pocket; a 9th FAILS, with the ten events before it): {}\n", out.join(" | "));
+        // (onechunk 11:16) the nappers' misroutes, bar 0
+        let s = format!(
+            "{s}F4(a)'s bars (ironspec 11:33: the returning-napper register; each bar 0): (i) a K switched while another lane's napper is on the split row: {} ({}){}; (ii) a K armed with its R occupied: {} ({}){}; (iii) more than one napper between the stop's exit and the K's: {} ({}){}\n",
+            f4_rows[0].len(),
+            if f4_rows[0].is_empty() { "PASS" } else { "FAIL" },
+            if f4_rows[0].is_empty() { String::new() } else { format!(": {}", f4_rows[0].iter().take(8).cloned().collect::<Vec<_>>().join("; ")) },
+            f4_rows[1].len(),
+            if f4_rows[1].is_empty() { "PASS" } else { "FAIL" },
+            if f4_rows[1].is_empty() { String::new() } else { format!(": {}", f4_rows[1].iter().take(8).cloned().collect::<Vec<_>>().join("; ")) },
+            f4_rows[2].len(),
+            if f4_rows[2].is_empty() { "PASS" } else { "FAIL" },
+            if f4_rows[2].is_empty() { String::new() } else { format!(": {}", f4_rows[2].iter().take(8).cloned().collect::<Vec<_>>().join("; ")) }
+        );
+        let s = format!(
+            "{s}the sidings blocked by an unridden cart (ironspec 11:29 / 11:33: an empty cart at rest on a siding's R (x-2,24,7) for 20 gt or more; bar 0): {} ({}){}\n",
+            r_unridden_rows.len(),
+            if r_unridden_rows.is_empty() { "PASS" } else { "FAIL" },
+            if r_unridden_rows.is_empty() { String::new() } else { format!(": {}", r_unridden_rows.iter().take(8).cloned().collect::<Vec<_>>().join("; ")) }
+        );
         // (onechunk 11:16) the nappers' misroutes, bar 0
         let s = format!(
             "{s}the westbound carts on the split row (ironspec 11:23 / G1 11:19 F4 (b), R4: a cart on (x,25,9) moving west, each episode; bar 0): {} ({}){}\n",
