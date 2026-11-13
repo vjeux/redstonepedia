@@ -734,9 +734,13 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
     put(&mut b, [2, 1, 3], &rail("south_west"))?;
     put(&mut b, [2, 0, 3], "glass")?;
     put(&mut b, [2, 1, 4], &rail("north_west"))?;
-    // (the U-turn's south support a redstone conductor, smooth stone: the park's drive; glass over
-    // the curve (its cell 1 high: no stroll target on the conductor; the cart passes under))
-    put(&mut b, [2, 0, 4], "smooth_stone")?;
+    // (the U-turn's south support a redstone conductor: the park's drive; SLIME, not smooth stone
+    // (ironspec 07:16 (ii) / 07:39: a solid-render floor makes the rail cell over it a stable flee
+    // and stroll destination, its 1-high headroom notwithstanding: the random-position filter reads
+    // the floor and the cell's static path type, no headroom; the flee drew (2,1,4) on 2 of 20
+    // wakes, a partial path: an arming); slime conducts, isn't solid-render and carries a rail;
+    // glass over the curve (the cart passes under))
+    put(&mut b, [2, 0, 4], "slime_block")?;
     put(&mut b, [2, 2, 4], "glass")?;
     // the park: one braked powered rail descending west, powered through the conductor east of it
     // by day-1's repeater at (3,0,4) (the bench's stand-in a wall lever on the conductor's east face)
