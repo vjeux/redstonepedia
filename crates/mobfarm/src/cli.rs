@@ -954,6 +954,11 @@ pub enum MobfarmCmd {
         /// beside it, a siding lever), x,y,z[=REASON] (repeatable; with `# update-only:`).
         #[arg(long, allow_hyphen_values = true)]
         update_only: Vec<String>,
+        /// A bar the run's declared scope excludes, BAR=REASON (repeatable; also the design's
+        /// `# scope-excludes:`): rail-junctions, T-static (ironspec Nov 12 23:56: a bar with 0
+        /// samples is NOT JUDGED and fails unless excluded).
+        #[arg(long, allow_hyphen_values = true)]
+        scope_excludes: Vec<String>,
     },
     /// (9fc3155f, ironspec Nov 11 20:55: tiling) The cross-module margins of the design tiled with
     /// a copy of itself: per --at offset (`dx,dy,dz`, or `dx,dy,dz,m` mirrored in z first), (a) a
@@ -1045,6 +1050,11 @@ pub enum MobfarmCmd {
         /// either cell, for a bridged pair's `hash=`.
         #[arg(long, allow_hyphen_values = true)]
         bridge_hash: Vec<String>,
+        /// A bar the run's declared scope excludes, BAR=REASON (repeatable; also the design's
+        /// `# scope-excludes:`): a bar with 0 samples is NOT JUDGED and fails unless excluded
+        /// (ironspec Nov 12 23:56). The bars: push-range, rail-T, switched-cell, one-way.
+        #[arg(long, allow_hyphen_values = true)]
+        scope_excludes: Vec<String>,
     },
     /// (tickexact 2026-11-11, ironspec's HOME rule) The walk-target static check: from every rail cell
     /// (a rider seated in a cart there), every cell its brain can take as a walk target (PANIC's flee
@@ -2559,25 +2569,85 @@ pub enum MobfarmCmd {
         #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
         shift: Vec<i32>,
     },
-    /// The golem-spots check (the brief's "no golem spots off the pad"): the game's summon search
-    /// from every position a villager can occupy: a loop scene's rail cells, plus the positions
-    /// in --positions files (x y z per line: `queue-loop-run --record-positions` over a full bench
-    /// night) and the design's own `positions:` line (x,y,z ...), moved by --offset. Block-only
-    /// (a cell only an entity covers counts as a spot) unless --with-entities.
-    /// (9fc3155f, ironspec Nov 12 20:10 (2a): the stand-in guard's 7th property, SIGHT) Every sight
-    /// ray between a rider and a scarer (and between two riders) within 16, cast eye to eye (a
-    /// COLLIDER clip) with and without the stand-ins (`--set x,y,z=BLOCK`, laid over the design):
-    /// each stand-in cell listed SAME or CHANGED with the rays it changes.
-    /// (9fc3155f, ironspec Nov 12 19:41 (3)) The wet-cell spawn static: every water-holding cell as
-    /// an IN_WATER spawn candidate for each water mob and the drowned, with the game's static tests
-    /// (tick-exact's 26.3 citations; the y bands, light and odds taken as passing): expected 0.
+    /// (9fc3155f, ironspec Nov 12 22:56 / 22:59 / 23:00) The lightning static: every strike the
+    /// game can aim at the farm (redsim's model of 26.3's findLightningTargetAround and
+    /// LightningBolt.tick): the bolts that hit a farm entity (every mob and vehicle the design
+    /// holds, a rider at every rider position), the fires they can set, a struck rod's signal
+    /// reach; the positive control is a design copy without its rod, through this same command.
+    LightningCheck {
+        design: PathBuf,
+        /// Rider positions files (x y z per line, feet cells).
+        #[arg(long, value_delimiter = ',')]
+        positions: Vec<PathBuf>,
+        /// Every rail cell a rider position.
+        #[arg(long)]
+        rails: bool,
+        /// A bar the run's declared scope excludes, BAR=REASON (repeatable; also the design's
+        /// `# scope-excludes:`): lightning (ironspec Nov 12 23:56: 0 samples is NOT JUDGED). The
+        /// positive control is a design copy without its rod, through this same command (ironspec
+        /// Nov 13 00:27 (A)).
+        #[arg(long, allow_hyphen_values = true)]
+        scope_excludes: Vec<String>,
+    },
+    /// (farmopt / tick-exact Nov 13 00:16) The hostile sensor at a villager's position: every hostile
+    /// the design holds, its sensor range, the feet-to-feet distance and the eye-to-eye sight ray;
+    /// those in NEAREST_HOSTILE with an occluder each (glass on every ray to the points, none on a
+    /// ray the hostile covers now).
+    SensorAt {
+        design: PathBuf,
+        /// A rail cell x,y,z: a seated villager at its cart's positions along the rail (t 0, 0.25,
+        /// 0.5, 0.75, 1; repeatable).
+        #[arg(long, allow_hyphen_values = true)]
+        at: Vec<String>,
+        /// A villager's exact feet x,y,z (a seated one's: its cart's position; repeatable).
+        #[arg(long, allow_hyphen_values = true)]
+        feet: Vec<String>,
+        /// A box x0,y0,z0,x1,y1,z1 no occluder may use (repeatable).
+        #[arg(long, allow_hyphen_values = true)]
+        exclude: Vec<String>,
+        /// A stand-in x,y,z=BLOCK (repeatable); one the settle changes FAILS survival unless declared
+        /// `--hold`.
+        #[arg(long, allow_hyphen_values = true)]
+        set: Vec<String>,
+        /// A stand-in cell the row declares held, x,y,z=DRIVER (PHASE) (repeatable; the cell's real
+        /// driver and the controller phase it represents): re-placed as stated after the settle (an
+        /// unpowered hatch stated open stays open), printed "held".
+        #[arg(long, allow_hyphen_values = true)]
+        hold: Vec<String>,
+        /// A cell x,y,z whose crossing each ray prints: its entry and exit, the cell's state and
+        /// collision boxes in the world judged, each eye (ironspec Nov 13 01:03 (3); repeatable).
+        #[arg(long, allow_hyphen_values = true)]
+        through: Vec<String>,
+    },
+    /// (9fc3155f, ironspec Nov 12 19:41 (3) / 22:36) The wet-cell spawn static: every water-holding
+    /// cell as an IN_WATER spawn candidate for each water mob and the drowned, with the game's
+    /// static tests (tick-exact's 26.3 citations; the y bands, light and odds taken as passing):
+    /// expected 0; under a declared site (`# site:` or `--site`), each allowed biome's spawn list
+    /// with its y and light rules, the verdict the site's.
     WetSpawn {
         design: PathBuf,
         /// A cell counted as holding water whatever the parse keeps, x,y,z (repeatable: a
         /// waterlogged rail, which redsim's rails do not carry).
         #[arg(long, allow_hyphen_values = true)]
         wet: Vec<String>,
+        /// The site to evaluate under (overrides the design's `# site:` line):
+        /// "biomes=overworld,!minecraft:river,...; sea_level=63; y0=A..B" (ironspec Nov 12 22:36:
+        /// exit 0 only if no water mob can spawn at any wet cell for every allowed biome).
+        #[arg(long, allow_hyphen_values = true)]
+        site: Option<String>,
+        /// Print the 26.3 table: the site's biomes (else every overworld biome) whose spawn lists
+        /// hold a water mob or the drowned, each spawner and the rules (ironspec Nov 12 22:34 (5a)).
+        #[arg(long)]
+        table: bool,
+        /// A bar the run's declared scope excludes, BAR=REASON (repeatable; also the design's
+        /// `# scope-excludes:`): wet-spawn (ironspec Nov 12 23:56: 0 samples is NOT JUDGED).
+        #[arg(long, allow_hyphen_values = true)]
+        scope_excludes: Vec<String>,
     },
+    /// (9fc3155f, ironspec Nov 12 20:10 (2a): the stand-in guard's 7th property, SIGHT) Every sight
+    /// ray between a rider and a scarer (and between two riders) within 16, cast eye to eye (a
+    /// COLLIDER clip) with and without the stand-ins (`--set x,y,z=BLOCK`, laid over the design):
+    /// each stand-in cell listed SAME or CHANGED with the rays it changes.
     SightDiff {
         design: PathBuf,
         /// A stand-in cell, x,y,z=BLOCK (repeatable).
@@ -2589,6 +2659,16 @@ pub enum MobfarmCmd {
         /// A zombie's boat besides the design's own scarers, x,y,z (repeatable).
         #[arg(long, allow_hyphen_values = true)]
         zombie: Vec<String>,
+        /// A bar the run's declared scope excludes, BAR=REASON (repeatable; also the design's
+        /// `# scope-excludes:`): sight (ironspec Nov 12 23:56: 0 samples is NOT JUDGED).
+        #[arg(long, allow_hyphen_values = true)]
+        scope_excludes: Vec<String>,
+        /// A stand-in cell the row declares held, x,y,z=DRIVER (PHASE) (repeatable; the cell's real
+        /// driver and the controller phase it represents): re-placed as stated after the settle; any
+        /// other stand-in the settle changes FAILS survival (farmopt / ironspec Nov 13 01:07: the
+        /// seven-property guard's survival property).
+        #[arg(long, allow_hyphen_values = true)]
+        hold: Vec<String>,
     },
     /// (9fc3155f, ironspec Nov 12 19:49 (2)) The swept-box scan: every rail cell where the cart's box
     /// (0.98 x 0.7) or its rider's (0.6 x 1.95), swept along the rail's chord plus one tick's step
@@ -2607,6 +2687,11 @@ pub enum MobfarmCmd {
         #[arg(long, default_value_t = 0.4)]
         step: f64,
     },
+    /// The golem-spots check (the brief's "no golem spots off the pad"): the game's summon search
+    /// from every position a villager can occupy: a loop scene's rail cells, plus the positions
+    /// in --positions files (x y z per line: `queue-loop-run --record-positions` over a full bench
+    /// night) and the design's own `positions:` line (x,y,z ...), moved by --offset. Block-only
+    /// (a cell only an entity covers counts as a spot) unless --with-entities.
     QueueLoopSpots {
         design: PathBuf,
         #[arg(long, value_delimiter = ',')]
@@ -2635,10 +2720,12 @@ pub enum MobfarmCmd {
         /// scene's own stand cells and pockets.
         #[arg(long, default_value = "", allow_hyphen_values = true)]
         stand: String,
-        /// (with --pad: the summon-reach print, ironspec Nov 12 19:34 (3b)) A group of riders and
-        /// the most of them at once anywhere: NAME:CAP=FILE[@x0,y0,z0,x1,y1,z1][+FILE[@box]...],
-        /// the group's positions from positions files (x y z per line), each optionally kept to a
-        /// box (repeatable): a 10-box meeting any of its positions holds at most CAP of them.
+        /// (with --pad: the summon-reach print, ironspec Nov 12 19:34 (3b) / 22:54) A group of riders,
+        /// the most of them at once anywhere and the activities they can be in:
+        /// NAME:CAP[:ACT/ACT...]=FILE[@x0,y0,z0,x1,y1,z1][+FILE[@box]...], the group's positions from
+        /// positions files (x y z per line), each optionally kept to a box (repeatable): a 10-box
+        /// meeting any of its positions holds at most CAP of them; a position only in groups never
+        /// in MEET or IDLE hosts no gossip summoner.
         #[arg(long, allow_hyphen_values = true)]
         rider_group: Vec<String>,
     },
@@ -6323,6 +6410,37 @@ fn refuse_unsupported(spec: &redsim::entity::mob::farm::FarmSpec, allow: bool) -
     }
 }
 
+/// Cells x,y,z from a flag's values.
+fn cells_of(v: &[String], flag: &str) -> Result<Vec<redsim::pos::BlockPos>> {
+    v.iter()
+        .map(|s| {
+            let n: Vec<i32> = s.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>()?;
+            anyhow::ensure!(n.len() == 3, "{flag} {s}: x,y,z");
+            Ok(redsim::pos::BlockPos::new(n[0], n[1], n[2]))
+        })
+        .collect()
+}
+
+/// A held stand-in's `x,y,z=DRIVER (PHASE)` (ironspec Nov 13 01:07 (a): a hold names the cell's real
+/// driver and the controller phase it represents); with the design's own `# held:` entries
+/// (ironspec 01:37 (3): a held stand-in a bench file needs goes in its header).
+fn holds_of(v: &[String]) -> Result<Vec<(redsim::pos::BlockPos, String)>> {
+    v.iter()
+        .map(|s| {
+            let (c, why) = s.split_once('=').ok_or_else(|| anyhow::anyhow!("--hold {s}: x,y,z=DRIVER (PHASE): name the real driver and the phase"))?;
+            anyhow::ensure!(!why.trim().is_empty(), "--hold {s}: the driver and phase are required");
+            Ok((cells_of(&[c.to_string()], "--hold")?[0], why.trim().to_string()))
+        })
+        .collect()
+}
+
+/// [`holds_of`] over the flag's entries and the design's `# held:` header entries.
+fn holds_with_header(v: &[String], design: &PathBuf) -> Result<Vec<(redsim::pos::BlockPos, String)>> {
+    let mut all: Vec<String> = v.to_vec();
+    all.extend(crate::pushscan::header_entries(&std::fs::read_to_string(design)?, "held:"));
+    holds_of(&all)
+}
+
 fn load(_version: &str, path: &PathBuf) -> Result<(circuit::Circuit, redsim::entity::mob::farm::FarmSpec)> {
     let c = circuit::Circuit::load(path)?;
     let spec = circuit::mobfarm::spec_of(&c).map_err(|e| anyhow::anyhow!(e))?;
@@ -7899,7 +8017,72 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("  {s}");
             }
         }
-        MobfarmCmd::WetSpawn { design, wet } => {
+        MobfarmCmd::LightningCheck { design, positions, rails, scope_excludes } => {
+            let (_c, spec) = load(version, &design)?;
+            let scope = crate::bars::Scope::from_text(&std::fs::read_to_string(&design)?, &scope_excludes).map_err(|e| anyhow::anyhow!(e))?;
+            let mut cells = Vec::new();
+            for f in &positions {
+                for line in std::fs::read_to_string(f)?.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')) {
+                    let v: Vec<i32> = line.split([',', ' ']).filter(|s| !s.is_empty()).map(|n| n.parse::<i32>()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(v.len() == 3, "a position takes x y z: {line}");
+                    cells.push(redsim::pos::BlockPos::new(v[0], v[1], v[2]));
+                }
+            }
+            let (lines, findings, samples) = crate::lightningcheck::check(&spec, &crate::lightningcheck::Opts { positions: cells, rails }).map_err(|e| anyhow::anyhow!(e))?;
+            for l in &lines {
+                println!("{l}");
+            }
+            let (v, failed) = scope.verdict("lightning", samples, "farm entities", findings);
+            println!("lightning verdict: {v}");
+            if failed {
+                std::process::exit(1);
+            }
+        }
+        MobfarmCmd::SensorAt { design, at, feet, exclude, set, hold, through } => {
+            let (_c, spec) = load(version, &design)?;
+            let holds = holds_with_header(&hold, &design)?;
+            let throughs = cells_of(&through, "--through")?;
+            let mut sets: Vec<(redsim::pos::BlockPos, redsim::block::Block)> = Vec::new();
+            for s in &set {
+                let (c, b) = s.split_once('=').ok_or_else(|| anyhow::anyhow!("--set {s}: x,y,z=BLOCK"))?;
+                let v: Vec<i32> = c.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(v.len() == 3, "--set {s}: x,y,z=BLOCK");
+                sets.push((redsim::pos::BlockPos::new(v[0], v[1], v[2]), redsim::block::Block::parse(b.trim()).map_err(|e| anyhow::anyhow!(e))?));
+            }
+            let blocks: std::collections::HashMap<redsim::pos::BlockPos, String> = spec.blocks.iter().map(|(p, b)| (*p, b.to_string())).collect();
+            let mut points: Vec<redsim::entity::Vec3> = Vec::new();
+            for a in &at {
+                let v: Vec<i32> = a.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(v.len() == 3, "--at x,y,z: {a}");
+                let c = redsim::pos::BlockPos::new(v[0], v[1], v[2]);
+                let s = blocks.get(&c).filter(|s| s.contains("rail")).ok_or_else(|| anyhow::anyhow!("--at {a}: not a rail cell"))?;
+                for k in 0..=4 {
+                    points.push(crate::fleecheck::along_rail(c, s, k as f64 * 0.25));
+                }
+            }
+            for f in &feet {
+                let v: Vec<f64> = f.split(',').map(|t| t.trim().parse::<f64>()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(v.len() == 3, "--feet x,y,z: {f}");
+                points.push(redsim::entity::Vec3::new(v[0], v[1], v[2]));
+            }
+            let mut excl = Vec::new();
+            for e in &exclude {
+                let q: Vec<i32> = e.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(q.len() == 6, "--exclude x0,y0,z0,x1,y1,z1");
+                excl.push(([q[0].min(q[3]), q[1].min(q[4]), q[2].min(q[5])], [q[0].max(q[3]), q[1].max(q[4]), q[2].max(q[5])]));
+            }
+            let (lines, samples, survival_fails) = crate::fleecheck::sensor_at(&spec, &points, &excl, &sets, &holds, &throughs).map_err(|e| anyhow::anyhow!(e))?;
+            for l in &lines {
+                println!("{l}");
+            }
+            let scope = crate::bars::Scope::from_text(&std::fs::read_to_string(&design)?, &[]).map_err(|e| anyhow::anyhow!(e))?;
+            let (v, failed) = scope.verdict("sensor", samples, "point-hostile pairs", survival_fails);
+            println!("sensor samples: {v} (a report: the hostiles in NEAREST_HOSTILE above; a stand-in failing survival fails it)");
+            if failed {
+                std::process::exit(1);
+            }
+        }
+        MobfarmCmd::WetSpawn { design, wet, site, table, scope_excludes } => {
             let (_c, spec) = load(version, &design)?;
             let mut cells = Vec::new();
             for w in &wet {
@@ -7907,18 +8090,68 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 anyhow::ensure!(v.len() == 3, "--wet x,y,z: {w}");
                 cells.push(redsim::pos::BlockPos::new(v[0], v[1], v[2]));
             }
-            let declared = crate::wetspawn::declared_from_text(&std::fs::read_to_string(&design)?).map_err(|e| anyhow::anyhow!(e))?;
+            let text = std::fs::read_to_string(&design)?;
+            let scope = crate::bars::Scope::from_text(&text, &scope_excludes).map_err(|e| anyhow::anyhow!(e))?;
+            let declared = crate::wetspawn::declared_from_text(&text).map_err(|e| anyhow::anyhow!(e))?;
+            // (farmopt Nov 13 00:27: the settled water, not only the stored: the world settled by
+            // redsim's fluid ticks; every cell wet then is judged, the differences printed)
+            let (settled_s, settled, diffs, scheduled) = crate::wetspawn::settled_spec(&spec).map_err(|e| anyhow::anyhow!(e))?;
+            let stored_wet = crate::wetspawn::wet_cells_of(&spec, &cells).len();
+            println!(
+                "fluid settle (redsim's settle: fluids scheduled and flowed, the infinite-water rule): {scheduled} fluid ticks scheduled by the build for {stored_wet} stored wet cells{}; {} cells hold water settled, {} differ from the file{}",
+                if stored_wet > 0 && scheduled == 0 { " (FAIL: water that can't move proves nothing, ironspec Nov 13 00:27 (B))" } else { "" },
+                settled.len(),
+                diffs.len(),
+                if diffs.is_empty() { String::new() } else { format!(": {}", diffs.iter().take(24).cloned().collect::<Vec<_>>().join("; ")) }
+            );
+            let unscheduled = stored_wet > 0 && scheduled == 0;
+            // (ironspec Nov 13 00:27 (D): the water-rule static on the layout as stored)
+            let (wl, wflags, wsamples) = crate::wetspawn::water_rules(&spec, &cells);
+            for l in &wl {
+                println!("{l}");
+            }
+            let (wv, wf) = scope.verdict("water-rules", wsamples, "water cells", wflags);
+            println!("water-rules verdict: {wv}");
+            // (the spawn statics judge the settled world: each cell the settle changed takes its
+            // settled state, so a current stored as air is a water block above a column's top)
+            let spec = settled_s;
             let lines = crate::wetspawn::scan(&spec, &cells, &declared);
-            let failed = !lines[0].ends_with("(PASS)");
             for l in &lines {
                 println!("{l}");
             }
-            if failed {
+            // (ironspec Nov 12 22:36: under a declared site the verdict is the site's; without one,
+            // the worst case above)
+            let site = match &site {
+                Some(s) => Some(crate::wetspawn::Site::parse(s).map_err(|e| anyhow::anyhow!(e))?),
+                None => crate::wetspawn::Site::from_text(&text).map_err(|e| anyhow::anyhow!(e))?,
+            };
+            if table {
+                let biomes = site.as_ref().map(|s| s.biomes.clone()).unwrap_or_else(crate::wetspawn::overworld_biomes);
+                for l in crate::wetspawn::biome_table(&biomes) {
+                    println!("{l}");
+                }
+            }
+            let fails = match &site {
+                Some(st) => {
+                    let (sl, n) = crate::wetspawn::site_scan(&spec, &cells, &declared, st).map_err(|e| anyhow::anyhow!(e))?;
+                    for l in &sl {
+                        println!("{l}");
+                    }
+                    n
+                }
+                None => usize::from(!lines[0].ends_with("(PASS)")),
+            };
+            // (ironspec Nov 12 23:56: the bar's samples, the wet cells; none is NOT JUDGED)
+            let (v, failed) = scope.verdict("wet-spawn", crate::wetspawn::wet_cells_of(&spec, &cells).len(), "wet cells", fails);
+            println!("wet-spawn verdict{}: {v}", if site.is_some() { " (the declared site's)" } else { " (the worst case: no site declared)" });
+            if failed || wf || unscheduled {
                 std::process::exit(1);
             }
         }
-        MobfarmCmd::SightDiff { design, set, pillager, zombie } => {
+        MobfarmCmd::SightDiff { design, set, pillager, zombie, scope_excludes, hold } => {
             let (_c, spec) = load(version, &design)?;
+            let scope = crate::bars::Scope::from_text(&std::fs::read_to_string(&design)?, &scope_excludes).map_err(|e| anyhow::anyhow!(e))?;
+            let holds = holds_with_header(&hold, &design)?;
             let mut sets: Vec<(redsim::pos::BlockPos, redsim::block::Block)> = Vec::new();
             for s in &set {
                 let (c, b) = s.split_once('=').ok_or_else(|| anyhow::anyhow!("--set {s}: x,y,z=BLOCK"))?;
@@ -7934,8 +8167,14 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     extra.push((redsim::entity::Vec3::new(v[0], v[1], v[2]), pill));
                 }
             }
-            for l in crate::fleecheck::sight_diff(&spec, &sets, &extra).map_err(|e| anyhow::anyhow!(e))? {
+            let (sl, samples, changed) = crate::fleecheck::sight_diff_counts(&spec, &sets, &extra, &holds).map_err(|e| anyhow::anyhow!(e))?;
+            for l in &sl {
                 println!("{l}");
+            }
+            let (v, failed) = scope.verdict("sight", samples, "rays compared", changed);
+            println!("sight verdict: {v}");
+            if failed {
+                std::process::exit(1);
             }
         }
         MobfarmCmd::SweptBox { design, column, y, step } => {
@@ -7998,6 +8237,13 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             println!("keep-out (the cart's box reaches them: a block there slows or stops the ride): {}", cells_txt(&cart));
             println!("the rider's box reaches besides (entity boxes meet there; a block there does not slow the ride): {}", cells_txt(&rider));
+            // (ironspec Nov 12 23:56: a report, its sample count the rail cells swept; none NOT JUDGED)
+            let scope = crate::bars::Scope::from_text(&text, &[]).map_err(|e| anyhow::anyhow!(e))?;
+            let (v, failed) = scope.verdict("swept-box", n, "rail cells swept", 0);
+            println!("swept-box samples: {v} (the keep-out cells above are the result, not a pass/fail)");
+            if failed {
+                std::process::exit(1);
+            }
         }
         MobfarmCmd::QueueLoopSpots { design, positions, offset, within, rails, with_entities, list, pad, stand, rider_group } => {
             let (c, spec) = load(version, &design)?;
@@ -8054,9 +8300,17 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             // declared rider groups)
             if let Some(pb) = pad_box {
                 let mut groups: Vec<(String, usize, Vec<redsim::pos::BlockPos>)> = Vec::new();
+                let mut acts: Vec<Vec<String>> = Vec::new();
                 for g in &rider_group {
-                    let (head, files) = g.split_once('=').ok_or_else(|| anyhow::anyhow!("--rider-group {g}: NAME:CAP=FILE[@box][+FILE[@box]...]"))?;
-                    let (name, cap) = head.split_once(':').ok_or_else(|| anyhow::anyhow!("--rider-group {g}: NAME:CAP=..."))?;
+                    let (head, files) = g.split_once('=').ok_or_else(|| anyhow::anyhow!("--rider-group {g}: NAME:CAP[:ACTIVITIES]=FILE[@box][+FILE[@box]...]"))?;
+                    let (name, rest) = head.split_once(':').ok_or_else(|| anyhow::anyhow!("--rider-group {g}: NAME:CAP=..."))?;
+                    // (ironspec Nov 12 22:54: the activities the group's riders can be in, `/`-separated:
+                    // idle, meet, rest, panic, work...; only MEET and IDLE start a gossip summon)
+                    let (cap, act) = match rest.split_once(':') {
+                        Some((c, a)) => (c, a.split('/').map(|x| x.trim().to_lowercase()).filter(|x| !x.is_empty()).collect::<Vec<_>>()),
+                        None => (rest, Vec::new()),
+                    };
+                    acts.push(act);
                     let mut cells = Vec::new();
                     for part in files.split('+') {
                         let (f, bx) = match part.split_once('@') { Some((f, b)) => (f, Some(b)), None => (part, None) };
@@ -8080,7 +8334,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 let slopes: std::collections::HashSet<redsim::pos::BlockPos> = spec.blocks.iter().filter(|(_, b)| b.to_string().contains("shape=ascending")).map(|(p, _)| *p).collect();
                 let mut reach_pos = extra.clone();
                 reach_pos.extend(extra.iter().filter(|p| slopes.contains(p)).map(|p| redsim::pos::BlockPos::new(p.x, p.y + 1, p.z)));
-                for l in crate::queue::summon_reach(&reach_pos, pb, &stand_cells, &groups, list) {
+                for l in crate::queue::summon_reach_act(&reach_pos, pb, &stand_cells, &groups, &acts, list) {
                     println!("{l}");
                 }
             }
@@ -11561,7 +11815,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
         }
-        MobfarmCmd::PushScan { design, rest, no_auto, switch, controls, own_route_junction, single_occupant, always_on, rest_pos, chord_speed, bridged_pair, speed, bridge_hash, part } => {
+        MobfarmCmd::PushScan { design, rest, no_auto, switch, controls, own_route_junction, single_occupant, always_on, rest_pos, chord_speed, bridged_pair, speed, bridge_hash, part, scope_excludes } => {
             let (_c, mut spec) = load(version, &design)?;
             // (the composition: the parts laid over the design with no move, as the official run
             // composes the module and its parts; the scan and every bridge hash run on it)
@@ -11717,6 +11971,14 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let push_pairs = crate::pushscan::header_push_pairs(&text).map_err(|e| anyhow::anyhow!(e))?;
             let (lines, n, tracks, declared, bridged, pairs_declared) = crate::pushscan::scan_pairs(&spec, &rests, !no_auto, &own_decl, &single, &rest_points, chord_v, &bridges, &speeds, settled.as_ref(), &push_pairs).map_err(|e| anyhow::anyhow!(e))?;
             let flagged = lines.iter().filter(|l| l.starts_with("  PUSH")).count();
+            // (ironspec Nov 12 23:56: every bar's sample count; 0 samples NOT JUDGED)
+            let scope = crate::bars::Scope::from_text(&text, &scope_excludes).map_err(|e| anyhow::anyhow!(e))?;
+            let mut bar_fails: Vec<String> = Vec::new();
+            let (pr_v, pr_f) = scope.verdict("push-range", if tracks == 0 { 0 } else { n }, "rest or creep cells", flagged);
+            if pr_f {
+                bar_fails.push(format!("push-range {pr_v}"));
+            }
+            println!("push-range verdict: {pr_v}");
             println!(
                 "push-range scan ({n} rest or creep cells against {tracks} tracks; boxes 0.98 x 0.7, the resting one inflated 0.2 in x and z and 0.5 along its axis; a curve's passing cart also along its chord from t0 for side entries at {chord_v} or faster ({chord_src}); {} own-route junctions, {} single-occupant groups and {} bridged pairs declared; {} rest points): {flagged} pairs within push range (open), {declared} declared single-occupant, {bridged} bridged, {pairs_declared} declared push pairs (`push-pair:`)",
                 own_decl.len(),
@@ -11730,6 +11992,12 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let tee_list: Vec<redsim::pos::BlockPos> = switches.iter().chain(tee_extra.iter()).copied().collect();
             let (tl, undeclared) = crate::pushscan::tees(&spec, &tee_list);
             println!("rail-T scan (plain rails with 3+ potential connections; the signal-source updates reaching each (redsim's source set, each type's 26.3 update pattern) must be declared switches; a 4-way crossing is listed, not counted): {} Ts, {undeclared} undeclared sources", tl.len());
+            let n_ts = tl.iter().filter(|l| l.starts_with("  T ")).count();
+            let (rt_v, rt_f) = scope.verdict("rail-T", n_ts, "Ts", undeclared);
+            if rt_f {
+                bar_fails.push(format!("rail-T {rt_v}"));
+            }
+            println!("rail-T verdict: {rt_v}");
             for l in &tl {
                 println!("{l}");
             }
@@ -11744,11 +12012,16 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             let (sl, su) = crate::pushscan::switched_full(&spec, &switches, &always, &inert_decl, &update_only_decl);
             println!("switched-cell scan (every 3-connection plain rail, powered or activator rail and trapdoor: every source that can power it, only declared --switch sources allowed, a design's own redstone block listed as fixed, a declared `always-on:` source that can't toggle listed with its reason; each detector's and its below-block's face neighbours): {su} undeclared");
+            let (sc_v, sc_f) = scope.verdict("switched-cell", crate::pushscan::switched_cells(&spec).len(), "switched cells", su);
+            if sc_f {
+                bar_fails.push(format!("switched-cell {sc_v}"));
+            }
+            println!("switched-cell verdict: {sc_v}");
             for l in &sl {
                 println!("{l}");
             }
             let pl = crate::pushscan::placement(&spec);
-            println!("placement-order scan (every rail vanilla placement would not give its designed shape with the rest laid, or whose placement re-shapes a laid neighbour; the fix): {} cells", pl.len());
+            println!("placement-order scan (every rail vanilla placement would not give its designed shape with the rest laid, or whose placement re-shapes a laid neighbour; the fix; information, not a bar: {} rail cells examined): {} cells", spec.blocks.iter().filter(|(_, b)| b.to_string().contains("rail[")).count(), pl.len());
             for l in &pl {
                 println!("{l}");
             }
@@ -11771,6 +12044,20 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             for (u, l, s) in &ow {
                 let why = ow_decl.iter().find(|(d, _)| d == u).map(|(_, r)| format!("declared: {r}")).unwrap_or_else(|| "UNDECLARED".to_string());
                 println!("  ONE-WAY dust {},{},{} (on {s}) > dust {},{},{}: passes up only; {why}", u.x, u.y, u.z, l.x, l.y, l.z);
+            }
+            let n_dust = spec.blocks.iter().filter(|(_, b)| b.to_string().starts_with("minecraft:redstone_wire")).count();
+            let (ow_v, ow_f) = scope.verdict("one-way", n_dust, "dust cells", undeclared_ow);
+            if ow_f {
+                bar_fails.push(format!("one-way {ow_v}"));
+            }
+            println!("one-way verdict: {ow_v}");
+            println!(
+                "push-scan: 4 bars (push-range, rail-T, switched-cell, one-way), {}{}",
+                bar_fails.len(),
+                if bar_fails.is_empty() { " failing (PASS)".to_string() } else { format!(" failing (FAIL, exit 1): {}", bar_fails.join("; ")) }
+            );
+            if !bar_fails.is_empty() {
+                std::process::exit(1);
             }
         }
         MobfarmCmd::TileMargins { design, at, conservative } => {
@@ -12046,11 +12333,16 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 std::process::exit(2);
             }
         }
-        MobfarmCmd::JunctionCheck { design, all, switch, update_only } => {
+        MobfarmCmd::JunctionCheck { design, all, switch, update_only, scope_excludes } => {
             let (c, spec) = load(version, &design)?;
             let text = std::fs::read_to_string(&design)?;
+            let scope = crate::bars::Scope::from_text(&text, &scope_excludes).map_err(|e| anyhow::anyhow!(e))?;
             let (gate_text, failed) = crate::queue::junction_gate_opts(&spec, &text, all);
             println!("{gate_text}");
+            // (ironspec Nov 12 23:56: the gate's sample count, its junctions)
+            let n_junctions: usize = gate_text.lines().next().and_then(|h| h.split("): ").nth(1)).and_then(|t| t.split_whitespace().next()).and_then(|n| n.parse().ok()).unwrap_or(0);
+            let (jv, jf) = scope.verdict("rail-junctions", n_junctions, "junctions", usize::from(failed));
+            println!("rail-junctions verdict: {jv}");
             // (ironspec Nov 12 02:46: placement-order shapes are accepted: each T's placement order
             // for the build guide, and the signal-source updates that can reach it; 18:31 / G1: the
             // sources by cell with the Ts each reaches are the evidence, each declared a switch or
@@ -12146,10 +12438,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             for l in &tsl {
                 println!("{l}");
             }
-            if tfail > 0 {
-                std::process::exit(1);
-            }
-            if failed {
+            let (tv, tf) = scope.verdict("T-static", tsl.len(), "switched Ts", tfail);
+            println!("T-static verdict: {tv}");
+            if tf || jf {
                 std::process::exit(1);
             }
         }
@@ -12454,15 +12745,19 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 // (ironspec Nov 12 16:52, G1: the gate's FAIL, the late paths, the staleness and the
                 // caller sight fail the run by default, on the numbers; --report-only for a pricing
                 // run prints them without failing; undeclared track ends always fail: a truncated walk
-                // reads nothing)
-                let verdict_txt = format!(
-                    "the gate FAIL at {} positions (an inherited policy), late paths FAIL at {} nodes (the 39 gt window physical), staleness FAIL at {} (an inherited policy), {blind} caller(s) seeing no scarer (an inherited policy)",
-                    verdict.gate_fails, verdict.late_fails, verdict.stale
-                );
+                // reads nothing; ironspec Nov 12 23:56: each bar with its samples, 0 samples NOT
+                // JUDGED, failing unless the design's `# scope-excludes:` names the bar)
+                let scope = crate::bars::Scope::from_text(&std::fs::read_to_string(&design)?, &[]).map_err(|e| anyhow::anyhow!(e))?;
+                let (gv, gf) = scope.verdict("gate", verdict.gate_samples, "panicking positions", verdict.gate_fails);
+                let (lv, lf) = scope.verdict("late-paths", verdict.late_samples, "panicking nodes", verdict.late_fails);
+                let (sv, sf) = scope.verdict("staleness", verdict.stale_samples, "tail positions", verdict.stale);
+                let (cv, cf) = scope.verdict("caller-sight", callers.len(), "callers", blind);
+                let verdict_txt = format!("the gate {gv} (an inherited policy); late paths {lv} (the 39 gt window physical); staleness {sv} (an inherited policy); caller sight {cv} (an inherited policy)");
                 if report_only {
                     println!("verdict (--report-only, a pricing run: not failing the run): {verdict_txt}");
                 } else {
-                    anyhow::ensure!(verdict.gate_fails == 0 && verdict.late_fails == 0 && verdict.stale == 0 && blind == 0, "--clear-all: {verdict_txt} (--report-only for a pricing run)");
+                    println!("verdict: {verdict_txt}");
+                    anyhow::ensure!(!(gf || lf || sf || cf), "--clear-all: {verdict_txt} (--report-only for a pricing run)");
                 }
             }
             for s in &clear_rate {
@@ -12515,7 +12810,10 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             for l in &lines {
                 println!("{l}");
             }
-            println!("the suffocation gate{}: {}", if eye_control { " (with the positive control's stone)" } else { "" }, if fails { "FAIL" } else { "PASS" });
+            let scope_fc = crate::bars::Scope::from_text(&std::fs::read_to_string(&design)?, &[]).map_err(|e| anyhow::anyhow!(e))?;
+            let (ev, ef) = scope_fc.verdict("suffocation", n, "rider eye positions", usize::from(fails));
+            println!("the suffocation gate{}: {ev}", if eye_control { " (with the positive control's stone)" } else { "" });
+            anyhow::ensure!(!(ef && n == 0), "the suffocation gate: {ev}");
             // (the pickup reach, ironspec Nov 11 14:32: zombies and boats out of empty carts'
             // pickup boxes; a default gate)
             let (plines, pfails) = crate::fleecheck::pickup_check(&spec, pickup_control);
@@ -13671,7 +13969,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
         }
         MobfarmCmd::Edit { design, chest, how, meta, set } => {
             if !set.is_empty() {
-                let mut d = mctas::design::Design::parse(&std::fs::read_to_string(&design)?)?;
+                let original = std::fs::read_to_string(&design)?;
+                let mut d = mctas::design::Design::parse(&original)?;
                 for s in &set {
                     let (c, state) = s.split_once('=').ok_or_else(|| anyhow::anyhow!("--set x,y,z=state, not {s:?}"))?;
                     let v: Vec<i32> = c.split(',').map(|p| p.trim().parse()).collect::<Result<_, _>>()?;
@@ -13684,7 +13983,13 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         d.blocks.insert([v[0], v[1], v[2]], full);
                     }
                 }
-                std::fs::write(&design, d.to_text())?;
+                // (farmopt / ironspec Nov 13 01:08: the design's text rewritten keeps every `#` line,
+                // each after the line it followed; the count printed before and after)
+                let (out, kept, moved) = crate::layouts::keep_comments(&original, &d.to_text());
+                let before = original.lines().filter(|l| l.starts_with('#')).count();
+                anyhow::ensure!(kept + moved == before, "edit: {before} `#` lines read, {} written", kept + moved);
+                println!("header: {before} `#` lines before, {} after ({kept} each after the line it followed, {moved} moved up: the line before them changed)", out.lines().filter(|l| l.starts_with('#')).count());
+                std::fs::write(&design, out)?;
             }
             if chest || how.is_some() || !meta.is_empty() {
                 let text = std::fs::read_to_string(&design)?;

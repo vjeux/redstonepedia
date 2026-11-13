@@ -665,11 +665,13 @@ pub fn header_bridges(text: &str) -> Vec<String> {
 /// The entries of a design's header lines for `key` (`own-route-junctions:` or
 /// `single-occupant:`), anchored at a comment line's start (G1's note on ff3d181e6: as junction-check
 /// anchors `placement-order-ts:`): a line's entries split where a ";" is followed by the next
-/// x,y,z=, so a REASON may hold "; ".
+/// x,y,z=, so a REASON may hold "; ". A line's leading attribution in parentheses (record7f's
+/// `# switches: (7b90c3f1 r3 8ed397b2e)  -1,26,9=...`) is not an entry.
 pub fn header_entries(text: &str, key: &str) -> Vec<String> {
     let mut v = Vec::new();
     for l in text.lines() {
         let Some(body) = l.trim_start().strip_prefix('#').map(str::trim_start).and_then(|t| t.strip_prefix(key)) else { continue };
+        let body = strip_attribution(body);
         let mut cur = String::new();
         for part in body.split(';') {
             let head = part.trim_start();
@@ -688,6 +690,28 @@ pub fn header_entries(text: &str, key: &str) -> Vec<String> {
         }
     }
     v
+}
+
+/// A header line's body without its leading attribution in parentheses, if any.
+fn strip_attribution(body: &str) -> &str {
+    let t = body.trim_start();
+    if !t.starts_with('(') {
+        return body;
+    }
+    let mut depth = 0i32;
+    for (i, ch) in t.char_indices() {
+        match ch {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return &t[i + 1..];
+                }
+            }
+            _ => {}
+        }
+    }
+    body
 }
 
 /// (G1 and ironspec Nov 12 18:31 / 19:4x, the T-reach evidence) The design's (and its parts')
@@ -1354,6 +1378,28 @@ pub fn switched_with(spec: &FarmSpec, switches: &[BlockPos], always_on: &[(Block
     switched_full(spec, switches, always_on, inert, &[])
 }
 
+/// The cells the switched-cell scan judges (its samples, ironspec Nov 12 23:56): every plain rail
+/// at 3 potential connections, every powered or activator rail and every trapdoor.
+pub fn switched_cells(spec: &FarmSpec) -> Vec<BlockPos> {
+    let all: HashMap<BlockPos, String> = spec.blocks.iter().map(|(p, b)| (*p, b.to_string())).collect();
+    let is_rail = |p: &BlockPos| all.get(p).is_some_and(|s| s.contains("rail"));
+    let conn = |c: &BlockPos| {
+        (0..4)
+            .filter(|i| {
+                let (dx, dz) = [(0, -1), (1, 0), (0, 1), (-1, 0)][*i];
+                (-1..=1).any(|dy| is_rail(&BlockPos::new(c.x + dx, c.y + dy, c.z + dz)))
+            })
+            .count()
+    };
+    let mut cells: Vec<BlockPos> = all
+        .iter()
+        .filter(|(p, s)| (s.starts_with("minecraft:rail[") && conn(p) == 3) || s.contains("powered_rail") || s.contains("activator_rail") || s.contains("trapdoor"))
+        .map(|(p, _)| *p)
+        .collect();
+    cells.sort_by_key(|c| (c.y, c.z, c.x));
+    cells
+}
+
 /// [`switched_with`], with the design's `update-only:` sources: a detector declared update-only
 /// (its evidence an official probe that its press leaves the T at its raw connection settled,
 /// tick-exact's D-J probe for the split's branch detectors) has that raw connection accepted
@@ -1411,12 +1457,7 @@ pub fn switched_full(spec: &FarmSpec, switches: &[BlockPos], always_on: &[(Block
     let name = |p: &BlockPos| short(&all[p]).split('[').next().unwrap_or("").to_string();
     let mut out = Vec::new();
     let mut undeclared = 0usize;
-    let mut cells: Vec<BlockPos> = all
-        .iter()
-        .filter(|(p, s)| (s.starts_with("minecraft:rail[") && conn(p) == 3) || s.contains("powered_rail") || s.contains("activator_rail") || s.contains("trapdoor"))
-        .map(|(p, _)| *p)
-        .collect();
-    cells.sort_by_key(|c| (c.y, c.z, c.x));
+    let cells = switched_cells(spec);
     for c in cells {
         let s = &all[&c];
         let mut src: Vec<(BlockPos, String)> = powers(c);
@@ -1596,6 +1637,9 @@ mod one_way_tests {
         let cells: Vec<(BlockPos, &str)> = d.iter().map(|(p, k, _)| (*p, *k)).collect();
         assert_eq!(cells, vec![(BlockPos::new(-1, 26, 9), "switch"), (BlockPos::new(3, 26, 9), "switch"), (BlockPos::new(8, -14, -4), "switch"), (BlockPos::new(-1, 24, 8), "update-only"), (BlockPos::new(3, 24, 8), "update-only"), (BlockPos::new(2, -25, -4), "inert")]);
         assert_eq!(d[4].2, "the branch detectors (the D-J probe)");
+        // (record7f's attributed lines: `# switches: (7b90c3f1 r3 8ed397b2e)  -1,26,9=...`)
+        let attributed = super::header_t_sources("# switches: (7b90c3f1 r3 8ed397b2e)  -1,26,9=J(-1)'s lever (day-1's latch); 3,26,9=J(3)'s\n").unwrap();
+        assert_eq!(attributed.iter().map(|(p, _, _)| *p).collect::<Vec<_>>(), vec![BlockPos::new(-1, 26, 9), BlockPos::new(3, 26, 9)]);
     }
 
     /// (ironspec Nov 12 23:15 / 03:54) A detector whose raw connection is a plain rail at 3 potential
