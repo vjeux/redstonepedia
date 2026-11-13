@@ -17,11 +17,25 @@ table: https://artifacts.internalmeta.com/a/2276791626224129 (1872157077300391 i
 | path (a): lane 7's mouth clearance (its column entry after the preceding cart's box has cleared the mouth cell at y 12) | >= 2 (`--mouth-min`); unmeasured fails as "unmeasured" | physical: the out-of-order mouth contact (ironspec 20:01 PT (2)) |
 | block contacts: a cell the carts' moves touch that the file's `# contacts:` line doesn't declare | 0 | rule (ironspec 21:25 PT (4) / 22:05 PT): the lift's walls and caps are declared containment with their evidence rows; a bench-only contact prints PROVISIONAL with its speed change (G1 on 8ed397b2e); read under the face filter (ironspec 02:41 PT: a face the cart moved toward, at its axis step in the game's order, within 0.011, overlapping > 0.01 on both other axes) |
 | D-on-J: a J's T off its power's settle after its branch detector's change, or re-shaped by that update (stale before it) | 0 | rule: the `# update-only:` declarations' evidence (push-scan (b), ironspec 19:58 (2b); 9fc3155f 23:22: the D detectors are update-only, the J / K levers and the exit detector (7,-3,4) `# switches:`) |
-| the napper's return after its climb top: the exit detector (7,-3,4) powered with the napper on it; the napper seated on the hold before the hold rail's rise | the detector fires; margin >= 2 | rule (ironspec 03:37 PT (2)): carrying a world open's dry first move (37 % at (7,-4,4)); the siding-R arrival printed for day-1's lane model |
-| `--set`: an override that changes nothing | fails the run | rule (ironspec 04:07 PT); each override prints its cell before -> after |
+| the napper's return after its climb top: the exit detector (7,-3,4) FIRES for the napper (a rise, unpowered then powered, within 10 gt before its cell arrival: the rail's entity box meets its 0.98-wide box ~0.3 b early); the napper seated on the hold before the hold rail's first rise (both in bench ticks) | the detector fires; margin >= 2 | rule (ironspec 03:37 PT (2); G1 H3 / H4): carrying a world open's dry first move (37 % at (7,-4,4)); a detector already powered (a cart parked on it) doesn't fire; the siding-R arrival printed for day-1's lane model |
+| `--set`: an override that changes nothing | fails the run | rule (ironspec 04:07 PT); each override prints its cell before -> after, and its state on the settled world (07:26 PT C8: the cell must still hold the block it set); air over air is a no-op too |
+| record-match: a row it doesn't count (an undeclared cell, an unguarded stand-in) | fails the row | rule (ironspec 07:26 PT C1); the sweeps print the rows failing on it alone, so the other bars stay readable while the Nether pad's portal cells wait for record-match's `# out-of-scope:` |
+| rider air per lift transit: a rider drowning (air -19, the last value before the game's -20 damage-and-reset, which redsim does within the tick; or a hurt rider whose air ran negative); a rider that rode the column with no air sample, or a run with no transit (NOT JUDGED) | 0 | rule (G1 / ironspec 06:24 PT; 07:26 PT C1 / C2); no air is lost in a bubble cell (26.3's baseTick), the worst point is the top current cell; each row prints the least and the least with a one-period stall there |
+| the napper's return in scope (`--napper-lift` with `--napper-delay`): the exit detector, the hold margin (and with `--record` the siding-R arrival) absent | NOT JUDGED fails | rule (07:26 PT C2) |
+| junction margins: each cause's settle / clear, where sampled | >= 3 | rule (ironspec 17:20 (b), bar + 2); 07:26 PT C1: now through clean(); a cause with no sample in a row (an event past the run's end) prints NOT JUDGED with the rows that sampled it |
+| the exit-top pairs (the contact point) | the y-12 bars | 07:26 PT C6: judged at the top too, y 12 the proxy (one rise speed) |
+| STALE: a declared contact its class's scope requires that no row of a sweep hit | fails the sweep (one row: printed, not judged) | ironspec 07:26 PT / 07:47 PT; classes: the bench's own (every sweep), world-open (required in the restart sweeps; allowed in a row with a world open or a login's freeze, undeclared in any other row: G1 H13), external (another run's evidence: printed, not required). Under the face filter the riser's vertical moves never meet the shaft's side walls at the foot and the side entry, the foot wall's upper cell, the top's west wall, the side entry's sign glass or the napper foot wall's upper cell (0 of 829 jitter and late rows): those twelve declarations are dropped |
+| the merge row's join Ts (-1,0,7) and (3,0,7) (plain-rail Ts held north_west by placement order, no source holding them) | 0 ticks off north_west | rule (9fc3155f / onechunk's junction-check, ironspec 09:44 PT): read at every tick's end on the K-relay line; a signal-source update reaching one would re-settle it north_east (RailBlock.updateState: the changed neighbour a signal source, 3 potential connections); the `# shape:` line declares each with its build step |
+| the world open (`--restart`) | its game-time delta = the load's own entity-free ticks; a moving cart holds its position across it | G1 on 84cd993fd (1) |
+| lightning (`--thunder SEED`, forced seeded rolls): a rider struck (converted, its cart destroyed); `--rod X,Y,Z`: a rider in the rod's bolt box at any tick, the rod not its column's top, a flammable block in its box, a component its struck pulse reaches | 0 | rule (ironspec 07:52 / 07:59 PT: one rod per copy at the farm's highest point; the no-rod run is the positive) |
+| positive controls | each must bite | ironspec 07:26 PT C3: the tool runs them after the rows on the run's own options, each judged on its bar's own count (a declared contact undeclared; a real block in the column; `--set`'s no-op; a stale T; the hold's lever thrown at the napper's detector; the exit detector unpowered; the exit held 400 gt for the air bar; a record cell changed after laying); one that doesn't bite fails the command; `--no-controls` claims no verdict |
 | heads under the roof's underside | < 28 | physical: geometry |
 | each lane's delivery entering its merge cell | 0.30..0.48 | inherited here: ironfarm's part spec |
 | the settle lock k | 42 (`--pulse-gate 42`) | physical: the bar is the official R_max + 2 = 38 at R_max 36 (ironspec 20:53 PT; no F term); 42 stays, 4 over; R_max awaits the position-checked restart re-run (37 / 38 would make k 44) |
+
+Every bar reaches the exit code (G1 H1): each sweep counts its rows failing a bar or erroring (fault rows excluded), its STALE declarations and no row judged; the command prints `exit: N failure(s), M control(s) not biting` and exits non-zero on either.
+
+Fault rows (`--block-exit T,N`: the exit booster replaced by glass for N gt) are out of scope (ironspec 07:05 PT): each prints its before -> after, its verdict is FAULT ROW, and the sweeps exclude it from every verdict and print it apart.
 
 ## Printed only
 
@@ -86,10 +100,18 @@ tick-exact's official row. Least clean gap 13, the official value.
   of the wall glass (-6,8,7) and (5,-16,4) (9fc3155f's cells, its statics on record7 clean: (7,-16,4) made a new unreached stroll target, (5,-16,4) none), block light >= 1 in every lift water cell; glowstone,
   like glass, is refused by LEGACY_IRON_GOLEM spawning (26.3's SpawnUtil) and conducts no redstone;
   it is opaque where glass is clear. ironspec's rule: (c) if <= 2 blocks with every static clean.
-- Lightning (26.3's LightningBolt: every living entity within x +- 3, y - 3 .. y + 9, z +- 3 of the
-  strike at the MOTION_BLOCKING heightmap): the riders' heads reach 25.25 at the lift top (cap top
-  y 25) and 27.01 on the split row (glass top y 28), so this file's own glass doesn't make them
-  unstrikable; the cover is one lightning rod at the farm's highest point (ironspec 23:00 PT).
+- Lightning (26.3's findLightningTargetAround and LightningBolt, redsim's model; ironspec 07:52 /
+  07:59 PT): the target is the nearest rod within 128, else a sky-seeing living entity in the roll's
+  column box inflated by 3, else the column top, and a bolt falls only where it rains at the target.
+  The lift's top cells (risers' feet >= 20.05, in water: never picked) are exposed to a bolt on a
+  column top within 3 sideways at y <= 28.25; the split row's riders see the sky through the glass, so
+  they are the pick and the bolt falls dry (and shields a lift-top riser in the same box); everything
+  below y 20 is unstrikable. Without a rod: ~0.003..0.015 rider strikes per thunderstorm (arithmetic
+  on the model). The cover: one rod per copy at the farm's highest point (ADOPTED 07:52), its bolt box
+  free of riders, no flammable in it, its pulse reaching no component; `--thunder SEED` / `--rod`
+  bench it (the no-rod run is the positive). Tiled copies: the rod search's 128 blocks cover each
+  copy's chunk from its own rod (any point of a 16 x 16 chunk is within ~23 of a rod inside it), and the
+  closest rod takes the roll, so a neighbour's rod covers it too.
 
 ## Stand-ins (G1's guard, ironspec 18:34)
 
