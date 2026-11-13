@@ -685,26 +685,61 @@ pub struct RestartEvidence {
     pub ticks_back: usize,
     pub entities: usize,
     pub ids: std::collections::HashMap<u32, u32>,
+    /// (G1's Y6 on 10bcdf661) The followed ids that name a LIVE entity after the load (`follow` falls back to the old id,
+    /// so a lost entity would otherwise still count as followed).
+    pub alive: usize,
 }
 
 impl RestartEvidence {
     /// The restart's own bar: at least one chunk went away and came back, every scheduled tick it took out came back,
-    /// and every live entity came back under an id `follow` resolves.
+    /// and every live entity came back as a live entity under the id `follow` resolves.
     pub fn happened(&self) -> bool {
-        self.chunks >= 1 && self.ticks_back == self.ticks_out && self.ids.len() == self.entities
+        self.chunks >= 1 && self.ticks_back == self.ticks_out && self.ids.len() == self.entities && self.alive == self.entities
     }
 
     pub fn line(&self) -> String {
-        format!("{} chunk(s) unloaded and loaded again, scheduled ticks out {} / back {}, live entities {} (followed {})", self.chunks, self.ticks_out, self.ticks_back, self.entities, self.ids.len())
+        format!("{} chunk(s) unloaded and loaded again, scheduled ticks out {} / back {}, live entities {} (followed {}, alive after the load {})", self.chunks, self.ticks_out, self.ticks_back, self.entities, self.ids.len(), self.alive)
     }
+}
+
+/// The live entities among `ids`' new ids.
+fn alive_of(w: &World, ids: &std::collections::HashMap<u32, u32>) -> usize {
+    let live: std::collections::HashSet<u32> = w.entities.list.iter().filter(|e| !e.removed).map(|e| e.id).collect();
+    ids.values().filter(|n| live.contains(n)).count()
 }
 
 /// [`restart`] with its evidence ([`RestartEvidence`]): the same restart (train 9's form: the official load's idle
 /// ticks or the STRESS variant, the NoAI flag and the per-world path uid kept), its counts read from [`Restarted`].
+/// Under the no-op hook ([`with_noop_restart`], a control only) it restarts nothing and returns that evidence.
 pub fn restart_ev(w: &mut World, how: Restart) -> Result<RestartEvidence, String> {
+    if NOOP_RESTART.with(|c| c.get()) {
+        return Ok(restart_noop_ev(w));
+    }
     let entities = w.entities.list.iter().filter(|e| !e.removed).count();
     let r = restart(w, how)?;
-    Ok(RestartEvidence { chunks: r.chunks, ticks_out: r.ticks_out, ticks_back: r.ticks_back, entities, ids: r.ids.clone() })
+    let alive = alive_of(w, &r.ids);
+    Ok(RestartEvidence { chunks: r.chunks, ticks_out: r.ticks_out, ticks_back: r.ticks_back, entities, ids: r.ids.clone(), alive })
+}
+
+thread_local! {
+    static NOOP_RESTART: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// (G1's Y6) Runs `f` with every [`restart_ev`] a no-op: the restart bar's control through the real run path.
+pub fn with_noop_restart<T>(f: impl FnOnce() -> T) -> T {
+    NOOP_RESTART.with(|c| c.set(true));
+    let r = f();
+    NOOP_RESTART.with(|c| c.set(false));
+    r
+}
+
+/// (G1's Y6, the stub control through the REAL path) The evidence a no-op "restart" leaves: no chunk unloaded, the ids
+/// unchanged; [`RestartEvidence::happened`] must refuse it.
+pub fn restart_noop_ev(w: &World) -> RestartEvidence {
+    let ids: std::collections::HashMap<u32, u32> = w.entities.list.iter().filter(|e| !e.removed).map(|e| (e.id, follow(w, e.id))).collect();
+    let entities = ids.len();
+    let alive = alive_of(w, &ids);
+    RestartEvidence { chunks: 0, ticks_out: 0, ticks_back: 0, entities, ids, alive }
 }
 
 #[cfg(test)]

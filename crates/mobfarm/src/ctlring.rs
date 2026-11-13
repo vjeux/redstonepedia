@@ -152,6 +152,9 @@ struct RingOut {
     in_hoppers: usize,
     drive_before: String,
     drive_after: String,
+    /// (G1's Y3 on 10bcdf661) The drive's applications and the ones that left it unchanged.
+    drive_apps: u32,
+    drive_unchanged: u32,
 }
 
 fn run_ring(spec: &FarmSpec, cycles: i64, period: i64, width: i64, jitter: &[i64]) -> Result<RingOut, String> {
@@ -181,6 +184,7 @@ fn run_ring(spec: &FarmSpec, cycles: i64, period: i64, width: i64, jitter: &[i64
     let mut ci = 0usize;
     let (mut last, mut last9) = (0, 0);
     let (mut drive_before, mut drive_after) = (String::new(), String::new());
+    let (mut drive_apps, mut drive_unchanged) = (0u32, 0u32);
     for t in 0..horizon {
         if ci < pulse_at.len() && t == pulse_at[ci] {
             // (read both taps just before the pulse: the state after the previous pulse, u = ci)
@@ -206,7 +210,11 @@ fn run_ring(spec: &FarmSpec, cycles: i64, period: i64, width: i64, jitter: &[i64
             if ci == 0 {
                 drive_before = run.world.get(drive).to_string();
             }
+            // (G1's Y3 on 10bcdf661: every application counted, not only the first)
+            let b_all = run.world.get(drive).to_string();
             run.world.set_block(drive, on.clone(), all);
+            drive_apps += 1;
+            drive_unchanged += u32::from(run.world.get(drive).to_string() == b_all);
             if ci == 0 {
                 drive_after = run.world.get(drive).to_string();
             }
@@ -249,7 +257,7 @@ fn run_ring(spec: &FarmSpec, cycles: i64, period: i64, width: i64, jitter: &[i64
     let hoppers: Vec<P> = design().blocks.iter().filter(|(_, s)| s.contains("hopper")).map(|(p, _)| *p).collect();
     let in_droppers: usize = DROPPERS.iter().map(|p| redsim::redstone::container::analog_output(&run.world, bp(*p)).min(1) as usize).sum();
     let in_hoppers: usize = hoppers.iter().map(|p| redsim::redstone::container::analog_output(&run.world, bp(*p)).min(1) as usize).sum();
-    Ok(RingOut { levels, levels9, ok, ok9, bad, settle_max, settle9_max, cons, dips, first_trace, items: in_droppers + in_hoppers, in_droppers, in_hoppers, drive_before, drive_after })
+    Ok(RingOut { levels, levels9, ok, ok9, bad, settle_max, settle9_max, cons, dips, first_trace, items: in_droppers + in_hoppers, in_droppers, in_hoppers, drive_before, drive_after, drive_apps, drive_unchanged })
 }
 
 /// (the chain fix: ctl-ring's positive control) The ring with its unstackable token replaced by a stackable one:
@@ -285,6 +293,11 @@ pub fn bench(spec: &FarmSpec, control: &FarmSpec, cycles: i64, period: i64, widt
     let row = |v: &[i32]| v.iter().take(20).map(|l| l.to_string()).collect::<Vec<_>>().join(" ");
     let toks = token_droppers();
     let over = v.over("the clock's drive cell (0,0,3) at the first pulse", &r.drive_before, &r.drive_after);
+    // (G1's Y3 on 10bcdf661: every application judged; an unchanged one fails)
+    if r.drive_unchanged > 0 {
+        v.fail(&format!("the clock's drive cell: {} of {} applications left it unchanged", r.drive_unchanged, r.drive_apps));
+    }
+    let over = format!("{over}; every application: {} of {} changed the cell", r.drive_apps - r.drive_unchanged, r.drive_apps);
     let m_main = v.bar_n("the main tap matches before every pulse", r.levels.len(), r.ok == r.levels.len() as u64);
     let m_9 = v.bar_n("the u-9 tap matches before every pulse", r.levels9.len(), r.ok9 == r.levels9.len() as u64);
     // (the tap must settle inside the step: its latest change, counted from the pulse's rise, before the next pulse's rise;

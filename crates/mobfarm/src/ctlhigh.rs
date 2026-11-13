@@ -137,6 +137,11 @@ fn trial(spec: &FarmSpec, from: i32, to: i32, win: Option<(i64, i64)>, win_level
     };
     for t in -60i64..60 {
         if t == 0 {
+            // (G1's Y12 on 10bcdf661: `was` settles over the 60 lead-in ticks, so a request already on before the change
+            // would never show as a rising edge: it is recorded as a request open from before (t 0))
+            if was {
+                pulses.push((0, i64::MAX));
+            }
             set_level(&mut run, from, to, &mut overrides);
             side_power = power_of(&run, IN_WIN);
         }
@@ -216,13 +221,13 @@ pub fn bench(spec: &FarmSpec, v: &mut crate::verdict::Verdict) -> Result<Vec<Str
     let before = lvl.blocks.len();
     lvl.blocks.retain(|(p, _)| *p != side);
     let removed = before - lvl.blocks.len();
-    // (a level detector passes HI's level: the request on a rise never ends while HI stays high, where the edge
-    // detector's ends after its pulse)
-    let lvl_tr = trial(&lvl, 14, 15, None, 15)?;
+    // (a level detector passes HI's level: G1's Y12 on 10bcdf661, the control runs the SAME row as the bar (15 -> 15): a
+    // request held on from before the change now counts as a request, so the level detector's steady output must show)
+    let lvl_tr = trial(&lvl, 15, 15, None, 15)?;
     let ctl = format!(
-        "{nochg}; CONTROL (E_H's side repeater removed: {removed} block, a level detector): the rise 14 -> 15 requests {} ({})",
+        "{nochg}; CONTROL (E_H's side repeater removed: {removed} block, a level detector), the same row 15 -> 15: requests {} ({})",
         fmt(&lvl_tr.pulses),
-        v.control("a level detector (E_H's side repeater removed) holds its request open while HI stays high", removed, lvl_tr.pulses.iter().any(|&(_, w)| w == i64::MAX))
+        v.control("a level detector (E_H's side repeater removed) requests on the no-change row 15 -> 15", removed, !lvl_tr.pulses.is_empty())
     );
     let base = trial(spec, 14, 15, None, 15)?;
     // (G1's checklist (4): the lag is read strictly; a run without the request is NOT JUDGED)
@@ -261,6 +266,15 @@ pub fn bench(spec: &FarmSpec, v: &mut crate::verdict::Verdict) -> Result<Vec<Str
     let in_pulse = |k: Option<i64>| k.is_some_and(|k| first.is_some() && k >= lag - 2 && k <= lag + width + 2);
     let edges_ok = first.is_some() && one_flip(&a_req, true) && one_flip(&b_req, false) && in_pulse(a_flip) && in_pulse(b_flip);
     let edges = v.bar("IN_WIN's edges around the rise: one transition each (closing, opening), each inside the measured pulse +- the side's 2-gt latency", edges_ok);
+    // (G1's Z5 on 10bcdf661: the bound's control, a planted IN_WIN drive 15 gt late against its recorded edge, through the
+    // same trials and the same predicate: its closing flip lands outside the measured pulse and the bound must fail)
+    let mut a_late = Vec::new();
+    for k in -12i64..=12 {
+        a_late.push((k, !trial(spec, 14, 15, Some((-100, k + 15)), 15)?.pulses.is_empty()));
+    }
+    let a_late_flip = a_late.iter().find(|x| !x.1).map(|x| x.0);
+    let bound_ctl = v.control("IN_WIN's edge bound fails a closing edge recorded 15 gt early (a planted late drive)", a_late.len(), !(one_flip(&a_late, true) && in_pulse(a_late_flip)));
+    let edges = format!("{edges}; the bound's CONTROL (the drive 15 gt late): the closing flip at {} ({bound_ctl})", a_late_flip.map_or("none".to_string(), |k| k.to_string()));
     let cut_word = v.bar_n("IN_WIN's edge rows: every request one pulse of >= 2 gt (the pending latch takes it)", cut_n, cut_ok);
     // (G1 on 6b9be93ea point 3, ironspec 20:55 PT (2)(4); G1's audit defect 2) IN_WIN's level at the AND's side swept
     // 1..15 inside the window at the rise, each row printing the side's measured power and the rear's peak: the AND

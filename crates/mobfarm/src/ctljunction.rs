@@ -100,6 +100,9 @@ struct JOut {
     shapes: (String, String),
     overrides: Vec<(String, String, String)>,
     phases: usize,
+    /// (G1's Y3 on 10bcdf661) Both drives' applications and the ones that left the drive unchanged.
+    drive_apps: u32,
+    drive_unchanged: u32,
 }
 
 /// At every phase 0..19, the latch reset, then a 6-gt set edge (the routing event): the junction rail's shape must
@@ -120,6 +123,7 @@ fn run_bench(spec: &FarmSpec) -> Result<JOut, String> {
         *t += 1;
     };
     let mut overrides: Vec<(String, String, String)> = Vec::new();
+    let (mut drive_apps, mut drive_unchanged) = (0u32, 0u32);
     let (mut sw, mut rel) = (Vec::new(), Vec::new());
     let mut bad = Vec::new();
     let mut shapes = (String::new(), String::new());
@@ -128,6 +132,9 @@ fn run_bench(spec: &FarmSpec) -> Result<JOut, String> {
         // (the latch reset: the reset drive's 6-gt pulse)
         let before = run.world.get(bp(RESET_DRIVE)).to_string();
         run.world.set_block(bp(RESET_DRIVE), on.clone(), all);
+        // (G1's Y3 on 10bcdf661: every application counted; the first one printed)
+        drive_apps += 1;
+        drive_unchanged += u32::from(run.world.get(bp(RESET_DRIVE)).to_string() == before);
         if off == 0 {
             overrides.push(("the reset drive (-4,1,2)".into(), before, run.world.get(bp(RESET_DRIVE)).to_string()));
         }
@@ -147,6 +154,8 @@ fn run_bench(spec: &FarmSpec) -> Result<JOut, String> {
         let t0 = t;
         let before = run.world.get(bp(SET_DRIVE)).to_string();
         run.world.set_block(bp(SET_DRIVE), on.clone(), all);
+        drive_apps += 1;
+        drive_unchanged += u32::from(run.world.get(bp(SET_DRIVE)).to_string() == before);
         if off == 0 {
             overrides.push(("the set drive (1,1,0)".into(), before, run.world.get(bp(SET_DRIVE)).to_string()));
         }
@@ -191,7 +200,7 @@ fn run_bench(spec: &FarmSpec) -> Result<JOut, String> {
         }
         shapes = (idle, forced);
     }
-    Ok(JOut { sw, rel, bad, shapes, overrides, phases })
+    Ok(JOut { sw, rel, bad, shapes, overrides, phases, drive_apps, drive_unchanged })
 }
 
 /// The bench: the design's run judged through `v` (every phase one switch and one return, the worst <= the bar), and
@@ -205,7 +214,12 @@ pub fn bench(spec: &FarmSpec, control: &FarmSpec, v: &mut crate::verdict::Verdic
             _ => "-".into(),
         }
     };
-    let ov: Vec<String> = o.overrides.iter().map(|(w, b, a)| v.over(w, b, a)).collect();
+    let mut ov: Vec<String> = o.overrides.iter().map(|(w, b, a)| v.over(w, b, a)).collect();
+    // (G1's Y3 on 10bcdf661: every application judged; an unchanged one fails)
+    if o.drive_unchanged > 0 {
+        v.fail(&format!("the junction's drives: {} of {} applications left their cell unchanged", o.drive_unchanged, o.drive_apps));
+    }
+    ov.push(format!("every application: {} of {} changed their cell", o.drive_apps - o.drive_unchanged, o.drive_apps));
     let once = v.bar_n("one switch and one return at every phase", o.phases, o.bad.is_empty());
     let worst = o.sw.iter().chain(o.rel.iter()).max().copied();
     let bar = v.bar_n(&format!("the worst switch / return <= {BAR} gt"), o.sw.len() + o.rel.len(), o.bad.is_empty() && worst.is_some_and(|w| w <= BAR));

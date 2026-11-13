@@ -206,7 +206,7 @@ fn judge_contacts(v: &mut crate::verdict::Verdict) -> String {
     let fails = CONTACT_FAILS.with(|f| std::mem::take(&mut *f.borrow_mut()));
     let w = v.bar("every row's cart contacts declared for its geometry", fails.is_empty());
     let ov = judge_overrides(v);
-    let (off, on) = AI_RUNS.with(|c| c.replace((0, 0)));
+    let (off, on) = AI_RUNS.with(|c| c.get());
     let ai = if on == 0 {
         v.scope("the summoned villagers' brain activity", &format!("every one of the {off} runs has the mob AI off (RunOpts ai: false, as the runs were started): no brain ticks, so the riders and the standing villagers are payload only, for cart physics and the string's press; riders AI off: no pushes, panic or REST steps: these rows can't speak to the lip"))
     } else {
@@ -222,12 +222,32 @@ thread_local! {
 
 /// The runs' options, counted (G1's structural (b): the AI scope printed from what the runs used).
 fn payload_opts() -> RunOpts {
-    let ro = RunOpts { ai: false, ..RunOpts::steady(1, 0, WalkMode::Random) };
+    RunOpts { ai: false, ..RunOpts::steady(1, 0, WalkMode::Random) }
+}
+
+/// (G1's (b) on 10bcdf661) Starts a run and counts its mob AI from the STARTED world's own flag (`world.mob.ai.on`,
+/// what the run actually ticks with), never from the options struct just built.
+fn start_counted(sp: &FarmSpec, ro: &RunOpts) -> Result<Run, String> {
+    let run = Run::start(sp, ro)?;
+    let on = run.world.mob.ai.on;
     AI_RUNS.with(|c| {
-        let (off, on) = c.get();
-        c.set(if ro.ai { (off, on + 1) } else { (off + 1, on) });
+        let (off, n_on) = c.get();
+        c.set(if on { (off, n_on + 1) } else { (off + 1, n_on) });
     });
-    ro
+    Ok(run)
+}
+
+/// (G1's (b) on 10bcdf661) The label every hold-pulse row carries when its runs had the mob AI off.
+pub const AI_OFF_LABEL: &str = "(riders AI off: no pushes, panic or REST steps; not evidence on the lip or the queue)";
+
+/// (G1's (b)) The rows of a hold-pulse run, each labelled when every run of the bench had the mob AI off (read from the
+/// started worlds): the label on every row, not one summary line.
+pub fn label_rows(lines: Vec<String>) -> Vec<String> {
+    let (off, on) = AI_RUNS.with(|c| c.replace((0, 0)));
+    if on > 0 || off == 0 {
+        return lines;
+    }
+    lines.into_iter().map(|l| if l.starts_with("  ") && !l.contains(AI_OFF_LABEL) { format!("{l} {AI_OFF_LABEL}") } else { l }).collect()
 }
 
 thread_local! {
@@ -528,7 +548,7 @@ fn gate_run_file(f: &GateFile, live: bool, cycles: i64, spawn: Option<(i64, f64,
     start_contacts(ContactGeo::Real);
     let sp = crate::mirror::checked(&spec_gate_file(f, live)?)?;
     let ro = payload_opts();
-    let mut run = Run::start(&sp, &ro)?;
+    let mut run = start_counted(&sp, &ro)?;
     while run.settle_tick() {}
     let bp = |p: P| crate::mirror::at(p);
     let powered = |run: &Run, p: P| run.world.get(bp(p)).to_string().contains("powered=true");
@@ -790,7 +810,7 @@ pub fn lift_trace(k: i64, depth: i32, v: f64, ticks: i64, verdict: &mut crate::v
         let c = cells(Geo::Real);
         let sp = crate::mirror::checked(&spec_gate(2, true, k)?)?;
         let ro = payload_opts();
-        let mut run = Run::start(&sp, &ro)?;
+        let mut run = start_counted(&sp, &ro)?;
         while run.settle_tick() {}
         let id = redsim::entity::spawn(&mut run.world, "minecraft:minecart", [4.5, -18.9375 - depth as f64, 4.5], Some(&format!("{{Motion:[{v}d,0.0d,0.0d],Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b}}]}}")))?;
         let mut lines = vec![format!("the napper's ride, every tick (redsim; the summon at (4.5, {:.4}, 4.5) Motion ({v}, 0, 0), the lift {depth} down; t = ticks after the summon, as tick-exact's napper-ride)", -18.9375 - depth as f64)];
@@ -1121,7 +1141,7 @@ fn gate_run(extra: i64, live: bool, k: i64, cycles: i64, spawn: Option<(i64, f64
     start_contacts(if GATE_LIFT.with(|c| c.get()) > 0 { ContactGeo::Lift } else { ContactGeo::Real });
     let sp = crate::mirror::checked(&spec_gate(extra, live, k)?)?;
     let ro = payload_opts();
-    let mut run = Run::start(&sp, &ro)?;
+    let mut run = start_counted(&sp, &ro)?;
     while run.settle_tick() {}
     let on = Block::parse("minecraft:redstone_block").map_err(|e| e.to_string())?;
     let air = Block::parse("minecraft:air").map_err(|e| e.to_string())?;
@@ -1152,9 +1172,14 @@ fn gate_run(extra: i64, live: bool, k: i64, cycles: i64, spawn: Option<(i64, f64
                 "not restarted".to_string(),
                 if ev.happened() { format!("{} ({renumbered} with new ids)", ev.line()) } else { "not restarted".to_string() },
             );
-            // (G1's audit hole 14: a cart missing from the remap is an error, never a stale id kept)
+            // (G1's audit hole 14; G1's Y6 on 10bcdf661: `follow` falls back to the old id, so the cart's new id must name a
+            // LIVE entity after the load, or the restart lost it: an error, never a stale id kept)
             if let Some(i) = id {
-                id = Some(*remap.get(&i).ok_or_else(|| format!("the restart before t{t} ({}) lost the cart {i} (no remap entry)", how.label()))?);
+                let new = *remap.get(&i).ok_or_else(|| format!("the restart before t{t} ({}) lost the cart {i} (no remap entry)", how.label()))?;
+                if !run.world.entities.list.iter().any(|e| e.id == new && !e.removed) {
+                    return Err(format!("the restart before t{t} ({}) lost the cart {i} (its id {new} names no live entity after the load)", how.label()));
+                }
+                id = Some(new);
             }
         }
         let in_cycle = t.rem_euclid(CYCLE);
@@ -1737,7 +1762,7 @@ fn run_full(g: Geo, extra: i64, phase: i64, cycles: i64, place: Option<i64>, fre
     start_contacts(if g == Geo::Line { ContactGeo::Line } else { ContactGeo::Real });
     let sp = crate::mirror::checked(&spec(g, extra)?)?;
     let ro = payload_opts();
-    let mut run = Run::start(&sp, &ro)?;
+    let mut run = start_counted(&sp, &ro)?;
     while run.settle_tick() {}
     let on = Block::parse("minecraft:redstone_block").map_err(|e| e.to_string())?;
     let air = Block::parse("minecraft:air").map_err(|e| e.to_string())?;
@@ -1935,7 +1960,7 @@ fn freeze_sweep(g: Geo, extra: i64, len: i64) -> Result<FreezeOut, String> {
 fn tripwire_control() -> Result<bool, String> {
     let sp = crate::mirror::checked(&spec_line(EXTRA)?)?;
     let ro = payload_opts();
-    let mut run = Run::start(&sp, &ro)?;
+    let mut run = start_counted(&sp, &ro)?;
     while run.settle_tick() {}
     redsim::entity::spawn(&mut run.world, "minecraft:villager", [3.5, 1.0625, crate::mirror::zf(-1.5)], Some("{PersistenceRequired:1b}"))?;
     for _ in 0..40 {
@@ -1954,7 +1979,7 @@ fn lane7_rider(extra: i64) -> Result<(usize, bool), String> {
     start_contacts(ContactGeo::Real);
     let sp = crate::mirror::checked(&spec_real(extra)?)?;
     let ro = payload_opts();
-    let mut run = Run::start(&sp, &ro)?;
+    let mut run = start_counted(&sp, &ro)?;
     while run.settle_tick() {}
     let v = if crate::mirror::on() { -0.35 } else { 0.35 };
     let id = redsim::entity::spawn(&mut run.world, "minecraft:minecart", [7.5, 0.0625, crate::mirror::zf(2.5)], Some(&format!("{{Motion:[0.0d,0.0d,{v}d],Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b}}]}}")))?;
@@ -2013,7 +2038,7 @@ fn rider_scene() -> Result<(Vec<String>, bool), String> {
         return Err(format!("the tripwire-rider scene: {off} cell(s) outside the world's box"));
     }
     let ro = payload_opts();
-    let mut run = Run::start(&sp, &ro)?;
+    let mut run = start_counted(&sp, &ro)?;
     while run.settle_tick() {}
     let ridden = |v: f64| format!("{{Motion:[0.0d,0.0d,{v}d],Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b}}]}}");
     let empty = |v: f64| format!("{{Motion:[0.0d,0.0d,{v}d]}}");
@@ -2056,7 +2081,7 @@ fn arrive_once(extra: i64, x0: f64, v: f64, t_spawn: i64, next_rise: i64) -> Res
     start_contacts(ContactGeo::Real);
     let sp = crate::mirror::checked(&spec_real(extra)?)?;
     let ro = payload_opts();
-    let mut run = Run::start(&sp, &ro)?;
+    let mut run = start_counted(&sp, &ro)?;
     while run.settle_tick() {}
     let on = Block::parse("minecraft:redstone_block").map_err(|e| e.to_string())?;
     let air = Block::parse("minecraft:air").map_err(|e| e.to_string())?;
@@ -2452,7 +2477,7 @@ fn tsnap_scene() -> Result<(Vec<String>, bool), String> {
         return Err(format!("the t-snap scene: {off} cell(s) outside the world's box"));
     }
     let ro = payload_opts();
-    let mut run = Run::start(&sp, &ro)?;
+    let mut run = start_counted(&sp, &ro)?;
     while run.settle_tick() {}
     let mut ids = Vec::new();
     for (k, (z, vz)) in starts.iter().enumerate() {

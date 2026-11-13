@@ -251,7 +251,10 @@ pub fn bench(v: &mut crate::verdict::Verdict) -> Result<Vec<String>, String> {
             }
             let restarts = v.bar_n(&format!("({tag}) lane {x}: every restart row the same as without one"), n as usize, diff.is_empty() && base.is_some());
             let ev_w = v.bar_n(&format!("({tag}) lane {x}: every restart happened (its chunks unloaded and loaded again, its scheduled ticks back)"), n as usize, ev_bad.is_empty());
-            let ev_c = v.control(&format!("({tag}) lane {x}: a stub restart's evidence fails the restart bar"), 1, !crate::liveness::RestartEvidence::default().happened());
+            // (G1's Y6, the control through the REAL run path: the same restart row with the restart a no-op must fail the
+            // same predicate)
+            let (_, _, stub) = crate::liveness::with_noop_restart(|| run_once(var, Some(i), t0, width, Some((t0 + 3, crate::liveness::Restart::rows()[0]))))?;
+            let ev_c = v.control(&format!("({tag}) lane {x}: a no-op restart through the real run fails the restart bar"), usize::from(stub.is_some()), !stub.as_ref().is_some_and(|e| e.happened()));
             let restarts = format!("{restarts}; the restarts' own evidence: {} ({ev_w}; the stub control {ev_c}){}", if ev_first.is_empty() { "none".to_string() } else { format!("e.g. {ev_first}") }, if ev_bad.is_empty() { String::new() } else { format!(": {}", ev_bad.iter().take(3).cloned().collect::<Vec<_>>().join("; ")) });
             lines.push(format!(
                 "    lane {x} ({drive_over}): P powered (gt after the switch, gt:count) {}, unpowered after the switch's removal {}; phases without exactly one rise and one fall {edgeless} ({edges}); the other pockets' rails moved {leaks} times (a leak; {leak_w}); with a restart at every tick around both edges in every reload order: {same} of {n} the same ({restarts}){}",

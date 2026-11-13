@@ -1785,8 +1785,14 @@ pub struct CovExtra {
     /// lanes held at --exit-phase: each lane's feasible interval, its edges' controls.
     pub exit_phase_sweep: Option<i64>,
     /// (ironspec 10:42 PT (1)) The per-lane taps' wait margin beyond the world-open shift: the measured D-press spread +
-    /// the push shift (unset: 0, printed "not measured").
+    /// the push shift (unset: 0, printed "not measured"; NOT JUDGED in a design-of-record run).
     pub wait_margin: Option<i64>,
+    /// (G1's structural (a), Z1 / Z4 on 10bcdf661) A design-of-record run: unmeasured terms make their bars NOT JUDGED.
+    pub design_of_record: bool,
+    /// (ironspec 14:22 PT, tick-exact 14:16 PT's farm-chunk row) The world-open / login lag a timed margin subtracts, k + j
+    /// taken together (2 for an edge whose redstone and cart sit in different chunks; 1 within one chunk); unset: the old
+    /// uncalibrated 7 ([`WORLD_OPEN_SHIFT`]), labelled.
+    pub world_open_shift: Option<i64>,
 }
 
 /// (G1 07:05 PT) b8949c96's per-row files: every "asleep at +N gt" in them, as a histogram (a file without one is an
@@ -2008,6 +2014,15 @@ pub fn parse_hist_lanes(s: Option<&str>) -> Result<[Option<Vec<(i64, u32)>>; 3],
 }
 
 /// (the chain fix) The operating point's bars, each over its own samples (0 samples: NOT JUDGED, a failure).
+/// (G1's Z9 on 10bcdf661) The world-open term every timed margin subtracts: "world-open term from one ride: 0..7 gt,
+/// uncalibrated" (ironspec's 08:46 budget; tick-exact's farm-chunk row replaces it with the measured k + j).
+pub const WORLD_OPEN_SHIFT: i64 = 7;
+/// (G1's Z9) The world open's lead on the catch window: a world open at N <= 2 entity-free ticks (the lead's
+/// portal-ticket loader; ironspec 01:46 PT (b): +1 and +2 gt are normal operation).
+pub const WORLD_OPEN_LEAD: i64 = 2;
+/// (G1's Z9) The exit-phase sweep's catch bar: both slacks >= 20 (ironspec 10:42 PT (1): "catch >= 20 both sides").
+pub const CATCH_MIN: i64 = 20;
+
 fn judge_operating(st: &RowStats, leg: (i64, i64), what: &str, v: &mut crate::verdict::Verdict) -> String {
     let mut w = Vec::new();
     w.push(format!("24 distinct a night: {}", v.bar_n(&format!("{what}: 24 distinct nappers every complete night"), st.nights, st.least == 24)));
@@ -2043,9 +2058,9 @@ fn judge_operating(st: &RowStats, leg: (i64, i64), what: &str, v: &mut crate::ve
     if st.has_td {
         let worst = st.m_acc.iter().filter(|x| x.1 > 0).map(|x| x.0).min();
         let m_n = st.m_acc.iter().map(|x| x.1).min().unwrap_or(0);
-        w.push(format!("m >= 10 under a world open's lead: {}", v.bar_n(&format!("{what}: m >= 10 under a world open's lead in every lane"), m_n, worst.is_some_and(|w| w - 2 >= 10))));
+        w.push(format!("m >= 10 under a world open's lead: {}", v.bar_n(&format!("{what}: m >= 10 under a world open's lead in every lane"), m_n, worst.is_some_and(|w| w - WORLD_OPEN_LEAD >= 10))));
         let c_n = st.catch_acc.iter().map(|x| x.2).min().unwrap_or(0);
-        let catch_ok = st.catch_acc.iter().all(|&(lt, er, _)| lt - 2 >= 2 && er - 2 >= 2) && st.late_acc.iter().all(|&n| n == 0) && st.early_acc.iter().all(|&n| n == 0);
+        let catch_ok = st.catch_acc.iter().all(|&(lt, er, _)| lt - WORLD_OPEN_LEAD >= 2 && er - WORLD_OPEN_LEAD >= 2) && st.late_acc.iter().all(|&n| n == 0) && st.early_acc.iter().all(|&n| n == 0);
         w.push(format!("the catch window: {}", v.bar_n(&format!("{what}: the catch window (both slacks >= 2 after the lead, no late or early rejoin) in every lane"), c_n, catch_ok)));
     } else if st.rule2 {
         w.push(v.scope(&format!("{what}: m and the catch window"), "rule 2 rejoins only behind the napper's own predecessor (the siding window's D-and-PRESENT release does not apply)"));
@@ -2476,7 +2491,7 @@ pub fn coverage_bench(holds: &[i64], operating_hold: i64, leg: (i64, i64), to_en
             // ironspec's 10-gt margin added; the denominator the NOMINAL least pick spacing (G1 09:11: a measured one only
             // once every reachable case is printed).)
             let worst = x.trip_hist.as_ref().map_or(trip.1, |hh| hist_range(hh).1) + x.late_sleep.as_ref().map_or(0, |(hh, n0)| (hist_range(hh).1 - n0).max(0));
-            let shift = 7i64;
+            let shift = x.world_open_shift.unwrap_or(WORLD_OPEN_SHIFT);
             let (clk_txt, clk) = match x.clock_exit {
                 Some(_) => (format!(" + the post-tap pickup's upper end {} (the clocked exit: the tap's phase, its margin and the legs cancel)", x.exit_pickup.1), x.exit_pickup.1),
                 None => (format!(" + the leg's spread {} (no clocked exit: the stop releases at the natural R)", leg.1 - leg.0), leg.1 - leg.0),
@@ -2510,9 +2525,17 @@ pub fn coverage_bench(holds: &[i64], operating_hold: i64, leg: (i64, i64), to_en
                 pair_txt = vec!["no clocked exit: the nominal 300".to_string()];
             }
             let design_spare = pair_min - shift - tol - push;
-            let w = v.bar("the stop occupancy budget: the least physical spare (over the lane pairs under the per-lane taps) less the world-open shift, the clock's tolerance and the worst push shift >= 10 (ironspec 08:46 / 10:42 PT, G1 10:37 PT)", design_spare >= 10);
+            // (G1's Z4 on 10bcdf661: a design-of-record run can't pass the budget on unmeasured terms defaulting to 0)
+            let unmeasured: Vec<&str> = [("--clock-tol", x.clock_tol.is_none()), ("--push-shift", x.push_shift.is_none())].iter().filter(|(_, u)| *u).map(|(n, _)| *n).collect();
+            let w = if x.design_of_record && !unmeasured.is_empty() {
+                v.fail(&format!("the stop occupancy budget: NOT JUDGED in a design-of-record run ({} not given)", unmeasured.join(", ")));
+                format!("NOT JUDGED ({} not given in a design-of-record run): FAIL", unmeasured.join(", "))
+            } else {
+                v.bar("the stop occupancy budget: the least physical spare (over the lane pairs under the per-lane taps) less the world-open shift, the clock's tolerance and the worst push shift >= 10 (ironspec 08:46 / 10:42 PT, G1 10:37 PT)", design_spare >= 10).to_string()
+            };
             lines.push(format!(
-                "  => the stop occupancy budget (ironspec 08:43 / 08:46 / 10:42 PT, G1 10:37 PT; provisional: entry -> R from this run's stated band or distribution): the physical slip condition to_entry {to_entry} (a parameter of this run: the way-in's measured release -> entry, its owner's) + the worst entry -> R {worst} ({}){clk_txt} + d_RS {} = {physical}, against the nominal least pick spacing {nominal} (spare {phys_spare}; the least divert spacing measured in this run {} printed, not used: G1 09:11) and per lane pair under the lane phases: {}; the least physical spare {pair_min}; less the world-open shift {shift} (\"world-open term from one ride: 0..7 gt, uncalibrated\"), the clock's tolerance {}, the worst push shift {}: the design spare {design_spare} against >= 10 ({w}); the design priced: {}",
+                "  => the stop occupancy budget (ironspec 08:43 / 08:46 / 10:42 PT, G1 10:37 PT; provisional: entry -> R from this run's stated band or distribution): the physical slip condition to_entry {to_entry} (a parameter of this run: the way-in's measured release -> entry, its owner's) + the worst entry -> R {worst} ({}){clk_txt} + d_RS {} = {physical}, against the nominal least pick spacing {nominal} (spare {phys_spare}; the least divert spacing measured in this run {} printed, not used: G1 09:11) and per lane pair under the lane phases: {}; the least physical spare {pair_min}; less the world-open shift {shift} ({}), the clock's tolerance {}, the worst push shift {}: the design spare {design_spare} against >= 10 ({w}); the design priced: {}",
+                if x.world_open_shift.is_some() { "--world-open-shift: the farm-chunk row's k + j (tick-exact 14:16 PT; 2 across chunks, ironspec 14:22 PT)" } else { "\"world-open term from one ride: 0..7 gt, uncalibrated\"" },
                 if x.trip_hist.is_some() { "the measured per-visit distribution's worst" } else { "the band's upper end" },
                 x.rs_delay,
                 if st.pick_gap == i64::MAX { "NONE".to_string() } else { st.pick_gap.to_string() },
@@ -2533,8 +2556,15 @@ pub fn coverage_bench(holds: &[i64], operating_hold: i64, leg: (i64, i64), to_en
                 }
             ));
             // (ironspec 10:42 PT (1)) per-lane taps: every wait at the hold < 100 - the margin (the measured D-press spread +
-            // the push shift + the world-open shift)
-            if x.clock_exit.is_some() && !x.gated_tap {
+            // the push shift + the world-open shift); G1's Z1 on 10bcdf661: under --gated-tap the bar is scoped by name (a
+            // design-of-record run refuses it); G1's Z4: an unmeasured margin is NOT JUDGED in a design-of-record run
+            if x.clock_exit.is_some() && x.gated_tap {
+                lines.push(format!("  => {}", v.scope("the per-lane wait bar and the free-running tap's early-launch control", "--gated-tap: the per-visit tap model, no free-running train")));
+            }
+            if x.clock_exit.is_some() && !x.gated_tap && x.design_of_record && x.wait_margin.is_none() {
+                v.fail("the per-lane taps' wait bar: NOT JUDGED in a design-of-record run (--wait-margin, the measured D-press spread + push shift, not given)");
+                lines.push("  => the per-lane taps' wait bar: NOT JUDGED (--wait-margin not given in a design-of-record run)".to_string());
+            } else if x.clock_exit.is_some() && !x.gated_tap {
                 let margin = shift + x.wait_margin.unwrap_or(0);
                 let mut per = Vec::new();
                 let mut ok = true;
@@ -2587,6 +2617,21 @@ pub fn coverage_bench(holds: &[i64], operating_hold: i64, leg: (i64, i64), to_en
         let (t5, c5) = row("CONTROL (day-1 10:37 PT): every lane's tap phase a period later (each napper waits a period more at the hold), on the operating point", &|seed| LaneOpts { exit_phase: Some([e[0] + 100, e[1] + 100, e[2] + 100]), ..today(seed, Some(leg), h_op, true) });
         let w5 = v.control("the free-running tap's early-launch bar sees a wait of a period", c5.nights, c5.clock_early.iter().sum::<u32>() > 0);
         lines.push(format!("{t5}; {w5}"));
+        // (G1's Z5 on 10bcdf661: the wait cap's control, a single-change twin: every lane's phase later by the least
+        // spare under the cap, so the worst wait reaches the cap (still under a period: no early launch) and the wait
+        // bar's predicate must fail)
+        let (_, op) = row("the operating point (for the wait cap's control)", &|seed| today(seed, Some(leg), h_op, true));
+        let cap = 100 - x.world_open_shift.unwrap_or(WORLD_OPEN_SHIFT) - x.wait_margin.unwrap_or(0);
+        let worst = op.clock_wait.iter().map(|w| w.1).max().unwrap_or(i64::MIN);
+        if worst != i64::MIN && worst < cap {
+            let bump = cap - worst;
+            let (t6, c6) = row(&format!("CONTROL (G1's Z5): every lane's tap phase {bump} gt later (the worst wait to the cap {cap}), on the operating point"), &|seed| LaneOpts { exit_phase: Some([e[0] + bump, e[1] + bump, e[2] + bump]), ..today(seed, Some(leg), h_op, true) });
+            let worst6 = c6.clock_wait.iter().map(|w| w.1).max().unwrap_or(i64::MIN);
+            let w6 = v.control("the per-lane wait bar fails a wait at the cap", c6.nights, worst6 != i64::MIN && worst6 >= cap);
+            lines.push(format!("{t6}; the worst wait {worst6} against < {cap} ({w6})"));
+        } else {
+            v.fail("the wait cap's control: NOT JUDGED (no operating waits, or the operating point already at the cap)");
+        }
     }
     // (ironspec 07:40 / 07:41 PT, G1's conditions) THE EXIT-PHASE SWEEP: each lane's tap phase over the period, the other
     // lanes held; a phase is feasible for its lane when both of its slacks clear 20 after the lead, it has no late or early
@@ -2595,7 +2640,8 @@ pub fn coverage_bench(holds: &[i64], operating_hold: i64, leg: (i64, i64), to_en
     if let Some(step) = x.exit_phase_sweep {
         let base = x.exit_phase.unwrap_or([0; 3]);
         lines.push(format!(
-            "THE EXIT-PHASE SWEEP (ironspec 07:40 / 07:41 / 10:42 PT, G1's conditions; the per-lane free-running taps, day-1 10:37 PT): each lane's tap phase over 0..99 step {step}, the other lanes at {base:?}, on the operating point; FEASIBLE: the lane's late and early slacks >= 20 after the 2-gt lead, no late or early rejoin, no early launch, every wait at the hold < 100 - the world-open shift 7 - --wait-margin {}, no slip in the run (the world-open and push shifts not subtracted from the slacks: measured terms pending)",
+            "THE EXIT-PHASE SWEEP (ironspec 07:40 / 07:41 / 10:42 PT, G1's conditions; the per-lane free-running taps, day-1 10:37 PT): each lane's tap phase over 0..99 step {step}, the other lanes at {base:?}, on the operating point; FEASIBLE: the lane's late and early slacks >= 20 after the 2-gt lead, no late or early rejoin, no early launch, every wait at the hold < 100 - the world-open shift {} - --wait-margin {}, no slip in the run (the world-open and push shifts not subtracted from the slacks: measured terms pending)",
+            x.world_open_shift.unwrap_or(WORLD_OPEN_SHIFT),
             x.wait_margin.unwrap_or(0)
         ));
         for l in 0..3 {
@@ -2608,8 +2654,8 @@ pub fn coverage_bench(holds: &[i64], operating_hold: i64, leg: (i64, i64), to_en
                 let (lt, er, n) = s.catch_acc[l];
                 stats.push((p, lt, er, n, s.late_acc[l], s.early_acc[l], s.clock_early[l], s.slips, s.clock_wait[l].1));
             }
-            let wait_cap = 100 - 7 - x.wait_margin.unwrap_or(0);
-            let catch_ok = |s: &(i64, i64, i64, usize, u32, u32, u32, u32, i64)| s.3 > 0 && s.1 - 2 >= 20 && s.2 - 2 >= 20 && s.4 == 0 && s.5 == 0;
+            let wait_cap = 100 - x.world_open_shift.unwrap_or(WORLD_OPEN_SHIFT) - x.wait_margin.unwrap_or(0);
+            let catch_ok = |s: &(i64, i64, i64, usize, u32, u32, u32, u32, i64)| s.3 > 0 && s.1 - WORLD_OPEN_LEAD >= CATCH_MIN && s.2 - WORLD_OPEN_LEAD >= CATCH_MIN && s.4 == 0 && s.5 == 0;
             let feasible = |s: &(i64, i64, i64, usize, u32, u32, u32, u32, i64)| catch_ok(s) && s.6 == 0 && s.7 == 0 && s.8 < wait_cap;
             let cells: Vec<String> = stats
                 .iter()
@@ -2642,26 +2688,44 @@ pub fn coverage_bench(holds: &[i64], operating_hold: i64, leg: (i64, i64), to_en
             }
             let w = v.bar(&format!("the exit-phase sweep: lane {l} has a feasible tap phase"), !ivs.is_empty());
             let mut ctl: Vec<String> = Vec::new();
+            // (G1's Z2 on 10bcdf661: the edges' controls were tautologies (an interval is maximal, so its neighbour is
+            // infeasible by construction); now each edge and its neighbour are RE-RUN as single-change twins (only lane l's
+            // phase differs) and judged through the REAL bars: the operating row's bars (`judge_operating`, a scratch verdict)
+            // plus the sweep's own (the catch slacks >= CATCH_MIN after the world open's lead, no rejoin, no early launch, no
+            // slip, the wait cap); the edge twin must pass every one, the neighbour twin must fail one, named)
+            let real_bars = |st: &RowStats| -> Vec<String> {
+                let mut scratch = crate::verdict::Verdict::new("the sweep's twin");
+                let _ = judge_operating(st, leg, "twin", &mut scratch);
+                let mut f: Vec<String> = scratch.fails().iter().map(|s| s.to_string()).collect();
+                let (lt, er, n) = st.catch_acc[l];
+                if n == 0 || lt - WORLD_OPEN_LEAD < CATCH_MIN || er - WORLD_OPEN_LEAD < CATCH_MIN {
+                    f.push(format!("lane {l}'s catch slacks >= {CATCH_MIN} after the lead"));
+                }
+                if st.clock_early[l] > 0 {
+                    f.push(format!("lane {l}: no early launch"));
+                }
+                if st.clock_wait[l].1 >= wait_cap {
+                    f.push(format!("lane {l}: every wait < the cap {wait_cap}"));
+                }
+                f
+            };
             for &(a, b) in &ivs {
-                for (j, side) in [(a.checked_sub(1), "below"), (if b + 1 < stats.len() { Some(b + 1) } else { None }, "above")] {
+                for (j, edge, side) in [(a.checked_sub(1), a, "below"), (if b + 1 < stats.len() { Some(b + 1) } else { None }, b, "above")] {
                     match j {
                         Some(j) => {
-                            let s = &stats[j];
-                            // (the edge's control: the phase just outside must fail feasibility, and the binding bar is
-                            // named: the catch window, an early launch, the wait cap or a slip)
-                            let binds = if !catch_ok(s) {
-                                "the catch window"
-                            } else if s.6 > 0 {
-                                "an early launch"
-                            } else if s.8 >= wait_cap {
-                                "the wait cap"
-                            } else if s.7 > 0 {
-                                "a slip"
-                            } else {
-                                "nothing (feasible)"
+                            let twin = |p: i64| {
+                                let mut e = base;
+                                e[l] = p;
+                                row(&format!("the sweep's twin: lane {l} at phase {p}"), &|seed| LaneOpts { exit_phase: Some(e), ..today(seed, Some(leg), h_op, true) }).1
                             };
-                            let c = v.control(&format!("the exit-phase sweep: lane {l}'s edge {side} its interval (phase {}) is infeasible", s.0), usize::from(s.3 > 0), !feasible(s));
-                            ctl.push(format!("phase {} ({side}): bound by {binds}: {}", s.0, c));
+                            let (pe, pn) = (stats[edge].0, stats[j].0);
+                            let (fe, fn_) = (real_bars(&twin(pe)), real_bars(&twin(pn)));
+                            let c = v.control(&format!("the exit-phase sweep: lane {l}'s edge {side} (phase {pe}) passes every real bar and its single-change twin (phase {pn}) fails one"), 1, fe.is_empty() && !fn_.is_empty());
+                            ctl.push(format!(
+                                "phase {pe} (edge, {side}): {} / phase {pn} (twin): {}: {c}",
+                                if fe.is_empty() { "every bar passes".to_string() } else { format!("FAILS {}", fe.join(", ")) },
+                                if fn_.is_empty() { "every bar passes".to_string() } else { format!("bound by {}", fn_.join(", ")) }
+                            ));
                         }
                         None => ctl.push(format!("{side}: the period's end (the interval meets the sweep's edge; the wrap is not merged)")),
                     }

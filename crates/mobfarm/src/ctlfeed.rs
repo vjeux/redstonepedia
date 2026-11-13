@@ -166,21 +166,37 @@ fn run_once(l: &Lane, t0: i64, width: i64, restart: Option<(i64, crate::liveness
     let r = [l.x - 2, 24, 7];
     let mut out = Out { rise: None, fall: None, rises: Vec::new(), falls: Vec::new(), slime_nb: Vec::new(), dust: String::new(), r_state: String::new(), empty_ok: true, drive_before: String::new(), drive_after: String::new(), ev: None };
     let mut was = false;
-    for t in 0..(t0 + width + 40) {
+    // (train 9's restart is a WORLD OPEN: its idle ticks advance game time with nothing ticking, so the bench keys its
+    // drive and its records on GAME time (`world.time` since the start), as the real controller's own redstone would be:
+    // a restart row is then "the same as without one" in game time; a drive change the open's idle skips over happens at
+    // the first tick after it)
+    let g0 = run.world.time;
+    let (mut rs_done, mut on_done, mut off_done, mut snap_done) = (false, false, false, false);
+    loop {
+        let t = run.world.time - g0;
+        if t >= t0 + width + 40 {
+            break;
+        }
         if let Some((rt, how)) = restart
-            && rt == t
+            && !rs_done
+            && t >= rt
         {
+            rs_done = true;
             out.ev = Some(crate::liveness::restart_ev(&mut run.world, how)?);
         }
-        if t == t0 {
+        let t = run.world.time - g0;
+        if !on_done && t >= t0 {
+            on_done = true;
             out.drive_before = run.world.get(bp(drive)).to_string();
             run.world.set_block(bp(drive), on.clone(), redsim::world::flags::ALL);
             out.drive_after = run.world.get(bp(drive)).to_string();
         }
-        if t == t0 + width {
+        if !off_done && t >= t0 + width {
+            off_done = true;
             run.world.set_block(bp(drive), air.clone(), redsim::world::flags::ALL);
         }
         run.tick();
+        let t = run.world.time - g0 - 1;
         let now = run.world.get(bp(r)).to_string().contains("powered=true");
         if now && !was {
             out.rises.push(t);
@@ -195,7 +211,8 @@ fn run_once(l: &Lane, t0: i64, width: i64, restart: Option<(i64, crate::liveness
             }
         }
         was = now;
-        if t == t0 + 14 {
+        if !snap_done && t >= t0 + 14 {
+            snap_done = true;
             if let Some(s) = slime {
                 for d in [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]] {
                     let q = [s[0] + d[0], s[1] + d[1], s[2] + d[2]];
@@ -269,6 +286,8 @@ pub fn bench(width: i64, v: &mut crate::verdict::Verdict) -> Result<Vec<String>,
         let delay = v.bar_n(&format!("lane {}: R powered {R_DELAY} gt after the drive at every phase", l.x), rise.values().sum::<u32>() as usize, delay_ok);
         let t0 = 40;
         let (mut n, mut same, mut diff) = (0u32, 0u32, Vec::<String>::new());
+        let mut exact = 0u32;
+        let mut late_by: std::collections::BTreeMap<i64, u32> = std::collections::BTreeMap::new();
         let mut ev_bad: Vec<String> = Vec::new();
         let mut ev_first = String::new();
         for rt in ((t0 - 1)..=(t0 + 10)).chain((t0 + width - 1)..=(t0 + width + 10)) {
@@ -285,20 +304,37 @@ pub fn bench(width: i64, v: &mut crate::verdict::Verdict) -> Result<Vec<String>,
                     Some(e) => ev_bad.push(format!("restart at t0 + {} ({}): {}", rt - t0, how.label(), e.line())),
                     None => ev_bad.push(format!("restart at t0 + {} ({}): no restart ran", rt - t0, how.label())),
                 }
-                // (every edge compared: exactly the base's one rise and one fall)
+                // (every edge compared: exactly one rise and one fall; train 9's restart is a WORLD OPEN whose idle ticks
+                // freeze the world while game time runs, so an edge whose drive or chain overlaps the open lands late by up
+                // to the open's idle ticks, never early; a row is judged against the run without a restart + 0..idle, and
+                // the exactly-equal rows are counted apart)
                 let rises: Vec<i64> = o.rises.iter().map(|r| r - t0).collect();
                 let falls: Vec<i64> = o.falls.iter().map(|f| f - (t0 + width)).collect();
+                let idle = how.load_ticks();
+                let within = |d: i64| (0..=idle).contains(&d);
                 if base.is_some_and(|(br, bf)| rises == vec![br] && falls == vec![bf]) {
                     same += 1;
+                    exact += 1;
+                } else if base.is_some_and(|(br, bf)| rises.len() == 1 && falls.len() == 1 && within(rises[0] - br) && within(falls[0] - bf)) {
+                    same += 1;
+                    let key = base.map_or(0, |(br, _)| rises[0] - br).max(base.map_or(0, |(_, bf)| falls[0] - bf));
+                    *late_by.entry(key).or_default() += 1;
                 } else {
                     diff.push(format!("restart at t0 + {} ({}): R rises {rises:?}, falls {falls:?}", rt - t0, how.label()));
                 }
             }
         }
-        let restarts = v.bar_n(&format!("lane {}: every restart row the same as without one", l.x), n as usize, diff.is_empty() && base.is_some());
+        let restarts = v.bar_n(&format!("lane {}: every restart row one rise and one fall, each at the run without one + 0..the open's idle ticks", l.x), n as usize, diff.is_empty() && base.is_some());
+        let restarts = format!(
+            "{restarts}; exactly as without one {exact}, late by the open's idle {}",
+            if late_by.is_empty() { "none".to_string() } else { late_by.iter().map(|(k, c)| format!("{k} gt: {c}")).collect::<Vec<_>>().join(", ") }
+        );
         let ev_w = v.bar_n(&format!("lane {}: every restart happened (its chunks unloaded and loaded again, its scheduled ticks back)", l.x), n as usize, ev_bad.is_empty());
-        // (G1's Y6, the control: a stub restart, evidence of nothing, must fail the same predicate)
-        let ev_c = v.control(&format!("lane {}: a stub restart's evidence fails the restart bar", l.x), 1, !crate::liveness::RestartEvidence::default().happened());
+        // (G1's Y6, the control through the REAL run path: the same restart row with the restart a no-op must fail the
+        // same predicate)
+        let stub = crate::liveness::with_noop_restart(|| run_once(l, t0, width, Some((t0 + 3, crate::liveness::Restart::rows()[0])), false))?;
+        let stub_ok = stub.ev.as_ref().is_some_and(|e| e.happened());
+        let ev_c = v.control(&format!("lane {}: a no-op restart through the real run fails the restart bar", l.x), usize::from(stub.ev.is_some()), !stub_ok);
         let restarts = format!("{restarts}; the restarts' own evidence: {} ({ev_w}; the stub control {ev_c}){}", if ev_first.is_empty() { "none".to_string() } else { format!("e.g. {ev_first}") }, if ev_bad.is_empty() { String::new() } else { format!(": {}", ev_bad.join("; ")) });
         let facts = run_once(l, t0, width, None, false)?;
         // (from below: the dust connects only to its driver (north); the ruled feed: to ironfarm's
@@ -324,7 +360,7 @@ pub fn bench(width: i64, v: &mut crate::verdict::Verdict) -> Result<Vec<String>,
         let c_rise = c.rise.map(|r| r - t0 + 1);
         let ctl = v.control(&format!("lane {}'s slower repeater breaks the {R_DELAY}-gt bar", l.x), usize::from(c_rise.is_some()), c_rise.is_some_and(|k| k != R_DELAY));
         lines.push(format!(
-            "  lane {} ({}): {drive_over}; R powered (gt after the drive, gt:count; the drive placed before tick t0, R read after each tick) {} (bar {R_DELAY}: {delay}), unpowered after the drive's removal {}; phases without exactly one rise and one fall {} ({edges}){}; with a restart at every tick around both edges in every reload order, every edge compared: {same} of {n} the same ({restarts}){}; R with the drive on: {}; the feed dust (x-2,23,9) {} ({dust_w}); {}; the candidate cells {} ({empty_w}); CONTROL (the repeater one tick slower): R powered {} gt after the drive ({ctl})",
+            "  lane {} ({}): {drive_over}; R powered (gt after the drive, gt:count; the drive placed before tick t0, R read after each tick) {} (bar {R_DELAY}: {delay}), unpowered after the drive's removal {}; phases without exactly one rise and one fall {} ({edges}){}; with a restart at every tick around both edges in every reload order, every edge compared: {same} of {n} within the bar ({restarts}){}; R with the drive on: {}; the feed dust (x-2,23,9) {} ({dust_w}); {}; the candidate cells {} ({empty_w}); CONTROL (the repeater one tick slower): R powered {} gt after the drive ({ctl})",
             l.x,
             match l.feed {
                 Feed::Below => "fed from below: day-1's delay-3 repeater into the slime under the feed dust",
@@ -347,4 +383,26 @@ pub fn bench(width: i64, v: &mut crate::verdict::Verdict) -> Result<Vec<String>,
         ));
     }
     Ok(lines)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// (train 9's world-open restart) a world open over the drive's tick delays R's rise by at most its idle ticks and
+    /// never advances it; one with no edge in flight leaves R's edges exactly as without it.
+    #[test]
+    fn a_world_open_delays_the_feed_by_at_most_its_idle() {
+        let l = &LANES[0];
+        let (t0, width) = (40i64, 12i64);
+        let b = run_once(l, t0, width, None, false).unwrap();
+        let (br, bf) = (b.rises[0] - t0, b.falls[0] - (t0 + width));
+        let idle2 = crate::liveness::Restart::rows().into_iter().find(|h| h.load_ticks() == 2).unwrap();
+        let o = run_once(l, t0, width, Some((t0, idle2)), false).unwrap();
+        assert_eq!((o.rises.len(), o.falls.len()), (1, 1));
+        let d = o.rises[0] - t0 - br;
+        assert!((0..=2).contains(&d) && d > 0, "a world open over the drive's tick delays the rise by 1..=2, got {d}");
+        let q = run_once(l, t0, width, Some((t0 + width + 20, idle2)), false).unwrap();
+        assert_eq!((q.rises[0] - t0, q.falls[0] - (t0 + width)), (br, bf));
+    }
 }

@@ -208,16 +208,18 @@ pub enum MobfarmCmd {
         #[arg(long, default_value_t = 89)]
         late_sleep_normal: i64,
         /// (day-1 10:37 PT, the tap hold) The napper rests on the hold (the exit slope) this many gt before its natural R;
-        /// the hold's free-running per-lane train launches it at the first pulse at or after that arrival.
-        #[arg(long, default_value_t = 0)]
-        hold_lead: i64,
+        /// the hold's free-running per-lane train launches it at the first pulse at or after that arrival (unset: 0; a
+        /// design-of-record run must give it).
+        #[arg(long)]
+        hold_lead: Option<i64>,
         /// The earlier model of the clocked exit: each visit leaves on its own tap (or a later one), never an earlier
         /// pulse (scope: a per-visit gated tap, not the free-running train).
         #[arg(long)]
         gated_tap: bool,
-        /// (ironspec 09:51 PT) d_RS: RS_ready set this many gt after R (the stop free only then).
-        #[arg(long, default_value_t = 0)]
-        rs_delay: i64,
+        /// (ironspec 09:51 PT) d_RS: RS_ready set this many gt after R (the stop free only then; unset: 0; a
+        /// design-of-record run must give it).
+        #[arg(long)]
+        rs_delay: Option<i64>,
         /// (G1 10:37 PT) The clock's tolerance subtracted from the occupancy budget's spare (unset: printed "not measured").
         #[arg(long)]
         clock_tol: Option<i64>,
@@ -236,6 +238,11 @@ pub enum MobfarmCmd {
         /// skipped-pick row) fails the run instead.
         #[arg(long)]
         design_of_record: bool,
+        /// (ironspec 14:22 PT, tick-exact 14:16 PT) The world-open / login lag k + j a timed margin subtracts (2 across
+        /// chunks, 1 within one); unset: the old uncalibrated 7, labelled. A design-of-record run with --clock-exit must
+        /// give it.
+        #[arg(long)]
+        world_open_shift: Option<i64>,
         /// (G1 on 7897f4ba7 (b)) Print the judged bars' failures without failing the run.
         #[arg(long)]
         report_only: bool,
@@ -12817,7 +12824,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 crate::holdpulse::bench(step, extra, freeze, g, &mut v)
             }
             .map_err(|e| anyhow::anyhow!(e))?;
-            for l in lines {
+            // (G1's (b) on 10bcdf661: every row of an AI-off bench carries the label, derived from the started worlds)
+            for l in crate::holdpulse::label_rows(lines) {
                 println!("{l}");
             }
             v.finish(report_only).map_err(|e| anyhow::anyhow!(e))?;
@@ -12854,8 +12862,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             v.finish(report_only).map_err(|e| anyhow::anyhow!(e))?;
         }
-        MobfarmCmd::CtlCoverageBench { holds, operating_hold, leg, to_entry, post_lane, t_d, slot, trip, lock, offsets, late_inject, late_step, trip_hist, pick_window, no_quota, late_latch, frame_pin, return_hist, return_hist_lane, picker_search, r_leg, post_spread, t_d_spread, siding_any, clock_exit, exit_phase, exit_pickup, late_sleep_file, late_sleep_hist, late_sleep_normal, hold_lead, gated_tap, rs_delay, clock_tol, push_shift, exit_phase_sweep, wait_margin, design_of_record, report_only, rule2, days, seeds } => {
+        MobfarmCmd::CtlCoverageBench { holds, operating_hold, leg, to_entry, post_lane, t_d, slot, trip, lock, offsets, late_inject, late_step, trip_hist, pick_window, no_quota, late_latch, frame_pin, return_hist, return_hist_lane, picker_search, r_leg, post_spread, t_d_spread, siding_any, clock_exit, exit_phase, exit_pickup, late_sleep_file, late_sleep_hist, late_sleep_normal, hold_lead, gated_tap, rs_delay, clock_tol, push_shift, exit_phase_sweep, wait_margin, design_of_record, world_open_shift, report_only, rule2, days, seeds } => {
             let [lo, hi] = leg[..] else { bail!("--leg takes LO,HI") };
+            // (G1's Z4 on 10bcdf661: the hold lead and d_RS given or not, kept apart from their 0 default)
+            let (hold_lead_given, rs_delay_given) = (hold_lead, rs_delay);
+            let (hold_lead, rs_delay) = (hold_lead.unwrap_or(0), rs_delay.unwrap_or(0));
             let [pa, pb, pc] = post_lane[..] else { bail!("--post-lane takes A,B,C") };
             let [da, db, dc] = t_d[..] else { bail!("--t-d takes A,B,C") };
             let [tl, th] = trip[..] else { bail!("--trip takes LO,HI") };
@@ -12916,6 +12927,17 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     if exit_phase_sweep.is_some_and(|s| !(1..=50).contains(&s)) {
                         bail!("--exit-phase-sweep: a step of 1..50");
                     }
+                    // (G1's Z1 / Z4 on 10bcdf661: a design-of-record run with the clocked exit names every measured term,
+                    // never a silent 0)
+                    if design_of_record && clock_exit.is_some() {
+                        let missing: Vec<&str> = [("--clock-tol", clock_tol.is_none()), ("--push-shift", push_shift.is_none()), ("--wait-margin", wait_margin.is_none()), ("--hold-lead", hold_lead_given.is_none()), ("--rs-delay", rs_delay_given.is_none()), ("--world-open-shift", world_open_shift.is_none())].iter().filter(|(_, m)| *m).map(|(n, _)| *n).collect();
+                        if !missing.is_empty() {
+                            bail!("--design-of-record with --clock-exit needs every measured term given: {} (their bars would otherwise read a silent 0)", missing.join(", "));
+                        }
+                        if gated_tap {
+                            bail!("--design-of-record refuses --gated-tap (it drops the per-lane wait bar and the early-launch control)");
+                        }
+                    }
                     hold_lead
                 },
                 gated_tap,
@@ -12929,10 +12951,17 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     }
                     wait_margin
                 },
+                design_of_record,
+                world_open_shift: {
+                    if world_open_shift.is_some_and(|w| !(0..=20).contains(&w)) {
+                        bail!("--world-open-shift: 0..20");
+                    }
+                    world_open_shift
+                },
             };
             let mut v = crate::verdict::Verdict::new(&format!("ctl-coverage-bench (the operating hold {operating_hold})"));
             if design_of_record {
-                v.refuse_scopes(&["m and the catch window", "the skipped-pick row"]);
+                v.refuse_scopes(&["m and the catch window", "the skipped-pick row", "the per-lane wait bar"]);
             }
             let lines = crate::napper::coverage_bench(&holds, operating_hold, (lo, hi), to_entry, [pa, pb, pc], [da, db, dc], slot, (tl, th), lock, [oa, ob, oc], (&late_inject, late_step), days, seeds, &x, &mut v).map_err(|e| anyhow::anyhow!(e))?;
             for l in lines {

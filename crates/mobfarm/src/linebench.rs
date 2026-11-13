@@ -293,11 +293,17 @@ pub fn bench(base: &FarmSpec, label: &str, inputs: &[Input], read: P, sets: &[(P
             parts.push(format!("({},{},{}) {} [{}]", c[0], c[1], c[2], run.world.get(BlockPos::new(c[0], c[1], c[2])).to_string().trim_start_matches("minecraft:"), nb.join(", ")));
         }
         let w = v.bar(&format!("{label}: no undeclared mechanism component beside the reach cells"), flagged == 0);
-        // (G1's Y20: a `--declare` cell never found beside a reach cell as a mechanism component is STALE, a failure)
-        let stale: Vec<String> = declared.iter().filter(|q| !used.contains(*q)).map(|q| format!("({},{},{})", q[0], q[1], q[2])).collect();
+        // (G1's Y20: a `--declare` cell never found beside a reach cell as a mechanism component is STALE, a failure; G1's
+        // Z5 on 10bcdf661: one predicate for the bar and its control, the control planting a declaration no reach cell
+        // touches (the read cell + 64 in x))
+        let stale_of = |decl: &[P]| -> Vec<String> { decl.iter().filter(|q| !used.contains(*q)).map(|q| format!("({},{},{})", q[0], q[1], q[2])).collect() };
+        let stale = stale_of(declared);
         let ws = v.bar(&format!("{label}: every --declare cell found (none stale)"), stale.is_empty());
+        let mut planted: Vec<P> = declared.to_vec();
+        planted.push([read[0] + 64, read[1], read[2]]);
+        let wc = v.control(&format!("{label}: a planted declaration beside no reach cell reads stale"), 1, !stale_of(&planted).is_empty());
         lines.push(format!(
-            "  power reach (each cell's six neighbours, the line enabled): {}; {flagged} undeclared and {decl} declared mechanism neighbours ({w}); stale declarations {} ({ws})",
+            "  power reach (each cell's six neighbours, the line enabled): {}; {flagged} undeclared and {decl} declared mechanism neighbours ({w}); stale declarations {} ({ws}; CONTROL a planted declaration: {wc})",
             parts.join("; "),
             if stale.is_empty() { "none".to_string() } else { stale.join(", ") }
         ));
