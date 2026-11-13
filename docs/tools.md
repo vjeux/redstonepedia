@@ -474,10 +474,19 @@ J(3) on; lane 7's: J(-1) re-armed; J(7) back on). Each napper prints its stamp's
 arrival, at R and at its first clear after R, and its first call back in its lane against its memory's
 last setting (margin >= 20); the worst queue-arrival age and the picks gated or turned away; the
 villagers napped each night (bar 24 a full night), each night's picks with the villagers picked twice
-and those never picked, and every villager's picks and naps. The chain (the brief's one trigger,
-ironspec 16:10, day-1 16:14): a cycle starts on the golem pulse (REL = the pulse + 6) or, with none started within `--watchdog W` live gt
-(a retriggerable delay from the last start; default 110; 0: the golem pulse alone), on the watchdog; printed: the cycles, the watchdog's starts,
-the RELs' phases (game time mod 100) before and after the first golem. `--stale-start` (the recovery
+and those never picked (PASS / FAIL on complete nights), and every villager's picks and naps. The chain
+(day-1's accepted chain, ironspec 19:47): B is held 100 gt from each start; a golem pulse with B
+expired starts a cycle at once (REL = the pulse + 6); a pulse during B re-arms B to the pulse + 100
+and latches P, which starts the cycle at B's expiry; the flywheel `--watchdog W` (default 100; 0:
+none) starts one when none started within W and B has expired, ties toward the start; a start
+restarts the chain from any state of a cycle still in flight (liveness). Printed: the cycles, the
+flywheel's starts, the re-arms, the least REL interval (bar >= 100) and the longest (liveness),
+the restarts of a cycle in flight, the RELs' phases (game time mod 100) before and after the first
+golem, the cycles off the locked phase by day. (a1) calm REST within 16 of the occupied bed (bar
+0); (a2) two nappers (carts, or one asleep) in the stop's box at once (bar 0; the first tick and
+riders), with the queue releases made before the previous napper's 16-ball exit as information;
+(b) a pick while another napper is between its pick and the queue's departure (bar 0, the first
+named). `--stale-start` (the recovery
 row) starts every LAST_SLEPT 24,100 gt old: the first call with 3 willing villagers at the stand and
 the first golem after it are printed. The summons by day: the calls, those with 3 willing in the box,
 the golems, and the willing villagers counted per call. `--held-at-divert` (divert sampling (i)):
@@ -485,21 +494,23 @@ the picker reads HELD at the picked cart's row arrival instead of at the pick. T
 drives day-1's (a) feed stack where it is laid (a repeater west of the siding's slime: the release
 at its input (x-4,22,9)). The largest calm-REST stamp by lane (ironspec 16:55): each lane's
 villagers (the lane each last rode), their largest stamp age at a calm REST tick against 1,000.
-Every bar line that prints FAIL makes f1q2-run exit 1 (the failing lines named last); `--report-only`
+Every bar line that prints FAIL makes f1q2-run exit 1 (an "expected FAIL" token, a declared
+placement-order T, is stripped first; the failing lines named last); `--report-only`
 exits 0 whatever they say. Every block a drive writes keeps the built cell's golem and path
 properties (G1's guard, ironspec 17:46; G1 17:50 / 17:53): a golem floor (legacy-solid and not on
 LEGACY_IRON_GOLEM's list), a full top face, a full-block collision, solid-render, air, a signal
 source, a rail, something dangerous, any collider, a fluid. A write that adds one the built cell
 lacks fails the run, unless it is a state of the built block itself (a trapdoor, a lever, a rail) or
-the module declares the cell `emulated: CELLS=why`; one that only suppresses (a lever: not air, a
+the module declares the cell `emulated: CELLS=STATE (why)`; one that only suppresses (a lever: not air, a
 signal source) is named in the report. A controller line's end is driven by a powered lever hung on
 the first sturdy face around it (below, above, the sides) whose updates (its own neighbours and its
-support's) reach no rail T of the build (redsim's junction test) unless the module declares the T
+support's, and out to taxicab 2 when it writes over dust) reach no rail T of the build (redsim's junction test) unless the module declares the T
 `update-only-ts:` (state-stable for the state it holds; ironspec 18:31), whose support doesn't
 conduct and with no powerable component beside it but its target (power reach, ironspec 18:34 (5):
-a repeater or comparator counts only from behind),
+a repeater or comparator counts only from behind, an observer facing the cell counts, copper bulbs
+and crafters too),
 checked to survive at its placement and its removal; a declared `emulated:` cell that is air is
-filled with glass at the start (a floor lever's support where the built line end isn't laid yet).
+laid at the start in the state its line names (a floor lever's support where the built line end isn't laid yet).
 redsim's `Run::start` (every run built from a design without a site world) refuses a design with a
 non-air cell outside the world's box, a cell the placement popped, or a cell where `can_survive`
 fails (dust or a repeater over air, a hook without its anchor, a rail `rails::would_pop` refuses:

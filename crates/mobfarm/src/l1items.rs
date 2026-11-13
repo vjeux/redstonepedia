@@ -1162,7 +1162,8 @@ mod ghast_tests {
         cells.insert([0, 0, 0], "minecraft:observer[facing=north,powered=false]".to_string());
         cells.insert([1, 0, 0], "minecraft:glass".to_string());
         let ex = ghast_exposed(&cells);
-        assert_eq!(ex.iter().map(|(p, _)| *p).collect::<Vec<_>>(), vec![[0, 0, 0]], "the observer behind the glass is reached: {ex:?}");
+        // (the glass itself is a block that matters, 0.3 < 3.283: it is reached too)
+        assert_eq!(ex.iter().map(|(p, _)| *p).collect::<Vec<_>>(), vec![[0, 0, 0], [1, 0, 0]], "the observer behind the glass is reached, the glass with it: {ex:?}");
         let mut sealed = cells.clone();
         sealed.insert([1, 0, 0], "minecraft:obsidian".to_string());
         assert!(ghast_exposed(&sealed).is_empty(), "the obsidian wall all round: nothing reached");

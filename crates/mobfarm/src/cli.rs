@@ -2000,9 +2000,10 @@ pub enum MobfarmCmd {
         drive_out: Option<PathBuf>,
         #[arg(long)]
         scene_out: Option<PathBuf>,
-        /// (the brief's "one trigger, one chain", ironspec 16:10) a cycle starts when none started
-        /// within W live gt, as a golem pulse would (0: the golem pulse alone).
-        #[arg(long, default_value_t = 110)]
+        /// (the controller's chain, ironspec 19:47: day-1's re-arm + flywheel) the flywheel W: a
+        /// cycle starts when none started within W and B (100 gt from each start, re-armed to a
+        /// golem pulse + 100) has expired (0: none).
+        #[arg(long, default_value_t = 100)]
         watchdog: i64,
         /// (ironspec 16:08's recovery row) every villager's LAST_SLEPT 24,100 gt old at the start.
         #[arg(long)]
@@ -7358,9 +7359,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             // (G1's guard: the module's `emulated:` cells; 7b90c3f1 18:06: its placement-order Ts)
             let text = std::fs::read_to_string(&design)?;
             let emulated = crate::column::header_cells(&text, "emulated:");
+            let emulated_states = crate::column::header_cell_states(&text, "emulated:");
+            anyhow::ensure!(emulated_states.len() == emulated.len(), "{}: every `emulated:` cell names its stand-in state (CELL=STATE (why); G1's note (c))", design.display());
             let ts = crate::column::header_cells(&text, "placement-order-ts:");
             let update_only = crate::column::header_cells(&text, "update-only-ts:");
-            let o = crate::f1q2run::Opts { seed, ticks, day0, lane_carts, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour, cart_trace, restarts, restart, control_rider, trace, bed, drive, drive_rec, watchdog, stale_start, held_at_divert, queue_hold, emulated, ts, update_only };
+            let o = crate::f1q2run::Opts { seed, ticks, day0, lane_carts, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour, cart_trace, restarts, restart, control_rider, trace, bed, drive, drive_rec, watchdog, stale_start, held_at_divert, queue_hold, emulated, emulated_states, ts, update_only };
             let (rep, out) = crate::f1q2run::run_driven(&spec, &o).map_err(|e| anyhow::anyhow!(e))?;
             print!("{rep}");
             if let (Some(df), Some(sf), Some((drive_text, scene_entities))) = (&drive_out, &scene_out, out) {
@@ -7375,8 +7378,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("the drive: {} (the scene {})", df.display(), sf.display());
             }
             // (ironspec 17:01 (4)) the bars it prints decide the exit: a FAIL exits 1 unless
-            // `--report-only`
-            let fails: Vec<&str> = rep.lines().filter(|l| l.contains("FAIL") && !l.contains("expected FAIL")).collect();
+            // `--report-only` (G1's CHANGES 2 on 961090aef: a line's "expected FAIL" token is
+            // stripped first, so a real FAIL beside it still counts)
+            let fails = crate::f1q2run::fail_lines(&rep);
             if !fails.is_empty() {
                 println!("f1q2-run: {} bar line(s) FAIL{}: {}", fails.len(), if report_only { " (--report-only: exit 0)" } else { " (exit 1)" }, fails.iter().map(|l| l.trim().chars().take(60).collect::<String>()).collect::<Vec<_>>().join(" | "));
                 if !report_only {

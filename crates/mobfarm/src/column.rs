@@ -950,7 +950,8 @@ pub fn t_rails(spec: &redsim::entity::mob::farm::FarmSpec) -> Result<Vec<String>
     let source = |s: &str| {
         let n = s.trim_start_matches("minecraft:");
         let n = n.split('[').next().unwrap_or(n);
-        matches!(n, "detector_rail" | "redstone_wire" | "redstone_torch" | "redstone_wall_torch" | "repeater" | "comparator" | "observer" | "lever" | "tripwire_hook" | "daylight_detector" | "target" | "trapped_chest" | "lectern" | "sculk_sensor" | "calibrated_sculk_sensor" | "lightning_rod" | "redstone_block")
+        matches!(n, "detector_rail" | "redstone_wire" | "redstone_torch" | "redstone_wall_torch" | "repeater" | "comparator" | "observer" | "lever" | "tripwire_hook" | "daylight_detector" | "target" | "trapped_chest" | "lectern" | "sculk_sensor" | "calibrated_sculk_sensor" | "lightning_rod" | "redstone_block" | "jukebox")
+            || n.ends_with("_lightning_rod")
             || n.ends_with("_button")
             || n.ends_with("_pressure_plate")
     };
@@ -1557,6 +1558,31 @@ pub fn header_cells(text: &str, key: &str) -> Vec<[i32; 3]> {
                 let n: Vec<i32> = c.split(',').filter_map(|x| x.trim().parse().ok()).collect();
                 if n.len() == 3 {
                     v.push([n[0], n[1], n[2]]);
+                }
+            }
+        }
+    }
+    v
+}
+
+/// The cells of a header line's groups with the state each names (`KEY CELLS=STATE (why); ...`:
+/// the state is the first token after `=`, `minecraft:` added when it has no namespace; G1's
+/// note (c) on 961090aef: the statics lay exactly what the run lays).
+pub fn header_cell_states(text: &str, key: &str) -> Vec<([i32; 3], String)> {
+    let mut v = Vec::new();
+    for line in text.lines() {
+        let Some(rest) = line.strip_prefix(key) else { continue };
+        for group in rest.split(';') {
+            let Some((cells, after)) = group.split_once('=') else { continue };
+            let state = after.trim_start().split([' ', '(']).next().unwrap_or("").trim();
+            if state.is_empty() {
+                continue;
+            }
+            let state = if state.contains(':') { state.to_string() } else { format!("minecraft:{state}") };
+            for c in cells.split('+') {
+                let n: Vec<i32> = c.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+                if n.len() == 3 {
+                    v.push(([n[0], n[1], n[2]], state.clone()));
                 }
             }
         }
