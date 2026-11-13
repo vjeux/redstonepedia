@@ -1,0 +1,19 @@
+# Clock: every 6 ticks (0.3 s) · 5 blocks
+# https://vjeux.github.io/redstonepedia/clocks/snowdisp-p12.html
+# CLOCK: period 12, warmup 2
+name: snowdisp-p12
+port output: 2 -1 -1
+port start: 0 0 0 minecraft:stone 1
+nbt: 0 1 0 {Items:[{Slot:0b,id:"minecraft:powder_snow_bucket",count:1}]}
+origin: 0 0 0
+palette:
+  S minecraft:stone
+  D minecraft:dispenser[facing=down,triggered=false]
+  O minecraft:observer[facing=west,powered=false]
+  r minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]
+layer -1:
+  ..S
+layer 0:
+  .Or
+layer 1:
+  Dr

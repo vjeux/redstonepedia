@@ -1,0 +1,24 @@
+# Stay-on timer: stays on 990 ticks (49.5 s) after · 8 blocks
+# https://vjeux.github.io/redstonepedia/circuits/pulsemult/off-delay-item-timer-L990-sealed-v12-8b.html
+name: off-delay-item-timer-L990-sealed-v12-8b
+circuit: off-delay
+port input: 0 0 0
+port output: 0 1 2
+nbt: 1 1 0 {Items:[{Slot:0b,id:"minecraft:cobblestone",count:64},{Slot:1b,id:"minecraft:cobblestone",count:61}]}
+origin: 0 0 0
+palette:
+  C minecraft:comparator[facing=north,mode=compare,powered=false]
+  G minecraft:glass
+  H minecraft:hopper[enabled=true,facing=east]
+  R minecraft:redstone_wall_torch[facing=east,lit=true]
+  S minecraft:stone
+  h minecraft:hopper[enabled=true,facing=west]
+layer 0:
+  SR
+  H
+layer 1:
+  Hh
+  C
+layer 2:
+  GG
+  .

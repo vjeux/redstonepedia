@@ -1,0 +1,21 @@
+# On/off memory: reacts in 6 ticks (0.3 s) · 4 blocks
+# https://vjeux.github.io/redstonepedia/circuits/memory/rs-dropper.html
+name: rs-dropper
+circuit: rs-latch
+tile: 0 2 0
+port input.s: -1 1 0
+port input.r: 2 1 0
+port output: 1 1 2
+nbt: 0 1 0 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
+origin: 0 0 0
+palette:
+  S minecraft:stone
+  A minecraft:dropper[facing=east,triggered=false]
+  B minecraft:dropper[facing=west,triggered=false]
+  C minecraft:comparator[facing=north,mode=compare,powered=false]
+layer 0:
+  ..
+  .S
+layer 1:
+  AB
+  .C

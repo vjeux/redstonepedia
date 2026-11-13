@@ -1,0 +1,31 @@
+# Clock: every 15 ticks (0.75 s) · 7 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p15-note-obs-pis-rb-stk-7b-f23ce5.html
+# CLOCK: period 15, warmup 3
+name: clk-obs-p15-note-obs-pis-rb-stk-7b-f23ce5
+origin: 0 0 0
+port output: -1 0 0
+port start: 0 0 2 last
+palette:
+  A minecraft:sticky_piston[extended=false,facing=up]
+  B minecraft:redstone_block
+  C minecraft:note_block[instrument=harp,note=0,powered=false]
+  D minecraft:observer[facing=south,powered=false]
+  E minecraft:sticky_piston[extended=false,facing=down]
+  F minecraft:piston[extended=false,facing=up]
+  G minecraft:observer[facing=north,powered=false]
+layer -2:
+  .
+  A
+  .
+layer -1:
+  .
+  .
+  B
+layer 0:
+  C
+  D
+  E
+layer 1:
+  F
+  G
+  .

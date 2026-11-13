@@ -1,0 +1,287 @@
+# 7-segment display: shows 0–9 from a container's fill level · 496 blocks · reads at a glance · one digit
+# https://vjeux.github.io/redstonepedia/circuits/display/seven-segment-decimal.html
+name: seven-segment-decimal
+circuit: seven-segment 4 hex decimal
+port input.a: 0 2 2 strength
+port output.a: 1 8 -21
+port output.ab: 0 8 -21
+port output.af: 2 8 -21
+port output.b: 0 7 -21
+port output.bcg: 0 6 -21
+port output.c: 0 5 -21
+port output.cd: 0 4 -21
+port output.d: 1 4 -21
+port output.de: 2 4 -21
+port output.e: 2 5 -21
+port output.efg: 2 6 -21
+port output.f: 2 7 -21
+port output.g: 1 6 -21
+origin: -3 0 -20
+palette:
+  A minecraft:comparator[facing=south,mode=compare,powered=false]
+  B minecraft:comparator[facing=south,mode=subtract,powered=false]
+  C minecraft:chest[facing=south,type=single,waterlogged=false]
+  D minecraft:comparator[facing=west,mode=compare,powered=false]
+  E minecraft:comparator[facing=west,mode=subtract,powered=false]
+  F minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  G minecraft:redstone_wire[east=side,north=side,power=15,south=side,west=side]
+  H minecraft:redstone_wire[power=0]
+  I minecraft:redstone_wire[power=10]
+  J minecraft:redstone_wire[power=11]
+  K minecraft:redstone_wire[power=12]
+  L minecraft:redstone_wire[power=13]
+  M minecraft:redstone_wire[power=14]
+  N minecraft:redstone_wire[power=15]
+  O minecraft:redstone_wire[power=8]
+  P minecraft:redstone_wire[power=9]
+  Q minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+  R minecraft:redstone_wall_torch[facing=east,lit=true]
+  S minecraft:repeater[delay=1,facing=east,locked=false,powered=true]
+  T minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  U minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  V minecraft:repeater[delay=1,facing=south,locked=false,powered=true]
+  W minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+  X minecraft:repeater[delay=1,facing=west,locked=false,powered=true]
+  c minecraft:comparator[facing=east,mode=subtract,powered=false]
+  r minecraft:redstone_wall_torch[facing=west,lit=true]
+  s minecraft:stone
+layer 0:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  s.....s
+  .
+  s.....s
+  sss.sss
+  ..s.ss
+  ss...s
+  sss..s
+  ..s..s
+  ss...ss
+  sss.sss
+  ss
+  .
+  .
+  .
+layer 1:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  s.....s
+  N.....H
+  s.....s
+  V..s..U
+  OQQsWWH
+  ssQsWHs
+  IT.s.Hs
+  JcQs.Hs
+  ssQs.Hs
+  LT.s.TH
+  McQsWEH
+  NSrs
+  .
+  ...s
+  .
+layer 2:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  s
+  M....sH
+  .
+  .
+  .
+  ...H
+  P..H.sH
+  ...H.sH
+  ...H.sH
+  K..H.sH
+  ...H
+  ...H
+  ...H
+  ...ss
+  ...A
+  ...C
+layer 3:
+  ....s
+  ...s.s
+  ....s
+  ....s
+  .
+  ....s
+  ss.s
+  L....s...s
+  .....H
+  ...s.....s
+  ..s...ssss
+  ..sss.s.ss
+  ...ss.ss.s
+  ...s..s..s
+  ..ss.....s
+  ..sss....s
+  ..s...ss.s
+  ..s...ssss
+  ..ss...sss
+  .....s
+  ...HDss
+  .
+  .
+layer 4:
+  ...sGs
+  ....s
+  ...sVs
+  ...sGs
+  ....s
+  ...sVs
+  KXsXs.s.ss
+  .s..sH...N
+  ...ss.ss.s
+  .ssN.....V
+  .sV..sWWHV
+  ..OQQsWsEO
+  ..sHQsWB.P
+  ..sH.sWs.I
+  ..JT.s...J
+  ..KcQs...K
+  ..L..sWH.L
+  ..M..sWEWM
+  ..NSrsRXXN
+  .....A.s
+  .....HDs
+  .
+  .
+layer 5:
+  ...GsG
+  ...s.s
+  ...VsV
+  ...GsG
+  ...s.s
+  ...VsV
+  .sXsssSsSM
+  .V..H..s
+  .s.MXsXN
+  .V
+  .Ls..H
+  .....H
+  ..Ps.H
+  ..Is.H
+  .....H
+  .....H
+  .....H
+  .....H
+  .....H.ss
+  .......A
+  .......H
+  .
+  .
+layer 6:
+  ...sFs
+  ...GsG
+  ...sUs
+  ...sFs
+  ....s
+  ...sUs
+  ....H.ss
+  ...s...M
+  ....ss
+  ......s.....s
+  ..Ms..sss
+  ....s.s.....s
+  ......ss..sss
+  ....s.....s
+  .....ssss..ss
+  ......ss..sss
+  ...........ss
+  .........s
+  .......HDs
+  .
+  .
+  .
+  .
+layer 7:
+  ...GsG
+  ...s.s
+  ...VsV
+  ...GsG
+  ...s.s
+  ...VsV
+  ...sssSL
+  ...V.ss
+  ...sSNs..s..s
+  ......V..s..N
+  ...Ns.LQQs..s
+  ....V.M..s..V
+  ....s.NSrsWWJ
+  ....V....sWss
+  ....sSMQQs.TL
+  ......NSrsWEM
+  .........sRXN
+  .........A
+  .........H
+  .
+  .
+  .
+  .
+layer 8:
+  ...sGs
+  ...GsG
+  ....V
+  ...sGs
+  ....s
+  ....V
+  ....V
+  ....sSMs.s.ss
+  ............M
+  .
+  .........H
+  .........H
+  .........H
+  .........H..K
+  .........H
+  .........H
+  .........H
+  .
+  .
+  .
+  .
+  .
+  .
+layer 9:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .......NsSsSL
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .

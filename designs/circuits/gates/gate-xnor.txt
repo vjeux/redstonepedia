@@ -1,0 +1,26 @@
+# Logic gate: A same as B · 17 blocks
+# https://vjeux.github.io/redstonepedia/circuits/gates/gate-xnor.html
+name: gate-xnor
+circuit: gate xnor
+port input.a: 0 0 0
+port input.b: 1 0 1
+port output: 3 1 0
+origin: -1 0 0
+palette:
+  S minecraft:stone
+  C minecraft:comparator[facing=west,mode=subtract,powered=false]
+  K minecraft:comparator[facing=east,mode=subtract,powered=false]
+  T minecraft:redstone_wall_torch[facing=east,lit=true]
+  d minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+layer 0:
+  ..S..
+  .S...
+layer 1:
+  SdCST
+  SKd..
+layer 2:
+  dSSd.
+  d....
+layer 3:
+  .dd..
+  .....

@@ -1,0 +1,22 @@
+# Clock: every 92 ticks (4.6 s) · 24 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-sculk-racetrack-plain-n5.html
+name: clk-sculk-racetrack-plain-n5
+port output: -6 -1 5
+port start: 1 0 0 use
+origin: -6 0 0
+palette:
+  A minecraft:amethyst_block
+  N minecraft:note_block[instrument=harp,note=0,powered=false]
+  S minecraft:sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false]
+layer 0:
+  ......SN.......SA.......SA.......SA.......SA
+  .
+  .
+  .
+  A
+  S...............................................S
+  ................................................A
+  .
+  .
+  .
+  .....AS.......AS.......AS.......AS.......AS

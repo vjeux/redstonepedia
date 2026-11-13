@@ -1,0 +1,51 @@
+# Minecart loader: fills a hopper minecart from a chest, then sends it back · 44 blocks
+# https://vjeux.github.io/redstonepedia/circuits/rail/ld-chest.html
+name: ld-chest
+circuit: cart-loader
+port line.in: -6 0 0
+port items: 0 2 0
+origin: -6 0 -3
+palette:
+  S minecraft:stone
+  B minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]
+  L minecraft:rail[shape=east_west,waterlogged=false]
+  P minecraft:powered_rail[powered=false,shape=ascending_east,waterlogged=false]
+  g minecraft:glass
+  D minecraft:detector_rail[powered=false,shape=ascending_east,waterlogged=false]
+  C minecraft:comparator[facing=south,mode=compare,powered=false]
+  K minecraft:comparator[facing=north,mode=compare,powered=false]
+  Q minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+  V minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+  R minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  Y minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  W minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]
+  Z minecraft:redstone_block
+  T minecraft:oak_trapdoor[facing=west,half=bottom,open=true,powered=false,waterlogged=false]
+layer -1:
+  ......S...
+  ......S...
+  ......S...
+  .SSZSSS...
+  ..........
+  ..........
+layer 0:
+  ......WS..
+  ......WS..
+  ......RSSS
+  .BBBBLPg.S
+  ..........
+  ..........
+layer 1:
+  .......W..
+  .......Y..
+  .......CQW
+  .......DSW
+  ......S.S.
+  .......SS.
+layer 2:
+  ..........
+  ..........
+  ..........
+  .......TW.
+  ......K.W.
+  ......SVW.

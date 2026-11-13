@@ -1,0 +1,36 @@
+# Clock: every 46 ticks (2.3 s) · 9 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p92-bulb-lamp-obs-rb-stk-9b-d971c6.html
+# CLOCK: period 92, warmup 10
+name: clk-obs-p92-bulb-lamp-obs-rb-stk-9b-d971c6
+origin: 0 0 0
+port output: 0 -3 3
+port start: 0 1 0 last
+palette:
+  A minecraft:waxed_copper_bulb[lit=false,powered=false]
+  B minecraft:observer[facing=down,powered=false]
+  C minecraft:redstone_block
+  D minecraft:redstone_lamp[lit=false]
+  E minecraft:observer[facing=south,powered=false]
+  F minecraft:sticky_piston[extended=false,facing=south]
+  G minecraft:sticky_piston[extended=false,facing=down]
+  H minecraft:observer[facing=north,powered=false]
+layer -2:
+  .
+  .
+  A
+  .
+layer -1:
+  .
+  .
+  B
+  C
+layer 0:
+  D
+  E
+  F
+  G
+layer 1:
+  F
+  H
+  .
+  .

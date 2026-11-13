@@ -1,0 +1,21 @@
+# Clock: every 10 ticks (0.5 s) · 7 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p10-note-obs-pis-rb-stk-7b-b-4aa047.html
+# CLOCK: period 10, warmup 3
+name: clk-obs-p10-note-obs-pis-rb-stk-7b-b-4aa047
+origin: 0 0 0
+port output: 1 0 -1
+palette:
+  A minecraft:piston[extended=false,facing=north]
+  B minecraft:piston[extended=false,facing=down]
+  C minecraft:observer[facing=north,powered=false]
+  D minecraft:note_block[instrument=harp,note=0,powered=false]
+  E minecraft:redstone_block
+  F minecraft:sticky_piston[extended=false,facing=north]
+layer -1:
+  ..
+  AA
+  ..
+layer 0:
+  BE
+  C.
+  DF

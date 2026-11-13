@@ -1,0 +1,21 @@
+# Sand elevator: lifts 2 up · 6 blocks
+# https://vjeux.github.io/redstonepedia/circuits/pext/pext-n2-sand6.html
+name: pext-n2-sand6
+circuit: piston-extender 2
+travel: 0 1 0
+port input: 1 2 0 lever
+port payload: 0 2 0
+palette:
+  A minecraft:sticky_piston[facing=up]
+  B minecraft:piston[facing=up]
+  X minecraft:sand
+  O minecraft:observer[facing=up]
+  P minecraft:stone
+  K minecraft:stone
+  L minecraft:lever[face=wall,facing=west]
+layer 0:
+  AP.
+layer 1:
+  BO.
+layer 2:
+  XLK

@@ -1,0 +1,30 @@
+# Clock: every 45 ticks (2.25 s) · 7 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-sculk-ring3-c45.html
+# CLOCK: period 45, warmup 11
+name: clk-sculk-ring3-c45
+origin: 0 0 0
+port output: 16 0 8
+port start: 0 0 0 use
+palette:
+  K minecraft:note_block[instrument=harp,note=0,powered=false]
+  E minecraft:calibrated_sculk_sensor[facing=east,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  C minecraft:calibrated_sculk_sensor[facing=north,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  A minecraft:amethyst_block
+layer 0:
+  KEA
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ...............C
+  ...............A
+  .
+  .
+  .
+  .
+  .
+  .A
+  .C

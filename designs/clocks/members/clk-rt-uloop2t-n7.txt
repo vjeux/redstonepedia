@@ -1,0 +1,17 @@
+# Clock: every 132 ticks (6.6 s) · 36 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-rt-uloop2t-n7.html
+name: clk-rt-uloop2t-x7
+port output: 0 0 0
+origin: 0 0 -1
+palette:
+  A minecraft:repeater[delay=4,facing=east,locked=false,powered=true]
+  B minecraft:repeater[delay=4,facing=west,locked=false,powered=true]
+  R minecraft:redstone_wall_torch[facing=north,lit=true]
+  S minecraft:stone
+  r minecraft:redstone_wall_torch[facing=south,lit=true]
+layer 0:
+  .SSSSSSSS
+  .SSSSSSSS
+layer 1:
+  RBBBBBBBBS
+  SAAAAAAAAr

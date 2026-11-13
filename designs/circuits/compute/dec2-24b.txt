@@ -1,0 +1,32 @@
+# Decoder: lights 1 of 4 outputs from a 2-bit number · 24 blocks
+# https://vjeux.github.io/redstonepedia/circuits/compute/dec2-24b.html
+name: dec2-24b
+circuit: decoder 2
+port input.a0: -1 1 1
+port input.a1: 2 1 -1
+port output.q0: 4 1 -1
+port output.q1: 5 1 2
+port output.q2: 0 1 -1
+port output.q3: -1 1 3
+origin: 0 0 0
+palette:
+  A minecraft:comparator[facing=west,mode=subtract,powered=false]
+  B minecraft:redstone_wall_torch[facing=south,lit=true]
+  C minecraft:comparator[facing=north,mode=subtract,powered=false]
+  D minecraft:redstone_wall_torch[facing=west,lit=true]
+  E minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  F minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  R minecraft:redstone_block
+  S minecraft:stone
+  c minecraft:comparator[facing=south,mode=subtract,powered=false]
+  r minecraft:redstone_wall_torch[facing=east,lit=true]
+layer 0:
+  SS.S
+  .SSR
+  .S.SS
+  .
+layer 1:
+  cEBAS
+  rECF
+  .CSEA
+  DS

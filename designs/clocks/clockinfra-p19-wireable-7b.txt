@@ -1,0 +1,24 @@
+# Clock: every 19 ticks (0.95 s) · 7 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clockinfra-p19-wireable-7b.html
+# CLOCK: period 19, warmup 16
+name: clockinfra-p19-wireable-7b
+port output: 1 0 2
+port start: -1 0 4 last
+origin: -1 0 3
+palette:
+  A minecraft:observer[facing=south,powered=false]
+  B minecraft:observer[facing=west,powered=false]
+  O minecraft:observer[facing=down,powered=false]
+  P minecraft:piston[extended=false,facing=down]
+  R minecraft:redstone_lamp[lit=false]
+  S minecraft:sticky_piston[extended=false,facing=up]
+  o minecraft:observer[facing=east,powered=false]
+layer -2:
+  .
+  So
+layer -1:
+  .
+  ..P
+layer 0:
+  ..A
+  OBR

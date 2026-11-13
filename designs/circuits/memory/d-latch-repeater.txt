@@ -1,0 +1,18 @@
+# Copy-and-hold memory: reacts in 4 ticks (0.2 s) · 4 blocks
+# https://vjeux.github.io/redstonepedia/circuits/memory/d-latch-repeater.html
+name: d-latch-repeater
+circuit: d-latch
+port input.d: -1 1 1
+port input.e: 0 1 -1
+port output: 1 1 1
+origin: 0 0 0
+palette:
+  R minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  S minecraft:stone
+  r minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+layer 0:
+  S
+  S
+layer 1:
+  R
+  r

@@ -1,0 +1,28 @@
+# Clock: every 9 ticks (0.45 s) · 11 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-misc-scaffold-chain5.html
+# CLOCK: period 18, warmup 3
+name: clk-misc-scaffold-chain5
+port output: 1 1 2
+port start: 0 0 -2 minecraft:redstone_block 2
+origin: 0 0 -2
+palette:
+  A minecraft:scaffolding[bottom=true,distance=2,waterlogged=false]
+  B minecraft:scaffolding[bottom=true,distance=3,waterlogged=false]
+  C minecraft:scaffolding[bottom=true,distance=4,waterlogged=false]
+  D minecraft:scaffolding[bottom=true,distance=5,waterlogged=false]
+  E minecraft:sticky_piston[extended=false,facing=south]
+  F minecraft:stone
+  O minecraft:observer[facing=east,powered=false]
+  S minecraft:scaffolding[bottom=false,distance=0,waterlogged=false]
+  o minecraft:observer[facing=north,powered=false]
+  s minecraft:scaffolding[bottom=true,distance=1,waterlogged=false]
+layer 0:
+  .E
+  .F
+  F
+  .
+layer 1:
+  ..OD
+  ...C
+  SsAB
+  .o

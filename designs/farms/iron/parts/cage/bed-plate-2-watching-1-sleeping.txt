@@ -1,0 +1,100 @@
+# Villager cage: bed-plate cage, 2 watching villagers + 1 sleeper
+# https://vjeux.github.io/redstonepedia/farms/iron/parts/cage/index.html#bed-plate-2-watching-1-sleeping
+name: bed-plate-2-watching-1-sleeping
+entity: minecraft:villager 0.5 0.5625 0.5
+entity: minecraft:villager 2.5 0.5625 0.5
+entity: minecraft:villager -1.5 0.5625 0.5
+entity: minecraft:oak_boat 2.5 0.5 -6.8 {Passengers:[{id:"minecraft:zombie"}]}
+entity: minecraft:villager 3.5 2 -5.5
+origin: -3 0 -7
+palette:
+  A minecraft:oak_trapdoor[facing=west,half=top,open=false,powered=false,waterlogged=false]
+  B minecraft:red_bed[facing=west,occupied=false,part=foot]
+  C minecraft:red_bed[facing=west,occupied=false,part=head]
+  G minecraft:glass
+  O minecraft:oak_pressure_plate[powered=false]
+  R minecraft:red_bed[facing=north,occupied=false,part=foot]
+  S minecraft:stone
+  o minecraft:oak_trapdoor[facing=south,half=bottom,open=true,powered=false,waterlogged=false]
+  r minecraft:red_bed[facing=north,occupied=false,part=head]
+  s minecraft:stone_slab[type=bottom,waterlogged=false]
+layer -1:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .S.S.S
+  .S.S.S
+layer 0:
+  .....s
+  .
+  .
+  .
+  .
+  .
+  .
+  .r.r.r
+  .R.R.R
+layer 1:
+  .
+  .....ASSS
+  .
+  .
+  .
+  .
+  .G
+  G.GoGoG
+  .G.G.G
+layer 2:
+  .....SGGG
+  .....GOCBG
+  ......GGG
+  .
+  .
+  .
+  .G
+  G.G.G.G
+  .G.G.G
+layer 3:
+  .....GGGG
+  .....G...G
+  ......GGG
+  .
+  .
+  .
+  .
+  SSSSSSS
+  SSSSSSS
+layer 4:
+  .
+  ......SSS
+  .
+  .
+  .
+  .
+  .
+  GGGGGGG
+  GGGGGGG
+layer 5:
+  .
+  ......SSS
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 6:
+  .
+  ......GGG
+  .
+  .
+  .
+  .
+  .
+  .
+  .

@@ -1,0 +1,776 @@
+# Single-lane loop: carousel loop, fully wired: 21 villagers ride minecarts back to back on one track; each golem pulse releases the front 3 to the golem stand, and they ride back round into the queue's tail (all in redstone, the golem pulse its only input; build step: 23 stone in the hopper at -5 -1 12)
+# https://vjeux.github.io/redstonepedia/farms/iron/parts/carousel-loop/index.html#carousel-single-lane-loop-wired
+name: carousel-release-loop-wired
+circuit: mob-farm iron_ingot
+queue: scene=Loop carts=21 spacing=3 release=3 riders=1 slots=18 run=20 depart=3 boost=0 boost_first=8 straight=0 drop=0 vstand=0 tail_v=0 bridge=1 row_gap=3 uturn_boost=0 line=0 tail_deep=0 plain=0 stand_desc=0 detector=1 zombie_every=8 zombie_x=3 stand_deep=0 tail_desc=1 peak_pad=0 short_depart=1
+port output: -5 1 -3
+entity: minecraft:minecart 0.5 2.73 25.32 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart 0.5 1.73 29.32 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart 0.5 0.73 33.32 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart 0.5 0.73 36.32 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart 0.5 0.73 39.32 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart 0.5 0.73 42.32 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart 0.5 0.73 45.32 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -0.32 0.73 47.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -2.5 0.73 46.68 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -2.5 0.73 43.68 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -2.5 0.73 40.68 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -2.5 0.73 37.68 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -2.5 0.73 34.68 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -2.5 0.73 31.68 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -2.5 0.73 28.68 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -2.5 0.73 25.68 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -2.5 0.73 22.68 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -2.5 0.73 19.68 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart 5.45 0.6000000000000001 0.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart 2.45 0.6000000000000001 0.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -0.55 0.6000000000000001 0.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:oak_boat 3.5 3 5.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
+entity: minecraft:oak_boat 3.5 3 13.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
+entity: minecraft:oak_boat 3.5 3 21.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
+entity: minecraft:oak_boat 3.5 3 29.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
+entity: minecraft:oak_boat 3.5 3 37.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
+entity: minecraft:oak_boat 3.5 3 45.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
+entity: minecraft:oak_boat 3.5 3 53.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
+entity: minecraft:oak_boat -5.5 3 21.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
+nbt: -6 -1 6 {OutputSignal:15}
+nbt: -5 -1 11 {OutputSignal:2}
+nbt: -5 -1 12 {Items:[{Slot:0b,id:"minecraft:stone",count:23}]}
+origin: -13 0 -6
+palette:
+  $ minecraft:stone
+  % minecraft:waxed_copper_bulb[lit=false,powered=false]
+  0 minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+  1 minecraft:repeater[delay=2,facing=east,locked=false,powered=false]
+  2 minecraft:repeater[delay=2,facing=north,locked=false,powered=false]
+  3 minecraft:repeater[delay=2,facing=south,locked=false,powered=false]
+  4 minecraft:repeater[delay=3,facing=north,locked=false,powered=false]
+  5 minecraft:repeater[delay=3,facing=south,locked=false,powered=false]
+  6 minecraft:repeater[delay=3,facing=west,locked=false,powered=false]
+  7 minecraft:repeater[delay=4,facing=east,locked=false,powered=false]
+  8 minecraft:repeater[delay=4,facing=north,locked=false,powered=false]
+  9 minecraft:repeater[delay=4,facing=south,locked=false,powered=false]
+  @ minecraft:repeater[delay=4,facing=west,locked=false,powered=false]
+  A minecraft:comparator[facing=north,mode=compare,powered=false]
+  B minecraft:comparator[facing=north,mode=subtract,powered=false]
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  D minecraft:comparator[facing=north,mode=subtract,powered=true]
+  E minecraft:comparator[facing=south,mode=compare,powered=false]
+  F minecraft:comparator[facing=south,mode=compare,powered=true]
+  G minecraft:comparator[facing=south,mode=subtract,powered=false]
+  H minecraft:comparator[facing=west,mode=compare,powered=false]
+  I minecraft:powered_rail[powered=false,shape=ascending_south,waterlogged=false]
+  J minecraft:powered_rail[powered=false,shape=ascending_west,waterlogged=false]
+  K minecraft:powered_rail[powered=false,shape=east_west,waterlogged=false]
+  L minecraft:powered_rail[powered=true,shape=north_south,waterlogged=false]
+  M minecraft:rail[shape=ascending_south,waterlogged=false]
+  N minecraft:rail[shape=ascending_west,waterlogged=false]
+  O minecraft:oak_leaves[distance=1,persistent=true,waterlogged=false]
+  P minecraft:powered_rail[powered=false,shape=ascending_east,waterlogged=false]
+  Q minecraft:rail[shape=east_west,waterlogged=false]
+  R minecraft:rail[shape=ascending_east,waterlogged=false]
+  S minecraft:rail[shape=north_east,waterlogged=false]
+  T minecraft:rail[shape=north_south,waterlogged=false]
+  U minecraft:rail[shape=north_west,waterlogged=false]
+  V minecraft:rail[shape=south_east,waterlogged=false]
+  W minecraft:rail[shape=south_west,waterlogged=false]
+  X minecraft:redstone_block
+  Y minecraft:redstone_wall_torch[facing=north,lit=true]
+  Z minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=side]
+  a minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=up]
+  b minecraft:redstone_wire[east=none,north=side,power=0,south=none,west=side]
+  c minecraft:comparator[facing=east,mode=subtract,powered=false]
+  d minecraft:detector_rail[powered=false,shape=north_south,waterlogged=false]
+  e minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+  f minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=side]
+  g minecraft:glass
+  h minecraft:hopper[enabled=true,facing=down]
+  i minecraft:redstone_wire[east=none,north=side,power=0,south=up,west=none]
+  j minecraft:redstone_wire[east=none,north=up,power=0,south=none,west=side]
+  k minecraft:redstone_wire[east=none,north=up,power=0,south=side,west=none]
+  l minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
+  m minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=up]
+  n minecraft:redstone_wire[east=side,north=none,power=0,south=side,west=none]
+  o minecraft:redstone_wire[east=side,north=none,power=0,south=side,west=side]
+  p minecraft:powered_rail[powered=false,shape=ascending_north,waterlogged=false]
+  q minecraft:redstone_wire[east=side,north=none,power=15,south=none,west=side]
+  r minecraft:rail[shape=ascending_north,waterlogged=false]
+  s minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=none]
+  t minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=side]
+  u minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=none]
+  v minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  w minecraft:redstone_wire[east=side,north=up,power=0,south=none,west=none]
+  x minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+  y minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  z minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+layer -4:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ................$
+  ................$
+  ................$
+  ................$
+  ................$
+  ................$
+  ................$
+  ................$
+  ................$
+  ................$
+  ................$
+  ................$
+  ................$
+  ......$$$$$$$$$$$$$$$$
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer -3:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ...............$a
+  ...............$e
+  ................e
+  ................e
+  ................e
+  ................e
+  ................e
+  ................e
+  ................e
+  ................e
+  ................e
+  ................5
+  ......$.........e....$
+  ......wlllll0llltllllj
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer -2:
+  ............$$$$$$$$$
+  ............$..$..$.$
+  ............$..$..$.$
+  ............$..$..$.$
+  ....................$
+  ............$..$..$.$
+  ....................$
+  ....................$
+  .....$$$$$$.........$
+  .....$...$$.........$
+  .....$...$$.........$
+  .....$...$..........$
+  ......$$$...........$
+  ..$$$$$$$...........$
+  ..$..$$...$$........$
+  ..$$.$$..$.$........$
+  ....$.$$$.$.........$
+  ..$$$.$.$..$$$......$
+  ..$...$..$$..$......$
+  ..$.$$$$$$$.$$$$$$$$$
+  ..$.$.$.$
+  ..$.$$$.$
+  ..$...$.$
+  ..$$$$.$$
+  ..$...$.$
+  ..$$$$.$$$
+  ..$...$.$
+  ..$$$$.$$
+  ..$...$.$$
+  ..$...$.$
+  ..$...$.$........$$$$$$$
+  ..$...$.$$.......$.....$
+  ..$...$.$........$..$..$
+  ..$$$$.$$........$.$.$.$
+  ..$...$.$$.......$.$..$$
+  ..$$$$..$..........$.$.$
+  ..$...$.$......n.$.$$.$$
+  ..$$$$..$$.....y.$.$.$.$
+  ..$...$.$......$.$.$$.$$
+  ..$$$$..$.....$$.$.$.$.$
+  ......$.$$.....$.$.$$.$$
+  .......$$......$.$.$.$
+  ......$.$.....$$$$$$.$
+  ......$.$$.....$.....$
+  ......$.$......$.....$
+  .......$$.....$$.....$
+  ......$.$$.....$.....$
+  ......$.$......$.....$
+  ......k.$.....$$.....k
+  ........$$.....$
+  ........$......$
+  ........$.....$$
+  ........$$.....$
+  ........$......$
+  ........$...$..$
+  ........$$$$$$$$
+  .
+  .
+  .
+  .
+layer -1:
+  ............nllollolZ
+  ............8..4..e.z
+  ............2..e..e.e
+  ............e..e..e.e
+  ............%$$%$$%.e
+  ............A..A..A.e
+  ............$g.$g.$ge
+  ....................e
+  .....nllloZ.........e
+  .....e...ye.........e
+  .....e...ub.........e
+  .....e.X.y..........e
+  ......nDx$..........e
+  ..nl0ovcqY..........z
+  ..e..4e..$HZ........e
+  ..sC%cf..E.e........e
+  ....z.Bxc$C$........e
+  ..nlb.e.F..G7Z......e
+  ..e...e.hn0$.e......e
+  ..e.n7vlot0$ltllllllb
+  ..e.e.e.y
+  ..z.s0B.e
+  ..e...4.e
+  ..ullx$0f
+  ..e...8.e.g
+  ..ullx$0vl$
+  ..e...8.e
+  ..ullx$0f.g
+  ..e...y.ul$
+  ..e...e.e
+  ..e...2.e.g......nlllllZ
+  ..e...e.ul$......e.....z
+  ..e...e.9........e.$1$.e
+  ..ullx$0f.g......e.k.z.e
+  ..e...8.u@$......i.e.$0f
+  ..ullx$.e.....$$$$.e.3.e
+  ..e...8.e.g......k.u1$0f
+  ..ullx$.u@$......e.e.9.e
+  ..e...y.e......e.e.u1$0f
+  ..sllx$.e.g..$xf.e.e.9.e
+  ......y.u@$..g.z.e.u1$0b
+  ......$0f......e.z.z.e
+  ......8.e.g..$xvltlb.e
+  ......8.u@$..g.e.....e
+  ......2.e......e.....e
+  ......$0f.g..$xf.....e
+  ......8.u@$..g.e.....3
+  ......e.y......e.....e
+  ........e.g..$xf
+  ........u6$..g.e
+  ........e......e
+  ........e.g..$xf
+  ........u6$..g.e
+  ........y..g$..z
+  ........e...3..e
+  ........sllltllb
+  .
+  .
+  .
+  .
+layer 0:
+  .
+  .
+  ....$$$$$$$$
+  ....$......$$..$..$
+  ....$.$$$..$mllllll
+  ....$.$.$
+  ....$$$$..ggJRgJRgJRgg
+  ........$.g..........X
+  $$$$$$$$$.g..........X
+  $.$.$.$...g..........X
+  .$.$.$.$.$g..........X
+  .......g..g..........X
+  .........gg..........X
+  ..........g..........X
+  .........gg..........X
+  ....g.....X..........g
+  .........gXg.........g
+  ..........X..........g
+  ..........Xg.........g
+  ..........Xg.........g
+  ..........X..........g
+  ..........X..........g
+  ..........X..........g
+  ......g...g
+  ..........r
+  ......g...I
+  ..........g
+  ......g...r
+  ..........I
+  ..........g
+  ..........r
+  ..........I...$$$$$$
+  ..........g........k.g
+  ......g...r
+  ..........I..........g
+  ......g...g..$xllf
+  ..........r..g.......g
+  ......g...I
+  ..........g..g.......g
+  ......g...r..p
+  ..........I..M.......g
+  ......g...g..g
+  ..........r..p
+  ..........I..M
+  ..........g..g
+  ......g...r..p
+  ..........I..M
+  ..........g..g
+  ..........r..p
+  ..........I..M
+  ..........g..g
+  ..........r..p
+  ..........I..M
+  ..........gNPg
+  .
+  .
+  .
+  .
+  .
+  .
+layer 1:
+  .
+  .
+  ....nll0lllZ
+  ....e......eg..g..g
+  ....e.nlZ..s
+  ....3.2.z
+  ....s7cx$.VK..K..K..QW
+  ........e.T..........L
+  nlolololb.T..........L
+  z.z.z.z...T..........L
+  $1$1$1$1$xd..........L
+  ..........T..........L
+  ..........T..........L
+  ..........T..........L
+  ..........T..........L
+  ..........L..........T
+  ..........L..........T
+  ..........L..........T
+  ..........L..........T
+  ..........L..........T
+  ..........L..........T
+  ..........L..........T
+  ..........L..........M
+  ..........T..........g
+  .
+  .
+  ..........T
+  .
+  .
+  ..........T
+  .
+  .............$xllllZ
+  ..........T..g
+  .
+  .............g
+  ..........T..p
+  .............M
+  .............g
+  ..........T..p
+  .
+  .
+  ..........T..T
+  .
+  .
+  ..........T..T
+  .
+  .
+  ..........T..T
+  .
+  .
+  ..........T..T
+  .
+  .
+  ..........S..U
+  .
+  .
+  .
+  .
+  .
+  .
+layer 2:
+  .
+  .
+  .
+  .
+  .
+  .
+  ........g
+  .
+  .
+  .
+  g.g.g.g.g
+  ................g
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ................g
+  .
+  .
+  .
+  .....................M
+  .....................g
+  .
+  .
+  .......g........g
+  .
+  .
+  .............g
+  .............p
+  .............M
+  .............g
+  .............p
+  ................g
+  .
+  .............T
+  .
+  .
+  .
+  .
+  .
+  ................g
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ................g
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ................g
+layer 3:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .....................M
+  .....................g
+  .............ggggggggg
+  .............g
+  .............g
+  .............g
+  .............p
+  .
+  .
+  .............T
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 4:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .....................T
+  .............VQQQQQQQU
+  .............T
+  .............T
+  .............T
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 5:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 6:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ................O
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ................O
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .......O........O
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ................O
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ................O
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ................O
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ................O

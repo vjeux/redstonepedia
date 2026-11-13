@@ -1,0 +1,12 @@
+# Logic gate: NOT · 1 block
+# https://vjeux.github.io/redstonepedia/circuits/gates/gate-not.html
+name: gate-not
+circuit: gate not
+tile: 0 0 1
+port input: 0 1 0
+port output: 1 1 0
+origin: 1 0 0
+palette:
+  T minecraft:redstone_wall_torch[facing=east,lit=true]
+layer 1:
+  T

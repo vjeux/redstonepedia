@@ -1,0 +1,28 @@
+# Clock: every 4 ticks (0.2 s) · 8 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-misc-dripleaf-stand.html
+# CLOCK: period 4, warmup 10
+name: clk-misc-dripleaf-stand
+port output: -1 -4 1
+origin: -1 -2 -1
+entity: minecraft:armor_stand 0.5 0.9375 0.5
+palette:
+  S minecraft:stone
+  T minecraft:dirt
+  L minecraft:big_dripleaf[facing=north,tilt=none,waterlogged=false]
+  O minecraft:observer[facing=north,powered=false]
+  R minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]
+layer -2:
+  ...
+  ...
+  .S.
+  ...
+layer -1:
+  ...
+  .T.
+  .R.
+  .S.
+layer 0:
+  ...
+  .L.
+  .O.
+  .R.

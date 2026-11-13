@@ -1,0 +1,15 @@
+# Clock: every 44 ticks (2.2 s) · 4 blocks
+# https://vjeux.github.io/redstonepedia/clocks/census-p44-dispenser-note_block-observer-sculk_sensor-4b.html
+# CLOCK: period 44, warmup 0
+name: census-p44-dispenser-note_block-observer-sculk_sensor-4b
+port start: 2 0 0 last
+port output: 2 0 1
+origin: 0 0 0
+palette:
+  D minecraft:dispenser[facing=down,triggered=false]
+  N minecraft:note_block[instrument=harp,note=0,powered=false]
+  O minecraft:observer[facing=east,powered=false]
+  S minecraft:sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false]
+layer 0:
+  DOS
+  N

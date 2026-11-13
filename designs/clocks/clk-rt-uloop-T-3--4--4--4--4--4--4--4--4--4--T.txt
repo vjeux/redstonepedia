@@ -1,0 +1,20 @@
+# Clock: every 82 ticks (4.1 s) · 24 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-rt-uloop-T-3--4--4--4--4--4--4--4--4--4--T.html
+# CLOCK: period 82, warmup 0
+name: clk-rt-uloop-T-3*,4*,4*,4*,4*-4*,4*,4*,4*,4*-T
+uloop: T-3*,4*,4*,4*,4*-4*,4*,4*,4*,4*-T
+port output: 0 1 -2
+origin: 0 0 -1
+palette:
+  A minecraft:repeater[delay=3,facing=west,locked=false,powered=true]
+  B minecraft:repeater[delay=4,facing=east,locked=false,powered=true]
+  C minecraft:repeater[delay=4,facing=west,locked=false,powered=true]
+  R minecraft:redstone_wall_torch[facing=north,lit=true]
+  S minecraft:stone
+  r minecraft:redstone_wall_torch[facing=south,lit=true]
+layer 0:
+  .SSSSS
+  .SSSSS
+layer 1:
+  RACCCCS
+  SBBBBBr

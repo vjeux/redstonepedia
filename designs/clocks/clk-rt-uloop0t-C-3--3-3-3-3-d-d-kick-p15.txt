@@ -1,0 +1,20 @@
+# Clock: every 15 ticks (0.75 s) · 18 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-rt-uloop0t-C-3--3-3-3-3-d-d-kick-p15.html
+# CLOCK: period 15, warmup 19
+name: clk-rt-uloop0t-C-3*,3,3-3,3,d-d-kick-p15
+uloop: C-3*,3,3-3,3,d-d
+port output: 0 0 0
+port start: -1 1 -1 minecraft:redstone_block 1 at 9
+origin: 0 0 -1
+palette:
+  A minecraft:repeater[delay=3,facing=west,locked=false,powered=false]
+  B minecraft:repeater[delay=3,facing=west,locked=false,powered=true]
+  R minecraft:redstone_wire
+  S minecraft:stone
+  r minecraft:repeater[delay=3,facing=east,locked=false,powered=false]
+layer 0:
+  SSSS
+  .SSSS
+layer 1:
+  RBAAS
+  SrrRR

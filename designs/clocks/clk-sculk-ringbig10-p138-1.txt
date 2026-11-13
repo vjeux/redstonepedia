@@ -1,0 +1,62 @@
+# Clock: every 138 ticks (6.9 s) · 20 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-sculk-ringbig10-p138-1.html
+# CLOCK: period 138, warmup 21
+name: clk-sculk-ringbig10-p138-1
+port output: 3 0 25
+port start: 24 0 6 use
+origin: -24 0 -24
+palette:
+  A minecraft:amethyst_block
+  C minecraft:calibrated_sculk_sensor[facing=south,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  N minecraft:note_block[instrument=harp,note=0,powered=false]
+  c minecraft:calibrated_sculk_sensor[facing=west,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+layer 0:
+  .....................CA
+  .
+  .
+  ....................................C
+  ....................................A
+  .
+  .......CA
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ..............................................C
+  ..............................................A
+  .
+  .
+  A
+  C
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ................................................c
+  ................................................N
+  .
+  .
+  ..A
+  ..C
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ........................................AC
+  .
+  ............A
+  ............C
+  .
+  .
+  ..........................AC

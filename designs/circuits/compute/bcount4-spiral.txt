@@ -1,0 +1,44 @@
+# Binary counter: counts presses from 0 to 15 in binary · 15 blocks
+# https://vjeux.github.io/redstonepedia/circuits/compute/bcount4-spiral.html
+name: bcount4-spiral
+circuit: binary-counter 4
+port input.clk: -3 0 0 button
+port output.q0: 1 0 0
+port output.q1: 0 1 -2
+port output.q2: 2 2 -1
+port output.q3: 1 3 -2
+origin: -3 -1 -2
+palette:
+  S minecraft:stone
+  K minecraft:stone_button[face=wall,facing=west,powered=false]
+  b minecraft:waxed_copper_bulb[lit=false,powered=false]
+  B minecraft:waxed_copper_bulb[lit=false,powered=true]
+  C minecraft:comparator[facing=west,mode=compare,powered=false]
+  c minecraft:comparator[facing=south,mode=compare,powered=false]
+  t minecraft:redstone_wall_torch[facing=south,lit=true]
+  w minecraft:redstone_wall_torch[facing=west,lit=true]
+layer 0:
+  .....
+  .....
+  ..S..
+  .....
+layer 1:
+  .....
+  .....
+  KbCS.
+  ...t.
+layer 2:
+  .....
+  ..wS.
+  ...c.
+  ...B.
+layer 3:
+  .....
+  ..BCS
+  ....t
+  .....
+layer 4:
+  .....
+  ....c
+  ....B
+  .....

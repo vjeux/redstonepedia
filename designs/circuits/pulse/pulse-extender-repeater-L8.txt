@@ -1,0 +1,15 @@
+# Signal stretcher: at least 8 ticks (0.4 s) · 2 blocks
+# https://vjeux.github.io/redstonepedia/circuits/pulse/pulse-extender-repeater-L8.html
+name: pulse-extender-repeater-L8
+circuit: pulse-extender
+tile: 1 0 0
+port input: 0 1 1
+port output: 0 1 0
+origin: 0 0 0
+palette:
+  R minecraft:repeater[delay=4,facing=south,locked=false,powered=false]
+  S minecraft:stone
+layer 0:
+  S
+layer 1:
+  R

@@ -1,0 +1,58 @@
+# Clock slower: slows by 3 · input clocks of a pulse every 20 ticks (1 s) or slower · even on/off · 18 blocks
+# https://vjeux.github.io/redstonepedia/circuits/pulsemult/pm-div3-square-sealed-v60-18b.html
+name: pm-div3-square-sealed-v60-18b
+circuit: divider 3
+port input: 0 -2 0
+port output: 0 0 -5
+nbt: 0 0 -1 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
+origin: 0 0 -4
+palette:
+  A minecraft:dropper[facing=north,triggered=false]
+  B minecraft:dropper[facing=up,triggered=false]
+  C minecraft:comparator[facing=south,mode=compare,powered=false]
+  D minecraft:dropper[facing=down,triggered=false]
+  E minecraft:hopper[enabled=true,facing=west]
+  G minecraft:glass
+  H minecraft:hopper[enabled=true,facing=down]
+  O minecraft:observer[facing=down,powered=false]
+  R minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  S minecraft:stone
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+  d minecraft:dropper[facing=east,triggered=false]
+  h minecraft:hopper[enabled=true,facing=south]
+layer -3:
+  .
+  .
+  .
+  .
+  D
+layer -2:
+  .
+  .
+  .
+  .
+  R
+layer -1:
+  A
+  .
+  S
+  .
+  O
+layer 0:
+  C
+  W
+  C
+  BE
+  SA
+layer 1:
+  .
+  .
+  .
+  hG
+  dH
+layer 2:
+  .
+  .
+  .
+  A
+  .S

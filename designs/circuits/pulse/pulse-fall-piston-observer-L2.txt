@@ -1,0 +1,14 @@
+# One pulse when switched off: 2-tick pulse · 2 blocks
+# https://vjeux.github.io/redstonepedia/circuits/pulse/pulse-fall-piston-observer-L2.html
+name: pulse-fall-piston-observer-L2
+circuit: falling-edge
+tile: 2 0 0
+port input: 0 1 0
+port output: 0 -1 1
+origin: 0 0 0
+palette:
+  O minecraft:observer[facing=up,powered=false]
+  S minecraft:sticky_piston[extended=false,facing=south]
+layer 0:
+  S
+  O

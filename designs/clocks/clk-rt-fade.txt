@@ -1,0 +1,18 @@
+# Clock: every 114 ticks (5.7 s) · 18 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-rt-fade.html
+# CLOCK: period 114, warmup 4
+name: clk-rt-fade
+port output: 3 0 -1
+origin: 0 0 -1
+palette:
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  R minecraft:redstone_wall_torch[facing=east,lit=true]
+  S minecraft:stone
+  c minecraft:comparator[facing=west,mode=compare,powered=false]
+  r minecraft:redstone_wire
+layer 0:
+  SSS
+  SSSSS
+layer 1:
+  rccSR
+  rCCrr

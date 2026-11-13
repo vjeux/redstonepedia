@@ -1,0 +1,17 @@
+# Clock: every 45 ticks (2.25 s) · 6 blocks
+# https://vjeux.github.io/redstonepedia/clocks/census-p45-calibrated_sculk_sensor-dispenser-observer-piston-sculk_sensor-sticky_piston-6b.html
+# CLOCK: period 45, warmup 24
+name: census-p45-calibrated_sculk_sensor-dispenser-observer-piston-sculk_sensor-sticky_piston-6b
+port start: 0 0 1 last
+port output: 1 0 -1
+origin: 0 0 0
+palette:
+  C minecraft:calibrated_sculk_sensor[facing=east,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  D minecraft:dispenser[facing=down,triggered=false]
+  O minecraft:observer[facing=west,powered=false]
+  P minecraft:piston[extended=false,facing=east]
+  S minecraft:sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  s minecraft:sticky_piston[extended=false,facing=east]
+layer 0:
+  CSP
+  DOs

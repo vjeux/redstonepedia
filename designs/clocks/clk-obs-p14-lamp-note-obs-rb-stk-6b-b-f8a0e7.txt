@@ -1,0 +1,18 @@
+# Clock: every 14 ticks (0.7 s) · 6 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p14-lamp-note-obs-rb-stk-6b-b-f8a0e7.html
+# CLOCK: period 14, warmup 0
+name: clk-obs-p14-lamp-note-obs-rb-stk-6b-b-f8a0e7
+origin: 0 0 0
+port output: 2 -1 0
+port start: 0 0 2 last
+palette:
+  A minecraft:sticky_piston[extended=false,facing=east]
+  B minecraft:observer[facing=south,powered=false]
+  C minecraft:redstone_lamp[lit=false]
+  D minecraft:observer[facing=north,powered=false]
+  E minecraft:note_block[instrument=harp,note=0,powered=false]
+  F minecraft:redstone_block
+layer 0:
+  A.F
+  BD.
+  CE.

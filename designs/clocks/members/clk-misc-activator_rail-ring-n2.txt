@@ -1,0 +1,21 @@
+# Clock: every 18 ticks (0.9 s) · 10 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-misc-activator_rail-ring-n2.html
+name: clk-misc-activator_rail-ring-n2
+port start: 1 4 0 last
+origin: 0 0 0
+palette:
+  A minecraft:activator_rail[powered=false,shape=east_west,waterlogged=false]
+  B minecraft:observer[facing=up,powered=false]
+  C minecraft:observer[facing=west,powered=false]
+  O minecraft:observer[facing=down,powered=false]
+  o minecraft:observer[facing=east,powered=false]
+layer 0:
+  oB
+layer 1:
+  OB
+layer 2:
+  OB
+layer 3:
+  OB
+layer 4:
+  AC

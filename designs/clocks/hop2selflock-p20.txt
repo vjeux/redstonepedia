@@ -1,0 +1,23 @@
+# Clock: every 20 ticks (1 s) · 9 blocks
+# https://vjeux.github.io/redstonepedia/clocks/hop2selflock-p20.html
+# CLOCK: period 20, warmup 16
+
+name: hop2selflock-p20
+port output: 1 1 -2
+nbt: 0 1 0 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
+origin: -1 0 -2
+palette:
+  C minecraft:comparator[facing=south,mode=compare,powered=false]
+  H minecraft:hopper[enabled=true,facing=east]
+  R minecraft:redstone_wall_torch[facing=west,lit=true]
+  S minecraft:stone
+  h minecraft:hopper[enabled=true,facing=west]
+  r minecraft:repeater[delay=4,facing=north,locked=false,powered=false]
+layer 0:
+  .
+  SS
+  .
+layer 1:
+  RS
+  rC
+  SHh

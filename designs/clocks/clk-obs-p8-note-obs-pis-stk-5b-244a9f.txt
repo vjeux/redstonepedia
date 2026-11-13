@@ -1,0 +1,21 @@
+# Clock: every 8 ticks (0.4 s) · 5 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p8-note-obs-pis-stk-5b-244a9f.html
+# CLOCK: period 8, warmup 4
+name: clk-obs-p8-note-obs-pis-stk-5b-244a9f
+origin: 0 0 0
+port output: 0 0 -1
+port start: 0 1 0 last
+palette:
+  A minecraft:observer[facing=south,powered=false]
+  B minecraft:sticky_piston[extended=false,facing=north]
+  C minecraft:note_block[instrument=basedrum,note=0,powered=false]
+  D minecraft:observer[facing=north,powered=false]
+  E minecraft:piston[extended=false,facing=south]
+layer 0:
+  A
+  .
+  B
+layer 1:
+  C
+  D
+  E

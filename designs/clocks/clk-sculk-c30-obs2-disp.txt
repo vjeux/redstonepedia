@@ -1,0 +1,16 @@
+# Clock: every 30 ticks (1.5 s) · 4 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-sculk-c30-obs2-disp.html
+# CLOCK: period 30, warmup 2
+name: clk-sculk-c30-obs2-disp
+origin: 0 0 0
+port output: -1 0 0
+port start: 2 0 2 minecraft:redstone_block 1
+palette:
+  C minecraft:calibrated_sculk_sensor[facing=north,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  O minecraft:observer[facing=west,powered=false]
+  Q minecraft:observer[facing=north,powered=false]
+  D minecraft:dispenser[facing=up,triggered=false]
+layer 0:
+  CO
+  .Q
+  .D

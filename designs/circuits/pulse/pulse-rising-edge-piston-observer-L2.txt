@@ -1,0 +1,15 @@
+# One pulse when switched on: 2-tick pulse · 2 blocks
+# https://vjeux.github.io/redstonepedia/circuits/pulse/pulse-rising-edge-piston-observer-L2.html
+name: pulse-rising-edge-piston-observer-L2
+circuit: rising-edge
+tile: 2 0 0
+port input: 0 0 1
+port output: 0 2 -1
+origin: 0 0 0
+palette:
+  O minecraft:observer[facing=south,powered=false]
+  S minecraft:sticky_piston[extended=false,facing=up]
+layer 0:
+  S
+layer 1:
+  O

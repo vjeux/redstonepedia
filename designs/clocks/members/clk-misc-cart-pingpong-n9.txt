@@ -1,0 +1,17 @@
+# Clock: every 82 ticks (4.1 s) · 34 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-misc-cart-pingpong-n9.html
+name: clk-misc-cart-pingpong-n9
+entity: minecraft:minecart 15.5 0.0625 0.5
+origin: 0 0 -1
+palette:
+  D minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]
+  L minecraft:lever[face=wall,facing=north,powered=true]
+  P minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]
+  R minecraft:rail[shape=east_west,waterlogged=false]
+  S minecraft:stone
+layer -1:
+  .........L
+  .SSSSSSSSSSSSSSS
+layer 0:
+  .
+  SPDRPPPPPPPPPPPPS

@@ -1,0 +1,40 @@
+# Clock: every 81 ticks (4.05 s) · 47 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-rt-odd-rect-p81-47b.html
+# CLOCK: period 81, warmup 81
+name: clk-rt-odd-rect-p81-47b
+port output: 3 1 6
+port start: 0 0 0 minecraft:redstone_wall_torch[facing=north,lit=true] 1 at 73
+origin: 0 0 0
+palette:
+  A minecraft:repeater[delay=4,facing=north,locked=false,powered=false]
+  B minecraft:repeater[delay=4,facing=south,locked=false,powered=false]
+  C minecraft:repeater[delay=4,facing=west,locked=false,powered=true]
+  R minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  S minecraft:stone
+  r minecraft:repeater[delay=4,facing=east,locked=false,powered=false]
+layer 0:
+  .S
+  S.S
+  S.S
+  S.S
+  S.S
+  S.S
+  S
+  S.S
+  S.S
+  S.S
+  S.S
+  .S
+layer 1:
+  SCS
+  R.A
+  B.A
+  B.A
+  B.A
+  B.A
+  B.S
+  B.A
+  B.A
+  B.A
+  B.A
+  SrS

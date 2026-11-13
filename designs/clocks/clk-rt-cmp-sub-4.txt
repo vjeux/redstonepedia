@@ -1,0 +1,17 @@
+# Clock: every 4 ticks (0.2 s) · 9 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-rt-cmp-sub-4.html
+# CLOCK: period 4, warmup 2
+name: clk-rt-cmp-sub-4
+origin: -1 0 0
+port output: -1 0 1
+palette:
+  S minecraft:stone
+  R minecraft:redstone_block
+  C minecraft:comparator[facing=west,mode=subtract,powered=false]
+  w minecraft:redstone_wire
+layer 0:
+  .SS
+  .SS
+layer 1:
+  RCw
+  .ww

@@ -1,0 +1,20 @@
+# Clock: every 147 ticks (7.35 s) · 43 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-sculk-hairpin-trapdoor-n9.html
+name: clk-sculk-hairpin-trapdoor-n9
+port output: 10 -1 0
+origin: -1 0 0
+palette:
+  A minecraft:repeater[delay=4,facing=east,locked=false,powered=true]
+  B minecraft:repeater[delay=4,facing=west,locked=false,powered=true]
+  C minecraft:calibrated_sculk_sensor[facing=east,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  O minecraft:oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]
+  R minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=side]
+  S minecraft:stone
+  o minecraft:observer[facing=east,powered=false]
+  r minecraft:redstone_wire[east=none,north=side,power=0,south=none,west=side]
+layer 0:
+  ..SSSSSSSSSS
+  ..SSSSSSSSSS
+layer 1:
+  .CBBBBBBBBBR
+  OoAAAAAAAAAr

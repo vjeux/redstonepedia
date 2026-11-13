@@ -1,0 +1,20 @@
+# Clock: every 8 ticks (0.4 s) · 4 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p8-obs-pis-rb-stk-4b-5c2e9c.html
+# CLOCK: period 8, warmup 4
+name: clk-obs-p8-obs-pis-rb-stk-4b-5c2e9c
+origin: 0 0 0
+port output: 0 -1 2
+port start: 0 1 2 last
+palette:
+  A minecraft:sticky_piston[extended=false,facing=south]
+  B minecraft:redstone_block
+  C minecraft:observer[facing=south,powered=false]
+  D minecraft:piston[extended=false,facing=south]
+layer 0:
+  A
+  B
+  .
+layer 1:
+  .
+  C
+  D

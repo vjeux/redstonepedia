@@ -1,0 +1,18 @@
+# Clock: every 20 ticks (1 s) · 6 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p20-obs-rb-lamp-stk-6b-baf89c.html
+# CLOCK: period 20, warmup 10
+name: clk-obs-p20-obs-rb-lamp-stk-6b-baf89c
+port output: 2 -1 0
+port start: 0 0 2 last
+origin: 0 0 0
+palette:
+  A minecraft:observer[facing=south,powered=false]
+  O minecraft:observer[facing=east,powered=false]
+  R minecraft:redstone_block
+  S minecraft:sticky_piston[extended=false,facing=east]
+  o minecraft:observer[facing=north,powered=false]
+  r minecraft:redstone_lamp[lit=false]
+layer 0:
+  SR
+  Ao
+  Or

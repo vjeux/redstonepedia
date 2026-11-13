@@ -1,0 +1,29 @@
+# Combination lock: 1 dial · 23 blocks
+# https://vjeux.github.io/redstonepedia/circuits/lock/lock1-hid.html
+name: lock1-hid
+circuit: lock 1
+port input.d0: -3 2 0 frame
+port input.k0: 2 2 2 frame
+port output: 1 0 0
+entity: minecraft:item_frame -2.5 2.5 0.5 {Facing:4b,Item:{id:"minecraft:arrow",count:1},ItemRotation:0b}
+entity: minecraft:item_frame 2.5 2.5 2.5 {Facing:5b,Item:{id:"minecraft:arrow",count:1},ItemRotation:3b}
+origin: -3 0 0
+palette:
+  S minecraft:stone
+  w minecraft:redstone_wire
+  T minecraft:comparator[facing=west,mode=compare,powered=false]
+  K minecraft:comparator[facing=east,mode=compare,powered=false]
+  A minecraft:redstone_wall_torch[facing=east,lit=true]
+  O minecraft:redstone_wall_torch[facing=west,lit=true]
+layer 0:
+  ....OS
+  .....S
+  .
+layer 1:
+  ..SSAw
+  ..SS.w
+  ...S
+layer 2:
+  .STw
+  ..wTSA
+  ..SKS

@@ -1,0 +1,28 @@
+# Delay: 5-tick delay · 11 blocks
+# https://vjeux.github.io/redstonepedia/circuits/delay/delay-odd5.html
+name: delay-odd5
+circuit: delay
+port input: 0 1 0
+port output: 4 3 2
+origin: 0 0 0
+palette:
+  S minecraft:stone
+  R minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  E minecraft:sticky_piston[extended=false,facing=east]
+  B minecraft:redstone_block
+  Q minecraft:sticky_piston[extended=true,facing=east]
+  H minecraft:piston_head[facing=east,short=false,type=sticky]
+layer 0:
+  .
+  S
+layer 1:
+  .
+  R
+  S
+layer 2:
+  EB
+  ..EB
+  EB
+layer 3:
+  .
+  ...QHB

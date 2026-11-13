@@ -1,0 +1,35 @@
+# Clock: every 44 ticks (2.2 s) · 8 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p44-obs-stk-stone-8b-bb1c7c.html
+# CLOCK: period 44, warmup 39
+name: clk-obs-p44-obs-stk-stone-8b-bb1c7c
+port output: 0 3 1
+port start: 0 0 0 last
+origin: 0 0 -1
+palette:
+  A minecraft:observer[facing=up,powered=false]
+  B minecraft:sticky_piston[extended=false,facing=south]
+  C minecraft:stone
+  O minecraft:observer[facing=down,powered=false]
+  S minecraft:sticky_piston[extended=false,facing=down]
+  o minecraft:observer[facing=south,powered=false]
+  s minecraft:sticky_piston[extended=false,facing=north]
+layer -1:
+  C
+  .
+  s
+  .
+layer 0:
+  .
+  o
+  S
+  .
+layer 1:
+  .
+  O
+  A
+  .
+layer 2:
+  .
+  B
+  .
+  O

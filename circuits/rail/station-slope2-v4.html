@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en" data-mcview-textures="../../textures/26.3">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Minecart station: a stop on a two-way line · 10 blocks · REDSTONEPEDIA</title>
+<meta name="description" content="Minecart station: a stop on a two-way line · 10 blocks. A two-way minecart station: the one-way station&#39;s two braking slopes, then a detector rail and an always-on booster. Carts going the station&#39;s way stop on the s">
+<meta property="og:title" content="Minecart station: a stop on a two-way line · 10 blocks · REDSTONEPEDIA">
+<meta property="og:description" content="Minecart station: a stop on a two-way line · 10 blocks. A two-way minecart station: the one-way station&#39;s two braking slopes, then a detector rail and an always-on booster. Carts going the station&#39;s way stop on the s">
+<meta property="og:site_name" content="REDSTONEPEDIA">
+<link rel="stylesheet" href="../../style.css?v=bac0b029">
+<link rel="icon" href="../../favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top"><a class="logo" href="../../index.html"><span class="logo-dot"></span>REDSTONEPEDIA</a><nav class="tabs-top" aria-label="kinds"><a id="tab-door" class="tab-top" href="../../index.html#kind=door">Doors <span class="count">11</span></a><a id="tab-clock" class="tab-top" href="../../index.html#kind=clock">Clocks <span class="count">4742</span></a><a id="tab-circuit" class="tab-top on" href="../../index.html#kind=circuit">Circuits <span class="count">66</span></a><a id="tab-farm" class="tab-top" href="../../farms/index.html">Farms <span class="count">24</span></a></nav><form id="hsearch" class="hsearch" action="../../index.html" method="get" role="search"><input type="hidden" name="kind" value="circuit"><input id="hq" name="q" type="search" placeholder="Search: toggle, timer, 12…" aria-label="Search" autocomplete="off"></form></header>
+<main>
+<p class="crumbs"><a href="../../index.html">REDSTONEPEDIA</a> › <a href="../../circuits/index.html">Circuits</a> › <a href="../../circuits/rail/index.html">Minecart stations</a></p>
+<p class="kindline">Minecart station on a two-way line: stops the carts going its way, lets the others through</p>
+<h1>a stop on a two-way line · 10 blocks</h1>
+<p class="oneliner">A cart arriving on its line stops at the platform, ridden or empty, and waits; press the button beside the rail and it rolls on. Carts coming the other way pass straight through without stopping.</p>
+<p class="lede">stops every cart within 1.60 blocks · sends it off at 7.4 blocks a second · the other way passes at 8.0 blocks a second · fits in 5×3×2</p>
+<p class="badges"><span class="badge">has its own button</span></p>
+<div class="viewer k-circuit" data-mcview="full" data-src="../../designs/circuits/rail/station-slope2-v4.txt" data-input-mode="pulse" data-circuit="station 2" data-kind="circuit"><div class="fallback"><span class="fb-big">a stop on a two-way line</span><span class="fb-small">Minecart station</span><span class="fb-note">3D view loading (or not available in this browser)</span></div></div>
+<section class="what plain"><h2>Try it</h2><p>The view shows the station as built, without carts. In the game, send a cart down its line: it stops on the platform&#39;s rails; press the button beside them (in reach from the cart) and it leaves.</p><p class="howdesign"><b>How this design does it:</b> A two-way minecart station: the one-way station&#39;s two braking slopes, then a detector rail and an always-on booster.</p></section>
+<section><h2>Build it</h2><p><a class="button" href="../../designs/circuits/rail/station-slope2-v4.litematic" download>Download .litematic</a> <a class="button alt" href="../../designs/circuits/rail/station-slope2-v4.txt" download>Download the design as text</a></p>
+<p class="hint">The .litematic opens in <a href="https://github.com/maruohon/litematica">Litematica</a> (Minecraft 26.3): every block of the design in one region. The text file is the same build written as plain text, block by block.</p>
+<p>Blocks used: <a class="chip" href="../../index.html#with=detector_rail">detector rail</a> <a class="chip" href="../../index.html#with=powered_rail">powered rail</a> <a class="chip" href="../../index.html#with=redstone_block">redstone block</a> <a class="chip" href="../../index.html#with=stone">stone</a></p></section>
+<details class="more"><summary>Details: how it works, measurements and properties</summary>
+<section class="what"><h2>In depth</h2><p>a cart arriving the station&#39;s way stops at the platform, ridden or empty, and waits for the button; carts coming the other way pass straight through</p></section>
+<section><h2>How to try it</h2><p>To try it: click the <b>button</b> tagged <b>GO</b> (or the GO button of the bar) to press it.</p></section>
+<section><h2>Measurements</h2><table class="props metrics"><thead><tr><th>metric</th><th>value</th><th>what it means</th></tr></thead><tbody><tr><th scope="row">line</th><td>two-way</td><td class="def">the kind of line: one-way (every cart goes the same way) or two-way</td></tr>
+<tr><th scope="row">stop distance</th><td>1.60 blocks</td><td class="def">how far the fastest cart rolls past the platform&#39;s first rail before it stops</td></tr>
+<tr><th scope="row">departure delay</th><td>0.05 s</td><td class="def">game ticks from the button press until the cart starts to move</td></tr>
+<tr><th scope="row">leaves at</th><td>0.37 b/t</td><td class="def">the cart&#39;s speed as it leaves the station, in blocks a game tick (20 game ticks a second)</td></tr>
+<tr><th scope="row">other way passes at</th><td>0.40 b/t</td><td class="def">the slowest a cart coming the other way crosses the station, in blocks a game tick</td></tr>
+</tbody></table></section>
+<section><h2>Notes from its designer</h2><p>A two-way minecart station: the one-way station&#39;s two braking slopes, then a detector rail and an always-on booster. Carts going the station&#39;s way stop on the slopes and leave when the button is pressed. Carts coming the other way are sped up by the booster, cross the detector rail quickly, and it switches the slopes on long enough for them to climb straight through.</p></section>
+<section><h2>Properties</h2><table class="props">
+<tr><th scope="row">Study</th><td><a href="../../circuits/rail/index.html">Minecart stations</a></td></tr>
+<tr><th scope="row">Kind</th><td>Minecart station on a two-way line: stops the carts going its way, lets the others through</td></tr>
+<tr><th scope="row">Blocks placed</th><td>10</td></tr>
+<tr><th scope="row">Box</th><td>5×3×2 (30 blocks of space)</td></tr>
+<tr><th scope="row">Made of (the blocks that change state)</th><td>detector rail, powered rail, redstone block, stone</td></tr>
+<tr><th scope="row">Inputs / outputs</th><td>GO (button) (no output: it moves blocks)</td></tr>
+<tr><th scope="row">Flags</th><td>its own button as the input</td></tr>
+<tr><th scope="row">Design file</th><td><code>station-slope2-v4</code></td></tr>
+</table></section>
+<section><h2>The design file</h2><p><a href="https://github.com/vjeux/redstonepedia/blob/main/designs/circuits/rail/archive/station-slope2-v4.txt">on GitHub</a></p><details><summary>Design file (24 lines)</summary><pre class="design"># Minecart station: a stop on a two-way line · 10 blocks
+# https://vjeux.github.io/redstonepedia/circuits/rail/station-slope2-v4.html
+name: station-slope2-v4
+circuit: station 2
+port line.in: -1 3 0
+port line.out: 4 1 0
+port input.go: 1 2 -1 button
+origin: -1 0 -1
+palette:
+  S minecraft:stone
+  R minecraft:redstone_block
+  A minecraft:powered_rail[powered=false,shape=ascending_west,waterlogged=false]
+  P minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]
+  D minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]
+  B minecraft:stone_button[face=floor,facing=north,powered=false]
+layer 0:
+  ......
+  ..SSR.
+layer 1:
+  ..S...
+  .SADP.
+layer 2:
+  ..B...
+  SA....
+</pre></details></section>
+</details>
+
+</main>
+<footer>Built from <a href="https://github.com/vjeux/redstonepedia/tree/d5476273328e71bcd6b531aa97df6c02f3c89a25">vjeux/redstonepedia@d54762733</a> on <span class="nowrap">2026-11-13</span>, for Minecraft 26.3.</footer>
+<script type="module">import init from "../../viewer/mcview.js?v=9286c266"; init({module_or_path: "../../viewer/mcview_bg.wasm?v=d0257134"});</script>
+</body>
+</html>

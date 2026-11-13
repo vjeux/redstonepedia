@@ -1,0 +1,22 @@
+# Clock: every 5 ticks (0.25 s) · 7 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-misc-scaffold-a.html
+# CLOCK: period 10, warmup 8
+name: clk-misc-scaffold-a
+port output: -1 1 -1
+port start: 0 0 -2 minecraft:redstone_block 2
+origin: 0 0 -2
+palette:
+  A minecraft:sticky_piston[extended=false,facing=south]
+  B minecraft:stone
+  O minecraft:observer[facing=east,powered=false]
+  S minecraft:scaffolding[bottom=false,distance=0,waterlogged=false]
+  o minecraft:observer[facing=south,powered=false]
+  s minecraft:scaffolding[bottom=true,distance=1,waterlogged=false]
+layer 0:
+  .A
+  .B
+  B
+layer 1:
+  .
+  Oo
+  Ss

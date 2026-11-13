@@ -1,0 +1,17 @@
+# Clock: every 5 ticks (0.25 s) · 6 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-misc-p10-oak_leaves-obs-stk-5b-c-2577c8.html
+# CLOCK: period 10, warmup 2
+name: clk-misc-p10-oak_leaves-obs-stk-5b-c-2577c8
+port output: -2 0 1
+port start: 0 0 1 last
+origin: -1 0 0
+palette:
+  A minecraft:observer[facing=east,powered=false]
+  B minecraft:observer[facing=south,powered=false]
+  O minecraft:oak_leaves[distance=7,persistent=true,waterlogged=false]
+  S minecraft:sticky_piston[extended=false,facing=south]
+  o minecraft:oak_log[axis=y]
+layer 0:
+  .oS
+  AB
+  .Oo

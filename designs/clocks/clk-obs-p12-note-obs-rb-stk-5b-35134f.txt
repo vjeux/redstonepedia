@@ -1,0 +1,21 @@
+# Clock: every 12 ticks (0.6 s) · 5 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p12-note-obs-rb-stk-5b-35134f.html
+# CLOCK: period 12, warmup 4
+name: clk-obs-p12-note-obs-rb-stk-5b-35134f
+origin: 0 0 0
+port output: -1 1 2
+port start: 0 0 1 last
+palette:
+  A minecraft:note_block[instrument=harp,note=0,powered=false]
+  B minecraft:observer[facing=south,powered=false]
+  C minecraft:observer[facing=north,powered=false]
+  D minecraft:sticky_piston[extended=false,facing=south]
+  E minecraft:redstone_block
+layer 0:
+  A
+  B
+  C
+layer 1:
+  D
+  E
+  .

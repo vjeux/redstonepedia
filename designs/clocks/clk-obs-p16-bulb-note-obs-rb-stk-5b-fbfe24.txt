@@ -1,0 +1,21 @@
+# Clock: every 8 ticks (0.4 s) · 5 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p16-bulb-note-obs-rb-stk-5b-fbfe24.html
+# CLOCK: period 16, warmup 4
+name: clk-obs-p16-bulb-note-obs-rb-stk-5b-fbfe24
+origin: 0 0 0
+port output: -1 1 2
+port start: 0 0 2 last
+palette:
+  A minecraft:note_block[instrument=harp,note=0,powered=false]
+  B minecraft:observer[facing=south,powered=false]
+  C minecraft:waxed_copper_bulb[lit=false,powered=false]
+  D minecraft:sticky_piston[extended=false,facing=south]
+  E minecraft:redstone_block
+layer 0:
+  A
+  B
+  C
+layer 1:
+  D
+  E
+  .

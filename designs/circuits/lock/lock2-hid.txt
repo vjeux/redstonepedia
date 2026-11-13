@@ -1,0 +1,42 @@
+# Combination lock: 2 dials · 49 blocks
+# https://vjeux.github.io/redstonepedia/circuits/lock/lock2-hid.html
+name: lock2-hid
+circuit: lock 2
+port input.d0: -3 2 0 frame
+port input.k0: 2 2 2 frame
+port input.d1: -3 2 5 frame
+port input.k1: 2 2 3 frame
+port output: 1 0 0
+entity: minecraft:item_frame -2.5 2.5 0.5 {Facing:4b,Item:{id:"minecraft:arrow",count:1},ItemRotation:0b}
+entity: minecraft:item_frame 2.5 2.5 2.5 {Facing:5b,Item:{id:"minecraft:arrow",count:1},ItemRotation:3b}
+entity: minecraft:item_frame -2.5 2.5 5.5 {Facing:4b,Item:{id:"minecraft:arrow",count:1},ItemRotation:0b}
+entity: minecraft:item_frame 2.5 2.5 3.5 {Facing:5b,Item:{id:"minecraft:arrow",count:1},ItemRotation:5b}
+origin: -3 0 0
+palette:
+  S minecraft:stone
+  w minecraft:redstone_wire
+  T minecraft:comparator[facing=west,mode=compare,powered=false]
+  K minecraft:comparator[facing=east,mode=compare,powered=false]
+  A minecraft:redstone_wall_torch[facing=east,lit=true]
+  O minecraft:redstone_wall_torch[facing=west,lit=true]
+layer 0:
+  ....OS
+  .....S
+  .....S
+  .....S
+  .....S
+  .....S
+layer 1:
+  ..SSAw
+  ..SS.w
+  ...S.w
+  ...S.w
+  ..SS.w
+  ..SSAw
+layer 2:
+  .STw
+  ..wTSA
+  ..SKS
+  ..SKS
+  ..wTSA
+  .STw

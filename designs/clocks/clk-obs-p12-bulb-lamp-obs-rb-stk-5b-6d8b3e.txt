@@ -1,0 +1,23 @@
+# Clock: every 12 ticks (0.6 s) · 7 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-obs-p12-bulb-lamp-obs-rb-stk-5b-6d8b3e.html
+# CLOCK: period 12, warmup 4
+name: clk-obs-p12-bulb-lamp-obs-rb-stk-5b-6d8b3e
+port output: -2 1 0
+port start: 0 1 0 last
+origin: -1 0 0
+palette:
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  O minecraft:observer[facing=south,powered=false]
+  R minecraft:redstone_block
+  S minecraft:sticky_piston[extended=false,facing=south]
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+  r minecraft:redstone_lamp[lit=false]
+  s minecraft:stone
+layer 0:
+  sS
+  .
+  .R
+layer 1:
+  CW
+  .O
+  .r

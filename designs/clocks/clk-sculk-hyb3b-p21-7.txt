@@ -1,0 +1,19 @@
+# Clock: every 21 ticks (1.05 s) · 6 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clk-sculk-hyb3b-p21-7.html
+# CLOCK: period 21, warmup 7
+name: clk-sculk-hyb3b-p21-7
+port output: 0 0 -1
+origin: -1 0 -1
+palette:
+  A minecraft:observer[facing=west,powered=false]
+  C minecraft:calibrated_sculk_sensor[facing=east,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  I minecraft:iron_trapdoor[facing=north,half=bottom,open=true,powered=true,waterlogged=false]
+  O minecraft:observer[facing=east,powered=false]
+  S minecraft:sticky_piston[extended=false,facing=south]
+  o minecraft:observer[facing=up,powered=false]
+layer -1:
+  .S
+  IOo
+layer 0:
+  .
+  .CA

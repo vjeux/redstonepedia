@@ -1,0 +1,92 @@
+# Release controller: Sends the queue's front 3 villagers to the station after each golem, then moves the queue up 3; ignores a repeated signal, holds an early golem until the queue has moved, and sends them anyway if a slot gets no golem
+# https://vjeux.github.io/redstonepedia/farms/iron/parts/carousel-release/index.html#carousel-release-v0
+name: carousel-release-controller
+port input.golem: 5 1 5
+port output.adv: 3 1 -28
+port output.group: 1 1 -11
+nbt: 3 1 -2 {Items:[{Slot:0b,id:"minecraft:stone",count:23}]}
+origin: 0 0 -27
+palette:
+  A minecraft:comparator[facing=south,mode=subtract,powered=false]
+  B minecraft:comparator[facing=west,mode=compare,powered=false]
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  D minecraft:comparator[facing=west,mode=subtract,powered=false]
+  E minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+  F minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  G minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  H minecraft:hopper[enabled=true,facing=down]
+  I minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+  J minecraft:repeater[delay=2,facing=south,locked=false,powered=false]
+  K minecraft:repeater[delay=3,facing=south,locked=false,powered=false]
+  L minecraft:repeater[delay=4,facing=south,locked=false,powered=false]
+  R minecraft:redstone_wall_torch[facing=south,lit=true]
+  S minecraft:stone
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+  c minecraft:comparator[facing=north,mode=compare,powered=false]
+  r minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+layer 0:
+  ...S
+  ...SS
+  ...S.S
+  ...S
+  ...S.S
+  ...S
+  ...S.S
+  ...SS
+  ...S.S
+  ...S
+  ...S.S
+  ...S..SS
+  ...S.S.S
+  ...SS.SS
+  .....S.S
+  ......SS
+  ..SS.S.S
+  ...SS.SS
+  ...S.S.S
+  ...SS.SS
+  ...S.S.S
+  ...SS.SS
+  ...SSS.S
+  ....SS.S
+  SSSSSS.S
+  S....S.S
+  S..S.S.S
+  .S.SSS.S
+  S.S..SS.SS
+  SS...SS..S
+  ...SSSSSSS
+  .....S
+layer 1:
+  ...r
+  ...rES
+  ...r.J
+  ...r.S
+  ...r.L
+  ...r.S
+  ...r.L
+  ...rES
+  ...r.J
+  ...r.S
+  ...r.L
+  ...r.SIr
+  ...r.L.r
+  ...rESIr
+  .....K.r
+  .....SIr
+  ..rr.L.r
+  ...rESIr
+  ...r.L.F
+  ...rESIr
+  ...r.L.r
+  ...rESIr
+  ...rrL.r
+  ....Gr.r
+  rrrrrr.r
+  r..H.r.r
+  F..c.r.r
+  SBSDIA.F
+  r.c..rDWBr
+  rCS..rK..r
+  ..RrrrrrEr
+  .....r

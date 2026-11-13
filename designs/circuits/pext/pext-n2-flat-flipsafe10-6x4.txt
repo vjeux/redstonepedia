@@ -1,0 +1,22 @@
+# Piston extender: reach 2 · 10 blocks
+# https://vjeux.github.io/redstonepedia/circuits/pext/pext-n2-flat-flipsafe10-6x4.html
+name: pext-n2-flat-flipsafe10-6x4
+circuit: piston-extender 2
+travel: 1 0 0
+port input: 1 1 0 lever
+port payload: 4 1 0
+origin: 1 0 0
+palette:
+  G minecraft:gold_block
+  L minecraft:lever[face=wall,facing=west]
+  O minecraft:observer[facing=down,powered=false]
+  S minecraft:slime_block
+  s minecraft:sticky_piston[extended=false,facing=east]
+layer -1:
+  ..O
+layer 0:
+  ssSSS
+layer 1:
+  LOsG
+layer 2:
+  .S

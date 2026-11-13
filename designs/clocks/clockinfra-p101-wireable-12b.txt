@@ -1,0 +1,32 @@
+# Clock: every 101 ticks (5.05 s) · 12 blocks
+# https://vjeux.github.io/redstonepedia/clocks/clockinfra-p101-wireable-12b.html
+# CLOCK: period 101, warmup 8
+name: clockinfra-p101-wireable-12b
+port output: -2 1 4
+port start: 0 0 1 last
+origin: -1 0 1
+palette:
+  A minecraft:observer[facing=south,powered=false]
+  B minecraft:observer[facing=west,powered=false]
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  D minecraft:stone
+  O minecraft:observer[facing=east,powered=false]
+  S minecraft:sticky_piston[extended=false,facing=up]
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+  o minecraft:observer[facing=north,powered=false]
+  s minecraft:sticky_piston[extended=false,facing=west]
+layer 0:
+  .S
+  .o
+  .S
+  D
+layer 1:
+  .Bs
+  .A
+  .
+  CW
+layer 2:
+  O
+  .A
+  .o
+  .

@@ -1,0 +1,31 @@
+# Clock: every 32 ticks (1.6 s) · 20 blocks
+# https://vjeux.github.io/redstonepedia/clocks/droprep3-p32.html
+# CLOCK: period 32, warmup 105
+name: droprep3-p32
+port output: 2 1 -2
+nbt: 0 1 1 {Items:[{Slot:0b,id:"minecraft:stone",count:2}]}
+nbt: 2 1 3 {Items:[{Slot:0b,id:"minecraft:stone",count:2}]}
+nbt: 4 1 1 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
+origin: 0 0 -1
+palette:
+  A minecraft:hopper[enabled=true,facing=south]
+  B minecraft:hopper[enabled=true,facing=west]
+  C minecraft:comparator[facing=north,mode=compare,powered=false]
+  D minecraft:dropper[facing=east,triggered=false]
+  H minecraft:hopper[enabled=true,facing=east]
+  R minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  S minecraft:stone
+  c minecraft:comparator[facing=south,mode=compare,powered=false]
+  h minecraft:hopper[enabled=true,facing=north]
+layer 0:
+  ..S
+  .
+  .S
+  .S
+  .
+layer 1:
+  ..c
+  ABBBB
+  AC..h
+  AR..h
+  HDHHh
