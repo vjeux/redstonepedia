@@ -425,3 +425,49 @@ the drop column gone. Findings (bench, tool unreviewed, A6 alone):
   block under it) clears by dusk with P ~33% only (10 samples of 6,615 per attempt, ~260 attempts in
   a 12,000-gt day); a block-only yard needs K >= ~41 reachable stable cells for P(no clear) <= 1e-7.
   Not priced (02:18).
+
+## (A) with the run-up for stack (b+): Z1, the exit boost and the slope hold (Nov 13)
+
+The design of record for (b+) (ironspec 08:53 / 09:38): `mctas mobfarm bedtier --eject-at-bed --runup
+--no-loop-booster --exit-south --waker-south --exit-boost --hold-slope` (local frame; loop = local +
+(0,-27,-1)). Bench, tool review pending (G1); contact figures "(shared contact rule on ironfarm's
+branch, unlanded)" until `cart_contacts` (329b5acc3) is on main.
+
+- **The run-up's leftovers fixed.** E's floor glass with a top-half iron-trapdoor cap (the stand-up
+  competitor gone); top-half trapdoors at (-1,0,2) (K's turn met glass) and (-1,0,5) (the run-up's
+  water leaked out through it); the park drive's conductor (2,0,4) SLIME, not smooth stone (a
+  solid-render floor made the U-turn's rail cell a stable flee landing: 2 of 20 wakes armed).
+- **Z1, the waker moved beyond the flee's 6.** A zombie in a boat at (-5,0,10) (feet 6.73 from P's, 6.43
+  from the sleeper's) under glass and persistent leaves (eye-cell sky light 14), behind a top-half
+  iron-trapdoor shutter (-5,1,9): powered (the night state) it cuts every line; F unpowers it and the
+  sleeper's eye (-2.50,0.76,4.48) sees the zombie's eye (-4.50,1.23,10.50), 6.36 apart, through the
+  channel (-3,0,5), (-4,0..1,5..8); the window shuts again on the wake edge. (-4,0,5), A6's old hatch
+  wall, cut that line at its corner (no wake on 6 of 6) and is air. Screens (-3,1,6), (-3,1,7),
+  (-2,1,7), (-1,1,7) keep the exit out of sight. The record holds a redstone block at (-5,1,8), the
+  shutter's drive in its night state, until F's built line; no lever anywhere in the record.
+- **The exit boost.** A booster on (-2,0,5) right after P, powered through a slime support by a torch
+  at (-2,-2,5): the exit's crawl (carts leaving the hand-off at ~0.07) was the whole slow tail of
+  entry -> R (166..203 before, 141..170 after).
+- **The hand-off contact,** declared on the block it touches: the bed head's east face (-3,0,4), flush
+  (depth 0.0000), one tick, 0.103 -> 0.069..0.075, the bed unchanged across it.
+- **The slope hold.** P is a curve and a powered rail is straight only; a flat braking rail can't
+  restart a cart at rest without a conductor at an end. The exit slope (1,-1,5) can: an unpowered
+  powered rail brakes the loaded cart to rest, the lane's tap powers it and the slope's gravity
+  starts it (no kick block). Its support (1,-2,5) is slime, DAY-1's built tap cell (fed by its
+  repeater at (1,-2,4)); 7.8 from Z1 (beyond the flee's 6), the rider screened from it in both
+  shutter states. A passenger can't start SleepInBed, so the wait aboard is safe from the re-sleep
+  lock (LAST_WOKEN's 100 gt; P is 1.09 from HOME's centre, inside SleepInBed's 2.0).
+- **Judged runs (b38/b39, every per-visit problem failing the run):** 0.05..0.55 x 8 seeds, 408/408
+  clean, exit 0 (contacts only the declared one; waker 0 ticks within 6 with sight or memory;
+  NEAREST_HOSTILE's clear 19 gt after the window's close on every wake; re-sleeps 0, the longest wake
+  -> boarding 20 gt); the dense 0.38..0.44 (0.005) + 0.4075 x 8, 112/112 (the cart's speed at the
+  napper contact >= 0.1638 against the pickup's 0.1; park x 1.614..1.698); the hold, with delta = 5 at
+  the park and the tap at one shared tick, 0.05..0.55 x 8, 408/408 (every cart at rest on the slope,
+  creep <= 0.0083, held 93..122 gt, departure -> R 13..15 gt, 0 NEAREST_HOSTILE ticks or stamps over
+  the hold). "(free-running tap: waits >= 100 launch early: not yet judged)" on the hold until the
+  periodic-pulse row runs.
+- **A known failure class outside the operating range:** entry 0.56 parks the cart at x 1.432, the
+  release reaches the napper at 0.0955 (< 0.1: no pickup), the cart stalls against it and the napper
+  re-sleeps at the wake + 100 (8/8 seeds; 0.55 and 0.57..0.60 pass). Standing condition (ironspec
+  08:53): any change that could lift the entry above 0.50 (the landing booster's power, the slope, the
+  cart's speed into the landing) widens the park's catch first and re-sweeps to 0.60.
