@@ -511,12 +511,18 @@ dropped); `--seed-queued-napper` keeps the old seeding (the napper queued at the
 one slope cart short). DAY (the queue release's NOT DAY and the picker's row sample) is the module's
 daylight detector at level >= `--day-threshold` (default 6, the design's L-6 line; ironspec 02:18
 PT), with its validation row (each tick the stand-in against level >= 6, the detector's updates,
-the DAY edges; clear weather only, since redsim's sky darkening models no rain or thunder) and
+the DAY edges; the run's weather is clear, and the weather rows give the detector's evening fall and
+dawn rise under clear, rain and thunder from redsim's detector formula `daylight::detector_power`
+with `weather::sky_darken_at`, against tick-exact's official falls 12,230 / 11,603 / 10,958) and
 `--day-threshold 1` as the positive control. Each lane's away count at every release (its H..V
 carts against the first release's) is a bar (<= 1, ironspec 02:18 PT), printed with the free
 caller's margin at the lane's least occupancy ((carts + 1) x 100 - 32 - 599, bar >= 3). The
-bystander rows name the summoner whose golem stamped the rider, and SIGHT prints its crossings by
-ray class (each entity by its label or mob type).
+bystander bar is the harm (ironspec 02:37 PT): every stamp on a rider out of its pocket printed with
+its stamping summoner, and each stamped rider's margin at its next own-pocket summon (bar >= 3); the
+successful summons print by the caller's place (pocket riders, hold riders: expected 0, elsewhere).
+The one-in-flight bars run from the divert (a pick the divert turns away never enters the way-in;
+those print apart with their causes). SIGHT prints its crossings by ray class (each entity by its
+label or mob type).
 `--drive-out F --scene-out S` (mob-AI) records the run as a mobai drive v1 for `mctas mobai
 fixture` (the 26.3 bridge and redsim, tick for tick): the world started as every bench's drive
 (`Run::start` with the drive's options, the settle, the scene's entity lines spawned in file order),
