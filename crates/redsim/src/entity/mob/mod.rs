@@ -584,6 +584,17 @@ pub struct MobWorld {
     /// the alignment test and the motions before and after (whoever reads it drains it,
     /// [`crate::entity::minecart::take_cart_cart_pushes`]), `None` (the default) logs nothing.
     pub cart_cart_pushes: Option<Vec<CartCartPush>>,
+    /// (onechunk 2026-11-13 10:17, G1 10:20 / 12:19: day-1's push → time-shift counterfactual) A MEASUREMENT
+    /// switch with no game twin, labelled exactly "rider doPush onto carts: off": true turns off ONE path, a
+    /// seated rider's `doPush(cart)` (`AbstractMinecart.push(mob)` from the rider's `pushEntities` meeting a cart
+    /// that isn't its own); every other push stays the game's (a moving cart's pickup push onto a seated rider,
+    /// a rider's push onto a mob or a boat, every mob's push onto a rider, a mob on foot pushing a cart) and so do
+    /// the collisions. Results with it on are counterfactual measurements only. false, the default, is the game.
+    /// (cc767b78's 92d39f846 with G1's fixups, handed over for f1q2-run's closed loop, ironspec 13:04 (1).)
+    pub rider_cart_push_off: bool,
+    /// How many rider pushes onto carts the switch above skipped (a run with it on that skipped none measured
+    /// nothing).
+    pub rider_cart_pushes_skipped: u64,
 }
 
 /// One minecart-on-minecart push ([`MobWorld::cart_cart_pushes`]): cart `this` pushed by cart
@@ -624,7 +635,7 @@ pub struct CartPush {
 
 impl Default for MobWorld {
     fn default() -> MobWorld {
-        MobWorld { rng: None, day_offset: 0, advance_time: true, cramming: 24, events: Vec::new(), spawn_tries: Vec::new(), golem_walk: walk::Walk::Still, golem_spawning: true, natural: None, custom: None, ai: ai::AiWorld::default(), cart_pushes: None, cart_cart_pushes: None }
+        MobWorld { rng: None, day_offset: 0, advance_time: true, cramming: 24, events: Vec::new(), spawn_tries: Vec::new(), golem_walk: walk::Walk::Still, golem_spawning: true, natural: None, custom: None, ai: ai::AiWorld::default(), cart_pushes: None, cart_cart_pushes: None, rider_cart_push_off: false, rider_cart_pushes_skipped: 0 }
     }
 }
 
