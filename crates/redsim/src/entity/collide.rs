@@ -29,6 +29,18 @@ pub struct Movement {
     pub axis_dependent: Option<Vec3>,
 }
 
+/// One `Entity.move(MoverType.SELF, requested)` as the game ran it (instrumentation for the shared
+/// contact definition, ironspec Nov 13 07:47): the game tick, the box before the move, the requested
+/// movement (after the stuck-speed scaling) and the movement `collide` returned. An axis the collision
+/// clipped is one where `!Mth.equal(requested, returned)`, the same test `horizontalCollision` uses.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SelfMove {
+    pub tick: i64,
+    pub bb_before: Aabb,
+    pub requested: Vec3,
+    pub returned: Vec3,
+}
+
 /// `Direction.axisStepOrder(v)`: Y first, then the larger of X and Z last.
 pub fn axis_step_order(v: Vec3) -> [usize; 3] {
     if v.x.abs() < v.z.abs() { [1, 2, 0] } else { [1, 0, 2] }
@@ -847,7 +859,17 @@ pub fn move_(w: &mut World, i: usize, mover: MoverType, delta: Vec3) {
         e.stuck_speed = Vec3::ZERO;
         e.delta_movement = Vec3::ZERO;
     }
+    let bb_before = w.entities.list[i].bb;
     let movement = collide(w, i, delta);
+    if mover == MoverType::Self_ {
+        // (instrumentation only: the move as the game ran it, for the shared contact definition)
+        let t = w.time;
+        let e = &mut w.entities.list[i];
+        if e.self_moves.first().is_some_and(|m| m.tick != t) {
+            e.self_moves.clear();
+        }
+        e.self_moves.push(SelfMove { tick: t, bb_before, requested: delta, returned: movement });
+    }
     let len = movement.length_sqr();
     if len > 1.0e-7 || delta.length_sqr() - len < 1.0e-7 {
         if w.entities.list[i].fall_distance != 0.0 && len >= 1.0 {

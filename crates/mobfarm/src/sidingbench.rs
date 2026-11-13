@@ -1076,37 +1076,25 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
     // (each napper's lip outcome; Err: no lip sample (no cart ahead of it at the merge, or no merge
     // entry), its own class, never counted as clean (G1's CHANGES 1 on a191f3dfb))
     let mut lip_qs: Vec<Result<Lip, &'static str>> = Vec::new();
-    // (the carts' block contacts (ironspec 21:25 (4)): a cart's move stopped by a block face (its
-    // horizontal collision), by the shared definition `crate::contacts::face_contacts`; a declared
-    // stop passes, any other fails the row. Declared (ironspec 04:14, non-blocking: from the design,
-    // not a hard-coded list): the lanes file's `# contacts:` cells for this lane (the drop entry's
-    // backstop), read from `lanes_design`'s own header; and the station's cells this bench lays as
-    // labelled stand-ins: the hold's trapdoor (x,16,0) (dfb89499's stop) and the bench's end of track
-    // (x,16,-1) and (x,17,-1) (not in record7: the batch cart leaving the hold stops there before the
-    // bench takes it out))
-    let lanes_contacts: Vec<(i32, i32, i32)> = lanes_design(ns, so.siding_north, false, so.r_support.as_deref(), None)
-        .ok()
-        .and_then(|t| t.lines().find(|l| l.starts_with("# contacts: ")).map(|l| l.to_string()))
-        .map(|l| {
-            l.trim_start_matches("# contacts: ")
-                .split('=')
-                .next()
-                .unwrap_or("")
-                .split('+')
-                .filter_map(|c| {
-                    let v: Vec<i32> = c.split(',').filter_map(|s| s.trim().parse().ok()).collect();
-                    (v.len() == 3).then(|| (v[0], v[1], v[2]))
-                })
-                .filter(|c| c.0 == lx)
-                .collect()
-        })
-        .unwrap_or_default();
-    let stand_in_stops: Vec<(i32, i32, i32)> = vec![(lx, 16, 0), (lx, 16, -1), (lx, 17, -1)];
+    // (the carts' block contacts (ironspec 21:25 (4)), by the shared definition
+    // `crate::contacts::cart_contacts` (ironspec 07:47's amendment: an axis the game's collision clipped
+    // of the cart's attempted move); a declared stop passes, any other fails the row. Declared (ironspec
+    // 04:14, non-blocking: from the design, not a hard-coded list): the lanes file's `# contacts:` cells
+    // for this lane (the drop entry's backstop), read STRICTLY from `lanes_design`'s own header (G1's
+    // CHANGES 3 (3): a read failure is an error); and the station's cells this bench lays as labelled
+    // stand-ins: the bench's end of track (x,16,-1)
+    // and (x,17,-1) (not in record7: the batch cart leaving the hold stops there before the bench takes
+    // it out). Every declared cell must be hit (G1's CHANGES 3 (2): a never-hit declaration is STALE and
+    // fails), unless this row's scope can't reach it (printed as such). The hold's trapdoor (x,16,0) is
+    // not declared: the batch cart drops through it and rests on it as a FLOOR (a vertical collision),
+    // never a horizontal stop in this bench (the amended rule's run on 0.30 @ 800: 0 hits), so a
+    // declaration there would be stale)
+    let lanes_text = lanes_design(ns, so.siding_north, false, so.r_support.as_deref(), None).map_err(|e| format!("the lanes file's # contacts: can't be read: {e}"))?;
+    let lanes_contacts: Vec<(i32, i32, i32)> = crate::contacts::declared_contacts_strict(&lanes_text)?.into_iter().map(|(p, _)| (p.x, p.y, p.z)).filter(|c| c.0 == lx).collect();
+    let stand_in_stops: Vec<(i32, i32, i32)> = vec![(lx, 16, -1), (lx, 17, -1)];
     let declared_stops: Vec<(i32, i32, i32)> = lanes_contacts.iter().chain(stand_in_stops.iter()).copied().collect();
     let mut block_contacts: std::collections::BTreeMap<(i32, i32, i32), (String, usize)> = std::collections::BTreeMap::new();
     let mut early_contacts: std::collections::BTreeMap<(i32, i32, i32), (String, usize)> = std::collections::BTreeMap::new();
-    // (each cart's box and motion before the tick, world frame: `contacts::face_contacts`'s move)
-    let mut cart_prev: std::collections::HashMap<u32, (redsim::entity::vec3::Aabb, (f64, f64, f64))> = std::collections::HashMap::new();
     // (each napper's PRESENT margin before its leader's press (ironspec 21:14 (1)): the leader's press
     // tick minus the napper's PRESENT tick (its K tick + --nap-present-k); under 7: outside normal
     // operation)
@@ -1877,31 +1865,23 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
         }
         run.tick();
         let now: Vec<Option<(f64, f64, f64, f64)>> = carts.iter().map(|id| id.and_then(|id| st(&run.world, id))).collect();
-        // (the carts' block contacts: the shared definition, `crate::contacts::face_contacts`
-        // (ironspec 02:41 / 02:48 / 02:52, G1): every minecart in the world (the lane's carts, the K
-        // row's through-carts, the control cart) whose move collided horizontally this tick, judged
-        // from its box before and after the tick and its motion before it; each clipping box named by
-        // its cell in the design frame; the contacts before t 20 (the summoned start's settle) counted
-        // apart and judged against the same stops)
-        for e in run.world.entities.list.iter().filter(|e| !e.removed && e.horizontal_collision && matches!(e.kind, redsim::entity::EntityKind::Minecart(_))) {
-            let Some(&(before, mot)) = cart_prev.get(&e.id) else { continue };
-            for (p, blk) in crate::contacts::face_contacts_world(&run.world, before, e.bb, mot) {
+        // (the carts' block contacts: the shared definition, `crate::contacts::cart_contacts`
+        // (ironspec 02:41 / 02:48 / 02:52, amended 07:47 on G1's CHANGES 3): every minecart in the world
+        // (the lane's carts, the K row's through-carts, the control cart), judged from this tick's
+        // recorded moves (`Entity.move(SELF, …)`: the box before, the requested and the returned
+        // movement), an axis counting only where the game's collision clipped it; each clipping box
+        // named by its cell in the design frame; the contacts before t 20 (the summoned start's settle)
+        // counted apart and judged against the same stops)
+        for (ei, e) in run.world.entities.list.iter().enumerate().filter(|(_, e)| !e.removed && matches!(e.kind, redsim::entity::EntityKind::Minecart(_))) {
+            for (p, blk) in crate::contacts::cart_contacts(&run.world, ei) {
                 let cell = (p.x, p.y, mzc(p.z));
                 let map = if t >= 20 { &mut block_contacts } else { &mut early_contacts };
                 map.entry(cell).or_insert_with(|| (blk.clone(), 0)).1 += 1;
                 if std::env::var("MCTAS_CONTACT_DEBUG").is_ok() {
-                    eprintln!("t {t}: cart entity {} at {:.3},{:.3},{:.3} (motion {:.4},{:.4}) met {:?} {blk}", e.id, e.pos.x, e.pos.y, mzf(e.pos.z), mot.0, vz(mot.2), cell);
+                    eprintln!("t {t}: cart entity {} at {:.3},{:.3},{:.3} met {:?} {blk}", e.id, e.pos.x, e.pos.y, mzf(e.pos.z), cell);
                 }
             }
         }
-        cart_prev = run
-            .world
-            .entities
-            .list
-            .iter()
-            .filter(|e| !e.removed && matches!(e.kind, redsim::entity::EntityKind::Minecart(_)))
-            .map(|e| (e.id, (e.bb, (e.delta_movement.x, e.delta_movement.y, e.delta_movement.z))))
-            .collect();
         // (the napper's windows on R for the push bar's computed scope (ironspec 03:00): every tick its
         // centre is in R's cell, resting or still rolling onto it, as spans)
         if let Some((nc, _)) = nap
@@ -2753,8 +2733,12 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
             .map(|(k, v)| format!("({},{},{}) {} x{}", k.0, k.1, k.2, v.0, v.1))
             .chain(early_contacts.iter().filter(|(k, _)| !declared_stops.contains(k)).map(|(k, v)| format!("({},{},{}) {} x{} before t 20", k.0, k.1, k.2, v.0, v.1)))
             .collect();
+        // (G1's CHANGES 3 (2): every declared stop's hits; a declared stop no cart ever met is STALE
+        // and fails the row (a declaration that never applies hides nothing but names nothing either))
+        let hits = |k: &(i32, i32, i32)| block_contacts.get(k).map_or(0, |v| v.1) + early_contacts.get(k).map_or(0, |v| v.1);
+        let stale: Vec<String> = declared_stops.iter().filter(|k| hits(k) == 0).map(|k| format!("({},{},{})", k.0, k.1, k.2)).collect();
         lines.push(format!(
-            "the carts' block contacts (ironspec 21:25 (4), by the shared mobfarm::contacts::face_contacts (ironspec 02:41 / 02:48 / 02:52): every cart's move that collided horizontally (the lane's carts, the K row's through-carts, the control cart), replayed in the game's collide order (y, then the larger horizontal axis, then the other), a box counting on a horizontal step within 0.011 of its face on the side the motion goes and overlapping more than 0.01 on both other axes at that step; declared stops: the lanes file's # contacts: {} and the station's stand-ins {}): from t 20 {} cells ({}); before t 20 (the summoned start's settle, judged by the same stops): {} contacts at {} cells ({}); undeclared (the bar: 0): {}{}",
+            "the carts' block contacts (ironspec 21:25 (4), by the shared mobfarm::contacts::cart_contacts (ironspec 02:41 / 02:48 / 02:52, amended 07:47): every cart's recorded move this tick (Entity.move(SELF, ...): the box before, the requested and the returned movement; the lane's carts, the K row's through-carts, the control cart), replayed in the game's collide order (y, then the larger horizontal axis of the request, then the other), a box counting only on an axis the collision clipped, within 0.011 of its face on the side the request goes and overlapping more than 0.01 on both other axes at that step; declared stops: the lanes file's # contacts: {} and the station's stand-ins {}): from t 20 {} cells ({}); before t 20 (the summoned start's settle, judged by the same stops): {} contacts at {} cells ({}); every declared stop's hits: {}; stale declared stops (never hit; the bar: 0): {}{}; undeclared (the bar: 0): {}{}",
             if lanes_contacts.is_empty() { "none".to_string() } else { lanes_contacts.iter().map(|k| format!("({},{},{})", k.0, k.1, k.2)).collect::<Vec<_>>().join(" ") },
             stand_in_stops.iter().map(|k| format!("({},{},{})", k.0, k.1, k.2)).collect::<Vec<_>>().join(" "),
             block_contacts.len(),
@@ -2762,6 +2746,9 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
             early_contacts.values().map(|v| v.1).sum::<usize>(),
             early_contacts.len(),
             early_contacts.iter().map(|(k, v)| format!("({},{},{}) {} x{}", k.0, k.1, k.2, v.0, v.1)).collect::<Vec<_>>().join(" "),
+            declared_stops.iter().map(|k| format!("({},{},{}) x{}", k.0, k.1, k.2, hits(k))).collect::<Vec<_>>().join(" "),
+            stale.len(),
+            if stale.is_empty() { String::new() } else { format!(" [{}]", stale.join(" ")) },
             undeclared.len(),
             if undeclared.is_empty() { String::new() } else { format!(" [{}]", undeclared.join("; ")) }
         ));
@@ -3804,6 +3791,8 @@ pub struct SidingRow {
     /// The carts' undeclared block contacts from t 20 (ironspec 21:25 (4)): cells a cart's box met
     /// when its move collided horizontally, outside the declared stops.
     pub contacts_undeclared: usize,
+    /// Declared stops no cart met (G1's CHANGES 3 (2)): failures.
+    pub contacts_stale: usize,
     /// The contacts before t 20 (the summoned start's settle), counted apart.
     pub contacts_early: usize,
     /// The resting napper across the K row's passes (ironspec 23:15 (2)): the passes (samples), its
@@ -3944,6 +3933,7 @@ impl SidingRow {
             ("R <- K joint ticks", self.r_joint),
             ("releases at occupancy under 6", self.occ_low),
             ("undeclared contacts", self.contacts_undeclared),
+            ("stale declared stops (never hit)", self.contacts_stale),
             ("bars NOT JUDGED", self.not_judged),
             ("STUCK at the lip", self.lip_stuck),
             ("controls failing", self.control_fail),
@@ -4041,6 +4031,7 @@ pub fn parse_siding_row(text: String, so: &SidingOpts) -> Result<SidingRow, Stri
         } else if l.starts_with("the carts' block contacts (ironspec 21:25 (4)") {
             r.contacts_undeclared = req(l, "undeclared (the bar: 0): ")? as usize;
             r.contacts_early = req(l, "judged by the same stops): ")? as usize;
+            r.contacts_stale = req(l, "stale declared stops (never hit; the bar: 0): ")? as usize;
         } else if l.starts_with("the lip margin (ironspec 21:14 (2)") {
             let s = l.split("(stuck)): margins ").nth(1).ok_or(format!("siding_row: no lip margins in: {l}"))?;
             r.lip_min = if s.starts_with("- ") {

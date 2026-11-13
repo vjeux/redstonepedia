@@ -341,20 +341,22 @@ the inherited numbers again.
     - `lip_margin_on_official_rows`: 0.30 at rest, D − 5 → −1, D − 4 → 0;
     - `lip_margin_on_official_rolling_row`: 0.15 rolling with its K tick 12 gt before the press, P − 2 → −1, P − 1 → 2.
 - **Other per-row checks:**
-  - The carts' block contacts (ironspec 21:25 (4), with G1's note (c)), by the shared definition `mobfarm::contacts::face_contacts` (ironspec 02:41 / 02:48 / 02:52). The module hosts the definition for every judge; 7b90c3f1's interim must give identical sets.
-    - Every cart whose move collided horizontally counts: the lane's carts, the K row's through-carts and the control cart. Each is judged from its box before and after the tick and its motion before the tick.
-    - The move is replayed the way `Entity.move` collides: y first, then the larger horizontal axis of the motion, then the other. On each horizontal step, a collision box counts if:
-      - it lies within 0.011 of the step's box along that axis, on the side the motion goes;
+  - The carts' block contacts (ironspec 21:25 (4), with G1's note (c)), by the shared definition `mobfarm::contacts::cart_contacts` (ironspec 02:41 / 02:48 / 02:52, amended 07:47 on G1's CHANGES 3). The module hosts the definition for every judge (58f770cc's (A) rows and 7b90c3f1's r4 switch to the same call).
+    - A contact is an axis on which the game's collision CLIPPED the cart's ATTEMPTED move. redsim records every `Entity.move(MoverType.SELF, …)` per entity (`Entity::self_moves`: the tick, the box before, the requested movement and the movement `collide` returned; instrumentation only). An axis counts where `!Mth.equal(requested, returned)`, the test `horizontalCollision` uses.
+    - Every minecart counts: the lane's carts, the K row's through-carts and the control cart.
+    - The move is replayed in the game's step order: y first, then the larger horizontal component of the request, then the other, each axis moved by its returned component. On a clipped axis, a collision box counts if:
+      - it lies within 0.011 of the step's box along that axis, on the side the request goes;
       - it overlaps the step's box by more than 0.01 on both other axes, the vertical included;
       - the overlap is judged at that step, not after the whole move.
 
-      So a clip on x that the z step then slides off still counts (R58-m8's fence post). A support under a rolling cart never counts.
+      So a clip on x that the z step then slides off still counts (R58-m8's fence post). A rail snap (`setPos`, not a move) is never a contact; a resting cart pushed into a wall by its follower is one (its pushed motion is the attempted move the wall clips).
     - The module's tests:
-      - positive: a backstop in the path, and the fence post clipped before the z step;
-      - negative: a centred cart between walls, a resting slope queue's supports, and a cart rolling over flat rails on their supports.
+      - positive: a backstop in the path; the fence post clipped before the z step; its mirror, a |z| > |x| move caught by the z-first order; a contact that exists only after the y step; a resting cart pushed into a wall, through redsim;
+      - the bounds: a face 0.011 away counts and 0.012 doesn't; an other-axis overlap of 0.01 doesn't count and 0.0101 does;
+      - negative: a centred cart between walls, a rail snap 0.005 from a wall, a resting slope queue's supports, and a cart rolling over flat rails on their supports.
 
       A6's pre-trapdoor scrape is 58f770cc's positive control through the same call.
-    - Declared stops come from the design, not a hard-coded list (ironspec 04:14): the lanes file's `# contacts:` cells for the lane (the drop entry's backstop (x,24,5)), read from `lanes_design`'s own header. The station's cells the bench lays are labelled stand-ins: the hold's trapdoor (x,16,0) (dfb89499's stop) and the bench's end of track (x,16/17,−1). Any other contact fails the row.
+    - Declared stops come from the design, not a hard-coded list (ironspec 04:14): the lanes file's `# contacts:` cells for the lane (the drop entry's backstop (x,24,5)), read through the shared strict reader `contacts::declared_contacts_strict` (G1's CHANGES 3 (3): every entry, every cell, a malformed one or a failed read an error). The station's cells the bench lays are labelled stand-ins: the bench's end of track (x,16/17,−1). The hold's trapdoor (x,16,0) is not declared: the batch cart rests on it and drops through it as a floor (a vertical collision), never a horizontal stop here (0 hits under the amended rule), so a declaration there would be stale. Any other contact fails the row, and so does a declared stop no cart ever met (STALE, G1's CHANGES 3 (2)); every declared stop's hits are printed.
     - Contacts before t 20 (the summoned start's settle) are judged against the same declared stops (ironspec 04:14 (9)): the summoned carts exist from t 0.
   - The bench's run-time overrides (ironspec 04:07, 07:28 C8). Each `set_block` goes through a checker; every override's cell before → after is printed (counted per distinct transition), and one that leaves its cell unchanged fails the row (`override_noops`). The checked overrides:
     - the hold's trapdoor toggles (an iron trapdoor since ironspec 04:34; the station's part, laid here as a stand-in);
