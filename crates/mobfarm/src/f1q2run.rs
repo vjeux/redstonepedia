@@ -3267,6 +3267,8 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     // 2: let go after it closed)
     let mut late_lane: Option<usize> = None;
     let mut late_phase: u8 = 0;
+    // (the late-return control) whether its hold timed out without a window opening and closing
+    let mut late_timed_out = false;
     // (G1 X35) the riders in the lift column at the hold's start
     let mut lift_stack_at_hold: Vec<u32> = Vec::new();
     // (cc767b78) the traced entity's per-tick rows
@@ -3811,16 +3813,22 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     controls_done.push(format!("the late-return control at t {rel}: napper cart #{} (lane x {}) held at its siding's last cell before R until one of its lane's release windows opens and closes", e.id, late_lane.map_or(0, |k| LANES[k])));
                 }
             }
-            if let (Some((cart, _, p)), Some(k)) = (late_hold, late_lane)
+            if let (Some((cart, t_hold, p)), Some(k)) = (late_hold, late_lane)
                 && late_phase < 2
                 && let Some(ci) = redsim::entity::index_of(w, cart)
             {
                 let open = ctl.siding_on[k].is_some() || ctl.siding_off[k].is_some();
                 if late_phase == 0 && open {
                     late_phase = 1;
+                    controls_done.push(format!("the late-return control at t {rel}: lane x {}'s release window opened with the napper cart held", LANES[k]));
                 } else if late_phase == 1 && !open {
                     late_phase = 2;
                     controls_done.push(format!("the late-return control at t {rel}: lane x {}'s release window closed: the napper cart let go", LANES[k]));
+                } else if rel - t_hold > 300 {
+                    // (never a hold for good: no window opened and closed within three D periods)
+                    late_phase = 2;
+                    late_timed_out = true;
+                    controls_done.push(format!("the late-return control at t {rel}: no release window of lane x {} opened and closed within 300 gt of the hold (phase {}): the napper cart let go (the control can't bite)", LANES[k], if open { 1 } else { 0 }));
                 }
                 if late_phase < 2 {
                     w.entities.set_pos(ci, wpos(p[0], p[1], p[2]));
@@ -5119,6 +5127,9 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             // (cc767b78 11:15) the villager's position in the DESIGN frame (its world position is
             // w.entities.list[i].pos); world queries convert back with wpos
             let pos = dpos(w.entities.list[i].pos);
+            // (G1's P14 / the at-entry control) a stamp a control wrote this tick: the next tick's
+            // pre-tick stamp is the written one, not the one read before the write
+            let mut forced_stamp: Option<i64> = None;
             let (home, activity_rest, panic, sleeping, stamp, target, last_slept, reach, sink_cd, path_target, path_end, hostile, target_kind, activity, target_key, path_from, target_close) = {
                 use redsim::entity::mob::ai::brain::Act;
                 let b = redsim::entity::mob::ai::brain::brain(w, i);
@@ -5531,6 +5542,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                         if let Some(ex) = redsim::entity::mob::ai::brain::brain_mut(w, i).ex.as_deref_mut() {
                             let before = ex.mem.cant_reach_since;
                             ex.mem.cant_reach_since = Some(now - 1_100);
+                            forced_stamp = Some(now - 1_100);
                             at_entry_rider = Some(id);
                             at_entry_before = Some((now - t0, before.map(|s| now - s)));
                             controls_done.push(format!("the at-entry control at t {}: {who}'s stamp aged from {} to 1,100 gt in REST (under 1,200: no release; the at-entry bar must catch its next HOME-target set)", now - t0, before.map_or("unarmed".to_string(), |s| format!("{} gt", now - s))));
@@ -6344,7 +6356,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 r.stuck_ticks[place_of(c)] += 1;
             }
             r.prev_panic = panic;
-            r.prev_stamp = stamp;
+            r.prev_stamp = forced_stamp.or(stamp);
             r.prev_home = home;
             r.prev_target = target;
             r.prev_target_close = target_close;
@@ -7689,6 +7701,14 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         }
     }
     // (ironspec 23:56 PT (4)) the positive controls this run exercised (each must make its bar fail)
+    // (G1's P21: acts read back and printed) every control's actions, whichever controls ran (the
+    // gossip / bystander controls print the same line with their target's margin below)
+    if !(o.gossip_control || o.bystander_control.is_some()) {
+        s.push_str(&format!(
+            "the positive controls' actions (each judged on its own bar in the controls line at the end): {}\n",
+            if controls_done.is_empty() { "none acted".to_string() } else { controls_done.join("; ") }
+        ));
+    }
     if o.gossip_control || o.bystander_control.is_some() {
         // (ironspec 02:48 PT) the bystander control's stamped napper: its margin at its next
         // own-pocket summon, from the harm bar's rows
@@ -8361,7 +8381,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 let siding_thr: [i64; 3] = [0, 1, 2].map(|k| lap[k] + period[k] + 30 + 100);
                 let stop_thr = 161 + 100;
                 unrouted_derivation = format!(
-                    "the thresholds (G1 10:47 O7: from the design and the controller, not the judged nappers): on the siding, lane x {} / {} / {}: the lap {} / {} / {} gt (the median D period {} / {} / {} gt x 8 carts) + one D period + the 30-gt release window + 100 = {} / {} / {} gt; at the stop: 58f770cc's entry -> R band top 161 gt + no tap wait + 100 = {stop_thr} gt; measured, for information: the longest late rejoin {late_max} gt, the worst entry -> R {entry_r_max} gt{}",
+                    "the thresholds (G1 10:47 O7: from the design and the controller, not the judged nappers): on the siding, lane x {} / {} / {}: the lap {} / {} / {} gt (the median D period {} / {} / {} gt x 8 carts) + one D period + the 30-gt release window (the emulated siding release: R off 30 gt after it powers, siding_off = now + 30, day-1's latch line 14) + 100 (ironspec 08:41's margin) = {} / {} / {} gt; at the stop: 58f770cc's entry -> R band top 161 gt (09:24 PT, the dense sweep 104 / 104) + no tap wait + 100 (ironspec 08:41's margin) = {stop_thr} gt; measured, for information: the longest late rejoin {late_max} gt, the worst entry -> R {entry_r_max} gt{}",
                     LANES[0], LANES[1], LANES[2], lap[0], lap[1], lap[2], period[0], period[1], period[2], siding_thr[0], siding_thr[1], siding_thr[2],
                     if period.contains(&0) { format!("; NOT JUDGED on lane(s) {} (no D period): FAIL", (0..3).filter(|k| period[*k] == 0).map(|k| format!("x {}", LANES[k])).collect::<Vec<_>>().join(", ")) } else { String::new() }
                 );
@@ -9018,8 +9038,9 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     // (ironspec 08:26 / 08:41 platform) the lap-late rejoin must PASS the unrouted bar (a held
     // control); acted only if the held napper really missed its first release and rejoined later
     if o.late_return_control {
+        // (exercised only if the hold happened, did not time out, and the held napper rejoined late)
         let missed = late_rider.is_some_and(|v| late_rejoin.iter().any(|(rv, _, _)| *rv == v));
-        controls.push(("--late-return-control".to_string(), "  no napper unrouted", false, late_hold.is_some() && missed, true));
+        controls.push(("--late-return-control".to_string(), "  no napper unrouted", false, late_hold.is_some() && !late_timed_out && missed, true));
     }
     // (G1 10:24 (c)) the misroute control: two extra arrivals sent into lane -1 must take it to a
     // 9th cart (the count bar failing on lane -1 alone)
