@@ -520,8 +520,14 @@ panicking, slept, no memory, 3 willing; information). The carts' contacts with b
 (grown 0.02) meets; a cell the header declares neither as a stop (`stops: CELLS (why)`) nor as a
 contact (`# contacts: CELLS=REASON (evidence row)`, walls a cart rides against, ironspec 22:05) fails
 the row.
-The loud bars (ironspec 22:56 / 22:58 / 23:16 PT): every `# inert:` and `# always-on:` cell of the
-module watched through the run (any state change fails, with the tick and both states); A6's park braked at every arrival (its slope (1,y+1,-5) /
+The loud bars (ironspec 22:56 / 22:58 / 23:16 / 23:51 PT): every `# inert:` and `# always-on:` cell of the
+module watched through the run (any state change fails, with the tick and both states); every
+`# push-pair: A+B=REASON` declaration checked (a cart resting in either cell, its rail unpowered, is
+never displaced beyond the bound the reason states, its first number; a failure prints the tick, the
+displacement and the nearest cart); the split's Ts beside declared update-only sources change shape
+only when their own lever flips (within 2 gt), else the run fails with what was acting; the summon
+check's callers not willing for want of sleep (LAST_SLEPT expired, no golem stamp) print apart from
+those blocked by an older stamp; A6's park braked at every arrival (its slope (1,y+1,-5) /
 (0,y,-5) unpowered when the activator's cart rolls onto it), no riderless cart past A6's R detector
 (4,y-1,4), and no napper held in A6 past the class-b bound (R by the end of the REST after the one it
 entered in) each fail the run; every failed bar of the napper rows ((a2), (b) and these) prints its
@@ -529,7 +535,14 @@ first-bad-event trace, the drive events of the 400 gt before its first failure. 
 each caller's activity (ironspec 22:54: TradeWithVillager runs only in MEET / IDLE).
 `--stack-bench`, instead of the run: the (a) feed stack's dust (-3,23,9) forced through both power
 states with the T (-3,25,9)'s lever off and on (the T's shape against its power's settle after each
-step), and day-1's R1 gate with its line ends in four states (each gate cell and the queue rail).
+step), and day-1's R1 gate with its line ends in four states (each gate cell and the queue rail),
+and the mechanism lines' benches (ironspec 21:51 PT): each line whose end the run drives switched on
+and off at a bench tick, the ticks until its measured cell powers and unpowers (the siding feeds to
+their rests (x-2,24,7), the hold pulse to (9,0,8), the M16bw pocket releases, the R lines, R1's gate
+from REST_l), and where the emulation times an input by an assumed latency (the siding's R at
+D + k_sw + 8, the hold rail 2 gt after its input) the measured latency against it with the
+1-gt-shifted control. The run also fails any cart other than the picked napper's on the leg's cells
+(8,25,9) / (9,25,8) (B4, ironspec 23:44 / 23:47 PT).
 Two classes print apart from
 the bars until their parts land (ironspec 19:57 / 19:31 PT): "the way-in's fall (C pending)", a
 stamp peak or HOME loss in the way-in's cells (x 4..9, y <= -13, z <= 0), and A6's entries outside
