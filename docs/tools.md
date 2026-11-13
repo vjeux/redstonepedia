@@ -575,6 +575,18 @@ open (REST_l, DAY low, RS_ready) for over 30 gt with HELD set (day-1's E2); the 
 the holds never; any other place fails). Naps count once per lie-down, keyed to its REST night, with
 the late-sleeper rule. The picks' window is C 141..220; PRESENT is effective 4 gt after its set edge
 (the RS NOR's latency).
+
+Later flags (the 18th-24th commits): `--c7-placement N` / `--c7-home-stored` (tick-exact's farm-c7
+reconciliation, the record loaded with `spec_of_with(.., PortHome::Skip)`; a `Tags:["no-home"]` villager
+stays HOME-less under `port home`), `--lift-block T,N` (an empty cart held on the lift exit; N >= 25 the
+judged jam positive), `--trace-entity N,A,B` (with its `+push` fields) and `--chain-trace A,B` (per-tick
+rows), `--pair-check A:B:DMIN:DMAX` (a late-path pair against the cart trajectories), `--cart-cells FILE`
+(every cart's cell transitions through the split row, sidings, merges and drops), `--with-part
+FILE@dx,dy,dz` (a part composed into the run), and the controls `--strand-control` (the unrouted bar) and
+`--at-entry-control` (the at-entry bar). PRESENT_l is the built latch (reset only by the departure past R);
+the emulation's keys follow a world open; the at-entry bar judges every HOME-target set on the pre-tick
+stamp beside the HOME losses by mechanism; the scene check parses the written scene against the spawned
+entities; the rider pushes are summarized per lane.
 The one-in-flight bars run from the divert (a pick the divert turns away never enters the way-in;
 those print apart with their causes). SIGHT prints its crossings by ray class (each entity by its
 label or mob type).

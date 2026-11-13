@@ -110,6 +110,15 @@ pub struct Opts {
     /// (G1 / ironspec 08:41 platform) the unrouted bar's positive: the first napper reaching its
     /// siding's R after t 1,000 has PRESENT_l reset on arrival (no release can follow).
     pub strand_control: bool,
+    /// (9fc3155f / G1 09:05) every cart's cell transitions through the split row, sidings, merges,
+    /// S-bends and drops, written to this file.
+    pub cart_cells: Option<std::path::PathBuf>,
+    /// (G1 X19's control) the first lane rider in REST after t 1,000 gets its stamp aged to 1,100 gt:
+    /// the at-entry bar must fail on it alone.
+    pub at_entry_control: bool,
+    /// (ironspec 08:26 / 08:41 platform) the fail-safe's control: the first napper cart at a siding's
+    /// last cell before R after t 1,000 is held 130 gt; it must rejoin a D period late and pass.
+    pub late_return_control: bool,
     /// (ironspec 11:15, 9fc3155f's statics) S-bend seats whose stamp resets are counted: `NAME`,
     /// the seat's rail cell, its clearing candidates (a complete draw to one of them while a rider
     /// sits on the seat resets its stamp).
@@ -248,28 +257,65 @@ fn detector_level(w: &redsim::world::World) -> Result<u32, String> {
     s.split("power=").nth(1).and_then(|r| r.split([',', ']']).next()).and_then(|v| v.parse().ok()).ok_or_else(|| format!("the DAY detector's power doesn't parse: {s}"))
 }
 
-/// (G1 07:17 PT) The drive's spawn list against the scene's entity lines: one spawned entity per
-/// line, in order, each of the line's type at the line's position (the root entity; its passengers
-/// ride it), an error on any mismatch.
-fn check_spawn_list(w: &redsim::world::World, spawned: &[u32], lines: &[(String, [f64; 3], Option<String>)]) -> Result<(), String> {
-    if spawned.len() != lines.len() {
-        return Err(format!("--scene-out: the run spawned {} entities, the scene lists {} lines", spawned.len(), lines.len()));
+/// (G1 07:17 PT; G1 X34: against an INDEPENDENT source) The WRITTEN scene's entity lines, parsed
+/// back from the text the replayer reads, against the entities the run spawned as the world holds
+/// them: one line per spawned root entity, in order, the same type, position and passengers (their
+/// count and types), an error on any difference (an extra or missing line, a dropped cart, a
+/// passenger off).
+pub fn check_scene_text(spawned: &[(String, [f64; 3], Vec<String>)], text: &str) -> Result<(), String> {
+    let lines: Vec<(String, [f64; 3], Vec<String>)> = text
+        .lines()
+        .filter_map(|l| l.strip_prefix("entity: "))
+        .map(|l| {
+            let f: Vec<&str> = l.splitn(5, ' ').collect();
+            let num = |i: usize| f.get(i).and_then(|v| v.parse::<f64>().ok()).unwrap_or(f64::NAN);
+            let nbt = f.get(4).copied().unwrap_or("");
+            let passengers: Vec<String> = match nbt.find("Passengers:[") {
+                Some(i) => nbt[i..].match_indices("id:\"").map(|(j, _)| nbt[i + j + 4..].split('"').next().unwrap_or("").to_string()).collect(),
+                None => Vec::new(),
+            };
+            (f.first().copied().unwrap_or("").to_string(), [num(1), num(2), num(3)], passengers)
+        })
+        .collect();
+    if lines.len() != spawned.len() {
+        return Err(format!("--scene-out: the written scene lists {} entity lines, the run spawned {} entities", lines.len(), spawned.len()));
     }
-    for (n, (id, (ty, p, _))) in spawned.iter().zip(lines.iter()).enumerate() {
-        let k = redsim::entity::index_of(w, *id).ok_or_else(|| format!("--scene-out: e{n} (#{id}) isn't in the world"))?;
-        let e = &w.entities.list[k];
-        let kind = match &e.kind {
-            EntityKind::Minecart(_) => "minecraft:minecart".to_string(),
-            EntityKind::Mob(m) => format!("minecraft:{}", m.ty.def().id),
-            _ => format!("{:?}", std::mem::discriminant(&e.kind)),
-        };
-        let ty_ok = kind == *ty || (ty.ends_with("_boat") && !matches!(e.kind, EntityKind::Minecart(_) | EntityKind::Mob(_)));
-        let pos_ok = (e.pos.x - p[0]).abs() < 1e-6 && (e.pos.y - p[1]).abs() < 1e-6 && (e.pos.z - p[2]).abs() < 1e-6;
-        if !ty_ok || !pos_ok {
-            return Err(format!("--scene-out: e{n} is {kind} at ({:.4},{:.4},{:.4}), the scene line {ty} at ({},{},{})", e.pos.x, e.pos.y, e.pos.z, p[0], p[1], p[2]));
+    for (n, ((ty, p, ps), (sty, sp, sps))) in lines.iter().zip(spawned.iter()).enumerate() {
+        let ty_ok = ty == sty || (ty.ends_with("_boat") && sty.ends_with("_boat"));
+        let pos_ok = (0..3).all(|k| (p[k] - sp[k]).abs() < 1e-6);
+        if !ty_ok || !pos_ok || ps != sps {
+            return Err(format!("--scene-out: line e{n} is {ty} at ({},{},{}) with passengers {:?}, the run spawned {sty} at ({:.4},{:.4},{:.4}) with {:?}", p[0], p[1], p[2], ps, sp[0], sp[1], sp[2], sps));
         }
     }
     Ok(())
+}
+
+/// (ironspec 01:59 PT, the build guide's start; G1 U13) The module's stored queue cart (the cart at
+/// the way-in's queue cell (9, bed y + 13, -4)) dropped from a scene's entity list: run_inner's own
+/// drop, shared with its test.
+pub fn drop_stored_queue_cart(entities: &mut Vec<(String, [f64; 3], Option<String>)>, bed_y: i32) {
+    let q = [9, bed_y + 13, -4];
+    entities.retain(|e| !(e.0.contains("minecart") && [e.1[0].floor() as i32, e.1[1].floor() as i32, e.1[2].floor() as i32] == q));
+}
+
+/// The run's spawned root entities as the world holds them (for [`check_scene_text`]): each one's
+/// type, position and passengers' types.
+fn spawned_view(w: &redsim::world::World, spawned: &[u32]) -> Result<Vec<(String, [f64; 3], Vec<String>)>, String> {
+    let kind = |e: &redsim::entity::Entity| match &e.kind {
+        EntityKind::Minecart(_) => "minecraft:minecart".to_string(),
+        EntityKind::Mob(m) => format!("minecraft:{}", m.ty.def().id),
+        _ => "minecraft:oak_boat".to_string(),
+    };
+    spawned
+        .iter()
+        .enumerate()
+        .map(|(n, id)| {
+            let k = redsim::entity::index_of(w, *id).ok_or_else(|| format!("--scene-out: e{n} (#{id}) isn't in the world"))?;
+            let e = &w.entities.list[k];
+            let ps: Vec<String> = e.passengers.iter().filter_map(|p| redsim::entity::index_of(w, *p).map(|q| kind(&w.entities.list[q]))).collect();
+            Ok((kind(e), [e.pos.x, e.pos.y, e.pos.z], ps))
+        })
+        .collect()
 }
 
 /// (G1 07:17 PT) The scene's entity lines as `--scene-out` writes them: every entity of the run's
@@ -298,6 +344,14 @@ fn follow_open(ctl: &mut Ctl, nappers: &mut [(u32, usize, i64)], follow: impl Fn
     }
     for n in nappers.iter_mut() {
         n.0 = follow(n.0);
+    }
+    // (G1 X21) the releases' napper ids and R's detector riders, so D2's own-pass check holds across
+    // the open
+    for r in ctl.release_log.iter_mut() {
+        r.1 = follow(r.1);
+    }
+    for r in ctl.rdet_riders.iter_mut() {
+        r.1 = r.1.map(&follow);
     }
     keys
 }
@@ -527,6 +581,8 @@ struct Ctl {
     rdet_prev: bool,
     /// (ironspec D2) every rise of R's detector.
     rdet_rises: Vec<i64>,
+    /// (G1 X21) each rise with the rider on R's detector then.
+    rdet_riders: Vec<(i64, Option<u32>)>,
     /// (b8949c96's way-in, e9f0f4cbf) the queue's gate (day-1's to build, EMULATED): RELEASE =
     /// RS_ready AND the hold (>= 80 gt from the arrival) AND REST AND NOT DAY, a redstone block at
     /// the queue rail's west (8,y+13,-4) until the departure; RS_ready set at power-up and by A6's
@@ -592,6 +648,10 @@ struct Ctl {
     day_mismatch_rows: Vec<String>,
     /// (G1 N18's control) compare at the half-period off-phase.
     day_phase_control: bool,
+    /// (G1 X24) the control's one offset write: done, its tick; and every mismatch's tick.
+    day_phase_done: bool,
+    day_phase_at: Option<i64>,
+    day_mismatch_at: Vec<i64>,
     /// (ironspec's E2) the tick R1 last opened (REST_l, DAY low, RS_ready) while HELD was set.
     r1_open_since: Option<i64>,
     /// (G1's note) a pick decided while another was still pending (an overwrite).
@@ -612,6 +672,8 @@ struct Ctl {
     /// (ironspec D2's known positive) RS_ready forced set at the first departure.
     rs_early: bool,
     rs_early_done: bool,
+    /// (G1 X22) the tick the RS_ready control forced its set.
+    rs_early_at: Option<i64>,
     dep_log: Vec<(i64, u32)>,
     pick_log: Vec<(i64, u32)>,
     present_log: Vec<(i64, usize)>,
@@ -728,6 +790,8 @@ thread_local! {
     static BLOCK_TOGGLES: std::cell::RefCell<Vec<([i32; 3], i64, String, String)>> = const { std::cell::RefCell::new(Vec::new()) };
     /// (tick-exact 06:21 PT) the drive's writes of a cell's existing state, skipped (no write, no act).
     static NOOP_WRITES: std::cell::RefCell<i64> = const { std::cell::RefCell::new(0) };
+    /// (G1 X16) the no-op emulated writes' rows (tick, cell, state), the first 40.
+    static NOOP_ROWS: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
 /// (G1 / tick-exact, Nov 13: the replay's divergence check) redsim's recorded state at a drive act,
@@ -767,6 +831,13 @@ fn set(w: &mut redsim::world::World, p: [i32; 3], state: &str, flags: u32) -> Re
     // drive act)
     if w.get(redsim::pos::BlockPos::new(p[0], p[1], p[2])) == b {
         NOOP_WRITES.with(|n| *n.borrow_mut() += 1);
+        // (G1 X16) every no-op emulated write listed (its tick, cell and state)
+        NOOP_ROWS.with(|r| {
+            let mut r = r.borrow_mut();
+            if r.len() < 40 {
+                r.push(format!("t {} ({},{},{}) {state}", w.time, p[0], p[1], p[2]));
+            }
+        });
         return Ok(());
     }
     // (G1's guard, ironspec 17:46 / 17:49; G1 17:50: refuse a difference that ADDS a golem or path
@@ -1371,6 +1442,13 @@ impl Ctl {
         // the latest released napper's)
         if rdet && !self.rdet_prev {
             self.rdet_rises.push(now);
+            // (G1 X21) the rise attributed to the rider on R's detector cell (or the cell above the
+            // rail's floor), so D2 can require the PREVIOUS napper's own pass
+            let who = w.entities.list.iter().find(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && {
+                let c = cell(e.pos);
+                c == [4, by - 1, 4] || c == [4, by, 4]
+            }).and_then(|e| e.passengers.first().copied());
+            self.rdet_riders.push((now, who));
         }
         self.rdet_prev = rdet;
         // (ironspec 22:40 PT (2), G1's [4]) the latch's set input is R's detector power delayed
@@ -1424,6 +1502,7 @@ impl Ctl {
                 if self.rs_early && !self.rs_early_done {
                     self.q_rs_ready = true;
                     self.rs_early_done = true;
+                    self.rs_early_at = Some(now);
                     self.nap_events.push(format!("t {now}: the RS_ready control: RS_ready forced set at the departure, before its napper passes R"));
                 }
                 if self.q_held {
@@ -1449,6 +1528,21 @@ impl Ctl {
             // `--day-threshold` (6, ironspec 02:18 PT: the real line's L-6 threshold); the detector
             // updates its power every 20 gt, so the level is sampled at its updates)
             // (G1 N4: one reader for every DAY use, an error when the cell isn't a detector)
+            // (G1 X24) --day-phase-control now offsets the STORED power the check reads, once: at
+            // the first on-phase update after t 1,000 the detector's power is written one off
+            // (before -> after printed), and exactly that update must mismatch
+            if self.day_phase_control && !self.day_phase_done && now >= 1_000 && w.time % 20 == 0 {
+                let pos = redsim::pos::BlockPos::new(-5, 15, 3);
+                let before = w.get(pos).to_string();
+                let p0 = detector_level(w)?;
+                let p1 = if p0 == 15 { 14 } else { p0 + 1 };
+                let after = before.replace(&format!("power={p0}"), &format!("power={p1}"));
+                let b = redsim::block::Block::parse(&after).map_err(|e| format!("{after}: {e}"))?;
+                w.set_block(pos, b, redsim::world::flags::RAW);
+                self.day_phase_done = true;
+                self.day_phase_at = Some(now);
+                self.nap_events.push(format!("t {now}: the day-phase control: the detector's stored power {p0} -> {p1} ({before} -> {after})"));
+            }
             let power = detector_level(w)?;
             let not_day = power < self.day_threshold;
             // (ironspec's E2, day-1 06:51 PT) HELD's stuck bound: R1 open (REST_l, DAY low, RS_ready)
@@ -1473,8 +1567,7 @@ impl Ctl {
             {
                 let p = power;
                 self.day_ticks += 1;
-                let phase = if self.day_phase_control { 10 } else { 0 };
-                if w.time % 20 == phase && now >= 1 {
+                if w.time % 20 == 0 && now >= 1 {
                     let sky = match self.day_sky {
                         Some(s) => s,
                         None => {
@@ -1487,6 +1580,7 @@ impl Ctl {
                     self.day_updates += 1;
                     if p != want {
                         self.day_mismatch += 1;
+                        self.day_mismatch_at.push(now);
                         if self.day_mismatch_rows.len() < 8 {
                             self.day_mismatch_rows.push(format!("t {now} (day time {}): stored {p}, analytic {want}", w.day_time().rem_euclid(24_000)));
                         }
@@ -1983,6 +2077,8 @@ struct Rec {
     switch_rest_at: Option<String>,
     /// (G1 07:28 PT) that row waits for the clip and the covered / dark call later in the tick.
     switch_pending: bool,
+    /// (G1 X40) that REST tick's covered / dark call.
+    switch_covered: Option<bool>,
     /// (ironspec 07:30 real (1), G1) every CANT_REACH arming and its clearing: (armed, cleared,
     /// how); the arming in progress.
     arm_open: Option<i64>,
@@ -2264,6 +2360,9 @@ struct Direct {
     s_born: i64,
     stand_misses: i64,
     stand_misses_locked: i64,
+    /// (G1 X23) locked misses with a rider event at the emptied lane's pocket (not the empty-pocket
+    /// control's doing).
+    misses_not_empty: i64,
     /// (ironspec 23:55 PT (2)) the first S without a roll and its pocket riders' LAST_SLEPT expiries.
     first_miss: Option<(i64, String)>,
     covered: i64,
@@ -2370,6 +2469,7 @@ pub fn run_driven(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, 
     SUPPRESSED.with(|s| s.borrow_mut().clear());
     BLOCK_TOGGLES.with(|t| t.borrow_mut().clear());
     NOOP_WRITES.with(|n| *n.borrow_mut() = 0);
+    NOOP_ROWS.with(|r| r.borrow_mut().clear());
     let r = run_inner(spec, o);
     BUILT.with(|g| *g.borrow_mut() = None);
     BLOCK_STANDINS.with(|b| b.borrow_mut().clear());
@@ -2418,8 +2518,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             carts.remove(k);
         }
         if o.napper && !o.seed_queued_napper {
-            let q = [9, o.bed[1] + 13, -4];
-            sp.entities.retain(|e| !(e.0.contains("minecart") && [e.1[0].floor() as i32, e.1[1].floor() as i32, e.1[2].floor() as i32] == q));
+            drop_stored_queue_cart(&mut sp.entities, o.bed[1]);
         }
         sp.entities.extend(carts);
     }
@@ -2448,14 +2547,16 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     // as every bench's drive starts it, `Run::start` with the drive's options, the settle run out
     // and the scene's entity lines spawned in file order, the memories set by the drive's acts)
     let drive_ticks = (o.ticks + 200) as u32;
-    let (mut run, lines) = if drive_on {
+    let (mut run, mut lines) = if drive_on {
         let dro = RunOpts { ai: true, ..RunOpts::steady(o.seed, drive_ticks, WalkMode::Random) };
         let mut run = Run::start(&sp, &dro)?;
         while run.settle_tick() {}
         let lines = redsim::entity::mob::drive::spawn_lines(&mut run, &sp)?;
         // (G1 07:17 PT: the scene's entity lines are the run's spawn list, asserted at write time
         // by count, type and position)
-        check_spawn_list(&run.world, &lines, &sp.entities)?;
+        // (G1 07:17 PT, X34) the WRITTEN scene text (what the replayer reads) against the world's
+        // spawned entities, passengers included, at write time
+        check_scene_text(&spawned_view(&run.world, &lines)?, &scene_entity_lines(&sp.entities))?;
         (run, lines)
     } else {
         (Run::new_homeless(&sp, &ro)?, Vec::new())
@@ -2473,10 +2574,14 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     // only when its file composes them: the N = 1 loop part at the gap chunk (1,1), within the idle
     // strolls' 10 / 7 of the riders near the module's +x / +z faces; the BURIED variant waits for
     // 9fc3155f's shared site code (fleecheck::surround_spec), one definition for runs and statics)
-    let loop_composed = sp.blocks.iter().any(|(p, b)| p.x >= 14 && p.z >= 16 && b.to_string().contains("obsidian"));
+    // (G1 X43) the loop part detected by its whole frame and loop, not one block: at least 10
+    // obsidian (the portal frame) and 2 droppers (the item loop) beyond x 14, z 16
+    let loop_obsidian = sp.blocks.iter().filter(|(p, b)| p.x >= 14 && p.z >= 16 && b.to_string().contains("obsidian")).count();
+    let loop_droppers = sp.blocks.iter().filter(|(p, b)| p.x >= 14 && p.z >= 16 && b.to_string().contains("dropper")).count();
+    let loop_composed = loop_obsidian >= 10 && loop_droppers >= 2;
     let site_line = format!(
-        "the site (ironspec 07:43 / 07:57 platform, G1 07:50): FLOATING (redsim reads air outside the build); {}",
-        if loop_composed { "the N = 1 loop part composed in (an obsidian frame at the gap chunk (1,1)): \"(floating site: void outside the box, envelope covered)\"" } else { "the N = 1 loop part NOT composed in this file (no obsidian at x >= 14, z >= 16): \"(floating site, envelope partly covered: the loop part at chunk (1,1) missing)\"" }
+        "the site (ironspec 07:43 / 07:57 platform, G1 07:50): FLOATING (redsim reads air outside the build); {} ({loop_obsidian} obsidian, {loop_droppers} droppers beyond x 14, z 16; G1 X43: the frame needs >= 10, the loop >= 2)",
+        if loop_composed { "the N = 1 loop part composed in: \"(floating site: void outside the box, envelope covered)\"" } else { "the N = 1 loop part NOT composed in this file: \"(floating site, envelope partly covered: the loop part at chunk (1,1) missing)\"" }
     );
     let t0 = run.world.time;
     let mut drive_head: Option<String> = None;
@@ -2785,6 +2890,10 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             .map(|e| e.id)
             .collect()
     });
+    // (G1 X31) each lane cart's lane at t0, by id (the wrong-lane bar follows it; a world open
+    // renews the keys)
+    let mut cart_lane0: BTreeMap<u32, usize> = lane_ids_t0.iter().enumerate().flat_map(|(k, ids)| ids.iter().map(move |id| (*id, k))).collect();
+    let mut wrong_lane: Vec<(u32, String)> = Vec::new();
     let mut occ_min = [i64::MAX; 3];
     let mut away_max = [0i64; 3];
     let mut away_rows: Vec<String> = Vec::new();
@@ -2840,12 +2949,17 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     let mut at_home_target_n = 0i64;
     let mut at_home_target_max = 0i64;
     let mut at_home_target_over = 0i64;
+    // (G1 X19's control) the riders with an over-1,000 HOME-target set, and the control's rider
+    let mut at_entry_over_ids: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+    let mut at_entry_rider: Option<u32> = None;
     // (ironspec D2) every napper's R: (id, tick)
     let mut at_r_log: Vec<(u32, i64)> = Vec::new();
     // (ironspec 06:31 real) the farm-stop bar: ticks a napper without HOME stood at the bed stop
     let mut stop_homeless: Vec<String> = Vec::new();
     let mut stop_homeless_n = 0i64;
     let mut home_erased = false;
+    // (G1 X8) the napper the farm-stop control erased
+    let mut home_erased_id: Option<u32> = None;
     let mut stamp_control_rider: Option<u32> = None;
     // (G1: the air bar's positive) the held rider: (id, from, the cart's held position, the cart, its
     // air at the hold, its least air in the hold)
@@ -2854,6 +2968,11 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     let mut air_stacked: Vec<u32> = Vec::new();
     // (the lift-block control's cart)
     let mut lift_blocker: Option<u32> = None;
+    // (ironspec 08:26 / 08:41 platform) the late-return control's held cart (id, from, where) and rider
+    let mut late_hold: Option<(u32, i64, [f64; 3])> = None;
+    let mut late_rider: Option<u32> = None;
+    // (G1 X35) the riders in the lift column at the hold's start
+    let mut lift_stack_at_hold: Vec<u32> = Vec::new();
     // (cc767b78) the traced entity's per-tick rows
     let mut trace_rows: Vec<String> = Vec::new();
     // (ironspec 08:26 platform (3)) the chain trace's rows
@@ -2869,11 +2988,23 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     let mut stopped_ticks: i64 = 0;
     // (G1 08:21 PT) every cart's cell entries (tick, cell), for --pair-check
     let mut cart_entries: BTreeMap<u32, Vec<(i64, [i32; 3])>> = BTreeMap::new();
+    // (ironspec 09:21-09:25 platform) every mob-on-cart push: tick, cart, its lane at t0, the pusher's
+    // activity, |impulse|, its component along the cart's motion
+    let mut pushes: Vec<(i64, u32, Option<usize>, String, f64, f64)> = Vec::new();
+    redsim::entity::minecart::log_cart_pushes(&mut run.world);
+    redsim::entity::minecart::log_cart_cart_pushes(&mut run.world);
+    // (ironspec 09:28) this tick's pushes as the trace's +push fields, and their (pusher, pushed) ids
+    let mut tick_pushes: Vec<String> = Vec::new();
+    let mut tick_push_ids: Vec<(u32, u32)> = Vec::new();
     // (ironspec 08:23 platform (2), G1 08:22 PT) the HOME losses by the release branch, and all
     let mut release_branches: i64 = 0;
     let mut home_lost_total: i64 = 0;
     // (G1 / ironspec 08:41 platform) the unrouted bar's row count (the strand control's own sample)
     let mut unrouted_total: usize = 0;
+    // (ironspec 08:26 / 08:41 platform) the late rejoins: a napper on its siding's R that missed a
+    // release (back in its lane more than a D period + its 30-gt window after reaching R): napper, R,
+    // back
+    let mut late_rejoin: Vec<(u32, i64, i64)> = Vec::new();
     // (ironspec 06:31 / 06:42 real) the ticket lines: the bed's free tickets and the HOME memory
     // holders at the start and at every change
     let mut ticket_prev: Option<(Option<u32>, Vec<u32>)> = Some(start_ticket);
@@ -3148,6 +3279,28 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 log.push(format!("c7 t 137: the night skipped to day time {}, the time running", w.day_time()));
             }
         }
+        // (ironspec 08:26 / 08:41 platform: the fail-safe's control, the lap-late rejoin) the first
+        // ridden cart reaching a siding's last cell before its R, (sx,25,8), after t 1,000 is held
+        // there 130 gt (more than a D period and its 30-gt release window): it must miss that release,
+        // wait on R under the built latch, leave at the lane's next D press and pass the unrouted bar
+        if o.late_return_control {
+            let w = &mut run.world;
+            if late_hold.is_none() && rel >= 1_000 {
+                if let Some(e) = w.entities.list.iter().find(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && !e.passengers.is_empty() && LANES.iter().any(|x| cell(e.pos) == [x - 2, 25, 8])) {
+                    late_hold = Some((e.id, rel, [e.pos.x, e.pos.y, e.pos.z]));
+                    let lane = LANES.iter().find(|x| cell(e.pos)[0] == **x - 2).copied().unwrap_or(0);
+                    late_rider = e.passengers.first().copied();
+                    controls_done.push(format!("the late-return control at t {rel}: cart #{} (lane x {lane}) held 130 gt at its siding's last cell before R", e.id));
+                }
+            }
+            if let Some((cart, t, p)) = late_hold
+                && rel < t + 130
+                && let Some(ci) = redsim::entity::index_of(w, cart)
+            {
+                w.entities.set_pos(ci, redsim::entity::Vec3::new(p[0], p[1], p[2]));
+                w.entities.list[ci].delta_movement = redsim::entity::Vec3::ZERO;
+            }
+        }
         // (ironspec 06:38 platform, 7b90c3f1's r4 bench: the lift exit blocked) an empty cart held
         // still on the exit (-5,23,8) from T for N gt
         if let Some((tb, nb)) = o.lift_block {
@@ -3155,6 +3308,18 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             if rel == tb {
                 let cart = redsim::entity::spawn(w, "minecraft:minecart", [-4.5, 23.0625, 8.5], None)?;
                 lift_blocker = Some(cart);
+                // (G1 X35) the riders in the lift column at the hold's start: the jam positive's own
+                // sample
+                lift_stack_at_hold = w
+                    .entities
+                    .list
+                    .iter()
+                    .filter(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && {
+                        let c = cell(e.pos);
+                        c[0] == -5 && (6..=8).contains(&c[2]) && c[1] >= 2
+                    })
+                    .flat_map(|e| e.passengers.iter().copied())
+                    .collect();
                 log.push(format!("t {rel}: the lift-block control: an empty cart #{cart} held on the exit (-5,23,8) for {nb} gt"));
                 controls_done.push(format!("the lift-block control at t {rel}: the exit (-5,23,8) held {nb} gt"));
             }
@@ -3203,6 +3368,26 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             // open renews) the controller's live entity keys and the nappers' visit list follow
             // their entities across the open; each key's old and new id logged
             let keys = follow_open(&mut ctl, &mut nappers, |id| m.get(&id).copied().unwrap_or(id));
+            // (G1 X10 / X35 / X39) the run's other id keys follow the open too: the lift blocker, the
+            // air control's held rider and cart, the stamp control's rider, the bystander target, the
+            // drive's names and the scene's spawn list
+            let fw = |id: u32| m.get(&id).copied().unwrap_or(id);
+            lift_blocker = lift_blocker.map(fw);
+            late_hold = late_hold.map(|(c, t, p)| (fw(c), t, p));
+            late_rider = late_rider.map(fw);
+            if let Some(h) = air_held.as_mut() {
+                h.0 = fw(h.0);
+                h.3 = fw(h.3);
+            }
+            air_stacked = air_stacked.iter().map(|v| fw(*v)).collect();
+            stamp_control_rider = stamp_control_rider.map(fw);
+            bystander_target = bystander_target.map(|(v, at)| (fw(v), at));
+            DRIVE_NAMES.with(|d| {
+                let old = std::mem::take(&mut *d.borrow_mut());
+                *d.borrow_mut() = old.into_iter().map(|(id, name)| (fw(id), name)).collect();
+            });
+            lines = lines.iter().map(|id| fw(*id)).collect();
+            cart_lane0 = std::mem::take(&mut cart_lane0).into_iter().map(|(id, k)| (fw(id), k)).collect();
             log.push(format!("t {rel}: the emulation's keys across the open: {}", if keys.is_empty() { "none live".to_string() } else { keys.join("; ") }));
             log.push(format!("t {rel}: restart (liveness::restart, order {})", o.restart.label()));
         }
@@ -3573,15 +3758,23 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             // on the napper's outbound trip (its picked cart before the divert, or its visit before
             // the queue), where a pocket rider's 10-box reaches it, before the whole round trip (the
             // summon's other stamps are the ones that S lays anyway; the harm bar must PASS)
-            // (ironspec D7: the S phase from the run's ACTUAL S ticks) the latest pocket summon
-            // attempt's game time mod 100, else the trigger's own % 100 == 0
-            let s_mod = w.mob.events.iter().rev().find_map(|e| match e {
-                redsim::entity::mob::MobEvent::GolemTry { t, from, .. } if LANES.iter().any(|x| *from == [*x, 0, 0]) => Some(t.rem_euclid(100)),
-                _ => None,
-            }).unwrap_or(0);
-            let to_s = (s_mod - now).rem_euclid(100);
-            // (G1 N8: the early target is the napper of the current pick only)
-            let picked_v: Option<u32> = ctl.pick_cart.and_then(|(pc, _)| w.entities.list.iter().find(|e| e.id == pc).and_then(|e| e.passengers.first().copied())).or_else(|| ctl.diverts().last().map(|d| d.1));
+            // (ironspec D7: the S phase from the run's ACTUAL S ticks; G1 X25: the target's own pocket's,
+            // in own_to_s below)
+            // (G1 N8: the early target is the napper of the current pick only; X26: the divert
+            // fallback only for a divert at or after the latest pick whose napper isn't back in its
+            // lane)
+            let latest_pick = ctl.pick_log.last().map_or(i64::MIN, |p| p.0);
+            let picked_v: Option<u32> = ctl.pick_cart.and_then(|(pc, _)| w.entities.list.iter().find(|e| e.id == pc).and_then(|e| e.passengers.first().copied())).or_else(|| {
+                ctl.diverts().last().filter(|d| d.0 >= latest_pick && !recs.get(&d.1).is_some_and(|r| r.milestones.iter().any(|(m, _)| m == "back in its lane"))).map(|d| d.1)
+            });
+            // (G1 X25) the late variant's S phase is the TARGET's own pocket's latest try (none:
+            // no target, the control not exercised)
+            let own_to_s = |x: i32| -> Option<i64> {
+                w.mob.events.iter().rev().find_map(|e| match e {
+                    redsim::entity::mob::MobEvent::GolemTry { t, from, .. } if *from == [x, 0, 0] => Some(t.rem_euclid(100)),
+                    _ => None,
+                }).map(|m| (m - now).rem_euclid(100))
+            };
             let target = w
                 .entities
                 .list
@@ -3596,7 +3789,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                             c[1] == 0
                                 && c[2] == 0
                                 && LANES.contains(&c[0])
-                                && (25..=35).contains(&to_s)
+                                && own_to_s(c[0]).is_some_and(|ts| (25..=35).contains(&ts))
                                 && nappers.iter().any(|n| n.0 == *v)
                                 && recs.get(v).is_some_and(|r| r.milestones.iter().any(|(m, _)| m == "back in its lane") && r.nap_call.is_none())
                         }
@@ -3897,6 +4090,13 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 direct.stand_misses += 1;
                 if locked {
                     direct.stand_misses_locked += 1;
+                    // (G1 X23: the empty-pocket control's own sample) a locked miss with a rider
+                    // event at the emptied lane's pocket isn't the emptied pocket's doing
+                    if let Some(x) = o.empty_pocket
+                        && s_events.iter().any(|e| e.0 == s && pocket(e.3) && e.3[0] == x)
+                    {
+                        direct.misses_not_empty += 1;
+                    }
                 }
                 // (ironspec 23:55 PT (2), the sleep-expiry signature's control) the first S without
                 // a roll, with each pocket rider's LAST_SLEPT expiry (its last sleep + a day)
@@ -4426,18 +4626,21 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 if r.switch_pending {
                     r.switch_pending = false;
                     let eye = redsim::entity::mob::villager::eye_pos(w, i);
+                    // (G1 X40: VillagerHostilesSensor's own test, distanceToSqr <= range squared, its
+                    // whole table, Zoglin included)
                     let covered = w.entities.list.iter().enumerate().any(|(j, e)| {
                         let EntityKind::Mob(m) = &e.kind else { return false };
                         let range = match format!("{:?}", m.ty).as_str() {
                             "Zombie" | "Husk" | "Drowned" | "ZombieVillager" | "Vex" => 8.0,
-                            "Vindicator" => 10.0,
+                            "Vindicator" | "Zoglin" => 10.0,
                             "Evoker" | "Illusioner" | "Ravager" => 12.0,
                             "Pillager" => 15.0,
                             _ => return false,
                         };
                         let d2 = (e.pos.x - pos.x).powi(2) + (e.pos.y - pos.y).powi(2) + (e.pos.z - pos.z).powi(2);
-                        !e.removed && d2 < range * range && redsim::entity::mob::los::has_line_of_sight(w, eye, redsim::entity::mob::ai::eye_pos(w, j))
+                        !e.removed && d2 <= range * range && redsim::entity::mob::los::has_line_of_sight(w, eye, redsim::entity::mob::ai::eye_pos(w, j))
                     });
+                    r.switch_covered = Some(covered);
                     let had_panic = r.switch_strip.contains('P');
                     let why = if had_panic { "its PANIC ended in the window (VillagerCalmDown: no hostile or hurt memory left), then REST" } else { "no PANIC in the window before it (no hostile in its memory at the 12,000 schedule update: IDLE -> REST)" };
                     if let Some(row) = r.switch_rest_at.as_mut() {
@@ -4529,23 +4732,41 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     if r.spell_sink_stop.is_none() && target.is_none() {
                         r.spell_sink_stop = Some(now - t0);
                     }
-                    if r.spell_home_at.is_none()
-                        && let (Some(h), Some(t)) = (home, target)
-                        && [t[0].floor() as i32, t[1].floor() as i32, t[2].floor() as i32] == h
-                    {
-                        r.spell_home_at = Some(now - t0);
+                    // (G1 X19) EVERY HOME-target set in the spell is judged, not only the first: each
+                    // tick WALK_TARGET turns to HOME (it wasn't HOME the tick before), on the
+                    // pre-tick stamp; the release branch (HOME erased) is judged by the HOME-loss
+                    // mechanism count beside the verdict
+                    let target_home = matches!((home, target), (Some(h), Some(t)) if [t[0].floor() as i32, t[1].floor() as i32, t[2].floor() as i32] == h);
+                    let prev_home_target = matches!((r.prev_home, r.prev_target), (Some(h), Some(t)) if [t[0].floor() as i32, t[1].floor() as i32, t[2].floor() as i32] == h);
+                    if target_home && !prev_home_target {
+                        if r.spell_home_at.is_none() {
+                            r.spell_home_at = Some(now - t0);
+                        }
                         // (ironspec 08:13 / 08:14 platform, tick-exact's citation) the age the
                         // behaviour saw: SetWalkTargetFromBlockMemory reads the PRE-tick stamp (the
                         // memory before this tick's brain step), never the post-tick one
                         let age = r.prev_stamp.map(|s| now - s);
-                        r.spell_home_stamp = Some(age);
+                        if r.spell_home_stamp.is_none() {
+                            r.spell_home_stamp = Some(age);
+                        }
                         if let Some(a) = age {
                             at_home_target_max = at_home_target_max.max(a);
                             if a >= 1000 {
                                 at_home_target_over += 1;
+                                at_entry_over_ids.insert(id);
                             }
                         }
                         at_home_target_n += 1;
+                    }
+                    // (G1 X19's control) --at-entry-control: the first lane rider (not a napper,
+                    // riding) in REST after t 1,000 gets its stamp aged to 1,100 gt before its next
+                    // HOME-target set; the at-entry bar must fail on that rider alone
+                    if o.at_entry_control && at_entry_rider.is_none() && now - t0 >= 1_000 && riding && !nappers.iter().any(|n| n.0 == id) && !target_home {
+                        if let Some(ex) = redsim::entity::mob::ai::brain::brain_mut(w, i).ex.as_deref_mut() {
+                            ex.mem.cant_reach_since = Some(now - 1_100);
+                            at_entry_rider = Some(id);
+                            controls_done.push(format!("the at-entry control at t {}: {who}'s stamp aged to 1,100 gt in REST (the at-entry bar must catch its next HOME-target set)", now - t0));
+                        }
                     }
                     if stamp.is_some() && r.prev_stamp.is_none() {
                         r.spell_armed = true;
@@ -4585,6 +4806,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                         // (the known positive: the planted erasure)
                         redsim::entity::mob::ai::brain::brain_mut(w, i).home = None;
                         home_erased = true;
+                        home_erased_id = Some(id);
                         controls_done.push(format!("the farm-stop control at t {}: {who}'s HOME erased at the bed stop {:?} (the farm-stop bar must catch it)", now - t0, c));
                     }
                     if home.is_none() {
@@ -5377,9 +5599,37 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 }
             }
         }
+        // (tick-exact / ironspec 09:21-09:25 platform, day-1's push plug-in) every mob-on-cart push this
+        // tick (redsim's push log, a diagnostic with no model state): the pushed cart, its lane at t0,
+        // the pusher's activity, the impulse and its component along the cart's motion
+        tick_pushes.clear();
+        tick_push_ids.clear();
+        for p in redsim::entity::minecart::take_cart_pushes(w) {
+            tick_pushes.push(format!("+push mob {} -> cart {} ({:+.4},{:+.4}) at d {:.3}", DRIVE_NAMES.with(|d| d.borrow().get(&p.mob).cloned()).unwrap_or_else(|| format!("#{}", p.mob)), DRIVE_NAMES.with(|d| d.borrow().get(&p.cart).cloned()).unwrap_or_else(|| format!("#{}", p.cart)), p.push[0], p.push[1], p.dist));
+            tick_push_ids.push((p.mob, p.cart));
+            let along = redsim::entity::index_of(w, p.cart).map_or(0.0, |k| {
+                let v = w.entities.list[k].delta_movement;
+                let n = (v.x * v.x + v.z * v.z).sqrt();
+                if n > 1e-9 { (p.push[0] * v.x + p.push[1] * v.z) / n } else { 0.0 }
+            });
+            let act = redsim::entity::index_of(w, p.mob).map_or("gone".to_string(), |k| match &w.entities.list[k].kind {
+                EntityKind::Mob(m) if m.ty == redsim::entity::mob::types::MobType::Villager => {
+                    let b = redsim::entity::mob::ai::brain::brain(w, k);
+                    format!("{}{}", b.ex.as_deref().map_or("-".to_string(), |x| format!("{:?}", x.active)), if w.entities.list[k].vehicle.is_some() { " seated" } else { " on foot" })
+                }
+                EntityKind::Mob(m) => format!("{:?}", m.ty),
+                _ => "?".to_string(),
+            });
+            pushes.push((rel, p.cart, cart_lane0.get(&p.cart).copied(), act, (p.push[0] * p.push[0] + p.push[1] * p.push[1]).sqrt(), along));
+        }
+        // (ironspec 09:28) the cart-on-cart pushes too, for the trace's +push fields
+        for p in redsim::entity::minecart::take_cart_cart_pushes(w) {
+            tick_pushes.push(format!("+push cart {} -> cart {} {} (dot {:.3}, d {:.3})", DRIVE_NAMES.with(|d| d.borrow().get(&p.other).cloned()).unwrap_or_else(|| format!("#{}", p.other)), DRIVE_NAMES.with(|d| d.borrow().get(&p.this).cloned()).unwrap_or_else(|| format!("#{}", p.this)), p.what, p.dot, p.dist));
+            tick_push_ids.push((p.other, p.this));
+        }
         // (G1 08:21 PT) every cart's cell entries, for --pair-check (a cart in the draw cell, then the
         // path cell, within the pair's interval)
-        if !o.pair_checks.is_empty() {
+        if !o.pair_checks.is_empty() || o.cart_cells.is_some() {
             for e in w.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_))) {
                 let c = cell(e.pos);
                 let v = cart_entries.entry(e.id).or_default();
@@ -5402,6 +5652,14 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                         n += 1;
                         if tail.is_none_or(|t| (c[2], c[1]) > (t[2], t[1])) {
                             tail = Some(c);
+                        }
+                        // (G1 X31 / ironspec 08:13: wrong-lane routing, bar 0) a cart in a lane other
+                        // than its lane at t0, by id
+                        if let Some(k0) = cart_lane0.get(&e.id).copied()
+                            && k0 != k
+                            && !wrong_lane.iter().any(|(id, _)| *id == e.id)
+                        {
+                            wrong_lane.push((e.id, format!("t {rel}: cart #{} (lane x {} at t0) in lane x {} at ({},{},{})", e.id, LANES[k0], x, c[0], c[1], c[2])));
                         }
                     }
                 }
@@ -5517,6 +5775,16 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 }
                 None => format!("t {rel}: e{n} (#{id}) is gone"),
             };
+            // (ironspec 09:28) this tick's pushes involving the traced entity (as pusher or pushed, or
+            // through its rider), tick-exact's +push fields
+            let riders: Vec<u32> = redsim::entity::index_of(w, id).map_or(Vec::new(), |k| w.entities.list[k].passengers.clone());
+            let mine: Vec<String> = tick_push_ids
+                .iter()
+                .zip(tick_pushes.iter())
+                .filter(|((a, b), _)| *a == id || *b == id || riders.contains(a))
+                .map(|(_, s)| s.clone())
+                .collect();
+            let row = if mine.is_empty() { row } else { format!("{row}; {}", mine.join("; ")) };
             trace_rows.push(row);
         }
         if let Some((cid, a, b)) = o.cart_trace
@@ -6352,7 +6620,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             // (ironspec 06:33 / 06:37 platform, G1) the at-entry stamp bar: the stamp at each REST
             // spell's first HOME-targeting tick
             s.push_str(&format!(
-                "  the at-entry stamp bar (ironspec 06:33 / 06:37 platform: at every REST spell's first tick SetWalkTargetFromBlockMemory ran (HOME targeted), the stamp < 1,000 gt, any position; ironspec 08:13: the age it saw, from the PRE-tick stamp; the site as the report's site line states): {} spells judged, the worst {} gt, {} at >= 1,000 ({}); beside it (G1 08:22 / ironspec 08:23: a PASS stands only with both at 0): HOME losses by the release branch {}, HOME losses in all {}\n",
+                "  the at-entry stamp bar (ironspec 06:33 / 06:37 platform; G1 X19: at EVERY tick in REST that SetWalkTargetFromBlockMemory set WALK_TARGET to HOME (not HOME the tick before), not only a spell's first, the stamp < 1,000 gt, any position; ironspec 08:13: the age it saw, from the PRE-tick stamp; the site as the report's site line states): {} HOME-target sets judged, the worst {} gt, {} at >= 1,000 ({}); beside it (G1 08:22 / ironspec 08:23: a PASS stands only with both at 0): HOME losses by the release branch {}, HOME losses in all {}\n",
                 at_home_target_n,
                 at_home_target_max,
                 at_home_target_over,
@@ -6368,7 +6636,9 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 for k in 1..ctl.release_log.len() {
                     let (tp, vp) = ctl.release_log[k - 1];
                     let (t, v) = ctl.release_log[k];
-                    if !ctl.rdet_rises.iter().any(|r| *r > tp && *r + 8 <= t) && early.len() < 8 {
+                    // (G1 X21) the previous napper's OWN pass over R's detector, at least the latch's
+                    // 8 gt before this release (a rise by another rider doesn't count)
+                    if !ctl.rdet_riders.iter().any(|(r, who)| *r > tp && *r + 8 <= t && *who == Some(vp)) && early.len() < 8 {
                         early.push(format!("t {t}: #{v} released while #{vp} (released t {tp}) hadn't passed R's detector 8 gt before"));
                     }
                 }
@@ -6433,7 +6703,10 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             ));
             // (G1, farmopt 06:12 PT) every rider's activity across the schedule switch
             let strips: Vec<String> = recs.values().filter(|r| !r.switch_strip.is_empty()).map(|r| format!("{} {}", r.label.split(' ').next().unwrap_or(""), r.switch_strip)).collect();
-            let rest_at_switch = recs.values().filter(|r| r.switch_strip.contains('R')).count();
+            // (G1 X40) the switch bar judges COVERED REST ticks only (G1's one-tick question); a DARK
+            // one is the dark-spell class the at-entry bar judges, counted here as information
+            let rest_at_switch = recs.values().filter(|r| r.switch_strip.contains('R') && r.switch_covered == Some(true)).count();
+            let rest_at_switch_dark = recs.values().filter(|r| r.switch_strip.contains('R') && r.switch_covered != Some(true)).count();
             // (ironspec 06:55 platform (3)) each REST tick's place and scarer sight
             let switch_places: Vec<String> = recs.values().filter_map(|r| r.switch_rest_at.as_ref().map(|p| format!("{}: {p}", r.label.split(' ').next().unwrap_or("")))).collect();
             // (ironspec 06:55 platform (2)) the per-cell spell table
@@ -6455,10 +6728,11 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 if spell_rows.is_empty() { "none".to_string() } else { spell_rows.join("; ") }
             ));
             s.push_str(&format!(
-                "  each rider's activity at every tick of day time 11,990..=12,040 (G1: a covered rider enters REST for not even one tick at the switch; P PANIC, R REST, r REST in its own trip, . other): {} riders seen, {} with a REST tick ({}){}: {}\n",
+                "  each rider's activity at every tick of day time 11,990..=12,040 (G1: a covered rider enters REST for not even one tick at the switch; X40: only a COVERED REST tick fails, a DARK one is the at-entry bar's; P PANIC, R REST, r REST in its own trip, . other): {} riders seen, {} with a COVERED REST tick ({}), {} with a DARK one (information){}: {}\n",
                 strips.len(),
                 rest_at_switch,
                 if strips.is_empty() { "NOT JUDGED (the run doesn't cross 12,000): FAIL" } else if rest_at_switch == 0 { "PASS" } else { "FAIL" },
+                rest_at_switch_dark,
                 if switch_places.is_empty() { String::new() } else { format!("; each one's first REST tick, place and scarer sight (ironspec 06:55 platform (3)): {}", switch_places.join("; ")) },
                 if strips.is_empty() { "none".to_string() } else { strips.join("; ") }
             ));
@@ -6683,6 +6957,11 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     {
                         unrouted_rows.push(format!("#{v} lane x {} picked t {t}: on its siding's R at t {r}, back in its lane {}", LANES[*k], back.map_or("never".to_string(), |b| format!("at t {b} ({} gt later)", b - r))));
                     }
+                    if let (Some(r), Some(b)) = (sr, back)
+                        && b - r > period[*k] + 30
+                    {
+                        late_rejoin.push((*v, r, b));
+                    }
                 }
             }
             let visits: Vec<String> = ctl
@@ -6775,10 +7054,11 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             // (G1 08:28 / ironspec 08:28 platform (3)) the napper-unrouted bar
             unrouted_total = unrouted_rows.len();
             s.push_str(&format!(
-                "  no napper unrouted (G1 08:28 / ironspec 08:28 / 08:41 platform: a napper entering the stop with no R, or on its siding's R and not back in its lane, within the derived thresholds; bar 0; {unrouted_derivation}): {} ({}){}\n",
+                "  no napper unrouted (G1 08:28 / ironspec 08:28 / 08:41 platform: a napper entering the stop with no R, or on its siding's R and not back in its lane, within the derived thresholds; bar 0; {unrouted_derivation}): {} ({}){}; the late rejoins (a missed release, then the lane's next D press under the built latch): {}\n",
                 unrouted_rows.len(),
                 if nappers.is_empty() { "NOT JUDGED (no napper): FAIL" } else if unrouted_rows.is_empty() { "PASS" } else { "FAIL" },
-                if unrouted_rows.is_empty() { String::new() } else { format!(": {}", unrouted_rows.join("; ")) }
+                if unrouted_rows.is_empty() { String::new() } else { format!(": {}", unrouted_rows.join("; ")) },
+                if late_rejoin.is_empty() { "none".to_string() } else { late_rejoin.iter().map(|(v, r, b)| format!("#{v}: on its siding's R at t {r}, back in its lane at t {b} ({} gt)", b - r)).collect::<Vec<_>>().join("; ") }
             ));
             // (ironspec 01:26 / 01:28 PT) the catch window: each fired H2 sample's late slack (the
             // sample minus Q-up, the waiting RS's set + k_lock) and early slack (Q-up minus the
@@ -7051,7 +7331,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         }
         // (ironspec 02:18 PT (2)) DAY's validation row
         s.push_str(&format!(
-            "  the DAY stand-in's validation (ironspec 02:18 PT (2), G1 N3 / ironspec D3: DAY = the detector at level >= {}; at every 20-gt update after a 40-gt settle the stored power against redsim's analytic detector, zero tolerance; the run's weather {}): {} ticks read, {} updates checked, {} updates where the stored power differs ({}){}; the DAY edges: {}; the weather rows (ironspec 02:37 PT (3)): {}\n",
+            "  the DAY stand-in's validation (ironspec 02:18 PT (2), G1 N3 / ironspec D3: DAY = the detector at level >= {}; at every 20-gt update after a 40-gt settle the stored power against redsim's analytic detector, zero tolerance; the run's weather {}): {} ticks read, {} updates checked, {} updates where the stored power differs ({}){}; the DAY edges: {}\n  the weather rows (ironspec 02:37 PT (3); G1 X23: their own line, so a control on the DAY line never masks them): {}\n",
             ctl.day_threshold,
             format!("on {}, rain {:.2}, thunder {:.2}, sky darken now {}", run.world.weather.on, run.world.weather.rain_level, run.world.weather.thunder_level, run.world.sky_darken()),
             ctl.day_ticks,
@@ -7201,14 +7481,24 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     // passing
     // (G1 N17) each control's failure must be its OWN sample, every other sample on the bar passing
     let mut controls: Vec<(String, &str, bool, bool, bool)> = Vec::new();
+    // (G1 X23) each of these controls' OWN sample computed, never assumed: the inert control's only
+    // change is its own cell (-1,26,9) with no kind mismatch; the gossip control's gossip attempts and
+    // off-schedule golems all at its tick (t0 + 1,000 .. + 1,002); the empty-pocket control's locked
+    // misses all without a rider event at the emptied pocket
     if o.inert_control {
-        controls.push(("--inert-control".to_string(), "the declared inert / always-on cells", true, true, true));
+        let own = watched_kind_bad.is_empty() && !watched_changes.is_empty() && watched_changes.iter().all(|c| c.contains("(-1,26,9)"));
+        controls.push(("--inert-control".to_string(), "the declared inert / always-on cells", true, true, own));
     }
     if o.gossip_control {
-        controls.push(("--gossip-control".to_string(), "the summon paths", true, controls_done.iter().any(|c| c.contains("gossip")), true));
+        let window = |t: i64| (t0 + 1_000..=t0 + 1_002).contains(&t);
+        let gossip_ok = golem_tries.iter().filter(|x| x.4 == 5).all(|x| window(x.0));
+        let off_ok = golem_tries.iter().filter(|x| x.3.is_some() && x.0.rem_euclid(100) != 0).all(|x| window(x.0));
+        let any = golem_tries.iter().any(|x| x.4 == 5 && window(x.0));
+        controls.push(("--gossip-control".to_string(), "the summon paths", true, controls_done.iter().any(|c| c.contains("gossip")), any && gossip_ok && off_ok));
     }
     if o.empty_pocket.is_some() {
-        controls.push(("--empty-pocket".to_string(), "the direct summon check", true, true, true));
+        let own = direct.stand_misses_locked > 0 && direct.misses_not_empty == 0;
+        controls.push(("--empty-pocket".to_string(), "the direct summon check", true, true, own));
     }
     if let Some(v) = o.bystander_control.as_deref() {
         // (N1: the control counts only once its target's first call back is judged; N17: late is
@@ -7223,7 +7513,8 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     }
     if o.home_erase_control {
         // (the erased napper: the first napper seen at the stop without HOME)
-        let own = stop_homeless_ids.len() == 1;
+        // (G1 X8) the erased napper, by id, is the only one seen at the stop without HOME
+        let own = home_erased_id.is_some_and(|e| stop_homeless_ids.len() == 1 && stop_homeless_ids.contains(&e));
         controls.push(("--home-erase-control".to_string(), "  the farm-stop bar", true, home_erased, own));
     }
     if o.air_control {
@@ -7235,18 +7526,44 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         controls.push(("--air-control".to_string(), "  the air-supply bar", true, air_held.is_some(), own));
     }
     if o.rs_ready_early_control {
-        let early = (1..ctl.release_log.len()).filter(|&k| {
-            let tp = ctl.release_log[k - 1].0;
-            let t = ctl.release_log[k].0;
-            !ctl.rdet_rises.iter().any(|r| *r > tp && *r + 8 <= t)
-        }).count();
-        controls.push(("--rs-ready-early-control".to_string(), "  no R1 release before the previous napper passes R", true, ctl.rs_early_done, early == 1));
+        // (G1 X22) the control's own sample: the ONE early release is the first release after the
+        // control's forced RS_ready set, the previous napper's own R pass missing
+        let early: Vec<i64> = (1..ctl.release_log.len())
+            .filter(|&k| {
+                let (tp, vp) = ctl.release_log[k - 1];
+                let t = ctl.release_log[k].0;
+                !ctl.rdet_riders.iter().any(|(r, who)| *r > tp && *r + 8 <= t && *who == Some(vp))
+            })
+            .map(|k| ctl.release_log[k].0)
+            .collect();
+        let first_after = ctl.rs_early_at.and_then(|a| ctl.release_log.iter().map(|x| x.0).find(|t| *t >= a));
+        controls.push(("--rs-ready-early-control".to_string(), "  no R1 release before the previous napper passes R", true, ctl.rs_early_done, first_after.is_some_and(|f| early == vec![f])));
     }
     if o.strand_control {
         controls.push(("--strand-control".to_string(), "  no napper unrouted", true, ctl.strand_done, unrouted_total == 1));
     }
+    if o.at_entry_control {
+        let own = at_entry_rider.is_some_and(|v| at_entry_over_ids.len() == 1 && at_entry_over_ids.contains(&v));
+        controls.push(("--at-entry-control".to_string(), "  the at-entry stamp bar", true, at_entry_rider.is_some(), own));
+    }
+    // (ironspec 08:26 / 08:41 platform) the lap-late rejoin must PASS the unrouted bar (a held
+    // control); acted only if the held napper really missed its first release and rejoined later
+    if o.late_return_control {
+        let missed = late_rider.is_some_and(|v| late_rejoin.iter().any(|(rv, _, _)| *rv == v));
+        controls.push(("--late-return-control".to_string(), "  no napper unrouted", false, late_hold.is_some() && missed, true));
+    }
+    // (G1 X35, ironspec 07:57: fault rows) --lift-block of 25 gt or more is the jam positive: the air
+    // bar must fail, every drowning a rider of the lift column at the hold's start; a shorter hold is a
+    // fault row printed as information (its air verdict stands as printed)
+    if let Some((_, nb)) = o.lift_block
+        && nb >= 25
+    {
+        let drowned: Vec<u32> = recs.iter().filter(|(_, r)| r.air_transits.iter().chain(r.air_open.iter()).any(|t| t.1 < 0)).map(|(id, _)| *id).collect();
+        let own = !drowned.is_empty() && drowned.iter().all(|d| lift_stack_at_hold.contains(d));
+        controls.push((format!("--lift-block (the jam positive, {nb} gt)"), "  the air-supply bar", true, !lift_stack_at_hold.is_empty() || controls_done.iter().any(|c| c.contains("lift-block")), own));
+    }
     if o.day_phase_control {
-        controls.push(("--day-phase-control".to_string(), "  the DAY stand-in's validation", true, ctl.day_updates > 0, true));
+        controls.push(("--day-phase-control".to_string(), "  the DAY stand-in's validation", true, ctl.day_phase_done, ctl.day_phase_at.is_some_and(|t| ctl.day_mismatch_at == vec![t])));
     }
     let s = judge_controls(&s, &controls);
     // (cc767b78) the traced entity's rows
@@ -7266,6 +7583,14 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     } else {
         s
     };
+    // (G1 X16) the emulation's no-op writes: each listed; a write of a cell's existing state is no
+    // write in the game (setBlock returns early), so an emulation that issues one is asserting a
+    // level it should only drive on an edge: bar 0
+    let s = {
+        let n = NOOP_WRITES.with(|n| *n.borrow());
+        let rows = NOOP_ROWS.with(|r| r.borrow().clone());
+        format!("{s}the emulation's no-op writes (G1 X16: a write of the cell's existing state; bar 0): {n} ({}){}\n", if n == 0 { "PASS" } else { "FAIL" }, if rows.is_empty() { String::new() } else { format!(": {}", rows.join("; ")) })
+    };
     // (ironspec 08:13 / 08:14 platform (2), G1 08:12 PT) the cart-conservation check
     let s = format!(
         "{s}the cart-conservation check (ironspec 08:13 / 08:14 platform, G1 08:12: 8 carts a lane, the napper's included, so a stopped cart on the exit row needs a ninth or a fault): each lane's most carts on H, R_1 and the slopes: {}; the farthest-back tail per lane: {}; carts standing still (two ticks running) on the exit booster, the exit row or the split / merge row (z 8..9, y 23..26, x -5..9): {} cart-ticks{} (bar 0: {})\n",
@@ -7275,9 +7600,100 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         if stopped_rows.is_empty() { String::new() } else { format!(": {}", stopped_rows.iter().map(|(_, r)| r.clone()).collect::<Vec<_>>().join("; ")) },
         if o.lift_block.is_some() { "not judged: --lift-block's fault row" } else if stopped_ticks == 0 { "PASS" } else { "FAIL" }
     );
+    // (G1 X31, ironspec 08:13: wrong-lane routing, bar 0) every lane cart stays in its t0 lane, by id
+    let s = format!(
+        "{s}no wrong-lane routing (G1 X31 / ironspec 08:13: each lane cart, by its id at t0, only ever in its own lane's H, R_1 and slopes; bar 0): {} carts tracked, {} in another lane ({}){}\n",
+        cart_lane0.len(),
+        wrong_lane.len(),
+        if cart_lane0.is_empty() { "NOT JUDGED (no lane carts at t0): FAIL" } else if wrong_lane.is_empty() { "PASS" } else { "FAIL" },
+        if wrong_lane.is_empty() { String::new() } else { format!(": {}", wrong_lane.iter().map(|(_, r)| r.clone()).collect::<Vec<_>>().join("; ")) }
+    );
     // (G1 08:21 PT) each late-path pair against the actual cart trajectories: the carts that were in
     // the draw cell and then entered the path cell within the pair's interval
     let mut s = s;
+    // (tick-exact / ironspec 09:21-09:25 platform: the rider push, a measured design term for day-1's
+    // --post-spread / --t-d-spread) per lane: the pushes on its carts (per lane lap = its median D
+    // period x 8 carts), each impulse and its component along the cart's motion, by the pusher's
+    // activity; each cart's stacked along-motion sum per lap (its worst); and the OBSERVED timing
+    // spread that every push and every other cause sum to: the D-press gaps' deviation from their
+    // median (the worst, how often >= 5 gt) and each visit's A6 R -> siding R ride
+    {
+        let mut rows: Vec<String> = Vec::new();
+        for k in 0..3 {
+            let ts: Vec<i64> = ctl.dpress_log.iter().filter(|(_, dk)| *dk == k).map(|(t, _)| *t).collect();
+            let mut gaps: Vec<i64> = ts.windows(2).map(|p| p[1] - p[0]).filter(|g| *g > 0).collect();
+            gaps.sort();
+            let period = gaps.get(gaps.len() / 2).copied().unwrap_or(0);
+            let lap = (period * 8).max(1);
+            let dev: Vec<i64> = gaps.iter().map(|g| (g - period).abs()).collect();
+            let dev_max = dev.iter().copied().max().unwrap_or(0);
+            let dev5 = dev.iter().filter(|d| **d >= 5).count();
+            let mine: Vec<&(i64, u32, Option<usize>, String, f64, f64)> = pushes.iter().filter(|p| p.2 == Some(k)).collect();
+            let mut by_lap: BTreeMap<i64, usize> = BTreeMap::new();
+            let mut stacked: BTreeMap<(u32, i64), f64> = BTreeMap::new();
+            let mut by_act: BTreeMap<String, usize> = BTreeMap::new();
+            for p in &mine {
+                *by_lap.entry(p.0 / lap).or_default() += 1;
+                *stacked.entry((p.1, p.0 / lap)).or_default() += p.5;
+                *by_act.entry(p.3.clone()).or_default() += 1;
+            }
+            let laps = (run.world.time - t0) / lap;
+            let per_lap_max = by_lap.values().copied().max().unwrap_or(0);
+            let mut imp: Vec<f64> = mine.iter().map(|p| p.4).collect();
+            imp.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            let worst_stack = stacked.values().fold(0.0f64, |m, v| if v.abs() > m.abs() { *v } else { m });
+            // each visit's ride from A6's R to its siding's R (this lane's nappers)
+            let mut rides: Vec<i64> = Vec::new();
+            for (v, vk, t) in nappers.iter().filter(|n| n.1 == k) {
+                let _ = vk;
+                let to = ctl.pick_carts.iter().filter(|(pt, _, pv, _)| pv == v && pt > t).map(|x| x.0).min().unwrap_or(i64::MAX);
+                let ms = |what: &str| past_marks.get(v).into_iter().flatten().chain(recs.get(v).map(|r| r.milestones.iter()).into_iter().flatten()).find(|(m, mt)| m == what && *mt >= *t && *mt < to).map(|(_, mt)| *mt);
+                if let (Some(a), Some(b)) = (ms("at R"), ms("on its siding's R")) {
+                    rides.push(b - a);
+                }
+            }
+            rides.sort();
+            rows.push(format!(
+                "lane x {}: the lap {lap} gt ({} laps); {} pushes ({:.2} a lap, the most in one lap {per_lap_max}); |impulse| median {:.4}, max {:.4} b/t; by the pusher: {}; the worst stacked along-motion sum on one cart in one lap {worst_stack:+.4} b/t; the observed D-press gaps (median {period} gt): the worst deviation {dev_max} gt, {dev5} of {} gaps off by >= 5 gt; A6 R -> siding R rides: {}",
+                LANES[k],
+                laps,
+                mine.len(),
+                if laps > 0 { mine.len() as f64 / laps as f64 } else { 0.0 },
+                imp.get(imp.len() / 2).copied().unwrap_or(0.0),
+                imp.last().copied().unwrap_or(0.0),
+                if by_act.is_empty() { "none".to_string() } else { by_act.iter().map(|(a, n)| format!("{a} {n}")).collect::<Vec<_>>().join(", ") },
+                gaps.len(),
+                if rides.is_empty() { "none".to_string() } else { format!("{} (min {}, median {}, max {})", rides.len(), rides[0], rides[rides.len() / 2], rides[rides.len() - 1]) }
+            ));
+        }
+        let other = pushes.iter().filter(|p| p.2.is_none()).count();
+        s.push_str(&format!(
+            "the rider pushes (tick-exact / ironspec 09:21-09:25 platform: a measured design term; redsim's push log; information for day-1's --post-spread / --t-d-spread, judged by the margins it feeds): {} pushes in all ({other} on carts outside the lanes' t0 ids); {}\n",
+            pushes.len(),
+            rows.join("; ")
+        ));
+    }
+    // (9fc3155f / G1 09:05: every observed cart route walkable in the declared travel table)
+    // --cart-cells FILE: every cart's cell transitions through the split row, the sidings, the merges,
+    // the S-bends and the drops (y 22..26, z 5..10, x -6..10), one line each: cart, its lane at t0,
+    // tick, from -> to
+    if let Some(path) = &o.cart_cells {
+        let inside = |c: &[i32; 3]| (22..=26).contains(&c[1]) && (5..=10).contains(&c[2]) && (-6..=10).contains(&c[0]);
+        let mut out = String::from("# onechunk f1q2-run --cart-cells: cart, its lane at t0 (or -), run tick, from -> to, for every cell change with either cell in y 22..26, z 5..10, x -6..10\n");
+        let mut n = 0usize;
+        for (id, v) in &cart_entries {
+            let lane = cart_lane0.get(id).map_or("-".to_string(), |k| LANES[*k].to_string());
+            for p in v.windows(2) {
+                let ((_, a), (t, b)) = (p[0], p[1]);
+                if inside(&a) || inside(&b) {
+                    out.push_str(&format!("#{id} lane {lane} t {t} ({},{},{}) -> ({},{},{})\n", a[0], a[1], a[2], b[0], b[1], b[2]));
+                    n += 1;
+                }
+            }
+        }
+        std::fs::write(path, out).map_err(|e| format!("--cart-cells {}: {e}", path.display()))?;
+        s.push_str(&format!("the cart cells (9fc3155f's walkability check): {n} transitions written to {}\n", path.display()));
+    }
     for (a, b, dmin, dmax) in &o.pair_checks {
         let mut rides: Vec<String> = Vec::new();
         for (id, v) in &cart_entries {
@@ -7459,6 +7875,26 @@ mod counter_tests {
         assert!(!c(16.0, 0.0, 0.0), "strict: exactly 16 is outside");
     }
 
+    /// (G1 X23) judge_controls: a control caught on its own sample turns its line's FAIL into
+    /// "expected FAIL" (fail_lines then empty); a natural failure beside it is NOT CAUGHT ALONE, the
+    /// line left failing (fail_lines non-empty); a control that never acted is NOT EXERCISED
+    #[test]
+    fn judge_controls_bites_only_on_its_own_sample() {
+        let rep = "  the air-supply bar (x): 3 transits (FAIL)\nother line (PASS)\n";
+        let own = super::judge_controls(rep, &[("--air-control".to_string(), "  the air-supply bar", true, true, true)]);
+        assert!(own.contains("CONTROL CAUGHT"), "{own}");
+        assert!(super::fail_lines(&own).is_empty(), "{own}");
+        let natural = super::judge_controls(rep, &[("--air-control".to_string(), "  the air-supply bar", true, true, false)]);
+        assert!(natural.contains("NOT CAUGHT ALONE"), "{natural}");
+        assert!(!super::fail_lines(&natural).is_empty());
+        let idle = super::judge_controls(rep, &[("--air-control".to_string(), "  the air-supply bar", true, false, true)]);
+        assert!(idle.contains("NOT EXERCISED"));
+        assert!(!super::fail_lines(&idle).is_empty());
+        // a held control (must pass) on a passing line: HELD, nothing failing
+        let held = super::judge_controls("other line (PASS)\n", &[("--dud".to_string(), "other line", false, true, true)]);
+        assert!(held.contains("HELD") && super::fail_lines(&held).is_empty(), "{held}");
+    }
+
     /// (G1 / ironspec 08:31-08:33 platform) an emulated stand-in across a world open: the
     /// controller's live keys and the napper's visit follow the open's id map (a napper re-created
     /// mid-route stays routed); under id-keying they'd keep the dead ids
@@ -7517,35 +7953,34 @@ mod counter_tests {
         assert_eq!(super::night_of(36_000), 1);
     }
 
-    /// (G1 07:17 PT) a module with a stored cart the run drops and seeded carts after it: the scene's
-    /// entity lines are exactly the spawn list, the dropped cart absent, the first seeded cart present,
-    /// each named by its index
+    /// (G1 07:17 PT; X34: an independent source) the WRITTEN scene text checked against what the run
+    /// spawned: run_inner's own drop of the stored queue cart, then the seeded carts; the matching
+    /// text passes, an extra stored cart line FAILS, and so does a passenger off
     #[test]
     fn the_scene_lines_are_the_spawn_list() {
         let cart = |x: f64, y: f64, z: f64| ("minecraft:minecart".to_string(), [x, y, z], Some("{Passengers:[{id:\"minecraft:villager\"}]}".to_string()));
-        let mut list = vec![cart(-0.5, 0.0625, 0.5), cart(9.5, -13.4375, -3.5), ("minecraft:oak_boat".to_string(), [2.5, -12.0, -5.5], None)];
-        // (the build guide's start drops the stored queue cart, as run_inner does, then seeds the lanes)
-        list.retain(|e| !(e.0.contains("minecart") && [e.1[0].floor() as i32, e.1[1].floor() as i32, e.1[2].floor() as i32] == [9, -14, -4]));
+        let module = vec![cart(-0.5, 0.0625, 0.5), cart(9.5, -13.4375, -3.5), ("minecraft:oak_boat".to_string(), [2.5, -12.0, -5.5], Some("{Passengers:[{id:\"minecraft:zombie\"}]}".to_string()))];
+        let mut list = module.clone();
+        // (run_inner's own drop, the build guide's start: the bed at y -27)
+        super::drop_stored_queue_cart(&mut list, -27);
         list.extend(super::lane_carts(5));
-        let text = super::scene_entity_lines(&list);
-        let parsed: Vec<(usize, String, [f64; 3])> = text
-            .lines()
-            .collect::<Vec<_>>()
-            .chunks(2)
-            .map(|p| {
-                let n: usize = p[0].trim_start_matches("# e").parse().unwrap();
-                let f: Vec<&str> = p[1].split_whitespace().collect();
-                (n, f[1].to_string(), [f[2].parse().unwrap(), f[3].parse().unwrap(), f[4].parse().unwrap()])
-            })
+        // what the run spawned, as the world would hold it
+        let view: Vec<(String, [f64; 3], Vec<String>)> = list
+            .iter()
+            .map(|(ty, p, n)| (ty.clone(), *p, if n.as_deref().is_some_and(|n| n.contains("zombie")) { vec!["minecraft:zombie".to_string()] } else if n.is_some() { vec!["minecraft:villager".to_string()] } else { Vec::new() }))
             .collect();
-        assert_eq!(parsed.len(), list.len());
-        for (i, (n, ty, p)) in parsed.iter().enumerate() {
-            assert_eq!(*n, i);
-            assert_eq!(*ty, list[i].0);
-            assert_eq!(*p, list[i].1);
-        }
-        assert!(!parsed.iter().any(|(_, _, p)| *p == [9.5, -13.4375, -3.5]), "the dropped queue cart isn't in the scene");
-        assert_eq!(parsed[2].2, [-0.5, 17.5625, 1.5], "the first seeded cart (lane -1's R_1) follows the module's kept lines");
+        let text = super::scene_entity_lines(&list);
+        super::check_scene_text(&view, &text).unwrap();
+        assert!(!text.contains("9.5 -13.4375 -3.5"), "the dropped queue cart isn't in the scene");
+        assert!(text.contains("# e2\nentity: minecraft:minecart -0.5 17.5625 1.5"), "the first seeded cart follows the module's kept lines: {text}");
+        // the old writer's defect: the module's text (the stored cart kept) with the tail sliced
+        let mut stale = module.clone();
+        stale.extend(super::lane_carts(5).into_iter().skip(1));
+        assert!(super::check_scene_text(&view, &super::scene_entity_lines(&stale)).is_err(), "an extra stored cart line must fail");
+        // a passenger off
+        let mut wrong = list.clone();
+        wrong[0].2 = Some("{Passengers:[{id:\"minecraft:zombie\"}]}".to_string());
+        assert!(super::check_scene_text(&view, &super::scene_entity_lines(&wrong)).is_err(), "a passenger off must fail");
     }
 }
 
