@@ -235,6 +235,12 @@ struct V {
     spells: Vec<String>,
     /// at-entry judgements: (tick, stamp age or none) at each first SetWalkTargetFromBlockMemory run per spell
     entry_judged: Vec<(u32, Option<i64>)>,
+    /// (ironspec 09:42 (R1)) the release branch's runs, HOME held now, the lie-downs (LAST_SLEPT
+    /// sets), and the current stop visit (since, HOME held on arrival)
+    releases: u32,
+    has_home: bool,
+    slept: Vec<u32>,
+    at_stop: Option<(u32, bool)>,
     /// the least air supply read (every 20 gt): (air, tick, position)
     min_air: Option<(i32, u32, String)>,
     activity: String,
@@ -392,6 +398,8 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
     let mut log = Log { at: 0 };
     let mut setup_lines: Vec<String>;
     let (mut home_set_t0, mut slept_set_t0) = (0usize, 0usize);
+    let mut declared_home: BTreeSet<String> = BTreeSet::new();
+    let mut farm_stop: Vec<String> = Vec::new();
     // (G1 on G #6) the agent hooks this replay reads must have installed (N > 0), and a positive:
     // a scratch villager given 1 drowning damage must print its `hurt drown` line
     {
@@ -399,10 +407,11 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
         // them (the summon-time brain build, then the switch after the run's day is set)
         setup_lines = Log { at: 0 }.drain(&srv)?;
         let text = std::fs::read_to_string(&srv.log)?;
-        for (what, needle) in [("+hurt", "LivingEntity reports hurtServer ("), ("+poi acquire", "AcquirePoi reports findPathToPois's path ("), ("+poi tickets", "PoiRecord reports acquireTicket and releaseTicket (")] {
+        for (what, needle, want) in [("+hurt", "LivingEntity reports hurtServer (", 1u32), ("+poi acquire", "AcquirePoi reports findPathToPois's path (", 1), ("+poi tickets", "PoiRecord reports acquireTicket and releaseTicket (", 2)] {
             let n: Option<u32> = text.lines().find_map(|l| l.split(needle).nth(1)).and_then(|r| r.split_whitespace().next()).and_then(|s| s.parse().ok());
             println!("  agent hook {what}: {}", n.map(|n| format!("{n} installed")).unwrap_or_else(|| "NOT installed".into()));
-            anyhow::ensure!(n.is_some_and(|n| n > 0), "the agent hook {what} did not install: its absence of lines would read as no events");
+            // (G1 on K #1, ironspec 09:43: every agent hook) the expected count exactly
+            anyhow::ensure!(n == Some(want), "the agent hook {what} hooked {n:?}, not exactly {want}: its lines can't be trusted");
         }
         // (ironspec 09:28 (a)) with the push window on, each push hook hooks EXACTLY one method (matched
         // by its descriptor), so a renamed or doubled method can't read as "no pushes"
@@ -491,6 +500,39 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
         Err(_) => None,
     };
     let mut trace_rows: Vec<String> = Vec::new();
+    let cell3 = |s: &str| -> Result<[i32; 3]> {
+        let v: Vec<i32> = s.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+        anyhow::ensure!(v.len() == 3, "x,y,z, got {s}");
+        Ok([v[0], v[1], v[2]])
+    };
+    let swap: Option<([i32; 3], String, u32, u32)> = match std::env::var("MCTAS_REPLAY_SWAP") {
+        Ok(s) => {
+            let f: Vec<&str> = s.split(';').collect();
+            anyhow::ensure!(f.len() == 4, "MCTAS_REPLAY_SWAP=x,y,z;STATE;t0;t1, got {s}");
+            Some((cell3(f[0])?, f[1].trim().to_string(), f[2].trim().parse()?, f[3].trim().parse()?))
+        }
+        Err(_) => None,
+    };
+    let hold: Option<([i32; 3], u32, u32)> = match std::env::var("MCTAS_REPLAY_HOLDCART") {
+        Ok(s) => {
+            let f: Vec<&str> = s.split(';').collect();
+            anyhow::ensure!(f.len() == 3, "MCTAS_REPLAY_HOLDCART=x,y,z;t0;t1, got {s}");
+            Some((cell3(f[0])?, f[1].trim().parse()?, f[2].trim().parse()?))
+        }
+        Err(_) => None,
+    };
+    let mut swap_old: Option<String> = None;
+    let block_asserts: Vec<([i32; 3], String)> = match std::env::var("MCTAS_REPLAY_ASSERT") {
+        Ok(s) => s
+            .split(';')
+            .filter(|e| !e.trim().is_empty())
+            .map(|e| -> Result<([i32; 3], String)> {
+                let (c, p) = e.split_once('|').ok_or_else(|| anyhow::anyhow!("MCTAS_REPLAY_ASSERT=x,y,z|PREDICATE;…, got {e}"))?;
+                Ok((cell3(c)?, p.trim().to_string()))
+            })
+            .collect::<Result<_>>()?,
+        Err(_) => Vec::new(),
+    };
     let mut unread: Vec<String> = Vec::new();
     let mut day_base: i64 = day_start;
     // MCTAS_REPLAY_NAMES="7=28,8-11=7-10,12-28=11-27": scene index -> the drive's eN, where the drive
@@ -514,6 +556,38 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
         println!("  names: scene index -> the drive's eN: {}", names.iter().map(|(a, b)| format!("{a}->{b}")).collect::<Vec<_>>().join(" "));
     }
     for t in 0..=ticks {
+        // (ironspec 07:05 / 08:02: the lift-top fault rows) MCTAS_REPLAY_SWAP="x,y,z;STATE;t0;t1": the cell
+        // set to STATE before tick t0 and its own state restored before t1 (each write must change it);
+        // MCTAS_REPLAY_HOLDCART="x,y,z;t0;t1": an EMPTY minecart summoned on the cell before t0 and held
+        // there (position and zero motion re-set before every tick) until t1, then removed
+        if let Some((c, st, a, b)) = swap.as_ref() {
+            let cmd_at = |s: &str| format!("setblock {} {} {} {s}", c[0], c[1] + DY, c[2]);
+            if t == *a {
+                swap_old = Some(cell_state(&mut srv, *c)?);
+                let out = srv.cmd(&cmd_at(st))?;
+                anyhow::ensure!(out.contains("Changed the block"), "MCTAS_REPLAY_SWAP at t{t}: {}", out.trim());
+                events.push(format!("t{t}: SWAP ({},{},{}) {} -> {st}", c[0], c[1], c[2], swap_old.clone().unwrap_or_default()));
+            } else if t == *b {
+                let old = swap_old.clone().ok_or_else(|| anyhow::anyhow!("MCTAS_REPLAY_SWAP: no state saved"))?;
+                let out = srv.cmd(&cmd_at(&old))?;
+                anyhow::ensure!(out.contains("Changed the block"), "MCTAS_REPLAY_SWAP restore at t{t}: {}", out.trim());
+                events.push(format!("t{t}: SWAP ({},{},{}) restored to {old}", c[0], c[1], c[2]));
+            }
+        }
+        if let Some((c, a, b)) = hold.as_ref() {
+            let (x, y, z) = (c[0] as f64 + 0.5, (c[1] + DY) as f64 + 0.0625, c[2] as f64 + 0.5);
+            if t == *a {
+                let out = srv.cmd(&format!("summon minecraft:minecart {x} {y} {z} {{Tags:[\"holdcart\"],Motion:[0.0d,0.0d,0.0d]}}"))?;
+                anyhow::ensure!(out.contains("Summoned new"), "MCTAS_REPLAY_HOLDCART at t{t}: {}", out.trim());
+                events.push(format!("t{t}: HOLDCART an empty minecart held at ({},{},{})", c[0], c[1], c[2]));
+            } else if t > *a && t < *b {
+                srv.cmd_ok(&format!("tp @e[tag=holdcart,limit=1] {x} {y} {z}"))?;
+                srv.cmd_ok("data merge entity @e[tag=holdcart,limit=1] {Motion:[0.0d,0.0d,0.0d]}")?;
+            } else if t == *b {
+                srv.cmd_ok("kill @e[tag=holdcart]")?;
+                events.push(format!("t{t}: HOLDCART removed"));
+            }
+        }
         if loads.contains(&t) {
             reloaded = true;
             let (s, rl) = crate::restartcheck::reload(srv, |w| opts(Some(w)), None)?;
@@ -552,6 +626,12 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
                         let want = format!("[I; {}, {}, {}]", p[0], p[1] + DY, p[2]);
                         anyhow::ensure!(back.as_deref() == Some(want.as_str()), "t{t}: {who}'s HOME read back {back:?}, the act wrote {want}");
                         home_set_t0 += usize::from(t == 0);
+                        if t == 0 {
+                            declared_home.insert(who.clone());
+                        }
+                        if let Some(v) = vs.iter_mut().find(|v| v.tag == who) {
+                            v.has_home = true;
+                        }
                     } else {
                         anyhow::ensure!(a.args.len() == 2, "t{t}: last-slept eN.pK d");
                         let dt: i64 = a.args[1].parse()?;
@@ -622,6 +702,13 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
         // ticket taken during the setup)
         if t == 0 {
             let taken = setup_lines.iter().filter(|l| l.starts_with("poi acquire")).count();
+            // (ironspec 09:48) MCTAS_REPLAY_ASSERT="x,y,z|PREDICATE;…": block predicates asserted at t0
+            // (and again after the last tick), e.g. the pocket-exit Ts' placement-order shapes
+            for (c, pred) in &block_asserts {
+                let ok = crate::strict::test(&mut srv, &format!("execute if block {} {} {} {pred}", c[0], c[1] + DY, c[2]))?;
+                println!("  t0 assert ({},{},{}) {pred}: {}", c[0], c[1], c[2], if ok { "HELD" } else { "FAILED" });
+                anyhow::ensure!(ok, "t0: ({},{},{}) is not {pred}", c[0], c[1], c[2]);
+            }
             println!(
                 "  t0: the run's start day {day_start} (scene {} md5 {}, drive {} md5 {}{}); HOME written and read back for {home_set_t0} villager(s), LAST_SLEPT for {slept_set_t0}, of {}; tickets taken during the setup: {taken} (start state (i): the ticket free){}",
                 scene.display(),
@@ -633,7 +720,15 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
                 if home_set_t0 == vs.len() { "" } else { " (NOT every villager holds HOME)" }
             );
             anyhow::ensure!(taken == 0, "t0: {taken} ticket(s) taken during the setup: not start state (i)");
-            anyhow::ensure!(home_set_t0 == 0 || home_set_t0 == vs.len(), "t0: the drive gives HOME to {home_set_t0} of {} villagers", vs.len());
+            // (ironspec 09:42 (R3)) the drive DECLARES its HOME holders (its t0 `home` acts): each read
+            // back above, and every other villager HOME-less at t0
+            for v in vs.iter() {
+                if !declared_home.contains(&v.tag) {
+                    let h = crate::strict::data_value(&mut srv, &format!("data get entity @e[tag={},limit=1] Brain.memories.\"minecraft:home\"", v.tag))?;
+                    anyhow::ensure!(h.is_none(), "t0: {} holds HOME {h:?} but the drive declares it HOME-less", v.tag);
+                }
+            }
+            println!("  t0: the drive's declared HOME holders: {} of {} ({}); every other villager HOME-less, read back", declared_home.len(), vs.len(), if declared_home.len() == vs.len() { "all".to_string() } else { declared_home.iter().cloned().collect::<Vec<_>>().join(" ") });
         }
         srv.step(1)?;
         let now = gt0 + t as i64 + 1;
@@ -689,13 +784,15 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
                 let v = &mut vs[vi];
                 v.wt = Some(by.clone());
                 if by.starts_with("SetWalkTargetFromBlockMemory") {
+                    // (ironspec 09:42 (R2)) EVERY run of SetWalkTargetFromBlockMemory is judged on the
+                    // age it saw, not only a spell's first (a later run after a stale sink stops)
                     let age = v.stamp.map(|s| now - s);
+                    v.entry_judged.push((t, age));
                     if let Some(sp) = v.spell.as_mut()
                         && sp.home_set.is_none()
                         && sp.released.is_none()
                     {
                         sp.home_set = Some((t, age.map(|a| a.to_string()).unwrap_or_else(|| "none".into())));
-                        v.entry_judged.push((t, age));
                     }
                 }
             } else if l.starts_with("erase minecraft:walk_target") {
@@ -766,23 +863,32 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
                 if by.starts_with("SetWalkTargetFromBlockMemory") {
                     let v = &mut vs[vi];
                     let age = v.stamp.map(|s| now - s);
+                    // (R2) a release is a run of the behaviour too: judged on the age it saw (the
+                    // erase-HOME line precedes its stamp set)
+                    v.entry_judged.push((t, age));
+                    v.releases += 1;
                     if let Some(sp) = v.spell.as_mut()
                         && sp.released.is_none()
                     {
-                        let first_run = sp.home_set.is_none();
                         sp.released = Some((t, age.map(|a| a.to_string()).unwrap_or_else(|| "none".into())));
-                        if first_run {
-                            v.entry_judged.push((t, age));
-                        }
                     }
                 }
+                vs[vi].has_home = false;
                 vs[vi].home_lost.push(what.clone());
                 events.push(format!("t{t}: {tag} HOME ERASED {}", what.trim_start_matches(&format!("t{t} "))));
             } else if l.starts_with("set minecraft:home") {
                 let by = body.split(" by ").nth(1).unwrap_or("?").to_string();
+                vs[vi].has_home = true;
                 if !by.contains("makeBrain") && !by.contains("refreshBrain") {
                     vs[vi].home_set.push(format!("t{t} by {by}"));
                     events.push(format!("t{t}: {tag} HOME set by {by}"));
+                }
+            } else if l.starts_with("set minecraft:last_slept") {
+                // SleepInBed.start's LAST_SLEPT (a lie-down): the FARM-STOP bar's evidence
+                let v = &mut vs[vi];
+                v.slept.push(t);
+                if let Some((s, _)) = v.at_stop.take() {
+                    events.push(format!("t{t}: {tag} LIE-DOWN (at the stop since t{s})"));
                 }
             } else if l.starts_with("poi ") {
                 events.push(format!("t{t}: {tag} {body}"));
@@ -925,6 +1031,35 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
                 v.dawn.push(format!("t{t}: stamp {}", v.stamp.map(|s| format!("age {}", now - s)).unwrap_or_else(|| "none".into())));
             }
         }
+        // (ironspec 09:42 (R1)) FARM-STOP: at night, every 5 gt, a villager (not gone) within SleepInBed's
+        // 2.0 of the bed head's centre is at the stop: it must hold HOME on arrival and lie down
+        // (LAST_SLEPT set) within the 900-gt follow window, or before it leaves (> 3.0)
+        if night && t % 5 == 0 {
+            for v in vs.iter_mut() {
+                if v.gone.is_some() {
+                    continue;
+                }
+                let Some(p) = pos_of(&mut srv, &format!("@e[tag={},limit=1]", v.tag))? else { continue };
+                let dist = ((p[0] - centre[0]).powi(2) + (p[1] - centre[1]).powi(2) + (p[2] - centre[2]).powi(2)).sqrt();
+                match v.at_stop {
+                    None if dist < 2.0 && v.slept.last().is_none_or(|&s| s + 5 < t) => {
+                        v.at_stop = Some((t, v.has_home));
+                        if !v.has_home {
+                            farm_stop.push(format!("t{t}: {} at the stop ({dist:.2} from the head's centre) WITHOUT HOME", v.tag));
+                        }
+                    }
+                    Some((s, _)) if t > s + 900 => {
+                        farm_stop.push(format!("t{t}: {} at the stop since t{s}, no lie-down within 900 gt", v.tag));
+                        v.at_stop = None;
+                    }
+                    Some((s, _)) if dist > 3.0 => {
+                        farm_stop.push(format!("t{t}: {} left the stop ({dist:.2}) after t{s} without lying down", v.tag));
+                        v.at_stop = None;
+                    }
+                    _ => {}
+                }
+            }
+        }
         if t % 20 == 0 {
             // (a rider lost) every villager's presence and air supply; a disappearance with the
             // server log's death line
@@ -1000,7 +1135,17 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
             }
         }
     }
+    // the block predicates again after the last tick (the Ts must still hold their shapes)
+    let mut end_asserts_bad: Vec<String> = Vec::new();
+    for (c, pred) in &block_asserts {
+        let ok = crate::strict::test(&mut srv, &format!("execute if block {} {} {} {pred}", c[0], c[1] + DY, c[2]))?;
+        println!("  end assert ({},{},{}) {pred}: {}", c[0], c[1], c[2], if ok { "HELD" } else { "FAILED" });
+        if !ok {
+            end_asserts_bad.push(format!("({},{},{}) {pred}", c[0], c[1], c[2]));
+        }
+    }
     let _ = std::fs::remove_dir_all(&srv.dir);
+    anyhow::ensure!(end_asserts_bad.is_empty(), "after the run: {} block assert(s) failed: {}", end_asserts_bad.len(), end_asserts_bad.join("; "));
     println!("  acts applied: {applied} of {}; night ticks (day time 12000..23999) in the run: {night_ticks}", acts.len());
     for e in &events {
         println!("  {e}");
@@ -1133,18 +1278,42 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
         drowning.len(),
         drowning.iter().take(12).collect::<Vec<_>>()
     );
+    // (ironspec 09:42 (R1)) the ruled night bars fail the run; the stricter old counts print only
+    let releases: u32 = vs.iter().map(|v| v.releases).sum();
+    let mut lost_by: BTreeMap<String, usize> = BTreeMap::new();
+    for v in &vs {
+        for h in &v.home_lost {
+            let mech = h.split(" by ").nth(1).and_then(|r| r.split('.').next()).unwrap_or("?").to_string();
+            *lost_by.entry(mech).or_insert(0) += 1;
+        }
+    }
+    for v in vs.iter() {
+        if let Some((s, _)) = v.at_stop {
+            farm_stop.push(format!("{} at the stop since t{s} at the run's end, no lie-down", v.tag));
+        }
+    }
     println!(
-        "  bars: (1) night REST ticks without a complete HOME path: {partial} of {judged} villager-ticks judged (trips excluded: {complete}) ({}); (2) villagers whose stamp reached 1,000 gt: {old} ({}); (3) collisions: {} ({}); (4) HOME erased: {lost} ({}); (5) no-op acts: {} ({})",
-        if partial == 0 { "HELD" } else { "FAILED" },
-        if old == 0 { "HELD" } else { "FAILED" },
+        "  printed only (ironspec 09:42 (R1)): night REST ticks without a complete HOME path {partial} of {judged} villager-ticks (trips excluded: {complete}); villagers whose stamp ever reached 1,000 gt: {old}"
+    );
+    println!(
+        "  the night bars: (a) at-entry stamp (above); (b) release-branch runs: {releases} ({}); (c) HOME LOST by mechanism: {lost} {:?} ({}); (d) EXPOSURE (per tick): {} ({}); (e) FARM-STOP: {} ({}); and villagers lost {}, drowning hits {}, no-op acts {} ({})",
+        if releases == 0 { "HELD" } else { "FAILED" },
+        lost_by,
+        if lost == 0 { "HELD" } else { "FAILED" },
         collisions.len(),
         if collisions.is_empty() { "HELD" } else { "FAILED" },
-        if lost == 0 { "HELD" } else { "FAILED" },
+        farm_stop.len(),
+        if farm_stop.is_empty() { "HELD" } else { "FAILED" },
+        gone.len(),
+        drowning.len(),
         noop.len(),
-        if noop.is_empty() { "HELD" } else { "FAILED" }
+        if gone.is_empty() && drowning.is_empty() && noop.is_empty() { "HELD" } else { "FAILED" }
     );
     for c in &collisions {
-        println!("    collision {c}");
+        println!("    exposure {c}");
+    }
+    for f in &farm_stop {
+        println!("    farm-stop {f}");
     }
     for n in &noop {
         println!("    no-op act {n}");
@@ -1164,9 +1333,20 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
     anyhow::ensure!(expects_checked == expect_in_run, "{expects_checked} of the {expect_in_run} `# expect` line(s) inside the run's {ticks} gt checked: the run fails");
     anyhow::ensure!(expect_lines > 0 || fidelity_only, "an OPEN-LOOP drive (no `# expect` lines) is no design run: declare it with MCTAS_REPLAY_FIDELITY_ONLY=1 for a mechanics-only row; the run fails");
     anyhow::ensure!(judged > 0, "no night tick judged: NOT JUDGED, the run fails");
-    anyhow::ensure!(applied == acts.len(), "only {applied} of {} acts applied within {ticks} gt", acts.len());
+    // (G1 on K #2) the acts inside the run (the loop runs t = 0..=ticks, so acts at t <= ticks apply)
+    let acts_in_run = acts.iter().filter(|a| a.t <= ticks).count();
+    anyhow::ensure!(applied == acts_in_run, "only {applied} of the {acts_in_run} acts inside the run applied within {ticks} gt");
     anyhow::ensure!(first_div.is_none() || expects_checked == 0, "the replay diverged from redsim's recorded state at t{}: every design result after it is NOT JUDGED (drift): the run fails as a design run", first_div.unwrap_or(0));
-    anyhow::ensure!(partial == 0 && old == 0 && collisions.is_empty() && lost == 0 && noop.is_empty() && gone.is_empty() && drowning.is_empty(), "a bar failed (REST without a complete HOME path {partial}, stamps >= 1000 {old}, collisions {}, HOME erased {lost}, no-op acts {}, villagers lost {}, drowning hits {})", collisions.len(), noop.len(), gone.len(), drowning.len());
+    anyhow::ensure!(
+        at_entry_bad.is_empty() && releases == 0 && lost == 0 && collisions.is_empty() && farm_stop.is_empty() && noop.is_empty() && gone.is_empty() && drowning.is_empty(),
+        "a night bar failed (at-entry {}, release-branch runs {releases}, HOME lost {lost}, exposure {}, farm-stop {}, no-op acts {}, villagers lost {}, drowning hits {})",
+        at_entry_bad.len(),
+        collisions.len(),
+        farm_stop.len(),
+        noop.len(),
+        gone.len(),
+        drowning.len()
+    );
     Ok(())
 }
 
