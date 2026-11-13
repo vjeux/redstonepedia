@@ -2831,22 +2831,23 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                 // start, and the erases SleepInBed's start makes (WALK_TARGET, CANT_REACH: before
                 // = the previous tick's, after = now))
                 let bb = redsim::entity::mob::ai::brain::brain(w, vi);
-                row.resleep_line = Some(format!("t {t}: SleepInBed started (the napper asleep again, sleeping_pos {:?}) at feet ({:.3},{:.3},{:.3}); LAST_WOKEN {:?} (gameTime - LAST_WOKEN = {:?}); WALK_TARGET {} -> {}; CANT_REACH {} -> {}", redsim::entity::mob::mob(w, vi).sleeping_pos, v.pos.x, v.pos.y, v.pos.z, bb.last_woken, bb.last_woken.map(|lw| w.time - lw), prev_walk_target, bb.walk_target.is_some(), prev_cant_reach, redsim::entity::mob::ai::brain::has_exact(w, vi) && redsim::entity::mob::ai::brain::ex(w, vi).mem.cant_reach_since.is_some()));
+                let wt_now = redsim::entity::mob::ai::brain::has_exact(w, vi) && redsim::entity::mob::ai::brain::ex(w, vi).mem.walk_target.is_some();
+                row.resleep_line = Some(format!("t {t}: SleepInBed started (the napper asleep again, sleeping_pos {:?}) at feet ({:.3},{:.3},{:.3}); LAST_WOKEN {:?} (gameTime - LAST_WOKEN = {:?}); WALK_TARGET {} -> {}; CANT_REACH {} -> {}", redsim::entity::mob::mob(w, vi).sleeping_pos, v.pos.x, v.pos.y, v.pos.z, bb.last_woken, bb.last_woken.map(|lw| w.time - lw), prev_walk_target, wt_now, prev_cant_reach, redsim::entity::mob::ai::brain::has_exact(w, vi) && redsim::entity::mob::ai::brain::ex(w, vi).mem.cant_reach_since.is_some()));
             }
             // (G1 09:19 (1): the boardings per visit (more than one: a pickup fault); (2) the least
             // distance from HOME's head centre over the standing window, the wake to the last boarding)
             if riding && !prev_riding && row.release_at.is_some() {
                 row.boardings += 1;
             }
-            if !riding && row.woke_at.is_some_and(|w0| t >= w0) && !asleep && row.out_at.is_none() && row.release_at.is_some_and(|_| row.boardings < 2) {
+            if !riding && row.woke_at.is_some_and(|w0| t >= w0) && !asleep && row.out_at.is_none() && row.boardings < 2 {
                 let d = ((v.pos.x - (BED_HEAD[0] as f64 + 0.5)).powi(2) + (v.pos.y - (BED_HEAD[1] as f64 + 0.5)).powi(2) + (v.pos.z - (BED_HEAD[2] as f64 + 0.5)).powi(2)).sqrt();
                 row.stand_min_home = Some(row.stand_min_home.map_or(d, |m: f64| m.min(d)));
             }
             prev_riding = riding;
             if redsim::entity::mob::ai::brain::has_exact(w, vi) {
-                let bb = redsim::entity::mob::ai::brain::brain(w, vi);
-                prev_walk_target = bb.walk_target.is_some();
-                prev_cant_reach = redsim::entity::mob::ai::brain::ex(w, vi).mem.cant_reach_since.is_some();
+                let m = &redsim::entity::mob::ai::brain::ex(w, vi).mem;
+                prev_walk_target = m.walk_target.is_some();
+                prev_cant_reach = m.cant_reach_since.is_some();
             }
             if riding && row.release_at.is_some() && row.pickup.is_none() {
                 row.pickup = Some((row.cells_after_wake.last().copied().unwrap_or(vcell), t));
