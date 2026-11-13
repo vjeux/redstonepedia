@@ -33,7 +33,7 @@ use std::collections::HashMap;
 
 /// One source's result at a place: its cells, and those with no complete path with the chance one
 /// event picks each (a share of 0: an edge cell).
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Source {
     pub cells: usize,
     pub unreached: Vec<(BlockPos, f64)>,
@@ -56,6 +56,7 @@ impl Source {
 }
 
 /// One rider place's result.
+#[derive(Clone)]
 pub struct Place {
     pub cell: BlockPos,
     /// A villager standing there (a dropped napper), not a rider seated in a cart.
@@ -80,6 +81,10 @@ pub struct Place {
     pub panic_declared: bool,
     /// Every point sees a zombie within PANIC_BAR (the eyes' line clear).
     pub panic_ok: bool,
+    /// (ironspec Nov 12 21:58: the 6-8 gate sight-gated) The least distance to a zombie within the
+    /// flee bar that some point of the place sees, or is hidden from only by partial blocks (the
+    /// robust hiding: a full-collider block on the eye ray hides it); None: none in sight.
+    pub near_seen: Option<f64>,
 }
 
 /// The hostiles of the design's entity lines (a zombie, or a zombie riding a boat or a cart): their
@@ -636,10 +641,22 @@ fn check_inner(spec: &FarmSpec, home: Option<BlockPos>, foot: &[BlockPos], panic
         // point sees a zombie within PANIC_BAR)
         let mut worst: Option<(f64, Vec3, Vec3)> = None;
         let mut panic_ok = true;
+        let mut near_seen: Option<f64> = None;
         for &p in &points {
             let me = put(w, p);
             let eye = Vec3::new(me.x, me.y + 1.62, me.z);
             let dist = |f: &Vec3| ((me.x - f.x).powi(2) + (me.y - f.y).powi(2) + (me.z - f.z).powi(2)).sqrt();
+            for f in foes.iter().filter(|f| dist(f) < FLEE_BAR) {
+                let zeye = Vec3::new(f.x, f.y + 1.74, f.z);
+                let hidden = !redsim::entity::mob::los::has_line_of_sight(w, eye, zeye)
+                    && ray_cells(eye, zeye).into_iter().any(|q| {
+                        let b = w.get(q);
+                        !b.is_air() && redsim::behavior::collision_full_block_at(w, &b, q)
+                    });
+                if !hidden {
+                    near_seen = Some(near_seen.map_or(dist(f), |s: f64| s.min(dist(f))));
+                }
+            }
             if let Some(f) = foes.iter().min_by(|a, b| dist(a).total_cmp(&dist(b))) {
                 let d = dist(f);
                 near = Some(match near {
@@ -747,7 +764,7 @@ fn check_inner(spec: &FarmSpec, home: Option<BlockPos>, foot: &[BlockPos], panic
             }
         }
         let panic_declared = panic_boxes.iter().any(|(a, b)| (a[0]..=b[0]).contains(&cell.x) && (a[1]..=b[1]).contains(&cell.y) && (a[2]..=b[2]).contains(&cell.z));
-        out.push(Place { cell, on_foot, flee_from, panic_from, seen, village, flee, panic_stroll, stroll: stroll_src, others, home_reached, near, worst, panic_declared, panic_ok });
+        out.push(Place { cell, on_foot, flee_from, panic_from, seen, village, flee, panic_stroll, stroll: stroll_src, others, home_reached, near, worst, panic_declared, panic_ok, near_seen });
         let _ = redsim::entity::kill(w, vid);
         if let Some(c) = cart {
             let _ = redsim::entity::kill(w, c);
@@ -757,6 +774,45 @@ fn check_inner(spec: &FarmSpec, home: Option<BlockPos>, foot: &[BlockPos], panic
     Ok(out)
 }
 
+/// (ironspec Nov 12 21:49 (4)) The design's place classes: `riderless:` cells (an empty cart's
+/// path: no rider there, dropped from the rider places and printed as such) and `waker-places:`
+/// (a declared design exception, the woken napper's places: printed apart with their reason and
+/// its evidence commit, not failing). Each entry `x,y,z+x,y,z...=REASON`, entries `;`-separated.
+#[derive(Default, Clone, Debug)]
+pub struct PlaceClasses {
+    pub riderless: Vec<(BlockPos, String)>,
+    pub waker: Vec<(BlockPos, String)>,
+}
+
+impl PlaceClasses {
+    pub fn from_meta(meta: &std::collections::BTreeMap<String, String>) -> Result<PlaceClasses, String> {
+        let parse = |key: &str| -> Result<Vec<(BlockPos, String)>, String> {
+            let Some(v) = meta.get(key) else { return Ok(Vec::new()) };
+            let mut out = Vec::new();
+            for e in crate::pushscan::header_entries(&format!("# {key}: {v}"), &format!("{key}:")) {
+                let (cs, why) = e.split_once('=').ok_or_else(|| format!("{key} {e}: x,y,z+...=REASON"))?;
+                for c in cs.split('+') {
+                    let n: Vec<i32> = c.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>().map_err(|err| format!("{key} {e}: {err}"))?;
+                    if n.len() != 3 {
+                        return Err(format!("{key} {e}: x,y,z+...=REASON"));
+                    }
+                    out.push((BlockPos::new(n[0], n[1], n[2]), why.trim().to_string()));
+                }
+            }
+            Ok(out)
+        };
+        Ok(PlaceClasses { riderless: parse("riderless")?, waker: parse("waker-places")? })
+    }
+
+    fn riderless(&self, c: &BlockPos) -> bool {
+        self.riderless.iter().any(|(p, _)| p == c)
+    }
+
+    fn waker(&self, c: &BlockPos) -> Option<&str> {
+        self.waker.iter().find(|(p, _)| p == c).map(|(_, w)| w.as_str())
+    }
+}
+
 /// `mctas mobfarm flee-check <design>`: the report, `show` cells a place; the verdicts last.
 pub fn report(places: &[Place], jobs: &[(BlockPos, String)], show: usize) -> Vec<String> {
     report_with(places, jobs, show, false)
@@ -764,8 +820,14 @@ pub fn report(places: &[Place], jobs: &[(BlockPos, String)], show: usize) -> Vec
 
 /// [`report`], with `clearing`: every place's clearing line (what can clear a stamp there).
 pub fn report_with(places: &[Place], jobs: &[(BlockPos, String)], show: usize, clearing: bool) -> Vec<String> {
+    report_classed(places, jobs, show, clearing, &PlaceClasses::default())
+}
+
+/// [`report_with`], the 6-8 rule read with the design's place classes (`riderless:` dropped,
+/// `waker-places:` apart).
+pub fn report_classed(places: &[Place], jobs: &[(BlockPos, String)], show: usize, clearing: bool, classes: &PlaceClasses) -> Vec<String> {
     let mut lines = clearing_lines(places, clearing);
-    lines.extend(report_body(places, jobs, show));
+    lines.extend(report_body(places, jobs, show, classes));
     lines
 }
 
@@ -1226,6 +1288,111 @@ fn dense_rider_points(spec: &FarmSpec, columns: &[[f64; 4]]) -> Vec<(String, Vec
 /// excluded box and out of the rider space over every rail (the 1..3 cells over a rail cell, where a
 /// seated villager's 1.95-tall box passes, a slope's rise included); the fewest cells by a greedy
 /// hitting set, then every hide position and every kept point re-checked with the glass laid.
+/// (9fc3155f, ironspec Nov 12 20:10 (2a): the stand-in guard's 7th property, SIGHT) Every sight ray
+/// the villagers' sensors cast (`LivingEntity.hasLineOfSight`: a COLLIDER clip, eye to eye) between
+/// a rider and a scarer within 16 (NEAREST_VISIBLE_LIVING_ENTITIES' range; the hostile sensor then
+/// keeps a zombie within 8, a pillager within 15) and between two riders within 16 (each rail
+/// cell's midpoint), cast in the module and in the module with the stand-ins laid (`sets`): a ray
+/// clear in one and blocked in the other is a stand-in that changes sight, listed under each
+/// stand-in cell it crosses. The rider points: every rail cell at 0.1, 0.5 and 0.9 along it, the
+/// eye 1.62 over the feet; the scarers: the design's boats with a zombie or a pillager seated, and
+/// `extra` boats (x, y, z, is a pillager).
+pub fn sight_diff(spec: &FarmSpec, sets: &[(BlockPos, redsim::block::Block)], extra: &[(Vec3, bool)]) -> Result<Vec<String>, String> {
+    let build = |s: &FarmSpec| -> Result<redsim::World, String> {
+        let o = RunOpts { ai: true, ..RunOpts::steady(1, 0, WalkMode::Random) };
+        let mut run = Run::start(s, &o)?;
+        while run.settle_tick() {}
+        Ok(run.world)
+    };
+    let mut bench = spec.clone();
+    for (p, b) in sets {
+        bench.blocks.retain(|(q, _)| q != p);
+        if !b.is_air() {
+            bench.blocks.push((*p, b.clone()));
+        }
+    }
+    let (wa, wb) = (build(spec)?, build(&bench)?);
+    // (the scarers' eyes: each boat's seat, as the flee-check's posts)
+    let mut scarers: Vec<(Vec3, String)> = Vec::new();
+    let mut boat = |x: f64, y: f64, z: f64, pill: bool| {
+        let feet = y + if pill { PILLAGER_SEAT } else { zombie_seat() };
+        scarers.push((Vec3::new(x, feet + if pill { PILLAGER_EYE } else { 1.74 }, z), format!("the {} at {x:.1},{y:.1},{z:.1}", if pill { "pillager" } else { "zombie" })));
+    };
+    for (k, p, nbt) in &spec.entities {
+        let n = nbt.as_deref().unwrap_or("");
+        if k.ends_with("_boat") && (n.contains("minecraft:zombie\"") || n.contains("minecraft:pillager\"")) {
+            boat(p[0], p[1], p[2], n.contains("minecraft:pillager\""));
+        }
+    }
+    for (p, pill) in extra {
+        boat(p.x, p.y, p.z, *pill);
+    }
+    let reye = |p: &Vec3| Vec3::new(p.x, p.y + 1.62, p.z);
+    let riders: Vec<(String, Vec3)> = scarer_points(spec, &[]).into_iter().map(|(n, p)| (n, reye(&p))).collect();
+    let mids: Vec<(String, Vec3)> = spec.blocks.iter().filter(|(_, b)| b.to_string().contains("rail")).map(|(c, b)| (format!("{},{},{}", c.x, c.y, c.z), reye(&along_rail(*c, &b.to_string(), 0.5)))).collect();
+    let d = |a: &Vec3, b: &Vec3| ((a.x - b.x).powi(2) + (a.y - b.y).powi(2) + (a.z - b.z).powi(2)).sqrt();
+    let set_cells: std::collections::HashSet<BlockPos> = sets.iter().map(|(p, _)| *p).collect();
+    let mut by_cell: std::collections::BTreeMap<(i32, i32, i32), Vec<String>> = std::collections::BTreeMap::new();
+    let (mut n_rs, mut n_rr, mut changed) = (0usize, 0usize, 0usize);
+    let mut check = |from: Vec3, to: Vec3, what: String, by_cell: &mut std::collections::BTreeMap<(i32, i32, i32), Vec<String>>| {
+        let (a, b) = (redsim::entity::mob::los::has_line_of_sight(&wa, from, to), redsim::entity::mob::los::has_line_of_sight(&wb, from, to));
+        if a != b {
+            changed += 1;
+            let cells: Vec<BlockPos> = ray_cells(from, to).into_iter().filter(|c| set_cells.contains(c)).collect();
+            let line = format!("{what}: {} in the module, {} with the stand-ins", if a { "clear" } else { "blocked" }, if b { "clear" } else { "blocked" });
+            if cells.is_empty() {
+                by_cell.entry((i32::MIN, 0, 0)).or_default().push(line.clone());
+            }
+            for c in cells {
+                by_cell.entry((c.y, c.z, c.x)).or_default().push(line.clone());
+            }
+        }
+    };
+    for (rn, r) in &riders {
+        for (s, sn) in &scarers {
+            if d(r, s) <= 16.0 {
+                n_rs += 1;
+                check(*r, *s, format!("rider {rn} (eye {:.2},{:.2},{:.2}) to {sn}", r.x, r.y, r.z), &mut by_cell);
+            }
+        }
+    }
+    for (i, (an, a)) in mids.iter().enumerate() {
+        for (bn, b) in mids.iter().skip(i + 1) {
+            if d(a, b) <= 16.0 {
+                n_rr += 1;
+                check(*a, *b, format!("rider {an} to rider {bn}"), &mut by_cell);
+            }
+        }
+    }
+    let blocks_a: std::collections::HashMap<BlockPos, String> = spec.blocks.iter().map(|(p, b)| (*p, b.to_string())).collect();
+    let short = |s: &str| s.trim_start_matches("minecraft:").split('[').next().unwrap_or("").to_string();
+    let mut lines = vec![format!(
+        "sight (the stand-in guard's 7th property, ironspec Nov 12 20:10 (2a): each sight ray eye to eye, a COLLIDER clip, cast with and without the stand-ins): {} stand-in cells, {} scarers; {n_rs} rider-scarer rays and {n_rr} rider-rider rays within 16; {changed} changed by the stand-ins{}",
+        sets.len(),
+        scarers.len(),
+        if changed == 0 { " (PASS)" } else { " (FAIL)" }
+    )];
+    for (p, b) in sets {
+        let k = (p.y, p.z, p.x);
+        let v = by_cell.get(&k).cloned().unwrap_or_default();
+        lines.push(format!(
+            "  {} {},{},{} ({} in the module, {} as the stand-in): {} ray(s) changed{}",
+            if v.is_empty() { "SAME" } else { "CHANGED" },
+            p.x,
+            p.y,
+            p.z,
+            blocks_a.get(p).map(|s| short(s)).unwrap_or_else(|| "air".to_string()),
+            short(&b.to_string()),
+            v.len(),
+            v.iter().take(3).map(|l| format!("; {l}")).collect::<String>()
+        ));
+    }
+    if let Some(v) = by_cell.get(&(i32::MIN, 0, 0)) {
+        lines.push(format!("  (rays changed through no stand-in cell, a settle difference: {}){}", v.len(), v.iter().take(3).map(|l| format!("; {l}")).collect::<String>()));
+    }
+    Ok(lines)
+}
+
 pub fn occlude(spec: &FarmSpec, post: BlockPos, pill: bool, hide: &[Vec3], exclude: &[([i32; 3], [i32; 3])], extra: &[Vec3]) -> Result<Vec<String>, String> {
     let o = RunOpts { ai: true, ..RunOpts::steady(1, 0, WalkMode::Random) };
     let mut run = Run::start(spec, &o)?;
@@ -2302,7 +2469,7 @@ fn clearing_lines(places: &[Place], each: bool) -> Vec<String> {
     lines
 }
 
-fn report_body(places: &[Place], jobs: &[(BlockPos, String)], show: usize) -> Vec<String> {
+fn report_body(places: &[Place], jobs: &[(BlockPos, String)], show: usize, classes: &PlaceClasses) -> Vec<String> {
     let mut lines = Vec::new();
     let fmt = |v: &[(BlockPos, f64)], pct: bool| {
         v.iter()
@@ -2358,6 +2525,12 @@ fn report_body(places: &[Place], jobs: &[(BlockPos, String)], show: usize) -> Ve
     // FLEE_BAR (6.05) from every rider position, measured from where it sits in its post; a place
     // declared in `panic:` sees one within PANIC_BAR (7.95) from every point. Each place's nearest
     // zombie, least and greatest over its points, and the closest pair overall)
+    // (ironspec Nov 12 21:49 (4): the design's `riderless:` cells are no rider places, dropped and
+    // printed as such; its `waker-places:` are a declared exception, printed apart, not failing)
+    let dropped: Vec<&Place> = places.iter().filter(|p| classes.riderless(&p.cell)).collect();
+    let wakers: Vec<&Place> = places.iter().filter(|p| !classes.riderless(&p.cell) && classes.waker(&p.cell).is_some()).collect();
+    let kept: Vec<Place> = places.iter().filter(|p| !classes.riderless(&p.cell) && classes.waker(&p.cell).is_none()).cloned().collect();
+    let places: &[Place] = &kept;
     let inside: Vec<&Place> = places.iter().filter(|p| p.near.is_some_and(|n| n.0 < FLEE_BAR)).collect();
     let beyond = places.iter().filter(|p| p.near.is_none_or(|n| n.1 > PANIC_BAR)).count();
     let declared: Vec<&Place> = places.iter().filter(|p| p.panic_declared).collect();
@@ -2375,7 +2548,11 @@ fn report_body(places: &[Place], jobs: &[(BlockPos, String)], show: usize) -> Ve
     }
     for p in inside.iter().take(show.max(1) * 20) {
         let (lo, hi, h) = p.near.expect("a place inside the bar has a zombie");
-        lines.push(format!("  INSIDE {},{},{}{}: the nearest zombie {lo:.2}..{hi:.2} (at {:.2},{:.2},{:.2})", p.cell.x, p.cell.y, p.cell.z, if p.on_foot { " on foot" } else { "" }, h.x, h.y, h.z));
+        let sight = match p.near_seen {
+            Some(d) => format!("in sight at {d:.2}: FAIL"),
+            None => "out of sight (robust hiding): information, not failing".to_string(),
+        };
+        lines.push(format!("  INSIDE {},{},{}{}: the nearest zombie {lo:.2}..{hi:.2} (at {:.2},{:.2},{:.2}), {sight}", p.cell.x, p.cell.y, p.cell.z, if p.on_foot { " on foot" } else { "" }, h.x, h.y, h.z));
     }
     for p in declared_bad.iter().take(show.max(1) * 20) {
         lines.push(format!("  PANIC-UNCOVERED {},{},{}: declared in panic:, no seen zombie within {PANIC_BAR} at some point (nearest {})", p.cell.x, p.cell.y, p.cell.z, p.near.map_or("none".to_string(), |n| format!("{:.2}..{:.2}", n.0, n.1))));
@@ -2386,7 +2563,35 @@ fn report_body(places: &[Place], jobs: &[(BlockPos, String)], show: usize) -> Ve
             None => lines.push(format!("  BEYOND {},{},{}: no zombie in the design", p.cell.x, p.cell.y, p.cell.z)),
         }
     }
-    lines.push(format!("the 6-8 gate (a place inside {FLEE_BAR}, or a declared panic place beyond {PANIC_BAR} or out of sight): {}", verdict(inside.len() + declared_bad.len())));
+    // (ironspec Nov 12 21:58: the gate is the sight-gated verdict, the flee needing sight; a place
+    // inside the bar out of sight under the robust hiding is printed as information)
+    let inside_seen = inside.iter().filter(|p| p.near_seen.is_some()).count();
+    lines.push(format!(
+        "the 6-8 gate (sight-gated, ironspec Nov 12 21:58: a place inside {FLEE_BAR} of a zombie it sees or is hidden from only by partial blocks, or a declared panic place beyond {PANIC_BAR} or out of sight; {} inside by distance only, out of sight: information): {}",
+        inside.len() - inside_seen,
+        verdict(inside_seen + declared_bad.len())
+    ));
+    if !dropped.is_empty() || !wakers.is_empty() {
+        lines.push(format!(
+            "the 6-8 rule's classes (ironspec Nov 12 21:49 (4)): {} riderless places dropped (no rider there: {}){}; {} declared waker places apart (not failing)",
+            dropped.len(),
+            classes.riderless.first().map(|(_, w)| w.as_str()).unwrap_or(""),
+            if dropped.is_empty() { String::new() } else { format!(": {}", dropped.iter().map(|p| format!("{},{},{}", p.cell.x, p.cell.y, p.cell.z)).collect::<Vec<_>>().join(" ")) },
+            wakers.len()
+        ));
+        for p in &wakers {
+            lines.push(format!(
+                "  WAKER {},{},{}{}: the nearest zombie {}{} (declared waker place: {})",
+                p.cell.x,
+                p.cell.y,
+                p.cell.z,
+                if p.on_foot { " on foot" } else { "" },
+                p.near.map_or("none".to_string(), |(lo, hi, _)| format!("{lo:.2}..{hi:.2}")),
+                p.near_seen.map_or(String::new(), |d| format!(", in sight at {d:.2}")),
+                classes.waker(&p.cell).unwrap_or("")
+            ));
+        }
+    }
     lines.push(format!(
         "verdicts (every cell a source can pick reachable wherever it runs): flee {}, panic stroll {}, idle stroll {}, walks to villagers {}",
         verdict(flee_bad),
@@ -2441,7 +2646,7 @@ fn rider_positions(spec: &FarmSpec) -> Vec<(BlockPos, f64, Vec3)> {
 }
 
 /// A rail cell's two exits: each a horizontal step, climbing one on an ascending rail's high side.
-fn rail_exits(state: &str) -> Vec<(i32, i32, i32)> {
+pub(crate) fn rail_exits(state: &str) -> Vec<(i32, i32, i32)> {
     let shape = state.split("shape=").nth(1).and_then(|s| s.split([',', ']']).next()).unwrap_or("");
     match shape {
         "north_south" => vec![(0, 0, -1), (0, 0, 1)],
@@ -2818,9 +3023,11 @@ struct Track<'a> {
     /// (ironspec's reach rule for placement-order Ts): a cart may take either shape, so their
     /// moves are the union of every arm, and their shapes orient nothing.
     switched_ts: std::collections::HashSet<BlockPos>,
-    /// The cells with a collision shape (a rail exit into one is a wall the cart stops at, not a
-    /// track end: the open ends are falls and roll-offs).
-    solid: std::collections::HashSet<BlockPos>,
+    /// The cells with a collision shape, with its boxes (1/16): a rail exit into one whose boxes
+    /// meet the cart's is a wall the cart stops at, not a track end (the open ends are falls and
+    /// roll-offs; G1's note (a) on fa1267b75: a carpet, a snow layer, an open trapdoor on the far
+    /// side let the cart pass).
+    solid: HashMap<BlockPos, Vec<redsim::behavior::Box16>>,
 }
 
 impl<'a> Track<'a> {
@@ -2831,20 +3038,23 @@ impl<'a> Track<'a> {
         // reads))
         let w0 = redsim::World::new(BlockPos::new(0, 0, 0), [1, 1, 1]);
         let sources: Vec<BlockPos> = spec.blocks.iter().filter(|(_, b)| redsim::behavior::is_signal_source(&w0, b)).map(|(p, _)| *p).collect();
-        let solid = spec.blocks.iter().filter(|(_, b)| !redsim::behavior::collision_boxes(b).is_empty()).map(|(p, _)| *p).collect();
+        let solid = spec.blocks.iter().map(|(p, b)| (*p, redsim::behavior::collision_boxes(b))).filter(|(_, v)| !v.is_empty()).collect();
         Track::from_parts(rails, columns, rests, sources, solid)
     }
 
     /// A track from its rail cells (game strings), columns, rests and signal sources.
-    fn from_parts(rails: HashMap<BlockPos, String>, columns: &'a [[f64; 4]], rests: &'a [BlockPos], sources: Vec<BlockPos>, solid: std::collections::HashSet<BlockPos>) -> Track<'a> {
+    fn from_parts(rails: HashMap<BlockPos, String>, columns: &'a [[f64; 4]], rests: &'a [BlockPos], sources: Vec<BlockPos>, solid: HashMap<BlockPos, Vec<redsim::behavior::Box16>>) -> Track<'a> {
         let col_len = columns.iter().map(|c| ((c[3] - c[1]).abs() / 0.25).round() as usize + 1).collect();
         let mut switched_ts = std::collections::HashSet::new();
         for (c, s) in &rails {
             if !s.contains("minecraft:rail[") {
                 continue;
             }
+            // (tick-exact's official junction row: RailBlock.updateState re-shapes a plain rail only
+            // when countPotentialConnections() == 3 (RailBlock.java 22-25): a 4th rail in a side's
+            // column, a detector beside it say, keeps its placed shape for good)
             let arms = Track::arm_rails(&rails, *c).iter().filter(|v| !v.is_empty()).count();
-            if arms >= 3 && sources.iter().any(|q| (q.x - c.x).abs() + (q.y - c.y).abs() + (q.z - c.z).abs() <= 2) {
+            if arms == 3 && sources.iter().any(|q| (q.x - c.x).abs() + (q.y - c.y).abs() + (q.z - c.z).abs() <= 2) {
                 switched_ts.insert(*c);
             }
         }
@@ -2900,6 +3110,21 @@ impl<'a> Track<'a> {
     /// The rails a column's last position leaves onto (G1's note 3 on a4cd9b8b0): a fall (y_to
     /// below y_from) onto the rail in its last cell or the one under it (the landing); a lift onto
     /// a rail in its last cell or level beside it (the exit the top's current feeds).
+    /// (G1's note (a) on fa1267b75) Whether the cell `m` beyond the rail `c`'s exit `e` stops a
+    /// cart: one of its collision boxes meets the cart's box (0.98 wide, from the rail floor +
+    /// 0.0625 to + 0.7625) as the cart's centre crosses into the cell, at the exit's edge midpoint
+    /// (a slope's high exit one up).
+    fn blocks_cart(&self, c: BlockPos, e: (i32, i32, i32), m: BlockPos) -> bool {
+        let Some(boxes) = self.solid.get(&m) else { return false };
+        let (ex, ez) = (c.x as f64 + 0.5 + e.0 as f64 * 0.5, c.z as f64 + 0.5 + e.2 as f64 * 0.5);
+        let floor = (c.y + e.1) as f64;
+        let cb = [ex - 0.49, ex + 0.49, floor + 0.0625, floor + 0.7625, ez - 0.49, ez + 0.49];
+        boxes.iter().any(|b| {
+            let wb = [m.x as f64 + b[0] as f64 / 16.0, m.x as f64 + b[1] as f64 / 16.0, m.y as f64 + b[2] as f64 / 16.0, m.y as f64 + b[3] as f64 / 16.0, m.z as f64 + b[4] as f64 / 16.0, m.z as f64 + b[5] as f64 / 16.0];
+            wb[0] < cb[1] && wb[1] > cb[0] && wb[2] < cb[3] && wb[3] > cb[2] && wb[4] < cb[5] && wb[5] > cb[4]
+        })
+    }
+
     fn exit_rails(&self, k: usize) -> Vec<BlockPos> {
         let c = self.columns[k];
         let cc = self.col_cell(k, self.col_len[k] - 1);
@@ -3096,6 +3321,42 @@ impl<'a> Track<'a> {
             all.sort();
             out.extend(all);
         }
+        // (G1's note (b) on fa1267b75: a lift leaves onto every level neighbour holding a rail, and
+        // each such link is oriented away from it: each column's entry and exit rails printed, to
+        // check against the runs)
+        for k in 0..self.columns.len() {
+            let c = self.columns[k];
+            let first = self.col_cell(k, 0);
+            let entry_rails: Vec<BlockPos> = self.rails.keys().filter(|r| self.entry_cells(**r).contains(&first)).copied().collect::<std::collections::BTreeSet<_>>().into_iter().collect();
+            let entries: Vec<String> = entry_rails.iter().map(|r| format!("{},{},{}", r.x, r.y, r.z)).collect();
+            let exit_cells = self.exit_rails(k);
+            let exits: Vec<String> = exit_cells.iter().map(|r| format!("{},{},{}", r.x, r.y, r.z)).collect();
+            // (G1 on 7659ee398: the landing's slope exception holds while a fall is entered with no
+            // speed up its landing's slope: a fall entered from a rail moving toward the landing
+            // slope's high side is flagged)
+            let uphill: Vec<(i32, i32)> = if c[3] < c[1] {
+                exit_cells.iter().filter_map(|l| rail_exits(self.rails.get(l).map(|s| s.as_str()).unwrap_or("")).into_iter().find(|e| e.1 == 1).map(|e| (e.0, e.2))).collect()
+            } else {
+                Vec::new()
+            };
+            let against: Vec<String> = entry_rails
+                .iter()
+                .filter(|r| (first.x - r.x, first.z - r.z) != (0, 0) && uphill.iter().any(|(ux, uz)| (first.x - r.x) * ux + (first.z - r.z) * uz > 0))
+                .map(|r| format!("{},{},{}", r.x, r.y, r.z))
+                .collect();
+            out.push(format!(
+                "  column {} {:.1},{:.1}..{:.1},{:.1}: entered from [{}], left onto [{}]{}{}",
+                if c[3] < c[1] { "(a fall)" } else { "(a lift)" },
+                c[0],
+                c[1],
+                c[3],
+                c[2],
+                entries.join(" "),
+                exits.join(" "),
+                if c[3] >= c[1] && exits.len() > 1 { " (a lift with more than one exit rail: each oriented away from it; check them against the runs)" } else { "" },
+                if against.is_empty() { String::new() } else { format!(" (FLAG: entered from {} moving toward its landing slope's high side: the slope exception for its landing does not hold)", against.join(" ")) }
+            ));
+        }
         self.allowed = Some(allowed);
         out
     }
@@ -3223,7 +3484,7 @@ impl<'a> Track<'a> {
                         let f = self.col_cell(k, 0);
                         f == m || f == m.below() || (self.col_cell(k, self.col_len[k] - 1) == m && self.exit_rails(k).contains(&c))
                     });
-                    if self.rails.contains_key(&m) || self.rails.contains_key(&m.below()) || into_column || self.solid.contains(&m) {
+                    if self.rails.contains_key(&m) || self.rails.contains_key(&m.below()) || into_column || self.blocks_cart(c, (*dx, *dy, *dz), m) {
                         continue;
                     }
                     let arrives = {
@@ -3345,7 +3606,7 @@ impl<'a> Track<'a> {
 /// printed line's text). The walks follow the way carts travel each
 /// link (`Track::orient`, by the columns, one-way shapes and `travel`, `reversal` both ways),
 /// unless `two_way` (ironspec Nov 12 16:02).
-pub fn clear_all(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32; 3], [i32; 3])], claims: &[BlockPos], pills: &[Vec3], columns: &[[f64; 4]], tail_gt: f64, rests: &[BlockPos], list: bool, idle: bool, watch: &[([i32; 3], [i32; 3])], approach: &[(BlockPos, f64)], late_gt: f64, ends_declared: &[(BlockPos, String)], travel: &[(Vec<BlockPos>, String)], reversal: &[(BlockPos, String)], two_way: bool, orient_list: bool) -> Result<(Vec<String>, ClearVerdict), String> {
+pub fn clear_all(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32; 3], [i32; 3])], claims: &[BlockPos], pills: &[Vec3], columns: &[[f64; 4]], tail_gt: f64, rests: &[BlockPos], list: bool, idle: bool, watch: &[([i32; 3], [i32; 3])], approach: &[(BlockPos, f64)], late_gt: f64, ends_declared: &[(BlockPos, String)], travel: &[(Vec<BlockPos>, String)], reversal: &[(BlockPos, String)], two_way: bool, orient_list: bool, place_classes: &PlaceClasses) -> Result<(Vec<String>, ClearVerdict), String> {
     let mut pos = rider_positions(spec);
     let mut col_of: Vec<Option<(usize, usize)>> = vec![None; pos.len()];
     let mut track = Track::new(spec, columns, rests);
@@ -3385,6 +3646,7 @@ pub fn clear_all(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32; 
     let mut fails_by = [0usize; 4];
     let mut listed: Vec<String> = Vec::new();
     let mut stale: Vec<String> = Vec::new();
+    let mut stale_waker: Vec<String> = Vec::new();
     let mut unreached_at: std::collections::BTreeMap<(i32, i32, i32), Vec<(usize, usize)>> = std::collections::BTreeMap::new();
     let mut watched: std::collections::BTreeMap<(i32, i32, i32), Vec<String>> = std::collections::BTreeMap::new();
     // (ironspec Nov 12 10:24: every walk-target source the brain can run at each position and
@@ -3434,9 +3696,11 @@ pub fn clear_all(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32; 
             Vec::new()
         };
         // (G1's CHANGES 2: a tail position within 6.05 of a zombie is itself the brief's staleness
-        // failure: the remembered hostile within the flee bar after it left sight)
-        if tail && pl.near.is_some_and(|(lo, _, _)| lo < FLEE_BAR) {
-            stale.push(format!(
+        // failure: the remembered hostile within the flee bar after it left sight; ironspec Nov 12
+        // 21:49 (4): a `riderless:` cell holds no rider, a `waker-places:` cell is the declared
+        // exception, listed apart)
+        if tail && pl.near.is_some_and(|(lo, _, _)| lo < FLEE_BAR) && !place_classes.riderless(c) {
+            let row = format!(
                 "{},{},{} {} ({:.1} gt from a seen position, a zombie at {:.2})",
                 c.x,
                 c.y,
@@ -3444,7 +3708,11 @@ pub fn clear_all(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32; 
                 if *t < 0.0 { "column".to_string() } else { format!("t {t:.2}") },
                 best[&node_of(idx)],
                 pl.near.map(|(lo, _, _)| lo).unwrap_or(0.0)
-            ));
+            );
+            match place_classes.waker(c) {
+                Some(w) => stale_waker.push(format!("{row}: declared waker place: {w}")),
+                None => stale.push(row),
+            }
         }
         // (the stale-path hazard's inputs: every unreached candidate of a PANIC source at a panicking
         // position; IDLE's partial paths are cleared on the way into a panic: VillagerPanicTrigger.start
@@ -3695,6 +3963,9 @@ pub fn clear_all(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32; 
         "staleness (an inherited policy, G1's CHANGES 2: a tail position within {FLEE_BAR} of a zombie, NEAREST_HOSTILE remembered within the flee bar): {}",
         if stale.is_empty() { "0".to_string() } else { format!("FAIL at {}: {}", stale.len(), stale.iter().take(12).cloned().collect::<Vec<_>>().join("; ")) }
     ));
+    if !stale_waker.is_empty() {
+        lines.push(format!("  staleness at declared waker places (apart, not failing): {}: {}", stale_waker.len(), stale_waker.iter().take(8).cloned().collect::<Vec<_>>().join("; ")));
+    }
     lines.push(format!(
         "stale-path hazards (printed, not enforced; in one panic: a reached PANIC candidate within 2 blocks of a PANIC candidate left unreached up to {MOVE_SINK_MAX} gt of travel before, through panicking positions: MoveToTargetSink keeps that partial path; the 2 blocks (its distSqr > 4 re-path test) and the {MOVE_SINK_MAX} gt run are physical): {}",
         if n_haz == 0 { "0".to_string() } else { format!("{n_haz} at {} upstream unreached cells", hazards.len()) }
@@ -3900,7 +4171,7 @@ mod along_rail_tests {
 
 #[cfg(test)]
 mod orient_tests {
-    use super::{TailNode, Track};
+    use super::{PlaceClasses, TailNode, Track};
     use redsim::pos::BlockPos;
     use std::collections::HashMap;
 
@@ -3981,9 +4252,27 @@ mod orient_tests {
         assert!(east_end(&t), "an open cell beyond the rail end, reached moving east");
         let west_end = |t: &Track| t.open_ends(n(-2, 0, 2)).iter().any(|(d, _)| d.contains("exit to -3,0,2"));
         assert!(!west_end(&t), "the west end: the oriented walk only leaves it eastward");
-        let mut wall = Track::from_parts(rails(), &cols, &rests, Vec::new(), [BlockPos::new(3, 0, 2)].into_iter().collect());
+        let mut wall = Track::from_parts(rails(), &cols, &rests, Vec::new(), [(BlockPos::new(3, 0, 2), vec![[0, 16, 0, 16, 0, 16]])].into_iter().collect());
         wall.orient(&[], &[], false);
         assert!(!east_end(&wall), "a wall beyond the rail end stops the cart: no track end");
+        // (G1's note (a): a carpet's 1/16 top misses the cart's box, 0.0625 over the rail: an end)
+        let mut carpet = Track::from_parts(rails(), &cols, &rests, Vec::new(), [(BlockPos::new(3, 0, 2), vec![[0, 16, 0, 1, 0, 16]])].into_iter().collect());
+        carpet.orient(&[], &[], false);
+        assert!(east_end(&carpet), "a carpet beyond the rail end lets the cart roll off: a track end");
+    }
+
+    /// (ironspec Nov 12 21:49 (4)) The place classes from the design's meta lines: `riderless:` cells
+    /// and `waker-places:` entries, each cell with its reason; a missing line is no class.
+    #[test]
+    fn place_classes_from_meta() {
+        let mut meta = std::collections::BTreeMap::new();
+        meta.insert("riderless".to_string(), "1,-26,-5+0,-27,-5=the stop's empty cart".to_string());
+        meta.insert("waker-places".to_string(), "-3,-27,3=asleep in the bed (2.04); -2,-27,4+0,-27,4=riding out past the hatch (A6 b36302af8)".to_string());
+        let c = PlaceClasses::from_meta(&meta).unwrap();
+        assert!(c.riderless(&BlockPos::new(0, -27, -5)) && !c.riderless(&BlockPos::new(-3, -27, 3)));
+        assert_eq!(c.waker(&BlockPos::new(0, -27, 4)), Some("riding out past the hatch (A6 b36302af8)"));
+        assert_eq!(c.waker(&BlockPos::new(-3, -27, 3)), Some("asleep in the bed (2.04)"));
+        assert!(PlaceClasses::from_meta(&std::collections::BTreeMap::new()).unwrap().waker.is_empty());
     }
 
     /// (G1's CHANGES 1 on fa1267b75) A cart arriving from a column: a fall's landing rail with one

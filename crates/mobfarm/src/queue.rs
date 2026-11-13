@@ -2125,6 +2125,80 @@ pub fn junction_gate(spec: &FarmSpec, design_text: &str) -> (String, bool) {
     junction_gate_opts(spec, design_text, false)
 }
 
+/// (9fc3155f, ironspec Nov 12 20:05 (2), THE T STATIC) Every switched T: a plain-rail junction
+/// with a power path into it (an adjacent signal source, a pressed detector's face neighbour
+/// included, or an adjacent conductor with a source beside it: the junction checker's paths, in any
+/// state), checked for (a) exactly 3 potential connections (RailBlock.updateState re-shapes only at
+/// 3; any rail in a side's column at y - 1..y + 1 counts), (b) power reach: every path comes from a
+/// declared driver (`drivers`, the design's `switch:` sources), (c) update reach: every source
+/// whose update reaches it (`reaching`, push-scan's model) finds it in the shape the game settles
+/// for its signal (stored = settled), so each update leaves it as it is. Returns the lines and the
+/// number of Ts failing any of the three.
+pub fn t_static(spec: &FarmSpec, drivers: &[BlockPos], reaching: &[(BlockPos, Vec<BlockPos>)]) -> Result<(Vec<String>, usize), String> {
+    let o = RunOpts { ai: false, ..RunOpts::steady(1, 0, WalkMode::Random) };
+    let built = if spec.has_bed() { Run::new(spec, &o) } else { Run::new_homeless(spec, &o) };
+    let w = built.map_err(|e| e.to_string())?.world;
+    use redsim::block::Kind as K;
+    use redsim::pos::Dir as D6;
+    let source = |b: &Block| matches!(b.kind(), K::Wire | K::RedstoneBlock | K::Torch | K::WallTorch | K::Lever | K::Button(_) | K::Repeater | K::Comparator | K::Observer | K::Target | K::Sculk(_) | K::Plate(_) | K::TripwireHook | K::DetectorRail);
+    let is_rail = |b: &Block| matches!(b, Block::PlainRail { .. } | Block::Rail { .. } | Block::DetectorRail { .. });
+    let dirs6 = [D6::North, D6::South, D6::West, D6::East, D6::Up, D6::Down];
+    let mut cells: Vec<&BlockPos> = spec.blocks.iter().filter(|(_, b)| matches!(b, Block::PlainRail { .. })).map(|(p, _)| p).collect();
+    cells.sort_by_key(|p| (p.y, p.z, p.x));
+    let (mut lines, mut fails) = (Vec::new(), 0usize);
+    for p in cells {
+        let Some(j) = redsim::rails::junction_at(&w, *p) else { continue };
+        // (b)'s paths: the source of each, and how it reaches the T
+        let mut paths: Vec<(BlockPos, String)> = Vec::new();
+        for d in dirs6 {
+            let q = p.rel(d);
+            let bq = w.get(q);
+            if source(&bq) {
+                paths.push((q, format!("{:?} at {q}", bq.kind())));
+            } else if redsim::behavior::is_conductor(&w, &bq, q) {
+                for r in dirs6.iter().map(|e| q.rel(*e)).filter(|r| r != p) {
+                    let br = w.get(r);
+                    if source(&br) {
+                        paths.push((r, format!("{:?} at {r} through the block {q}", br.kind())));
+                    }
+                }
+            }
+        }
+        if paths.is_empty() {
+            continue;
+        }
+        // (a) the potential connections: a side whose column holds a rail at y - 1..y + 1
+        let sides = [D6::North, D6::East, D6::South, D6::West].iter().filter(|d| (-1..=1).any(|dy| is_rail(&w.get(BlockPos::new(p.rel(**d).x, p.y + dy, p.rel(**d).z))))).count();
+        let a_ok = sides == 3;
+        let undeclared: Vec<&(BlockPos, String)> = paths.iter().filter(|(s, _)| !drivers.contains(s)).collect();
+        let b_ok = undeclared.is_empty();
+        let stored = redsim::rails::shape_of(&w.get(*p));
+        let want = if j.signal { j.powered } else { j.unpowered };
+        // (a T at 4 potential connections is never re-shaped: its placed shape holds, (a) flags it)
+        let c_ok = !a_ok || stored == want;
+        let srcs: Vec<String> = reaching.iter().find(|(t, _)| t == p).map(|(_, v)| v.iter().map(|s| format!("{},{},{}", s.x, s.y, s.z)).collect()).unwrap_or_default();
+        if !(a_ok && b_ok && c_ok) {
+            fails += 1;
+        }
+        lines.push(format!(
+            "  {} T {},{},{}: (a) {sides} potential connections{}; (b) {} power path(s): {}{}; (c) {} source(s) whose update reaches it [{}]: stored {stored:?}, settled {want:?} for its signal {}{}",
+            if a_ok && b_ok && c_ok { "PASS" } else { "FAIL" },
+            p.x,
+            p.y,
+            p.z,
+            if a_ok { "" } else { " (FAIL: not 3, it never re-shapes)" },
+            paths.len(),
+            paths.iter().map(|(_, t)| t.clone()).collect::<Vec<_>>().join("; "),
+            if b_ok { " (each a declared driver)".to_string() } else { format!(" (FAIL: {} not a declared driver: declare the driver `# switch: x,y,z=REASON` or remove the path)", undeclared.len()) },
+            srcs.len(),
+            srcs.join(" "),
+            if j.signal { "on" } else { "off" },
+            if !a_ok { " (never re-shaped at 4 connections: its placed shape holds)" } else if c_ok { " (each update leaves it)" } else { " (FAIL: an update re-settles it)" }
+        ));
+    }
+    Ok((lines, fails))
+}
+
 /// The walk-target static check (`mobfarm flee-check`, tick-exact 8ab79c1dc) as the bench's default
 /// static check (ironspec Nov 11 09:03): its flee verdict gates the run (every flee candidate from a
 /// rider place within 6 of a hostile reachable); the calm sources' verdicts are report only. The

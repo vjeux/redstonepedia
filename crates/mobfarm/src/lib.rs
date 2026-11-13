@@ -41,6 +41,8 @@ pub mod ctlring;
 pub mod parts;
 pub mod placing;
 pub mod queue;
+pub mod swept;
+pub mod wetspawn;
 pub mod standlab;
 pub mod climb;
 pub mod drop;

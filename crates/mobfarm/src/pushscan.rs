@@ -99,6 +99,45 @@ fn overlap(a: &[f64; 6], b: &[f64; 6]) -> bool {
 /// resting carts at exact positions (the bench's rest points): each box inflated 0.2 in x and z
 /// only, against every track cell off its cell's own route.
 pub fn scan(spec: &FarmSpec, rests: &[BlockPos], auto: bool, own_decl: &[(BlockPos, String)], single: &[(Vec<BlockPos>, String)], rest_pos: &[[f64; 3]], chord_speed: f64, bridges: &[Bridge], speeds: &HashMap<String, (f64, f64)>, settled: Option<&HashMap<BlockPos, String>>) -> Result<(Vec<String>, usize, usize, usize, usize), String> {
+    let (out, n, tracks, declared, bridged, _) = scan_pairs(spec, rests, auto, own_decl, single, rest_pos, chord_speed, bridges, speeds, settled, &[])?;
+    Ok((out, n, tracks, declared, bridged))
+}
+
+/// The design's `push-pair:` entries (ironspec Nov 12 23:15), each `x,y,z+x,y,z=REASON (evidence
+/// row)`: a resting cell and the cell a passing cart crosses, accepted on the owner's measured
+/// displacement; comment or meta-line form, entries `;`-separated.
+pub fn header_push_pairs(text: &str) -> Result<Vec<(BlockPos, BlockPos, String)>, String> {
+    let key = "push-pair:";
+    let lines: String = text
+        .lines()
+        .filter_map(|l| {
+            let t = l.trim_start();
+            let t = t.strip_prefix('#').map(str::trim_start).unwrap_or(t);
+            t.strip_prefix(key).map(|rest| format!("# {key}{rest}\n"))
+        })
+        .collect();
+    let mut out = Vec::new();
+    for e in header_entries(&lines, key) {
+        let (cs, why) = e.split_once('=').ok_or_else(|| format!("push-pair {e}: x,y,z+x,y,z=REASON"))?;
+        let cells: Vec<BlockPos> = cs
+            .split('+')
+            .map(|c| {
+                let v: Vec<i32> = c.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>().map_err(|err| format!("push-pair {e}: {err}"))?;
+                if v.len() == 3 { Ok(BlockPos::new(v[0], v[1], v[2])) } else { Err(format!("push-pair {e}: x,y,z+x,y,z=REASON")) }
+            })
+            .collect::<Result<_, String>>()?;
+        if cells.len() != 2 {
+            return Err(format!("push-pair {e}: exactly two cells (the resting cell + the passing cell)"));
+        }
+        out.push((cells[0], cells[1], why.trim().to_string()));
+    }
+    Ok(out)
+}
+
+/// [`scan`], with the design's declared push pairs (listed "PAIR (declared push-pair)", not open);
+/// the sixth value their count.
+#[allow(clippy::too_many_arguments)]
+pub fn scan_pairs(spec: &FarmSpec, rests: &[BlockPos], auto: bool, own_decl: &[(BlockPos, String)], single: &[(Vec<BlockPos>, String)], rest_pos: &[[f64; 3]], chord_speed: f64, bridges: &[Bridge], speeds: &HashMap<String, (f64, f64)>, settled: Option<&HashMap<BlockPos, String>>, push_pairs: &[(BlockPos, BlockPos, String)]) -> Result<(Vec<String>, usize, usize, usize, usize, usize), String> {
     let rails: HashMap<BlockPos, String> = spec.blocks.iter().filter(|(_, b)| b.to_string().contains("rail")).map(|(p, b)| (*p, b.to_string())).collect();
     // (the tracks: union-find over the rail cells joined by their exits)
     let cells: Vec<BlockPos> = rails.keys().copied().collect();
@@ -224,6 +263,7 @@ pub fn scan(spec: &FarmSpec, rests: &[BlockPos], auto: bool, own_decl: &[(BlockP
     let group_of = |a: &BlockPos, b: &BlockPos| single.iter().find(|(g, _)| g.contains(a) && g.contains(b)).map(|(_, why)| why.clone());
     let mut declared = 0usize;
     let mut bridged = 0usize;
+    let mut pairs_declared = 0usize;
     // (a rail cell's own route: what it reaches without entering a junction, plus its declared
     // own-route junctions)
     let own_of = |r: &BlockPos| -> std::collections::HashSet<BlockPos> {
@@ -320,6 +360,11 @@ pub fn scan(spec: &FarmSpec, rests: &[BlockPos], auto: bool, own_decl: &[(BlockP
                     } else {
                         out.push(format!("  PUSH {},{},{} (rests: {}) <- {},{},{} ({kind}: {}{at}): open, the bridge by {} fails: {}", r.x, r.y, r.z, short(rs), p.x, p.y, p.z, short(ps), br.by, fails.join("; ")));
                     }
+                } else if let Some((_, _, why)) = push_pairs.iter().find(|(a, b, _)| (*a == *r && *b == *p) || (*a == *p && *b == *r)) {
+                    // (ironspec Nov 12 23:15: a designed resting pair, accepted on the owner's
+                    // measured displacement (0 or within a stated bound), its evidence row cited)
+                    pairs_declared += 1;
+                    out.push(format!("  PAIR (declared push-pair) {},{},{} (rests: {}) <- {},{},{} ({kind}: {}{at}): {why}", r.x, r.y, r.z, short(rs), p.x, p.y, p.z, short(ps)));
                 } else {
                     out.push(format!("  PUSH {},{},{} (rests: {}) <- {},{},{} ({kind}: {}{at})", r.x, r.y, r.z, short(rs), p.x, p.y, p.z, short(ps)));
                 }
@@ -372,7 +417,7 @@ pub fn scan(spec: &FarmSpec, rests: &[BlockPos], auto: bool, own_decl: &[(BlockP
     let mut roots: Vec<usize> = (0..cells.len()).map(|i| find(&mut parent, i)).collect();
     roots.sort();
     roots.dedup();
-    Ok((out, rest_cells.len(), roots.len(), declared, bridged))
+    Ok((out, rest_cells.len(), roots.len(), declared, bridged, pairs_declared))
 }
 
 /// Every cell a signal-source update can reach, with its sources (the source set and each type's
@@ -651,14 +696,28 @@ pub fn header_entries(text: &str, key: &str) -> Vec<String> {
 /// shape: a detector beside it, a siding lever), each `x,y,z=REASON`; with the kind.
 pub fn header_t_sources(text: &str) -> Result<Vec<(BlockPos, &'static str, String)>, String> {
     let mut out = Vec::new();
-    for (key, kind) in [("switch:", "switch"), ("update-only:", "update-only")] {
-        for d in header_entries(text, key) {
-            let (c, reason) = d.split_once('=').ok_or_else(|| format!("{key} {d}: x,y,z=REASON"))?;
-            let v: Vec<i32> = c.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>().map_err(|e| format!("{key} {d}: {e}"))?;
-            if v.len() != 3 {
-                return Err(format!("{key} {d}: x,y,z=REASON"));
+    // (each key in its comment form `# key: ...` and its meta-line form `key: ...` (onechunk's
+    // record7d writes `switch:` as a meta line); `switches:` (A6's and R1's declared drives) is a
+    // switch list too)
+    for (key, kind) in [("switch:", "switch"), ("switches:", "switch"), ("update-only:", "update-only"), ("inert:", "inert")] {
+        let lines: String = text
+            .lines()
+            .filter_map(|l| {
+                let t = l.trim_start();
+                let t = t.strip_prefix('#').map(str::trim_start).unwrap_or(t);
+                t.strip_prefix(key).map(|rest| format!("# {key}{rest}\n"))
+            })
+            .collect();
+        for d in header_entries(&lines, key) {
+            // (an entry names one cell or several joined by `+`, as the other header keys)
+            let (cs, reason) = d.split_once('=').ok_or_else(|| format!("{key} {d}: x,y,z[+x,y,z...]=REASON"))?;
+            for c in cs.split('+') {
+                let v: Vec<i32> = c.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>().map_err(|e| format!("{key} {d}: {e}"))?;
+                if v.len() != 3 {
+                    return Err(format!("{key} {d}: x,y,z[+x,y,z...]=REASON"));
+                }
+                out.push((BlockPos::new(v[0], v[1], v[2]), kind, reason.trim().to_string()));
             }
-            out.push((BlockPos::new(v[0], v[1], v[2]), kind, reason.trim().to_string()));
         }
     }
     Ok(out)
@@ -681,6 +740,65 @@ pub fn tee_reach(spec: &FarmSpec) -> Vec<(BlockPos, Vec<BlockPos>, bool)> {
         let mut srcs = reach.get(c).cloned().unwrap_or_default();
         srcs.sort_by_key(|p| (p.y, p.z, p.x));
         out.push((*c, srcs, sides >= 4));
+    }
+    out
+}
+
+/// (tick-exact's official junction row, farmopt Nov 12 19:58) Every plain rail with 3 or more
+/// potential connections (`RailState.countPotentialConnections`: a side whose column holds any
+/// rail, a detector, powered or activator rail included, at y - 1..y + 1), with each side's rail:
+/// `RailBlock.updateState` re-shapes it only at exactly 3 (RailBlock.java 22-25), so a 4th (a
+/// detector beside the T) keeps its placed shape for good.
+pub fn potential_connections(spec: &FarmSpec) -> Vec<(BlockPos, Vec<String>)> {
+    let all: HashMap<BlockPos, String> = spec.blocks.iter().map(|(p, b)| (*p, b.to_string())).collect();
+    let rail_at = |p: &BlockPos| all.get(p).filter(|s| s.contains("rail")).map(|s| s.trim_start_matches("minecraft:").split('[').next().unwrap_or("").to_string());
+    let mut cells: Vec<&BlockPos> = all.iter().filter(|(_, s)| s.starts_with("minecraft:rail[")).map(|(p, _)| p).collect();
+    cells.sort_by_key(|c| (c.y, c.z, c.x));
+    let mut out = Vec::new();
+    for c in cells {
+        let mut sides = Vec::new();
+        for (dx, dz, name) in [(0, -1, "N"), (1, 0, "E"), (0, 1, "S"), (-1, 0, "W")] {
+            let found: Vec<String> = (-1..=1).filter_map(|dy| {
+                let p = BlockPos::new(c.x + dx, c.y + dy, c.z + dz);
+                rail_at(&p).map(|k| format!("{k} {},{},{}", p.x, p.y, p.z))
+            }).collect();
+            if !found.is_empty() {
+                sides.push(format!("{name} {}", found.join(" + ")));
+            }
+        }
+        if sides.len() >= 3 {
+            out.push((*c, sides));
+        }
+    }
+    out
+}
+
+/// (9fc3155f, ironspec Nov 12 21:40 (3a)) Every one-way dust step: a dust one down and one across
+/// from another (a descent) whose upper dust sits on a block that is not a redstone conductor. The
+/// lower dust reads its neighbour column at its own level, which is the block the upper dust sits
+/// on: a conductor there passes the upper dust's signal down (`RedStoneWireBlock
+/// .calculateTargetStrength`: the wire above a conductor neighbour), a non-conductor never does
+/// (it reads the cell below instead), so the step carries power upward only. Each with the upper
+/// dust, its support and the lower dust.
+pub fn one_way_steps(spec: &FarmSpec) -> Vec<(BlockPos, BlockPos, String)> {
+    let all: HashMap<BlockPos, &redsim::block::Block> = spec.blocks.iter().map(|(p, b)| (*p, b)).collect();
+    let wire = |p: &BlockPos| all.get(p).is_some_and(|b| matches!(b, redsim::block::Block::Wire { .. }));
+    let conductor = |p: &BlockPos| all.get(p).is_some_and(|b| redsim::behavior::conductor_of(b));
+    let mut cells: Vec<&BlockPos> = all.keys().filter(|p| wire(p)).collect();
+    cells.sort_by_key(|p| (p.y, p.z, p.x));
+    let mut out = Vec::new();
+    for u in cells {
+        let support = BlockPos::new(u.x, u.y - 1, u.z);
+        for (dx, dz) in [(0, -1), (1, 0), (0, 1), (-1, 0)] {
+            let side = BlockPos::new(u.x + dx, u.y, u.z + dz);
+            let low = BlockPos::new(u.x + dx, u.y - 1, u.z + dz);
+            // (a step: the lower dust diagonally below, the side cell between them not a conductor
+            // (a conductor there cuts the step))
+            if wire(&low) && !conductor(&side) && !conductor(&support) {
+                let s = all.get(&support).map(|b| b.to_string().trim_start_matches("minecraft:").split('[').next().unwrap_or("").to_string()).unwrap_or_else(|| "air".to_string());
+                out.push((*u, low, s));
+            }
+        }
     }
     out
 }
@@ -1226,6 +1344,21 @@ pub fn placement(spec: &FarmSpec) -> Vec<String> {
 /// toggle, each checked (a redstone block, or a redstone torch whose support conducts no power),
 /// printed with the reason and not counted; one that can toggle stays counted, flagged.
 pub fn switched(spec: &FarmSpec, switches: &[BlockPos], always_on: &[(BlockPos, String)]) -> (Vec<String>, usize) {
+    switched_with(spec, switches, always_on, &[])
+}
+
+/// [`switched`], with the design's `inert:` sources (ironspec Nov 12 22:46: a signal source that
+/// never changes state in normal operation, A6's never-pressed buttons): declared, listed as
+/// inert with their reason, not counted.
+pub fn switched_with(spec: &FarmSpec, switches: &[BlockPos], always_on: &[(BlockPos, String)], inert: &[(BlockPos, String)]) -> (Vec<String>, usize) {
+    switched_full(spec, switches, always_on, inert, &[])
+}
+
+/// [`switched_with`], with the design's `update-only:` sources: a detector declared update-only
+/// (its evidence an official probe that its press leaves the T at its raw connection settled,
+/// tick-exact's D-J probe for the split's branch detectors) has that raw connection accepted
+/// (ironspec Nov 12 03:54: forbidden unless an official probe shows it holds).
+pub fn switched_full(spec: &FarmSpec, switches: &[BlockPos], always_on: &[(BlockPos, String)], inert: &[(BlockPos, String)], update_only: &[(BlockPos, String)]) -> (Vec<String>, usize) {
     let all: HashMap<BlockPos, String> = spec.blocks.iter().map(|(p, b)| (*p, b.to_string())).collect();
     const N6: [(i32, i32, i32); 6] = [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)];
     let at = |p: BlockPos, d: (i32, i32, i32)| BlockPos::new(p.x + d.0, p.y + d.1, p.z + d.2);
@@ -1304,7 +1437,8 @@ pub fn switched(spec: &FarmSpec, switches: &[BlockPos], always_on: &[(BlockPos, 
         }
         let mut parts = Vec::new();
         for (p, how) in &src {
-            let ok = switches.contains(p);
+            let inert_why = inert.iter().find(|(q, _)| q == p).map(|(_, r)| r.clone());
+            let ok = switches.contains(p) || inert_why.is_some();
             // (a redstone block in a design file never switches (the switched cells are left air
             // and emulated): its power is the design's own, listed and not counted)
             let fixed = matches!(blk.get(p), Some(redsim::block::Block::RedstoneBlock));
@@ -1339,7 +1473,9 @@ pub fn switched(spec: &FarmSpec, switches: &[BlockPos], always_on: &[(BlockPos, 
             if !ok && !fixed && !decl_ok {
                 undeclared += 1;
             }
-            let tag = if ok {
+            let tag = if let Some(why) = &inert_why {
+                format!(" (inert, declared: {why})")
+            } else if ok {
                 " (declared)".to_string()
             } else if decl_ok {
                 format!(" (always on, declared: {})", declared.unwrap_or_default())
@@ -1396,10 +1532,25 @@ pub fn switched(spec: &FarmSpec, switches: &[BlockPos], always_on: &[(BlockPos, 
                 let n = BlockPos::new(d.x + dx, d.y + dy, d.z + dz);
                 if all.get(&n).is_some_and(|s| s.contains("rail")) {
                     let k = conn(&n);
-                    if k == 3 {
+                    let accepted = update_only.iter().find(|(q, _)| q == d).map(|(_, r)| r.clone());
+                    if k == 3 && accepted.is_none() {
                         raw3 += 1;
                     }
-                    raws.push(format!("{},{},{} {} ({k} potential connections{})", n.x, n.y, n.z, name(&n), if k == 3 { ": FORBIDDEN unless an official probe shows it holds" } else { "" }));
+                    raws.push(format!(
+                        "{},{},{} {} ({k} potential connections{})",
+                        n.x,
+                        n.y,
+                        n.z,
+                        name(&n),
+                        if k == 3 {
+                            match &accepted {
+                                Some(r) => format!(": accepted, the detector declared update-only: {r}"),
+                                None => ": FORBIDDEN unless an official probe shows it holds".to_string(),
+                            }
+                        } else {
+                            String::new()
+                        }
+                    ));
                     break;
                 }
             }
@@ -1408,4 +1559,86 @@ pub fn switched(spec: &FarmSpec, switches: &[BlockPos], always_on: &[(BlockPos, 
     }
     out.push(format!("  detectors' raw connections with 3 potential connections: {raw3}"));
     (out, undeclared + raw3)
+}
+
+#[cfg(test)]
+mod one_way_tests {
+    use super::one_way_steps;
+    use redsim::block::Block;
+    use redsim::entity::mob::farm::FarmSpec;
+    use redsim::pos::BlockPos;
+
+    fn spec_of(cells: &[(BlockPos, &str)]) -> FarmSpec {
+        let blocks = cells.iter().map(|(p, b)| (*p, Block::parse(b).unwrap())).collect();
+        FarmSpec { blocks, entities: Vec::new(), output: BlockPos::new(4, 4, 4), lo: BlockPos::new(-4, -4, -4), hi: BlockPos::new(4, 6, 4), block_entities: Vec::new(), rock: false, nether: None, land: false }
+    }
+
+    /// (ironspec Nov 12 21:40 (3a)) A dust step down from a dust on glass passes nothing down: flagged;
+    /// the same step from a dust on stone (a conductor) passes: not flagged.
+    #[test]
+    fn glass_step_is_one_way() {
+        let b = |x, y, z| BlockPos::new(x, y, z);
+        let dust = "minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]";
+        let glass = spec_of(&[(b(0, 1, 0), dust), (b(0, 0, 0), "minecraft:glass"), (b(1, 0, 0), dust), (b(1, -1, 0), "minecraft:glass")]);
+        let g = one_way_steps(&glass);
+        assert_eq!(g.len(), 1, "{g:?}");
+        assert_eq!((g[0].0, g[0].1), (b(0, 1, 0), b(1, 0, 0)));
+        let stone = spec_of(&[(b(0, 1, 0), dust), (b(0, 0, 0), "minecraft:stone"), (b(1, 0, 0), dust), (b(1, -1, 0), "minecraft:glass")]);
+        assert!(one_way_steps(&stone).is_empty());
+    }
+
+    /// The T-reach declarations in both forms (onechunk's record7d): `# switch:` and the meta-line
+    /// `switch:`, `# switches:`, `# update-only:` with `+`-joined cells, `# inert:` (ironspec 22:46).
+    #[test]
+    fn t_source_header_forms() {
+        let text = "# switch: -1,26,9=J(-1)\nswitch: 3,26,9=J(3)\n# switches: 8,-14,-4=R1's repeater\n# update-only: -1,24,8+3,24,8=the branch detectors (the D-J probe)\n# inert: 2,-25,-4=A6's stone button, never pressed\nname: x\n";
+        let d = super::header_t_sources(text).unwrap();
+        let cells: Vec<(BlockPos, &str)> = d.iter().map(|(p, k, _)| (*p, *k)).collect();
+        assert_eq!(cells, vec![(BlockPos::new(-1, 26, 9), "switch"), (BlockPos::new(3, 26, 9), "switch"), (BlockPos::new(8, -14, -4), "switch"), (BlockPos::new(-1, 24, 8), "update-only"), (BlockPos::new(3, 24, 8), "update-only"), (BlockPos::new(2, -25, -4), "inert")]);
+        assert_eq!(d[4].2, "the branch detectors (the D-J probe)");
+    }
+
+    /// (ironspec Nov 12 23:15 / 03:54) A detector whose raw connection is a plain rail at 3 potential
+    /// connections is counted; declared `update-only:` (its official probe) it is accepted.
+    #[test]
+    fn detector_raw_connection_accepted_when_update_only() {
+        let b = |x, y, z| BlockPos::new(x, y, z);
+        let spec = spec_of(&[
+            (b(0, 0, 0), "minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]"),
+            (b(0, -1, 0), "minecraft:glass"),
+            (b(1, 0, 0), "minecraft:rail[shape=north_south,waterlogged=false]"),
+            (b(1, -1, 0), "minecraft:glass"),
+            (b(1, 0, -1), "minecraft:rail[shape=north_south,waterlogged=false]"),
+            (b(1, -1, -1), "minecraft:glass"),
+            (b(1, 0, 1), "minecraft:rail[shape=north_south,waterlogged=false]"),
+            (b(1, -1, 1), "minecraft:glass"),
+        ]);
+        let (l, n) = super::switched_full(&spec, &[], &[], &[], &[]);
+        assert!(n >= 1 && l.iter().any(|x| x.contains("FORBIDDEN unless an official probe")), "{l:?}");
+        let (l2, n2) = super::switched_full(&spec, &[], &[], &[], &[(b(0, 0, 0), "the D-J probe".to_string())]);
+        assert_eq!(n2, n - 1, "{l2:?}");
+        assert!(l2.iter().any(|x| x.contains("accepted, the detector declared update-only: the D-J probe")), "{l2:?}");
+    }
+
+    /// (ironspec Nov 12 23:15) The `push-pair:` key: two cells and the owner's evidence; one cell
+    /// alone refused.
+    #[test]
+    fn push_pair_header() {
+        let p = super::header_push_pairs("# push-pair: -3,24,7+-3,25,9=the siding rest vs the split T's chord (ironfarm's row: 0 displacement)\nname: x\n").unwrap();
+        assert_eq!(p, vec![(BlockPos::new(-3, 24, 7), BlockPos::new(-3, 25, 9), "the siding rest vs the split T's chord (ironfarm's row: 0 displacement)".to_string())]);
+        assert!(super::header_push_pairs("push-pair: 1,24,7=one cell only\n").is_err());
+    }
+
+    /// (ironspec Nov 12 22:46) An inert source beside a powered rail is declared, listed as inert,
+    /// not counted; the same source undeclared is counted.
+    #[test]
+    fn inert_source_in_the_switched_scan() {
+        let b = |x, y, z| BlockPos::new(x, y, z);
+        let spec = spec_of(&[(b(0, 0, 0), "minecraft:powered_rail[powered=false,shape=east_west,waterlogged=false]"), (b(0, -1, 0), "minecraft:glass"), (b(0, 0, 1), "minecraft:stone_button[face=floor,facing=north,powered=false]"), (b(0, -1, 1), "minecraft:stone")]);
+        let (_, n) = super::switched_with(&spec, &[], &[], &[]);
+        assert_eq!(n, 1, "the button undeclared");
+        let (l, n) = super::switched_with(&spec, &[], &[], &[(b(0, 0, 1), "never pressed".to_string())]);
+        assert_eq!(n, 0, "{l:?}");
+        assert!(l.iter().any(|x| x.contains("(inert, declared: never pressed)")), "{l:?}");
+    }
 }
