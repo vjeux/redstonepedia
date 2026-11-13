@@ -80,6 +80,88 @@ fn farm(blocks: Vec<(BlockPos, Block)>, output: BlockPos, lo: BlockPos, hi: Bloc
     FarmSpec { blocks, entities: Vec::new(), output, lo, hi, block_entities: Vec::new(), rock: false, nether: None, land: false }
 }
 
+thread_local! {
+    /// (ironspec 21:25 PT: every cart-motion bench prints its carts' block contacts per row; an undeclared
+    /// contact, not a stop or buffer the design declares, FAILS the row) The contacts the benches' cart loops
+    /// noted since the last row: cell (the bench's frame) -> ticks.
+    static CONTACTS: std::cell::RefCell<std::collections::BTreeMap<P, u32>> = const { std::cell::RefCell::new(std::collections::BTreeMap::new()) };
+}
+
+/// The declared contacts: the hold's stop (Real geometry: the slime (9,0,9) the resting cart's box meets),
+/// the Line geometry's backstop (1,1,-2) west of its hold, the bench's merge-row end (-3,0,7) (the bench's
+/// row stops at x -2; the module's runs on west to the lanes: a departed napper meets it after every
+/// row's measurement), and the napper lift's containment at its foot ((6,-28,3), (6,-28,5), (7,-28,4): the
+/// bubble column's glass beside and past its soul sand, 7b90c3f1's return-bench cells, among the lift's 79
+/// contact cells ironspec declared at 22:05 PT, official tick for tick).
+const DECLARED: &[(P, &str)] = &[
+    ([9, 0, 9], "the hold's stop"),
+    ([1, 1, -2], "the Line geometry's backstop"),
+    ([-3, 0, 7], "the bench's merge-row end (after the departure)"),
+    ([6, -28, 3], "the lift's containment"),
+    ([6, -28, 5], "the lift's containment"),
+    ([7, -28, 4], "the lift's containment"),
+];
+
+/// Note the blocks cart `id` met in its last move: when the move collided horizontally, the collision boxes
+/// its box meets grown 0.01 in x and z, the floor and the ceiling left out.
+fn note_contacts(run: &Run, id: u32) {
+    let Some(e) = run.world.entities.list.iter().find(|e| e.id == id && !e.removed) else { return };
+    if !e.horizontal_collision {
+        return;
+    }
+    let bb = e.bb;
+    let cells: Vec<P> = run
+        .world
+        .collision_shapes(bb.inflate(0.01, 0.0, 0.01))
+        .into_iter()
+        .filter(|a| a.max_y > bb.min_y + 1e-6 && a.min_y < bb.max_y - 1e-6)
+        .map(|a| {
+            let w = crate::mirror::at([((a.min_x + a.max_x) / 2.0).floor() as i32, ((a.min_y + a.max_y) / 2.0).floor() as i32, ((a.min_z + a.max_z) / 2.0).floor() as i32]);
+            [w.x, w.y, w.z]
+        })
+        .collect();
+    CONTACTS.with(|m| {
+        let mut m = m.borrow_mut();
+        for c in cells {
+            *m.entry(c).or_default() += 1;
+        }
+    });
+}
+
+/// Append the contacts noted since the last row to the last row pushed, and clear them: the declared ones
+/// named, any other a FAIL.
+fn annotate(lines: &mut [String]) {
+    let m = CONTACTS.with(|m| std::mem::take(&mut *m.borrow_mut()));
+    let Some(last) = lines.last_mut() else { return };
+    if m.is_empty() {
+        last.push_str("; cart block contacts: none");
+        return;
+    }
+    let (mut decl, mut bad) = (Vec::new(), Vec::new());
+    for (c, n) in &m {
+        match DECLARED.iter().find(|(p, _)| p == c) {
+            Some((_, what)) => decl.push(format!("({},{},{}) {what} ({n} gt)", c[0], c[1], c[2])),
+            None => bad.push(format!("({},{},{}) ({n} gt)", c[0], c[1], c[2])),
+        }
+    }
+    last.push_str(&format!(
+        "; cart block contacts: declared {}; undeclared {}",
+        if decl.is_empty() { "none".to_string() } else { decl.join(", ") },
+        if bad.is_empty() { "none (pass)".to_string() } else { format!("{} (FAIL: an undeclared contact)", bad.join(", ")) }
+    ));
+}
+
+/// Clear the contacts noted so far (before a bench's first row).
+fn clear_contacts() {
+    CONTACTS.with(|m| m.borrow_mut().clear());
+}
+
+/// Push a bench row and annotate it with the cart contacts noted while it ran.
+fn push_row(lines: &mut Vec<String>, s: String) {
+    lines.push(s);
+    annotate(lines);
+}
+
 /// The Line geometry: the chain north along x 0, the hold rail east-west at (2,1,-2) on its stone, plain
 /// rails east, the string over the first rail after the hold between hooks on glass.
 fn spec_line(extra: i64) -> Result<FarmSpec, String> {
@@ -168,13 +250,20 @@ fn spec_real(extra: i64) -> Result<FarmSpec, String> {
         }
     }
     put(2, -1, 9, "minecraft:repeater[delay=4,facing=south,locked=false,powered=false]")?;
-    // E: subtract, rear from the west (ARM3's dust), output east
-    put(2, -1, 8, "minecraft:comparator[facing=west,mode=subtract,powered=false]")?;
-    // four 1-tick repeaters east, the last powering the input cell (7,-1,8)
+    let direct = SPLIT_DIRECT.with(|c| c.get()).is_some();
+    // E: subtract, rear from the west (ARM3's dust), output east (left out when the input cell is driven
+    // directly)
+    if !direct {
+        put(2, -1, 8, "minecraft:comparator[facing=west,mode=subtract,powered=false]")?;
+    }
+    // four 1-tick repeaters east, the last powering the input cell (7,-1,8) (directly driven: the input cell
+    // itself a floor lever on the chain's stone floor (7,-2,8), record7's conforming stand-in for the hold
+    // input, a direct neighbour of 7b90c3f1's repeater (8,-1,8): a lever switched by the bench updates only
+    // its own neighbours)
     for x in 3..=6 {
         put(x, -1, 8, "minecraft:repeater[delay=1,facing=west,locked=false,powered=false]")?;
     }
-    put(7, -1, 8, "minecraft:stone")?;
+    put(7, -1, 8, if direct { "minecraft:lever[face=floor,facing=north,powered=false]" } else { "minecraft:stone" })?;
     // 7b90c3f1's repeater (8,-1,8) facing west into the stone (9,-1,8) under the hold rail (9,0,8)
     put(8, -1, 8, "minecraft:repeater[delay=1,facing=west,locked=false,powered=false]")?;
     // (ironspec 13:56, V14) the napper arrival's block under the hold rail is slime (a conductor: the
@@ -216,6 +305,11 @@ fn spec_real(extra: i64) -> Result<FarmSpec, String> {
     // the curve (9,-2,4) south_west on glass, the slopes (9,-2,5) and (9,-1,6) on their redstone blocks
     put(7, -4, 4, "minecraft:glass")?;
     put(7, -3, 4, "minecraft:rail[shape=east_west,waterlogged=false]")?;
+    // (G1 on 7ccd7737c point 1, ironspec 20:55 PT (2)(2)) the north arm's ascending cell as record7 lays it,
+    // cell for cell: the module of record (onechunk's explore/farmopt-onechunk2 18bcaa92e,
+    // f1q2-module-stop9.txt) has a powered rail, powered, ascending east at (8,-3,4) on a redstone block
+    // (8,-4,4) (its layer -3 row z 4 `U`, layer -4 `q`); tick-exact's t-snap scene, the simulator's control,
+    // keeps its own recorded cells (a plain ascending rail on stone at its (8,61,4))
     put(8, -4, 4, "minecraft:redstone_block")?;
     put(8, -3, 4, "minecraft:powered_rail[powered=true,shape=ascending_east,waterlogged=false]")?;
     put(9, -3, 4, "minecraft:glass")?;
@@ -244,7 +338,10 @@ pub struct GateFile {
 
 pub fn read_gate_file(path: &str) -> Result<GateFile, String> {
     let text = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
-    let mut f = GateFile { cells: Vec::new(), bit: [0; 3], q: [0; 3], arm3: [5, -1, 7], out: [7, -1, 8] };
+    // (G1 on 7c330044b point 1: the bit and q lines are required, never a default (0,0,0); ARM3 is the real
+    // detector rail's own cell (5,0,7), pressed by a cart, point 2)
+    let mut f = GateFile { cells: Vec::new(), bit: [0; 3], q: [0; 3], arm3: [5, 0, 7], out: [7, -1, 8] };
+    let (mut has_bit, mut has_q) = (false, false);
     let p3 = |w: &[&str]| -> Result<[i32; 3], String> {
         let n = |s: &str| s.parse::<i32>().map_err(|e| format!("{s}: {e}"));
         Ok([n(w[0])?, n(w[1])?, n(w[2])?])
@@ -258,8 +355,14 @@ pub fn read_gate_file(path: &str) -> Result<GateFile, String> {
             "bit" | "q" | "arm3" | "out" if w.len() == 4 => {
                 let p = p3(&w[1..4])?;
                 match w[0] {
-                    "bit" => f.bit = p,
-                    "q" => f.q = p,
+                    "bit" => {
+                        f.bit = p;
+                        has_bit = true;
+                    }
+                    "q" => {
+                        f.q = p;
+                        has_q = true;
+                    }
                     "arm3" => f.arm3 = p,
                     _ => f.out = p,
                 }
@@ -267,6 +370,12 @@ pub fn read_gate_file(path: &str) -> Result<GateFile, String> {
             _ if w.len() >= 4 => f.cells.push((p3(&w[0..3])?, w[3].to_string(), w.get(4) == Some(&"live"))),
             _ => return Err(format!("{path}: bad line {line:?}")),
         }
+    }
+    if !has_bit || !has_q {
+        return Err(format!("{path}: the `bit x y z` and `q x y z` lines are required (bit {has_bit}, q {has_q})"));
+    }
+    if f.arm3 != [5, 0, 7] {
+        return Err(format!("{path}: arm3 {:?}: ARM3 is driven by pressing the real detector rail (5,0,7) with a cart (G1 on 7c330044b: no stand-in with a reach the build lacks)", f.arm3));
     }
     Ok(f)
 }
@@ -315,9 +424,7 @@ fn gate_run_file(f: &GateFile, live: bool, cycles: i64, spawn: Option<(i64, f64,
     let ro = RunOpts { ai: false, ..RunOpts::steady(1, 0, WalkMode::Random) };
     let mut run = Run::start(&sp, &ro)?;
     while run.settle_tick() {}
-    let on = Block::parse("minecraft:redstone_block").map_err(|e| e.to_string())?;
     let bp = |p: P| crate::mirror::at(p);
-    let orig = run.world.get(bp(f.arm3));
     let powered = |run: &Run, p: P| run.world.get(bp(p)).to_string().contains("powered=true");
     let lit_dust = |run: &Run, p: P| {
         let s = run.world.get(bp(p)).to_string();
@@ -328,13 +435,16 @@ fn gate_run_file(f: &GateFile, live: bool, cycles: i64, spawn: Option<(i64, f64,
     let (mut arm3_on, mut fired_on) = (false, false);
     let mut frozen: Option<[i32; 4]> = None;
     let mut last_pos: Option<(f64, f64, f64)> = None;
+    // (G1 on 7c330044b point 2) ARM3: an empty cart set on the real detector rail (5,0,7) at each cycle start
+    // and removed a tick later: the detector itself powers its neighbours (weak) and the glass below for
+    // its own 20-gt check, with no stand-in block anywhere
+    let mut presser: Option<u32> = None;
     for t in 0..(cycles * CYCLE + 40) {
         let in_cycle = t.rem_euclid(CYCLE);
         if t / CYCLE < cycles && in_cycle == 0 {
-            run.world.set_block(bp(f.arm3), on.clone(), redsim::world::flags::ALL);
-        }
-        if in_cycle == 20 {
-            run.world.set_block(bp(f.arm3), orig.clone(), redsim::world::flags::ALL);
+            presser = Some(redsim::entity::spawn(&mut run.world, "minecraft:minecart", [f.arm3[0] as f64 + 0.5, f.arm3[1] as f64 + 0.0625, crate::mirror::zf(f.arm3[2] as f64 + 0.5)], Some("{Motion:[0.0d,0.0d,0.0d]}"))?);
+        } else if let Some(pid) = presser.take() {
+            redsim::entity::kill(&mut run.world, pid)?;
         }
         if let Some((ts, x0, v)) = spawn
             && t == ts
@@ -352,7 +462,10 @@ fn gate_run_file(f: &GateFile, live: bool, cycles: i64, spawn: Option<(i64, f64,
             }
         }
         run.tick();
-        let a = powered(&run, [5, 0, 7]) || in_cycle < 20 && t / CYCLE < cycles;
+        if let Some(i) = id {
+            note_contacts(&run, i);
+        }
+        let a = powered(&run, [5, 0, 7]);
         if a && !arm3_on {
             rec.arm3.push(t);
         }
@@ -399,10 +512,11 @@ fn gate_run_file(f: &GateFile, live: bool, cycles: i64, spawn: Option<(i64, f64,
 /// the real cells); `quick` runs one speed.
 pub fn gate_file_bench(path: &str, freeze: i64, quick: bool) -> Result<Vec<String>, String> {
     let f = read_gate_file(path)?;
+    clear_contacts();
     let mut lines = Vec::new();
     let base = gate_run_file(&f, true, 4, Some((5, 7.3, 0.3)), None)?;
     let blocks = f.cells.len();
-    lines.push(format!(
+    push_row(&mut lines, format!(
         "(c′) real cells from {path} ({blocks} cells, {} of the live term): detector -> H2 {} gt; one arrival: rest {:?}, bit {:?}, fired {:?}, departure {:?} (rail powered then {})",
         f.cells.iter().filter(|c| c.2).count(),
         match (base.det, base.bit) {
@@ -419,33 +533,43 @@ pub fn gate_file_bench(path: &str, freeze: i64, quick: bool) -> Result<Vec<Strin
     let (mut n, mut one, mut bad, mut late, mut q_left) = (0u32, 0u32, Vec::new(), 0u32, 0u32);
     let (mut mmin, mut mmax, mut dmin, mut dmax) = (i64::MAX, i64::MIN, i64::MAX, i64::MIN);
     for &v in speeds {
-        for k in 0..CYCLE {
-            let r = gate_run_file(&f, true, 5, Some((110 + k, 7.3, v)), None)?;
+        for ph in 0..CYCLE {
+            let r = gate_run_file(&f, true, 5, Some((110 + ph, 7.3, v)), None)?;
             n += 1;
             if let (Some(rest), Some(bit)) = (r.rest, r.bit) {
                 mmin = mmin.min(bit - rest);
                 mmax = mmax.max(bit - rest);
+            } else {
+                // (G1 on 7c330044b point 1: missing data is a failure, never a drop)
+                bad.push(format!("v {v} spawn {}: rest {:?}, bit {:?}", 110 + ph, r.rest, r.bit));
             }
             let fires: Vec<i64> = r.fired.iter().filter(|&&(f0, _)| r.det.is_some_and(|d| f0 > d)).map(|x| x.0).collect();
             if fires.len() == 1 {
                 one += 1;
             } else {
-                bad.push(format!("v {v} spawn {}: {} fired", 110 + k, fires.len()));
+                bad.push(format!("v {v} spawn {}: {} fired", 110 + ph, fires.len()));
             }
-            if let (Some(&f0), Some(o)) = (fires.first(), r.off) {
-                dmin = dmin.min(o - (f0 - 8));
-                dmax = dmax.max(o - (f0 - 8));
-                late += !r.off_powered as u32;
+            if let Some(&f0) = fires.first() {
+                // (E measured: the last ARM3 rise at or before the fired pulse)
+                match (r.arm3.iter().copied().filter(|&a| a <= f0).max(), r.off) {
+                    (Some(e), Some(o)) => {
+                        dmin = dmin.min(o - e);
+                        dmax = dmax.max(o - e);
+                        late += !r.off_powered as u32;
+                    }
+                    (e, o) => bad.push(format!("v {v} spawn {}: ARM3 before the fired pulse {e:?}, departure {o:?}", 110 + ph)),
+                }
             }
             q_left += r.q_end as u32;
         }
     }
     let m = |x: i64, none: i64| if x == none { "-".to_string() } else { x.to_string() };
-    lines.push(format!(
-        "  arrivals ({n} runs: v {:?} x every gt of a cycle; the batch's ARM3 by the swap, the napper's own from its pass over (5,0,7)): the bit at H2 after rest {}..{} gt (bar >= 2); exactly one fired pulse {one}{}; the departure at E's rise + {}..{}, late {late}; the latch left set {q_left}",
+    push_row(&mut lines, format!(
+        "  arrivals ({n} runs: v {:?} x every gt of a cycle; ARM3 by a cart pressing the real detector rail (5,0,7), the napper's own from its pass over it): the bit at H2 after rest {}..{} gt (bar >= 2{}); exactly one fired pulse {one}{}; the departure at E's measured rise + {}..{}, late {late}; the latch left set {q_left}",
         speeds,
         m(mmin, i64::MAX),
         m(mmax, i64::MIN),
+        if mmin == i64::MAX { ": FAIL, none measured" } else if mmin < 2 { ": FAIL" } else { ": pass" },
         if bad.is_empty() { String::new() } else { format!(" (FAIL {}: {})", bad.len(), bad.iter().take(4).cloned().collect::<Vec<_>>().join("; ")) },
         m(dmin, i64::MAX),
         m(dmax, i64::MIN)
@@ -458,6 +582,8 @@ pub fn gate_file_bench(path: &str, freeze: i64, quick: bool) -> Result<Vec<Strin
             let fires = r.fired.iter().filter(|&&(x, _)| r.det.is_some_and(|d| x > d)).count();
             if let (Some(rest), Some(bit)) = (r.rest, r.bit) {
                 least = least.min(bit - rest);
+            } else {
+                nbad += 1;
             }
             if fires == 1 && r.off.is_some() && r.off_powered {
                 ok += 1;
@@ -465,12 +591,18 @@ pub fn gate_file_bench(path: &str, freeze: i64, quick: bool) -> Result<Vec<Strin
                 nbad += 1;
             }
         }
-        lines.push(format!("  a {freeze}-gt freeze at every offset of the approach (detector - 3 .. rest) and around the fired pulse (- 5 .. + 16): launched on one fired pulse {ok}, otherwise {nbad}; the bit after rest at least {} gt", m(least, i64::MAX)));
+        push_row(&mut lines, format!(
+            "  a {freeze}-gt freeze at every offset of the approach (detector - 3 .. rest) and around the fired pulse (- 5 .. + 16): launched on one fired pulse {ok}, failures (no single fired launch, or a run missing its rest or bit) {nbad}; the bit after rest at least {} gt ({})",
+            m(least, i64::MAX),
+            if nbad == 0 && least != i64::MAX && least >= 2 { "pass" } else { "FAIL" }
+        ));
+    } else {
+        push_row(&mut lines, format!("  the freeze row: FAIL, the reference run (v 0.1) lacks a detector rise, a rest or a fired pulse (det {:?}, rest {:?})", r0.det, r0.rest));
     }
     let ctl = gate_run_file(&f, false, 5, Some((110, 7.3, 0.3)), None)?;
     let lv = gate_run_file(&f, true, 5, Some((110, 7.3, 0.3)), None)?;
     let nf = |r: &GateRec| r.fired.iter().filter(|&&(x, _)| r.det.is_some_and(|d| x > d)).count();
-    lines.push(format!(
+    push_row(&mut lines, format!(
         "  the napper's own second ARM3 rise (its pass over the detector rail (5,0,7)): with the live term {} fired pulse(s) ({}); the control without it {} ({})",
         nf(&lv),
         if nf(&lv) == 1 { "pass" } else { "FAIL" },
@@ -487,6 +619,7 @@ pub fn gate_file_bench(path: &str, freeze: i64, quick: bool) -> Result<Vec<Strin
 /// riding.
 pub fn lift_trace(k: i64, depth: i32, v: f64, ticks: i64) -> Result<Vec<String>, String> {
     GATE_LIFT.with(|c| c.set(depth));
+    clear_contacts();
     let res = (|| -> Result<Vec<String>, String> {
         let c = cells(Geo::Real);
         let sp = crate::mirror::checked(&spec_gate(2, true, k)?)?;
@@ -498,6 +631,7 @@ pub fn lift_trace(k: i64, depth: i32, v: f64, ticks: i64) -> Result<Vec<String>,
         let (mut rise, mut t_entry, mut rest) = (None::<i64>, None::<(i64, [f64; 3], f64)>, None::<(i64, [f64; 3])>);
         for t in 1..=ticks {
             run.tick();
+            note_contacts(&run, id);
             let Some(e) = run.world.entities.list.iter().find(|e| e.id == id && !e.removed) else {
                 lines.push(format!("t{t}: no cart"));
                 break;
@@ -521,7 +655,7 @@ pub fn lift_trace(k: i64, depth: i32, v: f64, ticks: i64) -> Result<Vec<String>,
                 break;
             }
         }
-        lines.push(format!(
+        push_row(&mut lines, format!(
             "summary: the rise at {}; the T entry at {}; rest at {}; detector -> rest {}",
             rise.map(|t| format!("t{t}")).unwrap_or_else(|| "-".into()),
             t_entry.map(|(t, p, s)| format!("t{t} ({:.4}, {:.4}, {:.4}) {s:.4}", p[0], p[1], p[2])).unwrap_or_else(|| "-".into()),
@@ -567,6 +701,14 @@ thread_local! {
     /// (ironspec 14:41) The ungated control: the AND's side (NOT H2) left out, so the pulse fires every
     /// cycle whatever the hold holds.
     static GATE_UNGATED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// (G1 on 652881d4f point 4) The E-within-k control: drive E once more this many gt after the run's
+    /// first fired pulse (a 20-gt drive), so the E-within-k row must count it.
+    static GATE_EXTRA_E: std::cell::Cell<Option<i64>> = const { std::cell::Cell::new(None) };
+    /// (ironspec 20:55 PT (2)(6), G1 on 7ccd7737c point 6) split9's input cell driven directly for this many
+    /// gt (odd widths included), not by the chain: E's comparator left out and the input cell (7,-1,8) a floor
+    /// lever on the chain's stone floor (record7's conforming stand-in for the hold input), switched by the
+    /// bench so the rail rises at ARM3 + D as the chain's does.
+    static SPLIT_DIRECT: std::cell::Cell<Option<i64>> = const { std::cell::Cell::new(None) };
 }
 const GATE_ARM3: [i32; 3] = [19, -1, 13];
 const GATE_BIT: [i32; 3] = [10, -1, 11];
@@ -574,6 +716,11 @@ const GATE_Q: [i32; 3] = [15, -1, 5];
 const GATE_DET: [i32; 3] = [7, -3, 4];
 
 fn spec_gate(extra: i64, live: bool, k: i64) -> Result<FarmSpec, String> {
+    // (G1 on 652881d4f point 2: the settle chain lays only even k in 36..=48; refuse any other here, so no
+    // caller can print a k that was not laid)
+    if !(36..=48).contains(&k) || k % 2 != 0 {
+        return Err(format!("spec_gate: k {k} is not on the settle chain (even, 36..=48)"));
+    }
     let b = |s: &str| Block::parse(s).map_err(|e| e.to_string());
     let mut cells: std::collections::BTreeMap<[i32; 3], String> = std::collections::BTreeMap::new();
     // the Real geometry's track (its cells as spec_real lays them, without the ungated chain and the string)
@@ -804,6 +951,16 @@ fn gate_run(extra: i64, live: bool, k: i64, cycles: i64, spawn: Option<(i64, f64
         if in_cycle == 20 && contact.is_none_or(|tc| t >= tc + 20) {
             run.world.set_block(bp(GATE_DRIVE), air.clone(), redsim::world::flags::ALL);
         }
+        if let Some(off) = GATE_EXTRA_E.with(|c| c.get())
+            && let Some(&(f0, _)) = rec.fired.first()
+        {
+            if t == f0 + off {
+                run.world.set_block(bp(GATE_DRIVE), on.clone(), redsim::world::flags::ALL);
+            }
+            if t == f0 + off + 20 {
+                run.world.set_block(bp(GATE_DRIVE), air.clone(), redsim::world::flags::ALL);
+            }
+        }
         if let Some((ts, x0, v)) = spawn
             && t == ts
         {
@@ -824,6 +981,9 @@ fn gate_run(extra: i64, live: bool, k: i64, cycles: i64, spawn: Option<(i64, f64
             }
         }
         run.tick();
+        if let Some(i) = id {
+            note_contacts(&run, i);
+        }
         let a = powered(&run, GATE_ARM3);
         if a && !arm3_on {
             rec.arm3.push(t);
@@ -881,6 +1041,7 @@ fn gate_run(extra: i64, live: bool, k: i64, cycles: i64, spawn: Option<(i64, f64
 /// E's rise, the brief's criterion), the napper's own second ARM3 rise firing nothing; a 3-gt freeze at
 /// every offset around the fired pulse; the control with the live term removed (the phantom pulse).
 pub fn gate_bench(extra: i64, k: i64, freeze: i64) -> Result<Vec<String>, String> {
+    clear_contacts();
     let mut lines = Vec::new();
     // (the pulse and the delay, from a run with one arrival)
     let base = gate_run(extra, true, k, 4, Some((5, 7.3, 0.3)), None, true)?;
@@ -888,22 +1049,35 @@ pub fn gate_bench(extra: i64, k: i64, freeze: i64) -> Result<Vec<String>, String
         (Some(d), Some(b)) => (b - d).to_string(),
         _ => "-".into(),
     };
-    lines.push(format!(
-        "(c′) the presence-gated hold release as blocks (ironspec 11:43 / 11:49: the approach detector (7,-3,4) -> a loop latch -> the settle delay -> P = delayed AND live -> H2 sampled at E + 2 (L2) -> the AND (7,-1,9) into the input cell; the fired pulse resets the latch) in the Real geometry with the T's north arm: one arrival's detector-to-H2 delay {delay} gt (the settle lock k {k}: ironspec 14:36, k = R_max + F + 2 at even widths, a repeater delay); every run's spec checked: 0 cells outside its world's box"
+    push_row(&mut lines, format!(
+        "(c′) the presence-gated hold release as blocks (ironspec 11:43 / 11:49: the approach detector (7,-3,4) -> a loop latch -> the settle delay -> P = delayed AND live -> H2 sampled at E + 2 (L2) -> the AND (7,-1,9) into the input cell; the fired pulse resets the latch) in the Real geometry with the T's north arm: one arrival's detector-to-H2 delay {delay} gt (k_lock {k}, the (c′) settle lock: ironspec 14:36, k_lock = R_max + F + 2 at even widths, a repeater delay; ironspec 22:03 PT's names: k_lock, k_sw, K(x)); every run's spec checked: 0 cells outside its world's box"
     ));
     lines.push(tsnap_line()?);
     let (mut n, mut margin_min, mut margin_max) = (0u32, i64::MAX, i64::MIN);
     let (mut one_fire, mut extra_fire, mut no_fire, mut late, mut q_left) = (0u32, 0u32, 0u32, 0u32, 0u32);
     let mut dep_e = (i64::MAX, i64::MIN);
+    // (ironspec 20:42 PT: each run's measured detector -> H2 delay, which must equal the settle lock k: the
+    // arrivals loop once shadowed k with the spawn phase, so its rows ran at k 36..48)
+    let mut dly = (i64::MAX, i64::MIN);
+    let mut e_to_fire = (i64::MAX, i64::MIN);
     let mut bad = Vec::new();
     for v in [0.1, 0.25, 0.4] {
-        for k in 0..CYCLE {
-            let ts = 110 + k;
+        for ph in 0..CYCLE {
+            let ts = 110 + ph;
             let r = gate_run(extra, true, k, 5, Some((ts, 7.3, v)), None, true)?;
             n += 1;
+            if let (Some(d), Some(b)) = (r.det, r.bit) {
+                dly = (dly.0.min(b - d), dly.1.max(b - d));
+                if b - d != k {
+                    bad.push(format!("v {v} spawn {ts}: detector -> H2 {} gt, not k_lock {k}", b - d));
+                }
+            }
             if let (Some(rest), Some(bit)) = (r.rest, r.bit) {
                 margin_min = margin_min.min(bit - rest);
                 margin_max = margin_max.max(bit - rest);
+            } else {
+                // (G1 on 7ccd7737c point 3: a run without a rest or a bit is a failure, never a drop)
+                bad.push(format!("v {v} spawn {ts}: rest {:?}, bit {:?}", r.rest, r.bit));
             }
             let fires_after = r.fired.iter().filter(|&&(f, _)| r.det.is_some_and(|d| f > d)).count();
             match fires_after {
@@ -918,49 +1092,69 @@ pub fn gate_bench(extra: i64, k: i64, freeze: i64) -> Result<Vec<String>, String
                 }
             }
             if let Some(&(f, _)) = r.fired.iter().find(|&&(f, _)| r.det.is_some_and(|d| f > d)) {
-                // (E's rise = the fired pulse's rise - 8: the input cell at E + 8)
-                let e_rise = f - 8;
-                if let Some(o) = r.off {
-                    dep_e = (dep_e.0.min(o - e_rise), dep_e.1.max(o - e_rise));
-                    late += !r.off_powered as u32;
+                // (G1 on 7ccd7737c point 4: E's rise measured, the last ARM3 rise at or before the fired pulse,
+                // not assumed at the fired pulse - 8)
+                match r.arm3.iter().copied().filter(|&a| a <= f).max() {
+                    Some(e_rise) => {
+                        e_to_fire = (e_to_fire.0.min(f - e_rise), e_to_fire.1.max(f - e_rise));
+                        match r.off {
+                            Some(o) => {
+                                dep_e = (dep_e.0.min(o - e_rise), dep_e.1.max(o - e_rise));
+                                late += !r.off_powered as u32;
+                            }
+                            None => bad.push(format!("v {v} spawn {ts}: fired at t{f} and never left the hold")),
+                        }
+                    }
+                    None => bad.push(format!("v {v} spawn {ts}: no ARM3 rise before the fired pulse t{f}")),
                 }
             }
             q_left += r.q_end as u32;
         }
     }
-    lines.push(format!(
-        "  arrivals (a ridden cart from the exit rail at v 0.1 / 0.25 / 0.4, spawned at every gt of a cycle: {n} runs, the napper's own second ARM3 rise driven on its departure): the bit at H2 after the cart's rest by {}..{} gt (ironspec: >= 2{}); exactly one fired pulse {one_fire}, more than one {extra_fire}, none {no_fire}{}; the departure (its centre off the hold cell) at E's rise + {}..{} gt, late (the rail unpowered) {late}; the latch left set {q_left}",
+    push_row(&mut lines, format!(
+        "  arrivals (a ridden cart from the exit rail at v 0.1 / 0.25 / 0.4, spawned at every gt of a cycle: {n} runs, the napper's own second ARM3 rise driven on its departure; each run's detector -> H2 delay {} gt against k_lock {k}: {}): the bit at H2 after the cart's rest by {}..{} gt (ironspec: >= 2{}); exactly one fired pulse {one_fire}, more than one {extra_fire}, none {no_fire}{}; E (the ARM3 rise, measured) -> the fired pulse {} gt; the departure (its centre off the hold cell) at E's measured rise + {}..{} gt, late (the rail unpowered) {late}; the latch left set {q_left}",
+        if dly.0 == i64::MAX { "-".to_string() } else if dly.0 == dly.1 { dly.0.to_string() } else { format!("{}..{}", dly.0, dly.1) },
+        if dly.0 == k && dly.1 == k { "pass" } else { "FAIL" },
         if margin_min == i64::MAX { "-".to_string() } else { margin_min.to_string() },
         if margin_max == i64::MIN { "-".to_string() } else { margin_max.to_string() },
-        if margin_min != i64::MAX && margin_min < 2 { ": FAIL, the settle delay needs a delay-2 more" } else { ": pass" },
-        if bad.is_empty() { String::new() } else { format!(" (FAIL: {})", bad.iter().take(4).cloned().collect::<Vec<_>>().join("; ")) },
+        if margin_min == i64::MAX { ": FAIL, no run measured it" } else if margin_min < 2 { ": FAIL, the settle delay needs a delay-2 more" } else { ": pass" },
+        if bad.is_empty() { String::new() } else { format!(" (FAIL, {}: {})", bad.len(), bad.iter().take(4).cloned().collect::<Vec<_>>().join("; ")) },
+        if e_to_fire.0 == i64::MAX { "-".to_string() } else if e_to_fire.0 == e_to_fire.1 { e_to_fire.0.to_string() } else { format!("{}..{}", e_to_fire.0, e_to_fire.1) },
         if dep_e.0 == i64::MAX { "-".to_string() } else { dep_e.0.to_string() },
         if dep_e.1 == i64::MIN { "-".to_string() } else { dep_e.1.to_string() }
     ));
     // a freeze at every offset around the fired pulse (a cart that rested)
     let r0 = gate_run(extra, true, k, 5, Some((110, 7.3, 0.3)), None, false)?;
-    let Some(&(f0, _)) = r0.fired.iter().find(|&&(f, _)| r0.det.is_some_and(|d| f > d)) else {
-        lines.push("  the freeze sweep: the reference arrival fired nothing (FAIL)".into());
-        return Ok(lines);
-    };
-    let (mut fl, mut fok, mut fmiss) = (0u32, 0u32, 0u32);
-    let mut fdep = (i64::MAX, i64::MIN);
-    for off in -5..=16 {
-        let r = gate_run(extra, true, k, 5, Some((110, 7.3, 0.3)), Some((f0 + off, freeze)), false)?;
-        match (r.off, r.fired.iter().find(|&&(f, _)| r.det.is_some_and(|d| f > d))) {
-            (Some(o), Some(&(f, _))) if r.off_powered => {
-                fok += 1;
-                fdep = (fdep.0.min(o - (f - 8)), fdep.1.max(o - (f - 8)));
+    if let Some(&(f0, _)) = r0.fired.iter().find(|&&(f, _)| r0.det.is_some_and(|d| f > d)) {
+        let (mut fl, mut fok, mut fmiss) = (0u32, 0u32, 0u32);
+        let mut fdep = (i64::MAX, i64::MIN);
+        for off in -5..=16 {
+            let r = gate_run(extra, true, k, 5, Some((110, 7.3, 0.3)), Some((f0 + off, freeze)), false)?;
+            match (r.off, r.fired.iter().find(|&&(f, _)| r.det.is_some_and(|d| f > d))) {
+                (Some(o), Some(&(f, _))) if r.off_powered => {
+                    // (E measured: the last ARM3 rise at or before the fired pulse)
+                    match r.arm3.iter().copied().filter(|&a| a <= f).max() {
+                        Some(e) => {
+                            fok += 1;
+                            fdep = (fdep.0.min(o - e), fdep.1.max(o - e));
+                        }
+                        None => fmiss += 1,
+                    }
+                }
+                (Some(_), Some(_)) => fl += 1,
+                _ => fmiss += 1,
             }
-            (Some(_), Some(_)) => fl += 1,
-            _ => fmiss += 1,
         }
+        push_row(&mut lines, format!(
+            "  a {freeze}-gt freeze at every offset from the fired pulse's rise - 5 to + 16 (a rested napper): launched on the fired pulse {fok}, late {fl}, missed {fmiss} ({}); the departure at E's measured rise + {}..{} gt",
+            if fl == 0 && fmiss == 0 { "pass" } else { "FAIL" },
+            if fdep.0 == i64::MAX { "-".to_string() } else { fdep.0.to_string() },
+            if fdep.1 == i64::MIN { "-".to_string() } else { fdep.1.to_string() }
+        ));
+    } else {
+        // (G1 on 7c330044b / c22def814: the row never vanishes; the rest of the bench still runs)
+        lines.push("  the freeze sweep around the fired pulse: FAIL, the reference arrival fired nothing".into());
     }
-    lines.push(format!(
-        "  a {freeze}-gt freeze at every offset from the fired pulse's rise - 5 to + 16 (a rested napper): launched on the fired pulse {fok}, late {fl}, missed {fmiss}; the departure at E's rise + {}..{} gt",
-        if fdep.0 == i64::MAX { "-".to_string() } else { fdep.0.to_string() },
-        if fdep.1 == i64::MIN { "-".to_string() } else { fdep.1.to_string() }
-    ));
     // (G1's note 4 on 9c30d6dc3) a freeze during the approach (redstone running, the cart frozen: ironspec's
     // + 3 in 38): at every offset from the detector's rise - 3 to the cart's rest, at the slowest exit speed
     let r1 = gate_run(extra, true, k, 5, Some((110, 7.3, 0.1)), None, false)?;
@@ -972,6 +1166,9 @@ pub fn gate_bench(extra: i64, k: i64, freeze: i64) -> Result<Vec<String>, String
             if let (Some(rest), Some(bit)) = (r.rest, r.bit) {
                 least = least.min(bit - rest);
                 most = most.max(bit - rest);
+            } else {
+                // (G1 on 652881d4f / c22def814: a run without a detector rise, a rest or a bit is a failure, never a drop)
+                bad_n.push(format!("offset {off}: det {:?}, rest {:?}, bit {:?}", r.det, r.rest, r.bit));
             }
             if fires == 1 && r.off.is_some() && r.off_powered {
                 ok += 1;
@@ -979,7 +1176,7 @@ pub fn gate_bench(extra: i64, k: i64, freeze: i64) -> Result<Vec<String>, String
                 bad_n.push(format!("offset {off}: {fires} fired, departure {:?}, rail powered then {}", r.off, r.off_powered));
             }
         }
-        lines.push(format!(
+        push_row(&mut lines, format!(
             "  a {freeze}-gt freeze during the approach (G1's note 4: redstone running, the cart frozen; v 0.1, the slowest exit) at every offset from the detector's rise - 3 to the cart's rest (+{}): launched on one fired pulse {ok}, otherwise {}{}; the bit at H2 after the cart's rest by {}..{} gt (the functional bar 0: presence sampled at rest; the design margin k - approach max - 3)",
             rs1 - d1,
             bad_n.len(),
@@ -1002,6 +1199,8 @@ pub fn gate_bench(extra: i64, k: i64, freeze: i64) -> Result<Vec<String>, String
                 if let (Some(rest), Some(bit), Some(d)) = (r.rest, r.bit, r.det) {
                     rleast = rleast.min(bit - rest);
                     dr = (dr.0.min(rest - d), dr.1.max(rest - d));
+                } else {
+                    rbad.push(format!("restart before t{} ({}): det {:?}, rest {:?}, bit {:?}", rt, how.label(), r.det, r.rest, r.bit));
                 }
                 if fires == 1 && r.off.is_some() && r.off_powered {
                     rok += 1;
@@ -1010,13 +1209,20 @@ pub fn gate_bench(extra: i64, k: i64, freeze: i64) -> Result<Vec<String>, String
                 }
             }
         }
-        lines.push(format!(
-            "  a restart (every chunk saved and loaded) at every tick of the approach (detector - 3 .. rest) in every reload order ({n} runs, v 0.1): detector -> rest {}..{} gt; launched on one fired pulse {rok}, otherwise {}{}; the bit at H2 after the cart's rest at least {} gt (the functional bar 0)",
+        push_row(&mut lines, format!(
+            "  a restart (every chunk saved and loaded) at every tick of the approach (detector - 3 .. rest) in every reload order ({n} runs, v 0.1): detector -> rest {}..{} gt (the run without a restart: {}); launched on one fired pulse {rok}, otherwise {}{}; the bit at H2 after the cart's rest at least {} gt (the functional bar 0)",
             if dr.0 == i64::MAX { "-".to_string() } else { dr.0.to_string() },
             if dr.1 == i64::MIN { "-".to_string() } else { dr.1.to_string() },
+            rs1 - d1,
             rbad.len(),
             if rbad.is_empty() { String::new() } else { format!(" (FAIL: {})", rbad.iter().take(3).cloned().collect::<Vec<_>>().join("; ")) },
             if rleast == i64::MAX { "-".to_string() } else { rleast.to_string() }
+        ));
+    } else {
+        // (G1 on c22def814: the approach freeze and restart rows never vanish silently)
+        push_row(&mut lines, format!(
+            "  the approach freeze and restart rows: FAIL, the reference run (v 0.1) has no detector rise or rest (det {:?}, rest {:?})",
+            r1.det, r1.rest
         ));
     }
     // the control: the live term removed (P = the delayed bit alone): the napper's second ARM3 rise
@@ -1024,7 +1230,7 @@ pub fn gate_bench(extra: i64, k: i64, freeze: i64) -> Result<Vec<String>, String
     let ctl_fires = ctl.fired.iter().filter(|&&(f, _)| ctl.det.is_some_and(|d| f > d)).count();
     let live = gate_run(extra, true, k, 5, Some((110, 7.3, 0.3)), None, true)?;
     let live_fires = live.fired.iter().filter(|&&(f, _)| live.det.is_some_and(|d| f > d)).count();
-    lines.push(format!(
+    push_row(&mut lines, format!(
         "  the napper's own second ARM3 rise: with the live term {live_fires} fired pulse(s) for one rest ({}); the control without it {ctl_fires} ({})",
         if live_fires == 1 { "pass" } else { "FAIL" },
         if ctl_fires > 1 { "the phantom pulse, as ironspec predicts: the control fails the row" } else { "NO phantom: the control does not show the hole" }
@@ -1038,27 +1244,41 @@ pub fn gate_bench(extra: i64, k: i64, freeze: i64) -> Result<Vec<String>, String
     // (ironspec 14:41/14:42) the new positive control: the ungated pulse (the AND passes E_d every cycle)
     // must fail the late rows; and E rises within k of a fired pulse (a permanent bar, 0)
     GATE_UNGATED.with(|c| c.set(true));
-    let ung = (|| -> Result<(u32, u32, u32, u32), String> {
-        let (mut runs, mut empty, mut before, mut both) = (0u32, 0u32, 0u32, 0u32);
+    // (G1 on 652881d4f point 3, ironspec 20:55 (2)(3)): only failures of the gate's own kind after the approach
+    // count (a pulse onto the empty hold while the napper is on its way: after its detector rise, before its
+    // rest; or a launch before rest), and separately the arrival rows' own judgement (exactly one fired pulse
+    // after the detector, the bit and the rest present, the departure on the powered rail), which every
+    // ungated run must fail
+    let ung = (|| -> Result<(u32, u32, u32, u32, u32, Vec<i64>), String> {
+        let (mut runs, mut on_way, mut before, mut bite, mut judged) = (0u32, 0u32, 0u32, 0u32, 0u32);
+        let mut quiet = Vec::new();
         for &v in &[0.1, 0.25, 0.4] {
             for ph in 0..CYCLE {
                 let r = gate_run(extra, true, k, 5, Some((110 + ph, 7.3, v)), None, false)?;
                 runs += 1;
-                let resting_at = |f: i64| r.rest.is_some_and(|rs| rs <= f) && r.left.is_none_or(|l| l > f);
-                let e = r.fired.iter().filter(|&&(f, _)| !resting_at(f)).count() as u32;
+                let w = r.fired.iter().filter(|&&(f, _)| r.det.is_some_and(|d| f > d) && r.rest.is_none_or(|rs| f < rs)).count() as u32;
                 let b = (r.left.is_some() && r.rest.is_none_or(|rs| r.left.is_some_and(|l| l <= rs))) as u32;
-                empty += e;
+                on_way += w;
                 before += b;
-                both += (e > 0 || b > 0) as u32;
+                bite += (w > 0 || b > 0) as u32;
+                if w == 0 && b == 0 {
+                    quiet.push(ph);
+                }
+                let fires_after = r.fired.iter().filter(|&&(f, _)| r.det.is_some_and(|d| f > d)).count();
+                let fails = fires_after != 1 || r.rest.is_none() || r.bit.is_none() || r.off.is_none() || !r.off_powered || r.rest.zip(r.bit).is_some_and(|(rs, bt)| bt - rs < 2);
+                judged += fails as u32;
             }
         }
-        Ok((runs, empty, before, both))
+        Ok((runs, on_way, before, bite, judged, quiet))
     })();
     GATE_UNGATED.with(|c| c.set(false));
-    let (runs, empty, before, both) = ung?;
-    lines.push(format!(
-        "  the positive control (ironspec 14:41: an ungated pulse, the AND's NOT H2 left out, must fail the late rows), over the 300 arrivals: pulses onto an empty hold {empty}; launches before rest (the cart off the hold cell without having come to rest) {before}; runs failing at least one {both} of {runs} ({})",
-        if both > 0 { "the control bites" } else { "the control does NOT bite: the rows cannot see the gate" }
+    let (runs, on_way, before, bite, judged, mut quiet) = ung?;
+    quiet.sort();
+    quiet.dedup();
+    push_row(&mut lines, format!(
+        "  the positive control (ironspec 14:41: an ungated pulse, the AND's NOT H2 left out), over the 300 arrivals: failures of the gate's own kind after the approach: pulses onto the empty hold while the napper is on its way {on_way}, launches before rest {before}; runs bitten that way {bite} of {runs}{}; runs failing the arrival rows' own judgement {judged} of {runs} (bar: every run, {})",
+        if quiet.is_empty() { String::new() } else { format!(" (arrival phases where it does not bite that way: {})", quiet.iter().map(|p| p.to_string()).collect::<Vec<_>>().join(",")) },
+        if judged == runs { "the control bites every run" } else { "FAIL: the rows cannot see the gate in every run" }
     ));
     let (mut within, mut least, mut fires) = (0u32, i64::MAX, 0u32);
     for &v in &[0.1, 0.25, 0.4] {
@@ -1077,9 +1297,20 @@ pub fn gate_bench(extra: i64, k: i64, freeze: i64) -> Result<Vec<String>, String
             }
         }
     }
-    lines.push(format!(
-        "  E rises within k {k} gt after a fired pulse over the 300 arrivals ({fires} fired pulses): {within} (the permanent bar 0; the least gap from a fired pulse to the next E rise {} gt; the bench drives E once per 100-gt cycle: the release chain's own interval under restarts and logins is the controller's row)",
+    push_row(&mut lines, format!(
+        "  E rises within k_lock {k} gt after a fired pulse over the 300 arrivals ({fires} fired pulses): {within} (the permanent bar 0; the least gap from a fired pulse to the next E rise {} gt; the bench drives E once per 100-gt cycle: the release chain's own interval under restarts and logins is the controller's row)",
         if least == i64::MAX { "-".to_string() } else { least.to_string() }
+    ));
+    // (G1 on 652881d4f point 4) the row's control: E driven again 20 gt after the first fired pulse (inside
+    // k) must count, else the row cannot see an E inside k
+    GATE_EXTRA_E.with(|c| c.set(Some(20)));
+    let ctl = gate_run(extra, true, k, 5, Some((110, 7.3, 0.25)), None, false);
+    GATE_EXTRA_E.with(|c| c.set(None));
+    let ctl = ctl?;
+    let ctl_within = ctl.fired.first().map_or(0, |&(f, _)| ctl.arm3.iter().filter(|&&a| a > f && a - f <= k).count());
+    push_row(&mut lines, format!(
+        "  the E-within-k control (E driven again 20 gt after the first fired pulse): counted {ctl_within} ({})",
+        if ctl_within > 0 { "the row sees an E inside k" } else { "FAIL: the row cannot see an E inside k" }
     ));
     Ok(lines)
 }
@@ -1108,27 +1339,32 @@ fn gate_lift_rows(extra: i64, k: i64) -> Result<Vec<String>, String> {
     )];
     // every summon phase across a cycle
     let (mut one, mut late, mut dr, mut br) = (0u32, 0u32, (i64::MAX, i64::MIN), (i64::MAX, i64::MIN));
+    // (G1 on 652881d4f point 4: a run without a detector rise, a rest or a bit is a failure, never a drop)
+    let mut missing = 0u32;
     for ph in 0..CYCLE {
         let r = gate_run(extra, true, k, 5, Some((ts + ph, 0.0, 0.2)), None, false)?;
-        if let (Some(d), Some(rs)) = (r.det, r.rest) {
+        if let (Some(d), Some(rs), Some(b)) = (r.det, r.rest, r.bit) {
             dr = (dr.0.min(rs - d), dr.1.max(rs - d));
-            if let Some(b) = r.bit {
-                br = (br.0.min(b - rs), br.1.max(b - rs));
-            }
+            br = (br.0.min(b - rs), br.1.max(b - rs));
+        } else {
+            missing += 1;
         }
         one += (nf(&r) == 1) as u32;
         late += (r.off.is_some() && !r.off_powered) as u32;
+        missing += (r.off.is_none()) as u32;
     }
-    lines.push(format!(
-        "  the lift's arrivals at every summon phase of a cycle ({CYCLE} runs): detector -> rest {}..{} gt; the bit at H2 after rest {}..{} gt; exactly one fired pulse {one}; late {late}",
+    push_row(&mut lines, format!(
+        "  the lift's arrivals at every summon phase of a cycle ({CYCLE} runs): detector -> rest {}..{} gt; the bit at H2 after rest {}..{} gt; exactly one fired pulse {one}; late {late}; runs missing a detector rise, a rest, a bit or a departure {missing} ({})",
         m(dr.0, i64::MAX),
         m(dr.1, i64::MIN),
         m(br.0, i64::MAX),
-        m(br.1, i64::MIN)
+        m(br.1, i64::MIN),
+        if missing == 0 && one == CYCLE as u32 && late == 0 { "pass" } else { "FAIL" }
     ));
     // a restart at every tick of the ride, alone and with a login's 1..3-gt freeze at it
     for f in [0i64, 1, 2, 3] {
         let (mut n, mut one, mut dr, mut least, mut worst) = (0u32, 0u32, (i64::MAX, i64::MIN), i64::MAX, String::new());
+        let mut missing = 0u32;
         for rt in ts..=(rs0 + 1) {
             for how in crate::liveness::Restart::rows() {
                 GATE_RESTART.with(|c| c.set(Some((rt, how))));
@@ -1136,32 +1372,34 @@ fn gate_lift_rows(extra: i64, k: i64) -> Result<Vec<String>, String> {
                 GATE_RESTART.with(|c| c.set(None));
                 let r = r?;
                 n += 1;
-                if let (Some(d), Some(rs)) = (r.det, r.rest) {
+                if let (Some(d), Some(rs), Some(b)) = (r.det, r.rest, r.bit) {
                     if rs - d > dr.1 {
                         worst = format!("restart before t{rt} ({} after the summon), {}", rt - ts, how.label());
                     }
                     dr = (dr.0.min(rs - d), dr.1.max(rs - d));
-                    if let Some(b) = r.bit {
-                        least = least.min(b - rs);
-                    }
+                    least = least.min(b - rs);
+                } else {
+                    missing += 1;
                 }
                 one += (nf(&r) == 1 && r.off.is_some() && r.off_powered) as u32;
             }
         }
-        lines.push(format!(
-            "  a restart before every tick from the summon to the rest, every reload order{} ({n} runs): detector -> rest {}..{} gt (redsim's worst {}, at {worst}; tick-exact's official: 36 with a restart at the lift's top; rest as tick-exact's: in the hold cell under 0.005 b/gt); launched on one fired pulse {one} of {n}; the bit at H2 after rest at least {} gt (k {k} - the measured worst = {})",
+        push_row(&mut lines, format!(
+            "  a restart before every tick from the summon to the rest, every reload order{} ({n} runs): detector -> rest {}..{} gt (redsim's worst {}, at {worst}; tick-exact's official: 36 with a restart at the lift's top; rest as tick-exact's: in the hold cell under 0.005 b/gt); launched on one fired pulse {one} of {n}; runs missing a detector rise, a rest or a bit {missing}; the bit at H2 after rest at least {} gt (k_lock {k} - the measured worst = {}) ({})",
             if f > 0 { format!(", with a {f}-gt login freeze starting at the restart") } else { String::new() },
             m(dr.0, i64::MAX),
             m(dr.1, i64::MIN),
             m(dr.1, i64::MIN),
             m(least, i64::MAX),
-            if dr.1 == i64::MIN { "-".to_string() } else { (k - dr.1).to_string() }
+            if dr.1 == i64::MIN { "-".to_string() } else { (k - dr.1).to_string() },
+            if missing == 0 && one == n && least != i64::MAX && least >= 2 { "pass" } else { "FAIL" }
         ));
     }
     // (ironspec 15:23 (1)) a restart and a later login stacking: a restart before each tick from the summon
     // to the rise (the save order) x a 1..3-gt freeze starting at every tick from the rise to the rest
     let save = crate::liveness::Restart::rows().into_iter().next().ok_or("no restart order")?;
     let (mut n, mut one, mut dr, mut least, mut worst) = (0u32, 0u32, (i64::MAX, i64::MIN), i64::MAX, String::new());
+    let mut missing = 0u32;
     for rt in ts..d0 {
         for f in 1..=3i64 {
             for ft in d0..=rs0 {
@@ -1170,24 +1408,25 @@ fn gate_lift_rows(extra: i64, k: i64) -> Result<Vec<String>, String> {
                 GATE_RESTART.with(|c| c.set(None));
                 let r = r?;
                 n += 1;
-                if let (Some(d), Some(rs)) = (r.det, r.rest) {
+                if let (Some(d), Some(rs), Some(b)) = (r.det, r.rest, r.bit) {
                     if rs - d > dr.1 {
                         worst = format!("restart before t{rt} ({} after the summon), a {f}-gt freeze from t{ft}", rt - ts);
                     }
                     dr = (dr.0.min(rs - d), dr.1.max(rs - d));
-                    if let Some(b) = r.bit {
-                        least = least.min(b - rs);
-                    }
+                    least = least.min(b - rs);
+                } else {
+                    missing += 1;
                 }
                 one += (nf(&r) == 1 && r.off.is_some() && r.off_powered) as u32;
             }
         }
     }
-    lines.push(format!(
-        "  (ironspec 15:23 (1)) a restart before each tick from the summon to the rise (the save order) x a 1..3-gt login freeze starting at every tick from the rise to the rest ({n} runs): detector -> rest {}..{} gt (the worst at {worst}); launched on one fired pulse {one} of {n}; the bit at H2 after rest at least {} gt (bar >= 2)",
+    push_row(&mut lines, format!(
+        "  (ironspec 15:23 (1)) a restart before each tick from the summon to the rise (the save order) x a 1..3-gt login freeze starting at every tick from the rise to the rest ({n} runs): detector -> rest {}..{} gt (the worst at {worst}); launched on one fired pulse {one} of {n}; runs missing a detector rise, a rest or a bit {missing}; the bit at H2 after rest at least {} gt (bar >= 2: {})",
         m(dr.0, i64::MAX),
         m(dr.1, i64::MIN),
-        m(least, i64::MAX)
+        m(least, i64::MAX),
+        if missing == 0 && one == n && least != i64::MAX && least >= 2 { "pass" } else { "FAIL" }
     ));
     Ok(lines)
 }
@@ -1251,6 +1490,9 @@ fn run_full(g: Geo, extra: i64, phase: i64, cycles: i64, place: Option<i64>, fre
     let (mut arm3_on, mut out_on, mut rail_on, mut trip_on) = (false, false, false, false);
     let mut frozen: Option<[i32; 4]> = None;
     let horizon = phase + cycles * CYCLE + 40;
+    let direct = if g == Geo::Real { SPLIT_DIRECT.with(|c| c.get()) } else { None };
+    let lever_on = Block::parse("minecraft:lever[face=floor,facing=north,powered=true]").map_err(|e| e.to_string())?;
+    let lever_off = Block::parse("minecraft:lever[face=floor,facing=north,powered=false]").map_err(|e| e.to_string())?;
     for t in 0..horizon {
         let in_cycle = (t - phase).rem_euclid(CYCLE);
         if t >= phase && (t - phase) / CYCLE < cycles && in_cycle == 0 {
@@ -1258,6 +1500,19 @@ fn run_full(g: Geo, extra: i64, phase: i64, cycles: i64, place: Option<i64>, fre
         }
         if t >= phase && in_cycle == 20 {
             run.world.set_block(bp(c.drive), air.clone(), redsim::world::flags::ALL);
+        }
+        // (the direct drive: the lever on at the cycle's in_cycle D (ARM3 rises 2 gt after the drive and the
+        // chain's input cell at ARM3 + D - 2), off w gt later)
+        if let Some(w) = direct
+            && t >= phase
+            && (t - phase) / CYCLE < cycles
+        {
+            if in_cycle == D {
+                run.world.set_block(bp([7, -1, 8]), lever_on.clone(), redsim::world::flags::ALL);
+            }
+            if in_cycle == D + w {
+                run.world.set_block(bp([7, -1, 8]), lever_off.clone(), redsim::world::flags::ALL);
+            }
         }
         if place == Some(t) {
             cart = Some(redsim::entity::spawn(&mut run.world, "minecraft:minecart", [c.place[0], c.place[1], crate::mirror::zf(c.place[2])], Some("{Motion:[0.0d,0.0d,0.0d],Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}"))?);
@@ -1273,6 +1528,9 @@ fn run_full(g: Geo, extra: i64, phase: i64, cycles: i64, place: Option<i64>, fre
             }
         }
         run.tick();
+        if let Some(i) = cart {
+            note_contacts(&run, i);
+        }
         let a = powered(&run, c.arm3);
         if a && !arm3_on {
             rec.arm3.push(t);
@@ -1352,11 +1610,16 @@ fn freeze_sweep(g: Geo, extra: i64, len: i64) -> Result<(u32, u32, u32, Hist, i6
         let rec = run_once(g, extra, 0, 3, Some(rise - 40), Some((rise + off, len)))?;
         match rec.off_rail {
             Some(o) if o >= rise && o < rise + CYCLE - 20 && rec.off_powered => {
-                ok += 1;
                 *dep.entry(o - arm3).or_default() += 1;
                 spare = spare.min(fall - 1 - o);
                 if let Some(&tr) = rec.trip.iter().find(|&&x| (x - o).abs() <= 20) {
+                    ok += 1;
                     *trip.entry(tr - arm3).or_default() += 1;
+                } else {
+                    // (G1 on 6b9be93ea point 5: the departure string's edge is what the FIFO pop reads; a
+                    // launch without it is a failure, never a drop)
+                    miss += 1;
+                    bad.push(format!("freeze from rise + {off}: launched at ARM3 + {}, but the departure string never rose within 20 gt", o - arm3));
                 }
             }
             Some(o) if o >= rise && o < rise + CYCLE - 20 => {
@@ -1406,6 +1669,7 @@ fn lane7_rider(extra: i64) -> Result<(usize, bool), String> {
     let (mut rises, mut was, mut merged) = (0usize, false, false);
     for _ in 0..100 {
         run.tick();
+        note_contacts(&run, id);
         let now = run.world.get(crate::mirror::at([8, 1, 6])).to_string().contains("powered=true");
         if now && !was {
             rises += 1;
@@ -1516,6 +1780,9 @@ fn arrive_once(extra: i64, x0: f64, v: f64, t_spawn: i64, next_rise: i64) -> Res
             id = Some(redsim::entity::spawn(&mut run.world, "minecraft:minecart", [x0, -2.9375, crate::mirror::zf(4.5)], Some(&format!("{{Motion:[{v}d,0.0d,0.0d],Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b}}]}}")))?);
         }
         run.tick();
+        if let Some(i) = id {
+            note_contacts(&run, i);
+        }
         let now = run.world.get(bp(c.hook)).to_string().contains("powered=true");
         if now && !was {
             if t < next_rise {
@@ -1541,6 +1808,7 @@ fn arrive_once(extra: i64, x0: f64, v: f64, t_spawn: i64, next_rise: i64) -> Res
 /// next pulse), with the string's edge and presses while resting; the freeze sweep at this width; the
 /// launch threshold under the freeze for widths 8, 10, 12, 14; the controls.
 pub fn bench(step: i64, extra: i64, freeze: i64, g: Geo) -> Result<Vec<String>, String> {
+    clear_contacts();
     let (mut out_rise, mut out_w, mut rail_rise, mut rail_w) = (Hist::new(), Hist::new(), Hist::new(), Hist::new());
     let mut one_a_cycle = true;
     for phase in 0..20 {
@@ -1624,8 +1892,10 @@ pub fn bench(step: i64, extra: i64, freeze: i64, g: Geo) -> Result<Vec<String>, 
             if bad.is_empty() { " (every one at the next pulse)".to_string() } else { format!(" (FAIL: {})", bad.iter().take(4).cloned().collect::<Vec<_>>().join("; ")) }
         ),
     ];
+    // (the contacts of the 20 phases and the placed carts above go on the placed carts' row)
+    annotate(&mut lines);
     let (ok, flate, miss, fdep, fspare, ftrip, fbad) = freeze_sweep(g, extra, freeze)?;
-    lines.push(format!(
+    push_row(&mut lines, format!(
         "  a cart at rest on the hold, the part frozen {freeze} gt (level 32: redstone running, entities frozen; a login) from every offset around the pulse (rail rise - 3 .. its end + 1), by the brief's criterion (the departure = its centre off the hold cell; late = the hold rail unpowered at that tick): launched {ok}, late {flate}, missed {miss}{}; departures at ARM3 + {}; the least spare (the rail's powered ticks left after a departure) {}; the string's rising edge at ARM3 + {} (the state follows the departure that happens)",
         if fbad.is_empty() { String::new() } else { format!(" (FAIL: {})", fbad.iter().take(4).cloned().collect::<Vec<_>>().join("; ")) },
         row(&fdep),
@@ -1650,24 +1920,47 @@ pub fn bench(step: i64, extra: i64, freeze: i64, g: Geo) -> Result<Vec<String>, 
             latest_after_rise = d.keys().copied().max().map_or(i64::MIN, |m| m - D);
         }
     }
-    lines.push(format!(
-        "  the launch threshold under a {freeze}-gt freeze at every offset, by the brief's criterion: {}; the least even width with none late or missed {}; the exact least width (the latest departure in the 14-gt run at the rail's rise + {}, + 1) {} gt (the design {WIDTH})",
+    push_row(&mut lines, format!(
+        "  the launch threshold under a {freeze}-gt freeze at every offset, by the brief's criterion: {}; the least even width with none late or missed {}; the exact least width DERIVED (not run: the latest departure in the 14-gt run at the rail's rise + {}, + 1) {} gt (the design {WIDTH})",
         thr.join("; "),
         least.map_or("none up to 14".to_string(), |w| format!("{w} gt")),
         if latest_after_rise == i64::MIN { "-".to_string() } else { latest_after_rise.to_string() },
         if latest_after_rise == i64::MIN { "-".to_string() } else { (latest_after_rise + 1).to_string() }
     ));
+    // (ironspec 20:55 PT (2)(6), G1 on 7ccd7737c point 6) the threshold run directly at 8, 9 and 10 gt: the
+    // input cell a floor lever on for exactly that long (Real geometry; record7's conforming stand-in)
+    if g == Geo::Real {
+        let mut direct = Vec::new();
+        for w in [8i64, 9, 10] {
+            SPLIT_DIRECT.with(|c| c.set(Some(w)));
+            let r = freeze_sweep(g, 0, freeze);
+            SPLIT_DIRECT.with(|c| c.set(None));
+            match r {
+                Ok((ok, late, miss, _, spare, _, fbad)) => direct.push(format!(
+                    "{w} gt: {ok} launched, {late} late, {miss} missed{}{}",
+                    if spare == i64::MAX { String::new() } else { format!(" (least spare {spare})") },
+                    if fbad.is_empty() { String::new() } else { format!(" [{}]", fbad.iter().take(2).cloned().collect::<Vec<_>>().join("; ")) }
+                )),
+                Err(e) => direct.push(format!("{w} gt: FAIL ({e})")),
+            }
+        }
+        push_row(&mut lines, format!(
+            "  the launch threshold run directly (the input cell (7,-1,8) a floor lever on the stone floor, on for exactly w gt, the rail rising at ARM3 + D as the chain's does; a {freeze}-gt freeze at every offset): {}",
+            direct.join("; ")
+        ));
+    }
     match g {
-        Geo::Line => lines.push(format!(
+        Geo::Line => push_row(&mut lines, format!(
             "  the string's control (an unridden villager standing on the rail under it): a hook powered {}",
             if tripwire_control()? { "yes" } else { "NO" }
         )),
         Geo::Real => {
             let (rises, merged7) = lane7_rider(extra)?;
-            lines.push(format!(
-                "  a lane-7 rider through its merge T (7,0,7) and west (G1: its box stays at x <= 7.8): the string rose {rises} times ({}); the rider reached the merge row {}",
-                if rises == 0 { "pass" } else { "FAIL" },
-                if merged7 { "yes" } else { "NO" }
+            push_row(&mut lines, format!(
+                "  a lane-7 rider through its merge T (7,0,7) and west (G1: its box stays at x <= 7.8): the string rose {rises} times; the rider reached the merge row {} ({})",
+                if merged7 { "yes" } else { "NO" },
+                // (G1 on 6b9be93ea point 5: a rider that never merges fails the row too)
+                if rises == 0 && merged7 { "pass" } else { "FAIL" }
             ));
             // (ironspec 11:05 (2): ARM3's only consumer is E; the napper's own rise gives a second pulse on
             // an empty hold)
@@ -1675,7 +1968,7 @@ pub fn bench(step: i64, extra: i64, freeze: i64, g: Geo) -> Result<Vec<String>, 
             let dep = rec.left.unwrap_or(i64::MAX);
             let after: Vec<(i64, i64)> = rec.rail.iter().copied().filter(|&(r, _)| r > dep && r < next_arm3 + CYCLE).collect();
             let busy = after.iter().any(|&(r, f)| rec.hold_busy.iter().any(|&b| b >= r && b < f));
-            lines.push(format!(
+            push_row(&mut lines, format!(
                 "  the napper's own ARM3 rise (its box reaching ARM3's cell (5,0,7) after it leaves; the detector rail emulated for 20 gt): contact at ARM3 + {}; the rail's pulses after its departure, before the next batch's ARM3 (+ {CYCLE}): {}; a cart on the hold during them: {}; departures {} ({})",
                 rec.arm3_contact.map_or("- (no contact)".to_string(), |t| (t - next_arm3).to_string()),
                 if after.is_empty() { "none".to_string() } else { after.iter().map(|&(r, f)| format!("ARM3 + {} for {}", r - next_arm3, f - r)).collect::<Vec<_>>().join(", ") },
@@ -1702,15 +1995,17 @@ pub fn bench(step: i64, extra: i64, freeze: i64, g: Geo) -> Result<Vec<String>, 
                 rested_all += rested;
                 dep_all += dep_press;
             }
-            lines.push(format!(
+            push_row(&mut lines, format!(
                 "  arriving nappers (G1: the T's north arm laid; a ridden cart from the lift's exit rail (7,-3,4) at v 0.1..0.4 east x 16 entry offsets, up the slopes through the T (9,0,7) onto the hold, between two pulses): {}; in all, the string pressed before the release in {pressed_all} of {n_all} (bar 0: {}), at rest on the hold at the pulse {rested_all} of {n_all}, the departure's press {dep_all} of {n_all}",
                 per_v.join("; "),
-                if pressed_all == 0 { "pass" } else { "FAIL: the arrival presses the departure string" }
+                // (G1 on 7ccd7737c point 2: a cart that derails or stalls before the T presses nothing; every
+                // arrival must also come to rest on the hold)
+                if pressed_all == 0 && rested_all == n_all { "pass" } else if pressed_all > 0 { "FAIL: the arrival presses the departure string" } else { "FAIL: not every arrival came to rest on the hold" }
             ));
         }
     }
     let (scene, same) = rider_scene()?;
-    lines.push(format!(
+    push_row(&mut lines, format!(
         "  the positive control, tick-exact's recorded tripwire-rider scene (explore/tickexact eec7361f5) cell for cell: {}; {}",
         scene.join("; "),
         if same { "every row as the game" } else { "DIFFERENT from the game" }
@@ -1819,7 +2114,7 @@ fn tsnap_scene() -> Result<(Vec<String>, bool), String> {
 fn tsnap_line() -> Result<String, String> {
     let (scene, same) = tsnap_scene()?;
     Ok(format!(
-        "  the arrivals' positive control, tick-exact's recorded t-snap scene (explore/tickexact ff1ca056a: arrivals at the T from the north at <= ~0.26 swing the rider's box into (8,.,7)) cell for cell: {}; {}",
+        "  the arrivals' positive control, tick-exact's recorded t-snap scene (explore/tickexact ff1ca056a: arrivals at the T from the north at <= ~0.26 swing the rider's box into (8,.,7)), the simulator's control with its own recorded cells (its north arm's ascending cell a plain rail on stone; the bench's arrivals ride record7's powered one): {}; {}",
         scene.join("; "),
         if same { "every copy as the game (PASS: the arrival rows count)" } else { "DIFFERENT from the game (FAIL: the arrival rows do not count)" }
     ))

@@ -160,22 +160,29 @@ pub fn bench() -> Result<Vec<String>, String> {
         "the pocket drive (ironspec 16:03: (b) M16bw final once its power rise matches (a)'s at every pocket): all three pockets of a variant laid at once, one lane's switch cell driven {width} gt at 20 phases; P = the pocket rail (x,0,0); every run's spec checked: 0 cells outside its world's box{}",
         crate::mirror::tag()
     )];
-    let mut rises: std::collections::BTreeMap<(usize, &str), Hist> = Default::default();
+    let mut rises: std::collections::BTreeMap<(usize, &str), Vec<Option<(i64, i64)>>> = Default::default();
     for (v, vname) in [(Variant::A, "(a) the slime support (x,-1,0) under P, its delay-1 repeater (x,-1,-1)"), (Variant::B, "(b) M16bw: the side repeater (x-1,0,0) into P, the riser (x-2,0,0), the step (x-3,-1,0), the feed (lane -1 from the west)")] {
         lines.push(format!("  {vname}:"));
         for (i, &x) in XS.iter().enumerate() {
             let (mut rise, mut fall, mut leaks) = (Hist::new(), Hist::new(), 0u32);
             let mut base: Option<(i64, i64)> = None;
+            // (G1 on dd1c4270f point 2: each phase's (rise, fall) kept, an edge-less phase a failure, and (a)
+            // against (b) compared phase by phase)
+            let mut per_phase: Vec<Option<(i64, i64)>> = Vec::new();
             for t0 in 40..60 {
                 let o = run_once(v, i, t0, width, None)?;
                 if let (Some(r), Some(f)) = o[i] {
                     *rise.entry(r - t0 + 1).or_default() += 1;
                     *fall.entry(f - (t0 + width) + 1).or_default() += 1;
                     base.get_or_insert((r - t0, f - (t0 + width)));
+                    per_phase.push(Some((r - t0, f - (t0 + width))));
+                } else {
+                    per_phase.push(None);
                 }
                 leaks += o.iter().enumerate().filter(|(j, s)| *j != i && s.0.is_some()).count() as u32;
             }
-            rises.insert((i, if v == Variant::A { "a" } else { "b" }), rise.clone());
+            let edgeless = per_phase.iter().filter(|p| p.is_none()).count();
+            rises.insert((i, if v == Variant::A { "a" } else { "b" }), per_phase);
             let t0 = 40;
             let (mut n, mut same, mut diff) = (0u32, 0u32, Vec::<String>::new());
             for rt in ((t0 - 1)..=(t0 + 6)).chain((t0 + width - 1)..=(t0 + width + 6)) {
@@ -192,9 +199,10 @@ pub fn bench() -> Result<Vec<String>, String> {
                 }
             }
             lines.push(format!(
-                "    lane {x}: P powered (gt after the switch, gt:count) {}, unpowered after the switch's removal {}; the other pockets' rails rose {leaks} times (a leak); with a restart at every tick around both edges in every reload order: {same} of {n} the same{}",
+                "    lane {x}: P powered (gt after the switch, gt:count) {}, unpowered after the switch's removal {}; phases without a rise and a fall {edgeless}{}; the other pockets' rails rose {leaks} times (a leak); with a restart at every tick around both edges in every reload order: {same} of {n} the same{}",
                 row(&rise),
                 row(&fall),
+                if edgeless > 0 { " (FAIL)" } else { "" },
                 if diff.is_empty() { String::new() } else { format!(" (DIFFERENT: {})", diff.iter().take(3).cloned().collect::<Vec<_>>().join("; ")) }
             ));
         }
@@ -204,7 +212,8 @@ pub fn bench() -> Result<Vec<String>, String> {
         .enumerate()
         .map(|(i, x)| {
             let (a, b) = (rises.get(&(i, "a")), rises.get(&(i, "b")));
-            format!("lane {x} {}", if a.is_some() && a == b { "the same" } else { "DIFFERENT" })
+            let same = matches!((a, b), (Some(a), Some(b)) if !a.is_empty() && a == b && a.iter().all(|p| p.is_some()));
+            format!("lane {x} {}", if same { "the same at every phase" } else { "DIFFERENT (or a phase without edges)" })
         })
         .collect();
     lines.push(format!("  (b)'s rise against (a)'s, phase by phase: {}", verdict.join(", ")));

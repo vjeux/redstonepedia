@@ -77,17 +77,22 @@ fn least(rels: &[i64]) -> i64 {
 }
 
 /// The lock after a disturbance: (the RELs from the first golem pulse after `td` until the cycle is
-/// golem-locked for good, the off-phase RELs among them; locked at the end).
-fn lock_after(rels: &[i64], pulses: &[i64], sp: i64, td: i64) -> (usize, usize, bool) {
+/// golem-locked for good, the off-phase RELs among them, the skipped slots (a pulse with summons present
+/// and no REL in its cycle, ironspec 19:53 PT (2)(a)); locked at the end).
+fn lock_after(rels: &[i64], pulses: &[i64], sp: i64, td: i64) -> (usize, usize, usize, bool) {
     let locked = |r: i64| (r - sp).rem_euclid(100) == 3;
-    let Some(&tg) = pulses.iter().find(|&&p| p >= td) else { return (0, 0, true) };
+    let Some(&tg) = pulses.iter().find(|&&p| p >= td) else { return (0, 0, 0, true) };
     let after: Vec<i64> = rels.iter().copied().filter(|&r| r >= tg).collect();
+    // (a slot is skipped when no REL falls in [p, p + 100) for a pulse p after tg, the last pulse aside
+    // (the run ends 50 gt after it))
+    let last_p = pulses.last().copied().unwrap_or(0);
+    let skipped = pulses.iter().filter(|&&p| p >= tg && p < last_p && !rels.iter().any(|&r| r >= p && r < p + 100)).count();
     // the last off-phase REL after tg: the lock holds from the REL after it
     let last_off = after.iter().rposition(|&r| !locked(r));
     let at_end = after.last().is_some_and(|&r| locked(r));
     match last_off {
-        None => (0, 0, at_end),
-        Some(i) => (i + 1, after[..=i].iter().filter(|&&r| !locked(r)).count(), at_end),
+        None => (0, 0, skipped, at_end),
+        Some(i) => (i + 1, after[..=i].iter().filter(|&&r| !locked(r)).count(), skipped, at_end),
     }
 }
 
@@ -110,6 +115,9 @@ pub fn bench(b_end: i64, settle: i64, bar: i64) -> Vec<String> {
         };
         let (mut worst_int, mut worst_int_at) = (i64::MAX, String::new());
         let (mut max_cycles, mut max_lost, mut max_at) = (0usize, 0usize, String::new());
+        // (ironspec 19:53 PT (2)(a): the failed rolls' own count, so "a failed roll restarts on phase with
+        // no skip" prints from it)
+        let mut max_lost_failed = 0usize;
         let (mut n, mut unlocked, mut unlocked_at) = (0u32, 0u32, String::new());
         let mut steady_off = 0usize;
         for &w in &ws {
@@ -121,7 +129,11 @@ pub fn bench(b_end: i64, settle: i64, bar: i64) -> Vec<String> {
                     worst_int = l;
                     worst_int_at = format!("W {w}, {name}");
                 }
-                let (c, lost, at_end) = lock_after(&rels, &pulses, sp, td);
+                let (c, off, skipped, at_end) = lock_after(&rels, &pulses, sp, td);
+                let lost = off + skipped;
+                if name.starts_with("a failed roll") {
+                    max_lost_failed = max_lost_failed.max(lost);
+                }
                 n += 1;
                 if !at_end {
                     unlocked += 1;
@@ -171,7 +183,7 @@ pub fn bench(b_end: i64, settle: i64, bar: i64) -> Vec<String> {
             steady_off = steady_off.max(rels.iter().filter(|&&r| r.rem_euclid(100) != 3).count());
         }
         lines.push(format!(
-            "  {label}: (a) the least REL-to-REL {} ({}; at {}); (b) from the first golem after a disturbance to the lock, at most {max_cycles} cycles with {max_lost} off-phase RELs (summons lost) ({}){}; not locked at the scenario's end {unlocked} of {n}{}; (c) off-phase RELs in a day of steady running {steady_off}",
+            "  {label}: (a) the least REL-to-REL {} ({}; at {}); (b) from the first golem after a disturbance to the lock, at most {max_cycles} cycles with {max_lost} summons lost (off-phase RELs + skipped slots, a pulse with no REL in its cycle) ({}){}; after a failed roll at most {max_lost_failed} summons lost beyond the roll's own; not locked at the scenario's end {unlocked} of {n}{}; (c) off-phase RELs in a day of steady running {steady_off}",
             if worst_int == i64::MAX { "-".to_string() } else { worst_int.to_string() },
             if worst_int >= bar { "PASS" } else { "FAIL" },
             worst_int_at,

@@ -135,6 +135,9 @@ fn spec(l: &Lane) -> Result<(FarmSpec, P, Option<P>, Vec<P>), String> {
 struct Out {
     rise: Option<i64>,
     fall: Option<i64>,
+    /// (G1 on 7ccd7737c point 5) every edge, so an extra pulse from a reload is seen
+    rises: Vec<i64>,
+    falls: Vec<i64>,
     slime_nb: Vec<String>,
     dust: String,
     r_state: String,
@@ -151,7 +154,7 @@ fn run_once(l: &Lane, t0: i64, width: i64, restart: Option<(i64, crate::liveness
     let air = Block::parse("minecraft:air").map_err(|e| e.to_string())?;
     let bp = |p: P| crate::mirror::at(p);
     let r = [l.x - 2, 24, 7];
-    let mut out = Out { rise: None, fall: None, slime_nb: Vec::new(), dust: String::new(), r_state: String::new(), empty_ok: true };
+    let mut out = Out { rise: None, fall: None, rises: Vec::new(), falls: Vec::new(), slime_nb: Vec::new(), dust: String::new(), r_state: String::new(), empty_ok: true };
     let mut was = false;
     for t in 0..(t0 + width + 40) {
         if let Some((rt, how)) = restart
@@ -167,11 +170,17 @@ fn run_once(l: &Lane, t0: i64, width: i64, restart: Option<(i64, crate::liveness
         }
         run.tick();
         let now = run.world.get(bp(r)).to_string().contains("powered=true");
-        if now && !was && out.rise.is_none() {
-            out.rise = Some(t);
+        if now && !was {
+            out.rises.push(t);
+            if out.rise.is_none() {
+                out.rise = Some(t);
+            }
         }
-        if !now && was && out.fall.is_none() {
-            out.fall = Some(t);
+        if !now && was {
+            out.falls.push(t);
+            if out.fall.is_none() {
+                out.fall = Some(t);
+            }
         }
         was = now;
         if t == t0 + 14 {
@@ -206,8 +215,13 @@ pub fn bench(width: i64) -> Result<Vec<String>, String> {
     for l in &LANES {
         let (mut rise, mut fall) = (Hist::new(), Hist::new());
         let mut base: Option<(i64, i64)> = None;
+        // (G1 on 7ccd7737c point 5: a phase with no edge, or more than one, is a failure, never a drop)
+        let mut edge_bad: Vec<String> = Vec::new();
         for t0 in 40..60 {
             let o = run_once(l, t0, width, None)?;
+            if o.rises.len() != 1 || o.falls.len() != 1 {
+                edge_bad.push(format!("drive at t0 {t0}: R rises {:?}, falls {:?}", o.rises, o.falls));
+            }
             if let (Some(r), Some(f)) = (o.rise, o.fall) {
                 // (G1 on 9c30d6dc3: one reference, one number: the drive is placed before tick t0 and R is
                 // read after each tick, so R powered after tick t0 + k is k + 1 gt after the drive)
@@ -222,11 +236,13 @@ pub fn bench(width: i64) -> Result<Vec<String>, String> {
             for how in crate::liveness::Restart::rows() {
                 let o = run_once(l, t0, width, Some((rt, how)))?;
                 n += 1;
-                let got = (o.rise.map(|r| r - t0), o.fall.map(|f| f - (t0 + width)));
-                if Some((got.0.unwrap_or(-1), got.1.unwrap_or(-1))) == base {
+                // (every edge compared: exactly the base's one rise and one fall)
+                let rises: Vec<i64> = o.rises.iter().map(|r| r - t0).collect();
+                let falls: Vec<i64> = o.falls.iter().map(|f| f - (t0 + width)).collect();
+                if base.is_some_and(|(br, bf)| rises == vec![br] && falls == vec![bf]) {
                     same += 1;
                 } else {
-                    diff.push(format!("restart at t0 + {} ({}): R rise {:?}, fall {:?}", rt - t0, how.label(), got.0, got.1));
+                    diff.push(format!("restart at t0 + {} ({}): R rises {rises:?}, falls {falls:?}", rt - t0, how.label()));
                 }
             }
         }
@@ -239,7 +255,7 @@ pub fn bench(width: i64) -> Result<Vec<String>, String> {
         };
         let slime_ok = facts.slime_nb.iter().all(|s| !s.contains("rail"));
         lines.push(format!(
-            "  lane {} ({}): R powered (gt after the drive, gt:count; the drive placed before tick t0, R read after each tick) {}, unpowered after the drive's removal {}; with a restart at every tick around both edges in every reload order: {same} of {n} the same{}; R with the drive on: {}; the feed dust (x-2,23,9) {} ({}); {}; the candidate cells {}",
+            "  lane {} ({}): R powered (gt after the drive, gt:count; the drive placed before tick t0, R read after each tick) {}, unpowered after the drive's removal {}; phases without exactly one rise and one fall {}{}; with a restart at every tick around both edges in every reload order, every edge compared: {same} of {n} the same{}; R with the drive on: {}; the feed dust (x-2,23,9) {} ({}); {}; the candidate cells {}",
             l.x,
             match l.feed {
                 Feed::Below => "fed from below: day-1's delay-3 repeater into the slime under the feed dust",
@@ -247,6 +263,8 @@ pub fn bench(width: i64) -> Result<Vec<String>, String> {
             },
             row(&rise),
             row(&fall),
+            edge_bad.len(),
+            if edge_bad.is_empty() { String::new() } else { format!(" (FAIL: {})", edge_bad.iter().take(3).cloned().collect::<Vec<_>>().join("; ")) },
             if diff.is_empty() { String::new() } else { format!(" (DIFFERENT: {})", diff.iter().take(3).cloned().collect::<Vec<_>>().join("; ")) },
             facts.r_state.trim_start_matches("minecraft:"),
             facts.dust.trim_start_matches("minecraft:"),
