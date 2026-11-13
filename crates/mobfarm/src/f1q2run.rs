@@ -102,6 +102,11 @@ pub struct Opts {
     /// per tick over run ticks A..=B (its position, motion, rider, its cell's block and the block
     /// under it, after each tick).
     pub trace_entity: Option<(usize, i64, i64)>,
+    /// (G1 08:21 PT) late-path pairs to check against the cart trajectories: (draw cell, path cell,
+    /// the least and most gt between).
+    pub pair_checks: Vec<([i32; 3], [i32; 3], i64, i64)>,
+    /// (ironspec 08:26 platform (3)) the chain trace over run ticks FROM..=TO.
+    pub chain_trace: Option<(i64, i64)>,
     /// (ironspec 11:15, 9fc3155f's statics) S-bend seats whose stamp resets are counted: `NAME`,
     /// the seat's rail cell, its clearing candidates (a complete draw to one of them while a rider
     /// sits on the seat resets its stamp).
@@ -268,6 +273,32 @@ fn check_spawn_list(w: &redsim::world::World, spawned: &[u32], lines: &[(String,
 /// spawn list in order, each preceded by its drive name `# eN`.
 pub fn scene_entity_lines(entities: &[(String, [f64; 3], Option<String>)]) -> String {
     entities.iter().enumerate().map(|(n, (ty, p, nbt))| format!("# e{n}\nentity: {ty} {} {} {} {}\n", p[0], p[1], p[2], nbt.as_deref().unwrap_or(""))).collect()
+}
+
+/// (ironspec 08:05 / 08:14 platform) An entity's SNBT with every loaded HOME memory spec_of put in
+/// (`,Brain:{memories:{"minecraft:home":{value:{dimension:"minecraft:overworld",pos:[I;x,y,z]}}}}`,
+/// in a villager's own compound or a passenger's) taken out, and how many were.
+pub fn strip_loaded_home(n: &str) -> (String, usize) {
+    let mut out = String::new();
+    let mut rest = n;
+    let mut removed = 0;
+    while let Some(i) = rest.find("Brain:{memories:{\"minecraft:home\":{value:{dimension:\"minecraft:overworld\",pos:[I;") {
+        // the memory's closing: `]}}}}` after the position
+        let Some(close) = rest[i..].find("]}}}}").map(|c| i + c + "]}}}}".len()) else { break };
+        // a leading comma (the memory appended after other data) or a trailing one (before it)
+        let (cut_from, cut_to) = if rest[..i].ends_with(',') {
+            (i - 1, close)
+        } else if rest[close..].starts_with(',') {
+            (i, close + 1)
+        } else {
+            (i, close)
+        };
+        out.push_str(&rest[..cut_from]);
+        rest = &rest[cut_to..];
+        removed += 1;
+    }
+    out.push_str(rest);
+    (out, removed)
 }
 
 /// (G1 07:28 PT) The air control's own sample: every drowned rider is the held one or rode a cart
@@ -638,6 +669,10 @@ struct Ctl {
     k_off: Option<i64>,
     present_at: Option<i64>,
     present: [bool; 3],
+    /// (day-1 08:31) a ridden cart on each lane's siding R last tick, for PRESENT_l's reset by the
+    /// departure past R; and every reset.
+    r_cart_prev: [bool; 3],
+    present_resets: Vec<(i64, usize)>,
     /// J(-1) kept from re-arming from ARM3 + 72 to ARM3 + 127 for an eastbound napper (lanes 3, 7),
     /// re-armed at its end.
     j_block: Option<(i64, i64)>,
@@ -1624,7 +1659,7 @@ impl Ctl {
             if d[k] && !prev[k] {
                 self.dpress_log.push((now, k));
             }
-            if d[k] && !prev[k] && self.present[k] {
+            if d[k] && !prev[k] && self.present[k] && self.siding_on[k].is_none() && self.siding_off[k].is_none() {
                 // (day-1 19:19; k_sw = 6, ironspec 21:35 / 22:03: SIDING_l from WINDOW_l AND
                 // PRESENT_l at D's rise, R powered at D + k_sw + 8 = D + 14, no wait for D off: the
                 // input on at that tick less its line's latency, the (a) feed stack's delay-3
@@ -1635,10 +1670,21 @@ impl Ctl {
                 self.siding_on[k] = Some(now + k_sw + 8 - if stack { 8 } else { 2 });
                 // (G1's note) R's observed rise printed against D + k_sw + 8
                 self.r_expect[k] = Some(now + k_sw + 8);
-                self.present[k] = false;
+                // (day-1 / ironspec 08:28-08:31 platform: PRESENT_l, the built RS NOR latch, is
+                // reset ONLY by the departure detector past R, so a napper late to its release
+                // pulse is released at the lane's next D press, a lap late: the fail-safe; it was
+                // reset here, by the release, which stranded a late napper on R)
                 self.dpass_log.push((now, k));
             }
             let sx = LANES[k] - 2;
+            // (day-1 08:31) PRESENT_l's reset: the napper's ridden cart leaving the siding's R
+            let r_cart = w.entities.list.iter().any(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && !e.passengers.is_empty() && cell(e.pos) == [sx, 24, 7]);
+            if self.r_cart_prev[k] && !r_cart && self.present[k] {
+                self.present[k] = false;
+                self.present_resets.push((now, k));
+                self.nap_events.push(format!("t {now}: PRESENT_l reset, lane x {}, by the departure past R", LANES[k]));
+            }
+            self.r_cart_prev[k] = r_cart;
             // (G1's note) R's observed rise against D + k_sw + 8
             let r_on = powered(w, [sx, 24, 7]);
             if r_on && !self.r_prev[k]
@@ -2332,6 +2378,23 @@ pub fn run_driven(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, 
 
 fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>, String), String> {
     let mut sp = spec.clone();
+    // (ironspec 08:05 / 08:14 platform, tick-exact's farm-c7 t0 state) spec_of (circuit's
+    // studies/mobfarm.rs) loads every villager of a `port home` design with HOME = that bed as a
+    // memory; the c7 reconciliation's stored riders are HOME-less as tick-exact's game summons them,
+    // so c7 mode strips that memory from the record's own villagers: a declared override, each
+    // villager's before -> after printed, a strip that changes nothing failing
+    let mut c7_strip: Vec<String> = Vec::new();
+    if o.c7_placement.is_some() && !o.c7_home_stored {
+        for (k, e) in sp.entities.iter_mut().enumerate() {
+            if let Some(n) = e.2.as_deref() {
+                let (out, removed) = strip_loaded_home(n);
+                if removed > 0 {
+                    c7_strip.push(format!("line {k} {} at ({},{},{}): {removed} loaded HOME memor{} removed", e.0, e.1[0], e.1[1], e.1[2], if removed == 1 { "y" } else { "ies" }));
+                    e.2 = Some(out);
+                }
+            }
+        }
+    }
     if o.official_lane3 {
         // (tick-exact's scene: the module's carts out, its boats (the scarers) kept, the bed stop's
         // zombie where the official run seats it)
@@ -2527,7 +2590,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     let start_free = redsim::entity::mob::ai::poi::free_tickets(&mut run.world, bed);
     let start_holders = holders_of(&run.world);
     let start_state_line = format!(
-        "the start-state line (ironspec 06:42 real; the surroundings: the report's site line (G1 07:50: a plain run is a FLOATING site, redsim reading air outside the build; `--site-buried` the BURIED variant)): the bed's free tickets {}, HOME memory holders {}; {}; the pre-fix ticket gap: the early ticket read (a declared stand-in, built before any HOME was set: {} free then) against redsim's own lazy table from the memories, {} -> {} free{}{}",
+        "the start-state line (ironspec 06:42 real; the surroundings: the report's site line (G1 07:50: a run is a FLOATING site, redsim reading air outside the build; the BURIED variant waits for 9fc3155f's shared site code)): the bed's free tickets {}, HOME memory holders {}; {}; the pre-fix ticket gap: the early ticket read (a declared stand-in, built before any HOME was set: {} free then) against redsim's own lazy table from the memories, {} -> {} free{}{}",
         start_free.map_or("- (no POI at the bed)".to_string(), |f| f.to_string()),
         start_holders.len(),
         if o.bed_ticket_taken { "state (ii), the bench taking the ticket (--bed-ticket-taken)" } else { "the design start (i)" },
@@ -2792,8 +2855,22 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     let mut lift_blocker: Option<u32> = None;
     // (cc767b78) the traced entity's per-tick rows
     let mut trace_rows: Vec<String> = Vec::new();
+    // (ironspec 08:26 platform (3)) the chain trace's rows
+    let mut chain_rows: Vec<String> = Vec::new();
     // (G1 07:59 PT) the lift column around the lift-block control
     let mut lift_rows: Vec<String> = Vec::new();
+    // (ironspec 08:13 / 08:14 platform, G1 08:12 PT) each lane's most carts (count, tick, tail) and
+    // farthest-back tail; the carts standing still on the exit booster / exit row / split row
+    let mut lane_max: [(i64, i64, Option<[i32; 3]>); 3] = [(0, 0, None); 3];
+    let mut lane_tail_max: [Option<[i32; 3]>; 3] = [None; 3];
+    let mut still_prev: BTreeMap<u32, bool> = BTreeMap::new();
+    let mut stopped_rows: Vec<(u32, String)> = Vec::new();
+    let mut stopped_ticks: i64 = 0;
+    // (G1 08:21 PT) every cart's cell entries (tick, cell), for --pair-check
+    let mut cart_entries: BTreeMap<u32, Vec<(i64, [i32; 3])>> = BTreeMap::new();
+    // (ironspec 08:23 platform (2), G1 08:22 PT) the HOME losses by the release branch, and all
+    let mut release_branches: i64 = 0;
+    let mut home_lost_total: i64 = 0;
     // (ironspec 06:31 / 06:42 real) the ticket lines: the bed's free tickets and the HOME memory
     // holders at the start and at every change
     let mut ticket_prev: Option<(Option<u32>, Vec<u32>)> = Some(start_ticket);
@@ -3119,6 +3196,28 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             // (the controller's golems renumbered too, so a golem alive across the restart isn't
             // read as a new pulse)
             ctl.golems = ctl.golems.iter().map(|id| m.get(id).copied().unwrap_or(*id)).collect();
+            // (G1 / ironspec 08:31-08:33 platform: the emulation must not be keyed on an id a world
+            // open renews) the controller's live entity keys (the held napper, the picked cart, the
+            // diverted cart) and the nappers' visit list follow their entities across the open; each
+            // key's old and new id printed
+            let follow = |id: u32| m.get(&id).copied().unwrap_or(id);
+            let mut keys: Vec<String> = Vec::new();
+            if let Some(h) = ctl.held_by {
+                keys.push(format!("the held napper #{h} -> #{}", follow(h)));
+                ctl.held_by = Some(follow(h));
+            }
+            if let Some((c, k)) = ctl.pick_cart {
+                keys.push(format!("the picked cart #{c} -> #{} (lane x {})", follow(c), LANES[k]));
+                ctl.pick_cart = Some((follow(c), k));
+            }
+            if let Some((c, k)) = ctl.divert {
+                keys.push(format!("the diverted cart #{c} -> #{} (lane x {})", follow(c), LANES[k]));
+                ctl.divert = Some((follow(c), k));
+            }
+            for n in nappers.iter_mut() {
+                n.0 = follow(n.0);
+            }
+            log.push(format!("t {rel}: the emulation's keys across the open: {}", if keys.is_empty() { "none live".to_string() } else { keys.join("; ") }));
             log.push(format!("t {rel}: restart (liveness::restart, order {})", o.restart.label()));
         }
         // (farmopt 12:10: summon participations blocked by detection) before the tick whose
@@ -3644,6 +3743,17 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             // (and a napper asleep in the bed, out of its cart)
             for e in w.entities.list.iter() {
                 if !e.removed && matches!(&e.kind, EntityKind::Mob(m) if m.sleeping_pos.is_some()) && nappers.iter().any(|n| n.0 == e.id) && !riders.contains(&e.id) {
+                    riders.push(e.id);
+                }
+            }
+            // (G1 08:28 / ironspec 08:28 platform (3), ONE IN FLIGHT: two nappers in the stop's volume
+            // in the same tick, riding or ON FOOT, e.g. one ejected and walking the stop floor)
+            for e in w.entities.list.iter() {
+                if e.removed || e.vehicle.is_some() || !matches!(&e.kind, EntityKind::Mob(m) if m.ty == redsim::entity::mob::types::MobType::Villager) || !nappers.iter().any(|n| n.0 == e.id) || riders.contains(&e.id) {
+                    continue;
+                }
+                let c = cell(e.pos);
+                if (0..3).all(|k| c[k] >= lo[k] && c[k] <= hi[k]) {
                     riders.push(e.id);
                 }
             }
@@ -4438,7 +4548,10 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                         && [t[0].floor() as i32, t[1].floor() as i32, t[2].floor() as i32] == h
                     {
                         r.spell_home_at = Some(now - t0);
-                        let age = stamp.map(|s| now - s);
+                        // (ironspec 08:13 / 08:14 platform, tick-exact's citation) the age the
+                        // behaviour saw: SetWalkTargetFromBlockMemory reads the PRE-tick stamp (the
+                        // memory before this tick's brain step), never the post-tick one
+                        let age = r.prev_stamp.map(|s| now - s);
                         r.spell_home_stamp = Some(age);
                         if let Some(a) = age {
                             at_home_target_max = at_home_target_max.max(a);
@@ -4972,7 +5085,19 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 r.naps += 1;
             }
             if r.prev_home.is_some() && home.is_none() {
-                r.home_lost.push(format!("t {} at {:?} (day time {day})", now - t0, c));
+                // (ironspec 08:23 platform (2), G1 08:22 PT) each HOME loss's mechanism: the
+                // release branch (SetWalkTargetFromBlockMemory with the pre-tick stamp over 1,200)
+                // or ValidateNearbyPoi (the bed OCCUPIED, the feet within 16 of its head)
+                let mech = if r.prev_stamp.is_some_and(|s| now - s > 1200) {
+                    release_branches += 1;
+                    format!("the release branch (pre-tick stamp {} gt > 1,200)", r.prev_stamp.map_or(0, |s| now - s))
+                } else if bed_occupied && poi_near([o.bed[0], o.bed[1], o.bed[2]], pos) {
+                    "ValidateNearbyPoi (the bed occupied, the feet within 16 of its head)".to_string()
+                } else {
+                    format!("unclassified (pre-tick stamp {}, the bed {})", r.prev_stamp.map_or("unarmed".to_string(), |s| format!("{} gt", now - s)), if bed_occupied { "occupied" } else { "free" })
+                };
+                r.home_lost.push(format!("t {} at {:?} (day time {day}): {mech}", now - t0, c));
+                home_lost_total += 1;
             }
             if dawn {
                 r.home_at_dawn = Some(home);
@@ -5266,6 +5391,118 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 }
             }
         }
+        // (G1 08:21 PT) every cart's cell entries, for --pair-check (a cart in the draw cell, then the
+        // path cell, within the pair's interval)
+        if !o.pair_checks.is_empty() {
+            for e in w.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_))) {
+                let c = cell(e.pos);
+                let v = cart_entries.entry(e.id).or_default();
+                if v.last().map(|(_, l)| *l) != Some(c) {
+                    v.push((rel, c));
+                }
+            }
+        }
+        // (ironspec 08:13 / 08:14 platform (2), G1 08:12 PT) the cart-conservation check: each lane's
+        // carts on its lane (H, R_1 and the slopes) with the farthest-back one, and any cart standing
+        // still (motion under 0.001 two ticks running) on the exit booster, the exit row or the
+        // split / merge row (z 8..9, y 23..26, x -5..9): bar never
+        {
+            for (k, x) in LANES.iter().enumerate() {
+                let mut n = 0i64;
+                let mut tail: Option<[i32; 3]> = None;
+                for e in w.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_))) {
+                    let c = cell(e.pos);
+                    if c[0] == *x && (16..=22).contains(&c[1]) && (0..=6).contains(&c[2]) {
+                        n += 1;
+                        if tail.is_none_or(|t| (c[2], c[1]) > (t[2], t[1])) {
+                            tail = Some(c);
+                        }
+                    }
+                }
+                if n > lane_max[k].0 {
+                    lane_max[k] = (n, rel, tail);
+                }
+                if let Some(t) = tail
+                    && lane_tail_max[k].is_none_or(|m: [i32; 3]| (t[2], t[1]) > (m[2], m[1]))
+                {
+                    lane_tail_max[k] = Some(t);
+                }
+            }
+            for e in w.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && Some(e.id) != lift_blocker) {
+                let c = cell(e.pos);
+                let watched = (8..=9).contains(&c[2]) && (23..=26).contains(&c[1]) && (-5..=9).contains(&c[0]);
+                let still = e.delta_movement.x.abs() < 0.001 && e.delta_movement.y.abs() < 0.001 && e.delta_movement.z.abs() < 0.001;
+                let was = still_prev.get(&e.id).copied().unwrap_or(false);
+                if watched && still && was && stopped_rows.len() < 40 && !stopped_rows.last().is_some_and(|(id, _)| *id == e.id) {
+                    stopped_rows.push((e.id, format!("t {rel}: cart #{} still at ({:.3},{:.3},{:.3}) {:?}{}", e.id, e.pos.x, e.pos.y, e.pos.z, c, if e.passengers.is_empty() { " empty" } else { "" })));
+                }
+                if watched && still && was {
+                    stopped_ticks += 1;
+                }
+                still_prev.insert(e.id, watched && still);
+            }
+        }
+        // (ironspec 08:26 platform (3)) the chain trace: per tick in FROM..=TO, every napper (a villager
+        // that was ever picked): its position, its cart or none, its activity, HOME, WALK_TARGET and
+        // stamp; the bed's occupant; RS_ready; each lane's siding R occupancy
+        if let Some((a, b)) = o.chain_trace
+            && rel >= a
+            && rel <= b
+        {
+            let mut row: Vec<String> = Vec::new();
+            let mut seen: Vec<u32> = Vec::new();
+            for (vid, _, _) in &nappers {
+                if seen.contains(vid) {
+                    continue;
+                }
+                seen.push(*vid);
+                let Some(i) = redsim::entity::index_of(w, *vid) else { continue };
+                let e = &w.entities.list[i];
+                let b = redsim::entity::mob::ai::brain::brain(w, i);
+                let ex = b.ex.as_deref();
+                let act = ex.map_or("-".to_string(), |x| format!("{:?}", x.active));
+                let wt = ex.and_then(|x| x.mem.walk_target.as_ref()).map(|t| match t.target {
+                    redsim::entity::mob::ai::brain::Tracker::Block(p) => format!("({},{},{})", p.x, p.y, p.z),
+                    redsim::entity::mob::ai::brain::Tracker::Point(v) => format!("({:.1},{:.1},{:.1})", v.x, v.y, v.z),
+                    redsim::entity::mob::ai::brain::Tracker::Entity { id, .. } => format!("#{id}"),
+                });
+                let sleeping = matches!(&e.kind, EntityKind::Mob(m) if m.sleeping_pos.is_some());
+                row.push(format!(
+                    "{} ({:.2},{:.2},{:.2}) {} {}{} HOME {} WT {} stamp {}",
+                    recs.get(vid).map_or(format!("#{vid}"), |r| r.label.split(' ').next().unwrap_or("").to_string()),
+                    e.pos.x,
+                    e.pos.y,
+                    e.pos.z,
+                    e.vehicle.map_or("on foot".to_string(), |v| format!("in cart #{v}")),
+                    act,
+                    if sleeping { " ASLEEP" } else { "" },
+                    if b.home.is_some() { "yes" } else { "NONE" },
+                    wt.unwrap_or_else(|| "-".to_string()),
+                    ex.and_then(|x| x.mem.cant_reach_since).map_or("-".to_string(), |s| format!("{} gt", now - s))
+                ));
+            }
+            let occupant = w.entities.list.iter().find(|e| !e.removed && matches!(&e.kind, EntityKind::Mob(m) if m.sleeping_pos.is_some())).map(|e| recs.get(&e.id).map_or(format!("#{}", e.id), |r| r.label.split(' ').next().unwrap_or("").to_string()));
+            let sidings: Vec<String> = LANES
+                .iter()
+                .map(|x| {
+                    let r = [x - 2, 24, 7];
+                    let n = w.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && cell(e.pos) == r).count();
+                    format!("R({}) {n}", x)
+                })
+                .collect();
+            chain_rows.push(format!(
+                "t {rel}: bed {}; RS_ready {}; PRESENT {}; D presses this tick {}; {}; {}",
+                occupant.unwrap_or_else(|| "free".to_string()),
+                ctl.q_rs_ready,
+                LANES.iter().zip(ctl.present.iter()).map(|(x, p)| format!("{x}:{}", if *p { "set" } else { "-" })).collect::<Vec<_>>().join(" "),
+                {
+                    let d: Vec<String> = ctl.dpress_log.iter().filter(|(t, _)| *t == now).map(|(_, k)| LANES[*k].to_string()).collect();
+                    if d.is_empty() { "none".to_string() } else { d.join(",") }
+                },
+                sidings.join(" "),
+                row.join(" | ")
+            ));
+        }
         // (cc767b78 07:23 PT) the traced entity eN, after each tick
         if let Some((n, a, b)) = o.trace_entity
             && rel >= a
@@ -5389,8 +5626,10 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     // row only (no controller, static queues, no rotation: not the design's operation)
     if o.c7_placement.is_some() {
         s.push_str(&format!(
-            "the c7 placement (tick-exact's farm-c7 reconciliation row, FIDELITY ONLY; AcquirePoi fidelity pending: HOME-less villagers near the bed; ticket state uncertain: pre-fix redsim): the stored riders' HOME {} at t 0; the HOME holders after each setup phase: {}; the bed's free tickets at t 0 {} (tick-exact's game: free); the stored riders holding HOME after the setup: {} ({})\n",
+            "the c7 placement (tick-exact's farm-c7 reconciliation row, FIDELITY ONLY; AcquirePoi fidelity pending: HOME-less villagers near the bed; ticket state uncertain: pre-fix redsim): the stored riders' HOME {} at t 0; spec_of's `port home` memory stripped from the record's villagers (a declared override, ironspec 08:14): {} ({}); the HOME holders after each setup phase: {}; the bed's free tickets at t 0 {} (tick-exact's game: free); the stored riders holding HOME after the setup: {} ({})\n",
             if o.c7_home_stored { "the bed (--c7-home-stored)" } else { "none, as tick-exact's game setup" },
+            if c7_strip.is_empty() { "nothing stripped".to_string() } else { c7_strip.join("; ") },
+            if o.c7_home_stored { "not applied: --c7-home-stored" } else if c7_strip.is_empty() { "a no-op override: FAIL" } else { "applied" },
             c7_phase_seen.iter().map(|(ph, ids)| format!("{ph} {}", ids.len())).collect::<Vec<_>>().join(", "),
             c7_free_t0.map_or("unreadable".to_string(), |n| n.to_string()),
             if c7_holders.is_empty() { "none".to_string() } else { c7_holders.join("; ") },
@@ -6127,11 +6366,13 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             // (ironspec 06:33 / 06:37 platform, G1) the at-entry stamp bar: the stamp at each REST
             // spell's first HOME-targeting tick
             s.push_str(&format!(
-                "  the at-entry stamp bar (ironspec 06:33 / 06:37 platform: at every REST spell's first tick SetWalkTargetFromBlockMemory ran (HOME targeted), the stamp < 1,000 gt, any position; the site as the report's site line states (floating unless --site-buried)): {} spells judged, the worst {} gt, {} at >= 1,000 ({})\n",
+                "  the at-entry stamp bar (ironspec 06:33 / 06:37 platform: at every REST spell's first tick SetWalkTargetFromBlockMemory ran (HOME targeted), the stamp < 1,000 gt, any position; ironspec 08:13: the age it saw, from the PRE-tick stamp; the site as the report's site line states): {} spells judged, the worst {} gt, {} at >= 1,000 ({}); beside it (G1 08:22 / ironspec 08:23: a PASS stands only with both at 0): HOME losses by the release branch {}, HOME losses in all {}\n",
                 at_home_target_n,
                 at_home_target_max,
                 at_home_target_over,
-                if at_home_target_n == 0 { "NOT JUDGED (no spell targeted HOME; redsim's REST-path gap is open: cc767b78): FAIL" } else if at_home_target_over == 0 { "PASS" } else { "FAIL" }
+                if at_home_target_n == 0 { "NOT JUDGED (no spell targeted HOME; redsim's REST-path gap is open: cc767b78): FAIL" } else if at_home_target_over == 0 && release_branches == 0 && home_lost_total == 0 { "PASS" } else { "FAIL" },
+                release_branches,
+                home_lost_total
             ));
             // (ironspec D2) RS_ready's job: no R1 release before the previous napper passes R, read off
             // R's detector itself (a rise after the previous release, at least the latch's 8 gt
@@ -6394,10 +6635,36 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             // napper's divert, queue arrival, release, departure, stop entry, R, siding's R and back
             // in lane; the night's REST_l and DAY edges
             let opps: Vec<String> = ctl.pick_opps.iter().map(|(t, c, k, v)| format!("t {t} C {c} lane x {} {v}", LANES[*k])).collect();
+            let mut unrouted_rows: Vec<String> = Vec::new();
             let msn = |v: u32, what: &str, from: i64, to: i64| -> Option<i64> {
                 past_marks.get(&v).into_iter().flatten().chain(recs.get(&v).map(|r| r.milestones.iter()).into_iter().flatten()).find(|(m, t)| m == what && *t >= from && *t < to).map(|(_, t)| *t)
             };
             let ms = |v: u32, what: &str, from: i64, to: i64| -> String { msn(v, what, from, to).map_or("-".to_string(), |t| t.to_string()) };
+            // (G1 08:28 / ironspec 08:28 platform (3), NAPPER UNROUTED, bar 0) a napper that entered
+            // the stop and has no R within 600 gt, or reached its siding's R and isn't back in its lane
+            // within one lane lap (1,000 gt), with the run going on that long
+            {
+                let end = run.world.time - t0;
+                for (v, k, t) in nappers.iter() {
+                    let to = ctl.pick_carts.iter().filter(|(pt, _, pv, _)| pv == v && pt > t).map(|x| x.0).min().unwrap_or(i64::MAX);
+                    let entry = msn(*v, "at A6's entry", *t, to);
+                    let rr = msn(*v, "at R", *t, to);
+                    let sr = msn(*v, "on its siding's R", *t, to);
+                    let back = msn(*v, "back in its lane", *t, to);
+                    if let Some(e) = entry
+                        && rr.is_none()
+                        && end - e >= 600
+                    {
+                        unrouted_rows.push(format!("#{v} lane x {} picked t {t}: entered the stop at t {e}, no R by the run's end", LANES[*k]));
+                    }
+                    if let Some(r) = sr
+                        && back.is_none_or(|b| b - r > 1_000)
+                        && end - r >= 1_000
+                    {
+                        unrouted_rows.push(format!("#{v} lane x {} picked t {t}: on its siding's R at t {r}, back in its lane {}", LANES[*k], back.map_or("never".to_string(), |b| format!("at t {b} ({} gt later)", b - r))));
+                    }
+                }
+            }
             let visits: Vec<String> = ctl
                 .pick_carts
                 .iter()
@@ -6484,6 +6751,13 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 visits.len(),
                 if visits.is_empty() { "none".to_string() } else { visits.join("; ") },
                 if ctl.edge_log.is_empty() { "none".to_string() } else { ctl.edge_log.join(", ") }
+            ));
+            // (G1 08:28 / ironspec 08:28 platform (3)) the napper-unrouted bar
+            s.push_str(&format!(
+                "  no napper unrouted (G1 08:28 / ironspec 08:28 platform: a napper entering the stop with no R within 600 gt, or on its siding's R and not back in its lane within one lane lap, 1,000 gt; bar 0): {} ({}){}\n",
+                unrouted_rows.len(),
+                if nappers.is_empty() { "NOT JUDGED (no napper): FAIL" } else if unrouted_rows.is_empty() { "PASS" } else { "FAIL" },
+                if unrouted_rows.is_empty() { String::new() } else { format!(": {}", unrouted_rows.join("; ")) }
             ));
             // (ironspec 01:26 / 01:28 PT) the catch window: each fired H2 sample's late slack (the
             // sample minus Q-up, the waiting RS's set + k_lock) and early slack (Q-up minus the
@@ -6958,11 +7232,49 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         s
     };
     // (G1 07:59 PT) the lift column around the lift-block control, per tick
+    let s = if let Some((a, b)) = o.chain_trace {
+        format!("{s}the chain trace over run ticks {a}..={b} (ironspec 08:26 platform (3): every napper's position, cart, activity, HOME, WALK_TARGET and stamp; the bed's occupant; RS_ready; each lane's siding R occupancy):\n{}\n", chain_rows.join("\n"))
+    } else {
+        s
+    };
     let s = if let Some((tb, nb)) = o.lift_block {
         format!("{s}the lift column (x -5, z 6..8, y >= 2) from t {} to t {} around the lift-block control (an empty cart held still on the exit booster (-5,23,8) from t {tb} for {nb} gt; a fault row, ironspec 07:57): {}\n", tb - 5, tb + 150, lift_rows.join("; "))
     } else {
         s
     };
+    // (ironspec 08:13 / 08:14 platform (2), G1 08:12 PT) the cart-conservation check
+    let s = format!(
+        "{s}the cart-conservation check (ironspec 08:13 / 08:14 platform, G1 08:12: 8 carts a lane, the napper's included, so a stopped cart on the exit row needs a ninth or a fault): each lane's most carts on H, R_1 and the slopes: {}; the farthest-back tail per lane: {}; carts standing still (two ticks running) on the exit booster, the exit row or the split / merge row (z 8..9, y 23..26, x -5..9): {} cart-ticks{} (bar 0: {})\n",
+        LANES.iter().zip(lane_max.iter()).map(|(x, (n, t, tail))| format!("lane x {x} {n} (first at t {t}, its tail {})", tail.map_or("-".to_string(), |c| format!("({},{},{})", c[0], c[1], c[2])))).collect::<Vec<_>>().join(", "),
+        LANES.iter().zip(lane_tail_max.iter()).map(|(x, t)| format!("lane x {x} {}", t.map_or("-".to_string(), |c| format!("({},{},{})", c[0], c[1], c[2])))).collect::<Vec<_>>().join(", "),
+        stopped_ticks,
+        if stopped_rows.is_empty() { String::new() } else { format!(": {}", stopped_rows.iter().map(|(_, r)| r.clone()).collect::<Vec<_>>().join("; ")) },
+        if o.lift_block.is_some() { "not judged: --lift-block's fault row" } else if stopped_ticks == 0 { "PASS" } else { "FAIL" }
+    );
+    // (G1 08:21 PT) each late-path pair against the actual cart trajectories: the carts that were in
+    // the draw cell and then entered the path cell within the pair's interval
+    let mut s = s;
+    for (a, b, dmin, dmax) in &o.pair_checks {
+        let mut rides: Vec<String> = Vec::new();
+        for (id, v) in &cart_entries {
+            for (i, (ta, ca)) in v.iter().enumerate() {
+                if ca != a {
+                    continue;
+                }
+                if let Some((tb, _)) = v[i + 1..].iter().find(|(tb, cb)| cb == b && tb - ta >= *dmin && tb - ta <= *dmax) {
+                    rides.push(format!("cart #{id}: in ({},{},{}) at t {ta}, in ({},{},{}) at t {tb} ({} gt)", a[0], a[1], a[2], b[0], b[1], b[2], tb - ta));
+                    break;
+                }
+            }
+        }
+        s.push_str(&format!(
+            "the pair check (G1 08:21 PT: a late-path pair is real only if a cart rides it) ({},{},{}) -> ({},{},{}) within {dmin}..={dmax} gt: {} cart{} ride it{}\n",
+            a[0], a[1], a[2], b[0], b[1], b[2],
+            rides.len(),
+            if rides.len() == 1 { "" } else { "s" },
+            if rides.is_empty() { " (no cart: an orient artefact on this run)".to_string() } else { format!(": {}", rides.iter().take(12).cloned().collect::<Vec<_>>().join("; ")) }
+        ));
+    }
     // (ironspec 06:33 platform) the night eye positions for 9fc3155f's coverage map
     if let Some(p) = &o.rider_trace {
         let mut t = format!("# onechunk f1q2-run --rider-trace: every distinct night eye position of a rider (redsim's seated eye: the cart's position + the seat + the villager's eye height), to 0.01; columns: x y z ticks rest_ticks panic_ticks; seed {}, {} gt from day {}\n", o.seed, o.ticks, o.day0);
@@ -7121,6 +7433,27 @@ mod counter_tests {
         assert!(c(15.99, 0.0, 0.0) && c(0.0, -15.99, 0.0) && c(0.0, 0.0, 15.99));
         assert!(!c(16.01, 0.0, 0.0) && !c(0.0, 16.01, 0.0) && !c(0.0, 0.0, -16.01));
         assert!(!c(16.0, 0.0, 0.0), "strict: exactly 16 is outside");
+    }
+
+    /// (ironspec 08:05 / 08:14 platform) spec_of's `port home` memory taken out of a stored rider's
+    /// passenger compound (and a bare villager's), the rest of the data kept; a homeless start
+    /// leaves 0 HOME memories
+    #[test]
+    fn the_c7_strip_leaves_no_loaded_home() {
+        let h = "Brain:{memories:{\"minecraft:home\":{value:{dimension:\"minecraft:overworld\",pos:[I;-3,-27,3]}}}}";
+        let cart = format!("{{Rotation:[0f,0f],Passengers:[{{id:\"minecraft:villager\",{h}}}]}}");
+        let (out, n) = super::strip_loaded_home(&cart);
+        assert_eq!(n, 1);
+        assert_eq!(out, "{Rotation:[0f,0f],Passengers:[{id:\"minecraft:villager\"}]}");
+        let bare = format!("{{{h},PersistenceRequired:1b}}");
+        assert_eq!(super::strip_loaded_home(&bare), ("{PersistenceRequired:1b}".to_string(), 1));
+        // nothing to strip: unchanged, counted 0 (the run fails such a no-op strip)
+        assert_eq!(super::strip_loaded_home("{Passengers:[{id:\"minecraft:villager\"}]}").1, 0);
+        // after the strip no `minecraft:home` is left anywhere
+        let two = format!("{{Passengers:[{{id:\"minecraft:villager\",{h}}},{{id:\"minecraft:villager\",{h},PersistenceRequired:1b}}]}}");
+        let (out, n) = super::strip_loaded_home(&two);
+        assert_eq!(n, 2);
+        assert!(!out.contains("minecraft:home"), "{out}");
     }
 
     /// (G1 07:28 PT) the air control's footprint: the held rider and those stacked below it count as

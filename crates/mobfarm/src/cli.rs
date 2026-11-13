@@ -2106,6 +2106,19 @@ pub enum MobfarmCmd {
         /// A..=B (position, motion, rider, its cell's block and the one under it).
         #[arg(long, value_delimiter = ',')]
         trace_entity: Vec<i64>,
+        /// (ironspec 07:57 / 08:18 platform) FILE@dx,dy,dz: a part composed into the run's world
+        /// (its overworld blocks, block entities and entities moved by d; a cell the design holds
+        /// refused): the N = 1 loop part for the floating site's envelope. Repeatable.
+        #[arg(long)]
+        with_part: Vec<String>,
+        /// (G1 08:21 PT) ax,ay,az:bx,by,bz:DMIN:DMAX: a late-path pair checked against the run's cart
+        /// trajectories (a cart in cell A, then in cell B, DMIN..=DMAX gt later). Repeatable.
+        #[arg(long)]
+        pair_check: Vec<String>,
+        /// (ironspec 08:26 platform) FROM,TO: per tick every napper's position, cart, activity, HOME,
+        /// WALK_TARGET and stamp, the bed's occupant, RS_ready and each siding R's occupancy.
+        #[arg(long, value_delimiter = ',')]
+        chain_trace: Vec<i64>,
         /// (ironspec 11:15) An S-bend seat whose stamp resets are counted:
         /// `NAME=x,y,z:cx,cy,cz+cx,cy,cz...` (the seat's rail cell, its clearing candidates).
         /// Repeatable.
@@ -7663,8 +7676,45 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 std::process::exit(1);
             }
         }
-        MobfarmCmd::F1q2Run { design, seed, ticks, day0, lane_carts, restart_every, restart_at, restart_order, control_rider, trace, drive, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour_golems, cart_trace, drive_out, scene_out, watchdog, stale_start, held_at_divert, report_only, queue_hold, empty_pocket, stack_bench, inert_control, gossip_control, bystander_control, seed_queued_napper, day_threshold, bed_ticket_taken, stamp_control, home_erase_control, air_control, rider_trace, rs_ready_early_control, bystander_dud, day_phase_control, c7_placement, c7_home_stored, lift_block, trace_entity } => {
+        MobfarmCmd::F1q2Run { design, seed, ticks, day0, lane_carts, restart_every, restart_at, restart_order, control_rider, trace, drive, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour_golems, cart_trace, drive_out, scene_out, watchdog, stale_start, held_at_divert, report_only, queue_hold, empty_pocket, stack_bench, inert_control, gossip_control, bystander_control, seed_queued_napper, day_threshold, bed_ticket_taken, stamp_control, home_erase_control, air_control, rider_trace, rs_ready_early_control, bystander_dud, day_phase_control, c7_placement, c7_home_stored, lift_block, trace_entity, with_part, pair_check, chain_trace } => {
             let (c, spec) = load(version, &design)?;
+            // (ironspec 07:57 / 08:18 platform: a floating-site run composes the design's own
+            // neighbouring parts) each --with-part FILE@dx,dy,dz: that part's overworld blocks and
+            // block entities moved by d and added to the run's world (a cell the design already
+            // holds refused), its entities too; its Nether part left out
+            let mut spec = spec;
+            let mut with_part_lines: Vec<String> = Vec::new();
+            for wp in &with_part {
+                let (file, d) = match wp.split_once('@') {
+                    Some((f, d)) => {
+                        let v: Vec<i32> = d.split(',').map(|s| s.trim().parse()).collect::<Result<_, _>>()?;
+                        anyhow::ensure!(v.len() == 3, "--with-part {wp}: FILE@dx,dy,dz");
+                        (PathBuf::from(f), [v[0], v[1], v[2]])
+                    }
+                    None => (PathBuf::from(wp.as_str()), [0, 0, 0]),
+                };
+                let (_, ps) = load(version, &file)?;
+                let held: std::collections::HashSet<redsim::pos::BlockPos> = spec.blocks.iter().filter(|(_, b)| !b.is_air()).map(|(p, _)| *p).collect();
+                let mut added = 0usize;
+                for (p, b) in &ps.blocks {
+                    if b.is_air() {
+                        continue;
+                    }
+                    let q = redsim::pos::BlockPos::new(p.x + d[0], p.y + d[1], p.z + d[2]);
+                    anyhow::ensure!(!held.contains(&q), "--with-part {}: its cell ({},{},{}) is the design's own", file.display(), q.x, q.y, q.z);
+                    spec.blocks.push((q, b.clone()));
+                    spec.lo = redsim::pos::BlockPos::new(spec.lo.x.min(q.x), spec.lo.y.min(q.y), spec.lo.z.min(q.z));
+                    spec.hi = redsim::pos::BlockPos::new(spec.hi.x.max(q.x), spec.hi.y.max(q.y), spec.hi.z.max(q.z));
+                    added += 1;
+                }
+                for (p, n) in &ps.block_entities {
+                    spec.block_entities.push((redsim::pos::BlockPos::new(p.x + d[0], p.y + d[1], p.z + d[2]), n.clone()));
+                }
+                for (ty, p, n) in &ps.entities {
+                    spec.entities.push((ty.clone(), [p[0] + d[0] as f64, p[1] + d[1] as f64, p[2] + d[2] as f64], redsim::entity::mob::shift_home_nbt(n, d).or_else(|| n.clone())));
+                }
+                with_part_lines.push(format!("{} moved by {},{},{}: {added} blocks, {} block entities, {} entities", file.display(), d[0], d[1], d[2], ps.block_entities.len(), ps.entities.len()));
+            }
             let bed = *c.clock.design.ports.get("home").ok_or_else(|| anyhow::anyhow!("{}: no `home` port (the shared bed's head)", design.display()))?;
             // (the seats: NAME=x,y,z:cx,cy,cz+...)
             let seats: Vec<(String, [i32; 3], Vec<[i32; 3]>)> = seats
@@ -7782,8 +7832,24 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             anyhow::ensure!(trace_entity.is_empty() || trace_entity.len() == 3, "--trace-entity N,A,B");
             anyhow::ensure!(trace_entity.is_empty() || drive_out.is_some(), "--trace-entity names the drive's entities: it needs --drive-out");
             let trace_entity = (trace_entity.len() == 3).then(|| (trace_entity[0] as usize, trace_entity[1], trace_entity[2]));
-            let o = crate::f1q2run::Opts { seed, ticks, day0, lane_carts, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour, cart_trace, restarts, restart, control_rider, trace, bed, drive, drive_rec, watchdog, stale_start, held_at_divert, queue_hold, emulated, emulated_states, ts, update_only, empty_pocket, dwell_cap, stack_bench, stops, k_lock, k_sw, inert, always_on, push_pairs, way_in_composed, inert_control, watch_reasons, gossip_control, bystander_control, a6_pickup, seed_queued_napper, day_threshold, bed_ticket_taken, block_standins, stamp_control, home_erase_control, air_control, rider_trace, rs_ready_early_control, bystander_dud, day_phase_control, c7_placement, c7_home_stored, lift_block, trace_entity };
+            let mut pair_checks: Vec<([i32; 3], [i32; 3], i64, i64)> = Vec::new();
+            for pc in &pair_check {
+                let f: Vec<&str> = pc.split(':').collect();
+                anyhow::ensure!(f.len() == 4, "--pair-check {pc}: ax,ay,az:bx,by,bz:DMIN:DMAX");
+                let c3 = |s: &str| -> Result<[i32; 3]> {
+                    let v: Vec<i32> = s.split(',').map(|x| x.trim().parse()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(v.len() == 3, "--pair-check {pc}: a cell is x,y,z");
+                    Ok([v[0], v[1], v[2]])
+                };
+                pair_checks.push((c3(f[0])?, c3(f[1])?, f[2].trim().parse()?, f[3].trim().parse()?));
+            }
+            anyhow::ensure!(chain_trace.is_empty() || chain_trace.len() == 2, "--chain-trace FROM,TO");
+            let chain_trace = (chain_trace.len() == 2).then(|| (chain_trace[0], chain_trace[1]));
+            let o = crate::f1q2run::Opts { seed, ticks, day0, lane_carts, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour, cart_trace, restarts, restart, control_rider, trace, bed, drive, drive_rec, watchdog, stale_start, held_at_divert, queue_hold, emulated, emulated_states, ts, update_only, empty_pocket, dwell_cap, stack_bench, stops, k_lock, k_sw, inert, always_on, push_pairs, way_in_composed, inert_control, watch_reasons, gossip_control, bystander_control, a6_pickup, seed_queued_napper, day_threshold, bed_ticket_taken, block_standins, stamp_control, home_erase_control, air_control, rider_trace, rs_ready_early_control, bystander_dud, day_phase_control, c7_placement, c7_home_stored, lift_block, trace_entity, pair_checks, chain_trace };
             let (rep, out) = crate::f1q2run::run_driven(&spec, &o).map_err(|e| anyhow::anyhow!(e))?;
+            for l in &with_part_lines {
+                println!("the composed part (--with-part, ironspec 07:57 / 08:18 platform): {l}");
+            }
             print!("{rep}");
             if let (Some(df), Some(sf), Some((drive_text, scene_entities))) = (&drive_out, &scene_out, out) {
                 // (tick-exact 07:12 PT) the module's text without its entity lines, then the run's
