@@ -6487,6 +6487,9 @@ pub enum MobfarmCmd {
         /// With --reclaim-row: the known positive, a second villager holding the bed's ticket.
         #[arg(long)]
         reclaim_blocked: bool,
+        /// (G1 C12) A free `--reclaim-row`'s expected outcome, judged: reclaimed | not-reclaimed.
+        #[arg(long)]
+        reclaim_expect: Option<String>,
         /// With --reclaim-row: the napper's feet at X,Y,Z instead of the bed foot's top (A6's
         /// control: its landing, 2.5,2,-2.5).
         #[arg(long, allow_hyphen_values = true)]
@@ -14639,7 +14642,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
         }
-        MobfarmCmd::BedtierBench { design, from, to, speeds, after_sleep, release_after, day, empty, no_home, hide_after_wake, restart, hour, restart_phases, orders, hours, skip, skip_phases, day_off, no_presence_gate, early_release, day_gate, day_on, live_day_seated, restart_after_skip, panic_entries, pickup_injects, module_offset, queue_seat, queue_release, queue_wait, queue_waits, forced_stamp, arrival_stamp, arrival_run, arrival_hold, declare_emulated, r_bar, park_shifts, set_cell, pulse_cell, lever_on, built_release, day_lever, record, record_offset, record_margin, record_declare, head_cell, scope_excludes, visit_table, arm_delay, release_after_arm, erase_home_at, reclaim_row, reclaim_blocked, reclaim_at, restop, queue_dusk, jobs } => {
+        MobfarmCmd::BedtierBench { design, from, to, speeds, after_sleep, release_after, day, empty, no_home, hide_after_wake, restart, hour, restart_phases, orders, hours, skip, skip_phases, day_off, no_presence_gate, early_release, day_gate, day_on, live_day_seated, restart_after_skip, panic_entries, pickup_injects, module_offset, queue_seat, queue_release, queue_wait, queue_waits, forced_stamp, arrival_stamp, arrival_run, arrival_hold, declare_emulated, r_bar, park_shifts, set_cell, pulse_cell, lever_on, built_release, day_lever, record, record_offset, record_margin, record_declare, head_cell, scope_excludes, visit_table, arm_delay, release_after_arm, erase_home_at, reclaim_row, reclaim_blocked, reclaim_expect, reclaim_at, restop, queue_dusk, jobs } => {
             let (_c, mut spec) = load(version, &design)?;
             anyhow::ensure!(release_after >= 0 && after_sleep >= 0, "--release-after and --after-sleep can't be negative (the release waits for the wake edge, F for the lie-down edge)");
             // (ironspec 06:14: the strand's dusk, the re-claim row)
@@ -14653,8 +14656,19 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     }
                 };
                 for seed in from..=to {
-                    for l in crate::bedtier::reclaim_row(&spec, seed, reclaim_blocked, at).map_err(|e| anyhow::anyhow!(e))? {
+                    let lines = crate::bedtier::reclaim_row(&spec, seed, reclaim_blocked, at).map_err(|e| anyhow::anyhow!("seed {seed}: {e}"))?;
+                    for l in &lines {
                         println!("seed {seed}: {l}");
+                    }
+                    // (G1's C12: a free row is judged against --reclaim-expect, never exit 0 both ways)
+                    if !reclaim_blocked {
+                        let got = lines.iter().any(|l| l == "re-claimed: true");
+                        match reclaim_expect.as_deref() {
+                            Some("reclaimed") => anyhow::ensure!(got, "seed {seed}: expected the re-claim (--reclaim-expect reclaimed); it didn't happen"),
+                            Some("not-reclaimed") => anyhow::ensure!(!got, "seed {seed}: expected no re-claim (--reclaim-expect not-reclaimed); it happened"),
+                            Some(x) => anyhow::bail!("--reclaim-expect {x}: reclaimed | not-reclaimed"),
+                            None => anyhow::bail!("--reclaim-row without --reclaim-blocked needs --reclaim-expect reclaimed | not-reclaimed (G1 C12: the verdict is judged)"),
+                        }
                     }
                 }
                 return Ok(());
