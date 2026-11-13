@@ -150,6 +150,8 @@ pub struct Opts {
     pub rider_push_off: bool,
     /// (ironfarm 12:47) Write each lip rest's lane over its 60 gt before into this file.
     pub lip_dump: Option<std::path::PathBuf>,
+    /// (G1 12:21) A villager's per-tick state over FROM..TO: (id, from, to).
+    pub villager_trace: Option<(u32, i64, i64)>,
     /// (ironspec 10:51 (g)) the longest designed rest on a station hold H's trapdoor, gt.
     pub h_rest_bound: i64,
     /// (ironspec 10:51 (f)) the siding check's positive: a batch cart planted on lane -1's siding R.
@@ -3384,6 +3386,8 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     // (ironfarm 12:47, --lip-dump) per lane the last 60 gt of its carts, and the dumps taken at rests
     let mut lip_ring: [std::collections::VecDeque<String>; 3] = [std::collections::VecDeque::new(), std::collections::VecDeque::new(), std::collections::VecDeque::new()];
     let mut lip_dumps: Vec<String> = Vec::new();
+    // (G1 12:21) --villager-trace's rows
+    let mut vtrace_rows: Vec<String> = Vec::new();
     // (onechunk 11:16) every napper's cart dropping into a lane not its own, with its split turns
     let mut napper_wrong_lane: Vec<String> = Vec::new();
     // (G1's P16) every napper's cart dropping into any lane (the misroute bar's denominator)
@@ -5208,6 +5212,38 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 }));
                 (b.home.map(|h| [h.x, h.y, h.z]), rest, panic, sleeping, ex.and_then(|x| x.mem.cant_reach_since), target, b.last_slept, reach, sink_cd, path_target, path_end, hostile, target_kind, activity, target_key, path_from, target_close)
             };
+            // (G1 12:21, #43's late lie-down) --villager-trace ID,FROM,TO: the villager's own state per
+            // tick (position, vehicle, activity, sleeping, its walk target, the path, the stamp, the
+            // nearest hostile, the sink's cooldown)
+            if let Some((tid, tf, tt)) = o.villager_trace
+                && w.entities.list[i].id == tid
+                && rel >= tf
+                && rel <= tt
+            {
+                let veh = w.entities.list[i].vehicle.map_or("on foot".to_string(), |vid| redsim::entity::index_of(w, vid).map_or(format!("in #{vid}"), |vi| {
+                    let c = cell(w.entities.list[vi].pos);
+                    format!("in cart #{vid} at ({},{},{})", c[0], c[1], c[2])
+                }));
+                vtrace_rows.push(format!(
+                    "t {rel}: ({:.3},{:.3},{:.3}) {veh} {activity}{}{} target {} {} close {} reach {} path end {} stamp {} hostile {} sink cd {}",
+                    pos.x,
+                    pos.y,
+                    pos.z,
+                    if panic { " PANIC" } else { "" },
+                    if sleeping { " SLEEPING" } else { "" },
+                    target.map_or("none".to_string(), |t| format!("({:.2},{:.2},{:.2})", t[0], t[1], t[2])),
+                    target_kind.clone().unwrap_or_default(),
+                    target_close.map_or("-".to_string(), |c| c.to_string()),
+                    reach.map_or("-".to_string(), |r| r.to_string()),
+                    path_end.map_or("-".to_string(), |p| {
+                        let o = frame_offset();
+                        format!("({},{},{})", p[0] - o[0], p[1] - o[1], p[2] - o[2])
+                    }),
+                    stamp.map_or("none".to_string(), |s| format!("{} gt old", now - s)),
+                    hostile.map_or("none".to_string(), |h| format!("#{h}")),
+                    sink_cd.map_or("-".to_string(), |c| c.to_string())
+                ));
+            }
             let r = recs.get_mut(&id).unwrap();
             let c = cell(w.entities.list[i].pos);
             // (ironspec 06:24 / 06:31 / 06:36 real, G1) the rider-state bars: REST entries, the
@@ -9001,6 +9037,9 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         ));
     }
     // (ironfarm 12:47, --lip-dump) every lip rest's lane over its 60 gt before, to the file
+    if let Some((tid, tf, tt)) = o.villager_trace {
+        s.push_str(&format!("villager #{tid}'s trace over t {tf}..{tt} (G1 12:21; design frame): {}\n", if vtrace_rows.is_empty() { "no tick (not alive in the window)".to_string() } else { vtrace_rows.join(" | ") }));
+    }
     if let Some(p) = &o.lip_dump {
         std::fs::write(p, format!("{}\n", lip_dumps.join("\n"))).map_err(|e| format!("--lip-dump {}: {e}", p.display()))?;
         s.push_str(&format!("the lip dumps (ironfarm 12:47): {} rests dumped to {}\n", lip_dumps.len(), p.display()));
