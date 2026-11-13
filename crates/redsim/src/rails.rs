@@ -18,7 +18,7 @@ pub fn is_rail(b: &Block) -> bool {
 /// The rail's shape property.
 pub fn shape_of(b: &Block) -> RailShape {
     match *b {
-        Block::Rail { shape, .. } | Block::PlainRail { shape } | Block::DetectorRail { shape, .. } => shape,
+        Block::Rail { shape, .. } | Block::PlainRail { shape, .. } | Block::DetectorRail { shape, .. } => shape,
         _ => RailShape::NorthSouth,
     }
 }
@@ -30,9 +30,9 @@ fn is_straight(b: &Block) -> bool {
 
 fn with_shape(b: Block, shape: RailShape) -> Block {
     match b {
-        Block::Rail { activator, powered, .. } => Block::Rail { activator, shape, powered },
-        Block::PlainRail { .. } => Block::PlainRail { shape },
-        Block::DetectorRail { powered, .. } => Block::DetectorRail { shape, powered },
+        Block::Rail { activator, powered, waterlogged, .. } => Block::Rail { activator, shape, powered, waterlogged },
+        Block::PlainRail { waterlogged, .. } => Block::PlainRail { shape, waterlogged },
+        Block::DetectorRail { powered, waterlogged, .. } => Block::DetectorRail { shape, powered, waterlogged },
         x => x,
     }
 }
@@ -464,18 +464,18 @@ pub mod detector {
         if !(can_survive(w, p) && w.get(p).kind() == Kind::DetectorRail) {
             return;
         }
-        let Block::DetectorRail { shape, .. } = s else { return };
+        let Block::DetectorRail { shape, waterlogged, .. } = s else { return };
         let was = powered(&s);
         let should = minecarts(w, p) > 0;
         if should && !was {
-            let ns = Block::DetectorRail { shape, powered: true };
+            let ns = Block::DetectorRail { shape, powered: true, waterlogged };
             w.set_block_and_update(p, ns);
             update_power_to_connected(w, p, ns);
             w.update_neighbors_at(p, Kind::DetectorRail);
             w.update_neighbors_at(p.below(), Kind::DetectorRail);
         }
         if !should && was {
-            let ns = Block::DetectorRail { shape, powered: false };
+            let ns = Block::DetectorRail { shape, powered: false, waterlogged };
             w.set_block_and_update(p, ns);
             update_power_to_connected(w, p, ns);
             w.update_neighbors_at(p, Kind::DetectorRail);

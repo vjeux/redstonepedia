@@ -424,10 +424,10 @@ pub mod rail {
 
     /// `PoweredRailBlock.updateState`.
     fn update_state(w: &mut World, s: Block, pos: BlockPos) {
-        if let Block::Rail { activator, shape, powered } = s {
+        if let Block::Rail { activator, shape, powered, waterlogged } = s {
             let should = w.has_neighbor_signal(pos) || find_powered_rail_signal(w, pos, &s, true, 0) || find_powered_rail_signal(w, pos, &s, false, 0);
             if should != powered {
-                w.set_block_and_update(pos, Block::Rail { activator, shape, powered: should });
+                w.set_block_and_update(pos, Block::Rail { activator, shape, powered: should, waterlogged });
                 w.update_neighbors_at(pos.below(), s.kind());
                 if shape.is_ascending() {
                     w.update_neighbors_at(pos.above(), s.kind());
