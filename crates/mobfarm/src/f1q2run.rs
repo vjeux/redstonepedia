@@ -48,6 +48,10 @@ pub struct Opts {
     /// HOME the bed, its lane rotating -1 / 3 / 7; the stop, the hold, K and the siding driven
     /// (EMULATED: day-1's events 2026-11-12 10:00, 58f770cc's stop).
     pub napper: bool,
+    /// (ironspec 01:59 PT) The old seeding: the napper queued at the way-in from the start and its
+    /// lane one slope cart short. Off (the default): the build guide's start, the module's queued
+    /// cart dropped and every lane full.
+    pub seed_queued_napper: bool,
     /// (ironspec 11:15, 9fc3155f's statics) S-bend seats whose stamp resets are counted: `NAME`,
     /// the seat's rail cell, its clearing candidates (a complete draw to one of them while a rider
     /// sits on the seat resets its stamp).
@@ -385,6 +389,8 @@ struct Ctl {
     /// D press per lane (tick, lane).
     h2_log: Vec<(i64, usize, i64)>,
     dpress_log: Vec<(i64, usize)>,
+    /// (ironspec 01:59 PT, each visit's decomposition) every lift-exit pass (the waiting RS set).
+    lift_exit_log: Vec<i64>,
     /// (G1's note) a pick decided while another was still pending (an overwrite).
     pick_overwrites: Vec<String>,
     /// (day-1's R1) the line ends held as levels (their built states), the queue rail's power last
@@ -1223,6 +1229,7 @@ impl Ctl {
         let at_exit = w.entities.list.iter().any(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && !e.passengers.is_empty() && cell(e.pos) == [7, -3, 4]);
         if at_exit && self.rs_set.is_none() {
             self.rs_set = Some(now);
+            self.lift_exit_log.push(now);
             self.nap_events.push(format!("t {now}: the lift exit (7,-3,4): the waiting RS set (its delayed Q at t {}, k_lock {k_lock})", now + k_lock));
         }
         let on_hold = w.entities.list.iter().any(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && !e.passengers.is_empty() && cell(e.pos) == [9, 0, 8]);
@@ -1969,14 +1976,20 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             }
         }
     } else if o.lane_carts {
-        // (ironfarm 11:40: the napper is one of its lane's 8 carts; phase 3a seeds it at the stop,
-        // so its first lane starts one slope cart short)
-        let nap_lane = o.napper.then(|| LANES[o.seed.rem_euclid(3) as usize % 3]);
+        // (ironfarm 11:40: the napper is one of its lane's 8 carts. ironspec 01:59 PT: the bench's
+        // start is the build guide's, every napper in its lane and the queue empty, so the
+        // module's queued cart is dropped; `--seed-queued-napper` keeps the old seeding, the
+        // napper queued at the way-in and its lane one slope cart short)
+        let nap_lane = (o.napper && o.seed_queued_napper).then(|| LANES[o.seed.rem_euclid(3) as usize % 3]);
         let mut carts = lane_carts(o.per_lane.saturating_sub(3));
         if let Some(x) = nap_lane
             && let Some(k) = carts.iter().rposition(|c| (c.1[0] - (x as f64 + 0.5)).abs() < 0.01 && c.1[1] > 18.0)
         {
             carts.remove(k);
+        }
+        if o.napper && !o.seed_queued_napper {
+            let q = [9, o.bed[1] + 13, -4];
+            sp.entities.retain(|e| !(e.0.contains("minecart") && [e.1[0].floor() as i32, e.1[1].floor() as i32, e.1[2].floor() as i32] == q));
         }
         sp.entities.extend(carts);
     }
@@ -2064,6 +2077,9 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         drive_push(a);
     }
     let mut recs: BTreeMap<u32, Rec> = BTreeMap::new();
+    // (day-1 01:10 PT, the per-pick trace) each napper's milestones of its earlier visits (a pick
+    // starts a visit's list afresh)
+    let mut past_marks: BTreeMap<u32, Vec<(String, i64)>> = BTreeMap::new();
     let villagers = |w: &redsim::world::World| -> Vec<u32> { w.entities.list.iter().filter(|e| !e.removed && matches!(&e.kind, EntityKind::Mob(m) if matches!(m.ty, redsim::entity::mob::types::MobType::Villager))).map(|e| e.id).collect() };
     for (k, id) in villagers(&run.world).into_iter().enumerate() {
         let i = redsim::entity::index_of(&run.world, id).ok_or("a villager vanished")?;
@@ -2136,7 +2152,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             let r = w.get(redsim::pos::BlockPos::new(8, q_cell[1], -4));
             r.is_air() || r.to_string().contains("repeater")
         };
-        if ctl.wayin {
+        if ctl.wayin && o.seed_queued_napper {
             ctl.q_rs_ready = true;
             ctl.q_held = true;
             let qv = w.entities.list.iter().find(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && cell(e.pos) == q_cell).and_then(|e| e.passengers.first().copied()).ok_or("the way-in's queue holds no napper")?;
@@ -2145,6 +2161,12 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             nappers.push((qv, k, 0));
             ctl.nap_lane = k;
             ctl.nap_events.push(format!("t 0: napper0 queued at ({},{},{}) (lane x {})", q_cell[0], q_cell[1], q_cell[2], LANES[k]));
+        } else if ctl.wayin {
+            // (ironspec 01:59 PT: the build guide's start, every napper in its lane: the queue
+            // empty, the stop ready, HELD reset)
+            ctl.q_rs_ready = true;
+            ctl.q_held = false;
+            ctl.nap_events.push("t 0: the queue empty, every napper in its lane (the build guide's start)".to_string());
         }
     }
     // (ironspec 18:10 / 18:20; 7b90c3f1 18:06) the stand-ins' supports the module declares
@@ -2155,11 +2177,18 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     // villager's eye to every living entity's eye within 16 (the nearest-living and hostile
     // sensors' reach), bar 0 crossings
     let mut sight_cells: Vec<[i32; 3]> = Vec::new();
+    // (a stand-in with no collision box, a lever, can't cross a sight ray: a mob's sight clips
+    // against colliders (`ClipContext.Block.COLLIDER`), so its cell isn't watched)
+    let mut sight_skipped: Vec<[i32; 3]> = Vec::new();
     if o.drive {
         for (c, state) in &o.emulated_states {
             if run.world.get(redsim::pos::BlockPos::new(c[0], c[1], c[2])).is_air() {
                 set(&mut run.world, *c, state, redsim::world::flags::ALL)?;
-                sight_cells.push(*c);
+                if redsim::behavior::collision_boxes(&run.world.get(redsim::pos::BlockPos::new(c[0], c[1], c[2]))).is_empty() {
+                    sight_skipped.push(*c);
+                } else {
+                    sight_cells.push(*c);
+                }
             }
         }
     }
@@ -2626,7 +2655,8 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 let n = nappers.len();
                 if let Some(r) = recs.get_mut(&vid) {
                     r.label = format!("napper{n} (id {vid}, lane x {}, picked at t {at})", LANES[k]);
-                    r.milestones.clear();
+                    // (the per-pick trace reads every visit: the last visit's milestones kept)
+                    past_marks.entry(vid).or_default().append(&mut r.milestones);
                     r.route.clear();
                     r.ball_exit_after_r = None;
                     // (the last trip's first call back kept with its stamps)
@@ -3179,10 +3209,13 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 if was && !sleeping && (o.bed[1] - 2..=o.bed[1] + 3).contains(&c[1]) {
                     wake_pending.insert(id, now + bound);
                     wakes_seen += 1;
+                    // (ironspec 01:59 PT, each visit's decomposition)
+                    r.milestones.push(("woke in A6".to_string(), now - t0));
                 }
                 if let Some(deadline) = wake_pending.get(&id).copied() {
                     let cart_at_p = w.entities.list.iter().any(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && cell(e.pos) == p_cell);
                     if cart_at_p {
+                        r.milestones.push(("a cart at P after the wake".to_string(), now - t0));
                         wake_pending.remove(&id);
                     } else if now > deadline {
                         wake_pending.remove(&id);
@@ -4189,8 +4222,9 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             ));
         }
         s.push_str(&format!(
-            "the stand-ins' 7th property, SIGHT (ironspec 20:10 / 20:19 PT (2c): each emulated support laid where the build has air against every villager's eye to every living entity's eye within 16, each tick; bar 0 crossings): {}{}\n",
+            "the stand-ins' 7th property, SIGHT (ironspec 20:10 / 20:19 PT (2c): each emulated support laid where the build has air against every villager's eye to every living entity's eye within 16, each tick; bar 0 crossings): {}{}{}\n",
             if sight_cells.is_empty() { "no support laid on air".to_string() } else { sight_cells.iter().zip(sight_hits.iter()).map(|(c, n)| format!("({},{},{}) {n} ({})", c[0], c[1], c[2], if *n == 0 { "PASS" } else { "FAIL" })).collect::<Vec<_>>().join(", ") },
+            if sight_skipped.is_empty() { String::new() } else { format!("; not watched, no collision box (a sight ray clips only against colliders): {}", sight_skipped.iter().map(|c| format!("({},{},{})", c[0], c[1], c[2])).collect::<Vec<_>>().join(", ")) },
             if sight_rows.is_empty() { String::new() } else { format!(": {}", sight_rows.join("; ")) }
         ));
         let t_missing: i64 = tsplit.missing.iter().sum();
@@ -4551,32 +4585,63 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             // napper's divert, queue arrival, release, departure, stop entry, R, siding's R and back
             // in lane; the night's REST_l and DAY edges
             let opps: Vec<String> = ctl.pick_opps.iter().map(|(t, c, k, v)| format!("t {t} C {c} lane x {} {v}", LANES[*k])).collect();
-            let msn = |v: u32, what: &str, from: i64| -> Option<i64> { recs.get(&v).and_then(|r| r.milestones.iter().find(|(m, t)| m == what && *t >= from).map(|(_, t)| *t)) };
-            let ms = |v: u32, what: &str, from: i64| -> String { msn(v, what, from).map_or("-".to_string(), |t| t.to_string()) };
+            let msn = |v: u32, what: &str, from: i64, to: i64| -> Option<i64> {
+                past_marks.get(&v).into_iter().flatten().chain(recs.get(&v).map(|r| r.milestones.iter()).into_iter().flatten()).find(|(m, t)| m == what && *t >= from && *t < to).map(|(_, t)| *t)
+            };
+            let ms = |v: u32, what: &str, from: i64, to: i64| -> String { msn(v, what, from, to).map_or("-".to_string(), |t| t.to_string()) };
             let visits: Vec<String> = ctl
                 .pick_carts
                 .iter()
                 .map(|(t, cid, v, k)| {
+                    // (a visit runs from its pick to the same napper's next pick)
+                    let to = ctl.pick_carts.iter().filter(|(pt, _, pv, _)| pv == v && pt > t).map(|x| x.0).min().unwrap_or(i64::MAX);
                     let div = ctl.divert_log.iter().find(|(dt, c)| c == cid && dt >= t).map_or("-".to_string(), |(dt, _)| dt.to_string());
                     let rel = ctl.release_log.iter().find(|(rt, rv)| rv == v && rt >= t).map_or("-".to_string(), |(rt, _)| rt.to_string());
                     let dep = ctl.dep_log.iter().find(|(dt, dv)| dv == v && dt >= t).map_or("-".to_string(), |(dt, _)| dt.to_string());
                     // (day-1 01:27 PT, m per visit) the H2 sample it caught, its K, PRESENT, the
                     // siding's R and its lane's D presses around R
-                    let hold = msn(*v, "on the hold (9,0,8)", *t);
+                    let hold = msn(*v, "on the hold (9,0,8)", *t, to);
                     let h2e = hold.and_then(|h| ctl.h2_log.iter().find(|(ht, _, _)| *ht >= h).copied());
                     let h2 = h2e.map(|x| x.0);
-                    let kt = msn(*v, "on its K", *t);
+                    let kt = msn(*v, "on its K", *t, to);
                     let present = h2.and_then(|h| ctl.present_log.iter().find(|(pt, pk)| *pk == *k && *pt >= h).map(|x| x.0));
-                    let sr = msn(*v, "on its siding's R", *t);
+                    let sr = msn(*v, "on its siding's R", *t, to);
                     let presses: Vec<String> = ctl.dpress_log.iter().filter(|(dt, dk)| *dk == *k && sr.is_some_and(|r| *dt >= r - 60 && *dt <= r + 120)).map(|x| x.0.to_string()).collect();
                     let next_press = sr.and_then(|r| ctl.dpress_log.iter().find(|(dt, dk)| *dk == *k && *dt > r).map(|x| x.0));
                     let o = |x: Option<i64>| x.map_or("-".to_string(), |v| v.to_string());
+                    // (ironspec 01:59 PT) the visit's decomposition: pick phase, dwell, way-in leg,
+                    // descent (with any stall), lie-down -> wake, pickup, R, lift exit, Q-up
+                    let dd = |a: Option<i64>, b: Option<i64>| match (a, b) { (Some(a), Some(b)) => (b - a).to_string(), _ => "-".to_string() };
+                    let arr = msn(*v, "at the queue's arrival", *t, to);
+                    let reln = ctl.release_log.iter().find(|(rt, rv)| rv == v && rt >= t).map(|x| x.0);
+                    let entry = msn(*v, "at A6's entry", *t, to);
+                    let lie = msn(*v, "asleep in the bed", *t, to);
+                    let woke = msn(*v, "woke in A6", *t, to);
+                    let pick_up = msn(*v, "a cart at P after the wake", *t, to);
+                    let rr = msn(*v, "at R", *t, to);
+                    let exit = rr.and_then(|r| ctl.lift_exit_log.iter().find(|x| **x >= r).copied());
+                    let qup = exit.and_then(|x| ctl.k_lock.map(|kl| x + kl));
+                    let c_at = ctl.pick_opps.iter().find(|x| x.0 == *t).map_or("-".to_string(), |x| x.1.to_string());
+                    let decomposition = format!(
+                        "the decomposition: pick at C {c_at} (u {}), pick -> queue arrival {}, dwell {}, way-in leg (release -> A6's entry) {}, entry -> lie-down (descent, any stall) {}, lie-down -> wake {}, wake -> a cart at P {}, P -> R {}, R -> lift exit {}, lift exit -> Q-up {}, Q-up -> H2 {}",
+                        c_at.parse::<i64>().map_or("-".to_string(), |c| (c % 10).to_string()),
+                        dd(Some(*t), arr),
+                        dd(arr, reln),
+                        dd(reln, entry),
+                        dd(entry, lie),
+                        dd(lie, woke),
+                        dd(woke, pick_up),
+                        dd(pick_up, rr),
+                        dd(rr, exit),
+                        dd(exit, qup),
+                        dd(qup, h2)
+                    );
                     format!(
                         "#{v} lane x {} picked t {t}: divert {div}, queue arrival {}, release {rel}, departure {dep}, stop entry {}, R {}, hold {}, H2 sample {} (the catch window: late slack {}, early slack {}), K {}{}, PRESENT {}, siding's R {}, back in lane {}; the lane's D presses within R - 60 .. R + 120: [{}]; the next D press after R minus R: {}",
                         LANES[*k],
-                        ms(*v, "at the queue's arrival", *t),
-                        ms(*v, "at A6's entry", *t),
-                        ms(*v, "at R", *t),
+                        ms(*v, "at the queue's arrival", *t, to),
+                        ms(*v, "at A6's entry", *t, to),
+                        ms(*v, "at R", *t, to),
                         o(hold),
                         o(h2),
                         h2e.map_or("-".to_string(), |x| format!("{} gt", x.2)),
@@ -4585,10 +4650,10 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                         match (h2, kt) { (Some(h), Some(kk)) => format!(" (the K leg {} gt after H2)", kk - h), _ => String::new() },
                         o(present),
                         o(sr),
-                        ms(*v, "back in its lane", *t),
+                        ms(*v, "back in its lane", *t, to),
                         presses.join(" "),
                         match (next_press, sr) { (Some(p), Some(r)) => format!("{:+}", p - r), _ => "-".to_string() }
-                    )
+                    ) + "; " + &decomposition
                 })
                 .collect();
             s.push_str(&format!(

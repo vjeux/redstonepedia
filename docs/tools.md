@@ -501,7 +501,14 @@ lie-down + 10), the park's (1,y+1,-6) and (0,y,-6) on at the bed's wake edge + 1
 `f1q2-run` also prints the per-pick trace (day-1 01:10 PT): every pick opportunity (tick, C, lane,
 verdict: picked, HELD with its holder, the away latch, unrouted), every picked napper's divert, queue
 arrival, release, departure, stop entry, R, siding's R and back in lane, and the night's REST_l and
-DAY edges.
+DAY edges; each visit (from its pick to the same napper's next pick) also prints the H2 sample it
+caught with the catch window's late and early slacks, its K leg, PRESENT, its lane's D presses
+around the siding's R, and its decomposition (ironspec 01:59 PT): the pick's C and u, pick -> queue
+arrival, dwell, the way-in leg, entry -> lie-down, lie-down -> wake, wake -> a cart at P, P -> R,
+R -> the lift exit, the lift exit -> Q-up (k_lock), Q-up -> H2. The run starts as the build guide
+does (ironspec 01:59 PT): every napper in its lane and the queue empty (the module's queued cart
+dropped); `--seed-queued-napper` keeps the old seeding (the napper queued at the way-in, its lane
+one slope cart short).
 `--drive-out F --scene-out S` (mob-AI) records the run as a mobai drive v1 for `mctas mobai
 fixture` (the 26.3 bridge and redsim, tick for tick): the world started as every bench's drive
 (`Run::start` with the drive's options, the settle, the scene's entity lines spawned in file order),
@@ -610,7 +617,10 @@ is record-match's `guard_intrinsics` (golem as a floor and as a spawn space, the
 late-path, sight); the counter's C is derived at the first release from its own day time.
 The stranded-napper bar (ironspec 00:33 PT): a napper waking in A6 with no cart at the pickup cell P
 by its wake edge + the bound fails; P and the bound come from the module's `# a6-pickup: x,y,z=…
-wake edge + N gt …` line (no line: NOT JUDGED, a failure). The seat's evidence (00:20 / 00:22 /
+wake edge + N gt …` line (no line: NOT JUDGED, a failure). The stand-ins' SIGHT check (ironspec
+20:10 PT) watches each emulated stand-in laid on air that has a collision box, against every
+villager's eye to every living entity's eye within 16; a stand-in with none (a lever) can't cross a
+sight ray (a mob's sight clips only against colliders) and is listed as not watched. The seat's evidence (00:20 / 00:22 /
 00:38): the queue hatch's state at each seat arrival and release, every panic starting at the seat
 with its NEAREST_HOSTILE, the napper-ticks at the seat with NEAREST_HOSTILE set, and each napper's
 path at the seat at every change (target, end, length, complete or partial).
