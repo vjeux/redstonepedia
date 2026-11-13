@@ -520,6 +520,13 @@ panicking, slept, no memory, 3 willing; information). The carts' contacts with b
 (grown 0.02) meets; a cell the header declares neither as a stop (`stops: CELLS (why)`) nor as a
 contact (`# contacts: CELLS=REASON (evidence row)`, walls a cart rides against, ironspec 22:05) fails
 the row.
+The loud bars (ironspec 22:56 / 22:58 / 23:16 PT): every `# inert:` and `# always-on:` cell of the
+module watched through the run (any state change fails, with the tick and both states); A6's park braked at every arrival (its slope (1,y+1,-5) /
+(0,y,-5) unpowered when the activator's cart rolls onto it), no riderless cart past A6's R detector
+(4,y-1,4), and no napper held in A6 past the class-b bound (R by the end of the REST after the one it
+entered in) each fail the run; every failed bar of the napper rows ((a2), (b) and these) prints its
+first-bad-event trace, the drive events of the 400 gt before its first failure. The gossip rows print
+each caller's activity (ironspec 22:54: TradeWithVillager runs only in MEET / IDLE).
 `--stack-bench`, instead of the run: the (a) feed stack's dust (-3,23,9) forced through both power
 states with the T (-3,25,9)'s lever off and on (the T's shape against its power's settle after each
 step), and day-1's R1 gate with its line ends in four states (each gate cell and the queue rail).

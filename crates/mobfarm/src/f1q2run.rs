@@ -113,6 +113,10 @@ pub struct Opts {
     /// (ironspec 21:25 PT) the stops and buffers the module's header declares (`stops: CELLS
     /// (why)`): the only cells a cart may touch.
     pub stops: Vec<[i32; 3]>,
+    /// (ironspec 23:16 PT) the module's `# inert:` and `# always-on:` cells: watched through the
+    /// run, any state change fails.
+    pub inert: Vec<[i32; 3]>,
+    pub always_on: Vec<[i32; 3]>,
     /// (ironspec 20:40 PT) the feed stack's direct bench instead of the run.
     pub stack_bench: bool,
     /// (ironspec 20:34 PT) the queue's dwell cap from the module's `dwell-cap: N (why)` line (day-1's
@@ -370,6 +374,10 @@ struct Ctl {
     away: [bool; 3],
     new_nappers: Vec<(u32, usize, i64)>,
     picks_gated: i64,
+    /// The gated picks by their gate: HELD, the lane's away latch, a picked cart not yet routed.
+    gated_by: [i64; 3],
+    /// Picks whose lane's pocket was empty at its launch (no pick made).
+    picks_empty: i64,
     picks_day: i64,
     /// The hold (c' as built): the waiting RS set by the lift exit (7,-3,4) (its delayed Q 38 gt
     /// later), reset by the fired pulse; the input (7,-1,8) on at ARM3 + 10 for 12 gt.
@@ -729,7 +737,13 @@ impl Ctl {
                                 self.pick_log.push((now, v));
                             }
                             self.away[k] = true;
+                            // (day-1's contract, 22:05: HELD is set at the pick, the launch that
+                            // sends the picked cart, and reset at the queue's departure)
+                            self.q_held = true;
                             self.note(now, format!("the picker: lane x {x}'s batch cart {cid} picked"));
+                        } else {
+                            self.picks_empty += 1;
+                            self.note(now, format!("the picker: lane x {x}'s pocket empty at its launch, no pick"));
                         }
                         self.pick = None;
                     }
@@ -1278,11 +1292,12 @@ impl Ctl {
                 let k = ((u - 1) / 3) as usize;
                 if (self.q_held && !self.held_at_divert) || self.away[k] || self.pick_cart.is_some() {
                     self.picks_gated += 1;
+                    let g = if self.q_held && !self.held_at_divert { 0 } else if self.away[k] { 1 } else { 2 };
+                    self.gated_by[g] += 1;
+                    let gn = ["HELD (a napper in flight)", "the lane's away latch", "a picked cart not yet routed"][g];
+                    self.note(rel, format!("the picker: lane x {}'s pick at C {} gated by {gn}", LANES[k], self.rel_count));
                 } else {
                     self.pick = Some(k);
-                    // (day-1's contract, 22:05: HELD is set at the pick and reset at the queue's
-                    // departure: one napper in flight from its pick (ironspec's (b)))
-                    self.q_held = true;
                 }
             }
         }
@@ -1920,6 +1935,13 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     let mut golem_summon: BTreeMap<u32, (i64, u32, u32, Option<[i32; 3]>, Option<[f64; 3]>)> = BTreeMap::new();
     #[allow(clippy::type_complexity)]
     let mut golem_tries: Vec<(i64, u32, u32, Option<u32>, u8, [i32; 3], u8)> = Vec::new();
+    // (ironspec 22:54 PT) each gossip attempt's caller activity, by (tick, villager)
+    let mut gossip_activity: BTreeMap<(i64, u32), String> = BTreeMap::new();
+    // (ironspec 22:56 / 22:58 PT, the loud bars) every cart's cell last tick; the park's state at
+    // each arrival (tick, braked, rider); riderless carts past A6's R (tick, cart)
+    let mut cart_prev_cell: BTreeMap<u32, [i32; 3]> = BTreeMap::new();
+    let mut park_arrivals: Vec<(i64, bool, Option<u32>)> = Vec::new();
+    let mut riderless_r: Vec<(i64, u32)> = Vec::new();
     // (G1 / ironspec 19:51) the calls short of willing: (tick, caller, willing, threshold, from)
     // (G1 / ironspec 19:51, 19:58) the summon-tick events (threshold 3) in their order: (tick, kind
     // 0 a roll / 1 the caller not willing / 2 short of willing, caller, its block, a golem, willing,
@@ -1931,6 +1953,16 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     let mut direct = Direct::default();
     // (ironspec 19:58 PT (2b)) the split's Ts watched each tick
     let mut tsplit = TSplit::default();
+    // (ironspec 23:16 PT) the declared inert / always-on cells and their states at the start
+    let mut watched: Vec<([i32; 3], &'static str, String)> = o
+        .inert
+        .iter()
+        .map(|c| (*c, "inert"))
+        .chain(o.always_on.iter().map(|c| (*c, "always-on")))
+        .map(|(c, k)| (c, k, run.world.get(redsim::pos::BlockPos::new(c[0], c[1], c[2])).to_string()))
+        .collect();
+    let mut watched_changes: Vec<String> = Vec::new();
+    let mut watched_n = 0usize;
     let mut ev_seen = 0usize;
     let mut renew = Renewals::default();
     let mut willing_at: (i64, std::collections::BTreeSet<u32>) = (-1, std::collections::BTreeSet::new());
@@ -2333,6 +2365,23 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     a6_entries.push((now - t0, v, sp));
                 }
             }
+            // (ironspec 22:56 / 22:58 PT, the loud bars) A6's park, the slope (1,y+1,-5) / (0,y,-5)
+            // the activator's cart rolls onto: braked (both unpowered) at every arrival; and no
+            // riderless cart past A6's R detector (4,y-1,4)
+            let by = o.bed[1];
+            let (park_in, act_cell, r_cell) = ([1, by + 1, -5], [2, by + 2, -5], [4, by - 1, 4]);
+            for e in w.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_))) {
+                let c = cell(e.pos);
+                let prev = cart_prev_cell.get(&e.id).copied();
+                if c == park_in && prev == Some(act_cell) {
+                    let braked = !powered(w, park_in) && !powered(w, [0, by, -5]);
+                    park_arrivals.push((now - t0, braked, e.passengers.first().copied()));
+                }
+                if c == r_cell && prev != Some(r_cell) && e.passengers.is_empty() {
+                    riderless_r.push((now - t0, e.id));
+                }
+                cart_prev_cell.insert(e.id, c);
+            }
         }
         // (ironspec 11:02) the zombies where they sit this tick (a boated zombie seated: the boat's
         // y + its passenger attachment + the zombie's riding offset)
@@ -2352,6 +2401,14 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 // (ironspec 19:20 / 19:34: every attempt with its path, the caller's block position
                 // and willing count; 19:51: the spot tries used)
                 golem_tries.push((*t, *villager, *willing, *golem, *needed, *from, *tries));
+                if *needed == 5 {
+                    // (ironspec 22:54 PT) each gossip candidate's activity (REST / PANIC riders
+                    // can't take part: TradeWithVillager runs only in MEET / IDLE)
+                    let act = redsim::entity::index_of(w, *villager)
+                        .and_then(|k| redsim::entity::mob::ai::brain::brain(w, k).ex.as_deref().map(|x| format!("{:?}", x.active)))
+                        .unwrap_or_else(|| "-".to_string());
+                    gossip_activity.insert((*t, *villager), act);
+                }
                 if *needed == 3 {
                     s_events.push((*t, 0, *villager, *from, golem.is_some(), *willing, *tries));
                 }
@@ -2519,6 +2576,18 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                         }
                     }
                 }
+            }
+        }
+        // (ironspec 23:16 PT) every declared `# inert:` / `# always-on:` cell watched through the
+        // run: any change of its state fails, with the tick and the states
+        for (c, kind, last) in watched.iter_mut() {
+            let now_state = w.get(redsim::pos::BlockPos::new(c[0], c[1], c[2])).to_string();
+            if now_state != *last {
+                if watched_changes.len() < 40 {
+                    watched_changes.push(format!("t {}: ({},{},{}) {kind} {} -> {}", now - t0, c[0], c[1], c[2], last, now_state));
+                }
+                watched_n += 1;
+                *last = now_state;
             }
         }
         // (ironspec 19:58 PT (2b)) the split's Ts (x,25,9): each tick a T's stored shape against the
@@ -3618,6 +3687,14 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             if tsplit.rows.is_empty() { String::new() } else { format!(": {}", tsplit.rows.join("; ")) },
             if tsplit.change_rows.is_empty() { String::new() } else { format!("; the changes: {}", tsplit.change_rows.join("; ")) }
         ));
+        // (ironspec 23:16 PT) the declared inert / always-on cells, checked against the run
+        s.push_str(&format!(
+            "the declared inert / always-on cells (ironspec 23:16 PT: watched through the run, any state change fails): {} inert, {} always-on; changes {watched_n}{} (bar 0: {})\n",
+            o.inert.len(),
+            o.always_on.len(),
+            if watched_changes.is_empty() { String::new() } else { format!(": {}", watched_changes.join("; ")) },
+            if watched_n == 0 { "PASS" } else { "FAIL" }
+        ));
         // (ironspec 19:20 / 19:34, G1: the summon paths) every golem's birth on the panic schedule
         // (game time = 0 mod 100), path 3 (the panic trigger) or 5 (gossip, any tick, 5 willing);
         // every gossip attempt (path 5: its willing count >= 5 by construction) by the caller's
@@ -3630,7 +3707,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             let gossip: Vec<&(i64, u32, u32, Option<u32>, u8, [i32; 3], u8)> = golem_tries.iter().filter(|x| x.4 == 5).collect();
             let reachable: Vec<&&(i64, u32, u32, Option<u32>, u8, [i32; 3], u8)> = gossip.iter().filter(|x| x.5[1] <= 0).collect();
             let name = |v: u32| recs.get(&v).map_or(format!("#{v}"), |r| r.label.split(' ').next().unwrap_or("").to_string());
-            let rows: Vec<String> = gossip.iter().take(12).map(|x| format!("t {} {} at ({},{},{}) with {} willing, {}", x.0 - t0, name(x.1), x.5[0], x.5[1], x.5[2], x.2, if x.3.is_some() { "a golem" } else { "no spot" })).collect();
+            let rows: Vec<String> = gossip.iter().take(12).map(|x| format!("t {} {} at ({},{},{}) with {} willing, activity {}, {}", x.0 - t0, name(x.1), x.5[0], x.5[1], x.5[2], x.2, gossip_activity.get(&(x.0, x.1)).map_or("-", |s| s.as_str()), if x.3.is_some() { "a golem" } else { "no spot" })).collect();
             s.push_str(&format!(
                 "the summon paths (ironspec 19:20 / 19:34): {} golems born, {on_schedule} on the panic schedule (bar: all: {}), path 5 (gossip) {p5_born} (bar 0: {}); gossip attempts {} ({} with a golem), at a pad-reachable caller position (block y <= 0) {} (bar 0: {}){}\n",
                 born.len(),
@@ -3873,7 +3950,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 per_v.push(format!("{} picked at t {} napped at t {}", recs.get(v).map_or(format!("#{v}"), |r| r.label.split(' ').next().unwrap_or("").to_string()), picks.iter().map(|t| t.to_string()).collect::<Vec<_>>().join("/"), if naps.is_empty() { "-".to_string() } else { naps.iter().map(|t| t.to_string()).collect::<Vec<_>>().join("/") }));
             }
             s.push_str(&format!("  per villager (picks, naps): {}\n", if per_v.is_empty() { "none".to_string() } else { per_v.join("; ") }));
-            s.push_str(&format!("  the picker's gates: {} picks gated at the pick (HELD{}, away), {} turned away by DAY at the row, {} by HELD at the row (divert sampling (i){})\n", ctl.picks_gated, if ctl.held_at_divert { " not read there" } else { "" }, ctl.picks_day, ctl.picks_held_at_divert, if ctl.held_at_divert { "" } else { ": off" }));
+            s.push_str(&format!("  the picker's gates: {} picks gated at the pick (HELD{} {}, away {}, a picked cart not yet routed {}), {} launches with the lane's pocket empty (no pick), {} turned away by DAY at the row, {} by HELD at the row (divert sampling (i){})\n", ctl.picks_gated, if ctl.held_at_divert { " not read there" } else { "" }, ctl.gated_by[0], ctl.gated_by[1], ctl.gated_by[2], ctl.picks_empty, ctl.picks_day, ctl.picks_held_at_divert, if ctl.held_at_divert { "" } else { ": off" }));
             // (day-1 22:06) the counter's log, for its release-by-release comparison
             s.push_str(&format!("  the counter's log (day:C at each release; the RISE / EIGHT loads; picks only inside C 141..221): {}\n", ctl.counter_log.join(" ")));
         }
@@ -3940,9 +4017,72 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 s.push_str(&format!(
                     "  (b) one napper in flight (ironspec 19:29: one from its pick to the queue's departure): {} picks, {nb} while another was in flight{} (bar 0: {})\n",
                     ctl.pick_log.len(),
-                    fb.map_or(String::new(), |f| format!(", the first: {f}")),
+                    fb.as_ref().map_or(String::new(), |f| format!(", the first: {f}")),
                     if nb == 0 { "PASS" } else { "FAIL" }
                 ));
+                // (ironspec 22:56 / 22:58 PT, the loud bars) the park braked at every arrival; no
+                // riderless cart past A6's R; no napper held in A6 past the class-b bound (the end of
+                // the REST after the one it entered in); each failure with its first-bad-event trace
+                let unbraked: Vec<&(i64, bool, Option<u32>)> = park_arrivals.iter().filter(|p| !p.1).collect();
+                s.push_str(&format!(
+                    "  A6's park at every arrival (ironspec 22:56 PT: braked, its slope (1,y+1,-5) / (0,y,-5) unpowered, or it fails): {} arrivals ({} with a napper aboard), unbraked {}{} (bar 0: {})\n",
+                    park_arrivals.len(),
+                    park_arrivals.iter().filter(|p| p.2.is_some()).count(),
+                    unbraked.len(),
+                    unbraked.first().map_or(String::new(), |p| format!(", the first t {}", p.0)),
+                    if unbraked.is_empty() { "PASS" } else { "FAIL" }
+                ));
+                s.push_str(&format!(
+                    "  riderless carts past A6's R (ironspec 22:56 PT: by design none leaves A6): {}{} (bar 0: {})\n",
+                    riderless_r.len(),
+                    riderless_r.first().map_or(String::new(), |(t, c)| format!(", the first t {t} (cart {c})")),
+                    if riderless_r.is_empty() { "PASS" } else { "FAIL" }
+                ));
+                let mut held: Vec<(i64, String)> = Vec::new();
+                for (rid, r) in recs.iter().filter(|(id, _)| nappers.iter().any(|n| n.0 == **id)) {
+                    let Some(te) = r.milestones.iter().find(|(m, _)| m == "at A6's entry").map(|(_, t)| *t) else { continue };
+                    let d = (o.day0 + te).rem_euclid(24_000);
+                    let bound = te + (24_000 - d) + if d >= 12_000 { 24_000 } else { 0 };
+                    let at_r = r.milestones.iter().find(|(m, t)| m == "at R" && *t >= te).map(|(_, t)| *t);
+                    let late = match at_r {
+                        Some(tr) => tr > bound,
+                        None => o.ticks > bound,
+                    };
+                    if late {
+                        held.push((bound, format!("{} entered t {te}, bound t {bound}, at R {}", name(*rid), at_r.map_or("never".to_string(), |t| format!("t {t}")))));
+                    }
+                }
+                held.sort();
+                s.push_str(&format!(
+                    "  a napper held in A6 past the class-b bound (ironspec 22:58 PT: R by the end of the REST after the one it entered in): {}{} (bar 0: {})\n",
+                    held.len(),
+                    held.first().map_or(String::new(), |(_, h)| format!(", the first: {h}")),
+                    if held.is_empty() { "PASS" } else { "FAIL" }
+                ));
+                // the first-bad-event traces, printed on every failed bar above: the drive events of
+                // the 400 gt before its first failure
+                let lead = |f: &str| -> Option<i64> { f.strip_prefix("t ").and_then(|r| r.split(':').next()).and_then(|n| n.trim().parse().ok()) };
+                let mut firsts: Vec<(&str, i64)> = Vec::new();
+                if let Some((t, _)) = stop_two.as_ref() {
+                    firsts.push(("(a2) two nappers in the stop", *t));
+                }
+                if let Some(t) = fb.as_deref().and_then(lead) {
+                    firsts.push(("(b) one napper in flight", t));
+                }
+                if let Some(p) = unbraked.first() {
+                    firsts.push(("A6's park unbraked at an arrival", p.0));
+                }
+                if let Some((t, _)) = riderless_r.first() {
+                    firsts.push(("a riderless cart past A6's R", *t));
+                }
+                if let Some((t, _)) = held.first() {
+                    firsts.push(("a napper held in A6 past the class-b bound", *t));
+                }
+                for (bar, t) in firsts {
+                    let evs: Vec<&String> = ctl.nap_events.iter().filter(|e| lead(e).is_some_and(|n| n >= t - 400 && n <= t)).collect();
+                    let tail: Vec<String> = evs.iter().rev().take(30).rev().map(|e| e.to_string()).collect();
+                    s.push_str(&format!("  the first-bad-event trace of \"{bar}\" (t {t}; the drive events of the 400 gt before it): {}\n", if tail.is_empty() { "none".to_string() } else { tail.join("; ") }));
+                }
             }
             // (each napper's PRESENT_l set against its predecessor's D pass: the predecessor must
             // pass its siding's D before the next PRESENT)
