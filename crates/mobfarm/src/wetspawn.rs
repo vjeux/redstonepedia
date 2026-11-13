@@ -345,6 +345,10 @@ pub struct Site {
     pub biomes: Vec<String>,
     pub sea_level: i32,
     pub y0: (i32, i32),
+    /// (ironspec Nov 13 12:52 (f) on d9ec61312) `open_sky=yes`: the site declares the module under
+    /// the open sky, so its own sky light stands; otherwise a darkness rule (the glow squid's raw
+    /// brightness 0) takes sky 0: an underground build darkens it (the conservative reading).
+    pub open_sky: bool,
 }
 
 /// The nether's and the end's biomes (the overworld: every other row of 26.3's biome table).
@@ -365,7 +369,7 @@ impl Site {
     /// or the `--site` flag): `overworld` every overworld biome, `!id` excluded; `y0=A..B` (or
     /// `A..`: up to the build limit) the module's y 0 at absolute A..B.
     pub fn parse(s: &str) -> Result<Site, String> {
-        let mut site = Site { biomes: Vec::new(), sea_level: 63, y0: (i32::MIN, i32::MIN) };
+        let mut site = Site { biomes: Vec::new(), sea_level: 63, y0: (i32::MIN, i32::MIN), open_sky: false };
         let mut include: Vec<String> = Vec::new();
         let mut exclude: Vec<String> = Vec::new();
         for part in s.split(';').map(str::trim).filter(|p| !p.is_empty()) {
@@ -386,7 +390,14 @@ impl Site {
                     let b: i32 = if b.trim().is_empty() { 320 } else { b.trim().parse().map_err(|e| format!("site y0 {v}: {e}"))? };
                     site.y0 = (a.min(b), a.max(b));
                 }
-                other => return Err(format!("site: unknown key {other} (biomes, sea_level, y0)")),
+                "open_sky" => {
+                    site.open_sky = match v.trim() {
+                        "yes" | "true" => true,
+                        "no" | "false" => false,
+                        other => return Err(format!("site open_sky {other}: yes or no")),
+                    }
+                }
+                other => return Err(format!("site: unknown key {other} (biomes, sea_level, y0, open_sky)")),
             }
         }
         if site.y0.0 == i32::MIN {
@@ -523,7 +534,11 @@ pub fn site_scan_with(spec: &FarmSpec, wet_cells: &[BlockPos], declared: &[(Bloc
         runs.push(format!("({},{}..{},{}) sky {s} block {bl} night {} thunder {}", p.x, p.y, q.y, p.z, (s - 11).max(bl).max(0), (s - 10).max(bl).max(0)));
         i = j + 1;
     }
-    lines.push(format!("  light as composed (the module alone under the open sky): {}", runs.join("; ")));
+    lines.push(format!(
+        "  light as composed (the module alone under the open sky): {}{}",
+        runs.join("; "),
+        if site.open_sky { "; the site declares the open sky (open_sky=yes): these sky values stand" } else { "; no open sky declared: the darkness rules (raw brightness 0) take sky 0 (ironspec 12:52 (f): an underground build darkens it)" }
+    ));
     let mut failing = 0usize;
     // (the heights that keep the module in the overworld: y -64..319)
     let (y0_min, y0_max) = (-64 - spec.lo.y, 319 - spec.hi.y);
@@ -558,7 +573,9 @@ pub fn site_scan_with(spec: &FarmSpec, wet_cells: &[BlockPos], declared: &[(Bloc
                     let all = (i32::MIN / 4, i32::MAX / 4);
                     let (tests, band) = match rule {
                         "drowned" => (water(&below) && water(p) && blk == 0, if river { all } else { (all.0, sea - 6 - p.y) }),
-                        "glow_squid" => (water_block(p) && sky == 0 && blk == 0, (all.0, sea - 33 - p.y)),
+                        // (ironspec 12:52 (f): the darkness rule's sky is 0 unless the site declares
+                        // the open sky: an underground build darkens it)
+                        "glow_squid" => (water_block(p) && (if site.open_sky { sky } else { 0 }) == 0 && blk == 0, (all.0, sea - 33 - p.y)),
                         "surface" => (water(&below) && water_block(&above), (sea - 13 - p.y, sea - p.y)),
                         // (tick-exact Nov 13 03:57: IN_WATER; water fluid below, the WATER block
                         // itself above (a bubble column, a waterlogged block or air fails), sea level
@@ -718,7 +735,9 @@ mod tests {
             (b(3, 2, 0), "minecraft:bubble_column[drag=false]"),
         ]);
         assert!(!matches!(Block::parse("minecraft:bubble_column[drag=false]").unwrap(), Block::Water { .. }), "a bubble column is not the WATER block");
-        let at = |y0: i32| Site::parse(&format!("biomes=minecraft:ocean; sea_level=63; y0={y0}..{y0}")).unwrap();
+        // (an open-sky column: the site declares it, so the glow squid's darkness rule reads the
+        // column's own sky light, ironspec 12:52 (f))
+        let at = |y0: i32| Site::parse(&format!("biomes=minecraft:ocean; sea_level=63; y0={y0}..{y0}; open_sky=yes")).unwrap();
         // (the cells (0,1,0) and (3,1,0) at y 53 = sea level - 10)
         let (l, _) = site_scan(&spec, &[], &[], &at(52)).unwrap();
         let row = l.iter().find(|x| x.starts_with("  FAIL minecraft:ocean")).unwrap_or_else(|| panic!("{l:?}"));
@@ -796,7 +815,8 @@ mod tests {
             cells.push((b(x, y, z), "minecraft:glass"));
         }
         let spec = spec_of(&cells);
-        let ocean = Site::parse("biomes=minecraft:ocean; sea_level=63; y0=60..60").unwrap();
+        // (an open-sky module: declared, so the darkness rules read its own sky light)
+        let ocean = Site::parse("biomes=minecraft:ocean; sea_level=63; y0=60..60; open_sky=yes").unwrap();
         let (s, _, diffs, _) = settled_spec(&spec).unwrap();
         assert!(diffs.iter().any(|d| d.starts_with("0,1,0 air -> water")), "the settle makes the current: {diffs:?}");
         let (l, n) = site_scan(&s, &[], &[], &ocean).unwrap();
@@ -804,6 +824,29 @@ mod tests {
         let (lf, n_file) = site_scan(&spec, &[], &[], &ocean).unwrap();
         // (on the file's blocks the current is air: no water block above, no candidate)
         assert!(n_file == 0 && !lf.iter().any(|x| x.contains("squid")), "{lf:?}");
+    }
+
+    /// (ironspec Nov 13 12:52 (f), the darkness rule's sky) An open water column low enough for
+    /// the glow squid (y <= sea level - 33): under a declared open sky its sky light keeps the glow
+    /// squid out; without the declaration the scan takes sky 0 (an underground build darkens it)
+    /// and lists it.
+    #[test]
+    fn glow_squid_takes_sky_zero_without_open_sky() {
+        let b = |x, y, z| BlockPos::new(x, y, z);
+        let mut cells = vec![(b(0, 0, 0), "minecraft:water[level=0]"), (b(0, 1, 0), "minecraft:water[level=0]"), (b(0, 2, 0), "minecraft:water[level=0]"), (b(0, -1, 0), "minecraft:glass")];
+        for y in 0..=2 {
+            for (x, z) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
+                cells.push((b(x, y, z), "minecraft:glass"));
+            }
+        }
+        let column = spec_of(&cells);
+        let (s, _, _, _) = settled_spec(&column).unwrap();
+        let dark = Site::parse("biomes=minecraft:ocean; sea_level=63; y0=10..10").unwrap();
+        let (ld, _) = site_scan(&s, &[], &[], &dark).unwrap();
+        assert!(ld.iter().any(|x| x.starts_with("  FAIL minecraft:ocean") && x.contains("glow_squid")) && ld.iter().any(|x| x.contains("no open sky declared")), "{ld:?}");
+        let open = Site::parse("biomes=minecraft:ocean; sea_level=63; y0=10..10; open_sky=yes").unwrap();
+        let (lo, _) = site_scan(&s, &[], &[], &open).unwrap();
+        assert!(!lo.iter().any(|x| x.starts_with("  FAIL minecraft:ocean") && x.contains("glow_squid")) && lo.iter().any(|x| x.contains("open_sky=yes")), "{lo:?}");
     }
 
     /// (ironspec Nov 12 22:36) The site evaluation: a dark water column (water below and at, block

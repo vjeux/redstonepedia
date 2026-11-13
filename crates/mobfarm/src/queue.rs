@@ -1992,12 +1992,22 @@ pub fn settled_junctions(spec: &FarmSpec) -> Result<Vec<([i32; 3], redsim::block
 /// Both power states are printed for each junction; with `print_all` every junction is printed, a
 /// failing one with its verdict (ironspec Nov 12 16:17).
 pub fn junction_gate_opts(spec: &FarmSpec, design_text: &str, print_all: bool) -> (String, bool) {
+    let (text, failed, _) = junction_gate_counted(spec, design_text, print_all);
+    (text, failed)
+}
+
+/// (ironspec Nov 13 12:52 (b) on d9ec61312) [`junction_gate_opts`] with its sample count, the
+/// junctions judged, returned (the caller no longer parses it back out of the printed text).
+pub fn junction_gate_counted(spec: &FarmSpec, design_text: &str, print_all: bool) -> (String, bool, usize) {
     let o = RunOpts { ai: false, ..RunOpts::steady(1, 0, WalkMode::Random) };
     // (a part with no bed is built homeless, so its junctions are checked too, ironspec Nov 11 16:03)
     let built = if spec.has_bed() { Run::new(spec, &o) } else { Run::new_homeless(spec, &o) };
     let w = match built {
         Ok(r) => r.world,
-        Err(e) => return cant_run("rail junctions", "junctions", &e, design_text),
+        Err(e) => {
+            let (t, f) = cant_run("rail junctions", "junctions", &e, design_text);
+            return (t, f, 0);
+        }
     };
     let letter = |d: &redsim::pos::Dir| match d {
         redsim::pos::Dir::North => 'N',
@@ -2117,7 +2127,7 @@ pub fn junction_gate_opts(spec: &FarmSpec, design_text: &str, print_all: bool) -
         b
     };
     body.extend(flags.iter().map(|f| format!("FLAG {f}")));
-    (format!("{head}{}", body.iter().map(|l| format!("\n  {l}")).collect::<String>()), !bad.is_empty())
+    (format!("{head}{}", body.iter().map(|l| format!("\n  {l}")).collect::<String>()), !bad.is_empty(), all.len())
 }
 
 /// `junction_gate_opts`, printing the failing junctions only (every one when none fails).

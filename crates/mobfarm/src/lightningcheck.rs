@@ -34,6 +34,15 @@ pub struct Opts {
 /// rod's reach) and the samples (the farm entities judged; 0 when no entity or no strike column:
 /// NOT JUDGED, ironspec Nov 12 23:56).
 pub fn check(spec: &FarmSpec, o: &Opts) -> Result<(Vec<String>, usize, usize), String> {
+    check_parts(spec, o).map(|(l, ef, es, rf, _)| (l, ef + rf, es))
+}
+
+/// (G1 Nov 13 12:52, R1) [`check`] split into its two bars: the ENTITY bar (the bolts' hits on
+/// farm entities and their fires, over the farm entities judged) and the ROD bar (a redstone part
+/// in a struck rod's reach, over the design's rods): a rod's finding needs no farm entity, so it
+/// never hides behind an entity bar with 0 samples. Returns the lines, the entity bar's fails and
+/// samples, the rod bar's fails and samples.
+pub fn check_parts(spec: &FarmSpec, o: &Opts) -> Result<(Vec<String>, usize, usize, usize, usize), String> {
     let run = if spec.has_bed() { Run::new(spec, &RunOpts::steady(0, 0, WalkMode::Random)) } else { Run::new_homeless(spec, &RunOpts::steady(0, 0, WalkMode::Random)) }?;
     // (ironspec Nov 13 00:27 (A): the positive control plants the defect in what the row reads, a
     // design copy without its rod, through this same path: no flag removes cells here; G1 02:23
@@ -233,7 +242,7 @@ pub fn check(spec: &FarmSpec, o: &Opts) -> Result<(Vec<String>, usize, usize), S
     for r in &reach {
         lines.push(format!("  ROD-REACH {r}"));
     }
-    Ok((lines, findings, samples))
+    Ok((lines, hits.len() + fires.len(), samples, reach.len(), rods0.len()))
 }
 
 #[cfg(test)]

@@ -2079,6 +2079,34 @@ mod eye_tests {
         assert!(n3 == 0 && l3.iter().any(|x| x.starts_with("  PARTIAL 1,2,0 smooth_stone_slab")), "{l3:?}");
     }
 
+    /// (G1 Nov 13 12:52, S3's control) The outside is FLOODED from the box's exterior, never taken
+    /// as the bounding box: an L-shaped glass module whose notch holds a rider's rail far from every
+    /// box face (5 cells sideways, 3 up: beyond a wind charge's reach) is EXPOSED through the notch's
+    /// own air, the outside's reach into the box.
+    #[test]
+    fn burst_exposure_notch_is_outside() {
+        let b = |x, y, z| redsim::pos::BlockPos::new(x, y, z);
+        let mut cells: Vec<(redsim::pos::BlockPos, &str)> = vec![(b(6, 0, 6), "minecraft:stone"), (b(6, 1, 6), "minecraft:rail[shape=north_south,waterlogged=false]")];
+        for y in 0..=3 {
+            for i in 0..=10 {
+                for j in 0..=1 {
+                    cells.push((b(i, y, j), "minecraft:glass"));
+                    cells.push((b(j, y, i), "minecraft:glass"));
+                }
+            }
+        }
+        cells.sort_by_key(|(p, _)| (p.x, p.y, p.z));
+        cells.dedup_by_key(|(p, _)| *p);
+        let blocks = cells.iter().map(|(p, s)| (*p, redsim::block::Block::parse(s).unwrap())).collect();
+        // (the world's box wide enough for the L; the output chest inside the glass mass's corner
+        // cell, so the shell box stays the L's bounds)
+        let spec = redsim::entity::mob::farm::FarmSpec { blocks, entities: Vec::new(), output: b(0, 0, 0), lo: b(-4, -2, -4), hi: b(14, 7, 14), block_entities: Vec::new(), rock: false, nether: None, land: false };
+        let (l, n) = super::burst_exposure(&spec, &[]).unwrap();
+        // (the nearest outside air is the notch's own, within a player's charge (2.4); a bounding-box
+        // inside would put it beyond the box's faces, 3 or more away)
+        assert!(n >= 1 && l.iter().any(|x| x.starts_with("  EXPOSED 6,1,6 (rail)") && x.contains("a player's wind charge (2.4)")), "the notch's air is outside: {l:?}");
+    }
+
     /// (G1 Nov 13 04:52, burst-exposure's positive control through its own path) A rider's rail in
     /// the open, with outside air within reach, is EXPOSED (FAIL); the same rail sealed in a glass
     /// box (walls, roof and floor) has no clear COLLIDER line out (PASS).
@@ -3189,15 +3217,35 @@ pub fn sensor_at(spec: &FarmSpec, points: &[Vec3], exclude: &[([i32; 3], [i32; 3
     // model (a husk's eye, a raft's seat) is never assumed)
     let mut hostiles: Vec<(String, String, Vec3, Vec3, Option<BlockPos>)> = Vec::new();
     let mut unjudged: Vec<String> = Vec::new();
-    let passenger_of = |n: &str| -> Option<String> {
-        let at = n.find("id:\"")? + 4;
-        let end = n[at..].find('"')? + at;
-        Some(n[at..end].to_string())
+    let mut ignored: Vec<String> = Vec::new();
+    // (G1 Nov 13 12:52 (e): every passenger a vehicle's NBT holds, in order (an `id:"…"` naming
+    // a mob; an item's id names none), so a second rider or a rider the sensor ignores is never
+    // dropped silently)
+    let passengers_of = |n: &str| -> Vec<String> {
+        let mut out = Vec::new();
+        let mut rest = n;
+        while let Some(at) = rest.find("id:\"") {
+            let tail = &rest[at + 4..];
+            let Some(end) = tail.find('"') else { break };
+            let id = &tail[..end];
+            if MobType::from_id(id).is_some() || hostile_range(id).is_some() {
+                out.push(id.to_string());
+            }
+            rest = &tail[end..];
+        }
+        out
     };
     for (k, p, nbt) in &spec.entities {
         let n = nbt.as_deref().unwrap_or("");
         let vehicle = k.ends_with("_boat") || k.ends_with("_raft");
-        let rider = if vehicle { passenger_of(n) } else { None };
+        let riders = if vehicle { passengers_of(n) } else { Vec::new() };
+        for (seat, id) in riders.iter().enumerate().filter(|(_, id)| hostile_range(id).is_none()) {
+            ignored.push(format!("the {} in the {} at {:.2},{:.2},{:.2} (seat {seat}): not a hostile the villager sensor senses (ignored)", id.trim_start_matches("minecraft:"), k.trim_start_matches("minecraft:"), p[0], p[1], p[2]));
+        }
+        for (seat, id) in riders.iter().enumerate().filter(|(s, id)| *s > 0 && hostile_range(id).is_some()) {
+            unjudged.push(format!("NOT JUDGED the {} in the {} at {:.2},{:.2},{:.2}: seat {seat} (a second rider's seat) is not modelled (FAILS)", id.trim_start_matches("minecraft:"), k.trim_start_matches("minecraft:"), p[0], p[1], p[2]));
+        }
+        let rider = riders.first().cloned();
         if let Some(id) = rider.filter(|id| hostile_range(id).is_some()) {
             let short = id.trim_start_matches("minecraft:").to_string();
             let ty = match short.as_str() {
@@ -3244,6 +3292,7 @@ pub fn sensor_at(spec: &FarmSpec, points: &[Vec3], exclude: &[([i32; 3], [i32; 3
     )];
     let mut sensed: Vec<usize> = Vec::new();
     lines.extend(unjudged.iter().map(|u| format!("  {u}")));
+    lines.extend(ignored.iter().map(|u| format!("  {u}")));
     for (i, (label, id, feet, eye, _)) in hostiles.iter().enumerate() {
         let range = hostile_range(id).unwrap_or(0.0);
         let mut rows: Vec<String> = Vec::new();
@@ -4759,6 +4808,13 @@ pub fn exterior_spawns(spec: &FarmSpec, biome: &'static str) -> Result<(Vec<Stri
 /// a monster needs block light 0, and at night the sky always passes the brightness draw), else
 /// every cell is taken as dark (the void models no light: the conservative bound). Returns the
 /// lines and the interior and exterior spawnable counts (each bar 0).
+///
+/// NOTES (G1 Nov 13 12:40 (a)): the light is `max(sun::emission, the game table's luminance)`; an
+/// emitter in neither table counts 0 (redsim's `sun::emission` lacks the plain torch, cc767b78's
+/// list): an UNDER-credit, conservative here because light only stops a spawn. A static where
+/// light would HELP a hostile (none today) must not reuse this light as it stands. (An earlier
+/// "occluding emitter lights nothing" report was a fixture error, withdrawn: the output chest had
+/// overwritten the emitter; redsim's engine carries a floor emitter's light, cc767b78 12:50.)
 pub fn spawn_static(spec: &FarmSpec, biome: &'static str, lit: bool) -> Result<(Vec<String>, usize, usize), String> {
     if redsim::terrain::biome::biome(biome).is_none() {
         return Err(format!("the site biome {biome}: no such biome in redsim's table"));
@@ -4787,6 +4843,7 @@ pub fn spawn_static(spec: &FarmSpec, biome: &'static str, lit: bool) -> Result<(
     inner.dedup();
     let mut lit_off = 0usize;
     let mut marginal: Vec<(BlockPos, i32)> = Vec::new();
+    let mut portal_lit: Vec<BlockPos> = Vec::new();
     let emit_cache: std::cell::RefCell<HashMap<redsim::block::Block, i32>> = std::cell::RefCell::new(HashMap::new());
     let mut test = |cells: &[BlockPos]| -> Result<Vec<(BlockPos, Vec<&'static str>, i32)>, String> {
         let mut hits = Vec::new();
@@ -4831,6 +4888,18 @@ pub fn spawn_static(spec: &FarmSpec, biome: &'static str, lit: bool) -> Result<(
                 if light <= 2 {
                     marginal.push((*p, light));
                 }
+                // (G1 Nov 13 12:32 (b): a cell only the portals light is spawn-proof only while
+                // they burn: the same light without any nether portal's emission)
+                let no_portal = |b: &redsim::block::Block| -> i32 {
+                    let is_portal = match b {
+                        redsim::block::Block::Terrain(id) => redsim::terrain::blocks::props(*id).name.starts_with("minecraft:nether_portal"),
+                        _ => false,
+                    };
+                    if is_portal { 0 } else { emission(b) }
+                };
+                if redsim::daylight::block_light_from(&w, *p, 1, &no_portal)? == 0 {
+                    portal_lit.push(*p);
+                }
                 continue;
             }
             hits.push((*p, kinds, light));
@@ -4857,6 +4926,13 @@ pub fn spawn_static(spec: &FarmSpec, biome: &'static str, lit: bool) -> Result<(
     }
     for (p, light) in &marginal {
         lines.push(format!("  MARGINAL {},{},{}: cleared by block light {light} only (ironspec 11:31: a game light read, or spawn-proof it)", p.x, p.y, p.z));
+    }
+    if !portal_lit.is_empty() {
+        lines.push(format!(
+            "  PORTAL-LIT ({} cell(s)): spawn-proof by portal light 11 only; if a portal is out, spawnable (G1 12:32 (b): the build lights the portals first; a torch per cell is the permanent alternative): {}",
+            portal_lit.len(),
+            portal_lit.iter().map(|p| format!("{},{},{}", p.x, p.y, p.z)).collect::<Vec<_>>().join(" ")
+        ));
     }
     Ok((lines, in_hits.len(), out_hits.len()))
 }
@@ -7666,6 +7742,43 @@ mod gate_tests {
         assert!(f10 == 1 && l10.iter().any(|x| x.contains("FAIL T 0,1,0") && x.contains("SHAPE MISMATCH, stored north_east")), "{l10:?}");
     }
 
+    /// (G1 Nov 13 12:52 (e)) sensor-at's riders: a boat holding a pillager and a zombie is judged
+    /// at its first seat and its second rider FAILS as NOT JUDGED (the seat unmodelled); a boat
+    /// holding a skeleton is printed as ignored (not a sensor hostile), never dropped silently;
+    /// the samples count the judged hostiles only (points × 1).
+    #[test]
+    fn sensor_at_names_every_rider() {
+        let b = |x, y, z| redsim::pos::BlockPos::new(x, y, z);
+        let p = |s: &str| redsim::block::Block::parse(s).unwrap();
+        let mut blocks = Vec::new();
+        for x in -4..=4 {
+            for z in -4..=4 {
+                blocks.push((b(x, 0, z), p("minecraft:stone")));
+            }
+        }
+        let boat = |pass: &str| Some(format!("{{Passengers:[{pass}]}}"));
+        let spec = redsim::entity::mob::farm::FarmSpec {
+            blocks,
+            entities: vec![
+                ("minecraft:oak_boat".to_string(), [2.5, 1.0, 0.5], boat("{id:\"minecraft:pillager\",HandItems:[{id:\"minecraft:crossbow\",count:1}]},{id:\"minecraft:zombie\"}")),
+                ("minecraft:oak_boat".to_string(), [-2.5, 1.0, 0.5], boat("{id:\"minecraft:skeleton\"}")),
+            ],
+            output: b(4, 1, 4),
+            lo: b(-5, -1, -5),
+            hi: b(5, 4, 5),
+            block_entities: Vec::new(),
+            rock: false,
+            nether: None,
+            land: false,
+        };
+        let points = [redsim::entity::Vec3::new(0.5, 1.0, 0.5)];
+        let (l, samples, fails) = super::sensor_at(&spec, &points, &[], &[], &[], &[]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(samples == 1, "the judged pillager only: {l:?}");
+        assert!(fails >= 1 && l.iter().any(|x| x.contains("NOT JUDGED the zombie in the oak_boat") && x.contains("seat 1")), "{l:?}");
+        assert!(l.iter().any(|x| x.contains("the skeleton in the oak_boat") && x.contains("ignored")), "{l:?}");
+        assert!(!l.iter().any(|x| x.contains("crossbow")), "an item's id names no rider: {l:?}");
+    }
+
     /// (ironspec Nov 13 08:18 (e): the exterior static's control) A stone platform floating in the
     /// void spawns monsters on its top at night (cells listed, the bar fails); a glass platform
     /// spawns none.
@@ -7735,6 +7848,16 @@ mod gate_tests {
         assert!(glass.is_empty(), "a glass floor: no C1: {glass:?}");
         // (an unknown biome is refused, never a silent empty list)
         assert!(super::void_exposures(&room("minecraft:stone"), "minecraft:no_such_biome").is_err());
+        // (G1 12:32 (a): the LIT model's positive control: the dark stone room's floor spawns under
+        // --lit too (INSIDE, failing); a torch on its floor clears it)
+        let (ld, inside_d, _) = super::spawn_static(&room("minecraft:stone"), "minecraft:plains", true).unwrap_or_else(|e| panic!("{e}"));
+        assert!(inside_d > 0 && ld.iter().any(|x| x.contains("SPAWNABLE INSIDE")), "{ld:?}");
+        let mut lit_room = room("minecraft:stone");
+        lit_room.blocks.retain(|(q, _)| *q != b(1, 1, 1));
+        lit_room.blocks.push((b(1, 1, 1), redsim::block::Block::parse("minecraft:torch").unwrap()));
+        let (lt, inside_t, _) = super::spawn_static(&lit_room, "minecraft:plains", true).unwrap_or_else(|e| panic!("{e}"));
+        // (a plain torch: its 14 comes from the game's block table, the sun table has none)
+        assert!(inside_t == 0, "a torch on the floor lights the room: {lt:?}");
     }
 
     /// (ironspec Nov 13 06:18 platform (2)) flee-check's own controls bite on this build.
