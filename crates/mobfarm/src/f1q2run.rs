@@ -3630,7 +3630,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         // count unchanged.
         if o.k_misroute_control && kmis.is_none() && rel >= 1_000 {
             let w = &mut run.world;
-            let hit = w.entities.list.iter().find(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && cell(e.pos) == [0, 25, 9] && e.delta_movement.x > 0.0 && e.passengers.first().is_some_and(|r| nappers.iter().any(|(v, nk, _)| v == r && *nk == 2))).map(|e| e.id);
+            let hit = w.entities.list.iter().find(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && cell(e.pos) == [0, 25, 9] && e.delta_movement.x > 0.0 && e.passengers.first().is_some_and(|r| nappers.iter().rev().find(|(v, _, _)| v == r).is_some_and(|(_, nk, _)| *nk == 2))).map(|e| e.id);
             if let Some(id) = hit {
                 let s0 = w.get(redsim::pos::BlockPos::new(1, 26, 9)).to_string();
                 // (G1's P5) act only on K(3)'s lever OFF (never a silent no-op), read the write back
@@ -6307,7 +6307,9 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             for (v, k, _) in &nappers {
                 last_lane.insert(*v, *k);
             }
-            let away: [i64; 3] = [0usize, 1, 2].map(|k| last_lane.iter().filter(|(v, kk)| **kk == k && recs.get(v).is_some_and(|r| !r.milestones.is_empty() && !r.milestones.iter().any(|(m, _)| m == "back in its lane"))).count() as i64);
+            // (G1 X3 / B8 U14) away from the pick itself until "back in its lane": a napper picked with
+            // no milestone yet (panicking, no stamp) counts as away too
+            let away: [i64; 3] = [0usize, 1, 2].map(|k| last_lane.iter().filter(|(v, kk)| **kk == k && recs.get(v).is_some_and(|r| !r.milestones.iter().any(|(m, _)| m == "back in its lane"))).count() as i64);
             for k in 0..3 {
                 occ_min[k] = occ_min[k].min(full[k] - away[k]);
                 away_max[k] = away_max[k].max(away[k]);
@@ -6386,7 +6388,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 let foreign = if on {
                     w.entities.list.iter().find(|e| {
                         let c = cell(e.pos);
-                        !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && c[1] == 25 && c[2] == 9 && e.passengers.first().is_some_and(|r| nappers.iter().any(|(v, nk, _)| v == r && *nk != k))
+                        !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && c[1] == 25 && c[2] == 9 && e.passengers.first().is_some_and(|r| nappers.iter().rev().find(|(v, _, _)| v == r).is_some_and(|(_, nk, _)| *nk != k))
                     }).map(|e| (e.id, cell(e.pos)))
                 } else {
                     None
@@ -6467,7 +6469,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                         Some(_) => "batch",
                         None => "empty",
                     };
-                    let lane = e.passengers.first().and_then(|r| nappers.iter().find(|(v, _, _)| v == r).map(|(_, k, _)| *k));
+                    let lane = e.passengers.first().and_then(|r| nappers.iter().rev().find(|(v, _, _)| v == r).map(|(_, k, _)| *k));
                     let d = e.delta_movement;
                     let stored = (d.x * d.x + d.z * d.z).sqrt();
                     junction_passes.push((rel, c, class, lane, stored));
@@ -6502,7 +6504,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                             napper_drops += 1;
                         }
                         if let Some(r) = e.passengers.first()
-                            && let Some((_, nk, _)) = nappers.iter().find(|(v, _, _)| v == r)
+                            && let Some((_, nk, _)) = nappers.iter().rev().find(|(v, _, _)| v == r)
                             && *nk != k
                         {
                             napper_wrong_lane.push(format!("t {rel}: napper #{r} of lane x {} (cart #{}) dropped into lane x {x}; its split turns: {}", LANES[*nk], e.id, split_turns(e.id, rel, &cart_entries, &t_changes, &t_shapes0, &lever_hist)));
@@ -6676,7 +6678,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     && let Some(e) = w.entities.list.iter().find(|e| {
                         let c = cell(e.pos);
                         let d = e.delta_movement;
-                        !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && (c == [*x, 23, 6] || c == [*x, 24, 6] || c == [*x, 24, 7]) && d.x * d.x + d.y * d.y + d.z * d.z < 0.003 * 0.003
+                        !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && (c == [*x, 23, 6] || c == [*x, 24, 6] || c == [*x, 24, 7] || c == [*x, 24, 8]) && d.x * d.x + d.y * d.y + d.z * d.z < 0.003 * 0.003
                     })
                 {
                     let c = cell(e.pos);
@@ -6794,7 +6796,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                                 let rider = w.entities.list.iter().find(|f| f.id == id).and_then(|f| f.passengers.first().copied());
                                 let who = match rider {
                                     None => "empty".to_string(),
-                                    Some(r) => match nappers.iter().find(|(v, _, _)| *v == r) {
+                                    Some(r) => match nappers.iter().rev().find(|(v, _, _)| *v == r) {
                                         Some((_, nk, _)) => format!("napper #{r} of lane x {}", LANES[*nk]),
                                         None => format!("batch #{r}"),
                                     },
@@ -9003,7 +9005,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             }
         }
         format!(
-            "{s}the per-lane cart count (G1 10:24 (a) / 10:47 blocking 3, the conservation premise under order routing, over D4's region: every cart in the lane's pocket P (x,0,0), on its rails H / R_1 / slopes, in its drop column (x,23..24,6) or at C (x,24,7) / D (x,24,8), every tick; a 9th FAILS): {} ({}){}\n  the tail never past V (G1 10:47 blocking 3: V = (x,22,6), the lane's top slope cell, the queue's 8th place: a cart at rest in the drop column or at C while V holds a cart FAILS): {} ({})\n  the cascade's seeds (G1 10:24: a cart off its rail in the drop region (x,24,6) / (x,23,6) for 1 gt or more while another cart is at C or D; information, the lip fix's target 0): {}{}\n  the drop region's denominator (ironspec 10:29 (3): per lane the drop passes (the drop cell into the column), the off-rail rests there (>= 10 gt), the C deflections (C west into c3 by any cart but a napper's) and the cascade's seeds, each a rate per pass with its 95% upper bound (Wilson)): {}\n  the C deflections (bar 0, ironspec 10:29 (2): no cart but the napper leaves C westward): {} ({}){}\nthe carts at rest off the rails (ironspec 10:04 / 10:06, G1 10:04 (d): every drop lip and every other cell; no rail in the cart's cell or the one below, its motion under 0.003 a tick for 10 gt or more; bar 0): {} ({}){}\n  the carts off the rails while moving (information: the drop columns' falls), cart-ticks per cell: {}\n  the carts on a siding's cells (x-2,25,9), (x-2,25,8), (x-2,24,7) by rider (ironspec 10:04: a batch villager there FAILS): {} ({})\n  the arrivals at each lane's C (x,24,7) (G1 10:14, information beside ironfarm's bench: speed in b/gt, spacing in gt): {}\nthe rail Ts' shapes per tick (ironspec 09:44 / 09:48, G1 09:45 (c); runtime evidence: every plain rail with 3+ rail neighbours at t0, {} Ts; a change of a declared never-switched T, the design's placement-order-ts {}, FAILS): {} changes in all; the declared Ts changed {} times ({}){}; per T: {}\n",
+            "{s}the per-lane cart count (G1 10:24 (a) / 10:47 blocking 3, the conservation premise under order routing, over D4's region: every cart in the lane's pocket P (x,0,0), on its rails H / R_1 / slopes, in its drop column (x,23..24,6) or at C (x,24,7) / D (x,24,8), every tick; a 9th FAILS): {} ({}){}\n  the tail never past V (G1 10:47 blocking 3: V = (x,22,6), the lane's top slope cell, the queue's 8th place: a cart at rest in the drop column, at C or (G1's P17) at D while V holds a cart FAILS): {} ({})\n  the cascade's seeds (G1 10:24: a cart off its rail in the drop region (x,24,6) / (x,23,6) for 1 gt or more while another cart is at C or D; information, the lip fix's target 0): {}{}\n  the drop region's denominator (ironspec 10:29 (3): per lane the drop passes (the drop cell into the column), the off-rail rests there (>= 10 gt), the C deflections (C west into c3 by any cart but a napper's) and the cascade's seeds, each a rate per pass with its 95% upper bound (Wilson)): {}\n  the C deflections (bar 0, ironspec 10:29 (2): no cart but the napper leaves C westward): {} ({}){}\nthe carts at rest off the rails (ironspec 10:04 / 10:06, G1 10:04 (d): every drop lip and every other cell; no rail in the cart's cell or the one below, its motion under 0.003 a tick for 10 gt or more; bar 0): {} ({}){}\n  the carts off the rails while moving (information: the drop columns' falls), cart-ticks per cell: {}\n  the carts on a siding's cells (x-2,25,9), (x-2,25,8), (x-2,24,7) by rider (ironspec 10:04: a batch villager there FAILS): {} ({})\n  the arrivals at each lane's C (x,24,7) (G1 10:14, information beside ironfarm's bench: speed in b/gt, spacing in gt): {}\nthe rail Ts' shapes per tick (ironspec 09:44 / 09:48, G1 09:45 (c); runtime evidence: every plain rail with 3+ rail neighbours at t0, {} Ts; a change of a declared never-switched T, the design's placement-order-ts {}, FAILS): {} changes in all; the declared Ts changed {} times ({}){}; per T: {}\n",
             (0..3).map(|k| format!("lane x {}: the most {} (first at t {}), ticks by count {}", LANES[k], lane_count_max[k].0, lane_count_max[k].1, lane_count_hist[k].iter().map(|(n, t)| format!("{n}: {t}")).collect::<Vec<_>>().join(", "))).collect::<Vec<_>>().join("; "),
             if lane_count_nine.iter().all(|t| t.is_none()) { "PASS" } else { "FAIL" },
             if lane_count_nine.iter().all(|t| t.is_none()) { String::new() } else { format!(": {}", (0..3).filter_map(|k| lane_count_nine[k].map(|t| format!("lane x {} at 9 from t {t}", LANES[k]))).collect::<Vec<_>>().join("; ")) },
