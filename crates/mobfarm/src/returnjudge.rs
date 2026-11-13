@@ -60,6 +60,34 @@ pub struct ReturnBars {
     /// presence sample on a rolling cart at E's rise fails (the brief's (c′) rests on presence only ever
     /// sampled on a cart at rest; G1's note on 67d161436).
     pub hold_required: bool,
+    /// The margin a nominal corner needs over each measured gt bar (the judge's `--margin`, 2), and the
+    /// junctions' settle (and timed clear) sides in every row (ironspec 17:20 (b): >= the bar + 2).
+    pub margin: i64,
+    /// The physical junction bars by the phase of a switch's cause (ironspec 19:08/19:14, measured and final
+    /// by tick-exact's official boundary row, 26.3, `mctas mobai t-switch`, farmopt 19:58): block-phase (a
+    /// repeater or comparator output, a detector's release, the bench's between-tick lever: 1 gt) and
+    /// entity-phase (a detector press, a box overlap: 2 gt); each switch's settle and clear >= its bar +
+    /// `margin` in every row; a cause the bench does not name takes the entity-phase bar.
+    pub junction_block_min: i64,
+    pub junction_entity_min: i64,
+    /// Day-1's junction driver (ironspec 19:38: its set and reset inputs through repeaters, an RS latch, a
+    /// driver repeater into the junction's cell): a switch caused by a detector press lands this many gt
+    /// after the press, (set edge, reset edge) = (4, 6), as a block-phase change. Applied to each per-cause
+    /// entry the bench times from the press tick (settle - L, clear + L, the block-phase bar); None: the
+    /// press entries as the bench prints them.
+    pub driver_latency: Option<(i64, i64)>,
+    /// Path (a) (ironspec 17:20 (a)): the shaft-entry napper bars retired; the napper's y-12 pass gaps
+    /// behind lane 7's cart and ahead of the next batch's first barred at `y12_nap_min` (23) in every
+    /// row, the batch carts' y-12 pairs at `y12_min`, from the bench's `path (a):` line.
+    pub path_a: bool,
+    pub y12_nap_min: i64,
+    pub y12_min: i64,
+    /// The column-order bar (ironspec 20:01, physical): lane 7's entry at y 12 at least this many gt after
+    /// the preceding cart's box fully clears the mouth cell (the bench's mouth clearance), in every row.
+    pub mouth_min: i64,
+    /// The restart rows' game-time delta bar (ironspec 20:35 / 21:47: the row's load tick): None until
+    /// the official load (cc767b78's liveness::restart with its block-only tick) is on main.
+    pub restart_delta_bar: Option<i64>,
 }
 
 /// One run's reading of the bench's text.
@@ -104,10 +132,65 @@ pub struct ReturnRead {
     pub napper_on_hold: Option<bool>,
     /// The bench's `hold release:` line ((c′), 7b90c3f1's amend), when printed.
     pub hold: Option<HoldRelease>,
+    /// The bench's `path (a):` line: the napper's y-12 pass gaps behind and ahead, the batch carts' y-12
+    /// pairs (lane 3 -> lane 7 in a batch; lane 7 -> the next batch's lane -1), the least distance
+    /// between two carts in the column.
+    pub saw_path_a: bool,
+    pub y12_behind: Option<i64>,
+    pub y12_ahead: Option<i64>,
+    pub y12_pairs: Vec<i64>,
+    /// Batch carts the path (a) line prints without a y-12 pass (`-`: never passed y 12).
+    pub y12_missing: usize,
+    /// The bench's `path (a) y-12 pairs` line: [lane -1 -> 3, 3 -> 7, 7 -> the napper, the napper -> the next
+    /// lane -1, 7 -> the next lane -1 with no napper between], the column order wrong, and the same pairs at
+    /// the exit top (the contact point; printed).
+    pub saw_y12_pairs: bool,
+    pub y12_bench: [Option<i64>; 5],
+    pub y12_order_wrong: bool,
+    pub y12_top: [Option<i64>; 4],
+    /// The bench's mouth clearance on the `path (a):` line (ironspec 20:01): the least, over the batches, of
+    /// lane 7's entry at y 12 after the preceding cart's box fully cleared the mouth cell (gt).
+    pub mouth: Option<i64>,
+    /// A restart row's game-time delta across the restart (ironspec 20:35 / 21:47: the row's load tick, 1 or
+    /// 0), as the bench prints it ("restart game-time delta N"), and a moving cart that moved across it
+    /// ("moved (cart k, delta d)"; always a failure: re-run).
+    pub restart_delta: Option<i64>,
+    pub restart_moved: Option<String>,
+    /// Each batch cart's y-12 pass after its batch's REL: from the `path (a):` line (`bB lane L +X`), keyed
+    /// (batch, lane); and each cart line's "the rider's feet at y 12.01 at N" (N after the cart's own
+    /// launch), keyed (cart index, batch, lane), for the station calibration check without path (a).
+    pub y12_rel: BTreeMap<(i64, i32), i64>,
+    pub feet12: BTreeMap<(usize, i64, i32), i64>,
+    pub col_min: Option<f64>,
+    /// The bench's `junction settle / clear` line: per junction its least settle (a switch to the first
+    /// cart needing the new state) and least clear (the last cart needing the old state to the switch),
+    /// the clear split into the timed switches and the cart-triggered ones (ironspec 18:16).
+    pub saw_settle: bool,
+    pub j_settle: BTreeMap<i32, i64>,
+    pub j_clear: BTreeMap<i32, i64>,
+    pub j_clear_cart: BTreeMap<i32, i64>,
+    /// The bench's `junction settle / clear by cause` line (ironspec 19:14): one entry per switch cause
+    /// (K(n) set / reset, J(-1) re-arm / set / reset, J(3) set / reset) with the phase of its cause and
+    /// its least settle and least clear over the run.
+    pub switches: Vec<SwitchGap>,
     pub touches: usize,
     pub pushes: usize,
     /// Per lane, the longest return (release to its branch flat, live gt).
     pub ret: BTreeMap<String, i64>,
+    /// r3's lines (7b90c3f1's 8ed397b2e): `fluid: N water cells, M fluid ticks scheduled …` (water with no
+    /// fluid tick fails); `new water after the settle (…): none | …` (any fails: the listing); `block
+    /// contacts (…; the samples: N cart-ticks checked…): …; undeclared none | …` (an undeclared cell, or 0
+    /// samples, fails); `D-on-J (…): J(x) N detector changes (the samples), the T off its power's settle
+    /// after one A, re-shaped by the update B; …` or `J(x) NOT JUDGED (0 samples: …)` (a T off its settle
+    /// fails; with path (a), a J not judged fails); the y-12 pairs line's samples, and its verdict when
+    /// the bench prints one (`; verdict: clean | WHY`).
+    pub fluid: Option<(i64, i64)>,
+    pub new_water: Option<String>,
+    pub contact_samples: Option<i64>,
+    pub contacts_undeclared: Option<String>,
+    pub dj: Vec<(String, Option<(i64, i64, i64)>)>,
+    pub y12_samples: [Option<i64>; 5],
+    pub y12_verdict: Option<String>,
     /// Lines the judge needs and did not find.
     pub missing: Vec<&'static str>,
     /// Values the judge could not read (each an error: nothing silently dropped).
@@ -160,6 +243,9 @@ pub struct HoldRelease {
     pub e_rises: Vec<i64>,
     pub fired_rises: Vec<i64>,
     pub e_within: Option<(i64, usize)>,
+    /// The fired pulses' E rises (the resets: the tick the waiting bit is reset), when printed (G1's note
+    /// on 7ef404af3, ironspec 18:01: the E rises counted in (reset, reset + k]).
+    pub resets: Vec<i64>,
 }
 
 /// The count right after `key` (spaces skipped); an error when absent or not a number.
@@ -248,15 +334,284 @@ pub fn read_hold(rest: &str, errors: &mut Vec<String>) -> HoldRelease {
     };
     h.e_rises = ticks("; E rises: ", errors);
     h.fired_rises = ticks("; fired pulse rises: ", errors);
+    h.resets = ticks("; fired E rises (resets): ", errors);
     if let Some((_, r)) = rest.split_once("E rises within ") {
         let k = r.split(' ').next().and_then(|x| x.parse::<i64>().ok());
-        let n = r.split_once("after a fired pulse: ").and_then(|(_, x)| x.split(|c: char| !c.is_ascii_digit()).next()).and_then(|x| x.parse::<usize>().ok());
+        let n = r
+            .split_once("after a fired pulse: ")
+            .or_else(|| r.split_once("after a reset: "))
+            .and_then(|(_, x)| x.split(|c: char| !c.is_ascii_digit()).next())
+            .and_then(|x| x.parse::<usize>().ok());
         match (k, n) {
             (Some(k), Some(n)) => h.e_within = Some((k, n)),
             _ => errors.push(format!("hold release: the E rises within K line unreadable: {:?}", r.chars().take(80).collect::<String>())),
         }
     }
     h
+}
+
+/// The bench's `path (a):` line (7b90c3f1's path (a); ironspec 17:20 (a)): `… y-12 passes after REL: b0 lane
+/// -1 +59, b0 lane 3 +80, b0 lane 7 +106, …, napper +133; the napper's y-12 gap behind N and ahead M; the
+/// least distance between two carts in the column D (…)`. The batch pairs: lane 3 -> lane 7 in each batch,
+/// and lane 7 -> the next batch's lane -1 (the batches 100 gt apart); with the napper between, that pair
+/// holds both its gaps, so it stays well over the bar.
+fn read_path_a(rest: &str, r: &mut ReturnRead) {
+    r.saw_path_a = true;
+    if let Some((_, list)) = rest.split_once("y-12 passes after REL: ") {
+        let list = list.split(';').next().unwrap_or("");
+        let mut by: BTreeMap<(i64, i32), i64> = BTreeMap::new();
+        for e in list.split(", ").map(str::trim).filter(|e| !e.is_empty()) {
+            if e.starts_with("napper") {
+                continue;
+            }
+            // (`bB lane L +X`, or `bB lane L -`: the cart never passed y 12 (7b90c3f1's 5ec2749b3))
+            let parts: Vec<&str> = e.split_whitespace().collect();
+            let b = parts.first().and_then(|b| b.strip_prefix('b')).and_then(|b| b.parse::<i64>().ok());
+            let lane = parts.get(2).and_then(|l| l.parse::<i32>().ok());
+            match (b, lane, parts.get(3).copied()) {
+                (Some(_), Some(_), Some("-")) if parts.get(1) == Some(&"lane") => r.y12_missing += 1,
+                (Some(b), Some(lane), Some(x)) if parts.get(1) == Some(&"lane") && x.trim_start_matches('+').parse::<i64>().is_ok() => {
+                    by.insert((b, lane), x.trim_start_matches('+').parse::<i64>().unwrap_or(0));
+                }
+                _ => r.errors.push(format!("path (a): a y-12 pass {e:?} unreadable")),
+            }
+        }
+        let batches: std::collections::BTreeSet<i64> = by.keys().map(|(b, _)| *b).collect();
+        r.y12_rel = by.clone();
+        for b in &batches {
+            if let (Some(x3), Some(x7)) = (by.get(&(*b, 3)), by.get(&(*b, 7))) {
+                r.y12_pairs.push(x7 - x3);
+            }
+            if let (Some(x7), Some(xn)) = (by.get(&(*b, 7)), by.get(&(b + 1, -1))) {
+                r.y12_pairs.push(100 + xn - x7);
+            }
+        }
+    }
+    // (a value or `-` (none measured: no error; the bars read it as unmeasured))
+    let num = |s: &str| s.trim_start().split(|c: char| !(c.is_ascii_digit() || c == '-')).next().filter(|x| *x != "-").and_then(|x| x.parse::<i64>().ok());
+    if let Some((_, g)) = rest.split_once("the napper's y-12 gap behind ") {
+        r.y12_behind = num(g);
+        r.y12_ahead = g.split_once(" and ahead ").and_then(|(_, a)| num(a));
+    }
+    r.col_min = rest.split_once("the least distance between two carts in the column ").and_then(|(_, d)| d.split(|c: char| !(c.is_ascii_digit() || c == '.')).next()).and_then(|x| x.parse::<f64>().ok());
+    // (`… lane 7's mouth clearance N gt (…)` or `- (unmeasured)` (ironspec 20:01; 7b90c3f1's wording))
+    if let Some((_, m)) = rest.split_once("mouth clearance ") {
+        let m = m.trim_start();
+        match num(m) {
+            Some(n) => r.mouth = Some(n),
+            None if m.starts_with('-') => r.mouth = None,
+            None => r.errors.push(format!("path (a): the mouth clearance unreadable: {:?}", m.chars().take(40).collect::<String>())),
+        }
+    }
+}
+
+/// The bench's `path (a) y-12 pairs (bar >= N, G1): lane -1 -> lane 3 A (…), lane 3 -> lane 7 B, lane 7 ->
+/// the napper C, the napper -> the next batch's lane -1 D, lane 7 -> the next batch's lane -1 with no
+/// napper between E; the column order at y 12 WRONG | …; the same pairs at the exit top (…): lane -1 ->
+/// lane 3 a, lane 3 -> lane 7 b, lane 7 -> the napper c, the napper -> the next lane -1 d` line
+/// (7b90c3f1's 5ec2749b3): the very numbers its clean() bars (each the least over the run; `-` none).
+fn read_y12_pairs(rest: &str, r: &mut ReturnRead) {
+    r.saw_y12_pairs = true;
+    let num = |s: &str| -> Option<i64> { s.trim_start().split(|c: char| !(c.is_ascii_digit() || c == '-')).next().filter(|x| !x.is_empty() && *x != "-").and_then(|x| x.parse::<i64>().ok()) };
+    let (y12, top) = rest.split_once("; the same pairs at the exit top").map_or((rest, ""), |(a, b)| (a, b));
+    let after = |hay: &str, key: &str| hay.split_once(key).and_then(|(_, x)| num(x));
+    r.y12_bench = [
+        after(y12, "lane -1 -> lane 3 "),
+        after(y12, "lane 3 -> lane 7 "),
+        after(y12, "lane 7 -> the napper "),
+        after(y12, "the napper -> the next batch's lane -1 "),
+        after(y12, "lane 7 -> the next batch's lane -1 with no napper between "),
+    ];
+    match y12.split_once("the column order at y 12 ") {
+        Some((_, o)) => r.y12_order_wrong = o.trim_start().starts_with("WRONG"),
+        None => r.errors.push("path (a) y-12 pairs: no column order".to_string()),
+    }
+    let top = top.split_once("): ").map_or(top, |(_, x)| x);
+    let (top, tail) = top.split_once("; samples").map_or((top, ""), |(a, b)| (a, b));
+    r.y12_top = [after(top, "lane -1 -> lane 3 "), after(top, "lane 3 -> lane 7 "), after(top, "lane 7 -> the napper "), after(top, "the napper -> the next lane -1 ")];
+    // (r3: `; samples (…) a / b / c / d / e`, the pairs measured in the same order; r4: `; verdict: clean | WHY`)
+    let (samples, verdict) = tail.split_once("; verdict: ").map_or((tail, None), |(a, v)| (a, Some(v.trim().to_string())));
+    if let Some((_, nums)) = samples.split_once(") ") {
+        let v: Vec<Option<i64>> = nums.split(" / ").map(|x| x.trim().parse::<i64>().ok()).collect();
+        if v.len() == 5 && v.iter().all(|x| x.is_some()) {
+            r.y12_samples = [v[0], v[1], v[2], v[3], v[4]];
+        } else {
+            r.errors.push(format!("path (a) y-12 pairs: the samples unreadable: {:?}", nums.chars().take(60).collect::<String>()));
+        }
+    }
+    r.y12_verdict = verdict;
+}
+
+/// One switch cause's least settle and clear (the bench's `junction settle / clear by cause` line).
+#[derive(Clone, Debug, PartialEq)]
+pub struct SwitchGap {
+    /// The switch, e.g. "K(1) set", "J(-1) re-arm".
+    pub name: String,
+    /// Its cause as the bench names it, e.g. "tap", "lane 7's D press".
+    pub cause: String,
+    /// The phase of its cause is entity (a detector press, a box overlap); false: block.
+    pub entity: bool,
+    pub settle: Option<i64>,
+    pub clear: Option<i64>,
+}
+
+/// Split `s` at `sep` outside parentheses.
+fn split_top<'a>(s: &'a str, sep: &str) -> Vec<&'a str> {
+    let mut out = Vec::new();
+    let (mut depth, mut start, mut skip) = (0i32, 0usize, 0usize);
+    for (i, c) in s.char_indices() {
+        if i < skip {
+            continue;
+        }
+        match c {
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            _ => {}
+        }
+        if depth == 0 && s[i..].starts_with(sep) {
+            out.push(&s[start..i]);
+            start = i + sep.len();
+            skip = start;
+        }
+    }
+    out.push(&s[start..]);
+    out
+}
+
+/// A switch's settle and clear as the farm sees them, its phase, and the driver latency applied: with
+/// day-1's driver (`driver_latency`, ironspec 19:38), a switch the bench prints as an entity-phase press (a
+/// press reaching the rail directly, timed from the press tick) lands L gt after the press (L = the set
+/// edge's or the reset edge's latency, from the switch's name) as a block-phase change (the driver's
+/// repeater); a press the bench already routes through a driver is printed block-phase and taken as is.
+fn effective(s: &SwitchGap, b: &ReturnBars) -> (Option<i64>, Option<i64>, bool, Option<i64>) {
+    if let Some((set_l, reset_l)) = b.driver_latency
+        && s.entity
+        && s.cause.contains("press")
+    {
+        let l = if s.name.ends_with("reset") { reset_l } else { set_l };
+        return (s.settle.map(|g| g - l), s.clear.map(|g| g + l), false, Some(l));
+    }
+    (s.settle, s.clear, s.entity, None)
+}
+
+/// The `by cause` entries: `K(1) set (tap, block): settle N gt (…), clear M gt (…); …` (`-` when none).
+fn read_by_cause(body: &str, r: &mut ReturnRead) {
+    let num = |s: &str| -> Option<i64> { s.trim_start().split(|c: char| !(c.is_ascii_digit() || c == '-')).next().filter(|x| !x.is_empty() && *x != "-").and_then(|x| x.parse::<i64>().ok()) };
+    for e in split_top(body.trim(), "; ").into_iter().map(str::trim).filter(|e| !e.is_empty()) {
+        let bad = |r: &mut ReturnRead| r.errors.push(format!("junction settle / clear by cause: an entry unreadable: {:?}", e.chars().take(100).collect::<String>()));
+        let Some(open) = e.find(" (") else {
+            bad(r);
+            continue;
+        };
+        let mut depth = 0i32;
+        let mut close = None;
+        for (i, c) in e[open + 1..].char_indices() {
+            match c {
+                '(' => depth += 1,
+                ')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        close = Some(open + 1 + i);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let Some(close) = close else {
+            bad(r);
+            continue;
+        };
+        let tag = &e[open + 2..close];
+        let (cause, phase) = tag.rsplit_once(", ").map_or((tag, ""), |(c, p)| (c, p.trim()));
+        let entity = match phase {
+            "block" => false,
+            "entity" => true,
+            _ => {
+                bad(r);
+                continue;
+            }
+        };
+        let vals: Vec<&str> = split_top(e[close + 1..].trim_start_matches(':').trim(), ", ");
+        let settle_part = vals.iter().find(|p| p.starts_with("settle "));
+        let clear_part = vals.iter().find(|p| p.starts_with("clear "));
+        if settle_part.is_none() && clear_part.is_none() {
+            bad(r);
+            continue;
+        }
+        r.switches.push(SwitchGap {
+            name: e[..open].trim().to_string(),
+            cause: cause.trim().to_string(),
+            entity,
+            settle: settle_part.and_then(|p| num(&p["settle ".len()..])),
+            clear: clear_part.and_then(|p| num(&p["clear ".len()..])),
+        });
+    }
+}
+
+/// The bench's `junction settle / clear (…): J(-1): settle N gt (…), clear M gt (…)[, cart-triggered
+/// clear K gt (…)]; J(3): …` line (ironspec 17:20 (b), 18:16): per junction the least settle and the
+/// least clear of its timed switches, and the cart-triggered switches' clear apart; `-` when none.
+fn read_settle(rest: &str, r: &mut ReturnRead) {
+    // (`junction settle / clear by cause (…): …` (ironspec 19:14): one entry per switch cause)
+    if let Some(after) = rest.trim_start().strip_prefix("by cause") {
+        let after = after.trim_start();
+        let body = if after.starts_with('(') {
+            let mut depth = 0i32;
+            let mut end = None;
+            for (i, c) in after.char_indices() {
+                match c {
+                    '(' => depth += 1,
+                    ')' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            end = Some(i);
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            end.map(|i| after[i + 1..].trim_start_matches(':'))
+        } else {
+            after.strip_prefix(':')
+        };
+        match body {
+            Some(b) => read_by_cause(b, r),
+            None => r.errors.push(format!("junction settle / clear by cause unreadable: {:?}", rest.chars().take(120).collect::<String>())),
+        }
+        return;
+    }
+    r.saw_settle = true;
+    let num = |s: &str| -> Option<i64> { s.trim_start().split(|c: char| !(c.is_ascii_digit() || c == '-')).next().filter(|x| *x != "-").and_then(|x| x.parse::<i64>().ok()) };
+    let mut seen = false;
+    for (i, _) in rest.match_indices("J(") {
+        let seg = &rest[i + 2..];
+        let Some((j, after)) = seg.split_once("): ") else { continue };
+        let Ok(j) = j.parse::<i32>() else { continue };
+        if !after.starts_with("settle ") {
+            continue;
+        }
+        seen = true;
+        let seg = after.split("; J(").next().unwrap_or(after);
+        if let Some(n) = num(&seg["settle ".len()..]) {
+            r.j_settle.insert(j, n);
+        }
+        // (the timed clear: `, clear M gt`; the cart-triggered one: `cart-triggered clear K gt`)
+        if let Some((_, c)) = seg.split_once(", clear ")
+            && let Some(n) = num(c)
+        {
+            r.j_clear.insert(j, n);
+        }
+        if let Some((_, c)) = seg.split_once("cart-triggered clear ")
+            && let Some(n) = num(c)
+        {
+            r.j_clear_cart.insert(j, n);
+        }
+    }
+    if !seen {
+        r.errors.push(format!("junction settle / clear unreadable: {:?}", rest.chars().take(120).collect::<String>()));
+    }
 }
 
 /// Read a return bench's text (the `--row9` bench's lines). `k_cell`: with `--k-relay`, the napper's
@@ -286,6 +641,19 @@ pub fn read(text: &str, napper: bool, k_cell: Option<(i32, i32, i32)>) -> Return
                     }
                 }
                 _ => r.errors.push(format!("a trace line unreadable: {:?}", l.chars().take(120).collect::<String>())),
+            }
+        }
+        // (`cart K (batch B, lane L): … (the rider's feet at y 12.01 at N)`: N after the cart's own launch)
+        if let Some(rest) = l.strip_prefix("cart ")
+            && let Some((head, tail)) = rest.split_once("): ")
+            && let Some((_, n)) = tail.split_once("the rider's feet at y 12.01 at ")
+        {
+            let k = head.split(' ').next().and_then(|x| x.parse::<usize>().ok());
+            let b = head.split_once("(batch ").and_then(|(_, x)| x.split(',').next()).and_then(|x| x.trim().parse::<i64>().ok());
+            let lane = head.split_once("lane ").and_then(|(_, x)| x.trim().parse::<i32>().ok());
+            let n = n.split(|c: char| !c.is_ascii_digit()).next().and_then(|x| x.parse::<i64>().ok());
+            if let (Some(k), Some(b), Some(lane), Some(n)) = (k, b, lane, n) {
+                r.feet12.insert((k, b, lane), n);
             }
         }
         let is_napper = l.starts_with("napper ");
@@ -369,6 +737,33 @@ pub fn read(text: &str, napper: bool, k_cell: Option<(i32, i32, i32)>) -> Return
                 None => r.errors.push("the split line has no junction gaps".to_string()),
             }
         }
+        // (`path (a): …` (83878113f) or `path (a), in game ticks after REL (…): …` (5ec2749b3); its pairs line
+        // apart)
+        // (`restart game-time delta N; a moving cart's position across the load: held | moved (cart k, delta
+        // d) | none moving (…)` (ironspec 20:35 / 21:07; 7b90c3f1's 1420794e6): a restart row's game-time delta
+        // across the restart and whether a moving cart held its place through it)
+        if let Some((_, d)) = l.split_once("restart game-time delta ") {
+            match d.trim_start().split(|c: char| !(c.is_ascii_digit() || c == '-')).next().and_then(|x| x.parse::<i64>().ok()) {
+                Some(n) => r.restart_delta = Some(r.restart_delta.map_or(n, |m: i64| if (m - 1).abs() >= (n - 1).abs() { m } else { n })),
+                None => r.errors.push(format!("the restart game-time delta unreadable: {:?}", d.chars().take(40).collect::<String>())),
+            }
+            if let Some((_, p)) = d.split_once("a moving cart's position across the load: ") {
+                let p = p.trim_start();
+                if p.starts_with("moved") {
+                    r.restart_moved.get_or_insert_with(|| p.split(')').next().map(|x| format!("{x})")).unwrap_or_default());
+                } else if !(p.starts_with("held") || p.starts_with("none moving")) {
+                    r.errors.push(format!("the restart's cart position unreadable: {:?}", p.chars().take(40).collect::<String>()));
+                }
+            }
+        }
+        if let Some(rest) = l.strip_prefix("path (a) y-12 pairs ") {
+            read_y12_pairs(rest, &mut r);
+        } else if let Some(rest) = l.strip_prefix("path (a): ").or_else(|| l.strip_prefix("path (a), ").and_then(|x| x.split_once("): ").map(|(_, y)| y))) {
+            read_path_a(rest, &mut r);
+        }
+        if let Some(rest) = l.strip_prefix("junction settle / clear") {
+            read_settle(rest, &mut r);
+        }
         if let Some(rest) = l.strip_prefix("hold release: ") {
             r.hold = Some(read_hold(rest, &mut r.errors));
         }
@@ -384,6 +779,54 @@ pub fn read(text: &str, napper: bool, k_cell: Option<(i32, i32, i32)>) -> Return
                 r.errors.push(format!("the napper lift line unreadable: {:?}", rest.chars().take(120).collect::<String>()));
                 None
             };
+        }
+        // (r3's lines, 7b90c3f1's 8ed397b2e)
+        if let Some(rest) = l.strip_prefix("fluid: ") {
+            // (`fluid: N water cells, M fluid ticks scheduled at the start (…)`)
+            let n = rest.split(" water cells").next().and_then(|x| x.trim().parse::<i64>().ok());
+            let m = rest.split_once(" water cells, ").and_then(|(_, x)| x.split(' ').next()).and_then(|x| x.trim().parse::<i64>().ok());
+            match (n, m) {
+                (Some(n), Some(m)) => r.fluid = Some((n, m)),
+                _ => r.errors.push(format!("the fluid line unreadable: {:?}", rest.chars().take(80).collect::<String>())),
+            }
+        }
+        if l.starts_with("new water after the settle") {
+            // (`new water after the settle (…): none | …`)
+            match split_top(l, ": ").get(1..).map(|v| v.join(": ")) {
+                Some(v) => r.new_water = Some(if v.trim() == "none" { String::new() } else { v.trim().to_string() }),
+                None => r.errors.push(format!("the new-water line unreadable: {:?}", l.chars().take(80).collect::<String>())),
+            }
+        }
+        if let Some(rest) = l.strip_prefix("block contacts (") {
+            // (`block contacts (…; the samples: N cart-ticks checked[, NOT JUDGED (0 samples)]): N cells; M
+            // declared (…); undeclared none | …`)
+            r.contact_samples = rest.split_once("the samples: ").and_then(|(_, x)| x.split(' ').next()).and_then(|x| x.trim().parse::<i64>().ok());
+            match rest.rsplit_once("; undeclared ") {
+                Some((_, u)) => r.contacts_undeclared = Some(if u.trim() == "none" { String::new() } else { u.trim().to_string() }),
+                None => r.errors.push(format!("the block contacts line has no undeclared list: {:?}", rest.chars().take(80).collect::<String>())),
+            }
+            if r.contact_samples.is_none() {
+                r.errors.push("the block contacts line: its samples unreadable".to_string());
+            }
+        }
+        if let Some(rest) = l.strip_prefix("D-on-J ").filter(|x| x.starts_with('(')) {
+            // (`D-on-J (…): J(-1) N detector changes (the samples), the T off its power's settle after one A,
+            // re-shaped by the update B; J(3) …` or `J(x) NOT JUDGED (0 samples: no detector change)`)
+            let body = split_top(rest, "): ").get(1..).map(|v| v.join("): ")).unwrap_or_default();
+            for e in split_top(&body, "; ").into_iter().map(str::trim).filter(|e| !e.is_empty()) {
+                let name = e.split(' ').next().unwrap_or("").to_string();
+                if e.contains("NOT JUDGED") {
+                    r.dj.push((name, None));
+                    continue;
+                }
+                let n = num_after(e, &format!("{name} ")).map(|x| x as i64);
+                let off = num_after(e, "the T off its power's settle after one ").map(|x| x as i64);
+                let reshaped = num_after(e, "re-shaped by the update ").map(|x| x as i64);
+                match (n, off, reshaped) {
+                    (Some(n), Some(a), Some(b)) => r.dj.push((name, Some((n, a, b)))),
+                    _ => r.errors.push(format!("a D-on-J entry unreadable: {:?}", e.chars().take(100).collect::<String>())),
+                }
+            }
         }
         if l.starts_with("pairs: ") {
             saw_pairs = true;
@@ -446,6 +889,16 @@ pub fn read(text: &str, napper: bool, k_cell: Option<(i32, i32, i32)>) -> Return
     if napper && k_cell.is_some() && r.napper_k.is_none() && r.wrong == 0 && r.never == 0 && !r.napper_by_branch {
         r.missing.push("the napper's arrival on its K cell (the trace)");
     }
+    // (r3 prints these on every run)
+    if r.fluid.is_none() {
+        r.missing.push("the fluid line");
+    }
+    if r.new_water.is_none() {
+        r.missing.push("the new-water line");
+    }
+    if r.contacts_undeclared.is_none() {
+        r.missing.push("the block contacts line");
+    }
     r
 }
 
@@ -453,11 +906,57 @@ pub fn read(text: &str, napper: bool, k_cell: Option<(i32, i32, i32)>) -> Return
 /// failure too (the judge also refuses such a run outright).
 pub fn fails(r: &ReturnRead, b: &ReturnBars, napper: bool) -> Vec<String> {
     let mut v = Vec::new();
+    // (ironspec 20:35 / 21:07: a moving cart that moved across the load is no valid restart: re-run; the
+    // game-time delta barred at the row's load tick once the official load is on main (`restart_delta_bar`;
+    // main's liveness::restart runs no block-only tick yet, delta 0, so it isn't barred before then))
+    if let Some(m) = &r.restart_moved {
+        v.push(format!("a moving cart's position across the load: {m} (re-run)"));
+    }
+    if let (Some(d), Some(want)) = (r.restart_delta, b.restart_delta_bar)
+        && d != want
+    {
+        v.push(format!("restart game-time delta {d} (bar {want}: re-run)"));
+    }
     for m in &r.missing {
         v.push(format!("the bench's text lacks {m}"));
     }
     for e in &r.errors {
         v.push(format!("unreadable: {e}"));
+    }
+    // (r3's bars, as the bench's own failing-row causes: water with no fluid tick (ironspec 00:27); new water
+    // after the settle (rule C, 01:07); an undeclared block contact or none checked (21:25 (4), 23:56); a T
+    // off its power's settle after its D's change, and with path (a) a J with no detector change (NOT
+    // JUDGED); the y-12 verdict when the bench prints one, else lane 3 -> lane 7's pair (barred in every
+    // path (a) run) with no sample)
+    if let Some((n, m)) = r.fluid
+        && n > 0
+        && m == 0
+    {
+        v.push(format!("{n} water cells with no fluid tick scheduled"));
+    }
+    if let Some(w) = r.new_water.as_deref().filter(|w| !w.is_empty()) {
+        v.push(format!("undeclared new water after the settle: {w}"));
+    }
+    if r.contact_samples == Some(0) {
+        v.push("block contacts NOT JUDGED (0 samples)".into());
+    }
+    if let Some(u) = r.contacts_undeclared.as_deref().filter(|u| !u.is_empty()) {
+        v.push(format!("undeclared block contacts: {u}"));
+    }
+    for (name, d) in &r.dj {
+        match d {
+            Some((_, off, _)) if *off > 0 => v.push(format!("{name}: a T off its settle after its D's change ({off})")),
+            None if b.path_a => v.push(format!("D-on-J {name} NOT JUDGED (0 samples)")),
+            _ => {}
+        }
+    }
+    if b.path_a {
+        match r.y12_verdict.as_deref() {
+            Some(w) if w != "clean" => v.push(format!("y-12: {w}")),
+            Some(_) => {}
+            None if r.saw_y12_pairs && r.y12_samples[1] == Some(0) => v.push("y-12: NOT JUDGED (0 samples): lane 3 -> lane 7 (the judge's scope until the bench prints its verdict)".into()),
+            None => {}
+        }
     }
     for (n, what) in [(r.wrong, "wrong lane(s)"), (r.never, "never at a lane"), (r.sided, "batch cart(s) off their branch (into a siding's F or the 4th route)"), (r.dismounted, "dismounted"), (r.hurt, "hurt"), (r.eye, "eye in a wall")] {
         if n > 0 {
@@ -468,19 +967,19 @@ pub fn fails(r: &ReturnRead, b: &ReturnBars, napper: bool) -> Vec<String> {
         v.push("no merge-cell delivery".into());
     }
     if let Some(x) = r.merge.iter().find(|x| **x < b.branch_band.0 || **x > b.branch_band.1) {
-        v.push(format!("a delivery {x:.3} outside {:.2}..{:.2}", b.branch_band.0, b.branch_band.1));
+        v.push(format!("a delivery {x:.3} outside {:.2}..{:.2}{}", b.branch_band.0, b.branch_band.1, if *x > b.branch_band.1 { " (the top inherited)" } else { "" }));
     }
     if napper {
         match b.k_band {
             // (`--k-relay`: the napper's arrival on its siding's K cell against the S-bend's band; its
             // F entry (the bench's "handed on" speed) is printed, not barred)
             Some(kb) => match r.napper_k {
-                Some(x) if x < kb.0 || x > kb.1 => v.push(format!("the napper's arrival on its K cell {x:.3} outside {:.2}..{:.2}", kb.0, kb.1)),
+                Some(x) if x < kb.0 || x > kb.1 => v.push(format!("the napper's arrival on its K cell {x:.3} outside {:.2}..{:.2} (inherited)", kb.0, kb.1)),
                 None => v.push("no napper arrival on its K cell".into()),
                 _ => {}
             },
             None => match r.napper_entry {
-                Some(x) if x < b.napper_band.0 || x > b.napper_band.1 => v.push(format!("the napper's delivery {x:.3} outside {:.2}..{:.2}", b.napper_band.0, b.napper_band.1)),
+                Some(x) if x < b.napper_band.0 || x > b.napper_band.1 => v.push(format!("the napper's delivery {x:.3} outside {:.2}..{:.2} (inherited)", b.napper_band.0, b.napper_band.1)),
                 None => v.push("no napper delivery".into()),
                 _ => {}
             },
@@ -492,7 +991,7 @@ pub fn fails(r: &ReturnRead, b: &ReturnBars, napper: bool) -> Vec<String> {
         if r.napper_by_branch {
             v.push("the napper into its lane by the lane's own branch, not handed on into its siding".into());
         }
-        if r.napper_ahead.is_some_and(|g| g < 0) || r.napper_behind.is_some_and(|g| g < 0) {
+        if !b.path_a && (r.napper_ahead.is_some_and(|g| g < 0) || r.napper_behind.is_some_and(|g| g < 0)) {
             v.push(format!("the napper rode with a batch (behind {}, ahead {})", r.napper_behind.map_or("-".into(), |g| g.to_string()), r.napper_ahead.map_or("-".into(), |g| g.to_string())));
         }
         // ((c′), ironspec 11:43/11:45, from the bench's `hold release:` line: exactly one fired pulse per
@@ -524,23 +1023,115 @@ pub fn fails(r: &ReturnRead, b: &ReturnBars, napper: bool) -> Vec<String> {
         } else if b.scheduled_only && r.napper_on_hold == Some(false) {
             v.push("the napper did not depart on a fired pulse (not on the hold at any pulse's rise: it never departed, or left the hold without one)".into());
         }
-        if r.napper_behind.is_some_and(|g| g < b.napper_behind) {
-            v.push(format!("the napper {} gt behind the third cart (bar {})", r.napper_behind.unwrap_or(0), b.napper_behind));
+        if b.path_a {
+            // (path (a), ironspec 17:20 (a): "shaft entry" retired for the napper; its y-12 pass gaps behind
+            // lane 7's cart and ahead of the next batch's first at y12_nap_min each, in every row)
+            for (g, side) in [(r.y12_behind, "behind lane 7's cart"), (r.y12_ahead, "ahead of the next batch's first")] {
+                match g {
+                    Some(g) if g < b.y12_nap_min => v.push(format!("the napper's y-12 gap {side} {g} gt (bar {}, the column bar: physical 14 + 2, ironspec 20:01)", b.y12_nap_min)),
+                    None => v.push(format!("the napper's y-12 gap {side} unmeasured")),
+                    _ => {}
+                }
+            }
+        } else {
+            if r.napper_behind.is_some_and(|g| g < b.napper_behind) {
+                v.push(format!("the napper {} gt behind the third cart (bar {}, the column bar: physical 14 + 2, ironspec 20:01)", r.napper_behind.unwrap_or(0), b.napper_behind));
+            }
+            if r.napper_ahead.is_some_and(|g| g < b.napper_ahead) {
+                v.push(format!("the napper {} gt ahead of the next batch (bar {}, the column bar: physical 14 + 2, ironspec 20:01)", r.napper_ahead.unwrap_or(0), b.napper_ahead));
+            }
         }
-        if r.napper_ahead.is_some_and(|g| g < b.napper_ahead) {
-            v.push(format!("the napper {} gt ahead of the next batch (bar {})", r.napper_ahead.unwrap_or(0), b.napper_ahead));
+    }
+    // (path (a): the batch carts' y-12 pairs at y12_min, the napper's at y12_nap_min, every cart through y 12
+    // and the column in order: from the bench's pairs line (the numbers its clean() bars: lane 3 -> lane 7,
+    // lane 7 -> the next lane -1 with no napper between; the napper's two pairs; the foot pair lane -1 ->
+    // lane 3 barred by the shaft entry), else the judge's own from the y-12 passes)
+    if b.path_a {
+        let cb = "the column bar: physical 14 + 2, ironspec 20:01";
+        if r.saw_y12_pairs {
+            for (g, what, bar) in [(r.y12_bench[1], "lane 3 -> lane 7", b.y12_min), (r.y12_bench[4], "lane 7 -> the next batch's lane -1", b.y12_min), (r.y12_bench[2], "lane 7 -> the napper", b.y12_nap_min), (r.y12_bench[3], "the napper -> the next batch's lane -1", b.y12_nap_min)] {
+                if let Some(g) = g
+                    && g < bar
+                {
+                    v.push(format!("the y-12 pair {what} {g} gt (bar {bar}, {cb})"));
+                }
+            }
+            if r.y12_order_wrong {
+                v.push("the column order at y 12 wrong".into());
+            }
+        } else if let Some(g) = r.y12_pairs.iter().min()
+            && *g < b.y12_min
+        {
+            v.push(format!("a batch pair's y-12 gap {g} gt (bar {}, {cb})", b.y12_min));
+        }
+        if r.y12_missing > 0 {
+            v.push(format!("{} batch cart(s) never passed y 12", r.y12_missing));
+        }
+    }
+    // (path (a): the column-order bar (ironspec 20:01, physical): lane 7's entry at y 12 at least mouth_min
+    // gt after the preceding cart's box fully cleared the mouth cell)
+    if b.path_a {
+        match r.mouth {
+            Some(g) if g < b.mouth_min => v.push(format!("lane 7's mouth clearance {g} gt (bar {}, physical: the column order, ironspec 20:01)", b.mouth_min)),
+            None => v.push("lane 7's mouth clearance unmeasured".into()),
+            _ => {}
         }
     }
     match r.shaft {
-        Some(g) if g < b.shaft_min => v.push(format!("a shaft-entry gap of {g} gt (bar {})", b.shaft_min)),
+        Some(g) if g < b.shaft_min + b.margin => v.push(format!("a shaft-entry gap of {g} gt (bar {} + {}: held at {} on every foot pair, ironspec 19:38)", b.shaft_min, b.margin, b.shaft_min + b.margin)),
         None => v.push("no shaft-entry gap".into()),
         _ => {}
     }
+    // (the junctions (ironspec 17:20 (b), 19:08: every switch on both sides >= its physical bar + margin in
+    // every row; block-phase (the timed switches) `junction_min`, entity-phase (detector-triggered)
+    // `junction_entity_min`): with the bench's settle / clear line, the settle (its cause unnamed: the
+    // entity-phase bar, the larger), the timed clear and the cart-triggered clear; else the split line's
+    // least gap)
     for (j, m) in &b.junction_min {
+        // (with the per-cause line, the switches are barred below, not per junction)
+        if !r.switches.is_empty() {
+            break;
+        }
+        if r.saw_settle {
+            // (the per-junction line: the settle's cause unnamed (the entity-phase bar), the clear at the
+            // timed re-arm block-phase, the cart-triggered clear entity-phase)
+            let sb = b.junction_entity_min + b.margin;
+            match r.j_settle.get(j) {
+                Some(g) if *g < sb => v.push(format!("J({j})'s settle {g} gt (entity-phase bar {} + {}, its cause unnamed)", b.junction_entity_min, b.margin)),
+                None if r.junction.get(j).is_none() => v.push(format!("J({j})'s settle unmeasured")),
+                _ => {}
+            }
+            if let Some(g) = r.j_clear.get(j)
+                && *g < b.junction_block_min + b.margin
+            {
+                v.push(format!("J({j})'s clear {g} gt (block-phase bar {} + {})", b.junction_block_min, b.margin));
+            }
+            if let Some(g) = r.j_clear_cart.get(j)
+                && *g < b.junction_entity_min + b.margin
+            {
+                v.push(format!("J({j})'s cart-triggered clear {g} gt (entity-phase bar {} + {})", b.junction_entity_min, b.margin));
+            }
+            continue;
+        }
         match r.junction.get(j) {
-            Some(g) if g < m => v.push(format!("J({j})'s gap {g} gt (bar {m})")),
+            Some(g) if *g < m + b.margin => v.push(format!("J({j})'s gap {g} gt (bar {m} + {})", b.margin)),
             None => v.push(format!("J({j})'s gap unmeasured")),
             _ => {}
+        }
+    }
+    // (ironspec 19:14: each switch's settle and clear >= the bar of its cause's phase + margin in every
+    // row; a press timed from its press tick, the clear from the old-state cart's last tick starting in
+    // the cell, as the bench measures them)
+    for s in &r.switches {
+        let (settle, clear, entity, lat) = effective(s, b);
+        let (bar, phase) = if entity { (b.junction_entity_min, "entity") } else { (b.junction_block_min, "block") };
+        let how = lat.map_or(String::new(), |l| format!(", with day-1's driver +{l}"));
+        for (g, side) in [(settle, "settle"), (clear, "clear")] {
+            if let Some(g) = g
+                && g < bar + b.margin
+            {
+                v.push(format!("{} ({}{how})'s {side} {g} gt ({phase}-phase bar {bar} + {})", s.name, s.cause, b.margin));
+            }
         }
     }
     if r.pushes > b.pushes_max {
@@ -555,14 +1146,50 @@ pub fn fails(r: &ReturnRead, b: &ReturnBars, napper: bool) -> Vec<String> {
 }
 
 /// Each gt bar's margin in a run (value - bar), the junctions with a bar.
-fn gt_margins(r: &ReturnRead, b: &ReturnBars, napper: bool) -> Vec<(String, Option<i64>)> {
-    let mut v = vec![("shaft-entry gap".to_string(), r.shaft.map(|x| x - b.shaft_min))];
-    if napper {
-        v.push(("napper behind".to_string(), r.napper_behind.map(|x| x - b.napper_behind)));
-        v.push(("napper ahead".to_string(), r.napper_ahead.map(|x| x - b.napper_ahead)));
+fn gt_margins(r: &ReturnRead, b: &ReturnBars, napper: bool) -> Vec<(String, Option<i64>, i64)> {
+    // (each: the bar's name, the run's margin over it, the margin a nominal corner needs (`margin`
+    // for the measured gt bars; 0 for the y-12 gaps, whose bar ironspec gave with its margin (17:20) and
+    // which every row already bars); the junctions from their settle and clear sides when the bench
+    // prints them (ironspec 17:20 (b): each side >= the bar + 2 in every row))
+    let mut v = vec![("shaft-entry gap".to_string(), r.shaft.map(|x| x - b.shaft_min), b.margin)];
+    if napper && b.path_a {
+        v.push(("napper's y-12 gap behind".to_string(), r.y12_behind.map(|x| x - b.y12_nap_min), 0));
+        v.push(("napper's y-12 gap ahead".to_string(), r.y12_ahead.map(|x| x - b.y12_nap_min), 0));
+    } else if napper {
+        // (the column bar 16 holds its margin (physical 14 + 2, ironspec 20:01): 0 over it at the corners)
+        v.push(("napper behind".to_string(), r.napper_behind.map(|x| x - b.napper_behind), 0));
+        v.push(("napper ahead".to_string(), r.napper_ahead.map(|x| x - b.napper_ahead), 0));
+    }
+    if b.path_a {
+        v.push(("lane 7's mouth clearance".to_string(), r.mouth.map(|x| x - b.mouth_min), 0));
+    }
+    if !r.switches.is_empty() {
+        // (the per-cause line: each switch's settle and clear against its phase's bar)
+        for s in &r.switches {
+            let (settle, clear, entity, _) = effective(s, b);
+            let bar = if entity { b.junction_entity_min } else { b.junction_block_min };
+            if let Some(g) = settle {
+                v.push((format!("{} settle", s.name), Some(g - bar), b.margin));
+            }
+            if let Some(g) = clear {
+                v.push((format!("{} clear", s.name), Some(g - bar), b.margin));
+            }
+        }
+        return v;
     }
     for (j, m) in &b.junction_min {
-        v.push((format!("J({j})"), r.junction.get(j).map(|g| g - m)));
+        if r.saw_settle {
+            v.push((format!("J({j}) settle"), r.j_settle.get(j).or_else(|| r.junction.get(j)).map(|g| g - b.junction_entity_min), b.margin));
+            // (a junction without a timed or a cart-triggered switch in the run prints `-`: no margin)
+            if let Some(g) = r.j_clear.get(j) {
+                v.push((format!("J({j}) clear"), Some(g - b.junction_block_min), b.margin));
+            }
+            if let Some(g) = r.j_clear_cart.get(j) {
+                v.push((format!("J({j}) cart-triggered clear"), Some(g - b.junction_entity_min), b.margin));
+            }
+        } else {
+            v.push((format!("J({j})"), r.junction.get(j).map(|g| g - m), b.margin));
+        }
     }
     v
 }
@@ -585,6 +1212,22 @@ pub enum Row {
     /// The ungated-pulse control (ironspec 14:41): a late row (the napper from R at this tick, one more
     /// batch) without `--pulse-gate`.
     UngatedLate(i64),
+}
+
+/// The station calibration rows (ironspec 19:52): per table lane, batch 0's y-12 pass after REL (the
+/// `path (a):` line's, else the cart line's feet time + the station lag + the cart's offset, the carts in
+/// the bench's launch order k % 3), the table's value, and the source.
+pub fn station_check(r: &ReturnRead, table: &[(i32, i64)], offsets: &[i64], station_lag: i64) -> Vec<(i32, Option<i64>, i64, &'static str)> {
+    table
+        .iter()
+        .map(|(lane, t)| {
+            if let Some(v) = r.y12_rel.get(&(0, *lane)) {
+                return (*lane, Some(*v), *t, "path (a)");
+            }
+            let v = r.feet12.iter().find(|((_, b, l), _)| *b == 0 && l == lane).and_then(|((k, _, _), n)| offsets.get(k % 3).map(|off| n + station_lag + off));
+            (*lane, v, *t, "the riders' feet")
+        })
+        .collect()
 }
 
 /// A row's short label.
@@ -702,6 +1345,12 @@ pub struct ReturnJudgeOpts {
     /// its start (ironspec 11:43/11:48: the departure on the fired pulse at every freeze offset and every
     /// arrival phase), with one more batch like the late rows.
     pub late_logins: Option<(i64, i64, i64, i64)>,
+    /// The station calibration check (ironspec 19:52): the bench's `--offsets` (with `--station-lag`) is a
+    /// calibration of dfb89499's real station, not the design offsets; at the release speed
+    /// `station_speed`, each lane's y-12 pass after REL in the control row must be within 1 gt of
+    /// dfb89499's table (lane, gt); a run whose calibration misses is refused, not judged.
+    pub station_table: Vec<(i32, i64)>,
+    pub station_speed: Option<f64>,
     pub bars: ReturnBars,
     /// Every gt bar's margin at the nominal corners.
     pub margin: i64,
@@ -735,9 +1384,13 @@ fn run_all<K: Clone + Send + Sync + std::fmt::Debug>(base: &ReturnOpts, runs: &[
                     sc.spawn(move || {
                         return_bench(lo).map(|t| {
                             let mut rd = read(&t, *nap, kc);
-                            // (`--napper-lift`: the bench's napper lift line is read for every napper run)
+                            // (`--napper-lift`: the bench's napper lift line is read for every napper run;
+                            // `--path-a`: its path (a) line, whose y-12 gaps the bars read)
                             if lo.napper_lift && *nap && !rd.lift_seen {
                                 rd.missing.push("the napper lift line");
+                            }
+                            if lo.path_a && !rd.saw_path_a {
+                                rd.missing.push("the path (a) line");
                             }
                             (k.clone(), rd)
                         })
@@ -805,6 +1458,16 @@ pub fn judge(base: &ReturnOpts, o: &ReturnJudgeOpts) -> Result<(Vec<String>, usi
     for c in &o.corners {
         push(c, Row::Control);
     }
+    // (the station calibration check's corner: a control at the station's speed, when no corner has it)
+    let station_corner: Option<Corner> = o.station_speed.filter(|_| !o.station_table.is_empty()).map(|s| {
+        o.corners.iter().chain(o.phase_corners.iter()).find(|c| (c.speed - s).abs() < 1e-9).cloned().unwrap_or_else(|| Corner { offsets: base.offsets.clone(), speed: s, napper: o.corners.first().and_then(|c| c.napper) })
+    });
+    if let Some(sc) = &station_corner
+        && !o.corners.contains(sc)
+        && !o.phase_corners.contains(sc)
+    {
+        push(sc, Row::Control);
+    }
     for c in &o.phase_corners {
         if !o.corners.contains(c) {
             push(c, Row::Control);
@@ -852,6 +1515,26 @@ pub fn judge(base: &ReturnOpts, o: &ReturnJudgeOpts) -> Result<(Vec<String>, usi
     let fl = |c: &Corner, r: &ReturnRead| fails(r, &o.bars, c.napper.is_some());
     let mut out = Vec::new();
     let mut total = 0usize;
+    // (the station calibration (ironspec 19:52): checked first; a calibration that misses dfb89499's table
+    // refuses the run)
+    if let Some(sc) = &station_corner {
+        let Some((_, r)) = results.iter().find(|((c, row), _)| c == sc && *row == Row::Control) else {
+            return Err(format!("the station calibration check: no control row at {}", sc.label()));
+        };
+        let rows = station_check(r, &o.station_table, &sc.offsets, base.station_lag);
+        let ok = rows.iter().all(|(_, v, t, _)| v.is_some_and(|v| (v - t).abs() <= 1));
+        let line = format!(
+            "the station calibration (ironspec 19:52; the bench's --offsets {:?} --station-lag {} against dfb89499's table, the y-12 pass after REL in the control at release {}, within 1 gt): {}",
+            sc.offsets,
+            base.station_lag,
+            sc.speed,
+            rows.iter().map(|(lane, v, t, src)| format!("lane {lane} {} (table {t}, {src}){}", v.map_or("-".to_string(), |v| format!("+{v}")), if v.is_some_and(|v| (v - t).abs() <= 1) { "" } else { " MISS" })).collect::<Vec<_>>().join(", ")
+        );
+        if !ok {
+            return Err(format!("{line}: the calibration does not reproduce the station; the run is refused"));
+        }
+        out.push(line);
+    }
     // (the controls at every corner: failures, the bands' margins, the napper's window, the returns)
     let controls: Vec<&Res> = results.iter().filter(|(k, _)| k.1 == Row::Control).collect();
     let ctl_reads: Vec<&ReturnRead> = controls.iter().map(|(_, r)| r).collect();
@@ -897,18 +1580,32 @@ pub fn judge(base: &ReturnOpts, o: &ReturnJudgeOpts) -> Result<(Vec<String>, usi
             if ew.is_empty() {
                 String::new()
             } else {
+                // (the ruled window (G1's note on 7ef404af3, ironspec 18:01): E rises in (reset, reset + k],
+                // the reset the fired pulse's E rise (ARM3 + 2): the bench's printed resets, else the last E
+                // rise at or before each fired pulse's rail rise)
+                let resets_of = |h: &HoldRelease| -> Vec<i64> {
+                    if !h.resets.is_empty() {
+                        return h.resets.clone();
+                    }
+                    h.fired_rises.iter().filter_map(|p| h.e_rises.iter().filter(|e| **e <= *p).max().copied()).collect()
+                };
                 let mine: usize = hs
                     .iter()
                     .filter_map(|h| h.e_within.map(|(k, _)| (k, h)))
-                    .map(|(k, h)| h.e_rises.iter().filter(|e| h.fired_rises.iter().any(|p| **e > *p && **e <= *p + k)).count())
+                    .map(|(k, h)| {
+                        let rs = resets_of(h);
+                        h.e_rises.iter().filter(|e| rs.iter().any(|r| **e > *r && **e <= *r + k)).count()
+                    })
                     .sum();
+                let printed = hs.iter().filter(|h| !h.resets.is_empty()).count();
                 let ks: std::collections::BTreeSet<i64> = ew.iter().map(|(k, _)| *k).collect();
                 format!(
-                    ", E rises within k ({}) gt after a fired pulse {} in {} runs (from the tick lists: {})",
+                    ", E rises within k ({}) gt after a reset (the fired pulse's E rise) {} in {} runs (the judge's count from the tick lists: {}; the resets printed in {} runs, else the last E rise before each fired pulse)",
                     ks.iter().map(|k| k.to_string()).collect::<Vec<_>>().join("/"),
                     ew.iter().map(|(_, n)| n).sum::<usize>(),
                     ew.len(),
-                    mine
+                    mine,
+                    printed
                 )
             }
         }
@@ -919,12 +1616,12 @@ pub fn judge(base: &ReturnOpts, o: &ReturnJudgeOpts) -> Result<(Vec<String>, usi
             Some(kb) => {
                 let k: Vec<f64> = rs.iter().filter_map(|r| r.napper_k).collect();
                 format!(
-                    "the napper's arrival on its K cell {}; its F entry (printed) {}",
+                    "the napper's arrival on its K cell {} (the band inherited, ironspec's audit 19:07 section 2); its F entry (printed) {}",
                     margins(&k, kb),
                     if entry.is_empty() { "-".to_string() } else { format!("{:.3}..{:.3}", entry.iter().copied().fold(f64::INFINITY, f64::min), entry.iter().copied().fold(f64::NEG_INFINITY, f64::max)) }
                 )
             }
-            None => format!("the napper's delivery (its hand-on) {}", margins(&entry, o.bars.napper_band)),
+            None => format!("the napper's delivery (its hand-on) {} (the band inherited)", margins(&entry, o.bars.napper_band)),
         }
     };
     let head = ctl_reads.iter().filter_map(|r| r.head).fold(f64::NEG_INFINITY, f64::max);
@@ -943,7 +1640,7 @@ pub fn judge(base: &ReturnOpts, o: &ReturnJudgeOpts) -> Result<(Vec<String>, usi
         }
     }
     out.push(format!(
-        "the controls ({} corners; each the cold start): failing {}; delivery (merge-cell entry, stored) {}; branch entry (printed) {}; {}; the highest head {:.3} (the roof's underside {:.1}, margin {:+.3}); the least shaft-entry gap {}; the napper's least window {} behind, {} ahead; the least junction gaps {}; box touches up to {}, pushes up to {}; the longest return per lane {}",
+        "the controls ({} corners; each the cold start): failing {}; delivery (merge-cell entry, stored) {} (the floor physical: ironfarm's first failure 0.22 + 0.05; the top inherited: no failure through 1.00 - 0.05); branch entry (printed) {}; {}; the highest head {:.3} (the roof's underside {:.1}, margin {:+.3}); the least shaft-entry gap {}; the napper's least window {} behind, {} ahead; the least junction gaps {}; box touches up to {}, pushes up to {}; the longest return per lane {}",
         controls.len(),
         ctl_fail.len(),
         margins(&all_merge, o.bars.branch_band),
@@ -973,14 +1670,14 @@ pub fn judge(base: &ReturnOpts, o: &ReturnJudgeOpts) -> Result<(Vec<String>, usi
     for c in &o.phase_corners {
         let Some((_, r)) = results.iter().find(|((cc, row), _)| cc == c && *row == Row::Control) else { continue };
         let gm = gt_margins(r, &o.bars, c.napper.is_some());
-        let short: Vec<&(String, Option<i64>)> = gm.iter().filter(|(_, m)| m.is_none_or(|m| m < o.margin)).collect();
+        let short: Vec<&(String, Option<i64>, i64)> = gm.iter().filter(|(_, m, need)| m.is_none_or(|m| m < *need)).collect();
         total += usize::from(!short.is_empty());
         out.push(format!(
-            "nominal {}: the margins {} (required {} each){}",
+            "nominal {}: the margins {} (required {} each, the y-12 gaps 0 over their bar){}",
             c.label(),
-            gm.iter().map(|(k, m)| format!("{k} {}", m.map_or("-".to_string(), |x| format!("{x:+}")))).collect::<Vec<_>>().join(", "),
+            gm.iter().map(|(k, m, _)| format!("{k} {}", m.map_or("-".to_string(), |x| format!("{x:+}")))).collect::<Vec<_>>().join(", "),
             o.margin,
-            if short.is_empty() { String::new() } else { format!(" -> SHORT: {}", short.iter().map(|(k, _)| k.as_str()).collect::<Vec<_>>().join(", ")) }
+            if short.is_empty() { String::new() } else { format!(" -> SHORT: {}", short.iter().map(|(k, _, _)| k.as_str()).collect::<Vec<_>>().join(", ")) }
         ));
     }
     // (the nominal corners' restarts and the logins of up to `lead_login_max` gt (the lead), the longer
@@ -1184,6 +1881,43 @@ pub fn judge(base: &ReturnOpts, o: &ReturnJudgeOpts) -> Result<(Vec<String>, usi
         // corner, plus each corner's families; G1's CHANGES 1 on 67d161436)
         out.push(format!("over the lead's rows ({} runs made, {} carrying the hold release line), {}", lead_rows.len(), lead_rows.iter().filter(|r| r.hold.is_some()).count(), hold_text(&lead_rows)));
     }
+    // (the junction switches by cause over every lead row (ironspec 19:14/19:38): each switch's least
+    // settle and clear as the farm sees them (day-1's driver applied to the press entries), its phase and
+    // its bar + margin)
+    let mut sw: BTreeMap<String, (Option<i64>, Option<i64>, bool, Option<i64>, String)> = BTreeMap::new();
+    for r in &lead_rows {
+        for s in &r.switches {
+            let (settle, clear, entity, lat) = effective(s, &o.bars);
+            let e = sw.entry(s.name.clone()).or_insert((None, None, entity, lat, s.cause.clone()));
+            e.0 = match (e.0, settle) {
+                (Some(a), Some(b)) => Some(a.min(b)),
+                (a, b) => a.or(b),
+            };
+            e.1 = match (e.1, clear) {
+                (Some(a), Some(b)) => Some(a.min(b)),
+                (a, b) => a.or(b),
+            };
+        }
+    }
+    if !sw.is_empty() {
+        let n = lead_rows.iter().filter(|r| !r.switches.is_empty()).count();
+        // (r3: an entry with no sample in a run reads NOT JUDGED there and is skipped; a cause with no sample
+        // over every lead row is NOT JUDGED over the matrix and fails (ironspec 23:56))
+        let unjudged = sw.values().map(|(s, c, ..)| usize::from(s.is_none()) + usize::from(c.is_none())).sum::<usize>();
+        total += unjudged;
+        out.push(format!(
+            "the junction switches by cause over the lead's rows ({n} runs{}): {}",
+            if unjudged > 0 { format!("; {unjudged} sides NOT JUDGED (0 samples over the matrix): failing") } else { String::new() },
+            sw.iter()
+                .map(|(name, (s, c, entity, lat, cause))| {
+                    let bar = if *entity { o.bars.junction_entity_min } else { o.bars.junction_block_min };
+                    let f = |g: &Option<i64>| g.map_or("NOT JUDGED (0 samples)".to_string(), |g| format!("{g} ({:+})", g - bar - o.bars.margin));
+                    format!("{name} ({cause}{}, {}-phase, bar {} + {}): settle {}, clear {}", lat.map_or(String::new(), |l| format!(" + day-1's driver {l}")), if *entity { "entity" } else { "block" }, bar, o.bars.margin, f(s), f(c))
+                })
+                .collect::<Vec<_>>()
+                .join("; ")
+        ));
+    }
     // ((c′), ironspec 11:48: the napper's departure tick relative to E's rise over every arrival phase and
     // freeze in the lead's scope (the controls, the restarts, the lead's logins, the jitter and the late
     // rows), min..max, and at both ends of that spread K set/reset, the J(-1) re-arm and the lane-7 merge
@@ -1198,17 +1932,20 @@ pub fn judge(base: &ReturnOpts, o: &ReturnJudgeOpts) -> Result<(Vec<String>, usi
         let end = |(d, ((c, row), r)): &(i64, &Res)| -> String {
             let k_ok = r.wrong == 0 && r.never == 0 && r.sided == 0 && (o.bars.k_band.is_none() || r.napper_k.is_some_and(|x| o.bars.k_band.is_some_and(|kb| x >= kb.0 && x <= kb.1)));
             let j_ok = o.bars.junction_min.get(&-1).is_none_or(|m| r.junction.get(&-1).is_some_and(|g| g >= m));
-            let m_ok = r.napper_behind.is_some_and(|g| g >= o.bars.napper_behind) && r.pushes <= o.bars.pushes_max;
+            // (the lane-7 merge separation: under path (a) the napper's y-12 gap behind lane 7's cart (the shaft
+            // entry retired, ironspec 17:20), else its shaft-entry gap behind the third cart)
+            let (behind, bar, at) = if o.bars.path_a { (r.y12_behind, o.bars.y12_nap_min, "at y 12") } else { (r.napper_behind, o.bars.napper_behind, "at the shaft entry") };
+            let m_ok = behind.is_some_and(|g| g >= bar) && r.pushes <= o.bars.pushes_max;
             let ok = |b: bool| if b { "ok" } else { "FAIL" };
             format!(
-                "E{:+} at {} {} (K set/reset {}, the J(-1) re-arm {}, the lane-7 merge separation {} (the napper {} behind))",
+                "E{:+} at {} {} (K set/reset {}, the J(-1) re-arm {}, the lane-7 merge separation {} (the napper {} behind {at}))",
                 d,
                 c.label(),
                 row_label(row),
                 ok(k_ok),
                 ok(j_ok),
                 ok(m_ok),
-                r.napper_behind.map_or("-".into(), |g| format!("{g} gt"))
+                behind.map_or("-".into(), |g| format!("{g} gt"))
             )
         };
         out.push(format!(
@@ -1505,6 +2242,19 @@ pub fn t_rule(w: &redsim::world::World, p: redsim::pos::BlockPos) -> Option<(Str
     if routes.len() != 2 || !routes.iter().all(|r| settles.contains(r)) || settles[0] == settles[1] {
         bad.push(format!("its settle shapes {} / {} are not the routes' curves through its stem ({})", settles[0], settles[1], if routes.is_empty() { "no single stem".to_string() } else { routes.join(", ") }));
     }
+    // (RailBlock re-shapes a plain rail on a power change only with exactly 3 potential connections (a rail
+    // in a horizontal neighbour's column at y-1..y+1, a detector rail included): a 4th disables the switch
+    // (tick-exact's official boundary row, farmopt 19:58))
+    let pot = redsim::rails::RailState::new(p, w.get(p)).count_potential_connections(w);
+    if pot != 3 {
+        let cols: Vec<String> = Dir::HORIZONTAL
+            .iter()
+            .flat_map(|d| [-1, 0, 1].into_iter().map(move |dy| p.rel(*d).offset(0, dy, 0)))
+            .filter(|q| redsim::rails::is_rail(&w.get(*q)))
+            .map(|q| format!("({},{},{}) {}", q.x, q.y, q.z, w.get(q).to_string().trim_start_matches("minecraft:").split('[').next().unwrap_or("")))
+            .collect();
+        bad.push(format!("{pot} potential connections (exactly 3 switch it: a 4th disables its switching): the rails in its neighbour columns {}", cols.join(", ")));
+    }
     let line = format!(
         "switched T ({},{},{}): arms {}, driven by {} ({}), stored {}; settles {} unpowered, {} powered; the routes' curves through its stem {}",
         p.x,
@@ -1776,10 +2526,10 @@ mod tests {
     }
 
     fn bars() -> ReturnBars {
-        ReturnBars { branch_band: (0.30, 0.48), napper_band: (0.1, 0.3), shaft_min: 14, napper_behind: 21, napper_ahead: 16, junction_min: [(3, 8), (-1, 8)].into_iter().collect(), pushes_max: 0, head_max: 28.0, k_band: None, scheduled_only: true, hold_required: false }
+        ReturnBars { branch_band: (0.30, 0.48), napper_band: (0.1, 0.3), shaft_min: 14, napper_behind: 21, napper_ahead: 16, junction_min: [(3, 8), (-1, 8)].into_iter().collect(), pushes_max: 0, head_max: 28.0, k_band: None, scheduled_only: true, hold_required: false, margin: 2, junction_block_min: 1, junction_entity_min: 2, driver_latency: None, path_a: false, y12_nap_min: 16, y12_min: 16, mouth_min: 2, restart_delta_bar: Some(1) }
     }
 
-    const T: &str = "cart 0 (batch 0, lane -1): into the shaft 30 live gt after release (the rider's feet at y 12.01 at 44); lane -1, at its branch flat 132 live gt after release; branch speed 0.410 (entering the merge cell 0.350); air 300; seated; hurt 0.0; eye-in-wall ticks 0\n  cart 0 speed pin: merge row stored >= 0.791, moved >= 0.200/gt; split row stored >= 0.230, moved >= 0.172/gt; the rider's highest head y 26.900 (the roof's underside 28.0)\ncart 1 (batch 0, lane 3): into the shaft 31 live gt after release; lane 3, at its branch flat 153 live gt after release; branch speed 0.420 (entering the merge cell 0.360); air 300; seated; hurt 0.0; eye-in-wall ticks 0\n  cart 1 speed pin: merge row -; split row -; the rider's highest head y 27.012 (the roof's underside 28.0)\nnapper 3 (batch 0, the 4th route): into the shaft 80 live gt after release; the 4th route; branch speed - (handed on by the 4th route at 0.261 stored, 0.196/gt); air 300; seated; hurt 0.0; eye-in-wall ticks 0\n  napper 3 speed pin: merge row -; split row -; the rider's highest head y 26.500 (the roof's underside 28.0)\nsplit: 0 wrong lane(s) of 3; the batch carts' stored speed entering their branch 0.410..0.420, entering their lane's merge cell 0.350..0.360 (ironfarm's delivery band 0.30..0.48, margins 0.050 / 0.120); the least gap from a junction's turn to the next cart at it: J(3) 17 gt, J(-1) 18 gt; the shaft's closest pair 3.100\npairs: box touches (the game's push test: inflated 0.2 sideways, |dy| < 0.7) 6 pair-ticks, the hardest closing 0.081 (t 120, carts 0 and 1 at 1.00,2.00,3.00); where a push acts (|cos| >= 0.8 against either yaw) 0\nshaft entry gaps (live gt): batch 0 23 / 23, batch 1 23 / 24; the napper 30 behind batch 0's third cart, 24 ahead of batch 1's first\n";
+    const T: &str = "cart 0 (batch 0, lane -1): into the shaft 30 live gt after release (the rider's feet at y 12.01 at 44); lane -1, at its branch flat 132 live gt after release; branch speed 0.410 (entering the merge cell 0.350); air 300; seated; hurt 0.0; eye-in-wall ticks 0\n  cart 0 speed pin: merge row stored >= 0.791, moved >= 0.200/gt; split row stored >= 0.230, moved >= 0.172/gt; the rider's highest head y 26.900 (the roof's underside 28.0)\ncart 1 (batch 0, lane 3): into the shaft 31 live gt after release; lane 3, at its branch flat 153 live gt after release; branch speed 0.420 (entering the merge cell 0.360); air 300; seated; hurt 0.0; eye-in-wall ticks 0\n  cart 1 speed pin: merge row -; split row -; the rider's highest head y 27.012 (the roof's underside 28.0)\nnapper 3 (batch 0, the 4th route): into the shaft 80 live gt after release; the 4th route; branch speed - (handed on by the 4th route at 0.261 stored, 0.196/gt); air 300; seated; hurt 0.0; eye-in-wall ticks 0\n  napper 3 speed pin: merge row -; split row -; the rider's highest head y 26.500 (the roof's underside 28.0)\nsplit: 0 wrong lane(s) of 3; the batch carts' stored speed entering their branch 0.410..0.420, entering their lane's merge cell 0.350..0.360 (ironfarm's delivery band 0.30..0.48, margins 0.050 / 0.120); the least gap from a junction's turn to the next cart at it: J(3) 17 gt, J(-1) 18 gt; the shaft's closest pair 3.100\npairs: box touches (the game's push test: inflated 0.2 sideways, |dy| < 0.7) 6 pair-ticks, the hardest closing 0.081 (t 120, carts 0 and 1 at 1.00,2.00,3.00); where a push acts (|cos| >= 0.8 against either yaw) 0\nshaft entry gaps (live gt): batch 0 23 / 23, batch 1 23 / 24; the napper 30 behind batch 0's third cart, 24 ahead of batch 1's first\nfluid: 2 water cells, 2 fluid ticks scheduled at the start (LiquidBlock.onPlace on each water cell, as placing it does; ironspec 00:27 PT: 0 with water fails)\nnew water after the settle (rule C, ironspec 01:07 PT: 0 on a saved-settled design; any fails, the `# water:` currents being saved cells): none\nblock contacts (ironspec 21:25 PT (4): the cells the carts' boxes meet on a tick their move collided; the samples: 412 cart-ticks checked): 1 cells; 1 declared ((3,24,5) backstop t 10..12 (3 ticks, carts 0/1)); undeclared none\n";
 
     /// The reader on the `--row9` bench's own lines: a clean run passes; a wrong lane, a gap under
     /// the bar, a delivery out of its band, a short napper window, a push and a head at the roof each
@@ -1795,7 +2545,7 @@ mod tests {
         assert_eq!(r.head, Some(27.012));
         assert_eq!(r.ret.get("lane 3"), Some(&153));
         assert!(fails(&r, &bars(), true).is_empty(), "{:?}", fails(&r, &bars(), true));
-        assert_eq!(gt_margins(&r, &bars(), true).iter().map(|(_, m)| m.unwrap()).collect::<Vec<_>>(), vec![9, 9, 8, 10, 9]);
+        assert_eq!(gt_margins(&r, &bars(), true).iter().map(|(_, m, _)| m.unwrap()).collect::<Vec<_>>(), vec![9, 9, 8, 10, 9]);
         let bad = read(
             &T.replace("; lane 3,", "; lane 7 (WRONG LANE),")
                 .replace("batch 1 23 / 24", "batch 1 23 / 13")
@@ -1832,6 +2582,40 @@ mod tests {
         let sided = read(&T.replace("branch speed 0.420 (entering the merge cell 0.360)", "branch speed - (handed on by the 4th route at 0.303 stored, 0.227/gt)"), true);
         assert!(sided.errors.is_empty() && sided.sided == 1, "{:?} {}", sided.errors, sided.sided);
         assert!(fails(&sided, &bars(), true).iter().any(|x| x.contains("off their branch")), "{:?}", fails(&sided, &bars(), true));
+    }
+
+    /// r3's lines (7b90c3f1's 8ed397b2e): read, and each barred as the bench's own failing-row causes:
+    /// water with no fluid tick, new water after the settle, an undeclared block contact, none checked (NOT
+    /// JUDGED), a T off its settle after its D's change, a J not judged under path (a), the y-12 verdict and,
+    /// until it prints, lane 3 -> lane 7 with no sample.
+    #[test]
+    fn reads_r3_lines() {
+        let r = read(T, true);
+        assert_eq!((r.fluid, r.new_water.as_deref(), r.contact_samples, r.contacts_undeclared.as_deref()), (Some((2, 2)), Some(""), Some(412), Some("")));
+        assert!(fails(&r, &bars(), true).is_empty(), "{:?}", fails(&r, &bars(), true));
+        let dj = "D-on-J (the `# update-only:` declarations: each branch detector D (x,24,8)'s rise or fall updates its J's T (x,25,9)): J(-1) 4 detector changes (the samples), the T off its power's settle after one 1, re-shaped by the update 0; J(3) 4 detector changes (the samples), the T off its power's settle after one 0, re-shaped by the update 2; J(7) NOT JUDGED (0 samples: no detector change)\n";
+        let d = read(&format!("{T}{dj}"), true);
+        assert!(d.errors.is_empty(), "{:?}", d.errors);
+        assert_eq!(d.dj, vec![("J(-1)".to_string(), Some((4, 1, 0))), ("J(3)".to_string(), Some((4, 0, 2))), ("J(7)".to_string(), None)]);
+        let pa = ReturnBars { path_a: true, ..bars() };
+        let f = fails(&d, &pa, true);
+        for want in ["J(-1): a T off its settle after its D's change (1)", "D-on-J J(7) NOT JUDGED (0 samples)"] {
+            assert!(f.iter().any(|x| x.contains(want)), "{want:?} in {f:?}");
+        }
+        assert!(!fails(&d, &bars(), true).iter().any(|x| x.contains("NOT JUDGED")), "a J not judged fails only under path (a)");
+        for (from, to, want) in [
+            ("2 fluid ticks scheduled", "0 fluid ticks scheduled", "2 water cells with no fluid tick"),
+            ("saved cells): none", "saved cells): (6,-3,4) water[level=1]", "undeclared new water after the settle: (6,-3,4)"),
+            ("undeclared none", "undeclared (9,24,7) t 3..4 (2 ticks, carts 2), speed change -0.0100 b/gt at the most", "undeclared block contacts: (9,24,7)"),
+            ("the samples: 412 cart-ticks checked)", "the samples: 0 cart-ticks checked, NOT JUDGED (0 samples))", "block contacts NOT JUDGED (0 samples)"),
+        ] {
+            let e = read(&T.replace(from, to), true);
+            assert!(e.errors.is_empty(), "{from:?}: {:?}", e.errors);
+            assert!(fails(&e, &bars(), true).iter().any(|x| x.contains(want)), "{want:?} in {:?}", fails(&e, &bars(), true));
+        }
+        assert!(read(&T.replace("block contacts (", "block contactz ("), true).missing.contains(&"the block contacts line"));
+        assert!(read(&T.replace("fluid: ", "fluid; "), true).missing.contains(&"the fluid line"));
+        assert!(!read(&T.replace("fluid: 2 water", "fluid: two water"), true).errors.is_empty());
     }
 
     /// The K re-lay (ironspec 08:46, the band widened 09:00): the napper's arrival on its siding's K
@@ -1943,6 +2727,136 @@ mod tests {
         let none = read(&with(&format!("{good}; E rises: none; fired pulse rises: none; E rises within 42 gt after a fired pulse: 0")), true);
         assert!(none.errors.is_empty() && none.hold.as_ref().is_some_and(|h| h.e_rises.is_empty() && h.e_within == Some((42, 0))), "{:?}", none.errors);
         assert!(!read(&with(&format!("{good}; E rises: t x")), true).errors.is_empty());
+        // (the resets (ironspec 18:01): the fired pulses' E rises read; the bench's count "after a reset")
+        let rs = read(&with(&format!("{good}; E rises: t 146, t 246; fired E rises (resets): t 246; fired pulse rises: t 256; E rises within 42 gt after a reset: 0")), true);
+        assert!(rs.errors.is_empty(), "{:?}", rs.errors);
+        assert_eq!(rs.hold.map(|h| (h.resets, h.e_within)), Some((vec![246], Some((42, 0)))));
+    }
+
+    /// Path (a)'s line and the junction settle / clear line (ironspec 17:20, 18:16): the napper's y-12 gaps
+    /// and the batch pairs read and barred (the shaft-entry napper bars retired under --path-a); the
+    /// settle and the timed clear barred at the bar + 2, the cart-triggered clear read, not barred.
+    #[test]
+    fn reads_path_a_and_settle() {
+        let pa = "path (a): ARM3 - REL per batch [51, 51, 51]; y-12 passes after REL: b0 lane -1 +55, b0 lane 3 +74, b0 lane 7 +101, b1 lane -1 +55, b1 lane 3 +74, b1 lane 7 +101, napper +127; the napper's y-12 gap behind 26 and ahead 28; lane 7's mouth clearance 4 gt (batch 1); the least distance between two carts in the column 9.526 (carts 0 and 1 at t 182)\n";
+        let sc = "junction settle / clear (least per junction): J(-1): settle 11 gt (its set at t 245, then cart 3 (batch 1, lane -1) entering at stored 0.315), clear 12 gt (cart 2 (batch 0, lane 7) out of the cell, then its reset at t 233), cart-triggered clear 5 gt (cart 1 (batch 0, lane 3) out of the cell, then its set at t 160); J(3): settle 25 gt (its set at t 150, then cart 1 (batch 0, lane 3) entering at stored 0.315), clear -\n";
+        let r = read(&format!("{T}{pa}{sc}"), true);
+        assert!(r.errors.is_empty(), "{:?}", r.errors);
+        assert!(r.saw_path_a && r.saw_settle);
+        assert_eq!((r.y12_behind, r.y12_ahead, r.col_min), (Some(26), Some(28), Some(9.526)));
+        // (lane 3 -> 7: 27 a batch; lane 7 -> the next lane -1: 100 + 55 - 101 = 54)
+        assert_eq!(r.y12_pairs, vec![27, 54, 27]);
+        assert_eq!((r.j_settle.get(&-1), r.j_clear.get(&-1), r.j_clear_cart.get(&-1), r.j_settle.get(&3), r.j_clear.get(&3)), (Some(&11), Some(&12), Some(&5), Some(&25), None));
+        let pb = ReturnBars { path_a: true, ..bars() };
+        // (the shaft-entry napper bars retired: T's napper is 30 behind / 24 ahead, but a short shaft-entry
+        // napper gap would not count under path (a))
+        assert!(fails(&r, &pb, true).is_empty(), "{:?}", fails(&r, &pb, true));
+        let short = read(&format!("{}{}{sc}", T.replace("the napper 30 behind", "the napper 8 behind"), pa.replace("behind 26 and ahead 28", "behind 15 and ahead 28")), true);
+        let f = fails(&short, &pb, true);
+        assert!(f.iter().any(|x| x.contains("y-12 gap behind lane 7's cart 15 gt (bar 16, the column bar")) && !f.iter().any(|x| x.contains("behind the third cart")), "{f:?}");
+        let pair = read(&format!("{T}{}{sc}", pa.replace("b1 lane 7 +101", "b1 lane 7 +89")), true);
+        assert!(fails(&pair, &pb, true).iter().any(|x| x.contains("a batch pair's y-12 gap 15 gt (bar 16, the column bar")), "{:?}", fails(&pair, &pb, true));
+        // (the column-order bar (ironspec 20:01): lane 7's mouth clearance >= 2; missing under path (a):
+        // unmeasured)
+        assert_eq!(r.mouth, Some(4));
+        let m1 = read(&format!("{T}{}{sc}", pa.replace("mouth clearance 4 gt", "mouth clearance 1 gt")), true);
+        assert!(fails(&m1, &pb, true).iter().any(|x| x.contains("lane 7's mouth clearance 1 gt (bar 2, physical")), "{:?}", fails(&m1, &pb, true));
+        let m0 = read(&format!("{T}{}{sc}", pa.replace("; lane 7's mouth clearance 4 gt (batch 1)", "")), true);
+        assert!(fails(&m0, &pb, true).iter().any(|x| x.contains("lane 7's mouth clearance unmeasured")), "{:?}", fails(&m0, &pb, true));
+        // (7b90c3f1's 5ec2749b3 wording: the path (a) line's new prefix, `-` values (unmeasured, no error), a
+        // cart without a y-12 pass, and the pairs line read and barred in place of the judge's own pairs)
+        let pa2 = "path (a), in game ticks after REL (the tick a state first shows at a tick's end): lane 7's slope rail rises [95, 95, 95]; ARM3 rises [51, 51, 51]; the napper's hold rail rises REL + 63 (batch 0's REL); y-12 passes after REL: b0 lane -1 +55, b0 lane 3 +74, b0 lane 7 +101, b1 lane -1 +55, b1 lane 3 +74, b1 lane 7 +101, napper +127; the napper's y-12 gap behind 26 and ahead 28; lane 7's mouth clearance 5 gt (batch 0: lane 3's box out of the mouth cell, feet at y 13, at t 210; lane 7 into the column 5 gt later); the least distance between two carts in the column 9.526 (carts 0 and 1 at t 182)\n";
+        let pairs = "path (a) y-12 pairs (bar >= 16, G1): lane -1 -> lane 3 19 (the foot pair: the shaft entry's gap bars it), lane 3 -> lane 7 27, lane 7 -> the napper 26, the napper -> the next batch's lane -1 28, lane 7 -> the next batch's lane -1 with no napper between 54; the column order at y 12 -1, 3, 7 per batch, the napper after its batch's lane 7; the same pairs at the exit top (the contact point, the exit booster's cell): lane -1 -> lane 3 17, lane 3 -> lane 7 25, lane 7 -> the napper 24, the napper -> the next lane -1 30\n";
+        let n = read(&format!("{T}{pa2}{pairs}{sc}"), true);
+        assert!(n.errors.is_empty(), "{:?}", n.errors);
+        assert!(n.saw_path_a && n.saw_y12_pairs && !n.y12_order_wrong);
+        assert_eq!((n.mouth, n.y12_behind, n.y12_ahead), (Some(5), Some(26), Some(28)));
+        assert_eq!((n.y12_bench, n.y12_top), ([Some(19), Some(27), Some(26), Some(28), Some(54)], [Some(17), Some(25), Some(24), Some(30)]));
+        assert!(fails(&n, &pb, true).is_empty(), "{:?}", fails(&n, &pb, true));
+        let un = read(&format!("{T}{}{pairs}{sc}", pa2.replace("5 gt (batch 0: lane 3's box out of the mouth cell, feet at y 13, at t 210; lane 7 into the column 5 gt later)", "- (unmeasured)").replace("ahead 28", "ahead - (no batch after it in the run)")), true);
+        assert!(un.errors.is_empty(), "{:?}", un.errors);
+        let fu = fails(&un, &pb, true);
+        assert!(fu.iter().any(|x| x.contains("mouth clearance unmeasured")) && fu.iter().any(|x| x.contains("y-12 gap ahead of the next batch's first unmeasured")), "{fu:?}");
+        let p15 = read(&format!("{T}{pa2}{}{sc}", pairs.replace("lane 3 -> lane 7 27", "lane 3 -> lane 7 15")), true);
+        assert!(fails(&p15, &pb, true).iter().any(|x| x.contains("the y-12 pair lane 3 -> lane 7 15 gt (bar 16")), "{:?}", fails(&p15, &pb, true));
+        let wrong = read(&format!("{T}{pa2}{}{sc}", pairs.replace("the column order at y 12 -1, 3, 7 per batch", "the column order at y 12 WRONG")), true);
+        assert!(fails(&wrong, &pb, true).iter().any(|x| x.contains("the column order at y 12 wrong")), "{:?}", fails(&wrong, &pb, true));
+        let miss = read(&format!("{T}{}{pairs}{sc}", pa2.replace("b1 lane 7 +101", "b1 lane 7 -")), true);
+        assert!(miss.errors.is_empty() && fails(&miss, &pb, true).iter().any(|x| x.contains("1 batch cart(s) never passed y 12")), "{:?} {:?}", miss.errors, fails(&miss, &pb, true));
+        let set9 = read(&format!("{T}{pa}{}", sc.replace("settle 11 gt", "settle 3 gt")), true);
+        // (ironspec 20:35: a restart row's game-time delta exactly 1; 2 fails as no valid restart; absent: no check)
+        // (1420794e6's restart line: the delta barred at the row's load tick once the official load is on main
+        // (`restart_delta_bar`: the test bars 1), unbarred before; a moving cart that moved always fails)
+        let rl = |d: i64, pos: &str| format!("{T}{pa2}{pairs}{sc}restart game-time delta {d}; a moving cart's position across the load: {pos} (the official load is one block-only tick: delta 1, carts held; this bench's restart helper runs no block-only tick yet)\n");
+        let d1 = read(&rl(1, "held"), true);
+        assert!(d1.errors.is_empty() && d1.restart_delta == Some(1) && d1.restart_moved.is_none() && fails(&d1, &pb, true).is_empty(), "{:?} {:?}", d1.errors, fails(&d1, &pb, true));
+        let d2 = read(&rl(2, "none moving"), true);
+        assert!(fails(&d2, &pb, true).iter().any(|x| x.contains("restart game-time delta 2 (bar 1: re-run)")), "{:?}", fails(&d2, &pb, true));
+        let d0 = read(&rl(0, "held"), true);
+        assert!(fails(&d0, &ReturnBars { restart_delta_bar: None, ..pb.clone() }, true).is_empty(), "main's helper (delta 0) not barred before the official load: {:?}", fails(&d0, &ReturnBars { restart_delta_bar: None, ..pb.clone() }, true));
+        let mv = read(&rl(1, "moved (cart 2, delta 0.3000)"), true);
+        assert!(mv.errors.is_empty() && fails(&mv, &ReturnBars { restart_delta_bar: None, ..pb.clone() }, true).iter().any(|x| x.contains("a moving cart's position across the load: moved (cart 2, delta 0.3000) (re-run)")), "{:?} {:?}", mv.errors, fails(&mv, &pb, true));
+        assert!(fails(&set9, &pb, true).iter().any(|x| x.contains("J(-1)'s settle 3 gt (entity-phase bar 2 + 2, its cause unnamed)")), "{:?}", fails(&set9, &pb, true));
+        let clr9 = read(&format!("{T}{pa}{}", sc.replace("clear 12 gt", "clear 2 gt")), true);
+        assert!(fails(&clr9, &pb, true).iter().any(|x| x.contains("J(-1)'s clear 2 gt (block-phase bar 1 + 2)")), "{:?}", fails(&clr9, &pb, true));
+        let cart3 = read(&format!("{T}{pa}{}", sc.replace("cart-triggered clear 5 gt", "cart-triggered clear 3 gt")), true);
+        assert!(fails(&cart3, &pb, true).iter().any(|x| x.contains("J(-1)'s cart-triggered clear 3 gt (entity-phase bar 2 + 2)")), "{:?}", fails(&cart3, &pb, true));
+        // (a path (a) run without its y-12 gaps: unmeasured, a failure)
+        let none = read(&format!("{T}path (a): ARM3 - REL per batch [51]\n{sc}"), true);
+        assert!(fails(&none, &pb, true).iter().any(|x| x.contains("unmeasured")), "{:?}", fails(&none, &pb, true));
+        assert!(!read(&format!("{T}junction settle / clear: nothing\n"), true).errors.is_empty());
+    }
+
+    /// The station calibration check (ironspec 19:52): batch 0's y-12 passes per lane from the path (a)
+    /// line, else from the riders' feet times + the station lag + the cart's offset; a lane with neither is
+    /// none (the judge refuses).
+    #[test]
+    fn station_calibration_check() {
+        // (the path (a) line's passes first; else a cart's feet time + the station lag + its offset (k % 3);
+        // a lane with neither: none (the check refuses))
+        let pa = "path (a): ARM3 - REL per batch [51]; y-12 passes after REL: b0 lane -1 +55, b0 lane 3 +74, b0 lane 7 +101, napper +127; the napper's y-12 gap behind 26 and ahead 28; the least distance between two carts in the column 9.5\n";
+        let r = read(&format!("{T}{pa}"), true);
+        assert_eq!(station_check(&r, &[(-1, 55), (3, 74)], &[0, 10, 24], 11), vec![(-1, Some(55), 55, "path (a)"), (3, Some(74), 74, "path (a)")]);
+        let plain = read(T, true);
+        assert_eq!(plain.feet12.get(&(0, 0, -1)), Some(&44));
+        assert_eq!(station_check(&plain, &[(-1, 55), (3, 74)], &[0, 10, 24], 11)[0], (-1, Some(55), 55, "the riders' feet"));
+        assert_eq!(station_check(&plain, &[(-1, 55)], &[0, 10, 24], 9)[0].1, Some(53));
+        assert_eq!(station_check(&plain, &[(5, 60)], &[0, 10, 24], 11)[0].1, None);
+    }
+
+    /// The per-cause line (ironspec 19:14): each switch barred at the bar of its cause's phase + 2 on both
+    /// sides (block 1 -> 3, entity 2 -> 4); `-` is no such switch in the run; an unknown phase is an error.
+    #[test]
+    fn reads_switches_by_cause() {
+        let by = "junction settle / clear by cause (ironspec 19:14; a press timed from the press tick): K(1) set (tap, block): settle 7 gt (its set at t 300, then cart 9 (batch 2, napper) entering at stored 0.307), clear 4 gt (cart 8 (batch 2, lane 7) out of the cell, then its set at t 300); K(1) reset (tap, block): settle 9 gt (the next batch cart in), clear 3 gt (the napper out); J(-1) re-arm (tap, block): settle 11 gt (its set at t 331, then cart 9 (batch 3, lane -1) entering at stored 0.315), clear 6 gt (cart 8 (batch 2, lane 7) out of the cell, then its set at t 331); J(-1) set (lane 7's D press, entity): settle 8 gt (…), clear 5 gt (…); J(3) reset (lane 3's D press, entity): settle -, clear 4 gt (…)\n";
+        let r = read(&format!("{T}{by}"), true);
+        assert!(r.errors.is_empty(), "{:?}", r.errors);
+        assert_eq!(r.switches.len(), 5);
+        assert_eq!((r.switches[1].name.as_str(), r.switches[1].cause.as_str(), r.switches[1].entity, r.switches[1].settle, r.switches[1].clear), ("K(1) reset", "tap", false, Some(9), Some(3)));
+        assert_eq!((r.switches[4].name.as_str(), r.switches[4].entity, r.switches[4].settle, r.switches[4].clear), ("J(3) reset", true, None, Some(4)));
+        assert!(fails(&r, &bars(), true).is_empty(), "{:?}", fails(&r, &bars(), true));
+        // (a block-phase clear of 2 and an entity-phase clear of 3 each fail; the split line's legacy
+        // J gaps are not barred beside the per-cause line)
+        let b2 = read(&format!("{T}{}", by.replace("clear 3 gt (the napper out)", "clear 2 gt (the napper out)")), true);
+        assert!(fails(&b2, &bars(), true).iter().any(|x| x.contains("K(1) reset (tap)'s clear 2 gt (block-phase bar 1 + 2)")), "{:?}", fails(&b2, &bars(), true));
+        let e3 = read(&format!("{T}{}", by.replace("clear 5 gt (…)", "clear 3 gt (…)")), true);
+        assert!(fails(&e3, &bars(), true).iter().any(|x| x.contains("J(-1) set (lane 7's D press)'s clear 3 gt (entity-phase bar 2 + 2)")), "{:?}", fails(&e3, &bars(), true));
+        let legacy = read(&format!("{}{by}", T.replace("J(-1) 17 gt", "J(-1) 1 gt")), true);
+        assert!(!fails(&legacy, &bars(), true).iter().any(|x| x.contains("J(-1)'s gap")), "{:?}", fails(&legacy, &bars(), true));
+        assert!(!read(&format!("{T}{}", by.replace("(tap, block)", "(tap, sideways)")), true).errors.is_empty());
+        // (day-1's driver (ironspec 19:38): an entity-phase press entry lands +4 after a set edge, +6 after a
+        // reset edge, block-phase: J(-1) set settle 8 -> 4, clear 5 -> 9; J(3) reset clear 4 -> 10; the taps
+        // and a press the bench already routes through a driver (block) are not moved)
+        let dl = ReturnBars { driver_latency: Some((4, 6)), ..bars() };
+        let s = |name: &str| r.switches.iter().find(|s| s.name == name).cloned().expect(name);
+        assert_eq!(effective(&s("J(-1) set"), &dl), (Some(4), Some(9), false, Some(4)));
+        assert_eq!(effective(&s("J(3) reset"), &dl), (None, Some(10), false, Some(6)));
+        assert_eq!(effective(&s("K(1) set"), &dl), (Some(7), Some(4), false, None));
+        assert!(fails(&r, &dl, true).is_empty(), "{:?}", fails(&r, &dl, true));
+        let s6 = read(&format!("{T}{}", by.replace("settle 8 gt (…)", "settle 6 gt (…)")), true);
+        assert!(fails(&s6, &dl, true).iter().any(|x| x.contains("J(-1) set (lane 7's D press, with day-1's driver +4)'s settle 2 gt (block-phase bar 1 + 2)")), "{:?}", fails(&s6, &dl, true));
+        let routed = read(&format!("{T}{}", by.replace("(lane 7's D press, entity)", "(lane 7's D press via the driver, block)")), true);
+        assert_eq!(effective(routed.switches.iter().find(|s| s.name == "J(-1) set").expect("set"), &dl), (Some(8), Some(5), false, None));
     }
 
     /// ironspec's T rule bites (a positive control): a switched T with arms N/W/E (a row along x, its
@@ -2012,5 +2926,13 @@ mod tests {
         let (line, bad) = tee("east_west", &comp).expect("a comparator-driven T");
         assert!(bad.iter().any(|b| b.contains("which no settle gives")), "{line}: {bad:?}");
         assert!(tee("north_east", &[([0, 0, 1], "minecraft:comparator[facing=north,mode=compare,powered=false]".to_string())]).is_none(), "a comparator pointing away drives nothing");
+        // (a detector rail in the T's 4th neighbour column (south, one down: (0,-1,1)) is a 4th potential
+        // connection: the T's switching disabled (tick-exact's boundary row, farmopt 19:58), a failure
+        // naming it; the lever-switched T itself unchanged)
+        let mut fourth = lever(false);
+        fourth.push(([0, -1, 1], "minecraft:detector_rail[powered=false,shape=north_south,waterlogged=false]".to_string()));
+        fourth.push(([0, -2, 1], "minecraft:stone".to_string()));
+        let (line, bad) = tee("north_east", &fourth).expect("a switched T with a 4th neighbour");
+        assert!(bad.iter().any(|b| b.contains("4 potential connections") && b.contains("(0,-1,1) detector_rail")), "{line}: {bad:?}");
     }
 }
