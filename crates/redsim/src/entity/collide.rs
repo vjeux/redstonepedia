@@ -29,6 +29,19 @@ pub struct Movement {
     pub axis_dependent: Option<Vec3>,
 }
 
+/// One `Entity.move(MoverType.SELF, requested)` as the game ran it (instrumentation for the shared
+/// contact definition, ironspec Nov 13 07:47 / 10:02): the game tick, the box before the move, the
+/// requested movement (after the stuck-speed scaling) and the movement `collide` returned. An axis the
+/// collision clipped is one where `!Mth.equal(requested, returned)`, the same test
+/// `horizontalCollision` uses. Nothing in redsim reads it (`World::record_self_moves`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SelfMove {
+    pub tick: i64,
+    pub bb_before: Aabb,
+    pub requested: Vec3,
+    pub returned: Vec3,
+}
+
 /// `Direction.axisStepOrder(v)`: Y first, then the larger of X and Z last.
 pub fn axis_step_order(v: Vec3) -> [usize; 3] {
     if v.x.abs() < v.z.abs() { [1, 2, 0] } else { [1, 0, 2] }
@@ -847,7 +860,17 @@ pub fn move_(w: &mut World, i: usize, mover: MoverType, delta: Vec3) {
         e.stuck_speed = Vec3::ZERO;
         e.delta_movement = Vec3::ZERO;
     }
+    let bb_before = w.entities.list[i].bb;
     let movement = collide(w, i, delta);
+    if mover == MoverType::Self_ && w.record_self_moves {
+        // (instrumentation only: the move as the game ran it, for the shared contact definition)
+        let t = w.time;
+        let e = &mut w.entities.list[i];
+        if e.self_moves.first().is_some_and(|m| m.tick != t) {
+            e.self_moves.clear();
+        }
+        e.self_moves.push(SelfMove { tick: t, bb_before, requested: delta, returned: movement });
+    }
     let len = movement.length_sqr();
     if len > 1.0e-7 || delta.length_sqr() - len < 1.0e-7 {
         if w.entities.list[i].fall_distance != 0.0 && len >= 1.0 {
@@ -1483,4 +1506,104 @@ pub fn apply_effects_for_last_movements(w: &mut World, i: usize) {
     }
     step_on(w, i);
     check_inside_blocks(w, i, &moves);
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::block::Block;
+    use crate::pos::BlockPos;
+    use crate::world::World;
+
+    /// A cart scene with pushes, a slope and a wall: a flat north_south track (z 0..11) on stone with
+    /// a stone wall at its north end (z -1), an ascending rail at its south end (z 12, rising south),
+    /// one cart at rest against the wall, one at rest in the middle, two rolling north into them, a
+    /// fifth rolling south up the slope; ridden carts among them (villager passengers).
+    fn scene(record: bool) -> World {
+        let mut w = World::new(BlockPos::new(-3, 0, -4), [8, 6, 20]);
+        w.record_self_moves = record;
+        let stone = Block::parse("minecraft:stone").unwrap();
+        let rail = Block::parse("minecraft:rail[shape=north_south,waterlogged=false]").unwrap();
+        let up = Block::parse("minecraft:rail[shape=ascending_south,waterlogged=false]").unwrap();
+        for z in -3..15 {
+            w.set_block(BlockPos::new(0, 0, z), stone.clone(), crate::world::flags::RAW);
+        }
+        for z in 0..12 {
+            w.set_block(BlockPos::new(0, 1, z), rail.clone(), crate::world::flags::RAW);
+        }
+        w.set_block(BlockPos::new(0, 1, 12), up.clone(), crate::world::flags::RAW);
+        w.set_block(BlockPos::new(0, 1, 13), stone.clone(), crate::world::flags::RAW);
+        w.set_block(BlockPos::new(0, 1, -1), stone.clone(), crate::world::flags::RAW);
+        let rider = "Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]";
+        for (z, vz, ridden) in [(0.5, 0.0, true), (5.5, 0.0, false), (8.5, -0.4, true), (10.5, -0.6, false), (11.2, 0.3, true)] {
+            let nbt = format!("{{Motion:[0.0d,0.0d,{vz:.2}d]{}}}", if ridden { format!(",{rider}") } else { String::new() });
+            crate::entity::spawn(&mut w, "minecraft:minecart", [0.5, 1.0, z], Some(&nbt)).unwrap();
+        }
+        w
+    }
+
+    /// Every entity's state that the game keeps, exactly (bit patterns), with no instrumentation field.
+    fn snapshot(w: &World) -> String {
+        w.entities
+            .list
+            .iter()
+            .map(|e| {
+                let b = e.bb;
+                format!(
+                    "{} {} {:x}/{:x}/{:x} {:x}/{:x}/{:x} {:x}/{:x}/{:x}/{:x}/{:x}/{:x} {:x}/{:x} {}{}{}{} {:x}",
+                    e.id,
+                    e.removed,
+                    e.pos.x.to_bits(),
+                    e.pos.y.to_bits(),
+                    e.pos.z.to_bits(),
+                    e.delta_movement.x.to_bits(),
+                    e.delta_movement.y.to_bits(),
+                    e.delta_movement.z.to_bits(),
+                    b.min_x.to_bits(),
+                    b.min_y.to_bits(),
+                    b.min_z.to_bits(),
+                    b.max_x.to_bits(),
+                    b.max_y.to_bits(),
+                    b.max_z.to_bits(),
+                    e.y_rot.to_bits(),
+                    e.x_rot.to_bits(),
+                    e.on_ground as u8,
+                    e.horizontal_collision as u8,
+                    e.vertical_collision as u8,
+                    e.minor_horizontal_collision as u8,
+                    e.fall_distance.to_bits()
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// The no-change test (ironspec Nov 13 10:02 (a)): the same scene run with the SELF-move record on
+    /// and off is byte-identical tick by tick over 200 ticks (every entity's position, motion, box,
+    /// rotation, collision flags and fall distance), and the record is non-empty only when on.
+    #[test]
+    fn self_move_recording_changes_nothing() {
+        let (mut on, mut off) = (scene(true), scene(false));
+        let mut recorded = 0usize;
+        for t in 0..200 {
+            on.tick();
+            off.tick();
+            assert_eq!(snapshot(&on), snapshot(&off), "tick {t}: the runs differ");
+            recorded += on.entities.list.iter().map(|e| e.self_moves.len()).sum::<usize>();
+            assert!(off.entities.list.iter().all(|e| e.self_moves.is_empty()), "tick {t}: recorded while off");
+        }
+        assert!(recorded > 0, "no SELF move recorded while on");
+    }
+
+    /// The record holds only the moves of the entity's latest moving tick: every entry shares one
+    /// tick, at most the world's (a consumer filters on the current tick: an entity that didn't move
+    /// this tick keeps its last tick's entries).
+    #[test]
+    fn self_moves_hold_only_the_latest_tick() {
+        let mut w = scene(true);
+        for _ in 0..30 {
+            w.tick();
+            let t = w.time;
+            assert!(w.entities.list.iter().all(|e| e.self_moves.first().is_none_or(|f| f.tick <= t && e.self_moves.iter().all(|m| m.tick == f.tick))));
+        }
+    }
 }
