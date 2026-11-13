@@ -12097,6 +12097,10 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             list("unsettled", &s.redstone);
             list("unsettled", &s.other);
             list("can't survive", &s.unsupported);
+            list("against its neighbour signal", &s.update_states);
+            for e in &s.fluid_escapes {
+                println!("  fluid falls out of the compared box at {e}");
+            }
             list("shape", &s.shapes);
             for (p, b, a) in &s.block_entities {
                 println!("  block entity changed ({},{},{}): {b} -> {a}", p.x, p.y, p.z);
