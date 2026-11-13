@@ -1659,7 +1659,7 @@ pub fn waker_lines(spec: &FarmSpec) -> Result<Vec<String>, String> {
 /// A rail block's shape (plain, powered, activator or detector).
 fn rail_shape(b: &Block) -> Option<redsim::block::RailShape> {
     match b {
-        Block::Rail { shape, .. } | Block::PlainRail { shape } | Block::DetectorRail { shape, .. } => Some(*shape),
+        Block::Rail { shape, .. } | Block::PlainRail { shape, .. } | Block::DetectorRail { shape, .. } => Some(*shape),
         _ => None,
     }
 }

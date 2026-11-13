@@ -7312,7 +7312,7 @@ pub fn build_order_of(blocks: &[(BlockPos, Block)], block_entities: &[(BlockPos,
     // (y, x, z); if none is safe, the first)
     let rail_links = |p: &BlockPos, b: &Block| -> Vec<(i32, i32)> {
         use redsim::block::RailShape as S;
-        let sh = match b { Block::Rail { shape, .. } | Block::PlainRail { shape } | Block::DetectorRail { shape, .. } => *shape, _ => return Vec::new() };
+        let sh = match b { Block::Rail { shape, .. } | Block::PlainRail { shape, .. } | Block::DetectorRail { shape, .. } => *shape, _ => return Vec::new() };
         let (x, z) = (p.x, p.z);
         match sh {
             S::NorthSouth | S::AscendingNorth | S::AscendingSouth => vec![(x, z - 1), (x, z + 1)],
