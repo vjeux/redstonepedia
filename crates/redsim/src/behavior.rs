@@ -1037,6 +1037,13 @@ pub fn update_shape(w: &mut World, s: Block, p: BlockPos, d: Dir, np: BlockPos, 
             crate::fluid::waterlogged_update_shape(w, &s, p);
             s
         }
+        // ---- waterlogged rails (farmopt's way-in, b8949c96): BaseRailBlock.updateShape schedules
+        // a waterlogged rail's water tick (the shape itself changes only through
+        // neighborChanged / RailState) ----
+        Block::Rail { .. } | Block::PlainRail { .. } | Block::DetectorRail { .. } => {
+            crate::fluid::waterlogged_update_shape(w, &s, p);
+            s
+        }
         // ---- crop farms (clk-misc) ----
         Block::Bamboo { .. } => crate::bamboo::update_shape(w, s, p, d, ns),
         Block::BambooSapling => crate::bamboo::sapling_update_shape(w, s, p, d, ns),
