@@ -4,7 +4,6 @@
 //! circuit study `mobfarm` (crates/circuit/src/studies/mobfarm.rs).
 
 pub mod bury;
-pub mod contacts;
 pub mod approach;
 pub mod borders;
 pub mod carousel;

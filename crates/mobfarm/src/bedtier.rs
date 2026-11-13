@@ -1419,9 +1419,9 @@ pub struct Row {
     pub out_at: Option<i64>,
     pub seated_out: bool,
     /// (ironspec 21:25, every cart-motion bench) The cart's contacts with blocks, the spawn to out:
-    /// (tick, the cart's position, "horizontal" / "ceiling" / "floor off a rail", the CONTACTED
-    /// block's cell, by the shared face_contacts judge); a contacted cell the design's `# contacts:`
-    /// header doesn't declare fails the row.
+    /// (tick, the cart's position, "clipped-move", the CONTACTED block's cell, by main's shared
+    /// `contacts::cart_contacts` (G1's Q1)); a contacted cell the design's `# contacts:` header
+    /// doesn't declare fails the row.
     pub contacts: Vec<(i64, [f64; 3], &'static str, [i32; 3])>,
     /// The declared contacted cells this visit met (a declaration no visit meets is STALE).
     pub declared_hit: Vec<[i32; 3]>,
@@ -2303,13 +2303,11 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
     let (mut prev_riding, mut prev_walk_target, mut prev_cant_reach) = (false, false, false);
     // (the cart's horizontal speed on the previous tick: a declared contact's "before")
     let mut prev_cart_speed = 0f64;
-    let mut prev_cart_bb: Option<redsim::entity::Aabb> = None;
     // (the bed's head and foot states after the previous tick: the contact's bed check)
     let mut prev_bed: Option<(String, String)> = None;
     let mut sensor_prev = false;
     let mut tap_on = false;
     let mut hold_entered = false;
-    let mut prev_cart_motion = (0f64, 0f64, 0f64);
     let mut still = 0;
     let mut crossed: Vec<[i32; 3]> = Vec::new();
     let mut hidden = false;
@@ -2854,42 +2852,15 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
         if row.pickup.is_some() && cbp == BlockPos::new(-2, 0, 5) && row.cell25_at.is_none() {
             row.cell25_at = Some(t);
         }
-        // (the cart's block contacts, per tick, by the SHARED judge (G1's CHANGES C10 on 58f770cc's
-        // bench; ironspec 07:47's amended definition): `contacts::face_contacts_world` on the
-        // horizontal steps of the move (the box before and after the tick, the motion it started
-        // with), keyed on the CONTACTED block's cell, not the cart's; plus the vertical axis the
-        // shared call doesn't step: a ceiling met by a rising move (a box within the face tolerance
-        // over the cart's top, overlapping it on x and z, the move's dy clipped) and a floor met off
-        // a rail (a rail's own snap is no contact))
+        // (the cart's block contacts, per tick, by the SHARED judge on landed main (G1's Q1;
+        // ironspec 07:47's amended rule): `contacts::cart_contacts` over the cart's recorded SELF
+        // moves of this tick (the clipped axes of the attempted move), keyed on the CONTACTED
+        // block's cell, not the cart's)
         {
-            let bp = c.block_position();
-            let on_rail = redsim::rails::is_rail(&w.get(bp)) || redsim::rails::is_rail(&w.get(BlockPos::new(bp.x, bp.y - 1, bp.z)));
-            let before = prev_cart_bb.unwrap_or(c.bb);
             let mut hits: Vec<(BlockPos, &'static str)> = Vec::new();
-            if c.horizontal_collision {
-                for (p, _) in crate::contacts::face_contacts_world(w, before, c.bb, prev_cart_motion) {
-                    if !hits.iter().any(|h| h.0 == p) {
-                        hits.push((p, "horizontal"));
-                    }
-                }
-            }
-            let dy = c.bb.min_y - before.min_y;
-            if prev_cart_motion.1 > 1e-7 && dy < prev_cart_motion.1 - 1e-7 {
-                let q = redsim::entity::Aabb::new(c.bb.min_x, c.bb.max_y - crate::contacts::FACE, c.bb.min_z, c.bb.max_x, c.bb.max_y + crate::contacts::FACE, c.bb.max_z);
-                for a in w.collision_shapes(q) {
-                    let (ox, oz) = (c.bb.max_x.min(a.max_x) - c.bb.min_x.max(a.min_x), c.bb.max_z.min(a.max_z) - c.bb.min_z.max(a.min_z));
-                    if (a.min_y - c.bb.max_y).abs() <= crate::contacts::FACE && ox > crate::contacts::OVERLAP && oz > crate::contacts::OVERLAP {
-                        let p = BlockPos::new(((a.min_x + a.max_x) / 2.0).floor() as i32, ((a.min_y + a.max_y) / 2.0).floor() as i32, ((a.min_z + a.max_z) / 2.0).floor() as i32);
-                        if !hits.iter().any(|h| h.0 == p) {
-                            hits.push((p, "ceiling"));
-                        }
-                    }
-                }
-            }
-            if c.vertical_collision && !on_rail && prev_cart_motion.1 < -1e-7 {
-                let p = BlockPos::new(bp.x, bp.y - 1, bp.z);
+            for (p, _) in crate::contacts::cart_contacts(w, ci) {
                 if !hits.iter().any(|h| h.0 == p) {
-                    hits.push((p, "floor off a rail"));
+                    hits.push((p, "clipped-move"));
                 }
             }
             for (p, k) in hits {
@@ -2899,7 +2870,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                 let q = dbp(p);
                 let declared = f.declared_contacts.contains(&cell);
                 if !declared && !row.contacts.iter().any(|x| x.2 == k && x.3 == cell) {
-                    row.problems.push(format!("t {t}: the cart's {k} contact with {} at ({},{},{}) (the cart at ({:.2},{:.2},{:.2}), cell {},{},{}), not declared in the design's `# contacts:` (ironspec 21:25; the shared face_contacts judge)", w.get(p), q.x, q.y, q.z, cpos.x, cpos.y, cpos.z, cbp.x, cbp.y, cbp.z));
+                    row.problems.push(format!("t {t}: the cart's {k} contact with {} at ({},{},{}) (the cart at ({:.2},{:.2},{:.2}), cell {},{},{}), not declared in the design's `# contacts:` (ironspec 21:25; main's shared contacts::cart_contacts)", w.get(p), q.x, q.y, q.z, cpos.x, cpos.y, cpos.z, cbp.x, cbp.y, cbp.z));
                 }
                 row.contacts.push((t, [cpos.x, cpos.y, cpos.z], k, cell));
                 // (ironspec 07:03 (2): a DECLARED contact printed per visit: its tick, its depth (the
@@ -3372,10 +3343,6 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             let ce = &w.entities.list[ci];
             let d = ce.delta_movement;
             prev_cart_speed = d.x.hypot(d.z);
-            // (the shared contact judge's inputs for the next tick: the box before its move and the
-            // motion it starts the move with)
-            prev_cart_bb = Some(ce.bb);
-            prev_cart_motion = (d.x, d.y, d.z);
         }
         prev_bed = Some((format!("{}", w.get(wc(BED_HEAD))), format!("{}", w.get(wp(BED_HEAD[0], BED_HEAD[1], BED_HEAD[2] - 1)))));
         // (G1 12:04 / day-1 12:03: the wake sensor's pulses, its rising edges by tick)
@@ -3848,22 +3815,14 @@ pub fn two_visit_bench(spec: &FarmSpec, seed: u64, speed: f64, o: &TwoOpts) -> R
             if let (Some(id), true) = (id, live_in_stop)
                 && let Some(ci) = idx(&run.world, id)
             {
-                let e = &run.world.entities.list[ci];
-                let bp = e.block_position();
-                let on_rail = redsim::rails::is_rail(&run.world.get(bp)) || redsim::rails::is_rail(&run.world.get(BlockPos::new(bp.x, bp.y - 1, bp.z)));
-                let kind = if e.horizontal_collision {
-                    Some("horizontal")
-                } else if e.vertical_collision && !on_rail {
-                    Some("vertical off a rail")
-                } else {
-                    None
-                };
-                if let Some(k) = kind
-                    && !o.declared_contacts.contains(&[bp.x, bp.y, bp.z])
-                {
-                    let m = format!("the cart's {k} contact at cell {},{},{}, not declared (ironspec 21:25)", bp.x, bp.y, bp.z);
-                    if !row.problems.iter().any(|p| p.ends_with(&m)) {
-                        row.problems.push(format!("t {t}: {m}"));
+                // (G1's Q1: main's shared contacts::cart_contacts, keyed on the CONTACTED block's
+                // cell, as the one-visit bench)
+                for (p, _) in crate::contacts::cart_contacts(&run.world, ci) {
+                    if !o.declared_contacts.contains(&[p.x, p.y, p.z]) {
+                        let m = format!("the cart's contact with {} at ({},{},{}), not declared (ironspec 21:25; main's contacts::cart_contacts)", run.world.get(p), p.x, p.y, p.z);
+                        if !row.problems.iter().any(|q| q.ends_with(&m)) {
+                            row.problems.push(format!("t {t}: {m}"));
+                        }
                     }
                 }
             }
@@ -4921,7 +4880,7 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
         println!("visits out with no recorded A6 entry: {} (a failure: entry to R not measured from the spawn)", sk.entry_missing);
     }
     println!(
-        "the carts' contacts with blocks, the spawn to out (the shared face_contacts judge (G1 C10), keyed on the CONTACTED block's cell; declared in the design's `# contacts:`: {:?}; an undeclared one fails its row): {} visits with a contact; by contacted cell (contact ticks) {:?}; declared cells met by some visit {:?}",
+        "the carts' contacts with blocks, the spawn to out (main's shared contacts::cart_contacts (G1's Q1): the clipped axes of each recorded SELF move, keyed on the CONTACTED block's cell; declared in the design's `# contacts:`: {:?}; an undeclared one fails its row): {} visits with a contact; by contacted cell (contact ticks) {:?}; declared cells met by some visit {:?}",
         base.declared_contacts, sk.contact_visits, sk.contacts, sk.declared_hit
     );
     sk.stamp_cleared.sort();
@@ -5575,6 +5534,10 @@ pub fn two_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, restart_phases
     if skip_rows > 0 {
         c_entries.sort();
         println!("skip rows in A's visit (design A, ironspec 07:43: no cascade): {skip_rows} rows, A aborted {a_aborts}; C's entry at day time {:?}..{:?} (DAY falls at 12,230: C held at the queue through the day)", c_entries.first(), c_entries.last());
+    }
+    // (G1's Q9: the two-visit bench fails on its collected per-row problems)
+    if clean < n {
+        anyhow::bail!("{} of {n} two-visit rows with problems (their lines above)", n - clean);
     }
     Ok(())
 }
