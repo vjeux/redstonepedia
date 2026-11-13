@@ -1,10 +1,62 @@
 # The one-chunk column's skeleton (mctas mobfarm column; no wiring): column x -6..41 z -6..25.
-# f1q2-tiled-n2 on record7f14 (onechunk, ironspec 07:50 / 07:57 platform, for 9fc3155f's cross-copy boxes): record7f14 (explore/farmopt-onechunk-record7-view 89c01b40a) tiled by the budget's rule (modules on the even chunks at the 32-block pitch, the L1 loop's overworld part at the odd-odd gap chunk (1,1)), composed by mctas mobfarm column; the first copy keeps the module's Nether part and ports, the others are its overworld cells and entities (record7f14 composed alone, its Nether part's lines dropped); record7f14's # declarations apply to each copy at its offset (the composer doesn't carry them yet)
+# f1q2-tiled-n2 on record7f14 (onechunk, ironspec 07:50 / 07:57 platform, for 9fc3155f's cross-copy boxes): record7f14 (89c01b40a) tiled by the budget's rule (modules on the even chunks at the 32-block pitch, the L1 loop's overworld part at the odd-odd gap chunk (1,1)), composed by mctas mobfarm column --no-settle (every rail as stored); the first copy keeps the module's Nether part and ports, the others are its overworld cells and entities; record7f14's # declarations apply to each copy at its offset (the composer doesn't carry them yet)
 # + A: /tmp/onechunk/f1q2-module-record7f14.txt moved by 0,0,0 into the frame, then 0,0,0 into its tier
-# + B: /tmp/onechunk/record7f14-ow.txt moved by 32,0,0 into the frame, then 0,0,0 into its tier
+# + B: /tmp/onechunk/record7f14-ow-ns.txt moved by 32,0,0 into the frame, then 0,0,0 into its tier
 # + L: /tmp/onechunk/loader-overworld.txt moved by 0,0,-16 into the frame, then 0,0,0 into its tier
-# settled junction: -1,0,7: stored north_west, settled to north_east (its signal off)
-# settled junction: 3,0,7: stored north_west, settled to north_east (its signal off)
+# placement order (every rail placed last into the finished build: the ones whose designed shape, or a neighbouring rail's, vanilla placement changes; place them in an order or with a temporary helper): 34
+# placement order: (-2,24,7) placed last: (-1,24,7) north_west -> east_west
+# placement order: (-1,0,7) placed last: (-1,0,7) north_west -> north_east
+# placement order: (-1,22,6) placed last: (-1,22,6) ascending_south -> north_south
+# placement order: (-1,24,7) placed last: (-1,24,7) north_west -> south_west
+# placement order: (-1,24,8) placed last: (-1,24,7) north_west -> south_west
+# placement order: (2,24,7) placed last: (3,24,7) north_west -> east_west
+# placement order: (3,0,7) placed last: (3,0,7) north_west -> north_east
+# placement order: (3,22,6) placed last: (3,22,6) ascending_south -> north_south
+# placement order: (3,24,7) placed last: (3,24,7) north_west -> south_west
+# placement order: (3,24,8) placed last: (3,24,7) north_west -> south_west
+# placement order: (6,24,7) placed last: (7,24,7) north_west -> east_west
+# placement order: (7,22,6) placed last: (7,22,6) ascending_south -> north_south
+# placement order: (7,24,7) placed last: (7,24,7) north_west -> south_west
+# placement order: (7,24,8) placed last: (7,24,7) north_west -> south_west
+# placement order: (9,-24,-2) placed last: (9,-24,-1) ascending_south -> north_south
+# placement order: (9,-24,-1) placed last: (9,-24,-1) ascending_south -> north_south
+# placement order: (9,-13,-5) placed last: (9,-13,-5) ascending_north -> north_south
+# placement order: (30,24,7) placed last: (31,24,7) north_west -> east_west
+# placement order: (31,0,7) placed last: (31,0,7) north_west -> north_east
+# placement order: (31,22,6) placed last: (31,22,6) ascending_south -> north_south
+# placement order: (31,24,7) placed last: (31,24,7) north_west -> south_west
+# placement order: (31,24,8) placed last: (31,24,7) north_west -> south_west
+# placement order: (34,24,7) placed last: (35,24,7) north_west -> east_west
+# placement order: (35,0,7) placed last: (35,0,7) north_west -> north_east
+# placement order: (35,22,6) placed last: (35,22,6) ascending_south -> north_south
+# placement order: (35,24,7) placed last: (35,24,7) north_west -> south_west
+# placement order: (35,24,8) placed last: (35,24,7) north_west -> south_west
+# placement order: (38,24,7) placed last: (39,24,7) north_west -> east_west
+# placement order: (39,22,6) placed last: (39,22,6) ascending_south -> north_south
+# placement order: (39,24,7) placed last: (39,24,7) north_west -> south_west
+# placement order: (39,24,8) placed last: (39,24,7) north_west -> south_west
+# placement order: (41,-24,-2) placed last: (41,-24,-1) ascending_south -> north_south
+# placement order: (41,-24,-1) placed last: (41,-24,-1) ascending_south -> north_south
+# placement order: (41,-13,-5) placed last: (41,-13,-5) ascending_north -> north_south
+# rail Ts (every plain rail with 3 potential connections in the finished build; each a placement-order case or power-forced): 18
+# rail T: (-3,25,9) stored north_east, unpowered north_east, powered north_west, its signal now off; REACHED by the redstone_wire at (-3,23,9), the lever at (-3,26,9) (its update reaches this cell)
+# rail T: (-1,0,7) stored north_west, unpowered north_east, powered north_west, its signal now off; no source's update reaches it (the nearest changing source, the redstone_torch at (-2,0,5), 3 away taxicab, updates its own neighbours and its support's; redstone blocks never change)
+# rail T: (-1,25,9) stored north_east, unpowered north_east, powered north_west, its signal now off; REACHED by the detector_rail at (-1,24,8), the lever at (-1,26,9) (its update reaches this cell)
+# rail T: (1,25,9) stored north_east, unpowered north_east, powered north_west, its signal now off; REACHED by the lever at (1,26,9) (its update reaches this cell)
+# rail T: (3,0,7) stored north_west, unpowered north_east, powered north_west, its signal now off; no source's update reaches it (the nearest changing source, the redstone_torch at (2,0,5), 3 away taxicab, updates its own neighbours and its support's; redstone blocks never change)
+# rail T: (3,25,9) stored north_east, unpowered north_east, powered north_west, its signal now off; REACHED by the detector_rail at (3,24,8), the lever at (3,26,9) (its update reaches this cell)
+# rail T: (5,25,9) stored north_east, unpowered north_east, powered north_west, its signal now off; REACHED by the lever at (5,26,9) (its update reaches this cell)
+# rail T: (7,25,9) stored north_west, unpowered north_east, powered north_west, its signal now on; REACHED by the detector_rail at (7,24,8), the lever at (7,26,9) (its update reaches this cell)
+# rail T: (9,0,7) stored south_west, unpowered south_west, powered north_west, its signal now off; no source's update reaches it (the nearest changing source, the redstone_torch at (8,-2,7), 3 away taxicab, updates its own neighbours and its support's; redstone blocks never change)
+# rail T: (29,25,9) stored north_east, unpowered north_east, powered north_west, its signal now off; REACHED by the redstone_wire at (29,23,9), the lever at (29,26,9) (its update reaches this cell)
+# rail T: (31,0,7) stored north_west, unpowered north_east, powered north_west, its signal now off; no source's update reaches it (the nearest changing source, the redstone_torch at (30,0,5), 3 away taxicab, updates its own neighbours and its support's; redstone blocks never change)
+# rail T: (31,25,9) stored north_east, unpowered north_east, powered north_west, its signal now off; REACHED by the detector_rail at (31,24,8), the lever at (31,26,9) (its update reaches this cell)
+# rail T: (33,25,9) stored north_east, unpowered north_east, powered north_west, its signal now off; REACHED by the lever at (33,26,9) (its update reaches this cell)
+# rail T: (35,0,7) stored north_west, unpowered north_east, powered north_west, its signal now off; no source's update reaches it (the nearest changing source, the redstone_torch at (34,0,5), 3 away taxicab, updates its own neighbours and its support's; redstone blocks never change)
+# rail T: (35,25,9) stored north_east, unpowered north_east, powered north_west, its signal now off; REACHED by the detector_rail at (35,24,8), the lever at (35,26,9) (its update reaches this cell)
+# rail T: (37,25,9) stored north_east, unpowered north_east, powered north_west, its signal now off; REACHED by the lever at (37,26,9) (its update reaches this cell)
+# rail T: (39,25,9) stored north_west, unpowered north_east, powered north_west, its signal now on; REACHED by the detector_rail at (39,24,8), the lever at (39,26,9) (its update reaches this cell)
+# rail T: (41,0,7) stored south_west, unpowered south_west, powered north_west, its signal now off; no source's update reaches it (the nearest changing source, the redstone_torch at (40,-2,7), 3 away taxicab, updates its own neighbours and its support's; redstone blocks never change)
 name: onechunk-skeleton
 circuit: mob-farm iron_ingot
 positions: -1,0,0 -1,16,0 3,0,0 3,16,0 7,0,0 7,16,0 31,0,0 31,16,0 35,0,0 35,16,0 39,0,0 39,16,0
@@ -944,7 +996,7 @@ layer 0:
   .....q...q..gg.......................q...q..gg
   ....3q..3q..3g......................3q..3q..3g
   .....q...q...g.......................q...q...g
-  .g.gtvuuuvuuuumz.................g.gtvuuuvuuuumz
+  .g.gtxuuuxuuuumz.................g.gtxuuuxuuuumz
   ...............b...............................b
   ...............*...............................*
   .
