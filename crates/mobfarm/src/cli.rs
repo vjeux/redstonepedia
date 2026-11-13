@@ -2320,6 +2320,16 @@ pub enum MobfarmCmd {
         /// (day-1 13:43) The no-string ring's world-open term k (7 now; the farm-chunk measurement later).
         #[arg(long, default_value_t = 7)]
         ring_k: i64,
+        /// (day-1's G11 rev 15:42, ironspec 15:37 (2)) With the (A) stop's design controller: the lane-7
+        /// pick's emulated D(7) at lane 3's REAL D(3) press + delta7 (the closed loop's measured maximum
+        /// of the napper's last tick in J(-1)'s cell minus D(3)'s press, + 3; the report prints the
+        /// measurement).
+        #[arg(long, default_value_t = 16)]
+        delta7: i64,
+        /// (G1 15:37, ironfarm's AI-queue finding) Print every cart's design-frame position (6 dp),
+        /// motion and rider at these ticks (comma-separated), for the lane queues' packing.
+        #[arg(long, value_delimiter = ',')]
+        positions_at: Vec<i64>,
         /// (G1 14:11's control on ed4978c0c) Move nap_lane to another lane 30 gt after each napper's H2
         /// sample (a pick inside its window): every K write must still land on the napper's own cell.
         #[arg(long)]
@@ -8039,7 +8049,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 std::process::exit(1);
             }
         }
-        MobfarmCmd::F1q2Run { design, seed, ticks, day0, lane_carts, restart_every, restart_at, restart_order, control_rider, trace, drive, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour_golems, cart_trace, drive_out, scene_out, watchdog, stale_start, held_at_divert, report_only, queue_hold, empty_pocket, stack_bench, inert_control, gossip_control, bystander_control, seed_queued_napper, day_threshold, bed_ticket_taken, stamp_control, home_erase_control, air_control, rider_trace, rs_ready_early_control, bystander_dud, day_phase_control, c7_placement, c7_home_stored, lift_block, trace_entity, with_part, pair_check, chain_trace, strand_control, cart_cells, at_entry_control, late_return_control, cart_cells_box, misroute_control, lip_hold, lip_envelope, siding_trace, eject_control, h_rest_bound, siding_plant_control, k_misroute_control, westbound_control, picker_hold_to_leg, vholds_control, offset, hold_pulse_delta, rider_push_off, lip_dump, villager_trace, evidence_keyed, evidence_delay, rel_gate_armed, lane_offsets, ring_timed, ring_k, nap_lane_control, stuck_k_control } => {
+        MobfarmCmd::F1q2Run { design, seed, ticks, day0, lane_carts, restart_every, restart_at, restart_order, control_rider, trace, drive, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour_golems, cart_trace, drive_out, scene_out, watchdog, stale_start, held_at_divert, report_only, queue_hold, empty_pocket, stack_bench, inert_control, gossip_control, bystander_control, seed_queued_napper, day_threshold, bed_ticket_taken, stamp_control, home_erase_control, air_control, rider_trace, rs_ready_early_control, bystander_dud, day_phase_control, c7_placement, c7_home_stored, lift_block, trace_entity, with_part, pair_check, chain_trace, strand_control, cart_cells, at_entry_control, late_return_control, cart_cells_box, misroute_control, lip_hold, lip_envelope, siding_trace, eject_control, h_rest_bound, siding_plant_control, k_misroute_control, westbound_control, picker_hold_to_leg, vholds_control, offset, hold_pulse_delta, rider_push_off, lip_dump, villager_trace, evidence_keyed, evidence_delay, rel_gate_armed, lane_offsets, ring_timed, ring_k, nap_lane_control, stuck_k_control, delta7, positions_at } => {
             let (c, spec) = load(version, &design)?;
             // (ironspec 08:16 platform, onechunk's 23rd) the c7 reconciliation loads the record's own
             // villagers HOME-less (spec_of's PortHome::Skip), as tick-exact's game setup has them
@@ -8281,7 +8291,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 [x, y, z] => [*x, *y, *z],
                 _ => anyhow::bail!("--offset takes DX,DY,DZ"),
             };
-            let o = crate::f1q2run::Opts { seed, ticks, day0, lane_carts, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour, cart_trace, restarts, restart, control_rider, trace, bed, drive, drive_rec, watchdog, stale_start, held_at_divert, queue_hold, emulated, emulated_states, ts, update_only, empty_pocket, dwell_cap, stack_bench, stops, k_lock, k_sw, inert, always_on, push_pairs, way_in_composed, inert_control, watch_reasons, gossip_control, bystander_control, a6_pickup, seed_queued_napper, day_threshold, bed_ticket_taken, block_standins, stamp_control, home_erase_control, air_control, rider_trace, rs_ready_early_control, bystander_dud, day_phase_control, c7_placement, c7_home_stored, lift_block, trace_entity, pair_checks, chain_trace, strand_control, cart_cells, at_entry_control, late_return_control, stable_ts, cart_cells_box, misroute_control, lip_hold, lip_envelope, siding_trace, eject_control, h_rest_bound, siding_plant_control, c7_port_home, no_home_tagged, k_misroute_control, westbound_control, picker_hold_to_leg, vholds_control, offset, hold_pulse_delta, rider_push_off, lip_dump, villager_trace, evidence_keyed, evidence_delay, rel_gate_armed, lane_offsets, ring_timed, ring_k, nap_lane_control, stuck_k_control };
+            let o = crate::f1q2run::Opts { seed, ticks, day0, lane_carts, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour, cart_trace, restarts, restart, control_rider, trace, bed, drive, drive_rec, watchdog, stale_start, held_at_divert, queue_hold, emulated, emulated_states, ts, update_only, empty_pocket, dwell_cap, stack_bench, stops, k_lock, k_sw, inert, always_on, push_pairs, way_in_composed, inert_control, watch_reasons, gossip_control, bystander_control, a6_pickup, seed_queued_napper, day_threshold, bed_ticket_taken, block_standins, stamp_control, home_erase_control, air_control, rider_trace, rs_ready_early_control, bystander_dud, day_phase_control, c7_placement, c7_home_stored, lift_block, trace_entity, pair_checks, chain_trace, strand_control, cart_cells, at_entry_control, late_return_control, stable_ts, cart_cells_box, misroute_control, lip_hold, lip_envelope, siding_trace, eject_control, h_rest_bound, siding_plant_control, c7_port_home, no_home_tagged, k_misroute_control, westbound_control, picker_hold_to_leg, vholds_control, offset, hold_pulse_delta, rider_push_off, lip_dump, villager_trace, evidence_keyed, evidence_delay, rel_gate_armed, lane_offsets, ring_timed, ring_k, nap_lane_control, stuck_k_control, delta7, positions_at };
             let (rep, out) = crate::f1q2run::run_driven(&spec, &o).map_err(|e| anyhow::anyhow!(e))?;
             for l in &with_part_lines {
                 println!("the composed part (--with-part, ironspec 07:57 / 08:18 platform): {l}");

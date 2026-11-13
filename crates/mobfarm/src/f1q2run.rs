@@ -165,6 +165,10 @@ pub struct Opts {
     pub ring_timed: Option<[i64; 5]>,
     /// (day-1 13:43) the ring's world-open term k.
     pub ring_k: i64,
+    /// (day-1's G11 rev 15:42) the lane-7 pick's emulated D(7) after lane 3's real D(3) press.
+    pub delta7: i64,
+    /// (G1 15:37) ticks at which every cart's position is printed.
+    pub positions_at: Vec<i64>,
     /// (G1 14:11's control) a pick moving nap_lane inside each napper's window.
     pub nap_lane_control: bool,
     /// (G1 14:21's control) the old defect restored: each K write's cell from nap_lane at fire time.
@@ -725,6 +729,44 @@ struct Ctl {
     bed_prev: bool,
     f_at: Option<i64>,
     release_at: Option<i64>,
+    /// (day-1's canonical gates rev 15:37, onechunk 15:37) the (A) stop composed (E's activator at
+    /// module (-2,-27,1)): the design controller's stop and F4(a) instead of A6's levers and the
+    /// H2-keyed K windows. ARM (-2,-27,0)'s last state and edge; SLEPT (G16, toggled by each
+    /// bed-head observer pulse after ARM); SLEPT_ONCE (G17); ARMED70 (G18) at ARM + 70; OPEN (G19)
+    /// and the shutter lever's scheduled writes (G20); the one-shot released flag (G21); P_STRING's
+    /// last state (G22); IN-STOP_l (G3); the slope taps' off ticks (G4); RETURN_x and its set tick
+    /// (G12); the sampled lane's pending K / J writes (G13 / G14: tick, cell, on); the hold's
+    /// departure watch (T_d = the napper's first end-of-tick in (9,0,7))
+    a_stop: bool,
+    /// (day-1's G8 rev 15:42) RE_ARMED and its setters (evidence events only), D(3)'s presses, and
+    /// G11's delta7 (the lane-7 pick's emulated D(7) after lane 3's real D(3) press)
+    re_armed: bool,
+    re_armed_setters: Vec<String>,
+    d3_presses: Vec<i64>,
+    delta7: i64,
+    a_open_at: Option<i64>,
+    nap_lane_of: BTreeMap<u32, usize>,
+    a_arm_prev: bool,
+    a_arm_at: Option<i64>,
+    a_slept: bool,
+    a_slept_once: bool,
+    a_open: bool,
+    a_shutter_writes: Vec<(i64, bool)>,
+    a_released: bool,
+    a_release_off: Option<i64>,
+    a_pstring_prev: bool,
+    a_lie_at: Option<i64>,
+    in_stop: [bool; 3],
+    in_stop_rider: [Option<u32>; 3],
+    tap_off: Option<i64>,
+    return_bits: [Option<i64>; 3],
+    f4_writes: Vec<(i64, [i32; 3], bool)>,
+    f4_windows: Vec<String>,
+    f4_faults: Vec<String>,
+    hold_cell_prev: bool,
+    string_prev: [bool; 3],
+    queue_release_due: Option<i64>,
+    a_log: Vec<String>,
     rdet_prev: bool,
     /// (ironspec D2) every rise of R's detector.
     rdet_rises: Vec<i64>,
@@ -1274,15 +1316,20 @@ impl Ctl {
         // (ironspec 12:54 (2), day-1's spec: F1's REL AND J(-1) ARMED, "armed" read from J(-1)'s latch,
         // the lever (-1,26,9)) with --rel-gate-armed, a start requested while J(-1) isn't armed waits
         // until it is; the delay per batch printed
-        let j_armed = w.get(dbp(-1, 26, 9)).to_string().contains("powered=true");
-        if self.rel_gate_armed
+        // (day-1's G8 rev 15:42, the (A) stop's design controller) F1: REL = holds full (all three
+        // slot-1 strings pressed: a cart on each lane's R_1 (x,17,1)) AND RE_ARMED; otherwise J(-1)'s
+        // latch with --rel-gate-armed
+        let holds_full = LANES.iter().all(|&x| w.entities.list.iter().any(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && cell(e.pos) == [x, 17, 1]));
+        let j_armed = if self.a_stop { holds_full && self.re_armed } else { w.get(dbp(-1, 26, 9)).to_string().contains("powered=true") };
+        let rel_gated = self.rel_gate_armed || self.a_stop;
+        if rel_gated
             && let Some(since) = self.gated_since
             && j_armed
         {
             self.gated_since = None;
             self.rel_delays.push((since, now - since));
             self.start(now + 2 + 4);
-            self.note(now, format!("the REL gate: J(-1) armed: REL at t {} ({} gt after the request)", now + 6, now - since));
+            self.note(now, format!("the REL gate: {}: REL at t {} ({} gt after the request)", if self.a_stop { "holds full AND RE_ARMED" } else { "J(-1) armed" }, now + 6, now - since));
         }
         // the golem pulse: a golem appeared
         let new: Vec<u32> = w.entities.list.iter().filter(|e| !e.removed && matches!(&e.kind, EntityKind::Mob(m) if matches!(m.ty, redsim::entity::mob::types::MobType::IronGolem))).map(|e| e.id).filter(|id| !self.golems.contains(id)).collect();
@@ -1297,7 +1344,7 @@ impl Ctl {
                 self.pending = true;
                 self.rearms += 1;
                 self.note(now, format!("golem {id}: the pulse during B: B re-armed to t {}, P latched", now + 100));
-            } else if self.rel_gate_armed && !j_armed {
+            } else if rel_gated && !j_armed {
                 if self.gated_since.is_none() {
                     self.gated_since = Some(now);
                 }
@@ -1615,6 +1662,7 @@ impl Ctl {
                         self.pick_cart = None;
                         if let Some(v) = rider {
                             self.new_nappers.push((v, k, now));
+                            self.nap_lane_of.insert(v, k);
                         }
                         self.note(now, format!("the picker: cart {cid} past (8,25,9) onto the leg; the split restored"));
                     }
@@ -1722,14 +1770,37 @@ impl Ctl {
             self.rt_writes.push((now + 6, 3, false));
         }
         let mut events: Vec<i64> = Vec::new();
+        let mut sources: Vec<&'static str> = Vec::new();
         if row && !self.row_prev {
             events.push(now + 2);
+            sources.push("lane 7's real D(7) + 2");
         }
         // the timed emulated D(7) of a lane-7 pick
         if self.rt_timed_d7.first().is_some_and(|t| *t == now) {
             self.rt_timed_d7.remove(0);
             events.push(now);
-            self.rt_log.push(format!("t {now}: the TIMED emulated D(7) (lane 7's pick): the re-arm event"));
+            sources.push("the emulated D(7)");
+            self.rt_log.push(format!("t {now}: the {} emulated D(7) (lane 7's pick): the re-arm event", if self.a_stop { "D(3)-keyed" } else { "TIMED" }));
+        }
+        // (day-1's G11 rev 15:42, ironspec 15:37 (2)) the lane-7 pick's emulated D(7) keys on lane 3's
+        // REAL D(3) press + delta7 (the closed loop's measured maximum of the napper's last tick in
+        // J(-1)'s cell minus D(3)'s press, + 3): with the design controller, here, at D(3)'s rise
+        if self.a_stop && b1 && !self.branch_prev[1] {
+            self.d3_presses.push(now);
+            if let Some((rel, Some(2))) = cur
+                && now - rel >= 85
+                && now - rel <= 200
+            {
+                self.rt_timed_d7.push(now + self.delta7);
+                self.rt_timed_d7.sort();
+                self.rt_log.push(format!("t {now}: D(3) pressed (REL {rel} + {}), lane 7's pick: the emulated D(7) at t {} (delta7 {})", now - rel, now + self.delta7, self.delta7));
+            }
+        }
+        // (day-1's G8 rev 15:42) RE_ARMED: set ONLY by the ring's re-arm events (lane 7's real D(7) + 2,
+        // or the lane-7 pick's D(3)-keyed emulated D(7)), reset at REL; its setters logged
+        for (e, src) in events.iter().zip(sources.iter()) {
+            self.re_armed = true;
+            self.re_armed_setters.push(format!("t {e}: {src}"));
         }
         for e in events {
             self.rt_rearm_events.push(e);
@@ -1753,7 +1824,7 @@ impl Ctl {
                         self.rt_writes.push((e + 4, 7, false));
                         let l7 = if pk == 1 { lj7_2 } else { lj7_3 };
                         self.rt_resets.push((rel + l7 + k, 7, rel, pk));
-                        if pk == 2 {
+                        if pk == 2 && !self.a_stop {
                             self.rt_timed_d7.push(rel + ljm1_3 + k);
                             self.rt_timed_d7.sort();
                         }
@@ -1854,11 +1925,15 @@ impl Ctl {
             }
             set(w, c, &s.replace(if on { "powered=false" } else { "powered=true" }, if on { "powered=true" } else { "powered=false" }), flags::ALL)
         };
-        if bed && !self.bed_prev {
+        if self.a_stop {
+            // (day-1's canonical gates rev 15:37: the (A) stop's shutter and guard, its taps)
+            self.a_stop_step(w, now, bed)?;
+        }
+        if !self.a_stop && bed && !self.bed_prev {
             self.f_at = Some(now + 10);
             self.nap_events.push(format!("t {now}: lie-down (the bed occupied)"));
         }
-        if a6 && !bed && self.bed_prev {
+        if !self.a_stop && a6 && !bed && self.bed_prev {
             // (58f770cc 00:39 PT, ironspec 01:08 PT: today's A6 releases at the wake edge, the
             // bench's release landing 1 gt after the recorded wake; the cart reaches P 36..40 gt
             // later)
@@ -1866,7 +1941,7 @@ impl Ctl {
             self.nap_events.push(format!("t {now}: the wake edge (the bed freed): the release at t {}", now + 1));
         }
         self.bed_prev = bed;
-        if self.f_at == Some(now) {
+        if !self.a_stop && self.f_at == Some(now) {
             if a6 {
                 set_lever(w, [-4, by, 2], false)?;
                 set_lever(w, [-4, by + 1, 4], false)?;
@@ -1878,7 +1953,7 @@ impl Ctl {
             self.f_at = None;
             self.nap_events.push(format!("t {now}: F (the hatch's controls off)"));
         }
-        if self.release_at == Some(now) {
+        if !self.a_stop && self.release_at == Some(now) {
             if a6 {
                 set_lever(w, [1, by + 1, -6], true)?;
                 set_lever(w, [0, by, -6], true)?;
@@ -1890,7 +1965,7 @@ impl Ctl {
             self.nap_events.push(format!("t {now}: the stop's release (the park's {} on)", if a6 { "levers" } else { "supports" }));
         }
         let rdet = powered(w, [4, by - 1, 4]);
-        if rdet && !self.rdet_prev {
+        if rdet && !self.rdet_prev && !self.a_stop {
             if a6 {
                 set_lever(w, [1, by + 1, -6], false)?;
                 set_lever(w, [0, by, -6], false)?;
@@ -2109,17 +2184,45 @@ impl Ctl {
             // (ironspec 17:16: the gate's 80-gt hold term goes; `--queue-hold N` keeps one for a
             // comparison)
             let hold_ok = self.q_hold_since.is_none_or(|s| now >= s + self.queue_hold);
-            if !self.q_release_on && self.q_rs_ready && present && hold_ok && rest && not_day {
+            // (day-1's G2: R1's release path carries the dwell 6, one delay-3 repeater: with the (A)
+            // stop's design controller the release lands 6 gt after its AND holds)
+            let cond = !self.q_release_on && self.q_rs_ready && present && hold_ok && rest && not_day;
+            let fire = if self.a_stop {
+                if cond && self.queue_release_due.is_none() {
+                    self.queue_release_due = Some(now + 6);
+                }
+                if self.queue_release_due == Some(now) {
+                    self.queue_release_due = None;
+                    !self.q_release_on
+                } else {
+                    false
+                }
+            } else {
+                cond
+            };
+            if fire {
                 input_on(w, rel_cell, q)?;
                 self.q_release_on = true;
                 self.q_released.push(now);
                 // (ironspec 19:29 (a): who was released)
                 if let Some(v) = w.entities.list.iter().find(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && cell(e.pos) == q).and_then(|e| e.passengers.first().copied()) {
                     self.release_log.push((now, v));
+                    // (day-1's G3) IN-STOP_l set at a lane-l queue release
+                    if self.a_stop
+                        && let Some(&k) = self.nap_lane_of.get(&v)
+                    {
+                        self.in_stop[k] = true;
+                        self.in_stop_rider[k] = Some(v);
+                        self.nap_events.push(format!("t {now}: IN-STOP set, lane x {} (#{v} released into the stop)", LANES[k]));
+                    }
                 }
-                self.nap_events.push(format!("t {now}: the queue's release (RS_ready, the hold {} met, REST, NOT DAY): the stand-in on at ({},{},{})", self.queue_hold, rel_cell[0], rel_cell[1], rel_cell[2]));
+                self.nap_events.push(format!("t {now}: the queue's release (RS_ready, the hold {} met, REST, NOT DAY{}): the stand-in on at ({},{},{})", self.queue_hold, if self.a_stop { ", the dwell 6" } else { "" }, rel_cell[0], rel_cell[1], rel_cell[2]));
             }
             }
+        }
+        // (day-1's canonical gates rev 15:42, G12–G14) F4(a) with the (A) stop's design controller
+        if self.a_stop {
+            self.f4a_step(w, now)?;
         }
         // (ironspec's hold release (c') as built, 11:49; k_lock 22:03 PT) the lift exit (7,-3,4) as a
         // detector rail sets the waiting RS; its Q delayed k_lock gt; E samples live Q AND delayed Q
@@ -2188,8 +2291,14 @@ impl Ctl {
                     self.overlaps.push(format!("t {now}: lane x {}'s napper sampled with the previous napper's window pending ({})", LANES[k], pend.join("; ")));
                 }
             }
-            self.hold_on = Some(a + 10);
-            self.hold_off = Some(a + 22);
+            // (day-1's G5, the (A) stop's design controller) the hold's pulse gated by "at most one
+            // RETURN bit set"; F4(a)'s K / J windows are keyed at T_d (f4a_step), not here
+            if self.a_stop && self.return_bits.iter().filter(|b| b.is_some()).count() > 1 {
+                self.f4_faults.push(format!("t {now}: the hold's pulse withheld (G5: {} RETURN bits set)", self.return_bits.iter().filter(|b| b.is_some()).count()));
+            } else {
+                self.hold_on = Some(a + 10);
+                self.hold_off = Some(a + 22);
+            }
             self.rs_set = None;
             self.nap_arm3 = Some(a);
             // (G1 14:11's control, --nap-lane-control) a pick moving nap_lane inside the window: 30 gt
@@ -2198,6 +2307,7 @@ impl Ctl {
             if self.nap_lane_control {
                 self.nap_lane_moves.push((now + 30, (k + 1) % 3));
             }
+            if !self.a_stop {
             self.k_windows.push((now, k, LANES[k] - 2));
             // (day-1 19:19, K = 4: the K-set + 4 at a + 97 / 112 / 128, the reset at K + 16 =
             // a + 125 / 140 / 156, PRESENT's set edge on its own tap at K + 2 = a + 111 / 126 / 142;
@@ -2211,6 +2321,7 @@ impl Ctl {
             if k > 0 {
                 // (G1 14:11: queued, each window its own; an overlap is counted above)
                 self.j_blocks.push((a + 72, a + 127));
+            }
             }
             if !on_hold {
                 self.empty_pulses += 1;
@@ -2290,7 +2401,11 @@ impl Ctl {
             if d[k] && !prev[k] {
                 self.dpress_log.push((now, k));
             }
-            if d[k] && !prev[k] && self.present[k] && self.siding_on[k].is_none() && self.siding_off[k].is_none() {
+            // (day-1's G6, the (A) stop's design controller: REL_l = D_l AND string_l (a ridden cart on
+            // R_l (x-2,24,7)), no latch, R = D + 34 through option (A)'s +20 on the feed)
+            let string_l = w.entities.list.iter().any(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && !e.passengers.is_empty() && cell(e.pos) == [LANES[k] - 2, 24, 7]);
+            let gate_l = if self.a_stop { string_l } else { self.present[k] };
+            if d[k] && !prev[k] && gate_l && self.siding_on[k].is_none() && self.siding_off[k].is_none() {
                 // (day-1 19:19; k_sw = 6, ironspec 21:35 / 22:03: SIDING_l from WINDOW_l AND
                 // PRESENT_l at D's rise, R powered at D + k_sw + 8 = D + 14, no wait for D off: the
                 // input on at that tick less its line's latency, the (a) feed stack's delay-3
@@ -2298,9 +2413,10 @@ impl Ctl {
                 let sx = LANES[k] - 2;
                 let stack = w.get(dbp(sx - 1, 22, 9)).to_string().contains("repeater");
                 let k_sw = self.k_sw.ok_or("k_sw unset: a napper run needs the module's `k-sw:` line")?;
-                self.siding_on[k] = Some(now + k_sw + 8 - if stack { 8 } else { 2 });
-                // (G1's note) R's observed rise printed against D + k_sw + 8
-                self.r_expect[k] = Some(now + k_sw + 8);
+                let r_at = if self.a_stop { now + 34 } else { now + k_sw + 8 };
+                self.siding_on[k] = Some(r_at - if stack { 8 } else { 2 });
+                // (G1's note) R's observed rise printed against D + k_sw + 8 (D + 34 with G6)
+                self.r_expect[k] = Some(r_at);
                 // (day-1 / ironspec 08:28-08:31 platform: PRESENT_l, the built RS NOR latch, is
                 // reset ONLY by the departure detector past R, so a napper late to its release
                 // pulse is released at the lane's next D press, a lap late: the fail-safe; it was
@@ -2381,6 +2497,210 @@ impl Ctl {
 
     /// A level held by a stand-in at a line end (`level`): on while `want`, the built state
     /// restored when off.
+    /// (day-1's canonical gates rev 15:37, https://artifacts.internalmeta.com/a/2002426774049950 ;
+    /// onechunk 15:39) the (A) stop composed at loop + (0,-27,-1), module cells: ARM (-2,-27,0), the
+    /// bed head (-3,-27,3) and its observer (-3,-28,3), P (-2,-27,3) and P_STRING over it at
+    /// (-2,-26,3) (G22), F's output (-5,-26,7) (the shutter's stand-in lever, ON = the window shut),
+    /// the park's drive input (3,-27,3) (a wall lever on the conductor (2,-27,3)), the slope tap
+    /// (1,-29,2) (a floor lever into DAY-1's repeater (1,-29,3)), R's detector (4,-28,4). G16 SLEPT,
+    /// G17 SLEPT_ONCE, G18 ARMED70, G19 OPEN, G20 the shutter / the park's release, G21 the release
+    /// (the edge of P_STRING AND SLEPT_ONCE, parity-free, one-shot per visit), G3 IN-STOP_l, G4 the
+    /// slope taps (REL + 43 / 41 / 33 AND IN-STOP_l, held 10 gt), G12 RETURN_x's set at the tap
+    fn a_stop_step(&mut self, w: &mut redsim::world::World, now: i64, bed: bool) -> Result<(), String> {
+        use redsim::world::flags;
+        const ARM: [i32; 3] = [-2, -27, 0];
+        const F_OUT: [i32; 3] = [-5, -26, 7];
+        const PARK_IN: [i32; 3] = [3, -27, 3];
+        const TAP: [i32; 3] = [1, -29, 2];
+        const RDET: [i32; 3] = [4, -28, 4];
+        let lever_to = |w: &mut redsim::world::World, c: [i32; 3], on: bool| -> Result<(), String> {
+            let s = w.get(dbp(c[0], c[1], c[2])).to_string();
+            if !s.contains("lever") {
+                return Err(format!("(A)'s stand-in cell ({},{},{}) holds {s}, not a lever", c[0], c[1], c[2]));
+            }
+            set(w, c, &s.replace(if on { "powered=false" } else { "powered=true" }, if on { "powered=true" } else { "powered=false" }), flags::ALL)
+        };
+        // ARM's edge: SLEPT_ONCE reset (G17), the one-shot cleared (G21), ARMED70's hopper started (G18)
+        let arm = powered(w, ARM);
+        if arm && !self.a_arm_prev {
+            self.a_arm_at = Some(now);
+            self.a_slept_once = false;
+            self.a_released = false;
+            self.a_log.push(format!("t {now}: ARM's edge (-2,-27,0)"));
+        }
+        self.a_arm_prev = arm;
+        // the bed-head observer's pulse at each occupancy change (a lie-down, a wake): SLEPT toggles
+        // after ARM (G16), SLEPT_ONCE set by the first (G17)
+        if bed != self.bed_prev {
+            if self.a_arm_at.is_some() {
+                self.a_slept = !self.a_slept;
+                self.a_slept_once = true;
+            }
+            if bed {
+                self.a_lie_at = Some(now);
+                self.nap_events.push(format!("t {now}: lie-down (the bed occupied; the observer's pulse: SLEPT {})", self.a_slept));
+            } else {
+                self.nap_events.push(format!("t {now}: the wake edge (the bed freed; the observer's pulse: SLEPT {})", self.a_slept));
+            }
+        }
+        // G18 / G19: OPEN set by the edge of (ARMED70 AND SLEPT); G20 the shutter = NOT OPEN through a
+        // torch, 2 gt
+        let armed70 = !self.a_released && self.a_arm_at.is_some_and(|a| now >= a + 70);
+        if !self.a_open && armed70 && self.a_slept {
+            self.a_open = true;
+            self.a_open_at = Some(now);
+            self.a_shutter_writes.push((now + 2, false));
+            self.nap_events.push(format!("t {now}: OPEN set (ARMED70 AND SLEPT): the window opens at t {} (F)", now + 2));
+        }
+        // G22 P_STRING: a villager on foot over P (its box over the string's cell (-2,-26,3))
+        let pstring = w.entities.list.iter().any(|e| {
+            !e.removed && e.vehicle.is_none() && matches!(&e.kind, EntityKind::Mob(m) if matches!(m.ty, redsim::entity::mob::types::MobType::Villager)) && {
+                let p = dpos(e.pos);
+                (p.x - (-1.5)).abs() < 0.8 && (p.z - 3.5).abs() < 0.8 && p.y < -25.0 && p.y + 1.95 > -26.0
+            }
+        });
+        // G21 the release: the EDGE of (P_STRING AND SLEPT_ONCE), one-shot; OPEN reset at it (G19); G20:
+        // close = OPEN's fall + 2, the park's release = OPEN's fall + 6; SLEPT and ARMED70 reset
+        if pstring && !self.a_pstring_prev && self.a_slept_once && !self.a_released {
+            self.a_released = true;
+            let was_open = self.a_open;
+            self.a_open = false;
+            self.a_slept = false;
+            if was_open {
+                self.a_shutter_writes.push((now + 2, true));
+            }
+            self.release_at = Some(now + 6);
+            self.nap_events.push(format!("t {now}: the release (P_STRING AND SLEPT_ONCE{}): close at t {}, the park's release at t {}", if was_open { ", OPEN reset" } else { ", OPEN never set" }, now + 2, now + 6));
+        }
+        self.a_pstring_prev = pstring;
+        let due: Vec<(i64, bool)> = self.a_shutter_writes.iter().filter(|x| x.0 == now).copied().collect();
+        self.a_shutter_writes.retain(|x| x.0 != now);
+        for (_, on) in due {
+            lever_to(w, F_OUT, on)?;
+            self.nap_events.push(format!("t {now}: the shutter's stand-in lever (-5,-26,7) {} (the window {})", if on { "ON" } else { "OFF" }, if on { "SHUT: close" } else { "OPEN: F" }));
+        }
+        if self.release_at == Some(now) {
+            lever_to(w, PARK_IN, true)?;
+            self.release_at = None;
+            self.nap_events.push(format!("t {now}: the stop's release (the park's drive (3,-27,3) on)"));
+        }
+        // R's rise (the rider-keyed string's edge, G1 / G3): the park's drive off, ARM's latches
+        // reset, IN-STOP of the lane whose napper passed reset
+        let rdet = powered(w, RDET);
+        if rdet && !self.rdet_prev {
+            let rider = w.entities.list.iter().find(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && (cell(e.pos) == RDET || cell(e.pos) == [4, -27, 4])).and_then(|e| e.passengers.first().copied());
+            if w.get(dbp(PARK_IN[0], PARK_IN[1], PARK_IN[2])).to_string().contains("powered=true") {
+                lever_to(w, PARK_IN, false)?;
+            }
+            if let Some(r) = rider {
+                for k in 0..3 {
+                    if self.in_stop[k] && self.in_stop_rider[k].is_none_or(|v| v == r) {
+                        self.in_stop[k] = false;
+                        self.in_stop_rider[k] = None;
+                        self.nap_events.push(format!("t {now}: IN-STOP reset, lane x {} (#{r} passed R)", LANES[k]));
+                    }
+                }
+                self.a_arm_at = None;
+                self.a_open = false;
+                self.a_slept = false;
+                self.nap_events.push(format!("t {now}: R's string (a ridden cart, #{r}): the park's drive off, the stop re-armed"));
+            } else {
+                self.nap_events.push(format!("t {now}: R's detector pressed by an EMPTY cart: no reset (rider-keyed)"));
+            }
+        }
+        // G4 the slope taps: lane l's train at REL + 43 / 41 / 33 AND IN-STOP_l, the tap lever held 10
+        // gt; G12 RETURN_l set at a tap that launches (IN-STOP_l AND the tap)
+        if let Some(rel) = self.rel {
+            for k in 0..3 {
+                if now == rel + [43, 41, 33][k] && self.in_stop[k] {
+                    lever_to(w, TAP, true)?;
+                    self.tap_off = Some(now + 10);
+                    if self.return_bits[k].is_none() {
+                        self.return_bits[k] = Some(now);
+                    }
+                    self.nap_events.push(format!("t {now}: the slope tap, lane x {} (REL {rel} + {}): RETURN set", LANES[k], now - rel));
+                }
+            }
+        }
+        if self.tap_off == Some(now) {
+            lever_to(w, TAP, false)?;
+            self.tap_off = None;
+        }
+        Ok(())
+    }
+
+    /// (day-1's canonical gates rev 15:37, G12–G14; 7b90c3f1 15:35's tau and s from returnbench.rs
+    /// 1030bb50c: s = 4, tau_K(-1 / 3 / 7) = 94 / 109 / 125, tau_J(-1) = 102, tau_J(3) = 117) F4(a):
+    /// RETURN_x cleared by string_x's rise (own lane) or at T_ret 450 (a counted fault); at T_d (the
+    /// napper's first end-of-tick in (9,0,7) after the hold) the RETURN bits sampled: exactly one set,
+    /// lane x: K(x) on over [T_d + tau_K - 12, T_d + tau_K + 8] (its lever written at the start + 4 and
+    /// the end + 6: day-1's driver latency) and each J west of K(x) held off over [T_d + tau_J - 12,
+    /// T_d + tau_J + 8] (written at the start + 6 and the end + 4)
+    fn f4a_step(&mut self, w: &mut redsim::world::World, now: i64) -> Result<(), String> {
+        use redsim::world::flags;
+        let lever = |on: bool| format!("minecraft:lever[face=ceiling,facing=north,powered={on}]");
+        // string_x: a ridden cart on its siding's R (x-2,24,7)
+        for k in 0..3 {
+            let sx = LANES[k] - 2;
+            let s_on = w.entities.list.iter().any(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && !e.passengers.is_empty() && cell(e.pos) == [sx, 24, 7]);
+            if s_on && !self.string_prev[k] && self.return_bits[k].is_some() {
+                self.return_bits[k] = None;
+                self.nap_events.push(format!("t {now}: RETURN cleared, lane x {} (string_l's rise)", LANES[k]));
+            }
+            if let Some(t) = self.return_bits[k]
+                && now >= t + 450
+            {
+                self.return_bits[k] = None;
+                self.f4_faults.push(format!("t {now}: RETURN timed out, lane x {} (set t {t}, T_ret 450: a counted fault)", LANES[k]));
+            }
+            // G7: AWAY_l reset at string_l's FALLING edge after the return (the returning napper leaving R_l)
+            if !s_on && self.string_prev[k] && self.away[k] {
+                self.away[k] = false;
+                self.nap_events.push(format!("t {now}: AWAY reset, lane x {} (string_l's fall: the napper's rejoin)", LANES[k]));
+            }
+            self.string_prev[k] = s_on;
+        }
+        // T_d: the napper's first end-of-tick in (9,0,7) after the hold (9,0,8)
+        let in_hold = w.entities.list.iter().any(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && !e.passengers.is_empty() && cell(e.pos) == [9, 0, 8]);
+        let out_n = w.entities.list.iter().any(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && !e.passengers.is_empty() && cell(e.pos) == [9, 0, 7]);
+        if self.hold_cell_prev && !in_hold && out_n {
+            let set: Vec<usize> = (0..3).filter(|&k| self.return_bits[k].is_some()).collect();
+            if set.len() == 1 {
+                let x = set[0];
+                let td = now;
+                let tk = [94, 109, 125][x];
+                let kc = [LANES[x] - 2, 26, 9];
+                self.f4_writes.push((td + tk - 12 + 4, kc, true));
+                self.f4_writes.push((td + tk + 8 + 6, kc, false));
+                let mut js: Vec<(i64, [i32; 3])> = Vec::new();
+                if x >= 1 {
+                    js.push((102, [-1, 26, 9]));
+                }
+                if x == 2 {
+                    js.push((117, [3, 26, 9]));
+                }
+                for (tj, jc) in &js {
+                    self.f4_writes.push((td + tj - 12 + 6, *jc, false));
+                    self.f4_writes.push((td + tj + 8 + 4, *jc, true));
+                }
+                self.k_windows.push((now, x, LANES[x] - 2));
+                self.f4_windows.push(format!("T_d {td}: lane x {} sampled: K({}) on t {}..{} (writes {} / {}){}", LANES[x], LANES[x] - 2, td + tk - 12, td + tk + 8, td + tk - 8, td + tk + 14, js.iter().map(|(tj, jc)| format!("; J({}) held off t {}..{}", jc[0], td + tj - 12, td + tj + 8)).collect::<String>()));
+                self.nap_events.push(format!("t {now}: T_d (the napper off the hold into (9,0,7)): the sampled lane x {}: K({})'s window keyed", LANES[x], LANES[x] - 2));
+            } else {
+                self.f4_faults.push(format!("t {now}: T_d with {} RETURN bits set ({:?}): no K window (a fault)", set.len(), set.iter().map(|&k| LANES[k]).collect::<Vec<_>>()));
+            }
+        }
+        self.hold_cell_prev = in_hold;
+        let due: Vec<(i64, [i32; 3], bool)> = self.f4_writes.iter().filter(|x| x.0 == now).copied().collect();
+        self.f4_writes.retain(|x| x.0 != now);
+        for (_, c, on) in due {
+            set(w, c, &lever(on), flags::ALL)?;
+            self.k_fired.push((now, c[0], on));
+            self.nap_events.push(format!("t {now}: F4(a)'s write: ({},{},{}) {}", c[0], c[1], c[2], if on { "on" } else { "off" }));
+        }
+        Ok(())
+    }
+
     fn level(&mut self, w: &mut redsim::world::World, c: [i32; 3], target: [i32; 3], want: bool) -> Result<(), String> {
         let on = self.levels.contains_key(&c);
         if want && !on {
@@ -2395,6 +2715,8 @@ impl Ctl {
     }
 
     fn start(&mut self, rel: i64) {
+        // (day-1's G8) RE_ARMED reset at REL
+        self.re_armed = false;
         // (--ring-timed) each batch's REL and its pick (set when the pick is decided)
         self.rt_batches.push((rel, None));
         self.busy = true;
@@ -2486,6 +2808,35 @@ impl Ctl {
         };
         if self.path_a != self.l7_slope {
             return Err(format!("path (a) {} at (5,0,7) but lane 7's braked slope (-4,12,7) {}: the two checks disagree", self.path_a, if self.l7_slope { "laid" } else { "absent" }));
+        }
+        // (day-1's canonical gates rev 15:42; 58f770cc 15:28's stand-ins, declared overrides) the (A)
+        // stop composed: E's activator at module (-2,-27,1); its three drives laid as the bench lays
+        // them where the record keeps them empty: F's output (-5,-26,7) a floor lever ON (the window
+        // shut), the park's drive (3,-27,3) a wall lever facing east OFF on the conductor (2,-27,3),
+        // the slope tap (1,-29,2) a floor lever OFF into DAY-1's repeater (1,-29,3)
+        self.a_stop = w.get(dbp(-2, -27, 1)).to_string().contains("activator_rail");
+        if self.a_stop && !self.ring_timed {
+            // (day-1's G11, ironspec 15:37) the design controller's outbound is the no-string ring:
+            // onechunk's clock-locked L's (t16's passage table) and k 1 (tick-exact 15:31, on the
+            // convention, within the module's chunk) unless --ring-timed / --ring-k name others
+            self.ring_timed = true;
+            self.ring_l = [118, 134, 154, 183, 152];
+            self.ring_k = 1;
+        }
+        // (day-1's G8) RE_ARMED starts set (the first batch's ring at rest is armed)
+        self.re_armed = self.a_stop;
+        if self.a_stop {
+            for (c, s) in [
+                ([-5, -26, 7], "minecraft:lever[face=floor,facing=north,powered=true]"),
+                ([3, -27, 3], "minecraft:lever[face=wall,facing=east,powered=false]"),
+                ([1, -29, 2], "minecraft:lever[face=floor,facing=north,powered=false]"),
+            ] {
+                let was = w.get(dbp(c[0], c[1], c[2])).to_string();
+                if was != "minecraft:air" && !was.contains("lever") {
+                    return Err(format!("the (A) stop's stand-in cell ({},{},{}) holds {was}, not air", c[0], c[1], c[2]));
+                }
+                set(w, c, s, flags::ALL)?;
+            }
         }
         for (k, x) in LANES.iter().enumerate() {
             // (M16bw's side drive: a repeater at (x-1,0,0) facing west fed by the riser dust
@@ -3390,6 +3741,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             ctl.ring_k = o.ring_k;
         }
     }
+    ctl.delta7 = o.delta7;
     // (day-1 06:07 PT, ctlcounter.rs; G1's blocker 3: the counter's state at the first release, a
     // clear clock's: C = 141 + ceil((d - 12,540) / 100) for a first release at day time d between
     // EIGHT (C loads 19) and RISE (C loads 0), each the analytic detector's crossing)
@@ -3765,6 +4117,8 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     // (dfb89499 14:19) every entry into the column's y-12 cell (-5,12,7): (tick, cart, class, pass or
     // lane 7's side entry)
     let mut y12_entries: Vec<(i64, u32, &'static str, &'static str)> = Vec::new();
+    // (G1 15:37) --positions-at: every cart's position at those ticks
+    let mut positions_log: Vec<String> = Vec::new();
     // (ironspec 11:48 / 11:50) per lane each returning napper's stored speed entering its own K (speed,
     // tick, cart), and each napper cart's first rest on its siding's R (z in the design frame, tick,
     // cart); the open R visits (cart -> resting already recorded)
@@ -6409,8 +6763,11 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 }
                 if c[0] == lx && (18..=22).contains(&c[1]) && c[2] >= 2 && c[2] <= 6 {
                     mark(r, "back in its lane");
-                    // (day-1's picker: the lane's away latch resets on its napper's return)
-                    ctl.away[k] = false;
+                    // (day-1's picker: the lane's away latch resets on its napper's return; with the
+                    // (A) stop's design controller G7 resets it at string_l's fall instead)
+                    if !ctl.a_stop {
+                        ctl.away[k] = false;
+                    }
                 }
                 // (a returning napper on the row past its own K, before its lane: a wrong lane;
                 // a picked cart on its way to the leg passes its K by design)
@@ -6962,6 +7319,20 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             let c = cell(e.pos);
             // (ironspec 10:29 (3): the denominator) a drop pass: the drop cell (x,24,6) into the column
             // (x,23,6); a C deflection: C (x,24,7) west into c3 (x-1,24,7) by any cart but a napper's
+            if o.positions_at.contains(&rel) {
+                let q = dpos(e.pos);
+                positions_log.push(format!(
+                    "t {rel}: cart #{} at ({:.6},{:.6},{:.6}) motion ({:.5},{:.5},{:.5}) rider {}",
+                    e.id,
+                    q.x,
+                    q.y,
+                    q.z,
+                    e.delta_movement.x,
+                    e.delta_movement.y,
+                    e.delta_movement.z,
+                    e.passengers.first().map_or("none".to_string(), |r| format!("#{r}"))
+                ));
+            }
             if let Some(p) = c_prev_cell.get(&e.id).copied() {
                 // (ironspec 12:58) the shared lift's mouth: a cart entering the lift column (-5,y,7)
                 // (y 1..3) from outside it, with its class (a returning napper, else batch)
@@ -9594,12 +9965,101 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             ctl.rt_batches.len(),
             if rows.is_empty() { "none".to_string() } else { rows.join("; ") }
         ));
+        // (day-1's G11 rev 15:42, ironspec 15:37 (2): delta7 = the measured maximum over the set and
+        // seeds of the lane-7 pick's napper's last tick in J(-1)'s cell minus lane 3's real D(3) press,
+        // + 3) the measurement per lane-7-pick batch
+        let mut d7: Vec<(i64, i64)> = Vec::new();
+        for (rel, pick) in ctl.rt_batches.iter() {
+            if *pick != Some(2) {
+                continue;
+            }
+            let Some(press) = ctl.d3_presses.iter().copied().find(|t| *t >= rel + 85 && *t <= rel + 200) else { continue };
+            for (t, cid, slot) in exits.iter().filter(|(t, _, slot)| *t >= *rel && *t <= *rel + 40 && *slot == 2) {
+                let Some(ents) = cart_entries.get(cid) else { continue };
+                let Some(i) = ents.iter().position(|(et, c)| *et > *t && *c == [-1, 25, 9]) else { continue };
+                let last = ents.get(i + 1).map_or(ents[i].0, |n| n.0 - 1);
+                d7.push((*rel, last - press));
+            }
+        }
+        if !d7.is_empty() {
+            let mx = d7.iter().map(|x| x.1).max().unwrap_or(0);
+            s.push_str(&format!(
+                "delta7's measurement (day-1's G11 rev 15:42: the lane-7 pick's napper's last tick in J(-1)'s cell minus lane 3's real D(3) press, per lane-7-pick batch): {} batches, least {}, most {mx}; the design's delta7 = the most + 3 = {} (this run used {}){}\n",
+                d7.len(),
+                d7.iter().map(|x| x.1).min().unwrap_or(0),
+                mx + 3,
+                ctl.delta7,
+                if ctl.a_stop && ctl.delta7 < mx + 3 { " (FAIL: the run's delta7 below the measured most + 3)" } else { "" }
+            ));
+        }
+    }
+    // (day-1's canonical gates rev 15:42, ironspec 15:37 (6): THE STANDING CHECK) the gates this run's
+    // emulation implements against day-1's list, each with its delay as emulated; a missing gate or a
+    // NOT-BOUGHT gate present FAILS the run (with the (A) stop's design controller); RE_ARMED's setters
+    {
+        let ds = ctl.a_stop;
+        let g = |on: bool, txt: &str| format!("{} {txt}", if on { "IMPLEMENTED" } else { "MISSING" });
+        let gates = [
+            g(true, "G1 RS_ready: rider-keyed (a ridden cart on R's detector (4,-28,4)), + d_RS 10, reset at the queue release"),
+            g(ds, "G2 R1: REST_l AND NOT DAY AND RS_ready AND the held napper's stale hold elapsed, + the dwell 6"),
+            g(ds, "G3 IN-STOP_l: set at a lane-l queue release, reset at R's ridden press"),
+            g(ds, "G4 the slope taps: REL + 43 / 41 / 33 AND IN-STOP_l, the tap lever (1,-29,2) held 10"),
+            g(ds, "G5 the hold's at-most-one gate on the RETURN bits"),
+            g(ds, "G6 REL_l = D_l AND string_l (a ridden cart on R_l), R = D + 34 (the feed's input at D + 26 with the stack's 8)"),
+            g(ds, "G7 AWAY_l: set at the pick, reset at string_l's fall after the return; a pick skipped while set"),
+            g(ds, "G8 F1: REL = holds full (a cart on each R_1) AND RE_ARMED (set only at the ring's re-arm events, reset at REL); the request + 6"),
+            g(true, "G9 every REL-keyed timing off the gated REL"),
+            g(true, "G10 the ring F2: D-keyed, J(7) on by default, no timed re-arm"),
+            g(ctl.ring_timed, "G11 the no-string outbound: HOLD_3 / HOLD_7 reset at REL + L + k, latch writes + 2, J switch + 4; lane 7's emulated D(7) at lane 3's real D(3) + delta7"),
+            g(ds, "G12 RETURN_x: set at the launching tap, cleared by string_x's rise or T_ret 450"),
+            g(ds, "G13 K's sampled lane: the RETURN bits latched at T_d (the napper's first end-of-tick in (9,0,7))"),
+            g(ds, "G14 K(x)'s window [T_d + tau_K - 12, T_d + tau_K + 8] (writes + 4 / + 6), the west J's [T_d + tau_J - 12, T_d + tau_J + 8] (writes + 6 / + 4); tau 94 / 109 / 125, 102, 117, s 4"),
+            g(true, "G15 the keyed hold pulse: the H2 sample and its 12-gt pulse at delta"),
+            g(ds, "G16 SLEPT: toggled by each bed-head observer pulse after ARM, reset at the release; drives OPEN only"),
+            g(ds, "G17 SLEPT_ONCE: set by the first pulse after ARM, reset at ARM"),
+            g(ds, "G18 ARMED70: ARM + 70, its set gated by NOT released"),
+            g(ds, "G19 OPEN: set by the edge of (ARMED70 AND SLEPT), reset at the release"),
+            g(ds, "G20 the shutter = NOT OPEN (torch 2): close = OPEN's fall + 2; the park's release = OPEN's fall + 6"),
+            g(ds, "G21 the release: the edge of (P_STRING AND SLEPT_ONCE), parity-free, one-shot per visit"),
+            g(ds, "G22 P_STRING at (-2,-26,3): a villager on foot over P"),
+        ];
+        let missing = gates.iter().filter(|x| x.starts_with("MISSING")).count();
+        let not_bought: Vec<&str> = [
+            (ctl.evidence_keyed, "evidence strings on the split row"),
+            (!ds && ctl.wayin, "the any-cart (detector) RS_ready"),
+        ]
+        .iter()
+        .filter(|(on, _)| *on)
+        .map(|(_, n)| *n)
+        .collect();
+        s.push_str(&format!(
+            "the gate list (day-1's canonical list rev 15:42, https://artifacts.internalmeta.com/a/2801090903621150 ; ironspec 15:37 (6): the STANDING CHECK, a missing gate or a NOT-BOUGHT gate present FAILS with the (A) stop's design controller): {} of 22 implemented ({}); NOT-BOUGHT present: {}; RE_ARMED's setters: {} ({}){}\n",
+            22 - missing,
+            gates.join("; "),
+            if not_bought.is_empty() { "none".to_string() } else { not_bought.join(", ") },
+            ctl.re_armed_setters.len(),
+            ctl.re_armed_setters.iter().take(6).cloned().collect::<Vec<_>>().join(", "),
+            if ds { if missing == 0 && not_bought.is_empty() { " (PASS)".to_string() } else { " (FAIL)".to_string() } } else { " (information: today's controller as emulated, no (A) stop composed)".to_string() }
+        ));
+        if ds {
+            s.push_str(&format!(
+                "the design controller's F4(a) (G12–G14): {} windows keyed at T_d{}; faults (RETURN timeouts, T_d with 0 or 2+ bits, the hold's pulse withheld by G5): {}{}\n",
+                ctl.f4_windows.len(),
+                if ctl.f4_windows.is_empty() { String::new() } else { format!(": {}", ctl.f4_windows.iter().take(8).cloned().collect::<Vec<_>>().join(" | ")) },
+                ctl.f4_faults.len(),
+                if ctl.f4_faults.is_empty() { String::new() } else { format!(": {}", ctl.f4_faults.iter().take(8).cloned().collect::<Vec<_>>().join(" | ")) }
+            ));
+            s.push_str(&format!("the rider-keyed RS_ready (G1): R's detector pressed by an EMPTY cart {} times (none set RS_ready)\n", ctl.rdet_empty_presses));
+        }
+    }
+    if !positions_log.is_empty() {
+        s.push_str(&format!("the carts' positions at --positions-at (G1 15:37, the lane queues' packing; design frame, 6 dp): {}\n", positions_log.join("; ")));
     }
     // (day-1 13:43, --ring-timed) the no-string ring's margins per pick: HOLD_3 (lane -1's pick: lane 3's
     // cart's first tick in J(3) - (reset + 4)), HOLD_7 (the next cart's first tick in J(7) - (reset +
     // 4)), lane 7's pick's re-arm (the next batch's first cart at J(-1) - (the timed D(7) + 4)); J(-1)
     // re-armed at every batch's end; bars >= 10, >= 10, printed, every batch
-    if o.ring_timed.is_some() {
+    if o.ring_timed.is_some() || ctl.a_stop {
         let first_after = |jx: i32, after: i64| junction_passes.iter().filter(|p| p.1 == [jx, 25, 9] && (p.2 == "batch" || p.2 == "empty") && p.0 > after).map(|p| p.0).min();
         let mut rows: Vec<String> = Vec::new();
         let mut least3: Option<i64> = None;
