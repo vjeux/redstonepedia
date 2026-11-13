@@ -3602,6 +3602,29 @@ pub enum MobfarmCmd {
     StationJudge {
         #[arg(long, default_value_t = 16)]
         hold_y: i32,
+        /// The world to judge instead of the built-in station layout: a composed module in the bench's
+        /// frame (dfb89499's `drop-bench --module FILE --path-a --part FILE --summon-check --out FILE`),
+        /// its hostile posts in it, as the call gate needs (no post or scarer: no rider panics, every due
+        /// S misses). The cold start runs it with the departing carts removed (the bench's `dep_absent`).
+        #[arg(long)]
+        world: Option<PathBuf>,
+        /// With --world: the bench's options its rows ran with (dfb89499's run line): the hold's drive
+        /// input and rail "x,y,z" (the bench's frame), the hold's release (gt after REL) and drive width,
+        /// the napper's release; the lift tracked; the stops: the station's plus the world file's own
+        /// `# stops:` / `# contacts:` lines (its frame).
+        #[arg(long)]
+        hold_drive: Option<String>,
+        #[arg(long)]
+        hold_rail: Option<String>,
+        #[arg(long, default_value_t = 98)]
+        hold_release: i64,
+        #[arg(long, default_value_t = 10)]
+        hold_width: i64,
+        #[arg(long)]
+        napper_release: Option<i64>,
+        /// No R line refill (the module bench's rows run none).
+        #[arg(long)]
+        no_refill: bool,
         /// The RELs (T+3..9 around the adopted REL = golem + 4: G1 2026-11-12 05:15).
         #[arg(long, value_delimiter = ',', default_value = "3,4,5,6,7,8,9")]
         rel: Vec<i64>,
@@ -3621,7 +3644,9 @@ pub enum MobfarmCmd {
         #[arg(long, value_delimiter = ',', default_value = "2,10")]
         refill: Vec<i64>,
         /// (ironspec 09:32) The R line through R_1's built driver (a repeater facing west into
-        /// R_1, fed by the controller's block at (x+2,17,1)), not a block in R_1's side cell.
+        /// R_1, fed by the controller's block at (x+2,17,1)), not a block in R_1's side cell. Always on
+        /// since the stand-in guard (dfb89499's 4a09c256, ironspec 17:46) refuses the side-cell block's
+        /// emulation: the flag is accepted and changes nothing.
         #[arg(long)]
         r_repeater: bool,
         /// Zombie posts (x,y,z, repeatable; none in the run line since 4bce82b85: the hold post came out).
@@ -3645,10 +3670,10 @@ pub enum MobfarmCmd {
         /// The landing lead's bar (the L1 edge bar: 3 gt + 1 scheduled tick).
         #[arg(long, default_value_t = crate::stationjudge::EDGE_BAR)]
         edge: i64,
-        /// The rest margin's bar before the next summon (the L1 edge bar until dfb89499's panic measure
-        /// lands; the 20-gt rest bar is retired: ironspec 2026-11-12 05:26).
-        #[arg(long, default_value_t = crate::stationjudge::REST_BAR)]
-        rest_bar: i64,
+        /// Skip the call gate (ironspec 19:51: by default every run carries the bench's direct summon
+        /// check, a due S with no call fails its lead row and the removed-rider controls run per REL).
+        #[arg(long)]
+        no_summon_gate: bool,
         #[arg(long, value_delimiter = ',', default_value = "0,150")]
         starts: Vec<i64>,
         /// Login lengths for the pearl alternative's load window (empty: none).
@@ -8788,7 +8813,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::StationJudge { hold_y, rel, stagger, rebrake, release, open_delay, pulse, refill, r_repeater, posts, no_slab_stop, scarers, l2, ticks, seed, seeds, edge, rest_bar, starts, ds, no_restarts, no_cold, launch_min, rebrakes, pulses, open_delays, refill_delays, refill_lens, staggers, jobs } => {
+        MobfarmCmd::StationJudge { hold_y, world, hold_drive, hold_rail, hold_release, hold_width, napper_release, no_refill, rel, stagger, rebrake, release, open_delay, pulse, refill, r_repeater, posts, no_slab_stop, scarers, l2, ticks, seed, seeds, edge, no_summon_gate, starts, ds, no_restarts, no_cold, launch_min, rebrakes, pulses, open_delays, refill_delays, refill_lens, staggers, jobs } => {
             anyhow::ensure!(starts.len() == 2, "--starts A,B");
             anyhow::ensure!(stagger.len() == 3, "--stagger A,B,C");
             anyhow::ensure!(refill.len() == 2, "--refill D,L");
@@ -8811,6 +8836,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 })
                 .collect::<anyhow::Result<_>>()?;
             let lo = crate::drop::DropLayout::Station;
+            // (the R line always through R_1's built driver: the stand-in guard refuses the side-cell block)
+            let _ = r_repeater;
+            let r_repeater = true;
             let ex = crate::drop::Extras { blocks: Vec::new(), posts: posts_v, slab_stop: !no_slab_stop, r_repeater };
             let spec_of = |dep: [bool; 3]| -> anyhow::Result<redsim::entity::mob::farm::FarmSpec> {
                 let text = crate::drop::design_extra(lo, hold_y, dep, [true; 3], true, true, &ex);
@@ -8820,13 +8848,31 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 let _ = std::fs::remove_file(&path);
                 Ok(fspec)
             };
-            let (spec, cold_spec) = (spec_of([true; 3])?, spec_of([false; 3])?);
-            let base = crate::drop::DropOpts { layout: lo, hold_y, rel: rel[0], stagger: [stagger[0], stagger[1], stagger[2]], rebrake, release, pulse, occupancy: false, exit_gate: true, open_delay, l1: !l2, dep_absent: [false; 3], restarts: Vec::new(), panic_posts: Vec::new(), follow_range: 16.0, panic_search: None, r_repeater, box_short: 0, track_lift: false, hold_drive: None, hold_rail: None, hold_release: 98, hold_width: 10, napper: None, watch: Vec::new(), summon_check: false, remove_rider: None, stops: crate::drop::station_stops(lo, hold_y), lever_off: None, sight_control: false, hold_poke: None, release_world: false, rebrake_each: true, scarers: scarers_v, refill: Some((refill[0], refill[1])), ticks, seed, freeze: None, logins: Vec::new(), trace: false };
-            let o = crate::stationjudge::StationJudgeOpts { rels: rel.clone(), seeds: (seed..seed + seeds.max(1)).collect(), starts: (starts[0], starts[1]), ds: ds.clone(), restarts: !no_restarts, cold: !no_cold, launch_min, edge, rest_bar, jobs };
+            let (spec, cold_spec) = match &world {
+                Some(wf) => {
+                    let (_c, s) = load(version, wf)?;
+                    (s.clone(), s)
+                }
+                None => (spec_of([true; 3])?, spec_of([false; 3])?),
+            };
+            let world_stops: Vec<(i32, i32, i32)> = match &world {
+                Some(wf) => crate::drop::declared_contacts(&std::fs::read_to_string(wf)?),
+                None => Vec::new(),
+            };
+            let cell3 = |s: &Option<String>, what: &str| -> anyhow::Result<Option<(i32, i32, i32)>> {
+                let Some(s) = s else { return Ok(None) };
+                let v: Vec<i32> = s.split(',').map(|x| x.trim().parse::<i32>()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(v.len() == 3, "{what} x,y,z");
+                Ok(Some((v[0], v[1], v[2])))
+            };
+            let (hold_drive_v, hold_rail_v) = (cell3(&hold_drive, "--hold-drive")?, cell3(&hold_rail, "--hold-rail")?);
+            anyhow::ensure!(world.is_some() || (hold_drive_v.is_none() && hold_rail_v.is_none() && napper_release.is_none()), "--hold-drive, --hold-rail and --napper-release run with --world (the composed module)");
+            let base = crate::drop::DropOpts { layout: lo, hold_y, rel: rel[0], stagger: [stagger[0], stagger[1], stagger[2]], rebrake, release, pulse, occupancy: false, exit_gate: true, open_delay, l1: !l2, dep_absent: [false; 3], restarts: Vec::new(), panic_posts: Vec::new(), follow_range: 16.0, panic_search: None, r_repeater, box_short: 0, track_lift: world.is_some(), hold_drive: hold_drive_v, hold_rail: hold_rail_v, hold_release, hold_width, napper: napper_release, watch: Vec::new(), summon_check: false, remove_rider: None, stops: crate::drop::station_stops(lo, hold_y).into_iter().chain(world_stops.iter().copied()).collect(), lever_off: None, sight_control: false, hold_poke: None, release_world: false, rebrake_each: true, scarers: scarers_v, refill: if no_refill { None } else { Some((refill[0], refill[1])) }, ticks, seed, freeze: None, logins: Vec::new(), trace: false };
+            let o = crate::stationjudge::StationJudgeOpts { rels: rel.clone(), seeds: (seed..seed + seeds.max(1)).collect(), starts: (starts[0], starts[1]), ds: ds.clone(), restarts: !no_restarts, cold: !no_cold, launch_min, edge, summon_gate: !no_summon_gate, jobs };
             println!(
                 "station judge (cc767b78, bench, tool unreviewed; the {} mode: per REL {rel:?} the control, {}the cold start{}): drop-bench --layout station --pad --hold-y {hold_y} --stagger {},{},{} --rebrake {rebrake} --rebrake-each --release {release} --exit-gate --open-delay {open_delay} --pulse {pulse} --refill {},{} --post {:?} {}--scarers {scarers}, {ticks} ticks; the launch bar {}",
                 if l2 { "L2" } else { "L1" },
-                if no_restarts { String::new() } else { format!("a save/stop/start at every phase T+{}..T+{} in each of the 20 restart rows (save, reverse, seed:1..8, each a world open with N = 1 and 2), ", starts[0], starts[1]) },
+                if no_restarts { String::new() } else { format!("a save/stop/start at every phase T+{}..T+{} in each of the {} restart rows of liveness::Restart::rows() (save, reverse, seed:1..8, each a world open with N = 1 and 2), ", starts[0], starts[1], crate::liveness::Restart::rows().len()) },
                 if ds.is_empty() { String::new() } else { format!(", logins of {ds:?} gt at every phase (the pearl alternative)") },
                 stagger[0],
                 stagger[1],
@@ -8838,11 +8884,19 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 if launch_min > 0 { format!("{launch_min} gt") } else { "none (reported only)".to_string() }
             );
             let (lines, fails) = crate::stationjudge::judge(&spec, &cold_spec, &base, &o).map_err(|e| anyhow::anyhow!(e))?;
+            println!("the world: {}", world.as_ref().map_or("the built-in station layout (no hostile post: --world FILE runs the composed module with its posts)".to_string(), |w| w.display().to_string()));
             for l in lines {
                 println!("{l}");
             }
-            println!("over the matrix: {fails} failing runs in the lead's rows (controls included; the pearl alternative's logins reported above); PENDING: the stand's summon bar (dfb89499's panic measure: >= 1 caller at every T over all 400 sensor-phase pairs, margin >= 2 at REL T+2..6), the rest held to --rest-bar {rest_bar} gt meanwhile");
+            if !no_summon_gate && world.is_none() && scarers.trim().is_empty() && posts.is_empty() {
+                println!("  (the call gate on the built-in layout: no hostile post or scarer, so no rider can panic and every due S misses; the gate's rows come from --world FILE, the composed module with its posts)");
+            }
+            println!(
+                "over the matrix: {fails} failing runs in the lead's rows (controls included; {}; the pearl alternative's logins reported above)",
+                if no_summon_gate { "the call gate SKIPPED (--no-summon-gate)" } else { "the call gate's misses and its removed-rider controls included" }
+            );
             let mut rows: Vec<(String, crate::drop::DropOpts)> = Vec::new();
+            let mut threshold_fails = 0usize;
             for v in &rebrakes {
                 rows.push((format!("the re-brake {v}"), crate::drop::DropOpts { rebrake: *v, ..base.clone() }));
             }
@@ -8864,11 +8918,17 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 rows.push((format!("the stagger {s}"), crate::drop::DropOpts { stagger: [v[0], v[1], v[2]], ..base.clone() }));
             }
             for (label, b) in rows {
-                let (lines, fails) = crate::stationjudge::judge(&spec, &cold_spec, &b, &o).map_err(|e| anyhow::anyhow!(e))?;
-                println!("threshold row, {label}: {fails} failing runs");
+                let (lines, row_fails) = crate::stationjudge::judge(&spec, &cold_spec, &b, &o).map_err(|e| anyhow::anyhow!(e))?;
+                println!("threshold row, {label}: {row_fails} failing runs");
                 for l in lines {
                     println!("  {l}");
                 }
+                threshold_fails += row_fails;
+            }
+            // (G1's checklist C1: every failing count reaches a non-zero exit: the lead's rows (the call
+            // gate's misses and its controls included) and every threshold row)
+            if fails + threshold_fails > 0 {
+                std::process::exit(1);
             }
         }
         MobfarmCmd::DropBench { layout, login, hold_y, rel, stagger, rebrake, release, pulse, occupancy, exit_gate, release_world, pad, rebrake_each, scarers, block, posts, slab_stop, open_delay, l1, restart, restart_sweep, write_design, panic_post, part, follow_range, panic_search, r_repeater, box_short, module, hold_drive, hold_rail, hold_release, hold_width, path_a, napper_release, summon_check, remove_rider, lever_off, sight_control, hold_poke, watch_cell, refill, dep_riders, arr_riders, freezes, freeze_sweep, ticks, seed, seeds, summary, out, trace } => {
