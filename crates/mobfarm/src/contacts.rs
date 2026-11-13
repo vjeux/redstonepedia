@@ -389,6 +389,27 @@ pub fn declared_contacts_bounded(text: &str) -> Result<Vec<Decl>, String> {
             out.push(d);
         }
     }
+    // (ironspec 13:23 (1)(ii) on 2058c3283: OVERLAPPING declarations (a shared cell with the same face,
+    // or a face-less one over a faced one) are refused: `judge` gives a hit to the first matching
+    // declaration while a rate's numerator re-collects every matching hit, so an overlap would count
+    // one hit twice)
+    for (i, a) in out.iter().enumerate() {
+        for b in out.iter().skip(i + 1) {
+            let face_meets = a.face.is_none() || b.face.is_none() || a.face == b.face;
+            if let Some(c) = a.cells.iter().find(|c| b.cells.contains(c))
+                && face_meets
+            {
+                return Err(format!(
+                    "two declarations overlap at {},{},{} ({} / {}): give each cell and face to one declaration (ironspec 13:23 (1)(ii))",
+                    c.x,
+                    c.y,
+                    c.z,
+                    a.face.map_or("any face", |f| f.name()),
+                    b.face.map_or("any face", |f| f.name())
+                ));
+            }
+        }
+    }
     Ok(out)
 }
 
@@ -474,6 +495,14 @@ impl VClass {
 impl From<VHit> for Hit {
     /// A vertical contact as the ONE judge reads it (ironspec 11:51 (2)): the face its class meets
     /// (FLOOR up, CEILING / LOW CEILING down, EMBEDDED inside), its depth, its speeds; no sample.
+    ///
+    /// - Its `sample` is None (G1 12:12 on 99fe0fe88): a vertical hit judged against a `rate=`
+    ///   declaration is the "untagged" wiring error, so a caller with a rated vertical declaration (the
+    ///   lip's face=up rest on C's support, say) tags these hits with their sample as it does the
+    ///   horizontal ones.
+    /// - A riser under the lift cap can give a LOW CEILING and a CEILING for one shape on one tick
+    ///   (ironspec 13:23 (1)(iii)): both map to face=down, so one `face=down` declaration covers both,
+    ///   and their ticks merge into one event.
     fn from(v: VHit) -> Hit {
         Hit { tick: v.tick, cart: v.cart, cell: v.cell, face: v.class.face(), depth: v.depth, speed_in: v.speed_in, speed_out: v.speed_out, sample: None }
     }
@@ -1056,9 +1085,14 @@ mod tests {
             "# contacts: 3,24,5=r | class=incidental | speed_out>=0 | why=floating\n",
             "# contacts: 3,24,5=r | class=sideways | speed_out>=0\n",
             "# contacts: 3,24,5=r | class=incidental | face=sideways | speed_out>=0\n",
+            // (ironspec 13:23 (1)(ii): overlaps: a shared cell and face; a face-less one over a faced one)
+            "# contacts: 3,24,5=r | class=incidental | face=south | speed_out>=0\n# contacts: 3,24,5+4,24,5=s | class=incidental | face=south | speed_out>=0\n",
+            "# contacts: 3,24,5=r | class=incidental | speed_out>=0\n# contacts: 3,24,5=s | class=incidental | face=up | speed_out>=0\n",
         ] {
             assert!(declared_contacts_bounded(bad).is_err(), "{bad}");
         }
+        // (the same cell on two different faces is no overlap)
+        assert_eq!(declared_contacts_bounded("# contacts: 3,24,5=r | class=incidental | face=south | speed_out>=0\n# contacts: 3,24,5=s | class=incidental | face=up | speed_out>=0\n").map(|d| d.len()), Ok(2));
     }
 
     fn moving(_: u32, _: i64) -> Option<(f64, f64)> {
