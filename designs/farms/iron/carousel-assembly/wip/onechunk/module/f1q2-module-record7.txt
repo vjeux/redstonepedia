@@ -1,6 +1,6 @@
 # The one-chunk column's skeleton (mctas mobfarm column; no wiring): column x -6..9 z -6..10.
 # record7f (ironspec 01:07 / 01:21 PT): composed from 7b90c3f1's r3 record lift file (explore/farmopt-v15-patha-r3 8ed397b2e, designs/farms/iron/carousel-assembly/wip/lift/f1q2-lift-split-path-a.txt, --light-fix): the cell diff against record7e: (-6,8,7) glass -> glowstone and (5,-16,4) glass -> glowstone (the light fix), (-5,23,7) and (6,-3,4) air -> water[level=1] (the lifts' two top-drift currents, saved settled), (-4,0,7) air -> glass (in r3, not in record7e); the lift file's (9,25,9) east_west is its own stand-in (# stand-in:), so record7 keeps b8949c96's north_west curve there; the lift file's header lines follow (its # stand-in: and # frames: lines describe its own bench file and stay there)
-# record7f, the glass cover (-3,22,5) laid as a CANDIDATE (ironspec 06:05 PT) until 9fc3155f's statics pass (zero dark cells, sight, head space, the gate): over the F3 scarer part's glowstone (-3,21,5) (9fc3155f's file), so the air over it is no stable walk target (the PANIC stroll draw from the shared lift's (-5,20,7))
+# record7f, the F3 scarer part's glowstone row (-4,21,5), (-3,21,5), (-2,21,5) swapped for end rods facing up, a CANDIDATE until 9fc3155f re-runs the gate on this file (farmopt 04:58 PT: glass at (-3,22,5) fails the gate; the end rods pass it at 9fc3155f's, 0 dark cells, sight / exposures / golem flood unchanged)
 # day-time: 18000 (the save's day time, a night placement as the build guide places the daylight detector (-5,15,3): its stored power 0 is its reading at this time; ironspec 02:37 PT (4))
 # record7f, (-4,0,7) returned to air (record7e's state; 7b90c3f1 02:05 PT drops it from its r4 lift file: no cart meets it, it holds no water, it changes no mob space)
 # record7f, dusts re-saved settled (ironspec 01:46 (2), cc767b78's settle-check finding): (-3,23,9) (the (a) feed stack's dust, stored a dot by onechunk's composition of the stack) and (7,-14,-5) (R1's NOT-ready side dust, stored south-only by onechunk's record7c recomposition) both now north+south, their settled connections
@@ -90,26 +90,27 @@ origin: -6 0 -6
 # update-only: -1,24,8=J(-1)'s branch detector D, its own north arm's sensor: a rise or fall updates the T (-1,25,9), which re-settles to its power's shape (its lever (-1,26,9): north_west on, north_east off) (return-bench's D-on-J line: every change of every row, the T off its settle after one 0); 3,24,8=J(3)'s branch detector D, its own north arm's sensor: a rise or fall updates the T (3,25,9), which re-settles to its power's shape (its lever (3,26,9): north_west on, north_east off) (return-bench's D-on-J line: every change of every row, the T off its settle after one 0); 7,24,8=J(7)'s branch detector D, its own north arm's sensor: a rise or fall updates the T (7,25,9), which re-settles to its power's shape (its lever (7,26,9): north_west on, north_east off) (return-bench's D-on-J line: every change of every row, the T off its settle after one 0)
 # switches: -1,26,9=J(-1)'s lever (day-1's latch output; a ceiling lever under glass (-1,27,9)): on -> the T (-1,25,9) north_west, off -> north_east; -3,26,9=K(-1)'s lever (day-1's timed taps; a ceiling lever under glass (-3,27,9)): on -> the T (-3,25,9) north_west, off -> north_east; 3,26,9=J(3)'s lever (day-1's latch output; a ceiling lever under glass (3,27,9)): on -> the T (3,25,9) north_west, off -> north_east; 1,26,9=K(3)'s lever (day-1's timed taps; a ceiling lever under glass (1,27,9)): on -> the T (1,25,9) north_west, off -> north_east; 7,26,9=J(7)'s lever (day-1's latch output; a ceiling lever under glass (7,27,9)): on -> the T (7,25,9) north_west, off -> north_east; 5,26,9=K(7)'s lever (day-1's timed taps; a ceiling lever under glass (5,27,9)): on -> the T (5,25,9) north_west, off -> north_east; 7,-3,4=the napper climb's exit detector, day-1's approach detector E (the waiting bit's source): redundant on the rail it reaches, (8,-3,4) being held on by its redstone block (8,-4,4)
 palette:
-  ! minecraft:water[level=0]
-  $ minecraft:smooth_stone_slab[type=bottom,waterlogged=false]
-  % minecraft:soul_sand
-  & minecraft:stone_button[face=floor,facing=north,powered=false]
-  * minecraft:tripwire[attached=false,disarmed=false,east=false,north=false,powered=false,south=false,west=false]
-  + minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]
-  0 minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=side]
-  1 minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
-  2 minecraft:redstone_wire[east=side,north=none,power=0,south=up,west=none]
-  3 minecraft:redstone_wire[east=up,north=none,power=0,south=none,west=side]
-  4 minecraft:redstone_wire[east=up,north=side,power=0,south=none,west=none]
-  5 minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
-  6 minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
-  7 minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
-  8 minecraft:repeater[delay=3,facing=west,locked=false,powered=false]
-  9 minecraft:slime_block
-  < minecraft:water[level=1]
-  = minecraft:tripwire_hook[attached=true,facing=east,powered=false]
-  ? minecraft:tripwire_hook[attached=true,facing=west,powered=false]
-  @ minecraft:smooth_stone
+  ! minecraft:tripwire_hook[attached=true,facing=west,powered=false]
+  $ minecraft:smooth_stone
+  % minecraft:smooth_stone_slab[type=bottom,waterlogged=false]
+  & minecraft:soul_sand
+  * minecraft:stone_button[face=floor,facing=north,powered=false]
+  + minecraft:tripwire[attached=false,disarmed=false,east=false,north=false,powered=false,south=false,west=false]
+  0 minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+  1 minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=side]
+  2 minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
+  3 minecraft:redstone_wire[east=side,north=none,power=0,south=up,west=none]
+  4 minecraft:redstone_wire[east=up,north=none,power=0,south=none,west=side]
+  5 minecraft:redstone_wire[east=up,north=side,power=0,south=none,west=none]
+  6 minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+  7 minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  8 minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+  9 minecraft:repeater[delay=3,facing=west,locked=false,powered=false]
+  < minecraft:water[level=0]
+  = minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]
+  > minecraft:water[level=1]
+  ? minecraft:tripwire_hook[attached=true,facing=east,powered=false]
+  @ minecraft:slime_block
   A minecraft:activator_rail[powered=true,shape=east_west,waterlogged=false]
   B minecraft:bubble_column[drag=false]
   C minecraft:chest[facing=south,type=single,waterlogged=false]
@@ -140,28 +141,28 @@ palette:
   b minecraft:powered_rail[powered=true,shape=ascending_west,waterlogged=false]
   c minecraft:cobblestone
   d minecraft:daylight_detector[inverted=false,power=0]
-  e minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]
-  f minecraft:powered_rail[powered=true,shape=north_south,waterlogged=false]
+  e minecraft:end_rod[facing=up]
+  f minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]
   g minecraft:glass
-  h minecraft:rail[shape=ascending_south,waterlogged=false]
+  h minecraft:powered_rail[powered=true,shape=north_south,waterlogged=false]
   i minecraft:iron_trapdoor[facing=east,half=bottom,open=false,powered=false,waterlogged=false]
-  j minecraft:rail[shape=ascending_west,waterlogged=false]
-  k minecraft:rail[shape=east_west,waterlogged=false]
+  j minecraft:rail[shape=ascending_south,waterlogged=false]
+  k minecraft:rail[shape=ascending_west,waterlogged=false]
   l minecraft:lever[face=ceiling,facing=north,powered=false]
-  m minecraft:rail[shape=north_east,waterlogged=false]
+  m minecraft:rail[shape=east_west,waterlogged=false]
   n minecraft:nether_portal[axis=x]
   o minecraft:oak_leaves[distance=7,persistent=true,waterlogged=false]
   p minecraft:powered_rail[powered=false,shape=ascending_east,waterlogged=false]
-  q minecraft:rail[shape=north_south,waterlogged=false]
+  q minecraft:rail[shape=north_east,waterlogged=false]
   r minecraft:rail[shape=ascending_east,waterlogged=false]
-  s minecraft:rail[shape=north_west,waterlogged=false]
-  t minecraft:rail[shape=south_east,waterlogged=false]
-  u minecraft:rail[shape=south_west,waterlogged=false]
-  v minecraft:red_bed[facing=south,occupied=false,part=foot]
-  w minecraft:red_bed[facing=south,occupied=false,part=head]
-  x minecraft:redstone_block
-  y minecraft:redstone_torch[lit=true]
-  z minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+  s minecraft:rail[shape=north_south,waterlogged=false]
+  t minecraft:rail[shape=north_west,waterlogged=false]
+  u minecraft:rail[shape=south_east,waterlogged=false]
+  v minecraft:rail[shape=south_west,waterlogged=false]
+  w minecraft:red_bed[facing=south,occupied=false,part=foot]
+  x minecraft:red_bed[facing=south,occupied=false,part=head]
+  y minecraft:redstone_block
+  z minecraft:redstone_torch[lit=true]
 layer -29:
   .
   .
@@ -173,7 +174,7 @@ layer -29:
   .
   .
   ............g
-  .......ggggg%g
+  .......ggggg&g
   ............g
   .
   .
@@ -190,7 +191,7 @@ layer -28:
   ....g
   ..ggg
   .g.gg.......g
-  ....gggjkkHkBg
+  ....gggkmmHmBg
   .....g......g
   .
   .
@@ -198,17 +199,17 @@ layer -28:
   .
 layer -27:
   ......Qg
-  ....tkpg
-  ....q
-  ....q
-  ....q
-  ....qg
-  ....qg
-  ...gqg
-  .gRvqg
-  g.MwqN......g
-  .gggmek....gBg
-  .....y......g
+  ....umpg
+  ....s
+  ....s
+  ....s
+  ....sg
+  ....sg
+  ...gsg
+  .gRwsg
+  g.MxsN......g
+  .gggqfm....gBg
+  .....z......g
   .
   .
   .
@@ -231,17 +232,17 @@ layer -26:
   .
   .
 layer -25:
-  ........Ry
-  .....&..Aekkkkku
-  .......gCCg....q
-  .......g.g.....h
+  ........Rz
+  .....*..Afmmmmmv
+  .......gCCg....s
+  .......g.g.....j
   ....gggg.g.....g
   ...g.....g.....g
   ...g.gggg
   ..g..g
-  ..g&g
+  ..g*g
   .gg.g.......g
-  ...gg&&....gBg
+  ...gg**....gBg
   ............g
   .
   .
@@ -252,8 +253,8 @@ layer -24:
   .......gg
   .......g.Lg
   .......g.g
-  ....gggg.g.....q
-  ...g.....g.....h
+  ....gggg.g.....s
+  ...g.....g.....j
   ...g.gggg......g
   ..g..g
   ..g.g
@@ -405,7 +406,7 @@ layer -15:
   .............g
   ...........ggggJ
   ...............F
-  ...............q
+  ...............s
   .
   ...............g
   .
@@ -419,9 +420,9 @@ layer -15:
   .
 layer -14:
   .
-  .............z.g
-  ...........27E7W
-  ...........@
+  .............0.g
+  ...........38E8W
+  ...........$
   .
   .
   .
@@ -438,7 +439,7 @@ layer -13:
   ........g......g
   ...............F
   ............g
-  ...........4@
+  ...........5$
   ...........gg
   .
   .
@@ -454,9 +455,9 @@ layer -13:
 layer -12:
   .
   ............i
-  ............6
-  ............0
-  ...........7D
+  ............7
+  ............1
+  ...........8D
   .
   .
   .
@@ -598,7 +599,7 @@ layer -4:
   .
   .
   ............g
-  ...........gBgx
+  ...........gBgy
   ............g
   .
   .
@@ -615,7 +616,7 @@ layer -3:
   .
   .
   ...........gg
-  ..........g!<HZg
+  ..........g<>HZg
   ...........gg.gg
   .
   ..............g
@@ -632,10 +633,10 @@ layer -2:
   .
   .
   .
-  ...........gg..u
-  ..............ya
+  ...........gg..v
+  ..............za
   ...............g
-  ..............y
+  ..............z
   ..............g
   .
 layer -1:
@@ -644,16 +645,16 @@ layer -1:
   .g
   .
   .
-  ......z...z
-  .13ggg4ggg4ggg
+  ......0...0
+  .24ggg5ggg5ggg
   .....g...g...g
   .....g...g...g
   .....g...g...g
   .....g...g...g
   ....gg..gg..gg
   .....g...g...g.a
-  ....gggggggggg9g
-  ..............79
+  ....gggggggggg@g
+  ..............8@
   .
 layer 0:
   .g
@@ -661,32 +662,32 @@ layer 0:
   .g
   .
   .
-  .....9...9...9
-  ...17Y.17Y.17Y
-  .....q...q...q
+  .....@...@...@
+  ...28Y.28Y.28Y
+  .....s...s...s
   .....I...I...I
-  .....q...f...a
-  .....f...f..gg
-  ....yf..yf..yg
-  .....f...f...g
-  .g.gjskkkskkkkeu
+  .....s...h...a
+  .....h...h..gg
+  ....zh..zh..zg
+  .....h...h...g
+  .g.gktmmmtmmmmfv
   ...............Y
-  ...............9
+  ...............@
 layer 1:
   .
   .g
   .
   .
   .
-  .....*...*...*
-  ...g=+?g=+?g=+?g
+  .....+...+...+
+  ...g?=!g?=!g?=!g
   .
   .
   .
-  ............ya
+  ............za
   .............g
   .
-  .%gj
+  .&gk
   .
   ...............g
 layer 2:
@@ -703,7 +704,7 @@ layer 2:
   .
   .............a
   .g...........g
-  gBk
+  gBm
   .g
   .
 layer 3:
@@ -736,8 +737,8 @@ layer 4:
   .
   .
   .
-  .g..........y
-  gBg........gbs
+  .g..........z
+  gBg........gbt
   .g
   .
 layer 5:
@@ -771,7 +772,7 @@ layer 6:
   .
   .
   .g
-  gBg......gj
+  gBg......gk
   .g
   .
 layer 7:
@@ -788,7 +789,7 @@ layer 7:
   .
   .
   .g
-  gBg.....gj
+  gBg.....gk
   .g
   .
 layer 8:
@@ -805,7 +806,7 @@ layer 8:
   .
   .
   .g
-  JBg....gj
+  JBg....gk
   .g
   .
 layer 9:
@@ -822,7 +823,7 @@ layer 9:
   .
   .
   .g
-  gBg...gj
+  gBg...gk
   .g
   .
 layer 10:
@@ -839,7 +840,7 @@ layer 10:
   .
   .
   .g
-  gBg..gj
+  gBg..gk
   .g
   .
 layer 11:
@@ -856,7 +857,7 @@ layer 11:
   .
   .
   .g
-  gBg.gj
+  gBg.gk
   .g
   .
 layer 12:
@@ -873,7 +874,7 @@ layer 12:
   .
   .
   .g
-  gBpgj
+  gBpgk
   .g
   .
 layer 13:
@@ -890,7 +891,7 @@ layer 13:
   .
   .
   .gg
-  gBUk
+  gBUm
   .g
   .
 layer 14:
@@ -950,9 +951,9 @@ layer 17:
   .
   .
   .
-  .....$...$...$
-  ...J=+?J=+?J=+?J
-  .....X5..X5..X5
+  .....%...%...%
+  ...J?=!J?=!J?=!J
+  .....X6..X6..X6
   ....Jg.J.g.J.g
   .
   .
@@ -970,7 +971,7 @@ layer 18:
   .
   .
   ......g...g...g
-  .....h...h...h
+  .....j...j...j
   ....Jg..Jg..Jg
   .
   .
@@ -988,7 +989,7 @@ layer 19:
   .
   .
   .
-  .....h...h...h
+  .....j...j...j
   ....Jg..Jg..Jg
   .
   .g
@@ -1006,7 +1007,7 @@ layer 20:
   .
   .
   .
-  .....h...h...h
+  .....j...j...j
   .....g...g...g
   .g
   gBg
@@ -1024,7 +1025,7 @@ layer 21:
   ...............g
   ...............g
   ...............g
-  ..JJJh...h...h.g
+  ..eeej...j...j.g
   .g...gJ..gJ..g
   gBg...J...J
   .g....J...J
@@ -1032,20 +1033,20 @@ layer 21:
 layer 22:
   ...............g
   ..............g
-  ...............q
-  .........g.....q
-  ...............q
-  ...............q
-  ...............q
-  ...............q
-  ...............q
-  ...............q
-  ...............q
-  ...g...........h
-  .g...h...h...h.g
+  ...............s
+  .........g.....s
+  ...............s
+  ...............s
+  ...............s
+  ...............s
+  ...............s
+  ...............s
+  ...............s
+  ...............j
+  .g...j...j...j.g
   gBg..g...g...g
   gg.g...g...g
-  ..89
+  ..9@
 layer 23:
   .
   .
@@ -1059,10 +1060,10 @@ layer 23:
   .
   .
   .g
-  g!ggg..gg..gg..h
-  g<g9gg.9gg.9gg.g
-  ya.6.g.6.g.6.g
-  .ggz
+  g<ggg..gg..gg..j
+  g>g@gg.@gg.@gg.g
+  za.7.g.7.g.7.g
+  .gg0
 layer 24:
   .
   .......g.g
@@ -1076,10 +1077,10 @@ layer 24:
   .
   .
   .....g...g...g
-  .g.tu..tu..tu
-  .g.Xms.Xms.Xms.h
+  .g.uv..uv..uv
+  .g.Xqt.Xqt.Xqt.j
   ...g.G.g.G.g.G.g
-  .mrggggggggggggg
+  .qrggggggggggggg
 layer 25:
   .......g
   ......g
@@ -1095,8 +1096,8 @@ layer 25:
   .
   .
   .
-  ...q...q...q...q
-  ...mkmkmkmkmksks
+  ...s...s...s...s
+  ...qmqmqmqmqmtmt
 layer 26:
   .......g
   ......g.g
@@ -1132,22 +1133,22 @@ layer 27:
   .
   ...g.g.g.g.g.g
 layer 28:
-  $$$$$$$$$$$$$$$$
-  $$$$$$$$$$$$$$$$
-  $$$$$$$$$$$$$$$$
-  $$$$$$$$$$$$$$$$
-  $$$$$$$$$$$$$$$$
-  $$$$$$$$$$$$$$$$
-  $$$$$$$$$$$$$$$$
-  $$$$$$$$$$$$$$$$
-  $$$$$$$$$$$$$$$$
-  $g$$$$$$$$$$$$$$
-  $$$$$$$$$$$$$$$$
-  $$$$$$$$$$$$$$$$
-  $$$$$$$$$$$$$$$$
-  $$$$$$$$$$$$$$$$
-  $$$$$$$$$$$$$$$$
-  $$$$$$$$$$$$$$$$
+  %%%%%%%%%%%%%%%%
+  %%%%%%%%%%%%%%%%
+  %%%%%%%%%%%%%%%%
+  %%%%%%%%%%%%%%%%
+  %%%%%%%%%%%%%%%%
+  %%%%%%%%%%%%%%%%
+  %%%%%%%%%%%%%%%%
+  %%%%%%%%%%%%%%%%
+  %%%%%%%%%%%%%%%%
+  %g%%%%%%%%%%%%%%
+  %%%%%%%%%%%%%%%%
+  %%%%%%%%%%%%%%%%
+  %%%%%%%%%%%%%%%%
+  %%%%%%%%%%%%%%%%
+  %%%%%%%%%%%%%%%%
+  %%%%%%%%%%%%%%%%
 layer 29:
   S
   .
