@@ -232,6 +232,29 @@ pub struct ReturnOpts {
     /// join Ts): the block at X,Y,Z (a lever laid with `--set`, or any block with a `powered` state)
     /// switched on before tick T1 and off before tick T2, with neighbour updates, as a player would.
     pub toggle: Option<(i32, i32, i32, i64, i64)>,
+    /// The routing's forced positives (ironspec 11:15 PT, G1 11:16 / 11:18): `--drop-cart K` (batch
+    /// cart K never released: a short release), `--late-cart K,DT` (cart K released DT gt late),
+    /// `--swap-carts K` (carts K and K+1 swap their release ticks: a reorder), `--extra-cart T,X` (an
+    /// extra ridden cart released at tick T from lane X's pocket: a count gained), `--park-cart X,Y,Z`
+    /// (a ridden cart at rest at that cell from the start: an occupied siding); every lane's
+    /// deliveries per batch period print beside them.
+    pub drop_cart: Vec<usize>,
+    pub late_cart: Option<(usize, i64)>,
+    pub swap_carts: Option<usize>,
+    pub extra_cart: Option<(i64, i32)>,
+    pub park_cart: Option<(i32, i32, i32)>,
+    /// The H13 check's positive control (G1 on 0a8663a30): a world-open row's world-open contacts
+    /// judged as a plain row's (undeclared); set only by `controls()`.
+    pub h13_probe: bool,
+}
+
+/// day-1's F4(a) window terms per row (printed; the sweep prints their ranges): the returning
+/// napper's passage at J(-1), J(3) and its K from its departure off the hold, and the nearest batch
+/// carts before / after it at J(-1) and J(3).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct WindowTerms {
+    pub tau: [Option<i64>; 3],
+    pub j_gap: [Option<i64>; 4],
 }
 
 const LANES: [i32; 3] = [7, 3, -1];
@@ -1180,6 +1203,8 @@ pub struct Summary {
     pub t_off: usize,
     /// How many Ts were watched.
     pub t_watched: usize,
+    /// day-1's F4(a) window terms (printed).
+    pub win: WindowTerms,
     /// G1 H11: record-match counted the row for `--set` candidates only, not the module.
     pub rm_candidate: bool,
     /// G1 on 84cd993fd (1): the world open's game-time delta against the load's own idle ticks, and a
@@ -1405,6 +1430,41 @@ pub fn controls(o: &ReturnOpts) -> Result<(String, usize), String> {
         ]);
         let oc = ReturnOpts { set_cells: sc, toggle: Some((-1, 0, mz + 1, 100, 150)), ..base.clone() };
         res.push(judge("the per-tick T bar, lane -1's join without its source and a planted lever toggled (--toggle=-1,0,8,100,150)", return_run(&oc), &|s, _| (s.t_off > 0).then(|| format!("{} tick(s) off a watched T's shape", s.t_off))));
+    }
+    if o.napper_lift && o.path_a {
+        // (10) H13 (G1 on 0a8663a30): a world open's world-open contact judged as if the row had no
+        // world open must read undeclared; the napper at its climb's top when the world opens (t 48..52,
+        // every load order until one meets a world-open cell)
+        let mut hit: Option<String> = None;
+        'outer: for tt in 48..=52i64 {
+            for r in crate::liveness::Restart::rows() {
+                let oc = ReturnOpts { restart: Some((tt, r)), h13_probe: true, ..base.clone() };
+                if let Ok((text, s)) = return_run(&oc)
+                    && s.contacts_undeclared > 0
+                    && !s.bars()
+                    && text.contains("a world-open contact met with no world open")
+                {
+                    hit = Some(format!("a world open at t {tt} ({}): {} undeclared, the row fails clean()", r.label(), s.contacts_undeclared));
+                    break 'outer;
+                }
+            }
+        }
+        res.push(match hit {
+            Some(why) => (format!("H13, a world-open contact in a row judged as a plain one: bites ({why})"), true),
+            None => ("H13, a world-open contact in a row judged as a plain one: DOESN'T BITE (no world open at t 48..52 met a world-open cell)".to_string(), false),
+        });
+    }
+    if o.record.is_some() && o.row9 && o.path_a {
+        // (11) H10 (G1 on 0a8663a30): the way-in curve's stand-in (9,25,9) made equal to the record's
+        // own curve must be refused by record-match's stand-in check (a stand-in equal to the record)
+        let mut sc = base.set_cells.clone();
+        sc.push("9,25,9=minecraft:rail[shape=north_west,waterlogged=false]".to_string());
+        let oc = ReturnOpts { set_cells: sc, ..base.clone() };
+        res.push(match return_run(&oc) {
+            Err(e) if e.contains("9,25,9") && e.contains("equal") => (format!("H10, the stand-in (9,25,9) equal to the record: bites (the run errors: {e})"), true),
+            Err(e) => (format!("H10, the stand-in (9,25,9) equal to the record: DOESN'T BITE (another error: {e})"), false),
+            Ok(_) => ("H10, the stand-in (9,25,9) equal to the record: DOESN'T BITE (the run passed the stand-in check)".to_string(), false),
+        });
     }
     let missed = res.iter().filter(|(_, ok)| !ok).count();
     let mut lines: Vec<String> = res.into_iter().map(|(l, _)| l).collect();
@@ -1661,8 +1721,23 @@ fn verdict(v: &[(String, Result<Summary, String>)]) -> String {
             "J(-1) settle", "J(3) settle", "J(-1) clear at the timed re-arm", "J(3) clear (timed: none by design)", "J(-1) clear at a cart's switch", "J(3) clear at a cart's switch", "K settle", "K clear",
         ];
         let unsampled = unsampled_margins(&ok);
+        // (day-1 11:39: the window terms' ranges over the rows, for its F4(a) windows and R6)
+        let rg = |f: &dyn Fn(&Summary) -> Option<i64>| -> String {
+            let v: Vec<i64> = ok.iter().filter_map(|s| f(s)).collect();
+            if v.is_empty() { "-".to_string() } else { format!("{}..{} ({} rows)", v.iter().min().copied().unwrap_or(0), v.iter().max().copied().unwrap_or(0), v.len()) }
+        };
+        let win = format!(
+            "; the returning napper's passage from its departure off the hold (day-1 11:39, F4(a)): J(-1) {}, J(3) {}, its K {}; the nearest batch carts around it, gt before / after: J(-1) {} / {}, J(3) {} / {}",
+            rg(&|s| s.win.tau[0]),
+            rg(&|s| s.win.tau[1]),
+            rg(&|s| s.win.tau[2]),
+            rg(&|s| s.win.j_gap[0]),
+            rg(&|s| s.win.j_gap[1]),
+            rg(&|s| s.win.j_gap[2]),
+            rg(&|s| s.win.j_gap[3])
+        );
         format!(
-            "; rows failing on record-match's count alone {only_rm}; STALE declarations (a declared contact these rows' scope requires that none of them hit; ironspec 07:26 PT): {}; margins in scope that no row sampled (G1 on 9a213943f (c): NOT JUDGED, each fails the sweep): {}",
+            "; rows failing on record-match's count alone {only_rm}; STALE declarations (a declared contact these rows' scope requires that none of them hit; ironspec 07:26 PT): {}; margins in scope that no row sampled (G1 on 9a213943f (c): NOT JUDGED, each fails the sweep): {}{win}",
             if stale.is_empty() { "none".to_string() } else { format!("{} cells, the sweep FAILS: {}", stale.len(), stale.join(", ")) },
             if unsampled.is_empty() { "none".to_string() } else { format!("{}, the sweep FAILS", unsampled.iter().map(|i| names[*i]).collect::<Vec<_>>().join(", ")) }
         )
@@ -3436,6 +3511,10 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
     run.world.mob.day_offset = day0 - run.world.time;
     let want_at = |dt: i64| {
         let sched = redsim::entity::mob::ai::brain::scheduled(dt);
+        // (G1 on 0a8663a30's follow-ups, cited: 26.3's Villager.registerBrainGoals adds WORK only with a
+        // JOB_SITE memory and MEET only with a MEETING_POINT memory (addActivityWithConditions, both
+        // VALUE_PRESENT); the riders carry neither (they enter with no job site or meeting point, G1
+        // 08:57), so the schedule's WORK and MEET slots run the default activity, IDLE)
         let act = if matches!(sched, redsim::entity::mob::ai::brain::Act::Work | redsim::entity::mob::ai::brain::Act::Meet) { redsim::entity::mob::ai::brain::Act::Idle } else { sched };
         act.simple()
     };
@@ -3625,17 +3704,23 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
     // change's tick with its lever unchanged (the update re-shaping it))
     let mut dj: [(usize, usize, usize); 3] = [(0, 0, 0); 3];
     let mut dj_any: [usize; 3] = [0; 3];
-    // (G1 on 9a213943f (g): the Ts watched every tick: this file's plain-rail Ts (3+ rail sides) with
-    // no lever over them (the J / K switches are declared), each against its settled state)
+    // (G1 on 9a213943f (g) / ironspec 11:35 PT, one key one meaning: the Ts watched every tick are this
+    // file's plain-rail Ts (3+ rail sides) NOT in `# switches:` (the six J / K Ts on the split row),
+    // each against its settled state)
+    let switch_ts: Vec<BlockPos> = if o.path_a && o.row9 && !o.mirror_z { [-1, 3, 7].iter().flat_map(|x| [BlockPos::new(*x, 25, 9), BlockPos::new(x - 2, 25, 9)]).collect() } else { Vec::new() };
     let t_watch: Vec<(BlockPos, String)> = spec
         .blocks
         .iter()
-        .filter(|(p, _)| file_cell(o, *p, mz) && redsim::rails::junction_at(&run.world, *p).is_some() && !run.world.get(p.above()).to_string().contains("lever"))
+        .filter(|(p, _)| file_cell(o, *p, mz) && redsim::rails::junction_at(&run.world, *p).is_some() && !switch_ts.contains(p) && (o.path_a && o.row9 && !o.mirror_z || !run.world.get(p.above()).to_string().contains("lever")))
         .map(|(p, _)| (*p, run.world.get(*p).to_string()))
         .collect();
     let mut t_watch_off: Vec<usize> = vec![0; t_watch.len()];
     let mut t_watch_first: Vec<Option<(i64, String)>> = vec![None; t_watch.len()];
     let mut toggled: Vec<String> = Vec::new();
+    // (the forced rows: the extra cart and the parked cart, their ids, the extra's lane and tick)
+    let mut extra_id: Option<u32> = None;
+    let mut extra_lane: Option<(i32, i64)> = None;
+    let mut park_id: Option<u32> = None;
     let mut dj_prev: [Option<(bool, String, bool)>; 3] = [None, None, None];
     let (mut k_on, mut j_deferred) = (false, false);
     // (`day1_taps`: the napper's own ARM3 (its releasing pulse - D) and the batch whose arming it was)
@@ -3694,14 +3779,38 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
             frozen_ticks += 1;
         }
         let live = t - frozen_ticks;
+        // (`--extra-cart T,X`: an extra ridden cart released at tick T from lane X's pocket, as the
+        // batch carts are; `--park-cart X,Y,Z`: a ridden cart at rest at that cell from the start)
+        if o.extra_cart.is_some_and(|(et, _)| et == t) && extra_id.is_none() {
+            let x = o.extra_cart.map_or(0, |(_, x)| x);
+            let nbt = format!("{{Motion:[0.0d,0.0d,{:.4}d],Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b}}]}}", if o.mirror_z { -o.speed } else { o.speed });
+            extra_id = Some(redsim::entity::spawn(&mut run.world, "minecraft:minecart", [x as f64 + 0.5, 0.0625, if o.mirror_z { 2.5 } else { 1.5 }], Some(&nbt))?);
+        }
+        if t == 0 && park_id.is_none()
+            && let Some((x, y, z)) = o.park_cart
+        {
+            let nbt = "{Motion:[0.0d,0.0d,0.0d],Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}";
+            park_id = Some(redsim::entity::spawn(&mut run.world, "minecraft:minecart", [x as f64 + 0.5, y as f64 + 0.0625, zf(z) as f64 + 0.5], Some(nbt))?);
+        }
         for (k, c) in carts.iter_mut().enumerate() {
             if k >= n {
                 continue;
             }
+            // (`--drop-cart`: a short release, this cart never comes)
+            if o.drop_cart.contains(&k) {
+                continue;
+            }
             // (`napper_lift`: the batches start 100 gt in, so the napper (from R at the start, ~75 gt
-            // to the hold) waits on the hold before its release)
+            // to the hold) waits on the hold first)
             let prelude = if o.napper_lift { 100 } else { 0 };
-            let at = prelude + o.station_lag + (k as i64 / 3) * 100 + offsets[k % 3] + o.jitter.get(k).copied().unwrap_or(0);
+            // (`--swap-carts K`: carts K and K+1 trade their release ticks; `--late-cart K,DT`: K's
+            // release DT later)
+            let kk = match o.swap_carts {
+                Some(s) if k == s => s + 1,
+                Some(s) if k == s + 1 => s,
+                _ => k,
+            };
+            let at = prelude + o.station_lag + (kk as i64 / 3) * 100 + offsets[kk % 3] + o.jitter.get(kk).copied().unwrap_or(0) + o.late_cart.filter(|(lk, _)| *lk == k).map_or(0, |(_, dt)| dt);
             // (`station_part`: the cart placed at rest in its pocket (x,0,0) 30 gt before its batch's
             // REL (the holds' refill not modelled); it leaves on the pocket's own drive below)
             let at = if station_mode(o) { prelude + (k as i64 / 3) * 100 - 30 } else { at };
@@ -3736,7 +3845,15 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
             let clock = if o.game_ticks { t } else { live };
             let prel = if o.napper_lift { 100 } else { 0 };
             for k in 0..n {
-                let on = prel + (k as i64 / 3) * 100 + offsets[k % 3] + o.jitter.get(k).copied().unwrap_or(0) - 1;
+                // (the forced rows: `--swap-carts` trades two drives' ticks, `--late-cart` delays one;
+                // path (a)'s lane 7 is released by the controller's own write (`lane7_drive`), not here)
+                let kk = match o.swap_carts {
+                    Some(s) if k == s => s + 1,
+                    Some(s) if k == s + 1 => s,
+                    _ => k,
+                };
+                let late = o.late_cart.filter(|(lk, _)| *lk == k).map_or(0, |(_, dt)| dt);
+                let on = prel + (kk as i64 / 3) * 100 + offsets[kk % 3] + o.jitter.get(kk).copied().unwrap_or(0) - 1 + late;
                 if clock == on || clock == on + 16 {
                     run.world.set_block(BlockPos::new(order[k % 3] - 2, 0, 0), Block::parse(&format!("minecraft:lever[face=floor,facing=north,powered={}]", clock == on))?, redsim::world::flags::ALL);
                 }
@@ -4695,6 +4812,27 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
                 }
             }
         }
+        // (`--extra-cart`: the extra cart's lane where it reaches a sink cell, as a batch cart's)
+        if let Some(eid) = extra_id
+            && extra_lane.is_none()
+            && let Some(i) = redsim::entity::index_of(&run.world, eid)
+        {
+            let pp = run.world.entities.list[i].pos;
+            let (cx, cy, cz) = (pp.x.floor() as i32, pp.y.floor() as i32, zf(pp.z.floor() as i32));
+            let lane = if cy == sink_y && cz == sink_z && LANES.contains(&cx) {
+                Some(cx)
+            } else if o.k_relay && cy == 25 && cz == 8 && LANES.contains(&(cx + 2)) {
+                Some(cx + 2)
+            } else if cy == ex && cz == rz && cx == 9 {
+                Some(9)
+            } else {
+                None
+            };
+            if let Some(l) = lane {
+                extra_lane = Some((l, t));
+                sink.push(eid);
+            }
+        }
         for id in sink {
             let ps: Vec<u32> = run.world.entities.list.iter().find(|e| e.id == id).map(|e| e.passengers.clone()).unwrap_or_default();
             for e in run.world.entities.list.iter_mut() {
@@ -4709,9 +4847,85 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
             drv(&mut run.world, o.row9 || o.row10, 7, ex, zf(rz), true)?;
         }
     }
+    // (day-1 11:39, F4(a)'s window terms: the returning napper's passage times at each J and at its K
+    // from its departure off the hold (T_d), and the nearest batch carts at each J around its passage,
+    // all on the bench's tick)
+    let td = carts.get(n).and_then(|c| c.w_leave);
+    let nap_at = |x: i32| at_j.iter().find(|a| a.2 == n && a.1 == x).map(|a| a.0);
+    let tau: [Option<i64>; 3] = [nap_at(-1), nap_at(3), k_first.get(n).copied().flatten()].map(|t| t.zip(td).map(|(a, b)| a - b));
+    let near = |x: i32| -> (Option<i64>, Option<i64>) {
+        let Some(tn) = nap_at(x) else { return (None, None) };
+        let ts: Vec<i64> = at_j.iter().filter(|a| a.1 == x && a.2 < n).map(|a| a.0).collect();
+        (ts.iter().filter(|t| **t <= tn).map(|t| tn - t).min(), ts.iter().filter(|t| **t > tn).map(|t| t - tn).min())
+    };
+    let (nb_m1, nb_3) = (near(-1), near(3));
+    let j_gap: [Option<i64>; 4] = [nb_m1.0, nb_m1.1, nb_3.0, nb_3.1];
+    if o.napper_lift && o.napper_delay.is_some() {
+        let f = |v: Option<i64>| v.map_or("-".to_string(), |x| format!("{x}"));
+        out.push(format!(
+            "the returning napper's passage times from its departure off the hold (day-1 11:39, F4(a)'s window terms; T_d = t {}): J(-1) {} gt, J(3) {} gt, its K ({},25,9) {} gt; the nearest batch carts at each J around its passage (gt before / after): J(-1) {} / {}, J(3) {} / {}",
+            f(td),
+            f(tau[0]),
+            f(tau[1]),
+            o.napper_lane - 2,
+            f(tau[2]),
+            f(j_gap[0]),
+            f(j_gap[1]),
+            f(j_gap[2]),
+            f(j_gap[3])
+        ));
+    }
     let mut wrong = 0;
+    // (the forced rows (ironspec 11:15 / 11:23 PT): every lane's deliveries per batch period, the
+    // batch carts by their batch, the napper and the extra cart apart; a dropped cart counted as such)
+    {
+        let nb = n / 3;
+        let mut per: Vec<BTreeMap<i32, usize>> = vec![BTreeMap::new(); nb];
+        let mut lost: Vec<String> = Vec::new();
+        for (k, c) in carts.iter().enumerate().take(n) {
+            if o.drop_cart.contains(&k) {
+                lost.push(format!("cart {k} dropped (batch {}, lane {})", k / 3, order[k % 3]));
+                continue;
+            }
+            match c.lane {
+                Some(l) => *per[k / 3].entry(l).or_insert(0) += 1,
+                None => lost.push(format!("cart {k} at no lane (batch {}, lane {})", k / 3, order[k % 3])),
+            }
+        }
+        let mut tot: BTreeMap<i32, i64> = BTreeMap::new();
+        for p in &per {
+            for (l, c) in p {
+                *tot.entry(*l).or_insert(0) += *c as i64;
+            }
+        }
+        let forced = !o.drop_cart.is_empty() || o.late_cart.is_some() || o.swap_carts.is_some() || o.extra_cart.is_some() || o.park_cart.is_some();
+        out.push(format!(
+            "lane deliveries per batch period (ironspec 11:15 PT; the design: one cart per lane per batch){}: {}; the totals against the design ({nb} each): {}; {}{}{}{}",
+            if forced { " (a FORCED row)" } else { "" },
+            per.iter().enumerate().map(|(b, p)| format!("batch {b}: {}", order.iter().map(|l| format!("lane {l} x{}", p.get(l).copied().unwrap_or(0))).chain(p.iter().filter(|(l, _)| !order.contains(l)).map(|(l, c)| format!("lane {l} x{c}"))).collect::<Vec<_>>().join(", "))).collect::<Vec<_>>().join("; "),
+            order.iter().map(|l| { let t = tot.get(l).copied().unwrap_or(0); format!("lane {l} {t} ({:+})", t - nb as i64) }).collect::<Vec<_>>().join(", "),
+            if lost.is_empty() { "every batch cart delivered".to_string() } else { lost.join(", ") },
+            o.late_cart.map_or(String::new(), |(k, dt)| format!("; cart {k} released {dt} gt late")),
+            o.swap_carts.map_or(String::new(), |k| format!("; carts {k} and {} swapped their release ticks", k + 1)),
+            match (o.extra_cart, extra_lane) {
+                (Some((et, x)), Some((l, at))) => format!("; the extra cart (released at t {et} from lane {x}'s pocket) at lane {l} at t {at}"),
+                (Some((et, x)), None) => format!("; the extra cart (released at t {et} from lane {x}'s pocket) at no lane"),
+                _ => String::new(),
+            } + &match (o.park_cart, park_id) {
+                (Some((x, y, z)), Some(pid)) => {
+                    let at = redsim::entity::index_of(&run.world, pid).map(|i| run.world.entities.list[i].pos);
+                    format!("; the parked cart (at rest at ({x},{y},{z}) from the start) at {}", at.map_or("- (removed)".to_string(), |p| format!("({:.3},{:.3},{:.3})", p.x, p.y, if o.mirror_z { 4.0 - p.z } else { p.z })))
+                }
+                _ => String::new(),
+            }
+        ));
+    }
     for (k, c) in carts.iter().enumerate() {
         let want = if k >= n { if o.k_relay { o.napper_lane } else { 9 } } else { order[k % 3] };
+        // (a dropped cart (`--drop-cart`) is absent, not misrouted: its row prints it apart)
+        if o.drop_cart.contains(&k) {
+            continue;
+        }
         if c.lane != Some(want) {
             wrong += 1;
         }
@@ -5394,13 +5608,12 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
         let name = name.trim_start_matches("minecraft:").split('[').next().unwrap_or("").to_string();
         let s = format!("({},{},{}) {name} t {f}..{l} ({n} ticks, carts {})", p.0, p.1, p.2, ks.iter().map(|k| k.to_string()).collect::<Vec<_>>().join("/"));
         match declared.iter().find(|(c, _, _)| c == p) {
-            // (G1 H13: a world-open contact (tick-exact's LOAD rows, (-3,24,9)) counts only in a
-            // row with a load event: a world open, or a login's freeze (G1 on 9a213943f (l), cited: the
-            // bench's login model (liveness: the entities frozen for the login's ticks) gives the same
-            // dry first move: on 9a213943f its phase rows with a 4-gt login met (-5,22,8) in 238 of 8,200
-            // and (7,-4,4) in 100, none outside a login or a world open; tick-exact's login row pending);
-            // met without one it's undeclared)
-            Some(_) if matches!(contact_class(o, mz, *p), "world-open" | "fidelity-gap") && o.restart.is_none() && o.login.is_none() => undeclared.push(format!("{s}, UNDECLARED: a world-open contact met with no world open or login: speed change {dv:+.4} b/gt at the most")),
+            // (G1 H13 / ironspec 11:35 PT (l) RULED: a world-open or fidelity-gap contact counts only in
+            // a row with a world open; in any other row, a login's included, it's undeclared and fails
+            // until tick-exact's official login row (a player joining with the chunks unloaded and
+            // loaded) exists; `h13_probe` is the check's positive control (a world-open row judged as
+            // a plain one))
+            Some(_) if matches!(contact_class(o, mz, *p), "world-open" | "fidelity-gap") && (o.restart.is_none() || o.h13_probe) => undeclared.push(format!("{s}, UNDECLARED: a world-open contact met with no world open (ironspec 11:35 PT: login rows count it undeclared until tick-exact's official login row exists): speed change {dv:+.4} b/gt at the most")),
             Some((_, _, Some(_))) => listed.push(s),
             Some((_, _, None)) => {
                 provisional += 1;
@@ -5610,6 +5823,7 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
         rod_bad,
         t_off: t_watch_off.iter().sum(),
         t_watched: t_watch.len(),
+        win: WindowTerms { tau, j_gap },
         rm_candidate,
         // (G1 on 9a213943f: a row with a world open must measure both the game-time delta and the
         // load's own entity-free ticks; either absent is NOT JUDGED and fails)
