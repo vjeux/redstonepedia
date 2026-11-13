@@ -8682,6 +8682,9 @@ pub fn compare_source(game: &mut Source, s: &Scene, seed: i64, ticks: u32, batch
     if !ours.errors.is_empty() {
         eprintln!("redsim model errors: {:?}", ours.errors);
     }
+    // (cc767b78, ironspec / G1 14:57: a replay ending with model errors isn't exact)
+    cmp.model_errors = ours.errors.clone();
+    cmp.model_errors.extend(ours.take_light_errors());
     Ok(cmp)
 }
 
@@ -10924,8 +10927,10 @@ fn replay_one(f: &std::path::Path, all: &[Scene]) -> Result<(String, Option<Stri
     };
     let seed = header["seed"].as_i64().unwrap_or(1);
     let c = compare_source(&mut src, s, seed, ticks, 100, false, false, None)?;
-    Ok(match &c.first {
-        None => (format!("PASS {name}: {ticks} ticks, 0 differences ({:.1} s)\n", t0.elapsed().as_secs_f64()), None),
-        Some(_) => (c.report(), Some(format!("{}: differs from the game", f.display()))),
+    Ok(match (&c.first, c.model_errors.is_empty()) {
+        (None, true) => (format!("PASS {name}: {ticks} ticks, 0 differences ({:.1} s)\n", t0.elapsed().as_secs_f64()), None),
+        // (cc767b78, ironspec / G1 14:57) the states matched, but redsim reported model errors: not exact
+        (None, false) => (format!("FAIL {name}: {ticks} ticks, 0 differences, but {} model error(s): {}\n", c.model_errors.len(), c.model_errors.join("; ")), Some(format!("{}: redsim's model errors", f.display()))),
+        (Some(_), _) => (c.report(), Some(format!("{}: differs from the game", f.display()))),
     })
 }

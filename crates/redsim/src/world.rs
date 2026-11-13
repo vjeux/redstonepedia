@@ -1357,6 +1357,14 @@ impl World {
         self.in_tick = true;
         self.tick_level();
         self.in_tick = false;
+        // (cc767b78, G1 14:55 H1) the light reads that failed during this tick: into the world's errors
+        // now, so a run's final tick can't hide one (the start of the next tick moves those read between
+        // ticks)
+        for e in self.take_light_errors() {
+            if !self.errors.contains(&e) {
+                self.errors.push(e);
+            }
+        }
     }
 
     /// The tick's work ([`World::tick`]).

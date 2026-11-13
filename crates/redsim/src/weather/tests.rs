@@ -607,3 +607,33 @@ fn natural_states_burn_and_block() {
     // lava lights a fire beside the blocks the table says lava ignites
     assert!(fire::ignited_by_lava(&leaves) && !fire::ignited_by_lava(&stone));
 }
+
+/// (cc767b78, G1 14:55 H2) The lightning statics fail closed on an unreadable sky: a land-less farm
+/// with a brewing stand (a block whose light behaviour isn't modeled) over a golem's cell fails
+/// `check_farm` with a light read failure, and `measure_farm` refuses with an error; the same farm
+/// without the stand reads its sky and the measure goes through.
+#[test]
+fn the_lightning_statics_fail_closed_on_an_unreadable_sky() {
+    use crate::entity::mob::farm::{FarmSpec, RunReport};
+    let stone = Block::parse("minecraft:stone").unwrap();
+    let stand = Block::parse("minecraft:brewing_stand[has_bottle_0=false,has_bottle_1=false,has_bottle_2=false]").unwrap();
+    let spec = |with_stand: bool| {
+        let mut blocks: Vec<(BlockPos, Block)> = Vec::new();
+        for x in -2..=2 {
+            for z in -2..=2 {
+                blocks.push((BlockPos::new(x, 0, z), stone));
+            }
+        }
+        if with_stand {
+            blocks.push((BlockPos::new(0, 4, 0), stand));
+        }
+        FarmSpec { blocks, entities: Vec::new(), output: BlockPos::new(-2, 1, -2), lo: BlockPos::new(-4, -2, -4), hi: BlockPos::new(4, 6, 4), block_entities: Vec::new(), rock: false, nether: None, land: false }
+    };
+    let runs = vec![RunReport { golem_cells: vec![([0, 1, 0], 10)], cell_ticks: 100, ..RunReport::default() }];
+    let fails = lightning::check_farm(&spec(true), &runs);
+    assert!(fails.iter().any(|f| f.contains("brewing_stand")), "{fails:?}");
+    let m = lightning::measure_farm(&spec(true), &runs);
+    assert!(m.as_ref().is_err_and(|e| e.contains("brewing_stand")), "{:?}", m.as_ref().err());
+    assert!(lightning::measure_farm(&spec(false), &runs).is_ok(), "without the stand the sky reads");
+    assert!(!lightning::check_farm(&spec(false), &runs).iter().any(|f| f.contains("light read")), "without the stand: no light failure");
+}
