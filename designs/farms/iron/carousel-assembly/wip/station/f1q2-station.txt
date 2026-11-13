@@ -1,8 +1,8 @@
 # The F1 + Q2 station (dfb89499), in the loop frame: written by `mctas mobfarm drop-bench --layout station ... --write-design` (the bench's own file sits at loop + (6,0,6)); NOTES: designs/farms/iron/carousel-assembly/wip/station/NOTES.md.
 # The lead: --l1 --open-delay 4; the build: --slab-stop (each hold's north stop a bottom slab), no zombie post (9fc3155f's summoner-only scarers); the trapdoor pulse 12; the re-brake 16; offsets 0,12,24 (lanes x -1/3/7; the stand's summon bar: >= 1 caller at every summon over all 400 sensor phase pairs, margin 2 (the 20-gt rest bar retired): NOTES).
-# Cells: pockets P0..2 at (x,0,0), x -1/3/7, north_south powered rails on switched supports (x,-1,0) (stone; a redstone block while powered); the launcher stone (x,0,-1) under an unattached string (x,1,-1); the pocket strings (x,1,0); departure (x,0,1) plain, the exit detector D_k (x,0,2), (x,0,3) plain, boosters (x,0,4..6): the merge row at z 7.
+# Cells: pockets P0..2 at (x,0,0), x -1/3/7, north_south powered rails on glass (x,-1,0) (V15: no golem floor; the drive from the side, M16bw: day-1's repeater (x-1,0,0) into the rail, EMULATED as a redstone block in the support cell while powered); the launcher's slime (x,0,-1) (V16s: a conductor for the kick; tick-exact's official kick row) under an unattached string (x,1,-1); the pocket strings (x,1,0); departure (x,0,1) plain, the exit detector D_k (x,0,2); lanes x -1 and x 3: (x,0,3) plain (lane x 3's a booster, path (a)'s (1), powered through z 4's chain), boosters (x,0,4..6) on glass powered by an always-on redstone torch (x-1,0,5) on glass (x-1,-1,5), the chain the other two (V15): the merge row at z 7; lane x 7 (path (a)'s (2c), ironspec 14:11/14:16/16:46): four ascending powered rails (7,0..3,3..6) on glass (a redstone torch (6,1,4) on glass (6,0,4) powers the chain), the curve (7,4,7) on glass, nine ascending rails west (6..-2,4..12,7) on glass, the first two powered (a redstone torch (6,4,6) on glass (6,3,6)) and the other seven plain (the cart crests at a crawl and rests near the slope's top), the crest (-3,13,7) on the lift's glass (-3,12,7) (7b90c3f1's; laid by the bench as a stand-in), then the lift's braked slope (-4,12,7) (wip/station/f1q2-path-a-lift.txt).
 # Holds H0..2 at (x,16,0): bottom-half trapdoors (open: the drop), the ring's glass, the north stop a bottom slab (x,17,-1), the hold string (x,17,0); R_1 (x,17,1) a powered rail ascending south, driven by its built repeater (x+1,17,1) (delay 1, facing west into R_1, on glass (x+1,16,1)), fed from the controller's cell (x+2,17,1). The pad: portals x -2..7 rows z -5 and -2, golem feet -6 (PAD0..PAD1).
-# Events (L1, game ticks, every drive EMULATED until the circuit is laid; T the summon tick): 1. pocket k's support powered at REL + offset k, unpowered 16 gt later (the re-brake). 2. pocket k's gate: D_k rises after REL + offset k, or pocket k's string is off then (the cold start); trapdoor k opens 4 gt after, not before T+3. 3. trapdoor k shuts pulse gt after it opens. 4. all three shut: + 2 gt, every R_1 repeater's input powered for 10 gt (the next batch rolls into the holds; R_1's threshold 5 gt with the built drive, NOTES).
+# Events (L1, game ticks, every drive EMULATED until the circuit is laid, each from a lever stand-in at its line end; T the summon tick): 1. pocket k's rail powered through day-1's repeater (x-1,0,0) at REL + offset k (its input lever (x-2,0,0) on at REL + offset k - 1), unpowered 16 gt later (the re-brake). 2. pocket k's gate: D_k rises after REL + offset k, or pocket k's string is off then (the cold start); trapdoor k opens 4 gt after, not before T+3. 3. trapdoor k shuts pulse gt after it opens. 4. all three shut: + 2 gt, every R_1 repeater's input powered for 10 gt (the next batch rolls into the holds; R_1's threshold 5 gt with the built drive, NOTES).
 # Carts: the batch in the pockets and the next in the holds (riders), the hold carts where the lane leaves them (0.49 into the cell, against the ring's north glass: tickexact's lane-handoff ca3cdb2ed); the lanes' carts (R_1 on) and R_2 are the lanes' file's. The pad's seal: cobblestone at y -8 under the floor rows, x -2..7 (40 blocks).
 # The Nether part is the bench's PLACEHOLDER, not the build: the shared kill room's portal at the pads' y replaces it.
 # Read path: the hold strings' hook supports (x+-2,17,0) are glowstone (golem-proof, lit, a solid-render stroll destination, a sturdy hook face); glowstone conducts no power, so each hold string is read from its hooks directly (dust or a repeater beside the hook), never through the support.
@@ -24,24 +24,30 @@ entity: minecraft:minecart 3.5 16.1875 0.4900000000000002 {Rotation:[0f,0f],Pass
 entity: minecraft:minecart 7.5 16.1875 0.4900000000000002 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
 origin: -3 0 -6
 palette:
-  A minecraft:powered_rail[powered=true,shape=north_south,waterlogged=false]
-  B minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+  A minecraft:powered_rail[powered=true,shape=ascending_south,waterlogged=false]
+  B minecraft:powered_rail[powered=true,shape=ascending_west,waterlogged=false]
   C minecraft:cobblestone
   D minecraft:detector_rail[powered=false,shape=north_south,waterlogged=false]
-  E minecraft:tripwire_hook[attached=true,facing=east,powered=false]
-  F minecraft:tripwire_hook[attached=true,facing=west,powered=false]
+  E minecraft:powered_rail[powered=true,shape=north_south,waterlogged=false]
+  F minecraft:rail[shape=north_south,waterlogged=false]
   G minecraft:glass
+  H minecraft:rail[shape=north_west,waterlogged=false]
+  I minecraft:redstone_torch[lit=true]
+  J minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+  K minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+  L minecraft:tripwire_hook[attached=true,facing=east,powered=false]
+  M minecraft:tripwire_hook[attached=true,facing=west,powered=false]
   N minecraft:nether_portal[axis=x]
   O minecraft:oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]
   P minecraft:powered_rail[powered=false,shape=ascending_south,waterlogged=false]
-  R minecraft:rail[shape=north_south,waterlogged=false]
-  S minecraft:smooth_stone_slab[type=bottom,waterlogged=false]
+  R minecraft:rail[shape=ascending_west,waterlogged=false]
+  S minecraft:slime_block
   T minecraft:tripwire[attached=false,disarmed=false,east=false,north=false,powered=false,south=false,west=false]
   g minecraft:glowstone
   o minecraft:obsidian
   p minecraft:powered_rail[powered=false,shape=north_south,waterlogged=false]
-  r minecraft:redstone_block
-  s minecraft:stone
+  r minecraft:rail[shape=east_west,waterlogged=false]
+  s minecraft:smooth_stone_slab[type=bottom,waterlogged=false]
   t minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]
 layer -9:
   .
@@ -49,6 +55,7 @@ layer -9:
   .
   .
   .oooooooooo
+  .
   .
   .
   .
@@ -71,6 +78,7 @@ layer -8:
   .
   .
   .
+  .
 layer -7:
   CCCCCCCCCCCC
   oNNNNNNNNNNo
@@ -85,12 +93,14 @@ layer -7:
   .
   .
   .
+  .
 layer -6:
   .
   oNNNNNNNNNNo
   .
   .
   oNNNNNNNNNNo
+  .
   .
   .
   .
@@ -113,6 +123,7 @@ layer -5:
   .
   .
   .
+  .
 layer -4:
   .
   GGGGGGGGGGGG
@@ -127,7 +138,9 @@ layer -4:
   .
   .
   .
+  .
 layer -3:
+  .
   .
   .
   .
@@ -155,6 +168,7 @@ layer -2:
   .
   .
   .
+  .
 layer -1:
   .
   .
@@ -162,27 +176,29 @@ layer -1:
   .
   .
   .
-  ..s...s...s
+  .GG..GG..GG
   ..G...G...G
   ..G...G...G
   ..G...G...G
-  ..r...r...r
-  ..r...r...r
-  ..r...r...r
+  ..G...G...G
+  .GG..GG...G
+  ..G...G...G
+  .
 layer 0:
   .
   .
   .
   .
   .
-  ..s...s...s
-  ..p...p...p
-  ..R...R...R
+  ..S...S...S
+  .Kp..Kp..Kp
+  ..F...F...F
   ..D...D...D
-  ..R...R...R
-  ..A...A...A
-  ..A...A...A
-  ..A...A...A
+  ..F...E...A
+  ..E...E..GG
+  .IE..IE...G
+  ..E...E...G
+  .
 layer 1:
   .
   .
@@ -190,11 +206,12 @@ layer 1:
   .
   .
   ..T...T...T
-  GEtFGEtFGEtFG
+  GLtMGLtMGLtMG
   .
   .
   .
-  .
+  .........IA
+  ..........G
   .
   .
 layer 2:
@@ -209,7 +226,8 @@ layer 2:
   .
   .
   .
-  .
+  ..........A
+  ..........G
   .
 layer 3:
   .
@@ -224,7 +242,8 @@ layer 3:
   .
   .
   .
-  .
+  .........GA
+  .........GG
 layer 4:
   .
   .
@@ -238,7 +257,8 @@ layer 4:
   .
   .
   .
-  .
+  .........I
+  ........GBH
 layer 5:
   .
   .
@@ -253,6 +273,7 @@ layer 5:
   .
   .
   .
+  .......GB
 layer 6:
   .
   .
@@ -267,6 +288,7 @@ layer 6:
   .
   .
   .
+  ......GR
 layer 7:
   .
   .
@@ -281,6 +303,7 @@ layer 7:
   .
   .
   .
+  .....GR
 layer 8:
   .
   .
@@ -295,6 +318,7 @@ layer 8:
   .
   .
   .
+  ....GR
 layer 9:
   .
   .
@@ -309,6 +333,7 @@ layer 9:
   .
   .
   .
+  ...GR
 layer 10:
   .
   .
@@ -323,6 +348,7 @@ layer 10:
   .
   .
   .
+  ..GR
 layer 11:
   .
   .
@@ -337,6 +363,7 @@ layer 11:
   .
   .
   .
+  .GR
 layer 12:
   .
   .
@@ -351,6 +378,7 @@ layer 12:
   .
   .
   .
+  .R
 layer 13:
   .
   .
@@ -365,7 +393,9 @@ layer 13:
   .
   .
   .
+  r
 layer 14:
+  .
   .
   .
   .
@@ -393,6 +423,7 @@ layer 15:
   .
   .
   .
+  .
 layer 16:
   .
   .
@@ -407,15 +438,17 @@ layer 16:
   .
   .
   .
+  .
 layer 17:
   .
   .
   .
   .
   .
-  ..S...S...S
-  gEtFgEtFgEtFg
-  ..PB..PB..PB
+  ..s...s...s
+  gLtMgLtMgLtMg
+  ..PJ..PJ..PJ
+  ..G...G...G
   .
   .
   .
@@ -430,6 +463,7 @@ layer 18:
   .
   .
   ...G...G...G
+  .
   .
   .
   .

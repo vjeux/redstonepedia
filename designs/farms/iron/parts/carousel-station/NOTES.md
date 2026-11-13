@@ -307,7 +307,9 @@ before the z 9|10 line: next section.
 - **The departure crest's dip.** The boosted dip is forbidden-class (a cart bounced backward there is
   boosted back). Plain dips: `--crest-descent N --crest-plain-dip`; farmopt's (c') (two plain slopes
   down from the crest, the flat dip at y 0 from z 9 across the line; R1's part with 13 boosted slopes
-  to (9,13,25): wip/stand-departure-crest-r1.txt, `--part-handoff 13,25`). A leaked batch (chunk
+  to (9,13,25): wip/stand-departure-crest-r1.txt, `--part-handoff 13,25`; that file and
+  wip/stand-departure-crest.txt were removed Nov 12 as superseded by the F1 + Q2 station,
+  ironspec 20:31: their R_1 slopes had no high-side block). A leaked batch (chunk
   (0,1) frozen as cart 1 enters the dip) rests pressed: cart 1 frozen at z 10.25, cart 2 against it
   on the flat, cart 3 on the second slope; it restarts by itself after the thaw. With one plain slope
   ((c)) cart 3 rests on the flat and never restarts by itself. The departure-clear input
