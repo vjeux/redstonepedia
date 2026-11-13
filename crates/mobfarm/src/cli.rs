@@ -2616,7 +2616,7 @@ pub enum MobfarmCmd {
         arm_rel: Option<i64>,
         #[arg(long, default_value_t = 100)]
         lane7_rel: i64,
-        #[arg(long, default_value_t = 0)]
+        #[arg(long, default_value_t = 11)]
         station_lag: i64,
         /// The bench's `--bit-delay` (its arrival-phase bookkeeping).
         #[arg(long, default_value_t = 36)]
@@ -2649,9 +2649,27 @@ pub enum MobfarmCmd {
         boosters: bool,
         #[arg(long)]
         row_boost: bool,
-        /// The nominal launch offsets (s 12 adopted, farmopt 2026-11-12 06:05: 0/12/24).
-        #[arg(long, value_delimiter = ',', default_value = "0,12,24")]
+        /// The bench's launch offsets: a calibration of dfb89499's real station, not the design offsets
+        /// (ironspec 19:52): 0,10,24 with --station-lag 11 reproduce the station for design offsets
+        /// 0/12/24 (7b90c3f1); the station check refuses a calibration that misses the table.
+        #[arg(long, value_delimiter = ',', default_value = "0,10,24")]
         offsets: Vec<i64>,
+        /// The station calibration check (ironspec 19:52): dfb89499's y-12 passes after REL per lane
+        /// (LANE:GT), matched within 1 gt in the control at release --station-speed (where 7b90c3f1's
+        /// calibration reproduces them); --no-station-check skips it.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true, default_value = "-1:55,3:74")]
+        station_table: Vec<String>,
+        #[arg(long, default_value_t = 0.4)]
+        station_speed: f64,
+        #[arg(long)]
+        no_station_check: bool,
+        /// The calibration settings, SPEED:LAG (ironspec 20:16): the judge runs at each (that release speed
+        /// with that --station-lag, each reproducing dfb89499's y-12 table at its speed) and the verdict
+        /// needs a pass at every one; --no-settings runs --speeds at --station-lag as one matrix.
+        #[arg(long, value_delimiter = ',', default_value = "0.4:11,0.34:9")]
+        settings: Vec<String>,
+        #[arg(long)]
+        no_settings: bool,
         /// The measured departure spread, LO,HI gt on each launch (dfb89499's station: 0).
         #[arg(long, value_delimiter = ',', allow_hyphen_values = true, default_value = "0,0")]
         spread: Vec<i64>,
@@ -2705,16 +2723,49 @@ pub enum MobfarmCmd {
         /// The napper's delivery band (stored, its hand-on by the 4th route).
         #[arg(long, value_delimiter = ',', default_value = "0.1,0.3")]
         napper_band: Vec<f64>,
-        /// The measured bars (7b90c3f1, 05:31: the first failure one gt under).
+        /// The shaft-entry gap's physical bar (7b90c3f1's measured first failure, the box contact at the
+        /// lift's exit top; ironspec 19:38), held at it + --margin (16) in every row.
         #[arg(long, default_value_t = 14)]
         shaft_min: i64,
-        #[arg(long, default_value_t = 21)]
+        /// The column bar for every column pair (ironspec 20:01: 16 = the physical 14 + 2, side entry
+        /// included; final with tick-exact's official exit-top contact row; the 21 / 23 / 28 / 46 bars
+        /// retired): the napper's shaft-entry gaps behind the third cart and ahead of the next batch (off
+        /// --path-a), the napper's y-12 pass gaps behind lane 7's cart and ahead of the next batch's first,
+        /// and the batch carts' y-12 pairs (--path-a), each >= this in every row.
+        #[arg(long, default_value_t = 16)]
         napper_behind: i64,
         #[arg(long, default_value_t = 16)]
         napper_ahead: i64,
-        /// A junction's least gap, J:G (measured: 8 with the bench's 1-gt switch); repeatable.
-        #[arg(long, allow_hyphen_values = true, default_values = ["3:8", "-1:8"])]
+        #[arg(long, default_value_t = 16)]
+        y12_nap_min: i64,
+        #[arg(long, default_value_t = 16)]
+        y12_min: i64,
+        /// The column-order bar (ironspec 20:01, physical): lane 7's entry at y 12 at least this many gt
+        /// after the preceding cart's box fully clears the mouth cell (the bench's mouth clearance), in
+        /// every row (--path-a).
+        #[arg(long, default_value_t = 2)]
+        mouth_min: i64,
+        /// The split line's least junction gap per junction, J:G, for a bench without the settle / clear
+        /// lines: the entity-phase bar (2 gt, ironspec 19:08/19:14: that line names no cause, so the larger
+        /// bar) + --margin in every row; the old 8 was a sweep's step (ironspec 19:14 (1)); repeatable.
+        #[arg(long, allow_hyphen_values = true, default_values = ["3:2", "-1:2"])]
         junction_min: Vec<String>,
+        /// The physical junction bars by the phase of a switch's cause (ironspec 19:08/19:14, measured and
+        /// final by tick-exact's official boundary row, farmopt 19:58): block-phase (a repeater or comparator
+        /// output, a detector's release, the bench's between-tick lever) and entity-phase (a detector press, a
+        /// box overlap); each switch's settle and clear >= its bar + --margin in every row; a cause the bench
+        /// does not name takes the entity-phase bar.
+        #[arg(long, default_value_t = 1)]
+        junction_block_min: i64,
+        #[arg(long, default_value_t = 2)]
+        junction_entity_min: i64,
+        /// Day-1's junction driver (ironspec 19:38): a press-caused switch lands SET,RESET gt after the press
+        /// (after a set edge, a reset edge) as a block-phase change; applied to the bench's entity-phase press
+        /// entries (timed from the press tick); --no-driver takes them as printed.
+        #[arg(long, value_delimiter = ',', default_value = "4,6")]
+        driver_latency: Vec<i64>,
+        #[arg(long)]
+        no_driver: bool,
         #[arg(long, default_value_t = 0)]
         pushes_max: usize,
         /// The roof's underside: every rider's head under it.
@@ -7834,7 +7885,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             println!("{}", crate::queue::golem_spots(&spec, o.as_ref(), &extra, with_entities, list, pad_box, &stand_cells).map_err(|e| anyhow::anyhow!(e))?);
         }
-        MobfarmCmd::ReturnJudge { batches, ticks, boost, reverse, flat, game_ticks, dip, resync, z7, row10, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station, k_relay, napper_lane, napper_r, release_pulse, day1_taps, supp_open, pulse_gate, lift_depth, no_torches, napper_speed, path_a, arm_rel, lane7_rel, station_lag, bit_delay, mirror_z, tripwire, dep_keyed, trip_lag, no_gate_control, no_ungated_control, late_logins, boosters, row_boost, offsets, spread, speeds, napper_ds, restart_napper, starts, no_restarts, ds, lead_login_max, no_jitter, late, scheduled_only, e_rise, branch_band, upper_final, napper_band, shaft_min, napper_behind, napper_ahead, junction_min, pushes_max, head_max, k_band, margin, gates_out, design_file, solve_steps, solve_ds, solve_table, jobs } => {
+        MobfarmCmd::ReturnJudge { batches, ticks, boost, reverse, flat, game_ticks, dip, resync, z7, row10, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station, k_relay, napper_lane, napper_r, release_pulse, day1_taps, supp_open, pulse_gate, lift_depth, no_torches, napper_speed, path_a, arm_rel, lane7_rel, station_lag, bit_delay, mirror_z, tripwire, dep_keyed, trip_lag, no_gate_control, no_ungated_control, late_logins, station_table, station_speed, no_station_check, settings, no_settings, boosters, row_boost, offsets, spread, speeds, napper_ds, restart_napper, starts, no_restarts, ds, lead_login_max, no_jitter, late, scheduled_only, e_rise, branch_band, upper_final, napper_band, shaft_min, napper_behind, napper_ahead, y12_nap_min, y12_min, mouth_min, junction_min, junction_block_min, junction_entity_min, driver_latency, no_driver, pushes_max, head_max, k_band, margin, gates_out, design_file, solve_steps, solve_ds, solve_table, jobs } => {
             anyhow::ensure!(starts.len() == 2, "--starts A,B");
             anyhow::ensure!(offsets.len() == 3, "--offsets A,B,C");
             anyhow::ensure!(spread.len() == 2, "--spread LO,HI");
@@ -7853,7 +7904,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let starts = vec![starts[0], starts[1] + prelude];
             let base = crate::returnbench::ReturnOpts { batches, spacing: 14, speed: 0.4, ticks, login: None, boost, trace: None, reverse, offsets: offsets.clone(), jitter: Vec::new(), flat, game_ticks, napper_delay: (restart_napper >= 0).then_some(restart_napper), dip, resync, seed_miss: None, restart: None, z7, row10, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station, k_relay, napper_lane, napper_r, release_pulse, boosters, row_boost, out: None, mirror_z, day1_taps, supp_open, pulse_gate, gate_delayed_only: false, lift_depth, no_torches, napper_speed, path_a, arm_rel, lane7_rel, station_lag, y12_min: 16, y12_nap_min: 16, lane7_pulse: 10, kset_shift: 0, driver_latency: false, mouth_min: 2, bit_delay, tripwire, dep_keyed, trip_lag };
             anyhow::ensure!(k_band.len() == 2, "--k-band LO,HI");
-            let bars = crate::returnjudge::ReturnBars { branch_band: (branch_band[0], branch_band[1]), napper_band: (napper_band[0], napper_band[1]), shaft_min, napper_behind, napper_ahead, junction_min: jm.clone(), pushes_max, head_max, k_band: k_relay.then_some((k_band[0], k_band[1])), scheduled_only, hold_required: napper_lift && pulse_gate.is_some() };
+            let bars = crate::returnjudge::ReturnBars { branch_band: (branch_band[0], branch_band[1]), napper_band: (napper_band[0], napper_band[1]), shaft_min, napper_behind, napper_ahead, junction_min: jm.clone(), pushes_max, head_max, k_band: k_relay.then_some((k_band[0], k_band[1])), scheduled_only, hold_required: napper_lift && pulse_gate.is_some(), margin, junction_block_min, junction_entity_min, driver_latency: (!no_driver && driver_latency.len() == 2).then(|| (driver_latency[0], driver_latency[1])), path_a, y12_nap_min, y12_min, mouth_min };
             let line = format!(
                 "return-bench {}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}--offsets {}",
                 if z7 { "--z7 " } else { "" },
@@ -7947,19 +7998,26 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
             let naps: Vec<Option<i64>> = if napper_ds.is_empty() { vec![None] } else { napper_ds.iter().map(|d| Some(*d)).collect() };
-            let mut corners = Vec::new();
-            for o3 in &offs {
-                for &sp in &speeds {
-                    for n in &naps {
-                        corners.push(crate::returnjudge::Corner { offsets: o3.clone(), speed: sp, napper: *n });
-                    }
-                }
-            }
-            let phase_corners: Vec<crate::returnjudge::Corner> = speeds.iter().map(|&sp| crate::returnjudge::Corner { offsets: offsets.clone(), speed: sp, napper: (restart_napper >= 0).then_some(restart_napper) }).collect();
-            let o = crate::returnjudge::ReturnJudgeOpts { corners, phase_corners, starts: (starts[0], starts[1]), restarts: !no_restarts, ds: ds.clone(), lead_login_max, jitter: !no_jitter, late: (napper_lift && late.len() == 2 && late[0] >= 0).then(|| (late[0], late[1])), taps_follow_departure: day1_taps && (pulse_gate.is_some() || dep_keyed), e_rise, gate_control: pulse_gate.is_some() && !no_gate_control && !path_a, ungated_control: napper_lift && pulse_gate.is_some() && !no_ungated_control, late_logins: (napper_lift && late_logins.len() == 4 && late_logins[0] >= 0).then(|| (late_logins[0], late_logins[1], late_logins[2], late_logins[3])), bars, margin, jobs };
+            let st_table: Vec<(i32, i64)> = if no_station_check { Vec::new() } else { station_table.iter().map(|s| -> anyhow::Result<(i32, i64)> { let (l, t) = s.split_once(":").ok_or_else(|| anyhow::anyhow!("--station-table LANE:GT"))?; Ok((l.parse()?, t.parse()?)) }).collect::<anyhow::Result<Vec<_>>>()? };
+            // (the calibration settings (ironspec 20:16): until the bench composes dfb89499's real station,
+            // the judge runs at each setting (a release speed with its own --station-lag, each reproducing the
+            // station's y-12 table at its speed: 0.40 with lag 11, 0.34 with lag 9) and the verdict needs a
+            // pass at every one; --no-settings runs --speeds at --station-lag as one matrix)
+            let runs: Vec<(Vec<f64>, i64, f64)> = if no_settings {
+                vec![(speeds.clone(), station_lag, station_speed)]
+            } else {
+                settings
+                    .iter()
+                    .map(|s| -> anyhow::Result<(Vec<f64>, i64, f64)> {
+                        let (sp, lag) = s.split_once(':').ok_or_else(|| anyhow::anyhow!("--settings SPEED:LAG"))?;
+                        let sp: f64 = sp.parse()?;
+                        Ok((vec![sp], lag.parse()?, sp))
+                    })
+                    .collect::<anyhow::Result<Vec<_>>>()?
+            };
             println!(
-                "return judge (cc767b78, bench, tool unreviewed; the lead's rows: the controls at {} corners (offsets {:?}, the departure spread {}..{} gt on each, releases {speeds:?}, napper {}), at the nominal corners every gt bar's margin >= {margin} and a save/stop/start at every phase t {}..{} in the 10 orders, the cold start = the control{}): {line}, {batches} batches, {ticks} ticks; {d_means}",
-                o.corners.len(),
+                "return judge (cc767b78, bench, tool unreviewed; the lead's rows at {}: the controls at every corner (offsets {:?}, the departure spread {}..{} gt on each, napper {}), at the nominal corners every gt bar's margin >= {margin} and a save/stop/start at every phase t {}..{} in the 10 orders, the cold start = the control{}): {line}, {batches} batches, {ticks} ticks; {d_means}",
+                if no_settings { format!("releases {speeds:?} with --station-lag {station_lag}") } else { format!("each calibration setting (ironspec 20:16; every one must pass): {}", runs.iter().map(|(s, lag, _)| format!("release {} with --station-lag {lag}", s[0])).collect::<Vec<_>>().join(", ")) },
                 offsets,
                 spread[0],
                 spread[1],
@@ -7971,13 +8029,38 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             for l in &glines {
                 println!("{l}");
             }
-            let (lines, fails, most) = crate::returnjudge::judge(&base, &o).map_err(|e| anyhow::anyhow!(e))?;
-            for l in lines {
-                println!("{l}");
+            let (mut fails_all, mut most_all, mut per) = (0usize, f64::NEG_INFINITY, Vec::new());
+            for (sp_list, lag, st_speed) in &runs {
+                let base = crate::returnbench::ReturnOpts { station_lag: *lag, ..base.clone() };
+                let mut corners = Vec::new();
+                for o3 in &offs {
+                    for &sp in sp_list {
+                        for n in &naps {
+                            corners.push(crate::returnjudge::Corner { offsets: o3.clone(), speed: sp, napper: *n });
+                        }
+                    }
+                }
+                let phase_corners: Vec<crate::returnjudge::Corner> = sp_list.iter().map(|&sp| crate::returnjudge::Corner { offsets: offsets.clone(), speed: sp, napper: (restart_napper >= 0).then_some(restart_napper) }).collect();
+                let o = crate::returnjudge::ReturnJudgeOpts { corners, phase_corners, starts: (starts[0], starts[1]), restarts: !no_restarts, ds: ds.clone(), lead_login_max, jitter: !no_jitter, late: (napper_lift && late.len() == 2 && late[0] >= 0).then(|| (late[0], late[1])), taps_follow_departure: day1_taps && (pulse_gate.is_some() || dep_keyed), e_rise, gate_control: pulse_gate.is_some() && !no_gate_control && !path_a, ungated_control: napper_lift && pulse_gate.is_some() && !no_ungated_control, late_logins: (napper_lift && late_logins.len() == 4 && late_logins[0] >= 0).then(|| (late_logins[0], late_logins[1], late_logins[2], late_logins[3])), station_table: st_table.clone(), station_speed: (!no_station_check).then_some(*st_speed), bars: bars.clone(), margin, jobs };
+                if !no_settings {
+                    println!("== the calibration setting release {} with --station-lag {lag} (ironspec 20:16)", sp_list[0]);
+                }
+                let (lines, fails, most) = crate::returnjudge::judge(&base, &o).map_err(|e| anyhow::anyhow!(e))?;
+                for l in lines {
+                    println!("{l}");
+                }
+                if !no_settings {
+                    println!("the setting release {} with --station-lag {lag}: {fails} failing runs in the lead's rows: {}", sp_list[0], if fails == 0 { "passes" } else { "FAILS" });
+                }
+                fails_all += fails;
+                most_all = most_all.max(most);
+                per.push(format!("release {} with --station-lag {lag} {fails}", sp_list[0]));
             }
+            let (fails, most) = (fails_all, most_all);
             let pending = if upper_final { String::new() } else { format!("; PENDING: the delivery's upper bar (ironfarm's upper failure - 0.05; --branch-band's {:.2} meanwhile): the most delivered over the lead's rows {most:.3}, so the upper failure must be at least {:.3}", branch_band[1], most + 0.05) };
             println!(
-                "over the matrix: {fails} failing runs in the lead's rows (with any nominal corner short of the margin); the static gates {}: the verdict {}{pending}",
+                "over the matrix{}: {fails} failing runs in the lead's rows (with any nominal corner short of the margin); the static gates {}: the verdict {}{pending}",
+                if no_settings { String::new() } else { format!(" (every calibration setting must pass: {})", per.join(", ")) },
                 if gfails == 0 { "pass".to_string() } else { format!("FAIL ({gfails})") },
                 if fails == 0 && gfails == 0 { "PASSES" } else { "FAILS" }
             );
