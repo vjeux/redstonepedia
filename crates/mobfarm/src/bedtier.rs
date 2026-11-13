@@ -1142,6 +1142,13 @@ pub struct Row {
     pub napper_contact: Option<(f64, i64)>,
     /// A lie-down after the wake, before the pickup (the re-sleep lock: bar none).
     pub resleep_at: Option<i64>,
+    /// Its print: LAST_WOKEN, the start, the erases.
+    pub resleep_line: Option<String>,
+    /// Boardings after the release (1 expected; more is a pickup fault).
+    pub boardings: usize,
+    /// The least distance from HOME's head centre to the napper's feet while it stands after the
+    /// wake (until its last boarding).
+    pub stand_min_home: Option<f64>,
     /// (a skip row) The skip's tick, the cells the napper waited in awake before its next nap, the
     /// day time of that nap, its CANT_REACH stamp's age at the first REST tick after the skip (None
     /// inside: no stamp), and its LAST_SLEPT (game time) at the end.
@@ -1969,6 +1976,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
     // (the waker's consequence trace: the last printed walk target / path / stamp)
     let mut waker_last = String::new();
     let mut waker_act_last = String::new();
+    let (mut prev_riding, mut prev_walk_target, mut prev_cant_reach) = (false, false, false);
     // (the cart's horizontal speed on the previous tick: a declared contact's "before")
     let mut prev_cart_speed = 0f64;
     let mut still = 0;
@@ -2819,6 +2827,26 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             if asleep && row.woke_at.is_some_and(|w0| t > w0) && row.pickup.is_none() && row.resleep_at.is_none() {
                 row.resleep_at = Some(t);
                 row.problems.push(format!("t {t}: the napper lay back down after its wake (woke t {:?}) before the pickup: the re-sleep lock", row.woke_at));
+                // (ironspec 09:19: the positive's print: LAST_WOKEN, gameTime - LAST_WOKEN, the
+                // start, and the erases SleepInBed's start makes (WALK_TARGET, CANT_REACH: before
+                // = the previous tick's, after = now))
+                let bb = redsim::entity::mob::ai::brain::brain(w, vi);
+                row.resleep_line = Some(format!("t {t}: SleepInBed started (the napper asleep again, sleeping_pos {:?}) at feet ({:.3},{:.3},{:.3}); LAST_WOKEN {:?} (gameTime - LAST_WOKEN = {:?}); WALK_TARGET {} -> {}; CANT_REACH {} -> {}", redsim::entity::mob::mob(w, vi).sleeping_pos, v.pos.x, v.pos.y, v.pos.z, bb.last_woken, bb.last_woken.map(|lw| w.time - lw), prev_walk_target, bb.walk_target.is_some(), prev_cant_reach, redsim::entity::mob::ai::brain::has_exact(w, vi) && redsim::entity::mob::ai::brain::ex(w, vi).mem.cant_reach_since.is_some()));
+            }
+            // (G1 09:19 (1): the boardings per visit (more than one: a pickup fault); (2) the least
+            // distance from HOME's head centre over the standing window, the wake to the last boarding)
+            if riding && !prev_riding && row.release_at.is_some() {
+                row.boardings += 1;
+            }
+            if !riding && row.woke_at.is_some_and(|w0| t >= w0) && !asleep && row.out_at.is_none() && row.release_at.is_some_and(|_| row.boardings < 2) {
+                let d = ((v.pos.x - (BED_HEAD[0] as f64 + 0.5)).powi(2) + (v.pos.y - (BED_HEAD[1] as f64 + 0.5)).powi(2) + (v.pos.z - (BED_HEAD[2] as f64 + 0.5)).powi(2)).sqrt();
+                row.stand_min_home = Some(row.stand_min_home.map_or(d, |m: f64| m.min(d)));
+            }
+            prev_riding = riding;
+            if redsim::entity::mob::ai::brain::has_exact(w, vi) {
+                let bb = redsim::entity::mob::ai::brain::brain(w, vi);
+                prev_walk_target = bb.walk_target.is_some();
+                prev_cant_reach = redsim::entity::mob::ai::brain::ex(w, vi).mem.cant_reach_since.is_some();
             }
             if riding && row.release_at.is_some() && row.pickup.is_none() {
                 row.pickup = Some((row.cells_after_wake.last().copied().unwrap_or(vcell), t));
@@ -3778,6 +3806,7 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
     let mut window_rows: Vec<String> = Vec::new();
     let (mut clear_after_close, mut delta_ruled, mut board_wait_max, mut resleeps) = (Vec::<i64>::new(), i64::MIN, i64::MIN, 0usize);
     let (mut contact_speeds, mut park_xs) = (Vec::<(f64, String)>::new(), Vec::<(f64, Option<f64>, String)>::new());
+    let (mut multi_board, mut stand_home_min, mut resleep_lines) = (0usize, f64::MAX, Vec::<String>::new());
     let mut post_contact_min: std::collections::BTreeMap<String, f64> = std::collections::BTreeMap::new();
     let (mut picked_up, mut missed_booster) = (0usize, 0usize);
     // ((A) --exit-south: its exit booster at (-1,0,6); every picked-up cart must reach it)
@@ -3827,6 +3856,13 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
                             }
                             if r.woke_at.is_some() {
                                 resleeps += r.resleep_at.is_some() as usize;
+                                multi_board += (r.boardings > 1) as usize;
+                                if let Some(d) = r.stand_min_home {
+                                    stand_home_min = stand_home_min.min(d);
+                                }
+                                if let Some(l) = &r.resleep_line {
+                                    resleep_lines.push(format!("seed {seed} speed {v}: {l}"));
+                                }
                                 if let Some((s, _)) = r.napper_contact {
                                     contact_speeds.push((s, format!("{seed}/{v}")));
                                 }
@@ -4374,6 +4410,13 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
             println!("the re-sleep lock (G1 09:12 / ironspec 09:13): P's feet ~(-1.5, 0.06, 4.5) to HOME's centre (-2.5, 0.5, 4.5): {:.2} (SleepInBed's 2.0: within, so the lock is live); lie-downs after the wake before the pickup (bar 0): {resleeps}; the longest wake -> boarding {board_wait_max} gt (stated margin < 80 under LAST_WOKEN's ~100)", ((1.0f64).powi(2) + (0.44f64).powi(2)).sqrt());
             if resleeps > 0 {
                 failed.push(format!("{resleeps} visits with the napper lying back down after its wake before the pickup (the re-sleep lock)"));
+            }
+            for l in &resleep_lines {
+                println!("  re-sleep {l}");
+            }
+            println!("the re-sleep lock, G1 09:19: boardings per visit over 1 (a second eject at P: a pickup fault; bar 0): {multi_board}; the least distance from HOME's head centre to the standing napper's feet, the wake to its last boarding: {} (SleepInBed's strict 2.0)", if stand_home_min == f64::MAX { "-".to_string() } else { format!("{stand_home_min:.3}") });
+            if multi_board > 0 {
+                failed.push(format!("{multi_board} visits with more than one boarding after the release (a pickup fault)"));
             }
         }
     }
