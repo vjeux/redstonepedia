@@ -85,6 +85,19 @@ pub struct Opts {
     /// (G1 N18) The DAY update check's control: compare at the half-period off-phase; the bar must
     /// catch it at the edges.
     pub day_phase_control: bool,
+    /// (ironspec 07:10 real (2), tick-exact 06:09 PT: the reconciliation row) tick-exact's farm-c7
+    /// placement, N riders summoned per lane behind each lane's stored H rider: the night held at
+    /// 13,800, the record's overrides laid, N rounds of one cart a lane at (x + 0.6, 24, 6.49) 30 gt
+    /// apart, 200 gt, the stored queue cart killed, the napper launched at (8.5, 25.0625, 9.5) with
+    /// motion (0.2, 0, 0); its t 0 there, the release lever off at t 117, the night skipped to
+    /// 24,000 at t 137 with the time running; no controller drives.
+    pub c7_placement: Option<usize>,
+    /// The record's six stored riders get HOME = the bed too (the design-occupancy variant).
+    pub c7_home_stored: bool,
+    /// (ironspec 06:38 platform / 7b90c3f1's r4 bench, farmopt 07:03 PT) the lift exit blocked: at
+    /// run tick T an empty cart is held still on the exit (-5,23,8) for N gt, then removed (the
+    /// stated maximum ~11 gt must pass the air bar; >= 25 gt is the jam positive).
+    pub lift_block: Option<(i64, i64)>,
     /// (ironspec 11:15, 9fc3155f's statics) S-bend seats whose stamp resets are counted: `NAME`,
     /// the seat's rail cell, its clearing candidates (a complete draw to one of them while a rider
     /// sits on the seat resets its stamp).
@@ -221,6 +234,36 @@ fn detector_level(w: &redsim::world::World) -> Result<u32, String> {
         return Err(format!("the DAY detector cell (-5,15,3) holds {s}, not a daylight detector"));
     }
     s.split("power=").nth(1).and_then(|r| r.split([',', ']']).next()).and_then(|v| v.parse().ok()).ok_or_else(|| format!("the DAY detector's power doesn't parse: {s}"))
+}
+
+/// (G1 07:17 PT) The drive's spawn list against the scene's entity lines: one spawned entity per
+/// line, in order, each of the line's type at the line's position (the root entity; its passengers
+/// ride it), an error on any mismatch.
+fn check_spawn_list(w: &redsim::world::World, spawned: &[u32], lines: &[(String, [f64; 3], Option<String>)]) -> Result<(), String> {
+    if spawned.len() != lines.len() {
+        return Err(format!("--scene-out: the run spawned {} entities, the scene lists {} lines", spawned.len(), lines.len()));
+    }
+    for (n, (id, (ty, p, _))) in spawned.iter().zip(lines.iter()).enumerate() {
+        let k = redsim::entity::index_of(w, *id).ok_or_else(|| format!("--scene-out: e{n} (#{id}) isn't in the world"))?;
+        let e = &w.entities.list[k];
+        let kind = match &e.kind {
+            EntityKind::Minecart(_) => "minecraft:minecart".to_string(),
+            EntityKind::Mob(m) => format!("minecraft:{}", m.ty.def().id),
+            _ => format!("{:?}", std::mem::discriminant(&e.kind)),
+        };
+        let ty_ok = kind == *ty || (ty.ends_with("_boat") && !matches!(e.kind, EntityKind::Minecart(_) | EntityKind::Mob(_)));
+        let pos_ok = (e.pos.x - p[0]).abs() < 1e-6 && (e.pos.y - p[1]).abs() < 1e-6 && (e.pos.z - p[2]).abs() < 1e-6;
+        if !ty_ok || !pos_ok {
+            return Err(format!("--scene-out: e{n} is {kind} at ({:.4},{:.4},{:.4}), the scene line {ty} at ({},{},{})", e.pos.x, e.pos.y, e.pos.z, p[0], p[1], p[2]));
+        }
+    }
+    Ok(())
+}
+
+/// (G1 07:17 PT) The scene's entity lines as `--scene-out` writes them: every entity of the run's
+/// spawn list in order, each preceded by its drive name `# eN`.
+pub fn scene_entity_lines(entities: &[(String, [f64; 3], Option<String>)]) -> String {
+    entities.iter().enumerate().map(|(n, (ty, p, nbt))| format!("# e{n}\nentity: {ty} {} {} {} {}\n", p[0], p[1], p[2], nbt.as_deref().unwrap_or(""))).collect()
 }
 
 /// An activity strip run-length encoded: `P×120 R×3 P×50`.
@@ -1833,6 +1876,9 @@ struct Rec {
     /// (G1, farmopt 06:12 PT) its activity at each tick of day time 11,990..=12,040 (the schedule
     /// switch): P (PANIC), R (REST), . (other), - (not seen).
     switch_strip: String,
+    /// (ironspec 06:55 platform (3)) its first REST tick in that window: the tick, the cell and the
+    /// scarer sight then.
+    switch_rest_at: Option<String>,
     /// (ironspec 07:30 real (1), G1) every CANT_REACH arming and its clearing: (armed, cleared,
     /// how); the arming in progress.
     arm_open: Option<i64>,
@@ -1863,6 +1909,10 @@ struct Rec {
     sleeping_prev: bool,
     wake_open: Option<(i64, String)>,
     wake_rows: Vec<String>,
+    /// (ironspec 06:55 platform (2)) the REST spell in progress: its entry cell and whether it began
+    /// with a WALK_TARGET held.
+    spell_cell: [i32; 3],
+    spell_held: bool,
 }
 
 /// (ironspec 20:40 PT, the 4 undeclared T sources (2b): the (a) feed stack's dust under lane -1's
@@ -2278,7 +2328,10 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             return Err(format!("--drive-out --napper: no way-in queue at (9,{},-4) (b8949c96's e9f0f4cbf): the napper must start from it", by + 13));
         }
     }
-    let scene_entities: String = sp.entities[spec.entities.len().min(sp.entities.len())..].iter().map(|(ty, p, nbt)| format!("entity: {ty} {} {} {} {}\n", p[0], p[1], p[2], nbt.as_deref().unwrap_or(""))).collect();
+    // (tick-exact 07:12 PT: the scene's entity lines are exactly the run's spawn list, each named as
+    // the drive names it; the module's own lines the run dropped (the build guide's empty queue) are
+    // gone, every seeded cart is there)
+    let scene_entities: String = scene_entity_lines(&sp.entities);
     anyhow_free(sp.has_bed(), "the module holds no bed: no villager gets a HOME")?;
     let ro = RunOpts { ai: true, day0: if o.official_lane3 { 18_000 } else { o.day0 }, slept: true, ..RunOpts::steady(o.seed, (o.ticks + 200) as u32, WalkMode::Random) };
     // (the shared bed, as the station bench sets it: the farm built homeless, the bed's POI taken,
@@ -2291,6 +2344,9 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         let mut run = Run::start(&sp, &dro)?;
         while run.settle_tick() {}
         let lines = redsim::entity::mob::drive::spawn_lines(&mut run, &sp)?;
+        // (G1 07:17 PT: the scene's entity lines are the run's spawn list, asserted at write time
+        // by count, type and position)
+        check_spawn_list(&run.world, &lines, &sp.entities)?;
         (run, lines)
     } else {
         (Run::new_homeless(&sp, &ro)?, Vec::new())
@@ -2351,6 +2407,11 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         }
         // (the recovery row: every LAST_SLEPT a day and 100 gt old, no villager fresh)
         let slept_back = if o.stale_start { 24_100 } else { 100 };
+        // (tick-exact's farm-c7 placement, 06:09 PT: the record's own stored riders carry no HOME
+        // unless --c7-home-stored)
+        if o.c7_placement.is_some() && !o.c7_home_stored {
+            continue;
+        }
         if drive_on {
             let (n, k) = *names.get(&e.id).ok_or_else(|| format!("--drive-out: the villager {} rides none of the scene's entity lines", e.id))?;
             memory_acts.push(((n, k), format!("act 0 home e{n}.p{k} {} {} {}", bed.x, bed.y, bed.z)));
@@ -2600,6 +2661,9 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     let mut rest_entries_total = 0i64;
     // (9fc3155f's coverage fix) the counted REST entries by cell
     let mut rest_by_cell: BTreeMap<[i32; 3], i64> = BTreeMap::new();
+    // (ironspec 06:55 platform (2)) the counted spells by entry cell: their lengths, and how many
+    // began with a WALK_TARGET held
+    let mut spell_by_cell: BTreeMap<[i32; 3], (Vec<i64>, i64)> = BTreeMap::new();
     let mut lane_rest_ticks = 0i64;
     let mut lane_rest_entries = 0i64;
     let mut lane_rest_partial = 0i64;
@@ -2634,6 +2698,8 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     // (G1: the air bar's positive) the held rider: (id, from, the cart's held position, the cart, its
     // air at the hold, its least air in the hold)
     let mut air_held: Option<(u32, i64, [f64; 3], u32, i32, i32)> = None;
+    // (the lift-block control's cart)
+    let mut lift_blocker: Option<u32> = None;
     // (ironspec 06:31 / 06:42 real) the ticket lines: the bed's free tickets and the HOME memory
     // holders at the start and at every change
     let mut ticket_prev: Option<(Option<u32>, Vec<u32>)> = Some(start_ticket);
@@ -2835,6 +2901,100 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 nappers.push((vid, k, rel));
                 ctl.nap_lane = k;
                 ctl.nap_events.push(format!("t {rel}: napper{} seeded at the stop's entry (lane x {})", nappers.len() - 1, LANES[k]));
+            }
+        }
+        // (tick-exact 06:09 PT, the reconciliation row: its farm-c7 placement)
+        if let Some(n) = o.c7_placement {
+            let c0 = 20 + 30 * n as i64 + 200;
+            let w = &mut run.world;
+            if rel == 0 {
+                // (its overrides, each laid and checked changed: REST_l on, DAY off, NOT-ready on, on
+                // record7f8's glass supports)
+                for (c, st) in [
+                    ([6, -13, -1], "minecraft:glass"),
+                    ([6, -12, -1], "minecraft:lever[face=floor,facing=north,powered=true]"),
+                    ([4, -13, -2], "minecraft:glass"),
+                    ([4, -12, -2], "minecraft:lever[face=floor,facing=north,powered=false]"),
+                    ([8, -14, -5], "minecraft:lever[face=wall,facing=west,powered=true]"),
+                ] {
+                    let p = redsim::pos::BlockPos::new(c[0], c[1], c[2]);
+                    let before = w.get(p).to_string();
+                    w.set_block(p, redsim::block::Block::parse(st).map_err(|e| format!("{st}: {e}"))?, redsim::world::flags::ALL);
+                    let after = w.get(p).to_string();
+                    log.push(format!("c7 override ({},{},{}): {before} -> {after}{}", c[0], c[1], c[2], if before == after { " (NO CHANGE: FAIL)" } else { "" }));
+                }
+                // (time set 13800, advance_time false: the night held)
+                w.mob.day_offset = 13_800 - w.time;
+                w.mob.advance_time = false;
+                log.push(format!("c7 t {}: the night held at day time {}", rel - c0, w.day_time()));
+            }
+            if rel >= 20 && rel < 20 + 30 * n as i64 && (rel - 20) % 30 == 0 {
+                // (a round: one cart a lane at (x + 0.6, 24.0, 6.49), a villager with HOME riding it)
+                let round = (rel - 20) / 30;
+                for x in LANES {
+                    let cart = redsim::entity::spawn(w, "minecraft:minecart", [x as f64 + 0.6, 24.0, 6.49], Some("{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}"))?;
+                    let ci = redsim::entity::index_of(w, cart).ok_or("a c7 cart vanished")?;
+                    let vid = *w.entities.list[ci].passengers.first().ok_or("a c7 cart has no rider")?;
+                    let vi = redsim::entity::index_of(w, vid).ok_or("a c7 rider vanished")?;
+                    redsim::entity::position_rider(w, ci, vi);
+                    redsim::entity::mob::ai::brain::brain_mut(w, vi).home = Some(bed);
+                    recs.insert(vid, Rec { label: format!("c7r{}x{x} (id {vid}, round {round}, lane x {x})", round + 1), home_at_start: Some([bed.x, bed.y, bed.z]), prev_home: Some([bed.x, bed.y, bed.z]), ..Default::default() });
+                }
+            }
+            if rel == c0 {
+                // (the stored queue cart and its rider killed, then the napper launched)
+                let q = [9, o.bed[1] + 13, -4];
+                let stored: Vec<(u32, Option<u32>)> = w.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && cell(e.pos) == q).map(|e| (e.id, e.passengers.first().copied())).collect();
+                for (cart, rider) in stored {
+                    if let Some(v) = rider {
+                        redsim::entity::kill(w, v)?;
+                        recs.remove(&v);
+                    }
+                    redsim::entity::kill(w, cart)?;
+                }
+                let cart = redsim::entity::spawn(w, "minecraft:minecart", [8.5, 25.0625, 9.5], Some("{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}"))?;
+                let ci = redsim::entity::index_of(w, cart).ok_or("the c7 napper's cart vanished")?;
+                w.entities.list[ci].delta_movement = redsim::entity::Vec3::new(0.2, 0.0, 0.0);
+                let vid = *w.entities.list[ci].passengers.first().ok_or("the c7 napper's cart has no rider")?;
+                let vi = redsim::entity::index_of(w, vid).ok_or("the c7 napper vanished")?;
+                redsim::entity::position_rider(w, ci, vi);
+                redsim::entity::mob::ai::brain::brain_mut(w, vi).home = Some(bed);
+                recs.insert(vid, Rec { label: format!("c7napper (id {vid}, launched at (8.5,25.0625,9.5))"), home_at_start: Some([bed.x, bed.y, bed.z]), prev_home: Some([bed.x, bed.y, bed.z]), ..Default::default() });
+                log.push(format!("c7 t 0 = run t {rel}: the stored queue cart killed, the napper #{vid} launched"));
+            }
+            if rel == c0 + 117 {
+                let p = redsim::pos::BlockPos::new(8, -14, -5);
+                w.set_block(p, redsim::block::Block::parse("minecraft:lever[face=wall,facing=west,powered=false]").map_err(|e| e.to_string())?, redsim::world::flags::ALL);
+                log.push("c7 t 117: the release lever (8,-14,-5) off".to_string());
+            }
+            if rel == c0 + 137 {
+                // (the night skip: time set 24000, advance_time true)
+                w.mob.day_offset = 24_000 - w.time;
+                w.mob.advance_time = true;
+                log.push(format!("c7 t 137: the night skipped to day time {}, the time running", w.day_time()));
+            }
+        }
+        // (ironspec 06:38 platform, 7b90c3f1's r4 bench: the lift exit blocked) an empty cart held
+        // still on the exit (-5,23,8) from T for N gt
+        if let Some((tb, nb)) = o.lift_block {
+            let w = &mut run.world;
+            if rel == tb {
+                let cart = redsim::entity::spawn(w, "minecraft:minecart", [-4.5, 23.0625, 8.5], None)?;
+                lift_blocker = Some(cart);
+                log.push(format!("t {rel}: the lift-block control: an empty cart #{cart} held on the exit (-5,23,8) for {nb} gt"));
+                controls_done.push(format!("the lift-block control at t {rel}: the exit (-5,23,8) held {nb} gt"));
+            }
+            if let Some(cart) = lift_blocker
+                && let Some(ci) = redsim::entity::index_of(w, cart)
+            {
+                if rel < tb + nb {
+                    w.entities.set_pos(ci, redsim::entity::Vec3::new(-4.5, 23.0625, 8.5));
+                    w.entities.list[ci].delta_movement = redsim::entity::Vec3::ZERO;
+                } else {
+                    redsim::entity::kill(w, cart)?;
+                    lift_blocker = None;
+                    log.push(format!("t {rel}: the lift-block control: the exit freed"));
+                }
             }
         }
         if o.restarts.contains(&rel) {
@@ -3929,6 +4089,9 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     }
                     if r.switch_strip.len() == k {
                         r.switch_strip.push(if panic { 'P' } else if activity_rest && in_trip { 'r' } else if activity_rest { 'R' } else { '.' });
+                        if activity_rest && !in_trip && r.switch_rest_at.is_none() {
+                            r.switch_rest_at = Some(format!("day time {dt} at ({:.1},{:.1},{:.1}) {:?}{}, {}", pos.x, pos.y, pos.z, c, if riding { " riding" } else { "" }, sight(w)));
+                        }
                     }
                 }
                 // (ironspec 06:22 platform + G1, the air-supply bar) each lift transit's least air
@@ -4108,6 +4271,8 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                         r.spell_home_at = None;
                         r.spell_armed = false;
                         r.spell_home_stamp = None;
+                        r.spell_cell = c;
+                        r.spell_held = target.is_some();
                     }
                     if r.rest_path.is_none() && home.is_some() && path_target == home {
                         r.rest_path = reach;
@@ -4141,6 +4306,11 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     let path = r.rest_path.take();
                     if counted && at_design && path == Some(false) {
                         lane_rest_partial += 1;
+                    }
+                    if counted {
+                        let e = spell_by_cell.entry(r.spell_cell).or_default();
+                        e.0.push(now - t0 - st);
+                        e.1 += r.spell_held as i64;
                     }
                     if rest_rows.len() < 40 {
                         rest_rows.push(format!(
@@ -5245,7 +5415,8 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         summons.rejected,
         summons.blocked,
         if summons.blocked + summons.callers_blocked == 0 { "PASS" } else { "FAIL" },
-        summons.least_caller_margin.map_or("none seen".to_string(), |m| format!("{m} gt (from the latest set, bar >= 3, ironspec 19:40 PT: {})", if m >= 3 { "PASS" } else { "FAIL" })) + &summons.least_orig_margin.map_or(String::new(), |m| format!("; from the stamp's original tick {m} gt (bar >= 23: {})", if m >= 23 { "PASS" } else { "FAIL" })),
+        // (ironspec's E9 / G1 N7: ONE harm verdict, the harm bar's; these margins print as information)
+        summons.least_caller_margin.map_or("none seen".to_string(), |m| format!("{m} gt (from the latest set; information: the harm bar judges each napper's first call back)")) + &summons.least_orig_margin.map_or(String::new(), |m| format!("; from the stamp's original tick {m} gt (information: the old >= 23 of ironspec 19:40 PT is superseded)")),
         LANES.iter().zip(summons.min_rotation.iter()).map(|(x, m)| format!("lane {x} {}", m.map_or("-".to_string(), |v| v.to_string()))).collect::<Vec<_>>().join(", "),
         usize::from(!nappers.is_empty()),
         if summons.rows.is_empty() { String::new() } else { format!(": {}", summons.rows.join("; ")) }
@@ -5833,11 +6004,32 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             // (G1, farmopt 06:12 PT) every rider's activity across the schedule switch
             let strips: Vec<String> = recs.values().filter(|r| !r.switch_strip.is_empty()).map(|r| format!("{} {}", r.label.split(' ').next().unwrap_or(""), r.switch_strip)).collect();
             let rest_at_switch = recs.values().filter(|r| r.switch_strip.contains('R')).count();
+            // (ironspec 06:55 platform (3)) each REST tick's place and scarer sight
+            let switch_places: Vec<String> = recs.values().filter_map(|r| r.switch_rest_at.as_ref().map(|p| format!("{}: {p}", r.label.split(' ').next().unwrap_or("")))).collect();
+            // (ironspec 06:55 platform (2)) the per-cell spell table
+            let spell_rows: Vec<String> = {
+                let mut v: Vec<(&[i32; 3], &(Vec<i64>, i64))> = spell_by_cell.iter().collect();
+                v.sort_by(|a, b| b.1.0.len().cmp(&a.1.0.len()).then(a.0.cmp(b.0)));
+                v.iter()
+                    .take(40)
+                    .map(|(c, (lens, held))| {
+                        let mut l = lens.clone();
+                        l.sort();
+                        let med = l[l.len() / 2];
+                        format!("({},{},{}) {} spells, median {} gt, max {} gt, {} over 100 gt, {} with WALK_TARGET held at entry", c[0], c[1], c[2], l.len(), med, l.last().copied().unwrap_or(0), l.iter().filter(|x| **x > 100).count(), held)
+                    })
+                    .collect()
+            };
             s.push_str(&format!(
-                "  each rider's activity at every tick of day time 11,990..=12,040 (G1: a covered rider enters REST for not even one tick at the switch; P PANIC, R REST, r REST in its own trip, . other): {} riders seen, {} with a REST tick ({}): {}\n",
+                "  the counted REST spells by entry cell (ironspec 06:55 platform (2): a spell can arm only once the stale flee sink stops (~101-250 gt) or when it starts with no flee target; the most spells first): {}\n",
+                if spell_rows.is_empty() { "none".to_string() } else { spell_rows.join("; ") }
+            ));
+            s.push_str(&format!(
+                "  each rider's activity at every tick of day time 11,990..=12,040 (G1: a covered rider enters REST for not even one tick at the switch; P PANIC, R REST, r REST in its own trip, . other): {} riders seen, {} with a REST tick ({}){}: {}\n",
                 strips.len(),
                 rest_at_switch,
                 if strips.is_empty() { "NOT JUDGED (the run doesn't cross 12,000): FAIL" } else if rest_at_switch == 0 { "PASS" } else { "FAIL" },
+                if switch_places.is_empty() { String::new() } else { format!("; each one's first REST tick, place and scarer sight (ironspec 06:55 platform (3)): {}", switch_places.join("; ")) },
                 if strips.is_empty() { "none".to_string() } else { strips.join("; ") }
             ));
             // (ironfarm / G1) each lane's queue occupancy per tick, V flagged
@@ -6722,6 +6914,37 @@ mod counter_tests {
         assert_eq!(super::night_of(12_000), 0);
         assert_eq!(super::night_of(11_999), -1);
         assert_eq!(super::night_of(36_000), 1);
+    }
+
+    /// (G1 07:17 PT) a module with a stored cart the run drops and seeded carts after it: the scene's
+    /// entity lines are exactly the spawn list, the dropped cart absent, the first seeded cart present,
+    /// each named by its index
+    #[test]
+    fn the_scene_lines_are_the_spawn_list() {
+        let cart = |x: f64, y: f64, z: f64| ("minecraft:minecart".to_string(), [x, y, z], Some("{Passengers:[{id:\"minecraft:villager\"}]}".to_string()));
+        let mut list = vec![cart(-0.5, 0.0625, 0.5), cart(9.5, -13.4375, -3.5), ("minecraft:oak_boat".to_string(), [2.5, -12.0, -5.5], None)];
+        // (the build guide's start drops the stored queue cart, as run_inner does, then seeds the lanes)
+        list.retain(|e| !(e.0.contains("minecart") && [e.1[0].floor() as i32, e.1[1].floor() as i32, e.1[2].floor() as i32] == [9, -14, -4]));
+        list.extend(super::lane_carts(5));
+        let text = super::scene_entity_lines(&list);
+        let parsed: Vec<(usize, String, [f64; 3])> = text
+            .lines()
+            .collect::<Vec<_>>()
+            .chunks(2)
+            .map(|p| {
+                let n: usize = p[0].trim_start_matches("# e").parse().unwrap();
+                let f: Vec<&str> = p[1].split_whitespace().collect();
+                (n, f[1].to_string(), [f[2].parse().unwrap(), f[3].parse().unwrap(), f[4].parse().unwrap()])
+            })
+            .collect();
+        assert_eq!(parsed.len(), list.len());
+        for (i, (n, ty, p)) in parsed.iter().enumerate() {
+            assert_eq!(*n, i);
+            assert_eq!(*ty, list[i].0);
+            assert_eq!(*p, list[i].1);
+        }
+        assert!(!parsed.iter().any(|(_, _, p)| *p == [9.5, -13.4375, -3.5]), "the dropped queue cart isn't in the scene");
+        assert_eq!(parsed[2].2, [-0.5, 17.5625, 1.5], "the first seeded cart (lane -1's R_1) follows the module's kept lines");
     }
 }
 
