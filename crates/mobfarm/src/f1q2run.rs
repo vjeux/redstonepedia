@@ -144,6 +144,10 @@ pub struct Opts {
     pub vholds_control: Option<String>,
     /// (cc767b78 11:15) The build's offset from the design frame (x / z whole chunks).
     pub offset: [i32; 3],
+    /// (day-1's Delta, ironspec 12:41 (4)) the hold pulse's shift (gt).
+    pub hold_pulse_delta: i64,
+    /// (ironspec 13:04 (1), cc767b78's switch) a seated rider's doPush onto carts off: a counterfactual.
+    pub rider_push_off: bool,
     /// (ironspec 10:51 (g)) the longest designed rest on a station hold H's trapdoor, gt.
     pub h_rest_bound: i64,
     /// (ironspec 10:51 (f)) the siding check's positive: a batch cart planted on lane -1's siding R.
@@ -869,6 +873,8 @@ struct Ctl {
     /// cleared this pass, and whether to hold them all to (8,25,9) as before (--picker-hold-to-leg)
     divert_cleared: [bool; 3],
     picker_hold_to_leg: bool,
+    /// (day-1's Delta, ironspec 12:41 (4)) the hold pulse's shift in gt (and the taps keyed off it)
+    hold_delta: i64,
     /// (G1 10:47 blocking 4's control) the eject-on-R control: armed, and its sample (tick, lane,
     /// the napper, PRESENT_l right after)
     eject_control: bool,
@@ -1868,6 +1874,9 @@ impl Ctl {
             // napper caught and its catch margin: the sample's tick minus Q-up (the waiting RS's set +
             // k_lock), bar >= 2
             self.h2_log.push((now, k, now - (s + k_lock)));
+            // (day-1's Delta, ironspec 12:41 (4): --hold-pulse-delta shifts the hold's pulse and every
+            // tap keyed off the fired pulse (the K windows, PRESENT, J(-1)'s block) by Delta gt)
+            let a = a + self.hold_delta;
             self.hold_on = Some(a + 10);
             self.hold_off = Some(a + 22);
             self.rs_set = None;
@@ -2820,6 +2829,9 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     } else {
         (Run::new_homeless(&sp_world, &ro)?, Vec::new())
     };
+    // (ironspec 13:04 (1), cc767b78's switch) a seated rider's doPush onto carts off, from the first
+    // tick: a counterfactual measurement with no game twin
+    run.world.mob.rider_cart_push_off = o.rider_push_off;
     let bed = dbp(o.bed[0], o.bed[1], o.bed[2]);
     // (ironspec 08:05 platform (2), cc767b78's check 2) with --c7-placement, the HOME holders after
     // each setup phase, to find the setter of the stored riders' HOME
@@ -3012,6 +3024,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         ctl.misroute_left = if o.misroute_control { 2 } else { 0 };
         ctl.eject_control = o.eject_control;
         ctl.picker_hold_to_leg = o.picker_hold_to_leg;
+        ctl.hold_delta = o.hold_pulse_delta;
     }
     // (day-1 06:07 PT, ctlcounter.rs; G1's blocker 3: the counter's state at the first release, a
     // clear clock's: C = 141 + ceil((d - 12,540) / 100) for a first release at day time d between
@@ -8951,6 +8964,50 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             r.home_lost.len(),
             r.home_lost.iter().map(|c| format!("; {c}")).collect::<String>()
         ));
+    }
+    // (ironspec 13:04 (1) / 12:41 (4), R6 per pick) each outbound napper's pass of each J at or east of
+    // its own lane's: the margin (b) - (a) - 4, (a) the napper clearing J (its exit from (j,25,9)),
+    // (b) the next batch cart entering that J; with the hold pulse's Delta and the push switch named
+    {
+        let mut rows: Vec<String> = Vec::new();
+        let mut least: BTreeMap<i32, (i64, String)> = BTreeMap::new();
+        for (t_div, cid) in ctl.divert_log.iter() {
+            let Some((_, _, v, k)) = ctl.pick_carts.iter().rev().find(|(pt, pc, _, _)| pc == cid && pt <= t_div) else { continue };
+            let Some(ents) = cart_entries.get(cid) else { continue };
+            for j in LANES.iter().copied().filter(|j| *j >= LANES[*k]) {
+                // the napper's exit from J's cell after its divert
+                let exit = ents.windows(2).find(|p| p[0].1 == [j, 25, 9] && p[1].1 != [j, 25, 9] && p[1].0 >= *t_div).map(|p| p[1].0);
+                let Some(a) = exit else {
+                    rows.push(format!("pick t {t_div} #{v} (lane x {}) at J({j}): no exit seen", LANES[*k]));
+                    continue;
+                };
+                let b = junction_passes.iter().filter(|p| p.1 == [j, 25, 9] && p.2 == "batch" && p.0 > a).map(|p| p.0).min();
+                match b {
+                    Some(b) => {
+                        let m = b - a - 4;
+                        rows.push(format!("pick t {t_div} #{v} (lane x {}) J({j}): clears {a}, batch {b}, margin {m}", LANES[*k]));
+                        let e = least.entry(j).or_insert((i64::MAX, String::new()));
+                        if m < e.0 {
+                            *e = (m, format!("pick t {t_div} #{v}"));
+                        }
+                    }
+                    None => rows.push(format!("pick t {t_div} #{v} (lane x {}) J({j}): clears {a}, no batch cart after it", LANES[*k])),
+                }
+            }
+        }
+        s.push_str(&format!(
+            "the outbound napper's R6 margins per pick (ironspec 12:41 (4) / 13:04 (1): (b) - (a) - 4 at each J at or east of its own lane's, (a) its exit from J, (b) the next batch cart's entry; the hold pulse's Delta {} gt; rider doPush onto carts: {}; information): the least per J: {}; {}\n",
+            o.hold_pulse_delta,
+            if o.rider_push_off { "off (a counterfactual, no game twin)" } else { "on (the game)" },
+            if least.is_empty() { "none".to_string() } else { least.iter().map(|(j, (m, w))| format!("J({j}) {m} gt ({w})")).collect::<Vec<_>>().join(", ") },
+            if rows.is_empty() { "no pick".to_string() } else { rows.join("; ") }
+        ));
+        // (ironspec 13:04 (1)) the push switch's own record: a run with it on that skipped nothing
+        // measured nothing
+        if o.rider_push_off {
+            let n = run.world.mob.rider_cart_pushes_skipped;
+            s.push_str(&format!("rider doPush onto carts: off (a counterfactual, no game twin; cc767b78's switch): {n} pushes skipped ({})\n", if n > 0 { "PASS" } else { "FAIL: it measured nothing" }));
+        }
     }
     // (G1 blocking 8 / U11: nothing silently dropped) the run log and the controller's log, each cut
     // at a stated length with the count of the lines not printed
