@@ -3223,6 +3223,9 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     // (ironspec 10:29 (3)) per lane: the drop passes, the C deflections (C west into c3 by a cart not
     // a napper's) and the off-rail rests in the drop region
     let mut drop_passes = [0i64; 3];
+    // (ironspec 11:09 (1): how a lane reaches a 9th cart) the conservation ledger per lane: every cart
+    // entering its queue (dropped in from the lip) and leaving its pocket P, (tick, cart, +1 / -1, what)
+    let mut ledger: [Vec<(i64, u32, i64, String)>; 3] = [Vec::new(), Vec::new(), Vec::new()];
     let mut c_deflections: [Vec<String>; 3] = [Vec::new(), Vec::new(), Vec::new()];
     let mut lip_rests = [0i64; 3];
     // (ironspec 09:21-09:25 platform) every mob-on-cart push: tick, cart, its lane at t0, the pusher's
@@ -6058,6 +6061,12 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 for (k, x) in LANES.iter().enumerate() {
                     if p == [*x, 24, 6] && c == [*x, 23, 6] {
                         drop_passes[k] += 1;
+                        // (ironspec 11:09 (1), the conservation ledger) a cart entering lane x's queue
+                        ledger[k].push((rel, e.id, 1, "dropped in from the lip".to_string()));
+                    }
+                    if p == [*x, 0, 0] && c != [*x, 0, 0] {
+                        // (the ledger) a cart leaving lane x's pocket P (the station's exit)
+                        ledger[k].push((rel, e.id, -1, format!("left the pocket for ({},{},{})", c[0], c[1], c[2])));
                     }
                     if p == [*x, 24, 7] && c == [x - 1, 24, 7] && !e.passengers.first().is_some_and(|r| nappers.iter().any(|(v, _, _)| v == r)) {
                         c_deflections[k].push(format!("t {rel} cart #{}", e.id));
@@ -8540,6 +8549,37 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     // after its leader's (the pair gap), and each batch cart's loop transit, its hold H release (a rest
     // on H ending) to its next lip arrival
     let s = {
+        // (ironspec 11:09 (1)) the conservation ledger: per lane the t0 count (D4's region) plus the
+        // carts dropped in minus the carts that left the pocket, its timeline every 500 gt, and the
+        // ten events before the ledger first reached 9
+        let mut out: Vec<String> = Vec::new();
+        for k in 0..3 {
+            let base = lane_ids_t0[k].len() as i64;
+            let mut n = base;
+            let mut first9: Option<usize> = None;
+            let mut timeline: Vec<String> = Vec::new();
+            let mut next_mark = 500i64;
+            for (i, (t, _, d, _)) in ledger[k].iter().enumerate() {
+                while *t >= next_mark {
+                    timeline.push(format!("t {next_mark} {n}"));
+                    next_mark += 500;
+                }
+                n += d;
+                if n >= 9 && first9.is_none() {
+                    first9 = Some(i);
+                }
+            }
+            let before9 = first9.map(|i| ledger[k][i.saturating_sub(9)..=i].iter().map(|(t, c, d, what)| format!("t {t} #{c} {} {what}", if *d > 0 { "+1" } else { "-1" })).collect::<Vec<_>>().join("; "));
+            out.push(format!(
+                "lane x {}: t0 {base}, in {}, out {}, at the end {n}; {}; {}",
+                LANES[k],
+                ledger[k].iter().filter(|e| e.2 > 0).count(),
+                ledger[k].iter().filter(|e| e.2 < 0).count(),
+                if timeline.is_empty() { "no timeline".to_string() } else { format!("every 500 gt: {}", timeline.join(", ")) },
+                before9.map_or("never at 9 (PASS)".to_string(), |b| format!("FIRST AT 9 (FAIL) after: {b}"))
+            ));
+        }
+        let s = format!("{s}the conservation ledger (ironspec 11:09 (1): per lane its t0 carts + the carts dropped into its queue - the carts leaving its pocket; a 9th FAILS, with the ten events before it): {}\n", out.join(" | "));
         let q = |mut v: Vec<i64>| -> String {
             if v.is_empty() {
                 return "-".to_string();
