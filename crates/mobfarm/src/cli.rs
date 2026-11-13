@@ -2102,6 +2102,10 @@ pub enum MobfarmCmd {
         /// still on the lift exit (-5,23,8) for N gt (~11 the stated maximum; >= 25 the jam positive).
         #[arg(long, value_delimiter = ',')]
         lift_block: Vec<i64>,
+        /// (cc767b78) N,A,B: with --drive-out, the scene's entity eN traced per tick over run ticks
+        /// A..=B (position, motion, rider, its cell's block and the one under it).
+        #[arg(long, value_delimiter = ',')]
+        trace_entity: Vec<i64>,
         /// (ironspec 11:15) An S-bend seat whose stamp resets are counted:
         /// `NAME=x,y,z:cx,cy,cz+cx,cy,cz...` (the seat's rail cell, its clearing candidates).
         /// Repeatable.
@@ -7659,7 +7663,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 std::process::exit(1);
             }
         }
-        MobfarmCmd::F1q2Run { design, seed, ticks, day0, lane_carts, restart_every, restart_at, restart_order, control_rider, trace, drive, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour_golems, cart_trace, drive_out, scene_out, watchdog, stale_start, held_at_divert, report_only, queue_hold, empty_pocket, stack_bench, inert_control, gossip_control, bystander_control, seed_queued_napper, day_threshold, bed_ticket_taken, stamp_control, home_erase_control, air_control, rider_trace, rs_ready_early_control, bystander_dud, day_phase_control, c7_placement, c7_home_stored, lift_block } => {
+        MobfarmCmd::F1q2Run { design, seed, ticks, day0, lane_carts, restart_every, restart_at, restart_order, control_rider, trace, drive, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour_golems, cart_trace, drive_out, scene_out, watchdog, stale_start, held_at_divert, report_only, queue_hold, empty_pocket, stack_bench, inert_control, gossip_control, bystander_control, seed_queued_napper, day_threshold, bed_ticket_taken, stamp_control, home_erase_control, air_control, rider_trace, rs_ready_early_control, bystander_dud, day_phase_control, c7_placement, c7_home_stored, lift_block, trace_entity } => {
             let (c, spec) = load(version, &design)?;
             let bed = *c.clock.design.ports.get("home").ok_or_else(|| anyhow::anyhow!("{}: no `home` port (the shared bed's head)", design.display()))?;
             // (the seats: NAME=x,y,z:cx,cy,cz+...)
@@ -7775,7 +7779,10 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let (k_lock, k_sw) = (num("k-lock:"), num("k-sw:"));
             anyhow::ensure!(lift_block.is_empty() || lift_block.len() == 2, "--lift-block T,N");
             let lift_block = (lift_block.len() == 2).then(|| (lift_block[0], lift_block[1]));
-            let o = crate::f1q2run::Opts { seed, ticks, day0, lane_carts, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour, cart_trace, restarts, restart, control_rider, trace, bed, drive, drive_rec, watchdog, stale_start, held_at_divert, queue_hold, emulated, emulated_states, ts, update_only, empty_pocket, dwell_cap, stack_bench, stops, k_lock, k_sw, inert, always_on, push_pairs, way_in_composed, inert_control, watch_reasons, gossip_control, bystander_control, a6_pickup, seed_queued_napper, day_threshold, bed_ticket_taken, block_standins, stamp_control, home_erase_control, air_control, rider_trace, rs_ready_early_control, bystander_dud, day_phase_control, c7_placement, c7_home_stored, lift_block };
+            anyhow::ensure!(trace_entity.is_empty() || trace_entity.len() == 3, "--trace-entity N,A,B");
+            anyhow::ensure!(trace_entity.is_empty() || drive_out.is_some(), "--trace-entity names the drive's entities: it needs --drive-out");
+            let trace_entity = (trace_entity.len() == 3).then(|| (trace_entity[0] as usize, trace_entity[1], trace_entity[2]));
+            let o = crate::f1q2run::Opts { seed, ticks, day0, lane_carts, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour, cart_trace, restarts, restart, control_rider, trace, bed, drive, drive_rec, watchdog, stale_start, held_at_divert, queue_hold, emulated, emulated_states, ts, update_only, empty_pocket, dwell_cap, stack_bench, stops, k_lock, k_sw, inert, always_on, push_pairs, way_in_composed, inert_control, watch_reasons, gossip_control, bystander_control, a6_pickup, seed_queued_napper, day_threshold, bed_ticket_taken, block_standins, stamp_control, home_erase_control, air_control, rider_trace, rs_ready_early_control, bystander_dud, day_phase_control, c7_placement, c7_home_stored, lift_block, trace_entity };
             let (rep, out) = crate::f1q2run::run_driven(&spec, &o).map_err(|e| anyhow::anyhow!(e))?;
             print!("{rep}");
             if let (Some(df), Some(sf), Some((drive_text, scene_entities))) = (&drive_out, &scene_out, out) {
