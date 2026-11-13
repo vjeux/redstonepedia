@@ -153,6 +153,30 @@ fn farm_rider(w: &mut redsim::world::World, cart: u32, bed: BlockPos, stamp_age:
     }
 }
 
+/// `--seeds-matrix`'s list: comma-separated seeds and inclusive `A..B` ranges (`1..8`, `1,3,5..7`);
+/// empty, a reversed range or a non-number is an error, and so is a repeated seed.
+pub fn parse_seed_list(s: &str) -> Result<Vec<i64>, String> {
+    let mut out: Vec<i64> = Vec::new();
+    for part in s.split(',').map(str::trim) {
+        let (a, b) = match part.split_once("..") {
+            Some((a, b)) => (a.trim(), b.trim()),
+            None => (part, part),
+        };
+        let a: i64 = a.parse().map_err(|_| format!("--seeds-matrix {s}: {part:?} is not a seed or A..B"))?;
+        let b: i64 = b.parse().map_err(|_| format!("--seeds-matrix {s}: {part:?} is not a seed or A..B"))?;
+        if b < a {
+            return Err(format!("--seeds-matrix {s}: {part:?} runs backwards"));
+        }
+        for k in a..=b {
+            if out.contains(&k) {
+                return Err(format!("--seeds-matrix {s}: seed {k} twice"));
+            }
+            out.push(k);
+        }
+    }
+    Ok(out)
+}
+
 /// The drive's delay from the siding's switch to R powered, as the bench lays the feed: R's repeater 2
 /// gt, the feed path's repeater 2 more, day-1's delay-3 repeater 6 more with --feed-slime (the rest
 /// sweep's PRESENT lead reads it too: ironspec 10:54 (2)(d) on 1788d4f65, not a literal 8).
@@ -5453,6 +5477,23 @@ impl GateAgg {
             ),
             nj,
         )
+    }
+}
+
+#[cfg(test)]
+mod seed_list_tests {
+    use super::*;
+
+    /// `--seeds-matrix`: ranges and lists, and the refusals (a reversed range, a repeat, a non-number).
+    #[test]
+    fn the_seed_list() {
+        assert_eq!(parse_seed_list("1..8"), Ok((1..=8).collect::<Vec<i64>>()));
+        assert_eq!(parse_seed_list("1, 3, 5..7"), Ok(vec![1, 3, 5, 6, 7]));
+        assert_eq!(parse_seed_list("4"), Ok(vec![4]));
+        assert!(parse_seed_list("8..1").is_err());
+        assert!(parse_seed_list("1..3,2").is_err());
+        assert!(parse_seed_list("one").is_err());
+        assert!(parse_seed_list("").is_err());
     }
 }
 
