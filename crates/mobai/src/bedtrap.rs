@@ -216,15 +216,12 @@ fn trial(version: &str, jar: &std::path::Path, file: &std::path::Path, set: &[([
                 })
                 .collect::<Result<_>>()?
         };
-        // (G1 05:4x real, checklist item 6) the design's population: 24 riders, the napper
-        // included, each lane's queue <= 7 (F3's stated coverage); anything else only as a declared
-        // variant (MCTAS_BED_TRAP_POPULATION_VARIANT="why"), printed
-        let total: usize = lanes.iter().map(|l| l.1).sum::<usize>() + 1;
+        // (G1 05:4x real, checklist item 6; ironspec 08:06) the design's population: 24 riders, the
+        // napper included, each lane's queue <= 7 (F3's stated coverage), counted in the WORLD after
+        // the lanes are laid (the record's own stored riders included); anything else only as a
+        // declared variant (MCTAS_BED_TRAP_POPULATION_VARIANT="why"), printed
         let over = lanes.iter().any(|l| l.1 > 7);
-        match std::env::var("MCTAS_BED_TRAP_POPULATION_VARIANT") {
-            Ok(why) => println!("  POPULATION VARIANT (declared): {total} villagers (the napper included), lanes {lanes:?}: {why}"),
-            Err(_) => anyhow::ensure!(total == 24 && !over, "the population is {total} villagers (the napper included), lanes {lanes:?}: the design's is 24 with each queue <= 7; declare a variant (MCTAS_BED_TRAP_POPULATION_VARIANT) or fix it"),
-        }
+        let variant = std::env::var("MCTAS_BED_TRAP_POPULATION_VARIANT").ok();
         let xs: Vec<i32> = lanes.iter().map(|l| l.0).collect();
         let n = lanes.iter().map(|l| l.1).max().unwrap_or(0);
         let bed = approach.map(|a| a.home).unwrap_or([-3, 0, 4]);
@@ -266,6 +263,12 @@ fn trial(version: &str, jar: &std::path::Path, file: &std::path::Path, set: &[([
         // standing: none does) and every rider beyond the 16 of ValidateNearbyPoi at the start
         anyhow::ensure!(seated == lane_riders, "MCTAS_BED_TRAP_LANES: {seated} of {lane_riders} riders seated after the settle: the run fails");
         anyhow::ensure!(far == lane_riders, "MCTAS_BED_TRAP_LANES: {} rider(s) within 16 of the bed's centre at the start: the run fails", lane_riders - far);
+        let total = srv.count_entities("@e[type=minecraft:villager]")?;
+        match &variant {
+            Some(why) => println!("  POPULATION VARIANT (declared): {total} villagers in the world (a world count: the napper, the {lane_riders} lane riders and the record's own), lanes {lanes:?}: {why}"),
+            None => anyhow::ensure!(total == 24 && !over, "the population is {total} villagers in the world (a world count), lanes {lanes:?}: the design's is 24 with each queue <= 7; declare a variant (MCTAS_BED_TRAP_POPULATION_VARIANT) or fix it"),
+        }
+        println!("  the population: {total} villagers in the world (a world count, the record's own stored riders included)");
         let _ = &xs;
         // each rider's UUID, so the agent's " @uuid" lines name it
         let mut names = Vec::new();

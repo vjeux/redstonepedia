@@ -283,16 +283,31 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
     };
     let mut srv = VanillaServer::start(&opts(None))?;
     srv.cmd_ok("forceload add -32 -32 31 31")?;
-    srv.cmd_ok("time set 13800")?;
+    // (G1 on G #9 / H #2) the scene is summoned under the run's OWN day time: a brain takes its
+    // schedule activity when it is built (registerBrainGoals) and then updates it at most once every
+    // > 20 gt (Brain.updateActivityFromSchedule 327-335), so a night-built brain would sit in REST for
+    // the run's first ~21 gt
+    srv.cmd_ok(&format!("time set {day_start}"))?;
     crate::seatclear::place_blocks(&mut srv, scene)?;
     let d = mctas::design::Design::load(scene)?;
     let mut by_uuid: BTreeMap<String, usize> = BTreeMap::new();
     let mut vs: Vec<V> = Vec::new();
     let mut cart_tags: Vec<String> = Vec::new();
+    // (G1 on H #2) each villager's activity as its brain is built at the summon: the agent prints it
+    // before the brain knows its owner ("@none"), so the lines between two summons are that entity's
+    let mut slog = Log { at: std::fs::metadata(&srv.log)?.len() };
+    let mut built: BTreeMap<String, String> = BTreeMap::new();
     for (n, e) in d.entities.iter().enumerate() {
         let (nbt, kinds) = tagged(e.nbt.as_deref().unwrap_or(""), n);
         let out = srv.cmd(&format!("summon {} {} {} {} {nbt}", e.kind, e.pos[0], e.pos[1] + DY as f64, e.pos[2]))?;
         anyhow::ensure!(out.contains("Summoned new"), "entity line {n} ({} at {:?}): {}", e.kind, e.pos, out.trim());
+        let acts_built: Vec<String> = slog.drain(&srv)?.into_iter().filter_map(|l| l.strip_prefix("activity ").map(|r| r.split_whitespace().next().unwrap_or("").trim_start_matches("minecraft:").to_string())).collect();
+        let villagers = kinds.iter().filter(|k| *k == "minecraft:villager").count();
+        if villagers == 1
+            && let Some(last) = acts_built.last()
+        {
+            built.insert(format!("e{n}p{}", kinds.iter().position(|k| k == "minecraft:villager").unwrap_or(0)), last.clone());
+        }
         if e.kind.contains("minecart") {
             cart_tags.push(format!("e{n}"));
         }
@@ -306,14 +321,54 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
         }
     }
     println!("  the scene's entity lines summoned: {}; villagers named: {} ({})", d.entities.len(), vs.len(), vs.iter().map(|v| v.tag.as_str()).collect::<Vec<_>>().join(" "));
+    // (G1 / ironspec 07:57 (2)) the scene's own `# eN` names asserted at t0: each tagged line's name is
+    // its spawn index (the replay's tag), and the game's entity has the line's type and position
+    {
+        let text = std::fs::read_to_string(scene)?;
+        let mut pending: Option<String> = None;
+        let mut named: Vec<(String, String, [f64; 3])> = Vec::new();
+        for l in text.lines() {
+            let l = l.trim();
+            if let Some(n) = l.strip_prefix("# e")
+                && !n.is_empty()
+                && n.chars().all(|c| c.is_ascii_digit())
+            {
+                pending = Some(format!("e{n}"));
+            } else if let Some(rest) = l.strip_prefix("entity:") {
+                let w: Vec<&str> = rest.split_whitespace().collect();
+                anyhow::ensure!(w.len() >= 4, "a short entity line: {l}");
+                let pos = [w[1].parse::<f64>()?, w[2].parse::<f64>()?, w[3].parse::<f64>()?];
+                named.push((pending.take().unwrap_or_default(), w[0].to_string(), pos));
+            }
+        }
+        let tagged_lines = named.iter().filter(|(n, _, _)| !n.is_empty()).count();
+        if tagged_lines > 0 {
+            anyhow::ensure!(tagged_lines == named.len(), "{} of {} entity lines carry a `# eN` name: all or none", tagged_lines, named.len());
+            for (k, (name, kind, pos)) in named.iter().enumerate() {
+                anyhow::ensure!(*name == format!("e{k}"), "entity line {k} is named {name}: the drive's names must be the spawn order");
+                let p = pos_of(&mut srv, &format!("@e[tag=e{k},limit=1]"))?.ok_or_else(|| anyhow::anyhow!("{name}: not in the world at t0"))?;
+                anyhow::ensure!((p[0] - pos[0]).abs() < 1e-6 && (p[1] - pos[1]).abs() < 1e-6 && (p[2] - pos[2]).abs() < 1e-6, "{name}: at ({:.6},{:.6},{:.6}) at t0, its line says {pos:?}", p[0], p[1], p[2]);
+                let ty = srv.cmd_long(&format!("execute if entity @e[tag=e{k},type={kind},limit=1]"))?;
+                anyhow::ensure!(crate::strict::classify_test("type", &ty)?, "{name}: not a {kind} at t0");
+            }
+            // 26.3 spawns a summoned vehicle before its passengers (ServerLevel.addFreshEntityWithPassengers:
+            // getSelfAndPassengers in order), so the entity tick list runs e0, e0.p0, e1, … in file order
+            println!("  the scene's `# eN` names: {} lines, each its spawn index, type and t0 position asserted; the game's tick order is the spawn order (each cart before its rider)", named.len());
+        }
+    }
     srv.cmd_ok(&format!("time set {day_start}"))?;
     srv.cmd_ok("weather clear 1000000")?;
     srv.cmd_ok("gamerule advance_time true")?;
     let gt0 = srv.game_time()?;
     let mut log = Log { at: 0 };
+    let mut setup_lines: Vec<String>;
+    let (mut home_set_t0, mut slept_set_t0) = (0usize, 0usize);
     // (G1 on G #6) the agent hooks this replay reads must have installed (N > 0), and a positive:
     // a scratch villager given 1 drowning damage must print its `hurt drown` line
     {
+        // (G1 on G #9) the setup's own agent lines kept: each villager's activity before t0 comes from
+        // them (the summon-time brain build, then the switch after the run's day is set)
+        setup_lines = Log { at: 0 }.drain(&srv)?;
         let text = std::fs::read_to_string(&srv.log)?;
         for (what, needle) in [("+hurt", "LivingEntity reports hurtServer ("), ("+poi acquire", "AcquirePoi reports findPathToPois's path ("), ("+poi tickets", "PoiRecord reports acquireTicket and releaseTicket (")] {
             let n: Option<u32> = text.lines().find_map(|l| l.split(needle).nth(1)).and_then(|r| r.split_whitespace().next()).and_then(|s| s.parse().ok());
@@ -325,15 +380,44 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
         let su = uuid_hex(&mut srv, "@e[tag=scratchv,limit=1]")?;
         log.at = std::fs::metadata(&srv.log)?.len();
         let out = srv.cmd("damage @e[tag=scratchv,limit=1] 1 minecraft:drown")?;
-        srv.step(1)?;
-        let lines = log.drain(&srv)?;
+        // the damage command calls hurtServer at once: the line is read from the log without stepping
+        // the world (a setup tick would put the scene one tick ahead of the drive's clock)
+        let mut lines = Vec::new();
+        let t_wait = std::time::Instant::now();
+        while t_wait.elapsed() < std::time::Duration::from_secs(5) {
+            lines.extend(log.drain(&srv)?);
+            if lines.iter().any(|l: &String| l.starts_with("hurt drown")) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        setup_lines.extend(lines.iter().cloned());
         let hit = lines.iter().any(|l| l.starts_with("hurt drown") && l.ends_with(&format!("@{su}")));
         srv.cmd("kill @e[tag=scratchv]")?;
         srv.cmd(&format!("setblock 28 {} 28 minecraft:air", 100 + DY))?;
         println!("  the +hurt positive (a scratch villager, `damage … 1 minecraft:drown`: {}): {}", out.trim(), if hit { "its `hurt drown` line printed" } else { "NO line" });
         anyhow::ensure!(hit, "the +hurt positive printed no `hurt drown` line: a drowning would go unseen");
     }
-    log.drain(&srv)?;
+    setup_lines.extend(log.drain(&srv)?);
+    for v in vs.iter_mut() {
+        if let Some(a) = built.get(&v.tag) {
+            v.activity = a.clone();
+        }
+    }
+    for l in &setup_lines {
+        let Some(&vi) = l.rsplit(" @").next().and_then(|u| by_uuid.get(u.trim())) else { continue };
+        if let Some(rest) = l.strip_prefix("activity ") {
+            vs[vi].activity = rest.split_whitespace().next().unwrap_or("").trim_start_matches("minecraft:").to_string();
+        } else if l.starts_with("set minecraft:nearest_hostile") {
+            vs[vi].hostile = true;
+        } else if l.starts_with("erase minecraft:nearest_hostile") {
+            vs[vi].hostile = false;
+        }
+    }
+    println!(
+        "  the brains before t0 (from the setup's own lines): {}",
+        vs.iter().map(|v| format!("{}={}", v.tag, if v.activity.is_empty() { "?" } else { v.activity.as_str() })).collect::<Vec<_>>().join(" ")
+    );
     let centre = [bed[0] as f64 + 0.5, bed[1] as f64 + 0.5, bed[2] as f64 + 0.5];
     let home_target = format!("BlockPos{{x={}, y={}, z={}}}", bed[0], bed[1] + DY, bed[2]);
     let mut noop: Vec<String> = Vec::new();
@@ -420,14 +504,24 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
             match a.verb.as_str() {
                 "home" | "last-slept" => {
                     let who = a.args.first().ok_or_else(|| anyhow::anyhow!("t{t}: {} with no entity", a.verb))?.replace('.', "");
+                    // (G1 on G #1, ironspec 08:21) each memory act read back: the game holds what the
+                    // drive wrote
                     if a.verb == "home" {
                         anyhow::ensure!(a.args.len() == 4, "t{t}: home eN.pK x y z");
                         let p: Vec<i32> = a.args[1..].iter().map(|s| s.parse()).collect::<Result<_, _>>()?;
                         srv.cmd_ok(&format!("data merge entity @e[tag={who},limit=1] {{Brain:{{memories:{{\"minecraft:home\":{{value:{{dimension:\"minecraft:overworld\",pos:[I;{},{},{}]}}}}}}}}}}", p[0], p[1] + DY, p[2]))?;
+                        let back = crate::strict::data_value(&mut srv, &format!("data get entity @e[tag={who},limit=1] Brain.memories.\"minecraft:home\".value.pos"))?;
+                        let want = format!("[I; {}, {}, {}]", p[0], p[1] + DY, p[2]);
+                        anyhow::ensure!(back.as_deref() == Some(want.as_str()), "t{t}: {who}'s HOME read back {back:?}, the act wrote {want}");
+                        home_set_t0 += usize::from(t == 0);
                     } else {
                         anyhow::ensure!(a.args.len() == 2, "t{t}: last-slept eN.pK d");
                         let dt: i64 = a.args[1].parse()?;
-                        srv.cmd_ok(&format!("data merge entity @e[tag={who},limit=1] {{Brain:{{memories:{{\"minecraft:last_slept\":{{value:{}L}}}}}}}}", gt0 + t as i64 + dt))?;
+                        let v = gt0 + t as i64 + dt;
+                        srv.cmd_ok(&format!("data merge entity @e[tag={who},limit=1] {{Brain:{{memories:{{\"minecraft:last_slept\":{{value:{v}L}}}}}}}}"))?;
+                        let back = crate::strict::data_value(&mut srv, &format!("data get entity @e[tag={who},limit=1] Brain.memories.\"minecraft:last_slept\".value"))?;
+                        anyhow::ensure!(back.as_deref() == Some(format!("{v}L").as_str()), "t{t}: {who}'s LAST_SLEPT read back {back:?}, the act wrote {v}");
+                        slept_set_t0 += usize::from(t == 0);
                     }
                 }
                 "set" => {
@@ -484,6 +578,19 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
             }
             applied += 1;
             ai += 1;
+        }
+        // (ironspec 08:21 / 08:23) the t0 state, before the first tick: every villager's HOME and
+        // LAST_SLEPT as the drive's t0 acts wrote them (each read back), the bed's ticket free (no
+        // ticket taken during the setup)
+        if t == 0 {
+            let taken = setup_lines.iter().filter(|l| l.starts_with("poi acquire")).count();
+            println!(
+                "  t0: HOME written and read back for {home_set_t0} villager(s), LAST_SLEPT for {slept_set_t0}, of {}; tickets taken during the setup: {taken} (start state (i): the ticket free){}",
+                vs.len(),
+                if home_set_t0 == vs.len() { "" } else { " (NOT every villager holds HOME)" }
+            );
+            anyhow::ensure!(taken == 0, "t0: {taken} ticket(s) taken during the setup: not start state (i)");
+            anyhow::ensure!(home_set_t0 == 0 || home_set_t0 == vs.len(), "t0: the drive gives HOME to {home_set_t0} of {} villagers", vs.len());
         }
         srv.step(1)?;
         let now = gt0 + t as i64 + 1;
@@ -645,11 +752,26 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
                 events.push(format!("t{t}: {tag} sight at its REST entry: {what}"));
             }
         }
-        // (G1 on G #9) the brains' activity at t1 asserted: summoned under the scene's time, every
-        // villager must have taken the run's own schedule activity (IDLE by day, or PANIC on a hostile)
-        if t == 0 && (0..11990).contains(&day) {
-            let wrong: Vec<String> = vs.iter().filter(|v| v.gone.is_none() && !matches!(v.activity.as_str(), "idle" | "panic")).map(|v| format!("{} {}", v.tag, if v.activity.is_empty() { "(no switch line)" } else { v.activity.as_str() })).collect();
-            println!("  the brains at t1 (day {day}): {}", if wrong.is_empty() { "every villager IDLE or PANIC".to_string() } else { format!("NOT on the schedule: {}", wrong.join(", ")) });
+        // (G1 on G #9, on H #2) the brains' activity at t1 asserted: by day the run's schedule activity
+        // (IDLE, or PANIC on a hostile); by night REST, or PANIC with a hostile sensed
+        if t == 0 {
+            let night0 = !(0..11990).contains(&day);
+            let wrong: Vec<String> = vs
+                .iter()
+                .filter(|v| v.gone.is_none())
+                .filter(|v| match v.activity.as_str() {
+                    "idle" => night0,
+                    "rest" => !night0,
+                    "panic" => !v.hostile && night0,
+                    _ => true,
+                })
+                .map(|v| format!("{} {}", v.tag, if v.activity.is_empty() { "(no activity line)" } else { v.activity.as_str() }))
+                .collect();
+            println!(
+                "  the brains at t1 (day {day}, {}): {}",
+                if night0 { "night: REST, or PANIC with a hostile sensed" } else { "day: IDLE or PANIC" },
+                if wrong.is_empty() { "every villager on the schedule".to_string() } else { format!("NOT on the schedule: {}", wrong.join(", ")) }
+            );
             anyhow::ensure!(wrong.is_empty(), "at t1 {} villager(s) not on the run's schedule activity: {}", wrong.len(), wrong.join(", "));
         }
         // (G1's air-model fidelity row) MCTAS_REPLAY_AIR=<tag>: that villager's air supply every tick
@@ -963,6 +1085,17 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
         println!("    no-op act {n}");
     }
     anyhow::ensure!(unread.is_empty(), "{} agent line(s) unread (first: {}): the run fails", unread.len(), unread.first().map(|s| s.as_str()).unwrap_or(""));
+    // (G1 on H #1) every `# expect` line must be checked (one that never ran, or slipped a name map,
+    // isn't a pass), and an open-loop drive is no design run: it exits non-zero unless declared
+    // fidelity-only (MCTAS_REPLAY_FIDELITY_ONLY=1, printed)
+    let expect_lines = acts.iter().filter(|a| a.expect.is_some()).count();
+    let fidelity_only = std::env::var_os("MCTAS_REPLAY_FIDELITY_ONLY").is_some();
+    println!(
+        "  run kind: {}; expect lines {expect_lines}, checked {expects_checked}",
+        if expect_lines > 0 { "closed-loop checked (a design run)" } else if fidelity_only { "OPEN LOOP, declared fidelity-only (MCTAS_REPLAY_FIDELITY_ONLY): mechanics only, no design verdict" } else { "OPEN LOOP (no `# expect` lines): not a design run" }
+    );
+    anyhow::ensure!(expects_checked == expect_lines, "{expects_checked} of {expect_lines} `# expect` line(s) checked: the run fails");
+    anyhow::ensure!(expect_lines > 0 || fidelity_only, "an OPEN-LOOP drive (no `# expect` lines) is no design run: declare it with MCTAS_REPLAY_FIDELITY_ONLY=1 for a mechanics-only row; the run fails");
     anyhow::ensure!(judged > 0, "no night tick judged: NOT JUDGED, the run fails");
     anyhow::ensure!(applied == acts.len(), "only {applied} of {} acts applied within {ticks} gt", acts.len());
     anyhow::ensure!(first_div.is_none() || expects_checked == 0, "the replay diverged from redsim's recorded state at t{}: every design result after it is NOT JUDGED (drift): the run fails as a design run", first_div.unwrap_or(0));
