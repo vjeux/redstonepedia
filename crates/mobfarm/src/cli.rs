@@ -16570,7 +16570,18 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     for (c, _) in &lay_emulated {
                         declared.candidates.insert(*c, "emulated (the module's `emulated:` line)".to_string());
                     }
-                    let ents = r.entities.iter().map(|e| crate::recordmatch::Ent { kind: e.kind.clone(), pos: e.pos }).collect();
+                    let ents = r
+                        .entities
+                        .iter()
+                        .map(|e| -> anyhow::Result<crate::recordmatch::Ent> {
+                            // (the record's vehicles compared with their passengers, as main's record-match does)
+                            let passengers = match e.nbt.as_deref() {
+                                Some(n) => crate::recordmatch::passengers_of_nbt(n).map_err(|why| anyhow::anyhow!("{} at {:?}: {why}", e.kind, e.pos))?,
+                                None => Vec::new(),
+                            };
+                            Ok(crate::recordmatch::Ent { kind: e.kind.clone(), pos: e.pos, passengers })
+                        })
+                        .collect::<anyhow::Result<Vec<_>>>()?;
                     Some(std::sync::Arc::new(crate::bedtier::RecordCtx { cells: r.blocks, ents, offset, margin: record_margin, declared, name: rp.display().to_string() }))
                 }
                 None => None,
