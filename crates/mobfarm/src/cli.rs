@@ -8376,7 +8376,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     .collect::<anyhow::Result<Vec<_>>>()?
             };
             println!(
-                "return judge (cc767b78, bench, tool unreviewed; the lead's rows at {}: the controls at every corner (offsets {:?}, the departure spread {}..{} gt on each, napper {}), at the nominal corners every gt bar's margin >= {margin} and a save/stop/start at every phase t {}..{} in the 10 orders, the cold start = the control{}): {line}, {batches} batches, {ticks} ticks; {d_means}",
+                "return judge (cc767b78, bench, tool unreviewed; the lead's rows at {}: the controls at every corner (offsets {:?}, the departure spread {}..{} gt on each, napper {}), at the nominal corners every gt bar's margin >= {margin} and a save/stop/start at every phase t {}..{} in each of the 20 restart rows (10 orders, each a world open with N = 1 and 2), the cold start = the control{}): {line}, {batches} batches, {ticks} ticks; {d_means}",
                 if no_settings { format!("releases {speeds:?} with --station-lag {station_lag}") } else { format!("each calibration setting (ironspec 20:16; every one must pass): {}", runs.iter().map(|(s, lag, _)| format!("release {} with --station-lag {lag}", s[0])).collect::<Vec<_>>().join(", ")) },
                 offsets,
                 spread[0],

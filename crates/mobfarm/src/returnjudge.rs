@@ -5,7 +5,7 @@
 //! the pocket release speed, the napper's delay) the control — the cold start: the return starts empty,
 //! its latches idle, and nothing in it keys on world time, so every bar rides the batch's own launches
 //! (REL) — and at the nominal corners a save/stop/start at every 1-gt phase in each of
-//! `liveness::Restart::rows()`'s 10 orders (the bench's `--restart`), and logins of D gt at every phase
+//! `liveness::Restart::rows()`'s rows (10 orders, each a world open with N = 1 and 2: the bench's `--restart`), and logins of D gt at every phase
 //! (the bench's `--login`, through `liveness::freeze32`): up to `--lead-login-max` (3) gt the lead's
 //! (ironspec 09:26: a restart's riders officially miss 1 tick, the brief's bound <= 3 gt), longer the
 //! pearl alternative's stated limit (failures by gap length, the first failing gap). The
@@ -156,6 +156,9 @@ pub struct ReturnRead {
     /// ("moved (cart k, delta d)"; always a failure: re-run).
     pub restart_delta: Option<i64>,
     pub restart_moved: Option<String>,
+    /// The row's world open: its idle ticks (`Restart::load_ticks`), the game-time delta it must show (set by
+    /// the judge on each restart row).
+    pub restart_delta_want: Option<i64>,
     /// Each batch cart's y-12 pass after its batch's REL: from the `path (a):` line (`bB lane L +X`), keyed
     /// (batch, lane); and each cart line's "the rider's feet at y 12.01 at N" (N after the cart's own
     /// launch), keyed (cart index, batch, lane), for the station calibration check without path (a).
@@ -907,15 +910,15 @@ pub fn read(text: &str, napper: bool, k_cell: Option<(i32, i32, i32)>) -> Return
 pub fn fails(r: &ReturnRead, b: &ReturnBars, napper: bool) -> Vec<String> {
     let mut v = Vec::new();
     // (ironspec 20:35 / 21:07: a moving cart that moved across the load is no valid restart: re-run; the
-    // game-time delta barred at the row's load tick once the official load is on main (`restart_delta_bar`;
-    // main's liveness::restart runs no block-only tick yet, delta 0, so it isn't barred before then))
+    // game-time delta barred at the row's world open (its N idle ticks, `restart_delta_want`, set per restart
+    // row by the judge), or at `restart_delta_bar` when given)
     if let Some(m) = &r.restart_moved {
         v.push(format!("a moving cart's position across the load: {m} (re-run)"));
     }
-    if let (Some(d), Some(want)) = (r.restart_delta, b.restart_delta_bar)
+    if let (Some(d), Some(want)) = (r.restart_delta, r.restart_delta_want.or(b.restart_delta_bar))
         && d != want
     {
-        v.push(format!("restart game-time delta {d} (bar {want}: re-run)"));
+        v.push(format!("restart game-time delta {d} (bar {want}, the row's world open: re-run)"));
     }
     for m in &r.missing {
         v.push(format!("the bench's text lacks {m}"));
@@ -1309,7 +1312,7 @@ pub struct ReturnJudgeOpts {
     /// Every corner runs its control.
     pub corners: Vec<Corner>,
     /// The nominal corners: their controls' margins are held to `margin`; their restarts (every phase
-    /// in `starts`, the 10 orders) and logins run.
+    /// in `starts`, every row of `Restart::rows()`) and logins run.
     pub phase_corners: Vec<Corner>,
     pub starts: (i64, i64),
     pub restarts: bool,
@@ -1510,7 +1513,14 @@ pub fn judge(base: &ReturnOpts, o: &ReturnJudgeOpts) -> Result<(Vec<String>, usi
             }
         }
     }
-    let results = run_all(base, &runs, o.jobs)?;
+    let mut results = run_all(base, &runs, o.jobs)?;
+    // (each restart row's world open: the game-time delta it must show, its N idle ticks)
+    for ((_, row), r) in results.iter_mut() {
+        if let Row::Restart(_, how) = row {
+            r.restart_delta_want = Some(how.load_ticks());
+        }
+    }
+    let results = results;
     type Res = ((Corner, Row), ReturnRead);
     let fl = |c: &Corner, r: &ReturnRead| fails(r, &o.bars, c.napper.is_some());
     let mut out = Vec::new();
@@ -2791,10 +2801,16 @@ mod tests {
         let d1 = read(&rl(1, "held"), true);
         assert!(d1.errors.is_empty() && d1.restart_delta == Some(1) && d1.restart_moved.is_none() && fails(&d1, &pb, true).is_empty(), "{:?} {:?}", d1.errors, fails(&d1, &pb, true));
         let d2 = read(&rl(2, "none moving"), true);
-        assert!(fails(&d2, &pb, true).iter().any(|x| x.contains("restart game-time delta 2 (bar 1: re-run)")), "{:?}", fails(&d2, &pb, true));
+        assert!(fails(&d2, &pb, true).iter().any(|x| x.contains("restart game-time delta 2 (bar 1, the row's world open: re-run)")), "{:?}", fails(&d2, &pb, true));
         let d0 = read(&rl(0, "held"), true);
         assert!(fails(&d0, &ReturnBars { restart_delta_bar: None, ..pb.clone() }, true).is_empty(), "main's helper (delta 0) not barred before the official load: {:?}", fails(&d0, &ReturnBars { restart_delta_bar: None, ..pb.clone() }, true));
         let mv = read(&rl(1, "moved (cart 2, delta 0.3000)"), true);
+        // (the row's world open: a delta equal to its N idle ticks passes, another fails)
+        let mut w2 = read(&rl(2, "held"), true);
+        w2.restart_delta_want = Some(2);
+        assert!(fails(&w2, &ReturnBars { restart_delta_bar: None, ..pb.clone() }, true).is_empty(), "{:?}", fails(&w2, &ReturnBars { restart_delta_bar: None, ..pb.clone() }, true));
+        w2.restart_delta_want = Some(1);
+        assert!(fails(&w2, &ReturnBars { restart_delta_bar: None, ..pb.clone() }, true).iter().any(|x| x.contains("restart game-time delta 2 (bar 1")), "{:?}", fails(&w2, &pb, true));
         assert!(mv.errors.is_empty() && fails(&mv, &ReturnBars { restart_delta_bar: None, ..pb.clone() }, true).iter().any(|x| x.contains("a moving cart's position across the load: moved (cart 2, delta 0.3000) (re-run)")), "{:?} {:?}", mv.errors, fails(&mv, &pb, true));
         assert!(fails(&set9, &pb, true).iter().any(|x| x.contains("J(-1)'s settle 3 gt (entity-phase bar 2 + 2, its cause unnamed)")), "{:?}", fails(&set9, &pb, true));
         let clr9 = read(&format!("{T}{pa}{}", sc.replace("clear 12 gt", "clear 2 gt")), true);
