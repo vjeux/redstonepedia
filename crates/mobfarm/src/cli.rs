@@ -12535,7 +12535,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 anyhow::bail!("{}: the bench's world box is required (a `# world box: x0,y0,z0..x1,y1,z1` header line, or --box x0,y0,z0,x1,y1,z1): it is never inferred from the cells (ironspec 22:37 (a))", bench.display());
             };
             let (lo, hi) = ([lo[0] - margin, lo[1] - margin, lo[2] - margin], [hi[0] + margin, hi[1] + margin, hi[2] + margin]);
-            let ents = |d: &mctas::design::Design| -> Vec<crate::recordmatch::Ent> { d.entities.iter().map(|e| crate::recordmatch::Ent { kind: e.kind.clone(), pos: e.pos }).collect() };
+            let ents = |d: &mctas::design::Design| -> Vec<crate::recordmatch::Ent> {
+                d.entities.iter().map(|e| crate::recordmatch::Ent { kind: e.kind.clone(), pos: e.pos, passengers: e.nbt.as_deref().map(crate::recordmatch::passengers_of_nbt).unwrap_or_default() }).collect()
+            };
             let m = crate::recordmatch::compare(&b.blocks, &ents(&b), &r.blocks, &ents(&r), [offset[0], offset[1], offset[2]], lo, hi, &format!("{src} + a {margin}-cell margin"), &declared, &record.display().to_string());
             println!("{}", m.line());
             if all {
