@@ -906,12 +906,18 @@ pub enum MobfarmCmd {
     },
     /// (9fc3155f, ironspec Nov 11 20:55: tiling) The cross-module margins of the design tiled with
     /// a copy of itself: per --at offset (`dx,dy,dz`, or `dx,dy,dz,m` mirrored in z first), (a) a
-    /// golem on one pad sensed by the other's riders, (b) a summon marking the other's riders, (e)
-    /// zombies within 6.05 of the other's riders, (f) the beds' distance, (g) chunk alignment.
+    /// golem on one pad sensed by the other's riders (G1's per-axis box test, ironspec Nov 12 12:48:
+    /// every box gap under 16, |dx|, |dz| < 17.0 and the golem's feet < 17.95 above / < 18.7 below
+    /// the rider's), (b) a summon marking the other's riders, (e) zombies within 6.05 of the other's
+    /// riders, (f) the beds' distance, (g) chunk alignment.
     TileMargins {
         design: PathBuf,
         #[arg(long, allow_hyphen_values = true)]
         at: Vec<String>,
+        /// (a) by the conservative bound instead: the worst-case follow range 17.84 (|dx|, |dz| <
+        /// 18.84, the golem's feet < 19.79 above / < 20.54 below), the earlier metric.
+        #[arg(long)]
+        conservative: bool,
     },
     /// (9fc3155f, ironspec Nov 12 00:11) The static push-range scan: every cell where a cart rests
     /// or creeps (--rest cells, and every unpowered powered rail unless --no-auto; detector rails
@@ -949,6 +955,13 @@ pub enum MobfarmCmd {
         /// a rail cell and one a rest cell, refused otherwise.
         #[arg(long, allow_hyphen_values = true)]
         single_occupant: Vec<String>,
+        /// A declared always-on source x,y,z=REASON (repeatable; also read from the design's and
+        /// its parts' `always-on: x,y,z=REASON; ...` header lines; ironspec Nov 12 13:56, V15's
+        /// torches): a source that never toggles, checked (a redstone block, or a redstone torch
+        /// whose support conducts no power, glass), listed in the switched-cell scan with its
+        /// REASON and not counted; one that can toggle stays counted, flagged.
+        #[arg(long, allow_hyphen_values = true)]
+        always_on: Vec<String>,
         /// A resting cart's exact centre x,y,z (repeatable; a bench's rest point): its box inflated
         /// 0.2 in x and z only, against every passing cart's box off its cell's own route; its least
         /// gap printed.
@@ -1197,6 +1210,29 @@ pub enum MobfarmCmd {
         /// 12 11:15: 0 candidates lifted into the feed or switched cells; repeatable).
         #[arg(long, allow_hyphen_values = true)]
         candidate_box: Vec<String>,
+        /// With --clear-all: an approach x,y,z,gt (a rail cell, e.g. the shared lift's entrance, and
+        /// a travel time): every panicking position within gt of travel of it, how it panics (the
+        /// hostiles it sees, or its tail), its PANIC candidates with the block under each and its
+        /// P_null (ironspec Nov 12 12:13: a path computed up to 39 gt late, after MoveToTargetSink's
+        /// cooldown; repeatable).
+        #[arg(long, allow_hyphen_values = true)]
+        approach: Vec<String>,
+        /// With --clear-all: the late-path check's window in gt (ironspec Nov 12 12:13 / 12:29,
+        /// tick-exact's panic-lift row: MoveToTargetSink paths a PANIC draw only after its cooldown,
+        /// up to 39 gt): each PANIC candidate's path from every track node within it after the
+        /// draw; 0 = off.
+        #[arg(long, default_value_t = 39.0)]
+        late_gt: f64,
+        /// A seated rider's path from a cart at x,y,z to the target tx,ty,tz: its nodes, reached or
+        /// partial (the positive control against tick-exact's panic-lift row; repeatable).
+        #[arg(long, allow_hyphen_values = true)]
+        path_probe: Vec<String>,
+        /// With --clear-all: every bubble column of the design as a --scarer-column (ironspec Nov 12
+        /// 12:36: every bubble-column position in the gate): each vertical run of bubble_column
+        /// cells, riders going up a soul-sand column (drag=false) and down a magma one; a run at an
+        /// x,z a --scarer-column already gives is skipped.
+        #[arg(long)]
+        auto_columns: bool,
         /// With --clear-all: the panic sources only (PANIC's stroll and flee, the gate), without IDLE's
         /// at the calm positions (its stroll 10/7 and its walks to a rider it sees within 8, the stamp
         /// bar's input, printed apart as STAMP classes by default; ironspec Nov 12 10:24 / 10:49).
@@ -10044,7 +10080,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
         }
-        MobfarmCmd::PushScan { design, rest, no_auto, switch, controls, own_route_junction, single_occupant, rest_pos, chord_speed, bridged_pair, speed, bridge_hash, part } => {
+        MobfarmCmd::PushScan { design, rest, no_auto, switch, controls, own_route_junction, single_occupant, always_on, rest_pos, chord_speed, bridged_pair, speed, bridge_hash, part } => {
             let (_c, mut spec) = load(version, &design)?;
             // (the composition: the parts laid over the design with no move, as the official run
             // composes the module and its parts; the scan and every bridge hash run on it)
@@ -10193,8 +10229,17 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             for l in &tl {
                 println!("{l}");
             }
-            let (sl, su) = crate::pushscan::switched(&spec, &switches);
-            println!("switched-cell scan (every 3-connection plain rail, powered or activator rail and trapdoor: every source that can power it, only declared --switch sources allowed, a design's own redstone block listed as fixed; each detector's and its below-block's face neighbours): {su} undeclared");
+            let mut always_txt: Vec<String> = always_on.clone();
+            always_txt.extend(crate::pushscan::header_entries(&text, "always-on:"));
+            let mut always: Vec<(redsim::pos::BlockPos, String)> = Vec::new();
+            for d in &always_txt {
+                let (c, reason) = d.split_once('=').ok_or_else(|| anyhow::anyhow!("always-on {d}: x,y,z=REASON"))?;
+                let v: Vec<i32> = c.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(v.len() == 3, "always-on {d}: x,y,z=REASON");
+                always.push((redsim::pos::BlockPos::new(v[0], v[1], v[2]), reason.trim().to_string()));
+            }
+            let (sl, su) = crate::pushscan::switched(&spec, &switches, &always);
+            println!("switched-cell scan (every 3-connection plain rail, powered or activator rail and trapdoor: every source that can power it, only declared --switch sources allowed, a design's own redstone block listed as fixed, a declared `always-on:` source that can't toggle listed with its reason; each detector's and its below-block's face neighbours): {su} undeclared");
             for l in &sl {
                 println!("{l}");
             }
@@ -10204,7 +10249,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
         }
-        MobfarmCmd::TileMargins { design, at } => {
+        MobfarmCmd::TileMargins { design, at, conservative } => {
             let (_c, spec) = load(version, &design)?;
             let s = crate::tile::sets(&spec).map_err(|e| anyhow::anyhow!(e))?;
             println!(
@@ -10221,7 +10266,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 let v: Vec<&str> = a.split(',').collect();
                 anyhow::ensure!(v.len() == 3 || v.len() == 4, "--at dx,dy,dz[,m]");
                 let o = [v[0].trim().parse::<i32>()?, v[1].trim().parse::<i32>()?, v[2].trim().parse::<i32>()?];
-                println!("{}", crate::tile::candidate(&s, o, v.len() == 4));
+                println!("{}", crate::tile::candidate(&s, o, v.len() == 4, conservative));
             }
         }
         MobfarmCmd::Envelope { families, q1, q2, villagers } => {
@@ -10453,7 +10498,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 std::process::exit(1);
             }
         }
-        MobfarmCmd::FleeCheck { design, home, show, foot, clearing, eye_control, pickup_control, sampled, claim, classes, fix_search, fix_pairs, fix_block, clear_rate, clear_floors, clear_all, clear_tail, clear_list, tail_rest, clear_panic_only, allow_unsupported, candidate_box, path_watch, path_trace, scarer_search, scarer, scarer_rider, scarer_max, scarer_any_floor, scarer_walls, scarer_target, scarer_exact, scarer_check, scarer_transient, scarer_column, scarer_occlude, hide_point, hide_column, hide_rails, scarer_mix, scarer_visor, scarer_exclude, pillager, golem_reach, golem_pad, scarer_near, post_drift, drift_ticks } => {
+        MobfarmCmd::FleeCheck { design, home, show, foot, clearing, eye_control, pickup_control, sampled, claim, classes, fix_search, fix_pairs, fix_block, clear_rate, clear_floors, clear_all, clear_tail, clear_list, tail_rest, clear_panic_only, allow_unsupported, candidate_box, approach, late_gt, path_probe, auto_columns, path_watch, path_trace, scarer_search, scarer, scarer_rider, scarer_max, scarer_any_floor, scarer_walls, scarer_target, scarer_exact, scarer_check, scarer_transient, scarer_column, scarer_occlude, hide_point, hide_column, hide_rails, scarer_mix, scarer_visor, scarer_exclude, pillager, golem_reach, golem_pad, scarer_near, post_drift, drift_ticks } => {
             if let Some(oc) = &scarer_occlude {
                 let v: Vec<&str> = oc.split(',').collect();
                 anyhow::ensure!(v.len() == 4, "--scarer-occlude x,y,z,pillager|zombie");
@@ -10511,6 +10556,15 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             let (_c, spec) = load(version, &design)?;
             refuse_unsupported(&spec, allow_unsupported)?;
+            if !path_probe.is_empty() {
+                for s in &path_probe {
+                    let q: Vec<f64> = s.split(',').map(|t| t.trim().parse::<f64>()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(q.len() == 6, "--path-probe x,y,z,tx,ty,tz");
+                    let l = crate::fleecheck::path_probe(&spec, redsim::entity::Vec3::new(q[0], q[1], q[2]), redsim::pos::BlockPos::new(q[3] as i32, q[4] as i32, q[5] as i32)).map_err(|e| anyhow::anyhow!(e))?;
+                    println!("{l}");
+                }
+                return Ok(());
+            }
             if !golem_reach.is_empty() {
                 anyhow::ensure!(golem_reach.len() == 3 && golem_pad.len() == 6, "--golem-reach x,y,z --golem-pad x0,y0,z0,x1,y1,z1");
                 let g = &golem_pad;
@@ -10654,6 +10708,32 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     anyhow::ensure!(q.len() == 4, "--scarer-column x,y0,z,y1");
                     cols.push([q[0], q[1], q[2], q[3]]);
                 }
+                if auto_columns {
+                    // (every vertical run of bubble_column cells: up over soul sand, down over magma)
+                    let mut cells: std::collections::BTreeMap<(i32, i32), Vec<(i32, bool)>> = std::collections::BTreeMap::new();
+                    for (p, b) in &spec.blocks {
+                        let s = b.to_string();
+                        if s.contains("bubble_column") {
+                            cells.entry((p.x, p.z)).or_default().push((p.y, s.contains("drag=true")));
+                        }
+                    }
+                    for ((x, z), mut ys) in cells {
+                        if cols.iter().any(|c: &[f64; 4]| c[0].floor() as i32 == x && c[2].floor() as i32 == z) {
+                            continue;
+                        }
+                        ys.sort();
+                        let mut start = 0;
+                        for k in 1..=ys.len() {
+                            if k == ys.len() || ys[k].0 != ys[k - 1].0 + 1 {
+                                let (lo, hi, down) = (ys[start].0, ys[k - 1].0, ys[start].1);
+                                let (a, b) = if down { (hi as f64, lo as f64) } else { (lo as f64, hi as f64) };
+                                cols.push([x as f64 + 0.5, a, z as f64 + 0.5, b]);
+                                println!("auto column: x {x} z {z} y {lo}..{hi} ({})", if down { "down, magma" } else { "up, soul sand" });
+                                start = k;
+                            }
+                        }
+                    }
+                }
                 let mut rests = Vec::new();
                 for s in &tail_rest {
                     let q: Vec<i32> = s.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>()?;
@@ -10666,7 +10746,13 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     anyhow::ensure!(q.len() == 6, "--candidate-box x0,y0,z0,x1,y1,z1");
                     watch.push(([q[0].min(q[3]), q[1].min(q[4]), q[2].min(q[5])], [q[0].max(q[3]), q[1].max(q[4]), q[2].max(q[5])]));
                 }
-                for l in crate::fleecheck::clear_all(&spec, bed, &panic_boxes, &claims, &pills, &cols, clear_tail, &rests, clear_list, !clear_panic_only, &watch).map_err(|e| anyhow::anyhow!(e))? {
+                let mut appr = Vec::new();
+                for e in &approach {
+                    let q: Vec<f64> = e.split(',').map(|t| t.trim().parse::<f64>()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(q.len() == 4, "--approach x,y,z,gt");
+                    appr.push((redsim::pos::BlockPos::new(q[0] as i32, q[1] as i32, q[2] as i32), q[3]));
+                }
+                for l in crate::fleecheck::clear_all(&spec, bed, &panic_boxes, &claims, &pills, &cols, clear_tail, &rests, clear_list, !clear_panic_only, &watch, &appr, late_gt).map_err(|e| anyhow::anyhow!(e))? {
                     println!("{l}");
                 }
             }

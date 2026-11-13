@@ -1,7 +1,9 @@
 //! (9fc3155f, ironspec Nov 11 20:55: tiling rules (a)-(g)) The cross-module margins of a design
 //! tiled with a copy of itself at an offset (optionally mirrored in z): (a) a golem spawned on one
-//! module's pad sensed by the other's riders (the worst-case follow range 17.84: |dx|, |dz| < 18.84
-//! and the golem's feet < 19.79 above / < 20.54 below the rider's), (b) a summon in one module
+//! module's pad sensed by the other's riders (G1's per-axis box test, ironspec Nov 12 12:48: the
+//! rider's box inflated 16 meets the golem's iff |dx|, |dz| < 17.0 and the golem's feet < 17.95
+//! above / < 18.7 below the rider's; the earlier worst-case follow range 17.84, |dx|, |dz| < 18.84
+//! and < 19.79 above / < 20.54 below, kept as the conservative bound, opt-in), (b) a summon in one module
 //! marking the other's riders (|dx|, |dz| < 10.6 and feet within 11.95), (e) one module's zombies
 //! within 6.05 of the other's riders, and within 8 of its napper's sleep and stand-up points, (f)
 //! the beds' distance (a neighbour's bed is a village POI within 8 sections: no bar here), (g) the
@@ -104,9 +106,19 @@ pub fn place(p: Vec3, at: [i32; 3], mirror_z: bool) -> Vec3 {
     Vec3::new(p.x + at[0] as f64, p.y + at[1] as f64, z + at[2] as f64)
 }
 
-/// The sight margin of a golem (feet centre `g`) to a rider (feet `v`): negative when the rider
-/// senses it.
+/// The sense margin of a golem (feet centre `g`) to a rider (feet `v`), G1's per-axis box test
+/// (ironspec Nov 12 12:48, the tool's default): a villager senses an entity whose box meets its own
+/// box inflated by 16 on every axis, so the rider (0.6 wide, 1.95 tall) senses the golem (1.4 wide,
+/// 2.7 tall) iff every per-axis box gap is under 16: |dx|, |dz| < 17.0, the golem's feet less than
+/// 17.95 above the rider's and less than 18.7 below them; negative when the rider senses it.
 pub fn sight_margin(g: Vec3, v: Vec3) -> f64 {
+    ((g.x - v.x).abs() - 17.0).max((g.z - v.z).abs() - 17.0).max((g.y - v.y) - 17.95).max((v.y - g.y) - 18.7)
+}
+
+/// The conservative bound for (a), opt-in (--conservative): the worst-case follow range 17.84 (the
+/// earlier metric, superseded by G1's box test: |dx|, |dz| < 18.84, the golem's feet < 19.79 above /
+/// < 20.54 below the rider's); negative inside it.
+pub fn sight_margin_conservative(g: Vec3, v: Vec3) -> f64 {
     ((g.x - v.x).abs() - 18.84).max((g.z - v.z).abs() - 18.84).max((v.y - g.y) - 20.54).max((g.y - v.y) - 19.79)
 }
 
@@ -130,8 +142,8 @@ pub fn least(src: &[Vec3], dst: &[Vec3], f: impl Fn(Vec3, Vec3) -> f64) -> Optio
 }
 
 /// One tiling candidate's line: the copy at `at` (mirrored in z when `mirror_z`) against the
-/// original, both ways.
-pub fn candidate(a: &Sets, at: [i32; 3], mirror_z: bool) -> String {
+/// original, both ways; (a) by G1's box test, or by the conservative bound when `conservative`.
+pub fn candidate(a: &Sets, at: [i32; 3], mirror_z: bool, conservative: bool) -> String {
     let mv = |v: &Vec<Vec3>| -> Vec<Vec3> { v.iter().map(|p| place(*p, at, mirror_z)).collect() };
     let (br, bw, bs, bg, bz) = (mv(&a.riders), mv(&a.waiting), mv(&a.summoners), mv(&a.golems), mv(&a.zombies));
     let both = |src_a: &[Vec3], dst_b: &[Vec3], src_b: &[Vec3], dst_a: &[Vec3], f: &dyn Fn(Vec3, Vec3) -> f64| -> Option<(f64, Vec3, Vec3)> {
@@ -147,8 +159,9 @@ pub fn candidate(a: &Sets, at: [i32; 3], mirror_z: bool) -> String {
         None => "-".into(),
     };
     let zdist = |z: Vec3, v: Vec3| ((z.x - v.x).powi(2) + (z.y - v.y).powi(2) + (z.z - v.z).powi(2)).sqrt() - 6.05;
-    let sight_all = both(&a.golems, &br, &bg, &a.riders, &sight_margin);
-    let sight_wait = both(&a.golems, &bw, &bg, &a.waiting, &sight_margin);
+    let sense: &dyn Fn(Vec3, Vec3) -> f64 = if conservative { &sight_margin_conservative } else { &sight_margin };
+    let sight_all = both(&a.golems, &br, &bg, &a.riders, sense);
+    let sight_wait = both(&a.golems, &bw, &bg, &a.waiting, sense);
     let mark_all = both(&a.summoners, &br, &bs, &a.riders, &mark_margin);
     let mark_wait = both(&a.summoners, &bw, &bs, &a.waiting, &mark_margin);
     let zomb = both(&a.zombies, &br, &bz, &a.riders, &zdist);
@@ -161,11 +174,12 @@ pub fn candidate(a: &Sets, at: [i32; 3], mirror_z: bool) -> String {
         a.beds.iter().map(move |r| ((q.x - r.x as f64).powi(2) + (q.y - r.y as f64).powi(2) + (q.z - r.z as f64).powi(2)).sqrt())
     }).fold(f64::MAX, f64::min);
     format!(
-        "at {},{},{}{}: (a) golem sight, every rider position {}; the waiting riders {} | (b) summon mark, every rider position {}; the waiting riders {} | (e) zombie to rider (6.05) {}; to the napper's sleep and stand-up points (8, distance only) {} | (f) beds {} apart (a neighbour's bed within 8 sections, 128 blocks, is a village POI to this module's riders: no bar here; ironspec's condition is the composite flee-check with the neighbours' beds in every ticket state and no path to them) | (g) chunk-aligned {}",
+        "at {},{},{}{}: (a) golem {}, every rider position {}; the waiting riders {} | (b) summon mark, every rider position {}; the waiting riders {} | (e) zombie to rider (6.05) {}; to the napper's sleep and stand-up points (8, distance only) {} | (f) beds {} apart (a neighbour's bed within 8 sections, 128 blocks, is a village POI to this module's riders: no bar here; ironspec's condition is the composite flee-check with the neighbours' beds in every ticket state and no path to them) | (g) chunk-aligned {}",
         at[0],
         at[1],
         at[2],
         if mirror_z { " mirrored in z" } else { "" },
+        if conservative { "sight, the conservative bound (the worst-case follow range 17.84: |dx|, |dz| < 18.84, feet < 19.79 above / < 20.54 below)" } else { "sensed (G1's per-axis box test: every box gap < 16, |dx|, |dz| < 17.0, the golem's feet < 17.95 above / < 18.7 below the rider's)" },
         fmt(sight_all),
         fmt(sight_wait),
         fmt(mark_all),

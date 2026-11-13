@@ -600,6 +600,9 @@ fn check_inner(spec: &FarmSpec, home: Option<BlockPos>, foot: &[BlockPos], panic
                 Some(ci) => {
                     w.entities.list[ci].pos = p;
                     redsim::entity::position_rider(w, ci, i);
+                    // (the rider's fluid state where it now sits: inside a water column the path
+                    // starts at the water's surface, ff1ca056a's official row)
+                    redsim::entity::fluid_push::update_fluid_interaction(w, i);
                 }
                 None => {
                     // (a villager standing on the floor is on the ground: `canUpdatePath` needs it,
@@ -2485,6 +2488,90 @@ pub fn unsupported(spec: &FarmSpec) -> Result<Vec<String>, String> {
     Ok(v)
 }
 
+/// (ironspec Nov 12 12:13 / tick-exact's official `panic-lift` row 12:29) Whether a seated rider's
+/// path reaches each target from each cart position: (cart position, target) pairs, the cart there
+/// and the rider seated, a fresh path (redsim's start-node rule for a passenger: inside a water
+/// column the path is the water's surface, one node).
+fn reach_pairs(spec: &FarmSpec, home: Option<BlockPos>, claims: &[BlockPos], pairs: &[(Vec3, BlockPos)]) -> Result<Vec<bool>, String> {
+    let o = RunOpts { ai: true, ..RunOpts::steady(1, 0, WalkMode::Random) };
+    let mut run = Run::start(spec, &o)?;
+    while run.settle_tick() {}
+    let w = &mut run.world;
+    for c in claims {
+        redsim::entity::mob::ai::poi::take(w, *c);
+    }
+    if !claims.is_empty() {
+        redsim::entity::mob::ai::poi::note_village_centres(w);
+    }
+    let Some((p0, _)) = pairs.first() else { return Ok(Vec::new()) };
+    let cart = redsim::entity::spawn(w, "minecraft:minecart", [p0.x, p0.y, p0.z], Some("{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}"))?;
+    let ci = redsim::entity::index_of(w, cart).ok_or("the cart")?;
+    let vid = *w.entities.list[ci].passengers.first().ok_or("the rider")?;
+    let i = redsim::entity::index_of(w, vid).ok_or("the rider")?;
+    if let Some(h) = home
+        && let EntityKind::Mob(m) = &mut w.entities.list[i].kind
+        && let Some(b) = m.brain.as_deref_mut()
+    {
+        b.home = Some(h);
+    }
+    let mut out = Vec::with_capacity(pairs.len());
+    for (q, t) in pairs {
+        let ci = redsim::entity::index_of(w, cart).ok_or("the cart")?;
+        w.entities.list[ci].pos = *q;
+        redsim::entity::position_rider(w, ci, i);
+        // (the rider's fluid state there: in a water column the path starts at the surface)
+        redsim::entity::fluid_push::update_fluid_interaction(w, i);
+        let ok = redsim::entity::mob::ai::with_nav(w, i, |w, nm, nav, arena| {
+            let mut copy = nav.clone();
+            copy.create_path_pos(w, nm, *t, 0, arena).is_some_and(|p| p.reached)
+        });
+        out.push(ok);
+    }
+    Ok(out)
+}
+
+/// (ironspec Nov 12 12:36, the positive control against tick-exact's ff1ca056a `panic-lift` row) A
+/// seated rider's path from a cart position to a target: its nodes (start first), whether it
+/// reaches the target.
+pub fn path_probe(spec: &FarmSpec, cart_at: Vec3, target: BlockPos) -> Result<String, String> {
+    let o = RunOpts { ai: true, ..RunOpts::steady(1, 0, WalkMode::Random) };
+    let mut run = Run::start(spec, &o)?;
+    while run.settle_tick() {}
+    let w = &mut run.world;
+    let cart = redsim::entity::spawn(w, "minecraft:minecart", [cart_at.x, cart_at.y, cart_at.z], Some("{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}"))?;
+    let ci = redsim::entity::index_of(w, cart).ok_or("the cart")?;
+    let vid = *w.entities.list[ci].passengers.first().ok_or("the rider")?;
+    let i = redsim::entity::index_of(w, vid).ok_or("the rider")?;
+    w.entities.list[ci].pos = cart_at;
+    redsim::entity::position_rider(w, ci, i);
+    // (the rider's fluid state there, as a tick's baseTick leaves it: in a water column the path
+    // starts at the water's surface)
+    redsim::entity::fluid_push::update_fluid_interaction(w, i);
+    let feet = w.entities.list[i].pos;
+    let below = |w: &redsim::World, p: Vec3| w.get(BlockPos::new(p.x.floor() as i32, p.y.floor() as i32, p.z.floor() as i32)).to_string();
+    let here = below(w, feet);
+    let path = redsim::entity::mob::ai::with_nav(w, i, |w, nm, nav, arena| {
+        let mut copy = nav.clone();
+        copy.create_path_pos(w, nm, target, 0, arena)
+    });
+    Ok(match path {
+        None => format!("path probe: the rider's feet {:.3},{:.3},{:.3} (in {}), target {},{},{}: no path", feet.x, feet.y, feet.z, here.trim_start_matches("minecraft:"), target.x, target.y, target.z),
+        Some(p) => format!(
+            "path probe: the rider's feet {:.3},{:.3},{:.3} (in {}), target {},{},{}: {} node(s), {}: {}",
+            feet.x,
+            feet.y,
+            feet.z,
+            here.trim_start_matches("minecraft:"),
+            target.x,
+            target.y,
+            target.z,
+            p.node_count(),
+            if p.reached { "reached" } else { "partial" },
+            p.nodes.iter().map(|n| format!("{},{},{}", n.x, n.y, n.z)).collect::<Vec<_>>().join(" ")
+        ),
+    })
+}
+
 /// (G1's CHANGES 2 on fee712f72) A zombie's hidden position within the flee bar needs this travel
 /// time (gt) from the last position the zombie sees within its panic range.
 const HIDDEN_BAR_GT: f64 = 40.0;
@@ -2565,7 +2652,6 @@ impl<'a> Track<'a> {
 
     /// `walk`, through the `allowed` nodes only (when given).
     fn walk_within(&self, seeds: &[TailNode], max: f64, allowed: Option<&std::collections::HashSet<TailNode>>) -> HashMap<TailNode, f64> {
-        let near = |a: BlockPos, b: BlockPos| (a.x - b.x).abs() <= 1 && (a.y - b.y).abs() <= 1 && (a.z - b.z).abs() <= 1;
         let mut best: HashMap<TailNode, f64> = HashMap::new();
         let mut heap: std::collections::BinaryHeap<std::cmp::Reverse<(u64, TailNode)>> = std::collections::BinaryHeap::new();
         for n in seeds {
@@ -2575,40 +2661,92 @@ impl<'a> Track<'a> {
         }
         while let Some(std::cmp::Reverse((_, n))) = heap.pop() {
             let d = best[&n];
-            let mut next: Vec<(TailNode, f64)> = Vec::new();
-            match n {
-                // (a rest cell, where a cart waits longer than the walk, stops it: the holds)
-                TailNode::Rail(x, y, z) if self.rests.contains(&BlockPos::new(x, y, z)) && d > 0.0 => {}
-                TailNode::Rail(x, y, z) => {
-                    let c = BlockPos::new(x, y, z);
-                    let own = self.cell_gt(c);
-                    for (dx, dy, dz) in rail_exits(self.rails.get(&c).map(|s| s.as_str()).unwrap_or("")) {
-                        for m in [BlockPos::new(x + dx, y + dy, z + dz), BlockPos::new(x + dx, y + dy - 1, z + dz)] {
-                            if self.rails.contains_key(&m) {
-                                next.push((TailNode::Rail(m.x, m.y, m.z), 0.5 * own + 0.5 * self.cell_gt(m)));
-                            }
-                        }
-                    }
-                    for k in 0..self.columns.len() {
-                        if near(self.col_cell(k, 0), c) {
-                            next.push((TailNode::Col(k, 0), 0.5 * own));
-                        }
-                    }
-                }
-                TailNode::Col(k, i) => {
-                    if i + 1 < self.col_len[k] {
-                        next.push((TailNode::Col(k, i + 1), 0.25 / TAIL_COLUMN_SPEED));
-                    } else {
-                        let cc = self.col_cell(k, i);
-                        for r in self.rails.keys().filter(|r| near(**r, cc)) {
-                            next.push((TailNode::Rail(r.x, r.y, r.z), 0.5 * self.cell_gt(*r)));
-                        }
-                    }
-                }
-            }
+            // (a rest cell, where a cart waits longer than the walk, stops it: the holds)
+            let next = match n {
+                TailNode::Rail(x, y, z) if self.rests.contains(&BlockPos::new(x, y, z)) && d > 0.0 => Vec::new(),
+                _ => self.edges(n),
+            };
             for (m, w) in next {
                 let nd = d + w;
                 if nd <= max && allowed.is_none_or(|a| a.contains(&m)) && best.get(&m).is_none_or(|b| nd < *b) {
+                    best.insert(m, nd);
+                    heap.push(std::cmp::Reverse(((nd * 1000.0) as u64, m)));
+                }
+            }
+        }
+        best
+    }
+
+    /// The track's moves out of a node, with their times: a rail cell to the cells its shape
+    /// points to (level, or one down onto a slope's foot), and into a column starting beside it; a
+    /// column position one step on, and at its end out onto the rails beside it.
+    fn edges(&self, n: TailNode) -> Vec<(TailNode, f64)> {
+        let near = |a: BlockPos, b: BlockPos| (a.x - b.x).abs() <= 1 && (a.y - b.y).abs() <= 1 && (a.z - b.z).abs() <= 1;
+        let mut next: Vec<(TailNode, f64)> = Vec::new();
+        match n {
+            TailNode::Rail(x, y, z) => {
+                let c = BlockPos::new(x, y, z);
+                let own = self.cell_gt(c);
+                for (dx, dy, dz) in rail_exits(self.rails.get(&c).map(|s| s.as_str()).unwrap_or("")) {
+                    for m in [BlockPos::new(x + dx, y + dy, z + dz), BlockPos::new(x + dx, y + dy - 1, z + dz)] {
+                        if self.rails.contains_key(&m) {
+                            next.push((TailNode::Rail(m.x, m.y, m.z), 0.5 * own + 0.5 * self.cell_gt(m)));
+                        }
+                    }
+                }
+                for k in 0..self.columns.len() {
+                    if near(self.col_cell(k, 0), c) {
+                        next.push((TailNode::Col(k, 0), 0.5 * own));
+                    }
+                }
+            }
+            TailNode::Col(k, i) => {
+                if i + 1 < self.col_len[k] {
+                    next.push((TailNode::Col(k, i + 1), 0.25 / TAIL_COLUMN_SPEED));
+                } else {
+                    let cc = self.col_cell(k, i);
+                    for r in self.rails.keys().filter(|r| near(**r, cc)) {
+                        next.push((TailNode::Rail(r.x, r.y, r.z), 0.5 * self.cell_gt(*r)));
+                    }
+                }
+            }
+        }
+        next
+    }
+
+    /// The nodes from which a cart reaches one of `seeds` within `max` gt, with that time: the walk
+    /// over the moves reversed (a merge through a curve's open side counts: the cart rolling on
+    /// a straight into the curve's side follows the curve), a rest cell never left.
+    fn walk_rev(&self, seeds: &[TailNode], max: f64) -> HashMap<TailNode, f64> {
+        let mut nodes: Vec<TailNode> = self.rails.keys().map(|c| TailNode::Rail(c.x, c.y, c.z)).collect();
+        for k in 0..self.columns.len() {
+            for i in 0..self.col_len[k] {
+                nodes.push(TailNode::Col(k, i));
+            }
+        }
+        let mut rev: HashMap<TailNode, Vec<(TailNode, f64)>> = HashMap::new();
+        for n in &nodes {
+            if let TailNode::Rail(x, y, z) = n
+                && self.rests.contains(&BlockPos::new(*x, *y, *z))
+            {
+                continue;
+            }
+            for (m, w) in self.edges(*n) {
+                rev.entry(m).or_default().push((*n, w));
+            }
+        }
+        let mut best: HashMap<TailNode, f64> = HashMap::new();
+        let mut heap: std::collections::BinaryHeap<std::cmp::Reverse<(u64, TailNode)>> = std::collections::BinaryHeap::new();
+        for n in seeds {
+            if best.insert(*n, 0.0).is_none() {
+                heap.push(std::cmp::Reverse((0, *n)));
+            }
+        }
+        while let Some(std::cmp::Reverse((_, n))) = heap.pop() {
+            let d = best[&n];
+            for (m, w) in rev.get(&n).cloned().unwrap_or_default() {
+                let nd = d + w;
+                if nd <= max && best.get(&m).is_none_or(|b| nd < *b) {
                     best.insert(m, nd);
                     heap.push(std::cmp::Reverse(((nd * 1000.0) as u64, m)));
                 }
@@ -2636,7 +2774,7 @@ impl<'a> Track<'a> {
 /// path counting as not reached; FAIL at every panicking position with an unreached candidate,
 /// printed by class (each unreached candidate cell with the positions that draw it, how many of
 /// them in a tail); with `list` every panicking position too.
-pub fn clear_all(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32; 3], [i32; 3])], claims: &[BlockPos], pills: &[Vec3], columns: &[[f64; 4]], tail_gt: f64, rests: &[BlockPos], list: bool, idle: bool, watch: &[([i32; 3], [i32; 3])]) -> Result<Vec<String>, String> {
+pub fn clear_all(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32; 3], [i32; 3])], claims: &[BlockPos], pills: &[Vec3], columns: &[[f64; 4]], tail_gt: f64, rests: &[BlockPos], list: bool, idle: bool, watch: &[([i32; 3], [i32; 3])], approach: &[(BlockPos, f64)], late_gt: f64) -> Result<Vec<String>, String> {
     let mut pos = rider_positions(spec);
     let mut col_of: Vec<Option<(usize, usize)>> = vec![None; pos.len()];
     let track = Track::new(spec, columns, rests);
@@ -2660,7 +2798,13 @@ pub fn clear_all(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32; 
     // the tail: a shortest-time walk (game ticks) from every seen position along the track
     let seeds: Vec<TailNode> = if tail_gt > 0.0 { ps.iter().enumerate().filter(|(_, pl)| pl.seen > 0).map(|(idx, _)| node_of(idx)).collect() } else { Vec::new() };
     let best = track.walk(&seeds, tail_gt);
+    // (ironspec Nov 12 12:36, tick-exact's ff1ca056a: from inside a bubble column the panic stroll's
+    // path starts at the water's surface, one node, partial: a panicking position inside a water
+    // column with any PANIC candidate fails the gate, whatever a path from its own cell reads)
+    let block_at: HashMap<BlockPos, String> = spec.blocks.iter().map(|(p, b)| (*p, b.to_string())).collect();
+    let in_water = |p: &Vec3| block_at.get(&BlockPos::new(p.x.floor() as i32, p.y.floor() as i32, p.z.floor() as i32)).is_some_and(|s| s.contains("bubble_column") || s.contains("minecraft:water"));
     let (mut panicking, mut seen_n, mut fails, mut stamps) = (0usize, 0usize, 0usize, 0usize);
+    let mut column_fails = 0usize;
     let mut fails_by = [0usize; 4];
     let mut listed: Vec<String> = Vec::new();
     let mut stale: Vec<String> = Vec::new();
@@ -2748,7 +2892,21 @@ pub fn clear_all(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32; 
         }
         let mut failed = false;
         let mut stamped = false;
+        let water = panics && in_water(p);
         for (k, s) in srcs {
+            // (a panicking position in a water column: every PANIC candidate fails, reached or not)
+            if water && k < 2 && s.cells > 0 {
+                failed = true;
+                fails_by[k] += 1;
+                column_fails += 1;
+                for (u, sh) in s.reached.iter().chain(s.unreached.iter()).filter(|(_, sh)| *sh > 1e-9) {
+                    let e = classes.entry((k, u.x, u.y, u.z)).or_default().entry((c.x, c.y, c.z)).or_insert((Vec::new(), 0.0, 0));
+                    e.0.push(*t);
+                    e.1 = e.1.max(*sh);
+                    e.2 += usize::from(tail);
+                }
+                continue;
+            }
             if s.live() == 0 {
                 continue;
             }
@@ -2813,6 +2971,86 @@ pub fn clear_all(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32; 
         }
     }
     let n_haz: usize = hazards.values().map(|v| v.len()).sum();
+    // (ironspec Nov 12 12:13 / 12:29, tick-exact's `panic-lift` row: MoveToTargetSink creates a PANIC
+    // draw's path only after its remaining cooldown (up to 39 gt, drawn at its last stop and frozen
+    // while there is no walk target), so the path starts wherever the cart has rolled by then: each
+    // PANIC candidate drawn at a panicking track node, its path computed from every node within
+    // `late_gt` of travel after it (the rails either way, a conservative bound; a column only
+    // onward) from that node's rider position (a rail cell's middle, a column's position): a late
+    // FAIL where any of them leaves it unreached (inside a water column the path is the water's
+    // surface, one node: redsim's passenger start rule, the official row's shape))
+    let mut late: std::collections::BTreeMap<(i32, i32, i32), Vec<String>> = std::collections::BTreeMap::new();
+    let mut late_positions = 0usize;
+    if late_gt > 0.0 {
+        let node_pos = |n: &TailNode| -> Option<Vec3> {
+            match n {
+                TailNode::Rail(x, y, z) => {
+                    let c = BlockPos::new(*x, *y, *z);
+                    track.rails.get(&c).map(|s| along_rail(c, s, 0.5))
+                }
+                TailNode::Col(k, i) => Some(track.col_pos(*k, *i)),
+            }
+        };
+        // (each panicking node's PANIC candidates reached from it, over its positions)
+        let mut by_node: std::collections::BTreeMap<TailNode, std::collections::BTreeSet<(i32, i32, i32)>> = std::collections::BTreeMap::new();
+        for (idx, pl) in ps.iter().enumerate() {
+            let nd = node_of(idx);
+            if !(pl.seen > 0 || best.contains_key(&nd)) {
+                continue;
+            }
+            let set = by_node.entry(nd).or_default();
+            for (u, _) in pl.panic_stroll.reached.iter().chain(if pl.flee_from > 0 { pl.flee.reached.iter() } else { [].iter() }) {
+                set.insert((u.x, u.y, u.z));
+            }
+        }
+        let mut pairs: Vec<(Vec3, BlockPos)> = Vec::new();
+        let mut pair_ix: HashMap<(TailNode, (i32, i32, i32)), usize> = HashMap::new();
+        let mut checks: Vec<(TailNode, (i32, i32, i32), TailNode, f64)> = Vec::new();
+        for (nd, xs) in &by_node {
+            if xs.is_empty() {
+                continue;
+            }
+            let after = track.walk(&[*nd], late_gt);
+            for (q, dt) in &after {
+                if q == nd {
+                    continue;
+                }
+                let Some(qp) = node_pos(q) else { continue };
+                for x in xs {
+                    let key = (*q, *x);
+                    if !pair_ix.contains_key(&key) {
+                        pair_ix.insert(key, pairs.len());
+                        pairs.push((qp, BlockPos::new(x.0, x.1, x.2)));
+                    }
+                    checks.push((*nd, *x, *q, *dt));
+                }
+            }
+        }
+        let ok = reach_pairs(spec, home, claims, &pairs)?;
+        let mut failed_nodes: std::collections::BTreeSet<TailNode> = std::collections::BTreeSet::new();
+        for (nd, x, q, dt) in checks {
+            if ok[pair_ix[&(q, x)]] {
+                continue;
+            }
+            failed_nodes.insert(nd);
+            let qs = match q {
+                TailNode::Rail(a, b, c) => format!("{a},{b},{c}"),
+                TailNode::Col(k, i) => {
+                    let p = track.col_pos(k, i);
+                    format!("column {:.2},{:.2},{:.2}", p.x, p.y, p.z)
+                }
+            };
+            let ns = match nd {
+                TailNode::Rail(a, b, c) => format!("{a},{b},{c}"),
+                TailNode::Col(k, i) => {
+                    let p = track.col_pos(k, i);
+                    format!("column {:.2},{:.2},{:.2}", p.x, p.y, p.z)
+                }
+            };
+            late.entry(x).or_default().push(format!("drawn at {ns}, pathed {dt:.1} gt later from {qs}"));
+        }
+        late_positions = failed_nodes.len();
+    }
     let panic_classes = classes.keys().filter(|(k, _, _, _)| *k < 2).count();
     let mut lines = vec![format!(
         "every rider position a scarer makes panic (each rail cell every 0.1 along it, a slope's 0.97 too{}): {panicking} of {} positions panic ({seen_n} with a hostile in sight, {} more in a seen position's tail: within {tail_gt} gt of travel along the track, a ridden cart at most {TAIL_RAIL_SPEED} b/gt on the rails and {TAIL_COLUMN_SPEED} in a column); none-or-all at each (PANIC's draws: the 2/2 stroll and the flee): {}{}",
@@ -2823,8 +3061,9 @@ pub fn clear_all(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32; 
             "yes (every candidate reached by a complete path)".to_string()
         } else {
             format!(
-                "FAIL at {fails} ({}), {panic_classes} classes (an unreached candidate each)",
-                (0..2).filter(|k| fails_by[*k] > 0).map(|k| format!("{} {}", fails_by[k], SRC[k].split(" (").next().unwrap_or(""))).collect::<Vec<_>>().join(", ")
+                "FAIL at {fails} ({}{}), {panic_classes} classes (an unreached candidate each)",
+                (0..2).filter(|k| fails_by[*k] > 0).map(|k| format!("{} {}", fails_by[k], SRC[k].split(" (").next().unwrap_or(""))).collect::<Vec<_>>().join(", "),
+                if column_fails > 0 { format!("; {column_fails} of them in a water column, where any PANIC candidate fails: the path starts at the water's surface, one node") } else { String::new() }
             )
         },
         if idle {
@@ -2852,6 +3091,15 @@ pub fn clear_all(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32; 
         lines.push(format!("  {} class [{}] {x},{y},{z} unreached, drawn from {n} positions: {}", if k < 2 { "FAIL" } else { "STAMP" }, SRC[k], lst.join("; ")));
     }
     lines.push(format!(
+        "late paths (tick-exact's panic-lift row: a PANIC draw pathed up to {late_gt} gt later, after MoveToTargetSink's cooldown, from where the cart has rolled; a reached candidate that some later node leaves unreached): {}",
+        if late_gt <= 0.0 { "not checked".to_string() } else if late.is_empty() { "0".to_string() } else { format!("FAIL at {late_positions} panicking nodes, {} candidate cells", late.len()) }
+    ));
+    let mut lt: Vec<_> = late.into_iter().collect();
+    lt.sort_by_key(|(_, v)| std::cmp::Reverse(v.len()));
+    for ((x, y, z), v) in lt {
+        lines.push(format!("  LATE {x},{y},{z}: {} (draw, later node) pairs unreached: {}", v.len(), v.iter().take(6).cloned().collect::<Vec<_>>().join("; ")));
+    }
+    lines.push(format!(
         "staleness (G1's CHANGES 2: a tail position within {FLEE_BAR} of a zombie, NEAREST_HOSTILE remembered within the flee bar): {}",
         if stale.is_empty() { "0".to_string() } else { format!("FAIL at {}: {}", stale.len(), stale.iter().take(12).cloned().collect::<Vec<_>>().join("; ")) }
     ));
@@ -2872,6 +3120,101 @@ pub fn clear_all(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32; 
         ));
         for ((x, y, z), from) in &watched {
             lines.push(format!("  WATCHED {x},{y},{z} drawn from {} positions: {}", from.len(), from.iter().take(8).cloned().collect::<Vec<_>>().join("; ")));
+        }
+    }
+    // (ironspec Nov 12 12:13, onechunk's late paths: MoveToTargetSink's cooldown (up to 39 gt after
+    // its last path stops) delays a PANIC draw's path until the cart has moved on, e.g. into the
+    // shared lift, where it is computed from the water's surface: every panicking position within
+    // `gt` of travel of an approach cell (the lift's entrance), with how it panics (the hostiles it
+    // sees, or its tail), its PANIC candidates with the block under each, and its P_null: the
+    // input to pricing P_null 1 there (no candidates) or keeping the stretch out of panic)
+    if !approach.is_empty() {
+        let o = RunOpts { ai: true, ..RunOpts::steady(1, 0, WalkMode::Random) };
+        let mut run = Run::start(spec, &o)?;
+        while run.settle_tick() {}
+        let w = &run.world;
+        let zs = hostiles(spec);
+        let seat = zombie_seat();
+        for (cell, gt) in approach {
+            // (the positions BEFORE the entrance: the walk over the track's moves reversed)
+            let reach = track.walk_rev(&[TailNode::Rail(cell.x, cell.y, cell.z)], *gt);
+            let mut rows: Vec<(f64, String)> = Vec::new();
+            // (the pricing inputs: each candidate cell with the block under it, how many positions
+            // draw it and the nearest's time to the entrance; each hostile with the positions it sees)
+            let mut by_cand: std::collections::BTreeMap<(i32, i32, i32), (String, usize, f64)> = std::collections::BTreeMap::new();
+            let mut by_foe: std::collections::BTreeMap<String, (usize, std::collections::BTreeSet<(i32, i32, i32)>)> = std::collections::BTreeMap::new();
+            let mut tails = 0usize;
+            for (idx, pl) in ps.iter().enumerate() {
+                let Some(dt) = reach.get(&node_of(idx)) else { continue };
+                let tail = pl.seen == 0 && best.contains_key(&node_of(idx));
+                if pl.seen == 0 && !tail {
+                    continue;
+                }
+                let (c, t, p) = &pos[idx];
+                let eye = Vec3::new(p.x, p.y + 1.62, p.z);
+                let mut by: Vec<String> = Vec::new();
+                for z in &zs {
+                    let f = Vec3::new(z.x, z.y + seat, z.z);
+                    let d = ((f.x - p.x).powi(2) + (f.y - p.y).powi(2) + (f.z - p.z).powi(2)).sqrt();
+                    if d <= 8.0 && redsim::entity::mob::los::has_line_of_sight(w, eye, Vec3::new(f.x, f.y + 1.74, f.z)) {
+                        by.push(format!("zombie {:.1},{:.1},{:.1} at {d:.2}", z.x, z.y, z.z));
+                        let e = by_foe.entry(format!("zombie {:.1},{:.1},{:.1}", z.x, z.y, z.z)).or_default();
+                        e.0 += 1;
+                        e.1.insert((c.x, c.y, c.z));
+                    }
+                }
+                for f in pills {
+                    let d = ((f.x - p.x).powi(2) + (f.y - p.y).powi(2) + (f.z - p.z).powi(2)).sqrt();
+                    if d <= PILLAGER_BAR && redsim::entity::mob::los::has_line_of_sight(w, eye, Vec3::new(f.x, f.y + PILLAGER_EYE, f.z)) {
+                        by.push(format!("pillager {:.1},{:.1},{:.1} at {d:.2}", f.x, f.y, f.z));
+                        let e = by_foe.entry(format!("pillager {:.1},{:.1},{:.1}", f.x, f.y, f.z)).or_default();
+                        e.0 += 1;
+                        e.1.insert((c.x, c.y, c.z));
+                    }
+                }
+                if by.is_empty() {
+                    tails += 1;
+                }
+                let s = &pl.panic_stroll;
+                for (u, _) in s.reached.iter().chain(s.unreached.iter()) {
+                    let e = by_cand.entry((u.x, u.y, u.z)).or_insert((w.get(u.below()).to_string().trim_start_matches("minecraft:").split('[').next().unwrap_or("").to_string(), 0, f64::INFINITY));
+                    e.1 += 1;
+                    e.2 = e.2.min(*dt);
+                }
+                let s = &pl.panic_stroll;
+                let cands: Vec<String> = s.reached.iter().map(|(u, _)| (u, true)).chain(s.unreached.iter().map(|(u, _)| (u, false))).map(|(u, r)| format!("{},{},{} on {}{}", u.x, u.y, u.z, w.get(u.below()).to_string().trim_start_matches("minecraft:").split('[').next().unwrap_or(""), if r { "" } else { " (unreached)" })).collect();
+                let share: f64 = s.reached_share + s.unreached.iter().map(|(_, sh)| *sh).sum::<f64>();
+                rows.push((
+                    *dt,
+                    format!(
+                        "  APPROACH {},{},{} {} rider {:.2},{:.2},{:.2}: {:.1} gt from the entrance; {}; PANIC candidates {}{}; P_null {:.3}",
+                        c.x,
+                        c.y,
+                        c.z,
+                        if *t < 0.0 { "column".to_string() } else { format!("t {t:.2}") },
+                        p.x,
+                        p.y,
+                        p.z,
+                        dt,
+                        if by.is_empty() { format!("tail ({:.1} gt after the last sight)", best.get(&node_of(idx)).copied().unwrap_or(0.0)) } else { format!("seen by {}", by.join(", ")) },
+                        cands.len(),
+                        if cands.is_empty() { String::new() } else { format!(": {}", cands.join(", ")) },
+                        (1.0 - share).max(0.0)
+                    ),
+                ));
+            }
+            rows.sort_by(|a, b| a.0.total_cmp(&b.0));
+            lines.push(format!("the approach to {},{},{} within {gt} gt of travel before it: {} panicking positions ({tails} in a tail only), {} with a PANIC candidate", cell.x, cell.y, cell.z, rows.len(), rows.iter().filter(|(_, r)| !r.contains("PANIC candidates 0")).count()));
+            lines.push(format!(
+                "  candidates there ({} cells; each with the block under it, the positions drawing it, the nearest one's time to the entrance): {}",
+                by_cand.len(),
+                by_cand.iter().map(|((x, y, z), (b, n, dt))| format!("{x},{y},{z} on {b} ({n} positions, {dt:.1} gt)")).collect::<Vec<_>>().join("; ")
+            ));
+            lines.push(format!(
+                "  hostiles seeing positions there: {}",
+                if by_foe.is_empty() { "none (every one in a tail)".to_string() } else { by_foe.iter().map(|(f, (n, cells))| format!("{f}: {n} positions on {} cells ({})", cells.len(), cells.iter().map(|(x, y, z)| format!("{x},{y},{z}")).collect::<Vec<_>>().join(" "))).collect::<Vec<_>>().join("; ") }
+            ));
+            lines.extend(rows.into_iter().map(|(_, r)| r));
         }
     }
     lines.extend(listed);

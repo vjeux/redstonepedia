@@ -1181,8 +1181,11 @@ pub fn placement(spec: &FarmSpec) -> Vec<String> {
 /// a T every signal-source update that reaches it (`tees`); each source must be one of `switches`.
 /// Also each detector rail's face neighbours and its below-block's (checkPressed's
 /// updateNeighborsAt(pos) / (pos.below()), DetectorRailBlock lines 93-94 / 102-103) with each plain
-/// rail's potential connection count. Lines and the undeclared count.
-pub fn switched(spec: &FarmSpec, switches: &[BlockPos]) -> (Vec<String>, usize) {
+/// rail's potential connection count. Lines and the undeclared count. `always_on` (the design's
+/// `always-on: x,y,z=REASON` header entries, ironspec Nov 12 13:56): sources declared never to
+/// toggle, each checked (a redstone block, or a redstone torch whose support conducts no power),
+/// printed with the reason and not counted; one that can toggle stays counted, flagged.
+pub fn switched(spec: &FarmSpec, switches: &[BlockPos], always_on: &[(BlockPos, String)]) -> (Vec<String>, usize) {
     let all: HashMap<BlockPos, String> = spec.blocks.iter().map(|(p, b)| (*p, b.to_string())).collect();
     const N6: [(i32, i32, i32); 6] = [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)];
     let at = |p: BlockPos, d: (i32, i32, i32)| BlockPos::new(p.x + d.0, p.y + d.1, p.z + d.2);
@@ -1191,6 +1194,8 @@ pub fn switched(spec: &FarmSpec, switches: &[BlockPos]) -> (Vec<String>, usize) 
     let dummy = redsim::world::World::new(BlockPos::new(0, 0, 0), [1, 1, 1]);
     let blk: HashMap<BlockPos, redsim::block::Block> = spec.blocks.iter().map(|(p, b)| (*p, *b)).collect();
     let conductor = |k: &BlockPos| blk.get(k).is_some_and(|b| redsim::behavior::is_conductor(&dummy, b, *k));
+    // (the declared always-on sources: their reasons by cell)
+    let always_on_decl = |p: &BlockPos| -> Option<String> { always_on.iter().find(|(q, _)| q == p).map(|(_, r)| r.clone()) };
     // (each source: the cells it weakly powers, the conductors it strongly powers)
     let mut weak: HashMap<BlockPos, Vec<BlockPos>> = HashMap::new();
     let mut strong: HashMap<BlockPos, Vec<BlockPos>> = HashMap::new();
@@ -1263,10 +1268,58 @@ pub fn switched(spec: &FarmSpec, switches: &[BlockPos]) -> (Vec<String>, usize) 
             // (a redstone block in a design file never switches (the switched cells are left air
             // and emulated): its power is the design's own, listed and not counted)
             let fixed = matches!(blk.get(p), Some(redsim::block::Block::RedstoneBlock));
-            if !ok && !fixed {
+            // (ironspec Nov 12 13:56, V14's torches: a redstone torch toggles only when the block
+            // it stands on (or hangs from) is powered, so one whose support is not a redstone
+            // conductor (glass) never toggles: an always-on source, listed and not counted)
+            let support = all.get(p).and_then(|s| {
+                if s.contains("redstone_wall_torch") {
+                    let d = if s.contains("facing=north") {
+                        (0, 0, 1)
+                    } else if s.contains("facing=south") {
+                        (0, 0, -1)
+                    } else if s.contains("facing=east") {
+                        (-1, 0, 0)
+                    } else {
+                        (1, 0, 0)
+                    };
+                    Some(at(*p, d))
+                } else if s.contains("redstone_torch") {
+                    Some(at(*p, (0, -1, 0)))
+                } else {
+                    None
+                }
+            });
+            let always_on = support.filter(|q| all.contains_key(q) && !conductor(q));
+            let declared = always_on_decl(p);
+            // (a declared always-on source that can't toggle: a redstone block, or a torch on a
+            // support that conducts no power)
+            let decl_ok = declared.is_some() && (fixed || always_on.is_some());
+            if !ok && !fixed && !decl_ok {
                 undeclared += 1;
             }
-            parts.push(format!("{} {},{},{} {how}{}", name(p), p.x, p.y, p.z, if ok { " (declared)" } else if fixed { " (fixed)" } else { " UNDECLARED" }));
+            let tag = if ok {
+                " (declared)".to_string()
+            } else if decl_ok {
+                format!(" (always on, declared: {})", declared.unwrap_or_default())
+            } else if fixed {
+                " (fixed)".to_string()
+            } else if declared.is_some() {
+                " DECLARED ALWAYS-ON BUT CAN TOGGLE (its support conducts power)".to_string()
+            } else if let Some(q) = always_on {
+                format!(
+                    " UNDECLARED (a torch on {} {},{},{}, which conducts no power: it never toggles; declare it `always-on: {},{},{}=REASON`)",
+                    all[&q].trim_start_matches("minecraft:").split('[').next().unwrap_or(""),
+                    q.x,
+                    q.y,
+                    q.z,
+                    p.x,
+                    p.y,
+                    p.z
+                )
+            } else {
+                " UNDECLARED".to_string()
+            };
+            parts.push(format!("{} {},{},{} {how}{tag}", name(p), p.x, p.y, p.z));
         }
         out.push(format!("  {} {},{},{}: {}", name(&c), c.x, c.y, c.z, if parts.is_empty() { "no source reaches it".to_string() } else { parts.join("; ") }));
     }
