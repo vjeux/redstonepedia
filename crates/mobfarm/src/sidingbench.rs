@@ -197,9 +197,20 @@ fn mirror_state_z(s: &str) -> String {
     out
 }
 
-/// The game's cart-cart contact test (AbstractMinecart's push query): two carts' boxes (0.98 x 0.7
-/// x 0.98, bottom-centred at their positions) meeting with one of them inflated `inf` in x and z
-/// (0.2 for the push test), their y ranges overlapping.
+/// The lip margin's outcome for one napper and its leader's rider (ironspec 00:02 (1): three outcomes,
+/// G1's CHANGES 1 on a191f3dfb).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Lip {
+    /// The napper never reaches the rider over the lip region (no contact window: clean).
+    Never,
+    /// The napper reaches the rider at tick N, but the rider's box top never drops below the floor
+    /// within its track (a rider held at the lip, or one leaving the region still high): STUCK, a
+    /// failure whatever the bar.
+    Held(i64),
+    /// N - R - 1 (-1 or less: contact, the move cut at the rider's face).
+    Margin(i64),
+}
+
 /// The lip margin (ironspec 21:14 (2), adopted 22:22 as the S-bend's gate quantity), in ticks, from
 /// positions after each tick in the design frame (z grows south; the carts run north), the napper's
 /// and its leader's rider's tracks over the lip region (the merge's south face to 3 cells north of it:
@@ -210,18 +221,26 @@ fn mirror_state_z(s: &str) -> String {
 ///   the worst order: the move sees the rider where the last tick left it), with the boxes sharing x;
 /// - R: the first tick after which the rider's box top (its feet y + its height) is below the
 ///   napper's floor `floor` (the merge's rail level, y 24.0);
-/// - the margin N - R - 1: -1 or less is contact (the move is cut at the rider's face: stuck), 0 or
-///   more is clean with that many ticks to spare; None: the napper never reaches the rider (the rider
-///   stays ahead: no contact window).
+/// - Margin(N - R - 1): -1 or less is contact (the move is cut at the rider's face: stuck), 0 or more
+///   is clean with that many ticks to spare; Never: the napper never reaches the rider (the rider
+///   stays ahead: no contact window); Held(N): the napper reaches the rider and the rider never drops
+///   below the floor (STUCK).
 ///
 /// `napper`: (t, x, z); `rider`: (t, x, z, feet y, half width, height).
-pub fn lip_margin(napper: &[(i64, f64, f64)], rider: &[(i64, f64, f64, f64, f64, f64)], floor: f64) -> Option<i64> {
+pub fn lip_margin(napper: &[(i64, f64, f64)], rider: &[(i64, f64, f64, f64, f64, f64)], floor: f64) -> Lip {
     let r_at = |t: i64| rider.iter().find(|r| r.0 == t);
-    let n = napper.iter().find(|&&(t, x, z)| r_at(t - 1).is_some_and(|r| (x - r.1).abs() < 0.49 + r.4 && z - 0.49 <= r.2 + r.4 + 1e-4))?.0;
-    let r = rider.iter().find(|r| r.3 + r.5 < floor)?.0;
-    Some(n - r - 1)
+    let Some(n) = napper.iter().find(|&&(t, x, z)| r_at(t - 1).is_some_and(|r| (x - r.1).abs() < 0.49 + r.4 && z - 0.49 <= r.2 + r.4 + 1e-4)).map(|k| k.0) else {
+        return Lip::Never;
+    };
+    match rider.iter().find(|r| r.3 + r.5 < floor) {
+        Some(r) => Lip::Margin(n - r.0 - 1),
+        None => Lip::Held(n),
+    }
 }
 
+/// The game's cart-cart contact test (AbstractMinecart's push query): two carts' boxes (0.98 x 0.7
+/// x 0.98, bottom-centred at their positions) meeting with one of them inflated `inf` in x and z
+/// (0.2 for the push test), their y ranges overlapping.
 fn push_contact(p: (f64, f64, f64, f64), q: (f64, f64, f64, f64), inf: f64) -> bool {
     (p.0 - q.0).abs() < 0.98 + inf && (p.2 - q.2).abs() < 0.98 + inf && p.1 < q.1 + 0.7 && q.1 < p.1 + 0.7
 }
@@ -303,6 +322,13 @@ pub struct SidingOpts {
     /// K's cell at tick T moving north toward F (it must count), ("pass", T) one on the row's west
     /// cell eastbound through K's cell (it must not).
     pub r_joint_control: Option<(String, i64)>,
+    /// The lip bar's positive control through the rows' code path (ironspec 00:27): glass in the
+    /// drop column two cells under the lip (x,m-2,mz-1), laid at the napper's release: the leader
+    /// held one block down, its rider above the floor.
+    pub held_rider_control: bool,
+    /// The S-bend's stray-power positive control (ironspec 02:18): a redstone block beside R
+    /// (x-3,m,mz) from tick T for 10 gt, R powered with its switch off: the stray count must bite.
+    pub stray_ctl: Option<i64>,
     /// The module of record's branch (7b90c3f1's split row): D an ascending_south detector, the cells
     /// south of it solid (tick-exact's official S-bend row); default the bench's flat D.
     pub d_slope: bool,
@@ -416,6 +442,8 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
         // (the backstop wall: glass, golem-proof (9fc3155f's flood: a stone wall's top is an off-pad
         // spawn spot seen from the lane tops))
         put(lx, m, mz - 2, &glass);
+        // (--held-rider-control: the lip bar's positive control; its glass two cells under the lip is
+        // laid at the napper's release (see the loop), so the lane runs as usual until then)
         // (the top slope's high-side support (x,17+N,2+N): an ascending rail pops without a rigid
         // block on its high side (BaseRailBlock.shouldBeRemoved); the merge's support moved up a
         // level with the drop entry, so this cell is laid for it (onechunk's find))
@@ -685,6 +713,12 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
     if !outside.is_empty() {
         return Err(format!("siding bench: {} cells outside the world's box {lo:?}..{hi:?}: {}", outside.len(), outside.join("; ")));
     }
+    // (ironspec 00:27: every bench schedules every fluid cell's tick and prints the count; this bench
+    // lays no fluid and schedules none, so a fluid cell here is an error, never a silently unticked cell)
+    let fluid_cells = spec.blocks.iter().filter(|(_, b)| matches!(b, Block::Water { .. } | Block::Lava { .. }) || b.to_string().contains("waterlogged=true")).count();
+    if fluid_cells > 0 {
+        return Err(format!("siding bench: {fluid_cells} fluid cells laid, and this bench schedules no fluid ticks"));
+    }
     let ro = if so.ai { RunOpts { ai: true, day0: 13_300, ..RunOpts::steady(1, 0, WalkMode::Random) } } else { RunOpts { ai: false, ..RunOpts::steady(1, 0, WalkMode::Random) } };
     let mut run = Run::start(&spec, &ro)?;
     while run.settle_tick() {}
@@ -900,9 +934,11 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
     // napper's centre there, positions after each tick, design frame)
     let mut rider_track: Vec<(i64, usize, f64, f64, f64, f64, f64)> = Vec::new();
     let mut nap_track: Vec<(i64, usize, f64, f64)> = Vec::new();
-    let mut lip_qs: Vec<Option<i64>> = Vec::new();
+    // (each napper's lip outcome; Err: no lip sample (no cart ahead of it at the merge, or no merge
+    // entry), its own class, never counted as clean (G1's CHANGES 1 on a191f3dfb))
+    let mut lip_qs: Vec<Result<Lip, &'static str>> = Vec::new();
     // (the carts' block contacts (ironspec 21:25 (4)): a cart's move stopped by a block face (its
-    // horizontal collision, the block in front of it along its last motion); a declared stop or buffer
+    // horizontal collision, the collision boxes its box meets); a declared stop or buffer
     // passes, any other fails the row. Declared: the hold's trapdoor (x,16,0), the station's stop
     // (dfb89499's file); the drop entry's backstop (x,m,mz-2), the lanes file's declared stop (every
     // cart into the lane stops against it, then falls into the drop column); the bench's end of track
@@ -910,7 +946,9 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
     // hold stops there before the bench takes it out))
     let declared_stops: Vec<(i32, i32, i32)> = vec![(lx, 16, 0), (lx, m, mz - 2), (lx, 16, -1), (lx, 17, -1)];
     let mut block_contacts: std::collections::BTreeMap<(i32, i32, i32), (String, usize)> = std::collections::BTreeMap::new();
-    let mut last_motion: Vec<(f64, f64)> = vec![(0.0, 0.0); n];
+    let mut early_contacts: std::collections::BTreeMap<(i32, i32, i32), (String, usize)> = std::collections::BTreeMap::new();
+    // (each cart's motion before the tick, world frame: the contacts' "moved toward" test)
+    let mut cart_motion: std::collections::HashMap<u32, (f64, f64)> = std::collections::HashMap::new();
     // (each napper's PRESENT margin before its leader's press (ironspec 21:14 (1)): the leader's press
     // tick minus the napper's PRESENT tick (its K tick + --nap-present-k); under 7: outside normal
     // operation)
@@ -921,6 +959,9 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
     let mut nap_since = 0i64;
     let mut late_naps = 0usize;
     let mut nap_rested_at: Option<i64> = None;
+    // (day-1's siding settle, PRESENT's physical basis: each napper's first tick on R's cell to its
+    // first tick there at speed < 0.001)
+    let (mut nap_on_r, mut nap_settled, mut settles): (Option<i64>, bool, Vec<i64>) = (None, false, Vec::new());
     let mut nap_wait_max = 0i64;
     let mut last_any_pass: Option<(i64, usize)> = None;
     let mut release_lead: Option<usize> = None;
@@ -968,6 +1009,14 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
     let mut nap_departed_at: Option<i64> = None;
     let mut nap_gaps: Vec<i64> = Vec::new();
     let mut r_joint = 0usize;
+    // (the resting napper across the K row's passes (ironspec 23:15 (2), 23:51: push-scan's pairs R
+    // (x-2,24,7) <- K (x-2,25,9) close by measurement): while a napper rests on R, every K-row cart
+    // within 1.5 blocks of K's centre in x on the row is a pass; the napper's displacement from where it
+    // came to rest and its speed over the passes (redsim's AbstractMinecart.push, its 0.8-alignment
+    // rule included))
+    let (mut push_passes, mut push_disp_max, mut push_v_max) = (0usize, 0.0f64, 0.0f64);
+    let mut push_rest_ref: Option<(f64, f64)> = None;
+    let mut push_in_pass = false;
     // (r_joint's positive control's cart, once spawned)
     let mut control_cart: Option<u32> = None;
     let mut release_states: Vec<(i64, bool, f64, f64)> = Vec::new();
@@ -1373,6 +1422,26 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
             s_is = want_s;
             run.world.set_block(wp(s_switch), if want_s { rblock.clone() } else { air.clone() }, redsim::world::flags::ALL);
         }
+        // (--held-rider-control: at the napper's release, glass two cells under the lip in the drop
+        // column (x,m-2,mz-1): the cart ahead of the napper drops one block and stays there, its cart
+        // below the napper's floor and its rider's top (the cart's y + 1.95) above it, so the napper
+        // behind reaches the rider and the rider never drops: the lip outcome must read STUCK and the
+        // row fail. (Glass at (x,m-1,mz-1) holds the cart on the lip instead: the napper then stops
+        // against the cart's box, 0.49 behind its centre to the rider's 0.3, and never reaches the
+        // rider: a merge queue, not the lip's failure.))
+        if so.held_rider_control && released_at == Some(t) {
+            run.world.set_block(wp(BlockPos::new(lx, m - 2, mz - 1)), glass.clone(), redsim::world::flags::ALL);
+        }
+        // (--stray-ctl T: the stray-power check's positive control on the S-bend (ironspec 02:18): a
+        // redstone block beside R, west of it (x-3,m,mz), from tick T for 10 gt: R powered while its
+        // switch is off)
+        if let Some(ts) = so.stray_ctl {
+            if t == ts {
+                run.world.set_block(wp(BlockPos::new(sx - 1, m, mz)), rblock.clone(), redsim::world::flags::ALL);
+            } else if t == ts + 10 {
+                run.world.set_block(wp(BlockPos::new(sx - 1, m, mz)), air.clone(), redsim::world::flags::ALL);
+            }
+        }
         if s_is {
             switch_last_on = t;
         }
@@ -1411,6 +1480,7 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
                     None => redsim::entity::spawn(&mut run.world, "minecraft:minecart", [sx as f64 + 0.5, rest_y as f64 + 0.5 + 0.0625, mzf(rest_z as f64 + 0.5)], Some(&nbt0))?,
                 };
                 nap_spawned_t = Some(t);
+                (nap_on_r, nap_settled) = (None, false);
                 // (the napper's K tick: with --nap-feed-v it is spawned on K's cell moving north; the
                 // PRESENT bit (--nap-present-k) counts from here)
                 if nbt_feed.is_some() {
@@ -1464,31 +1534,90 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
         }
         run.tick();
         let now: Vec<Option<(f64, f64, f64, f64)>> = carts.iter().map(|id| id.and_then(|id| st(&run.world, id))).collect();
-        // (the carts' block contacts: a horizontal collision whose cell in front (along the cart's
-        // last motion) holds a block with a collision shape that is not a rail)
-        for c in 0..n {
-            let (Some(p), Some(id)) = (now[c], carts[c]) else { continue };
-            let Some(i) = redsim::entity::index_of(&run.world, id) else { continue };
-            let e = &run.world.entities.list[i];
-            let dmz = if so.mirror_z { -e.delta_movement.z } else { e.delta_movement.z };
-            // (from t 20: the carts laid in the lane at t 0 settle against the slopes' supports in
-            // their first ticks (a summon transient: carts 4 and 5 at t 3 and t 6, (x,20,5) and (x,21,6),
-            // MCTAS_CONTACT_DEBUG), no ride)
-            if e.horizontal_collision && t >= 20 {
-                let (vx, vz) = last_motion[c];
-                let step = |v: f64, at: f64| if v > 1e-4 { (at + 0.5).floor() as i32 } else if v < -1e-4 { (at - 0.5).floor() as i32 } else { at.floor() as i32 };
-                let cell = (step(vx, p.0), (p.1 + 0.1).floor() as i32, step(vz, p.2));
-                let blk = run.world.get(wp(BlockPos::new(cell.0, cell.1, cell.2)));
-                let is_rail = matches!(blk, Block::PlainRail { .. } | Block::DetectorRail { .. }) || blk.to_string().contains("rail");
-                if !matches!(blk, Block::Air) && !is_rail && !redsim::behavior::collision_boxes(&blk).is_empty() {
-                    let ent = block_contacts.entry(cell).or_insert_with(|| (blk.to_string(), 0));
-                    ent.1 += 1;
+        // (the carts' block contacts (ironspec 21:25 (4); G1's note (c) on a191f3dfb, day-1's
+        // note_contacts): every minecart in the world (the lane's carts, the K row's through-carts,
+        // the control cart) whose move collided horizontally this tick: the collision boxes its box
+        // meets grown 0.01 in x and z, the floor and the ceiling left out, each named by its cell in
+        // the design frame; kept when the box touches the cart's box on a face the cart moved toward
+        // (overlap at most 0.011 on that axis and more than 0.01 on the other, the box ahead along that
+        // component of the cart's motion before the tick): the side walls along a 1-wide path and the
+        // slope supports a riding cart's box passes through are no stops (the plain day-1 rule names
+        // them on every queued tick); the contacts before t 20 (the summoned start's settle) are
+        // counted apart)
+        for e in run.world.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, redsim::entity::EntityKind::Minecart(_))) {
+            let (mx, mzv) = cart_motion.get(&e.id).copied().unwrap_or((e.delta_movement.x, e.delta_movement.z));
+            if e.horizontal_collision {
+                let bb = e.bb;
+                let (cx, cz) = ((bb.min_x + bb.max_x) / 2.0, (bb.min_z + bb.max_z) / 2.0);
+                for a in run.world.collision_shapes(bb.inflate(0.01, 0.0, 0.01)).into_iter().filter(|a| a.max_y > bb.min_y + 1e-6 && a.min_y < bb.max_y - 1e-6) {
+                    let ox = bb.max_x.min(a.max_x) - bb.min_x.max(a.min_x);
+                    let oz = bb.max_z.min(a.max_z) - bb.min_z.max(a.min_z);
+                    let ahead_x = mx.abs() > 1e-4 && ((a.min_x + a.max_x) / 2.0 - cx) * mx > 0.0;
+                    let ahead_z = mzv.abs() > 1e-4 && ((a.min_z + a.max_z) / 2.0 - cz) * mzv > 0.0;
+                    let front = (ox <= 0.011 && oz > 0.01 && ahead_x) || (oz <= 0.011 && ox > 0.01 && ahead_z);
+                    if !front {
+                        continue;
+                    }
+                    let (wx, wy, wz) = (((a.min_x + a.max_x) / 2.0).floor() as i32, ((a.min_y + a.max_y) / 2.0).floor() as i32, ((a.min_z + a.max_z) / 2.0).floor() as i32);
+                    let cell = (wx, wy, mzc(wz));
+                    let blk = run.world.get(BlockPos::new(wx, wy, wz));
+                    let map = if t >= 20 { &mut block_contacts } else { &mut early_contacts };
+                    map.entry(cell).or_insert_with(|| (blk.to_string(), 0)).1 += 1;
                     if std::env::var("MCTAS_CONTACT_DEBUG").is_ok() {
-                        eprintln!("t {t}: cart {c} at {:.3},{:.3},{:.3} (last motion {vx:.4},{vz:.4}) stopped by {:?} {blk}", p.0, p.1, p.2, cell);
+                        eprintln!("t {t}: cart entity {} at {:.3},{:.3},{:.3} (motion {mx:.4},{:.4}) met {:?} {blk}", e.id, e.pos.x, e.pos.y, mzf(e.pos.z), vz(mzv), cell);
                     }
                 }
             }
-            last_motion[c] = (e.delta_movement.x, dmz);
+        }
+        cart_motion = run.world.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, redsim::entity::EntityKind::Minecart(_))).map(|e| (e.id, (e.delta_movement.x, e.delta_movement.z))).collect();
+        // (the napper's settle on R: its first tick on R's cell, then its first tick there at speed
+        // < 0.001, positions and speeds after the tick)
+        if let Some((nc, _)) = nap
+            && released_at.is_none()
+            && !nap_settled
+            && let Some(p) = now[nc]
+        {
+            // (R's cell: the ascending rest's y runs 24 to 25 across it, so its cell is floor(y), not
+            // the rounded y (a napper at rest past z 7.5 rides above 24.5))
+            let on_r = p.0.floor() as i32 == sx && (p.1 + 1e-6).floor() as i32 == rest_y && p.2.floor() as i32 == rest_z;
+            if on_r && nap_on_r.is_none() {
+                nap_on_r = Some(t);
+            }
+            if on_r
+                && p.3 < 0.001
+                && let Some(t0) = nap_on_r
+            {
+                settles.push(t - t0);
+                nap_settled = true;
+            }
+        }
+        // (the resting napper across the K row's passes: its displacement and speed while a K-row
+        // cart is beside K)
+        {
+            let resting = nap.and_then(|(nc, _)| now[nc]).filter(|_| nap_rested_at.is_some() && released_at.is_none());
+            match resting {
+                Some(p) => {
+                    let (rx, rz) = *push_rest_ref.get_or_insert((p.0, p.2));
+                    let kx = sx as f64 + 0.5;
+                    let row_z = (mz + 2) as f64;
+                    let passing = through.iter().filter_map(|(id, _)| st(&run.world, *id)).any(|q| (q.0 - kx).abs() < 1.5 && q.2 > row_z && q.2 < row_z + 1.0)
+                        // (r_joint's control cart, while it lives, counts as a pass: the turn control,
+                        // rolling north at K into F and R, is the push measurement's positive control)
+                        || control_cart.and_then(|id| st(&run.world, id)).is_some();
+                    if passing {
+                        if !push_in_pass {
+                            push_passes += 1;
+                        }
+                        push_disp_max = push_disp_max.max(((p.0 - rx).powi(2) + (p.2 - rz).powi(2)).sqrt());
+                        push_v_max = push_v_max.max(p.3);
+                    }
+                    push_in_pass = passing;
+                }
+                None => {
+                    push_rest_ref = None;
+                    push_in_pass = false;
+                }
+            }
         }
         // (the lip margin's tracks: carts from the merge's south face to 3 cells north of it)
         for c in 0..n {
@@ -1758,19 +1887,62 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
             control_cart = Some(id);
         }
         // (R against K's turn: a cart's centre in R's cell while another's is in F's cell, or in K's
-        // cell north of the K row's centre line (turned toward F; the K row's own passes stay on it);
-        // every cart: the lane's, the K row's through-carts and the control's)
+        // cell moving north (turning toward F), or two carts in R's cell at once (ironspec 01:37 (2a):
+        // any cart on R, moving or at rest); every cart: the lane's, the K row's through-carts and
+        // the control's. The K row's own passes cross K's north_east T eastbound, projected onto its
+        // curve to z (mz + 2) + xf / 2, so a position test ("north of the row's centre line") counted
+        // every pass beside a resting napper; the motion's direction tells a turn from a pass)
         {
-            let cell = |p: &(f64, f64, f64, f64), x: i32, y: i32, z: i32| p.0.floor() as i32 == x && (p.1 + 0.5).floor() as i32 == y && p.2.floor() as i32 == z;
-            let mut all: Vec<(f64, f64, f64, f64)> = now.iter().flatten().copied().collect();
-            all.extend(through.iter().filter_map(|(id, _)| st(&run.world, *id)));
-            all.extend(control_cart.and_then(|id| st(&run.world, id)));
-            let on_r: Vec<usize> = (0..all.len()).filter(|i| cell(&all[*i], sx, rest_y, rest_z)).collect();
-            if !on_r.is_empty()
-                && (0..all.len()).any(|i| {
-                    let p = &all[i];
-                    !on_r.contains(&i) && (cell(p, sx, m + 1, mz + 1) || (cell(p, sx, m + 1, mz + 2) && p.2 < (mz + 2) as f64 + 0.45))
+            // (a cell by floor(y): R is an ascending rail whose rider's y runs 24 to 25 across it, so
+            // the rounded y missed every cart at rest past z 7.5 (the self-judging turn control found
+            // it); F and K are flat, their carts at y + 0.0625 at most)
+            let cell = |p: &(f64, f64, f64, f64, f64), x: i32, y: i32, z: i32| p.0.floor() as i32 == x && (p.1 + 1e-6).floor() as i32 == y && p.2.floor() as i32 == z;
+            // (position and motion in the design frame: x, y, z, motion x, motion z)
+            let stv = |id: u32| -> Option<(f64, f64, f64, f64, f64)> {
+                redsim::entity::index_of(&run.world, id).map(|i| {
+                    let e = &run.world.entities.list[i];
+                    (e.pos.x, e.pos.y, mzf(e.pos.z), e.delta_movement.x, vz(e.delta_movement.z))
                 })
+            };
+            let mut all: Vec<(f64, f64, f64, f64, f64)> = carts.iter().flatten().filter_map(|id| stv(*id)).collect();
+            all.extend(through.iter().filter_map(|(id, _)| stv(*id)));
+            all.extend(control_cart.and_then(|id| stv(id)));
+            let on_r: Vec<usize> = (0..all.len()).filter(|i| cell(&all[*i], sx, rest_y, rest_z)).collect();
+            // (MCTAS_RJOINT_DEBUG: every tick a cart is on R while another is in F's or K's cell, with
+            // that cart's kind, position and motion, and how the old position test and the motion
+            // test read it: the per-tick diagnosis ironspec 01:37 (2b) asks for)
+            if !on_r.is_empty() && std::env::var("MCTAS_RJOINT_DEBUG").is_ok() {
+                let n_lane = carts.iter().flatten().filter(|id| stv(**id).is_some()).count();
+                let n_th = through.iter().filter(|(id, _)| stv(*id).is_some()).count();
+                for (i, p) in all.iter().enumerate() {
+                    if on_r.contains(&i) {
+                        continue;
+                    }
+                    let (in_f, in_k) = (cell(p, sx, m + 1, mz + 1), cell(p, sx, m + 1, mz + 2));
+                    if in_f || in_k {
+                        let kind = if i < n_lane { "lane cart" } else if i < n_lane + n_th { "K-row cart" } else { "control cart" };
+                        eprintln!(
+                            "rjoint t {t}: {kind} in {} at {:.3},{:.3},{:.3} motion ({:+.4},{:+.4}); R held by {} cart(s); the old position test {}, the motion test {}",
+                            if in_f { "F" } else { "K" },
+                            p.0,
+                            p.1,
+                            p.2,
+                            p.3,
+                            p.4,
+                            on_r.len(),
+                            if in_f || p.2 < (mz + 2) as f64 + 0.45 { "counts" } else { "no" },
+                            if in_f || (p.4 < -1e-4 && p.4.abs() > p.3.abs()) { "counts" } else { "no" }
+                        );
+                    }
+                }
+            }
+            if (on_r.len() >= 2
+                || !on_r.is_empty()
+                    && (0..all.len()).any(|i| {
+                        let p = &all[i];
+                        let north = p.4 < -1e-4 && p.4.abs() > p.3.abs();
+                        !on_r.contains(&i) && (cell(p, sx, m + 1, mz + 1) || (cell(p, sx, m + 1, mz + 2) && north))
+                    }))
             {
                 r_joint += 1;
             }
@@ -2007,12 +2179,22 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
                 // (the cart ahead at the merge, the lip margin against its rider (ironspec 21:14 (2)),
                 // and this napper's PRESENT margin before that cart's press (21:14 (1)))
                 let ahead = m_nap.and_then(|en| merge_occ.iter().filter(|mo| mo.0 != c && mo.1 < en).max_by_key(|mo| mo.1).map(|mo| mo.0));
-                let lip = ahead.and_then(|a| {
-                    let nt: Vec<(i64, f64, f64)> = nap_track.iter().filter(|k| k.1 == c && k.0 > ra).map(|k| (k.0, k.2, k.3)).collect();
-                    let rt: Vec<(i64, f64, f64, f64, f64, f64)> = rider_track.iter().filter(|k| k.1 == a && k.0 > ra - 40).map(|k| (k.0, k.2, k.3, k.4, k.5, k.6)).collect();
-                    lip_margin(&nt, &rt, m as f64)
-                });
+                let lip: Result<Lip, &'static str> = match (m_nap, ahead) {
+                    (None, _) => Err("no merge entry"),
+                    (Some(_), None) => Err("no cart ahead at the merge"),
+                    (Some(_), Some(a)) => {
+                        let nt: Vec<(i64, f64, f64)> = nap_track.iter().filter(|k| k.1 == c && k.0 > ra).map(|k| (k.0, k.2, k.3)).collect();
+                        let rt: Vec<(i64, f64, f64, f64, f64, f64)> = rider_track.iter().filter(|k| k.1 == a && k.0 > ra - 40).map(|k| (k.0, k.2, k.3, k.4, k.5, k.6)).collect();
+                        Ok(lip_margin(&nt, &rt, m as f64))
+                    }
+                };
                 lip_qs.push(lip);
+                let lip_txt = match lip {
+                    Ok(Lip::Margin(q)) => format!("{q} gt"),
+                    Ok(Lip::Never) => "never reaches the rider".to_string(),
+                    Ok(Lip::Held(n)) => format!("STUCK (reaches the rider at t {n}, the rider never below the floor)"),
+                    Err(why) => format!("no sample ({why})"),
+                };
                 let pmargin = match (ahead.and_then(|a| last_pass[a]), nap_k_at, so.present_k) {
                     (Some(pa), Some(k), Some(d)) => Some(pa - (k + d)),
                     _ => None,
@@ -2044,7 +2226,7 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
                     pred_pass.map_or("-".to_string(), |p| p.to_string()),
                     nap_rested_at.map_or("-".to_string(), |r| r.to_string()),
                     waited.map_or("-".to_string(), |w| w.to_string()),
-                    lip.map_or("never (the napper never reaches the leader's rider)".to_string(), |q| format!("{q} gt")),
+                    lip_txt,
                     pmargin.map_or("-".to_string(), |p| format!("{p} gt"))
                 ));
                 if lap_wait || late_rejoin {
@@ -2071,6 +2253,30 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
         *e = e.max(k.1);
     }
     let empty_releases = per_release.iter().skip(1).filter(|r| **r == 0).count();
+    // (a napper released but never back at the lane's back by the run's end (held at the merge or
+    // the lip: no napper row closed for it) still gets its lip outcome (ironspec 00:02 (1): a rider
+    // held at the lip while the napper reaches it is STUCK, never a missing sample))
+    let mut inflight_lip: Option<String> = None;
+    if let (Some((c, _)), Some(ra)) = (nap, released_at) {
+        let m_nap = merge_occ.iter().filter(|mo| mo.0 == c && mo.1 > ra).map(|mo| mo.1).min();
+        let ahead = m_nap.and_then(|en| merge_occ.iter().filter(|mo| mo.0 != c && mo.1 < en).max_by_key(|mo| mo.1).map(|mo| mo.0));
+        let lip: Result<Lip, &'static str> = match (m_nap, ahead) {
+            (None, _) => Err("no merge entry"),
+            (Some(_), None) => Err("no cart ahead at the merge"),
+            (Some(_), Some(a)) => {
+                let nt: Vec<(i64, f64, f64)> = nap_track.iter().filter(|k| k.1 == c && k.0 > ra).map(|k| (k.0, k.2, k.3)).collect();
+                let rt: Vec<(i64, f64, f64, f64, f64, f64)> = rider_track.iter().filter(|k| k.1 == a && k.0 > ra - 40).map(|k| (k.0, k.2, k.3, k.4, k.5, k.6)).collect();
+                Ok(lip_margin(&nt, &rt, m as f64))
+            }
+        };
+        lip_qs.push(lip);
+        inflight_lip = Some(match lip {
+            Ok(Lip::Margin(q)) => format!("{q} gt"),
+            Ok(Lip::Never) => "never reaches the rider".to_string(),
+            Ok(Lip::Held(n)) => format!("STUCK (reaches the rider at t {n}, the rider never below the floor)"),
+            Err(why) => format!("no sample ({why})"),
+        });
+    }
     let mut lines = vec![format!(
         "siding bench: lane x {lx} in the budget's cells (the hold (x,16,0), R_1 (x,17,1), {ns} slopes, the merge (x,{m},{mz}) with its string, the siding (x-1,{m},{}) and its curve{}), {} carts ({}), the R line {} gt, the trapdoor {} gt every {} gt (corner {:+}), returns on the branch after {} gt at {:.2} b/t, a napper every {} drops back on the siding after {} gt, released {} gt after its predecessor's merge pass for {} gt; {} cycles{}",
         mz + 1,
@@ -2081,13 +2287,19 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
     lines.push(format!("carts per release (exactly 1): {}; empty releases after the first (golems lost: a batch of 2 can't summon): {empty_releases}; late nappers (a lane-lap wait): {late_naps}", ph.iter().map(|(a, b2)| format!("{a}: {b2}")).collect::<Vec<_>>().join(", ")));
     lines.push(format!("nappers through the siding: {}", if nap_rows.is_empty() { "none".to_string() } else { nap_rows.join(" | ") }));
     {
-        // (the lip margin over the nappers (ironspec 21:14 (2)) and their PRESENT margins (21:14 (1)))
-        let qs: Vec<i64> = lip_qs.iter().flatten().copied().collect();
-        let never = lip_qs.iter().filter(|q| q.is_none()).count();
+        // (the lip margin over the nappers (ironspec 21:14 (2); three outcomes, 00:02 (1)) and their
+        // PRESENT margins (21:14 (1)))
+        let qs: Vec<i64> = lip_qs.iter().filter_map(|q| if let Ok(Lip::Margin(v)) = q { Some(*v) } else { None }).collect();
+        let never = lip_qs.iter().filter(|q| matches!(q, Ok(Lip::Never))).count();
+        let held = lip_qs.iter().filter(|q| matches!(q, Ok(Lip::Held(_)))).count();
+        let no_ahead = lip_qs.iter().filter(|q| matches!(q, Err("no cart ahead at the merge"))).count();
+        let no_merge = lip_qs.iter().filter(|q| matches!(q, Err("no merge entry"))).count();
+        let samples = qs.len() + never + held;
         lines.push(format!(
-            "the lip margin (ironspec 21:14 (2): the tick the napper's box front first reaches the leader's rider's box back face as the rider stood after the previous tick (napper first), minus the first tick after which the rider's box top is below the napper's floor y {m}.0, minus 1; -1 or less is contact (stuck); never: the napper never reaches the rider): {} over {} nappers, never {never}",
+            "the lip margin (ironspec 21:14 (2), 00:02 (1): the tick the napper's box front first reaches the leader's rider's box back face as the rider stood after the previous tick (napper first), minus the first tick after which the rider's box top is below the napper's floor y {m}.0, minus 1; -1 or less is contact (stuck)): margins {} over {} nappers; never reaching the rider (clean) {never}; STUCK (reaching the rider, the rider never below the floor; fails) {held}; samples {samples}{}; no sample: no cart ahead at the merge {no_ahead}, no merge entry {no_merge}",
             if qs.is_empty() { "-".to_string() } else { format!("{}..{} gt", qs.iter().min().unwrap_or(&0), qs.iter().max().unwrap_or(&0)) },
-            lip_qs.len()
+            qs.len(),
+            if samples == 0 && so.nap_every > 0 { " (NOT JUDGED (0 samples))" } else { "" }
         ));
         lines.push(format!(
             "the nappers' PRESENT margins before their leader's press (ironspec 21:14 (1): the leader's press tick minus the napper's PRESENT tick; under 7 is outside normal operation): {} over {} nappers, {} under 7",
@@ -2095,14 +2307,23 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
             present_margins.len(),
             present_margins.iter().filter(|p| **p < 7).count()
         ));
+        lines.push(format!(
+            "the napper's settle on R (day-1, PRESENT's physical basis (PRESENT + max(6, settle) <= D - 1): from its first tick on R's cell ({sx},{rest_y},{rest_z}) to its first tick there at speed < 0.001, positions and speeds after the tick; the napper on K's cell at {}): {} over {} nappers",
+            so.nap_feed_v.map_or("its spawn speed".to_string(), |v| format!("{v:.3} b/gt (phase {:.4})", so.nap_feed_phase)),
+            if settles.is_empty() { "-".to_string() } else { format!("{}..{} gt", settles.iter().min().unwrap_or(&0), settles.iter().max().unwrap_or(&0)) },
+            settles.len()
+        ));
         let undeclared: Vec<String> = block_contacts.iter().filter(|(k, _)| !declared_stops.contains(k)).map(|(k, v)| format!("({},{},{}) {} x{}", k.0, k.1, k.2, v.0, v.1)).collect();
         lines.push(format!(
-            "the carts' block contacts (ironspec 21:25 (4): a cart's move stopped by a block face, the block in front along its last motion; declared stops: {}): {} cells ({}), undeclared (the bar: 0): {}{}",
+            "the carts' block contacts (ironspec 21:25 (4): every cart's move that collided horizontally (the lane's carts, the K row's through-carts, the control cart), the collision boxes its box meets grown 0.01 in x and z, the floor and the ceiling left out (day-1's note_contacts), kept on a face the cart moved toward (the side walls along its path and the slope supports a riding cart's box passes through are no stops); declared stops: {}): from t 20 {} cells ({}), undeclared (the bar: 0): {}{}; before t 20 (the summoned start's settle; counted apart, no bar): {} contacts at {} cells ({})",
             declared_stops.iter().map(|k| format!("({},{},{})", k.0, k.1, k.2)).collect::<Vec<_>>().join(" "),
             block_contacts.len(),
             block_contacts.iter().map(|(k, v)| format!("({},{},{}) x{}", k.0, k.1, k.2, v.1)).collect::<Vec<_>>().join(" "),
             undeclared.len(),
-            if undeclared.is_empty() { String::new() } else { format!(" [{}]", undeclared.join("; ")) }
+            if undeclared.is_empty() { String::new() } else { format!(" [{}]", undeclared.join("; ")) },
+            early_contacts.values().map(|v| v.1).sum::<usize>(),
+            early_contacts.len(),
+            early_contacts.iter().map(|(k, v)| format!("({},{},{}) {} x{}", k.0, k.1, k.2, v.0, v.1)).collect::<Vec<_>>().join(" ")
         ));
     }
     {
@@ -2361,10 +2582,11 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
         let waited = ticks - nap_since;
         let lap = if so.ring > 0 { (so.ring + 1) * o.period + so.k } else { (o.per_lane as i64 + 2) * o.period };
         lines.push(format!(
-            "a napper still waiting at the end: cart {c} (predecessor pass {:?}, released {:?}), {waited} gt since its drop{}",
+            "a napper still waiting at the end: cart {c} (predecessor pass {:?}, released {:?}), {waited} gt since its drop{}{}",
             pred_pass,
             released_at,
-            if waited > lap + so.nap_ret { format!(" — stuck (over a lane-lap, {lap} gt, past its return)") } else { format!(" — within a lane-lap ({lap} gt) of its return: the run's end cut its wait") }
+            if waited > lap + so.nap_ret { format!(" — stuck (over a lane-lap, {lap} gt, past its return)") } else { format!(" — within a lane-lap ({lap} gt) of its return: the run's end cut its wait") },
+            inflight_lip.as_ref().map_or(String::new(), |l| format!("; released but not back at the lane's back: its lip outcome {l}"))
         ));
     }
     lines.push(format!(
@@ -2373,6 +2595,11 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
         mz + 2,
         if nap_gaps.is_empty() { "-".to_string() } else { format!("{}..{} gt", nap_gaps.iter().min().unwrap_or(&0), nap_gaps.iter().max().unwrap_or(&0)) },
         nap_gaps.len()
+    ));
+    lines.push(format!(
+        "the resting napper across the K row's passes (ironspec 23:15 (2): push-scan's pairs R ({sx},{rest_y},{rest_z}) <- K ({sx},{},{}); redsim's AbstractMinecart.push, its 0.8-alignment rule included): {push_passes} passes while a napper rested on R (the samples); its largest displacement from where it came to rest during them {push_disp_max:.6}, its largest speed {push_v_max:.6} (the bar: 0)",
+        m + 1,
+        mz + 2
     ));
     // (ironspec 19:07, the bar audit: every inherited number this bench enforces, printed "inherited",
     // with its physical basis first where one exists; the other bars are physical: game rules or
@@ -2385,6 +2612,71 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
          this bench's windows (inherited: mine): at rest off the rails 20 gt, V held 20 gt, the napper on R 40 gt after its release, a stray power past the drive delay + 2 gt"
             .to_string(),
     );
+    {
+        // (ironspec 00:02 (3), G1's note (d): every control in this run asserts its own expected
+        // failure: a control that does not bite fails the run)
+        let mut ctl: Vec<String> = Vec::new();
+        let mut ctl_fail = 0usize;
+        let mut judge = |what: String, ok: bool, seen: String, pass_txt: &str, fail_txt: &str| {
+            if !ok {
+                ctl_fail += 1;
+            }
+            ctl.push(format!("{what}: {seen}: {}", if ok { pass_txt } else { fail_txt }));
+        };
+        // (each control tick's distance from the K row's spawns (release + k_offsets): a control placed
+        // on a K-row pass meets it (ironspec 02:18: chosen clear of them, printed))
+        let spawn_gap = |tc: i64| -> String {
+            rel_times.iter().flat_map(|r| so.k_offsets.iter().map(move |k| r + k)).min_by_key(|s| (s - tc).abs()).map_or("no K-row spawn".to_string(), |s| format!("{} gt from the nearest K-row spawn (t {s})", (tc - s).abs()))
+        };
+        match so.r_joint_control.as_ref() {
+            Some((kind, ti)) if kind == "turn" => {
+                judge(format!("r_joint's positive control (--r-joint-control turn:{ti}, a cart turning north at K while a napper rests on R; {})", spawn_gap(*ti)), r_joint > 0, format!("{r_joint} joint ticks (expected > 0)"), "the control bites", "FAIL, the control does NOT bite");
+                judge(format!("the push measurement's positive control (the same cart)"), push_disp_max > 1e-6 || push_v_max > 1e-6, format!("the resting napper's displacement {push_disp_max:.6}, speed {push_v_max:.6} (expected > 0)"), "the control bites", "FAIL, the control does NOT bite");
+            }
+            Some((kind, ti)) => judge(format!("r_joint's negative control (--r-joint-control {kind}:{ti}, a cart through K's cell eastbound; {})", spawn_gap(*ti)), r_joint == 0, format!("{r_joint} joint ticks (expected 0)"), "0 as expected", "FAIL, expected 0"),
+            None => {}
+        }
+        if let Some(ts) = so.stray_ctl {
+            judge(format!("the stray-power control (--stray-ctl {ts}: a redstone block beside R ({},{m},{mz}) for 10 gt, R powered with its switch off)", sx - 1), stray_power > 0, format!("{stray_power} stray-power ticks (expected > 0)"), "the control bites", "FAIL, the control does NOT bite");
+        }
+        if let Some(kind) = so.side_ctl.as_deref() {
+            judge(format!("the stray-power control (--side-ctl {kind}: a driver the guard detector can reach)"), stray_power > 0, format!("{stray_power} stray-power ticks (expected > 0)"), "the control bites", "FAIL, the control does NOT bite");
+        }
+        if so.siding_north && let Some(id) = so.r_support.as_deref().filter(|id| !id.ends_with("slime_block")) {
+            let failed = launch_stuck + launches.iter().filter(|l| !l.2).count();
+            judge(format!("the rest-support control (--r-support {id})"), failed > 0, format!("{failed} launches stuck or after the pulse (expected > 0)"), "the control bites", "FAIL, the control does NOT bite");
+        }
+        if so.held_rider_control {
+            let held = lip_qs.iter().filter(|q| matches!(q, Ok(Lip::Held(_)))).count();
+            judge("the lip bar's positive control (--held-rider-control: glass two cells under the lip, the leader held one block down with its rider above the floor)".to_string(), held > 0, format!("{held} nappers STUCK at the held rider (expected > 0)"), "the control bites", "FAIL, the control does NOT bite");
+        }
+        drop(judge);
+        lines.push(format!(
+            "the controls (ironspec 00:02 (3): each asserts its own expected failure): {}; controls failing (the bar: 0): {ctl_fail}",
+            if ctl.is_empty() { "none in this run".to_string() } else { ctl.join("; ") }
+        ));
+    }
+    {
+        // (ironspec 23:56, no vacuous passes: every bar's samples; a bar in this run's scope with 0
+        // samples is NOT JUDGED and fails the row; the K-row pass bar is judged over a matrix's rows)
+        let arrivals_n = contacts.iter().filter(|k| k.4).count();
+        let samples: Vec<(&str, usize, bool)> = vec![
+            ("releases", rel_times.len(), true),
+            ("merge entries (touching, the curve rule's leaders)", merge_occ.len(), true),
+            ("arrivals at the lanes' backs (the 0.46 bar)", arrivals_n, true),
+            ("the lip margin's samples (margins, never reaching, stuck)", lip_qs.iter().filter(|q| q.is_ok()).count(), so.nap_every > 0),
+            ("the nappers' PRESENT margins", present_margins.len(), so.nap_every > 0 && so.present_k.is_some()),
+            ("napper launches (stuck, after the pulse)", launches.len(), so.nap_every > 0),
+            ("the K row's through-carts (push range)", th_spawned, so.k_row.is_some()),
+        ];
+        let not_judged: Vec<String> = samples.iter().filter(|s| s.2 && s.1 == 0).map(|s| s.0.to_string()).collect();
+        lines.push(format!(
+            "the bars' samples (ironspec 23:56: a bar in scope with 0 samples is NOT JUDGED and fails): {}; the resting napper's K-row passes {push_passes} (judged over a matrix's rows); the fluid cells laid {fluid_cells}, their ticks scheduled 0 (ironspec 00:27: this bench lays no fluid); NOT JUDGED (0 samples): {}{}",
+            samples.iter().map(|s| format!("{} {}{}", s.0, s.1, if s.2 { "" } else { " (out of this run's scope)" })).collect::<Vec<_>>().join(", "),
+            not_judged.len(),
+            if not_judged.is_empty() { String::new() } else { format!(" [{}]", not_judged.join("; ")) }
+        ));
+    }
     Ok(lines.join("\n"))
 }
 
@@ -2578,6 +2870,33 @@ pub fn lanes_design(ns: i32, sbend: bool, row: bool, r_support: Option<&str>, re
             [-1, 3, 7]
                 .iter()
                 .map(|x| format!("{},{},{}=the siding feed's last repeater (delay 1, facing south): powers R ({},{m},{}) through its support slime ({},{},{}); the precondition table's lines 11 and 14 (R at D's press + k_sw + 8)", x - 2, m - 1, mz + 1, x - 2, mz, x - 2, m - 1, mz))
+                .collect::<Vec<_>>()
+                .join("; ")
+        ));
+        // (the push pairs closed by measurement (ironspec 23:15 (2), 23:51): each siding rest R against
+        // the split row's K T it rests beside, with the measured bound and the evidence row)
+        out.push_str(&format!(
+            "# push-pair: {}\n",
+            [-1, 3, 7]
+                .iter()
+                .map(|x| format!("{},{m},{}+{},{},{}=the napper resting on R against the K row's carts passing K: the measured bound is 0, no displacement and no speed of the resting napper in any pass (ironfarm escape-bench --siding's line \"the resting napper across the K row's passes\" over the k_sw = 6 matrix, 8 arrivals x 16 qualifying phases x 4 variants, and its 1-4-gt freezes; its positive control --r-joint-control turn:T bites; a push beyond 0 in any run fails that run)", x - 2, mz, x - 2, m + 1, mz + 2))
+                .collect::<Vec<_>>()
+                .join("; ")
+        ));
+        // (the stored rail shapes the placement pass would not give (cc767b78's settle-check; ironspec
+        // 01:46 (1), G1's `shape:` key at 01:49): the merge C (north_west: the S-bend's west arm and
+        // the lip; placement computes south_west from D and c3) and the top slope (ascending_south with
+        // no rail one up to the south; placement computes north_south), each with its reason, evidence
+        // and build step (the replay decides: tick-exact's bot on the official server, or redsim once it
+        // reproduces the official controls))
+        out.push_str(&format!(
+            "# shape: {}\n",
+            [-1, 3, 7]
+                .iter()
+                .flat_map(|x| [
+                    format!("{x},{m},{mz}=north_west (load-bearing: it joins the S-bend's west arm c3 ({},{m},{mz}) to the lip and snaps the leader from D on to the lip, while south_west would send the napper into D and every leader into the S-bend; evidence: tick-exact's official S-bend rows ran on it, artifacts 1009706688854741 and 1032428046539821; build step (ironspec 01:46 (1), replayed officially by tick-exact on record7e, lanes -1 / 3 / 7, artifact 1672965364365960: C north_west and nothing temporary left, while the two failing orders end south_west at D's placement): with C's support glass laid, lay c3 and D ({x},{m},{}), then a temporary block ({x},{},{}) and a temporary rail on it ({x},{m},{}) and a temporary redstone block over C ({x},{},{mz}), place C (the powered T resolves to north_west), remove the temporary rail, then the redstone block, then the temporary block)", x - 1, mz + 1, m - 1, mz - 1, mz - 1, m + 1),
+                    format!("{x},{},{}=ascending_south (load-bearing: the landing from the lip rolls down it to the lane's back, where a flat cell would change every landing's descent and speed; evidence: tick-exact's official S-bend rows, the leader landing from the lip and riding the slopes down, artifact 1032428046539821, and the official build replay, artifact 1672965364365960; build step: lay the glass ({x},{},{}), a temporary rail on it at ({x},{},{}) (C's support cell, so before that support is laid), place ({x},{},{}) (it ascends south), remove the temporary rail, then lay C's support glass ({x},{},{}))", m - 2, mz - 1, m - 2, mz, m - 1, mz, m - 2, mz - 1, m - 1, mz),
+                ])
                 .collect::<Vec<_>>()
                 .join("; ")
         ));
@@ -2820,16 +3139,40 @@ pub struct SidingRow {
     /// The least margin of the cart after a napper into the merge (its entry minus the napper's
     /// clear), gt.
     pub nap_follow_min: Option<i64>,
-    /// The least lip margin over the row's nappers (ironspec 21:14 (2)); None when every napper
-    /// never reached its leader's rider.
+    /// The least lip margin over the row's nappers with a margin (ironspec 21:14 (2)); None when no
+    /// napper has one.
     pub lip_min: Option<i64>,
-    /// Nappers that never reached their leader's rider.
+    /// Nappers that never reached their leader's rider (clean).
     pub lip_never: usize,
+    /// Nappers that reached the rider while the rider never dropped below the floor (STUCK, ironspec
+    /// 00:02 (1)): failures.
+    pub lip_stuck: usize,
+    /// The lip margin's samples: margins + never + stuck.
+    pub lip_samples: usize,
+    /// Nappers with no lip sample: no cart ahead of them at the merge, or no merge entry.
+    pub lip_no_ahead: usize,
+    pub lip_no_merge: usize,
     /// The least PRESENT margin before the leader's press (ironspec 21:14 (1)).
     pub present_margin_min: Option<i64>,
-    /// The carts' undeclared block contacts (ironspec 21:25 (4)): cells a cart's move was stopped by,
-    /// outside the declared stops.
+    /// The carts' undeclared block contacts from t 20 (ironspec 21:25 (4)): cells a cart's box met
+    /// when its move collided horizontally, outside the declared stops.
     pub contacts_undeclared: usize,
+    /// The contacts before t 20 (the summoned start's settle), counted apart.
+    pub contacts_early: usize,
+    /// The resting napper across the K row's passes (ironspec 23:15 (2)): the passes (samples), its
+    /// largest displacement from its rest and largest speed during them.
+    pub push_passes: usize,
+    pub push_disp: f64,
+    pub push_speed: f64,
+    /// Bars in the run's scope with 0 samples (ironspec 23:56: NOT JUDGED, a failure).
+    pub not_judged: usize,
+    /// Controls in the run that did not bite (ironspec 00:02 (3)).
+    pub control_fail: usize,
+    /// The nappers' settle on R (day-1): the first tick on R's cell to speed < 0.001, (least, most).
+    pub settle: Option<(i64, i64)>,
+    /// The nappers' K tick to their rest on R, (least, most): the settle PRESENT's bar uses is this
+    /// minus 2 (PRESENT = K + 2; ironspec 01:33 (1)).
+    pub k_to_rest: Option<(i64, i64)>,
     /// Ticks with a cart on R while another turned at K or rode F (push-scan's R <- K pairs).
     pub r_joint: usize,
     /// The least gap from a napper's departure off R to the next napper's K tick, gt.
@@ -2902,7 +3245,7 @@ pub fn siding_row(o: &DropOpts, so: &SidingOpts) -> Result<SidingRow, String> {
                 if let (Some(a), Some(b2)) = (it.next(), it.next())
                     && a.trim() != "1"
                 {
-                    r.not_one += b2.trim().parse::<usize>().unwrap_or(0);
+                    r.not_one += b2.trim().parse::<usize>().map_err(|_| format!("siding_row: carts-per-release count {part:?} in: {l}"))?;
                 }
             }
             r.empty_releases = req(l, "golems lost: a batch of 2 can't summon): ")? as usize;
@@ -2917,17 +3260,41 @@ pub fn siding_row(o: &DropOpts, so: &SidingOpts) -> Result<SidingRow, String> {
                     r.nap_q.push(num_after(seg, " at q ").map_or(-1, |q| q as i64));
                 }
             }
+        } else if l.starts_with("the controls (ironspec 00:02 (3)") {
+            r.control_fail = req(l, "controls failing (the bar: 0): ")? as usize;
+        } else if l.starts_with("the bars' samples (ironspec 23:56") {
+            r.not_judged = req(l, "NOT JUDGED (0 samples): ")? as usize;
+        } else if l.starts_with("the resting napper across the K row's passes") {
+            r.push_passes = req(l, "included): ")? as usize;
+            r.push_disp = req(l, "came to rest during them ")?;
+            r.push_speed = req(l, "its largest speed ")?;
         } else if l.starts_with("the carts' block contacts (ironspec 21:25 (4)") {
-            r.contacts_undeclared = l.rsplit("undeclared (the bar: 0): ").next().and_then(|s| s.split(|c: char| !c.is_ascii_digit()).next()).and_then(|s| s.parse().ok()).unwrap_or(0);
+            r.contacts_undeclared = req(l, "undeclared (the bar: 0): ")? as usize;
+            r.contacts_early = req(l, "counted apart, no bar): ")? as usize;
         } else if l.starts_with("the lip margin (ironspec 21:14 (2)") {
-            let s = l.rsplit("napper never reaches the rider): ").next().unwrap_or("");
-            r.lip_min = s.split_once("..").and_then(|(a, _)| a.trim().parse().ok());
-            r.lip_never = l.rsplit("never ").next().and_then(|x| x.trim().parse().ok()).unwrap_or(0);
+            let s = l.split("(stuck)): margins ").nth(1).ok_or(format!("siding_row: no lip margins in: {l}"))?;
+            r.lip_min = if s.starts_with("- ") {
+                None
+            } else {
+                Some(s.split_once("..").and_then(|(a, _)| a.trim().parse().ok()).ok_or(format!("siding_row: lip margins {s:?}"))?)
+            };
+            r.lip_never = req(l, "never reaching the rider (clean) ")? as usize;
+            r.lip_stuck = req(l, "the rider never below the floor; fails) ")? as usize;
+            r.lip_samples = req(l, "; samples ")? as usize;
+            r.lip_no_ahead = req(l, "no cart ahead at the merge ")? as usize;
+            r.lip_no_merge = req(l, "no merge entry ")? as usize;
         } else if l.starts_with("the nappers' PRESENT margins before their leader's press") {
-            let s = l.rsplit("outside normal operation): ").next().unwrap_or("");
-            r.present_margin_min = s.split_once("..").and_then(|(a, _)| a.trim().parse().ok());
+            let s = l.split("outside normal operation): ").nth(1).ok_or(format!("siding_row: no PRESENT margins in: {l}"))?;
+            r.present_margin_min = if s.starts_with("- ") { None } else { Some(s.split_once("..").and_then(|(a, _)| a.trim().parse().ok()).ok_or(format!("siding_row: PRESENT margins {s:?}"))?) };
+        } else if l.starts_with("the napper's settle on R (day-1") {
+            let s = l.rsplit("): ").next().ok_or(format!("siding_row: no settle in: {l}"))?;
+            if !s.starts_with("- ") {
+                let (a, b) = s.split_once("..").ok_or(format!("siding_row: settle {s:?}"))?;
+                r.settle = Some((a.trim().parse().map_err(|_| format!("siding_row: settle {s:?}"))?, b.split(' ').next().unwrap_or("").parse().map_err(|_| format!("siding_row: settle {s:?}"))?));
+            }
         } else if l.starts_with("the cart after each napper into the merge") {
-            r.nap_follow_min = l.split("napper's clear): ").nth(1).and_then(|s| s.split_once("..")).and_then(|(a, _)| a.trim().parse().ok());
+            let s = l.split("napper's clear): ").nth(1).ok_or(format!("siding_row: no follower figures in: {l}"))?;
+            r.nap_follow_min = if s.starts_with("- ") { None } else { Some(s.split_once("..").and_then(|(a, _)| a.trim().parse().ok()).ok_or(format!("siding_row: follower figures {s:?}"))?) };
         } else if l.starts_with("the siding's single occupancy") {
             r.r_joint = req(l, "rode F (the bar: 0): ")? as usize;
             r.nap_gap_min = l.split("departure from R: ").nth(1).and_then(|s| s.split_once("..")).and_then(|(a, _)| a.trim().parse().ok());
@@ -2946,7 +3313,12 @@ pub fn siding_row(o: &DropOpts, so: &SidingOpts) -> Result<SidingRow, String> {
             r.v_holds_start = req(l, "V held before the steady state (the start's transient) ")? as usize;
             r.v_rest_occ = l.split(", the first at the lane's occupancy ").nth(1).and_then(|s| s.split(';').next()).and_then(|s| s.trim().parse().ok());
         } else if l.starts_with("the nappers at their release") {
-            r.rolling_releases = l.split(" releases, ").nth(1).and_then(|s| s.split(' ').next()).and_then(|s| s.parse().ok()).unwrap_or(0);
+            r.rolling_releases = l.split(" releases, ").nth(1).and_then(|s| s.split(' ').next()).and_then(|s| s.parse().ok()).ok_or(format!("siding_row: no rolling-release count in: {l}"))?;
+            let s = l.split("the napper's K tick to its rest on R ").nth(1).ok_or(format!("siding_row: no K tick -> rest in: {l}"))?;
+            if !s.starts_with('-') {
+                let (a, b) = s.split_once("..").ok_or(format!("siding_row: K tick -> rest {s:?}"))?;
+                r.k_to_rest = Some((a.trim().parse().map_err(|_| format!("siding_row: K tick -> rest {s:?}"))?, b.split(' ').next().unwrap_or("").parse().map_err(|_| format!("siding_row: K tick -> rest {s:?}"))?));
+            }
         } else if l.starts_with("the nappers' launches from the rest") {
             r.launch_stuck = req(l, "stuck (still on the rest 40 gt after its release; the bar: 0): ")? as usize + req(l, "launches after the pulse ended (R unpowered at the departure tick; the bar: 0): ")? as usize;
             if let Some(s) = l.split("departure ").nth(1).and_then(|s| s.split(" gt").next())
@@ -3058,13 +3430,88 @@ pub fn siding_row(o: &DropOpts, so: &SidingOpts) -> Result<SidingRow, String> {
     if so.flat_detector && !text.lines().any(|l| l.starts_with("the siding flat's detector")) {
         return Err("siding_row: --flat-detector, but the bench printed no detector line".to_string());
     }
-    for key in ["the branch returns' stored speed entering the merge cell", "nappers came to rest on the siding at z ", "lane carts in push contact with the waiting napper", "lane carts on the siding's cells", "the nappers' launches from the rest", "the lane's top cell V"] {
+    for key in ["the branch returns' stored speed entering the merge cell", "nappers came to rest on the siding at z ", "lane carts in push contact with the waiting napper", "lane carts on the siding's cells", "the nappers' launches from the rest", "the lane's top cell V", "the lane's occupancy at the releases from the steady state", "the carts' block contacts (ironspec 21:25 (4)", "the controls (ironspec 00:02 (3)", "the bars' samples (ironspec 23:56", "the lip margin (ironspec 21:14 (2)", "the nappers' PRESENT margins before their leader's press", "the napper's settle on R (day-1", "the cart after each napper into the merge", "the siding's single occupancy", "the resting napper across the K row's passes", "the nappers at their release"] {
         if !text.lines().any(|l| l.starts_with(key)) {
             return Err(format!("siding_row: the bench printed no \"{key}\" line"));
         }
     }
     r.text = text;
     Ok(r)
+}
+
+/// The S-bend gate over a matrix's rows (ironspec 00:02 (1)-(2), 23:56): the lip outcome classes and
+/// the resting napper's push measurement, each with its sample count and where its worst row is;
+/// NOT JUDGED (a failure of the matrix) at 0 samples.
+#[derive(Default)]
+pub struct GateAgg {
+    pub lip_min: Option<(i64, String)>,
+    pub never: usize,
+    pub stuck: usize,
+    pub stuck_at: Vec<String>,
+    pub samples: usize,
+    pub no_ahead: usize,
+    pub no_merge: usize,
+    pub push_passes: usize,
+    pub push_worst: Option<(f64, f64, String)>,
+    pub contacts_early: usize,
+}
+
+impl GateAgg {
+    /// Add one row, `at` naming it.
+    pub fn add(&mut self, r: &SidingRow, at: &str) {
+        if let Some(q) = r.lip_min
+            && self.lip_min.as_ref().is_none_or(|(m, _)| q < *m)
+        {
+            self.lip_min = Some((q, at.to_string()));
+        }
+        self.never += r.lip_never;
+        self.stuck += r.lip_stuck;
+        if r.lip_stuck > 0 && self.stuck_at.len() < 6 {
+            self.stuck_at.push(at.to_string());
+        }
+        self.samples += r.lip_samples;
+        self.no_ahead += r.lip_no_ahead;
+        self.no_merge += r.lip_no_merge;
+        self.push_passes += r.push_passes;
+        if self.push_worst.as_ref().is_none_or(|(d, v, _)| r.push_disp > *d || (r.push_disp == *d && r.push_speed > *v)) {
+            self.push_worst = Some((r.push_disp, r.push_speed, at.to_string()));
+        }
+        self.contacts_early += r.contacts_early;
+    }
+
+    /// The gate line and the matrix-level failures it adds (NOT JUDGED bars).
+    pub fn line(&self, lip_bar: Option<i64>, k_row: bool) -> (String, usize) {
+        let mut nj = 0usize;
+        let lip_nj = if self.samples == 0 {
+            nj += 1;
+            "; NOT JUDGED (0 samples): FAIL"
+        } else {
+            ""
+        };
+        let push_nj = if k_row && self.push_passes == 0 {
+            nj += 1;
+            "; NOT JUDGED (0 samples): FAIL"
+        } else {
+            ""
+        };
+        let (pd, pv, pat) = self.push_worst.clone().unwrap_or((0.0, 0.0, "-".to_string()));
+        (
+            format!(
+                "the S-bend gate over the rows (ironspec 00:02): the lip margin's samples {} (the least margin {}; never reaching the rider {}; STUCK {}{}; the bar {}){lip_nj}; no sample: no cart ahead at the merge {}, no merge entry {}; the resting napper across the K row's passes: {} passes, its largest displacement {pd:.6} and speed {pv:.6} (at {pat}; the bar: 0){push_nj}; contacts before t 20 (counted apart) {}",
+                self.samples,
+                self.lip_min.as_ref().map_or("-".to_string(), |(q, at)| format!("{q} gt at {at}")),
+                self.never,
+                self.stuck,
+                if self.stuck_at.is_empty() { String::new() } else { format!(" at [{}]", self.stuck_at.join("; ")) },
+                lip_bar.map_or("none".to_string(), |b| b.to_string()),
+                self.no_ahead,
+                self.no_merge,
+                self.push_passes,
+                self.contacts_early
+            ),
+            nj,
+        )
+    }
 }
 
 #[cfg(test)]
@@ -3134,6 +3581,8 @@ mod official_row_tests {
             no_d_gate: true,
             inject_release: None,
             r_joint_control: None,
+            held_rider_control: false,
+            stray_ctl: None,
             d_slope: true,
             out: None,
             no_walkway: false,
@@ -3158,7 +3607,7 @@ mod official_row_tests {
     }
 
     fn clean(r: &SidingRow) -> bool {
-        r.touching == 0 && r.off_rail == 0 && r.empty_releases == 0 && r.not_one == 0 && r.order_broken == 0 && r.knocked == 0
+        r.touching == 0 && r.off_rail == 0 && r.empty_releases == 0 && r.not_one == 0 && r.order_broken == 0 && r.knocked == 0 && r.lip_stuck == 0
     }
 
     /// The known answer, official tick numbering (ironspec 21:07 (2)): the switch at D - 5 is
@@ -3176,13 +3625,30 @@ mod official_row_tests {
         assert_eq!(d5.nap_cr, vec![5], "D - 5: {:?}", d5.nap_cr);
         assert!(!clean(&d5), "D - 5 must be stuck: touching {}, off-rail {}", d5.touching, d5.off_rail);
         assert_eq!(d5.lip_min, Some(-1), "D - 5's lip margin");
+        assert_eq!(d5.lip_stuck, 0, "D - 5: the rider drops (a margin of -1, not a held rider)");
         let d4 = at(2139);
         assert_eq!(d4.nap_cr, vec![6], "D - 4: {:?}", d4.nap_cr);
         assert!(clean(&d4), "D - 4 must be clean: touching {}, off-rail {}", d4.touching, d4.off_rail);
         assert_eq!(d4.lip_min, Some(0), "D - 4's lip margin");
+        assert_eq!((d4.lip_samples, d4.not_judged, d4.control_fail), (1, 0, 0), "D - 4: one lip sample, nothing NOT JUDGED, no control");
         let k4 = siding_row(&o, &so).unwrap();
         assert!(!k4.nap_cr.is_empty() && k4.nap_cr.iter().all(|c| *c == 14), "K = 4: {:?}", k4.nap_cr);
         assert!(clean(&k4));
+    }
+
+    /// The lip bar's positive control through the rows' own code path (ironspec 00:27): the official
+    /// row at its clean phase (D - 4) with glass two cells under the lip from the napper's release: the
+    /// leader is held one block down with its rider above the floor, the napper reaches the rider, the
+    /// lip outcome is STUCK and the row fails; the controls line says it bites.
+    #[test]
+    fn held_rider_control_fails_through_the_row() {
+        let (o, mut so) = official();
+        so.inject_release = Some(2139);
+        so.held_rider_control = true;
+        let r = siding_row(&o, &so).unwrap();
+        assert!(r.lip_stuck >= 1, "the held rider must read STUCK: {}", r.text.lines().find(|l| l.starts_with("the lip margin")).unwrap_or("-"));
+        assert!(!clean(&r), "the row must fail");
+        assert_eq!(r.control_fail, 0, "{}", r.text.lines().find(|l| l.starts_with("the controls")).unwrap_or("-"));
     }
 
     /// The lip margin's definition pinned on tick-exact's official per-tick positions (artifact
@@ -3195,11 +3661,39 @@ mod official_row_tests {
         let rider: Vec<(i64, f64, f64, f64, f64, f64)> = leader.iter().map(|&(t, y, z)| (t, 3.5, z, y, 0.3, 1.95)).collect();
         let d5 = [(28, 3.272, 7.228), (29, 3.407, 7.093), (30, 3.542, 6.958), (31, 3.542, 6.845), (32, 3.542, 6.845), (33, 3.542, 6.845)];
         let d4 = [(28, 3.136, 7.364), (29, 3.272, 7.228), (30, 3.407, 7.093), (31, 3.542, 6.958), (32, 3.542, 6.704), (33, 3.542, 6.577)];
-        assert_eq!(lip_margin(&d5, &rider, 24.0), Some(-1));
-        assert_eq!(lip_margin(&d4, &rider, 24.0), Some(0));
+        assert_eq!(lip_margin(&d5, &rider, 24.0), Lip::Margin(-1));
+        assert_eq!(lip_margin(&d4, &rider, 24.0), Lip::Margin(0));
         // (a napper that never reaches the rider: no contact window)
         let far = [(31, 3.542, 7.5), (32, 3.542, 7.45), (33, 3.542, 7.4)];
-        assert_eq!(lip_margin(&far, &rider, 24.0), None);
+        assert_eq!(lip_margin(&far, &rider, 24.0), Lip::Never);
+    }
+
+    /// The lip bar's positive control (ironspec 00:02 (1), G1's CHANGES 1 on a191f3dfb): a rider held
+    /// at the lip, its box top never below the floor, while the napper reaches it, is STUCK (not
+    /// "never"); and a row whose only napper had no cart ahead of it at the merge has no lip sample:
+    /// NOT JUDGED, a failure of the matrix, never a clean pass.
+    #[test]
+    fn lip_held_rider_and_no_cart_ahead_fail() {
+        // (the D - 5 napper of the official row against a rider that stays on the lip at y 24.0)
+        let held: Vec<(i64, f64, f64, f64, f64, f64)> = (28..=33).map(|t| (t, 3.5, 6.490, 24.0, 0.3, 1.95)).collect();
+        let d5 = [(28, 3.272, 7.228), (29, 3.407, 7.093), (30, 3.542, 6.958), (31, 3.542, 6.845), (32, 3.542, 6.845), (33, 3.542, 6.845)];
+        assert_eq!(lip_margin(&d5, &held, 24.0), Lip::Held(29));
+        let row = SidingRow { lip_stuck: 1, lip_samples: 1, ..Default::default() };
+        let mut g = GateAgg::default();
+        g.add(&row, "held");
+        let (line, nj) = g.line(Some(2), false);
+        assert!(line.contains("STUCK 1 at [held]"), "{line}");
+        assert_eq!(nj, 0);
+        let lone = SidingRow { lip_no_ahead: 1, ..Default::default() };
+        let mut g = GateAgg::default();
+        g.add(&lone, "lone");
+        let (line, nj) = g.line(Some(2), false);
+        assert_eq!(nj, 1, "{line}");
+        assert!(line.contains("NOT JUDGED (0 samples): FAIL"), "{line}");
+        // (the K-row pass bar with no pass in a --k-row matrix: NOT JUDGED too)
+        let mut g = GateAgg::default();
+        g.add(&row, "held");
+        assert_eq!(g.line(Some(2), true).1, 1);
     }
 
     /// The lip margin's known answer at the worst qualifying phase (ironspec 22:22 (1)): tick-exact's
@@ -3224,7 +3718,7 @@ mod official_row_tests {
         let rider: Vec<(i64, f64, f64, f64, f64, f64)> = leader.iter().map(|&(t, y, z)| (t, 3.5, z, y, 0.3, 1.95)).collect();
         let p2 = [(25, 2.710, 7.229), (26, 2.890, 7.390), (27, 3.061, 7.561), (28, 3.170, 7.330), (29, 3.339, 7.161), (30, 3.508, 6.992), (31, 3.508, 6.845), (32, 3.508, 6.845)];
         let p1 = [(28, 2.879, 7.379), (29, 3.045, 7.545), (30, 3.166, 7.334), (31, 3.332, 7.168), (32, 3.497, 7.003), (33, 3.661, 6.839), (34, 3.661, 6.530), (35, 3.661, 6.490)];
-        assert_eq!(lip_margin(&p2, &rider, 24.0), Some(-1));
-        assert_eq!(lip_margin(&p1, &rider, 24.0), Some(2));
+        assert_eq!(lip_margin(&p2, &rider, 24.0), Lip::Margin(-1));
+        assert_eq!(lip_margin(&p1, &rider, 24.0), Lip::Margin(2));
     }
 }

@@ -301,7 +301,12 @@ the inherited numbers again.
   - the push test (boxes 0.98 x 0.7, inflated 0.2) against the waiting napper, for lane carts and through-carts;
   - the siding detector's false trips, carts stacked, HOME lost;
   - the napper stuck on R, a launch after the pulse;
-  - the siding's single occupancy: 0 ticks with a cart on R while another turns at K or rides F. These are push-scan's R (x−2,24,7) <- K (x−2,25,9) pairs (ironspec 19:58), and the bench prints each next napper's K tick against the previous napper's departure off R;
+  - the siding's single occupancy: 0 ticks with a cart on R while another rides F or moves north in K's cell (turning toward F). These are push-scan's R (x−2,24,7) <- K (x−2,25,9) pairs (ironspec 19:58), and the bench prints each next napper's K tick against the previous napper's departure off R.
+    - **Two defects, fixed after a191f3dfb; every earlier R ← K figure is withdrawn (ironspec 01:33 (2)).**
+      - R's cell test used the rounded y, but R is an ascending rail whose rider's y runs 24 to 25. A napper at rest past z 7.5 was never "on R", so the count could not see it.
+      - K's half tested position ("north of z 9.45"), which every K-row pass on the north_east T crosses: the pass is projected to z 9 + xf/2.
+    - It now tests the cell by floor(y) and the motion's direction. The turn control (`--r-joint-control turn:T`) must bite and the pass control must read 0.
+    - "The napper at rest on R" (`nap_ready`, a y range) never read that test;
   - push-scan's swept boxes and its bridged margin > 0.
 - **Inherited** (no failure measured at the number), with the physical basis first where one exists:
   - arrivals at the lanes' backs and landings <= 0.46: the brief's gravity-run rule. Physical: the bump bound 0.508, which is official. The 0.46 stands;
@@ -322,11 +327,32 @@ the inherited numbers again.
 - **The lip margin** (`sidingbench::lip_margin`; adopted ironspec 22:22) is the gate quantity at the point of contact, with a **bar of 2** (`--lip-bar`, default 2; ironspec 22:31).
   - **N** is the first tick whose napper move brings its box front to the leader's rider's box back face (within 1e-4), as the rider stood after the previous tick (napper first), over the lip region (the merge's south face to 3 cells north).
   - **R** is the first tick after which the rider's box top is below the napper's floor y 24.0.
-  - The margin is N − R − 1. −1 or less is contact (stuck under napper-first); "never" means the napper never reaches the rider at the lip.
+  - The margin is N − R − 1. −1 or less is contact (stuck under napper-first).
+  - **Three outcomes** (`Lip`; ironspec 00:02 (1), G1's CHANGES 1 on a191f3dfb):
+    - Never: the napper never reaches the rider at the lip. This is clean.
+    - Held: it reaches the rider and the rider never drops below the floor. This is STUCK, a failure whatever the bar.
+    - A margin.
+    - "No cart ahead at the merge" and "no merge entry" are their own no-sample classes, never clean.
+    - A napper released but not back at the lane's back by the run's end still gets its outcome.
+  - **The positive control `--held-rider-control`** runs through the rows' own code path (ironspec 00:27). At the napper's release it lays glass two cells under the lip, so the cart ahead drops one block and stays there with its rider above the floor. The row must read STUCK and fail.
+    - Glass right under the lip holds the cart on the lip instead. The napper then stops against the cart's box, 0.49 behind its centre against the rider's 0.3, and never reaches the rider: a merge queue, not the lip's failure.
   - **The bar's evidence:** the band sweep on the module's geometry over every qualifying arrival and phase (3,200 rows) has clean rows at 0, 1 and 2 and no stuck row at or above 0, so 0 + 2 = 2. At −1 the bench's outcome depends on the tick order (the napper rolls on in half the rows); that is a redsim fidelity follow-up, below the bar.
   - **The known answers, pinned on tick-exact's official per-tick rows:**
     - `lip_margin_on_official_rows`: 0.30 at rest, D − 5 → −1, D − 4 → 0;
     - `lip_margin_on_official_rolling_row`: 0.15 rolling with its K tick 12 gt before the press, P − 2 → −1, P − 1 → 2.
 - **Other per-row checks:**
-  - The carts' block contacts (ironspec 21:25 (4)). A cart's move stopped by a block face counts; the hold's trapdoor (x,16,0), the station's stop, is declared. Any other contact fails the row.
+  - The carts' block contacts (ironspec 21:25 (4), with G1's note (c)). The method follows day-1's `note_contacts`.
+    - Every cart whose move collided horizontally counts: the lane's carts, the K row's through-carts and the control cart.
+    - The cells are the collision boxes its box meets grown 0.01 in x and z, the floor and the ceiling left out, kept on a face the cart moved toward. The side walls of a 1-wide path and the slope supports a riding cart's box passes through are no stops.
+    - Declared: the hold's trapdoor (x,16,0), the drop entry's backstop (x,24,5) (the lanes file's `# contacts:`), and the bench's end of track (x,16/17,−1), a labelled stand-in for the station. Any other contact fails the row.
+    - Contacts before t 20 (the summoned start's settle) are printed apart, not dropped.
+  - No vacuous passes (ironspec 23:56). Every row prints its bars' samples, and a bar in scope with 0 samples is NOT JUDGED and fails. The matrices print the S-bend gate over their rows: the lip classes, the push passes, NOT JUDGED at 0.
+  - `siding_row` requires every bar's line, and a missing or unparsable count is an error.
+  - Every control asserts its own expected failure (ironspec 00:02 (3), 00:27):
+    - the r_joint turn and pass controls;
+    - `--side-ctl`;
+    - a non-slime `--r-support`;
+    - `--held-rider-control`.
+  - The resting napper across the K row's passes (ironspec 23:15 (2)): its displacement and speed during every pass, with a bar of 0. This closes push-scan's R ← K pairs by measurement, as the lanes file's `# push-pair:` declares. The turn control is the positive control.
+  - The napper's settle on R (day-1; ironspec 01:33 (1)). The bar uses PRESENT → at rest, which is the K tick → rest minus 2. The rest sweep prints it per arrival and phase, with the bar it implies, m ≥ max(7, settle − 14) + 2. The first tick on R's cell → rest is printed too.
   - `--out`: the bench's world as laid, for `mobfarm record-match` (ironspec 21:43).

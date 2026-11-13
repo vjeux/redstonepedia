@@ -4149,6 +4149,19 @@ pub enum MobfarmCmd {
         /// eastbound through K's cell (it must print 0).
         #[arg(long)]
         r_joint_control: Option<String>,
+        /// The lip bar's positive control through the rows' own code path (ironspec 00:27): at the
+        /// napper's release, a glass block in the drop column two cells under the lip (x,22,6), so the
+        /// cart ahead drops one block and stays there with its rider's top above the napper's floor:
+        /// the napper behind reaches the rider, its lip outcome is STUCK, and the row must fail (the
+        /// controls line asserts it).
+        #[arg(long)]
+        held_rider_control: bool,
+        /// The S-bend's stray-power positive control (ironspec 02:18): a redstone block beside the
+        /// siding rest R (x-3,24,7) from tick T for 10 gt, R powered while its switch is off: the
+        /// stray-power count must bite (the controls line asserts it). Choose T with the switch off
+        /// (mid-cycle).
+        #[arg(long)]
+        stray_ctl: Option<i64>,
         /// THE CONTROL ONLY (ironspec 20:40: the bench's geometry is the module's): the bench's old
         /// flat D and flat rail at (x,24,9). Default: the module of record's branch (7b90c3f1's split
         /// row; tick-exact's official S-bend row): D an ascending_south detector rising toward the
@@ -9103,7 +9116,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 anyhow::bail!("frame-check failed");
             }
         }
-        MobfarmCmd::EscapeBench { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, login_matrix, restart, restart_matrix, restart_base, phase_step, intake_flat, v_in, siding, nap_k, nap_every, nap_ret, nap_pulse, merge_curve, slopes, nap_guard, nap_early, nap_any_pass, nap_ring, nap_pick_u, nap_win_du, nap_win_tap, nap_ai, nap_stamp_at_arrival, nap_late_latch, nap_post, k_row, k_offsets, nap_feed_v, flat_detector, siding_north, emit_with_row, fill_scene, top_flat, mirror_z, start_steady, r_support, rest_sweep, rest_phases, emit_rest_range, feed_path, feed_z8, feed_slime, combos, no_walkway, nap_present_k, curve_bar, d_gate, inject_sweep, inject_feed_vs, inject_nap_rets, r_joint_control, flat_d, lip_bar, out, nap_feed_phase, siding_dx, siding_dy, ns_merge, guard_det, guard_dz, drop_entry, no_top_support, side_real, side_ctl, siding_matrix, rets, v_ins, nap_rets, corners, nap_ks, jobs, emit_lanes_design, r_boost, floor_bottom, empty, freeze32 } => {
+        MobfarmCmd::EscapeBench { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, login_matrix, restart, restart_matrix, restart_base, phase_step, intake_flat, v_in, siding, nap_k, nap_every, nap_ret, nap_pulse, merge_curve, slopes, nap_guard, nap_early, nap_any_pass, nap_ring, nap_pick_u, nap_win_du, nap_win_tap, nap_ai, nap_stamp_at_arrival, nap_late_latch, nap_post, k_row, k_offsets, nap_feed_v, flat_detector, siding_north, emit_with_row, fill_scene, top_flat, mirror_z, start_steady, r_support, rest_sweep, rest_phases, emit_rest_range, feed_path, feed_z8, feed_slime, combos, no_walkway, nap_present_k, curve_bar, d_gate, inject_sweep, inject_feed_vs, inject_nap_rets, r_joint_control, held_rider_control, stray_ctl, flat_d, lip_bar, out, nap_feed_phase, siding_dx, siding_dy, ns_merge, guard_det, guard_dz, drop_entry, no_top_support, side_real, side_ctl, siding_matrix, rets, v_ins, nap_rets, corners, nap_ks, jobs, emit_lanes_design, r_boost, floor_bottom, empty, freeze32 } => {
             // (--curve-bar 0: the curve rule printed only; --lip-bar: the S-bend's gate)
             let curve_bar: Option<i64> = (curve_bar > 0).then_some(curve_bar);
             let lip_bar: Option<i64> = Some(lip_bar);
@@ -9162,7 +9175,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         let fill: Vec<(i32, i32, i32)> = f.split(';').filter(|c| !c.trim().is_empty()).map(cell).collect::<anyhow::Result<Vec<_>>>()?;
                         Some((fill, cell(seat)?))
                     }
-                }, top_flat, mirror_z, start_steady, r_support: r_support.clone(), nap_feed_phase, feed_path, feed_z8, feed_slime, no_walkway, present_k: nap_present_k, no_d_gate, inject_release: None, r_joint_control, d_slope: !flat_d, out: out.clone(), siding_dx, siding_dy, ns_merge, guard_det, guard_dz, drop_entry, no_top_support, side_real, side_ctl: side_ctl.clone() };
+                }, top_flat, mirror_z, start_steady, r_support: r_support.clone(), nap_feed_phase, feed_path, feed_z8, feed_slime, no_walkway, present_k: nap_present_k, no_d_gate, inject_release: None, r_joint_control, held_rider_control, stray_ctl, d_slope: !flat_d, out: out.clone(), siding_dx, siding_dy, ns_merge, guard_det, guard_dz, drop_entry, no_top_support, side_real, side_ctl: side_ctl.clone() };
                 if let Some(rs) = rest_sweep.as_deref() {
                     // (the rest sweep (G1's band note, the bridge's nap-rest-z): the napper's arrival on
                     // K's cell from lo to hi by step, each at `rest_phases` entry phases (its spawn moved
@@ -9186,11 +9199,25 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         crate::sidingbench::siding_row(&o, &sso)
                     });
                     let mut by_v: std::collections::BTreeMap<String, (f64, f64, usize)> = Default::default();
+                    let mut settle_by_v: std::collections::BTreeMap<String, (i64, i64, usize)> = Default::default();
+                    let mut k_rest_by_v: std::collections::BTreeMap<String, (i64, i64, usize)> = Default::default();
                     let (mut top, mut top_at) = (f64::MIN, (0.0, 0.0));
                     let mut none = 0usize;
                     for (i, row) in res.into_iter().enumerate() {
                         let row = row.map_err(|e| anyhow::anyhow!(e))?;
                         let (sv, ph) = grid[i];
+                        if let Some((a, b)) = row.k_to_rest {
+                            let e = k_rest_by_v.entry(format!("{sv:.3}")).or_insert((i64::MAX, i64::MIN, 0));
+                            e.0 = e.0.min(a);
+                            e.1 = e.1.max(b);
+                            e.2 += 1;
+                        }
+                        if let Some((a, b)) = row.settle {
+                            let e = settle_by_v.entry(format!("{sv:.3}")).or_insert((i64::MAX, i64::MIN, 0));
+                            e.0 = e.0.min(a);
+                            e.1 = e.1.max(b);
+                            e.2 += 1;
+                        }
                         if row.rest_z_max < 0.0 {
                             none += 1;
                             continue;
@@ -9215,6 +9242,27 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         top_at.1,
                         if none > 0 { " (THE RANGE IS INCOMPLETE: those runs' rests are missing from it)" } else { "" },
                         by_v.iter().map(|(k, (lo, hi, n))| format!("{k}: {lo:.3}..{hi:.3} ({n})")).collect::<Vec<_>>().join(", ")
+                    );
+                    let s_lo = settle_by_v.values().map(|e| e.0).min();
+                    let s_hi = settle_by_v.values().map(|e| e.1).max();
+                    println!(
+                        "the napper's settle on R over the sweep (day-1, PRESENT's physical basis: its first tick on R's cell to its first tick there at speed < 0.001; bench, tool unreviewed): {} over {} runs with a settle (of {}); by arrival on K's cell (least..most over its phases): {}",
+                        match (s_lo, s_hi) { (Some(a), Some(b)) => format!("{a}..{b} gt"), _ => "- (NOT JUDGED (0 samples))".to_string() },
+                        settle_by_v.values().map(|e| e.2).sum::<usize>(),
+                        grid.len(),
+                        settle_by_v.iter().map(|(k, (lo, hi, n))| format!("{k}: {lo}..{hi} ({n})")).collect::<Vec<_>>().join(", ")
+                    );
+                    // (ironspec 01:33 (1): the settle PRESENT's bar uses runs from PRESENT (the K tick +
+                    // 2) to at rest: the K tick -> rest minus 2; the bar m >= max(L_latch + 1 = 7,
+                    // settle - 14) + 2)
+                    let bar = |s: i64| (s - 14).max(7) + 2;
+                    let kr_hi = k_rest_by_v.values().map(|e| e.1).max();
+                    println!(
+                        "the napper's PRESENT -> at rest over the sweep (ironspec 01:33 (1): the K tick -> its rest on R minus 2, PRESENT = K + 2; the bar m >= max(7, settle - 14) + 2): {} over {} runs (of {}); by arrival on K's cell (K tick -> rest, least..most over its phases; PRESENT -> rest; the bar it implies): {}",
+                        match kr_hi { Some(h) => format!("the worst {} gt (K tick -> rest {h}), the bar {}", h - 2, bar(h - 2)), None => "- (NOT JUDGED (0 samples))".to_string() },
+                        k_rest_by_v.values().map(|e| e.2).sum::<usize>(),
+                        grid.len(),
+                        k_rest_by_v.iter().map(|(k, (lo, hi, n))| format!("{k}: {lo}..{hi} ({n}), {}..{}, bar {}", lo - 2, hi - 2, bar(hi - 2))).collect::<Vec<_>>().join("; ")
                     );
                     return Ok(());
                 }
@@ -9280,9 +9328,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     let mut gp_lo = i64::MAX;
                     let mut rj_total = 0usize;
                     let (mut lp_lo, mut lip_nv) = (i64::MAX, 0usize);
+                    let mut gate = crate::sidingbench::GateAgg::default();
                     for (i, row) in res.into_iter().enumerate() {
                         let (r, p) = grid[i];
                         let row = row.map_err(|e| anyhow::anyhow!(e))?;
+                        gate.add(&row, &format!("{} phase {p}", r.label()));
                         worst = worst.max(row.arrival_max);
                         occ_hi = occ_hi.max(row.occ_max);
                         occ_lo = occ_lo.min(row.occ_min.unwrap_or(usize::MAX));
@@ -9295,7 +9345,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         lp_lo = lp_lo.min(row.lip_min.unwrap_or(i64::MAX));
                         lip_nv += row.lip_never;
                         rj_total += row.r_joint;
-                        let bad = row.empty_releases + row.not_one + row.wrong + row.knocked + row.touching + row.order_broken + row.off_rail + row.eyes + row.landing_over + row.popped + row.stray_power + row.stuck as usize + row.th_push + row.th_lost + row.lane_push + row.lane_on_siding + row.flat_false + row.occ8 + row.home_lost + row.stamp_over_1000 + row.win_cut + row.launch_stuck + row.stacked + row.v_holds + row.r_joint + row.occ_low + row.contacts_undeclared + lip_bar.map_or(0, |b| row.lip_min.is_some_and(|q| q < b) as usize) + curve_bar.map_or(0, |b| row.nap_cr.iter().filter(|c| **c < b).count() + row.nap_follow_min.is_some_and(|f| f < b) as usize);
+                        let bad = row.empty_releases + row.not_one + row.wrong + row.knocked + row.touching + row.order_broken + row.off_rail + row.eyes + row.landing_over + row.popped + row.stray_power + row.stuck as usize + row.th_push + row.th_lost + row.lane_push + row.lane_on_siding + row.flat_false + row.occ8 + row.home_lost + row.stamp_over_1000 + row.win_cut + row.launch_stuck + row.stacked + row.v_holds + row.r_joint + row.occ_low + row.contacts_undeclared + row.not_judged + row.lip_stuck + row.control_fail + (row.push_disp > 1e-6 || row.push_speed > 1e-6) as usize + lip_bar.map_or(0, |b| row.lip_min.is_some_and(|q| q < b) as usize) + curve_bar.map_or(0, |b| row.nap_cr.iter().filter(|c| **c < b).count() + row.nap_follow_min.is_some_and(|f| f < b) as usize);
                         if bad > 0 || row.arrivals_over > ctl.arrivals_over {
                             fails.entry(r.label()).or_default().push(format!("phase {p}: lost {} not-1 {} wrong {} knocked {} touching {} order {} off-rail {} eyes {} landings over 0.46 {} popped {} stray power {} over 0.46 {} (control {}); through-carts in push range {} lost {}, lane carts in push contact {} on the siding {}, detector false {}, releases at occupancy 8 {}{}", row.empty_releases, row.not_one, row.wrong, row.knocked, row.touching, row.order_broken, row.off_rail, row.eyes, row.landing_over, row.popped, row.stray_power, row.arrivals_over, ctl.arrivals_over, row.th_push, row.th_lost, row.lane_push, row.lane_on_siding, row.flat_false, row.occ8, if row.stuck { " napper stuck" } else { "" }));
                         }
@@ -9323,6 +9373,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         lip_nv,
                         ctl.present_margin_min.map_or("-".to_string(), |p| format!("{p} gt"))
                     );
+                    let (gl, gnj) = gate.line(lip_bar, so.k_row.is_some());
+                    println!("{label}{gl}{}", if gnj > 0 { format!(" -- {gnj} bar(s) NOT JUDGED: the matrix FAILS") } else { String::new() });
                     for (k, v) in &fails {
                         println!("  {k}: {} failing: {}", v.len(), v.iter().take(4).cloned().collect::<Vec<_>>().join(" | "));
                     }
@@ -9353,6 +9405,23 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         crate::sidingbench::siding_row(&o, &sso)
                     });
                     let mut rows: Vec<(Option<f64>, i64, i64, crate::sidingbench::SidingRow)> = Vec::new();
+                    // (each row's lip outcome class (ironspec 00:02 (1)-(2)): STUCK first, then the least
+                    // margin, never reaching the rider, or no sample)
+                    let lip_class = |r: &crate::sidingbench::SidingRow| -> String {
+                        if r.lip_stuck > 0 {
+                            "STUCK (reaches the rider, the rider never below the floor)".to_string()
+                        } else if let Some(q) = r.lip_min {
+                            format!("{q} gt")
+                        } else if r.lip_never > 0 {
+                            "never reaches the rider".to_string()
+                        } else if r.lip_no_ahead > 0 {
+                            "no sample (no cart ahead at the merge)".to_string()
+                        } else if r.lip_no_merge > 0 {
+                            "no sample (no merge entry)".to_string()
+                        } else {
+                            "no sample (no napper)".to_string()
+                        }
+                    };
                     for (i, row) in res.into_iter().enumerate() {
                         let row = row.map_err(|e| anyhow::anyhow!(e))?;
                         println!(
@@ -9361,7 +9430,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             grid[i].0.map_or("at rest".to_string(), |v| format!("{v}")),
                             grid[i].1,
                             row.nap_cr,
-                            row.lip_min.map_or(if row.lip_never > 0 { "never".to_string() } else { "-".to_string() }, |q| format!("{q} gt")),
+                            lip_class(&row),
                             row.present_margin_min.map_or("-".to_string(), |p| format!("{p} gt")),
                             row.touching,
                             row.order_broken,
@@ -9379,8 +9448,53 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     // (clean: no touching, off-rail, loss, not-1, broken order or knock, a merge entry
                     // and a follower not overlapping, and no bump above the official 0.508)
                     let clean = |r: &crate::sidingbench::SidingRow| {
-                        r.touching == 0 && r.off_rail == 0 && r.empty_releases == 0 && r.not_one == 0 && r.order_broken == 0 && r.knocked == 0 && r.arrival_max <= 0.508 && !r.nap_cr.is_empty() && r.nap_follow_min.is_none_or(|f| f >= 0)
+                        r.touching == 0 && r.off_rail == 0 && r.empty_releases == 0 && r.not_one == 0 && r.order_broken == 0 && r.knocked == 0 && r.lip_stuck == 0 && r.arrival_max <= 0.508 && !r.nap_cr.is_empty() && r.nap_follow_min.is_none_or(|f| f >= 0)
                     };
+                    {
+                        // (the rows by their lip outcome class over the qualifying rows (PRESENT >= 7 or
+                        // no PRESENT margin), clean or failing (ironspec 00:02 (2)))
+                        let mut tally: std::collections::BTreeMap<(bool, String), (usize, i64, i64)> = Default::default();
+                        for r in rows.iter().filter(|r| r.3.present_margin_min.is_none_or(|p| p >= 7)) {
+                            let cl = clean(&r.3);
+                            let class = match (cl, r.3.lip_stuck > 0, r.3.lip_min, r.3.lip_never > 0) {
+                                (_, true, _, _) => "at the lip: STUCK (a held rider)",
+                                (true, _, Some(_), _) => "margin",
+                                (true, _, None, true) => "never reaches the rider",
+                                (false, _, Some(q), _) if q <= -1 => "at the lip: margin -1 or less (cut at the rider's face)",
+                                (true, _, None, false) => "no sample",
+                                (false, _, _, _) => "elsewhere (its lip margin 0 or more, never or none: touching, off-rail, order or loss away from the lip)",
+                            };
+                            let e = tally.entry((cl, class.to_string())).or_insert((0, i64::MAX, i64::MIN));
+                            e.0 += 1;
+                            if let Some(q) = r.3.lip_min {
+                                e.1 = e.1.min(q);
+                                e.2 = e.2.max(q);
+                            }
+                        }
+                        println!(
+                            "inject rows by the lip outcome (ironspec 00:02 (2); the qualifying rows): {}",
+                            tally
+                                .iter()
+                                .map(|((cl, class), (n, lo, hi))| format!("{} {class} {n}{}", if *cl { "clean" } else { "failing" }, if *lo <= *hi { format!(" ({lo}..{hi} gt)") } else { String::new() }))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        );
+                        // (the lip bar's evidence (ironspec 22:31 / 00:02 (2)): the least clean margin
+                        // with no row failing at the lip at or above it, + 2)
+                        let clean_lo = tally.iter().filter(|((cl, c), _)| *cl && c == "margin").map(|(_, v)| v.1).min();
+                        let lip_fail_hi = tally.iter().filter(|((cl, c), _)| !*cl && c.starts_with("at the lip: margin")).map(|(_, v)| v.2).max();
+                        let held = tally.iter().filter(|((_, c), _)| c.starts_with("at the lip: STUCK")).map(|(_, v)| v.0).sum::<usize>();
+                        if let Some(lo) = clean_lo {
+                            let b = lip_fail_hi.map_or(lo, |h| lo.max(h + 1));
+                            println!(
+                                "the lip bar's evidence over the qualifying rows: the least clean margin {lo} gt; the highest margin of a row failing at the lip {}; held riders (STUCK, no margin) {held}; the least clean margin with no row failing at the lip at or above it {b} gt: the bar {} gt",
+                                lip_fail_hi.map_or("-".to_string(), |h| format!("{h} gt")),
+                                b + 2
+                            );
+                        } else {
+                            println!("the lip bar's evidence over the qualifying rows: NOT JUDGED (0 samples: no clean row with a margin)");
+                        }
+                    }
                     let mut worst: Option<(i64, String)> = None;
                     // (the lip margin over the qualifying cases: each case's least clean lip margin and its
                     // stuck neighbour's (the positive control: -1 or less))
@@ -9399,7 +9513,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                                     // arrived on R: the pulse ended first) ends the scan without being a
                                     // contact failure: the boundary is not reached there)
                                     let contact = !r.3.nap_cr.is_empty();
-                                    fail = Some((r.2, format!("curve rule {:?}, the lip margin {}, touching {}, off-rail {}, lost {}, order {}, the hardest arrival {:.3}{}", r.3.nap_cr, r.3.lip_min.map_or("-".to_string(), |q| format!("{q} gt")), r.3.touching, r.3.off_rail, r.3.empty_releases, r.3.order_broken, r.3.arrival_max, if contact { "" } else { " (the napper never reached the merge: released before it arrived on R; no contact boundary)" }), contact, r.3.lip_min));
+                                    fail = Some((r.2, format!("curve rule {:?}, the lip margin {}, touching {}, off-rail {}, lost {}, order {}, the hardest arrival {:.3}{}", r.3.nap_cr, lip_class(&r.3), r.3.touching, r.3.off_rail, r.3.empty_releases, r.3.order_broken, r.3.arrival_max, if contact { "" } else { " (the napper never reached the merge: released before it arrived on R; no contact boundary)" }), contact, r.3.lip_min));
                                     break;
                                 }
                             }
@@ -9480,9 +9594,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     let mut gp_lo = i64::MAX;
                     let mut rj_total = 0usize;
                     let (mut lp_lo, mut lip_nv) = (i64::MAX, 0usize);
+                    let mut gate = crate::sidingbench::GateAgg::default();
                         for (i, row) in res.into_iter().enumerate() {
                             let (d, p) = grid[i];
                             let row = row.map_err(|e| anyhow::anyhow!(e))?;
+                            gate.add(&row, &format!("login {d} gt at phase {p}"));
                             worst = worst.max(row.arrival_max);
                             roll_total += row.rolling_releases;
                             cr_lo = cr_lo.min(row.nap_cr.iter().copied().min().unwrap_or(i64::MAX));
@@ -9491,7 +9607,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         lp_lo = lp_lo.min(row.lip_min.unwrap_or(i64::MAX));
                         lip_nv += row.lip_never;
                         rj_total += row.r_joint;
-                            let bad = row.empty_releases + row.not_one + row.wrong + row.knocked + row.touching + row.order_broken + row.off_rail + row.eyes + row.landing_over + row.popped + row.stray_power + row.stuck as usize + row.th_push + row.th_lost + row.lane_push + row.lane_on_siding + row.flat_false + row.occ8 + row.home_lost + row.stamp_over_1000 + row.win_cut + row.launch_stuck + row.stacked + row.v_holds + row.r_joint + row.occ_low + row.contacts_undeclared + lip_bar.map_or(0, |b| row.lip_min.is_some_and(|q| q < b) as usize) + curve_bar.map_or(0, |b| row.nap_cr.iter().filter(|c| **c < b).count() + row.nap_follow_min.is_some_and(|f| f < b) as usize);
+                            let bad = row.empty_releases + row.not_one + row.wrong + row.knocked + row.touching + row.order_broken + row.off_rail + row.eyes + row.landing_over + row.popped + row.stray_power + row.stuck as usize + row.th_push + row.th_lost + row.lane_push + row.lane_on_siding + row.flat_false + row.occ8 + row.home_lost + row.stamp_over_1000 + row.win_cut + row.launch_stuck + row.stacked + row.v_holds + row.r_joint + row.occ_low + row.contacts_undeclared + row.not_judged + row.lip_stuck + row.control_fail + (row.push_disp > 1e-6 || row.push_speed > 1e-6) as usize + lip_bar.map_or(0, |b| row.lip_min.is_some_and(|q| q < b) as usize) + curve_bar.map_or(0, |b| row.nap_cr.iter().filter(|c| **c < b).count() + row.nap_follow_min.is_some_and(|f| f < b) as usize);
                             if bad > 0 || row.arrivals_over > ctl.arrivals_over {
                                 fails.push(format!("login {d} gt at phase {p}: lost {} not-1 {} wrong {} knocked {} touching {} order {} off-rail {} stray power {} over 0.46 {} (control {}); launches stuck or late {}; curve rule {:?}", row.empty_releases, row.not_one, row.wrong, row.knocked, row.touching, row.order_broken, row.off_rail, row.stray_power, row.arrivals_over, ctl.arrivals_over, row.launch_stuck, row.nap_cr));
                             }
@@ -9513,6 +9629,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             lip_nv,
                             ctl.present_margin_min.map_or("-".to_string(), |p| format!("{p} gt"))
                         );
+                        let (gl, gnj) = gate.line(lip_bar, so.k_row.is_some());
+                        println!("{label}{gl}{}", if gnj > 0 { format!(" -- {gnj} bar(s) NOT JUDGED: the matrix FAILS") } else { String::new() });
                         for f in fails.iter().take(6) {
                             println!("  {f}");
                         }
@@ -9564,18 +9682,20 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     let mut gp_min = i64::MAX;
                     let mut rj_rows = 0usize;
                     let (mut lp_min, mut lip_nv_rows, mut pm_min) = (i64::MAX, 0usize, i64::MAX);
+                    let mut gate = crate::sidingbench::GateAgg::default();
                     let (mut v_start_total, mut late_total) = (0usize, 0usize);
                     let mut by_v: std::collections::BTreeMap<String, (usize, usize, f64, f64)> = Default::default();
                     for (i, res) in res.into_iter().enumerate() {
                         let (r, v, nr, c, kk) = rows[i];
                         let row = res.map_err(|e| anyhow::anyhow!(e))?;
+                        gate.add(&row, &format!("ret {r} v {v:.3} nap_ret {nr} corner {c:+} k_sw {kk}"));
                         for (q, x) in &row.by_q {
                             let e = worst_q.entry(*q).or_insert(0.0);
                             *e = e.max(*x);
                         }
                         let nmax = row.nap_contacts.iter().copied().fold(0.0f64, f64::max);
                         worst_nap = worst_nap.max(nmax);
-                        let bad = row.empty_releases + row.not_one + row.wrong + row.knocked + row.touching + row.arrivals_over + row.order_broken + row.off_rail + row.eyes + row.landing_over + row.popped + row.stray_power + row.home_lost + row.stuck as usize + row.th_push + row.th_lost + row.flat_false + row.lane_push + row.lane_on_siding + row.occ8 + row.stamp_over_1000 + row.win_cut + row.launch_stuck + row.stacked + row.v_holds + row.r_joint + row.occ_low + row.contacts_undeclared + lip_bar.map_or(0, |b| row.lip_min.is_some_and(|q| q < b) as usize) + curve_bar.map_or(0, |b| row.nap_cr.iter().filter(|c| **c < b).count() + row.nap_follow_min.is_some_and(|f| f < b) as usize);
+                        let bad = row.empty_releases + row.not_one + row.wrong + row.knocked + row.touching + row.arrivals_over + row.order_broken + row.off_rail + row.eyes + row.landing_over + row.popped + row.stray_power + row.home_lost + row.stuck as usize + row.th_push + row.th_lost + row.flat_false + row.lane_push + row.lane_on_siding + row.occ8 + row.stamp_over_1000 + row.win_cut + row.launch_stuck + row.stacked + row.v_holds + row.r_joint + row.occ_low + row.contacts_undeclared + row.not_judged + row.lip_stuck + row.control_fail + (row.push_disp > 1e-6 || row.push_speed > 1e-6) as usize + lip_bar.map_or(0, |b| row.lip_min.is_some_and(|q| q < b) as usize) + curve_bar.map_or(0, |b| row.nap_cr.iter().filter(|c| **c < b).count() + row.nap_follow_min.is_some_and(|f| f < b) as usize);
                         fails += (bad > 0) as usize;
                         println!(
                             "ret {r} v_in {v:.2} nap_ret {nr} corner {c:+} k_sw {kk}: arrivals by q {}; over 0.46 {} (max {:.3}); landings meeting a cart {} ({} over 0.46), the landing cell held at q {}; top cell {}; nappers {} (late {}; curve rule {}; the longest wait on the siding {} gt); lost {} not-1 {} wrong {} knocked {} touching {} order {} off-rail {} eyes {} health {} restage {} gt{}",
@@ -9676,6 +9796,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         if pm_min == i64::MAX { "-".to_string() } else { format!("{pm_min} gt") },
                         by_v.iter().map(|(v, (n, f, lo, hi))| format!("{v} ({lo:.3}..{hi:.3}): {f}/{n}")).collect::<Vec<_>>().join(", ")
                     );
+                    let (gl, gnj) = gate.line(lip_bar, so.k_row.is_some());
+                    println!("{label}{gl}{}", if gnj > 0 { format!(" -- {gnj} bar(s) NOT JUDGED: the matrix FAILS") } else { String::new() });
                     }
                     return Ok(());
                 }
