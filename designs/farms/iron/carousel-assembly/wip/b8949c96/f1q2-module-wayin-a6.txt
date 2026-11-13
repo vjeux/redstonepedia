@@ -3,6 +3,9 @@ circuit: mob-farm iron_ingot
 keep-block: -5,-24,3=oak_leaves[distance=7,persistent=true] (58f770cc 13:59: the zombie's cover, A6's local (-5,3,4))
 keep-clear: -3,-26,3 -3,-25,3 -3,-24,3 (58f770cc's A6 header, + (0,-27,-1): the bed's column, holding no block)
 placement-order-ts: -1,0,7=the merge T at lane -1 (never switched: no signal source and no detector reaches it; placed north_west after (-1,0,6) and (-2,0,7); pending the reach scan with the controller wired and the official module-check of the build order); 3,0,7=the merge T at lane 3 (never switched; placed north_west after (3,0,6) and (2,0,7); pending the same); 7,0,7=lane 7's merge curve, a T with the napper hold's line at (8,0,7) (never switched; placed north_west after (7,0,6) and (6,0,7); pending the same)
+# candidate: B4: 8,25,9; 8,24,9; 9,25,8; 9,24,8
+# (B4, ironspec 23:44 / 23:48 PT, carried as a candidate until adoption; not an override): the way-in booster, the leg's two straights beside the curve (9,25,9) powered: 8,25,9=powered_rail[powered=true,shape=east_west,waterlogged=false] on 8,24,9=redstone_block (7b90c3f1's lift-file cells: into its lift file r3 on adoption); 9,25,8=powered_rail[powered=true,shape=north_south,waterlogged=false] on 9,24,8=redstone_block (the way-in's own cells: b8949c96); 0 new blocks; the leg start to the arrival detector 98..102 gt over legs 0.1..0.4 (was 100..145)
+# always-on: 8,24,9=B4's booster support, a redstone block under the powered rail (8,25,9): it never toggles; 9,24,8=B4's booster support, a redstone block under the powered rail (9,25,8): it never toggles
 positions: -1,0,0 -1,16,0 3,0,0 3,16,0 7,0,0 7,16,0
 riderless: 1,-26,-5+0,-27,-5+-1,-27,-5+-2,-27,-5+-2,-27,-4+-2,-27,-3+-2,-27,-2+-2,-27,-1+-2,-27,0+-2,-27,1+-2,-27,2=the stop's empty cart from its park to the pickup cell (A6: the napper leaves the cart at the activator (2,-25,-5) and is seated again at the pickup (-2,-27,3))
 run-cells: P0 -1,0,0; D0 -1,0,2; H0 -1,16,0; P1 3,0,0; D1 3,0,2; H1 3,16,0; P2 7,0,0; D2 7,0,2; H2 7,16,0; PAD0 -3,-6,-6; PAD1 8,-6,-1; wayin.P0 -1,0,0; wayin.D0 -1,0,2; wayin.H0 -1,16,0; wayin.P1 3,0,0; wayin.D1 3,0,2; wayin.H1 3,16,0; wayin.P2 7,0,0; wayin.D2 7,0,2; wayin.H2 7,16,0; wayin.PAD0 -3,-6,-6; wayin.PAD1 8,-6,-1
@@ -1005,8 +1008,8 @@ layer 24:
   .....g...g...g
   .g.qt..qt..qt
   .g.Ujm.Ujm.Ujm.b
-  g..g.E.g.E.g.E.g
-  .jrggggggggggggg
+  g..g.E.g.E.g.E.w
+  .jrgggggggggggwg
 layer 25:
   .......g
   ......g
@@ -1022,8 +1025,8 @@ layer 25:
   .
   .
   .
-  ...k...k...k...k
-  ...jfjfjfjfjfmfm
+  ...k...k...k...Z
+  ...jfjfjfjfjfmYm
 layer 26:
   .......g
   ......g.g

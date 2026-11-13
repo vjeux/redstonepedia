@@ -1,4 +1,10 @@
 name: f1q2-module-stop9
+# candidate: B4: 8,25,9; 8,24,9; 9,25,8; 9,24,8
+# candidate: R58-m8: 9,-24,-2; 8,-25,-5; 7,-25,-5; 6,-25,-5; 5,-25,-5; 5,-25,-4; 6,-25,-4; 7,-25,-4; 5,-25,-6; 6,-25,-6; 7,-25,-6; 8,-25,-4; 8,-25,-6; 8,-23,-1; 8,-23,0; 8,-23,-2
+# (B4, ironspec 23:44 / 23:48 PT: the leg's two straights powered, (8,25,9) / (9,25,8) on redstone blocks (8,24,9) / (9,24,8), always on; R58-m8, ironspec 01:46 PT: the water search's survivor, the brake (9,-24,-2) a plain rail, the roll (8..5,-25,-5) and the flat (8,-23,-1) waterlogged, glass and oak fences closing every wet cell's open sides; this file is the way-in (C)'s package, so its descent differs from record7's drop-and-roll as a whole)
+# keep-out: 10,-24,-2 10,-23,-1 (R58-m8's swept box: crossing from the curve (9,-23,-1) onto the slope (9,-24,-2) after a world open's dry first tick the cart's box reaches x 10.29; x 10 is the next chunk; ironspec 01:46 (1)(ii))
+# shape: 9,-13,-5=detector_rail[powered=false,shape=ascending_north,waterlogged=false] (the arrival's landing slope into the queue; evidence: tick-exact's day-approach row of 01:24, on the slope t105..t115 at v 0.4, at rest at z -3.887; build step: a temporary rail at (9,-12,-6) on the glass (9,-13,-6) first, the detector second, the temporary rail broken; ironspec 01:51 (1))
+# always-on: 8,24,9=B4's booster support, a redstone block under the powered rail (8,25,9): it never toggles; 9,24,8=B4's booster support, a redstone block under the powered rail (9,25,8): it never toggles
 circuit: mob-farm iron_ingot
 keep-block: -5,-24,3=oak_leaves[distance=7,persistent=true] (58f770cc 13:59: the zombie's cover, A6's local (-5,3,4))
 keep-clear: -3,-26,3 -3,-25,3 -3,-24,3 (58f770cc's A6 header, + (0,-27,-1): the bed's column, holding no block)
