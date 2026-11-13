@@ -6234,6 +6234,32 @@ pub enum MobfarmCmd {
     /// --hours. Prints each visit (one row) or each row's clean count, and the totals: seated, not
     /// out, HOME losses, the pickup speeds, each exit's delay against the same seed and speed's
     /// night.
+    /// (ironspec 05:10 real / G1) R1's strand window from b8949c96's `way-cell --visit` files: per
+    /// visit, the window from the release in which a night skip strands the napper (its stamp armed,
+    /// the leg sink still running, that sink's stop at least --lag gt after the skip), ending at the
+    /// first COMPLETE compute after the release, or at the stop's lie-down (--lie-after-entry gt
+    /// after the entry) when that comes first; P(strand | a skip) = the mean window over the visit
+    /// spacing. Every input printed with its validation (the implied sink duration, the stamp's age
+    /// at the release plus the first complete compute's offset, against the game's 150 + U(0..100)).
+    StrandWindow {
+        /// The visit files (one or more).
+        files: Vec<PathBuf>,
+        /// The visit spacing at the stop, gt (a list prints each).
+        #[arg(long, value_delimiter = ',', default_value = "300")]
+        spacing: Vec<i64>,
+        /// The leg sink's stop must come this many gt after the skip (REST lingers up to 20 gt after
+        /// the skip behind Brain's schedule gate: tick-exact's strand trace).
+        #[arg(long, default_value_t = 21)]
+        lag: i64,
+        /// The stop's lie-down this many gt after the cart's entry ((A)'s eject at E): it ends the
+        /// window when it comes before the first complete compute. Without it, the file's own stop
+        /// (A6's) is taken as recorded.
+        #[arg(long)]
+        lie_after_entry: Option<i64>,
+        /// Print every row's inputs and window.
+        #[arg(long)]
+        rows: bool,
+    },
     BedtierBench {
         design: PathBuf,
         #[arg(long, default_value_t = 1)]
@@ -14531,6 +14557,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             for l in crate::bedtier::waker_lines(&spec).map_err(|e| anyhow::anyhow!(e))? {
                 println!("waker: {l}");
+            }
+        }
+        MobfarmCmd::StrandWindow { files, spacing, lag, lie_after_entry, rows } => {
+            for l in crate::strandwindow::report(&files, &spacing, lag, lie_after_entry, rows)? {
+                println!("{l}");
             }
         }
         MobfarmCmd::BedtierBench { design, from, to, speeds, after_sleep, release_after, day, empty, no_home, hide_after_wake, restart, hour, restart_phases, orders, hours, skip, skip_phases, day_off, no_presence_gate, early_release, day_gate, day_on, live_day_seated, restart_after_skip, panic_entries, pickup_injects, module_offset, queue_seat, queue_release, queue_wait, queue_waits, forced_stamp, arrival_stamp, arrival_run, arrival_hold, declare_emulated, r_bar, park_shifts, set_cell, pulse_cell, lever_on, built_release, day_lever, record, record_offset, record_margin, record_declare, head_cell, scope_excludes, arm_delay, release_after_arm, reclaim_row, reclaim_blocked, restop, queue_dusk, jobs } => {
