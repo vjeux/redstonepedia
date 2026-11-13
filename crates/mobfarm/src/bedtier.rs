@@ -887,9 +887,12 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
         for c in [[-3, 1, 6], [-3, 1, 7], [-2, 1, 7], [-1, 1, 7]] {
             put(&mut b, c, "glass")?;
         }
-        for c in [[-4, 0, 4], [-4, 1, 4], [-4, 0, 3], [-4, 1, 3], [-4, 0, 5]] {
+        for c in [[-4, 0, 4], [-4, 1, 4], [-4, 0, 3], [-4, 1, 3]] {
             put(&mut b, c, "glass")?;
         }
+        // ((-4,0,5) stays AIR with no floor: the sleeper's eye (~(-2.5,0.76,4.48)) to the waker's
+        // eye (~(-4.5,1.23,10.5)) grazes that cell's corner (x -3.0 at z 6.0); glass there cut the
+        // line: no wake on 6 of 6)
         // ((-3,0,5) stays air with no floor: the sleeper's line crosses it at y ~0.92; (-3,1,5)
         // glass over it (the bed's own wall list places it), so still no stand-up place, and
         // nothing beside the cart's box)
