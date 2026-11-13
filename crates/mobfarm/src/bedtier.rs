@@ -115,6 +115,9 @@ pub const PARK_A2: [i32; 3] = [1, 0, 4];
 /// curve (2 connections) only: a drive into the park's support updated the exit slope (1,-1,5), a
 /// rail with exactly 3 potential connections, from a signal-source block (ironspec 03:26))
 pub const PARK_CTRL_A2: [i32; 3] = [3, 0, 4];
+/// (A)'s wake sensor (G1 12:04 / day-1 12:03): an observer under the bed head, facing up at it;
+/// its output face down into (-3,-2,4).
+pub const WAKE_SENSOR: [i32; 3] = [-3, -1, 4];
 
 /// The stop's variant cells in a built world: (A) when E holds an activator rail, T5b when the
 /// entry does, else A6.
@@ -657,7 +660,7 @@ pub fn design_a(bench: bool) -> Result<String> {
 /// one braked powered rail descending west, two run-up flats along z 4, P (-2,0,4) a curve turning
 /// south onto A6's exit. The run-up's empty-cart drag brings the released cart to P under 0.2 b/t
 /// (a step over 0.2 can clip into the standing napper's box and stop dead).
-pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: bool, waker_south: bool, exit_boost: bool, hold_slope: bool) -> Result<String> {
+pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: bool, waker_south: bool, exit_boost: bool, hold_slope: bool, wake_sensor: bool) -> Result<String> {
     let mut b = Builder::new(if bench { "bed-tier-a2-bench" } else { "bed-tier-a2" });
     let rail = |s: &str| format!("rail[shape={s},waterlogged=false]");
     let cap = "iron_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]";
@@ -871,7 +874,11 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
     put(&mut b, BED_HEAD, "red_bed[facing=south,occupied=false,part=head]")?;
     put(&mut b, [-3, 0, 3], "red_bed[facing=south,occupied=false,part=foot]")?;
     put(&mut b, [-3, -1, 3], "glass")?;
-    put(&mut b, [-3, -1, 4], "glass")?;
+    // (G1 12:04 / day-1 12:03, the wake sensor: an observer under the bed head facing up at it,
+    // in the glass's place (the same full collision, no sight line through it): OCCUPIED's edges
+    // (SleepInBed's start, the wake) each give a pulse out of its bottom face into (-3,-2,4),
+    // where DAY-1's F line and the park's release start)
+    put(&mut b, WAKE_SENSOR, if wake_sensor { "observer[facing=up,powered=false]" } else { "glass" })?;
     put(&mut b, [-3, 2, 3], cap)?;
     put(&mut b, [-3, 3, 3], button)?;
     for c in [[-3, 2, 4], [-3, 1, 5], [-4, 2, 4], [-2, 2, 4]] {
@@ -994,6 +1001,9 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
         format!("always-on: 3,2,-5=the entry booster's redstone torch, on glass (3,1,-5): it never toggles; -3,0,2=the activator's redstone torch, on glass (-3,-1,2): it never toggles (ironspec 03:22: no lever a wind burst can flip); {}{}", if loop_booster { "0,0,2=the loop booster's redstone torch, on glass (0,-1,2): it never toggles; " } else { "" }, if exit_south { "-1,0,7=the exit booster's redstone torch, on glass (-1,-1,7): it never toggles" } else { "-1,0,6=the exit booster's redstone torch, on glass (-1,-1,6): it never toggles" }) + if exit_boost { "; -2,-2,5=the hand-off booster's redstone torch, on glass (-2,-3,5), under its slime support (-2,-1,5): it never toggles" } else { "" },
         "a6-pickup: -2,0,4=the pickup cell (the napper's only stand-up cell); stranded bound: no cart at it by the wake edge + 60 gt fails (to restate from these rows)".to_string(),
     ];
+    if wake_sensor {
+        lines.push("The wake sensor (G1 12:04 / day-1 12:03): (-3,-1,4) an observer facing up at the bed head (-3,0,4), in the glass's place under it: the head's OCCUPIED set (SleepInBed's start) and cleared (the wake) each give a pulse out of its bottom face into (-3,-2,4), where DAY-1's F line (the window opened only after a sensed lie-down, shut on the wake) and the park's release (at least 4 gt after the shutter is powered again: the first (-2,0,5) entry >= the close + 27) start; the bench prints its pulses against the napper's own edges.".to_string());
+    }
     if exit_south {
         lines.push("contacts: -3,0,4=the bed head's east face (its 0.5625-high box), met flush by the cart's west face at the curve-to-straight hand-off from P (-2,0,4) into (-2,0,5); class=design; ref=8c3eb08fd `mctas mobfarm bedtier-bench <(A) bench file> --speeds 0.05..0.55/0.01 --from 1 --to 8` (exit 0; met on 296 of 408 visits; maxima: depth 0.0000, 1 tick per event; speed 0.070..0.103 in, 0.047..0.075 out); depth<=0.0000+eps=0.010 why=the cart's box stays within the face tolerance of the bed's box, the bed's state untouched; ticks<=1 why=a second tick is the cart stopped at P, a stall; speed_out>=0.040 why=four times the exit booster's 0.01 start threshold: at or under 0.01 the cart stalls on the always-on booster (-2,0,5) (no conductor at either end to kick it), the napper aboard; the bed unchanged across it; rate=296/408 (ironspec Nov 13 07:03 / 09:24 / 10:47 / 10:58; G1 10:53 / 11:35)".to_string());
         // (P's two connections are DESIGN-CRITICAL: K (-2,0,3) is a T by rail presence (N, E, S) and
@@ -1271,6 +1281,11 @@ pub struct Row {
     pub hold_hostile_ticks: usize,
     pub hold_stamp_at_depart: Option<Option<i64>>,
     pub hold_lines: Vec<String>,
+    /// (G1 12:04 / day-1 12:03) The wake sensor's (the observer under the bed head) rising edges,
+    /// by tick.
+    pub sensor_rises: Vec<i64>,
+    /// The design holds the wake sensor (an observer at WAKE_SENSOR).
+    pub sensor_present: bool,
     pub launch_cells: Vec<([i32; 3], f64)>,
     /// (G1 C16) The cells holding water at the visit's end (the design's own water is the bar).
     pub water_cells: usize,
@@ -1501,6 +1516,9 @@ pub struct Faults {
     /// laid cell, entity and stand-in write), every design-frame cell read there and the rows
     /// printed back in the design frame; the stop's own bench only.
     pub offset: [i32; 3],
+    /// (day-1 12:03) The window shut this many gt after the wake edge (0 or 1: the earliest, the
+    /// bench's stand-in; a real line through the wake sensor closes later).
+    pub close_after: i64,
     /// (ironspec 10:47) Each declared contact's `rate=k/n` from a band run: STALE fails only when
     /// (1 - k/n)^N < 0.001 for the run's N visits; a rate-less declaration is always expected.
     pub contact_rates: Vec<([i32; 3], (u32, u32))>,
@@ -2012,6 +2030,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
     // (Z1's design: the waker's shutter at WAKER_SHUT (an iron trapdoor))
     let z1_design = format!("{}", run.world.get(wc(WAKER_SHUT))).contains("iron_trapdoor");
     let mut row = Row { seed, speed, fluid_scheduled, ..Default::default() };
+    row.sensor_present = format!("{}", run.world.get(wc(WAKE_SENSOR))).contains("observer");
     if dropped > 0 {
         row.problems.push(format!("{dropped} of the design's cells outside the world's box"));
     }
@@ -2194,6 +2213,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
     let mut prev_cart_bb: Option<redsim::entity::Aabb> = None;
     // (the bed's head and foot states after the previous tick: the contact's bed check)
     let mut prev_bed: Option<(String, String)> = None;
+    let mut sensor_prev = false;
     let mut prev_cart_motion = (0f64, 0f64, 0f64);
     let mut still = 0;
     let mut crossed: Vec<[i32; 3]> = Vec::new();
@@ -2428,12 +2448,13 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
         }
         // (the window shut on the wake edge: Z1's design does it as its normal operation (its
         // shutter's drive powered again by the wake: F's line), any other design only under the
-        // --hide-after-wake fault)
-        if (f.hide_after_wake || z1_design) && !hidden && row.woke_at.is_some() {
+        // --hide-after-wake fault; `close_after` gt after the wake (1: the earliest, the bench's
+        // stand-in; a real line through the wake sensor closes later, day-1 12:03))
+        if (f.hide_after_wake || z1_design) && !hidden && row.woke_at.is_some_and(|wk| t >= wk + f.close_after.max(1)) {
             for c in lay.hatch_ctrl.clone() {
                 set(&mut run.world, c, "redstone_block");
             }
-            row.waker_lines.push(format!("t {t}: the window shut (--hide-after-wake: the waker's controllers powered again)"));
+            row.waker_lines.push(format!("t {t}: the window shut ({})", if z1_design { "Z1: F's line powers the shutter again on the wake edge, its normal operation" } else { "--hide-after-wake: the waker's controllers powered again" }));
             row.close_at = Some(t);
             hidden = true;
         }
@@ -3235,6 +3256,17 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             prev_cart_motion = (d.x, d.y, d.z);
         }
         prev_bed = Some((format!("{}", w.get(wc(BED_HEAD))), format!("{}", w.get(wp(BED_HEAD[0], BED_HEAD[1], BED_HEAD[2] - 1)))));
+        // (G1 12:04 / day-1 12:03: the wake sensor's pulses, its rising edges by tick)
+        {
+            let s = format!("{}", w.get(wc(WAKE_SENSOR)));
+            if s.contains("observer") {
+                let on = s.contains("powered=true");
+                if on && !sensor_prev {
+                    row.sensor_rises.push(t);
+                }
+                sensor_prev = on;
+            }
+        }
         // (ironspec 17:35 (a): the released cart in the pickup cell before the napper's wake)
         if row.release_at.is_some()
             && row.woke_at.is_none()
@@ -4537,6 +4569,24 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
                         if r.stand_after_eject > 20 {
                             sk.stand_over_20 += 1;
                         }
+                        // (the wake sensor: its first rise after each napper edge, the missed edges
+                        // and the rises with no edge before them, within 10 gt)
+                        if r.sensor_present {
+                            sk.sensor_seen = true;
+                            let edges: Vec<(i64, bool)> = r.sleeps.iter().map(|&s| (s, true)).chain(r.wakes.iter().map(|&w| (w, false))).collect();
+                            for &(e, lie) in &edges {
+                                match r.sensor_rises.iter().find(|&&x| x >= e && x <= e + 10) {
+                                    Some(&x) if lie => sk.sensor_after_sleep.push(x - e),
+                                    Some(&x) => sk.sensor_after_wake.push(x - e),
+                                    None => sk.sensor_missed += 1,
+                                }
+                            }
+                            for &x in &r.sensor_rises {
+                                if !edges.iter().any(|&(e, _)| x >= e && x <= e + 10) {
+                                    sk.sensor_spurious += 1;
+                                }
+                            }
+                        }
                         if !r.lightning.is_empty() {
                             sk.lightning_visits += 1;
                             for m in &r.lightning {
@@ -4569,6 +4619,11 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
                         }
                         if let Some(s) = r.slept_at {
                             sk.lie_ticks.push(s);
+                            // (day-1 12:09: its SLEPT latch takes the first wake-sensor pulse after
+                            // ARM's edge as the lie-down: the arming edge to the lie-down per visit)
+                            if let Some(a) = r.armed_at {
+                                sk.arm_to_lie.push(s - a);
+                            }
                         }
                         if let Some(wk) = r.woke_at {
                             sk.wake_ticks.push(wk);
@@ -4820,6 +4875,24 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
     // stop being open to the sky by construction there)
     if base.built_world && sk.lightning_visits > 0 {
         failed.push(format!("{} visits with a napper exposed to lightning in the built world (a sky-seeing cell or a bolt's hit box)", sk.lightning_visits));
+    }
+    // (G1 12:04 / day-1 12:03: the wake sensor judged: every lie-down and wake seen within 10 gt,
+    // no rise without an edge)
+    if !sk.arm_to_lie.is_empty() {
+        println!("the arming edge (ARM (-2,0,1)) to the lie-down (day-1 12:09: its SLEPT latch takes the first wake-sensor pulse after ARM as the lie-down): {:?}..{:?} gt over {} visits; lie-downs before the arming: {}", sk.arm_to_lie.iter().min(), sk.arm_to_lie.iter().max(), sk.arm_to_lie.len(), sk.arm_to_lie.iter().filter(|&&d| d < 0).count());
+        if sk.arm_to_lie.iter().any(|&d| d < 0) {
+            failed.push("a lie-down before the arming edge (day-1's SLEPT latch would miss it)".into());
+        }
+    }
+    if sk.sensor_seen {
+        let mm = |v: &Vec<i64>| (v.iter().min().copied(), v.iter().max().copied());
+        println!(
+            "the wake sensor (the observer at (-3,-1,4) facing up at the bed head): its first rise after a lie-down at +{:?}..{:?} gt over {} lie-downs, after a wake at +{:?}..{:?} gt over {} wakes; edges it missed (no rise within 10 gt): {}; rises with no edge in the 10 gt before: {}",
+            mm(&sk.sensor_after_sleep).0, mm(&sk.sensor_after_sleep).1, sk.sensor_after_sleep.len(), mm(&sk.sensor_after_wake).0, mm(&sk.sensor_after_wake).1, sk.sensor_after_wake.len(), sk.sensor_missed, sk.sensor_spurious
+        );
+        if sk.sensor_missed > 0 || sk.sensor_spurious > 0 || sk.sensor_after_wake.is_empty() {
+            failed.push(format!("the wake sensor: {} missed edges, {} rises with no edge, {} wakes seen", sk.sensor_missed, sk.sensor_spurious, sk.sensor_after_wake.len()));
+        }
     }
     if park_failed {
         failed.push("the release by park position NOT met".into());
@@ -5084,6 +5157,8 @@ struct SkipTotals {
     most_drops: usize,
     classes: std::collections::BTreeMap<&'static str, usize>,
     lie_ticks: Vec<i64>,
+    /// (day-1 12:09) the arming edge to the lie-down per visit (gt; negative: the lie-down first)
+    arm_to_lie: Vec<i64>,
     wake_ticks: Vec<i64>,
     skip_class: std::collections::BTreeMap<&'static str, (i64, i64)>,
     r_ats: Vec<i64>,
@@ -5109,6 +5184,13 @@ struct SkipTotals {
     r_real_by_speed: std::collections::BTreeMap<String, Vec<i64>>,
     r_real_entry_by_speed: std::collections::BTreeMap<String, Vec<i64>>,
     lightning_visits: usize,
+    /// (the wake sensor) its first rise after each lie-down and each wake (gt), the edges it
+    /// missed (no rise within 10 gt) and its rises with no edge within 10 gt before them
+    sensor_after_sleep: Vec<i64>,
+    sensor_after_wake: Vec<i64>,
+    sensor_missed: usize,
+    sensor_spurious: usize,
+    sensor_seen: bool,
     lightning: std::collections::BTreeMap<String, usize>,
     /// (ironspec 00:27) the most fluid cells a visit's world scheduled at load
     fluid_scheduled: usize,
