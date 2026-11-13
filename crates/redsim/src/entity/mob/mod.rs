@@ -324,6 +324,12 @@ impl Inside {
 #[derive(Clone, PartialEq, Debug)]
 pub struct MobState {
     pub ty: MobType,
+    /// `Mob.isNoAi()` (`NoAI:1b`, read at the summon or load: `Mob.readAdditionalSaveData` 409): its
+    /// `isEffectiveAi()` false, so `LivingEntity.aiStep` runs no `serverAiStep` (no sensors, brain, memory
+    /// TTLs, navigation or controls) and no `travel` (no move, no gravity through it), while `pushEntities`
+    /// still runs from its box (tick-exact's 26.3 citation, 09:24; modeled for villagers, the seated-rider
+    /// control).
+    pub no_ai: bool,
     pub health: f32,
     /// `dead` (set by `die`); the body is removed 20 gt later (`death_time`).
     pub dead: bool,
@@ -439,6 +445,7 @@ impl MobState {
         let d = ty.def();
         MobState {
             ty,
+            no_ai: false,
             health: d.max_health,
             dead: false,
             death_time: 0,
@@ -650,6 +657,34 @@ pub fn mob_mut(w: &mut World, i: usize) -> &mut MobState {
 }
 
 /// A short name of an entity kind (for messages).
+/// (G1 2026-11-13 10:57 (1)) An NBT boolean as the game reads one (`ValueInput.getBooleanOr`: a numeric tag's
+/// `asByte() != 0`; SNBT's `true` / `false` in any case): an integer with a b / s / l suffix or none by its low
+/// byte (a `b` value outside a byte refused, as the parser refuses it), a float or double (an f / d suffix or a
+/// decimal point) by its floor's low byte; anything else an error naming the key and the value (a typo is never
+/// a silent false).
+pub fn nbt_bool(key: &str, v: &str) -> Result<bool, String> {
+    let s = v.trim();
+    let bad = || format!("{key}:{v} is no boolean the game reads (true / false, or a number)");
+    if s.eq_ignore_ascii_case("true") {
+        return Ok(true);
+    }
+    if s.eq_ignore_ascii_case("false") {
+        return Ok(false);
+    }
+    let last = s.chars().last().ok_or_else(bad)?;
+    let (num, suffix) = if last.is_ascii_alphabetic() { (&s[..s.len() - 1], Some(last.to_ascii_lowercase())) } else { (s, None) };
+    let low_byte = |x: i64| (x as i8) != 0;
+    match suffix {
+        Some('b') => num.parse::<i8>().map(|x| x != 0).map_err(|_| bad()),
+        Some('s') => num.parse::<i16>().map(|x| low_byte(x as i64)).map_err(|_| bad()),
+        Some('l') => num.parse::<i64>().map(low_byte).map_err(|_| bad()),
+        Some('f') | Some('d') => num.parse::<f64>().ok().filter(|x| x.is_finite()).map(|x| low_byte(x.floor() as i64)).ok_or_else(bad),
+        Some(_) => Err(bad()),
+        None if num.contains('.') => num.parse::<f64>().ok().filter(|x| x.is_finite()).map(|x| low_byte(x.floor() as i64)).ok_or_else(bad),
+        None => num.parse::<i32>().map(|x| low_byte(x as i64)).map_err(|_| bad()),
+    }
+}
+
 pub fn kind_name(k: &EntityKind) -> &'static str {
     match k {
         EntityKind::Boat(_) => "boat",
@@ -832,6 +867,8 @@ fn spawn_inner(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>, s
     }
     let mut ty = MobType::from_id(type_id)?;
     let mut persistent = false;
+    // `NoAI` (a villager's: the seated-rider control, ironspec 09:21)
+    let mut no_ai = false;
     let mut can_break_doors = false;
     // (mob-AI 2026-11-11) Creeper.readAdditionalSaveData: ignited, Fuse, ExplosionRadius
     let mut creeper_ignited = false;
@@ -1032,6 +1069,12 @@ fn spawn_inner(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>, s
         for kv in inner.split(',').map(str::trim).filter(|s| !s.is_empty()) {
             match kv.split_once(':').map(|(k, v)| (k.trim(), v.trim())) {
                 Some(("PersistenceRequired", v)) => persistent = matches!(v, "1b" | "true" | "1"),
+                // `Mob.readAdditionalSaveData`'s NoAI (tick-exact 09:24): modeled for a villager (the
+                // seated-rider control); another mob's stays refused below
+                Some(("NoAI", v)) if ty.def().id == "villager" => match nbt_bool("NoAI", v) {
+                    Ok(b) => no_ai = b,
+                    Err(e) => return Some(Err(format!("entity {type_id}: {e}"))),
+                },
                 // ---- mob AI (the mob-AI lane): a zombie that breaks doors ----
                 Some(("CanBreakDoors", v)) if w.mob.ai.on && matches!(ty.def().id, "zombie" | "baby_zombie") => can_break_doors = matches!(v, "1b" | "true" | "1"),
                 Some(("ignited", v)) if w.mob.ai.on && ty.def().id == "creeper" => creeper_ignited = matches!(v, "1b" | "true" | "1"),
@@ -1085,6 +1128,12 @@ fn spawn_inner(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>, s
     let strict = std::mem::replace(&mut w.mob.ai.strict, true);
     let id = add(w, ty, Vec3::new(pos[0], pos[1], pos[2]), persistent);
     w.mob.ai.strict = strict;
+    if no_ai {
+        // (G1 10:57 (2): a lost lookup fails, never a silently live villager)
+        let Some(j) = crate::entity::index_of(w, id) else { return Some(Err(format!("entity {type_id}: its NoAI flag found no spawned mob #{id}"))) };
+        let EntityKind::Mob(m) = &mut w.entities.list[j].kind else { return Some(Err(format!("entity {type_id}: #{id} is not a mob, its NoAI unset"))) };
+        m.no_ai = true;
+    }
     if let Some(a) = animal_age
         && let Some(j) = crate::entity::index_of(w, id)
         && let EntityKind::Mob(m) = &mut w.entities.list[j].kind
@@ -2046,6 +2095,265 @@ mod rider_tests {
         let (path2, stamp2, _) = mem(&w);
         assert_eq!(path2, Some(true), "the sink's tick takes the new path into PATH");
         assert_eq!(stamp2, stamp0, "and CANT_REACH keeps its first stamp");
+    }
+
+    /// tick-exact 09:20 (the game's push rows): a seated rider pushes a neighbouring cart from its own tick,
+    /// right after its cart's, with its PRE-SEAT box (`pushEntities` in its rideTick before `positionRider`
+    /// re-seats it): `AbstractMinecart.push(mob)`, along the centre line away from the rider, `0.1F * 0.5` =
+    /// 0.05000000074505806 when they're under 1 apart. Cart A (a villager seated) on a rail, cart B empty one
+    /// level up and 0.75 south, their boxes clear of each other but B's meeting the rider's tall box by 0.04: one
+    /// push, by A's rider onto B. A NoAI rider (G1 10:57 (4)/(5): no step of its own, so the push is exactly
+    /// the seat box's) gives (0, +0.05000000074505806) to the bit; a live rider the same pusher and cart, its
+    /// direction by its own step; A moving 0.1 north in that tick (the re-seated box would miss B) still gives
+    /// it, the push being the pre-seat box's; with A empty, or B 0.1 further, none.
+    #[test]
+    fn a_seated_rider_pushes_a_cart_from_its_pre_seat_box() {
+        // (the pushes over one tick, A's rider, B)
+        let run = |rider: Option<&str>, b_z: f64, a_vz: f64| -> (Vec<(u32, u32, [f64; 2])>, Option<u32>, u32) {
+            let mut w = World::new(BlockPos::new(-4, -2, -4), [8, 6, 8]);
+            let stone = Block::parse("minecraft:stone").unwrap();
+            let rail = Block::parse("minecraft:rail[shape=north_south,waterlogged=false]").unwrap();
+            for z in -3..=0 {
+                w.set_block(BlockPos::new(0, -1, z), stone.clone(), crate::world::flags::ALL);
+                w.set_block(BlockPos::new(0, 0, z), rail.clone(), crate::world::flags::ALL);
+            }
+            for z in 1..=3 {
+                w.set_block(BlockPos::new(0, 0, z), stone.clone(), crate::world::flags::ALL);
+                w.set_block(BlockPos::new(0, 1, z), rail.clone(), crate::world::flags::ALL);
+            }
+            w.mob.seed(7, 6_000);
+            w.mob.ai.on = true;
+            let nbt = rider.map(|r| format!("{{Passengers:[{{id:\"minecraft:villager\"{r}}}]}}"));
+            let a = crate::entity::spawn(&mut w, "minecraft:minecart", [0.5, 0.0, 0.5], nbt.as_deref()).unwrap();
+            let b = crate::entity::spawn(&mut w, "minecraft:minecart", [0.5, 1.0, b_z], None).unwrap();
+            let seated = w.entities.list[crate::entity::index_of(&w, a).unwrap()].passengers.first().copied();
+            // (a first tick seats the rider; then A's motion set and the pushes logged over one tick)
+            w.tick();
+            let ai = crate::entity::index_of(&w, a).unwrap();
+            w.entities.set_pos(ai, crate::entity::Vec3::new(0.5, 0.0, 0.5));
+            w.entities.list[ai].delta_movement = crate::entity::Vec3::new(0.0, 0.0, a_vz);
+            let bi = crate::entity::index_of(&w, b).unwrap();
+            w.entities.set_pos(bi, crate::entity::Vec3::new(0.5, 1.0, b_z));
+            w.entities.list[bi].delta_movement = crate::entity::Vec3::ZERO;
+            crate::entity::minecart::log_cart_pushes(&mut w);
+            w.tick();
+            (crate::entity::minecart::take_cart_pushes(&mut w).into_iter().map(|p| (p.mob, p.cart, p.push)).collect(), seated, b)
+        };
+        let exact = (0.1f32 as f64) * 0.5;
+        assert_eq!(exact.to_bits(), 0.05000000074505806f64.to_bits());
+        // a NoAI rider: the one push, A's rider onto B, to the bit
+        let (pushes, rider, b) = run(Some(",NoAI:1b"), 1.25, 0.0);
+        assert_eq!(pushes.len(), 1, "one push: {pushes:?}");
+        assert_eq!((Some(pushes[0].0), pushes[0].1), (rider, b), "A's rider pushed B");
+        assert!(pushes[0].2[0] == 0.0 && pushes[0].2[1].to_bits() == exact.to_bits(), "(0, +0.1F * 0.5) to the bit, from the seat box: {pushes:?}");
+        // a live rider: the same pusher and cart, the push's size along its centre line
+        let (live, rider, b) = run(Some(""), 1.25, 0.0);
+        assert_eq!(live.len(), 1, "one push: {live:?}");
+        assert_eq!((Some(live[0].0), live[0].1), (rider, b), "A's live rider pushed B");
+        assert!(live[0].2[1] > 0.0 && ((live[0].2[0].powi(2) + live[0].2[1].powi(2)).sqrt() - exact).abs() < 1e-12, "away from the rider, 0.1F * 0.5 long: {live:?}");
+        let (moving, rider, b) = run(Some(",NoAI:1b"), 1.25, -0.1);
+        assert!(moving.len() == 1 && (Some(moving[0].0), moving[0].1) == (rider, b) && moving[0].2[1].to_bits() == exact.to_bits(), "A moving away in that tick: still the pre-seat box's push: {moving:?}");
+        assert!(run(None, 1.25, 0.0).0.is_empty(), "A empty: no rider, no push");
+        assert!(run(Some(",NoAI:1b"), 1.35, 0.0).0.is_empty(), "B 0.1 further: the boxes miss, no push");
+    }
+
+    /// (G1 10:57 (3)) The travel gate's own control: a NoAI villager standing free (not riding), summoned 3
+    /// above stone, keeps its height for 20 ticks (no `travel`: no gravity through it; tick-exact's 26.3
+    /// citation, LivingEntity.aiStep 3135-3136 `canSimulateMovement() && isEffectiveAi()`), while the same
+    /// villager without NoAI lands on the stone.
+    #[test]
+    fn a_free_noai_villager_does_not_fall() {
+        let fall = |nbt: Option<&str>| -> Vec<f64> {
+            let mut w = World::new(BlockPos::new(-4, -2, -4), [8, 8, 8]);
+            for x in -2..=2 {
+                for z in -2..=2 {
+                    w.set_block(BlockPos::new(x, -1, z), Block::parse("minecraft:stone").unwrap(), crate::world::flags::ALL);
+                }
+            }
+            w.mob.seed(7, 6_000);
+            w.mob.ai.on = true;
+            let v = crate::entity::spawn(&mut w, "minecraft:villager", [0.5, 3.0, 0.5], nbt).unwrap();
+            (0..20)
+                .map(|_| {
+                    w.tick();
+                    w.entities.list[crate::entity::index_of(&w, v).unwrap()].pos.y
+                })
+                .collect()
+        };
+        let still = fall(Some("{NoAI:1b}"));
+        assert!(still.iter().all(|&y| y == 3.0), "NoAI: no travel, no fall: {still:?}");
+        let live = fall(None);
+        assert_eq!(*live.last().unwrap(), 0.0, "live: landed on the stone: {live:?}");
+    }
+
+    /// (G1 10:57 (1)) `NoAI`'s value parsed as the game reads a boolean (`getBooleanOr`: a number's low byte
+    /// non-zero; `true` / `false` in any case), anything else refused by name: never a silently live villager.
+    #[test]
+    fn noai_parses_as_the_game_reads_it() {
+        for (v, want) in [("1b", Some(true)), ("1B", Some(true)), ("2b", Some(true)), ("-1b", Some(true)), ("0b", Some(false)), ("1s", Some(true)), ("256s", Some(false)), ("1", Some(true)), ("0", Some(false)), ("257", Some(true)), ("1L", Some(true)), ("true", Some(true)), ("TRUE", Some(true)), ("False", Some(false)), ("0.5f", Some(false)), ("1.5d", Some(true)), ("2.0", Some(true)), ("128b", None), ("yes", None), ("1x", None), ("", None), ("1.5q", None)] {
+            assert_eq!(crate::entity::mob::nbt_bool("NoAI", v).ok(), want, "NoAI:{v}");
+        }
+        let mut w = World::new(BlockPos::new(-4, -2, -4), [8, 6, 8]);
+        w.mob.ai.on = true;
+        let e = crate::entity::spawn(&mut w, "minecraft:villager", [0.5, 0.0, 0.5], Some("{NoAI:yes}")).unwrap_err();
+        assert!(e.contains("NoAI:yes"), "the key and value named: {e}");
+        let v = crate::entity::spawn(&mut w, "minecraft:villager", [0.5, 0.0, 0.5], Some("{NoAI:1B}")).unwrap();
+        assert!(crate::entity::mob::mob(&w, crate::entity::index_of(&w, v).unwrap()).no_ai, "1B: NoAI");
+    }
+
+    /// (G1 10:57 (6), cc767b78's NoAI finding) A queue of NoAI-ridden carts on a slope settles exactly touching:
+    /// the upper cart rolls down onto the lower cart's rider, its move stopped by that box (`canVehicleCollide`),
+    /// so their centres sit the rider's half width plus the cart's apart: 0.6F / 2 + 0.98F / 2 in z and the slope's
+    /// same in y, and the two boxes only touch (no push between them while they rest).
+    #[test]
+    fn a_noai_queue_settles_exactly_touching() {
+        let mut w = World::new(BlockPos::new(-4, -3, -4), [8, 10, 12]);
+        let stone = Block::parse("minecraft:stone").unwrap();
+        // an ascending_south slope from (0,0,0) to (0,3,3), each rail on a stone, a stone wall north of the foot
+        for k in 0..4 {
+            for y in -1..k {
+                w.set_block(BlockPos::new(0, y, k), stone.clone(), crate::world::flags::ALL);
+            }
+            w.set_block(BlockPos::new(0, k, k), Block::parse("minecraft:rail[shape=ascending_south,waterlogged=false]").unwrap(), crate::world::flags::ALL);
+        }
+        for y in -1..=2 {
+            w.set_block(BlockPos::new(0, y, -1), stone.clone(), crate::world::flags::ALL);
+        }
+        w.mob.seed(7, 6_000);
+        w.mob.ai.on = true;
+        let lower = crate::entity::spawn(&mut w, "minecraft:minecart", [0.5, 0.5625, 0.5], Some("{Passengers:[{id:\"minecraft:villager\",NoAI:1b}]}")).unwrap();
+        let upper = crate::entity::spawn(&mut w, "minecraft:minecart", [0.5, 2.5625, 2.5], Some("{Passengers:[{id:\"minecraft:villager\",NoAI:1b}]}")).unwrap();
+        crate::entity::minecart::log_cart_pushes(&mut w);
+        for _ in 0..200 {
+            w.tick();
+        }
+        let (li, ui) = (crate::entity::index_of(&w, lower).unwrap(), crate::entity::index_of(&w, upper).unwrap());
+        let (l, u) = (w.entities.list[li].pos, w.entities.list[ui].pos);
+        assert!(w.entities.list[li].delta_movement.z == 0.0 && w.entities.list[ui].delta_movement.z == 0.0, "both at rest");
+        let touch = (0.6f32 as f64) / 2.0 + (0.98f32 as f64) / 2.0;
+        assert_eq!((u.z - l.z).to_bits(), touch.to_bits(), "dz {:?} = 0.6F/2 + 0.98F/2 {touch:?}", u.z - l.z);
+        assert_eq!((u.y - l.y).to_bits(), touch.to_bits(), "dy {:?} along the slope", u.y - l.y);
+        let rider = w.entities.list[li].passengers[0];
+        let late: Vec<_> = crate::entity::minecart::take_cart_pushes(&mut w).into_iter().filter(|p| p.t > w.time - 100 && p.mob == rider).collect();
+        assert!(late.is_empty(), "resting, the lower rider's box only touches the upper cart: no push ({late:?})");
+    }
+
+    /// ironspec 09:21 / 09:25 (a), tick-exact's 26.3 citation (09:24): a villager summoned `NoAI:1b` into a
+    /// cart runs no brain (no sensor, no memory, no activity change), travels nothing (its box on its seat
+    /// after every tick) and keeps its cart ridden (the 0.997 drag, not an empty cart's 0.96). At night with a
+    /// zombie in its sight it stays in its spawned REST for 200 ticks, NEAREST_HOSTILE never set, WALK_TARGET
+    /// and PATH never set; the same villager without NoAI panics (the control). Its cart, rolled at 0.2 along a
+    /// flat rail, keeps 0.997 of its speed per tick like a cart with a live rider; an empty one keeps 0.96.
+    #[test]
+    fn a_noai_rider_runs_no_brain_and_sits_still() {
+        use crate::entity::mob::ai::brain::{Act, brain};
+        let world = || {
+            let mut w = World::new(BlockPos::new(-8, -4, -8), [32, 8, 16]);
+            let stone = Block::parse("minecraft:stone").unwrap();
+            for x in -6..=22 {
+                for z in -6..=6 {
+                    w.set_block(BlockPos::new(x, -1, z), stone.clone(), crate::world::flags::ALL);
+                }
+            }
+            for x in -6..=22 {
+                w.set_block(BlockPos::new(x, 0, 0), Block::parse("minecraft:rail[shape=east_west,waterlogged=false]").unwrap(), crate::world::flags::ALL);
+            }
+            // (the zombie's trench south of the cart, as in the flee test: in sight, out of reach)
+            for x in -3..=3 {
+                for z in 1..=6 {
+                    for y in -4..=-1 {
+                        let trench = (-2..=2).contains(&x) && (2..=5).contains(&z) && y >= -3;
+                        w.set_block(BlockPos::new(x, y, z), if trench { Block::Air } else { stone.clone() }, crate::world::flags::ALL);
+                    }
+                }
+            }
+            w.mob.seed(7, 13_800);
+            w.mob.ai.on = true;
+            w
+        };
+        for no_ai in [true, false] {
+            let mut w = world();
+            let nbt = if no_ai { "{Passengers:[{id:\"minecraft:villager\",NoAI:1b}]}" } else { "{Passengers:[{id:\"minecraft:villager\"}]}" };
+            let cart = crate::entity::spawn(&mut w, "minecraft:minecart", [0.5, 0.0, 0.5], Some(nbt)).unwrap();
+            let ci = crate::entity::index_of(&w, cart).unwrap();
+            let rider = *w.entities.list[ci].passengers.first().expect("the villager seated");
+            crate::entity::spawn(&mut w, "minecraft:zombie", [0.5, -3.0, 4.5], Some("{PersistenceRequired:1b}")).unwrap();
+            let mut panicked = false;
+            let mut seat: Option<f64> = None;
+            for t in 0..200 {
+                w.tick();
+                let (ci, ri) = (crate::entity::index_of(&w, cart).unwrap(), crate::entity::index_of(&w, rider).unwrap());
+                let x = brain(&w, ri).ex.as_ref().expect("the exact brain").clone();
+                panicked |= x.active == Act::Panic;
+                if no_ai {
+                    let (c, r) = (w.entities.list[ci].pos, w.entities.list[ri].pos);
+                    assert!(w.entities.list[ri].vehicle == Some(cart) && r.x == c.x && r.z == c.z, "tick {t}: seated");
+                    let dy = r.y - c.y;
+                    assert!(seat.is_none_or(|s| s == dy), "tick {t}: on the same seat ({dy} vs {seat:?})");
+                    seat = Some(dy);
+                    assert_eq!(x.active, Act::Rest, "tick {t}: the spawned REST, no activity change");
+                    assert!(brain(&w, ri).nearest_hostile.is_none() && x.mem.walk_target.is_none() && x.mem.path.is_none(), "tick {t}: no sensor, no walk target, no path");
+                }
+            }
+            assert_eq!(panicked, !no_ai, "NoAI {no_ai}: panicked {panicked} (a live rider is the control)");
+            if no_ai {
+                // (G1 (i): the flag survives a world open: every chunk saved, unloaded and loaded, the rider
+                // still NoAI, seated, its brain still idle in REST)
+                crate::reload::unload_all(&mut w);
+                crate::reload::load_all(&mut w);
+                // (a load renumbers the entities: `World::renumbered`)
+                let (rider, cart) = (w.renumbered.get(&rider).copied().unwrap_or(rider), w.renumbered.get(&cart).copied().unwrap_or(cart));
+                for t in 0..40 {
+                    w.tick();
+                    let ri = crate::entity::index_of(&w, rider).unwrap();
+                    let m = crate::entity::mob::mob(&w, ri);
+                    let x = brain(&w, ri).ex.as_ref().expect("the exact brain").clone();
+                    assert!(m.no_ai && w.entities.list[ri].vehicle == Some(cart), "after the open, tick {t}: NoAI and seated");
+                    assert!(x.active == Act::Rest && brain(&w, ri).nearest_hostile.is_none() && x.mem.walk_target.is_none(), "after the open, tick {t}: no brain");
+                }
+            }
+        }
+        // (G1 (i): villagers only: NoAI on another mob (a scene's zombie) is refused, its AI kept)
+        // (G1 10:57's request: a world open in another schedule slot: the brain rebuilt at the load's day
+        // (`makeBrain` → `updateActivityFromSchedule`, IDLE by day), then frozen: back at night, no schedule
+        // update moves it to REST)
+        {
+            let mut w = world();
+            let cart = crate::entity::spawn(&mut w, "minecraft:minecart", [0.5, 0.0, 0.5], Some("{Passengers:[{id:\"minecraft:villager\",NoAI:1b}]}")).unwrap();
+            let ci = crate::entity::index_of(&w, cart).unwrap();
+            let rider = w.entities.list[ci].passengers[0];
+            w.tick();
+            assert_eq!(brain(&w, crate::entity::index_of(&w, rider).unwrap()).ex.as_ref().unwrap().active, Act::Rest, "spawned at night: REST");
+            w.mob.day_offset += 24_000 - 13_800 + 1_000 - 1;
+            crate::reload::unload_all(&mut w);
+            crate::reload::load_all(&mut w);
+            let rider = w.renumbered.get(&rider).copied().unwrap_or(rider);
+            for t in 0..40 {
+                w.tick();
+                if t == 5 {
+                    // (the night back, the game time running on: a live brain would turn to REST in 20 gt)
+                    w.mob.day_offset += 12_800;
+                }
+                let x = brain(&w, crate::entity::index_of(&w, rider).unwrap()).ex.as_ref().unwrap().clone();
+                assert_eq!(x.active, Act::Idle, "tick {t} after a load by day: the rebuilt brain's IDLE, frozen");
+            }
+        }
+        let mut w = world();
+        assert!(crate::entity::spawn(&mut w, "minecraft:zombie", [0.5, 0.0, -3.5], Some("{NoAI:1b}")).is_err(), "NoAI on a zombie: refused");
+        assert!(crate::entity::spawn(&mut w, "minecraft:minecart", [0.5, 0.0, -3.5], Some("{Passengers:[{id:\"minecraft:pillager\",NoAI:1b}]}")).is_err(), "NoAI on a pillager passenger: refused");
+        // (the drag: a cart rolled at 0.2 east keeps 0.997 per tick ridden, NoAI or not, and 0.96 empty)
+        let keep = |nbt: Option<&str>| -> f64 {
+            let mut w = world();
+            let cart = crate::entity::spawn(&mut w, "minecraft:minecart", [8.5, 0.0, 0.5], nbt).unwrap();
+            w.tick();
+            let ci = crate::entity::index_of(&w, cart).unwrap();
+            w.entities.list[ci].delta_movement = crate::entity::Vec3::new(0.2, 0.0, 0.0);
+            w.tick();
+            let ci = crate::entity::index_of(&w, cart).unwrap();
+            w.entities.list[ci].delta_movement.x / 0.2
+        };
+        let (noai, live, empty) = (keep(Some("{Passengers:[{id:\"minecraft:villager\",NoAI:1b}]}")), keep(Some("{Passengers:[{id:\"minecraft:villager\"}]}")), keep(None));
+        assert!((noai - live).abs() < 1e-9 && (noai - empty).abs() > 0.02, "ridden drag with a NoAI rider {noai}, a live one {live}, empty {empty}");
     }
 
     /// ironspec 06:33's question, the mechanism behind onechunk's 891: a rider out of PANIC carries PANIC's
