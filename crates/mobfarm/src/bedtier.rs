@@ -878,8 +878,8 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
             put(&mut b, c, "glass")?;
         }
         // ((-3,0,5) stays air with no floor: the sleeper's line crosses it at y ~0.92; (-3,1,5)
-        // glass over it, so still no stand-up place, and nothing beside the cart's box)
-        put(&mut b, [-3, 1, 5], "glass")?;
+        // glass over it (the bed's own wall list places it), so still no stand-up place, and
+        // nothing beside the cart's box)
     } else {
     put(&mut b, HATCH, "iron_trapdoor[facing=west,half=bottom,open=true,powered=true,waterlogged=false]")?;
     put(&mut b, HATCH_HI, "iron_trapdoor[facing=west,half=top,open=true,powered=true,waterlogged=false]")?;
