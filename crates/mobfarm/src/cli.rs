@@ -14621,6 +14621,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
         MobfarmCmd::Bedtier { out, bench, trapdoor_caps, eject_at_entry, curve_glass, eject_at_bed, runup, no_loop_booster, head_glass, exit_south, waker_south, exit_boost, hold_slope, wake_sensor } => {
             anyhow::ensure!(!(eject_at_bed && (eject_at_entry || trapdoor_caps || curve_glass)), "--eject-at-bed is its own layout: no --eject-at-entry, --trapdoor-caps or --curve-glass with it");
             anyhow::ensure!(!runup || eject_at_bed, "--runup is (A)'s variant: with --eject-at-bed");
+            anyhow::ensure!(!no_loop_booster || runup, "--no-loop-booster is (A) with the run-up's variant: with --runup (G1's Q12: no silent no-op)");
             anyhow::ensure!(!(head_glass || exit_south) || runup, "--head-glass and --exit-south are (A) with the run-up's variants: with --runup");
             anyhow::ensure!(!(waker_south || exit_boost || hold_slope || wake_sensor) || exit_south, "--waker-south, --exit-boost, --hold-slope and --wake-sensor go with --exit-south");
             std::fs::write(&out, if eject_at_bed && runup { crate::bedtier::design_a2(bench, !no_loop_booster, !head_glass, exit_south, waker_south, exit_boost, hold_slope, wake_sensor)? } else if eject_at_bed { crate::bedtier::design_a(bench)? } else { crate::bedtier::design(bench, trapdoor_caps, eject_at_entry, curve_glass)? })?;
@@ -14866,7 +14867,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             // ...` in its header (a stop or a buffer); the design's frame, the loop frame with
             // --module-offset)
             let declared_contacts: Vec<[i32; 3]> = crate::bedtier::parse_contacts(&std::fs::read_to_string(&design)?, shift).map_err(|e| anyhow::anyhow!(e))?;
-            let contact_rates = crate::bedtier::parse_contact_rates(&std::fs::read_to_string(&design)?, shift);
+            let contact_rates = crate::bedtier::parse_contact_rates(&std::fs::read_to_string(&design)?, shift).map_err(|e| anyhow::anyhow!(e))?;
+            // (G1's Q14: no negative delays)
+            anyhow::ensure!(release_after >= 0 && after_sleep >= 0 && arm_delay >= 0 && close_after >= 0, "--release-after, --after-sleep, --arm-delay and --close-after are delays: never negative (G1's Q14)");
             // (G1's Q13: the design's `# integrity:` shapes, judged every tick)
             let integrity = crate::bedtier::parse_integrity(&std::fs::read_to_string(&design)?, shift).map_err(|e| anyhow::anyhow!(e))?;
             // (G1's Q6: each declared contact's bounds, parsed from its declaration)

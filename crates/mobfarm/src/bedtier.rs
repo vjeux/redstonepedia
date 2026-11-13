@@ -1914,55 +1914,61 @@ pub fn parse_contact_bounds(text: &str, shift: [i32; 3]) -> Result<Vec<([i32; 3]
     Ok(out)
 }
 
-/// (ironspec 10:47) The `rate=k/n` each `# contacts:` declaration carries (from a band run), by cell.
-pub fn parse_contact_rates(text: &str, shift: [i32; 3]) -> Vec<([i32; 3], (u32, u32))> {
+/// (ironspec 10:47) The `rate=k/n` each `# contacts:` declaration carries (from a band run), by cell;
+/// strictly parsed (G1's Q14: a malformed rate, n = 0 or k > n is an error, never skipped).
+pub fn parse_contact_rates(text: &str, shift: [i32; 3]) -> Result<Vec<([i32; 3], (u32, u32))>, String> {
     let mut out = Vec::new();
     for d in crate::pushscan::header_entries(text, "contacts:") {
-        let Some((cells, reason)) = d.split_once('=') else { continue };
+        let Some((cells, reason)) = d.split_once('=') else { return Err(format!("contacts {d:?}: x,y,z[+x,y,z...]=REASON")) };
         let Some(r) = reason.split("rate=").nth(1) else { continue };
         let r: String = r.chars().take_while(|ch| ch.is_ascii_digit() || *ch == '/').collect();
-        let Some((k, n)) = r.split_once('/').and_then(|(k, n)| Some((k.parse::<u32>().ok()?, n.parse::<u32>().ok()?))) else { continue };
+        let (k, n) = r.split_once('/').and_then(|(k, n)| Some((k.parse::<u32>().ok()?, n.parse::<u32>().ok()?))).ok_or(format!("contacts {d:?}: rate=k/n wants two whole counts"))?;
+        if n == 0 || k > n {
+            return Err(format!("contacts {d:?}: rate={k}/{n} (wants 0 <= k <= n, n > 0)"));
+        }
         for c in cells.split('+') {
-            let v: Vec<i32> = c.split(',').filter_map(|x| x.trim().parse::<i32>().ok()).collect();
-            if let &[x, y, z] = v.as_slice() {
-                out.push(([x - shift[0], y - shift[1], z - shift[2]], (k, n)));
+            let v: Vec<i32> = c.split(',').map(|x| x.trim().parse::<i32>()).collect::<Result<_, _>>().map_err(|e| format!("contacts {d:?}: x,y,z ({e})"))?;
+            match v.as_slice() {
+                &[x, y, z] => out.push(([x - shift[0], y - shift[1], z - shift[2]], (k, n))),
+                _ => return Err(format!("contacts {d:?}: x,y,z")),
             }
         }
     }
-    out
+    Ok(out)
 }
 
 /// A controller cell set to its on ("redstone_block") or off ("stone") state the way the game
 /// moves a lever: `LeverBlock.pull` (the lever's own neighbours and its attached block's
 /// neighbours updated, as a repeater line end updates its front block's), not a raw block write
 /// (whose updates reach only the lever's neighbours: a component powered through the attached
-/// conductor never heard the change). A cell that isn't a lever, or already in the state, is
-/// written raw.
-pub fn ctl_set(w: &mut World, c: [i32; 3], st: &str) {
+/// conductor never heard the change). A cell that isn't a lever is written raw. Returns whether the
+/// cell changed (G1's Q12: an expected edge that writes nothing is the caller's failure).
+pub fn ctl_set(w: &mut World, c: [i32; 3], st: &str) -> bool {
     ctl_set_at(w, c, [0, 0, 0], st)
 }
 
 /// [`ctl_set`] on a world built at `off` (the bench's `--offset`): `c` in the design frame (its kind
 /// read from the design cell), written at c + off.
-pub fn ctl_set_at(w: &mut World, c: [i32; 3], off: [i32; 3], st: &str) {
+pub fn ctl_set_at(w: &mut World, c: [i32; 3], off: [i32; 3], st: &str) -> bool {
     let p = BlockPos::new(c[0] + off[0], c[1] + off[1], c[2] + off[2]);
     let want = match block(&ctl_block(c, st)) {
         Ok(b) => b,
         Err(e) => {
             // (a named error the row reports from the world's errors, never a panic)
             w.errors.push(e);
-            return;
+            return false;
         }
     };
     let cur = w.get(p);
     if cur == want {
-        return;
+        return false;
     }
     if matches!(cur, Block::Lever { .. }) && matches!(want, Block::Lever { .. }) && redsim::redstone::attach::attached::with_powered(cur, !redsim::redstone::attach::attached::powered(&cur)) == want {
         redsim::redstone::attach::lever::pull(w, cur, p);
     } else {
         w.set_block(p, want, redsim::world::flags::ALL);
     }
+    true
 }
 
 /// A declared lever's powered state set (its block kept, only `powered` written); the cell must
@@ -2212,6 +2218,10 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
     let hold_slope_on = format!("{}", run.world.get(wp(1, -1, 5))).contains("powered_rail");
     // (Z1's design: the waker's shutter at WAKER_SHUT (an iron trapdoor))
     let z1_design = format!("{}", run.world.get(wc(WAKER_SHUT))).contains("iron_trapdoor");
+    // (G1's Q12: no silent no-op: Z1 shuts its window on the wake edge as its normal operation)
+    if f.hide_after_wake && z1_design {
+        return Err("--hide-after-wake on Z1's design is a no-op (Z1 shuts the window on the wake edge as its normal operation; G1's Q12)".into());
+    }
     let mut row = Row { seed, speed, fluid_scheduled, ..Default::default() };
     row.sensor_present = format!("{}", run.world.get(wc(WAKE_SENSOR))).contains("observer");
     if f.latch.is_some() && !row.sensor_present {
@@ -2646,7 +2656,9 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             if want_open != latch_window_open {
                 latch_window_open = want_open;
                 for c in lay.hatch_ctrl.clone() {
-                    set(&mut run.world, c, if want_open { "stone" } else { "redstone_block" });
+                    if !set(&mut run.world, c, if want_open { "stone" } else { "redstone_block" }) {
+                        row.problems.push(format!("t {t}: the latch's shutter edge at ({},{},{}) wrote nothing (G1's Q12)", c[0], c[1], c[2]));
+                    }
                 }
                 if want_open {
                     f_fired = true;
@@ -2669,7 +2681,9 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                     row.speed_at_release = Some((d.x * d.x + d.y * d.y + d.z * d.z).sqrt());
                 }
                 for &c in &lay.park_ctrl {
-                    set(&mut run.world, c, "redstone_block");
+                    if !set(&mut run.world, c, "redstone_block") {
+                        row.problems.push(format!("t {t}: the latch's release edge at ({},{},{}) wrote nothing (G1's Q12)", c[0], c[1], c[2]));
+                    }
                 }
                 row.release_at = Some(t);
                 row.latch_lines.push(format!("t {t}: the park released"));
@@ -2696,7 +2710,9 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             };
             let before = ray(&run.world);
             for c in lay.hatch_ctrl.clone() {
-                set(&mut run.world, c, "stone");
+                if !set(&mut run.world, c, "stone") {
+                    row.problems.push(format!("t {t}: F's edge at ({},{},{}) wrote nothing (G1's Q12)", c[0], c[1], c[2]));
+                }
             }
             let after = ray(&run.world);
             row.waker_lines.push(format!("t {t} (F): window closed: {before}; window open: {after}"));
@@ -2732,7 +2748,9 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
         }
         if abort_at == Some(t) {
             for &c in &lay.park_ctrl {
-                set(&mut run.world, c, "redstone_block");
+                if !set(&mut run.world, c, "redstone_block") {
+                    row.problems.push(format!("t {t}: the abort's release edge at ({},{},{}) wrote nothing (G1's Q12)", c[0], c[1], c[2]));
+                }
             }
             row.release_at = Some(t);
             row.stamp_at_release = vill.and_then(|v| idx(&run.world, v)).filter(|&vi| redsim::entity::mob::ai::brain::has_exact(&run.world, vi)).map(|vi| redsim::entity::mob::ai::brain::ex(&run.world, vi).mem.cant_reach_since.map(|c| run.world.time - c));
@@ -2743,7 +2761,9 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
         // stand-in; a real line through the wake sensor closes later, day-1 12:03))
         if f.latch.is_none() && (f.hide_after_wake || z1_design) && !hidden && row.woke_at.is_some_and(|wk| t >= wk + f.close_after.max(1)) {
             for c in lay.hatch_ctrl.clone() {
-                set(&mut run.world, c, "redstone_block");
+                if !set(&mut run.world, c, "redstone_block") {
+                    row.problems.push(format!("t {t}: the close's edge at ({},{},{}) wrote nothing (G1's Q12)", c[0], c[1], c[2]));
+                }
             }
             row.waker_lines.push(format!("t {t}: the window shut ({})", if z1_design { "Z1: F's line powers the shutter again on the wake edge, its normal operation" } else { "--hide-after-wake: the waker's controllers powered again" }));
             row.close_at = Some(t);
@@ -2778,7 +2798,9 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                 }
             }
             for &c in &lay.park_ctrl {
-                set(&mut run.world, c, "redstone_block");
+                if !set(&mut run.world, c, "redstone_block") {
+                    row.problems.push(format!("t {t}: the release edge at ({},{},{}) wrote nothing (G1's Q12)", c[0], c[1], c[2]));
+                }
             }
             row.release_at = Some(t);
             // (G1's note 1 on b36302af8, the pickup margin: the released cart set on the flat two
@@ -2843,7 +2865,9 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                 _ => t - t0 < wd,
             };
             if on != tap_on {
-                set(&mut run.world, TAP_CTRL, if on { "redstone_block" } else { "stone" });
+                if !set(&mut run.world, TAP_CTRL, if on { "redstone_block" } else { "stone" }) {
+                    row.problems.push(format!("t {t}: the tap's edge wrote nothing (G1's Q12)"));
+                }
                 tap_on = on;
                 row.tap_writes.push((t, on));
             }
