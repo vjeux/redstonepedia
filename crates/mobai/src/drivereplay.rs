@@ -879,6 +879,25 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
         Err(_) => (0.0, 0.0),
     };
     let (mut drop_clips, mut lip_rests) = (0usize, 0usize);
+    let (probes, probe_window): (Vec<([i32; 3], String)>, Option<(u32, u32)>) = match std::env::var("MCTAS_REPLAY_PROBE") {
+        Ok(s) => {
+            let (cells, win) = s.rsplit_once(':').ok_or_else(|| anyhow::anyhow!("MCTAS_REPLAY_PROBE=x,y,z|PRED;…:from-to, got {s}"))?;
+            let (a, b) = win.split_once('-').ok_or_else(|| anyhow::anyhow!("MCTAS_REPLAY_PROBE window from-to, got {win}"))?;
+            let v: Vec<([i32; 3], String)> = cells
+                .split(';')
+                .filter(|e| !e.trim().is_empty())
+                .map(|e| -> Result<([i32; 3], String)> {
+                    let (c, p) = e.split_once('|').ok_or_else(|| anyhow::anyhow!("MCTAS_REPLAY_PROBE entry x,y,z|PRED, got {e}"))?;
+                    Ok((cell3(c)?, p.trim().to_string()))
+                })
+                .collect::<Result<_>>()?;
+            (v, Some((a.trim().parse()?, b.trim().parse()?)))
+        }
+        Err(_) => (Vec::new(), None),
+    };
+    let mut probe_last: Vec<Option<bool>> = vec![None; probes.len()];
+    let mut probe_yes: Vec<u32> = vec![0; probes.len()];
+    let mut probe_rows: Vec<String> = Vec::new();
     let block_asserts: Vec<([i32; 3], String)> = match std::env::var("MCTAS_REPLAY_ASSERT") {
         Ok(s) => s
             .split(';')
@@ -1487,6 +1506,20 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
                 v.dawn.push(format!("t{t}: stamp {}", v.stamp.map(|s| format!("age {}", now - s)).unwrap_or_else(|| "none".into())));
             }
         }
+        // (ironspec 10:52: the presence string in the scene) MCTAS_REPLAY_PROBE="x,y,z|PREDICATE;…:from-to":
+        // each block predicate tested after every tick in the window; its transitions printed
+        if let Some((pa, pb)) = probe_window
+            && (pa..=pb).contains(&t)
+        {
+            for (k, (c, pred)) in probes.iter().enumerate() {
+                let ok = crate::strict::test(&mut srv, &format!("execute if block {} {} {} {pred}", c[0], c[1] + DY, c[2]))?;
+                if probe_last[k] != Some(ok) {
+                    probe_rows.push(format!("t{t}: ({},{},{}) {pred}: {}", c[0], c[1], c[2], if ok { "YES" } else { "no" }));
+                    probe_last[k] = Some(ok);
+                }
+                probe_yes[k] += u32::from(ok);
+            }
+        }
         // (ironspec 09:42 (R1)) FARM-STOP: at night a villager (not gone) that comes within 3.0 of the bed
         // head's centre starts a stop visit; it must hold HOME on arrival and lie down (its LAST_SLEPT
         // set) within the 900-gt follow window, or before it leaves past 4.0. (G1 on L) each visit
@@ -1657,6 +1690,15 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
             v.home_set,
             v.least_occupied.map(|(d, t)| format!("{d:.2} (t{t})")).unwrap_or_else(|| "- (never occupied at a read)".into())
         );
+    }
+    if let Some((a, b)) = probe_window {
+        println!("  block probes t{a}..t{b} (each predicate after every tick; transitions):");
+        for (k, (c, pred)) in probes.iter().enumerate() {
+            println!("    ({},{},{}) {pred}: held on {} tick(s)", c[0], c[1], c[2], probe_yes[k]);
+        }
+        for r in &probe_rows {
+            println!("    {r}");
+        }
     }
     if let Some((a, b)) = move_window {
         println!(

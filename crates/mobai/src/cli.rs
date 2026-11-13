@@ -623,6 +623,26 @@ pub enum MobaiCmd {
         #[arg(long, default_value = "")]
         loads: String,
     },
+    /// (tickexact 2026-11-13, ironspec 10:52) the presence-string row: a tripwire string two blocks above
+    /// a resting rail (the y-26 form over R), (A) a cart with a seated villager resting under it, (B)
+    /// an empty cart under its own string; the strings per tick, a world open, the departure
+    PresenceString {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        #[arg(long, default_value_t = 300)]
+        ticks: u32,
+        #[arg(long, default_value_t = 100)]
+        open_at: u32,
+        #[arg(long, default_value_t = 200)]
+        depart_at: u32,
+        /// The string's height above R (2 = the y-26 form over R at y 24)
+        #[arg(long, default_value_t = 2)]
+        rise: i32,
+        /// The design's R (an unpowered powered rail ascending south on slime, the napper rolled in
+        /// from F or placed at its measured rests) instead of a flat R
+        #[arg(long)]
+        slope: bool,
+    },
     /// (tickexact 2026-11-13, G1 10:36) the drop-entry envelope from drive-replay outputs with `+move`
     /// rows (MCTAS_REPLAY_MOVE over the drop region, unclipped): per lane (x0 = -1 / 3 / 7), every
     /// cart pass through the drop with its off-rail ticks on C's support's top (box at y 24.000) and its
@@ -1936,6 +1956,13 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
                 .collect::<anyhow::Result<_>>()?;
             let h = f3(&home, "--home")?;
             crate::reclaim::bed_reclaim(&version, &file, &rm, f3(&day_pos, "--day-pos")?, [h[0] as i32, h[1] as i32, h[2] as i32], f3(&arm_at, "--arm-at")?, runs, after, expect, within, asleep)
+        }
+        MobaiCmd::PresenceString { version, ticks, open_at, depart_at, rise, slope } => {
+            if slope {
+                crate::presencestring::presence_slope(&version, ticks, open_at, depart_at)
+            } else {
+                crate::presencestring::presence_string_at(&version, ticks, open_at, depart_at, rise)
+            }
         }
         MobaiCmd::DropEnvelope { files } => crate::drivereplay::drop_envelope(&files),
         MobaiCmd::ShiftScene { scene, drive, by, scene_out, drive_out } => {
