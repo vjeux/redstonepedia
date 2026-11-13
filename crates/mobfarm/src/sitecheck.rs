@@ -1867,7 +1867,7 @@ pub fn natural_mobs_hits(p: &Placed, extra: &[(Body, BlockPos)]) -> (Verdict, Ve
     // ironspec 12:54)
     let light_errors = p.w.take_light_errors();
     if !light_errors.is_empty() {
-        lines.push((false, format!("light: {} read(s) failed in the floods' spawn rules: {}", light_errors.len(), light_errors.join("; "))));
+        lines.push((false, format!("light: {} read(s) failed in the floods' spawn rules (pending since the world's last tick or take: some may predate these floods): {}", light_errors.len(), light_errors.join("; "))));
     }
     let posts: Vec<Aabb> = p.zombies.iter().flat_map(|z| z.boxes()).collect();
     // (golems and the AFK player are targets too: a trap's skeletons, and every skeleton and
