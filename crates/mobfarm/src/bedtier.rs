@@ -861,7 +861,7 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
         "a6-pickup: -2,0,4=the pickup cell (the napper's only stand-up cell); stranded bound: no cart at it by the wake edge + 60 gt fails (to restate from these rows)".to_string(),
     ];
     if exit_south {
-        lines.push("contacts: -2,0,5=PENDING ironspec's ruling: as P's curve ends the cart overshoots to x -1.51 and its box's west face meets the bed head's base ((-3,0,4), its 0.1875..0.5625 slab) flush (depth <= 0.01); that tick's x velocity is zeroed (the straight's speed 0.109 for the curve's 0.122 on the row traced), no cart stalls".to_string());
+        lines.push("contacts: -2,0,5=the curve-to-straight handoff beside the bed head (-3,0,4): flush, depth <= 0.01, x velocity zeroed, 0.122 -> 0.109 b/t (58f770cc's rows; ironspec Nov 13 07:03)".to_string());
     }
     let refs: Vec<&str> = lines.iter().map(|s| s.as_str()).collect();
     Ok(b.text(&refs))
@@ -1031,6 +1031,13 @@ pub struct Row {
     pub waker_lines: Vec<String>,
     pub waker_stamp: Option<i64>,
     pub waker_cleared: Option<i64>,
+    /// (ironspec 07:03) The declared contacts' per-tick lines (tick, depth, speed before / after),
+    /// their tick count this visit (bound: one) and the least speed right after one.
+    pub declared_contact_lines: Vec<String>,
+    pub declared_contact_ticks: usize,
+    pub post_contact_speed: Option<f64>,
+    /// The first tick the cart is in the exit booster's cell ((A) --exit-south: (-1,0,6)).
+    pub booster_at: Option<i64>,
     /// (a skip row) The skip's tick, the cells the napper waited in awake before its next nap, the
     /// day time of that nap, its CANT_REACH stamp's age at the first REST tick after the skip (None
     /// inside: no stamp), and its LAST_SLEPT (game time) at the end.
@@ -1857,6 +1864,8 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
     let mut last_cart = [0f64; 3];
     // (the waker's consequence trace: the last printed walk target / path / stamp)
     let mut waker_last = String::new();
+    // (the cart's horizontal speed on the previous tick: a declared contact's "before")
+    let mut prev_cart_speed = 0f64;
     let mut still = 0;
     let mut crossed: Vec<[i32; 3]> = Vec::new();
     let mut hidden = false;
@@ -2271,6 +2280,10 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             break;
         };
         let c = &w.entities.list[ci];
+        // (ironspec 07:03 (3): the exit booster reached ((A) with --exit-south: (-1,0,6)))
+        if c.block_position() == BlockPos::new(-1, 0, 6) && row.booster_at.is_none() {
+            row.booster_at = Some(t);
+        }
         // (ironspec 21:25: the cart's contacts with blocks, per tick; a vertical one counts only off
         // a rail (on a rail the cart rides its own track))
         {
@@ -2289,6 +2302,39 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                     row.problems.push(format!("t {t}: the cart's {k} contact with a block at ({:.2},{:.2},{:.2}) (cell {},{},{}), not declared in the design's `# contacts:` (ironspec 21:25)", c.pos.x, c.pos.y, c.pos.z, bp.x, bp.y, bp.z));
                 }
                 row.contacts.push((t, [c.pos.x, c.pos.y, c.pos.z], k));
+                // (ironspec 07:03 (2): a DECLARED contact printed per visit: its tick, its depth (the
+                // cart's box against each block box of the 3 x 3 x 2 cells round it: the largest
+                // overlap, 0 = flush), the speed before and after; G1's bound: depth <= 0.01 and one
+                // tick per visit, deeper or longer fails)
+                if f.declared_contacts.contains(&[bp.x, bp.y, bp.z]) {
+                    let mut depth = f64::NEG_INFINITY;
+                    for dx in -1..=1 {
+                        for dz in -1..=1 {
+                            for dy in 0..=1 {
+                                let q = BlockPos::new(bp.x + dx, bp.y + dy, bp.z + dz);
+                                let qb = w.get(q);
+                                for bx in redsim::entity::collide::boxes_at(w, &qb, q) {
+                                    let ox = c.bb.max.x.min(bx.max.x) - c.bb.min.x.max(bx.min.x);
+                                    let oy = c.bb.max.y.min(bx.max.y) - c.bb.min.y.max(bx.min.y);
+                                    let oz = c.bb.max.z.min(bx.max.z) - c.bb.min.z.max(bx.min.z);
+                                    if oy > 0.0 {
+                                        depth = depth.max(ox.min(oz));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    let after = c.delta_movement.x.hypot(c.delta_movement.z);
+                    row.declared_contact_lines.push(format!("t {t}: the declared contact at cell ({},{},{}): the cart at ({:.3},{:.3},{:.3}), depth {:.4} (0 = flush; negative = a gap), speed {prev_cart_speed:.3} -> {after:.3}", bp.x, bp.y, bp.z, c.pos.x, c.pos.y, c.pos.z, depth));
+                    row.declared_contact_ticks += 1;
+                    row.post_contact_speed = Some(row.post_contact_speed.map_or(after, |s: f64| s.min(after)));
+                    if depth > 0.01 {
+                        row.problems.push(format!("t {t}: the declared contact at ({},{},{}) {depth:.4} deep (bound 0.01)", bp.x, bp.y, bp.z));
+                    }
+                    if row.declared_contact_ticks == 2 {
+                        row.problems.push(format!("t {t}: the declared contact at ({},{},{}) on a second tick this visit (bound: one)", bp.x, bp.y, bp.z));
+                    }
+                }
             }
         }
         let vi = vill.and_then(|id| idx(w, id));
@@ -2621,6 +2667,10 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             shift_pending = f.park_shift;
         }
         last_cart = cp;
+        if let Some(ci) = idx(w, cart_id) {
+            let d = w.entities.list[ci].delta_movement;
+            prev_cart_speed = d.x.hypot(d.z);
+        }
         // (ironspec 17:35 (a): the released cart in the pickup cell before the napper's wake)
         if row.release_at.is_some()
             && row.woke_at.is_none()
@@ -3515,6 +3565,10 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
     // (ironspec 06:40 (2): the waker's consequence: wakes judged, stamps seen after the wake, and
     // those not cleared by the visit's watch end (the pickup + 40))
     let (mut waker_wakes, mut waker_stamps, mut waker_uncleared) = (0usize, 0usize, 0usize);
+    let mut post_contact_min: std::collections::BTreeMap<String, f64> = std::collections::BTreeMap::new();
+    let (mut picked_up, mut missed_booster) = (0usize, 0usize);
+    // ((A) --exit-south: its exit booster at (-1,0,6); every picked-up cart must reach it)
+    let exit_booster = spec.blocks.iter().any(|(p, b)| p.x == -1 && p.y == 0 && p.z == 6 && matches!(b, Block::Rail { activator: false, .. }));
     // (after a restart, the woken napper's paths off the pickup cell: visits with each direction)
     let mut dirs: std::collections::BTreeMap<&'static str, usize> = std::collections::BTreeMap::new();
     let mut dirs_wake: std::collections::BTreeMap<&'static str, usize> = std::collections::BTreeMap::new();
@@ -3562,6 +3616,16 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
                                 waker_wakes += 1;
                                 waker_stamps += r.waker_stamp.is_some() as usize;
                                 waker_uncleared += (r.waker_stamp.is_some() && r.waker_cleared.is_none()) as usize;
+                            }
+                            // (ironspec 07:03 (3): the declared contact's least post-contact speed per
+                            // entry, and every cart at the exit booster)
+                            if let Some(s) = r.post_contact_speed {
+                                let e = post_contact_min.entry(format!("{v:.3}")).or_insert(f64::MAX);
+                                *e = e.min(s);
+                            }
+                            if r.pickup.is_some() {
+                                picked_up += 1;
+                                missed_booster += r.booster_at.is_none() as usize;
                             }
                         }
                         for d in &r.paths_after_restart {
@@ -3819,6 +3883,9 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
                             for m in &r.waker_lines {
                                 println!("  waker {m}");
                             }
+                            for m in &r.declared_contact_lines {
+                                println!("  contact {m}");
+                            }
                         }
                         if r.problems.is_empty() {
                             ok += 1;
@@ -4031,6 +4098,12 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
         failed.push(format!("the farm-stop bar: {stop_bar} visits ended without a lie-down or without HOME (bar 0)"));
     }
     println!("the waker's consequence (ironspec 06:40 (2); the per-visit `waker` lines with one row): {waker_wakes} wakes judged{}; a CANT_REACH stamp present after the wake in {waker_stamps}; not cleared by the pickup + 40 gt in {waker_uncleared} (the at-entry bar judges a stamp the napper rides on with)", if waker_wakes == 0 { " (NOT JUDGED)" } else { "" });
+    if exit_booster {
+        println!("the declared contact (ironspec 07:03 (3)): the least speed right after it, per entry speed {post_contact_min:?}; picked-up carts {picked_up}, of them never at the exit booster (-1,0,6): {missed_booster}");
+        if missed_booster > 0 {
+            failed.push(format!("{missed_booster} picked-up carts never reached the exit booster (-1,0,6) (ironspec 07:03 (3))"));
+        }
+    }
     if sk.pickup_unwoken > 0 {
         failed.push("pickups before the wake or off the bed while asleep".into());
     }
