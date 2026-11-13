@@ -146,6 +146,10 @@ pub struct Opts {
     pub c7_port_home: Vec<String>,
     /// (G1 10:47 O12) the `no-home`-tagged villagers in the design (a design run with one FAILS).
     pub no_home_tagged: usize,
+    /// (G1 11:19 F4 (c)) a lane-7 napper's cart sent past a switched K(3).
+    pub k_misroute_control: bool,
+    /// (G1 11:19 F4 (c)) a westbound cart released on the split row.
+    pub westbound_control: bool,
     /// (ironspec 11:15, 9fc3155f's statics) S-bend seats whose stamp resets are counted: `NAME`,
     /// the seat's rail cell, its clearing candidates (a complete draw to one of them while a rider
     /// sits on the seat resets its stamp).
@@ -3117,6 +3121,11 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     // (G1 X19's control) the riders with an over-1,000 HOME-target set, and the control's rider
     let mut at_entry_over_ids: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
     let mut at_entry_rider: Option<u32> = None;
+    // (G1 10:47 O3) the at-entry control's act (tick, the stamp's age before) and its rider's next
+    // judged set (tick, age); each rider's judged HOME-target sets
+    let mut at_entry_before: Option<(i64, Option<i64>)> = None;
+    let mut at_entry_next: Option<(i64, i64)> = None;
+    let mut judged_sets: BTreeMap<u32, i64> = BTreeMap::new();
     // (ironspec D2) every napper's R: (id, tick)
     let mut at_r_log: Vec<(u32, i64)> = Vec::new();
     // (ironspec 06:31 real) the farm-stop bar: ticks a napper without HOME stood at the bed stop
@@ -3153,6 +3162,10 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     // (G1 10:34) the siding trace's rows
     let mut siding_rows: Vec<String> = Vec::new();
     let mut late_rider: Option<u32> = None;
+    // (G1 10:47 O4) the late-return hold's lane and phase (0: waiting for a window, 1: a window open,
+    // 2: let go after it closed)
+    let mut late_lane: Option<usize> = None;
+    let mut late_phase: u8 = 0;
     // (G1 X35) the riders in the lift column at the hold's start
     let mut lift_stack_at_hold: Vec<u32> = Vec::new();
     // (cc767b78) the traced entity's per-tick rows
@@ -3177,6 +3190,10 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     let mut h_rests: Vec<([i32; 3], i64, i64, u32)> = Vec::new();
     // (ironspec 10:51 (f)) the siding plant's cart and tick
     let mut siding_plant: Option<(u32, i64)> = None;
+    // (G1 11:19 F4 (c)) the K-misroute control's act (tick, cart, K(3)'s lever before) and the
+    // westbound control's (tick, cart)
+    let mut kmis: Option<(i64, u32, String)> = None;
+    let mut westbound: Option<(i64, u32)> = None;
     // (ironspec 10:51 (f)) every batch cart seen on a siding cell (the plant control's own sample)
     let mut siding_batch_ids: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
     // (ironspec 09:44 / 09:48, G1 09:45) every plain-rail T at t0 (3+ rail neighbours) and its shape,
@@ -3226,6 +3243,11 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     // (ironspec 11:09 (1): how a lane reaches a 9th cart) the conservation ledger per lane: every cart
     // entering its queue (dropped in from the lip) and leaving its pocket P, (tick, cart, +1 / -1, what)
     let mut ledger: [Vec<(i64, u32, i64, String)>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+    // (onechunk 11:16) every napper's cart dropping into a lane not its own, with its split turns
+    let mut napper_wrong_lane: Vec<String> = Vec::new();
+    // (ironspec 11:23, R4) the westbound carts on the split row: the open episodes and each one's row
+    let mut westbound_open: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+    let mut westbound_rows: Vec<String> = Vec::new();
     let mut c_deflections: [Vec<String>; 3] = [Vec::new(), Vec::new(), Vec::new()];
     let mut lip_rests = [0i64; 3];
     // (ironspec 09:21-09:25 platform) every mob-on-cart push: tick, cart, its lane at t0, the pusher's
@@ -3528,6 +3550,38 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         // ridden cart reaching a siding's last cell before its R, (sx,25,8), after t 1,000 is held
         // there 130 gt (more than a D period and its 30-gt release window): it must miss that release,
         // wait on R under the built latch, leave at the lane's next D press and pass the unrouted bar
+        // (G1 11:19 F4 (c), the napper path's forced positives) --k-misroute-control: the first lane-7
+        // napper's cart reaching (0,25,9) eastbound after t 1,000 finds K(3)'s lever (1,26,9) switched
+        // on for 20 gt; --westbound-control: the first ridden cart on (2,25,9) eastbound after t 1,000
+        // has its motion reversed (a westbound cart on the split row). With F4 both leave every lane
+        // count unchanged.
+        if o.k_misroute_control && kmis.is_none() && rel >= 1_000 {
+            let w = &mut run.world;
+            let hit = w.entities.list.iter().find(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && cell(e.pos) == [0, 25, 9] && e.delta_movement.x > 0.0 && e.passengers.first().is_some_and(|r| nappers.iter().any(|(v, nk, _)| v == r && *nk == 2))).map(|e| e.id);
+            if let Some(id) = hit {
+                let s0 = w.get(redsim::pos::BlockPos::new(1, 26, 9)).to_string();
+                if s0.contains("lever") {
+                    set(w, [1, 26, 9], &s0.replace("powered=false", "powered=true"), redsim::world::flags::ALL)?;
+                    controls_done.push(format!("the K-misroute control at t {rel}: lane 7's napper cart #{id} at (0,25,9) eastbound; K(3)'s lever (1,26,9) switched on for 20 gt (was {s0})"));
+                    kmis = Some((rel, id, s0));
+                }
+            }
+        }
+        if let Some((t, _, s0)) = kmis.as_ref()
+            && rel == t + 20
+        {
+            set(&mut run.world, [1, 26, 9], s0, redsim::world::flags::ALL)?;
+        }
+        if o.westbound_control && westbound.is_none() && rel >= 1_000 {
+            let w = &mut run.world;
+            if let Some(i) = w.entities.list.iter().position(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && cell(e.pos) == [2, 25, 9] && e.delta_movement.x > 0.05 && !e.passengers.is_empty()) {
+                let d = w.entities.list[i].delta_movement;
+                w.entities.list[i].delta_movement = redsim::entity::Vec3::new(-d.x, d.y, d.z);
+                let id = w.entities.list[i].id;
+                westbound = Some((rel, id));
+                controls_done.push(format!("the westbound control at t {rel}: cart #{id} on (2,25,9) reversed to {:.3} b/t west", d.x));
+            }
+        }
         // (G1 10:34, the forced-lip row) --lip-hold N: the first cart reaching a lane's drop cell
         // (x,24,6) after t 1,000 is held there N gt (its position pinned, its motion zeroed), then let go
         // (ironspec 10:51 (f)) --siding-plant-control: at t 1,000 a ridden lane cart whose rider isn't a
@@ -3562,21 +3616,34 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             }
         }
         if o.late_return_control {
+            // (G1 10:47 O4: deterministic, not by phase chance; no uncited length) the napper's cart is
+            // held at its siding's last cell before R until a release window of its lane has OPENED
+            // AND CLOSED since the hold began (it misses exactly that release), then let go
             let w = &mut run.world;
             if late_hold.is_none() && rel >= 1_000 {
-                if let Some(e) = w.entities.list.iter().find(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && !e.passengers.is_empty() && LANES.iter().any(|x| cell(e.pos) == [x - 2, 25, 8])) {
+                if let Some(e) = w.entities.list.iter().find(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && e.passengers.first().is_some_and(|r| nappers.iter().any(|(v, _, _)| v == r)) && LANES.iter().any(|x| cell(e.pos) == [x - 2, 25, 8])) {
                     late_hold = Some((e.id, rel, [e.pos.x, e.pos.y, e.pos.z]));
-                    let lane = LANES.iter().find(|x| cell(e.pos)[0] == **x - 2).copied().unwrap_or(0);
+                    late_lane = LANES.iter().position(|x| cell(e.pos)[0] == *x - 2);
                     late_rider = e.passengers.first().copied();
-                    controls_done.push(format!("the late-return control at t {rel}: cart #{} (lane x {lane}) held 130 gt at its siding's last cell before R", e.id));
+                    late_phase = 0;
+                    controls_done.push(format!("the late-return control at t {rel}: napper cart #{} (lane x {}) held at its siding's last cell before R until one of its lane's release windows opens and closes", e.id, late_lane.map_or(0, |k| LANES[k])));
                 }
             }
-            if let Some((cart, t, p)) = late_hold
-                && rel < t + 130
+            if let (Some((cart, _, p)), Some(k)) = (late_hold, late_lane)
+                && late_phase < 2
                 && let Some(ci) = redsim::entity::index_of(w, cart)
             {
-                w.entities.set_pos(ci, redsim::entity::Vec3::new(p[0], p[1], p[2]));
-                w.entities.list[ci].delta_movement = redsim::entity::Vec3::ZERO;
+                let open = ctl.siding_on[k].is_some() || ctl.siding_off[k].is_some();
+                if late_phase == 0 && open {
+                    late_phase = 1;
+                } else if late_phase == 1 && !open {
+                    late_phase = 2;
+                    controls_done.push(format!("the late-return control at t {rel}: lane x {}'s release window closed: the napper cart let go", LANES[k]));
+                }
+                if late_phase < 2 {
+                    w.entities.set_pos(ci, redsim::entity::Vec3::new(p[0], p[1], p[2]));
+                    w.entities.list[ci].delta_movement = redsim::entity::Vec3::ZERO;
+                }
             }
         }
         // (ironspec 06:38 platform, 7b90c3f1's r4 bench: the lift exit blocked) an empty cart held
@@ -3731,6 +3798,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             remap_keys!("the off-rail rests' first-tick prints", off_rest_snap);
             remap_keys!("the H rests open", h_open);
             remap_vec!("the siding's batch carts", siding_batch_ids);
+            remap_vec!("the westbound episodes open", westbound_open);
             if let Some((c, t)) = siding_plant {
                 let n = fol(c)?;
                 open_log.push(pairs("the siding plant's cart", &[c], &[n]));
@@ -5154,17 +5222,26 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                                 at_home_target_over += 1;
                                 at_entry_over_ids.insert(id);
                             }
+                            // (G1 10:47 O3) the at-entry control's rider's next judged set after the aging
+                            if at_entry_rider == Some(id) && at_entry_next.is_none() {
+                                at_entry_next = Some((now - t0, a));
+                            }
                         }
                         at_home_target_n += 1;
+                        *judged_sets.entry(id).or_default() += 1;
                     }
-                    // (G1 X19's control) --at-entry-control: the first lane rider (not a napper,
-                    // riding) in REST after t 1,000 gets its stamp aged to 1,100 gt before its next
-                    // HOME-target set; the at-entry bar must fail on that rider alone
-                    if o.at_entry_control && at_entry_rider.is_none() && now - t0 >= 1_000 && riding && !nappers.iter().any(|n| n.0 == id) && !target_home {
+                    // (G1 X19's control; G1 10:47 O3) --at-entry-control: the first lane rider (not a
+                    // napper, riding) in REST after t 1,000 that has had a judged HOME-target set gets
+                    // its stamp aged to 1,100 gt (under the release branch's 1,200, so no release
+                    // follows) before its next set; its before stamp printed; the at-entry bar must fail
+                    // on that rider alone
+                    if o.at_entry_control && at_entry_rider.is_none() && now - t0 >= 1_000 && riding && !nappers.iter().any(|n| n.0 == id) && !target_home && judged_sets.get(&id).is_some_and(|n| *n >= 1) {
                         if let Some(ex) = redsim::entity::mob::ai::brain::brain_mut(w, i).ex.as_deref_mut() {
+                            let before = ex.mem.cant_reach_since;
                             ex.mem.cant_reach_since = Some(now - 1_100);
                             at_entry_rider = Some(id);
-                            controls_done.push(format!("the at-entry control at t {}: {who}'s stamp aged to 1,100 gt in REST (the at-entry bar must catch its next HOME-target set)", now - t0));
+                            at_entry_before = Some((now - t0, before.map(|s| now - s)));
+                            controls_done.push(format!("the at-entry control at t {}: {who}'s stamp aged from {} to 1,100 gt in REST (under 1,200: no release; the at-entry bar must catch its next HOME-target set)", now - t0, before.map_or("unarmed".to_string(), |s| format!("{} gt", now - s))));
                         }
                     }
                     if stamp.is_some() && r.prev_stamp.is_none() {
@@ -6058,11 +6135,27 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             // (ironspec 10:29 (3): the denominator) a drop pass: the drop cell (x,24,6) into the column
             // (x,23,6); a C deflection: C (x,24,7) west into c3 (x-1,24,7) by any cart but a napper's
             if let Some(p) = c_prev_cell.get(&e.id).copied() {
+                // (ironspec 11:23 / G1 11:19 F4 (b), R4) a westbound cart on the split row (x,25,9):
+                // each episode's first tick, bar 0
+                if c[1] == 25 && c[2] == 9 && e.delta_movement.x < -0.01 && !(p[1] == 25 && p[2] == 9 && westbound_open.contains(&e.id)) {
+                    westbound_open.insert(e.id);
+                    westbound_rows.push(format!("t {rel} cart #{} at ({},{},{}) moving west {:.3} b/t{}", e.id, c[0], c[1], c[2], e.delta_movement.x, e.passengers.first().map_or(" (empty)".to_string(), |r| if nappers.iter().any(|(v, _, _)| v == r) { format!(" (napper #{r})") } else { format!(" (batch #{r})") })));
+                } else if !(c[1] == 25 && c[2] == 9 && e.delta_movement.x < -0.01) {
+                    westbound_open.remove(&e.id);
+                }
                 for (k, x) in LANES.iter().enumerate() {
                     if p == [*x, 24, 6] && c == [*x, 23, 6] {
                         drop_passes[k] += 1;
                         // (ironspec 11:09 (1), the conservation ledger) a cart entering lane x's queue
                         ledger[k].push((rel, e.id, 1, "dropped in from the lip".to_string()));
+                        // (onechunk 11:16) a napper's cart dropping into a lane not its own: a misroute,
+                        // with its split turns
+                        if let Some(r) = e.passengers.first()
+                            && let Some((_, nk, _)) = nappers.iter().find(|(v, _, _)| v == r)
+                            && *nk != k
+                        {
+                            napper_wrong_lane.push(format!("t {rel}: napper #{r} of lane x {} (cart #{}) dropped into lane x {x}; its split turns: {}", LANES[*nk], e.id, split_turns(e.id, rel, &cart_entries, &t_changes, &t_shapes0, &lever_hist)));
+                        }
                     }
                     if p == [*x, 0, 0] && c != [*x, 0, 0] {
                         // (the ledger) a cart leaving lane x's pocket P (the station's exit)
@@ -6283,21 +6376,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                                 format!("{n} {}", if ids.is_empty() { "-".to_string() } else { ids.join("+") })
                             }).collect();
                             let count = slots.iter().map(|(_, sc)| w.entities.list.iter().filter(|f| !f.removed && matches!(f.kind, EntityKind::Minecart(_)) && cell(f.pos) == *sc).count()).sum::<usize>();
-                            let shape_at = |p: [i32; 3], t: i64| -> String { t_changes.iter().filter(|(ct, cp, _, _)| *cp == p && *ct <= t).last().map(|(_, _, _, to)| to.clone()).or_else(|| t_shapes0.get(&p).cloned()).unwrap_or_else(|| "not a T".to_string()) };
-                            let lever_at = |j: i32, t: i64| -> String { lever_hist.get(&j).and_then(|h| h.iter().filter(|(lt, _)| *lt <= t).last()).map_or("-".to_string(), |(_, on)| if *on { "on".to_string() } else { "off".to_string() }) };
-                            let junction = |id: u32| -> String {
-                                let Some(v) = cart_entries.get(&id) else { return "no cell history".to_string() };
-                                let turn = v.windows(2).filter(|p| p[0].1[1] == 25 && p[0].1[2] == 9 && (p[1].1[2] == 8 || p[1].1[1] == 24) && p[1].0 <= rel).last();
-                                match turn {
-                                    None => "no split turn seen".to_string(),
-                                    Some(p) => {
-                                        let (j, t) = (p[0].1[0], p[1].0);
-                                        let kind = if LANES.contains(&j) { format!("J({j})") } else if LANES.contains(&(j + 2)) { format!("K({})", j + 2) } else { format!("({j},25,9)") };
-                                        let prev = cart_entries.iter().filter(|(oid, _)| **oid != id).flat_map(|(_, ov)| ov.windows(2).filter(|q| q[0].1 == [j, 25, 9] && q[1].0 < t).map(|q| q[1].0).collect::<Vec<_>>()).max();
-                                        format!("{kind} at t {t} (the T {}, its lever {}; the cart through it before: {})", shape_at([j, 25, 9], t), lever_at(j, t), prev.map_or("none".to_string(), |pt| format!("{} gt earlier", t - pt)))
-                                    }
-                                }
-                            };
+                            let junction = |id: u32| -> String { split_turns(id, rel, &cart_entries, &t_changes, &t_shapes0, &lever_hist) };
                             let mine_c = c_arrivals[k].iter().rev().find(|a| a.3 == e.id).map(|a| format!("entered C at t {} from ({},{},{})", a.0, a.6[0], a.6[1], a.6[2]));
                             let last2: Vec<String> = c_arrivals[k].iter().rev().filter(|a| a.3 != e.id).take(2).map(|a| format!("{} at C t {} from ({},{},{}), split {}", ident(a.3), a.0, a.6[0], a.6[1], a.6[2], junction(a.3))).collect();
                             let last_h = h_rests.iter().filter(|r| r.0 == [x, 16, 0]).map(|r| r.1 + r.2).filter(|t| *t <= rel).max();
@@ -6306,7 +6385,20 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                             // the drop column below the lip, its rider pushing the lip cart)
                             let pushes: Vec<String> = push_hist.iter().filter(|p| p.2 == e.id).map(|(t, m, _, veh)| {
                                 let act = redsim::entity::index_of(w, *m).map_or("-".to_string(), |i| redsim::entity::mob::ai::brain::brain(w, i).ex.as_deref().map_or("-".to_string(), |a| format!("{:?}", a.active)));
-                                format!("t {t} by #{m} ({act}) {}", veh.map_or("on foot".to_string(), |(v, vc)| format!("riding cart #{v} at {}", vc.map_or("?".to_string(), |c| format!("({},{},{})", c[0], c[1], c[2])))))
+                                // (G1 11:18) the pusher's PANIC trigger now: its nearest hostile (id, kind,
+                                // distance) and its HURT_BY source
+                                let trigger = redsim::entity::index_of(w, *m).map_or("-".to_string(), |i| {
+                                    let b = redsim::entity::mob::ai::brain::brain(w, i);
+                                    let me_pos = w.entities.list[i].pos;
+                                    let host = b.nearest_hostile.and_then(|h| redsim::entity::index_of(w, h)).map_or("no nearest hostile".to_string(), |j| {
+                                        let hp = w.entities.list[j].pos;
+                                        let d = ((hp.x - me_pos.x).powi(2) + (hp.y - me_pos.y).powi(2) + (hp.z - me_pos.z).powi(2)).sqrt();
+                                        format!("nearest hostile #{} {:?} at {d:.2}", w.entities.list[j].id, w.entities.list[j].kind)
+                                    });
+                                    let hurt = b.ex.as_deref().and_then(|x| x.mem.hurt_by.as_ref()).map_or("no HURT_BY".to_string(), |(dmg, by)| format!("HURT_BY {dmg:?}{}", by.map_or(String::new(), |a| format!(" from #{a}"))));
+                                    format!("{host}; {hurt}")
+                                });
+                                format!("t {t} by #{m} ({act}; {trigger}) {}", veh.map_or("on foot".to_string(), |(v, vc)| format!("riding cart #{v} at {}", vc.map_or("?".to_string(), |c| format!("({},{},{})", c[0], c[1], c[2])))))
                             }).collect();
                             off_rest_snap.insert(e.id, format!(
                                 "[at its first tick: cart {} {me} at [{:.3},{:.3},{:.3}] in lane x {x}'s drop region ({}; split {}); the pushes on it in the last 40 gt: {}; the lane's carts {count}: {}; around it: {}; {leader}; the last two other C arrivals: {}; the lane's last bottom release (a cart leaving H) {}]",
@@ -6725,7 +6817,8 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     };
     let worst = recs.values().filter_map(|r| r.peak.filter(|p| !in_fall(p.2)).map(|p| p.0)).max().unwrap_or(0);
     let fall_peaks: Vec<String> = recs.values().filter_map(|r| r.peak.filter(|p| in_fall(p.2)).map(|p| format!("{} {} (t {} at {:?})", r.label.split(' ').next().unwrap_or(""), p.0, p.1, p.2))).collect();
-    let lost: usize = recs.values().filter(|r| r.home_lost.iter().any(|h| lost_at(h).is_none_or(|c| !in_fall(c)))).count();
+    // (G1 10:47 O6) the farm-stop control's planted erasure is its own sample, not a HOME loss
+    let lost: usize = recs.iter().filter(|(id, r)| Some(**id) != home_erased_id && r.home_lost.iter().any(|h| lost_at(h).is_none_or(|c| !in_fall(c)))).count();
     let fall_lost: Vec<String> = recs.values().flat_map(|r| r.home_lost.iter().filter(|h| lost_at(h).is_some_and(in_fall)).map(|h| format!("{} {h}", r.label.split(' ').next().unwrap_or("")))).collect();
     let over: i64 = recs.values().map(|r| r.over_1000).sum();
     let dusk_max = recs.values().filter_map(|r| r.dusk.flatten()).max();
@@ -7419,16 +7512,29 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 armings_night_n,
                 if armings_night.is_empty() { String::new() } else { format!(" ({})", armings_night.join("; ")) }
             ));
+            // (G1 10:47 O3) the at-entry control's own record on the stamp line: its rider, the stamp
+            // before and after the aging, and the next judged set's age
+            let at_entry_control_note = match (o.at_entry_control, at_entry_rider, at_entry_before) {
+                (true, Some(v), Some((t, before))) => format!(
+                    "; the at-entry control: #{v}'s stamp aged at t {t} from {} to 1,100 gt (no release: under 1,200); its next judged HOME-target set {}",
+                    before.map_or("unarmed".to_string(), |a| format!("{a} gt")),
+                    at_entry_next.map_or("never came: the control can't bite".to_string(), |(nt, a)| format!("at t {nt}, age {a} gt"))
+                ),
+                (true, _, _) => "; the at-entry control: no rider with a judged HOME-target set in REST after t 1,000 to age".to_string(),
+                _ => String::new(),
+            };
             // (ironspec 06:33 / 06:37 platform, G1) the at-entry stamp bar: the stamp at each REST
             // spell's first HOME-targeting tick
             s.push_str(&format!(
-                "  the at-entry stamp bar (ironspec 06:33 / 06:37 platform; G1 X19: at EVERY tick in REST that SetWalkTargetFromBlockMemory set WALK_TARGET to HOME (not HOME the tick before), not only a spell's first, the stamp < 1,000 gt, any position; ironspec 08:13: the age it saw, from the PRE-tick stamp; the site as the report's site line states): {} HOME-target sets judged, the worst {} gt, {} at >= 1,000 ({}); beside it (G1 08:22 / ironspec 08:23: a PASS stands only with both at 0): HOME losses by the release branch {}, HOME losses in all {}\n",
+                "  the at-entry stamp bar (ironspec 06:33 / 06:37 platform; G1 X19: at EVERY tick in REST that SetWalkTargetFromBlockMemory set WALK_TARGET to HOME (not HOME the tick before), not only a spell's first, the stamp < 1,000 gt, any position; ironspec 08:13: the age it saw, from the PRE-tick stamp; the site as the report's site line states): {} HOME-target sets judged, the worst {} gt, {} at >= 1,000 ({}); its PASS stands only with the next line's at 0 (G1 08:22 / ironspec 08:23; since G1 10:47 O2 the HOME losses print on their own line, so the at-entry control rewrites only this one){}\n  the HOME losses by mechanism (G1 X20 / 08:22, ironspec 08:23: the release branch and in all, both 0 for a PASS): the release branch {}, in all {} ({})\n",
                 at_home_target_n,
                 at_home_target_max,
                 at_home_target_over,
-                if at_home_target_n == 0 { "NOT JUDGED (no spell targeted HOME; redsim's REST-path gap is open: cc767b78): FAIL" } else if at_home_target_over == 0 && release_branches == 0 && home_lost_total == 0 { "PASS" } else { "FAIL" },
+                if at_home_target_n == 0 { "NOT JUDGED (no spell targeted HOME; redsim's REST-path gap is open: cc767b78): FAIL" } else if at_home_target_over == 0 { "PASS" } else { "FAIL" },
+                at_entry_control_note,
                 release_branches,
-                home_lost_total
+                home_lost_total,
+                if release_branches == 0 && home_lost_total == 0 { "PASS" } else { "FAIL" }
             ));
             // (ironspec D2) RS_ready's job: no R1 release before the previous napper passes R, read off
             // R's detector itself (a rise after the previous release, at least the latch's 8 gt
@@ -7724,8 +7830,8 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 let mut entry_r_max = 0i64;
                 for (v, k, t) in nappers.iter() {
                     let to = ctl.pick_carts.iter().filter(|(pt, _, pv, _)| pv == v && pt > t).map(|x| x.0).min().unwrap_or(i64::MAX);
-                    // (a late rejoin counts toward the threshold only inside two laps, the fail-safe's
-                    // range, so a stranded napper's own delay can't widen its threshold)
+                    // (information only since G1 10:47 O7: the measured late rejoins and entry -> R no
+                    // longer set the thresholds, so a judged napper's own delay can't widen its own)
                     if let (Some(r), Some(b)) = (msn(*v, "on its siding's R", *t, to), msn(*v, "back in its lane", *t, to))
                         && b - r <= 2 * lap[*k]
                     {
@@ -7735,11 +7841,19 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                         entry_r_max = entry_r_max.max(r - e);
                     }
                 }
-                let siding_thr: [i64; 3] = [0, 1, 2].map(|k| lap[k] + late_max + 100);
-                let stop_thr = entry_r_max + 100;
+                // (G1 10:47 blocking 7 / O7) the thresholds from the design and the controller, never
+                // from the judged nappers: on the siding, the lane's lap (its median D period x 8 carts)
+                // + one more D period and the release's 30-gt window (a napper missing its release
+                // leaves at the lane's next D press: the fail-safe) + 100 gt; at the stop, 58f770cc's
+                // accepted entry -> R band's top 161 gt (09:24 PT, the dense sweep 104 / 104) + the
+                // longest tap wait (no taps in this module) + 100 gt; a lane with no D period (no two
+                // D presses) is NOT JUDGED
+                let siding_thr: [i64; 3] = [0, 1, 2].map(|k| lap[k] + period[k] + 30 + 100);
+                let stop_thr = 161 + 100;
                 unrouted_derivation = format!(
-                    "the thresholds, derived: on the siding, lane x {} / {} / {}: the lap {} / {} / {} gt (the median D period {} / {} / {} gt x 8 carts) + the longest late rejoin {late_max} gt + 100 = {} / {} / {} gt; at the stop: the worst entry -> R {entry_r_max} gt + the longest tap wait 0 (no taps in this module) + 100 = {stop_thr} gt",
-                    LANES[0], LANES[1], LANES[2], lap[0], lap[1], lap[2], period[0], period[1], period[2], siding_thr[0], siding_thr[1], siding_thr[2]
+                    "the thresholds (G1 10:47 O7: from the design and the controller, not the judged nappers): on the siding, lane x {} / {} / {}: the lap {} / {} / {} gt (the median D period {} / {} / {} gt x 8 carts) + one D period + the 30-gt release window + 100 = {} / {} / {} gt; at the stop: 58f770cc's entry -> R band top 161 gt + no tap wait + 100 = {stop_thr} gt; measured, for information: the longest late rejoin {late_max} gt, the worst entry -> R {entry_r_max} gt{}",
+                    LANES[0], LANES[1], LANES[2], lap[0], lap[1], lap[2], period[0], period[1], period[2], siding_thr[0], siding_thr[1], siding_thr[2],
+                    if period.contains(&0) { format!("; NOT JUDGED on lane(s) {} (no D period): FAIL", (0..3).filter(|k| period[*k] == 0).map(|k| format!("x {}", LANES[k])).collect::<Vec<_>>().join(", ")) } else { String::new() }
                 );
                 for (v, k, t) in nappers.iter() {
                     let to = ctl.pick_carts.iter().filter(|(pt, _, pv, _)| pv == v && pt > t).map(|x| x.0).min().unwrap_or(i64::MAX);
@@ -7747,11 +7861,15 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     let rr = msn(*v, "at R", *t, to);
                     let sr = msn(*v, "on its siding's R", *t, to);
                     let back = msn(*v, "back in its lane", *t, to);
+                    // (G1 10:47 O7: a LATE R fails too, not only a missing one)
                     if let Some(e) = entry
-                        && rr.is_none()
+                        && rr.is_none_or(|r| r - e > stop_thr)
                         && end - e >= stop_thr
                     {
-                        unrouted_rows.push(format!("#{v} lane x {} picked t {t}: entered the stop at t {e}, no R within {stop_thr} gt", LANES[*k]));
+                        unrouted_rows.push(format!("#{v} lane x {} picked t {t}: entered the stop at t {e}, R {}", LANES[*k], rr.map_or(format!("none within {stop_thr} gt"), |r| format!("at t {r}, {} gt later (over {stop_thr})", r - e))));
+                    }
+                    if period[*k] == 0 {
+                        continue;
                     }
                     if let Some(r) = sr
                         && back.is_none_or(|b| b - r > siding_thr[*k])
@@ -8208,9 +8326,10 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         wn.map(|((g, a, b), l)| format!("{g} gt ({l}, t {a}..{b})")).unwrap_or("-".to_string())
     ));
     s.push_str(&format!(
-        "the bar: the largest stamp age at a calm REST tick with no walk target {worst} (<= 1,000: {}); calm REST ticks over 1,000: {over}; HOME lost by {lost} of {} villagers{}\n",
+        "the bar: the largest stamp age at a calm REST tick with no walk target {worst} (<= 1,000: {}); calm REST ticks over 1,000: {over}; HOME lost by {lost} of {} villagers{}{}\n",
         if worst <= 1000 { "PASS" } else { "FAIL" },
         recs.len(),
+        if home_erased_id.is_some() { " (the farm-stop control's planted erasure excluded: its own sample, G1 10:47 O6)" } else { "" },
         if lost == 0 { " (PASS)" } else { " (FAIL)" }
     ));
     if o.napper {
@@ -8270,11 +8389,19 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             r.home_lost.iter().map(|c| format!("; {c}")).collect::<String>()
         ));
     }
-    for l in log.iter().take(40) {
+    // (G1 blocking 8 / U11: nothing silently dropped) the run log and the controller's log, each cut
+    // at a stated length with the count of the lines not printed
+    for l in log.iter().take(200) {
         s.push_str(&format!("  {l}\n"));
+    }
+    if log.len() > 200 {
+        s.push_str(&format!("  ({} more run-log lines not printed)\n", log.len() - 200));
     }
     for l in ctl.log.iter().take(60) {
         s.push_str(&format!("  ctl {l}\n"));
+    }
+    if ctl.log.len() > 60 {
+        s.push_str(&format!("  ({} more controller-log lines not printed; the controller keeps its first 400)\n", ctl.log.len() - 60));
     }
     // (G1's blocker 2 on 185e9ac47, H2 / H19 / N1) each requested control asserts ITS OWN bar: a bar
     // the control must fail that fails is marked "expected FAIL" (so the exit reads every other
@@ -8368,6 +8495,16 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     if o.siding_plant_control {
         let own = siding_plant.is_some_and(|(id, _)| siding_batch_ids.len() == 1 && siding_batch_ids.contains(&id));
         late_controls.push(("--siding-plant-control".to_string(), "  the carts on a siding's cells", true, siding_plant.is_some(), own));
+    }
+    // (G1 11:19 F4 (c)) the napper path's forced positives: with F4 every lane count stays unchanged
+    // (HELD on the nappers' misroute bar and on the per-lane count); before F4 they show NOT HELD
+    if o.k_misroute_control {
+        late_controls.push(("--k-misroute-control".to_string(), "the nappers' carts dropping into a lane not their own", false, kmis.is_some(), true));
+        late_controls.push(("--k-misroute-control (the count)".to_string(), "the per-lane cart count", false, kmis.is_some(), true));
+    }
+    if o.westbound_control {
+        late_controls.push(("--westbound-control".to_string(), "the per-lane cart count", false, westbound.is_some(), true));
+        late_controls.push(("--westbound-control (the ledger)".to_string(), "the conservation ledger", false, westbound.is_some(), true));
     }
     if o.eject_control {
         let line = format!(
@@ -8580,6 +8717,19 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             ));
         }
         let s = format!("{s}the conservation ledger (ironspec 11:09 (1): per lane its t0 carts + the carts dropped into its queue - the carts leaving its pocket; a 9th FAILS, with the ten events before it): {}\n", out.join(" | "));
+        // (onechunk 11:16) the nappers' misroutes, bar 0
+        let s = format!(
+            "{s}the westbound carts on the split row (ironspec 11:23 / G1 11:19 F4 (b), R4: a cart on (x,25,9) moving west, each episode; bar 0): {} ({}){}\n",
+            westbound_rows.len(),
+            if westbound_rows.is_empty() { "PASS" } else { "FAIL" },
+            if westbound_rows.is_empty() { String::new() } else { format!(": {}", westbound_rows.iter().take(10).cloned().collect::<Vec<_>>().join("; ")) }
+        );
+        let s = format!(
+            "{s}the nappers' carts dropping into a lane not their own (onechunk 11:16: s3 / s8's 9th cart; bar 0): {} ({}){}\n",
+            napper_wrong_lane.len(),
+            if napper_wrong_lane.is_empty() { "PASS" } else { "FAIL" },
+            if napper_wrong_lane.is_empty() { String::new() } else { format!(": {}", napper_wrong_lane.iter().take(8).cloned().collect::<Vec<_>>().join(" || ")) }
+        );
         let q = |mut v: Vec<i64>| -> String {
             if v.is_empty() {
                 return "-".to_string();
@@ -8762,6 +8912,25 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 }
             }
             rides.sort();
+            // (day-1 11:12 / ironspec 11:15: the D-press spread, gating lane -1's first lever) each D
+            // press's phase in the 100-gt cycle (t mod 100), its min / median / max and the circular
+            // spread (100 minus the widest empty arc)
+            let mut ph: Vec<i64> = ts.iter().map(|t| t.rem_euclid(100)).collect();
+            ph.sort();
+            let spread = if ph.len() < 2 {
+                0
+            } else {
+                let widest = ph.windows(2).map(|p| p[1] - p[0]).chain(std::iter::once(ph[0] + 100 - ph[ph.len() - 1])).max().unwrap_or(100);
+                100 - widest
+            };
+            rows.push(format!(
+                "lane x {}: the D presses' phases (t mod 100; day-1 / ironspec 11:15, the D-press spread): {} presses, min {}, median {}, max {}, the circular spread {spread} gt",
+                LANES[k],
+                ph.len(),
+                ph.first().copied().unwrap_or(0),
+                ph.get(ph.len() / 2).copied().unwrap_or(0),
+                ph.last().copied().unwrap_or(0)
+            ));
             rows.push(format!(
                 "lane x {}: the lap {lap} gt ({} laps); {} pushes ({:.2} a lap, the most in one lap {per_lap_max}); |impulse| median {:.4}, max {:.4} b/t; by the pusher: {}; the worst stacked along-motion sum on one cart in one lap {worst_stack:+.4} b/t; the observed D-press gaps (median {period} gt): the worst deviation {dev_max} gt, {dev5} of {} gaps off by >= 5 gt; A6 R -> siding R rides: {}",
                 LANES[k],
@@ -8846,6 +9015,39 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
 /// otherwise NOT CAUGHT (a FAIL, the line kept as it is, so a natural failure beside the control
 /// still counts). A control that must leave its bar passing prints HELD, or NOT HELD (the bar's own
 /// FAIL stands). A control that never acted is NOT EXERCISED (a FAIL), whatever its bar says.
+/// (onechunk 11:16: s3 / s8's lane-7 napper turned into K(3)'s branch, bounced back and was caught
+/// by J(-1)) Every split-row turn of cart `id` in the 400 gt before `rel`: the junction (J(x) at
+/// (x,25,9) or K(x) at (x-2,25,9)), the tick, that T's shape then (t0's plus the changes before
+/// it), its lever (x,26,9)'s state then, the clearance to the cart through it before, and where the
+/// cart went next (back onto the row is a bounce).
+fn split_turns(
+    id: u32,
+    rel: i64,
+    cart_entries: &BTreeMap<u32, Vec<(i64, [i32; 3])>>,
+    t_changes: &[(i64, [i32; 3], String, String)],
+    t_shapes0: &BTreeMap<[i32; 3], String>,
+    lever_hist: &BTreeMap<i32, Vec<(i64, bool)>>,
+) -> String {
+    let Some(v) = cart_entries.get(&id) else { return "no cell history".to_string() };
+    let shape_at = |p: [i32; 3], t: i64| -> String { t_changes.iter().filter(|(ct, cp, _, _)| *cp == p && *ct <= t).last().map(|(_, _, _, to)| to.clone()).or_else(|| t_shapes0.get(&p).cloned()).unwrap_or_else(|| "not a T".to_string()) };
+    let lever_at = |j: i32, t: i64| -> String { lever_hist.get(&j).and_then(|h| h.iter().filter(|(lt, _)| *lt <= t).last()).map_or("-".to_string(), |(_, on)| if *on { "on".to_string() } else { "off".to_string() }) };
+    let turns: Vec<&[(i64, [i32; 3])]> = v.windows(2).filter(|p| p[0].1[1] == 25 && p[0].1[2] == 9 && (p[1].1[2] == 8 || p[1].1[1] == 24) && p[1].0 <= rel && rel - p[1].0 <= 400).collect();
+    if turns.is_empty() {
+        return "no split turn in the last 400 gt".to_string();
+    }
+    turns
+        .iter()
+        .map(|p| {
+            let (j, t) = (p[0].1[0], p[1].0);
+            let kind = if LANES.contains(&j) { format!("J({j})") } else if LANES.contains(&(j + 2)) { format!("K({})", j + 2) } else { format!("({j},25,9)") };
+            let prev = cart_entries.iter().filter(|(oid, _)| **oid != id).flat_map(|(_, ov)| ov.windows(2).filter(|q| q[0].1 == [j, 25, 9] && q[1].0 < t).map(|q| q[1].0).collect::<Vec<_>>()).max();
+            let next = v.iter().find(|(nt, _)| *nt > t).map_or("-".to_string(), |(nt, nc)| format!("({},{},{}) at t {nt}", nc[0], nc[1], nc[2]));
+            format!("{kind} at t {t} (the T {}, its lever {}; the cart through it before: {}; next {next})", shape_at([j, 25, 9], t), lever_at(j, t), prev.map_or("none".to_string(), |pt| format!("{} gt earlier", t - pt)))
+        })
+        .collect::<Vec<_>>()
+        .join(" then ")
+}
+
 pub fn judge_controls(rep: &str, controls: &[(String, &str, bool, bool, bool)]) -> String {
     if controls.is_empty() {
         return rep.to_string();
