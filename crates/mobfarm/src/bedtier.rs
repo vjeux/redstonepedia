@@ -2913,11 +2913,13 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             redsim::entity::mob::ai::brain::brain_mut(&mut run.world, vi).nearest_hostile = Some(z);
         }
         // (G1's Q2: the slope hold's tap on its built path: the stand-in input lever into DAY-1's
-        // repeater, on at T for W gt, again every PERIOD gt; each write through `set` (a lever pull))
+        // repeater, on for W gt at T and, with a PERIOD, at every T + k PERIOD (k of either sign:
+        // a free-running train at phase T, as the lanes' trains run); each write through `set`
+        // (a lever pull))
         if let Some((t0, wd, per)) = f.tap {
-            let on = t >= t0 && match per {
-                Some(p) if p > 0 => (t - t0) % p < wd,
-                _ => t - t0 < wd,
+            let on = match per {
+                Some(p) if p > 0 => (t - t0).rem_euclid(p) < wd,
+                _ => t >= t0 && t - t0 < wd,
             };
             if on != tap_on {
                 if !set(&mut run.world, TAP_CTRL, if on { "redstone_block" } else { "stone" }) {

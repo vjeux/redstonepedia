@@ -6512,7 +6512,8 @@ pub enum MobfarmCmd {
         #[arg(long, default_value_t = 1)]
         close_after: i64,
         /// (G1's Q2) The slope hold's tap on its built path: T,W[,PERIOD]: the stand-in input lever
-        /// (1,-2,3) into DAY-1's repeater (1,-2,4) on at tick T for W gt, again every PERIOD gt.
+        /// (1,-2,3) into DAY-1's repeater (1,-2,4) on for W gt at T, and with a PERIOD at every
+        /// T + k PERIOD (k of either sign: a free-running train at phase T).
         #[arg(long)]
         tap: Option<String>,
         /// (G1 12:38 / ironspec 12:38) DAY-1's guard-free latch on the real wake sensor's pulses,
