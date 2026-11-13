@@ -1022,6 +1022,11 @@ pub struct Row {
     pub healed_release: Option<i64>,
     /// The re-claim's tick after a release (the delay = this - home_lost_at).
     pub reclaimed_at: Option<i64>,
+    /// (ironspec 06:40 (2)) The waker's consequence from the wake to the pickup + 40: each change
+    /// of the walk target, path and stamp; the first stamp seen after the wake and when it cleared.
+    pub waker_lines: Vec<String>,
+    pub waker_stamp: Option<i64>,
+    pub waker_cleared: Option<i64>,
     /// (a skip row) The skip's tick, the cells the napper waited in awake before its next nap, the
     /// day time of that nap, its CANT_REACH stamp's age at the first REST tick after the skip (None
     /// inside: no stamp), and its LAST_SLEPT (game time) at the end.
@@ -1846,6 +1851,8 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
     let mut last_v_pos: Option<Vec3> = None;
     let mut stand_run = 0i64;
     let mut last_cart = [0f64; 3];
+    // (the waker's consequence trace: the last printed walk target / path / stamp)
+    let mut waker_last = String::new();
     let mut still = 0;
     let mut crossed: Vec<[i32; 3]> = Vec::new();
     let mut hidden = false;
@@ -2436,6 +2443,30 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             }
             if !asleep && !riding {
                 last_awake = Some(v.pos);
+            }
+            // (ironspec 06:40 (2), the waker's consequence judged directly: from the wake to the
+            // pickup + 40 gt, every change of the napper's walk target, path (complete or partial,
+            // its start node) and CANT_REACH stamp, printed per visit; the summary counts the
+            // stamps the waker's flee arms and whether each clears before the visit's end)
+            if row.woke_at.is_some()
+                && row.pickup.is_none_or(|(_, tp)| t <= tp + 40)
+                && redsim::entity::mob::ai::brain::has_exact(w, vi)
+            {
+                let m = &redsim::entity::mob::ai::brain::ex(w, vi).mem;
+                let wt = m.walk_target.as_ref().map(|x| format!("{:?}", x.target));
+                let pa = m.path.as_ref().map(|p| (p.reached, p.nodes.first().map(|n| (n.x, n.y, n.z)), p.nodes.last().map(|n| (n.x, n.y, n.z)), p.nodes.len()));
+                let st = m.cant_reach_since;
+                let key = format!("{wt:?}|{pa:?}|{st:?}");
+                if key != waker_last {
+                    row.waker_lines.push(format!("t {t}: walk target {}, path {}, stamp {}", wt.as_deref().unwrap_or("none"), pa.map_or("none".to_string(), |(r, s, e, n)| format!("{} ({n} nodes, start {s:?}, end {e:?})", if r { "COMPLETE" } else { "PARTIAL" })), st.map_or("none".to_string(), |s| format!("armed at t {}", s - (w.time - t)))));
+                    if st.is_some() && row.waker_stamp.is_none() {
+                        row.waker_stamp = Some(t);
+                    }
+                    waker_last = key;
+                }
+                if st.is_none() && row.waker_stamp.is_some() && row.waker_cleared.is_none() {
+                    row.waker_cleared = Some(t);
+                }
             }
             if asleep && row.slept_at.is_none() {
                 row.slept_at = Some(t);
@@ -3477,6 +3508,9 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
     // or without HOME; healed releases printed and priced)
     let (mut stop_bar, mut healed, mut stop_judged) = (0usize, 0usize, 0usize);
     let mut reclaim_delays: Vec<i64> = Vec::new();
+    // (ironspec 06:40 (2): the waker's consequence: wakes judged, stamps seen after the wake, and
+    // those not cleared by the visit's watch end (the pickup + 40))
+    let (mut waker_wakes, mut waker_stamps, mut waker_uncleared) = (0usize, 0usize, 0usize);
     // (after a restart, the woken napper's paths off the pickup cell: visits with each direction)
     let mut dirs: std::collections::BTreeMap<&'static str, usize> = std::collections::BTreeMap::new();
     let mut dirs_wake: std::collections::BTreeMap<&'static str, usize> = std::collections::BTreeMap::new();
@@ -3519,6 +3553,11 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
                             healed += r.healed_release.is_some() as usize;
                             if let (Some(a), Some(b)) = (r.home_lost_at, r.reclaimed_at) {
                                 reclaim_delays.push(b - a);
+                            }
+                            if r.woke_at.is_some() {
+                                waker_wakes += 1;
+                                waker_stamps += r.waker_stamp.is_some() as usize;
+                                waker_uncleared += (r.waker_stamp.is_some() && r.waker_cleared.is_none()) as usize;
                             }
                         }
                         for d in &r.paths_after_restart {
@@ -3773,6 +3812,9 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
                             for m in &r.pulses {
                                 println!("  pulse {m}");
                             }
+                            for m in &r.waker_lines {
+                                println!("  waker {m}");
+                            }
                         }
                         if r.problems.is_empty() {
                             ok += 1;
@@ -3984,6 +4026,7 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
     if stop_bar > 0 {
         failed.push(format!("the farm-stop bar: {stop_bar} visits ended without a lie-down or without HOME (bar 0)"));
     }
+    println!("the waker's consequence (ironspec 06:40 (2); the per-visit `waker` lines with one row): {waker_wakes} wakes judged{}; a CANT_REACH stamp present after the wake in {waker_stamps}; not cleared by the pickup + 40 gt in {waker_uncleared} (the at-entry bar judges a stamp the napper rides on with)", if waker_wakes == 0 { " (NOT JUDGED)" } else { "" });
     if sk.pickup_unwoken > 0 {
         failed.push("pickups before the wake or off the bed while asleep".into());
     }
