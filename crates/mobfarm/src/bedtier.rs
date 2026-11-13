@@ -2308,6 +2308,11 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             emulated_write_check(&run.world, BlockPos::new(c[0], c[1], c[2]), &block(&rep)?, &f.declared_emulated)?;
         }
         emulated_write_check(&run.world, BlockPos::new(driver[0], driver[1], driver[2]), &block(&lev)?, &f.declared_emulated)?;
+        // (G1's Q5: the glass under the release's cells through the same guard (its check was
+        // dropped in 2862457ae))
+        for c in cells.iter().chain([driver].iter()) {
+            emulated_write_check(&run.world, BlockPos::new(c[0], c[1] - 1, c[2]), &block("glass")?, &f.declared_emulated)?;
+        }
         for c in cells.iter().chain([driver].iter()) {
             run.world.set_block(BlockPos::new(c[0], c[1] - 1, c[2]), block("glass")?, redsim::world::flags::ALL);
         }
@@ -2413,6 +2418,8 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
     let (mut latch_seen, mut latch_slept, mut latch_once, mut latch_window_open) = (0usize, false, false, false);
     let (mut latch_open_at, mut latch_fall_at, mut release_due): (Option<i64>, Option<i64>, Option<i64>) = (None, None, None);
     let mut hurt_done = false;
+    // (G1's Q8: each planted fault's application, checked at the visit's end)
+    let (mut restart_done, mut erase_done, mut inject_done) = (false, false, false);
     let mut still = 0;
     let mut crossed: Vec<[i32; 3]> = Vec::new();
     let mut hidden = false;
@@ -2457,6 +2464,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             && t == at
         {
             crate::liveness::restart(&mut run.world, how)?;
+            restart_done = true;
             cart_id = crate::liveness::follow(&run.world, cart_id);
             vill = vill.map(|v| crate::liveness::follow(&run.world, v));
             zid = zid.map(|z| crate::liveness::follow(&run.world, z));
@@ -2786,6 +2794,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                 };
                 w.entities.list[i].pos = pos;
                 w.entities.list[i].delta_movement = vel;
+                inject_done = true;
             }
         }
         // (ironspec 20:31 (2): the parked cart moved along its rail by `park_shift` before the
@@ -2902,6 +2911,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                 return Err(format!("--erase-home-at {t}: the bed's ticket take changed nothing ({before:?} -> {after:?}): the positive can't block a re-claim"));
             }
             eprintln!("t {t}: the planted erasure: the napper's HOME erased, the bed's ticket taken by a declared stand-in claimant (free tickets {before:?} -> {after:?})");
+            erase_done = true;
         }
         let w = &run.world;
         // (ironspec 05:20, a bench rule: the world's day set before the summon (the visit's hour is
@@ -3610,6 +3620,40 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
     }
     // (the bed free for the next napper: its head not OCCUPIED at the visit's end)
     row.bed_occupied_at_end = format!("{}", run.world.get(wc(BED_HEAD))).contains("occupied=true");
+    // (G1's Q8: a planted fault or override that never applied fails the visit)
+    {
+        let mut unapplied: Vec<String> = Vec::new();
+        if f.restart.is_some() && !restart_done {
+            unapplied.push("--restart".into());
+        }
+        if f.skip.is_some() && row.skipped_at.is_none() {
+            unapplied.push("--skip".into());
+        }
+        if f.erase_home_at.is_some() && !erase_done {
+            unapplied.push("--erase-home-at".into());
+        }
+        if f.pickup_inject.is_some() && !inject_done {
+            unapplied.push("the pickup inject (no release)".into());
+        }
+        if f.park_shift.is_some() && row.park_moved.is_none() {
+            unapplied.push("the park shift (the cart never parked)".into());
+        }
+        if f.hurt_after_lie.is_some() && !hurt_done {
+            unapplied.push("--hurt-after-lie (no lie-down)".into());
+        }
+        if f.tap.is_some() && row.tap_writes.is_empty() {
+            unapplied.push("--tap (no write before the visit ended)".into());
+        }
+        if f.release_after_arm.is_some() && row.release_at.is_none() {
+            unapplied.push("--release-after-arm (no release)".into());
+        }
+        if row.pulses.len() < f.pulses.len() {
+            unapplied.push(format!("--pulse-cell ({} of {} applied)", row.pulses.len(), f.pulses.len()));
+        }
+        for u in unapplied {
+            row.problems.push(format!("the planted {u} never applied (G1's Q8)"));
+        }
+    }
     // (ironspec 10:40: the post-exit ride: the napper's HOME and its CANT_REACH stamp at calm REST
     // ticks for 1,500 gt after the exit, its cart run on to the run-out's stop; a stamp carried out
     // of the stop would drop HOME at its first calm REST tick past 1,200)
@@ -5424,15 +5468,21 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
             Some((k, n)) if n > 0 => {
                 let p_miss = (1.0 - k as f64 / n as f64).powi(tot as i32);
                 if p_miss < 0.001 {
-                    if !excluded("contacts-stale") {
-                        failed.push(format!("the declared contact {d:?} met by no visit of {tot} (rate {k}/{n}: a miss this long has probability {p_miss:.2e} < 0.001: STALE)"));
+                    // (G1's Q7: an exclusion waives only a 0-sample NOT JUDGED; a STALE verdict
+                    // rests on `tot` visits)
+                    if excluded("contacts-stale") {
+                        println!("--scope-excludes contacts-stale: EXCLUDED (n={tot}) but not waived: the STALE verdict rests on {tot} visits");
                     }
+                    failed.push(format!("the declared contact {d:?} met by no visit of {tot} (rate {k}/{n}: a miss this long has probability {p_miss:.2e} < 0.001: STALE)"));
                 } else {
                     println!("the declared contact {d:?}: stale not judged: {tot} visits too few for rate {k}/{n} (a miss this long has probability {p_miss:.3})");
                 }
             }
             _ => {
-                if tot > 0 && !excluded("contacts-stale") {
+                if tot > 0 {
+                    if excluded("contacts-stale") {
+                        println!("--scope-excludes contacts-stale: EXCLUDED (n={tot}) but not waived: the STALE verdict rests on {tot} visits");
+                    }
                     failed.push(format!("the declared contact {d:?} met by no visit (STALE, ironspec 07:47; it carries no rate=k/n)"));
                 }
             }
@@ -5464,7 +5514,11 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
     }
     // (ironspec 00:03 / 00:07 (3): no stand-still after the eject over 20 gt)
     println!("the stand-still after the eject (gt awake on foot, unmoved, from the dismount to the first lie-down or the pickup; bar 20): the longest {} gt; visits over 20: {}", sk.stand_max, sk.stand_over_20);
-    if sk.stand_over_20 > 0 && !excluded("stand") {
+    if sk.stand_over_20 > 0 {
+        // (G1's Q7: an exclusion waives only a 0-sample NOT JUDGED)
+        if excluded("stand") {
+            println!("--scope-excludes stand: EXCLUDED (n={tot}) but not waived: {} of {tot} visits stood over 20 gt", sk.stand_over_20);
+        }
         failed.push(format!("{} visits stood still over 20 gt after the eject", sk.stand_over_20));
     }
     if !base.head_cells.is_empty() {
