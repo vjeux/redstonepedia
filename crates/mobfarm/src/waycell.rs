@@ -2179,6 +2179,57 @@ pub(crate) fn record_left_empty(w: &redsim::world::World, label: &str) -> Result
     }
 }
 
+/// (G1 08:12; the refinement ruled by ironspec 11:46 / 11:48, G1 11:44) one tick's post-tick state as
+/// the visit rows' proxy reads it: a walk target held, the CANT_REACH stamp, the REST activity, and
+/// MoveToTargetSink running.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct ProxyObs {
+    pub wt: bool,
+    pub stamp: Option<i64>,
+    pub rest: bool,
+    pub sink_running: bool,
+}
+
+/// A proxy sample: a tick SetWalkTargetFromBlockMemory ran, as the post-tick states show it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum ProxySample {
+    /// A REST tick after a tick with no walk target: judged on the previous tick's stamp (its age at
+    /// this tick), none when it was clear.
+    AfterNoTarget(Option<i64>),
+    /// The erase signature (ironspec 11:46; traced 12:42): the walk target held at the previous tick's
+    /// end is gone at this tick's, the stamp went from set to clear in this tick, and MoveToTargetSink
+    /// was idle at BOTH ends: the brain's start pass ran its start check, which found the target
+    /// reached and erased both before SetWalkTargetFromBlockMemory's own start in the same pass;
+    /// judged on the stamp the run saw, none. (A sink RUNNING at the previous tick's end that stops
+    /// this tick erases the same memories in the later tick pass, after the start pass: the run comes
+    /// the next tick and the old rule samples it.)
+    EraseSignature,
+}
+
+/// The proxy's verdict for the tick at game time `t` (`prev`: the previous tick's post-tick state;
+/// `home_prev`: HOME held before this tick). The old rule (after no target) is checked first and
+/// unchanged; the erase signature only ADDS samples (G1 11:44 (3)).
+pub(crate) fn proxy_sample(prev: &ProxyObs, home_prev: bool, now: &ProxyObs, t: i64) -> Option<ProxySample> {
+    if !now.rest || !home_prev {
+        return None;
+    }
+    if !prev.wt {
+        return Some(ProxySample::AfterNoTarget(prev.stamp.map(|s| t - s)));
+    }
+    if prev.wt && !prev.sink_running && !now.wt && prev.stamp.is_some() && now.stamp.is_none() && !now.sink_running {
+        return Some(ProxySample::EraseSignature);
+    }
+    None
+}
+
+/// The cross-check of one row (ironspec 08:15): the record's run ticks the proxy missed and the
+/// proxy's sample ticks with no run; any of either fails the row.
+pub(crate) fn proxy_mismatch(record: &[i64], proxy: &[i64]) -> (Vec<i64>, Vec<i64>) {
+    let missed: Vec<i64> = record.iter().filter(|t| !proxy.contains(t)).copied().collect();
+    let spurious: Vec<i64> = proxy.iter().filter(|t| !record.contains(t)).copied().collect();
+    (missed, spurious)
+}
+
 /// The seat's HOME path's nodes, read from [`path_probe_lines`]'s probe line (`... nodes): [(x, y,
 /// z), ...]`); none when the line carries no node list.
 fn seat_path_nodes(seat: &[String]) -> Vec<[i32; 3]> {
@@ -2317,6 +2368,8 @@ pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], 
     // (G1 (2), ironspec 07:16) the REST-entry stamp bar: the ticks SetWalkTargetFromBlockMemory ran,
     // the failing ones (stamp >= 1,000), the largest age then
     let (mut swt_samples, mut swt_fails, mut swt_max, mut swt_fail_where): (u32, u32, i64, Vec<String>) = (0, 0, 0, Vec::new());
+    // (ironspec 11:46 / 11:48) the proxy's samples at the erase signature (judged on none)
+    let mut swt_erase_n = 0u32;
     // (ironspec 08:13: THE RULE) the at-entry bar sampled from redsim's RECORD of every run of
     // SetWalkTargetFromBlockMemory toward HOME (its tick, its branch, the stamp age it SAW); the proxy
     // above (a REST tick after a tick with no walk target, the previous tick's stamp) printed beside it
@@ -2446,7 +2499,9 @@ pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], 
                 let mut home_events: Vec<String> = Vec::new();
                 let mut dt_prev = (r.world.time + r.world.mob.day_offset).rem_euclid(24000);
                 let (mut erased_at, mut reclaim_delays, mut acq_attempts, mut acq_next_prev): (Option<u32>, Vec<String>, Vec<String>, i64) = (None, Vec::new(), Vec::new(), i64::MIN);
-                let (mut no_wt_prev, mut since_prev): (bool, Option<i64>) = (false, None);
+                // the previous tick's observation for the proxy (the row starts as if a walk target were
+                // held: its first tick is never an after-no-target sample)
+                let mut prev_obs = ProxyObs { wt: true, stamp: None, rest: false, sink_running: false };
                 // (ironspec 08:15) per row: the record's run ticks and branches, its first failing tick,
                 // and the proxy's sample ticks (compared at the row's end)
                 let (mut row_rec, mut row_proxy_ticks): (RowRecord, Vec<i64>) = (RowRecord::default(), Vec::new());
@@ -2610,27 +2665,34 @@ pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], 
                         }
                     }
                     let Some((since, wt, act)) = mem(&r.world, i) else { continue };
-                    // (G1 (2), ironspec 07:16; G1 08:12 CHANGES (1)(2)) the REST-entry stamp bar's
-                    // SAMPLES: every tick SetWalkTargetFromBlockMemory RAN, i.e. a REST tick after a
-                    // tick with NO walk target in ANY activity (the first REST tick after PANIC or IDLE
-                    // included), whatever the stamp; JUDGED on the stamp the behaviour SAW (the previous
-                    // tick's stamp, with this tick's time: the behaviour's release rewrites it this tick)
-                    if no_wt_prev && act.contains("Rest") && home_prev {
+                    // (G1 (2), ironspec 07:16; G1 08:12 CHANGES (1)(2); the refinement ruled by ironspec
+                    // 11:46 / 11:48, G1 11:44) the proxy's SAMPLES (the (ii) cross-check's side): every
+                    // tick SetWalkTargetFromBlockMemory RAN as seen from the post-tick state
+                    // ([`proxy_sample`]): a REST tick after a tick with NO walk target (judged on the
+                    // previous tick's stamp), or the ERASE SIGNATURE (MoveToTargetSink's start check
+                    // erased a reached walk target and the stamp earlier in the same tick: judged on the
+                    // stamp the run saw, none)
+                    let sink_running = redsim::entity::mob::ai::brain::has_exact(&r.world, i)
+                        && redsim::entity::mob::ai::brain::ex(&r.world, i).nodes.iter().any(|n| matches!(n.kind, redsim::entity::mob::ai::brain::tree::Kind::MoveToTargetSink { .. }) && n.running);
+                    let now_obs = ProxyObs { wt, stamp: since, rest: act.contains("Rest"), sink_running };
+                    if let Some(p) = proxy_sample(&prev_obs, home_prev, &now_obs, r.world.time) {
                         swt_samples += 1;
                         row_proxy_ticks.push(r.world.time);
-                        if let Some(s) = since_prev {
-                            let age = r.world.time - s;
-                            swt_max = swt_max.max(age);
-                            if age >= 1000 {
-                                swt_fails += 1;
-                                if swt_fail_where.len() < 8 {
-                                    swt_fail_where.push(format!("phase +{k} hold {h}{skip_label} {}: {age} gt", if released { format!("release + {}", t - h) } else { format!("hold t {t}") }));
+                        match p {
+                            ProxySample::AfterNoTarget(Some(age)) => {
+                                swt_max = swt_max.max(age);
+                                if age >= 1000 {
+                                    swt_fails += 1;
+                                    if swt_fail_where.len() < 8 {
+                                        swt_fail_where.push(format!("phase +{k} hold {h}{skip_label} {}: {age} gt", if released { format!("release + {}", t - h) } else { format!("hold t {t}") }));
+                                    }
                                 }
                             }
+                            ProxySample::AfterNoTarget(None) => {}
+                            ProxySample::EraseSignature => swt_erase_n += 1,
                         }
                     }
-                    no_wt_prev = !wt;
-                    since_prev = since;
+                    prev_obs = now_obs;
                     // (G1 05:47: "no re-claim follows" SHOWN) every change of the napper's HOME (lost /
                     // regained) with the bed's free tickets, occupied flag and HOME memory holders
                     // (ironspec 06:31 (2)) at that tick
@@ -2800,8 +2862,7 @@ pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], 
                 record_left_empty(&r.world, &format!("phase +{k} hold {h}{skip_label}"))?;
                 // (ironspec 08:15) the proxy's samples against the record's runs, tick by tick: a run
                 // the proxy misses or a proxy sample with no run is a mismatch (the cross-check bar)
-                let missed: Vec<i64> = row_rec.ticks.iter().filter(|t| !row_proxy_ticks.contains(t)).copied().collect();
-                let spurious: Vec<i64> = row_proxy_ticks.iter().filter(|t| !row_rec.ticks.contains(t)).copied().collect();
+                let (missed, spurious) = proxy_mismatch(&row_rec.ticks, &row_proxy_ticks);
                 proxy_rows += (!row_rec.ticks.is_empty() || !row_proxy_ticks.is_empty()) as u32;
                 if !missed.is_empty() || !spurious.is_empty() {
                     proxy_mismatch_rows += 1;
@@ -2982,7 +3043,7 @@ pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], 
             tally.samples,
             tally.fails,
             format!(
-                "the branches {}; the largest age seen {} gt{}; the proxy beside it (a REST tick after a tick with no walk target, HOME present, the previous tick's stamp): {swt_samples} samples, {swt_fails} failing, the largest {swt_max} gt{}",
+                "the branches {}; the largest age seen {} gt{}; the proxy beside it (a REST tick with HOME after a tick with no walk target, judged on the previous tick's stamp; or the erase signature, MoveToTargetSink's start check erasing a reached walk target and the stamp in the same tick, judged on none: ironspec 11:46 / 11:48): {swt_samples} samples ({swt_erase_n} at the erase signature), {swt_fails} failing, the largest {swt_max} gt{}",
                 tally.branches.iter().map(|(b, n)| format!("{b} {n}")).collect::<Vec<_>>().join(", "),
                 tally.max,
                 if tally.fail_where.is_empty() { String::new() } else { format!("; failing at {}", tally.fail_where.join(", ")) },
@@ -3971,6 +4032,42 @@ mod tests {
         // the old order: the last planted tick's runs left in the log, caught by the row-end assert
         let (_, _, old_end) = run(&planted, false);
         assert!(old_end.is_err(), "the old order leaves the planted last tick's runs behind: the row-end assert fails");
+    }
+
+    /// (ironspec 11:46 / 11:48, G1 11:44) the proxy's refinement and its three controls: (1) the erase
+    /// signature (a walk target held at t-1 gone at t, the stamp set at t-1 and clear at t, the sink not
+    /// running) is a sample judged on none: today's twelve mismatch rows had exactly this shape; (2) a
+    /// run where the sink did NOT erase is still counted by the old rule, unchanged (a REST tick after a
+    /// tick with no walk target, judged on the previous tick's stamp), and the old rule wins when both
+    /// apply; the signature's other conditions each block it (the sink running, the stamp not erased,
+    /// the walk target still held, not REST, no HOME); (3) a planted proxy-only sample (no record run at
+    /// its tick) fails the cross-check, as does a missed run.
+    #[test]
+    fn the_proxy_refinement_and_its_controls() {
+        let o = |wt: bool, stamp: Option<i64>, sink_running: bool| ProxyObs { wt, stamp, rest: true, sink_running };
+        // (1) the erase signature, as at game time 475 (phase +60, 0.37) and 449 (phase +36, 0.44)
+        assert_eq!(proxy_sample(&o(true, Some(210), false), true, &o(false, None, false), 475), Some(ProxySample::EraseSignature));
+        // (2) the old rule, unchanged: after no walk target, judged on the previous tick's stamp's age
+        assert_eq!(proxy_sample(&o(false, Some(210), false), true, &o(true, Some(210), false), 474), Some(ProxySample::AfterNoTarget(Some(264))));
+        assert_eq!(proxy_sample(&o(false, None, false), true, &o(false, None, false), 476), Some(ProxySample::AfterNoTarget(None)));
+        // the old rule first when the previous tick held no walk target (the refinement adds, never moves)
+        assert_eq!(proxy_sample(&o(false, Some(210), false), true, &o(false, None, false), 475), Some(ProxySample::AfterNoTarget(Some(265))));
+        // the signature's conditions, each one blocking it
+        assert_eq!(proxy_sample(&o(true, Some(210), false), true, &o(false, None, true), 475), None, "the sink running");
+        // (traced 12:42, phase +1 at 0.37, game time 416) a sink RUNNING at t-1 that STOPS at t erases
+        // the same memories in the tick pass, after the start pass: no run at t (it comes at t+1, the
+        // old rule's sample)
+        assert_eq!(proxy_sample(&o(true, Some(212), true), true, &o(false, None, false), 416), None, "the sink's stop, not its start check");
+        assert_eq!(proxy_sample(&o(false, None, false), true, &o(false, None, false), 417), Some(ProxySample::AfterNoTarget(None)), "the run after the stop: the old rule");
+        assert_eq!(proxy_sample(&o(true, Some(210), false), true, &o(false, Some(210), false), 475), None, "the stamp not erased");
+        assert_eq!(proxy_sample(&o(true, None, false), true, &o(false, None, false), 475), None, "no stamp to erase");
+        assert_eq!(proxy_sample(&o(true, Some(210), false), true, &o(true, None, false), 475), None, "the walk target still held");
+        assert_eq!(proxy_sample(&o(true, Some(210), false), false, &o(false, None, false), 475), None, "no HOME");
+        assert_eq!(proxy_sample(&o(true, Some(210), false), true, &ProxyObs { rest: false, ..o(false, None, false) }, 475), None, "not REST");
+        // (3) the cross-check: matched; a planted proxy-only sample fails; a missed run fails
+        assert_eq!(proxy_mismatch(&[474, 475], &[474, 475]), (vec![], vec![]));
+        assert_eq!(proxy_mismatch(&[474, 475], &[474, 475, 480]), (vec![], vec![480]), "a planted proxy-only sample");
+        assert_eq!(proxy_mismatch(&[474, 475], &[474]), (vec![475], vec![]), "a missed run (the old proxy at the erase signature)");
     }
 
     /// (G1 07:16 (3)) the water search's FORWARD bar on the seat's HOME path, the back-up-the-ride
