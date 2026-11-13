@@ -2034,6 +2034,34 @@ pub enum MobfarmCmd {
         #[arg(long = "keep-out", allow_hyphen_values = true)]
         keep_out: Vec<String>,
     },
+    /// (G1 14:22: a battery's citable result is each night's judged bars, and the battery exits
+    /// non-zero when any night fails one) f1q2-run over seeds x positions x hold deltas, each night a
+    /// child `mctas mobfarm f1q2-run <design> --seed S --offset O --hold-pulse-delta D --report-only
+    /// <extra args>`; each report kept in --out; per night the JUDGED bars (HOME lost 0, westbound 0,
+    /// window overlaps 0, K writes off their cell 0, the lift mouth and the y-12 pairs PASS, swaps 0,
+    /// the per-lane count PASS) and the other FAIL lines counted by name; exit 1 if any judged bar
+    /// fails in any night.
+    F1q2Battery {
+        design: PathBuf,
+        /// Seeds, e.g. 1,2,3,4,5,6,7,8.
+        #[arg(long, value_delimiter = ',', default_value = "1,2,3,4,5,6,7,8")]
+        seeds: Vec<i64>,
+        /// Positions, each DX,DY,DZ, separated by ';' (e.g. "0,0,0;0,80,0;16384,80,16384").
+        #[arg(long, default_value = "0,0,0;0,80,0;16384,80,16384", allow_hyphen_values = true)]
+        offsets: String,
+        /// Hold pulse deltas, e.g. 1,2.
+        #[arg(long, value_delimiter = ',', default_value = "1", allow_hyphen_values = true)]
+        deltas: Vec<i64>,
+        /// Ticks per night.
+        #[arg(long, default_value_t = 14000)]
+        ticks: u32,
+        /// Where each night's report goes (one file per night).
+        #[arg(long)]
+        out: PathBuf,
+        /// More f1q2-run flags for every night, after `--`.
+        #[arg(last = true, allow_hyphen_values = true)]
+        extra: Vec<String>,
+    },
     /// (onechunk Nov 12; ironspec's deciding test for every rider's bed) The assembled F1 + Q2
     /// module run with REAL brains: every villager's stamp at each calm REST tick with no walk
     /// target, every clear and its cause, HOME tracked every tick and at dawn (`mobfarm::f1q2run`).
@@ -7856,6 +7884,80 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 print!("{}", crate::ticketcheck::piglin_season(&m, difficulty, days, 3.0, 211.0));
             }
             if !ok {
+                std::process::exit(1);
+            }
+        }
+        MobfarmCmd::F1q2Battery { design, seeds, offsets, deltas, ticks, out, extra } => {
+            std::fs::create_dir_all(&out)?;
+            let exe = std::env::current_exe()?;
+            let positions: Vec<String> = offsets.split(';').map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect();
+            // the judged bars: a name, the report line's key, and the verdict read from that line
+            let judge = |rep: &str| -> Vec<(String, bool, String)> {
+                let line = |key: &str| rep.lines().find(|l| l.contains(key)).unwrap_or("").to_string();
+                let num_after = |l: &str, key: &str| -> Option<i64> { l.split(key).nth(1).and_then(|r| r.trim_start().split(|c: char| !c.is_ascii_digit()).next()).and_then(|n| n.parse().ok()) };
+                let mut v: Vec<(String, bool, String)> = Vec::new();
+                let home = num_after(&line("HOME lost by"), "HOME lost by");
+                v.push(("HOME lost".to_string(), home == Some(0), home.map_or("no line".to_string(), |n| n.to_string())));
+                let wl = line("the westbound carts on the split row");
+                let west = num_after(&wl, "bar 0):");
+                v.push(("westbound carts".to_string(), west == Some(0), west.map_or("no line".to_string(), |n| n.to_string())));
+                let ol = line("the nappers' windows");
+                let ov = num_after(&ol, "one napper; an H2 sample with an earlier window pending is a failure):");
+                v.push(("window overlaps".to_string(), ov == Some(0), ov.map_or("no line".to_string(), |n| n.to_string())));
+                let off = ol.split(" writes off its cell").next().filter(|_| ol.contains(" writes off its cell")).and_then(|r| r.rsplit(' ').next()).and_then(|n| n.parse::<i64>().ok());
+                v.push(("K writes off their cell".to_string(), off == Some(0), off.map_or("no line".to_string(), |n| n.to_string())));
+                for (name, key) in [("the lift mouth", "the shared lift's mouth gaps"), ("the y-12 pairs", "the y-12 pairs"), ("the per-lane count", "the per-lane cart count")] {
+                    let l = line(key);
+                    let ok = !l.is_empty() && !crate::f1q2run::fail_lines(&l).iter().any(|_| true);
+                    v.push((name.to_string(), ok, if l.is_empty() { "no line".to_string() } else if ok { "PASS".to_string() } else { "FAIL".to_string() }));
+                }
+                let sw = line("the in-batch swaps");
+                let swaps = sw.split("information):").nth(1).and_then(|r| r.trim_start().split(' ').next()).and_then(|n| n.parse::<i64>().ok());
+                v.push(("in-batch swaps".to_string(), swaps == Some(0), swaps.map_or("no line".to_string(), |n| n.to_string())));
+                v
+            };
+            let mut failed = 0usize;
+            let mut nights = 0usize;
+            let mut other: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+            let mut summary: Vec<String> = Vec::new();
+            for pos in &positions {
+                for d in &deltas {
+                    for s in &seeds {
+                        let name = format!("p{}-d{d}-s{s}", pos.replace(',', "_"));
+                        let o = std::process::Command::new(&exe)
+                            .args(["mobfarm", "f1q2-run"])
+                            .arg(&design)
+                            .args(["--seed", &s.to_string(), "--offset", pos, "--hold-pulse-delta", &d.to_string(), "--ticks", &ticks.to_string(), "--report-only"])
+                            .args(&extra)
+                            .output()?;
+                        let rep = String::from_utf8_lossy(&o.stdout).to_string();
+                        std::fs::write(out.join(format!("{name}.txt")), format!("{rep}{}", String::from_utf8_lossy(&o.stderr)))?;
+                        nights += 1;
+                        let v = judge(&rep);
+                        let bad: Vec<&(String, bool, String)> = v.iter().filter(|x| !x.1).collect();
+                        if !bad.is_empty() || !o.status.success() {
+                            failed += 1;
+                        }
+                        // the other FAIL lines, by their first 60 characters
+                        let fl: Vec<String> = crate::f1q2run::fail_lines(&rep).iter().filter(|l| !l.starts_with("f1q2-run:")).map(|l| l.trim().chars().take(60).collect::<String>()).collect();
+                        for l in &fl {
+                            *other.entry(l.clone()).or_default() += 1;
+                        }
+                        let row = format!("{name}: {}{}; {} FAIL lines", v.iter().map(|x| format!("{} {}", x.0, x.2)).collect::<Vec<_>>().join(", "), if o.status.success() { String::new() } else { format!(" (exit {:?})", o.status.code()) }, fl.len());
+                        println!("{row}");
+                        summary.push(row);
+                    }
+                }
+            }
+            println!(
+                "f1q2-battery: {nights} nights ({} positions x {} deltas x {} seeds); judged bars (HOME lost 0, westbound 0, window overlaps 0, K writes off their cell 0, the lift mouth / the y-12 pairs / the per-lane count PASS, swaps 0) failed in {failed} nights",
+                positions.len(),
+                deltas.len(),
+                seeds.len()
+            );
+            println!("the other FAIL lines (the standing open bars), by line and nights: {}", other.iter().map(|(l, n)| format!("[{n}] {l}")).collect::<Vec<_>>().join(" | "));
+            std::fs::write(out.join("summary.txt"), format!("{}\n", summary.join("\n")))?;
+            if failed > 0 {
                 std::process::exit(1);
             }
         }
