@@ -87,8 +87,10 @@ impl Guard {
 /// - late-path effects: the friction a walker meets and the collision boxes it stands on or pushes against;
 /// - sight: the collision boxes (a mob's sight ray clips against colliders).
 ///
-/// Update reach, power reach and survival stay unchecked (None): they depend on the stand-in's neighbours
-/// and drive, which only its bench knows.
+/// Update reach and power reach stay unchecked (None): they depend on the stand-in's neighbours and drive,
+/// which only its bench knows. Survival needs the world: [`guard_survival`] (every static and bench runs it
+/// on every stand-in, ironspec 01:07 (d); `settle::stand_in_survival` settles a copy of a bench's world and
+/// runs it).
 pub fn guard_intrinsics(standin: &Block, built: &Block, above: &Block, below: &Block) -> [Option<Verdict>; 7] {
     use redsim::entity::mob::ai::path::path_type::{self, PathType};
     let same = |what: &str, x: String, y: String| -> Verdict { if x == y { Ok(format!("{what} {x}, as built")) } else { Err(format!("{what} {x} vs the built cell's {y}")) } };
@@ -117,6 +119,26 @@ pub fn guard_intrinsics(standin: &Block, built: &Block, above: &Block, below: &B
     v[2] = Some(same("friction / collision boxes", format!("{}/{:?}", fr(standin), boxes(standin)), format!("{}/{:?}", fr(built), boxes(built))));
     v[6] = Some(same("the collision boxes (sight's colliders)", format!("{:?}", boxes(standin)), format!("{:?}", boxes(built))));
     v
+}
+
+/// The SURVIVAL property (ironspec 01:07 (d)): a stand-in at `p` must survive where it stands in `w` (the
+/// laid world: `behavior::can_survive`, and a rail that wouldn't pop at its first update) and stay as laid
+/// through the settle (`settled`: the same world at its fixed point, entities held, as settle-check settles
+/// it), unless `held` names the real driver and the controller phase its bench holds it in (a `# held:
+/// x,y,z=DRIVER, PHASE` line).
+pub fn guard_survival(w: &redsim::world::World, settled: &redsim::world::World, p: redsim::pos::BlockPos, held: Option<&str>) -> Verdict {
+    let b = w.get(p);
+    if !redsim::behavior::can_survive(w, &b, p) || redsim::rails::would_pop(w, p) {
+        return Err(format!("{b} can't survive at {},{},{}", p.x, p.y, p.z));
+    }
+    let after = settled.get(p);
+    if after != b {
+        return match held {
+            Some(h) => Ok(format!("survives; the settle changes it ({b} -> {after}), held: {h}")),
+            None => Err(format!("the settle changes it: {b} -> {after} (no `# held:` line names its real driver and controller phase)")),
+        };
+    }
+    Ok("survives, unchanged by the settle".into())
 }
 
 /// A block state's canonical text (redsim's parse and print: every property, in its order); every air
