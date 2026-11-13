@@ -3294,6 +3294,23 @@ pub fn placement_order_cells(spec: &FarmSpec) -> Result<Vec<String>, String> {
     crate::placing::diff_from_file(&run.world, spec, &ro)
 }
 
+/// (G1 / ironspec 07:23: an iron trapdoor OPENS on a powered neighbour) Every iron trapdoor of the
+/// design after the judge's placement settles: its open / powered state and the world's
+/// hasNeighborSignal at its cell (a closed cap with a signal would open at its next update).
+pub fn trapdoor_signal_lines(spec: &FarmSpec) -> Result<Vec<String>, String> {
+    let ro = RunOpts { ai: true, ..RunOpts::steady(1, 0, WalkMode::Random) };
+    let (mut run, _) = crate::placing::start(spec, &ro, crate::placing::Placement::Judge, &crate::placing::BuildPlan::default())?;
+    run.place_detectors();
+    let mut out = Vec::new();
+    for (p, _) in &spec.blocks {
+        if let Block::Trapdoor { iron: true, top, open, powered, .. } = run.world.get(*p) {
+            let sig = run.world.has_neighbor_signal(*p);
+            out.push(format!("iron trapdoor ({},{},{}) {}: open {open}, powered {powered}; hasNeighborSignal {sig}{}", p.x, p.y, p.z, if top { "top half" } else { "bottom half" }, if sig != open { " (MISMATCH: it changes at its next update)" } else { "" }));
+        }
+    }
+    Ok(out)
+}
+
 /// ironspec 04:46: the zombie's boat and its rider at bench start (the benches' start: the judge's
 /// placement, the design's entities spawned) and 20 gt later, each against the post cell.
 pub fn zombie_post_lines(spec: &FarmSpec) -> Result<Vec<String>, String> {
