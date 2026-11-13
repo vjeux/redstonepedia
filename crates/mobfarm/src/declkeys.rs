@@ -30,8 +30,8 @@ pub const COMMENT_KEYS: &[&str] = &[
 ];
 
 /// Keys read from a comment line or a header line alike (the push / water-spawn readers strip an optional
-/// `#`).
-pub const EITHER_KEYS: &[&str] = &["push-pair", "switch", "switches", "update-only", "inert", "water-spawn"];
+/// `#`; f1q2-run's `a6-pickup:` the same).
+pub const EITHER_KEYS: &[&str] = &["push-pair", "switch", "switches", "update-only", "inert", "water-spawn", "a6-pickup"];
 
 /// Keys read only from a header line, `key: …` (`column::header_cells`, `header_cell_states`).
 pub const META_KEYS: &[&str] = &["riderless", "emulated", "waker-places", "placement-order-ts", "unreachable", "update-only-ts"];
@@ -127,13 +127,28 @@ mod tests {
         }
     }
 
-    /// The registration test (ironspec 05:40 real): every key a mobfarm reader takes, found in the crate's
-    /// own source by its reading patterns (`strip_prefix("# K:")`, `header_entries(…, "K:")`,
-    /// `header_cells(…, "K:")`, `header_cell_states(…, "K:")`, `let key = "K:";`, a `("K:", "…")` key table,
-    /// `strip_prefix("K:")` after an optional `#`), is in these lists; the lists printed.
-    #[test]
-    fn every_reader_registered() {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    /// (ironspec 14:41) Every `.rs` file under `root`, every subdirectory included (a directory stack):
+    /// a reader in a subdirectory is scanned, never skipped (the one-level scan failed open).
+    fn rs_files(root: &std::path::Path) -> Vec<std::path::PathBuf> {
+        let mut out = Vec::new();
+        let mut stack = vec![root.to_path_buf()];
+        while let Some(d) = stack.pop() {
+            let Ok(rd) = std::fs::read_dir(&d) else { continue };
+            for e in rd.flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    stack.push(p);
+                } else if p.extension().and_then(|x| x.to_str()) == Some("rs") {
+                    out.push(p);
+                }
+            }
+        }
+        out.sort();
+        out
+    }
+
+    /// The keys every reading pattern takes in the `.rs` files under `root` (declkeys.rs itself skipped).
+    fn scan_found(root: &std::path::Path) -> std::collections::BTreeSet<String> {
         let mut found: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
         let lit_after = |s: &str, from: usize| -> Option<String> {
             let rest = &s[from..];
@@ -141,9 +156,8 @@ mod tests {
             let b = rest[a + 1..].find('"')?;
             Some(rest[a + 1..a + 1 + b].to_string())
         };
-        for e in std::fs::read_dir(&dir).unwrap() {
-            let p = e.unwrap().path();
-            if p.extension().and_then(|x| x.to_str()) != Some("rs") || p.file_name().and_then(|x| x.to_str()) == Some("declkeys.rs") {
+        for p in rs_files(root) {
+            if p.file_name().and_then(|x| x.to_str()) == Some("declkeys.rs") {
                 continue;
             }
             let src = std::fs::read_to_string(&p).unwrap();
@@ -182,7 +196,9 @@ mod tests {
                             && !k.is_empty()
                             && !k.contains('{')
                         {
-                            found.insert(k.trim().to_string());
+                            // (a reader handed the comment form "# K:" reads key K, as the near-miss
+                            // check's keys are written: the "# " is the line's, not the key's)
+                            found.insert(k.trim().trim_start_matches("# ").to_string());
                         }
                     }
                 }
@@ -208,6 +224,33 @@ mod tests {
                 }
             }
         }
+        found
+    }
+
+    /// (ironspec 14:41's control) a reader planted in a subdirectory is found by the scan, so the
+    /// registration test fails on it unless its key is registered
+    #[test]
+    fn a_reader_in_a_subdirectory_is_scanned() {
+        let root = std::env::temp_dir().join(format!("declkeys-control-{}", std::process::id()));
+        let deep = root.join("a").join("b");
+        std::fs::create_dir_all(&deep).unwrap();
+        std::fs::write(deep.join("planted.rs"), "fn r(t: &str) { let _ = header_cells(t, \"planted-key:\"); }\n").unwrap();
+        let found = scan_found(&root);
+        std::fs::remove_dir_all(&root).ok();
+        assert!(found.contains("planted-key"), "the planted reader two directories down is scanned: {found:?}");
+        let known: std::collections::BTreeSet<String> = COMMENT_KEYS.iter().chain(EITHER_KEYS).chain(META_KEYS).map(|k| k.to_string()).collect();
+        assert!(!known.contains("planted-key"), "the planted key is unregistered, so every_reader_registered would fail on it");
+    }
+
+    /// The registration test (ironspec 05:40 real): every key a mobfarm reader takes, found in the crate's
+    /// own source (ironspec 14:41: every subdirectory too) by its reading patterns (`strip_prefix("# K:")`,
+    /// `header_entries(…, "K:")`, `header_cells(…, "K:")`, `header_cell_states(…, "K:")`, `let key = "K:";`,
+    /// a `("K:", "…")` key table, `strip_prefix("K:")` after an optional `#`), is in these lists; the lists
+    /// printed.
+    #[test]
+    fn every_reader_registered() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let found = scan_found(&dir);
         let known: std::collections::BTreeSet<String> = COMMENT_KEYS.iter().chain(EITHER_KEYS).chain(META_KEYS).map(|k| k.to_string()).collect();
         println!("declaration keys registered: comment {COMMENT_KEYS:?}; either form {EITHER_KEYS:?}; header {META_KEYS:?}");
         let missing: Vec<&String> = found.iter().filter(|k| !known.contains(*k)).collect();
