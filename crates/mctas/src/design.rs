@@ -234,6 +234,36 @@ fn parse_pos(s: &str) -> Result<Pos> {
     Ok([v[0], v[1], v[2]])
 }
 
+/// One layer row's blocks: each palette char of `body` but `.` and ` ` at `origin` + (its column,
+/// `y`, `row`), into `into` (the overworld's blocks or the Nether part's).
+fn place_row(body: &str, palette: &BTreeMap<char, String>, origin: Pos, y: i32, row: i32, into: &mut BTreeMap<Pos, String>, err: &dyn Fn() -> String) -> Result<()> {
+    for (col, c) in body.chars().enumerate() {
+        if c == '.' || c == ' ' {
+            continue;
+        }
+        let state = palette.get(&c).ok_or_else(|| anyhow!("unknown palette char {c:?} at {}", err()))?;
+        into.insert([origin[0] + col as i32, origin[1] + y, origin[2] + row], state.clone());
+    }
+    Ok(())
+}
+
+/// A Nether part's anchor: the design's 0 0 0 and its x axis, moved and turned with it. Both ports
+/// or neither (then the origin and +x); a design with no Nether part has none.
+fn nether_anchor(d: &mut Design) -> Result<()> {
+    if d.nether_blocks.is_empty() && d.nether_ports.is_empty() && d.nether_block_entities.is_empty() {
+        return Ok(());
+    }
+    match (d.ports.contains_key("nether-anchor"), d.ports.contains_key("nether-axis")) {
+        (false, false) => {
+            d.ports.insert("nether-anchor".into(), [0, 0, 0]);
+            d.ports.insert("nether-axis".into(), [1, 0, 0]);
+        }
+        (true, true) => {}
+        _ => bail!("a Nether part needs both `port nether-anchor:` and `port nether-axis:`, or neither"),
+    }
+    Ok(())
+}
+
 impl Design {
     pub fn load(path: &Path) -> Result<Design> {
         let text = std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
@@ -376,42 +406,16 @@ impl Design {
                     palette.insert(c, parsed.to_string());
                 }
                 Section::Layer(y) => {
-                    let body = &line[2..];
-                    for (col, c) in body.chars().enumerate() {
-                        if c == '.' || c == ' ' {
-                            continue;
-                        }
-                        let state = palette.get(&c).ok_or_else(|| anyhow!("unknown palette char {c:?} at {}", err()))?;
-                        let pos = [origin[0] + col as i32, origin[1] + y, origin[2] + row];
-                        d.blocks.insert(pos, state.clone());
-                    }
+                    place_row(&line[2..], &palette, origin, y, row, &mut d.blocks, &err)?;
                     row += 1;
                 }
                 Section::NetherLayer(y) => {
-                    let body = &line[2..];
-                    for (col, c) in body.chars().enumerate() {
-                        if c == '.' || c == ' ' {
-                            continue;
-                        }
-                        let state = palette.get(&c).ok_or_else(|| anyhow!("unknown palette char {c:?} at {}", err()))?;
-                        let pos = [nether_origin[0] + col as i32, nether_origin[1] + y, nether_origin[2] + row];
-                        d.nether_blocks.insert(pos, state.clone());
-                    }
+                    place_row(&line[2..], &palette, nether_origin, y, row, &mut d.nether_blocks, &err)?;
                     row += 1;
                 }
             }
         }
-        // a Nether part's anchor: the design's 0 0 0 and its x axis, moved and turned with it
-        if !d.nether_blocks.is_empty() || !d.nether_ports.is_empty() || !d.nether_block_entities.is_empty() {
-            match (d.ports.contains_key("nether-anchor"), d.ports.contains_key("nether-axis")) {
-                (false, false) => {
-                    d.ports.insert("nether-anchor".into(), [0, 0, 0]);
-                    d.ports.insert("nether-axis".into(), [1, 0, 0]);
-                }
-                (true, true) => {}
-                _ => bail!("a Nether part needs both `port nether-anchor:` and `port nether-axis:`, or neither"),
-            }
-        }
+        nether_anchor(&mut d)?;
         Ok(d)
     }
 

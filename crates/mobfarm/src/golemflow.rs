@@ -7,7 +7,7 @@
 //! in its first), its targets (a post, a piglin, anything), its least overlap with a portal row and
 //! its largest move; the cadence (a golem every cycle); the next batch never golem-detected by a
 //! lingering golem. Push sources: a twin golem beside each one (`twin`), pad-born zombified piglins
-//! standing in the portal cells (`piglins`). Restarts in the 10 orders at a phase after every summon
+//! standing in the portal cells (`piglins`). Restarts in the 20 restart rows at a phase after every summon
 //! (cc767b78's `liveness::restart`). The positive control: one portal row blocked (`block_row`),
 //! whose golems must be caught parked and the next summon lost. A pillager post seats redsim's
 //! pillager (9fc3155f's model: box, seat and eye; a villager, or a golem off a portal, it sees

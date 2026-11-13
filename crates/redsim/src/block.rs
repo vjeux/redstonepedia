@@ -510,8 +510,8 @@ pub enum Block {
     /// Iron or oak door, one half.
     Door { iron: bool, facing: Dir, upper: bool, hinge_right: bool, open: bool, powered: bool },
     FenceGate { facing: Dir, in_wall: bool, open: bool, powered: bool },
-    /// Powered rail or activator rail.
-    Rail { activator: bool, shape: RailShape, powered: bool },
+    /// Powered rail or activator rail (`waterlogged`: the `SimpleWaterloggedBlock` source it holds).
+    Rail { activator: bool, shape: RailShape, powered: bool, waterlogged: bool },
     Dispenser { dropper: bool, facing: Dir, triggered: bool },
     Crafter { orientation: u8, triggered: bool, crafting: bool },
     Hopper { facing: Dir, enabled: bool },
@@ -584,9 +584,9 @@ pub enum Block {
     /// (`slab`: `mat` indexes `slab::SLABS`; `kind` 0 bottom, 1 top, 2 double).
     AnySlab { mat: u8, kind: u8, waterlogged: bool },
     /// Plain rail (`RailBlock`: curves too), `react::rails`.
-    PlainRail { shape: RailShape },
+    PlainRail { shape: RailShape, waterlogged: bool },
     /// Detector rail (`DetectorRailBlock`: straight shapes), `react::rails`.
-    DetectorRail { shape: RailShape, powered: bool },
+    DetectorRail { shape: RailShape, powered: bool, waterlogged: bool },
     /// Big dripleaf (the leaf; `react::dripleaf`): `tilt` 0 none, 1 unstable, 2 partial, 3 full.
     BigDripleaf { facing: Dir, tilt: u8, waterlogged: bool },
     /// Chiseled bookshelf: `slots` = the six `slot_N_occupied` flags (bit N); its 6-slot container
@@ -1089,17 +1089,15 @@ impl Block {
                 open: bool_of("open", false)?,
                 powered: bool_of("powered", false)?,
             },
-            "powered_rail" | "activator_rail" => {
-                waterlogged_ok()?;
-                Block::Rail {
-                    activator: name == "activator_rail",
-                    shape: match get("shape") {
-                        None => RailShape::NorthSouth,
-                        Some(v) => RailShape::parse(v).filter(|s| !s.is_curve()).ok_or_else(|| format!("bad shape={v}"))?,
-                    },
-                    powered: bool_of("powered", false)?,
-                }
-            }
+            "powered_rail" | "activator_rail" => Block::Rail {
+                activator: name == "activator_rail",
+                shape: match get("shape") {
+                    None => RailShape::NorthSouth,
+                    Some(v) => RailShape::parse(v).filter(|s| !s.is_curve()).ok_or_else(|| format!("bad shape={v}"))?,
+                },
+                powered: bool_of("powered", false)?,
+                waterlogged: bool_of("waterlogged", false)?,
+            },
             "big_dripleaf" => Block::BigDripleaf {
                 facing: hdir_of("facing", Dir::North)?,
                 tilt: match get("tilt") {
@@ -1378,25 +1376,21 @@ impl Block {
                 waterlogged: bool_of("waterlogged", false)?,
             },
             // ---- entity-reacting blocks (clk-misc): rails ----
-            "rail" => {
-                waterlogged_ok()?;
-                Block::PlainRail {
-                    shape: match get("shape") {
-                        None => RailShape::NorthSouth,
-                        Some(v) => RailShape::parse(v).ok_or_else(|| format!("bad shape={v}"))?,
-                    },
-                }
-            }
-            "detector_rail" => {
-                waterlogged_ok()?;
-                Block::DetectorRail {
-                    shape: match get("shape") {
-                        None => RailShape::NorthSouth,
-                        Some(v) => RailShape::parse(v).filter(|s| !s.is_curve()).ok_or_else(|| format!("bad shape={v}"))?,
-                    },
-                    powered: bool_of("powered", false)?,
-                }
-            }
+            "rail" => Block::PlainRail {
+                shape: match get("shape") {
+                    None => RailShape::NorthSouth,
+                    Some(v) => RailShape::parse(v).ok_or_else(|| format!("bad shape={v}"))?,
+                },
+                waterlogged: bool_of("waterlogged", false)?,
+            },
+            "detector_rail" => Block::DetectorRail {
+                shape: match get("shape") {
+                    None => RailShape::NorthSouth,
+                    Some(v) => RailShape::parse(v).filter(|s| !s.is_curve()).ok_or_else(|| format!("bad shape={v}"))?,
+                },
+                powered: bool_of("powered", false)?,
+                waterlogged: bool_of("waterlogged", false)?,
+            },
             // ---- shulker study (clk-rt) ----
             "shulker_box" => Block::ShulkerBox { colour: 0, facing: dir_of("facing", Dir::Up)? },
             n if n.ends_with("_shulker_box") && DYES.contains(&&n[..n.len() - 12]) => Block::ShulkerBox {
@@ -1484,12 +1478,13 @@ impl fmt::Display for Block {
             Block::FenceGate { facing, in_wall, open, powered } => {
                 write!(f, "minecraft:oak_fence_gate[facing={},in_wall={},open={},powered={}]", facing.name(), b(in_wall), b(open), b(powered))
             }
-            Block::Rail { activator, shape, powered } => write!(
+            Block::Rail { activator, shape, powered, waterlogged } => write!(
                 f,
-                "minecraft:{}[powered={},shape={},waterlogged=false]",
+                "minecraft:{}[powered={},shape={},waterlogged={}]",
                 if activator { "activator_rail" } else { "powered_rail" },
                 b(powered),
-                shape.name()
+                shape.name(),
+                b(waterlogged)
             ),
             Block::Dispenser { dropper, facing, triggered } => {
                 write!(f, "minecraft:{}[facing={},triggered={}]", if dropper { "dropper" } else { "dispenser" }, facing.name(), b(triggered))
@@ -1557,8 +1552,10 @@ impl fmt::Display for Block {
             Block::Candle { candles, lit } => write!(f, "minecraft:candle[candles={candles},lit={},waterlogged=false]", b(lit)),
             Block::StoneSlab { kind } => write!(f, "minecraft:stone_slab[type={},waterlogged=false]", ["bottom", "top", "double"][kind as usize]),
             Block::AnySlab { mat, kind, waterlogged } => write!(f, "{}", crate::slab::state_name(mat, kind, waterlogged)),
-            Block::PlainRail { shape } => write!(f, "minecraft:rail[shape={},waterlogged=false]", shape.name()),
-            Block::DetectorRail { shape, powered } => write!(f, "minecraft:detector_rail[powered={},shape={},waterlogged=false]", b(powered), shape.name()),
+            Block::PlainRail { shape, waterlogged } => write!(f, "minecraft:rail[shape={},waterlogged={}]", shape.name(), b(waterlogged)),
+            Block::DetectorRail { shape, powered, waterlogged } => {
+                write!(f, "minecraft:detector_rail[powered={},shape={},waterlogged={}]", b(powered), shape.name(), b(waterlogged))
+            }
             Block::BigDripleaf { facing, tilt, waterlogged } => write!(
                 f,
                 "minecraft:big_dripleaf[facing={},tilt={},waterlogged={}]",

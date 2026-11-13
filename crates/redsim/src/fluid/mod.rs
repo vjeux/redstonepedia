@@ -209,8 +209,9 @@ pub fn fluid_state_of(b: &Block) -> FluidState {
 
 /// The `WATERLOGGED` property of a block whose variant carries one (`SimpleWaterloggedBlock`s
 /// modeled with their water: add each such variant here and in [`set_waterlogged`]). redsim's
-/// older waterloggable blocks (slabs, trapdoors, rails, scaffolding, leaves, sculk sensors) carry
-/// none: they are always dry, and water reaching them is a model note.
+/// older waterloggable blocks (slabs, trapdoors, scaffolding, leaves, sculk sensors) carry none:
+/// they are always dry, and water reaching them is a model note. The three rails carry theirs
+/// (farmopt's way-in).
 pub fn waterlogged(b: &Block) -> Option<bool> {
     match *b {
         // ---- entity-reacting blocks (clk-misc): their waterlogged variants ----
@@ -229,6 +230,8 @@ pub fn waterlogged(b: &Block) -> Option<bool> {
         // (their waterlogged states are `AnySlab`s; a double slab never) ----
         Block::AnySlab { waterlogged, .. } => Some(waterlogged),
         Block::Slab { kind } | Block::StoneSlab { kind } if kind < 2 => Some(false),
+        // ---- waterlogged rails (farmopt's way-in, b8949c96): BaseRailBlock's WATERLOGGED ----
+        Block::Rail { waterlogged, .. } | Block::PlainRail { waterlogged, .. } | Block::DetectorRail { waterlogged, .. } => Some(waterlogged),
         _ => None,
     }
 }
@@ -260,6 +263,10 @@ pub fn set_waterlogged(b: Block, v: bool) -> Option<Block> {
         Block::Slab { kind } if v => Some(Block::AnySlab { mat: crate::slab::index("smooth_stone_slab").unwrap_or(0), kind, waterlogged: true }),
         Block::StoneSlab { kind } if v => Some(Block::AnySlab { mat: crate::slab::index("stone_slab").unwrap_or(0), kind, waterlogged: true }),
         Block::Slab { .. } | Block::StoneSlab { .. } => Some(b),
+        // ---- waterlogged rails (farmopt's way-in, b8949c96) ----
+        Block::Rail { activator, shape, powered, .. } => Some(Block::Rail { activator, shape, powered, waterlogged: v }),
+        Block::PlainRail { shape, .. } => Some(Block::PlainRail { shape, waterlogged: v }),
+        Block::DetectorRail { shape, powered, .. } => Some(Block::DetectorRail { shape, powered, waterlogged: v }),
         _ => None,
     }
 }

@@ -197,6 +197,10 @@ fn props(b: &Block) -> Result<Props, String> {
         // repeaters (a 2 px DiodeBlock: not a full shape, so light block 0, and no shape used for
         // occlusion), torches and dust (no collision box) (ironfarm's dusk pulse)
         Block::Repeater { .. } | Block::Torch { .. } | Block::WallTorch { .. } | Block::Wire { .. } => Props { dampening: 0, faces: None },
+        // a waterlogged rail (b8949c96, G1 on 4b6ee86e5; tick-exact's 26.3 reading):
+        // `propagatesSkylightDown` = `!isShapeFullBlock && getFluidState().isEmpty()`, false with
+        // its water, so `getLightDampening` is 1 as water's (and a bubble column's)
+        Block::Rail { waterlogged: true, .. } | Block::PlainRail { waterlogged: true, .. } | Block::DetectorRail { waterlogged: true, .. } => Props { dampening: 1, faces: None },
         // buttons, levers, pressure plates, rails, tripwire and its hooks (`noCollision()`: no
         // occlusion, light block 0, propagatesSkylightDown) (mobinfra 2026-11-08: D1U's buttons
         // over its lava's signs on the lightning card)
@@ -653,6 +657,33 @@ mod tests {
         let mut w = World::new(BlockPos::new(-2, -2, -2), [5, 8, 5]);
         w.place_raw(&layer(Block::Simple(crate::block::Simple::Stone)));
         assert!(sky_light(&w, BlockPos::new(0, 1, 0)).unwrap() < 13);
+    }
+
+    /// (b8949c96, G1 on 4b6ee86e5) A waterlogged rail dims the sky by 1 as the water it holds
+    /// (`propagatesSkylightDown` needs an empty fluid state): under a whole layer of wet rails (on a
+    /// glass layer, which lets the sky through) the rail's cell reads 14 and the glass cell under it
+    /// 13, no longer a sky source; the same layer dry leaves the glass cell a sky source at 15.
+    #[test]
+    fn a_waterlogged_rail_dampens_like_water() {
+        let layers = |rail: &str| -> Vec<(BlockPos, Block)> {
+            (-2..=2)
+                .flat_map(|x| (-2..=2).map(move |z| (x, z)))
+                .flat_map(|(x, z)| [(BlockPos::new(x, 1, z), Block::Simple(crate::block::Simple::Glass)), (BlockPos::new(x, 2, z), Block::parse(rail).unwrap())])
+                .collect()
+        };
+        for rail in ["rail[shape=north_south,waterlogged=true]", "powered_rail[powered=false,shape=east_west,waterlogged=true]", "detector_rail[powered=false,shape=north_south,waterlogged=true]"] {
+            let mut w = World::new(BlockPos::new(-2, -2, -2), [5, 8, 5]);
+            w.place_raw(&layers(rail));
+            assert_eq!(sky_light(&w, BlockPos::new(0, 2, 0)), Ok(14), "{rail}: the wet rail's cell");
+            assert_eq!(sky_light(&w, BlockPos::new(0, 1, 0)), Ok(13), "{rail}: the cell under it");
+            assert_eq!(sky_source(&w, BlockPos::new(0, 1, 0)), Ok(false), "{rail}: no sky source under it");
+            assert!(crate::entity::mob::blocks::sky_hidden(&w, BlockPos::new(0, 0, 0)), "{rail}: a villager under it doesn't see the sky");
+        }
+        let mut w = World::new(BlockPos::new(-2, -2, -2), [5, 8, 5]);
+        w.place_raw(&layers("rail[shape=north_south,waterlogged=false]"));
+        assert_eq!(sky_light(&w, BlockPos::new(0, 1, 0)), Ok(15), "a dry rail layer: a sky source");
+        assert_eq!(sky_source(&w, BlockPos::new(0, 1, 0)), Ok(true));
+        assert!(!crate::entity::mob::blocks::sky_hidden(&w, BlockPos::new(0, 0, 0)), "a villager under a dry rail sees the sky");
     }
 
     /// (onechunk 2026-11-12) A slime block (`noOcclusion`, its full shape unchanged) keeps the sky

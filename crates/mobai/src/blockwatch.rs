@@ -34,6 +34,7 @@ pub fn block_watch(version: &str, module: &std::path::Path, set: &[([i32; 3], St
         }
         srv.step(5)?;
         let mut first_bad: Option<String> = None;
+        let mut reload_note: Option<crate::restartcheck::Reload> = None;
         for t in 1..=ticks {
             srv.step(1)?;
             for (p, s) in watch {
@@ -42,19 +43,17 @@ pub fn block_watch(version: &str, module: &std::path::Path, set: &[([i32; 3], St
                 }
             }
             if restart == Some(t) {
-                srv.cmd_ok("save-on")?;
-                srv.cmd_ok("save-all flush")?;
-                let old = srv.dir.clone();
-                let world = old.join(&srv.level_name);
-                drop(srv);
-                srv = VanillaServer::start(&opts(version, Some(world)))?;
-                let _ = std::fs::remove_dir_all(&old);
+                let (s, rl) = crate::restartcheck::reload(srv, |w| opts(version, Some(w)), None)?;
+                srv = s;
                 srv.cmd_ok("forceload add -32 -32 31 31")?;
+                reload_note = Some(rl);
             }
         }
         println!(
-            "  {}: {}",
+            "  {}{}{}: {}",
+            if reload_note.is_some_and(|x| !x.clean()) { "FAILED (uncounted ticks across the load): " } else { "" },
             restart.map(|r| format!("a restart at t{r}")).unwrap_or_else(|| "no restart".into()),
+            reload_note.map(|x| format!(" ({})", x.describe())).unwrap_or_default(),
             first_bad.unwrap_or_else(|| format!("every watched cell held its state at every tick of {ticks}"))
         );
         let _ = std::fs::remove_dir_all(&srv.dir);

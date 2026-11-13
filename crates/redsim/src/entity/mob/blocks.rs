@@ -156,10 +156,12 @@ pub fn is_suffocating(s: &Block) -> bool {
 
 /// Whether cell `p` surely cannot see the sky (`LevelReader.canSeeSky`: sky light 15, which only
 /// comes straight down through blocks that let it pass undimmed): some block above it in its
-/// column is leaves (they dim sky light by 1), a full cube other than glass (opaque), or a slab
+/// column is leaves (they dim sky light by 1), a full cube other than glass (opaque), a slab
 /// (`SlabBlock.useShapeForLightOcclusion`: a bottom slab's down face and a top slab's up face are
-/// full squares, so the light engine passes no sky light straight down through either).
-/// Conservative: every other roof counts as letting the sky through.
+/// full squares, so the light engine passes no sky light straight down through either), or a
+/// waterlogged rail (b8949c96, G1 on 4b6ee86e5: `propagatesSkylightDown` needs an empty fluid
+/// state, so it dims by 1 as water does). Conservative: every other roof counts as letting the sky
+/// through (water itself included).
 pub fn sky_hidden(w: &World, p: BlockPos) -> bool {
     // a terrain world knows its sky light (`canSeeSky`: sky light 15)
     if w.land.is_some() {
@@ -168,7 +170,9 @@ pub fn sky_hidden(w: &World, p: BlockPos) -> bool {
     let top = w.min.y + w.size[1];
     (p.y + 1..top).any(|y| {
         let s = w.get(BlockPos::new(p.x, y, p.z));
-        matches!(s, Block::Leaves { .. } | Block::Slab { .. } | Block::AnySlab { .. }) || (behavior::full_cube(&s) && !matches!(s, Block::Simple(Simple::Glass | Simple::WhiteStainedGlass | Simple::BlackStainedGlass | Simple::WaxedCopperGrate) | Block::WaterloggedGrate))
+        matches!(s, Block::Leaves { .. } | Block::Slab { .. } | Block::AnySlab { .. })
+            || matches!(s, Block::Rail { waterlogged: true, .. } | Block::PlainRail { waterlogged: true, .. } | Block::DetectorRail { waterlogged: true, .. })
+            || (behavior::full_cube(&s) && !matches!(s, Block::Simple(Simple::Glass | Simple::WhiteStainedGlass | Simple::BlackStainedGlass | Simple::WaxedCopperGrate) | Block::WaterloggedGrate))
     })
 }
 

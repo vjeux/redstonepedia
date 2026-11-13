@@ -54,6 +54,23 @@ struct Ride {
     path: Vec<String>,
     /// every tick: (t, the cart's position, its motion)
     trace: Vec<(u32, [f64; 3], [f64; 3])>,
+    /// (ironspec 20:35 PT (2a)) the restart's check: the cart's position across the load
+    reload: Option<crate::restartcheck::Reload>,
+}
+
+/// A ride whose restart (if any) left the cart where it was across the load: re-run up to 4 times
+/// otherwise (the loaded world can move its entities before the freeze: uncounted ticks).
+#[allow(clippy::too_many_arguments)]
+fn ride_checked(version: &str, module: &std::path::Path, depth: i32, v: f64, c: &Cells, restart: Restart, join: Option<u32>, max_ticks: u32) -> Result<Ride> {
+    let mut last = None;
+    for _ in 0..4 {
+        let r = ride(version, module, depth, v, c, restart, join, max_ticks)?;
+        if r.reload.map(|x| x.clean()).unwrap_or(true) {
+            return Ok(r);
+        }
+        last = Some(r);
+    }
+    Ok(last.expect("four attempts"))
 }
 
 fn ride(version: &str, module: &std::path::Path, depth: i32, v: f64, c: &Cells, restart: Restart, join: Option<u32>, max_ticks: u32) -> Result<Ride> {
@@ -68,12 +85,19 @@ fn ride(version: &str, module: &std::path::Path, depth: i32, v: f64, c: &Cells, 
     srv.cmd_ok(&format!("fill -32 {} -32 -28 {} -28 minecraft:glass", 29 + DY, 29 + DY))?;
     srv.cmd_ok(&format!("setworldspawn -30 {} -30", 30 + DY))?;
     // (the rule's name: 26.3's snake case; whichever the server knows)
+    // (G1's note on fde817ca3: which rule took, or an error when neither exists)
+    let mut radius_rule = None;
     for rule in ["respawn_radius", "spawn_radius"] {
         let out = srv.cmd(&format!("gamerule {rule} 0"))?;
         if !out.contains("Incorrect") && !out.contains("Unknown") {
+            radius_rule = Some(rule);
             break;
         }
     }
+    let Some(radius_rule) = radius_rule else {
+        anyhow::bail!("neither gamerule respawn_radius nor spawn_radius exists: the joining player could spawn on the track");
+    };
+    println!("  (the joining player's spawn: (-30, 30, -30) on glass, gamerule {radius_rule} 0)");
     srv.step(40)?;
     crate::seatclear::place_part(&mut srv, module)?;
     for (p, s) in &c.set {
@@ -130,17 +154,13 @@ fn ride(version: &str, module: &std::path::Path, depth: i32, v: f64, c: &Cells, 
             Restart::AtTick(k) => t == k,
         };
         if now && restarted_at.is_none() {
-            srv.cmd_ok("save-on")?;
-            srv.cmd_ok("save-all flush")?;
-            let old = srv.dir.clone();
-            let world = old.join(&srv.level_name);
-            drop(srv);
-            srv = VanillaServer::start(&opts(version, Some(world)))?;
-            let _ = std::fs::remove_dir_all(&old);
+            let (s, rl) = crate::restartcheck::reload(srv, |w| opts(version, Some(w)), Some("@e[tag=napcart,limit=1]"))?;
+            srv = s;
             srv.cmd_ok("forceload add -32 -32 31 31")?;
             restarted_at = Some(t);
             r.restart_tick = Some(t);
-            r.path.push(format!("t{t}: RESTART at ({:.3},{:.3},{:.3})", pos[0], pos[1], pos[2]));
+            r.reload = Some(rl);
+            r.path.push(format!("t{t}: RESTART at ({:.3},{:.3},{:.3}); {}", pos[0], pos[1], pos[2], rl.describe()));
         }
         if let (Some(j), Some(s)) = (join, restarted_at)
             && !joined
@@ -182,7 +202,7 @@ fn line(v: f64, label: &str, c: &Cells, r: &Ride) -> String {
             let runs = if r.freezes.len() > 8 { format!("{} ticks from t{} to t{}", r.freezes.len(), r.freezes[0], r.freezes[r.freezes.len() - 1]) } else { format!("{:?}", r.freezes) };
             format!("; entity freezes after the start: {runs}{at}")
         }
-    )
+    ) + &r.reload.map(|x| format!("; {}", x.describe())).unwrap_or_default()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -238,7 +258,7 @@ pub fn napper_ride(version: &str, module: &std::path::Path, depth: i32, speeds: 
             }
         }
         for &y in restarts {
-            let r = ride(version, module, depth, v, c, Restart::AtY(y), None, max_ticks)?;
+            let r = ride_checked(version, module, depth, v, c, Restart::AtY(y), None, max_ticks)?;
             println!("{}", line(v, &format!(", restart at y >= {y} (t{})", r.restart_tick.unwrap_or(0)), c, &r));
         }
         if every_tick && let (Some(a0), Some(b)) = (nominal.rise, nominal.rest) {
@@ -249,7 +269,7 @@ pub fn napper_ride(version: &str, module: &std::path::Path, depth: i32, speeds: 
             let b = if only_before { a0.saturating_sub(1).max(a) } else { b };
             let mut worst: Option<(u32, u32)> = None;
             for k in a..=b {
-                let r = ride(version, module, depth, v, c, Restart::AtTick(k), None, max_ticks)?;
+                let r = ride_checked(version, module, depth, v, c, Restart::AtTick(k), None, max_ticks)?;
                 println!("{}", line(v, &format!(", restart at t{k} (detector {}{})", if k >= a0 { "+" } else { "-" }, k.abs_diff(a0)), c, &r));
                 if let (Some(x), Some(y)) = (r.rise, r.rest) {
                     let dr = y - x;
@@ -266,7 +286,7 @@ pub fn napper_ride(version: &str, module: &std::path::Path, depth: i32, speeds: 
                 if let Some((j0, j1)) = join {
                     let mut jworst: Option<(u32, u32)> = None;
                     for j in j0..=j1 {
-                        let r = ride(version, module, depth, v, c, Restart::AtTick(k), Some(j), max_ticks)?;
+                        let r = ride_checked(version, module, depth, v, c, Restart::AtTick(k), Some(j), max_ticks)?;
                         println!("{}", line(v, &format!(", restart at t{k}, the player joining {j} gt after the start"), c, &r));
                         if let (Some(x), Some(y)) = (r.rise, r.rest)
                             && jworst.is_none_or(|w| y - x > w.0)

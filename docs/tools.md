@@ -720,9 +720,15 @@ slowest five, and ends with the line for the commit message (`Tests: mctas test 
 | docs/, web/ | nothing (`site publish` / `deploy` run no tests) |
 | the test tool itself, `Cargo.toml` / `Cargo.lock`, the shared design format (the rest of `crates/mctas`) | everything |
 
+Every crate's code also picks the crate's own unit tests (`unit:<crate>`, the verdict above), beside
+its row's pieces, and a full run (`--all`, or a change that picks everything) runs every crate's:
+the crates are the git root's `crates/` directories (a list the plan cannot read, or an empty one,
+fails the run as `unit:workspace`, never runs less); redsim's tests run in `sim:redsim-tests`
+(`testplan::TESTS_RUN_BY`), which every redsim rule picks (ironspec 2026-11-12 19:42 PT).
+
 The rules are the table `testplan::RULES` (crates/piston-door/src/testplan.rs, most specific
 first; its tests check that every crate has a rule, that every rule under `crates/` picks at least
-one piece, that a redsim change picks no judge and a
+one piece, that a redsim change runs its tests in `sim:redsim-tests` and picks no judge, that a
 judge change no live simulator test); the pieces are `door selftest`'s checks (`door selftest --list`:
 each check's group and JVM workers; crates/piston-door/src/selftest.rs). Flags: `--plan` (print
 the plan and stop), `--all` (every piece, on demand: never a scheduled job), `--pick sim,sorter`

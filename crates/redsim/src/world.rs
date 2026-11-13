@@ -226,6 +226,14 @@ pub struct World {
     /// The caller removes every primed TNT before it explodes (the TNT judge): no explosion
     /// error (`tick`).
     pub remove_primed: bool,
+    /// (cc767b78; ironspec Nov 12 23:12 (3) / 23:58 (3)) No block entity ticks in this tick: the gate of a
+    /// restart's STRESS variant (`mobfarm::liveness::Restart::Stress`, its block-only ticks: "not observed
+    /// in 16 official loads", printed only, never barred; the official load is a world open's idle ticks,
+    /// which run no tick at all). It gates the tick's three block-entity calls, which are all of redsim's
+    /// block-entity tickers: `redstone::container::tick_hoppers` (its ticker list: hoppers, crafters,
+    /// daylight detectors (their 20-gt check: `daylight::tick`), jukeboxes, furnaces, brewing stands),
+    /// `sculk::tick_all` (sculk sensors) and `piston::tick_block_entities` (moving pistons).
+    pub skip_block_entities: bool,
     /// Primed TNT become entities (`entity::primed_tnt`) with this value in place of the game's
     /// random `nextDouble()` for their kick; `None`: primes are records only (the judge's screen).
     pub tnt_kick: Option<f64>,
@@ -409,6 +417,7 @@ impl World {
             errors: Vec::new(),
             primed: Vec::new(),
             remove_primed: false,
+            skip_block_entities: false,
             tnt_kick: None,
             payloads: Vec::new(),
             drop_seed: None,
@@ -1269,6 +1278,25 @@ impl World {
 
     // ------------------------------------------------------------------ the tick
 
+    /// The tick's time phase, in redsim's own order: game time + 1, the day time with it while the
+    /// `advance_time` game rule holds (held otherwise: `day_offset` moves back by the tick), then the
+    /// weather (mobinfra; off: nothing). Vanilla (26.3's `ServerLevel.tick`, tick-exact's citation) runs
+    /// `advanceWeatherCycle` first (ServerLevel.java 368) and `tickTime` after it (387); its weather step
+    /// reads no time, so the order changes no time or weather value, only the level random's draw order on a
+    /// tick where a weather counter expires (redsim's weather step reads the game time only for a `weather`
+    /// command due at it). Matching vanilla (the weather, then `updateSkyBrightness` from the pre-increment
+    /// day time, then time + 1) is a follow-up (ironspec 00:36 (1) / 00:39 (1)). Every tick runs it first;
+    /// a restart's idle ticks (`mobfarm::liveness::restart`) run it alone.
+    pub fn tick_time(&mut self) {
+        self.time += 1;
+        if !self.mob.advance_time {
+            self.mob.day_offset -= 1;
+        }
+        if self.weather.on {
+            crate::weather::tick(self);
+        }
+    }
+
     /// `ServerLevel.tick` for a world with no entities, fluids or random ticks.
     pub fn tick(&mut self) {
         self.in_tick = true;
@@ -1279,15 +1307,11 @@ impl World {
     /// The tick's work ([`World::tick`]).
     fn tick_level(&mut self) {
         self.handling_tick = true;
-        self.time += 1;
-        // terrain worlds: the light engine settles last tick's changes between ticks
+        // terrain worlds: the light engine settles last tick's changes between ticks (it reads no time)
         if self.land.is_some() {
             self.settle_light();
         }
-        // mobinfra: the weather (advanceWeatherCycle, first in ServerLevel.tick); off: nothing
-        if self.weather.on {
-            crate::weather::tick(self);
-        }
+        self.tick_time();
         // (tickexact 2026-11-10, ironspec's fault rule) its chunks saved and unloaded: the level
         // ticks on (its time; the Nether after it), nothing of them does (`reload::unload_all`)
         if self.away.is_some() {
@@ -1388,12 +1412,14 @@ impl World {
         }
         crate::entity::tick_phase(self);
         // block entities: a design's hoppers exist before any moving block is created, so they
-        // come first in `blockEntityTickers`
-        crate::redstone::container::tick_hoppers(self);
-        // sculk sensors of a design exist before any moving block too (hoppers placed with them:
-        // see `sculk.rs`, an empty hopper's tick changes nothing)
-        crate::sculk::tick_all(self);
-        crate::piston::tick_block_entities(self);
+        // come first in `blockEntityTickers`; none in a restart's stress-variant tick (`skip_block_entities`)
+        if !self.skip_block_entities {
+            crate::redstone::container::tick_hoppers(self);
+            // sculk sensors of a design exist before any moving block too (hoppers placed with them:
+            // see `sculk.rs`, an empty hopper's tick changes nothing)
+            crate::sculk::tick_all(self);
+            crate::piston::tick_block_entities(self);
+        }
         if !self.frames.is_empty() {
             crate::entity::frame::check_static(self);
         }

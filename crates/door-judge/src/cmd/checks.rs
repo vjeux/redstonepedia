@@ -230,11 +230,12 @@ pub fn cmd_test(version: &str, args: TestArgs) -> Result<()> {
         return Ok(());
     }
     if pieces.is_empty() {
-        // a tool-integrity backstop (ironspec 2026-11-12): testplan::plan gives every crates/ path
-        // its crate's piece, so a code change selecting none means a rule or a filter left it out
-        let code: Vec<&str> = files.iter().flatten().filter(|f| f.starts_with("crates/")).map(|f| f.as_str()).collect();
+        // a tool-integrity backstop (ironspec 2026-11-12): testplan::plan gives every file of a
+        // crate its crate's piece, so a code change selecting none means a rule or a filter left it
+        // out (a non-code file directly under crates/ belongs to no crate and picks nothing)
+        let code: Vec<&str> = files.iter().flatten().filter(|f| testplan::crate_of(f).is_some()).map(|f| f.as_str()).collect();
         if !code.is_empty() {
-            anyhow::bail!("{line}: the change touches code ({}) but selects no piece: every crates/ path picks its crate's piece, so a rule or the --only filter left it out (testplan::RULES)", code.join(", "));
+            anyhow::bail!("{line}: the change touches code ({}) but selects no piece: every crate's file picks its crate's piece, so a rule or the --only filter left it out (testplan::RULES)", code.join(", "));
         }
         println!("{line}: nothing to run for this change");
         return Ok(());

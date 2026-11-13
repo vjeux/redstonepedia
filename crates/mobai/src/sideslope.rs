@@ -103,6 +103,7 @@ pub fn side_slope(version: &str, module: &std::path::Path, speeds: &[f64], water
             }
             let mut changes: Vec<String> = Vec::new();
             let (mut rest, mut rest_y, mut airs, mut entry, mut exit, mut restarted) = (None::<u32>, f64::NAN, Vec::<(u32, i64)>::new(), None::<u32>, None::<(u32, [f64; 3])>, None::<u32>);
+            let mut reload_note: Option<crate::restartcheck::Reload> = None;
             let (mut on_slope, mut creep) = (None::<u32>, Vec::<String>::new());
             for t in 1..=max_ticks {
                 if t == release_at {
@@ -154,30 +155,27 @@ pub fn side_slope(version: &str, module: &std::path::Path, speeds: &[f64], water
                     && restarted.is_none()
                     && t == r
                 {
-                    srv.cmd_ok("save-on")?;
-                    srv.cmd_ok("save-all flush")?;
-                    let old = srv.dir.clone();
-                    let world = old.join(&srv.level_name);
-                    drop(srv);
-                    srv = VanillaServer::start(&opts(version, Some(world)))?;
-                    let _ = std::fs::remove_dir_all(&old);
+                    let (s, rl) = crate::restartcheck::reload(srv, |w| opts(version, Some(w)), Some("@e[tag=ssc,limit=1]"))?;
+                    srv = s;
                     srv.cmd_ok("forceload add -32 -32 31 31")?;
                     restarted = Some(t);
-                    changes.push(format!("t{t}: RESTART (the cart at ({:.3},{:.4},{:.3}))", pos[0], pos[1], pos[2]));
+                    reload_note = Some(rl);
+                    changes.push(format!("t{t}: RESTART (the cart at ({:.3},{:.4},{:.3})); {}", pos[0], pos[1], pos[2], rl.describe()));
                 }
                 if exit.is_some_and(|(e, _)| t > e + 2) {
                     break;
                 }
             }
             println!(
-                "  {v} b/gt, {}: on the slope from {}; rest on it at {} (feet y {rest_y:.4}); the rider's air on the slope {}; the cart before the release {}; the entry into the column at {}; the exit at the top at {}",
+                "  {v} b/gt, {}: on the slope from {}; rest on it at {} (feet y {rest_y:.4}); the rider's air on the slope {}; the cart before the release {}; the entry into the column at {}; the exit at the top at {}{}",
                 restart.map(|r| format!("a restart at t{r}")).unwrap_or_else(|| "no restart".into()),
                 on_slope.map(|t| format!("t{t}")).unwrap_or_else(|| "never".into()),
                 rest.map(|t| format!("t{t}")).unwrap_or_else(|| "never".into()),
                 if airs.is_empty() { "-".to_string() } else { airs.iter().take(10).map(|(t, a)| format!("t{t} {a}")).collect::<Vec<_>>().join(", ") },
                 if creep.is_empty() { "-".to_string() } else { creep.join(", ") },
                 entry.map(|t| format!("t{t} (release + {})", t as i64 - release_at as i64)).unwrap_or_else(|| "never".into()),
-                exit.map(|(t, p)| format!("t{t} ({:.3},{:.3},{:.3})", p[0], p[1], p[2])).unwrap_or_else(|| "never".into())
+                exit.map(|(t, p)| format!("t{t} ({:.3},{:.3},{:.3})", p[0], p[1], p[2])).unwrap_or_else(|| "never".into()),
+                reload_note.map(|x| format!("; {}", x.describe())).unwrap_or_default()
             );
             println!("    states at the start: {}", watch.iter().zip(&states).map(|(p, _)| format!("({},{},{})", p[0], p[1], p[2])).collect::<Vec<_>>().join(" "));
             println!("    changes: {}", if changes.is_empty() { "none".to_string() } else { changes.iter().take(30).cloned().collect::<Vec<_>>().join("; ") });
