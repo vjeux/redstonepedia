@@ -822,7 +822,10 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
         } else {
             put(&mut b, [1, -1, 5], &rail("ascending_west"))?;
         }
-        put(&mut b, [1, -2, 5], "glass")?;
+        // (the slope's support: with the hold, DAY-1's built tap cell, a SLIME block fed by its
+        // repeater at (1,-2,4) (module (1,-29,3), facing north; day-1 10:38): placed here as the
+        // support, its drive day-1's; the bench's stand-in powers the rail from beside it)
+        put(&mut b, [1, -2, 5], if hold_slope { "slime_block" } else { "glass" })?;
         for x in 2..=3 {
             put(&mut b, [x, -1, 5], &rail("east_west"))?;
             put(&mut b, [x, -2, 5], "glass")?;
@@ -2532,6 +2535,11 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                 let d = ((c.pos.x - p0[0]).powi(2) + (c.pos.y - p0[1]).powi(2) + (c.pos.z - p0[2]).powi(2)).sqrt();
                 if d > 0.01 || !in_hold {
                     row.hold_depart_at = Some(t);
+                    // (day-1 10:38: which tap launched it: the last stand-in write powering the
+                    // slope at or before the departure, and the wait (a free-running tap launches
+                    // a cart waiting a period or more early: the periodic-pulse row shows it))
+                    let launching = f.pulses.iter().filter(|(p, at, st)| *p == BlockPos::new(1, -1, 6) && st.contains("redstone_block") && *at <= t).map(|(_, at, _)| *at).max();
+                    row.hold_lines.push(format!("t {t}: departed the slope: arrived at rest t {:?}, launched by the tap write at t {launching:?}, waited {:?} gt", row.hold_rest_at, row.hold_rest_at.map(|a| t - a)));
                     if let Some(vi) = vill.and_then(|v| idx(w, v))
                         && redsim::entity::mob::ai::brain::has_exact(w, vi)
                     {
