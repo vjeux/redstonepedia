@@ -657,6 +657,40 @@ fn spread_to_sides(w: &mut World, p: BlockPos, f: FluidState, s: &Block) {
     }
 }
 
+/// The fluid state the fluid at `from` would spread into its neighbour on side `d` (down or horizontal),
+/// through the fluid model's own acceptance: `FlowingFluid.spread`'s for down, `getSpread`'s for a side
+/// (`canMaybePassThrough`, the target's `getNewLiquid`, `canHoldSpecificFluid` of that new fluid's type,
+/// `canBeReplacedWith`; a side only when `spreadToSides` would spread at all: the neighbour amount above 0
+/// or the cell falling), whatever the slope search would pick among the sides. None if it can't: a flowing
+/// current's FLOWING state can't enter a dry waterloggable block (`canPlaceLiquid` takes a source only),
+/// while a cell where `getNewLiquid` forms a source takes one. settle-check's current bound check reads it
+/// (ironspec 05:55 real (2)).
+pub fn spread_state_into(w: &World, from: BlockPos, d: Dir) -> Option<FluidState> {
+    let s = w.get(from);
+    let f = fluid_state_of(&s);
+    if f.is_empty() || d == Dir::Up {
+        return None;
+    }
+    let kind = f.fluid;
+    if d != Dir::Down {
+        let neighbor = if f.falling { 7 } else { f.amount as i32 - drop_off(w, kind) };
+        if neighbor <= 0 {
+            return None;
+        }
+    }
+    let tp = from.rel(d);
+    let ts = w.get(tp);
+    let tf = fluid_state_of(&ts);
+    if !can_maybe_pass_through(w, kind, from, &s, d, tp, &ts, tf) {
+        return None;
+    }
+    let nf = get_new_liquid_of(w, kind, tp, &ts);
+    if nf.is_empty() || !can_hold_specific_fluid(&ts, nf.fluid) || !can_be_replaced_with(w, tp, tf, nf.fluid, d) {
+        return None;
+    }
+    Some(nf)
+}
+
 /// `FlowingFluid.spread`.
 fn spread(w: &mut World, p: BlockPos, s: Block, f: FluidState) {
     if f.is_empty() {
