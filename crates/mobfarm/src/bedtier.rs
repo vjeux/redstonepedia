@@ -1940,6 +1940,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
     let mut last_cart = [0f64; 3];
     // (the waker's consequence trace: the last printed walk target / path / stamp)
     let mut waker_last = String::new();
+    let mut waker_act_last = String::new();
     // (the cart's horizontal speed on the previous tick: a declared contact's "before")
     let mut prev_cart_speed = 0f64;
     let mut still = 0;
@@ -2155,6 +2156,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             for c in lay.hatch_ctrl.clone() {
                 set(&mut run.world, c, "redstone_block");
             }
+            row.waker_lines.push(format!("t {t}: the window shut (--hide-after-wake: the waker's controllers powered again)"));
             hidden = true;
         }
         // (the release (ironspec 09:45, outcome (a)): `release_after` gt after the bed observer's
@@ -2580,6 +2582,14 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                 && row.pickup.is_none_or(|(_, tp)| t <= tp + 40)
                 && redsim::entity::mob::ai::brain::has_exact(w, vi)
             {
+                // (G1: the panic window per wake: each activity change and each NEAREST_HOSTILE
+                // change from the wake on, beside the walk targets)
+                let bb = redsim::entity::mob::ai::brain::brain(w, vi);
+                let ak = format!("{}|{:?}", bb.activity.name(), bb.nearest_hostile.is_some());
+                if ak != waker_act_last {
+                    row.waker_lines.push(format!("t {t}: activity {}, NEAREST_HOSTILE {}", bb.activity.name(), if bb.nearest_hostile.is_some() { "remembered" } else { "empty" }));
+                    waker_act_last = ak;
+                }
                 let m = &redsim::entity::mob::ai::brain::ex(w, vi).mem;
                 let wt = m.walk_target.as_ref().map(|x| format!("{:?}", x.target));
                 let pa = m.path.as_ref().map(|p| (p.reached, p.nodes.first().map(|n| (n.x, n.y, n.z)), p.nodes.last().map(|n| (n.x, n.y, n.z)), p.nodes.len()));
