@@ -123,7 +123,16 @@ pub fn declared(text: &str) -> Result<Declared, String> {
                 d.shapes.push((cell(l, c)?, state.to_string(), note.to_string()));
             }
         } else if let Some(rest) = l.strip_prefix("# day-time:") {
-            d.day_time = Some(rest.trim().parse::<i64>().map_err(|e| format!("{l:?}: {e}"))?);
+            // (`N` or `N (reason)`: record7f's form names why the save's day time is what it is)
+            let rest = rest.trim();
+            let (n, why) = match rest.find(" (") {
+                Some(i) => (rest[..i].trim(), rest[i..].trim()),
+                None => (rest, ""),
+            };
+            if !why.is_empty() && !(why.starts_with('(') && why.ends_with(')')) {
+                return Err(format!("{l:?}: give `# day-time: N` or `# day-time: N (reason)`"));
+            }
+            d.day_time = Some(n.parse::<i64>().map_err(|e| format!("{l:?}: {n}: {e}"))?);
         }
     }
     d.standins = crate::recordmatch::declared_from_header(text)?.standins.keys().map(|c| BlockPos::new(c[0], c[1], c[2])).collect();
@@ -1197,6 +1206,25 @@ mod tests {
         }
         assert_eq!(declared("# water: 1,2,3=the lift's current (a; b)\n").unwrap().water.len(), 1, "a reason's own `;` inside parentheses is kept");
         assert!(declared("# The return (loop frame): a comment\n").is_ok(), "other comments stand");
+    }
+
+    /// G1 on the reader fix: entries split outside parentheses and each parses strictly as `x,y,z=…`. record7f's
+    /// `# day-time:` with its parenthesised reason reads 18000; its `# water:` line, whose reasons hold `;`
+    /// outside any parentheses, is REFUSED (the file wraps those reasons, not the reader guessing); a reason
+    /// with an inner `;` outside parentheses and a malformed cell (`3,4`, `3,4,5,6`) both error; a reason's `;`
+    /// inside parentheses reads whole; anything after N but a parenthesised reason errors.
+    #[test]
+    fn reads_record7f_declarations() {
+        let d = declared("# day-time: 18000 (the save's day time, a night placement as the build guide places the daylight detector (-5,15,3): its stored power 0 is its reading at this time; ironspec 02:37 PT (4))\n").unwrap();
+        assert_eq!(d.day_time, Some(18000));
+        let water7f = "# water: -5,23,7=designed current, saved settled (level 1): the shared lift's top-drift current, fed by the source north of the exit cell, carrying each riser south onto the exit booster; bounded by the glass round it, the cap over it and the booster's rail (tick-exact's water-settle row on record7e: one cell, then still; the bench's traces: the riser's z speed 0.027 -> 0.104 in the cell, on the booster 8 gt after the top); 6,-3,4=designed current, saved settled (level 1): the napper climb's top-drift current, fed by the source (5,-3,4), carrying the napper east onto the exit detector (7,-3,4); bounded by the glass round it and the detector's rail (tick-exact's water-settle row on record7e)\n";
+        assert!(declared(water7f).is_err(), "record7f's `;` outside parentheses refused");
+        for bad in ["# water: 1,2,3=a current; fed by its source\n", "# water: 1,2,3=a current; 3,4,5 is where its spread ends\n", "# water: 3,4=a current\n", "# water: 3,4,5,6=a current\n", "# held: 3,4 minecraft:lever (driver: x; phase y)\n", "# shape: 1,2,3,4=minecraft:rail[shape=north_south] (r; e; b)\n", "# day-time: 18000 the save's\n", "# day-time: 18000 (a) b\n"] {
+            assert!(declared(bad).is_err(), "{bad:?} refused");
+        }
+        let ok = declared("# water: 1,2,3=a current (fed by its source; bounded by glass); 4,5,6=another (b)\n").unwrap();
+        assert_eq!(ok.water.iter().map(|(p, _)| *p).collect::<Vec<_>>(), vec![BlockPos::new(1, 2, 3), BlockPos::new(4, 5, 6)]);
+        assert_eq!(declared("# day-time: 6000\n").unwrap().day_time, Some(6000));
     }
 
     /// No vacuous pass (ironspec 23:56): an empty file is NOT JUDGED and fails.
