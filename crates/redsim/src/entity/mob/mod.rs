@@ -1945,6 +1945,8 @@ mod rider_tests {
             }
         }
         println!("ticks where the ground branch's floor(y + 0.5) would differ from the scan-down start: {differs}");
+        // (ironspec 07:31 (a): the placements discriminate the two branches only if one tick differs)
+        assert!(differs >= 1, "at least one tick where the ground branch's floor(y + 0.5) differs from the scan-down start");
     }
 
     /// farmopt's night question: a villager seated in a cart at rest at night (13,800: REST from its first

@@ -406,4 +406,48 @@ mod tests {
             assert_eq!(reached, !blocked, "the corridor {} the rod: reached {reached}", if blocked { "blocked by" } else { "without" });
         }
     }
+
+    /// ironspec 07:47, tick-exact's citation (WalkNodeEvaluator.getPathTypeWithinMobBB 445-448: a RAIL cell
+    /// of the body reads UNPASSABLE_RAIL unless the mob's own block or the one below it is a RAIL;
+    /// getPathTypeOfMob 393-394: UNPASSABLE_RAIL outright when any body cell has it, malus -1): a villager on
+    /// stone can't path across a rail line that spans the floor (unreached), while the same villager standing
+    /// on a rail of the line's own kind paths across (reached); the rail cell's own type is RAIL either way.
+    #[test]
+    fn a_rail_is_unpassable_from_off_the_rails() {
+        use crate::pos::BlockPos;
+        use crate::world::World;
+        assert_eq!(from_state(&Block::parse("minecraft:rail[shape=north_south,waterlogged=false]").unwrap()), PathType::Rail);
+        for on_rail in [false, true] {
+            let mut w = World::new(BlockPos::new(-8, -4, -8), [16, 8, 16]);
+            let stone = Block::parse("minecraft:stone").unwrap();
+            let rail = Block::parse("minecraft:rail[shape=north_south,waterlogged=false]").unwrap();
+            for x in -6..=6 {
+                for z in -6..=6 {
+                    w.set_block(BlockPos::new(x, -1, z), stone.clone(), crate::world::flags::ALL);
+                }
+            }
+            // (the line x 0 across the whole floor, z -6..6: no way round it; the void beyond)
+            for z in -6..=6 {
+                w.set_block(BlockPos::new(0, 0, z), rail.clone(), crate::world::flags::ALL);
+            }
+            if on_rail {
+                w.set_block(BlockPos::new(-4, 0, 0), rail.clone(), crate::world::flags::ALL);
+            }
+            w.mob.seed(7, 6_000);
+            w.mob.ai.on = true;
+            let v = crate::entity::spawn(&mut w, "minecraft:villager", [-3.5, 0.0, 0.5], None).unwrap();
+            for _ in 0..3 {
+                w.tick();
+            }
+            let i = crate::entity::index_of(&w, v).unwrap();
+            let e = &w.entities.list[i];
+            assert!(e.on_ground, "the villager landed");
+            let own = w.get(e.block_position());
+            assert_eq!(matches!(own, Block::PlainRail { .. } | Block::Rail { .. }), on_rail, "its own block: {own}");
+            let path = crate::entity::mob::ai::with_nav(&mut w, i, |w, nm, nav, arena| nav.create_path_pos(w, nm, BlockPos::new(4, 0, 0), 0, arena));
+            assert!(path.is_some(), "a path computed (on a rail {on_rail})");
+            let reached = path.as_ref().is_some_and(|p| p.reached);
+            assert_eq!(reached, on_rail, "across the rail line from {}: reached {reached}", if on_rail { "a rail" } else { "stone" });
+        }
+    }
 }

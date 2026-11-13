@@ -552,4 +552,47 @@ mod ticket_tests {
             }
         }
     }
+
+    /// ironspec 07:57 (5), G1 07:59: AcquirePoi claims a bed only when its path reaches it and the record has a
+    /// free ticket, so of six HOME-less villagers within 48 of one free bed EXACTLY ONE claims it (HOME set, the
+    /// ticket taken: free 0) while the full bed drops out of the others' search; with the bed sealed off (no
+    /// path reaches it) NONE claims and the ticket stays free. The claimant and its tick printed.
+    #[test]
+    fn acquire_poi_claims_one_bed_once() {
+        for sealed in [false, true] {
+            let (mut w, bed) = bed_world(6_000);
+            if sealed {
+                let stone = Block::parse("minecraft:stone").unwrap();
+                for (x, z) in [(-1, 0), (0, 0), (1, 0), (-1, 1), (1, 1), (-1, 2), (1, 2), (-1, 3), (0, 3), (1, 3)] {
+                    for y in 0..=2 {
+                        w.set_block(BlockPos::new(x, y, z), stone.clone(), crate::world::flags::ALL);
+                    }
+                }
+                for z in 1..=2 {
+                    w.set_block(BlockPos::new(0, 1, z), stone.clone(), crate::world::flags::ALL);
+                }
+            }
+            let ids: Vec<u32> = (0..6).map(|k| crate::entity::spawn(&mut w, "minecraft:villager", [-3.5 + k as f64, 0.0, -3.5], None).unwrap()).collect();
+            let mut claims: Vec<(u32, i64)> = Vec::new();
+            for _ in 0..300 {
+                w.tick();
+                for id in &ids {
+                    if let Some(i) = crate::entity::index_of(&w, *id)
+                        && crate::entity::mob::ai::brain::brain(&w, i).home == Some(bed)
+                        && !claims.iter().any(|(c, _)| c == id)
+                    {
+                        claims.push((*id, w.time));
+                    }
+                }
+            }
+            println!("sealed {sealed}: claims (villager id, tick) {claims:?}, the bed's free tickets {:?}", free_tickets(&mut w, bed));
+            if sealed {
+                assert!(claims.is_empty(), "no path reaches the sealed bed: no claim");
+                assert_eq!(free_tickets(&mut w, bed), Some(1), "its ticket free");
+            } else {
+                assert_eq!(claims.len(), 1, "exactly one claim on one bed");
+                assert_eq!(free_tickets(&mut w, bed), Some(0), "the claimant took the ticket");
+            }
+        }
+    }
 }
