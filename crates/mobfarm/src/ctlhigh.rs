@@ -174,8 +174,10 @@ pub fn bench(spec: &FarmSpec) -> Result<Vec<String>, String> {
         cut.push(format!("{k}: {} / {}", fmt(&a.pulses), fmt(&b.pulses)));
     }
     // (G1 on 6b9be93ea point 3, ironspec 20:55 PT (2)(4)) IN_WIN's level at the AND's side swept 1..15 inside the
-    // window at the rise: the AND (subtract) passes E_H - side, so only a side at 15 holds the request back;
-    // the built OR must reach the side through a repeater (15). The weak levels are the control.
+    // window at the rise: the AND (subtract) passes E_H - side, so a side at E_H's own level or above holds the
+    // request back and anything weaker leaks; the bench measures where the levels split (E_H reaches the AND
+    // below 15, through its dust) and the built OR must reach the side at or above it (a repeater gives 15). The
+    // weak levels are the control.
     let mut weak: Vec<String> = Vec::new();
     let mut leak_levels: Vec<i32> = Vec::new();
     for s in 1..=15 {
@@ -185,7 +187,10 @@ pub fn bench(spec: &FarmSpec) -> Result<Vec<String>, String> {
         }
         weak.push(format!("{s}:{}", if tr.pulses.is_empty() { "held" } else { "LEAKS" }));
     }
-    let only_15_holds = !leak_levels.contains(&15) && (1..15).all(|s| leak_levels.contains(&s));
+    // (the least level that holds; the split is clean when every level below it leaks and every level from it
+    // holds, with 15 holding and 1 leaking)
+    let split = (1..=15).find(|s| !leak_levels.contains(s));
+    let clean_split = split.is_some_and(|t| t > 1 && (1..t).all(|s| leak_levels.contains(&s)) && (t..=15).all(|s| !leak_levels.contains(&s)));
     lines.push(format!(
         "the high re-phase's circuit ({BLOCKS} blocks: HI compare at 15 with a redstone block on its side, its rising edge E_H (subtract, a delay-4 side), the AND (subtract, IN_WIN on the side); + the window decode (tens 5..9: an OR of five tens taps, ~6) and the load path (tens := 5, the FF to u 9, ~4) in box piece 2): {}; {}",
         rows.join("; "),
@@ -199,9 +204,12 @@ pub fn bench(spec: &FarmSpec) -> Result<Vec<String>, String> {
         cut.join("; ")
     ));
     lines.push(format!(
-        "  IN_WIN's level at the AND's side, inside the window at the rise (level:request): {}; {} (the requirement: the window decode's OR reaches the AND's side through a repeater, at 15)",
+        "  IN_WIN's level at the AND's side, inside the window at the rise (level:request): {}; {}",
         weak.join(" "),
-        if only_15_holds { "only 15 holds the request back, every weaker level leaks: the weak-OR control bites" } else { "FAIL: the levels do not split at 15" }
+        match (split, clean_split) {
+            (Some(t), true) => format!("the levels split at {t} (E_H's level at the AND): 1..{} leak, {t}..15 hold, so the weak-OR control bites; the requirement: the window decode's OR reaches the AND's side at {t} or more (a repeater gives 15)", t - 1),
+            _ => "FAIL: the levels do not split cleanly (a weaker level holds or a stronger one leaks)".to_string(),
+        }
     ));
     Ok(lines)
 }
