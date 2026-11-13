@@ -230,6 +230,9 @@ pub struct StationJudgeOpts {
     /// The call gate (ironspec 19:51): every run with the bench's direct summon check, the misses failing
     /// the lead's rows, the removed-rider controls run per REL.
     pub summon_gate: bool,
+    /// The world file's declared contacts (`# stops:` / `# contacts:`, the bench frame): each prints its
+    /// hits over the matrix, and one never hit fails as stale (ironspec 06:55 (d)).
+    pub declared: Vec<(i32, i32, i32)>,
     pub jobs: usize,
 }
 
@@ -443,7 +446,38 @@ pub fn judge(spec: &FarmSpec, cold_spec: &FarmSpec, base: &DropOpts, o: &Station
             }
         }
     }
+    // (ironspec 06:55 (d): the world file's declared contacts, each with its hits over every run of the matrix;
+    // one never hit is stale and fails (the no-op declaration rule: it could later hide a real contact))
+    if !o.declared.is_empty() {
+        let all: Vec<&DropStats> = results.iter().map(|(_, s)| s).collect();
+        let (line, stale) = declared_hits(&o.declared, &all);
+        out.push(line);
+        total += stale;
+    }
     Ok((out, total))
+}
+
+/// The declared contacts' hits (ironspec 06:55 (d)): for each cell the world file declares (`# stops:` /
+/// `# contacts:`), the carts' block contacts at it summed over `runs`; a cell never hit is STALE. Returns
+/// (the line, the stale count).
+pub fn declared_hits(declared: &[(i32, i32, i32)], runs: &[&DropStats]) -> (String, usize) {
+    let mut cells: Vec<(i32, i32, i32)> = declared.to_vec();
+    cells.sort();
+    cells.dedup();
+    let mut stale = 0;
+    let parts: Vec<String> = cells
+        .iter()
+        .map(|&(x, y, z)| {
+            let hits: u32 = runs.iter().flat_map(|s| s.block_contacts.iter()).filter(|k| (k.0.x, k.0.y, k.0.z) == (x, y, z)).map(|k| k.2).sum();
+            if hits == 0 {
+                stale += 1;
+                format!("({x},{y},{z}) 0 (STALE, failing)")
+            } else {
+                format!("({x},{y},{z}) {hits}")
+            }
+        })
+        .collect();
+    (format!("  the world file's declared contacts (`# stops:` / `# contacts:`), the carts' hits over the matrix's {} runs: {}; {stale} stale", runs.len(), parts.join(", ")), stale)
 }
 
 #[cfg(test)]
@@ -506,6 +540,21 @@ mod tests {
         let other = DropStats { summon_due: vec![due(100, 2, 0, false, "no caller ticking", None)], ..Default::default() };
         assert!(control_bites(&other).is_err(), "a miss of another class doesn't show the removed rider");
         assert!(control_bites(&DropStats::default()).is_err(), "no due S measured");
+    }
+
+    /// ironspec 06:55 (d): each declared contact prints its hits over the runs; one never hit is STALE and
+    /// counts (the judge adds it to the failing total, so the run exits 1); a contact at an undeclared cell
+    /// doesn't make a declared one live.
+    #[test]
+    fn declared_contacts_stale() {
+        use redsim::pos::BlockPos;
+        let a = DropStats { block_contacts: vec![(BlockPos::new(5, 0, 5), "minecraft:stone".into(), 3, true), (BlockPos::new(1, 2, 3), "minecraft:glass".into(), 4, false)], ..Default::default() };
+        let b = DropStats { block_contacts: vec![(BlockPos::new(5, 0, 5), "minecraft:stone".into(), 2, true)], ..Default::default() };
+        let (line, stale) = declared_hits(&[(5, 0, 5), (9, 17, 5), (5, 0, 5)], &[&a, &b]);
+        assert_eq!(stale, 1, "{line}");
+        assert!(line.contains("(5,0,5) 5,") && line.contains("(9,17,5) 0 (STALE, failing)") && line.contains("over the matrix's 2 runs"), "{line}");
+        let (line, stale) = declared_hits(&[(5, 0, 5)], &[&a]);
+        assert!(stale == 0 && line.contains("0 stale"), "{line}");
     }
 
     /// The golem rate per k (printed): at k = 1 (1 - m, m = (1 - 40..44/289)^10: 77.4..80.8 %) 79 of 100
