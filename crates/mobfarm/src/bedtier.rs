@@ -990,7 +990,10 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
         "a6-pickup: -2,0,4=the pickup cell (the napper's only stand-up cell); stranded bound: no cart at it by the wake edge + 60 gt fails (to restate from these rows)".to_string(),
     ];
     if exit_south {
-        lines.push("contacts: -3,0,4=the bed head's east face (its 0.5625-high box), met flush by the cart's west face at the curve-to-straight hand-off from P (-2,0,4) into (-2,0,5): depth <= 0.01, one tick a visit, x velocity zeroed, 0.103 -> 0.069..0.075 b/t, every cart then at the booster (58f770cc's rows on the shared face_contacts judge, keyed on the contacted block; ironspec Nov 13 07:03 / 09:24)".to_string());
+        lines.push("contacts: -3,0,4=the bed head's east face (its 0.5625-high box), met flush by the cart's west face at the curve-to-straight hand-off from P (-2,0,4) into (-2,0,5): class=design; bounds: ticks<=1 a visit, depth<=0.010 (measured 0.0000), speed out >= 0.040 b/t (measured 0.047..0.075 from 0.070..0.103 in), every cart then at the booster, the bed unchanged across it; rate=296/408 (b38's band, 0.05..0.55 x 8 seeds; 58f770cc's rows on the shared face_contacts judge, keyed on the contacted block; ironspec Nov 13 07:03 / 09:24 / 10:47)".to_string());
+        // (P's two connections are DESIGN-CRITICAL: K (-2,0,3) is a T by rail presence (N, E, S) and
+        // keeps north_east under any source change only while P is full (ironspec 10:47))
+        lines.push("P-integrity (design-critical, ironspec 10:47) -- P (-2,0,4) south_east carries both its connections, (-1,0,4) and (-2,0,5); while it does, K (-2,0,3), a T by rail presence (the activator N, the loop flat E, P S), re-shapes to north_east whatever its power (its connectable arms N and E only); a P with a free connection would let K settle south_east at the torch (-3,0,2)'s next change.".to_string());
     }
     let refs: Vec<&str> = lines.iter().map(|s| s.as_str()).collect();
     Ok(b.text(&refs))
@@ -1418,6 +1421,12 @@ pub struct Faults {
     /// (ironspec 23:56) Bars this run's declared scope excludes (`visits`, `pickups`, `riderless`):
     /// their 0 samples print NOT JUDGED without failing.
     pub scope_excludes: Vec<String>,
+    /// (day-1 10:49) One line per visit: seed, entry speed, release, pickup, rest on the slope,
+    /// departure, R, the hold's wait.
+    pub visit_table: bool,
+    /// (ironspec 10:47) Each declared contact's `rate=k/n` from a band run: STALE fails only when
+    /// (1 - k/n)^N < 0.001 for the run's N visits; a rate-less declaration is always expected.
+    pub contact_rates: Vec<([i32; 3], (u32, u32))>,
     /// ((A), ironspec 00:37 (2b)) F waits for the arming detector's edge + this many gt (the
     /// worst-case braking interval + 3).
     pub arm_delay: i64,
@@ -1633,6 +1642,24 @@ pub fn parse_contacts(text: &str, shift: [i32; 3]) -> Result<Vec<[i32; 3]>, Stri
         }
     }
     Ok(out)
+}
+
+/// (ironspec 10:47) The `rate=k/n` each `# contacts:` declaration carries (from a band run), by cell.
+pub fn parse_contact_rates(text: &str, shift: [i32; 3]) -> Vec<([i32; 3], (u32, u32))> {
+    let mut out = Vec::new();
+    for d in crate::pushscan::header_entries(text, "contacts:") {
+        let Some((cells, reason)) = d.split_once('=') else { continue };
+        let Some(r) = reason.split("rate=").nth(1) else { continue };
+        let r: String = r.chars().take_while(|ch| ch.is_ascii_digit() || *ch == '/').collect();
+        let Some((k, n)) = r.split_once('/').and_then(|(k, n)| Some((k.parse::<u32>().ok()?, n.parse::<u32>().ok()?))) else { continue };
+        for c in cells.split('+') {
+            let v: Vec<i32> = c.split(',').filter_map(|x| x.trim().parse::<i32>().ok()).collect();
+            if let &[x, y, z] = v.as_slice() {
+                out.push(([x - shift[0], y - shift[1], z - shift[2]], (k, n)));
+            }
+        }
+    }
+    out
 }
 
 /// A controller cell set to its on ("redstone_block") or off ("stone") state the way the game
@@ -4444,6 +4471,10 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
                         } else {
                             bad.push(format!("seed {seed} speed {v}: {:?}", r.problems));
                         }
+                        // (day-1 10:49: one line per visit, the hold lead's data)
+                        if base.visit_table {
+                            println!("visit\tseed {seed}\tentry {v}\twoke {:?}\trelease {:?}\tpickup {:?}\trest on the slope {:?}\tdeparted the slope {:?}\tR {:?}\twait on the slope {:?}", r.woke_at, r.release_at, r.pickup.map(|p| p.1), r.hold_rest_at, r.hold_depart_at, r.r_at, r.hold_rest_at.zip(r.hold_depart_at).map(|(a, d)| d - a));
+                        }
                     }
                     Err(e) => {
                         // (a refusal or a run error: printed in every mode, and it fails the run)
@@ -4763,8 +4794,27 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
     }
     // (ironspec 07:47: a declared contact no visit meets is STALE and fails)
     let stale: Vec<[i32; 3]> = base.declared_contacts.iter().copied().filter(|d| !sk.declared_hit.contains(d)).collect();
-    if !stale.is_empty() && tot > 0 && !excluded("contacts-stale") {
-        failed.push(format!("declared contacts no visit met (STALE, ironspec 07:47): {stale:?}"));
+    // (ironspec 10:47: a declaration with `rate=k/n` is judged STALE only when the run's N visits
+    // make a miss improbable: (1 - k/n)^N < 0.001; else "stale not judged"; rate-less: always
+    // expected)
+    for d in &stale {
+        match base.contact_rates.iter().find(|(c, _)| c == d).map(|(_, r)| *r) {
+            Some((k, n)) if n > 0 => {
+                let p_miss = (1.0 - k as f64 / n as f64).powi(tot as i32);
+                if p_miss < 0.001 {
+                    if !excluded("contacts-stale") {
+                        failed.push(format!("the declared contact {d:?} met by no visit of {tot} (rate {k}/{n}: a miss this long has probability {p_miss:.2e} < 0.001: STALE)"));
+                    }
+                } else {
+                    println!("the declared contact {d:?}: stale not judged: {tot} visits too few for rate {k}/{n} (a miss this long has probability {p_miss:.3})");
+                }
+            }
+            _ => {
+                if tot > 0 && !excluded("contacts-stale") {
+                    failed.push(format!("the declared contact {d:?} met by no visit (STALE, ironspec 07:47; it carries no rate=k/n)"));
+                }
+            }
+        }
     }
     if speed_failed {
         failed.push("a speed with visits that never reached R".into());
