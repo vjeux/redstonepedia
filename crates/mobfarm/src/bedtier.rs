@@ -1523,8 +1523,9 @@ pub fn shift_spec(spec: &FarmSpec, d: [i32; 3]) -> FarmSpec {
 /// presence to the floor opening and the park's release.
 pub const ABORT_LOGIC_GT: i64 = 4;
 
-fn block(s: &str) -> Block {
-    Block::parse(&format!("minecraft:{s}")).expect("a known block")
+fn block(s: &str) -> Result<Block, String> {
+    // (G1 10:13: a state that doesn't parse is a named error, never a panic)
+    Block::parse(&format!("minecraft:{s}")).map_err(|e| format!("the block state {s:?} doesn't parse: {e}"))
 }
 
 /// A controller cell's block for the bench's on ("redstone_block") and off ("stone") (A5): a lever
@@ -1639,7 +1640,14 @@ pub fn parse_contacts(text: &str, shift: [i32; 3]) -> Result<Vec<[i32; 3]>, Stri
 /// written raw.
 pub fn ctl_set(w: &mut World, c: [i32; 3], st: &str) {
     let p = BlockPos::new(c[0], c[1], c[2]);
-    let want = block(&ctl_block(c, st));
+    let want = match block(&ctl_block(c, st)) {
+        Ok(b) => b,
+        Err(e) => {
+            // (a named error the row reports from the world's errors, never a panic)
+            w.errors.push(e);
+            return;
+        }
+    };
     let cur = w.get(p);
     if cur == want {
         return;
@@ -1921,11 +1929,11 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             continue;
         }
         for st in ["redstone_block", "stone"] {
-            emulated_write_check(&run.world, BlockPos::new(c[0], c[1], c[2]), &block(&ctl_block(c, st)), &f.declared_emulated)?;
+            emulated_write_check(&run.world, BlockPos::new(c[0], c[1], c[2]), &block(&ctl_block(c, st))?, &f.declared_emulated)?;
         }
         // (the reach half: the built lever's own power reach is the target set)
         let p = BlockPos::new(c[0], c[1], c[2]);
-        let on = block(&ctl_block(c, "redstone_block"));
+        let on = block(&ctl_block(c, "redstone_block"))?;
         let built = standin_reach(&run.world, p, &run.world.get(p))?.1;
         row.standin.push(standin_reach_check(&run.world, p, &on, &built, &f.declared_emulated)?);
     }
@@ -1944,24 +1952,24 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
         let rep = format!("repeater[delay=1,facing={facing},locked=false,powered=false]");
         let lev = format!("lever[face=floor,facing={facing},powered=true]");
         for c in &cells {
-            emulated_write_check(&run.world, BlockPos::new(c[0], c[1], c[2]), &block(&rep), &f.declared_emulated)?;
+            emulated_write_check(&run.world, BlockPos::new(c[0], c[1], c[2]), &block(&rep)?, &f.declared_emulated)?;
         }
-        emulated_write_check(&run.world, BlockPos::new(driver[0], driver[1], driver[2]), &block(&lev), &f.declared_emulated)?;
+        emulated_write_check(&run.world, BlockPos::new(driver[0], driver[1], driver[2]), &block(&lev)?, &f.declared_emulated)?;
         for c in cells.iter().chain([driver].iter()) {
-            run.world.set_block(BlockPos::new(c[0], c[1] - 1, c[2]), block("glass"), redsim::world::flags::ALL);
+            run.world.set_block(BlockPos::new(c[0], c[1] - 1, c[2]), block("glass")?, redsim::world::flags::ALL);
         }
         for c in &cells {
-            run.world.set_block(BlockPos::new(c[0], c[1], c[2]), block(&rep), redsim::world::flags::ALL);
+            run.world.set_block(BlockPos::new(c[0], c[1], c[2]), block(&rep)?, redsim::world::flags::ALL);
         }
-        run.world.set_block(BlockPos::new(driver[0], driver[1], driver[2]), block(&format!("lever[face=floor,facing={facing},powered=false]")), redsim::world::flags::ALL);
+        run.world.set_block(BlockPos::new(driver[0], driver[1], driver[2]), block(&format!("lever[face=floor,facing={facing},powered=false]"))?, redsim::world::flags::ALL);
         // (the reach half: the driver's power reaches only the back repeater, each repeater only
         // the next one, the front one only the queue's rail; no undeclared rail T in their updates)
         let rail = BlockPos::new(a.seat[0].floor() as i32, a.seat[1].floor() as i32, a.seat[2].floor() as i32);
         let bp = |c: [i32; 3]| BlockPos::new(c[0], c[1], c[2]);
-        row.standin.push(standin_reach_check(&run.world, bp(driver), &block(&lev), &[bp(cells[1])], &f.declared_emulated)?);
+        row.standin.push(standin_reach_check(&run.world, bp(driver), &block(&lev)?, &[bp(cells[1])], &f.declared_emulated)?);
         let rep_on = format!("repeater[delay=1,facing={facing},locked=false,powered=true]");
-        row.standin.push(standin_reach_check(&run.world, bp(cells[1]), &block(&rep_on), &[bp(cells[0])], &f.declared_emulated)?);
-        row.standin.push(standin_reach_check(&run.world, bp(cells[0]), &block(&rep_on), &[rail], &f.declared_emulated)?);
+        row.standin.push(standin_reach_check(&run.world, bp(cells[1]), &block(&rep_on)?, &[bp(cells[0])], &f.declared_emulated)?);
+        row.standin.push(standin_reach_check(&run.world, bp(cells[0]), &block(&rep_on)?, &[rail], &f.declared_emulated)?);
     }
     // (ironspec 20:31 (4b), the guard's sixth property: survival: every laid block and every
     // stand-in survives where it stands, no rail pops)
@@ -1982,7 +1990,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
     // glass), laid as its own bench lays them; each must survive where it stands)
     for (c, st) in &f.lay_emulated {
         let p = BlockPos::new(c[0], c[1], c[2]);
-        let (before, after) = (run.world.get(p), block(st));
+        let (before, after) = (run.world.get(p), block(st)?);
         // (ironspec 04:07: an override that doesn't change its cell fails the run)
         if before == after {
             return Err(format!("the emulated cell ({},{},{}) already holds {before}: an override that changes nothing fails the run (ironspec 04:07)", c[0], c[1], c[2]));
@@ -2123,7 +2131,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                 }
             } else {
                 let (_, driver, facing) = release_cells(&a);
-                run.world.set_block(BlockPos::new(driver[0], driver[1], driver[2]), block(&format!("lever[face=floor,facing={facing},powered=true]")), redsim::world::flags::ALL);
+                run.world.set_block(BlockPos::new(driver[0], driver[1], driver[2]), block(&format!("lever[face=floor,facing={facing},powered=true]"))?, redsim::world::flags::ALL);
             }
         }
         // (record7's NOT-ready ON again from the departure: once the cart has left the seat's cell)
@@ -2376,7 +2384,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
         for (p, at, st) in &f.pulses {
             if *at == t {
                 let old = run.world.get(*p);
-                let new = block(st);
+                let new = block(st)?;
                 // (ironspec 04:07: an override that doesn't change its cell fails the run)
                 if old == new {
                     return Err(format!("--pulse-cell ({},{},{}) at t {t}: the cell already holds {old} (an override that changes nothing fails the run, ironspec 04:07)", p.x, p.y, p.z));
@@ -2512,7 +2520,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                     let mut w2 = w.clone();
                     let sh = BlockPos::new(WAKER_SHUT[0], WAKER_SHUT[1], WAKER_SHUT[2]);
                     let open_state = format!("{}", w2.get(sh)).replace("open=true", "open=false").replace("powered=true", "powered=false");
-                    w2.set_block(sh, block(open_state.trim_start_matches("minecraft:")), 0);
+                    w2.set_block(sh, block(open_state.trim_start_matches("minecraft:"))?, 0);
                     let open = redsim::entity::mob::los::first_hit(&w2, ve, ze);
                     let name = |h: Option<BlockPos>, ww: &World| h.map_or("CLEAR".to_string(), |p| format!("blocked at ({},{},{}) {}", p.x, p.y, p.z, ww.get(p)));
                     row.hold_lines.push(format!("t {t}: the loaded cart at rest on the slope at ({:.3},{:.3},{:.3}); the rider's feet {dist:.2} from the waker's; its eye ({:.2},{:.2},{:.2}) to the waker's eye: shutter as now {}; shutter open (F's state, on a copy) {}", c.pos.x, c.pos.y, c.pos.z, ve.x, ve.y, ve.z, name(shut, w), name(open, &w2)));
@@ -3307,7 +3315,7 @@ pub fn two_visit_bench(spec: &FarmSpec, seed: u64, speed: f64, o: &TwoOpts) -> R
     }
     for c in [HATCH_CTRL, HATCH_CTRL_HI, act_ctrl].into_iter().chain(PARK_CTRL) {
         for st in ["redstone_block", "stone"] {
-            emulated_write_check(&run.world, BlockPos::new(c[0], c[1], c[2]), &block(&ctl_block(c, st)), &[])?;
+            emulated_write_check(&run.world, BlockPos::new(c[0], c[1], c[2]), &block(&ctl_block(c, st))?, &[])?;
         }
     }
     // (ironspec 20:31 (4b): survival: every laid block survives where it stands, no rail pops)
@@ -3766,7 +3774,7 @@ pub fn waker_lines(spec: &FarmSpec) -> Result<Vec<String>, String> {
     let mut out = Vec::new();
     for (state, ctrl) in [("hiding (its trapdoors open)", "redstone_block"), ("showing (its trapdoors shut: F)", "stone")] {
         for c in [HATCH_CTRL, HATCH_CTRL_HI] {
-            run.world.set_block(BlockPos::new(c[0], c[1], c[2]), block(&ctl_block(c, ctrl)), redsim::world::flags::ALL);
+            run.world.set_block(BlockPos::new(c[0], c[1], c[2]), block(&ctl_block(c, ctrl))?, redsim::world::flags::ALL);
         }
         for _ in 0..4 {
             run.tick();
