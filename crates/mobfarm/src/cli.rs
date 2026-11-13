@@ -6732,6 +6732,8 @@ pub fn voxel_stops() -> u64 {
 }
 
 pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
+    // (every mobfarm command's design reads run the declaration keys' near-miss check, ironspec 06:21 (c))
+    crate::declkeys::register();
     match cmd {
         MobfarmCmd::Gen { layout, pits, pad, floor, villagers, grid, modules, pitch, regular, dx, dz, gap, period, hide, kill, access, tier, out } => {
             let (text, how) = match layout.as_str() {
@@ -12453,6 +12455,12 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             list("unsettled", &s.other);
             list("can't survive", &s.unsupported);
             list("against its neighbour signal", &s.update_states);
+            for p in &s.currents_undeclared {
+                println!("  undeclared current ({},{},{}): stored {}", p.x, p.y, p.z, blocks.iter().find(|(q, _)| q == p).map_or(String::new(), |(_, b)| b.to_string()));
+            }
+            for p in &s.pending_away {
+                println!("  pending at the cap, away from every declared clock: {p}");
+            }
             for e in &s.fluid_escapes {
                 println!("  fluid falls out of the compared box at {e}");
             }
@@ -12539,10 +12547,19 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 anyhow::bail!("{}: the bench's world box is required (a `# world box: x0,y0,z0..x1,y1,z1` header line, or --box x0,y0,z0,x1,y1,z1): it is never inferred from the cells (ironspec 22:37 (a))", bench.display());
             };
             let (lo, hi) = ([lo[0] - margin, lo[1] - margin, lo[2] - margin], [hi[0] + margin, hi[1] + margin, hi[2] + margin]);
-            let ents = |d: &mctas::design::Design| -> Vec<crate::recordmatch::Ent> {
-                d.entities.iter().map(|e| crate::recordmatch::Ent { kind: e.kind.clone(), pos: e.pos, passengers: e.nbt.as_deref().map(crate::recordmatch::passengers_of_nbt).unwrap_or_default() }).collect()
+            let ents = |d: &mctas::design::Design| -> anyhow::Result<Vec<crate::recordmatch::Ent>> {
+                d.entities
+                    .iter()
+                    .map(|e| -> anyhow::Result<crate::recordmatch::Ent> {
+                        let passengers = match e.nbt.as_deref() {
+                            Some(n) => crate::recordmatch::passengers_of_nbt(n).map_err(|why| anyhow::anyhow!("{} at {:?}: {why}", e.kind, e.pos))?,
+                            None => Vec::new(),
+                        };
+                        Ok(crate::recordmatch::Ent { kind: e.kind.clone(), pos: e.pos, passengers })
+                    })
+                    .collect()
             };
-            let m = crate::recordmatch::compare(&b.blocks, &ents(&b), &r.blocks, &ents(&r), [offset[0], offset[1], offset[2]], lo, hi, &format!("{src} + a {margin}-cell margin"), &declared, &record.display().to_string());
+            let m = crate::recordmatch::compare(&b.blocks, &ents(&b)?, &r.blocks, &ents(&r)?, [offset[0], offset[1], offset[2]], lo, hi, &format!("{src} + a {margin}-cell margin"), &declared, &record.display().to_string());
             println!("{}", m.line());
             if all {
                 for d in &m.diffs {

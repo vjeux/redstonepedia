@@ -71,19 +71,12 @@ pub fn declared(text: &str) -> Result<Declared, String> {
         }
         Ok(BlockPos::new(n[0], n[1], n[2]))
     };
+    crate::declkeys::check(text)?;
     for line in text.lines() {
         let l = line.trim();
         // (G1 on 9625147af: a declaration a reader would skip is a hole, so a near-miss of a declaration key
-        // (`#water:`, `# Water :`, …) is an error, never a silent comment)
-        if let Some(body) = l.strip_prefix('#')
-            && let Some((key, _)) = body.split_once(':')
-        {
-            let k = key.trim().to_ascii_lowercase();
-            const KEYS: [&str; 11] = ["clock", "water", "held", "shape", "day-time", "stand-in", "stand-in-guard", "candidate", "bench-entity", "out-of-scope", "bench-removed"];
-            if KEYS.contains(&k.as_str()) && !l.starts_with(&format!("# {k}:")) {
-                return Err(format!("{l:?}: a declaration reads `# {k}:` exactly (lower case, one space after the `#`, none before the colon): as written no reader would take it"));
-            }
-        }
+        // (`#water:`, `# Water :`, …) is an error, never a silent comment: the shared check over every
+        // tool's keys, `declkeys::check`, run once before this loop)
         if let Some(rest) = l.strip_prefix("# clock:") {
             let (cells, why) = rest.split_once('=').ok_or_else(|| format!("{l:?}: give `# clock: x,y,z; x,y,z = REASON`"))?;
             let why = why.trim();
@@ -209,6 +202,10 @@ pub struct Settle {
     /// With no fixed point at the cap: what `World::idle` still saw pending there (scheduled ticks, fluid
     /// ticks, block events, moving pistons, falling blocks), each with its count where it has one.
     pub pending_at_cap: Vec<String>,
+    /// With no fixed point at the cap: the pending work no declared clock accounts for (ironspec 06:21 (a)):
+    /// each falling block in flight, each block event at a cell no `# clock:` names, each moving block whose
+    /// piston (back along its motion, within 13) is no declared clock cell. Failing even with clocks declared.
+    pub pending_away: Vec<String>,
     /// With no fixed point at the cap (or after the observers' kick): the cells that changed in the run's
     /// second half or hold a pending tick at the cap, declared `# clock:` (with each one's period: the
     /// interval its state recurs at) and not (failing: "no fixed point within the cap").
@@ -241,6 +238,8 @@ pub struct Settle {
     pub currents: Vec<(BlockPos, String)>,
     pub currents_missing: Vec<BlockPos>,
     pub currents_unbounded: Vec<(BlockPos, BlockPos, String)>,
+    /// Stored currents (flowing or falling water cells) no `# water:` names (ironspec 06:21 (b)): failing.
+    pub currents_undeclared: Vec<BlockPos>,
     /// Walls and stairs: no shape update in redsim, unchecked.
     pub unchecked: Vec<Cell>,
     /// Time-dependent blocks (daylight detectors) in a file with no `# day-time:` (ironspec 02:37 (4)):
@@ -296,6 +295,9 @@ impl Settle {
         // a falling block in flight or a block event, still fails)
         if !self.fixed && self.ticks > 0 && self.clock_declared.is_empty() && self.clock_undeclared.is_empty() {
             v.push(format!("no fixed point within the cap: pending work not tied to a cell ({})", if self.pending_at_cap.is_empty() { "nothing idle() names".to_string() } else { self.pending_at_cap.join(", ") }));
+        } else if !self.fixed && !self.pending_away.is_empty() {
+            // (ironspec 06:21 (a): a declared clock no longer masks pending work away from it)
+            v.push(format!("no fixed point within the cap: {} pending works away from every declared clock cell ({})", self.pending_away.len(), self.pending_away.iter().take(6).cloned().collect::<Vec<_>>().join("; ")));
         }
         if !self.clock_undeclared.is_empty() {
             v.push(format!(
@@ -336,6 +338,13 @@ impl Settle {
                 "{} new fluid cells after the settle ({} named in `# water:`): a saved-settled file holds its water, so re-save it with --write (ironspec 01:07 (b))",
                 self.water_undeclared.len() + self.water_declared.len(),
                 self.water_declared.len()
+            ));
+        }
+        if !self.currents_undeclared.is_empty() {
+            v.push(format!(
+                "{} stored currents (flowing or falling water) no `# water:` names ({}): a design's current is declared, so its boundedness is checked (ironspec 06:21 (b))",
+                self.currents_undeclared.len(),
+                cells(&self.currents_undeclared)
             ));
         }
         if !self.currents_missing.is_empty() {
@@ -608,6 +617,30 @@ pub fn settle_check(blocks: &[(BlockPos, Block)], block_entities: &[(BlockPos, S
             p.push("falling blocks".to_string());
         }
         s.pending_at_cap = p;
+        // (the pending work no declared clock accounts for, ironspec 06:21 (a))
+        let mut away = Vec::new();
+        for e in w.gravity.entities.iter().filter(|e| !e.removed) {
+            away.push(format!("a falling {} at ({:.2},{:.2},{:.2})", e.block, e.x, e.y, e.z));
+        }
+        for e in w.events.iter() {
+            if !declared_cells.contains(&e.pos) {
+                away.push(format!("a block event at ({},{},{})", e.pos.x, e.pos.y, e.pos.z));
+            }
+        }
+        for (p, be) in w.piston.all() {
+            let back = be.direction.opposite();
+            let from_clock = (0..=13).any(|k| {
+                let mut q = p;
+                for _ in 0..k {
+                    q = q.rel(back);
+                }
+                declared_cells.contains(&q)
+            });
+            if !from_clock {
+                away.push(format!("a moving block at ({},{},{})", p.x, p.y, p.z));
+            }
+        }
+        s.pending_away = away;
     }
     // (ironspec 02:37 (4): a block whose state follows the day time (a daylight detector) is saved at its
     // file's day time, which the file declares (`# day-time:`); with none it fails)
@@ -800,6 +833,9 @@ pub fn settle_check(blocks: &[(BlockPos, Block)], block_entities: &[(BlockPos, S
                 Some((iron, open, powered, w.has_neighbor_signal(*p) || w.has_neighbor_signal(other), "door"))
             }
             Block::Trapdoor { iron, open, powered, .. } => Some((iron, open, powered, w.has_neighbor_signal(*p), "trapdoor")),
+            // (redsim's Door / Trapdoor are the iron and oak sets, `iron` the iron set only (block.rs's parse);
+            // any other set, copper or another wood, is no block redsim models, so settle-check refuses its file
+            // rather than leaving the rule unchecked (ironspec 05:13 real (1)))
             _ => None,
         };
         if let Some((iron, open, powered, signal, class)) = gate
@@ -824,6 +860,12 @@ pub fn settle_check(blocks: &[(BlockPos, Block)], block_entities: &[(BlockPos, S
     // (the designed currents, ironspec 01:07 (c): each `# water:` cell the file holds as fluid, bounded
     // in the saved design: no neighbour below or beside it that is air, washed away by fluids or a dry
     // waterloggable block, so its spread stays blocked)
+    // (and every stored current, a flowing or falling water cell, is declared (ironspec 06:21 (b)): a
+    // mistyped key can't skip a current's boundedness check)
+    let declared_water: std::collections::HashSet<BlockPos> = decl.water.iter().map(|(p, _)| *p).collect();
+    let mut undeclared_currents: Vec<BlockPos> = stored.iter().filter(|(p, b)| matches!(b, Block::Water { level } if *level >= 1) && !declared_water.contains(*p)).map(|(p, _)| *p).collect();
+    undeclared_currents.sort();
+    s.currents_undeclared = undeclared_currents;
     for (p, why) in &decl.water {
         let st = stored.get(p).copied().unwrap_or(air);
         let is_fluid = |b: &Block| !matches!(redsim::fluid::fluid_state_of(b).fluid, redsim::fluid::Fluid::Empty);
@@ -935,6 +977,15 @@ mod tests {
         let decl = declared("# clock: 0,0,0; 1,0,0; 1,0,1; 1,0,2; 0,0,2; -1,0,2; -1,0,1; -1,0,0 = the repeater ring's pulse\n").unwrap();
         let s = check(&ring, &decl);
         assert!(s.clock_undeclared.is_empty() && !s.clock_declared.is_empty() && s.fails(false).is_empty(), "{:?} {:?} {:?}", s.clock_undeclared, s.fails(false), s.redstone);
+        // (ironspec 06:21 (a): a declared clock no longer masks pending work away from it: the same declared
+        // ring with a sand block 60 up, still falling at a cap of 30, fails on it; the ring alone at that cap
+        // passes)
+        let s = settle_check(&ring, &[], &[], &decl, 6000, 30).unwrap();
+        assert!(!s.fixed && s.pending_away.is_empty() && s.fails(false).is_empty(), "{:?} {:?}", s.pending_away, s.fails(false));
+        let mut sand = ring.clone();
+        sand.push(at(-2, 60, -2, "minecraft:sand"));
+        let s = settle_check(&sand, &[], &[], &decl, 6000, 30).unwrap();
+        assert!(s.pending_away.iter().any(|p| p.starts_with("a falling minecraft:sand")) && s.fails(false).iter().any(|f| f.contains("pending works away from every declared clock cell")), "{:?} {:?}", s.pending_away, s.fails(false));
     }
 
     /// Two observers facing each other: a clock the judges' placement never starts (it runs no observer's
@@ -1042,6 +1093,26 @@ mod tests {
         assert!(saved.iter().any(|(p, b)| *p == BlockPos::new(1, 0, 0) && !matches!(redsim::fluid::fluid_state_of(b).fluid, redsim::fluid::Fluid::Empty)));
         let s = check(&saved, &decl);
         assert!(s.water_undeclared.is_empty() && s.water_declared.is_empty() && s.currents.len() == 1 && s.currents_unbounded.is_empty() && s.fails(false).is_empty(), "{:?} {:?} {:?}", s.currents, s.currents_unbounded, s.fails(false));
+        // (ironspec 06:21 (b): the saved current undeclared fails, and so does it under an unknown key no reader
+        // takes (`# currents:`); a key one letter off a known one (`# watr:`) is refused by the shared check)
+        let s = check(&saved, &Declared::default());
+        assert!(s.currents_undeclared == vec![BlockPos::new(1, 0, 0)] && s.fails(false).iter().any(|f| f.contains("stored currents (flowing or falling water) no `# water:` names")), "{:?} {:?}", s.currents_undeclared, s.fails(false));
+        let typo = declared("# currents: 1,0,0=the trough's current\n").unwrap();
+        assert_eq!(check(&saved, &typo).currents_undeclared, vec![BlockPos::new(1, 0, 0)]);
+        assert!(declared("# watr: 1,0,0=the trough's current\n").is_err());
+        // (ironspec 05:40 real: a current is a water cell with level > 0 (falling included); sources,
+        // waterlogged blocks and bubble columns aren't: a walled bubble-column lift and a waterlogged rail pass
+        // undeclared)
+        let mut lift = floor(3);
+        lift.extend([at(0, 0, 0, "minecraft:soul_sand"), at(0, 1, 0, "minecraft:bubble_column[drag=false]"), at(0, 2, 0, "minecraft:bubble_column[drag=false]"), at(0, 3, 0, "minecraft:stone")]);
+        for y in 0..=3 {
+            for (x, z) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
+                lift.push(at(x, y, z, "minecraft:glass"));
+            }
+        }
+        lift.extend([at(2, 0, 2, "minecraft:rail[shape=north_south,waterlogged=true]"), at(2, 0, 1, "minecraft:stone"), at(2, 0, 3, "minecraft:stone"), at(1, 0, 2, "minecraft:stone"), at(3, 0, 2, "minecraft:stone")]);
+        let s = check(&lift, &Declared::default());
+        assert!(s.currents_undeclared.is_empty() && !s.fails(false).iter().any(|f| f.contains("stored currents")), "{:?} {:?}", s.currents_undeclared, s.fails(false));
         let open: Vec<(BlockPos, Block)> = saved.iter().filter(|(p, _)| *p != BlockPos::new(2, 0, 0)).copied().collect();
         let s = check(&open, &decl);
         assert!(s.currents_unbounded.iter().any(|(p, q, _)| *p == BlockPos::new(1, 0, 0) && *q == BlockPos::new(2, 0, 0)), "{:?}", s.currents_unbounded);
@@ -1313,6 +1384,11 @@ mod tests {
         oakp.push(at(0, 0, 0, "minecraft:oak_trapdoor[facing=north,half=bottom,open=false,powered=true,waterlogged=false]"));
         let s = check(&oakp, &Declared::default());
         assert!(s.update_states.iter().any(|c| c.pos == BlockPos::new(0, 0, 0)), "{:?}", s.update_states);
+        // (the copper set, like every set but iron and oak, is no block redsim models: settle-check's laying
+        // refuses it, ironspec 05:13 real (1))
+        for state in ["minecraft:copper_trapdoor[facing=north,half=bottom,open=false,powered=true,waterlogged=false]", "minecraft:copper_door[facing=north,half=lower,hinge=left,open=false,powered=true]"] {
+            assert!(block_of(state).is_err(), "{state} refused, not judged");
+        }
     }
 
     /// A file's entity carrying a passenger in its NBT lays as two entities, both held: the settle keeps that
