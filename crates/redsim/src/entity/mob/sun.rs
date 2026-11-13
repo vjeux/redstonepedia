@@ -77,7 +77,80 @@ pub fn modeled_emission(b: &Block) -> i32 {
             S::Glowstone | S::SeaLantern | S::Shroomlight => 15,
             S::CryingObsidian => 10,
             S::MagmaBlock => 3,
-            _ => 0,
+            // (every other one named: a new Simple variant must say its light, G1 14:55 C1-H1)
+            S::Stone
+            | S::SmoothStone
+            | S::Cobblestone
+            | S::Obsidian
+            | S::Glass
+            | S::TintedGlass
+            | S::WhiteWool
+            | S::OakPlanks
+            | S::GoldBlock
+            | S::IronBlock
+            | S::Clay
+            | S::EmeraldBlock
+            | S::PackedIce
+            | S::SoulSand
+            | S::SlimeBlock
+            | S::HoneyBlock
+            | S::WaxedCopperGrate
+            | S::Granite
+            | S::PolishedGranite
+            | S::Diorite
+            | S::Andesite
+            | S::MossyCobblestone
+            | S::StoneBricks
+            | S::Tuff
+            | S::Calcite
+            | S::Bricks
+            | S::Sandstone
+            | S::NetherBricks
+            | S::EndStone
+            | S::Blackstone
+            | S::QuartzBlock
+            | S::Prismarine
+            | S::PurpurBlock
+            | S::Terracotta
+            | S::CoalBlock
+            | S::RawIronBlock
+            | S::MudBricks
+            | S::WhiteConcrete
+            | S::BlackConcrete
+            | S::DiamondBlock
+            | S::LapisBlock
+            | S::NetheriteBlock
+            | S::SoulSoil
+            | S::DriedKelpBlock
+            | S::NetherWartBlock
+            | S::WarpedWartBlock
+            | S::AmethystBlock
+            | S::Bookshelf
+            | S::CraftingTable
+            | S::SprucePlanks
+            | S::OrangeWool
+            | S::BlackWool
+            | S::Pumpkin
+            | S::WhiteStainedGlass
+            | S::BlackStainedGlass
+            | S::Mud
+            | S::Dirt
+            | S::GrassBlock
+            | S::Bedrock
+            | S::MagentaWool
+            | S::LightBlueWool
+            | S::YellowWool
+            | S::LimeWool
+            | S::PinkWool
+            | S::GrayWool
+            | S::LightGrayWool
+            | S::CyanWool
+            | S::PurpleWool
+            | S::BlueWool
+            | S::BrownWool
+            | S::GreenWool
+            | S::RedWool
+            | S::Melon => 0,
         },
         Block::Torch { lit } | Block::WallTorch { lit, .. } => {
             if lit {
@@ -101,7 +174,15 @@ pub fn modeled_emission(b: &Block) -> i32 {
             (true, Oxid::Oxidized) => 4,
         },
         Block::EndPortalFrame { .. } => 1,
-        Block::RespawnAnchor { charges } => [0, 3, 7, 11, 15][charges.min(4) as usize],
+        Block::RespawnAnchor { charges } => match charges {
+            0 => 0,
+            1 => 3,
+            2 => 7,
+            3 => 11,
+            4 => 15,
+            // (refused, not clamped: G1 14:55 C1-H2; the parser admits 0..=4)
+            _ => panic!("a respawn anchor with {charges} charges (the game's are 0..=4)"),
+        },
         Block::Sculk { .. } => 1,
         Block::Lantern { .. } | Block::JackOLantern { .. } | Block::Froglight { .. } => 15,
         Block::SoulLantern { .. } => 10,
@@ -349,6 +430,35 @@ mod tests {
         // in rain at noon the open sky gives 15 - 3 = 12 (a mob under glass can burn), thunder 10
         assert_eq!(crate::weather::sky_darken_at(6000, 1.0, 0.0), 3);
         assert_eq!(crate::weather::sky_darken_at(6000, 1.0, 1.0), 5);
+    }
+
+    /// (cc767b78, G1 14:55 C1-H3) The table's emission through a real path: a zombie's sunburn
+    /// brightness (`raw_brightness` at its eye) in a land-less world under the open sky in a
+    /// thunderstorm (the sky's light darkened under the burn's 12): with no light source, under 12;
+    /// with a plain torch one step from the eye cell (14, which the old hand list lacked and read as 0),
+    /// 13, over 0.5 in the burn's curve; a lit redstone torch there (7) leaves it under 12.
+    #[test]
+    fn a_torch_lifts_the_sunburn_brightness() {
+        let mut w = World::new(BlockPos::new(-6, -2, -6), [13, 8, 13]);
+        let stone = Block::parse("stone").unwrap();
+        for x in -4..=4 {
+            for z in -4..=4 {
+                w.set_block(BlockPos::new(x, 0, z), stone, crate::world::flags::ALL);
+            }
+        }
+        w.weather.on = true;
+        (w.weather.o_rain_level, w.weather.rain_level, w.weather.o_thunder_level, w.weather.thunder_level) = (1.0, 1.0, 1.0, 1.0);
+        let eye = BlockPos::new(0, 2, 0);
+        let without = raw_brightness(&w, eye).unwrap();
+        assert!(without < 12, "the thunderstorm's sky alone: {without}");
+        assert!(magic_value(without) <= 0.5);
+        let beside = BlockPos::new(1, 2, 0);
+        w.place_raw(&[(beside, Block::parse("redstone_torch[lit=true]").unwrap())]);
+        let redstone = raw_brightness(&w, eye).unwrap();
+        assert!(redstone < 12, "a lit redstone torch (7) beside it: {redstone}");
+        w.place_raw(&[(beside, Block::parse("torch").unwrap())]);
+        assert_eq!(raw_brightness(&w, eye), Ok(13), "a torch (14) one step away");
+        assert!(magic_value(13) > 0.5, "over the burn's 0.5");
     }
 
     /// (cc767b78, G1 12:07 / 12:38, ironspec 12:54) Every emitter's light from the game's block table,

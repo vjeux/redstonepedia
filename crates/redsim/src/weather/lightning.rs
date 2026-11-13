@@ -736,14 +736,9 @@ fn spawn_fire(w: &mut World, k: usize, additional: i32) {
     }
 }
 
-/// Rain reaches block `p` (`isRainingAt` while it rains: no motion-blocking block above, sky
-/// light 15, plains).
-fn rain_reaches(w: &World, p: BlockPos) -> bool {
-    motion_blocking_height(w, p.x, p.z) <= p.y && w.sees_or(can_see_sky(w, p), false)
-}
-
-/// [`rain_reaches`] where the sky must be decided (the card's measure): an undecidable sky is an
-/// error, never "no rain".
+/// Rain reaches block `p` (`isRainingAt` while it rains: no motion-blocking block above, sky light
+/// 15, plains), the sky decided: an undecidable sky is an error, never "no rain" (cc767b78, G1 14:55
+/// H2: the fail-open form, `sees_or(.., false)`, is gone).
 fn rain_reaches_strict(w: &World, p: BlockPos) -> Result<bool, String> {
     if motion_blocking_height(w, p.x, p.z) > p.y {
         return Ok(false);
@@ -855,8 +850,15 @@ pub fn static_check(w: &World, golem_cells: &[BlockPos], drop_cells: &[BlockPos]
         }
     };
     for (b, why, rod) in &bolts {
-        if !rain_reaches(w, *b) {
-            continue;
+        // (cc767b78, G1 14:55 H2) an undecidable sky at the bolt's block fails the check: read as "no
+        // rain" it would skip the bolt (fail open)
+        match rain_reaches_strict(w, *b) {
+            Ok(true) => {}
+            Ok(false) => continue,
+            Err(e) => {
+                fail(format!("{e} (a strike there, {why}, can't be judged)"));
+                continue;
+            }
         }
         let bolt = Vec3::new(b.x as f64 + 0.5, b.y as f64, b.z as f64 + 0.5);
         let hit = hit_box_at(bolt);
@@ -896,6 +898,11 @@ pub fn static_check(w: &World, golem_cells: &[BlockPos], drop_cells: &[BlockPos]
             fail(format!("lightning: {why}: a skeleton trap horse can spawn on the farm at {b} (its walking is not modeled; a lightning rod topping its column within 128 blocks takes every strike and prevents traps)"));
         }
     }
+    // (cc767b78, G1 14:55 H2) any other light read the check needed that failed (the golems' and the
+    // statics' sky, the fire spread's rain test): each a failure, listed first (the cap of 8 never cuts
+    // them)
+    let light: Vec<String> = w.take_light_errors().into_iter().map(|e| format!("lightning: a light read failed (pending since the world's last tick or take: it may predate this check): {e}")).collect();
+    out.splice(0..0, light);
     out
 }
 
@@ -1311,6 +1318,12 @@ pub fn measure_own(w: &World, golems: &[(BlockPos, f64)], iron: &[(BlockPos, f64
         }
     }
     m.natural_in_reach = reach.natural.iter().filter(|p| !reach.own.contains(p)).count() as u32;
+    // (cc767b78, G1 14:55 H2) a light read the measure's fire reach needed that failed: the measure is
+    // refused (the fire spread's rain test records them; pending since the world's last tick or take)
+    let errors = w.take_light_errors();
+    if !errors.is_empty() {
+        return Err(format!("lightning: {} light read(s) failed (pending since the world's last tick or take: some may predate this measure): {}", errors.len(), errors.join("; ")));
+    }
     Ok(m)
 }
 

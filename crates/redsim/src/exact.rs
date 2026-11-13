@@ -352,6 +352,10 @@ pub struct Compare {
     /// own name ("level random", "villager pos", ...). The others are still printed as gaps of
     /// their kind, never as the first difference.
     pub only: Vec<String>,
+    /// (cc767b78, ironspec / G1 14:57) redsim's model errors at the compare's end (`World::errors` and
+    /// the light reads still pending): a recording whose replay has any is not exact, whatever the
+    /// state comparison found.
+    pub model_errors: Vec<String>,
 }
 
 /// The kind of a difference's category, for [`Compare::only`].
