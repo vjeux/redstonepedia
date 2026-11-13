@@ -520,8 +520,13 @@ with `weather::sky_darken_at`, against tick-exact's official falls 12,230 / 11,6
 carts against the first release's) is a bar (<= 1, ironspec 02:18 PT), printed with the free
 caller's margin at the lane's least occupancy ((carts + 1) x 100 - 32 - 599, bar >= 3). The
 bystander bar is the harm (ironspec 02:37 PT): every stamp on a rider out of its pocket printed with
-its stamping summoner, and each stamped rider's margin at its next own-pocket summon (bar >= 3); the
-successful summons print by the caller's place (pocket riders, hold riders: expected 0, elsewhere).
+its trip, its stamping summoner and the stamped rider's margin at its next own-pocket summon, and
+the bar is every napper's first call back in its lane, its memory (whatever its source) cleared with
+the free caller's margin (>= 3); the successful summons print by the caller's place (pocket riders,
+hold riders: expected 0, elsewhere). The run starts in the design start (i), every villager's HOME
+a memory and the bed's single ticket free (ironspec 06:38 PT); `--bed-ticket-taken` is state (ii),
+the ticket taken by the bench. Each night prints ValidateNearbyPoi's 16-block exposure: the villagers
+in REST within 16 of the bed while someone sleeps in it (bar 0).
 The one-in-flight bars run from the divert (a pick the divert turns away never enters the way-in;
 those print apart with their causes). SIGHT prints its crossings by ray class (each entity by its
 label or mob type).
