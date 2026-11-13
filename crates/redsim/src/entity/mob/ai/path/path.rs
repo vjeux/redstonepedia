@@ -48,12 +48,10 @@ pub struct Path {
     pub uid: u64,
 }
 
-static NEXT_UID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
-
 impl Path {
-    pub fn new(nodes: Vec<PathNode>, target: BlockPos, reached: bool) -> Path {
+    /// A path found by the finder, its identity `uid` drawn from its world ([`World::next_path_uid`]).
+    pub fn new(nodes: Vec<PathNode>, target: BlockPos, reached: bool, uid: u64) -> Path {
         let dist_to_target = nodes.last().map(|n| n.distance_manhattan(target)).unwrap_or(f32::MAX);
-        let uid = NEXT_UID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         Path { nodes, next_node_index: 0, target, dist_to_target, reached, uid }
     }
 
@@ -115,5 +113,54 @@ impl Path {
     /// `canReach()`.
     pub fn can_reach(&self) -> bool {
         self.reached
+    }
+}
+
+#[cfg(test)]
+mod uid_tests {
+    use crate::block::Block;
+    use crate::pos::BlockPos;
+    use crate::world::World;
+
+    /// G1 / b8949c96 (08:36): a path's identity is its world's (`World::path_uid`), not a process-wide
+    /// counter's: two identical worlds, each in its own thread and run side by side with the rest of the
+    /// parallel tests, find their paths with the same ids from 1 and the same paths, whatever else the process
+    /// is doing; a cloned world goes on from its own count.
+    #[test]
+    fn path_ids_are_the_worlds_own() {
+        let run = || -> Vec<(u64, usize, bool)> {
+            let mut w = World::new(BlockPos::new(-8, -4, -8), [16, 8, 16]);
+            let stone = Block::parse("minecraft:stone").unwrap();
+            for x in -6..=6 {
+                for z in -6..=6 {
+                    w.set_block(BlockPos::new(x, -1, z), stone.clone(), crate::world::flags::ALL);
+                }
+            }
+            w.mob.seed(7, 6_000);
+            w.mob.ai.on = true;
+            let v = crate::entity::spawn(&mut w, "minecraft:villager", [0.5, 0.0, 0.5], None).unwrap();
+            for _ in 0..3 {
+                w.tick();
+            }
+            let i = crate::entity::index_of(&w, v).unwrap();
+            let before = w.path_uid.peek();
+            [BlockPos::new(4, 0, 0), BlockPos::new(-4, 0, 3), BlockPos::new(0, 0, -5)]
+                .into_iter()
+                .map(|t| {
+                    let p = crate::entity::mob::ai::with_nav(&mut w, i, |w, nm, nav, arena| nav.create_path_pos(w, nm, t, 0, arena)).expect("a path");
+                    (p.uid - before, p.nodes.len(), p.reached)
+                })
+                .collect()
+        };
+        let (a, b) = std::thread::scope(|s| {
+            let (ha, hb) = (s.spawn(run), s.spawn(run));
+            (ha.join().unwrap(), hb.join().unwrap())
+        });
+        assert_eq!(a, b, "two identical worlds in two threads: the same path ids and paths");
+        assert_eq!(a.iter().map(|x| x.0).collect::<Vec<_>>(), vec![0, 1, 2], "consecutive ids from the world's own count");
+        let w = World::new(BlockPos::new(0, 0, 0), [1, 1, 1]);
+        assert_eq!((w.next_path_uid(), w.next_path_uid()), (1, 2), "a fresh world counts from 1");
+        let c = w.clone();
+        assert_eq!((w.next_path_uid(), c.next_path_uid()), (3, 3), "a clone goes on from its own count");
     }
 }
