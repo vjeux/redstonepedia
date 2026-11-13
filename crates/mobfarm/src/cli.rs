@@ -2104,6 +2104,18 @@ pub enum MobfarmCmd {
         /// printed against its power's settle.
         #[arg(long)]
         stack_bench: bool,
+        /// (G1 on e7dc61d21) The inert watch's positive control: J(-1)'s lever (-1,26,9), which the
+        /// run toggles every cycle, declared inert; the run must fail on it.
+        #[arg(long)]
+        inert_control: bool,
+        /// (ironspec 23:56 PT (4)) The gossip bars' positive control: a gossip attempt logged from lane
+        /// x -1's pocket at t 1,000; the gossip bars must fail.
+        #[arg(long)]
+        gossip_control: bool,
+        /// (ironspec 23:56 PT (4)) The departing-bystander bar's positive control: a golem birth
+        /// logged and a departing rider's GOLEM_DETECTED_RECENTLY set from t 1,000; the bar must fail.
+        #[arg(long)]
+        bystander_control: bool,
     },
     /// Where a stand's zombie can stand under the 6-8 rule (ironspec 2026-11-11): every candidate
     /// cell of `--region` (a zombie's feet at its centre, y as given), scored against every rider
@@ -7588,7 +7600,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 std::process::exit(1);
             }
         }
-        MobfarmCmd::F1q2Run { design, seed, ticks, day0, lane_carts, restart_every, restart_order, control_rider, trace, drive, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour_golems, cart_trace, drive_out, scene_out, watchdog, stale_start, held_at_divert, report_only, queue_hold, empty_pocket, stack_bench } => {
+        MobfarmCmd::F1q2Run { design, seed, ticks, day0, lane_carts, restart_every, restart_order, control_rider, trace, drive, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour_golems, cart_trace, drive_out, scene_out, watchdog, stale_start, held_at_divert, report_only, queue_hold, empty_pocket, stack_bench, inert_control, gossip_control, bystander_control } => {
             let (c, spec) = load(version, &design)?;
             let bed = *c.clock.design.ports.get("home").ok_or_else(|| anyhow::anyhow!("{}: no `home` port (the shared bed's head)", design.display()))?;
             // (the seats: NAME=x,y,z:cx,cy,cz+...)
@@ -7644,6 +7656,32 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             // (ironspec 23:51 PT (2)) the push-pair declarations: two cells and the bound the reason
             // states (its first number)
             let mut push_pairs = Vec::new();
+            // (G1 on e7dc61d21) each declared inert / always-on cell with its reason, for the
+            // starting-kind check; (G1's [7]) a declared way-in
+            let mut watch_reasons: Vec<([i32; 3], String)> = Vec::new();
+            for line in text.lines() {
+                let Some(rest) = ["# inert:", "inert:", "# always-on:", "always-on:"].iter().find_map(|k| line.strip_prefix(k)) else { continue };
+                for group in rest.split(';') {
+                    let mut it = group.splitn(2, '=');
+                    let cells = it.next().unwrap_or("");
+                    let reason = it.next().unwrap_or("").trim().to_string();
+                    for c in cells.split('+') {
+                        let n: Vec<i32> = c.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+                        if n.len() == 3 {
+                            watch_reasons.push(([n[0], n[1], n[2]], reason.clone()));
+                        }
+                    }
+                }
+            }
+            let way_in_composed = text.lines().any(|l| l.starts_with("# way-in:") || l.starts_with("way-in:"));
+            // (ironspec 00:33 PT) A6's pickup cell and the stranded bound: `# a6-pickup: x,y,z=… wake
+            // edge + N gt …` (record7's frame)
+            let a6_pickup: Option<([i32; 3], i64)> = text.lines().find_map(|l| l.strip_prefix("# a6-pickup:").or_else(|| l.strip_prefix("a6-pickup:"))).and_then(|rest| {
+                let (cells, reason) = rest.split_once('=')?;
+                let n: Vec<i32> = cells.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+                let bound: i64 = reason.split("wake edge +").nth(1)?.split_whitespace().next()?.parse().ok()?;
+                (n.len() == 3).then(|| ([n[0], n[1], n[2]], bound))
+            });
             for line in text.lines() {
                 let Some(rest) = line.strip_prefix("# push-pair:").or_else(|| line.strip_prefix("push-pair:")) else { continue };
                 for group in rest.split(';') {
@@ -7666,7 +7704,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             // (ironspec 22:03 / 22:09 PT) k_lock and k_sw from the module
             let num = |key: &str| -> Option<i64> { text.lines().find_map(|l| l.strip_prefix(key)).and_then(|r| r.split_whitespace().next()).and_then(|n| n.parse().ok()) };
             let (k_lock, k_sw) = (num("k-lock:"), num("k-sw:"));
-            let o = crate::f1q2run::Opts { seed, ticks, day0, lane_carts, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour, cart_trace, restarts, restart, control_rider, trace, bed, drive, drive_rec, watchdog, stale_start, held_at_divert, queue_hold, emulated, emulated_states, ts, update_only, empty_pocket, dwell_cap, stack_bench, stops, k_lock, k_sw, inert, always_on, push_pairs };
+            let o = crate::f1q2run::Opts { seed, ticks, day0, lane_carts, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour, cart_trace, restarts, restart, control_rider, trace, bed, drive, drive_rec, watchdog, stale_start, held_at_divert, queue_hold, emulated, emulated_states, ts, update_only, empty_pocket, dwell_cap, stack_bench, stops, k_lock, k_sw, inert, always_on, push_pairs, way_in_composed, inert_control, watch_reasons, gossip_control, bystander_control, a6_pickup };
             let (rep, out) = crate::f1q2run::run_driven(&spec, &o).map_err(|e| anyhow::anyhow!(e))?;
             print!("{rep}");
             if let (Some(df), Some(sf), Some((drive_text, scene_entities))) = (&drive_out, &scene_out, out) {

@@ -353,9 +353,17 @@ fn should_be_removed(w: &World, p: BlockPos, shape: RailShape) -> bool {
 
 /// `block.defaultBlockState().isSignalSource()` of a neighbor update's source: every modeled
 /// block whose 26.3 `isSignalSource()` is true (`behavior::is_signal_source`), the daylight
-/// detector, the jukebox and the lightning rod included (G1 / ironspec 19:55; a trapped chest and a
-/// lectern aren't modeled: `Block::parse` refuses them).
+/// detector, the jukebox and the lightning rod included (G1 / ironspec 19:55). 26.3's
+/// `RailBlock.updateState(state, level, pos, block)` tests `block.defaultBlockState().isSignalSource()`
+/// for the neighbour's BLOCK TYPE (a type-level test, not the neighbour's current state; ironspec
+/// 00:16 PT), and the update carries exactly that: the source's kind. A terrain-registered block
+/// reads the same per-type `signal` property `behavior::is_signal_source` reads (G1 / ironspec
+/// 23:56 PT), and the modeled kinds are pinned to `behavior::is_signal_source` by
+/// `source_list_tests` over every parseable block name.
 fn kind_is_signal_source(k: Kind) -> bool {
+    if let Kind::Terrain(id) = k {
+        return crate::terrain::blocks::props(id).signal;
+    }
     matches!(
         k,
         Kind::Wire
@@ -550,7 +558,7 @@ mod source_list_tests {
         "oxidized_lightning_rod", "waxed_lightning_rod", "redstone_block", "piston", "sticky_piston", "hopper", "dropper", "dispenser", "note_block", "redstone_lamp", "iron_trapdoor",
         "oak_trapdoor", "iron_door", "oak_door", "oak_fence_gate", "copper_bulb", "crafter", "chest", "barrel", "composter", "slime_block", "honey_block", "water", "lava",
         "bubble_column", "soul_sand", "magma_block", "scaffolding", "cactus", "sugar_cane", "kelp", "bamboo", "big_dripleaf", "lantern", "torch", "wall_torch", "glass", "stone_slab",
-        "oak_leaves", "farmland", "melon_stem", "cake", "fire", "oak_sign", "oak_wall_sign", "oak_fence", "white_bed",
+        "oak_leaves", "farmland", "melon_stem", "cake", "fire", "oak_sign", "oak_wall_sign", "oak_fence", "white_bed", "trapped_chest", "lectern",
     ];
 
     /// (ironspec 20:19 PT (2a), G1) every modeled block's default state: the rail's update gate

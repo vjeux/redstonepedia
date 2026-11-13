@@ -582,3 +582,46 @@ fn seated_pillager_golem_on_portal() {
         assert_eq!(err, case != 0, "{what}: {:?}", w.errors);
     }
 }
+
+/// (ironspec 00:32 PT, rule (A) refined: f1q2-run's gossip control logs this event shape) the gossip
+/// path's emission: `spawnGolemIfNeeded(level, gameTime, 5)` from a willing caller with five willing
+/// villagers in its box rolls and logs `GolemTry { needed: 5, from: the caller's block, tries }`; with
+/// four willing it logs `GolemCall { needed: 5, caller_willing: true, willing: 4 }` and doesn't roll.
+#[test]
+fn a_gossip_call_logs_its_threshold_and_caller() {
+    for (n, rolls) in [(5usize, true), (4, false)] {
+        let mut w = world(7);
+        let mut ids = villagers(&mut w);
+        for x in [6, 8] {
+            put(&mut w, x, -1, 0, "minecraft:glass");
+            ids.push(add(&mut w, MobType::Villager, Vec3::new(x as f64 + 0.5, 0.0, 0.5), true));
+        }
+        for x in -4..12 {
+            for z in 3..9 {
+                put(&mut w, x, -4, z, "minecraft:stone");
+            }
+        }
+        for (k, id) in ids.iter().enumerate() {
+            let i = crate::entity::index_of(&w, *id).unwrap();
+            if let Some(b) = mob_mut(&mut w, i).brain.as_deref_mut() {
+                // (the first n villagers slept within a day: willing; the rest not)
+                b.last_slept = if k < n { Some(0) } else { None };
+            }
+        }
+        w.mob.events.clear();
+        let caller = crate::entity::index_of(&w, ids[0]).unwrap();
+        let cb = w.entities.list[caller].block_position();
+        spawn::spawn_golem_if_needed(&mut w, caller, 5);
+        // (the call's own record: a golem's stamps log GolemLocked events after it)
+        let ev = w.mob.events.iter().find(|e| matches!(e, MobEvent::GolemTry { .. } | MobEvent::GolemCall { .. })).cloned();
+        match (rolls, ev) {
+            (true, Some(MobEvent::GolemTry { villager, needed: 5, from, tries, .. })) => {
+                assert_eq!(villager, ids[0]);
+                assert_eq!(from, [cb.x, cb.y, cb.z]);
+                assert!(tries.is_some_and(|t| (1..=10).contains(&t)), "tries {tries:?}");
+            }
+            (false, Some(MobEvent::GolemCall { villager, needed: 5, willing: 4, caller_willing: true, .. })) => assert_eq!(villager, ids[0]),
+            (_, e) => panic!("{n} willing: {e:?}"),
+        }
+    }
+}

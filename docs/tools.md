@@ -516,8 +516,8 @@ predecessor's D pass (the predecessor passes its siding's D first). The golems b
 names them too. day-1's picker
 (EMULATED, 14:46 / 16:14; the lanes per 7b90c3f1): the counter C steps on each release (C := 0 at
 the daylight detector's morning RISE 0 -> 1, C := 19 at its EIGHT 7 -> 8 when C >= 136 or C <= 15);
-a pick when C mod 10 is 1 / 4 / 7 (lanes A / B / C = x -1 / 3 / 7, each every 10 releases), gated by HELD (one napper in flight:
-set at the pick, reset at the queue's departure, day-1's contract 22:05) and the lane's away latch (set at its pick, reset when its napper is back
+a pick when C mod 10 is 1 / 4 / 7 (lanes A / B / C = x -1 / 3 / 7, each every 10 releases), gated by HELD (F1, ironspec 00:12 PT:
+set at the queue's arrival detector, reset at its departure) and the lane's away latch (set at its pick, reset when its napper is back
 in its lane); the picked lane's batch cart is the one its launch sends; DAY (the daylight detector
 above 0) at its row arrival turns it away; otherwise its own J and every J east of it are held off
 until it passes (8,25,9) onto the leg, then the split as if it had taken its lane (lane -1's D rise:
@@ -564,6 +564,8 @@ panicking, slept, no memory, 3 willing; information). The carts' contacts with b
 (grown 0.02) meets; a cell the header declares neither as a stop (`stops: CELLS (why)`) nor as a
 contact (`# contacts: CELLS=REASON (evidence row)`, walls a cart rides against, ironspec 22:05) fails
 the row.
+At the start the run schedules every fluid cell's tick (ironspec 00:27 PT: a dry cell a fluid's own
+tick fills, like C7's leak, shows in the run) and prints the count.
 The loud bars (ironspec 22:56 / 22:58 / 23:16 / 23:51 PT): every `# inert:` and `# always-on:` cell of the
 module watched through the run (any state change fails, with the tick and both states); every
 `# push-pair: A+B=REASON` declaration checked (a cart resting in either cell, its rail unpowered, is
@@ -587,6 +589,26 @@ from REST_l), and where the emulation times an input by an assumed latency (the 
 D + k_sw + 8, the hold rail 2 gt after its input) the measured latency against it with the
 1-gt-shifted control. The run also fails any cart other than the picked napper's on the leg's cells
 (8,25,9) / (9,25,8) (B4, ironspec 23:44 / 23:47 PT).
+No vacuous passes (ironspec 23:56 PT (3)): a bar with nothing to judge (the stand summon check at 0
+locked S, the summon paths at 0 golems, (a1) with fewer than two naps or no trip out of the ball)
+prints NOT JUDGED and fails. HELD's invariant (23:56 (2), F1 00:12): every HELD set (at the queue's
+arrival) and reset (at its departure) is printed with its cause, HELD still set 259 gt after its set
+in REST fails, and the one-in-flight timing bar prints the largest pick -> arrival against the 300-gt
+pick spacing. The positive
+controls: `--inert-control` (J(-1)'s lever declared inert: the watch must fail), `--gossip-control`
+(a gossip attempt logged from lane x -1's pocket at t 1,000, in the shape redsim's gossip path emits,
+cited by its test `a_gossip_call_logs_its_threshold_and_caller`: the gossip bars must fail),
+`--bystander-control` (a real summon, `spawn_golem_if_needed` at threshold 3, called from lane x -1's
+pocket rider from t 1,000 while a rider departs, until a golem is born: its stamps reach the
+departing rider and the departing-bystander bar must fail), and `--empty-pocket X` for the summon check. The stand-in guard
+is record-match's `guard_intrinsics` (golem as a floor and as a spawn space, the full PathType,
+late-path, sight); the counter's C is derived at the first release from its own day time.
+The stranded-napper bar (ironspec 00:33 PT): a napper waking in A6 with no cart at the pickup cell P
+by its wake edge + the bound fails; P and the bound come from the module's `# a6-pickup: x,y,z=…
+wake edge + N gt …` line (no line: NOT JUDGED, a failure). The seat's evidence (00:20 / 00:22 /
+00:38): the queue hatch's state at each seat arrival and release, every panic starting at the seat
+with its NEAREST_HOSTILE, the napper-ticks at the seat with NEAREST_HOSTILE set, and each napper's
+path at the seat at every change (target, end, length, complete or partial).
 Two classes print apart from
 the bars until their parts land (ironspec 19:57 / 19:31 PT): "the way-in's fall (C pending)", a
 stamp peak or HOME loss in the way-in's cells (x 4..9, y <= -13, z <= 0), and A6's entries outside

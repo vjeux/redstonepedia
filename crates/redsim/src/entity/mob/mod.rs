@@ -252,8 +252,9 @@ pub enum MobEvent {
     /// golem's id, or `None` when none of the 10 tries found a spot; `needed` is the path's
     /// threshold (3: the panic trigger at game time % 100 == 0; 5: gossip, any tick), `from` the
     /// caller's block position and `tries` the spot tries `trySpawnMob` used (1..=10 with a golem,
-    /// 10 without) (G1 / ironspec 19:34, 19:51).
-    GolemTry { t: i64, villager: u32, willing: u32, golem: Option<u32>, at: Option<[i32; 3]>, needed: u8, from: [i32; 3], tries: u8 },
+    /// 10 without), read from the entry this call pushed to the spot-try log (`None` when it pushed
+    /// none) (G1 / ironspec 19:34, 19:51).
+    GolemTry { t: i64, villager: u32, willing: u32, golem: Option<u32>, at: Option<[i32; 3]>, needed: u8, from: [i32; 3], tries: Option<u8> },
     /// (G1 / ironspec 19:51, 19:58) A villager whose golem trigger ran `spawnGolemIfNeeded` without
     /// rolling: `caller_willing` false when the caller itself doesn't want a golem (its own
     /// GOLEM_DETECTED_RECENTLY or LAST_SLEPT), else fewer than `needed` willing villagers in its box.
