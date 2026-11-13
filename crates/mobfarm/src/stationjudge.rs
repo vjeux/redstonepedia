@@ -7,42 +7,42 @@
 //! (the fresh design with the departing carts absent: `--dep-riders x,x,x`); for the pearl alternative
 //! also the load window (the bench's login of D gt at every phase, the controller running through it),
 //! reported apart. A run passes when every cart landed on a braked pocket at least the L1 edge bar
-//! (4 gt) before its re-brake and is at rest at least the rest bar (`--rest-bar`; the edge bar until
-//! dfb89499's panic measure, ≥ 1 caller at every T over all 400 sensor-phase pairs, lands: ironspec
-//! 2026-11-12 05:26 retired the 20-gt bar) before the next summon, with 0 wrong pockets, contacts,
-//! riders hurt, unseated ticks, departing carts stuck, refill
-//! failures and trapdoors shut onto their cart (and, with `launch_min`, every launch that far after the
-//! one before). Printed per REL over its seeds: the lead's rows' failing phases per order, their least
-//! rest margin, landing lead and launch spacing; the logins' failing phases and margins apart, and the
-//! R line's switches while the entities were frozen; the timed edges' thresholds: the same matrix at
-//! other widths of one edge each.
+//! (4 gt) before its re-brake and is at rest before the next summon, with 0 wrong pockets, contacts,
+//! riders hurt, unseated ticks, departing carts stuck, refill failures and trapdoors shut onto their cart
+//! (and, with `launch_min`, every launch that far after the one before), and the stand summons at every
+//! due S: the call gate (ironspec 19:51 / 20:03 / 20:07 / 20:14), which retired the rest bar outright:
+//! >= 1 GolemTry from a pocket rider at every due S of every lead row, the callers counted willing and
+//! ticking at the tick's start (VillagerPanicTrigger's official skip at s + 61 + 62k excluded), a reload's
+//! re-phase within 20 gt before S allowed one miss per restart (the one-summon-per-disturbance bar);
+//! the removed-rider controls (each pocket's rider removed in turn) must show the miss; the golem rate per
+//! k beside 1 - m^k prints (its binomial 99 % interval), gating only once the bench's cells match the
+//! design of record over the three riders' search volumes. Printed per REL over its seeds: the lead's
+//! rows' failing phases per order, their least rest margin, landing lead and launch spacing, the call
+//! gate's classes; the logins' failing phases and margins apart, and the R line's switches while the
+//! entities were frozen; the timed edges' thresholds: the same matrix at other widths of one edge each.
 
 use crate::drop::{DropOpts, DropStats, bench};
 use redsim::entity::mob::farm::FarmSpec;
 
 /// The L1 edge bar (farmopt 2026-11-12 02:39, ironspec): every cart landed at least this long before
 /// its pocket's re-brake, so the pocket's rail is unpowered before the arriving cart lands. Inherited
-/// (ironspec's bar audit 19:07 section 2, 19:24): its basis is day-1's driver latency on the pocket's
-/// power-off path plus scheduled-tick order, about 3 gt, to be re-derived from tick-exact's junction
-/// boundary row; the rail re-shapes in the same tick as its driver's change (inside neighborChanged, no
-/// scheduled tick: G1, day-1's ctl-junction-bench), so the "+ 1 for the re-shape" in the 4 is not a real
-/// delay. It binds nothing today (landing >= 31 gt after the re-brake); printed "inherited".
+/// (ironspec's bar audit 19:07 section 2, 19:24, 19:51): the pocket rail is a powered rail whose power
+/// follows its driver in the same tick (PoweredRailBlock.updateState inside neighborChanged; redsim's
+/// `redstone::blocks::rail::update_state`: G1), so the power-off latency is the M16bw repeater's scheduled
+/// delay plus phase order, to be re-derived from day-1's ctl-pocket-bench (P's fall after the switch's
+/// removal on the built (b) layout); the 4's "+ 1 for the re-shape" is not a real delay. It binds nothing
+/// today (landing >= 31 gt after the re-brake); printed "inherited".
 pub const EDGE_BAR: i64 = 4;
 
-/// The rest margin's bar before the next summon (ironspec 2026-11-12 05:26: the stand's summon bar is
-/// the game's rule, >= 1 caller at every T over all 400 sensor-phase pairs; the 20-gt rest bar and the
-/// all-three rule are retired). Inherited (the bar audit section 2, 19:24): the arriving rider seated in
-/// its designed cell before S, so it can be the panicking caller with 3 willing at S (dfb89499 19:13); its
-/// 4 is the edge bar's number, not a measured boundary; it binds nothing today (at rest >= 23 gt before S).
-/// It retires when the direct check prints (ironspec 19:24: at each S every pocket's rider seated, in
-/// PANIC, with >= 3 villagers wanting a golem in its 10-box; control: a removed rider shows the miss;
-/// built by dfb89499 in its module bench, printed by onechunk's f1q2-run), on which the judge then gates.
-/// Printed "inherited".
-pub const REST_BAR: i64 = EDGE_BAR;
+/// The window before a due S within which a restart's reload may re-phase a rider's panic and cost that
+/// S its call (ironspec 20:07: a reload re-phase <= 20 gt counts against the one-summon-per-disturbance
+/// bar): one such miss per restart row is allowed, a second fails.
+pub const REPHASE_WINDOW: i64 = 20;
 
 /// A run's failures (empty: it passes): the bars, with the landing lead held to `edge` gt (the L1
-/// edge bar, [`EDGE_BAR`]) and the rest margin before the next summon to `rest_bar` gt ([`REST_BAR`]).
-pub fn fails(s: &DropStats, launch_min: i64, edge: i64, rest_bar: i64) -> Vec<&'static str> {
+/// edge bar, [`EDGE_BAR`]). (The rest bar retired onto the call gate, ironspec 19:51 / 20:07: "rest >= 23"
+/// is no bar; a cart still not at rest at S fails as before.)
+pub fn fails(s: &DropStats, launch_min: i64, edge: i64) -> Vec<&'static str> {
     let mut v = Vec::new();
     if s.fall == i64::MAX {
         v.push("a cart never landed");
@@ -56,8 +56,6 @@ pub fn fails(s: &DropStats, launch_min: i64, edge: i64, rest_bar: i64) -> Vec<&'
         v.push("not all at rest");
     } else if s.rest < 0 {
         v.push("at rest after the next summon");
-    } else if s.rest < rest_bar {
-        v.push("at rest within the rest bar of the next summon");
     }
     if s.wrong > 0 {
         v.push("a wrong pocket");
@@ -118,6 +116,63 @@ pub fn fails(s: &DropStats, launch_min: i64, edge: i64, rest_bar: i64) -> Vec<&'
     v
 }
 
+/// The call gate's misses in one run (ironspec 19:51 / 20:07): every due S with no GolemTry from a pocket
+/// rider (`calls == 0`, no golem born), each with its class; in a restart row one miss within
+/// [`REPHASE_WINDOW`] gt after the restart is the one-summon-per-disturbance allowance (returned apart).
+/// Returns (failing misses, allowed re-phase misses).
+pub fn summon_misses(s: &DropStats) -> (Vec<String>, Vec<String>) {
+    let (mut bad, mut allowed) = (Vec::new(), Vec::new());
+    for d in &s.summon_due {
+        if d.calls > 0 || d.born {
+            continue;
+        }
+        let what = format!("S T+{}: {} (eligible {})", d.s, d.class, d.eligible);
+        match d.restart_before {
+            Some(t) if d.s - t <= REPHASE_WINDOW && allowed.is_empty() => allowed.push(format!("{what}, {} gt after the restart", d.s - t)),
+            _ => bad.push(what),
+        }
+    }
+    (bad, allowed)
+}
+
+/// The removed-rider control's verdict on one run (a pocket's rider removed): it bites when no due S got a
+/// call and every one reads "fewer than 3 willing" (ironspec 19:51: the control shows the miss).
+pub fn control_bites(s: &DropStats) -> Result<(), String> {
+    if s.summon_due.is_empty() {
+        return Err("no due S measured".into());
+    }
+    match s.summon_due.iter().find(|d| d.calls > 0 || d.born || d.class != "fewer than 3 willing") {
+        Some(d) => Err(format!("S T+{}: {} call(s), {} (eligible {})", d.s, d.calls, d.class, d.eligible)),
+        None => Ok(()),
+    }
+}
+
+/// The golem rate per k (the eligible count at S) over `dues`, beside 1 - m^k, m = (1 - 40..44/289)^10
+/// (the spot odds of the pad), with its binomial 99 % (Wilson) interval: (the line, whether the interval
+/// misses the range for any k).
+pub fn golem_rate(dues: &[&crate::drop::SummonDue]) -> (String, bool) {
+    let range = |k: i32| (1.0 - (1.0f64 - 40.0 / 289.0).powi(10).powi(k), 1.0 - (1.0f64 - 44.0 / 289.0).powi(10).powi(k));
+    let mut miss = false;
+    let parts: Vec<String> = (0..=3)
+        .rev()
+        .map(|k| {
+            let at: Vec<&&crate::drop::SummonDue> = dues.iter().filter(|d| d.eligible as i32 == k).collect();
+            let born = at.iter().filter(|d| d.born).count();
+            if k == 0 || at.is_empty() {
+                return format!("k {k}: {} S, {born} born", at.len());
+            }
+            let (lo, hi) = range(k);
+            let (n, p, z) = (at.len() as f64, born as f64 / at.len() as f64, 2.576);
+            let c = (p + z * z / (2.0 * n)) / (1.0 + z * z / n);
+            let h = z / (1.0 + z * z / n) * (p * (1.0 - p) / n + z * z / (4.0 * n * n)).sqrt();
+            let out = c + h < lo || c - h > hi;
+            miss |= out;
+            format!("k {k}: {born} / {} born ({:.1} %, 99 % interval {:.1}..{:.1}) against {:.1}..{:.1} %{}", at.len(), 100.0 * p, 100.0 * (c - h), 100.0 * (c + h), 100.0 * lo, 100.0 * hi, if out { ": MISSES" } else { "" })
+        })
+        .collect();
+    (parts.join("; "), miss)
+}
+
 /// Ranges of sorted phases ("a..b, c").
 fn bands(v: &[i64]) -> String {
     let mut out: Vec<String> = Vec::new();
@@ -144,12 +199,15 @@ pub enum Row {
     Login(i64, i64),
     /// The cold start: the departing carts absent.
     Cold,
+    /// The call gate's removed-rider control: the control run with this pocket's rider removed (it must
+    /// show the miss at every due S).
+    NoRider(usize),
 }
 
 impl Row {
     /// The lead's rows (they decide): the control, the cold start, the restarts.
     fn lead(&self) -> bool {
-        !matches!(self, Row::Login(..))
+        !matches!(self, Row::Login(..) | Row::NoRider(_))
     }
 }
 
@@ -167,8 +225,9 @@ pub struct StationJudgeOpts {
     pub launch_min: i64,
     /// The landing lead's bar (gt; [`EDGE_BAR`]).
     pub edge: i64,
-    /// The rest margin's bar before the next summon (gt; [`REST_BAR`]).
-    pub rest_bar: i64,
+    /// The call gate (ironspec 19:51): every run with the bench's direct summon check, the misses failing
+    /// the lead's rows, the removed-rider controls run per REL.
+    pub summon_gate: bool,
     pub jobs: usize,
 }
 
@@ -196,6 +255,12 @@ pub fn judge(spec: &FarmSpec, cold_spec: &FarmSpec, base: &DropOpts, o: &Station
                 }
             }
         }
+        // (the call gate's removed-rider controls: each pocket's rider removed in turn, at the first seed)
+        if o.summon_gate {
+            for p in 0..3 {
+                runs.push((r, o.seeds.first().copied().unwrap_or(0), Row::NoRider(p)));
+            }
+        }
     }
     type Res = ((i64, i64, Row), DropStats);
     let mut results: Vec<Res> = Vec::new();
@@ -211,6 +276,8 @@ pub fn judge(spec: &FarmSpec, cold_spec: &FarmSpec, base: &DropOpts, o: &Station
                     lo.restarts = Vec::new();
                     lo.logins = Vec::new();
                     lo.dep_absent = [false; 3];
+                    lo.summon_check = o.summon_gate;
+                    lo.remove_rider = None;
                     let mut sp = spec;
                     match row {
                         Row::Control => {}
@@ -220,6 +287,7 @@ pub fn judge(spec: &FarmSpec, cold_spec: &FarmSpec, base: &DropOpts, o: &Station
                             lo.dep_absent = [true; 3];
                             sp = cold_spec;
                         }
+                        Row::NoRider(p) => lo.remove_rider = Some(p),
                     }
                     sc.spawn(move || bench(sp, &lo).map(|(_, s)| ((r, sd, row), s)))
                 })
@@ -230,14 +298,21 @@ pub fn judge(spec: &FarmSpec, cold_spec: &FarmSpec, base: &DropOpts, o: &Station
             results.push(r?);
         }
     }
-    let fl = |s: &DropStats| -> Vec<&'static str> { fails(s, o.launch_min, o.edge, o.rest_bar) };
+    // (a lead row also fails the call gate on a due S with no call (beyond a restart's one re-phase miss))
+    let fl = |s: &DropStats| -> Vec<&'static str> {
+        let mut v = fails(s, o.launch_min, o.edge);
+        if o.summon_gate && !summon_misses(s).0.is_empty() {
+            v.push("a due S with no call from the stand");
+        }
+        v
+    };
     let gt = |v: Option<i64>| v.map_or("-".to_string(), |x| if x == i64::MIN { "FAIL".to_string() } else { format!("{x} gt") });
     let mut out = Vec::new();
     let mut total = 0usize;
     for &r in &o.rels {
         let mine: Vec<&Res> = results.iter().filter(|((rr, _, _), _)| *rr == r).collect();
         let lead: Vec<&&Res> = mine.iter().filter(|((_, _, row), _)| row.lead()).collect();
-        let logins: Vec<&&Res> = mine.iter().filter(|((_, _, row), _)| !row.lead()).collect();
+        let logins: Vec<&&Res> = mine.iter().filter(|((_, _, row), _)| matches!(row, Row::Login(..))).collect();
         // (the control and the cold start at every seed: their failures together)
         let union = |want: Row| -> Option<Vec<&'static str>> {
             let rows: Vec<&&Res> = mine.iter().filter(|((_, _, row), _)| *row == want).collect();
@@ -258,6 +333,15 @@ pub fn judge(spec: &FarmSpec, cold_spec: &FarmSpec, base: &DropOpts, o: &Station
         let rest = lead.iter().map(|(_, s)| s.rest).min();
         let rest_c = mine.iter().filter(|((_, _, row), _)| *row == Row::Control).map(|(_, s)| s.rest).min();
         let lead_min = lead.iter().filter_map(|(_, s)| s.brake_lead).min();
+        // (no vacuous passes, ironspec 23:56: the edge bar's samples are the lead rows that measured a
+        // landing lead; none fails the REL as NOT JUDGED)
+        let lead_n = lead.iter().filter(|(_, s)| s.brake_lead.is_some()).count();
+        let lead_judged = if lead_n == 0 {
+            total += 1;
+            "NOT JUDGED (0 samples: no lead row measured a landing lead)".to_string()
+        } else {
+            format!("{} over {lead_n} rows", gt(lead_min))
+        };
         let gap = lead.iter().filter_map(|(_, s)| s.launch_gap).min();
         let gap_c = mine.iter().filter(|((_, _, row), _)| *row == Row::Control).filter_map(|(_, s)| s.launch_gap).min();
         let rest_l = logins.iter().map(|(_, s)| s.rest).min();
@@ -267,7 +351,7 @@ pub fn judge(spec: &FarmSpec, cold_spec: &FarmSpec, base: &DropOpts, o: &Station
         let shut = logins.iter().filter(|(_, s)| s.shut_onto > 0).count();
         let n_restarts = lead.iter().filter(|((_, _, row), _)| matches!(row, Row::Restart(..))).count();
         out.push(format!(
-            "REL T+{r} ({} seed(s)): the lead's rows (the control, the cold start, {n_restarts} restarts): failing {}; the control {}; the cold start {}; the least rest margin {} (unfrozen {}; the bar {} gt, inherited (ironspec 19:24): until the direct check prints); the least landing lead {} (the bar {} gt, inherited (ironspec 19:24): its basis day-1's driver latency + tick order, about 3 gt); the least launch spacing {} (unfrozen {}; reported, the bar {}) | the pearl alternative's logins ({} runs; reported, out of the lead's scope): failing {login_failing}; the least rest margin {}, landing lead {}, launch spacing {}; runs with a trapdoor shut onto its cart {shut}; runs with the R line switching while the entities were frozen {r_frozen}",
+            "REL T+{r} ({} seed(s)): the lead's rows (the control, the cold start, {n_restarts} restarts): failing {}; the control {}; the cold start {}; the least rest margin {} (unfrozen {}; printed: the rest bar retired onto the call gate, ironspec 19:51 / 20:07); the least landing lead {} (the bar {} gt, inherited (ironspec 19:24 / 19:51): its basis the M16bw repeater's delay + phase order); the least launch spacing {} (unfrozen {}; reported, the bar {}) | the pearl alternative's logins ({} runs; reported, out of the lead's scope): failing {login_failing}; the least rest margin {}, landing lead {}, launch spacing {}; runs with a trapdoor shut onto its cart {shut}; runs with the R line switching while the entities were frozen {r_frozen}",
             o.seeds.len(),
             failing.len() + control_fails,
             if control.is_empty() { "clean".to_string() } else { format!("FAILS ({})", control.join(", ")) },
@@ -278,8 +362,7 @@ pub fn judge(spec: &FarmSpec, cold_spec: &FarmSpec, base: &DropOpts, o: &Station
             },
             gt(rest),
             gt(rest_c),
-            o.rest_bar,
-            gt(lead_min),
+            lead_judged,
             o.edge,
             gt(gap),
             gt(gap_c),
@@ -289,6 +372,55 @@ pub fn judge(spec: &FarmSpec, cold_spec: &FarmSpec, base: &DropOpts, o: &Station
             gt(lead_l),
             gt(gap_l),
         ));
+        // (the call gate over the lead's rows: the due S, the misses (failing, and the restarts' allowed
+        // re-phase misses), the classes; the removed-rider controls; the golem rate per k, printed only:
+        // it validates the bench's pad until its cells match the design of record over the three riders'
+        // search volumes, ironspec 20:14)
+        if o.summon_gate {
+            let dues: Vec<&crate::drop::SummonDue> = lead.iter().flat_map(|(_, s)| s.summon_due.iter()).collect();
+            let mut classes: Vec<(&str, usize)> = Vec::new();
+            for d in &dues {
+                match classes.iter_mut().find(|c| c.0 == d.class) {
+                    Some(c) => c.1 += 1,
+                    None => classes.push((d.class, 1)),
+                }
+            }
+            let (mut bad, mut allowed) = (Vec::new(), 0usize);
+            for ((_, sd, row), s) in lead.iter().map(|x| &***x) {
+                let (b, a) = summon_misses(s);
+                allowed += a.len();
+                bad.extend(b.into_iter().map(|m| format!("{row:?} seed {sd}: {m}")));
+            }
+            let controls: Vec<String> = mine
+                .iter()
+                .filter_map(|((_, _, row), s)| if let Row::NoRider(p) = row { Some((p, s)) } else { None })
+                .map(|(p, s)| match control_bites(s) {
+                    Ok(()) => format!("P{p} removed: the miss at every due S ({})", s.summon_due.len()),
+                    Err(e) => {
+                        total += 1;
+                        format!("P{p} removed: FAILS to show the miss ({e})")
+                    }
+                })
+                .collect();
+            let (rate, miss) = golem_rate(&dues);
+            let thr = dues.iter().all(|d| d.calls == 0) || lead.iter().flat_map(|(_, s)| s.summon_calls.iter()).all(|c| c.threshold.is_some());
+            // (no vacuous passes, ironspec 23:56: a lead row with no due S measured is NOT JUDGED and fails,
+            // as does a REL with none at all)
+            let unjudged = lead.iter().filter(|(_, s)| s.summon_due.is_empty()).count();
+            total += unjudged + usize::from(dues.is_empty());
+            out.push(format!(
+                "  the call gate (>= 1 GolemTry from a pocket rider at every due S, the callers willing and ticking at the tick's start): {}, {} missed{}{}{}; classes {}; the removed-rider controls: {}; the golem rate (printed only: it validates the bench's pad until the bench's cells match the design of record, ironspec 20:14): {rate}{}{}",
+                if dues.is_empty() { "NOT JUDGED (0 samples: no due S over the lead's rows)".to_string() } else { format!("{} due S over {} lead rows", dues.len(), lead.len()) },
+                bad.len(),
+                if bad.is_empty() { String::new() } else { format!(" ({})", bad.iter().take(6).cloned().collect::<Vec<_>>().join("; ")) },
+                if allowed > 0 { format!(", {allowed} allowed (a restart's re-phase within {REPHASE_WINDOW} gt before S, one per disturbance)") } else { String::new() },
+                if unjudged > 0 { format!("; {unjudged} lead rows NOT JUDGED (0 due S measured), failing") } else { String::new() },
+                classes.iter().map(|(c, n)| format!("{c} {n}")).collect::<Vec<_>>().join(", "),
+                if controls.is_empty() { "none run".to_string() } else { controls.join("; ") },
+                if miss { " (an interval misses its range: printed, not barred)" } else { "" },
+                if thr { "" } else { "; the calls' threshold not yet carried by redsim's GolemTry (onechunk's fields): the panic path's 3 assumed" }
+            ));
+        }
         for how in &orders {
             let mut ts: Vec<i64> = failing.iter().filter_map(|((_, _, row), _)| if let Row::Restart(t, h) = row { (h == how).then_some(*t) } else { None }).collect();
             ts.sort();
@@ -316,29 +448,73 @@ pub fn judge(spec: &FarmSpec, cold_spec: &FarmSpec, base: &DropOpts, o: &Station
 mod tests {
     use super::*;
 
-    /// The bars bite (positive controls): a run landed 2 gt before its re-brake fails at the edge bar
-    /// of 4; a run at rest 19 gt before the summon fails at a rest bar of 20 and passes at 19 (farmopt
-    /// 2026-11-12 05:19: the rest is held to `--rest-bar`, its own bar); a run at rest 3 gt before it
-    /// fails at the default rest bar (the edge bar, until the panic measure lands); the measured
-    /// margins pass.
+    /// The bars bite (positive controls): a run landed 2 gt before its re-brake fails at the edge bar of
+    /// 4 and passes at 2; a powered pocket fails; a cart at rest after the next summon fails; a rest margin
+    /// of 3 gt no longer fails (the rest bar retired onto the call gate, ironspec 19:51 / 20:07); the
+    /// measured margins pass.
     #[test]
     fn edge_bar() {
         let ok = DropStats { rest: 34, brake_lead: Some(23), fall: 30, ..Default::default() };
-        assert!(fails(&ok, 0, EDGE_BAR, REST_BAR).is_empty());
-        let rest19 = DropStats { rest: 19, ..ok.clone() };
-        assert_eq!(fails(&rest19, 0, EDGE_BAR, 20), vec!["at rest within the rest bar of the next summon"]);
-        assert!(fails(&rest19, 0, EDGE_BAR, 19).is_empty());
-        assert!(fails(&rest19, 0, EDGE_BAR, REST_BAR).is_empty());
+        assert!(fails(&ok, 0, EDGE_BAR).is_empty());
         let near_summon = DropStats { rest: 3, ..ok.clone() };
-        assert_eq!(fails(&near_summon, 0, EDGE_BAR, REST_BAR), vec!["at rest within the rest bar of the next summon"]);
-        assert!(fails(&near_summon, 0, EDGE_BAR, 0).is_empty());
+        assert!(fails(&near_summon, 0, EDGE_BAR).is_empty(), "the rest margin is printed, not barred");
         let near_rebrake = DropStats { brake_lead: Some(2), ..ok.clone() };
-        assert_eq!(fails(&near_rebrake, 0, EDGE_BAR, REST_BAR), vec!["landed within the edge bar of its pocket's re-brake"]);
-        assert!(fails(&near_rebrake, 0, 2, REST_BAR).is_empty());
+        assert_eq!(fails(&near_rebrake, 0, EDGE_BAR), vec!["landed within the edge bar of its pocket's re-brake"]);
+        assert!(fails(&near_rebrake, 0, 2).is_empty());
         let powered = DropStats { brake_lead: Some(-1), ..ok.clone() };
-        assert_eq!(fails(&powered, 0, EDGE_BAR, REST_BAR), vec!["landed on a powered pocket"]);
+        assert_eq!(fails(&powered, 0, EDGE_BAR), vec!["landed on a powered pocket"]);
         let late = DropStats { rest: -2, ..ok.clone() };
-        assert_eq!(fails(&late, 0, EDGE_BAR, REST_BAR), vec!["at rest after the next summon"]);
-        assert!(Row::Restart(5, crate::liveness::Restart::rows()[0]).lead() && Row::Cold.lead() && !Row::Login(5, 2).lead());
+        assert_eq!(fails(&late, 0, EDGE_BAR), vec!["at rest after the next summon"]);
+        assert!(Row::Restart(5, crate::liveness::Restart::rows()[0]).lead() && Row::Cold.lead() && !Row::Login(5, 2).lead() && !Row::NoRider(0).lead());
+    }
+
+    fn due(s: i64, eligible: u8, calls: u8, born: bool, class: &'static str, restart_before: Option<i64>) -> crate::drop::SummonDue {
+        crate::drop::SummonDue { s, eligible, calls, born, class, restart_before, ..Default::default() }
+    }
+
+    /// The call gate bites (ironspec 19:51 / 20:07): a due S with no call fails, whatever its class; a call
+    /// (born or a spot miss) passes; in a restart row one miss within 20 gt after the restart is allowed (the
+    /// one-summon-per-disturbance bar) and a second fails, as does one 21 gt after; the removed-rider control
+    /// bites only when every due S reads "fewer than 3 willing" with no call.
+    #[test]
+    fn call_gate() {
+        let called = DropStats { summon_due: vec![due(100, 3, 1, true, "golem born", None), due(200, 3, 2, false, "spot miss", None)], ..Default::default() };
+        assert_eq!(summon_misses(&called), (vec![], vec![]));
+        let missed = DropStats { summon_due: vec![due(100, 3, 1, true, "golem born", None), due(200, 2, 0, false, "fewer than 3 willing", None)], ..Default::default() };
+        let (bad, allowed) = summon_misses(&missed);
+        assert_eq!((bad.len(), allowed.len()), (1, 0));
+        assert!(bad[0].contains("S T+200: fewer than 3 willing (eligible 2)"), "{bad:?}");
+        let ok = DropStats { rest: 34, brake_lead: Some(23), fall: 30, ..missed.clone() };
+        assert!(fails(&ok, 0, EDGE_BAR).is_empty(), "the gate is the judge's (`fl`), not `fails`'");
+        // (a restart at T+150: one miss at S T+170 (20 gt after) allowed; a second at T+270 fails; one at
+        // S T+171 (21 gt after) fails)
+        let rephase = DropStats { summon_due: vec![due(170, 1, 0, false, "no panicking caller", Some(150))], ..Default::default() };
+        assert_eq!((summon_misses(&rephase).0.len(), summon_misses(&rephase).1.len()), (0, 1));
+        let twice = DropStats { summon_due: vec![due(170, 1, 0, false, "no panicking caller", Some(150)), due(190, 1, 0, false, "no panicking caller", Some(150))], ..Default::default() };
+        assert_eq!((summon_misses(&twice).0.len(), summon_misses(&twice).1.len()), (1, 1));
+        let late = DropStats { summon_due: vec![due(171, 1, 0, false, "no panicking caller", Some(150))], ..Default::default() };
+        assert_eq!((summon_misses(&late).0.len(), summon_misses(&late).1.len()), (1, 0));
+        // (the removed-rider control)
+        let bites = DropStats { summon_due: vec![due(100, 2, 0, false, "fewer than 3 willing", None), due(200, 2, 0, false, "fewer than 3 willing", None)], ..Default::default() };
+        assert_eq!(control_bites(&bites), Ok(()));
+        assert!(control_bites(&called).is_err(), "a control with a call doesn't bite");
+        let other = DropStats { summon_due: vec![due(100, 2, 0, false, "no caller ticking", None)], ..Default::default() };
+        assert!(control_bites(&other).is_err(), "a miss of another class doesn't show the removed rider");
+        assert!(control_bites(&DropStats::default()).is_err(), "no due S measured");
+    }
+
+    /// The golem rate per k (printed): at k = 1 (1 - m, m = (1 - 40..44/289)^10: 77.4..80.8 %) 79 of 100
+    /// born fits and 100 of 100 misses (its 99 % interval 95..100 %); k = 0 only counts.
+    #[test]
+    fn golem_rate_interval() {
+        let at = |n: usize, born: usize, k: u8| -> Vec<crate::drop::SummonDue> { (0..n).map(|i| due(i as i64, k, 1, i < born, if i < born { "golem born" } else { "spot miss" }, None)).collect() };
+        let fit = at(100, 79, 1);
+        let (line, miss) = golem_rate(&fit.iter().collect::<Vec<_>>());
+        assert!(!miss && line.contains("k 1: 79 / 100 born"), "{line}");
+        let all = at(100, 100, 1);
+        let (line, miss) = golem_rate(&all.iter().collect::<Vec<_>>());
+        assert!(miss && line.contains(": MISSES"), "{line}");
+        let none = at(5, 0, 0);
+        assert_eq!(golem_rate(&none.iter().collect::<Vec<_>>()).0.split("; ").last(), Some("k 0: 5 S, 0 born"));
     }
 }
