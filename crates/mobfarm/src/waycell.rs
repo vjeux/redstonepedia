@@ -1949,6 +1949,15 @@ fn break_bed(w: &mut redsim::world::World, head: BlockPos) -> Result<(), String>
     Ok(())
 }
 
+/// (ironspec 08:13) the runs of SetWalkTargetFromBlockMemory toward HOME by the villagers `ids` since
+/// the last call, drained from redsim's record. The record must be on (armed at a row's start; a world
+/// open keeps it: the_record_survives_a_world_open): found off, a tick's runs would go unseen, so that is
+/// an error.
+pub(crate) fn drain_home_walk_runs(w: &mut redsim::world::World, ids: &[u32]) -> Result<Vec<redsim::entity::mob::ai::WalkMemoryRun>, String> {
+    let log = w.mob.ai.walk_memory_runs.as_mut().ok_or("the record of SetWalkTargetFromBlockMemory's runs is off (never armed for this row?)")?;
+    Ok(log.drain(..).filter(|r| r.mem == redsim::entity::mob::ai::brain::M::Home && ids.contains(&r.id)).collect())
+}
+
 /// (ironspec 06:31 (2)) a bed's ticket line: the POI's free tickets, its occupied flag and every
 /// villager whose HOME memory names the bed (a HOME loaded from NBT takes no ticket in the game).
 fn bed_line(w: &mut redsim::world::World, bp: BlockPos) -> String {
@@ -2048,6 +2057,12 @@ pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], 
     // (G1 (2), ironspec 07:16) the REST-entry stamp bar: the ticks SetWalkTargetFromBlockMemory ran,
     // the failing ones (stamp >= 1,000), the largest age then
     let (mut swt_samples, mut swt_fails, mut swt_max, mut swt_fail_where): (u32, u32, i64, Vec<String>) = (0, 0, 0, Vec::new());
+    // (ironspec 08:13: THE RULE) the at-entry bar sampled from redsim's RECORD of every run of
+    // SetWalkTargetFromBlockMemory toward HOME (its tick, its branch, the stamp age it SAW); the proxy
+    // above (a REST tick after a tick with no walk target, the previous tick's stamp) printed beside it
+    let (mut rec_samples, mut rec_fails, mut rec_max, mut rec_fail_where): (u32, u32, i64, Vec<String>) = (0, 0, 0, Vec::new());
+    let mut rec_branches: std::collections::BTreeMap<String, u32> = std::collections::BTreeMap::new();
+    let (mut proxy_rows, mut proxy_mismatch_rows, mut proxy_mismatch_where): (u32, u32, Vec<String>) = (0, 0, Vec::new());
     // (G1 (1)) the rows that reached A6 (HOME LOST and FARM-STOP's samples); (G1 (14)) FARM-STOP by
     // condition; (G1 (9)) rows with ANY erasure of the napper's HOME (every source)
     let (mut reached_a6_n, mut stop_never_n, mut stop_homeless_n, mut home_erased_rows) = (0u32, 0u32, 0u32, 0u32);
@@ -2145,6 +2160,8 @@ pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], 
             }
             for (restart, skip) in rs {
                 let mut r = w0.clone();
+                // (ironspec 08:13) redsim records every run of SetWalkTargetFromBlockMemory in this row
+                r.world.mob.ai.walk_memory_runs = Some(Vec::new());
                 // (ironspec 03:01 (2): the positive control) a real villager standing in sight
                 if let Some(b) = o.bystander {
                     redsim::entity::spawn(&mut r.world, "minecraft:villager", b, Some("{NoAI:1b,PersistenceRequired:1b}"))?;
@@ -2170,7 +2187,10 @@ pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], 
                 let mut home_events: Vec<String> = Vec::new();
                 let mut dt_prev = (r.world.time + r.world.mob.day_offset).rem_euclid(24000);
                 let (mut erased_at, mut reclaim_delays, mut acq_attempts, mut acq_next_prev): (Option<u32>, Vec<String>, Vec<String>, i64) = (None, Vec::new(), Vec::new(), i64::MIN);
-                let mut rest_no_wt_prev = false;
+                let (mut no_wt_prev, mut since_prev): (bool, Option<i64>) = (false, None);
+                // (ironspec 08:15) per row: the record's run ticks and branches, its first failing tick,
+                // and the proxy's sample ticks (compared at the row's end)
+                let (mut row_rec_ticks, mut row_rec_branches, mut row_rec_first_fail, mut row_proxy_ticks): (Vec<i64>, Vec<String>, Option<(i64, i64)>, Vec<i64>) = (Vec::new(), Vec::new(), None, Vec::new());
                 let mut cart = cart;
                 let (mut held_end, mut cleared, mut armed_after, mut first_calm, mut at_entry, mut stamp_entry, mut home_entry) =
                     (None::<u32>, None::<(u32, String)>, Vec::<(u32, String)>::new(), None::<String>, None::<u32>, None::<Option<i64>>, None::<bool>);
@@ -2194,6 +2214,11 @@ pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], 
                     if let Some((rt, how)) = restart {
                         if t as i64 == rt {
                             let map = crate::liveness::restart(&mut r.world, how)?;
+                            // (ironspec 08:13) the load keeps the AI state, the record with it (a
+                            // test: the_record_survives_a_world_open); armed only if found off
+                            if r.world.mob.ai.walk_memory_runs.is_none() {
+                                r.world.mob.ai.walk_memory_runs = Some(Vec::new());
+                            }
                             rider = *map.get(&rider).ok_or("the rider lost in the restart")?;
                             cart = *map.get(&cart).ok_or("the cart lost in the restart")?;
                         }
@@ -2318,21 +2343,49 @@ pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], 
                         }
                     }
                     let Some((since, wt, act)) = mem(&r.world, i) else { continue };
-                    // (G1 (2), ironspec 07:16) the REST-entry stamp bar's SAMPLES: every tick
-                    // SetWalkTargetFromBlockMemory RAN (a REST tick after one with no walk target),
-                    // whatever the stamp; the stamp's age then must stay under 1,000
-                    if rest_no_wt_prev && act.contains("Rest") {
-                        let age = since.map_or(0, |s| r.world.time - s);
-                        swt_samples += 1;
-                        swt_max = swt_max.max(age);
-                        if age >= 1000 {
-                            swt_fails += 1;
-                            if swt_fail_where.len() < 8 {
-                                swt_fail_where.push(format!("phase +{k} hold {h}{skip_label} {}: {age} gt", if released { format!("release + {}", t - h) } else { format!("hold t {t}") }));
+                    // (ironspec 08:13) the record of SetWalkTargetFromBlockMemory's runs, drained every
+                    // tick (armed at the row's start; a world open keeps it; found off here is an
+                    // error): every run toward the napper's HOME is a sample, judged on the stamp age
+                    // it SAW
+                    for run in drain_home_walk_runs(&mut r.world, &[rider, rider0]).map_err(|e| format!("phase +{k} hold {h}{skip_label} t {t}: {e}"))? {
+                        rec_samples += 1;
+                        row_rec_ticks.push(run.t);
+                        row_rec_branches.push(format!("{:?}", run.branch));
+                        *rec_branches.entry(format!("{:?}", run.branch)).or_default() += 1;
+                        if let Some(a) = run.stamp_age_seen {
+                            rec_max = rec_max.max(a);
+                            if a >= 1000 {
+                                rec_fails += 1;
+                                if row_rec_first_fail.is_none() {
+                                    row_rec_first_fail = Some((run.t, a));
+                                }
+                                if rec_fail_where.len() < 8 {
+                                    rec_fail_where.push(format!("phase +{k} hold {h}{skip_label} game time {}: {a} gt ({:?})", run.t, run.branch));
+                                }
                             }
                         }
                     }
-                    rest_no_wt_prev = act.contains("Rest") && !wt;
+                    // (G1 (2), ironspec 07:16; G1 08:12 CHANGES (1)(2)) the REST-entry stamp bar's
+                    // SAMPLES: every tick SetWalkTargetFromBlockMemory RAN, i.e. a REST tick after a
+                    // tick with NO walk target in ANY activity (the first REST tick after PANIC or IDLE
+                    // included), whatever the stamp; JUDGED on the stamp the behaviour SAW (the previous
+                    // tick's stamp, with this tick's time: the behaviour's release rewrites it this tick)
+                    if no_wt_prev && act.contains("Rest") && home_prev {
+                        swt_samples += 1;
+                        row_proxy_ticks.push(r.world.time);
+                        if let Some(s) = since_prev {
+                            let age = r.world.time - s;
+                            swt_max = swt_max.max(age);
+                            if age >= 1000 {
+                                swt_fails += 1;
+                                if swt_fail_where.len() < 8 {
+                                    swt_fail_where.push(format!("phase +{k} hold {h}{skip_label} {}: {age} gt", if released { format!("release + {}", t - h) } else { format!("hold t {t}") }));
+                                }
+                            }
+                        }
+                    }
+                    no_wt_prev = !wt;
+                    since_prev = since;
                     // (G1 05:47: "no re-claim follows" SHOWN) every change of the napper's HOME (lost /
                     // regained) with the bed's free tickets, occupied flag and HOME memory holders
                     // (ironspec 06:31 (2)) at that tick
@@ -2496,6 +2549,29 @@ pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], 
                 // source: SetWalkTargetFromBlockMemory's release, ValidateNearbyPoi's occupied-bed or
                 // missing-bed erase), read from the HOME changes the row saw
                 home_erased_rows += home_events.iter().any(|e| e.contains("HOME ERASED")) as u32;
+                // (ironspec 08:15) the proxy's samples against the record's runs, tick by tick: a run
+                // the proxy misses or a proxy sample with no run is a mismatch (the cross-check bar)
+                let missed: Vec<i64> = row_rec_ticks.iter().filter(|t| !row_proxy_ticks.contains(t)).copied().collect();
+                let spurious: Vec<i64> = row_proxy_ticks.iter().filter(|t| !row_rec_ticks.contains(t)).copied().collect();
+                proxy_rows += (!row_rec_ticks.is_empty() || !row_proxy_ticks.is_empty()) as u32;
+                if !missed.is_empty() || !spurious.is_empty() {
+                    proxy_mismatch_rows += 1;
+                    if proxy_mismatch_where.len() < 6 {
+                        proxy_mismatch_where.push(format!("phase +{k} hold {h}{skip_label}: runs the proxy missed at game time {missed:?}, proxy samples with no run at {spurious:?}"));
+                    }
+                }
+                let mut row_branch_n: std::collections::BTreeMap<&str, u32> = std::collections::BTreeMap::new();
+                for b in &row_rec_branches {
+                    *row_branch_n.entry(b.as_str()).or_default() += 1;
+                }
+                let swt_row = format!(
+                    "SetWalkTargetFromBlockMemory toward HOME ran {} time(s) ({}), the first failing run {}; the proxy's samples {} ({})",
+                    row_rec_ticks.len(),
+                    row_branch_n.iter().map(|(b, n)| format!("{b} {n}")).collect::<Vec<_>>().join(", "),
+                    row_rec_first_fail.map_or("none".to_string(), |(t, a)| format!("at game time {t}, the stamp {a} gt")),
+                    row_proxy_ticks.len(),
+                    if missed.is_empty() && spurious.is_empty() { "the same ticks".to_string() } else { format!("MISMATCH: missed {missed:?}, spurious {spurious:?}") }
+                );
                 let before = cleared.as_ref().is_some_and(|(t, _)| *t < h) || (stamp_arr.is_none() && cleared.is_none());
                 before_n += before as u32;
                 armed_after_n += (!armed_after.is_empty() || !a6_armed.is_empty()) as u32;
@@ -2547,7 +2623,7 @@ pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], 
                 }
                 if restart.is_none() {
                     out.push(format!(
-                        "(visit) phase +{k}, hold {h}{skip_label}: {start_state}; summoned at game time {summon_game} (arrival detector at summon + {}), released before game time {} (NOT-ready off); the stamp at the release {stamp_rel_s}{}; the sink's ticks left at the release {}; the paths the ride set: {}",
+                        "(visit) phase +{k}, hold {h}{skip_label}: {start_state}; summoned at game time {summon_game} (arrival detector at summon + {}), released before game time {} (NOT-ready off); the stamp at the release {stamp_rel_s}{}; the sink's ticks left at the release {}; {swt_row}; the paths the ride set: {}",
                         t_arr + 1,
                         release_game.map_or("-".to_string(), |g| g.to_string()),
                         if o.visit_clear_stamp { " (ERASED at the release: the positive control)" } else { "" },
@@ -2653,10 +2729,21 @@ pub fn visit_lines(spec: &FarmSpec, o: &Opts, post: Option<P>, start: [f64; 3], 
     let mut bars: Vec<(String, u32, u32, String)> = vec![
         ("(i) the stamp's largest age over the visit < 1,000 gt (ironspec 22:10 (2))".to_string(), rows_n, over_1000_n, String::new()),
         (
-            "(ii) the stamp under 1,000 gt at every tick SetWalkTargetFromBlockMemory RAN (a REST tick after one with no walk target; ironspec 07:16, G1 (2))".to_string(),
-            swt_samples,
-            swt_fails,
-            format!("the largest age then {swt_max} gt{}", if swt_fail_where.is_empty() { String::new() } else { format!("; failing at {}", swt_fail_where.join(", ")) }),
+            "(ii) the AT-ENTRY bar: the stamp under 1,000 gt at every run of SetWalkTargetFromBlockMemory toward HOME, from redsim's RECORD of its runs (the tick, the branch, the stamp age it SAW; ironspec 08:13)".to_string(),
+            rec_samples,
+            rec_fails,
+            format!(
+                "the branches {}; the largest age seen {rec_max} gt{}; the proxy beside it (a REST tick after a tick with no walk target, HOME present, the previous tick's stamp): {swt_samples} samples, {swt_fails} failing, the largest {swt_max} gt{}",
+                rec_branches.iter().map(|(b, n)| format!("{b} {n}")).collect::<Vec<_>>().join(", "),
+                if rec_fail_where.is_empty() { String::new() } else { format!("; failing at {}", rec_fail_where.join(", ")) },
+                if swt_fail_where.is_empty() { String::new() } else { format!(" (at {})", swt_fail_where.join(", ")) }
+            ),
+        ),
+        (
+            "(ii) cross-check: the proxy's sample ticks are the record's run ticks (ironspec 08:15: a run the proxy misses or a proxy sample with no run fails the row)".to_string(),
+            proxy_rows,
+            proxy_mismatch_rows,
+            if proxy_mismatch_where.is_empty() { String::new() } else { proxy_mismatch_where.join("; ") },
         ),
         ("(v) 0 armings after the release or in A6 (a partial recompute arms only when the stamp is clear: the descent's partial recomputes judged here)".to_string(), rows_n, armed_after_n, format!("{descent_partial_n} partial recomputes in the descent")),
         ("(v) 0 escapes (the napper past 16 of the bed's head in A6)".to_string(), followed_n, escaped_n, String::new()),
@@ -3247,6 +3334,9 @@ pub fn leg_lines(spec: &FarmSpec, o: &Opts, start: [f64; 3], motion: [f64; 3], h
     }
     let vmax = fall.iter().map(|f| f.2.abs()).fold(0.0f64, f64::max);
     Ok(vec![
+        // (G1 08:12) the leg rows are INFORMATION: no bar is judged here (their exposure and stamps are
+        // priced by the composed runs and the visit rows' bars), so they set no exit status
+        "(leg) INFORMATION ONLY: no bar is judged by the leg rows (exit 0 by design; the visit rows carry the bars)".to_string(),
         format!("(leg) on the HOLD detector {hold:?} at t {on_hold:?}; within 16 of the bed's head at t {ball:?} (HOLD's lead {lead}); at the arrival detector at t {at_arrival:?}; at rest on the queue rail at t {at_queue:?}"),
         format!(
             "(leg) the fall ({} airborne ticks before the arrival): the cart's box x {:.3}..{:.3}, z {:.3}..{:.3}; |vx| at most {vmax:.6}; ticks with the box in a full block {contacts} ({})",
@@ -3467,6 +3557,62 @@ pub fn scan(spec: &FarmSpec, o: &Opts) -> Result<Vec<String>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// (ironspec 08:20 / 08:22) the record of SetWalkTargetFromBlockMemory's runs across a world open,
+    /// as the visit rows read it: the record found off is an error (a tick's runs would go unseen); the
+    /// load keeps it on, and the napper's next HOME run after the load is recorded under its new id.
+    #[test]
+    fn the_record_survives_a_world_open() {
+        let put = |w: &mut redsim::world::World, x: i32, y: i32, z: i32, s: &str| {
+            w.set_block(BlockPos::new(x, y, z), Block::parse(s).unwrap(), redsim::world::flags::RAW);
+        };
+        let mut w = redsim::world::World::new(BlockPos::new(-8, -8, -8), [32, 24, 16]);
+        w.mob.seed(1, 18000);
+        w.mob.ai.on = true;
+        for x in -3..=12 {
+            for z in -3..=3 {
+                put(&mut w, x, -1, z, "minecraft:stone");
+            }
+        }
+        put(&mut w, 0, 0, 0, "minecraft:red_bed[facing=north,occupied=false,part=head]");
+        put(&mut w, 0, 0, 1, "minecraft:red_bed[facing=north,occupied=false,part=foot]");
+        w.mob.ai.walk_memory_runs = None;
+        let id = redsim::entity::spawn(&mut w, "minecraft:villager", [5.5, 0.0, 0.5], Some("{PersistenceRequired:1b,Brain:{memories:{\"minecraft:home\":{value:{dimension:\"minecraft:overworld\",pos:[I;0,0,0]}}}}}")).unwrap();
+        assert!(drain_home_walk_runs(&mut w, &[id]).is_err(), "the record off: an error, not an empty list");
+        w.mob.ai.walk_memory_runs = Some(Vec::new());
+        // (G1 08:32 (b)) one napper's runs judged as ONE across the open: its ids followed through the
+        // load's id map, as the visit rows follow `rider` (the run before and the runs after counted
+        // under the same napper)
+        let mut ids = vec![id];
+        let mut judged: Vec<redsim::entity::mob::ai::WalkMemoryRun> = Vec::new();
+        w.tick();
+        let before = drain_home_walk_runs(&mut w, &ids).unwrap();
+        assert!(!before.is_empty(), "the first REST tick's run recorded");
+        judged.extend(before.iter().copied());
+        let map = crate::liveness::restart(&mut w, crate::liveness::Restart::load(redsim::reload::Order::Save)).unwrap();
+        let nid = *map.get(&id).expect("the villager across the load");
+        ids.push(nid);
+        // the load keeps the AI state: the record stays on across a world open (the visit rows arm it
+        // again only if found off, and a record found off is an error)
+        assert!(w.mob.ai.walk_memory_runs.is_some(), "the load turned the record off: arm it again after a world open");
+        // its walk target and sink after the load: tick until its next HOME run (the sink's longest
+        // duration bounds the wait)
+        let mut after = Vec::new();
+        for _ in 0..300 {
+            w.tick();
+            after.extend(drain_home_walk_runs(&mut w, &ids).unwrap());
+            if !after.is_empty() {
+                break;
+            }
+        }
+        assert!(!after.is_empty(), "a HOME run recorded after the world open under the new id {nid}");
+        assert!(after.iter().all(|r| r.id == nid), "the runs after the open carry the new id");
+        judged.extend(after.iter().copied());
+        // judged as one napper: every run is one of its ids, the samples the sum of both sides
+        assert!(judged.iter().all(|r| ids.contains(&r.id)));
+        assert_eq!(judged.len(), before.len() + after.len(), "the napper's runs straddle the open and are counted as one napper");
+        assert!(judged.iter().any(|r| r.id == id) && judged.iter().any(|r| r.id == nid), "both sides of the open in the one napper's samples");
+    }
 
     /// (ironspec 11:05: nothing silently dropped) a way-in cell outside the world's box fails the
     /// run, naming the cell; one inside is placed.
