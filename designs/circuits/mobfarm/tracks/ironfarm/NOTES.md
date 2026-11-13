@@ -341,30 +341,43 @@ the inherited numbers again.
     - `lip_margin_on_official_rows`: 0.30 at rest, D − 5 → −1, D − 4 → 0;
     - `lip_margin_on_official_rolling_row`: 0.15 rolling with its K tick 12 gt before the press, P − 2 → −1, P − 1 → 2.
 - **Other per-row checks:**
-  - The carts' block contacts (ironspec 21:25 (4), with G1's note (c)). The method follows day-1's `note_contacts`.
+  - The carts' block contacts (ironspec 21:25 (4), with G1's note (c)). The method follows day-1's `note_contacts`. INTERIM until the shared `mobfarm::contacts::face_contacts` lands in its own commit (ironspec 04:14); this chain's contact results are not cited until then.
     - Every cart whose move collided horizontally counts: the lane's carts, the K row's through-carts and the control cart.
     - The cells are the collision boxes its box meets grown 0.01 in x and z, the floor and the ceiling left out, kept on a face the cart moved toward. The side walls of a 1-wide path and the slope supports a riding cart's box passes through are no stops.
     - Declared: the hold's trapdoor (x,16,0), the drop entry's backstop (x,24,5) (the lanes file's `# contacts:`), and the bench's end of track (x,16/17,−1), a labelled stand-in for the station. Any other contact fails the row.
-    - Contacts before t 20 (the summoned start's settle) are printed apart, not dropped.
-  - No vacuous passes (ironspec 23:56). Every row prints its bars' samples, and a bar in scope with 0 samples is NOT JUDGED and fails. The matrices print the S-bend gate over their rows: the lip classes, the push passes, NOT JUDGED at 0.
-  - `siding_row` requires every bar's line, and a missing or unparsable count is an error.
+    - Contacts before t 20 (the summoned start's settle) are judged against the same declared stops (ironspec 04:14 (9)): the summoned carts exist from t 0.
+  - The bench's run-time overrides (ironspec 04:07). Each `set_block` goes through a checker that prints the cell's state before and after; one that leaves its cell unchanged fails the row (`override_noops`). The checked overrides:
+    - the hold's trapdoor toggles (an iron trapdoor since ironspec 04:34; the station's part, laid here as a stand-in);
+    - R_1's switch;
+    - the siding's switch;
+    - `--held-rider-control`'s glass and `--stray-ctl`'s redstone block, whose cells are printed.
+  - No vacuous passes (ironspec 23:56, 04:14 (1)). Every row prints its bars' samples, and a bar in scope with 0 samples is NOT JUDGED and fails. That includes the occupancy bars (the releases from the steady state), the V bar (the steady window's ticks), the curve rule, the follower, the settle (scope: the nappers released at rest, computed) and the K row's passes at K.
+  - Every matrix's failing count comes from one list, `SidingRow::failures`. NOT JUDGED at the matrix level is added to it, and a failing matrix, single row or push grid exits non-zero.
+  - `siding_row` requires every bar's line, and a missing or unparsable count is an error. The carts-per-release pairs must add up to the release count, and every napper's segment must carry its contact figure (ironspec 04:14 (6)).
+  - The PRESENT bar is the outcome itself (ironspec 06:15 real): on the tick R first powers after each release (R's power read from the world), the napper must be at rest in R's cell (its block position; speed < 0.001), or that release fails. Its positive control `--early-r N` powers R N gt before the design's feed, with a redstone block beside R, and must fail the outcome through the same row. The proxy prints as information (ironspec 04:14 (7), 05:03, 06:08 real; day-1's derivation): 14 = k_sw + the feed delay (the D press → R powered), 7 = L_latch + 1, + 2 the world-open lead. k_sw (the press → the release) and the feed delay (the release → R powered) are read from the run.
+    - By default the lead applies to both terms: m ≥ max(7, settle − (k_sw + feed)) + 2, the floor 9.
+    - With `--present-latch-unclocked` (day-1's confirmation, declared, that the PRESENT → latch → AND path is triggered and unclocked) the lead applies to the settle term only: m ≥ max(7, settle − (k_sw + feed) + 2).
+    - The settle is the row's worst PRESENT → at rest; a row whose nappers never came to rest uses the rest sweep's worst, 22 gt.
+  - R ← K by cell transition (ironspec 04:14 (8)). A joint tick is a cart on R while another rides F, moves out of K into F or R, or sits on R too. There is no motion test. The diagonal control (`--r-joint-control diag:T`) sends a cart into K's curve from its east cell, so it turns north at 45°; it must count.
   - Every control asserts its own expected failure (ironspec 00:02 (3), 00:27):
-    - the r_joint turn and pass controls;
-    - `--side-ctl`;
-    - a non-slime `--r-support`;
-    - `--held-rider-control`.
-  - The resting napper across the K row's passes (ironspec 23:15 (2)): its displacement and speed during every pass, with a bar of 0. This closes push-scan's R ← K pairs by measurement, as the lanes file's `# push-pair:` declares. The turn control is the positive control.
+    - the r_joint turn, diag and pass controls;
+    - `--stray-ctl` and `--side-ctl`;
+    - `--early-r N`, the outcome bar's;
+    - `--r-support` glass, a non-conductor, where launches must fail (a conducting support is no control, ironspec 04:14 (9));
+    - `--held-rider-control` (with `--inject-release T`, a single forced release).
+  - The lip bar's evidence comes from the actual margins and contacts (ironspec 04:14 (5)). A failing row is classed by its contact: STUCK, the napper beside its LEADER over the merge (the lip's contact, at any margin), or other bars. The evidence also prints the highest margin of any failing row, and what the failing rows at or above the bar fail. `--lip-bar` refuses a negative bar.
+  - The resting napper across the K row's passes (ironspec 23:15 (2)): its displacement and speed during every pass, with a bar of 0. This closes push-scan's R ← K pairs by measurement, as the lanes file's `# push-pair:` declares.
     - **Each row's computed scope** (ironspec 03:00). Each row prints:
       - the napper's windows on R (in R's cell, resting or rolling onto it);
       - every K-row pass tick;
       - the ticks where the two meet.
 
-      Where they meet, the push is judged. A row where they never meet is "push: out of scope (computed)" only while its K row is alive (G1's guard: a dead K row is NOT JUDGED). Each such row names the push-grid row covering its rest z (`--push-grid`); an uncovered rest fails the row. No flag can declare the scope.
+      Where they meet at rest, the push is judged; where a pass meets the napper while it rolls on R or launches, the push isn't measured, so those ticks are NOT JUDGED and fail (ironspec 04:14 (2)). A row where they never meet is "push: out of scope (computed)" only while its K row is alive (G1's guard: a dead K row is NOT JUDGED). Each such row names the push-grid row covering its rest z (`--push-grid`); the covering row must have met passes and read no displacement (ironspec 04:14 (3a)), and an uncovered rest fails the row. No flag can declare the scope.
     - **The push grid** (`--push-grid-run`), the citable grid behind `# push-pair:`:
       - every rest position (arrival on K 0.10..0.44 by 0.01 × 8 entry phases, rest z 7.343..7.912);
       - at each one, K-row passes injected at 0.28..0.44 b/gt across 8 entry x's, 1 and 20 gt after the rest;
       - 22,400 passes, all of which met their rest, with displacement 0.000000.
 
-      The table is `push-grid-sbend.txt` in this folder.
+      The table is `push-grid-sbend.txt` in this folder. Its rest z is the napper's z at the injected pass (ironspec 04:14 (3c)). Per rest it also gives the least box gap between a passing cart's box and the napper's push box (ironspec 04:05), and the PLANTED pass, the grid's positive control THROUGH THE K-ZONE GATE (ironspec 04:14 (4)): a cart in K's cell near its north edge rolling north, counted as a K-row pass like any other. Wherever its push box meets the resting napper's box, its displacement must be > 0. The grid run fails, with a non-zero exit, on any displacement, a missed pass, a rest never reached, or a control that doesn't bite (ironspec 04:14 (3b)).
   - The napper's settle on R (day-1; ironspec 01:33 (1)). The bar uses PRESENT → at rest, which is the K tick → rest minus 2. The rest sweep prints it per arrival and phase, with the bar it implies, m ≥ max(7, settle − 14) + 2. The first tick on R's cell → rest is printed too.
   - `--out`: the bench's world as laid, for `mobfarm record-match` (ironspec 21:43).
