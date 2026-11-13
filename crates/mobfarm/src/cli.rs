@@ -2599,8 +2599,8 @@ pub enum MobfarmCmd {
         #[arg(long)]
         pulse_gate: Option<i64>,
         /// The bench's `--lift-depth N` (the napper lift N levels deeper: the stop N down, R at
-        /// (4,-19-N,4); 7b90c3f1's bb0a33575).
-        #[arg(long, default_value_t = 0)]
+        /// (4,-19-N,4); 7b90c3f1's bb0a33575): 9, record7's (ironspec 20:53; the bench's default).
+        #[arg(long, default_value_t = 9)]
         lift_depth: i32,
         /// The bench's V15 and path (a) options (7b90c3f1's 83878113f, ironspec 13:56..16:04): `--no-torches`
         /// (the always-on sources' opt-out), `--napper-speed` (the napper's start speed at R), `--path-a`
@@ -2656,14 +2656,15 @@ pub enum MobfarmCmd {
         #[arg(long)]
         row_boost: bool,
         /// The bench's launch offsets: a calibration of dfb89499's real station, not the design offsets
-        /// (ironspec 19:52): 0,10,24 with --station-lag 11 reproduce the station for design offsets
-        /// 0/12/24 (7b90c3f1); the station check refuses a calibration that misses the table.
-        #[arg(long, value_delimiter = ',', default_value = "0,10,24")]
+        /// (ironspec 19:52): with lane 3 at design offset 14 (ironspec 20:07, final), 0,12,24 (lane 3 at
+        /// y 12 +76; 7b90c3f1), at each calibration setting's --station-lag; the station check refuses a
+        /// calibration that misses the table.
+        #[arg(long, value_delimiter = ',', default_value = "0,12,24")]
         offsets: Vec<i64>,
         /// The station calibration check (ironspec 19:52): dfb89499's y-12 passes after REL per lane
-        /// (LANE:GT), matched within 1 gt in the control at release --station-speed (where 7b90c3f1's
-        /// calibration reproduces them); --no-station-check skips it.
-        #[arg(long, value_delimiter = ',', allow_hyphen_values = true, default_value = "-1:55,3:74")]
+        /// (LANE:GT; lane 3 at offset 14: +76), matched within 1 gt in each setting's control; --no-station-check
+        /// skips it.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true, default_value = "-1:55,3:76")]
         station_table: Vec<String>,
         #[arg(long, default_value_t = 0.4)]
         station_speed: f64,
@@ -2766,12 +2767,16 @@ pub enum MobfarmCmd {
         #[arg(long, default_value_t = 2)]
         junction_entity_min: i64,
         /// Day-1's junction driver (ironspec 19:38): a press-caused switch lands SET,RESET gt after the press
-        /// (after a set edge, a reset edge) as a block-phase change; applied to the bench's entity-phase press
-        /// entries (timed from the press tick); --no-driver takes them as printed.
+        /// (after a set edge, a reset edge) as a block-phase change. By default the bench runs it (its
+        /// `--driver-latency`, the design of record's run line: the switches land late in the simulation
+        /// itself, and its per-cause entries come tagged block); a raw bench's entity-phase press entries
+        /// (`--bench-raw-switches`) get it in the judge (settle - L, clear + L); --no-driver: neither.
         #[arg(long, value_delimiter = ',', default_value = "4,6")]
         driver_latency: Vec<i64>,
         #[arg(long)]
         no_driver: bool,
+        #[arg(long)]
+        bench_raw_switches: bool,
         #[arg(long, default_value_t = 0)]
         pushes_max: usize,
         /// The roof's underside: every rider's head under it.
@@ -7891,7 +7896,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             println!("{}", crate::queue::golem_spots(&spec, o.as_ref(), &extra, with_entities, list, pad_box, &stand_cells).map_err(|e| anyhow::anyhow!(e))?);
         }
-        MobfarmCmd::ReturnJudge { batches, ticks, boost, reverse, flat, game_ticks, dip, resync, z7, row10, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station, k_relay, napper_lane, napper_r, release_pulse, day1_taps, supp_open, pulse_gate, lift_depth, no_torches, napper_speed, path_a, arm_rel, lane7_rel, station_lag, lane7_pulse, kset_shift, bit_delay, mirror_z, tripwire, dep_keyed, trip_lag, no_gate_control, no_ungated_control, late_logins, station_table, station_speed, no_station_check, settings, no_settings, boosters, row_boost, offsets, spread, speeds, napper_ds, restart_napper, starts, no_restarts, ds, lead_login_max, no_jitter, late, scheduled_only, e_rise, branch_band, upper_final, napper_band, shaft_min, napper_behind, napper_ahead, y12_nap_min, y12_min, mouth_min, junction_min, junction_block_min, junction_entity_min, driver_latency, no_driver, pushes_max, head_max, k_band, margin, gates_out, design_file, solve_steps, solve_ds, solve_table, jobs } => {
+        MobfarmCmd::ReturnJudge { batches, ticks, boost, reverse, flat, game_ticks, dip, resync, z7, row10, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station, k_relay, napper_lane, napper_r, release_pulse, day1_taps, supp_open, pulse_gate, lift_depth, no_torches, napper_speed, path_a, arm_rel, lane7_rel, station_lag, lane7_pulse, kset_shift, bit_delay, mirror_z, tripwire, dep_keyed, trip_lag, no_gate_control, no_ungated_control, late_logins, station_table, station_speed, no_station_check, settings, no_settings, boosters, row_boost, offsets, spread, speeds, napper_ds, restart_napper, starts, no_restarts, ds, lead_login_max, no_jitter, late, scheduled_only, e_rise, branch_band, upper_final, napper_band, shaft_min, napper_behind, napper_ahead, y12_nap_min, y12_min, mouth_min, junction_min, junction_block_min, junction_entity_min, driver_latency, no_driver, bench_raw_switches, pushes_max, head_max, k_band, margin, gates_out, design_file, solve_steps, solve_ds, solve_table, jobs } => {
             anyhow::ensure!(starts.len() == 2, "--starts A,B");
             anyhow::ensure!(offsets.len() == 3, "--offsets A,B,C");
             anyhow::ensure!(spread.len() == 2, "--spread LO,HI");
@@ -7908,7 +7913,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let prelude = if napper_lift { 100 } else { 0 };
             let ticks = ticks + prelude;
             let starts = vec![starts[0], starts[1] + prelude];
-            let base = crate::returnbench::ReturnOpts { batches, spacing: 14, speed: 0.4, ticks, login: None, boost, trace: None, reverse, offsets: offsets.clone(), jitter: Vec::new(), flat, game_ticks, napper_delay: (restart_napper >= 0).then_some(restart_napper), dip, resync, seed_miss: None, restart: None, z7, row10, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station, k_relay, napper_lane, napper_r, release_pulse, boosters, row_boost, out: None, mirror_z, day1_taps, supp_open, pulse_gate, gate_delayed_only: false, lift_depth, no_torches, napper_speed, path_a, arm_rel, lane7_rel, station_lag, y12_min, y12_nap_min, lane7_pulse, kset_shift, driver_latency: false, mouth_min, bit_delay, tripwire, dep_keyed, trip_lag };
+            let base = crate::returnbench::ReturnOpts { batches, spacing: 14, speed: 0.4, ticks, login: None, boost, trace: None, reverse, offsets: offsets.clone(), jitter: Vec::new(), flat, game_ticks, napper_delay: (restart_napper >= 0).then_some(restart_napper), dip, resync, seed_miss: None, restart: None, z7, row10, row9, boost_exit, climb2, boost_slope, napper_lift, arm_station, k_relay, napper_lane, napper_r, release_pulse, boosters, row_boost, out: None, mirror_z, day1_taps, supp_open, pulse_gate, gate_delayed_only: false, lift_depth, no_torches, napper_speed, path_a, arm_rel, lane7_rel, station_lag, y12_min, y12_nap_min, lane7_pulse, kset_shift, driver_latency: !no_driver && !bench_raw_switches, mouth_min, bit_delay, tripwire, dep_keyed, trip_lag };
             anyhow::ensure!(k_band.len() == 2, "--k-band LO,HI");
             let bars = crate::returnjudge::ReturnBars { branch_band: (branch_band[0], branch_band[1]), napper_band: (napper_band[0], napper_band[1]), shaft_min, napper_behind, napper_ahead, junction_min: jm.clone(), pushes_max, head_max, k_band: k_relay.then_some((k_band[0], k_band[1])), scheduled_only, hold_required: napper_lift && pulse_gate.is_some(), margin, junction_block_min, junction_entity_min, driver_latency: (!no_driver && driver_latency.len() == 2).then(|| (driver_latency[0], driver_latency[1])), path_a, y12_nap_min, y12_min, mouth_min };
             let line = format!(
@@ -7924,11 +7929,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     format!(
                         "--napper-lift --release-pulse {release_pulse} {}{}{}{}",
                         if napper_r != 0 { format!("--napper-r {napper_r} ") } else { String::new() },
-                        if day1_taps { format!("--day1-taps {}{}", if supp_open != 73 { format!("--supp-open {supp_open} ") } else { String::new() }, if kset_shift != 0 { format!("--kset-shift {kset_shift} ") } else { String::new() }) } else { String::new() },
+                        if day1_taps { format!("--day1-taps {}{}{}", if supp_open != 73 { format!("--supp-open {supp_open} ") } else { String::new() }, if kset_shift != 0 { format!("--kset-shift {kset_shift} ") } else { String::new() }, if !no_driver && !bench_raw_switches { "--driver-latency " } else { "" }) } else { String::new() },
                         pulse_gate.map_or(String::new(), |x| format!("--pulse-gate {x} ")),
                         format!(
                             "{}{}{}{}{}",
-                            if lift_depth != 0 { format!("--lift-depth {lift_depth} ") } else { String::new() },
+                            if lift_depth != 9 { format!("--lift-depth {lift_depth} ") } else { String::new() },
                             if tripwire { "--tripwire " } else { "" },
                             if dep_keyed { "--dep-keyed " } else { "" },
                             if trip_lag != 0 { format!("--trip-lag {trip_lag} ") } else { String::new() },

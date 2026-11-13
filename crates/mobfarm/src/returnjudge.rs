@@ -148,6 +148,9 @@ pub struct ReturnRead {
     /// The bench's mouth clearance on the `path (a):` line (ironspec 20:01): the least, over the batches, of
     /// lane 7's entry at y 12 after the preceding cart's box fully cleared the mouth cell (gt).
     pub mouth: Option<i64>,
+    /// A restart row's game-time delta across the save/stop/start (ironspec 20:35: exactly 1), as the bench
+    /// prints it ("restart game-time delta N").
+    pub restart_delta: Option<i64>,
     /// Each batch cart's y-12 pass after its batch's REL: from the `path (a):` line (`bB lane L +X`), keyed
     /// (batch, lane); and each cart line's "the rider's feet at y 12.01 at N" (N after the cart's own
     /// launch), keyed (cart index, batch, lane), for the station calibration check without path (a).
@@ -705,6 +708,14 @@ pub fn read(text: &str, napper: bool, k_cell: Option<(i32, i32, i32)>) -> Return
         }
         // (`path (a): …` (83878113f) or `path (a), in game ticks after REL (…): …` (5ec2749b3); its pairs line
         // apart)
+        // (`… restart game-time delta N (…)` (ironspec 20:35; 7b90c3f1's clean bench): a restart row's game-time
+        // delta across the save/stop/start, barred at exactly 1)
+        if let Some((_, d)) = l.split_once("restart game-time delta ") {
+            match d.trim_start().split(|c: char| !(c.is_ascii_digit() || c == '-')).next().and_then(|x| x.parse::<i64>().ok()) {
+                Some(n) => r.restart_delta = Some(r.restart_delta.map_or(n, |m: i64| if (m - 1).abs() >= (n - 1).abs() { m } else { n })),
+                None => r.errors.push(format!("the restart game-time delta unreadable: {:?}", d.chars().take(40).collect::<String>())),
+            }
+        }
         if let Some(rest) = l.strip_prefix("path (a) y-12 pairs ") {
             read_y12_pairs(rest, &mut r);
         } else if let Some(rest) = l.strip_prefix("path (a): ").or_else(|| l.strip_prefix("path (a), ").and_then(|x| x.split_once("): ").map(|(_, y)| y))) {
@@ -797,6 +808,12 @@ pub fn read(text: &str, napper: bool, k_cell: Option<(i32, i32, i32)>) -> Return
 /// failure too (the judge also refuses such a run outright).
 pub fn fails(r: &ReturnRead, b: &ReturnBars, napper: bool) -> Vec<String> {
     let mut v = Vec::new();
+    // (ironspec 20:35: a restart's game-time delta exactly 1; any other is no valid restart: re-run)
+    if let Some(d) = r.restart_delta
+        && d != 1
+    {
+        v.push(format!("restart game-time delta {d} (bar 1: re-run)"));
+    }
     for m in &r.missing {
         v.push(format!("the bench's text lacks {m}"));
     }
@@ -1772,17 +1789,20 @@ pub fn judge(base: &ReturnOpts, o: &ReturnJudgeOpts) -> Result<(Vec<String>, usi
         let end = |(d, ((c, row), r)): &(i64, &Res)| -> String {
             let k_ok = r.wrong == 0 && r.never == 0 && r.sided == 0 && (o.bars.k_band.is_none() || r.napper_k.is_some_and(|x| o.bars.k_band.is_some_and(|kb| x >= kb.0 && x <= kb.1)));
             let j_ok = o.bars.junction_min.get(&-1).is_none_or(|m| r.junction.get(&-1).is_some_and(|g| g >= m));
-            let m_ok = r.napper_behind.is_some_and(|g| g >= o.bars.napper_behind) && r.pushes <= o.bars.pushes_max;
+            // (the lane-7 merge separation: under path (a) the napper's y-12 gap behind lane 7's cart (the shaft
+            // entry retired, ironspec 17:20), else its shaft-entry gap behind the third cart)
+            let (behind, bar, at) = if o.bars.path_a { (r.y12_behind, o.bars.y12_nap_min, "at y 12") } else { (r.napper_behind, o.bars.napper_behind, "at the shaft entry") };
+            let m_ok = behind.is_some_and(|g| g >= bar) && r.pushes <= o.bars.pushes_max;
             let ok = |b: bool| if b { "ok" } else { "FAIL" };
             format!(
-                "E{:+} at {} {} (K set/reset {}, the J(-1) re-arm {}, the lane-7 merge separation {} (the napper {} behind))",
+                "E{:+} at {} {} (K set/reset {}, the J(-1) re-arm {}, the lane-7 merge separation {} (the napper {} behind {at}))",
                 d,
                 c.label(),
                 row_label(row),
                 ok(k_ok),
                 ok(j_ok),
                 ok(m_ok),
-                r.napper_behind.map_or("-".into(), |g| format!("{g} gt"))
+                behind.map_or("-".into(), |g| format!("{g} gt"))
             )
         };
         out.push(format!(
@@ -2587,6 +2607,11 @@ mod tests {
         let miss = read(&format!("{T}{}{pairs}{sc}", pa2.replace("b1 lane 7 +101", "b1 lane 7 -")), true);
         assert!(miss.errors.is_empty() && fails(&miss, &pb, true).iter().any(|x| x.contains("1 batch cart(s) never passed y 12")), "{:?} {:?}", miss.errors, fails(&miss, &pb, true));
         let set9 = read(&format!("{T}{pa}{}", sc.replace("settle 11 gt", "settle 3 gt")), true);
+        // (ironspec 20:35: a restart row's game-time delta exactly 1; 2 fails as no valid restart; absent: no check)
+        let d1 = read(&format!("{T}{pa2}{pairs}{sc}re-sync after 0 gt idle: at none; seeded misroute none; restart at t 120 (save), restart game-time delta 1\n"), true);
+        assert!(d1.errors.is_empty() && d1.restart_delta == Some(1) && fails(&d1, &pb, true).is_empty(), "{:?} {:?}", d1.errors, fails(&d1, &pb, true));
+        let d2 = read(&format!("{T}{pa2}{pairs}{sc}re-sync after 0 gt idle: at none; seeded misroute none; restart at t 120 (save), restart game-time delta 2 (bar 1: re-run)\n"), true);
+        assert!(fails(&d2, &pb, true).iter().any(|x| x.contains("restart game-time delta 2 (bar 1: re-run)")), "{:?}", fails(&d2, &pb, true));
         assert!(fails(&set9, &pb, true).iter().any(|x| x.contains("J(-1)'s settle 3 gt (entity-phase bar 2 + 2, its cause unnamed)")), "{:?}", fails(&set9, &pb, true));
         let clr9 = read(&format!("{T}{pa}{}", sc.replace("clear 12 gt", "clear 2 gt")), true);
         assert!(fails(&clr9, &pb, true).iter().any(|x| x.contains("J(-1)'s clear 2 gt (block-phase bar 1 + 2)")), "{:?}", fails(&clr9, &pb, true));
