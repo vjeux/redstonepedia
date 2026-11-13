@@ -1435,6 +1435,9 @@ pub struct Faults {
     /// (day-1 10:49) One line per visit: seed, entry speed, release, pickup, rest on the slope,
     /// departure, R, the hold's wait.
     pub visit_table: bool,
+    /// (G1's C20) The run is on the built world (the module over the stop, --module-offset): the
+    /// lightning bar is judged there (the stop alone is open to the sky by construction).
+    pub built_world: bool,
     /// (ironspec 10:47) Each declared contact's `rate=k/n` from a band run: STALE fails only when
     /// (1 - k/n)^N < 0.001 for the run's N visits; a rate-less declaration is always expected.
     pub contact_rates: Vec<([i32; 3], (u32, u32))>,
@@ -4614,6 +4617,11 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
         base.declared_contacts, sk.contact_visits, sk.contacts, sk.declared_hit
     );
     sk.stamp_cleared.sort();
+    // (G1's C20: lightning judged on the built world; on the stop alone it is printed only, the
+    // stop being open to the sky by construction there)
+    if base.built_world && sk.lightning_visits > 0 {
+        failed.push(format!("{} visits with a napper exposed to lightning in the built world (a sky-seeing cell or a bolt's hit box)", sk.lightning_visits));
+    }
     println!(
         "lightning (ironspec 22:56 (iii): a napper's cell that sees the sky, or inside a bolt's hit box from a column top, in the built world (the module over the stop with --module-offset; the bench's stop alone is open to the sky)): {} visits; {:?}",
         sk.lightning_visits,
