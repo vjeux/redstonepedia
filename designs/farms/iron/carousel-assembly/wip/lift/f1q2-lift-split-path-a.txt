@@ -1,14 +1,15 @@
 # The return for F1 + Q2 at 24 (7b90c3f1; bench, tool unreviewed): loop frame, paste with no move. Made by `mctas mobfarm return-bench --out` from the bench's own world; every coordinate in this header is generated from the same options.
-# run line: mctas mobfarm return-bench --z7 --row9 --k-relay --napper-lane 3 --day1-taps --reverse --boosters --game-ticks --offsets 0,12,24 --napper-delay 12 --napper-lift --release-pulse 12 --pulse-gate 42 --path-a --lane7-rel 100 --station-lag 11 --arm-rel 59
-# - merge row along z 7 (path (a)): lane 7 off it (its own ramp and climb, dfb89499's), so (7,0,7) a plain rail east_west joining the hold's line (8,0,7) to the row; Ts (3,0,7) and (-1,0,7) north_west; the main line (x,0,7) x -1..6 on glass ((5,0,7) a plain rail: ARM3 := REL + c, day-1); the west end ramped (2b): (-2,0,7) and (-3,1,7) ascending_west on glass (-2,-1,7), (-3,0,7), the entry (-4,2,7) east_west on glass (-4,1,7) into the lift at y 2; the station's tracks and boosters (z 1..6) are dfb89499's, not here.
-# - shared lift: soul sand (-5,1,7) on glass (-5,0,7), the bubble column (-5,2..22,7), glass walls (-6,y,7), (-5,y,6) for y 2..22, (-5,y,8) for y 2..22 and (-4,y,7) for y 3..22 but y 12 (the entry (-4,2,7) on glass (-4,1,7), the merge row's); the intake (2c): the braked powered slope (-4,12,7) ascending_east (off) on the wall's glass (-4,11,7), lane 7's rest, released at REL + 100 for 10 gt by day-1's repeater (-4,12,6) (not here; dfb89499's climb tops at (-3,13,7)), the cell over it an oak wall sign (-4,13,7) facing south on glass (-4,13,6) (no collision box; it keeps the column's water in); the top cell (-5,23,7) with glass over it (-5,24,7) and beside it (-6,23,7), (-4,23,7); the current's source (-5,23,6) boxed by glass (-5,23,5), (-6,23,6), (-4,23,6), (-5,24,6).
+# run line: mctas mobfarm return-bench --z7 --row9 --k-relay --napper-lane 3 --day1-taps --reverse --boosters --game-ticks --offsets 0,10,24 --napper-delay 12 --napper-lift --release-pulse 12 --pulse-gate 42 --lift-depth 9 --path-a --lane7-rel 95 --station-lag 11 --lane7-pulse 18 --kset-shift 4 --arm-rel 51
+# - merge row along z 7 (path (a)): lane 7 off it (its own ramp and climb, dfb89499's), so (7,0,7) a plain rail east_west joining the hold's line (8,0,7) to the row; Ts (3,0,7) and (-1,0,7) north_west; the main line (x,0,7) x -1..6 on glass ((5,0,7) a plain rail: ARM3 := REL + c, day-1); the west end ramped (2b): (-2,0,7) and (-3,1,7) ascending_west on glass (-2,-1,7), (-3,0,7), the entry (-4,2,7) east_west on glass (-4,1,7) into the lift at y 2, the old intake cell (-4,0,7) glass (the closed wall entry); the station's tracks and boosters (z 1..6) are dfb89499's, not here (the bench's station torches (x-1,0,5) on glass (x-1,-1,5), x -1/3/7, are EMULATED: dfb89499's cells).
+# - shared lift: soul sand (-5,1,7) on glass (-5,0,7), the bubble column (-5,2..22,7), glass walls (-6,y,7), (-5,y,6) for y 2..22, (-5,y,8) for y 2..22 and (-4,y,7) for y 3..22 but y 12 (the entry (-4,2,7) on glass (-4,1,7), the merge row's); the intake (2c): the braked powered slope (-4,12,7) ascending_east (off) on the wall's glass (-4,11,7), lane 7's rest, released at REL + 95 for 10 gt by day-1's repeater (-4,12,6) (not here; dfb89499's climb tops at (-3,13,7)), the cell over it an oak wall sign (-4,13,7) facing south on glass (-4,13,6) (no collision box; it keeps the column's water in); the top cell (-5,23,7) with glass over it (-5,24,7) and beside it (-6,23,7), (-4,23,7); the current's source (-5,23,6) boxed by glass (-5,23,5), (-6,23,6), (-4,23,6), (-5,24,6).
 # - exit and split (in the chunk; K re-lay): the booster, a powered slope (-5,23,8) ascending_south (on) on the shaft wall's glass (-5,22,8), powered from its west side by the redstone torch (-6,23,8) on glass (-6,22,8) (V15) (3 from lane -1's seat); the curve (-5,24,9) north_east on glass; the slope (-4,24,9) ascending_east on glass into K(-3) (lay each slope after the rail at its high end); every rail within 2 of lane -1's seat (-3,24,7) on glass; the row along z 9 at y 25, x -3..6 on glass at y 24: K(-3) (-3,25,9), J(-1) (-1,25,9), K(1) (1,25,9), J(3) (3,25,9), K(5) (5,25,9), J(7) (7,25,9), the 4th route (8,25,9), (9,25,9); each K's feed F (x-2,25,8) north_south on glass (x-2,24,8) (ironfarm's S-bend beyond, not here); each lane's branch the detector slope D (x,24,8) ascending_south on glass (x,23,8), into ironfarm's merge cell (x,24,7) (not here); a lever over every J and K (x,26,9) with glass (x,27,9); (x-1,24,9) glass only; nothing of this file in (x-2..x-1, 22..23, 9) or at (x,23,9) (ironfarm's R feed path and the switched cell).
-# - napper (c), re-laid for the z 7 hold: from R (4,-19,4) (58f770cc's, not here) the entry (5,-19,4) east_west on glass; soul sand (6,-20,4), the bubble column (6,-19..-4,4), glass walls (7,y,4), (6,y,3), (6,y,5) for y -20..-4 and (5,y,4) for y -18..-4; the top cell (6,-3,4) (glass beside it (6,-3,3), (6,-3,5), over it (6,-2,4)), the source (5,-3,4) boxed by glass (4,-3,4), (5,-3,3), (5,-3,5), (5,-2,4); the exit (7,-3,4) a detector rail east_west on the lift wall's glass (7,-4,4) (day-1's approach detector: the waiting bit's source, read from its side; no T within its update reach); a powered slope (8,-3,4) ascending_east on the redstone block (8,-4,4); the curve (9,-2,4) south_west on glass; powered slopes (9,-2,5) and (9,-1,6) ascending_south on glass (9,-3,5), (9,-2,6), powered by the redstone torch (8,-2,5) on glass (8,-3,5) beside (9,-2,5) (the chain carries it to (9,-1,6)); the T (9,0,7) south_west on glass (arms N, S, W: from the north on south, from the south west); the hold (9,0,8), a powered rail north_south, off, on slime (9,-1,8) (a conductor), driven by the repeater (8,-1,8) facing west on glass (8,-2,8) (its input (7,-1,8), day-1's chain: the hold rail powered from ARM3 + D for the release pulse (--release-pulse, 8 gt by default) in each cycle whose pulse fires (with --pulse-gate X, day-1's gate: only when the napper's waiting bit, set on the approach detector (7,-3,4) (a detector rail east_west on glass (7,-4,4), read from its side) and sampled X gt late at E's rise (ARM3 + 2), is high, so a napper not yet at rest waits for the next cycle's pulse and every departure is a scheduled one; without it, every cycle); EMULATED, a redstone block at (7,-1,8) for the pulse), the napper stopped against the slime block (9,0,9) (a conductor, so the launch's kick pushes off it; not solid-render) with glass over it (9,1,9); the hold's line (8,0,7) a powered rail (on) on slime (8,-1,7), strongly powered by the redstone torch (8,-2,7) on glass (8,-3,7) under it into lane 7's curve (7,0,7); declared (push-scan's two pairs at the hold): the staircase, the T (9,0,7), the hold (9,0,8) and the hold's line (8,0,7) are the napper's own route, no batch cart enters it (lane 7's merge T (7,0,7) joins north and west only, its east arm is the hold's line), one napper at a time (the next leaves the bed stop >= 312 gt later, day-1's model figure; the single-occupant line below), so no two carts meet there; the arming detector ARM3 := REL + 59 (day-1 14:41: no detector; (5,0,7) a plain rail).
+# - napper (c), re-laid for the z 7 hold: from R (4,-28,4) (58f770cc's, not here) the entry (5,-28,4) east_west on glass; soul sand (6,-29,4), the bubble column (6,-28..-4,4), glass walls (7,y,4), (6,y,3), (6,y,5) for y -29..-4 and (5,y,4) for y -27..-4; the top cell (6,-3,4) (glass beside it (6,-3,3), (6,-3,5), over it (6,-2,4)), the source (5,-3,4) boxed by glass (4,-3,4), (5,-3,3), (5,-3,5), (5,-2,4); the exit (7,-3,4) a detector rail east_west on the lift wall's glass (7,-4,4) (day-1's approach detector: the waiting bit's source, read from its side; no T within its update reach); a powered slope (8,-3,4) ascending_east on the redstone block (8,-4,4); the curve (9,-2,4) south_west on glass; powered slopes (9,-2,5) and (9,-1,6) ascending_south on glass (9,-3,5), (9,-2,6), powered by the redstone torch (8,-2,5) on glass (8,-3,5) beside (9,-2,5) (the chain carries it to (9,-1,6)); the T (9,0,7) south_west on glass (arms N, S, W: from the north on south, from the south west); the hold (9,0,8), a powered rail north_south, off, on slime (9,-1,8) (a conductor), driven by the repeater (8,-1,8) facing west on glass (8,-2,8) (its input (7,-1,8), day-1's chain: the hold rail powered from ARM3 + D for the release pulse (--release-pulse, 8 gt by default) in each cycle whose pulse fires (with --pulse-gate X, day-1's gate: only when the napper's waiting bit, set on the approach detector (7,-3,4) (a detector rail east_west on glass (7,-4,4), read from its side) and sampled X gt late at E's rise (ARM3 + 2), is high, so a napper not yet at rest waits for the next cycle's pulse and every departure is a scheduled one; without it, every cycle); EMULATED, a redstone block at (7,-1,8) for the pulse), the napper stopped against the slime block (9,0,9) (a conductor, so the launch's kick pushes off it; not solid-render) with glass over it (9,1,9); the hold's line (8,0,7) a powered rail (on) on slime (8,-1,7), strongly powered by the redstone torch (8,-2,7) on glass (8,-3,7) under it into lane 7's curve (7,0,7); declared (push-scan's two pairs at the hold): the staircase, the T (9,0,7), the hold (9,0,8) and the hold's line (8,0,7) are the napper's own route, no batch cart enters it (lane 7's merge T (7,0,7) joins north and west only, its east arm is the hold's line), one napper at a time (the next leaves the bed stop >= 312 gt later, day-1's model figure; the single-occupant line below), so no two carts meet there; the arming detector ARM3 := REL + 51 (day-1 14:41: no detector; (5,0,7) a plain rail).
 # - declared: each D (x,24,8)'s high end is its junction J (x,25,9) (3 potential connections) and J is a face of the cell over D; J is power-forced by its declared switch in both states, so D's press and release re-settle J to the settle shape of its power, a no-op: tick-exact's official D-J probe passes (J at its driver's settle, NE off / NW on, 2 gt after the lever; D ascending_south through every press, release, toggle while pressed and restart in each state; module-check 0 of 14 blocks differ; https://artifacts.internalmeta.com/a/1169573292176966).
 # - switches EMULATED: a lever over each junction (face ceiling, glass over it) is the latch's output (`drive_j` only toggles the lever, flags ALL; redsim settles the junction); the latches: J(-1) on at idle; lane -1's branch rise turns it off and J(3) on; lane 3's turns J(3) off; the third cart's rise at the row's second detector turns J(-1) on, or opens the napper window (J(7) off on lane 7's branch rise; J(-1) on at the napper's own first rise at the row's first detector).
 # - OPEN: day-1's drivers (K set, K reset and J(-1)'s re-arm at day-1's taps after the napper's own ARM3, EMULATED here as the levers at those ticks; the hold's pulse into (7,-1,8)); lane -1's seat (-3,24,7): no rail of mine on a solid-render block within 2 of it (the booster's side source sits at (-6,23,8), beside the booster (-5,23,8), 3 from the seat), 9fc3155f to confirm with --clear-rate.
 # always-on: 8,-2,7=the hold's line booster (8,0,7)'s torch on glass (8,-3,7), under the slime (8,-1,7); 8,-2,5=the napper climb's torch on glass (8,-3,5), beside (9,-2,5) (the chain to (9,-1,6)); 8,-4,4=the napper climb's first booster (8,-3,4)'s redstone block; -6,23,8=the lift exit's torch on glass (-6,22,8), beside the booster (-5,23,8)
-# single-occupant: 9,0,8+9,0,7+8,0,7=one napper released per nap trip, on a fired pulse only (the gate); every arm of the T (9,0,7) carries only that napper's route (in from the staircase, rest on the hold (9,0,8) against the slime stop (9,0,9), out west on (8,0,7)); (7,0,7) is a plain rail joining the hold's line to the row (path (a): lane 7 off the merge row), so no batch cart enters (return-bench: 0 batch carts on the hold's route over its late, jitter, restart and arrival-phase sweeps); consecutive nappers leave the bed stop >= 312 gt apart (day-1) and the stop -> hold trip spreads by <= 4 gt (75..79, return-bench), against the bar 181 (the hold's longest wait 142 + the 12-gt pulse + clear + 20; ironspec 11:49 / 14:15): 131 to spare
+# single-occupant: 9,0,8+9,0,7+8,0,7=one napper released per nap trip, on a fired pulse only (the gate); every arm of the T (9,0,7) carries only that napper's route (in from the staircase, rest on the hold (9,0,8) against the slime stop (9,0,9), out west on (8,0,7)); (7,0,7) is a plain rail joining the hold's line to the row (path (a): lane 7 off the merge row), so no batch cart enters (return-bench: 0 batch carts on the hold's route over its late, jitter, restart and arrival-phase sweeps); consecutive nappers leave the bed stop >= 312 gt apart (day-1) and the stop -> hold trip spreads by <= 4 gt (88..92, return-bench), against the bar 181 (the hold's longest wait 142 + the 12-gt pulse + clear + 20; ironspec 11:49 / 14:15): 131 to spare
+# emulated (ironspec 17:46 / 17:49; the bench's writes outside this file, each to be checked against its owner's built cell with the statics run there): dfb89499's station z 1..6 (each lane's rails, its exit detector and boosters on glass, the torches (x-1,0,5) on glass (x-1,-1,5)); dfb89499's climb top (-3,13,7) a rail; the bed stop's R (4,-28,4) a rail on glass (4,-29,4) (58f770cc's); ironfarm's merge cells (x,24,7) rails on glass (x,23,7), x -1/3/7; the levers over each J and K (x,26,9) (the latches' outputs: day-1's drive); day-1's hold input (7,-1,8) (a conforming stand-in: a floor lever on glass (7,-2,8), toggled for the pulse; a wall lever on (7,-1,7) would update V15's T (7,0,7)); day-1's lane 7 repeater (-4,12,6) on glass (-4,11,6) and its tap input (-4,12,5) (a conforming stand-in: a floor lever on glass (-4,11,5), toggled for the pulse). The bench's blocks: rails, the detector, levers and the repeater non-solid with no full top face; glass solid with a full top face and full-block collision, not solid-render, and refused by LEGACY_IRON_GOLEM spawning; the two inputs are non-solid line ends in the build (ironspec 18:24), here levers on glass, the same rise ticks as the redstone blocks they replace.
 # T (-3,25,9): arms north/west/east, designed north_east, unpowered north_east, powered north_west; sources at its faces: lever[face=ceiling,facing=north,powered=false] (-3,26,9); signal-source updates reaching it: lever (-3,26,9); switched by its declared lever (NW on, NE off; now north_east)
 # T (-1,0,7): arms north/west/east, designed north_west, unpowered north_east, powered north_west; sources at its faces: none; signal-source updates reaching it: none; placement order (settles north_east unpowered): lay it after its two designed arms, before the third
 # T (-1,25,9): arms north/west/east, designed north_east, unpowered north_east, powered north_west; sources at its faces: lever[face=ceiling,facing=north,powered=false] (-1,26,9); signal-source updates reaching it: lever (-1,26,9), detector_rail (-1,24,8); switched by its declared lever (NW on, NE off; now north_east)
@@ -48,7 +49,7 @@ palette:
   p minecraft:powered_rail[powered=false,shape=north_south,waterlogged=false]
   r minecraft:rail[shape=ascending_west,waterlogged=false]
   s minecraft:soul_sand
-layer -20:
+layer -29:
   ............G
   ...........GsG
   ............G
@@ -56,9 +57,81 @@ layer -20:
   .
   .
   .
-layer -19:
+layer -28:
   ............G
   ...........FBG
+  ............G
+  .
+  .
+  .
+  .
+layer -27:
+  ............G
+  ...........GBG
+  ............G
+  .
+  .
+  .
+  .
+layer -26:
+  ............G
+  ...........GBG
+  ............G
+  .
+  .
+  .
+  .
+layer -25:
+  ............G
+  ...........GBG
+  ............G
+  .
+  .
+  .
+  .
+layer -24:
+  ............G
+  ...........GBG
+  ............G
+  .
+  .
+  .
+  .
+layer -23:
+  ............G
+  ...........GBG
+  ............G
+  .
+  .
+  .
+  .
+layer -22:
+  ............G
+  ...........GBG
+  ............G
+  .
+  .
+  .
+  .
+layer -21:
+  ............G
+  ...........GBG
+  ............G
+  .
+  .
+  .
+  .
+layer -20:
+  ............G
+  ...........GBG
+  ............G
+  .
+  .
+  .
+  .
+layer -19:
+  ............G
+  ...........GBG
   ............G
   .
   .
@@ -213,7 +286,7 @@ layer 0:
   .
   .
   .
-  .G.GrJFFFJFFFFEK
+  .GGGrJFFFJFFFFEK
   ...............p
   ...............S
 layer 1:
