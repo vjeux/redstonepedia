@@ -2032,6 +2032,14 @@ pub enum MobfarmCmd {
         /// the start (default: the design start (i), every HOME a memory and the ticket free).
         #[arg(long)]
         bed_ticket_taken: bool,
+        /// (ironspec 06:36 real) The oldest-stamp bar's known positive: by day one lane rider is
+        /// given a walk target no path reaches; its stamp must age past 1,000 gt and the bar FAIL.
+        #[arg(long)]
+        stamp_control: bool,
+        /// (ironspec 06:31 real) The farm-stop bar's known positive: the first napper to reach the
+        /// bed stop loses its HOME there; the bar must FAIL.
+        #[arg(long)]
+        home_erase_control: bool,
         /// (ironspec 11:15) An S-bend seat whose stamp resets are counted:
         /// `NAME=x,y,z:cx,cy,cz+cx,cy,cz...` (the seat's rail cell, its clearing candidates).
         /// Repeatable.
@@ -7502,7 +7510,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 std::process::exit(1);
             }
         }
-        MobfarmCmd::F1q2Run { design, seed, ticks, day0, lane_carts, restart_every, restart_order, control_rider, trace, drive, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour_golems, cart_trace, drive_out, scene_out, watchdog, stale_start, held_at_divert, report_only, queue_hold, empty_pocket, stack_bench, inert_control, gossip_control, bystander_control, seed_queued_napper, day_threshold, bed_ticket_taken } => {
+        MobfarmCmd::F1q2Run { design, seed, ticks, day0, lane_carts, restart_every, restart_order, control_rider, trace, drive, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour_golems, cart_trace, drive_out, scene_out, watchdog, stale_start, held_at_divert, report_only, queue_hold, empty_pocket, stack_bench, inert_control, gossip_control, bystander_control, seed_queued_napper, day_threshold, bed_ticket_taken, stamp_control, home_erase_control } => {
             let (c, spec) = load(version, &design)?;
             let bed = *c.clock.design.ports.get("home").ok_or_else(|| anyhow::anyhow!("{}: no `home` port (the shared bed's head)", design.display()))?;
             // (the seats: NAME=x,y,z:cx,cy,cz+...)
@@ -7541,6 +7549,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let emulated = crate::column::header_cells(&text, "emulated:");
             let emulated_states = crate::column::header_cell_states(&text, "emulated:");
             anyhow::ensure!(emulated_states.len() == emulated.len(), "{}: every `emulated:` cell names its stand-in state (CELL=STATE (why); G1's note (c))", design.display());
+            // (day-1 05:45 PT, ironspec 06:24 real) the line ends declared redstone-block stand-ins
+            let block_standins = crate::column::block_standins(&text).map_err(|e| anyhow::anyhow!("{}: # stand-in: {e}", design.display()))?;
             let ts = crate::column::header_cells(&text, "placement-order-ts:");
             let update_only = crate::column::header_cells(&text, "update-only-ts:");
             // (ironspec 20:34 PT) the dwell cap from the module's `dwell-cap: N (why)` line
@@ -7606,7 +7616,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             // (ironspec 22:03 / 22:09 PT) k_lock and k_sw from the module
             let num = |key: &str| -> Option<i64> { text.lines().find_map(|l| l.strip_prefix(key)).and_then(|r| r.split_whitespace().next()).and_then(|n| n.parse().ok()) };
             let (k_lock, k_sw) = (num("k-lock:"), num("k-sw:"));
-            let o = crate::f1q2run::Opts { seed, ticks, day0, lane_carts, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour, cart_trace, restarts, restart, control_rider, trace, bed, drive, drive_rec, watchdog, stale_start, held_at_divert, queue_hold, emulated, emulated_states, ts, update_only, empty_pocket, dwell_cap, stack_bench, stops, k_lock, k_sw, inert, always_on, push_pairs, way_in_composed, inert_control, watch_reasons, gossip_control, bystander_control, a6_pickup, seed_queued_napper, day_threshold, bed_ticket_taken };
+            let o = crate::f1q2run::Opts { seed, ticks, day0, lane_carts, per_lane, official_lane3, compare_official, napper, seats, nap_trace, neighbour, cart_trace, restarts, restart, control_rider, trace, bed, drive, drive_rec, watchdog, stale_start, held_at_divert, queue_hold, emulated, emulated_states, ts, update_only, empty_pocket, dwell_cap, stack_bench, stops, k_lock, k_sw, inert, always_on, push_pairs, way_in_composed, inert_control, watch_reasons, gossip_control, bystander_control, a6_pickup, seed_queued_napper, day_threshold, bed_ticket_taken, block_standins, stamp_control, home_erase_control };
             let (rep, out) = crate::f1q2run::run_driven(&spec, &o).map_err(|e| anyhow::anyhow!(e))?;
             print!("{rep}");
             if let (Some(df), Some(sf), Some((drive_text, scene_entities))) = (&drive_out, &scene_out, out) {
