@@ -82,6 +82,8 @@ pub fn sleep_merge(version: &str, mode: &str, k: u32, watch: u32, guard: bool, m
     let Some(lie) = lie else { anyhow::bail!("the villager never lay down within {max_wait} gt") };
     println!("  t{lie}: LIE-DOWN (the head reads occupied=true after this tick)");
     let (mut wake, mut pulses, mut was_on, mut guard_sleep, mut guard_awake) = (None::<u32>, Vec::new(), false, 0u32, 0u32);
+    let mut pulse_occ: Vec<(u32, bool)> = Vec::new();
+    let mut last_occ = true;
     let (mut lo, mut hi) = ([f64::MAX; 3], [f64::MIN; 3]);
     for j in 0..=watch {
         let t = lie + j;
@@ -110,8 +112,10 @@ pub fn sleep_merge(version: &str, mode: &str, k: u32, watch: u32, guard: bool, m
         let p = pos_of(&mut srv, "@e[tag=sv,limit=1]")?;
         if on && !was_on {
             pulses.push(t);
+            pulse_occ.push((t, occ));
         }
         was_on = on;
+        last_occ = occ;
         if !occ && wake.is_none() {
             wake = Some(t);
             // (ironspec 12:45 (a)) the stand-up cell findStandUpPosition picked
@@ -165,6 +169,27 @@ pub fn sleep_merge(version: &str, mode: &str, k: u32, watch: u32, guard: bool, m
         lo[2],
         hi[2],
         if guard { format!("; the guard pressed on {guard_sleep} tick(s) while the bed was occupied and {guard_awake} while free") } else { String::new() }
+    );
+    // (G1 12:42) a T flip-flop SLEPT on the observer's pulses (0 before the lie-down), against the bed's
+    // OCCUPIED at each pulse and at the end: the fault note's parity, shown
+    let mut slept = false;
+    for (n, (pt, occ)) in pulse_occ.iter().enumerate() {
+        slept = !slept;
+        println!(
+            "  pulse {} at t{pt} (+{}): SLEPT -> {} | the bed {} | {}",
+            n + 1,
+            pt - lie,
+            u8::from(slept),
+            if *occ { "OCCUPIED" } else { "free" },
+            if slept == *occ { "parity right" } else { "PARITY INVERTED (the latch reads the napper's state backwards)" }
+        );
+    }
+    println!(
+        "  end of the watch (t{}): SLEPT {} | the bed {} | {} (a measurement, no verdict)",
+        lie + watch,
+        u8::from(slept),
+        if last_occ { "OCCUPIED" } else { "free" },
+        if slept == last_occ { "parity right" } else { "PARITY INVERTED" }
     );
     Ok(())
 }

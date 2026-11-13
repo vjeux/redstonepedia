@@ -312,3 +312,143 @@ pub fn presence_slope(version: &str, ticks: u32, open_at: u32, depart_at: u32) -
     anyhow::ensure!(failed.is_empty(), "presence-string bars failed: {}", failed.join("; "));
     Ok(())
 }
+
+/// (G1 12:55, farmopt 12:57: day-1's evidence strings across the split row) Carts rolling east along a
+/// flat east-west rail line (the row's level Y) under two north-south strings: A one cell above the
+/// rails (Y + 1, the y-26 form over the row at y 25) and B two cells above (Y + 2, the y-27 form), each
+/// on hooks north and south on glass. Four lines run at once; each pass is a cart summoned at x -16 +
+/// phase heading east at the STORED speed v, ridden by a villager (or empty), stepped until it is well
+/// past the strings; per pass: whether each string was pressed on any tick of the pass. Then the cart
+/// goes and the strings are let release before the next pass.
+pub fn row_string(version: &str, speeds: &[f64], phases: &[f64], empties: &[f64]) -> Result<()> {
+    let opts = VanillaOptions {
+        version: version.to_string(),
+        difficulty: "peaceful".into(),
+        with_bot: false,
+        biome: "minecraft:plains".into(),
+        tick_rate: 1000,
+        ..Default::default()
+    };
+    let mut srv = VanillaServer::start(&opts)?;
+    srv.cmd_ok("forceload add -32 -16 31 47")?;
+    srv.cmd_ok("time set 6000")?;
+    srv.cmd_ok("gamerule advance_time false")?;
+    let lines = [0i32, 8, 16, 24];
+    for zl in lines {
+        srv.cmd_ok(&format!("fill -24 {} {zl} 24 {} {zl} minecraft:glass", Y - 1, Y - 1))?;
+        srv.cmd_ok(&format!("fill -23 {Y} {zl} 23 {Y} {zl} minecraft:rail[shape=east_west,waterlogged=false]"))?;
+        srv.cmd_ok(&format!("setblock -24 {Y} {zl} minecraft:glass"))?;
+        srv.cmd_ok(&format!("setblock 24 {Y} {zl} minecraft:glass"))?;
+        for (x, dy) in [(-4, 1), (4, 2)] {
+            for (dz, s) in [
+                (-2, "minecraft:glass"),
+                (2, "minecraft:glass"),
+                (-1, "minecraft:tripwire_hook[attached=true,facing=south,powered=false]"),
+                (1, "minecraft:tripwire_hook[attached=true,facing=north,powered=false]"),
+                (0, "minecraft:tripwire[attached=true,disarmed=false,east=false,north=true,powered=false,south=true,west=false]"),
+            ] {
+                srv.cmd_ok(&format!("setblock {x} {} {} {s}", Y + dy, zl + dz))?;
+            }
+        }
+    }
+    println!(
+        "== the row strings on the official {version} server: an east-west rail line at y {Y} (the row's level), string A at (-4, {}, z) (its slab {:.4}..{:.4}) and string B at (4, {}, z) ({:.4}..{:.4}), north-south on hooks; a ridden cart's box top on a flat rail: {:.4}",
+        Y + 1,
+        (Y + 1) as f64 + 1.0 / 16.0,
+        (Y + 1) as f64 + 2.5 / 16.0,
+        Y + 2,
+        (Y + 2) as f64 + 1.0 / 16.0,
+        (Y + 2) as f64 + 2.5 / 16.0,
+        Y as f64 + 0.0625 + 1.95
+    );
+    let mut passes: Vec<(f64, f64, bool)> = Vec::new();
+    for &v in speeds {
+        for &ph in phases {
+            passes.push((v, ph, true));
+        }
+    }
+    for &v in empties {
+        for &ph in phases {
+            passes.push((v, ph, false));
+        }
+    }
+    let (mut a_ridden, mut b_ridden, mut a_empty, mut b_empty, mut n_ridden, mut n_empty) = (0u32, 0u32, 0u32, 0u32, 0u32, 0u32);
+    let mut misses: Vec<String> = Vec::new();
+    for batch in passes.chunks(lines.len()) {
+        for (i, &(v, ph, ridden)) in batch.iter().enumerate() {
+            let pass = if ridden { format!(",Passengers:[{{id:\"minecraft:villager\",Tags:[\"rs{i}p\"],PersistenceRequired:1b}}]") } else { String::new() };
+            let out = srv.cmd(&format!("summon minecraft:minecart {} {} {} {{Tags:[\"rs{i}\"],Motion:[{v:?}d,0.0d,0.0d]{pass}}}", -16.0 + ph, Y as f64 + 0.0625, lines[i] as f64 + 0.5))?;
+            anyhow::ensure!(out.contains("Summoned new"), "line {i}: {}", out.trim());
+        }
+        let mut hit = vec![(false, false); batch.len()];
+        let mut top = vec![f64::MIN; batch.len()];
+        for _ in 0..90u32 {
+            srv.step(1)?;
+            let mut all_past = true;
+            for (i, &(_, _, ridden)) in batch.iter().enumerate() {
+                let zl = lines[i];
+                if crate::strict::test(&mut srv, &format!("execute if block -4 {} {zl} minecraft:tripwire[powered=true]", Y + 1))? {
+                    hit[i].0 = true;
+                }
+                if crate::strict::test(&mut srv, &format!("execute if block 4 {} {zl} minecraft:tripwire[powered=true]", Y + 2))? {
+                    hit[i].1 = true;
+                }
+                if ridden && let Some(r) = y_of(&mut srv, &format!("@e[tag=rs{i}p,limit=1]"))? {
+                    top[i] = top[i].max(r + 1.95);
+                }
+                let out = srv.cmd_long(&format!("data get entity @e[tag=rs{i},limit=1] Pos[0]"))?;
+                let x: f64 = out.split("data: ").nth(1).and_then(|r| r.trim().trim_end_matches('d').parse().ok()).unwrap_or(99.0);
+                if x < 8.0 {
+                    all_past = false;
+                }
+            }
+            if all_past {
+                break;
+            }
+        }
+        for (i, &(v, ph, ridden)) in batch.iter().enumerate() {
+            println!(
+                "  stored v {v:.3} phase {ph:.2} {}: string A (y+1) {} | string B (y+2) {}{}",
+                if ridden { "ridden" } else { "EMPTY " },
+                if hit[i].0 { "PRESSED" } else { "missed" },
+                if hit[i].1 { "PRESSED" } else { "missed" },
+                if ridden { format!(" | rider top max {:.4}", top[i]) } else { String::new() }
+            );
+            if ridden {
+                n_ridden += 1;
+                a_ridden += u32::from(hit[i].0);
+                b_ridden += u32::from(hit[i].1);
+                if !hit[i].0 {
+                    misses.push(format!("A missed by a ridden pass v {v:.3} phase {ph:.2}"));
+                }
+            } else {
+                n_empty += 1;
+                a_empty += u32::from(hit[i].0);
+                b_empty += u32::from(hit[i].1);
+                if hit[i].0 || hit[i].1 {
+                    misses.push(format!("an EMPTY pass pressed a string: v {v:.3} phase {ph:.2}"));
+                }
+            }
+            srv.cmd_ok(&format!("tp @e[tag=rs{i}p] 0 {} 0", Y - 40))?;
+            srv.cmd(&format!("kill @e[tag=rs{i}p]"))?;
+            srv.cmd(&format!("kill @e[tag=rs{i}]"))?;
+        }
+        srv.cmd("kill @e[type=minecraft:item]")?;
+        srv.step(25)?;
+        for zl in lines {
+            for (x, dy) in [(-4, 1), (4, 2)] {
+                anyhow::ensure!(
+                    !crate::strict::test(&mut srv, &format!("execute if block {x} {} {zl} minecraft:tripwire[powered=true]", Y + dy))?,
+                    "the string at ({x},{},{zl}) still pressed 25 gt after its pass",
+                    Y + dy
+                );
+            }
+        }
+    }
+    println!(
+        "  summary: {n_ridden} ridden passes: string A (y+1) pressed on {a_ridden}, string B (y+2) on {b_ridden}; {n_empty} empty passes: A pressed on {a_empty}, B on {b_empty}; {}",
+        if misses.is_empty() { "no miss".to_string() } else { format!("{} note(s): {}", misses.len(), misses.iter().take(6).cloned().collect::<Vec<_>>().join("; ")) }
+    );
+    let _ = std::fs::remove_dir_all(&srv.dir);
+    Ok(())
+}

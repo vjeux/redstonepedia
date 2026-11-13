@@ -623,6 +623,20 @@ pub enum MobaiCmd {
         #[arg(long, default_value = "")]
         loads: String,
     },
+    /// (G1 12:55) the row strings: carts rolling east under a north-south string one cell (A) and two
+    /// cells (B) above a flat rail line, at stored speeds x phases, ridden and empty
+    RowString {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        /// ridden stored speeds: from,to,step
+        #[arg(long, default_value = "0.35,0.60,0.01")]
+        speeds: String,
+        #[arg(long, value_delimiter = ',', default_value = "0.00,0.11,0.23,0.37")]
+        phases: Vec<f64>,
+        /// empty-cart stored speeds
+        #[arg(long, value_delimiter = ',', default_value = "0.30,0.45,0.60")]
+        empties: Vec<f64>,
+    },
     /// (tickexact 2026-11-13, ironspec 12:38 (2)) the launch dense sweep: nappers on F at stored speeds x
     /// entry phases, braked on R, released, their entry into the drop and the outcome (fall or stall)
     LaunchSweep {
@@ -1996,6 +2010,13 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
                 .collect::<anyhow::Result<_>>()?;
             let h = f3(&home, "--home")?;
             crate::reclaim::bed_reclaim(&version, &file, &rm, f3(&day_pos, "--day-pos")?, [h[0] as i32, h[1] as i32, h[2] as i32], f3(&arm_at, "--arm-at")?, runs, after, expect, within, asleep)
+        }
+        MobaiCmd::RowString { version, speeds, phases, empties } => {
+            let s: Vec<f64> = speeds.split(',').map(|v| v.trim().parse::<f64>()).collect::<std::result::Result<_, _>>()?;
+            anyhow::ensure!(s.len() == 3 && s[2] > 0.0 && s[1] >= s[0], "--speeds from,to,step, got {speeds}");
+            let n = ((s[1] - s[0]) / s[2]).round() as usize;
+            let list: Vec<f64> = (0..=n).map(|i| s[0] + s[2] * i as f64).collect();
+            crate::presencestring::row_string(&version, &list, &phases, &empties)
         }
         MobaiCmd::LaunchSweep { version, scene, speeds, phases, sbend_straight, bar, trace } => {
             let s: Vec<f64> = speeds.split(',').map(|v| v.trim().parse::<f64>()).collect::<std::result::Result<_, _>>()?;

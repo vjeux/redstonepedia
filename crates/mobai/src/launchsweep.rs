@@ -180,5 +180,13 @@ pub fn launch_sweep(version: &str, scene: &std::path::Path, speeds: &[f64], phas
         worst_all.map(|(v, w)| format!("{w:.4} at v {v:.3} (margin {:+.4} to {bar:.3})", w - bar)).unwrap_or("-".into())
     );
     let _ = std::fs::remove_dir_all(&srv.dir);
+    // (G1 on R, CHANGES 1) the sweep is a verdict: no stall, every rest on or above the bar, and at least
+    // one trial (none is NOT JUDGED); any failure exits non-zero
+    anyhow::ensure!(!done.is_empty(), "no trial ran: NOT JUDGED, the sweep fails");
+    let lost: Vec<String> = done.iter().filter(|t| t.rest_z.is_none() || t.last.is_none()).map(|t| format!("v {:.3} phase {:.2}", t.v, t.phase)).collect();
+    anyhow::ensure!(lost.is_empty(), "trial(s) with no position read (NOT JUDGED): {lost:?}: the sweep fails");
+    let below: Vec<String> = done.iter().filter(|t| t.rest_z.is_some_and(|z| z < bar)).map(|t| format!("v {:.3} phase {:.2} rest {:.4}", t.v, t.phase, t.rest_z.unwrap_or(f64::NAN))).collect();
+    println!("  verdict: {} stall(s), {} rest(s) under the bar {bar:.3}", stalled.len(), below.len());
+    anyhow::ensure!(stalled.is_empty() && below.is_empty(), "the launch sweep FAILS: stalls {stalled:?}; rests under the bar {below:?}");
     Ok(())
 }
