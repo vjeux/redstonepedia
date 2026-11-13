@@ -56,6 +56,12 @@ pub enum Face {
     South,
     East,
     West,
+    /// The block's TOP face: a FLOOR contact (an off-rail cart resting on or clipped down onto it).
+    Up,
+    /// The block's BOTTOM face: a CEILING clip or a LOW CEILING.
+    Down,
+    /// No face: an EMBEDDED box (inside the block).
+    Inside,
 }
 
 impl Face {
@@ -65,7 +71,10 @@ impl Face {
             "south" => Ok(Face::South),
             "east" => Ok(Face::East),
             "west" => Ok(Face::West),
-            o => Err(format!("face={o}: north, south, east or west")),
+            "up" => Ok(Face::Up),
+            "down" => Ok(Face::Down),
+            "inside" => Ok(Face::Inside),
+            o => Err(format!("face={o}: north, south, east, west, up (a floor), down (a ceiling) or inside (embedded)")),
         }
     }
     pub fn name(self) -> &'static str {
@@ -74,6 +83,9 @@ impl Face {
             Face::South => "south",
             Face::East => "east",
             Face::West => "west",
+            Face::Up => "up",
+            Face::Down => "down",
+            Face::Inside => "inside",
         }
     }
 }
@@ -443,6 +455,28 @@ pub struct VHit {
     pub class: VClass,
     pub cell: BlockPos,
     pub depth: f64,
+    /// The cart's horizontal speed requested and returned by its last move of the tick (0 with none).
+    pub speed_in: f64,
+    pub speed_out: f64,
+}
+
+impl VClass {
+    /// The block face a class meets (ironspec 11:51 (2), the bounded form's `face=up|down|inside`).
+    pub fn face(self) -> Face {
+        match self {
+            VClass::Floor => Face::Up,
+            VClass::Ceiling | VClass::LowCeiling => Face::Down,
+            VClass::Embedded => Face::Inside,
+        }
+    }
+}
+
+impl From<VHit> for Hit {
+    /// A vertical contact as the ONE judge reads it (ironspec 11:51 (2)): the face its class meets
+    /// (FLOOR up, CEILING / LOW CEILING down, EMBEDDED inside), its depth, its speeds; no sample.
+    fn from(v: VHit) -> Hit {
+        Hit { tick: v.tick, cart: v.cart, cell: v.cell, face: v.class.face(), depth: v.depth, speed_in: v.speed_in, speed_out: v.speed_out, sample: None }
+    }
 }
 
 fn cell_of(a: &Aabb) -> BlockPos {
@@ -509,7 +543,8 @@ pub fn cart_vertical_hits(world: &World, i: usize) -> Vec<VHit> {
     let rail = |p: BlockPos| world.get(p).to_string().contains("rail");
     let off_rail = !rail(feet) && !rail(BlockPos::new(feet.x, feet.y - 1, feet.z));
     let moves: Vec<(Aabb, (f64, f64, f64), (f64, f64, f64))> = e.self_moves.iter().filter(|m| m.tick == t).map(|m| (m.bb_before, (m.requested.x, m.requested.y, m.requested.z), (m.returned.x, m.returned.y, m.returned.z))).collect();
-    vertical_contacts(&shapes, e.bb, &moves, off_rail).into_iter().map(|(class, a, depth)| VHit { tick: t, cart: e.id, class, cell: cell_of(&a), depth }).collect()
+    let (sin, sout) = e.self_moves.iter().rfind(|m| m.tick == t).map_or((0.0, 0.0), |m| (m.requested.x.hypot(m.requested.z), m.returned.x.hypot(m.returned.z)));
+    vertical_contacts(&shapes, e.bb, &moves, off_rail).into_iter().map(|(class, a, depth)| VHit { tick: t, cart: e.id, class, cell: cell_of(&a), depth, speed_in: sin, speed_out: sout }).collect()
 }
 
 /// The bounded judge's verdict over a row.
@@ -1020,7 +1055,7 @@ mod tests {
             "# contacts: 3,24,5=r | class=incidental | depth<=x | speed_out>=0\n",
             "# contacts: 3,24,5=r | class=incidental | speed_out>=0 | why=floating\n",
             "# contacts: 3,24,5=r | class=sideways | speed_out>=0\n",
-            "# contacts: 3,24,5=r | class=incidental | face=up | speed_out>=0\n",
+            "# contacts: 3,24,5=r | class=incidental | face=sideways | speed_out>=0\n",
         ] {
             assert!(declared_contacts_bounded(bad).is_err(), "{bad}");
         }
@@ -1196,6 +1231,72 @@ mod tests {
         }
         assert!(!hs.is_empty());
         assert!(hs.iter().all(|h| h.cell == BlockPos::new(0, 1, -1) && h.face == Face::South && h.depth > 0.0), "{hs:?}");
+    }
+
+    /// face=up|down|inside in the bounded form (ironspec 11:51 (2)): a vertical contact goes through the
+    /// ONE judge as a Hit with its class's face (FLOOR up, CEILING / LOW CEILING down, EMBEDDED inside):
+    /// the lip rest on C's support, declared face=up, is declared and judged by its bounds; undeclared
+    /// without it; a declaration's face must match (a down declaration doesn't cover a floor).
+    #[test]
+    fn vertical_contacts_go_through_the_one_judge() {
+        assert_eq!(Face::parse("up"), Ok(Face::Up));
+        assert_eq!(Face::parse("down"), Ok(Face::Down));
+        assert_eq!(Face::parse("inside"), Ok(Face::Inside));
+        let floor = VHit { tick: 10, cart: 1, class: VClass::Floor, cell: BlockPos::new(3, 23, 7), depth: 0.04, speed_in: 0.0, speed_out: 0.0 };
+        let h: Hit = floor.clone().into();
+        assert_eq!((h.face, h.cell, h.depth), (Face::Up, BlockPos::new(3, 23, 7), 0.04));
+        let up = declared_contacts_bounded("# contacts: 3,23,7=C's support under the lip | face=up | class=incidental | depth<=0.01 | speed_out>=0\n").unwrap();
+        let v = judge(&up, &[floor.clone().into()], &moving, StallRule::IRONSPEC_1042, None);
+        assert!(v.undeclared.is_empty() && v.exceeded.iter().any(|e| e.contains("depth 0.0400")), "{v:?}");
+        let none = judge(&[], &[floor.clone().into()], &moving, StallRule::IRONSPEC_1042, None);
+        assert_eq!(none.undeclared.len(), 1);
+        let down = declared_contacts_bounded("# contacts: 3,23,7=a ceiling | face=down | class=incidental | speed_out>=0\n").unwrap();
+        assert_eq!(judge(&down, &[floor.into()], &moving, StallRule::IRONSPEC_1042, None).undeclared.len(), 1, "a down declaration doesn't cover a floor");
+        let low: Hit = VHit { tick: 3, cart: 2, class: VClass::LowCeiling, cell: BlockPos::new(1, 26, 0), depth: 0.04, speed_in: 0.2, speed_out: 0.2 }.into();
+        assert_eq!(low.face, Face::Down);
+        let emb: Hit = VHit { tick: 3, cart: 2, class: VClass::Embedded, cell: BlockPos::new(1, 25, 0), depth: 0.3, speed_in: 0.0, speed_out: 0.0 }.into();
+        assert_eq!(emb.face, Face::Inside);
+    }
+
+    /// G1's 12:08 note, the threshold in motion: a cart rolling on flat rails under a ceiling that
+    /// clears its box by 0.25 gives no LowCeiling hit; the same run with the ceiling 0.04 over the
+    /// cart's top flags. (The design rows G1 names, 58f770cc's top-half trapdoors at 0.05 clearance and
+    /// tick-exact's slope crests, are the callers' rows: each LowCeiling hit there is declared from a
+    /// reference or a defect.)
+    #[test]
+    fn low_ceiling_in_normal_operation() {
+        use redsim::block::Block;
+        let run = |ceiling_y: f64| -> usize {
+            let mut w = World::new(BlockPos::new(-2, 0, -2), [8, 8, 16]);
+            let stone = Block::parse("minecraft:stone").unwrap();
+            let rail = Block::parse("minecraft:rail[shape=north_south,waterlogged=false]").unwrap();
+            let up = Block::parse("minecraft:rail[shape=ascending_north,waterlogged=false]").unwrap();
+            for z in 0..12 {
+                w.set_block(BlockPos::new(2, 0, z), stone.clone(), redsim::world::flags::RAW);
+            }
+            for z in 0..6 {
+                w.set_block(BlockPos::new(2, 1, z), rail.clone(), redsim::world::flags::RAW);
+            }
+            // (a slope up to the north at z 6, its crest onto a flat at y 2)
+            w.set_block(BlockPos::new(2, 1, 7), stone.clone(), redsim::world::flags::RAW);
+            w.set_block(BlockPos::new(2, 1, 6), up.clone(), redsim::world::flags::RAW);
+            let _ = ceiling_y;
+            let c = redsim::entity::spawn(&mut w, "minecraft:minecart", [2.5, 1.0625, 0.5], Some("{Motion:[0.0d,0.0d,0.3d]}")).unwrap();
+            let mut n = 0;
+            for _ in 0..60 {
+                w.tick();
+                let Some(i) = w.entities.list.iter().position(|e| e.id == c && !e.removed) else { break };
+                let e = &w.entities.list[i];
+                // (the ceiling as a shape: a full block whose bottom sits at ceiling_y over the flat part)
+                let ceil = Aabb::new(2.0, ceiling_y, 0.0, 3.0, ceiling_y + 1.0, 6.0);
+                let s = move |q: Aabb| if ceil.intersects(q) || (q.max_y - ceil.min_y).abs() < 1.0 { vec![ceil] } else { Vec::new() };
+                n += vertical_contacts(&s, e.bb, &[], false).iter().filter(|v| v.0 == VClass::LowCeiling).count();
+            }
+            n
+        };
+        // (the cart's top on the flat: 1.0625 + 0.7 = 1.7625)
+        assert_eq!(run(1.7625 + 0.25), 0, "a ceiling 0.25 over the box: no LowCeiling");
+        assert!(run(1.7625 + 0.04) > 0, "a ceiling 0.04 over the box flags");
     }
 
     /// The vertical axis (G1 09:56, ironspec 10:54 (a)): EMBEDDED deeper than 0.01 on every axis; a
