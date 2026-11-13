@@ -1,10 +1,13 @@
 name: f1q2-module-stop9
 # candidate: B4: 8,25,9; 8,24,9; 9,25,8; 9,24,8
 # candidate: R58-m8t: 9,-24,-2; 8,-25,-5; 7,-25,-5; 6,-25,-5; 5,-25,-5; 5,-25,-4; 6,-25,-4; 7,-25,-4; 5,-25,-6; 6,-25,-6; 7,-25,-6; 8,-25,-4; 8,-25,-6; 8,-23,-1; 8,-23,0; 8,-23,-2
-# (B4, ironspec 23:44 / 23:48 PT: the leg's two straights powered, (8,25,9) / (9,25,8) on redstone blocks (8,24,9) / (9,24,8), always on; R58-m8t: the water search's survivor R58-m8 (ironspec 01:46 PT) with the bottom curve (9,-25,-5)'s inner-corner fence (8,-25,-4) replaced by an open iron trapdoor whose plate stands on the cell's far (south) face: tick-exact's official t-48 row met that fence's post at + 56; the brake (9,-24,-2) a plain rail, the roll (8..5,-25,-5) and the flat (8,-23,-1) waterlogged, glass, the fence (8,-25,-6), the trapdoor and the fences (8,-23,0) / (8,-23,-2) closing every wet cell's open sides; this file is the way-in (C)'s package, so its descent differs from record7's drop-and-roll as a whole)
+# (B4, ironspec 23:44 / 23:48 PT: the leg's two straights powered, (8,25,9) / (9,25,8) on redstone blocks (8,24,9) / (9,24,8), always on; R58-m8t: the water search's survivor R58-m8 (ironspec 01:46 PT) with the bottom curve (9,-25,-5)'s inner-corner fence (8,-25,-4) replaced by an open OAK trapdoor (ironspec 02:48: an iron trapdoor can't stay open unpowered) whose plate stands on the cell's far (south) face: tick-exact's official t-48 row met that fence's post at + 56; the brake (9,-24,-2) a plain rail, the roll (8..5,-25,-5) and the flat (8,-23,-1) waterlogged, glass, the fence (8,-25,-6), the trapdoor and the fences (8,-23,0) / (8,-23,-2) closing every wet cell's open sides; this file is the way-in (C)'s package, so its descent differs from record7's drop-and-roll as a whole)
+# build: 8,-25,-4=place the oak trapdoor facing north (bottom half) and open it by hand; no signal may reach the cell in any phase (hasNeighborSignal printed by the ride rows, bar never)
 # keep-out: 10,-24,-2 10,-23,-1 (the swept box: crossing from the curve (9,-23,-1) onto the slope (9,-24,-2) after a world open's dry first tick the cart's box reaches x 10.29; x 10 is the next chunk; ironspec 01:46 (1)(ii))
 # shape: 9,-13,-5=detector_rail[powered=false,shape=ascending_north,waterlogged=false] (the arrival's landing slope into the queue; evidence: tick-exact's day-approach row of 01:24, on the slope t105..t115 at v 0.4, at rest at z -3.887; build step: a temporary rail at (9,-12,-6) on the glass (9,-13,-6) first, the detector second, the temporary rail broken; ironspec 01:51 (1))
 # always-on: 8,24,9=B4's booster support, a redstone block under the powered rail (8,25,9): it never toggles; 9,24,8=B4's booster support, a redstone block under the powered rail (9,25,8): it never toggles
+# contacts: 9,22,-6=the way-in leg's stop wall: the cart leaves the leg's last rail (9,22,-4) heading north and its box stops against this glass at z -5.000, then falls straight down the corner shaft (9,.,-5) along it, x 9.5 and vx = vz = 0 every tick (evidence: tick-exact's day-approach row of 01:24 from the leg summon; ironspec 02:43 (c))
+# (8,22,-5): no contact under the face filter (ironspec 02:41): the shaft fall's box passes 0.010 east of it with no motion toward it
 circuit: mob-farm iron_ingot
 keep-block: -5,-24,3=oak_leaves[distance=7,persistent=true] (58f770cc 13:59: the zombie's cover, A6's local (-5,3,4))
 keep-clear: -3,-26,3 -3,-25,3 -3,-24,3 (58f770cc's A6 header, + (0,-27,-1): the bed's column, holding no block)
@@ -52,17 +55,17 @@ palette:
   F minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]
   G minecraft:detector_rail[powered=false,shape=north_south,waterlogged=false]
   H minecraft:glowstone
-  I minecraft:iron_trapdoor[facing=north,half=bottom,open=true,powered=false,waterlogged=false]
-  J minecraft:iron_trapdoor[facing=south,half=bottom,open=true,powered=true,waterlogged=false]
-  K minecraft:iron_trapdoor[facing=west,half=bottom,open=true,powered=true,waterlogged=false]
-  L minecraft:iron_trapdoor[facing=west,half=top,open=true,powered=true,waterlogged=false]
-  M minecraft:lever[face=ceiling,facing=north,powered=true]
-  N minecraft:lever[face=floor,facing=north,powered=false]
-  O minecraft:lever[face=floor,facing=north,powered=true]
-  P minecraft:lightning_rod[facing=up,powered=false,waterlogged=false]
-  Q minecraft:oak_fence[east=false,north=false,south=false,waterlogged=false,west=true]
-  R minecraft:oak_leaves[distance=7,persistent=true,waterlogged=false]
-  S minecraft:oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]
+  I minecraft:iron_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]
+  J minecraft:iron_trapdoor[facing=west,half=bottom,open=true,powered=true,waterlogged=false]
+  K minecraft:iron_trapdoor[facing=west,half=top,open=true,powered=true,waterlogged=false]
+  L minecraft:lever[face=ceiling,facing=north,powered=false]
+  M minecraft:lever[face=floor,facing=north,powered=false]
+  N minecraft:lever[face=floor,facing=north,powered=true]
+  O minecraft:lightning_rod[facing=up,powered=false,waterlogged=false]
+  P minecraft:oak_fence[east=false,north=false,south=false,waterlogged=false,west=true]
+  Q minecraft:oak_leaves[distance=7,persistent=true,waterlogged=false]
+  R minecraft:oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]
+  S minecraft:oak_trapdoor[facing=north,half=bottom,open=true,powered=false,waterlogged=false]
   T minecraft:oak_wall_sign[facing=south,waterlogged=false]
   U minecraft:obsidian
   V minecraft:powered_rail[powered=false,shape=ascending_north,waterlogged=false]
@@ -78,10 +81,10 @@ palette:
   f minecraft:rail[shape=ascending_south,waterlogged=false]
   g minecraft:glass
   h minecraft:rail[shape=ascending_west,waterlogged=false]
-  i minecraft:iron_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]
+  i minecraft:iron_trapdoor[facing=south,half=bottom,open=true,powered=true,waterlogged=false]
   j minecraft:rail[shape=east_west,waterlogged=false]
   k minecraft:rail[shape=east_west,waterlogged=true]
-  l minecraft:lever[face=ceiling,facing=north,powered=false]
+  l minecraft:lever[face=ceiling,facing=north,powered=true]
   m minecraft:rail[shape=north_east,waterlogged=false]
   n minecraft:nether_portal[axis=x]
   o minecraft:oak_fence[east=false,north=false,south=false,waterlogged=false,west=false]
@@ -131,7 +134,7 @@ layer -28:
   .
   .
 layer -27:
-  ......Ng
+  ......Mg
   ....tjpg
   ....q
   ....q
@@ -139,8 +142,8 @@ layer -27:
   ....qg
   ....qg
   ...gqg
-  .gOvqg
-  g.Kwqg......g
+  .gNvqg
+  g.Jwqg......g
   .gggmaj....gBg
   .....y......g
   .
@@ -148,26 +151,26 @@ layer -27:
   .
   .
 layer -26:
-  .......Ngg
-  ....gi.pgggggggg
+  .......Mgg
+  ....gI.pgggggggg
   ........g......g
   ........g......g
   ........g
   ....ggggg
   ....gg
   ...ggg
-  .ggigg
-  g.L..g......g
-  .gOgiii....gBg
+  .ggIgg
+  g.K..g......g
+  .gNgIII....gBg
   ............g
   .
   .
   .
   .
 layer -25:
-  ........Oy.gggQ
+  ........Ny.gggP
   .....5..Aajkkkku
-  .......gCCggggIq
+  .......gCCggggSq
   .......g.g.....f
   ....gggg.g.....g
   ...g.....g
@@ -184,14 +187,14 @@ layer -25:
 layer -24:
   ........g
   .......gg
-  .......g.Jg
+  .......g.ig
   .......g.g
   ....gggg.g.....f
   ...g.....g..gggg
   ...g.gggg...g
   ..g..g
   ..g.g
-  .Rg.g.......g
+  .Qg.g.......g
   ...g.......gBg
   ............g
   .
@@ -201,7 +204,7 @@ layer -24:
 layer -23:
   .
   .
-  .........Mg
+  .........lg
   .
   ..............o
   ............tjks
@@ -868,7 +871,7 @@ layer 16:
   .
   .
   .....g...g...g
-  ....gSg.gSg.gSg
+  ....gRg.gRg.gRg
   ...H.ggH.ggH.gg
   .
   .
@@ -1047,7 +1050,7 @@ layer 26:
   .
   .
   .
-  ...l.l.l.l.l.M
+  ...L.L.L.L.L.l
 layer 27:
   .
   .......g
@@ -1083,7 +1086,7 @@ layer 28:
   3333333333333333
   3333333333333333
 layer 29:
-  P
+  O
   .
   .
   .

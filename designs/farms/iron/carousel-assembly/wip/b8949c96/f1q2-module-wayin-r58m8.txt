@@ -5,6 +5,8 @@ name: f1q2-module-stop9
 # keep-out: 10,-24,-2 10,-23,-1 (R58-m8's swept box: crossing from the curve (9,-23,-1) onto the slope (9,-24,-2) after a world open's dry first tick the cart's box reaches x 10.29; x 10 is the next chunk; ironspec 01:46 (1)(ii))
 # shape: 9,-13,-5=detector_rail[powered=false,shape=ascending_north,waterlogged=false] (the arrival's landing slope into the queue; evidence: tick-exact's day-approach row of 01:24, on the slope t105..t115 at v 0.4, at rest at z -3.887; build step: a temporary rail at (9,-12,-6) on the glass (9,-13,-6) first, the detector second, the temporary rail broken; ironspec 01:51 (1))
 # always-on: 8,24,9=B4's booster support, a redstone block under the powered rail (8,25,9): it never toggles; 9,24,8=B4's booster support, a redstone block under the powered rail (9,25,8): it never toggles
+# contacts: 9,22,-6=the way-in leg's stop wall: the cart leaves the leg's last rail (9,22,-4) heading north and its box stops against this glass at z -5.000, then falls straight down the corner shaft (9,.,-5) along it, x 9.5 and vx = vz = 0 every tick (evidence: tick-exact's day-approach row of 01:24 from the leg summon; ironspec 02:43 (c))
+# (8,22,-5): no contact under the face filter (ironspec 02:41): the shaft fall's box passes 0.010 east of it with no motion toward it
 circuit: mob-farm iron_ingot
 keep-block: -5,-24,3=oak_leaves[distance=7,persistent=true] (58f770cc 13:59: the zombie's cover, A6's local (-5,3,4))
 keep-clear: -3,-26,3 -3,-25,3 -3,-24,3 (58f770cc's A6 header, + (0,-27,-1): the bed's column, holding no block)
