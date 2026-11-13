@@ -2051,6 +2051,8 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
     // (the cart's horizontal speed on the previous tick: a declared contact's "before")
     let mut prev_cart_speed = 0f64;
     let mut prev_cart_bb: Option<redsim::entity::Aabb> = None;
+    // (the bed's head and foot states after the previous tick: the contact's bed check)
+    let mut prev_bed: Option<(String, String)> = None;
     let mut prev_cart_motion = (0f64, 0f64, 0f64);
     let mut still = 0;
     let mut crossed: Vec<[i32; 3]> = Vec::new();
@@ -2616,6 +2618,13 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                     let after = c.delta_movement.x.hypot(c.delta_movement.z);
                     row.declared_contact_lines.push(format!("t {t}: the declared {k} contact with {} at ({},{},{}): the cart at ({:.3},{:.3},{:.3}) in cell ({},{},{}), depth {:.4} (0 = flush; negative = a gap), speed {prev_cart_speed:.3} -> {after:.3}", w.get(p), p.x, p.y, p.z, c.pos.x, c.pos.y, c.pos.z, bp.x, bp.y, bp.z, depth));
                     row.declared_contact_ticks += 1;
+                    // (G1 10:17: the bed (head and foot: part, facing, OCCUPIED) unchanged across the
+                    // contact tick: the contact never moves or alters the napper's POI)
+                    let bed_now = (format!("{}", w.get(BlockPos::new(BED_HEAD[0], BED_HEAD[1], BED_HEAD[2]))), format!("{}", w.get(BlockPos::new(BED_HEAD[0], BED_HEAD[1], BED_HEAD[2] - 1))));
+                    if prev_bed.as_ref().is_some_and(|b| *b != bed_now) {
+                        row.problems.push(format!("t {t}: the bed changed across the declared contact tick: {:?} -> {bed_now:?}", prev_bed));
+                    }
+                    row.declared_contact_lines.push(format!("t {t}: the bed across the contact tick: unchanged {} (head {}, foot {})", prev_bed.as_ref().is_some_and(|b| *b == bed_now), bed_now.0, bed_now.1));
                     row.declared_hit.push(cell);
                     row.post_contact_speed = Some(row.post_contact_speed.map_or(after, |s: f64| s.min(after)));
                     if depth > 0.01 {
@@ -3054,6 +3063,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             prev_cart_bb = Some(ce.bb);
             prev_cart_motion = (d.x, d.y, d.z);
         }
+        prev_bed = Some((format!("{}", w.get(BlockPos::new(BED_HEAD[0], BED_HEAD[1], BED_HEAD[2]))), format!("{}", w.get(BlockPos::new(BED_HEAD[0], BED_HEAD[1], BED_HEAD[2] - 1)))));
         // (ironspec 17:35 (a): the released cart in the pickup cell before the napper's wake)
         if row.release_at.is_some()
             && row.woke_at.is_none()
