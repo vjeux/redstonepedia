@@ -249,8 +249,8 @@ pub fn pathfindable_land(b: &Block) -> bool {
         Block::PowderSnow => true,
         // (tickexact 2026-11-11, cart-pole) RodBlock.isPathfindable is false (an end rod blocks a
         // path), and so are PistonBaseBlock's (an extended base too), PistonHeadBlock's and
-        // MovingPistonBlock's
-        Block::EndRod { .. } | Block::Piston { .. } | Block::PistonHead { .. } | Block::MovingPiston { .. } => false,
+        // MovingPistonBlock's; a lightning rod is a RodBlock too (G1's N40)
+        Block::EndRod { .. } | Block::LightningRod { .. } | Block::Piston { .. } | Block::PistonHead { .. } | Block::MovingPiston { .. } => false,
         _ => !crate::behavior::full_cube(b),
     }
 }
@@ -357,5 +357,53 @@ mod tests {
         assert_eq!(from_state(&Block::FenceGate { facing: Dir::North, in_wall: false, open: true, powered: false }), PathType::Open);
         assert_eq!(from_state(&Block::Slab { kind: 0 }), PathType::Blocked);
         assert_eq!(from_state(&Block::Wire { north: crate::block::Side::None, east: crate::block::Side::None, south: crate::block::Side::None, west: crate::block::Side::None, power: 0 }), PathType::Open);
+    }
+
+    /// G1's N40: a lightning rod is a RodBlock, not land-pathfindable: a one-wide corridor blocked by one
+    /// (standing on the floor, a stone block over it, a 3-high stone wall each side) reads unreached; with the
+    /// rod gone, reached.
+    #[test]
+    fn a_lightning_rod_blocks_a_corridor() {
+        use crate::pos::BlockPos;
+        use crate::world::World;
+        let rod = Block::parse("minecraft:lightning_rod[facing=up,powered=false,waterlogged=false]").unwrap();
+        assert!(!pathfindable_land(&rod), "a rod blocks a path");
+        for blocked in [true, false] {
+            let mut w = World::new(BlockPos::new(-8, -4, -8), [16, 8, 16]);
+            let stone = Block::parse("minecraft:stone").unwrap();
+            for x in -6..=6 {
+                for z in -6..=6 {
+                    w.set_block(BlockPos::new(x, -1, z), stone.clone(), crate::world::flags::ALL);
+                }
+            }
+            for x in -5..=5 {
+                for y in 0..=2 {
+                    w.set_block(BlockPos::new(x, y, -1), stone.clone(), crate::world::flags::ALL);
+                    w.set_block(BlockPos::new(x, y, 1), stone.clone(), crate::world::flags::ALL);
+                }
+            }
+            for y in 0..=2 {
+                w.set_block(BlockPos::new(-6, y, 0), stone.clone(), crate::world::flags::ALL);
+                w.set_block(BlockPos::new(6, y, 0), stone.clone(), crate::world::flags::ALL);
+            }
+            if blocked {
+                w.set_block(BlockPos::new(0, 0, 0), rod.clone(), crate::world::flags::ALL);
+                w.set_block(BlockPos::new(0, 1, 0), stone.clone(), crate::world::flags::ALL);
+            }
+            w.mob.seed(7, 6_000);
+            w.mob.ai.on = true;
+            let v = crate::entity::spawn(&mut w, "minecraft:villager", [-4.5, 0.0, 0.5], None).unwrap();
+            // (ticks to land: a mob off the ground and no passenger can't update a path, canUpdatePath; a
+            // fresh mob's first move is by its zero motion, the gravity reaching the move from its second tick)
+            for _ in 0..3 {
+                w.tick();
+            }
+            let i = crate::entity::index_of(&w, v).unwrap();
+            assert!(w.entities.list[i].on_ground, "the villager landed");
+            let path = crate::entity::mob::ai::with_nav(&mut w, i, |w, nm, nav, arena| nav.create_path_pos(w, nm, BlockPos::new(4, 0, 0), 0, arena));
+            assert!(path.is_some(), "a path computed (blocked {blocked})");
+            let reached = path.as_ref().is_some_and(|p| p.reached);
+            assert_eq!(reached, !blocked, "the corridor {} the rod: reached {reached}", if blocked { "blocked by" } else { "without" });
+        }
     }
 }
