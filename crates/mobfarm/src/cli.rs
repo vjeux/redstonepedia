@@ -14581,6 +14581,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             for l in crate::bedtier::zombie_post_lines(&spec).map_err(|e| anyhow::anyhow!(e))? {
                 println!("zombie post: {l}");
             }
+            for l in crate::bedtier::trapdoor_signal_lines(&spec).map_err(|e| anyhow::anyhow!(e))? {
+                println!("{l}");
+            }
             for l in crate::bedtier::waker_lines(&spec).map_err(|e| anyhow::anyhow!(e))? {
                 println!("waker: {l}");
             }
