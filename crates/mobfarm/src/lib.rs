@@ -45,6 +45,8 @@ pub mod placing;
 pub mod queue;
 pub mod swept;
 pub mod wetspawn;
+pub mod lightningcheck;
+pub mod bars;
 pub mod standlab;
 pub mod climb;
 pub mod drop;

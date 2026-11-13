@@ -117,7 +117,6 @@ pub fn edit(text: &str, chest: bool, how: Option<&str>) -> anyhow::Result<String
 /// [`edit`], and each `key=value` of `meta` set as a meta line (`sample=village-edge`: judge a
 /// void design in that terrain sample; an empty value removes the line).
 pub fn edit_meta(text: &str, chest: bool, how: Option<&str>, meta: &[String]) -> anyhow::Result<String> {
-    let caption: Vec<&str> = text.lines().take_while(|l| l.starts_with('#')).collect();
     let mut d = Design::parse(text)?;
     for kv in meta {
         let (k, v) = kv.split_once('=').ok_or_else(|| anyhow::anyhow!("--meta {kv:?}: not key=value"))?;
@@ -140,13 +139,106 @@ pub fn edit_meta(text: &str, chest: bool, how: Option<&str>, meta: &[String]) ->
     if let Some(h) = how {
         d.meta.insert("how".to_string(), h.to_string());
     }
+    // (farmopt / ironspec Nov 13 01:08: every `#` line kept, not only the leading caption)
+    Ok(keep_comments(text, &d.to_text()).0)
+}
+
+/// (9fc3155f, farmopt / ironspec Nov 13 01:08: `mobfarm edit` dropped every `#` line of a design it
+/// rewrote, so a variant lost its `# switches:` / `# update-only:` declarations) The regenerated
+/// text `new` with every `#` line of `orig` put back: each run of comment lines after the line it
+/// followed in `orig` (that line's same occurrence in `new`; the leading caption at the top); a
+/// run whose line is gone from `new` goes after the caption, counted as moved. Returns the text,
+/// the comment lines kept in place and those moved.
+pub fn keep_comments(orig: &str, new: &str) -> (String, usize, usize) {
+    // (each comment run: the non-comment line before it and that line's occurrence index)
+    let mut runs: Vec<(Option<(String, usize)>, Vec<&str>)> = Vec::new();
+    let mut seen: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    let mut anchor: Option<(String, usize)> = None;
+    let mut in_run = false;
+    for l in orig.lines() {
+        if l.starts_with('#') {
+            if !in_run {
+                runs.push((anchor.clone(), Vec::new()));
+                in_run = true;
+            }
+            runs.last_mut().expect("a run").1.push(l);
+        } else {
+            in_run = false;
+            let k = seen.entry(l).or_insert(0);
+            anchor = Some((l.to_string(), *k));
+            *k += 1;
+        }
+    }
+    let new_lines: Vec<&str> = new.lines().filter(|l| !l.starts_with('#')).collect();
+    // (where each anchor sits in `new`: its occurrence index)
+    let mut at: std::collections::HashMap<(String, usize), usize> = std::collections::HashMap::new();
+    let mut seen_new: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    for (i, l) in new_lines.iter().enumerate() {
+        let k = seen_new.entry(l).or_insert(0);
+        at.insert((l.to_string(), *k), i);
+        *k += 1;
+    }
+    let mut top: Vec<&str> = Vec::new();
+    let mut after: std::collections::HashMap<usize, Vec<&str>> = std::collections::HashMap::new();
+    let (mut kept, mut moved) = (0usize, 0usize);
+    let mut moved_lines: Vec<&str> = Vec::new();
+    for (a, lines) in &runs {
+        match a {
+            None => {
+                kept += lines.len();
+                top.extend(lines.iter().copied());
+            }
+            Some(key) => match at.get(key) {
+                Some(i) => {
+                    kept += lines.len();
+                    after.entry(*i).or_default().extend(lines.iter().copied());
+                }
+                None => {
+                    moved += lines.len();
+                    moved_lines.extend(lines.iter().copied());
+                }
+            },
+        }
+    }
     let mut s = String::new();
-    for l in caption {
+    for l in top.iter().chain(moved_lines.iter()) {
         s.push_str(l);
         s.push('\n');
     }
-    s.push_str(&d.to_text());
-    Ok(s)
+    for (i, l) in new_lines.iter().enumerate() {
+        s.push_str(l);
+        s.push('\n');
+        if let Some(v) = after.get(&i) {
+            for c in v {
+                s.push_str(c);
+                s.push('\n');
+            }
+        }
+    }
+    (s, kept, moved)
+}
+
+#[cfg(test)]
+mod keep_comments_tests {
+    /// (ironspec Nov 13 01:08) An edit round-trip keeps every `#` line byte for byte, the leading
+    /// caption on top and each interleaved run after the line it followed; a run whose line is gone
+    /// moves up after the caption, counted.
+    #[test]
+    fn every_comment_line_kept() {
+        let orig = "# caption 1\n# caption 2\nname: x\norigin: 0 0 0\n# switch: 1,2,3=a lever (its reason)\n# update-only: 4,5,6=a detector\nwaker-places: 1,1,1=w\n# one-way: 7,8,9=a step\npalette:\n  a minecraft:glass\n";
+        let regenerated = "name: x\norigin: 0 0 0\nwaker-places: 1,1,1=w\npalette:\n  a minecraft:glass\n  b minecraft:stone\n";
+        let (out, kept, moved) = super::keep_comments(orig, regenerated);
+        assert_eq!((kept, moved), (5, 0));
+        let comments = |t: &str| t.lines().filter(|l| l.starts_with('#')).map(str::to_string).collect::<Vec<_>>();
+        assert_eq!(comments(&out), comments(orig));
+        assert!(out.contains("origin: 0 0 0\n# switch: 1,2,3=a lever (its reason)\n# update-only: 4,5,6=a detector\nwaker-places:"), "{out}");
+        assert!(out.contains("waker-places: 1,1,1=w\n# one-way: 7,8,9=a step\npalette:"), "{out}");
+        // (the line a run followed changed: the run moves up, nothing dropped)
+        let changed = regenerated.replace("waker-places: 1,1,1=w", "waker-places: 2,2,2=w");
+        let (out2, kept2, moved2) = super::keep_comments(orig, &changed);
+        assert_eq!((kept2, moved2), (4, 1));
+        assert_eq!(comments(&out2).len(), 5);
+    }
 }
 
 /// A design text with its tier on its `circuit:` line (`circuit: mob-farm iron_ingot middle`):

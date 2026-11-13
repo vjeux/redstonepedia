@@ -1297,7 +1297,77 @@ fn dense_rider_points(spec: &FarmSpec, columns: &[[f64; 4]]) -> Vec<(String, Vec
 /// stand-in cell it crosses. The rider points: every rail cell at 0.1, 0.5 and 0.9 along it, the
 /// eye 1.62 over the feet; the scarers: the design's boats with a zombie or a pillager seated, and
 /// `extra` boats (x, y, z, is a pillager).
-pub fn sight_diff(spec: &FarmSpec, sets: &[(BlockPos, redsim::block::Block)], extra: &[(Vec3, bool)]) -> Result<Vec<String>, String> {
+/// (ironspec Nov 12 23:30: one shared eye height, per type, from 26.3's EntityType builders)
+/// A mob type's eye height above its feet: redsim's entity data (`TypeDef.eye`: `eyeHeight(..)`
+/// in `EntityTypes`, else 0.85 x the height), the one function the sight statics and the judges
+/// call.
+pub fn eye_of(t: redsim::entity::mob::types::MobType) -> f64 {
+    t.def().eye as f64
+}
+
+#[cfg(test)]
+mod eye_tests {
+    use redsim::entity::mob::types::MobType;
+
+    /// (farmopt / ironspec Nov 13 01:07) A stand-in the settled world doesn't hold (an iron trapdoor
+    /// stated open, closed with no power) fails survival; declared held, it is re-placed as stated
+    /// and printed with its driver and phase.
+    #[test]
+    fn standin_survival_fails_unless_held() {
+        let p = redsim::pos::BlockPos::new(1, 1, 1);
+        let shut = redsim::block::Block::parse("minecraft:iron_trapdoor[facing=east,half=bottom,open=false,powered=false,waterlogged=false]").unwrap();
+        let open = redsim::block::Block::parse("minecraft:iron_trapdoor[facing=east,half=bottom,open=true,powered=true,waterlogged=false]").unwrap();
+        let mut w = redsim::World::new(redsim::pos::BlockPos::new(0, 0, 0), [3, 3, 3]);
+        w.put(p, shut);
+        let mut lines = Vec::new();
+        assert_eq!(super::standin_survival(&mut w, &[(p, open)], &[], &mut lines), 1);
+        assert!(lines[0].starts_with("STAND-IN FAILS SURVIVAL 1,1,1: iron_trapdoor[facing=east,half=bottom,open=true"), "{lines:?}");
+        assert_eq!(w.get(p), shut, "a failing stand-in is not held");
+        let mut held = Vec::new();
+        assert_eq!(super::standin_survival(&mut w, &[(p, open)], &[(p, "N's power (night)".to_string())], &mut held), 0);
+        assert!(held[0].starts_with("held: 1,1,1 iron_trapdoor[facing=east,half=bottom,open=true") && held[0].ends_with(": N's power (night)"), "{held:?}");
+        assert_eq!(w.get(p), open);
+    }
+
+    /// (ironspec Nov 12 23:30) The shared eye heights: the villager 1.62, the zombie 1.74 (their
+    /// EntityType builders' `eyeHeight`), the pillager 0.85 x 1.95 (none set).
+    #[test]
+    fn eyes_from_entity_types() {
+        assert!((super::eye_of(MobType::Villager) - 1.62).abs() < 1e-6);
+        assert!((super::eye_of(MobType::Zombie) - 1.74).abs() < 1e-6);
+        assert!((super::eye_of(MobType::Pillager) - 0.85 * 1.95).abs() < 1e-5);
+    }
+}
+
+/// (farmopt / ironspec Nov 13 01:03-01:07: the seven-property guard's survival property) Each
+/// stand-in against the settled world: one the settle leaves as stated survives; one it changes
+/// (an unpowered iron trapdoor stated open closes) FAILS with its before / after state, unless
+/// the row declares it held (`hold`): then it is re-placed raw after the settle and printed
+/// "held". A default hold would hide a stand-in that can't survive in the real build. Pushes the
+/// lines; returns the failures.
+pub fn standin_survival(w: &mut redsim::World, sets: &[(BlockPos, redsim::block::Block)], hold: &[(BlockPos, String)], lines: &mut Vec<String>) -> usize {
+    let mut fails = 0usize;
+    for (p, b) in sets {
+        let now = w.get(*p);
+        if now == *b {
+            continue;
+        }
+        let (stated, left) = (b.to_string().trim_start_matches("minecraft:").to_string(), now.to_string().trim_start_matches("minecraft:").to_string());
+        if let Some((_, why)) = hold.iter().find(|(q, _)| q == p) {
+            lines.push(format!("held: {},{},{} {stated} (re-placed after the settle, which left {left}): {why}", p.x, p.y, p.z));
+            w.put(*p, *b);
+        } else {
+            fails += 1;
+            lines.push(format!("STAND-IN FAILS SURVIVAL {},{},{}: {stated} -> {left} after the settle (declare `--hold {},{},{}=DRIVER (PHASE)` if the row holds it so)", p.x, p.y, p.z, p.x, p.y, p.z));
+        }
+    }
+    fails
+}
+
+/// The sight diff, its samples (the rays cast with stand-ins to compare: 0 without a stand-in or
+/// a ray) and the rays the stand-ins change plus the stand-ins failing survival.
+pub fn sight_diff_counts(spec: &FarmSpec, sets: &[(BlockPos, redsim::block::Block)], extra: &[(Vec3, bool)], hold: &[(BlockPos, String)]) -> Result<(Vec<String>, usize, usize), String> {
+    use redsim::entity::mob::types::MobType;
     let build = |s: &FarmSpec| -> Result<redsim::World, String> {
         let o = RunOpts { ai: true, ..RunOpts::steady(1, 0, WalkMode::Random) };
         let mut run = Run::start(s, &o)?;
@@ -1311,12 +1381,17 @@ pub fn sight_diff(spec: &FarmSpec, sets: &[(BlockPos, redsim::block::Block)], ex
             bench.blocks.push((*p, b.clone()));
         }
     }
-    let (wa, wb) = (build(spec)?, build(&bench)?);
+    let (wa, mut wb) = (build(spec)?, build(&bench)?);
+    // (farmopt Nov 13 01:02: a stand-in the settle re-evaluates (an iron trapdoor with no power
+    // closes) is held: re-placed raw after the settle, as the stand-in states it, and listed)
+    let mut held: Vec<String> = Vec::new();
+    let survival_fails = standin_survival(&mut wb, sets, hold, &mut held);
+    let wb = wb;
     // (the scarers' eyes: each boat's seat, as the flee-check's posts)
     let mut scarers: Vec<(Vec3, String)> = Vec::new();
     let mut boat = |x: f64, y: f64, z: f64, pill: bool| {
         let feet = y + if pill { PILLAGER_SEAT } else { zombie_seat() };
-        scarers.push((Vec3::new(x, feet + if pill { PILLAGER_EYE } else { 1.74 }, z), format!("the {} at {x:.1},{y:.1},{z:.1}", if pill { "pillager" } else { "zombie" })));
+        scarers.push((Vec3::new(x, feet + if pill { eye_of(MobType::Pillager) } else { eye_of(MobType::Zombie) }, z), format!("the {} at {x:.1},{y:.1},{z:.1}", if pill { "pillager" } else { "zombie" })));
     };
     for (k, p, nbt) in &spec.entities {
         let n = nbt.as_deref().unwrap_or("");
@@ -1327,7 +1402,9 @@ pub fn sight_diff(spec: &FarmSpec, sets: &[(BlockPos, redsim::block::Block)], ex
     for (p, pill) in extra {
         boat(p.x, p.y, p.z, *pill);
     }
-    let reye = |p: &Vec3| Vec3::new(p.x, p.y + 1.62, p.z);
+    // (ironspec Nov 12 23:30: the eye heights from redsim's entity data, 26.3's EntityType builders:
+    // the villager's 1.62, the zombie's 1.74, the pillager's 0.85 x 1.95)
+    let reye = |p: &Vec3| Vec3::new(p.x, p.y + eye_of(MobType::Villager), p.z);
     let riders: Vec<(String, Vec3)> = scarer_points(spec, &[]).into_iter().map(|(n, p)| (n, reye(&p))).collect();
     let mids: Vec<(String, Vec3)> = spec.blocks.iter().filter(|(_, b)| b.to_string().contains("rail")).map(|(c, b)| (format!("{},{},{}", c.x, c.y, c.z), reye(&along_rail(*c, &b.to_string(), 0.5)))).collect();
     let d = |a: &Vec3, b: &Vec3| ((a.x - b.x).powi(2) + (a.y - b.y).powi(2) + (a.z - b.z).powi(2)).sqrt();
@@ -1370,27 +1447,194 @@ pub fn sight_diff(spec: &FarmSpec, sets: &[(BlockPos, redsim::block::Block)], ex
         "sight (the stand-in guard's 7th property, ironspec Nov 12 20:10 (2a): each sight ray eye to eye, a COLLIDER clip, cast with and without the stand-ins): {} stand-in cells, {} scarers; {n_rs} rider-scarer rays and {n_rr} rider-rider rays within 16; {changed} changed by the stand-ins{}",
         sets.len(),
         scarers.len(),
-        if changed == 0 { " (PASS)" } else { " (FAIL)" }
+        if changed == 0 && survival_fails == 0 { " (PASS)" } else { " (FAIL)" }
     )];
+    for h in &held {
+        lines.push(format!("  {h}"));
+    }
     for (p, b) in sets {
         let k = (p.y, p.z, p.x);
         let v = by_cell.get(&k).cloned().unwrap_or_default();
         lines.push(format!(
-            "  {} {},{},{} ({} in the module, {} as the stand-in): {} ray(s) changed{}",
+            "  {} {},{},{} ({} in the module, {} as the stand-in): {} ray(s) changed",
             if v.is_empty() { "SAME" } else { "CHANGED" },
             p.x,
             p.y,
             p.z,
             blocks_a.get(p).map(|s| short(s)).unwrap_or_else(|| "air".to_string()),
             short(&b.to_string()),
-            v.len(),
-            v.iter().take(3).map(|l| format!("; {l}")).collect::<String>()
+            v.len()
         ));
+        // (farmopt / ironspec Nov 13 00:22: every changed ray, so a row can tell the seat's rays
+        // from the designed scare rays)
+        for l in &v {
+            lines.push(format!("    RAY {l}"));
+        }
     }
     if let Some(v) = by_cell.get(&(i32::MIN, 0, 0)) {
         lines.push(format!("  (rays changed through no stand-in cell, a settle difference: {}){}", v.len(), v.iter().take(3).map(|l| format!("; {l}")).collect::<String>()));
     }
-    Ok(lines)
+    // (ironspec Nov 12 23:56: the samples, the rays cast with a stand-in to compare; none NOT JUDGED)
+    let samples = if sets.is_empty() { 0 } else { n_rs + n_rr };
+    Ok((lines, samples, changed + survival_fails))
+}
+
+/// [`sight_diff_counts`]'s lines alone.
+pub fn sight_diff(spec: &FarmSpec, sets: &[(BlockPos, redsim::block::Block)], extra: &[(Vec3, bool)]) -> Result<Vec<String>, String> {
+    sight_diff_counts(spec, sets, extra, &[]).map(|(l, _, _)| l)
+}
+
+/// `VillagerHostilesSensor.ACCEPTABLE_DISTANCE_FROM_HOSTILES` (26.3), by entity id.
+fn hostile_range(id: &str) -> Option<f64> {
+    match id.trim_start_matches("minecraft:") {
+        "drowned" | "husk" | "vex" | "zombie" | "zombie_villager" => Some(8.0),
+        "vindicator" | "zoglin" => Some(10.0),
+        "evoker" | "illusioner" | "ravager" => Some(12.0),
+        "pillager" => Some(15.0),
+        _ => None,
+    }
+}
+
+/// (farmopt / tick-exact Nov 13 00:16) The hostile sensor at a villager's feet points (a napper
+/// seated at the queue seat: its cart's position, the eye 1.62 over it): every hostile the design
+/// holds (a boat's zombie or pillager at its seat, a free one where it stands), its type's
+/// `ACCEPTABLE_DISTANCE_FROM_HOSTILES`, the feet-to-feet distance (`distanceToSqr`) and the sight
+/// ray eye to eye (`hasLineOfSight`: a COLLIDER clip from the villager's eye to the hostile's):
+/// in range and in sight, the hostile is in NEAREST_HOSTILE (`NearestVisibleLivingEntitySensor`
+/// over the visible list). For each boat hostile in it at some point, the occluder search
+/// ([`occlude`]): glass on every ray to the points, none on a ray it covers now. Returns the lines
+/// and the samples (points x hostiles).
+pub fn sensor_at(spec: &FarmSpec, points: &[Vec3], exclude: &[([i32; 3], [i32; 3])], sets: &[(BlockPos, redsim::block::Block)], hold: &[(BlockPos, String)], through: &[BlockPos]) -> Result<(Vec<String>, usize, usize), String> {
+    use redsim::entity::mob::types::MobType;
+    let o = RunOpts { ai: true, ..RunOpts::steady(1, 0, WalkMode::Random) };
+    let mut bench = spec.clone();
+    for (p, b) in sets {
+        bench.blocks.retain(|(q, _)| q != p);
+        if !b.is_air() {
+            bench.blocks.push((*p, *b));
+        }
+    }
+    let spec = &bench;
+    let mut run = Run::start(spec, &o)?;
+    while run.settle_tick() {}
+    // (farmopt Nov 13 01:02: a stand-in the settle re-evaluates, an unpowered hatch stated open,
+    // is held: re-placed raw after the settle as stated, and listed)
+    let mut held: Vec<String> = Vec::new();
+    let survival_fails = standin_survival(&mut run.world, sets, hold, &mut held);
+    let w = &run.world;
+    // (the hostiles: (label, id, feet, eye, the boat's post when seated in one))
+    let mut hostiles: Vec<(String, String, Vec3, Vec3, Option<BlockPos>)> = Vec::new();
+    for (k, p, nbt) in &spec.entities {
+        let n = nbt.as_deref().unwrap_or("");
+        if k.ends_with("_boat") && (n.contains("minecraft:zombie\"") || n.contains("minecraft:pillager\"")) {
+            let pill = n.contains("minecraft:pillager\"");
+            let feet = Vec3::new(p[0], p[1] + if pill { PILLAGER_SEAT } else { zombie_seat() }, p[2]);
+            let eye = Vec3::new(feet.x, feet.y + eye_of(if pill { MobType::Pillager } else { MobType::Zombie }), feet.z);
+            let id = if pill { "minecraft:pillager" } else { "minecraft:zombie" };
+            hostiles.push((format!("the {} in the boat at {:.2},{:.2},{:.2}", id.trim_start_matches("minecraft:"), p[0], p[1], p[2]), id.to_string(), feet, eye, Some(BlockPos::new(p[0].floor() as i32, p[1].floor() as i32, p[2].floor() as i32))));
+        } else if hostile_range(k).is_some() {
+            let ty = match k.trim_start_matches("minecraft:") {
+                "pillager" => Some(MobType::Pillager),
+                "zombie" => Some(MobType::Zombie),
+                _ => None,
+            };
+            let Some(ty) = ty else {
+                hostiles.push((format!("the {k} at {:.2},{:.2},{:.2} (its eye height not in redsim's data: not judged)", p[0], p[1], p[2]), k.clone(), Vec3::new(p[0], p[1], p[2]), Vec3::new(p[0], p[1] + 1.74, p[2]), None));
+                continue;
+            };
+            let feet = Vec3::new(p[0], p[1], p[2]);
+            hostiles.push((format!("the {} standing at {:.2},{:.2},{:.2}", k.trim_start_matches("minecraft:"), p[0], p[1], p[2]), k.clone(), feet, Vec3::new(feet.x, feet.y + eye_of(ty), feet.z), None));
+        }
+    }
+    let d = |a: &Vec3, b: &Vec3| ((a.x - b.x).powi(2) + (a.y - b.y).powi(2) + (a.z - b.z).powi(2)).sqrt();
+    let veye = eye_of(MobType::Villager);
+    let mut lines = vec![format!(
+        "the hostile sensor (VillagerHostilesSensor over NEAREST_VISIBLE_LIVING_ENTITIES, 26.3; ranges: zombie, drowned, husk, zombie villager, vex 8, vindicator, zoglin 10, evoker, illusioner, ravager 12, pillager 15; sight eye to eye, a COLLIDER clip; the villager's eye {veye:.4} over its feet): {} feet points, {} hostiles in the design",
+        points.len(),
+        hostiles.len()
+    )];
+    let mut sensed: Vec<usize> = Vec::new();
+    for (i, (label, id, feet, eye, _)) in hostiles.iter().enumerate() {
+        let range = hostile_range(id).unwrap_or(0.0);
+        let mut rows: Vec<String> = Vec::new();
+        let mut any = false;
+        for p in points {
+            let dist = d(p, feet);
+            let e = Vec3::new(p.x, p.y + veye, p.z);
+            let seen = redsim::entity::mob::los::has_line_of_sight(w, e, *eye);
+            let inside = dist <= range;
+            if inside && seen {
+                any = true;
+            }
+            rows.push(format!("{:.2},{:.3},{:.2}: {dist:.2}{} sight {}", p.x, p.y, p.z, if inside { " IN RANGE," } else { " out of range," }, if seen { "CLEAR" } else { "blocked" }));
+        }
+        if any {
+            sensed.push(i);
+        }
+        lines.push(format!("  {} {label} (range {range}): {}", if any { "IN NEAREST_HOSTILE" } else { "not sensed" }, rows.join("; ")));
+    }
+    lines[0].push_str(&format!(": {} sensed at some point", sensed.len()));
+    for h in &held {
+        lines.push(format!("  {h}"));
+    }
+    // (ironspec Nov 13 01:03 (3): each ray's entry and exit through a named cell, with the cell's
+    // state in the world judged and each eye)
+    for c in through {
+        let st = w.get(*c);
+        lines.push(format!("  through {},{},{} ({}; collision boxes {:?} in 1/16):", c.x, c.y, c.z, st.to_string().trim_start_matches("minecraft:"), redsim::behavior::collision_boxes(&st)));
+        for (label, _, feet, eye, _) in &hostiles {
+            for p in points {
+                if d(p, feet) > 16.0 {
+                    continue;
+                }
+                let e = Vec3::new(p.x, p.y + veye, p.z);
+                let (lo, hi) = ([c.x as f64, c.y as f64, c.z as f64], [(c.x + 1) as f64, (c.y + 1) as f64, (c.z + 1) as f64]);
+                let (a, dv) = ([e.x, e.y, e.z], [eye.x - e.x, eye.y - e.y, eye.z - e.z]);
+                let (mut t0, mut t1) = (0.0f64, 1.0f64);
+                let mut hit = true;
+                for k in 0..3 {
+                    if dv[k].abs() < 1e-12 {
+                        if a[k] < lo[k] || a[k] > hi[k] {
+                            hit = false;
+                        }
+                        continue;
+                    }
+                    let (u, v) = ((lo[k] - a[k]) / dv[k], (hi[k] - a[k]) / dv[k]);
+                    t0 = t0.max(u.min(v));
+                    t1 = t1.min(u.max(v));
+                }
+                if !hit || t0 > t1 {
+                    continue;
+                }
+                let at = |t: f64| format!("{:.3},{:.3},{:.3}", a[0] + dv[0] * t, a[1] + dv[1] * t, a[2] + dv[2] * t);
+                lines.push(format!(
+                    "    eye {:.4},{:.4},{:.4} -> {label}'s eye {:.4},{:.4},{:.4}: enters at {}, leaves at {}; sight {}",
+                    e.x,
+                    e.y,
+                    e.z,
+                    eye.x,
+                    eye.y,
+                    eye.z,
+                    at(t0),
+                    at(t1),
+                    if redsim::entity::mob::los::has_line_of_sight(w, e, *eye) { "CLEAR" } else { "blocked" }
+                ));
+            }
+        }
+    }
+    for i in sensed {
+        let (label, id, _, _, post) = &hostiles[i];
+        match post {
+            Some(post) if sets.is_empty() => {
+                for l in occlude(spec, *post, id.ends_with("pillager"), points, exclude, &[])? {
+                    lines.push(format!("  {l}"));
+                }
+            }
+            Some(_) => lines.push(format!("  occluder for {label}: not searched with stand-ins (the search builds the design as stored)")),
+            None => lines.push(format!("  occluder for {label}: not searched (not seated in a boat: the occluder search keeps a boat mob's covered rays)")),
+        }
+    }
+    Ok((lines, points.len() * hostiles.len(), survival_fails))
 }
 
 pub fn occlude(spec: &FarmSpec, post: BlockPos, pill: bool, hide: &[Vec3], exclude: &[([i32; 3], [i32; 3])], extra: &[Vec3]) -> Result<Vec<String>, String> {
@@ -1402,9 +1646,11 @@ pub fn occlude(spec: &FarmSpec, post: BlockPos, pill: bool, hide: &[Vec3], exclu
     let air_block = redsim::block::Block::parse("minecraft:air")?;
     let seat = zombie_seat();
     let feet = Vec3::new(post.x as f64 + 0.5, post.y as f64 + if pill { PILLAGER_SEAT } else { seat }, post.z as f64 + 0.5);
-    let eye = Vec3::new(feet.x, feet.y + if pill { PILLAGER_EYE } else { 1.74 }, feet.z);
+    // (ironspec Nov 12 23:30: the shared eye heights)
+    let eye = Vec3::new(feet.x, feet.y + eye_of(if pill { redsim::entity::mob::types::MobType::Pillager } else { redsim::entity::mob::types::MobType::Zombie }), feet.z);
     let far = if pill { 15.0 } else { PANIC_BAR };
-    let reye = |p: &Vec3| Vec3::new(p.x, p.y + 1.62, p.z);
+    let veye = eye_of(redsim::entity::mob::types::MobType::Villager);
+    let reye = |p: &Vec3| Vec3::new(p.x, p.y + veye, p.z);
     let d = |p: &Vec3| ((p.x - feet.x).powi(2) + (p.y - feet.y).powi(2) + (p.z - feet.z).powi(2)).sqrt();
     let sees = |w: &redsim::World, p: &Vec3| d(p) <= far && redsim::entity::mob::los::has_line_of_sight(w, reye(p), eye);
     let hidden_now: Vec<Vec3> = hide.iter().copied().filter(|p| sees(w, p)).collect();
@@ -3660,8 +3906,12 @@ pub fn clear_all(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32; 
         "IDLE's walk to a rider it sees within 8 (InteractWith, SetWalkTargetFromLookTarget)",
     ];
     let mut classes: std::collections::BTreeMap<(usize, i32, i32, i32), std::collections::BTreeMap<(i32, i32, i32), (Vec<f64>, f64, usize)>> = std::collections::BTreeMap::new();
+    let mut tails = 0usize;
     for (idx, ((c, t, p), pl)) in pos.iter().zip(ps.iter()).enumerate() {
         let tail = pl.seen == 0 && best.contains_key(&node_of(idx));
+        if tail {
+            tails += 1;
+        }
         let panics = pl.seen > 0 || tail;
         if panics {
             panicking += 1;
@@ -4130,7 +4380,7 @@ pub fn clear_all(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32; 
     lines.extend(end_lines);
     lines.extend(travel_lines);
     lines.extend(listed);
-    Ok((lines, ClearVerdict { undeclared_ends, gate_fails: fails, late_fails: late_positions, stale: stale.len(), hazards: n_haz }))
+    Ok((lines, ClearVerdict { undeclared_ends, gate_fails: fails, late_fails: late_positions, stale: stale.len(), hazards: n_haz, gate_samples: panicking, late_samples: if late_gt > 0.0 { panicking_nodes.len() } else { 0 }, stale_samples: tails }))
 }
 
 /// `clear_all`'s verdict, as numbers (ironspec Nov 12 16:23 / 16:52, G1: the command fails on
@@ -4144,6 +4394,11 @@ pub struct ClearVerdict {
     pub late_fails: usize,
     pub stale: usize,
     pub hazards: usize,
+    /// (ironspec Nov 12 23:56: each bar's samples) the gate's panicking positions, the late
+    /// paths' panicking nodes (0 when not checked), the staleness bar's tail positions.
+    pub gate_samples: usize,
+    pub late_samples: usize,
+    pub stale_samples: usize,
 }
 
 #[cfg(test)]
