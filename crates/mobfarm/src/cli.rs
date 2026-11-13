@@ -8433,16 +8433,15 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let (spec, _) = crate::fleecheck::settled_design(&spec_file).map_err(|e| anyhow::anyhow!(e))?;
             let classes = crate::fleecheck::PlaceClasses::from_design(&c.clock.design.meta, &std::fs::read_to_string(&design)?).map_err(|e| anyhow::anyhow!(e))?;
             let (lines, fails) = crate::fleecheck::t_exposure(&spec, &classes.switches, &classes.integrity).map_err(|e| anyhow::anyhow!(e))?;
-            // (7b90c3f1 / day-1 Nov 13 10:37-10:41: the declared update-only sources, information:
-            // the Ts they reach must be in `switches:` to pass)
+            // (7b90c3f1 / day-1 Nov 13 10:37-10:41: the declared update-only sources; onechunk /
+            // ironspec 13:54: each checked against its own update footprint, a stale reading FAILS)
+            let (uo_lines, uo_flags) = crate::fleecheck::update_only_check(&spec, &classes.update_only, &classes.switches);
             let mut lines = lines;
-            for (q, why) in &classes.update_only {
-                lines.push(format!("  UPDATE-ONLY (declared, information) {},{},{}: {why}", q.x, q.y, q.z));
-            }
+            lines.extend(uo_lines);
             for l in &lines {
                 println!("{l}");
             }
-            anyhow::ensure!(fails == 0, "the T exposure: {fails} undeclared T(s) beside an operating source");
+            anyhow::ensure!(fails == 0 && uo_flags == 0, "the T exposure: {fails} failing T(s), {uo_flags} update-only entr(ies) flagged");
         }
         MobfarmCmd::NearPositions { design, cell, radius, column } => {
             let (_c, spec_file) = load(version, &design)?;
@@ -13487,6 +13486,13 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 let scope = crate::bars::Scope::from_text(&std::fs::read_to_string(&design)?, &[]).map_err(|e| anyhow::anyhow!(e))?;
                 let (gv, gf) = scope.verdict("gate", verdict.gate_samples, "PANIC candidates judged", verdict.gate_fails);
                 let (lv, lf) = scope.verdict("late-paths", verdict.late_samples, "paths inside the window", verdict.late_fails);
+                // (ironspec Nov 13 13:50 (b): a late verdict over INFERRED links nothing confirms is NOT
+                // JUDGED: each is listed above as an INFERRED LINK line)
+                let (lv, lf) = if verdict.late_gt > 0.0 && verdict.inferred_links > 0 {
+                    (format!("NOT JUDGED ({} INFERRED link(s) unconfirmed: confirm each with a `# travel:` line and its evidence; the walk read {lv})", verdict.inferred_links), true)
+                } else {
+                    (lv, lf)
+                };
                 let (sv, sf) = scope.verdict("staleness", verdict.stale_samples, "tail positions", verdict.stale);
                 let (cv, cf) = scope.verdict("caller-sight", callers.len(), "callers", blind);
                 // (G1 Nov 13 05:20, holes 2 / 3 / 4: the window as run; the gate's places and its

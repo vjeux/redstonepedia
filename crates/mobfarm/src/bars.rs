@@ -140,15 +140,34 @@ mod tests {
     }
 
     /// Every bar name a tool passes to `verdict` is in [`super::BARS`] (a bar missing there could
-    /// never be excluded): the CLI's verdict calls, read from its source.
+    /// never be excluded), and every `verdict` call names its bar by a literal (ironspec Nov 13
+    /// 13:50 (d): the whole crate scanned, every source file under src/).
     #[test]
     fn every_verdict_bar_is_registered() {
-        for src in [include_str!("cli.rs")] {
-            for (i, _) in src.match_indices("verdict(\"") {
-                let rest = &src[i + "verdict(\"".len()..];
-                let name = &rest[..rest.find('"').unwrap_or(0)];
-                assert!(super::BARS.contains(&name), "the bar {name} is judged but not in BARS");
+        let needle = format!(".{}(", "verdict");
+        let mut stack = vec![std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src")];
+        let (mut files, mut calls) = (0usize, 0usize);
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(&dir).expect("the crate's src") {
+                let path = entry.expect("an entry").path();
+                if path.is_dir() {
+                    stack.push(path);
+                    continue;
+                }
+                if path.extension().is_none_or(|e| e != "rs") {
+                    continue;
+                }
+                files += 1;
+                let src = std::fs::read_to_string(&path).expect("a source file");
+                for (i, _) in src.match_indices(&needle) {
+                    let rest = &src[i + needle.len()..];
+                    let rest = rest.strip_prefix('"').unwrap_or_else(|| panic!("{}: a verdict call whose bar is no literal: {}", path.display(), &rest[..rest.len().min(60)]));
+                    let name = &rest[..rest.find('"').unwrap_or(0)];
+                    assert!(super::BARS.contains(&name), "{}: the bar {name} is judged but not in BARS", path.display());
+                    calls += 1;
+                }
             }
         }
+        assert!(files > 10 && calls >= super::BARS.len(), "the scan read {files} files and {calls} verdict calls");
     }
 }
