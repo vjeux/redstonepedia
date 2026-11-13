@@ -159,16 +159,15 @@ fn a_seated_rider_with_home_out_of_reach_records_a_home_target_run() {
 }
 
 /// Every entity's id, position and motion bits, and the villager's brain memories and HOME, per tick.
-/// With `uid_from`, the path's uid is printed relative to the trace's first one (the counter is
-/// process-wide: absolute uids differ between any two runs in one process, recorded or not).
-fn trace_with(record: bool, ticks: u32, relative_uid: bool) -> Vec<String> {
+/// With `with_uid`, the path's uid is printed as it is (the world's own: `World::path_uid`, so two fresh worlds
+/// hand out the same uids whatever runs beside them); without, it is left out.
+fn trace_with(record: bool, ticks: u32, with_uid: bool) -> Vec<String> {
     let mut w = night(16, (-3, 12), record);
     let id = villager(&mut w, 5.5);
     let i = idx(&w, id);
     let planted = w.time - 1300;
     brain::ex_mut(&mut w, i).mem.cant_reach_since = Some(planted);
     let mut out = Vec::new();
-    let mut base: Option<u64> = None;
     for t in 0..ticks {
         w.tick();
         if let Some(log) = w.mob.ai.walk_memory_runs.as_mut() {
@@ -179,24 +178,20 @@ fn trace_with(record: bool, ticks: u32, relative_uid: bool) -> Vec<String> {
         }
         let i = idx(&w, id);
         let mem = format!("{:?}", brain::ex(&w, i).mem);
-        let mem: String = mem
-            .split("uid: ")
-            .enumerate()
-            .map(|(k, s)| {
-                if k == 0 {
-                    return s.to_string();
-                }
-                let digits: String = s.chars().take_while(|c| c.is_ascii_digit()).collect();
-                let rest = &s[digits.len()..];
-                if relative_uid {
-                    let u: u64 = digits.parse().unwrap();
-                    let b = *base.get_or_insert(u);
-                    format!("uid: +{}{rest}", u - b)
-                } else {
-                    format!("uid: _{rest}")
-                }
-            })
-            .collect();
+        let mem: String = if with_uid {
+            mem
+        } else {
+            mem.split("uid: ")
+                .enumerate()
+                .map(|(k, s)| {
+                    if k == 0 {
+                        return s.to_string();
+                    }
+                    let digits: String = s.chars().take_while(|c| c.is_ascii_digit()).collect();
+                    format!("uid: _{}", &s[digits.len()..])
+                })
+                .collect()
+        };
         out.push(format!("t {t} mem {mem} home {:?}", brain::brain(&w, i).home));
     }
     out
@@ -208,8 +203,7 @@ fn trace(record: bool, ticks: u32) -> Vec<String> {
 
 #[test]
 fn the_record_off_and_on_give_the_same_trace() {
-    // the path's uid left out here: a process-wide counter that tests running in parallel draw from
-    // (the uid-included form is the ignored test below, run single-threaded)
+    // (the path's uid left out here; the uid-included form is the next test)
     let (off, on) = (trace(false, 400), trace(true, 400));
     assert_eq!(off.len(), on.len());
     for (a, b) in off.iter().zip(&on) {
@@ -217,15 +211,15 @@ fn the_record_off_and_on_give_the_same_trace() {
     }
 }
 
-/// (G1 08:32 (a)) the same comparison with the path's uid INCLUDED, relative to each trace's first uid
-/// (absolute uids come from a process-wide counter, so they differ between any two runs in one process,
-/// recorded or not: two OFF runs differ by the same offset). Run alone:
-/// `cargo test --release -p redsim --test walk_memory_runs -- --ignored --test-threads=1`.
+/// (G1 08:32 (a); un-ignored with the per-world path ids, G1 / ironspec 2026-11-13 10:57 / 11:01) the same
+/// comparison with the path's uid INCLUDED, as it is: each world hands out its own uids (`World::path_uid`), so
+/// two OFF runs and an ON run print the same absolute uids however many tests run beside them (the old
+/// process-wide counter made this test single-threaded and relative).
 #[test]
-#[ignore]
 fn the_record_off_and_on_give_the_same_trace_uid_included() {
     let (off, on, off2) = (trace_with(false, 400, true), trace_with(true, 400, true), trace_with(false, 400, true));
-    assert_eq!(off, off2, "two OFF runs, relative uids: identical (the control)");
+    assert!(off.iter().any(|l| l.contains("uid: ")), "the trace carries a path uid");
+    assert_eq!(off, off2, "two OFF runs, absolute uids: identical (the control)");
     assert_eq!(off.len(), on.len());
     for (a, b) in off.iter().zip(&on) {
         assert_eq!(a, b, "the record changed the world (uid included)");
