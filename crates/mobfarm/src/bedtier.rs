@@ -958,7 +958,24 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
         put(&mut b, [QUEUE[0], QUEUE[1] - 1, QUEUE[2]], "glass")?;
     }
     b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
-    b.d.meta.insert("keep-block".into(), "-5,3,4=oak_leaves[distance=7,persistent=true] (the zombie's cover: its eye's sky light 14 or less, no burning by day)".into());
+    if waker_south {
+        b.d.meta.insert("keep-block".into(), "-5,3,10=oak_leaves[distance=7,persistent=true] (Z1's cover over its glass roof (-5,2,10): its eye cell (-5,1,10) at sky light 14, no burning by day)".into());
+        // (the waker's in-sight places, declared: every place a napper has Z1 in sight within 8
+        // once F opens the window: the sleeper only (58f770cc's ray at F on every visit; 9fc3155f's
+        // x20 sight: P and the exit screened); none with the window shut)
+        b.d.meta.insert("waker-places".into(), "-3,0,4=asleep in the bed, woken by F (6.36 eye to eye; the window open only from F to the wake edge)".into());
+    } else {
+        b.d.meta.insert("keep-block".into(), "-5,3,4=oak_leaves[distance=7,persistent=true] (the zombie's cover: its eye's sky light 14 or less, no burning by day)".into());
+    }
+    if head_open && exit_south {
+        // (the bed's column kept clear: (-3,1,4) over the head is the HOME path's target (the
+        // column's first non-solid cell); the head open (ironspec 06:24))
+        b.d.meta.insert("keep-clear".into(), "-3,1,4 -3,2,4 -3,3,4".into());
+        // (the cells the stop's empty cart rides riderless: from E, where the napper is set down on
+        // the bed foot's top, round the loop and the U-turn to its park, down the run-up to P, where
+        // the napper boards again)
+        b.d.meta.insert("riderless".into(), "-2,0,2+-2,0,3+-1,0,3+0,0,3+1,0,3+2,1,3+2,1,4+1,0,4+0,0,4+-1,0,4+-2,0,4=the stop's empty cart from E (the napper set down on the bed foot's top) round the loop and the U-turn to its park, then down the run-up to P (the napper seated again at P)".into());
+    }
     b.d.ports.insert("output".into(), [12, 0, 6]);
     b.d.ports.insert("home".into(), BED_HEAD);
     #[allow(unused_mut)]
