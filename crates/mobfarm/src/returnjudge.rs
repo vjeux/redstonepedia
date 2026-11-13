@@ -136,6 +136,15 @@ pub struct ReturnRead {
     pub y12_behind: Option<i64>,
     pub y12_ahead: Option<i64>,
     pub y12_pairs: Vec<i64>,
+    /// Batch carts the path (a) line prints without a y-12 pass (`-`: never passed y 12).
+    pub y12_missing: usize,
+    /// The bench's `path (a) y-12 pairs` line: [lane -1 -> 3, 3 -> 7, 7 -> the napper, the napper -> the next
+    /// lane -1, 7 -> the next lane -1 with no napper between], the column order wrong, and the same pairs at
+    /// the exit top (the contact point; printed).
+    pub saw_y12_pairs: bool,
+    pub y12_bench: [Option<i64>; 5],
+    pub y12_order_wrong: bool,
+    pub y12_top: [Option<i64>; 4],
     /// The bench's mouth clearance on the `path (a):` line (ironspec 20:01): the least, over the batches, of
     /// lane 7's entry at y 12 after the preceding cart's box fully cleared the mouth cell (gt).
     pub mouth: Option<i64>,
@@ -333,11 +342,14 @@ fn read_path_a(rest: &str, r: &mut ReturnRead) {
             if e.starts_with("napper") {
                 continue;
             }
-            // (`bB lane L +X`)
+            // (`bB lane L +X`, or `bB lane L -`: the cart never passed y 12 (7b90c3f1's 5ec2749b3))
             let parts: Vec<&str> = e.split_whitespace().collect();
-            match (parts.first().and_then(|b| b.strip_prefix('b')).and_then(|b| b.parse::<i64>().ok()), parts.get(2).and_then(|l| l.parse::<i32>().ok()), parts.get(3).and_then(|x| x.trim_start_matches('+').parse::<i64>().ok())) {
-                (Some(b), Some(lane), Some(x)) if parts.get(1) == Some(&"lane") => {
-                    by.insert((b, lane), x);
+            let b = parts.first().and_then(|b| b.strip_prefix('b')).and_then(|b| b.parse::<i64>().ok());
+            let lane = parts.get(2).and_then(|l| l.parse::<i32>().ok());
+            match (b, lane, parts.get(3).copied()) {
+                (Some(_), Some(_), Some("-")) if parts.get(1) == Some(&"lane") => r.y12_missing += 1,
+                (Some(b), Some(lane), Some(x)) if parts.get(1) == Some(&"lane") && x.trim_start_matches('+').parse::<i64>().is_ok() => {
+                    by.insert((b, lane), x.trim_start_matches('+').parse::<i64>().unwrap_or(0));
                 }
                 _ => r.errors.push(format!("path (a): a y-12 pass {e:?} unreadable")),
             }
@@ -353,19 +365,47 @@ fn read_path_a(rest: &str, r: &mut ReturnRead) {
             }
         }
     }
+    // (a value or `-` (none measured: no error; the bars read it as unmeasured))
+    let num = |s: &str| s.trim_start().split(|c: char| !(c.is_ascii_digit() || c == '-')).next().filter(|x| *x != "-").and_then(|x| x.parse::<i64>().ok());
     if let Some((_, g)) = rest.split_once("the napper's y-12 gap behind ") {
-        let num = |s: &str| s.split(|c: char| !(c.is_ascii_digit() || c == '-')).next().and_then(|x| x.parse::<i64>().ok());
         r.y12_behind = num(g);
         r.y12_ahead = g.split_once(" and ahead ").and_then(|(_, a)| num(a));
     }
     r.col_min = rest.split_once("the least distance between two carts in the column ").and_then(|(_, d)| d.split(|c: char| !(c.is_ascii_digit() || c == '.')).next()).and_then(|x| x.parse::<f64>().ok());
-    // (`… lane 7's mouth clearance N gt …` (ironspec 20:01; 7b90c3f1's wording))
+    // (`… lane 7's mouth clearance N gt (…)` or `- (unmeasured)` (ironspec 20:01; 7b90c3f1's wording))
     if let Some((_, m)) = rest.split_once("mouth clearance ") {
-        match m.trim_start().split(|c: char| !(c.is_ascii_digit() || c == '-')).next().and_then(|x| x.parse::<i64>().ok()) {
+        let m = m.trim_start();
+        match num(m) {
             Some(n) => r.mouth = Some(n),
+            None if m.starts_with('-') => r.mouth = None,
             None => r.errors.push(format!("path (a): the mouth clearance unreadable: {:?}", m.chars().take(40).collect::<String>())),
         }
     }
+}
+
+/// The bench's `path (a) y-12 pairs (bar >= N, G1): lane -1 -> lane 3 A (…), lane 3 -> lane 7 B, lane 7 ->
+/// the napper C, the napper -> the next batch's lane -1 D, lane 7 -> the next batch's lane -1 with no
+/// napper between E; the column order at y 12 WRONG | …; the same pairs at the exit top (…): lane -1 ->
+/// lane 3 a, lane 3 -> lane 7 b, lane 7 -> the napper c, the napper -> the next lane -1 d` line
+/// (7b90c3f1's 5ec2749b3): the very numbers its clean() bars (each the least over the run; `-` none).
+fn read_y12_pairs(rest: &str, r: &mut ReturnRead) {
+    r.saw_y12_pairs = true;
+    let num = |s: &str| -> Option<i64> { s.trim_start().split(|c: char| !(c.is_ascii_digit() || c == '-')).next().filter(|x| !x.is_empty() && *x != "-").and_then(|x| x.parse::<i64>().ok()) };
+    let (y12, top) = rest.split_once("; the same pairs at the exit top").map_or((rest, ""), |(a, b)| (a, b));
+    let after = |hay: &str, key: &str| hay.split_once(key).and_then(|(_, x)| num(x));
+    r.y12_bench = [
+        after(y12, "lane -1 -> lane 3 "),
+        after(y12, "lane 3 -> lane 7 "),
+        after(y12, "lane 7 -> the napper "),
+        after(y12, "the napper -> the next batch's lane -1 "),
+        after(y12, "lane 7 -> the next batch's lane -1 with no napper between "),
+    ];
+    match y12.split_once("the column order at y 12 ") {
+        Some((_, o)) => r.y12_order_wrong = o.trim_start().starts_with("WRONG"),
+        None => r.errors.push("path (a) y-12 pairs: no column order".to_string()),
+    }
+    let top = top.split_once("): ").map_or(top, |(_, x)| x);
+    r.y12_top = [after(top, "lane -1 -> lane 3 "), after(top, "lane 3 -> lane 7 "), after(top, "lane 7 -> the napper "), after(top, "the napper -> the next lane -1 ")];
 }
 
 /// One switch cause's least settle and clear (the bench's `junction settle / clear by cause` line).
@@ -663,7 +703,11 @@ pub fn read(text: &str, napper: bool, k_cell: Option<(i32, i32, i32)>) -> Return
                 None => r.errors.push("the split line has no junction gaps".to_string()),
             }
         }
-        if let Some(rest) = l.strip_prefix("path (a): ") {
+        // (`path (a): …` (83878113f) or `path (a), in game ticks after REL (…): …` (5ec2749b3); its pairs line
+        // apart)
+        if let Some(rest) = l.strip_prefix("path (a) y-12 pairs ") {
+            read_y12_pairs(rest, &mut r);
+        } else if let Some(rest) = l.strip_prefix("path (a): ").or_else(|| l.strip_prefix("path (a), ").and_then(|x| x.split_once("): ").map(|(_, y)| y))) {
             read_path_a(rest, &mut r);
         }
         if let Some(rest) = l.strip_prefix("junction settle / clear") {
@@ -843,12 +887,31 @@ pub fn fails(r: &ReturnRead, b: &ReturnBars, napper: bool) -> Vec<String> {
             }
         }
     }
-    // (path (a): the batch carts' y-12 pairs (lane 3 -> lane 7, lane 7 -> the next lane -1) at y12_min)
-    if b.path_a
-        && let Some(g) = r.y12_pairs.iter().min()
-        && *g < b.y12_min
-    {
-        v.push(format!("a batch pair's y-12 gap {g} gt (bar {}, the column bar: physical 14 + 2, ironspec 20:01)", b.y12_min));
+    // (path (a): the batch carts' y-12 pairs at y12_min, the napper's at y12_nap_min, every cart through y 12
+    // and the column in order: from the bench's pairs line (the numbers its clean() bars: lane 3 -> lane 7,
+    // lane 7 -> the next lane -1 with no napper between; the napper's two pairs; the foot pair lane -1 ->
+    // lane 3 barred by the shaft entry), else the judge's own from the y-12 passes)
+    if b.path_a {
+        let cb = "the column bar: physical 14 + 2, ironspec 20:01";
+        if r.saw_y12_pairs {
+            for (g, what, bar) in [(r.y12_bench[1], "lane 3 -> lane 7", b.y12_min), (r.y12_bench[4], "lane 7 -> the next batch's lane -1", b.y12_min), (r.y12_bench[2], "lane 7 -> the napper", b.y12_nap_min), (r.y12_bench[3], "the napper -> the next batch's lane -1", b.y12_nap_min)] {
+                if let Some(g) = g
+                    && g < bar
+                {
+                    v.push(format!("the y-12 pair {what} {g} gt (bar {bar}, {cb})"));
+                }
+            }
+            if r.y12_order_wrong {
+                v.push("the column order at y 12 wrong".into());
+            }
+        } else if let Some(g) = r.y12_pairs.iter().min()
+            && *g < b.y12_min
+        {
+            v.push(format!("a batch pair's y-12 gap {g} gt (bar {}, {cb})", b.y12_min));
+        }
+        if r.y12_missing > 0 {
+            v.push(format!("{} batch cart(s) never passed y 12", r.y12_missing));
+        }
     }
     // (path (a): the column-order bar (ironspec 20:01, physical): lane 7's entry at y 12 at least mouth_min
     // gt after the preceding cart's box fully cleared the mouth cell)
@@ -2503,6 +2566,26 @@ mod tests {
         assert!(fails(&m1, &pb, true).iter().any(|x| x.contains("lane 7's mouth clearance 1 gt (bar 2, physical")), "{:?}", fails(&m1, &pb, true));
         let m0 = read(&format!("{T}{}{sc}", pa.replace("; lane 7's mouth clearance 4 gt (batch 1)", "")), true);
         assert!(fails(&m0, &pb, true).iter().any(|x| x.contains("lane 7's mouth clearance unmeasured")), "{:?}", fails(&m0, &pb, true));
+        // (7b90c3f1's 5ec2749b3 wording: the path (a) line's new prefix, `-` values (unmeasured, no error), a
+        // cart without a y-12 pass, and the pairs line read and barred in place of the judge's own pairs)
+        let pa2 = "path (a), in game ticks after REL (the tick a state first shows at a tick's end): lane 7's slope rail rises [95, 95, 95]; ARM3 rises [51, 51, 51]; the napper's hold rail rises REL + 63 (batch 0's REL); y-12 passes after REL: b0 lane -1 +55, b0 lane 3 +74, b0 lane 7 +101, b1 lane -1 +55, b1 lane 3 +74, b1 lane 7 +101, napper +127; the napper's y-12 gap behind 26 and ahead 28; lane 7's mouth clearance 5 gt (batch 0: lane 3's box out of the mouth cell, feet at y 13, at t 210; lane 7 into the column 5 gt later); the least distance between two carts in the column 9.526 (carts 0 and 1 at t 182)\n";
+        let pairs = "path (a) y-12 pairs (bar >= 16, G1): lane -1 -> lane 3 19 (the foot pair: the shaft entry's gap bars it), lane 3 -> lane 7 27, lane 7 -> the napper 26, the napper -> the next batch's lane -1 28, lane 7 -> the next batch's lane -1 with no napper between 54; the column order at y 12 -1, 3, 7 per batch, the napper after its batch's lane 7; the same pairs at the exit top (the contact point, the exit booster's cell): lane -1 -> lane 3 17, lane 3 -> lane 7 25, lane 7 -> the napper 24, the napper -> the next lane -1 30\n";
+        let n = read(&format!("{T}{pa2}{pairs}{sc}"), true);
+        assert!(n.errors.is_empty(), "{:?}", n.errors);
+        assert!(n.saw_path_a && n.saw_y12_pairs && !n.y12_order_wrong);
+        assert_eq!((n.mouth, n.y12_behind, n.y12_ahead), (Some(5), Some(26), Some(28)));
+        assert_eq!((n.y12_bench, n.y12_top), ([Some(19), Some(27), Some(26), Some(28), Some(54)], [Some(17), Some(25), Some(24), Some(30)]));
+        assert!(fails(&n, &pb, true).is_empty(), "{:?}", fails(&n, &pb, true));
+        let un = read(&format!("{T}{}{pairs}{sc}", pa2.replace("5 gt (batch 0: lane 3's box out of the mouth cell, feet at y 13, at t 210; lane 7 into the column 5 gt later)", "- (unmeasured)").replace("ahead 28", "ahead - (no batch after it in the run)")), true);
+        assert!(un.errors.is_empty(), "{:?}", un.errors);
+        let fu = fails(&un, &pb, true);
+        assert!(fu.iter().any(|x| x.contains("mouth clearance unmeasured")) && fu.iter().any(|x| x.contains("y-12 gap ahead of the next batch's first unmeasured")), "{fu:?}");
+        let p15 = read(&format!("{T}{pa2}{}{sc}", pairs.replace("lane 3 -> lane 7 27", "lane 3 -> lane 7 15")), true);
+        assert!(fails(&p15, &pb, true).iter().any(|x| x.contains("the y-12 pair lane 3 -> lane 7 15 gt (bar 16")), "{:?}", fails(&p15, &pb, true));
+        let wrong = read(&format!("{T}{pa2}{}{sc}", pairs.replace("the column order at y 12 -1, 3, 7 per batch", "the column order at y 12 WRONG")), true);
+        assert!(fails(&wrong, &pb, true).iter().any(|x| x.contains("the column order at y 12 wrong")), "{:?}", fails(&wrong, &pb, true));
+        let miss = read(&format!("{T}{}{pairs}{sc}", pa2.replace("b1 lane 7 +101", "b1 lane 7 -")), true);
+        assert!(miss.errors.is_empty() && fails(&miss, &pb, true).iter().any(|x| x.contains("1 batch cart(s) never passed y 12")), "{:?} {:?}", miss.errors, fails(&miss, &pb, true));
         let set9 = read(&format!("{T}{pa}{}", sc.replace("settle 11 gt", "settle 3 gt")), true);
         assert!(fails(&set9, &pb, true).iter().any(|x| x.contains("J(-1)'s settle 3 gt (entity-phase bar 2 + 2, its cause unnamed)")), "{:?}", fails(&set9, &pb, true));
         let clr9 = read(&format!("{T}{pa}{}", sc.replace("clear 12 gt", "clear 2 gt")), true);
