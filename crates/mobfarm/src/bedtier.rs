@@ -1249,6 +1249,26 @@ pub fn parse_contacts(text: &str, shift: [i32; 3]) -> Result<Vec<[i32; 3]>, Stri
     Ok(out)
 }
 
+/// A controller cell set to its on ("redstone_block") or off ("stone") state the way the game
+/// moves a lever: `LeverBlock.pull` (the lever's own neighbours and its attached block's
+/// neighbours updated, as a repeater line end updates its front block's), not a raw block write
+/// (whose updates reach only the lever's neighbours: a component powered through the attached
+/// conductor never heard the change). A cell that isn't a lever, or already in the state, is
+/// written raw.
+pub fn ctl_set(w: &mut World, c: [i32; 3], st: &str) {
+    let p = BlockPos::new(c[0], c[1], c[2]);
+    let want = block(&ctl_block(c, st));
+    let cur = w.get(p);
+    if cur == want {
+        return;
+    }
+    if matches!(cur, Block::Lever { .. }) && matches!(want, Block::Lever { .. }) && redsim::redstone::attach::attached::with_powered(cur, !redsim::redstone::attach::attached::powered(&cur)) == want {
+        redsim::redstone::attach::lever::pull(w, cur, p);
+    } else {
+        w.set_block(p, want, redsim::world::flags::ALL);
+    }
+}
+
 /// A declared lever's powered state set (its block kept, only `powered` written); the cell must
 /// hold a lever.
 pub fn set_lever(w: &mut World, p: BlockPos, on: bool) -> Result<(), String> {
@@ -1258,9 +1278,14 @@ pub fn set_lever(w: &mut World, p: BlockPos, on: bool) -> Result<(), String> {
     }
     let t = if on { s.replace("powered=false", "powered=true") } else { s.replace("powered=true", "powered=false") };
     if t != s {
-        // (the state's own text, namespaced as Display prints it)
-        let nb = Block::parse(&t).map_err(|e| format!("({},{},{}) {t}: {e}", p.x, p.y, p.z))?;
-        w.set_block(p, nb, redsim::world::flags::ALL);
+        // (the lever moved as the game moves it, `LeverBlock.pull`: its attached block's
+        // neighbours updated too)
+        let cur = w.get(p);
+        redsim::redstone::attach::lever::pull(w, cur, p);
+        let after = format!("{}", w.get(p));
+        if after != t {
+            return Err(format!("({},{},{}) pulled to {after}, not {t}", p.x, p.y, p.z));
+        }
     }
     Ok(())
 }
@@ -1495,7 +1520,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             }
         }
     }
-    let set = |w: &mut World, c: [i32; 3], st: &str| w.set_block(BlockPos::new(c[0], c[1], c[2]), block(&ctl_block(c, st)), redsim::world::flags::ALL);
+    let set = |w: &mut World, c: [i32; 3], st: &str| ctl_set(w, c, st);
     // (ironspec 17:46, the stand-in guard: every emulated write this bench makes, checked against
     // the built cell's golem and path properties before the run: the controller's levers, and the
     // queue's release with --module-offset)
@@ -2537,7 +2562,7 @@ pub fn two_visit_bench(spec: &FarmSpec, seed: u64, speed: f64, o: &TwoOpts) -> R
             return Err("never reached the visit's hour".into());
         }
     }
-    let set = |w: &mut World, c: [i32; 3], st: &str| w.set_block(BlockPos::new(c[0], c[1], c[2]), block(&ctl_block(c, st)), redsim::world::flags::ALL);
+    let set = |w: &mut World, c: [i32; 3], st: &str| ctl_set(w, c, st);
     // (ironspec 17:46, the stand-in guard: the controller's levers checked against the built cells)
     let (act_cell, act_ctrl) = act_cells(&run.world);
     if layout(&run.world).arm.is_some() {
