@@ -65,18 +65,19 @@ impl Log {
 }
 
 /// A save, stop and start of the world (the villager, its sleep and the levers reloaded).
-fn restart(srv: &mut VanillaServer, log: &mut Log, version: &str, jar: &std::path::Path) -> Result<()> {
+/// A save, stop and start of the world (the villager, its sleep and the levers reloaded): the old
+/// server stopped before the new one starts on its world (as napper-ride and queue-roll restart).
+fn restart(mut srv: VanillaServer, log: &mut Log, version: &str, jar: &std::path::Path) -> Result<VanillaServer> {
     srv.cmd_ok("save-on")?;
     srv.cmd_ok("save-all flush")?;
     let old = srv.dir.clone();
     let world = old.join(&srv.level_name);
-    let fresh = VanillaServer::start(&nap_opts(version, jar, Some(world)))?;
-    let done = std::mem::replace(srv, fresh);
-    drop(done);
+    drop(srv);
+    let mut fresh = VanillaServer::start(&nap_opts(version, jar, Some(world)))?;
     let _ = std::fs::remove_dir_all(&old);
-    srv.cmd_ok("forceload add -32 -32 31 31")?;
+    fresh.cmd_ok("forceload add -32 -32 31 31")?;
     log.at = 0;
-    Ok(())
+    Ok(fresh)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -154,7 +155,7 @@ pub fn nap_wake(version: &str, file: &std::path::Path, trials: u32, flip_after: 
                 && restarted.is_none()
                 && t as i64 == flip_after as i64 + off
             {
-                restart(&mut srv, &mut log, version, &jar)?;
+                srv = restart(srv, &mut log, version, &jar)?;
                 restarted = Some(off);
             }
             srv.step(1)?;
@@ -177,7 +178,7 @@ pub fn nap_wake(version: &str, file: &std::path::Path, trials: u32, flip_after: 
             levers(&mut srv, false)?;
         }
         if restart_at == Some(0) && restarted.is_none() {
-            restart(&mut srv, &mut log, version, &jar)?;
+            srv = restart(srv, &mut log, version, &jar)?;
             restarted = Some(0);
         }
         // (G1 on 02e012c7f: stopSleeping picks the stand-up side with the yaw the villager has
@@ -189,7 +190,7 @@ pub fn nap_wake(version: &str, file: &std::path::Path, trials: u32, flip_after: 
                 && restarted.is_none()
                 && t as i64 == off
             {
-                restart(&mut srv, &mut log, version, &jar)?;
+                srv = restart(srv, &mut log, version, &jar)?;
                 restarted = Some(off);
             }
             srv.step(1)?;

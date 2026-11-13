@@ -68,12 +68,19 @@ fn ride(version: &str, module: &std::path::Path, depth: i32, v: f64, c: &Cells, 
     srv.cmd_ok(&format!("fill -32 {} -32 -28 {} -28 minecraft:glass", 29 + DY, 29 + DY))?;
     srv.cmd_ok(&format!("setworldspawn -30 {} -30", 30 + DY))?;
     // (the rule's name: 26.3's snake case; whichever the server knows)
+    // (G1's note on fde817ca3: which rule took, or an error when neither exists)
+    let mut radius_rule = None;
     for rule in ["respawn_radius", "spawn_radius"] {
         let out = srv.cmd(&format!("gamerule {rule} 0"))?;
         if !out.contains("Incorrect") && !out.contains("Unknown") {
+            radius_rule = Some(rule);
             break;
         }
     }
+    let Some(radius_rule) = radius_rule else {
+        anyhow::bail!("neither gamerule respawn_radius nor spawn_radius exists: the joining player could spawn on the track");
+    };
+    println!("  (the joining player's spawn: (-30, 30, -30) on glass, gamerule {radius_rule} 0)");
     srv.step(40)?;
     crate::seatclear::place_part(&mut srv, module)?;
     for (p, s) in &c.set {

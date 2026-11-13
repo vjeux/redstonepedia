@@ -86,8 +86,9 @@ pub fn golem_pad(version: &str, pad: &str, under: &str, stands: u32, ticks: u32)
     drain(&srv)?;
     // per stand: which villagers hold GOLEM_DETECTED_RECENTLY now, its chances, its golems
     let n = stands as usize;
-    // per villager, the game time its GOLEM_DETECTED_RECENTLY lapses (set with a 600-gt expiry; the
-    // brain's expiry erases it without the agent's erase hook, so it is timed here)
+    // per villager, the game time its GOLEM_DETECTED_RECENTLY lapses (set with TTL 599: present
+    // through set + 599, gone by set + 600's behaviours; the brain's expiry erases it without the
+    // agent's erase hook, so it is timed here)
     let mut holding: Vec<std::collections::BTreeMap<String, i64>> = vec![Default::default(); n];
     let (mut chances, mut golems) = (vec![0u32; n], vec![0u32; n]);
     let mut on_pad = vec![0u32; n];

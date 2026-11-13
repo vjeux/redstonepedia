@@ -39,6 +39,9 @@ struct Trial {
     /// The ticks a new golem appeared at this stand.
     golems: Vec<i64>,
     resummon: Option<bool>,
+    /// (ironspec 19:33 PT) the game times a stand villager's trySpawnMob came back empty (the brain
+    /// agent's `no spot by <uuid> at <time>`): spot misses, printed, not inferred.
+    no_spot: Vec<i64>,
 }
 
 pub fn golem_renew(version: &str, stands: u32, rounds: u32, golem_ticks: u32) -> Result<()> {
@@ -95,6 +98,8 @@ pub fn golem_renew(version: &str, stands: u32, rounds: u32, golem_ticks: u32) ->
         Ok(s[..whole].lines().filter_map(|l| l.split("mctas brain agent: ").nth(1).map(|r| r.trim().to_string())).collect())
     };
     let mut all: Vec<Trial> = Vec::new();
+    // the brain agent's spawnGolemIfNeeded hook, reported when Villager loads (the first summon)
+    let mut spot_hook = false;
     for round in 0..rounds {
         // a fresh round: every stand's mobs summoned again (new sensor phases), once the last
         // round's are gone (a dying villager stays in the world 20 gt and counts in a summoner's
@@ -119,13 +124,32 @@ pub fn golem_renew(version: &str, stands: u32, rounds: u32, golem_ticks: u32) ->
             srv.cmd_ok(&format!("summon minecraft:oak_boat {}.5 {Y} 2.5 {{Passengers:[{{id:\"minecraft:husk\",PersistenceRequired:1b}}]}}", x0 + 5))?;
             trials.push(t);
         }
-        drain(&srv)?;
+        for l in drain(&srv)? {
+            if l.starts_with("Villager.spawnGolemIfNeeded reports") {
+                spot_hook = true;
+            }
+        }
         // step until every stand has summoned and run 650 gt past it (or 1200 gt without a summon)
         let start = srv.game_time()?;
         loop {
             srv.step(1)?;
             let t = srv.game_time()?;
             for l in drain(&srv)? {
+                if l.starts_with("Villager.spawnGolemIfNeeded reports") {
+                    spot_hook = true;
+                    continue;
+                }
+                if let Some(rest) = l.strip_prefix("no spot by ") {
+                    let mut it = rest.split(" at ");
+                    if let (Some(who), Some(at)) = (it.next(), it.next().and_then(|s| s.trim().parse::<i64>().ok())) {
+                        for tr in trials.iter_mut() {
+                            if tr.villagers.iter().any(|v| v == who.trim()) {
+                                tr.no_spot.push(at);
+                            }
+                        }
+                    }
+                    continue;
+                }
                 let Some(who) = l.rsplit(" @").next().map(|u| u.trim().to_string()) else { continue };
                 let erase = l.starts_with("erase minecraft:golem_detected_recently");
                 if !l.starts_with("set minecraft:golem_detected_recently") && !erase {
@@ -255,7 +279,12 @@ pub fn golem_renew(version: &str, stands: u32, rounds: u32, golem_ticks: u32) ->
                 } else if ages.iter().any(|&a| a == 599) {
                     edge.push(format!("T={s} at T+{}: stamps {} gt old, no golem", 100 * k, ages.iter().map(|a| a.to_string()).collect::<Vec<_>>().join("/")));
                 } else {
-                    failed.push(format!("T={s} at T+{}: stamps {} gt old, no golem", 100 * k, ages.iter().map(|a| a.to_string()).collect::<Vec<_>>().join("/")));
+                    failed.push(format!(
+                        "T={s} at T+{}: stamps {} gt old, no golem, {}",
+                        100 * k,
+                        ages.iter().map(|a| a.to_string()).collect::<Vec<_>>().join("/"),
+                        if tr.no_spot.contains(&t) { "trySpawnMob empty (printed): a spot miss" } else { "NO empty trySpawnMob printed: unexplained" }
+                    ));
                 }
             }
         }
@@ -267,6 +296,9 @@ pub fn golem_renew(version: &str, stands: u32, rounds: u32, golem_ticks: u32) ->
         failed.len(),
         if failed.is_empty() { String::new() } else { format!(" ({})", failed.join("; ")) }
     );
+    let misses: usize = summoned.iter().map(|tr| tr.no_spot.len()).sum();
+    println!("  trySpawnMob empty returns printed by the brain agent (spot misses, any stand villager as caller): {misses}");
+    anyhow::ensure!(spot_hook, "the brain agent never reported its spawnGolemIfNeeded hook: spot misses would go unprinted");
     let _ = std::fs::remove_dir_all(&srv.dir);
     Ok(())
 }

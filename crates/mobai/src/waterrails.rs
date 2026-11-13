@@ -19,16 +19,12 @@ fn nums(s: &str) -> Vec<f64> {
     s.split("entity data: ").nth(1).unwrap_or("").trim().trim_matches(|c| c == '[' || c == ']').split(',').filter_map(|t| t.trim().trim_end_matches(['d', 'f', 's', 'b']).parse().ok()).collect()
 }
 
-pub fn water_rails(version: &str, slopes: i32, flat: i32, start: f64, ticks: u32) -> Result<()> {
-    let mut srv = VanillaServer::start(&VanillaOptions { version: version.to_string(), difficulty: "normal".into(), with_bot: false, tick_rate: 1000, ..Default::default() })?;
-    srv.cmd_ok("gamerule spawn_mobs false")?;
-    srv.cmd_ok("forceload add -16 -64 31 16")?;
-    srv.step(20)?;
-    println!(
-        "== water-rails on the official {version} server: a descent north of {slopes} slopes then {flat} flat rails, on glass between glass walls; a ridden cart from rest on the top slope (motion {start} north); dry vs waterlogged"
-    );
+/// The two copies (x 0 dry, x 8 wet): `wet_slopes` false keeps the wet copy's slopes (and its top
+/// rail) dry, only its flats waterlogged.
+fn build_rig(srv: &mut VanillaServer, slopes: i32, flat: i32, wet_slopes: bool) -> Result<()> {
     for (k, wet) in [false, true].into_iter().enumerate() {
         let x = k as i32 * 8;
+        let ws = wet && wet_slopes;
         // slope i at (x, Y - i, -i), its high end south; the flat after it at y Y - slopes
         for i in 0..slopes {
             let (y, z) = (Y - i, -i);
@@ -36,7 +32,7 @@ pub fn water_rails(version: &str, slopes: i32, flat: i32, start: f64, ticks: u32
             for wx in [x - 1, x + 1] {
                 srv.cmd_ok(&format!("fill {wx} {} {z} {wx} {} {z} minecraft:glass", y - 1, y + 1))?;
             }
-            srv.cmd_ok(&format!("setblock {x} {y} {z} minecraft:rail[shape=ascending_south,waterlogged={wet}]"))?;
+            srv.cmd_ok(&format!("setblock {x} {y} {z} minecraft:rail[shape=ascending_south,waterlogged={ws}]"))?;
         }
         let fy = Y - slopes;
         for j in 0..flat {
@@ -54,13 +50,25 @@ pub fn water_rails(version: &str, slopes: i32, flat: i32, start: f64, ticks: u32
         for wx in [x - 1, x + 1] {
             srv.cmd_ok(&format!("fill {wx} {Y} 1 {wx} {} 1 minecraft:glass", Y + 2))?;
         }
-        srv.cmd_ok(&format!("setblock {x} {} 1 minecraft:rail[shape=north_south,waterlogged={wet}]", Y + 1))?;
+        srv.cmd_ok(&format!("setblock {x} {} 1 minecraft:rail[shape=north_south,waterlogged={ws}]", Y + 1))?;
         srv.cmd_ok(&format!("fill {x} {} 2 {x} {} 2 minecraft:glass", Y + 1, Y + 2))?;
         // the slopes again, their shapes as stated (a slope placed before its neighbours reshapes)
         for i in 0..slopes {
-            srv.cmd(&format!("setblock {x} {} {} minecraft:rail[shape=ascending_south,waterlogged={wet}]", Y - i, -i))?;
+            srv.cmd(&format!("setblock {x} {} {} minecraft:rail[shape=ascending_south,waterlogged={ws}]", Y - i, -i))?;
         }
     }
+    Ok(())
+}
+
+pub fn water_rails(version: &str, slopes: i32, flat: i32, start: f64, ticks: u32, every_tick: bool) -> Result<()> {
+    let mut srv = VanillaServer::start(&VanillaOptions { version: version.to_string(), difficulty: "normal".into(), with_bot: false, tick_rate: 1000, ..Default::default() })?;
+    srv.cmd_ok("gamerule spawn_mobs false")?;
+    srv.cmd_ok("forceload add -16 -64 31 16")?;
+    srv.step(20)?;
+    println!(
+        "== water-rails on the official {version} server: a descent north of {slopes} slopes then {flat} flat rails, on glass between glass walls; a ridden cart from rest on the top slope (motion {start} north); dry vs waterlogged"
+    );
+    build_rig(&mut srv, slopes, flat, true)?;
     srv.step(10)?;
     for (k, wet) in [false, true].into_iter().enumerate() {
         let x = k as i32 * 8;
@@ -71,14 +79,18 @@ pub fn water_rails(version: &str, slopes: i32, flat: i32, start: f64, ticks: u32
         ))?;
         let _ = wet;
     }
+    // (b8949c96's unit test: every tick's position and full motion, `--every-tick`)
     let mut rows: [Vec<(u32, [f64; 3], f64)>; 2] = [Vec::new(), Vec::new()];
+    let mut full: [Vec<(u32, [f64; 3], [f64; 3])>; 2] = [Vec::new(), Vec::new()];
     for t in 1..=ticks {
         srv.step(1)?;
         for (k, row) in rows.iter_mut().enumerate() {
             let p = nums(&srv.cmd_long(&format!("data get entity @e[tag=wr{k},limit=1] Pos"))?);
             let m = nums(&srv.cmd_long(&format!("data get entity @e[tag=wr{k},limit=1] Motion"))?);
             if p.len() == 3 && m.len() == 3 {
-                row.push((t, [p[0] - (k as f64 * 8.0), p[1] - Y as f64, p[2]], m[0].hypot(m[2])));
+                let rel = [p[0] - (k as f64 * 8.0), p[1] - Y as f64, p[2]];
+                row.push((t, rel, m[0].hypot(m[2])));
+                full[k].push((t, rel, [m[0], m[1], m[2]]));
             }
         }
     }
@@ -91,9 +103,46 @@ pub fn water_rails(version: &str, slopes: i32, flat: i32, start: f64, ticks: u32
             foot.map(|(t, p, s)| format!("t{t} at z {:.3}, speed {s:.4}", p[2])).unwrap_or_else(|| "never".into()),
             stop.map(|(t, p, _)| format!("at t{t}, z {:.3}", p[2])).unwrap_or_else(|| format!("not within {ticks} gt")),
         );
-        let path: Vec<String> = row.iter().filter(|(t, _, _)| *t <= 12 || t % 5 == 0).map(|(t, p, s)| format!("t{t} y {:.3} z {:.3} v {s:.4}", p[1], p[2])).collect();
-        println!("    {}", path.join("; "));
+        if every_tick {
+            // the copy's own frame: x relative to its rail line (x 0.5 the rail's centre), y relative to Y
+            println!("    t, x, y, z, vx, vy, vz, cell (x relative to the copy's rail column, y to {Y})");
+            for (t, p, m) in &full[k] {
+                println!(
+                    "    {t}, {:.6}, {:.6}, {:.6}, {:+.6}, {:+.6}, {:+.6}, ({},{},{})",
+                    p[0],
+                    p[1],
+                    p[2],
+                    m[0],
+                    m[1],
+                    m[2],
+                    p[0].floor() as i32,
+                    p[1].floor() as i32,
+                    p[2].floor() as i32
+                );
+            }
+        } else {
+            let path: Vec<String> = row.iter().filter(|(t, _, _)| *t <= 12 || t % 5 == 0).map(|(t, p, s)| format!("t{t} y {:.3} z {:.3} v {s:.4}", p[1], p[2])).collect();
+            println!("    {}", path.join("; "));
+        }
     }
+    // every water cell around the wet copy that is not a source (the flowing water the slopes'
+    // sources spill), by cell, relative to the copy
+    let mut flowing = Vec::new();
+    for y in (Y - slopes - 3)..=(Y + 3) {
+        for z in (-slopes - flat - 1)..=3 {
+            for dx in -3..=3 {
+                let x = 8 + dx;
+                let out = srv.cmd_long(&format!("execute if block {x} {y} {z} minecraft:water"))?;
+                if out.contains("passed") {
+                    let src = srv.cmd_long(&format!("execute if block {x} {y} {z} minecraft:water[level=0]"))?.contains("passed");
+                    if !src {
+                        flowing.push(format!("({dx},{},{z})", y - Y));
+                    }
+                }
+            }
+        }
+    }
+    println!("  the wet copy's flowing (non-source) water cells within 3 of its rail column, relative (x to the column, y to {Y}): {} {flowing:?}", flowing.len());
     let _ = std::fs::remove_dir_all(&srv.dir);
     Ok(())
 }
