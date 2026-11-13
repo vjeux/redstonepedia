@@ -738,9 +738,11 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
     put(&mut b, [SWEPT[0][0], -1, SWEPT[0][2]], "glass")?;
     if exit_south {
         // (the exit one cell further south: P's curve onto a straight (-2,0,5), the curve east at
-        // (-2,0,6): no curve-to-curve junction beside the bed head (there the cart overshot to x
+        // (-2,0,6), the booster (-1,0,6), back north to z 5 at x 0 (a curve each) onto A6's exit
+        // slope: no curve-to-curve junction beside the bed head (there the cart overshot to x
         // -1.51, its box's west face against the head's base: a contact that stalled the slowest
-        // carts); the exit along z 6, down to y -1 and back to z 5 at x 2 before R)
+        // carts); the cells the old exit left at (-1,0,5) stay AIR with no floor (a block there met
+        // the carts' boxes on both curves; no floor: no new standable cell))
         put(&mut b, [-2, 0, 5], &rail("north_south"))?;
         put(&mut b, [-2, -1, 5], "glass")?;
         put(&mut b, [-2, 1, 5], cap)?;
@@ -754,23 +756,19 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
         put(&mut b, [-1, 0, 7], "redstone_torch[lit=true]")?;
         put(&mut b, [-1, -1, 7], "glass")?;
         put(&mut b, [-1, 1, 6], cap)?;
-        put(&mut b, [0, 0, 6], &rail("east_west"))?;
+        put(&mut b, [-1, 2, 6], button)?;
+        put(&mut b, [0, 0, 6], &rail("north_west"))?;
         put(&mut b, [0, -1, 6], "glass")?;
         put(&mut b, [0, 1, 6], cap)?;
-        for x in -1..=0 {
-            put(&mut b, [x, 2, 6], button)?;
-        }
-        put(&mut b, [1, -1, 6], &rail("ascending_west"))?;
-        put(&mut b, [1, -2, 6], "glass")?;
-        put(&mut b, [2, -1, 6], &rail("north_west"))?;
-        put(&mut b, [2, -2, 6], "glass")?;
-        put(&mut b, [2, -1, 5], &rail("south_east"))?;
-        put(&mut b, [2, -2, 5], "glass")?;
-        put(&mut b, [3, -1, 5], &rail("east_west"))?;
-        put(&mut b, [3, -2, 5], "glass")?;
-        // (the old exit's cells east of (-2,0,5) closed)
-        for x in -1..=0 {
-            put(&mut b, [x, 0, 5], "glass")?;
+        put(&mut b, [0, 0, 5], &rail("south_east"))?;
+        put(&mut b, [0, -1, 5], "glass")?;
+        put(&mut b, [0, 1, 5], cap)?;
+        put(&mut b, [0, 2, 5], button)?;
+        put(&mut b, [1, -1, 5], &rail("ascending_west"))?;
+        put(&mut b, [1, -2, 5], "glass")?;
+        for x in 2..=3 {
+            put(&mut b, [x, -1, 5], &rail("east_west"))?;
+            put(&mut b, [x, -2, 5], "glass")?;
         }
     } else {
     put(&mut b, [-2, 0, 5], &rail("north_east"))?;
@@ -831,6 +829,13 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
     put(&mut b, [-4, 1, 3], "glass")?;
     put(&mut b, [-5, 3, 4], "oak_leaves[distance=7,persistent=true,waterlogged=false]")?;
     b.entity("oak_boat", [ZOMBIE_POST[0] as f64 + 0.5, ZOMBIE_POST[1] as f64, ZOMBIE_POST[2] as f64 + 0.5], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}"));
+    if exit_south {
+        // (the bed head's south neighbour, beside the exit's straight: a top-half trapdoor, its
+        // collision over the cart's box (0.8125 against the box's top 0.76: the P-to-exit junction's
+        // overshoot met glass here); still no stand-up place (1 high under it, (-3,1,5) glass over
+        // its top))
+        put(&mut b, [-3, 0, 5], "iron_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]")?;
+    }
     for y in 0..=1 {
         wall(&mut b, [-3, y, 5])?;
     }
