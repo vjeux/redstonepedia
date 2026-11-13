@@ -1325,6 +1325,8 @@ pub struct Row {
     pub released_asleep: bool,
     /// the bed head OCCUPIED at the visit's end (the bed not free for the next napper)
     pub bed_occupied_at_end: bool,
+    /// (G1 13:02) the P-eye static's lines (the record seed's visits)
+    pub p_eye_lines: Vec<String>,
     pub launch_cells: Vec<([i32; 3], f64)>,
     /// (G1 C16) The cells holding water at the visit's end (the design's own water is the bar).
     pub water_cells: usize,
@@ -2276,6 +2278,55 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
         }
     }
     let set = |w: &mut World, c: [i32; 3], st: &str| ctl_set_at(w, c, off, st);
+    // (G1 13:02: the P-eye static: from every eye position of a napper standing awake on P
+    // (-2,0,4) (feet on its floor, a 5 x 5 grid over the cell), Z1 in view (within 8, eye to eye)
+    // with the window open (the shutter unpowered, on a copy) and shut (as the night holds it); the
+    // record seed's visits only)
+    if z1_design
+        && seed == f.record_seed
+        && let (Some(zi), Some(vi)) = (zid.and_then(|z| idx(&run.world, z)), vill.and_then(|v| idx(&run.world, v)))
+    {
+        let w = &run.world;
+        let z = &w.entities.list[zi];
+        let ze = Vec3::new(z.pos.x, z.pos.y + z.kind.eye_height() as f64, z.pos.z);
+        let eh = w.entities.list[vi].kind.eye_height() as f64;
+        let mut open_w = w.clone();
+        let sh = wc(WAKER_SHUT);
+        let open_state = format!("{}", open_w.get(sh)).replace("open=true", "open=false").replace("powered=true", "powered=false");
+        open_w.set_block(sh, block(open_state.trim_start_matches("minecraft:"))?, 0);
+        let shut_w = {
+            let mut s = w.clone();
+            let st = format!("{}", s.get(sh)).replace("open=false", "open=true").replace("powered=false", "powered=true");
+            s.set_block(sh, block(st.trim_start_matches("minecraft:"))?, 0);
+            s
+        };
+        let (mut clear_open, mut clear_shut, mut n, mut dmin, mut dmax) = (0usize, 0usize, 0usize, f64::MAX, 0f64);
+        let mut blocked_open: std::collections::BTreeMap<String, usize> = Default::default();
+        for xi in 0..5 {
+            for zi2 in 0..5 {
+                let ex = SWEPT[0][0] as f64 + 0.1 + 0.2 * xi as f64 + ox;
+                let ez = SWEPT[0][2] as f64 + 0.1 + 0.2 * zi2 as f64 + oz;
+                let ve = Vec3::new(ex, SWEPT[0][1] as f64 + oy + eh, ez);
+                let d = ve.distance_to_sqr(ze).sqrt();
+                n += 1;
+                dmin = dmin.min(d);
+                dmax = dmax.max(d);
+                let ho = redsim::entity::mob::los::first_hit(&open_w, ve, ze);
+                let hs = redsim::entity::mob::los::first_hit(&shut_w, ve, ze);
+                if ho.is_none() && d <= 8.0 {
+                    clear_open += 1;
+                }
+                if hs.is_none() && d <= 8.0 {
+                    clear_shut += 1;
+                }
+                if let Some(p) = ho {
+                    let q = dbp(p);
+                    *blocked_open.entry(format!("({},{},{}) {}", q.x, q.y, q.z, open_w.get(p))).or_default() += 1;
+                }
+            }
+        }
+        row.p_eye_lines.push(format!("the P-eye static (G1 13:02: a napper standing awake on P (-2,0,4), its eye {eh:.2} over P's floor, {n} positions over the cell; Z1's eye ({:.2},{:.2},{:.2})): {dmin:.2}..{dmax:.2} away; Z1 in view (within 8, eye to eye) with the window OPEN from {clear_open} of {n}, with it SHUT from {clear_shut} of {n}; the open window's blocking cells (positions): {blocked_open:?}", ze.x - ox, ze.y - oy, ze.z - oz));
+    }
     // (ironspec 17:46, the stand-in guard: every emulated write this bench makes, checked against
     // the built cell's golem and path properties before the run: the controller's levers, and the
     // queue's release with --module-offset)
@@ -3363,6 +3414,26 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                 if st.is_none() && row.waker_stamp.is_some() && row.waker_cleared.is_none() {
                     row.waker_cleared = Some(t);
                 }
+            }
+            // (G1 12:38 / 13:02, ironspec 12:50 / 13:00 (5): the merge row's per-tick trace from the
+            // lie-down to the pickup: OCCUPIED, SLEPT, the window, NEAREST_HOSTILE, HURT_BY, the
+            // activity, the napper's position, and whether Z1 is in view (within 8, eye to eye))
+            if f.latch.is_some()
+                && f.hurt_after_lie.is_some()
+                && row.slept_at.is_some()
+                && row.pickup.is_none()
+                && row.latch_lines.len() < 600
+            {
+                let bb = redsim::entity::mob::ai::brain::brain(w, vi);
+                let occ = format!("{}", w.get(wc(BED_HEAD))).contains("occupied=true");
+                let seen = zid.and_then(|z| idx(w, z)).map(|zi| {
+                    let z = &w.entities.list[zi];
+                    let ze = Vec3::new(z.pos.x, z.pos.y + z.kind.eye_height() as f64, z.pos.z);
+                    let ve = Vec3::new(v.pos.x, v.pos.y + if asleep { 0.2 } else { v.kind.eye_height() as f64 }, v.pos.z);
+                    let d = ve.distance_to_sqr(ze).sqrt();
+                    (d, d <= 8.0 && redsim::entity::mob::los::has_line_of_sight(w, ze, ve))
+                });
+                row.latch_lines.push(format!("t {t}: OCCUPIED {occ}, SLEPT {latch_slept}, window {}, NEAREST_HOSTILE {}, HURT_BY {:?}, activity {}, asleep {asleep}, riding {riding}, at ({:.2},{:.2},{:.2}), Z1 {}", if latch_window_open { "open" } else { "shut" }, if bb.nearest_hostile.is_some() { "set" } else { "empty" }, bb.hurt_by, bb.activity.name(), vp.x, vp.y, vp.z, seen.map_or("absent".to_string(), |(d, s)| format!("{d:.2} away, in view {s}"))));
             }
             // (G1, Z1's flee margin measured: from the wake to the pickup + 40 gt, the napper's feet
             // to the waker zombie's feet each tick, and its eye-to-eye line of sight; a tick under 6
@@ -4958,6 +5029,12 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
                             sk.stand_over_20 += 1;
                         }
                         sk.integrity_breaks += r.integrity_breaks;
+                        if !sk.p_eye_shown && !r.p_eye_lines.is_empty() {
+                            sk.p_eye_shown = true;
+                            for l in &r.p_eye_lines {
+                                println!("{l}");
+                            }
+                        }
                         // (the emulated DAY-1 latch's per-visit outcomes; the park -> P ride)
                         sk.latch_timeouts += r.latch_timeout as usize;
                         sk.released_asleep += r.released_asleep as usize;
@@ -5707,6 +5784,8 @@ struct SkipTotals {
     latch_lines_shown: usize,
     /// (G1's Q11) the queue's release to R per visit (approach mode)
     qrel_to_r: Vec<i64>,
+    /// (G1 13:02) the P-eye static printed (once)
+    p_eye_shown: bool,
     lightning: std::collections::BTreeMap<String, usize>,
     /// (ironspec 00:27) the most fluid cells a visit's world scheduled at load
     fluid_scheduled: usize,
