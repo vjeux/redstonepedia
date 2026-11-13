@@ -1764,10 +1764,10 @@ impl Ctl {
             // J(-1) off; J(3) on unless held; lane 3's pick: the emulated D(3) keeps J(3) off (the
             // pressing cart's batch: the one whose REL lies 85..125 gt before the press, slot 1's
             // clock-locked D(-1) press)
-            self.rt_writes.push((now + 6, -1, false));
+            self.rt_writes.push((now + if self.a_stop { 8 } else { 6 }, -1, false));
             let lane3_pick = self.rt_batches.iter().rev().find(|(r, _)| now - r >= 85 && now - r <= 125).is_some_and(|(_, p)| *p == Some(1));
             if lane3_pick {
-                self.rt_writes.push((now + 6, 3, false));
+                self.rt_writes.push((now + if self.a_stop { 8 } else { 6 }, 3, false));
                 self.rt_log.push(format!("t {now}: D(-1) pressed: J(-1) off; lane 3's pick: the emulated D(3) at t {} (J(3) never armed)", now + 2));
             } else {
                 self.rt_j3_latch = true;
@@ -1778,7 +1778,7 @@ impl Ctl {
         }
         if b1 && !self.branch_prev[1] {
             self.rt_j3_latch = false;
-            self.rt_writes.push((now + 6, 3, false));
+            self.rt_writes.push((now + if self.a_stop { 8 } else { 6 }, 3, false));
         }
         let mut events: Vec<i64> = Vec::new();
         let mut sources: Vec<&'static str> = Vec::new();
@@ -1822,8 +1822,8 @@ impl Ctl {
                         self.rt_hold3 = true;
                         self.rt_hold7 = true;
                         self.rt_j3_latch = true;
-                        self.rt_writes.push((e + 4, 3, false));
-                        self.rt_writes.push((e + 4, 7, false));
+                        self.rt_writes.push((e + if self.a_stop { 6 } else { 4 }, 3, false));
+                        self.rt_writes.push((e + if self.a_stop { 6 } else { 4 }, 7, false));
                         self.rt_writes.push((e + 6, -1, false));
                         self.rt_resets.push((rel + lj3_1 + k, 3, rel, 0));
                         self.rt_resets.push((rel + lj7_1 + k, 7, rel, 0));
@@ -1832,7 +1832,7 @@ impl Ctl {
                     Some(pk) => {
                         self.rt_hold7 = true;
                         self.rt_writes.push((e + 4, -1, true));
-                        self.rt_writes.push((e + 4, 7, false));
+                        self.rt_writes.push((e + if self.a_stop { 6 } else { 4 }, 7, false));
                         let l7 = if pk == 1 { lj7_2 } else { lj7_3 };
                         self.rt_resets.push((rel + l7 + k, 7, rel, pk));
                         if pk == 2 && !self.a_stop {
