@@ -809,6 +809,91 @@ pub fn design_a2(bench: bool, loop_booster: bool) -> Result<String> {
     Ok(b.text(&refs))
 }
 
+/// (ironspec 06:14 / G1, tick-exact's on-farm re-claim question) The strand's dusk on (A)'s bed
+/// foot: a napper stood on the foot's top in the afternoon (IDLE) with HOME = the bed and a planted
+/// CANT_REACH stamp older than 1,200, run through dusk: the first REST tick's
+/// SetWalkTargetFromBlockMemory release branch (HOME erased, the ticket given back), then the
+/// re-claim (AcquirePoi) and the lie-down. Printed per tick of note: HOME, the bed's free tickets and
+/// every villager holding it. `blocked`: the known positive, a second villager (sealed in the
+/// run-out, HOME = the same bed) holding the bed's ticket, so the re-claim can't happen.
+pub fn reclaim_row(spec: &FarmSpec, seed: u64, blocked: bool) -> Result<Vec<String>, String> {
+    let ro = RunOpts { ai: true, ..RunOpts::steady(seed as i64, 3 * 24000, WalkMode::Random) };
+    let (mut run, _) = crate::placing::start(spec, &ro, crate::placing::Placement::Judge, &crate::placing::BuildPlan::default())?;
+    run.place_detectors();
+    for (ty, pos, nbt) in &spec.entities {
+        redsim::entity::spawn(&mut run.world, ty, *pos, nbt.as_deref())?;
+    }
+    let mut out = Vec::new();
+    let want = 11_800 + (seed as i64 * 7) % 100;
+    let mut guard = 0;
+    while run.world.day_time().rem_euclid(24000) != want {
+        run.tick();
+        guard += 1;
+        if guard > 30_000 {
+            return Err("never reached the afternoon".into());
+        }
+    }
+    let h = BED_HEAD;
+    let home = format!("Brain:{{memories:{{\"minecraft:home\":{{value:{{dimension:\"minecraft:overworld\",pos:[I;{},{},{}]}}}}}}}}", h[0], h[1], h[2]);
+    let nid = redsim::entity::spawn(&mut run.world, "minecraft:villager", [BED_HEAD[0] as f64 + 0.5, 0.5625, BED_HEAD[2] as f64 - 0.5], Some(&format!("{{{home}}}")))?;
+    let other = if blocked {
+        // (the known positive: a second villager holding the bed's ticket, sealed on the run-out)
+        Some(redsim::entity::spawn(&mut run.world, "minecraft:villager", [EXIT_DET[0] as f64 + 4.5, -1.0, EXIT_DET[2] as f64 + 0.5], Some(&format!("{{{home}}}")))?)
+    } else {
+        None
+    };
+    let idx = |w: &World, id: u32| w.entities.list.iter().position(|e| e.id == id && !e.removed);
+    let bed = BlockPos::new(h[0], h[1], h[2]);
+    let holders = |w: &World| -> Vec<u32> {
+        (0..w.entities.list.len())
+            .filter(|&i| !w.entities.list[i].removed && matches!(&w.entities.list[i].kind, redsim::entity::EntityKind::Mob(m) if m.ty == redsim::entity::mob::types::MobType::Villager))
+            .filter(|&i| redsim::entity::mob::ai::brain::brain(w, i).home == Some(bed))
+            .map(|i| w.entities.list[i].id)
+            .collect()
+    };
+    // (the planted stamp: armed 1,300 gt ago)
+    if let Some(vi) = idx(&run.world, nid)
+        && redsim::entity::mob::ai::brain::has_exact(&run.world, vi)
+    {
+        let now = run.world.time;
+        redsim::entity::mob::ai::brain::ex_mut(&mut run.world, vi).mem.cant_reach_since = Some(now - 1300);
+    }
+    let tickets = |w: &mut World| redsim::entity::mob::ai::poi::free_tickets(w, bed);
+    let t0 = tickets(&mut run.world);
+    out.push(format!("start (day time {want}): the napper {nid} on the bed foot's top, HOME = the bed, a stamp armed 1,300 gt ago; the bed's free tickets {t0:?}, holders {:?}{}", holders(&run.world), other.map_or(String::new(), |o| format!(" (the known positive: villager {o} holds the bed)"))));
+    let (mut last_home, mut last_act, mut last_sleep) = (Some(bed), None, false);
+    for t in 1..=1200 {
+        run.tick();
+        let Some(vi) = idx(&run.world, nid) else {
+            out.push(format!("t {t}: the napper is gone"));
+            break;
+        };
+        let b = redsim::entity::mob::ai::brain::brain(&run.world, vi);
+        let (home, act) = (b.home, b.activity);
+        let asleep = matches!(&run.world.entities.list[vi].kind, redsim::entity::EntityKind::Mob(m) if m.sleeping_pos.is_some());
+        if home != last_home || Some(act) != last_act || asleep != last_sleep {
+            let tk = tickets(&mut run.world);
+            let w = &run.world;
+            out.push(format!(
+                "t {t} (day time {}): activity {}, HOME {home:?}, asleep {asleep}, at ({:.2},{:.2},{:.2}); the bed's free tickets {tk:?}, holders {:?}",
+                w.day_time().rem_euclid(24000),
+                act.name(),
+                w.entities.list[vi].pos.x,
+                w.entities.list[vi].pos.y,
+                w.entities.list[vi].pos.z,
+                holders(w)
+            ));
+            last_home = home;
+            last_act = Some(act);
+            last_sleep = asleep;
+        }
+        if asleep && t > 20 {
+            break;
+        }
+    }
+    Ok(out)
+}
+
 /// One visit's unit-bench row (ticks counted from the cart's spawn at the entry).
 #[derive(Debug, Default, Clone)]
 pub struct Row {
@@ -1998,6 +2083,21 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             }
         }
         let w = &run.world;
+        // (ironspec 05:20, a bench rule: the world's day set before the summon (the visit's hour is
+        // reached before the visitor spawns) and the brain's activity asserted at t 1: REST at
+        // night, IDLE by day)
+        if t == 1
+            && let Some(vi) = vill.and_then(|v| idx(&run.world, v))
+            && matches!(&run.world.entities.list[vi].kind, redsim::entity::EntityKind::Mob(_))
+        {
+            let act = redsim::entity::mob::ai::brain::brain(&run.world, vi).activity;
+            let d = run.world.day_time().rem_euclid(24000);
+            use redsim::entity::mob::villager::Activity as A;
+            let ok = if (12_000..24_000).contains(&d) { act == A::Rest } else { matches!(act, A::Idle | A::Meet) };
+            if !ok {
+                row.problems.push(format!("t 1: the napper's activity {} at day time {d} (expected REST at night, IDLE / MEET by day)", act.name()));
+            }
+        }
         // (the head-space check, ironspec 03:30: every villager's box and eye box against each
         // declared new solid cell, every tick)
         if !f.head_cells.is_empty() {

@@ -6922,6 +6922,15 @@ pub enum MobfarmCmd {
         /// detector's edge, whatever the napper does (0: the cart still moving; the bar must fail).
         #[arg(long)]
         release_after_arm: Option<i64>,
+        /// (ironspec 06:14, the on-farm re-claim question) The strand's dusk instead of a visit: a
+        /// napper on the bed foot's top in the afternoon with HOME = the bed and a stamp armed
+        /// 1,300 gt ago, run through dusk; prints the release, the re-claim and the lie-down, with
+        /// the bed's free tickets and holders.
+        #[arg(long)]
+        reclaim_row: bool,
+        /// With --reclaim-row: the known positive, a second villager holding the bed's ticket.
+        #[arg(long)]
+        reclaim_blocked: bool,
         /// With --module-offset: the module's stop brought up to date, `OLD,NEW` (two stop files
         /// in the stop's frame): every cell where they differ set in the moved module to NEW's
         /// block (air where NEW has none), the cells they agree on left as composed.
@@ -16367,9 +16376,18 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("waker: {l}");
             }
         }
-        MobfarmCmd::BedtierBench { design, from, to, speeds, after_sleep, release_after, day, empty, no_home, hide_after_wake, restart, hour, restart_phases, orders, hours, skip, skip_phases, day_off, no_presence_gate, early_release, day_gate, day_on, live_day_seated, restart_after_skip, panic_entries, pickup_injects, module_offset, queue_seat, queue_release, queue_wait, queue_waits, forced_stamp, arrival_stamp, arrival_run, arrival_hold, declare_emulated, r_bar, park_shifts, set_cell, pulse_cell, lever_on, built_release, day_lever, record, record_offset, record_margin, record_declare, head_cell, scope_excludes, arm_delay, release_after_arm, restop, queue_dusk, jobs } => {
+        MobfarmCmd::BedtierBench { design, from, to, speeds, after_sleep, release_after, day, empty, no_home, hide_after_wake, restart, hour, restart_phases, orders, hours, skip, skip_phases, day_off, no_presence_gate, early_release, day_gate, day_on, live_day_seated, restart_after_skip, panic_entries, pickup_injects, module_offset, queue_seat, queue_release, queue_wait, queue_waits, forced_stamp, arrival_stamp, arrival_run, arrival_hold, declare_emulated, r_bar, park_shifts, set_cell, pulse_cell, lever_on, built_release, day_lever, record, record_offset, record_margin, record_declare, head_cell, scope_excludes, arm_delay, release_after_arm, reclaim_row, reclaim_blocked, restop, queue_dusk, jobs } => {
             let (_c, mut spec) = load(version, &design)?;
             anyhow::ensure!(release_after >= 0 && after_sleep >= 0, "--release-after and --after-sleep can't be negative (the release waits for the wake edge, F for the lie-down edge)");
+            // (ironspec 06:14: the strand's dusk, the re-claim row)
+            if reclaim_row {
+                for seed in from..=to {
+                    for l in crate::bedtier::reclaim_row(&spec, seed, reclaim_blocked).map_err(|e| anyhow::anyhow!(e))? {
+                        println!("seed {seed}: {l}");
+                    }
+                }
+                return Ok(());
+            }
             let restart = restart.as_deref().map(crate::liveness::parse_restart).transpose().map_err(|e| anyhow::anyhow!(e))?;
             // (the real approach: the module moved into the stop's frame, its own queue rider out)
             let triple = |s: &Option<String>| -> Result<Option<[f64; 3]>> {
