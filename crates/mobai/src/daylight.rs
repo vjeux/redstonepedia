@@ -15,7 +15,7 @@
 //!   server, 100 gt, `isSleepingLongEnough`; the readings after the skip run on game time.)
 //! - Rain ending at dusk: the readings as the rain fades from about 11,700.
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use mctas::vanilla::{VanillaOptions, VanillaServer};
 
 const DETECTOR: [i32; 3] = [0, 64, 0];
@@ -222,17 +222,112 @@ pub fn skip_latency(version: &str) -> Result<()> {
     Ok(())
 }
 
+/// (tickexact 2026-11-13, ironspec 00:36 PT: cc767b78's weather / time order) The daylight
+/// detector's DAWN EDGE on the official server at 20 tps (unfrozen): the model's first clear day
+/// time with level >= 1 is D (this file's `level`, 26.3's code); per row the clock is set while
+/// frozen so that the detector's next update tick U (game time % 20 == 0) has the post-increment
+/// day time D - 1, D, D + 1 or D + 2, and a command-block chain (block-tick phase, before the
+/// detector's block-entity update) stamps the game and day time of the first tick it sees power > 0
+/// (so the update tick is that stamp - 1). Shows which day time the detector's update reads.
+pub fn dawn_edge(version: &str) -> Result<()> {
+    let d = (22000..23000).find(|&d| level(d, 0.0, 0.0) >= 1).context("the model never reaches level 1 at dawn")?;
+    println!("== daylight --dawn on the official {version} server at 20 tps: the model's first clear day time with level >= 1: D = {d}; rows with the update tick's post-increment day time D - 1 .. D + 2");
+    let mut srv = VanillaServer::start(&VanillaOptions { version: version.to_string(), difficulty: "peaceful".into(), with_bot: false, frozen: false, tick_rate: 20, command_blocks: true, ..Default::default() })?;
+    srv.cmd_ok("tick freeze")?;
+    srv.cmd_ok("gamerule advance_time true")?;
+    srv.cmd_ok("weather clear 1000000")?;
+    srv.cmd_ok("gamerule command_block_output false").or_else(|_| srv.cmd_ok("gamerule commandBlockOutput false"))?;
+    srv.cmd_ok("forceload add 0 0")?;
+    srv.cmd_ok("scoreboard objectives add lc dummy")?;
+    let cmds = [
+        "execute store result score #g lc run time query gametime",
+        "execute store result score #d lc run time query time",
+        "execute unless block 0 100 0 minecraft:daylight_detector[power=0] if score #eg lc matches 0 run scoreboard players operation #eg lc = #g lc",
+        "execute unless block 0 100 0 minecraft:daylight_detector[power=0] if score #ed lc matches 0 run scoreboard players operation #ed lc = #d lc",
+    ];
+    for (i, c) in cmds.iter().enumerate() {
+        let kind = if i == 0 { "repeating_command_block" } else { "chain_command_block" };
+        srv.cmd_ok(&format!("setblock {} 100 0 minecraft:{kind}[facing=east]{{auto:1b,Command:\"{c}\"}}", 2 + i))?;
+    }
+    let score = |srv: &mut VanillaServer, who: &str| -> Result<i64> {
+        let s = srv.cmd(&format!("scoreboard players get {who} lc"))?;
+        Ok(s.split(" has ").nth(1).and_then(|r| r.split_whitespace().next()).and_then(|n| n.parse().ok()).unwrap_or(0))
+    };
+    for target in [d - 1, d, d + 1, d + 2] {
+        srv.cmd_ok("tick freeze")?;
+        srv.cmd("setblock 0 100 0 minecraft:air")?;
+        srv.cmd_ok("setblock 0 100 0 minecraft:daylight_detector")?;
+        srv.cmd_ok("scoreboard players set #eg lc 0")?;
+        srv.cmd_ok("scoreboard players set #ed lc 0")?;
+        let g0 = srv.game_time()?;
+        let u = g0 + (20 - g0.rem_euclid(20));
+        let x = target - (u - g0);
+        srv.cmd_ok(&format!("time set {x}"))?;
+        srv.cmd_ok("tick unfreeze")?;
+        std::thread::sleep(std::time::Duration::from_millis(((u - g0 + 50) * 50) as u64));
+        srv.cmd_ok("tick freeze")?;
+        let (eg, ed) = (score(&mut srv, "#eg")?, score(&mut srv, "#ed")?);
+        println!(
+            "  target D{:+}: frozen at game time {g0}, the clock set to {x}, so the update tick U = {u} (U % 20 = 0) has the post-increment day time {target}: {}",
+            target - d,
+            if eg == 0 {
+                "the detector never showed power > 0 within ~50 gt: NOT JUDGED (0 samples)".to_string()
+            } else {
+                format!("first seen on at game time {eg} (day time {ed}): the detector turned on at the update tick {} ({}; its post-increment day time {})", eg - 1, if eg - 1 == u { "= U" } else { "U + 20" }, ed - 1)
+            }
+        );
+    }
+    // the day times where the two readings of the update tick disagree: the sky darkening from the
+    // pre-increment time (updateSkyBrightness before tickTime) vs from the post-increment time
+    let split: Vec<i64> = (0..24000i64).filter(|&t| level_split(t - 1, t, 0.0, 0.0) != level_split(t, t, 0.0, 0.0)).collect();
+    println!("  day times where the darkening's pre- and post-increment readings give different levels (clear): {} ({:?}…)", split.len(), split.iter().take(12).collect::<Vec<_>>());
+    for &target in split.iter().take(6) {
+        srv.cmd_ok("tick freeze")?;
+        let g0 = srv.game_time()?;
+        let u = g0 + (20 - g0.rem_euclid(20));
+        srv.cmd_ok(&format!("time set {}", target - (u - g0)))?;
+        srv.cmd_ok("tick unfreeze")?;
+        std::thread::sleep(std::time::Duration::from_millis(((u - g0 + 10) * 50) as u64));
+        srv.cmd_ok("tick freeze")?;
+        let gt = srv.game_time()?;
+        let mut power = None;
+        for n in 0..16 {
+            if srv.cmd(&format!("execute if block 0 100 0 minecraft:daylight_detector[power={n}]"))?.contains("passed") {
+                power = Some(n);
+                break;
+            }
+        }
+        println!(
+            "  split row: the update tick U = {u} with the post-increment day time {target}, read at game time {gt} ({}): power {:?}; the model with the darkening at {} (pre) gives {}, at {target} (post) gives {}",
+            if gt > u && gt < u + 20 { "after U, before the next update" } else { "OUTSIDE (U, U + 20): not judged" },
+            power,
+            target - 1,
+            level_split(target - 1, target, 0.0, 0.0),
+            level_split(target, target, 0.0, 0.0)
+        );
+    }
+    let _ = std::fs::remove_dir_all(&srv.dir);
+    Ok(())
+}
+
 /// (tickexact 2026-11-12, day-1's inhibit level, ironspec) An open daylight detector's level from
 /// 26.3's code, no server: `DaylightDetectorBlock.updateSignalStrength` with sky light 15, the
 /// sky darkening of the day timeline and the weather layer (`redsim::weather::sky_darken_at`, the
 /// effective thunder being thunder x rain) and the sun's angle (`redsim::daylight::sun_angle`),
 /// pulled toward noon by 0.2 and rounded (`Math.round`).
 fn level(day: i64, rain: f32, thunder: f32) -> i32 {
-    let target = 15 - redsim::weather::sky_darken_at(day.rem_euclid(24000), rain, thunder * rain);
+    level_split(day, day, rain, thunder)
+}
+
+/// [`level`] with the sky darkening read at `dark_day` and the sun's angle at `sun_day` (the update
+/// tick's pre-increment vs post-increment time: ServerLevel.tick's updateSkyBrightness runs before
+/// tickTime, the detector's block-entity update after it).
+fn level_split(dark_day: i64, sun_day: i64, rain: f32, thunder: f32) -> i32 {
+    let target = 15 - redsim::weather::sky_darken_at(dark_day.rem_euclid(24000), rain, thunder * rain);
     if target <= 0 {
         return 0;
     }
-    let mut sun = redsim::daylight::sun_angle(day.rem_euclid(24000)) * (std::f64::consts::PI / 180.0) as f32;
+    let mut sun = redsim::daylight::sun_angle(sun_day.rem_euclid(24000)) * (std::f64::consts::PI / 180.0) as f32;
     let offset = if sun < std::f64::consts::PI as f32 { 0.0f32 } else { (std::f64::consts::PI * 2.0) as f32 };
     sun += (offset - sun) * 0.2f32;
     let v = target as f32 * redsim::entity::mth::cos(sun as f64);

@@ -802,7 +802,7 @@ fn item_loop(version: &str, runs: u32) -> Result<()> {
     for f in failed.iter().take(3) {
         println!("  {f}");
     }
-    let srv = loop_restarts(srv, &opts, &sides, runs, [2, 65, 4], [17, 65, 33], None)?;
+    let srv = loop_restarts(srv, &opts, &sides, runs, [2, 65, 4], [17, 65, 33], None, false)?;
     let _ = std::fs::remove_dir_all(&srv.dir);
     Ok(())
 }
@@ -813,10 +813,19 @@ fn item_loop(version: &str, runs: u32) -> Result<()> {
 /// tick in each watched overworld chunk (G1: "no load window" measured per restart), whether
 /// each side (its probe cell) is loaded right after the start, and the loop's arrivals, items and
 /// failed pulses over the 1,200 gt after it.
-fn loop_restarts(mut srv: VanillaServer, opts: &dyn Fn(Option<PathBuf>) -> VanillaOptions, sides: &[LoopSide], runs: u32, nether_probe: [i32; 3], over_probe: [i32; 3], mobs: Option<&MobRow>) -> Result<VanillaServer> {
+fn loop_restarts(mut srv: VanillaServer, opts: &dyn Fn(Option<PathBuf>) -> VanillaOptions, sides: &[LoopSide], runs: u32, nether_probe: [i32; 3], over_probe: [i32; 3], mobs: Option<&MobRow>, pending: bool) -> Result<VanillaServer> {
     for run in 0..runs {
+        // (ironspec 23:35 PT) the pending repeater's input cleared, so the line settles off during
+        // the run below
+        if pending {
+            srv.cmd(&format!("setblock {} minecraft:air", PENDING_SOURCE))?;
+        }
         // a different phase of the clocks each time (the clocks keep running up to the save)
         let _ = run_item_loop(&mut srv, sides, 37 + 76 * run as i64, mobs)?;
+        if pending {
+            srv.cmd_ok("scoreboard players set #fire lc 0")?;
+            srv.cmd_ok(&format!("setblock {} minecraft:redstone_block", PENDING_SOURCE))?;
+        }
         srv.cmd_ok("save-on")?;
         srv.cmd_ok("save-all flush")?;
         let old = srv.dir.clone();
@@ -867,6 +876,22 @@ fn loop_restarts(mut srv: VanillaServer, opts: &dyn Fn(Option<PathBuf>) -> Vanil
         } else {
             println!("  no tick ran in the printed ticks");
         }
+        if pending {
+            let s = srv.cmd("scoreboard players get #fire lc")?;
+            let f: i64 = s.split(" has ").nth(1).and_then(|r| r.split_whitespace().next()).and_then(|n| n.parse().ok()).unwrap_or(-1);
+            println!(
+                "  the pending repeater (delay 4 = 8 gt; its input set at the save, game time {gt}; an impulse command block on its output stamps the game time, one tick after its power): {}",
+                if f > 0 {
+                    format!(
+                        "the command block stamped gt {f} = save + {}, so the repeater fired at save + {} (the save-time due time: fired at save + 8, stamped at save + 9)",
+                        f - gt,
+                        f - gt - 1
+                    )
+                } else {
+                    "NOT JUDGED (0 samples): no stamp".to_string()
+                }
+            );
+        }
         println!(
             "  after it, 1,200 gt: overworld {}, nether {}; items in all {lo}..{hi}; failed pulses {}; droppers stuck TRIGGERED after the run: {}",
             gaps(&a[0]),
@@ -883,6 +908,8 @@ fn loop_restarts(mut srv: VanillaServer, opts: &dyn Fn(Option<PathBuf>) -> Vanil
 
 /// The build's loop variant (ironspec: from the brief's rules): its design file.
 const BUILD_LOOP: &str = "designs/farms/iron/carousel-assembly/wip/tickexact/loader/l1-build-loop.txt";
+/// (ironspec 23:35 PT) the pending repeater's source cell in the overworld chunk (1, 2).
+const PENDING_SOURCE: &str = "20 120 40";
 
 /// (tickexact 2026-11-12, ironspec: the build's loop variant, G1 on ebb3ce8d7: the bridged
 /// geometry wasn't the build's) `--case item-loop-build` (`-slab`: a bottom slab in each arrivals'
@@ -927,6 +954,8 @@ fn item_loop_build(version: &str, runs: u32, slab: bool, design: Option<&std::pa
         tick_rate: 1000,
         world,
         java_agent: Some(agent.clone()),
+        // the pending repeater's stamp (an impulse command block)
+        command_blocks: true,
         ..Default::default()
     };
     let t: [i32; 3] = [15, 55, 33];
@@ -983,6 +1012,13 @@ fn item_loop_build(version: &str, runs: u32, slab: bool, design: Option<&std::pa
     srv.cmd_ok("setblock 25 64 40 minecraft:observer[facing=west]")?;
     srv.cmd_ok("setblock 28 64 44 minecraft:rail")?;
     srv.cmd_ok("summon minecraft:minecart 28.5 64.0625 44.5")?;
+    // (ironspec 23:35 PT) a pending repeater across each restart: glass floor at y 119, the source
+    // cell (20,120,40) (a redstone block set just before each save), a repeater (delay 4 = 8 gt)
+    // whose output feeds an impulse command block stamping the game time into #fire
+    srv.cmd_ok("scoreboard objectives add lc dummy")?;
+    srv.cmd_ok("fill 19 119 40 23 119 40 minecraft:glass")?;
+    srv.cmd_ok("setblock 21 120 40 minecraft:repeater[facing=west,delay=4]")?;
+    srv.cmd_ok("setblock 22 120 40 minecraft:command_block[facing=east]{Command:\"execute if score #fire lc matches 0 store result score #fire lc run time query gametime\"}")?;
     srv.cmd_ok("summon minecraft:armor_stand 26.5 64 42.5")?;
     // the sides: their containers (every dropper and hopper) and their clock cells (behind every
     // dropper in the firing dropper's column, against its facing: each powered directly, since a
@@ -1164,7 +1200,7 @@ fn item_loop_build(version: &str, runs: u32, slab: bool, design: Option<&std::pa
     }
     let probe_n = [n0[0] + 2, n0[1] + 11, n0[2]];
     let probe_o = [t[0] + 2, t[1] + 11, t[2]];
-    let mut srv = loop_restarts(srv, &opts, &sides, runs, probe_n, probe_o, row.as_ref())?;
+    let mut srv = loop_restarts(srv, &opts, &sides, runs, probe_n, probe_o, row.as_ref(), true)?;
     // where the loop's items are at the end: each side's containers, and every item entity
     where_items(&mut srv, &sides, "at the end")?;
     if let Some(r) = &row {

@@ -279,24 +279,51 @@ pub(crate) fn wilson95_pub(k: u32, n: u32) -> (f64, f64) {
     wilson95(k, n)
 }
 
+/// A cell whose stated block holds water: a fluid cell (rule B, ironspec 00:27 PT: every fluid
+/// cell's tick is scheduled at the paste).
+pub(crate) fn holds_water(s: &str) -> bool {
+    s.starts_with("minecraft:water") || s.starts_with("minecraft:bubble_column") || s.contains("waterlogged=true")
+}
+
 /// A part file laid over the module (9fc3155f's F3 scarer part: its glass and glowstone, its seated
 /// pillager): blocks as the file states them, entities summoned at their positions. A pillager
 /// summoned as a passenger gets no `finalizeSpawn`, so it is given the crossbow a natural one
-/// carries, and the tag f3 (its charge state is read).
+/// carries, and the tag f3 (its charge state is read). (ironspec 00:27 PT, rule B) every fluid cell
+/// gets its fluid tick scheduled: a plain setblock of water there first (LiquidBlock.onPlace
+/// schedules it; SetBlockCommand's strict mode skips onPlace, flag 512), then its stated block over
+/// it (the scheduled tick stays keyed to the cell and runs on that block's water); the count is
+/// printed, and a design with water but no scheduled cell fails.
 pub(crate) fn place_part(srv: &mut VanillaServer, part: &std::path::Path) -> Result<()> {
     let d = mctas::design::Design::load(part)?;
     // the other blocks first, then the rails as stated (strict, as the module's); a cell already in
     // that state is left as it is (`cmd`: the setblock then reports no change), and module-check
     // reports whatever differs afterwards
+    let (mut water, mut logged) = (0u32, 0u32);
     for pass in 0..2 {
         for (p, s) in d.blocks.iter() {
             let rail = s.contains("rail");
+            let at = format!("{} {} {}", p[0], p[1] + DY, p[2]);
+            // a fluid cell: water first, plainly, in the first pass (a rail's goes in before the rail)
+            if pass == 0 && holds_water(s) {
+                srv.cmd(&format!("setblock {at} minecraft:water"))?;
+                if s.starts_with("minecraft:water") {
+                    water += 1;
+                } else {
+                    logged += 1;
+                }
+            }
             if rail != (pass == 1) {
                 continue;
             }
-            srv.cmd(&format!("setblock {} {} {} {s}{}", p[0], p[1] + DY, p[2], if rail { " strict" } else { "" }))?;
+            if s.as_str() == "minecraft:water" {
+                continue;
+            }
+            srv.cmd(&format!("setblock {at} {s}{}", if rail { " strict" } else { "" }))?;
         }
     }
+    let fluid = d.blocks.iter().filter(|(_, s)| holds_water(s)).count() as u32;
+    println!("  place_part {}: fluid cells scheduled: {} (water blocks {water}, waterlogged / bubble cells {logged}) of {fluid} in the design", part.display(), water + logged);
+    anyhow::ensure!(fluid == 0 || water + logged == fluid, "place_part: the design holds {fluid} fluid cells but {} were scheduled: the run fails", water + logged);
     for e in &d.entities {
         let nbt = e.nbt.clone().unwrap_or_default().replace(
             "id:\"minecraft:pillager\"",

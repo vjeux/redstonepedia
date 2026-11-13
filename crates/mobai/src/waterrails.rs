@@ -75,6 +75,7 @@ pub fn water_restarts(version: &str, slopes: i32, flat: i32, measure: i32, resta
     );
     let mut rows: Vec<Option<u32>> = vec![None];
     rows.extend(restarts.iter().map(|&r| Some(r)));
+    let mut not_judged = 0u32;
     for restart in rows {
         // A load is N whole-chunk idle ticks (load-count's 20-TPS rows); at a world open, pending
         // ticks keep their save-time due times, so redstone pending across the load fires up to N
@@ -103,7 +104,10 @@ pub fn water_restarts(version: &str, slopes: i32, flat: i32, measure: i32, resta
         }
         match &held {
             Some((a, out)) => print_restart_row(restart, out, &format!("the row, attempt {a}"), every_tick),
-            None => println!("  {}: no attempt held in {attempt}", restart.map(|r| format!("restart between t{} and t{r}", r - 1)).unwrap_or_default()),
+            None => {
+                not_judged += 1;
+                println!("  {}: NOT JUDGED (0 samples): no attempt held in {attempt}", restart.map(|r| format!("restart between t{} and t{r}", r - 1)).unwrap_or_default());
+            }
         }
         for (a, m) in &moved {
             print_restart_row(restart, m, &format!("a harness artefact: uncounted harness ticks before the freeze, attempt {a}"), every_tick);
@@ -128,6 +132,8 @@ pub fn water_restarts(version: &str, slopes: i32, flat: i32, measure: i32, resta
             println!("    (no attempt moved in {attempt})");
         }
     }
+    // (ironspec 23:56 PT: no vacuous passes)
+    anyhow::ensure!(not_judged == 0, "{not_judged} restart row(s) NOT JUDGED (0 samples: no attempt held): the run fails");
     Ok(())
 }
 
@@ -138,7 +144,7 @@ fn print_restart_row(restart: Option<u32>, out: &RestartRow, label: &str, every_
         out.cross[0].map(|(t, v)| format!("t{t} at {v:.4}")).unwrap_or("-".into()),
         out.cross[1].map(|(t, v)| format!("t{t} at {v:.4}")).unwrap_or("-".into()),
         match out.extra {
-            Some(0) => format!("; the cart held still across the load ({label}; {} idle tick{} — game time +{}; entities held: the row's probe; blocks idle: load-count's measurement)", out.time_jump, if out.time_jump == 1 { "" } else { "s" }, out.time_jump),
+            Some(0) => format!("; {} ({label})", out.reload.map(|x| x.describe()).unwrap_or_default()),
             Some(e) => format!("; the cart MOVED across the load (~{e} tick(s); game time jump {}; {label})", out.time_jump),
             None => String::new(),
         },
@@ -175,11 +181,13 @@ struct RestartRow {
     cross: [Option<(u32, f64)>; 2],
     around: Vec<String>,
     full: Vec<(u32, i64, Option<([f64; 3], [f64; 3])>)>,
-    /// The ticks the loaded world ran before the freeze took hold (None without a restart): 0 when
-    /// the wet cart's position is the same across the load.
+    /// The ticks the loaded world ran before the freeze took hold (None without a restart): 0 for a
+    /// clean load (`Reload::clean`), else the jump.
     extra: Option<i64>,
-    /// The game time's jump across the load (a tick may count with the entities not yet ticking).
+    /// The game time's jump across the load.
     time_jump: i64,
+    /// The load's check (`restartcheck::reload`).
+    reload: Option<crate::restartcheck::Reload>,
 }
 
 fn restart_row(version: &str, slopes: i32, flat: i32, measure: i32, restart: Option<u32>, ticks: u32) -> Result<RestartRow> {
@@ -196,27 +204,18 @@ fn restart_row(version: &str, slopes: i32, flat: i32, measure: i32, restart: Opt
             Y
         ))?;
     }
-    let mut r = RestartRow { cross: [None, None], around: Vec::new(), full: Vec::new(), extra: None, time_jump: 0 };
-    // (G1 on 94eb02e76) a restarted server can tick before the harness freezes it (uncounted harness
-    // ticks): the game time is read before the save and after the load, and the wet cart (moving at
-    // the save) says whether any of those ticks ran it
+    let mut r = RestartRow { cross: [None, None], around: Vec::new(), full: Vec::new(), extra: None, time_jump: 0, reload: None };
+    // (G1 on 94eb02e76; ironspec 23:41 PT) the restart through `restartcheck::reload` (the wet cart the
+    // probe, the motion rule: a cart at rest at the save gives no evidence, the no-probe rule then)
     for t in 1..=ticks {
         if restart == Some(t) {
-            srv.cmd_ok("save-on")?;
-            srv.cmd_ok("save-all flush")?;
-            let before = srv.game_time()?;
-            let pos_before = srv.cmd_long("data get entity @e[tag=wr1,limit=1] Pos")?;
-            let old = srv.dir.clone();
-            let world = old.join(&srv.level_name);
-            drop(srv);
-            srv = VanillaServer::start(&rig_opts(version, Some(world)))?;
-            let after = srv.game_time()?;
-            // a load is N whole-chunk idle ticks (load-count's 20-TPS rows), so a held cart across a
-            // jump of N is N idle ticks; a cart that moved means uncounted harness ticks
-            let pos_after = srv.cmd_long("data get entity @e[tag=wr1,limit=1] Pos")?;
-            r.extra = Some(if pos_after.trim() == pos_before.trim() { 0 } else { (after - before).max(1) });
-            r.time_jump = after - before;
-            let _ = std::fs::remove_dir_all(&old);
+            let (s, rl) = crate::restartcheck::reload(srv, |w| rig_opts(version, Some(w)), Some("@e[tag=wr1,limit=1]"))?;
+            srv = s;
+            // extra: 0 for a clean load (a moving cart held, or no evidence with a jump of 1), else
+            // the jump (uncounted ticks)
+            r.extra = Some(if rl.clean() { 0 } else { rl.time_jump.max(1) });
+            r.time_jump = rl.time_jump;
+            r.reload = Some(rl);
             srv.cmd_ok("forceload add -16 -64 31 16")?;
         }
         srv.step(1)?;

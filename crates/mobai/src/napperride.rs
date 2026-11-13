@@ -60,6 +60,9 @@ struct Ride {
 
 /// A ride whose restart (if any) left the cart where it was across the load: re-run up to 4 times
 /// otherwise (the loaded world can move its entities before the freeze: uncounted ticks).
+/// (ironspec 23:56 PT: no vacuous passes) restart rows whose every attempt had uncounted ticks
+static UNCLEAN_ROWS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
 #[allow(clippy::too_many_arguments)]
 fn ride_checked(version: &str, module: &std::path::Path, depth: i32, v: f64, c: &Cells, restart: Restart, join: Option<u32>, max_ticks: u32) -> Result<Ride> {
     let mut last = None;
@@ -70,6 +73,7 @@ fn ride_checked(version: &str, module: &std::path::Path, depth: i32, v: f64, c: 
         }
         last = Some(r);
     }
+    UNCLEAN_ROWS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     Ok(last.expect("four attempts"))
 }
 
@@ -306,6 +310,12 @@ pub fn napper_ride(version: &str, module: &std::path::Path, depth: i32, speeds: 
     }
     if let Some((dr, v, k)) = overall {
         println!("  the maximum detector -> rest over every row: {dr} gt (start {v} b/gt, the restart at t{k})");
+    } else if !restarts.is_empty() || before.is_some() {
+        println!("  the maximum detector -> rest over every row: NOT JUDGED (0 samples)");
+        anyhow::bail!("the detector -> rest bar has 0 samples: NOT JUDGED, the run fails");
     }
+    // (ironspec 23:56 PT: no vacuous passes) a row whose four attempts all had uncounted ticks
+    let unclean = UNCLEAN_ROWS.load(std::sync::atomic::Ordering::Relaxed);
+    anyhow::ensure!(unclean == 0, "{unclean} restart row(s) NOT JUDGED (uncounted ticks in all 4 attempts): the run fails");
     Ok(())
 }

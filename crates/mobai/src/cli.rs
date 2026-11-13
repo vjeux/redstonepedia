@@ -522,6 +522,96 @@ pub enum MobaiCmd {
         repeats: u32,
         #[arg(long, default_value_t = 500)]
         ticks: u32,
+        /// The real approach (ironspec 23:19 PT): the ridden cart at rest here (the file's frame)
+        /// instead of the entry summon, x,y,z
+        #[arg(long, allow_hyphen_values = true)]
+        approach: Option<String>,
+        /// With --approach: the release block's cell and its tick (10 gt), x,y,z,t
+        #[arg(long, allow_hyphen_values = true, default_value = "8,-14,-4,40")]
+        release: String,
+        /// With --approach: the napper's HOME (the file's frame)
+        #[arg(long, allow_hyphen_values = true, default_value = "-3,-27,3")]
+        home: String,
+        /// With --approach: a cell (the file's frame) whose block is printed at the napper's first
+        /// panic (a trapdoor's open state: day-1's seat hatch (6,-12,-5))
+        #[arg(long, allow_hyphen_values = true)]
+        watch: Option<String>,
+        /// With --approach: the release is the --set lever at the --release cell turned off (record7's
+        /// built R1: its NOT-ready lever, ironspec 00:24 PT), not a redstone block
+        #[arg(long)]
+        release_lever: bool,
+        /// Restart rows stop at the first held attempt (no moved one sought)
+        #[arg(long)]
+        held_only: bool,
+        /// With --approach: the file's own ridden cart nearest the start is the napper's (its rider
+        /// given HOME and the tags), so the bench's entities stay the record's
+        #[arg(long)]
+        file_cart: bool,
+        /// Day (day time 1000) instead of night
+        #[arg(long)]
+        day: bool,
+        /// With --file-cart: move that cart here (at rest) once tagged, x,y,z
+        #[arg(long, allow_hyphen_values = true)]
+        cart_pos: Option<String>,
+        /// With --approach (a summoned cart): its starting x velocity
+        #[arg(long, default_value_t = 0.0, allow_hyphen_values = true)]
+        start_vx: f64,
+        /// With --approach: remove the file's cart (and rider) within 1 of x,y,z first (the seat
+        /// emptied for an arriving napper)
+        #[arg(long, allow_hyphen_values = true)]
+        clear: Option<String>,
+        /// Another design's cells laid over the file inside --overlay-box (before --set): e.g.
+        /// record7's built R1 over a way-in package that lacks it
+        #[arg(long)]
+        overlay: Option<std::path::PathBuf>,
+        /// x0,y0,z0,x1,y1,z1 (the file's frame)
+        #[arg(long, allow_hyphen_values = true, default_value = "")]
+        overlay_box: String,
+    },
+    /// (tickexact 2026-11-13, ironspec 00:27 PT: rules B, C, E) A design pasted with its fluid
+    /// cells' ticks scheduled, run, saved and read back: every cell whose water left its stored
+    /// state (new water fails the run)
+    WaterSettle {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        /// The design (omit with --controls)
+        file: Option<std::path::PathBuf>,
+        /// Bench cells laid after the paste, "x,y,z=STATE;…"
+        #[arg(long, default_value = "", allow_hyphen_values = true)]
+        set: String,
+        #[arg(long, default_value_t = 200)]
+        ticks: u32,
+        /// The two built-in controls (a sourceless flowing cell must fail LOST, a bubble column
+        /// stored with the wrong drag must fail CHANGED), through the same code path
+        #[arg(long)]
+        controls: bool,
+    },
+    /// (tickexact 2026-11-13, ironspec 00:00 PT) GOLEM_DETECTED_RECENTLY's ttl across a world open:
+    /// the first golem at T, a restart at T + `--restart-after`, the next golem's tick from T
+    GolemTtl {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        #[arg(long, default_value_t = 300)]
+        restart_after: u32,
+        #[arg(long, default_value_t = 2)]
+        runs: u32,
+        #[arg(long, default_value_t = 2400)]
+        ticks: u32,
+        /// The boundary rows (ironspec 00:30 PT): the trio's memories set at T + 100 to clear this
+        /// many ticks before the slot T + 400, the restart (if any) at T + 200
+        #[arg(long)]
+        boundary: Option<u32>,
+    },
+    /// (tickexact 2026-11-12, ironspec 22:29 PT (2)) Entity, block-entity and block ticks counted by
+    /// in-game command blocks at 20 TPS across world opens and logins with load
+    LoadCount {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        #[arg(long, default_value_t = 8)]
+        cases: u32,
+        /// Real milliseconds the server runs after each load before the counters are read
+        #[arg(long, default_value_t = 4000)]
+        run_ms: u64,
     },
     /// (tickexact 2026-11-12, ironspec 19:51 PT) VillagerPanicTrigger's start/tick calls every tick
     /// on continuously panicking villagers: the 60-gt behaviour's skip against the summon ticks
@@ -1307,6 +1397,10 @@ pub enum MobaiCmd {
         /// and after one thunder skip, against the --levels model (G1's control)
         #[arg(long)]
         weather_row: bool,
+        /// On the official server at 20 tps: the detector's dawn edge, the update tick's day time
+        /// set to the model's threshold - 1 .. + 2 (ironspec 00:36 PT)
+        #[arg(long)]
+        dawn: bool,
     },
     /// (tickexact 2026-11-11, the parent's shared-bed overload across reloads) Scene bed-reload-<case>'s
     /// recording at its checkpoints: every villager's HOME and LAST_SLEPT, the bed, the naps
@@ -1588,8 +1682,20 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
             anyhow::ensure!(l7.is_empty() || l7.len() == 2, "--lane7-release a,b");
             crate::stationride::station_ride(&version, &lift, &station, rel, &offsets, &restarts, ticks, if l7.len() == 2 { Some((l7[0], l7[1])) } else { None })
         }
-        MobaiCmd::BedTrap { version, file, set, speeds, restarts, repeats, ticks } => {
+        MobaiCmd::BedTrap { version, file, set, speeds, restarts, repeats, ticks, approach, release, home, watch, release_lever, held_only, file_cart, day, cart_pos, start_vx, clear, overlay, overlay_box } => {
             let mut cells = Vec::new();
+            // --overlay: the other design's cells inside the box first (the --set cells override)
+            if let Some(o) = &overlay {
+                let b: Vec<i32> = overlay_box.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(b.len() == 6, "--overlay-box x0,y0,z0,x1,y1,z1");
+                let d = mctas::design::Design::load(o)?;
+                for (p, s) in d.blocks.iter() {
+                    if (b[0]..=b[3]).contains(&p[0]) && (b[1]..=b[4]).contains(&p[1]) && (b[2]..=b[5]).contains(&p[2]) {
+                        cells.push(([p[0], p[1], p[2]], s.clone()));
+                    }
+                }
+                println!("--overlay {}: {} cells inside {overlay_box} laid before --set", o.display(), cells.len());
+            }
             for e in set.split(';').filter(|e| !e.trim().is_empty()) {
                 let (p, st) = e.split_once('=').ok_or_else(|| anyhow::anyhow!("x,y,z=STATE, got {e}"))?;
                 let v: Vec<i32> = p.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
@@ -1598,8 +1704,72 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
             }
             let speeds: Vec<f64> = speeds.split(',').map(|v| v.trim().parse()).collect::<Result<_, _>>()?;
             let restarts: Vec<u32> = restarts.split(',').filter(|n| !n.trim().is_empty()).map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
-            crate::bedtrap::bed_trap(&version, &file, &cells, &speeds, &restarts, repeats, ticks)
+            let approach = match approach {
+                Some(s) => {
+                    let p: Vec<f64> = s.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+                    // the release tick may be a range T1..T2: one bed-trap run per release phase
+                    let parts: Vec<&str> = release.split(',').collect();
+                    anyhow::ensure!(parts.len() == 4, "--release x,y,z,t (t or t1..t2)");
+                    let r: Vec<i64> = parts[..3].iter().map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+                    let (t1, t2): (u32, u32) = match parts[3].split_once("..") {
+                        Some((a, b)) => (a.trim().parse()?, b.trim().parse()?),
+                        None => {
+                            let t = parts[3].trim().parse()?;
+                            (t, t)
+                        }
+                    };
+                    let h: Vec<i32> = home.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(p.len() == 3 && h.len() == 3 && t1 <= t2, "--approach x,y,z --release x,y,z,t --home x,y,z");
+                    let watch = match &watch {
+                        Some(w) => {
+                            let v: Vec<i32> = w.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+                            anyhow::ensure!(v.len() == 3, "--watch x,y,z");
+                            Some([v[0], v[1], v[2]])
+                        }
+                        None => None,
+                    };
+                    let cart_pos = match &cart_pos {
+                        Some(c) => {
+                            let v: Vec<f64> = c.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+                            anyhow::ensure!(v.len() == 3, "--cart-pos x,y,z");
+                            Some([v[0], v[1], v[2]])
+                        }
+                        None => None,
+                    };
+                    let clear = match &clear {
+                        Some(c) => {
+                            let v: Vec<f64> = c.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+                            anyhow::ensure!(v.len() == 3, "--clear x,y,z");
+                            Some([v[0], v[1], v[2]])
+                        }
+                        None => None,
+                    };
+                    for t in t1..=t2 {
+                        let a = crate::bedtrap::Approach { start: [p[0], p[1], p[2]], release: [r[0] as i32, r[1] as i32, r[2] as i32], release_at: t, home: [h[0], h[1], h[2]], watch, lever: release_lever, file_cart, day, cart_pos, start_vx, clear };
+                        crate::bedtrap::bed_trap(&version, &file, &cells, &speeds, Some(a), &restarts, repeats, ticks, held_only)?;
+                    }
+                    return Ok(());
+                }
+                None => None,
+            };
+            crate::bedtrap::bed_trap(&version, &file, &cells, &speeds, approach, &restarts, repeats, ticks, held_only)
         }
+        MobaiCmd::WaterSettle { version, file, set, ticks, controls } => {
+            if controls {
+                return crate::watersettle::controls(&version, ticks);
+            }
+            let file = file.ok_or_else(|| anyhow::anyhow!("water-settle: a design file (or --controls)"))?;
+            let mut cells = Vec::new();
+            for e in set.split(';').filter(|e| !e.trim().is_empty()) {
+                let (p, st) = e.split_once('=').ok_or_else(|| anyhow::anyhow!("x,y,z=STATE, got {e}"))?;
+                let v: Vec<i32> = p.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(v.len() == 3, "x,y,z=STATE, got {e}");
+                cells.push(([v[0], v[1], v[2]], st.trim().to_string()));
+            }
+            crate::watersettle::water_settle(&version, &file, &cells, ticks)
+        }
+        MobaiCmd::GolemTtl { version, restart_after, runs, ticks, boundary } => crate::golemttl::golem_ttl(&version, restart_after, runs, ticks, boundary),
+        MobaiCmd::LoadCount { version, cases, run_ms } => crate::loadcount::load_count(&version, cases, run_ms),
         MobaiCmd::PanicTicks { version, villagers, ticks, restart_at } => crate::panicticks::panic_ticks(&version, villagers, ticks, restart_at),
         MobaiCmd::GossipRow { version, layout, day_time, ticks, restart_after } => crate::gossiprow::gossip_row(&version, &layout, day_time, ticks, restart_after),
         MobaiCmd::SbendBoundary { version, module, lanes, napper, leader_v, offsets, ticks, leader_first, napper_roll } => {
@@ -2013,8 +2183,10 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         }
         MobaiCmd::RailT { version } => crate::railt::rail_t(&version),
         MobaiCmd::ThreeBeds { version } => crate::threebeds::three_beds(&version),
-        MobaiCmd::Daylight { version, latency, levels, weather_row } => {
-            if levels {
+        MobaiCmd::Daylight { version, latency, levels, weather_row, dawn } => {
+            if dawn {
+                crate::daylight::dawn_edge(&version)
+            } else if levels {
                 crate::daylight::levels()
             } else if weather_row {
                 crate::daylight::weather_row(&version)

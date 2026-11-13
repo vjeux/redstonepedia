@@ -149,6 +149,7 @@ fn write_properties(dir: &Path, opts: &VanillaOptions, world: (String, String, S
         ("enable-query", "false".to_string()),
         ("enable-status", "true".to_string()),
         ("spawn-protection", "0".to_string()),
+        ("enable-command-block", opts.command_blocks.to_string()),
         ("difficulty", opts.difficulty.clone()),
         ("gamemode", opts.gamemode.clone()),
         ("force-gamemode", opts.force_gamemode.to_string()),
@@ -217,6 +218,9 @@ pub struct VanillaOptions {
     /// A Java agent for the server (`-javaagent:`): the mob-farm gate's golem agent
     /// (`bridge::golem_agent`) tags every golem a villager summons with the villager's UUID.
     pub java_agent: Option<PathBuf>,
+    /// `enable-command-block` (off, vanilla's default): on for a harness that counts ticks with
+    /// in-game command blocks (mobai load-count).
+    pub command_blocks: bool,
 }
 
 /// A world's saved weather (`WeatherData`: 26.x `data/minecraft/weather.dat`).
@@ -287,6 +291,7 @@ impl Default for VanillaOptions {
             biome: "minecraft:the_void".into(),
             saved_weather: None,
             java_agent: None,
+            command_blocks: false,
         }
     }
 }
