@@ -279,7 +279,7 @@ pub fn custom_server_ai_step(w: &mut World, i: usize) {
     if std::env::var("MCTAS_TRACE_ENDERMAN").is_ok_and(|v| v.parse::<u32>().ok() == Some(eid)) {
         eprintln!("enderman t{} #{eid}: eye cell {cell} br {br} feet {feet} sky light {:?} block light {:?} tick {tick_count} target change {}", w.time, w.sky_light(feet), w.block_light(cell), state(w, i).target_change_time);
     }
-    if br > 0.5 && w.can_see_sky(feet).unwrap_or(false) && rnd(w, i).next_float() * 30.0 < (br - 0.4) * 2.0 {
+    if br > 0.5 && w.sees_or(w.can_see_sky(feet), false) && rnd(w, i).next_float() * 30.0 < (br - 0.4) * 2.0 {
         set_target(w, i, None);
         teleport(w, i);
     }

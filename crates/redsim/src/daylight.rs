@@ -153,6 +153,76 @@ struct Props {
 #[derive(Default)]
 pub struct SkyCache {
     inner: std::sync::Mutex<(u64, std::collections::HashMap<(BlockPos, i32, u8), Result<i32, String>>)>,
+    /// A land-less world's light sources ([`block_light_landless`]).
+    sources: std::sync::Mutex<Sources>,
+    /// The light reads that failed where their caller couldn't return the error (`World::light_or`),
+    /// until the next tick moves them into `World::errors` or a judge takes them.
+    pub(crate) read_errors: std::sync::Mutex<Vec<String>>,
+}
+
+/// A land-less world's light sources (cc767b78, ironspec 12:54: land-less worlds model block light
+/// from the block table): each cell that gives off light and how much (`sun::emission`), built over the
+/// box on the first block light read, then kept by every write ([`note_write`]) and built again after a
+/// whole-box fill ([`note_fill`]).
+#[derive(Default)]
+struct Sources {
+    built: bool,
+    lit: std::collections::HashMap<BlockPos, i32>,
+}
+
+/// `World::put`'s note to a land-less world's light sources: the written cell's emission, when the
+/// list is built.
+pub(crate) fn note_write(w: &World, p: BlockPos, s: &Block) {
+    if let Ok(mut g) = w.sky_cache.sources.lock()
+        && g.built
+    {
+        match crate::entity::mob::sun::emission(s) {
+            0 => g.lit.remove(&p),
+            e => g.lit.insert(p, e),
+        };
+    }
+}
+
+/// A whole-box fill: the light sources are listed again at the next read.
+pub(crate) fn note_fill(w: &World) {
+    if let Ok(mut g) = w.sky_cache.sources.lock() {
+        *g = Sources::default();
+    }
+}
+
+/// The block light at `p` in a world without land (cc767b78, ironspec 12:54: it was "not modeled",
+/// an error its callers read as 0): 0 when no light source's light can reach `p` (every source
+/// farther, by taxicab distance, than its emission: each step costs at least 1); otherwise the light
+/// engine's propagation over the cube of radius 15 around `p` ([`block_light_cached`] at need 0: exact,
+/// as no light travels 15 steps), an error when a cell of that cube has no modeled light behaviour.
+pub fn block_light_landless(w: &World, p: BlockPos) -> Result<i32, String> {
+    let reach = {
+        let mut g = w.sky_cache.sources.lock().map_err(|_| "the light sources' lock is poisoned".to_string())?;
+        if !g.built {
+            let mut lit = std::collections::HashMap::new();
+            for y in 0..w.size[1] {
+                for z in 0..w.size[2] {
+                    for x in 0..w.size[0] {
+                        let q = w.min.offset(x, y, z);
+                        let b = w.get(q);
+                        if b.is_air() {
+                            continue;
+                        }
+                        let e = crate::entity::mob::sun::emission(&b);
+                        if e > 0 {
+                            lit.insert(q, e);
+                        }
+                    }
+                }
+            }
+            *g = Sources { built: true, lit };
+        }
+        g.lit.iter().any(|(q, e)| (q.x - p.x).abs() + (q.y - p.y).abs() + (q.z - p.z).abs() < *e)
+    };
+    if !reach {
+        return Ok(0);
+    }
+    block_light_cached(w, p, 0)
 }
 
 impl Clone for SkyCache {
@@ -328,8 +398,9 @@ pub fn sky_light_bounds_from(w: &World, p: BlockPos, need: i32) -> (i32, i32) {
     let r = (15 - need).clamp(0, 15);
     let opaque = Props { dampening: 15, faces: None };
     let clear = Props { dampening: 0, faces: None };
-    let lo = sky_light_with(w, p, Some(opaque), r).unwrap_or(0);
-    let hi = sky_light_with(w, p, Some(clear), r).unwrap_or(15);
+    // (an unreadable bound: the full range, its error surfacing: `World::light_or`)
+    let lo = w.light_or(sky_light_with(w, p, Some(opaque), r), 0);
+    let hi = w.light_or(sky_light_with(w, p, Some(clear), r), 15);
     (lo, hi)
 }
 
@@ -586,7 +657,14 @@ fn update_signal_strength(w: &mut World, pos: BlockPos) {
     let lagging = |q: &BlockPos, t: i64| t >= w.time - 1 && (q.x - pos.x).abs() + (q.y - pos.y).abs() + (q.z - pos.z).abs() <= 15;
     if w.light_changes.iter().any(|&(t, q)| lagging(&q, t)) {
         let column_changed = w.light_changes.iter().any(|&(t, q)| t >= w.time - 1 && q.x == pos.x && q.z == pos.z && q.y >= pos.y);
-        if column_changed || !sky_source(w, pos).unwrap_or(false) {
+        let source = match sky_source(w, pos) {
+            Ok(s) => s,
+            Err(e) => {
+                w.errors.push(format!("daylight detector at {pos}: {e}"));
+                return;
+            }
+        };
+        if column_changed || !source {
             w.errors.push(format!("daylight detector at {pos} reads the sky light right after a block change near it (the light engine's timing is not modeled)"));
             return;
         }
@@ -620,6 +698,50 @@ fn update_signal_strength(w: &mut World, pos: BlockPos) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// (cc767b78, ironspec 12:54) A land-less world's block light, from the block table's sources: a torch
+    /// on a stone floor lights its own cell 14 and the next 13; glowstone set in the floor lights the cell
+    /// above it 14 (and, 11 steps along the floor, 3); a cell no source reaches reads 0; with the torch
+    /// taken away, its cells keep only the glowstone's light (the source list follows the write).
+    #[test]
+    fn a_landless_worlds_block_light_comes_from_its_sources() {
+        let mut w = World::new(BlockPos::new(-10, -4, -10), [21, 10, 21]);
+        let stone = Block::parse("stone").unwrap();
+        for x in -8..=8 {
+            for z in -8..=8 {
+                w.set_block(BlockPos::new(x, 0, z), stone, crate::world::flags::ALL);
+            }
+        }
+        w.set_block(BlockPos::new(-5, 0, 0), Block::parse("glowstone").unwrap(), crate::world::flags::ALL);
+        w.set_block(BlockPos::new(5, 1, 0), Block::parse("torch").unwrap(), crate::world::flags::ALL);
+        let at = |w: &World, x: i32, y: i32, z: i32| w.block_light(BlockPos::new(x, y, z));
+        assert_eq!(at(&w, 5, 1, 0), Ok(14), "the torch's cell");
+        assert_eq!(at(&w, 6, 1, 0), Ok(13), "beside the torch");
+        assert_eq!(at(&w, -5, 1, 0), Ok(14), "above the glowstone in the floor");
+        assert_eq!(at(&w, 0, 5, 9), Ok(0), "no source reaches it");
+        w.set_block(BlockPos::new(5, 1, 0), Block::Air, crate::world::flags::ALL);
+        assert_eq!(at(&w, 6, 1, 0), Ok(3), "the torch gone: the glowstone's light, 11 steps along the floor");
+        assert_eq!(at(&w, 5, 1, 0), Ok(4));
+    }
+
+    /// (cc767b78, ironspec 12:54) A light read whose caller can't return the error surfaces:
+    /// `World::light_or` / `sees_or` give the fallback and record the error (once); the next tick moves
+    /// it into the world's errors; a judge that takes them first gets them, and the tick then has none.
+    #[test]
+    fn a_failed_light_read_surfaces() {
+        let mut w = World::new(BlockPos::new(0, 0, 0), [4, 4, 4]);
+        assert_eq!(w.light_or(Err("unreadable here".to_string()), 7), 7);
+        assert!(w.sees_or(Err("unreadable here".to_string()), true));
+        assert!(w.errors.is_empty(), "nothing in the errors before a tick");
+        w.tick();
+        assert_eq!(w.errors, vec!["unreadable here".to_string()], "the tick moved it, once");
+        assert_eq!(w.light_or(Err("again".to_string()), 0), 0);
+        assert_eq!(w.take_light_errors(), vec!["again".to_string()], "a judge takes it");
+        w.tick();
+        assert_eq!(w.errors, vec!["unreadable here".to_string()], "taken: the tick has none to move");
+        assert_eq!(w.light_or(Ok(12), 0), 12, "a read that works is its value");
+        assert!(w.take_light_errors().is_empty());
+    }
 
     /// An open detector's power at day time `day` with the weather levels held (`rain`, `thunder`): the
     /// detector's own computation (`updateSignalStrength`) on an open sky of 15.

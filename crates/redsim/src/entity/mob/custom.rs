@@ -243,7 +243,7 @@ fn phantoms(w: &mut World, c: &mut Custom) {
         return;
     }
     let Some(p) = player_block(w) else { return };
-    let sky = crate::weather::can_see_sky(w, p).unwrap_or(true);
+    let sky = w.sees_or(crate::weather::can_see_sky(w, p), true);
     if p.y < c.sea_level || !sky {
         return;
     }

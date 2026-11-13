@@ -752,7 +752,7 @@ impl World {
             if open {
                 return 15;
             }
-            let bottom = self.sky_light(BlockPos::new(p.x, self.min.y, p.z)).unwrap_or(0);
+            let bottom = self.light_or(self.sky_light(BlockPos::new(p.x, self.min.y, p.z)), 0);
             return (bottom - (self.min.y - y)).max(0);
         }
         let Some(imported) = self.outside_chunk(p) else { return 15 };
@@ -762,17 +762,52 @@ impl World {
         l.outer_sky.get(&p).copied().unwrap_or(if imported { 0 } else { 15 }) as i32
     }
 
-    /// `getBrightness(LightLayer.BLOCK, pos)` (a world without land: no block light is modeled
-    /// there; `Err` when a light source is in it). Outside the box: the stored light of the
-    /// sample's chunks ([`Land::outer_block`]), else 0.
+    /// `getBrightness(LightLayer.BLOCK, pos)`. A terrain world: its land's stored light; outside the
+    /// box, the stored light of the sample's chunks ([`Land::outer_block`]), else 0. A world without
+    /// land (cc767b78, ironspec 12:54: it was an error its callers read as 0): the block table's light
+    /// sources propagated by the light engine (`daylight::block_light_landless`), `Err` where a cell
+    /// near `p` has no modeled light behaviour.
     pub fn block_light(&self, p: BlockPos) -> Result<i32, String> {
         match self.land.as_ref() {
             Some(l) => Ok(match self.light_index(p) {
                 Some(i) => l.block[i] as i32,
                 None => l.outer_block.get(&p).copied().unwrap_or(0) as i32,
             }),
-            None => Err("block light is modeled in terrain worlds only".into()),
+            None => crate::daylight::block_light_landless(self, p),
         }
+    }
+
+    /// A light read whose caller can't return the error (cc767b78, ironspec 12:54: no light read is
+    /// silently defaulted): its value; on an error, `fallback`, with the error recorded where it
+    /// surfaces: the next tick moves it into [`World::errors`] (a run's judge fails on those), and a
+    /// judge that reads without ticking takes them with [`World::take_light_errors`] and refuses.
+    pub fn light_or(&self, r: Result<i32, String>, fallback: i32) -> i32 {
+        r.unwrap_or_else(|e| {
+            self.note_light_error(e);
+            fallback
+        })
+    }
+
+    /// [`World::light_or`] for a yes-or-no light read (`canSeeSky`, a sky light test).
+    pub fn sees_or(&self, r: Result<bool, String>, fallback: bool) -> bool {
+        r.unwrap_or_else(|e| {
+            self.note_light_error(e);
+            fallback
+        })
+    }
+
+    fn note_light_error(&self, e: String) {
+        if let Ok(mut v) = self.sky_cache.read_errors.lock()
+            && !v.contains(&e)
+        {
+            v.push(e);
+        }
+    }
+
+    /// The light reads that failed since the last tick (or the last take), taken: a judge that reads
+    /// light without ticking refuses its verdict on any.
+    pub fn take_light_errors(&self) -> Vec<String> {
+        self.sky_cache.read_errors.lock().map(|mut v| std::mem::take(&mut *v)).unwrap_or_else(|_| vec!["the light read errors' lock is poisoned".to_string()])
     }
 
     /// `getRawBrightness(pos, darken)` = `max(block, sky - darken)`.
