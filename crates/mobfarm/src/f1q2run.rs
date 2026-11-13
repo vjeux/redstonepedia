@@ -3731,6 +3731,9 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     let mut junction_passes: Vec<(i64, [i32; 3], &'static str, Option<usize>, f64)> = Vec::new();
     // (ironspec 12:58) every entry into the shared lift's mouth: (tick, cart, class)
     let mut lift_entries: Vec<(i64, u32, &'static str)> = Vec::new();
+    // (dfb89499 14:19) every entry into the column's y-12 cell (-5,12,7): (tick, cart, class, pass or
+    // lane 7's side entry)
+    let mut y12_entries: Vec<(i64, u32, &'static str, &'static str)> = Vec::new();
     // (ironspec 11:48 / 11:50) per lane each returning napper's stored speed entering its own K (speed,
     // tick, cart), and each napper cart's first rest on its siding's R (z in the design frame, tick,
     // cart); the open R visits (cart -> resting already recorded)
@@ -6934,6 +6937,14 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 if c[0] == -5 && c[2] == 7 && (1..=3).contains(&c[1]) && !(p[0] == -5 && p[2] == 7) {
                     let napper = e.passengers.first().is_some_and(|r| nappers.iter().any(|(v, _, _)| v == r) && recs.get(r).is_some_and(|rr| rr.milestones.iter().any(|(m, _)| m == "at R") && !rr.milestones.iter().any(|(m, _)| m == "back in its lane")));
                     lift_entries.push((rel, e.id, if napper { "napper" } else { "batch" }));
+                }
+                // (dfb89499 14:19, ironspec 14:13 (3)(a)) the column's y-12 cell (-5,12,7): a cart
+                // entering it from below (a pass: rising in the column) or from the braked slope
+                // (-4,12,7) (lane 7's side entry), with its class
+                if c == [-5, 12, 7] && p != c {
+                    let napper = e.passengers.first().is_some_and(|r| nappers.iter().any(|(v, _, _)| v == r) && recs.get(r).is_some_and(|rr| rr.milestones.iter().any(|(m, _)| m == "at R") && !rr.milestones.iter().any(|(m, _)| m == "back in its lane")));
+                    let how = if p == [-4, 12, 7] { "entry" } else { "pass" };
+                    y12_entries.push((rel, e.id, if napper { "napper" } else { "batch" }, how));
                 }
                 // (day-1 11:36 / ironspec 11:40 (3)) every cart's entry into a split junction's cell
                 // (J (x,25,9) or K (x-2,25,9)), a lane's D (x,24,8) or the row's end (8,25,9): its tick,
@@ -10159,6 +10170,30 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 lift_entries.len(),
                 if rows.is_empty() { "no pair".to_string() } else { rows.join("; ") },
                 if lift_entries.len() < 2 { "NOT JUDGED (no pair): FAIL" } else if ok { "PASS" } else { "FAIL" }
+            )
+        };
+        // (G1 12:50 / ironspec 12:54 (1), evidence keying's swaps) the in-batch swap rate: each REL's
+        // (dfb89499 14:19, ironspec 14:13 (3)(a)) the y-12 pairs: consecutive entries into (-5,12,7)
+        // (a pass rising in the column, lane 7's side entry from (-4,12,7)), per pair class, bar >= 16
+        let s = {
+            let mut per: BTreeMap<String, Vec<i64>> = BTreeMap::new();
+            for w2 in y12_entries.windows(2) {
+                per.entry(format!("{} {} -> {} {}", w2[0].2, w2[0].3, w2[1].2, w2[1].3)).or_default().push(w2[1].0 - w2[0].0);
+            }
+            let least = per.values().filter_map(|v| v.iter().min().copied()).min();
+            let rows: Vec<String> = per
+                .iter_mut()
+                .map(|(c, v)| {
+                    v.sort();
+                    format!("{c}: n {}, the least {} gt, median {}", v.len(), v[0], v[v.len() / 2])
+                })
+                .collect();
+            format!(
+                "{s}the y-12 pairs (dfb89499 14:19 / ironspec 14:13 (3)(a): consecutive entries into the column's cell (-5,12,7), a pass rising in the column or lane 7's side entry from the braked slope (-4,12,7); bar >= 16, every pair): {} entries; {}; the least {} ({})\n",
+                y12_entries.len(),
+                if rows.is_empty() { "no pair".to_string() } else { rows.join("; ") },
+                least.map_or("-".to_string(), |m| format!("{m} gt")),
+                if y12_entries.len() < 2 { "NOT JUDGED (no pair): FAIL" } else if least.is_some_and(|m| m >= 16) { "PASS" } else { "FAIL" }
             )
         };
         // (G1 12:50 / ironspec 12:54 (1), evidence keying's swaps) the in-batch swap rate: each REL's
