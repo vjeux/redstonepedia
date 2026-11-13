@@ -1989,8 +1989,9 @@ pub fn settled_junctions(spec: &FarmSpec) -> Result<Vec<([i32; 3], redsim::block
 /// as its labelled opt-out): every plain rail joined to three or four rails is settled as the game
 /// would at its first update, for its signal at rest; a stored shape the game would not keep fails
 /// the file (a part turned or mirrored from where it was designed: the settle order is fixed).
-/// Both power states are printed for each junction.
-pub fn junction_gate(spec: &FarmSpec, design_text: &str) -> (String, bool) {
+/// Both power states are printed for each junction; with `print_all` every junction is printed, a
+/// failing one with its verdict (ironspec Nov 12 16:17).
+pub fn junction_gate_opts(spec: &FarmSpec, design_text: &str, print_all: bool) -> (String, bool) {
     let o = RunOpts { ai: false, ..RunOpts::steady(1, 0, WalkMode::Random) };
     // (a part with no bed is built homeless, so its junctions are checked too, ironspec Nov 11 16:03)
     let built = if spec.has_bed() { Run::new(spec, &o) } else { Run::new_homeless(spec, &o) };
@@ -2100,10 +2101,27 @@ pub fn junction_gate(spec: &FarmSpec, design_text: &str) -> (String, bool) {
         if listed.is_empty() { String::new() } else { format!(", {} declared placement-order (expected FAIL)", listed.len()) },
         if flags.is_empty() { String::new() } else { format!(", {} flagged", flags.len()) }
     );
-    let mut body: Vec<String> = if bad.is_empty() { all } else { bad.clone() };
-    body.extend(listed.iter().cloned());
+    // (ironspec Nov 12 16:17: --all prints every junction, a failing one with its verdict and a
+    // declared placement-order one with its DECLARED line, each once)
+    let mut body: Vec<String> = if print_all {
+        all.iter()
+            .map(|l| {
+                let key = format!("{l}:");
+                bad.iter().find(|b| b.starts_with(&key)).map(|b| format!("FAIL {b}")).or_else(|| listed.iter().find(|d| d.starts_with(&key)).cloned()).unwrap_or_else(|| l.clone())
+            })
+            .collect()
+    } else {
+        let mut b: Vec<String> = if bad.is_empty() { all } else { bad.clone() };
+        b.extend(listed.iter().cloned());
+        b
+    };
     body.extend(flags.iter().map(|f| format!("FLAG {f}")));
     (format!("{head}{}", body.iter().map(|l| format!("\n  {l}")).collect::<String>()), !bad.is_empty())
+}
+
+/// `junction_gate_opts`, printing the failing junctions only (every one when none fails).
+pub fn junction_gate(spec: &FarmSpec, design_text: &str) -> (String, bool) {
+    junction_gate_opts(spec, design_text, false)
 }
 
 /// The walk-target static check (`mobfarm flee-check`, tick-exact 8ab79c1dc) as the bench's default

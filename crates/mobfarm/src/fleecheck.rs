@@ -946,19 +946,27 @@ pub fn clear_rate(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32;
         Ok((p.panic_stroll.reached_share, p.panic_stroll.risk(), p.panic_stroll.cells, p.seen))
     };
     // (the base's cells, each with the chance one stroll event picks it and whether a complete path
-    // reaches it: to reconcile with tick-exact's landed draws)
-    let base_cells = {
+    // reaches it: to reconcile with tick-exact's landed draws; and, ironspec Nov 12 16:39, the calm
+    // villager's sources there, every candidate reached or not: IDLE's stroll (10/7) and its walks
+    // to a rider it sees within 8)
+    let (base_cells, idle_line) = {
         let ps = check_inner(spec, home, &[], panic_boxes, true, claims, pills, Some(place), at.as_slice())?;
+        let list = |s: &Source| s.reached.iter().map(|(c, sh)| format!("{},{},{} {:.1}% reached", c.x, c.y, c.z, sh * 100.0)).chain(s.unreached.iter().map(|(c, sh)| format!("{},{},{} {:.1}% UNREACHED", c.x, c.y, c.z, sh * 100.0))).collect::<Vec<_>>().join(", ");
         ps.iter()
             .find(|p| p.cell == place && !p.on_foot)
             .map(|p| {
-                p.panic_stroll
-                    .reached
-                    .iter()
-                    .map(|(c, s)| format!("{},{},{} {:.1}% reached", c.x, c.y, c.z, s * 100.0))
-                    .chain(p.panic_stroll.unreached.iter().map(|(c, s)| format!("{},{},{} {:.1}% unreached", c.x, c.y, c.z, s * 100.0)))
-                    .collect::<Vec<_>>()
-                    .join(", ")
+                (
+                    list(&p.panic_stroll),
+                    format!(
+                        "  IDLE there (calm, ironspec Nov 12 16:39): the stroll (10/7): {} cells, {} unreached ({}); the walks to a rider it sees within 8: {} riders' cells, {} unreached ({})",
+                        p.stroll.cells,
+                        p.stroll.unreached.len(),
+                        list(&p.stroll),
+                        p.others.cells,
+                        p.others.unreached.len(),
+                        list(&p.others)
+                    ),
+                )
             })
             .unwrap_or_default()
     };
@@ -981,6 +989,9 @@ pub fn clear_rate(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32;
         pnull0,
         pm(pnull0)
     ));
+    if !idle_line.is_empty() {
+        lines.push(idle_line);
+    }
     let solid: std::collections::HashSet<BlockPos> = spec.blocks.iter().filter(|(_, b)| !b.to_string().ends_with(":air")).map(|(p, _)| *p).collect();
     let rails: std::collections::HashSet<BlockPos> = spec.blocks.iter().filter(|(_, b)| b.to_string().contains("rail")).map(|(p, _)| *p).collect();
     let cart_space = |p: BlockPos| rails.contains(&p) || rails.contains(&BlockPos::new(p.x, p.y - 1, p.z)) || rails.contains(&BlockPos::new(p.x, p.y - 2, p.z));
@@ -2728,7 +2739,7 @@ pub fn caller_sight(spec: &FarmSpec, pills: &[Vec3], callers: &[(String, Vec3)])
                 continue;
             }
             let s = redsim::entity::mob::los::has_line_of_sight(w, eye, Vec3::new(f.x, f.y + 1.74, f.z));
-            (if s { &mut seen } else { &mut hidden }).push((d, format!("the zombie at {:.1},{:.1},{:.1} at {d:.2}", z.x, z.y, z.z)));
+            (if s { &mut seen } else { &mut hidden }).push((d, format!("the zombie at {:.1},{:.1},{:.1} at {d:.2} ({}, ironspec Nov 12 16:02)", z.x, z.y, z.z, if d >= FLEE_BAR { format!("+{:.2} over the {FLEE_BAR} flee bar", d - FLEE_BAR) } else { format!("{:.2} INSIDE the {FLEE_BAR} flee bar: the flee runs", d - FLEE_BAR) })));
         }
         for f in pills {
             let d = dist(*f, *p);
@@ -2789,21 +2800,198 @@ enum TailNode {
 }
 
 /// The track a rider travels, for the shortest-time walks (the tail, the hidden positions' times,
-/// the stale-path hazard): the design's rail cells (either way along a rail) and the `columns`
-/// (x, y_from, z, y_to, every 0.25, only from y_from toward y_to, entered at the start from the
-/// rails around it and left at the end); a `rests` cell (a hold) stops a walk.
+/// the stale-path hazard): the design's rail cells and the `columns` (x, y_from, z, y_to, every
+/// 0.25, only from y_from toward y_to, entered at the start from the rails around it and left at
+/// the end); a `rests` cell (a hold) stops a walk. Along a rail either way, until `orient` keeps
+/// each link to the way carts travel it (ironspec Nov 12 16:02, the default).
 struct Track<'a> {
     rails: HashMap<BlockPos, String>,
     columns: &'a [[f64; 4]],
     col_len: Vec<usize>,
     rests: &'a [BlockPos],
+    /// (`orient`) the moves the walks may take; `None`: every move, either way along a rail.
+    allowed: Option<std::collections::HashSet<(TailNode, TailNode)>>,
+    /// The design's signal sources (a lever, torch, repeater, comparator, detector rail, redstone
+    /// block or dust, button, observer, plate, ...): a junction with one within Manhattan 2 may be
+    /// switched (ironspec's rule for placement-order Ts), so its shapes orient nothing.
+    sources: Vec<BlockPos>,
 }
 
 impl<'a> Track<'a> {
     fn new(spec: &FarmSpec, columns: &'a [[f64; 4]], rests: &'a [BlockPos]) -> Track<'a> {
         let rails = spec.blocks.iter().filter(|(_, b)| b.to_string().contains("rail")).map(|(p, b)| (*p, b.to_string())).collect();
         let col_len = columns.iter().map(|c| ((c[3] - c[1]).abs() / 0.25).round() as usize + 1).collect();
-        Track { rails, columns, col_len, rests }
+        const SOURCES: [&str; 17] = ["lever", "redstone_torch", "redstone_wall_torch", "repeater", "comparator", "detector_rail", "redstone_block", "redstone_wire", "_button", "observer", "pressure_plate", "daylight_detector", "minecraft:target", "trapped_chest", "tripwire_hook", "lectern", "sculk_sensor"];
+        let sources = spec.blocks.iter().filter(|(_, b)| {
+            let s = b.to_string();
+            SOURCES.iter().any(|k| s.contains(k))
+        }).map(|(p, _)| *p).collect();
+        Track { rails, columns, col_len, rests, allowed: None, sources }
+    }
+
+    /// (ironspec Nov 12 16:02: the direction-aware walk, the default; `--two-way` keeps the old
+    /// walk) Keep each link of the track to the way carts travel it: a link is oriented by a
+    /// column (its own steps, entered at its start, left at its end), by its rails' shapes when
+    /// only one of the two points to the other (a merge through a curve's free side runs into the
+    /// curve only), or by a declared `travel` path (A>B>C: each step one way, a run's evidence its
+    /// reason); an oriented link orients its 2-arm chain (a cart leaves a cell by its other arm),
+    /// and a junction whose arms are all known but one, every known one into it (out of it),
+    /// has that one out of it (into it). A `reversal` cell (a run shows a cart turning back
+    /// there) keeps its links both ways, carried along the chain the same way; a link nothing
+    /// orients stays both ways (printed), and so does one oriented both ways (a conflict, printed).
+    fn orient(&mut self, travel: &[Vec<BlockPos>], reversal: &[BlockPos]) -> Vec<String> {
+        use std::collections::{BTreeSet, HashSet};
+        self.allowed = None;
+        let mut nodes: Vec<TailNode> = self.rails.keys().map(|c| TailNode::Rail(c.x, c.y, c.z)).collect();
+        for k in 0..self.columns.len() {
+            for i in 0..self.col_len[k] {
+                nodes.push(TailNode::Col(k, i));
+            }
+        }
+        let mut e: HashSet<(TailNode, TailNode)> = HashSet::new();
+        for n in &nodes {
+            for (m, _) in self.edges(*n) {
+                e.insert((*n, m));
+            }
+        }
+        let mut adj: HashMap<TailNode, BTreeSet<TailNode>> = HashMap::new();
+        for (a, b) in &e {
+            adj.entry(*a).or_default().insert(*b);
+            adj.entry(*b).or_default().insert(*a);
+        }
+        let rail = |c: &BlockPos| TailNode::Rail(c.x, c.y, c.z);
+        // (a junction with a signal source within Manhattan 2 may be switched: its stored shape
+        // tells nothing of the way carts take it, so a link one way by shapes there orients nothing)
+        let switched: HashSet<TailNode> = adj
+            .iter()
+            .filter(|(n, arms)| arms.len() >= 3 && matches!(n, TailNode::Rail(..)))
+            .filter_map(|(n, _)| match n {
+                TailNode::Rail(x, y, z) => self.sources.iter().any(|s| (s.x - x).abs() + (s.y - y).abs() + (s.z - z).abs() <= 2).then_some(*n),
+                _ => None,
+            })
+            .collect();
+        let mut f: HashSet<(TailNode, TailNode)> = HashSet::new();
+        let mut queue: Vec<(TailNode, TailNode)> = Vec::new();
+        let (mut by_col, mut by_shape, mut by_decl) = (0usize, 0usize, 0usize);
+        let mut warn: Vec<String> = Vec::new();
+        for (a, b) in &e {
+            if matches!(a, TailNode::Col(..)) || matches!(b, TailNode::Col(..)) {
+                if f.insert((*a, *b)) {
+                    queue.push((*a, *b));
+                    by_col += 1;
+                }
+            } else if !e.contains(&(*b, *a)) && !switched.contains(a) && !switched.contains(b) && f.insert((*a, *b)) {
+                queue.push((*a, *b));
+                by_shape += 1;
+            }
+        }
+        for path in travel {
+            for w in path.windows(2) {
+                let (a, b) = (rail(&w[0]), rail(&w[1]));
+                if e.contains(&(a, b)) {
+                    if f.insert((a, b)) {
+                        queue.push((a, b));
+                    }
+                    by_decl += 1;
+                } else {
+                    warn.push(format!("--travel {},{},{}>{},{},{}: no move of the track joins them that way", w[0].x, w[0].y, w[0].z, w[1].x, w[1].y, w[1].z));
+                }
+            }
+        }
+        // (a cart leaves a 2-arm cell by its other arm; a junction with every known arm one way
+        // and one unknown has that one the other way)
+        fn propagate(e: &HashSet<(TailNode, TailNode)>, adj: &HashMap<TailNode, BTreeSet<TailNode>>, f: &mut HashSet<(TailNode, TailNode)>, mut queue: Vec<(TailNode, TailNode)>) {
+            let is_chain = |n: &TailNode| matches!(n, TailNode::Rail(..)) && adj.get(n).is_some_and(|s| s.len() == 2);
+            while let Some((a, b)) = queue.pop() {
+                let mut next: Vec<(TailNode, TailNode)> = Vec::new();
+                if is_chain(&b) {
+                    let other = *adj[&b].iter().find(|x| **x != a).expect("two arms");
+                    next.push((b, other));
+                }
+                if is_chain(&a) {
+                    let other = *adj[&a].iter().find(|x| **x != b).expect("two arms");
+                    next.push((other, a));
+                }
+                for j in [a, b] {
+                    let Some(arms) = adj.get(&j) else { continue };
+                    if !matches!(j, TailNode::Rail(..)) || arms.len() < 3 {
+                        continue;
+                    }
+                    let ins = arms.iter().filter(|x| f.contains(&(**x, j))).count();
+                    let outs = arms.iter().filter(|x| f.contains(&(j, **x))).count();
+                    let unknown: Vec<TailNode> = arms.iter().filter(|x| !f.contains(&(**x, j)) && !f.contains(&(j, **x))).copied().collect();
+                    if unknown.len() == 1 {
+                        if outs == 0 && ins > 0 {
+                            next.push((j, unknown[0]));
+                        } else if ins == 0 && outs > 0 {
+                            next.push((unknown[0], j));
+                        }
+                    }
+                }
+                for (x, y) in next {
+                    if e.contains(&(x, y)) && f.insert((x, y)) {
+                        queue.push((x, y));
+                    }
+                }
+            }
+        }
+        propagate(&e, &adj, &mut f, queue);
+        // (the reversals on top: a link both ways from them is a reversal's, not a conflict)
+        let f1 = f.clone();
+        let rev_cells: HashSet<TailNode> = reversal.iter().map(rail).collect();
+        let mut rq: Vec<(TailNode, TailNode)> = Vec::new();
+        for c in &rev_cells {
+            for m in adj.get(c).cloned().unwrap_or_default() {
+                for (a, b) in [(*c, m), (m, *c)] {
+                    if e.contains(&(a, b)) && f.insert((a, b)) {
+                        rq.push((a, b));
+                    }
+                }
+            }
+        }
+        propagate(&e, &adj, &mut f, rq);
+        let name = |n: &TailNode| match n {
+            TailNode::Rail(x, y, z) => format!("{x},{y},{z}"),
+            TailNode::Col(k, i) => {
+                let p = self.col_pos(*k, *i);
+                format!("column {:.2},{:.2},{:.2}", p.x, p.y, p.z)
+            }
+        };
+        let mut allowed: HashSet<(TailNode, TailNode)> = HashSet::new();
+        let (mut one_way, mut undecided, mut both, mut conflict): (usize, BTreeSet<String>, usize, BTreeSet<String>) = (0, BTreeSet::new(), 0, BTreeSet::new());
+        for (a, b) in &e {
+            let (fwd, back) = (f.contains(&(*a, *b)), f.contains(&(*b, *a)));
+            if fwd || !back {
+                allowed.insert((*a, *b));
+            }
+            let key = if a < b { format!("{}-{}", name(a), name(b)) } else { format!("{}-{}", name(b), name(a)) };
+            if fwd && back {
+                if f1.contains(&(*a, *b)) && f1.contains(&(*b, *a)) {
+                    conflict.insert(key);
+                } else {
+                    both += 1;
+                }
+            } else if !fwd && !back {
+                undecided.insert(key);
+            } else if fwd {
+                one_way += 1;
+            }
+        }
+        self.allowed = Some(allowed);
+        let mut out = vec![format!(
+            "travel (the direction-aware walk, ironspec Nov 12 16:02; --two-way for the old walk): {one_way} moves one way ({by_col} column moves, {by_shape} links one way by their rails' shapes away from switched junctions ({} junctions with a signal source within Manhattan 2, whose shapes orient nothing), {by_decl} declared --travel steps, the rest carried along chains and through junctions), {both} reversal moves both ways (--reversal), {} links both ways where nothing orients them, {} links oriented both ways (a conflict: kept both ways)",
+            switched.len(),
+            undecided.len(),
+            conflict.len()
+        )];
+        if !undecided.is_empty() {
+            out.push(format!("  both ways, nothing orients them (declare --travel A>B with a run's evidence): {}", undecided.iter().cloned().collect::<Vec<_>>().join("; ")));
+        }
+        if !conflict.is_empty() {
+            out.push(format!("  oriented both ways (a conflict: a --reversal if a run shows one, else a wrong --travel): {}", conflict.iter().cloned().collect::<Vec<_>>().join("; ")));
+        }
+        out.extend(warn.into_iter().map(|w| format!("  {w}")));
+        out
     }
 
     fn col_pos(&self, k: usize, i: usize) -> Vec3 {
@@ -2905,6 +3093,9 @@ impl<'a> Track<'a> {
                 }
             }
         }
+        if let Some(a) = &self.allowed {
+            next.retain(|(m, _)| a.contains(&(n, *m)));
+        }
         next
     }
 
@@ -3001,13 +3192,18 @@ impl<'a> Track<'a> {
 /// 2/2) and each one's reachability from that position by the villager's own pathfinder, a partial
 /// path counting as not reached; FAIL at every panicking position with an unreached candidate,
 /// printed by class (each unreached candidate cell with the positions that draw it, how many of
-/// them in a tail); with `list` every panicking position too. Returns the lines and the count of
-/// undeclared track ends a walk reaches with time left (ironspec Nov 12 16:23: the caller fails
-/// on that number, never on a printed line's text).
-pub fn clear_all(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32; 3], [i32; 3])], claims: &[BlockPos], pills: &[Vec3], columns: &[[f64; 4]], tail_gt: f64, rests: &[BlockPos], list: bool, idle: bool, watch: &[([i32; 3], [i32; 3])], approach: &[(BlockPos, f64)], late_gt: f64, ends_declared: &[(BlockPos, String)]) -> Result<(Vec<String>, usize), String> {
+/// them in a tail); with `list` every panicking position too. Returns the lines and the verdict's
+/// counts (ironspec Nov 12 16:23 / 16:52, G1: the caller fails on these numbers, never on a
+/// printed line's text). The walks follow the way carts travel each
+/// link (`Track::orient`, by the columns, one-way shapes and `travel`, `reversal` both ways),
+/// unless `two_way` (ironspec Nov 12 16:02).
+pub fn clear_all(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32; 3], [i32; 3])], claims: &[BlockPos], pills: &[Vec3], columns: &[[f64; 4]], tail_gt: f64, rests: &[BlockPos], list: bool, idle: bool, watch: &[([i32; 3], [i32; 3])], approach: &[(BlockPos, f64)], late_gt: f64, ends_declared: &[(BlockPos, String)], travel: &[Vec<BlockPos>], reversal: &[BlockPos], two_way: bool) -> Result<(Vec<String>, ClearVerdict), String> {
     let mut pos = rider_positions(spec);
     let mut col_of: Vec<Option<(usize, usize)>> = vec![None; pos.len()];
-    let track = Track::new(spec, columns, rests);
+    let mut track = Track::new(spec, columns, rests);
+    // (ironspec Nov 12 16:02: the walks follow the way carts travel each link, by default)
+    let travel_lines = if two_way { vec!["travel: --two-way: every rail link walked either way (the old walk)".to_string()] } else { track.orient(travel, reversal) };
+    let track = track;
     for (k, _) in columns.iter().enumerate() {
         // (a column x, y_from, z, y_to: riders travel from y_from to y_to, a drop downward, a lift
         // upward)
@@ -3513,8 +3709,22 @@ pub fn clear_all(spec: &FarmSpec, home: Option<BlockPos>, panic_boxes: &[([i32; 
         }
     ));
     lines.extend(end_lines);
+    lines.extend(travel_lines);
     lines.extend(listed);
-    Ok((lines, undeclared_ends))
+    Ok((lines, ClearVerdict { undeclared_ends, gate_fails: fails, late_fails: late_positions, stale: stale.len(), hazards: n_haz }))
+}
+
+/// `clear_all`'s verdict, as numbers (ironspec Nov 12 16:23 / 16:52, G1: the command fails on
+/// these, never on a printed line): undeclared track ends a walk reaches with time left, the
+/// gate's failing positions (none-or-all), the late-path's failing nodes, the staleness failures,
+/// and the stale-path hazards (reported).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ClearVerdict {
+    pub undeclared_ends: usize,
+    pub gate_fails: usize,
+    pub late_fails: usize,
+    pub stale: usize,
+    pub hazards: usize,
 }
 
 #[cfg(test)]

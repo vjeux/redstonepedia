@@ -907,6 +907,10 @@ pub enum MobfarmCmd {
     /// states printed); exit status 1 when a stored shape would re-settle at its first update.
     JunctionCheck {
         design: PathBuf,
+        /// Print every junction (a failing one with its verdict), not only the failing ones
+        /// (ironspec Nov 12 16:17: the split row's Ts, stored and settle shapes).
+        #[arg(long)]
+        all: bool,
     },
     /// (9fc3155f, ironspec Nov 11 20:55: tiling) The cross-module margins of the design tiled with
     /// a copy of itself: per --at offset (`dx,dy,dz`, or `dx,dy,dz,m` mirrored in z first), (a) a
@@ -1244,6 +1248,23 @@ pub enum MobfarmCmd {
         /// Nov 12 15:03). A --tail-rest declares its cell too.
         #[arg(long, allow_hyphen_values = true)]
         track_end: Vec<String>,
+        /// (ironspec Nov 12 16:02: the direction-aware walk, the default) A path the carts travel
+        /// one way, x,y,z>x,y,z>... (each step a move of the track; repeatable): it orients the
+        /// links the track's columns and one-way shapes leave both ways (a run's evidence its reason).
+        #[arg(long, allow_hyphen_values = true)]
+        travel: Vec<String>,
+        /// A cell where a run shows a cart turning back (x,y,z; repeatable): its links, and their
+        /// chains, walked both ways.
+        #[arg(long, allow_hyphen_values = true)]
+        reversal: Vec<String>,
+        /// The old walk: every rail link either way (a conservative bound).
+        #[arg(long)]
+        two_way: bool,
+        /// (ironspec Nov 12 16:52, G1) A pricing run: the gate's FAIL, the late paths, the
+        /// staleness and the caller sight print without failing the run (by default each fails
+        /// it); undeclared track ends still fail.
+        #[arg(long)]
+        report_only: bool,
         /// A caller's rest point x,y,z (a pocket rider's cart, repeatable; default: the design's
         /// `run-cells:` P0, P1, ... cells, the cart at the cell's centre over the rail): the caller
         /// sight row (ironspec Nov 12 15:35, permanent with --clear-all): every hostile within the
@@ -11630,9 +11651,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::JunctionCheck { design } => {
+        MobfarmCmd::JunctionCheck { design, all } => {
             let (_c, spec) = load(version, &design)?;
-            let (text, failed) = crate::queue::junction_gate(&spec, &std::fs::read_to_string(&design)?);
+            let (text, failed) = crate::queue::junction_gate_opts(&spec, &std::fs::read_to_string(&design)?, all);
             println!("{text}");
             // (ironspec Nov 12 02:46: placement-order shapes are accepted: each T's placement order
             // for the build guide, and the signal-source updates that can reach it)
@@ -11645,7 +11666,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 std::process::exit(1);
             }
         }
-        MobfarmCmd::FleeCheck { design, home, show, foot, clearing, eye_control, pickup_control, sampled, claim, classes, fix_search, fix_pairs, fix_block, clear_rate, clear_floors, clear_all, clear_tail, clear_list, tail_rest, clear_panic_only, allow_unsupported, candidate_box, approach, late_gt, path_probe, auto_columns, track_end, caller, path_watch, path_trace, scarer_search, scarer, scarer_rider, scarer_max, scarer_any_floor, scarer_walls, scarer_target, scarer_exact, scarer_check, scarer_transient, scarer_column, scarer_occlude, hide_point, hide_column, hide_rails, scarer_mix, scarer_visor, scarer_exclude, pillager, golem_reach, golem_pad, scarer_near, post_drift, drift_ticks } => {
+        MobfarmCmd::FleeCheck { design, home, show, foot, clearing, eye_control, pickup_control, sampled, claim, classes, fix_search, fix_pairs, fix_block, clear_rate, clear_floors, clear_all, clear_tail, clear_list, tail_rest, clear_panic_only, allow_unsupported, candidate_box, approach, late_gt, path_probe, auto_columns, track_end, caller, travel, reversal, two_way, report_only, path_watch, path_trace, scarer_search, scarer, scarer_rider, scarer_max, scarer_any_floor, scarer_walls, scarer_target, scarer_exact, scarer_check, scarer_transient, scarer_column, scarer_occlude, hide_point, hide_column, hide_rails, scarer_mix, scarer_visor, scarer_exclude, pillager, golem_reach, golem_pad, scarer_near, post_drift, drift_ticks } => {
             if let Some(oc) = &scarer_occlude {
                 let v: Vec<&str> = oc.split(',').collect();
                 anyhow::ensure!(v.len() == 4, "--scarer-occlude x,y,z,pillager|zombie");
@@ -11889,13 +11910,31 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     anyhow::ensure!(v.len() == 3, "--track-end {e}: x,y,z=REASON");
                     ends_decl.push((redsim::pos::BlockPos::new(v[0], v[1], v[2]), reason.trim().to_string()));
                 }
-                let (cl_lines, undeclared_ends) = crate::fleecheck::clear_all(&spec, bed, &panic_boxes, &claims, &pills, &cols, clear_tail, &rests, clear_list, !clear_panic_only, &watch, &appr, late_gt, &ends_decl).map_err(|e| anyhow::anyhow!(e))?;
+                // (ironspec Nov 12 16:02: the direction-aware walk, the default)
+                let mut travel_paths: Vec<Vec<redsim::pos::BlockPos>> = Vec::new();
+                for t in &travel {
+                    let mut path = Vec::new();
+                    for c in t.split('>') {
+                        let v: Vec<i32> = c.split(',').map(|s| s.trim().parse::<i32>()).collect::<Result<_, _>>()?;
+                        anyhow::ensure!(v.len() == 3, "--travel {t}: x,y,z>x,y,z>...");
+                        path.push(redsim::pos::BlockPos::new(v[0], v[1], v[2]));
+                    }
+                    anyhow::ensure!(path.len() >= 2, "--travel {t}: at least two cells");
+                    travel_paths.push(path);
+                }
+                let mut rev_cells: Vec<redsim::pos::BlockPos> = Vec::new();
+                for r in &reversal {
+                    let v: Vec<i32> = r.split(',').map(|s| s.trim().parse::<i32>()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(v.len() == 3, "--reversal {r}: x,y,z");
+                    rev_cells.push(redsim::pos::BlockPos::new(v[0], v[1], v[2]));
+                }
+                let (cl_lines, verdict) = crate::fleecheck::clear_all(&spec, bed, &panic_boxes, &claims, &pills, &cols, clear_tail, &rests, clear_list, !clear_panic_only, &watch, &appr, late_gt, &ends_decl, &travel_paths, &rev_cells, two_way).map_err(|e| anyhow::anyhow!(e))?;
                 for l in &cl_lines {
                     println!("{l}");
                 }
                 // (ironspec Nov 12 15:03: a non-zero remainder at an undeclared end fails the run;
                 // 16:23: on the count clear_all returns, never on a printed line's text)
-                anyhow::ensure!(undeclared_ends == 0, "--clear-all: {undeclared_ends} undeclared track end(s) with time left (the track ends line): the walks were truncated there");
+                anyhow::ensure!(verdict.undeclared_ends == 0, "--clear-all: {} undeclared track end(s) with time left (the track ends line): the walks were truncated there", verdict.undeclared_ends);
                 // (ironspec Nov 12 15:35, permanent: every caller's scarers at its rest point)
                 let mut callers: Vec<(String, redsim::entity::Vec3)> = Vec::new();
                 for s in &caller {
@@ -11920,7 +11959,19 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 for l in &cl {
                     println!("{l}");
                 }
-                anyhow::ensure!(blind == 0, "--clear-all: {blind} caller(s) see no scarer (the caller sight row)");
+                // (ironspec Nov 12 16:52, G1: the gate's FAIL, the late paths, the staleness and the
+                // caller sight fail the run by default, on the numbers; --report-only for a pricing
+                // run prints them without failing; undeclared track ends always fail: a truncated walk
+                // reads nothing)
+                let verdict_txt = format!(
+                    "the gate FAIL at {} positions, late paths FAIL at {} nodes, staleness FAIL at {}, {blind} caller(s) seeing no scarer",
+                    verdict.gate_fails, verdict.late_fails, verdict.stale
+                );
+                if report_only {
+                    println!("verdict (--report-only, a pricing run: not failing the run): {verdict_txt}");
+                } else {
+                    anyhow::ensure!(verdict.gate_fails == 0 && verdict.late_fails == 0 && verdict.stale == 0 && blind == 0, "--clear-all: {verdict_txt} (--report-only for a pricing run)");
+                }
             }
             for s in &clear_rate {
                 // (x,y,z integers: a rail cell; with a decimal point: a cart position, the place at it)
