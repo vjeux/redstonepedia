@@ -547,7 +547,19 @@ fails), and it's watched for SIGHT only while it holds the block. The detector's
 the 6 -> 5 off-edge with tick-exact's official off-edges exactly, each with a 1-gt-shifted control.
 `--drive-out` writes, after every `set` act, a `# expect t x y z: …` line with redsim's state before
 the write (the carts in the act's column with their riders, every hold's and pocket's cart and rider,
-by the drive's names) for a replay's divergence check.
+by the drive's names) for a replay's divergence check. A write of a cell's existing state is no write
+and no act (the game's setBlock returns early). Each requested control is judged on its own bar in
+one closing line: CONTROL CAUGHT (the bar's FAIL then reads "expected FAIL", so the exit reads every
+other bar), NOT CAUGHT, HELD (the early bystander control, which must leave the harm bar passing), or
+NOT EXERCISED. REST_l is the built counter's line (C >= 138 or C < 15); the counter's first release
+takes day-1's built formula `141 + ceil((d - 12,540) / 100)` inside EIGHT..RISE, the analytic
+detector's crossings. DAY has one reader (an error off a detector), checked at every 20-gt update
+against the analytic detector. The report adds every rider's activity across day time 11,990..12,040
+(a REST tick there fails), each lane's queue occupancy per tick with V (the slope top) at night as a
+row per stretch, every CANT_REACH arming with its clearing (or NOT CLEARED), the REST entries by cell,
+the bed's state at every dusk, and the air-supply bar (each rider's least air per lift transit, none
+below 0; `--air-control` holds the first rider to enter water 340 gt, which must fail it).
+`--restart-at T,…` adds world opens at those ticks (night opens).
 The one-in-flight bars run from the divert (a pick the divert turns away never enters the way-in;
 those print apart with their causes). SIGHT prints its crossings by ray class (each entity by its
 label or mob type).
