@@ -179,7 +179,10 @@ impl Bound {
 /// first tick), `speed_out` (returned at its last tick), `speed=A..B→C..D` (both, ironspec's form),
 /// `ref=` (the reference run: tip, command, seeds), `rate=H/N` (the reference's H hits over N samples,
 /// for the rate STALE); a bound is `KEY<=V` / `KEY≤V` (a maximum) or `KEY>=V` / `KEY≥V` (a minimum) or
-/// `KEY=A..B`, optionally `+eps=E` and ` why=TEXT` in the same part.
+/// `KEY=A..B`, optionally `+eps=E` and ` why=TEXT` in the same part. A `why=` or `ref=` text can't
+/// hold '|' or ';' (each starts the next field; ironspec 11:51 (1)(c)). A bound's VALUE is its
+/// reference's extreme (`reference_check`); a design threshold is reached with `+eps=`, its reason in
+/// `why=` (e.g. `speed_out>=0.0468+eps=0.0068 why=<the measured threshold>`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Decl {
     pub cells: Vec<BlockPos>,
@@ -261,7 +264,7 @@ pub fn declared_contacts_bounded(text: &str) -> Result<Vec<Decl>, String> {
                     }
                     reason.push_str(part);
                 } else {
-                    return Err(format!("# {key} {entry}: {part:?} is no field (face= class= ticks events depth speed speed_in speed_out ref= rate=)"));
+                    return Err(format!("# {key} {entry}: {part:?} is no field (face= class= ticks events depth speed speed_in speed_out ref= rate=; a why= or ref= text can't hold '|' or ';', which start the next field)"));
                 }
             }
             let reason = reason.trim().to_string();
@@ -389,6 +392,10 @@ pub struct Hit {
     /// The horizontal speed requested, and returned, by that move.
     pub speed_in: f64,
     pub speed_out: f64,
+    /// The row's sample this hit belongs to (a pass, a visit: the unit of a declaration's `rate=`),
+    /// set by the caller (ironspec 11:51 (1)(b): a rate's numerator counts samples with a hit, not
+    /// ticks); `cart_hits` leaves it None.
+    pub sample: Option<u64>,
 }
 
 /// The entity at index `i`'s contacts over its moves of the world's current tick, as [`Hit`]s.
@@ -400,10 +407,109 @@ pub fn cart_hits(world: &World, i: usize) -> Vec<Hit> {
     for m in e.self_moves.iter().filter(|m| m.tick == t) {
         for (a, face, depth) in face_contacts_detail(&shapes, m.bb_before, (m.requested.x, m.requested.y, m.requested.z), (m.returned.x, m.returned.y, m.returned.z)) {
             let cell = BlockPos::new(((a.min_x + a.max_x) / 2.0).floor() as i32, ((a.min_y + a.max_y) / 2.0).floor() as i32, ((a.min_z + a.max_z) / 2.0).floor() as i32);
-            out.push(Hit { tick: t, cart: e.id, cell, face, depth, speed_in: m.requested.x.hypot(m.requested.z), speed_out: m.returned.x.hypot(m.returned.z) });
+            out.push(Hit { tick: t, cart: e.id, cell, face, depth, speed_in: m.requested.x.hypot(m.requested.z), speed_out: m.returned.x.hypot(m.returned.z), sample: None });
         }
     }
     out
+}
+
+/// The vertical axis's classes (G1 Nov 13 09:56, ironspec 10:54 (a)).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum VClass {
+    /// The cart's box intersects a collision shape at the tick's end (deeper than 0.01 on every axis):
+    /// a cart summoned inside a block, or pressed into one.
+    Embedded,
+    /// A collision shape's bottom face within 0.05 above the cart's box top, overlapping it by more
+    /// than 0.01 on both horizontal axes (a ceiling 0.04 above flags, 0.06 doesn't): a rising cart or a
+    /// rider-pushed one would meet it.
+    LowCeiling,
+    /// An OFF-RAIL cart's attempted move clipped downward: it came to rest on a block's top (the lip
+    /// rest on C's support is this class). On a rail the rail sets the cart's y, and its support's clip
+    /// is no contact.
+    Floor,
+    /// An off-rail cart's attempted move clipped upward: it rose into a block's bottom.
+    Ceiling,
+}
+
+/// The low-ceiling bound: a shape's bottom face this far above the cart's box top or closer.
+pub const CEILING: f64 = 0.05;
+
+/// One vertical contact: the cart, the class, the shape's cell, and the depth (the overlap for
+/// Embedded, the gap for LowCeiling, the clipped y for Floor and Ceiling).
+#[derive(Clone, Debug, PartialEq)]
+pub struct VHit {
+    pub tick: i64,
+    pub cart: u32,
+    pub class: VClass,
+    pub cell: BlockPos,
+    pub depth: f64,
+}
+
+fn cell_of(a: &Aabb) -> BlockPos {
+    BlockPos::new(((a.min_x + a.max_x) / 2.0).floor() as i32, ((a.min_y + a.max_y) / 2.0).floor() as i32, ((a.min_z + a.max_z) / 2.0).floor() as i32)
+}
+
+/// The vertical contacts of a box `end` (the cart's box at the tick's end) given its tick's moves
+/// (requested, returned, the box before each) and whether it is off its rail: LowCeiling from the end
+/// box; Embedded (from the end box) and Floor / Ceiling (from each move's clipped y) when OFF-RAIL only
+/// (ironspec 11:51 (2), the blocking finding on 6346783f0: a cart riding an ascending rail overlaps the
+/// next cell's support by more than 0.01 on every axis in normal operation (the napper resting on R at
+/// z 7.895 overlaps F's glass by 0.385 in z and 0.0425 in y), which 5fa67f60a's own negative calls
+/// normal).
+pub fn vertical_contacts(shapes: &dyn Fn(Aabb) -> Vec<Aabb>, end: Aabb, moves: &[(Aabb, (f64, f64, f64), (f64, f64, f64))], off_rail: bool) -> Vec<(VClass, Aabb, f64)> {
+    let mut out: Vec<(VClass, Aabb, f64)> = Vec::new();
+    for a in if off_rail { shapes(end) } else { Vec::new() } {
+        let ox = end.max_x.min(a.max_x) - end.min_x.max(a.min_x);
+        let oy = end.max_y.min(a.max_y) - end.min_y.max(a.min_y);
+        let oz = end.max_z.min(a.max_z) - end.min_z.max(a.min_z);
+        if ox > OVERLAP + EPS && oy > OVERLAP + EPS && oz > OVERLAP + EPS {
+            out.push((VClass::Embedded, a, ox.min(oy).min(oz)));
+        }
+    }
+    let above = Aabb::new(end.min_x, end.max_y, end.min_z, end.max_x, end.max_y + CEILING, end.max_z);
+    for a in shapes(above) {
+        let gap = a.min_y - end.max_y;
+        let ox = end.max_x.min(a.max_x) - end.min_x.max(a.min_x);
+        let oz = end.max_z.min(a.max_z) - end.min_z.max(a.min_z);
+        if gap >= -EPS && gap <= CEILING + EPS && ox > OVERLAP + EPS && oz > OVERLAP + EPS && !out.iter().any(|(c, o, _)| *c == VClass::Embedded && *o == a) {
+            out.push((VClass::LowCeiling, a, gap));
+        }
+    }
+    if off_rail {
+        for (before, req, ret) in moves {
+            if same(req.1, ret.1) {
+                continue;
+            }
+            let b = before.move_by(0.0, ret.1, 0.0);
+            let (class, probe) = if req.1 < 0.0 {
+                (VClass::Floor, Aabb::new(b.min_x, b.min_y - FACE, b.min_z, b.max_x, b.min_y, b.max_z))
+            } else {
+                (VClass::Ceiling, Aabb::new(b.min_x, b.max_y, b.min_z, b.max_x, b.max_y + FACE, b.max_z))
+            };
+            for a in shapes(probe) {
+                let ox = b.max_x.min(a.max_x) - b.min_x.max(a.min_x);
+                let oz = b.max_z.min(a.max_z) - b.min_z.max(a.min_z);
+                let face_gap = if class == VClass::Floor { b.min_y - a.max_y } else { a.min_y - b.max_y };
+                if ox > OVERLAP + EPS && oz > OVERLAP + EPS && face_gap.abs() <= FACE + EPS && !out.iter().any(|(c, o, _)| *c == class && *o == a) {
+                    out.push((class, a, (req.1 - ret.1).abs()));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// The entity at index `i`'s vertical contacts at the world's current tick (call after the tick): its
+/// box now, its SELF moves of this tick, off-rail when neither its block nor the one below is a rail.
+pub fn cart_vertical_hits(world: &World, i: usize) -> Vec<VHit> {
+    let t = world.time;
+    let e = &world.entities.list[i];
+    let shapes = |bb: Aabb| world.collision_shapes(bb);
+    let feet = BlockPos::new(e.pos.x.floor() as i32, e.pos.y.floor() as i32, e.pos.z.floor() as i32);
+    let rail = |p: BlockPos| world.get(p).to_string().contains("rail");
+    let off_rail = !rail(feet) && !rail(BlockPos::new(feet.x, feet.y - 1, feet.z));
+    let moves: Vec<(Aabb, (f64, f64, f64), (f64, f64, f64))> = e.self_moves.iter().filter(|m| m.tick == t).map(|m| (m.bb_before, (m.requested.x, m.requested.y, m.requested.z), (m.returned.x, m.returned.y, m.returned.z))).collect();
+    vertical_contacts(&shapes, e.bb, &moves, off_rail).into_iter().map(|(class, a, depth)| VHit { tick: t, cart: e.id, class, cell: cell_of(&a), depth }).collect()
 }
 
 /// The bounded judge's verdict over a row.
@@ -419,15 +525,18 @@ pub struct Verdict {
     /// times where 0 has a probability under 0.001, or met so few times that P(X <= hits) < 0.001.
     pub stale: Vec<String>,
     /// Declarations whose staleness the row can't judge (printed, not failing): a `rate=` declaration
-    /// met 0 times where 0 is not improbable (P >= 0.001), or with no samples in its unit.
+    /// met 0 times where 0 is not improbable (P >= 0.001).
     pub stale_not_judged: Vec<String>,
+    /// The caller's wiring errors (G1 Nov 13 11:20): a `rate=` declaration judged with no samples, or
+    /// with samples in another unit, FAILS loudly, naming the declaration and the row's unit.
+    pub errors: Vec<String>,
     /// Per declaration: its events over the row.
     pub events: Vec<usize>,
 }
 
 impl Verdict {
     pub fn failed(&self) -> bool {
-        !self.undeclared.is_empty() || !self.exceeded.is_empty() || !self.stalls.is_empty() || !self.stale.is_empty()
+        !self.undeclared.is_empty() || !self.exceeded.is_empty() || !self.stalls.is_empty() || !self.stale.is_empty() || !self.errors.is_empty()
     }
 }
 
@@ -482,20 +591,22 @@ pub fn binomial_cdf(k: u64, n: u64, p: f64) -> f64 {
 /// P(X <= hits) < 0.001 under the reference rate (an under-rate) is STALE too.
 pub fn judge(decls: &[Decl], hits: &[Hit], motion: &dyn Fn(u32, i64) -> Option<(f64, f64)>, stall: StallRule, samples: Option<(u64, &str)>) -> Verdict {
     let mut v = Verdict { events: vec![0; decls.len()], ..Default::default() };
-    let mut by: std::collections::BTreeMap<(usize, u32, (i32, i32, i32), Face), Vec<&Hit>> = std::collections::BTreeMap::new();
+    let mut by: std::collections::BTreeMap<(usize, u32, Face), Vec<&Hit>> = std::collections::BTreeMap::new();
     let mut per_decl_hits = vec![0usize; decls.len()];
     for h in hits {
         match decls.iter().position(|d| d.cells.contains(&h.cell) && d.face.is_none_or(|f| f == h.face)) {
             Some(di) => {
                 per_decl_hits[di] += 1;
-                by.entry((di, h.cart, (h.cell.x, h.cell.y, h.cell.z), h.face)).or_default().push(h);
+                // (ironspec 11:51 (1)(a): a declaration's cells are ONE stop: runs merge per
+                // declaration, cart and face, a tick with a hit on any of its cells)
+                by.entry((di, h.cart, h.face)).or_default().push(h);
             }
             None => v.undeclared.push(h.clone()),
         }
     }
     let moving = |cart: u32, t: i64| motion(cart, t).is_some_and(|(sp, vy)| sp > stall.min_speed || vy < -stall.min_speed);
     let mut cart_events: std::collections::BTreeMap<(usize, u32), usize> = std::collections::BTreeMap::new();
-    for ((di, cart, _, face), mut hs) in by {
+    for ((di, cart, face), mut hs) in by {
         hs.sort_by_key(|h| h.tick);
         let d = &decls[di];
         for r in events_of(&hs) {
@@ -548,6 +659,15 @@ pub fn judge(decls: &[Decl], hits: &[Hit], motion: &dyn Fn(u32, i64) -> Option<(
             }
             Some((h, nr, unit)) => {
                 let p = *h as f64 / *nr as f64;
+                // (ironspec 11:51 (1)(b): the numerator counts SAMPLES with a hit, as rate=H/N does,
+                // never hit ticks (a multi-tick contact would over-count and the under-rate fail open):
+                // the caller tags each hit with its sample (`Hit.sample`); untagged hits are an error)
+                let mine: Vec<&Hit> = hits.iter().filter(|x| d.cells.contains(&x.cell) && d.face.is_none_or(|f| f == x.face)).collect();
+                if mine.iter().any(|x| x.sample.is_none()) {
+                    v.errors.push(format!("{}: it carries rate={h}/{nr} {unit}, and its hits carry no sample: a wiring error (ironspec 11:51 (1)(b)): tag each Hit with its sample", cells_name(d)));
+                    continue;
+                }
+                let n = mine.iter().filter_map(|x| x.sample).collect::<std::collections::BTreeSet<u64>>().len() as u64;
                 match samples {
                     Some((k, u)) if u == unit => {
                         let tail = binomial_cdf(n, k, p);
@@ -559,12 +679,8 @@ pub fn judge(decls: &[Decl], hits: &[Hit], motion: &dyn Fn(u32, i64) -> Option<(
                             v.stale.push(format!("{}: {n} hits over {k} {unit}, under the reference's {h}/{nr}: P(X <= {n}) = {tail:.2e} < 0.001", cells_name(d)));
                         }
                     }
-                    Some((k, u)) => v.stale_not_judged.push(format!("{}: its rate is counted in {unit}, the row's samples in {u} ({k}): stale not judged", cells_name(d))),
-                    None => {
-                        if n == 0 {
-                            v.stale_not_judged.push(format!("{}: never met, and the row gave no samples in {unit}: stale not judged", cells_name(d)));
-                        }
-                    }
+                    Some((k, u)) => v.errors.push(format!("{}: its rate is counted in {unit}, the row's samples in {u} ({k}): a wiring error (G1 11:20): count the row's samples in {unit}", cells_name(d))),
+                    None => v.errors.push(format!("{}: it carries rate={h}/{nr} {unit}, and the row gave no samples: a wiring error (G1 11:20): count the row's {unit}", cells_name(d))),
                 }
             }
         }
@@ -595,14 +711,14 @@ pub fn reference_check(d: &Decl, hits: &[Hit]) -> Vec<String> {
         out.push(format!("{}: its reference run has no hit on it", cells_name(d)));
         return out;
     }
-    let mut groups: std::collections::BTreeMap<(u32, (i32, i32, i32), Face), Vec<&Hit>> = std::collections::BTreeMap::new();
+    let mut groups: std::collections::BTreeMap<(u32, Face), Vec<&Hit>> = std::collections::BTreeMap::new();
     for h in &mine {
-        groups.entry((h.cart, (h.cell.x, h.cell.y, h.cell.z), h.face)).or_default().push(h);
+        groups.entry((h.cart, h.face)).or_default().push(h);
     }
     let (mut max_ticks, mut max_depth) = (0.0f64, 0.0f64);
     let mut per_cart: std::collections::BTreeMap<u32, usize> = std::collections::BTreeMap::new();
     let (mut sin, mut sout): (Vec<f64>, Vec<f64>) = (Vec::new(), Vec::new());
-    for ((cart, _, _), mut hs) in groups {
+    for ((cart, _), mut hs) in groups {
         hs.sort_by_key(|h| h.tick);
         for r in events_of(&hs) {
             max_ticks = max_ticks.max((r[r.len() - 1].tick - r[0].tick + 1) as f64);
@@ -860,7 +976,7 @@ mod tests {
     }
 
     fn hit(tick: i64, cart: u32, cell: (i32, i32, i32), face: Face, depth: f64, sin: f64, sout: f64) -> Hit {
-        Hit { tick, cart, cell: BlockPos::new(cell.0, cell.1, cell.2), face, depth, speed_in: sin, speed_out: sout }
+        Hit { tick, cart, cell: BlockPos::new(cell.0, cell.1, cell.2), face, depth, speed_in: sin, speed_out: sout, sample: Some(tick as u64 / 100) }
     }
 
     const DESIGN: &str = "# contacts: 3,24,5=the drop entry's backstop | face=south | class=design | ref=5fa67f60a escape-bench --siding seeds 1..8 | ticks<=2+eps=1 | events<=1 why=one stop a visit | depth<=0.30+eps=0.05 | speed=0.30..0.45→0..0.05 why=the backstop stops the cart\n";
@@ -942,6 +1058,13 @@ mod tests {
     /// A hit on a declared cell's OTHER face, or on another cell, is undeclared.
     #[test]
     fn a_hit_on_an_undeclared_face_is_undeclared() {
+        // (ironspec 11:51 (1)(a): a '+'-joined declaration's cells are ONE stop: one contact meeting both
+        // cells in the same ticks is one event, so events<=1 holds; the reference check agrees)
+        let two = declared_contacts_bounded("# contacts: 3,24,5+4,24,5=the backstop's two cells | face=south | class=design | ref=x | ticks<=2 why=w | events<=1 why=w | depth<=0.20 why=w | speed=0.38..0.38→0.0..0.0 why=w\n").unwrap();
+        let both = vec![hit(10, 1, (3, 24, 5), Face::South, 0.2, 0.38, 0.0), hit(10, 1, (4, 24, 5), Face::South, 0.2, 0.38, 0.0), hit(11, 1, (3, 24, 5), Face::South, 0.01, 0.38, 0.0), hit(11, 1, (4, 24, 5), Face::South, 0.01, 0.38, 0.0)];
+        let v = judge(&two, &both, &moving, StallRule::IRONSPEC_1042, None);
+        assert!(!v.failed() && v.events == vec![1], "{v:?}");
+        assert_eq!(reference_check(&two[0], &both), Vec::<String>::new());
         let d = declared_contacts_bounded(DESIGN).unwrap();
         let v = judge(&d, &[hit(10, 1, (3, 24, 5), Face::East, 0.2, 0.38, 0.0), hit(11, 1, (3, 23, 7), Face::North, 0.01, 0.05, 0.0)], &moving, StallRule::IRONSPEC_1042, None);
         assert_eq!(v.undeclared.len(), 2);
@@ -990,14 +1113,29 @@ mod tests {
         // (0 hits over 2 passes: P(0) = 0.0625: not judged, not failing)
         let v = judge(&d, &[], &moving, r, Some((2, "passes")));
         assert!(v.stale.is_empty() && v.stale_not_judged.len() == 1 && !v.failed(), "{v:?}");
-        // (a unit mismatch, or no samples: not judged)
-        assert_eq!(judge(&d, &[], &moving, r, Some((40, "visits"))).stale_not_judged.len(), 1);
-        assert_eq!(judge(&d, &[], &moving, r, None).stale_not_judged.len(), 1);
+        // (a unit mismatch, or no samples: a wiring ERROR that fails loudly (G1 11:20), never "not judged")
+        let mm = judge(&d, &[], &moving, r, Some((40, "visits")));
+        assert!(mm.errors.len() == 1 && mm.errors[0].contains("visits") && mm.failed() && mm.stale_not_judged.is_empty(), "{mm:?}");
+        let ns = judge(&d, &one, &moving, r, None);
+        assert!(ns.errors.len() == 1 && ns.errors[0].contains("no samples") && ns.failed(), "{ns:?}");
         // (G1's case)
         let g = declared_contacts_bounded("# contacts: 3,24,5=the bed head | class=incidental | speed_out>=0 | rate=296/408 passes\n").unwrap();
         let v = judge(&g, &one, &moving, r, Some((4, "passes")));
         assert!(v.stale.is_empty(), "{v:?}");
         assert!((binomial_cdf(1, 4, 296.0 / 408.0) - 0.0664).abs() < 0.001, "{}", binomial_cdf(1, 4, 296.0 / 408.0));
+        // (ironspec 11:51 (1)(b): the numerator counts samples with a hit, not ticks: a 3-tick contact in
+        // one sample is 1 of 40, an under-rate; counting its ticks (3) would read the same here, so the
+        // case that tells them apart: 3 ticks in one sample against 300/400 over 4 samples is n = 1, P(X
+        // <= 1) = 0.051: not stale; as ticks it would have been 3)
+        let three: Vec<Hit> = (10..13).map(|t| hit(t, 1, (3, 24, 5), Face::South, 0.005, 0.1, 0.0)).collect();
+        let v = judge(&d, &three, &moving, r, Some((4, "passes")));
+        assert!(v.stale.is_empty() && v.errors.is_empty(), "{v:?}");
+        let v1 = judge(&d, &three, &moving, r, Some((40, "passes")));
+        assert!(v1.stale.iter().any(|s| s.contains("1 hits over 40")), "{v1:?}");
+        // (an untagged hit on a rate declaration is a wiring error)
+        let mut untagged = one.clone();
+        untagged[0].sample = None;
+        assert!(judge(&d, &untagged, &moving, r, Some((40, "passes"))).errors.iter().any(|e| e.contains("no sample")));
         // (the rate's unit is required)
         assert!(declared_contacts_bounded("# contacts: 3,24,5=s | class=incidental | speed_out>=0 | rate=3/4\n").is_err());
     }
@@ -1058,5 +1196,116 @@ mod tests {
         }
         assert!(!hs.is_empty());
         assert!(hs.iter().all(|h| h.cell == BlockPos::new(0, 1, -1) && h.face == Face::South && h.depth > 0.0), "{hs:?}");
+    }
+
+    /// The vertical axis (G1 09:56, ironspec 10:54 (a)): EMBEDDED deeper than 0.01 on every axis; a
+    /// LOW CEILING 0.04 above flags, 0.06 doesn't, nor one overlapping only 0.01 across.
+    #[test]
+    fn embedded_and_low_ceiling_bounds() {
+        let at = |x: f64, y: f64, z: f64| Aabb::new(x, y, z, x + 1.0, y + 1.0, z + 1.0);
+        let c = cart(3.5, 24.0, 6.5);
+        let one = |a: Aabb| move |_q: Aabb| vec![a];
+        let v = vertical_contacts(&one(at(3.0, 24.4, 6.0)), c, &[], true);
+        assert_eq!(v.iter().map(|x| x.0).collect::<Vec<_>>(), vec![VClass::Embedded], "{v:?}");
+        // (ironspec 11:51 (2): on a rail the same overlap is normal slope riding: no Embedded)
+        assert!(vertical_contacts(&one(at(3.0, 24.4, 6.0)), c, &[], false).is_empty(), "on-rail: no embedding");
+        assert!(vertical_contacts(&one(at(3.0, 23.01, 6.0)), c, &[], true).is_empty(), "an overlap of exactly 0.01 in y is no embedding");
+        let low = vertical_contacts(&one(at(3.0, 24.74, 6.0)), c, &[], false);
+        assert!(low.len() == 1 && low[0].0 == VClass::LowCeiling && (low[0].2 - 0.04).abs() < 1e-9, "{low:?}");
+        assert!(vertical_contacts(&one(at(3.0, 24.76, 6.0)), c, &[], false).is_empty(), "0.06 above doesn't flag");
+        assert!(vertical_contacts(&one(at(3.98, 24.74, 6.0)), c, &[], false).is_empty(), "an overlap of only 0.01 across doesn't flag");
+    }
+
+    /// FLOOR and CEILING clips count only off the rail: a falling off-rail cart clipped on a block's top
+    /// is a Floor (the lip rest on C's support); the same move on a rail is nothing; a rising off-rail
+    /// cart clipped by a block's bottom is a Ceiling.
+    #[test]
+    fn off_rail_y_clips_are_classed() {
+        let glass = Aabb::new(3.0, 23.0, 7.0, 4.0, 24.0, 8.0);
+        let s = move |_q: Aabb| vec![glass];
+        // (a cart over the drop cell, its box over the support's top, falling 0.04: clipped to 0)
+        let before = cart(3.5, 24.0, 6.9);
+        let m = [(before, (0.0, -0.04, 0.0), (0.0, 0.0, 0.0))];
+        let f = vertical_contacts(&s, before, &m, true);
+        assert!(f.len() == 1 && f[0].0 == VClass::Floor && (f[0].2 - 0.04).abs() < 1e-12, "{f:?}");
+        assert!(vertical_contacts(&s, before, &m, false).is_empty(), "on a rail the support's clip is no contact");
+        let roof = Aabb::new(3.0, 24.75, 6.0, 4.0, 25.75, 7.0);
+        let r = move |_q: Aabb| vec![roof];
+        let rising = cart(3.5, 24.0, 6.5);
+        let up = vertical_contacts(&r, rising.move_by(0.0, 0.05, 0.0), &[(rising, (0.0, 0.2, 0.0), (0.0, 0.05, 0.0))], true);
+        assert!(up.iter().any(|v| v.0 == VClass::Ceiling), "{up:?}");
+    }
+
+    /// Through redsim: a cart summoned inside a glass block is Embedded at its first tick; an off-rail
+    /// cart dropped onto stone lands as a Floor; a cart rolling on rails has no vertical contact.
+    #[test]
+    fn vertical_hits_through_redsim() {
+        use redsim::block::Block;
+        let mut w = World::new(BlockPos::new(-4, 0, -4), [10, 6, 16]);
+        let stone = Block::parse("minecraft:stone").unwrap();
+        let glass = Block::parse("minecraft:glass").unwrap();
+        let rail = Block::parse("minecraft:rail[shape=north_south,waterlogged=false]").unwrap();
+        for z in -3..12 {
+            w.set_block(BlockPos::new(0, 0, z), stone.clone(), redsim::world::flags::RAW);
+            w.set_block(BlockPos::new(3, 0, z), stone.clone(), redsim::world::flags::RAW);
+        }
+        for z in 0..12 {
+            w.set_block(BlockPos::new(0, 1, z), rail.clone(), redsim::world::flags::RAW);
+        }
+        w.set_block(BlockPos::new(-3, 1, 5), glass.clone(), redsim::world::flags::RAW);
+        let rolling = redsim::entity::spawn(&mut w, "minecraft:minecart", [0.5, 1.0, 2.5], Some("{Motion:[0.0d,0.0d,0.3d]}")).unwrap();
+        let falling = redsim::entity::spawn(&mut w, "minecraft:minecart", [3.5, 3.0, 5.5], Some("{Motion:[0.0d,0.0d,0.0d]}")).unwrap();
+        let inside = redsim::entity::spawn(&mut w, "minecraft:minecart", [-2.5, 1.2, 5.5], Some("{Motion:[0.0d,0.0d,0.0d]}")).unwrap();
+        let mut got: std::collections::BTreeMap<u32, Vec<VClass>> = std::collections::BTreeMap::new();
+        for _ in 0..40 {
+            w.tick();
+            for (i, e) in w.entities.list.iter().enumerate() {
+                if !e.removed {
+                    got.entry(e.id).or_default().extend(cart_vertical_hits(&w, i).into_iter().map(|v| v.class));
+                }
+            }
+        }
+        assert!(got.get(&rolling).is_none_or(|v| v.is_empty()), "{got:?}");
+        assert!(got.get(&falling).is_some_and(|v| v.contains(&VClass::Floor)), "{got:?}");
+        assert!(got.get(&inside).is_some_and(|v| v.contains(&VClass::Embedded)), "{got:?}");
+    }
+
+    /// ironspec 11:51 (2)'s negative: a cart braked to rest on an R-like slope (an unpowered powered
+    /// rail ascending_south on slime, its high side's support glass carrying F's rail) overlaps that
+    /// glass by more than 0.01 on every axis in normal operation: on its rail, no Embedded hit, at any
+    /// rest along the slope.
+    #[test]
+    fn a_cart_resting_on_a_slope_is_not_embedded() {
+        use redsim::block::Block;
+        for v in [0.10, 0.30, 0.44] {
+            let mut w = World::new(BlockPos::new(-2, 0, -2), [8, 6, 14]);
+            let stone = Block::parse("minecraft:stone").unwrap();
+            let slime = Block::parse("minecraft:slime_block").unwrap();
+            let glass = Block::parse("minecraft:glass").unwrap();
+            let r = Block::parse("minecraft:powered_rail[powered=false,shape=ascending_south,waterlogged=false]").unwrap();
+            let f = Block::parse("minecraft:rail[shape=north_south,waterlogged=false]").unwrap();
+            for z in 0..9 {
+                w.set_block(BlockPos::new(2, 0, z), stone.clone(), redsim::world::flags::RAW);
+            }
+            w.set_block(BlockPos::new(2, 0, 4), slime.clone(), redsim::world::flags::RAW);
+            w.set_block(BlockPos::new(2, 1, 4), r.clone(), redsim::world::flags::RAW);
+            for z in 5..8 {
+                w.set_block(BlockPos::new(2, 1, z), glass.clone(), redsim::world::flags::RAW);
+                w.set_block(BlockPos::new(2, 2, z), f.clone(), redsim::world::flags::RAW);
+            }
+            w.set_block(BlockPos::new(2, 1, 3), stone.clone(), redsim::world::flags::RAW);
+            let c = redsim::entity::spawn(&mut w, "minecraft:minecart", [2.5, 2.0625, 6.5], Some(&format!("{{Motion:[0.0d,0.0d,{:.4}d]}}", -v))).unwrap();
+            let mut embedded = 0;
+            let mut rested = false;
+            for _ in 0..120 {
+                w.tick();
+                let Some(i) = w.entities.list.iter().position(|e| e.id == c && !e.removed) else { break };
+                embedded += cart_vertical_hits(&w, i).iter().filter(|h| h.class == VClass::Embedded).count();
+                let e = &w.entities.list[i];
+                rested |= e.pos.z < 5.0 && e.delta_movement.x.hypot(e.delta_movement.z) < 0.001;
+            }
+            assert!(rested, "the cart came to rest on the slope (v {v})");
+            assert_eq!(embedded, 0, "v {v}: on its rail, no Embedded");
+        }
     }
 }
