@@ -148,6 +148,8 @@ pub struct Opts {
     pub hold_pulse_delta: i64,
     /// (ironspec 13:04 (1), cc767b78's switch) a seated rider's doPush onto carts off: a counterfactual.
     pub rider_push_off: bool,
+    /// (ironfarm 12:47) Write each lip rest's lane over its 60 gt before into this file.
+    pub lip_dump: Option<std::path::PathBuf>,
     /// (ironspec 10:51 (g)) the longest designed rest on a station hold H's trapdoor, gt.
     pub h_rest_bound: i64,
     /// (ironspec 10:51 (f)) the siding check's positive: a batch cart planted on lane -1's siding R.
@@ -3379,6 +3381,9 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     // count every 500 gt
     let mut ledger_base: [Option<i64>; 3] = [None; 3];
     let mut region_marks: [Vec<(i64, i64)>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+    // (ironfarm 12:47, --lip-dump) per lane the last 60 gt of its carts, and the dumps taken at rests
+    let mut lip_ring: [std::collections::VecDeque<String>; 3] = [std::collections::VecDeque::new(), std::collections::VecDeque::new(), std::collections::VecDeque::new()];
+    let mut lip_dumps: Vec<String> = Vec::new();
     // (onechunk 11:16) every napper's cart dropping into a lane not its own, with its split turns
     let mut napper_wrong_lane: Vec<String> = Vec::new();
     // (G1's P16) every napper's cart dropping into any lane (the misroute bar's denominator)
@@ -6788,6 +6793,32 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 if rel % 500 == 0 {
                     region_marks[k].push((rel, count as i64));
                 }
+                // (ironfarm 12:47, --lip-dump) the lane's carts this tick (the region + the lip, C, D):
+                // each centre, stored motion and its rider's box, in a 60-gt ring per lane
+                if o.lip_dump.is_some() {
+                    let rows: Vec<String> = w
+                        .entities
+                        .list
+                        .iter()
+                        .filter(|f| !f.removed && matches!(f.kind, EntityKind::Minecart(_)) && in_lane_region(cell(f.pos), *x))
+                        .map(|f| {
+                            let p = dpos(f.pos);
+                            let d = f.delta_movement;
+                            let rider = f.passengers.first().and_then(|r| redsim::entity::index_of(w, *r)).map_or("empty".to_string(), |ri| {
+                                let b = w.entities.list[ri].bb;
+                                let lo = dpos(redsim::entity::Vec3::new(b.min_x, b.min_y, b.min_z));
+                                let hi = dpos(redsim::entity::Vec3::new(b.max_x, b.max_y, b.max_z));
+                                format!("rider #{} box [{:.3},{:.3},{:.3}]..[{:.3},{:.3},{:.3}]", w.entities.list[ri].id, lo.x, lo.y, lo.z, hi.x, hi.y, hi.z)
+                            });
+                            format!("#{} ({:.4},{:.4},{:.4}) v({:.4},{:.4},{:.4}) {rider}", f.id, p.x, p.y, p.z, d.x, d.y, d.z)
+                        })
+                        .collect();
+                    let ring = &mut lip_ring[k];
+                    ring.push_back(format!("t {rel}: {}", rows.join("; ")));
+                    while ring.len() > 60 {
+                        ring.pop_front();
+                    }
+                }
                 *lane_count_hist[k].entry(count).or_default() += 1;
                 if count > lane_count_max[k].0 {
                     lane_count_max[k] = (count, rel);
@@ -6960,6 +6991,10 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                                 });
                                 format!("t {t} by #{m} ({act}; {trigger}) {}", veh.map_or("on foot".to_string(), |(v, vc)| format!("riding cart #{v} at {}", vc.map_or("?".to_string(), |c| format!("({},{},{})", c[0], c[1], c[2])))))
                             }).collect();
+                            // (ironfarm 12:47, --lip-dump) the stalled lane's last 60 gt, dumped once per rest
+                            if o.lip_dump.is_some() {
+                                lip_dumps.push(format!("== cart #{} at rest off the rails in lane x {x}'s drop region from t {rel}: the lane's carts over the 60 gt before (centre, stored motion, rider box; design frame)\n{}", e.id, lip_ring[k].iter().cloned().collect::<Vec<_>>().join("\n")));
+                            }
                             off_rest_snap.insert(e.id, format!(
                                 "[at its first tick: cart {} {me} at [{:.3},{:.3},{:.3}] in lane x {x}'s drop region ({}; split {}); the pushes on it in the last 40 gt: {}; the lane's carts {count}: {}; around it: {}; {leader}; the last two other C arrivals: {}; the lane's last bottom release (a cart leaving H) {}]",
                                 ident(e.id),
@@ -8964,6 +8999,11 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             r.home_lost.len(),
             r.home_lost.iter().map(|c| format!("; {c}")).collect::<String>()
         ));
+    }
+    // (ironfarm 12:47, --lip-dump) every lip rest's lane over its 60 gt before, to the file
+    if let Some(p) = &o.lip_dump {
+        std::fs::write(p, format!("{}\n", lip_dumps.join("\n"))).map_err(|e| format!("--lip-dump {}: {e}", p.display()))?;
+        s.push_str(&format!("the lip dumps (ironfarm 12:47): {} rests dumped to {}\n", lip_dumps.len(), p.display()));
     }
     // (ironspec 13:04 (1) / 12:41 (4), R6 per pick) each outbound napper's pass of each J at or east of
     // its own lane's: the margin (b) - (a) - 4, (a) the napper clearing J (its exit from (j,25,9)),
