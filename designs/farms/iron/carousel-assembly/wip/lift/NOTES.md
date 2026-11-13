@@ -15,8 +15,10 @@ table: https://artifacts.internalmeta.com/a/2276791626224129 (1872157077300391 i
 | path (a): every y-12 pair (lane 3 -> 7, 7 -> the napper, the napper -> the next lane -1, lane 7 -> the next lane -1 with no napper between) | >= 16 (`--y12-min`, `--y12-nap-min`) | physical: the column bar above (carts rise at the same 0.695 b/gt, so a y-12 gap is the gap at the top); the inherited 23 (21 + 2) and window >= 46 retired |
 | path (a): a cart missing y 12, or the column order wrong at y 12 | 0 | rule |
 | path (a): lane 7's mouth clearance (its column entry after the preceding cart's box has cleared the mouth cell at y 12) | >= 2 (`--mouth-min`); unmeasured fails as "unmeasured" | physical: the out-of-order mouth contact (ironspec 20:01 PT (2)) |
-| block contacts: a cell the carts' moves touch that the file's `# contacts:` line doesn't declare | 0 | rule (ironspec 21:25 PT (4) / 22:05 PT): the lift's walls and caps are declared containment with their evidence rows; a bench-only contact prints its speed change |
-| D-on-J: a J's T off its power's settle after its branch detector's change | 0 | rule: the `# update-only:` declarations' evidence (push-scan (b), ironspec 19:58 (2b); 9fc3155f 23:22: the D detectors are update-only, the J / K levers and the exit detector (7,-3,4) `# switches:`) |
+| block contacts: a cell the carts' moves touch that the file's `# contacts:` line doesn't declare | 0 | rule (ironspec 21:25 PT (4) / 22:05 PT): the lift's walls and caps are declared containment with their evidence rows; a bench-only contact prints PROVISIONAL with its speed change (G1 on 8ed397b2e); read under the face filter (ironspec 02:41 PT: a face the cart moved toward, at its axis step in the game's order, within 0.011, overlapping > 0.01 on both other axes) |
+| D-on-J: a J's T off its power's settle after its branch detector's change, or re-shaped by that update (stale before it) | 0 | rule: the `# update-only:` declarations' evidence (push-scan (b), ironspec 19:58 (2b); 9fc3155f 23:22: the D detectors are update-only, the J / K levers and the exit detector (7,-3,4) `# switches:`) |
+| the napper's return after its climb top: the exit detector (7,-3,4) powered with the napper on it; the napper seated on the hold before the hold rail's rise | the detector fires; margin >= 2 | rule (ironspec 03:37 PT (2)): carrying a world open's dry first move (37 % at (7,-4,4)); the siding-R arrival printed for day-1's lane model |
+| `--set`: an override that changes nothing | fails the run | rule (ironspec 04:07 PT); each override prints its cell before -> after |
 | heads under the roof's underside | < 28 | physical: geometry |
 | each lane's delivery entering its merge cell | 0.30..0.48 | inherited here: ironfarm's part spec |
 | the settle lock k | 42 (`--pulse-gate 42`) | physical: the bar is the official R_max + 2 = 38 at R_max 36 (ironspec 20:53 PT; no F term); 42 stays, 4 over; R_max awaits the position-checked restart re-run (37 / 38 would make k 44) |
@@ -99,3 +101,30 @@ update reach, powering only their own rail or repeater. The slope rail's printed
 `--lane7-rel` in every row (the positive check on the toggle convention). `--station-part`'s pocket
 levers at (x-2,0,0) on glass are declared stand-ins for day-1's line-13 cells; each prints its reach
 (the powered components among its and its support's neighbours: day-1's repeater (x-1,0,0) only).
+The split row's six J / K levers are declared `# stand-in:` for day-1's latch output and timed taps
+(ironspec 03:22 / 03:26 / 04:34 PT: no lever ships in the built farm), one header line each, in
+record-match's header format; (9,25,9)'s seven verdicts on `# stand-in-guard:`.
+
+## Record-match (`--record`, ironspec 21:43 PT's bench-cells rule; cc767b78's (a))
+
+The design of record as run (its cells, its own `emulated:` stand-ins read as its cells) is laid over
+the bench's box + 3 under this file's own cells and compared over the box + 2: the bench's emulated
+cells give way to the record's, its drive stand-ins stay (each pocket's lever, the line dust it
+re-shapes, (9,25,9)), each guarded; `--set` cells are the candidate `--set`. Each run prints
+`record-match: …` and its block verdict; the sweeps count the rows it leaves uncounted (not failures).
+The Nether pad's portal cells (not modelled by redsim) read as stand-ins without verdicts until the
+helper's `# out-of-scope:` lands, so no row counts yet for that reason alone.
+
+## World opens (cc767b78's `liveness::restart`, train 2)
+
+`--restart T,ORDER` / `--restart-sweep FROM,TO` run the official load at a world open (N whole-chunk
+idle ticks; the sweeps' 20 rows: 10 orders x N = 1, 2), each row printing the helper's note. A loaded
+cart's first move is dry in 26.3 (tick-exact's official rows): the riser's landing cells at the top
+((-6,22,7), (-6,22,8), (-5,22,8)) and the napper's (7,-4,4) are declared with those rows; the napper's
+37 % loss there is carried through its return (the detector, the hold margin, the siding-R arrival).
+
+## Bystander stamps (ironspec 02:18 / 02:37 PT)
+
+Each run prints the return path's possible stamps: the napper's seated box inside a pocket summoner's
+10-box at an S tick (REL - 5), with tick, position and summoners (on the hold; on the merge row or the
+lift's foot). Their margins at the napper's next own-pocket S are the composed run's (downstream).
