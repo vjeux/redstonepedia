@@ -1421,6 +1421,10 @@ fn path_dir(w: &World, i: usize) -> Option<&'static str> {
 pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bool, after_sleep: i64, f: &Faults) -> Result<Row, String> {
     let ro = RunOpts { ai: true, ..RunOpts::steady(seed as i64, 3 * 24000, WalkMode::Random) };
     let (mut run, _) = crate::placing::start(spec, &ro, crate::placing::Placement::Judge, &crate::placing::BuildPlan::default())?;
+    // (the daylight detectors the start held back (they'd read the settle's sky), placed as
+    // `Run::arrive` places them: the bench spawns its own entities, so it must place them itself;
+    // record7e's DAY detector was missing from the bench world before this, ironspec 03:29)
+    run.place_detectors();
     // (ironspec 00:27: every fluid cell's tick scheduled at load (its onPlace), the count printed;
     // a world holding fluid with none scheduled fails)
     let mut fluid_scheduled = 0usize;
@@ -2511,6 +2515,8 @@ pub struct TwoRow {
 pub fn two_visit_bench(spec: &FarmSpec, seed: u64, speed: f64, o: &TwoOpts) -> Result<TwoRow, String> {
     let ro = RunOpts { ai: true, ..RunOpts::steady(seed as i64, 3 * 24000, WalkMode::Random) };
     let (mut run, _) = crate::placing::start(spec, &ro, crate::placing::Placement::Judge, &crate::placing::BuildPlan::default())?;
+    // (the held-back daylight detectors, as the one-visit bench places them)
+    run.place_detectors();
     let first = run.world.entities.next_id;
     for (ty, pos, nbt) in &spec.entities {
         redsim::entity::spawn(&mut run.world, ty, *pos, nbt.as_deref())?;
