@@ -226,6 +226,16 @@ pub struct World {
     /// The caller removes every primed TNT before it explodes (the TNT judge): no explosion
     /// error (`tick`).
     pub remove_primed: bool,
+    /// (cc767b78, tick-exact's 26.3 reading, ironspec Nov 12 22:16 (1)) No block entity ticks in this
+    /// tick: a load's block-only tick (`mobfarm::liveness::restart`). `BoundTickingBlockEntity.tick`
+    /// checks `LevelChunk.isTicking(pos)` = block-ticking and `areEntitiesLoaded`, and a loaded chunk
+    /// is marked entity-loaded in `entityManager.tick()`, which `ServerLevel.tick` runs after
+    /// `tickBlockEntities()`: in the load tick its scheduled ticks and redstone run, its block entities
+    /// start the tick after. It gates the tick's three block-entity calls, which are all of redsim's
+    /// block-entity tickers: `redstone::container::tick_hoppers` (its ticker list: hoppers, crafters,
+    /// daylight detectors (their 20-gt check: `daylight::tick`), jukeboxes, furnaces, brewing stands),
+    /// `sculk::tick_all` (sculk sensors) and `piston::tick_block_entities` (moving pistons).
+    pub skip_block_entities: bool,
     /// Primed TNT become entities (`entity::primed_tnt`) with this value in place of the game's
     /// random `nextDouble()` for their kick; `None`: primes are records only (the judge's screen).
     pub tnt_kick: Option<f64>,
@@ -409,6 +419,7 @@ impl World {
             errors: Vec::new(),
             primed: Vec::new(),
             remove_primed: false,
+            skip_block_entities: false,
             tnt_kick: None,
             payloads: Vec::new(),
             drop_seed: None,
@@ -1388,12 +1399,14 @@ impl World {
         }
         crate::entity::tick_phase(self);
         // block entities: a design's hoppers exist before any moving block is created, so they
-        // come first in `blockEntityTickers`
-        crate::redstone::container::tick_hoppers(self);
-        // sculk sensors of a design exist before any moving block too (hoppers placed with them:
-        // see `sculk.rs`, an empty hopper's tick changes nothing)
-        crate::sculk::tick_all(self);
-        crate::piston::tick_block_entities(self);
+        // come first in `blockEntityTickers`; none in a load's block-only tick (`skip_block_entities`)
+        if !self.skip_block_entities {
+            crate::redstone::container::tick_hoppers(self);
+            // sculk sensors of a design exist before any moving block too (hoppers placed with them:
+            // see `sculk.rs`, an empty hopper's tick changes nothing)
+            crate::sculk::tick_all(self);
+            crate::piston::tick_block_entities(self);
+        }
         if !self.frames.is_empty() {
             crate::entity::frame::check_static(self);
         }
