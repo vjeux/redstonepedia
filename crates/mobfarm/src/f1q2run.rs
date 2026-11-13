@@ -59,6 +59,16 @@ pub struct Opts {
     /// (ironspec 06:31 / 06:38 PT) State (ii): the bench takes the bed's single POI ticket at the
     /// start. Off (the default): the design start (i), every HOME a memory and the ticket free.
     pub bed_ticket_taken: bool,
+    /// (day-1 05:45 PT, ironspec 06:24 real) the controller line ends the module declares as
+    /// redstone-block stand-ins (`# stand-in: x,y,z (… redstone block …)`).
+    pub block_standins: Vec<[i32; 3]>,
+    /// (ironspec 06:36 real, the oldest-stamp bar's known positive) by day, one lane rider (lane
+    /// x -1's first rider found off its pocket) is given a walk target no path reaches: its stamp must
+    /// age past 1,000 gt and the bar must FAIL.
+    pub stamp_control: bool,
+    /// (ironspec 06:31 real, the farm-stop bar's known positive) the planted erasure: the first napper
+    /// to reach the bed stop loses its HOME there; the farm-stop bar must FAIL.
+    pub home_erase_control: bool,
     /// (ironspec 11:15, 9fc3155f's statics) S-bend seats whose stamp resets are counted: `NAME`,
     /// the seat's rail cell, its clearing candidates (a complete draw to one of them while a rider
     /// sits on the seat resets its stamp).
@@ -512,6 +522,38 @@ thread_local! {
     /// (7b90c3f1 18:06) the module's declared placement-order rail Ts: no stand-in lever's updates
     /// may reach one.
     static TS: std::cell::RefCell<Vec<[i32; 3]>> = const { std::cell::RefCell::new(Vec::new()) };
+    /// (day-1 05:45 PT) the controller line ends the module declares as redstone-block stand-ins
+    /// (`# stand-in: x,y,z (… redstone block …)`): a block while the line is on, the built air off,
+    /// no support cell.
+    static BLOCK_STANDINS: std::cell::RefCell<Vec<[i32; 3]>> = const { std::cell::RefCell::new(Vec::new()) };
+    /// (G1 / tick-exact, Nov 13) the drive's names for the scene's entities (`eN` a line's cart,
+    /// `eN.pK` its passenger), for the recorded state written beside every act.
+    static DRIVE_NAMES: std::cell::RefCell<BTreeMap<u32, String>> = const { std::cell::RefCell::new(BTreeMap::new()) };
+    /// (ironspec 06:24 real, the 04:07 override rule) every redstone-block stand-in toggle: its
+    /// cell, tick, the cell's state before and after.
+    static BLOCK_TOGGLES: std::cell::RefCell<Vec<([i32; 3], i64, String, String)>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// (G1 / tick-exact, Nov 13: the replay's divergence check) redsim's recorded state at a drive act,
+/// written as a comment line after it: the carts in the act's column (its cell and the cells above
+/// and below) with their riders, and every hold's (x,16,0) and pocket's (x,0,0) cart and rider, by
+/// the drive's names.
+fn drive_expect(w: &redsim::world::World, p: [i32; 3], t: i64) -> String {
+    let name = |id: u32| DRIVE_NAMES.with(|n| n.borrow().get(&id).cloned()).unwrap_or_else(|| format!("#{id}"));
+    let carts_at = |c: [i32; 3]| -> Vec<String> {
+        w.entities
+            .list
+            .iter()
+            .filter(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && cell(e.pos) == c)
+            .map(|e| format!("{}{}", name(e.id), e.passengers.first().map_or(" (empty)".to_string(), |r| format!(" with {}", name(*r)))))
+            .collect()
+    };
+    let at: Vec<String> = (-1..=1).flat_map(|dy| carts_at([p[0], p[1] + dy, p[2]]).into_iter().map(move |s| format!("{s} at y{dy:+}"))).collect();
+    let occ = |y: i32| LANES.iter().map(|x| {
+        let v = carts_at([*x, y, 0]);
+        format!("{x}:{}", if v.is_empty() { "none".to_string() } else { v.join("+") })
+    }).collect::<Vec<_>>().join(" ");
+    format!("# expect {t} {} {} {}: carts {}; holds {}; pockets {}", p[0], p[1], p[2], if at.is_empty() { "none".to_string() } else { at.join(", ") }, occ(16), occ(0))
 }
 
 fn drive_push(line: String) {
@@ -570,6 +612,8 @@ fn set(w: &mut redsim::world::World, p: [i32; 3], state: &str, flags: u32) -> Re
                 return Err(format!("--drive-out: the write at ({},{},{}) skips the updates, and the drive's `set` has every update", p[0], p[1], p[2]));
             }
             acts.push(format!("act {} set {} {} {} {state}", w.time - *t0, p[0], p[1], p[2]));
+            // (G1: redsim's recorded state at the act, before its write)
+            acts.push(drive_expect(w, p, w.time - *t0));
         }
         Ok(())
     })?;
@@ -668,12 +712,23 @@ fn lever_standin(w: &redsim::world::World, c: [i32; 3], target: [i32; 3]) -> Opt
 /// the run (G1 17:50: a popped lever leaves its line unpowered).
 fn input_on(w: &mut redsim::world::World, c: [i32; 3], target: [i32; 3]) -> Result<(), String> {
     // (ironspec 18:24 / 22:09 PT: a conforming lever only, never a solid stand-in: a cell with no
-    // face the guard passes stops the run)
-    let s = lever_standin(w, c, target).ok_or_else(|| format!("no conforming lever face for the stand-in at ({},{},{}) (target ({},{},{}))", c[0], c[1], c[2], target[0], target[1], target[2]))?;
+    // face the guard passes stops the run; day-1 05:45 PT: a line end the module declares a
+    // redstone-block stand-in takes the block, with no support cell)
+    let block = BLOCK_STANDINS.with(|b| b.borrow().contains(&c));
+    let s = if block {
+        "minecraft:redstone_block".to_string()
+    } else {
+        lever_standin(w, c, target).ok_or_else(|| format!("no conforming lever face for the stand-in at ({},{},{}) (target ({},{},{}))", c[0], c[1], c[2], target[0], target[1], target[2]))?
+    };
+    let before = w.get(redsim::pos::BlockPos::new(c[0], c[1], c[2])).to_string();
     set(w, c, &s, redsim::world::flags::ALL)?;
     let now = w.get(redsim::pos::BlockPos::new(c[0], c[1], c[2])).to_string();
     if !(now.contains("lever") || now.contains("redstone_block")) {
         return Err(format!("the stand-in {s} at ({},{},{}) didn't survive its placement: the cell holds {now}", c[0], c[1], c[2]));
+    }
+    if block {
+        // (ironspec 06:24 real: the override rule on every toggle, its before and after)
+        BLOCK_TOGGLES.with(|t| t.borrow_mut().push((c, w.time, before, now.clone())));
     }
     // (ironspec 21:40 PT: each stand-in prints the guard's properties) its state and placements
     PLACED.with(|p| {
@@ -691,7 +746,12 @@ fn input_off(w: &mut redsim::world::World, c: [i32; 3], base: &str) -> Result<()
     if !(now.contains("lever") || now.contains("redstone_block")) {
         return Err(format!("the stand-in at ({},{},{}) didn't survive its pulse: the cell holds {now}", c[0], c[1], c[2]));
     }
-    set(w, c, base, redsim::world::flags::ALL)
+    set(w, c, base, redsim::world::flags::ALL)?;
+    if BLOCK_STANDINS.with(|b| b.borrow().contains(&c)) {
+        let after = w.get(redsim::pos::BlockPos::new(c[0], c[1], c[2])).to_string();
+        BLOCK_TOGGLES.with(|t| t.borrow_mut().push((c, w.time, now, after)));
+    }
+    Ok(())
 }
 
 fn powered(w: &redsim::world::World, p: [i32; 3]) -> bool {
@@ -1634,6 +1694,20 @@ struct Rec {
     reload_drops: i64,
     /// A napper's milestones (phase 3a): what, the tick.
     milestones: Vec<(String, i64)>,
+    /// (ironspec 06:24 / 06:31 real, G1: the decisive bar) the REST spell in progress: its start,
+    /// its entry row, whether it counts against the bar (a lane rider outside its own trip), whether
+    /// it entered at a design position (riding a cart), and the first HOME path seen in it
+    /// (complete or partial).
+    rest_spell: Option<(i64, String, bool, bool)>,
+    rest_path: Option<bool>,
+    /// (ironspec 06:36 real, the runtime stamp bar) the oldest CANT_REACH stamp per day (the day
+    /// index of the world's day time): its age, tick and cell.
+    oldest_by_day: BTreeMap<i64, (i64, i64, [i32; 3])>,
+    /// (G1: each napper's excluded trip as numbers) its trips, pick to R: (start, end).
+    trips: Vec<(i64, Option<i64>)>,
+    in_trip_prev: bool,
+    /// (ironspec 07:10 real (2)) its night ticks by activity: PANIC, REST, other.
+    night_acts: [i64; 3],
 }
 
 /// (ironspec 20:40 PT, the 4 undeclared T sources (2b): the (a) feed stack's dust under lane -1's
@@ -1982,10 +2056,13 @@ pub fn run_driven(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, 
     // (G1's guard: the built cells and the module's declared emulated cells, for every drive
     // write)
     let built: BTreeMap<[i32; 3], String> = spec.blocks.iter().map(|(p, b)| ([p.x, p.y, p.z], b.to_string())).collect();
-    BUILT.with(|g| *g.borrow_mut() = Some((built, o.emulated.iter().copied().collect())));
+    BUILT.with(|g| *g.borrow_mut() = Some((built, o.emulated.iter().chain(o.block_standins.iter()).copied().collect())));
+    BLOCK_STANDINS.with(|b| *b.borrow_mut() = o.block_standins.clone());
     SUPPRESSED.with(|s| s.borrow_mut().clear());
+    BLOCK_TOGGLES.with(|t| t.borrow_mut().clear());
     let r = run_inner(spec, o);
     BUILT.with(|g| *g.borrow_mut() = None);
+    BLOCK_STANDINS.with(|b| b.borrow_mut().clear());
     TS.with(|t| t.borrow_mut().clear());
     // (the recorder off whatever happened, so a later run on this thread records nothing)
     let log = DRIVE_LOG.with(|d| d.borrow_mut().take());
@@ -2077,15 +2154,24 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     }
     // (ironspec 06:31 / 06:38 PT: the design start (i) leaves the bed's single ticket FREE, every
     // villager's HOME a memory only; `--bed-ticket-taken` is state (ii), the bench taking it)
+    // (G1 / ironspec 06:42 real, the pre-fix ticket gap: redsim builds its ticket table on the first
+    // ticket access from the HOME memories then held, counting the bed taken once any HOME names
+    // it; the bench builds the table here, before any HOME memory is set, so state (i) keeps the
+    // bed's ticket free as the game's loaded HOME does: a declared compensation, harmless once
+    // cc767b78's fix lands)
+    let free_before_homes = redsim::entity::mob::ai::poi::free_tickets(&mut run.world, bed);
     if o.bed_ticket_taken {
         redsim::entity::mob::ai::poi::take(&mut run.world, bed);
     }
     // (the drive's names: line N's entity eN, its passenger K eN.pK)
     let mut names: BTreeMap<u32, (usize, usize)> = BTreeMap::new();
+    DRIVE_NAMES.with(|d| d.borrow_mut().clear());
     for (n, id) in lines.iter().enumerate() {
         if let Some(e) = run.world.entities.list.iter().find(|e| e.id == *id) {
+            DRIVE_NAMES.with(|d| d.borrow_mut().insert(*id, format!("e{n}")));
             for (k, p) in e.passengers.iter().enumerate() {
                 names.insert(*p, (n, k));
+                DRIVE_NAMES.with(|d| d.borrow_mut().insert(*p, format!("e{n}.p{k}")));
             }
         }
     }
@@ -2120,6 +2206,34 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     for (_, a) in memory_acts {
         drive_push(a);
     }
+    // (ironspec 06:42 real) the START-STATE LINE: the bed's free tickets and the HOME memory
+    // holders after the setup, and how the run handles the ticket gap; (farmopt 06:04 PT) the early
+    // read is a declared stand-in under the override rule: the free count redsim's own lazy table
+    // would read from the memories now (before) against the early-built table's (after); in state
+    // (i) a read that changes nothing (cc767b78's fix landed) FAILS, so it is dropped
+    let holders_of = |w: &redsim::world::World| -> Vec<u32> {
+        w.entities.list.iter().filter(|e| !e.removed && matches!(&e.kind, EntityKind::Mob(m) if m.brain.as_deref().is_some_and(|b| b.home == Some(bed)))).map(|e| e.id).collect()
+    };
+    let early_table = run.world.mob.ai.poi_tickets.take();
+    let lazy_free = redsim::entity::mob::ai::poi::free_tickets(&mut run.world, bed);
+    run.world.mob.ai.poi_tickets = early_table;
+    let start_free = redsim::entity::mob::ai::poi::free_tickets(&mut run.world, bed);
+    let start_holders = holders_of(&run.world);
+    let start_state_line = format!(
+        "the start-state line (ironspec 06:42 real): the bed's free tickets {}, HOME memory holders {}; {}; the pre-fix ticket gap: the early ticket read (a declared stand-in, built before any HOME was set: {} free then) against redsim's own lazy table from the memories, {} -> {} free{}{}",
+        start_free.map_or("- (no POI at the bed)".to_string(), |f| f.to_string()),
+        start_holders.len(),
+        if o.bed_ticket_taken { "state (ii), the bench taking the ticket (--bed-ticket-taken)" } else { "the design start (i)" },
+        free_before_homes.map_or("-".to_string(), |f| f.to_string()),
+        lazy_free.map_or("-".to_string(), |f| f.to_string()),
+        start_free.map_or("-".to_string(), |f| f.to_string()),
+        if o.bed_ticket_taken { " (state (ii): the stand-in isn't judged)" } else if lazy_free == start_free { " (a no-op: the lazy table already leaves the ticket free (cc767b78's fix?): FAIL, drop the stand-in)" } else { " (it changes the cell: the game's (i))" },
+        match (o.bed_ticket_taken, start_free) {
+            (false, Some(1)) | (true, Some(0)) => "; the start is the state it names: PASS".to_string(),
+            (_, f) => format!("; {} free is not the named state's: FAIL", f.map_or("-".to_string(), |f| f.to_string())),
+        }
+    );
+    let start_ticket = (start_free, start_holders);
     let mut recs: BTreeMap<u32, Rec> = BTreeMap::new();
     // (day-1 01:10 PT, the per-pick trace) each napper's milestones of its earlier visits (a pick
     // starts a visit's list afresh)
@@ -2241,6 +2355,14 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             }
             overrides.push((*c, before, run.world.get(p).to_string()));
         }
+        // (day-1 05:45 PT, ironspec 06:24 real) a redstone-block stand-in is a solid cell while its
+        // line is on: watched like a laid support, its crossings counted only while it holds the
+        // block (its known difference)
+        for c in &o.block_standins {
+            if !sight_cells.contains(c) {
+                sight_cells.push(*c);
+            }
+        }
     }
     let mut sight_hits: Vec<i64> = vec![0; sight_cells.len()];
     let mut sight_rows: Vec<String> = Vec::new();
@@ -2293,6 +2415,36 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     // (ironspec 06:31 PT) the riders in REST within 16 of the bed while someone sleeps in it, per
     // night: (villager-ticks, the first rows)
     let mut rest_near_bed: BTreeMap<i64, i64> = BTreeMap::new();
+    // (ironspec 06:24 / 06:31 real, G1: the decisive bar) every REST entry (its row, closed with
+    // its HOME path and any release), the lane riders' REST ticks and entries at night outside
+    // their own trip (pick to R), those at a design position with a partial HOME path, and the
+    // night window
+    let mut rest_rows: Vec<String> = Vec::new();
+    let mut rest_entries_total = 0i64;
+    let mut lane_rest_ticks = 0i64;
+    let mut lane_rest_entries = 0i64;
+    let mut lane_rest_partial = 0i64;
+    let mut night_window: Option<(i64, i64)> = None;
+    // (G1) every CANT_REACH arming (the stamp set): night ones printed with position and scarer
+    // sight, day ones counted with each arming's target and position
+    let mut armings_night: Vec<String> = Vec::new();
+    let mut armings_night_n = 0i64;
+    let mut armings_day: Vec<String> = Vec::new();
+    let mut armings_day_n = 0i64;
+    // (ironspec 06:36 real) the runtime stamp bar: the oldest stamp seen (age, tick, rider, cell)
+    // and every tick a stamp stood at 1,000 gt or more
+    let mut stamp_max: Option<(i64, i64, String, [i32; 3])> = None;
+    let mut stamp_over: Vec<String> = Vec::new();
+    let mut stamp_over_n = 0i64;
+    // (ironspec 06:31 real) the farm-stop bar: ticks a napper without HOME stood at the bed stop
+    let mut stop_homeless: Vec<String> = Vec::new();
+    let mut stop_homeless_n = 0i64;
+    let mut home_erased = false;
+    let mut stamp_control_rider: Option<u32> = None;
+    // (ironspec 06:31 / 06:42 real) the ticket lines: the bed's free tickets and the HOME memory
+    // holders at the start and at every change
+    let mut ticket_prev: Option<(Option<u32>, Vec<u32>)> = Some(start_ticket);
+    let mut ticket_rows: Vec<String> = Vec::new();
     let mut rest_near_rows: Vec<String> = Vec::new();
     let mut bed_ever_occupied = false;
     let mut golem_birth_at: BTreeMap<u32, ([f64; 3], String)> = BTreeMap::new();
@@ -2744,6 +2896,31 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         let w = &mut run.world;
         let now = w.time;
         let day = w.day_time();
+        // (ironspec 06:31 / 06:42 real) the ticket lines: the bed's free tickets and the HOME
+        // memory holders at every change
+        if o.napper {
+            let free = redsim::entity::mob::ai::poi::free_tickets(w, bed);
+            let holders: Vec<u32> = w.entities.list.iter().filter(|e| !e.removed && matches!(&e.kind, EntityKind::Mob(m) if m.brain.as_deref().is_some_and(|b| b.home == Some(bed)))).map(|e| e.id).collect();
+            if let Some((pf, ph)) = &ticket_prev
+                && (*pf != free || *ph != holders)
+            {
+                if ticket_rows.len() < 24 {
+                    let lost: Vec<String> = ph.iter().filter(|v| !holders.contains(v)).map(|v| format!("#{v}")).collect();
+                    let gained: Vec<String> = holders.iter().filter(|v| !ph.contains(v)).map(|v| format!("#{v}")).collect();
+                    ticket_rows.push(format!(
+                        "t {}: free {} -> {}, holders {} -> {}{}{}",
+                        now - t0,
+                        pf.map_or("-".to_string(), |f| f.to_string()),
+                        free.map_or("-".to_string(), |f| f.to_string()),
+                        ph.len(),
+                        holders.len(),
+                        if lost.is_empty() { String::new() } else { format!(", lost {}", lost.join(" ")) },
+                        if gained.is_empty() { String::new() } else { format!(", gained {}", gained.join(" ")) }
+                    ));
+                }
+                ticket_prev = Some((free, holders));
+            }
+        }
         let dawn = day < prev_day || (prev_day < 23_999 && day >= 23_999);
         prev_day = day;
         // (ironspec 23:56 PT (4) / 00:32 PT rule (A) refined, the bars' positive controls)
@@ -3170,6 +3347,11 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                         continue;
                     }
                     for (k, c) in sight_cells.iter().enumerate() {
+                        // (a watched cell crosses a ray only while it holds a collider: a toggled
+                        // stand-in back to air is the build's own air)
+                        if redsim::behavior::collision_boxes(&w.get(redsim::pos::BlockPos::new(c[0], c[1], c[2]))).is_empty() {
+                            continue;
+                        }
                         if seg_hits_cell(*ea, *eb, *c) {
                             sight_hits[k] += 1;
                             // (ironspec 02:18 PT: the ray classes) each entity by its label or
@@ -3371,6 +3553,154 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             };
             let r = recs.get_mut(&id).unwrap();
             let c = cell(pos);
+            // (ironspec 06:24 / 06:31 / 06:36 real, G1) the rider-state bars: REST entries, the
+            // stamps, the farm stop
+            {
+                let dt = day.rem_euclid(24_000);
+                let night = (12_000..24_000).contains(&dt);
+                let riding = w.entities.list[i].vehicle.is_some();
+                // (a napper's own trip: from its pick until R; outside it every rider is a lane rider)
+                let in_trip = nappers.iter().any(|n| n.0 == id) && !r.milestones.is_empty() && !r.milestones.iter().any(|(m, _)| m == "at R");
+                if in_trip && !r.in_trip_prev {
+                    r.trips.push((now - t0, None));
+                } else if !in_trip && r.in_trip_prev
+                    && let Some(tr) = r.trips.last_mut()
+                {
+                    tr.1 = Some(now - t0);
+                }
+                r.in_trip_prev = in_trip;
+                let sight = |w: &redsim::world::World| -> String {
+                    hostile.and_then(|h| redsim::entity::index_of(w, h)).map_or("no scarer in sight (NEAREST_HOSTILE empty)".to_string(), |k| {
+                        let e = &w.entities.list[k];
+                        let d = ((e.pos.x - pos.x).powi(2) + (e.pos.y - pos.y).powi(2) + (e.pos.z - pos.z).powi(2)).sqrt();
+                        format!("NEAREST_HOSTILE {} at ({:.1},{:.1},{:.1}), {d:.1} away", match &e.kind { EntityKind::Mob(m) => format!("{:?}", m.ty), _ => "?".to_string() }, e.pos.x, e.pos.y, e.pos.z)
+                    })
+                };
+                let who = r.label.split(' ').next().unwrap_or("").to_string();
+                let tgt = |t: Option<[f64; 3]>| t.map_or("no walk target".to_string(), |t| format!("walk target ({:.1},{:.1},{:.1})", t[0], t[1], t[2]));
+                if let Some(s) = stamp {
+                    let age = now - s;
+                    let e = r.oldest_by_day.entry(day.div_euclid(24_000)).or_insert((age, now - t0, c));
+                    if age > e.0 {
+                        *e = (age, now - t0, c);
+                    }
+                    if stamp_max.as_ref().is_none_or(|m| age > m.0) {
+                        stamp_max = Some((age, now - t0, who.clone(), c));
+                    }
+                    if age >= 1000 {
+                        stamp_over_n += 1;
+                        if stamp_over.len() < 8 {
+                            stamp_over.push(format!("t {} {who} at {:?}: {age} gt ({}, {})", now - t0, c, if activity_rest { "REST" } else if panic { "PANIC" } else { "neither" }, tgt(target)));
+                        }
+                    }
+                    if r.prev_stamp.is_none() {
+                        // (an arming: the stamp set this tick)
+                        if night {
+                            armings_night_n += 1;
+                            if armings_night.len() < 24 {
+                                armings_night.push(format!("t {} {who} at ({:.1},{:.1},{:.1}){}, {}, {}", now - t0, pos.x, pos.y, pos.z, if riding { " riding" } else { "" }, sight(w), tgt(target)));
+                            }
+                        } else {
+                            armings_day_n += 1;
+                            if armings_day.len() < 24 {
+                                armings_day.push(format!("t {} {who} at ({:.1},{:.1},{:.1}){}, {}", now - t0, pos.x, pos.y, pos.z, if riding { " riding" } else { "" }, tgt(target)));
+                            }
+                        }
+                    }
+                }
+                if night {
+                    night_window = Some(night_window.map_or((now - t0, now - t0), |(a, _)| (a, now - t0)));
+                    r.night_acts[if panic { 0 } else if activity_rest { 1 } else { 2 }] += 1;
+                }
+                // (ironspec 07:10 real (2)) the nearest hostile mob within 16 of the rider's eye, its
+                // distance and the eye-to-eye clip (a collider between them hides it)
+                let nearest = |w: &redsim::world::World| -> String {
+                    let eye = redsim::entity::mob::villager::eye_pos(w, i);
+                    let mut best: Option<(f64, usize)> = None;
+                    for (j, e) in w.entities.list.iter().enumerate() {
+                        let EntityKind::Mob(m) = &e.kind else { continue };
+                        let ty = format!("{:?}", m.ty);
+                        if e.removed || !["Zombie", "Husk", "Drowned", "ZombieVillager", "Pillager", "Vindicator", "Evoker", "Illusioner", "Ravager", "Vex"].contains(&ty.as_str()) {
+                            continue;
+                        }
+                        let d = ((e.pos.x - pos.x).powi(2) + (e.pos.y - pos.y).powi(2) + (e.pos.z - pos.z).powi(2)).sqrt();
+                        if d <= 16.0 && best.is_none_or(|b| d < b.0) {
+                            best = Some((d, j));
+                        }
+                    }
+                    best.map_or("no hostile mob within 16".to_string(), |(d, j)| {
+                        let e = &w.entities.list[j];
+                        let clear = redsim::entity::mob::los::has_line_of_sight(w, eye, redsim::entity::mob::ai::eye_pos(w, j));
+                        format!("the nearest hostile {} at ({:.1},{:.1},{:.1}), {d:.2} away, the eye-to-eye clip {}", match &e.kind { EntityKind::Mob(m) => format!("{:?}", m.ty), _ => "?".to_string() }, e.pos.x, e.pos.y, e.pos.z, if clear { "clear" } else { "blocked" })
+                    })
+                };
+                if activity_rest {
+                    if r.rest_spell.is_none() {
+                        rest_entries_total += 1;
+                        let counted = !in_trip && !sleeping;
+                        let row = format!(
+                            "t {} {who} entered REST at ({:.1},{:.1},{:.1}){}{}, {}; {}, stamp {}, HOME {}",
+                            now - t0,
+                            pos.x,
+                            pos.y,
+                            pos.z,
+                            if riding { " riding (a design position)" } else { "" },
+                            if in_trip { " (in its own trip: excluded)" } else { "" },
+                            sight(w),
+                            nearest(w),
+                            stamp.map_or("unarmed".to_string(), |s| format!("{} gt", now - s)),
+                            home.map_or("none".to_string(), |h| format!("({},{},{})", h[0], h[1], h[2]))
+                        );
+                        if counted {
+                            lane_rest_entries += 1;
+                        }
+                        r.rest_spell = Some((now - t0, row, counted, riding));
+                        r.rest_path = None;
+                    }
+                    if r.rest_path.is_none() && home.is_some() && path_target == home {
+                        r.rest_path = reach;
+                    }
+                    if r.rest_spell.as_ref().is_some_and(|s| s.2) {
+                        lane_rest_ticks += 1;
+                    }
+                } else if let Some((st, row, counted, at_design)) = r.rest_spell.take() {
+                    let path = r.rest_path.take();
+                    if counted && at_design && path == Some(false) {
+                        lane_rest_partial += 1;
+                    }
+                    if rest_rows.len() < 40 {
+                        rest_rows.push(format!("{row}; its HOME path {}; left REST at t {} ({} gt){}", path.map_or("never computed".to_string(), |p| if p { "complete".to_string() } else { "PARTIAL".to_string() }), now - t0, now - t0 - st, r.home_lost.last().map_or(String::new(), |l| format!("; HOME released {l}"))));
+                    }
+                }
+                // (ironspec 06:31 real, the farm-stop bar) a napper without HOME at the bed stop
+                let (lo, hi) = ([-6, o.bed[1] - 2, -6], [4, o.bed[1] + 5, 5]);
+                let at_stop = (0..3).all(|a| c[a] >= lo[a] && c[a] <= hi[a]);
+                if at_stop && nappers.iter().any(|n| n.0 == id) {
+                    if o.home_erase_control && !home_erased && home.is_some() {
+                        // (the known positive: the planted erasure)
+                        redsim::entity::mob::ai::brain::brain_mut(w, i).home = None;
+                        home_erased = true;
+                        controls_done.push(format!("the farm-stop control at t {}: {who}'s HOME erased at the bed stop {:?} (the farm-stop bar must FAIL)", now - t0, c));
+                    }
+                    if home.is_none() {
+                        stop_homeless_n += 1;
+                        if stop_homeless.len() < 8 {
+                            stop_homeless.push(format!("t {} {who} at {:?}", now - t0, c));
+                        }
+                    }
+                }
+                // (ironspec 06:36 real, the stamp bar's known positive) by day, one lane x -1 rider
+                // given a walk target no path reaches
+                if o.stamp_control && !night && !in_trip && riding && stamp_control_rider.is_none_or(|v| v == id) && (stamp_control_rider.is_some() || (c[0] == -1 && (16..=22).contains(&c[1]) && (1..=6).contains(&c[2]) && !nappers.iter().any(|n| n.0 == id))) {
+                    if stamp_control_rider.is_none() {
+                        stamp_control_rider = Some(id);
+                        controls_done.push(format!("the stamp control at t {}: {who} at {:?} given the walk target (9,-28,9), which no path from the lane reaches, every day tick (the stamp bar must FAIL)", now - t0, c));
+                    }
+                    if let Some(ex) = redsim::entity::mob::ai::brain::brain_mut(w, i).ex.as_deref_mut() {
+                        ex.mem.walk_target = Some(redsim::entity::mob::ai::brain::WalkTarget { target: redsim::entity::mob::ai::brain::Tracker::Block(redsim::pos::BlockPos::new(9, -28, 9)), speed: 0.5, close: 0 });
+                    }
+                }
+            }
             // (ironspec 20:07 PT: the panic's start, for the trigger-skip window [S - 60, S])
             if panic && !r.panic_prev {
                 r.panic_since = Some(now);
@@ -4824,6 +5154,99 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             if rest_near_rows.is_empty() { String::new() } else { format!("; the first: {}", rest_near_rows.join("; ")) },
             if !bed_ever_occupied { "NOT JUDGED (the bed never occupied): FAIL" } else if rest_near_bed.is_empty() { "PASS" } else { "FAIL" }
         ));
+        // (ironspec 06:42 real) the start-state line and the ticket lines
+        s.push_str(&format!("  {start_state_line}\n"));
+        s.push_str(&format!(
+            "  the bed's tickets at every change (free count, HOME memory holders; ironspec 06:31 / 06:42 real; ticket state uncertain: pre-fix redsim): {}\n",
+            if ticket_rows.is_empty() { "no change".to_string() } else { ticket_rows.join("; ") }
+        ));
+        // (ironspec 06:24 / 06:31 / 07:02 real, G1: the decisive bar) every REST entry; the lane
+        // riders' REST outside their own trip; those at a design position with a partial HOME path
+        {
+            let mut open: Vec<String> = Vec::new();
+            let mut open_partial = 0i64;
+            for r in recs.values() {
+                if let Some((st, row, counted, at_design)) = &r.rest_spell {
+                    if *counted && *at_design && r.rest_path == Some(false) {
+                        open_partial += 1;
+                    }
+                    open.push(format!("{row}; its HOME path {}; still in REST at the run's end ({} gt)", r.rest_path.map_or("never computed".to_string(), |p| if p { "complete".to_string() } else { "PARTIAL".to_string() }), o.ticks - st));
+                }
+            }
+            let partial = lane_rest_partial + open_partial;
+            let trips: Vec<String> = recs
+                .values()
+                .filter(|r| !r.trips.is_empty())
+                .map(|r| format!("{} {}", r.label.split(' ').next().unwrap_or(""), r.trips.iter().map(|(a, b)| format!("t {a}..{}", b.map_or("end".to_string(), |b| b.to_string()))).collect::<Vec<_>>().join(", ")))
+                .collect();
+            s.push_str(&format!(
+                "  the lane riders in REST at night outside their own trip (ironspec 06:24 / 06:31 real, the decisive bar: bar 0; a napper's trip is its pick to R): {} entries, {} REST ticks ({}); of them at a design position (riding) with a partial HOME path: {} (bar 0: {}); the night window t {}; each napper's excluded trips: {}; every REST entry ({} in all, sleepers and trips included): {}\n",
+                lane_rest_entries,
+                lane_rest_ticks,
+                if night_window.is_none() { "NOT JUDGED (no night in the run): FAIL" } else if lane_rest_entries == 0 { "PASS" } else { "FAIL" },
+                partial,
+                if night_window.is_none() { "NOT JUDGED: FAIL" } else if partial == 0 { "PASS" } else { "FAIL" },
+                night_window.map_or("- (none)".to_string(), |(a, b)| format!("{a}..{b} (day time 12,000..24,000)")),
+                if trips.is_empty() { "none".to_string() } else { trips.join("; ") },
+                rest_entries_total,
+                if rest_rows.is_empty() && open.is_empty() { "none".to_string() } else { rest_rows.iter().chain(open.iter()).cloned().collect::<Vec<_>>().join("; ") }
+            ));
+            // (ironspec 06:36 / 07:06 real, G1) the runtime stamp bar, worded as its scope
+            let rider_days: i64 = recs.values().map(|r| r.oldest_by_day.len() as i64).sum();
+            let judged_days: std::collections::BTreeSet<i64> = recs.values().flat_map(|r| r.oldest_by_day.keys().copied()).collect();
+            let per_rider: Vec<String> = recs
+                .values()
+                .map(|r| format!("{} {}", r.label.split(' ').next().unwrap_or(""), if r.oldest_by_day.is_empty() { "never armed".to_string() } else { r.oldest_by_day.iter().map(|(d, (a, t, _))| format!("day {d}: {a} gt (t {t})")).collect::<Vec<_>>().join(", ") }))
+                .collect();
+            s.push_str(&format!(
+                "  the runtime stamp bar (ironspec 06:36 / 07:06 real: every rider's CANT_REACH stamp < 1,000 gt at all times, at every REST entry too): {} ({} riders, {} rider-days with a stamp, days {}, seed {}); the oldest {}; ticks at >= 1,000 gt: {}{}; each rider's oldest stamp per day: {}\n",
+                if recs.is_empty() { "NOT JUDGED (no rider): FAIL".to_string() } else if stamp_over_n == 0 { format!("no stamp >= 1,000 gt in {} riders over {} gt, seed {}: PASS", recs.len(), o.ticks, o.seed) } else { "FAIL".to_string() },
+                recs.len(),
+                rider_days,
+                judged_days.iter().map(|d| d.to_string()).collect::<Vec<_>>().join(", "),
+                o.seed,
+                stamp_max.as_ref().map_or("- (no stamp armed)".to_string(), |(a, t, w, c)| format!("{a} gt (t {t}, {w} at {c:?})")),
+                stamp_over_n,
+                if stamp_over.is_empty() { String::new() } else { format!(" ({})", stamp_over.join("; ")) },
+                per_rider.join("; ")
+            ));
+            s.push_str(&format!(
+                "  the CANT_REACH armings (G1: each with its target and position; at night with the scarer sight): by day {}{}; at night {}{}\n",
+                armings_day_n,
+                if armings_day.is_empty() { String::new() } else { format!(" ({})", armings_day.join("; ")) },
+                armings_night_n,
+                if armings_night.is_empty() { String::new() } else { format!(" ({})", armings_night.join("; ")) }
+            ));
+            // (ironspec 07:10 real (2)) each rider's night ticks by activity
+            s.push_str(&format!(
+                "  each rider's night ticks (ironspec 07:10 real (2): PANIC / REST / other): {}\n",
+                recs.values().map(|r| format!("{} {}/{}/{}", r.label.split(' ').next().unwrap_or(""), r.night_acts[0], r.night_acts[1], r.night_acts[2])).collect::<Vec<_>>().join(", ")
+            ));
+            s.push_str(&format!(
+                "  the farm-stop bar (ironspec 06:31 real: no napper without HOME at the bed stop, bar 0): {} ticks{} ({})\n",
+                stop_homeless_n,
+                if stop_homeless.is_empty() { String::new() } else { format!(": {}", stop_homeless.join("; ")) },
+                if nappers.is_empty() { "NOT JUDGED (no napper picked): FAIL" } else if stop_homeless_n == 0 { "PASS" } else { "FAIL" }
+            ));
+            // (ironspec 06:24 real, the 04:07 override rule) every redstone-block stand-in toggle
+            let toggles = BLOCK_TOGGLES.with(|t| t.borrow().clone());
+            if !o.block_standins.is_empty() {
+                let rows: Vec<String> = o
+                    .block_standins
+                    .iter()
+                    .map(|c| {
+                        let mine: Vec<&([i32; 3], i64, String, String)> = toggles.iter().filter(|x| x.0 == *c).collect();
+                        let noop = mine.iter().filter(|x| x.2 == x.3).count();
+                        let mut kinds: BTreeMap<String, i64> = BTreeMap::new();
+                        for x in &mine {
+                            *kinds.entry(format!("{} -> {}", x.2.trim_start_matches("minecraft:"), x.3.trim_start_matches("minecraft:"))).or_default() += 1;
+                        }
+                        format!("({},{},{}) {} toggles ({}), no-ops {noop}{}", c[0], c[1], c[2], mine.len(), kinds.iter().map(|(k, n)| format!("{k} {n}")).collect::<Vec<_>>().join(", "), if mine.is_empty() { " (NOT EXERCISED: FAIL)" } else if noop > 0 { " (FAIL)" } else { "" })
+                    })
+                    .collect();
+                s.push_str(&format!("  the redstone-block stand-ins (day-1 05:45 PT, ironspec 06:24 real; the 04:07 override rule, each toggle's before -> after): {}\n", rows.join("; ")));
+            }
+        }
         // (ironspec 16:10 (1)) per night: the villagers picked twice and the riders never picked;
         // and per villager its naps and picks
         {
@@ -5440,18 +5863,23 @@ pub fn day_weather_rows(w: &redsim::world::World, threshold: u32) -> String {
         Err(e) => return format!("the detector's sky light unreadable ({e}): NOT JUDGED: FAIL"),
     };
     let power = |d: i64, rain: f32, thunder: f32| redsim::daylight::detector_power(sky, redsim::weather::sky_darken_at(d, rain, thunder), d, false) as u32;
-    let rows: Vec<String> = [("clear", 0.0f32, 0.0f32, 12_230i64), ("rain", 1.0, 0.0, 11_603), ("thunder", 1.0, 1.0, 10_958)]
+    // (tick-exact 05:49 PT, G1: the SAME edge on both sides) the official DAY-off ticks, the
+    // detector's 6 -> 5 step at level 6 under each weather (https://artifacts.internalmeta.com/a/1871762297585648);
+    // redsim's analytic first day time below the level must equal them, and the 1-gt-shifted
+    // control (each official tick + 1) must fail
+    let rows: Vec<String> = [("clear", 0.0f32, 0.0f32, 12_230i64), ("rain", 1.0, 0.0, 12_002), ("thunder", 1.0, 1.0, 11_556)]
         .iter()
         .map(|(name, rain, thunder, official)| {
             let fall = (6_000..18_000i64).find(|d| power(*d, *rain, *thunder) < threshold);
             let rise = (18_000..30_000i64).find(|d| power(d.rem_euclid(24_000), *rain, *thunder) >= threshold).map(|d| d.rem_euclid(24_000));
             let verdict = match fall {
-                Some(f) if f > official - 20 && f <= *official => "PASS",
-                Some(_) => "FAIL",
-                None => "NOT JUDGED (no fall): FAIL",
+                _ if threshold != 6 => "not judged: the official rows are level 6's".to_string(),
+                Some(f) if f == *official => format!("PASS; the 1-gt-shifted control ({}): {}", official + 1, if f == official + 1 { "NOT CAUGHT: FAIL" } else { "caught" }),
+                Some(_) => "FAIL".to_string(),
+                None => "NOT JUDGED (no fall): FAIL".to_string(),
             };
             format!(
-                "{name}: falls below {threshold} at day time {} (tick-exact's official {official}: {}), back at {}",
+                "{name}: falls below {threshold} (the 6 -> 5 off-edge at level 6) at day time {} (tick-exact's official off-edge {official}: {}), back at {}",
                 fall.map_or("-".to_string(), |f| f.to_string()),
                 fall.map_or("-".to_string(), |f| format!("{:+} gt, {verdict}", f - official)),
                 rise.map_or("-".to_string(), |r| r.to_string())

@@ -1574,6 +1574,74 @@ pub fn is_source_name(s: &str) -> bool {
     }
 }
 
+/// (onechunk Nov 13, settle-check's strict reader) A header declaration's groups: the text after
+/// its key split at every `;` outside brackets and parentheses, each group's leading cells (`x,y,z`
+/// cells joined by `+`, or boxes of two corners, the token before the first `=`, space or `(`)
+/// moved to integers, and the rest of the group as written. A group whose leading token holds no
+/// cells is returned with no cells (a text group); a token that starts like cells but doesn't parse
+/// as whole x,y,z triples is an error.
+pub fn header_groups(rest: &str) -> Result<Vec<(Vec<[i32; 3]>, String)>, String> {
+    let mut groups: Vec<String> = Vec::new();
+    let (mut depth, mut cur) = (0i32, String::new());
+    for ch in rest.chars() {
+        match ch {
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' => depth -= 1,
+            _ => {}
+        }
+        if ch == ';' && depth == 0 {
+            groups.push(std::mem::take(&mut cur));
+        } else {
+            cur.push(ch);
+        }
+    }
+    if depth != 0 {
+        return Err(format!("unbalanced brackets in `{}`", rest.trim()));
+    }
+    groups.push(cur);
+    let mut out = Vec::new();
+    for g in groups {
+        let g = g.trim();
+        if g.is_empty() {
+            continue;
+        }
+        let end = g.find(['=', ' ', '(']).unwrap_or(g.len());
+        let (tok, tail) = g.split_at(end);
+        let starts_like_cells = tok.chars().next().is_some_and(|c| c == '-' || c.is_ascii_digit()) && tok.contains(',');
+        if !starts_like_cells {
+            out.push((Vec::new(), g.to_string()));
+            continue;
+        }
+        let mut cells = Vec::new();
+        for part in tok.split('+') {
+            let n: Vec<i32> = part.split(',').map(|x| x.trim().parse::<i32>().map_err(|e| format!("the cells `{tok}` in `{g}`: {e}"))).collect::<Result<_, _>>()?;
+            if n.is_empty() || n.len() % 3 != 0 {
+                return Err(format!("the cells `{tok}` in `{g}`: not whole x,y,z triples"));
+            }
+            for t in n.chunks(3) {
+                cells.push([t[0], t[1], t[2]]);
+            }
+        }
+        out.push((cells, tail.to_string()));
+    }
+    Ok(out)
+}
+
+/// (day-1 05:45 PT) The controller line ends a module declares as redstone-block stand-ins: the
+/// cells of every `# stand-in:` group whose text names a redstone block.
+pub fn block_standins(text: &str) -> Result<Vec<[i32; 3]>, String> {
+    let mut v = Vec::new();
+    for line in text.lines() {
+        let Some(rest) = line.strip_prefix("# stand-in:") else { continue };
+        for (cells, tail) in header_groups(rest)? {
+            if tail.contains("redstone block") {
+                v.extend(cells);
+            }
+        }
+    }
+    Ok(v)
+}
+
 /// The cells of a header line's groups with the state each names (`KEY CELLS=STATE (why); ...`:
 /// the state is the first token after `=`, `minecraft:` added when it has no namespace; G1's
 /// note (c) on 961090aef: the statics lay exactly what the run lays).

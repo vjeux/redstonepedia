@@ -527,6 +527,27 @@ hold riders: expected 0, elsewhere). The run starts in the design start (i), eve
 a memory and the bed's single ticket free (ironspec 06:38 PT); `--bed-ticket-taken` is state (ii),
 the ticket taken by the bench. Each night prints ValidateNearbyPoi's 16-block exposure: the villagers
 in REST within 16 of the bed while someone sleeps in it (bar 0).
+The start-state line prints the bed's free tickets and the HOME memory holders after the setup, and
+a ticket line follows every change. Pre-fix redsim builds its ticket table on the first ticket access
+from the HOME memories then held, so the bench reads the tickets once before setting any memory: a
+declared stand-in, printed as the free count redsim's own lazy table would read against the early
+table's, failing as a no-op once the table no longer counts memories. The rider-state bars: every REST
+entry (position, NEAREST_HOSTILE, the nearest hostile mob within 16 with the eye-to-eye clip, the
+stamp, HOME, then its HOME path, complete or partial, and any release); the lane riders in REST at
+night outside their own trip (a napper's pick to R; bar 0) and those riding with a partial HOME path
+(bar 0), with the night window and every napper's trips; the runtime stamp bar (every rider's
+CANT_REACH stamp under 1,000 gt at all times; its verdict states riders, gt and seed; each rider's
+oldest stamp per day; `--stamp-control` gives one lane rider a walk target no path reaches by day,
+which must fail it); every arming with its target and position (at night with the scarer sight); each
+rider's night ticks in PANIC / REST / other; and the farm-stop bar (no napper without HOME at the bed
+stop; `--home-erase-control` erases the first napper's HOME there, which must fail it). A line end the
+module declares `# stand-in: x,y,z (… redstone block …)` is driven as a redstone block while its line
+is on and the built air while off (no support cell), every toggle printed before -> after (a no-op
+fails), and it's watched for SIGHT only while it holds the block. The detector's weather rows compare
+the 6 -> 5 off-edge with tick-exact's official off-edges exactly, each with a 1-gt-shifted control.
+`--drive-out` writes, after every `set` act, a `# expect t x y z: …` line with redsim's state before
+the write (the carts in the act's column with their riders, every hold's and pocket's cart and rider,
+by the drive's names) for a replay's divergence check.
 The one-in-flight bars run from the divert (a pick the divert turns away never enters the way-in;
 those print apart with their causes). SIGHT prints its crossings by ray class (each entity by its
 label or mob type).
