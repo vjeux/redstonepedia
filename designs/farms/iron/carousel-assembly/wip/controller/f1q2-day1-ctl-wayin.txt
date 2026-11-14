@@ -1,0 +1,393 @@
+# V's way-in controller, car A (b8949c96, Nov 14 2026; day-1's netlist a/1158558780016588, subsystem 3, THE WAY-IN):
+# owner file in V's loop frame ("x,y,z state" lays, a bare "x,y,z" clears; `#` lines carried by vcompose's composer).
+# base: designs/farms/iron/carousel-assembly/wip/vcompose/f1q2-module-v.txt (md5 ea985422495c, main's V rev 2.1) + the
+# way-in delta designs/farms/iron/carousel-assembly/wip/b8949c96/f1q2-wayin-v.delta (md5 9be92f9abd54, f8f24b2d4).
+# Car A: the front's two up-runs (the departure detector's level, FRONT CLEAR), (B)'s read / latch / D / HOLD OPEN /
+# H2's x-8 drive, the token and the P1 trigger. Car B (the front's release: RS_ready, the 80-gt hold, NOT_ready into
+# R1) follows; until then NOT-ready is day-1's stand-in, MOVED to (7,-10,-6) (a floor lever on glass (7,-11,-6): R1's
+# north input is this file's repeater (7,-10,-5) reading it; (8,-10,-5) becomes the FC reader's support), REST / DAY stay
+# day-1's stand-ins at R1's inputs.
+# Conventions (the netlist's): a diode's `facing` names its INPUT side; a torch tower inverts once per torch, 2 gt each.
+# Every cell's state is the game's settled state AT REST (the front cart pressing (9,-9,-5), the token SET, (B)'s latch
+# reset, H2 open, P1 braked): written back by `mobfarm way-cell ... --ctl-drive 0:9,-9,-5=<pressed> --ctl-settle-write`.
+#
+# What it does (the netlist's subsystem 3, as laid):
+#  - HOLD OPEN (H2 (9,24,7) powered) = NOT Q AND NOT (9,23,6) AND NOT (9,22,3): a subtract comparator (7,27,-1) whose rear
+#    is NOT Q and whose side is the arrival read OR the exit detector (through a repeater, 15); H2 closes 7 gt after a
+#    press of (9,23,6) and reopens 5 gt after (9,22,3) releases.
+#  - (B)'s latch Q (P1 OCCUPIED before D): torch NOR-NOR, SET by a 14-gt edge of (9,23,6)'s read, RESET (dominant) by
+#    (9,22,3)'s level; its feedback through a repeater into N1_b.
+#  - P1 OCCUPIED = Q delayed D = 16 gt (two delay-4 repeaters), carried down to level B (y 20) on stone steps. D's source:
+#    the (9,23,6) -> rest-on-P1 transit 9..11 gt + 5 (b8949c96's redsim (B) bench, the figure ironspec 12:52p cites);
+#    step c re-checks D >= the game's maximum + 2 gt (D is a parameter: the repeaters' delays, no cells move).
+#  - TOKEN: torch NOR-NOR, SET at start, SET by a 14-gt edge of the departure detector (9,-11,-3)'s level (carried up the
+#    DEP tower, ~30 gt), CLEARED by the P1 pulse (the dust on top of N2_t).
+#  - FRONT CLEAR = (9,-9,-5) unpowered, carried up the FC tower (~31 gt) as NOT FRONT CLEAR.
+#  - THE P1 TRIGGER: a subtract comparator (3,20,-2), rear P1 OCCUPIED, sides NOT token and NOT front clear (15 each): out =
+#    OCCUPIED AND token AND front clear; its output clears the token, and the loop through the token latch ends it: one
+#    12-gt pulse into P1's support stone (9,21,5) (V's glass under P1 CLEARED, ironspec's 7th supersede).
+# Deviations from the netlist, each on a bench: the edges are 14 gt, not 4 (a 4-gt set pulse is shorter than the latch's
+# own loop: both latches fell back or oscillated); the 12-gt P1 pulse is the trigger's own loop through the token (no
+# separate edge former); (8,23,2) is GLASS (the read's up-step support; a non-conductor as G1 asked); a stone (9,27,-1)
+# cuts a dust diagonal; glass (5,21,-1) caps N1_t (no new spawn floor). FRONT EMPTIED is dropped (day-1 12:16).
+# The benches (V + the delta + this file, laid wiring only):
+#  - the drive bench (no carts, declared stand-ins at the four detectors): `mctas mobfarm way-cell <V> --positions ...
+#    --queue 9,-10,-4 --south --rail --r1-built --r1-layout v-ctl --delta <delta> --delta <this> --ctl-ticks 100,540
+#    --ctl-drive <a cycle, a token-cleared arrival, a front-occupied arrival>`: every gate as designed.
+#  - the leg train with real carts: `... --bed -3,-20,3 --leg-day 13000 --leg 8.5,25.0625,9.5,0.4,0,0 --ride-to 3,-18,-5
+#    --leg-train 3,70 --leg-release-after 80 --leg-laid-controller --ride-ticks 3000`: every BAR passes (and at 0.1 b/t).
+# Compaction candidate (later pass): the two torch towers (~52 cells carrying the front's two signals ~30 blocks up).
+#
+## ---- the departure detector (9,-11,-3) read, carried up as a LEVEL (the token's edge is formed at the top) ----
+## its reader (8,-11,-3): a repeater, input the detector (its only free face), output west
+8,-12,-3 minecraft:glass
+8,-11,-3 minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+## the line south, then two up-steps on glass (up-only: nothing flows back to the reader) to the tower's base feed
+7,-12,-3 minecraft:glass
+7,-11,-3 minecraft:redstone_wire[east=side,north=none,power=0,south=side,west=none]
+7,-12,-2 minecraft:glass
+7,-11,-2 minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+7,-12,-1 minecraft:glass
+7,-11,-1 minecraft:redstone_wire[east=none,north=side,power=0,south=up,west=none]
+7,-11,0 minecraft:glass
+7,-10,0 minecraft:redstone_wire[east=up,north=side,power=0,south=none,west=none]
+8,-10,0 minecraft:glass
+8,-9,0 minecraft:redstone_wire[east=none,north=side,power=0,south=none,west=side]
+8,-10,-1 minecraft:glass
+8,-9,-1 minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+8,-10,-2 minecraft:glass
+8,-9,-2 minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+## the DEP tower, column (8,y,-3): stone S0 (8,-9,-3) fed by the repeater above; torches at even y; V's cobblestone
+## (8,-7,-3) is the tower's second block (unchanged, not laid here); T14 (8,18,-3) = DEP (an even count)
+8,-9,-3 minecraft:stone
+8,-8,-3 minecraft:redstone_torch[lit=true]
+8,-6,-3 minecraft:redstone_torch[lit=false]
+8,-5,-3 minecraft:stone
+8,-4,-3 minecraft:redstone_torch[lit=true]
+8,-3,-3 minecraft:stone
+8,-2,-3 minecraft:redstone_torch[lit=false]
+8,-1,-3 minecraft:stone
+8,0,-3 minecraft:redstone_torch[lit=true]
+8,1,-3 minecraft:stone
+8,2,-3 minecraft:redstone_torch[lit=false]
+8,3,-3 minecraft:stone
+8,4,-3 minecraft:redstone_torch[lit=true]
+8,5,-3 minecraft:stone
+8,6,-3 minecraft:redstone_torch[lit=false]
+8,7,-3 minecraft:stone
+8,8,-3 minecraft:redstone_torch[lit=true]
+8,9,-3 minecraft:stone
+8,10,-3 minecraft:redstone_torch[lit=false]
+8,11,-3 minecraft:stone
+8,12,-3 minecraft:redstone_torch[lit=true]
+8,13,-3 minecraft:stone
+8,14,-3 minecraft:redstone_torch[lit=false]
+8,15,-3 minecraft:stone
+8,16,-3 minecraft:redstone_torch[lit=true]
+8,17,-3 minecraft:stone
+8,18,-3 minecraft:redstone_torch[lit=false]
+#
+## ---- the arrival detector (9,-9,-5) read: FRONT CLEAR = (9,-9,-5) unpowered, carried up ----
+## its reader (8,-9,-5): a repeater, input the detector, output west INTO V's obsidian (7,-9,-5) (the portal frame's
+## bottom, unchanged): the obsidian is strongly powered while the front is occupied; R1's north input below it is a
+## repeater (below), which no block above can feed
+8,-10,-5 minecraft:glass
+8,-9,-5 minecraft:repeater[delay=1,facing=east,locked=false,powered=true]
+## FRONT CLEAR: a wall torch on the obsidian's north face (lit = the front clear); it strongly powers V's cobblestone
+## (7,-8,-6) above it (unchanged), read by the repeater (8,-8,-6) into the tower's base (9,-8,-6)
+7,-9,-6 minecraft:redstone_wall_torch[facing=north,lit=false]
+8,-9,-6 minecraft:glass
+8,-8,-6 minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+## the FC tower, column (9,y,-6) beside the fall column (9,y,-5) (no block in the column or its footprint): stone S0
+## (9,-8,-6), torches at odd y; T13 (9,17,-6) = NOT front clear (an odd count) = the front occupied
+9,-8,-6 minecraft:stone
+9,-7,-6 minecraft:redstone_torch[lit=true]
+9,-6,-6 minecraft:stone
+9,-5,-6 minecraft:redstone_torch[lit=false]
+9,-4,-6 minecraft:stone
+9,-3,-6 minecraft:redstone_torch[lit=true]
+9,-2,-6 minecraft:stone
+9,-1,-6 minecraft:redstone_torch[lit=false]
+9,0,-6 minecraft:stone
+9,1,-6 minecraft:redstone_torch[lit=true]
+9,2,-6 minecraft:stone
+9,3,-6 minecraft:redstone_torch[lit=false]
+9,4,-6 minecraft:stone
+9,5,-6 minecraft:redstone_torch[lit=true]
+9,6,-6 minecraft:stone
+9,7,-6 minecraft:redstone_torch[lit=false]
+9,8,-6 minecraft:stone
+9,9,-6 minecraft:redstone_torch[lit=true]
+9,10,-6 minecraft:stone
+9,11,-6 minecraft:redstone_torch[lit=false]
+9,12,-6 minecraft:stone
+9,13,-6 minecraft:redstone_torch[lit=true]
+9,14,-6 minecraft:stone
+9,15,-6 minecraft:redstone_torch[lit=false]
+9,16,-6 minecraft:stone
+9,17,-6 minecraft:redstone_torch[lit=true]
+#
+## ---- R1's north input: V's latch dust (7,-10,-5) CLEARED (the powered obsidian above it would hold NOT-ready on),
+## replaced by a repeater facing north (input (7,-10,-6)), output into R1's comparator (7,-10,-4)'s side; until car B
+## its input is day-1's NOT-ready stand-in at (7,-10,-6) (owner day-1's stand-in part)
+7,-10,-5
+7,-10,-5 minecraft:repeater[delay=1,facing=north,locked=false,powered=true]
+#
+## ---- (B)'s arrival read (day-1's cells, from the stand-in part: the detector (9,23,6), its read line (8,23,6..3)) ----
+9,23,6 minecraft:detector_rail[powered=false,shape=ascending_south,waterlogged=false]
+8,22,6 minecraft:glass
+8,23,6 minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=none]
+8,22,5 minecraft:glass
+8,23,5 minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+8,22,4 minecraft:glass
+8,23,4 minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+8,22,3 minecraft:glass
+8,23,3 minecraft:redstone_wire[east=none,north=up,power=0,south=side,west=none]
+## the read carried up (up-only, glass steps) to the logic plane y 26: (8,24,2) on glass (8,23,2) (a NON-conductor:
+## booster 2's torch (8,22,2) strongly powers only a conductor there), (7,25,2), then E0_b (7,26,1)
+8,23,2 minecraft:glass
+8,24,2 minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=up]
+7,24,2 minecraft:glass
+7,25,2 minecraft:redstone_wire[east=side,north=up,power=0,south=none,west=none]
+7,25,1 minecraft:glass
+7,26,1 minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=side]
+## the read's rising edge (a 4-gt pulse): comparator (7,26,0) subtract, rear E0_b, side E0_b through a delay-2 repeater
+7,25,0 minecraft:glass
+7,26,0 minecraft:comparator[facing=south,mode=subtract,powered=false]
+6,25,1 minecraft:glass
+6,26,1 minecraft:repeater[delay=4,facing=east,locked=false,powered=false]
+5,25,1 minecraft:glass
+5,26,1 minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=none]
+5,25,0 minecraft:glass
+5,26,0 minecraft:redstone_wire[east=side,north=up,power=0,south=side,west=none]
+6,25,0 minecraft:glass
+6,26,0 minecraft:repeater[delay=3,facing=west,locked=false,powered=false]
+## (B)'s latch (P1 OCCUPIED before D), a torch NOR-NOR latch, reset-dominant: N1_b (7,26,-1) set by the edge, t1_b = NOT Q;
+## N2_b (7,26,-4) reset by the exit detector's level, t2_b = Q
+7,26,-1 minecraft:stone
+7,26,-2 minecraft:redstone_wall_torch[facing=north,lit=true]
+7,25,-3 minecraft:glass
+7,26,-3 minecraft:repeater[delay=1,facing=south,locked=false,powered=true]
+7,26,-4 minecraft:stone
+8,26,-4 minecraft:redstone_wall_torch[facing=east,lit=false]
+## the feedback Q -> N1_b: t2_b's front dust (9,26,-4), a line south along x 9 at y 26 (above every rider), into the
+## repeater (8,26,-1) facing east, whose output strongly powers N1_b (a one-connection dust would point past N1_b)
+9,25,-4 minecraft:glass
+9,26,-4 minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=side]
+9,25,-3 minecraft:glass
+9,26,-3 minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+9,25,-2 minecraft:glass
+9,26,-2 minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+9,25,-1 minecraft:glass
+9,26,-1 minecraft:redstone_wire[east=none,north=side,power=0,south=none,west=side]
+## a STONE above (9,26,-1): it cuts the diagonal between this line and HOLD OPEN's (9,27,0) (a dust reads a dust one
+## up and one over unless a conductor sits above the lower one; the first drive showed Q holding H2 open through it)
+9,27,-1 minecraft:stone
+8,25,-1 minecraft:glass
+8,26,-1 minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+#
+## ---- P1's exit detector (9,22,3) read: its glass support CLEARED, a stone laid (a pressed detector strongly powers the
+## block under it), read by the dust (9,20,3) under it; the line north along x 9 at y 20 (under the line's glass), then
+## glass up-steps (up-only) to the logic plane
+9,21,3
+9,21,3 minecraft:stone
+9,19,3 minecraft:glass
+9,20,3 minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+9,19,2 minecraft:glass
+9,20,2 minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+9,19,1 minecraft:glass
+9,20,1 minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+9,19,0 minecraft:glass
+9,20,0 minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=up]
+8,20,0 minecraft:glass
+8,21,0 minecraft:redstone_wire[east=side,north=up,power=0,south=none,west=none]
+8,21,-1 minecraft:glass
+8,22,-1 minecraft:redstone_wire[east=none,north=up,power=0,south=side,west=none]
+8,22,-2 minecraft:glass
+8,23,-2 minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=up]
+7,23,-2 minecraft:glass
+7,24,-2 minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=up]
+6,24,-2 minecraft:glass
+6,25,-2 minecraft:redstone_wire[east=side,north=up,power=0,south=none,west=none]
+6,25,-3 minecraft:glass
+6,26,-3 minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=side]
+5,25,-3 minecraft:glass
+5,26,-3 minecraft:redstone_wire[east=side,north=side,power=0,south=up,west=none]
+5,25,-4 minecraft:glass
+5,26,-4 minecraft:redstone_wire[east=side,north=none,power=0,south=side,west=none]
+## the latch's RESET: the repeater (6,26,-4) facing west, output into N2_b's west face
+6,25,-4 minecraft:glass
+6,26,-4 minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+#
+## ---- HOLD OPEN = NOT Q AND NOT (9,23,6) AND NOT (9,22,3): a subtract comparator (7,27,-1), rear NOT Q (the stone
+## (7,27,-2) that t1_b strongly powers), side (the read OR the exit detector) through a repeater (15, so the subtraction
+## reaches 0); its output strongly powers the stone (7,27,0) = HOLD OPEN
+7,27,-2 minecraft:stone
+7,27,-1 minecraft:comparator[facing=north,mode=subtract,powered=true]
+7,27,0 minecraft:stone
+## the side: the read (the edge's side line (5,26,0), one up-step) OR the exit detector (one up-step off (5,26,-3)),
+## joined at (5,27,-1) (up-only steps: neither flows back into the other's line), through the repeater (6,27,-1)
+5,26,-1 minecraft:glass
+5,27,-1 minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=none]
+5,26,-2 minecraft:glass
+5,27,-2 minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+6,26,-1 minecraft:glass
+6,27,-1 minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+## HOLD OPEN out: the repeater (8,27,0) reads the stone, a line south along x 9 at y 27 (above every rider), two
+## down-steps on stone supports to (8,25,4), then day-1's x-8 drive (8,25,5..7) on glass and its stone (8,24,7) beside H2
+8,26,0 minecraft:glass
+8,27,0 minecraft:repeater[delay=1,facing=west,locked=false,powered=true]
+9,26,0 minecraft:glass
+9,27,0 minecraft:redstone_wire[east=none,north=none,power=15,south=side,west=side]
+9,26,1 minecraft:glass
+9,27,1 minecraft:redstone_wire[east=none,north=side,power=14,south=side,west=none]
+9,26,2 minecraft:glass
+9,27,2 minecraft:redstone_wire[east=none,north=side,power=13,south=side,west=none]
+9,26,3 minecraft:stone
+9,27,3 minecraft:redstone_wire[east=none,north=side,power=12,south=none,west=side]
+8,25,3 minecraft:stone
+8,26,3 minecraft:redstone_wire[east=up,north=none,power=11,south=side,west=none]
+8,24,4 minecraft:glass
+8,25,4 minecraft:redstone_wire[east=none,north=up,power=10,south=side,west=none]
+8,24,5 minecraft:glass
+8,25,5 minecraft:redstone_wire[east=none,north=side,power=9,south=side,west=none]
+8,24,6 minecraft:glass
+8,25,6 minecraft:redstone_wire[east=none,north=side,power=8,south=side,west=none]
+8,24,7 minecraft:stone
+8,25,7 minecraft:redstone_wire[east=none,north=side,power=7,south=side,west=none]
+9,24,7 minecraft:powered_rail[powered=true,shape=ascending_south,waterlogged=false]
+#
+## ---- P1 OCCUPIED = Q delayed D = 16 gt: the stone (8,27,-4) that t2_b strongly powers, two delay-4 repeaters
+## ((8,27,-5) north, (7,27,-6) west), then down-steps on STONE supports (each lower dust reads the upper through the
+## upper's stone; up-only into level B y 20 at (3,20,-2))
+8,27,-4 minecraft:stone
+8,26,-5 minecraft:glass
+8,27,-5 minecraft:repeater[delay=4,facing=south,locked=false,powered=false]
+8,26,-6 minecraft:glass
+8,27,-6 minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=side]
+7,26,-6 minecraft:glass
+7,27,-6 minecraft:repeater[delay=4,facing=east,locked=false,powered=false]
+6,26,-6 minecraft:stone
+6,27,-6 minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
+5,25,-6 minecraft:stone
+5,26,-6 minecraft:redstone_wire[east=up,north=none,power=0,south=none,west=side]
+4,24,-6 minecraft:stone
+4,25,-6 minecraft:redstone_wire[east=up,north=none,power=0,south=none,west=side]
+3,23,-6 minecraft:stone
+3,24,-6 minecraft:redstone_wire[east=up,north=none,power=0,south=side,west=none]
+3,22,-5 minecraft:stone
+3,23,-5 minecraft:redstone_wire[east=none,north=up,power=0,south=side,west=none]
+3,21,-4 minecraft:stone
+3,22,-4 minecraft:redstone_wire[east=none,north=up,power=0,south=side,west=none]
+3,20,-3 minecraft:stone
+3,21,-3 minecraft:redstone_wire[east=none,north=up,power=0,south=side,west=none]
+#
+## ---- level B (y 20): the token, the P1 trigger, the P1 pulse ----
+## FRONT CLEAR's line (the FC tower's T13 = NOT front clear, up-steps on glass, then flat along z -6 and x 1) into the
+## repeater (2,20,-2), one side of the trigger comparator
+8,16,-6 minecraft:glass
+8,17,-6 minecraft:redstone_wire[east=side,north=none,power=15,south=none,west=up]
+7,17,-6 minecraft:glass
+7,18,-6 minecraft:redstone_wire[east=side,north=none,power=14,south=none,west=up]
+6,18,-6 minecraft:glass
+6,19,-6 minecraft:redstone_wire[east=side,north=none,power=13,south=none,west=up]
+5,19,-6 minecraft:glass
+5,20,-6 minecraft:redstone_wire[east=side,north=none,power=12,south=none,west=side]
+4,19,-6 minecraft:glass
+4,20,-6 minecraft:redstone_wire[east=side,north=none,power=11,south=none,west=side]
+3,19,-6 minecraft:glass
+3,20,-6 minecraft:redstone_wire[east=side,north=none,power=10,south=none,west=side]
+2,19,-6 minecraft:glass
+2,20,-6 minecraft:redstone_wire[east=side,north=none,power=9,south=none,west=side]
+1,19,-6 minecraft:glass
+1,20,-6 minecraft:redstone_wire[east=side,north=none,power=8,south=side,west=none]
+1,19,-5 minecraft:glass
+1,20,-5 minecraft:redstone_wire[east=none,north=side,power=7,south=side,west=none]
+1,19,-4 minecraft:glass
+1,20,-4 minecraft:redstone_wire[east=none,north=side,power=6,south=side,west=none]
+1,19,-3 minecraft:glass
+1,20,-3 minecraft:redstone_wire[east=none,north=side,power=5,south=side,west=none]
+1,19,-2 minecraft:glass
+1,20,-2 minecraft:redstone_wire[east=side,north=side,power=4,south=none,west=none]
+2,19,-2 minecraft:glass
+2,20,-2 minecraft:repeater[delay=1,facing=west,locked=false,powered=true]
+## the departure detector's level (the DEP tower's T14), two up-steps to E0_t (7,20,-1)
+8,17,-2 minecraft:glass
+8,18,-2 minecraft:redstone_wire[east=none,north=side,power=0,south=up,west=none]
+8,18,-1 minecraft:glass
+8,19,-1 minecraft:redstone_wire[east=none,north=side,power=0,south=none,west=up]
+7,19,-1 minecraft:glass
+7,20,-1 minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=side]
+## its rising edge (4 gt): comparator (6,20,-1) subtract, rear E0_t, side through the delay-2 repeater (7,20,-2)
+6,19,-1 minecraft:glass
+6,20,-1 minecraft:comparator[facing=east,mode=subtract,powered=false]
+7,19,-2 minecraft:glass
+7,20,-2 minecraft:repeater[delay=4,facing=south,locked=false,powered=false]
+7,19,-3 minecraft:glass
+7,20,-3 minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=side]
+6,19,-3 minecraft:glass
+6,20,-3 minecraft:redstone_wire[east=side,north=none,power=0,south=side,west=none]
+6,19,-2 minecraft:glass
+6,20,-2 minecraft:repeater[delay=3,facing=north,locked=false,powered=false]
+## the TOKEN, a compact torch NOR-NOR latch, reset-dominant, SET at start: N1_t (5,20,-1) set by the edge, t1_t = NOT token;
+## N2_t (4,20,1) reset by the P1 pulse (the dust (4,21,1) on top of it), t2_t = token
+5,20,-1 minecraft:stone
+## glass on top of N1_t: the stone's top would otherwise be a dark floor with room above (no spawn surface added)
+5,21,-1 minecraft:glass
+4,20,-1 minecraft:redstone_wall_torch[facing=west,lit=false]
+4,19,0 minecraft:glass
+4,20,0 minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+4,20,1 minecraft:stone
+5,20,1 minecraft:redstone_wall_torch[facing=east,lit=true]
+5,19,0 minecraft:glass
+5,20,0 minecraft:repeater[delay=1,facing=south,locked=false,powered=true]
+## NOT token into the trigger's other side: the dust (4,20,-2) beside t1_t
+4,19,-2 minecraft:glass
+4,20,-2 minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=side]
+## THE P1 TRIGGER: comparator (3,20,-2) subtract, rear P1 OCCUPIED (the stone (3,20,-3) under the down-steps' last dust),
+## sides NOT token and NOT front clear (15 each): out = OCCUPIED AND token AND front clear; its pulse resets the token (the
+## loop through the latch ends it: ~12 gt, measured)
+3,19,-2 minecraft:glass
+3,20,-2 minecraft:comparator[facing=north,mode=subtract,powered=false]
+3,20,-1 minecraft:repeater[delay=2,facing=north,locked=false,powered=false]
+3,19,0 minecraft:glass
+3,20,0 minecraft:redstone_wire[east=none,north=side,power=0,south=up,west=side]
+3,20,1 minecraft:glass
+3,21,1 minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=side]
+4,21,1 minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
+## the P1 pulse's line: west, south along x 2 (beside lane 3's ramp, no cell in its riders' space), a refresh repeater
+## (2,20,4) on V's glass (2,19,4), east along z 7 at y 20, an up-step to (9,21,7), the repeater (9,21,6) into P1's
+## support (9,21,5) (V's glass CLEARED, a stone laid: powered = P1 released)
+2,19,0 minecraft:glass
+2,20,0 minecraft:redstone_wire[east=side,north=none,power=0,south=side,west=none]
+2,19,1 minecraft:glass
+2,20,1 minecraft:redstone_wire[east=up,north=side,power=0,south=side,west=none]
+2,19,2 minecraft:glass
+2,20,2 minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+2,19,3 minecraft:glass
+2,20,3 minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+2,20,4 minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+2,19,5 minecraft:glass
+2,20,5 minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+2,19,6 minecraft:glass
+2,20,6 minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+2,19,7 minecraft:glass
+2,20,7 minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=none]
+3,19,7 minecraft:glass
+3,20,7 minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
+4,19,7 minecraft:glass
+4,20,7 minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
+5,19,7 minecraft:glass
+5,20,7 minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
+6,19,7 minecraft:glass
+6,20,7 minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
+7,19,7 minecraft:glass
+7,20,7 minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
+8,19,7 minecraft:glass
+8,20,7 minecraft:redstone_wire[east=up,north=none,power=0,south=none,west=side]
+9,20,7 minecraft:glass
+9,21,7 minecraft:redstone_wire[east=none,north=side,power=0,south=none,west=side]
+9,20,6 minecraft:glass
+9,21,6 minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+9,21,5
+9,21,5 minecraft:stone
