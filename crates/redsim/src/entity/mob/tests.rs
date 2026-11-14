@@ -582,3 +582,196 @@ fn seated_pillager_golem_on_portal() {
         assert_eq!(err, case != 0, "{what}: {:?}", w.errors);
     }
 }
+
+/// The motion's zero sign aside (no game row can show one: `DoubleTag.valueOf`, net/minecraft/nbt/DoubleTag 46–48).
+fn unsigned(x: f64) -> u64 {
+    if x == 0.0 { 0.0f64.to_bits() } else { x.to_bits() }
+}
+
+/// (cc767b78; tick-exact 15:46, game row https://artifacts.internalmeta.com/a/1661124758462897 "a lie-down on the
+/// stop's own cells (hurt), official 26.3", its t107..t118; G1 15:48) The panic-drifted lie-down, pinned to the
+/// game's rows bit for bit in its frame (+80): a villager stopped at P (-1.5, 80, 4.7) on the ground, its move control
+/// still in MoveTo (-1.5, 80, 5.5) at x0.75 (a villager's panic speed, 0.5 x 1.5), lies down in its bed (head
+/// (-3, 80, 4)) when SleepInBed starts in its brain: `setPosToBed` (-2.5, 80.6875, 4.5), the same tick's move control
+/// gives one tick of input at 0.375 (MoveTo, then Wait), travel moves it 0.375 x 0.375 at ground speed, and friction
+/// alone (x0.91 airborne, x0.546 on the bed, the 0.003 cut) settles it at (-2.154932, 80.5625, 4.845002): +0.345 per
+/// axis off the head's centre, every row the game's.
+#[test]
+fn a_panic_drifted_lie_down_follows_the_game_row() {
+    let mut w = World::new(BlockPos::new(-8, 76, -2), [16, 10, 16]);
+    w.mob.seed(7, 13_000);
+    w.mob.ai.on = true;
+    for x in -6..=2 {
+        for z in 0..=8 {
+            put(&mut w, x, 79, z, "minecraft:stone");
+        }
+    }
+    put(&mut w, -3, 80, 3, "minecraft:red_bed[facing=south,occupied=false,part=foot]");
+    put(&mut w, -3, 80, 4, "minecraft:red_bed[facing=south,occupied=false,part=head]");
+    let home = "{Brain:{memories:{\"minecraft:home\":{value:{dimension:\"minecraft:overworld\",pos:[I;-3,80,4]}}}}}";
+    let v = crate::entity::spawn(&mut w, "minecraft:villager", [-1.5, 80.0, 4.699999988079071], Some(home)).unwrap();
+    let p = Vec3::new(-1.5, 80.0, 4.699999988079071);
+    let mut lay = false;
+    for _ in 0..60 {
+        // (the game's state before its lie-down tick, t104..t106: standing at P on the ground, motion (0, -0.0784, 0),
+        // the move control in MoveTo toward (-1.5, 80, 5.5) at x0.75)
+        let i = crate::entity::index_of(&w, v).unwrap();
+        w.entities.set_pos(i, p);
+        w.entities.list[i].delta_movement = Vec3::new(0.0, -0.0784000015258789, 0.0);
+        w.entities.list[i].on_ground = true;
+        w.entities.list[i].y_rot = 0.0;
+        super::ai::ai_mut(&mut w, i).move_ctl.set_wanted_position(-1.5, 80.0, 5.5, 0.75);
+        w.tick();
+        let i = crate::entity::index_of(&w, v).unwrap();
+        if super::mob(&w, i).sleeping_pos.is_some() {
+            lay = true;
+            break;
+        }
+    }
+    assert!(lay, "SleepInBed started within 60 ticks");
+    // the game's rows t107 (the lie-down tick) .. t118: Pos then Motion
+    let rows: [[f64; 6]; 12] = [
+        [-2.4005535719916224, 80.6875, 4.599427359178662, 0.054297755999401176, -0.0784000015258789, 0.054287344417167316],
+        [-2.346255815992221, 80.60909999847412, 4.6537147035958295, 0.04941095938347039, -0.1552320045166016, 0.049401484843364527],
+        [-2.2968448566087507, 80.5625, 4.703116188439194, 0.044963974334812036, 0.05255604096550518, 0.04495535250306722],
+        [-2.2518808822739387, 80.6150560409655, 4.748071540942261, 0.02455033283839304, -0.0268950803772569, 0.024545625317713576],
+        [-2.2273305494355458, 80.58816096058824, 4.772617166259975, 0.02234080352679577, -0.10475718080857362, 0.022336519682853995],
+        [-2.20498974590875, 80.5625, 4.794953685942829, 0.02033013179529504, 0.012552194882039269, 0.020326233497195676],
+        [-2.184659614113455, 80.57505219488203, 4.815279919440025, 0.011100253249554673, -0.06609885030206632, 0.011098124778545194],
+        [-2.1735593608639006, 80.5625, 4.82637804421857, 0.010101230748210479, -0.0784000015258789, 0.010099293839536033],
+        [-2.16345813011569, 80.5625, 4.836477338058106, 0.00551527262913633, -0.0784000015258789, 0.005514215076877244],
+        [-2.1579428574865536, 80.5625, 4.841991553134983, 0.0030113392052833975, -0.0784000015258789, 0.0030107617816828676],
+        [-2.1549315182812703, 80.5625, 4.845002314916666, 0.0016441913970618861, -0.0784000015258789, 0.0016438761237393769],
+        [-2.1549315182812703, 80.5625, 4.845002314916666, 0.0, -0.0784000015258789, 0.0],
+    ];
+    let names = ["x", "y", "z", "vx", "vy", "vz"];
+    for (k, row) in rows.iter().enumerate() {
+        if k > 0 {
+            w.tick();
+        }
+        let i = crate::entity::index_of(&w, v).unwrap();
+        assert!(super::mob(&w, i).sleeping_pos.is_some(), "t{}: still asleep", 107 + k);
+        let e = &w.entities.list[i];
+        let got = [e.pos.x, e.pos.y, e.pos.z, e.delta_movement.x, e.delta_movement.y, e.delta_movement.z];
+        for c in 0..6 {
+            assert_eq!(unsigned(got[c]), unsigned(row[c]), "t{} {}: redsim {:?}, the game {:?}", 107 + k, names[c], got[c], row[c]);
+        }
+    }
+}
+
+/// (cc767b78; tick-exact 15:46 / 13:55, G1 15:48, ironspec 15:48) The asleep pickup by geometry, the two game rows'
+/// sleepers on their beds (head (-3, 80, 4)) as each settled: the panic-drifted one at (-2.1549315182812703, 80.5625,
+/// 4.845002314916666) (+0.345 per axis, row a/1661124758462897 "hurt": seated at release + 29, the head freed at
+/// release + 30) and the eject-path one at (-2.5, 80.5625, 4.482542) (0.0175 off, the 13:55 row "eject": never
+/// seated). An empty cart running south past them on the pickup line x = -1.5 at pickup speed (its box inflated by 0.2:
+/// x -2.19 .. -0.81) meets the drifted sleeper's box (x -2.2549 .. -2.0549) and seats it, the seating ending the sleep
+/// the tick after (`startRiding` has no sleep test); it misses the centred one's (x -2.6 .. -2.4, 0.21 away), which
+/// sleeps on.
+#[test]
+fn a_drifted_sleeper_is_seated_and_a_centred_one_is_not() {
+    let run = |sleeper: Vec3| -> (bool, bool, bool) {
+        let mut w = World::new(BlockPos::new(-8, 76, -4), [16, 10, 20]);
+        w.mob.seed(7, 13_000);
+        for x in -6..=2 {
+            for z in -2..=12 {
+                put(&mut w, x, 79, z, "minecraft:stone");
+            }
+        }
+        for z in -2..=12 {
+            put(&mut w, -2, 80, z, "minecraft:rail[shape=north_south,waterlogged=false]");
+        }
+        put(&mut w, -3, 80, 3, "minecraft:red_bed[facing=south,occupied=false,part=foot]");
+        put(&mut w, -3, 80, 4, "minecraft:red_bed[facing=south,occupied=false,part=head]");
+        // (the AI on, as in the rows: the brain's sleeper, its HOME the bed; the night keeps it in REST)
+        w.mob.ai.on = true;
+        let home = "{Brain:{memories:{\"minecraft:home\":{value:{dimension:\"minecraft:overworld\",pos:[I;-3,80,4]}}}}}";
+        let v = crate::entity::spawn(&mut w, "minecraft:villager", [-2.5, 80.0, 5.5], Some(home)).unwrap();
+        // (its own brain lays it down (SleepInBed started, so not started again), then it is put where the row's
+        // sleeper settled: the drift itself is the pin above)
+        let mut asleep = false;
+        for _ in 0..60 {
+            w.tick();
+            let i = crate::entity::index_of(&w, v).unwrap();
+            if super::mob(&w, i).sleeping_pos.is_some() {
+                asleep = true;
+                break;
+            }
+        }
+        assert!(asleep, "the villager lay down in its bed");
+        let i = crate::entity::index_of(&w, v).unwrap();
+        w.entities.set_pos(i, sleeper);
+        w.entities.list[i].delta_movement = Vec3::ZERO;
+        let cart = crate::entity::spawn(&mut w, "minecraft:minecart", [-1.5, 80.0625, -1.5], Some("{Motion:[0.0d,0.0d,0.4d]}")).unwrap();
+        let (mut seated, mut freed_after) = (false, false);
+        for _ in 0..40 {
+            w.tick();
+            let i = crate::entity::index_of(&w, v).unwrap();
+            let riding = w.entities.list[i].vehicle == Some(cart);
+            if seated && riding {
+                freed_after = matches!(w.get(BlockPos::new(-3, 80, 4)), Block::Bed { occupied: false, .. });
+                break;
+            }
+            seated = riding;
+        }
+        let i = crate::entity::index_of(&w, v).unwrap();
+        (seated, freed_after, super::mob(&w, i).sleeping_pos.is_some())
+    };
+    let (seated, freed, _) = run(Vec3::new(-2.1549315182812703, 80.5625, 4.845002314916666));
+    assert!(seated, "the panic-drifted sleeper (+0.345 per axis) is seated by the passing cart");
+    assert!(freed, "and its bed's head is freed the tick after the seating");
+    let (seated, _, asleep) = run(Vec3::new(-2.5, 80.5625, 4.482542));
+    assert!(!seated && asleep, "the eject-path sleeper (0.0175 off) is never seated and sleeps on");
+}
+
+/// (cc767b78; tick-exact 15:47 / 16:44, G1 15:37 / 15:49, ironspec 15:42 / 15:50: PINNED, the game's code) A seated AI
+/// villager with movement input travels, and pushes from its travelled box: 26.3 `GroundPathNavigation.canUpdatePath`
+/// 34–36 keeps `isPassenger()`; `Mob.serverAiStep` 715–755 has no passenger gate; `MoveToTargetSink` /
+/// `SetWalkTargetFromBlockMemory` no isPassenger check; `MoveControl.tick` 84–97 (MOVE_TO) turns it and
+/// `Mob.setSpeed` 440–444 sets `zza` to the speed (a path-following villager: 0.5 x `MOVEMENT_SPEED` 0.5, Villager
+/// 227–228); `LivingEntity.aiStep` 3082–3089 / 3127–3137 calls `travel(input)` for a cart-riding AI villager
+/// (`canSimulateMovement` true on the server; a NoAI one runs neither, `Mob.isEffectiveAi` 1311–1313);
+/// `pushEntities()` at 3169 runs after travel, from the travelled box (3228); `Entity.rideTick` 2444–2450 zeroes the
+/// motion, ticks, then seats it (`positionRider`): the source of the game's AI queue jostle (tick-exact's raw
+/// doubles: e11p0's +0.00455 = 0.02F x 0.25 x 0.91F). So with its move control in MoveTo the rider's motion after
+/// the tick carries the input, and a cart its seat box just misses is pushed from the travelled one; with no input,
+/// no push.
+#[test]
+fn a_seated_ai_villager_travels_and_pushes_from_its_travelled_box() {
+    let run = |input: bool| -> (Vec3, Vec<(u32, u32, f64)>, u32, u32) {
+        let mut w = World::new(BlockPos::new(-6, -2, -6), [12, 6, 12]);
+        w.mob.seed(7, 6_000);
+        w.mob.ai.on = true;
+        for z in -3..=4 {
+            put(&mut w, 0, -1, z, "minecraft:stone");
+            put(&mut w, 0, 0, z, "minecraft:rail[shape=north_south,waterlogged=false]");
+        }
+        let a = crate::entity::spawn(&mut w, "minecraft:minecart", [0.5, 0.0, 0.5], Some("{Passengers:[{id:\"minecraft:villager\"}]}")).unwrap();
+        let rider = w.entities.list[crate::entity::index_of(&w, a).unwrap()].passengers[0];
+        // (an empty cart 0.795 south of A: the rider's seat box (z 0.2 .. 0.8) misses its box (z 0.805 .. 1.785) by 0.005)
+        let b = crate::entity::spawn(&mut w, "minecraft:minecart", [0.5, 0.0, 1.295], None).unwrap();
+        w.tick();
+        for (id, z) in [(a, 0.5), (b, 1.295)] {
+            let k = crate::entity::index_of(&w, id).unwrap();
+            w.entities.set_pos(k, Vec3::new(0.5, 0.0, z));
+            w.entities.list[k].delta_movement = Vec3::ZERO;
+        }
+        let r = crate::entity::index_of(&w, rider).unwrap();
+        w.entities.list[r].y_rot = 0.0;
+        if input {
+            // (its move control in MoveTo south, x1.0: the input a walk target's path gives)
+            super::ai::ai_mut(&mut w, r).move_ctl.set_wanted_position(0.5, 0.0, 3.5, 1.0);
+        }
+        crate::entity::minecart::log_cart_pushes(&mut w);
+        w.tick();
+        let pushes = crate::entity::minecart::take_cart_pushes(&mut w).into_iter().map(|p| (p.mob, p.cart, p.dist)).collect();
+        let r = crate::entity::index_of(&w, rider).unwrap();
+        (w.entities.list[r].delta_movement, pushes, rider, b)
+    };
+    let (motion, pushes, rider, b) = run(true);
+    let onto_b: Vec<_> = pushes.iter().filter(|p| p.0 == rider && p.1 == b).collect();
+    assert!(!onto_b.is_empty() && onto_b.iter().all(|p| p.2 < 0.795), "A's rider pushes B from its travelled box (nearer than the seat's 0.795): {pushes:?}");
+    let (still, pushes, rider, b) = run(false);
+    assert!(still.x == 0.0 && still.z == 0.0, "no input: gravity alone ({still:?})");
+    assert!(!pushes.iter().any(|p| p.0 == rider && p.1 == b), "no input: the seat box misses B, no push ({pushes:?})");
+    assert!(motion.z != still.z, "the input travelled the rider: {motion:?} against {still:?}");
+}
