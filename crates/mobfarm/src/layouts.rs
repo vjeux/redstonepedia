@@ -278,6 +278,57 @@ fn entry_cells(entry: &str) -> Vec<[i32; 3]> {
     }).collect()
 }
 
+/// (G1 Nov 14 08:52, part 66) An `update-consumers` entry's parts, `CLASS SX,SY,SZ=CX,CY,CZ ID+... (why)`: the class,
+/// the source cell, each consumer (cell, id) and the reason; None when it doesn't parse.
+fn update_consumer_parts(entry: &str) -> Option<(String, [i32; 3], Vec<([i32; 3], String)>, String)> {
+    let cell = |s: &str| -> Option<[i32; 3]> {
+        let v: Vec<i32> = s.trim().split(',').map(|n| n.trim().parse::<i32>().ok()).collect::<Option<_>>()?;
+        (v.len() == 3).then(|| [v[0], v[1], v[2]])
+    };
+    let (class, rest) = entry.trim().split_once(' ')?;
+    let i = rest.find(" (")?;
+    let (body, why) = (&rest[..i], rest[i + 1..].to_string());
+    let (s, list) = body.split_once('=')?;
+    let consumers = list
+        .split('+')
+        .map(|item| {
+            let mut it = item.split_whitespace();
+            match (it.next(), it.next(), it.next()) {
+                (Some(c), Some(id), None) => Some((cell(c)?, id.to_string())),
+                _ => None,
+            }
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some((class.to_string(), cell(s)?, consumers, why))
+}
+
+/// (part 66) An entry's cells, by its key: an `update-consumers` entry's source and every consumer; any other the
+/// cells before its `=`.
+fn entry_cells_of(key: &str, entry: &str) -> Vec<[i32; 3]> {
+    if key == "update-consumers" {
+        return update_consumer_parts(entry).map(|(_, s, cs, _)| std::iter::once(s).chain(cs.into_iter().map(|(c, _)| c)).collect()).unwrap_or_default();
+    }
+    entry_cells(entry)
+}
+
+/// (part 66) A carried entry, by its key: an `update-consumers` entry with its source AND consumer cells moved and the
+/// carry note inside its reason (it never parses as part of the reason's text outside it), refused by name when it
+/// doesn't parse; any other the cells before its `=` moved and the note appended.
+fn carry_entry(key: &str, entry: &str, off: [i32; 3]) -> Result<(String, String), String> {
+    let note = format!("carried from the swapped part, moved by {},{},{}", off[0], off[1], off[2]);
+    if key == "update-consumers" {
+        let (class, s, cs, why) = update_consumer_parts(entry).ok_or_else(|| format!("the carried declaration `update-consumers: {entry}` doesn't parse (CLASS SOURCE=CELL ID[+CELL ID...] (why)): it would be left at its old cells"))?;
+        let mv = |c: [i32; 3]| format!("{},{},{}", c[0] + off[0], c[1] + off[1], c[2] + off[2]);
+        let list = cs.iter().map(|(c, id)| format!("{} {id}", mv(*c))).collect::<Vec<_>>().join("+");
+        let base = format!("{class} {}={list}", mv(s));
+        let why = why.trim();
+        let inner = why.strip_prefix('(').and_then(|w| w.strip_suffix(')')).unwrap_or(why);
+        return Ok((format!("{base} {why}"), format!("{base} ({inner}; {note})")));
+    }
+    let s = shift_entry(entry, off);
+    Ok((s.clone(), format!("{s} ({note})")))
+}
+
 /// The entry with its key cells moved by `off`.
 fn shift_entry(entry: &str, off: [i32; 3]) -> String {
     let Some((key, rest)) = entry.split_once('=') else { return entry.to_string() };
@@ -315,9 +366,9 @@ pub fn swap_declarations(text: &str, new_text: &str, old_cells: &std::collection
     for l in new_text.lines() {
         if let Some((comment, k, body)) = decl_key(l) {
             for e in decl_entries(body) {
-                let s = shift_entry(&e, off);
+                let (s, with_note) = carry_entry(k, &e, off)?;
                 report.push(format!("  carried {}{k}: {s}", if comment { "# " } else { "" }));
-                carried.push((comment, k, format!("{s} (carried from the swapped part, moved by {},{},{})", off[0], off[1], off[2])));
+                carried.push((comment, k, with_note));
             }
         }
     }
@@ -345,7 +396,10 @@ pub fn swap_declarations(text: &str, new_text: &str, old_cells: &std::collection
         };
         let mut keep = Vec::new();
         for e in decl_entries(body) {
-            let cells = entry_cells(&e);
+            let cells = entry_cells_of(k, &e);
+            if k == "update-consumers" && cells.is_empty() {
+                return Err(format!("the declaration `{k}: {e}` doesn't parse (CLASS SOURCE=CELL ID[+CELL ID...] (why)): a swap can't tell whether it moves with the part"));
+            }
             let inside = cells.iter().filter(|c| old_cells.contains(*c)).count();
             if inside > 0 && inside < cells.len() {
                 return Err(format!("the declaration `{k}: {e}` names cells both in the old part's footprint and outside it: split it by hand"));
@@ -464,6 +518,26 @@ mod swap_part_tests {
         let back = mctas::design::Design::parse(&out).unwrap();
         assert!(back.blocks.get(&[1, 0, 1]).is_some_and(|s| s.contains("lamp")) && !back.blocks.contains_key(&[1, 0, 0]) && back.blocks.get(&[2, 0, 0]).is_some_and(|s| s.contains("stone")), "{:?}", back.blocks);
         assert!(lines.iter().any(|l| l.starts_with("swap read-back:")), "{lines:?}");
+    }
+
+    /// (G1 Nov 14 08:52 (3), part 66) a swap moves `# update-consumers:` declarations with their cells: the old part's
+    /// declaration (source and consumer in its footprint) is dropped, the new part's carried with its source AND
+    /// consumer cells moved and the carry note INSIDE its reason, so it still parses; a declaration that doesn't parse
+    /// refuses the swap by name, never left at its old cells
+    #[test]
+    fn swap_moves_update_consumer_declarations_with_their_cells() {
+        let design = "name: t\ncircuit: mob-farm iron_ingot\norigin: 0 0 0\nport output: 0 -1 0\n# update-consumers: intended 1,0,0=2,0,0 redstone_lamp (the old part's lamp)\npalette:\n  r minecraft:repeater[delay=1,facing=west,locked=false,powered=false]\n  l minecraft:redstone_lamp[lit=false]\n  s minecraft:stone\nlayer 0:\n  srl\n";
+        let old = "name: old\ncircuit: mob-farm iron_ingot\norigin: 0 0 0\nport output: 0 -1 0\npalette:\n  r minecraft:repeater[delay=1,facing=west,locked=false,powered=false]\n  l minecraft:redstone_lamp[lit=false]\nlayer 0:\n  rl\n";
+        let new = "name: new\ncircuit: mob-farm iron_ingot\norigin: 0 0 0\nport output: 0 -1 0\n# update-consumers: intended 0,0,1=1,0,1 iron_trapdoor (the new part's hatch)\npalette:\n  r minecraft:repeater[delay=1,facing=west,locked=false,powered=false]\n  t minecraft:iron_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]\nlayer 0:\n  .\n  rt\n";
+        let (out, lines) = super::edit_swap(design, &[(old.to_string(), new.to_string(), [1, 0, 0])]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(lines.iter().any(|l| l == "  dropped # update-consumers: intended 1,0,0=2,0,0 redstone_lamp (the old part's lamp)"), "the old declaration dropped: {lines:?}");
+        assert!(lines.iter().any(|l| l == "  carried # update-consumers: intended 1,0,1=2,0,1 iron_trapdoor (the new part's hatch)"), "the new one carried, both cells moved: {lines:?}");
+        assert!(out.contains("# update-consumers: intended 1,0,1=2,0,1 iron_trapdoor (the new part's hatch; carried from the swapped part, moved by 1,0,0)"), "{out}");
+        let decl = crate::fleecheck::update_consumer_decls(&out).unwrap_or_else(|e| panic!("the carried declaration parses: {e}"));
+        assert!(decl.len() == 1 && decl[0].source == Some(redsim::pos::BlockPos::new(1, 0, 1)) && decl[0].cell == redsim::pos::BlockPos::new(2, 0, 1), "{decl:?}");
+        let bad_new = new.replace("(the new part's hatch)", "the new part's hatch");
+        let e = super::edit_swap(design, &[(old.to_string(), bad_new, [1, 0, 0])]).err().map(|e| e.to_string()).unwrap_or_default();
+        assert!(e.contains("doesn't parse") && e.contains("update-consumers"), "a mis-formed carried declaration refuses the swap: {e}");
     }
 }
 
