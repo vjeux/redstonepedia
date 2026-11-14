@@ -646,7 +646,7 @@ grown `--margin` on x and z (a golem: 0.7; an item: 0.125).
 A loader layout's links, as tick-exact's loader rows lay it (loaderlay, Nov 13): `mctas mobfarm
 loader-layout --module M --module-offsets "x,y,z;..." --loader L --loader-offset x,y,z
 [--module-nether-ybase 64] [--loader-nether-ybase 0] [--plant DIM:NAME=box]... [--plant-unframed
-DIM:NAME=box]... [--ground-y Y] [--positions FILE]... [--write-layout FILE] [--redsim TICKS --seeds 1,2 --golem-at 400 --world-open-at T]` (`mobfarm::loaderlayout`,
+DIM:NAME=box]... [--ground-y Y] [--positions FILE]... [--write-layout FILE] [--redsim TICKS [--seeds 1,2] [--golem-at 400] [--world-open-at T] [--redsim-control NAME]]` (`mobfarm::loaderlayout`,
 `loaderrods`, `loaderrun`).
 It lays the parts as `mobai loader-long` does (each Nether part at its anchor's /8 image). The search
 is tick-exact's 26.3 pins: the exit block `BlockPos.containing(x·s, y, z·s)`; every lit portal cell
@@ -664,21 +664,22 @@ lowest y. It prints:
 - the lightning-rod coverage across the tiled copies (`mobfarm::loaderrods`). It reads the settled,
   built overworld through redsim's `findLightningRod`, which is tick-exact's 01:28 pin: a 3-D sphere
   of 128 around the strike column's MOTION_BLOCKING top, only rods topping their column, the closest
-  wins. The site's surface sits at the copies' ground (`--ground-y` sets it). It prints:
-  - per part, every footprint column's strike and the rod it goes to, with the worst column. A
-    column with no rod FAILS, naming the copy that needs its own rod;
-  - every other column of the layout's box grown by 3: to a rod, or judged by its own bolt box
-    against every villager and rider position (the parts' entities, a rider at every rail cell);
-  - every villager place (each rail cell, each cart, each place of `--positions` files in the
-    module's written frame, moved onto every copy), by part, kind and level: every column within 3
-    of it goes to a rod, and its clearance from the rods' bolt boxes, so a strike on a villager needs
-    a second fault (G1 05:10 (2), ironspec 05:18 (3));
-  - the strike area: every chunk holding a layout cell or a villager place, plus 4 columns beyond
-    (ironspec 05:25 (iii)); each rod's chunk and its level from the loader's ticket (a credited rod's
-    chunk must be loaded);
-  - `--write-layout FILE` writes the overworld layout as one design, so `lightning-check` can run
-    on all its rods;
-  - every rod's own bolt box against the loader's cells and those positions;
+  wins. The site's surface is a ground plane in that world (stone at the copies' ground, `--ground-y`
+  sets it, under every strike-area column holding no layout cell at or above it). THE STRIKE AREA is
+  every chunk holding a layout cell, an entity or a villager place, plus 4 columns beyond (ironspec
+  05:25 (iii)); THE PLACES are every rail cell, every entity of every part (carts, the scarer boats,
+  golems) and every place of `--positions` files (in the module's written frame, moved onto every
+  copy). Its bars, each with a single-change twin among the unit tests:
+  - (a) every strike-area column sends its strike to a credited rod (per part, its footprint
+    columns' rods and worst column; a part with uncovered columns needs its own rod);
+  - (b) every place clear of every credited rod's own bolt box (the per-place table: each place's
+    columns within 3, the rods taking them, its clearance); no place is NOT JUDGED (FAIL);
+  - (c) no credited rod's bolt box on a loader cell;
+  - (d) every credited rod's chunk loaded by the loader's PORTAL ticket (NOT JUDGED, so FAIL,
+    without the loader's PORTAL chunk);
+  - `--write-layout FILE` writes the overworld layout as one design (read back whole: cells, block
+    entities, entities, ports, ground) and its places beside it, so `lightning-check` can run on all
+    its rods;
 - the loader's portal cells and frames in the farm frame;
 - loader-long's command line.
 
@@ -686,10 +687,20 @@ lowest y. It prints:
 framed twin must move picks; one that moves nothing refuses. `--redsim` runs the portal skeleton in
 redsim: every crossing by portal, a golem in each pad, the items kept, the gaps against the 300-gt
 ticket across a world open (`liveness::restart` at `--world-open-at`, default half the run; the row
-says how it differs from the reference timing row). A run with a redsim model error (a world error)
-is NOT MODELED: it judges nothing, and the command exits 2 by name; a failed bar exits 1 by name.
+says how it differs from the reference timing row). `--seeds`, `--golem-at`, `--world-open-at` and
+`--redsim-control` are refused without `--redsim`, and `--golem-at` / `--world-open-at` outside the
+run (exit 4 REFUSED, by name). Every bar FAILS by name: arrivals at the loader's own portal with the worst gap within 300 gt,
+launches on both sides, the items kept, golems placed (none placed fails) and crossing to their
+twins, the world open inside the run, no crossing's copy missing, and no world error other than the
+two redsim model limits NOTES names for loader-clock-x8 (the light model's extended sticky piston and
+piston head; a spit refused while `Run::start` settles the Nether part, its lost item counted by
+name). A failed bar exits 1; a run whose bars all pass with only those named limits met judges
+nothing and exits 2 NOT MODELED. `--redsim-control stall-overworld-clock | stop-nether-clock |
+steal-item | divert-return` plants one failing control (read back; a no-op refuses).
 It is an evidence subcommand (`provenance::is_evidence`): the shared provenance check runs first, and
-every run prints the git blob ids of the design files it read.
+every design file it reads (`--module`, `--loader`, `--positions`) must lie in the worktree and be the
+cited commit's blob at its path (`--cite`, HEAD by default), else the run refuses (exit 4 REFUSED:
+"run inputs off the commit"; under `--not-evidence` it is labelled instead).
 A run's tick-level timing view (the carousel's parts and assembly): `mctas mobfarm timeline
 <design> --seed S --days D [--terrain <sample> | --build K] [--tag '<tag>'...] [--from T --to T]
 [--out DIR]` replays `mobfarm run`'s run (its counters printed beside the judge's: the same run tick

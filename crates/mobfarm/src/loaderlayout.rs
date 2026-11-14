@@ -162,6 +162,52 @@ pub fn compose(parts: &[Laid]) -> Result<Design, String> {
     Ok(d)
 }
 
+/// The binary rule's global flags as mctas's dispatch parsed them (`--cite <commit>` / `--cite=<commit>`,
+/// HEAD by default; `--not-evidence`), read from the process arguments (G1 06:37 N2: the shared
+/// provenance tool has no accessor yet; these are the same clap globals).
+pub fn provenance_args() -> (String, bool) {
+    let args: Vec<String> = std::env::args().collect();
+    let mut cite = "HEAD".to_string();
+    for (k, a) in args.iter().enumerate() {
+        if let Some(v) = a.strip_prefix("--cite=") {
+            cite = v.to_string();
+        } else if a == "--cite"
+            && let Some(v) = args.get(k + 1)
+        {
+            cite = v.clone();
+        }
+    }
+    (cite, args.iter().any(|a| a == "--not-evidence"))
+}
+
+/// (G1 06:37 (6), ironspec 06:43) A design file a run reads is an INPUT: it must lie inside the worktree
+/// (the current directory's) and be the cited commit's blob at that path. `Ok("path blob")`, or the
+/// refusal naming why.
+pub fn cited_input(p: &std::path::Path, cite: &str) -> Result<String, String> {
+    cited_input_in(&std::env::current_dir().map_err(|e| e.to_string())?, p, cite)
+}
+
+/// [`cited_input`] for the worktree holding `dir`.
+pub fn cited_input_in(dir: &std::path::Path, p: &std::path::Path, cite: &str) -> Result<String, String> {
+    let git = |args: &[&str]| -> Result<String, String> {
+        let o = std::process::Command::new("git").arg("-C").arg(dir).args(args).output().map_err(|e| format!("git {}: {e}", args.join(" ")))?;
+        if !o.status.success() {
+            return Err(format!("git {}: {}", args.join(" "), String::from_utf8_lossy(&o.stderr).trim()));
+        }
+        Ok(String::from_utf8_lossy(&o.stdout).trim().to_string())
+    };
+    let top = std::fs::canonicalize(git(&["rev-parse", "--show-toplevel"])?).map_err(|e| format!("the worktree: {e}"))?;
+    let abs = std::fs::canonicalize(if p.is_absolute() { p.to_path_buf() } else { dir.join(p) }).map_err(|e| format!("{}: {e}", p.display()))?;
+    let rel = abs.strip_prefix(&top).map_err(|_| format!("{} lies outside the worktree {} (an evidence run reading a file outside the worktree is NOT EVIDENCE, ironspec 06:43)", p.display(), top.display()))?;
+    let rel = rel.to_string_lossy().replace('\\', "/");
+    let have = git(&["hash-object", &abs.to_string_lossy()])?;
+    let want = git(&["rev-parse", &format!("{cite}:{rel}")]).map_err(|_| format!("{rel} is not in the cited commit {cite}"))?;
+    if have != want {
+        return Err(format!("{rel} is blob {have}, not the cited commit {cite}'s {want}"));
+    }
+    Ok(format!("{rel} {}", &have[..12.min(have.len())]))
+}
+
 /// A planted portal (a control): its cells, framed or not.
 #[derive(Clone, Debug)]
 pub struct Plant {
@@ -1060,7 +1106,7 @@ pub fn report(parts: &[Laid], plants: &[Plant], golem_margin: f64) -> Result<(St
             ));
         }
     }
-    s.push_str(&format!("verdict: {}\n", if ok { "PASS (every link lands on its partner, no clash, no broken frame, every chunk holding a rail or an entity at <= 31 and every other at <= 32 from the loader's tickets, the control chunk free, every strike column going to a rod topping its column)" } else { "FAIL" }));
+    s.push_str(&format!("verdict: {}\n", if ok { "PASS (every link lands on its partner, no clash, no broken frame, every chunk holding a rail or an entity at <= 31 and every other at <= 32 from the loader's tickets, the control chunk free; lightning: every strike-area column goes to a credited rod, every place clear of every credited rod's bolt box, no rod's box on the loader, every credited rod's chunk loaded)" } else { "FAIL" }));
     Ok((s, ok))
 }
 
@@ -1230,6 +1276,33 @@ mod tests {
         parts[1].nether.insert([1, 94, 0], "minecraft:hopper[enabled=true,facing=south]".into());
         let ev = evaluate(&parts, &[], GOLEM_MARGIN).unwrap();
         assert!(!ev.ok && ev.text.contains("claim (Nether): 1 FAIL") && ev.text.contains("the game breaks this portal"), "{}", ev.text);
+    }
+
+    #[test]
+    fn an_input_off_the_cited_commit_or_outside_the_worktree_is_refused() {
+        // (G1 06:37 (6): a scratch repository outside the worktree; the tested file in it and one outside)
+        let dir = std::env::temp_dir().join(format!("loaderlay-cited-input-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("d")).unwrap();
+        let git = |args: &[&str]| assert!(std::process::Command::new("git").arg("-C").arg(&dir).args(args).output().unwrap().status.success(), "git {args:?}");
+        git(&["init", "-q"]);
+        std::fs::write(dir.join("d/m.txt"), "one\n").unwrap();
+        git(&["add", "d/m.txt"]);
+        git(&["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "m"]);
+        let ok = cited_input_in(&dir, std::path::Path::new("d/m.txt"), "HEAD").unwrap();
+        assert!(ok.starts_with("d/m.txt "), "{ok}");
+        // (an edit: not the cited commit's blob)
+        std::fs::write(dir.join("d/m.txt"), "two\n").unwrap();
+        assert!(cited_input_in(&dir, std::path::Path::new("d/m.txt"), "HEAD").unwrap_err().contains("not the cited commit HEAD's"));
+        // (an untracked file: not in the commit)
+        std::fs::write(dir.join("d/new.txt"), "x\n").unwrap();
+        assert!(cited_input_in(&dir, std::path::Path::new("d/new.txt"), "HEAD").unwrap_err().contains("is not in the cited commit"));
+        // (a file outside the worktree)
+        let out = std::env::temp_dir().join(format!("loaderlay-cited-outside-{}.txt", std::process::id()));
+        std::fs::write(&out, "x\n").unwrap();
+        assert!(cited_input_in(&dir, &out, "HEAD").unwrap_err().contains("lies outside the worktree"));
+        let _ = std::fs::remove_file(&out);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

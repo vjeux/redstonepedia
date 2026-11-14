@@ -158,9 +158,9 @@ V's item.
 
 ## Runs (the binary built from this commit; the files at these md5s)
 
-- module: rev 3, explore/onechunk 685729e50
-  `designs/farms/iron/carousel-assembly/wip/onechunk/module/f1q2-module-record7f13b.txt`, md5
-  3d7ed77b4bf3 (the runs read a copy of it at that md5);
+- module: rev 3, committed in this tree at onechunk's path
+  `designs/farms/iron/carousel-assembly/wip/onechunk/module/f1q2-module-record7f13b.txt` (md5
+  3d7ed77b4bf3, blob 88eea3fa1d7c: explore/onechunk 685729e50's, byte for byte);
 - loader-x8.txt md5 15fa75750894, loader-clock-x8.txt md5 c2cd0f8674c2,
   control/loader-clock-1641.txt md5 f97bad1379c5.
 
@@ -173,17 +173,21 @@ V's item.
 - `$L --module-offsets "<N = 4>" --loader wip/loaderlay/control/loader-clock-1641.txt --loader-offset 6,80,-10`;
 - the N = 4 layout of record with each control flag above;
 - the redsim runs: each of loader-x8 at N = 1 / 2 / 4 and loader-clock-x8 at N = 4 with
-  `--redsim 24000 --seeds 1,2,3` (the world open at t 12,000).
+  `--redsim 24000 --seeds 1,2,3` (the world open at t 12,000);
+- the redsim controls: loader-x8 at N = 1, `--redsim 2400` with each `--redsim-control` (exit 1).
 
 Every run first passes the shared provenance check in mctas's dispatch (ironspec 01:58 / 02:35;
 ironfarm's f99df6a0e, default-deny: `loader-layout` is evidence): the binary's stamp, the worktree
-and the cited commit must agree. Each run also prints the git blob ids of the design files it read;
-rev 3 reads as blob 88eea3fa1d7c, which is 685729e50's. The outputs end on the shared exit-code
-table's line: 0 PASS, 1 FAIL, 2 NOT MODELED (only loader-clock-x8's redsim row). The outputs, with
-their numbers, are the push's report artifacts. Results run before the binary rule (the 02:03 /
-02:04 lightning and redsim runs) cite nothing.
+and the cited commit must agree. Every design file a run reads (`--module`, `--loader`,
+`--positions`) must lie in the worktree and be the cited commit's blob at its path, else the run
+refuses (G1 06:37 (6), ironspec 06:43); each run prints them with their blob ids. The outputs end on
+the shared exit-code table's line: 0 PASS, 1 FAIL, 2 NOT MODELED (only loader-clock-x8's redsim row,
+for the two named model limits below). The outputs, with their numbers, are the push's report
+artifacts. Results run before the binary rule (the 02:03 / 02:04 lightning and redsim runs) cite
+nothing, and the e495c3d74 runs read rev 3 from a copy outside the tree (G1 06:37 (6)): the runs of
+record are the ones citing the commit after it.
 
-## The lightning print (ironspec 01:17 (1b), G1 01:22 / 01:34; `loaderrods`)
+## The lightning print (ironspec 01:17 (1b), G1 01:22 / 01:34 / 06:37; `loaderrods`)
 
 Every `loader-layout` report reads the settled, built overworld through redsim's own
 `findLightningRod`. That is tick-exact's 26.3 pin (01:28):
@@ -191,22 +195,15 @@ Every `loader-layout` report reads the settled, built overworld through redsim's
 - only rods topping their column;
 - the closest by 3-D distance.
 
-The site's surface sits at the copies' ground (copy y 80 + the module's ground layer -1 = 79;
-`--ground-y` sets it).
+The site's surface is materialized as a ground plane in that world (G1 05:51): stone at the copies'
+ground (copy y 80 + the module's ground layer -1 = 79; `--ground-y` sets it) under every column of
+the strike area that holds no layout cell at or above it. A rod under the plane tops no column.
 
-Per part, every footprint column's strike goes to a rod, or FAILS naming the copy that needs its
-own rod. Every other column of the layout's box grown by 3 goes to a rod, or else its own bolt box
-must meet no villager or rider position: every part's entities, and a rider at every rail cell.
-Every rod's own bolt box must miss the loader's cells and those positions.
-
-Each rev-3 copy carries V's rod at (-6,29,-6) in its own frame, so at any N each copy's strikes go
-to its own rod; the loader's go to the nearest copy's.
-
-Every villager place is shown out of a strike's reach, place by place (G1 05:10 (2): a struck
-villager becomes a witch, and a witch at the stop stalls it; ironspec 05:18 (3): every villager
-place). The places, printed by part, kind and level y:
+THE STRIKE AREA (ironspec 05:25 (iii)) is every chunk holding a layout cell, an entity or a villager
+place, plus 4 columns beyond its edges. THE PLACES are:
 - every rail cell (a rider seated in a cart there);
-- every cart the design holds;
+- every entity of every part: the carts with their riders, the 20 scarer boats with their pillager
+  or zombie (ironspec 06:43: a bolt destroys a boat as it does a cart), the golems;
 - every place of `--positions` files in the module's written frame, moved onto every copy. The
   files are 9fc3155f's non-rail villager places (05:27b / 05:28, byte-identical to its artifacts):
   - `rev3-nonrail.positions.txt` for rev 3, the module these layouts use (a/1190241670091420, md5
@@ -215,17 +212,23 @@ place). The places, printed by part, kind and level y:
   - `v-nonrail.positions.txt` for V (a/2417599305677157, md5 a7aba1db5440, 64 cells), for when V
     replaces rev 3.
 
-For each place:
-- coverage: every column within 3 of it sends its strike to a rod that tops its column, so no
-  strike lands beside it, and none is redirected to an entity (the rod search runs first);
-- clearance: the gap between its box and the hit box around every rod's strike point (rodPos + 1).
-  A villager converts whether it sees the sky or not, so the check makes no exposure test.
+The bars (each FAILS by name, each with a single-change twin among the unit tests, G1 06:37 (4)):
+- (a) every strike-area column sends its strike to a credited rod. So no strike lands on a column
+  top, and none is redirected to an entity, anywhere in the area; each part's footprint columns are
+  printed with the rods taking them and the worst column, and a part with uncovered columns needs its
+  own rod;
+- (b) every place is clear of every credited rod's own bolt box (the hit box around rodPos + 1). A
+  villager converts whether it sees the sky or not, so there is no exposure test. The per-place
+  table prints, by part, kind and level y, each place's columns within 3 with the rods taking them
+  (inside the strike area, so covered when (a) passes) and its clearance;
+- (c) no credited rod's bolt box meets a loader cell;
+- (d) every credited rod's chunk is loaded by the loader's PORTAL ticket (NOT JUDGED, so FAIL,
+  without the loader's PORTAL chunk).
 
-THE STRIKE AREA (ironspec 05:25 (iii)) is every chunk holding a layout cell or a villager place, plus
-4 columns beyond its edges. Every column in it is judged: its strike goes to a credited rod, or else
-its own bolt box must meet no villager place.
+So a strike on a villager, a rider or a boat needs a second fault, a rod gone.
 
-So a strike on a villager needs a second fault, a rod gone.
+Each rev-3 copy carries V's rod at (-6,29,-6) in its own frame, so at any N each copy's strikes go
+to its own rod; the loader's go to the nearest copy's.
 
 THE ROD LIST OF RECORD (ironspec 05:27): copy k is the module at its offset, so its rod at the
 module's (-6,29,-6) is at offset + (-6,29,-6). For copy1 that is 9fc3155f's rod at (6,80,6) +
@@ -247,7 +250,8 @@ a/1425208226270087, md5 c8bc37b7e421), with the declared stand-in ground at y 79
 rod, the 4 strike targets are these rods, and its 972 riders + 68 entities had 0 struck, 0 hits, 0
 fires: https://artifacts.internalmeta.com/a/4260158720941388 (md5 fc591dee3a67). Before the stand-in,
 the file's empty columns sat at the world's bottom, so "every column to a rod" is claimed only with
-the ground materialized (G1 05:51). The `--lightning-ready` variant comes after train 16b.
+the ground materialized (G1 05:51); this tool now materializes it itself (the ground plane above).
+The `--lightning-ready` variant of the written layout comes after train 16b.
 
 The two tables join copy by copy: the module check judges one copy alone, and this one adds the
 neighbours, the loader and the ground between. `--write-layout FILE` writes the overworld layout as
@@ -295,25 +299,38 @@ portal cells with their frame obsidian.
 - A world open (`liveness::restart`, save order, 2 idle ticks) happens mid-run. The reload model
   keeps the Nether part in memory (unmodelled there).
 
-The bars:
+The bars (each FAILS by name, G1 06:37 (1)-(3)):
 - every item arrival at the loader's own portal;
-- each side's worst gap within the 300-gt ticket, the world open included;
+- each side's worst gap within the 300-gt ticket (`TicketType.PORTAL`), the world open included;
+- launches on both sides;
 - the loop's items kept;
-- every golem at its own copy's twin;
-- no world error.
+- golems placed (none placed FAILS; `--golem-at` outside the run is refused), every golem at its own
+  copy's twin;
+- the world open inside the run (`--world-open-at` outside the run is refused);
+- no crossing whose copy is in neither world;
+- no world error other than the two named model limits below.
+
+Each bar has a failing control through the runner (unit test; `--redsim-control`), read back, a
+no-op refused: `stall-overworld-clock` (both overworld observers out a quarter in: the gap bars),
+`stop-nether-clock` (both Nether observers out before the run: launches), `steal-item` (one loop item
+in flight killed: the items), `divert-return` (a lit portal planted on the return's exit blocks one
+plane off the loader's portal: arrivals elsewhere), golems at a tick past the run (none placed), the
+world open past the run (never reached).
 
 The row says how it differs from the reference timing row (ironfarm's flags: ±2 gt per clocked event
 and a world open at every phase): one world open, no event shift. The game's 01:20 restart rows
 remain the loader's world-open evidence. loader-clock-x8's redsim verdict is "not modeled", and the
-official game row (tick-exact 01:20) is its evidence. Two things in redsim cause it:
+official game row (tick-exact 01:20) is its evidence. Two redsim model limits cause it, and these two
+are the only world errors the runner names:
 - its self-starting hopper clock fires in the Nether while `Run::start` settles the Nether part,
-  before any caller can seed that world's dropper random. The spit is a model error and the item is
-  lost.
+  before any caller can seed that world's dropper random. The spit is refused and its item lost; the
+  runner counts only the spits recorded right after the start, and the items bar counts that lost
+  item by name;
 - redsim's light model lacks the extended sticky piston and the piston head.
 
-The runner reads any world error as NOT MODELED: the run judges nothing, its bars print as
-information, and the command exits 2 by name, never as a bar failure (ironspec 02:45 (3)). A failed
-bar exits 1 by name.
+A failed bar always FAILS (exit 1, by name). A run whose bars all pass with only those named limits
+met judges nothing: NOT MODELED, exit 2 by name (ironspec 02:45 (3)). Any other world error FAILS by
+name.
 
 ## loader-long command lines (tick-exact's rows; the module from explore/onechunk 685729e50)
 
@@ -358,6 +375,23 @@ a struck villager needs TWO faults: a rod removed (or its chunk unloaded), plus 
 strike on a seated rider destroys its cart in the same bolt (cc767b78 06:03: 5 × 10 = 50 > 40,
 VehicleEntity 47 / 50), so the farm sees a cart lost in transit plus a witch at the strike point, not
 a witch riding into the stop. What the player sees: a cart and a rider missing from the loop.
+
+A STRUCK SCARER BOAT IS TWO-FAULT TOO (ironspec 06:43 / 06:59, G1 06:47 (2), tick-exact 06:48).
+Every boat's column and the columns within 3 of it go to a rod, and every boat is clear of the rods'
+bolt boxes (the bars above: the 20 boats are places). With a rod gone, one bolt destroys an oak boat:
+`AbstractBoat extends VehicleEntity` (AbstractBoat 54) and overrides neither `hurtServer` nor
+`thunderHit`, so `Entity.thunderHit` (2929–2936) → `VehicleEntity.hurtServer` (35–58) adds 5 × 10 =
+50 > 40 and destroys it (the boat item drops). What the farm sees: a lost boat AND a freed scarer. The
+pillager or zombie (no `thunderHit` override) is left standing, unseated, taking 5 damage and fire per
+bolt tick. Unarmed, it can't hurt a villager, but it may move within its box and change the scarer's
+sight rays (the panic classes, G1 06:47 (2)); 9fc3155f confirms each enclosure holds its freed scarer
+away from villagers (ironspec 06:59).
+
+THE MODULE CHUNK IS ENTITY-TICKING IN EVERY LOADER LAYOUT (ironspec 06:54 (1), G1 06:47 (1)): the
+arrival detector (9,−9,−5) sits inside the module chunk, and each copy's module chunk is
+entity-ticking (level <= 31) from the loader's overworld PORTAL ticket in every layout of record
+(N = 1 / 2 / 4 and the clock): the chunk print's bar (a chunk with a rail or an entity at <= 31)
+holds it, printed per chunk in each run of record.
 
 ## For vcompose's site record and the build guide
 
