@@ -3881,6 +3881,292 @@ pub fn cat_reach(spec: &FarmSpec, ground_y: i32, margin: i32, shell_boxes: &[(Bl
     Ok((lines, if seeds == 0 || eyes.is_empty() { usize::MAX } else { hits.len() }))
 }
 
+/// (ironspec Nov 14 13:32p / 13:38p, G1 13:27; part 94) The ENCLOSURE check: no path from any EXTERIOR standable cell (the
+/// ground plane around the box widened by `margin`, and every top surface on the design's outside: its roof, ledges,
+/// outer walls' tops, as the spawn static's outside reads them) to any TARGET cell (every rail cell, every villager
+/// place, the golem pad's cells, and every cell of the given controller boxes). Each mob a named row, each failure by
+/// name: (a) a WALKER, the smallest natural one (a baby zombie, 0.3 x 0.975: any 1 x 1 opening): a step up 1, a drop of
+/// any height, swimming through water and bubble columns both ways, climbing ladders / vines / scaffolding; and a
+/// SPIDER (1.4 x 0.9) that also climbs any vertical face, glass included; (b) ENDERMEN: every interior cell valid as a
+/// teleport destination (a solid floor, its 2.9 of headroom, no fluid), FAILING when one is a target or an enderman
+/// walks from it to one, and every `enderman_holdable` design block listed; (c) CREEPERS, judged from the guide's AFK
+/// spot (`afk`; NOT JUDGED without it): every design block a power-3 blast from a cell a creeper can reach within 3 of
+/// the player could break (its resistance under the blast's reach there, no block between taken: the bound); (d) WATER:
+/// every design water body touching the outside, and every zombie scarer whose eye is in water (a submerged zombie
+/// converts). Returns the lines and the failure count.
+pub fn enclosure(spec: &FarmSpec, ground_y: i32, margin: i32, target_boxes: &[(BlockPos, BlockPos)], afk: Option<Vec3>) -> Result<(Vec<String>, usize), String> {
+    use redsim::entity::Aabb;
+    use std::collections::{HashMap, HashSet, VecDeque};
+    let o = RunOpts { ai: true, ..RunOpts::steady(1, 0, WalkMode::Random) };
+    let mut run = Run::start(spec, &o)?;
+    settle_full(&mut run)?;
+    let w = &run.world;
+    let (lo, hi) = (spec.lo, spec.hi);
+    if ground_y >= lo.y || ground_y < lo.y - 64 {
+        return Err(format!("enclosure: --ground-y {ground_y} must be below the design's lowest block (y {}) and within 64 of it", lo.y));
+    }
+    if !(1..=64).contains(&margin) {
+        return Err(format!("enclosure: --margin {margin} must be 1..=64"));
+    }
+    let (x0, x1, z0, z1, y0, y1) = (lo.x - margin, hi.x + margin, lo.z - margin, hi.z + margin, ground_y + 1, hi.y + 3);
+    let in_box = |c: BlockPos| c.x >= lo.x && c.x <= hi.x && c.y >= lo.y && c.y <= hi.y && c.z >= lo.z && c.z <= hi.z;
+    let in_region = |c: BlockPos| c.x >= x0 && c.x <= x1 && c.y >= y0 && c.y <= y1 && c.z >= z0 && c.z <= z1;
+    let state = |c: BlockPos| w.get(c).to_string();
+    let is_water = |c: BlockPos| {
+        let s = state(c);
+        s.starts_with("minecraft:water") || s.starts_with("minecraft:bubble_column") || s.contains("waterlogged=true")
+    };
+    let is_climb = |c: BlockPos| {
+        let s = state(c);
+        ["minecraft:ladder", "minecraft:vine", "minecraft:scaffolding", "minecraft:twisting_vines", "minecraft:weeping_vines", "minecraft:cave_vines"].iter().any(|k| s.starts_with(k))
+    };
+    let clear = |cx: f64, cz: f64, hw: f64, y: f64, h: f64| w.collision_shapes(Aabb::new(cx - hw, y + 1e-6, cz - hw, cx + hw, y + h, cz + hw)).is_empty();
+    // (where a mob of half-width hw and height h stands in cell c: the highest collision top under its box within half a
+    // block of c's floor, or the ground plane; its box clear above; or floating in water / on a climbable: c's floor)
+    let feet = |c: BlockPos, hw: f64, h: f64| -> Option<f64> {
+        let (cx, cz) = (c.x as f64 + 0.5, c.z as f64 + 0.5);
+        let ground = (c.y == ground_y + 1 && !in_box(BlockPos::new(c.x, ground_y, c.z))).then_some(c.y as f64);
+        let probe = Aabb::new(cx - hw, c.y as f64 - 0.5, cz - hw, cx + hw, c.y as f64 + 0.5, cz + hw);
+        let shape = w.collision_shapes(probe).iter().map(|a| a.max_y).filter(|t| *t >= c.y as f64 - 0.5 && *t <= c.y as f64 + 0.5 + 1e-9).fold(None, |m: Option<f64>, t| Some(m.map_or(t, |m: f64| m.max(t))));
+        let f = match (ground, shape) {
+            (Some(g), Some(s)) => Some(g.max(s)),
+            (g, s) => g.or(s),
+        };
+        match f {
+            Some(f) if clear(cx, cz, hw, f, h) => Some(f),
+            _ if (is_water(c) || is_climb(c)) && clear(cx, cz, hw, c.y as f64, h.min(1.0)) => Some(c.y as f64),
+            _ => None,
+        }
+    };
+    // (the flood: each reached cell with its feet and the seed it came from)
+    let flood = |seeds: &[BlockPos], hw: f64, h: f64, climbs_walls: bool| -> HashMap<BlockPos, (f64, BlockPos)> {
+        let mut reached: HashMap<BlockPos, (f64, BlockPos)> = HashMap::new();
+        let mut queue: VecDeque<BlockPos> = VecDeque::new();
+        for s in seeds {
+            if let Some(f) = feet(*s, hw, h)
+                && reached.insert(*s, (f, *s)).is_none()
+            {
+                queue.push_back(*s);
+            }
+        }
+        while let Some(c) = queue.pop_front() {
+            let (fc, seed) = reached[&c];
+            let mut push = |n: BlockPos, f: f64, reached: &mut HashMap<BlockPos, (f64, BlockPos)>, queue: &mut VecDeque<BlockPos>| {
+                if in_region(n) && !reached.contains_key(&n) {
+                    reached.insert(n, (f, seed));
+                    queue.push_back(n);
+                }
+            };
+            let (cx, cz) = (c.x as f64 + 0.5, c.z as f64 + 0.5);
+            for (dx, dz) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                let (nx, nz) = (c.x + dx, c.z + dz);
+                let (ncx, ncz) = (nx as f64 + 0.5, nz as f64 + 0.5);
+                // (a step up 1: the head room over the mob where it stands)
+                let up = BlockPos::new(nx, c.y + 1, nz);
+                if let Some(f) = feet(up, hw, h)
+                    && f - fc <= 1.0 + 1e-9
+                    && f > fc + 0.5
+                    && clear(cx, cz, hw, fc, h + 1.0)
+                {
+                    push(up, f, &mut reached, &mut queue);
+                    continue;
+                }
+                // (level, or a drop of any height down the neighbour's column, clear all the way)
+                let mut y = c.y;
+                while y >= y0 {
+                    let n = BlockPos::new(nx, y, nz);
+                    if !clear(ncx, ncz, hw, y as f64, (c.y - y) as f64 + h.min(1.0)) && feet(n, hw, h).is_none() {
+                        break;
+                    }
+                    if let Some(f) = feet(n, hw, h)
+                        && f <= fc + 0.5 + 1e-9
+                    {
+                        push(n, f, &mut reached, &mut queue);
+                        break;
+                    }
+                    y -= 1;
+                }
+            }
+            // (up and down: swimming, climbing a ladder or vine, or a spider on a wall)
+            for dy in [1, -1] {
+                let n = BlockPos::new(c.x, c.y + dy, c.z);
+                let fluid_or_climb = is_water(c) || is_climb(c) || is_water(n) || is_climb(n);
+                let wall = climbs_walls && !w.collision_shapes(Aabb::new(cx - hw - 0.06, n.y as f64 + 1e-6, cz - hw - 0.06, cx + hw + 0.06, n.y as f64 + h, cz + hw + 0.06)).is_empty();
+                if (fluid_or_climb || wall) && clear(cx, cz, hw, n.y as f64, h.min(1.0)) {
+                    let f = feet(n, hw, h).unwrap_or(n.y as f64);
+                    push(n, f, &mut reached, &mut queue);
+                }
+            }
+        }
+        reached
+    };
+    // (the seeds: the ground plane outside the box, and every top surface on the design's outside OPEN TO THE SKY (nothing
+    // above it up to the region's top): the roof and the outer ledges; an enclosed top is no exterior cell, a mob reaches
+    // it only by a path the flood finds)
+    let summoners = redsim::entity::mob::site::villager_cells(&with_design_entities(w, spec, "the enclosure check")?);
+    let design: HashSet<BlockPos> = spec.blocks.iter().filter(|(_, b)| !b.is_air()).map(|(p, _)| *p).collect();
+    let mut seeds: Vec<BlockPos> = Vec::new();
+    for x in x0..=x1 {
+        for z in z0..=z1 {
+            let c = BlockPos::new(x, ground_y + 1, z);
+            if !in_box(c) {
+                seeds.push(c);
+            }
+        }
+    }
+    let sky = |c: BlockPos| (c.y..=y1).all(|y| matches!(w.get(BlockPos::new(c.x, y, c.z)), redsim::block::Block::Air));
+    let mut tops: Vec<BlockPos> = design.iter().map(|q| q.above()).filter(|p| !design.contains(p) && sky(*p)).collect();
+    tops.sort_by_key(|p| (p.y, p.z, p.x));
+    seeds.extend(tops.iter().copied());
+    let afk_far = Vec3::new(spec.output.x as f64 + 0.5, (spec.lo.y - 60) as f64, spec.output.z as f64 + 0.5);
+    let farm = circuit::mobfarm::hostile_farm(w, spec, afk_far, &summoners);
+    let interior: HashSet<BlockPos> = farm.interior.iter().copied().collect();
+    // (the targets)
+    let mut targets: HashMap<BlockPos, String> = HashMap::new();
+    for (c, s) in settled_rails(w, lo, hi) {
+        targets.insert(c, format!("rail {}", s.trim_start_matches("minecraft:")));
+    }
+    for v in &summoners {
+        targets.entry(*v).or_insert_with(|| "a villager place".to_string());
+    }
+    if let Ok((_, _, gcells)) = route_golem_floors(spec, "minecraft:plains") {
+        for g in gcells.into_iter().filter(|g| golem_box_meets_portal(w, *g)) {
+            targets.entry(g).or_insert_with(|| "a golem pad cell".to_string());
+        }
+    }
+    for (a, b) in target_boxes {
+        for x in a.x.min(b.x)..=a.x.max(b.x) {
+            for y in a.y.min(b.y)..=a.y.max(b.y) {
+                for z in a.z.min(b.z)..=a.z.max(b.z) {
+                    targets.entry(BlockPos::new(x, y, z)).or_insert_with(|| "a controller cell".to_string());
+                }
+            }
+        }
+    }
+    let cell = |p: &BlockPos| format!("{},{},{}", p.x, p.y, p.z);
+    let mut lines = Vec::new();
+    let mut bad = 0usize;
+    // (a) the walker and the spider
+    for (who, hw, h, climbs) in [("a baby zombie (0.3 x 0.975)", 0.15, 0.975, false), ("a spider (1.4 x 0.9, climbing any face, glass included)", 0.7, 0.9, true)] {
+        let reached = flood(&seeds, hw, h, climbs);
+        let mut hits: Vec<(BlockPos, BlockPos, String)> = Vec::new();
+        for (c, (_, seed)) in &reached {
+            let foot: Vec<BlockPos> = if climbs { (-1..=1).flat_map(|dx| (0..=1).flat_map(move |dy| (-1..=1).map(move |dz| BlockPos::new(c.x + dx, c.y + dy, c.z + dz)))).collect() } else { vec![*c] };
+            if let Some(t) = foot.iter().find(|t| targets.contains_key(t)) {
+                hits.push((*t, *seed, targets[t].clone()));
+            }
+        }
+        hits.sort_by_key(|(t, _, _)| (t.y, t.z, t.x));
+        hits.dedup_by_key(|(t, _, _)| *t);
+        bad += hits.len();
+        lines.push(format!("(a) {who}: {} cell(s) reached from {} exterior seed(s); {} target(s) reached (bar 0){}", reached.len(), seeds.len(), hits.len(), if hits.is_empty() { " (PASS)" } else { " (FAIL)" }));
+        for (t, s, what) in hits.iter().take(40) {
+            lines.push(format!("  REACHED {} ({what}) from the exterior seed {}", cell(t), cell(s)));
+        }
+    }
+    // (b) endermen: interior teleport destinations
+    let dests: Vec<BlockPos> = interior.iter().copied().filter(|c| feet(*c, 0.3, 2.9).is_some_and(|f| f > c.y as f64 - 0.6) && !(0..3).any(|k| is_water(BlockPos::new(c.x, c.y + k, c.z)))).collect();
+    let ender = flood(&dests, 0.3, 2.9, false);
+    let mut ehits: Vec<(BlockPos, BlockPos, String)> = ender.iter().filter(|(c, _)| targets.contains_key(c)).map(|(c, (_, s))| (*c, *s, targets[c].clone())).collect();
+    ehits.sort_by_key(|(t, _, _)| (t.y, t.z, t.x));
+    bad += ehits.len();
+    let holdable: Vec<String> = spec.blocks.iter().filter(|(_, b)| redsim::terrain::blocks::id_of(&b.to_string()).is_some_and(|id| redsim::terrain::blocks::props(id).has_tag("minecraft:enderman_holdable"))).map(|(p, b)| format!("{} {}", cell(p), b.to_string().trim_start_matches("minecraft:"))).collect();
+    bad += holdable.len();
+    lines.push(format!("(b) endermen (0.6 x 2.9, teleporting onto a solid floor with no fluid): {} interior cell(s) valid as a destination; {} target(s) reached from them (bar 0); {} enderman_holdable design block(s) (bar 0){}", dests.len(), ehits.len(), holdable.len(), if ehits.is_empty() && holdable.is_empty() { " (PASS)" } else { " (FAIL)" }));
+    for d in dests.iter().take(40) {
+        lines.push(format!("  DESTINATION {}", cell(d)));
+    }
+    for (t, s, what) in ehits.iter().take(40) {
+        lines.push(format!("  REACHED {} ({what}) by an enderman landing at {}", cell(t), cell(s)));
+    }
+    for h in &holdable {
+        lines.push(format!("  HOLDABLE {h}"));
+    }
+    // (c) creepers, from the guide's AFK spot
+    match afk {
+        None => {
+            bad += 1;
+            lines.push("(c) creepers: NOT JUDGED: no --afk (the guide's AFK spot): a creeper explodes only near a player (FAIL until given)".to_string());
+        }
+        Some(p) => {
+            let creep = flood(&seeds, 0.3, 1.7, false);
+            let near: Vec<(BlockPos, f64)> = creep.iter().filter_map(|(c, (f, _))| {
+                let d = ((c.x as f64 + 0.5 - p.x).powi(2) + (f - p.y).powi(2) + (c.z as f64 + 0.5 - p.z).powi(2)).sqrt();
+                (d <= 3.0).then_some((*c, *f))
+            }).collect();
+            let mut exposed: Vec<(BlockPos, String, f64, f64)> = Vec::new();
+            for (c, f) in &near {
+                let at = (c.x as f64 + 0.5, f + 0.85, c.z as f64 + 0.5);
+                for (q, b) in &spec.blocks {
+                    let d = ((q.x as f64 + 0.5 - at.0).powi(2) + (q.y as f64 + 0.5 - at.1).powi(2) + (q.z as f64 + 0.5 - at.2).powi(2)).sqrt();
+                    if d > 5.2 {
+                        continue;
+                    }
+                    let r = redsim::terrain::blocks::id_of(&b.to_string()).map_or(0.0, |id| redsim::terrain::blocks::props(id).resistance as f64);
+                    // (power 3: a ray starts at up to 1.3 x 3 = 3.9, losing 0.225 per 0.3 step, and (r + 0.3) x 0.3 at the block)
+                    if 3.9 - 0.75 * d - (r + 0.3) * 0.3 > 0.0 && !exposed.iter().any(|e| e.0 == *q) {
+                        exposed.push((*q, b.to_string(), r, d));
+                    }
+                }
+            }
+            exposed.sort_by_key(|(q, ..)| (q.y, q.z, q.x));
+            bad += exposed.len();
+            lines.push(format!("(c) creepers (power 3) within 3 of the AFK spot {:.2},{:.2},{:.2}: {} cell(s) a creeper can reach there; {} design block(s) a blast could break (the bound: no block between) (bar 0){}", p.x, p.y, p.z, near.len(), exposed.len(), if exposed.is_empty() { " (PASS)" } else { " (FAIL)" }));
+            for (q, s, r, d) in exposed.iter().take(40) {
+                lines.push(format!("  BREAKABLE {} {} (resistance {r}, at {d:.2})", cell(q), s.trim_start_matches("minecraft:")));
+            }
+        }
+    }
+    // (d) water: bodies touching the outside; scarer eyes in water
+    let walk = flood(&seeds, 0.15, 0.975, false);
+    let mut seen: HashSet<BlockPos> = HashSet::new();
+    let mut open_bodies: Vec<(BlockPos, usize)> = Vec::new();
+    for (p, _) in spec.blocks.iter().filter(|(p, _)| is_water(*p)) {
+        if seen.contains(p) {
+            continue;
+        }
+        let (mut comp, mut stack, mut open) = (vec![*p], vec![*p], false);
+        seen.insert(*p);
+        while let Some(c) = stack.pop() {
+            for (dx, dy, dz) in [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)] {
+                let n = BlockPos::new(c.x + dx, c.y + dy, c.z + dz);
+                if is_water(n) && in_box(n) {
+                    if seen.insert(n) {
+                        comp.push(n);
+                        stack.push(n);
+                    }
+                } else if !in_box(n) || walk.contains_key(&n) {
+                    open = true;
+                }
+            }
+        }
+        if open {
+            open_bodies.push((*p, comp.len()));
+        }
+    }
+    let mut wet_eyes: Vec<String> = Vec::new();
+    for (k, p, nbt) in &spec.entities {
+        let n = nbt.as_deref().unwrap_or("");
+        if k.ends_with("_boat") && n.contains("minecraft:zombie\"") {
+            let eye = Vec3::new(p[0], p[1] + zombie_seat() + zeye(), p[2]);
+            let ec = BlockPos::new(eye.x.floor() as i32, eye.y.floor() as i32, eye.z.floor() as i32);
+            if is_water(ec) {
+                wet_eyes.push(format!("the zombie in the boat at {:.2},{:.2},{:.2}: its eye at {:.2} is in water at {}", p[0], p[1], p[2], eye.y, cell(&ec)));
+            }
+        }
+    }
+    bad += open_bodies.len() + wet_eyes.len();
+    lines.push(format!("(d) water: {} design water body(ies) touching the outside (bar 0); {} zombie scarer(s) with the eye in water (bar 0){}", open_bodies.len(), wet_eyes.len(), if open_bodies.is_empty() && wet_eyes.is_empty() { " (PASS)" } else { " (FAIL)" }));
+    for (p, n) in &open_bodies {
+        lines.push(format!("  OPEN WATER from {} ({n} cell(s))", cell(p)));
+    }
+    for e in &wet_eyes {
+        lines.push(format!("  WET EYE {e}"));
+    }
+    lines.insert(0, format!("the enclosure check (ironspec Nov 14 13:32p / 13:38p, G1 13:27): the ground plane at y {} around the box widened by {margin}, {} top surface(s) on the outside open to the sky, {} target cell(s): {bad} failure(s)", ground_y + 1, tops.len(), targets.len()));
+    Ok((lines, bad))
+}
+
 pub fn sensor_at(spec: &FarmSpec, points: &[Vec3], exclude: &[([i32; 3], [i32; 3])], sets: &[(BlockPos, redsim::block::Block)], hold: &[(BlockPos, String)], through: &[BlockPos]) -> Result<(Vec<String>, usize, usize), String> {
     use redsim::entity::mob::types::MobType;
     let o = RunOpts { ai: true, ..RunOpts::steady(1, 0, WalkMode::Random) };
@@ -6592,17 +6878,19 @@ pub fn power_into(spec: &FarmSpec, cells: &[BlockPos], no_qc: bool, allow: &[Blo
     Ok((lines, bad))
 }
 
-/// (ironspec Nov 14 14:07p (2), part 93) One `# quasi-connected:` declaration: the block's cell, INTENDED or HARMLESS,
-/// and the owner's reason.
+/// (ironspec Nov 14 14:07p (2), part 93) One `# quasi-connected:` declaration: the block's cell (in the Nether part's frame
+/// when `nether`), INTENDED or HARMLESS, and the owner's reason.
 #[derive(Clone, Debug, PartialEq)]
 pub struct QcDecl {
     pub cell: BlockPos,
+    pub nether: bool,
     pub intended: bool,
     pub why: String,
 }
 
-/// A design's `# quasi-connected: x,y,z=intended (how its timing uses it); x,y,z=harmless (why: never loaded / never
-/// extended when that power arrives)` lines, strictly read (a malformed entry fails naming it).
+/// A design's `# quasi-connected: x,y,z=intended (how its timing uses it); nether:x,y,z=harmless (why: never loaded /
+/// never extended when that power arrives)` lines, strictly read (a malformed entry fails naming it); a `nether:` cell is
+/// in the Nether part's frame, as `mobfarm qc` prints it (G1 14:02 [2]).
 pub fn qc_decls(text: &str) -> Result<Vec<QcDecl>, String> {
     let mut out = Vec::new();
     for l in text.lines().filter_map(|l| l.strip_prefix("# quasi-connected:")) {
@@ -6611,15 +6899,19 @@ pub fn qc_decls(text: &str) -> Result<Vec<QcDecl>, String> {
             if e.is_empty() {
                 continue;
             }
-            let bad = || format!("`# quasi-connected:` entry {e:?}: x,y,z=intended (how) or x,y,z=harmless (why)");
+            let bad = || format!("`# quasi-connected:` entry {e:?}: [nether:]x,y,z=intended (how) or [nether:]x,y,z=harmless (why)");
             let (c, rest) = e.split_once('=').ok_or_else(bad)?;
+            let (nether, c) = match c.trim().strip_prefix("nether:") {
+                Some(r) => (true, r),
+                None => (false, c),
+            };
             let v: Vec<i32> = c.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>().map_err(|_| bad())?;
             let (kind, why) = rest.split_once(" (").ok_or_else(bad)?;
             let why = why.trim_end().strip_suffix(')').ok_or_else(bad)?.trim();
             if v.len() != 3 || why.is_empty() || !["intended", "harmless"].contains(&kind.trim()) {
                 return Err(bad());
             }
-            out.push(QcDecl { cell: BlockPos::new(v[0], v[1], v[2]), intended: kind.trim() == "intended", why: why.to_string() });
+            out.push(QcDecl { cell: BlockPos::new(v[0], v[1], v[2]), nether, intended: kind.trim() == "intended", why: why.to_string() });
         }
     }
     Ok(out)
@@ -6633,37 +6925,52 @@ pub fn qc_decls(text: &str) -> Result<Vec<QcDecl>, String> {
 /// never extended, when that power arrives); an undeclared one fails by name, as does a declaration for a block not
 /// listed (stale). Returns the lines and the failure count.
 pub fn qc_static(spec: &FarmSpec, decls: &[QcDecl]) -> Result<(Vec<String>, usize), String> {
-    let w = settled_world_void(spec)?;
-    let name = |q: BlockPos| w.get(q).to_string().trim_start_matches("minecraft:").to_string();
-    let mut cells: Vec<BlockPos> = spec.blocks.iter().map(|(p, _)| *p).filter(|p| ["piston", "sticky_piston", "dropper", "dispenser"].contains(&name(*p).split('[').next().unwrap_or(""))).collect();
-    cells.sort_by_key(|p| (p.y, p.z, p.x));
-    cells.dedup();
+    // (G1 14:02 [2]: the NETHER section too, each labelled: its blocks laid alone in a void world in the Nether part's
+    // frame (relative to `NetherSpec::base`), its declarations `nether:x,y,z`)
+    let mut sections: Vec<(bool, FarmSpec)> = vec![(false, spec.clone())];
+    if let Some(n) = &spec.nether
+        && !n.blocks.is_empty()
+    {
+        let lo = BlockPos::new(n.blocks.iter().map(|(p, _)| p.x).min().unwrap_or(0) - 1, n.blocks.iter().map(|(p, _)| p.y).min().unwrap_or(0) - 1, n.blocks.iter().map(|(p, _)| p.z).min().unwrap_or(0) - 1);
+        let hi = BlockPos::new(n.blocks.iter().map(|(p, _)| p.x).max().unwrap_or(0) + 1, n.blocks.iter().map(|(p, _)| p.y).max().unwrap_or(0) + 1, n.blocks.iter().map(|(p, _)| p.z).max().unwrap_or(0) + 1);
+        let output = n.output.unwrap_or(n.blocks[0].0);
+        sections.push((true, FarmSpec { blocks: n.blocks.clone(), entities: Vec::new(), output, lo, hi, block_entities: n.block_entities.clone(), rock: false, nether: None, land: false }));
+    }
     let mut lines = Vec::new();
-    let (mut listed, mut bad) = (Vec::new(), 0usize);
-    for c in &cells {
-        let s = c.above();
-        let mut hits: Vec<String> = sources_into(&w, s, Some(*c)).into_iter().map(|(_, t)| t).collect();
-        hits.sort();
-        hits.dedup();
-        if hits.is_empty() {
-            continue;
-        }
-        listed.push(*c);
-        let decl = decls.iter().find(|d| d.cell == *c);
-        let verdict = match decl {
-            Some(d) => format!("declared {} ({})", if d.intended { "INTENDED" } else { "HARMLESS" }, d.why),
-            None => {
-                bad += 1;
-                "UNDECLARED (FAIL): its owner declares it intended or harmless".to_string()
+    let (mut listed, mut bad, mut total) = (Vec::new(), 0usize, 0usize);
+    for (nether, sec) in &sections {
+        let w = settled_world_void(sec)?;
+        let name = |q: BlockPos| w.get(q).to_string().trim_start_matches("minecraft:").to_string();
+        let mut cells: Vec<BlockPos> = sec.blocks.iter().map(|(p, _)| *p).filter(|p| ["piston", "sticky_piston", "dropper", "dispenser"].contains(&name(*p).split('[').next().unwrap_or(""))).collect();
+        cells.sort_by_key(|p| (p.y, p.z, p.x));
+        cells.dedup();
+        total += cells.len();
+        let label = if *nether { "Nether " } else { "" };
+        for c in &cells {
+            let s = c.above();
+            let mut hits: Vec<String> = sources_into(&w, s, Some(*c)).into_iter().map(|(_, t)| t).collect();
+            hits.sort();
+            hits.dedup();
+            if hits.is_empty() {
+                continue;
             }
-        };
-        lines.push(format!("  QC {},{},{} ({}): the block above {},{},{} ({}) can be powered by {}: {verdict}", c.x, c.y, c.z, name(*c), s.x, s.y, s.z, name(s), hits.join("; ")));
+            listed.push((*nether, *c));
+            let decl = decls.iter().find(|d| d.cell == *c && d.nether == *nether);
+            let verdict = match decl {
+                Some(d) => format!("declared {} ({})", if d.intended { "INTENDED" } else { "HARMLESS" }, d.why),
+                None => {
+                    bad += 1;
+                    format!("UNDECLARED (FAIL): its owner declares it intended or harmless (`# quasi-connected: {}{},{},{}=…`)", if *nether { "nether:" } else { "" }, c.x, c.y, c.z)
+                }
+            };
+            lines.push(format!("  {label}QC {},{},{} ({}): the block above {},{},{} ({}) can be powered by {}: {verdict}", c.x, c.y, c.z, name(*c), s.x, s.y, s.z, name(s), hits.join("; ")));
+        }
     }
-    for d in decls.iter().filter(|d| !listed.contains(&d.cell)) {
+    for d in decls.iter().filter(|d| !listed.contains(&(d.nether, d.cell))) {
         bad += 1;
-        lines.push(format!("  `# quasi-connected:` {},{},{} names no dropper, dispenser or piston whose block above can be powered (a stale declaration, FAIL)", d.cell.x, d.cell.y, d.cell.z));
+        lines.push(format!("  `# quasi-connected:` {}{},{},{} names no dropper, dispenser or piston whose block above can be powered (a stale declaration, FAIL)", if d.nether { "nether:" } else { "" }, d.cell.x, d.cell.y, d.cell.z));
     }
-    lines.insert(0, format!("quasi-connectivity (ironspec Nov 14 14:07p (2)): {} dropper(s) / dispenser(s) / piston(s), {} with a block above that can be powered, {bad} failing (undeclared or stale)", cells.len(), listed.len()));
+    lines.insert(0, format!("quasi-connectivity (ironspec Nov 14 14:07p (2)): {total} dropper(s) / dispenser(s) / piston(s) ({} section(s): the overworld{}), {} with a block above that can be powered, {bad} failing (undeclared or stale)", sections.len(), if sections.len() > 1 { " and the Nether part, in its own frame" } else { "" }, listed.len()));
     Ok((lines, bad))
 }
 /// switched in 26.3), dust, a diode, a piston, a dropper, a dispenser, a hopper, a door, trapdoor or
@@ -11736,6 +12043,60 @@ mod gate_tests {
         for e in ["# quasi-connected: 1,1,1=maybe (x)\n", "# quasi-connected: 1,1,1=intended\n", "# quasi-connected: 1,1=intended (x)\n"] {
             assert!(super::qc_decls(e).is_err(), "{e:?} refused");
         }
+        // (G1 14:02 [1]) a TRANSIENT source: a dropper under a stone whose dust above sits at power 0 between the ring's
+        // steps (OFF in the settled snapshot) is listed: a source that CAN be on counts
+        let mut ring = Vec::new();
+        for x in 0..=2 {
+            for z in 0..=2 {
+                ring.push((b(x, 0, z), p("minecraft:stone")));
+            }
+        }
+        ring.push((b(1, 1, 1), p("minecraft:dropper[facing=down,triggered=false]")));
+        ring.push((b(1, 2, 1), p("minecraft:stone")));
+        ring.push((b(1, 3, 1), p("minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]")));
+        let rspec = redsim::entity::mob::farm::FarmSpec { blocks: ring.clone(), entities: Vec::new(), output: b(0, 0, 0), lo: b(0, 0, 0), hi: b(2, 4, 2), block_entities: Vec::new(), rock: false, nether: None, land: false };
+        let (l, bad) = super::qc_static(&rspec, &[]).unwrap();
+        assert!(bad == 1 && l.iter().any(|x| x.starts_with("  QC 1,1,1 (dropper") && x.contains("redstone_wire[") && x.contains("power=0")), "the power-0 dust counts: {l:?}");
+        // (G1 14:02 [2]) the NETHER section, labelled, its declarations `nether:x,y,z`: the same planted dropper there
+        let nspec = redsim::entity::mob::farm::FarmSpec {
+            nether: Some(redsim::entity::mob::farm::NetherSpec { anchor: b(0, 0, 0), blocks: ring.iter().map(|(q, s)| (BlockPos::new(q.x, q.y + 64, q.z), s.clone())).collect(), output: None, block_entities: Vec::new() }),
+            ..spec.clone()
+        };
+        let all = super::qc_decls("# quasi-connected: 1,1,1=intended (a); 7,1,1=harmless (b)\n").unwrap();
+        let (l, bad) = super::qc_static(&nspec, &all).unwrap();
+        assert!(bad == 1 && l.iter().any(|x| x.starts_with("  Nether QC 1,65,1 (dropper") && x.contains("nether:1,65,1")), "the Nether dropper listed, undeclared, by name: {l:?}");
+        let both = super::qc_decls("# quasi-connected: 1,1,1=intended (a); 7,1,1=harmless (b); nether:1,65,1=intended (the Nether ring's step)\n").unwrap();
+        assert_eq!(super::qc_static(&nspec, &both).unwrap().1, 0, "the Nether one declared with its prefix: pass");
+    }
+
+    /// (part 94) the enclosure check: a SEALED stone shell around a rail passes for both mobs; a PLANTED 1 x 1 opening in its
+    /// wall at the floor lets the baby zombie walk in to the rail, by name, but not the spider (1.4 wide)
+    #[test]
+    fn the_enclosure_check_finds_a_planted_opening() {
+        let b = |x: i32, y: i32, z: i32| BlockPos::new(x, y, z);
+        let p = |s: &str| redsim::block::Block::parse(s).unwrap();
+        let shell = |open: bool| {
+            let mut blocks = Vec::new();
+            for x in 0..=4 {
+                for z in 0..=4 {
+                    for y in 0..=3 {
+                        let wall = x == 0 || x == 4 || z == 0 || z == 4 || y == 0 || y == 3;
+                        if wall && !(open && (x, y, z) == (0, 1, 2)) {
+                            blocks.push((b(x, y, z), p("minecraft:stone")));
+                        }
+                    }
+                }
+            }
+            blocks.push((b(2, 1, 2), p("minecraft:rail[shape=north_south,waterlogged=false]")));
+            redsim::entity::mob::farm::FarmSpec { blocks, entities: Vec::new(), output: b(1, 0, 1), lo: b(0, 0, 0), hi: b(4, 3, 4), block_entities: Vec::new(), rock: false, nether: None, land: false }
+        };
+        let (l, _) = super::enclosure(&shell(false), -1, 4, &[], None).unwrap_or_else(|e| panic!("{e}"));
+        assert!(l.iter().filter(|x| x.starts_with("(a) ")).all(|x| x.contains("0 target(s) reached")), "sealed: no target reached: {l:?}");
+        let (l, _) = super::enclosure(&shell(true), -1, 4, &[], None).unwrap();
+        let zombie = l.iter().position(|x| x.starts_with("(a) a baby zombie")).unwrap();
+        assert!(l[zombie].contains("1 target(s) reached") && l[zombie + 1].starts_with("  REACHED 2,1,2 (rail"), "the planted opening lets the baby zombie in, by name: {l:?}");
+        assert!(l.iter().any(|x| x.starts_with("(a) a spider") && x.contains("0 target(s) reached")), "the 1 x 1 opening stops the spider: {l:?}");
+        assert!(l.iter().any(|x| x.starts_with("(c) creepers: NOT JUDGED")), "no AFK spot: creepers NOT JUDGED");
     }
 
     #[test]

@@ -1381,6 +1381,26 @@ pub enum MobfarmCmd {
     /// (ironspec Nov 14 14:07p (2), part 93) The QUASI-CONNECTIVITY static: every dropper, dispenser and piston whose
     /// block above can be powered by anything in the design, each declared in `# quasi-connected:` as intended or
     /// harmless; an undeclared one (or a stale declaration) fails by name
+    /// (ironspec Nov 14 13:32p / 13:38p, G1 13:27; part 94) The ENCLOSURE check: no path from any exterior standable
+    /// cell (the ground plane around the box widened by --margin, the design's outside tops) to any target (rails,
+    /// villager places, the golem pad, --target-box cells), for a baby zombie (any 1 x 1 opening) and a spider (any face,
+    /// glass included); endermen's interior teleport destinations; creepers from --afk; water open to the outside and
+    /// wet zombie eyes; each failure by name, an Err when any
+    Enclosure {
+        design: PathBuf,
+        /// The ground plane's y (its top face; below the design's lowest block, within 64)
+        #[arg(long)]
+        ground_y: i32,
+        /// How far the ground plane reaches past the design's box
+        #[arg(long, default_value_t = 16)]
+        margin: i32,
+        /// A controller box, X,Y,Z..X,Y,Z (repeatable): its cells are targets
+        #[arg(long)]
+        target_box: Vec<String>,
+        /// The guide's AFK spot, x,y,z (the player's feet): creepers judged within 3 of it; without it NOT JUDGED
+        #[arg(long)]
+        afk: Option<String>,
+    },
     Qc {
         design: PathBuf,
     },
@@ -15838,6 +15858,32 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             // (G1 12:19 (1): a mismatch, an uncompared row, a failed expect or a vacuous counterfactual exits non-zero)
             anyhow::ensure!(r.failures.is_empty(), "drive-replay: {} failure(s), the first: {}", r.failures.len(), r.failures[0]);
+        }
+        MobfarmCmd::Enclosure { design, ground_y, margin, target_box, afk } => {
+            let (_c, spec) = load(version, &design)?;
+            let xyz = |s: &str| -> anyhow::Result<redsim::pos::BlockPos> {
+                let v: Vec<i32> = s.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("{s:?}: x,y,z ({e})"))?;
+                anyhow::ensure!(v.len() == 3, "{s:?}: x,y,z");
+                Ok(redsim::pos::BlockPos::new(v[0], v[1], v[2]))
+            };
+            let mut boxes = Vec::new();
+            for b in &target_box {
+                let (a, c) = b.split_once("..").ok_or_else(|| anyhow::anyhow!("--target-box {b:?}: X,Y,Z..X,Y,Z"))?;
+                boxes.push((xyz(a)?, xyz(c)?));
+            }
+            let afk = match &afk {
+                Some(s) => {
+                    let v: Vec<f64> = s.split(',').map(|t| t.trim().parse::<f64>()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("--afk {s:?}: x,y,z ({e})"))?;
+                    anyhow::ensure!(v.len() == 3, "--afk {s:?}: x,y,z");
+                    Some(redsim::entity::Vec3::new(v[0], v[1], v[2]))
+                }
+                None => None,
+            };
+            let (lines, bad) = crate::fleecheck::enclosure(&spec, ground_y, margin, &boxes, afk).map_err(|e| anyhow::anyhow!(e))?;
+            for l in &lines {
+                println!("{l}");
+            }
+            anyhow::ensure!(bad == 0, "the enclosure check: {bad} failure(s)");
         }
         MobfarmCmd::Qc { design } => {
             let (_c, spec) = load(version, &design)?;
