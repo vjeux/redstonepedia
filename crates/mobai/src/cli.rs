@@ -1515,7 +1515,44 @@ pub enum MobaiCmd {
         #[arg(long, default_value_t = 400)]
         ticks: u32,
     },
-    /// (tickexact 2026-11-12, ironspec's ruling for onechunk's loader) The loader's freeze rows on
+    /// (G1 15:31, ironspec 14:33 / 14:35: the loader check) the composed farm from world-frame files, the
+    /// player at the farm, in the Nether, logged out for --ticks with a restart inside, then logging in:
+    /// per route chunk entity ticking, per Nether chunk its level, both PORTAL tickets' least ticks left
+    LoaderLong {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+        /// the world-frame design: overworld cells at their world coordinates, its Nether part at the Nether's
+        #[arg(long)]
+        world: std::path::PathBuf,
+        /// a second world-frame file whose cells are the Nether's (when the Nether part is a file of its own)
+        #[arg(long)]
+        nether: Option<std::path::PathBuf>,
+        /// the overworld route chunks the bar holds, "cx,cz;cx,cz"
+        #[arg(long, allow_hyphen_values = true)]
+        chunks: String,
+        /// the Nether chunks the bar holds, "cx,cz;cx,cz"
+        #[arg(long, allow_hyphen_values = true)]
+        nchunks: String,
+        /// the overworld chunk holding the loader's portal
+        #[arg(long, allow_hyphen_values = true)]
+        portal: String,
+        /// the Nether chunk holding the twin's portal
+        #[arg(long, allow_hyphen_values = true)]
+        nportal: String,
+        #[arg(long, default_value_t = 48000)]
+        ticks: u32,
+        #[arg(long, default_value_t = 24000)]
+        restart_at: u32,
+        /// where the player stands at the farm (overworld), x,y,z
+        #[arg(long, allow_hyphen_values = true)]
+        farm_afk: String,
+        /// where the player stands in the Nether, x,y,z
+        #[arg(long, allow_hyphen_values = true)]
+        nether_afk: String,
+        /// the load agent's watched chunks (both levels), x0,z0,x1,z1
+        #[arg(long, allow_hyphen_values = true, default_value = "-1,-1,3,3")]
+        watch: String,
+    },
     /// the official server: the landed item-loop loader in chunk (1,1) with 1 or 4 farm modules
     /// around it, the player beyond simulation distance + 1 or in the Nether: (a) the loop running,
     /// per farm chunk its best ticket level, entity ticking, frozen block ticks; (b) a restart there
@@ -2519,6 +2556,27 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         MobaiCmd::JunctionProbe { version, mirror } => crate::junction::junction_probe(&version, mirror),
         MobaiCmd::DayJump { version, at, until } => crate::dayjump::day_jump(&version, at, until),
         MobaiCmd::HaltBridge { version, rows, ticks } => crate::haltbridge::halt_bridge(&version, &rows, ticks),
+        MobaiCmd::LoaderLong { version, world, nether, chunks, nchunks, portal, nportal, ticks, restart_at, farm_afk, nether_afk, watch } => {
+            let pairs = |s: &str| -> anyhow::Result<Vec<(i32, i32)>> {
+                s.split(';')
+                    .filter(|p| !p.trim().is_empty())
+                    .map(|p| {
+                        let v: Vec<i32> = p.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+                        anyhow::ensure!(v.len() == 2, "cx,cz, got {p}");
+                        Ok((v[0], v[1]))
+                    })
+                    .collect()
+            };
+            let f3 = |s: &str| -> anyhow::Result<[f64; 3]> {
+                let v: Vec<f64> = s.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(v.len() == 3, "x,y,z, got {s}");
+                Ok([v[0], v[1], v[2]])
+            };
+            let w: Vec<i32> = watch.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+            anyhow::ensure!(w.len() == 4, "--watch x0,z0,x1,z1");
+            let one = |s: &str| -> anyhow::Result<(i32, i32)> { pairs(s)?.first().copied().ok_or_else(|| anyhow::anyhow!("cx,cz, got {s}")) };
+            crate::freeze::loader_long(&version, &world, nether.as_deref(), &pairs(&chunks)?, &pairs(&nchunks)?, one(&portal)?, one(&nportal)?, ticks, restart_at, f3(&farm_afk)?, f3(&nether_afk)?, [w[0], w[1], w[2], w[3]])
+        }
         MobaiCmd::FreezeRows { version, loader, module, modules, place, ticks, group, mirrored, pocket } => crate::freeze::freeze_rows(&version, &loader, &module, modules, &place, ticks, group.as_deref(), mirrored.as_deref(), pocket),
         MobaiCmd::QueueFill { version, module, ridden } => crate::seatclear::queue_fill(&version, &module, ridden),
         MobaiCmd::SeatOffset { version } => crate::seatoffset::seat_offset(&version),

@@ -444,8 +444,17 @@ pub fn sleep_stop(version: &str, bench: &std::path::Path, mode: &str, v: f64, re
         println!("  at the release: the cart nearest the park (1,0,4) at ({:.3}, {:.4}, {:.3}) (local y {:.4})", c[0], c[1], c[2], c[1] - DY as f64);
     }
     let (mut least, mut picked) = (f64::MAX, None::<u32>);
+    // (G1 on W) the park rail set powered by command (a lever pull's conductor update emulated) may revert at
+    // its next neighbour update: its powered state printed every tick until the cart has left the park cell
+    let mut park_left = false;
     for j in 1..=watch {
         srv.step(1)?;
+        if !park_left {
+            let powered = crate::strict::test(&mut srv, &format!("execute if block 1 {DY} 4 minecraft:powered_rail[powered=true]"))?;
+            let on_park = crate::strict::test(&mut srv, &format!("execute if entity @e[type=minecraft:minecart,x=1,y={DY},z=4,dx=0,dy=0,dz=0]"))?;
+            println!("  release + {j}: the park rail (1,0,4) {} (the stand-in: set powered by command); a cart on the park cell: {on_park}", if powered { "powered" } else { "UNPOWERED" });
+            park_left = !on_park;
+        }
         let Some(c) = pos_of(&mut srv, "@e[type=minecraft:minecart,limit=1,sort=nearest,x=-1.5,y=80,z=4.5]")? else { continue };
         let gx = ((c[0] - sp[0]).abs() - (0.49 + 0.2 + 0.1)).max(0.0);
         let gz = ((c[2] - sp[2]).abs() - (0.49 + 0.2 + 0.1)).max(0.0);

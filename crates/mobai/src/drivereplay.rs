@@ -633,6 +633,8 @@ struct V {
     rest_complete: u32,
     rest_entries: Vec<String>,
     stamps_armed: Vec<String>,
+    /// (ironspec 16:11) each clear of the CANT_REACH stamp: tick, the clearing call site, the activity, its age
+    stamp_clears: Vec<String>,
     home_lost: Vec<String>,
     home_set: Vec<String>,
     dawn: Vec<String>,
@@ -1141,6 +1143,7 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
         }
         println!("  names: scene index -> the drive's eN: {}", names.iter().map(|(a, b)| format!("{a}->{b}")).collect::<Vec<_>>().join(" "));
     }
+    let mut stamp_rows: Option<Vec<String>> = std::env::var("MCTAS_REPLAY_STAMP_FILE").ok().map(|_| Vec::new());
     for t in 0..=ticks {
         // (ironspec 07:05 / 08:02: the lift-top fault rows) MCTAS_REPLAY_SWAP="x,y,z;STATE;t0;t1": the cell
         // set to STATE before tick t0 and its own state restored before t1 (each write must change it);
@@ -1559,6 +1562,13 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
                     }
                     v.stamps_armed.push(format!("t{t} day {day} {} at {} by {by}", v.activity.trim_start_matches("minecraft:"), fmt_pos(at)));
                 } else if l.starts_with("erase ") && l.contains("(had it)") {
+                    // (ironspec 16:11) the clear's cause: its call site (MoveToTargetSink's reached / reachable
+                    // path, SleepInBed's lie-down) and the activity it ran in (rest: an own HOME path; panic: a
+                    // flee path)
+                    let by = body.split(" by ").nth(1).unwrap_or("?").to_string();
+                    let v = &mut vs[vi];
+                    let age = v.stamp.map(|s| (now - s).to_string()).unwrap_or_else(|| "?".into());
+                    v.stamp_clears.push(format!("t{t} by {by} in {} (age {age})", v.activity.trim_start_matches("minecraft:")));
                     vs[vi].stamp = None;
                 }
             } else if l.starts_with("erase minecraft:home") {
@@ -1708,9 +1718,14 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
                     }
                 }
             }
+            // (cc767b78 16:08) MCTAS_REPLAY_TRACE_RAW=1: the position as the server prints its doubles (no rounding)
+            let raw_pos = if std::env::var("MCTAS_REPLAY_TRACE_RAW").is_ok() { Some(srv.cmd_long(&format!("data get entity @e[tag={who},limit=1] Pos"))?) } else { None };
             trace_rows.push(format!(
                 "t{t}: {who} pos {} motion {} rider {} block {rail}",
-                p.map(|q| format!("({:.6},{:.6},{:.6})", q[0], q[1], q[2])).unwrap_or_else(|| "gone".into()),
+                match &raw_pos {
+                    Some(r) => r.split("data: ").nth(1).unwrap_or("gone").trim().to_string(),
+                    None => p.map(|q| format!("({:.6},{:.6},{:.6})", q[0], q[1], q[2])).unwrap_or_else(|| "gone".into()),
+                },
                 m.split("data: ").nth(1).unwrap_or("?").trim(),
                 rider.split('"').find(|s| s.starts_with('e') && s.contains('p')).unwrap_or("none")
             ));
@@ -1731,6 +1746,10 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
             } else if !rest.is_empty() {
                 activity_rows.push(format!("day {day}: in REST {}", rest.join(" ")));
             }
+        }
+        // (ironspec 16:11) MCTAS_REPLAY_STAMP_FILE=<path>: every villager's CANT_REACH stamp age after every tick
+        if let Some(rows) = stamp_rows.as_mut() {
+            rows.push(format!("t{t}: {}", vs.iter().map(|v| format!("{}={}", v.tag, v.stamp.map(|s| (now - s).to_string()).unwrap_or_else(|| "-".into()))).collect::<Vec<_>>().join(" ")));
         }
         for v in vs.iter_mut() {
             if let Some(s) = v.stamp {
@@ -1937,18 +1956,23 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
             old += 1;
         }
         println!(
-            "  {}: night REST ticks without a complete HOME path {} (with one, a trip: {}); REST entries {:?}; stamps armed {:?}; oldest stamp {}; at dawn {:?}; HOME erased {:?}; HOME set {:?}; least distance to the occupied bed {}",
+            "  {}: night REST ticks without a complete HOME path {} (with one, a trip: {}); REST entries {:?}; stamps armed {:?}; stamp clears {:?}; oldest stamp {}; at dawn {:?}; HOME erased {:?}; HOME set {:?}; least distance to the occupied bed {}",
             v.tag,
             v.rest_partial,
             v.rest_complete,
             v.rest_entries,
             v.stamps_armed,
+            v.stamp_clears,
             v.oldest.map(|(a, t)| format!("{a} gt (t{t})")).unwrap_or_else(|| "none".into()),
             v.dawn,
             v.home_lost,
             v.home_set,
             v.least_occupied.map(|(d, t)| format!("{d:.2} (t{t})")).unwrap_or_else(|| "- (never occupied at a read)".into())
         );
+    }
+    if let (Some(rows), Ok(path)) = (stamp_rows.as_ref(), std::env::var("MCTAS_REPLAY_STAMP_FILE")) {
+        std::fs::write(&path, rows.join("\n") + "\n")?;
+        println!("  every villager's stamp age after every tick: {} rows -> {path}", rows.len());
     }
     if let Some((a, b)) = probe_window {
         println!("  block probes t{a}..t{b} (each predicate after every tick; transitions):");
