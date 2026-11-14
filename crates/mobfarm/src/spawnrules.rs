@@ -165,6 +165,6 @@ pub fn run(version: &str, design: &std::path::Path, terrain: &str, tries: u32, d
     }
     // (a light read the spawn rules needed that failed: the comparison is refused, cc767b78, ironspec 12:54)
     let errors = w.take_light_errors();
-    anyhow::ensure!(errors.is_empty(), "spawn-rules: {} light read(s) failed (pending since the world's last tick or take: some may predate this comparison): {}", errors.len(), errors.join("; "));
+    anyhow::ensure!(errors.is_empty(), "spawn-rules: {} light read(s) failed (untaken since the world's last take: pending, or moved into its errors by a tick: some may predate this comparison): {}", errors.len(), errors.join("; "));
     Ok(())
 }
