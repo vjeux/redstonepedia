@@ -794,36 +794,61 @@ fn unit_piece(krate: &str, files: &[String]) -> Piece {
                 let first = out.lines().find(|l| l.starts_with("error[")).or(error).map(|l| format!("{l}; ")).unwrap_or_default();
                 return Err(format!("crates/{name} did not build: {first}{}", crate::selftest::tail(out)));
             }
-            return Ok(format!("no unit tests in {name} (it builds; no test target); {}", clippy_verdict(o.get(1).map(|s| s.as_str()), &changed)?));
+            return Ok(format!("no unit tests in {name} (it builds; no test target); {}", clippy_verdict(o.get(1).map(|s| s.as_str()), &changed, &name)?));
         }
         let passed: usize = results.iter().filter_map(|l| l.split_whitespace().nth(3).and_then(|n| n.parse::<usize>().ok())).sum();
         let tests = if passed == 0 { format!("no unit tests in {name} (it builds; {} test binaries)", results.len()) } else { format!("{passed} {name} tests pass ({} test binaries)", results.len()) };
-        Ok(format!("{tests}; {}", clippy_verdict(o.get(1).map(|s| s.as_str()), &changed)?))
+        Ok(format!("{tests}; {}", clippy_verdict(o.get(1).map(|s| s.as_str()), &changed, &name)?))
     });
     let check = Check { name: format!("unit:{krate}"), what: "the crate's own unit tests (`cargo test --release -p <crate> --all-targets`: a build failure or a failing test fails, a crate with no tests passes saying so) and clippy where the toolchain has it (a deny-level error fails only in the changed files)", quick: true, jvm: false, steps: vec![argv, lint], timeout: UNIT_TIMEOUT, pred };
     let why = if files.is_empty() { vec!["--all: every crate's own tests".to_string()] } else { files.iter().map(|f| format!("{f}: its crate's own tests")).collect() };
     Piece { check, group: "unit".into(), workers: 0, cpu: 16, cost: 90, why }
 }
 
-/// clippy's verdict, scoped to the change (no repo-wide gate: ironspec 2026-11-12 19:42 PT): a
-/// deny-level error fails only when its `-->` location is a changed file; every other error, every
-/// warning, and every finding of a full run (no changed files) is counted and never fails. clippy
-/// absent from the toolchain is said.
-fn clippy_verdict(out: Option<&str>, changed: &[String]) -> Result<String, String> {
-    let Some(c) = out else { return Ok("clippy not run".to_string()) };
+/// The marker every clippy verdict that did NOT complete carries (G1 Nov 14 09:27 (a), mobviewer 09:25):
+/// the runner's NOT GREEN rule reads it ([`not_green_all`]'s skipped lint steps).
+pub const CLIPPY_NOT_RUN: &str = "CLIPPY NOT RUN";
+
+/// clippy's verdict on the piece's own crate (ironspec Nov 14 09:26a's bar: each selected piece's own crate
+/// LINTED with 0 errors; it replaces the 2026-11-12 19:42 changed-files scope): a deny-level error anywhere
+/// in the crate fails, by its file and first line; warnings are counted (those in the changed files named).
+/// A clippy run that did not COMPLETE on the crate (G1 Nov 14 09:27 (a) / 10:02: absent from the toolchain,
+/// a missing component, a toolchain error, an abort at a DEPENDENCY ("could not compile `<dep>`", so the
+/// crate itself was never linted), or no `Finished` line with no error of the crate's own) reads
+/// [`CLIPPY_NOT_RUN`] by name, never "0 warnings".
+fn clippy_verdict(out: Option<&str>, changed: &[String], krate: &str) -> Result<String, String> {
+    let Some(c) = out else { return Ok(format!("{CLIPPY_NOT_RUN}: no clippy output")) };
     if c.contains("no such command") || c.contains("no such subcommand") || c.contains("is not installed") {
-        return Ok("clippy is not on this toolchain: not run".to_string());
+        return Ok(format!("{CLIPPY_NOT_RUN}: clippy is not on this toolchain"));
+    }
+    if let Some(l) = c.lines().find(|l| l.starts_with("error: toolchain") || (l.starts_with("error:") && l.contains("component"))) {
+        return Ok(format!("{CLIPPY_NOT_RUN}: a toolchain error ({})", l.trim()));
+    }
+    // (an abort at a dependency: the crate never reached; an abort at the crate itself means clippy linted
+    // it and reported its findings, judged below)
+    let aborted: Vec<&str> = c.lines().filter_map(|l| l.split_once("could not compile `").and_then(|(_, r)| r.split_once('`')).map(|(k, _)| k)).collect();
+    if let Some(dep) = aborted.iter().find(|k| **k != krate && k.replace('-', "_") != krate.replace('-', "_")) {
+        return Ok(format!("{CLIPPY_NOT_RUN}: clippy stopped at the dependency `{dep}` (could not compile it), so crates/{krate} was never linted"));
     }
     let diags = clippy_diagnostics(c);
     let touched = |p: &Option<String>| p.as_deref().is_some_and(|p| changed.iter().any(|f| f == p));
-    if let Some((_, p, head)) = diags.iter().find(|(err, p, _)| *err && touched(p)) {
-        return Err(format!("clippy: a deny-level error in a changed file ({}): {head}", p.as_deref().unwrap_or("?")));
+    let errors: Vec<&(bool, Option<String>, String)> = diags.iter().filter(|d| d.0).collect();
+    if let Some((_, p, head)) = errors.first() {
+        return Err(format!("clippy: {} deny-level error(s) in crates/{krate} (ironspec Nov 14 09:26a: the crate linted with 0 errors); the first: {}: {head}", errors.len(), p.as_deref().unwrap_or("?")));
     }
-    let errors = diags.iter().filter(|d| d.0).count();
-    let warnings = diags.len() - errors;
-    let mine = diags.iter().filter(|(err, p, _)| !*err && touched(p)).count();
-    let crate_wide = format!("{errors} error(s) and {warnings} warning(s) in the crate, counted, not failing");
-    Ok(if changed.is_empty() { format!("clippy: {crate_wide}") } else { format!("clippy: {mine} warning(s) in the changed files; {crate_wide}") })
+    // (G1's 739: the step's exit isn't read, so a run that never printed cargo's `Finished` line, with no
+    // error of the crate's own, did not complete)
+    if !c.lines().any(|l| l.trim_start().starts_with("Finished")) {
+        return Ok(format!("{CLIPPY_NOT_RUN}: clippy did not finish on crates/{krate} (no `Finished` line, no error of its own)"));
+    }
+    // (G1 10:13, ironspec's 16b bar: a WARNING in a changed file fails, by name; one in an untouched file is
+    // listed with its file, not failing)
+    let (mine, others): (Vec<&(bool, Option<String>, String)>, Vec<&(bool, Option<String>, String)>) = diags.iter().partition(|(_, p, _)| touched(p));
+    if let Some((_, p, head)) = mine.first() {
+        return Err(format!("clippy: {} warning(s) in the changed files of crates/{krate} (G1 Nov 14 10:13: a changed file's warning fails); the first: {}: {head}", mine.len(), p.as_deref().unwrap_or("?")));
+    }
+    let listed: Vec<String> = others.iter().map(|(_, p, head)| format!("{}: {head}", p.as_deref().unwrap_or("?"))).collect();
+    Ok(if listed.is_empty() { "clippy: 0 errors, 0 warnings in the crate".to_string() } else { format!("clippy: 0 errors; 0 warnings in the changed files; {} warning(s) in untouched files, listed, not failing: {}", listed.len(), listed.join(" | ")) })
 }
 
 /// clippy's diagnostics as (deny-level, the file of its `-->` line, its first line): a multi-line
@@ -1137,7 +1162,7 @@ pub fn run(pieces: Vec<Piece>, o: &RunOpts, commit_line: &str) -> Result<()> {
         // a piece this box could not run is never folded into "passed" (ironspec 2026-11-12 20:35), and
         // since ironspec Nov 14 07:50r (1) it makes the run NOT GREEN, by name, with a non-zero exit
         let not_run: Vec<&str> = res.iter().filter(|r| r.1 && r.2.starts_with(NOT_RUN)).map(|r| pieces[r.0].check.name.as_str()).collect();
-        let lint_skipped: Vec<&str> = res.iter().filter(|r| r.1 && r.2.contains("clippy is not on this toolchain")).map(|r| pieces[r.0].check.name.as_str()).collect();
+        let lint_skipped: Vec<&str> = res.iter().filter(|r| r.1 && r.2.contains(CLIPPY_NOT_RUN)).map(|r| pieces[r.0].check.name.as_str()).collect();
         if let Some(why) = not_green_all(pieces.len(), &not_run, &lint_skipped, prebuild_failed.as_deref()) {
             println!("{commit_line}: {line} in {total:.0} s; {why}");
             bail!("mctas test {why} (outputs in {})", root.display());
@@ -1193,7 +1218,7 @@ pub fn not_green_all(pieces: usize, not_run: &[&str], lint_skipped: &[&str], pre
         why.push(format!("{} selected piece(s) couldn't run on this box: {} (run them where they can: ironspec Nov 14 07:50r (1))", not_run.len(), not_run.join(", ")));
     }
     if !lint_skipped.is_empty() {
-        why.push(format!("{} selected piece(s) skipped their lint step (clippy not on this toolchain): {} (ironspec Nov 14 09:11a (2))", lint_skipped.len(), lint_skipped.join(", ")));
+        why.push(format!("{} selected piece(s) whose lint step did not complete ({CLIPPY_NOT_RUN}: clippy absent, a toolchain error, or stopped at a dependency): {} (ironspec Nov 14 09:11a (2), G1 09:27 (a))", lint_skipped.len(), lint_skipped.join(", ")));
     }
     if why.is_empty() { None } else { Some(format!("NOT GREEN: {}", why.join("; "))) }
 }
@@ -1206,7 +1231,7 @@ fn summary(res: &[(&str, bool, &str)]) -> String {
     let failed = res.iter().filter(|r| !r.1).count();
     let not_run: Vec<String> = res.iter().filter(|r| r.1 && r.2.starts_with(NOT_RUN)).map(|r| format!("{} ({})", r.0, r.2.trim_start_matches(NOT_RUN))).collect();
     let no_tests: Vec<&str> = res.iter().filter(|r| r.1 && r.2.starts_with("no unit tests in ")).map(|r| r.0.trim_start_matches("unit:")).collect();
-    let no_clippy = res.iter().filter(|r| r.1 && r.2.contains("clippy is not on this toolchain")).count();
+    let no_clippy = res.iter().filter(|r| r.1 && r.2.contains(CLIPPY_NOT_RUN)).count();
     // (G1 Nov 14 09:11 / ironspec 09:11a (2): a crate with no unit tests is BUILT, never counted as passed)
     let mut s = format!("{} passed", res.len() - failed - not_run.len() - no_tests.len());
     if !no_tests.is_empty() {
@@ -1217,7 +1242,7 @@ fn summary(res: &[(&str, bool, &str)]) -> String {
         s += &format!(", {} not run on this box: {}", not_run.len(), not_run.join("; "));
     }
     if no_clippy > 0 {
-        s += &format!(", clippy not run in {no_clippy} unit piece(s) (not on this toolchain)");
+        s += &format!(", {CLIPPY_NOT_RUN} in {no_clippy} unit piece(s)");
     }
     s
 }
@@ -1385,18 +1410,36 @@ mod tests {
         let killed = "test result: ok. 3 passed; 0 failed; 0 ignored\nerror: test failed, to rerun pass `--test big`\n\nCaused by:\n  process didn't exit successfully: `/t/target/release/deps/big-0f1e` (signal: 9, SIGKILL: kill)";
         assert!(pred(killed, "").is_err_and(|e| e.contains("SIGKILL")));
         let ok = "test result: ok. 3 passed; 0 failed\ntest result: ok. 2 passed; 0 failed";
-        assert_eq!(pred(ok, "    Finished `release` profile"), Ok("5 trends tests pass (2 test binaries); clippy: 0 warning(s) in the changed files; 0 error(s) and 0 warning(s) in the crate, counted, not failing".to_string()));
-        assert_eq!(pred(ok, "warning: unused\n  --> crates/trends/src/lib.rs:3:5\nwarning: unused\n  --> crates/redsim/src/lib.rs:9:1"), Ok("5 trends tests pass (2 test binaries); clippy: 1 warning(s) in the changed files; 0 error(s) and 2 warning(s) in the crate, counted, not failing".to_string()));
-        // clippy, scoped to the change: a deny-level error located in a changed file fails, by its
-        // `-->` line (a multi-line diagnostic), not its header; one in an untouched file is counted
+        assert_eq!(pred(ok, "    Finished `release` profile"), Ok("5 trends tests pass (2 test binaries); clippy: 0 errors, 0 warnings in the crate".to_string()));
+        // (G1 Nov 14 10:13, the four controls: an ERROR fails anywhere in the crate (changed file or not); a
+        // WARNING fails in a changed file and is listed, not failing, in an untouched one)
+        let warn_changed = "warning: unused\n  --> crates/trends/src/lib.rs:3:5\n    Finished `release` profile";
+        assert!(pred(ok, warn_changed).is_err_and(|e| e.contains("crates/trends/src/lib.rs") && e.contains("warning")), "a warning in a changed file fails");
+        let warn_untouched = "warning: unused\n  --> crates/trends/src/main.rs:9:1\n    Finished `release` profile";
+        assert!(pred(ok, warn_untouched).is_ok_and(|v| v.contains("listed, not failing") && v.contains("crates/trends/src/main.rs")), "a warning in an untouched file is listed");
+        // clippy on the crate (ironspec Nov 14 09:26a: the crate linted with 0 errors): a deny-level error
+        // anywhere in the crate fails, by its `-->` line (a multi-line diagnostic), not its header
         let in_changed = "error: this comparison involving the minimum or maximum element\n   |\n  --> crates/trends/src/lib.rs:3:5\n   |\n3  |     x < u32::MIN\n   = help: because `u32::MIN` is the minimum value";
         assert!(pred(ok, in_changed).is_err_and(|e| e.contains("crates/trends/src/lib.rs")));
         let elsewhere = "error: this comparison involving the minimum or maximum element\n  --> crates/trends/src/main.rs:9:1\nerror: could not compile `trends` (bin \"trends\") due to 1 previous error";
-        assert_eq!(pred(ok, elsewhere), Ok("5 trends tests pass (2 test binaries); clippy: 0 warning(s) in the changed files; 1 error(s) and 0 warning(s) in the crate, counted, not failing".to_string()));
-        // a full run (no changed files) never fails on clippy
+        assert!(pred(ok, elsewhere).is_err_and(|e| e.contains("crates/trends/src/main.rs") && e.contains("1 deny-level")), "an error in an untouched file of the crate fails too");
+        // a full run (no changed files) fails on a crate error as well
         let all = unit_piece("trends", &[]);
-        assert!((all.check.pred)(&[ok.to_string(), in_changed.to_string()]).is_ok_and(|s| s.ends_with("clippy: 1 error(s) and 0 warning(s) in the crate, counted, not failing")));
-        assert_eq!(pred(ok, "error: no such command: `clippy`"), Ok("5 trends tests pass (2 test binaries); clippy is not on this toolchain: not run".to_string()));
+        assert!((all.check.pred)(&[ok.to_string(), in_changed.to_string()]).is_err());
+        // (G1's 739: no `Finished` line and no error of the crate's own: clippy didn't complete)
+        assert!(pred(ok, "warning: unused\n  --> crates/trends/src/lib.rs:3:5").is_ok_and(|v| v.contains(CLIPPY_NOT_RUN) && v.contains("did not finish")));
+        assert_eq!(pred(ok, "error: no such command: `clippy`"), Ok(format!("5 trends tests pass (2 test binaries); {CLIPPY_NOT_RUN}: clippy is not on this toolchain")));
+        // (G1 Nov 14 09:27 (a), ironspec 09:26a (1): the planted control: a deny-level lint in a DEPENDENCY stops
+        // clippy before the crate: CLIPPY NOT RUN by name (NOT GREEN), never "0 warning(s)"; a toolchain error too;
+        // the positive control: a planted lint in a changed file of the crate itself appears by name)
+        let dep_abort = "error: this comparison involving the minimum or maximum element\n  --> crates/redsim/src/lib.rs:9:1\nerror: could not compile `redsim` (lib) due to 13 previous errors";
+        let v = pred(ok, dep_abort).expect("a dependency abort is not a test failure");
+        assert!(v.contains(CLIPPY_NOT_RUN) && v.contains("`redsim`") && !v.contains("0 warning(s)"), "{v}");
+        assert!(not_green_all(1, &[], &["unit:trends"], None).is_some_and(|w| w.contains("NOT GREEN") && w.contains("unit:trends")));
+        assert!(pred(ok, "error: toolchain 'nightly' is not installed").is_ok_and(|v| v.contains(CLIPPY_NOT_RUN)), "a toolchain error");
+        let own = "error: this comparison involving the minimum or maximum element\n  --> crates/trends/src/lib.rs:3:5\nerror: could not compile `trends` (lib) due to 1 previous error";
+        let e = pred(ok, own).expect_err("a deny-level lint in a changed file of the crate fails");
+        assert!(e.contains("crates/trends/src/lib.rs") && e.contains("comparison involving"), "the planted lint by name: {e}");
         // a wasm-only crate: built for wasm32; with no wasm32 target a full run says it was not
         // built and a change to it fails; any other error fails
         let w = unit_piece("mcview-web", &[]);
@@ -1409,7 +1452,7 @@ mod tests {
         assert!((wc.check.pred)(&["error: could not compile `mcview-web` (lib) due to 1 previous error".to_string()]).is_err());
         // the summary never folds a piece the box could not run into "passed" (ironspec 20:35)
         let nr = format!("{NOT_RUN}mcview-web not built: no wasm32 target");
-        assert_eq!(summary(&[("unit:site", true, "103 site tests pass (1 test binaries); clippy is not on this toolchain: not run"), ("unit:mcview-web", true, &nr), ("sim:x", true, "ok")]), "2 passed, 0 failed, 1 not run on this box: unit:mcview-web (mcview-web not built: no wasm32 target), clippy not run in 1 unit piece(s) (not on this toolchain)");
+        assert_eq!(summary(&[("unit:site", true, &format!("103 site tests pass (1 test binaries); {CLIPPY_NOT_RUN}: clippy is not on this toolchain")), ("unit:mcview-web", true, &nr), ("sim:x", true, "ok")]), format!("2 passed, 0 failed, 1 not run on this box: unit:mcview-web (mcview-web not built: no wasm32 target), {CLIPPY_NOT_RUN} in 1 unit piece(s)"));
         assert_eq!(summary(&[("sim:x", true, "ok"), ("sim:y", false, "bad")]), "1 passed, 1 failed");
         // crates with no unit tests are BUILT, not counted as passed (G1 Nov 14 09:11, ironspec 09:11a (2))
         assert_eq!(summary(&[("unit:bud", true, "no unit tests in bud (it builds; 1 test binaries); clippy: 0 error(s) and 0 warning(s) in the crate, counted, not failing"), ("unit:site", true, "103 site tests pass (1 test binaries); clippy: 0 error(s) and 0 warning(s) in the crate, counted, not failing")]), "1 passed, 1 built only (crates with no unit tests, not counted as passed: bud), 0 failed");
