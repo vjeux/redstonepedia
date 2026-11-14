@@ -6114,9 +6114,15 @@ pub fn power_into(spec: &FarmSpec, cells: &[BlockPos], no_qc: bool, allow: &[Blo
         let chain = rail_chain(&w, *c);
         into.extend(chain.iter().copied());
         let mut hits: Vec<(BlockPos, String)> = Vec::new();
+        let cstate = w.get(*c).to_string();
         for s in &into {
             for q in n6(*s) {
                 let b = w.get(q);
+                // (part 53) a diode consumer reads only its input side (part 34's `diode_reads`, as power-out
+                // has it): a source or conductor beside it elsewhere (a hook above a repeater) feeds nothing
+                if s == c && !diode_reads(*c, &cstate, q, &b.to_string()) {
+                    continue;
+                }
                 // (G1 Nov 14 05:38, part 50) a source counts only by its real faces (`source_faces`): its weak
                 // signal must face the cell to feed it directly; a conductor beside the cell passes on only the
                 // strong signal a source beside it points into that conductor
@@ -7314,6 +7320,13 @@ pub fn dark_stand_in(b: &redsim::block::Block, emission: &dyn Fn(&redsim::block:
 }
 
 pub fn spawn_static(spec: &FarmSpec, biome: &'static str, lit: bool) -> Result<(Vec<String>, usize, usize), String> {
+    spawn_static_q(spec, biome, lit, &[])
+}
+
+/// (dfb89499 / ironspec Nov 14 06:14 / 06:16, part 53) [`spawn_static`] with each `query` cell's membership
+/// printed: INTERIOR or TOP SURFACE (judged, with its verdict), a design block (no spawn space of its own:
+/// the static judges the cell above it), or neither (not judged).
+pub fn spawn_static_q(spec: &FarmSpec, biome: &'static str, lit: bool, query: &[BlockPos]) -> Result<(Vec<String>, usize, usize), String> {
     if redsim::terrain::biome::biome(biome).is_none() {
         return Err(format!("the site biome {biome}: no such biome in redsim's table"));
     }
@@ -7515,6 +7528,40 @@ pub fn spawn_static(spec: &FarmSpec, biome: &'static str, lit: bool) -> Result<(
             lit_by.len(),
             if lit_by.is_empty() { String::new() } else { format!(": {}", lit_by.iter().map(|p| cell(p)).collect::<Vec<_>>().join(" ")) }
         ));
+    }
+    // (part 53) each queried cell's membership
+    for q in query {
+        let hit_in = in_hits.iter().find(|(p, _, _)| p == q);
+        let hit_out = out_hits.iter().find(|(p, _, _)| p == q);
+        let lit_note = dependent.iter().find(|(p, _, _)| p == q).map(|(_, l, s)| format!(" (LIGHT-DEPENDENT: block light {l} from {s})")).unwrap_or_default();
+        let verdict = |h: Option<&(BlockPos, Vec<&str>, i32)>| match h {
+            Some((_, kinds, _)) => format!("SPAWNABLE ({})", kinds.iter().map(|k| k.trim_start_matches("minecraft:")).collect::<Vec<_>>().join(", ")),
+            None => format!("not spawnable{lit_note}"),
+        };
+        let what = if inner.contains(q) {
+            format!("INTERIOR (judged): {}", verdict(hit_in))
+        } else if tops.contains(q) {
+            format!("TOP SURFACE (judged): {}", verdict(hit_out))
+        } else if design.contains(q) {
+            let above = q.above();
+            format!(
+                "a design block ({}): no spawn space of its own (the static judges the cell above it, {},{},{}: {})",
+                w.get(*q).to_string().trim_start_matches("minecraft:"),
+                above.x,
+                above.y,
+                above.z,
+                if inner.contains(&above) {
+                    "interior"
+                } else if tops.contains(&above) {
+                    "a top-surface cell"
+                } else {
+                    "itself a design block or interior"
+                }
+            )
+        } else {
+            "neither interior nor over a design block: NOT JUDGED".to_string()
+        };
+        lines.push(format!("  CELL {},{},{}: {what}", q.x, q.y, q.z));
     }
     Ok((lines, in_hits.len(), out_hits.len()))
 }
@@ -12111,6 +12158,12 @@ mod gate_tests {
         assert!(npr1 == 1 && pr1[0].contains("repeater[delay=1,facing=west"), "its front: {pr1:?}");
         let (pr2, npr2) = super::power_into(&sp, &[b(2, 1, 1)], false, &[]).unwrap_or_else(|e| panic!("{e}"));
         assert!(npr2 == 0, "its side: {pr2:?}");
+        // (part 53) power-into on a DIODE reads only its input side: a hook above a repeater facing west (its
+        // input west) doesn't feed it; dust at its input does
+        let rin = p("minecraft:repeater[delay=1,facing=west,locked=false,powered=false]");
+        let hk_up = p("minecraft:tripwire_hook[attached=false,facing=east,powered=false]");
+        let (di, ndi) = super::power_into(&mk(vec![(b(2, 1, 2), rin), (b(1, 2, 2), p("minecraft:glass")), (b(2, 2, 2), hk_up), (b(1, 1, 2), p("minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]"))]), &[b(2, 1, 2)], false, &[]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(ndi == 1 && di[0].contains("redstone_wire[") && di[0].contains("beside 2,1,2") && !di[0].contains("tripwire_hook"), "a diode's input only: {di:?}");
         // (G1 Nov 14 06:00, part 51) one fixture per source kind, its strong face against a weak-only one,
         // each failing by name if wrong:
         // dust pointing east into stone (2,1,2) -> the lamp on the stone's far side (3,1,2) lights (dust powers
