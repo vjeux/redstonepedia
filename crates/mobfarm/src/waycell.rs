@@ -1827,7 +1827,7 @@ pub fn ride_rows_core(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u
     // check over the same re-keyed hits (a mismatch fails a --reference-run, printed otherwise; a
     // --reference-run with no design or rest declaration in scope is NOT JUDGED and fails)
     let first = |v: &[String]| if v.is_empty() { String::new() } else { format!(" (first: {})", v.iter().take(3).cloned().collect::<Vec<_>>().join("; ")) };
-    let referenced: Vec<&crate::contacts::Decl> = o.declared_bounded.iter().filter(|d| d.class == crate::contacts::Class::Design).collect();
+    let referenced: Vec<&crate::contacts::Decl> = o.declared_bounded.iter().filter(|d| matches!(d.class, crate::contacts::Class::Design | crate::contacts::Class::Rest)).collect();
     let mut ref_mismatch: Vec<String> = Vec::new();
     for d in &referenced {
         ref_mismatch.extend(crate::contacts::reference_check(d, &all_hits));
@@ -1854,11 +1854,11 @@ pub fn ride_rows_core(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u
         verdict.events,
         if o.reference_run { "--reference-run: judged" } else { "printed, not judged: not the declarations' ref= run" },
         if ref_not_judged {
-            "NOT JUDGED: no design declaration in scope (a --reference-run needs one): FAILS".to_string()
+            "NOT JUDGED: no design or rest declaration in scope (a --reference-run needs one): FAILS".to_string()
         } else if referenced.is_empty() {
-            "no design declaration in scope".to_string()
+            "no design or rest declaration in scope".to_string()
         } else if ref_mismatch.is_empty() {
-            format!("each of the {} design declaration(s) reproduces its bounds", referenced.len())
+            format!("each of the {} design / rest declaration(s) reproduces its bounds", referenced.len())
         } else {
             format!("MISMATCH {}", ref_mismatch.join("; "))
         }
@@ -4366,7 +4366,7 @@ mod tests {
     #[test]
     fn the_ride_rows_rekey_per_row_and_judge_the_rate_over_the_set() {
         use crate::contacts::{Face, Hit, StallRule};
-        let h = |tick: i64, sout: f64| Hit { tick, cart: 7, cell: BlockPos::new(9, -15, 0), face: Face::North, depth: 0.2057, speed_in: 0.4, speed_out: sout, sample: None };
+        let h = |tick: i64, sout: f64| Hit { tick, cart: 7, cell: BlockPos::new(9, -15, 0), face: Face::North, depth: 0.2057, speed_in: 0.4, speed_out: sout, sample: None, pos: [9.5, -15.0, -0.49] };
         let decl = |extra: &str| crate::contacts::declared_contacts_bounded(&format!("# contacts: 9,-15,0=the drop stop | face=north | class=design | ref=t | ticks<=1+eps=0 why=w | events<=1+eps=0 why=w | depth<=0.2057+eps=0.001 why=w | speed_out>=0.1943+eps=0.001 why=w{extra}\n")).unwrap();
         // the motion after each event: falling (no stall)
         let falling = |_c: u32, _t: i64| Some((0.0, -0.1));
