@@ -16228,12 +16228,20 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     println!("  {} T {},{},{}: {} ({})", if sides.len() != 3 { "FLAG" } else { "    " }, t.x, t.y, t.z, sides.len(), sides.join("; "));
                 }
             }
-            // (ironspec Nov 12 20:05 (2): THE T STATIC on every switched T)
+            // (ironspec Nov 12 20:05 (2): THE T STATIC on every switched T; Nov 14 12:22p / 12:25p: the design's
+            // `always-on:` entries are its declared CONSTANT sources, each `x,y,z=REASON`, a malformed one refused)
             let drivers: Vec<redsim::pos::BlockPos> = declared.iter().filter(|(_, k, _)| *k == "switch" || *k == "inert").map(|(p, _, _)| *p).collect();
+            let mut always_on: Vec<redsim::pos::BlockPos> = Vec::new();
+            for e in crate::pushscan::header_entries(&text, "always-on:") {
+                let (c, reason) = e.split_once('=').ok_or_else(|| anyhow::anyhow!("always-on {e}: x,y,z=REASON"))?;
+                let v: Vec<i32> = c.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>().map_err(|err| anyhow::anyhow!("always-on {e}: {err}"))?;
+                anyhow::ensure!(v.len() == 3 && !reason.trim().is_empty(), "always-on {e}: x,y,z=REASON");
+                always_on.push(redsim::pos::BlockPos::new(v[0], v[1], v[2]));
+            }
             let reaching: Vec<(redsim::pos::BlockPos, Vec<redsim::pos::BlockPos>)> = reach.iter().map(|(t, s, _)| (*t, s.clone())).collect();
-            let (tsl, tfail) = crate::queue::t_static(&spec, &drivers, &reaching).map_err(|e| anyhow::anyhow!(e))?;
+            let (tsl, tfail) = crate::queue::t_static(&spec, &drivers, &always_on, &reaching).map_err(|e| anyhow::anyhow!(e))?;
             println!(
-                "the T static (ironspec Nov 12 20:05 (2): every switched T, one with a power path into it: (a) exactly 3 potential connections, (b) every power path from a declared driver (`switch:`), (c) every source whose update reaches it finds it settled for its signal): {} switched Ts, {}",
+                "the T static (ironspec Nov 12 20:05 (2): every switched T, one with a power path into it: (a) exactly 3 potential connections, (b) every power path from a declared driver (`switch:`) or a declared constant source (`always-on:`), (c) every source whose update reaches it finds it settled for its signal; Nov 14 12:20-12:25: a diode or observer only from its front): {} switched Ts, {}",
                 tsl.len(),
                 if tfail == 0 { "PASS".to_string() } else { format!("FAIL at {tfail}") }
             );

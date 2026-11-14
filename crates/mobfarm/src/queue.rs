@@ -2136,15 +2136,19 @@ pub fn junction_gate(spec: &FarmSpec, design_text: &str) -> (String, bool) {
 }
 
 /// (9fc3155f, ironspec Nov 12 20:05 (2), THE T STATIC) Every switched T: a plain-rail junction
-/// with a power path into it (an adjacent signal source, a pressed detector's face neighbour
-/// included, or an adjacent conductor with a source beside it: the junction checker's paths, in any
+/// with a power path into it (an adjacent signal source whose weak output faces it, a pressed detector's face
+/// neighbour included, or an adjacent conductor with a source beside it whose strong output faces that conductor:
+/// `fleecheck::source_faces`, a diode only from its front and an observer only from its back (26.3
+/// `DiodeBlock.getSignal` / `ObserverBlock.getSignal`, G1 / ironspec Nov 14 12:20-12:24), in any power
 /// state), checked for (a) exactly 3 potential connections (RailBlock.updateState re-shapes only at
 /// 3; any rail in a side's column at y - 1..y + 1 counts), (b) power reach: every path comes from a
-/// declared driver (`drivers`, the design's `switch:` sources), (c) update reach: every source
+/// declared driver (`drivers`, the design's `switch:` sources) or a declared constant source (`always_on`, the
+/// design's `always-on:` entries, ironspec Nov 14 12:25p: a T with one is judged at its powered shape), (c) update
+/// reach: every source
 /// whose update reaches it (`reaching`, push-scan's model) finds it in the shape the game settles
 /// for its signal (stored = settled), so each update leaves it as it is. Returns the lines and the
 /// number of Ts failing any of the three.
-pub fn t_static(spec: &FarmSpec, drivers: &[BlockPos], reaching: &[(BlockPos, Vec<BlockPos>)]) -> Result<(Vec<String>, usize), String> {
+pub fn t_static(spec: &FarmSpec, drivers: &[BlockPos], always_on: &[BlockPos], reaching: &[(BlockPos, Vec<BlockPos>)]) -> Result<(Vec<String>, usize), String> {
     let o = RunOpts { ai: false, ..RunOpts::steady(1, 0, WalkMode::Random) };
     let built = if spec.has_bed() { Run::new(spec, &o) } else { Run::new_homeless(spec, &o) };
     let w = built.map_err(|e| e.to_string())?.world;
@@ -2158,17 +2162,26 @@ pub fn t_static(spec: &FarmSpec, drivers: &[BlockPos], reaching: &[(BlockPos, Ve
     let (mut lines, mut fails) = (Vec::new(), 0usize);
     for p in cells {
         let Some(j) = redsim::rails::junction_at(&w, *p) else { continue };
-        // (b)'s paths: the source of each, and how it reaches the T
+        // (b)'s paths: the source of each, and how it reaches the T. (G1 / ironspec Nov 14 12:20-12:24, the drive-lines
+        // car) Each source's faces read as power-out / power-into read them (parts 49 / 50, `fleecheck::source_faces`):
+        // 26.3 `DiodeBlock.getSignal` (147-150) = `FACING == direction ? ownSignal : 0` and its `getDirectSignal`
+        // (142-145) the same, strong; `ObserverBlock.getSignal` (~107-110) / `getDirectSignal` (102-105) likewise
+        // (tick-exact's quotes, Nov 14 12:24): a repeater, comparator or observer powers only the cell opposite its
+        // FACING (its front; a diode's FACING names its input, an observer's its watched face). So an adjacent source
+        // counts by its WEAK output toward the T and a source beside an adjacent conductor by its STRONG output into
+        // that conductor, which then powers the T: a diode's front block is traced through, its sides are not
         let mut paths: Vec<(BlockPos, String)> = Vec::new();
         for d in dirs6 {
             let q = p.rel(d);
             let bq = w.get(q);
             if source(&bq) {
-                paths.push((q, format!("{:?} at {q}", bq.kind())));
+                if crate::fleecheck::source_faces(q, &bq.to_string())(*p).0 {
+                    paths.push((q, format!("{:?} at {q}", bq.kind())));
+                }
             } else if redsim::behavior::is_conductor(&w, &bq, q) {
                 for r in dirs6.iter().map(|e| q.rel(*e)).filter(|r| r != p) {
                     let br = w.get(r);
-                    if source(&br) {
+                    if source(&br) && crate::fleecheck::source_faces(r, &br.to_string())(q).1 {
                         paths.push((r, format!("{:?} at {r} through the block {q}", br.kind())));
                     }
                 }
@@ -2180,10 +2193,13 @@ pub fn t_static(spec: &FarmSpec, drivers: &[BlockPos], reaching: &[(BlockPos, Ve
         // (a) the potential connections: a side whose column holds a rail at y - 1..y + 1
         let sides = [D6::North, D6::East, D6::South, D6::West].iter().filter(|d| (-1..=1).any(|dy| is_rail(&w.get(BlockPos::new(p.rel(**d).x, p.y + dy, p.rel(**d).z))))).count();
         let a_ok = sides == 3;
-        let undeclared: Vec<&(BlockPos, String)> = paths.iter().filter(|(s, _)| !drivers.contains(s)).collect();
+        // (ironspec Nov 14 12:22p / 12:25p) A path from an `always-on:` source (a declared CONSTANT source: the joins'
+        // torch) is declared, and a T with one is judged at its POWERED shape (the source holds it powered)
+        let undeclared: Vec<&(BlockPos, String)> = paths.iter().filter(|(s, _)| !drivers.contains(s) && !always_on.contains(s)).collect();
         let b_ok = undeclared.is_empty();
+        let held_on = paths.iter().any(|(s, _)| always_on.contains(s));
         let stored = redsim::rails::shape_of(&w.get(*p));
-        let want = if j.signal { j.powered } else { j.unpowered };
+        let want = if j.signal || held_on { j.powered } else { j.unpowered };
         // (a T at 4 potential connections is never re-shaped: its placed shape holds, (a) flags it)
         let c_ok = !a_ok || stored == want;
         let srcs: Vec<String> = reaching.iter().find(|(t, _)| t == p).map(|(_, v)| v.iter().map(|s| format!("{},{},{}", s.x, s.y, s.z)).collect()).unwrap_or_default();
@@ -2198,11 +2214,11 @@ pub fn t_static(spec: &FarmSpec, drivers: &[BlockPos], reaching: &[(BlockPos, Ve
             p.z,
             if a_ok { "" } else { " (FAIL: not 3, it never re-shapes)" },
             paths.len(),
-            paths.iter().map(|(_, t)| t.clone()).collect::<Vec<_>>().join("; "),
-            if b_ok { " (each a declared driver)".to_string() } else { format!(" (FAIL: {} not a declared driver: declare the driver `# switch: x,y,z=REASON` or remove the path)", undeclared.len()) },
+            paths.iter().map(|(s, t)| if always_on.contains(s) { format!("{t} [always-on: a declared constant source]") } else { t.clone() }).collect::<Vec<_>>().join("; "),
+            if b_ok { " (each a declared driver or always-on source)".to_string() } else { format!(" (FAIL: {} not a declared driver: declare the driver `# switch: x,y,z=REASON`, a constant source `# always-on: x,y,z=REASON`, or remove the path)", undeclared.len()) },
             srcs.len(),
             srcs.join(" "),
-            if j.signal { "on" } else { "off" },
+            if j.signal { "on" } else if held_on { "on (held by an always-on source)" } else { "off" },
             if !a_ok { " (never re-shaped at 4 connections: its placed shape holds)" } else if c_ok { " (each update leaves it)" } else { " (FAIL: an update re-settles it)" }
         ));
     }
@@ -15218,5 +15234,87 @@ mod summon_reach_tests {
         assert!(pocket.contains("a gossip summoner here: possible (batch)"), "{pocket}");
         // (the seat's box holds the batch and the seat (4); the pocket's the batch and the seat too)
         assert!(l[0].contains("the most willing anywhere 4, at a position a gossip summoner can be in 4"), "{l:?}");
+    }
+}
+
+#[cfg(test)]
+mod t_static_faces_tests {
+    use redsim::block::Block;
+    use redsim::entity::mob::farm::FarmSpec;
+    use redsim::pos::BlockPos;
+
+    /// A plain-rail T at (0,1,0) (rails west, east and north of it, each on stone; stored north_west, the shape 26.3
+    /// settles a powered T with these arms to) standing on a slime (0,0,0) that a lit torch (0,-1,0) under it powers
+    /// (the station's joins in small: the T (3,0,7) on the slime (3,-1,7) over the torch (3,-2,7)), the torch its
+    /// declared driver, and one more source at (0,0,1) beside the slime (on stone): the T static's lines.
+    fn static_with(source: &str) -> Vec<String> {
+        static_of(source, "north_west", &[BlockPos::new(0, -1, 0)], &[])
+    }
+
+    /// The same T with its stored shape and its declarations given: `drivers` (`switch:`) and `always_on`.
+    fn static_of(source: &str, shape: &str, drivers: &[BlockPos], always_on: &[BlockPos]) -> Vec<String> {
+        let b = BlockPos::new;
+        let t = format!("minecraft:rail[shape={shape},waterlogged=false]");
+        let cells: Vec<(BlockPos, &str)> = vec![
+            (b(0, 0, 0), "minecraft:slime_block"),
+            (b(0, 1, 0), t.as_str()),
+            (b(-1, 0, 0), "minecraft:stone"),
+            (b(-1, 1, 0), "minecraft:rail[shape=east_west,waterlogged=false]"),
+            (b(1, 0, 0), "minecraft:stone"),
+            (b(1, 1, 0), "minecraft:rail[shape=east_west,waterlogged=false]"),
+            (b(0, 0, -1), "minecraft:stone"),
+            (b(0, 1, -1), "minecraft:rail[shape=north_south,waterlogged=false]"),
+            (b(0, -2, 0), "minecraft:glass"),
+            (b(0, -1, 0), "minecraft:redstone_torch[lit=true]"),
+            (b(0, -1, 1), "minecraft:stone"),
+            (b(0, 0, 1), source),
+        ];
+        let blocks = cells.iter().map(|(p, s)| (*p, Block::parse(s).unwrap())).collect();
+        let spec = FarmSpec { blocks, entities: Vec::new(), output: b(3, 3, 3), lo: b(-3, -3, -3), hi: b(3, 4, 3), block_entities: Vec::new(), rock: false, nether: None, land: false };
+        super::t_static(&spec, drivers, always_on, &[]).unwrap().0
+    }
+
+    /// (G1 Nov 14 12:20's controls, ironspec 12:24p: through the real static; 26.3 `DiodeBlock.getSignal` /
+    /// `getDirectSignal` and `ObserverBlock.getSignal` / `getDirectSignal` as tick-exact quoted them, 12:24: the only
+    /// cell a repeater, comparator or observer powers is the one opposite its FACING, strongly) The drive lines' case:
+    /// a repeater[facing=west] beside the slime (front east, the slime north of it: line A's (3,-1,8) beside the
+    /// station's slime (3,-1,7)) adds no path, so the T PASSES on its declared torch alone; its twin turned to face the
+    /// slime (facing=south: front north, into the slime) FAILS by name; an observer's face toward the slime passes, its
+    /// back into it fails; a comparator both ways.
+    #[test]
+    fn a_diode_powers_a_t_through_a_block_only_from_its_front() {
+        let torch_only = "(b) 1 power path(s): Torch at (0,-1,0) through the block (0,0,0) (each a declared driver or always-on source)";
+        for (src, kind, flagged) in [
+            ("minecraft:repeater[delay=1,facing=west,locked=false,powered=false]", "Repeater", false),
+            ("minecraft:repeater[delay=1,facing=south,locked=false,powered=false]", "Repeater", true),
+            ("minecraft:observer[facing=north,powered=false]", "Observer", false),
+            ("minecraft:observer[facing=south,powered=false]", "Observer", true),
+            ("minecraft:comparator[facing=west,mode=compare,powered=false]", "Comparator", false),
+            ("minecraft:comparator[facing=south,mode=compare,powered=false]", "Comparator", true),
+        ] {
+            let l = static_with(src);
+            let t = l.iter().find(|x| x.contains(" T 0,1,0:")).unwrap_or_else(|| panic!("{src}: no T line: {l:?}"));
+            if flagged {
+                assert!(t.starts_with("  FAIL T 0,1,0:") && t.contains(&format!("{kind} at (0,0,1) through the block (0,0,0)")) && t.contains("(FAIL: 1 not a declared driver"), "{src}: {t}");
+            } else {
+                assert!(t.starts_with("  PASS T 0,1,0:") && t.contains(torch_only), "{src}: {t}");
+            }
+        }
+    }
+
+    /// (ironspec Nov 14 12:22p / 12:25p) `always-on:` is read as a declared CONSTANT source: the joins' torch so
+    /// declared (no `switch:`) passes the T, its path marked; undeclared, the same T fails by name; and a T with an
+    /// always-on path is judged at its POWERED shape: stored at the unpowered one (north_east) it fails (c).
+    #[test]
+    fn an_always_on_source_is_a_declared_constant_path_and_holds_the_t_powered() {
+        let b = BlockPos::new;
+        let side = "minecraft:repeater[delay=1,facing=west,locked=false,powered=false]";
+        let t = |l: Vec<String>| l.into_iter().find(|x| x.contains(" T 0,1,0:")).unwrap_or_default();
+        let on = t(static_of(side, "north_west", &[], &[b(0, -1, 0)]));
+        assert!(on.starts_with("  PASS T 0,1,0:") && on.contains("Torch at (0,-1,0) through the block (0,0,0) [always-on: a declared constant source]") && on.contains("settled NorthWest"), "{on}");
+        let bare = t(static_of(side, "north_west", &[], &[]));
+        assert!(bare.starts_with("  FAIL T 0,1,0:") && bare.contains("(FAIL: 1 not a declared driver"), "{bare}");
+        let flat = t(static_of(side, "north_east", &[], &[b(0, -1, 0)]));
+        assert!(flat.starts_with("  FAIL T 0,1,0:") && flat.contains("stored NorthEast, settled NorthWest") && flat.contains("(FAIL: an update re-settles it)"), "{flat}");
     }
 }
