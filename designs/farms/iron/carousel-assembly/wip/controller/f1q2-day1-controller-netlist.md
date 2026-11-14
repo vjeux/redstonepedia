@@ -1,11 +1,12 @@
 # day-1's controller NETLIST (V rev 3.1, normal operation only)
 
-The controller is laid in four subsystems, each its own small car (settle, power-out and update-reach checks, then G1,
+The controller is laid in five subsystems, each its own small car (settle, power-out and update-reach checks, then G1,
 then ironspec; vcompose composes V rev 3.1 as each lands). day-1 owns this netlist and the interface file
-(f1q2-day1-controller-interface.md: every number cited here is stated there once). Scope: NORMAL OPERATION ONLY (ironspec
+(f1q2-day1-controller-interface.md: the SOURCE of every timing value; this netlist names the values and lists cells, and
+where it quotes a number the interface wins). Scope: NORMAL OPERATION ONLY (ironspec
 11:20a): no cells for faults, empty carts, repairs, jams, long pauses (OUT: the resync net, the claim cap, the store
 guard, the token's recovery and A_SEEN, the record's resync, the premature-release latch, the merge-row admission count,
-gate G's foot logic, RETURN ROOM unless a normal run fills the return row).
+gate G's foot logic, RETURN ROOM unless a normal run fills the return row, HELD, the room count, FRONT EMPTIED).
 
 Conventions: coordinates in V's loop frame; a diode's `facing` names its INPUT side (26.3); "edge" = a rising-edge pulse
 former (a comparator in subtract mode: the signal into its back, the same signal through a delay-2 repeater into its
@@ -15,16 +16,21 @@ and shows no always-on source (torch, powered block) beside any dust or repeater
 
 ## Signals shared between subsystems (the interface)
 
-| signal | from | to | form | timing |
+| signal | from | to | form | timing (the interface's) |
 |---|---|---|---|---|
-| REL | core | picks, way-in, lines | a 2-gt pulse on one dust line along the controller's spine | once per period (P = 100 gt) when the store is armed and the holds are full |
-| REL + k taps | core | lines | repeater-chain taps off REL | k = 0 / 17 / 27 (the station's slot releases), 57 (ARM3), 67 ((9,0,8)), 75 (the ring reset), 80 (SEEN3_OLD's tap: OUT if the normal run shows it unneeded) |
-| D(l) | the S-bend seat detectors (x,24,8), x = -1 / 3 / 7 | core (credit, SEEN3, the K masks), picks (the ring) | each detector's level, read through its own repeater facing away | the lane-7 napper's press merges into its batch cart's under the 20-gt hold |
-| K(l) | core | the lift's J(l) T's (branch), the D(l) masks | a window pulse riding the napper's release: [napper - K_EARLY, napper + K_HALF] | K_EARLY = 5, K_HALF = 10, R6 = 14 (the napper 14 gt behind slot 3) |
-| PICK(l) | picks | lines (the lane's pick drive at the station) | a pulse per granted pick | at most one per REL (the pick-rate arbiter) |
-| HOME | picks (the record's head) | lines (the stop's slope tap / RETURN bit) | a 2-bit lane code held until the napper's release from the stop | written per pick, read per release |
-| FRONT EMPTIED | way-in (the front's arrival detector (9,-9,-5) falling after its 20-gt recheck) | picks (the room count) | a pulse | once per napper leaving the front |
+| REL | core | lines, the record | a 2-gt pulse on the controller's spine | once per period when the store is armed and the holds are full (the holds' sensor: the core names it; V's station has no hold strings since ironspec 23:01) |
+| REL + k taps | core | lines, the arbiter / record | repeater-chain taps off REL | the slot releases (line C's ports at REL + k - 4), the napper hold (line A's lever at REL + 61), the record's write / shift (REL + 102 / + 61), G's capture / clear (REL + 92 / + 33) |
+| POP(l) | the station's D (x,0,2) (A6 stripped) | picks (the lane's ring steps), core | the detector's press | once per REL per lane |
+| ENTRY(l) | the S-bend seat detectors D(x) (x,24,8) | picks (the positional release), core (credit, SEEN3, the K masks) | each detector's level, read through its own repeater facing away | the lane-7 napper's press merges into its batch cart's under the 20-gt hold |
+| SIDING(l) | the napper at its lane's R hold (x-2,24,7) | picks (the release's AND) | presence | while a napper waits |
+| R_REL(l) | picks (the positional release) | line B (the R holds) | a pulse | at the napper's predecessor's ENTRY |
+| REQ(l) | picks (each ring) | the static-priority gates (cc767b78) | a level | from the pop's step to the lane's next pop |
+| GRANT(l) | the gates' G (cc767b78) | line `pocket:<lane>` (the pick drive), the lane's ring | a level | captured at REL + 92, cleared at REL + 33 |
+| ARM3 | core (the napper being taken at (9,0,8)) | the record (its shift) | a press | REL' + 57 |
+| HOME(l) | the record's head (cc767b78) | core (the K(l) selection, latched at REL' + 57) | one-hot level | valid by REL' + 57 |
+| K(l) | core | the lift's J(l) T's (branch), the D(l) masks | a window pulse riding the napper's release: [napper - K_EARLY, napper + K_HALF] | K_EARLY, K_HALF, R6 (the interface's); the napper reaches J(l) NAPPER_T - SLOT_T[2] behind slot 3 (ctl-credit) |
 | RS_ready | the ball-exit detector (7,-3,4) | way-in (the front's release) | a latch set on its rising edge, reset at the front's departure | once per visit |
+| REST / DAY | core (its day counter and daylight detector, inside the chunk) | the gates' WIN, way-in (the front's release) | levels | the core's decode |
 
 ## Subsystem 1: THE CORE (REL / store / credit + K windows) -> dfb89499 (after its original-station normal run)
 
@@ -132,7 +138,9 @@ File: `designs/farms/iron/carousel-assembly/wip/controller/f1q2-day1-ctl-lines.t
   stop file: the latch's Q -> the OR line -> its repeater -> the park slime): K's drive under K's slime V (-2,-22,2); the
   shutter's drive V (-5,-21,6) (the shutter at V (-5,-21,7)); RLS_IN V (-1,-22,-3) and ARM_IN V (6,-22,-6) (the latch row
   at V z -6): all subsystem 5's outputs, so line E carries no stop end. KEEP-FREE: V (1,-21,-1) and V (0,-21,0) (the OR
-  line's step-down links). DAY's line end into R1's repeater (5,-12,-2); NOT-ready (8,-14,-5).
+  line's step-down links). These stop cells are 58f770cc's RE-LAY car's (c0662d566, its latch file md5 2e57375162d6), NOT
+  V rev 2.1's FOLD placeholder (which no stop figure cites on). R1's inputs in V (the queue raised 4; b8949c96's bench
+  stand-ins in V rev 2.1, not laid): REST_l (3,-10,-4), DAY (4,-10,-2), NOT-ready (8,-10,-5).
 - Normal rows: each line's delay from its tap to its target printed against the interface's timing; world reloads at
   every phase of each pulse.
 
