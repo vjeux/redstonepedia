@@ -5,6 +5,7 @@
 # convention), the drop and the roll raised 7 (the roll at y -18 into ENTRY), R1's N group re-routed down to y -10 (day-1 20:40), the
 # (C') hatch branch and the post dropped (day-1 20:40).
 #
+# REV 2 (Nov 14 00:01): the designed falls say what stops each one horizontally, with the drop's footprint (ironspec 23:12, G1 23:06).
 # REV 1 (Nov 13 23:05; rev 0 = a/1704449704371119, md5 0ba23333d45d, vcompose's part WAYIN): + glass (4,25,-2), the leg's
 # sight guard (claimed 22:58, F3's withdrawn 23:02); - glass (4,-10,-6) and (5,-11,-6) (dropped 22:35); + the drop stop's two
 # bounded contacts at their V cells (ironspec 21:57 (2): the same pair 4 higher); + the designed falls named (ironspec 22:33).
@@ -15,12 +16,18 @@
 # contacts: 9,-12,-2=the rail end's support at V (glass): the launched cart, off the rail end the tick it meets the glass (9,-11,0) (the same move), rests its box flush on this block's top for that tick, its requested gravity step 0.0400 clipped to 0, then falls clear into the shaft (ironspec 15:52: REAL and DESIGNED; one build position: a touching-contact bar, the set owed) | class=design | face=up | ticks<=1+eps=0 why=one tick a row | events<=1+eps=0 why=one event a row | depth<=0.0400+eps=0.001 why=one gravity step, by the spread (0) | speed_in=0.4000+eps=0.001..0.4000+eps=0.001 why=the off-rail cap | speed_out>=0.1943+eps=0.001 why=by the spread | rate=1640/1640 rows | ref=b8949c96 V ride rows (bplus3 + this delta, 1da1826a0's reference command, 1,640 rows, Nov 13 21:55)
 #
 # The designed falls (ironspec 17:02's form; tick-exact 22:29's pin: a cart landing in a rail cell never hurts its rider;
-# ironspec 22:33: the arrival detector (9,-9,-5) is LOAD-BEARING (fragile), the cell above it (9,-8,-5) stays air):
-#   the leg's column: the x-9 line's end at y 22 (9,22,-4) > (9,22,-5), down the column at z -5 onto the arrival detector (9,-9,-5)
-#   (31 blocks, a rail landing);
-#   the drop: the rail end (9,-11,-2) > (9,-11,-1), down the shaft (9,-12..-16,-1) onto the landing booster (9,-17,-1) on slime
-#   (9,-18,-1) (6 blocks, a rail landing over slime);
-#   the arrival slope's high side: (9,-9,-5) > (9,-8,-6) (air; clear of the pad).
+# ironspec 22:33: the arrival detector (9,-9,-5) is LOAD-BEARING (fragile), the cell above it (9,-8,-5) stays air; ironspec
+# 23:12 / G1 23:06: each fall says what stops it horizontally):
+#   the leg's column: the x-9 line's end at y 22 (9,22,-4) > (9,22,-5): the STOP WALL (9,22,-6) stops the cart's horizontal
+#   motion (vz -> 0), so it falls the confined column at z -5 onto the arrival detector (9,-9,-5) (31 blocks, a rail landing;
+#   AL's case, tick-exact's game row: 20 / 20 seated);
+#   the drop: the rail end (9,-11,-2) > (9,-11,-1): every launch that clears meets the DROP STOP (9,-11,0) before it drops below
+#   it (its horizontal motion stopped), so it falls the 1x1 shaft (9,-12..-16,-1) onto the landing booster (9,-17,-1) on
+#   slime (9,-18,-1) (6 blocks, a rail landing over slime); its footprint one cell at every speed: R6's start-phase sweep
+#   (687ade4a2), 0.001..0.450 x 10 phases: every speed from 0.2470 up clears, all 2,406 falls land in (9,-17,-1)'s rail cell,
+#   the rider's least health 20.0 (a/1805815673978755); slower launches are held on the support and never fall;
+#   the arrival slope's high side: (9,-9,-5) > (9,-8,-6) (air; clear of the pad): a fault path only (a cart going up the
+#   arrival slope), not a normal-operation fall.
 # ADD (x,y,z block): the cells V holds that today's file doesn't hold at these positions
 ## the arrival, the seat, the departure, the rail end, the drop stop (today's x-9 cells raised 4)
 9,-9,-6 minecraft:glass
