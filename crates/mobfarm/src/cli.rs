@@ -17422,15 +17422,12 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         anyhow::ensure!(o.len() == 3, "--swap-part OLD=NEW@dx,dy,dz, not {sw:?}");
                         swaps.push((std::fs::read_to_string(old)?, std::fs::read_to_string(new)?, [o[0], o[1], o[2]]));
                     }
-                    let disk = text.clone();
                     let (out, lines) = crate::layouts::edit_swap(&text, &swaps)?;
                     for l in &lines {
                         println!("{l}");
                     }
-                    // (ironspec / G1 Nov 14 07:31r, part 58) the swap path keeps every `#` line of the file but the
-                    // declarations it swaps with the parts' cells: any other lost one fails the edit by name
-                    let lost = crate::layouts::lost_comment_lines(&disk, &out, true);
-                    anyhow::ensure!(lost.is_empty(), "edit --swap-part: {} `#` line(s) not carried (nothing silently dropped): {}", lost.len(), lost.iter().map(|l| format!("{l:?}")).collect::<Vec<_>>().join("; "));
+                    // (G1 Nov 14 08:52 (3), part 68) `edit_swap` itself carries every `#` line but exactly the declaration
+                    // lines its swap reports it rewrote or dropped (the old guard here waived every declaration key)
                     text = out;
                 }
                 if !set.is_empty() {
