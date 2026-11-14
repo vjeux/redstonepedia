@@ -61,6 +61,10 @@ pub struct Declared {
     /// The declared stored shapes (`# shape: x,y,z=STORED (reason; evidence; build step)`, ironspec 01:49
     /// (1)): (cell, the stored state as declared, the note).
     pub shapes: Vec<(BlockPos, String, String)>,
+    /// (G1 Nov 14 14:13 (2), ironspec 14:37c (2)) The declared always-on sources (`# always-on: x,y,z=REASON`, read by
+    /// the one reader `declkeys::always_on_entries`): a junction's T rule takes one as constant once
+    /// `fleecheck::always_on_valid` holds for it; a declaration that doesn't hold is refused by name.
+    pub always_on: Vec<(BlockPos, String)>,
 }
 
 /// The declarations read from the file's comment lines.
@@ -141,6 +145,7 @@ pub fn declared(text: &str) -> Result<Declared, String> {
         }
     }
     d.standins = crate::recordmatch::declared_from_header(text)?.standins.keys().map(|c| BlockPos::new(c[0], c[1], c[2])).collect();
+    d.always_on = crate::declkeys::always_on_entries(text, &[])?.into_iter().map(|e| (BlockPos::new(e.cell[0], e.cell[1], e.cell[2]), e.why)).collect();
     Ok(d)
 }
 
@@ -290,6 +295,9 @@ pub struct Settle {
     /// stands (with the reason); and failing (with why: not a rail, not as stored, re-shaping, unsupported).
     pub shapes_declared: Vec<(BlockPos, String)>,
     pub shapes_declared_failing: Vec<(BlockPos, String)>,
+    /// (G1 Nov 14 14:13 (2)) The `# always-on:` declarations `fleecheck::always_on_valid` refuses (neither a redstone
+    /// block nor a lit torch on an unpowerable block), each with why.
+    pub always_on_refused: Vec<(BlockPos, String)>,
     /// The samples: the cells compared, the redstone cells among them, the shape cells checked, the fluid
     /// cells given their tick (ironspec 00:27 (B): printed).
     pub compared: usize,
@@ -356,6 +364,9 @@ impl Settle {
                 self.shapes_declared_failing.len(),
                 self.shapes_declared_failing.iter().take(6).map(|(p, why)| format!("({},{},{}) {why}", p.x, p.y, p.z)).collect::<Vec<_>>().join("; ")
             ));
+        }
+        if !self.always_on_refused.is_empty() {
+            v.push(format!("{} `# always-on:` declarations refused ({})", self.always_on_refused.len(), self.always_on_refused.iter().map(|(_, why)| why.clone()).collect::<Vec<_>>().join("; ")));
         }
         if !self.water_undeclared.is_empty() || !self.water_declared.is_empty() {
             v.push(format!(
@@ -759,6 +770,15 @@ pub fn settle_check(blocks: &[(BlockPos, Block)], block_entities: &[(BlockPos, S
     }
     // (the declared shapes, ironspec 01:46 / 01:49: a rail stored as declared and stable in operation, its
     // shape then standing)
+    // (G1 Nov 14 14:13 (2)) the declared always-on sources, each judged against the laid world by the one check; a
+    // refused one fails by name, a valid one is constant for the junctions' T rule below
+    let mut always_ok: Vec<BlockPos> = Vec::new();
+    for (c, _) in &decl.always_on {
+        match crate::fleecheck::always_on_valid(&laid, *c) {
+            Ok(()) => always_ok.push(*c),
+            Err(why) => s.always_on_refused.push((*c, why)),
+        }
+    }
     let mut shape_ok: std::collections::HashSet<BlockPos> = std::collections::HashSet::new();
     for (p, state, note) in &decl.shapes {
         let st = stored.get(p).copied();
@@ -779,11 +799,11 @@ pub fn settle_check(blocks: &[(BlockPos, Block)], block_entities: &[(BlockPos, S
                 // neighbours' neighbours, the lever through its support; a repeater's or observer's its front
                 // cell and that cell's neighbours; a detector rail's own and its support's neighbours), so the
                 // junction must have none that can change within 2 (ironspec 02:41 (ii); a redstone block is
-                // constant)
+                // constant; G1 Nov 14 14:13 (2): so is a declared always-on source `always_on_valid` holds for)
                 let near = (-2i32..=2).flat_map(|dx| (-2i32..=2).flat_map(move |dy| (-2i32..=2).map(move |dz| (dx, dy, dz)))).filter(|(dx, dy, dz)| (1..=2).contains(&(dx.abs() + dy.abs() + dz.abs())));
                 let changing_source = near.map(|(dx, dy, dz)| BlockPos::new(p.x + dx, p.y + dy, p.z + dz)).find(|q| {
                     let b = laid.get(*q);
-                    redsim::behavior::is_signal_source(&laid, &b) && !matches!(b, Block::RedstoneBlock)
+                    redsim::behavior::is_signal_source(&laid, &b) && !matches!(b, Block::RedstoneBlock) && !always_ok.contains(q)
                 });
                 if let Some(q) = changing_source {
                     return Err(format!("a junction within 2 of a signal source that can change ({},{},{} {}): it re-shapes when that source toggles", q.x, q.y, q.z, laid.get(q)));
@@ -1330,6 +1350,38 @@ mod tests {
         assert!(s.shapes_declared.iter().any(|(p, _)| *p == BlockPos::new(1, 0, 1)) && s.shapes_declared_failing.is_empty(), "{:?}", s.shapes_declared_failing);
         assert!(declared("# shape: 1,0,1=minecraft:rail[shape=south_east,waterlogged=false]").is_err(), "a declaration gives its note");
         assert_eq!(declared("# held: 2,12,13 powered=true (driver: day-1's repeater 2,12,12; phase REL + 96 .. REL + 113; bench frame)\n").unwrap().held.len(), 1, "dfb89499's held format");
+    }
+
+    /// (G1 Nov 14 14:13 (2) / ironspec 14:37c (2), the always-on TWINS) a T junction beside a lit torch: UNDECLARED, the
+    /// torch is a source that can change, so the T fails (within 2); the torch on GLASS declared `# always-on:` is
+    /// constant, so the T stands; the same torch on STONE declared always-on is refused by name (power into its support
+    /// would turn it off) and the T still fails; a declaration with no reason is refused by the one reader
+    #[test]
+    fn always_on_declarations_exempt_only_a_verified_constant_source() {
+        let t = |support: &str| {
+            let mut t: Vec<(BlockPos, Block)> = floor(3).into_iter().filter(|(p, _)| *p != BlockPos::new(1, -1, 0)).collect();
+            t.extend((-1..=3).map(|x| at(x, -1, 2, "minecraft:stone")));
+            t.extend([
+                at(1, -1, 0, support),
+                at(0, 0, 1, "minecraft:rail[shape=east_west,waterlogged=false]"),
+                at(2, 0, 1, "minecraft:rail[shape=east_west,waterlogged=false]"),
+                at(1, 0, 2, "minecraft:rail[shape=north_south,waterlogged=false]"),
+                at(1, 0, 1, "minecraft:rail[shape=south_east,waterlogged=false]"),
+                at(1, 0, 0, "minecraft:redstone_torch[lit=true]"),
+            ]);
+            t
+        };
+        let shape = "# shape: 1,0,1=minecraft:rail[shape=south_east,waterlogged=false] (x; y; z)\n";
+        let s = check(&t("minecraft:glass"), &declared(shape).unwrap());
+        assert!(s.shapes_declared_failing.iter().any(|(p, why)| *p == BlockPos::new(1, 0, 1) && why.contains("signal source")), "undeclared: the T fails: {:?}", s.shapes_declared_failing);
+        let decl = declared(&format!("{shape}# always-on: 1,0,0=the booster's torch on glass (1,-1,0)\n")).unwrap();
+        assert_eq!(decl.always_on.len(), 1);
+        let s = check(&t("minecraft:glass"), &decl);
+        assert!(s.shapes_declared_failing.is_empty() && s.always_on_refused.is_empty() && s.shapes_declared.iter().any(|(p, _)| *p == BlockPos::new(1, 0, 1)), "declared on glass: the T stands: {:?} {:?}", s.shapes_declared_failing, s.always_on_refused);
+        let s = check(&t("minecraft:stone"), &decl);
+        assert!(s.always_on_refused.iter().any(|(p, why)| *p == BlockPos::new(1, 0, 0) && why.contains("1,0,0") && why.contains("conductor")), "on stone: refused by name: {:?}", s.always_on_refused);
+        assert!(s.shapes_declared_failing.iter().any(|(p, _)| *p == BlockPos::new(1, 0, 1)) && s.fails(false).iter().any(|f| f.contains("always-on")), "on stone: the T still fails and the refusal is a failure: {:?}", s.fails(false));
+        assert!(declared(&format!("{shape}# always-on: 1,0,0=\n")).is_err(), "no reason: refused");
     }
 
     /// ironspec 02:41 (i): a `# clock:` excuses only a cell seen recurring. Control: a repeater stored

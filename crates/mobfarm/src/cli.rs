@@ -15439,14 +15439,16 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             for l in &tl {
                 println!("{l}");
             }
-            let mut always_txt: Vec<String> = always_on.clone();
-            always_txt.extend(crate::pushscan::header_entries(&text, "always-on:"));
+            // (G1 Nov 14 14:13 (2): ONE `always-on:` reader, `declkeys::always_on_entries`, the command line's values first;
+            // each entry's cell judged by `fleecheck::always_on_valid` against the settled design: a lit torch on an
+            // unpowerable block or a redstone block, anything else refused by name)
+            let always_es = crate::declkeys::always_on_entries(&text, &always_on).map_err(|e| anyhow::anyhow!("{}: {e}", design.display()))?;
+            let always_w = crate::fleecheck::settled_world_void(&spec).map_err(|e| anyhow::anyhow!(e))?;
             let mut always: Vec<(redsim::pos::BlockPos, String)> = Vec::new();
-            for d in &always_txt {
-                let (c, reason) = d.split_once('=').ok_or_else(|| anyhow::anyhow!("always-on {d}: x,y,z=REASON"))?;
-                let v: Vec<i32> = c.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>()?;
-                anyhow::ensure!(v.len() == 3, "always-on {d}: x,y,z=REASON");
-                always.push((redsim::pos::BlockPos::new(v[0], v[1], v[2]), reason.trim().to_string()));
+            for e in &always_es {
+                let c = redsim::pos::BlockPos::new(e.cell[0], e.cell[1], e.cell[2]);
+                crate::fleecheck::always_on_valid(&always_w, c).map_err(|err| anyhow::anyhow!("{}: {err}", design.display()))?;
+                always.push((c, e.why.clone()));
             }
             let (sl, su) = crate::pushscan::switched_full(&spec, &switches, &always, &inert_decl, &update_only_decl);
             println!("switched-cell scan (every 3-connection plain rail, powered or activator rail and trapdoor: every source that can power it, only declared --switch sources allowed, a design's own redstone block listed as fixed, a declared `always-on:` source that can't toggle listed with its reason; each detector's and its below-block's face neighbours): {su} undeclared");

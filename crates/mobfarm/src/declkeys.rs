@@ -238,9 +238,54 @@ pub fn register() {
     let _ = mctas::design::HEADER_CHECK.set(check);
 }
 
+/// (G1 Nov 14 14:13 (2), ironspec 14:37c (2): ONE `always-on:` reader, shared by settle's T rule, push-scan and
+/// junction-check) One declared always-on source: its cell and its reason.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AlwaysOn {
+    pub cell: [i32; 3],
+    pub why: String,
+}
+
+/// Every declared always-on source: the command line's `--always-on` values (push-scan's) first, then the design's
+/// `# always-on: x,y,z=REASON; x,y,z=REASON` header entries, split as `pushscan::header_entries` splits them (a line's
+/// leading attribution skipped; a REASON may hold "; "); each strict: `x,y,z=REASON`, three integers, a reason that
+/// isn't empty; a malformed entry is an error naming it. What the cell holds (a lit torch on an unpowerable block, or a
+/// redstone block) is judged against the world by `fleecheck::always_on_valid`.
+pub fn always_on_entries(text: &str, cli: &[String]) -> Result<Vec<AlwaysOn>, String> {
+    let mut out = Vec::new();
+    for e in cli.iter().cloned().chain(crate::pushscan::header_entries(text, "always-on:")) {
+        let bad = |why: &str| format!("always-on {e:?}: x,y,z=REASON ({why})");
+        let (c, reason) = e.split_once('=').ok_or_else(|| bad("no `=`"))?;
+        let v: Vec<i32> = c.split(',').map(|t| t.trim().replace('\u{2212}', "-").parse::<i32>()).collect::<Result<_, _>>().map_err(|err| bad(&err.to_string()))?;
+        if v.len() != 3 {
+            return Err(bad("a cell is three integers"));
+        }
+        if reason.trim().is_empty() {
+            return Err(bad("an empty reason"));
+        }
+        out.push(AlwaysOn { cell: [v[0], v[1], v[2]], why: reason.trim().to_string() });
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// (G1 Nov 14 14:13 (2), ironspec 14:37c (2)) `always_on_entries`: the header's `# always-on: x,y,z=REASON; …` entries
+    /// (split as `pushscan::header_entries` splits them: a REASON may hold "; ") with the command line's values first;
+    /// a malformed cell, a missing `=` or an empty reason refused by name
+    #[test]
+    fn always_on_entries_read_strictly() {
+        let es = always_on_entries("# always-on: 8,-2,7=the hold's line booster (8,0,7)'s torch on glass (8,-3,7); under the slime (8,-1,7); 1,2,3=a redstone block\n", &["4,5,6=from the command line".to_string()]).unwrap();
+        assert_eq!(es.iter().map(|e| e.cell).collect::<Vec<_>>(), vec![[4, 5, 6], [8, -2, 7], [1, 2, 3]]);
+        assert!(es[1].why.contains("; under the slime"), "a reason may hold \"; \": {:?}", es[1].why);
+        for bad in ["# always-on: 8,-2=a torch\n", "# always-on: 8,-2,7=\n", "# always-on: 8,-2,7 a torch\n", "# always-on: 8,x,7=a torch\n"] {
+            let e = always_on_entries(bad, &[]).unwrap_err();
+            assert!(e.contains("always-on"), "{bad:?} refused by name: {e}");
+        }
+        assert!(always_on_entries("", &["1,2=x".to_string()]).is_err(), "a command-line value is read as strictly");
+    }
 
     /// (ironspec 07:26 PT C4 / Nov 14 12:12p–12:16p, G1's amendments: the PARSERS car) `emulated_entries`: entries split
     /// by `;` outside parentheses, `+`-joined cells, the state with its prefix, a prose note counted; the role tags in

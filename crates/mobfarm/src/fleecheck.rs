@@ -6150,6 +6150,31 @@ fn may_source(w: &redsim::World, s: &redsim::block::Block) -> bool {
     matches!(s, redsim::block::Block::Wire { .. }) || redsim::behavior::is_signal_source(w, s)
 }
 
+/// (G1 Nov 14 14:13 (2), ironspec 14:37c (2), loaderlay 14:21's rule) Whether a declared always-on cell holds a source
+/// that can never change: a redstone block, or a LIT redstone torch (standing: its support below; on a wall: the block
+/// behind it, opposite its `facing`) whose support is neither a redstone conductor (`behavior::conductor_of`: power into
+/// it would turn the torch off) nor a signal source; anything else refused, naming the cell, what it holds and why. The
+/// one check settle's T rule, push-scan and junction-check apply to every `always-on:` entry.
+pub fn always_on_valid(w: &redsim::World, cell: BlockPos) -> Result<(), String> {
+    use redsim::block::Block;
+    let b = w.get(cell);
+    let at = |q: BlockPos| format!("{},{},{}", q.x, q.y, q.z);
+    let support = match b {
+        Block::RedstoneBlock => return Ok(()),
+        Block::Torch { lit: true } => cell.below(),
+        Block::WallTorch { facing, lit: true } => cell.rel(facing.opposite()),
+        _ => return Err(format!("always-on {}: holds {}: an always-on source is a redstone block or a lit redstone torch on an unpowerable block", at(cell), b)),
+    };
+    let s = w.get(support);
+    if redsim::behavior::conductor_of(&s) {
+        return Err(format!("always-on {}: the torch's support {} ({}) is a redstone conductor: power into it turns the torch off", at(cell), at(support), s));
+    }
+    if redsim::behavior::is_signal_source(w, &s) {
+        return Err(format!("always-on {}: the torch's support {} ({}) is a signal source", at(cell), at(support), s));
+    }
+    Ok(())
+}
+
 /// (ironspec Nov 13 19:20 / 19:29, G1 19:19 / 21:38) Every block that powers, or could ever power, a
 /// cell: each signal source among its six neighbours (direct), and each source beside a redstone
 /// conductor among them (power through the block), whatever their state, so "nothing that could BECOME
