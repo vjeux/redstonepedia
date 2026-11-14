@@ -6528,7 +6528,20 @@ pub fn power_into(spec: &FarmSpec, cells: &[BlockPos], no_qc: bool, allow: &[Blo
             if outside.is_empty() { " (PASS)".to_string() } else { format!(": {} (FAIL)", outside.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("; ")) },
             if allowed.is_empty() { String::new() } else { format!("; allowed: {}", allowed.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("; ")) }
         ) + &if locks.is_empty() { String::new() } else { format!("; LOCKED (not power) by {}", locks.join("; ")) }
-            + &if cid == "comparator" { comparator_analog_back(&w, *c, &cstate).map(|a| format!("; its ANALOG back input: {a}")).unwrap_or_else(|| "; its analog back input: no block with an analog output (an item frame there, an entity, is NOT MODELED)".to_string()) } else { String::new() });
+            + &if cid == "comparator" {
+                // (G1 Nov 14 11:25, part 75) a block behind it whose analog output isn't modelled makes this comparator's
+                // verdict NOT JUDGED, a failure, never a PASS beside an unread input
+                match comparator_analog_back(&w, *c, &cstate) {
+                    Some(a) if a.starts_with("analog output NOT MODELED") => {
+                        bad += 1;
+                        format!("; its ANALOG back input: {a}: this comparator NOT JUDGED (FAIL)")
+                    }
+                    Some(a) => format!("; its ANALOG back input: {a}"),
+                    None => "; its analog back input: no block with an analog output (an item frame there, an entity, is NOT MODELED)".to_string(),
+                }
+            } else {
+                String::new()
+            });
     }
     // (G1 Nov 13 23:06: --no-qc is read back: with no piston, dropper or dispenser among the cells it is a
     // stale flag and fails)
@@ -6653,8 +6666,12 @@ pub fn comparator_analog_back(w: &redsim::World, q: BlockPos, qs: &str) -> Optio
         return Some(format!("{} at {},{},{}", s1.to_string().trim_start_matches("minecraft:"), b1.x, b1.y, b1.z));
     }
     // (ironspec Nov 14 08:39a (1)(a), part 65) a block behind it whose analog output isn't modelled here (a copper bulb,
-    // a sculk sensor, a command block, or any other non-inert, non-conducting block) is NOT MODELED, never "none"
-    let trivial = |s: &redsim::block::Block| s.is_air() || update_inert(s.to_string().trim_start_matches("minecraft:").split('[').next().unwrap_or(""));
+    // a sculk sensor, a command block, or any other non-inert, non-conducting block) is NOT MODELED, never "none";
+    // (G1 11:25, part 75) a plain signal source (a lever, a torch, a button, a plate, a redstone block, a diode, an
+    // observer) feeds the comparator POWER, which power-into already reads, not an analog output: it is no unmodelled
+    // analog input, unless it also has one (a sculk sensor's vibration frequency, a calibrated sculk sensor's)
+    let analog_source = |s: &redsim::block::Block| matches!(s.to_string().trim_start_matches("minecraft:").split('[').next().unwrap_or(""), "sculk_sensor" | "calibrated_sculk_sensor");
+    let trivial = |s: &redsim::block::Block| s.is_air() || update_inert(s.to_string().trim_start_matches("minecraft:").split('[').next().unwrap_or("")) || (redsim::behavior::is_signal_source(w, s) && !analog_source(s));
     let unmodelled = |s: &redsim::block::Block, at: BlockPos, via: &str| format!("analog output NOT MODELED: {} at {},{},{}{via} (redsim reads no comparator output from it)", s.to_string().trim_start_matches("minecraft:"), at.x, at.y, at.z);
     if redsim::behavior::is_conductor(w, &s1, b1) {
         let b2 = BlockPos::new(b1.x + dx, b1.y, b1.z + dz);
@@ -12905,12 +12922,15 @@ mod gate_tests {
         assert!(ca2[0].contains("its ANALOG back input: chest[") && ca2[0].contains("through the conductor stone at 3,1,2"), "a chest behind a stone: {ca2:?}");
         let (ca3, _) = reads(Vec::new());
         assert!(ca3[0].contains("its analog back input: no block with an analog output (an item frame there, an entity, is NOT MODELED)"), "no analog input: {ca3:?}");
-        // (ironspec Nov 14 08:39a (1)(a), part 65) a block behind it whose analog output isn't modelled is NOT MODELED,
-        // never "none": a copper bulb behind it, a sculk sensor behind a stone behind it
-        let (ca4, _) = reads(vec![(b(3, 1, 2), p("minecraft:copper_bulb[lit=false,powered=false]"))]);
-        assert!(ca4[0].contains("its ANALOG back input: analog output NOT MODELED: copper_bulb[") && ca4[0].contains("at 3,1,2 (redsim reads no comparator output from it)"), "a copper bulb behind: {ca4:?}");
-        let (ca5, _) = reads(vec![(b(3, 1, 2), p("minecraft:stone")), (b(4, 1, 2), p("minecraft:sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false]"))]);
-        assert!(ca5[0].contains("analog output NOT MODELED: sculk_sensor[") && ca5[0].contains("at 4,1,2 through the conductor stone at 3,1,2"), "a sculk sensor behind a stone: {ca5:?}");
+        // (ironspec Nov 14 08:39a (1)(a), part 65; G1 11:25, part 75) a block behind it whose analog output isn't
+        // modelled is NOT MODELED, never "none", and makes the comparator's verdict NOT JUDGED (a failure): a copper bulb
+        // behind it, a sculk sensor behind a stone behind it; a chest behind it (modelled) fails nothing
+        let (ca4, bad4) = reads(vec![(b(3, 1, 2), p("minecraft:copper_bulb[lit=false,powered=false]"))]);
+        assert!(ca4[0].contains("its ANALOG back input: analog output NOT MODELED: copper_bulb[") && ca4[0].contains("at 3,1,2 (redsim reads no comparator output from it)") && ca4[0].contains("this comparator NOT JUDGED (FAIL)") && bad4 == 1, "a copper bulb behind: {ca4:?} {bad4}");
+        let (ca5, bad5) = reads(vec![(b(3, 1, 2), p("minecraft:stone")), (b(4, 1, 2), p("minecraft:sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false]"))]);
+        assert!(ca5[0].contains("analog output NOT MODELED: sculk_sensor[") && ca5[0].contains("at 4,1,2 through the conductor stone at 3,1,2") && ca5[0].contains("NOT JUDGED (FAIL)") && bad5 == 2, "a sculk sensor behind a stone (a power source in reach, and an unmodelled analog input: 2 failures): {ca5:?} {bad5}");
+        let (ca6, bad6) = reads(vec![(b(3, 1, 2), p("minecraft:copper_bulb[lit=true,powered=false]"))]);
+        assert!(ca6[0].contains("copper_bulb[") && ca6[0].contains("NOT JUDGED (FAIL)") && bad6 == 1, "a LIT copper bulb behind (its output 15 in 26.3): NOT JUDGED, never a silent 0: {ca6:?}");
         // (G1 Nov 14 05:38, part 49) a source's power goes out only by its real faces: a repeater facing west
         // (input west, front east) powers the lamp at its front (3,1,2), not the lamp at its side (2,1,1), and
         // not through the stone under it (no strong output down: the lamp at (1,0,2) beside that stone stays
