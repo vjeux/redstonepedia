@@ -1,4 +1,5 @@
 # every villager position of f1q2-module-stop9 (riders' cells, every rail cell of every part and every declared off-rail path cell), the written frame
+# LINEAGE (G1 Nov 14 10:21 / ironspec 10:27a): OLDER GEOMETRY (the (b+) module's way-in, the front at y -14, no P1), in the module (loop) frame of record7f13: NOT CITABLE for V. The way-cell bench tools' subject only.
 -5 0 7
 -5 1 7
 -5 2 7
