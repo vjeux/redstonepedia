@@ -3305,6 +3305,16 @@ pub enum MobfarmCmd {
         #[arg(long, allow_hyphen_values = true)]
         rail_range: Vec<String>,
     },
+    /// (ironspec Nov 13 21:39, G1 21:39) A villager placed STANDING at --from (its feet x,y,z) in the
+    /// settled design, its navigation asked for a path to the cell --to: reached or not, every node with
+    /// its path type.
+    PathProbe {
+        design: PathBuf,
+        #[arg(long, allow_hyphen_values = true)]
+        from: String,
+        #[arg(long, allow_hyphen_values = true)]
+        to: String,
+    },
     /// (G1 Nov 13 21:30, ironspec 21:32) Component-bound cells, kind and facing asserted: each --expect
     /// x,y,z=ID[key=value,...] against the settled design; fails on any cell that doesn't hold it.
     AssertBlocks {
@@ -9470,6 +9480,16 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
             anyhow::ensure!(n == 0, "assert-blocks: {n} component(s) not as expected");
+        }
+        MobfarmCmd::PathProbe { design, from, to } => {
+            let (_c, spec) = load(version, &design)?;
+            let f: Vec<f64> = from.split(',').map(|t| t.trim().parse::<f64>()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("--from {from}: {e}"))?;
+            let t: Vec<i32> = to.split(',').map(|s| s.trim().parse::<i32>()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("--to {to}: {e}"))?;
+            anyhow::ensure!(f.len() == 3 && t.len() == 3, "--from x,y,z (feet) --to x,y,z (a cell)");
+            let (lines, _) = crate::fleecheck::standing_path_probe(&spec, redsim::entity::Vec3::new(f[0], f[1], f[2]), redsim::pos::BlockPos::new(t[0], t[1], t[2])).map_err(|e| anyhow::anyhow!(e))?;
+            for l in &lines {
+                println!("{l}");
+            }
         }
         MobfarmCmd::StringAudit { design, expect, rail_range } => {
             let (_c, spec) = load(version, &design)?;
