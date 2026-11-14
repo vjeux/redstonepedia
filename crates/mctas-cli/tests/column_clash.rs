@@ -73,6 +73,30 @@ fn a_clash_exits_1_and_a_precedence_line_exits_0() {
     let o = run(&["--precedence", "0,0,0=B:the test's ruling"]);
     assert_eq!(o.status.code(), Some(0), "settled by a precedence line, it exits 0: {}", text(&o));
     assert!(std::fs::read_to_string(&out).unwrap().contains("# precedence: 0,0,0=B (the test's ruling)"));
+    // (ironspec Nov 14 08:35a (1), the (-3,12,7) case) two parts holding one cell with the SAME state
+    // compose, kept once and listed; a precedence line there settles nothing and refuses
+    let c = part(&dir, "c", "", "  X glass\n", "X");
+    let same: Vec<String> = ["--part", &format!("B={}", b.display()), "--part", &format!("C={}", c.display()), "--port", "output=0,0,0", "--out", &out.display().to_string()].iter().map(|s| s.to_string()).collect();
+    let o = column(&same);
+    assert_eq!(o.status.code(), Some(0), "the same state twice composes: {}", text(&o));
+    assert!(text(&o).contains("held twice with the same state (kept once): B and C: 1 cells"), "{}", text(&o));
+    let mut stray = same.clone();
+    stray.extend(["--precedence".to_string(), "0,0,0=B:no clash to settle".to_string()]);
+    let o = column(&stray);
+    assert_ne!(o.status.code(), Some(0), "a precedence line on an unclashed cell refuses: {}", text(&o));
+    // the guard (ironspec 08:41a (2) / 08:48a (6)): a part's `# stand-in:` naming its OWNER copies the
+    // owner's block; with the owner's stone against the stand-in's glass the compose fails by name even
+    // though a precedence line names a winner, and a precedence line on that cell refuses
+    let s = part(&dir, "s", "# stand-in: 0,0,0 (glass, owner B: B's cell, laid here too so this file loads alone)\n", "  X glass\n", "X");
+    let owned: Vec<String> = ["--part", &format!("B={}", b.display()), "--part", &format!("S={}", s.display()), "--port", "output=0,0,0", "--out", &out.display().to_string()].iter().map(|s| s.to_string()).collect();
+    let o = column(&owned);
+    assert_eq!(o.status.code(), Some(0), "a stand-in equal to its owner's block composes: {}", text(&o));
+    assert!(text(&o).contains("stand-in 0,0,0: owner B"), "{}", text(&o));
+    let diff: Vec<String> = ["--part", &format!("B={}", a.display()), "--part", &format!("S={}", s.display()), "--port", "output=0,0,0", "--out", &out.display().to_string(), "--precedence", "0,0,0=S:the test"].iter().map(|s| s.to_string()).collect();
+    let o = column(&diff);
+    assert_ne!(o.status.code(), Some(0), "{}", text(&o));
+    assert!(text(&o).contains("0,0,0 asserted identical across B+S (S's declared stand-in, owner B): not identical: B = minecraft:stone, S = minecraft:glass"), "{}", text(&o));
+    assert!(text(&o).contains("--precedence 0,0,0=S: the cell is asserted identical"), "{}", text(&o));
     std::fs::remove_dir_all(&dir).ok();
 }
 
@@ -134,6 +158,42 @@ fn a_stand_in_without_its_support_exits_non_zero() {
 }
 
 #[test]
+fn a_cell_past_the_column_exits_1_unless_acknowledged() {
+    // (G1 Nov 14 08:04 (1)) the column bound, default-deny, through the binary: one glass moved past z 9
+    // exits 1 naming the cell and its part and writes nothing; `--outside-column` with the ruling
+    // composes, the header line says NOT CITABLE; an acknowledgement on no outside cell exits non-zero
+    let dir = tmp("column");
+    let a = part(&dir, "a", "", "  G glass\n", "G");
+    let out = dir.join("out.txt");
+    let run = |at: &str, extra: &[&str]| {
+        let mut v: Vec<String> = ["--part", &format!("STOP={}{at}", a.display()), "--port", "output=0,0,0", "--out", &out.display().to_string()].iter().map(|s| s.to_string()).collect();
+        v.extend(extra.iter().map(|s| s.to_string()));
+        column(&v)
+    };
+    let o = run("", &[]);
+    assert_eq!(o.status.code(), Some(0), "inside the column it composes: {}", text(&o));
+    std::fs::remove_file(&out).ok();
+    let o = run("@-5,-20,10", &[]);
+    assert_eq!(o.status.code(), Some(1), "past z 9 it exits 1: {}", text(&o));
+    assert!(text(&o).contains("OUTSIDE THE COLUMN x -6..9 z -6..9") && text(&o).contains("-5,-20,10 (held by STOP: minecraft:glass)"), "{}", text(&o));
+    assert!(!out.exists(), "a failed compose writes nothing");
+    let o = run("@-5,-20,10", &["--outside-column", "-5,-20,10=the test's ruling:the glass stays"]);
+    assert_eq!(o.status.code(), Some(0), "acknowledged, it composes: {}", text(&o));
+    assert!(std::fs::read_to_string(&out).unwrap().contains("# outside-column: -5,-20,10 (held by STOP: minecraft:glass; allowed by the test's ruling: the glass stays): this record is NOT CITABLE"));
+    let o = run("", &["--outside-column", "-5,-20,10=the test's ruling:x"]);
+    assert_ne!(o.status.code(), Some(0), "an acknowledgement on no outside cell refuses: {}", text(&o));
+    assert!(text(&o).contains("--outside-column -5,-20,10=the test's ruling: no part holds such an item there past the column"), "{}", text(&o));
+    // (G1 Nov 14 08:14 (2)) an entity whose collision box alone crosses: a boat centred at z 9.5 (its
+    // cell inside the column) reaches z 10.1875: exit 1, naming it
+    let bp = dir.join("b.txt");
+    std::fs::write(&bp, "name: b\ncircuit: mob-farm iron_ingot\nport output: 0 0 0\npalette:\n  G glass\nlayer 0:\n  G\nentity: minecraft:oak_boat 0.5 0 9.5\n").unwrap();
+    let o = column(&["--part".into(), format!("STOP={}@-5,-20,0", bp.display()), "--port".into(), "output=0,0,0".into(), "--out".into(), out.display().to_string()]);
+    assert_eq!(o.status.code(), Some(1), "the boat's box alone past z 10 exits 1: {}", text(&o));
+    assert!(text(&o).contains("-5,-20,9 (held by STOP: entity minecraft:oak_boat at (-4.5,-20,9.5), its box x -5.1875..-3.8125 z 8.8125..10.1875"), "{}", text(&o));
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn v_rev_2s_command_fails_when_a_lever_stand_ins_support_is_cleared() {
     // (G1 03:39a B2) V rev 2's own compose (the record commit's command, its record written to a
     // scratch file) with J(-1)'s ceiling glass (-1,27,9) cleared: the lift's stand-in names it
@@ -170,6 +230,11 @@ fn v_rev_2s_command_fails_when_a_lever_stand_ins_support_is_cleared() {
         "--clear=-6,-30,-6,9,-24,10".into(),
         "--clear=5,-23,3,7,-20,5".into(),
         "--port=output=-6,1,-6".into(),
+        // (G1 Nov 14 08:04 (1) / 08:10, ironspec 08:09a (a): PERMANENTLY here, this case tests rev 2 as
+        // composed) the column bound: the fold placeholder's two cage-wall glass cells past z 9, named
+        "--outside-column=-5,-20,10=ironspec Nov 14 08:09a (a), V rev 2 as composed:the fold placeholder's (bfa0c8098) cage wall south of the boated waker Z1 at (-4.5,-20,9.5), whose boat's box reaches z 10.19".into(),
+        "--outside-column=-5,-19,10=ironspec Nov 14 08:09a (a), V rev 2 as composed:the fold placeholder's (bfa0c8098) cage wall south of the boated waker Z1 at (-4.5,-20,9.5), whose boat's box reaches z 10.19".into(),
+        "--outside-column=-5,-20,9#oak_boat=ironspec Nov 14 08:26a (2), V rev 2 as composed:the fold placeholder's Z1 boat box crossing z 10.0 (bfa0c8098), its 1.375-wide boat centred at (-4.5,-20,9.5) reaching z 10.19".into(),
         format!("--out={}", dir.join("v.txt").display()),
     ];
     let run = |extra: &[&str], args: &[String]| named(Command::new(env!("CARGO_BIN_EXE_mctas")).current_dir(&repo).arg("mobfarm").arg("column").args(args).args(extra).output().unwrap());

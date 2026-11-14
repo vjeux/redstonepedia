@@ -174,7 +174,15 @@ a part not laid out yet (`--reserves-from`: every `# reserved (no blocks):` line
 command wrote, but the `--reserve-skip` names, the parts laid). It prints each part's committed and placed box, the chunk lines each
 crosses (`--chunk-phase`: lines at x, z = PX + 16k; the loop frame's -6), where it leaves the
 column, the cells two parts hold, reserved boxes over a part or each other, cells declared two
-ways, the tiers top down and the column's blocks³. `--out` writes the skeleton (the first part's
+ways, the tiers top down and the column's blocks³. The column's bound (`--column`, default x -6..9,
+z -6..9) is default-deny (G1 Nov 14 08:04 / 08:39): a part's cell, or an entity's collision box with
+its passengers at their seats, past it fails the compose by cell, state and part, unless an
+`--outside-column x,y,z[#KIND]=RULING:WHY` line names the ruling that allows that one item (a block by
+its cell, an entity by its cell and kind; written to the header as `# outside-column:`; the record is
+NOT CITABLE under `--verify` while one stands; one matching no item, or more than one, refuses). A
+part's `# stand-in: x,y,z (..., owner NAME: ...)` asserts its block equal to part NAME's there: any
+difference fails the compose by name whatever a `--precedence` line says, and a precedence line on that
+cell refuses (ironspec Nov 14 08:41a). `--out` writes the skeleton (the first part's
 ports, a later part's shared-bed `home`, one Nether part, `positions:` and `declared:` joined),
 its junctions settled as `mobfarm paste` settles them; `--ground` so `mobfarm bill --terrain` digs
 it in, `--out-shift` to write it in the farm's aligned frame (loop + 6,0,6), `--no-riders` so

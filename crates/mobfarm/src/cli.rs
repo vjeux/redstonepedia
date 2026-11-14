@@ -2368,6 +2368,13 @@ pub enum MobfarmCmd {
         /// Repeatable.
         #[arg(long = "reserve-clash", allow_hyphen_values = true)]
         reserve_clash: Vec<String>,
+        /// (vcompose, G1 Nov 14 08:04 (1)) A part's cell or entity past the column's bound (`--column`),
+        /// acknowledged by name, x,y,z=RULING:REASON (the ruling that allows it): a
+        /// `# outside-column:` header line keeps the record NOT CITABLE; one that matches no cell past
+        /// the column refuses. Without one, a cell past the column fails the compose by name.
+        /// Repeatable.
+        #[arg(long = "outside-column", allow_hyphen_values = true)]
+        outside_column: Vec<String>,
         /// (vcompose, G1 Nov 13 23:20 (2)) With --verify: a PLANTED TWIN, x,y,z=STATE (`air`
         /// removes the block) set in the verified file's copy the statics judge (the flee bar and
         /// its pathfinder world), each read back and a no-op refusing; the assembly and file
@@ -8781,7 +8788,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let o = crate::columnrun::Opts { cycles, warm, seed, close_at, slope_delay, g2_plus, hold_shut_delay, pulse, laps, trace };
             print!("{}", crate::columnrun::run(&spec, &c.clock.design.meta, &o).map_err(|e| anyhow::anyhow!(e))?);
         }
-        MobfarmCmd::Column { parts, reserves, reserves_from, reserve_skip, ports, tracks, carts, posts, clears, clear_parts, column, chunk_phase, plan, name, assert_aligned, no_settle, settle, stale, ledger_out, precedence, delta, absent, outside_portals, keep_stale, reserve_clash, plant, ground, out_shift, no_riders, positions_out, path, notes, bed, bed_exempt, sentinel, sections, summon_box, golem_box, run_gate, run_cell, run_controller, notes_file, pockets, block, wait_box, out, verify, keep_clear, sight_path } => {
+        MobfarmCmd::Column { parts, reserves, reserves_from, reserve_skip, ports, tracks, carts, posts, clears, clear_parts, column, chunk_phase, plan, name, assert_aligned, no_settle, settle, stale, ledger_out, precedence, delta, absent, outside_portals, keep_stale, reserve_clash, outside_column, plant, ground, out_shift, no_riders, positions_out, path, notes, bed, bed_exempt, sentinel, sections, summon_box, golem_box, run_gate, run_cell, run_controller, notes_file, pockets, block, wait_box, out, verify, keep_clear, sight_path } => {
             let _ = no_settle;
             let mut notes = notes;
             if let Some(nf) = &notes_file {
@@ -8923,7 +8930,23 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     Ok((p3(c)?, ruling.trim().to_string(), why.trim().to_string()))
                 })
                 .collect::<Result<_>>()?;
-            let trace = crate::column::Trace { stale: stale.clone(), precedence: prec.clone(), reserve_clash: rclash };
+            // (vcompose, G1 Nov 14 08:04 (1)) --outside-column x,y,z=RULING:REASON
+            // (vcompose, G1 Nov 14 08:04 (1) / 08:39 CHANGES 2 (2)) --outside-column x,y,z[#KIND]=RULING:REASON
+            // (a block by its cell, an entity by its cell and kind)
+            let oclash: Vec<crate::column::OutsideAck> = outside_column
+                .iter()
+                .map(|s| {
+                    let (c, rest) = s.split_once('=').ok_or_else(|| anyhow::anyhow!("--outside-column {s}: x,y,z[#KIND]=RULING:REASON"))?;
+                    let (ruling, why) = rest.split_once(':').ok_or_else(|| anyhow::anyhow!("--outside-column {s}: x,y,z[#KIND]=RULING:REASON (the ruling that allows it, and why)"))?;
+                    anyhow::ensure!(!ruling.trim().is_empty() && !why.trim().is_empty(), "--outside-column {s}: name the ruling and the reason");
+                    let (c, kind) = match c.split_once('#') {
+                        Some((c, k)) => (c, Some(k.trim().trim_start_matches("minecraft:").to_string())),
+                        None => (c, None),
+                    };
+                    Ok(crate::column::OutsideAck { cell: p3(c)?, kind, ruling: ruling.trim().to_string(), why: why.trim().to_string() })
+                })
+                .collect::<Result<_>>()?;
+            let trace = crate::column::Trace { stale: stale.clone(), precedence: prec.clone(), reserve_clash: rclash, outside_column: oclash, same: Vec::new() };
             let (text, d, bed_ok, ledger) = crate::column::run_traced(&specs, sketch, &tclears, &reserves, &given, &f, &name, plan, bed_cell.map(|b| (b, bed_exempt.as_slice())), sentinel_box, shift_w, golem_b.map(|g| (summoners.as_slice(), g)), &trace).map_err(|e| anyhow::anyhow!(e))?;
             print!("{text}");
             let paths: Vec<(String, Vec<[i32; 3]>)> = path.iter().map(|p| crate::column::path_cells(p)).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!(e))?;
@@ -9185,6 +9208,10 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 t.extend(carried.dropped.iter().map(|l| format!("{l}\n")));
                 t.push_str(&format!("## reserve clashes acknowledged ({} lines)\n", ledger.reserve_clash.len()));
                 t.extend(ledger.reserve_clash.iter().map(|l| format!("{l}\n")));
+                if !ledger.outside_column.is_empty() {
+                    t.push_str(&format!("## cells past the column acknowledged ({} lines)\n", ledger.outside_column.len()));
+                    t.extend(ledger.outside_column.iter().map(|l| format!("{l}\n")));
+                }
                 t.push_str(&format!("## stand-in supports ({} lines)\n", supports.len()));
                 t.extend(supports.iter().map(|l| format!("{l}\n")));
                 if verify.is_some() {
@@ -9251,6 +9278,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 for l in &ledger.reserve_clash {
                     head.push_str(&format!("# reserve-clash: {l}: this record is NOT CITABLE until the ruling composes in (G1 Nov 14 01:22)\n"));
                 }
+                for l in &ledger.outside_column {
+                    head.push_str(&format!("# outside-column: {l}: this record is NOT CITABLE until the ruling composes in (G1 Nov 14 08:04)\n"));
+                }
                 if !carried.dropped.is_empty() {
                     head.push_str(&format!("# declarations dropped by the compose (a cleared cell, the stale part's naming an owner's cell or a cell the record leaves empty): {}, each listed in {ledger_name}\n", carried.dropped.len()));
                 }
@@ -9269,6 +9299,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 // its verify does not pass while the ruling that resolves it is unlanded
                 if !ledger.reserve_clash.is_empty() {
                     println!("reserve clashes acknowledged: {} (the record is NOT CITABLE until each ruling composes in): FAIL", ledger.reserve_clash.len());
+                    verify_ok = false;
+                }
+                // (G1 Nov 14 08:04 (1)) likewise a cell past the column's bound, acknowledged
+                if !ledger.outside_column.is_empty() {
+                    println!("cells past the column acknowledged: {} (the record is NOT CITABLE until each ruling composes in): FAIL", ledger.outside_column.len());
                     verify_ok = false;
                 }
                 println!("verify {}: {}", vf.display(), if verify_ok { "PASS" } else { "FAIL" });

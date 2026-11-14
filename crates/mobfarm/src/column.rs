@@ -344,6 +344,22 @@ pub fn carried_filtered(specs: &[PartSpec], shift: P, filt: &CarryFilter) -> Res
                         Some(Ok(m)) => heads.push(tagged(&format!("# {key}: {m}"), &tag)),
                         Some(Err(w)) => dropped.push(format!("{} `# {key}:` {}: {w}", s.name, short(val.trim()))),
                     }
+                } else if key == "update-consumers" {
+                    // (farmopt Nov 14 08:16 (1), ironspec 08:14a (2); part 60's form `CLASS
+                    // SX,SY,SZ=CX,CY,CZ ID+... (why)`) every cell moves with the part; a line whose SOURCE
+                    // cell the part's box drops is listed as dropped by name (its consumers may be other
+                    // parts' cells, outside this part's box by design); an owner's line naming a cell a
+                    // clear or a precedence line took FAILS by name (the claim would be stale)
+                    let toks = cell_tokens(val);
+                    match toks.first().map(|(_, _, c)| *c) {
+                        None => return Err(format!("part {} ({}): its `# update-consumers:` line names no source cell: {}", s.name, s.file.display(), short(val.trim()))),
+                        Some(sc) if !kept(sc) => dropped.push(format!("{} `# update-consumers:` {}: its source cell is outside the part's kept box", s.name, short(val.trim()))),
+                        Some(_) => match toks.iter().find_map(|(_, _, c)| gone(*c, true)) {
+                            Some(w) if !is_stale => return Err(format!("part {} ({}): its `# update-consumers:` declaration {} names a cell where {w}: a consumer claim on a cleared or given-away cell fails by name", s.name, s.file.display(), short(val.trim()))),
+                            Some(w) => dropped.push(format!("{} `# update-consumers:` {}: {w}", s.name, short(val.trim()))),
+                            None => heads.push(tagged(&format!("# {key}: {}", move_cell_tokens(val.trim(), d)), &tag)),
+                        },
+                    }
                 } else if SCALAR_HASH.contains(&key) {
                     scalars.push((format!("# {key}"), val.trim().to_string(), s.name.clone()));
                 } else if first_is_cell {
@@ -745,6 +761,163 @@ fn entity_box(d: &Design) -> Option<(P, P)> {
     Some(it.fold((f, f), |(lo, hi), c| ([lo[0].min(c[0]), lo[1].min(c[1]), lo[2].min(c[2])], [hi[0].max(c[0]), hi[1].max(c[1]), hi[2].max(c[2])])))
 }
 
+/// (vcompose, G1 Nov 14 08:14 (2) / 08:39 (3), ironspec 08:48a) An entity's collision-box half width
+/// (x and z, 26.3's EntityType dimensions) with its passengers, the widest: a minecart 0.98, a boat or
+/// raft 1.375, a villager / zombie / pillager kind 0.6, an iron golem 1.4. Passengers are read from the
+/// snbt's `Passengers` list structurally (each element's own `id`, nested lists too); a boat's riders
+/// sit at its seats, one rider at the centre, two at +0.2 and -0.6 along its yaw (the yaw unknown, the
+/// offset counts on both axes: a second rider reaches 0.6 + 0.3 = 0.9). None: a kind (or a passenger's)
+/// whose box this table doesn't know, or snbt that doesn't parse.
+pub fn entity_half_width(e: &mctas::design::EntitySpec) -> Option<f64> {
+    fn half(kind: &str) -> Option<f64> {
+        let k = kind.trim_start_matches("minecraft:");
+        Some(match k {
+            "minecart" | "chest_minecart" | "hopper_minecart" | "tnt_minecart" | "furnace_minecart" | "spawner_minecart" | "command_block_minecart" => 0.49,
+            k if k.ends_with("_boat") || k.ends_with("_raft") => 0.6875,
+            "villager" | "zombie" | "zombie_villager" | "husk" | "drowned" | "pillager" | "vindicator" | "evoker" | "witch" | "wandering_trader" => 0.3,
+            "iron_golem" => 0.7,
+            _ => return None,
+        })
+    }
+    let mut w = half(&e.kind)?;
+    let boat = { let k = e.kind.trim_start_matches("minecraft:"); k.ends_with("_boat") || k.ends_with("_raft") };
+    if let Some(n) = &e.nbt {
+        let riders = snbt_passengers(n)?;
+        for (k, (kind, nested)) in riders.iter().enumerate() {
+            let off = if boat && riders.len() >= 2 { if k == 0 { 0.2 } else { 0.6 } } else { 0.0 };
+            w = w.max(off + half(kind)?);
+            for nk in nested {
+                w = w.max(off + half(nk)?);
+            }
+        }
+    }
+    Some(w)
+}
+
+/// (vcompose, G1 Nov 14 08:39 (3)) An entity snbt's direct passengers, each `(id, the ids of ITS
+/// passengers, any depth)`, read structurally from the top compound's `Passengers` list (an `id` met in
+/// equipment, offers or a string doesn't count); `"..."` and `'...'` strings both read. None: snbt that
+/// doesn't parse or a passenger without an id.
+pub fn snbt_passengers(s: &str) -> Option<Vec<(String, Vec<String>)>> {
+    #[derive(Debug)]
+    enum V {
+        C(Vec<(String, V)>),
+        L(Vec<V>),
+        S(String),
+        O,
+    }
+    fn ws(b: &[u8], i: &mut usize) {
+        while *i < b.len() && b[*i].is_ascii_whitespace() {
+            *i += 1;
+        }
+    }
+    fn string(b: &[u8], i: &mut usize) -> Option<String> {
+        let q = b[*i];
+        *i += 1;
+        let mut out = Vec::new();
+        while *i < b.len() {
+            let c = b[*i];
+            *i += 1;
+            if c == b'\\' && *i < b.len() {
+                out.push(b[*i]);
+                *i += 1;
+            } else if c == q {
+                return String::from_utf8(out).ok();
+            } else {
+                out.push(c);
+            }
+        }
+        None
+    }
+    fn bare(b: &[u8], i: &mut usize) -> String {
+        let st = *i;
+        while *i < b.len() && !matches!(b[*i], b',' | b'}' | b']' | b':' | b'[' | b'{') && !b[*i].is_ascii_whitespace() {
+            *i += 1;
+        }
+        String::from_utf8_lossy(&b[st..*i]).into_owned()
+    }
+    fn value(b: &[u8], i: &mut usize) -> Option<V> {
+        ws(b, i);
+        match *b.get(*i)? {
+            b'{' => {
+                *i += 1;
+                let mut kv = Vec::new();
+                loop {
+                    ws(b, i);
+                    if *b.get(*i)? == b'}' {
+                        *i += 1;
+                        return Some(V::C(kv));
+                    }
+                    let k = if matches!(b[*i], b'"' | b'\'') { string(b, i)? } else { bare(b, i) };
+                    ws(b, i);
+                    if *b.get(*i)? != b':' {
+                        return None;
+                    }
+                    *i += 1;
+                    kv.push((k, value(b, i)?));
+                    ws(b, i);
+                    match *b.get(*i)? {
+                        b',' => *i += 1,
+                        b'}' => {}
+                        _ => return None,
+                    }
+                }
+            }
+            b'[' => {
+                *i += 1;
+                ws(b, i);
+                // a typed array `[I; 1,2]`: its prefix skipped
+                if b.len() > *i + 1 && b[*i + 1] == b';' {
+                    *i += 2;
+                }
+                let mut l = Vec::new();
+                loop {
+                    ws(b, i);
+                    if *b.get(*i)? == b']' {
+                        *i += 1;
+                        return Some(V::L(l));
+                    }
+                    l.push(value(b, i)?);
+                    ws(b, i);
+                    match *b.get(*i)? {
+                        b',' => *i += 1,
+                        b']' => {}
+                        _ => return None,
+                    }
+                }
+            }
+            b'"' | b'\'' => string(b, i).map(V::S),
+            _ => {
+                let t = bare(b, i);
+                if t.is_empty() { None } else { Some(V::O) }
+            }
+        }
+    }
+    fn riders(v: &V) -> Option<Vec<(String, Vec<String>)>> {
+        let V::C(kv) = v else { return Some(Vec::new()) };
+        let Some((_, V::L(list))) = kv.iter().find(|(k, _)| k == "Passengers") else { return Some(Vec::new()) };
+        let mut out = Vec::new();
+        for p in list {
+            let V::C(pkv) = p else { return None };
+            let id = pkv.iter().find_map(|(k, v)| match (k.as_str(), v) {
+                ("id", V::S(s)) => Some(s.clone()),
+                _ => None,
+            })?;
+            let nested: Vec<String> = riders(p)?.into_iter().flat_map(|(id, n)| std::iter::once(id).chain(n)).collect();
+            out.push((id, nested));
+        }
+        Some(out)
+    }
+    let b = s.trim().as_bytes();
+    let mut i = 0;
+    let v = value(b, &mut i)?;
+    ws(b, &mut i);
+    if i != b.len() {
+        return None;
+    }
+    riders(&v)
+}
+
 /// Where a box leaves the column (cells past each side), or None inside it.
 fn overhang(b: &(P, P), f: &Frame) -> Option<String> {
     let sides = [("west", f.x0 - b.0[0]), ("east", b.1[0] - f.x1), ("north", f.z0 - b.0[2]), ("south", b.1[2] - f.z1)];
@@ -985,6 +1158,17 @@ pub struct Clear {
     pub absent: Option<String>,
 }
 
+/// (vcompose, G1 Nov 14 08:04 (1) / 08:39 CHANGES 2 (2)) One `--outside-column` acknowledgement: the
+/// item it allows past the column's bound (a block by its cell; an entity by its cell and its kind,
+/// `x,y,z#KIND`), the ruling that allows it and why; it must match exactly one item.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct OutsideAck {
+    pub cell: P,
+    pub kind: Option<String>,
+    pub ruling: String,
+    pub why: String,
+}
+
 /// (vcompose, G1 Nov 13 21:53) The traced compose's inputs: the STALE part's name and the
 /// precedence lines (cell, part, reason).
 #[derive(Clone, Debug, Default)]
@@ -994,6 +1178,13 @@ pub struct Trace {
     /// (vcompose, G1 Nov 14 01:22) reserved cells a part holds, each acknowledged by name with the
     /// ruling that resolves it (cell, ruling, reason): the record stays not citable.
     pub reserve_clash: Vec<(P, String, String)>,
+    /// (vcompose, G1 Nov 14 08:04 (1)) cells past the column's bound a part holds, each acknowledged by
+    /// name with the ruling that allows it: the record stays not citable.
+    pub outside_column: Vec<OutsideAck>,
+    /// (vcompose, ironspec Nov 14 08:36a (3)) cells asserted IDENTICAL across named parts (cell, part
+    /// names, reason): every named part must hold the cell with the same state, a difference or a missing
+    /// part failing by name, and no precedence line may settle the cell.
+    pub same: Vec<(P, Vec<String>, String)>,
 }
 
 /// (vcompose) What the traced compose did, cell by cell.
@@ -1017,6 +1208,9 @@ pub struct Ledger {
     /// (vcompose, G1 Nov 14 01:22) the reserved cells a part holds, acknowledged by
     /// `--reserve-clash`: `x,y,z (reserved R (owner, item), held by PART: STATE; resolved by RULING: REASON)`.
     pub reserve_clash: Vec<String>,
+    /// (vcompose, G1 Nov 14 08:04 (1)) the cells past the column's bound a part holds, acknowledged by
+    /// `--outside-column`: `x,y,z (held by PART: STATE; allowed by RULING: REASON)`.
+    pub outside_column: Vec<String>,
     /// (part, cell) pairs a precedence line took from a part.
     pub lost: Vec<(String, P)>,
     /// The cells the owner parts hold, placed (the carried declarations' filter).
@@ -1206,7 +1400,9 @@ fn apply_precedence(parts: &mut [Part], stale: Option<usize>, tr: &Trace, ledger
                         losers.push((*i, *c, *tag));
                     }
                 }
-                ledger.resolved.push(format!("{}: {win}'s state taken over {} ({why})", c3s(c), owners.iter().filter(|i| parts[**i].spec.name != *win).map(|i| format!("{}'s {}", parts[*i].spec.name, state_of(*i).iter().map(|s| s.as_str()).collect::<Vec<_>>().join(" + "))).collect::<Vec<_>>().join(", ")));
+                // (G1 Nov 14 08:41, ironspec 08:48a (6)) both states named: the winner's and each overridden one
+                let win_state = owners.iter().find(|i| parts[**i].spec.name == *win).map(|i| state_of(*i).iter().map(|s| s.as_str()).collect::<Vec<_>>().join(" + ")).unwrap_or_default();
+                ledger.resolved.push(format!("{}: {win}'s {win_state} taken over {} ({why})", c3s(c), owners.iter().filter(|i| parts[**i].spec.name != *win).map(|i| format!("{}'s {}", parts[*i].spec.name, state_of(*i).iter().map(|s| s.as_str()).collect::<Vec<_>>().join(" + "))).collect::<Vec<_>>().join(", ")));
             }
             None => errs.push(format!("{}: {}", c3s(c), owners.iter().map(|i| format!("{} = {}", parts[*i].spec.name, state_of(*i).iter().map(|s| s.as_str()).collect::<Vec<_>>().join(" + "))).collect::<Vec<_>>().join(" vs "))),
         }
@@ -1215,6 +1411,43 @@ fn apply_precedence(parts: &mut [Part], stale: Option<usize>, tr: &Trace, ledger
         if !u {
             let (c, part, _) = &tr.precedence[k];
             errs.push(format!("--precedence {}={part}: settles no clash (a no-op refuses by name)", c3s(c)));
+        }
+    }
+    // (vcompose, ironspec Nov 14 08:36a (3) / 08:41a (2)) a cell asserted identical: a part's own
+    // `# stand-in: x,y,z ... owner NAME ...` declaration (its block is a copy of NAME's), or a Trace
+    // `same` line. Every named part holds the cell with the same state (its block entity included),
+    // else the compose fails by name WHATEVER a precedence line says; a precedence line naming such a
+    // cell refuses (a precedence line can't settle a declared stand-in)
+    let mut asserted: Vec<(P, Vec<String>, String)> = tr.same.clone();
+    for (i, p) in parts.iter().enumerate().filter(|(i, _)| Some(*i) != stale) {
+        let Ok(text) = std::fs::read_to_string(&p.spec.file) else { continue };
+        let pm = [p.spec.frame[0] + p.spec.tier[0], p.spec.frame[1] + p.spec.tier[1], p.spec.frame[2] + p.spec.tier[2]];
+        for l in text.lines() {
+            let Some(rest) = l.strip_prefix("# stand-in:") else { continue };
+            let Some(owner) = stand_in_owner(rest) else { continue };
+            let Ok(c) = triple(rest.split_whitespace().next().unwrap_or("")) else { continue };
+            if p.spec.keep.is_some_and(|(a, b)| !(0..3).all(|k| c[k] >= a[k].min(b[k]) && c[k] <= a[k].max(b[k]))) {
+                continue;
+            }
+            let placed = [c[0] + pm[0], c[1] + pm[1], c[2] + pm[2]];
+            asserted.push((placed, vec![owner.clone(), parts[i].spec.name.clone()], format!("{}'s declared stand-in, owner {owner}", p.spec.name)));
+        }
+    }
+    for (c, names, why) in &asserted {
+        let v = by_cell.get(&(*c, 0)).cloned().unwrap_or_default();
+        let state = |n: &str| -> Option<String> {
+            let i = parts.iter().position(|p| p.spec.name == n)?;
+            let mut st: Vec<&String> = v.iter().filter(|(j, _)| *j == i).map(|(_, s)| s).collect();
+            st.sort();
+            (!st.is_empty()).then(|| st.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(" + "))
+        };
+        let states: Vec<(String, Option<String>)> = names.iter().map(|n| (n.clone(), state(n))).collect();
+        let first = states.first().and_then(|(_, s)| s.clone());
+        if states.iter().any(|(_, s)| s.is_none() || *s != first) {
+            errs.push(format!("{} asserted identical across {} ({why}): not identical: {}", c3s(c), names.join("+"), states.iter().map(|(n, s)| format!("{n} = {}", s.as_deref().unwrap_or("nothing there"))).collect::<Vec<_>>().join(", ")));
+        }
+        if let Some((_, part, _)) = tr.precedence.iter().find(|(pc, _, _)| pc == c) {
+            errs.push(format!("--precedence {}={part}: the cell is asserted identical ({why}), which no precedence line settles", c3s(c)));
         }
     }
     if !errs.is_empty() {
@@ -1342,6 +1575,59 @@ pub fn run_traced(specs: &[PartSpec], extra: Vec<Part>, clears: &[Clear], reserv
     }
     for l in &ledger.reserve_clash {
         s.push_str(&format!("reserve-clash acknowledged (the record is NOT CITABLE until its ruling composes in): {l}\n"));
+    }
+    // (vcompose, G1 Nov 14 08:04 (1)) THE COLUMN BOUND, default-deny: every part's placed cell and
+    // entity lies inside the column's x / z (`--column`), or an --outside-column line acknowledges
+    // that cell with the ruling that allows it (the record then not citable); an acknowledgement
+    // that matches no cell outside refuses; anything else fails by name (before, the report only
+    // said "the skeleton LEAVES the column", and V rev 3's latch row at z -7 composed silently)
+    let out_of = |c: &P| c[0] < f.x0 || c[0] > f.x1 || c[2] < f.z0 || c[2] > f.z1;
+    let mut obad: Vec<String> = Vec::new();
+    // (G1 Nov 14 08:39 CHANGES 2 (2)) every outside ITEM is judged on its own: a block (its cell) or an
+    // entity (its cell AND its kind); an acknowledgement matches exactly one item (a block's names the
+    // cell, an entity's `x,y,z#KIND`), so one line can't cover a second entity or a block sharing the cell
+    let mut items: Vec<(P, Option<String>, String)> = Vec::new();
+    for p in &parts {
+        for (c, st) in p.placed.blocks.iter().filter(|(c, st)| st.as_str() != "minecraft:air" && out_of(c)) {
+            items.push((*c, None, format!("held by {}: {st}", p.spec.name)));
+        }
+        // (G1 Nov 14 08:14 (2), ironspec 08:12a) an entity by its COLLISION BOX at its declared
+        // position, not its centre (Z1's 1.375-wide boat centred at z 9.5 reaches z 10.19); a kind
+        // whose box isn't known fails by name
+        for e in &p.placed.entities {
+            match entity_half_width(e) {
+                None => obad.push(format!("entity {} at ({},{},{}) (held by {}): no collision box known for its kind or a passenger's, so the column can't be judged", e.kind, e.pos[0], e.pos[1], e.pos[2], p.spec.name)),
+                Some(hw) => {
+                    let (x0, x1, z0, z1) = (e.pos[0] - hw, e.pos[0] + hw, e.pos[2] - hw, e.pos[2] + hw);
+                    if x0 < f.x0 as f64 || x1 > (f.x1 + 1) as f64 || z0 < f.z0 as f64 || z1 > (f.z1 + 1) as f64 {
+                        let kind = e.kind.trim_start_matches("minecraft:").to_string();
+                        items.push((e.cell(), Some(kind), format!("held by {}: entity {} at ({},{},{}), its box x {x0}..{x1} z {z0}..{z1} past the column's faces x {}..{} z {}..{}", p.spec.name, e.kind, e.pos[0], e.pos[1], e.pos[2], f.x0, f.x1 + 1, f.z0, f.z1 + 1)));
+                    }
+                }
+            }
+        }
+    }
+    let matches = |a: &OutsideAck, it: &(P, Option<String>, String)| a.cell == it.0 && a.kind == it.1;
+    for a in &tr.outside_column {
+        let n = items.iter().filter(|it| matches(a, it)).count();
+        let key = format!("{}{}", c3s(&a.cell), a.kind.as_deref().map(|k| format!("#{k}")).unwrap_or_default());
+        if n == 0 {
+            obad.push(format!("--outside-column {key}={}: no part holds such an item there past the column (a no-op refuses by name)", a.ruling));
+        } else if n > 1 {
+            obad.push(format!("--outside-column {key}={}: matches {n} items there; an acknowledgement covers exactly one", a.ruling));
+        }
+    }
+    for it in &items {
+        match tr.outside_column.iter().find(|a| matches(a, it)) {
+            Some(a) => ledger.outside_column.push(format!("{}{} ({}; allowed by {}: {})", c3s(&it.0), it.1.as_deref().map(|k| format!("#{k}")).unwrap_or_default(), it.2, a.ruling, a.why)),
+            None => obad.push(format!("{} ({})", c3s(&it.0), it.2)),
+        }
+    }
+    if !obad.is_empty() {
+        return Err(format!("OUTSIDE THE COLUMN x {}..{} z {}..{} (a part's cell or entity past the column's bound, or an unused --outside-column; G1 Nov 14 08:04): {}", f.x0, f.x1, f.z0, f.z1, obad.join("; ")));
+    }
+    for l in &ledger.outside_column {
+        s.push_str(&format!("outside-column acknowledged (the record is NOT CITABLE until its ruling composes in): {l}\n"));
     }
     s.push_str(&format!("clashes: none (no cell two parts write differently; no reserved box over another's{})\n", if ledger.reserve_clash.is_empty() { String::new() } else { format!("; {} reserved cells held, each acknowledged above", ledger.reserve_clash.len()) }));
     s.push_str(&tiers(&parts, reserves));
@@ -3092,13 +3378,33 @@ pub fn string_class_cells(heads: &[String], record: &BTreeMap<P, String>) -> Res
                 continue;
             };
             match record.get(&p) {
-                Some(s) if s == "minecraft:tripwire" || s.starts_with("minecraft:tripwire[") => ok.push(format!("{},{},{} {class}", p[0], p[1], p[2])),
-                Some(s) => bad.push(format!("`# string-class:` cell {},{},{} ({class}) holds {s} in the composed record, not the declared string (minecraft:tripwire)", p[0], p[1], p[2])),
+                // (G1 Nov 14 08:39 (2), non-blocking) the string ATTACHED to its hooks (`attached=true`): a
+                // loose string isn't the declared presence string
+                Some(s) if s.starts_with("minecraft:tripwire[") && s.contains("attached=true") => ok.push(format!("{},{},{} {class}", p[0], p[1], p[2])),
+                Some(s) => bad.push(format!("`# string-class:` cell {},{},{} ({class}) holds {s} in the composed record, not the declared string (minecraft:tripwire, attached)", p[0], p[1], p[2])),
                 None => bad.push(format!("`# string-class:` cell {},{},{} ({class}) is empty in the composed record, not the declared string (minecraft:tripwire)", p[0], p[1], p[2])),
             }
         }
     }
     if bad.is_empty() { Ok(ok) } else { Err(format!("string-class cells (G1 Nov 14 07:41): {}", bad.join("; "))) }
+}
+
+/// (vcompose, ironspec Nov 14 08:41a (2)) The owner part a `# stand-in:` declaration names, `owner NAME`
+/// (E-prime's "(glass, owner LIFT: ...)"): the part whose block the stand-in copies and must equal.
+pub fn stand_in_owner(rest: &str) -> Option<String> {
+    let mut from = 0;
+    while let Some(i) = rest[from..].find("owner ") {
+        let at = from + i;
+        let before = rest[..at].chars().last();
+        from = at + 6;
+        if before.is_none_or(|ch| ch == ' ' || ch == '(' || ch == ',') {
+            let name: String = rest[from..].chars().take_while(|ch| ch.is_ascii_alphanumeric() || *ch == '_' || *ch == '-').collect();
+            if !name.is_empty() {
+                return Some(name);
+            }
+        }
+    }
+    None
 }
 
 /// (vcompose, ironspec Nov 14 00:34, G1 01:22) Every stand-in a composed record carries (its
@@ -3143,10 +3449,18 @@ pub fn stand_in_supports(heads: &[String], metas: &[(String, String)], record: &
             bad.push(format!("{what}: its support {} is empty in the record", missing.join(" + ")));
         }
     };
+    let mut owned: Vec<String> = Vec::new();
     for h in heads {
         if let Some(rest) = h.strip_prefix("# stand-in:") {
             let mut it = rest.split_whitespace();
             let cell = it.next().unwrap_or("").to_string();
+            // (ironspec Nov 14 08:41a (2)) a stand-in naming its OWNER part (`owner NAME`) is a copy of
+            // that part's block: the compose already failed unless the owner holds the same block there
+            // (apply_precedence), so its support is the owner's, not judged again here
+            if let Some(o) = stand_in_owner(rest) {
+                owned.push(format!("stand-in {cell}: owner {o} (its block equals the owner's, checked at compose)"));
+                continue;
+            }
             check(format!("stand-in {cell}"), triple(&cell).ok(), it.next());
         }
     }
@@ -3157,6 +3471,7 @@ pub fn stand_in_supports(heads: &[String], metas: &[(String, String)], record: &
             check(format!("emulated {cell}"), triple(&cell).ok(), rest.split_whitespace().nth(1));
         }
     }
+    ok.extend(owned);
     if bad.is_empty() {
         Ok(ok)
     } else {
@@ -3690,7 +4005,7 @@ mod traced_tests {
         apply_precedence(&mut parts, None, &tr, &mut l).unwrap();
         assert!(!parts[0].placed.blocks.contains_key(&[0, 0, 0]) && parts[1].placed.blocks[&[0, 0, 0]] == "minecraft:glowstone");
         assert_eq!(l.same, vec!["A and B: 1 cells".to_string()], "the same state twice is counted, not a clash");
-        assert!(l.resolved[0].contains("B's state taken over A's minecraft:glass (the owner's newer file)"), "{:?}", l.resolved);
+        assert!(l.resolved[0].contains("B's minecraft:glowstone taken over A's minecraft:glass (the owner's newer file)"), "both states named (G1 08:41): {:?}", l.resolved);
         // a precedence line settling no clash refuses by name
         let mut parts = mk();
         let tr = Trace { stale: None, precedence: vec![([0, 0, 0], "B".into(), "x".into()), ([1, 0, 0], "A".into(), "y".into())], ..Trace::default() };
@@ -3834,7 +4149,7 @@ mod traced_tests {
         let e = go(&[], &[], &[]).unwrap_err();
         assert!(e.contains("CLASH") && e.contains("0,0,0"), "{e}");
         let rep = go(&["0,0,0=B:the test's ruling"], &[], &[]).unwrap();
-        assert!(rep.contains("precedence 0,0,0: B's state taken over A's minecraft:stone (the test's ruling)"), "{rep}");
+        assert!(rep.contains("precedence 0,0,0: B's minecraft:glass taken over A's minecraft:stone (the test's ruling)"), "{rep}");
         let e = go(&["0,0,0=B:the test's ruling"], &[], &["5,5,5=nothing there"]).unwrap_err();
         assert!(e.contains("--absent names no delta remove line"), "{e}");
         let d = vec![format!("D={}", dfile.display())];
@@ -3878,6 +4193,106 @@ mod traced_tests {
     }
 
     #[test]
+    fn a_cell_past_the_column_fails_by_name_unless_acknowledged_with_its_ruling() {
+        // (G1 Nov 14 08:04 (1)) the column bound, default-deny: one cell past z 9 fails naming the cell,
+        // its state and its part; --outside-column names the cell and the ruling that allows it (listed;
+        // the record not citable); an unused one refuses; a part inside the column composes as before
+        let dir = std::env::temp_dir().join(format!("vc-oc-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let a = dir.join("a.txt");
+        std::fs::write(&a, "name: a\ncircuit: mob-farm iron_ingot\nport output: 0 0 0\npalette:\n  G minecraft:glass\nlayer 0:\n  G\n").unwrap();
+        let f = Frame { x0: -6, z0: -6, x1: 9, z1: 9, phase_x: -6, phase_z: -6 };
+        let ack = |c: P, kind: Option<&str>, r: &str| OutsideAck { cell: c, kind: kind.map(String::from), ruling: r.into(), why: "the test".into() };
+        let go = |at: &str, oc: Vec<OutsideAck>| {
+            let specs = vec![PartSpec::parse(&format!("STOP={}{at}", a.display())).unwrap()];
+            run_traced(&specs, Vec::new(), &[], &[], &[("output".into(), [0, 0, 0])], &f, "t", false, None, None, [0; 3], None, &Trace { outside_column: oc, ..Trace::default() })
+        };
+        assert!(go("", Vec::new()).is_ok(), "inside the column: composes");
+        let e = go("@-5,-20,10", Vec::new()).unwrap_err();
+        assert!(e.contains("OUTSIDE THE COLUMN x -6..9 z -6..9") && e.contains("-5,-20,10 (held by STOP: minecraft:glass)"), "{e}");
+        let e = go("@0,-22,-7", Vec::new()).unwrap_err();
+        assert!(e.contains("0,-22,-7 (held by STOP: minecraft:glass)"), "z -7, the latch row's case: {e}");
+        let (rep, _, _, l) = go("@-5,-20,10", vec![ack([-5, -20, 10], None, "the fold as V rev 2 composed it")]).unwrap();
+        assert!(l.outside_column.len() == 1 && l.outside_column[0].contains("allowed by the fold as V rev 2 composed it") && rep.contains("outside-column acknowledged (the record is NOT CITABLE"), "{rep}");
+        let e = go("", vec![ack([-5, -20, 10], None, "a ruling")]).unwrap_err();
+        assert!(e.contains("--outside-column -5,-20,10=a ruling: no part holds such an item there past the column"), "{e}");
+        // (G1 Nov 14 08:14 (2)) an entity by its collision box: Z1's boat (1.375 wide, a zombie aboard)
+        // centred at z 9.5 reaches z 10.1875, past the column's face z 10, though its cell is inside
+        let b = dir.join("b.txt");
+        std::fs::write(&b, "name: b\ncircuit: mob-farm iron_ingot\nport output: 0 0 0\npalette:\n  G minecraft:glass\nlayer 0:\n  G\nentity: minecraft:oak_boat 0.5 0 10.5 {Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}\n").unwrap();
+        let gob = |oc: Vec<OutsideAck>| {
+            let specs = vec![PartSpec::parse(&format!("STOP={}@-5,-20,-1", b.display())).unwrap()];
+            run_traced(&specs, Vec::new(), &[], &[], &[("output".into(), [0, 0, 0])], &f, "t", false, None, None, [0; 3], None, &Trace { outside_column: oc, ..Trace::default() })
+        };
+        let e = gob(Vec::new()).unwrap_err();
+        assert!(e.contains("-5,-20,9 (held by STOP: entity minecraft:oak_boat at (-4.5,-20,9.5), its box x -5.1875..-3.8125 z 8.8125..10.1875"), "{e}");
+        let (rep, _, _, l) = gob(vec![ack([-5, -20, 9], Some("oak_boat"), "the boated waker as V rev 2 composed it")]).unwrap();
+        assert!(l.outside_column.len() == 1 && l.outside_column[0].starts_with("-5,-20,9#oak_boat") && rep.contains("NOT CITABLE"), "{rep}");
+        // (G1 Nov 14 08:39 CHANGES 2 (2)) an acknowledgement matches ONE item: the cell alone (a block's
+        // form) doesn't cover the boat, and one `#oak_boat` line can't cover two boats in a cell
+        let e = gob(vec![ack([-5, -20, 9], None, "a block's form")]).unwrap_err();
+        assert!(e.contains("--outside-column -5,-20,9=a block's form: no part holds such an item there") && e.contains("-5,-20,9 (held by STOP: entity minecraft:oak_boat"), "{e}");
+        let b2 = dir.join("b2.txt");
+        std::fs::write(&b2, "name: b2\ncircuit: mob-farm iron_ingot\nport output: 0 0 0\npalette:\n  G minecraft:glass\nlayer 0:\n  G\nentity: minecraft:oak_boat 0.5 0 10.5\nentity: minecraft:oak_boat 0.6 0 10.6\n").unwrap();
+        let specs = vec![PartSpec::parse(&format!("STOP={}@-5,-20,-1", b2.display())).unwrap()];
+        let e = run_traced(&specs, Vec::new(), &[], &[], &[("output".into(), [0, 0, 0])], &f, "t", false, None, None, [0; 3], None, &Trace { outside_column: vec![ack([-5, -20, 9], Some("oak_boat"), "one line")], ..Trace::default() }).unwrap_err();
+        assert!(e.contains("--outside-column -5,-20,9#oak_boat=one line: matches 2 items there; an acknowledgement covers exactly one"), "{e}");
+        // a kind whose box the table doesn't know fails by name
+        let c = dir.join("c.txt");
+        std::fs::write(&c, "name: c\ncircuit: mob-farm iron_ingot\nport output: 0 0 0\npalette:\n  G minecraft:glass\nlayer 0:\n  G\nentity: minecraft:armor_stand 0.5 0 0.5\n").unwrap();
+        let specs = vec![PartSpec::parse(&format!("X={}", c.display())).unwrap()];
+        let e = run_traced(&specs, Vec::new(), &[], &[], &[("output".into(), [0, 0, 0])], &f, "t", false, None, None, [0; 3], None, &Trace::default()).unwrap_err();
+        assert!(e.contains("entity minecraft:armor_stand at (0.5,0,0.5) (held by X): no collision box known"), "{e}");
+        // (G1 Nov 14 08:39 (3)) passengers read structurally; a boat's second seat reaches 0.9
+        assert_eq!(snbt_passengers("{Passengers:[{id:\"minecraft:zombie\",HandItems:[{id:\"minecraft:iron_sword\",count:1}]}]}"), Some(vec![("minecraft:zombie".to_string(), vec![])]), "an id in equipment isn't a passenger");
+        assert_eq!(snbt_passengers("{Passengers:[{id:'minecraft:villager',Offers:{Recipes:[{buy:{id:\"minecraft:emerald\"}}]}}]}"), Some(vec![("minecraft:villager".to_string(), vec![])]), "single quotes; an id in offers isn't");
+        assert_eq!(snbt_passengers("{Passengers:[{id:\"minecraft:zombie\"},{id:\"minecraft:villager\"}]}").map(|v| v.len()), Some(2));
+        let two = mctas::design::EntitySpec { kind: "minecraft:oak_boat".into(), pos: [0.5, 0.0, 0.5], nbt: Some("{Passengers:[{id:\"minecraft:zombie\"},{id:\"minecraft:villager\"}]}".into()) };
+        assert!(entity_half_width(&two).is_some_and(|w| (w - 0.9).abs() < 1e-9), "two riders: the second seat's 0.6 + 0.3");
+        let one = mctas::design::EntitySpec { kind: "minecraft:oak_boat".into(), pos: [0.5, 0.0, 0.5], nbt: Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}".into()) };
+        assert_eq!(entity_half_width(&one), Some(0.6875), "one rider at the centre: the boat's own half width");
+        assert_eq!(snbt_passengers("{Passengers:[{id:\"minecraft:zombie\""), None, "unparsable snbt");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_declared_stand_in_fails_on_any_difference_from_its_owner_whatever_precedence_says() {
+        // (ironspec Nov 14 08:41a (2), the (-3,12,7) ruling) a part's `# stand-in: x,y,z (..., owner LIFT:
+        // ...)` copies LIFT's block: identical composes (kept once, no precedence line); a differing state
+        // fails by name even with a precedence line naming a winner; a precedence line on the cell refuses;
+        // an owner holding nothing there fails; the support rule defers to the owner
+        let dir = std::env::temp_dir().join(format!("vc-same-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mk = |n: &str, head: &str, block: &str| {
+            let p = dir.join(format!("{n}.txt"));
+            std::fs::write(&p, format!("{head}name: {n}\ncircuit: mob-farm iron_ingot\nport output: 0 0 0\npalette:\n  X {block}\nlayer 0:\n  X\n")).unwrap();
+            p
+        };
+        let decl = "# stand-in: 0,0,0 (glass, owner LIFT: the lift's cell, laid here too so this file loads alone)\n";
+        let (lift, station, other) = (mk("lift", "", "minecraft:glass"), mk("station", decl, "minecraft:glass"), mk("other", decl, "minecraft:stone"));
+        let f = Frame { x0: -6, z0: -6, x1: 9, z1: 9, phase_x: -6, phase_z: -6 };
+        let go = |b: &std::path::Path, prec: Vec<(P, String, String)>| {
+            let specs = vec![PartSpec::parse(&format!("LIFT={}", lift.display())).unwrap(), PartSpec::parse(&format!("STATION={}", b.display())).unwrap()];
+            run_traced(&specs, Vec::new(), &[], &[], &[("output".into(), [0, 0, 0])], &f, "t", false, None, None, [0; 3], None, &Trace { precedence: prec, ..Trace::default() })
+        };
+        assert_eq!(stand_in_owner(" 0,0,0 (glass, owner LIFT: x)").as_deref(), Some("LIFT"));
+        assert_eq!(stand_in_owner(" 0,0,0 support=0,-1,0 (a lever, its co-owner said so)").as_deref(), None, "a word ending in owner isn't the key");
+        let (rep, _, _, l) = go(&station, Vec::new()).unwrap();
+        assert!(l.same.iter().any(|s| s.contains("LIFT and STATION: 1 cells")) && rep.contains("held twice with the same state"), "identical composes, kept once: {rep}");
+        let e = go(&other, vec![([0, 0, 0], "LIFT".into(), "the lift owns it".into())]).unwrap_err();
+        assert!(e.contains("0,0,0 asserted identical across LIFT+STATION (STATION's declared stand-in, owner LIFT): not identical: LIFT = minecraft:glass, STATION = minecraft:stone"), "a difference fails whatever precedence says: {e}");
+        let e = go(&station, vec![([0, 0, 0], "LIFT".into(), "x".into())]).unwrap_err();
+        assert!(e.contains("--precedence 0,0,0=LIFT: the cell is asserted identical (STATION's declared stand-in, owner LIFT)"), "{e}");
+        let specs = vec![PartSpec::parse(&format!("STATION={}", station.display())).unwrap()];
+        let e = run_traced(&specs, Vec::new(), &[], &[], &[("output".into(), [0, 0, 0])], &f, "t", false, None, None, [0; 3], None, &Trace::default()).unwrap_err();
+        assert!(e.contains("LIFT = nothing there"), "the owner must hold it: {e}");
+        let heads = vec!["# stand-in: 0,0,0 (glass, owner LIFT: x) (carried from part STATION, moved by 0,0,0)".to_string()];
+        let rec: BTreeMap<P, String> = [([0, 0, 0], "minecraft:glass".to_string())].into_iter().collect();
+        assert!(stand_in_supports(&heads, &[], &rec).unwrap()[0].contains("owner LIFT"), "the support rule defers to the owner");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
     fn a_string_class_line_carries_its_cells_moved() {
         // (farmopt Nov 14 07:39 (a) / 07:45, G1 07:41; part 35, E-prime's station)
         // `# string-class: a+b+c=CLASS (why)`: every cell moves with the part and the class stays; a
@@ -3899,14 +4314,39 @@ mod traced_tests {
         let heads = vec!["# string-class: 0,-20,-1+1,-20,-1=cart-keyed (a cart on R_1 presses it) (carried from part STATION, moved by 0,-20,-1)".to_string()];
         let mut rec: BTreeMap<P, String> = BTreeMap::new();
         rec.insert([0, -20, -1], "minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]".into());
-        rec.insert([1, -20, -1], "minecraft:tripwire".into());
+        rec.insert([1, -20, -1], "minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]".into());
         assert_eq!(string_class_cells(&heads, &rec).unwrap().len(), 2);
+        // (G1 08:39 (2)) a loose string (not attached to its hooks) isn't the declared presence string
+        rec.insert([1, -20, -1], "minecraft:tripwire[attached=false,disarmed=false,east=false,north=false,powered=false,south=false,west=false]".into());
+        assert!(string_class_cells(&heads, &rec).unwrap_err().contains("cell 1,-20,-1 (cart-keyed) holds minecraft:tripwire[attached=false"));
         rec.insert([1, -20, -1], "minecraft:tripwire_hook[attached=true,facing=west,powered=false]".into());
         let e = string_class_cells(&heads, &rec).unwrap_err();
         assert!(e.contains("cell 1,-20,-1 (cart-keyed) holds minecraft:tripwire_hook"), "a hook isn't the string: {e}");
         rec.remove(&[1, -20, -1]);
         let e = string_class_cells(&heads, &rec).unwrap_err();
         assert!(e.contains("cell 1,-20,-1 (cart-keyed) is empty"), "{e}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn an_update_consumers_line_carries_its_cells_moved() {
+        // (farmopt Nov 14 08:16 (1), ironspec 08:14a (2); part 60's form) every cell of the line moves
+        // with the part, the class, ids and reason kept; a source cell outside the part's kept box is
+        // listed as dropped by name; a cleared consumer cell fails by name
+        let dir = std::env::temp_dir().join(format!("vc-uc-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let a = dir.join("a.txt");
+        std::fs::write(&a, "# update-consumers: by-code 0,0,0=1,0,0 glass+0,1,0 tripwire (26.3 TripWireBlock.updateShape: connections only)\nname: a\ncircuit: mob-farm iron_ingot\nport output: 0 0 0\npalette:\n  D minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]\n  G minecraft:glass\nlayer 0:\n  DG\n").unwrap();
+        let specs = vec![PartSpec::parse(&format!("LIFT={}@7,-3,4", a.display())).unwrap()];
+        let c = carried_filtered(&specs, [0; 3], &CarryFilter::default()).unwrap();
+        let line = c.heads.iter().find(|h| h.starts_with("# update-consumers:")).expect("carried");
+        assert!(line.starts_with("# update-consumers: by-code 7,-3,4=8,-3,4 glass+7,-2,4 tripwire (26.3 TripWireBlock.updateShape: connections only)"), "{line}");
+        let kept = vec![PartSpec::parse(&format!("LIFT={}#1,0,0,1,0,0", a.display())).unwrap()];
+        let c = carried_filtered(&kept, [0; 3], &CarryFilter::default()).unwrap();
+        assert!(!c.heads.iter().any(|h| h.starts_with("# update-consumers:")) && c.dropped.iter().any(|d| d.contains("its source cell is outside the part's kept box")), "{:?}", c.dropped);
+        let filt = CarryFilter { clear: vec![([1, 0, 0], [1, 0, 0])], ..CarryFilter::default() };
+        let e = carried_filtered(&[PartSpec::parse(&format!("LIFT={}", a.display())).unwrap()], [0; 3], &filt).unwrap_err();
+        assert!(e.contains("`# update-consumers:`") && e.contains("its cell is cleared"), "{e}");
         std::fs::remove_dir_all(&dir).ok();
     }
 

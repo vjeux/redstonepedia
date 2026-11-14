@@ -1551,6 +1551,12 @@ pub(crate) fn checks() -> Vec<Check> {
             "--clear=-6,-30,-6,9,-24,10".into(),
             "--clear=5,-23,3,7,-20,5".into(),
             "--port=output=-6,1,-6".into(),
+            // (G1 Nov 14 08:04 (1) / 08:10, ironspec 08:09a (a): ONLY WHILE MAIN's V RECORD CARRIES THE
+            // FOLD; a stale acknowledgement refuses, so the stop's in-bound rev 3.1 drops these) the
+            // column bound: the fold placeholder's two cage-wall glass cells past z 9, named
+            "--outside-column=-5,-20,10=ironspec Nov 14 08:09a (a), while main's V record carries the fold:the fold placeholder's (bfa0c8098) cage wall south of the boated waker Z1 at (-4.5,-20,9.5), whose boat's box reaches z 10.19".into(),
+            "--outside-column=-5,-19,10=ironspec Nov 14 08:09a (a), while main's V record carries the fold:the fold placeholder's (bfa0c8098) cage wall south of the boated waker Z1 at (-4.5,-20,9.5), whose boat's box reaches z 10.19".into(),
+            "--outside-column=-5,-20,9#oak_boat=ironspec Nov 14 08:26a (2), while main's V record carries the fold:the fold placeholder's Z1 boat box crossing z 10.0 (bfa0c8098), its 1.375-wide boat centred at (-4.5,-20,9.5) reaching z 10.19".into(),
         ];
         v.push(Check {
             name: "farm:v-live-station".into(),
@@ -1562,6 +1568,14 @@ pub(crate) fn checks() -> Vec<Check> {
             pred: Box::new(|o| {
                 has(&o[0], "clashes: none")?;
                 has(&o[0], "string-class cells (G1 Nov 14 07:41): ")?;
+                // (G1 Nov 14 08:39 (2), non-blocking) the carried count equals the live station's own
+                // declaration count, so a vanished line can't pass as "0 carried"
+                let st = std::fs::read_to_string("designs/farms/iron/carousel-assembly/wip/station/f1q2-station.txt").map_err(|e| format!("the live station: {e}"))?;
+                let declared: usize = st.lines().filter_map(|l| l.strip_prefix("# string-class:")).map(|v| v.split('=').next().unwrap_or("").split('+').count()).sum();
+                let carried: usize = o[0].lines().find_map(|l| l.split("string-class cells (G1 Nov 14 07:41): ").nth(1)).and_then(|r| r.split_whitespace().next()).and_then(|n| n.parse().ok()).ok_or("no string-class count printed")?;
+                if carried != declared {
+                    return Err(format!("string-class cells carried {carried}, the live station declares {declared}"));
+                }
                 Ok("V composes from the current station and parts: no clash, every line carried, every string-class cell a string".into())
             }),
         });
