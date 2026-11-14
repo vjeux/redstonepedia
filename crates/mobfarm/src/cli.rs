@@ -2365,6 +2365,10 @@ pub enum MobfarmCmd {
         /// lever (8,-14,-5) on, flipped off as the release) instead of the torch stand-in.
         #[arg(long)]
         r1_built: bool,
+        /// (R6) with --r1-built: the built R1's layout, laid relative to --queue: record7 (today's,
+        /// written for the queue (9,-14,-4)) or v (V's re-route, written for (9,-10,-4); day-1 20:40).
+        #[arg(long, default_value = "record7")]
+        r1_layout: crate::waycell::R1Layout,
         /// (ironspec 02:33 / 03:01, B3's daytime bar) visit rows with the night SKIPPED this many gt
         /// after the release (the day time set to the next morning that tick; one row per value):
         /// the napper rides the rest of the descent by day. Every path the ride computes is printed.
@@ -2413,6 +2417,94 @@ pub enum MobfarmCmd {
         /// rows' speed entering (9,-15,-2) must be at least it + 10 % (without it: printed only)
         #[arg(long)]
         rail_end_least: Option<f64>,
+        /// (R6; ironspec 21:54) the bed head's block X,Y,Z: the ride rows print the queue cart's
+        /// distance at rest to its centre and judge it > 17 (the 16-ball's design bar)
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        ball_head: Vec<i32>,
+        /// (R6; ironspec 23:57 / 00:01: three nappers in flight, the leg bench with them bunched) With
+        /// --leg, --bed, --leg-day and --r1-built: COUNT,SPACING nappers down the leg, one every SPACING gt,
+        /// followed --ride-ticks gt; each napper's arrival, wait, departure, health and stamp, FIFO, the
+        /// most waiting at once, the BARs.
+        #[arg(long, value_delimiter = ',')]
+        leg_train: Vec<u32>,
+        /// With --leg-train: the release ticks (NOT-ready's lever off for --leg-release-hold gt, then on).
+        #[arg(long, value_delimiter = ',')]
+        leg_releases: Vec<u32>,
+        #[arg(long, default_value_t = 12)]
+        leg_release_hold: u32,
+        /// (G1 00:06) With --leg-train: each next napper starts this many gt after the previous one
+        /// passes the departure detector (the gate "the previous cart has left"), instead of SPACING.
+        #[arg(long)]
+        leg_gate: Option<u32>,
+        /// With --leg-train: release each napper this many gt after it comes to rest on the queue cell
+        /// (the stop emulated free), beside --leg-releases.
+        #[arg(long)]
+        leg_release_after: Option<u32>,
+        /// (ironspec 00:54 / 01:00) With --leg-train: the napper-only hold P1 X,Y,Z (a north-south powered
+        /// rail laid there, released by the token "the front is free": set at the start and by every
+        /// departure press, cleared when a napper leaves the hold; one release per edge).
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        leg_hold: Vec<i32>,
+        /// (G1 01:29) With --leg-train: a cell X,Y,Z whose first tick per napper is printed (the resync
+        /// detector's press tick).
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        leg_watch: Vec<i32>,
+        /// (G1 01:35, the planted twin) With --leg-train: a ridden cart planted at the front and one on the
+        /// landing before the train starts, so the first drop lands on a ridden cart (the drop BAR fails by
+        /// name, the falling rider's health printed).
+        #[arg(long)]
+        leg_plant_landing: bool,
+        /// (ironspec 03:36 (3)) With --leg-train: a ridden cart planted on the front before the train starts
+        /// (it settles on the front's braked slope, its box reaching into the column's footprint): the first
+        /// drop must never land on it.
+        #[arg(long)]
+        leg_plant_front: bool,
+        /// (ironspec 03:36 (3), the planted row) With --leg-train and --leg-hold: the token's evidence removed,
+        /// the hold always powered (nappers pass it unheld, back to back).
+        #[arg(long)]
+        leg_no_token: bool,
+        /// (ironspec 03:34 (2), the riderless player fault) With --leg-train: empty carts planted at rest,
+        /// "X,Y,Z;X,Y,Z" (cart positions).
+        #[arg(long, allow_hyphen_values = true)]
+        leg_plant_empty: Option<String>,
+        /// (ironspec 03:47) With --leg-train and --leg-hold: the token held (not free at the start) until tick T,
+        /// so the first napper rests in the hold before its release.
+        #[arg(long)]
+        leg_token_at: Option<u32>,
+        /// (ironspec 04:32 / 04:37) With --leg-train: cells "X,Y,Z;X,Y,Z" whose `powered` is read every tick (the
+        /// boosters), each unpowered tick printed.
+        #[arg(long, allow_hyphen_values = true)]
+        leg_watch_powered: Option<String>,
+        /// (day-1 05:07, the stall row) With --leg-train and --leg-hold: the first N departure presses SET nothing.
+        #[arg(long, default_value_t = 0)]
+        leg_suppress_presses: u32,
+        /// (G1 05:07 (2)(b)) With --leg-train and --leg-hold: a SET and a CLEAR forced into tick T (must resolve to CLEAR).
+        #[arg(long)]
+        leg_coincident: Option<u32>,
+        /// (ironspec 03:36; cc767b78 04:50; G1 05:00 (1)(b)) With --leg-train: ridden carts planted at rest,
+        /// "X,Y,Z;X,Y,Z" (the front at the game's rest, a jam on the departure path).
+        #[arg(long, allow_hyphen_values = true)]
+        leg_plant_ridden: Option<String>,
+        /// (ironspec 03:34 (2)) With --hold-sweep: the runs' carts empty (no rider).
+        #[arg(long)]
+        hold_empty: bool,
+        /// (ironspec 02:33 (2)) With --leg-train: the timing row: SPACING and --leg-release-after each offset
+        /// by -2 / 0 / +2 gt, and a 3-gt world open (the part at level 32) at every phase 0..PERIOD; every BAR
+        /// judged in every run, the failing runs printed.
+        #[arg(long)]
+        leg_timing_row: Option<u32>,
+        /// (ironspec 01:44b (1), G1 01:46) The hold's sweep: A,B,STEP start speeds (with --leg's start and
+        /// heading, --leg-hold, --hold-ahead, --hold-edge; --launch-phases phases along the start cell): each
+        /// run braked to rest in the hold, then the hold powered: the rest z, the relaunch time to the cell
+        /// ahead, the speed off the line's end, the landing; BAR within --hold-relaunch gt.
+        #[arg(long, value_delimiter = ',')]
+        hold_sweep: Vec<f64>,
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        hold_ahead: Vec<i32>,
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        hold_edge: Vec<i32>,
+        #[arg(long, default_value_t = 40)]
+        hold_relaunch: u32,
         /// (ironspec 17:38: the boost-margin row) with --ride-to, --south, --r1-built: the release held
         /// for k gt, k in A..=B (NOT-ready's lever back ON at t k), each cart followed to the entry or
         /// its end; the stated minimum pulse
@@ -8947,7 +9039,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 std::process::exit(1);
             }
         }
-        MobfarmCmd::WayCell { design, positions, move_positions, s9, c_descent, brakes, queue, post, own, napper, keep_clear, chunk, pad, draws, write, rail, extra, ride_to, custom_post, wait, bed, leg, hold, south, deep, ride_ticks, release_phases, restart_at, stamp, follow, queue_glass, leg_day, release_sweep, visit, visit_holds, visit_no_post, path_probe, seat_at, restart_every, freeze_every, band, r1_built, visit_skip, bystander, watch_cells, visit_clear_stamp, visit_plant_stamp, visit_plant_erase, visit_start_held, visit_break_bed, report_only, reference_run, rail_end_least, release_pulse, launch_speeds, launch_phases, visit_at_rest, probe_every_tick, freeze_lens, water_restart_row, water_scan, scan_box, water_search, search_rests, search_sweep } => {
+        MobfarmCmd::WayCell { design, positions, move_positions, s9, c_descent, brakes, queue, post, own, napper, keep_clear, chunk, pad, draws, write, rail, extra, ride_to, custom_post, wait, bed, leg, hold, south, deep, ride_ticks, release_phases, restart_at, stamp, follow, queue_glass, leg_day, release_sweep, visit, visit_holds, visit_no_post, path_probe, seat_at, restart_every, freeze_every, band, r1_built, r1_layout, visit_skip, bystander, watch_cells, visit_clear_stamp, visit_plant_stamp, visit_plant_erase, visit_start_held, visit_break_bed, report_only, reference_run, rail_end_least, ball_head, leg_train, leg_releases, leg_release_hold, leg_gate, leg_release_after, leg_hold, leg_watch, leg_plant_landing, leg_plant_front, leg_no_token, leg_plant_empty, leg_token_at, leg_watch_powered, leg_suppress_presses, leg_coincident, leg_plant_ridden, hold_empty, leg_timing_row, hold_sweep, hold_ahead, hold_edge, hold_relaunch, release_pulse, launch_speeds, launch_phases, visit_at_rest, probe_every_tick, freeze_lens, water_restart_row, water_scan, scan_box, water_search, search_rests, search_sweep } => {
             if let [a, b] = water_restart_row[..] {
                 let ticks: Vec<i64> = (a..=b).collect();
                 for how in crate::liveness::Restart::rows() {
@@ -9014,6 +9106,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 seat_at: (seat_at.len() == 3).then(|| [seat_at[0], seat_at[1], seat_at[2]]),
                 band: if band.len() == 2 { [band[0], band[1]] } else { [0.11, 0.24] },
                 r1_built,
+                r1_layout,
                 visit_skip: visit_skip.clone(),
                 bystander: (bystander.len() == 3).then(|| [bystander[0], bystander[1], bystander[2]]),
                 watch_cells: watch_cells
@@ -9043,9 +9136,10 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     .collect(),
                 // (ironspec 10:42 / 10:58; G1 14:51 (4)) the bounded declarations in the ride's scope,
                 // read strictly by main's bounded reader: a malformed one in scope is an error
-                declared_bounded: crate::waycell::bounded_in_scope(&std::fs::read_to_string(&design)?, crate::waycell::RIDE_SCOPE).map_err(|e| anyhow::anyhow!(e))?,
+                declared_bounded: crate::waycell::bounded_in_scope(&std::fs::read_to_string(&design)?, crate::waycell::ride_scope(if queue.len() == 3 { [queue[0], queue[1], queue[2]] } else { [9, -14, -4] })).map_err(|e| anyhow::anyhow!(e))?,
                 reference_run,
                 rail_end_least,
+                ball_head: (ball_head.len() == 3).then(|| [ball_head[0], ball_head[1], ball_head[2]]),
             };
             if let Some(n) = deep {
                 // the deep queue's leg, stop wall and climb (ironspec 11:52), every n-th slope powered
@@ -9103,6 +9197,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 rows: release_phases > 0 || !restart_at.is_empty() || !restart_every.is_empty() || !freeze_every.is_empty(),
                 release_pulse: release_pulse.len(),
                 launch_speeds: launch_speeds.len(),
+                leg_train: leg_train.len(),
+                hold_sweep: hold_sweep.len(),
                 south: o.south,
                 r1_built: o.r1_built,
             })
@@ -9296,7 +9392,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
                 return Ok(());
             }
-            if ride_to.len() == 3 {
+            // (the leg train takes --ride-to as the stop's entry, so the ride bench runs only without it)
+            if ride_to.len() == 3 && leg_train.is_empty() {
                 for l in crate::waycell::ride_lines(&spec, &o, [ride_to[0], ride_to[1], ride_to[2]], ride_ticks).map_err(|e| anyhow::anyhow!(e))? {
                     println!("{l}");
                 }
@@ -9310,6 +9407,121 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 // (G1's W3 on R2) the wait's verdict is the exit status (--report-only: exit 0)
                 if !pass {
                     println!("way-cell wait: FAIL{}", if report_only { " (--report-only: exit 0)" } else { " (exit 1)" });
+                    if !report_only {
+                        std::process::exit(1);
+                    }
+                }
+                return Ok(());
+            }
+            // (R6; ironspec 01:44b) the hold's braking / relaunch sweep
+            if hold_sweep.len() == 3 {
+                anyhow::ensure!(leg.len() == 6 && leg_hold.len() == 3 && hold_ahead.len() == 3 && hold_edge.len() == 3, "--hold-sweep needs --leg X,Y,Z,VX,VY,VZ (the start and heading), --leg-hold, --hold-ahead and --hold-edge");
+                let (a, b, step) = (hold_sweep[0], hold_sweep[1], hold_sweep[2]);
+                anyhow::ensure!(step > 0.0 && b >= a, "--hold-sweep A,B,STEP: STEP > 0, B >= A");
+                let n = ((b - a) / step + 1e-9).floor() as usize + 1;
+                let speeds: Vec<f64> = (0..n).map(|k| a + k as f64 * step).collect();
+                let norm = (leg[3] * leg[3] + leg[5] * leg[5]).sqrt();
+                anyhow::ensure!(norm > 0.0, "--leg's motion gives the heading (non-zero in x or z)");
+                let (lines, pass) = crate::waycell::hold_sweep_lines(&spec, &o, [leg[0], leg[1], leg[2]], [leg[3] / norm, 0.0, leg[5] / norm], &speeds, launch_phases, [leg_hold[0], leg_hold[1], leg_hold[2]], [hold_ahead[0], hold_ahead[1], hold_ahead[2]], [hold_edge[0], hold_edge[1], hold_edge[2]], hold_relaunch, hold_empty).map_err(|e| anyhow::anyhow!(e))?;
+                for l in &lines {
+                    println!("{l}");
+                }
+                if !pass {
+                    println!("way-cell hold sweep: FAIL{}", if report_only { " (--report-only: exit 0)" } else { " (exit 1)" });
+                    if !report_only {
+                        std::process::exit(1);
+                    }
+                }
+                return Ok(());
+            }
+            // (R6; ironspec 23:57 / 00:01) several nappers down the leg, bunched
+            if leg_train.len() == 2 {
+                anyhow::ensure!(leg.len() == 6 && bed.len() == 3, "--leg-train needs --leg X,Y,Z,VX,VY,VZ and --bed X,Y,Z");
+                let day = leg_day.ok_or_else(|| anyhow::anyhow!("--leg-train needs --leg-day (the riders' day time)"))?;
+                anyhow::ensure!(leg_train[0] >= 1 && leg_train[1] >= 1, "--leg-train COUNT,SPACING: both at least 1");
+                let hold_p = (leg_hold.len() == 3).then(|| [leg_hold[0], leg_hold[1], leg_hold[2]]);
+                let mut leg_plants = crate::waycell::LegPlants {
+                    front: leg_plant_front,
+                    no_token: leg_no_token,
+                    empty: Vec::new(),
+                    token_at: leg_token_at,
+                    suppress_presses: leg_suppress_presses,
+                    coincident_at: leg_coincident,
+                    ridden: {
+                        let mut v = Vec::new();
+                        for p in leg_plant_ridden.as_deref().unwrap_or("").split(';').map(str::trim).filter(|p| !p.is_empty()) {
+                            let c: Vec<f64> = p.split(',').map(|x| x.trim().replace('\u{2212}', "-").parse::<f64>()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("--leg-plant-ridden {p:?}: {e}"))?;
+                            anyhow::ensure!(c.len() == 3 && c.iter().all(|x| x.is_finite()), "--leg-plant-ridden {p:?}: X,Y,Z (finite)");
+                            v.push([c[0], c[1], c[2]]);
+                        }
+                        v
+                    },
+                    // the stop's entry (--ride-to): the way-in's health judged up to it
+                    entry: (ride_to.len() == 3).then(|| [ride_to[0], ride_to[1], ride_to[2]]),
+                    watch_powered: {
+                        let mut v = Vec::new();
+                        for p in leg_watch_powered.as_deref().unwrap_or("").split(';').map(str::trim).filter(|p| !p.is_empty()) {
+                            let c: Vec<i32> = p.split(',').map(|x| x.trim().replace('\u{2212}', "-").parse::<i32>()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("--leg-watch-powered {p:?}: {e}"))?;
+                            anyhow::ensure!(c.len() == 3, "--leg-watch-powered {p:?}: X,Y,Z");
+                            v.push([c[0], c[1], c[2]]);
+                        }
+                        v
+                    },
+                    // the bed head's centre (--bed is the head's cell)
+                    bed_head: Some([bed[0] as f64 + 0.5, bed[1] as f64 + 0.5625, bed[2] as f64 + 0.5]),
+                };
+                for p in leg_plant_empty.as_deref().unwrap_or("").split(';').map(str::trim).filter(|p| !p.is_empty()) {
+                    let v: Vec<f64> = p.split(',').map(|x| x.trim().replace('\u{2212}', "-").parse::<f64>()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("--leg-plant-empty {p:?}: {e}"))?;
+                    anyhow::ensure!(v.len() == 3 && v.iter().all(|x| x.is_finite()), "--leg-plant-empty {p:?}: X,Y,Z (finite)");
+                    leg_plants.empty.push([v[0], v[1], v[2]]);
+                }
+                anyhow::ensure!(!leg_no_token || hold_p.is_some(), "--leg-no-token needs --leg-hold (the token powers the hold)");
+                let watch_p = (leg_watch.len() == 3).then(|| [leg_watch[0], leg_watch[1], leg_watch[2]]);
+                // (ironspec 02:33 (2)) the timing row: every clocked event offset by +-2 gt (the spacing and
+                // the stop's release delay, both signs) and a k + j = 3 world open (the part at level 32 for 3 gt)
+                // at every phase 0..PERIOD; each run judged by every BAR, the worst printed
+                if let Some(period) = leg_timing_row {
+                    let spacings: Vec<u32> = [leg_train[1].saturating_sub(2).max(1), leg_train[1], leg_train[1] + 2].into_iter().collect();
+                    let afters: Vec<Option<u32>> = match leg_release_after {
+                        Some(a) => vec![Some(a.saturating_sub(2)), Some(a), Some(a + 2)],
+                        None => vec![None],
+                    };
+                    let (mut runs, mut fails): (u32, Vec<String>) = (0, Vec::new());
+                    for &sp in &spacings {
+                        for &af in &afters {
+                            for t0 in 0..period {
+                                runs += 1;
+                                let (lines, pass) = crate::waycell::leg_train_lines(&spec, &o, [leg[0], leg[1], leg[2]], [leg[3], leg[4], leg[5]], [bed[0], bed[1], bed[2]], day, leg_train[0], sp, leg_gate, &leg_releases, af, leg_release_hold, ride_ticks, hold_p, watch_p, leg_plant_landing, Some((t0, 3)), &leg_plants).map_err(|e| anyhow::anyhow!(e))?;
+                                if !pass {
+                                    let failing: Vec<String> = lines.iter().filter(|l| l.contains(" BAR ") && l.ends_with("FAILS") || l.contains(" BAR ") && l.contains(": FAILS")).cloned().collect();
+                                    // the hurt napper's own line (its first-hurt tick and cell) and the releases
+                                    let hurt: Vec<String> = lines.iter().filter(|l| l.contains("first hurt") || l.contains("RESTED on the landing")).map(|l| l.replace("(leg train) ", "")).collect();
+                                    let failing: Vec<String> = failing.into_iter().chain(hurt).collect();
+                                    fails.push(format!("spacing {sp}, release after {af:?}, the world open at t {t0}..{}: {}", t0 + 3, failing.join(" | ")));
+                                }
+                            }
+                        }
+                    }
+                    println!(
+                        "(leg train timing row) {runs} run(s): spacing {spacings:?} x the stop's release delay {afters:?} x a 3-gt world open (level 32: entities frozen, redstone and block ticks running) at every phase 0..{period} (ironspec 02:33 (2)); every BAR in every run: {}",
+                        if fails.is_empty() { "PASSES".to_string() } else { format!("FAILS {} of {runs}", fails.len()) }
+                    );
+                    for f in fails.iter().take(10) {
+                        println!("  {f}");
+                    }
+                    println!("(leg train timing row) the riders' CANT_REACH stamps come from their own partial paths (HOME the bed): none planted (ironspec 01:41b)");
+                    if !fails.is_empty() && !report_only {
+                        std::process::exit(1);
+                    }
+                    return Ok(());
+                }
+                let (lines, pass) = crate::waycell::leg_train_lines(&spec, &o, [leg[0], leg[1], leg[2]], [leg[3], leg[4], leg[5]], [bed[0], bed[1], bed[2]], day, leg_train[0], leg_train[1], leg_gate, &leg_releases, leg_release_after, leg_release_hold, ride_ticks, hold_p, watch_p, leg_plant_landing, None, &leg_plants).map_err(|e| anyhow::anyhow!(e))?;
+                for l in &lines {
+                    println!("{l}");
+                }
+                println!("(leg train) the riders' CANT_REACH stamps come from their own partial paths (HOME the bed): none planted (ironspec 01:41b)");
+                if !pass {
+                    println!("way-cell leg train: FAIL{}", if report_only { " (--report-only: exit 0)" } else { " (exit 1)" });
                     if !report_only {
                         std::process::exit(1);
                     }
