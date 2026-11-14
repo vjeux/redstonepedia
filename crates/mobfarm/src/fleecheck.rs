@@ -93,16 +93,37 @@ pub struct Source {
     pub physical: Vec<(BlockPos, Vec<(BlockPos, String)>)>,
 }
 
-/// (part 37) A found path's nodes that stand inside a shape over the 0.6 step (a villager's maxUpStep):
-/// each node cell whose own collision shape tops out at 10/16 or more (a top-half trapdoor's cap; a
-/// bottom trapdoor, a carpet, a bed's 9/16 and a slab are stepped onto), with its block.
+/// (part 37; tick-exact Nov 14 02:05, part 40) A found path's nodes a villager can't physically pass: each
+/// node cell whose own collision shape tops out at 10/16 or more (a top-half trapdoor's cap: over the 0.6
+/// step, never stood under), and each node on a low shape (a bottom trapdoor's 3/16, a slab's 8/16, a
+/// carpet) whose headroom over that step is short of the villager's 1.95 (the lowest collision bottom in
+/// the three cells above): the pathfinder floors it at the cell's floor and passes it, the villager stops
+/// against it (tick-exact's corridor row a/3594428294040736). Each with its block (and the headroom).
 pub fn hazard_nodes(w: &redsim::World, p: &redsim::entity::mob::ai::path::path::Path) -> Vec<(BlockPos, String)> {
     let mut out: Vec<(BlockPos, String)> = Vec::new();
     for n in &p.nodes {
         let c = BlockPos::new(n.x, n.y, n.z);
+        if out.iter().any(|(q, _)| *q == c) {
+            continue;
+        }
         let top = redsim::behavior::collision_boxes(&w.get(c)).iter().map(|b| b[3]).max().unwrap_or(0);
-        if top >= 10 && !out.iter().any(|(q, _)| *q == c) {
-            out.push((c, w.get(c).to_string().trim_start_matches("minecraft:").to_string()));
+        let name = w.get(c).to_string().trim_start_matches("minecraft:").to_string();
+        if top >= 10 {
+            out.push((c, name));
+            continue;
+        }
+        if top > 0 {
+            let floor = n.y as f64 + top as f64 / 16.0;
+            let mut ceiling = f64::INFINITY;
+            for dy in 1..=3 {
+                let q = BlockPos::new(c.x, c.y + dy, c.z);
+                for b in redsim::behavior::collision_boxes(&w.get(q)) {
+                    ceiling = ceiling.min(q.y as f64 + b[2] as f64 / 16.0);
+                }
+            }
+            if floor + 1.95 > ceiling + 1e-9 {
+                out.push((c, format!("{name}, headroom {:.4} over its {:.4} step: short of 1.95", ceiling - floor, top as f64 / 16.0)));
+            }
         }
     }
     out
@@ -7832,48 +7853,50 @@ pub fn golem_guards(blocks: &HashMap<BlockPos, redsim::block::Block>, w: Result<
     for p in rails {
         let cap = p.below();
         let track = cap.below();
-        match guard_shape(blocks, p) {
-            Some(false) => {
-                set.insert(p);
-                lines.push(format!("{},{},{} is a golem guard (a lone rail on a top-half trapdoor cap, 58f770cc 16:34): no track end, no fall", p.x, p.y, p.z));
+        let Some(over) = guard_shape(blocks, p) else { continue };
+        // (ironspec Nov 14 02:02, part 40: (iii) holds for the strict guard too: a cap power or a hand can
+        // open drops its guard rail, and its top may then be a golem floor)
+        let what = if over {
+            format!("a lone rail on the cap {},{},{} over the track rail {},{},{}", cap.x, cap.y, cap.z, track.x, track.y, track.z)
+        } else {
+            format!("a lone rail on the cap {},{},{}", cap.x, cap.y, cap.z)
+        };
+        let w = match w {
+            Ok(w) => w,
+            Err(why) => {
+                lines.push(format!("{},{},{}: {what}: no settled world to judge its cap ({why}): NOT JUDGED as a guard (read as track)", p.x, p.y, p.z));
+                continue;
             }
-            Some(true) => match w {
-                Err(why) => lines.push(format!("{},{},{}: a lone rail on the cap {},{},{} over the track rail {},{},{}: no settled world to judge its cap ({why}): NOT JUDGED as a guard (read as track)", p.x, p.y, p.z, cap.x, cap.y, cap.z, track.x, track.y, track.z)),
-                Ok(w) => {
-                    let closed = w.get(cap).to_string().contains("open=false");
-                    let iron = w.get(cap).to_string().starts_with("minecraft:iron_trapdoor");
-                    let src = cap_sources(w, cap);
-                    if closed && iron && src.is_empty() {
-                        set.insert(p);
-                        lines.push(format!(
-                            "{},{},{} is a golem guard over the track rail {},{},{} (ironspec Nov 14 01:51 (2): (i) no rail beside it at y-1..y+1, (ii) no track connects to it, (iii) its cap {},{},{} closed with no power source in reach): no track end, no fall",
-                            p.x, p.y, p.z, track.x, track.y, track.z, cap.x, cap.y, cap.z
-                        ));
-                    } else {
-                        lines.push(format!(
-                            "{},{},{}: a lone rail on the cap {},{},{} over the track rail {},{},{}: its cap {} ({}): it may open and drop the rail: NOT a guard (read as track)",
-                            p.x,
-                            p.y,
-                            p.z,
-                            cap.x,
-                            cap.y,
-                            cap.z,
-                            track.x,
-                            track.y,
-                            track.z,
-                            if !closed {
-                                "open in the settled world"
-                            } else if !iron {
-                                "not iron (G1 Nov 14 02:01: a hand opens a wooden trapdoor)"
-                            } else {
-                                "in reach of power"
-                            },
-                            if src.is_empty() { "no source".to_string() } else { src.join("; ") }
-                        ));
-                    }
-                }
-            },
-            None => {}
+        };
+        let st = w.get(cap).to_string();
+        let closed = st.contains("open=false");
+        let iron = st.starts_with("minecraft:iron_trapdoor");
+        let src = cap_sources(w, cap);
+        if closed && iron && src.is_empty() {
+            set.insert(p);
+            lines.push(if over {
+                format!(
+                    "{},{},{} is a golem guard over the track rail {},{},{} (ironspec Nov 14 01:51 (2): (i) no rail beside it at y-1..y+1, (ii) no track connects to it, (iii) its cap {},{},{} closed with no power source in reach): no track end, no fall",
+                    p.x, p.y, p.z, track.x, track.y, track.z, cap.x, cap.y, cap.z
+                )
+            } else {
+                format!("{},{},{} is a golem guard (a lone rail on a top-half trapdoor cap, 58f770cc 16:34; its iron cap {},{},{} closed with no power source in reach, ironspec Nov 14 02:02): no track end, no fall", p.x, p.y, p.z, cap.x, cap.y, cap.z)
+            });
+        } else {
+            lines.push(format!(
+                "{},{},{}: {what}: its cap {} ({}): it may open and drop the rail: NOT a guard (read as track)",
+                p.x,
+                p.y,
+                p.z,
+                if !closed {
+                    "open in the settled world"
+                } else if !iron {
+                    "not iron (G1 Nov 14 02:01: a hand opens a wooden trapdoor)"
+                } else {
+                    "in reach of power"
+                },
+                if src.is_empty() { "no source".to_string() } else { src.join("; ") }
+            ));
         }
     }
     (set, lines)
@@ -7945,7 +7968,7 @@ pub fn auto_columns(spec: &FarmSpec, declared: &[[f64; 4]]) -> (Vec<[f64; 4]>, V
     rails.sort_by_key(|(p, _)| (p.y, p.z, p.x));
     // (ironspec Nov 14 01:51 (2), part 38: a guard over a track rail is judged on its cap in the settled
     // world, read only when one is there)
-    if rails.iter().any(|(c, _)| guard_shape(&blk, *c) == Some(true)) {
+    if rails.iter().any(|(c, _)| guard_shape(&blk, *c).is_some()) {
         settled = Some(settled_world_void(spec));
     }
     let (gset, glines) = golem_guards(
@@ -8378,7 +8401,7 @@ impl<'a> Track<'a> {
         // (58f770cc / ironspec 16:34: a golem guard is no rail of the track: never a track end; ironspec
         // Nov 14 01:51 (2), part 38: a guard over a track rail too, judged on its cap in the settled world)
         let blk: HashMap<BlockPos, redsim::block::Block> = spec.blocks.iter().map(|(p, b)| (*p, *b)).collect();
-        let over_track = spec.blocks.iter().any(|(p, _)| guard_shape(&blk, *p) == Some(true));
+        let over_track = spec.blocks.iter().any(|(p, _)| guard_shape(&blk, *p).is_some());
         let sw = if over_track { Some(settled_world_void(spec)) } else { None };
         let (gset, _) = golem_guards(
             &blk,
@@ -10360,10 +10383,16 @@ mod gate_tests {
         assert!(cols.iter().any(|c| c[0] == 5.5 && c[2] == 0.5), "{cols:?} {lines:?}");
         assert!(lines.iter().any(|l| l.contains("UNLANDED")), "{lines:?}");
         // (58f770cc / ironspec 16:34: the same lone rail on a top-half trapdoor cap is a golem guard:
-        // named, no track end, no fall; with a rail beside it, it is track again)
+        // named, no track end, no fall; with a rail beside it, it is track again; ironspec Nov 14 02:02,
+        // part 40: its cap IRON, closed with no power in reach; an oak cap: NOT a guard)
         let mut g = spec.blocks.clone();
         g.retain(|(q, _)| *q != b(0, 5, 1));
         g.push((b(0, 5, 1), p("minecraft:oak_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]")));
+        let ospec0 = redsim::entity::mob::farm::FarmSpec { blocks: g.clone(), ..spec.clone() };
+        let (_, gl0) = super::auto_columns(&ospec0, &[]);
+        assert!(gl0.iter().any(|l| l.contains("0,6,1: a lone rail on the cap 0,5,1: its cap not iron") && l.contains("NOT a guard (read as track)")), "an oak cap: {gl0:?}");
+        g.retain(|(q, _)| *q != b(0, 5, 1));
+        g.push((b(0, 5, 1), p("minecraft:iron_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]")));
         let gspec = redsim::entity::mob::farm::FarmSpec { blocks: g.clone(), ..spec.clone() };
         let (_, gl) = super::auto_columns(&gspec, &[]);
         assert!(gl.iter().any(|l| l.contains("0,6,1 is a golem guard")) && !gl.iter().any(|l| l.contains("UNLANDED")), "{gl:?}");
@@ -10794,6 +10823,36 @@ mod gate_tests {
         let (path, _, _, _, _) = super::probe_path(&mut run.world, k, b(5, 1, 2), super::NavBounds::default());
         let hz = super::hazard_nodes(&run.world, &path.expect("a path over the cap"));
         assert!(hz.len() == 1 && hz[0].0 == b(3, 1, 2) && hz[0].1.starts_with("iron_trapdoor[facing=north,half=top"), "the cap's hazard node: {hz:?}");
+        // (tick-exact Nov 14 02:05, part 40) a closed BOTTOM-half trapdoor in a corridor two high (a stone
+        // ceiling at y 3): walked over in the pathfinder's floors, its 0.1875 step leaves 1.8125 of headroom,
+        // short of 1.95: a hazard node; three high: none
+        let corridor = |high: i32| {
+            let mut cb = Vec::new();
+            for x in 0..=6 {
+                for z in 0..=4 {
+                    cb.push((b(x, 0, z), p("minecraft:stone")));
+                    for y in 1..=4 {
+                        if z != 2 || y > high {
+                            cb.push((b(x, y, z), p("minecraft:stone")));
+                        }
+                    }
+                }
+            }
+            cb.push((b(3, 1, 2), p("minecraft:iron_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]")));
+            redsim::entity::mob::farm::FarmSpec { blocks: cb, entities: Vec::new(), output: b(0, -1, 0), lo: b(0, -1, 0), hi: b(6, 6, 4), block_entities: Vec::new(), rock: false, nether: None, land: false }
+        };
+        let hz_of = |spec: &redsim::entity::mob::farm::FarmSpec| {
+            let mut run = super::Run::start(spec, &o).unwrap_or_else(|e| panic!("{e}"));
+            super::settle_full(&mut run).unwrap_or_else(|e| panic!("{e}"));
+            let k = super::land_probe_villager(&mut run.world, redsim::entity::Vec3::new(1.5, 1.0, 2.5), super::NavBounds::default()).unwrap_or_else(|e| panic!("{e}"));
+            let (path, r, _, _, _) = super::probe_path(&mut run.world, k, b(5, 1, 2), super::NavBounds::default());
+            assert!(matches!(r, super::Reach::Reached { .. }), "the pathfinder passes the bottom trapdoor: {r:?}");
+            super::hazard_nodes(&run.world, &path.expect("a path"))
+        };
+        let h2 = hz_of(&corridor(2));
+        assert!(h2.len() == 1 && h2[0].0 == b(3, 1, 2) && h2[0].1.contains("half=bottom") && h2[0].1.ends_with("headroom 1.8125 over its 0.1875 step: short of 1.95"), "two high: {h2:?}");
+        let h3 = hz_of(&corridor(3));
+        assert!(h3.is_empty(), "three high: {h3:?}");
         let (lg, rg) = super::standing_path_probe(&bed(true), v(2.5, 1.0, 2.5), b(3, 1, 2), d).unwrap_or_else(|e| panic!("{e}"));
         assert!(rg == super::Reach::Unreachable && lg[1].contains("PROVED UNREACHABLE"), "a full block two above the head: {lg:?}");
         // (tick-exact Nov 14 00:21: the bounds overridden) the step-up under follow range 16 / 256 too, the
@@ -11821,11 +11880,20 @@ mod gate_tests {
             assert!(off == 24 && cells.len() == 24 && gl[0].contains("(1 caller cell(s) on 1 rail cell(s), 0 golem guard(s) excluded") && gl.iter().any(|l| l.contains("yielded by 1 caller cell(s)' own search: 2,1,2")), "{gl:?}");
             let mut twin = spec.blocks.clone();
             twin.retain(|(q, _)| *q != b(2, 0, 2));
-            twin.push((b(2, 0, 2), p("minecraft:oak_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]")));
-            let tspec = redsim::entity::mob::farm::FarmSpec { blocks: twin, ..spec.clone() };
+            twin.push((b(2, 0, 2), p("minecraft:iron_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]")));
+            let tspec = redsim::entity::mob::farm::FarmSpec { blocks: twin.clone(), ..spec.clone() };
             let tw = super::settled_world_void(&tspec).unwrap_or_else(|e| panic!("{e}"));
             let r = super::route_golem_floors(&tspec, "minecraft:plains");
             assert!(r.as_ref().is_err_and(|e| e.contains("NOT JUDGED: no caller (1 rail cell(s), 1 golem guard(s) excluded)")), "a lone guard ({} on {}): {r:?}", tw.get(b(2, 1, 2)), tw.get(b(2, 0, 2)));
+            // (ironspec Nov 14 02:02, part 40) the same guard on an OAK cap: a hand opens it: no guard
+            twin.retain(|(q, _)| *q != b(2, 0, 2));
+            twin.push((b(2, 0, 2), p("minecraft:oak_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]")));
+            let ro = super::route_golem_floors(&redsim::entity::mob::farm::FarmSpec { blocks: twin, ..spec.clone() }, "minecraft:plains");
+            let say = match &ro {
+                Ok((l, _, _)) => l.join(" | "),
+                Err(e) => e.clone(),
+            };
+            assert!(!say.contains("1 golem guard(s) excluded"), "an oak cap: {say}");
             // (B3 refined 20:52) a glass pillar: no floor examined at all: NOT JUDGED; the stone pillar
             // twin: its one floor examined and refused (the rail in its feet cell): judged, 0 golem
             // cells, the refusal listed FRAGILE (the output chest far below, out of every search)
