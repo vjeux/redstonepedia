@@ -830,6 +830,44 @@ pub fn collision_boxes(s: &Block) -> Vec<Box16> {
 
 // ---------------------------------------------------------------------- behavior
 
+/// (G1 Nov 14 11:25, part 74: the survival census) The kinds [`can_survive`] models, each with its 26.3 rule, arm for
+/// arm (a kind whose `can_survive` arm is `_ => true` returns None: it must then be [`survival_not_modeled`] or carry a
+/// cited no-rule reason, `mobfarm`'s census over every farm design's palette checks it).
+pub fn survival_modelled(s: &Block) -> Option<&'static str> {
+    Some(match *s {
+        Block::Wire { .. } => "RedStoneWireBlock.canSurvive: the block below",
+        Block::Repeater { .. } | Block::Comparator { .. } => "DiodeBlock.canSurvive: the block below's top face sturdy",
+        Block::Torch { .. } | Block::WallTorch { .. } => "RedstoneTorchBlock / RedstoneWallTorchBlock.canSurvive",
+        Block::Lever { .. } | Block::Button { .. } => "FaceAttachedHorizontalDirectionalBlock.canSurvive: the face it hangs from",
+        Block::Rail { .. } | Block::PlainRail { .. } | Block::DetectorRail { .. } => "BaseRailBlock.canSurvive: the block below",
+        Block::Door { .. } => "DoorBlock.canSurvive: the block below (lower half), the lower half (upper)",
+        Block::Cake { .. } => "CakeBlock.canSurvive: the block below solid",
+        Block::Scaffolding { .. } => "ScaffoldingBlock.canSurvive: distance < 7",
+        Block::Piston { .. } | Block::PistonHead { .. } | Block::MovingPiston { .. } => "PistonHeadBlock.canSurvive: its base",
+        Block::Plate { .. } => "BasePressurePlateBlock.canSurvive: the block below",
+        Block::SugarCane { .. } => "SugarCaneBlock.canSurvive",
+        Block::Bamboo { .. } | Block::BambooSapling => "BambooStalkBlock / BambooSaplingBlock.canSurvive",
+        Block::Kelp { .. } | Block::KelpPlant => "KelpBlock / KelpPlantBlock.canSurvive",
+        Block::Stem { .. } | Block::AttachedStem { .. } => "StemBlock / AttachedStemBlock.canSurvive",
+        Block::Farmland { .. } => "FarmBlock.canSurvive",
+        Block::Cactus { .. } => "CactusBlock.canSurvive",
+        Block::CactusFlower => "CactusFlowerBlock.canSurvive",
+        Block::TripwireHook { .. } => "TripWireHookBlock.canSurvive: the face behind it sturdy",
+        Block::BigDripleaf { .. } => "BigDripleafBlock.canSurvive",
+        Block::WallBanner { .. } => "WallBannerBlock.canSurvive: the block behind it solid",
+        Block::Sign { .. } => "WallSignBlock / StandingSignBlock.canSurvive",
+        Block::Lantern { .. } | Block::SoulLantern { .. } => "LanternBlock.canSurvive: canSupportCenter above (hanging) or below",
+        Block::PlainTorch { .. } | Block::Candle { .. } => "TorchBlock / CandleBlock.canSurvive: canSupportCenter below",
+        Block::PlainWallTorch { .. } => "WallTorchBlock.canSurvive: the face behind it sturdy",
+        Block::SeaPickle { .. } => "SeaPickleBlock.canSurvive",
+        Block::BubbleColumn { .. } => "BubbleColumnBlock.canSurvive",
+        Block::CoralFan { .. } | Block::CoralWallFan { .. } => "CoralFanBlock / CoralWallFanBlock.canSurvive",
+        Block::Fire { .. } => "BaseFireBlock / FireBlock.canSurvive",
+        Block::Terrain(id) if crate::terrain::blocks::props(id).name.trim_start_matches("minecraft:").split('[').next().unwrap_or("").ends_with("_carpet") => "CarpetBlock.canSurvive: the block below not air",
+        _ => return None,
+    })
+}
+
 /// (ironspec / farmopt Nov 14 08:36a / 08:40, part 64) A block kind the game pops (or refuses) without its support
 /// whose survival rule redsim doesn't model yet: the rule's short name, or None (a kind with no survival rule, or one
 /// [`can_survive`] models). The farm loader fails such a design cell by name as NOT MODELED until it is modelled, so
