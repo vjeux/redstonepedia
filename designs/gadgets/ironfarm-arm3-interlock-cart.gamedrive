@@ -1,0 +1,50 @@
+# The iron farm's ARM3 interlock with REAL CART presses: GAME-ONLY (`mobai game-drive` on the official
+# server substitutes a minecart at rest on the detector rail for each `set 3 1 0 minecraft:redstone_block`
+# (PRESS) and removes it for each `set 3 1 0 minecraft:detector_rail[…]` (RELEASE); `mctas door drive`
+# places no carts, so redsim runs the block form, ironfarm-arm3-interlock.drive). Exact timings for this
+# press type (ironspec Nov 14 05:59 (a)): q rises 6 gt after a cart's press (the cart presses during its
+# own tick: tick-exact 05:46). THE RE-PRESS RULE (05:59 (b)), from 26.3's DetectorRailBlock: a cart on
+# an UNPOWERED rail powers it and schedules a re-check 20 gt out; each re-check that finds a cart keeps it
+# powered and schedules the next (press + 20, + 40, …); the first re-check that finds NO cart unpowers it.
+# A re-press before that re-check MERGES (no new edge); one after it is a new edge. The rows sit on both
+# sides of a re-check with the latch ARMED, so the merge is observable (a merged re-press releases
+# nothing; a new edge releases once); the failure direction is a missed release, never a double.
+design designs/gadgets/ironfarm-arm3-interlock.txt
+probe_items a 3 1 1
+probe_items b 2 1 1
+probe q 2 1 2
+quiet 6
+expect a 1
+expect b 0
+expect q 0
+# t0: a cart presses ARM3: THE RELEASE, q rising 6 gt after the press (re-checks at t0 + 20, + 40, + 60)
+set 3 1 0 minecraft:redstone_block
+expect_trace q 000000111111
+expect a 0
+expect b 1
+# t0 + 12: REL while the cart sits on the rail: re-armed, and no second release (no new edge)
+set 0 2 1 minecraft:redstone_block
+quiet 4
+clear 0 2 1
+quiet 14
+expect a 1
+expect b 0
+expect q 0
+# t0 + 30: the cart leaves; t0 + 35: a cart presses again, BEFORE the re-check at t0 + 40 that would
+# find none: the SAME edge, so the armed latch releases nothing
+set 3 1 0 minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]
+quiet 5
+set 3 1 0 minecraft:redstone_block
+quiet 20
+expect a 1
+expect b 0
+expect q 0
+# t0 + 55: the cart leaves; the re-check at t0 + 60 finds none and unpowers the rail; t0 + 65: a cart
+# presses AFTER it: a new edge, one release
+set 3 1 0 minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]
+quiet 10
+set 3 1 0 minecraft:redstone_block
+quiet 20
+expect a 0
+expect b 1
+expect q 1

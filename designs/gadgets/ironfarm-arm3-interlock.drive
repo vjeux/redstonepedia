@@ -1,8 +1,9 @@
-# The iron farm's ARM3 interlock (G1 Nov 14 04:19 / 04:53's rows): one release per batch under a
-# rollback re-press; a doubled REL (also a REL with no release since: the missed-release case) changes
-# nothing; a missed REL tap stalls the next ARM3 and the batch after recovers; ARM3 held pressed through
-# a REL gives no second release until it is pressed again. ARM3's press (a cart on the detector) is a
-# redstone block in the detector's cell; REL is a redstone block at the repeater's input for 4 gt.
+# The iron farm's ARM3 interlock, BLOCK presses (the ideal press: a redstone block in the detector's cell;
+# exact timings for that press type: ironspec Nov 14 05:59 (a)); the real-cart form, with the detector's
+# 20-gt re-check schedule, is ironfarm-arm3-interlock-cart.drive (game-only: `mobai game-drive`). G1 Nov 14
+# 04:19 / 04:53's rows: one release per batch under a rollback re-press; a doubled REL (also a REL with no
+# release since: the missed-release case) changes nothing; a missed REL tap stalls the next ARM3 and the
+# batch after recovers; ARM3 held through a REL gives no second release until it is pressed again.
 # Probes: the stone's dropper (a = A, armed; b = B, released) and q, the comparator on B (1 from the
 # release to the next REL: a LEVEL; the release line's pulse limiter makes it one pulse per rise).
 design designs/gadgets/ironfarm-arm3-interlock.txt
@@ -13,13 +14,14 @@ quiet 6
 expect a 1
 expect b 0
 expect q 0
-# ARM3 pressed: THE RELEASE (the stone into B, q rises 5 gt after a block's press, 6 gt after a real
-# cart's (the cart presses during its own tick: tick-exact's game run, Nov 14 05:46))
+# ARM3 pressed: THE RELEASE (the stone into B; q rises 5 gt after a block's press: the dropper's 4-gt
+# fire, then the comparator)
 set 3 1 0 minecraft:redstone_block
-expect_trace q 00000?111111
+expect_trace q 000001111111
 expect a 0
 expect b 1
-# the cart leaves, rolls back and presses ARM3 again: A is empty, nothing moves (one release)
+# the press ends and a new press follows (the cart rolled back over it): A is empty, nothing moves (one
+# release)
 set 3 1 0 minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]
 quiet 6
 set 3 1 0 minecraft:redstone_block
@@ -53,9 +55,7 @@ quiet 6
 expect a 0
 expect b 1
 expect q 1
-# a missed REL tap: the next ARM3 (a new edge: >= 21 gt after the cart left) finds A empty: no
-# release (the stall)
-quiet 16
+# a missed REL tap: the next ARM3 finds A empty: no release (the stall)
 set 3 1 0 minecraft:redstone_block
 quiet 20
 set 3 1 0 minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]
@@ -69,8 +69,6 @@ clear 0 2 1
 quiet 10
 expect a 1
 expect q 0
-# (the cart left 20 gt ago: 4 more so the detector's 20-gt re-check has turned it off in the game too)
-quiet 4
 set 3 1 0 minecraft:redstone_block
 quiet 20
 expect a 0
@@ -84,16 +82,14 @@ quiet 20
 expect a 1
 expect b 0
 expect q 0
-# a second cart pressing while the detector still holds its power (within the 20-gt recheck after a
-# cart leaves: 26.3 DetectorRailBlock schedules its re-check 20 gt out; tick-exact 05:46) is the SAME
-# edge: the press continues, nothing new fires
+# the press continues: still nothing
 quiet 20
 expect a 1
 expect b 0
 expect q 0
-# ARM3 let go; a press >= 21 gt after the cart left (the detector off by then) is a new edge: one release
+# ARM3 let go and pressed again (a block press ends at once): one release
 set 3 1 0 minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]
-quiet 22
+quiet 6
 set 3 1 0 minecraft:redstone_block
 quiet 20
 expect a 0
