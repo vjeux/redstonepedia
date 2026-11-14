@@ -147,7 +147,7 @@ pub fn declared(text: &str) -> Result<Declared, String> {
         }
     }
     d.standins = crate::recordmatch::declared_from_header(text)?.standins.keys().map(|c| BlockPos::new(c[0], c[1], c[2])).collect();
-    d.emulated = crate::declkeys::emulated_entries(text)?.0.into_iter().map(|(cs, st, why)| (cs.into_iter().map(|c| BlockPos::new(c[0], c[1], c[2])).collect(), st, why)).collect();
+    d.emulated = crate::declkeys::emulated_entries(text)?.0.into_iter().map(|e| (e.cells.into_iter().map(|c| BlockPos::new(c[0], c[1], c[2])).collect(), e.state, e.why)).collect();
     Ok(d)
 }
 

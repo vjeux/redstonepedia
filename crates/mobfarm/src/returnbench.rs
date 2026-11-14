@@ -3058,10 +3058,10 @@ fn record_as_run(path: &str) -> Result<(BTreeMap<[i32; 3], String>, Vec<crate::r
     // spawn-rules remark) is the record's prose, counted and printed, not read; part 72: the one reader
     // settle-check shares, `declkeys::emulated_entries`)
     let (entries, emu_notes) = crate::declkeys::emulated_entries(&text).map_err(|e| format!("--record {path}: {e}"))?;
-    for (cs, state, _) in entries {
-        for v in cs {
-            cells.insert(v, state.clone());
-            emu.push(format!("({},{},{}) {}", v[0], v[1], v[2], state.trim_start_matches("minecraft:")));
+    for e in entries {
+        for v in e.cells {
+            cells.insert(v, e.state.clone());
+            emu.push(format!("({},{},{}) {}", v[0], v[1], v[2], e.state.trim_start_matches("minecraft:")));
         }
     }
     // (a state redsim can't read is an error, except the Nether pad's portal cells (ironspec 21:58:
