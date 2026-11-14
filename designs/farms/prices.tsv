@@ -31,8 +31,11 @@ redstone	0	2	0.5	dust: on day 1 only in the redstone fork, where the player alre
 string	15	3	1	a spider at night or a cobweb cut with a sword
 wool	10	3	1	a sheep (killed, or sheared once shears exist)
 slime_ball	-	15	2	a slime in a swamp or slime chunk
+slime_block	-	135	18	nine slime balls (the slime_ball row) crafted into one block
 blaze_rod	-	20	3	a Nether fortress
+end_rod	-	-	1	a blaze rod and a popped chorus fruit make four; the chorus fruit grows only in the End, so late only: (the blaze_rod row 3 + about 1 for the chorus fruit picked and smelted) / 4
 water	1	1	1	placing a source from a bucket refilled at any water (an infinite source): one refill per placed source
+bubble_column	1	1	1	a bubble column's water: a source placed from a bucket over its base, as the water row (the column forms only over its base: soul sand pushes up, a magma block pulls down; the base is priced in its own row, so a day-1 build has no column)
 lava_trip	120	60	30	one trip to lava and back, per realistic action: day 1 a surface or cave lava pool; middle the Nether by its portal or a cave lake; late a Nether hub or a dripstone lava farm
 lava_fill	5	3	2	filling one bucket at the lava and placing the source in the farm
 lava_buckets	1	16	16	buckets one trip carries: day 1 the one bucket in hand, each extra one 3 iron (90 s; the cheapest number of extra buckets is taken: a 4-source day-1 farm is 2 trips with one extra bucket, 240 + 90 + 20 = 350 s, against 500 s for 4 trips with one bucket and 410 s for one trip with 4); a middle or late player keeps a stack of 16
