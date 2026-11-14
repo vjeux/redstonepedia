@@ -422,6 +422,14 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
         e.random = Some(crate::rng::LegacyRandom::new(0x6d_6374_6173_i64 + index as i64));
         e.x_rot = pitch;
         e.x_rot_o = pitch;
+        // (tick-exact Nov 13 21:28's e-string-empty recording: 212 more random draws in the game at game time 1) the
+        // summon loads its entity (`EntityType.loadEntityRecursive` -> `Entity.load`), and 26.3's
+        // `AbstractMinecart.readAdditionalSaveData` (491) sets `firstTick = input.getBooleanOr("HasTicked", false)`:
+        // a summoned minecart starts with its first tick already spent, so its first fluid update in water is a
+        // splash (`doWaterSplashEffect`'s draws), where a constructed one's isn't
+        if matches!(e.kind, EntityKind::Minecart(_)) {
+            e.first_tick = false;
+        }
         // Motion:[x, y, z] (doubles)
         if let Some(n) = nbt
             && let Some(i) = n.find("Motion:[")
@@ -528,7 +536,12 @@ fn spawn_falling_block(w: &mut World, pos: [f64; 3], nbt: Option<&str>) -> Resul
 /// `reload`). Its id, random and section entry are the caller's.
 pub fn restore_fresh(e: &mut Entity) {
     e.tick_count = 0;
-    e.first_tick = true;
+    // (26.3 AbstractMinecart.readAdditionalSaveData 491 / addAdditionalSaveData 503) a minecart saves its firstTick
+    // as "HasTicked" and loads it back: a loaded minecart keeps its first-tick state (spent once it has ticked); every
+    // other entity starts its first tick again (the constructor's true)
+    if !matches!(e.kind, EntityKind::Minecart(_)) {
+        e.first_tick = true;
+    }
     // (tickexact 2026-11-10) Entity.boardingCooldown is not saved (Entity.load reads no such
     // field): a loaded entity starts at 0, free to board at once, whatever was left of its 60 gt
     e.boarding_cooldown = 0;

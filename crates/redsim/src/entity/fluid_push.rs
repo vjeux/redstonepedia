@@ -241,3 +241,68 @@ pub fn update_fluid_interaction(w: &mut World, i: usize) -> bool {
     w.entities.list.swap(i, last);
     in_any
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::block::Block;
+    use crate::pos::BlockPos;
+    use crate::world::World;
+
+    /// A stone floor with two blocks of still water over it (x / z -2..2), a minecart summoned in the water.
+    fn pool(y: f64) -> (World, usize) {
+        let mut w = World::new(BlockPos::new(-2, 0, -2), [5, 6, 5]);
+        let stone = Block::parse("minecraft:stone").unwrap();
+        let water = Block::parse("minecraft:water[level=0]").unwrap();
+        for x in -2..3 {
+            for z in -2..3 {
+                w.set_block(BlockPos::new(x, 0, z), stone.clone(), crate::world::flags::RAW);
+                w.set_block(BlockPos::new(x, 1, z), water.clone(), crate::world::flags::RAW);
+                w.set_block(BlockPos::new(x, 2, z), water.clone(), crate::world::flags::RAW);
+            }
+        }
+        let id = crate::entity::spawn(&mut w, "minecraft:minecart", [0.5, y, 0.5], None).unwrap();
+        let i = crate::entity::index_of(&w, id).unwrap();
+        (w, i)
+    }
+
+    /// (tick-exact Nov 13 21:28: the e-string-empty recording's first difference, the game's minecart drawing 212
+    /// more `next()` at game time 1) 26.3 `AbstractMinecart.readAdditionalSaveData` (491) loads `firstTick` from
+    /// "HasTicked", default false, and the summon loads its entity: a summoned minecart's first fluid update in water
+    /// is a splash, `doWaterSplashEffect`'s 2 floats and 21 x (3 + 2) doubles (width 0.98: 1 + 0.98 x 20 passes) =
+    /// 2 + 126 + 84 = 212 steps of its random; one summoned in air draws none; a reloaded minecart keeps its
+    /// first-tick state (every other entity starts its first tick again)
+    #[test]
+    fn a_summoned_minecart_splashes_at_its_first_tick_in_water() {
+        // in the water: the first tick splashes
+        let (mut w, i) = pool(1.2);
+        assert!(!w.entities.list[i].first_tick, "a summoned minecart's first tick is spent (HasTicked false)");
+        let mut want = w.entities.list[i].random.clone().unwrap();
+        for _ in 0..212 {
+            want.next(32);
+        }
+        w.tick();
+        let got = w.entities.list[i].random.as_ref().unwrap().state();
+        assert_eq!(got, want.state(), "212 draws: the splash's 2 floats and 21 x 5 doubles");
+        assert!(w.entities.list[i].was_touching_water);
+        // a second tick in the water: no new splash
+        let before = w.entities.list[i].random.as_ref().unwrap().state();
+        w.tick();
+        assert_eq!(w.entities.list[i].random.as_ref().unwrap().state(), before, "no splash while it stays in the water");
+        // in the air over the pool: no splash, no draw
+        let (mut w2, i2) = pool(4.5);
+        let before2 = w2.entities.list[i2].random.as_ref().unwrap().state();
+        w2.tick();
+        assert!(!w2.entities.list[i2].was_touching_water);
+        assert_eq!(w2.entities.list[i2].random.as_ref().unwrap().state(), before2, "a cart in the air draws nothing");
+        // a reloaded minecart keeps its first-tick state; a villager starts its first tick again
+        let mut e = w.entities.list[i].clone();
+        crate::entity::restore_fresh(&mut e);
+        assert!(!e.first_tick, "the minecart's saved HasTicked (its spent first tick) comes back");
+        let vid = crate::entity::spawn(&mut w, "minecraft:villager", [1.5, 3.0, 1.5], None).unwrap();
+        let vi = crate::entity::index_of(&w, vid).unwrap();
+        w.entities.list[vi].first_tick = false;
+        let mut v = w.entities.list[vi].clone();
+        crate::entity::restore_fresh(&mut v);
+        assert!(v.first_tick, "any other entity starts its first tick again");
+    }
+}
