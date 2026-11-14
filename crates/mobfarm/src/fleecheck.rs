@@ -4963,8 +4963,99 @@ pub fn route_golem_floors(spec: &FarmSpec, biome: &'static str) -> Result<(Vec<S
     )];
     for c in &off {
         let from = &by[&(c.y, c.z, c.x)];
-        lines.push(format!("  OFF THE PAD {}: yielded by {} caller cell(s)' own search: {}", cell(c), from.len(), from.iter().map(cell).collect::<Vec<_>>().join(" ")));
+        let t = golem_terms(&w, *c);
+        lines.push(format!(
+            "  OFF THE PAD {}: yielded by {} caller cell(s)' own search: {}; the rule's terms: {}",
+            cell(c),
+            from.len(),
+            from.iter().map(cell).collect::<Vec<_>>().join(" "),
+            if t.is_empty() { "all pass".to_string() } else { t.iter().map(|x| x.label()).collect::<Vec<_>>().join(", ") }
+        ));
     }
+    // (tick-exact 18:13, ironspec 18:15 (5), G1 18:15: every cell the callers' spot searches stop
+    // at and refuse, on the full rule with each failing term named; FRAGILE when only a removable
+    // rail or signal source refuses it (remove it and a golem spawns), STATE when only a block's
+    // changeable state does (open / powered / lit: that state must be permanent))
+    let mut refused: std::collections::BTreeMap<(i32, i32, i32), Vec<GolemTerm>> = std::collections::BTreeMap::new();
+    for s in &callers {
+        // (the game's search: each candidate it stops at and refuses (`checkSpawnObstruction`))
+        for (c, r) in redsim::entity::mob::spawn::golem_spawn_cells_from(&w, *s) {
+            if r.as_ref().err().is_some_and(|m| !m.starts_with("no cell in the column")) && !w.get(c.below()).is_air() {
+                refused.entry((c.y, c.z, c.x)).or_insert_with(|| golem_terms(&w, c));
+            }
+        }
+        // (and each floor the search passes over only because its feet cell is neither air nor a
+        // liquid: a rail or a torch standing there; remove it and the search stops there)
+        for dz in -8..=8 {
+            for dx in -8..=8 {
+                let top = BlockPos::new(s.x + dx, s.y + 6, s.z + dz);
+                let mut above = w.get(top);
+                for k in 1..=13 {
+                    let q = top.offset(0, -k, 0);
+                    let here = w.get(q);
+                    // (G1 20:02, E1: the game's own test, `legacy_golem_can_spawn_on`: the search stops
+                    // where it accepts the floor; a floor it passes over only because the feet cell is
+                    // neither air nor a liquid block (a rail, waterlogged or not, a torch, a string) is
+                    // listed)
+                    if redsim::entity::mob::blocks::legacy_golem_can_spawn_on(&here, &above) {
+                        break;
+                    }
+                    if redsim::behavior::is_solid(&here) && !redsim::entity::mob::blocks::golem_excluded(&here) {
+                        refused.entry((q.y + 1, q.z, q.x)).or_insert_with(|| golem_terms(&w, q.above()));
+                    }
+                    above = here;
+                }
+            }
+        }
+    }
+    // (ironspec 18:35 / G1 18:37: FRAGILE and STATE by the blocks' kinds, never by a term's wording)
+    let mut by_term: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+    let (mut fragile, mut state) = (Vec::new(), Vec::new());
+    for ((y, z, x), t) in &refused {
+        for term in t {
+            *by_term.entry(term.key()).or_default() += 1;
+        }
+        let labels = || t.iter().map(|x| x.label()).collect::<Vec<_>>().join(", ");
+        if !t.is_empty() && t.iter().all(|x| x.removable(&w)) {
+            fragile.push(format!("{x},{y},{z} ({})", labels()));
+        } else if !t.is_empty() && t.iter().all(|x| x.stateful(&w)) {
+            state.push(format!("{x},{y},{z} ({})", labels()));
+        }
+    }
+    lines.push(format!(
+        "  refused stop cells: {} (by term: {}); FRAGILE (only a removable rail, signal source or collision-free guard such as a string refuses it): {}{}; STATE (only a changeable state refuses it: keep that state permanent): {}{}",
+        refused.len(),
+        by_term.iter().map(|(k, n)| format!("{k} {n}")).collect::<Vec<_>>().join(", "),
+        fragile.len(),
+        if fragile.is_empty() { String::new() } else { format!(": {}", fragile.join("; ")) },
+        state.len(),
+        if state.is_empty() { String::new() } else { format!(": {}", state.join("; ")) }
+    ));
+    // (ironspec 18:20 / 19:13: one fault-note line per FRAGILE cell)
+    for ((y, z, x), t) in refused.iter().filter(|(_, t)| !t.is_empty() && t.iter().all(|x| x.removable(&w))) {
+        let what: Vec<String> = t.iter().map(|g| format!("the {} at {},{},{}", g.block.to_string().trim_start_matches("minecraft:").split('[').next().unwrap_or(""), g.pos.x, g.pos.y, g.pos.z)).collect::<std::collections::BTreeSet<_>>().into_iter().collect();
+        lines.push(format!("  FAULT NOTE {x},{y},{z}: removing {} makes this cell a golem floor; replace what you remove", what.join(" and ")));
+    }
+    // (ironspec 19:15 (3): every other non-full-block kind found refusing a cell, its class stated)
+    let mut kinds: std::collections::BTreeMap<String, (usize, &'static str)> = std::collections::BTreeMap::new();
+    for t in refused.values() {
+        let class = if !t.is_empty() && t.iter().all(|x| x.removable(&w)) {
+            "FRAGILE"
+        } else if !t.is_empty() && t.iter().all(|x| x.stateful(&w)) {
+            "STATE"
+        } else {
+            "structural (another term refuses the cell too)"
+        };
+        for g in t.iter().filter(|g| !redsim::behavior::full_cube(&g.block) && !g.block.is_air()) {
+            let id = g.block.to_string().trim_start_matches("minecraft:").split('[').next().unwrap_or("").to_string();
+            let e = kinds.entry(id).or_insert((0, class));
+            e.0 += 1;
+            if e.1 != class {
+                e.1 = "mixed (FRAGILE in some cells, not in others)";
+            }
+        }
+    }
+    lines.push(format!("  non-full-block kinds refusing cells: {}", if kinds.is_empty() { "none".to_string() } else { kinds.iter().map(|(k, (n, c))| format!("{k} {n} ({c})")).collect::<Vec<_>>().join(", ") }));
     Ok((lines, off.len(), cells))
 }
 
@@ -4978,6 +5069,165 @@ pub fn golem_box_meets_portal(w: &redsim::World, cell: BlockPos) -> bool {
     let (z0, z1) = ((cell.z as f64 + 0.5 - hw + e).floor() as i32, (cell.z as f64 + 0.5 + hw - e).floor() as i32);
     let (y0, y1) = ((cell.y as f64 + e).floor() as i32, (cell.y as f64 + h - e).floor() as i32);
     (x0..=x1).any(|x| (y0..=y1).any(|y| (z0..=z1).any(|z| w.get(BlockPos::new(x, y, z)).to_string().contains("nether_portal"))))
+}
+
+/// A term of the golem spawn rule (tick-exact Nov 13 18:13).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GolemTermKind {
+    FloorListed,
+    FloorNotSolid,
+    FloorNotStandable,
+    FeetNotAirOrLiquid,
+    FullBlock,
+    SignalSource,
+    Rail,
+    Fluid,
+    Dangerous,
+}
+
+/// One failing term of the golem spawn rule at a cell: where (-1 the floor, 0 the feet cell, 1 / 2
+/// the cells above), which term, the block it reads and that block's cell.
+#[derive(Clone, Debug)]
+pub struct GolemTerm {
+    pub at: i32,
+    pub kind: GolemTermKind,
+    pub block: redsim::block::Block,
+    pub pos: BlockPos,
+}
+
+/// A rail by its kind: the modeled rail blocks, a terrain state by `#prevent_mob_spawning_inside`.
+fn rail_kind(b: &redsim::block::Block) -> bool {
+    use redsim::block::Block;
+    matches!(b, Block::Rail { .. } | Block::PlainRail { .. } | Block::DetectorRail { .. }) || matches!(b, Block::Terrain(id) if redsim::terrain::blocks::props(*id).has_tag("minecraft:prevent_mob_spawning_inside"))
+}
+
+impl GolemTerm {
+    fn place(&self) -> String {
+        match self.at {
+            -1 => "floor".to_string(),
+            0 => "feet".to_string(),
+            k => format!("{k} above"),
+        }
+    }
+
+    /// The term's name, the count key.
+    pub fn key(&self) -> String {
+        match self.kind {
+            GolemTermKind::FloorListed => "floor listed".to_string(),
+            GolemTermKind::FloorNotSolid => "floor not solid".to_string(),
+            GolemTermKind::FloorNotStandable => "floor not standable".to_string(),
+            GolemTermKind::FeetNotAirOrLiquid => "feet not air or liquid".to_string(),
+            GolemTermKind::FullBlock => format!("{}: full block", self.place()),
+            GolemTermKind::SignalSource => format!("{}: signal source", self.place()),
+            GolemTermKind::Rail => format!("{}: rail", self.place()),
+            GolemTermKind::Fluid => format!("{}: fluid", self.place()),
+            GolemTermKind::Dangerous => format!("{}: dangerous", self.place()),
+        }
+    }
+
+    /// The term with its block, as printed.
+    pub fn label(&self) -> String {
+        format!("{} ({})", self.key(), self.block.to_string().trim_start_matches("minecraft:"))
+    }
+
+    /// Whether the term reads a removable component: a rail or a signal source by its block's kind
+    /// (in the feet cell, the "not air or liquid" term too).
+    /// (G1 Nov 13 19:23: judged per BLOCK, not per term kind: a removable component (a rail by its
+    /// kind, a signal source (a full-block one, an observer or a redstone block, too) or a block with
+    /// no collision shape: the hookless string, a torch) makes every term it raises in the feet cell
+    /// or above removable, its full-block term included; a floor term never is (no floor, no cell).)
+    pub fn removable(&self, w: &redsim::World) -> bool {
+        self.at >= 0 && (rail_kind(&self.block) || redsim::behavior::is_signal_source(w, &self.block) || redsim::behavior::collision_boxes(&self.block).is_empty())
+    }
+
+    /// Whether flipping its block's changeable state (lit, open, powered) turns the term off: that
+    /// state must stay as it is.
+    pub fn stateful(&self, w: &redsim::World) -> bool {
+        use redsim::entity::mob::blocks as mb;
+        state_flips(&self.block).iter().any(|f| match self.kind {
+            GolemTermKind::FullBlock => !redsim::behavior::full_cube(f),
+            GolemTermKind::SignalSource => !redsim::behavior::is_signal_source(w, f),
+            GolemTermKind::Dangerous => !mb::is_dangerous(f, false),
+            GolemTermKind::Fluid => redsim::fluid::fluid_state_of(f).is_empty(),
+            GolemTermKind::FeetNotAirOrLiquid => f.is_air() || matches!(f, redsim::block::Block::Water { .. } | redsim::block::Block::Lava { .. } | redsim::block::Block::BubbleColumn { .. }),
+            GolemTermKind::FloorListed => !mb::golem_excluded(f),
+            GolemTermKind::FloorNotSolid => redsim::behavior::is_solid(f),
+            GolemTermKind::FloorNotStandable => {
+                let mut c = w.clone();
+                c.put(self.pos, *f);
+                mb::entity_can_stand_on(&c, self.pos)
+            }
+            GolemTermKind::Rail => !rail_kind(f),
+        })
+    }
+}
+
+/// The block with each of its changeable boolean states (lit, open, powered) flipped, one at a time.
+fn state_flips(b: &redsim::block::Block) -> Vec<redsim::block::Block> {
+    let s = b.to_string();
+    let mut out = Vec::new();
+    for prop in ["lit", "open", "powered"] {
+        for (from, to) in [("true", "false"), ("false", "true")] {
+            let pat = format!("{prop}={from}");
+            if s.contains(&pat) {
+                let t = s.replace(&pat, &format!("{prop}={to}"));
+                if let Ok(f) = redsim::block::Block::parse(&t) {
+                    out.push(f);
+                } else if let Some(id) = redsim::terrain::blocks::id_of(&t) {
+                    out.push(redsim::block::Block::Terrain(id));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// (tick-exact Nov 13 18:13, ironspec 18:15 (5), G1 18:15) Every term of the golem spawn rule a cell
+/// fails: the floor (LEGACY_IRON_GOLEM: listed, not solid; `checkSpawnObstruction`: not standable),
+/// the feet cell (air or liquid for the floor search; no full block, signal source, rail or dangerous
+/// block, its fluid ignored) and the two cells above it (no full block, signal source, rail, fluid or
+/// dangerous block). Empty: a golem spawns there (entities aside).
+pub fn golem_terms(w: &redsim::World, cell: BlockPos) -> Vec<GolemTerm> {
+    use redsim::entity::mob::blocks as mb;
+    let mut f = Vec::new();
+    let floor = w.get(cell.below());
+    let term = |at: i32, kind: GolemTermKind, block: redsim::block::Block, pos: BlockPos| GolemTerm { at, kind, block, pos };
+    if mb::golem_excluded(&floor) {
+        f.push(term(-1, GolemTermKind::FloorListed, floor, cell.below()));
+    } else if !redsim::behavior::is_solid(&floor) {
+        f.push(term(-1, GolemTermKind::FloorNotSolid, floor, cell.below()));
+    }
+    if !mb::entity_can_stand_on(w, cell.below()) {
+        f.push(term(-1, GolemTermKind::FloorNotStandable, floor, cell.below()));
+    }
+    let feet = w.get(cell);
+    // (G1 Nov 13 19:23: the floor search's own test, the BLOCK's `liquid()`: water, lava, a bubble
+    // column, a terrain liquid; a waterlogged block holds a fluid but is no liquid block)
+    let liquid_block = matches!(feet, redsim::block::Block::Water { .. } | redsim::block::Block::Lava { .. } | redsim::block::Block::BubbleColumn { .. }) || matches!(feet, redsim::block::Block::Terrain(id) if redsim::terrain::blocks::props(id).liquid);
+    if !feet.is_air() && !liquid_block {
+        f.push(term(0, GolemTermKind::FeetNotAirOrLiquid, feet, cell));
+    }
+    for k in 0..3 {
+        let p = cell.offset(0, k, 0);
+        let s = w.get(p);
+        if redsim::behavior::full_cube(&s) {
+            f.push(term(k, GolemTermKind::FullBlock, s, p));
+        }
+        if redsim::behavior::is_signal_source(w, &s) {
+            f.push(term(k, GolemTermKind::SignalSource, s, p));
+        }
+        // (#prevent_mob_spawning_inside is #rails: every rail kind)
+        if rail_kind(&s) {
+            f.push(term(k, GolemTermKind::Rail, s, p));
+        }
+        if k > 0 && !redsim::fluid::fluid_state(w, p).is_empty() {
+            f.push(term(k, GolemTermKind::Fluid, s, p));
+        }
+        if mb::is_dangerous(&s, false) {
+            f.push(term(k, GolemTermKind::Dangerous, s, p));
+        }
+    }
+    f
 }
 
 /// (ironspec Nov 13 08:18 (e): the exterior hostile-spawn static on the FLOATING site) Every cell
@@ -8147,6 +8397,120 @@ mod gate_tests {
         let fspec = redsim::entity::mob::farm::FarmSpec { blocks: f, hi: b(8, 10, 3), ..spec };
         let (_, fl) = super::auto_columns(&fspec, &[]);
         assert!(fl.iter().any(|l| l.contains("lands on the golem guard 0,6,1") && l.contains("UNLANDED")), "{fl:?}");
+    }
+
+    /// (tick-exact 18:13, ironspec 18:15 (a) / (5), G1 18:15 / 18:19) The golem floor rule pinned
+    /// both ways on a stone platform with one caller: ACCEPTED an air or a water feet cell over
+    /// stone; REFUSED a glass floor, a carpet floor, a rail or a redstone torch in the feet cell
+    /// (both FRAGILE: remove it and a golem spawns), a full block one above (not fragile), a rail at
+    /// feet + 1 on a top slab in the feet cell (refused by the slab too: not fragile) and a rail at
+    /// feet + 2 on a top slab at feet + 1 (FRAGILE: only the rail refuses it).
+    /// (G1 Nov 13 20:02, E1 / E2: the FRAGILE pins on the real path) Through `route_golem_floors`: a
+    /// waterlogged rail on stone (walled in) is listed "feet not air or liquid", FRAGILE, with its one
+    /// FAULT NOTE, exactly as its waterlogged=false twin; an observer at feet + 1 over stone (a string on
+    /// it, so it is no floor) and a lone string in a feet cell are both FRAGILE with their FAULT NOTEs
+    /// naming them; the FAULT NOTE count equals the FRAGILE count.
+    #[test]
+    fn golem_fragile_real_path_waterlogged_rail_observer_and_string() {
+        let p = |s: &str| redsim::block::Block::parse(s).unwrap_or_else(|_| redsim::block::Block::Terrain(redsim::terrain::blocks::id_of(s).unwrap_or_else(|| panic!("{s}"))));
+        let string = "minecraft:tripwire[attached=false,disarmed=false,east=false,north=false,powered=false,south=false,west=false]";
+        let run = |wl: bool| {
+            let mut blocks = Vec::new();
+            for x in 0..=8 {
+                for z in 0..=8 {
+                    blocks.push((b(x, 0, z), p("minecraft:stone")));
+                }
+            }
+            blocks.push((b(4, 1, 4), p("minecraft:rail[shape=north_south,waterlogged=false]")));
+            blocks.push((b(1, 1, 1), p(if wl { "minecraft:rail[shape=north_south,waterlogged=true]" } else { "minecraft:rail[shape=north_south,waterlogged=false]" })));
+            for c in [b(0, 1, 1), b(2, 1, 1), b(1, 1, 0), b(1, 1, 2)] {
+                blocks.push((c, p("minecraft:stone")));
+            }
+            blocks.push((b(7, 2, 1), p("minecraft:observer[facing=north,powered=false]")));
+            blocks.push((b(7, 3, 1), p(string)));
+            blocks.push((b(1, 1, 7), p(string)));
+            let spec = redsim::entity::mob::farm::FarmSpec { blocks, entities: Vec::new(), output: b(4, -1, 4), lo: b(0, -1, 0), hi: b(8, 6, 8), block_entities: Vec::new(), rock: false, nether: None, land: false };
+            super::route_golem_floors(&spec, "minecraft:plains").unwrap_or_else(|e| panic!("{e}")).0
+        };
+        for wl in [true, false] {
+            let gl = run(wl);
+            let r = gl.iter().find(|l| l.trim_start().starts_with("refused stop cells:")).unwrap_or_else(|| panic!("{gl:?}"));
+            let fragile = r.split("FRAGILE").nth(1).and_then(|s| s.split("; STATE").next()).unwrap_or("");
+            let notes: Vec<&String> = gl.iter().filter(|l| l.trim_start().starts_with("FAULT NOTE ")).collect();
+            let n_fragile: usize = fragile.split("refuses it): ").nth(1).and_then(|s| s.split(|c: char| !c.is_ascii_digit()).next()).and_then(|d| d.parse().ok()).unwrap_or(0);
+            assert!(fragile.contains("1,1,1 (feet not air or liquid (rail[shape=north_south,waterlogged=") && notes.iter().filter(|l| l.contains("FAULT NOTE 1,1,1:") && l.contains("the rail at 1,1,1")).count() == 1, "the rail (waterlogged {wl}): {r} / {notes:?}");
+            assert!(fragile.contains("7,1,1 (") && fragile.contains("observer") && notes.iter().any(|l| l.contains("FAULT NOTE 7,1,1:") && l.contains("the observer at 7,2,1")), "the observer at feet + 1 (waterlogged {wl}): {r} / {notes:?}");
+            assert!(fragile.contains("1,1,7 (feet not air or liquid (tripwire") && notes.iter().any(|l| l.contains("FAULT NOTE 1,1,7:") && l.contains("the tripwire at 1,1,7")), "the lone string (waterlogged {wl}): {r} / {notes:?}");
+            assert!(n_fragile > 0 && notes.len() == n_fragile, "one FAULT NOTE per FRAGILE cell (waterlogged {wl}): {n_fragile} vs {}: {r} / {notes:?}", notes.len());
+        }
+    }
+
+    #[test]
+    fn golem_rule_pinned_both_ways() {
+        let p = |s: &str| redsim::block::Block::parse(s).unwrap();
+        let mut blocks = Vec::new();
+        for x in 0..=6 {
+            for z in 0..=6 {
+                blocks.push((b(x, 0, z), p(if (x, z) == (6, 6) { "minecraft:glass" } else { "minecraft:stone" })));
+            }
+        }
+        let rail = "minecraft:rail[shape=north_south,waterlogged=false]";
+        let top_slab = "minecraft:smooth_stone_slab[type=top,waterlogged=false]";
+        blocks.push((b(3, 1, 3), p(rail)));
+        blocks.push((b(1, 1, 1), p("minecraft:water[level=0]")));
+        for c in [b(0, 1, 1), b(2, 1, 1), b(1, 1, 0), b(1, 1, 2)] {
+            blocks.push((c, p("minecraft:stone")));
+        }
+        blocks.push((b(6, 1, 0), redsim::block::Block::Terrain(redsim::terrain::blocks::id_of("minecraft:moss_carpet").expect("a carpet in the terrain table"))));
+        blocks.push((b(0, 1, 6), p(rail)));
+        blocks.push((b(6, 1, 3), p("minecraft:redstone_torch[lit=true]")));
+        blocks.push((b(4, 2, 6), p("minecraft:stone")));
+        blocks.push((b(2, 1, 6), p(top_slab)));
+        blocks.push((b(2, 2, 6), p(rail)));
+        blocks.push((b(0, 2, 3), p(top_slab)));
+        blocks.push((b(0, 3, 3), p(rail)));
+        let spec = redsim::entity::mob::farm::FarmSpec { blocks, entities: Vec::new(), output: b(3, 0, 3), lo: b(0, 0, 0), hi: b(6, 5, 6), block_entities: Vec::new(), rock: false, nether: None, land: false };
+        let (gl, _, cells) = super::route_golem_floors(&spec, "minecraft:plains").unwrap_or_else(|e| panic!("{e}"));
+        let has = |x: i32, y: i32, z: i32| cells.contains(&b(x, y, z));
+        // (accepted)
+        assert!(has(5, 1, 1) && has(1, 1, 1), "an air and a water feet cell over stone: {cells:?}");
+        // (refused)
+        for (c, why) in [((6, 1, 6), "a glass floor"), ((6, 1, 0), "a carpet in the feet cell"), ((6, 2, 0), "a carpet floor"), ((0, 1, 6), "a rail in the feet cell"), ((6, 1, 3), "a torch in the feet cell"), ((4, 1, 6), "a full block one above"), ((2, 1, 6), "a rail at feet + 1 on a slab"), ((0, 1, 3), "a rail at feet + 2")] {
+            assert!(!has(c.0, c.1, c.2), "{why} refuses {c:?}: {cells:?}");
+        }
+        let r = gl.iter().find(|l| l.trim_start().starts_with("refused stop cells:")).unwrap_or_else(|| panic!("{gl:?}"));
+        let fragile = r.split("FRAGILE").nth(1).and_then(|s| s.split("; STATE").next()).unwrap_or("");
+        // (a rail at feet + 1 needs a support in the feet cell: over the slab the spot is the rail's
+        // own cell, refused by the rail alone (fragile), and under it refused by the slab too)
+        assert!(fragile.contains("0,1,6 (") && fragile.contains("6,1,3 (") && fragile.contains("0,1,3 (2 above: rail") && fragile.contains("2,2,6 ("), "the removable refusals: {r}");
+        assert!(!fragile.contains("2,1,6 (") && !fragile.contains("6,1,0 (") && r.contains("feet not air or liquid"), "not fragile: {r}");
+        // (ironspec 18:35 / G1 18:37: FRAGILE and STATE by the block's KIND: a rail term is removable,
+        // a lit campfire's danger is a state (unlit, it isn't dangerous), a stone's full block neither)
+        let w = super::settled_world_void(&spec).unwrap_or_else(|e| panic!("{e}"));
+        let t = |kind: super::GolemTermKind, s: &str| super::GolemTerm { at: 1, kind, block: p(s), pos: b(5, 2, 5) };
+        let rail_t = t(super::GolemTermKind::Rail, rail);
+        let fire_t = t(super::GolemTermKind::Dangerous, "minecraft:campfire[facing=north,lit=true,signal_fire=false,waterlogged=false]");
+        let stone_t = t(super::GolemTermKind::FullBlock, "minecraft:stone");
+        assert!(rail_t.removable(&w) && !rail_t.stateful(&w), "a rail: removable");
+        assert!(fire_t.stateful(&w) && !fire_t.removable(&w), "a lit campfire: a state");
+        assert!(!stone_t.removable(&w) && !stone_t.stateful(&w), "stone: neither");
+        // (ironspec 19:11: a lone string in the feet cell is a guard: its "feet not air or liquid" term
+        // is removable, so the cell is FRAGILE)
+        let string = "minecraft:tripwire[attached=false,disarmed=false,east=false,north=false,powered=false,south=false,west=false]";
+        let string_b = redsim::block::Block::parse(string).unwrap_or_else(|_| redsim::block::Block::Terrain(redsim::terrain::blocks::id_of(string).expect("the string state")));
+        let string_t = super::GolemTerm { at: 0, kind: super::GolemTermKind::FeetNotAirOrLiquid, block: string_b, pos: b(5, 1, 5) };
+        assert!(string_t.removable(&w), "a lone string: removable");
+        // (G1 19:23: removability per BLOCK: an observer (a full-block signal source) at feet + 1 raises
+        // a full-block and a signal-source term, both removable, so its cell is FRAGILE; a floor term
+        // never is)
+        let obs = p("minecraft:observer[facing=north,powered=false]");
+        let obs_full = super::GolemTerm { at: 1, kind: super::GolemTermKind::FullBlock, block: obs, pos: b(5, 2, 5) };
+        let obs_src = super::GolemTerm { at: 1, kind: super::GolemTermKind::SignalSource, block: obs, pos: b(5, 2, 5) };
+        assert!(obs_full.removable(&w) && obs_src.removable(&w), "an observer at feet + 1: FRAGILE");
+        let floor_t = super::GolemTerm { at: -1, kind: super::GolemTermKind::FloorNotSolid, block: string_b, pos: b(5, 0, 5) };
+        assert!(!floor_t.removable(&w), "a floor term is never removable");
+        // (G1 19:23 / 20:02 E1: the feet test is the BLOCK's liquid(): a waterlogged rail's term stands;
+        // pinned on the real path in `golem_fragile_real_path_waterlogged_rail_observer_and_string`)
     }
 
     /// (G1 N28 / N39: the seated start rule on a slope) A seated rider near a slope's high end
