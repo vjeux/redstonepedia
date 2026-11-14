@@ -115,6 +115,7 @@ pub fn rider_string(version: &str) -> Result<()> {
     let mut seated: Vec<u32> = vec![0; rows.len()];
     let mut in_cell: Vec<u32> = vec![0; rows.len()];
     let mut noai: Vec<Option<bool>> = vec![None; rows.len()];
+    let mut noai_ok: Vec<u32> = vec![0; rows.len()];
     for (k, r) in rows.iter().enumerate() {
         if r.rider.is_some() {
             let out = srv.cmd_long(&format!("data get entity @e[tag=rs{k}v,limit=1] NoAI"))?;
@@ -135,6 +136,11 @@ pub fn rider_string(version: &str) -> Result<()> {
                 let p = srv.cmd_long(&format!("data get entity @e[tag=rs{k},limit=1] Passengers"))?;
                 if p.contains(&format!("\"rs{k}v\"")) {
                     seated[k] += 1;
+                }
+                // (G1 08:16 non-blocking) the NoAI flag read back every tick, not once
+                let n = srv.cmd_long(&format!("data get entity @e[tag=rs{k}v,limit=1] NoAI"))?;
+                if n.contains("1b") == (r.rider == Some(false)) {
+                    noai_ok[k] += 1;
                 }
             } else if r.v >= 0.0 {
                 let z = srv.cmd_long(&format!("data get entity @e[tag=rs{k},limit=1] Pos[2]"))?;
@@ -183,7 +189,7 @@ pub fn rider_string(version: &str) -> Result<()> {
     let within_one = ai_ticks.len() == 8 && noai_ticks.len() == 8 && ai_ticks.iter().zip(&noai_ticks).all(|(a, b)| matches!((a, b), (Some(a), Some(b)) if a.abs_diff(*b) <= 1));
     pin(5, within_one, format!("(5) every rolling AI rider first presses within one tick of its NoAI twin: {ai_ticks:?} / {noai_ticks:?}"))?;
     // the read-backs: every ridden row's villager seated all 60 ticks with its NoAI flag as summoned
-    let back_ok = rows.iter().enumerate().filter(|(_, r)| r.rider.is_some()).all(|(k, r)| seated[k] == 60 && noai[k] == Some(r.rider == Some(false)));
+    let back_ok = rows.iter().enumerate().filter(|(_, r)| r.rider.is_some()).all(|(k, r)| seated[k] == 60 && noai_ok[k] == 60 && noai[k] == Some(r.rider == Some(false)));
     pin(6, back_ok, "(6) every ridden row's villager is read back SEATED in its own cart on all 60 ticks, NoAI 1b exactly where summoned NoAI".into())?;
     // the controls sat or passed under the string: a resting empty in the string's cell all 60 ticks, a rolling one in it
     // on at least one tick

@@ -1039,6 +1039,12 @@ pub enum MobaiCmd {
         #[arg(long, default_value = "26.3")]
         version: String,
     },
+    /// (tickexact 2026-11-14, ironfarm 08:10 (4)) A ridden cart held underwater: the rider's eye in a downward bubble column
+    /// (over magma) and in plain water (over stone): Air, Health and the seat every tick
+    RiderAir {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+    },
     /// (tickexact 2026-11-14, ironfarm 07:47) Carts at rest flush against glass walls (flat, braked slope, plain slope;
     /// empty and ridden) through a real world open (save, stop, start): every cart's position and Motion every tick after
     LoginWall {
@@ -2428,6 +2434,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         MobaiCmd::GameDrive { design, drive, cart, version } => crate::gamedrive::game_drive(&version, &design, &drive, cart),
         MobaiCmd::Y22End { design, follow_on, booster2, torch_boosters, roll_in, unheld, front_at, token_latch, pane, front_empty, front_string, long_rest, front_hold, version } => crate::y22end::y22_end(&version, &design, follow_on, booster2, torch_boosters, roll_in, unheld, front_at, token_latch, pane, front_empty, front_string, long_rest, front_hold),
         MobaiCmd::LoginWall { version } => crate::loginwall::login_wall(&version),
+        MobaiCmd::RiderAir { version } => crate::riderair::rider_air(&version),
         MobaiCmd::RailEndThreshold { version } => crate::railenddrop::rail_end_threshold(&version),
         MobaiCmd::HopperPin { version } => crate::hopperpin::hopper_pin(&version),
         MobaiCmd::BlockWatch { version, module, set, watch, restarts, ticks } => {

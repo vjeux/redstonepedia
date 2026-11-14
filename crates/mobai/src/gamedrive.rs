@@ -78,7 +78,7 @@ pub fn check_script(script: &str, blocks: &BTreeMap<[i32; 3], String>, design: &
                 };
                 anyhow::ensure!(same, "line {n}: `{line}` names a different design from {} (md5 {})", design.display(), &design_md5[..12]);
             }
-            "nbt:" => {}
+            "nbt:" => bail!("line {n}: `{line}`: an `nbt:` line in a drive script is refused (the block entities come from the design's own `nbt:` lines, which are pasted and read back)"),
             "probe_signal" => bail!("line {n}: `{line}`: probe_signal reads the best neighbour signal in drive.rs, which the game's commands can't read: refused"),
             "probe_items" => {
                 let p = [int(2)?, int(3)?, int(4)?];
@@ -103,6 +103,9 @@ pub fn check_script(script: &str, blocks: &BTreeMap<[i32; 3], String>, design: &
                 } else if cart && on_detector && state.starts_with("minecraft:detector_rail") {
                     anyhow::ensure!(Some(&state.to_string()) == rest, "line {n}: `{line}`: a detector rail set to a state other than its rest state {}", rest.map(String::as_str).unwrap_or("-"));
                     anyhow::ensure!(pressed.remove(&p), "line {n}: `{line}`: a release of {p:?} with no cart pressing it");
+                } else if cart && on_detector {
+                    // (G1 08:16 non-blocking) with real carts a detector cell is only pressed or released
+                    bail!("line {n}: `{line}`: with --cart a detector rail's cell {p:?} is only pressed (a redstone block) or released (its rest state)");
                 }
             }
             "quiet" | "step" => {
@@ -125,6 +128,31 @@ pub fn check_script(script: &str, blocks: &BTreeMap<[i32; 3], String>, design: &
     anyhow::ensure!(checks > 0, "the script has no expect or expect_trace: a drive with no check proves nothing");
     anyhow::ensure!(!cart || presses > 0, "--cart was given but the script presses no detector rail");
     Ok((checks, presses))
+}
+
+/// An `{Items:[{Slot:…,id:"…",count:…}, …]}` fill as a set of normalized stacks (`Slot=…;count=…;id=…`, keys sorted,
+/// spaces dropped); anything else (other keys, components, a stack without its slot, id or count) is refused
+pub fn item_set(snbt: &str) -> Result<BTreeSet<String>> {
+    let s: String = snbt.chars().filter(|c| !c.is_whitespace()).collect();
+    let inner = s.strip_prefix("{Items:[").and_then(|t| t.strip_suffix("]}")).with_context(|| format!("not an {{Items:[…]}} fill: {snbt}"))?;
+    let mut out = BTreeSet::new();
+    if inner.is_empty() {
+        return Ok(out);
+    }
+    for stack in inner.split("},{") {
+        let body = stack.trim_start_matches('{').trim_end_matches('}');
+        anyhow::ensure!(!body.contains('{') && !body.contains('['), "a stack with nested data (components) is not supported: {stack}");
+        let mut kv: Vec<(String, String)> = Vec::new();
+        for pair in body.split(',') {
+            let (k, v) = pair.split_once(':').with_context(|| format!("a stack field without a value: {pair}"))?;
+            kv.push((k.trim_matches('"').to_string(), v.trim_matches('"').trim_end_matches(['b', 'B']).to_string()));
+        }
+        kv.sort();
+        let keys: Vec<&str> = kv.iter().map(|(k, _)| k.as_str()).collect();
+        anyhow::ensure!(keys == ["Slot", "count", "id"], "a stack must carry exactly Slot, id and count: {stack}");
+        out.insert(kv.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join(";"));
+    }
+    Ok(out)
 }
 
 pub fn game_drive(version: &str, design: &std::path::Path, drive: &std::path::Path, cart: bool) -> Result<()> {
@@ -153,12 +181,13 @@ pub fn game_drive(version: &str, design: &std::path::Path, drive: &std::path::Pa
     crate::portal::paste(&mut srv, "minecraft:overworld", &world_blocks)?;
     for (p, nbt) in &d.block_entities {
         let q = w(*p);
+        // (G1 08:16 (2)) only an `{Items:[…]}` fill is supported, and it is read back item for item (slot, id, count)
+        let want = item_set(nbt).with_context(|| format!("the design's nbt at local {p:?}: {nbt}"))?;
         srv.cmd_ok(&format!("data merge block {} {} {} {nbt}", q[0], q[1], q[2]))?;
-        let back = srv.cmd_long(&format!("data get block {} {} {}", q[0], q[1], q[2]))?;
-        for id in nbt.split("id:\"").skip(1).filter_map(|s| s.split('"').next()) {
-            anyhow::ensure!(back.contains(id), "the block entity at local {p:?} did not take {nbt}: read back {back}");
-        }
-        println!("  nbt at local {p:?}: {nbt} (read back)");
+        let back = srv.cmd_long(&format!("data get block {} {} {} Items", q[0], q[1], q[2]))?;
+        let got = if back.contains("Found no elements") { BTreeSet::new() } else { item_set(&format!("{{Items:{}}}", back.split("block data: ").nth(1).unwrap_or("").trim())).with_context(|| format!("the read-back at local {p:?}: {back}"))? };
+        anyhow::ensure!(got == want, "the block entity at local {p:?} read back {got:?}, the design writes {want:?}");
+        println!("  nbt at local {p:?}: {nbt} (read back: {} item stack(s), each slot / id / count equal)", got.len());
     }
     srv.step(2)?;
     for (p, s) in &blocks {
@@ -205,7 +234,7 @@ pub fn game_drive(version: &str, design: &std::path::Path, drive: &std::path::Pa
         let arg = |i: usize| -> Result<&str> { parts.get(i).copied().with_context(|| format!("line {n}: `{line}` needs argument {i}")) };
         let int = |i: usize| -> Result<i32> { arg(i)?.parse::<i32>().with_context(|| format!("line {n}: `{line}`: argument {i} is not a number")) };
         match parts[0] {
-            "design" | "nbt:" => {}
+            "design" => {}
             "probe_items" | "probe" => probes.push((arg(1)?.to_string(), [int(2)?, int(3)?, int(4)?], parts[0] == "probe_items")),
             "set" | "clear" => {
                 let p = [int(1)?, int(2)?, int(3)?];
@@ -299,7 +328,7 @@ mod tests {
         assert_eq!(check_script(&block, &b, &p, false).expect("the block drive checks").0, 34);
         let (checks, presses) = check_script(&cart, &b, &p, true).expect("the cart drive checks");
         assert_eq!(checks, 15);
-        assert!(presses >= 3, "{presses} presses");
+        assert_eq!(presses, 3, "the cart drive's presses");
     }
 
     /// each refusal by name (G1 06:54 (2)/(3), ironspec 06:43 (1)(c))
@@ -319,7 +348,26 @@ mod tests {
         assert!(err(&format!("{head}set 3 1 0 minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]\nexpect a 1\n"), true).contains("no cart pressing it"));
         assert!(err(&format!("{head}set 3 1 0 minecraft:redstone_block\nset 3 1 0 minecraft:detector_rail[powered=true,shape=east_west,waterlogged=false]\nexpect a 1\n"), true).contains("rest state"));
         assert!(err(&format!("{head}expect\n"), false).contains("needs argument 1"));
+        // (G1 08:16 (2)) a drive script's own `nbt:` line is refused; with --cart a detector cell is only pressed or
+        // released, so clearing a pressed rail is refused
+        assert!(err(&format!("{head}nbt: 3 1 1 {{Items:[]}}\nexpect a 1\n"), false).contains("`nbt:` line in a drive script is refused"));
+        assert!(err(&format!("{head}set 3 1 0 minecraft:redstone_block\nclear 3 1 0\nexpect a 1\n"), true).contains("only pressed"));
         // the vendored copy stands for designs/gadgets/ironfarm-arm3-interlock.txt by the md5 in its name
         assert!(check_script(&format!("design designs/gadgets/ironfarm-arm3-interlock.txt\n{head}expect a 1\n"), &b, &p, false).is_ok());
+    }
+
+    /// (G1 08:16 (2)) the read-back compares stacks by slot, id and count: order and spacing don't matter, a count or a
+    /// slot does; an empty fill is the empty set; other SNBT is refused
+    #[test]
+    fn item_sets() {
+        let a = item_set("{Items:[{Slot:0b,id:\"minecraft:stone\",count:1}]}").expect("a fill");
+        let b = item_set("{Items:[{count: 1, id: \"minecraft:stone\", Slot: 0b}]}").expect("the game's print");
+        assert_eq!(a, b);
+        assert_ne!(a, item_set("{Items:[{Slot:0b,id:\"minecraft:stone\",count:2}]}").expect("count 2"));
+        assert_ne!(a, item_set("{Items:[{Slot:1b,id:\"minecraft:stone\",count:1}]}").expect("slot 1"));
+        assert!(item_set("{Items:[]}").expect("empty").is_empty());
+        assert!(item_set("{Items:[{id:\"minecraft:stone\",count:1}]}").is_err(), "a stack without its slot");
+        assert!(item_set("{CustomName:\"x\"}").is_err(), "not an Items fill");
+        assert!(item_set("{Items:[{Slot:0b,id:\"minecraft:stone\",count:1,components:{}}]}").is_err(), "components");
     }
 }

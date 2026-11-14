@@ -9720,18 +9720,22 @@ pub fn rec_cell(path: &std::path::Path, cell: &str) -> Result<()> {
     };
     let text = mctas::recorded::read_text(path)?;
     let mut lines = text.lines();
-    let _header = lines.next();
+    let _header = lines.next().ok_or_else(|| anyhow!("{}: an empty recording", path.display()))?;
     // per entity n: (type, frames inside, least gap, its frame, the cells its box touched)
     let mut per: std::collections::BTreeMap<u64, (String, u32, f64, usize, std::collections::BTreeSet<[i32; 3]>)> = std::collections::BTreeMap::new();
     let mut frames = 0usize;
     for (t, l) in lines.enumerate() {
         frames += 1;
         let f: serde_json::Value = serde_json::from_str(l).map_err(|e| anyhow!("frame {t}: {e}"))?;
-        for e in f["entities"].as_array().cloned().unwrap_or_default() {
-            let ty = e["type"].as_str().unwrap_or("?").to_string();
+        // (G1 08:16 (5)) every field read strictly: a frame without its entity list, an entity without its type, number
+        // or a full position fails by name, never defaulted
+        let ents = f["entities"].as_array().ok_or_else(|| anyhow!("frame {t}: no entities list"))?;
+        for e in ents {
+            let ty = e["type"].as_str().ok_or_else(|| anyhow!("frame {t}: an entity without a type: {e}"))?.to_string();
             let (wd, ht) = size(&ty).ok_or_else(|| anyhow!("frame {t}: entity type {ty} has no size in rec-cell"))?;
-            let n = e["n"].as_u64().unwrap_or(0);
-            let p = [e["pos"][0].as_f64().unwrap_or(0.0), e["pos"][1].as_f64().unwrap_or(0.0), e["pos"][2].as_f64().unwrap_or(0.0)];
+            let n = e["n"].as_u64().ok_or_else(|| anyhow!("frame {t}: a {ty} without its number"))?;
+            let coord = |i: usize| e["pos"][i].as_f64().ok_or_else(|| anyhow!("frame {t}: #{n} {ty} without a full position"));
+            let p = [coord(0)?, coord(1)?, coord(2)?];
             let (bmin, bmax) = ([p[0] - wd / 2.0, p[1], p[2] - wd / 2.0], [p[0] + wd / 2.0, p[1] + ht, p[2] + wd / 2.0]);
             let inside = (0..3).all(|i| bmin[i] < hi[i] && bmax[i] > lo[i]);
             let gap = (0..3).map(|i| (lo[i] - bmax[i]).max(bmin[i] - hi[i]).max(0.0)).map(|g| g * g).sum::<f64>().sqrt();
@@ -9758,7 +9762,11 @@ pub fn rec_cell(path: &std::path::Path, cell: &str) -> Result<()> {
         total += inside;
         println!("  #{n} {ty}: its box overlaps the cell on {inside} frames; closest approach {gap:.4} b at frame {at}; it touched {} cells", cells.len());
     }
-    println!("  {} entities: {}", per.len(), if total == 0 { format!("NO box overlaps ({},{},{}) in any of {frames} frames", c[0], c[1], c[2]) } else { format!("{total} entity-frames overlap the cell") });
+    // (G1 08:16 (5)) a recording with no frame or no entity proves nothing; any overlap fails by name, exit 1
+    anyhow::ensure!(frames > 0, "{}: no frames: nothing to judge", path.display());
+    anyhow::ensure!(!per.is_empty(), "{}: no entity in {frames} frames: nothing to judge", path.display());
+    anyhow::ensure!(total == 0, "{} entity-frames overlap the cell ({},{},{}) in {}", total, c[0], c[1], c[2], path.display());
+    println!("  {} entities: NO box overlaps ({},{},{}) in any of {frames} frames", per.len(), c[0], c[1], c[2]);
     Ok(())
 }
 
@@ -11556,6 +11564,33 @@ mod vendored_tests {
 
     fn scenes_dir() -> std::path::PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("scenes")
+    }
+
+    /// (G1 08:16 (5)) rec-cell can fail: an overlap exits with an error naming the count; a recording with no frame or
+    /// no entity fails; an entity without its full position fails; a clear recording passes
+    #[test]
+    fn rec_cell_fails_where_it_should() {
+        let dir = std::env::temp_dir().join(format!("rec-cell-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a temp dir");
+        let write = |name: &str, text: &str| -> std::path::PathBuf {
+            let p = dir.join(name);
+            std::fs::write(&p, text).expect("a test recording");
+            p
+        };
+        let head = "{\"kind\":\"mobai-fixture\"}\n";
+        let villager = |x: f64| format!("{{\"entities\":[{{\"type\":\"villager\",\"n\":0,\"pos\":[{x},70.0,20.5]}}]}}\n");
+        // the villager's box (0.6 wide) at x 13.5 overlaps the cell (13,70,20); at x 15.5 it is 1.2 clear
+        let over = write("over.rec", &format!("{head}{}{}", villager(15.5), villager(13.5)));
+        let err = super::rec_cell(&over, "13,70,20").expect_err("an overlap fails").to_string();
+        assert!(err.contains("1 entity-frames overlap"), "{err}");
+        assert!(super::rec_cell(&write("clear.rec", &format!("{head}{}", villager(15.5))), "13,70,20").is_ok());
+        assert!(super::rec_cell(&write("none.rec", head), "13,70,20").expect_err("no frames").to_string().contains("no frames"));
+        let empty = write("empty.rec", &format!("{head}{{\"entities\":[]}}\n"));
+        assert!(super::rec_cell(&empty, "13,70,20").expect_err("no entity").to_string().contains("no entity"));
+        let nopos = write("nopos.rec", &format!("{head}{{\"entities\":[{{\"type\":\"villager\",\"n\":0,\"pos\":[1.0,2.0]}}]}}\n"));
+        assert!(super::rec_cell(&nopos, "13,70,20").expect_err("a short position").to_string().contains("full position"));
+        assert!(super::rec_cell(&over, "13,70").is_err(), "a two-number cell");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// (G1 06:54 non-blocking) no two scenes share a name (car 11's first `queue-settle` shadowed an existing scene)

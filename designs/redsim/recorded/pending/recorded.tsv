@@ -1,0 +1,16 @@
+# recordings of the real game replayed on redsim (mctas recorded check; crates/mctas/src/recorded.rs)
+file	hash	deps	version	recorded	how
+ak-wanderer-seed3.rec	14bc254ece3f566b		26.3	2026-11-14 78133f528	recorded before manifests: see the recording's header and its commit
+ak-wanderer-seed8.rec	6776198c31966095		26.3	2026-11-14 78133f528	recorded before manifests: see the recording's header and its commit
+arm3-cart.rec	4a574c0729d1cef9		26.3	2026-11-14 b93ad836a	recorded before manifests: see the recording's header and its commit
+e-string-empty.rec	1e4f7a4b7d4c5abf		26.3	2026-11-14 23f14352d	recorded before manifests: see the recording's header and its commit
+hold-drive.rec	937e4bc83b11f802		26.3	2026-11-14 17a808aef	recorded before manifests: see the recording's header and its commit
+lane3-settle.rec	7667274932fc37f0		26.3	2026-11-14 b93ad836a	recorded before manifests: see the recording's header and its commit
+latch-aslisted.rec	99e1e300ceff9510		26.3	2026-11-14 5fcf01e22	recorded before manifests: see the recording's header and its commit
+latch-formb.rec	d050cb8b5c4dff08		26.3	2026-11-14 78133f528	recorded before manifests: see the recording's header and its commit
+relaid-stop-dawn-other.rec	2e88fff78a5f4fc8		26.3	2026-11-14 3a9e87485	recorded before manifests: see the recording's header and its commit
+relaid-stop-dawn-own.rec	b6d91c3e3e9711e6		26.3	2026-11-14 3a9e87485	recorded before manifests: see the recording's header and its commit
+relaid-stop-dawn.rec	aa2e02f4a9064322		26.3	2026-11-14 17a808aef	recorded before manifests: see the recording's header and its commit
+seated-stamp.rec	999ae42111de513f		26.3	2026-11-14 5fcf01e22	recorded before manifests: see the recording's header and its commit
+slot1-hold.rec	44c7042ccf71ff3d		26.3	2026-11-14 c49690808	recorded before manifests: see the recording's header and its commit
+trapdoor-corridor.rec	a7a8a477fff00b9e		26.3	2026-11-14 17a808aef	recorded before manifests: see the recording's header and its commit

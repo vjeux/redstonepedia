@@ -6,9 +6,10 @@
 //! pushes it into the wall every tick). Each settles 40 gt; then a real world open (save, stop, start:
 //! `restartcheck::reload`, its game-time jump printed), and every cart's position and Motion at the save and every tick for
 //! 20 gt after the open, with each cart's position and speed change against its saved state.
-//! Asserted (the first run's answers; MCTAS_LOGIN_WALL_PLANT=k inverts assert k, read strictly 1..=3): (1) at the save every
+//! Asserted (the first run's answers; MCTAS_LOGIN_WALL_PLANT=k inverts assert k, read strictly 1..=4): (1) at the save every
 //! cart rests flush against its wall (its centre 0.49 from the wall's face); (2) after the open no cart's position changes on
-//! any of the 20 ticks; (3) the flat and braked carts keep Motion 0 on every tick (speed change +0.0000).
+//! any of the 20 ticks; (3) the flat and braked carts keep Motion 0 on every tick (speed change +0.0000); (4) each ridden
+//! cart is read back from the game carrying its villager (Passengers) at the save and at every read after the open.
 
 use anyhow::Result;
 use mctas::vanilla::{VanillaOptions, VanillaServer};
@@ -20,7 +21,7 @@ fn plant() -> Result<Option<u32>> {
         Err(_) => Ok(None),
         Ok(s) => {
             let k: u32 = s.trim().parse().map_err(|_| anyhow::anyhow!("MCTAS_LOGIN_WALL_PLANT={s:?} is not an assert number"))?;
-            anyhow::ensure!((1..=3).contains(&k), "MCTAS_LOGIN_WALL_PLANT={k}: login-wall has asserts 1..3");
+            anyhow::ensure!((1..=4).contains(&k), "MCTAS_LOGIN_WALL_PLANT={k}: login-wall has asserts 1..4");
             Ok(Some(k))
         }
     }
@@ -114,6 +115,14 @@ pub fn login_wall(version: &str) -> Result<()> {
         println!("  at the save: {} pos {:?} motion {:?}", s.label, p, m);
         saved.push((p, m));
     }
+    // (ironspec 08:18a (1)) each ridden cart read back carrying its villager at the save and at every read after the open
+    let carries = |srv: &mut VanillaServer, k: usize| -> Result<bool> { Ok(srv.cmd_long(&format!("data get entity @e[tag=lw{k},limit=1] Passengers"))?.contains("minecraft:villager")) };
+    let mut seated_at_save = Vec::new();
+    for (k, s) in specs.iter().enumerate() {
+        if s.ridden {
+            seated_at_save.push((k, carries(&mut srv, k)?));
+        }
+    }
     let flush = saved.iter().all(|(p, _)| p.len() == 3 && (p[2] - 0.51).abs() < 1e-9);
     let (mut srv, rl) = crate::restartcheck::reload(srv, |w| opts(Some(w)), Some("@e[tag=lw0,limit=1]"))?;
     srv.cmd_ok("gamerule advance_time false")?;
@@ -121,6 +130,7 @@ pub fn login_wall(version: &str) -> Result<()> {
     println!("  WORLD OPEN: {} (game time +{})", rl.describe(), rl.time_jump);
     let mut moved = vec![0u32; specs.len()];
     let mut spun = vec![0u32; specs.len()];
+    let mut seated = vec![0u32; specs.len()];
     let mut last: Vec<(Vec<f64>, Vec<f64>)> = saved.clone();
     for t in 0..=20u32 {
         if t > 0 {
@@ -137,6 +147,9 @@ pub fn login_wall(version: &str) -> Result<()> {
             if m.iter().any(|v| v.abs() > 1e-12) || m.len() != 3 {
                 spun[k] += 1;
             }
+            if s.ridden && carries(&mut srv, k)? {
+                seated[k] += 1;
+            }
             line.push_str(&format!(" | {}: dpos {dp:.6} speed {sp:.6}", &s.label[..s.label.find(" on ").unwrap_or(s.label.len())]));
             last[k] = (p, m);
         }
@@ -149,6 +162,8 @@ pub fn login_wall(version: &str) -> Result<()> {
     pin(1, flush, "(1) at the save every cart rests flush against its wall (its centre z 0.51, 0.49 from the wall's face)".into())?;
     pin(2, moved.iter().all(|&n| n == 0), "(2) after the world open no cart's position changes on any of the 20 ticks (nor at the open)".into())?;
     pin(3, specs.iter().zip(&spun).filter(|(s, _)| s.zero_motion).all(|(_, &n)| n == 0), "(3) the flat and braked carts keep Motion 0 at the open and on every tick after it (speed change +0.0000)".into())?;
-    println!("  every known answer held (asserts 1..3)");
+    let ridden_ok = seated_at_save.len() == 2 && seated_at_save.iter().all(|(k, s)| *s && seated[*k] == 21);
+    pin(4, ridden_ok, format!("(4) each ridden cart is read back carrying its villager at the save and at all 21 reads after the open: at the save {seated_at_save:?}, after it {:?}", specs.iter().enumerate().filter(|(_, s)| s.ridden).map(|(k, _)| seated[k]).collect::<Vec<_>>()))?;
+    println!("  every known answer held (asserts 1..4)");
     Ok(())
 }

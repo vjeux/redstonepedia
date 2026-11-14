@@ -65,6 +65,24 @@ fn cell_of(p: [f64; 3]) -> [i32; 3] {
     [p[0].floor() as i32, (p[1] - 1e-6).floor() as i32, p[2].floor() as i32]
 }
 
+/// (ironspec 08:18a (1), G1 08:16: "ridden" read back as ridden) every cart summon through one door: the summon must
+/// succeed, and a cart summoned with a passenger must be read back from the game carrying its villager (tag `<cart>v`)
+pub trait SummonCart {
+    fn summon_cart(&mut self, cmd: &str) -> Result<()>;
+}
+
+impl SummonCart for VanillaServer {
+    fn summon_cart(&mut self, cmd: &str) -> Result<()> {
+        self.cmd_ok(cmd)?;
+        if cmd.contains("Passengers:") {
+            let tag = cmd.split("Tags:[\"").nth(1).and_then(|s| s.split('"').next()).ok_or_else(|| anyhow::anyhow!("a ridden summon without a tag: {cmd}"))?;
+            let p = self.cmd_long(&format!("data get entity @e[tag={tag},limit=1] Passengers"))?;
+            anyhow::ensure!(p.contains(&format!("\"{tag}v\"")), "the cart {tag} was summoned ridden but the game reads back its Passengers as {p}");
+        }
+        Ok(())
+    }
+}
+
 pub fn y22_end(version: &str, design: &std::path::Path, follow_on: bool, booster2: bool, torch: bool, roll_in: bool, unheld: bool, front_at: Option<f64>, token_latch: bool, pane: bool, front_empty: bool, front_string: bool, long_rest: bool, front_hold: bool) -> Result<()> {
     let torch = torch || pane;
     let booster2 = booster2 || torch;
@@ -185,7 +203,7 @@ pub fn y22_end(version: &str, design: &std::path::Path, follow_on: bool, booster
         let rider = if r.ridden { format!(",Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b,Tags:[\"{tag}v\"]}}]") } else { String::new() };
         srv.cmd("setblock 9 21 5 minecraft:glass")?;
         srv.step(2)?;
-        srv.cmd_ok(&format!("summon minecraft:minecart 9.5 {:.4} {:.4} {{Tags:[\"{tag}\"],Motion:[0.0d,0.0d,0.0d]{rider}}}", 22.0 + (r.z0 - 5.0) + 0.0625, r.z0))?;
+        srv.summon_cart(&format!("summon minecraft:minecart 9.5 {:.4} {:.4} {{Tags:[\"{tag}\"],Motion:[0.0d,0.0d,0.0d]{rider}}}", 22.0 + (r.z0 - 5.0) + 0.0625, r.z0))?;
         srv.step(10)?;
         let rest = nums(&srv.cmd_long(&format!("data get entity @e[tag={tag},limit=1] Pos"))?);
         // (b8949c96 03:17) the release: P1 powered at t0 by swapping its support (9,21,5) for a redstone block, as the
@@ -319,8 +337,8 @@ fn follow_on_rows(srv: &mut VanillaServer, blocks: &[(mctas::sim::Pos, String)],
             let (e, r) = (format!("fe{k}"), format!("fr{k}"));
             srv.cmd("setblock 9 21 5 minecraft:glass")?;
             srv.step(2)?;
-            srv.cmd_ok(&format!("summon minecraft:minecart 9.5 22.0625 {park:.4} {{Tags:[\"{e}\"],Motion:[0.0d,0.0d,0.0d]}}"))?;
-            srv.cmd_ok(&format!("summon minecraft:minecart 9.5 {:.4} {rel:.4} {{Tags:[\"{r}\"],Motion:[0.0d,0.0d,0.0d],Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b,Tags:[\"{r}v\"],Brain:{{memories:{{\"minecraft:home\":{{value:{{dimension:\"minecraft:overworld\",pos:[I;-3,-20,3]}}}}}}}}}}]}}", 22.0 + (rel - 5.0) + 0.0625))?;
+            srv.summon_cart(&format!("summon minecraft:minecart 9.5 22.0625 {park:.4} {{Tags:[\"{e}\"],Motion:[0.0d,0.0d,0.0d]}}"))?;
+            srv.summon_cart(&format!("summon minecraft:minecart 9.5 {:.4} {rel:.4} {{Tags:[\"{r}\"],Motion:[0.0d,0.0d,0.0d],Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b,Tags:[\"{r}v\"],Brain:{{memories:{{\"minecraft:home\":{{value:{{dimension:\"minecraft:overworld\",pos:[I;-3,-20,3]}}}}}}}}}}]}}", 22.0 + (rel - 5.0) + 0.0625))?;
             srv.step(10)?;
             srv.cmd_ok("setblock 9 21 5 minecraft:redstone_block")?;
             // (b8949c96 05:03) `--token-latch`: the token is a latch cleared the tick the napper passes P1's exit cell
@@ -601,7 +619,7 @@ fn roll_in_rows(srv: &mut VanillaServer) -> Result<()> {
                 k += 1;
                 let tag = format!("ri{k}");
                 let rider = if ridden { format!(",Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b,Tags:[\"{tag}v\"]}}]") } else { String::new() };
-                srv.cmd_ok(&format!("summon minecraft:minecart {x0:.4} 25.0625 9.5 {{Tags:[\"{tag}\"],Motion:[{v:.4}d,0.0d,0.0d]{rider}}}"))?;
+                srv.summon_cart(&format!("summon minecraft:minecart {x0:.4} 25.0625 9.5 {{Tags:[\"{tag}\"],Motion:[{v:.4}d,0.0d,0.0d]{rider}}}"))?;
                 let (mut still, mut prev, mut last): (u32, Option<[f64; 3]>, Option<[f64; 3]>) = (0, None, None);
                 let mut trail: Vec<[i32; 3]> = Vec::new();
                 let mut t_end = 0;
@@ -760,7 +778,7 @@ fn unheld_rows(srv: &mut VanillaServer, booster2: bool) -> Result<()> {
                 k += 1;
                 let tag = format!("un{k}");
                 let rider = if ridden { format!(",Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b,Tags:[\"{tag}v\"]}}]") } else { String::new() };
-                srv.cmd_ok(&format!("summon minecraft:minecart {x0:.4} 25.0625 9.5 {{Tags:[\"{tag}\"],Motion:[{v:.4}d,0.0d,0.0d]{rider}}}"))?;
+                srv.summon_cart(&format!("summon minecraft:minecart {x0:.4} 25.0625 9.5 {{Tags:[\"{tag}\"],Motion:[{v:.4}d,0.0d,0.0d]{rider}}}"))?;
                 let tr = track(srv, &tag, 600)?;
                 let hp = if ridden { health(srv, &format!("{tag}v"))? } else { None };
                 if let Some((_, s)) = tr.past {
@@ -823,13 +841,13 @@ fn front_rows(srv: &mut VanillaServer, zf: f64, front_empty: bool) -> Result<()>
         k += 1;
         let (f, r) = (format!("ff{k}"), format!("fn{k}"));
         srv.cmd("setblock 9 21 5 minecraft:glass")?;
-        srv.cmd_ok(&format!(
+        srv.summon_cart(&format!(
             "summon minecraft:minecart 9.5 {yf:.4} {zf:.4} {{Tags:[\"{f}\"],Motion:[0.0d,0.0d,0.0d]{}}}",
             if front_empty { String::new() } else { format!(",Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b,Tags:[\"{f}v\"]}}]") }
         ))?;
         srv.step(20)?;
         let fp = nums(&srv.cmd_long(&format!("data get entity @e[tag={f},limit=1] Pos"))?);
-        srv.cmd_ok(&format!("summon minecraft:minecart 9.5 {:.4} {rel:.4} {{Tags:[\"{r}\"],Motion:[0.0d,0.0d,0.0d],Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b,Tags:[\"{r}v\"],CustomName:\"{r}v\"}}]}}", 22.0 + (rel - 5.0) + 0.0625))?;
+        srv.summon_cart(&format!("summon minecraft:minecart 9.5 {:.4} {rel:.4} {{Tags:[\"{r}\"],Motion:[0.0d,0.0d,0.0d],Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b,Tags:[\"{r}v\"],CustomName:\"{r}v\"}}]}}", 22.0 + (rel - 5.0) + 0.0625))?;
         srv.step(10)?;
         srv.cmd_ok("setblock 9 21 5 minecraft:redstone_block")?;
         let tr = track(srv, &r, 600)?;
@@ -866,7 +884,7 @@ fn front_rows(srv: &mut VanillaServer, zf: f64, front_empty: bool) -> Result<()>
         let nx = format!("fx{k}");
         srv.cmd("setblock 9 21 5 minecraft:glass")?;
         srv.step(2)?;
-        srv.cmd_ok(&format!("summon minecraft:minecart 9.5 {:.4} 5.1222 {{Tags:[\"{nx}\"],Motion:[0.0d,0.0d,0.0d],Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b,Tags:[\"{nx}v\"],CustomName:\"{nx}v\"}}]}}", 22.0 + 0.1222 + 0.0625))?;
+        srv.summon_cart(&format!("summon minecraft:minecart 9.5 {:.4} 5.1222 {{Tags:[\"{nx}\"],Motion:[0.0d,0.0d,0.0d],Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b,Tags:[\"{nx}v\"],CustomName:\"{nx}v\"}}]}}", 22.0 + 0.1222 + 0.0625))?;
         srv.step(10)?;
         let rp_before = nums(&srv.cmd_long(&format!("data get entity @e[tag={r},limit=1] Pos"))?);
         srv.cmd_ok("setblock 9 21 5 minecraft:redstone_block")?;
@@ -946,7 +964,7 @@ fn front_hold_rows(srv: &mut VanillaServer) -> Result<()> {
         let frac = z - f64::floor(z);
         let y = -10.0 + (1.0 - frac) + 0.0625;
         srv.step(phase)?;
-        srv.cmd_ok(&format!("summon minecraft:minecart 9.5 {y:.4} {z:.4} {{Tags:[\"{tag}\"],Motion:[0.0d,0.0d,0.0d],Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b,Tags:[\"{tag}v\"]}}]}}"))?;
+        srv.summon_cart(&format!("summon minecraft:minecart 9.5 {y:.4} {z:.4} {{Tags:[\"{tag}\"],Motion:[0.0d,0.0d,0.0d],Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b,Tags:[\"{tag}v\"]}}]}}"))?;
         let (mut on, mut run, mut longest, mut moves) = (0u32, 0u32, 0u32, 0u32);
         let mut first: Option<u32> = None;
         let mut prev: Option<Vec<f64>> = None;
@@ -1058,7 +1076,7 @@ fn front_string_rows(srv: &mut VanillaServer, blocks: &[(mctas::sim::Pos, String
             let y = -10.0 + (1.0 - frac) + 0.0625;
             box_y = Some(y);
             let rider = if ridden { format!(",Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b,Tags:[\"{tag}v\"]}}]") } else { String::new() };
-            srv.cmd_ok(&format!("summon minecraft:minecart 9.5 {y:.4} {z:.4} {{Tags:[\"{tag}\"],Motion:[0.0d,0.0d,0.0d]{rider}}}"))?;
+            srv.summon_cart(&format!("summon minecraft:minecart 9.5 {y:.4} {z:.4} {{Tags:[\"{tag}\"],Motion:[0.0d,0.0d,0.0d]{rider}}}"))?;
         }
         let mut on = 0u32;
         let mut first: Option<u32> = None;

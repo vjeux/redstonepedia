@@ -28,12 +28,13 @@ pub enum DesignCmd {
     /// redsim can't parse is reported as unjudged, not as a pop.
     WouldPop { paths: Vec<PathBuf> },
     /// (tickexact, Nov 14 2026, G1 04:10 (a): does a row run on one revision of a file stand for another?) Compare two
-    /// design files FIELD BY FIELD (G1 06:54 (1)): the name, every header `key: value` line (keep-block, emulated,
-    /// keep-clear, riderless, run-cells, positions …), the ports, every cell (air written or not counts as absent), the
-    /// entities in file order (kind, position, NBT), the block entities (`nbt:` lines), and the Nether part's cells,
-    /// ports and block entities. Comments (`#` lines) are not part of a design and never differ. `--box
-    /// x0,y0,z0,x1,y1,z1` limits the overworld cells, entities and block entities compared (inclusive; the Nether part
-    /// is compared whole). Exits 1 on any difference, naming each one.
+    /// design files FIELD BY FIELD (G1 06:54 (1), 08:16 (1)): the name, every header `key: value` line (keep-block,
+    /// emulated, keep-clear, riderless, run-cells, positions …), the ports, every cell (air written or not counts as
+    /// absent), the entities in file order (kind, position, NBT), the block entities (`nbt:` lines), the Nether part's
+    /// cells, ports and block entities, and the DECLARATION comments mobfarm reads (`# key: …` with a key in
+    /// mobfarm::declkeys: contacts, stops, shape, water …); prose comments never differ. `--box x0,y0,z0,x1,y1,z1` limits
+    /// the overworld cells, entities and block entities compared (inclusive; the Nether part and the declarations are
+    /// compared whole). Exits 1 on any difference, naming each one.
     CellDiff {
         a: PathBuf,
         b: PathBuf,
@@ -63,8 +64,24 @@ fn parse_box(within: Option<&str>) -> Result<Option<[i32; 6]>> {
     })
 }
 
-/// Every difference between two designs, field by field, one line each (empty: the designs are equal within `bx`)
-fn design_differences(da: &Design, db: &Design, bx: Option<[i32; 6]>) -> Vec<String> {
+/// The declaration lines of a design file's text (G1 08:16 (1)): every `# key: …` comment whose key is one mobfarm reads
+/// from a comment (`mobfarm::declkeys::COMMENT_KEYS`, and the either-form `EITHER_KEYS`), as (key, the line trimmed), in
+/// file order; a prose comment is not a declaration
+fn declarations(text: &str) -> Vec<(String, String)> {
+    let known = |k: &str| mobfarm::declkeys::COMMENT_KEYS.contains(&k) || mobfarm::declkeys::EITHER_KEYS.contains(&k);
+    text.lines()
+        .filter_map(|l| {
+            let body = l.trim().strip_prefix('#')?.trim();
+            let (key, _) = body.split_once(':')?;
+            let key = key.split_whitespace().collect::<Vec<_>>().join(" ");
+            known(&key).then(|| (key, l.trim().to_string()))
+        })
+        .collect()
+}
+
+/// Every difference between two designs, field by field, one line each (empty: the designs are equal within `bx`);
+/// `ta` / `tb` are the files' texts, for their declaration lines
+fn design_differences(da: &Design, db: &Design, bx: Option<[i32; 6]>, ta: &str, tb: &str) -> Vec<String> {
     let inside = |p: &[i32; 3]| bx.is_none_or(|q| (0..3).all(|i| p[i] >= q[i] && p[i] <= q[i + 3]));
     let inside_f = |p: &[f64; 3]| bx.is_none_or(|q| (0..3).all(|i| p[i] >= q[i] as f64 && p[i] < (q[i + 3] + 1) as f64));
     let mut out: Vec<String> = Vec::new();
@@ -103,13 +120,36 @@ fn design_differences(da: &Design, db: &Design, bx: Option<[i32; 6]>) -> Vec<Str
     map_diff("nether cell", &da.nether_blocks, &db.nether_blocks, |_| true, &mut out);
     map_diff("nether port", &da.nether_ports, &db.nether_ports, |_| true, &mut out);
     map_diff("nether block entity", &da.nether_block_entities, &db.nether_block_entities, |_| true, &mut out);
+    // the declaration lines, per key in file order (a prose comment never differs)
+    let (dla, dlb) = (declarations(ta), declarations(tb));
+    let keys: std::collections::BTreeSet<&String> = dla.iter().chain(&dlb).map(|(k, _)| k).collect();
+    for k in keys {
+        let la: Vec<&String> = dla.iter().filter(|(q, _)| q == k).map(|(_, l)| l).collect();
+        let lb: Vec<&String> = dlb.iter().filter(|(q, _)| q == k).map(|(_, l)| l).collect();
+        if la != lb {
+            for l in la.iter().filter(|l| !lb.contains(l)) {
+                out.push(format!("declaration `# {k}:` only in A: {l}"));
+            }
+            for l in lb.iter().filter(|l| !la.contains(l)) {
+                out.push(format!("declaration `# {k}:` only in B: {l}"));
+            }
+            if la.iter().all(|l| lb.contains(l)) && lb.iter().all(|l| la.contains(l)) {
+                out.push(format!("declaration `# {k}:` lines in another order or count ({} in A, {} in B)", la.len(), lb.len()));
+            }
+        }
+    }
     out
 }
 
 fn cell_diff(a: &Path, b: &Path, within: Option<&str>) -> Result<()> {
     let bx = parse_box(within)?;
     let (da, db) = (Design::load(a)?, Design::load(b)?);
-    let diffs = design_differences(&da, &db, bx);
+    let (ta, tb) = (std::fs::read_to_string(a)?, std::fs::read_to_string(b)?);
+    let diffs = design_differences(&da, &db, bx, &ta, &tb);
+    // (G1 08:16 non-blocking) the cross-check: with no box, no field difference must mean the parsed designs are equal
+    if bx.is_none() && diffs.iter().all(|d| d.starts_with("declaration")) && da != db {
+        bail!("{} and {}: no field difference was found but the parsed designs differ (a field cell-diff does not compare)", a.display(), b.display());
+    }
     for d in &diffs {
         println!("  {d}");
     }
@@ -138,7 +178,7 @@ mod cell_diff_tests {
     const A: &str = "name: t\n# a comment\nkeep-block: 1 0 0\norigin: 0 0 0\npalette:\n  S minecraft:stone\n  G minecraft:glass\nlayer 0:\n  SG\n  S.\nentity: minecraft:minecart 0.5 1 0.5\nnbt: 0 0 0 {Items:[]}\n";
 
     fn diffs(a: &str, b: &str) -> Vec<String> {
-        design_differences(&Design::parse(a).expect("A parses"), &Design::parse(b).expect("B parses"), None)
+        design_differences(&Design::parse(a).expect("A parses"), &Design::parse(b).expect("B parses"), None, a, b)
     }
 
     #[test]
@@ -149,6 +189,29 @@ mod cell_diff_tests {
     #[test]
     fn a_comment_only_change_is_equal() {
         assert!(diffs(A, &A.replace("# a comment", "# another comment\n# and one more")).is_empty());
+    }
+
+    /// (G1 08:16 (1)) a `# contacts:` line is a declaration mobfarm reads: a change to it differs, by name
+    #[test]
+    fn a_contacts_declaration_change_differs() {
+        let with = A.replace("# a comment", "# contacts: -3,0,4=the bed head's east face");
+        let d = diffs(&with, &with.replace("-3,0,4=", "-1,0,4="));
+        assert_eq!(d.len(), 2, "{d:?}");
+        assert!(d.iter().all(|l| l.starts_with("declaration `# contacts:`")), "{d:?}");
+        // a declaration added differs; one repeated differs by count
+        assert!(!diffs(A, &with).is_empty());
+        let twice = with.replace("# contacts: -3,0,4=the bed head's east face", "# contacts: -3,0,4=the bed head's east face\n# contacts: -3,0,4=the bed head's east face");
+        assert!(diffs(&with, &twice).iter().any(|l| l.contains("another order or count")));
+    }
+
+    #[test]
+    fn the_name_ports_and_nether_part_differ() {
+        assert!(diffs(A, &A.replace("name: t", "name: u")).iter().any(|l| l.starts_with("name:")));
+        let ported = A.replace("origin: 0 0 0", "origin: 0 0 0\nport in: 0 0 0");
+        assert!(diffs(A, &ported).iter().any(|l| l.starts_with("port only in B")), "{:?}", diffs(A, &ported));
+        let nether = format!("{A}nether-origin: 0 0 0\nnether layer 0:\n  S\n");
+        let nether2 = format!("{A}nether-origin: 0 0 0\nnether layer 0:\n  G\n");
+        assert!(diffs(&nether, &nether2).iter().any(|l| l.starts_with("nether cell changed")), "{:?}", diffs(&nether, &nether2));
     }
 
     #[test]
