@@ -299,6 +299,8 @@
 ## the TOKEN, a compact torch NOR-NOR latch, reset-dominant, SET at start: N1_t (5,20,-1) set by the edge, t1_t = NOT token;
 ## N2_t (4,20,1) reset by the P1 pulse (the dust (4,21,1) on top of it), t2_t = token
 5,20,-1 minecraft:stone
+## glass on top of N1_t: the stone's top would otherwise be a dark floor with room above (no spawn surface added)
+5,21,-1 minecraft:glass
 4,20,-1 minecraft:redstone_wall_torch[facing=west,lit=false]
 4,19,0 minecraft:glass
 4,20,0 minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
