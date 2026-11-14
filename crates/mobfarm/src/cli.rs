@@ -17109,7 +17109,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 let (_c, spec) = load(version, &design)?;
                 let biome: &'static str = Box::leak(biome.into_boxed_str());
                 let (afk, farm, ex) = crate::fleecheck::void_exposures(&spec, biome).map_err(|e| anyhow::anyhow!(e))?;
-                println!("{} in the VOID (a floating site: void outside the box, cc767b78's World::get; the site biome {biome}, the spawn lists' biome; C1 here is an ALL-DARK BOUND: the void models no block light, `exterior-spawn --lit` is the light-aware read), the AFK player at {:.1},{:.1},{:.1}: {} golem cells, {} interior cells; {} exposure class(es)", design.display(), afk.x, afk.y, afk.z, farm.golem_cells.len(), farm.interior.len(), ex.len());
+                println!("{} in the VOID (a floating site: void outside the box, cc767b78's World::get; the site biome {biome}, the spawn lists' biome; C1 here is the ALL-DARK COUNTERFACTUAL, a stated assumption (G1 15:24): every light source of the design taken out of a copy of the settled world; light reads failed: 0; `exterior-spawn --lit` is the light-aware read, its LIGHT-DEPENDENT / PORTAL-LIT lines the light's conditions), the AFK player at {:.1},{:.1},{:.1}: {} golem cells, {} interior cells; {} exposure class(es)", design.display(), afk.x, afk.y, afk.z, farm.golem_cells.len(), farm.interior.len(), ex.len());
                 for e in &ex {
                     println!("  {e:?}");
                 }
