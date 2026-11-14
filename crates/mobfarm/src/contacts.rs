@@ -149,7 +149,7 @@ pub fn stale_declared(declared: &[BlockPos], hits: &dyn Fn(BlockPos) -> usize) -
     declared.iter().copied().filter(|p| hits(*p) == 0).collect()
 }
 
-/// A bounded declaration's class (ironspec Nov 13 10:42 (3), amended 10:58).
+/// A bounded declaration's class (ironspec Nov 13 10:42 (3), amended 10:58; `Rest` 16:56).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Class {
     /// An intended stop or guide (the drop backstop, the bed head's face): every bound from a cited
@@ -157,8 +157,37 @@ pub enum Class {
     Design,
     /// A touch the design neither wants nor minds: depth <= 0.01, ticks <= 1, no stall, speed stated.
     Incidental,
+    /// (ironspec Nov 13 16:56, G1 16:53) A designed REST: a cart held at rest against the face (a hold's
+    /// cart on its shut trapdoor's top) until released. Its bounds: `dwell<=` (the most consecutive
+    /// contact ticks of one event of one cart, replacing `ticks`), `events<=` (per pass: per the hits'
+    /// sample when the caller tags them, else per cart over the row), `depth<=` (the clipped amount
+    /// per tick: a rest on a block's top clips the on-ground gravity step, 0.0200), `at=` (the rest's
+    /// POSITION: every contact tick's [`Hit::pos`] inside the box), a `ref=`; speeds optional. NO
+    /// STALL is judged after the rest's last tick, as for any event (a released cart moves on: main's
+    /// stall rule decides what counts as motion).
+    Rest,
     /// The old form (`CELLS=REASON`, no fields): judged for STALE and stalls only, printed as unbounded.
     Legacy,
+}
+
+/// (ironspec Nov 13 16:56) A rest's position bound `at=X0..X1,Y0..Y1,Z0..Z1[+eps=E][ why=TEXT]`: the
+/// box every contact tick's [`Hit::pos`] (the entity's stored position after the tick: x and z its
+/// box's centre, y its box's bottom; what `data get entity … Pos` prints) lies in, each side widened
+/// by eps.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AtBox {
+    pub lo: [f64; 3],
+    pub hi: [f64; 3],
+    pub eps: f64,
+    pub why: Option<String>,
+    /// The decimals each corner was written with (the reference check's rounding), per axis.
+    pub decimals: [u32; 3],
+}
+
+impl AtBox {
+    pub fn contains(&self, p: [f64; 3]) -> bool {
+        (0..3).all(|k| p[k] >= self.lo[k] - self.eps - EPS && p[k] <= self.hi[k] + self.eps + EPS)
+    }
 }
 
 /// One bound: the value (`<=` a maximum or `>=` a minimum), its margin (`+eps=`) and its reason (`why=`).
@@ -185,16 +214,20 @@ impl Bound {
 
 /// A bounded contact declaration: `CELLS=REASON` then fields, each after a `|` or a `;`; a part that
 /// starts with no known key belongs to the REASON (so a REASON may hold "; "). Keys: `face=`
-/// north|south|east|west (the contacted BLOCK's face), `class=` design|incidental, `ticks` (per event:
-/// a maximal run of consecutive contact ticks on one face), `events` (per cart over the row), `depth`
-/// (the clipped amount per tick), `speed_in` (the cart's horizontal speed requested at an event's
-/// first tick), `speed_out` (returned at its last tick), `speed=A..B→C..D` (both, ironspec's form),
-/// `ref=` (the reference run: tip, command, seeds), `rate=H/N` (the reference's H hits over N samples,
-/// for the rate STALE); a bound is `KEY<=V` / `KEY≤V` (a maximum) or `KEY>=V` / `KEY≥V` (a minimum) or
-/// `KEY=A..B`, optionally `+eps=E` and ` why=TEXT` in the same part. A `why=` or `ref=` text can't
-/// hold '|' or ';' (each starts the next field; ironspec 11:51 (1)(c)). A bound's VALUE is its
-/// reference's extreme (`reference_check`); a design threshold is reached with `+eps=`, its reason in
-/// `why=` (e.g. `speed_out>=0.0468+eps=0.0068 why=<the measured threshold>`).
+/// north|south|east|west|up|down|inside (the contacted BLOCK's face), `class=`
+/// design|incidental|rest, `ticks` (per event: a maximal run of consecutive contact ticks on one face),
+/// `events` (per cart over the row; a rest's per pass), `depth` (the clipped amount per tick),
+/// `speed_in` (the cart's horizontal speed requested at an event's first tick), `speed_out` (returned
+/// at its last tick), `speed=A..B→C..D` (both, ironspec's form), `dwell` (class=rest: the most
+/// consecutive contact ticks of one event, in place of `ticks`), `at=X0..X1,Y0..Y1,Z0..Z1` (class=rest:
+/// the box every contact tick's stored position lies in: x / z the cart's box centre, y its box
+/// bottom, after the tick), `ref=` (the reference run: tip, command, seeds), `rate=H/N UNIT` (the
+/// reference's H hits over N samples, for the rate STALE); a bound is `KEY<=V` / `KEY≤V` (a maximum)
+/// or `KEY>=V` / `KEY≥V` (a minimum) or `KEY=A..B`, optionally `+eps=E` and ` why=TEXT` in the same
+/// part. A `why=` or `ref=` text can't hold '|' or ';' (each starts the next field; ironspec 11:51
+/// (1)(c)). A bound's VALUE is its reference's extreme (`reference_check`); a design threshold is
+/// reached with `+eps=`, its reason in `why=` (e.g. `speed_out>=0.0468+eps=0.0068 why=<the measured
+/// threshold>`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Decl {
     pub cells: Vec<BlockPos>,
@@ -208,13 +241,54 @@ pub struct Decl {
     pub speed_out: Vec<Bound>,
     pub reference: Option<String>,
     pub rate: Option<(u64, u64, String)>,
+    /// (class=rest) the most consecutive contact ticks of one event of one cart.
+    pub dwell: Option<Bound>,
+    /// (class=rest) the rest's position box.
+    pub at: Option<AtBox>,
 }
 
-const KEYS: [&str; 11] = ["face", "class", "ticks", "events", "depth", "speed_in", "speed_out", "speed", "ref", "rate", "why"];
+const KEYS: [&str; 13] = ["face", "class", "ticks", "events", "depth", "speed_in", "speed_out", "speed", "ref", "rate", "why", "dwell", "at"];
 
 fn key_of(part: &str) -> Option<&'static str> {
     let p = part.trim_start();
     KEYS.iter().copied().filter(|k| p.starts_with(k) && p[k.len()..].starts_with(['=', '<', '>', '≤', '≥'])).max_by_key(|k| k.len())
+}
+
+/// (class=rest) `X0..X1,Y0..Y1,Z0..Z1[+eps=E][ why=TEXT]`: the rest's position box (each range's ends
+/// in order, the eps widening every side).
+fn at_of(v: &str) -> Result<AtBox, String> {
+    let (val, why) = match v.split_once(" why=") {
+        Some((a, w)) => (a.trim(), Some(w.trim().to_string())),
+        None => (v.trim(), None),
+    };
+    let (val, eps) = match val.split_once("+eps=") {
+        Some((a, e)) => (a.trim(), e.trim().parse::<f64>().map_err(|e| format!("at=: eps: {e}"))?),
+        None => (val, 0.0),
+    };
+    // (G1's D7 on R4b) a finite eps >= 0
+    if !eps.is_finite() || eps < 0.0 {
+        return Err(format!("at={v}: eps {eps} is not a finite number >= 0"));
+    }
+    let axes: Vec<&str> = val.split(',').collect();
+    if axes.len() != 3 {
+        return Err(format!("at={v}: X0..X1,Y0..Y1,Z0..Z1"));
+    }
+    let (mut lo, mut hi, mut decimals) = ([0.0f64; 3], [0.0f64; 3], [0u32; 3]);
+    for (k, a) in axes.iter().enumerate() {
+        let (x0, x1) = a.trim().split_once("..").ok_or_else(|| format!("at={v}: axis {a:?} is not A..B"))?;
+        // (G1's D7 on R4b) every end a finite number: "-inf..inf" is no box
+        let p = |s: &str| -> Result<f64, String> {
+            let x = s.trim().replace('\u{2212}', "-").parse::<f64>().map_err(|e| format!("at={v}: {s:?}: {e}"))?;
+            if x.is_finite() { Ok(x) } else { Err(format!("at={v}: {s:?} is not a finite number")) }
+        };
+        let (a0, a1) = (p(x0)?, p(x1)?);
+        if a0 > a1 {
+            return Err(format!("at={v}: axis {a:?}: A <= B"));
+        }
+        let dec = |s: &str| s.trim().split_once('.').map_or(0, |(_, f)| f.len() as u32);
+        (lo[k], hi[k], decimals[k]) = (a0, a1, dec(x0).max(dec(x1)));
+    }
+    Ok(AtBox { lo, hi, eps, why, decimals })
 }
 
 /// `V`, `V+eps=E`, either followed by ` why=TEXT`.
@@ -228,6 +302,14 @@ fn bound_of(rest: &str, at_least: bool, what: &str) -> Result<Bound, String> {
         None => (val, 0.0),
     };
     let value = v.parse::<f64>().map_err(|e| format!("{what}: {v:?}: {e}"))?;
+    // (G1's D7 on R4b) a bound is a finite number and its eps a finite number >= 0: "inf", "nan" or a
+    // negative eps would make the bound no bound
+    if !value.is_finite() {
+        return Err(format!("{what}: {v:?} is not a finite number"));
+    }
+    if !eps.is_finite() || eps < 0.0 {
+        return Err(format!("{what}: eps {eps} is not a finite number >= 0"));
+    }
     let decimals = v.split_once('.').map_or(0, |(_, f)| f.len() as u32);
     Ok(Bound { value, eps, why, at_least, decimals })
 }
@@ -256,10 +338,12 @@ fn bounds_of(part: &str, key: &str) -> Result<Vec<Bound>, String> {
     Err(format!("{what}: {key}<=V, {key}>=V or {key}=A..B"))
 }
 
-/// The bounded `# contacts:` / `# stops:` reader (ironspec Nov 13 10:42 (3), 10:58): strict, every
-/// field parsed or an error; a design-class entry needs `ref=` and a margin (`+eps=` or `why=`) on every
-/// bound it states, and states face, ticks, events, depth and a speed; an incidental one may not
-/// loosen depth <= 0.01 or ticks <= 1 and states a speed.
+/// The bounded `# contacts:` / `# stops:` reader (ironspec Nov 13 10:42 (3), 10:58; class=rest 16:56):
+/// strict, every field parsed or an error; a design-class entry needs `ref=` and a margin (`+eps=` or
+/// `why=`) on every bound it states, and states face, ticks, events, depth and a speed; an incidental one
+/// may not loosen depth <= 0.01 or ticks <= 1 and states a speed; a rest-class entry states face,
+/// dwell, events, depth, at= and ref (never ticks), each bound with its margin; dwell= and at= belong to
+/// class=rest only.
 pub fn declared_contacts_bounded(text: &str) -> Result<Vec<Decl>, String> {
     let mut out = Vec::new();
     for key in ["contacts:", "stops:"] {
@@ -276,7 +360,7 @@ pub fn declared_contacts_bounded(text: &str) -> Result<Vec<Decl>, String> {
                     }
                     reason.push_str(part);
                 } else {
-                    return Err(format!("# {key} {entry}: {part:?} is no field (face= class= ticks events depth speed speed_in speed_out ref= rate=; a why= or ref= text can't hold '|' or ';', which start the next field)"));
+                    return Err(format!("# {key} {entry}: {part:?} is no field (face= class= ticks events depth speed speed_in speed_out dwell at= ref= rate=; a why= or ref= text can't hold '|' or ';', which start the next field)"));
                 }
             }
             let reason = reason.trim().to_string();
@@ -291,7 +375,7 @@ pub fn declared_contacts_bounded(text: &str) -> Result<Vec<Decl>, String> {
                 };
                 cs.push(BlockPos::new(x, y, z));
             }
-            let mut d = Decl { cells: cs, reason, class: Class::Legacy, face: None, ticks: None, events: None, depth: None, speed_in: Vec::new(), speed_out: Vec::new(), reference: None, rate: None };
+            let mut d = Decl { cells: cs, reason, class: Class::Legacy, face: None, ticks: None, events: None, depth: None, speed_in: Vec::new(), speed_out: Vec::new(), reference: None, rate: None, dwell: None, at: None };
             let mut class: Option<Class> = None;
             for f in &fields {
                 let k = key_of(f).unwrap_or_default();
@@ -302,7 +386,8 @@ pub fn declared_contacts_bounded(text: &str) -> Result<Vec<Decl>, String> {
                         class = Some(match val().as_str() {
                             "design" => Class::Design,
                             "incidental" => Class::Incidental,
-                            o => return Err(format!("# {key} {entry}: class={o}: design or incidental")),
+                            "rest" => Class::Rest,
+                            o => return Err(format!("# {key} {entry}: class={o}: design, incidental or rest")),
                         })
                     }
                     "ref" => d.reference = Some(val()),
@@ -323,15 +408,17 @@ pub fn declared_contacts_bounded(text: &str) -> Result<Vec<Decl>, String> {
                         d.rate = Some((h, n, unit.to_string()));
                     }
                     "why" => return Err(format!("# {key} {entry}: a why= belongs to a bound (KEY<=V why=…)")),
-                    "ticks" | "events" | "depth" => {
+                    "ticks" | "events" | "depth" | "dwell" => {
                         let b = bounds_of(f, k).map_err(|e| format!("# {key} {entry}: {e}"))?;
                         let mx = b.into_iter().find(|b| !b.at_least).ok_or_else(|| format!("# {key} {entry}: {k} takes a maximum"))?;
                         *match k {
                             "ticks" => &mut d.ticks,
                             "events" => &mut d.events,
+                            "dwell" => &mut d.dwell,
                             _ => &mut d.depth,
                         } = Some(mx);
                     }
+                    "at" => d.at = Some(at_of(&val()).map_err(|e| format!("# {key} {entry}: {e}"))?),
                     "speed_in" => d.speed_in = bounds_of(f, k).map_err(|e| format!("# {key} {entry}: {e}"))?,
                     "speed_out" => d.speed_out = bounds_of(f, k).map_err(|e| format!("# {key} {entry}: {e}"))?,
                     _ => {
@@ -355,8 +442,12 @@ pub fn declared_contacts_bounded(text: &str) -> Result<Vec<Decl>, String> {
             d.class = match (class, fields.is_empty()) {
                 (Some(c), _) => c,
                 (None, true) => Class::Legacy,
-                (None, false) => return Err(format!("# {key} {entry}: a bounded entry needs class=design|incidental")),
+                (None, false) => return Err(format!("# {key} {entry}: a bounded entry needs class=design|incidental|rest")),
             };
+            // (class=rest's own keys only with class=rest)
+            if d.class != Class::Rest && (d.dwell.is_some() || d.at.is_some()) {
+                return Err(format!("# {key} {entry}: dwell= and at= belong to class=rest"));
+            }
             let stated = |b: &Option<Bound>| b.is_some();
             match d.class {
                 Class::Design => {
@@ -383,6 +474,26 @@ pub fn declared_contacts_bounded(text: &str) -> Result<Vec<Decl>, String> {
                     }
                     d.depth.get_or_insert(Bound { value: 0.01, eps: 0.0, why: Some("incidental".into()), at_least: false, decimals: 2 });
                     d.ticks.get_or_insert(Bound { value: 1.0, eps: 0.0, why: Some("incidental".into()), at_least: false, decimals: 0 });
+                }
+                Class::Rest => {
+                    // (ironspec 16:56: the reader REFUSES a class=rest line missing dwell, depth, at= or
+                    // ref; G1 16:53: face and events per pass too; `ticks` is the rest's dwell)
+                    if d.ticks.is_some() {
+                        return Err(format!("# {key} {entry}: class=rest bounds its rest with dwell<=, not ticks<="));
+                    }
+                    let mut missing: Vec<&str> = Vec::new();
+                    for (n, ok) in [("face", d.face.is_some()), ("dwell", stated(&d.dwell)), ("events", stated(&d.events)), ("depth", stated(&d.depth)), ("at", d.at.is_some()), ("ref", d.reference.is_some())] {
+                        if !ok {
+                            missing.push(n);
+                        }
+                    }
+                    if !missing.is_empty() {
+                        return Err(format!("# {key} {entry}: class=rest states its rest from its reference run: missing {}", missing.join(", ")));
+                    }
+                    let all: Vec<&Bound> = [&d.dwell, &d.events, &d.depth].into_iter().flatten().chain(d.speed_in.iter()).chain(d.speed_out.iter()).collect();
+                    if all.iter().any(|b| b.eps == 0.0 && b.why.is_none()) || d.at.as_ref().is_some_and(|a| a.eps == 0.0 && a.why.is_none()) {
+                        return Err(format!("# {key} {entry}: class=rest: every bound carries its margin (+eps=E or why=…)"));
+                    }
                 }
                 Class::Legacy => {}
             }
@@ -429,6 +540,9 @@ pub struct Hit {
     /// set by the caller (ironspec 11:51 (1)(b): a rate's numerator counts samples with a hit, not
     /// ticks); `cart_hits` leaves it None.
     pub sample: Option<u64>,
+    /// (ironspec Nov 13 16:56, class=rest's `at=`) the cart's stored position after the tick (x and z
+    /// its box's centre, y its box's bottom: what `data get entity … Pos` prints).
+    pub pos: [f64; 3],
 }
 
 /// The entity at index `i`'s contacts over its moves of the world's current tick, as [`Hit`]s.
@@ -440,7 +554,7 @@ pub fn cart_hits(world: &World, i: usize) -> Vec<Hit> {
     for m in e.self_moves.iter().filter(|m| m.tick == t) {
         for (a, face, depth) in face_contacts_detail(&shapes, m.bb_before, (m.requested.x, m.requested.y, m.requested.z), (m.returned.x, m.returned.y, m.returned.z)) {
             let cell = BlockPos::new(((a.min_x + a.max_x) / 2.0).floor() as i32, ((a.min_y + a.max_y) / 2.0).floor() as i32, ((a.min_z + a.max_z) / 2.0).floor() as i32);
-            out.push(Hit { tick: t, cart: e.id, cell, face, depth, speed_in: m.requested.x.hypot(m.requested.z), speed_out: m.returned.x.hypot(m.returned.z), sample: None });
+            out.push(Hit { tick: t, cart: e.id, cell, face, depth, speed_in: m.requested.x.hypot(m.requested.z), speed_out: m.returned.x.hypot(m.returned.z), sample: None, pos: [e.pos.x, e.pos.y, e.pos.z] });
         }
     }
     out
@@ -479,6 +593,9 @@ pub struct VHit {
     /// The cart's horizontal speed requested and returned by its last move of the tick (0 with none).
     pub speed_in: f64,
     pub speed_out: f64,
+    /// (class=rest's `at=`) the cart's stored position after the tick (x / z its box's centre, y its
+    /// box's bottom).
+    pub pos: [f64; 3],
 }
 
 impl VClass {
@@ -504,7 +621,7 @@ impl From<VHit> for Hit {
     ///   (ironspec 13:23 (1)(iii)): both map to face=down, so one `face=down` declaration covers both,
     ///   and their ticks merge into one event.
     fn from(v: VHit) -> Hit {
-        Hit { tick: v.tick, cart: v.cart, cell: v.cell, face: v.class.face(), depth: v.depth, speed_in: v.speed_in, speed_out: v.speed_out, sample: None }
+        Hit { tick: v.tick, cart: v.cart, cell: v.cell, face: v.class.face(), depth: v.depth, speed_in: v.speed_in, speed_out: v.speed_out, sample: None, pos: v.pos }
     }
 }
 
@@ -573,7 +690,7 @@ pub fn cart_vertical_hits(world: &World, i: usize) -> Vec<VHit> {
     let off_rail = !rail(feet) && !rail(BlockPos::new(feet.x, feet.y - 1, feet.z));
     let moves: Vec<(Aabb, (f64, f64, f64), (f64, f64, f64))> = e.self_moves.iter().filter(|m| m.tick == t).map(|m| (m.bb_before, (m.requested.x, m.requested.y, m.requested.z), (m.returned.x, m.returned.y, m.returned.z))).collect();
     let (sin, sout) = e.self_moves.iter().rfind(|m| m.tick == t).map_or((0.0, 0.0), |m| (m.requested.x.hypot(m.requested.z), m.returned.x.hypot(m.returned.z)));
-    vertical_contacts(&shapes, e.bb, &moves, off_rail).into_iter().map(|(class, a, depth)| VHit { tick: t, cart: e.id, class, cell: cell_of(&a), depth, speed_in: sin, speed_out: sout }).collect()
+    vertical_contacts(&shapes, e.bb, &moves, off_rail).into_iter().map(|(class, a, depth)| VHit { tick: t, cart: e.id, class, cell: cell_of(&a), depth, speed_in: sin, speed_out: sout, pos: [e.pos.x, e.pos.y, e.pos.z] }).collect()
 }
 
 /// The bounded judge's verdict over a row.
@@ -652,7 +769,10 @@ pub fn binomial_cdf(k: u64, n: u64, p: f64) -> f64 {
 /// judged by `stall`); STALE (ironspec 10:47's ruled form, G1 11:12): without `rate=`, a declaration
 /// with no hit; with `rate=H/N UNIT` and the row's `samples` in the same UNIT: 0 hits where
 /// (1 - H/N)^samples < 0.001 is STALE, 0 hits otherwise "stale not judged"; and some hits but
-/// P(X <= hits) < 0.001 under the reference rate (an under-rate) is STALE too.
+/// P(X <= hits) < 0.001 under the reference rate (an under-rate) is STALE too. A `class=rest`
+/// declaration's events are judged on `dwell` (their consecutive ticks) and `at=` (every contact tick's
+/// stored position inside the box), its events counted per pass (the hits' sample) when tagged; NO
+/// STALL after its last tick as for every event (ironspec Nov 13 16:56).
 pub fn judge(decls: &[Decl], hits: &[Hit], motion: &dyn Fn(u32, i64) -> Option<(f64, f64)>, stall: StallRule, samples: Option<(u64, &str)>) -> Verdict {
     let mut v = Verdict { events: vec![0; decls.len()], ..Default::default() };
     let mut by: std::collections::BTreeMap<(usize, u32, Face), Vec<&Hit>> = std::collections::BTreeMap::new();
@@ -669,7 +789,7 @@ pub fn judge(decls: &[Decl], hits: &[Hit], motion: &dyn Fn(u32, i64) -> Option<(
         }
     }
     let moving = |cart: u32, t: i64| motion(cart, t).is_some_and(|(sp, vy)| sp > stall.min_speed || vy < -stall.min_speed);
-    let mut cart_events: std::collections::BTreeMap<(usize, u32), usize> = std::collections::BTreeMap::new();
+    let mut cart_events: std::collections::BTreeMap<(usize, u32, Option<u64>), usize> = std::collections::BTreeMap::new();
     for ((di, cart, face), mut hs) in by {
         hs.sort_by_key(|h| h.tick);
         let d = &decls[di];
@@ -681,6 +801,21 @@ pub fn judge(decls: &[Decl], hits: &[Hit], motion: &dyn Fn(u32, i64) -> Option<(
                 && !b.ok(ticks)
             {
                 v.exceeded.push(format!("{ev}: ticks {ticks} over ticks<={}", b.limit()));
+            }
+            // (class=rest, ironspec 16:56) the rest's dwell (its consecutive contact ticks) and its
+            // position: every contact tick's stored position inside at=
+            if let Some(b) = &d.dwell
+                && !b.ok(ticks)
+            {
+                v.exceeded.push(format!("{ev}: dwell {ticks} over dwell<={}", b.limit()));
+            }
+            if let Some(a) = &d.at
+                && let Some(h) = r.iter().find(|h| !a.contains(h.pos))
+            {
+                v.exceeded.push(format!(
+                    "{ev}: at t {} the cart at ({:.4}, {:.4}, {:.4}), outside at={:.4}..{:.4},{:.4}..{:.4},{:.4}..{:.4} (+eps {})",
+                    h.tick, h.pos[0], h.pos[1], h.pos[2], a.lo[0], a.hi[0], a.lo[1], a.hi[1], a.lo[2], a.hi[2], a.eps
+                ));
             }
             let deepest = r.iter().map(|h| h.depth).fold(0.0f64, f64::max);
             if let Some(b) = &d.depth
@@ -703,14 +838,17 @@ pub fn judge(decls: &[Decl], hits: &[Hit], motion: &dyn Fn(u32, i64) -> Option<(
                 v.stalls.push(format!("{ev}: no move over {} b/t and no fall within {} ticks of the event's end", stall.min_speed, stall.window));
             }
             v.events[di] += 1;
-            *cart_events.entry((di, cart)).or_default() += 1;
+            // (class=rest, ironspec 16:56: events per PASS) a rest's events count per the hits' sample
+            // (the caller's pass) when tagged, else per cart over the row as for every class
+            let pass = if d.class == Class::Rest { r[0].sample } else { None };
+            *cart_events.entry((di, cart, pass)).or_default() += 1;
         }
     }
-    for ((di, cart), n) in cart_events {
+    for ((di, cart, pass), n) in cart_events {
         if let Some(b) = &decls[di].events
             && !b.ok(n as f64)
         {
-            v.exceeded.push(format!("{}: cart {cart}: {n} events over events<={}", cells_name(&decls[di]), b.limit()));
+            v.exceeded.push(format!("{}: cart {cart}{}: {n} events over events<={}", cells_name(&decls[di]), pass.map_or(String::new(), |p| format!(", pass {p}")), b.limit()));
         }
     }
     for (di, d) in decls.iter().enumerate() {
@@ -780,7 +918,7 @@ pub fn reference_check(d: &Decl, hits: &[Hit]) -> Vec<String> {
         groups.entry((h.cart, h.face)).or_default().push(h);
     }
     let (mut max_ticks, mut max_depth) = (0.0f64, 0.0f64);
-    let mut per_cart: std::collections::BTreeMap<u32, usize> = std::collections::BTreeMap::new();
+    let mut per_cart: std::collections::BTreeMap<(u32, Option<u64>), usize> = std::collections::BTreeMap::new();
     let (mut sin, mut sout): (Vec<f64>, Vec<f64>) = (Vec::new(), Vec::new());
     for ((cart, _), mut hs) in groups {
         hs.sort_by_key(|h| h.tick);
@@ -789,7 +927,9 @@ pub fn reference_check(d: &Decl, hits: &[Hit]) -> Vec<String> {
             max_depth = max_depth.max(r.iter().map(|h| h.depth).fold(0.0, f64::max));
             sin.push(r[0].speed_in);
             sout.push(r[r.len() - 1].speed_out);
-            *per_cart.entry(cart).or_default() += 1;
+            // (class=rest: events per pass, as the judge counts them)
+            let pass = if d.class == Class::Rest { r[0].sample } else { None };
+            *per_cart.entry((cart, pass)).or_default() += 1;
         }
     }
     let max_events = per_cart.values().copied().max().unwrap_or(0) as f64;
@@ -803,6 +943,9 @@ pub fn reference_check(d: &Decl, hits: &[Hit]) -> Vec<String> {
     if let Some(b) = &d.ticks {
         check("ticks", b, max_ticks);
     }
+    if let Some(b) = &d.dwell {
+        check("dwell", b, max_ticks);
+    }
     if let Some(b) = &d.events {
         check("events", b, max_events);
     }
@@ -814,6 +957,18 @@ pub fn reference_check(d: &Decl, hits: &[Hit]) -> Vec<String> {
     }
     for b in &d.speed_out {
         check("speed_out", b, ext(&sout, b.at_least));
+    }
+    // (class=rest's at=: each axis's ends equal the reference's least and largest stored position at the
+    // written decimals)
+    if let Some(a) = &d.at {
+        for k in 0..3 {
+            let (lo, hi) = mine.iter().fold((f64::MAX, f64::MIN), |(l, h), x| (l.min(x.pos[k]), h.max(x.pos[k])));
+            let tol = 0.5 * 10f64.powi(-(a.decimals[k] as i32)) + 1e-12;
+            let axis = ["x", "y", "z"][k];
+            if (a.lo[k] - lo).abs() > tol || (a.hi[k] - hi).abs() > tol {
+                out.push(format!("{}: at= {axis} {}..{} but its reference's {axis} is {lo:.6}..{hi:.6}", cells_name(d), a.lo[k], a.hi[k]));
+            }
+        }
     }
     out
 }
@@ -1040,7 +1195,7 @@ mod tests {
     }
 
     fn hit(tick: i64, cart: u32, cell: (i32, i32, i32), face: Face, depth: f64, sin: f64, sout: f64) -> Hit {
-        Hit { tick, cart, cell: BlockPos::new(cell.0, cell.1, cell.2), face, depth, speed_in: sin, speed_out: sout, sample: Some(tick as u64 / 100) }
+        Hit { tick, cart, cell: BlockPos::new(cell.0, cell.1, cell.2), face, depth, speed_in: sin, speed_out: sout, sample: Some(tick as u64 / 100), pos: [cell.0 as f64 + 0.5, cell.1 as f64 + 1.0, cell.2 as f64 + 0.5] }
     }
 
     const DESIGN: &str = "# contacts: 3,24,5=the drop entry's backstop | face=south | class=design | ref=5fa67f60a escape-bench --siding seeds 1..8 | ticks<=2+eps=1 | events<=1 why=one stop a visit | depth<=0.30+eps=0.05 | speed=0.30..0.45→0..0.05 why=the backstop stops the cart\n";
@@ -1276,7 +1431,7 @@ mod tests {
         assert_eq!(Face::parse("up"), Ok(Face::Up));
         assert_eq!(Face::parse("down"), Ok(Face::Down));
         assert_eq!(Face::parse("inside"), Ok(Face::Inside));
-        let floor = VHit { tick: 10, cart: 1, class: VClass::Floor, cell: BlockPos::new(3, 23, 7), depth: 0.04, speed_in: 0.0, speed_out: 0.0 };
+        let floor = VHit { tick: 10, cart: 1, class: VClass::Floor, cell: BlockPos::new(3, 23, 7), depth: 0.04, speed_in: 0.0, speed_out: 0.0, pos: [3.5, 24.0, 7.5] };
         let h: Hit = floor.clone().into();
         assert_eq!((h.face, h.cell, h.depth), (Face::Up, BlockPos::new(3, 23, 7), 0.04));
         let up = declared_contacts_bounded("# contacts: 3,23,7=C's support under the lip | face=up | class=incidental | depth<=0.01 | speed_out>=0\n").unwrap();
@@ -1286,10 +1441,87 @@ mod tests {
         assert_eq!(none.undeclared.len(), 1);
         let down = declared_contacts_bounded("# contacts: 3,23,7=a ceiling | face=down | class=incidental | speed_out>=0\n").unwrap();
         assert_eq!(judge(&down, &[floor.into()], &moving, StallRule::IRONSPEC_1042, None).undeclared.len(), 1, "a down declaration doesn't cover a floor");
-        let low: Hit = VHit { tick: 3, cart: 2, class: VClass::LowCeiling, cell: BlockPos::new(1, 26, 0), depth: 0.04, speed_in: 0.2, speed_out: 0.2 }.into();
+        let low: Hit = VHit { tick: 3, cart: 2, class: VClass::LowCeiling, cell: BlockPos::new(1, 26, 0), depth: 0.04, speed_in: 0.2, speed_out: 0.2, pos: [1.5, 25.2, 0.5] }.into();
         assert_eq!(low.face, Face::Down);
-        let emb: Hit = VHit { tick: 3, cart: 2, class: VClass::Embedded, cell: BlockPos::new(1, 25, 0), depth: 0.3, speed_in: 0.0, speed_out: 0.0 }.into();
+        let emb: Hit = VHit { tick: 3, cart: 2, class: VClass::Embedded, cell: BlockPos::new(1, 25, 0), depth: 0.3, speed_in: 0.0, speed_out: 0.0, pos: [1.5, 25.2, 0.5] }.into();
         assert_eq!(emb.face, Face::Inside);
+        assert_eq!(emb.pos, [1.5, 25.2, 0.5], "From<VHit> carries the stored position");
+    }
+
+    /// (ironspec Nov 13 16:56 / G1 16:53: class=rest) a designed rest read and judged: the reader
+    /// refuses an incomplete or mixed line; the judge fails a rest longer than its dwell, a rest outside
+    /// its at= box, a released cart that stalls within 5 ticks of the rest's end, and a MOVING contact
+    /// declared as a rest (the drop-stop glass: its stored positions spread past at=); a rest inside
+    /// every bound passes and its reference check reproduces; events count per pass.
+    #[test]
+    fn class_rest_and_its_controls() {
+        const REST: &str = "# contacts: 3,16,0=the hold's cart rests on its shut trapdoor's top until the trapdoor opens | class=rest | face=up | dwell<=40+eps=1 why=the wait to the trapdoor's pulse | events<=1 why=one rest a pass | depth<=0.0200+eps=0.0001 why=the on-ground gravity step | at=3.5000..3.5000,16.1875..16.1875,0.4900..0.4900+eps=0.0001 why=the hold's place | ref=t `vhits` (the planted rest) | rate=1/1 carts\n";
+        let d = declared_contacts_bounded(REST).unwrap();
+        assert_eq!((d[0].class, d[0].face, d[0].dwell.as_ref().map(|b| b.value)), (Class::Rest, Some(Face::Up), Some(40.0)));
+        let at = d[0].at.as_ref().unwrap();
+        assert_eq!((at.lo, at.hi, at.decimals), ([3.5, 16.1875, 0.49], [3.5, 16.1875, 0.49], [4, 4, 4]));
+        // the reader refuses a class=rest line missing any of dwell, depth, at=, ref (and face, events),
+        // one with ticks<=, and dwell= / at= on another class
+        for (missing, line) in [
+            ("dwell", REST.replace("dwell<=40+eps=1 why=the wait to the trapdoor's pulse | ", "")),
+            ("depth", REST.replace("depth<=0.0200+eps=0.0001 why=the on-ground gravity step | ", "")),
+            ("at", REST.replace("at=3.5000..3.5000,16.1875..16.1875,0.4900..0.4900+eps=0.0001 why=the hold's place | ", "")),
+            ("ref", REST.replace("ref=t `vhits` (the planted rest) | ", "")),
+            ("events", REST.replace("events<=1 why=one rest a pass | ", "")),
+        ] {
+            let e = declared_contacts_bounded(&line).unwrap_err();
+            assert!(e.contains("missing") && e.contains(missing), "{missing}: {e}");
+        }
+        assert!(declared_contacts_bounded(&REST.replace("dwell<=40", "ticks<=40")).unwrap_err().contains("dwell"));
+        assert!(declared_contacts_bounded("# contacts: 3,16,0=x | class=design | face=up | ticks<=1+eps=1 | events<=1+eps=1 | depth<=0.02+eps=0.01 | speed_out>=0+eps=0 why=w | ref=t | at=0..1,0..1,0..1+eps=0.1\n").unwrap_err().contains("class=rest"));
+        assert!(declared_contacts_bounded(&REST.replace("+eps=0.0001 why=the hold's place", "")).unwrap_err().contains("margin"));
+        // a 40-tick rest at its place, the cart falling when released: passes, and reproduces
+        let rest = |t0: i64, n: i64, pos: [f64; 3]| -> Vec<Hit> { (t0..t0 + n).map(|t| Hit { tick: t, cart: 1, cell: BlockPos::new(3, 16, 0), face: Face::Up, depth: 0.02, speed_in: 0.0, speed_out: 0.0, sample: Some(0), pos }).collect() };
+        let falls = |c: u32, t: i64| if c == 1 && t >= 140 { Some((0.0, -0.08)) } else { Some((0.0, 0.0)) };
+        let ok = rest(100, 40, [3.5, 16.1875, 0.49]);
+        let v = judge(&d, &ok, &falls, StallRule::IRONSPEC_1042, Some((1, "carts")));
+        assert!(!v.failed(), "{v:?}");
+        assert!(reference_check(&d[0], &ok).is_empty(), "{:?}", reference_check(&d[0], &ok));
+        // an over-long rest fails its dwell
+        let long = rest(100, 45, [3.5, 16.1875, 0.49]);
+        let falls_late = |c: u32, t: i64| if c == 1 && t >= 145 { Some((0.0, -0.08)) } else { Some((0.0, 0.0)) };
+        assert!(judge(&d, &long, &falls_late, StallRule::IRONSPEC_1042, Some((1, "carts"))).exceeded.iter().any(|e| e.contains("dwell 45")));
+        // a rest outside its at= box fails at=
+        let off = rest(100, 40, [3.5, 16.1875, 0.60]);
+        assert!(judge(&d, &off, &falls, StallRule::IRONSPEC_1042, Some((1, "carts"))).exceeded.iter().any(|e| e.contains("outside at=")));
+        // a released cart that neither moves nor falls within 5 ticks of the rest's end stalls
+        let still = |_: u32, _: i64| Some((0.0, 0.0));
+        assert_eq!(judge(&d, &ok, &still, StallRule::IRONSPEC_1042, Some((1, "carts"))).stalls.len(), 1);
+        // a MOVING contact declared as a rest (the drop-stop glass's one-tick hit, its cart at speed:
+        // its stored positions run along z) fails at=
+        let glass = declared_contacts_bounded("# contacts: 9,-15,0=the drop stop as a rest | class=rest | face=north | dwell<=1+eps=0 why=w | events<=1+eps=0 why=w | depth<=0.2057+eps=0.001 why=w | at=9.5000..9.5000,-15.0000..-15.0000,-0.6843..-0.6843+eps=0.001 why=w | ref=t\n").unwrap();
+        let moving_hits: Vec<Hit> = (0..3).map(|k| Hit { tick: 10 + 4 * k, cart: 2, cell: BlockPos::new(9, -15, 0), face: Face::North, depth: 0.2057, speed_in: 0.4, speed_out: 0.1943, sample: None, pos: [9.5, -15.0, -0.6843 + 0.19 * k as f64] }).collect();
+        assert!(judge(&glass, &moving_hits, &falls, StallRule::IRONSPEC_1042, None).exceeded.iter().any(|e| e.contains("outside at=")));
+        // events per pass: two rests of one cart in two passes pass events<=1; two in one pass don't
+        let mut two_passes = rest(100, 40, [3.5, 16.1875, 0.49]);
+        two_passes.extend(rest(300, 40, [3.5, 16.1875, 0.49]).into_iter().map(|h| Hit { sample: Some(1), ..h }));
+        let falls2 = |c: u32, t: i64| if c == 1 && (140..150).contains(&t) || t >= 340 { Some((0.0, -0.08)) } else { Some((0.0, 0.0)) };
+        let v2 = judge(&d, &two_passes, &falls2, StallRule::IRONSPEC_1042, Some((2, "carts")));
+        assert!(!v2.exceeded.iter().any(|e| e.contains("events")), "{v2:?}");
+        let mut one_pass = rest(100, 40, [3.5, 16.1875, 0.49]);
+        one_pass.extend(rest(300, 40, [3.5, 16.1875, 0.49]));
+        assert!(judge(&d, &one_pass, &falls2, StallRule::IRONSPEC_1042, Some((1, "carts"))).exceeded.iter().any(|e| e.contains("2 events over events<=")));
+        // (G1's D7 on R4b) the reader refuses a bound that is no bound: an infinite or NaN value, an
+        // infinite or negative eps, an at= box with an infinite end, for every class
+        let line = |f: &str| declared_contacts_bounded(&format!("# contacts: 3,16,0=the hold | class=rest | face=up | {f} | ref=t\n"));
+        let ok = "dwell<=40+eps=0 why=w | events<=1+eps=0 why=w | depth<=0.0400+eps=0.0001 why=w | at=3.5..3.5,16.1875..16.1875,0.49..0.49+eps=0.0001 why=w";
+        assert!(line(ok).is_ok(), "{:?}", line(ok));
+        for bad in [
+            ok.replace("dwell<=40+eps=0", "dwell<=inf+eps=0"),
+            ok.replace("dwell<=40+eps=0", "dwell<=40+eps=inf"),
+            ok.replace("dwell<=40+eps=0", "dwell<=40+eps=-1"),
+            ok.replace("dwell<=40+eps=0", "dwell<=NaN+eps=0"),
+            ok.replace("at=3.5..3.5", "at=-inf..inf"),
+            ok.replace("0.49..0.49+eps=0.0001", "0.49..0.49+eps=inf"),
+        ] {
+            assert!(line(&bad).unwrap_err().contains("finite"), "{bad}");
+        }
+        assert!(declared_contacts_bounded("# contacts: 9,-15,0=x | class=design | face=north | ticks<=1+eps=0 why=w | events<=1+eps=0 why=w | depth<=inf+eps=0 why=w | speed_out>=0.1+eps=0 why=w | ref=t\n").unwrap_err().contains("finite"));
     }
 
     /// G1's 12:08 note, the threshold in motion: a cart rolling on flat rails under a ceiling that
