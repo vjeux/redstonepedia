@@ -1936,6 +1936,28 @@ impl Ctl {
         let sy = self.stop_dy;
         let by = sy - 18;
         let bed = matches!(w.get(dbp(-3, by, 3)).to_string(), s if s.contains("occupied=true"));
+        // (G1 16:00, night check 4; tick-exact 16:03: ValidateNearbyPoi erases HOME of any awake HOME-
+        // holder within 16 of the head's centre while the bed is occupied) each occupied tick, every
+        // awake HOME-holder within 16 of the bed head's centre (-2.5, by + 0.5625 / 2, 3.5), riding or not
+        if bed {
+            let head = (-2.5f64, by as f64 + 0.28125, 3.5f64);
+            for e in w.entities.list.iter().filter(|e| !e.removed) {
+                if let EntityKind::Mob(m) = &e.kind
+                    && matches!(m.ty, redsim::entity::mob::types::MobType::Villager)
+                    && m.brain.as_deref().is_some_and(|b| b.home.is_some())
+                    && m.sleeping_pos.is_none()
+                {
+                    let p = dpos(e.pos);
+                    let d = ((p.x - head.0).powi(2) + (p.y - head.1).powi(2) + (p.z - head.2).powi(2)).sqrt();
+                    if d < self.exposure_least.0 || self.exposure_least.0 == 0.0 {
+                        self.exposure_least = (d, now, e.id);
+                    }
+                    if d < 16.0 {
+                        self.exposure_16.push((now, e.id, d));
+                    }
+                }
+            }
+        }
         // (58f770cc's A6, b36302af8: every controller a floor lever on glass; the hatch's levers
         // (-4,by,2) and (-4,by+1,4) ON in the normal state, OFF at F; the park's levers (1,by+1,-6)
         // and (0,by,-6) OFF (braked), ON at the release, the bed's wake edge + 1 gt (58f770cc 00:39
@@ -2666,28 +2688,6 @@ impl Ctl {
         }
         // R's rise (the rider-keyed string's edge, G1 / G3): the park's drive off, ARM's latches
         // reset, IN-STOP of the lane whose napper passed reset
-        // (G1 16:00, night check 4; tick-exact 16:03: ValidateNearbyPoi erases HOME of any awake HOME-
-        // holder within 16 of the head's centre while the bed is occupied) each occupied tick, every
-        // awake HOME-holder within 16 of the bed head's centre (-2.5, -27 + 0.5625 / 2, 3.5)
-        if bed {
-            let head = (-2.5f64, -27.0 + 0.28125, 3.5f64);
-            for e in w.entities.list.iter().filter(|e| !e.removed) {
-                if let EntityKind::Mob(m) = &e.kind
-                    && matches!(m.ty, redsim::entity::mob::types::MobType::Villager)
-                    && m.brain.as_deref().is_some_and(|b| b.home.is_some())
-                    && m.sleeping_pos.is_none()
-                {
-                    let p = dpos(e.pos);
-                    let d = ((p.x - head.0).powi(2) + (p.y - head.1).powi(2) + (p.z - head.2).powi(2)).sqrt();
-                    if d < self.exposure_least.0 || self.exposure_least.0 == 0.0 {
-                        self.exposure_least = (d, now, e.id);
-                    }
-                    if d < 16.0 {
-                        self.exposure_16.push((now, e.id, d));
-                    }
-                }
-            }
-        }
         let rdet = powered(w, RDET);
         if rdet && !self.rdet_prev {
             let rider = w.entities.list.iter().find(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && (cell(e.pos) == RDET || cell(e.pos) == [4, -27, 4])).and_then(|e| e.passengers.first().copied());
@@ -2980,6 +2980,9 @@ struct Rec {
     label: String,
     /// The largest stamp age at a calm REST tick with no walk target: (age, tick, cell).
     peak: Option<(i64, i64, [i32; 3])>,
+    /// (ironspec 16:08) the stamp's oldest age at any REST tick per position class (lane queue, station
+    /// hold / pocket, split row, lift, the queue gate, the way-in / stop, other): (age, tick, cell)
+    class_peak: [(i64, i64, [i32; 3]); 7],
     calm_rest_ticks: i64,
     over_1000: i64,
     clears: Vec<String>,
@@ -6932,6 +6935,29 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             if activity_rest && r.dusk.is_none() {
                 r.dusk = Some(stamp.map(|s| now - s));
             }
+            // (ironspec 16:08, G1 16:05) the longest continuous pathless dwell at night by position class:
+            // the stamp's age at every REST tick (it runs while no complete path clears it), per class
+            if activity_rest && let Some(s) = stamp {
+                let age = now - s;
+                let cls = if LANES.contains(&c[0]) && (17..=23).contains(&c[1]) && (1..=6).contains(&c[2]) {
+                    0
+                } else if LANES.contains(&c[0]) && (c[1] == 16 || c[1] == 0) && c[2] <= 1 {
+                    1
+                } else if (24..=26).contains(&c[1]) && (7..=10).contains(&c[2]) {
+                    2
+                } else if (-6..=-4).contains(&c[0]) {
+                    3
+                } else if c[0] == 9 && (-15..=-13).contains(&c[1]) && (-5..=-3).contains(&c[2]) {
+                    4
+                } else if c[1] <= -16 {
+                    5
+                } else {
+                    6
+                };
+                if age > r.class_peak[cls].0 {
+                    r.class_peak[cls] = (age, now - t0, c);
+                }
+            }
             if activity_rest && !panic && target.is_none() {
                 r.calm_rest_ticks += 1;
                 if let Some(s) = stamp {
@@ -9919,6 +9945,29 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         wg.map(|((g, a, b), l)| format!("{g} gt ({l}, t {a}..{b})")).unwrap_or("-".to_string()),
         wn.map(|((g, a, b), l)| format!("{g} gt ({l}, t {a}..{b})")).unwrap_or("-".to_string())
     ));
+    // (ironspec 16:08, G1 16:05) the longest continuous pathless dwell at night by position class: per
+    // class, the stamp's oldest age at any REST tick over the villagers, against the 1,200 release
+    {
+        let names = ["the lane queue", "the station hold / pocket", "the split row", "the lift", "the queue gate (G2)", "the way-in / stop", "other"];
+        let mut row: Vec<String> = Vec::new();
+        let mut worst_all = 0i64;
+        for (k, n) in names.iter().enumerate() {
+            let best = recs.iter().map(|(id, r)| (r.class_peak[k], *id)).max_by_key(|(p, _)| p.0);
+            if let Some(((age, t, c), id)) = best
+                && age > 0
+            {
+                worst_all = worst_all.max(age);
+                row.push(format!("{n} {age} gt (#{id} t {t} at ({},{},{}))", c[0], c[1], c[2]));
+            } else {
+                row.push(format!("{n} -"));
+            }
+        }
+        s.push_str(&format!(
+            "the stamp's oldest age at any REST tick by position class (ironspec 16:08 / G1 16:05: the longest continuous pathless dwell at night, against the 1,200 release; bar < 1,000): {} ({})\n",
+            row.join("; "),
+            if worst_all < 1000 { "PASS" } else { "FAIL" }
+        ));
+    }
     s.push_str(&format!(
         "the bar: the largest stamp age at a calm REST tick with no walk target {worst} (<= 1,000: {}); calm REST ticks over 1,000: {over}; HOME lost by {lost} of {} villagers{}{}\n",
         if worst <= 1000 { "PASS" } else { "FAIL" },
@@ -10202,7 +10251,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             ctl.re_armed_setters.iter().take(6).cloned().collect::<Vec<_>>().join(", "),
             if ds { if missing == 0 && not_bought.is_empty() { " (PASS)".to_string() } else { " (FAIL)".to_string() } } else { " (information: today's controller as emulated, no (A) stop composed)".to_string() }
         ));
-        if ds {
+        {
             s.push_str(&format!(
                 "the design controller's F4(a) (G12–G14): {} windows keyed at T_d{}; faults (RETURN timeouts, T_d with 0 or 2+ bits, the hold's pulse withheld by G5): {}{}\n",
                 ctl.f4_windows.len(),
