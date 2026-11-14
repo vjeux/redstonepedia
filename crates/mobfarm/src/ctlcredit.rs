@@ -5441,14 +5441,16 @@ mod tests {
         // NORMAL-OPERATION MISS, PINNED BY NAME until ironspec rules on it: R6's constraint (ii) at the late corner (the
         // napper 2 gt late under a k + j 3 open after its release: its D press 1 gt inside K's late edge) is 1 gt short of
         // its minimum 0 + the ruled slack 2; the bench prints the late half that closes it, as a finding)
-        let expected: [(&str, &str); 1] = [("R6's PHYSICAL CONSTRAINT (ii) the napper's own D(l) press inside its K window", "least >= its minimum 0 + the ruled slack 2")];
+        // (ironspec 15:00r: K_HALF = 11 ADOPTED from 10 (the interface's K line), closing (ii) by 1 + 1: nothing pinned)
+        let expected: [(&str, &str); 0] = [];
         assert_eq!(fails.len(), expected.len(), "ctl-credit-bench: the pinned verdict changed ({} misses, {} pinned): {:#?}", fails.len(), expected.len(), fails);
         for (e, k) in expected {
             assert_eq!(fails.iter().filter(|f| f.contains(e) && f.contains(k)).count(), 1, "ctl-credit-bench: the pinned miss \"{e}\" {k} is not exactly once among {:#?}", fails);
         }
         // (G1's B4 on 40a74308f: R6's swept leasts PINNED exactly: (i) / (ii) / (iii) over the swept train-16 runs)
         let pin = lines.iter().find_map(|l| l.strip_prefix(PHYS_PIN)).expect("the bench prints R6's physical leasts");
-        assert_eq!(pin, "(i) 3 / (ii) 1 / (iii) 25", "ctl-credit-bench: R6's swept physical leasts changed");
+        // (K_HALF 11: (ii) 1 -> 2, (iii) 25 -> 24; at the superseded 10 they were 3 / 1 / 25)
+        assert_eq!(pin, "(i) 3 / (ii) 2 / (iii) 24", "ctl-credit-bench: R6's swept physical leasts changed");
         // (G1 on 60ada7ea8 B1 / the scope reset: the normal-operation verdict passes exactly when nothing is pinned; with the
         // pinned miss above the run fails BY NAME, as the CLI does)
         assert_eq!(v.finish(false).is_ok(), expected.is_empty(), "ctl-credit-bench: the normal-operation verdict must fail exactly on the pinned misses");

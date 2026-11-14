@@ -18,8 +18,9 @@ read them from here, and F′'s test links dfb89499's laid pulse to this one.
   7; the station header's 0 / 14 / 24 is stale); controller timing, stated once here.
 - DM1_BLOCK7 = 35 gt: the one-credit-per-batch guard (opened by every credit), centred in the measured 5..65 gt.
 - SEEN3_OLD's tap = REL + 80 gt, PROVISIONAL (the window 78..82 on train 15's offsets; train 16 re-sweeps it).
-- K windows: K_EARLY = 5 gt (the early half), K_HALF = 10 gt (the late half), riding each napper's release (ironspec
-  11:24a).
+- K windows: K_EARLY = 5 gt (the early half), K_HALF = 11 gt (the late half), riding each napper's release (ironspec
+  11:24a; K_HALF 11 ADOPTED ironspec 15:00r from 10: ctl-credit's ruled-slack bar (ii), the napper's own D inside its K
+  window, missed by 1 gt at 10; every consumer reads it here).
 - The timing corners: ±2 gt (normal running moves each cart's and each napper's arrival up to this far early or late; the
   benches sweep every offset in between, a napper's ride and its batch's slot 3 independently).
 - The ruled slack: 2 gt (ironspec 11:24a, "the >= 2-gt form": each physical constraint's least over the swept runs is at
