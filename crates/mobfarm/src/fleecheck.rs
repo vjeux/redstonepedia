@@ -6932,6 +6932,32 @@ pub fn string_classes_from_header(text: &str) -> Result<Vec<(BlockPos, String)>,
     Ok(out)
 }
 
+/// (ironspec Nov 14 07:50r, part 61) The string registry beside string-audit's verdicts: each `# string-class:`
+/// declaration's cells, its class and the evidence row its REASON names (`evidence: ...`, e.g. "evidence: tick-exact
+/// 05:23"), or that it names none. Returns the lines and the count naming none.
+pub fn string_registry(text: &str) -> Result<(Vec<String>, usize), String> {
+    let mut lines = Vec::new();
+    let mut missing = 0usize;
+    for e in crate::pushscan::header_entries(text, "string-class:") {
+        let (cells, rest) = e.split_once('=').ok_or_else(|| format!("# string-class: {e}: x,y,z[+x,y,z...]=CLASS (REASON)"))?;
+        let class = rest.split_whitespace().next().unwrap_or("").to_string();
+        let reason = rest.trim_start_matches(class.as_str()).trim();
+        let evidence = reason
+            .find("evidence:")
+            .map(|i| reason[i + "evidence:".len()..].trim().trim_end_matches(')').split(';').next().unwrap_or("").trim().to_string())
+            // (a declaration citing its game run in prose: "tick-exact AI / AH", "tick-exact 05:23")
+            .or_else(|| reason.find("tick-exact").map(|i| reason[i..].trim_end_matches(')').split(';').next().unwrap_or("").trim().to_string()));
+        match evidence {
+            Some(ev) if !ev.is_empty() => lines.push(format!("registry {}: {class}; evidence: {ev}", cells.trim())),
+            _ => {
+                missing += 1;
+                lines.push(format!("registry {}: {class}; evidence: NONE NAMED (its reason names no `evidence:` row)", cells.trim()));
+            }
+        }
+    }
+    Ok((lines, missing))
+}
+
 pub fn string_audit(spec: &FarmSpec, ranges: &[(BlockPos, f64, f64)], expect: &[(BlockPos, String)], allow_empty: bool) -> Result<(Vec<String>, usize, usize), String> {
     let w = settled_world_void(spec)?;
     let mut lines = Vec::new();
@@ -6968,6 +6994,17 @@ pub fn string_audit(spec: &FarmSpec, ranges: &[(BlockPos, f64, f64)], expect: &[
         let band = [s.x as f64, s.x as f64 + 1.0, s.y as f64 + lo, s.y as f64 + hi, s.z as f64, s.z as f64 + 1.0];
         let (mut empty, mut raised, mut rider): (Vec<String>, Vec<String>, Vec<String>) = (Vec::new(), Vec::new(), Vec::new());
         let mut samples = 0usize;
+        // (ironspec Nov 14 07:50r, part 61) the registry's geometry: under the string (the box's footprint over the
+        // band's), how far the empty cart's box top stays below the band's bottom at its closest sample
+        let mut clear: Option<(f64, String)> = None;
+        let mut note_clear = |top: f64, x0: f64, x1: f64, z0: f64, z1: f64, at: String| {
+            if x0 < band[1] && x1 > band[0] && z0 < band[5] && z1 > band[4] && top <= band[2] {
+                let g = band[2] - top;
+                if clear.as_ref().is_none_or(|(c, _)| g < *c) {
+                    clear = Some((g, at));
+                }
+            }
+        };
         for (r, shape) in rails.iter().filter(|(r, _)| (r.x - s.x).abs() <= 1 && (r.z - s.z).abs() <= 1 && r.y <= s.y && r.y >= s.y - 3) {
             // (each box's run of samples along the rail that meets the band: where the cart must be)
             let (t_lo, t_hi) = ranges.iter().find(|(q, _, _)| q == r).map(|(_, a, b)| (*a, *b)).unwrap_or((0.0, 0.999));
@@ -6993,6 +7030,7 @@ pub fn string_audit(spec: &FarmSpec, ranges: &[(BlockPos, f64, f64)], expect: &[
                 }
                 samples += 1;
                 let p = along_rail(*r, shape, t);
+                note_clear(p.y + 0.7, p.x - 0.49, p.x + 0.49, p.z - 0.49, p.z + 0.49, format!("on the rail {},{},{} t {t:.2}", r.x, r.y, r.z));
                 if meets([p.x - 0.49, p.x + 0.49, p.y, p.y + 0.7, p.z - 0.49, p.z + 0.49], band) {
                     runs[0].push((t, p));
                 }
@@ -7018,6 +7056,7 @@ pub fn string_audit(spec: &FarmSpec, ranges: &[(BlockPos, f64, f64)], expect: &[
             for i in 0..=n {
                 let y = y0 + i as f64 * 0.1;
                 samples += 1;
+                note_clear(y + 0.7, x - 0.49, x + 0.49, z - 0.49, z + 0.49, format!("in the column x {x:.1} z {z:.1} y {y:.1}"));
                 if meets([x - 0.49, x + 0.49, y, y + 0.7, z - 0.49, z + 0.49], band) {
                     runs[0].push(y);
                 }
@@ -7052,8 +7091,12 @@ pub fn string_audit(spec: &FarmSpec, ranges: &[(BlockPos, f64, f64)], expect: &[
             }
         };
         let say = |v: &Vec<String>| if v.is_empty() { "never meets it".to_string() } else { format!("meets it {}", v.join(", ")) };
+        let clearance = match (&clear, empty.is_empty() && raised.is_empty()) {
+            (Some((g, at)), true) => format!("; under it the empty cart's box top clears the band's bottom by {g:.3} at its closest ({at})"),
+            _ => String::new(),
+        };
         lines.push(format!(
-            "string {},{},{} ({}, band y {:.4}..{:.4}): {class}{}: an empty cart's box {}; its raised box on a slope {}; a rider's box {}: {verdict}",
+            "string {},{},{} ({}, band y {:.4}..{:.4}): {class}{}: an empty cart's box {}; its raised box on a slope {}; a rider's box {}{clearance}: {verdict}",
             s.x,
             s.y,
             s.z,
@@ -12154,6 +12197,23 @@ mod gate_tests {
         assert!(of("4,2,2").contains(": CART-KEYED (") && of("4,2,2").contains("its raised box on a slope meets it"), "{l:?}");
         assert!(of("7,3,2").contains(": never pressed ("), "{l:?}");
         assert!(n == 1 && bad == 0 && l.iter().filter(|x| x.ends_with("(PASS)")).count() == 3, "declared as found: {l:?}");
+        // (ironspec Nov 14 07:50r, part 61) the registry's geometry: the rider-keyed string's band sits 0.300 above the
+        // resting empty cart's box (top 1.0625 + 0.7 = 1.7625 under the band 2.0625), the never-pressed one 1.300; a
+        // CART-KEYED string names where the box meets it instead
+        assert!(of("1,2,2").contains("under it the empty cart's box top clears the band's bottom by 0.300 at its closest (on the rail 1,1,2 t "), "{l:?}");
+        assert!(of("7,3,2").contains("clears the band's bottom by 1.300"), "{l:?}");
+        assert!(!of("4,2,2").contains("clears the band"), "{l:?}");
+        // the registry's evidence rows: one declaration names its row, one names none
+        let (reg, missing) = super::string_registry("# string-class: 1,2,2=rider-keyed (band 0.300 above the resting cart box; evidence: tick-exact 05:23); 4,2,2=cart-keyed (a cart on the slot presses it); 7,3,2=never-pressed (above every box: tick-exact AI / AH)\n").unwrap_or_else(|e| panic!("{e}"));
+        assert!(
+            missing == 1
+                && reg == vec![
+                    "registry 1,2,2: rider-keyed; evidence: tick-exact 05:23".to_string(),
+                    "registry 4,2,2: cart-keyed; evidence: NONE NAMED (its reason names no `evidence:` row)".to_string(),
+                    "registry 7,3,2: never-pressed; evidence: tick-exact AI / AH".to_string()
+                ],
+            "{reg:?}"
+        );
         // (G1 21:38 H9) the bar: a string meant rider-keyed but found CART-KEYED fails by name; an
         // undeclared string fails
         let (l2, _, bad2) = super::string_audit(&spec, &[], &[(b(1, 2, 2), "rider-keyed".to_string()), (b(4, 2, 2), "rider-keyed".to_string())], false).unwrap_or_else(|e| panic!("{e}"));

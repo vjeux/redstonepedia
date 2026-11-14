@@ -10132,6 +10132,13 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             for l in &lines {
                 println!("{l}");
             }
+            // (ironspec Nov 14 07:50r, part 61) the registry: each declared string's class and the evidence row its
+            // declaration names (the geometry is on its audit line above)
+            let (reg, no_ev) = crate::fleecheck::string_registry(&std::fs::read_to_string(&design)?).map_err(|e| anyhow::anyhow!(e))?;
+            for l in &reg {
+                println!("{l}");
+            }
+            println!("string registry: {} declaration(s), {no_ev} naming no evidence row", reg.len());
             println!("string audit: {} string(s), {n} CART-KEYED, {bad} failing its declared class", lines.iter().filter(|l| l.starts_with("string ")).count());
             anyhow::ensure!(bad == 0, "string audit: {bad} string(s) not as declared (or undeclared)");
         }
