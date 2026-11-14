@@ -478,16 +478,21 @@ branch, unlanded)" until `cart_contacts` (329b5acc3) is on main.
 
 ## The rebased tip: main's contact rule, the wake sensor, the tap's built path (Nov 13 afternoon)
 
-Rebased onto main 1ea7bf39a (train 8: the shared contact rule); bench rows on 2af606b9d unless named.
+Rebased onto main f5dd4cf87 (train 10; first onto 1ea7bf39a, train 8: the shared contact rule). Rows
+cited "on 2af606b9d" ran before the second rebase (2af606b9d is not an ancestor of the tip): they
+are re-run on the tip before they're cited; the contact figures below come from e25e3b01c (an
+ancestor). The controller-dependent rows before G1's B1 ran on the bench's named stand-ins (and the
+pre-tick writes stamped one tick late, B2): they carry that label until re-run on the adopted
+emulation.
 
 - **Contacts judged by main's ONE bounded judge** (G1's Q1 / Q6; ironspec Nov 13 10:42 (3) / 10:58;
   the 84dff165a copy and my per-cell parsers gone): every visit's hits (`contacts::cart_hits` +
   `cart_vertical_hits`, the cell in the design frame, each visit's cart its own sample) and motion into
   `contacts::judge` (undeclared by cell and face; ticks, events, depth, speed bounds; NO STALL by
-  IRONSPEC_1042; STALE by `rate=` over the run's visits); declarations by
+  IRONSPEC_1042; STALE for a declaration never met); declarations by
   `declared_contacts_bounded`; `--reference-check` makes `contacts::reference_check` fail the run. The
   bed-head declaration in the bounded grammar (`face=east | ticks<=1 | events<=1 | depth | speed_out
-  | ref= | rate=296/408 visits`), its values from the reference run on main's judge (ref e25e3b01c,
+  | ref=`), its values from the reference run on main's judge (ref e25e3b01c,
   774111605's code) at 21 build positions (the design frame, ironspec's P1-P4 as written and on the
   column convention, P2 at loop + (6,0,6) and + (6,24,6), every copy A-D at loop + 0 and + 80): the
   same extremes at each, 296 events over 296 of 408 visits (37 of 51 entry speeds, every seed of
@@ -497,7 +502,10 @@ Rebased onto main 1ea7bf39a (train 8: the shared contact rule); bench rows on 2a
   over the 21 positions and 2,040 visits of seeds 1-40. The carry threshold 0.0101 (`--boost-probe`:
   the cart's velocity set on (-2,0,5)) is another measure, a floor the speed_out bound doesn't lean
   on. Controls: `--reference-check` passes on the band; editing the depth bound to 0.0400 fails 24
-  events.
+  events. **Judged per entry speed** (G1's B3, ironspec 16:38): the contact is decided by the entry
+  speed (the park's rest position), not by chance, so no binomial rate: `# contact-speeds:` names the
+  37 meeting speeds of the 0.05..0.55 / 0.01 band; each listed speed must meet the face on every seed,
+  each other speed of the band never; a speed off the band prints, unjudged.
 - **The wake sensor** (`--wake-sensor`, G1 12:04 / day-1 12:03): an observer at (-3,-1,4) facing up at
   the bed head, in the glass's place; OCCUPIED's set and clear each give a pulse into (-3,-2,4) 2 gt
   after the edge (tick-exact confirmed in 26.3). On every one of 408 lie-downs and 408 wakes it rose at
@@ -526,13 +534,15 @@ Rebased onto main 1ea7bf39a (train 8: the shared contact rule); bench rows on 2a
 - **Frame independence** (`--offset`, the whole stop built at design + offset): the dense band at six
   generic positions (+80 / -40 in y, (16384,0,16384), the chunk phase (+6,0,+6), their sum) and at
   every module copy of onechunk's N = 4 (A..D, each also +80): every judged outcome identical, the
-  least speed out 0.04678174225627934 at 0.395 at all 14; offset 0 byte-identical to the code before.
+  least speed out 0.04678174225627934 at 0.395 at all 14 (the old after-tick speed, before main's
+  judge); offset 0 byte-identical to the code before.
 - **The mutual hold (-1,0,3) <-> (-1,0,4):** both `holds ...=east_west` in `integrity:`, judged every
   tick (Q13); tick-exact's both-orders build replay keeps both east_west in the game.
-- **DAY-1's latch emulated** (`--latch T_MAX,LOGIC_LAT,REL_AFTER` on the real sensor) and the merge
+- **(superseded latch, before 15:37) DAY-1's latch emulated** (`--latch T_MAX,LOGIC_LAT,REL_AFTER` on the real sensor) and the merge
   row (`--hurt-after-lie k`): a hurt within 3 gt of the lie-down merges into one pulse; the napper
   stands awake on P, re-sleeps in the bed at the wake + ~100 (LAST_WOKEN), its pulse resets OPEN and
-  the latch releases with it asleep (12..16 of 16 forced visits; 0 / 408 in normal operation). The
+  the superseded latch released with it asleep (12..16 of 16 forced visits; 0 / 408 in normal
+  operation; the adopted controller's merged row replaces this). The
   P-eye static: from 25 eye positions on P, Z1 is in view from 0 with the window open (the screens
   (-3,1,5..6)), so an awake napper on P never re-acquires it. Tick-exact: in 26.3 a cart at P does
   NOT seat a sleeper in this bed (9 / 9), so the awake guard is bought (DAY-1 places it: a string at P
@@ -543,15 +553,17 @@ Rebased onto main 1ea7bf39a (train 8: the shared contact rule); bench rows on 2a
 
 ## The controller's terms, RS_ready and the 16-ball (Nov 13 evening)
 
-- **The bench's controller terms are NAMED STAND-INS** (G1 15:59's bench rule; printed by every run):
-  F = max(the lie-down + 2, ARM's rise + 70), the close at the wake + `--close-after`, the park's
-  release at the wake + `--release-after`, by the stand-in levers (-5,1,8) and (3,0,4); `--latch` is
-  DAY-1's superseded 12:38 latch. DAY-1's adopted stop (ironspec 15:46 / 16:00: RLS on sustained
-  P_STRING presence after the latest observer pulse, OPEN reset on RLS or P_STRING, PARK = RLS + 8,
-  no timeouts) is ctl-shutter's to measure; on its wiring the shutter closes at the wake press (about
-  the wake + 4) and the park releases about the wake + 20..28: there the hold delta's least margin is
-  13 / 17 / 21 gt (park at the wake + 20 / 24 / 28), 408 / 408 clean, the longest wake -> boarding
-  39..47 gt (LAST_WOKEN's 100: the re-sleep lock holds with >= 53 gt).
+- **The stop's controller in the bench** (G1's B1): by default DAY-1's list of record (rev 15:42 +
+  the 16:00 form) emulated on the real cells (`--controller adopted`, `--adopted-terms` from
+  ctl-shutter's 16:27 logic level: SO from the first observer pulse after ARM, A70, OPEN on the edge
+  of (A70 and SO and not P_STRING) reset on RLS or P_STRING, RLS on P_STRING's sustained presence
+  from the latest pulse with PARKED, the park at RLS + 8, no timeouts; P_STRING and PARKED NAMED
+  STAND-INS: the awake napper's box meeting the band at (-2,1,4), the cart at rest in the park cell).
+  `--controller stand-in` keeps the old terms (F = max(the lie-down + 2, ARM's rise + 70), the close
+  at the wake + `--close-after`, the release at the wake + `--release-after`), labelled on every run;
+  `--latch` is the superseded 12:38 latch. Figures from the stand-in runs (park at the wake + 20 / 24
+  / 28: the hold delta's least margin 13 / 17 / 21 gt, the longest wake -> boarding 39..47 gt) carry
+  "(stand-in terms, pre-tick writes one tick late: re-run on the adopted emulation pending)".
 - **The rider-keyed RS_ready** (`bedtier --rs-ready`; ironspec 15:23, day-1 15:29): a tripwire string
   at (4,0,5) one cell over R's detector, hooks (4,0,4) facing south / (4,0,6) facing north on glass
   (4,0,3) / (4,0,7), off the rail line; a seated rider's box presses its band (y 0.0625..0.15625, the
