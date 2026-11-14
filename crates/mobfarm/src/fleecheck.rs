@@ -5887,7 +5887,15 @@ pub fn riderless_statics(spec: &FarmSpec, allow_activators: &[BlockPos]) -> Resu
             "hay_block" | "honey_block" => 0.2,
             _ => 1.0,
         };
-        let dmg = if wet { 0 } else { (((drop as f64) * mult + 1e-6 - 3.0) * modifier).floor().max(0.0) as i32 };
+        // (tick-exact Nov 13 22:29, pinned in 26.3, a/1188364864173669: a cart that lands in a RAIL cell
+        // never hurts its rider: OldMinecartBehavior resets the fall distance at the start of
+        // moveAlongTrack, getCurrentBlockPosOrRailBelow takes the rail one below, and an off-track cart
+        // moves under 0.8 blocks a tick, so it always reaches the cell above the rail and is caught there
+        // with fall distance 0. Its two conditions hold here by construction (G1 23:06): the fall is
+        // confined (D1, above: it drops straight into the rail cell), and the scan reaches a landing rail
+        // only down open cells, so nothing solid sits in the cell above it)
+        let caught = rail_landing;
+        let dmg = if wet || caught { 0 } else { (((drop as f64) * mult + 1e-6 - 3.0) * modifier).floor().max(0.0) as i32 };
         let fatal = dmg >= 20;
         if fatal {
             bad += 1;
@@ -5898,18 +5906,14 @@ pub fn riderless_statics(spec: &FarmSpec, allow_activators: &[BlockPos]) -> Resu
             l.trim_start_matches("auto column: "),
             if wet {
                 "water in the fall's swept column breaks it: no damage".to_string()
+            } else if caught {
+                format!("lands in a rail cell (nothing solid in the cell above it): cleared by moveAlongTrack's reset (pinned, tick-exact 22:29, a/1188364864173669): no damage")
             } else if modifier == 0.0 {
                 format!("{on_say}: fallOn x 0: no damage")
             } else if dmg == 0 {
                 format!("{on_say}: no damage")
-            } else if rail_landing {
-                format!(
-                    "{on_say} (fallOn x {modifier}{}): FALL DAMAGE UNCONFIRMED: up to {dmg} if the cart hits the support (moveAlongTrack's reset erases it if a tick ends in the cell above the landing rail; pending tick-exact's pin){}",
-                    if mult < 1.0 { ", the distance halved" } else { "" },
-                    if fatal { ": FATAL to a villager (20) if taken (FAIL: a hold pending the pin)" } else { "" }
-                )
             } else {
-                format!("{on_say} (fallOn x {modifier}): a passenger takes {dmg} damage{}", if fatal { ": FATAL to a villager (20) (FAIL)" } else { "" })
+                format!("{on_say} (fallOn x {modifier}{}): a passenger takes {dmg} damage{}", if mult < 1.0 { ", the distance halved" } else { "" }, if fatal { ": FATAL to a villager (20) (FAIL)" } else { "" })
             }
         ));
     }
@@ -9873,9 +9877,9 @@ mod gate_tests {
         }
         let (l5, _) = super::riderless_statics(&mk(wb, Vec::new()), &[]).unwrap_or_else(|e| panic!("{e}"));
         assert!(l5.iter().any(|l| l.starts_with("(e) a free fall off the rail end 3,30,3 into 4,30,3") && l.contains("water in the fall's swept column breaks it")), "water: {l5:?}");
-        // (ironspec 22:12 (2)'s controls) a dry 8-block drop onto stone: 5; the same onto slime: 0; onto a
-        // rail on slime: 0 (the support is the landed-on block); a 29-block drop onto a rail on stone:
-        // FALL DAMAGE UNCONFIRMED (moveAlongTrack's reset pending the pin), held as a FAIL
+        // (ironspec 22:12 (2)'s controls) a dry 8-block drop onto stone: 5; the same onto slime: 0; and
+        // (tick-exact 22:29's pin) a drop into a rail cell, on slime or on stone, 29 blocks or 8: caught by
+        // moveAlongTrack's reset, no damage
         let drop8 = |floor: &str, rail: bool| {
             let mut v = base.clone();
             v.retain(|(q, _)| *q != b(4, 0, 3));
@@ -9894,15 +9898,15 @@ mod gate_tests {
         let slime8 = drop8("minecraft:slime_block", false);
         assert!(slime8.iter().any(|l| l.starts_with("(e) a free fall off the rail end 3,9,3 into 4,9,3") && l.contains("landing on the slime_block at 4,0,3: fallOn x 0: no damage")), "onto slime: {slime8:?}");
         let rslime = drop8("minecraft:slime_block", true);
-        assert!(rslime.iter().any(|l| l.starts_with("(e) a free fall off the rail end 3,9,3 into 4,9,3") && l.contains("to the rail 4,1,3") && l.contains("landing on the slime_block at 4,0,3: fallOn x 0: no damage")), "onto a rail on slime: {rslime:?}");
+        assert!(rslime.iter().any(|l| l.starts_with("(e) a free fall off the rail end 3,9,3 into 4,9,3") && l.contains("to the rail 4,1,3") && l.contains("cleared by moveAlongTrack's reset (pinned")), "onto a rail on slime: {rslime:?}");
         let mut rb = base.clone();
         rb.push((b(3, 29, 3), p("minecraft:stone")));
         rb.push((b(3, 30, 3), p("minecraft:rail[shape=east_west,waterlogged=false]")));
         rb.push((b(2, 30, 3), p("minecraft:stone")));
         rb.push((b(5, 30, 3), p("minecraft:stone")));
         rb.push((b(4, 1, 3), p("minecraft:rail[shape=east_west,waterlogged=false]")));
-        let (lr, nr) = super::riderless_statics(&mk(rb, Vec::new()), &[]).unwrap_or_else(|e| panic!("{e}"));
-        assert!(nr >= 1 && lr.iter().any(|l| l.starts_with("(e) a free fall off the rail end 3,30,3 into 4,30,3") && l.contains("FALL DAMAGE UNCONFIRMED: up to 25") && l.ends_with("(FAIL: a hold pending the pin)")), "onto a rail on stone: {lr:?}");
+        let (lr, _) = super::riderless_statics(&mk(rb, Vec::new()), &[]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(lr.iter().any(|l| l.starts_with("(e) a free fall off the rail end 3,30,3 into 4,30,3") && l.contains("to the rail 4,1,3") && l.ends_with("lands in a rail cell (nothing solid in the cell above it): cleared by moveAlongTrack's reset (pinned, tick-exact 22:29, a/1188364864173669): no damage")), "onto a rail on stone: {lr:?}");
         // (G1 21:38 H4) the boat's zombie at its SEAT: the boat at y 1.0, its feet 1.0 + 0.1875 - 0.7, its
         // attack box y 0.49..2.44 (unseated, where the static world leaves it: 1.00..2.95)
         assert!(l1.iter().any(|l| l.starts_with("(c) the zombie at") && l.contains("seated: feet y 0.4875") && l.contains(" y 0.49..2.44 ")), "the seat: {l1:?}");
