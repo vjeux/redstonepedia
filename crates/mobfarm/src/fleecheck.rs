@@ -5644,7 +5644,9 @@ fn record_ends(track: &Track, reached: &HashMap<TailNode, f64>, window: f64, slo
 pub fn golem_guard(blocks: &HashMap<BlockPos, redsim::block::Block>, p: BlockPos) -> bool {
     let name = |q: BlockPos| blocks.get(&q).map(|b| b.to_string()).unwrap_or_default();
     let below = name(p.below());
-    if !name(p).starts_with("minecraft:rail[") || !below.contains("_trapdoor[") || !below.contains("half=top") {
+    // (G1 / ironspec Nov 13 18:10, on part 13: the cap CLOSED: an open trapdoor has no top face, so
+    // the rail pops at its next update (an unsupported rail, no guard))
+    if !name(p).starts_with("minecraft:rail[") || !below.contains("_trapdoor[") || !below.contains("half=top") || !below.contains("open=false") {
         return false;
     }
     let lone = [(1, 0), (-1, 0), (0, 1), (0, -1)].iter().all(|(dx, dz)| (-1..=1).all(|dy| !name(BlockPos::new(p.x + dx, p.y + dy, p.z + dz)).contains("rail")));
@@ -5733,6 +5735,14 @@ pub fn auto_columns(spec: &FarmSpec, declared: &[[f64; 4]]) -> (Vec<[f64; 4]>, V
                     break;
                 }
                 y -= 1;
+            }
+            // (ironspec Nov 13 18:09, on part 13: a fall onto a golem guard lands off the track: the
+            // guard is no rail of the track, so a cart that could end on it is flagged UNLANDED)
+            if let Some((l, true)) = land {
+                if golem_guard(&blk, l) {
+                    lines.push(format!("auto column: a free fall off the rail end {},{},{} into {},{},{} lands on the golem guard {},{},{} (no rail of the track): a TRACK END (UNLANDED)", c.x, c.y, c.z, m.x, m.y, m.z, l.x, l.y, l.z));
+                    continue;
+                }
             }
             let Some((l, on_rail)) = land else {
                 // (ironspec Nov 13 06:00 real, POPULATIONS: a fall with no landing in the design's
@@ -7941,9 +7951,31 @@ mod gate_tests {
         let mut t = g;
         t.push((b(0, 6, 2), p("minecraft:rail[shape=north_south,waterlogged=false]")));
         t.push((b(0, 5, 2), p("minecraft:stone")));
-        let tspec = redsim::entity::mob::farm::FarmSpec { blocks: t, ..spec };
+        let tspec = redsim::entity::mob::farm::FarmSpec { blocks: t, ..spec.clone() };
         let (_, tl) = super::auto_columns(&tspec, &[]);
         assert!(!tl.iter().any(|l| l.contains("golem guard")), "{tl:?}");
+        // (G1 / ironspec 18:10 on part 13: an OPEN cap, a bottom-half cap, a powered or a detector
+        // rail on a closed top-half cap: no guard; a fall landing on a guard cell: UNLANDED)
+        for (rail_s, cap) in [
+            ("minecraft:rail[shape=north_south,waterlogged=false]", "minecraft:oak_trapdoor[facing=north,half=top,open=true,powered=false,waterlogged=false]"),
+            ("minecraft:rail[shape=north_south,waterlogged=false]", "minecraft:oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]"),
+            ("minecraft:powered_rail[powered=false,shape=north_south,waterlogged=false]", "minecraft:oak_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]"),
+            ("minecraft:detector_rail[powered=false,shape=north_south,waterlogged=false]", "minecraft:oak_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]"),
+        ] {
+            let mut n = spec.blocks.clone();
+            n.retain(|(q, _)| *q != b(0, 5, 1) && *q != b(0, 6, 1));
+            n.push((b(0, 5, 1), p(cap)));
+            n.push((b(0, 6, 1), p(rail_s)));
+            let nspec = redsim::entity::mob::farm::FarmSpec { blocks: n, ..spec.clone() };
+            let (_, nl) = super::auto_columns(&nspec, &[]);
+            assert!(!nl.iter().any(|l| l.contains("golem guard")), "{rail_s} on {cap}: {nl:?}");
+        }
+        let mut f = gspec.blocks.clone();
+        f.push((b(0, 8, 0), p("minecraft:stone")));
+        f.push((b(0, 9, 0), p("minecraft:rail[shape=north_south,waterlogged=false]")));
+        let fspec = redsim::entity::mob::farm::FarmSpec { blocks: f, hi: b(8, 10, 3), ..spec };
+        let (_, fl) = super::auto_columns(&fspec, &[]);
+        assert!(fl.iter().any(|l| l.contains("lands on the golem guard 0,6,1") && l.contains("UNLANDED")), "{fl:?}");
     }
 
     /// (G1 N28 / N39: the seated start rule on a slope) A seated rider near a slope's high end
