@@ -31,6 +31,8 @@ pub const COMMENT_KEYS: &[&str] = &[
     "a6-pickup",
     "string-class",
     "allow-powered",
+    // (G1 Nov 14 07:59b, part 60) a source cell's meant update consumers, read by `mobfarm update-reach`
+    "update-consumers",
 ];
 
 /// Keys read from a comment line or a header line alike (the push / water-spawn readers strip an optional
