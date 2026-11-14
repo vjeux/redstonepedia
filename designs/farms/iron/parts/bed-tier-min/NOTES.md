@@ -6,7 +6,10 @@ Owner: session 58f770cc. Rulings: ironspec (3883f332), farmopt (ca87cf44), G1 (8
 
 ## Files
 
-- `bed-tier-fold.txt`: the stop of record for stack (b+), (A) with the run-up (G1's Q17, regenerated
+- `bed-tier-fold.txt`: a PLACEHOLDER since the column re-lay (ironspec 10:37a): never composed into V
+  rev 3.1 or later (its Z1 cage lies outside the column bound); records composing it (record7f13b-revN)
+  label its Z1 / cage cells "fold placeholder, not for build", and no waker or RS_ready figure cites
+  from it. It was the stop of record for stack (b+), (A) with the run-up (G1's Q17, regenerated
   Nov 13): `mctas mobfarm bedtier --out bed-tier-fold.txt --eject-at-bed --runup --no-loop-booster
   --exit-south --waker-south --exit-boost --hold-slope --wake-sensor --rs-ready --park-sense` (local
   frame; loop = local + (0,-27,-1)): the rider-keyed RS_ready string over R, the sensed park's
@@ -772,10 +775,9 @@ seeds), terms p 2 / W term 54 / PARK 24 gt (the defaults), path search 48 / 768 
   the tap repeater (1,-2,4) (facing north: its input (1,-2,3)) and its glass (1,-3,4); the slope's slime
   support (1,-2,5), the repeater's output into the hold rail (glass now, under a plain rail). The 2
   added: glass over the stones (2,-1,-2) / (5,-1,-2) (9fc3155f 05:00). Its OR line's climb is declared
-  one-way UP (`one-way:`). OPEN (vcompose 07:59): the latch's reset delay line at local z -6 (the
-  repeaters (0..4,-2,-6), the wire (-1,-2,-6) / (5,-2,-6), their glass) lands at loop z -7 with the
-  stop's offset, outside the column bound z -6..9; a pulled-in re-lay (z >= -5) waits on ironspec's
-  ruling.
+  one-way UP (`one-way:`). CLOSED by the column re-lay below (vcompose 07:59: the latch's reset delay
+  line at local z -6, the repeaters (0..4,-2,-6), the wire (-1,-2,-6) / (5,-2,-6) and their glass,
+  landed at loop z -7 with the stop's offset, outside the column bound z -6..9).
 - **A backup reaching the exit** (ironspec 06:20 / 06:28 / 07:28): with (B) a napper held anywhere
   between the bed and (7,-3,4) sets nothing, so the occupied-bed erase is closed by construction. The
   planted row (`--set-cell 5,-1,5=minecraft:glass`, the run-out blocked a cell past R): the cart stops
@@ -800,3 +802,40 @@ seeds), terms p 2 / W term 54 / PARK 24 gt (the defaults), path search 48 / 768 
   open 2 gt remain. Symptom: the stop idle with an empty cart on the siding; repair: break the cart
   (relink any HOME lost). A witch-ridden cart can't reach the stop (lightning destroys the rider's cart:
   tick-exact's VehicleEntity quote).
+- **The column re-lay (Nov 14 late morning; ironspec 08:09a (c) / 08:12a / 08:58a, vcompose 07:59 /
+  08:08)**: the stop lies fully inside the column bound (loop z -6..9 = local z -5..10). The latch's
+  reset delay row moves from local z -6 to z -5 (the five delay-2 repeaters (0..4,-2,-5) facing west,
+  (-1,-2,-5) feeding the first, the last's output into (5,-2,-5); the dust (-1,-2,-6) / (5,-2,-6) gone);
+  Z1's cage moves one cell north and two down: Z1 in its boat at (-5,-2,9), its shutter (-5,-1,8), the
+  shutter's drive cell (-5,-1,7), the cage (floor, roof, leaves, walls) relative to the post. One cell
+  north alone put the woken napper on P 5.83 from Z1's feet, and the wake's remembered
+  NEAREST_HOSTILE (19 gt under 6) would start a flee from a closure of {P}: rejected (ironspec 08:58a
+  (1)); two down restores it. Z1's seat is the game's (zombie - boat = (0, -0.5125, 0), tick-exact's
+  raw print; redsim's `rider_seat` the same). The measured statics over every tick of every row (the
+  14,000-gt row included): Z1's feet constant at (-4.5,-2.5125,9.5), no play; the woken napper's
+  nearest feet P's box allows (x -1.7..-1.3, z 4.3..4.7) 6.0986 from them (26.3's
+  `position().closerThan(hostile.position(), 6)`: feet to feet, strict; margin 0.0986), at the
+  stand-up 6.3492; the sleeper 6.2642 (VillagerHostilesSensor's `distanceToSqr <= 8 * 8`, inclusive;
+  margin 1.7358), eye to eye 5.6352, its line through the all-air cells (-3,0,5), (-4,0,5), (-4,0,6),
+  (-4,0,7), (-4,-1,7), (-4,-1,8) and the shutter; the waker bar 0 ticks under 6 with sight, 0 with
+  NEAREST_HOSTILE remembered; Z1 in view from P 0 of 25 (window open or shut); Z1's boat box loop z
+  7.8125..9.1875 (inside by 0.8125), the napper 2.0006 from its 0.2-inflated box (the free seat).
+- **The post-eject empty pass** (ironspec 08:16a, G1 08:18, tick-exact 08:21): E's eject and
+  SleepInBed's start fall on the same tick on every visit (0 awake ticks after the dismount, 408 of
+  408), so the boarding clearance is the sleeping box's (0.2 x 0.2): its least margin to the moving
+  empty's 0.2-inflated box 0.2974 over the band (seed 1 speed 0.19, the cart at 0.436 b/t). A second
+  protection: the eject's 60-gt boarding cooldown (tick-exact 10:13's quote: every dismount sets
+  `boardingCooldown = 60`, Entity.removePassenger 2587-2599 via removeVehicle; baseTick counts it
+  down; `canRide` = not sneaking and the cooldown <= 0; a minecart's pickup isn't forced) covers the
+  whole pass, 1-3 gt after the dismount (its least remaining over the pass's moving ticks 46 gt): the
+  first control (the sleeper planted 0.02 inside the reach) was not boarded for that reason; the
+  control now clears the cooldown (stated in its line), and the cart boards it, by name.
+- **Scope (vjeux 2026-11-12, ironspec 11:20a)**: normal operation only. The fault rows above (the
+  empty arrival, the planted empty, E off, the blocked run-out, the stuck K, the witch / empty-at-stop
+  notes, the halt table) are OUT and no longer run; their flags stay as code. The real-R-timing
+  arriving stamp can't be planted on this bench (a planted stamp is not evidence, ironspec 01:41b):
+  it is the composed night's per-visit figure; the stop adds at most 34 gt before the lie-down, which
+  clears it.
+- **The readers of the moved cells** (ironspec 09:12a (2)): 9fc3155f's parts 29 / 50 / 52 (under the
+  default-deny update reach, ARM's consumers declared once part 60's line lands), tick-exact's game
+  `latch-rig --laid` on the moved latch row, the ONE TABLE's stop rows; the bench's own (above).

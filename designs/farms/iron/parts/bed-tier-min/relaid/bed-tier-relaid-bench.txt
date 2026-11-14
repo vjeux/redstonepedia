@@ -1,9 +1,10 @@
 # The bed stop (A), re-laid (ironspec 21:42 -> 00:08; local frame; loop = local + (0,-27,-1); the bed's head at (-3,0,4)): A6's arrival (the entry booster, the slope down, the capped flat, the curve south, the flats), the arming detector ARM (-2,0,1), the activator E (-2,0,2) (always on: its torch (-3,0,2) on glass), K (-2,0,3) the driven T (north_east for the arrival onto the siding, south_east for the return to P), the siding (-1,0,3) / (0,0,3) out and back, the park (1,0,3) a braked powered rail ascending east on its slime (2,0,3) under glass (2,3,3), its drive a plain repeater (2,0,2) facing north, the pickup cell P (-2,0,4) straight north_south, A6's exit (the cap (-2,1,5), the curve, the capped booster, the slope (1,-1,5) a plain rail (no exit hold: lane 7's braked R holds outside the bed's 16-ball, ironspec 05:33 / 06:04), R (4,-1,5) a plain rail (RS_ready's evidence is V's ball-exit detector (7,-3,4), outside the 16-ball: ironspec 07:30), the napper lift's foot (6,-1,5) two cells on).
 # E sets the rider down on the bed head's top (the landing in `stand-up:`): SleepInBed fires at once. The empty cart runs E -> K -> the siding and brakes on the park; DAY-1's controller (rev 20:00) opens the window once the napper sleeps; the zombie wakes it; it stands up on P (its only stand-up cell) and presses P_STRING; RLS releases the park (PARK [RLS + 2, RLS + 26) by day-1's form-(b) latch in the -latch file, the bench's named stand-in in the plain file); the cart runs back through K (south_east) into P, seats the napper and runs on through R to the napper lift (RS_ready is V's: the ball-exit detector (7,-3,4)). One cart per visit, the park released once per visit.
-# The drives: K's (its slime (-2,-1,3)), the park's (the repeater (2,0,2)'s input (2,0,1)) and the window's (-5,1,8) are DAY-1's cells, empty in the plain file; the -latch file lays day-1's form-(b) P_HOLD latch one level down (rig (x,0,z) -> stop (x+2,-2,z-2)), Q driving only the park (no tap line: no exit hold), its inputs RLS_IN (-1,-2,-2) and ARM_IN (6,-2,-5) empty; a bench lays its stand-in levers there as declared overrides.
-# The bench file lays the stand-in levers (bench overrides, never in the record): (-5,1,8) the shutter's drive (the controller unpowers it to open the window and powers it to shut it) and (2,-1,4) the park's drive (a ceiling lever under the slime (2,0,4), in the cell of DAY-1's P_HOLD Q torch, which strongly powers the slime from below as the lever does; ironspec 21:15 (g)); the record leaves (-5,1,8), (2,-1,4) and (2,-2,4) empty for DAY-1's cells ((3,0,4) and (3,-1,4) empty too).
+# The drives: K's (its slime (-2,-1,3)), the park's (the repeater (2,0,2)'s input (2,0,1)) and the window's (-5,-1,7) are DAY-1's cells, empty in the plain file; the -latch file lays day-1's form-(b) P_HOLD latch one level down (rig (x,0,z) -> stop (x+2,-2,z-2)), Q driving only the park (no tap line: no exit hold), its inputs RLS_IN (-1,-2,-2) and ARM_IN (6,-2,-5) empty; a bench lays its stand-in levers there as declared overrides.
+# The bench file lays the stand-in levers (bench overrides, never in the record): (-5,-1,7) the shutter's drive (the controller unpowers it to open the window and powers it to shut it); (-2,-2,3) K's drive (a ceiling lever under K's slime (-2,-1,3)); (2,0,1) the park's drive (a floor lever on glass into the repeater (2,0,2)).
 # always-on: 3,2,-5=the entry booster's redstone torch, on glass (3,1,-5): it never toggles; -3,0,2=the activator's redstone torch, on glass (-3,-1,2): it never toggles (ironspec 03:22: no lever a wind burst can flip); -1,0,7=the exit booster's redstone torch, on glass (-1,-1,7): it never toggles; -2,-2,5=the hand-off booster's redstone torch, on glass (-2,-3,5), under its slime support (-2,-1,5): it never toggles
 # a6-pickup: -2,0,4=the pickup cell (the napper's only stand-up cell); stranded bound: no cart at it by the wake edge + 60 gt fails (the physical event it stands for: the woken napper waiting on P re-sleeps at the wake + ~100, LAST_WOKEN's cooldown, and once re-asleep the visit is stranded; 60 keeps 40 gt before that; the longest wake -> boarding on DAY-1's controller is 42 gt over 408 visits; the merged lie-down + wake path is a fault path judged by boarding before the re-sleep, ironspec 19:09)
+# Load-bearing (G1 10:16, tick-exact 10:13): the lone guard strings (-1,1,2) and (-1,1,5) stay UNATTACHED (no hook in line within range: attached=false, never a signal); each fills the golem cell over its trapdoor top (26.3's LEGACY_IRON_GOLEM needs the spawn cell itself air or liquid), so neither top is a golem floor; fault: a string lost (its trapdoor top a golem floor again); repair: the string replaced, unattached.
 # The wake sensor (G1 12:04 / day-1 12:03): (-3,-1,4) an observer facing up at the bed head (-3,0,4), in the glass's place under it: the head's OCCUPIED set (SleepInBed's start) and cleared (the wake) each give a pulse out of its bottom face into (-3,-2,4), where DAY-1's controller (SO and SINCE set by its pulses) and its release (RLS = P_STRING and SINCE and WIN and PARKED; the park at RLS + p: the first (-2,0,5) entry clears C + 19 (NEAREST_HOSTILE's worst clear after the shutter's flip C, tick-exact 17:52) by >= 1 after k + j, ironspec 17:53) start; the bench prints its pulses against the napper's own edges.
 # Seal-P (ironspec 00:05 / 00:08): the exit's first cap (-2,1,5) is glass, not an iron trapdoor: (-2,0,5) keeps no standing headroom, so no walker leaves P by the exit channel (K's head (-2,1,3) glass, (-1,0,4) sealed, the bed top's jump blocked by P's cap (-2,2,4)): the reach-sweep's closure from P is {P}; riders pass it seated (no suffocation: glass).
 # contacts: -1,0,4=the sealed glass's north face, met flush by the cart's south face on the siding (-1,0,3) as it leaves K's curve east and returns west into it | class=design | face=north | ticks<=1 why=a second tick is the cart stopped against the glass | events<=2 why=the out-and-back siding: the arriving empty cart once, the released one once | depth<=0.3795+eps=0.0001 why=main's depth is the clipped amount of the cart's southward request at K's turn that the face stops, the deepest 0.3795 over the 408 visits | speed_out>=0.1440+eps=0.0001 why=the least 0.1440 over the 408 visits (never a stall) | ref=tree 79ca6b667dd6 (car 1) `mctas mobfarm bedtier-bench designs/farms/iron/parts/bed-tier-min/relaid/bed-tier-relaid-bench.txt --speeds 0.05..0.55/0.01 --from 1 --to 8 --tap 265,10 --adopted-terms 52,0,12,54,6,6,2,6,2,10,1 --park-width 24 --reference-check`: 416 events over 400 of 408 visits (50 of 51 entry speeds), 1 tick, at most 2 per cart, speed_in 0.2033..0.5657, speed_out 0.1440..0.5611; -3,0,3=the bed foot's east face (its 0.5625-high box), met flush by the cart's west face in P (-2,0,4) as it turns out of K, the bed unchanged across it | class=design | face=east | ticks<=1 why=a second tick is the cart stopped against the bed, a stall | events<=1 why=one pass into P per visit | depth<=0.0850+eps=0.0001 why=main's depth is the clipped amount of the cart's westward request out of K's curve that the face stops, the deepest 0.0850 over the 408 visits (one unit of the fourth decimal as eps) | speed_out>=0.0746+eps=0.0001 why=the least 0.0746 over the 408 visits, the carry itself judged directly (NO STALL after every event, the pickup seating every visit) | ref=tree 79ca6b667dd6 (car 1) `mctas mobfarm bedtier-bench designs/farms/iron/parts/bed-tier-min/relaid/bed-tier-relaid-bench.txt --speeds 0.05..0.55/0.01 --from 1 --to 8 --tap 265,10 --adopted-terms 52,0,12,54,6,6,2,6,2,10,1 --park-width 24 --reference-check`: 336 events over 336 of 408 visits (42 of 51 entry speeds, every seed of each), 1 tick, at most 1 per cart, speed_in 0.0912..0.1444, speed_out 0.0746..0.1346; -3,0,4=the bed head's east face (its 0.5625-high box), met flush by the cart's west face in P (-2,0,4) as it turns out of K, the bed unchanged across it | class=design | face=east | ticks<=1 why=a second tick is the cart stopped against the bed, a stall | events<=1 why=one pass into P per visit | depth<=0.0850+eps=0.0001 why=main's depth is the clipped amount of the cart's westward request out of K's curve that the face stops, the deepest 0.0850 over the 408 visits (one unit of the fourth decimal as eps) | speed_out>=0.0746+eps=0.0001 why=the least 0.0746 over the 408 visits, the carry itself judged directly (NO STALL after every event, the pickup seating every visit) | ref=tree 79ca6b667dd6 (car 1) `mctas mobfarm bedtier-bench designs/farms/iron/parts/bed-tier-min/relaid/bed-tier-relaid-bench.txt --speeds 0.05..0.55/0.01 --from 1 --to 8 --tap 265,10 --adopted-terms 52,0,12,54,6,6,2,6,2,10,1 --park-width 24 --reference-check`: 336 events over 336 of 408 visits (42 of 51 entry speeds, every seed of each), 1 tick, at most 1 per cart, speed_in 0.0912..0.1444, speed_out 0.0746..0.1346
@@ -17,18 +18,18 @@
 # guard-caps: every guard rail stands on an IRON trapdoor cap, which only redstone opens, never a hand (G1 02:01): (-2,2,2) on (-2,1,2), (-1,2,-4) on (-1,1,-4), (0,2,5) on (0,1,5), (-1,2,6) on (-1,1,6), (-3,3,3) on (-3,2,3); the lone guard strings (-1,1,2) / (-1,1,5) stand over iron trapdoors too; no cap in the stop is wooden
 # integrity: -2,0,4=connections -2,0,3+-2,0,5; -1,0,3=connections -2,0,3+0,0,3; 0,0,3=connections -1,0,3+1,0,3
 # switches: -2,0,3=K, a driven T (ironspec 21:51 (5)): north_east powered (the arrival from E), south_east unpowered (the return into P); its drive the slime (-2,-1,3) under it, which powers only K (the bench's stand-in a ceiling lever at (-2,-2,3); DAY-1's K drive in the build: SET by ARM's edge, RESET by the park string's press)
-# Load-bearing, FRAGILE (ironspec 23:08 (5)): the four screens (-3,1,6), (-3,1,7), (-2,1,7), (-1,1,7) cut every line from Z1 (the stop's own waker at (-5,0,10), inside the stop's footprint to z 11) to the exit's rider positions within 6 ((-2,0,5), (-2,0,6), (-1,0,6)); fault: a screen lost lets a rider see Z1 (NEAREST_HOSTILE armed on the hold and the exit); repair: the glass replaced.
+# Load-bearing, FRAGILE (ironspec 23:08 (5)): the four screens (-3,1,6), (-3,1,7), (-2,1,7), (-1,1,7) cut every line from Z1 (the stop's own waker at (-5,-2,9), its cage inside the stop's footprint to z 10) to the exit's rider positions within 6; fault: a screen lost lets a rider see Z1 (NEAREST_HOSTILE armed on the exit); repair: the glass replaced.
 # The re-laid stop (ironspec 21:42 / 21:51 / 22:58, 58f770cc 21:44 / 22:32): P (-2,0,4) straight north_south and dry, reached from the north through K; the empty cart's out-and-back siding along z 3, all dry (ironspec 23:40 (1): no water at the stop): K, (-1,0,3) .. (0,0,3) plain, the park (1,0,3) a braked powered rail ascending east; its drive the slime (2,0,3) by the repeater (2,0,2) from its input (2,0,1) (DAY-1's PARK line; the bench's stand-in a redstone block there); SENSED a tripwire over the park cell (1,1,3), hooks (1,1,2) / (1,1,4) on glass (1,1,1) / (1,1,5): pressed while the cart rests on the slope (its box's top past 1.0625), released when it leaves; P_STRING east-west at (-2,1,4), hooks (-3,1,4) on (-4,1,4) and (-1,1,4) on (0,1,4); (-1,0,4) and (-1,2,4) glass; no head-top guard (ironspec 23:40 (3)(a)); the bed column's keep-clear (-3,2,4) (-3,3,4) guards the riders' HOME route's final drop onto the head node (-3,1,4), which holds P_STRING's west hook by design (no collision box: the route completes onto it, 9fc3155f 01:01; vcompose 03:28 / ironspec 03:30 (3)).
 name: bed-tier-a2-bench
 circuit: mob-farm iron_ingot
-keep-block: -5,3,10=oak_leaves[distance=7,persistent=true] (Z1's cover over its glass roof (-5,2,10): its eye cell (-5,1,10) at sky light 14, no burning by day)
+keep-block: -5,1,9=oak_leaves[distance=7,persistent=true] (Z1's cover over its glass roof (-5,0,9): its eye cell (-5,-1,9) at sky light 14, no burning by day)
 keep-clear: -3,2,4 -3,3,4
 riderless: -2,0,2+-2,0,3+-1,0,3+0,0,3+1,0,3+-2,0,4=the stop's empty cart from E (the napper set down on the bed head's top) through K onto the siding to the park, then back through K to P (the napper seated again at P)
 unreachable: -1,1,2=E's east trapdoor top under its lone guard string (no hooks: nothing reads a press): no walker reaches it from P or the bed (K's head (-2,1,3) glass, (-1,0,4) glass, seal-P's (-2,1,5) glass); it is a node of the riders' HOME route from K's siding, a rider-only start (the riders stay seated); -1,1,5=the hand-off's east trapdoor top under its lone guard string: diagonal to P, (-1,0,4) glass, (-2,0,5) under seal-P's (-2,1,5) glass, (0,1,5) the curve's cap
 waker-places: -3,0,4=asleep in the bed, woken once DAY-1's OPEN opens the window (6.36 eye to eye; the window open only from OPEN's set to the woken napper's press on P)
 port home: -3 0 4
 port output: 12 0 6
-entity: minecraft:oak_boat -4.5 0 10.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
+entity: minecraft:oak_boat -4.5 -2 9.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
 origin: -6 0 -5
 palette:
   A minecraft:activator_rail[powered=true,shape=north_south,waterlogged=false]
@@ -78,8 +79,7 @@ layer -3:
   .
   .
   .
-  .
-  .
+  .G
   .
 layer -2:
   .
@@ -94,11 +94,10 @@ layer -2:
   .
   ....Q..GGGGGGGGGG
   .
-  .
-  .
-  .
-  .
-  .
+  .G
+  .G
+  G.G
+  .G
 layer -1:
   .
   ....GGG
@@ -112,11 +111,10 @@ layer -1:
   ...oGG
   ....s.GrEEEEEEEEEG
   ....GGG
-  .....G
-  .
-  .
+  .B...G
+  .i
+  G.G
   .G
-  .
 layer 0:
   .
   ....KERG
@@ -133,8 +131,7 @@ layer 0:
   .....Q
   .G
   .G
-  G.G
-  .G
+  .
 layer 1:
   .........G
   ....GI.RGG
@@ -149,10 +146,9 @@ layer 1:
   ...GGTIG
   ...GIII
   ...GGG
-  .B
-  .i
-  G.G
-  .G
+  .
+  .O
+  .
 layer 2:
   .........Q
   .....H..Ep
@@ -168,8 +164,7 @@ layer 2:
   ....GHG
   .
   .
-  .G
-  .G
+  .
   .
 layer 3:
   .
@@ -187,10 +182,8 @@ layer 3:
   .
   .
   .
-  .O
   .
 layer 4:
-  .
   .
   .
   .
@@ -224,9 +217,7 @@ layer 5:
   .
   .
   .
-  .
 layer 6:
-  .
   .
   .
   .
@@ -260,9 +251,7 @@ layer 7:
   .
   .
   .
-  .
 layer 8:
-  .
   .
   .
   .
@@ -296,10 +285,8 @@ layer 9:
   .
   .
   .
-  .
 layer 10:
   ...............E
-  .
   .
   .
   .
