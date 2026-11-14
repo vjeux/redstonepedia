@@ -1983,6 +1983,8 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
         let cm = COOLDOWN - fedge;
         let (mut d_off, mut twin_least, mut twin_up): (Vec<String>, Option<i64>, usize) = (Vec::new(), None, 0);
         let (mut w_new, mut w_ex): (usize, Option<String>) = (0, None);
+        let (mut w_new2, mut eligible) = (0usize, 0usize);
+        let mut at_w: Vec<i64> = Vec::new();
         for ar in &argmin_rows {
             let (ak, al) = rows_all.iter().find(|(r, _, _)| r.name == ar.name).map(|(_, k, l)| (*k, *l)).unwrap_or((Kind::Recovers, false));
             let d = run(ar, fdef);
@@ -1996,11 +1998,27 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
                     twin_up += 1;
                 }
             }
-            let xw = run(ar, Defects { w_delta: fdef.w_delta + 4, ..fdef });
-            if kind_bars(&d, ak, al).is_empty() && kind_bars(&xw, ak, al).iter().any(|b| b.contains("cooldown")) {
-                w_new += 1;
-                if w_ex.is_none() {
-                    w_ex = Some(format!("{}: the design's margin {:?}, with W + 4 {:?}", desc(ar), d.cooldown_margin, xw.cooldown_margin));
+            let xw1 = run(ar, Defects { w_delta: fdef.w_delta - 1, ..fdef });
+            let xw2 = run(ar, Defects { w_delta: fdef.w_delta - 2, ..fdef });
+            let d_ok = kind_bars(&d, ak, al).is_empty() && first_window_miss(&d, ak).is_none();
+            if d_ok {
+                eligible += 1;
+                if !kind_bars(&xw1, ak, al).is_empty() || first_window_miss(&xw1, ak).is_some() {
+                    w_new += 1;
+                }
+                if !kind_bars(&xw2, ak, al).is_empty() || first_window_miss(&xw2, ak).is_some() {
+                    w_new2 += 1;
+                    if w_ex.is_none() {
+                        w_ex = Some(format!("{}: the design passes (RLS {:?}), with W - 2: [{}]", desc(ar), d.rls.first(), kind_bars(&xw2, ak, al).join("; ")));
+                    }
+                }
+            }
+            // (each run's RLS against its latest pulse: W - 1 refusing it on a run shows that RLS sits AT W's last admitted
+            // tick (the pulse + W + the window chain's delay), COOL's earliest being the margin)
+            if let Some(&r) = d.rls.first() {
+                let p = d.pulses.iter().copied().filter(|&p| p <= r).max();
+                if let Some(p) = p {
+                    at_w.push(r - p);
                 }
             }
         }
@@ -2008,8 +2026,12 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
         let wd = vv.bar_n(&format!("ctl-shutter [{form}]: THE ARGMIN SET (every open-sweep run at the closed form's margin {cm}, chosen by the margin alone): the design's margin equals {cm} on EACH run"), na, d_off.is_empty());
         let twin_tight = twin_least == Some(cm);
         let c = vv.control(&format!("ctl-shutter CONTROL (G1's C1) [{form}]: the park's read removed (edge_no_read) on EVERY argmin run: THE TIGHTNESS PREDICATE FAILS BY NAME (the twin set's least margin rises above the closed form's {cm}: the read is a term at the argmin)"), na, !twin_tight && twin_least.is_some()).to_string();
-        let c2 = vv.control(&format!("ctl-shutter CONTROL (G1 on 33e731660 (2), CHANGES 8 (1)) [{form}]: the W line + 4 on EVERY argmin run: a NEW named miss (the cooldown margin at boarding) on at least one (W binds at the argmin: its latest RLS sits at the W cut)"), na, w_new > 0).to_string();
-        lines.push(format!("  THE ARGMIN SET ({na} runs at margin {cm}): the design's margin {cm} on each: {wd}{}; C1 (the read removed on all): the twin set's least margin {:?}, {twin_up} of {na} runs one higher -> the tightness predicate {}: {c}; W + 4 on all: {w_new} of {na} runs gain a named cooldown miss{}: {c2}", if d_off.is_empty() { String::new() } else { format!(" (off: {})", d_off.join(" | ")) }, twin_least, if twin_tight { "HOLDS (the control does not bite)" } else { "FAILS by name" }, w_ex.map_or(String::new(), |e| format!(" (e.g. {e})"))));
+        // (G1 CHANGES 6 B1 on b80cb28ab: COOL (keyed on ARM) holds the argmin's RLS from below and W's last admitted tick
+        // holds it from above, so LOOSENING W can never move it: W + 4 can't bite by construction (dropped); TIGHTENING W
+        // (W - 1, W - 2) on the argmin set must refuse the RLS and fail by name (the napper re-sleeps, C2 / first window))
+        at_w.sort();
+        let c2 = vv.control(&format!("ctl-shutter CONTROL (G1 CHANGES 6 B1) [{form}]: the W line TIGHTENED by 2 on every argmin run the design passes: a NEW named miss on at least one (W's last admitted tick holds the argmin's RLS from above)"), eligible, w_new2 > 0).to_string();
+        lines.push(format!("  THE ARGMIN SET ({na} runs at margin {cm}, {eligible} the design passes): the design's margin {cm} on each: {wd}{}; C1 (the read removed on all): the twin set's least margin {:?}, {twin_up} of {na} runs one higher -> the tightness predicate {}: {c}; each run's RLS at its latest pulse + {} gt (W - 1 refuses it on {w_new} of {eligible}: AT W's last admitted tick, held from below by COOL at margin {cm}); W - 1 on all: {w_new} of {eligible} gain a named miss; W - 2 on all: {w_new2} of {eligible}{}: {c2}", if d_off.is_empty() { String::new() } else { format!(" (off: {})", d_off.join(" | ")) }, twin_least, if twin_tight { "HOLDS (the control does not bite)" } else { "FAILS by name" }, if at_w.is_empty() { "-".to_string() } else { format!("{}..{}", at_w[0], at_w[at_w.len() - 1]) }, w_ex.map_or(String::new(), |e| format!(" (e.g. {e})"))));
         let (am_d, am_x) = argmin_at.as_ref().map_or((String::new(), String::new()), |(_, ar)| (format!("{}: {}", desc(ar), describe(&run(ar, fdef))), describe(&run(ar, Defects { edge_no_read: true, ..fdef }))));
         lines.push(format!("  the first argmin run {am_d}; with the read removed: {am_x}; the cart reaches P {} gt after the boarding cooldown's end there", argmin_bcd.map_or("-".to_string(), |x| x.to_string())));
     }
@@ -2273,6 +2295,11 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
     let nb: Vec<(i64, Option<(i64, i64)>, Option<(i64, i64)>, i64)> = (1..=3).map(|w| { let (q, _, d, g) = latch_rig(w, None, false, false); (w, q, d, g) }).collect();
     let pin8 = nb[0].1.is_none() && nb[1].1 == Some((16, 36)) && nb[1].3 == 2 && nb[2].1 == Some((16, 36)) && nb[2].3 == 0;
     let w2 = v.bar("ctl-shutter: LatchSim EQUALS the game rig (latch-formb 7b41e8fab, standing frame): pin 2, Q exactly [RLS + 4, RLS + 24) for every RLS width 1..30", pin2.is_empty());
+    // (G1 CHANGES 6 B6 / ironspec 03:06 (7) / G1 03:24 (1): THE OWED LATCH BAR RETIRED BY NAME: the latch AS LAID is
+    // tick-exact's car 5, 4bdcef1fe (`latch-rig --laid`: asserts 1..9 pass, (9) the park rail powered exactly [RLS + 1,
+    // RLS + 25) for every width <= 20, every plant 1..9 failing by name), approved by G1 for train 15 beside this commit;
+    // row 26)
+    lines.push("  OWED RETIRED (row 26): THE LATCH AS LAID is tick-exact's car 5, 4bdcef1fe (`latch-rig --laid`: asserts 1..9 on the laid cells, plants failing by name; G1 approved it for train 15)".to_string());
     let w3 = v.bar("ctl-shutter: LatchSim EQUALS the game rig: pin 3, the TAP = Q + 2 (both edges) for every RLS width 1..30", pin3.is_empty());
     let w4 = v.bar("ctl-shutter: LatchSim EQUALS the game rig: pin 4, the DRIVE exactly [RLS + 2, RLS + 26), gapless, for every RLS width 1..20 (and RLS end + 4 above: 24 -> + 28, 30 -> + 34)", pin4.is_empty() && pin4_long_ok);
     let w5 = v.bar("ctl-shutter: LatchSim EQUALS the game rig: pin 5, laid SET holds >= 60 gt with no input", pin5);
@@ -2649,9 +2676,7 @@ mod tests {
             expected.push((format!("C2 OVER THE OPEN SWEEP (the first window, a FORCED wake by wake + 90): {r}"), true));
         }
         expected.push(("THE rls_filter_off TWIN".to_string(), false));
-        // (G1 CHANGES 8 (1): W + 4 on the argmin set: no run gains a miss (the argmin's RLS at pulse + 57 is 2 gt before
-        // W 48's cut at pulse + 59: W does not bind there): the control does not bite, pinned)
-        expected.push(("ctl-shutter CONTROL (G1 on 33e731660 (2), CHANGES 8 (1))".to_string(), true));
+        // (G1 CHANGES 6 B1: the W + 4 control dropped (it can't bite by construction); W - 2 bites)
         assert_eq!(fails.len(), expected.len(), "ctl-shutter-bench: the pinned verdict changed ({} misses, {} pinned): {:?}", fails.len(), expected.len(), fails);
         for (e, per_form) in &expected {
             assert_eq!(fails.iter().filter(|f| f.contains(e.as_str()) && (!per_form || f.contains("the plain drive of record"))).count(), 1, "ctl-shutter-bench: the pinned miss \"{e}\" is not exactly once among {:?}", fails);

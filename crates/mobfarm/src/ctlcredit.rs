@@ -1224,6 +1224,36 @@ fn store_bars(o: &Out) -> Vec<String> {
 /// THE FIFO LEDGER's bars (G1 on 60ada7ea8 B2 / B3): every REL answered by exactly one credit (each credit answering the
 /// oldest open claim), over ONE horizon (the pulses stop at the row's horizon, the run continues until every released
 /// batch completes); a GAIN (a credit answering no claim) and an UNANSWERED REL are separate kinds, named.
+/// G1 CHANGES 6 B2: every plant read back with its role (printed per plant, failures named): a late cart reaches J(-1)
+/// exactly its lateness after its normal tick (batch, slot, lane, entry tick); a missing cart never reaches a J; a stray
+/// lands exactly once at its tick on its lane; a napper's own entry recorded.
+fn plant_roles(o: &Out, r: &Row, on: &Out) -> (Vec<String>, Vec<String>) {
+    let (mut pl, mut bad) = (Vec::new(), Vec::new());
+    for &(b, s, late) in &r.late {
+        let want = on.pass.get(b).map(|p| p[s][0] + late);
+        let got = o.pass.get(b).map(|p| p[s][0]);
+        pl.push(format!("batch {b} slot {s} (lane {}) {late} late: J(-1) at {got:?} (expected {want:?})", LANES[s]));
+        if got != want || got == Some(0) {
+            bad.push(format!("A PLANT NOT IN ITS ROLE: batch {b}'s lane {} cart {late} late reached J(-1) at {got:?}, expected {want:?}", LANES[s]));
+        }
+    }
+    for &(b, s) in &r.missing {
+        let reached = o.pass.get(b).is_some_and(|p| p[s].iter().any(|&t| t != 0));
+        pl.push(format!("batch {b} slot {s} (lane {}) MISSING: reaches a J {}", LANES[s], if reached { "YES" } else { "never" }));
+        if reached {
+            bad.push(format!("A PLANT NOT IN ITS ROLE: batch {b}'s missing lane {} cart reached a J", LANES[s]));
+        }
+    }
+    for &(t, lane) in &r.stray {
+        let n = o.strays_landed.iter().filter(|x| x.0 == t && x.1 == lane).count();
+        pl.push(format!("a stray D({lane}) at t {t}: landed {n} time(s)"));
+        if n != 1 || o.strays_landed.len() != r.stray.len() {
+            bad.push(format!("A PLANT NOT IN ITS ROLE: the stray D({lane}) at t {t} landed {n} time(s) ({:?})", o.strays_landed));
+        }
+    }
+    (pl, bad)
+}
+
 /// THE STORE CORRECT (the FIFO ledger alone): every REL answered, no credit answering no claim, nothing in flight at the
 /// end (single-fault rows, ironspec 02:54 (3)).
 fn store_correct_bars(o: &Out) -> Vec<String> {
@@ -1420,14 +1450,20 @@ fn credit_fix_block(v: &mut Verdict, lines: &mut Vec<String>) {
         let c = v.control("ctl-credit CONTROL: the resync net off: every true-lost-credit row ends with the store one short (A REL NEVER ANSWERED)", 1, off_short == lost_rows.len()).to_string();
         lines.push(format!("  CONTROL (the net off): {off_short} of {} rows one short: {c}", lost_rows.len()));
         let (mut n, mut fires) = (0usize, Vec::new());
+        let mut store_bad: Vec<String> = Vec::new();
         let mut false_row = |name: String, r: Row| {
             let o = run(&r, Defects::default());
             n += 1;
             if !o.net_fires.is_empty() {
                 fires.push(format!("{name} at {:?}", o.net_fires));
             }
+            // (G1 03:22: each false-fire row judged on THE STORE AFTER too)
+            let sb = store_correct_bars(&o);
+            if !sb.is_empty() {
+                store_bad.push(format!("{name}: {}", sb.join("; ")));
+            }
         };
-        false_row("the normal run".into(), Row::normal("net"));
+        false_row("THE COLD START (the normal run from t 0, the initial store)".into(), Row::normal("net"));
         for s in 0..3 {
             for late in 0..=60 {
                 let mut r = Row::normal("net");
@@ -1441,21 +1477,21 @@ fn credit_fix_block(v: &mut Verdict, lines: &mut Vec<String>) {
         for late in [100i64, 200, 300, 600] {
             let mut r = Row::normal("net");
             r.late = vec![(5, 2, late)];
-            false_row(format!("a stalled-then-recovered lane 7 cart ({late} late)"), r);
+            false_row(format!("THE STALLED-THEN-RECOVERED CART (batch 5's lane 7 cart {late} gt late)"), r);
         }
         for d in [500i64, 2000, 6000] {
             let mut r = Row::normal("net");
             r.holds_empty = vec![(700, 700 + d)];
             r.t_max = 3000 + d;
-            false_row(format!("a halt of {d} gt"), r);
+            false_row(format!("A HALT + RESTART = THE DRAINED-LANE HALT (the station holds empty {d} gt from t 700, carts in flight)"), r);
         }
         for t0 in 500..720 {
             let mut r = Row::normal("net");
             r.open = Some((t0, 0, 3));
-            false_row(format!("a world open at t {t0}"), r);
+            false_row(format!("A WORLD OPEN at t {t0} (every phase of two periods)"), r);
         }
-        let w = v.bar_n("ctl-credit: THE RESYNC NET NEVER FIRES FALSELY (the normal run, every late row 0..60 on every slot, the lost carts, the stalled-then-recovered cart 100..600 late, halts of 500 / 2,000 / 6,000 gt, a world open at every tick of batch 5's span)", n, fires.is_empty());
-        lines.push(format!("  THE RESYNC NET's FALSE-FIRE ROWS: {n} rows, fires {}: {w}", if fires.is_empty() { "none".to_string() } else { fires.join(" | ") }));
+        let w = v.bar_n("ctl-credit: THE RESYNC NET NEVER FIRES FALSELY AND THE STORE ENDS CORRECT (G1 03:22's rows by name: THE COLD START; A HALT + RESTART / THE DRAINED-LANE HALT of 500 / 2,000 / 6,000 gt with carts in flight; A WORLD OPEN at every phase; THE STALLED-THEN-RECOVERED CART 100..600 late; plus every late row 0..60 on every slot and the lost carts)", n, fires.is_empty() && store_bad.is_empty());
+        lines.push(format!("  THE RESYNC NET's FALSE-FIRE ROWS: {n} rows, fires {}, the store after {}: {w}", if fires.is_empty() { "none".to_string() } else { fires.join(" | ") }, if store_bad.is_empty() { "correct on every row".to_string() } else { store_bad.iter().take(3).cloned().collect::<Vec<_>>().join(" | ") }));
     }
     // (ironspec 03:04 (2) / G1 03:04 (5)(i): K(7) BY ORDER's premise and its holes: the order premise (the batch's lane-7
     // cart reaches D(7) before its lane-7 napper: SLOT_T[2] vs NAPPER_T[2], printed); A PLANTED REORDER (the batch's lane-7
@@ -1845,6 +1881,7 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
     lines.push(format!("  the in-flight bypass alone on the slow path (a flag, superseded by the fast path): margin against the measured strings-ready {:?}; design bars {}", ob.measured_margin.map(|_| STRINGS_READY - (D7_MEASURED + AND + IN_FLIGHT_SET)), if design_bars(&ob, &rb, 25).is_empty() { "pass" } else { "FAIL" }));
     // (2) single faults in batch 5, each judged on the same-phase recovery within 2 batches
     let bf = 5usize;
+    let o_norm_pl = run(&Row::normal("plant reference"), Defects::default());
     let mut fault = |name: &str, r: &Row, lines: &mut Vec<String>| -> Out {
         // (the old form, the credit on D(7) AND SEEN3 alone, printed; the design, with the D(-1) completion
         // (ironspec 20:17 (A)), judged; a cart moved between sidings is the documented compression fault, printed)
@@ -1854,7 +1891,12 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
         let b0 = recovery_bars(&o0, &r0, bf);
         lines.push(format!("  FINDING, the old form (the credit on D(7) alone), {name}: {}", if b0.is_empty() { "recovers".to_string() } else { format!("FAILS ({})", b0.join("; ")) }));
         let o = run(r, Defects::default());
-        let bad = recovery_bars(&o, r, bf);
+        let mut bad = recovery_bars(&o, r, bf);
+        // (G1 CHANGES 6 B2: every plant read back with its role, printed per plant; a plant not landing fails the row by
+        // name)
+        let (pl, pf) = plant_roles(&o, r, &o_norm_pl);
+        lines.push(format!("    the plants: {}", pl.join("; ")));
+        bad.extend(pf);
         line(v, &format!("FAULT ROW {name}: the ring back in its SAME phase within 2 batches, P = 100 from REL_7, no misroute after, no credit gained, the store's bars ({})", moved_note(&o)), &bad, &o, r, lines);
         o
     };
@@ -1908,7 +1950,10 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
             if o.rels.len() > 9 && o.rels[7..].windows(2).any(|w| w[1] - w[0] != PERIOD) {
                 lost_c.push(late);
             }
-            let rb = recovery_bars(&o, &r, bf);
+            let mut rb = recovery_bars(&o, &r, bf);
+            // (G1 CHANGES 6 B2: the plant read back with its role)
+            let (_, pf) = plant_roles(&o, &r, &o_norm_pl);
+            rb.extend(pf);
             if !rb.is_empty() {
                 failing.push(late);
                 for k in kinds_of(&rb).split(", ") {
@@ -1952,6 +1997,7 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
             r.napper = vec![(bf, lane, late)];
             let o = run(&r, Defects::default());
             let mut bad = recovery_bars(&o, &r, bf);
+            bad.extend(plant_roles(&o, &r, &o_norm_pl).1);
             let s1 = o.entered.get(bf + 1).and_then(|e| e[0]);
             // (inside slot 3's tolerance (no misroute) the napper's presses must be neutral; past it, a napper press
             // completing the faulted next batch early is part of the accepted two-batch damage, printed, ONLY before
@@ -2001,6 +2047,10 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
         if o.lane_delta != [0; 3] {
             k.push("COUNTS");
         }
+        // (G1 CHANGES 6 B4: a picked cart turning into a lane is its own kind)
+        if !o.pick_diverted.is_empty() {
+            k.push("PICK-DIVERTED");
+        }
         k
     };
     let mut plant_bad: Vec<String> = Vec::new();
@@ -2024,8 +2074,9 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
                 }
                 let o = run(&r, Defects::default());
                 n_plants += 1;
-                if !o.strays_landed.iter().any(|s| s.0 == rel6 + d && s.1 == lane) && plant_bad.len() < 3 {
-                    plant_bad.push(format!("the stray D({lane}) at REL_6 + {d} did not land ({:?})", o.strays_landed));
+                // (G1 CHANGES 6 B2: the stray lands EXACTLY once, at its tick on its lane, and no other stray lands)
+                if o.strays_landed.iter().filter(|s| s.0 == rel6 + d && s.1 == lane).count() != 1 || o.strays_landed.len() != 1 {
+                    plant_bad.push(format!("the stray D({lane}) at REL_6 + {d} did not land exactly once ({:?})", o.strays_landed));
                 }
                 let mut bad = recovery_bars(&o, &r, 6);
                 if !o.leg_entries.is_empty() {
@@ -2072,6 +2123,11 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
             }
         }
         control(v, "a NAPPER MISROUTE planted at ticks the stray sweep already fails (D(3) at REL_6 + 104..106; item 4's plant: the lane -1 napper 3 gt late with K cut to +-1): the per-kind aggregation adds the NAPPER-MISROUTE kind", nk.len() == 3, &run(&Row::normal("x"), Defects::default()), &Row::normal("x"), &mut lines);
+        // (G1 CHANGES 6 B4's control: a picked cart diverted (HOLD_3 removed on a lane -1 pick) adds the PICK-DIVERTED kind)
+        let mut rp = Row::normal("pick diverted");
+        rp.pick = vec![(5, 0)];
+        let op = run(&rp, Defects { no_hold3: true, ..Default::default() });
+        control(v, "a PICKED CART DIVERTED (HOLD_3 removed on batch 5's lane -1 pick): the per-kind aggregation adds the PICK-DIVERTED kind", kinds_route(&op).contains(&"PICK-DIVERTED") && kinds_route(&run(&rp, Defects::default())).is_empty(), &op, &rp, &mut lines);
     }
     // (G1 01:00 / 01:01: THE DELAYED-CART SWEEP: one slot's batch-5 cart late by each of 1..60 gt, each slot, judged PER
     // KIND (r14's chain: J routes by arrival order, so a reorder misroutes); λ_pass per slot = the first misrouting
@@ -2115,7 +2171,7 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
         lines.push(format!("  THE DELAYED-CART SWEEP, lane {} late 1..60: λ_pass (the first misrouting lateness) {lam}, margin over a normal cart's lateness {}: {w}; the way-in leg: {wl}", LANES[s], first_bad.map_or("> 55".to_string(), |f| (f - 1 - NORMAL_LATE).to_string())));
     }
     let w = v.bar_n("ctl-credit: EVERY PLANT READ BACK WITH ITS ROLE (ironspec 01:35's standing rule): each sweep stray landed at REL_6 + d on its lane (REL_6 read from the run), each late cart reached J(-1) exactly its lateness after its normal tick", n_plants, plant_bad.is_empty());
-    lines.push(format!("  THE PLANTS' READ-BACK ({n_plants} plants, REL_6 = t {rel6}): {}: {w}", if plant_bad.is_empty() { "every plant landed in its role".to_string() } else { plant_bad.join(" | ") }));
+    lines.push(format!("  THE PLANTS' READ-BACK ({n_plants} plants, REL_6 = t {rel6}): {}: {w}", if plant_bad.is_empty() { "every plant landed in its role".to_string() } else { format!("{} not in role, e.g. {}", plant_bad.len(), plant_bad.iter().take(3).cloned().collect::<Vec<_>>().join(" | ")) }));
     // (G1 01:14 / ironspec 01:33 (3) / 01:40: THE D-PRESS RING ("armed until filled"), the routing of record: J(l)'s own
     // D press disarms it and arms the next lane's J (-1 -> 3 -> 7 -> -1), no REL-keyed reset, the resync on evidence
     // (the row empty RESYNC_QUIET gt). Its DECIDING ROWS against today's time-keyed ring: the delayed-cart sweep (each
@@ -2164,6 +2220,10 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
                     continue;
                 }
                 let mut sets: Vec<(Vec<i64>, Vec<i64>)> = vec![(Vec::new(), Vec::new()); 3];
+                // (G1 CHANGES 6 B3 / ironspec 03:04 (4): T, the routing of record, JUDGED per kind on these fault rows (a
+                // late cart: the fault path's adopted bars, `recovery_bars`, and the way-in leg); the lanes' counts print as
+                // T's lane-balance cost; R and H stay printed for the comparison)
+                let mut t_kinds: std::collections::BTreeMap<String, Vec<i64>> = std::collections::BTreeMap::new();
                 for late in 1..=60 {
                     let mut r = Row::normal("delayed cart");
                     r.late = vec![(bf, s, late)];
@@ -2174,6 +2234,18 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
                         let o = form(r.clone(), f);
                         if f != 'T' {
                             fold_gap(&o);
+                        } else {
+                            let mut tb = recovery_bars(&o, &r, bf);
+                            if !o.leg_entries.is_empty() {
+                                tb.push(format!("A BATCH CART ENTERED THE WAY-IN LEG (LEG-ENTRY): {}", o.leg_entries.join("; ")));
+                            }
+                            if !o.pick_diverted.is_empty() {
+                                tb.push(format!("A PICKED CART DIVERTED (PICK-DIVERTED): {}", o.pick_diverted.join("; ")));
+                            }
+                            for k in kinds_of(&tb).split(", ").filter(|k| !k.is_empty()) {
+                                let k = if k == "OTHER" && tb.iter().any(|b| b.contains("LEG-ENTRY")) { "LEG-ENTRY" } else if k == "OTHER" && tb.iter().any(|b| b.contains("PICK-DIVERTED")) { "PICK-DIVERTED" } else { k };
+                                t_kinds.entry(k.to_string()).or_default().push(late);
+                            }
                         }
                         if o.lane_delta != [0; 3] {
                             sets[fi].0.push(late);
@@ -2184,6 +2256,16 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
                             tally[fi][1] += 1;
                         }
                     }
+                }
+                if pick.is_some() {
+                    let mut marks = Vec::new();
+                    if t_kinds.is_empty() {
+                        marks.push(v.bar_n(&format!("ctl-credit: T on {label}, lane {} late 1..60: the fault path's adopted bars (every kind clear)", LANES[s]), 60, true).to_string());
+                    }
+                    for (k, ls) in &t_kinds {
+                        marks.push(format!("{k} at {}: {}", ranges(ls), v.bar(&format!("ctl-credit: T on {label}, lane {} late 1..60: the fault path's adopted bars: kind {k} at lateness {}", LANES[s], ranges(ls)), false)));
+                    }
+                    lines.push(format!("  T JUDGED, {label}, lane {} late 1..60: {}", LANES[s], marks.join("; ")));
                 }
                 lines.push(format!("  ROUTING FORMS, {label}, lane {} late 1..60 (PRINTED): the lanes' counts change at T {} / R {} / H {}; a batch cart enters the way-in leg at T {} / R {} / H {}", LANES[s], ranges(&sets[0].0), ranges(&sets[1].0), ranges(&sets[2].0), ranges(&sets[0].1), ranges(&sets[1].1), ranges(&sets[2].1)));
             }
@@ -2853,6 +2935,9 @@ mod tests {
             ("A STRAY D(-1) at every tick of REL_6 + 66..120 with batch 6 carrying lane 3's picked napper: the fault path's adopted bars: kind LEG-ENTRY at REL_6 + 71..73", ""),
             ("A STRAY D(-1) at every tick of REL_6 + 66..120 with batch 6 carrying lane 7's picked napper: the fault path's adopted bars: kind LEG-ENTRY at REL_6 + 71..93", ""),
             ("A STRAY D(3) at every tick of REL_6 + 66..120 with batch 6 carrying lane 7's picked napper: the fault path's adopted bars: kind LEG-ENTRY at REL_6 + 104..120", ""),
+            ("T on batch 5 carrying lane 3's picked napper, lane -1 late 1..60: the fault path's adopted bars: kind PICK-DIVERTED at lateness 9..60", ""),
+            ("T on batch 5 carrying lane 7's picked napper, lane -1 late 1..60: the fault path's adopted bars: kind PICK-DIVERTED at lateness 9..31, 38..60", ""),
+            ("T on batch 5 carrying lane 7's picked napper, lane 3 late 1..60: the fault path's adopted bars: kind PICK-DIVERTED at lateness 18..60", ""),
         ];
         assert_eq!(fails.len(), expected.len(), "ctl-credit-bench: the pinned verdict changed ({} misses, {} pinned): {:#?}", fails.len(), expected.len(), fails);
         for (e, k) in expected {

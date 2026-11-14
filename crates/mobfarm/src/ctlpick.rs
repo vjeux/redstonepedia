@@ -158,6 +158,8 @@ pub struct Out {
     /// Nappers lost between their pick and P1 (planted), and the record's resyncs (cleared with entries left).
     pub lost: usize,
     pub resyncs: usize,
+    /// Each planted ride delay read back: (night, lane, pick, planted, measured leg delay, shared).
+    pub delay_reads: Vec<(i64, usize, usize, i64, i64, bool)>,
 }
 
 /// Where a napper's ride is delayed (ironspec 01:05 / G1 00:57): carts never overtake on the shared track, so a delay
@@ -496,6 +498,10 @@ pub fn run(cfg: &Cfg) -> Out {
                         if let Some((fl, fl_l)) = shared_floor {
                             leg = leg.max(fl + LEG[l] - LEG[fl_l]);
                         }
+                        // (G1 CHANGES 6 B5: each planted delay read back: the napper's leg arrival against its normal one)
+                        if let Some(r) = dly {
+                            o.delay_reads.push((day, l, pick_no[l], r.3, leg - (gt + LEG[l]), r.4 == Ride::Shared));
+                        }
                         if dly.is_some_and(|r| r.4 == Ride::Shared) || shared_floor.is_some() {
                             shared_floor = Some((leg, l));
                         }
@@ -707,8 +713,8 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
         ("the stack hold on lane -1's first napper's ride (+26 gt at the lift top, night 3: SHARED)", vec![(3, 0, 1, 26, Ride::Shared)], true),
         ("a gate-G SKIP of lane 7's first napper-carrying intake (+100 gt, night 3), the +10 record fix", vec![(3, 2, 1, 100, Ride::GateGSkip)], true),
         ("gate-G SKIPS of lane 7's first two napper-carrying intakes (night 3), the +10 record fix", vec![(3, 2, 1, 100, Ride::GateGSkip), (3, 2, 2, 100, Ride::GateGSkip)], true),
-        ("gate-G SKIPS of EVERY lane-7 napper-carrying intake on EVERY night, the +10 record fix", (0..10).flat_map(|d| (1..=12).map(move |p| (d, 2, p, 100, Ride::GateGSkip))).collect(), true),
-        ("gate-G SKIPS of EVERY lane-7 napper-carrying intake on EVERY night WITHOUT the record fix", (0..10).flat_map(|d| (1..=12).map(move |p| (d, 2, p, 100, Ride::GateGSkip))).collect(), false),
+        ("gate-G SKIPS of EVERY lane-7 napper-carrying intake on EVERY night, the +10 record fix", (0..10).flat_map(|d| (1..=11).map(move |p| (d, 2, p, 100, Ride::GateGSkip))).collect(), true),
+        ("gate-G SKIPS of EVERY lane-7 napper-carrying intake on EVERY night WITHOUT the record fix", (0..10).flat_map(|d| (1..=11).map(move |p| (d, 2, p, 100, Ride::GateGSkip))).collect(), false),
         ("a gate-G SKIP of lane 7's first napper-carrying intake (+100 gt, night 3) WITHOUT the record fix", vec![(3, 2, 1, 100, Ride::GateGSkip)], false),
         ("a planted STALL before the merge delaying lane -1's first napper 60 gt (night 3; the record fix can't see it)", vec![(3, 0, 1, 60, Ride::Own)], true),
         ("a planted STALL before the merge delaying lane -1's first napper 250 gt (night 3; the record fix can't see it)", vec![(3, 0, 1, 250, Ride::Own)], true),
@@ -754,6 +760,28 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
             let wv = o.max_gap.1;
             let fault = cfg.name.contains("moved") || cfg.name.contains("SLIP") || cfg.name.contains("HALT") || cfg.name.contains("STALL") || cfg.name.contains("WITHOUT the record fix") || cfg.name.contains("LOST");
             let design = cap == 3 && rj == 1;
+            // (G1 CHANGES 6 B5: on the design config the record's twins are JUDGED CONTROLS and the resync row a judged bar;
+            // every planted delay is read back (the leg arrival = normal + the delay; a shared delay at least it))
+            if design && !cfg.ride_delay.is_empty() {
+                let unread: Vec<String> = cfg.ride_delay.iter().filter(|p| !o.delay_reads.iter().any(|r| r.0 == p.0 && r.1 == p.1 && r.2 == p.2 && (r.4 == p.3 || (r.5 && r.4 >= p.3)))).map(|p| format!("night {} lane {} pick {} +{}", p.0, LANES[p.1], p.2, p.3)).collect();
+                let w = v.bar_n(&format!("ctl-pick: {}: every planted ride delay read back (the leg arrival = normal + the delay)", cfg.name), cfg.ride_delay.len(), unread.is_empty());
+                lines.push(format!("  {}: {} delays read back {}: {w}", cfg.name, o.delay_reads.len(), if unread.is_empty() { "all".to_string() } else { format!("(NOT read: {})", unread.join("; ")) }));
+            }
+            if design && cfg.name.contains("EVERY night WITHOUT the record fix") {
+                let c = v.control(&format!("ctl-pick CONTROL: {}: the record's mismatches appear (the + 10 fix is load-bearing)", cfg.name), 1, !o.record_mismatch.is_empty()).to_string();
+                lines.push(format!("  CONTROL ({}): {} mismatches: {c}", cfg.name, o.record_mismatch.len()));
+            }
+            if design && cfg.name.contains("WITHOUT the record's resync") {
+                let c = v.control(&format!("ctl-pick CONTROL: {}: the record desyncs (mismatches appear without THE RESYNC)", cfg.name), 1, !o.record_mismatch.is_empty()).to_string();
+                lines.push(format!("  CONTROL ({}): {} mismatches, distinct {:?}: {c}", cfg.name, o.record_mismatch.len(), o.distinct.iter().max()));
+            }
+            if design && cfg.name.contains("THE RECORD's RESYNC") {
+                let w = v.bar(&format!("ctl-pick: {}: THE LANE RECORD EXACT after the loss (0 mismatches; the lost villager's lane one short: 23 distinct)", cfg.name), o.record_mismatch.is_empty() && o.resyncs >= 1);
+                lines.push(format!("  {}: {} mismatches, {} resyncs, distinct up to {:?}: {w}", cfg.name, o.record_mismatch.len(), o.resyncs, o.distinct.iter().max()));
+            }
+            if design && cfg.name.contains("first napper-carrying intake (+100 gt, night 3)") {
+                lines.push(format!("  NOTE ({}): the single skip leaves 0 mismatches with or without the fix (inversion {}): it does not exercise the fix (the every-night row does)", cfg.name, o.max_inversion));
+            }
             let verdict = if fault {
                 format!(
                     "PRINTED (a fault path: halts > 1 missed REL are fault class (ironspec 23:50); the slip's cause is a fault, a world-open slip is owed as a strict row; a stall or an unfixed skip reorders the FIFO): nights holding an interval >= 23,000: {:?}, the record's mismatches {} -> {}",
