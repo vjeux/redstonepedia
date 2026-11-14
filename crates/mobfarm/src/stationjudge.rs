@@ -47,6 +47,8 @@ pub fn fails(s: &DropStats, launch_min: i64, edge: i64) -> Vec<&'static str> {
     if s.fall == i64::MAX {
         v.push("a cart never landed");
     }
+    // (F′, day-1 11:03 / ironspec 11:20a: the premature-release and eastbound-join bars are OUT (faults:
+    // a returned or bounced cart); the D rises and join entries stay printed, not judged)
     match s.brake_lead {
         Some(l) if l < 0 => v.push("landed on a powered pocket"),
         Some(l) if l < edge => v.push("landed within the edge bar of its pocket's re-brake"),
@@ -222,6 +224,14 @@ pub fn fails(s: &DropStats, launch_min: i64, edge: i64) -> Vec<&'static str> {
     // (commit E: the holds' built drive: each trapdoor open and shut at its declared iteration)
     if s.hold_drive_off > 0 {
         v.push("a hold's trapdoor off its declared tick (the holds' built drive)");
+    }
+    // (commit F, ironspec 02:18 (1): the pocket at its hold's open; F′, G1 on F (1): any minecart but
+    // the arriving one, by box, at the open's tick or at any tick of the fall window)
+    if s.occupied_open > 0 {
+        v.push("a hold opened onto an occupied pocket");
+    }
+    if s.reentry_in_fall > 0 {
+        v.push("a cart in the pocket inside its hold's fall window");
     }
     // (ironfarm's C-fix rows, ironspec 10:29 (2) / 10:56: no cart leaves a watched cell westward;
     // no cart rests off its rails at the lip; G1 on 407a29682 (N1): a check that saw no cart is
@@ -693,6 +703,34 @@ mod tests {
         let late = DropStats { rest: -2, ..ok.clone() };
         assert_eq!(fails(&late, 0, EDGE_BAR), vec!["at rest after the next summon"]);
         assert!(Row::Restart(5, crate::liveness::Restart::rows()[0]).lead() && Row::Cold.lead() && !Row::Login(5, 2).lead() && !Row::NoRider(0).lead());
+    }
+
+    /// (F′, G1 on F (2)) The pocket bars name their failures: a hold opened onto an occupied pocket, a
+    /// cart in the pocket inside its hold's fall window.
+    #[test]
+    fn the_pocket_bars_name_their_failures() {
+        let ok = DropStats { rest: 34, brake_lead: Some(23), fall: 30, ..Default::default() };
+        assert!(fails(&ok, 0, EDGE_BAR).is_empty());
+        let open = DropStats { occupied_open: 1, ..ok.clone() };
+        assert_eq!(fails(&open, 0, EDGE_BAR), vec!["a hold opened onto an occupied pocket"]);
+        let fall = DropStats { reentry_in_fall: 1, ..ok.clone() };
+        assert_eq!(fails(&fall, 0, EDGE_BAR), vec!["a cart in the pocket inside its hold's fall window"]);
+    }
+
+    /// (F′, G1 on F (1)) The fall-window bar sees EVERY tick of (open, fall's end]: a cart in the pocket
+    /// at op - 3 (before the open) and again at op + 5 (inside) fails at op + 5, where the old first-re-
+    /// entry check saw only op - 3; one only before the open, or only after the fall ended, passes; a
+    /// fall that never ended runs to the row's end.
+    #[test]
+    fn the_fall_window_bar_sees_every_tick() {
+        let op = 22;
+        assert_eq!(crate::drop::fall_window_hit(Some(op), Some(op + 34), &[op - 3, op + 5]), Some(op + 5));
+        assert_eq!(crate::drop::fall_window_hit(Some(op), Some(op + 34), &[op - 3]), None);
+        assert_eq!(crate::drop::fall_window_hit(Some(op), Some(op + 34), &[op]), None, "the open's own tick is the at-open check");
+        assert_eq!(crate::drop::fall_window_hit(Some(op), Some(op + 34), &[op + 34]), Some(op + 34), "the fall's end inclusive");
+        assert_eq!(crate::drop::fall_window_hit(Some(op), Some(op + 34), &[op + 35]), None);
+        assert_eq!(crate::drop::fall_window_hit(Some(op), None, &[op + 90]), Some(op + 90));
+        assert_eq!(crate::drop::fall_window_hit(None, None, &[op + 5]), None, "a hold that never opened has no window");
     }
 
     fn due(s: i64, eligible: u8, calls: u8, born: bool, class: &'static str, restart_before: Option<i64>) -> crate::drop::SummonDue {

@@ -370,7 +370,33 @@ line and the slope tap are stand-ins at their declared phases, the rest out of i
 "a pocket drive off its clock slot"; `--late-drive-control K,D` (pocket K's drive D gt late) must
 fail by it. `--t-hold-control` is the T-shape bar's negative row: the first station T's constant
 source (form (C): slime under the T, a lit torch under the slime, on glass) laid before the settle,
-the same lever switched on and off beside it: the T must not re-shape. `--hold-repeater` (commit E)
+the same lever switched on and off beside it: the T must not re-shape. `--string-and` (commit F)
+makes each hold's trigger also wait for its pocket's own string (x,1,0) to read off (SUPERSEDED,
+ironspec 11:53a (3): the station no longer lays the pocket strings, so it and `--occupancy` need a
+`--module` that still lays them);
+`--bounce-sweep` adds, after the run line's first row (one run line only: a grid is refused), one
+row per cell a departed cart rolls through past its exit detector x {ridden, empty} (a stationary
+cart planted there at T); its bars (F′): ANY minecart but the arriving one overlapping a pocket's
+cell by box at the open's tick ("a hold opened onto an occupied pocket") or at ANY tick of the
+fall window (open, fall's end] ("a cart in the pocket inside its hold's fall window"), and "a rider
+hurt"; a jam row is judged only where the jam met its lane's departure (a contact within the game's
+push reach, 0.2 in x / z, riders counted on both sides, from the pocket's release on), else NOT
+JUDGED, a failure. `--sweep-cells "x,y,z;..."` (loop frame) gives the cells instead (a cell on no
+traced path prints whether a departing cart TOUCHES it and whether each lane is BLOCKED, its foot
+arrival against the baseline's), `--sweep-lane K,..` judges them as jams on those lanes (the
+NOT-JUDGED control: with `--sweep-control` every swept row must read NOT JUDGED or the run exits
+"control planted nothing"). `--control-bar NAME` makes a run a CONTROL (ironspec's standing rule: a
+control whose own bar didn't fail is no pass): the named row bar must fail in every run, else
+"control planted nothing". The exit detector each lane's gate reads is `drop::DropLayout::exit_cell`:
+each lane's D (x,0,2); `--exit-detector=x,y,z` (three times, loop frame) names others (a composed
+record whose D moved). `--repair-at R` / `--repair-push` and the planted-jam sweep are fault tooling,
+OUT under the normal-operation rule (ironspec 11:20a): no normal row uses them.
+`--dep-evidence` and `--dep-wait W` (W > 0; both need `--exit-gate`) price the
+departure-gating forms (NOT ADOPTED). Every station run prints the pockets at the opens, the
+designed drops (landing, height, speed at the open, the rider's health), the pocket strings' band
+against a rider at rest, the exit detectors' power windows and, on a module, the foot arrivals with
+each cart's dwell, the station row's (x,0,7) travel times and the lift mouth's entries and exits in
+order (printed, not judged). station-judge runs without the AND (not adopted); its `--string-and` prices it. `--hold-repeater` (commit E)
 drives the holds' iron trapdoors through their built drive (the ring's north cell a slime block fed
 by a delay-1 repeater (x,16,-2) from a lever stand-in at the line end (x,16,-3)), the lever flipped
 `HOLD_DRIVE_LEAD_ITERATIONS` (1 bench iteration = 2 gt: the lever flips between ticks; tick-exact's

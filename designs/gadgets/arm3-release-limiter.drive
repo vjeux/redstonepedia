@@ -1,0 +1,40 @@
+# The ARM3 release line through its pulse limiter (dfb89499, F; G1 05:05 (1)(b); F′ 12 gt, ironfarm
+# 07:25): L1 (ARM3) fires A, the stone moves into B (t 4), the latch's comparator Q reads B: strength
+# 1 (one stone in a 9-slot dropper) at R1's input (t 6); C pulses once, 12 gt (t 10..21); L1 again (a
+# rolled-back re-press) fires A empty: nothing; L2 (the REL SET stand-in) fires B, the stone returns
+# (t 54 after its flip), the level falls: nothing on C. Then the SECOND rise (G1 on F, non-blocking):
+# L1 off and on again fires A, the stone back in B, and the limiter, re-armed, pulses again: 12 gt on
+# the release line's end o (the output dust), q high again.
+# THE RELEASE PULSE WIDTH: 12 gt, an INTERFACE value (G1 07:27 (1)(b) / 07:37 (3): stated once in
+# day-1's controller interface, designs/farms/iron/carousel-assembly/wip/controller/
+# f1q2-day1-controller-interface.md at d44c9f19d64817ab5bdc43a2158323d3fb5f9cd9 (explore/day1-tools),
+# "## Interface values": "release pulse = 12 gt", the one state source this limiter's side branch
+# (the delay-2 + delay-4 repeaters) and day-1's napper trim both read); C's and o's traces below check
+# it (12 characters on).
+design designs/gadgets/arm3-release-limiter.txt
+probe_items b 2 1 0
+probe_items a 3 1 0
+probe q 2 1 1
+probe_signal qin 2 1 2
+probe c 2 1 4
+probe out 2 1 5
+use 4 1 0
+trace 6
+expect b 1
+expect qin 1
+expect_trace c 0001111111111110000
+expect q 1
+use 4 1 0
+use 4 1 0
+expect_trace c 0000000000000000000000000
+expect b 1
+use 1 1 0
+expect_trace c 0000000000000000000000000
+expect a 1
+expect qin 0
+expect q 0
+use 4 1 0
+use 4 1 0
+expect_trace out 000000000++++++++++++0000
+expect b 1
+expect q 1

@@ -1,8 +1,8 @@
-# The F1 + Q2 station (dfb89499), in the loop frame: GENERATED at E′ by `mctas mobfarm drop-bench --layout station ... --write-design` (the bench's own file sits at loop + (6,0,6)); HAND-ADDED at E″ (ironspec 08:49b): the three `# update-consumers:` lines, the `# stand-in:` line and its `# stand-in-guard:`, and the glass (-3,12,7); no regenerate-and-compare pin covers this file at E″ (its only in-code reader reads the `# contacts:` line); F′'s emitter writes the same, pinned by its identity test (station_design's cells equal this file's); NOTES: designs/farms/iron/carousel-assembly/wip/station/NOTES.md.
-# The lead: --l1 --open-delay 4; the build: --slab-stop (each hold's north stop a bottom slab), no zombie post (9fc3155f's summoner-only scarers); the trapdoor pulse 12; the re-brake 16; offsets 0,14,24 (lanes x -1/3/7; the stand's summon bar: >= 1 caller at every summon over all 400 sensor phase pairs, margin 2 (the 20-gt rest bar retired): NOTES).
-# Cells: pockets P0..2 at (x,0,0), x -1/3/7, north_south powered rails on glass (x,-1,0) (V15: no golem floor; the drive from the side, M16bw: day-1's repeater (x-1,0,0), facing west on glass (x-1,-1,0), into the rail, laid here as a stand-in until day-1's file; its input (x-2,0,0) is day-1's riser, a lever stand-in in the bench; nothing is written in the support cell); the launcher's slime (x,0,-1) (V16s: a conductor for the kick; tick-exact's official kick row) under an unattached string (x,1,-1); the pocket strings (x,1,0); departure (x,0,1) plain, the exit detector D_k (x,0,2); lanes x -1 and x 3: (x,0,3) plain (lane x 3's a booster, path (a)'s (1), powered through z 4's chain), boosters (x,0,4..6) on glass powered by an always-on redstone torch (x-1,0,5) on glass (x-1,-1,5), the chain the other two (V15): the merge row at z 7; lane x 7 (path (a)'s (2c), ironspec 14:11/14:16/16:46): four ascending powered rails (7,0..3,3..6) on glass (a redstone torch (6,1,4) on glass (6,0,4) powers the chain), the curve (7,4,7) on glass, nine ascending rails west (6..-2,4..12,7) on glass, the first two powered (a redstone torch (6,4,6) on glass (6,3,6)) and the other seven plain (the cart crests at a crawl and rests near the slope's top), the crest (-3,13,7) on the lift's glass (-3,12,7) (7b90c3f1's), then the lift's braked slope (-4,12,7): 7b90c3f1's record lift file wip/lift/f1q2-lift-split-path-a.txt (explore/farmopt-v15-patha 83878113f). R_1's high side (x,17,2) glass.
+# The F1 + Q2 station (dfb89499), in the loop frame: written by `mctas mobfarm drop-bench --layout station ... --write-design` (the bench's own file sits at loop + (6,0,6)); NOTES: designs/farms/iron/carousel-assembly/wip/station/NOTES.md.
+# The lead: --l1 --open-delay 4; the build: --slab-stop (each hold's north stop a bottom slab), no zombie post (9fc3155f's summoner-only scarers); the trapdoor pulse 12; the re-brake 16; offsets 0,17,27 (lanes x -1/3/7; the stand's summon bar: >= 1 caller at every summon over all 400 sensor phase pairs, margin 2 (the 20-gt rest bar retired): NOTES).
+# Cells: pockets P0..2 at (x,0,0), x -1/3/7, north_south powered rails on glass (x,-1,0) (V15: no golem floor; the drive from the side, M16bw: day-1's repeater (x-1,0,0), facing west on glass (x-1,-1,0), into the rail, laid here as a stand-in until day-1's file; its input (x-2,0,0) is day-1's riser, a lever stand-in in the bench; nothing is written in the support cell); the launcher's slime (x,0,-1) (V16s: a conductor for the kick; tick-exact's official kick row) under an unattached string (x,1,-1) (F′, ironspec 11:53a (3): the pocket strings (x,1,0), their hooks and supports stripped); departure (x,0,1) plain, the exit detector D_k (x,0,2); lanes x -1 and x 3: (x,0,3) plain (lane x 3's a booster, path (a)'s (1), powered through z 4's chain), boosters (x,0,4..6) on glass powered by an always-on redstone torch (x-1,0,5) on glass (x-1,-1,5), the chain the other two (V15): the merge row at z 7; lane x 7 (path (a)'s (2c), ironspec 14:11/14:16/16:46): four ascending powered rails (7,0..3,3..6) on glass (a redstone torch (6,1,4) on glass (6,0,4) powers the chain), the curve (7,4,7) on glass, nine ascending rails west (6..-2,4..12,7) on glass, the first two powered (a redstone torch (6,4,6) on glass (6,3,6)) and the other seven plain (the cart crests at a crawl and rests near the slope's top), the crest (-3,13,7) on the lift's glass (-3,12,7) (7b90c3f1's), then the lift's braked slope (-4,12,7): 7b90c3f1's record lift file wip/lift/f1q2-lift-split-path-a.txt (explore/farmopt-v15-patha 83878113f). R_1's high side (x,17,2) glass.
 # Holds H0..2 at (x,16,0): bottom-half trapdoors (open: the drop), the ring's glass with its north cell (x,16,-1) a SLIME block, the trapdoor's built drive (commit E, ironspec 00:43): a repeater (delay 1) at (x,16,-2) facing south into it on glass (x,15,-2), its input (x,16,-3) the controller's line end (the bench: a lever stand-in on glass there, left out of this file); the powered slime's other neighbours are the north stop slab and empty cells, so it powers only the trapdoor, the north stop a bottom slab (x,17,-1) (no hold string: day-1 21:21); R_1 (x,17,1) a powered rail ascending south, driven by its built repeater (x+1,17,1) (delay 1, facing west into R_1, on glass (x+1,16,1)), fed from the controller's cell (x+2,17,1). The pad: portals x -2..7 rows z -5 and -2, golem feet -6 (PAD0..PAD1).
-# Events (L1, game ticks, every drive EMULATED until the circuit is laid, each from a lever stand-in at its line end; T the summon tick): 1. pocket k's rail powered through day-1's repeater (x-1,0,0) at REL + offset k (its input lever (x-2,0,0) on at REL + offset k - 1), unpowered 16 gt later (the re-brake). 2. pocket k's gate: D_k rises after REL + offset k, or pocket k's string is off then (the cold start); trapdoor k opens 4 gt after, not before T+3. 3. trapdoor k shuts pulse gt after it opens; both through the trapdoor's built drive (commit E): its line end (x,16,-3) changes 2 gt before the open and 2 gt before the shut (one bench iteration, HOLD_DRIVE_LEAD_ITERATIONS 1: the bench flips its lever stand-in between ticks; in the game's between-ticks frame the input changed inside tick N gives the trapdoor in tick N + 2 through the delay-1 repeater: tick-exact's hold-drive game row, official 26.3, its recording replayed on redsim with 0 differences; each open and shut checked against its declared tick). 4. all three shut: + 2 gt, every R_1 repeater's input powered for 10 gt (the next batch rolls into the holds; R_1's threshold 5 gt with the built drive, NOTES; (the refill: the R line at all shut + 2 for 10 gt, unfixed; the game's direct bars V1–V3 pass at the deepest normal depth, ironspec 20:24; the design accepts the measured rests, V4)).
+# Events (L1, game ticks, every drive EMULATED until the circuit is laid, each from a lever stand-in at its line end; T the summon tick): 1. pocket k's rail powered through day-1's repeater (x-1,0,0) at REL + offset k (its input lever (x-2,0,0) on at REL + offset k - 1), unpowered 16 gt later (the re-brake). 2. pocket k's gate: D_k rises after REL + offset k, or its pocket is empty at its release (the cold start: day-1's controller's start-up; the pocket strings are stripped); trapdoor k opens 4 gt after, not before T+3. 3. trapdoor k shuts pulse gt after it opens; both through the trapdoor's built drive (commit E): its line end (x,16,-3) changes 2 gt before the open and 2 gt before the shut (one bench iteration, HOLD_DRIVE_LEAD_ITERATIONS 1: the bench flips its lever stand-in between ticks; in the game's between-ticks frame the input changed inside tick N gives the trapdoor in tick N + 2 through the delay-1 repeater: tick-exact's hold-drive game row, official 26.3, its recording replayed on redsim with 0 differences; each open and shut checked against its declared tick). 4. all three shut: + 2 gt, every R_1 repeater's input powered for 10 gt (the next batch rolls into the holds; R_1's threshold 5 gt with the built drive, NOTES; (the refill: the R line at all shut + 2 for 10 gt, unfixed; the game's direct bars V1–V3 pass at the deepest normal depth, ironspec 20:24; the design accepts the measured rests, V4)).
 # Carts: the batch in the pockets and the next in the holds (riders), the hold carts where the lane leaves them (0.49 into the cell, against the ring's north glass: tickexact's lane-handoff ca3cdb2ed); the lanes' carts (R_1 on) and R_2 are the lanes' file's. The pad's seal: cobblestone at y -8 under the floor rows, x -2..7 (40 blocks).
 # The Nether part is the bench's PLACEHOLDER, not the build: the shared kill room's portal at the pads' y replaces it.
 # Read path: the holds' trapdoors (x,16,0) are iron (redstone-only: no villager, golem or zombie opens one). The hold strings (x,17,0), their hooks (x+-1,17,0) and their GLOWSTONE supports (x+-2,17,0) (ironspec 02:59's, on main; the 05:23 glass ruling never reached main) are gone (day-1 21:21, ironspec 21:22 / 22:12: no gate of day-1's list (rev 20:00) read them, no part rests on or is supported by the supports; the hold-string lead bar retired by name, ironspec 21:16: its consumer was G8c, not bought at 20:24): four light-15 sources leave with them. Ironspec 02:59's reasons for the glowstone, each with its check: lit: 9fc3155f's light-aware spawn static re-run on V rev 1 (ironspec 01:49 (5) / 02:22 (2): the citation of record, a/1480956503919051, md5 65a233714336f50ff66af11adaab36cd): 877 interior cells, 0 spawnable; 574 top-surface cells outside the interior, 0 spawnable (V rev 1 composes no station glowstone); its first run, on V rev 0 with F3's record end rods and glass (ironspec 22:44 / 22:47 / 22:52; `exterior-spawn --lit`; a/2372781836828254, md5 6c0cbc4cbfaf4b3690012fe2b2c3cba8): 0 cells spawnable with or without the four (interior 878 / 878, tops 588 -> 584, LIGHT-DEPENDENT 73 -> 69: the 4 dropped are the tops themselves), so no cell needs them; it holds with F3 r3's lanterns (ironspec 23:34 (a): light only rises, 15 against the end rods' 14, and glass passes light, so no cell needs the four a fortiori); golem-proof: the golem rule identical (9fc3155f 22:07, on rev 3; V's run: 0 off-pad); a solid-render stroll destination: that reason is WITHDRAWN (ironspec 23:01): the tops were unreachable idle-stroll candidates arming CANT_REACH (9fc3155f's 05:18 statics: an unreached idle-stroll STAMP class), so the removal IMPROVES the stamp: 9fc3155f's stroll-cell print on V (the same artifact; `flee-check --auto-columns --start-state free --stroll-cells=-4,12,7`): (-4,12,7)'s calm stroll has 3 candidates with the glowstone tops (-3|1|5,18,0) and 0 without; the next composed night's per-rider max stamp age against r8's <= 530 / 1,200 is a confirmation, not a gate (ironspec 22:12 / 23:01); a sturdy hook face: moot without the hooks.
@@ -11,15 +11,33 @@
 # held: -4,12,7 powered=true (driver: day-1's repeater (-4,12,6) from its line end (-4,12,5), the lane-7 tap's line; phase REL + 96 .. REL + 113, the module rows' --hold-release 95 --hold-width 18: the module bench holds the braked slope's rail, 7b90c3f1's lift cell, with the edge updates the build makes, and no stand-in at the line end; ironspec 01:07, G1 on 82f9546f; the phase is drop::HELD_SLOPE, which the hold check reads, G1 on 834d6329d)
 # contacts: -1,16,-1+3,16,-1+7,16,-1=the holds' designed rest against the ring's north slime block (the trapdoor's built drive's conductor since commit E, ironspec 00:43: a full side like the glass it replaced) (evidence: the station line's own refill print on this file (G1 on d10045e0b (B2)): each next cart at rest in its hold at loop z 0.490 against the slime's south face, the rest tick-exact's lane-handoff ca3cdb2ed measured against the glass it replaced (0.49 into its cell); ironspec 02:41 (b)); no other station cell is a declared contact: no drop-bench row meets one (each arriving cart falls straight from its hold into its pocket, G1 08:18's staleness check)
 # string-class: -1,18,1+3,18,1+7,18,1=cart-keyed (a cart on R_1 presses it, ridden or empty: ironspec 14:26; tick-exact AI / AH)
+# The departure (F′, ironspec 11:20a / 11:24a): the original, on every lane: D (x,0,2) on glass; the A-series no-return step (A, A4, A6, A6b) DROPPED: its purpose, no return under a jam's push-back, is a fault, and the original departure passes the normal battery with no rollback (×300 at REL 3..7 and a world open at every phase: no departing cart back in its pocket).
+# The R_1 guard (F′, ironspec 06:37 (11) / 07:11 (3), bought): glass at (7,19,1) over lane 7's R_1 column, above its slot-1 string: a way-in overflow's falling napper lands on it, never onto a slot-1 cart.
 # update-consumers: intended -1,16,-2=-1,16,0 iron_trapdoor (E′'s repeater powers the slime -1,16,-1, the slime powers the hatch beside it: the drop it opens; 9fc3155f's update-reach run a/2749681412144752, 3 / 3 PASS declared: intended)
 # update-consumers: intended 3,16,-2=3,16,0 iron_trapdoor (the same for lane 3's hold; a/2749681412144752)
 # update-consumers: intended 7,16,-2=7,16,0 iron_trapdoor (the same for lane 7's hold; a/2749681412144752)
 # stand-in: -3,12,7 (glass, owner LIFT: 7b90c3f1's lift cell, ironspec Nov 13 16:04 / 08:35a; laid here too so this file loads standalone: lane 7's crest (-3,13,7) stands on it and it is the high side of the last climb slope (-2,12,7), without it both pop at placement, 26.3 BaseRailBlock.shouldBeRemoved; the composer: LIFT owns, this stand-in yields and must equal LIFT's block)
 # stand-in-guard: -3,12,7 update reach=ok (glass is inert: its placement only updates its neighbours, the crest and the slope, which need it; 9fc3155f's update-reach and would-pop run a/2749681412144752), power reach=ok (26.3 by code: glass is never isRedstoneConductor and is no signal source), survival=ok (26.3 by code: a full block's default canSurvive; a/2749681412144752: would-pop 0)
+# stand-in: 0,17,1 (repeater[delay=1,facing=east], owner LINES: R_1's driver (lane -1), the drive line's last cell, moving to loaderlay's f1q2-day1-ctl-lines.txt; laid here too, identical, until it lands; the composer: LINES owns, this stand-in yields and must equal LINES' block); 4,17,1 (repeater[delay=1,facing=east], owner LINES: lane 3's R_1 driver, the same); 8,17,1 (repeater[delay=1,facing=east], owner LINES: lane 7's R_1 driver, the same)
+# stand-in-guard: 0,17,1 update reach=ok (identical to LINES' block: the same updates), power reach=ok (identical: it powers R_1 (-1,17,1) as LINES' does), survival=ok (26.3 by code: a repeater on glass (0,16,1)'s full top face; the unit test mobfarm::drop::tests::the_station_file_loads_standalone); 4,17,1 update reach=ok (identical to LINES' block), power reach=ok (identical), survival=ok (a repeater on glass (4,16,1)); 8,17,1 update reach=ok (identical to LINES' block), power reach=ok (identical), survival=ok (a repeater on glass (8,16,1))
+# update-consumers: intended -1,18,1=-2,18,1 tripwire_hook+0,18,1 tripwire_hook (lane -1's slot-1 string: its own hooks, the string's readers)
+# update-consumers: by-code -1,18,1=-1,17,1 powered_rail+-1,18,2 rail (lane -1's slot-1 string: R_1 under it and R_2 beside it get a neighbour update and re-check, unchanged: the string powers neither)
+# update-consumers: intended 3,18,1=2,18,1 tripwire_hook+4,18,1 tripwire_hook (lane 3's slot-1 string: its own hooks)
+# update-consumers: by-code 3,18,1=3,17,1 powered_rail+3,18,2 rail (lane 3's slot-1 string: R_1 / R_2 re-check, unchanged)
+# update-consumers: intended 7,18,1=6,18,1 tripwire_hook+8,18,1 tripwire_hook (lane 7's slot-1 string: its own hooks)
+# update-consumers: by-code 7,18,1=7,17,1 powered_rail+7,18,2 rail (lane 7's slot-1 string: R_1 / R_2 re-check, unchanged)
+# update-consumers: by-code 0,18,1=0,17,1 repeater+2,18,1 tripwire_hook (lane -1's east hook: the R repeater under it reads only its back; lane 3's west hook through the SHARED support glass (1,18,1): a neighbour update, a no-op by 26.3's code, TripWireHookBlock has no neighborChanged and recomputes only from its own string line (redsim react.rs `hook`))
+# update-consumers: by-code 4,18,1=4,17,1 repeater+6,18,1 tripwire_hook (lane 3's east hook: the same through (5,18,1))
+# update-consumers: by-code 8,18,1=8,17,1 repeater (lane 7's east hook: the R repeater under it reads only its back)
+# update-consumers: by-code 2,18,1=0,18,1 tripwire_hook (lane 3's west hook: lane -1's east hook through the shared (1,18,1), the hook's no-op)
+# update-consumers: by-code 6,18,1=4,18,1 tripwire_hook (lane 7's west hook: lane 3's east hook through the shared (5,18,1), the hook's no-op)
+# update-consumers: intended 4,6,7=4,6,8 dropper (ARM3: dropper A, the release; one press dispenses exactly ONE item: the gadget drive's `expect b 1` after L1's first press and again after the re-press (A fired empty); tick-exact's ARM3 game rows 34 / 34, PROVISIONAL (ironspec 08:20a: car 12's and later game drives drop `nbt:` lines))
+# update-consumers: by-code 4,6,7=5,5,7 powered_rail+3,7,7 rail (ARM3: a neighbour update only through the cells below / above the sloped detector (26.3 DetectorRailBlock updates pos.below() and, on a slope, pos.above()); neither is its face neighbour, so no power reaches them: (5,5,7) re-checks its power, its torch chain's, unchanged; (3,7,7) its shape, unchanged)
+# The ARM3 interlock (commit F, ironspec 04:23 (4); ironfarm's 04:59 list, redsim-verified by its `designs/gadgets/ironfarm-arm3-interlock.drive`, 31 checks): ARM3 the detector (4,6,7) on lane 7's climb fires dropper A (4,6,8), built holding ONE stone (ARMED); the stone moves into dropper B (3,6,8): the release; the REL SET (day-1's line end (1,7,8), left out) reaches B only through the repeater (2,7,8) facing west on stone (2,6,8) powering the air (3,7,8) (quasi-connectivity: (3,7,8) stays AIR, B is never powered); the comparator (3,6,9) on stone (3,5,9) reads B (strength 1), a level from the release to the next REL, into dfb89499's pulse limiter (designs/gadgets/arm3-release-limiter.drive: one 12-gt pulse per rise, none on the fall, a second rise after the SET pulsing again): the repeater (3,6,10), the dust (3,6,11), the delay-2 repeater (2,6,11) facing east, the dust (1,6,11) / (1,6,12), the delay-4 repeater (2,6,12) facing west into the side of the subtract comparator (3,6,12); its output (3,6,13) is day-1's release line end (to the napper's hold, left out). Must stay unpowered or air: (4,7,8), (4,5,8), (3,5,8), (5,6,8), (4,6,9), (2,6,9), (2,7,9). A rolled-back cart's second press fires A empty: one release per batch.
 # travel: -1,0,6>-1,0,7>-2,0,7=lane x -1's pocket cart leaves onto the station row, then west onto the foot ramp; rows: tr-exit-t20-50.txt (a/1431309932489877, md5 5c28af275ab135c836929519a93d1fd2) t 31..33 cart 0; the station-module row: drop-bench on record7f12 (7a9b95ba1's ROWS run line, REL 5 seed 1; the station's T: game time = 0 mod 100, REL = T + 5; post-tick positions, bench frame = loop + (6,0,6)): departing cart 0 at loop (-0.50,0.06,6.85) > (-0.50,0.06,7.25) > (-1.03,0.09,7.53) moving west; the composed row beside it: onechunk's t14 night n-p0_0_0-d0-s1 (today's ring + A6; onechunk tool under review; today's controller as emulated: t9-t17), cart #0: (-1,0,6) 131 > (-1,0,7) 134 > (-2,0,7) 135 (REL 105, each tick the first end-of-tick in the cell); release-only: every flow through these cells is the station's departing carts and the napper, westward (ironspec 14:41); the link cells and their supports identical in record7f12 and record7f13t (onechunk's cell diff, 14:40)
 # travel: 3,0,6>3,0,7>2,0,7=lane x 3's pocket cart leaves onto the station row, then west; rows: tr-exit-t20-50.txt (a/1431309932489877, md5 5c28af275ab135c836929519a93d1fd2) t 43..45 cart 1; the station-module row: the same run, departing cart 1 at loop (3.50,0.06,6.74) > (3.50,0.06,7.14) > (3.03,0.06,7.47) moving west; the composed row beside it: onechunk's t14 night n-p0_0_0-d0-s1, cart #2: (3,0,6) 144 > (3,0,7) 146 > (2,0,7) 148, then (1,0,7) 150, (0,0,7) 153, (-1,0,7) 155, (-2,0,7) 157; release-only, as above
 # Placement order (bottom-up, each rail placed facing its own axis): in this file alone: (-1,17,1) stored minecraft:powered_rail[powered=false,shape=ascending_south,waterlogged=false], placement gives minecraft:powered_rail[powered=false,shape=north_south,waterlogged=false]; (3,17,1) stored minecraft:powered_rail[powered=false,shape=ascending_south,waterlogged=false], placement gives minecraft:powered_rail[powered=false,shape=north_south,waterlogged=false]; (7,17,1) stored minecraft:powered_rail[powered=false,shape=ascending_south,waterlogged=false], placement gives minecraft:powered_rail[powered=false,shape=north_south,waterlogged=false]; with the lanes' R_2 rails (x,18,2) laid in the same order (the module): (-1,18,2) stored minecraft:rail[shape=ascending_south,waterlogged=false], placement gives minecraft:rail[shape=north_south,waterlogged=false]; (3,18,2) stored minecraft:rail[shape=ascending_south,waterlogged=false], placement gives minecraft:rail[shape=north_south,waterlogged=false]; (7,18,2) stored minecraft:rail[shape=ascending_south,waterlogged=false], placement gives minecraft:rail[shape=north_south,waterlogged=false]
-# The detector rule (no rail with 3 potential connections within a detector's reach: the 6 neighbours of its cell and of the cell below, and of the cell above for a sloped one): the rails within reach and their potential connections: (-1,0,3) 2, (-1,0,1) 2, (3,0,3) 2, (3,0,1) 2, (7,0,3) 2, (7,0,1) 2
+# The detector rule (no rail with 3 potential connections within a detector's reach: the 6 neighbours of its cell and of the cell below, and of the cell above for a sloped one): the rails within reach and their potential connections: (-1,0,3) 2, (-1,0,1) 2, (3,0,3) 2, (3,0,1) 2, (7,0,3) 2, (7,0,1) 2, (5,5,7) 2, (3,7,7) 2
 name: f1q2-station-launcher
 circuit: mob-farm iron_ingot
 positions: -1,0,0 -1,16,0 3,0,0 3,16,0 7,0,0 7,16,0
@@ -33,39 +51,56 @@ entity: minecraft:minecart 7.5 0.0625 0.5 {Rotation:[0f,0f],Passengers:[{id:"min
 entity: minecraft:minecart -0.5 16.1875 0.4900000000000002 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
 entity: minecraft:minecart 3.5 16.1875 0.4900000000000002 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
 entity: minecraft:minecart 7.5 16.1875 0.4900000000000002 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+nbt: 4 6 8 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
 origin: -3 0 -6
 palette:
-  A minecraft:powered_rail[powered=true,shape=ascending_south,waterlogged=false]
-  B minecraft:powered_rail[powered=true,shape=ascending_west,waterlogged=false]
+  A minecraft:comparator[facing=north,mode=subtract,powered=false]
+  B minecraft:dropper[facing=east,triggered=false]
   C minecraft:cobblestone
-  D minecraft:detector_rail[powered=false,shape=north_south,waterlogged=false]
-  E minecraft:powered_rail[powered=true,shape=north_south,waterlogged=false]
-  F minecraft:rail[shape=north_south,waterlogged=false]
+  D minecraft:detector_rail[powered=false,shape=ascending_west,waterlogged=false]
+  E minecraft:dropper[facing=west,triggered=false]
+  F minecraft:powered_rail[powered=true,shape=ascending_south,waterlogged=false]
   G minecraft:glass
-  H minecraft:rail[shape=north_west,waterlogged=false]
+  H minecraft:powered_rail[powered=true,shape=ascending_west,waterlogged=false]
   I minecraft:iron_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]
-  J minecraft:redstone_torch[lit=true]
-  K minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
-  L minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
-  M minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+  J minecraft:powered_rail[powered=true,shape=north_south,waterlogged=false]
+  K minecraft:rail[shape=north_south,waterlogged=false]
+  L minecraft:rail[shape=north_west,waterlogged=false]
+  M minecraft:redstone_torch[lit=true]
   N minecraft:nether_portal[axis=x]
   O minecraft:obsidian
   P minecraft:powered_rail[powered=false,shape=ascending_south,waterlogged=false]
-  Q minecraft:tripwire_hook[attached=true,facing=east,powered=false]
+  Q minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=side]
   R minecraft:rail[shape=ascending_west,waterlogged=false]
-  S minecraft:slime_block
-  T minecraft:tripwire[attached=false,disarmed=false,east=false,north=false,powered=false,south=false,west=false]
-  U minecraft:tripwire_hook[attached=true,facing=west,powered=false]
+  S minecraft:redstone_wire[east=side,north=none,power=0,south=side,west=none]
+  T minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=none]
+  U minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+  V minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  W minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+  X minecraft:repeater[delay=2,facing=east,locked=false,powered=false]
+  Y minecraft:repeater[delay=4,facing=west,locked=false,powered=false]
+  Z minecraft:smooth_stone_slab[type=bottom,waterlogged=false]
+  a minecraft:stone
+  b minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]
+  c minecraft:comparator[facing=north,mode=compare,powered=false]
+  d minecraft:detector_rail[powered=false,shape=north_south,waterlogged=false]
+  e minecraft:tripwire_hook[attached=true,facing=east,powered=false]
+  f minecraft:tripwire_hook[attached=true,facing=west,powered=false]
   p minecraft:powered_rail[powered=false,shape=north_south,waterlogged=false]
   r minecraft:rail[shape=east_west,waterlogged=false]
-  s minecraft:smooth_stone_slab[type=bottom,waterlogged=false]
-  t minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]
+  s minecraft:slime_block
+  t minecraft:tripwire[attached=false,disarmed=false,east=false,north=false,powered=false,south=false,west=false]
 layer -9:
   .
   .OOOOOOOOOO
   .
   .
   .OOOOOOOOOO
+  .
+  .
+  .
+  .
+  .
   .
   .
   .
@@ -90,6 +125,11 @@ layer -8:
   .
   .
   .
+  .
+  .
+  .
+  .
+  .
 layer -7:
   CCCCCCCCCCCC
   ONNNNNNNNNNO
@@ -105,12 +145,22 @@ layer -7:
   .
   .
   .
+  .
+  .
+  .
+  .
+  .
 layer -6:
   .
   ONNNNNNNNNNO
   .
   .
   ONNNNNNNNNNO
+  .
+  .
+  .
+  .
+  .
   .
   .
   .
@@ -135,6 +185,11 @@ layer -5:
   .
   .
   .
+  .
+  .
+  .
+  .
+  .
 layer -4:
   .
   GGGGGGGGGGGG
@@ -150,7 +205,17 @@ layer -4:
   .
   .
   .
+  .
+  .
+  .
+  .
+  .
 layer -3:
+  .
+  .
+  .
+  .
+  .
   .
   .
   .
@@ -180,6 +245,11 @@ layer -2:
   .
   .
   .
+  .
+  .
+  .
+  .
+  .
 layer -1:
   .
   .
@@ -195,20 +265,30 @@ layer -1:
   .GG..GG...G
   ..G...G...G
   .
+  .
+  .
+  .
+  .
+  .
 layer 0:
   .
   .
   .
   .
   .
-  ..S...S...S
-  .Mp..Mp..Mp
-  ..F...F...F
-  ..D...D...D
-  ..F...E...A
-  ..E...E..GG
-  .JE..JE...G
-  ..E...E...G
+  ..s...s...s
+  .Wp..Wp..Wp
+  ..K...K...K
+  ..d...d...d
+  ..K...J...F
+  ..J...J..GG
+  .MJ..MJ...G
+  ..J...J...G
+  .
+  .
+  .
+  .
+  .
   .
 layer 1:
   .
@@ -216,13 +296,18 @@ layer 1:
   .
   .
   .
-  ..T...T...T
-  GQtUGQtUGQtUG
+  ..t...t...t
   .
   .
   .
-  .........JA
+  .
+  .........MF
   ..........G
+  .
+  .
+  .
+  .
+  .
   .
   .
 layer 2:
@@ -237,8 +322,13 @@ layer 2:
   .
   .
   .
-  ..........A
+  ..........F
   ..........G
+  .
+  .
+  .
+  .
+  .
   .
 layer 3:
   .
@@ -253,8 +343,13 @@ layer 3:
   .
   .
   .
-  .........GA
+  .........GF
   .........GG
+  .
+  .
+  .
+  .
+  .
 layer 4:
   .
   .
@@ -268,8 +363,13 @@ layer 4:
   .
   .
   .
-  .........J
-  ........GBH
+  .........M
+  ........GHL
+  .
+  .
+  .
+  .
+  .
 layer 5:
   .
   .
@@ -284,7 +384,12 @@ layer 5:
   .
   .
   .
-  .......GB
+  .......GH
+  .
+  ......a
+  ......G
+  ....GGG
+  ....GGG
 layer 6:
   .
   .
@@ -299,7 +404,12 @@ layer 6:
   .
   .
   .
-  ......GR
+  ......GD
+  .....aBE
+  ......c
+  ......V
+  ....SXQ
+  ....TYA
 layer 7:
   .
   .
@@ -315,6 +425,11 @@ layer 7:
   .
   .
   .....GR
+  .....W
+  .
+  .
+  .
+  .
 layer 8:
   .
   .
@@ -330,6 +445,11 @@ layer 8:
   .
   .
   ....GR
+  .
+  .
+  .
+  .
+  .
 layer 9:
   .
   .
@@ -345,6 +465,11 @@ layer 9:
   .
   .
   ...GR
+  .
+  .
+  .
+  .
+  .
 layer 10:
   .
   .
@@ -360,6 +485,11 @@ layer 10:
   .
   .
   ..GR
+  .
+  .
+  .
+  .
+  .
 layer 11:
   .
   .
@@ -375,6 +505,11 @@ layer 11:
   .
   .
   .GR
+  .
+  .
+  .
+  .
+  .
 layer 12:
   .
   .
@@ -390,6 +525,11 @@ layer 12:
   .
   .
   GR
+  .
+  .
+  .
+  .
+  .
 layer 13:
   .
   .
@@ -405,7 +545,17 @@ layer 13:
   .
   .
   r
+  .
+  .
+  .
+  .
+  .
 layer 14:
+  .
+  .
+  .
+  .
+  .
   .
   .
   .
@@ -435,15 +585,25 @@ layer 15:
   .
   .
   .
+  .
+  .
+  .
+  .
+  .
 layer 16:
   .
   .
   .
   .
-  ..L...L...L
-  ..S...S...S
+  ..V...V...V
+  ..s...s...s
   .GIG.GIG.GIG
   ..GG..GG..GG
+  .
+  .
+  .
+  .
+  .
   .
   .
   .
@@ -456,10 +616,15 @@ layer 17:
   .
   .
   .
-  ..s...s...s
+  ..Z...Z...Z
   .
-  ..PK..PK..PK
+  ..PU..PU..PU
   ..G...G...G
+  .
+  .
+  .
+  .
+  .
   .
   .
   .
@@ -473,7 +638,12 @@ layer 18:
   .
   .
   .
-  GQtUGQtUGQtUG
+  GebfGebfGebfG
+  .
+  .
+  .
+  .
+  .
   .
   .
   .

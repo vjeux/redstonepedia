@@ -92,7 +92,10 @@ lanes' feed are emulated until the circuit is laid).
   three or more potential connections; whose power reach (its neighbours, and its support's if that
   conducts) holds a redstone component or rail besides its input; or that can't survive where it
   stands or is written.
-- Pocket strings (x,1,0), hooks (x+-1,1,0), glass (x+-2,1,0).
+- Pocket strings: STRIPPED in F′ (ironspec 11:53a (3): the string-AND they fed, row 37's bounce
+  guard, answers no normal-operation case; no gate of day-1's netlist reads them): the string
+  (x,1,0), its hooks (x+-1,1,0) and their glass (x+-2,1,0), 13 cells; the unattached string
+  (x,1,-1) on the slime back stays.
 - Departure: plain (x,0,1), the exit detector (x,0,2) (a plain rail north; south a plain rail in
   lane x -1, an always-on powered rail in lanes x 3 (its booster) and x 7 (its ramp's foot), never
   switched (G1: harmless); air east, west and above, glass below: no gate or junction on a face;
@@ -177,6 +180,117 @@ lanes' feed are emulated until the circuit is laid).
   T+70, none at rest off its rails; ridden carts planted in all three holds at T+55, so the R line
   launches each slot-1 cart north into a full hold: each rests on its R_1 at z 1.28, on the rail,
   none off its rails (the refill rows fail by design: the holds were full).
+- THE STATION'S CASE (commit F; ironspec 01:41 / 01:45 / 02:18 / 04:08 / 05:18, G1 01:36 / 02:17b /
+  04:05): a pocket still occupied when its hold opens takes the ~16-block drop onto a ridden cart
+  (tick-exact's car 4, the HP reference: 11 damage, 9 of 20 left; onto an empty cart or the rail,
+  none). The holds open on EVIDENCE: 4 gt after the exit detector D_k (x,0,2) rises after REL +
+  offset k (the departing cart has left the pocket; the cold start: the pocket empty at its
+  release). In normal running no departed cart returns to its pocket (the original station's normal
+  battery, below "THE A-SERIES DROPPED"). F's string-AND, its stuck-pocket rows, the bounce sweep's
+  planted jams and the departure-gating forms priced beside them are fault studies, OUT under the
+  normal-operation rule (ironspec 11:20a / 11:53a (3)); the string-AND's pocket strings are
+  stripped. The designed drops (G1 03:24 (5)): each hold -> pocket drop, landing (x,0,0)
+  from y 16.19 to 0.06 (16.12 blocks), the horizontal speed at the open 0.000 (a trapdoor drop of a
+  cart at rest: the all-phase band 0.27 / 0.25 is a rail end's), the rider at 20 of 20 in normal
+  running.
+- F′ (G1's review of F, ironspec 07:30 (1) adopting it): THE POCKET BARS see ANY minecart but the
+  arriving one overlapping the pocket's cell BY BOX, at the open's own tick ("a hold opened onto an
+  occupied pocket") and at EVERY tick of the fall window (open, fall's end] ("a cart in the pocket
+  inside its hold's fall window"): a cart that returned before the open, left and came back: all
+  count (`drop::fall_window_hit`, its unit test with returns at op - 3 and op + 5). THE STRING-AND is
+  SUPERSEDED (ironspec 11:53a (3): 0 bounces in the normal battery without it) and its pocket strings
+  are stripped; D′'s slot-1 strings (x,18,1) are RIDER-KEYED in the game (tick-exact 05:23); until
+  tick-exact reads SEATED + NoAI back each tick, "a seated rider presses" rests on cc767b78's code
+  path (ironspec 07:03 (3)): D′'s slot-1 string reads carry that label. (The fault-study tooling F
+  and F′ carried, the bounce sweep's planted jams, the no-return candidates, the R_1 guard, the
+  repair rows, is OUT under the normal-operation rule, ironspec 11:20a: none of it is laid or cited.)
+  The modules of record are IN-TREE (ironspec 06:43 (8): a run reading a file outside the worktree is
+  not evidence): `modules/record7f12.txt` (onechunk's composition, md5
+  ffde25c37ef1166543fd2d9bae901055, byte-identical to the artifact 29025202973803935) and
+  `modules/record7f13b-rev2.txt` (the record of record, ironspec 08:49a (2): ironfarm's composition
+  with LIFT's join holders, md5 92997bc6a8849c9a0a30b17402e6e2d0, byte-identical to b8949c96's
+  explore/b8949c96-noreturn copy, blob 4c394d32d517). The station
+  row's travel times (day-1 07:05) and the lift mouth's entries / exits in order (G1 07:22 (3): A's slower
+  departures can bunch carts) print on every module run, not judged here: the lift's spacing bars
+  and the J / K windows are its owners'.
+- THE UPDATE CONSUMERS (F′, 9fc3155f 08:08 / 08:21, G1 07:59, ironspec 08:12a: part 56's default-deny
+  update reach): the station header declares, in part 60's syntax (`# update-consumers: CLASS
+  S=C ID+... (reason)`, CLASS `intended` or `by-code`, one source per line, no inert cell), the sources
+  part 56's bare run flagged (a/2288462815263228): the three hold drives (`intended`: the hold's
+  trapdoor; the slime between is inert, not declared); the three slot-1 strings (`intended`: their own
+  hooks; `by-code`: R_1 under and R_2 beside, each re-checks, unchanged) and their hooks (`by-code`:
+  the R repeater under each east hook, which reads only its back, and the NEIGHBOURING lane's hook
+  reached through the SHARED support glass at x 1 and 5: a neighbour update only, a NO-OP by 26.3's
+  code (TripWireHookBlock has no neighborChanged; its state recomputes only from its own string line,
+  and updateShape breaks it only if its own support loses its full face: redsim's react.rs `hook`
+  mirrors it), a by-product of the shared supports, not a consumer); and ARM3 (`intended`: DROPPER A
+  (4,6,8), the release; `by-code`: (5,5,7) and (3,7,7), reached only by the sloped detector's updates
+  of the cells below and above it, neither a face neighbour, so no power: each re-checks, unchanged).
+  Each D and the limiter's diodes were not flagged and are not declared (a declaration nothing
+  needs fails as stale).
+- THE STAND-INS (ownership only, ironspec 10:37a / 11:40a; vcompose 11:38): the crest support
+  (-3,12,7), glass (owner LIFT: lane 7's crest and last climb slope stand on it, so this file loads
+  standalone), and R_1's three drivers (0|4|8,17,1), `repeater[delay=1,facing=east]` (owner LINES:
+  they move to loaderlay's drive-lines file), each laid here too, identical, with its guard; the
+  composer checks each equal to its owner's block.
+- THE A-SERIES DROPPED (ironspec 11:20a / 11:24a / 11:36a, vjeux's normal-operation rule of Nov 12
+  04:07Z): candidate A and its successors A4, A6, A6b (a no-return step on lanes -1 / 3) answered a
+  FAULT, a jam pushing a departure back; the original departure, run through the normal battery
+  (F′ build #10, the M line on record7f13b-rev2's original station, md5 92997bc6a8849c9a0a30b17402e6e2d0,
+  offsets 0 / 17 / 27: ×300 at REL 3, 4, 5, 6, 7 and a 3-gt world open at every phase 0..99 at REL 3,
+  5, 7), shows no departure back in its pocket and no hold opening onto an occupied pocket in any row:
+  the station keeps its original departure (D (x,0,2), boosters (x,0,3..6)), the offsets stay
+  0 / 17 / 27, and A6's timing re-derivation is cancelled. (A as recorded was also not buildable: its
+  landing (x,-1,3) under (x,0,2)'s south end reshapes ASCENDING_NORTH in every placement order, 26.3
+  RailState: build-order; tick-exact's game row.)
+- THE STATION'S RELEASE GATES (G1 07:39, ironspec 07:38r): (1) THE HOLD'S OPEN, per lane: keys on
+  D_k's RISING EDGE after REL + offset k, evidence that the pocket's departing cart LEFT; the hold
+  cart's own fall is the only cart in transit toward the pocket after the open, and the pocket bars
+  judge every tick of it. (2) THE POCKET'S RELEASE (its drive at REL + offset k): keys on REL (day-1's
+  G8: the slot-1 strings pressed and re-armed). (3) THE R LINE (R_1 into the hold): keys on the
+  controller's R pulse after the drops. (4) THE NAPPER'S RELEASE (ARM3 -> the latch -> the limiter ->
+  day-1's line): the latch FIRES on ARM3's press (lane 7's cart past the detector) and is SET by REL.
+  (Their failure directions under faults are OUT under the normal-operation rule, ironspec 11:20a.)
+- THE ARM3 INTERLOCK (commit F, ironspec 04:23 (4), ironfarm's 04:59 list, redsim-verified by its
+  `designs/gadgets/ironfarm-arm3-interlock.drive`, 31 checks): a once-per-batch release latch on
+  lane 7's climb so a rolled-back cart's second press can't release a second napper: ARM3 the
+  detector (4,6,7) (the plain climb rail it replaces) fires dropper A (4,6,8), built holding one
+  stone (ARMED); the stone moves into dropper B (3,6,8): the release; the REL SET (day-1's line end
+  (1,7,8)) reaches B only through the repeater (2,7,8) facing west on stone (2,6,8) powering the
+  air (3,7,8) (quasi-connectivity: (3,7,8) stays air; B is never powered, or A beside it fires
+  too); the comparator (3,6,9) on stone (3,5,9) reads B: strength 1, a level from the release to the
+  next REL, into the release limiter (`designs/gadgets/arm3-release-limiter.drive`, 13 checks since
+  F′, the real droppers and comparator, Q on stone as here: q strength 1 at its input, ONE 12-gt
+  pulse per rise (F′, ironfarm 07:25 / ironspec 07:31r: an 8-gt pulse re-opened the joint point; the
+  width an interface value, day-1's "release pulse = 12 gt"), a rolled-back re-press fires A empty,
+  nothing on the REL fall, and a SECOND rise after the SET pulses again on the output dust o; its L2
+  a stand-in for the SET's quasi-connectivity path, which ironfarm's drive proves): the repeater
+  (3,6,10), the dust (3,6,11), the delay-2 repeater (2,6,11) facing east (its input D (3,6,11) on its
+  facing side, its output into the dust F; its UPDATE SET under part 52's rule, the front F and F's
+  other neighbours: (1,6,11) F, redstone_wire, the intended consumer; (0,6,11) air; (1,5,11) glass,
+  F's support; (1,7,11) air; (1,6,10) air; (1,6,12) G, redstone_wire, the branch: no observer, rail,
+  piston, dropper / dispenser, hopper or trapdoor), the dust (1,6,11) / (1,6,12), the delay-4
+  repeater (2,6,12) facing west into the side of the subtract comparator (3,6,12): the side 12 gt
+  behind the back, the pulse's width; its output (3,6,13) is day-1's release line end (to the
+  napper's hold, left out; its only consumer: nothing else in the station reads (3,6,13) or the
+  pulse). Must stay unpowered or air: (4,7,8), (4,5,8), (3,5,8), (5,6,8), (4,6,9),
+  (2,6,9), (2,7,9). The bench emulates the napper's release (its lever stand-in) as before; the
+  interlock's cells are laid and inert there but for ARM3's first press: the station run doesn't
+  read the limiter (its output (3,6,13) unlaid), so ARM3 cites from its gadget drive (in-tree) and
+  an integration row once day-1 lays the release line; until then every napper-release figure here
+  carries "stand-in release" (ironspec 07:30 (1)(b)). ARM3 FIRES DROPPER A ON EVERY PRESS, BY DESIGN
+  (ironspec 08:09a (4): a pressed detector rail gives 15 to every face neighbour, so dropper A (4,6,8)
+  sees a rising edge per press and fires once each time): the press after a SET finds the one stone
+  in A and moves it into B, the release (the gadget drive's rows: `expect b 1` after L1's first press,
+  ONE press, ONE item; ironfarm's drive, 31 checks; tick-exact's game rows of the gadget, 34 / 34,
+  PROVISIONAL: ironspec 08:20a holds game runs made with car 12's or a later game drive provisional,
+  since it drops a drive's `nbt:` lines, here dropper A's stone). No other block faces the detector:
+  (4,6,8) is the only dropper beside it. (Extra and missing presses are faults, OUT under the
+  normal-operation rule, ironspec 11:20a.)
+- The station benches are PUSH-FREE (ironspec 04:41: the riders' seated travel push is not
+  emulated): the slot-1 rests, R_1, the refill and hold timings are a lower bound on the spread,
+  and settled-queue figures are judged at both push phases (PUSH-PHASE DEPENDENT): the slot-1
+  string's least band overlap prints at redsim's rest and pushed 0.108 b up the slope.
 - The station's string classes (9fc3155f's string-audit, tools10 part 20; ironspec 01:11 / 02:22
   (2), G1 01:32): the slot-1 strings (-1|3|7,18,1) are CART-KEYED (a cart on R_1 presses it, ridden
   or empty: ironspec 14:26; tick-exact AI / AH), declared in the station file's header, part 35's
@@ -250,8 +364,8 @@ lanes' feed are emulated until the circuit is laid).
 
 1. Pocket k's support powered at REL + offset k (x -1: 0, x 3: 12, x 7: 24: the reverse merge
    order), unpowered (the re-brake) 16 gt later.
-2. Pocket k's gate: its exit detector rises after REL + offset k, or its string is off at REL +
-   offset k (an empty pocket: the cold start). Its trapdoor opens 4 gt later, not before T+3.
+2. Pocket k's gate: its exit detector rises after REL + offset k, or its pocket is empty at REL +
+   offset k (the cold start). Its trapdoor opens 4 gt later, not before T+3.
 3. Each trapdoor shuts 12 gt after it opens.
 4. All three shut: +2 gt, every R_1 repeater's input powered for 10 gt (the rail powered 1 gt later
    for 10 gt): the next batch rolls into the holds.
