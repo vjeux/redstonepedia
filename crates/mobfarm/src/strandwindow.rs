@@ -98,6 +98,7 @@ pub fn report(files: &[std::path::PathBuf], spacing: &[i64], lag: i64, lie_after
         all.extend(vs.into_iter().map(|v| (f.display().to_string(), v)));
     }
     let (mut armed, mut dur_in, mut dur_lo, mut dur_hi, mut no_entry) = (0usize, 0usize, 0usize, 0usize, 0usize);
+    let mut no_complete = 0usize;
     let mut windows: Vec<i64> = Vec::new();
     let mut ends: BTreeMap<&'static str, usize> = BTreeMap::new();
     let mut partials: BTreeMap<i64, usize> = BTreeMap::new();
@@ -111,6 +112,10 @@ pub fn report(files: &[std::path::PathBuf], spacing: &[i64], lag: i64, lie_after
             *ends.entry(why).or_default() += 1;
         }
         let fc = v.paths.iter().find(|p| p.1).map(|p| p.0);
+        // (G1's N10: an armed row with no complete compute can't validate its sink duration)
+        if v.armed.is_some() && fc.is_none() {
+            no_complete += 1;
+        }
         if let (Some(a), Some(c)) = (v.armed, fc) {
             *first_complete.entry(c).or_default() += 1;
             match a + c {
@@ -172,6 +177,9 @@ pub fn report(files: &[std::path::PathBuf], spacing: &[i64], lag: i64, lie_after
     }
     if lie_after_entry.is_some() && no_entry > 0 {
         out.push(format!("FAILED: {no_entry} rows with no entry recorded under --lie-after-entry"));
+    }
+    if no_complete > 0 {
+        out.push(format!("FAILED: {no_complete} armed rows with no complete path compute after the release: their implied sink duration is never validated (G1's N10)"));
     }
     Ok(out)
 }
