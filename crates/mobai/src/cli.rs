@@ -926,6 +926,11 @@ pub enum MobaiCmd {
         #[arg(long)]
         both_branches: bool,
     },
+    /// (tickexact 2026-11-13, ironspec 21:42 / 22:07 / 22:58) (g)'s latch alone from 58f770cc's block list (the control)
+    LatchRig {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+    },
     /// (tickexact 2026-11-13, ironspec 22:12 / G1 22:15) A villager seated in a minecart dropped onto rails, slime, stone, water
     CartFall {
         #[arg(long, default_value = "26.3")]
@@ -2281,6 +2286,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
                 crate::waterrails::water_restarts(&version, slopes, flat, measure, &restarts, ticks, every_tick, both_branches)
             }
         }
+        MobaiCmd::LatchRig { version } => crate::latchrig::latch_rig(&version),
         MobaiCmd::CartFall { version } => crate::cartfall::cart_fall(&version),
         MobaiCmd::StringRelease { version } => crate::stringrelease::string_release(&version),
         MobaiCmd::AbutLatch { version } => crate::abutlatch::abut_latch(&version),
