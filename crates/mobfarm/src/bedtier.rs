@@ -164,7 +164,9 @@ pub const RS_BACK_N: [i32; 3] = [4, 0, 3];
 pub const RS_BACK_S: [i32; 3] = [4, 0, 7];
 /// (G1's Q3 / Q15) The budget's term for the slope's departure -> R (ironspec's provisional
 /// budget 73 + 170 + 15 + d_RS 10 + 7 + 10 = 285 <= 300; still PROVISIONAL: the 408-visit band on
-/// bfa0c8098's fold measures 13..15 against it, on the bar; ironspec's budget item).
+/// bfa0c8098's fold measures 13..15 against it, on the bar; ironspec's budget item). The budget's
+/// "d_RS 10" is that provisional sum's term, not day-1's controller value: the bench's RS_ready
+/// figures use `--d-rs` (day-1's knob, 0 unless set; day-1 04:40).
 pub const HOLD_TO_R_BUDGET: i64 = 15;
 /// (G1's Q2 on 94e90d6b2) The slope hold's tap on its built path: DAY-1's repeater (module
 /// (1,-29,3)) facing north, its output into the slope's slime support (1,-2,5); the bench file
@@ -1316,6 +1318,11 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
             }
             over(&mut b, [2, -2, -2], "stone");
             over(&mut b, [5, -2, -2], "stone");
+            // (9fc3155f 05:00: the two stones' tops were golem floors off the pad and unreachable
+            // stroll targets: glass over each (glass is no golem floor, and the stone's top keeps no
+            // standing room); the stones stay solid conductors for their torches)
+            over(&mut b, [2, -1, -2], "glass");
+            over(&mut b, [5, -1, -2], "glass");
             over(&mut b, [3, -2, -2], "redstone_wall_torch[facing=east,lit=true]");
             over(&mut b, [6, -2, -2], "redstone_wall_torch[facing=east,lit=true]");
             if bench {
@@ -1347,11 +1354,12 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
         over(&mut b, [px, 0, 3], "powered_rail[powered=false,shape=ascending_east,waterlogged=false]");
         over(&mut b, [px, -1, 3], "glass");
         over(&mut b, [px + 1, 0, 3], "slime_block");
-        // (9fc3155f 03:34: the slime's top (px + 1, 1, 3) was a golem floor off the pad: glass over
-        // it at (px + 1, 2, 3) leaves one block of room (a golem needs 2.7) and glass is no golem
-        // floor itself; the build's temporary rail at (px + 1, 1, 3) and the park rail's ascent are
-        // unchanged under it)
-        over(&mut b, [px + 1, 2, 3], "glass");
+        // (9fc3155f 03:34: the slime's top (px + 1, 1, 3) was a golem floor off the pad; 9fc3155f 05:07:
+        // glass straight over it also cut the night path of (7,0,3), which walks through that cell:
+        // the glass two above, at (px + 1, 3, 3), leaves the top 2 blocks of room: a villager (1.95)
+        // still walks it, a golem (2.7) can't spawn there; glass is no golem floor itself; the build's
+        // temporary rail at (px + 1, 1, 3) and the park rail's ascent unchanged under it)
+        over(&mut b, [px + 1, 3, 3], "glass");
         over(&mut b, [px + 1, 0, 2], "repeater[delay=1,facing=north,locked=false,powered=false]");
         over(&mut b, [px + 1, -1, 2], "glass");
         if bench && !latch_b {
@@ -1366,13 +1374,19 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
         over(&mut b, [px, 1, 1], "glass");
         over(&mut b, [px, 1, 5], "glass");
         lines.retain(|l| !(l.starts_with("integrity:") || l.starts_with("update-only: 0,0,3") || l.starts_with("switches: 1,0,3") || l.starts_with("The sensed park") || l.starts_with("contacts:") || l.starts_with("contact-speeds:")));
+        // (G1 04:08a "also": the re-laid variant's own prose, not the fold's (its park (1,0,4), the
+        // run-up along z 4, the P_HOLD torch (2,-1,4)))
+        lines.retain(|l| !(l.starts_with("The bed stop (A) with the run-up") || l.starts_with("E sets the rider down on the bed foot's top") || l.starts_with("The drives, no lever and no stand-in in this file")));
+        lines.insert(0, format!("The bed stop (A), re-laid (ironspec 21:42 -> 00:08; local frame; loop = local + (0,-27,-1); the bed's head at (-3,0,4)): A6's arrival (the entry booster, the slope down, the capped flat, the curve south, the flats), the arming detector ARM (-2,0,1), the activator E (-2,0,2) (always on: its torch (-3,0,2) on glass), K (-2,0,3) the driven T (north_east for the arrival onto the siding, south_east for the return to P), the siding (-1,0,3) / (0,0,3) out and back, the park ({px},0,3) a braked powered rail ascending east on its slime ({},0,3) under glass ({},2,3), its drive a plain repeater ({},0,2) facing north, the pickup cell P (-2,0,4) straight north_south, A6's exit (the cap (-2,1,5), the curve, the capped booster, the slope hold (1,-1,5), R (4,-1,5)).", px + 1, px + 1, px + 1));
+        lines.insert(1, "E sets the rider down on the bed head's top (the landing in `stand-up:`): SleepInBed fires at once. The empty cart runs E -> K -> the siding and brakes on the park; DAY-1's controller (rev 20:00) opens the window once the napper sleeps; the zombie wakes it; it stands up on P (its only stand-up cell) and presses P_STRING; RLS releases the park (PARK [RLS + 2, RLS + 26) by day-1's form-(b) latch in the -latch file, the bench's named stand-in in the plain file); the cart runs back through K (south_east) into P, seats the napper and runs on to R (the rider-keyed RS_ready string over it). One cart per visit, the park released once per visit.".to_string());
+        lines.insert(2, "The drives: K's (its slime (-2,-1,3)), the park's (the repeater (2,0,2)'s input (2,0,1)) and the window's (-5,1,8) are DAY-1's cells, empty in the plain file; the -latch file lays day-1's form-(b) P_HOLD latch one level down (rig (x,0,z) -> stop (x+2,-2,z-2)), its inputs RLS_IN (-1,-2,-2) and ARM_IN (6,-2,-5) empty; a bench lays its stand-in levers there as declared overrides.".to_string());
         // (the re-laid stop's cart contacts, re-declared from its reference run (the 408 band on the
         // re-laid bench, 58f770cc Nov 14 02:05): the siding's flush run along the sealed glass
         // (-1,0,4), and the cart in P flush with the bed's east faces (foot and head, one clip on both
         // cells))
         let refcmd = "`mctas mobfarm bedtier-bench designs/farms/iron/parts/bed-tier-min/relaid/bed-tier-relaid-bench.txt --speeds 0.05..0.55/0.01 --from 1 --to 8 --tap 265,10 --adopted-terms 52,0,12,54,6,6,2,6,2,10,1 --park-width 24 --reference-check`";
-        let bed_face = |cell: &str, part: &str| format!("{cell}=the bed {part}'s east face (its 0.5625-high box), met flush by the cart's west face in P (-2,0,4) as it turns out of K, the bed unchanged across it | class=design | face=east | ticks<=1 why=a second tick is the cart stopped against the bed, a stall | events<=1 why=one pass into P per visit | depth<=0.0850+eps=0.0001 why=main's depth is the clipped amount of the cart's westward request out of K's curve that the face stops, the deepest 0.0850 over the 408 visits (one unit of the fourth decimal as eps) | speed_out>=0.0746+eps=0.0001 why=the least 0.0746 over the 408 visits, the carry itself judged directly (NO STALL after every event, the pickup seating every visit) | ref=58f770cc Nov 14 {refcmd}: 336 events over 336 of 408 visits (42 of 51 entry speeds, every seed of each), 1 tick, at most 1 per cart, speed_in 0.0912..0.1444, speed_out 0.0746..0.1346");
-        lines.push(format!("contacts: -1,0,4=the sealed glass's north face, met flush by the cart's south face on the siding (-1,0,3) as it leaves K's curve east and returns west into it | class=design | face=north | ticks<=1 why=a second tick is the cart stopped against the glass | events<=2 why=the out-and-back siding: the arriving empty cart once, the released one once | depth<=0.3795+eps=0.0001 why=main's depth is the clipped amount of the cart's southward request at K's turn that the face stops, the deepest 0.3795 over the 408 visits | speed_out>=0.1440+eps=0.0001 why=the least 0.1440 over the 408 visits (never a stall) | ref=58f770cc Nov 14 {refcmd}: 416 events over 400 of 408 visits (50 of 51 entry speeds), 1 tick, at most 2 per cart, speed_in 0.2033..0.5657, speed_out 0.1440..0.5611; {}; {}", bed_face("-3,0,3", "foot"), bed_face("-3,0,4", "head")));
+        let bed_face = |cell: &str, part: &str| format!("{cell}=the bed {part}'s east face (its 0.5625-high box), met flush by the cart's west face in P (-2,0,4) as it turns out of K, the bed unchanged across it | class=design | face=east | ticks<=1 why=a second tick is the cart stopped against the bed, a stall | events<=1 why=one pass into P per visit | depth<=0.0850+eps=0.0001 why=main's depth is the clipped amount of the cart's westward request out of K's curve that the face stops, the deepest 0.0850 over the 408 visits (one unit of the fourth decimal as eps) | speed_out>=0.0746+eps=0.0001 why=the least 0.0746 over the 408 visits, the carry itself judged directly (NO STALL after every event, the pickup seating every visit) | ref=tree 79ca6b667dd6 (car 1) {refcmd}: 336 events over 336 of 408 visits (42 of 51 entry speeds, every seed of each), 1 tick, at most 1 per cart, speed_in 0.0912..0.1444, speed_out 0.0746..0.1346");
+        lines.push(format!("contacts: -1,0,4=the sealed glass's north face, met flush by the cart's south face on the siding (-1,0,3) as it leaves K's curve east and returns west into it | class=design | face=north | ticks<=1 why=a second tick is the cart stopped against the glass | events<=2 why=the out-and-back siding: the arriving empty cart once, the released one once | depth<=0.3795+eps=0.0001 why=main's depth is the clipped amount of the cart's southward request at K's turn that the face stops, the deepest 0.3795 over the 408 visits | speed_out>=0.1440+eps=0.0001 why=the least 0.1440 over the 408 visits (never a stall) | ref=tree 79ca6b667dd6 (car 1) {refcmd}: 416 events over 400 of 408 visits (50 of 51 entry speeds), 1 tick, at most 2 per cart, speed_in 0.2033..0.5657, speed_out 0.1440..0.5611; {}; {}", bed_face("-3,0,3", "foot"), bed_face("-3,0,4", "head")));
         let bed_speeds = "meets 0.05,0.06,0.07,0.08,0.09,0.10,0.11,0.12,0.13,0.14,0.15,0.16,0.17,0.18,0.19,0.20,0.21,0.22,0.23,0.24,0.25,0.26,0.27,0.28,0.29,0.31,0.32,0.33,0.34,0.35,0.36,0.38,0.39,0.40,0.41,0.42,0.44,0.45,0.47,0.48,0.49,0.50";
         // (G1's B3 format: one `contact-speeds:` line per declaration)
         lines.push("contact-speeds: -1,0,4=meets 0.05,0.06,0.07,0.08,0.09,0.10,0.11,0.12,0.13,0.14,0.15,0.16,0.17,0.18,0.20,0.21,0.22,0.23,0.24,0.25,0.26,0.27,0.28,0.29,0.30,0.31,0.32,0.33,0.34,0.35,0.36,0.37,0.38,0.39,0.40,0.41,0.42,0.43,0.44,0.45,0.46,0.47,0.48,0.49,0.50,0.51,0.52,0.53,0.54,0.55; of 0.05..0.55/0.01".to_string());
@@ -1397,7 +1411,13 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
         // (9fc3155f 01:01 / 58f770cc 01:02: the guard cells reworded for the re-laid stop: no walker
         // reaches them from P or the bed; (-1,1,2) is a node of the riders' HOME route from K's
         // siding (a rider-only start), its lone string read by nothing)
-        b.d.meta.insert("unreachable".into(), "-1,1,2=E's east trapdoor top under its lone guard string (no hooks: nothing reads a press): no walker reaches it from P or the bed (K's head (-2,1,3) glass, (-1,0,4) glass, seal-P's (-2,1,5) glass); it is a node of the riders' HOME route from K's siding, a rider-only start (the riders stay seated); -1,1,5=the hand-off's east trapdoor top under its lone guard string: diagonal to P, (-1,0,4) glass, (-2,0,5) under seal-P's glass cap, (0,1,5) the curve's cap".into());
+        // (G1 04:08a "also": the text names the exit's first cap as laid: seal-P's glass, or the iron
+        // trapdoor without --seal-p)
+        let cap = if seal_p { "seal-P's (-2,1,5) glass" } else { "the iron trapdoor cap (-2,1,5) (no seal-P: the pathfinder routes through it, so this file's closure from P is NOT {P})" };
+        b.d.meta.insert("unreachable".into(), format!("-1,1,2=E's east trapdoor top under its lone guard string (no hooks: nothing reads a press): no walker reaches it from P or the bed (K's head (-2,1,3) glass, (-1,0,4) glass, {cap}); it is a node of the riders' HOME route from K's siding, a rider-only start (the riders stay seated); -1,1,5=the hand-off's east trapdoor top under its lone guard string: diagonal to P, (-1,0,4) glass, (-2,0,5) under {cap}, (0,1,5) the curve's cap"));
+        // (G1 04:08a "also": the re-laid stop's own riderless cells, every one a rail: E, K, the
+        // siding, the park, back through K to P)
+        b.d.meta.insert("riderless".into(), "-2,0,2+-2,0,3+-1,0,3+0,0,3+1,0,3+-2,0,4=the stop's empty cart from E (the napper set down on the bed head's top) through K onto the siding to the park, then back through K to P (the napper seated again at P)".into());
         let mut integ = vec!["-2,0,4=connections -2,0,3+-2,0,5".to_string()];
         for x in -1..px {
             integ.push(format!("{x},0,3=connections {},0,3+{},0,3", x - 1, x + 1));
@@ -1703,6 +1723,10 @@ pub struct Row {
     pub k_offs: usize,
     /// (G1 02:27 (3), `--latch-b`) the park rail's lit edges after RLS (bar: one, no double release)
     pub park_rises: usize,
+    /// (G1 03:46 B1) the visit ran the laid latch (its park lightings judged), else the stand-in
+    pub latch_mode: bool,
+    /// (G1 04:08a item 4) the laid latch's park lightings before RLS (bar 0)
+    pub park_rises_before_rls: usize,
     /// (G1 02:47) the empty cart's speed crossing the siding's centre x -0.5 eastward, toward the park
     pub siding_speed: Option<f64>,
     /// (vcompose 03:19) the exact feet where the eject leaves the napper on the ground, and where
@@ -1926,6 +1950,8 @@ pub struct Row {
     /// (y 0.0625..0.15625 over (4,0,5)) and the cart's least gap under it while the cart was in R's
     /// column; the string's state last tick.
     pub rs_press: Vec<(i64, bool)>,
+    /// (G1 04:31 (1)(b)) the rider's distance to the bed head's centre when RS_ready sets
+    pub ride_dist_at_rs_set: Option<f64>,
     pub rs_present: bool,
     pub rs_on_prev: bool,
     pub rs_rider_overlap_min: Option<f64>,
@@ -2139,6 +2165,9 @@ pub struct Faults {
     /// (ironspec 01:50b / 02:33 (2)) the timing row's phases: one row per K with the world open at
     /// RLS + K (`--restart-at-rls A..B,HOW`)
     pub restart_at_rls_phases: Vec<i64>,
+    /// (G1 03:46 B1) the flicker test's single-change twin: K's drive and PARKED read the park
+    /// string's RAW state instead of SENSED's latch (it must fail by name in the flickering visits)
+    pub consumers_raw: bool,
     /// (G1 21:20 (1)) the napper moved off P onto the bed foot's top K gt after RLS (an empty
     /// departure at RLS + 0 / + 1 / + 2: PARK's firing printed)
     pub step_off_at_rls: Option<i64>,
@@ -2181,6 +2210,13 @@ pub struct Faults {
     pub erase_home_day_time: Option<i64>,
     /// (`--latch-b`) RLS_IN's width in gt (the AND's output, held from the release)
     pub latch_rls_width: i64,
+    /// (G1 04:08a item 5) on the laid latch, the next visit's RLS at this tick (its ARM before it by
+    /// this visit's RLS - ARM gap), so Q's own tap line launches the held cart; `--tap` is refused there
+    pub latch_next_rls: Option<i64>,
+    /// (day-1 04:40 / G1 04:42 (1)) RS_ready's d_RS, read from the design file: the delay the file
+    /// builds between the RS string's hooks and their output cells (the bench refuses a file that lays
+    /// a delay element there until it models it); 0 on every file laid today
+    pub d_rs: i64,
     /// (ironspec 16:35: the self-heal) the napper's HOME released at this tick of each visit (the
     /// stamp release: the memory erased, a fresh stamp, the bed's ticket free).
     pub release_home_at: Option<i64>,
@@ -2514,6 +2550,18 @@ pub fn parse_stranded_bound(text: &str) -> Result<Option<i64>, String> {
         };
     }
     Ok(None)
+}
+
+/// (G1 03:46 B2) The role of a `--plant-empty` cell on the re-laid stop: the siding's two plain rails
+/// (-1,0,3) / (0,0,3) or the park (`park`); any other cell is refused by name.
+pub fn plant_empty_role(cell: [i32; 3], park: [i32; 3]) -> Result<&'static str, String> {
+    if cell == [-1, 0, 3] || cell == [0, 0, 3] {
+        Ok("the siding")
+    } else if cell == park {
+        Ok("the park")
+    } else {
+        Err(format!("--plant-empty {cell:?}: not a siding or park rail (the siding (-1,0,3) / (0,0,3), the park {park:?}; G1 03:46 B2)"))
+    }
 }
 
 /// (vcompose 03:19) The header's `# stand-up: x,y,z=WHY[; x,y,z=WHY]` feet positions (decimals, the
@@ -2973,12 +3021,20 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
     }
     run.own.push(cart_id);
     run.own.extend(vill);
-    // (ironspec 02:16, row 39's fault record: an empty cart left on the siding before the visit)
+    // (ironspec 02:16, row 39's fault record: an empty cart left on the siding before the visit;
+    // G1 03:46 B2: planted only on a siding or park rail, its role printed and asserted)
     let planted = match f.plant_empty {
         Some(p) => {
+            let cell = [p[0].floor() as i32, (p[1] + 0.01).floor() as i32, p[2].floor() as i32];
+            let role = plant_empty_role(cell, layout_at(&run.world, off).park)?;
             let at = [p[0] + ox, p[1] + oy, p[2] + oz];
+            let blk = format!("{}", run.world.get(wc(cell)));
+            if !blk.contains("rail") {
+                return Err(format!("--plant-empty {cell:?}: {role} holds {blk}, not a rail (G1 03:46 B2)"));
+            }
             let id = redsim::entity::spawn(&mut run.world, "minecraft:minecart", at, Some("{Rotation:[0f,0f]}"))?;
             run.own.push(id);
+            row.latch_lines.push(format!("t 0: an empty cart planted at ({:.2},{:.2},{:.2}) on {role} {cell:?} ({blk})", p[0], p[1], p[2]));
             Some(id)
         }
         None => None,
@@ -3060,6 +3116,41 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
     row.park_cell = lay.park;
     row.layout_name = lay.name;
     row.ctl_cells = lay.hatch_ctrl.iter().chain(lay.park_ctrl.iter()).chain(lay.k_ctrl.iter()).copied().collect();
+    row.latch_mode = lay.latch;
+    // (G1 04:08a items 4 / 5: on the laid latch the stand-in PARK stretch and the `--tap` lever are
+    // refused: the lever's cell (1,-2,3) is the latch's own tap wire, and the latch times PARK itself;
+    // the hold launches on Q's own tap, the next visit's RLS at `--latch-next-rls`)
+    // (G1 04:42 (1): d_RS from the file: the RS string's hooks power their back blocks at the press
+    // tick, and no delay element follows them in the file: a repeater or comparator beside either
+    // back block would be one (refused until the bench models it))
+    if format!("{}", run.world.get(wc(RS_HOOK_N))).contains("tripwire_hook") {
+        for back in [RS_BACK_N, RS_BACK_S] {
+            for d in [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]] {
+                let c = [back[0] + d[0], back[1] + d[1], back[2] + d[2]];
+                let b = format!("{}", run.world.get(wc(c)));
+                if b.contains("repeater") || b.contains("comparator") {
+                    return Err(format!("the file lays a delay element {b} at {c:?} on RS_ready's output (beside {back:?}): d_RS isn't 0, and the bench doesn't model it yet (G1 04:42 (1))"));
+                }
+            }
+        }
+    }
+    if lay.latch {
+        if f.tap.is_some() {
+            return Err("--tap on the laid latch: refused (its stand-in lever's cell (1,-2,3) is the latch's own tap wire, so Q's tap would never be exercised; the hold launches on Q's tap at --latch-next-rls T; G1 04:08a item 5)".into());
+        }
+        if f.park_width.is_some() {
+            return Err("--park-width on the laid latch: refused (the stand-in PARK's stretch; the laid latch times PARK itself; G1 04:08a item 4)".into());
+        }
+    } else if f.latch_next_rls.is_some() {
+        return Err("--latch-next-rls: only on the laid latch (--latch-b's files)".into());
+    }
+    // (G1 04:08a item 13: controls that don't isolate their change are refused where they'd mislead)
+    if lay.park_string.is_some() && f.block_p_at_wake {
+        return Err("--block-p-after-lie on the re-laid stop: refused (its block over P at (-2,1,4) would replace P_STRING, not a single-change twin; --k-stuck north_east is the re-laid stop's no-pickup control; G1 04:08a item 13)".into());
+    }
+    if f.hide_after_wake && (f.adopted.is_some() || f.latch.is_some()) {
+        return Err("--hide-after-wake under the adopted controller: refused (it does nothing there; G1 04:08a item 13)".into());
+    }
     // (G1's Q2: the slope hold's tap stand-in, the input lever into DAY-1's repeater, through the
     // same guard; its reach must be the repeater alone)
     let tap_built = format!("{}", run.world.get(wc(TAP_REP))).contains("repeater");
@@ -3067,7 +3158,10 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
         return Err("--tap: no repeater at (1,-2,4) (the tap's built path is the bench file's: `bedtier --bench --hold-slope`)".into());
     }
     let tap_ctl: Vec<[i32; 3]> = if tap_built && !lay.latch { vec![TAP_CTRL] } else { Vec::new() };
-    for c in lay.hatch_ctrl.iter().copied().chain([act_ctrl]).chain(lay.park_ctrl.iter().copied()).chain(tap_ctl.iter().copied()) {
+    // (G1 04:08a item 6: the re-laid stop's stand-ins through the same guard: K's drive lever and the
+    // laid latch's two input levers, each against its built reach)
+    let new_ctl: Vec<[i32; 3]> = lay.k_ctrl.iter().copied().chain(if lay.latch { vec![LATCH_RLS_IN, LATCH_ARM_IN] } else { Vec::new() }).collect();
+    for c in lay.hatch_ctrl.iter().copied().chain([act_ctrl]).chain(lay.park_ctrl.iter().copied()).chain(tap_ctl.iter().copied()).chain(new_ctl.iter().copied()) {
         // (a built always-on source the bench never writes ((A) with the run-up's activator torch)
         // is no stand-in: nothing to check)
         if ctl_block(c, "redstone_block") == ctl_block(c, "stone") {
@@ -3081,7 +3175,15 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
         let p = wc(c);
         let on = block(&ctl_block(c, "redstone_block"))?;
         let built = if c == TAP_CTRL { vec![wc(TAP_REP)] } else { standin_reach(&run.world, p, &run.world.get(p))?.1 };
-        row.standin.push(standin_reach_check(&run.world, p, &on, &built, &declared_w, off)?);
+        // (K's drive lever: its update reaching K's T IS its job (K's shape follows its drive), so
+        // K is its declared target, not an undeclared state-stable T; any other T it reached would
+        // still refuse)
+        let mut dec_c = declared_w.clone();
+        if lay.k_ctrl == Some(c) {
+            let k = wc([-2, 0, 3]);
+            dec_c.push([k.x, k.y, k.z]);
+        }
+        row.standin.push(standin_reach_check(&run.world, p, &on, &built, &dec_c, off)?);
     }
     // (the queue's release, the conforming stand-in (ironspec 18:10): never a redstone block in the
     // release cell (a solid block there makes the cell over it an off-pad golem cell and a second
@@ -3218,6 +3320,8 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
     let mut prev_ccell = [i32::MIN; 3];
     // (`--latch-b`: RLS_IN's off tick)
     let mut latch_rls_off: Option<i64> = None;
+    // (G1 04:08a item 5: the next visit's RLS_IN off, `--latch-next-rls`)
+    let mut next_rls_off: Option<i64> = None;
     // (ironspec 23:54 (a): the napper's last on-foot box, y)
     let mut prev_foot_y: Option<(f64, f64)> = None;
     // (the laid latch's at-rest bar: the cart's 3D speed on the previous tick)
@@ -3603,10 +3707,8 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
         // (G1's B1: DAY-1's adopted stop controller, emulated on the real cells (`Adopted`'s doc;
         // P_STRING and PARKED are named stand-ins))
         // (G1 19:26's planted row: E replaced by a plain rail of its shape: it never ejects, the
-        // napper stays seated over the activator (-1,0,3))
-        if f.plant_e_off && t == 1 && !set(&mut run.world, [-2, 0, 2], "rail[shape=north_south,waterlogged=false]") {
-            row.problems.push(format!("t {t}: the planted row's E replacement wrote nothing"));
-        }
+        // napper stays seated over the activator (-1,0,3); G1 04:08a item 13: written below at the
+        // layout's own E with its role asserted)
         // (ironspec 21:10 (3), the POWER-UP row: P_HOLD's latch come up SET, the park drive ON before
         // the first arrival; DAY-1 21:10: its RESET ORs ARM's edge, emulated here as the drive off at
         // ARM's rise unless --park-initial-on keep (the control: no ARM reset, the first cart
@@ -3638,6 +3740,9 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
         if let Some(kc) = lay.k_ctrl {
             let want_on = match f.k_stuck {
                 Some(on) => on,
+                // (G1 03:46 B1's twin, `--consumers-raw`: K's drive on the RAW string, on whenever
+                // the string reads unpressed: every re-check release flips K and fails by name)
+                None if f.consumers_raw => !sense_prev,
                 None => row.park_sense_at.is_none(),
             };
             if want_on != k_on {
@@ -3677,6 +3782,31 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             if row.armed_at.is_some_and(|a| t == a + 4) {
                 set(&mut run.world, LATCH_ARM_IN, "stone");
             }
+            // (G1 04:08a item 5: the hold's launch on Q's OWN tap: the next visit's ARM and RLS on
+            // the latch's own inputs, `--latch-next-rls T` (ARM_IN at T less this visit's RLS - ARM
+            // gap, held 3 gt; RLS_IN at T for its width), so Q's tap line drives the slope as built)
+            if let (Some(nt), Some(a), Some(rl)) = (f.latch_next_rls, row.armed_at, row.rls_at) {
+                let na = nt - (rl - a);
+                if t == na + 1 {
+                    if !set(&mut run.world, LATCH_ARM_IN, "redstone_block") {
+                        row.problems.push(format!("t {t}: the next visit's ARM_IN wrote nothing"));
+                    }
+                    row.latch_lines.push(format!("t {}: the next visit's ARM_IN on (3 gt; RLS - ARM = {} as this visit's)", t - 1, rl - a));
+                }
+                if t == na + 4 {
+                    set(&mut run.world, LATCH_ARM_IN, "stone");
+                }
+                if t == nt {
+                    if !set(&mut run.world, LATCH_RLS_IN, "redstone_block") {
+                        row.problems.push(format!("t {t}: the next visit's RLS_IN wrote nothing"));
+                    }
+                    row.latch_lines.push(format!("t {}: the next visit's RLS_IN on ({} gt): Q's tap launches the held cart", t - 1, f.latch_rls_width));
+                    next_rls_off = Some(t + f.latch_rls_width);
+                }
+                if next_rls_off == Some(t) {
+                    set(&mut run.world, LATCH_RLS_IN, "stone");
+                }
+            }
         }
         if hand_q_due == Some(t) {
             for &c in &lay.park_ctrl {
@@ -3698,6 +3828,18 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             && !set(&mut run.world, [-2, 1, 4], "glass")
         {
             row.problems.push(format!("t {t}: the control twin's block over P wrote nothing"));
+        }
+        // (G1 04:08a item 13: the planted E-off row's target is the layout's own activator, its role
+        // asserted (an activator rail) before the write)
+        if f.plant_e_off && t == 1 {
+            let e_now = format!("{}", run.world.get(wc(lay.act)));
+            if !e_now.contains("activator_rail") {
+                return Err(format!("--plant-e-off: the layout's E {:?} holds {e_now}, not an activator rail (G1 04:08a item 13)", lay.act));
+            }
+            if !set(&mut run.world, lay.act, "rail[shape=north_south,waterlogged=false]") {
+                row.problems.push(format!("t {t}: the planted E-off at {:?} wrote nothing", lay.act));
+            }
+            row.latch_lines.push(format!("t 0: E {:?} ({e_now}) planted OFF (a plain rail)", lay.act));
         }
         if let Some(ad) = f.adopted {
             // (ARM's edge starts the visit: PARKED and A70 count from it (G18))
@@ -3748,7 +3890,9 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             // rest in the park cell; reset at RLS. A70: the `a70` tap AND PARKED (0: dropped)
             let parked = !ad_consumed
                 && if ad.parked > 0 {
-                    row.armed_at.is_some_and(|a| t - 1 >= a + ad.parked) && f.parked_sense.is_none_or(|(_, dl)| row.park_sense_at.is_some_and(|p| t - 1 >= p + dl))
+                    // (G1 03:46 B1's twin, `--consumers-raw`: PARKED also needs the string pressed
+                    // NOW, the raw state, instead of SENSED's latch alone)
+                    row.armed_at.is_some_and(|a| t - 1 >= a + ad.parked) && f.parked_sense.is_none_or(|(_, dl)| row.park_sense_at.is_some_and(|p| t - 1 >= p + dl)) && (!f.consumers_raw || sense_prev)
                 } else {
                     idx(&run.world, cart_id).is_some_and(|i| {
                         let c = &run.world.entities.list[i];
@@ -3951,7 +4095,9 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             // detector's edge, whatever the napper does)
             row.armed_at.is_some_and(|a| t - 1 >= a + n)
         } else if f.early_release {
-            row.slept_at.is_some_and(|s| t >= s + release_after)
+            // (G1 04:08a item 10: pinned to the lie-down edge itself, whatever --release-after says
+            // (its default moved 0 -> 20 for the stand-in's normal release))
+            row.slept_at.is_some_and(|s| t >= s)
         } else if f.no_presence_gate {
             // (G1's Q15: the no-presence-gate fault row's own bound, 300 gt: past every normal wake
             // (the arming edge at entry + 24, the wake by ARM + 90))
@@ -4465,6 +4611,13 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                 row.ride_dist_last = Some((t, dd));
                 if dd > 16.0 && row.ride_over16_at.is_none() {
                     row.ride_over16_at = Some(t);
+                }
+                // (G1 04:31 (1)(b): the rider's distance when RS_ready sets (its first press + d_RS
+                // 10), the earliest the next napper can be released toward the bed)
+                if let Some(p) = row.rs_press.iter().find(|p| p.1).map(|p| p.0)
+                    && t == p + f.d_rs
+                {
+                    row.ride_dist_at_rs_set = Some(dd);
                 }
             }
             // (G1 19:10: no villager's feet ever in a guard string's cell, any tick)
@@ -4999,8 +5152,14 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
         }
         // (ironspec 01:17 (2): the laid latch's PARK as the park rail sees it: its first lit and
         // first dark end-of-tick after RLS (the standing start-of-tick frame: `t` here)
+        if lay.latch && row.rls_at.is_none() && park_rail_on && !park_rail_prev {
+            // (G1 04:08a item 4: a park lighting before RLS is a latch fault)
+            row.park_rises_before_rls += 1;
+        }
         if lay.latch && row.rls_at.is_some() {
-            if park_rail_on && !park_rail_prev {
+            // (this visit's lightings only: `--latch-next-rls` writes the next visit's RLS, whose
+            // own lighting is the next visit's)
+            if park_rail_on && !park_rail_prev && f.latch_next_rls.is_none_or(|nt| t < nt) {
                 row.park_rises += 1;
             }
             if park_rail_on && !park_rail_prev && row.park_lit.is_none() {
@@ -5053,7 +5212,8 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
         if pressed && !sense_prev {
             row.park_sense_presses.push(t);
             row.ridden_act_lines.push(format!("t {t}: the sensed park ({},{},{}) pressed (the cart in {:?} with {} passenger(s))", sense_cell[0], sense_cell[1], sense_cell[2], [cpos.x.floor() as i32, (cpos.y + 0.01).floor() as i32, cpos.z.floor() as i32], c.passengers.len()));
-            if row.release_at.is_none() && row.park_sense_at.is_none() {
+            // (G1 04:08a item 12: SENSED's SET gated on ARMED, as the design's press-set latch is)
+            if row.release_at.is_none() && row.park_sense_at.is_none() && row.armed_at.is_some() {
                 row.park_sense_at = Some(t);
             }
         }
@@ -5298,8 +5458,13 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
         if f.erase_home_on_p.is_some() && row.no_home_from.is_none() {
             unapplied.push("--erase-home-on-p (no wake)".into());
         }
-        if f.k_stuck.is_some() && row.k_shapes.is_empty() {
-            unapplied.push("--k-stuck (no K in this layout)".into());
+        // (G1 04:08a item 13: a reachable Q8 for --k-stuck: K must still hold the stuck shape at the
+        // visit's end (no K laid, or a K that moved, is an unapplied plant))
+        if let Some(on) = f.k_stuck {
+            let want = if on { "north_east" } else { "south_east" };
+            if !row.k_shapes.last().is_some_and(|s| format!("{s:?}").contains(want)) {
+                unapplied.push(format!("--k-stuck (K not held {want} to the visit's end: {:?})", row.k_shapes.last()));
+            }
         }
         if f.release_after_arm.is_some() && row.release_at.is_none() {
             unapplied.push("--release-after-arm (no release)".into());
@@ -6388,6 +6553,32 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
                             if let (Some(p), Some(rr)) = (r.rs_press.iter().find(|p| p.1).map(|p| p.0), r.r_real_at) {
                                 sk.rs_to_r.push(p - rr);
                             }
+                            // (ironspec 01:46 (1) / G1 04:08a / day-1 04:40: d_RS judged at day-1's
+                            // controller value (`--d-rs`, 0 unless set): RS_ready sets at the
+                            // rider's first press + d_RS, after the cart left the landing (the
+                            // stop's ENTRY, where the bench summons it at t 0))
+                            if let Some(p) = r.rs_press.iter().find(|p| p.1).map(|p| p.0) {
+                                sk.rs_set_after_entry.push(p + base.d_rs);
+                                // (G1 04:31 (1)(a): the bed empties at the wake; the next napper is
+                                // released no earlier than RS_ready's set: a lower bound of the margin
+                                // to its first entry into the 16-ball (its travel adds to it))
+                                if let Some(wk) = r.woke_at {
+                                    sk.bed_empty_to_rs_set.push(p + base.d_rs - wk);
+                                }
+                                if let Some(d) = r.ride_dist_at_rs_set {
+                                    sk.ride_at_rs_set.push(d);
+                                }
+                                // (ironspec 04:40 (1): the cycle terms)
+                                if let Some(s) = r.slept_at {
+                                    sk.cyc_entry_lie.push(s);
+                                    if let Some(wk) = r.woke_at {
+                                        sk.cyc_nap.push(wk - s);
+                                    }
+                                }
+                                if let (Some(wk), Some(rr)) = (r.woke_at, r.r_real_at) {
+                                    sk.cyc_wake_r.push(rr - wk);
+                                }
+                            }
                             if let Some(o) = r.rs_rider_overlap_min {
                                 sk.rs_overlap_min = Some(sk.rs_overlap_min.map_or(o, |m: f64| m.min(o)));
                             }
@@ -6502,6 +6693,15 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
                                 sk.latch_margin.push((d - left, format!("{name}: seed {seed} speed {v}")));
                             }
                         }
+                        // (G1 04:08a item 4: a latch visit with RLS and no park lighting, and any
+                        // lighting before RLS, are latch faults)
+                        if r.latch_mode {
+                            sk.latch_visits += 1;
+                            if r.rls_at.is_some() && r.park_lit.is_none() {
+                                sk.latch_unlit.push(format!("seed {seed} speed {v}"));
+                            }
+                            sk.latch_rises_before += r.park_rises_before_rls;
+                        }
                         // (ironspec 02:16: row 39's record, the planted empty cart)
                         if let Some(p) = &r.planted_end {
                             sk.planted.push(format!("seed {seed} speed {v}: {p}"));
@@ -6525,7 +6725,20 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
                             }
                             let rel = r.string_flicker.iter().filter(|x| !x.1).count();
                             let x0 = r.parked.map(|p| p.0[0]);
-                            sk.flicker.push((x0, rel, r.k_offs, r.parked_set_at.is_some(), r.park_rises));
+                            sk.flicker.push((x0, rel, r.k_offs, r.parked_set_at.is_some(), r.park_rises, r.latch_mode));
+                            // (ironspec 03:56 / 04:00: which rests occur in the arrival band)
+                            if let (Some(x), Some(s)) = (x0, r.siding_speed) {
+                                let key = (x * 20.0).floor() as i64;
+                                let e = sk.rest_arrivals.entry(key).or_insert((f64::INFINITY, 0.0));
+                                e.0 = e.0.min(s);
+                                e.1 = e.1.max(s);
+                                // (G1 04:24c (3): redsim's rest per arrival speed, against the game's)
+                                let sb = (s * 20.0).round() as i64;
+                                let g = sk.rest_by_speed.entry(sb).or_insert((f64::INFINITY, f64::NEG_INFINITY, 0));
+                                g.0 = g.0.min(x);
+                                g.1 = g.1.max(x);
+                                g.2 += 1;
+                            }
                         }
                         // (G1 17:49 (2)(a): the sensed park's presses per visit, and after RLS)
                         *sk.sense_presses.entry(r.park_sense_presses.len()).or_default() += 1;
@@ -6994,7 +7207,9 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
                                     // train's first pulse at or after its rest (G1's full-period row))
                                     let due = match base.tap {
                                         Some((t0, _, Some(p))) if p > 0 => Some(t0 + (a - t0).div_euclid(p) * p + if (a - t0).rem_euclid(p) == 0 { 0 } else { p }),
-                                        _ => tap_at,
+                                        // (G1 04:08a item 5: on the laid latch the launch is Q's
+                                        // own tap at the next visit's RLS)
+                                        _ => tap_at.or(base.latch_next_rls),
                                     };
                                     if due.is_some_and(|tp| d < tp) {
                                         sk.hold_early += 1;
@@ -7214,6 +7429,8 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
     // (G1 02:27 (3) / ironspec 02:28 (4): the park string's flicker and its consumers, per rest
     // position: every consumer reads SENSED's latch (its first press), never a re-check edge)
     let mut flicker_bad = 0usize;
+    let mut flicker_not_judged = false;
+    let mut latch_window_fail: Option<String> = None;
     let mut stand_up_bad = 0usize;
     // (vcompose 03:19: the stand-up positions the stop leaves a villager at, exact feet, against
     // the header's `stand-up:` declaration)
@@ -7246,10 +7463,26 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
         let lo = ss[0];
         let hi = ss[ss.len() - 1];
         println!("the empty cart's arrival toward the park (G1 02:47: its speed crossing the siding's centre x -0.5 eastward; tick-exact's rig: 0.05 strands at x 0.73, 0.10 reaches x 1.037): {:.4}..{:.4} over {} visits (the least at seed {} entry {}), margin {:+.4} over the least known to reach (0.10), {:+.4} over the known strand (0.05)", lo.0, hi.0, ss.len(), lo.1, lo.2, lo.0 - 0.10, lo.0 - 0.05);
+        // (ironspec 03:56 / 04:00: the rests in that band, each with its arrival speeds; rests below
+        // x 1.30 get the string's one-tick release every 11 gt, from 1.30 it is pressed steadily)
+        let rests: Vec<String> = sk.rest_arrivals.iter().map(|(k, (a, b))| format!("rest x {:.2}..{:.2}{}: arrivals {a:.4}..{b:.4}", *k as f64 / 20.0, (*k + 1) as f64 / 20.0, if (*k as f64 + 1.0) / 20.0 <= 1.30 + 1e-9 { " (flickers)" } else { "" })).collect();
+        println!("  the rests in the arrival band (rest not monotonic in speed, ironspec 03:56): {}", rests.join("; "));
+        // (G1 04:24c (3): redsim's braked-slope rests diverge from the game's (tick-exact: 0.108
+        // further up in the game on a slot): redsim's rest per arrival speed beside the game's, tick-
+        // exact's car 7 (a/1406316148191627, arrivals launched from the siding's centre x -0.5); a
+        // visit's flicker class (below / from x 1.30) can change with the game's rest)
+        const GAME_REST: [(f64, f64); 8] = [(0.05, 0.73), (0.10, 1.037), (0.15, 1.083), (0.20, 1.127), (0.25, 1.179), (0.30, 1.303), (0.35, 1.332), (0.40, 1.2725)];
+        let cmp: Vec<String> = sk.rest_by_speed.iter().map(|(k, (lo, hi, n))| {
+            let s = *k as f64 / 20.0;
+            let game = GAME_REST.iter().find(|g| (g.0 - s).abs() < 1e-9).map_or(if s >= 0.45 - 1e-9 { "1.396..1.520 (0.45..0.60)".to_string() } else { "-".to_string() }, |g| format!("{:.4}{}", g.1, if g.1 < 1.0 { " (short of the park)" } else if g.1 < 1.30 { " (flickers)" } else { " (steady)" }));
+            format!("arrival {s:.2}: redsim rest {lo:.3}..{hi:.3} ({n} visits{}), the game's {game}", if *hi < 1.30 { ", flickers" } else if *lo >= 1.30 { ", steady" } else { ", both classes" })
+        }).collect();
+        println!("  redsim vs the game's park rests per arrival speed (G1 04:24c (3); the game from tick-exact's car 7; single-cart braked rests match the game, cc767b78's regression check 1.862987 vs 1.863, G1 04:36 (2)): {}", cmp.join("; "));
     }
     if !sk.flicker.is_empty() {
         let mut by_x: std::collections::BTreeMap<i64, (usize, usize, usize, usize, usize, usize)> = std::collections::BTreeMap::new();
-        for &(x, rel, koff, pk, rises) in &sk.flicker {
+        let latch_rows = sk.flicker.iter().filter(|f| f.5).count();
+        for &(x, rel, koff, pk, rises, latch) in &sk.flicker {
             let key = x.map_or(-1, |x| (x * 20.0).floor() as i64);
             let e = by_x.entry(key).or_insert((0, 0, 0, 0, 0, 0));
             e.0 += 1;
@@ -7257,18 +7490,32 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
             e.2 = e.2.max(rel);
             e.3 += usize::from(koff != 1);
             e.4 += usize::from(!pk);
-            e.5 += usize::from(rises > 1);
+            // (G1 03:46 B1: the laid latch's park lightings judged != 1 (none or a second))
+            e.5 += usize::from(latch && rises != 1);
         }
-        let rows: Vec<String> = by_x.iter().map(|(k, e)| format!("rest x {}: {} visits, {} with re-check releases (most {} per visit), K resets != 1 in {}, PARKED unset in {}, a second park lighting in {}", if *k < 0 { "-".to_string() } else { format!("{:.2}..{:.2}", *k as f64 / 20.0, (*k + 1) as f64 / 20.0) }, e.0, e.1, e.2, e.3, e.4, e.5)).collect();
+        let rows: Vec<String> = by_x.iter().map(|(k, e)| format!("rest x {}: {} visits, {} with re-check releases (most {} per visit), K resets != 1 in {}, PARKED unset in {}, park lightings != 1 in {}", if *k < 0 { "-".to_string() } else { format!("{:.2}..{:.2}", *k as f64 / 20.0, (*k + 1) as f64 / 20.0) }, e.0, e.1, e.2, e.3, e.4, if latch_rows > 0 { e.5.to_string() } else { "N/A (a stand-in PARK, not the laid latch)".to_string() })).collect();
         let bad: usize = by_x.values().map(|e| e.3 + e.4 + e.5).sum();
-        println!("the park string's flicker while parked (G1 02:27 (3): its re-check releases between SENSED's first press and the release; K's reset and PARKED read the latch): {}; consumer faults {bad} (bar 0: one K reset, PARKED set, one park lighting per visit)", rows.join("; "));
+        println!("the park string's flicker while parked (G1 02:27 (3): its re-check releases between SENSED's first press and the release; K's reset and PARKED read {}; the rests are single-cart braked rests, which match the game, G1 04:36 (2)): {}; consumer faults {bad} (bar 0: one K reset, PARKED set, one park lighting per visit on the laid latch)", if base.consumers_raw { "the RAW string (`--consumers-raw`, G1 03:46 B1's twin: it must fail by name in the flickering visits)" } else { "the latch" }, rows.join("; "));
         flicker_bad = bad;
+    } else if sk.relaid_park.is_some() {
+        // (G1 03:46: an empty flicker list on a re-laid run is NOT JUDGED, never a pass)
+        println!("the park string's flicker: NOT JUDGED (no visit rested on the park with SENSED pressed)");
+        flicker_not_judged = true;
     }
     if !sk.latch_lit.is_empty() {
         let lits: Vec<i64> = sk.latch_lit.iter().map(|x| x.0).collect();
         let darks: Vec<i64> = sk.latch_lit.iter().filter_map(|x| x.1).collect();
         let open = sk.latch_lit.iter().filter(|x| x.1.is_none()).count();
         println!("the laid latch's PARK on the park rail (the standing start-of-tick frame; the rig's RLS-command frame is one tick earlier): lit from RLS + {}..{}, dark from RLS + {}..{} over {} visits (expected [RLS + 2, RLS + 26)); still lit at the visit's end {open}", lits.iter().min().unwrap(), lits.iter().max().unwrap(), darks.iter().min().map_or("-".to_string(), |v| v.to_string()), darks.iter().max().map_or("-".to_string(), |v| v.to_string()), sk.latch_lit.len());
+        // (G1 04:08a item 4: the laid latch's PARK window JUDGED: lit at RLS + 2 or later, dark by
+        // RLS + 26, never lit at the visit's end, no lighting before RLS, every RLS lights it)
+        let early = lits.iter().filter(|&&l| l < 2).count();
+        let late_dark = darks.iter().filter(|&&d| d > 26).count();
+        if early + late_dark + open + sk.latch_rises_before + sk.latch_unlit.len() > 0 {
+            latch_window_fail = Some(format!("the laid latch's PARK window off [RLS + 2, RLS + 26): lit before RLS + 2 in {early}, dark after RLS + 26 in {late_dark}, still lit at the visit's end in {open}, lit before RLS {} times, RLS with no lighting in {} ({:?}) (G1 04:08a item 4)", sk.latch_rises_before, sk.latch_unlit.len(), sk.latch_unlit.iter().take(3).collect::<Vec<_>>()));
+        }
+    } else if sk.latch_visits > 0 {
+        latch_window_fail = Some(format!("the laid latch's PARK never lit on {} latch visits ({:?}) (G1 04:08a item 4)", sk.latch_visits, sk.latch_unlit.iter().take(3).collect::<Vec<_>>()));
     }
     // (ironspec 01:50b / 02:33 (2): the timing row's margin on the laid latch: PARK's dark tick
     // against the cart's last tick on the park cell, the worst over every row (world-open phases))
@@ -7457,6 +7704,12 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
     if flicker_bad > 0 {
         failed.push(format!("the park string's flicker reached a consumer in {flicker_bad} visit(s) (G1 02:27 (3))"));
     }
+    if flicker_not_judged {
+        failed.push("the park string's flicker NOT JUDGED (G1 03:46)".into());
+    }
+    if let Some(m) = latch_window_fail.take() {
+        failed.push(m);
+    }
     if stand_up_bad > 0 {
         failed.push(format!("{stand_up_bad} measured stand-up position(s) missing from the header's stand-up: (vcompose 03:19)"));
     }
@@ -7557,7 +7810,13 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
                 failed.push(format!("{} visits' PARKED unlike max(press + d, COOL) (G1's C4)", sk.sensed_bind_wrong.len()));
             }
         }
-        println!("the sensed park's presses (G1 17:49 (2)(a): only the arriving empty cart may press it): visits by presses {:?}; presses after RLS (or the release) {} (bar 0)", sk.sense_presses, sk.sense_after_rls);
+        // (G1 04:08a item 8: on the re-laid stop the departing cart's re-presses are by design (SENSED's
+        // SET is ARMED-gated), so the count is not a bar there; on the sensed-park fold it still fails)
+        let relaid_run = sk.relaid_park.is_some();
+        println!("the sensed park's presses (G1 17:49 (2)(a): only the arriving empty cart may press it): visits by presses {:?}; presses after RLS (or the release) {} ({})", sk.sense_presses, sk.sense_after_rls, if relaid_run { "not a bar on the re-laid stop: the departing cart re-presses the park string by design" } else { "bar 0" });
+        if sk.sense_after_rls > 0 && !relaid_run {
+            failed.push(format!("{} presses of the sensed park after RLS (G1 17:49 (2)(a): only the arriving empty cart may press it)", sk.sense_after_rls));
+        }
         if sk.sense_after_rls > 0 {
             // (ironspec 23:40 (2) / G1 23:38 (3): on the out-and-back siding the departing cart presses
             // the park string again; the emulation's SENSED counts a press only between ARM and the
@@ -7583,9 +7842,17 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
         if base.adopted.is_some() {
             println!("ARM's edge against P_HOLD's stretch (ironspec 21:11; the stretch RLS + 4 .. RLS + 12, ARM's edge resets P_HOLD at ARM + 4): this visit's ARM edge precedes RLS by at least {:?} gt (the next visit's ARM comes ~600 gt after RLS, the station's period)", sk.arm_to_stretch);
             // (the re-laid stop: K's junction bars (ironspec 21:51 (5)), the park's climb, the ride)
+            // (G1 04:08a item 7: the bars >= 3 + k, k the world-open term as the siblings' (1 on the
+            // convention placement, 3 off it); item 11: NOT JUDGED on a re-laid run with no K samples)
+            let k_on_conv = base.offset[0].rem_euclid(16) == 6 && base.offset[2].rem_euclid(16) == 5;
+            let k_term = if k_on_conv { 1 } else { 3 };
+            if sk.relaid_park.is_some() && sk.k_ne_margin.is_empty() && sk.k_wrong.is_empty() {
+                println!("K, the driven T: NOT JUDGED (a re-laid run with no K samples)");
+                failed.push("K's junction bars NOT JUDGED: a re-laid run with no K samples (G1 04:08a item 11)".into());
+            }
             if !sk.k_ne_margin.is_empty() || !sk.k_wrong.is_empty() {
-                println!("K, the driven T (ironspec 21:51 (5); its drive the bench's stand-in: on for the arrival, off from the park string's first press): north_east before the arriving cart's first tick in K by {} gt; south_east after that cart's last tick in K by {} gt and before the released cart's first tick in K by {} gt (bars >= 3 after k + j); wrong shapes {:?}", mm2(&sk.k_ne_margin), mm2(&sk.k_se_after), mm2(&sk.k_se_before), sk.k_wrong);
-                if !sk.k_wrong.is_empty() || sk.k_ne_margin.iter().any(|&m| m < 3) || sk.k_se_after.iter().any(|&m| m < 3) || sk.k_se_before.iter().any(|&m| m < 3) {
+                println!("K, the driven T (ironspec 21:51 (5); its drive the bench's stand-in: on for the arrival, off from the park string's first press): north_east before the arriving cart's first tick in K by {} gt; south_east after that cart's last tick in K by {} gt and before the released cart's first tick in K by {} gt (bars >= 3 + k = {}, k the world-open term {k_term}{}); wrong shapes {:?}", mm2(&sk.k_ne_margin), mm2(&sk.k_se_after), mm2(&sk.k_se_before), 3 + k_term, if k_on_conv { ", the convention placement" } else { ", off the convention placement" }, sk.k_wrong);
+                if !sk.k_wrong.is_empty() || sk.k_ne_margin.iter().any(|&m| m < 3 + k_term) || sk.k_se_after.iter().any(|&m| m < 3 + k_term) || sk.k_se_before.iter().any(|&m| m < 3 + k_term) {
                     failed.push(format!("K's junction bars (ironspec 21:51 (5)): {} wrong shapes, least margins {:?} / {:?} / {:?}", sk.k_wrong.len(), sk.k_ne_margin.iter().min(), sk.k_se_after.iter().min(), sk.k_se_before.iter().min()));
                 }
                 println!("the park's climb (the re-laid stop): the cart's highest point on the park before the release at {:.3} of the cell (its top end at 1.000: never passing it, at the fastest arrival)", sk.park_max_x);
@@ -7974,8 +8241,11 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
                 failed.push(format!("{} held riders with a CANT_REACH stamp at the slope's departure", sk.hold_stamped));
             }
         }
-        if tap_at.is_none() {
-            failed.push("the hold design with no tap (--tap T,W[,PERIOD], G1's Q2)".to_string());
+        if tap_at.is_none() && base.latch_next_rls.is_none() {
+            failed.push("the hold design with no tap (--tap T,W[,PERIOD], G1's Q2; on the laid latch --latch-next-rls T, Q's own tap)".to_string());
+        }
+        if tap_at.is_none() && base.latch_next_rls.is_some() {
+            println!("the hold's launch: Q's own tap line at the next visit's RLS (--latch-next-rls {:?}, G1 04:08a item 5)", base.latch_next_rls);
         }
         // (G1's Q2: an arrival during a pulse rolls through (an early launch); a wait of one period
         // or more missed a launch)
@@ -8105,6 +8375,32 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
             if sk.rs_overlap_min.is_some_and(|o| o <= 0.0) {
                 failed.push("a seated rider's box over the RS_ready string missed its band".into());
             }
+            // (ironspec 01:46 (1) / G1 04:08a: d_RS 10 judged: RS_ready's set comes after this cart
+            // left the landing (it left the stop's ENTRY at its summon, t 0): the next drop never
+            // finds it there; bar > 0 on every seated visit)
+            if let (Some(lo), Some(hi)) = (sk.rs_set_after_entry.iter().min(), sk.rs_set_after_entry.iter().max()) {
+                println!("RS_ready's set (the rider's first press + d_RS {}, read from the file: no delay element laid on RS's output) after this cart left the landing (the stop's ENTRY at t 0): {lo}..{hi} gt over {} visits (bar > 0: by construction, ironspec 01:46 (1))", base.d_rs, sk.rs_set_after_entry.len());
+                if *lo <= 0 {
+                    failed.push(format!("RS_ready set only {lo} gt after the cart left the landing (d_RS {}, bar > 0)", base.d_rs));
+                }
+            }
+            // (G1 04:31 (1) / ironspec 04:23 (1), the 16-ball at the stop: (a) the bed empties at the
+            // napper's wake, and the next napper is released no earlier than RS_ready's set, so this
+            // is a lower bound of "the bed empties -> the next napper first enters the ball" (its
+            // travel from the queue adds to it, the composed night's); (b) the leaving rider's
+            // distance from the bed head's centre then (it must be out of the ball before the next
+            // napper lies down: the composed route beyond R decides)
+            if let (Some(lo), Some(hi)) = (sk.bed_empty_to_rs_set.iter().min(), sk.bed_empty_to_rs_set.iter().max()) {
+                let (dl, dh) = (sk.ride_at_rs_set.iter().copied().fold(f64::INFINITY, f64::min), sk.ride_at_rs_set.iter().copied().fold(f64::NEG_INFINITY, f64::max));
+                // (ironspec 04:40 (1): the parent's nap-schedule coupling: the stop's per-visit cycle
+                // terms with their spreads, the inputs day-1 re-runs the schedule with)
+                let mm = |v: &[i64]| if v.is_empty() { "none".to_string() } else { format!("{}..{} (median {})", v.iter().min().unwrap(), v.iter().max().unwrap(), { let mut s = v.to_vec(); s.sort(); s[s.len() / 2] }) };
+                println!("the stop's per-visit cycle terms (ironspec 04:40 (1), day-1's nap schedule): the summon at ENTRY -> the lie-down {}; the nap (lie-down -> wake) {}; the wake -> R's rise {}; the bed empty (the wake) -> RS_ready's set (d_RS {}) {}; over {} visits", mm(&sk.cyc_entry_lie), mm(&sk.cyc_nap), mm(&sk.cyc_wake_r), base.d_rs, mm(&sk.bed_empty_to_rs_set), sk.cyc_nap.len());
+                println!("the 16-ball at the stop (G1 04:31 (1), ironspec 04:23 (1)): the bed empties at the wake; RS_ready sets {lo}..{hi} gt later over {} visits (a lower bound of the margin to the next napper's first entry into the ball, bar > 0; its travel from the queue is the composed night's); the leaving rider then {dl:.2}..{dh:.2} from the bed head's centre (inside 16: it must leave the ball before the next napper lies down, judged on the composed route beyond R)", sk.bed_empty_to_rs_set.len());
+                if *lo <= 0 {
+                    failed.push(format!("RS_ready set {lo} gt after the wake: the next napper could reach the ball with the bed still occupied (G1 04:31 (1))"));
+                }
+            }
             if sk.rs_gap_min.is_some_and(|g| g <= 0.0) {
                 failed.push("a cart's box reached the RS_ready string's band (an empty cart would press it)".into());
             }
@@ -8140,7 +8436,7 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
         }
         if !sk.ride_at_r.is_empty() || !sk.ride_last.is_empty() {
             let mm = |v: &[f64]| if v.is_empty() { "none".to_string() } else { format!("{:.2}..{:.2}", v.iter().copied().fold(f64::INFINITY, f64::min), v.iter().copied().fold(f64::NEG_INFINITY, f64::max)) };
-            println!("the boarded rider's distance to the bed head's centre (-2.5,0.5,4.5) (G1 16:00: an awake HOME-holder within 16 of an occupied bed loses HOME): at R's rise {}; at its last bench tick {} (the bench ends at the stop's out: the composed route beyond R decides when it passes 16); over 16 within the bench on {} visits", mm(&sk.ride_at_r), mm(&sk.ride_last), sk.ride_over16);
+            println!("the boarded rider's distance to the bed head's centre (-2.5,0.5,4.5) (G1 16:00: an awake HOME-holder within 16 of an occupied bed loses HOME): at R's rise {}; at its last bench tick {} (the bench ends at the stop's out: the composed route beyond R decides when it passes 16); over 16 within the bench on {} visits (not a bar on the one-visit bench: the bed is free once its napper rides; the 16-ball bar with another sleeper is the composed night's and the two-visit bench's, ironspec 04:23 (1))", mm(&sk.ride_at_r), mm(&sk.ride_last), sk.ride_over16);
         }
         // (G1 15:29 / b8949c96 15:45: the cart states near the trapdoors, for R4's planter)
         if let Some(path) = &base.cart_states {
@@ -8292,6 +8588,17 @@ struct SkipTotals {
     rs_pressed: usize,
     rs_spurious: usize,
     rs_to_r: Vec<i64>,
+    /// (G1 04:08a) d_RS 10 judged: RS_ready's set (the rider's first press + 10) after the cart left
+    /// the landing at t 0
+    rs_set_after_entry: Vec<i64>,
+    /// (G1 04:31 (1)) the wake (the bed empties) to RS_ready's set, and the rider's distance then
+    bed_empty_to_rs_set: Vec<i64>,
+    ride_at_rs_set: Vec<f64>,
+    /// (ironspec 04:40 (1)) the cycle terms: the summon at ENTRY (t 0) -> the lie-down, the nap, the
+    /// wake -> R's rise
+    cyc_entry_lie: Vec<i64>,
+    cyc_nap: Vec<i64>,
+    cyc_wake_r: Vec<i64>,
     rs_overlap_min: Option<f64>,
     rs_gap_min: Option<f64>,
     /// (ironspec 15:46 (2)) each lie-down's least gap to P_STRING's band over the 12 gt before it
@@ -8394,10 +8701,14 @@ struct SkipTotals {
     relaid_park: Option<[i32; 3]>,
     /// (G1 02:27 (3)) per visit on the re-laid stop: the cart's rest x, the park string's re-check
     /// releases while parked, K's OFF edges, PARKED set, the park rail's lit edges after RLS
-    flicker: Vec<(Option<f64>, usize, usize, bool, usize)>,
+    flicker: Vec<(Option<f64>, usize, usize, bool, usize, bool)>,
     /// (G1 02:47) the empty cart's speeds crossing the siding's centre toward the park (speed, seed,
     /// the visit's entry speed)
     siding_speeds: Vec<(f64, u64, f64)>,
+    /// (ironspec 03:56) per rest bucket (x * 20), the arrival speeds that rest there (least, most)
+    rest_arrivals: std::collections::BTreeMap<i64, (f64, f64)>,
+    /// (G1 04:24c (3)) per arrival speed (rounded to 0.05, x 20) redsim's park rests (least, most, n)
+    rest_by_speed: std::collections::BTreeMap<i64, (f64, f64, usize)>,
     /// (vcompose 03:19) the exact stand-up feet positions over the visits, with counts
     stand_ups: std::collections::BTreeMap<String, usize>,
     /// (tick-exact 02:45) the park string's release / re-press ticks of a few low rests
@@ -8406,6 +8717,10 @@ struct SkipTotals {
     ctl_cells: Vec<[i32; 3]>,
     /// (ironspec 01:17 (2)) the laid latch's PARK windows: (lit, dark) after RLS
     latch_lit: Vec<(i64, Option<i64>)>,
+    /// (G1 04:08a item 4) latch visits, those with RLS and no park lighting, lightings before RLS
+    latch_visits: usize,
+    latch_unlit: Vec<String>,
+    latch_rises_before: usize,
     /// (ironspec 01:50b) the laid PARK's dark tick less the cart's park exit tick, with its row
     latch_margin: Vec<(i64, String)>,
     /// (ironspec 02:16) row 39's record: each visit's planted empty cart and napper at the end
@@ -8754,6 +9069,19 @@ mod tests {
         let e = standin(&mut b, [2, 0, 1], "lever[face=floor,facing=north,powered=false]").unwrap_err().to_string();
         assert!(e.contains("[2, 0, 1]") && e.contains("redstone_wire") && e.contains("lever"), "{e}");
         assert!(standin(&mut b, [3, 0, 1], "lever[face=floor,facing=north,powered=false]").is_ok());
+    }
+
+    /// (G1 03:46 B2's control: `--plant-empty` takes only the siding and park rails; P and the
+    /// removed run-up cell are refused by name)
+    #[test]
+    fn plant_empty_takes_only_siding_and_park() {
+        assert_eq!(plant_empty_role([-1, 0, 3], [1, 0, 3]), Ok("the siding"));
+        assert_eq!(plant_empty_role([0, 0, 3], [1, 0, 3]), Ok("the siding"));
+        assert_eq!(plant_empty_role([1, 0, 3], [1, 0, 3]), Ok("the park"));
+        for c in [[-2, 0, 4], [0, 0, 4]] {
+            let e = plant_empty_role(c, [1, 0, 3]).unwrap_err();
+            assert!(e.contains(&format!("{c:?}")) && e.contains("not a siding or park rail"), "{e}");
+        }
     }
 
     /// (the re-laid stop's files of record generate with their stand-ins on air: the bench with

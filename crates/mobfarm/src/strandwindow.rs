@@ -31,27 +31,33 @@ fn num_after(s: &str, key: &str) -> Option<i64> {
     t.parse().ok()
 }
 
-/// Parse a visit file's rows.
-pub fn parse(text: &str) -> Vec<Visit> {
+/// Parse a visit file's rows; every malformed field is refused by name (G1 03:46 B3: a row with
+/// neither "ARMED N" nor "cleared", an unreadable phase or hold, an unreadable `release + N` chunk or
+/// one neither COMPLETE nor PARTIAL would otherwise bias P(strand) low).
+pub fn parse(text: &str) -> Result<Vec<Visit>, String> {
     let mut out: Vec<Visit> = Vec::new();
-    for l in text.lines() {
+    for (n, l) in text.lines().enumerate() {
         let Some(rest) = l.strip_prefix("(visit) phase +") else { continue };
-        let phase = rest.split(',').next().and_then(|x| x.trim().parse().ok()).unwrap_or(-1);
-        let hold = num_after(l, "hold ").unwrap_or(-1);
+        let line = n + 1;
+        let phase: i64 = rest.split(',').next().and_then(|x| x.trim().parse().ok()).ok_or_else(|| format!("line {line}: an unreadable `phase +k`"))?;
+        let hold = num_after(l, "hold ").ok_or_else(|| format!("line {line}: an unreadable `hold h`"))?;
         if l.contains("summoned at game time") {
             let mut v = Visit { phase, hold, ..Default::default() };
-            v.armed = if l.contains("the stamp at the release ARMED") { num_after(l, "the stamp at the release ARMED") } else { None };
+            v.armed = if l.contains("the stamp at the release ARMED") {
+                Some(num_after(l, "the stamp at the release ARMED").ok_or_else(|| format!("line {line}: `the stamp at the release ARMED` with no age"))?)
+            } else if l.contains("the stamp at the release cleared") {
+                None
+            } else {
+                return Err(format!("line {line}: the stamp at the release neither `ARMED N` nor `cleared`"));
+            };
             // (the computes: `release + t at Some(..): COMPLETE|PARTIAL (..)[ [past the entry]]`,
             // each entry its own chunk between `release + ` markers)
             if let Some(i) = l.find("the paths the ride set: ") {
                 for chunk in l[i + "the paths the ride set: ".len()..].split("release + ").skip(1) {
-                    let off: i64 = match chunk.chars().take_while(|c| c.is_ascii_digit()).collect::<String>().parse() {
-                        Ok(o) => o,
-                        Err(_) => continue,
-                    };
+                    let off: i64 = chunk.chars().take_while(|c| c.is_ascii_digit()).collect::<String>().parse().map_err(|_| format!("line {line}: an unreadable `release + N` in {:?}", chunk.chars().take(40).collect::<String>()))?;
                     let complete = chunk.contains("): COMPLETE");
                     if !complete && !chunk.contains("): PARTIAL") {
-                        continue;
+                        return Err(format!("line {line}: the compute at release + {off} is neither COMPLETE nor PARTIAL"));
                     }
                     v.paths.push((off, complete, chunk.contains("[past the entry]")));
                 }
@@ -63,7 +69,14 @@ pub fn parse(text: &str) -> Vec<Visit> {
             v.entry = Some(e);
         }
     }
-    out
+    Ok(out)
+}
+
+/// (G1's C18 / G1 03:46 B3) The run's verdict from its report lines: any `FAILED: ` line fails it.
+pub fn verdict(lines: &[String]) -> anyhow::Result<()> {
+    let failed = lines.iter().filter(|l| l.starts_with("FAILED: ")).count();
+    anyhow::ensure!(failed == 0, "strand-window: {failed} validation failures");
+    Ok(())
 }
 
 /// One visit's strand window (gt) and the offset its stamp's exposure ends at: from the release to
@@ -88,11 +101,14 @@ pub fn window(v: &Visit, lag: i64, lie_after_entry: Option<i64>) -> (i64, Option
 /// the strand probability per skip for each spacing.
 pub fn report(files: &[std::path::PathBuf], spacing: &[i64], lag: i64, lie_after_entry: Option<i64>, rows: bool) -> anyhow::Result<Vec<String>> {
     use std::collections::BTreeMap;
+    // (G1 03:46 B3: an empty --spacing would print no probability at all)
+    anyhow::ensure!(!spacing.is_empty(), "strand-window: --spacing needs at least one visit spacing");
+    anyhow::ensure!(spacing.iter().all(|s| *s > 0), "strand-window: every --spacing is > 0 gt");
     let mut out = Vec::new();
     let mut all: Vec<(String, Visit)> = Vec::new();
     for f in files {
         let text = std::fs::read_to_string(f)?;
-        let vs = parse(&text);
+        let vs = parse(&text).map_err(|e| anyhow::anyhow!("{}: {e}", f.display()))?;
         anyhow::ensure!(!vs.is_empty(), "{}: no `(visit) phase +k, hold h: summoned at ...` rows", f.display());
         out.push(format!("{}: {} visit rows", f.display(), vs.len()));
         all.extend(vs.into_iter().map(|v| (f.display().to_string(), v)));
@@ -191,7 +207,7 @@ mod tests {
     #[test]
     fn parses_a_visit_row_and_its_window() {
         let t = "(visit) phase +1, hold 95: summoned at game time 201 (arrival detector at summon + 103), released before game time 399 (NOT-ready off); the stamp at the release ARMED 196 gt old; the paths the ride set: release + 40 at Some([8, -23, -1]): PARTIAL (2 nodes, target (-3,-26,3), first (7,-24,-1) (7,-28,0); walk target Block(BlockPos { x: -3, y: -27, z: 3 }); activity Rest); release + 253 at Some([1, -26, -5]): COMPLETE (14 nodes, target (-3,-26,3); walk target Block(BlockPos { x: -3, y: -27, z: 3 }); activity Rest) [past the entry]\n(visit) phase +1, hold 95: arrival at t 102; at the entry +83 gt after the release at 0.2111 b/t: the stamp none\n(visit) phase +0, hold 110: summoned at game time 200 (x), released before game time 413 (y); the stamp at the release cleared; the paths the ride set: release + 167 at Some([1, -26, -5]): COMPLETE (14 nodes) [past the entry]\n";
-        let v = parse(t);
+        let v = parse(t).unwrap();
         assert_eq!(v.len(), 2);
         assert_eq!(v[0].armed, Some(196));
         assert_eq!(v[0].paths, vec![(40, false, false), (253, true, true)]);
@@ -202,5 +218,39 @@ mod tests {
         // (A)'s lie-down 30 gt after the entry comes first
         assert_eq!(window(&v[0], 21, Some(30)).0, 83 + 30 - 21);
         assert_eq!(window(&v[1], 21, None).0, 0);
+    }
+
+    /// (G1 03:46 B3) every malformed field is refused by name, never read as a cleared stamp, a -1
+    /// phase or a skipped compute
+    #[test]
+    fn refuses_malformed_rows_by_name() {
+        let ok = "(visit) phase +1, hold 95: summoned at game time 201 (x), released before game time 399 (y); the stamp at the release ARMED 100 gt old; the paths the ride set: release + 60 at Some([1, -26, -5]): COMPLETE (14 nodes)\n";
+        assert!(parse(ok).is_ok());
+        for (bad, why) in [
+            (ok.replace("the stamp at the release ARMED 100 gt old", "the stamp at the release unknown"), "neither `ARMED N` nor `cleared`"),
+            (ok.replace("ARMED 100 gt old", "ARMED gt old"), "with no age"),
+            (ok.replace("phase +1,", "phase +x,"), "phase"),
+            (ok.replace("hold 95", "hold ?"), "hold"),
+            (ok.replace("release + 60 at", "release + ? at"), "unreadable `release + N`"),
+            (ok.replace("): COMPLETE", "): STUCK"), "neither COMPLETE nor PARTIAL"),
+        ] {
+            let e = parse(&bad).unwrap_err();
+            assert!(e.contains(why), "{why}: {e}");
+        }
+    }
+
+    /// (G1 03:46 B3's negative test) a sink duration of 140 (the age 100 + the first complete at 40)
+    /// prints FAILED and fails the run; an empty --spacing is refused
+    #[test]
+    fn a_short_sink_fails_and_spacing_is_required() {
+        let dir = std::env::temp_dir().join(format!("strandwindow-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("visits.txt");
+        std::fs::write(&f, "(visit) phase +1, hold 95: summoned at game time 201 (x), released before game time 399 (y); the stamp at the release ARMED 100 gt old; the paths the ride set: release + 40 at Some([1, -26, -5]): COMPLETE (14 nodes)\n").unwrap();
+        let lines = report(std::slice::from_ref(&f), &[300], 21, None, false).unwrap();
+        assert!(lines.iter().any(|l| l.starts_with("FAILED: ") && l.contains("under 1")), "{lines:?}");
+        assert!(verdict(&lines).is_err());
+        assert!(report(std::slice::from_ref(&f), &[], 21, None, false).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

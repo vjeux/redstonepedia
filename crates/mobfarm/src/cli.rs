@@ -7802,6 +7802,11 @@ pub enum MobfarmCmd {
         /// (the laid latch then holds PARK [RLS + 2, RLS + 26)).
         #[arg(long, default_value_t = 6)]
         latch_rls_width: i64,
+        /// (G1 04:08a item 5, `bedtier --latch-b`) The next visit's RLS at this tick on the latch's own
+        /// inputs (its ARM before it by this visit's RLS - ARM gap), so Q's own tap line launches the
+        /// held cart; `--tap` is refused on the laid latch.
+        #[arg(long)]
+        latch_next_rls: Option<i64>,
         /// (ironspec 16:35: the self-heal, the FREE-ticket case) The napper's HOME released at this
         /// tick of each visit as a stamp release does (the memory erased, a fresh CANT_REACH stamp),
         /// the bed's ticket free: the napper must re-acquire it at the stop and nap.
@@ -7938,6 +7943,10 @@ pub enum MobfarmCmd {
         /// and prints where the planted cart ends and the napper's fate (seated, its stamp, HOME).
         #[arg(long, value_delimiter = ',', num_args = 3, allow_hyphen_values = true)]
         plant_empty: Option<Vec<f64>>,
+        /// (G1 03:46 B1) The flicker test's twin: K's drive and PARKED on the park string's RAW
+        /// state, not SENSED's latch (it fails by name in the flickering visits, passes the steady).
+        #[arg(long)]
+        consumers_raw: bool,
         /// Fail when a contact declaration's stated bounds don't equal this run's measured extremes
         /// (main's `contacts::reference_check`, ironspec Nov 13 10:58 / G1 11:12 (b)): for the
         /// declaration's own `ref=` run.
@@ -18404,10 +18413,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
             // (G1's C18: a failed validation fails the run)
-            let failed: Vec<&String> = lines.iter().filter(|l| l.starts_with("FAILED: ")).collect();
-            anyhow::ensure!(failed.is_empty(), "strand-window: {} validation failures", failed.len());
+            crate::strandwindow::verdict(&lines)?;
         }
-        MobfarmCmd::BedtierBench { design, from, to, speeds, after_sleep, release_after, day, empty, no_home, hide_after_wake, restart, hour, restart_phases, orders, hours, skip, skip_phases, day_off, no_presence_gate, early_release, day_gate, day_on, live_day_seated, restart_after_skip, panic_entries, pickup_injects, module_offset, queue_seat, queue_release, queue_wait, queue_waits, forced_stamp, arrival_stamp, arrival_run, arrival_hold, declare_emulated, r_bar, park_shifts, set_cell, pulse_cell, lever_on, built_release, day_lever, record, record_offset, record_margin, record_declare, head_cell, scope_excludes, visit_table, arm_delay, release_after_arm, erase_home_at, erase_home_on_p, erase_home_ticket, erase_home_day_time, latch_rls_width, release_home_at, reclaim_row, reclaim_blocked, reclaim_expect, boost_probe, offset, close_after, tap, latch, controller, adopted_terms, block_p_at_wake, park_initial_on, park_width, light_q_at_rs, restart_at_rls, step_off_at_rls, hurt_at_arm, shove_at_wake, k_stuck, pickup_band, pulse_log, boarding_cooldown, tap_skip, plant_e_off, parked_sense, hurt_after_lie, plant_empty, reference_check, cart_states, reclaim_at, restop, queue_dusk, jobs } => {
+        MobfarmCmd::BedtierBench { design, from, to, speeds, after_sleep, release_after, day, empty, no_home, hide_after_wake, restart, hour, restart_phases, orders, hours, skip, skip_phases, day_off, no_presence_gate, early_release, day_gate, day_on, live_day_seated, restart_after_skip, panic_entries, pickup_injects, module_offset, queue_seat, queue_release, queue_wait, queue_waits, forced_stamp, arrival_stamp, arrival_run, arrival_hold, declare_emulated, r_bar, park_shifts, set_cell, pulse_cell, lever_on, built_release, day_lever, record, record_offset, record_margin, record_declare, head_cell, scope_excludes, visit_table, arm_delay, release_after_arm, erase_home_at, erase_home_on_p, erase_home_ticket, erase_home_day_time, latch_rls_width, latch_next_rls, release_home_at, reclaim_row, reclaim_blocked, reclaim_expect, boost_probe, offset, close_after, tap, latch, controller, adopted_terms, block_p_at_wake, park_initial_on, park_width, light_q_at_rs, restart_at_rls, step_off_at_rls, hurt_at_arm, shove_at_wake, k_stuck, pickup_band, pulse_log, boarding_cooldown, tap_skip, plant_e_off, parked_sense, hurt_after_lie, plant_empty, consumers_raw, reference_check, cart_states, reclaim_at, restop, queue_dusk, jobs } => {
             let (_c, mut spec) = load(version, &design)?;
             // (G1's CHANGES 8 item 0: every run, refusals and the boost probe included, prints its
             // command line before anything is validated)
@@ -18451,7 +18459,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         }
                     }
                 }
-                return Ok(());
+                // (G1 04:08a item 9: the reclaim row plants its CANT_REACH stamp (1,300 old): NOT
+                // EVIDENCE by ironspec 01:41b, so it never exits 0, its verdict lines printed above)
+                anyhow::bail!("--reclaim-row: NOT EVIDENCE (ironspec 01:41b: the row plants the napper's CANT_REACH stamp instead of arming it by a real partial path)");
             }
             let restart = restart.as_deref().map(crate::liveness::parse_restart).transpose().map_err(|e| anyhow::anyhow!(e))?;
             // (the real approach: the module moved into the stop's frame, its own queue rider out)
@@ -18762,7 +18772,14 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             if adopted.is_some() {
                 anyhow::ensure!(release_after_arm.is_none() && !early_release && !no_presence_gate, "--release-after-arm, --early-release and --no-presence-gate are the stand-in controller's terms: add --controller stand-in (the adopted controller releases by RLS)");
             }
-            let faults = crate::bedtier::Faults { empty, no_home, hide_after_wake, restart, hour, skip, day_off, no_presence_gate, early_release, day_gate, day_on, live_day_seated, panic_entry: None, pickup_inject: None, approach, forced_stamp, arrival_stamp, arrival_run, arrival_hold, declared_emulated, r_bar, park_shift: None, park_shifts, declared_contacts, pulses, levers_on, built_release, day_lever, record, record_seed: from, record_speed: f64::NAN, scope_excludes, arm_delay, release_after_arm, erase_home_at, erase_home_on_p, erase_home_ticket, erase_home_day_time, latch_rls_width, release_home_at, head_cells, lay_emulated, visit_table, built_world: module_offset.is_some(), offset, close_after, integrity, tap, contact_decls, contact_speeds, stranded_bound, reference_check, cart_states, latch, adopted, block_p_at_wake, park_initial_on, park_width, light_q_at_rs, restart_at_rls, step_off_at_rls, hurt_at_arm, shove_at_wake, k_stuck, pickup_band, pulse_log, boarding_cooldown, tap_skip, plant_e_off, parked_sense, hurt_after_lie, plant_empty: plant_empty.map(|v| [v[0], v[1], v[2]]), stand_up_decl, restart_at_rls_phases };
+            // (G1 04:08a "also": the dependent-flag gaps refused by name)
+            anyhow::ensure!(tap_skip.is_none() || tap.is_some_and(|(_, _, p)| p.is_some()), "--tap-skip K needs --tap T,W,PERIOD (a train to skip a pulse of)");
+            anyhow::ensure!(erase_home_ticket == "free" || erase_home_on_p.is_some(), "--erase-home-ticket {erase_home_ticket} needs --erase-home-on-p (the erase it qualifies)");
+            anyhow::ensure!(reclaim_at.is_none() && !reclaim_blocked && reclaim_expect.is_none(), "--reclaim-at, --reclaim-blocked and --reclaim-expect need --reclaim-row");
+            anyhow::ensure!(latch.is_none() || controller == "adopted", "--latch and --controller {controller}: the latch controller replaces the controller; drop one");
+            anyhow::ensure!(boarding_cooldown > 0, "--boarding-cooldown {boarding_cooldown}: > 0 gt (a 0-gt cooldown would make the eject -> pickup bar vacuous)");
+            anyhow::ensure!(latch_rls_width >= 0, "--latch-rls-width {latch_rls_width}: >= 0 gt (0 is the latch window's control: PARK never lights)");
+            let faults = crate::bedtier::Faults { empty, no_home, hide_after_wake, restart, hour, skip, day_off, no_presence_gate, early_release, day_gate, day_on, live_day_seated, panic_entry: None, pickup_inject: None, approach, forced_stamp, arrival_stamp, arrival_run, arrival_hold, declared_emulated, r_bar, park_shift: None, park_shifts, declared_contacts, pulses, levers_on, built_release, day_lever, record, record_seed: from, record_speed: f64::NAN, scope_excludes, arm_delay, release_after_arm, erase_home_at, erase_home_on_p, erase_home_ticket, erase_home_day_time, latch_rls_width, latch_next_rls, release_home_at, head_cells, lay_emulated, visit_table, built_world: module_offset.is_some(), offset, close_after, integrity, tap, contact_decls, contact_speeds, stranded_bound, reference_check, cart_states, latch, adopted, block_p_at_wake, park_initial_on, park_width, light_q_at_rs, restart_at_rls, step_off_at_rls, hurt_at_arm, shove_at_wake, k_stuck, pickup_band, pulse_log, boarding_cooldown, tap_skip, plant_e_off, parked_sense, hurt_after_lie, plant_empty: plant_empty.map(|v| [v[0], v[1], v[2]]), stand_up_decl, restart_at_rls_phases, consumers_raw, d_rs: 0 };
             crate::bedtier::bench_cmd(&spec, from, to, &speeds, after_sleep, release_after, day, &faults, [restart_phases.as_deref(), hours.as_deref(), skip_phases.as_deref(), restart_after_skip.as_deref(), panic_entries.as_deref(), pickup_injects.as_deref(), queue_waits.as_deref()], &crate::bedtier::orders(&orders)?, jobs)?;
         }
         MobfarmCmd::BedtierTwo { design, from, to, speeds, restart_phases, orders, transit, lift_delay, lift_speed, day_hold, day_off, gap, c_at, skip_phases, day_on, jobs, day_gate, a_hours, after_sleep, release_after } => {
