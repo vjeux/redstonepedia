@@ -1422,6 +1422,10 @@ pub enum MobfarmCmd {
         /// (repeatable; merged with the bench file's own).
         #[arg(long)]
         declare: Vec<PathBuf>,
+        /// (ironspec Nov 14 08:41a (2), part 65) Fail when a `# stand-in-guard:` verdict's note cites no resolvable
+        /// evidence (an artifact a/<digits>, a test <fn name>, a recording <path> md5 <hex>): the train gate's flag.
+        #[arg(long)]
+        require_evidence: bool,
     },
     /// (ironspec 2026-11-11 12:50) The rail-junction check: every plain rail joined to three or four
     /// rails, its stored shape against the game's settle order for its signal at rest (both power
@@ -15933,7 +15937,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 std::process::exit(1);
             }
         }
-        MobfarmCmd::RecordMatch { bench, record, offset, world_box, margin, all, declare } => {
+        MobfarmCmd::RecordMatch { bench, record, offset, world_box, margin, all, declare, require_evidence } => {
             anyhow::ensure!(offset.len() == 3, "--offset dx,dy,dz");
             let (bt, rt) = (std::fs::read_to_string(&bench)?, std::fs::read_to_string(&record)?);
             let b = mctas::design::Design::parse(&bt).map_err(|e| anyhow::anyhow!("{}: {e}", bench.display()))?;
@@ -15944,6 +15948,17 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 header.push_str(&std::fs::read_to_string(f).map_err(|e| anyhow::anyhow!("--declare {}: {e}", f.display()))?);
             }
             let declared = crate::recordmatch::declared_from_header(&header).map_err(|e| anyhow::anyhow!("{}: {e}", bench.display()))?;
+            // (ironspec Nov 14 08:41a (2), part 65) each declared guard verdict's evidence, read back; unresolved ones
+            // fail under --require-evidence (the train gate), a visible note otherwise
+            let ev = crate::recordmatch::guard_evidence(&declared);
+            for (l, _) in &ev {
+                println!("{l}");
+            }
+            let unresolved = ev.iter().filter(|(_, ok)| !ok).count();
+            if !ev.is_empty() {
+                println!("stand-in guard evidence: {} declared verdict(s), {unresolved} without a resolvable reference{}", ev.len(), if unresolved == 0 { "" } else if require_evidence { " (FAIL under --require-evidence)" } else { " (a gap to fill; the train gate runs --require-evidence)" });
+            }
+            anyhow::ensure!(!require_evidence || unresolved == 0, "record-match: {unresolved} stand-in guard verdict(s) without a resolvable evidence reference (--require-evidence)");
             // (the box is required, never inferred (ironspec 22:37 (a)), then widened by --margin)
             let (lo, hi, src) = if world_box.len() == 6 {
                 ([world_box[0], world_box[1], world_box[2]], [world_box[3], world_box[4], world_box[5]], "--box")
