@@ -27,6 +27,7 @@ pub mod gate;
 pub mod hold;
 pub mod layouts;
 pub mod editpatch;
+pub mod census;
 pub mod survivalcensus;
 pub mod naps;
 pub mod napper;

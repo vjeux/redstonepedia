@@ -1371,6 +1371,12 @@ pub enum MobfarmCmd {
     /// rail shapes, dust connections); wall and stair cells are UNCHECKED (no shape update in redsim) and
     /// fail unless --allow-unchecked. --write re-emits the file settled (its leading comment lines kept).
     /// Exit status 1 on a failure (mobfarm::settle).
+    /// (ironspec Nov 14 12:26p, part 80) The load-order census of a composed record: every block whose random tick can
+    /// change its state (persistent leaves excepted) and every hopper, each with its cell and the part that lays it
+    /// (from the record's `# +` lines)
+    Census {
+        design: PathBuf,
+    },
     SettleCheck {
         /// A design file, or a directory: every `.txt` design file under it, each checked in turn (part 72)
         file: PathBuf,
@@ -15815,6 +15821,33 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             // (G1 12:19 (1): a mismatch, an uncompared row, a failed expect or a vacuous counterfactual exits non-zero)
             anyhow::ensure!(r.failures.is_empty(), "drive-replay: {} failure(s), the first: {}", r.failures.len(), r.failures[0]);
+        }
+        MobfarmCmd::Census { design } => {
+            let text = std::fs::read_to_string(&design)?;
+            let top = std::process::Command::new("git").args(["rev-parse", "--show-toplevel"]).output().ok().filter(|o| o.status.success()).map(|o| PathBuf::from(String::from_utf8_lossy(&o.stdout).trim()));
+            let top = top.ok_or_else(|| anyhow::anyhow!("census: NOT JUDGED: no repository top (not in a git checkout) to read the parts from"))?;
+            let c = crate::census::census(&text, &top).map_err(|e| anyhow::anyhow!("{}: {e}", design.display()))?;
+            println!(
+                "census {} (ironspec 12:26p / 12:28p (3): the load-order window touches only hoppers and random ticks): {} random-ticking block(s) (persistent leaves excepted), {} hopper(s) ({} under a rail), {} state(s) the block table doesn't hold (NOT JUDGED)",
+                design.display(),
+                c.random.len(),
+                c.hoppers.len(),
+                c.hoppers.iter().filter(|(_, u)| *u).count(),
+                c.unknown.len()
+            );
+            for (r, w) in c.random.iter().zip(&c.watchers) {
+                let watch = if w.is_empty() { "no observer watches it".to_string() } else { format!("WATCHED by the observer(s) at {}", w.iter().map(|q| format!("{},{},{}", q[0], q[1], q[2])).collect::<Vec<_>>().join(" ")) };
+                println!("  random tick ({},{},{}): {} (laid by {}; {watch})", r.cell[0], r.cell[1], r.cell[2], r.state.trim_start_matches("minecraft:"), r.owner);
+            }
+            for (r, under) in &c.hoppers {
+                println!("  hopper ({},{},{}){}: {} (laid by {})", r.cell[0], r.cell[1], r.cell[2], if *under { ", UNDER A RAIL" } else { "" }, r.state.trim_start_matches("minecraft:"), r.owner);
+            }
+            for r in &c.unknown {
+                println!("  NOT JUDGED ({},{},{}): {} (laid by {}): not in the block table, its random tick can't be told", r.cell[0], r.cell[1], r.cell[2], r.state.trim_start_matches("minecraft:"), r.owner);
+            }
+            if !c.unknown.is_empty() {
+                std::process::exit(1);
+            }
         }
         MobfarmCmd::SettleCheck { file, files_from, changed_from, scope_file, owners, write, cap, day_time, allow_unchecked, all } => {
             // (farmopt / ironspec Nov 14 10:21a (2) / 10:29a (5) / 10:37a (3), part 72) a directory (every `.txt` design
