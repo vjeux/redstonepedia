@@ -159,7 +159,8 @@ fn farm_rider(w: &mut redsim::world::World, cart: u32, bed: BlockPos, stamp_age:
 /// more than 0.1 block ALONG THE RAIL (the signed sqrt(dy^2 + dz^2), the slopes rising 1 per 1) from
 /// the last rest is a `Rollback`, from a short stop since that rest a `ShortStop` (its cause, a boost
 /// or the collision's bounce, judged by the caller); once per excursion, re-armed when the cart is
-/// back at or below the reference or rests again.
+/// back at or below the reference (a counted excursion's later rests higher up do not re-arm it: G1
+/// 17:00 B7, the doc matched to `Some((_, rz, true)) if p.2 > rz` keeping the old reference).
 #[derive(Clone, Debug, Default)]
 pub struct UpSlope {
     still: u32,
@@ -228,6 +229,50 @@ impl UpSlope {
         }
         ev
     }
+}
+
+/// G1 17:00 (B4): a lip path's departure from its solo reference: the largest centre distance over
+/// the k both carry; a k carried by ONE path only (a path ending early, or a tail cut) is an infinite
+/// departure, never a dropped tail; None if they share no k.
+pub fn path_departure(a: &[(i32, f64, f64, f64)], b: &[(i32, f64, f64, f64)]) -> Option<f64> {
+    let mut d = 0.0f64;
+    let mut n = 0;
+    for p in a {
+        match b.iter().find(|q| q.0 == p.0) {
+            Some(q) => {
+                d = d.max(((p.1 - q.1).powi(2) + (p.2 - q.2).powi(2) + (p.3 - q.3).powi(2)).sqrt());
+                n += 1;
+            }
+            None => return Some(f64::INFINITY),
+        }
+    }
+    if b.iter().any(|q| !a.iter().any(|p| p.0 == q.0)) {
+        return Some(f64::INFINITY);
+    }
+    (n > 0).then_some(d)
+}
+
+/// G1 16:25 / 17:00 (B1): a short stop's class from its move's start `us` and EVERY R_1 chain contact
+/// tick since its stop (the stop's own tick included): boosted if any contact tc has `us` in
+/// [tc - 1, tc + w] (the -1: end-of-tick sampling); moved before the chain only if the FIRST contact
+/// comes after `us + 1`; otherwise (contacts, none in the window) UNCLASSIFIED; no contact: bounce.
+pub fn classify_short_stop(us: i64, contacts: &[i64], w: i64) -> &'static str {
+    if contacts.is_empty() {
+        return "short stop, bounce";
+    }
+    if contacts.iter().any(|tc| us >= tc - 1 && us <= tc + w) {
+        return "short stop, boosted";
+    }
+    if contacts.iter().min().is_some_and(|f| *f > us + 1) {
+        return "short stop, moved before the chain";
+    }
+    "short stop, UNCLASSIFIED (chain outside the window)"
+}
+
+/// G1 17:00 (B2): a chain contact at `tc` is the start's fill only inside the start pulse's REAL
+/// powered ticks at the rail and before the first trapdoor shut.
+pub fn is_start_fill(tc: i64, start_pulse: Option<(i64, i64)>, first_shut: Option<i64>) -> bool {
+    start_pulse.is_some_and(|(a, b)| tc >= a && tc <= b) && first_shut.is_none_or(|fs| tc < fs)
 }
 
 /// G1 15:22 / 15:55: the contact chains from the carts on a POWERED R_1 within one tick: contact is
@@ -696,6 +741,9 @@ pub struct SidingOpts {
     /// G1 15:55: a short stop's up-slope move is BOOSTED only if an R_1 contact chain reached its cart
     /// within this many gt of the move's start (--boost-window).
     pub boost_window: i64,
+    /// --start-i: the design start (i) (G1 15:53 / ironspec 15:37): the bed's ticket left FREE (no
+    /// poi::take); HOME in every rider's brain and LAST_SLEPT t0 - 100 as before.
+    pub start_i: bool,
     /// The module of record's branch (7b90c3f1's split row): D an ascending_south detector, the cells
     /// south of it solid (tick-exact's official S-bend row); default the bench's flat D.
     pub d_slope: bool,
@@ -1176,9 +1224,10 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
         }
         std::fs::write(path, out).map_err(|e| format!("--out {path}: {e}"))?;
     }
-    // (poi::take, checked like an override (ironspec 07:28 C8): the bed's free tickets before -> after)
+    // (poi::take, checked like an override (ironspec 07:28 C8): the bed's free tickets before -> after;
+    // --start-i (G1 15:53 / ironspec 15:37: the design start (i)) leaves the ticket FREE: no take)
     let mut take_note = String::new();
-    if so.ai {
+    if so.ai && !so.start_i {
         let before = redsim::entity::mob::ai::poi::free_tickets(&mut run.world, bed);
         redsim::entity::mob::ai::poi::take(&mut run.world, bed);
         let after = redsim::entity::mob::ai::poi::free_tickets(&mut run.world, bed);
@@ -1196,7 +1245,15 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
     // (ironspec 06:42 real, the redsim HOME-ticket gap (redsim's summon with HOME takes the bed's
     // ticket; the game's loaded HOME takes none): the bed's free tickets and holders at the start,
     // and how this bench stands with it)
-    let bed_start_line = if so.ai {
+    let bed_start_line = if so.ai && so.start_i {
+        format!(
+            "the bed at the start (ironspec 06:42 real, the HOME-ticket gap): START STATE (i) (--start-i: the design start, G1 15:53): the shared bed ({},{},{}) laid, its ticket FREE (no poi::take); free tickets {}; every rider's HOME set in its brain at its spawn (farm_rider), LAST_SLEPT t0 - 100, no HOME NBT, so no summon takes a ticket",
+            BED.0,
+            BED.1,
+            BED.2,
+            redsim::entity::mob::ai::poi::free_tickets(&mut run.world, bed).map_or("- (no POI)".to_string(), |n| n.to_string())
+        )
+    } else if so.ai {
         format!(
             "the bed at the start (ironspec 06:42 real, the HOME-ticket gap): START STATE (ii) (G1: the design start (i) leaves the bed's ticket free): the shared bed ({},{},{}) laid, its one ticket taken once by the bench at the start (poi::take, a declared stand-in{take_note}); free tickets after it {}; holders: read from the riders' brains at t 1 (the riders line), their HOME set in the brain at their spawn (farm_rider), no HOME NBT, so no summon takes a ticket (the gap doesn't arise)",
             BED.0,
@@ -1338,10 +1395,17 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
     // control's plant)
     // (each lane cart's up-slope tracker on the slopes)
     let mut tracker: Vec<UpSlope> = vec![UpSlope::default(); carts.len()];
-    // (each lane cart since its last stop: the latest R_1 chain contact (tick, path), the tick its
-    // up-slope move began, its last z; the boosted events' notes)
+    // (G1 17:00 B2: the start pulse's REAL powered ticks at the rail before the first shut, and the
+    // first shut)
+    let mut start_pulse: Option<(i64, i64)> = None;
+    let mut first_shut: Option<i64> = None;
+    // (G1 17:00 B1: each lane cart's R_1 chain contacts since its stop (the stop's own tick included):
+    // (tick, path); the tick its up-slope move began; its last z; the listed events)
     #[allow(clippy::type_complexity)]
-    let mut boost_seen: Vec<Option<(i64, Vec<usize>)>> = vec![None; carts.len()];
+    let mut r1_contacts: Vec<Vec<(i64, Vec<usize>)>> = vec![Vec::new(); carts.len()];
+    let mut moved_notes: Vec<String> = Vec::new();
+    // (each lane cart since its last stop: the tick its up-slope move began and its last z; the
+    // boosted events' notes)
     let mut up_start: Vec<Option<i64>> = vec![None; carts.len()];
     let mut prev_z: Vec<Option<f64>> = vec![None; carts.len()];
     let mut boosted_notes: Vec<String> = Vec::new();
@@ -1429,6 +1493,8 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
     let mut nap: Option<(usize, usize)> = None;
     let mut pred_pass: Option<i64> = None;
     let mut released_at: Option<i64> = None;
+    // (G1 17:00 B3: the --inject-release napper's cart)
+    let mut injected_cart: Option<usize> = None;
     let mut v_rest_occ: Option<usize> = None;
     let mut v_hold_occ: Option<usize> = None;
     let (mut v_holds, mut v_holds_start, mut v_holds_end) = (0usize, 0usize, 0usize);
@@ -1970,6 +2036,10 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
             {
                 s_until = t + so.nap_pulse;
                 released_at = Some(t);
+                // (G1 17:00 B3: the forced release's napper cart, so the interaction row judges ITS pair)
+                if let Some((nc, _)) = nap {
+                    injected_cart = Some(nc);
+                }
                 if let Some((nc, _)) = nap
                     && let Some(p) = carts[nc].and_then(|id| st(&run.world, id))
                 {
@@ -2099,6 +2169,8 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
                 // 0 / 12 / 24; --r-delay D lays that, the pulse --r-pulse)
                 r_from = t + so.r_delay;
                 r_until = r_from + o.r_pulse;
+                // (G1 17:00 B2: the first shut, the end of the start's fill)
+                first_shut.get_or_insert(t);
             }
         }
         let want_r = t >= r_from && t < r_until;
@@ -2124,7 +2196,7 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
                 prev_now
                     .iter()
                     .enumerate()
-                    .filter(|(_, p)| p.is_some_and(|(x, _, z, v)| x >= lx as f64 && x < (lx + 1) as f64 && (1.0..2.0).contains(&z) && v < 0.001))
+                    .filter(|(c, p)| p.is_some_and(|(x, _, z, _)| x >= lx as f64 && x < (lx + 1) as f64 && (1.0..2.0).contains(&z)) && tracker[*c].still_now())
                     .map(|(c, _)| c)
                     .collect(),
             );
@@ -2255,6 +2327,9 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
                         }
                         Some(pid)
                     }
+                    // (G1 17:00 L11: under --j-rail a napper with no parked cart is an error, never a
+                    // silent fresh one)
+                    (Some(_), None) if so.j_rail => return Err(format!("--j-rail: t {t}: lane cart {c}'s napper has no parked cart to set on K")),
                     _ => None,
                 };
                 parked[c] = None;
@@ -2300,7 +2375,10 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
                 let jx = lx as f64 + 0.15;
                 let clear_j = carts.iter().all(|id| id.and_then(|id| st(&run.world, id)).is_none_or(|(x, y, z, _)| !(y > m as f64 + 0.5 && (z - zs).abs() < 0.9 && (x - jx).abs() < 1.3)));
                 if clear_j {
-                    let pid = parked[c].take().unwrap_or_default();
+                    // (G1 17:00 L11: no parked cart is an error, never entity id 0 teleported)
+                    let Some(pid) = parked[c].take() else {
+                        return Err(format!("--j-rail: t {t}: lane cart {c} has no parked cart to set on J"));
+                    };
                     // (G1 14:18 L11: a refused set is an error, never a silently lost return)
                     if !teleport_cart(&mut run.world, pid, [jx, (m + 1) as f64 + 0.0625, mzf(zs)], [o.v_in, 0.0, 0.0]) {
                         return Err(format!("--j-rail: t {t}: lane cart {c}'s parked cart {pid} is gone; its return can't be set on J"));
@@ -2433,10 +2511,13 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
             launch_in[nc] = at;
         }
         prev_now.clone_from(&now);
-        // (G1 15:22 / 15:55: the contact chains (the minecart push test) from the carts on a POWERED
-        // R_1 this tick; a short stop's up-slope move is BOOSTED if its cart was reached by such a chain
-        // at a tick within --boost-window gt before its up-slope move began, since its stop)
-        let chains: std::collections::BTreeMap<usize, Vec<usize>> = if r_is {
+        // (G1 15:22 / 15:55 / 17:00: the contact chains (the minecart push test) from the carts on R_1
+        // while the RAIL ITSELF is powered this tick (its block state, not the drive's switch))
+        let rail_on = matches!(run.world.get(wp(BlockPos::new(lx, 17, 1))), Block::Rail { activator: false, powered: true, .. });
+        if rail_on && first_shut.is_none() {
+            start_pulse = Some((start_pulse.map_or(t, |p| p.0), t));
+        }
+        let chains: std::collections::BTreeMap<usize, Vec<usize>> = if rail_on {
             let lane_boxes: Vec<(usize, (f64, f64, f64), [f64; 6], Option<[f64; 6]>)> = (0..n)
                 .filter_map(|j| {
                     let id = carts[j]?;
@@ -2488,59 +2569,57 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
                 // move over 0.1 from a rest is a ROLLBACK (a failure); from a SHORT STOP (1..4 still
                 // ticks) it is classed by its cause: a BOOST (the cart in R_1's cell, z 1..2, with R_1
                 // powered) is a failure, else the collision's BOUNCE, printed)
-                if let Some(path) = chains.get(&c) {
-                    // (the latest chain contact since the stop: its tick and its path of cart indices)
-                    boost_seen[c] = Some((t, path.clone()));
+                // (G1 17:00 B1: this tick's step first; a still tick is a stop: its contacts start
+                // afresh from it, the stop's own tick included; then this tick's chain contact; then the
+                // move's start (the first tick its z rose since the stop); then the event's class)
+                let ev = tracker[c].step((x, y, z));
+                if tracker[c].still_now() {
+                    r1_contacts[c].clear();
+                    up_start[c] = None;
                 }
-                // (the tick its up-slope move began since the stop: the first tick its z rose)
-                if up_start[c].is_none() && prev_z[c].is_some_and(|pz| z > pz + 1e-9) && !tracker[c].still_now() {
+                if let Some(path) = chains.get(&c) {
+                    r1_contacts[c].push((t, path.clone()));
+                }
+                if !tracker[c].still_now() && up_start[c].is_none() && prev_z[c].is_some_and(|pz| z > pz + 1e-9) {
                     up_start[c] = Some(t);
                 }
                 prev_z[c] = Some(z);
-                match tracker[c].step((x, y, z)) {
+                match ev {
                     Some(UpEvent::Rollback(a)) => rollbacks.push((t, c, a, "rollback")),
                     Some(UpEvent::ShortStop(a)) => {
-                        // (G1 15:55: boosted only if a chain reached it within --boost-window gt before its
-                        // up-slope move began; printed with the chain and the ticks from R_1's push)
-                        // (G1 16:22: the window runs from the chain's OWN contact tick to the move's
-                        // start; a chain during R_1's START-UP pulse (the bench's initial settle, before
-                        // any release: no shut yet) is the start's fill, listed; a chain outside the
-                        // window is UNCLASSIFIED and fails, listed)
+                        // (G1 16:25 / 17:00: boosted if ANY contact tc since the stop has the move's start
+                        // in [tc - 1, tc + W]; moved before the chain only if the FIRST contact comes after
+                        // the start + 1; otherwise UNCLASSIFIED (fails); no contact: the collision's bounce.
+                        // A boost whose every in-window contact lies in the start pulse's REAL powered
+                        // ticks before the first shut is the start's fill)
                         let us = up_start[c].unwrap_or(t);
-                        // (G1 16:25: the window is [contact - 1, contact + W] (the -1: end-of-tick
-                        // sampling); a move begun before contact - 1 is its own class, printed)
-                        let cls = match boost_seen[c].as_ref() {
-                            None => "short stop, bounce",
-                            Some((tc, _)) if us - tc < -1 => "short stop, moved before the chain",
-                            Some((tc, _)) if us - tc > so.boost_window => "short stop, UNCLASSIFIED (chain outside the window)",
-                            Some((tc, _)) if *tc < 10 + o.r_pulse && (r_from == i64::MIN || r_from > *tc) => "start fill",
-                            Some(_) => "short stop, boosted",
-                        };
-                        if let Some((tc, _)) = boost_seen[c].as_ref() {
+                        let ticks: Vec<i64> = r1_contacts[c].iter().map(|k| k.0).collect();
+                        let mut cls = classify_short_stop(us, &ticks, so.boost_window);
+                        let in_window: Vec<&(i64, Vec<usize>)> = r1_contacts[c].iter().filter(|(tc, _)| us >= tc - 1 && us <= tc + so.boost_window).collect();
+                        if cls == "short stop, boosted" && in_window.iter().all(|(tc, _)| is_start_fill(*tc, start_pulse, first_shut)) {
+                            cls = "start fill";
+                        }
+                        for tc in &ticks {
                             *gap_hist.entry(us - tc).or_insert(0) += 1;
                         }
-                        if let Some((tc, path)) = boost_seen[c].as_ref() {
+                        if let Some((tc, path)) = in_window.first().copied().or(r1_contacts[c].first()) {
                             let note = format!(
-                                "t {t} lane cart {c} +{a:.4} (its move up began t {us}, {} gt from the chain's contact at t {tc}{}: lane carts {})",
+                                "t {t} lane cart {c} +{a:.4} (its move up began t {us}, {} gt from the chain's contact at t {tc} (contacts since the stop {}){}: lane carts {})",
                                 us - tc,
-                                if r_from != i64::MIN && r_from <= *tc { format!(", {} gt after R_1 came on", tc - r_from) } else { ", in R_1's start-up pulse".to_string() },
+                                ticks.len(),
+                                if r_from != i64::MIN && r_from <= *tc { format!(", {} gt after R_1 came on", tc - r_from) } else { ", before any shut".to_string() },
                                 path.iter().map(|k| k.to_string()).collect::<Vec<_>>().join(" > ")
                             );
                             match cls {
                                 "short stop, boosted" => boosted_notes.push(note),
                                 "start fill" => fill_notes.push(note),
-                                "short stop, moved before the chain" => {}
+                                "short stop, moved before the chain" => moved_notes.push(note),
                                 _ => unclassified_notes.push(note),
                             }
                         }
                         rollbacks.push((t, c, a, cls));
                     }
                     None => {}
-                }
-                if tracker[c].still_now() {
-                    // (at its stop or rest: a later boost and move count from here)
-                    boost_seen[c] = None;
-                    up_start[c] = None;
                 }
                 if tracker[c].at_rest() {
                     slope_rest_samples += 1;
@@ -2549,7 +2628,7 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
                 // (off the slopes (released, on the lift, at the lip): its next rest starts afresh, so a
                 // cart's return to the lane top is no displacement from its old slot)
                 tracker[c].reset();
-                boost_seen[c] = None;
+                r1_contacts[c].clear();
                 up_start[c] = None;
                 prev_z[c] = None;
             }
@@ -2764,6 +2843,8 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
             && t <= t1
         {
             let wt = run.world.time;
+            // (G1 16:53: R_1's power at the rail itself each tick (the waveform, not the drive's nominal))
+            eprintln!("lip t {t}: R_1 ({},17,1) {} (the drive: {})", lx, format!("{:?}", run.world.get(wp(BlockPos::new(lx, 17, 1)))).replace("PoweredRail", "powered rail"), if r_is { "on" } else { "off" });
             let bx = |e: &redsim::entity::Entity| {
                 let b = dbox(&e.bb);
                 format!("x {:.3}..{:.3} y {:.3}..{:.3} z {:.3}..{:.3}", b.0, b.1, b.2, b.3, b.4, b.5)
@@ -2782,7 +2863,23 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
                         let riders: Vec<String> = e
                             .passengers
                             .iter()
-                            .filter_map(|r| redsim::entity::index_of(&run.world, *r).map(|ri| format!("{} [{}]", r, bx(&run.world.entities.list[ri]))))
+                            .filter_map(|r| {
+                                redsim::entity::index_of(&run.world, *r).map(|ri| {
+                                    let re = &run.world.entities.list[ri];
+                                    // (G1 16:53: the rider's brain state and move input per tick)
+                                    let st = match &re.kind {
+                                        redsim::entity::EntityKind::Mob(mb) => {
+                                            let act = mb.brain.as_deref().map_or("-".to_string(), |b| format!("{:?}", b.activity));
+                                            let ex = mb.brain.as_deref().and_then(|b| b.ex.as_deref());
+                                            let walk = ex.and_then(|x| x.mem.walk_target.as_ref()).map_or("-".to_string(), |w| format!("{:?}", w.target));
+                                            let path = ex.and_then(|x| x.mem.path.as_ref()).map_or("none", |p| if p.reached { "reaching" } else { "partial" });
+                                            format!(" activity {act} walk {walk} path {path} xxa {:.3} zza {:.3}", mb.xxa, mb.zza)
+                                        }
+                                        _ => String::new(),
+                                    };
+                                    format!("{} [{}]{st}", r, bx(re))
+                                })
+                            })
                             .collect();
                         let slot = carts.iter().position(|cid| *cid == Some(e.id)).map_or("-".to_string(), |c| c.to_string());
                         eprintln!(
@@ -4208,7 +4305,7 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
         lines.push(format!(
             "the queue's net up-slope displacements (G1 Nov 13 12:32, the rollback's fallback bar: a lane cart's move up the slopes more than 0.1 block from its last rest (G1 14:18 L14 / 15:17: a rest = the centre moved under 1e-4 block in each of 5 consecutive ticks on the slopes, POSITION-based (a one-tick zero of stored speed at a landing collision is no rest); the displacement = ALONG THE RAIL, the signed sqrt(dy^2 + dz^2) up the slope from that rest), once per excursion; the bar: 0): {} [{}]{}",
             rollbacks.iter().filter(|r| r.3 == "rollback" || r.3 == "short stop, boosted" || r.3.contains("UNCLASSIFIED")).count(),
-            rollbacks.iter().filter(|r| r.3 == "rollback" || r.3 == "short stop, boosted" || r.3.contains("UNCLASSIFIED")).take(6).map(|(t, c, d, k)| format!("t {t} lane cart {c} +{d:.4} ({k})")).collect::<Vec<_>>().join(", "),
+            rollbacks.iter().filter(|r| r.3 == "rollback" || r.3 == "short stop, boosted" || r.3.contains("UNCLASSIFIED")).map(|(t, c, d, k)| format!("t {t} lane cart {c} +{d:.4} ({k})")).collect::<Vec<_>>().join(", "),
             upslope_planted.map_or(String::new(), |(t, c, d)| format!("; the edge control's plant: lane cart {c} moved up-slope by {d:.4} along the rail at t {t} ({upslope_plant_note}, read back from the world)"))
         ));
         lines.push(format!(
@@ -4219,21 +4316,24 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
             {
                 let sf = rollbacks.iter().filter(|r| r.3 == "start fill").count();
                 let un = rollbacks.iter().filter(|r| r.3.contains("UNCLASSIFIED")).count();
-                let b: Vec<String> = rollbacks.iter().filter(|r| r.3 == "short stop, bounce").take(4).map(|(t, c, d, _)| format!("t {t} lane cart {c} +{d:.4}")).collect();
+                let b: Vec<String> = rollbacks.iter().filter(|r| r.3 == "short stop, bounce").map(|(t, c, d, _)| format!("t {t} lane cart {c} +{d:.4}")).collect();
                 let mut s = if b.is_empty() { String::new() } else { format!(" (bounces: {})", b.join(", ")) };
                 s.push_str(&format!(
-                    "; UNCLASSIFIED (a chain since the stop, the move begun after contact + {}; FAILS) {un}{}; moved before the chain (begun before contact - 1; printed, not a bar) {}; the start's fill (a chain during R_1's start-up pulse, before any shut; printed, not a bar) {sf}{}; the move-start minus chain-contact gaps (gt: count) [{}]",
+                    "; UNCLASSIFIED (contacts since the stop, none with the move's start in [contact - 1, contact + {}]; FAILS) {un}{}; moved before the chain (the first contact after the move's start + 1; printed, not a bar) {}{}; the start's fill (every in-window contact inside the start pulse's real powered ticks {}, before the first shut {}; printed, not a bar) {sf}{}; the move-start minus chain-contact gaps over every contact (gt: count) [{}]",
                     so.boost_window,
                     if unclassified_notes.is_empty() { String::new() } else { format!(" [{}]", unclassified_notes.join("; ")) },
                     rollbacks.iter().filter(|r| r.3 == "short stop, moved before the chain").count(),
+                    if moved_notes.is_empty() { String::new() } else { format!(" [{}]", moved_notes.join("; ")) },
+                    start_pulse.map_or("none (no start pulse)".to_string(), |(a, b)| format!("t {a}..{b}")),
+                    first_shut.map_or("none".to_string(), |f| format!("t {f}")),
                     if fill_notes.is_empty() { String::new() } else { format!(" [{}]", fill_notes.join("; ")) },
                     gap_hist.iter().map(|(g, k)| format!("{g}: {k}")).collect::<Vec<_>>().join(", ")
                 ));
                 if !boosted_notes.is_empty() {
                     s.push_str(&format!(
-                        "; the boosted events with their R_1 contact chains (G1 15:55: the minecart push test within the tick; the move begun within {} gt of the chain): {}",
+                        "; the boosted events with their R_1 contact chains (G1 15:55 / 17:00: the minecart push test within the tick, R_1's rail powered; the move begun in [contact - 1, contact + {}]): {}",
                         so.boost_window,
-                        boosted_notes.iter().take(6).cloned().collect::<Vec<_>>().join("; ")
+                        boosted_notes.join("; ")
                     ));
                 }
                 s
@@ -4313,7 +4413,9 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
             let mut arr: Vec<(i64, usize)> = lip_arrivals.iter().map(|a| (a.0, a.1)).collect();
             arr.sort();
             for (ta, c) in &arr {
-                let pts: Vec<String> = (-10..=30).filter_map(|k| snap_of(ta + k, *c).map(|e| format!("{k}:{:.5},{:.5},{:.5}", e.1 .0, e.1 .1, e.1 .2))).collect();
+                // (G1 17:00 B4: full precision (Rust's shortest round-trip form), so a departure the
+                // 1e-6 bar must see is never rounded away)
+                let pts: Vec<String> = (-10..=30).filter_map(|k| snap_of(ta + k, *c).map(|e| format!("{k}:{},{},{}", e.1 .0, e.1 .1, e.1 .2))).collect();
                 lines.push(format!("lip path t {ta} cart {c}: {}", pts.join(" ")));
             }
             let from_r = |ta: i64, c: usize| (ta - 60..ta).any(|t| snap_of(t, c).is_some_and(|e| e.1 .0 < lx as f64 - 0.9));
@@ -4361,6 +4463,10 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
             lines.push(format!(
                 "the interaction row (ironspec Nov 13 14:47 (a)): napper pairs {npairs}; the resting napper and the lip passes (L-d): passes {passes}, contacts box {b} push {p}, the resting napper's largest displacement {disp:.6}"
             ));
+            lines.push(match injected_cart {
+                Some(ic) => format!("the forced release (G1 17:00 B3): napper cart {ic}"),
+                None => "the forced release (G1 17:00 B3): none".to_string(),
+            });
         }
         let mut by: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
         for a in &lip_arrivals {
@@ -5255,6 +5361,8 @@ pub struct SidingRow {
     /// L-d: (passes with a napper resting on R, box-contact ticks, push-contact ticks, its largest
     /// displacement).
     pub ld: (usize, usize, usize, f64),
+    /// G1 17:00 B3: the --inject-release napper's cart (None: no forced release happened).
+    pub injected_cart: Option<usize>,
     /// Declared stops no cart met (G1's CHANGES 3 (2)): failures.
     pub contacts_stale: usize,
     /// The contacts before t 20 (the summoned start's settle), counted apart.
@@ -5593,6 +5701,8 @@ pub fn parse_siding_row(text: String, so: &SidingOpts) -> Result<SidingRow, Stri
             }
             let after = l.split_once("(L-d)").map_or(l, |x| x.1);
             r.ld = (req(after, ": passes ")? as usize, req(after, "contacts box ")? as usize, req(after, " push ")? as usize, req(after, "largest displacement ")?);
+        } else if l.starts_with("the forced release (G1 17:00 B3)") {
+            r.injected_cart = if l.ends_with(": none") { None } else { Some(req(l, "napper cart ")? as usize) };
         } else if l.starts_with("the lip margin (ironspec 21:14 (2)") {
             let s = l.split("(stuck)): margins ").nth(1).ok_or(format!("siding_row: no lip margins in: {l}"))?;
             r.lip_min = if s.starts_with("- ") {
@@ -5950,6 +6060,29 @@ mod seed_list_tests {
         assert_eq!(ch.get(&2), Some(&vec![1, 2]), "the front cart, through the rear one on R_1");
         assert!(r1_chains(&[rear, front, far], false).is_empty(), "R_1 off");
         assert!(!ch.contains_key(&3), "no contact with the chain");
+        // (G1 17:00 B1's classifier fixtures, W 10)
+        let us = 10;
+        assert_eq!(classify_short_stop(us, &[9, 10, 11, 12, 13, 14], 10), "short stop, boosted", "continuous contact from us - 1 through us + 4");
+        assert_eq!(classify_short_stop(us, &[9], 10), "short stop, boosted", "one contact on the last still tick, the move next tick");
+        assert_eq!(classify_short_stop(20, &[9], 10), "short stop, UNCLASSIFIED (chain outside the window)", "a contact at us - W - 1 only");
+        assert_eq!(classify_short_stop(us, &[12], 10), "short stop, moved before the chain", "the first contact after us + 1");
+        assert_eq!(classify_short_stop(us, &[], 10), "short stop, bounce");
+        // (G1 17:00 B2's start-fill controls: inside the real pulse before the first shut only)
+        assert!(is_start_fill(5, Some((0, 39)), None));
+        assert!(is_start_fill(5, Some((0, 39)), Some(300)));
+        assert!(!is_start_fill(310, Some((0, 39)), Some(300)), "a contact after the first shut (and any later shut) is no start fill");
+        assert!(!is_start_fill(5, None, None), "--start-steady: no start pulse, no start fill");
+        // (G1 17:00 B4's departure controls: a planted 2e-6 offset FAILS the 1e-6 bar; a truncated tail
+        // fails; identical paths depart 0)
+        let solo: Vec<(i32, f64, f64, f64)> = (0..5).map(|k| (k, 3.5, 20.0 + k as f64 * 0.1, 4.0 + k as f64 * 0.1)).collect();
+        let mut planted = solo.clone();
+        planted[3].3 += 2e-6;
+        assert!(path_departure(&planted, &solo).is_some_and(|d| d > 1e-6), "a planted 2e-6 offset");
+        assert!(path_departure(&solo[..3], &solo).is_some_and(|d| d > 1e-6), "a truncated tail");
+        assert_eq!(path_departure(&solo, &solo), Some(0.0));
+        // (the full-precision print round-trips the planted offset)
+        let s = format!("{}", planted[3].3);
+        assert_eq!(s.parse::<f64>().unwrap(), planted[3].3);
     }
 
     /// `--seeds-matrix`: ranges and lists, and the refusals (a reversed range, a repeat, a non-number).
@@ -6056,6 +6189,7 @@ mod official_row_tests {
             c2_booster: false,
             r_delay: 0,
             boost_window: 10,
+            start_i: false,
             d_slope: true,
             out: None,
             no_walkway: false,
