@@ -313,17 +313,99 @@ fn residual(text: &str, its: &[Item]) -> String {
     lines.iter().zip(&covered).filter(|(_, c)| !**c).map(|(l, _)| *l).collect::<Vec<_>>().join("\n")
 }
 
-/// `git show REV:PATH`: None when the file isn't at REV; an error when REV isn't a commit.
-fn show(rev: &str, path: &str) -> Result<Option<String>> {
-    let ok = std::process::Command::new("git").args(["rev-parse", "--verify", "--quiet", &format!("{rev}^{{commit}}")]).output().context("git rev-parse")?;
+/// `git` in `dir` (None: the current directory), its output.
+fn git(dir: Option<&std::path::Path>, args: &[&str]) -> Result<std::process::Output> {
+    let mut c = std::process::Command::new("git");
+    if let Some(d) = dir {
+        c.current_dir(d);
+    }
+    c.args(args).output().with_context(|| format!("git {}", args.join(" ")))
+}
+
+/// `git show REV:PATH`: None ONLY when REV's tree holds no PATH (asked of `git ls-tree`); an error when REV
+/// isn't a commit or `git show` fails for any other reason (G1 Nov 14 10:21, 232bc6ff4 (2): a failure read as
+/// "absent" moved a change onto the next commit, a false "reviewed").
+fn show_in(dir: Option<&std::path::Path>, rev: &str, path: &str) -> Result<Option<String>> {
+    let ok = git(dir, &["rev-parse", "--verify", "--quiet", &format!("{rev}^{{commit}}")])?;
     if !ok.status.success() {
         bail!("{rev}: not a commit in this repository");
     }
-    let o = std::process::Command::new("git").args(["show", &format!("{rev}:{path}")]).output().context("git show")?;
-    if !o.status.success() {
+    let o = git(dir, &["show", &format!("{rev}:{path}")])?;
+    if o.status.success() {
+        return Ok(Some(String::from_utf8(o.stdout).with_context(|| format!("{rev}:{path} is not UTF-8"))?));
+    }
+    let t = git(dir, &["ls-tree", "--name-only", rev, "--", path])?;
+    if t.status.success() && String::from_utf8_lossy(&t.stdout).trim().is_empty() {
         return Ok(None);
     }
-    Ok(Some(String::from_utf8(o.stdout).with_context(|| format!("{rev}:{path} is not UTF-8"))?))
+    bail!("git show {rev}:{path} failed and the path is in {rev}'s tree: {}", String::from_utf8_lossy(&o.stderr).trim())
+}
+
+fn show(rev: &str, path: &str) -> Result<Option<String>> {
+    show_in(None, rev, path)
+}
+
+/// (G1 Nov 14 10:21, 232bc6ff4 (2)) `--chain` checked, not trusted: each commit an ancestor of the next (the
+/// order), and every commit between the chain's first and last that changes one of `paths` is in the chain
+/// (complete); an omitted or reordered revision is an error.
+fn check_chain(dir: Option<&std::path::Path>, chain: &[String], paths: &[String]) -> Result<()> {
+    for w in chain.windows(2) {
+        let o = git(dir, &["merge-base", "--is-ancestor", &w[0], &w[1]])?;
+        if !o.status.success() {
+            bail!("--chain is not in ancestry order: {} is not an ancestor of {}", w[0], w[1]);
+        }
+    }
+    let (Some(first), Some(last)) = (chain.first(), chain.last()) else { bail!("--chain is empty") };
+    let has_parent = git(dir, &["rev-parse", "--verify", "--quiet", &format!("{first}^")])?.status.success();
+    let range = if has_parent { format!("{first}^..{last}") } else { last.clone() };
+    let mut args: Vec<&str> = vec!["rev-list", "--ancestry-path", &range, "--"];
+    if !has_parent {
+        args.remove(1);
+    }
+    for p in paths {
+        args.push(p);
+    }
+    let o = git(dir, &args)?;
+    if !o.status.success() {
+        bail!("git rev-list {range} failed: {}", String::from_utf8_lossy(&o.stderr).trim());
+    }
+    let full = |c: &str| -> Result<String> {
+        let r = git(dir, &["rev-parse", "--verify", &format!("{c}^{{commit}}")])?;
+        Ok(String::from_utf8_lossy(&r.stdout).trim().to_string())
+    };
+    let ours: Vec<String> = chain.iter().map(|c| full(c)).collect::<Result<_>>()?;
+    for c in String::from_utf8_lossy(&o.stdout).lines().map(str::trim).filter(|c| !c.is_empty()) {
+        if !ours.iter().any(|x| x == c) {
+            bail!("--chain omits {}, which changes {} between {first} and {last}", &c[..12.min(c.len())], paths.join(", "));
+        }
+    }
+    Ok(())
+}
+
+/// An item's review status from the chain revisions that introduced or changed it (`changed`, which holds
+/// the introducing one): REVIEWED when every one of them is reviewed, PARTLY naming the unreviewed and the
+/// reviewed ones when some are, UNREVIEWED otherwise (G1 Nov 14 10:21, 232bc6ff4 (1): a reviewed base with an
+/// unreviewed later change was printed "unreviewed base" and named neither).
+#[derive(Debug, PartialEq)]
+enum Status {
+    Reviewed,
+    Partly,
+    Unreviewed,
+}
+
+fn status(changed: &[usize], is_reviewed: &dyn Fn(usize) -> bool, names: &[String]) -> (Status, String) {
+    let list = |v: &[usize]| v.iter().map(|k| names[*k].as_str()).collect::<Vec<_>>().join(", ");
+    let (rev, unrev): (Vec<usize>, Vec<usize>) = changed.iter().partition(|k| is_reviewed(**k));
+    if changed.is_empty() {
+        return (Status::Unreviewed, "UNREVIEWED (no revision of the chain holds it)".to_string());
+    }
+    if unrev.is_empty() {
+        (Status::Reviewed, format!("reviewed (introduced or changed in {})", list(&rev)))
+    } else if !rev.is_empty() {
+        (Status::Partly, format!("PARTLY: unreviewed {}; reviewed {}", list(&unrev), list(&rev)))
+    } else {
+        (Status::Unreviewed, format!("UNREVIEWED (introduced or changed in {})", list(&unrev)))
+    }
 }
 
 /// The lines two texts differ by: (only in a, only in b), by a longest-common-subsequence walk.
@@ -346,6 +428,19 @@ pub fn cmd_review_map(args: ReviewMapArgs) -> Result<()> {
             bail!("--reviewed {r} is not in --chain");
         }
     }
+    // (G1 Nov 14 10:21, 232bc6ff4 (2)) the chain checked: ancestry order, and complete for the file and every
+    // block's file
+    let mut paths: Vec<String> = vec![file.clone()];
+    for b in &blocks {
+        if let Some((_, rest)) = b.split_once('=') {
+            if let Some((p, _)) = rest.split_once(':') {
+                if !paths.iter().any(|x| x == p) {
+                    paths.push(p.to_string());
+                }
+            }
+        }
+    }
+    check_chain(None, &chain, &paths)?;
     let last = chain.len() - 1;
     // every revision's items: the file's functions, then the blocks; and the file's residual (the lines
     // outside every function: G1's CHANGES 3 (1))
@@ -381,19 +476,16 @@ pub fn cmd_review_map(args: ReviewMapArgs) -> Result<()> {
     writeln!(md, "| # | item | lines | introduced | changed in | status | against the last reviewed revision ({}) |", last_reviewed.map_or("none", |k| chain[k].as_str()))?;
     writeln!(md, "|---|---|---|---|---|---|---|")?;
     let (mut n_rev, mut n_part, mut n_un) = (0, 0, 0);
-    let rev_of = |k: &usize| reviewed.contains(&chain[*k]);
+    let rev_of = |k: usize| reviewed.contains(&chain[k]);
     // the status of an item from the revisions it changed in: the same rule for items and the residual
-    let mut status_of = |first: usize, changed: &[usize]| -> String {
-        if rev_of(&first) && changed.iter().all(rev_of) {
-            n_rev += 1;
-            format!("reviewed (introduced in {})", chain[first])
-        } else if changed.iter().any(rev_of) {
-            n_part += 1;
-            format!("PARTLY: unreviewed base ({}), changed in reviewed {}", chain[first], changed.iter().filter(|k| rev_of(k)).map(|k| chain[*k].as_str()).collect::<Vec<_>>().join(", "))
-        } else {
-            n_un += 1;
-            format!("UNREVIEWED (introduced in {})", chain[first])
+    let mut status_of = |changed: &[usize]| -> String {
+        let (s, text) = status(changed, &rev_of, &chain);
+        match s {
+            Status::Reviewed => n_rev += 1,
+            Status::Partly => n_part += 1,
+            Status::Unreviewed => n_un += 1,
         }
+        text
     };
     let compare = |was: Option<&str>, now: &str| -> String {
         match was {
@@ -416,7 +508,7 @@ pub fn cmd_review_map(args: ReviewMapArgs) -> Result<()> {
             }
         }
         let first = (0..=last).find(|&k| find(k).is_some()).unwrap_or(last);
-        let status = status_of(first, &changed);
+        let status = status_of(&changed);
         let cmp = compare(last_reviewed.and_then(|k| find(k).map(|x| x.text.as_str())), &it.text);
         writeln!(md, "| {} | `{}` | {}..{} | {} | {} | {status} | {cmp} |", idx + 1, it.name, it.start, it.end, chain[first], changed.iter().map(|k| chain[*k].as_str()).collect::<Vec<_>>().join(", "))?;
     }
@@ -432,12 +524,12 @@ pub fn cmd_review_map(args: ReviewMapArgs) -> Result<()> {
         }
         let first = (0..=last).find(|&k| residuals[k].is_some()).unwrap_or(last);
         let now = residuals[last].as_deref().unwrap_or_default();
-        let status = status_of(first, &changed);
+        let status = status_of(&changed);
         let cmp = compare(last_reviewed.and_then(|k| residuals[k].as_deref()), now);
         writeln!(md, "| R | `[residual] {file}: the lines outside every function` | {} line(s) | {} | {} | {status} | {cmp} |", now.lines().count(), chain[first], changed.iter().map(|k| chain[*k].as_str()).collect::<Vec<_>>().join(", "))?;
     }
     writeln!(md)?;
-    writeln!(md, "{} item(s) and the residual: {n_rev} reviewed, {n_part} partly (an unreviewed base with reviewed changes), {n_un} unreviewed", per_rev[last].len())?;
+    writeln!(md, "{} item(s) and the residual: {n_rev} reviewed, {n_part} partly (some of their introducing or changing revisions unreviewed, named in the row), {n_un} unreviewed", per_rev[last].len())?;
     print!("{md}");
     if let Some(p) = out {
         std::fs::write(&p, &md).with_context(|| format!("writing {}", p.display()))?;
@@ -514,5 +606,70 @@ mod tests {
     fn line_diff_counts() {
         assert_eq!(line_diff("a\nb\nc", "a\nb\nc"), (0, 0));
         assert_eq!(line_diff("a\nb\nc", "a\nx\nc\nd"), (1, 2));
+    }
+
+    /// (G1 Nov 14 10:21, 232bc6ff4 (1)(3)) the status names every unreviewed revision: a reviewed base with an
+    /// unreviewed later change is PARTLY naming that change (it was printed "unreviewed base"); an unreviewed
+    /// base with a reviewed change names the base; all reviewed / none reviewed.
+    #[test]
+    fn status_names_the_unreviewed_revisions() {
+        let names: Vec<String> = ["c1", "c2", "c3"].iter().map(|s| s.to_string()).collect();
+        let only = |set: &'static [usize]| move |k: usize| set.contains(&k);
+        let (s, t) = status(&[0, 2], &only(&[0]), &names);
+        assert_eq!(s, Status::Partly);
+        assert_eq!(t, "PARTLY: unreviewed c3; reviewed c1");
+        let (s, t) = status(&[0, 1], &only(&[1]), &names);
+        assert_eq!(s, Status::Partly);
+        assert_eq!(t, "PARTLY: unreviewed c1; reviewed c2");
+        assert_eq!(status(&[0, 1, 2], &only(&[0, 1, 2]), &names).0, Status::Reviewed);
+        assert_eq!(status(&[1], &only(&[]), &names).0, Status::Unreviewed);
+        assert_eq!(status(&[], &only(&[0]), &names).0, Status::Unreviewed, "nothing holds it: never reviewed");
+    }
+
+    /// A throwaway repository: `f` committed three times (c1, c2, c3) and `g` once (c4), each commit's id.
+    fn repo() -> (std::path::PathBuf, Vec<String>) {
+        let d = std::env::temp_dir().join(format!("review-map-test-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::create_dir_all(&d).unwrap();
+        let run = |args: &[&str]| {
+            let o = git(Some(&d), args).unwrap();
+            assert!(o.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&o.stderr));
+            String::from_utf8_lossy(&o.stdout).trim().to_string()
+        };
+        run(&["init", "-q"]);
+        let mut ids = Vec::new();
+        for (k, (file, text)) in [("f", "fn a() {}\n"), ("f", "fn a() { 1; }\n"), ("f", "fn a() { 2; }\n"), ("g", "x\n")].iter().enumerate() {
+            std::fs::write(d.join(file), text).unwrap();
+            run(&["add", file]);
+            run(&["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", &format!("c{}", k + 1)]);
+            ids.push(run(&["rev-parse", "HEAD"]));
+        }
+        (d, ids)
+    }
+
+    /// (G1 Nov 14 10:21, 232bc6ff4 (2)(3)) `--chain` is checked: complete and in order passes; an omitted
+    /// revision that changes the file fails naming it; a reordered chain fails; a commit that changes another
+    /// file only may be left out.
+    #[test]
+    fn the_chain_is_checked() {
+        let (d, c) = repo();
+        let p = vec!["f".to_string()];
+        check_chain(Some(&d), &[c[0].clone(), c[1].clone(), c[2].clone()], &p).unwrap();
+        check_chain(Some(&d), &[c[0].clone(), c[1].clone(), c[2].clone(), c[3].clone()], &p).unwrap();
+        let e = check_chain(Some(&d), &[c[0].clone(), c[2].clone()], &p).unwrap_err().to_string();
+        assert!(e.contains("omits") && e.contains(&c[1][..12]), "{e}");
+        let e = check_chain(Some(&d), &[c[1].clone(), c[0].clone()], &p).unwrap_err().to_string();
+        assert!(e.contains("ancestry order"), "{e}");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// (G1 Nov 14 10:21, 232bc6ff4 (2)(3)) `show`: a path absent from a revision's tree is None; a path present
+    /// is its text; a revision that isn't a commit is an error.
+    #[test]
+    fn show_tells_absent_from_failed() {
+        let (d, c) = repo();
+        assert_eq!(show_in(Some(&d), &c[0], "g").unwrap(), None, "g isn't in c1's tree");
+        assert_eq!(show_in(Some(&d), &c[3], "g").unwrap().as_deref(), Some("x\n"));
+        assert!(show_in(Some(&d), "0000000000000000000000000000000000000000", "f").is_err());
+        let _ = std::fs::remove_dir_all(&d);
     }
 }
