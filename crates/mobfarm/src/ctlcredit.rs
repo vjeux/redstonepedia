@@ -26,8 +26,9 @@
 //!
 //! THE TIMELINE (onechunk's clock-locked figures, gt after the batch's REL): slot 1 (lane -1's cart) at J(-1) 101,
 //! J(3) 116, J(7) 146; slot 2 (lane 3's) at 121 / 136 / 166; slot 3 (lane 7's) at 150 / 165 / 181; a returning napper
-//! R6 (10) behind slot 3: 160 / 175 / 191. A cart diverts at the first J whose shape is branch when it arrives (the
-//! returning napper at its own K(x) junction, the J's west of it held off); its D press 4 gt after the J.
+//! R6 (the controller interface's) + the hold rail's NAPPER_SHIFT behind slot 3 (`napper_t()`). A cart diverts at the
+//! first J whose shape is branch when it arrives (the returning napper at its own K(x) junction, the J's west of it held
+//! off); its D press 4 gt after the J.
 
 use crate::verdict::Verdict;
 
@@ -116,16 +117,113 @@ pub const RESYNC_QUIET: i64 = 30;
 pub const RESET_W: i64 = 4;
 /// A J -> the cart's D press.
 pub const J_TO_D: i64 = 4;
-/// K(x)'s window around the napper's crossing of J(x): its LATE half.
-pub const K_HALF: i64 = 10;
-/// The re-planted wide-window controls' early half (ironspec 11:24a, R6 = 14): one gt past slot 3's nominal clearance at
-/// J(3) (K_EARLY + 8 + 2), so a switch lands under slot 3's box.
-pub const K_WIDE: i64 = 15;
-/// K(x)'s EARLY half (day-1 05:15, G1 CHANGES 7's world-open finding): the lane -1 napper rides only 12 gt behind its
-/// batch's slot 3 at J(-1), so a symmetric 10 left slot 3 2 gt clear of the window and a k + j 3 open after the napper's
-/// release put slot 3 inside it (forced into lane -1); the early half covers the napper's earliest arrival (the -2 jitter
-/// + 3), leaving slot 3 7 gt clear.
-pub const K_EARLY: i64 = 5;
+/// day-1's controller interface file, the values of record, read at compile time from the tree. Every value ctl-credit
+/// takes from it goes through ONE reader ([`iface_line`]) that requires its key to open EXACTLY ONE line (G1's B1 on
+/// 40a74308f: a value restated or duplicated in the file fails by name; the code holds no copy of these values).
+pub const IFACE: &str = include_str!("../../../designs/farms/iron/carousel-assembly/wip/controller/f1q2-day1-controller-interface.md");
+/// The interface's keys (each a list item's opening text) for the values ctl-credit reads.
+pub const R6_KEY: &str = "- R6 = ";
+pub const K_KEY: &str = "- K windows: ";
+pub const CORNER_KEY: &str = "- The timing corners: ±";
+pub const SLACK_KEY: &str = "- The ruled slack: ";
+pub const HOLD_KEY: &str = "- The napper's row hold (9,0,8) releases at REL + ";
+pub const PULSE_KEY: &str = "- **release pulse = ";
+
+/// The remainder of the ONE line of `text` that starts with `key`; no such line, or more than one, fails by name.
+pub fn iface_line<'a>(text: &'a str, key: &str) -> Result<&'a str, String> {
+    let found: Vec<&str> = text.lines().filter(|l| l.starts_with(key)).collect();
+    match found.as_slice() {
+        [l] => Ok(&l[key.len()..]),
+        _ => Err(format!("the controller interface states \"{key}\" on {} lines (exactly one required: a value is stated once)", found.len())),
+    }
+}
+
+/// An integer at the start of `rest`, followed by `unit`; returns it and the text after the unit.
+fn iface_num<'a>(rest: &'a str, unit: &str) -> Result<(i64, &'a str), String> {
+    let len = rest.char_indices().find(|&(i, ch)| !(ch.is_ascii_digit() || (i == 0 && ch == '-'))).map_or(rest.len(), |(i, _)| i);
+    let n: i64 = rest[..len].parse().map_err(|_| format!("no number at \"{}\"", rest.chars().take(24).collect::<String>()))?;
+    let after = rest[len..].strip_prefix(unit).ok_or_else(|| format!("{n} is not followed by \"{unit}\""))?;
+    Ok((n, after))
+}
+
+/// The interface values ctl-credit reads: R6, K's two halves, the timing corners, the ruled slack, the napper's row-hold
+/// release and the release pulse.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Iface {
+    /// R6 (gt behind slot 3 at the J's, before the hold rail's NAPPER_SHIFT; ADOPTED ironspec 11:24a).
+    pub r6: i64,
+    /// K(x)'s window around the napper's crossing of J(x): its EARLY half and its LATE half (ironspec 11:24a). The early
+    /// half is short (day-1 05:15, G1 CHANGES 7's world-open finding): a symmetric window reached slot 3 of the napper's own
+    /// batch under a k + j open after the napper's release (forced into the napper's lane); judged as constraint (i).
+    pub k_early: i64,
+    pub k_half: i64,
+    /// The timing corners (G1's B2 / B3 on 40a74308f): normal running moves each cart's and each napper's arrival by up to
+    /// this many gt either way; the swept runs cover every offset in -corner..=corner.
+    pub corner: i64,
+    /// The ruled slack (G1's B4: "the >= 2-gt form"): each physical constraint's least >= its minimum + this.
+    pub slack: i64,
+    /// The napper's row hold (9,0,8)'s release after REL (bought ironspec 08:41a (2)), judged at the hold rail.
+    pub hold_rel: i64,
+    /// day-1's REQUIREMENT for the batch release pulse out of dfb89499's limiter (G1 08:43 (4)).
+    pub release_pulse: i64,
+}
+
+impl Iface {
+    /// Every value through [`iface_line`] (its key on exactly one line), each failure named by its value.
+    pub fn parse(text: &str) -> Result<Iface, String> {
+        let gt = |key: &str, what: &str, unit: &str| -> Result<i64, String> { iface_line(text, key).and_then(|r| iface_num(r, unit)).map(|x| x.0).map_err(|e| format!("{what}: {e}")) };
+        let k = iface_line(text, K_KEY).map_err(|e| format!("the K windows: {e}"))?;
+        let k = k.strip_prefix("K_EARLY = ").ok_or_else(|| "the K windows: the line does not open with \"K_EARLY = \"".to_string())?;
+        let (k_early, k) = iface_num(k, " gt (the early half), K_HALF = ").map_err(|e| format!("the K windows (K_EARLY): {e}"))?;
+        let (k_half, _) = iface_num(k, " gt (the late half)").map_err(|e| format!("the K windows (K_HALF): {e}"))?;
+        Ok(Iface {
+            r6: gt(R6_KEY, "R6", " gt")?,
+            k_early,
+            k_half,
+            corner: gt(CORNER_KEY, "the timing corners", " gt")?,
+            slack: gt(SLACK_KEY, "the ruled slack", " gt")?,
+            hold_rel: gt(HOLD_KEY, "the napper's row hold", " gt")?,
+            release_pulse: gt(PULSE_KEY, "the release pulse", " gt**")?,
+        })
+    }
+}
+
+/// The interface values, parsed once (a malformed or restated value panics by name).
+pub fn iface() -> &'static Iface {
+    static V: std::sync::OnceLock<Iface> = std::sync::OnceLock::new();
+    V.get_or_init(|| Iface::parse(IFACE).unwrap_or_else(|e| panic!("ctl-credit's controller interface: {e}")))
+}
+pub fn r6() -> i64 {
+    iface().r6
+}
+pub fn k_early() -> i64 {
+    iface().k_early
+}
+pub fn k_half() -> i64 {
+    iface().k_half
+}
+pub fn corner() -> i64 {
+    iface().corner
+}
+pub fn ruled_slack() -> i64 {
+    iface().slack
+}
+pub fn hold_rel() -> i64 {
+    iface().hold_rel
+}
+/// The pre-adoption R6 (the model's before ironspec 11:24a): G1's B4 control plants it (the napper 4 gt earlier).
+pub const R6_PRE: i64 = 10;
+/// The world open's largest carts' lag (k + j) in the swept rows.
+pub const OPEN_KJ_MAX: i64 = 3;
+/// A NORMAL cart's lateness bound (G1's B7 on 40a74308f): the world open's k + j plus the timing corner.
+pub fn normal_late() -> i64 {
+    OPEN_KJ_MAX + corner()
+}
+/// The reference timing row's sign vectors (every sign choice on its carts): bit `i` of `vv` set puts cart `i` at the
+/// late timing corner, clear at the early one (G1's B2 on 40a74308f: the corner read from the interface, no literal 2).
+pub fn corner_sign(vv: u32, i: u32) -> i64 {
+    if vv & (1 << i) != 0 { corner() } else { -corner() }
+}
 /// G11: the HOLDs' reset after the picked cart's arrival at the J (k), and the lane-7 pick's delta7.
 pub const HOLD_K: i64 = 1;
 pub const DELTA7: i64 = 10;
@@ -136,17 +234,15 @@ pub const DELTA7: i64 = 10;
 pub const HOLD_SET: i64 = 95;
 /// The slots' arrivals at J(-1), J(3), J(7) after REL; the napper's.
 pub const SLOT_T: [[i64; 3]; 3] = [[101, 116, 146], [121, 136, 166], [150, 165, 181]];
-/// The returning napper's J arrivals, R6 (10) behind slot 3 on the REL + 51 stand-in (the hold rail at REL + 63).
+/// The returning napper's J arrivals ride R6 behind slot 3 on the REL + 51 stand-in (the hold rail at REL + 63).
 /// NAPPER_SHIFT: ARM3 at (4,6,7)'s press (REL + 57) through the + 8 chain puts the hold rail at REL + 65 (ironspec 20:58
 /// a: the tent's middle): the napper 2 gt later than the stand-in's.
 pub const NAPPER_SHIFT: i64 = 2;
 /// day-1's controller interface REQUIREMENT for the batch release pulse (gt), READ from the interface file
-/// (f1q2-day1-controller-interface.md, "release pulse = N gt"): one written number (G1 08:43 (4)).
+/// (f1q2-day1-controller-interface.md, "release pulse = N gt", its key on exactly one line): one written number (G1 08:43
+/// (4)).
 pub fn release_pulse() -> i64 {
-    let f = include_str!("../../../designs/farms/iron/carousel-assembly/wip/controller/f1q2-day1-controller-interface.md");
-    let key = "- **release pulse = ";
-    let at = f.find(key).expect("the interface file states the release pulse") + key.len();
-    f[at..].split(' ').next().and_then(|s| s.parse().ok()).expect("the release pulse is a number of gt")
+    iface().release_pulse
 }
 /// The napper's hold-rail release offset before NAPPER_SHIFT (REL + 63; with the shift REL + 65): one state source for
 /// the K / OFF windows' release tick (G1 CHANGES 8 on 5184136c2 (8)).
@@ -156,21 +252,42 @@ pub const NAPPER_REL: i64 = 63;
 pub const RELEASE_OFFSETS: [i64; 3] = [0, 17, 27];
 pub const TRAIN15_OFFSETS: [i64; 3] = [0, 14, 24];
 pub const TRAIN16_SHIFT: [i64; 3] = [RELEASE_OFFSETS[0] - TRAIN15_OFFSETS[0], RELEASE_OFFSETS[1] - TRAIN15_OFFSETS[1], RELEASE_OFFSETS[2] - TRAIN15_OFFSETS[2]];
-/// The napper's row hold (9,0,8)'s release after REL (bought ironspec 08:41a (2)), judged at the hold rail.
-pub const JOIN_HOLD_REL: i64 = 67;
+/// Train 16's napper shift (G1's B2 on 40a74308f: no literal + 2): on train 16 the napper's row hold (9,0,8) releases at
+/// the interface's REL + `hold_rel()` (ARM3 at slot 3's train-16 press through its 7-gt chain), the model's base napper
+/// at the hold rail REL + NAPPER_REL + NAPPER_SHIFT (train 15's ARM3 + 8): the difference moves the napper's J arrivals
+/// and its release tick on train 16's rows.
+pub fn napper16() -> i64 {
+    hold_rel() - (NAPPER_REL + NAPPER_SHIFT)
+}
 /// Slot 3's BOX-CLEAR tick at each J (REL-relative; its box past the J cell's east face by its half-width 0.49), measured
 /// by ironfarm on record7f13b-rev2 at the 12-gt pulse, train 16's offsets (farmopt 08:38 (3)): J(-1), J(3), J(7).
 pub const SLOT3_BOX_CLEAR: [i64; 3] = [153, 169, 184];
 /// Slot 3's box clear after its J arrival in the model, per J (ironfarm's ticks minus the model's train-16 arrivals).
 pub const BOX_OFF: [i64; 3] = [SLOT3_BOX_CLEAR[0] - (SLOT_T[2][0] + TRAIN16_SHIFT[2]), SLOT3_BOX_CLEAR[1] - (SLOT_T[2][1] + TRAIN16_SHIFT[2]), SLOT3_BOX_CLEAR[2] - (SLOT_T[2][2] + TRAIN16_SHIFT[2])];
-pub const NAPPER_T: [i64; 3] = [160 + NAPPER_SHIFT + R6_SHIFT, 175 + NAPPER_SHIFT + R6_SHIFT, 191 + NAPPER_SHIFT + R6_SHIFT];
-/// R6 = 14 (ADOPTED, ironspec 11:24a: the >= 2-gt form; R6 = 15 withdrawn 10:52a, 12 / 8 superseded): the napper's release
-/// from its lane's R hold 4 gt later than R6 = 10's, with K's late half 10 (K_HALF), so every physical constraint at the
-/// switching J's keeps >= 3 gt in the swept train-16 runs (K's switch after slot 3's box clear + 1: 5; the napper's own D
-/// inside its window: 3; the next batch's D outside it: 25); the station row's (9,0,8) hold stays at REL + 67.
-pub const R6_SHIFT: i64 = 4;
-/// The napper's R6 (gt behind slot 3 at the J's), stated once in day-1's interface file.
-pub const R6: i64 = 10 + R6_SHIFT;
+/// The returning napper's J arrivals after REL on train 15's offsets for a given R6: R6 behind slot 3 at each J plus the
+/// hold rail's NAPPER_SHIFT. DERIVED from R6 (G1's B1 on 40a74308f: no separately typed shift); the interface's delay(x)
+/// is written in R6 too.
+pub fn napper_t_at(r6: i64) -> [i64; 3] {
+    std::array::from_fn(|j| SLOT_T[2][j] + r6 + NAPPER_SHIFT)
+}
+/// The napper's J arrivals at the interface's R6 (ADOPTED ironspec 11:24a, the >= 2-gt form; the history off the value
+/// line): its physical constraints at the switching J's (K's switch after slot 3's box clear + 1; the napper's own D
+/// inside its window; a batch D outside the windows by >= 1) are judged over the swept train-16 runs against each
+/// minimum + the ruled slack; the station row's (9,0,8) hold is the interface's `hold_rel()`.
+pub fn napper_t() -> [i64; 3] {
+    napper_t_at(r6())
+}
+/// The nominal (no open, every timing corner at 0) margin of constraint (i) at J(-1) / J(3) on train 16 for an early half
+/// `k_early`: K(l)'s early edge minus (slot 3's box clear + 1), ironfarm's box-clear ticks.
+pub fn nominal_clearance(k_early: i64) -> [i64; 2] {
+    let nt = napper_t();
+    std::array::from_fn(|l| (nt[l] + napper16() - k_early) - (SLOT3_BOX_CLEAR[l] + 1))
+}
+/// The wide-window controls' early half, DERIVED (G1 on 40a74308f, non-blocking: no hand-typed 15): K_EARLY + the larger
+/// nominal clearance + 1, so K's switch lands at or under slot 3's box at EVERY switching J (each nominal margin <= -1).
+pub fn k_wide() -> i64 {
+    k_early() + nominal_clearance(k_early()).into_iter().max().unwrap_or(0) + 1
+}
 pub const LANES: [i32; 3] = [-1, 3, 7];
 /// The power-up: the hopper's items (the ballast + 2 credits) and the dropper's stock.
 pub const HOPPER0: i64 = 3;
@@ -242,7 +359,8 @@ pub struct Row {
     /// lane X (its D(X) masked, the stand-in D(Y) keyed on it).
     pub rebalance: bool,
     pub over_q: i64,
-    /// The release offsets' shift from train 15's 0 / 14 / 24 (per slot) and the napper's (train 16: [0, 3, 3] and + 2).
+    /// The release offsets' shift from train 15's 0 / 14 / 24 (per slot) and the napper's (train 16: TRAIN16_SHIFT and
+    /// `napper16()`, read from the interface's row-hold release).
     pub slot_shift: [i64; 3],
     pub napper_shift: i64,
     /// The pick-dependent reset (ironspec 19:56 (4)): on a lane -1 pick the reset leaves J(-1) off and arms J(3)
@@ -335,8 +453,11 @@ pub struct Defects {
     pub reb_standin_on_dx: bool,
     /// The OLD SYMMETRIC K window (its early half at K_HALF): the twin of the asymmetric window (day-1 05:15).
     pub k_symmetric: bool,
-    /// K's early half overridden (the re-planted wide-window controls: K_WIDE).
+    /// K's early half overridden (the re-planted wide-window controls: `k_wide()`).
     pub k_early_override: Option<i64>,
+    /// R6 overridden (G1's B4 control on 40a74308f: R6_PRE, the napper's J arrivals and its windows earlier by the
+    /// difference; its release tick unchanged, as R6 never moved it).
+    pub r6_override: Option<i64>,
     /// (b')'s through-branch sensor MISSED ONCE: the first J(Y)-first move's stand-in D(Y) never lands (G1 04:19 (5)(b)).
     pub reb_standin_missed: bool,
     /// The REMOVED count reset (zeroing the in-flight count on a quiet route): the long-halt rows' control.
@@ -449,10 +570,14 @@ pub struct Out {
     pub credit_lead_min: Option<i64>,
     /// The least distance of a batch D(-1) / D(3) press from a K(-1) / K(3) window.
     pub mask_margin: Option<i64>,
-    /// R6's physical constraints in this run: (i) the least K(l) switch minus slot 3's box clear + 1 at J(l); (ii) the
-    /// least margin of a napper's own D(l) press inside its window.
-    pub r6_phys: Option<i64>,
-    pub own_mask: Option<i64>,
+    /// R6's physical constraints in this run (G1's B3 / B5 on 40a74308f), each with its OWN sample count: (i) K(l)'s switch
+    /// minus slot 3's box clear + 1 at J(l), lanes -1 / 3; (ii) the napper's own D(l) press inside its window, every lane;
+    /// (iii) a batch D(-1) / D(3) press outside the K windows (`mask_margin` with its count and where).
+    pub phys: [Phys; 3],
+    /// Windows that gave (i) / (ii) no sample (slot 3 never passed J(l); no own napper press of that lane): counted.
+    pub phys_dropped: [usize; 2],
+    /// Every napper's own D press as it landed (batch, tick, lane), emulated presses excluded.
+    pub nap_presses: Vec<(usize, i64, i32)>,
     /// Per batch: the ring reset's margins (J(-1)'s branch -> this batch's slot 1 at J(-1); J(3)'s return - the
     /// previous batch's slot 3 at J(3); J(-1) armed - the previous batch's slot 3 at J(-1)).
     pub reset_margins: Vec<(Option<i64>, Option<i64>, Option<i64>)>,
@@ -505,6 +630,28 @@ pub struct Out {
     pub piled: Vec<(usize, Option<usize>)>,
 }
 
+/// One physical constraint's record in a run (G1's B3 / B5 on 40a74308f): its sample count (0: NOT JUDGED), its least
+/// margin with WHERE it is set (the J's lane index; the edge: 0 the window's early edge, 1 its late edge, 2 inside; the
+/// window's batch), and the least at each J.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Phys {
+    pub n: usize,
+    pub least: Option<(i64, usize, u8, usize)>,
+    pub per_j: [Option<i64>; 3],
+}
+
+impl Phys {
+    fn take(&mut self, m: i64, lane: usize, edge: u8, batch: usize) {
+        self.n += 1;
+        if self.least.is_none_or(|l| m < l.0) {
+            self.least = Some((m, lane, edge, batch));
+        }
+        if self.per_j[lane].is_none_or(|x| m < x) {
+            self.per_j[lane] = Some(m);
+        }
+    }
+}
+
 struct Press {
     at: i64,
     lane: i32,
@@ -553,9 +700,11 @@ pub fn four_dust(items: i64) -> i64 {
 pub fn run(row: &Row, def: Defects) -> Out {
     let (t_open, idle, kj) = row.open.unwrap_or((i64::MAX, 0, 0));
     // (the slots' and the napper's J arrivals under the row's release offsets (train 16: 0 / 17 / 27 and the napper's
-    // delay after ARM3 7: slot_shift [0, 3, 3], napper_shift + 2); every design window keyed on an arrival moves with it)
+    // delay after ARM3 7: slot_shift TRAIN16_SHIFT, napper_shift `napper16()`); the napper's base derived from R6 (the
+    // interface's, or G1's B4 control's override); every design window keyed on an arrival moves with it)
     let slot_t: [[i64; 3]; 3] = std::array::from_fn(|s| std::array::from_fn(|j| SLOT_T[s][j] + row.slot_shift[s]));
-    let napper_t: [i64; 3] = std::array::from_fn(|j| NAPPER_T[j] + row.napper_shift);
+    let napper_base = napper_t_at(def.r6_override.unwrap_or_else(r6));
+    let napper_t: [i64; 3] = std::array::from_fn(|j| napper_base[j] + row.napper_shift);
     let n = (row.t_max + idle + kj + 600) as usize;
     let ballast = if def.no_ballast { 0 } else { 1 };
     let need = if def.single_latch { 1 } else { ballast + 1 };
@@ -589,7 +738,9 @@ pub fn run(row: &Row, def: Defects) -> Out {
     // (misrouted) D(7) before the tap keeps crediting)
     let mut comp = false;
     let mut jam_seg: Option<usize> = None;
-    let k_half = def.k_half.unwrap_or(K_HALF);
+    // (K's halves, read from the interface (or a control's override): the late half `kh`, the early half `ke`)
+    let kh = def.k_half.unwrap_or_else(k_half);
+    let ke = def.k_early_override.unwrap_or(if def.k_symmetric { kh } else { kh.min(k_early()) });
     // (the J's west of a returning napper's lane held off over its passage: OFF14_y)
     let mut off_windows: Vec<(i64, i64, usize)> = Vec::new();
     // (credits waiting for `armed` to read them: (the press tick))
@@ -1046,13 +1197,12 @@ pub fn run(row: &Row, def: Defects) -> Out {
                     // hold rail at REL + 65 (+ the train's napper shift); its K / OFF windows ride it)
                     let rel_tick = t + NAPPER_REL + NAPPER_SHIFT + row.napper_shift + extra + lag;
                     // (K(lane) and the OFF windows of the J's west of it ride the napper's nominal timing; its ride may be
-                    // jittered past them (item 4's control))
-                    let k_early = def.k_early_override.unwrap_or(if def.k_symmetric { k_half } else { k_half.min(K_EARLY) });
-                    k_windows.push((nt[lane] - k_early, nt[lane] + k_half, lane));
+                    // jittered past them (item 4's control; the timing corners))
+                    k_windows.push((nt[lane] - ke, nt[lane] + kh, lane));
                     k_win_batch.push(b);
                     k_win_rel.push(rel_tick);
                     for (ji, &ntj) in nt.iter().enumerate().take(lane) {
-                        off_windows.push((ntj - k_early, ntj + k_half, ji));
+                        off_windows.push((ntj - ke, ntj + kh, ji));
                         off_win_rel.push(rel_tick);
                     }
                     let jit = row.napper_jitter.iter().filter(|x| x.0 == b).map(|x| x.1).sum::<i64>();
@@ -1254,6 +1404,9 @@ pub fn run(row: &Row, def: Defects) -> Out {
             }
             if p.batch < o.presses.len() {
                 o.presses[p.batch].push((t, p.lane, p.slot.map(|s| LANES[s])));
+                if p.napper && !p.emulated {
+                    o.nap_presses.push((p.batch, t, p.lane));
+                }
             }
             if !p.emulated {
                 last_route_ev = t;
@@ -1367,7 +1520,8 @@ pub fn run(row: &Row, def: Defects) -> Out {
                     // ring form's J(-1) arm and J(7) reset), as K(-1) / K(3) mask D(-1)'s / D(3)'s: a lane-7 napper's own D(7)
                     // landing in the next batch's SEEN3 would credit that batch early or clear its SEEN3 (the probe: a lane 7
                     // napper 50..90 gt late changed the store without it); `k7_unmasked` is the twin)
-                    // (K(7) by ORDER (day-1 02:51): the lane-7 napper rides R6 = 10 behind its batch's lane-7 cart, the D(7)
+                    // (K(7) by ORDER (day-1 02:51): the lane-7 napper rides R6 (+ the hold rail's shift) behind its batch's
+                    // lane-7 cart, the D(7)
                     // presser, so a plain +-K window around the napper masks the batch's OWN credit; K(7) masks only
                     // INSIDE the napper's window AND AFTER its batch's own D(7) credit (the latch `k7_after` set by that
                     // credit, cleared at the window's end): the napper's late D(7) can't credit or reset the next batch)
@@ -1545,6 +1699,9 @@ pub fn run(row: &Row, def: Defects) -> Out {
     if let Some(&l) = o.credit_latency.iter().max() {
         o.measured_margin = Some(STRINGS_READY - (D7_MEASURED + l));
     }
+    // (iii) with the masks' edge gap: every batch D(-1) / D(3) press against every K window of its lane, the distance
+    // outside it (0 inside), counted with where it is set (G1's B5 on 40a74308f); lane 7 has none: K(7) masks by ORDER
+    // (after its batch's own credit), so the batch's own D(7) is never under its napper's mask
     for ps in &o.presses {
         for &(t, lane, own) in ps {
             if own.is_none() {
@@ -1555,37 +1712,38 @@ pub fn run(row: &Row, def: Defects) -> Out {
                 3 => 1,
                 _ => continue,
             };
-            for &(a, b, kl) in &k_windows {
+            for (wi, &(a, b, kl)) in k_windows.iter().enumerate() {
                 if kl == l {
-                    let d = if t < a { a - t } else if t > b { t - b } else { 0 };
-                    o.mask_margin = Some(o.mask_margin.map_or(d, |m: i64| m.min(d)));
+                    let (d, edge) = if t < a { (a - t, 0) } else if t > b { (t - b, 1) } else { (0, 2) };
+                    o.phys[2].take(d, l, edge, k_win_batch[wi]);
                 }
             }
         }
     }
+    o.mask_margin = o.phys[2].least.map(|x| x.0);
     // (R6's PHYSICAL CONSTRAINTS, measured IN THIS RUN (ironspec 10:52a: physical bars, world opens applied in the run, no
-    // allowance on paper): (i) K(l) switches J(l) at least one tick after slot 3 of the SAME batch has cleared J(l)'s rail
-    // cell (its pass tick here + the box-clear offset from ironfarm's record7f13b-rev2 ticks); (ii) the napper's own D(l)
-    // press lies inside its window (both sides); lanes -1 / 3 (K(7) never switches between slot 3 and the napper))
+    // allowance on paper; G1's B3 / B5 on 40a74308f: every sample counted, the least kept with its J and edge): (i) K(l)
+    // switches J(l) at least one tick after slot 3 of the SAME batch has cleared J(l)'s rail cell (its pass tick here + the
+    // box-clear offset from ironfarm's record7f13b-rev2 ticks), lanes -1 / 3 (J(7) never switches between slot 3 and the
+    // lane-7 napper: both branch); (ii) the napper's own D(l) press lies inside its window, both edges, EVERY lane (K(7)'s
+    // order mask needs the napper's D(7) inside its window too))
     for (wi, &(a, b2, kl)) in k_windows.iter().enumerate() {
-        if kl > 1 {
-            continue;
-        }
         let wb = k_win_batch[wi];
-        if let Some(p) = o.pass.get(wb) {
-            let s3 = p[2][kl];
+        if kl <= 1 {
+            let s3 = o.pass.get(wb).map_or(0, |p| p[2][kl]);
             if s3 > 0 {
-                let m = a - (s3 + BOX_OFF[kl] + 1);
-                o.r6_phys = Some(o.r6_phys.map_or(m, |x: i64| x.min(m)));
+                o.phys[0].take(a - (s3 + BOX_OFF[kl] + 1), kl, 0, wb);
+            } else {
+                o.phys_dropped[0] += 1;
             }
         }
-        if let Some(ps) = o.presses.get(wb) {
-            for &(t, lane, own) in ps {
-                if own.is_none() && lane == LANES[kl] {
-                    let m = (t - a).min(b2 - t);
-                    o.own_mask = Some(o.own_mask.map_or(m, |x: i64| x.min(m)));
-                }
-            }
+        let own: Vec<i64> = o.nap_presses.iter().filter(|p| p.0 == wb && p.2 == LANES[kl]).map(|p| p.1).collect();
+        if own.is_empty() {
+            o.phys_dropped[1] += 1;
+        }
+        for t in own {
+            let (e, l) = (t - a, b2 - t);
+            o.phys[1].take(e.min(l), kl, if e <= l { 0 } else { 1 }, wb);
         }
     }
     // the ring reset's margins per batch (the reset of batch b's REL against batch b's slot 1 and batch b-1's slot 3)
@@ -1944,7 +2102,7 @@ fn rebalance_block(v: &mut Verdict, lines: &mut Vec<String>) {
         check(format!("the normal night, slack {slack}"), r, &mut depth);
     }
     for vv in 0..16u32 {
-        let sg = |i: u32| if vv & (1 << i) != 0 { 2i64 } else { -2 };
+        let sg = |i: u32| corner_sign(vv, i);
         for t0 in (606..=720).step_by(6) {
             let mut r = lanes_row(None, [8; 3]);
             r.rebalance = true;
@@ -2130,7 +2288,7 @@ fn credit_fix_block(v: &mut Verdict, lines: &mut Vec<String>) {
         let mut ex = Vec::new();
         for (name, r0) in &rows {
             for vv in 0..16u32 {
-                let sg = |i: u32| if vv & (1 << i) != 0 { 2i64 } else { -2 };
+                let sg = |i: u32| corner_sign(vv, i);
                 for t0 in (606..=720).step_by(step) {
                     let mut r = r0.clone();
                     r.s3old_tap = Some(tap);
@@ -2164,7 +2322,7 @@ fn credit_fix_block(v: &mut Verdict, lines: &mut Vec<String>) {
     // (the same rows with the net on: the duplicates it blocks with the store kept by the net)
     for (name, r0) in &rows {
         for vv in 0..16u32 {
-            let sg = |i: u32| if vv & (1 << i) != 0 { 2i64 } else { -2 };
+            let sg = |i: u32| corner_sign(vv, i);
             for t0 in (606..=720).step_by(6) {
                 let mut r = r0.clone();
                 r.open = Some((t0, 0, 3));
@@ -2202,7 +2360,7 @@ fn credit_fix_block(v: &mut Verdict, lines: &mut Vec<String>) {
             let mut bad_tap = 0usize;
             for (name, r0) in &rows {
                 for vv in 0..16u32 {
-                    let sg = |i: u32| if vv & (1 << i) != 0 { 2i64 } else { -2 };
+                    let sg = |i: u32| corner_sign(vv, i);
                     for t0 in (606..=720).step_by(12) {
                         let mut r = r0.clone();
                         r.s3old_tap = Some(tap);
@@ -2273,7 +2431,7 @@ fn credit_fix_block(v: &mut Verdict, lines: &mut Vec<String>) {
     // (the reference rows' would-be duplicates on their guard-off twins, a third of the opens)
     for (name, r0) in &rows {
         for vv in 0..16u32 {
-            let sg = |i: u32| if vv & (1 << i) != 0 { 2i64 } else { -2 };
+            let sg = |i: u32| corner_sign(vv, i);
             for t0 in (606..=720).step_by(6) {
                 let mut r = r0.clone();
                 r.open = Some((t0, 0, 3));
@@ -2356,7 +2514,8 @@ fn credit_fix_block(v: &mut Verdict, lines: &mut Vec<String>) {
         let c = v.control("ctl-credit CONTROL (G1 CHANGES 7 C4): the guard's window at 90 gt: A LEGITIMATE CREDIT BLOCKED fails by name (the next batch's own D(7))", 1, !gc.legit.is_empty()).to_string();
         lines.push(format!("  CONTROL (the guard at 90 gt): {} legitimate credits blocked (e.g. {}): {c}", gc.legit.len(), gc.legit.iter().take(2).cloned().collect::<Vec<_>>().join(" | ")));
     }
-    // (C5 / ironspec 04:30: THE DESIGN ROW's BLOCKED PRESSES, each classified: the on-time lane-7 napper's D(7) lands R6 = 10
+    // (C5 / ironspec 04:30: THE DESIGN ROW's BLOCKED PRESSES, each classified: the on-time lane-7 napper's D(7) lands R6 (+
+    // the hold rail's shift)
     // after its batch's own credit, inside the guard AND inside K(7) by order: blocked as intended, not a legitimate credit)
     {
         let mut r = Row::normal("the design row with a lane-7 napper on time");
@@ -2680,12 +2839,13 @@ fn credit_fix_block(v: &mut Verdict, lines: &mut Vec<String>) {
         lines.push(format!("  THE RESYNC NET's FALSE-FIRE ROWS: {n} rows, false fires {}, true recoveries {} ({}), the store after {}: {w}", if fires.is_empty() { "none".to_string() } else { fires.iter().take(4).cloned().collect::<Vec<_>>().join(" | ") }, recovered.len(), recovered.iter().take(3).cloned().collect::<Vec<_>>().join(" | "), if store_bad.is_empty() { "correct on every row".to_string() } else { store_bad.iter().take(3).cloned().collect::<Vec<_>>().join(" | ") }));
     }
     // (ironspec 03:04 (2) / G1 03:04 (5)(i): K(7) BY ORDER's premise and its holes: the order premise (the batch's lane-7
-    // cart reaches D(7) before its lane-7 napper: SLOT_T[2] vs NAPPER_T[2], printed); A PLANTED REORDER (the batch's lane-7
+    // cart reaches D(7) before its lane-7 napper: SLOT_T[2] vs napper_t()[2], printed); A PLANTED REORDER (the batch's lane-7
     // cart 11..30 gt late, the napper on time: the napper reaches D(7) first) and the batch's lane-7 cart LOST: the mask
     // never arms and the napper's D(7) acts as real; printed per row: credits per batch, the lanes, the leg; judged on the
     // fault path's bars (the store correct, the resync net recovering)
     {
-        lines.push(format!("  K(7) BY ORDER, THE PREMISE: the batch's lane-7 cart reaches J(7) at REL + {} and D(7) {J_TO_D} gt later; its lane-7 napper (riding behind it) at REL + {} (R6 = {} gt behind): the order holds unless the cart is delayed past the napper", SLOT_T[2][2], NAPPER_T[2], NAPPER_T[2] - SLOT_T[2][2]));
+        let nt = napper_t();
+        lines.push(format!("  K(7) BY ORDER, THE PREMISE: the batch's lane-7 cart reaches J(7) at REL + {} and D(7) {J_TO_D} gt later; its lane-7 napper (riding behind it) at REL + {} ({} gt behind: R6 {} + the hold rail's NAPPER_SHIFT {NAPPER_SHIFT}, train 15): the order holds unless the cart is delayed past the napper", SLOT_T[2][2], nt[2], nt[2] - SLOT_T[2][2], r6()));
         let mut bad = Vec::new();
         let mut rows_out = Vec::new();
         for (name, r) in [
@@ -2832,7 +2992,7 @@ fn credit_fix_block(v: &mut Verdict, lines: &mut Vec<String>) {
         let least = ms.iter().min_by_key(|x| x.1).cloned();
         let outside: Vec<&(i32, i64, String)> = ms.iter().filter(|x| x.1 < 0).collect();
         let w = v.bar_n("ctl-credit: EVERY NAPPER PRESS INSIDE ITS OWN K WINDOW (ironspec 02:43 (1)'s condition: the delayed-napper sweep 0..60 on every lane and a world open at every tick of the napper batch)", ms.len(), outside.is_empty());
-        lines.push(format!("  THE NAPPER PRESSES vs THEIR K WINDOWS (+- {K_HALF}): {} presses, the least margin {:?}{}: {w}", ms.len(), least.map(|x| format!("{} gt (lane {}, {})", x.1, x.0, x.2)), if outside.is_empty() { String::new() } else { format!("; OUTSIDE: {}", outside.iter().take(3).map(|x| x.2.clone()).collect::<Vec<_>>().join(" | ")) }));
+        lines.push(format!("  THE NAPPER PRESSES vs THEIR K WINDOWS (the early half {}, the late half {}): {} presses, the least margin {:?}{}: {w}", k_early(), k_half(), ms.len(), least.map(|x| format!("{} gt (lane {}, {})", x.1, x.0, x.2)), if outside.is_empty() { String::new() } else { format!("; OUTSIDE: {}", outside.iter().take(3).map(|x| x.2.clone()).collect::<Vec<_>>().join(" | ")) }));
     }
 }
 
@@ -3071,6 +3231,238 @@ fn margins_line(o: &Out) -> String {
     format!("J(-1)'s branch ahead of this batch's slot 1 {}; J(3)'s return behind the previous slot 3 at J(3) {}; J(-1) armed behind the previous slot 3 at J(-1) {}", f(&|m| m.0), f(&|m| m.1), f(&|m| m.2))
 }
 
+/// The world opens of the swept rows (idle, the carts' extra lag k + j), each at every tick of OPEN_T0 (G1's B3 on
+/// 40a74308f added idle 0 / kj 1).
+pub const OPENS: [(i64, i64); 6] = [(0, 1), (0, 3), (1, 1), (2, 1), (1, 3), (2, 3)];
+/// The opens swept before G1's B3 (the K_HALF 8 control's pre-B3 rows).
+const OPENS_PRE_B3: [(i64, i64); 5] = [(0, 3), (1, 1), (2, 1), (1, 3), (2, 3)];
+pub const OPEN_T0: std::ops::Range<i64> = 400..720;
+
+/// R6's three physical constraints: what each judges and its physical minimum (G1's B4 on 40a74308f: each judged least >=
+/// its minimum + the ruled slack).
+const PHYS_C: [(&str, i64); 3] = [
+    ("(i) K(l) switches J(l) >= 1 tick after slot 3 of its batch has cleared J(l)'s rail cell (lanes -1 / 3)", 0),
+    ("(ii) the napper's own D(l) press inside its K window, both edges (every lane)", 0),
+    ("(iii) every batch D(-1) / D(3) press outside the K windows by >= 1", 1),
+];
+/// The pin line's prefix: the swept leasts the test pins exactly (G1's B4 on 40a74308f).
+pub const PHYS_PIN: &str = "  R6's PHYSICAL LEASTS (pinned by the test): ";
+
+/// Where a constraint's least sits (a [`Phys`] edge code).
+fn phys_edge(c: usize, e: u8) -> &'static str {
+    match (c, e) {
+        (0, _) => "the early edge: K's switch vs slot 3's box clear + 1",
+        (1, 0) => "the early edge",
+        (1, _) => "the late edge",
+        (2, 0) => "the press before the window's early edge",
+        (2, 1) => "the press after the window's late edge",
+        _ => "the press INSIDE the window",
+    }
+}
+
+/// One constraint over a sweep: its samples, the windows that gave none, its least with the job it is set on (the margin,
+/// the job's index, the J's lane index, the edge, the window's batch), and the least at each J.
+#[derive(Clone, Copy, Default)]
+struct PhysAgg {
+    n: usize,
+    dropped: usize,
+    least: Option<(i64, usize, usize, u8, usize)>,
+    per_j: [Option<i64>; 3],
+}
+
+impl PhysAgg {
+    fn absorb(&mut self, p: &Phys, job: usize) {
+        self.n += p.n;
+        if let Some((m, lane, edge, batch)) = p.least {
+            if self.least.is_none_or(|l| (m, job) < (l.0, l.1)) {
+                self.least = Some((m, job, lane, edge, batch));
+            }
+        }
+        self.min_per_j(&p.per_j);
+    }
+
+    fn min_per_j(&mut self, per_j: &[Option<i64>; 3]) {
+        for (a, b) in self.per_j.iter_mut().zip(per_j.iter()) {
+            if let Some(m) = *b {
+                if a.is_none_or(|x| m < x) {
+                    *a = Some(m);
+                }
+            }
+        }
+    }
+
+    fn merge(&mut self, o: &PhysAgg) {
+        self.n += o.n;
+        self.dropped += o.dropped;
+        if let Some(l2) = o.least {
+            if self.least.is_none_or(|l| (l2.0, l2.1) < (l.0, l.1)) {
+                self.least = Some(l2);
+            }
+        }
+        self.min_per_j(&o.per_j);
+    }
+}
+
+/// R6's physical sweep: its jobs (idle, the carts' lag, the open's tick, the napper's timing-corner offset, slot 3's),
+/// each constraint's record, and the misrouted runs (with the first one's job and misroutes).
+struct PhysSweep {
+    jobs: Vec<(i64, i64, i64, i64, i64)>,
+    runs: usize,
+    agg: [PhysAgg; 3],
+    misrouted: usize,
+    mis_ex: Option<(usize, String)>,
+}
+
+impl PhysSweep {
+    fn least(&self, c: usize) -> Option<i64> {
+        self.agg[c].least.map(|l| l.0)
+    }
+
+    fn job(&self, job: usize) -> String {
+        let (idle, kj, t0, nj, sj) = self.jobs[job];
+        format!("the open at t {t0} idle {idle} k + j {kj}, the napper {nj:+} gt, slot 3 {sj:+} gt")
+    }
+
+    /// The least of constraint `c` and where it is set (the J, the window's batch, the edge, the row).
+    fn at(&self, c: usize) -> String {
+        match self.agg[c].least {
+            None => format!("NO SAMPLE ({} samples)", self.agg[c].n),
+            Some((m, job, lane, edge, batch)) => format!("least {m} at J({}) (batch {batch}'s window; {}), {}", LANES[lane], phys_edge(c, edge), self.job(job)),
+        }
+    }
+
+    fn mis_label(&self) -> Option<String> {
+        self.mis_ex.as_ref().map(|(job, m)| format!("{}: {m}", self.job(*job)))
+    }
+
+    /// The pinned leasts ("-" for a constraint with no sample).
+    fn pin(&self) -> String {
+        let l = |c: usize| self.least(c).map_or("-".to_string(), |x| x.to_string());
+        format!("(i) {} / (ii) {} / (iii) {}", l(0), l(1), l(2))
+    }
+}
+
+/// R6's physical constraints over the swept train-16 runs (G1's B3 / B5 / B6 on 40a74308f): every tick of OPEN_T0 under
+/// each of `opens`; with `nappers`, returning nappers in lanes 7 / -1 / 3 on batches 4 / 5 / 6; each napper's ride moved by
+/// every offset in `njs` and each napper batch's slot 3 by every offset in `sjs`, INDEPENDENTLY (the timing corners); one
+/// call per planted defect `def` (the same rows, the defect the only change). The runs spread over up to 8 threads, the
+/// least's tie broken by the job's order (a deterministic print).
+fn phys_sweep(def: Defects, opens: &[(i64, i64)], njs: &[i64], sjs: &[i64], nappers: bool) -> PhysSweep {
+    let mut jobs = Vec::new();
+    for &(idle, kj) in opens {
+        for t0 in OPEN_T0 {
+            for &nj in njs {
+                for &sj in sjs {
+                    jobs.push((idle, kj, t0, nj, sj));
+                }
+            }
+        }
+    }
+    let n16 = napper16();
+    let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).clamp(1, 8);
+    let chunk = jobs.len().div_ceil(threads).max(1);
+    type Part = ([PhysAgg; 3], usize, Option<(usize, String)>);
+    let parts: Vec<Part> = std::thread::scope(|sc| {
+        let hs: Vec<_> = jobs
+            .chunks(chunk)
+            .enumerate()
+            .map(|(ci, js)| {
+                sc.spawn(move || {
+                    let mut agg = [PhysAgg::default(); 3];
+                    let (mut mis, mut ex) = (0usize, None);
+                    for (k, &(idle, kj, t0, nj, sj)) in js.iter().enumerate() {
+                        let job = ci * chunk + k;
+                        let mut r = Row::normal("R6's physical sweep");
+                        r.open = Some((t0, idle, kj));
+                        r.slot_shift = TRAIN16_SHIFT;
+                        r.napper_shift = n16;
+                        if nappers {
+                            r.napper = vec![(4, 2, 0), (5, 0, 0), (6, 1, 0)];
+                            if nj != 0 {
+                                r.napper_jitter = vec![(4, nj), (5, nj), (6, nj)];
+                            }
+                        }
+                        if sj != 0 {
+                            r.late = vec![(4, 2, sj), (5, 2, sj), (6, 2, sj)];
+                        }
+                        let o = run(&r, def);
+                        for (a, p) in agg.iter_mut().zip(o.phys.iter()) {
+                            a.absorb(p, job);
+                        }
+                        agg[0].dropped += o.phys_dropped[0];
+                        agg[1].dropped += o.phys_dropped[1];
+                        if !o.misroutes.is_empty() || !o.napper_misroutes.is_empty() {
+                            mis += 1;
+                            if ex.is_none() {
+                                ex = Some((job, format!("{}{}", o.misroutes.join("; "), o.napper_misroutes.iter().map(|m| format!("; {m}")).collect::<String>())));
+                            }
+                        }
+                    }
+                    (agg, mis, ex)
+                })
+            })
+            .collect();
+        hs.into_iter().map(|h| h.join().expect("an R6 sweep thread")).collect()
+    });
+    let mut sw = PhysSweep { runs: jobs.len(), jobs, agg: [PhysAgg::default(); 3], misrouted: 0, mis_ex: None };
+    for (agg, mis, ex) in parts {
+        for (a, p) in sw.agg.iter_mut().zip(agg.iter()) {
+            a.merge(p);
+        }
+        sw.misrouted += mis;
+        if sw.mis_ex.is_none() {
+            sw.mis_ex = ex;
+        }
+    }
+    sw
+}
+
+/// R6's physical bar for constraint `c` on a sweep: over ITS OWN samples (0: NOT JUDGED), least >= its minimum + `slack`.
+/// ONE predicate for the design's sweep and every control's.
+fn phys_bar(v: &mut Verdict, sw: &PhysSweep, c: usize, slack: i64) -> String {
+    let (name, min) = PHYS_C[c];
+    v.bar_n(&format!("ctl-credit: R6's PHYSICAL CONSTRAINT {name} over the swept train-16 runs: least >= its minimum {min} + the ruled slack {slack}"), sw.agg[c].n, sw.least(c).is_some_and(|l| l >= min + slack))
+}
+
+/// A control through R6's physical bar: the planted sweep judged by [`phys_bar`] on a scratch verdict; true when the bar
+/// of constraint `c` FAILS there by name.
+fn phys_bar_fails(sw: &PhysSweep, c: usize, slack: i64) -> bool {
+    let mut scratch = Verdict::new("ctl-credit: a control's planted sweep");
+    phys_bar(&mut scratch, sw, c, slack);
+    scratch.fails().iter().any(|f| f.contains(PHYS_C[c].0))
+}
+
+/// Constraint `c`'s print: its samples (and windows without one), its least with where it is set and at each J, its
+/// slack.
+fn phys_line(sw: &PhysSweep, c: usize, slack: i64) -> String {
+    let (name, min) = PHYS_C[c];
+    let dropped = if c < 2 { format!(" ({} windows without one)", sw.agg[c].dropped) } else { String::new() };
+    let per_j: Vec<String> = (0..3).filter_map(|l| sw.agg[c].per_j[l].map(|m| format!("J({}) {m}", LANES[l]))).collect();
+    format!("{name}: {} samples{dropped}; {}; per J {}; the slack over its minimum {min}: {} (ruled {slack})", sw.agg[c].n, sw.at(c), per_j.join(", "), sw.least(c).map_or("-".to_string(), |l| (l - min).to_string()))
+}
+
+/// G1's B2 control on 40a74308f, the train-16 napper READ BACK through run(): on a train-16 row (no open, every corner at
+/// 0) each lane's napper presses its own D at REL + napper_t()[l] + napper16() + J_TO_D (its J arrival, then the press);
+/// returns the nappers read and each mismatch (with its tick).
+fn napper16_readback() -> (usize, Vec<String>, Vec<String>) {
+    let mut r = Row::normal("train-16 napper read-back");
+    r.slot_shift = TRAIN16_SHIFT;
+    r.napper_shift = napper16();
+    r.napper = vec![(4, 2, 0), (5, 0, 0), (6, 1, 0)];
+    let o = run(&r, Defects::default());
+    let nt = napper_t();
+    let (mut seen, mut bad) = (Vec::new(), Vec::new());
+    for &(b, l, _) in &r.napper {
+        let want = o.rels.get(b).map(|rel| rel + nt[l] + napper16() + J_TO_D);
+        let got = o.nap_presses.iter().find(|p| p.0 == b && p.2 == LANES[l]).map(|p| p.1);
+        seen.push(format!("lane {}: D at {got:?} = REL_{b} + {} + {} + {J_TO_D}", LANES[l], nt[l], napper16()));
+        if want.is_none() || got != want {
+            bad.push(format!("batch {b}'s lane {} napper pressed at {got:?}, expected {want:?}", LANES[l]));
+        }
+    }
+    (r.napper.len(), seen, bad)
+}
+
 pub fn bench(v: &mut Verdict) -> Vec<String> {
     let mut lines = vec![format!(
         "ctl-credit (LOGIC LEVEL: designed delays; gate list rev 20:00: G8 as (B') with the ballast, G10's REL-keyed ring reset at REL + {RING_X}, G11's picks): SEEN3 set by D(3) (masked in K(3)), reset by its batch's D(7); a credit per D(7)'s edge AND SEEN3 (the dropper beside the counting hopper), one transfer per REL back into the dropper; RE_ARMED = the read at the last of 4 dust lit (0 / 3 / 6 / 9 for 0..3 credits, the ballast in slot 4); power-up {HOPPER0} items + {DROPPER0} in the dropper; the ring reset ({RESET_W}-gt pulse) forces J(-1) armed and J(3) disarmed; D(-1) arms J(3) (masked in K(-1)); the AND -> J(-1) link dropped. Delays: the edge + AND {AND}, the dropper {DROPPER}, the comparator {CMP}, the unlock REL + {UNLOCK} for {UNLOCK_W} gt, the cooldowns insert {INSERT_COOLDOWN} (an empty hopper) / transfer {TRANSFER_COOLDOWN}, the latch set {SET} / reset {RESET}, a D press -> its J {SWITCH} / {RETURN}, the pulse -> REL {REL_LAT}, B {PERIOD}."
@@ -3154,7 +3546,7 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
     row.pick = vec![(3, 0), (7, 1), (11, 2), (15, 0), (19, 1), (23, 2)];
     let o = run(&row, Defects::default());
     let b = design_bars(&o, &row, 25);
-    line(v, "the normal run (25+ batches; returning nappers in each lane at R6 10 and 30 behind slot 3; outbound picks of each lane twice): P = 100, every batch in phase, the store's bars, no picked cart diverted, every napper press neutral", &b, &o, &row, &mut lines);
+    line(v, &format!("the normal run (25+ batches; returning nappers in each lane at R6 {} + 0 and + 20 behind slot 3; outbound picks of each lane twice): P = 100, every batch in phase, the store's bars, no picked cart diverted, every napper press neutral", r6()), &b, &o, &row, &mut lines);
     lines.push(format!("    the read at the first REL: {:?} (items, the fourth dust); the credit readable at D(7) + {} (the edge + AND {AND}, the dropper {DROPPER}, the comparator {CMP}); the least lead of batch b's credit over REL_(b+2)'s read {:?} gt (deterministic here: minus D(7)'s measured spread on the composed nights); the ring reset's margins per batch: {}; lane -1's emulated D(-1) behind the reset pulse's end {:?} gt (>= 1: no set-priority fight); the least distance of a batch D(-1) / D(3) from a K window {:?}", o.first_read, o.credit_latency.first().copied().unwrap_or(0), o.credit_lead_min, margins_line(&o), o.order_margin, o.mask_margin));
     let w = v.bar("ctl-credit: the ring reset's normal margins (J(-1)'s branch ahead of slot 1, J(3)'s return and J(-1)'s arming behind the previous slot 3) each >= 10 before the spread; lane -1's emulated D(-1) after the reset pulse", o.reset_margins.iter().all(|m| m.0.is_none_or(|x| x >= 10) && m.1.is_none_or(|x| x >= 10) && m.2.is_none_or(|x| x >= 10)) && o.order_margin.iter().all(|&m| m >= 1));
     lines.push(format!("    the reset's margins and the ordering: {w}"));
@@ -3534,9 +3926,9 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
     let o_norm = run(&Row::normal("norm"), Defects::default());
     // (ironspec 02:45 (3): the delayed-cart sweep judged on the ADOPTED bars: a misroute past λ_pass is T's compression
     // fault (a fault path: bounded, repair "rebalance"; its recovery bars are judged in the lateness sweep above), so the
-    // adopted bars here are NO NORMAL EVENT REACHES λ_pass (a normal cart's lateness <= the world open's k + j 3 + the
-    // jitter 2 = 5 gt) and NO BATCH CART INTO THE WAY-IN LEG at any lateness)
-    const NORMAL_LATE: i64 = 5;
+    // adopted bars here are NO NORMAL EVENT REACHES λ_pass (a normal cart's lateness <= the world open's k + j + the timing
+    // corner: `normal_late()`, the corner read from the interface) and NO BATCH CART INTO THE WAY-IN LEG at any lateness)
+    let nl = normal_late();
     for s in 0..3 {
         let mut leg: Vec<i64> = Vec::new();
         let mut first_bad: Option<i64> = None;
@@ -3561,13 +3953,13 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
             }
         }
         let lam = first_bad.map_or("none in 1..60".to_string(), |f| format!("{f} gt (the last passing {} gt; the lanes' counts there {})", f - 1, counts_at.join(" ")));
-        let w = v.bar(&format!("ctl-credit: NO NORMAL EVENT REACHES λ_pass for batch 5's lane {} cart (λ_pass {} vs a normal cart's lateness <= {NORMAL_LATE} gt: the world open's k + j 3 + the jitter 2)", LANES[s], first_bad.map_or("> 60".to_string(), |f| f.to_string())), first_bad.is_none_or(|f| f > NORMAL_LATE));
+        let w = v.bar(&format!("ctl-credit: NO NORMAL EVENT REACHES λ_pass for batch 5's lane {} cart (λ_pass {} vs a normal cart's lateness <= {nl} gt: the world open's k + j {OPEN_KJ_MAX} + the timing corner {})", LANES[s], first_bad.map_or("> 60".to_string(), |f| f.to_string()), corner()), first_bad.is_none_or(|f| f > nl));
         let wl = if leg.is_empty() {
             v.bar_n(&format!("ctl-credit: NO BATCH CART INTO THE WAY-IN LEG with batch 5's lane {} cart late by each of 1..60 gt", LANES[s]), 60, true).to_string()
         } else {
             v.bar(&format!("ctl-credit: NO BATCH CART INTO THE WAY-IN LEG with batch 5's lane {} cart late by each of 1..60 gt: LEG-ENTRY at lateness {}", LANES[s], ranges(&leg)), false).to_string()
         };
-        lines.push(format!("  THE DELAYED-CART SWEEP, lane {} late 1..60: λ_pass (the first misrouting lateness) {lam}, margin over a normal cart's lateness {}: {w}; the way-in leg: {wl}", LANES[s], first_bad.map_or("> 55".to_string(), |f| (f - 1 - NORMAL_LATE).to_string())));
+        lines.push(format!("  THE DELAYED-CART SWEEP, lane {} late 1..60: λ_pass (the first misrouting lateness) {lam}, margin over a normal cart's lateness {}: {w}; the way-in leg: {wl}", LANES[s], first_bad.map_or(format!("> {}", 60 - nl), |f| (f - 1 - nl).to_string())));
     }
     let w = v.bar_n("ctl-credit: EVERY PLANT READ BACK WITH ITS ROLE (ironspec 01:35's standing rule): each sweep stray landed at REL_6 + d on its lane (REL_6 read from the run), each late cart reached J(-1) exactly its lateness after its normal tick", n_plants, plant_bad.is_empty());
     lines.push(format!("  THE PLANTS' READ-BACK ({n_plants} plants, REL_6 = t {rel6}): {}: {w}", if plant_bad.is_empty() { "every plant landed in its role".to_string() } else { format!("{} not in role, e.g. {}", plant_bad.len(), plant_bad.iter().take(3).cloned().collect::<Vec<_>>().join(" | ")) }));
@@ -3613,6 +4005,18 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
         // (the deciding rows, PRINTED per form (the routing awaits ironspec's re-ruling on this finding): the lanes' counts
         // changed, a batch cart in the leg, identity misroutes)
         let mut tally = [[0usize; 3]; 3];
+        // (G1's B7 on 40a74308f: a cart late by at most `normal_late()` (the open's k + j and the timing corner) is NORMAL
+        // running, so the picked batches' T rows at late 1..=normal_late() are JUDGED: the fault path's adopted bars AND no
+        // cart misrouted in any batch (every kind of `fault_judge` and `kinds_route` clear); only the rows past it are scoped
+        // OUT. One judge and one bar name for the rows and for their control)
+        let t_normal = |o: &Out, r: &Row| -> Vec<String> {
+            let mut ks = fault_judge(o, r, bf).1;
+            ks.extend(kinds_route(o).into_iter().map(|k| k.to_string()));
+            ks.sort();
+            ks.dedup();
+            ks
+        };
+        let t_norm_name = |label: &str, s: usize| format!("ctl-credit: T on {label}, lane {} late 1..={nl} (NORMAL running: the world open's k + j {OPEN_KJ_MAX} + the timing corner {}): the fault path's adopted bars and no cart misrouted in any batch (every kind clear)", LANES[s], corner());
         for (label, pick) in [("plain batch", None), ("batch 5 carrying lane -1's picked napper", Some(0usize)), ("batch 5 carrying lane 3's picked napper", Some(1)), ("batch 5 carrying lane 7's picked napper", Some(2))] {
             for s in 0..3 {
                 if pick == Some(s) {
@@ -3623,6 +4027,7 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
                 // late cart: the fault path's adopted bars, `recovery_bars`, and the way-in leg); the lanes' counts print as
                 // T's lane-balance cost; R and H stay printed for the comparison)
                 let mut t_kinds: std::collections::BTreeMap<String, Vec<i64>> = std::collections::BTreeMap::new();
+                let (mut n_norm, mut norm_bad) = (0usize, Vec::new());
                 for late in 1..=60 {
                     let mut r = Row::normal("delayed cart");
                     r.late = vec![(bf, s, late)];
@@ -3633,6 +4038,12 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
                         let o = form(r.clone(), f);
                         if f != 'T' {
                             fold_gap(&o);
+                        } else if late <= nl {
+                            n_norm += 1;
+                            let ks = t_normal(&o, &r);
+                            if !ks.is_empty() {
+                                norm_bad.push(format!("late {late}: {}", ks.join(", ")));
+                            }
                         } else {
                             let (_tb, kinds) = fault_judge(&o, &r, bf);
                             for k in kinds {
@@ -3650,17 +4061,41 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
                     }
                 }
                 if pick.is_some() {
-                    let mut marks = Vec::new();
+                    let wn = v.bar_n(&t_norm_name(label, s), n_norm, norm_bad.is_empty());
+                    let mut marks = vec![format!("late 1..={nl} (NORMAL, {n_norm} rows judged): {wn}{}", if norm_bad.is_empty() { String::new() } else { format!(" ({})", norm_bad.join(" | ")) })];
                     if t_kinds.is_empty() {
-                        marks.push(out_bar_n(v, &format!("ctl-credit: T on {label}, lane {} late 1..60: the fault path's adopted bars (every kind clear)", LANES[s]), 60, true).to_string());
+                        marks.push(out_bar_n(v, &format!("ctl-credit: T on {label}, lane {} late {}..60: the fault path's adopted bars (every kind clear)", LANES[s], nl + 1), (60 - nl) as usize, true).to_string());
                     }
                     for (k, ls) in &t_kinds {
-                        marks.push(format!("{k} at {}: {}", ranges(ls), out_bar(v, &format!("ctl-credit: T on {label}, lane {} late 1..60: the fault path's adopted bars: kind {k} at lateness {}", LANES[s], ranges(ls)), false)));
+                        marks.push(format!("{k} at {}: {}", ranges(ls), out_bar(v, &format!("ctl-credit: T on {label}, lane {} late {}..60: the fault path's adopted bars: kind {k} at lateness {}", LANES[s], nl + 1, ranges(ls)), false)));
                     }
                     lines.push(format!("  T JUDGED, {label}, lane {} late 1..60: {}", LANES[s], marks.join("; ")));
                 }
                 lines.push(format!("  ROUTING FORMS, {label}, lane {} late 1..60 (PRINTED): the lanes' counts change at T {} / R {} / H {}; a batch cart enters the way-in leg at T {} / R {} / H {}", LANES[s], ranges(&sets[0].0), ranges(&sets[1].0), ranges(&sets[2].0), ranges(&sets[0].1), ranges(&sets[1].1), ranges(&sets[2].1)));
             }
+        }
+        // (G1's B7 control: a PICKED CART DIVERTED at late 3 (batch 5's lane -1 pick with HOLD_3 removed, each other slot 3
+        // gt late) through THE SAME judge and bar as the normal T rows: PICK-DIVERTED by name on every planted run)
+        {
+            let label = "batch 5 carrying lane -1's picked napper";
+            let mut scratch = Verdict::new("ctl-credit: the B7 control's bar");
+            let (mut n_pl, mut named, mut pl_kinds) = (0usize, 0usize, Vec::new());
+            for s in [1usize, 2] {
+                let mut r = Row::normal("delayed cart");
+                r.late = vec![(bf, s, 3)];
+                r.pick = vec![(bf, 0)];
+                let o = run(&r, Defects { no_hold3: true, ..Default::default() });
+                n_pl += 1;
+                let ks = t_normal(&o, &r);
+                if ks.iter().any(|k| k == "PICK-DIVERTED") {
+                    named += 1;
+                }
+                pl_kinds.push(format!("lane {} 3 late: [{}]", LANES[s], ks.join(", ")));
+                scratch.bar_n(&t_norm_name(label, s), 1, ks.is_empty());
+            }
+            let failed = scratch.fails().iter().filter(|f| f.contains(label)).count();
+            let c = v.control("ctl-credit CONTROL (G1's B7 on 40a74308f): a PICKED CART DIVERTED at late 3 (HOLD_3 removed on batch 5's lane -1 pick, each other slot 3 gt late) through the normal T rows' own judge and bar: that bar FAILS with PICK-DIVERTED by name on every planted run", n_pl, named == n_pl && failed == n_pl).to_string();
+            lines.push(format!("  CONTROL (a picked cart diverted at late 3, through the normal T rows' bar): {named} of {n_pl} planted runs PICK-DIVERTED, the bar failing on {failed} ({}): {c}", pl_kinds.join(" | ")));
         }
         for (label, pick) in [("plain batch", None), ("batch 6 carrying lane -1's picked napper", Some(0usize)), ("batch 6 carrying lane 3's picked napper", Some(1)), ("batch 6 carrying lane 7's picked napper", Some(2))] {
             for lane in [-1i32, 3, 7] {
@@ -3697,70 +4132,47 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
         let jl = |j: usize| j_gap[j].map_or("-".to_string(), |g| format!("{g} gt (margin {} after the D press's disarm: J -> D {J_TO_D} + the T back {RETURN})", g - (J_TO_D + RETURN)));
         lines.push(format!("  THE RING's PER-J LEAST FOLLOWER GAP (a cart diverting at the J -> the next cart reaching it, over the normal run and every deciding row): J(-1) {}, J(3) {}, J(7) {} (ironspec 01:33 (3): a follower inside the disarm latency turns into the leader's lane)", jl(0), jl(1), jl(2)));
     }
-    // (the world open mid-batch: every tick of batch 5's span, idle 1 / 2, the carts 1 / 3 behind; G1 item 11: the
+    // (the world open mid-batch: every tick of batch 5's span, idle 0 / 1 / 2, the carts 1 / 3 behind; G1 item 11: the
     // hopper's cooldown SAVED over the open: the cooldown left after the open EQUALS the cooldown left before it, judged
     // on every run whose open lands inside a cooldown (counted: at least one must))
+    let cn = corner();
     let mut n_open = 0usize;
     let mut bad_open = Vec::new();
     let mut n_bad_open = 0usize;
-    let mut sym_bad: Vec<String> = Vec::new();
     let mut n_jit = 0usize;
-    let (mut n16, mut phys, mut mis16) = (0usize, [i64::MAX; 3], 0usize);
     let (mut in_cool, mut cool_bad) = (0usize, Vec::new());
     // (G1 CHANGES 8 on 5184136c2 (5): the opens start at t 400, so the lane-7 napper's batch 4 (REL_4 ~406, released at
-    // REL_4 + 65) gets opens BETWEEN ITS REL AND ITS RELEASE too; idle 0 / 1 / 2; every failing row counted. (6) THE
-    // SYMMETRIC WINDOW's CONTROL runs THESE rows with k_symmetric (A CART MISROUTED by name). (7)(d) the napper's -2 jitter
-    // under the opens: every row again with each napper 2 gt early)
-    for (idle, kj) in [(0, 3), (1, 1), (2, 1), (1, 3), (2, 3)] {
-        for t0 in 400..720 {
+    // REL_4 + 65) gets opens BETWEEN ITS REL AND ITS RELEASE too; idle 0 / 1 / 2; every failing row counted. (7)(d) and G1's
+    // B2 / B3 on 40a74308f: the napper's ride at BOTH timing corners (-corner and +corner, read from the interface) under the
+    // opens, every row again with each napper early and late; the idle 0 / kj 1 open added (OPENS))
+    for &(idle, kj) in &OPENS {
+        for t0 in OPEN_T0 {
             let mut r = Row::normal("open");
             r.open = Some((t0, idle, kj));
             r.napper = vec![(4, 2, 0), (5, 0, 0), (6, 1, 0)];
             let o = run(&r, Defects::default());
             n_open += 1;
-            // (R6's PHYSICAL CONSTRAINTS on train 16 (ironfarm's reference: 0 / 17 / 27, the napper + 2), the open applied
-            // in the run, the napper on time and 2 gt early: (i) K's switch after slot 3's box clear + 1, (ii) the napper's
-            // own D press inside its window, (iii) a batch D press outside every window by >= 1)
-            let mut r16 = r.clone();
-            r16.slot_shift = TRAIN16_SHIFT;
-            r16.napper_shift = 2;
-            for jit in [0i64, -2] {
-                let mut rr = r16.clone();
-                if jit != 0 {
-                    rr.napper_jitter = vec![(4, jit), (5, jit), (6, jit)];
+            for jit in [-cn, cn] {
+                let mut rj = r.clone();
+                rj.napper_jitter = vec![(4, jit), (5, jit), (6, jit)];
+                let oj = run(&rj, Defects::default());
+                n_jit += 1;
+                // (G1 on f00f36742 (7): the jitter rows judged on the SAME bars as the open rows (the recovery bars, no cart
+                // misrouted, no napper misrouted), the plant read back on each)
+                let mut badj = recovery_bars(&oj, &rj, bf);
+                if !oj.misroutes.is_empty() || !oj.napper_misroutes.is_empty() {
+                    badj.push(format!("A CART MISROUTED: {} {}", oj.misroutes.join("; "), oj.napper_misroutes.join("; ")));
                 }
-                let o16 = run(&rr, Defects::default());
-                n16 += 1;
-                phys[0] = phys[0].min(o16.r6_phys.unwrap_or(i64::MAX));
-                phys[1] = phys[1].min(o16.own_mask.unwrap_or(i64::MAX));
-                phys[2] = phys[2].min(o16.mask_margin.unwrap_or(i64::MAX));
-                if !o16.misroutes.is_empty() || !o16.napper_misroutes.is_empty() {
-                    mis16 += 1;
+                let mut jit_seen = oj.napper_jit_applied.clone();
+                jit_seen.sort();
+                if jit_seen != vec![(4, jit), (5, jit), (6, jit)] {
+                    badj.push(format!("the {jit:+} plant not applied as planted: {:?}", oj.napper_jit_applied));
                 }
-            }
-            let os = run(&r, Defects { k_early_override: Some(K_WIDE), ..Default::default() });
-            if !os.misroutes.is_empty() && sym_bad.len() < 1_000 {
-                sym_bad.push(format!("open at {t0} idle {idle} kj {kj}: {}", os.misroutes.join("; ")));
-            }
-            let mut rj = r.clone();
-            rj.napper_jitter = vec![(4, -2), (5, -2), (6, -2)];
-            let oj = run(&rj, Defects::default());
-            n_jit += 1;
-            // (G1 on f00f36742 (7): the jitter rows judged on the SAME bars as the open rows (the recovery bars, no cart
-            // misrouted, no napper misrouted), the -2 plant read back on each)
-            let mut badj = recovery_bars(&oj, &rj, bf);
-            if !oj.misroutes.is_empty() || !oj.napper_misroutes.is_empty() {
-                badj.push(format!("A CART MISROUTED: {} {}", oj.misroutes.join("; "), oj.napper_misroutes.join("; ")));
-            }
-            let mut jit_seen = oj.napper_jit_applied.clone();
-            jit_seen.sort();
-            if jit_seen != vec![(4, -2), (5, -2), (6, -2)] {
-                badj.push(format!("the -2 plant not applied as planted: {:?}", oj.napper_jit_applied));
-            }
-            if !badj.is_empty() {
-                n_bad_open += 1;
-                if bad_open.len() < 2 {
-                    bad_open.push(format!("open at {t0} idle {idle} kj {kj}, the nappers 2 gt early: {}", badj.join("; ")));
+                if !badj.is_empty() {
+                    n_bad_open += 1;
+                    if bad_open.len() < 2 {
+                        bad_open.push(format!("open at {t0} idle {idle} kj {kj}, the nappers {jit:+} gt: {}", badj.join("; ")));
+                    }
                 }
             }
             if let Some((a, b)) = o.open_cooldown {
@@ -3787,78 +4199,91 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
             }
         }
     }
-    let w = v.bar_n("ctl-credit: A WORLD OPEN at every tick of t 400..719 (batches 4..6: idle 0 / 1 / 2, the carts 1 / 3 behind the redstone; returning nappers in lanes 7 (batch 4), -1 (batch 5) and 3 (batch 6), so an open lands between REL and EACH napper's release (G1 CHANGES 8 (5)); every row again with the nappers 2 gt early (CHANGES 8 (7)(d)); a NORMAL event: NO CART MISROUTED in any batch): the ring in its same phase within 2 batches, THE STORE CORRECT healed within 4 RELs, no napper misrouted, no batch cart misrouted, the hopper's items kept and its cooldown SAVED (left after = left before) on every open inside a cooldown", n_open + n_jit, bad_open.is_empty() && cool_bad.is_empty() && in_cool > 0);
-    lines.push(format!("  A WORLD OPEN at every tick of t 400..719, {n_open} runs + {n_jit} with the nappers 2 gt early ({in_cool} inside a hopper cooldown), failing rows {n_bad_open}: {w}{}{}", if bad_open.is_empty() { String::new() } else { format!(" ({})", bad_open.join(" | ")) }, if cool_bad.is_empty() { String::new() } else { format!(" [the cooldown: {}]", cool_bad.join(" | ")) }));
-    let c = v.control(&format!("ctl-credit CONTROL (G1 CHANGES 8 on 5184136c2 (6), re-planted at R6 = {R6}): A WIDE EARLY HALF ({K_WIDE} gt: reaching slot 3's box) on THE WORLD-OPEN ROWS THEMSELVES: A CART MISROUTED by name"), 1, !sym_bad.is_empty()).to_string();
-    lines.push(format!("  CONTROL (the wide early half on the world-open rows): {} rows misroute (e.g. {}): {c}", sym_bad.len(), sym_bad.first().cloned().unwrap_or_default()));
-    // (R6 = 14 / K_HALF = 10, ADOPTED (ironspec 11:24a, the >= 2-gt form): each PHYSICAL constraint's least margin over the
-    // swept train-16 runs (every tick of t 400..719, idle 0 / 1 / 2, the carts 1 / 3 behind, the nappers on time and 2 gt
-    // early), each against its physical minimum; the mask gap's old "10" was an allowance for D's unmeasured spread
-    // (G1 on fff3c7045): dropped, the physical minimum is 1 (the mask ends before the press is read))
-    let w = v.bar_n("ctl-credit: R6's PHYSICAL CONSTRAINTS over the swept train-16 runs (world opens applied in the run): (i) K(l) switches J(l) >= 1 tick after slot 3's box clears it (margin >= 0); (ii) the napper's own D(l) press inside its window (>= 0); (iii) every batch D(l) press outside the windows by >= 1; no cart misrouted", n16, phys[0] >= 0 && phys[1] >= 0 && phys[2] >= 1 && mis16 == 0);
-    lines.push(format!("  R6 = {R6} / K_HALF = {K_HALF}, the physical constraints over {n16} swept train-16 runs: (i) K's switch after slot 3's box clear + 1: least {} (minimum 0); (ii) the napper's own press inside its window: least {} (minimum 0); (iii) a batch press outside the windows: least {} (minimum 1); misrouted runs {mis16}: {w}", phys[0], phys[1], phys[2]));
-    // (G1 05:19 (5): THE K WINDOWS' SIX MARGINS (each napper lane: the batch cart AHEAD of the napper at its J against the
-    // window's early edge, the next batch's first cart BEHIND it at that J against the late edge), at train 15 and train
-    // 16, each under a kj = 3 shift in BOTH directions (the cart ahead 3 later, the cart behind 3 earlier); the early half
-    // against the napper's earliest arrival (its -2 jitter))
+    let w = v.bar_n(&format!("ctl-credit: A WORLD OPEN at every tick of t 400..719 (batches 4..6: idle 0 / 1 / 2, the carts 1 / 3 behind the redstone; returning nappers in lanes 7 (batch 4), -1 (batch 5) and 3 (batch 6), so an open lands between REL and EACH napper's release (G1 CHANGES 8 (5)); every row again with the nappers {cn} gt early and {cn} gt late (the timing corners: CHANGES 8 (7)(d), G1's B3); a NORMAL event: NO CART MISROUTED in any batch): the ring in its same phase within 2 batches, THE STORE CORRECT healed within 4 RELs, no napper misrouted, no batch cart misrouted, the hopper's items kept and its cooldown SAVED (left after = left before) on every open inside a cooldown"), n_open + n_jit, bad_open.is_empty() && cool_bad.is_empty() && in_cool > 0);
+    lines.push(format!("  A WORLD OPEN at every tick of t 400..719 under the opens {OPENS:?} (idle, k + j), {n_open} runs + {n_jit} with the nappers at the timing corners -{cn} / +{cn} ({in_cool} inside a hopper cooldown), failing rows {n_bad_open}: {w}{}{}", if bad_open.is_empty() { String::new() } else { format!(" ({})", bad_open.join(" | ")) }, if cool_bad.is_empty() { String::new() } else { format!(" [the cooldown: {}]", cool_bad.join(" | ")) }));
+    // (R6's PHYSICAL CONSTRAINTS (R6 and K's halves ADOPTED ironspec 11:24a, the >= 2-gt form; every value read from the
+    // interface) over the swept train-16 runs (G1's B3 / B4 / B5 / B6 on 40a74308f): `phys_sweep` (each napper's ride and
+    // each napper batch's slot 3 at every offset of the timing corners, independently, under every open); each constraint
+    // its own bar over its own samples, judged least >= its physical minimum + the ruled slack; the mask gap's old "10" was
+    // an allowance for D's unmeasured spread (G1 on fff3c7045): dropped, (iii)'s physical minimum is 1 (the mask ends
+    // before the press is read); the paper six-margins bar is dropped (G1's B2: (i) and (iii) measure its terms in each
+    // run); the controls go through THE SAME BAR (`phys_bar`) on the same rows, each its planted defect the only change)
     {
-        let mut six = Vec::new();
-        let mut least = i64::MAX;
-        for (tn, ss, ns) in [("train 15", [0i64, 0, 0], 0i64), ("train 16", TRAIN16_SHIFT, 2)] {
-            let st: [[i64; 3]; 3] = std::array::from_fn(|s| std::array::from_fn(|j| SLOT_T[s][j] + ss[s]));
-            let nt: [i64; 3] = std::array::from_fn(|j| NAPPER_T[j] + ns);
-            for (l, name) in [(0usize, "K(-1)"), (1, "K(3)"), (2, "K(7)")] {
-                // (the cart ahead at J(l): the batch's latest cart reaching J(l) (slot 3 passes J(-1) / J(3), diverts at
-                // J(7)); the cart behind: the next batch's first cart reaching J(l) (slot 1 at J(-1), slot 2 at J(3), slot 3
-                // at J(7)), REL + PERIOD later)
-                let ahead = st[2][l];
-                let behind = PERIOD + st[l][l];
-                let early = nt[l] - K_EARLY;
-                let late = nt[l] + K_HALF;
-                // (G1 CHANGES 8 (7)(a): each side under a kj 3 shift in BOTH directions (the cart 3 later or 3 earlier
-                // than the window), the worse kept; (d) the early half over the napper's -2 jitter enters `least`)
-                let m_ahead = (early - (ahead + 3)).min(early - (ahead - 3));
-                let m_behind = ((behind - 3) - late).min((behind + 3) - late);
-                let m_jit = (nt[l] - 2) - early;
-                least = least.min(m_ahead).min(m_behind).min(m_jit);
-                six.push(format!("{tn} {name}: the cart ahead (REL + {ahead}) {m_ahead} gt before the early edge (REL + {early}) after a kj 3 shift; the next batch's cart behind (REL + {behind}) {m_behind} gt after the late edge (REL + {late}) after a kj 3 shift; the early half over the napper's -2 jitter {m_jit}"));
+        let slack = ruled_slack();
+        let jits: Vec<i64> = (-cn..=cn).collect();
+        // (G1's B2 control: run()'s train-16 napper arrival = napper_t() + the interface-derived napper16(), read back)
+        let (nr, seen, bad) = napper16_readback();
+        let w = v.bar_n(&format!("ctl-credit: run()'s train-16 napper arrivals READ BACK (G1's B2 control on 40a74308f): each lane's napper presses its own D at REL + napper_t() + napper16() ({}) + J_TO_D", napper16()), nr, bad.is_empty());
+        lines.push(format!("  THE TRAIN-16 NAPPER READ BACK (napper16() = the row hold's REL + {} - (NAPPER_REL {NAPPER_REL} + NAPPER_SHIFT {NAPPER_SHIFT}) = {}): {}{}: {w}", hold_rel(), napper16(), seen.join("; "), if bad.is_empty() { String::new() } else { format!(" (MISMATCH: {})", bad.join(" | ")) }));
+        let sw = phys_sweep(Defects::default(), &OPENS, &jits, &jits, true);
+        lines.push(format!("  R6 = {} / K_EARLY = {} / K_HALF = {} (the interface's), R6's PHYSICAL CONSTRAINTS over {} swept train-16 runs (every tick of t 400..719 under the opens {OPENS:?} (idle, k + j); nappers in lanes 7 / -1 / 3 on batches 4 / 5 / 6; each napper's ride AND each napper batch's slot 3 at every offset -{cn}..+{cn} of the timing corners, independently; the napper's train-16 shift {} from the row hold's REL + {}); each least against its minimum + the ruled slack {slack} (the interface's):", r6(), k_early(), k_half(), sw.runs, napper16(), hold_rel()));
+        for c in 0..3 {
+            let w = phys_bar(v, &sw, c, slack);
+            lines.push(format!("    {}: {w}", phys_line(&sw, c, slack)));
+        }
+        let wm = v.bar_n("ctl-credit: R6's swept train-16 runs: no batch cart and no napper misrouted", sw.runs, sw.misrouted == 0);
+        lines.push(format!("    misrouted runs {} of {}{}: {wm}", sw.misrouted, sw.runs, sw.mis_label().map_or(String::new(), |e| format!(" (e.g. {e})"))));
+        lines.push(format!("{PHYS_PIN}{}", sw.pin()));
+        // (a FINDING, PRINTED, not judged (K's halves are ironspec's to rule): a constraint short of its ruled slack, with
+        // the same rows re-run at K's late half raised by (ii)'s deficit, so the ruling has the measured alternative)
+        if let Some(l) = sw.least(1) {
+            let deficit = PHYS_C[1].1 + slack - l;
+            if deficit > 0 {
+                let kh2 = k_half() + deficit;
+                let wf = phys_sweep(Defects { k_half: Some(kh2), ..Default::default() }, &OPENS, &jits, &jits, true);
+                lines.push(format!("  FINDING (PRINTED, not judged: K's halves are ironspec's): (ii) is {deficit} gt short of its ruled slack; the same {} rows with K's late half {kh2} (the early half {}): (i) {} / (ii) {} / (iii) {} (the slacks {} / {} / {} against the ruled {slack}), misrouted runs {}", wf.runs, k_early(), wf.least(0).map_or("-".into(), |x| x.to_string()), wf.least(1).map_or("-".into(), |x| x.to_string()), wf.least(2).map_or("-".into(), |x| x.to_string()), wf.least(0).map_or("-".into(), |x| (x - PHYS_C[0].1).to_string()), wf.least(1).map_or("-".into(), |x| (x - PHYS_C[1].1).to_string()), wf.least(2).map_or("-".into(), |x| (x - PHYS_C[2].1).to_string()), wf.misrouted));
             }
         }
-        let w = v.bar("ctl-credit: THE K WINDOWS' SIX MARGINS (G1 05:19 (5): the cart ahead of each napper against its window's early edge, the next batch's cart behind against the late edge, each after a kj = 3 shift toward the window, train 15 and train 16) stay >= 2 (the jitter)", least >= 2);
-        lines.push(format!("  THE K WINDOWS' SIX MARGINS (K_EARLY {K_EARLY}, K_HALF {K_HALF}): {}; least {least}: {w}", six.join("; ")));
-        // (ironspec 08:18a (3) / 08:35a (1), G1 08:39 (2): R6's PHYSICAL BAR, JUDGED, on ironfarm's reference
-        // (record7f13b-rev2, the 12-gt pulse, train 16's 0 / 17 / 27 + napper 7; REL = t 100): at the J where K SWITCHES
-        // (J(-1) for the lane -1 napper, J(3) for lane 3's: slot 3 passes those straight through, then K(l) switches J(l) to
-        // branch) K(l)'s EARLY EDGE must come after slot 3's BOX CLEARS J(l)'s rail cell + 1 gt + the world open's kj 3;
-        // J(7) never switches between slot 3 and the lane-7 napper (both branch): cart-on-cart only. The box-clear ticks
-        // are ironfarm's (the box past the cell's east face by its half-width 0.49): J(-1) REL + 153, J(3) REL + 169, J(7)
-        // REL + 184. The control: the early half back at 10 (the old symmetric window) fails by name)
-        {
-            let clear = SLOT3_BOX_CLEAR;
-            let nt16: [i64; 3] = std::array::from_fn(|j| NAPPER_T[j] + 2);
-            // (the NOMINAL physical margin (no world open): K(l)'s early edge minus slot 3's box clear + 1; the swept
-            // margins (the open applied in each run) are judged with the world-open rows below)
-            let r6 = |k_early: i64| -> Vec<(usize, i64)> { (0..2usize).map(|l| (l, (nt16[l] - k_early) - (clear[l] + 1))).collect() };
-            let m = r6(K_EARLY);
-            lines.push(format!("  R6 = {R6}'s NOMINAL PHYSICAL MARGINS (ironfarm's box-clear ticks, train 16, no world open): {}; J(7): no switch (cart-on-cart only, slot 3's box clear at REL + {} vs the lane-7 napper at REL + {}); the swept margins: with the world-open rows", m.iter().map(|(l, x)| format!("K({}) early edge REL + {} vs slot 3's box clear REL + {} + 1: margin {x}", LANES[*l], nt16[*l] - K_EARLY, clear[*l])).collect::<Vec<_>>().join("; "), clear[2], nt16[2]));
-            let mc = r6(K_WIDE);
-            let c = v.control(&format!("ctl-credit CONTROL (ironspec 08:18a (3), re-planted at R6 = {R6}): K's early half widened to {K_WIDE} gt: a switch UNDER slot 3's box (a negative nominal margin) BY NAME"), 1, mc.iter().any(|x| x.1 < 0)).to_string();
-            lines.push(format!("  CONTROL (K's early half {K_WIDE}): nominal margins {:?}: {c}", mc.iter().map(|x| x.1).collect::<Vec<_>>()));
-        }
+        // (G1 on 40a74308f, non-blocking: K_WIDE derived from K_EARLY + the nominal clearance + 1, the derivation printed;
+        // (i) has no J(7) term: J(7) never switches between slot 3 and the lane-7 napper, both branch)
+        let kw = k_wide();
+        let nc = nominal_clearance(k_early());
+        let nt = napper_t();
+        lines.push(format!("  THE NOMINAL CLEARANCES (train 16, no open, every corner at 0; ironfarm's box-clear ticks): K(-1)'s early edge REL + {} vs slot 3's box clear REL + {} + 1: {}; K(3)'s REL + {} vs REL + {} + 1: {}; J(7): no switch (cart-on-cart only: slot 3's box clear at REL + {} vs the lane-7 napper at REL + {}). THE WIDE EARLY HALF, DERIVED: K_WIDE = K_EARLY {} + the larger clearance {} + 1 = {kw}, its nominal margins {:?} (a switch at or under slot 3's box at every switching J)", nt[0] + napper16() - k_early(), SLOT3_BOX_CLEAR[0], nc[0], nt[1] + napper16() - k_early(), SLOT3_BOX_CLEAR[1], nc[1], SLOT3_BOX_CLEAR[2], nt[2] + napper16(), k_early(), nc[0].max(nc[1]), nominal_clearance(kw)));
+        // (G1's B6: the wide early half re-run on THE SAME swept rows, the only change: (i) < 0 and its bar failing BY NAME,
+        // n = the planted runs; the misroutes it causes printed and required (G1 CHANGES 8 (6)'s "A CART MISROUTED"))
+        let wide = phys_sweep(Defects { k_early_override: Some(kw), ..Default::default() }, &OPENS, &jits, &jits, true);
+        let bites = phys_bar_fails(&wide, 0, slack) && wide.least(0).is_some_and(|l| l < 0) && wide.misrouted > 0;
+        let c = v.control(&format!("ctl-credit CONTROL (G1's B6 on 40a74308f): THE WIDE EARLY HALF (K_WIDE {kw}, Defects k_early_override) on the swept train-16 runs themselves, the only change: constraint (i) < 0 (K's switch under slot 3's box) with its bar FAILING BY NAME, and A CART MISROUTED"), wide.runs, bites).to_string();
+        lines.push(format!("  CONTROL (K_WIDE {kw} through the same bar, {} planted runs): (i) {}; misrouted runs {} (e.g. {}): {c}", wide.runs, wide.at(0), wide.misrouted, wide.mis_label().unwrap_or_default()));
+        // (G1's B3: K's late half 8 passes the pre-B3 sweep (the napper on time and early only, slot 3 never moved, no idle 0
+        // / kj 1 open) even at (ii)'s minimum, and FAILS by name once the late corner is swept)
+        let kh8 = Defects { k_half: Some(8), ..Default::default() };
+        let pre_b3 = phys_sweep(kh8, &OPENS_PRE_B3, &[0, -cn], &[0], true);
+        let swept8 = phys_sweep(kh8, &OPENS, &jits, &jits, true);
+        let passes_pre = !phys_bar_fails(&pre_b3, 1, 0);
+        let fails_swept = phys_bar_fails(&swept8, 1, 0);
+        let c = v.control(&format!("ctl-credit CONTROL (G1's B3 on 40a74308f): K's late half 8 (Defects k_half), the only change: on the pre-B3 sweep (the napper on time and {cn} gt early only, slot 3 never moved, no idle 0 / kj 1 open) constraint (ii) PASSES even at its minimum; on the swept corners (the napper and slot 3 at every offset -{cn}..+{cn}) its bar FAILS BY NAME at its minimum (the napper's press past its window)"), swept8.runs, passes_pre && fails_swept).to_string();
+        lines.push(format!("  CONTROL (K_HALF 8 through the same bar): the pre-B3 sweep ({} runs): (ii) {} ({} at the minimum); the swept corners ({} runs): (ii) {} ({} at the minimum, {} against the ruled slack): {c}", pre_b3.runs, pre_b3.at(1), if passes_pre { "passes" } else { "FAILS" }, swept8.runs, swept8.at(1), if fails_swept { "FAILS" } else { "passes" }, if phys_bar_fails(&swept8, 1, slack) { "FAILS" } else { "passes" }));
+        // (G1's B4: R6 back at the pre-adoption 10 (the napper R6 - 10 gt earlier at every J), through run() on the same
+        // rows: (i)'s bar against its minimum + the ruled slack fails by name)
+        let pre = phys_sweep(Defects { r6_override: Some(R6_PRE), ..Default::default() }, &OPENS, &jits, &jits, true);
+        let c = v.control(&format!("ctl-credit CONTROL (G1's B4 on 40a74308f): R6 back at {R6_PRE} (Defects r6_override: the napper {} gt earlier at every J) through run() on the same swept rows: constraint (i)'s bar against its minimum + the ruled slack FAILS BY NAME", r6() - R6_PRE), pre.runs, phys_bar_fails(&pre, 0, slack)).to_string();
+        lines.push(format!("  CONTROL (R6 = {R6_PRE} through the same bar, {} planted runs): (i) {}; (ii) {}; (iii) {}: {c}", pre.runs, pre.at(0), pre.at(1), pre.at(2)));
+        // (G1's B5: the same rows with NO napper: (ii) has no sample, so its bar is NOT JUDGED (fails by name), never passed
+        // on an empty set)
+        let nonap = phys_sweep(Defects::default(), &OPENS, &[0], &[0], false);
+        let mut scratch = Verdict::new("ctl-credit: the B5 control's planted sweep");
+        let w = phys_bar(&mut scratch, &nonap, 1, slack);
+        let bites = nonap.agg[1].n == 0 && scratch.fails().iter().any(|f| f.contains(PHYS_C[1].0) && f.contains("NOT JUDGED"));
+        let c = v.control("ctl-credit CONTROL (G1's B5 on 40a74308f): the swept rows with NO napper: constraint (ii) has 0 samples and its bar is NOT JUDGED (fails by name)", nonap.runs, bites).to_string();
+        lines.push(format!("  CONTROL (no napper, {} planted runs): (ii) {} samples, its bar: {w}: {c}", nonap.runs, nonap.agg[1].n));
         // (ironspec 05:18 (3): THE OLD SYMMETRIC WINDOW AS A PLANTED MISROUTE failing by name: a kj 3 world open between the
-        // lane -1 napper's release and its batch's slot 3 reaching J(-1), the early half back at 10)
+        // lane -1 napper's release and its batch's slot 3 reaching J(-1), the early half widened to K_WIDE; train 15's row,
+        // every planted open counted)
         let mut hits = Vec::new();
-        for t0 in 571..=650 {
+        let t0s: Vec<i64> = (571..=650).collect();
+        for &t0 in &t0s {
             let mut r = Row::normal("open, symmetric K");
             r.open = Some((t0, 0, 3));
             r.napper = vec![(5, 0, 0)];
-            let o = run(&r, Defects { k_early_override: Some(K_WIDE), ..Default::default() });
+            let o = run(&r, Defects { k_early_override: Some(kw), ..Default::default() });
             if o.misroutes.iter().any(|m| m.contains("lane 7 cart into lane -1")) {
                 hits.push(t0);
             }
         }
-        let c = v.control(&format!("ctl-credit CONTROL (ironspec 05:18 (3), re-planted at R6 = {R6}): A WIDE EARLY HALF ({K_WIDE} gt: reaching slot 3's box): a kj 3 world open after the lane -1 napper's release forces its batch's slot 3 into lane -1 (A CART MISROUTED by name)"), 1, !hits.is_empty()).to_string();
-        lines.push(format!("  CONTROL (the wide early half): batch 5's lane 7 cart into lane -1 with the open at t {}: {c}", ranges_of(&hits)));
+        let c = v.control(&format!("ctl-credit CONTROL (ironspec 05:18 (3), re-planted at R6 = {}): A WIDE EARLY HALF ({kw} gt: reaching slot 3's box): a kj 3 world open after the lane -1 napper's release forces its batch's slot 3 into lane -1 (A CART MISROUTED by name)", r6()), t0s.len(), !hits.is_empty()).to_string();
+        lines.push(format!("  CONTROL (the wide early half, train 15, {} planted opens): batch 5's lane 7 cart into lane -1 with the open at t {}: {c}", t0s.len(), ranges_of(&hits)));
     }
     {
         let (mut nb, mut ex) = (0usize, String::new());
@@ -4156,8 +4581,9 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
     // (9,0,8) would give the napper (the hold and its line are NEW controller cells, to price))
     {
         // (the clearance C = 8 gt: a cart's length at the row's ~0.3 b/gt plus margin (dfb89499's F' row speeds); the hold's
-        // release JOIN_HOLD_REL (REL + 67, bought ironspec 08:41a (2)) judged against the window printed here)
+        // release `hold_rel()` (the interface's REL + n, bought ironspec 08:41a (2)) judged against the window printed here)
         let c = 8i64;
+        let jh = hold_rel();
         let lane_at: [(i64, i64); 3] = [(27, 32), (17, 46), (27, 55)];
         let allowed: Vec<i64> = (0..100).filter(|&phi| lane_at.iter().all(|&(off, t)| (0..=1).all(|k| (phi + off - (t + 100 * k)).abs() >= c && (phi + off + 100 - (t + 100 * k)).abs() >= c))).collect();
         let runs = {
@@ -4171,11 +4597,11 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
             v
         };
         let best = runs.iter().max_by_key(|r| r.1 - r.0).copied();
-        // (the bought hold's release judged in the window: REL + JOIN_HOLD_REL inside the widest allowed run, its margins
+        // (the bought hold's release judged in the window: REL + hold_rel() inside the widest allowed run, its margins
         // printed)
-        let inside = best.is_some_and(|b| JOIN_HOLD_REL >= b.0 && JOIN_HOLD_REL <= b.1);
-        let wj = v.bar(&format!("ctl-credit: THE (9,0,8) HOLD's RELEASE REL + {JOIN_HOLD_REL} lies inside the join merge's widest allowed window (clearance {c} gt)"), inside);
-        lines.push(format!("  THE (9,0,8) HOLD's RELEASE REL + {JOIN_HOLD_REL}: margins {:?} to the window's edges: {wj}", best.map(|b| (JOIN_HOLD_REL - b.0, b.1 - JOIN_HOLD_REL))));
+        let inside = best.is_some_and(|b| jh >= b.0 && jh <= b.1);
+        let wj = v.bar(&format!("ctl-credit: THE (9,0,8) HOLD's RELEASE REL + {jh} lies inside the join merge's widest allowed window (clearance {c} gt)"), inside);
+        lines.push(format!("  THE (9,0,8) HOLD's RELEASE REL + {jh}: margins {:?} to the window's edges: {wj}", best.map(|b| (jh - b.0, b.1 - jh))));
         lines.push(format!("  THE JOIN MERGE (normal running; dfb89499's F' row times, candidate A; clearance {c} gt): a napper passing (9,0,7) at REL + phi conflicts at a join unless phi is in {}; the widest window {:?} (centre {:?}, margin {:?} each side): the napper's phase is the STOP's, not REL's, so without a REL-keyed hold at (9,0,8) it lands in a forbidden phase on some visits: A REQUIRED FIX (the hold + its REL-phase release line: new controller cells, to price)", runs.iter().map(|r| format!("{}..{}", r.0, r.1)).collect::<Vec<_>>().join(", "), best, best.map(|b| (b.0 + b.1) / 2), best.map(|b| (b.1 - b.0) / 2)));
     }
     lines.push("  OWED: the cells on the station's placement with their measured delays (the dropper, the hopper's unlock, the comparator and its four dust, SEEN3, the masks, the ring reset's tap off the R line); D(7)'s normal spread from cc767b78's composed nights (every margin here is before it); the coverage slack row (the least planted total REL slip at which 24 / 24 first breaks: the credit-slip bar's final figure is half of it)".into());
@@ -4186,27 +4612,51 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
 mod tests {
     use super::*;
 
-    /// G1 08:05 (1)(c): ONE STATE SOURCE: the controller interface file (read at compile time from the tree) states each
-    /// value the code holds; a mismatch fails here by name.
+    /// G1 08:05 (1)(c) / G1's B1 on 40a74308f: ONE STATE SOURCE: ctl-credit READS R6, K's halves, the timing corners, the
+    /// ruled slack, the napper's row hold and the release pulse from the controller interface file (read at compile time
+    /// from the tree) through readers requiring each key on EXACTLY ONE line; R6, K_EARLY and K_HALF are stated once in the
+    /// whole file and delay(x) is written in R6; the constants the code still holds equal the file's text, each key on
+    /// exactly one line; and THE CONTROL: a copy of the file with a second "- R6 = 15 gt" line (or a second K windows line)
+    /// fails the reader BY NAME.
     #[test]
     fn the_interface_file_matches_the_code() {
-        // (G1 on 295d24e76 (9): every number the file states is checked against the code: the values ctl-pick READS from
-        // the file (N, D) parse as stated; the constants below equal the file's text, needles anchored at the list item)
-        let f = include_str!("../../../designs/farms/iron/carousel-assembly/wip/controller/f1q2-day1-controller-interface.md");
+        let f = IFACE;
+        let iv = Iface::parse(f).unwrap_or_else(|e| panic!("the controller interface does not parse: {e}"));
+        assert_eq!(&iv, iface(), "the parsed interface values are the ones the bench uses");
+        // (G1 on 295d24e76 (9): the values ctl-pick READS from the file (N, D) parse as stated; the release pulse's 12 is the
+        // link to dfb89499's laid value)
         assert_eq!(release_pulse(), 12, "the interface file's release pulse reads as 12 gt (the limiter's laid value is dfb89499's to link)");
         assert_eq!(crate::ctlpick::n_rec(), 30, "the interface file's recovery delay N reads as 30 gt (ironspec 09:00a (1))");
         assert_eq!(crate::ctlpick::d_occ(), 16, "the interface file's P1 OCCUPIED delay D reads as 16 gt (b8949c96's 9..11-gt transit + 5)");
-        for (what, needle) in [
-            ("the release offsets", format!("- **release offsets = {} / {} / {} gt**", RELEASE_OFFSETS[0], RELEASE_OFFSETS[1], RELEASE_OFFSETS[2])),
-            ("the guard", format!("- DM1_BLOCK7 = {DM1_BLOCK7} gt")),
-            ("SEEN3_OLD's tap", format!("- SEEN3_OLD's tap = REL + {S3OLD_TAP} gt")),
-            ("the tap's window", format!("the window {}..{}", S3OLD_WIN.0, S3OLD_WIN.1)),
-            ("the K windows", format!("- K windows: K_EARLY = {K_EARLY} gt (the early half), K_HALF = {K_HALF} gt (the late half)")),
-            ("the (9,0,8) hold", format!("- The napper's row hold (9,0,8) releases at REL + {JOIN_HOLD_REL} gt")),
-            ("R6", format!("- R6 = {R6} gt")),
-        ] {
-            assert!(f.contains(&needle), "the controller interface file does not state {what} as the code holds it: \"{needle}\"");
+        // (each value READ from the file stated ONCE in the whole file: no line restates it; its history off its value line)
+        for (what, needle) in [("R6", "R6 = "), ("K_EARLY", "K_EARLY = "), ("K_HALF", "K_HALF = "), ("the timing corners", "The timing corners: "), ("the ruled slack", "The ruled slack: ")] {
+            let n = f.matches(needle).count();
+            assert_eq!(n, 1, "the controller interface states {what} (\"{needle}\") {n} times: a value is stated once");
         }
+        // (delay(x) and the model's napper arrivals DERIVED from R6, no separately typed shift; the train-16 napper shift from
+        // the row hold's release)
+        assert!(f.contains("delay(x) = REL' + 155 + R6 - travel(x)"), "the interface writes delay(x) in R6");
+        assert_eq!(napper_t(), [SLOT_T[2][0] + iv.r6 + NAPPER_SHIFT, SLOT_T[2][1] + iv.r6 + NAPPER_SHIFT, SLOT_T[2][2] + iv.r6 + NAPPER_SHIFT]);
+        assert_eq!(napper16(), iv.hold_rel - (NAPPER_REL + NAPPER_SHIFT));
+        // (the constants the code holds: the key on exactly one line, its text the code's value)
+        for (key, want) in [
+            ("- **release offsets = ", format!("{} / {} / {} gt**", RELEASE_OFFSETS[0], RELEASE_OFFSETS[1], RELEASE_OFFSETS[2])),
+            ("- DM1_BLOCK7 = ", format!("{DM1_BLOCK7} gt")),
+            ("- SEEN3_OLD's tap = REL + ", format!("{S3OLD_TAP} gt, PROVISIONAL (the window {}..{}", S3OLD_WIN.0, S3OLD_WIN.1)),
+        ] {
+            let rest = iface_line(f, key).unwrap_or_else(|e| panic!("{e}"));
+            assert!(rest.starts_with(&want), "the controller interface's \"{key}\" line does not state the code's value \"{want}\": \"{rest}\"");
+        }
+        // (THE CONTROL, G1's B1: a duplicated value fails the reader BY NAME)
+        let dup = format!("{f}\n- R6 = 15 gt\n");
+        let err = Iface::parse(&dup).expect_err("a second \"- R6 = \" line must fail the reader");
+        assert!(err.starts_with("R6: ") && err.contains("on 2 lines"), "the duplicated R6 fails by name: {err}");
+        let dupk = format!("{f}\n- K windows: K_EARLY = 5 gt (the early half), K_HALF = 8 gt (the late half)\n");
+        let errk = Iface::parse(&dupk).expect_err("a second K windows line must fail the reader");
+        assert!(errk.starts_with("the K windows: ") && errk.contains("on 2 lines"), "the duplicated K windows fail by name: {errk}");
+        let gone = f.replace(R6_KEY, "- R6 (removed) = ");
+        let errg = Iface::parse(&gone).expect_err("no R6 line must fail the reader");
+        assert!(errg.starts_with("R6: ") && errg.contains("on 0 lines"), "the missing R6 fails by name: {errg}");
     }
 
     #[test]
@@ -4230,7 +4680,7 @@ mod tests {
             // (TRAIN 16's OFFSETS (ironfarm 04:18): 0 / 17 / 27 (slot_shift [0, 3, 3]) and the napper's delay after ARM3 7
             // (its release keyed on slot 3's ARM3 press: + 3 - 1 = + 2); the tap's window, the guard's margins, the napper
             // K margins; train 15 beside it)
-            for (tn, ss, ns) in [("train 15 (0/14/24, napper 8)", [0i64, 0, 0], 0i64), ("train 16 (0/17/27, napper 7)", TRAIN16_SHIFT, 2)] {
+            for (tn, ss, ns) in [("train 15 (0/14/24, napper 8)", [0i64, 0, 0], 0i64), ("train 16 (0/17/27, napper 7)", TRAIN16_SHIFT, napper16())] {
                 let mk = |r: &mut Row| {
                     r.slot_shift = ss;
                     r.napper_shift = ns;
@@ -4286,7 +4736,7 @@ mod tests {
                     let mut bad = 0;
                     for r0 in &rows {
                         for vv in 0..16u32 {
-                            let sg = |i: u32| if vv & (1 << i) != 0 { 2i64 } else { -2 };
+                            let sg = |i: u32| corner_sign(vv, i);
                             for t0 in (606..=720).step_by(4) {
                                 let mut r = r0.clone();
                                 mk(&mut r);
@@ -4778,7 +5228,7 @@ mod tests {
                 let mut ex: Vec<String> = Vec::new();
                 for (name, r0) in &rows {
                     for v in 0..16u32 {
-                        let sg = |i: u32| if v & (1 << i) != 0 { 2i64 } else { -2 };
+                        let sg = |i: u32| corner_sign(v, i);
                         for t0 in (606..=720).step_by(2) {
                             let mut r = r0.clone();
                             r.s3old_tap = Some(tap);
@@ -4882,6 +5332,16 @@ mod tests {
         }
     }
 
+    /// G1's B2 control on 40a74308f: run()'s train-16 napper arrival = napper_t() + napper16() (the row hold's release read
+    /// from the interface minus the model's hold rail), read back from each lane's own D press.
+    #[test]
+    fn the_train16_napper_arrives_at_napper_t_plus_napper16() {
+        let (n, seen, bad) = napper16_readback();
+        assert_eq!(n, 3, "a napper of each lane read back");
+        assert!(bad.is_empty(), "run()'s train-16 napper arrivals: {bad:?} ({seen:?})");
+        assert_eq!(napper16(), hold_rel() - (NAPPER_REL + NAPPER_SHIFT));
+    }
+
     #[test]
     fn the_normal_run_keeps_the_cadence_and_the_phase() {
         let r = Row::normal("t");
@@ -4916,24 +5376,30 @@ mod tests {
         // ONE-CREDIT-PER-BATCH GUARD (DM1_BLOCK7 = 35 gt, opened by every credit, every blocked press judged), every K(l) masking ALL of
         // D(l)'s outputs (K(3) over the J(3) reset, K(7) by order; the windows' early half 5), THE CLAIM CAP and THE RESYNC
         // NET (its item form, read from cart events), every late, missing and late-napper row keeps the store correct.
-        // THE OPEN FAILURES (adopted bars, by name): a batch cart into the way-in leg under a stray D(-1) / D(3) with batch 6
-        // carrying a picked napper (T's leg entries: the stray guard priced); a picked cart diverted (G1 CHANGES 7 C7: now
-        // judged in the stray sweep: a stray D(-1) at REL_6 + 109..120 with lane 3's pick; and T behind a cart late past
-        // λ_pass); every other bar passes and every control bites; the CLI exits 1 by name)
+        // THE OPEN FAILURE (adopted bars, by name; G1's B3 + B4 on 40a74308f): R6's constraint (ii) over the swept train-16
+        // runs with the late timing corner swept is 1 gt short of the ruled slack; every other bar passes and every control
+        // bites; the CLI exits 1 by name)
         let mut v = Verdict::new("ctl-credit-test");
-        for l in bench(&mut v) {
+        let lines = bench(&mut v);
+        for l in &lines {
             println!("{l}");
         }
         let fails = v.fails();
         // (THE SCOPE RESET (ironspec 11:20a): every previously pinned miss was an OUT row (strays, late T rows, the item
-        // form's lost carts, the (b') through-branch fault), now declared scoped by name: the normal-operation verdict has
-        // no miss)
-        let expected: [(&str, &str); 0] = [];
+        // form's lost carts, the (b') through-branch fault), now declared scoped by name. G1's B3 + B4 on 40a74308f: ONE
+        // NORMAL-OPERATION MISS, PINNED BY NAME until ironspec rules on it: R6's constraint (ii) at the late corner (the
+        // napper 2 gt late under a k + j 3 open after its release: its D press 1 gt inside K's late edge) is 1 gt short of
+        // its minimum 0 + the ruled slack 2; the bench prints the late half that closes it, as a finding)
+        let expected: [(&str, &str); 1] = [("R6's PHYSICAL CONSTRAINT (ii) the napper's own D(l) press inside its K window", "least >= its minimum 0 + the ruled slack 2")];
         assert_eq!(fails.len(), expected.len(), "ctl-credit-bench: the pinned verdict changed ({} misses, {} pinned): {:#?}", fails.len(), expected.len(), fails);
         for (e, k) in expected {
             assert_eq!(fails.iter().filter(|f| f.contains(e) && f.contains(k)).count(), 1, "ctl-credit-bench: the pinned miss \"{e}\" {k} is not exactly once among {:#?}", fails);
         }
-        // (G1 on 60ada7ea8 B1 / the scope reset: the normal-operation verdict passes: no miss, the OUT rows scoped by name)
-        assert!(v.finish(false).is_ok(), "ctl-credit-bench: the normal-operation verdict must pass");
+        // (G1's B4 on 40a74308f: R6's swept leasts PINNED exactly: (i) / (ii) / (iii) over the swept train-16 runs)
+        let pin = lines.iter().find_map(|l| l.strip_prefix(PHYS_PIN)).expect("the bench prints R6's physical leasts");
+        assert_eq!(pin, "(i) 3 / (ii) 1 / (iii) 25", "ctl-credit-bench: R6's swept physical leasts changed");
+        // (G1 on 60ada7ea8 B1 / the scope reset: the normal-operation verdict passes exactly when nothing is pinned; with the
+        // pinned miss above the run fails BY NAME, as the CLI does)
+        assert_eq!(v.finish(false).is_ok(), expected.is_empty(), "ctl-credit-bench: the normal-operation verdict must fail exactly on the pinned misses");
     }
 }

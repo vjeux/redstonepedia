@@ -2,10 +2,12 @@
 
 The values and readers other parts cite by path. The controller's cells are laid in their own design file when the
 controller car lands; until then this file is the interface of record. The logic benches READ the numbers they use from
-this file (ctl-pick: the recovery delay N and P1 OCCUPIED's delay D), and a test,
-`ctlcredit::tests::the_interface_file_matches_the_code`, asserts every number below against the code's constants. The
-release pulse and the release offsets are requirements the logic model doesn't use: this file states them once, the
-station generator and F′'s benches read them from here, and F′'s test links dfb89499's laid pulse to this one.
+this file (ctl-pick: the recovery delay N and P1 OCCUPIED's delay D; ctl-credit: R6, the K windows' two halves, the timing
+corners, the ruled slack, the napper's row hold and the release pulse, each through one reader that requires its key on
+exactly one line), and a test, `ctlcredit::tests::the_interface_file_matches_the_code`, asserts the rest against the
+code's constants. Each value is stated ONCE here: its history stays off its value line. The release pulse and the release
+offsets are requirements the logic model doesn't use: this file states them once, the station generator and F′'s benches
+read them from here, and F′'s test links dfb89499's laid pulse to this one.
 
 ## Interface values
 
@@ -16,8 +18,12 @@ station generator and F′'s benches read them from here, and F′'s test links 
   7; the station header's 0 / 14 / 24 is stale); controller timing, stated once here.
 - DM1_BLOCK7 = 35 gt: the one-credit-per-batch guard (opened by every credit), centred in the measured 5..65 gt.
 - SEEN3_OLD's tap = REL + 80 gt, PROVISIONAL (the window 78..82 on train 15's offsets; train 16 re-sweeps it).
-- K windows: K_EARLY = 5 gt (the early half), K_HALF = 10 gt (the late half), riding each napper's release (with R6 =
-  14, ironspec 11:24a).
+- K windows: K_EARLY = 5 gt (the early half), K_HALF = 10 gt (the late half), riding each napper's release (ironspec
+  11:24a).
+- The timing corners: ±2 gt (normal running moves each cart's and each napper's arrival up to this far early or late; the
+  benches sweep every offset in between, a napper's ride and its batch's slot 3 independently).
+- The ruled slack: 2 gt (ironspec 11:24a, "the >= 2-gt form": each physical constraint's least over the swept runs is at
+  least its physical minimum plus this).
 - The claim cap is in the design (a credit with no open claim is refused).
 - The token's recovery delay N = 30 gt (ironspec 09:00a (1): one N, read by both benches): counted from the arrival
   detector going UNPOWERED (after its 20-gt recheck hold); N >= a departing napper's clear time (its box out of the
@@ -68,14 +74,16 @@ station generator and F′'s benches read them from here, and F′'s test links 
   which part removes the golem is open with ironspec); "golems lost" = summons while a villager is past 24,000 gt since
   its last sleep: 0 on every normal row. Its seed-to-seed spread: 0 (the model is deterministic): MODEL-ANCHORED,
   UNVALIDATED until redsim senses golems and step c's game night cross-checks it.
-- R6 = 14 gt (ADOPTED ironspec 11:24a, the >= 2-gt form; R6 = 15 withdrawn 10:52a; 12 / 8 superseded), with K's late half
-  10: each lane's napper
-  leaves its R hold (x-2,24,7) (lane x) at delay(x) = REL' + 165 + 4 - travel(x), REL' the release cycle that TAKES the
-  napper (it reaches its R brake after its own batch's R release, so the next cycle's); cc767b78's D-keyed form (R = D_l
-  + 34) names the same event; travel(x) = R(x) -> J(x) from ironfarm's trace (owed; read by a test from the `# travel:`
-  lines once printed); the station row's (9,0,8) hold stays at REL + 67. Its physical constraints (K's switch after slot
-  3's box clear + 1; the napper's own D inside its window; a batch D outside the windows by >= 1) are judged over the
-  swept train-16 runs in ctl-credit (world opens applied in each run); ironfarm's clean() reads R6 and K_HALF here.
+- R6 = 14 gt (ADOPTED ironspec 11:24a).
+- R6's history (no value of record): 15 withdrawn 10:52a; 12 / 8 superseded.
+- THE NAPPER's R RELEASE: each lane's napper leaves its R hold (x-2,24,7) (lane x) at
+  delay(x) = REL' + 155 + R6 - travel(x),
+  REL' the release cycle that TAKES the napper (it reaches its R brake after its own batch's R release, so the next
+  cycle's); cc767b78's D-keyed form (R = D_l + 34) names the same event; travel(x) = R(x) -> J(x) from ironfarm's trace
+  (owed; read by a test from the `# travel:` lines once printed). Its physical constraints (K's switch after slot 3's box
+  clear + 1; the napper's own D inside its window; a batch D outside the windows by >= 1) are judged over the swept
+  train-16 runs in ctl-credit (world opens and the timing corners applied in each run; each least against its minimum
+  plus the ruled slack); ironfarm's clean() reads R6 and K_HALF here.
 
 ## Readers (detector -> reader)
 
@@ -158,8 +166,9 @@ station generator and F′'s benches read them from here, and F′'s test links 
   return row for it and every napper in transit. THE ROOM COUNTS ONLY THE NON-JOIN RETURN PLACES: (9,0,8), (7,0,7),
   (6,0,7), (5,0,7) and (4,0,7) (its contact with lane 3's departing cart declared, delaying no lane); NEVER the joins
   (3,0,7) / (-1,0,7) (a napper parked there jams that lane's departures).
-- THE NAPPER's ROW HOLD (9,0,8) (bought, ironspec 08:41a (2)): releases at REL + 67 (the join-merge window 37..97, its
-  centre; judged AT THE HOLD RAIL (9,0,8), the controller's source time back-computed) AND THE SENSED FREE-PLACE TERM.
+- THE NAPPER's ROW HOLD (9,0,8) (bought, ironspec 08:41a (2)): releases at its REL offset stated under Interface values
+  (the join-merge window 37..97, its centre; judged AT THE HOLD RAIL (9,0,8), the controller's source time back-computed)
+  AND THE SENSED FREE-PLACE TERM.
   The stretch past lane -1's join has NO rest place (the slope (-2,0,7) -> (-3,1,7) up to the foot (-4,2,7)): a cart
   held at gate G leaves any cart behind it rolling back onto (-1,0,7). Gate G is never inhibited (it guards the lift's
   water). So the term is "no cart AHEAD of the napper can be held at G during its transit": gate G's foot detector
