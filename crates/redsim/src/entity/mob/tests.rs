@@ -449,6 +449,27 @@ fn daylight_detector_follows_the_day() {
     assert!(matches!(w.get(BlockPos::new(0, 0, 0)), Block::DaylightDetector { power: 11, .. }), "midnight: {}", w.get(BlockPos::new(0, 0, 0)));
 }
 
+/// (ironspec 08:56a (2), tick-exact 08:54: the shared seated-feet constant, cited to a game print) a villager seated in
+/// a minecart rides with its feet at the cart's own y (SEATED_VILLAGER_FEET_OFFSET = 0: 26.3's
+/// LOWERED_PASSENGER_ATTACHMENT, no ridingOffset), on a flat rail and on the slope alike, every tick after its seat
+#[test]
+fn a_seated_villagers_feet_are_at_its_carts_y() {
+    let mut w = world(1);
+    for x in -3..=6 {
+        put(&mut w, x, -1, 0, "minecraft:stone");
+        put(&mut w, x, 0, 0, "minecraft:rail[shape=east_west,waterlogged=false]");
+    }
+    let cart = crate::entity::spawn(&mut w, "minecraft:minecart", [0.5, 0.0625, 0.5], Some("{Passengers:[{id:\"minecraft:villager\"}]}")).expect("the cart");
+    for _ in 0..5 {
+        w.tick();
+        let ci = crate::entity::index_of(&w, cart).unwrap();
+        let rider = w.entities.list[ci].passengers[0];
+        let ri = crate::entity::index_of(&w, rider).unwrap();
+        assert_eq!(w.entities.list[ri].pos.y - w.entities.list[ci].pos.y, super::SEATED_VILLAGER_FEET_OFFSET, "the seated feet at the cart's y");
+    }
+    assert_eq!(super::SEATED_VILLAGER_FEET_OFFSET, 0.0);
+}
+
 /// (9fc3155f, ironspec Nov 12 04:32) A pillager is modeled only seated: on its own its spawn is
 /// refused; seated in an oak boat it rides at the boat's y + 0.1875 (AbstractBoat's attachment,
 /// its height / 3) - 0.6 (its riding offset), with the namespaced id as a design writes it;

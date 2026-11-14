@@ -1738,12 +1738,19 @@ pub fn rider_offset(v: &EntityKind, rider: &MobState) -> Option<f64> {
 /// position plus the first, then minus the rider's attachment: `(y + seat) + ridingOffset` in that
 /// order (tickexact 2026-11-10: `y + (seat + ridingOffset)` rounded a chicken jockey's baby zombie
 /// 2 ulps off, d1u-deep t11517).
+/// (ironspec 08:56a (2): one shared constant, cited to a game print) A villager's (or a wandering trader's) feet seated
+/// in a minecart sit at the cart's own y: 26.3 `AbstractMinecart.getPassengerAttachmentPoint` returns
+/// LOWERED_PASSENGER_ATTACHMENT (0, 0, 0) for them, with no ridingOffset; tick-exact's c19 print (a/1992055485533408,
+/// 2026-11-14 08:54: the seated rider's y identical to its cart's at 6 decimals). Every tool that places a seated
+/// villager from its cart reads this.
+pub const SEATED_VILLAGER_FEET_OFFSET: f64 = 0.0;
+
 pub fn rider_seat(v: &EntityKind, rider: &MobState) -> Option<(f64, f64)> {
     // (floats where the game's attachment is a float, a double where it is one: the chicken's Vec3)
     let seat: f64 = match v {
         // `AbstractMinecart.getPassengerAttachmentPoint`: a villager (or a wandering trader) sits
         // lowered, at the cart's own y (`LOWERED_PASSENGER_ATTACHMENT`, 0)
-        EntityKind::Minecart(_) if matches!(rider.ty, MobType::Villager) => 0.0,
+        EntityKind::Minecart(_) if matches!(rider.ty, MobType::Villager) => SEATED_VILLAGER_FEET_OFFSET,
         EntityKind::Minecart(_) => 0.1875f32 as f64,
         EntityKind::Boat(_) => (0.5625f32 / 3.0f32) as f64,
         // a spider's passenger attachment (`passengerAttachments(0.765F)`: straight up, the same at
