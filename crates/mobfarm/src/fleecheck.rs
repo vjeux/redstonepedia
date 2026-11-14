@@ -3459,7 +3459,9 @@ pub fn occlude(spec: &FarmSpec, post: BlockPos, pill: bool, hide: &[Vec3], exclu
     let d = |p: &Vec3| ((p.x - feet.x).powi(2) + (p.y - feet.y).powi(2) + (p.z - feet.z).powi(2)).sqrt();
     let sees = |w: &redsim::World, p: &Vec3| d(p) <= far && redsim::entity::mob::los::has_line_of_sight(w, reye(p), eye);
     let in_range = |p: &Vec3| d(p) <= far;
-    let hidden_now: Vec<Vec3> = hide.iter().copied().filter(|p| sees(w, p)).collect();
+    // (ironspec Nov 13 19:15, B1: a hide point enters the search when EITHER direction is clear: the
+    // design depends on the hostile's ray for a hide point, so the rider's ray alone can't gate it)
+    let hidden_now: Vec<Vec3> = hide.iter().copied().filter(|p| in_range(p) && { let (a, b) = ray_pair(w, reye(p), eye); a || b }).collect();
     // (the kept points: every rail place's three points and the `extra` rider positions, e.g. a
     // seat's exact cart position, 9fc3155f Nov 12 09:57)
     let keep: Vec<(String, Vec3)> = scarer_points(spec, extra)
@@ -4909,6 +4911,21 @@ pub fn route_golem_floors(spec: &FarmSpec, biome: &'static str) -> Result<(Vec<S
             }
         }
     }
+    // (G1 18:37 B4 / 19:23: and every villager the design itself holds, at its own `blockPosition()`:
+    // the design's entities spawned into a copy of the settled world)
+    let villagers = {
+        let mut with = w.clone();
+        for (k, p, n) in &spec.entities {
+            let _ = redsim::entity::spawn(&mut with, k, *p, n.as_deref());
+        }
+        redsim::entity::mob::site::villager_cells(&with)
+    };
+    for v in &villagers {
+        if !callers.contains(v) {
+            callers.push(*v);
+        }
+    }
+    let nv = villagers.len();
     callers.sort_by_key(|p| (p.y, p.z, p.x));
     let cell = |p: &BlockPos| format!("{},{},{}", p.x, p.y, p.z);
     if callers.is_empty() {
@@ -4929,7 +4946,7 @@ pub fn route_golem_floors(spec: &FarmSpec, biome: &'static str) -> Result<(Vec<S
     }
     let off: Vec<BlockPos> = cells.iter().copied().filter(|c| !golem_box_meets_portal(&w, *c)).collect();
     let mut lines = vec![format!(
-        "GOLEM FLOORS from every route rider's cell as a caller ({} caller cell(s) on {} rail cell(s), {guards} golem guard(s) excluded; ironspec 17:26, standing): {} golem cell(s), {} on the pad (a golem there meets a nether portal), {} OFF THE PAD{} (bar 0)",
+        "GOLEM FLOORS from every route rider's cell as a caller ({} caller cell(s) on {} rail cell(s), {guards} golem guard(s) excluded, {nv} villager cell(s) of the design added; ironspec 17:26, standing): {} golem cell(s), {} on the pad (a golem there meets a nether portal), {} OFF THE PAD{} (bar 0)",
         callers.len(),
         rails.len() - guards,
         cells.len(),
@@ -5310,8 +5327,14 @@ pub fn row_citation_why_in(why: &str, repo_root: &std::path::Path) -> Result<Str
                 Ok(o) if o.status.success() => committed = true,
                 Ok(o) => {
                     let err = String::from_utf8_lossy(&o.stderr).trim().to_string();
-                    // (exit 128 with "not a git repository" or a missing HEAD: git can't answer)
-                    if err.contains("not a git repository") || err.contains("Not a valid object name HEAD") || err.contains("invalid object name 'HEAD'") {
+                    // (exit 128 with "not a git repository" or a missing HEAD itself: git can't answer;
+                    // ironspec 19:15 (b): only the BARE "HEAD" form: "Not a valid object name HEAD:<path>"
+                    // is a missing path, i.e. not committed)
+                    let bare_head = err.lines().any(|l| {
+                        let l = l.trim_end().trim_end_matches('.');
+                        l.ends_with("Not a valid object name HEAD") || l.ends_with("invalid object name 'HEAD'")
+                    });
+                    if err.contains("not a git repository") || bare_head {
                         git_failed = Some(format!("git could not check {}: {err}", repo_root.display()));
                     }
                 }
@@ -8336,6 +8359,51 @@ mod gate_tests {
         assert!(pair == (true, false) && super::ray_tag(pair).contains("DISAGREE"), "the corner pair: {pair:?}");
         let calm = super::ray_pair(&w, a, v3(0.5, 1.5, 3.5));
         assert!(calm == (true, true) && super::ray_tag(calm) == "both CLEAR", "the open pair: {calm:?}");
+    }
+
+    /// (ironspec Nov 13 19:15, B1: the expected directions in the name) The corner pair MIRRORED as a
+    /// hide point: a seated pillager's eye at (0.5,2.245,0.5) (its post (0,1,0)) and a hide point whose
+    /// eye is at (2.5,2.245,2.5), stone at (1,2,0): the rider's ray to the hostile is BLOCKED and the
+    /// hostile's ray to the point CLEAR. The point enters the search (the hostile's ray is the one a
+    /// hide point depends on), is printed seen before the glass with the disagreement named, and is
+    /// cut by the glass found.
+    #[test]
+    fn b1_mirrored_corner_hide_point_hostile_ray_clear_rider_ray_blocked() {
+        let p = |s: &str| redsim::block::Block::parse(s).unwrap();
+        let spec = redsim::entity::mob::farm::FarmSpec { blocks: vec![(b(1, 2, 0), p("minecraft:stone"))], entities: Vec::new(), output: b(3, -1, 3), lo: b(-1, -1, -1), hi: b(4, 4, 4), block_entities: Vec::new(), rock: false, nether: None, land: false };
+        let eye_y = 1.0 + super::PILLAGER_SEAT + super::eye_of(redsim::entity::mob::types::MobType::Pillager);
+        let point = redsim::entity::Vec3::new(2.5, eye_y - super::eye_of(redsim::entity::mob::types::MobType::Villager), 2.5);
+        let l = super::occlude(&spec, b(0, 1, 0), true, &[point], &[], &[]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(l[0].contains(": 1 of 1 hide positions seen now"), "the mirrored point enters the search: {l:?}");
+        assert!(l.iter().any(|x| x.trim_start().starts_with("hide point 2.50,") && x.contains("before the hostile sees the rider, the rider's ray blocked (DISAGREE)")), "seen before the glass: {l:?}");
+        assert!(l.iter().any(|x| x.contains("pairs whose two directions disagree: ") && x.contains("a charge is possible")), "{l:?}");
+        assert!(l.iter().any(|x| x.trim_start().starts_with("glass ") && x.ends_with("(PASS)")), "cut by the glass: {l:?}");
+        // (G1 19:23: and through `occlude` the same point FAILS when no glass may go on its ray (every
+        // cell excluded): it entered the search, so it is reported, not skipped)
+        let lf = super::occlude(&spec, b(0, 1, 0), true, &[point], &[([-1, -1, -1], [4, 4, 4])], &[]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(lf[0].contains(": 1 of 1 hide positions seen now") && super::occlude_failed(&lf) && lf.iter().any(|x| x.trim_start().starts_with("NONE:")), "no glass possible: FAIL: {lf:?}");
+    }
+
+    /// (G1 Nov 13 19:23, B4: the expected count in the name) A rider on an ascending rail calls from
+    /// two cells: its rail's cell and, near the slope's top, the cell above; a villager the design
+    /// holds off the rails calls from its own cell.
+    #[test]
+    fn b4_slope_top_rider_calls_from_two_cells_and_the_design_villager_from_its_own() {
+        let p = |s: &str| redsim::block::Block::parse(s).unwrap();
+        let mut blocks = Vec::new();
+        for x in 0..=4 {
+            for z in 0..=4 {
+                blocks.push((b(x, 0, z), p("minecraft:stone")));
+            }
+        }
+        blocks.push((b(3, 1, 2), p("minecraft:stone")));
+        blocks.push((b(2, 1, 2), p("minecraft:rail[shape=ascending_east,waterlogged=false]")));
+        let spec = redsim::entity::mob::farm::FarmSpec { blocks, entities: Vec::new(), output: b(2, -1, 2), lo: b(0, -1, 0), hi: b(4, 4, 4), block_entities: Vec::new(), rock: false, nether: None, land: false };
+        let (gl, _, _) = super::route_golem_floors(&spec, "minecraft:plains").unwrap_or_else(|e| panic!("{e}"));
+        assert!(gl[0].contains("(2 caller cell(s) on 1 rail cell(s), 0 golem guard(s) excluded, 0 villager cell(s) of the design added"), "the slope's two cells: {gl:?}");
+        let with_villager = redsim::entity::mob::farm::FarmSpec { entities: vec![("minecraft:villager".to_string(), [0.5, 1.0, 0.5], None)], ..spec };
+        let (vl, _, _) = super::route_golem_floors(&with_villager, "minecraft:plains").unwrap_or_else(|e| panic!("{e}"));
+        assert!(vl[0].contains("(3 caller cell(s) on 1 rail cell(s), 0 golem guard(s) excluded, 1 villager cell(s) of the design added"), "the design's villager: {vl:?}");
     }
 
     /// (ironspec Nov 13 08:18 (e): the exterior static's control) A stone platform floating in the
