@@ -5471,6 +5471,13 @@ pub enum MobfarmCmd {
         /// through the coast, on from the evidence to + S.
         #[arg(long)]
         r_offgap: bool,
+        /// With --siding: V1 (dfb89499 19:34): R_2 (x,18,2) a powered rail driven over the same span as R_1.
+        #[arg(long)]
+        r2_powered: bool,
+        /// With --siding: GB (dfb89499 20:03): the brake moved up one slot (R_1 a plain rail with no
+        /// driver, R_2 the powered rail driven by the R line at (x+1,18,2)).
+        #[arg(long)]
+        gb: bool,
         /// With --siding: write the bench's world as laid and settled (every non-air cell of its box,
         /// the design format, the lanes file's loop frame) to this path, for `mobfarm record-match`
         /// (ironspec 21:43).
@@ -12172,7 +12179,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 anyhow::bail!("frame-check failed");
             }
         }
-        MobfarmCmd::EscapeBench { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, login_matrix, restart, restart_matrix, restart_base, phase_step, intake_flat, v_in, siding, nap_k, nap_every, nap_ret, nap_pulse, merge_curve, slopes, nap_guard, nap_early, nap_any_pass, nap_ring, nap_pick_u, nap_win_du, nap_win_tap, nap_ai, nap_stamp_at_arrival, nap_late_latch, nap_post, k_row, k_offsets, nap_feed_v, flat_detector, siding_north, emit_with_row, fill_scene, top_flat, mirror_z, start_steady, r_support, rest_sweep, rest_phases, emit_rest_range, feed_path, feed_z8, feed_slime, combos, no_walkway, nap_present_k, curve_bar, d_gate, inject_sweep, inject_feed_vs, inject_nap_rets, r_joint_control, held_rider_control, stray_ctl, push_grid_run, grid_speeds, grid_entries, grid_delays, push_grid_out, push_grid, present_settle_worst, present_latch_unclocked, early_r, hold_switch_off, hold_switch_off_rerelease, day0, skip_farm_rider, siding_seed, siding_seeds, interaction_row, pair_least, pos_offsets, j_rail, lip_dy, sbend_straight, forced_v, forced_v_panic, lip_volume, pos_offset, r_until_string, upslope_ctl, c2_booster, r_delay, boost_window, start_i, refill_sweep, refill_delays, r_evidence, r_evidence_delay, r_evidence_z2, r_second, skip_release, r_offgap, inject_release, flat_d, lip_bar, out, nap_feed_phase, siding_dx, siding_dy, ns_merge, guard_det, guard_dz, drop_entry, no_top_support, side_real, side_ctl, siding_matrix, rets, v_ins, nap_rets, corners, nap_ks, jobs, emit_lanes_design, r_boost, floor_bottom, empty, freeze32 } => {
+        MobfarmCmd::EscapeBench { lanes, spacing, run, per_lane, period, cycles, ret, corner, w0, wp, drop_w, entry, hold_n, front_boost, pockets, string_dy, r_pulse, retry, login, login_matrix, restart, restart_matrix, restart_base, phase_step, intake_flat, v_in, siding, nap_k, nap_every, nap_ret, nap_pulse, merge_curve, slopes, nap_guard, nap_early, nap_any_pass, nap_ring, nap_pick_u, nap_win_du, nap_win_tap, nap_ai, nap_stamp_at_arrival, nap_late_latch, nap_post, k_row, k_offsets, nap_feed_v, flat_detector, siding_north, emit_with_row, fill_scene, top_flat, mirror_z, start_steady, r_support, rest_sweep, rest_phases, emit_rest_range, feed_path, feed_z8, feed_slime, combos, no_walkway, nap_present_k, curve_bar, d_gate, inject_sweep, inject_feed_vs, inject_nap_rets, r_joint_control, held_rider_control, stray_ctl, push_grid_run, grid_speeds, grid_entries, grid_delays, push_grid_out, push_grid, present_settle_worst, present_latch_unclocked, early_r, hold_switch_off, hold_switch_off_rerelease, day0, skip_farm_rider, siding_seed, siding_seeds, interaction_row, pair_least, pos_offsets, j_rail, lip_dy, sbend_straight, forced_v, forced_v_panic, lip_volume, pos_offset, r_until_string, upslope_ctl, c2_booster, r_delay, boost_window, start_i, refill_sweep, refill_delays, r_evidence, r_evidence_delay, r_evidence_z2, r_second, skip_release, r_offgap, r2_powered, gb, inject_release, flat_d, lip_bar, out, nap_feed_phase, siding_dx, siding_dy, ns_merge, guard_det, guard_dz, drop_entry, no_top_support, side_real, side_ctl, siding_matrix, rets, v_ins, nap_rets, corners, nap_ks, jobs, emit_lanes_design, r_boost, floor_bottom, empty, freeze32 } => {
             // (--curve-bar 0: the curve rule printed only; --lip-bar: the S-bend's gate)
             let curve_bar: Option<i64> = (curve_bar > 0).then_some(curve_bar);
             // (ironspec 04:14 (9): a negative lip bar would pass contact (a margin of -1 is the napper
@@ -12286,7 +12293,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         anyhow::ensure!(0 <= a && a <= b, "--r-second {s}: 0 <= A <= B");
                         Some((a, b))
                     }
-                }, skip_release, r_offgap, d_slope: !flat_d, out: out.clone(), siding_dx, siding_dy, ns_merge, guard_det, guard_dz, drop_entry, no_top_support, side_real, side_ctl: side_ctl.clone() };
+                }, skip_release, r_offgap, r2_powered, gb, remove_cart: None, d_slope: !flat_d, out: out.clone(), siding_dx, siding_dy, ns_merge, guard_det, guard_dz, drop_entry, no_top_support, side_real, side_ctl: side_ctl.clone() };
                 // (G1 14:18 L13: a dependent flag without what it depends on is refused, never a silent
                 // no-op; G1 14:51 on e15a3f1f0: --seeds-matrix only in the siding matrix, and never with
                 // an explicit --seed other than the default)
@@ -12305,6 +12312,12 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 anyhow::ensure!(!start_i || so.ai, "--start-i sets the design start (i) of the AI riders: it needs --nap-ai");
                 anyhow::ensure!(pair_least >= 0, "--pair-least {pair_least}: >= 0");
                 anyhow::ensure!(siding_seeds.is_none() || so.seed == 1, "--seeds-matrix with --seed {}: the matrix's seeds replace --seed; give one of them", so.seed);
+                // (G1 17:57 N6: the modes that return before the sweeps refuse the pairing, never a silent
+                // pre-emption; --combos is not read by the sweeps)
+                anyhow::ensure!(
+                    (interaction_row.is_none() && refill_sweep.is_none()) || (push_grid_run.is_none() && rest_sweep.is_none() && !restart_matrix && combos.is_none()),
+                    "--interaction-row / --refill-sweep run alone: not with --push-grid-run, --rest-sweep, --restart-matrix or --combos"
+                );
                 if let Some(pg) = push_grid_run.as_deref() {
                     // (the push grid (ironspec 03:00, the citable grid behind `# push-pair:`): every rest
                     // position the napper's arrival on K produces (lo..hi by step, `rest_phases` entry
@@ -12738,11 +12751,32 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         let (w, d, p) = grid[i];
                         match row {
                             Ok(r) => {
-                                let nf = r.failures(lip_bar, curve_bar).iter().filter(|f| f.1 > 0).count();
-                                let ok = r.refill_margin.0 >= 2 && r.refill_rest.1 < 1.30 && r.upslope_disp == 0 && nf == 0 && r.refill_never == 0 && r.refill_depth.1 >= 7;
+                                // (the parent Nov 13 19:21 / ironspec 18:21 (2): a row with no arrival (the
+                                // evidence never came: an empty slope) is NOT JUDGED and fails, by name)
+                                if r.refill_no_arrival {
+                                    // (ironspec 19:22 (3): the refill part is NOT JUDGED by name; the ROW's verdict is
+                                    // the design's behaviour: the latch stays set, the source-led cut drops R_1 before
+                                    // every trapdoor open (0 opens with R_1 powered), nothing moves out of turn (no
+                                    // release of 2 or more carts))
+                                    let ok = r.open_r1_powered == 0 && r.multi_releases == 0;
+                                    println!(
+                                        "refill sweep width {w} delay {d} position {p:?}: the refill NOT JUDGED: no arrival (the latch never reset by an arrival; {} refills, none with a new slot-1 cart); the row: trapdoor opens with R_1 powered {} (the bar: 0), releases of 2 or more carts {} (the bar: 0): {}",
+                                        r.refill_count, r.open_r1_powered, r.multi_releases, if ok { "PASS" } else { "FAIL" }
+                                    );
+                                    if !ok && !failing_widths.contains(&w) {
+                                        failing_widths.push(w);
+                                    }
+                                    continue;
+                                }
+                                // (ironspec 19:21 (2): the up-slope bar is RETIRED for the refill (a diagnostic,
+                                // printed); the refill's bars: (a) margin >= 2, (b') slot 1 at its 1.28 rest, no
+                                // capped refill, full depth reached, the source-led cut's 0 opens with R_1
+                                // powered, and the row's other bars)
+                                let nf = r.failures(lip_bar, curve_bar).iter().filter(|f| f.1 > 0 && f.0 != "net up-slope displacement over 0.1 block").count();
+                                let ok = r.refill_margin.0 >= 2 && r.refill_rest.1 < 1.30 && nf == 0 && r.refill_never == 0 && r.refill_depth.1 >= 7 && r.open_r1_powered == 0;
                                 println!(
-                                    "refill sweep width {w} delay {d} position {p:?}: margin {}..{}, slot 1's rest z {:.4}..{:.4}, the tail's highest rest z {:.4}, the queue depth {}..{} (full depth 7 required), capped refills {}, up-slope bar {}, the row's failing bars {}: {}",
-                                    r.refill_margin.0, r.refill_margin.1, r.refill_rest.0, r.refill_rest.1, r.refill_tail, r.refill_depth.0, r.refill_depth.1, r.refill_never, r.upslope_disp, nf, if ok { "PASS" } else { "FAIL" }
+                                    "refill sweep width {w} delay {d} position {p:?}: margin {}..{}, slot 1's rest z {:.4}..{:.4}, the tail's highest rest z {:.4}, the queue depth {}..{} (full depth 7 required), capped refills {}, trapdoor opens with R_1 powered {}, up-slope events (a diagnostic, ironspec 19:21) {}, the row's other failing bars {}: {}",
+                                    r.refill_margin.0, r.refill_margin.1, r.refill_rest.0, r.refill_rest.1, r.refill_tail, r.refill_depth.0, r.refill_depth.1, r.refill_never, r.open_r1_powered, r.upslope_disp, nf, if ok { "PASS" } else { "FAIL" }
                                 );
                                 if !ok && !failing_widths.contains(&w) {
                                     failing_widths.push(w);
@@ -12757,7 +12791,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         }
                     }
                     println!(
-                        "the refill sweep's verdict (ironspec 18:06 (3): margin >= 2, slot 1 at its 1.28 rest, the up-slope bar 0, the row passing, at every delay and position): {}",
+                        "the refill sweep's verdict (ironspec 19:21 (2) / 19:22 (3): margin >= 2, slot 1 at its 1.28 rest, full depth 7 reached, no capped refill, no trapdoor open with R_1 powered, the row's other bars (the up-slope events a diagnostic); an empty slope's refill NOT JUDGED, its row judged on the opens and on releases of 2 or more carts; ironspec 20:00 retired (b') as a refill bar, the game's direct bars V1-V4 deciding, so this verdict is the bench's reading only, at every delay and position): {}",
                         widths.iter().map(|w| format!("width {w} {}", if failing_widths.contains(w) { "FAIL" } else { "PASS" })).collect::<Vec<_>>().join(", ")
                     );
                     if !failing_widths.is_empty() {
@@ -12812,24 +12846,50 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     let dep = |a: &[(i32, f64, f64, f64)], b: &[(i32, f64, f64, f64)]| crate::sidingbench::path_departure(a, b);
                     let mut verdict_fail: Vec<String> = Vec::new();
                     let (mut ld_passes, mut ld_b, mut ld_p, mut ld_d) = (0usize, 0usize, 0usize, 0.0f64);
+                    // (ironspec 14:47 (a): each pair's carts against their SOLO rides. The largest-C-gap
+                    // row is no solo ride (its napper leaves at another tick, with other dynamics: G1
+                    // 17:57's "undetermined", answered by the run of Nov 13 19:37 where every normal pair
+                    // departed "inf" from it). Each row's napper is re-ridden at the same forced release
+                    // with its leader killed 60 gt before the leader's lip arrival (--remove-cart), and its
+                    // leader re-ridden with the napper held on R until the leader's arrival + 100; an
+                    // arrival at another tick is itself a departure (infinite))
+                    let solo_jobs: Vec<(usize, bool)> = rows.iter().enumerate().filter(|(_, r)| injected(r.1, &r.2).is_some()).flat_map(|(i, _)| [(i, true), (i, false)]).collect();
+                    let solo_res = crate::sidingbench::par_map(solo_jobs.len(), jobs, |j| {
+                        let (i, nap) = solo_jobs[j];
+                        let (key, t, r) = &rows[i];
+                        let p = injected(*t, r).expect("a row with its injected pair");
+                        let mut sso = so.clone();
+                        sso.seed = key.0;
+                        sso.pos_offset = key.1;
+                        if nap {
+                            sso.inject_release = Some(*t);
+                            sso.remove_cart = Some((p.3, p.2 - 60));
+                        } else {
+                            sso.inject_release = Some(p.2 + 100);
+                        }
+                        crate::sidingbench::siding_row(&o, &sso)
+                    });
+                    let mut solo: std::collections::HashMap<(usize, bool), Result<crate::sidingbench::SidingRow, String>> = std::collections::HashMap::new();
+                    for (j, rr) in solo_res.into_iter().enumerate() {
+                        solo.insert(solo_jobs[j], rr);
+                    }
+                    let solo_path = |i: usize, nap: bool, c: usize, ta: i64, path: &Option<Vec<(i32, f64, f64, f64)>>| -> Option<f64> {
+                        let s = solo.get(&(i, nap))?.as_ref().ok()?;
+                        let a = path.as_ref()?;
+                        // (the cart's lip arrival in its solo ride: the same tick, else an infinite departure)
+                        match s.lip_paths.iter().filter(|q| q.1 == c).min_by_key(|q| (q.0 - ta).abs()) {
+                            Some(q) if q.0 == ta => dep(a, &q.2),
+                            Some(_) => Some(f64::INFINITY),
+                            None => None,
+                        }
+                    };
                     for key in &keys {
                         let (sd, pos) = (key.0, key.1);
-                        let mine: Vec<&((i64, (i32, i32, i32)), i64, crate::sidingbench::SidingRow)> = rows.iter().filter(|r| r.0 == *key).collect();
-                        let reference = mine.iter().filter_map(|r| injected(r.1, &r.2).map(|p| (p.4, *r))).max_by_key(|x| x.0);
-                        let Some((ref_gap, ref_row)) = reference else {
-                            verdict_fail.push(format!("seed {sd} position {pos:?}: no injected napper pair in any row (NOT JUDGED)"));
-                            continue;
-                        };
-                        let ref_pair = injected(ref_row.1, &ref_row.2).expect("the reference row has its pair");
-                        // (G1 17:00 B4: the reference must ride SOLO (0 box and 0 push contacts), else it
-                        // is only the largest-C-gap row and the seed x position is NOT JUDGED)
-                        if ref_pair.5 > 0 || ref_pair.6 > 0 {
-                            verdict_fail.push(format!("seed {sd} position {pos:?}: the reference (the largest-C-gap row, t {}, C-gap {ref_gap}) has contacts {}/{}: not solo (NOT JUDGED)", ref_row.1, ref_pair.5, ref_pair.6));
-                            continue;
-                        }
-                        let ref_nap = path_of(&ref_row.2, ref_pair.0, ref_pair.1).unwrap_or_default();
                         let mut judged_at_least = 0usize;
-                        for (_, t, r) in &mine {
+                        for (i, (k2, t, r)) in rows.iter().enumerate() {
+                            if k2 != key {
+                                continue;
+                            }
                             ld_passes += r.ld.0;
                             ld_b += r.ld.1;
                             ld_p += r.ld.2;
@@ -12840,21 +12900,27 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                                 verdict_fail.push(format!("seed {sd} position {pos:?} t {t}: no pair of the forced release's napper (NOT JUDGED)"));
                                 continue;
                             };
-                            // (G1 17:57 N2: the reference row is no judged pair of its own: at least one
-                            // NON-reference pair at C-gap >= --pair-least)
-                            if p.4 >= pair_least && *t != ref_row.1 {
+                            if p.4 >= pair_least {
                                 judged_at_least += 1;
                             }
-                            let dn = path_of(r, p.0, p.1).and_then(|a| dep(&a, &ref_nap));
-                            let dl = path_of(r, p.2, p.3).and_then(|a| path_of(&ref_row.2, p.2, p.3).and_then(|b| dep(&a, &b)));
-                            let fmt = |d: Option<f64>| d.map_or("no solo reference".to_string(), |d| format!("{d}"));
+                            let dn = solo_path(i, true, p.1, p.0, &path_of(r, p.0, p.1));
+                            let dl = solo_path(i, false, p.3, p.2, &path_of(r, p.2, p.3));
+                            let fmt = |d: Option<f64>| d.map_or("no solo ride (NOT JUDGED)".to_string(), |d| format!("{d}"));
                             println!(
-                                "interaction seed {sd} position {pos:?} t {t}: napper cart {} t {}, leader cart {} t {}, C-gap {} (Δ {}), contacts box {} push {}, departures from solo: napper {}, leader {} (reference: the row at t {} with C-gap {ref_gap}), the leader clear of the lip volume at {} gt from the napper's window (negative: before it opened)",
-                                p.1, p.0, p.3, p.2, p.4, p.4 + 1, p.5, p.6, fmt(dn), fmt(dl), ref_row.1, p.7
+                                "interaction seed {sd} position {pos:?} t {t}: napper cart {} t {}, leader cart {} t {}, C-gap {} (Δ {}), contacts box {} push {}, departures from the solo rides: napper {}, leader {}, the leader clear of the lip volume at {} gt from the napper's window (negative: before it opened)",
+                                p.1, p.0, p.3, p.2, p.4, p.4 + 1, p.5, p.6, fmt(dn), fmt(dl), p.7
                             );
                             let departed = dn.is_none_or(|d| d > 1e-6) || dl.is_none_or(|d| d > 1e-6);
                             if p.4 >= pair_least && (p.5 > 0 || p.6 > 0 || departed) {
                                 verdict_fail.push(format!("seed {sd} position {pos:?} t {t}: C-gap {} contacts {}/{} departures {}/{}", p.4, p.5, p.6, fmt(dn), fmt(dl)));
+                            }
+                            // (G1 17:57 B6: the row's own failing bars reach the verdict too (the up-slope
+                            // events excepted: retired as a bar by ironspec Nov 13 19:21, printed as a
+                            // diagnostic))
+                            let own: Vec<String> = r.failures(lip_bar, curve_bar).iter().filter(|f| f.1 > 0 && f.0 != "net up-slope displacement over 0.1 block").map(|f| format!("{} {}", f.0, f.1)).collect();
+                            if !own.is_empty() {
+                                println!("interaction seed {sd} position {pos:?} t {t}: the row's own failing bars: {}", own.join(", "));
+                                verdict_fail.push(format!("seed {sd} position {pos:?} t {t}: the row's own failing bars: {}", own.join(", ")));
                             }
                         }
                         // (G1 17:00 B3: at least one judged pair at C-gap >= --pair-least per seed x position)
@@ -12863,7 +12929,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         }
                     }
                     println!(
-                        "the interaction row's verdict (ironspec Nov 13 14:47 (a): 0 box and push contacts and no departure from solo, <= 1e-6, at every C-gap >= {pair_least}; seeds {:?}, positions {:?}, forced releases {from}..={to}): {}; L-d (the passes with a napper resting on R, over every row): passes {ld_passes}, contacts box {ld_b} push {ld_p}, the resting napper's largest displacement {ld_d:.6}",
+                        "the interaction row's verdict (ironspec Nov 13 14:47 (a): 0 box and push contacts and no departure from the solo rides, <= 1e-6, at every C-gap >= {pair_least}; the thresholds (G1 17:57 B8): --pair-least {pair_least} (default 23, the design's least C-gap on the bench: ironspec 14:47 (a)), 1e-6 b (float noise on identical rides: ironspec 14:47 (a)), the solo rides with the leader killed at its lip arrival - 60 and the napper held to the leader's arrival + 100 (this tool's choice), >= 3 build positions for a touching-contact bar (ironspec 15:05 / 15:10), the row's own bars as its failures list cites them; seeds {:?}, positions {:?}, forced releases {from}..={to}): {}; L-d (the passes with a napper resting on R, over every row): passes {ld_passes}, contacts box {ld_b} push {ld_p}, the resting napper's largest displacement {ld_d:.6}",
                         seeds,
                         positions,
                         if verdict_fail.is_empty() {
