@@ -9728,12 +9728,15 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
         }
         MobfarmCmd::Riderless { design, allow_activator } => {
             let (_c, spec) = load(version, &design)?;
-            let mut allow = Vec::new();
+            let mut flags = Vec::new();
             for p in &allow_activator {
                 let v: Vec<i32> = p.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("--allow-activator {p}: {e}"))?;
                 anyhow::ensure!(v.len() == 3, "--allow-activator {p}: x,y,z");
-                allow.push(redsim::pos::BlockPos::new(v[0], v[1], v[2]));
+                flags.push(redsim::pos::BlockPos::new(v[0], v[1], v[2]));
             }
+            // (farmopt / G1 Nov 14 02:00, part 39) the design's own `# allow-powered:` lines first
+            let (allow, said) = crate::fleecheck::allows_with_header(&std::fs::read_to_string(&design)?, &flags, "--allow-activator").map_err(|e| anyhow::anyhow!(e))?;
+            println!("allowed sources: {}", if said.is_empty() { "none".to_string() } else { said.join("; ") });
             let (lines, n) = crate::fleecheck::riderless_statics(&spec, &allow).map_err(|e| anyhow::anyhow!(e))?;
             for l in &lines {
                 println!("{l}");
@@ -9748,8 +9751,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 Ok(redsim::pos::BlockPos::new(v[0], v[1], v[2]))
             };
             let cells = cell.iter().map(parse).collect::<anyhow::Result<Vec<_>>>()?;
-            let allow = allow.iter().map(parse).collect::<anyhow::Result<Vec<_>>>()?;
+            let flags = allow.iter().map(parse).collect::<anyhow::Result<Vec<_>>>()?;
             anyhow::ensure!(!cells.is_empty(), "power-into: NOT JUDGED: no --cell");
+            // (farmopt / G1 Nov 14 02:00, part 39) the design's own `# allow-powered:` lines first
+            let (allow, said) = crate::fleecheck::allows_with_header(&std::fs::read_to_string(&design)?, &flags, "--allow").map_err(|e| anyhow::anyhow!(e))?;
+            println!("allowed sources: {}", if said.is_empty() { "none".to_string() } else { said.join("; ") });
             let (lines, n) = crate::fleecheck::power_into(&spec, &cells, no_qc, &allow).map_err(|e| anyhow::anyhow!(e))?;
             for l in &lines {
                 println!("{l}");
