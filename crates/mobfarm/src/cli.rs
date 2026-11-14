@@ -3171,6 +3171,10 @@ pub enum MobfarmCmd {
         /// Nov 13 00:27 (A)).
         #[arg(long, allow_hyphen_values = true)]
         scope_excludes: Vec<String>,
+        /// (loaderlay Nov 14 05:50, part 50) A declared stand-in ground y: every strike column's top is at
+        /// least ground + 1 (a layout whose `ground:` plane isn't in its cells); printed with the result.
+        #[arg(long, allow_hyphen_values = true)]
+        ground: Option<i32>,
     },
     /// (ironspec Nov 13 03:22) Every block a wind burst can change (levers, buttons, wooden and
     /// copper doors, trapdoors and fence gates, bells, candles, beehives, creaking hearts), each with
@@ -9757,7 +9761,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("  {s}");
             }
         }
-        MobfarmCmd::LightningCheck { design, positions, rails, scope_excludes } => {
+        MobfarmCmd::LightningCheck { design, positions, rails, scope_excludes, ground } => {
             let (_c, spec) = load(version, &design)?;
             let scope = crate::bars::Scope::from_text(&std::fs::read_to_string(&design)?, &scope_excludes).map_err(|e| anyhow::anyhow!(e))?;
             let mut cells = Vec::new();
@@ -9768,7 +9772,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     cells.push(redsim::pos::BlockPos::new(v[0], v[1], v[2]));
                 }
             }
-            let (lines, entity_fails, samples, rod_fails, rods) = crate::lightningcheck::check_parts(&spec, &crate::lightningcheck::Opts { positions: cells, rails }).map_err(|e| anyhow::anyhow!(e))?;
+            let (lines, entity_fails, samples, rod_fails, rods) = crate::lightningcheck::check_parts(&spec, &crate::lightningcheck::Opts { positions: cells, rails, ground }).map_err(|e| anyhow::anyhow!(e))?;
             for l in &lines {
                 println!("{l}");
             }
