@@ -1375,6 +1375,15 @@ pub enum MobfarmCmd {
     /// (ironspec Nov 14 12:26p, part 80) The load-order census of a composed record: every block whose random tick can
     /// change its state (persistent leaves excepted) and every hopper, each with its cell and the part that lays it
     /// (from the record's `# +` lines)
+    /// (G1 Nov 14 13:12, part 86) The golem-portal static: every golem-eligible cell (the route callers' and the
+    /// design's villagers' golem searches) with its spawn position and the portal its box meets under the portal's
+    /// ACTUAL 26.3 shape (the axis slab), the whole-cell reading beside it; exit 1 when any is outside every portal's reach
+    GolemPortal {
+        design: PathBuf,
+        /// The site biome (the golem rule reads no biome; the static's world takes one)
+        #[arg(long, default_value = "minecraft:plains")]
+        biome: String,
+    },
     Census {
         design: PathBuf,
     },
@@ -15822,6 +15831,17 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             // (G1 12:19 (1): a mismatch, an uncompared row, a failed expect or a vacuous counterfactual exits non-zero)
             anyhow::ensure!(r.failures.is_empty(), "drive-replay: {} failure(s), the first: {}", r.failures.len(), r.failures[0]);
+        }
+        MobfarmCmd::GolemPortal { design, biome } => {
+            let (_c, spec) = load(version, &design)?;
+            let biome: &'static str = Box::leak(biome.into_boxed_str());
+            let (lines, outside) = crate::fleecheck::golem_portal_reach(&spec, biome).map_err(|e| anyhow::anyhow!(e))?;
+            for l in &lines {
+                println!("{l}");
+            }
+            if outside > 0 {
+                std::process::exit(1);
+            }
         }
         MobfarmCmd::Census { design } => {
             let text = std::fs::read_to_string(&design)?;

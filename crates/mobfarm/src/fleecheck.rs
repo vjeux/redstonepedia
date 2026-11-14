@@ -7628,6 +7628,60 @@ pub fn golem_box_meets_portal(w: &redsim::World, cell: BlockPos) -> bool {
     (x0..=x1).any(|x| (y0..=y1).any(|y| (z0..=z1).any(|z| w.get(BlockPos::new(x, y, z)).to_string().contains("nether_portal"))))
 }
 
+/// (G1 Nov 14 13:12, part 86) Whether an iron golem spawned at `cell` (at its centre, `cell.x + 0.5, cell.y, cell.z +
+/// 0.5`, as `SpawnUtil.trySpawnMob` places it; its box `MobType::IronGolem`'s width and height, deflated by 1e-5) meets a
+/// nether portal block's ACTUAL 26.3 shape (G1 / tick-exact: the axis slab, `Block.box(0, 0, 6, 16, 16, 10)` for
+/// `axis=x`, `Block.box(6, 0, 0, 10, 16, 16)` for `axis=z`), not its whole cell: the first portal cell met, if any.
+pub fn golem_box_meets_portal_shape(w: &redsim::World, cell: BlockPos) -> Option<BlockPos> {
+    let d = redsim::entity::mob::types::MobType::IronGolem.def();
+    let (e, hw, h) = (1e-5, d.width as f64 / 2.0, d.height as f64);
+    let (bx0, bx1) = (cell.x as f64 + 0.5 - hw + e, cell.x as f64 + 0.5 + hw - e);
+    let (bz0, bz1) = (cell.z as f64 + 0.5 - hw + e, cell.z as f64 + 0.5 + hw - e);
+    let (by0, by1) = (cell.y as f64 + e, cell.y as f64 + h - e);
+    for x in bx0.floor() as i32..=bx1.floor() as i32 {
+        for y in by0.floor() as i32..=by1.floor() as i32 {
+            for z in bz0.floor() as i32..=bz1.floor() as i32 {
+                let s = w.get(BlockPos::new(x, y, z)).to_string();
+                if !s.contains("nether_portal") {
+                    continue;
+                }
+                let (fx, fz) = (x as f64, z as f64);
+                let ((sx0, sx1), (sz0, sz1)) = if s.contains("axis=z") { ((fx + 6.0 / 16.0, fx + 10.0 / 16.0), (fz, fz + 1.0)) } else { ((fx, fx + 1.0), (fz + 6.0 / 16.0, fz + 10.0 / 16.0)) };
+                let (sy0, sy1) = (y as f64, y as f64 + 1.0);
+                if bx0 < sx1 && bx1 > sx0 && by0 < sy1 && by1 > sy0 && bz0 < sz1 && bz1 > sz0 {
+                    return Some(BlockPos::new(x, y, z));
+                }
+            }
+        }
+    }
+    None
+}
+
+/// (G1 Nov 14 13:12, part 86) The golem-portal static: every golem-eligible cell of the design (the route callers' and
+/// the design's villagers' golem searches, part 71′'s census, as `route_golem_floors` yields them), each with its spawn
+/// position and the portal its box meets under the portal's ACTUAL shape ([`golem_box_meets_portal_shape`]), the
+/// whole-cell reading beside it; the bar: 0 eligible cells outside every portal's reach. Returns the lines and that
+/// count.
+pub fn golem_portal_reach(spec: &FarmSpec, biome: &'static str) -> Result<(Vec<String>, usize), String> {
+    let (_, _, cells) = route_golem_floors(spec, biome)?;
+    let w = settled_world_void(spec)?;
+    let mut lines = Vec::new();
+    let mut outside = 0usize;
+    for c in &cells {
+        let spawn = format!("({:.2}, {:.2}, {:.2})", c.x as f64 + 0.5, c.y as f64, c.z as f64 + 0.5);
+        let whole = if golem_box_meets_portal(&w, *c) { "the whole-cell reading meets a portal" } else { "the whole-cell reading meets none" };
+        match golem_box_meets_portal_shape(&w, *c) {
+            Some(p) => lines.push(format!("  reached {},{},{}: spawn {spawn}, its box meets the portal slab at {},{},{} ({whole})", c.x, c.y, c.z, p.x, p.y, p.z)),
+            None => {
+                outside += 1;
+                lines.push(format!("  OUTSIDE {},{},{}: spawn {spawn}, its box meets no portal's slab ({whole})", c.x, c.y, c.z));
+            }
+        }
+    }
+    lines.insert(0, format!("the golem-portal static (G1 Nov 14 13:12: the portal's ACTUAL 26.3 shape, the axis slab): {} golem-eligible cell(s), {} reached by a portal, {outside} OUTSIDE every portal's reach (bar 0)", cells.len(), cells.len() - outside));
+    Ok((lines, outside))
+}
+
 /// A term of the golem spawn rule (tick-exact Nov 13 18:13).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GolemTermKind {
@@ -11588,6 +11642,33 @@ mod gate_tests {
             assert!(fragile.contains("1,1,7 (feet not air or liquid (tripwire") && notes.iter().any(|l| l.contains("FAULT NOTE 1,1,7:") && l.contains("the tripwire at 1,1,7")), "the lone string (waterlogged {wl}): {r} / {notes:?}");
             assert!(n_fragile > 0 && notes.len() == n_fragile, "one FAULT NOTE per FRAGILE cell (waterlogged {wl}): {n_fragile} vs {}: {r} / {notes:?}", notes.len());
         }
+    }
+
+    /// (G1 Nov 14 13:12, part 86) the golem-portal static under the portal's ACTUAL shape: G1's PLANTED floor between two
+    /// axis-x planes (z -5 / -2) at (6,-7,-4) puts the golem at (6.50, -6.00, -3.50), tick-exact's spawn: its box meets
+    /// neither slab (OUTSIDE, by name) though the whole-cell reading meets the z -5 plane's cell; a golem in line with a
+    /// plane beyond its open end (6,-6,-5 beside the portal at 5,-6,-5... here 8,-6,-5 beside 7,-6,-5) meets the slab
+    #[test]
+    fn golem_portal_reach_reads_the_portal_slab() {
+        let b = |x: i32, y: i32, z: i32| BlockPos::new(x, y, z);
+        let p = |s: &str| redsim::block::Block::parse(s).unwrap();
+        let portal = || redsim::block::Block::Terrain(redsim::terrain::blocks::id_of("minecraft:nether_portal[axis=x]").expect("the portal in the terrain table"));
+        let mut blocks = Vec::new();
+        for x in 2..=9 {
+            for z in -7..=0 {
+                blocks.push((b(x, -7, z), p("minecraft:cobblestone")));
+            }
+        }
+        for x in 5..=7 {
+            blocks.push((b(x, -6, -5), portal()));
+            blocks.push((b(x, -6, -2), portal()));
+        }
+        let spec = redsim::entity::mob::farm::FarmSpec { blocks, entities: Vec::new(), output: b(3, -7, 0), lo: b(2, -7, -7), hi: b(9, -3, 0), block_entities: Vec::new(), rock: false, nether: None, land: false };
+        let w = super::settled_world_void(&spec).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(super::golem_box_meets_portal_shape(&w, b(6, -6, -4)), None, "between the planes: no slab met");
+        assert!(super::golem_box_meets_portal(&w, b(6, -6, -4)), "the whole-cell reading meets the z -5 plane's cell (0.2 into it)");
+        assert_eq!(super::golem_box_meets_portal_shape(&w, b(8, -6, -5)), Some(b(7, -6, -5)), "in line with the plane beyond its end: the slab met");
+        assert_eq!(super::golem_box_meets_portal_shape(&w, b(6, -6, -1)), None, "beside the z -2 plane, outside it: no slab met");
     }
 
     #[test]
