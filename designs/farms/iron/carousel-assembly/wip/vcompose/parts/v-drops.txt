@@ -10,3 +10,6 @@
 3,24,-5
 3,-2,-5
 -3,0,-5
+# rev 2 (F3 r4 bc8a97b89 moves its two lanterns down to (1|5,15,1); G1 01:43 condition (a), ironspec 01:49): rev 3's stale glowstone where F3 r3's lanterns stood (stale since ironspec 22:44 / 22:47), now day-1's reserved R-line supports.
+1,16,1
+5,16,1

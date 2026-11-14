@@ -1,5 +1,5 @@
-# the compose ledger of f1q2-module-v-rev1 (mctas mobfarm column, vcompose): every cell a clear took out, the stale part's superseded cells (an owner's other state taken) and uncovered cells (taken from it)
-## cleared (698 lines)
+# the compose ledger of f1q2-module-v-rev2 (mctas mobfarm column, vcompose): every cell a clear took out, the stale part's superseded cells (an owner's other state taken) and uncovered cells (taken from it)
+## cleared (700 lines)
 9,-13,-6 minecraft:glass (from WAYFALL, --delta WAYIN's remove line)
 9,-13,-6 minecraft:glass (from R3, --delta WAYIN's remove line)
 9,-13,-5 minecraft:detector_rail[powered=false,shape=ascending_north,waterlogged=false] (from WAYFALL, --delta WAYIN's remove line)
@@ -87,6 +87,8 @@
 3,24,-5 minecraft:glass (from R3, --delta DROPS's remove line)
 3,-2,-5 minecraft:glass (from R3, --delta DROPS's remove line)
 -3,0,-5 minecraft:glass (from R3, --delta DROPS's remove line)
+1,16,1 minecraft:glowstone (from R3, --delta DROPS's remove line)
+5,16,1 minecraft:glowstone (from R3, --delta DROPS's remove line)
 5,-29,4 minecraft:glass (from LIFT, --clear -6,-30,-6,9,-24,10)
 5,-28,4 minecraft:rail[shape=east_west,waterlogged=false] (from LIFT, --clear -6,-30,-6,9,-24,10)
 5,-27,4 minecraft:glass (from LIFT, --clear -6,-30,-6,9,-24,10)
@@ -698,7 +700,7 @@
 8,18,1 minecraft:glass (from R3, --clear-part designs/farms/iron/carousel-assembly/wip/vcompose/parts/f1q2-station.main-6e05a4a72.txt@0,0,0)
 9,1,0 minecraft:glass (from R3, --clear-part designs/farms/iron/carousel-assembly/wip/vcompose/parts/f1q2-station.main-6e05a4a72.txt@0,0,0)
 9,17,0 minecraft:glowstone (from R3, --clear-part designs/farms/iron/carousel-assembly/wip/vcompose/parts/f1q2-station.main-6e05a4a72.txt@0,0,0)
-## superseded (21 lines)
+## superseded (19 lines)
 -4,21,5 minecraft:end_rod[facing=up] -> minecraft:lantern[hanging=false,waterlogged=false] (F3)
 -3,16,1 minecraft:glowstone -> minecraft:lantern[hanging=false,waterlogged=false] (F3)
 -3,21,5 minecraft:end_rod[facing=up] -> minecraft:lantern[hanging=false,waterlogged=false] (F3)
@@ -709,14 +711,12 @@
 0,21,6 minecraft:glowstone -> minecraft:glass (F3)
 0,21,7 minecraft:glowstone -> minecraft:glass (F3)
 0,21,8 minecraft:glowstone -> minecraft:lantern[hanging=false,waterlogged=false] (F3)
-1,16,1 minecraft:glowstone -> minecraft:lantern[hanging=false,waterlogged=false] (F3)
 1,17,2 minecraft:glowstone -> minecraft:lantern[hanging=false,waterlogged=false] (F3)
 2,18,3 minecraft:glowstone -> minecraft:glass (F3)
 2,19,4 minecraft:glowstone -> minecraft:glass (F3)
 4,21,6 minecraft:glowstone -> minecraft:glass (F3)
 4,21,7 minecraft:glowstone -> minecraft:glass (F3)
 4,21,8 minecraft:glowstone -> minecraft:lantern[hanging=false,waterlogged=false] (F3)
-5,16,1 minecraft:glowstone -> minecraft:lantern[hanging=false,waterlogged=false] (F3)
 5,17,2 minecraft:glowstone -> minecraft:glass (F3)
 6,18,3 minecraft:glowstone -> minecraft:glass (F3)
 6,19,4 minecraft:glowstone -> minecraft:glass (F3)
@@ -760,10 +760,10 @@ nether 3,67,0 minecraft:obsidian
 ## precedence (1 lines)
 9,25,9: WAYLEG's state taken over LIFT's minecraft:rail[shape=east_west,waterlogged=false] (the way-in curve north_west of b8949c96s way-in file; the lift file holds a rail east_west there as its own bench stand-in (its stand-in line for 9,25,9))
 ## stale declarations carried (4 lines)
-# one-way: -3,0,0=the step dust feeds the riser, signal climbs (day-1's M16bw; the cell above the step, (x-3,0,0), is air: non-conducting, on record7d: the step dust (-4,-1,0) feeds the riser dust (-3,0,0) up into the repeater (-2,0,0) facing west, which powers lane -1's pocket rail (-1,0,0)) (carried from part M, moved by 0,0,0) (carried from part M, moved by 0,0,0) (carried from part R3, moved by 0,0,0)
-# one-way: 1,0,0=signal climbs (M16bw, lane 3: the step (0,-1,0) up into the riser (1,0,0) and the repeater (2,0,0)) (carried from part M, moved by 0,0,0) (carried from part M, moved by 0,0,0) (carried from part R3, moved by 0,0,0)
-# one-way: 5,0,0=signal climbs (M16bw, lane 7: the step (4,-1,0) up into the riser (5,0,0) and the repeater (6,0,0)) (carried from part M, moved by 0,0,0) (carried from part M, moved by 0,0,0) (carried from part R3, moved by 0,0,0)
-keep-out: 10,-2,3 10,-2,4 10,-2,5 10,-2,6 (day-1's 4-gt finding, ironspec 19:49 PT: the napper's cart box swings to x 10.16 at the curve (9,-2,4) toward its slope (9,-2,5), past the column into the next chunk; any block there slows the ride by 4 gt; 9fc3155f's swept-box scan on record7 reaches (10,-2,4) and (10,-2,5), x 10.27; (10,-2,3) and (10,-2,6) kept as ironspec's margin); 10,-25,-5 10,-25,-4 (9fc3155f's swept box: the stop's curve (9,-25,-5) south_west toward (9,-25,-4)); 10,0,7 10,0,8 (the merge row's end curve (9,0,7) south_west toward the hold (9,0,8)); 10,25,8 10,25,9 (the split row's end curve (9,25,9) north_west toward (9,25,8)); -5,24,10 -4,24,10 -3,24,10 -2,24,10 -1,24,10 0,24,10 1,24,10 2,24,10 3,24,10 4,24,10 5,24,10 6,24,10 7,24,10 8,24,10 9,24,10 -5,25,10 -4,25,10 -3,25,10 -2,25,10 -1,25,10 0,25,10 1,25,10 2,25,10 3,25,10 4,25,10 5,25,10 6,25,10 7,25,10 8,25,10 9,25,10 (9fc3155f: the split row's curves cross z 10 with the chunk at z -6..9) (each cell the cart's box reaches; the riders' boxes above them, y + 1..2, collide with nothing on their own and are listed for the tiling by 9fc3155f) (carried from part M, moved by 0,0,0) (carried from part M, moved by 0,0,0) (carried from part R3, moved by 0,0,0)
+# one-way: -3,0,0=the step dust feeds the riser, signal climbs (day-1's M16bw; the cell above the step, (x-3,0,0), is air: non-conducting, on record7d: the step dust (-4,-1,0) feeds the riser dust (-3,0,0) up into the repeater (-2,0,0) facing west, which powers lane -1's pocket rail (-1,0,0)) (carried from part M, moved by 0,0,0) (carried from part R3, moved by 0,0,0)
+# one-way: 1,0,0=signal climbs (M16bw, lane 3: the step (0,-1,0) up into the riser (1,0,0) and the repeater (2,0,0)) (carried from part M, moved by 0,0,0) (carried from part R3, moved by 0,0,0)
+# one-way: 5,0,0=signal climbs (M16bw, lane 7: the step (4,-1,0) up into the riser (5,0,0) and the repeater (6,0,0)) (carried from part M, moved by 0,0,0) (carried from part R3, moved by 0,0,0)
+keep-out: 10,-2,3 10,-2,4 10,-2,5 10,-2,6 (day-1's 4-gt finding, ironspec 19:49 PT: the napper's cart box swings to x 10.16 at the curve (9,-2,4) toward its slope (9,-2,5), past the column into the next chunk; any block there slows the ride by 4 gt; 9fc3155f's swept-box scan on record7 reaches (10,-2,4) and (10,-2,5), x 10.27; (10,-2,3) and (10,-2,6) kept as ironspec's margin); 10,-25,-5 10,-25,-4 (9fc3155f's swept box: the stop's curve (9,-25,-5) south_west toward (9,-25,-4)); 10,0,7 10,0,8 (the merge row's end curve (9,0,7) south_west toward the hold (9,0,8)); 10,25,8 10,25,9 (the split row's end curve (9,25,9) north_west toward (9,25,8)); -5,24,10 -4,24,10 -3,24,10 -2,24,10 -1,24,10 0,24,10 1,24,10 2,24,10 3,24,10 4,24,10 5,24,10 6,24,10 7,24,10 8,24,10 9,24,10 -5,25,10 -4,25,10 -3,25,10 -2,25,10 -1,25,10 0,25,10 1,25,10 2,25,10 3,25,10 4,25,10 5,25,10 6,25,10 7,25,10 8,25,10 9,25,10 (9fc3155f: the split row's curves cross z 10 with the chunk at z -6..9) (each cell the cart's box reaches; the riders' boxes above them, y + 1..2, collide with nothing on their own and are listed for the tiling by 9fc3155f) (carried from part M, moved by 0,0,0) (carried from part R3, moved by 0,0,0)
 ## declarations dropped (149 lines)
 LIFT `# contacts:` 7,-28,4=the napper lift's foot entry back wall: the napper off the bed stop's R slides east into it and stops over its column (tick-exact's official napper-ride: its cell is cleared
 LIFT `# contacts:` 5,-27,4+6,-28,3+6,-28,5+6,-27,3+6,-27,5=the napper climb's foot side walls: the napper's 0.98-wide box in the 1-wide shaft meets them as it stops over the colum: its cell is cleared
@@ -914,3 +914,11 @@ R3 `waker-places:` -3,-27,3=asleep in the bed, woken by F (2.04) (carried from p
 R3 `waker-places:` -2,-27,3=standing up on the pickup cell and seated there (3.03) (carried from part M, moved by 0,0,0) (carried from part M, moved by 0,0,0): its cell is cleared
 R3 `waker-places:` -2,-27,4+0,-27,4+1,-27,4+1,-28,4+2,-28,4=riding out past the hatch to R (3.08..6.66) (58f770cc's A6 27bfc5dcd, its local cells + (0,-27,-1)) (carried from part : its cell is cleared
 R3 `waker-places:` -3,-27,3=asleep in the bed, woken by F (6.36 eye to eye; the window open only from F to the wake edge) (carried from part A, moved by 0,-27,-1): its cell is cleared
+## reserve clashes acknowledged (0 lines)
+## stand-in supports (6 lines)
+stand-in -1,26,9: support=-1,27,9 held
+stand-in 3,26,9: support=3,27,9 held
+stand-in 7,26,9: support=7,27,9 held
+stand-in -3,26,9: support=-3,27,9 held
+stand-in 1,26,9: support=1,27,9 held
+stand-in 5,26,9: support=5,27,9 held
