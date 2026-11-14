@@ -3458,6 +3458,7 @@ pub fn occlude(spec: &FarmSpec, post: BlockPos, pill: bool, hide: &[Vec3], exclu
     let reye = |p: &Vec3| Vec3::new(p.x, p.y + veye, p.z);
     let d = |p: &Vec3| ((p.x - feet.x).powi(2) + (p.y - feet.y).powi(2) + (p.z - feet.z).powi(2)).sqrt();
     let sees = |w: &redsim::World, p: &Vec3| d(p) <= far && redsim::entity::mob::los::has_line_of_sight(w, reye(p), eye);
+    let in_range = |p: &Vec3| d(p) <= far;
     let hidden_now: Vec<Vec3> = hide.iter().copied().filter(|p| sees(w, p)).collect();
     // (the kept points: every rail place's three points and the `extra` rider positions, e.g. a
     // seat's exact cart position, 9fc3155f Nov 12 09:57)
@@ -3503,7 +3504,11 @@ pub fn occlude(spec: &FarmSpec, post: BlockPos, pill: bool, hide: &[Vec3], exclu
     for c in &chosen {
         w.set_block(*c, glass.clone(), redsim::world::flags::ALL);
     }
-    let still: Vec<&Vec3> = hidden_now.iter().filter(|p| sees(w, p)).collect();
+    // (G1 Nov 13 18:37, B1: the hostile's sight of a hide point counts too: a point stays seen while
+    // EITHER direction is clear (the rider's sight of the hostile, the villager sensor's test, or the
+    // hostile's sight of the rider, its targeting / charge test); a kept point is lost when the rider's
+    // sight of the hostile is blocked)
+    let still: Vec<&Vec3> = hidden_now.iter().filter(|p| in_range(p) && { let (a, b) = ray_pair(w, reye(p), eye); a || b }).collect();
     let lost: Vec<&String> = keep.iter().filter(|(_, p)| !sees(w, p)).map(|(l, _)| l).collect();
     for c in &chosen {
         w.set_block(*c, air_block.clone(), redsim::world::flags::ALL);
@@ -3517,34 +3522,76 @@ pub fn occlude(spec: &FarmSpec, post: BlockPos, pill: bool, hide: &[Vec3], exclu
         if lost.is_empty() { String::new() } else { format!(": {}", lost.iter().take(6).map(|s| s.as_str()).collect::<Vec<_>>().join(", ")) },
         if still.is_empty() && lost.is_empty() { " (PASS)" } else { " (FAIL)" }
     ));
-    // (G1 Nov 13 17:26, ironspec 17:33: both rays per cell: each glass with the hide rays it cuts (a
-    // pillager's charge ray to a target) and the kept rays beside it it spares (the riders' scare
-    // rays: no kept ray crosses a chosen cell, by the search), then each kept point's ray after)
+    // (G1 Nov 13 17:26 / 18:37, B1 / B8 / B9: both rays BY THE COLLIDER, each direction its own
+    // `has_line_of_sight`: per glass laid ALONE the hide and the kept rays it turns from clear to
+    // blocked in either direction (counted, not asserted); then every point before and after the
+    // whole set; every pair whose two directions disagree named (the game's block walk breaks exact
+    // ties by step order); these lines carry no "glass " prefix, so `occlude_failed` reads only the
+    // verdict line above)
     let fmt = |p: &Vec3| format!("{:.2},{:.2},{:.2}", p.x, p.y, p.z);
+    let before_hide: Vec<(bool, bool)> = hidden_now.iter().map(|p| ray_pair(w, reye(p), eye)).collect();
+    let before_keep: Vec<(bool, bool)> = keep.iter().map(|(_, p)| ray_pair(w, reye(p), eye)).collect();
+    let turned = |b0: (bool, bool), b1: (bool, bool)| (b0.0 && !b1.0) || (b0.1 && !b1.1);
     for c in &chosen {
-        let cut: Vec<String> = hidden_now.iter().filter(|p| ray_cells(reye(p), eye).contains(c)).map(fmt).collect();
-        let near: Vec<&String> = keep.iter().filter(|(_, p)| ray_cells(reye(p), eye).iter().any(|r| (r.x - c.x).abs() <= 1 && (r.y - c.y).abs() <= 1 && (r.z - c.z).abs() <= 1)).map(|(l, _)| l).collect();
+        w.set_block(*c, glass.clone(), redsim::world::flags::ALL);
+        let cut: Vec<String> = hidden_now.iter().zip(&before_hide).filter(|(p, b0)| turned(**b0, ray_pair(w, reye(p), eye))).map(|(p, _)| fmt(p)).collect();
+        let crossed: Vec<&String> = keep.iter().zip(&before_keep).filter(|((_, p), b0)| turned(**b0, ray_pair(w, reye(p), eye))).map(|((l, _), _)| l).collect();
+        w.set_block(*c, air_block.clone(), redsim::world::flags::ALL);
         lines.push(format!(
-            "    glass {},{},{}: cuts {} hide ray(s) (to {}); crosses 0 kept rays; {} kept ray(s) pass within one cell of it{}",
+            "    rays cut by {},{},{} laid alone (both directions, the collider): {} hide ray(s){}; {} kept ray(s) cut{}",
             c.x,
             c.y,
             c.z,
             cut.len(),
-            cut.join(" "),
-            near.len(),
-            if near.is_empty() { String::new() } else { format!(" ({})", near.iter().take(8).map(|s| s.as_str()).collect::<Vec<_>>().join(", ")) }
+            if cut.is_empty() { String::new() } else { format!(" (to {})", cut.join(" ")) },
+            crossed.len(),
+            if crossed.is_empty() { String::new() } else { format!(" ({})", crossed.iter().take(8).map(|s| s.as_str()).collect::<Vec<_>>().join(", ")) }
         ));
     }
     for c in &chosen {
         w.set_block(*c, glass.clone(), redsim::world::flags::ALL);
     }
-    for (l, p) in &keep {
-        lines.push(format!("    kept ray from {l} ({:.2} away): {} with the glass", d(p), if sees(w, p) { "CLEAR" } else { "BLOCKED" }));
+    let mut disagree = Vec::new();
+    for (p, b0) in hidden_now.iter().zip(&before_hide) {
+        let b1 = ray_pair(w, reye(p), eye);
+        for (when, b) in [("before", *b0), ("with the glass", b1)] {
+            if b.0 != b.1 {
+                disagree.push(format!("hide point {} {when}: {} ({})", fmt(p), ray_tag(b), if b.1 { "the hostile's ray, the one the design depends on here (targeting), is CLEAR: a charge is possible" } else { "the hostile's ray, the one the design depends on here (targeting), is blocked: no charge, though the rider's ray is clear" }));
+            }
+        }
+        lines.push(format!("    hide point {} ({:.2} away; the design depends on the hostile's ray, targeting: it must be blocked): before {}; with the glass {}", fmt(p), d(p), ray_tag(*b0), ray_tag(b1)));
+    }
+    for ((l, p), b0) in keep.iter().zip(&before_keep) {
+        let b1 = ray_pair(w, reye(p), eye);
+        for (when, b) in [("before", *b0), ("with the glass", b1)] {
+            if b.0 != b.1 {
+                disagree.push(format!("kept point {l} {when}: {} ({})", ray_tag(b), if b.0 { "the scare holds: the rider's ray, the one the design depends on here, is clear; the hostile's ray is blocked" } else { "the scare FAILS: the rider's ray, the one the design depends on here, is blocked, though the hostile sees the rider" }));
+            }
+        }
+        lines.push(format!("    kept point {l} ({:.2} away; the design depends on the rider's ray, the scare: it must stay clear): before {}; with the glass {}", d(p), ray_tag(*b0), ray_tag(b1)));
     }
     for c in &chosen {
         w.set_block(*c, air_block.clone(), redsim::world::flags::ALL);
     }
+    lines.push(format!("    pairs whose two directions disagree: {}{}", disagree.len(), if disagree.is_empty() { String::new() } else { format!(": {}", disagree.join("; ")) }));
     Ok(lines)
+}
+
+/// (G1 Nov 13 18:37, B1) Both collider rays between a rider's eye and a hostile's eye: (the rider's
+/// sight of the hostile, the villager sensor's test; the hostile's sight of the rider, its targeting
+/// and charge test). They can differ: the game's block walk breaks exact ties by step order.
+pub fn ray_pair(w: &redsim::World, rider_eye: Vec3, hostile_eye: Vec3) -> (bool, bool) {
+    (redsim::entity::mob::los::has_line_of_sight(w, rider_eye, hostile_eye), redsim::entity::mob::los::has_line_of_sight(w, hostile_eye, rider_eye))
+}
+
+/// A [`ray_pair`] in words; a pair whose directions differ reads DISAGREE.
+pub fn ray_tag(b: (bool, bool)) -> &'static str {
+    match b {
+        (true, true) => "both CLEAR",
+        (false, false) => "both blocked",
+        (true, false) => "rider sees the hostile, the hostile's ray blocked (DISAGREE)",
+        (false, true) => "the hostile sees the rider, the rider's ray blocked (DISAGREE)",
+    }
 }
 
 /// (ironspec Nov 13 06:00 real, EXIT) Whether an occluder search's lines report a failure: no
@@ -4829,13 +4876,16 @@ pub fn void_exposures(spec: &FarmSpec, biome: &'static str) -> Result<(Vec3, red
     Ok((afk, farm, ex))
 }
 
-/// (ironspec Nov 13 17:26, STANDING; G1 17:20) The golem floors any rider of the route could summon
-/// onto: every rail cell a possible caller (a seated villager's `blockPosition()` is its rail's
-/// cell; golem guards aside), `hostile_farm`'s golem cells over those summoners (the game's search:
-/// ±8 / ±6 around the caller onto a valid floor), each ON THE PAD when a golem standing there (1.4
-/// wide, 2.7 tall, the box deflated by 1e-5) meets a nether portal block (a pad golem: it crosses at
-/// once) and OFF THE PAD otherwise. The bar: 0 off the pad. Returns the lines, the off-pad count
-/// and every golem cell.
+/// (ironspec Nov 13 17:26, STANDING; G1 17:20 / 18:37) The golem floors any rider of the route could
+/// summon onto: every cell a seated villager's `blockPosition()` can take on a rail of the SETTLED
+/// design (a rider's feet are its cart's position, `along_rail` every 0.1: its rail's cell, or the
+/// cell above near a slope's top; golem guards aside), each caller's own search
+/// (`golem_spawn_cells_from`: the game's ±8 / ±6 columns onto a valid floor, `checkSpawnObstruction`),
+/// each golem cell ON THE PAD when a golem standing there meets a nether portal block
+/// ([`golem_box_meets_portal`]: it crosses at once) and OFF THE PAD otherwise, each off-pad floor with
+/// the callers whose own search yields it. The bar: 0 off the pad. No caller, or no golem cell, is
+/// NOT JUDGED (an error by name: zero samples pass nothing). Returns the lines, the off-pad count and
+/// every golem cell.
 pub fn route_golem_floors(spec: &FarmSpec, biome: &'static str) -> Result<(Vec<String>, usize, Vec<BlockPos>), String> {
     if redsim::terrain::biome::biome(biome).is_none() {
         return Err(format!("the site biome {biome}: no such biome in redsim's table"));
@@ -4844,36 +4894,67 @@ pub fn route_golem_floors(spec: &FarmSpec, biome: &'static str) -> Result<(Vec<S
     let afk = Vec3::new(spec.output.x as f64 + 0.5, (spec.lo.y - 60) as f64, spec.output.z as f64 + 0.5);
     use redsim::entity::mob::natural::{Difficulty, Natural};
     w.mob.natural = Some(Natural { void_biome: Some(biome), ..Natural::new(vec![afk], Difficulty::Hard) });
-    let blk: HashMap<BlockPos, redsim::block::Block> = spec.blocks.iter().map(|(p, b)| (*p, *b)).collect();
-    let mut callers: Vec<BlockPos> = spec.blocks.iter().filter(|(p, b)| b.to_string().contains("rail") && !golem_guard(&blk, *p)).map(|(p, _)| *p).collect();
+    // (G1 18:37, B5: the rails and the guards as the settled design holds them)
+    let blk: HashMap<BlockPos, redsim::block::Block> = spec.blocks.iter().map(|(p, _)| (*p, w.get(*p))).collect();
+    let rails: Vec<(BlockPos, String)> = blk.iter().filter(|(_, b)| b.to_string().contains("rail")).map(|(p, b)| (*p, b.to_string())).collect();
+    let guards = rails.iter().filter(|(p, _)| golem_guard(&blk, *p)).count();
+    // (G1 18:37, B4: a seated rider's cell along its rail, the cell above near a slope's top)
+    let mut callers: Vec<BlockPos> = Vec::new();
+    for (p, s) in rails.iter().filter(|(p, _)| !golem_guard(&blk, *p)) {
+        // (t in [0, 1): t = 1 is the next cell's edge, its own rail's t = 0)
+        for t in (0..10).map(|k| k as f64 / 10.0).chain([0.99]) {
+            let f = along_rail(*p, s, t);
+            let c = BlockPos::new(f.x.floor() as i32, f.y.floor() as i32, f.z.floor() as i32);
+            if !callers.contains(&c) {
+                callers.push(c);
+            }
+        }
+    }
     callers.sort_by_key(|p| (p.y, p.z, p.x));
-    let farm = circuit::mobfarm::hostile_farm(&w, spec, afk, &callers);
-    let portal = |p: BlockPos| w.get(p).to_string().contains("nether_portal");
-    let on_pad = |c: BlockPos| {
-        let (e, hw) = (1e-5, 0.7);
-        let (x0, x1) = ((c.x as f64 + 0.5 - hw + e).floor() as i32, (c.x as f64 + 0.5 + hw - e).floor() as i32);
-        let (z0, z1) = ((c.z as f64 + 0.5 - hw + e).floor() as i32, (c.z as f64 + 0.5 + hw - e).floor() as i32);
-        let y1 = (c.y as f64 + 2.7 - e).floor() as i32;
-        (x0..=x1).any(|x| (c.y..=y1).any(|y| (z0..=z1).any(|z| portal(BlockPos::new(x, y, z)))))
-    };
-    let mut cells = farm.golem_cells.clone();
-    cells.sort_by_key(|p| (p.y, p.z, p.x));
-    let off: Vec<BlockPos> = cells.iter().copied().filter(|c| !on_pad(*c)).collect();
     let cell = |p: &BlockPos| format!("{},{},{}", p.x, p.y, p.z);
+    if callers.is_empty() {
+        return Err(format!("the route's golem floors: NOT JUDGED: no caller ({} rail cell(s), {guards} golem guard(s) excluded)", rails.len()));
+    }
+    // (G1 18:37, B6: each golem cell with the callers whose own search yields it)
+    let mut by: std::collections::BTreeMap<(i32, i32, i32), Vec<BlockPos>> = std::collections::BTreeMap::new();
+    for s in &callers {
+        for (c, r) in redsim::entity::mob::spawn::golem_spawn_cells_from(&w, *s) {
+            if r.is_ok() {
+                by.entry((c.y, c.z, c.x)).or_default().push(*s);
+            }
+        }
+    }
+    let cells: Vec<BlockPos> = by.keys().map(|(y, z, x)| BlockPos::new(*x, *y, *z)).collect();
+    if cells.is_empty() {
+        return Err(format!("the route's golem floors: NOT JUDGED: the {} caller cell(s)' golem searches reach no floor", callers.len()));
+    }
+    let off: Vec<BlockPos> = cells.iter().copied().filter(|c| !golem_box_meets_portal(&w, *c)).collect();
     let mut lines = vec![format!(
-        "GOLEM FLOORS from every route rail as a caller ({} rail cells; ironspec 17:26, standing): {} golem cell(s), {} on the pad (a golem there meets a nether portal), {} OFF THE PAD{} (bar 0)",
+        "GOLEM FLOORS from every route rider's cell as a caller ({} caller cell(s) on {} rail cell(s), {guards} golem guard(s) excluded; ironspec 17:26, standing): {} golem cell(s), {} on the pad (a golem there meets a nether portal), {} OFF THE PAD{} (bar 0)",
         callers.len(),
+        rails.len() - guards,
         cells.len(),
         cells.len() - off.len(),
         off.len(),
         if off.is_empty() { String::new() } else { format!(": {}", off.iter().map(cell).collect::<Vec<_>>().join(" ")) }
     )];
-    // (each off-pad floor with the callers that reach it: the summon box's ±8 / ±6)
     for c in &off {
-        let by: Vec<String> = callers.iter().filter(|s| (s.x - c.x).abs() <= 8 && (s.z - c.z).abs() <= 8 && (s.y - c.y).abs() <= 6).map(cell).collect();
-        lines.push(format!("  OFF THE PAD {}: reached from {} caller cell(s): {}", cell(c), by.len(), by.join(" ")));
+        let from = &by[&(c.y, c.z, c.x)];
+        lines.push(format!("  OFF THE PAD {}: yielded by {} caller cell(s)' own search: {}", cell(c), from.len(), from.iter().map(cell).collect::<Vec<_>>().join(" ")));
     }
     Ok((lines, off.len(), cells))
+}
+
+/// (G1 Nov 13 18:37, B2 / B7) Whether an iron golem standing at `cell` (its box `MobType::IronGolem`'s
+/// width and height around the cell's centre, deflated by 1e-5 as `Entity.checkInsideBlocks` takes
+/// it) meets a nether portal block: a pad golem, which crosses at once.
+pub fn golem_box_meets_portal(w: &redsim::World, cell: BlockPos) -> bool {
+    let d = redsim::entity::mob::types::MobType::IronGolem.def();
+    let (e, hw, h) = (1e-5, d.width as f64 / 2.0, d.height as f64);
+    let (x0, x1) = ((cell.x as f64 + 0.5 - hw + e).floor() as i32, (cell.x as f64 + 0.5 + hw - e).floor() as i32);
+    let (z0, z1) = ((cell.z as f64 + 0.5 - hw + e).floor() as i32, (cell.z as f64 + 0.5 + hw - e).floor() as i32);
+    let (y0, y1) = ((cell.y as f64 + e).floor() as i32, (cell.y as f64 + h - e).floor() as i32);
+    (x0..=x1).any(|x| (y0..=y1).any(|y| (z0..=z1).any(|z| w.get(BlockPos::new(x, y, z)).to_string().contains("nether_portal"))))
 }
 
 /// (ironspec Nov 13 08:18 (e): the exterior hostile-spawn static on the FLOATING site) Every cell
@@ -5187,6 +5268,14 @@ pub fn row_citation(why: &str) -> Option<String> {
 /// [`row_citation`] with the reason a reason cites nothing: no `row:` part with all three pieces, or
 /// one whose file is not durable.
 pub fn row_citation_why(why: &str) -> Result<String, String> {
+    row_citation_why_in(why, &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+}
+
+/// (G1 Nov 13 18:37, B10–B12) [`row_citation_why`] against the repository at `repo_root`: a relative
+/// file is durable only when it is COMMITTED there (`git cat-file -e HEAD:<file>`: the commit's tree,
+/// so a staged-but-uncommitted file is not, and no pathspec globbing); a git that can't answer (not
+/// installed, not a repository: exit 128) is named as such, never read as "not in the repo".
+pub fn row_citation_why_in(why: &str, repo_root: &std::path::Path) -> Result<String, String> {
     let range = |w: &str| -> bool {
         let w = w.trim_end_matches([',', ';', ')']);
         w.split_once("..").is_some_and(|(a, b)| !a.is_empty() && !b.is_empty() && a.chars().all(|c| c.is_ascii_digit()) && b.chars().all(|c| c.is_ascii_digit()))
@@ -5213,22 +5302,34 @@ pub fn row_citation_why(why: &str) -> Result<String, String> {
         });
         let hex = |w: &str| w.chars().all(|c| c.is_ascii_hexdigit()) && w.chars().any(|c| c.is_ascii_digit());
         let md5 = words.windows(2).any(|p| p[0] == "md5" && p[1].len() >= 12 && hex(p[1])) || words.iter().any(|w| (w.len() == 12 || w.len() == 32) && hex(w));
-        // (G1 16:36, CHANGES 1: a relative path is durable only when the file is in the repo; G1's
-        // notes on 34abca5b1: resolved against the repository root this tool was built from only, and
-        // COMMITTED there: `git ls-files --error-unmatch` (an untracked file in the build checkout is
-        // no citation; no git, no citation))
-        let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        let tracked = |f: &str| {
-            std::process::Command::new("git").arg("-C").arg(&repo_root).args(["ls-files", "--error-unmatch", "--", f]).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status().is_ok_and(|s| s.success())
-        };
-        let in_repo = |f: &str| !f.starts_with('/') && !f.starts_with('~') && !f.split('/').any(|c| c == "..") && repo_root.join(f).is_file() && tracked(f);
-        let repo = files.iter().any(|f| in_repo(f));
-        if repo || artifact || md5 {
+        if artifact || md5 {
+            return Ok(rest.trim().to_string());
+        }
+        // (G1 16:36, CHANGES 1, and 18:37 B10 / B11: a relative path cites only when committed in the
+        // repository; git's own failure is named)
+        let mut git_failed: Option<String> = None;
+        let mut committed = false;
+        for f in files.iter().filter(|f| !f.starts_with('/') && !f.starts_with('~') && !f.split('/').any(|c| c == "..")) {
+            match std::process::Command::new("git").arg("-C").arg(repo_root).args(["cat-file", "-e", &format!("HEAD:{f}")]).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::piped()).output() {
+                Ok(o) if o.status.success() => committed = true,
+                Ok(o) => {
+                    let err = String::from_utf8_lossy(&o.stderr).trim().to_string();
+                    // (exit 128 with "not a git repository" or a missing HEAD: git can't answer)
+                    if err.contains("not a git repository") || err.contains("Not a valid object name HEAD") || err.contains("invalid object name 'HEAD'") {
+                        git_failed = Some(format!("git could not check {}: {err}", repo_root.display()));
+                    }
+                }
+                Err(e) => git_failed = Some(format!("git could not run: {e}")),
+            }
+        }
+        if committed {
             return Ok(rest.trim().to_string());
         }
         let local: Vec<&&str> = files.iter().filter(|f| f.starts_with('/') || f.starts_with('~')).collect();
-        not_durable = Some(if local.is_empty() {
-            format!("not durable: {} (not in the repo: cite a repo path, or add its artifact id or md5)", files.join(" "))
+        not_durable = Some(if let Some(g) = git_failed {
+            format!("not durable: {} (unchecked: {g})", files.join(" "))
+        } else if local.is_empty() {
+            format!("not durable: {} (not in the repo: not committed at HEAD; cite a committed repo path, or add its artifact id or md5)", files.join(" "))
         } else {
             format!("not durable: {} (a box-local path: add its artifact id or md5, or cite a repo path)", files.join(" "))
         });
@@ -7605,15 +7706,33 @@ mod orient_tests {
         assert!(super::row_citation("row: designs/farms/iron/carousel-assembly/carousel-v0a.txt t 120..180 cart 3").is_some(), "a committed design file");
         assert!(super::row_citation_why("row: record7f13t.txt t 120..180 cart 3").unwrap_err().contains("(not in the repo"), "a file not in the repo");
         assert!(super::row_citation_why("row: onechunk/t14-n2.txt t 1..2 cart 3").unwrap_err().contains("(not in the repo"), "G1's control");
-        // (G1's notes on 34abca5b1: an UNTRACKED file in the build checkout is no citation; the probe
-        // file is removed again)
+        // (G1 18:37, B10–B12: committed means in HEAD's tree, checked on a TEMPORARY repository: a
+        // committed file cites; a staged-but-uncommitted file, an untracked one and a glob that only
+        // matches a committed name don't; a directory that is no repository is named "unchecked: git
+        // could not check")
         {
-            let probe = format!("untracked-citation-probe-{}.txt", std::process::id());
-            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").join(&probe);
-            std::fs::write(&path, "probe").unwrap();
-            let r = super::row_citation_why(&format!("row: {probe} t 1..2 cart 3"));
-            let _ = std::fs::remove_file(&path);
-            assert!(r.as_ref().is_err_and(|e| e.contains("(not in the repo")), "an untracked file: {r:?}");
+            let root = std::env::temp_dir().join(format!("mobfarm-citation-repo-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&root);
+            std::fs::create_dir_all(&root).unwrap();
+            let git = |args: &[&str]| std::process::Command::new("git").arg("-C").arg(&root).args(["-c", "user.name=t", "-c", "user.email=t@t"]).args(args).output().unwrap();
+            git(&["init", "-q"]);
+            std::fs::write(root.join("a1.txt"), "a").unwrap();
+            git(&["add", "a1.txt"]);
+            git(&["commit", "-q", "-m", "a"]);
+            std::fs::write(root.join("staged.txt"), "s").unwrap();
+            git(&["add", "staged.txt"]);
+            std::fs::write(root.join("loose.txt"), "l").unwrap();
+            let at = |f: &str| super::row_citation_why_in(&format!("row: {f} t 1..2 cart 3"), &root);
+            assert!(at("a1.txt").is_ok(), "committed: {:?}", at("a1.txt"));
+            for f in ["staged.txt", "loose.txt", "a[1].txt"] {
+                assert!(at(f).as_ref().is_err_and(|e| e.contains("(not in the repo: not committed at HEAD")), "{f}: {:?}", at(f));
+            }
+            let plain = std::env::temp_dir().join(format!("mobfarm-citation-plain-{}", std::process::id()));
+            std::fs::create_dir_all(&plain).unwrap();
+            let r = super::row_citation_why_in("row: a1.txt t 1..2 cart 3", &plain);
+            assert!(r.as_ref().is_err_and(|e| e.contains("(unchecked: git could not check")), "no repository: {r:?}");
+            let _ = std::fs::remove_dir_all(&root);
+            let _ = std::fs::remove_dir_all(&plain);
         }
         // (7b90c3f1's emitter form, 14:41: a /tmp path alone is NOT DURABLE (G1 15:51), the md5 in the
         // reason's first part not beside it; with its md5 or an artifact id in the row part, cited)
@@ -8230,15 +8349,35 @@ mod gate_tests {
         assert!(f7 == 0 && l7[0].contains("reaches no T: AGREES"), "{l7:?}");
     }
 
+    /// (G1 Nov 13 18:37 B1 / 18:55: the expected directions in the name) A pair of cell-centred eyes
+    /// on a diagonal (|dx| = |dz|) crossing a cell corner beside one solid neighbour (stone at
+    /// (1,1,0)): the two directions' block walks break the tie on opposite sides, so the rider's ray
+    /// (0.5,1.5,0.5) → (2.5,1.5,2.5) is CLEAR and the hostile's ray back is BLOCKED, and the tag
+    /// names the disagreement; a pair with nothing between them reads "both CLEAR".
+    #[test]
+    fn b1_corner_pair_rider_ray_clear_hostile_ray_blocked() {
+        let p = |s: &str| redsim::block::Block::parse(s).unwrap();
+        let spec = redsim::entity::mob::farm::FarmSpec { blocks: vec![(b(1, 1, 0), p("minecraft:stone")), (b(0, 0, 0), p("minecraft:stone"))], entities: Vec::new(), output: b(0, 0, 0), lo: b(-1, -1, -1), hi: b(4, 3, 4), block_entities: Vec::new(), rock: false, nether: None, land: false };
+        let w = super::settled_world_void(&spec).unwrap_or_else(|e| panic!("{e}"));
+        let v3 = redsim::entity::Vec3::new;
+        let (a, c) = (v3(0.5, 1.5, 0.5), v3(2.5, 1.5, 2.5));
+        let pair = super::ray_pair(&w, a, c);
+        assert!(pair == (true, false) && super::ray_tag(pair).contains("DISAGREE"), "the corner pair: {pair:?}");
+        let calm = super::ray_pair(&w, a, v3(0.5, 1.5, 3.5));
+        assert!(calm == (true, true) && super::ray_tag(calm) == "both CLEAR", "the open pair: {calm:?}");
+    }
+
     /// (ironspec Nov 13 08:18 (e): the exterior static's control) A stone platform floating in the
     /// void spawns monsters on its top at night (cells listed, the bar fails); a glass platform
     /// spawns none.
     #[test]
     fn exterior_spawns_bite() {
         let p = |s: &str| redsim::block::Block::parse(s).unwrap();
-        // (ironspec 17:26, standing: the route's golem floors) a rail on a stone platform: its rider
-        // can summon onto the platform around it, off any pad: flagged with its caller; a rail on a
-        // lone pillar: no floor in reach, nothing flagged
+        // (ironspec 17:26, standing: the route's golem floors; G1 18:37 B3 / B5 / B6 / B13) a rail on a
+        // stone platform: its rider's own search yields the platform's 24 other cells, all off any
+        // pad, each attributed to that caller; the single-change twin (the rail's support a closed
+        // top-half trapdoor: the rail a golem guard, no caller) and a rail on a lone pillar (no floor
+        // in reach) are NOT JUDGED by name
         {
             let mut blocks = Vec::new();
             for x in 0..=4 {
@@ -8247,15 +8386,53 @@ mod gate_tests {
                 }
             }
             blocks.push((b(2, 1, 2), p("minecraft:rail[shape=north_south,waterlogged=false]")));
-            let spec = redsim::entity::mob::farm::FarmSpec { blocks, entities: Vec::new(), output: b(2, 0, 2), lo: b(0, 0, 0), hi: b(4, 4, 4), block_entities: Vec::new(), rock: false, nether: None, land: false };
+            // (the output chest under the platform, out of every floor's way)
+            let spec = redsim::entity::mob::farm::FarmSpec { blocks, entities: Vec::new(), output: b(2, -1, 2), lo: b(0, -1, 0), hi: b(4, 4, 4), block_entities: Vec::new(), rock: false, nether: None, land: false };
             let (gl, off, cells) = super::route_golem_floors(&spec, "minecraft:plains").unwrap_or_else(|e| panic!("{e}"));
-            assert!(off > 0 && off == cells.len() && gl[0].contains("OFF THE PAD: ") && gl.iter().any(|l| l.contains("reached from 1 caller cell(s): 2,1,2")), "{gl:?}");
+            assert!(off == 24 && cells.len() == 24 && gl[0].contains("(1 caller cell(s) on 1 rail cell(s), 0 golem guard(s) excluded") && gl.iter().any(|l| l.contains("yielded by 1 caller cell(s)' own search: 2,1,2")), "{gl:?}");
+            let mut twin = spec.blocks.clone();
+            twin.retain(|(q, _)| *q != b(2, 0, 2));
+            twin.push((b(2, 0, 2), p("minecraft:oak_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]")));
+            let tspec = redsim::entity::mob::farm::FarmSpec { blocks: twin, ..spec.clone() };
+            let tw = super::settled_world_void(&tspec).unwrap_or_else(|e| panic!("{e}"));
+            let r = super::route_golem_floors(&tspec, "minecraft:plains");
+            assert!(r.as_ref().is_err_and(|e| e.contains("NOT JUDGED: no caller (1 rail cell(s), 1 golem guard(s) excluded)")), "a lone guard ({} on {}): {r:?}", tw.get(b(2, 1, 2)), tw.get(b(2, 0, 2)));
             let pillar = redsim::entity::mob::farm::FarmSpec {
                 blocks: vec![(b(2, 0, 2), p("minecraft:stone")), (b(2, 1, 2), p("minecraft:rail[shape=north_south,waterlogged=false]"))],
                 ..spec
             };
-            let (gl2, off2, _) = super::route_golem_floors(&pillar, "minecraft:plains").unwrap_or_else(|e| panic!("{e}"));
-            assert!(off2 == 0 && gl2[0].contains(", 0 OFF THE PAD (bar 0)"), "{gl2:?}");
+            let r2 = super::route_golem_floors(&pillar, "minecraft:plains");
+            assert!(r2.as_ref().is_err_and(|e| e.contains("NOT JUDGED: the 1 caller cell(s)' golem searches reach no floor")), "a pillar: {r2:?}");
+        }
+        // (G1 18:37, B2 / B7: the pad test controlled) a framed, lit portal the settle keeps (its portal
+        // blocks asserted after the settle); a golem one cell beside the portal meets it, one further
+        // doesn't (its box spans c-1..c+1); with the portal's lowest block 2 above the golem's cell it
+        // meets it, 3 above it doesn't; and a normal-operation spec whose every floor is on the pad:
+        // cells > 0 and none off it
+        {
+            let obs = "minecraft:obsidian";
+            let portal = redsim::block::Block::Terrain(redsim::terrain::blocks::id_of("minecraft:nether_portal[axis=x]").expect("the portal state"));
+            let mut blocks = Vec::new();
+            for x in 0..=3 {
+                for y in 1..=5 {
+                    let inside = (1..=2).contains(&x) && (2..=4).contains(&y);
+                    blocks.push((b(x, y, 5), if inside { portal } else { p(obs) }));
+                }
+                blocks.push((b(x, 6, 5), p("minecraft:glass")));
+            }
+            blocks.push((b(1, 1, 6), p("minecraft:stone")));
+            blocks.push((b(2, 1, 6), p("minecraft:stone")));
+            blocks.push((b(1, 1, 8), p("minecraft:stone")));
+            blocks.push((b(1, 2, 8), p("minecraft:rail[shape=north_south,waterlogged=false]")));
+            let spec = redsim::entity::mob::farm::FarmSpec { blocks, entities: Vec::new(), output: b(1, 1, 8), lo: b(-1, 0, 3), hi: b(4, 7, 9), block_entities: Vec::new(), rock: false, nether: None, land: false };
+            let w = super::settled_world_void(&spec).unwrap_or_else(|e| panic!("{e}"));
+            for c in [b(1, 2, 5), b(2, 2, 5), b(1, 4, 5), b(2, 4, 5)] {
+                assert!(w.get(c).to_string().contains("nether_portal"), "the settle keeps the portal at {c:?}: {}", w.get(c));
+            }
+            assert!(super::golem_box_meets_portal(&w, b(1, 2, 6)) && !super::golem_box_meets_portal(&w, b(1, 2, 7)), "the width edge");
+            assert!(super::golem_box_meets_portal(&w, b(1, 0, 6)) && !super::golem_box_meets_portal(&w, b(1, -1, 6)), "the height edge");
+            let (gl, off, cells) = super::route_golem_floors(&spec, "minecraft:plains").unwrap_or_else(|e| panic!("{e}"));
+            assert!(off == 0 && !cells.is_empty() && cells.contains(&b(1, 2, 6)) && gl[0].contains(", 0 OFF THE PAD (bar 0)"), "every floor on the pad: {gl:?}");
         }
         let plat = |s: &str| {
             let mut blocks = Vec::new();
