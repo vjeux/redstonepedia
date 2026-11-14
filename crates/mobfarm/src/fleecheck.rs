@@ -85,6 +85,27 @@ pub struct Source {
     pub reached_share: f64,
     /// The cells a complete path reaches, with the chance one event picks each.
     pub reached: Vec<(BlockPos, f64)>,
+    /// (G1 Nov 14 01:16b, ironspec 01:21 (4), part 37) The reached cells whose found path enters a node
+    /// inside a shape over the 0.6 step (a closed top-half trapdoor's cap: 26.3's TRAPDOOR path type
+    /// passes it, a 1.95-tall villager can neither stand under it nor step onto it): the pathfinder's
+    /// completion still clears the stamp (counted as clearing), the walk is a PHYSICAL hazard (a walker
+    /// stuck pressing the cap). Each with its hazard nodes and their blocks.
+    pub physical: Vec<(BlockPos, Vec<(BlockPos, String)>)>,
+}
+
+/// (part 37) A found path's nodes that stand inside a shape over the 0.6 step (a villager's maxUpStep):
+/// each node cell whose own collision shape tops out at 10/16 or more (a top-half trapdoor's cap; a
+/// bottom trapdoor, a carpet, a bed's 9/16 and a slab are stepped onto), with its block.
+pub fn hazard_nodes(w: &redsim::World, p: &redsim::entity::mob::ai::path::path::Path) -> Vec<(BlockPos, String)> {
+    let mut out: Vec<(BlockPos, String)> = Vec::new();
+    for n in &p.nodes {
+        let c = BlockPos::new(n.x, n.y, n.z);
+        let top = redsim::behavior::collision_boxes(&w.get(c)).iter().map(|b| b[3]).max().unwrap_or(0);
+        if top >= 10 && !out.iter().any(|(q, _)| *q == c) {
+            out.push((c, w.get(c).to_string().trim_start_matches("minecraft:").to_string()));
+        }
+    }
+    out
 }
 
 impl Source {
@@ -551,6 +572,10 @@ pub struct ReachSweep {
 /// standing cell in the box becomes a start in turn (a villager reaches places in stages), to a
 /// fixpoint. Each `cells` entry (the forbid and require cells) is classed over the closure: REACHED from a
 /// member, else UNDETERMINED (a member's search cut by the budget or the range), else PROVED UNREACHABLE.
+/// (part 36; G1 Nov 14 01:39b's note) The closed-node union takes only EXHAUSTED searches: a REACHED
+/// search stops at its target, and the nodes it closed beyond the target on the way are not unioned. Moot
+/// for `--alone` (any REACHED cell besides a start's own fails it by name), but in a mixed run the union is
+/// the exhausted searches' reach, not every node any search touched.
 pub fn reach_sweep(spec: &FarmSpec, froms: &[Vec3], lo: BlockPos, hi: BlockPos, cells: &[BlockPos], bounds: NavBounds, closure: bool) -> Result<ReachSweep, String> {
     let o = RunOpts { ai: true, ..RunOpts::steady(1, 0, WalkMode::Random) };
     let mut run = Run::start(spec, &o)?;
@@ -1684,10 +1709,10 @@ fn check_inner(spec: &FarmSpec, home: Option<BlockPos>, foot: &[BlockPos], panic
             }
             w.entities.list[i].pos
         };
-        let reaches = |w: &mut redsim::World, t: BlockPos| -> bool {
+        let reaches = |w: &mut redsim::World, t: BlockPos| -> Option<Vec<(BlockPos, String)>> {
             redsim::entity::mob::ai::with_nav(w, i, |w, nm, nav, arena| {
                 let mut copy = nav.clone();
-                copy.create_path_pos(w, nm, t, 0, arena).is_some_and(|p| p.reached)
+                copy.create_path_pos(w, nm, t, 0, arena).filter(|p| p.reached).map(|p| hazard_nodes(w, &p))
             })
         };
         let merge = |into: &mut Vec<(BlockPos, f64)>, from: Vec<(BlockPos, f64)>| {
@@ -1793,11 +1818,22 @@ fn check_inner(spec: &FarmSpec, home: Option<BlockPos>, foot: &[BlockPos], panic
         let mut judge = |w: &mut redsim::World, shares: Vec<(BlockPos, f64)>| -> Source {
             let cells = shares.len();
             let total: f64 = shares.iter().map(|(_, s)| *s).sum();
-            let (mut reached, mut unreached): (Vec<(BlockPos, f64)>, Vec<(BlockPos, f64)>) = shares.into_iter().partition(|(c, _)| reaches(w, *c));
-            unreached.sort_by(|a, b| b.1.total_cmp(&a.1));
-            reached.sort_by(|a, b| b.1.total_cmp(&a.1));
+            let (mut reached, mut unreached, mut physical) = (Vec::new(), Vec::new(), Vec::new());
+            for (c, s) in shares {
+                match reaches(w, c) {
+                    Some(h) => {
+                        if !h.is_empty() {
+                            physical.push((c, h));
+                        }
+                        reached.push((c, s));
+                    }
+                    None => unreached.push((c, s)),
+                }
+            }
+            unreached.sort_by(|a: &(BlockPos, f64), b| b.1.total_cmp(&a.1));
+            reached.sort_by(|a: &(BlockPos, f64), b| b.1.total_cmp(&a.1));
             let reached_share = (total - unreached.iter().map(|(_, s)| *s).sum::<f64>()).max(0.0);
-            Source { cells, unreached, reached_share, reached }
+            Source { cells, unreached, reached_share, reached, physical }
         };
         let flee = judge(w, flee_s);
         let panic_stroll = judge(w, panic_s);
@@ -1816,7 +1852,7 @@ fn check_inner(spec: &FarmSpec, home: Option<BlockPos>, foot: &[BlockPos], panic
             }
         }
         let others = judge(w, others);
-        let home_reached = home.map(|h| reaches(w, h));
+        let home_reached = home.map(|h| reaches(w, h).is_some());
         // (the least distance over the continuous track path, ironspec Nov 11 12:23: the cart's
         // path through the cell as a segment (a curve's between its two exits, a slope's rising),
         // the rider's seat offset added, the exact least distance to each zombie's seated position;
@@ -5080,6 +5116,10 @@ pub fn stroll_cell_lines(p: &Place) -> (Vec<String>, usize) {
 pub fn stamp_classes(places: &[Place], each: bool) -> Vec<String> {
     let mut rows = Vec::new();
     let (mut ac, mut an, mut na) = (0usize, 0usize, 0usize);
+    // (part 37) every hazard node a place's found paths enter, over all four sources (panic and stroll
+    // walkers included): the node, its block, the places
+    let mut caps: std::collections::BTreeMap<(i32, i32, i32), (String, Vec<String>)> = std::collections::BTreeMap::new();
+    let mut physical_places = 0usize;
     for p in places {
         let panicking = p.seen > 0;
         let srcs = stamp_sources(p);
@@ -5088,6 +5128,23 @@ pub fn stamp_classes(places: &[Place], each: bool) -> Vec<String> {
             "arms and clears" => ac += 1,
             "arms, never clears" => an += 1,
             _ => na += 1,
+        }
+        let label = format!("{},{},{}{}", p.cell.x, p.cell.y, p.cell.z, if p.on_foot { " on foot" } else { "" });
+        let all = [("calm stroll", &p.stroll), ("panic stroll", &p.panic_stroll), ("flee", &p.flee), ("walks to riders", &p.others)];
+        let mut phys: Vec<String> = Vec::new();
+        for (n, s) in &all {
+            for (t, h) in &s.physical {
+                phys.push(format!("{n} {},{},{} via {}", t.x, t.y, t.z, h.iter().map(|(c, b)| format!("{},{},{} ({b})", c.x, c.y, c.z)).collect::<Vec<_>>().join(" ")));
+                for (c, b) in h {
+                    let e = caps.entry((c.y, c.z, c.x)).or_insert_with(|| (b.clone(), Vec::new()));
+                    if !e.1.contains(&label) {
+                        e.1.push(label.clone());
+                    }
+                }
+            }
+        }
+        if !phys.is_empty() {
+            physical_places += 1;
         }
         if each || class == "arms, never clears" {
             let detail: Vec<String> = srcs
@@ -5101,7 +5158,11 @@ pub fn stamp_classes(places: &[Place], each: bool) -> Vec<String> {
                     }
                 })
                 .collect();
-            rows.push(format!("  STAMP {},{},{}{}: {class}{}; {} ({}){}", p.cell.x, p.cell.y, p.cell.z, if p.on_foot { " on foot" } else { "" }, if panicking { "" } else { " (day: classed on IDLE's sources; REST's HOME walks not modeled)" }, if panicking { "panicking" } else { "calm" }, detail.join("; "), if p.village { "; in a village" } else { "" }));
+            let mut row = format!("  STAMP {},{},{}{}: {class}{}; {} ({}){}", p.cell.x, p.cell.y, p.cell.z, if p.on_foot { " on foot" } else { "" }, if panicking { "" } else { " (day: classed on IDLE's sources; REST's HOME walks not modeled)" }, if panicking { "panicking" } else { "calm" }, detail.join("; "), if p.village { "; in a village" } else { "" });
+            if !phys.is_empty() {
+                row.push_str(&format!("; PHYSICAL (counted as clearing: the pathfinder's completion clears the stamp; a walker may stick pressing there): {} reached target(s) whose found path enters a shape over the 0.6 step: {}", phys.len(), phys.join("; ")));
+            }
+            rows.push(row);
         }
     }
     let mut lines = vec![format!(
@@ -5109,6 +5170,16 @@ pub fn stamp_classes(places: &[Place], each: bool) -> Vec<String> {
         places.len()
     )];
     lines.extend(rows);
+    // (G1 Nov 14 01:16b (b), ironspec 01:21 (4), part 37: every top-half cap a walker can reach, panic
+    // and stroll walkers included; not a bar)
+    lines.push(format!(
+        "physical hazards (G1 01:16b; not a bar): {physical_places} place(s) with a reached target whose found path enters a shape over the 0.6 step (counted as clearing above); {} such node(s){}",
+        caps.len(),
+        if caps.is_empty() { " (none)" } else { ":" }
+    ));
+    for ((y, z, x), (b, ps)) in &caps {
+        lines.push(format!("  CAP {x},{y},{z} ({b}): entered by the found paths of {} place(s): {}", ps.len(), ps.join(" ")));
+    }
     lines
 }
 
@@ -10124,6 +10195,21 @@ mod gate_tests {
         let places = super::check(&s, None, &[], &[]).unwrap();
         let rows = super::stamp_classes(&places, true);
         assert!(rows.iter().any(|r| r.contains("arms, never clears")), "{rows:?}");
+        assert!(rows.iter().any(|r| r.starts_with("physical hazards (G1 01:16b; not a bar): 0 place(s)") && r.ends_with("0 such node(s) (none)")), "no cap: {rows:?}");
+        // (part 37) a reached target whose found path enters a cap: the place's row names it (counted as
+        // clearing: the class is unchanged), the summary lists the cap with the place
+        let mut pl = places.clone();
+        let class0 = super::stamp_class(&pl[0]);
+        pl[0].stroll.physical.push((b(4, 1, 2), vec![(b(3, 1, 2), "iron_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]".to_string())]));
+        let rp = super::stamp_classes(&pl, true);
+        let c = pl[0].cell;
+        assert!(
+            super::stamp_class(&pl[0]) == class0
+                && rp.iter().any(|r| r.starts_with(&format!("  STAMP {},{},{}", c.x, c.y, c.z)) && r.contains("; PHYSICAL (counted as clearing") && r.contains("calm stroll 4,1,2 via 3,1,2 (iron_trapdoor[facing=north,half=top"))
+                && rp.iter().any(|r| r.starts_with("physical hazards (G1 01:16b; not a bar): 1 place(s)"))
+                && rp.iter().any(|r| r.starts_with("  CAP 3,1,2 (iron_trapdoor[facing=north,half=top") && r.contains("entered by the found paths of 1 place(s)")),
+            "a cap on a found path: {rp:?}"
+        );
     }
 
     /// (G1 N39 / N15: auto-columns' control) A bubble column over soul sand is a column; a rail end
@@ -10535,6 +10621,16 @@ mod gate_tests {
                 && lc.iter().any(|l| l.contains("pathfinder-only nodes") && l.contains("3,1,2 (pathfinder 1.0000, physical 2.0000)")),
             "over the cap: {lc:?}"
         );
+        // (part 37) the same corridor's found path, as the place static reads it: its node in the closed
+        // top-half trapdoor's cell (its cap tops out at 16/16, over the 0.6 step) is the hazard node; the
+        // open floor's path has none
+        let o = super::RunOpts { ai: true, ..super::RunOpts::steady(1, 0, super::WalkMode::Random) };
+        let mut run = super::Run::start(&cap, &o).unwrap_or_else(|e| panic!("{e}"));
+        super::settle_full(&mut run).unwrap_or_else(|e| panic!("{e}"));
+        let k = super::land_probe_villager(&mut run.world, redsim::entity::Vec3::new(1.5, 1.0, 2.5), super::NavBounds::default()).unwrap_or_else(|e| panic!("{e}"));
+        let (path, _, _, _, _) = super::probe_path(&mut run.world, k, b(5, 1, 2), super::NavBounds::default());
+        let hz = super::hazard_nodes(&run.world, &path.expect("a path over the cap"));
+        assert!(hz.len() == 1 && hz[0].0 == b(3, 1, 2) && hz[0].1.starts_with("iron_trapdoor[facing=north,half=top"), "the cap's hazard node: {hz:?}");
         let (lg, rg) = super::standing_path_probe(&bed(true), v(2.5, 1.0, 2.5), b(3, 1, 2), d).unwrap_or_else(|e| panic!("{e}"));
         assert!(rg == super::Reach::Unreachable && lg[1].contains("PROVED UNREACHABLE"), "a full block two above the head: {lg:?}");
         // (tick-exact Nov 14 00:21: the bounds overridden) the step-up under follow range 16 / 256 too, the
