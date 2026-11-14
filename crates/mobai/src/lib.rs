@@ -48,6 +48,7 @@ pub mod hopperpin;
 pub mod slopestring;
 pub mod estring;
 pub mod estringcells;
+pub(crate) mod ballfallcells;
 pub mod abutlatch;
 pub mod cartfall;
 pub mod cartoncart;

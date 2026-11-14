@@ -705,6 +705,9 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
         return plant_supports().1;
     }
     match name {
+        // (cc767b78, ironspec 07:53a) the c19 fall's release: a redstone block where R1's repeater (8,-14,-4) stood
+        // (record frame + (16, 100, 16)) powers the front at t100, the sleeper asleep by then
+        "ball-fall" | "ball-fall-empty" => vec![(100, vec![s([24, 86, 12], "minecraft:redstone_block")])],
         // (tickexact 2026-11-14, G1 03:47) the hold drive's lever stand-in on at t20, off at t60
         "hold-drive" => vec![(20, vec![s([4, 64, 4], "minecraft:lever[face=floor,facing=north,powered=true]")]), (60, vec![s([4, 64, 4], "minecraft:lever[face=floor,facing=north,powered=false]")])],
         // (tickexact 2026-11-14, ironspec 02:28 (1)) the linker (#2), holding HOME and the bed's ticket by its own claim,
@@ -5870,6 +5873,49 @@ fn scenes_raw() -> Vec<Scene> {
             difficulty: Difficulty::Normal,
             mob_griefing: true,
             watch: ([2, 64, 0], [28, 81, 9]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (cc767b78, ironspec 07:53a / 10:52a (2): the c19 fall into the bed's ball, a SEEDED recording of a normal night's
+    // fall) rev 3's way-in front and its drop (ballfallcells.rs: record7f13b rev 3, md5 3d7ed77b4bf3, the geometry of
+    // tick-exact's car-15 c19 runs) moved by (16, 100, 16), its controller left out; the bed (-3,-27,3) with its sleeper
+    // standing on it (HOME the bed, REST at day 13000: it lies down), and the faller seated in its cart braked on the
+    // front (9,-14,-4), HOME the same bed, 19.07 from the bed head's centre; at t100 a redstone block where R1's
+    // repeater stood (8,-14,-4) powers the front: the cart departs, rolls off the rail end (9,-15,-2) and falls past
+    // (9.50,-17.07,-0.49), 15.77 from the bed head, inside the bed's 16 while it is occupied: ValidateNearbyPoi erases
+    // the faller's HOME (c19: ON + 16). `ball-fall-empty`: the same without the sleeper, the bed empty: nothing erased.
+    for (name, sleeper) in [("ball-fall", true), ("ball-fall-empty", false)] {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 32, 0, 32, 62, stone);
+        let o = crate::ballfallcells::BALL_FALL_OFFSET;
+        for (p, s) in crate::ballfallcells::BALL_FALL_CELLS {
+            b.push(([p[0] + o[0], p[1] + o[1], p[2] + o[2]], s.to_string()));
+        }
+        let bed = [-3 + o[0], -27 + o[1], 3 + o[2]];
+        let home = format!("Brain:{{memories:{{\"minecraft:home\":{{value:{{dimension:\"minecraft:overworld\",pos:[I;{},{},{}]}}}}}}}}", bed[0], bed[1], bed[2]);
+        let mut mobs = Vec::new();
+        if sleeper {
+            // standing on the bed head (its top 0.5625 up)
+            mobs.push(("minecraft:villager".to_string(), [bed[0] as f64 + 0.5, bed[1] as f64 + 0.5625, bed[2] as f64 + 0.5], Some(format!("{{PersistenceRequired:1b,{home}}}"))));
+        }
+        // the faller's cart braked on the front (9,-14,-4), an ascending rail: the cart at its centre, half a block up
+        // and the rail's 0.0625
+        mobs.push((
+            "minecraft:minecart".to_string(),
+            [9.5 + o[0] as f64, -14.0 + 0.5 + 0.0625 + o[1] as f64, -3.5 + o[2] as f64],
+            Some(format!("{{Motion:[0.0d,0.0d,0.0d],Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b,{home}}}]}}")),
+        ));
+        v.push(Scene {
+            name: name.into(),
+            chunks: [0, 0, 1, 1],
+            blocks: b,
+            mobs,
+            day_time: 13000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([10, 70, 8], [28, 90, 22]),
             player: None,
             player_creative: false,
             random_tick_speed: 0,
