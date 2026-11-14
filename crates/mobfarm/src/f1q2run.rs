@@ -749,6 +749,9 @@ struct Ctl {
     /// (G1 16:00, night check 4) each tick the bed is occupied: every awake HOME-holder within 16 of
     /// the bed head's centre (tick, villager, distance), bar 0
     exposure_16: Vec<(i64, u32, f64)>,
+    /// (G1 16:06 (a)) the least distance of any awake HOME-holder to the occupied bed's head (distance,
+    /// tick, villager), bar > 16
+    exposure_least: (f64, i64, u32),
     a_pstring_hist: std::collections::VecDeque<bool>,
     a_press_start: Option<i64>,
     a_bed_change_at: Option<i64>,
@@ -2676,6 +2679,9 @@ impl Ctl {
                 {
                     let p = dpos(e.pos);
                     let d = ((p.x - head.0).powi(2) + (p.y - head.1).powi(2) + (p.z - head.2).powi(2)).sqrt();
+                    if d < self.exposure_least.0 || self.exposure_least.0 == 0.0 {
+                        self.exposure_least = (d, now, e.id);
+                    }
                     if d < 16.0 {
                         self.exposure_16.push((now, e.id, d));
                     }
@@ -10218,6 +10224,10 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 ex_by.len(),
                 if ex_by.is_empty() { String::new() } else { format!(": {}", ex_by.iter().take(8).map(|(v, (a, b, d))| format!("#{v} t {a}..{b} (the least distance {d:.2})")).collect::<Vec<_>>().join(", ")) },
                 if ctl.exposure_16.is_empty() { "PASS" } else { "FAIL" }
+            ));
+            s.push_str(&format!(
+                "the least distance of an awake HOME-holder to the occupied bed's head (G1 16:06 (a): the held napper at the queue seat, 18.9 by geometry; bar > 16): {}\n",
+                if ctl.exposure_least.0 == 0.0 { "none (the bed never occupied with an awake holder present)".to_string() } else { format!("{:.3} (t {}, #{}){}", ctl.exposure_least.0, ctl.exposure_least.1, ctl.exposure_least.2, if ctl.exposure_least.0 > 16.0 { " (PASS)" } else { " (FAIL)" }) }
             ));
             s.push_str(&format!("the (A) stop's releases (ironspec 16:00 / G1 16:02, sustained presence; G1 16:04: the close at the wake press and the release per visit): {} ({})\n", ctl.a_rls_log.len(), ctl.a_rls_log.iter().take(8).cloned().collect::<Vec<_>>().join(" | ")));
             let gaps: Vec<i64> = ctl.a_so_gaps.iter().copied().filter(|g| *g != i64::MAX).collect();
