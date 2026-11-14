@@ -687,8 +687,29 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
         return plant_supports().1;
     }
     match name {
-        // (tickexact 2026-11-12, ironspec and onechunk: an entity walk across PANIC's start) the
-        // zombie's box opens toward the rider at t200
+        // (tickexact 2026-11-13, day-1 23:37) the form-(b) latch rows: RLS_IN (-3,0,0) from tick 20 for its width, ARM_IN
+        // (4,0,-3) from tick 28 for its width
+        "latch-formb" => {
+            let mut acts: Vec<(u32, Vec<([i32; 3], String)>)> = Vec::new();
+            let mut at = |t: u32, c: ([i32; 3], String)| match acts.iter_mut().find(|(u, _)| *u == t) {
+                Some((_, v)) => v.push(c),
+                None => acts.push((t, vec![c])),
+            };
+            let t0 = crate::latchformbcells::LATCH_FORMB_RLS_AT;
+            for (k, (_, rls, _, arm)) in crate::latchformbcells::LATCH_FORMB_ROWS.iter().enumerate() {
+                let o = crate::latchformbcells::latch_formb_off(k);
+                let rls_in = [o[0] - 3, o[1], o[2]];
+                let arm_in = [o[0] + 4, o[1], o[2] - 3];
+                at(t0, s(rls_in, "minecraft:redstone_block"));
+                at(t0 + rls, s(rls_in, "minecraft:air"));
+                if *arm > 0 {
+                    at(t0 + 8, s(arm_in, "minecraft:redstone_block"));
+                    at(t0 + 8 + arm, s(arm_in, "minecraft:air"));
+                }
+            }
+            acts.sort_by_key(|(t, _)| *t);
+            acts
+        }
         "panic-entity-walk" => vec![(200, vec![s([9, 64, 8], "minecraft:air"), s([9, 65, 8], "minecraft:air")])],
         "panic-lift" => {
             let water = "minecraft:water[level=0]";
@@ -5832,6 +5853,82 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
+    // (tickexact 2026-11-13, G1 23:56 / 58f770cc: AK's walk-off) AK's string-release rig (stringrelease.rs) at Y 64: P
+    // (6,64,6) a north_south rail, the bed's head (5,64,6) / foot (4,64,6) facing east, P_STRING (6,65,6) between hooks
+    // (6,65,5) / (6,65,7) on glass (6,65,4) / (6,65,8), glass over the hooks, the observer (5,63,6) facing up, the
+    // enclosure glass (the bed's eight neighbours and P's east, two high; one high under the hooks), the bed top open;
+    // a villager with no HOME and no profession standing on P at day time 6000 (IDLE: WORK needs a job site), the bed's
+    // ticket free
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 16, 0, 16, 62, stone);
+        for x in 0..=12 {
+            for z in 0..=12 {
+                b.push(([x, 63, z], stone.to_string()));
+            }
+        }
+        b.push(([5, 63, 6], "minecraft:observer[facing=up,powered=false]".to_string()));
+        b.push(([6, 64, 6], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+        b.push(([4, 64, 6], "minecraft:red_bed[facing=east,occupied=false,part=foot]".to_string()));
+        b.push(([5, 64, 6], "minecraft:red_bed[facing=east,occupied=false,part=head]".to_string()));
+        for c in [[5, 64, 5], [5, 64, 7], [4, 64, 5], [4, 64, 7], [3, 64, 5], [3, 64, 6], [3, 64, 7], [6, 64, 5], [6, 64, 7], [7, 64, 6]] {
+            b.push((c, "minecraft:glass".to_string()));
+        }
+        for c in [[5, 65, 5], [5, 65, 7], [4, 65, 5], [4, 65, 7], [3, 65, 5], [3, 65, 6], [3, 65, 7], [7, 65, 6], [6, 66, 5], [6, 66, 7], [6, 65, 4], [6, 65, 8]] {
+            b.push((c, "minecraft:glass".to_string()));
+        }
+        b.push(([6, 65, 5], "minecraft:tripwire_hook[attached=true,facing=south,powered=false]".to_string()));
+        b.push(([6, 65, 7], "minecraft:tripwire_hook[attached=true,facing=north,powered=false]".to_string()));
+        b.push(([6, 65, 6], "minecraft:tripwire[attached=true,disarmed=false,east=false,north=true,powered=false,south=true,west=false]".to_string()));
+        let mobs = vec![("minecraft:villager".to_string(), [6.5, 64.0, 6.5], Some("{PersistenceRequired:1b}".to_string()))];
+        v.push(Scene {
+            name: "ak-wanderer".into(),
+            chunks: [0, 0, 0, 0],
+            blocks: b,
+            mobs,
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([2, 62, 3], [8, 66, 9]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (tickexact 2026-11-13, day-1 23:37 / ironspec 23:58 / cc767b78 23:50) day-1's P_HOLD latch form (b), one copy per
+    // row (latchformbcells.rs: RLS 1 / 2 / 3 / 20, no branch, ARM 1..5 at RLS + 8), laid in its settled RESET states;
+    // the actions set RLS_IN / ARM_IN to a redstone block for their widths (RLS from tick 20)
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 176, 0, 16, 62, stone);
+        for (k, (_, _, branch, _)) in crate::latchformbcells::LATCH_FORMB_ROWS.iter().enumerate() {
+            let o = crate::latchformbcells::latch_formb_off(k);
+            for (p, s) in crate::latchformbcells::LATCH_FORMB_CELLS {
+                let settled = crate::latchformbcells::LATCH_FORMB_SETTLED.iter().find(|(q, _)| q == p).map(|(_, s)| *s).unwrap_or(s);
+                let state = if !branch && *p == [0, 0, -1] {
+                    "minecraft:glass"
+                } else if !branch && *p == crate::latchformbcells::LATCH_FORMB_NOBRANCH_WIRE.0 {
+                    crate::latchformbcells::LATCH_FORMB_NOBRANCH_WIRE.1
+                } else {
+                    settled
+                };
+                b.push(([p[0] + o[0], p[1] + o[1], p[2] + o[2]], state.to_string()));
+            }
+        }
+        v.push(Scene {
+            name: "latch-formb".into(),
+            chunks: [0, 0, 10, 0],
+            blocks: b,
+            mobs: Vec::new(),
+            day_time: 6000,
+            difficulty: Difficulty::Peaceful,
+            mob_griefing: true,
+            watch: ([0, 68, 2], [175, 71, 14]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
     // (tickexact 2026-11-12, ironspec and onechunk: an entity walk across PANIC's start) an IDLE
     // rider (day time 1000) in a cart on a rail at (4,64,4), a second villager free on the walled
     // stone floor (x 2..11, z 2..11) at (6.5,64,4.5), a zombie in a boat at (10.5,64,8.5) closed in
@@ -10903,7 +11000,7 @@ pub fn flee_control(name: &str) -> Result<()> {
 /// `mctas mobai scene-lint [scenes...]`: [`scene_raw_conflicts`] of each scene (default: every
 /// scene placed raw); FAIL when any scene has one. First its positive control: case p of r1-sweep
 /// with P written unpowered on its redstone block (the configuration 3be9617b3 measured) must fail.
-pub fn scene_lint(names: &[String]) -> Result<()> {
+pub fn scene_lint(names: &[String], all_cells: bool) -> Result<()> {
     let control = r1_sweep_scene("r1-sweep-p-ee-raw-p", R1_CONTACT_P, [0.5, 2.1775, 31.885], [0.5, 4.5625, 29.5], false, false, true);
     let c = scene_raw_conflicts(&control)?;
     let p_hits = c.iter().filter(|(_, a, _)| a.contains("powered_rail")).count();
@@ -10921,7 +11018,7 @@ pub fn scene_lint(names: &[String]) -> Result<()> {
         } else {
             bad += 1;
             println!("FAIL {}: {} cells one update pass changes", s.name, c.len());
-            for (p, a, b) in c.iter().take(6) {
+            for (p, a, b) in c.iter().take(if all_cells { usize::MAX } else { 6 }) {
                 println!("  {},{},{}: {a} -> {b}", p.x, p.y, p.z);
             }
         }

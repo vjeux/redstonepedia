@@ -50,6 +50,8 @@ pub mod estring;
 pub mod estringcells;
 pub mod abutlatch;
 pub mod cartfall;
+pub mod latchformb;
+pub(crate) mod latchformbcells;
 pub mod latchrig;
 pub(crate) mod slotholdcells;
 pub mod stringrelease;

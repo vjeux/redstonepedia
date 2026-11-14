@@ -930,6 +930,9 @@ pub enum MobaiCmd {
     LatchRig {
         #[arg(long, default_value = "26.3")]
         version: String,
+        /// (day-1 23:37) rig day-1's form (b) block list (the positive) instead of the as-listed control
+        #[arg(long)]
+        form_b: Option<std::path::PathBuf>,
     },
     /// (tickexact 2026-11-13, ironspec 22:12 / G1 22:15) A villager seated in a minecart dropped onto rails, slime, stone, water
     CartFall {
@@ -1831,6 +1834,9 @@ pub enum MobaiCmd {
     /// redstone block written unpowered, a rail shape, a gate, dust...): FAIL on any
     SceneLint {
         scenes: Vec<String>,
+        /// print every conflicting cell (default: the first 6 per scene)
+        #[arg(long)]
+        all: bool,
     },
     /// The positive control of `mobfarm flee-check`'s 6-8 metric (ironspec Nov 11 11:13): its
     /// static check run on a mob AI scene (default scene flee-distance: riders and standing
@@ -1966,7 +1972,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         }
         MobaiCmd::Replay { paths, jobs } => crate::fixture::replay(&paths, jobs),
         MobaiCmd::RecCarts { path, every, band, summary, xz } => crate::fixture::rec_carts(&path, every, band, summary, xz),
-        MobaiCmd::SceneLint { scenes } => crate::fixture::scene_lint(&scenes),
+        MobaiCmd::SceneLint { scenes, all } => crate::fixture::scene_lint(&scenes, all),
         MobaiCmd::FleeControl { scene } => crate::fixture::flee_control(&scene),
         MobaiCmd::RecPlate { path, scene } => crate::fixture::rec_plate(&path, &scene),
         MobaiCmd::RecBedreload { path } => crate::fixture::rec_bedreload(&path),
@@ -2286,7 +2292,10 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
                 crate::waterrails::water_restarts(&version, slopes, flat, measure, &restarts, ticks, every_tick, both_branches)
             }
         }
-        MobaiCmd::LatchRig { version } => crate::latchrig::latch_rig(&version),
+        MobaiCmd::LatchRig { version, form_b } => match form_b {
+            Some(p) => crate::latchformb::latch_rig_form_b(&version, &p),
+            None => crate::latchrig::latch_rig(&version),
+        },
         MobaiCmd::CartFall { version } => crate::cartfall::cart_fall(&version),
         MobaiCmd::StringRelease { version } => crate::stringrelease::string_release(&version),
         MobaiCmd::AbutLatch { version } => crate::abutlatch::abut_latch(&version),
