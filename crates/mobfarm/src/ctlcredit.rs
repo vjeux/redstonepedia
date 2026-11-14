@@ -796,7 +796,11 @@ pub fn run(row: &Row, def: Defects) -> Out {
         // leaves an item (the net then never fires), an extra press removes one (it fires a cart early); at a QUIET POINT
         // (no cart reached a J and no D press for ITEMS_QUIET gt: nothing can be moving on the route) the count is reset
         // to 0 (a detector's quiet timer in hardware))
-        if flight != 0 && t - last_route_ev >= ITEMS_QUIET {
+        // (G1 05:14 (a): the resync fails UNSAFE in a long halt (carts alive but stopped: their items dropped, an early
+        // mint feeding new carts into a stopped system): its HALT DISCRIMINATOR: no reset while a cart sits on the split
+        // row (the ring's jam-vs-loss occupancy evidence: a stopped or still-moving cart is inside, a lost one never entered))
+        let on_row = carts.iter().any(|c| c.ji >= 1) || !o.piled.is_empty();
+        if flight != 0 && t - last_route_ev >= ITEMS_QUIET && !on_row {
             o.flight_resets.push((t, flight));
             flight = 0;
         }
@@ -1911,6 +1915,26 @@ fn credit_fix_block(v: &mut Verdict, lines: &mut Vec<String>) {
                 false_row(format!("A STRAY D({lane}) at t {st} (an extra press: the item count one short)"), r);
             }
         }
+        // (G1 05:14 (a): THE LONG-HALT ROWS for the item count's quiet resync: carts STOPPED MID-ROUTE (a jam in the J(-1) ->
+        // J(3) or J(3) -> J(7) segment by each slot of batch 5) while REL waits, for the whole run: NO MINT (the halt
+        // discriminator: a cart on the row) and no gain; the jammed batches' claims stay open (a halt, not a loss: printed))
+        let mut halt_lines = Vec::new();
+        let mut halt_bad = Vec::new();
+        for seg in 0..2usize {
+            for s in 0..3usize {
+                let mut r = Row::normal("net");
+                r.jam = Some((5, s, seg));
+                r.t_max = 5000;
+                let o = run(&r, Defects::default());
+                let sb = store_correct_bars(&o);
+                if !o.net_fires.is_empty() || sb.iter().any(|b| b.contains("GAINED")) {
+                    halt_bad.push(format!("lane {} jam in segment {seg}: mints {:?}, the store [{}]", LANES[s], o.net_fires, sb.join("; ")));
+                }
+                halt_lines.push(format!("lane {} cart jammed in segment {seg}: mints {:?}, quiet resets {:?}, the claims held open [{}]", LANES[s], o.net_fires, o.flight_resets, sb.join("; ")));
+            }
+        }
+        let wh = v.bar_n("ctl-credit: THE LONG-HALT ROWS (G1 05:14 (a): carts stopped mid-route by a jam of each slot in each segment, REL waiting to t 5000): the item count's quiet resync never mints (the halt discriminator: a cart on the row) and nothing is gained", 6, halt_bad.is_empty());
+        lines.push(format!("  THE LONG-HALT ROWS: {}: {wh}", halt_lines.join(" | ")));
         let w = v.bar_n("ctl-credit: THE RESYNC NET (THE ITEM FORM: REL adds 3; each lane-entry D press under its K mask removes one; a cart passing every J removes one at the leg's detector; a credit wait with 0 items mints one; the count reset at a 200-gt quiet point) NEVER FIRES FALSELY AND THE STORE ENDS CORRECT (G1 03:22's rows by name: THE COLD START; A HALT + RESTART / THE DRAINED-LANE HALT of 500 / 2,000 / 6,000 gt at three phases with carts in flight; A WORLD OPEN at every phase, idle 0 / 1 / 2; THE STALLED-THEN-RECOVERED CART 100..600 late; every late row 0..60 on every slot and the lost carts; G1 04:42 (2b): A STRAY D press of every lane at every tick of REL_6 + 66..120, the extra-press direction); a fire whose net-off twin loses a credit for real is a TRUE recovery, printed", n, fires.is_empty() && store_bad.is_empty());
         lines.push(format!("  THE RESYNC NET's FALSE-FIRE ROWS: {n} rows, false fires {}, true recoveries {} ({}), the store after {}: {w}", if fires.is_empty() { "none".to_string() } else { fires.iter().take(4).cloned().collect::<Vec<_>>().join(" | ") }, recovered.len(), recovered.iter().take(3).cloned().collect::<Vec<_>>().join(" | "), if store_bad.is_empty() { "correct on every row".to_string() } else { store_bad.iter().take(3).cloned().collect::<Vec<_>>().join(" | ") }));
     }
