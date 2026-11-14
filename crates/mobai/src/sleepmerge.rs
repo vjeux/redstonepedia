@@ -322,7 +322,12 @@ pub fn sleep_pickup(version: &str, v: f64, settle: u32, watch: u32, max_wait: u3
 /// (the larger of the x and z separations: 0 = overlapping), and whether it seats the sleeper.
 pub fn sleep_stop(version: &str, bench: &std::path::Path, mode: &str, v: f64, release_after: u32, watch: u32, wake_yaw: Option<f32>) -> Result<()> {
     const DY: i32 = 80;
-    anyhow::ensure!(mode == "eject" || mode == "hurt", "--mode eject|hurt, got {mode}");
+    anyhow::ensure!(["eject", "hurt", "homeless", "homeless-taken"].contains(&mode), "--mode eject|hurt|homeless|homeless-taken, got {mode}");
+    // (ironspec 16:35, G1 16:45) the self-heal rows: `homeless` ejects a napper holding NO HOME at the stop with the
+    // bed's ticket free (AcquirePoi's take from the dismount place, then the lie-down); `homeless-taken` first lets
+    // a helper villager on P take the ticket through AcquirePoi (then NoAI, moved beyond 16), so the napper finds no
+    // free ticket and must never sleep
+    let homeless = mode.starts_with("homeless");
     let opts = VanillaOptions {
         version: version.to_string(),
         difficulty: "normal".into(),
@@ -341,8 +346,33 @@ pub fn sleep_stop(version: &str, bench: &std::path::Path, mode: &str, v: f64, re
     anyhow::ensure!(crate::strict::test(&mut srv, &format!("execute if block {head} minecraft:red_bed[part=head,facing=south]"))?, "the bench's bed head is not at local (-3,0,4)");
     anyhow::ensure!(crate::strict::test(&mut srv, &format!("execute if block -2 {DY} 2 minecraft:activator_rail[powered=true]"))?, "the activator E (-2,0,2) is not powered");
     anyhow::ensure!(crate::strict::test(&mut srv, &format!("execute if block 3 {DY} 4 minecraft:lever[powered=false]"))?, "the park's stand-in lever (3,0,4) is not laid off");
-    let villager = format!("id:\"minecraft:villager\",Tags:[\"sv\"],PersistenceRequired:1b,Brain:{{memories:{{\"minecraft:home\":{{value:{{dimension:\"minecraft:overworld\",pos:[I;-3,{DY},4]}}}}}}}}");
-    if mode == "eject" {
+    let villager = if homeless {
+        "id:\"minecraft:villager\",Tags:[\"sv\"],PersistenceRequired:1b".to_string()
+    } else {
+        format!("id:\"minecraft:villager\",Tags:[\"sv\"],PersistenceRequired:1b,Brain:{{memories:{{\"minecraft:home\":{{value:{{dimension:\"minecraft:overworld\",pos:[I;-3,{DY},4]}}}}}}}}")
+    };
+    if mode == "homeless-taken" {
+        // the helper takes the ticket in daylight (no REST: it never lies down in the bed), then the night returns
+        srv.cmd_ok("time set 1000")?;
+        let out = srv.cmd(&format!("summon minecraft:villager -1.5 {} 4.5 {{Tags:[\"poiholder\"],PersistenceRequired:1b}}", DY as f64 + 0.0625))?;
+        anyhow::ensure!(out.contains("Summoned new"), "the helper: {}", out.trim());
+        let mut got = None;
+        for k in 0..60 {
+            srv.step(5)?;
+            if crate::strict::has_data(&mut srv, "data get entity @e[tag=poiholder,limit=1] Brain.memories.\"minecraft:home\"")? {
+                got = Some(5 * (k + 1));
+                break;
+            }
+        }
+        let gt = got.ok_or_else(|| anyhow::anyhow!("the helper took no bed ticket in 300 gt"))?;
+        srv.cmd_ok("data merge entity @e[tag=poiholder,limit=1] {NoAI:1b}")?;
+        srv.cmd_ok(&format!("setblock 20 {} 20 minecraft:glass", DY - 1))?;
+        srv.cmd_ok(&format!("tp @e[tag=poiholder,limit=1] 20.5 {DY} 20.5"))?;
+        srv.cmd_ok("time set 13000")?;
+        anyhow::ensure!(!crate::strict::test(&mut srv, &format!("execute if block {head} minecraft:red_bed[occupied=true]"))?, "the bed reads OCCUPIED after the helper left");
+        println!("  the bed's ticket TAKEN first: a helper villager on P acquired it through AcquirePoi within {gt} gt (in daylight, time 1000: it never lay down), then NoAI:1b and moved to (20.5, 0, 20.5), 28.7 from the head; the night set back to 13000, the head not OCCUPIED");
+    }
+    if mode == "eject" || homeless {
         let out = srv.cmd(&format!("summon minecraft:minecart -1.5 {} 0.5 {{Tags:[\"sp\"],Motion:[0.0d,0.0d,{v:?}d],Passengers:[{{{villager}}}]}}", DY as f64 + 0.0625))?;
         anyhow::ensure!(out.contains("Summoned new"), "the napper's cart: {}", out.trim());
     } else {
@@ -356,7 +386,7 @@ pub fn sleep_stop(version: &str, bench: &std::path::Path, mode: &str, v: f64, re
     println!(
         "== a lie-down on the stop's own cells ({mode}), official {version}: {} at +{DY}; {}; the shutter not closed (the sleeper stays asleep); the park released {release_after} gt after the last lie-down",
         bench.display(),
-        if mode == "eject" { format!("the napper's cart summoned at (-1.5, {}, 0.5) heading south at stored {v:.3}", DY as f64 + 0.0625) } else { "the villager standing on P (-1.5, ., 4.5), hurt (1 generic) before its first tick; an empty cart braked on the park (1,0,4)".into() }
+        if mode == "eject" || homeless { format!("the napper's cart summoned at (-1.5, {}, 0.5) heading south at stored {v:.3}{}", DY as f64 + 0.0625, if homeless { " (the napper holds NO HOME)" } else { "" }) } else { "the villager standing on P (-1.5, ., 4.5), hurt (1 generic) before its first tick; an empty cart braked on the park (1,0,4)".into() }
     );
     let field = |srv: &mut VanillaServer, sel: &str, f: &str| -> Result<String> { Ok(srv.cmd_long(&format!("data get entity {sel} {f}"))?.split("data: ").nth(1).unwrap_or("-").trim().to_string()) };
     let occupied = |srv: &mut VanillaServer| crate::strict::test(srv, &format!("execute if block {head} minecraft:red_bed[occupied=true]"));
@@ -364,13 +394,17 @@ pub fn sleep_stop(version: &str, bench: &std::path::Path, mode: &str, v: f64, re
     // `hurt` at its second (the re-sleep after the panic) + 15
     let (mut lies, mut wakes, mut off) = (Vec::<u32>::new(), Vec::<u32>::new(), None::<u32>);
     let mut was = false;
-    let want = if mode == "eject" { 1 } else { 2 };
+    let want = if mode == "hurt" { 2 } else { 1 };
     let mut rows: Vec<String> = Vec::new();
+    let mut acquired: Option<u32> = None;
     for t in 1..=600u32 {
         srv.step(1)?;
-        let riding = mode == "eject" && srv.cmd_long("data get entity @e[tag=sp,limit=1] Passengers")?.contains("villager");
-        if mode == "eject" && !riding && off.is_none() {
+        let riding = (mode == "eject" || homeless) && srv.cmd_long("data get entity @e[tag=sp,limit=1] Passengers")?.contains("villager");
+        if (mode == "eject" || homeless) && !riding && off.is_none() {
             off = Some(t);
+        }
+        if homeless && acquired.is_none() && crate::strict::has_data(&mut srv, "data get entity @e[tag=sv,limit=1] Brain.memories.\"minecraft:home\"")? {
+            acquired = Some(t);
         }
         let occ = occupied(&mut srv)?;
         rows.push(format!(
@@ -378,7 +412,7 @@ pub fn sleep_stop(version: &str, bench: &std::path::Path, mode: &str, v: f64, re
             field(&mut srv, "@e[tag=sv,limit=1]", "Pos")?,
             field(&mut srv, "@e[tag=sv,limit=1]", "Motion")?,
             field(&mut srv, "@e[tag=sv,limit=1]", "OnGround")?,
-            if mode == "eject" { if riding { "riding | " } else { "set down | " } } else { "" },
+            if mode == "eject" || homeless { if riding { "riding | " } else { "set down | " } } else { "" },
             if occ { "OCCUPIED" } else { "free" }
         ));
         if occ && !was {
@@ -391,6 +425,29 @@ pub fn sleep_stop(version: &str, bench: &std::path::Path, mode: &str, v: f64, re
         if lies.len() >= want && t >= lies[want - 1] + 15 {
             break;
         }
+    }
+    if homeless {
+        // (ironspec 16:35) the self-heal: the take (HOME set by AcquirePoi) and the lie-down, from the set-down;
+        // with the ticket taken, neither may happen
+        println!(
+            "  {mode}: set down at t{}; HOME acquired (AcquirePoi) at {}; lie-downs at {lies:?}{}",
+            off.map(|o| o.to_string()).unwrap_or_else(|| "-".into()),
+            acquired.map(|a| format!("t{a} (set-down + {})", a.saturating_sub(off.unwrap_or(0)))).unwrap_or_else(|| "never in 600 gt".into()),
+            match (lies.first(), acquired) {
+                (Some(l), Some(a)) => format!(" (the first: acquire + {}, set-down + {})", l.saturating_sub(a), l.saturating_sub(off.unwrap_or(0))),
+                _ => String::new(),
+            }
+        );
+        for r in rows.iter().skip(off.unwrap_or(1).saturating_sub(2) as usize).take(12) {
+            println!("    {r}");
+        }
+        if mode == "homeless" {
+            anyhow::ensure!(acquired.is_some() && !lies.is_empty(), "the homeless napper with the ticket free did not re-home and sleep within 600 gt (the self-heal fails)");
+        } else {
+            anyhow::ensure!(acquired.is_none() && lies.is_empty(), "the homeless napper slept or re-homed with the ticket taken (the lock didn't hold)");
+            println!("  the lock held: with the ticket taken the homeless napper never re-homed and never slept in 600 gt");
+        }
+        return Ok(());
     }
     anyhow::ensure!(!lies.is_empty(), "the villager never lay down within 600 gt (set down at {off:?})");
     for &l in &lies {
