@@ -258,6 +258,13 @@ pub fn patch_cells(original: &str, changes: &[([i32; 3], String)]) -> anyhow::Re
 pub fn readback_patch(original: &str, p: &Patched, want: &BTreeMap<[i32; 3], String>) -> anyhow::Result<()> {
     let back = Design::parse(&p.text)?;
     let d0 = Design::parse(original)?;
+    // (G1 Nov 14 12:33 (b), part 83) the RAW declarations compared too, before the parsed maps: every `emulated:` entry
+    // (the one reader's) and every `#` header declaration line of both texts, so a dropped line can't compare equal
+    // through a map
+    let emu = |t: &str| crate::declkeys::emulated_entries(t).map(|(e, n)| (e, n)).map_err(|e| anyhow::anyhow!(e));
+    anyhow::ensure!(emu(&p.text)? == emu(original)?, "edit read-back: the written text's `emulated:` entries differ from the original's (a dropped or changed entry)");
+    let decls = |t: &str| t.lines().filter(|l| l.starts_with("# ") && l.contains(':')).map(str::to_string).collect::<Vec<_>>();
+    anyhow::ensure!(decls(&p.text) == decls(original), "edit read-back: the written text's `#` declaration lines differ from the original's");
     anyhow::ensure!(&back.blocks == want, "edit read-back: the written text's cells differ from the composed ones ({} vs {} cells)", back.blocks.len(), want.len());
     anyhow::ensure!(back.nether_blocks == d0.nether_blocks, "edit read-back: the written text's Nether cells differ from the original's");
     anyhow::ensure!(back.meta == d0.meta && back.ports == d0.ports && ents_of(&back) == ents_of(&d0) && back.block_entities == d0.block_entities, "edit read-back: the written text's header (meta, ports, entities, nbt) differs from the original's");
@@ -282,6 +289,8 @@ pub fn edit_meta_text(text: &str, chest: bool, how: Option<&str>, meta: &[String
     let mut kvs: Vec<(String, String)> = Vec::new();
     for kv in meta {
         let (k, v) = kv.split_once('=').ok_or_else(|| anyhow::anyhow!("--meta {kv:?}: not key=value"))?;
+        // (part 83) a list key (several lines by design, `mctas::design::LIST_KEYS`) has no one line to edit: refused
+        anyhow::ensure!(!mctas::design::LIST_KEYS.contains(&k.trim()), "--meta {kv:?}: `{}:` is a list key (each of its lines read by its own reader): edit its lines in the file, not through --meta", k.trim());
         kvs.push((k.trim().to_string(), v.trim().to_string()));
     }
     if let Some(h) = how {
@@ -330,6 +339,8 @@ pub fn edit_meta_text(text: &str, chest: bool, how: Option<&str>, meta: &[String
         }
     }
     anyhow::ensure!(back.meta == want, "edit (meta) read-back: the written text's meta differs from the edit's ({:?} vs {:?})", back.meta, want);
+    // (G1 12:33 (b), part 83) the raw `emulated:` entries compared too (no list key is edited here)
+    anyhow::ensure!(crate::declkeys::emulated_entries(&out).map_err(|e| anyhow::anyhow!(e))? == crate::declkeys::emulated_entries(text).map_err(|e| anyhow::anyhow!(e))?, "edit (meta) read-back: the written text's `emulated:` entries differ from the original's");
     anyhow::ensure!(back.blocks == d0.blocks && back.nether_blocks == d0.nether_blocks && back.ports == d0.ports && ents_of(&back) == ents_of(&d0) && back.block_entities == d0.block_entities, "edit (meta) read-back: cells, ports, entities or nbt changed");
     // every original line kept at its place but the edited and removed ones
     let kept_orig: Vec<(usize, &str)> = lines.iter().filter_map(|(l, o)| o.map(|o| (o, l.as_str()))).collect();
@@ -419,9 +430,9 @@ mod tests {
     /// one reported) and `check_carried` failing by name on a lost untouched `#` line
     #[test]
     fn edit_paths_read_lines_as_the_parser_does() {
-        let original = "name: t # its name\ncircuit: mob-farm iron_ingot\norigin: 0 0 0  # the origin\nport output: 0 -1 0\nentity: minecraft:minecart 0.5 1.0625 0.5\nnbt: 2 0 0 {Items:[]}\nhow: old\npalette:  # the palette\n  A minecraft:stone  # floor\n# inside the palette\n  B minecraft:glass\n  ë minecraft:dirt\nlayer 0:  # the floor layer\n  AAë\n# between rows\n  ABA\nnether-origin: 10 0 10\nnether layer 0:\n  B\nhow: tail\n";
+        let original = "name: t # its name\ncircuit: mob-farm iron_ingot\norigin: 0 0 0  # the origin\nport output: 0 -1 0\nentity: minecraft:minecart 0.5 1.0625 0.5\nnbt: 2 0 0 {Items:[]}\npalette:  # the palette\n  A minecraft:stone  # floor\n# inside the palette\n  B minecraft:glass\n  ë minecraft:dirt\nlayer 0:  # the floor layer\n  AAë\n# between rows\n  ABA\nnether-origin: 10 0 10\nnether layer 0:\n  B\nhow: tail\n";
         let d0 = mctas::design::Design::parse(original).unwrap_or_else(|e| panic!("the fixture parses: {e}"));
-        assert_eq!(d0.meta.get("how").map(String::as_str), Some("tail"), "the parser takes the last how: line");
+        assert_eq!(d0.meta.get("how").map(String::as_str), Some("tail"), "the parser reads the how: line after the Nether part");
         // `--set`: one row changes, a new entry after the last one; set back: byte for byte
         let (out, _) = crate::layouts::edit_set_text(original, &["1,0,0=minecraft:redstone_block".to_string()]).unwrap_or_else(|e| panic!("{e}"));
         assert!(out.contains("\n  ë minecraft:dirt\n  C minecraft:redstone_block\nlayer 0:  # the floor layer\n  ACë\n"), "{out}");
@@ -455,6 +466,22 @@ mod tests {
         assert!(lost.is_err_and(|e| e.to_string().contains("not carried that the swap didn't rewrite") && e.to_string().contains("# switches: 5,0,0=another owner's lever")), "a lost untouched line fails by name");
         // the parser's classifier, line by line
         let roles = super::line_roles(original).unwrap();
-        assert!(matches!(roles[2], super::Role::Origin { nether: false, at: [0, 0, 0] }) && roles[7] == super::Role::PaletteHeader && roles[12] == super::Role::Layer { y: 0, nether: false } && roles[14] == super::Role::Comment, "{roles:?}");
+        assert!(matches!(roles[2], super::Role::Origin { nether: false, at: [0, 0, 0] }) && roles[6] == super::Role::PaletteHeader && roles[11] == super::Role::Layer { y: 0, nether: false } && roles[13] == super::Role::Comment, "{roles:?}");
+    }
+
+    /// (G1 Nov 14 12:33 (b), part 83) the read-backs compare the RAW declarations: a PLANTED TWIN of a writer that drops
+    /// one `emulated:` entry (its line marked changed, so the line check alone would pass it) fails the read-back by
+    /// name; the untouched text reads back; `--meta` on a list key is refused by name
+    #[test]
+    fn a_dropped_emulated_entry_fails_the_read_back_by_name() {
+        let original = "name: t\norigin: 0 0 0\nemulated: 1,0,0=glass (a); 2,0,0=glass (b)\npalette:\n  S minecraft:stone\nlayer 0:\n  SSS\n";
+        let want = mctas::design::Design::parse(original).unwrap().blocks;
+        let same = super::Patched { text: original.to_string(), changed: vec![], inserted: vec![], removed: vec![] };
+        assert!(super::readback_patch(original, &same, &want).is_ok(), "the untouched text reads back");
+        let dropped = super::Patched { text: original.replace("; 2,0,0=glass (b)", ""), changed: vec![2], inserted: vec![], removed: vec![] };
+        let e = super::readback_patch(original, &dropped, &want).unwrap_err().to_string();
+        assert!(e.contains("`emulated:` entries differ from the original's"), "a dropped entry fails by name: {e}");
+        let e = super::edit_meta_text(original, false, None, &["emulated=1,0,0=glass (a)".to_string()], "minecraft:chest").unwrap_err().to_string();
+        assert!(e.contains("is a list key"), "{e}");
     }
 }

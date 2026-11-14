@@ -122,6 +122,37 @@ pub enum BlankRows {
     Air,
 }
 
+/// (ironspec Nov 14 12:33p, G1's merged form; part 83) The header keys that are LISTS by design: they may repeat, each
+/// line read by its own raw reader (`emulated:` by `mobfarm::declkeys::emulated_entries`, `station:` by circuit-fly's
+/// machine reader, `ghost:` by mcview's design reader, `constraint:` / `objective:` / `space:` by farmopt's spec
+/// reader); [`Design::parse`] keeps ALL their lines in `Design.meta`, joined with "; ", so no reader sees a truncated
+/// value, and [`Design::to_text`] writes them back one line per value. Any other header key repeated with another
+/// value fails the parse by name.
+pub const LIST_KEYS: &[&str] = &["emulated", "station", "ghost", "constraint", "objective", "space"];
+
+/// A list key's joined value split back into its values: at "; " outside parentheses.
+pub fn split_list_value(v: &str) -> Vec<String> {
+    let (mut parts, mut cur, mut depth) = (Vec::new(), String::new(), 0i32);
+    let b: Vec<char> = v.chars().collect();
+    let mut i = 0;
+    while i < b.len() {
+        match b[i] {
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            _ => {}
+        }
+        if b[i] == ';' && depth == 0 && b.get(i + 1) == Some(&' ') {
+            parts.push(std::mem::take(&mut cur));
+            i += 2;
+            continue;
+        }
+        cur.push(b[i]);
+        i += 1;
+    }
+    parts.push(cur);
+    parts.into_iter().map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect()
+}
+
 /// One design line, read the same way by [`Design::parse_with`], [`interior_blank_rows`] and `mobfarm edit`'s
 /// in-place patch (one classifier, so the parser and its readers can't drift; G1's note on a02552068, G1 Nov 14 09:47):
 /// whitespace only; a comment only ('#' starts a comment except on an indented line inside a layer, where it can be a
@@ -306,6 +337,8 @@ impl Design {
         let mut d = Design::default();
         let mut origin: Pos = [0, 0, 0];
         let mut nether_origin: Pos = [0, 0, 0];
+        // (ironspec Nov 14 12:33p, G1's merged form; part 83) the header keys seen, for the repeated-key rule
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
         let mut palette: BTreeMap<char, String> = BTreeMap::new();
         let mut section = Section::Header;
         let mut row = 0i32;
@@ -374,13 +407,42 @@ impl Design {
                     section = Section::Header;
                 } else if let Some((k, v)) = l.split_once(':') {
                     let (k, v) = (k.trim(), v.trim());
+                    // (ironspec Nov 14 12:33p, G1's merged form; part 83) a header key repeated with ANOTHER value fails
+                    // by name (a map keeps one value: the other line would be lost silently), except the list keys
+                    // ([`LIST_KEYS`]), whose lines are all kept, joined with "; "; an identical repeat loses nothing
+                    let first = seen.insert(k.to_string());
                     match k {
-                        "name" => d.name = v.to_string(),
-                        "origin" => origin = parse_pos(v).with_context(err)?,
-                        "nether-origin" => nether_origin = parse_pos(v).with_context(err)?,
-                        _ => {
-                            d.meta.insert(k.to_string(), v.to_string());
+                        "name" => {
+                            if !first && d.name != v {
+                                bail!("a repeated `name:` line with another value ({:?}, then {v:?}) at {}: only the list keys {LIST_KEYS:?} may repeat", d.name, err());
+                            }
+                            d.name = v.to_string();
                         }
+                        "origin" => {
+                            let o = parse_pos(v).with_context(err)?;
+                            if !first && o != origin {
+                                bail!("a repeated `origin:` line with another value ({origin:?}, then {o:?}) at {}", err());
+                            }
+                            origin = o;
+                        }
+                        "nether-origin" => {
+                            let o = parse_pos(v).with_context(err)?;
+                            if !first && o != nether_origin {
+                                bail!("a repeated `nether-origin:` line with another value ({nether_origin:?}, then {o:?}) at {}", err());
+                            }
+                            nether_origin = o;
+                        }
+                        _ => match d.meta.get_mut(k) {
+                            Some(old) if LIST_KEYS.contains(&k) => {
+                                old.push_str("; ");
+                                old.push_str(v);
+                            }
+                            Some(old) if old.as_str() == v => {}
+                            Some(old) => bail!("a repeated `{k}:` line with another value ({old:?}, then {v:?}) at {}: a map keeps one value, the other would be lost silently (only the list keys {LIST_KEYS:?} may repeat)", err()),
+                            None => {
+                                d.meta.insert(k.to_string(), v.to_string());
+                            }
+                        },
                     }
                     section = Section::Header;
                 } else {
@@ -523,6 +585,14 @@ impl Design {
             if k.starts_with("port ") {
                 continue;
             }
+            // (part 83) a list key's lines, kept joined with "; ", written back one line per value (split outside
+            // parentheses, so a value's own parenthesised "; " stays whole): each raw reader reads every value again
+            if LIST_KEYS.contains(&k.as_str()) {
+                for part in split_list_value(v) {
+                    out.push_str(&format!("{k}: {part}\n"));
+                }
+                continue;
+            }
             out.push_str(&format!("{k}: {v}\n"));
         }
         for (k, p) in &self.ports {
@@ -622,6 +692,70 @@ impl Design {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// (ironspec Nov 14 12:33p / 12:37p (1), G1's merged form; part 83) a header key repeated with ANOTHER value fails the
+    /// parse by name (`how:`, `name:`, `origin:`); an identical repeat stands; a list key's lines are ALL kept, joined
+    /// with "; ", and written back one line per value (a parenthesised "; " inside a value kept whole), the round trip
+    /// equal; several `entity:` lines (a structural list, never meta) pass
+    #[test]
+    fn a_repeated_meta_key_fails_by_name_but_a_list_key_keeps_every_line() {
+        let body = "palette:\n  S minecraft:stone\nlayer 0:\n  S\n";
+        for (head, key) in [("how: a\nhow: b\n", "`how:`"), ("name: a\nname: b\n", "`name:`"), ("origin: 0 0 0\norigin: 1 0 0\n", "`origin:`")] {
+            let e = Design::parse(&format!("{head}{body}")).unwrap_err().to_string();
+            assert!(e.contains(&format!("a repeated {key} line with another value")), "{head:?}: {e}");
+        }
+        let same = Design::parse(&format!("name: a\nname: a\nhow: x\nhow: x\n{body}")).unwrap();
+        assert!(same.name == "a" && same.meta.get("how").map(String::as_str) == Some("x"), "an identical repeat stands");
+        let text = format!("name: e\nemulated: 1,0,0=glass (support=1,-1,0; drive=hold:-1; a)\nemulated: 2,0,0=glass (b); 3,0,0=glass (c)\nstation: one\nstation: two\nentity: minecraft:villager 0.5 1 0.5\nentity: minecraft:villager 1.5 1 0.5\n{body}");
+        let d = Design::parse(&text).unwrap();
+        assert_eq!(d.meta.get("emulated").map(String::as_str), Some("1,0,0=glass (support=1,-1,0; drive=hold:-1; a); 2,0,0=glass (b); 3,0,0=glass (c)"), "every emulated line kept, joined");
+        assert_eq!(d.meta.get("station").map(String::as_str), Some("one; two"));
+        assert_eq!(d.entities.len(), 2, "several entity: lines pass (a structural list)");
+        let back = d.to_text();
+        assert!(back.contains("emulated: 1,0,0=glass (support=1,-1,0; drive=hold:-1; a)\nemulated: 2,0,0=glass (b)\nemulated: 3,0,0=glass (c)\n") && back.contains("station: one\nstation: two\n"), "written back one line per value: {back}");
+        assert_eq!(Design::parse(&back).unwrap(), d, "the round trip keeps every value");
+    }
+
+    /// (ironspec 12:31p / 12:33p, part 83: the FULL designs/ scan) every file under designs/ whose header repeats a key:
+    /// none fails the parse for a repeated key (the clocks' identical `name:` repeats stand; drop-shaft-11's `ghost:`,
+    /// the circuit tests' `station:`, farmopt's spec keys are list keys); the count printed
+    #[test]
+    fn no_design_file_fails_for_a_repeated_key() {
+        let top = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../designs"));
+        let mut stack = vec![top.to_path_buf()];
+        let (mut files, mut designs, mut repeating, mut bad) = (0usize, 0usize, Vec::new(), Vec::new());
+        while let Some(dir) = stack.pop() {
+            for e in std::fs::read_dir(&dir).unwrap().flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    stack.push(p);
+                    continue;
+                }
+                if p.extension().and_then(|x| x.to_str()) != Some("txt") {
+                    continue;
+                }
+                files += 1;
+                let Ok(text) = std::fs::read_to_string(&p) else { continue };
+                // (designs only: a file with a `palette:` line; reports and scope files are read by their own readers)
+                if !text.lines().any(|l| l.trim_end() == "palette:") {
+                    continue;
+                }
+                designs += 1;
+                let mut keys: Vec<&str> = text.lines().filter(|l| !l.starts_with(' ') && !l.starts_with('#') && !l.starts_with("port ") && !l.starts_with("entity:") && !l.starts_with("nbt:") && !l.starts_with("nether nbt:") && !l.starts_with("layer ") && !l.starts_with("nether layer ")).filter_map(|l| l.split_once(':').map(|(k, _)| k.trim())).filter(|k| !k.is_empty() && !k.contains(' ')).collect();
+                keys.sort();
+                if keys.windows(2).any(|w| w[0] == w[1]) {
+                    repeating.push(p.display().to_string());
+                    if let Err(e) = Design::parse(&text)
+                        && e.to_string().contains("a repeated `")
+                    {
+                        bad.push(format!("{}: {e}", p.display()));
+                    }
+                }
+            }
+        }
+        println!("the repeated-key scan: {files} files under designs/ ({designs} designs), {} designs repeating a header key, {} failing for it: {}", repeating.len(), bad.len(), repeating.join(" "));
+        assert!(files > 1000 && bad.is_empty(), "{} files fail for a repeated key:\n{}", bad.len(), bad.join("\n"));
+    }
 
     #[test]
     fn a_blank_line_inside_a_layer_is_refused_and_its_two_readings_differ() {
