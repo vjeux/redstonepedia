@@ -1,0 +1,10 @@
+# day-1's HOLD-DRIVE LINE-END SUPPORTS (V rev 3, an owner part; dfb89499 03:55): the glass under each lane's hold-pulse line
+# end (x,16,-3) for x = -1 / 3 / 7 (the line ends stay reserved until day-1's controller cells land; each feeds dfb89499's
+# delay-1 repeater (x,16,-2), E's hold drive). Laid here so the record and E's bench stay equal (they clip no sight ray
+# today; no keep-block role).
+name: f1q2-day1-hold-supports
+origin: -1 15 -3
+palette:
+  G minecraft:glass
+layer 0:
+  G...G...G
