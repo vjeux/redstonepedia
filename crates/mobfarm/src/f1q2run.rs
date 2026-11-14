@@ -3078,6 +3078,9 @@ struct Rec {
     /// (ironspec 16:08) the stamp's oldest age at any REST tick per position class (lane queue, station
     /// hold / pocket, split row, lift, the queue gate, the way-in / stop, other): (age, tick, cell)
     class_peak: [(i64, i64, [i32; 3]); 7],
+    /// (G1 16:37 (2)) the previous tick's cell and the passes through the lift foot (-4,2,7)
+    prev_cell: Option<[i32; 3]>,
+    foot_passes: u32,
     calm_rest_ticks: i64,
     over_1000: i64,
     clears: Vec<String>,
@@ -7063,6 +7066,11 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     r.class_peak[cls] = (age, now - t0, c);
                 }
             }
+            // (G1 16:37 (2)) the lift foot (-4,2,7): each pass of a rider through the cell counted
+            if c == [-4, 2, 7] && r.prev_cell != Some(c) {
+                r.foot_passes += 1;
+            }
+            r.prev_cell = Some(c);
             if activity_rest && !panic && target.is_none() {
                 r.calm_rest_ticks += 1;
                 if let Some(s) = stamp {
@@ -10097,6 +10105,76 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             crosses.first().map_or("never".to_string(), |(t, v)| format!("#{v} at t {t}")),
             crosses.get(1).map_or("never".to_string(), |(t, v)| format!("#{v} at t {t} ({} gt after dusk)", t - 1000)),
             own_by_rider.iter().filter(|(_, n)| *n == 0).count()
+        ));
+    }
+    // (ironspec 16:37 (3), G1 16:37) per lane (by each villager's seat at the start): the worst calm
+    // clear-to-clear interval (the arm -> clear pairs), the clears by 26.3 mechanism (a flee path, its own
+    // path home, a stroll path, a lie-down, other), lane 7 printed separately (it never passes the lift
+    // foot); the lift foot's passes and clears (the per-pass clear rate)
+    {
+        let lane_of = |r: &Rec| -> String {
+            let x = r.label.split("seated at [").nth(1).and_then(|s| s.split(',').next()).and_then(|s| s.trim().parse::<i32>().ok());
+            match x {
+                Some(x) if LANES.contains(&x) => format!("lane x {x}"),
+                Some(x) => format!("x {x}"),
+                None => "unseated".to_string(),
+            }
+        };
+        let mut by_lane: BTreeMap<String, (i64, String, [u32; 5], u32)> = BTreeMap::new();
+        let (mut foot_passes, mut foot_clears_flee, mut foot_clears_own, mut foot_clears_other) = (0u32, 0u32, 0u32, 0u32);
+        for (id, r) in recs.iter() {
+            let ln = lane_of(r);
+            let e = by_lane.entry(ln).or_insert((0, String::new(), [0; 5], 0));
+            e.3 += 1;
+            for (a, b, place) in &r.arm_pairs {
+                let iv = b.unwrap_or(o.ticks as i64) - a;
+                if iv > e.0 {
+                    e.0 = iv;
+                    e.1 = format!("#{id} t {a}..{} ({place})", b.map_or("the end".to_string(), |b| b.to_string()));
+                }
+            }
+            for c in &r.clears {
+                let k = if c.contains("a flee point") {
+                    0
+                } else if c.contains("(the bed") {
+                    1
+                } else if c.contains("a stroll point") {
+                    2
+                } else if c.contains("a nap (") {
+                    3
+                } else {
+                    4
+                };
+                if !c.contains("a reload") {
+                    e.2[k] += 1;
+                }
+                if c.contains("at [-4, 2, 7]") {
+                    match k {
+                        0 => foot_clears_flee += 1,
+                        1 => foot_clears_own += 1,
+                        _ => foot_clears_other += 1,
+                    }
+                }
+            }
+            foot_passes += r.foot_passes;
+        }
+        let row = |(ln, (iv, at, k, n)): (&String, &(i64, String, [u32; 5], u32))| -> String {
+            format!(
+                "{ln} ({n} villagers): the worst arm -> clear interval {iv} gt ({at}){}; clears: a flee path {}, its own path home {}, a stroll path {}, a lie-down {}, other {}",
+                if *iv >= 1000 { " (over 1,000: FAIL)" } else { "" },
+                k[0], k[1], k[2], k[3], k[4]
+            )
+        };
+        let lane7: Vec<String> = by_lane.iter().filter(|(l, _)| l.as_str() == "lane x 7").map(row).collect();
+        let others: Vec<String> = by_lane.iter().filter(|(l, _)| l.as_str() != "lane x 7").map(row).collect();
+        s.push_str(&format!(
+            "the clear-to-clear intervals per lane (ironspec 16:37 (3), G1 16:37: per villager the arm -> clear interval, bar < 1,000; clears by 26.3 mechanism; LANE 7 SEPARATELY, the binding lane with no structural clearer): LANE 7: {}; the others: {}\n",
+            if lane7.is_empty() { "none".to_string() } else { lane7.join("") },
+            others.join("; ")
+        ));
+        s.push_str(&format!(
+            "the lift foot (-4,2,7) as a clearer (G1 16:37 (2): its 3-5-tick pass clears by cadence): {foot_passes} rider passes, clears there: {foot_clears_own} by the rider's own path home, {foot_clears_flee} by a flee path, {foot_clears_other} other; the per-pass own-path clear rate {}\n",
+            if foot_passes == 0 { "-".to_string() } else { format!("{:.3}", foot_clears_own as f64 / foot_passes as f64) }
         ));
     }
     // (ironspec 16:08, G1 16:05) the longest continuous pathless dwell at night by position class: per
