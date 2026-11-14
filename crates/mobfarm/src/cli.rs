@@ -3327,6 +3327,32 @@ pub enum MobfarmCmd {
         #[arg(long)]
         expect: Option<String>,
     },
+    /// (ironspec Nov 13 23:50 / 23:52, G1 23:45) A villager's reach over a whole box: from each --from (a
+    /// villager placed and landed as path-probe's), every cell of --box its navigation reaches; the bar:
+    /// no --forbid cell reached from any start, every --require cell reached from every start (the run's
+    /// own positive control); with neither the run is NOT JUDGED.
+    ReachSweep {
+        design: PathBuf,
+        /// A start (feet), repeatable.
+        #[arg(long, allow_hyphen_values = true)]
+        from: Vec<String>,
+        /// The box swept: x0,y0,z0,x1,y1,z1.
+        #[arg(long = "box", allow_hyphen_values = true)]
+        sweep_box: String,
+        /// A cell no start may reach (repeatable).
+        #[arg(long, allow_hyphen_values = true)]
+        forbid: Vec<String>,
+        /// A cell every start must reach (repeatable).
+        #[arg(long, allow_hyphen_values = true)]
+        require: Vec<String>,
+        /// The navigation's node budget replaced (a control's tiny one; default: the villager's own).
+        #[arg(long)]
+        budget: Option<i32>,
+        /// (ironspec Nov 14 00:08) The closure must be the starts alone: every other standing cell of the
+        /// box reached fails by name, every search left UNDETERMINED is NOT JUDGED.
+        #[arg(long)]
+        alone: bool,
+    },
     /// (tick-exact Nov 13 22:48, G1 23:00) Every dust step (a wire and a wire one over and one down): power
     /// passes down only with a conductor under the upper wire and none over the lower one (26.3's
     /// RedstoneWireEvaluator); each listed both ways; a blocked downward step fails unless --allow-one-way
@@ -9495,6 +9521,35 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
             anyhow::ensure!(n == 0, "power out: {n} consumer(s) outside the allowed (bar 0)");
+        }
+        MobfarmCmd::ReachSweep { design, from, sweep_box, forbid, require, budget, alone } => {
+            let (_c, spec) = load(version, &design)?;
+            let cell = |s: &str| -> anyhow::Result<redsim::pos::BlockPos> {
+                let v: Vec<i32> = s.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("{s}: {e}"))?;
+                anyhow::ensure!(v.len() == 3, "{s}: x,y,z");
+                Ok(redsim::pos::BlockPos::new(v[0], v[1], v[2]))
+            };
+            let mut froms = Vec::new();
+            for f in &from {
+                let v: Vec<f64> = f.split(',').map(|t| t.trim().parse::<f64>()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("--from {f}: {e}"))?;
+                anyhow::ensure!(v.len() == 3, "--from {f}: x,y,z (feet)");
+                froms.push(redsim::entity::Vec3::new(v[0], v[1], v[2]));
+            }
+            anyhow::ensure!(!froms.is_empty(), "reach-sweep: NOT JUDGED: no --from");
+            let b: Vec<i32> = sweep_box.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("--box {sweep_box}: {e}"))?;
+            anyhow::ensure!(b.len() == 6, "--box x0,y0,z0,x1,y1,z1");
+            let lo = redsim::pos::BlockPos::new(b[0].min(b[3]), b[1].min(b[4]), b[2].min(b[5]));
+            let hi = redsim::pos::BlockPos::new(b[0].max(b[3]), b[1].max(b[4]), b[2].max(b[5]));
+            let forbid = forbid.iter().map(|s| cell(s)).collect::<anyhow::Result<Vec<_>>>()?;
+            let require = require.iter().map(|s| cell(s)).collect::<anyhow::Result<Vec<_>>>()?;
+            anyhow::ensure!(!forbid.is_empty() || !require.is_empty() || alone, "reach-sweep: NOT JUDGED: no --forbid, no --require and no --alone");
+            let cells: Vec<redsim::pos::BlockPos> = forbid.iter().chain(require.iter()).copied().collect();
+            let sweep = crate::fleecheck::reach_sweep(&spec, &froms, lo, hi, &cells, budget, true).map_err(|e| anyhow::anyhow!(e))?;
+            let (lines, bad) = crate::fleecheck::reach_sweep_lines(&sweep, &forbid, &require, alone).map_err(|e| anyhow::anyhow!(e))?;
+            for l in &lines {
+                println!("{l}");
+            }
+            anyhow::ensure!(bad == 0, "reach-sweep: {bad} failure(s)");
         }
         MobfarmCmd::DustSteps { design, allow_one_way, allow_empty, allow_powered } => {
             let (_c, spec) = load(version, &design)?;
