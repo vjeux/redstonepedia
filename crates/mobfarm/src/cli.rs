@@ -8667,10 +8667,13 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let mut tclears: Vec<crate::column::Clear> = clear.iter().map(|b| crate::column::Clear { b: *b, why: format!("--clear {},{},{},{},{},{}", b.0[0], b.0[1], b.0[2], b.1[0], b.1[1], b.1[2]), must: true, absent: None }).collect();
             // (onechunk 15:29) --clear-part FILE@dx,dy,dz: each of that file's non-air cells, moved,
             // a one-cell clear box
+            let mut cp_md5s: Vec<String> = Vec::new();
             for cp in &clear_parts {
                 let (file, mv) = cp.rsplit_once('@').ok_or_else(|| anyhow::anyhow!("--clear-part takes FILE@dx,dy,dz"))?;
                 let d: Vec<i32> = mv.split(',').map(|t| t.trim().parse::<i32>()).collect::<std::result::Result<_, _>>()?;
                 anyhow::ensure!(d.len() == 3, "--clear-part takes FILE@dx,dy,dz");
+                // (G1 Nov 14 03:39a) the cleared file named by its md5 in the record's header
+                cp_md5s.push(format!("{file} (md5 {})", redsim::stems::md5(&std::fs::read(file)?).iter().map(|b| format!("{b:02x}")).collect::<String>()));
                 let (_c, part) = load(version, &PathBuf::from(file))?;
                 let before = tclears.len();
                 for (p, b) in &part.blocks {
@@ -8699,6 +8702,12 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 anyhow::ensure!(off.is_empty(), "--assert-aligned: {} part(s) off the chunk grid: {}", off.len(), off.join(", "));
             }
             let mut reserves = reserves;
+            // (vcompose, G1 Nov 14 03:39a B1) a record written or verified names every reserved
+            // box's owner and item, so the reservation retires when that item lands
+            if out.is_some() || verify.is_some() {
+                let unnamed: Vec<&String> = reserves.iter().filter(|s| crate::column::Reserve::parse(s).is_ok_and(|r| r.owner.is_none())).collect();
+                anyhow::ensure!(unnamed.is_empty(), "--reserve {}: a record written or verified names each reserved box's owner and item (NAME=x0,y0,z0,x1,y1,z1:OWNER:ITEM; G1 Nov 14 01:22 / 03:39a B1)", unnamed.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", --reserve "));
+            }
             if let Some(f) = &reserves_from {
                 reserves.extend(crate::column::reserves_from_header(&std::fs::read_to_string(f)?, &reserve_skip));
             }
@@ -8968,9 +8977,13 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let carried = crate::column::carried_filtered(&specs, shift, &filt).map_err(|e| anyhow::anyhow!(e))?;
             // (vcompose, ironspec Nov 14 00:34, G1 01:22) every carried stand-in names its support
             // cells; a named support the record leaves empty, or none named, fails by name
-            let rec_written: std::collections::BTreeSet<[i32; 3]> = record.iter().map(|c| [c[0] + shift[0], c[1] + shift[1], c[2] + shift[2]]).collect();
+            let rec_written: std::collections::BTreeMap<[i32; 3], String> = d.blocks.iter().filter(|(_, s)| s.as_str() != "minecraft:air").map(|(c, s)| ([c[0] + shift[0], c[1] + shift[1], c[2] + shift[2]], s.to_string())).collect();
             let supports = crate::column::stand_in_supports(&carried.heads, &carried.metas, &rec_written).map_err(|e| anyhow::anyhow!(e))?;
-            println!("stand-in supports (ironspec Nov 14 00:34, G1 01:22): {} stand-ins, each support named and held{}", supports.len(), if supports.is_empty() { String::new() } else { format!(": {}", supports.join("; ")) });
+            if supports.is_empty() {
+                println!("stand-in supports (ironspec Nov 14 00:34, G1 01:22): no stand-in carried, nothing to check");
+            } else {
+                println!("stand-in supports (ironspec Nov 14 00:34, G1 01:22): {} stand-ins, each support named and held: {}", supports.len(), supports.join("; "));
+            }
             for (c, why) in &keep_stale_v {
                 anyhow::ensure!(!record.contains(c), "--keep-stale {},{},{}={why}: the record holds a block there (a no-op refuses by name)", c[0], c[1], c[2]);
                 let tok = format!("{},{},{}", c[0] + shift[0], c[1] + shift[1], c[2] + shift[2]);
@@ -9035,7 +9048,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
                 let one_cell: usize = tclears.iter().enumerate().filter(|(_, c)| !c.must || c.why.starts_with("--delta")).map(|(k, _)| ledger.cleared_by.get(k).copied().unwrap_or(0)).sum();
                 if tclears.iter().any(|c| !c.must || c.why.starts_with("--delta")) {
-                    head.push_str(&format!("# cleared first, cell by cell (--clear-part / --delta remove lines): {} cells listed, {one_cell} non-air cells and entities taken out, each listed in {ledger_name}\n", tclears.iter().filter(|c| !c.must || c.why.starts_with("--delta")).count()));
+                    head.push_str(&format!("# cleared first, cell by cell (--clear-part / --delta remove lines): {} cells listed, {one_cell} non-air cells and entities taken out, each listed in {ledger_name}{}\n", tclears.iter().filter(|c| !c.must || c.why.starts_with("--delta")).count(), if cp_md5s.is_empty() { String::new() } else { format!("; --clear-part {}", cp_md5s.join(", ")) }));
                 }
                 for (c, part, why) in &prec {
                     head.push_str(&format!("# precedence: {},{},{}={part} ({why})\n", c[0], c[1], c[2]));
@@ -9083,6 +9096,12 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
             if let Some(vf) = &verify {
+                // (G1 Nov 14 03:39a) a record holding an acknowledged reserve clash is not citable:
+                // its verify does not pass while the ruling that resolves it is unlanded
+                if !ledger.reserve_clash.is_empty() {
+                    println!("reserve clashes acknowledged: {} (the record is NOT CITABLE until each ruling composes in): FAIL", ledger.reserve_clash.len());
+                    verify_ok = false;
+                }
                 println!("verify {}: {}", vf.display(), if verify_ok { "PASS" } else { "FAIL" });
                 if !verify_ok {
                     std::process::exit(1);

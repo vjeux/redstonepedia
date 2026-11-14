@@ -228,11 +228,16 @@ written), and the flee bar; `--plant x,y,z=STATE` (with `--verify`) judges the s
 twin of FILE instead (each planted cell read back, a no-op refusing).
 Every stand-in a composed record carries (`# stand-in:` lines, `emulated:` entries) names its support
 cells, `support=x,y,z[+x,y,z]` or `support=none`: a named support the record leaves empty, or a stand-in
-naming none, fails the compose by name (ironspec Nov 14 00:34, G1 01:22). `--reserve NAME=BOX:OWNER:ITEM`
+naming none, fails the compose by name (ironspec Nov 14 00:34, G1 01:22). The token is the one right
+after the stand-in's cell (or an `emulated:` entry's state), and `support=none` holds only for a block
+the record holds there that needs no support (a lever needs one, a redstone block none; G1 03:39a).
+`--reserve NAME=BOX:OWNER:ITEM`
 holds a ruled but unlanded element's cells for its owner until ITEM lands (a `# reserved (no blocks):`
 line naming both); a part's cell inside a reserved box fails by name unless `--reserve-clash
 x,y,z=RULING:REASON` acknowledges it with the ruling that resolves it (a `# reserve-clash:` line: the
-record is not citable until that ruling composes in; an unused one refuses). A line carried through
+record is not citable until that ruling composes in, and `--verify` fails while it stands; an unused
+one refuses). A record written or verified names every reserve's owner and item (G1 03:39a); the
+`--clear-part` file's md5 is named in the header. A line carried through
 several composes names each part it came from once, in order.
 The golem chance per summon from a file: `mctas mobfarm summon-chance <design> --pad BOX --stand
 x,y,z...` runs the game's summon search (redsim's port of SpawnUtil's LEGACY_IRON_GOLEM scan, 289

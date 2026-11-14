@@ -3067,22 +3067,30 @@ pub fn delta_inputs(delta: &[String], absent: &[String]) -> Result<(Vec<Clear>, 
 /// `support=none` for a block that needs none (a free-standing redstone block): a named support the
 /// record leaves empty (a clear or a drop took it), or a stand-in naming none, fails the compose by
 /// name. `record`: the record's non-air cells in the written frame. Returns each stand-in checked.
-pub fn stand_in_supports(heads: &[String], metas: &[(String, String)], record: &std::collections::BTreeSet<P>) -> Result<Vec<String>, String> {
+pub fn stand_in_supports(heads: &[String], metas: &[(String, String)], record: &BTreeMap<P, String>) -> Result<Vec<String>, String> {
     let (mut ok, mut bad): (Vec<String>, Vec<String>) = (Vec::new(), Vec::new());
-    let mut check = |what: String, text: &str| {
-        let Some(i) = text.find("support=") else {
-            bad.push(format!("{what}: names no support (support=x,y,z or support=none)"));
+    // (G1 Nov 14 03:39a) the support token is the one right after the stand-in's cell (a
+    // `# stand-in:` line) or its state (an `emulated:` entry, `x,y,z=STATE support=...`), never a
+    // `support=` met later in the prose; `support=none` holds only for a block the record holds at the
+    // cell and that needs no support
+    let mut check = |what: String, cell: Option<P>, token: Option<&str>| {
+        let Some(v) = token.and_then(|t| t.strip_prefix("support=")) else {
+            bad.push(format!("{what}: names no support right after its cell (support=x,y,z or support=none)"));
             return;
         };
-        let v = text[i + 8..].split(|c: char| c.is_whitespace() || c == ';' || c == ')').next().unwrap_or("");
+        let v = v.trim_end_matches([';', ')', ',']);
         if v == "none" {
-            ok.push(format!("{what}: support=none"));
+            match cell.and_then(|c| record.get(&c)) {
+                Some(st) if !needs_support(st) => ok.push(format!("{what}: support=none ({st} needs none)")),
+                Some(st) => bad.push(format!("{what}: support=none, but {st} needs a support: name it")),
+                None => bad.push(format!("{what}: support=none, but the record holds no block there to judge: name its support")),
+            }
             return;
         }
         let mut missing = Vec::new();
         for c in v.split('+') {
             match triple(c) {
-                Ok(p) if record.contains(&p) => {}
+                Ok(p) if record.contains_key(&p) => {}
                 Ok(p) => missing.push(c3s(&p)),
                 Err(e) => {
                     bad.push(format!("{what}: support={v}: {e}"));
@@ -3098,21 +3106,36 @@ pub fn stand_in_supports(heads: &[String], metas: &[(String, String)], record: &
     };
     for h in heads {
         if let Some(rest) = h.strip_prefix("# stand-in:") {
-            let cell = rest.split_whitespace().next().unwrap_or("").to_string();
-            check(format!("stand-in {cell}"), rest);
+            let mut it = rest.split_whitespace();
+            let cell = it.next().unwrap_or("").to_string();
+            check(format!("stand-in {cell}"), triple(&cell).ok(), it.next());
         }
     }
     for (k, v) in metas.iter().filter(|(k, _)| k == "emulated") {
         for e in crate::pushscan::header_entries(&format!("# {k}: {v}"), "emulated:") {
-            let cell = e.split('=').next().unwrap_or("").trim().to_string();
-            check(format!("emulated {cell}"), &e);
+            let (cell, rest) = e.split_once('=').unwrap_or((e.as_str(), ""));
+            let cell = cell.trim().to_string();
+            check(format!("emulated {cell}"), triple(&cell).ok(), rest.split_whitespace().nth(1));
         }
     }
     if bad.is_empty() {
         Ok(ok)
     } else {
-        Err(format!("STAND-IN SUPPORTS (ironspec Nov 14 00:34, G1 01:22: a stand-in names its support cells, support=x,y,z or support=none; a removal taking one fails by name): {}", bad.join("; ")))
+        Err(format!("STAND-IN SUPPORTS (ironspec Nov 14 00:34, G1 01:22 / 03:39a: a stand-in names its support cells right after its cell, support=x,y,z or support=none; a removal taking one fails by name): {}", bad.join("; ")))
     }
+}
+
+/// (vcompose, G1 Nov 14 03:39a) Whether a block state needs a block to stand on or hang from: the
+/// attached and floor-standing kinds (levers, buttons, torches, rails, redstone dust, repeaters,
+/// comparators, tripwire hooks and string, pressure plates, carpets, ladders, doors, signs, banners,
+/// lanterns); a full block or a redstone block needs none.
+pub fn needs_support(state: &str) -> bool {
+    let n = state.trim_start_matches("minecraft:");
+    let n = n.split('[').next().unwrap_or(n);
+    matches!(n, "lever" | "redstone_wire" | "repeater" | "comparator" | "tripwire" | "tripwire_hook" | "ladder" | "lantern" | "soul_lantern" | "bell" | "rail")
+        || n.contains("torch")
+        || ["_button", "_rail", "_pressure_plate", "carpet", "_sign", "_banner", "candle"].iter().any(|s| n.ends_with(s))
+        || n.ends_with("_door") && !n.ends_with("trapdoor")
 }
 
 /// (vcompose) The --precedence x,y,z=PART:REASON lines as the command reads them (the reason
@@ -3553,6 +3576,8 @@ mod column_tests {
         assert_eq!(sk2.entities.len(), 2, "the same entities in two parts are kept once");
         let e2 = run(&specs2, Vec::new(), &[], &[Reserve::parse("fold=0,-1,0,1,0,0").unwrap(), Reserve::parse("run=1,-1,0,1,-1,0").unwrap()], &[], &f, "sk", false).unwrap_err();
         assert!(e2.contains("CLASH") && e2.contains("reserved fold (owner and item not named), held by a"), "{e2}");
+        // (G1 Nov 14 03:39a: the count the per-cell form kept) the fold box holds 2 of a's cells
+        assert_eq!(e2.matches("(reserved fold (owner and item not named), held by a:").count(), 2, "{e2}");
         assert!(e2.contains("fold and run (both reserved)"), "{e2}");
         // declared states move with their part (the control block too); two ways is reported
         let decl = "name: d\ncircuit: mob-farm iron_ingot\nport output: 0 0 0\ndeclared: 0,0,0 powered_rail[powered=false]<0,-1,0\npalette:\n  S stone\nlayer -1:\n  S\n";
@@ -3815,17 +3840,25 @@ mod traced_tests {
 
     #[test]
     fn a_stand_in_names_its_support_and_the_record_holds_it() {
-        // (ironspec Nov 14 00:34, G1 01:22) support=x,y,z held, support=none, an empty support
-        // and a stand-in naming none
-        let record: std::collections::BTreeSet<P> = [[-1, 27, 9]].into_iter().collect();
+        // (ironspec Nov 14 00:34, G1 01:22 / 03:39a) support=x,y,z held, an empty support, a stand-in
+        // naming none, the token read right after the cell only, and support=none judged against the
+        // record's block: a redstone block needs none, a lever does
+        let record: BTreeMap<P, String> = [([-1, 27, 9], "minecraft:glass".to_string()), ([4, -12, -2], "minecraft:redstone_block".to_string()), ([6, 0, 0], "minecraft:lever[face=floor,facing=north,powered=false]".to_string())].into_iter().collect();
         let ok = vec!["# stand-in: -1,26,9 support=-1,27,9 (J(-1)'s lever under the glass)".to_string(), "# stand-in: 4,-12,-2 support=none (a redstone block)".to_string()];
         assert_eq!(stand_in_supports(&ok, &[], &record).unwrap().len(), 2);
         let e = stand_in_supports(&["# stand-in: 3,26,9 support=3,27,9 (J(3)'s lever)".to_string()], &[], &record).unwrap_err();
         assert!(e.contains("stand-in 3,26,9: its support 3,27,9 is empty in the record"), "{e}");
         let e = stand_in_supports(&["# stand-in: 5,26,9 (K(7)'s lever, under the glass (5,27,9))".to_string()], &[], &record).unwrap_err();
         assert!(e.contains("stand-in 5,26,9: names no support"), "{e}");
+        let e = stand_in_supports(&["# stand-in: -1,26,9 (the prose names support=-1,27,9 later)".to_string()], &[], &record).unwrap_err();
+        assert!(e.contains("stand-in -1,26,9: names no support right after its cell"), "a `support=` in the prose is not the token: {e}");
+        let e = stand_in_supports(&["# stand-in: 6,0,0 support=none (a lever)".to_string()], &[], &record).unwrap_err();
+        assert!(e.contains("support=none, but minecraft:lever[face=floor,facing=north,powered=false] needs a support"), "{e}");
+        let e = stand_in_supports(&["# stand-in: 7,0,0 support=none (laid by the bench)".to_string()], &[], &record).unwrap_err();
+        assert!(e.contains("the record holds no block there to judge"), "{e}");
         let em = vec![("emulated".to_string(), "8,-14,-5=lever[face=wall] support=9,-14,-5 (NOT-ready)".to_string())];
         assert!(stand_in_supports(&[], &em, &record).unwrap_err().contains("emulated 8,-14,-5: its support 9,-14,-5 is empty"));
+        assert!(needs_support("minecraft:powered_rail[shape=north_south]") && needs_support("minecraft:redstone_wall_torch[facing=east]") && !needs_support("minecraft:iron_trapdoor[half=top]") && !needs_support("minecraft:sea_lantern") && !needs_support("minecraft:glass"));
     }
 
     #[test]
