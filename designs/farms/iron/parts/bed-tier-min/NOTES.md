@@ -698,3 +698,21 @@ seeds), terms p 2 / W term 54 / PARK 24 gt (the defaults), path search 48 / 768 
   at y -3; the OR line climbs (0,-2,1) -> (1,-1,1) -> (2,0,1) into the drive repeater; Q's tap line
   along x 8 and z 2 into the slope's tap repeater (1,-2,4); RLS_IN (-1,-2,-2) and ARM_IN (6,-2,-5)
   the logic block's inputs (the bench's floor levers: RLS held `--latch-rls-width`, ARM 3 gt).
+  On the 408 band the park rail is lit [RLS + 2, RLS + 26) on every visit (the standing start-of-tick
+  frame); that claim cites after the timing row (ironspec 01:50b: worst jitter + a k + j = 3 world
+  open at every phase).
+- **The header's declarations** (Nov 14): `contacts:` re-declared from the re-laid reference run (the
+  siding's flush run along the sealed glass (-1,0,4), 416 events over 400 visits, the deepest 0.3795;
+  the cart in P flush with the bed foot's and head's east faces, 336 over 336, the deepest 0.0850),
+  one `contact-speeds:` line each; `allow-powered:` keyed by E's two sources (its torch (-3,0,2), ARM's
+  detector (-2,0,1), redundant); `guard-caps:` every guard rail on an IRON trapdoor (G1 02:01).
+- **The park rail's build** (tick-exact 02:17 / 02:45, ironspec 02:43 (2)): every plain placement
+  order of the slime and the park rail ends east_west (main's build-order, and the game's
+  `RailState.place`): the build is the slime (2,0,3), a TEMPORARY rail at (2,1,3), the park rail
+  (1,0,3), the temporary rail out; laid before its slime the rail pops. The header's `build-order:`
+  states that sequence (dfb89499's declared-sequence mode reads it from train 16).
+- **The park string flickers** (tick-exact 02:45, G1 02:47): with the empty cart resting below x 1.30
+  the string releases one tick every 11 gt (its 10-gt re-check finds the end box under the band); the
+  rests aren't monotonic in speed, so it is normal operation. Every consumer reads SENSED's latch (the
+  visit's first press): the bench's K reset and PARKED do; the bench prints the re-check releases per
+  rest position and the consumers per visit (one K reset, PARKED set, one park lighting).
