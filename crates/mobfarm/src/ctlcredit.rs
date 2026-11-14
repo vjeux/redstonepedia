@@ -69,15 +69,15 @@ pub const RETURN: i64 = 8;
 pub const PRESS_W: i64 = 4;
 /// THE RING RESET (G10, ironspec 19:45 (1)): REL + 75, a 4-gt pulse.
 pub const RING_X: i64 = 72;
-/// ironspec 02:16 (3), ACCEPTED (day-1 02:15's cause fix): SEEN3_OLD samples SEEN3 at its OWN tap REL + 79 (the window
-/// + 76..+ 82 removes every late and missing loss under a world open (idle 2, the carts 3 behind) at every tick of the
-/// batch (+ 74..+ 82 with no open); re-centred from + 78 by the timing rule; X = + 72 sampled just before a faulted
-/// batch's late D(3) set SEEN3).
-pub const S3OLD_TAP: i64 = 79;
-/// ironspec 02:16 (3): THE ONE-CREDIT-PER-BATCH GUARD (day-1's candidate, priced ~4 blocks: a 20-gt extender on the
-/// completion pulse inhibiting D(7)'s credit line): a late slot 3's D(7) landing 1..7 gt after the D(-1) completion of
-/// its own batch (inside SEEN3's reset delay) is not credited twice; the next batch's own D(7) comes ~80 gt later.
-pub const DM1_BLOCK7: i64 = 20;
+/// ironspec 02:16 (3), ACCEPTED (day-1 02:15's cause fix): SEEN3_OLD samples SEEN3 at its OWN tap REL + 80: on THE
+/// REFERENCE TIMING ROW (entities frozen 3 gt with redstone running, +-2 on the pocket releases, the resync net off) the
+/// window is + 78..+ 82 (re-centred from + 79 by the timing rule); X = + 72 sampled just before a faulted batch's late
+/// D(3) set SEEN3.
+pub const S3OLD_TAP: i64 = 80;
+/// ironspec 02:16 (3) / 02:33 (5): THE ONE-CREDIT-PER-BATCH GUARD: a pulse extender on EVERY credit pulse inhibiting D(7)'s
+/// credit line for DM1_BLOCK7 gt: on THE REFERENCE TIMING ROW the duplicates it must block land up to 18 gt after their
+/// credit and the least legitimate D(7) credit 66 gt after one: the window is centred in that passing range (18..65).
+pub const DM1_BLOCK7: i64 = 42;
 /// The resync net's credit: its dropper pulse lands this many gt after the minting wait's start; its source tag.
 pub const NET_LAT: i64 = 4;
 pub const NET_SRC: usize = usize::MAX - 1;
@@ -157,6 +157,8 @@ pub struct Row {
     pub dm1_block7: i64,
     /// THE RESYNC NET's candidate (REL waiting with one batch in flight on two consecutive RELs mints a credit).
     pub resync_net: bool,
+    /// THE CLAIM CAP's candidate (a credit with no open claim, RELs issued minus credits made, is refused).
+    pub claims_cap: bool,
     /// The pick-dependent reset (ironspec 19:56 (4)): on a lane -1 pick the reset leaves J(-1) off and arms J(3)
     /// directly (no emulated D(-1)).
     pub pick_dep: bool,
@@ -195,7 +197,7 @@ pub struct Row {
 
 impl Row {
     pub fn normal(name: &str) -> Row {
-        Row { name: name.to_string(), hopper0: HOPPER0, dropper0: DROPPER0, t_max: 3000, missing: vec![], napper: vec![], stray: vec![], holds_empty: vec![], late: vec![], open: None, pick: vec![], bypass: false, credit_dm1: true, ring_x: RING_X, ring: false, ring_resync: false, ring_reset_x: false, s3old_tap: Some(S3OLD_TAP), dm1_block7: DM1_BLOCK7, resync_net: true, pick_dep: false, fast: true, dm1_old: true, dm1_done: false, dm1_store: false, dm1_owed: false, jam: None, occ_gate: false, f1_dip: vec![], unlock_on_request: true, napper_jitter: vec![] }
+        Row { name: name.to_string(), hopper0: HOPPER0, dropper0: DROPPER0, t_max: 3000, missing: vec![], napper: vec![], stray: vec![], holds_empty: vec![], late: vec![], open: None, pick: vec![], bypass: false, credit_dm1: true, ring_x: RING_X, ring: false, ring_resync: false, ring_reset_x: false, s3old_tap: Some(S3OLD_TAP), dm1_block7: DM1_BLOCK7, resync_net: true, claims_cap: true, pick_dep: false, fast: true, dm1_old: true, dm1_done: false, dm1_store: false, dm1_owed: false, jam: None, occ_gate: false, f1_dip: vec![], unlock_on_request: true, napper_jitter: vec![] }
     }
 }
 
@@ -251,6 +253,8 @@ pub struct Out {
     pub credit_level: Vec<i64>,
     /// D(7) presses whose credit THE ONE-CREDIT-PER-BATCH GUARD blocked (their ticks).
     pub d7_blocked: Vec<i64>,
+    /// Each blocked D(7)'s gap after the credit that opened the guard (the window's late edge).
+    pub d7_blocked_gap: Vec<i64>,
     /// Every D(7) credit's gap after the last D(-1) completion (G1 02:34 (2): the guard's margin to legitimate credits).
     pub d7_gap_after_completion: Vec<i64>,
     /// Every napper press's margin inside its own K window (lane, margin; negative = outside), ironspec 02:43 (1).
@@ -259,6 +263,8 @@ pub struct Out {
     pub wait_inflight: Vec<(i64, usize)>,
     /// The resync net's mints (their ticks).
     pub net_fires: Vec<i64>,
+    /// Credits THE CLAIM CAP refused (their ticks).
+    pub claim_refused: Vec<i64>,
     pub items_max: i64,
     pub items_min: i64,
     pub dropper_min: i64,
@@ -420,6 +426,8 @@ pub fn run(row: &Row, def: Defects) -> Out {
     let mut rel_waiting = false;
     let mut had_wait = false;
     let mut net_armed = false;
+    // (THE CLAIM CAP's count: RELs issued minus credits made)
+    let mut claims: i64 = 0;
     let mut last_completion: Option<i64> = None;
     let mut quiet: i64 = 0;
     let mut last_div_at: [Option<i64>; 3] = [None; 3];
@@ -668,10 +676,11 @@ pub fn run(row: &Row, def: Defects) -> Out {
             // first such wait, cleared by any REL that fires on its clock without waiting, by a halt and by a world open;
             // no timer, no running count)
             if row.resync_net && inflight == 1 {
-                if net_armed {
+                if net_armed && (!row.claims_cap || claims > 0) {
                     dispense.push((t + NET_LAT, NET_SRC, NET_SRC));
                     o.net_fires.push(t);
                     net_armed = false;
+                    claims -= 1;
                 } else {
                     net_armed = true;
                 }
@@ -693,6 +702,7 @@ pub fn run(row: &Row, def: Defects) -> Out {
             last_rel = Some(t);
             in_flight = false;
             o.rels.push(t);
+            claims += 1;
             // (a slip is throughput lost: the period over 100; a constant phase lag behind the golem pulse is none)
             o.slips.push(last_rel_prev.map_or(0, |p| (t - p - PERIOD).max(0)));
             o.rel_inflight.push(read < need);
@@ -926,7 +936,12 @@ pub fn run(row: &Row, def: Defects) -> Out {
                     // (OWED >= 1 = at most one stored credit (items <= the ballast + 1) and none in flight)
                     let owed_ok = !(read > need || in_flight);
                     let s3_in = if row.dm1_owed { seen3 && owed_ok } else if row.dm1_store { seen3 && store_empty } else if row.dm1_done { seen3 && !done } else if row.dm1_old { seen3 && seen3_old } else { seen3 };
-                    if row.credit_dm1 && !p.emulated && s3_in && !masked_credit && !(row.occ_gate && occupancy > 0) {
+                    let claim_ok = !row.claims_cap || claims > 0;
+                    if !claim_ok && s3_in && row.credit_dm1 && !p.emulated && !masked_credit {
+                        o.claim_refused.push(t);
+                    }
+                    if row.credit_dm1 && !p.emulated && s3_in && !masked_credit && claim_ok && !(row.occ_gate && occupancy > 0) {
+                        claims -= 1;
                         o.credit_press.push(t);
                         if p.napper {
                             o.napper_effects.push(format!("t {t}: the lane -1 napper's D(-1) made a credit"));
@@ -1004,8 +1019,19 @@ pub fn run(row: &Row, def: Defects) -> Out {
                     let blocked = row.dm1_block7 > 0 && last_completion.is_some_and(|lc| t - lc <= row.dm1_block7);
                     if blocked {
                         o.d7_blocked.push(t);
+                        if let Some(lc) = last_completion {
+                            o.d7_blocked_gap.push(t - lc);
+                        }
                     }
-                    if !masked7 && seen3 && !blocked && !(row.dm1_done && comp) && !(row.dm1_store && !store_empty) && !(row.dm1_owed && !owed_ok) {
+                    // (THE CLAIM CAP (day-1 03:44, ironspec 02:06's "the store capped at its legitimate maximum given what's in
+                    // flight"): every REL opens a claim, every credit answers one, and a credit with no open claim is
+                    // refused: a stalled cart's late D(7) landing outside every guard window can't gain a credit)
+                    let claim_ok7 = !row.claims_cap || claims > 0;
+                    if !claim_ok7 && !masked7 && seen3 && !blocked {
+                        o.claim_refused.push(t);
+                    }
+                    if claim_ok7 && !masked7 && seen3 && !blocked && !(row.dm1_done && comp) && !(row.dm1_store && !store_empty) && !(row.dm1_owed && !owed_ok) {
+                        claims -= 1;
                         // (G1 02:34 (2): every D(7) credit's gap after the last D(-1) completion (the guard's window must end
                         // before every legitimate one: the least margin printed both ways))
                         if let Some(lc) = last_completion {
@@ -1344,23 +1370,32 @@ fn credit_fix_block(v: &mut Verdict, lines: &mut Vec<String>) {
         rows.push((format!("lane {} missing", LANES[s]), r));
     }
     rows.push(("the normal run".to_string(), Row::normal("tap")));
-    // (the timing rule: a world open (the block domain frozen 2 gt, the carts 3 behind) at every tick of REL_6 + 0..114)
-    let sweep = |tap: i64, gaps: &mut Vec<i64>| -> (usize, usize, Vec<String>) {
+    // (THE TIMING RULE's REFERENCE ROW (ironspec 02:33 (2) / 02:40 (1), ironfarm 02:34): entities frozen 3 gt with redstone
+    // running (open = (t0, 0, 3)) at every other tick of REL_6 + 0..114, plus +-2 on the pocket releases: every sign choice
+    // on batch 5's three carts and batch 6's lane -1 cart; the resync net OFF, so the tap's OWN window shows)
+    let sweep = |tap: i64, step: usize, gaps: &mut Vec<i64>| -> (usize, usize, Vec<String>) {
         let (mut n, mut bad) = (0usize, 0usize);
         let mut ex = Vec::new();
         for (name, r0) in &rows {
-            for t0 in 606..=720 {
-                let mut r = r0.clone();
-                r.s3old_tap = Some(tap);
-                r.open = Some((t0, 2, 3));
-                let o = run(&r, Defects::default());
-                n += 1;
-                gaps.extend(o.d7_gap_after_completion.iter().copied());
-                let lb = ledger_bars(&o);
-                if !lb.is_empty() {
-                    bad += 1;
-                    if ex.len() < 2 {
-                        ex.push(format!("{name}, open at REL_6 + {}: {}", t0 - 606, lb.join("; ")));
+            for vv in 0..16u32 {
+                let sg = |i: u32| if vv & (1 << i) != 0 { 2i64 } else { -2 };
+                for t0 in (606..=720).step_by(step) {
+                    let mut r = r0.clone();
+                    r.s3old_tap = Some(tap);
+                    r.open = Some((t0, 0, 3));
+                    r.resync_net = false;
+                    for (i, (b, s)) in [(5usize, 0usize), (5, 1), (5, 2), (6, 0)].into_iter().enumerate() {
+                        r.late.push((b, s, sg(i as u32)));
+                    }
+                    let o = run(&r, Defects::default());
+                    n += 1;
+                    gaps.extend(o.d7_gap_after_completion.iter().copied());
+                    let lb = ledger_bars(&o);
+                    if !lb.is_empty() {
+                        bad += 1;
+                        if ex.len() < 2 {
+                            ex.push(format!("{name}, signs {vv:04b}, open at REL_6 + {}: {}", t0 - 606, lb.join("; ")));
+                        }
                     }
                 }
             }
@@ -1368,14 +1403,31 @@ fn credit_fix_block(v: &mut Verdict, lines: &mut Vec<String>) {
         (n, bad, ex)
     };
     let mut gaps: Vec<i64> = Vec::new();
-    let (n, bad, ex) = sweep(S3OLD_TAP, &mut gaps);
-    let mut edges = Vec::new();
-    for tap in [S3OLD_TAP - 4, S3OLD_TAP - 3, S3OLD_TAP + 3, S3OLD_TAP + 4] {
-        let (_, b, _) = sweep(tap, &mut Vec::new());
-        edges.push(format!("+ {tap}: {b} runs changing the store"));
+    let mut dup_gaps: Vec<i64> = Vec::new();
+    let (n, bad, ex) = sweep(S3OLD_TAP, 2, &mut gaps);
+    // (the guard's late edge on the reference row: the duplicates it blocks, the same rows with the net on)
+    for (_, r0) in &rows {
+        for vv in 0..16u32 {
+            let sg = |i: u32| if vv & (1 << i) != 0 { 2i64 } else { -2 };
+            for t0 in (606..=720).step_by(6) {
+                let mut r = r0.clone();
+                r.open = Some((t0, 0, 3));
+                for (i, (b, s)) in [(5usize, 0usize), (5, 1), (5, 2), (6, 0)].into_iter().enumerate() {
+                    r.late.push((b, s, sg(i as u32)));
+                }
+                let o = run(&r, Defects::default());
+                dup_gaps.extend(o.d7_blocked_gap.iter().copied());
+                gaps.extend(o.d7_gap_after_completion.iter().copied());
+            }
+        }
     }
-    let w = v.bar_n(&format!("ctl-credit: SEEN3_OLD's OWN TAP at REL + {S3OLD_TAP} (the credit's cause fix, ironspec 02:16 (3)) keeps the store exact (per batch, the FIFO ledger) on every formerly-losing late row, the missing rows, the gain rows and the normal run under a world open (idle 2, the carts 3 behind) at every tick of REL_6 + 0..114 (the timing rule)"), n, bad == 0);
-    lines.push(format!("  THE CREDIT's CAUSE FIX, SEEN3_OLD's tap REL + {S3OLD_TAP}, under a world open at every tick: {n} runs, {bad} changing the store{}; the window's edges: {}: {w}", if ex.is_empty() { String::new() } else { format!(" ({})", ex.join(" | ")) }, edges.join(", ")));
+    let mut edges = Vec::new();
+    for tap in [S3OLD_TAP - 3, S3OLD_TAP - 2, S3OLD_TAP + 2, S3OLD_TAP + 3] {
+        let (nn, b, _) = sweep(tap, 6, &mut Vec::new());
+        edges.push(format!("+ {tap}: {b} of {nn} runs changing the store"));
+    }
+    let w = v.bar_n(&format!("ctl-credit: SEEN3_OLD's OWN TAP at REL + {S3OLD_TAP} (the credit's cause fix, ironspec 02:16 (3)) keeps the store exact per batch (the resync net off) on every formerly-losing late row, the missing rows, the gain rows and the normal run ON THE REFERENCE TIMING ROW (entities frozen 3 gt with redstone running at every other tick of REL_6 + 0..114; +-2 on batch 5's carts and batch 6's lane -1 cart, every sign)"), n, bad == 0);
+    lines.push(format!("  THE CREDIT's CAUSE FIX, SEEN3_OLD's tap REL + {S3OLD_TAP}, on the reference timing row: {n} runs, {bad} changing the store{}; the window's edges (a third of the opens): {}: {w}", if ex.is_empty() { String::new() } else { format!(" ({})", ex.join(" | ")) }, edges.join(", ")));
     // (G1 02:34 (2): THE GUARD's MARGIN both ways: every D(7) credit after a completion lands after the window's end;
     // the lateness sweep 0..60 on every slot, the napper batches and the world-open rows above)
     for s in 0..3 {
@@ -1394,8 +1446,9 @@ fn credit_fix_block(v: &mut Verdict, lines: &mut Vec<String>) {
         }
     }
     let least = gaps.iter().copied().min();
-    let w = v.bar(&format!("ctl-credit: THE ONE-CREDIT-PER-BATCH GUARD ({DM1_BLOCK7} gt) ends before every legitimate D(7) credit after a completion (G1 02:34 (2): a mask on a credit path; the late sweep 0..60 on every slot, the napper batches, the world-open rows)"), least.is_none_or(|g| g > DM1_BLOCK7));
-    lines.push(format!("  THE GUARD's MARGIN: {} D(7) credits after a completion, the least gap {:?} gt (the window {DM1_BLOCK7}: margin {:?}; the duplicate it blocks lands 1..7 gt after): {w}", gaps.len(), least, least.map(|g| g - DM1_BLOCK7)));
+    let dup_max = dup_gaps.iter().copied().max();
+    let w = v.bar(&format!("ctl-credit: THE ONE-CREDIT-PER-BATCH GUARD ({DM1_BLOCK7} gt) covers every duplicate D(7) and ends before every legitimate D(7) credit after a credit (G1 02:34 (2) / ironspec 02:33 (5): both edges on the reference timing row, the late sweep 0..60 on every slot, the napper batches)"), least.is_none_or(|g| g > DM1_BLOCK7) && dup_max.is_none_or(|d| d <= DM1_BLOCK7) && !dup_gaps.is_empty());
+    lines.push(format!("  THE GUARD's MARGINS BOTH WAYS: {} legitimate D(7) credits after a credit, the least gap {:?} gt (margin {:?} over the window's end {DM1_BLOCK7}); {} duplicates blocked, the latest {:?} gt after its credit (margin {:?} inside the window); the passing range {:?}..{:?}: {w}", gaps.len(), least, least.map(|g| g - DM1_BLOCK7), dup_gaps.len(), dup_max, dup_max.map(|d| DM1_BLOCK7 - d), dup_max, least.map(|g| g - 1)));
     // (the five gain rows WITHOUT the guard: the store's level at both credits (a cap refuses only at full, 3 items);
     // the control: the guard removed, the rows gain by name)
     let mut levels = Vec::new();
@@ -1417,6 +1470,38 @@ fn credit_fix_block(v: &mut Verdict, lines: &mut Vec<String>) {
     }
     let c = v.control("ctl-credit CONTROL: THE ONE-CREDIT-PER-BATCH GUARD removed: the lane 7 cart 21..25 gt late is credited twice (A BATCH CREDITED TWICE by name on all 5 rows), the store below full at both credits (no cap catches it)", 1, gained == 5).to_string();
     lines.push(format!("  CONTROL (the guard removed): {gained} of 5 rows credited twice: {}: {c}", levels.join(" | ")));
+    // (THE CLAIM CAP (day-1 03:44; ironspec 02:06 / 02:10's "the store CAPPED at its legitimate maximum given what's in
+    // flight"): every REL opens a claim and every credit answers one; a credit with no open claim is refused. Its row:
+    // THE STALLED-THEN-RECOVERED CART at EVERY stall length 30..400 on every slot: without the cap a late D press landing
+    // outside every guard window credits twice (a gain for good); with it, none; the normal run refuses nothing)
+    {
+        let (mut g_on, mut g_off, mut refused, mut lost) = (Vec::new(), Vec::new(), 0usize, Vec::new());
+        for late in 30..=400 {
+            for s in 0..3 {
+                let mut r = Row::normal("stall");
+                r.late = vec![(5, s, late)];
+                let o = run(&r, Defects::default());
+                refused += o.claim_refused.len();
+                let sb = store_correct_bars(&o);
+                if sb.iter().any(|b| b.contains("GAINED")) {
+                    g_on.push(format!("lane {} {late}", LANES[s]));
+                }
+                if sb.iter().any(|b| b.contains("NEVER ANSWERED")) {
+                    lost.push(format!("lane {} {late}", LANES[s]));
+                }
+                let mut r0 = r.clone();
+                r0.claims_cap = false;
+                if store_correct_bars(&run(&r0, Defects::default())).iter().any(|b| b.contains("GAINED")) {
+                    g_off.push(format!("lane {} {late}", LANES[s]));
+                }
+            }
+        }
+        let on = run(&Row::normal("cap normal"), Defects::default());
+        let w = v.bar_n("ctl-credit: THE CLAIM CAP: the stalled-then-recovered cart at every stall length 30..400 on every slot leaves the store correct (no gain, no loss) and the normal run refuses no credit", 3 * 371, g_on.is_empty() && lost.is_empty() && on.claim_refused.is_empty());
+        lines.push(format!("  THE CLAIM CAP over every stall 30..400 on every slot: gains {}, losses {}, credits refused {refused}; the normal run refuses {}: {w}", if g_on.is_empty() { "none".to_string() } else { g_on.join(", ") }, if lost.is_empty() { "none".to_string() } else { lost.join(", ") }, on.claim_refused.len()));
+        let c = v.control("ctl-credit CONTROL: the claim cap off: a stalled-then-recovered cart's late D press outside every guard window gains a credit for good (A CREDIT GAINED)", 1, !g_off.is_empty()).to_string();
+        lines.push(format!("  CONTROL (no claim cap): gains at {}: {c}", g_off.join(", ")));
+    }
     // (THE RESYNC NET (ironspec 02:40 (4) / 02:46 (1), G1 02:44b (1)): THE PREMISE printed (the batches in flight at each REL
     // wait's start: the healthy pipeline waits with TWO, the one-short store with ONE); the trigger (REL waiting for a credit
     // with ONE batch in flight on TWO CONSECUTIVE RELs, no halt; a latch cleared by any REL on its clock, a halt or a world
@@ -1817,8 +1902,10 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
             let od = run(&rs, Defects::default());
             let w = v.bar(&format!("ctl-credit: a stray D(7) at t {} inside SEEN3's reset window (batch 5's D(7) + 2) makes no credit (THE GUARD GENERALIZED: every credit opens it)", t7 + 2), store_correct_bars(&od).is_empty() && od.d7_blocked.contains(&(t7 + 2)));
             lines.push(format!("  A STRAY D(7) INSIDE SEEN3's RESET WINDOW (t {}): blocked {:?}, the store [{}]: {w}", t7 + 2, od.d7_blocked, store_correct_bars(&od).join("; ")));
-            let os = run(&rs, Defects { guard_completion_only: true, ..Default::default() });
-            control(v, &format!("a stray D(7) at t {} inside SEEN3's reset window (batch 5's D(7) + 2), the guard opened by the completion alone: A CREDIT GAINED fails by name in the FIFO ledger", t7 + 2), ledger_bars(&os).iter().any(|b| b.contains("A CREDIT GAINED")), &os, &rs, &mut lines);
+            let mut rs0 = rs.clone();
+            rs0.claims_cap = false;
+            let os = run(&rs0, Defects { guard_completion_only: true, ..Default::default() });
+            control(v, &format!("a stray D(7) at t {} inside SEEN3's reset window (batch 5's D(7) + 2), the guard opened by the completion alone and the claim cap off: A CREDIT GAINED fails by name in the FIFO ledger", t7 + 2), ledger_bars(&os).iter().any(|b| b.contains("A CREDIT GAINED")), &os, &rs0, &mut lines);
         }
     }
     // (the D(-1) completion candidate on the normal run: it must never fire in normal operation)
@@ -2642,6 +2729,48 @@ mod tests {
         }
         // (the lane-7 GAIN rows: slot 3 late 23)
         {
+            // (THE STALLED-THEN-RECOVERED CART at EVERY stall length 30..400: does its late D(7) ever gain a credit (landing
+            // outside every guard window), with the net on?)
+            let mut gains = Vec::new();
+            let mut lost = Vec::new();
+            for late in 30..=400 {
+                for s in 0..3 {
+                    let mut r = Row::normal("stall");
+                    r.late = vec![(5, s, late)];
+                    let o = run(&r, Defects::default());
+                    let sb = store_correct_bars(&o);
+                    if sb.iter().any(|b| b.contains("GAINED")) {
+                        gains.push((LANES[s], late));
+                    }
+                    if sb.iter().any(|b| b.contains("NEVER ANSWERED")) {
+                        lost.push((LANES[s], late));
+                    }
+                }
+            }
+            println!("STALLSWEEP every stall 30..400 on every slot (the guard {DM1_BLOCK7}, the net on): gains {} {:?}; losses {} {:?}", gains.len(), gains.iter().take(10).collect::<Vec<_>>(), lost.len(), lost.iter().take(10).collect::<Vec<_>>());
+            let (mut g2, mut l2, mut refused) = (Vec::new(), Vec::new(), 0usize);
+            for late in 30..=400 {
+                for s in 0..3 {
+                    let mut r = Row::normal("stall cap");
+                    r.late = vec![(5, s, late)];
+                    r.claims_cap = true;
+                    let o = run(&r, Defects::default());
+                    refused += o.claim_refused.len();
+                    let sb = store_correct_bars(&o);
+                    if sb.iter().any(|b| b.contains("GAINED")) {
+                        g2.push((LANES[s], late));
+                    }
+                    if sb.iter().any(|b| b.contains("NEVER ANSWERED")) {
+                        l2.push((LANES[s], late));
+                    }
+                }
+            }
+            let mut rn = Row::normal("cap normal");
+            rn.claims_cap = true;
+            let on = run(&rn, Defects::default());
+            println!("STALLSWEEP + THE CLAIM CAP: gains {} {:?}; losses {} {:?}; credits refused {refused}; the normal run with the cap: {} RELs, refused {:?}, the store [{}]", g2.len(), g2.iter().take(10).collect::<Vec<_>>(), l2.len(), l2.iter().take(10).collect::<Vec<_>>(), on.rels.len(), on.claim_refused, store_correct_bars(&on).join("; "));
+        }
+        {
             // (THE RESYNC's PREMISE: the batches in flight at each REL wait's start, healthy vs one-short)
             let show = |name: &str, r: &Row, d: Defects| {
                 let o = run(r, d);
@@ -2810,6 +2939,53 @@ mod tests {
         }
         // (G1 02:17 (2)(a) / the timing rule: the tap window under a world open (idle 2, the carts 3 behind) at every tick
         // of REL_6 + 0..114 (t 606..720) on the formerly-losing late rows, the missing rows and the gain rows)
+        if std::env::var("CC_TIMING").is_ok() {
+            // (THE REFERENCE TIMING ROW (ironspec 02:33 (2), ironfarm 02:34): entities frozen 3 gt with redstone running
+            // (open = (t0, 0, 3)) at every other tick of REL_6 + 0..114, plus +-2 on the pocket releases: every sign
+            // choice on batch 5's three carts and batch 6's lane -1 cart; per tap, the runs changing the store)
+            let mut rows: Vec<(String, Row)> = Vec::new();
+            for (s, lates) in [(0usize, vec![9i64, 15, 21, 27, 31, 49, 55, 60]), (1, vec![29, 35, 40, 57, 60]), (2, vec![21, 25, 27])] {
+                for late in lates {
+                    let mut r = Row::normal("g");
+                    r.late = vec![(5, s, late)];
+                    rows.push((format!("lane {} late {late}", LANES[s]), r));
+                }
+            }
+            for s in 0..3 {
+                let mut r = Row::normal("g");
+                r.missing = vec![(5, s)];
+                rows.push((format!("lane {} missing", LANES[s]), r));
+            }
+            rows.push(("normal".to_string(), Row::normal("g")));
+            for tap in [74i64, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84] {
+                let (mut bad, mut n) = (0usize, 0usize);
+                let mut ex: Vec<String> = Vec::new();
+                for (name, r0) in &rows {
+                    for v in 0..16u32 {
+                        let sg = |i: u32| if v & (1 << i) != 0 { 2i64 } else { -2 };
+                        for t0 in (606..=720).step_by(2) {
+                            let mut r = r0.clone();
+                            r.s3old_tap = Some(tap);
+                            r.open = Some((t0, 0, 3));
+                            // (the tap's OWN window: the resync net off, so a loss the tap lets through shows)
+                            r.resync_net = false;
+                            for (i, (b, s)) in [(5usize, 0usize), (5, 1), (5, 2), (6, 0)].into_iter().enumerate() {
+                                r.late.push((b, s, sg(i as u32)));
+                            }
+                            let o = run(&r, Defects::default());
+                            n += 1;
+                            if !store_correct_bars(&o).is_empty() || !ledger_bars(&o).iter().all(|b| !b.contains("NEVER") || !o.net_fires.is_empty()) {
+                                bad += 1;
+                                if ex.len() < 3 {
+                                    ex.push(format!("{name} v{v:04b} open REL_6 + {}", t0 - 606));
+                                }
+                            }
+                        }
+                    }
+                }
+                println!("TIMINGROW tap REL + {tap}: {n} runs, {bad} changing the store or needing the net {ex:?}");
+            }
+        }
         if std::env::var("CC_TAP_OPEN").is_ok() {
             let mut rows: Vec<(String, Row)> = Vec::new();
             for (s, lates) in [(0usize, vec![9i64, 12, 15, 18, 21, 24, 27, 31, 49, 53, 57, 60]), (1, vec![29, 32, 35, 38, 40, 57, 60]), (2, vec![21, 23, 25, 27])] {
