@@ -771,6 +771,8 @@ struct Ctl {
     re_armed: bool,
     re_armed_setters: Vec<String>,
     d3_presses: Vec<i64>,
+    /// (ironspec 17:29, day-1 17:22's BATCH_DONE) SEEN(-1) / SEEN(3) / SEEN(7): each lane's D press since REL
+    seen: [Option<i64>; 3],
     delta7: i64,
     a_open_at: Option<i64>,
     nap_lane_of: BTreeMap<u32, usize>,
@@ -1903,10 +1905,32 @@ impl Ctl {
             }
         }
         // (day-1's G8 rev 15:42) RE_ARMED: set ONLY by the ring's re-arm events (lane 7's real D(7) + 2,
-        // or the lane-7 pick's D(3)-keyed emulated D(7)), reset at REL; its setters logged
+        // or the lane-7 pick's D(3)-keyed emulated D(7)), reset at REL; its setters logged.
+        // (ironspec 17:29, C BOUGHT: day-1 17:22's BATCH_DONE) with the design controller RE_ARMED =
+        // D(-1) AND D(3) AND D(7), each latched since REL (SEEN_l set by lane l's D press; SEEN(7) by the
+        // real D(7) or a lane-7 pick's emulated D(7))
+        if self.a_stop {
+            if b0 && !self.branch_prev[0] && self.seen[0].is_none() {
+                self.seen[0] = Some(now);
+            }
+            if b1 && !self.branch_prev[1] && self.seen[1].is_none() {
+                self.seen[1] = Some(now);
+            }
+            if !events.is_empty() && self.seen[2].is_none() {
+                self.seen[2] = Some(now);
+            }
+            if !self.re_armed
+                && let [Some(a), Some(b), Some(c)] = self.seen
+            {
+                self.re_armed = true;
+                self.re_armed_setters.push(format!("t {now}: BATCH_DONE (D(-1) t {a}, D(3) t {b}, D(7) t {c})"));
+            }
+        }
         for (e, src) in events.iter().zip(sources.iter()) {
-            self.re_armed = true;
-            self.re_armed_setters.push(format!("t {e}: {src}"));
+            if !self.a_stop {
+                self.re_armed = true;
+                self.re_armed_setters.push(format!("t {e}: {src}"));
+            }
         }
         for e in events {
             self.rt_rearm_events.push(e);
@@ -2945,8 +2969,9 @@ impl Ctl {
     }
 
     fn start(&mut self, rel: i64) {
-        // (day-1's G8) RE_ARMED reset at REL
+        // (day-1's G8) RE_ARMED reset at REL; (ironspec 17:29) BATCH_DONE's SEEN latches with it
         self.re_armed = false;
+        self.seen = [None; 3];
         // (--ring-timed) each batch's REL and its pick (set when the pick is decided)
         self.rt_batches.push((rel, None));
         self.busy = true;
@@ -10597,7 +10622,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             g(ds, "G5 the hold's at-most-one gate on the RETURN bits"),
             g(ds, "G6 REL_l = D_l AND string_l (a ridden cart on R_l), R = D + 34 (the feed's input at D + 26 with the stack's 8)"),
             g(ds, "G7 AWAY_l: set at the pick, reset at string_l's fall after the return; a pick skipped while set"),
-            g(ds, "G8 F1: REL = holds full (a cart on each R_1) AND RE_ARMED (set only at the ring's re-arm events, reset at REL); the request + 6"),
+            g(ds, "G8 F1: REL = holds full (a cart on each R_1) AND RE_ARMED; G8a (ironspec 17:29, C BOUGHT; day-1 17:22): RE_ARMED = BATCH_DONE = D(-1) AND D(3) AND D(7), each latched since REL (SEEN(7) from the real D(7) or a lane-7 pick's emulated D(7)), reset at REL; the request + 6"),
             g(true, "G9 every REL-keyed timing off the gated REL"),
             g(true, "G10 the ring F2: D-keyed, J(7) on by default, no timed re-arm"),
             g(ctl.ring_timed, "G11 the no-string outbound: HOLD_3 / HOLD_7 reset at REL + L + k, latch writes + 2, J switch + 4; lane 7's emulated D(7) at lane 3's real D(3) + delta7"),
