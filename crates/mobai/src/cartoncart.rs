@@ -9,8 +9,8 @@
 //! Heights 3, 4, 8, 16, 34. Asserted (MCTAS_CART_ON_CART_PLANT=k inverts assert k): (1) every falling cart comes to rest
 //! within 160 gt; (2) the no-cart rail landings leave the rider at 20 HP at every height; (3) dry stone at 8 takes
 //! exactly 5 (the cart-fall control); (4) onto a RIDDEN cart the falling cart rests on the lower rider's head (y +
-//! 2.0125: its feet at the cart's y + 0.0625, 1.95 tall) and its own rider ends at 20 / 20 / 17 / 9 HP / dead at h 3 /
-//! 4 / 8 / 16 / 34, the lower rider at 20; (5) onto an EMPTY cart it ends on the rail (y + 0.0625), its rider at 20.
+//! 2.0125: its feet at the cart's y + 0.0625, 1.95 tall) and its own rider ends at 20 / 20 / 17 / 9 HP at h 3 / 4 / 8 /
+//! 16 and DIES at 34 (the death itself: the named rider's death line in the server log, G1 03:14), the lower rider at 20; (5) onto an EMPTY cart it ends on the rail (y + 0.0625), its rider at 20.
 
 use anyhow::Result;
 use mctas::vanilla::{VanillaOptions, VanillaServer};
@@ -85,13 +85,16 @@ pub fn cart_on_cart(version: &str) -> Result<()> {
     for (i, (l, h)) in cols.iter().enumerate() {
         let x = i as i32 * 4;
         let base = if *l == Landing::Stone { Y0 as f64 } else { Y0 as f64 + 0.0625 };
-        srv.cmd_ok(&format!("summon minecraft:minecart {x}.5 {:.4} 0.5 {{Tags:[\"ccf{i}\"],Passengers:[{{id:\"minecraft:villager\",Tags:[\"ccfv{i}\"],PersistenceRequired:1b}}]}}", base + h))?;
+        srv.cmd_ok(&format!("summon minecraft:minecart {x}.5 {:.4} 0.5 {{Tags:[\"ccf{i}\"],Passengers:[{{id:\"minecraft:villager\",Tags:[\"ccfv{i}\"],CustomName:\"ccfv{i}\",PersistenceRequired:1b}}]}}", base + h))?;
     }
     let n = cols.len();
     let mut rest: Vec<Option<(u32, f64)>> = vec![None; n];
     let mut prev: Vec<Option<f64>> = vec![None; n];
     let mut still = vec![0u32; n];
     let mut hp_f: Vec<Option<f64>> = vec![None; n];
+    // (G1 03:14) the falling rider's DEATH itself, not only "no Health any more" (which a dismount or a removal would
+    // also give): the server log's death line for the named rider (below)
+    let mut died_f = vec![false; n];
     let mut hp_l: Vec<Option<f64>> = vec![None; n];
     let mut fd_max = vec![0.0f64; n];
     let mut ly: Vec<Option<f64>> = vec![None; n];
@@ -121,13 +124,24 @@ pub fn cart_on_cart(version: &str) -> Result<()> {
             prev[i] = y;
         }
     }
+    // (G1 03:14) the death itself: an entity selector never matches a dead entity, so the Health-0 read can't be made;
+    // each falling rider is NAMED (CustomName = its tag), and the server logs a named entity's death with its cause
+    // ("Named entity Villager['ccfvN'/..] died: .."): read from the server's own log
+    let log = std::fs::read_to_string(srv.dir.join("logs").join("latest.log")).unwrap_or_default();
+    let mut death_line: Vec<Option<String>> = vec![None; n];
+    for (i, dl) in death_line.iter_mut().enumerate() {
+        *dl = log.lines().find(|l| l.contains("Named entity") && l.contains(&format!("['ccfv{i}'/")) && l.contains(" died: ")).map(|l| l.split(" died: ").nth(1).unwrap_or("").to_string());
+        if dl.is_some() {
+            died_f[i] = true;
+        }
+    }
     let mut out = Vec::new();
     for (i, (l, h)) in cols.iter().enumerate() {
         let line = format!(
             "  {l:?} h {h:>4}: the falling cart rests {} (fall_distance max {:.3}); its rider {}; {}",
             rest[i].map_or("NEVER".into(), |(t, y)| format!("from t{t} at y {:.4} ({:+.4} above the rail block's top)", y, y - Y0 as f64)),
             fd_max[i],
-            hp_f[i].map_or("GONE (dead)".into(), |h| format!("{h:.1} HP")),
+            hp_f[i].map_or_else(|| format!("GONE{}", death_line[i].as_ref().map(|d| format!(" (the server log: died: {d})")).unwrap_or_else(|| " (no death in the server log)".into())), |h| format!("{h:.1} HP")),
             match l {
                 Landing::CartEmpty => format!("the resting cart at y {}", ly[i].map_or("-".into(), |y| format!("{y:.4}"))),
                 Landing::CartRidden => format!("the resting cart at y {}, its rider {}", ly[i].map_or("-".into(), |y| format!("{y:.4}")), hp_l[i].map_or("GONE (dead)".into(), |h| format!("{h:.1} HP"))),
@@ -150,10 +164,13 @@ pub fn cart_on_cart(version: &str) -> Result<()> {
             _ => None,
         }
     };
+    // (G1 03:14) the h-34 rider's death asserted as a death (its death line in the server log), not as "no Health"
+    let ridden_died: Vec<(f64, bool)> = cols.iter().enumerate().filter(|(_, c)| c.0 == Landing::CartRidden).map(|(i, c)| (c.1, died_f[i])).collect();
     pin(
         4,
-        ridden.len() == 5 && ridden.iter().all(|(h, rest, hp, low)| rest.is_some_and(|(_, y)| (y - Y0 as f64 - 2.0125).abs() < 1e-3) && *hp == want(*h) && *low == Some(20.0)),
-        format!("(4) onto a RIDDEN cart the falling cart rests on the lower rider's head (y + 2.0125) and its own rider ends at 20 / 20 / 17 / 9 HP / dead at h 3 / 4 / 8 / 16 / 34, the lower rider at 20: {ridden:?}"),
+        ridden.len() == 5
+            && ridden.iter().zip(&ridden_died).all(|((h, rest, hp, low), (_, died))| rest.is_some_and(|(_, y)| (y - Y0 as f64 - 2.0125).abs() < 1e-3) && (if *h as i32 == 34 { *died && hp.is_none() } else { *hp == want(*h) && !*died }) && *low == Some(20.0)),
+        format!("(4) onto a RIDDEN cart the falling cart rests on the lower rider's head (y + 2.0125) and its own rider ends at 20 / 20 / 17 / 9 HP at h 3 / 4 / 8 / 16 and DIES at 34 (its death line in the server log, \"died: ..\"), the lower rider at 20: {ridden:?}; deaths {ridden_died:?}"),
     )?;
     let empty: Vec<(f64, Option<(u32, f64)>, Option<f64>)> = out.iter().filter(|o| o.0 == Landing::CartEmpty).map(|o| (o.1, o.2, o.3)).collect();
     pin(5, empty.len() == 5 && empty.iter().all(|(_, rest, hp)| rest.is_some_and(|(_, y)| (y - Y0 as f64 - 0.0625).abs() < 1e-3) && *hp == Some(20.0)), format!("(5) onto an EMPTY cart the falling cart ends on the rail (y + 0.0625) and its rider at 20 at every height: {empty:?}"))?;

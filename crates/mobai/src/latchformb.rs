@@ -154,21 +154,39 @@ fn read(srv: &mut VanillaServer, rls: bool, arm: bool) -> Result<Row> {
 pub fn read_laid_cells(path: &std::path::Path) -> Result<Vec<([i32; 3], String)>> {
     let text = std::fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
     let mut out: Vec<([i32; 3], String)> = Vec::new();
+    // (ironspec 03:29) nothing silently dropped: an unparsable line or a cell listed twice with two states fails; air
+    // cells and same-state repeats are counted and printed
+    let (mut bad, mut air, mut repeats): (Vec<String>, usize, usize) = (Vec::new(), 0, 0);
     for l in text.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')) {
-        let Some((c, s)) = l.split_once(' ') else { continue };
+        let Some((c, s)) = l.split_once(' ') else {
+            bad.push(l.to_string());
+            continue;
+        };
         let v: Vec<i32> = match c.split(',').map(|x| x.trim().parse::<i32>()).collect::<Result<Vec<_>, _>>() {
             Ok(v) if v.len() == 3 => v,
-            _ => continue,
+            _ => {
+                bad.push(l.to_string());
+                continue;
+            }
         };
         let s = s.trim().to_string();
-        if !s.starts_with("minecraft:") || s == "minecraft:air" {
+        if !s.starts_with("minecraft:") {
+            bad.push(l.to_string());
+            continue;
+        }
+        if s == "minecraft:air" {
+            air += 1;
             continue;
         }
         let p = [v[0] - 2, v[1] + 2, v[2] + 2];
-        if !out.iter().any(|(q, _)| *q == p) {
-            out.push((p, s));
+        match out.iter().find(|(q, _)| *q == p) {
+            Some((_, prev)) if *prev == s => repeats += 1,
+            Some((_, prev)) => bad.push(format!("{l} (the cell listed before as {prev})")),
+            None => out.push((p, s)),
         }
     }
+    anyhow::ensure!(bad.is_empty(), "{}: {} line(s) not read as `x,y,z minecraft:state` (or a cell given two states): {bad:?}", path.display(), bad.len());
+    println!("  {}: {} cells read ({air} air cells skipped, {repeats} same-state repeats)", path.display(), out.len());
     anyhow::ensure!(!out.is_empty(), "{}: no cells", path.display());
     Ok(out)
 }
