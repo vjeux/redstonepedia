@@ -126,7 +126,9 @@ pub enum BlankRows {
 /// line read by its own raw reader (`emulated:` by `mobfarm::declkeys::emulated_entries`, `station:` by circuit-fly's
 /// machine reader, `ghost:` by mcview's design reader, `constraint:` / `objective:` / `space:` by farmopt's spec
 /// reader); [`Design::parse`] keeps ALL their lines in `Design.meta`, joined with "; ", so no reader sees a truncated
-/// value, and [`Design::to_text`] writes them back one line per value. Any other header key repeated with another
+/// value, and [`Design::to_text`] writes them back one line per value (per VALUE, not per original line: a one-line
+/// `emulated:` list of several entries comes back as one line per entry, semantically equal, the layout differing, so a
+/// layout-sensitive edit uses the in-place tools, `mobfarm edit`). Any other header key repeated with another
 /// value fails the parse by name.
 pub const LIST_KEYS: &[&str] = &["emulated", "station", "ghost", "constraint", "objective", "space"];
 
