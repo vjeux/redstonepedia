@@ -7052,8 +7052,9 @@ pub enum MobfarmCmd {
         #[arg(long, default_value = "adopted")]
         controller: String,
         /// (G1's B1) The adopted controller's terms PARKED,A70,D,W,OPEN_SET,OPEN_RESET,TORCH,RLS,PARK,
-        /// LAG,ONSET (default 52,0,12,50,6,6,2,6,2,10,1: DAY-1's gate list rev 17:30 at
-        /// ctl-shutter's designed timing, 17:24, with ironspec 17:32 (4) (OPEN's set on PARKED: A70
+        /// LAG,ONSET (default 52,0,12,56,6,6,2,6,2,10,1: DAY-1's gate list rev 18:45 (W: the W line
+        /// 50, the latest RLS at pulse + 61, RLS 6 after its read) at ctl-shutter's designed timing,
+        /// with ironspec 17:32 (4) (OPEN's set on PARKED: A70
         /// 0), 17:53 (p = 2; COOL's tap ARM + 52) and 17:39 (PARKED = the sensed park AND COOL, the
         /// PARKED term); PARKED 0 = the stand-in "the cart at rest in the park cell"; ONSET -1 = no
         /// onset term).

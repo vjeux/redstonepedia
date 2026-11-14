@@ -1053,19 +1053,19 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
         // the napper boards again)
         b.d.meta.insert("riderless".into(), "-2,0,2+-2,0,3+-1,0,3+0,0,3+1,0,3+2,1,3+2,1,4+1,0,4+0,0,4+-1,0,4+-2,0,4=the stop's empty cart from E (the napper set down on the bed foot's top) round the loop and the U-turn to its park, then down the run-up to P (the napper seated again at P)".into());
     }
-    // (9fc3155f 17:21 / ironspec 17:26 / 18:30: the stop-level golem floors guarded with glass, which
-    // LEGACY_IRON_GOLEM never spawns on: over the hand-off's east trapdoor (-1,0,5), over the exit
-    // curve's cap (0,1,6) (its neighbours already carry lone guard rails), over Z1's shutter; E's east
-    // floor (-1,0,2) is itself glass, not a trapdoor with glass over it: glass in both (-1,1,2) and
-    // (-1,1,5) turned the woken napper's PANIC flee onto the bed top (-3,1,4), a partial path that
-    // armed CANT_REACH after the wake on 363 of 408 visits (either alone: none; a glass floor at
-    // (-1,0,2): none, and the cart's box, y 0.06..0.76 beside E, meets no new face there))
+    // (9fc3155f 17:21 / ironspec 17:26 / 18:30: the stop-level golem floors guarded: a lone string
+    // (tripwire, no hooks: no collision, no signal) in the spawn cell over E's east trapdoor
+    // (-1,0,2) and over the hand-off's east trapdoor (-1,0,5): the golem's feet cell must be air
+    // (tick-exact 18:13, SpawnUtil 77-95); glass over the exit curve's cap (0,1,6) (its neighbours
+    // carry lone guard rails) and over Z1's shutter. Glass (or a slab) in both (-1,1,2) and (-1,1,5)
+    // turned the woken napper's PANIC flee onto the bed top (-3,1,4), a partial path that armed
+    // CANT_REACH after the wake on 363 of 408 visits; a glass floor at (-1,0,2) met the cart turning
+    // at (-2,0,3) at 0.22 (8 visits stranded); the strings: 0 and 0 on the band)
     if exit_south {
-        b.d.blocks.remove(&[-1, 0, 2]);
-        put(&mut b, [-1, 0, 2], "glass")?;
-        for c in [[-1, 1, 5], [0, 2, 6]] {
-            put(&mut b, c, "glass")?;
+        for c in [[-1, 1, 2], [-1, 1, 5]] {
+            put(&mut b, c, "tripwire[attached=false,disarmed=false,east=false,north=false,powered=false,south=false,west=false]")?;
         }
+        put(&mut b, [0, 2, 6], "glass")?;
     }
     if waker_south {
         put(&mut b, [-5, 2, 9], "glass")?;
@@ -2065,7 +2065,7 @@ impl Default for Adopted {
     fn default() -> Self {
         // (ironspec 17:32 (4): OPEN's set uses PARKED in place of A70 (a70 0); 17:53: p = 2 stands,
         // COOL's tap ARM + 52; 17:39: PARKED sensed, ANDed with COOL (the `parked` term))
-        Adopted { parked: 52, a70: 0, d: 12, w: 50, open_set: 6, open_reset: 6, torch: 2, rls: 6, park: 2, lag: 10, onset: Some(1) }
+        Adopted { parked: 52, a70: 0, d: 12, w: 56, open_set: 6, open_reset: 6, torch: 2, rls: 6, park: 2, lag: 10, onset: Some(1) }
     }
 }
 
