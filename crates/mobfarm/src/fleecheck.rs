@@ -10897,6 +10897,51 @@ mod gate_tests {
     /// the next rail when its head cell is clear (a collision-free hook there), not when glass fills it;
     /// a villager standing on stone beside the rail can't path onto it at all (UNPASSABLE_RAIL from off
     /// the rails, `a_rail_is_unpassable_from_off_the_rails`).
+    /// (ironspec Nov 14 03:10 (2), tick-exact 03:09 (B), part 44) A start on a pillar 9 above the floor:
+    /// from a RAIL start (malus 0) and from a WALKABLE start the first BLOCKED fall-limit neighbour is
+    /// rejected (26.3 isNeighborValid): PROVED UNREACHABLE; from a BLOCKED start (glass in the head cell)
+    /// the BLOCKED 4-block falls chain to the floor: REACHED through BLOCKED-typed nodes.
+    #[test]
+    fn rail_start_rejects_a_blocked_fall() {
+        let p = |s: &str| redsim::block::Block::parse(s).unwrap();
+        let mk = |top: &str, head: &str| {
+            let mut blocks = Vec::new();
+            for x in 0..=6 {
+                for z in 0..=6 {
+                    blocks.push((b(x, 0, z), p("minecraft:stone")));
+                }
+            }
+            for y in 1..=9 {
+                blocks.push((b(3, y, 3), p("minecraft:stone")));
+            }
+            if !top.is_empty() {
+                blocks.push((b(3, 10, 3), p(top)));
+            }
+            if !head.is_empty() {
+                blocks.push((b(3, 11, 3), p(head)));
+            }
+            redsim::entity::mob::farm::FarmSpec { blocks, entities: Vec::new(), output: b(0, -1, 0), lo: b(0, -1, 0), hi: b(6, 13, 6), block_entities: Vec::new(), rock: false, nether: None, land: false }
+        };
+        let to = b(1, 1, 1);
+        let mut got = Vec::new();
+        for (top, head) in [
+            ("minecraft:rail[shape=north_south,waterlogged=false]", ""),
+            ("", ""),
+            ("minecraft:rail[shape=north_south,waterlogged=false]", "minecraft:glass"),
+        ] {
+            let spec = mk(top, head);
+            let (l, r) = super::standing_path_probe(&spec, redsim::entity::Vec3::new(3.5, 10.0, 3.5), to, super::NavBounds::default()).unwrap_or_else(|e| panic!("{e}"));
+            got.push((l, r));
+        }
+        assert!(got[0].1 == super::Reach::Unreachable && got[0].0[1].contains("3,10,3 Rail"), "a RAIL start rejects the BLOCKED fall: {:?}", got[0]);
+        assert!(got[1].1 == super::Reach::Unreachable && got[1].0[1].contains("3,10,3 Walkable"), "a WALKABLE start too: {:?}", got[1]);
+        assert!(
+            matches!(got[2].1, super::Reach::Reached { .. }) && got[2].0[1].contains("3,10,3 Blocked") && got[2].0.iter().any(|l| l.starts_with("  BLOCKED-typed nodes after the start: 2 (")),
+            "a BLOCKED start chains the BLOCKED falls: {:?}",
+            got[2]
+        );
+    }
+
     #[test]
     fn standing_path_probe_rail_to_rail_and_off_the_rails() {
         let p = |s: &str| redsim::block::Block::parse(s).unwrap();
