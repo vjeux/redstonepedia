@@ -47,6 +47,60 @@ pub const EITHER_KEYS: &[&str] = &["push-pair", "switch", "switches", "update-on
 /// `late-exempt:` through `PlaceClasses::from_meta`).
 pub const META_KEYS: &[&str] = &["riderless", "emulated", "waker-places", "placement-order-ts", "unreachable", "update-only-ts", "late-exempt"];
 
+/// (ironspec 07:26 PT C4; ironspec Nov 14 10:37a (2), part 72: the one reader every tool shares) Every `emulated:`
+/// header line's entries, each strict: `CELLS=STATE (why)`, the cells `x,y,z` joined by `+`, the entries split by `;`
+/// outside parentheses; a note wholly in parentheses (no `=`: a record's prose) is counted, not read; a malformed entry
+/// is an error naming it. Returns the entries (cells, the state with its `minecraft:` prefix, the reason) and the notes'
+/// count.
+pub fn emulated_entries(text: &str) -> Result<(Vec<(Vec<[i32; 3]>, String, String)>, usize), String> {
+    let mut out = Vec::new();
+    let mut notes = 0usize;
+    for l in text.lines().filter_map(|l| l.strip_prefix("emulated:")) {
+        let (mut parts, mut cur, mut depth) = (Vec::new(), String::new(), 0i32);
+        for ch in l.chars() {
+            match ch {
+                '(' => depth += 1,
+                ')' => depth -= 1,
+                _ => {}
+            }
+            if ch == ';' && depth == 0 {
+                parts.push(std::mem::take(&mut cur));
+            } else {
+                cur.push(ch);
+            }
+        }
+        parts.push(cur);
+        for e in parts {
+            let e = e.trim();
+            if e.is_empty() {
+                continue;
+            }
+            if e.starts_with('(') && e.ends_with(')') && !e.contains('=') {
+                notes += 1;
+                continue;
+            }
+            let bad = || format!("emulated entry {e:?}: CELLS=STATE (why)");
+            let (cs, rest) = e.split_once('=').ok_or_else(bad)?;
+            let state = rest.split(" (").next().unwrap_or("").trim();
+            if state.is_empty() || cs.trim().is_empty() || cs.chars().any(|c| !(c.is_ascii_digit() || c == ',' || c == '-' || c == '+' || c == ' ')) {
+                return Err(bad());
+            }
+            let why = rest.find(" (").map(|i| rest[i + 2..].trim_end().trim_end_matches(')').trim().to_string()).unwrap_or_default();
+            let state = if state.starts_with("minecraft:") { state.to_string() } else { format!("minecraft:{state}") };
+            let mut cells = Vec::new();
+            for c in cs.split('+') {
+                let v: Vec<i32> = c.split(',').map(|t| t.trim().parse::<i32>().map_err(|err| format!("emulated cell {c:?}: {err}"))).collect::<Result<_, _>>()?;
+                if v.len() != 3 {
+                    return Err(format!("emulated cell {c:?}: x,y,z"));
+                }
+                cells.push([v[0], v[1], v[2]]);
+            }
+            out.push((cells, state, why));
+        }
+    }
+    Ok((out, notes))
+}
+
 /// Levenshtein distance, capped at 2 (all the check needs).
 fn distance(a: &str, b: &str) -> usize {
     let (a, b): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());

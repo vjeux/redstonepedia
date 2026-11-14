@@ -3053,50 +3053,15 @@ fn record_as_run(path: &str) -> Result<(BTreeMap<[i32; 3], String>, Vec<crate::r
     let d = mctas::design::Design::parse(&text).map_err(|e| format!("--record {path}: {e}"))?;
     let mut cells: BTreeMap<[i32; 3], String> = d.blocks.iter().map(|(k, v)| ([k[0], k[1], k[2]], v.clone())).collect();
     let mut emu: Vec<String> = Vec::new();
-    let mut emu_notes = 0usize;
     // (ironspec 07:26 PT C4: every `emulated:` line read, each entry strict: CELLS=STATE (why), the
-    // cells x,y,z joined by `+`; a malformed entry is an error)
-    for l in text.lines().filter_map(|l| l.strip_prefix("emulated:")) {
-        // (`CELLS=STATE (why); …`, the cells joined by `+`; `;` inside a reason's parentheses kept)
-        let (mut parts, mut cur, mut depth) = (Vec::new(), String::new(), 0i32);
-        for ch in l.chars() {
-            match ch {
-                '(' => depth += 1,
-                ')' => depth -= 1,
-                _ => {}
-            }
-            if ch == ';' && depth == 0 {
-                parts.push(std::mem::take(&mut cur));
-            } else {
-                cur.push(ch);
-            }
-        }
-        parts.push(cur);
-        for e in parts {
-            let e = e.trim();
-            if e.is_empty() {
-                continue;
-            }
-            // (a note wholly in parentheses (record7f's spawn-rules remark) is the record's prose, not
-            // a cell: counted and printed, not read)
-            if e.starts_with('(') && e.ends_with(')') && !e.contains('=') {
-                emu_notes += 1;
-                continue;
-            }
-            let Some((cs, rest)) = e.split_once('=') else { return Err(format!("--record {path}: emulated entry {e:?}: CELLS=STATE (why)")) };
-            let state = rest.split(" (").next().unwrap_or("").trim();
-            if state.is_empty() || cs.trim().is_empty() || cs.chars().any(|c| !(c.is_ascii_digit() || c == ',' || c == '-' || c == '+' || c == ' ')) {
-                return Err(format!("--record {path}: emulated entry {e:?}: CELLS=STATE (why)"));
-            }
-            let state = if state.starts_with("minecraft:") { state.to_string() } else { format!("minecraft:{state}") };
-            for c in cs.split('+') {
-                let v: Vec<i32> = c.split(',').map(|t| t.trim().parse::<i32>().map_err(|err| format!("--record {path}: emulated cell {c:?}: {err}"))).collect::<Result<_, _>>()?;
-                if v.len() != 3 {
-                    return Err(format!("--record {path}: emulated cell {c:?}: x,y,z"));
-                }
-                cells.insert([v[0], v[1], v[2]], state.clone());
-                emu.push(format!("({},{},{}) {}", v[0], v[1], v[2], state.trim_start_matches("minecraft:")));
-            }
+    // cells x,y,z joined by `+`; a malformed entry is an error; a note wholly in parentheses (record7f's
+    // spawn-rules remark) is the record's prose, counted and printed, not read; part 72: the one reader
+    // settle-check shares, `declkeys::emulated_entries`)
+    let (entries, emu_notes) = crate::declkeys::emulated_entries(&text).map_err(|e| format!("--record {path}: {e}"))?;
+    for (cs, state, _) in entries {
+        for v in cs {
+            cells.insert(v, state.clone());
+            emu.push(format!("({},{},{}) {}", v[0], v[1], v[2], state.trim_start_matches("minecraft:")));
         }
     }
     // (a state redsim can't read is an error, except the Nether pad's portal cells (ironspec 21:58:

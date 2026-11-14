@@ -15,6 +15,7 @@
 use redsim::block::Block;
 use redsim::pos::{BlockPos, Dir};
 use redsim::world::World;
+use std::collections::BTreeMap;
 
 /// The settle loop's cap (ironspec 23:21).
 pub const CAP: u32 = 200;
@@ -56,6 +57,11 @@ pub struct Declared {
     /// (d)), each with its note.
     pub standins: Vec<BlockPos>,
     pub held: Vec<(BlockPos, String)>,
+    /// (ironspec Nov 14 10:37a (2), part 72) The file's EMULATED cells (`emulated: CELLS=STATE (why); …`, the cells
+    /// joined by `+`: lever stand-ins for unbuilt controller inputs, written powered states), each entry's cells, state
+    /// and reason, read by [`crate::declkeys::emulated_entries`]: the ONLY declaration settle-check exempts, per declared
+    /// cell and its effects ([`take_emulated_changes`], [`attribute_emulated_effects`]).
+    pub emulated: Vec<(Vec<BlockPos>, String, String)>,
     /// The declared stored shapes (`# shape: x,y,z=STORED (reason; evidence; build step)`, ironspec 01:49
     /// (1)): (cell, the stored state as declared, the note).
     pub shapes: Vec<(BlockPos, String, String)>,
@@ -129,6 +135,7 @@ pub fn declared(text: &str) -> Result<Declared, String> {
         }
     }
     d.standins = crate::recordmatch::declared_from_header(text)?.standins.keys().map(|c| BlockPos::new(c[0], c[1], c[2])).collect();
+    d.emulated = crate::declkeys::emulated_entries(text)?.0.into_iter().map(|(cs, st, why)| (cs.into_iter().map(|c| BlockPos::new(c[0], c[1], c[2])).collect(), st, why)).collect();
     Ok(d)
 }
 
@@ -890,10 +897,296 @@ pub fn settle_check(blocks: &[(BlockPos, Block)], block_entities: &[(BlockPos, S
     Ok(s)
 }
 
+/// (ironspec Nov 14 10:37a (2), part 72) A file's EMULATED cells (its `emulated:` entries' cells), the only cells
+/// settle-check exempts.
+pub fn emulated_cells(decl: &Declared) -> Vec<BlockPos> {
+    let mut v: Vec<BlockPos> = decl.emulated.iter().flat_map(|(c, _, _)| c.iter().copied()).collect();
+    v.sort_by_key(|p| (p.x, p.y, p.z));
+    v.dedup();
+    v
+}
+
+
+/// (ironspec Nov 14 10:45a (3)(1), part 72: the TWIN SETTLES) The emulated cells' EFFECTS: A = the settle of the file
+/// as stored (`a`, already run), B = the settle of the file with every `emulated:` cell set to its declared off / built
+/// state; the effects are the cells (emulated ones aside) whose settled states differ between A and B, each returned
+/// with its A and B states. settle-check then passes iff every cell that is neither emulated nor an effect has its
+/// stored state equal to A's ([`exempt_cells`] takes the emulated and effect cells out of `a`'s differences).
+pub fn twin_effects(blocks: &[(BlockPos, Block)], block_entities: &[(BlockPos, String)], entities: &[(String, [f64; 3], Option<String>)], decl: &Declared, day_time: i64, cap: u32, a: &Settle) -> Result<Vec<(BlockPos, String, String)>, String> {
+    let mut off: BTreeMap<BlockPos, Block> = BTreeMap::new();
+    for (cs, st, _) in &decl.emulated {
+        let b = block_of(st).map_err(|e| format!("emulated state {st}: not modelled by redsim: {e}"))?;
+        for c in cs {
+            off.insert(*c, b.clone());
+        }
+    }
+    if off.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut bb: Vec<(BlockPos, Block)> = blocks.iter().map(|(p, b)| (*p, off.remove(p).unwrap_or_else(|| b.clone()))).collect();
+    // (an emulated cell the file leaves air gets its declared state too)
+    bb.extend(off.into_iter());
+    let b = settle_check(&bb, block_entities, entities, decl, day_time, cap)?;
+    let emu = emulated_cells(decl);
+    let bmap: BTreeMap<BlockPos, String> = b.settled.iter().map(|(p, s)| (*p, s.to_string())).collect();
+    let amap: BTreeMap<BlockPos, String> = a.settled.iter().map(|(p, s)| (*p, s.to_string())).collect();
+    let air = "minecraft:air".to_string();
+    let mut out = Vec::new();
+    for p in amap.keys().chain(bmap.keys()).collect::<std::collections::BTreeSet<_>>() {
+        let (sa, sb) = (amap.get(p).unwrap_or(&air), bmap.get(p).unwrap_or(&air));
+        if sa != sb && !emu.contains(p) {
+            out.push((*p, sa.clone(), sb.clone()));
+        }
+    }
+    Ok(out)
+}
+
+/// (part 72) The cells settle-check exempts (the emulated cells and their twin-settle effects) taken out of every
+/// difference list (redstone, other, shapes, unsupported, against-their-neighbour-signal); returns how many.
+pub fn exempt_cells(s: &mut Settle, cells: &[BlockPos]) -> usize {
+    let n0 = s.redstone.len() + s.other.len() + s.shapes.len() + s.unsupported.len() + s.update_states.len();
+    for v in [&mut s.redstone, &mut s.other, &mut s.shapes, &mut s.unsupported, &mut s.update_states] {
+        v.retain(|c| !cells.contains(&c.pos));
+    }
+    n0 - (s.redstone.len() + s.other.len() + s.shapes.len() + s.unsupported.len() + s.update_states.len())
+}
+
+/// (ironspec Nov 14 10:45a (2)/(3), vcompose 10:55, part 72) settle-check's ONE scope definition
+/// (`designs/settle-scope.txt`, read by the gate through settle-check): the test fixtures excluded BY PATH, file by
+/// file (`fixture: PATH (why)`), and the part files judged IN THEIR COMPOSED CONTEXT (`part: PART in RECORD at dx,dy,dz
+/// [standalone] (why)`: the record of record composed with the part laid at the offset, settled, the part's own cells
+/// checked unchanged; `standalone`: the part judged alone too). `#` and blank lines are comments; a malformed line is
+/// an error naming it.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Scope {
+    pub fixtures: Vec<(String, usize)>,
+    pub parts: Vec<PartRule>,
+}
+
+/// One `part:` line of [`Scope`]: `part: PART in RECORD [md5 HEX] at dx,dy,dz [only x,y,z..x,y,z] [standalone] (why)`
+/// (vcompose 11:07: the record pinned by its md5 prefix, a stale record NOT JUDGED; `only` the part's cells in that box,
+/// part frame, placed; one part file may have several lines, each judged).
+#[derive(Clone, Debug, PartialEq)]
+pub struct PartRule {
+    pub part: String,
+    pub record: String,
+    pub md5: Option<String>,
+    pub offset: [i32; 3],
+    pub only: Option<([i32; 3], [i32; 3])>,
+    pub standalone: bool,
+    pub line: usize,
+}
+
+/// Reads a [`Scope`] text.
+pub fn read_scope(text: &str) -> Result<Scope, String> {
+    let mut s = Scope::default();
+    for (i, raw) in text.lines().enumerate() {
+        let l = raw.trim();
+        if l.is_empty() || l.starts_with('#') {
+            continue;
+        }
+        let body = |r: &str| -> Result<(String, String), String> {
+            let r = r.trim();
+            match r.find(" (") {
+                Some(k) if r.ends_with(')') => Ok((r[..k].trim().to_string(), r[k + 2..r.len() - 1].trim().to_string())),
+                _ => Err(format!("settle scope line {}: {raw:?}: give its reason in parentheses", i + 1)),
+            }
+        };
+        if let Some(r) = l.strip_prefix("fixture:") {
+            let (p, why) = body(r)?;
+            if p.is_empty() || p.contains(' ') || why.is_empty() {
+                return Err(format!("settle scope line {}: {raw:?}: `fixture: PATH (why)`, one file per line", i + 1));
+            }
+            s.fixtures.push((p, i + 1));
+        } else if let Some(r) = l.strip_prefix("part:") {
+            let (p, _why) = body(r)?;
+            let w: Vec<&str> = p.split_whitespace().collect();
+            let bad = || format!("settle scope line {}: {raw:?}: `part: PART in RECORD [md5 HEX] at dx,dy,dz [only x,y,z..x,y,z] [standalone] (why)`", i + 1);
+            let xyz = |t: &str| -> Option<[i32; 3]> {
+                let v: Vec<i32> = t.split(',').map(|n| n.trim().parse::<i32>()).collect::<Result<_, _>>().ok()?;
+                (v.len() == 3).then(|| [v[0], v[1], v[2]])
+            };
+            if w.len() < 5 || w[1] != "in" {
+                return Err(bad());
+            }
+            let (part, record) = (w[0].to_string(), w[2].to_string());
+            let mut k = 3;
+            let mut md5 = None;
+            if w.get(k) == Some(&"md5") {
+                let h = w.get(k + 1).ok_or_else(bad)?;
+                if h.len() < 8 || !h.chars().all(|c| c.is_ascii_hexdigit()) {
+                    return Err(bad());
+                }
+                md5 = Some(h.to_ascii_lowercase());
+                k += 2;
+            }
+            if w.get(k) != Some(&"at") {
+                return Err(bad());
+            }
+            let offset = w.get(k + 1).and_then(|t| xyz(t)).ok_or_else(bad)?;
+            k += 2;
+            let mut only = None;
+            if w.get(k) == Some(&"only") {
+                let (a, b) = w.get(k + 1).and_then(|t| t.split_once("..")).ok_or_else(bad)?;
+                let (a, b) = (xyz(a).ok_or_else(bad)?, xyz(b).ok_or_else(bad)?);
+                only = Some(([a[0].min(b[0]), a[1].min(b[1]), a[2].min(b[2])], [a[0].max(b[0]), a[1].max(b[1]), a[2].max(b[2])]));
+                k += 2;
+            }
+            let standalone = w.get(k) == Some(&"standalone");
+            if standalone {
+                k += 1;
+            }
+            if k != w.len() {
+                return Err(bad());
+            }
+            s.parts.push(PartRule { part, record, md5, offset, only, standalone, line: i + 1 });
+        } else {
+            return Err(format!("settle scope line {}: {raw:?}: `fixture:` or `part:`", i + 1));
+        }
+    }
+    Ok(s)
+}
+
+/// (ironspec Nov 14 10:45a (2), part 72) A part judged IN ITS COMPOSED CONTEXT: the record of record's cells with the
+/// part's laid at `offset` over them, settled with the record's declarations and entities; returns the part's own cells
+/// (file frame) whose stored state differs from the composition's settled state, each (cell, stored, settled).
+pub fn part_in_context(part_text: &str, record_text: &str, offset: [i32; 3], only: Option<([i32; 3], [i32; 3])>, day_time: Option<i64>, cap: u32) -> Result<Vec<(BlockPos, String, String)>, String> {
+    let (p, r) = (mctas::design::Design::parse(part_text).map_err(|e| format!("the part: {e}"))?, mctas::design::Design::parse(record_text).map_err(|e| format!("the record: {e}"))?);
+    let rdecl = declared(record_text)?;
+    let mut cells: BTreeMap<BlockPos, Block> = BTreeMap::new();
+    for (q, s) in &r.blocks {
+        cells.insert(BlockPos::new(q[0], q[1], q[2]), block_of(s).map_err(|e| format!("the record's {s}: {e}"))?);
+    }
+    let mut own: Vec<(BlockPos, BlockPos, String)> = Vec::new();
+    for (q, s) in p.blocks.iter().filter(|(q, _)| only.is_none_or(|(a, b)| (0..3).all(|i| a[i] <= q[i] && q[i] <= b[i]))) {
+        let at = BlockPos::new(q[0] + offset[0], q[1] + offset[1], q[2] + offset[2]);
+        cells.insert(at, block_of(s).map_err(|e| format!("the part's {s}: {e}"))?);
+        own.push((BlockPos::new(q[0], q[1], q[2]), at, block_of(s).map(|b| b.to_string()).unwrap_or_else(|_| s.clone())));
+    }
+    let blocks: Vec<(BlockPos, Block)> = cells.into_iter().collect();
+    let bes: Vec<(BlockPos, String)> = r.block_entities.iter().map(|(q, s)| (BlockPos::new(q[0], q[1], q[2]), s.clone())).collect();
+    let ents: Vec<(String, [f64; 3], Option<String>)> = r.entities.iter().map(|e| (e.kind.clone(), e.pos, e.nbt.clone())).collect();
+    let dt = day_time.or(rdecl.day_time).unwrap_or(6000);
+    let s = settle_check(&blocks, &bes, &ents, &rdecl, dt, cap)?;
+    let settled: BTreeMap<BlockPos, String> = s.settled.iter().map(|(q, b)| (*q, b.to_string())).collect();
+    Ok(own.into_iter().filter_map(|(q, at, stored)| {
+        let now = settled.get(&at).cloned().unwrap_or_else(|| "minecraft:air".to_string());
+        (now != stored).then_some((q, stored, now))
+    }).collect())
+}
+
+/// (farmopt / ironspec Nov 14 10:21a (2) / 10:29a (5) / 10:37a (3), part 72) The files `settle-check` runs on: `file`
+/// alone; or, for a directory, every `.txt` file under it that parses as a design (in path order; the ones that don't
+/// are returned apart, named, for the run to print), narrowed with `changed_from` to the files changed against that
+/// revision; or every path `files_from` lists (one per line, `#` and blank lines skipped, a missing one refused by
+/// name). No marker skips a file: every file in the set is judged.
+pub fn settle_check_files(file: &std::path::Path, files_from: Option<&std::path::Path>, changed_from: Option<&str>) -> Result<(Vec<std::path::PathBuf>, Vec<(std::path::PathBuf, String)>), String> {
+    let mut cands: Vec<std::path::PathBuf> = Vec::new();
+    let mut skipped = Vec::new();
+    // (ironspec 10:29a (5)(c), part 72) the files changed against a revision: `git diff --name-only REV` from the
+    // repository's top, kept when under `file` (a directory) and a design
+    let changed: Option<std::collections::BTreeSet<std::path::PathBuf>> = match changed_from {
+        None => None,
+        Some(rev) => {
+            if files_from.is_some() {
+                return Err("--changed-from narrows a directory, not a --files-from list".to_string());
+            }
+            let top = std::process::Command::new("git").args(["rev-parse", "--show-toplevel"]).output().map_err(|e| format!("git rev-parse: {e}"))?;
+            if !top.status.success() {
+                return Err(format!("--changed-from {rev}: not in a git checkout ({})", String::from_utf8_lossy(&top.stderr).trim()));
+            }
+            let top = std::path::PathBuf::from(String::from_utf8_lossy(&top.stdout).trim());
+            let o = std::process::Command::new("git").args(["diff", "--name-only", "--diff-filter=AMR", rev, "--"]).current_dir(&top).output().map_err(|e| format!("git diff: {e}"))?;
+            if !o.status.success() {
+                return Err(format!("--changed-from {rev}: git diff failed: {}", String::from_utf8_lossy(&o.stderr).trim()));
+            }
+            Some(String::from_utf8_lossy(&o.stdout).lines().filter(|l| !l.trim().is_empty()).filter_map(|l| top.join(l.trim()).canonicalize().ok()).collect())
+        }
+    };
+    if let Some(list) = files_from {
+        let text = std::fs::read_to_string(list).map_err(|e| format!("--files-from {}: {e}", list.display()))?;
+        for l in text.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')) {
+            let p = std::path::PathBuf::from(l);
+            if !p.is_file() {
+                return Err(format!("--files-from {}: {l}: no such file", list.display()));
+            }
+            cands.push(p);
+        }
+    } else if file.is_dir() {
+        let mut stack = vec![file.to_path_buf()];
+        let mut found = Vec::new();
+        while let Some(d) = stack.pop() {
+            for e in std::fs::read_dir(&d).map_err(|e| format!("{}: {e}", d.display()))? {
+                let p = e.map_err(|e| format!("{}: {e}", d.display()))?.path();
+                if p.is_dir() {
+                    stack.push(p);
+                } else if p.extension().is_some_and(|x| x == "txt") {
+                    found.push(p);
+                }
+            }
+        }
+        found.sort();
+        let mut unchanged = 0;
+        for p in found {
+            if let Some(ch) = &changed
+                && !p.canonicalize().is_ok_and(|c| ch.contains(&c))
+            {
+                unchanged += 1;
+                continue;
+            }
+            let text = std::fs::read_to_string(&p).map_err(|e| format!("{}: {e}", p.display()))?;
+            match mctas::design::Design::parse(&text) {
+                Ok(d) if !d.blocks.is_empty() || !d.nether_blocks.is_empty() => cands.push(p),
+                Ok(_) => skipped.push((p, "not a design: no block laid".to_string())),
+                Err(e) => skipped.push((p, format!("not a design: {e}"))),
+            }
+        }
+        if unchanged > 0 {
+            skipped.push((file.to_path_buf(), format!("{unchanged} .txt file(s) under it unchanged against {}: not checked", changed_from.unwrap_or("?"))));
+        }
+    } else {
+        if let Some(ch) = &changed
+            && !file.canonicalize().is_ok_and(|c| ch.contains(&c))
+        {
+            skipped.push((file.to_path_buf(), format!("unchanged against {}: not checked", changed_from.unwrap_or("?"))));
+            return Ok((Vec::new(), skipped));
+        }
+        return Ok((vec![file.to_path_buf()], skipped));
+    }
+    Ok((cands, skipped))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// (part 72) the directory mode's file set: every `.txt` design file under the directory in path order (a
+    /// `# stand-in:` file included: no marker skips a file, ironspec 10:37a (3)), a `.txt` that isn't a design returned
+    /// apart and named, a `--files-from` list naming a missing file refused by name, a list read, a single file
+    #[test]
+    fn settle_check_files_set() {
+        let dir = std::env::temp_dir().join(format!("settle-files-{}", std::process::id()));
+        let sub = dir.join("sub");
+        std::fs::create_dir_all(&sub).unwrap();
+        let design = "name: r\ncircuit: mob-farm iron_ingot\norigin: 0 0 0\npalette:\n  s minecraft:stone\nlayer 0:\n  s\n";
+        let owned = "name: b\ncircuit: mob-farm iron_ingot\n# stand-in: 0,0,0 (a cell another part owns)\norigin: 0 0 0\npalette:\n  s minecraft:stone\nlayer 0:\n  s\n";
+        std::fs::write(dir.join("a-record.txt"), design).unwrap();
+        std::fs::write(sub.join("b-owned.txt"), owned).unwrap();
+        std::fs::write(dir.join("notes.txt"), "free text, not a design: (1)\n").unwrap();
+        std::fs::write(dir.join("README.md"), "# not a .txt\n").unwrap();
+        // (ironspec 10:37a (3): no marker skips a file: the `# stand-in:` file is in the set like any other)
+        let (all, skipped) = settle_check_files(&dir, None, None).unwrap();
+        assert_eq!(all, vec![dir.join("a-record.txt"), sub.join("b-owned.txt")], "every .txt design file, in path order");
+        assert!(skipped.len() == 1 && skipped[0].0 == dir.join("notes.txt") && skipped[0].1.starts_with("not a design"), "{skipped:?}");
+        std::fs::write(dir.join("list"), format!("# the gate's list\n{}\n\n{}\n", dir.join("a-record.txt").display(), dir.join("missing.txt").display())).unwrap();
+        let e = settle_check_files(&dir, Some(&dir.join("list")), None).unwrap_err();
+        assert!(e.contains("missing.txt: no such file"), "{e}");
+        std::fs::write(dir.join("list2"), format!("{}\n", sub.join("b-owned.txt").display())).unwrap();
+        assert_eq!(settle_check_files(&dir, Some(&dir.join("list2")), None).unwrap().0, vec![sub.join("b-owned.txt")]);
+        let (one, _) = settle_check_files(&dir.join("a-record.txt"), None, None).unwrap();
+        assert_eq!(one, vec![dir.join("a-record.txt")], "a single file named on the line");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
     fn b(s: &str) -> Block {
         Block::parse(s).unwrap()
     }
@@ -904,6 +1197,115 @@ mod tests {
 
     fn check(blocks: &[(BlockPos, Block)], decl: &Declared) -> Settle {
         settle_check(blocks, &[], &[], decl, 6000, CAP).unwrap()
+    }
+
+    /// A design text settled as the CLI settles it: (the design's declarations, its result, its farm spec).
+    fn settle_text(text: &str) -> (Declared, Settle, Vec<(BlockPos, Block)>) {
+        let d = mctas::design::Design::parse(text).unwrap();
+        let decl = declared(text).unwrap();
+        let blocks: Vec<(BlockPos, Block)> = d.blocks.iter().map(|(p, s)| (BlockPos::new(p[0], p[1], p[2]), block_of(s).unwrap())).collect();
+        let s = settle_check(&blocks, &[], &[], &decl, 6000, CAP).unwrap();
+        (decl, s, blocks)
+    }
+
+    /// (ironspec Nov 14 10:37a (1)-(2) / 10:45a (3)(1), part 72) the TWIN SETTLES: `# stand-in:` exempts nothing; an
+    /// `emulated:` cell (a floor lever stored ON, standing in for an unbuilt controller input; its entry the declared off
+    /// state) exempts itself and its effects, the cells where A (the settle as stored) and B (the settle with the lever
+    /// off) differ: the lamp it lights; a lamp far from it stored lit (nothing lights it) still fails; with the lever
+    /// stored OFF, A = B and the lit lamp beside it fails too; a malformed `emulated:` entry is refused
+    #[test]
+    fn an_emulated_cell_is_exempt_with_its_twin_settle_effects() {
+        let base = |meta: &str, lever_on: bool| {
+            format!(
+                "name: e\n{meta}origin: 0 0 0\npalette:\n  s minecraft:stone\n  v minecraft:lever[face=floor,facing=north,powered={lever_on}]\n  l minecraft:redstone_lamp[lit=true]\nlayer -1:\n  ssssss\nlayer 0:\n  .vl..l\n"
+            )
+        };
+        let cells = |s: &Settle| s.redstone.iter().map(|c| c.pos).collect::<Vec<_>>();
+        let (v, l, far) = (BlockPos::new(1, 0, 0), BlockPos::new(2, 0, 0), BlockPos::new(5, 0, 0));
+        let (_, bare, _) = settle_text(&base("", true));
+        assert_eq!(cells(&bare), vec![far], "as stored, only the far lamp is unsettled (the lever lights its neighbour)");
+        let (d1, mut s1, b1) = settle_text(&base("# stand-in: 5,0,0 (owned by another part)\n", true));
+        assert!(emulated_cells(&d1).is_empty() && twin_effects(&b1, &[], &[], &d1, 6000, CAP, &s1).unwrap().is_empty() && exempt_cells(&mut s1, &[]) == 0 && cells(&s1) == vec![far], "a stand-in exempts nothing");
+        let emu = "emulated: 1,0,0=lever[face=floor,facing=north,powered=false] (the controller's input stood in, its built state off)\n";
+        let (d2, mut s2, b2) = settle_text(&base(emu, true));
+        assert_eq!(emulated_cells(&d2), vec![v]);
+        let eff = twin_effects(&b2, &[], &[], &d2, 6000, CAP, &s2).unwrap();
+        assert!(eff.len() == 1 && eff[0].0 == l && eff[0].1.contains("lit=true") && eff[0].2.contains("lit=false"), "the lit lamp is the lever's effect: {eff:?}");
+        let exempt: Vec<BlockPos> = emulated_cells(&d2).into_iter().chain(eff.iter().map(|e| e.0)).collect();
+        exempt_cells(&mut s2, &exempt);
+        assert_eq!(cells(&s2), vec![far], "the far lamp still fails by name");
+        let (d3, mut s3, b3) = settle_text(&base(emu, false));
+        let eff3 = twin_effects(&b3, &[], &[], &d3, 6000, CAP, &s3).unwrap();
+        exempt_cells(&mut s3, &emulated_cells(&d3));
+        assert!(eff3.is_empty() && cells(&s3) == vec![l, far], "the lever stored off: A = B, both lit lamps fail: {eff3:?} {:?}", cells(&s3));
+        assert!(declared("emulated: 1,0=glass (r)\n").is_err() && declared("emulated: 1,0,0 glass\n").is_err(), "a malformed emulated entry refused");
+    }
+
+    /// (G1 Nov 14 11:08, part 72) G1's planted controls: a stored-open trapdoor FAILS (nothing powers it: it settles shut);
+    /// an `emulated:` lever exempts only its own effects (the lamp it lights) while a non-effect defect BESIDE it (that
+    /// trapdoor, and a lit lamp diagonal to the lever, neither powered by it) still FAILS; A and B run with the same day
+    /// time and the same cap, each to its fixed point (a fixed point is stable, so comparing them is comparing both at
+    /// the larger tick count)
+    #[test]
+    fn g1_planted_controls_open_trapdoor_and_a_defect_beside_an_emulated_lever() {
+        let text = |emu: bool| {
+            format!(
+                "name: g\n{}origin: 0 0 0\npalette:\n  s minecraft:stone\n  v minecraft:lever[face=floor,facing=north,powered=true]\n  l minecraft:redstone_lamp[lit=true]\n  t minecraft:iron_trapdoor[facing=north,half=bottom,open=true,powered=true,waterlogged=false]\nlayer -1:\n  sss\n  sss\nlayer 0:\n  .vl\n  t.l\n",
+                if emu { "emulated: 1,0,0=lever[face=floor,facing=north,powered=false] (the controller's input stood in)\n" } else { "" }
+            )
+        };
+        let all = |s: &Settle| {
+            let mut v: Vec<BlockPos> = s.redstone.iter().chain(s.other.iter()).map(|c| c.pos).collect();
+            v.sort();
+            v
+        };
+        let (t, beside, lit_by_lever) = (BlockPos::new(0, 0, 1), BlockPos::new(2, 0, 1), BlockPos::new(2, 0, 0));
+        let (_, bare, _) = settle_text(&text(false));
+        assert!(all(&bare).contains(&t) && all(&bare).contains(&beside) && !all(&bare).contains(&lit_by_lever), "bare: the stored-open trapdoor and the diagonal lamp fail: {:?}", all(&bare));
+        let (d, mut s, b) = settle_text(&text(true));
+        let eff = twin_effects(&b, &[], &[], &d, 6000, CAP, &s).unwrap();
+        assert_eq!(eff.iter().map(|e| e.0).collect::<Vec<_>>(), vec![lit_by_lever], "the lever's only effect is the lamp it lights");
+        let exempt: Vec<BlockPos> = emulated_cells(&d).into_iter().chain(eff.iter().map(|e| e.0)).collect();
+        exempt_cells(&mut s, &exempt);
+        assert_eq!(all(&s), vec![t, beside], "the defects beside the emulated lever still fail");
+        assert!(!s.fails(false).is_empty());
+    }
+
+    /// (ironspec 10:45a (2)/(3), vcompose 10:55, part 72) the ONE scope definition: fixtures by path, one per line, with a
+    /// reason; parts with their record, offset and `standalone`; a malformed line refused; and a part judged in its
+    /// composed context: a lamp stored lit passes inside a record whose lever lights it, and fails where the record's
+    /// lever is off; the repository's own scope file reads
+    #[test]
+    fn the_scope_file_and_a_part_in_its_composed_context() {
+        let s = read_scope("# c\nfixture: designs/a/b.txt (a pinned copy)\npart: designs/p.txt in designs/r.txt at 1,0,-2 standalone (the station)\npart: designs/q.txt in designs/r.txt md5 ea985422495c at 0,7,0 only 5,-29,3..7,-27,5 (a lane's foot)\n").unwrap();
+        assert_eq!(s.fixtures, vec![("designs/a/b.txt".to_string(), 2)]);
+        assert!(s.parts.len() == 2 && s.parts[0].offset == [1, 0, -2] && s.parts[0].standalone && s.parts[0].md5.is_none() && !s.parts[1].standalone && s.parts[1].line == 4, "{:?}", s.parts);
+        assert!(s.parts[1].md5.as_deref() == Some("ea985422495c") && s.parts[1].only == Some(([5, -29, 3], [7, -27, 5])) && s.parts[1].offset == [0, 7, 0], "{:?}", s.parts[1]);
+        for bad in [
+            "fixture: designs/a/ (no reason)x\n",
+            "fixture: a b.txt (two words)\n",
+            "part: p.txt in r.txt (no offset)\n",
+            "part: p.txt at 1,2,3 in r.txt (order)\n",
+            "other: x (y)\n",
+            "fixture: a.txt\n",
+            "part: p.txt in r.txt md5 xyz at 0,0,0 (a bad md5)\n",
+            "part: p.txt in r.txt at 0,0,0 only 1,2,3 (a box without its end)\n",
+            "part: p.txt in r.txt at 0,0,0 extra (a stray word)\n",
+        ] {
+            assert!(read_scope(bad).is_err(), "{bad:?} refused");
+        }
+        let record = |on: bool| format!("name: r\norigin: 0 0 0\npalette:\n  s minecraft:stone\n  v minecraft:lever[face=floor,facing=north,powered={on}]\nlayer -1:\n  sss\nlayer 0:\n  v\n");
+        let part = "name: p\norigin: 0 0 0\npalette:\n  l minecraft:redstone_lamp[lit=true]\nlayer 0:\n  l.l\n";
+        // (the part's second lamp, 2 cells east, lands where the record's lever doesn't reach: `only` leaves it out)
+        let only_first = Some(([0, 0, 0], [0, 0, 0]));
+        assert!(part_in_context(part, &record(true), [1, 0, 0], only_first, None, CAP).unwrap().is_empty(), "the lamp lit by the record's lever: unchanged");
+        let d = part_in_context(part, &record(false), [1, 0, 0], only_first, None, CAP).unwrap();
+        assert!(d.len() == 1 && d[0].0 == BlockPos::new(0, 0, 0) && d[0].2.contains("lit=false"), "the record's lever off: the part's lamp changes: {d:?}");
+        let whole = part_in_context(part, &record(true), [1, 0, 0], None, None, CAP).unwrap();
+        assert!(whole.len() == 1 && whole[0].0 == BlockPos::new(2, 0, 0), "the whole part: its far lamp, unlit by the lever, changes: {whole:?}");
+        let own = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../designs/settle-scope.txt")).unwrap();
+        let own = read_scope(&own).unwrap();
+        assert!(own.fixtures.len() >= 8 && own.parts.len() >= 2, "the repository's scope file reads: {} fixtures, {} parts", own.fixtures.len(), own.parts.len());
     }
 
     /// The floor under a layout: stone at y = -1 over x 0..n, z -1..1.

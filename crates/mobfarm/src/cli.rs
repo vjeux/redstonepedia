@@ -1372,7 +1372,23 @@ pub enum MobfarmCmd {
     /// fail unless --allow-unchecked. --write re-emits the file settled (its leading comment lines kept).
     /// Exit status 1 on a failure (mobfarm::settle).
     SettleCheck {
+        /// A design file, or a directory: every `.txt` design file under it, each checked in turn (part 72)
         file: PathBuf,
+        /// (part 72) Check every file this list names (one path per line; `#` lines and blank lines skipped) instead
+        #[arg(long)]
+        files_from: Option<PathBuf>,
+        /// (ironspec Nov 14 10:29a (5)(c), part 72) Only the design files under the directory that changed against
+        /// this git revision (added, modified or renamed: `git diff --name-only REV`), e.g. `origin/main`: the files a
+        /// train adds or changes
+        #[arg(long)]
+        changed_from: Option<String>,
+        /// (ironspec Nov 14 10:45a (2)/(3), part 72) settle-check's ONE scope definition (default: the checkout's
+        /// `designs/settle-scope.txt`): the test fixtures skipped by path, the part files judged in their composed context
+        #[arg(long)]
+        scope_file: Option<PathBuf>,
+        /// (part 72) After the total, each failing or unjudged file's last commit (`git log -1`): its owner's hint
+        #[arg(long)]
+        owners: bool,
         /// Write the settled file here.
         #[arg(long)]
         write: Option<PathBuf>,
@@ -15800,8 +15816,74 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             // (G1 12:19 (1): a mismatch, an uncompared row, a failed expect or a vacuous counterfactual exits non-zero)
             anyhow::ensure!(r.failures.is_empty(), "drive-replay: {} failure(s), the first: {}", r.failures.len(), r.failures[0]);
         }
-        MobfarmCmd::SettleCheck { file, write, cap, day_time, allow_unchecked, all } => {
+        MobfarmCmd::SettleCheck { file, files_from, changed_from, scope_file, owners, write, cap, day_time, allow_unchecked, all } => {
+            // (farmopt / ironspec Nov 14 10:21a (2) / 10:29a (5) / 10:37a (3), part 72) a directory (every `.txt` design
+            // file under it, or with `--changed-from` the ones a train changed) or a `--files-from` list runs the check on
+            // each file in turn: each file's verdict, then the total; exit 1 when any file fails or can't be judged; no
+            // marker skips a file
+            let (files, mut skipped) = crate::settle::settle_check_files(&file, files_from.as_deref(), changed_from.as_deref()).map_err(|e| anyhow::anyhow!(e))?;
+            // (ironspec 10:45a (2)/(3), vcompose 10:55, part 72) the ONE scope definition: the checkout's
+            // `designs/settle-scope.txt` unless --scope-file names another; its fixtures skipped by path ("test fixture
+            // (scope file)"), its parts judged in their composed context
+            let top = std::process::Command::new("git").args(["rev-parse", "--show-toplevel"]).output().ok().filter(|o| o.status.success()).map(|o| PathBuf::from(String::from_utf8_lossy(&o.stdout).trim()));
+            let scope_path = scope_file.clone().or_else(|| top.as_ref().map(|t| t.join("designs/settle-scope.txt")).filter(|p| p.is_file()));
+            let scope = match &scope_path {
+                Some(p) => crate::settle::read_scope(&std::fs::read_to_string(p).map_err(|e| anyhow::anyhow!("{}: {e}", p.display()))?).map_err(|e| anyhow::anyhow!("{}: {e}", p.display()))?,
+                None => crate::settle::Scope::default(),
+            };
+            let is = |f: &std::path::Path, rel: &str| f.canonicalize().map(|c| c.ends_with(rel)).unwrap_or(false) || f.ends_with(rel);
+            let (files, fixtures): (Vec<PathBuf>, Vec<PathBuf>) = files.into_iter().partition(|f| !scope.fixtures.iter().any(|(rel, _)| is(f, rel)));
+            for f in fixtures {
+                let line = scope.fixtures.iter().find(|(rel, _)| is(&f, rel)).map_or(0, |(_, l)| *l);
+                skipped.push((f, format!("test fixture (scope file {} line {line})", scope_path.as_ref().map_or(String::new(), |p| p.display().to_string()))));
+            }
+            for (p, why) in &skipped {
+                println!("settle-check: skipped {} ({why})", p.display());
+            }
+            // (zero samples pass nothing) a directory or list with no design file is NOT JUDGED, by name
+            anyhow::ensure!(!files.is_empty(), "settle-check: NOT JUDGED: no design file to check ({} skipped)", skipped.len());
+            let multi = files_from.is_some() || file.is_dir() || changed_from.is_some();
+            anyhow::ensure!(!(multi && write.is_some()), "--write takes one file, not a directory or a --files-from list");
+            let mut verdicts: Vec<(PathBuf, Result<bool, String>)> = Vec::new();
+            for file in &files {
+            let res = (|| -> anyhow::Result<bool> {
+            let file = file.clone();
             let text = std::fs::read_to_string(&file)?;
+            // (ironspec 10:45a (2), part 72) a part file the scope lists is judged IN ITS COMPOSED CONTEXT (the record
+            // of record with the part laid at its offset, settled, the part's own cells unchanged); `standalone` parts
+            // are judged alone too, the others only in context
+            let mut ctx_ok = true;
+            let rules: Vec<&crate::settle::PartRule> = scope.parts.iter().filter(|r| is(&file, &r.part)).collect();
+            for rule in &rules {
+                let rec = top.as_ref().map(|t| t.join(&rule.record)).unwrap_or_else(|| PathBuf::from(&rule.record));
+                let rbytes = std::fs::read(&rec).map_err(|e| anyhow::anyhow!("{}: its record of record {}: {e}", file.display(), rec.display()))?;
+                // (vcompose 11:07) the record pinned by its md5 prefix: a different record is NOT JUDGED (stale)
+                if let Some(want) = &rule.md5 {
+                    let got: String = redsim::stems::md5(&rbytes).iter().map(|b| format!("{b:02x}")).collect();
+                    anyhow::ensure!(got.starts_with(want.as_str()), "{}: NOT JUDGED: its record of record {} has md5 {} where scope line {} pins {want}: a stale composition", file.display(), rule.record, &got[..12], rule.line);
+                }
+                let rtext = String::from_utf8_lossy(&rbytes).to_string();
+                let diffs = crate::settle::part_in_context(&text, &rtext, rule.offset, rule.only, day_time, cap).map_err(|e| anyhow::anyhow!("{}: in its composed context: {e}", file.display()))?;
+                println!(
+                    "settle-check {} in its composed context ({}{} at {},{},{}{}, scope line {}): {}",
+                    file.display(),
+                    rule.record,
+                    rule.md5.as_ref().map_or(String::new(), |m| format!(" (md5 {m})")),
+                    rule.offset[0],
+                    rule.offset[1],
+                    rule.offset[2],
+                    rule.only.map_or(String::new(), |(a, b)| format!(", only its cells {},{},{}..{},{},{}", a[0], a[1], a[2], b[0], b[1], b[2])),
+                    rule.line,
+                    if diffs.is_empty() { "the part's cells unchanged (PASS)".to_string() } else { format!("{} of the part's cells change (FAIL)", diffs.len()) }
+                );
+                for (q, a, b) in &diffs {
+                    println!("  in context ({},{},{}): stored {} -> {}", q.x, q.y, q.z, a.trim_start_matches("minecraft:"), b.trim_start_matches("minecraft:"));
+                }
+                ctx_ok &= diffs.is_empty();
+            }
+            if !rules.is_empty() && !rules.iter().any(|r| r.standalone) {
+                return Ok(ctx_ok);
+            }
             let d = mctas::design::Design::parse(&text).map_err(|e| anyhow::anyhow!("{}: {e}", file.display()))?;
             let decl = crate::settle::declared(&text).map_err(|e| anyhow::anyhow!("{}: {e}", file.display()))?;
             let mut blocks = Vec::new();
@@ -15811,8 +15893,29 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             let bes: Vec<(redsim::pos::BlockPos, String)> = d.block_entities.iter().map(|(p, s)| (redsim::pos::BlockPos::new(p[0], p[1], p[2]), s.clone())).collect();
             let ents: Vec<(String, [f64; 3], Option<String>)> = d.entities.iter().map(|e| (e.kind.clone(), e.pos, e.nbt.clone())).collect();
+            // (ironspec Nov 14 10:45a (4), part 72) a time-dependent block (a daylight detector) in a file with no
+            // `# day-time:` (and no --day-time) is NOT JUDGED by name: never a silent default
+            if day_time.is_none() && decl.day_time.is_none() {
+                let dl: Vec<String> = blocks.iter().filter(|(_, b)| matches!(b, redsim::block::Block::DaylightDetector { .. })).map(|(p, _)| format!("{},{},{}", p.x, p.y, p.z)).collect();
+                anyhow::ensure!(dl.is_empty(), "{}: NOT JUDGED: {} time-dependent block(s) (daylight detectors at {}) and no `# day-time:` (nor --day-time): the file declares its save's day time", file.display(), dl.len(), dl.join(" "));
+            }
             let dt = day_time.or(decl.day_time).unwrap_or(6000);
-            let s = crate::settle::settle_check(&blocks, &bes, &ents, &decl, dt, cap).map_err(|e| anyhow::anyhow!("{}: {e}", file.display()))?;
+            let mut s = crate::settle::settle_check(&blocks, &bes, &ents, &decl, dt, cap).map_err(|e| anyhow::anyhow!("{}: {e}", file.display()))?;
+            // (ironspec Nov 14 10:37a (1)-(2) / 10:45a (3)(1), part 72) `# stand-in:` exempts nothing (ownership only);
+            // the `emulated:` key is the ONLY exemption, by the TWIN SETTLES: A = this settle of the file as stored, B =
+            // the settle with every emulated cell at its declared off / built state; the emulated cells and the cells
+            // where A and B differ (their effects, printed) are exempt; every other cell's stored state must equal A's
+            let emu = crate::settle::emulated_cells(&decl);
+            if !emu.is_empty() {
+                println!("  emulated cells (`emulated:`, each at its declared off / built state in the twin settle B): {}", decl.emulated.iter().map(|(cs, st, why)| format!("{}={} ({why})", cs.iter().map(|p| format!("{},{},{}", p.x, p.y, p.z)).collect::<Vec<_>>().join("+"), st.trim_start_matches("minecraft:"))).collect::<Vec<_>>().join("; "));
+                let eff = crate::settle::twin_effects(&blocks, &bes, &ents, &decl, dt, cap, &s).map_err(|e| anyhow::anyhow!("{}: the twin settle B: {e}", file.display()))?;
+                for (p, a, b) in &eff {
+                    println!("  an emulated cell's effect ({},{},{}): settled {} with the emulated states, {} without (exempt)", p.x, p.y, p.z, a.trim_start_matches("minecraft:"), b.trim_start_matches("minecraft:"));
+                }
+                let exempt: Vec<redsim::pos::BlockPos> = emu.iter().copied().chain(eff.iter().map(|(p, _, _)| *p)).collect();
+                let n = crate::settle::exempt_cells(&mut s, &exempt);
+                println!("  twin settles: {} effect cell(s); {n} stored difference(s) at the emulated cells and their effects exempt", eff.len());
+            }
             let fails = s.fails(allow_unchecked);
             println!(
                 "settle-check {} (cc767b78, tool unreviewed): laid as the judges lay it, {} entities held, day time {dt} ({}), {} fluid cells given their tick; {} ticks to {}; {} cells compared ({} redstone), {} shape cells checked; {} observers kicked once each ({} cells settling elsewhere after the kick: print-only by ruling, a build-order-dependent cell being the whole-module build replay's to judge); clocks: {} declared cells still changing, {} undeclared; new fluid cells after the settle: {} named in `# water:`, {} not (any fails: re-save with --write); designed currents (`# water:` cells in the file): {} ({} unbounded, {} holding no water); stand-ins (SURVIVAL): {} passing, {} failing; redstone cells stored unsettled {}; shape states differing {} ({} declared `# shape:` standing, {} failing); other cells stored unsettled {}; block entities changed {}; held cells {}; wall / stair cells unchecked {}{}; model notes {}: {}",
@@ -15912,7 +16015,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             if all || !allow_unchecked {
                 list("unchecked", &s.unchecked);
             }
-            if let Some(out) = write {
+            if let Some(out) = write.clone() {
                 // (G1's note on CHANGES 2: a comment line after the header would vanish from the copy; a
                 // declaration there would be lost, so the write refuses and lists them)
                 let header = crate::settle::header_lines(&text).len();
@@ -15928,7 +16031,46 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     crate::settle::header_lines(&written).len()
                 );
             }
-            if !fails.is_empty() {
+            Ok(fails.is_empty() && ctx_ok)
+            })();
+            match &res {
+                Ok(true) => {}
+                Ok(false) => {}
+                Err(e) => println!("settle-check {}: NOT JUDGED: {e}", file.display()),
+            }
+            verdicts.push((file.clone(), res.map_err(|e| e.to_string())));
+            }
+            let bad: Vec<String> = verdicts.iter().filter(|(_, r)| !matches!(r, Ok(true))).map(|(f, r)| format!("{} ({})", f.display(), if r.is_ok() { "FAILS" } else { "NOT JUDGED" })).collect();
+            if multi {
+                println!(
+                    "settle-check over {} file(s) ({}; {} skipped, named above): {} PASS, {} FAIL, {} NOT JUDGED{}",
+                    verdicts.len(),
+                    match (&files_from, &changed_from) {
+                        (Some(l), _) => format!("listed in {}", l.display()),
+                        (None, Some(r)) => format!("the .txt design files under {} changed against {r}", file.display()),
+                        (None, None) => format!("every .txt design file under {}", file.display()),
+                    },
+                    skipped.len(),
+                    verdicts.iter().filter(|(_, r)| matches!(r, Ok(true))).count(),
+                    verdicts.iter().filter(|(_, r)| matches!(r, Ok(false))).count(),
+                    verdicts.iter().filter(|(_, r)| r.is_err()).count(),
+                    if bad.is_empty() { String::new() } else { format!(": {}", bad.join("; ")) }
+                );
+            }
+            if owners {
+                // (part 72) each failing or unjudged file's last commit: its owner's hint, for the list of pre-existing
+                // failures a train names and leaves to their owners
+                for (f, r) in verdicts.iter().filter(|(_, r)| !matches!(r, Ok(true))) {
+                    let last = std::process::Command::new("git").args(["log", "-1", "--format=%h %ad %s", "--date=short", "--"]).arg(f).output();
+                    let last = match last {
+                        Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).trim().chars().take(160).collect::<String>(),
+                        Ok(o) => format!("git log failed: {}", String::from_utf8_lossy(&o.stderr).trim()),
+                        Err(e) => format!("git log failed: {e}"),
+                    };
+                    println!("  owner hint {} ({}): {}", f.display(), if r.is_ok() { "FAILS" } else { "NOT JUDGED" }, if last.is_empty() { "no commit (an untracked file)".to_string() } else { last });
+                }
+            }
+            if !bad.is_empty() {
                 std::process::exit(1);
             }
         }

@@ -1,0 +1,30 @@
+# settle-check's ONE scope definition (ironspec Nov 14 10:45a (2)/(3), 10:59a (7); vcompose 10:55; part 72): read by
+# `mctas mobfarm settle-check` (the train gate runs it over the design files; --scope-file names another copy).
+#
+# fixture: PATH (why)   a test fixture, outside the design-of-record scope BY PATH, FILE BY FILE with its reason (no
+#                       directory globs): settle-check prints it as skipped ("test fixture (scope file ...)") and never
+#                       judges it.
+# part: PART in RECORD at dx,dy,dz [standalone] (why)
+#                       a part file judged IN ITS COMPOSED CONTEXT: the record of record composed with the part laid at
+#                       the offset, settled, the part's own cells checked unchanged; `standalone`: judged alone too.
+# Paths are relative to the repository's top. Owners add their lines (vcompose adds its future fixtures itself).
+
+# vcompose's five (vcompose 10:55, ironspec 10:59a (7))
+fixture: designs/farms/iron/carousel-assembly/wip/vcompose/parts/f1q2-station.main-4a3d19c1d059.txt (rev-2 twin's pinned part copy, a historical composition, never built)
+fixture: designs/farms/iron/carousel-assembly/wip/vcompose/parts/f1q2-lanes-sbend.852c0ec1e1f2.txt (rev-2 twin's pinned part copy, a historical composition, never built)
+fixture: designs/farms/iron/carousel-assembly/wip/vcompose/parts/f1q2-sky.2557bd3426fa.txt (rev-2 twin's pinned part copy, a historical composition, never built)
+fixture: designs/farms/iron/carousel-assembly/wip/vcompose/parts/f1q2-scarers-2post.1d4b49f5fa2d.txt (rev-2 twin's pinned part copy, a historical composition, never built)
+fixture: designs/farms/iron/carousel-assembly/wip/vcompose/parts/v-drops.rev2.b1876365f6f5.txt (rev-2 twin's pinned part copy, a historical composition, never built)
+# main's (b+) wayin copy (ironspec 10:56a (4), 10:59a (7))
+fixture: designs/farms/iron/carousel-assembly/wip/vcompose/parts/f1q2-module-wayin-bplus.ec561e48d.txt (a test input)
+# loaderlay's vendored module (ironspec 10:59a (7), its path from loaderlay 11:07; blob 88eea3fa1d7c, md5 3d7ed77b4bf3)
+fixture: designs/farms/iron/carousel-assembly/wip/onechunk/module/f1q2-module-record7f13b.txt (loaderlay's pinned run input, composed from /tmp inputs, carries the (A) stop's bench stand-ins; not for build; superseded when the loader is re-judged on V rev 3.1)
+# rev 2.1's clear-part mask (vcompose 11:07)
+fixture: designs/farms/iron/carousel-assembly/wip/vcompose/parts/f1q2-station.main-6e05a4a72.txt (rev 2.1's `--clear-part` MASK: the pre-C'' station's cell set, used only to clear cells from the stale R3 record; not a laid part)
+
+# the inputs of V's records of record, judged in their composed context (vcompose 11:07: the record of record on main is
+# V rev 2.1, its `# +` lines the source; not standalone)
+part: designs/farms/iron/carousel-assembly/wip/vcompose/parts/f1q2-lift-split-path-a.77b7a74af.txt in designs/farms/iron/carousel-assembly/wip/vcompose/f1q2-module-v.txt md5 ea985422495c at 0,0,0 (main's V rev 2.1: LIFT, the whole file)
+part: designs/farms/iron/carousel-assembly/wip/vcompose/parts/f1q2-lift-split-path-a.77b7a74af.txt in designs/farms/iron/carousel-assembly/wip/vcompose/f1q2-module-v.txt md5 ea985422495c at 0,7,0 only 5,-29,3..7,-27,5 (main's V rev 2.1: NAPFOOT, the same file's napper-lift foot, only its cells 5,-29,3..7,-27,5 placed: the stop's raise)
+# the LIVE station (wip/station/f1q2-station.txt) is composed by no record of record today (vcompose 11:07): E''s standalone
+# judgment applies until rev 3.1's `part:` line arrives from vcompose
