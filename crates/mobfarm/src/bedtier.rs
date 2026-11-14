@@ -1193,6 +1193,10 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
         // (P_STRING east-west at P + 1, ironspec 21:42: the west hook over the bed head on (-4,1,4),
         // the east hook on new glass (0,1,4))
         over(&mut b, [-3, 1, 4], "tripwire_hook[attached=true,facing=east,powered=false]");
+        // (vcompose 03:28: the hook over the bed head is a designed block, so the bed column's
+        // keep-clear starts above it; the hook has no collision box, so (-3,1,4) stays the column's
+        // first non-solid cell, the HOME path's target, and 9fc3155f's reach probe completes onto it)
+        b.d.meta.insert("keep-clear".into(), "-3,2,4 -3,3,4".into());
         over(&mut b, P_STRING_CELL, "tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]");
         over(&mut b, [-1, 1, 4], "tripwire_hook[attached=true,facing=west,powered=false]");
         over(&mut b, [0, 1, 4], "glass");
@@ -1343,6 +1347,11 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
         over(&mut b, [px, 0, 3], "powered_rail[powered=false,shape=ascending_east,waterlogged=false]");
         over(&mut b, [px, -1, 3], "glass");
         over(&mut b, [px + 1, 0, 3], "slime_block");
+        // (9fc3155f 03:34: the slime's top (px + 1, 1, 3) was a golem floor off the pad: glass over
+        // it at (px + 1, 2, 3) leaves one block of room (a golem needs 2.7) and glass is no golem
+        // floor itself; the build's temporary rail at (px + 1, 1, 3) and the park rail's ascent are
+        // unchanged under it)
+        over(&mut b, [px + 1, 2, 3], "glass");
         over(&mut b, [px + 1, 0, 2], "repeater[delay=1,facing=north,locked=false,powered=false]");
         over(&mut b, [px + 1, -1, 2], "glass");
         if bench && !latch_b {
@@ -1373,7 +1382,13 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
         // main's build-order: every plain placement order of the slime and the rail ends east_west
         // (the rail joins the siding flat; nothing above it to the east to ascend to), so the park
         // is built with a temporary rail on the slime; laid before its slime it pops)
-        lines.push(format!("build-order: the slime ({sx},0,3) first, then a TEMPORARY rail on it at ({sx},1,3), then the park's powered rail ({px},0,3) (it ascends east to meet the temporary rail), then the temporary rail removed (the park keeps ascending_east): every plain placement order of the slime and the park rail ends east_west (main's build-order: 2 orders x 2 facings, all east_west), and the park rail laid before its slime pops (tick-exact's laid-latch rig 02:17); the check: `mctas mobfarm build-order <this file> --t {px},0,3 --cell {sx},0,3=minecraft:slime_block --cell {px},0,3=<the park rail> --want ascending_east --sequence 'the build|ascending_east|{sx},0,3=minecraft:slime_block;{sx},1,3=minecraft:rail[shape=north_south,waterlogged=false];{px},0,3=<the park rail>;{sx},1,3=air' --sequence 'the park rail before its slime (the positive control)|ascending_east|{px},0,3=<the park rail>;{sx},0,3=minecraft:slime_block'` (the build sequence ends ascending_east; the control fails by name)", sx = px + 1));
+        // (vcompose 03:19 / ironspec 03:15: the stand-up feet the stop leaves a villager at, exact,
+        // for the flee static's walk starts; the bench measures both and fails on a mismatch)
+        lines.push("stand-up: -2.4986,0.5625,4.4868=the eject's landing: E sets the napper down on the bed head's top (-3,0,4) on every visit (measured over the 408 band: -2.4974..-2.4988, 4.4867..4.4884, the bench's check tolerance 0.01: the villager's box stays inside the same cell, so getStart's start node is the same); -1.5,0,4.5=the wake's stand-up on P (-2,0,4) (the bed's stand-up position, exact on all 408 visits; the napper's only on-foot cell after a wake)".to_string());
+        // (dfb89499 02:47 / ironspec 02:54 (4): the sequence in build-order's declared-sequence
+        // syntax, `~` a temporary cell; the prose and the check on the note line)
+        lines.push(format!("build-order: park={sx},0,3=minecraft:slime_block;~{sx},1,3=minecraft:rail[shape=north_south,waterlogged=false];{px},0,3=minecraft:powered_rail[powered=false,shape=ascending_east,waterlogged=false];{sx},1,3=air", sx = px + 1));
+        lines.push(format!("build-order-note: the slime ({sx},0,3) first, then a TEMPORARY rail on it at ({sx},1,3), then the park's powered rail ({px},0,3) (it ascends east to meet the temporary rail), then the temporary rail removed (the park keeps ascending_east): every plain placement order of the slime and the park rail ends east_west (main's build-order: 2 orders x 2 facings, all east_west), and the park rail laid before its slime pops (tick-exact's laid-latch rig 02:17); the check: `mctas mobfarm build-order <this file> --t {px},0,3 --cell {sx},0,3=minecraft:slime_block --cell {px},0,3=<the park rail> --want ascending_east --sequence 'the build|ascending_east|{sx},0,3=minecraft:slime_block;{sx},1,3=minecraft:rail[shape=north_south,waterlogged=false];{px},0,3=<the park rail>;{sx},1,3=air' --sequence 'the park rail before its slime (the positive control)|ascending_east|{px},0,3=<the park rail>;{sx},0,3=minecraft:slime_block'` (the build sequence ends ascending_east; the control fails by name; the plain orders end east_west, the expected finding until build-order's declared-sequence mode)", sx = px + 1));
         // (9fc3155f 01:50 / 02:46: E's allowed power sources, keyed by the SOURCE cell: its
         // always-on torch and ARM's detector rail beside it (redundant: E is always powered))
         lines.push("allow-powered: -3,0,2=E's always-on redstone torch, on glass (-3,-1,2): it powers the activator (-2,0,2) on every tick; -2,0,1=ARM's detector rail beside E: it also powers the activator while a cart presses it, redundant (E is always powered by its torch), so it never toggles E (declared, not moved: moving ARM would shift the edge COOL, the latch's ARM_IN and K's SET key on)".to_string());
@@ -1390,7 +1405,7 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
         lines.push(format!("integrity: {}", integ.join("; ")));
         lines.push("switches: -2,0,3=K, a driven T (ironspec 21:51 (5)): north_east powered (the arrival from E), south_east unpowered (the return into P); its drive the slime (-2,-1,3) under it, which powers only K (the bench's stand-in a ceiling lever at (-2,-2,3); DAY-1's K drive in the build: SET by ARM's edge, RESET by the park string's press)".to_string());
         lines.push("Load-bearing, FRAGILE (ironspec 23:08 (5)): the four screens (-3,1,6), (-3,1,7), (-2,1,7), (-1,1,7) cut every line from Z1 (the stop's own waker at (-5,0,10), inside the stop's footprint to z 11) to the exit's rider positions within 6 ((-2,0,5), (-2,0,6), (-1,0,6)); fault: a screen lost lets a rider see Z1 (NEAREST_HOSTILE armed on the hold and the exit); repair: the glass replaced.".to_string());
-        lines.push(format!("The re-laid stop (ironspec 21:42 / 21:51 / 22:58, 58f770cc 21:44 / 22:32): P (-2,0,4) straight north_south and dry, reached from the north through K; the empty cart's out-and-back siding along z 3, all dry (ironspec 23:40 (1): no water at the stop): K, (-1,0,3) .. ({},0,3) plain, the park ({px},0,3) a braked powered rail ascending east; its drive the slime ({},0,3) by the repeater ({},0,2) from its input ({},0,1) (DAY-1's PARK line; the bench's stand-in a redstone block there); SENSED a tripwire over the park cell ({px},1,3), hooks ({px},1,2) / ({px},1,4) on glass ({px},1,1) / ({px},1,5): pressed while the cart rests on the slope (its box's top past 1.0625), released when it leaves; P_STRING east-west at (-2,1,4), hooks (-3,1,4) on (-4,1,4) and (-1,1,4) on (0,1,4); (-1,0,4) and (-1,2,4) glass; no head-top guard (ironspec 23:40 (3)(a)).", px - 1, px + 1, px + 1, px + 1));
+        lines.push(format!("The re-laid stop (ironspec 21:42 / 21:51 / 22:58, 58f770cc 21:44 / 22:32): P (-2,0,4) straight north_south and dry, reached from the north through K; the empty cart's out-and-back siding along z 3, all dry (ironspec 23:40 (1): no water at the stop): K, (-1,0,3) .. ({},0,3) plain, the park ({px},0,3) a braked powered rail ascending east; its drive the slime ({},0,3) by the repeater ({},0,2) from its input ({},0,1) (DAY-1's PARK line; the bench's stand-in a redstone block there); SENSED a tripwire over the park cell ({px},1,3), hooks ({px},1,2) / ({px},1,4) on glass ({px},1,1) / ({px},1,5): pressed while the cart rests on the slope (its box's top past 1.0625), released when it leaves; P_STRING east-west at (-2,1,4), hooks (-3,1,4) on (-4,1,4) and (-1,1,4) on (0,1,4); (-1,0,4) and (-1,2,4) glass; no head-top guard (ironspec 23:40 (3)(a)); the bed column's keep-clear (-3,2,4) (-3,3,4) guards the riders' HOME route's final drop onto the head node (-3,1,4), which holds P_STRING's west hook by design (no collision box: the route completes onto it, 9fc3155f 01:01; vcompose 03:28 / ironspec 03:30 (3)).", px - 1, px + 1, px + 1, px + 1));
     }
     let refs: Vec<&str> = lines.iter().map(|s| s.as_str()).collect();
     Ok(b.text(&refs))
@@ -1688,6 +1703,12 @@ pub struct Row {
     pub k_offs: usize,
     /// (G1 02:27 (3), `--latch-b`) the park rail's lit edges after RLS (bar: one, no double release)
     pub park_rises: usize,
+    /// (G1 02:47) the empty cart's speed crossing the siding's centre x -0.5 eastward, toward the park
+    pub siding_speed: Option<f64>,
+    /// (vcompose 03:19) the exact feet where the eject leaves the napper on the ground, and where
+    /// its first wake stands it up (the flee static's walk starts)
+    pub landed_exact: Option<[f64; 3]>,
+    pub woke_exact: Option<[f64; 3]>,
     /// (G1's C4) the sensed park's cell held no detector rail on some tick (the stand-in read)
     pub sense_stand_in: bool,
     /// (ironspec 21:15) ticks the park rail rose with the bench's drive off (RLS low)
@@ -2115,6 +2136,9 @@ pub struct Faults {
     pub park_width: Option<i64>,
     /// (ironspec 21:20) a world open K gt after RLS (the restart's form as --restart's)
     pub restart_at_rls: Option<(i64, crate::liveness::Restart)>,
+    /// (ironspec 01:50b / 02:33 (2)) the timing row's phases: one row per K with the world open at
+    /// RLS + K (`--restart-at-rls A..B,HOW`)
+    pub restart_at_rls_phases: Vec<i64>,
     /// (G1 21:20 (1)) the napper moved off P onto the bed foot's top K gt after RLS (an empty
     /// departure at RLS + 0 / + 1 / + 2: PARK's firing printed)
     pub step_off_at_rls: Option<i64>,
@@ -2138,6 +2162,8 @@ pub struct Faults {
     /// (ironspec 02:16, row 39's fault record) an EMPTY cart planted at this stop-local position at
     /// the visit's start (a cart left on the siding, the stop blocked); the visit runs 14,000 gt
     pub plant_empty: Option<[f64; 3]>,
+    /// (vcompose 03:19) the header's `stand-up:` feet positions (stop-local, exact)
+    pub stand_up_decl: Vec<[f64; 3]>,
     /// ((A), ironspec 00:37 (2b)) F waits for the arming detector's edge + this many gt (the
     /// worst-case braking interval + 3).
     pub arm_delay: i64,
@@ -2488,6 +2514,24 @@ pub fn parse_stranded_bound(text: &str) -> Result<Option<i64>, String> {
         };
     }
     Ok(None)
+}
+
+/// (vcompose 03:19) The header's `# stand-up: x,y,z=WHY[; x,y,z=WHY]` feet positions (decimals, the
+/// file's own frame).
+pub fn parse_stand_up(text: &str) -> Vec<[f64; 3]> {
+    let mut out = Vec::new();
+    for l in text.lines() {
+        let Some(body) = l.trim_start().strip_prefix('#').map(str::trim_start).and_then(|t| t.strip_prefix("stand-up:")) else { continue };
+        for e in body.split("; ") {
+            if let Some((c, _)) = e.split_once('=') {
+                let v: Vec<f64> = c.split(',').filter_map(|x| x.trim().parse::<f64>().ok()).collect();
+                if v.len() == 3 {
+                    out.push([v[0], v[1], v[2]]);
+                }
+            }
+        }
+    }
+    out
 }
 
 /// (G1's B3 on 1662bed98) A contact decided by the cart's entry speed, not by chance: the design's
@@ -4576,6 +4620,8 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             }
             if !riding && row.landed.is_none() && v.on_ground {
                 row.landed = Some((vcell, t));
+                // (vcompose 03:19: the exact feet where the eject leaves the napper standing)
+                row.landed_exact = Some([vp.x, vp.y, vp.z]);
             }
             if asleep && !was_asleep {
                 row.sleeps.push(t);
@@ -4720,6 +4766,10 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                 row.latch_lines.push(format!("t {wt}: the napper WOKE (stood on {vcell:?}; the wake's pulse due at t {}{})", wt + 2, if wt != t { "; a planted write's wake" } else { "" }));
                 row.wakes.push(wt);
                 row.stood = Some(vcell);
+                // (vcompose 03:19: the exact feet where the wake stands the napper up)
+                if row.woke_exact.is_none() {
+                    row.woke_exact = Some([vp.x, vp.y, vp.z]);
+                }
                 row.stood_up.push(vcell);
                 let bed = wc(BED_HEAD);
                 if let Block::Bed { facing, .. } = w.get(bed) {
@@ -5014,6 +5064,15 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             row.string_flicker.push((t, pressed, cpos.x));
         }
         sense_prev = pressed;
+        // (G1 02:47: the empty cart's arrival toward the park, its speed crossing the siding's
+        // (-1,0,3) centre x -0.5 eastward: tick-exact's slope-string rig launches from there (0.05
+        // strands at x 0.73, short of the park; 0.10 reaches x 1.037))
+        if lay.park_string.is_some() && row.release_at.is_none() && row.siding_speed.is_none() {
+            let prev_x = last_cart[0] - (cp[0] - cpos.x);
+            if prev_x < -0.5 && cpos.x >= -0.5 && (cpos.z - 3.5).abs() < 0.3 {
+                row.siding_speed = Some(c.delta_movement.horizontal_distance_sqr().sqrt());
+            }
+        }
         // (ironspec 21:51 (5): K's shape changes and the cart's ticks in K (the arrival: its first
         // and last; the released cart's first); the park's highest x before the release)
         let k_state = format!("{}", w.get(wc([-2, 0, 3])));
@@ -6194,6 +6253,15 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
             }
         }
     }
+    // (ironspec 01:50b / 02:33 (2), the timing row: a world open at every phase of the RLS window,
+    // `--restart-at-rls A..B,ORDER/stress:2` (the entities frozen 3 gt with the redstone running))
+    if let Some((_, how)) = base.restart_at_rls
+        && !base.restart_at_rls_phases.is_empty()
+    {
+        for &k in &base.restart_at_rls_phases {
+            rows.push((format!("world open RLS + {k} {}", how.label()), Faults { restart_at_rls: Some((k, how)), ..base.clone() }));
+        }
+    }
     if rows.is_empty() {
         rows.push(("night".to_string(), base.clone()));
     }
@@ -6428,6 +6496,11 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
                         // (ironspec 01:17 (2): the laid latch's PARK window against RLS)
                         if let (Some(rl), Some((a, b))) = (r.rls_at, r.park_lit) {
                             sk.latch_lit.push((a - rl, b.map(|b| b - rl)));
+                            // (ironspec 01:50b: the laid PARK's dark tick against the cart's last
+                            // tick on the park cell, per row: the timing row's margin)
+                            if let (Some(d), Some(left)) = (b, r.park_left_at) {
+                                sk.latch_margin.push((d - left, format!("{name}: seed {seed} speed {v}")));
+                            }
                         }
                         // (ironspec 02:16: row 39's record, the planted empty cart)
                         if let Some(p) = &r.planted_end {
@@ -6435,6 +6508,21 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
                         }
                         // (G1 02:27 (3): the park string's flicker while parked, and its consumers)
                         if r.layout_name == "(A) re-laid" {
+                            if let Some(s) = r.siding_speed {
+                                sk.siding_speeds.push((s, seed, v));
+                            }
+                            for (k, p) in [("the eject's landing", r.landed_exact), ("the first wake's stand-up", r.woke_exact)] {
+                                if let Some(p) = p {
+                                    *sk.stand_ups.entry(format!("{k} {:.4},{:.4},{:.4}", p[0], p[1], p[2])).or_insert(0) += 1;
+                                }
+                            }
+                            if sk.flicker_ticks.len() < 3
+                                && let Some(pk) = r.parked
+                                && pk.0[0] < 1.2
+                                && !r.string_flicker.is_empty()
+                            {
+                                sk.flicker_ticks.push(format!("seed {seed} speed {v} (rest x {:.3}, SENSED's first press t {:?}): {}", pk.0[0], r.park_sense_at, r.string_flicker.iter().map(|(t, p, _)| format!("t {t} {}", if *p { "re-pressed" } else { "RELEASED" })).collect::<Vec<_>>().join(", ")));
+                            }
                             let rel = r.string_flicker.iter().filter(|x| !x.1).count();
                             let x0 = r.parked.map(|p| p.0[0]);
                             sk.flicker.push((x0, rel, r.k_offs, r.parked_set_at.is_some(), r.park_rises));
@@ -7126,6 +7214,39 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
     // (G1 02:27 (3) / ironspec 02:28 (4): the park string's flicker and its consumers, per rest
     // position: every consumer reads SENSED's latch (its first press), never a re-check edge)
     let mut flicker_bad = 0usize;
+    let mut stand_up_bad = 0usize;
+    // (vcompose 03:19: the stand-up positions the stop leaves a villager at, exact feet, against
+    // the header's `stand-up:` declaration)
+    if !sk.stand_ups.is_empty() {
+        println!("the stand-up feet positions (vcompose 03:19, the flee static's walk starts; stop-local, exact): {:?}", sk.stand_ups);
+        let declared: Vec<[f64; 3]> = base.stand_up_decl.clone();
+        if !declared.is_empty() {
+            let undeclared: Vec<&String> = sk.stand_ups.keys().filter(|k| {
+                let c = k.rsplit(' ').next().unwrap_or("");
+                let v: Vec<f64> = c.split(',').filter_map(|x| x.parse::<f64>().ok()).collect();
+                // (the tolerance 0.01: within it the villager's 0.6-wide box stays inside the same
+                // cell, so getStart picks the same start node; the eject's landing varies in the
+                // fourth decimal with the cart's approach)
+                !declared.iter().any(|d| v.len() == 3 && (0..3).all(|i| (d[i] - v[i]).abs() < 0.01))
+            }).collect();
+            println!("the header's stand-up: {declared:?}; measured positions not declared: {undeclared:?}");
+            stand_up_bad = undeclared.len();
+        }
+    }
+    // (tick-exact 02:45: the park string's re-check releases of the lowest rests, against its
+    // game cadence of one released tick every 11 gt)
+    for l in &sk.flicker_ticks {
+        println!("  the park string while parked, {l}");
+    }
+    // (G1 02:47: the park's arrival speeds against the stranding threshold: tick-exact's game rig
+    // from the siding's centre, 0.05 strands at x 0.73 and 0.10 reaches the park)
+    if !sk.siding_speeds.is_empty() {
+        let mut ss = sk.siding_speeds.clone();
+        ss.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let lo = ss[0];
+        let hi = ss[ss.len() - 1];
+        println!("the empty cart's arrival toward the park (G1 02:47: its speed crossing the siding's centre x -0.5 eastward; tick-exact's rig: 0.05 strands at x 0.73, 0.10 reaches x 1.037): {:.4}..{:.4} over {} visits (the least at seed {} entry {}), margin {:+.4} over the least known to reach (0.10), {:+.4} over the known strand (0.05)", lo.0, hi.0, ss.len(), lo.1, lo.2, lo.0 - 0.10, lo.0 - 0.05);
+    }
     if !sk.flicker.is_empty() {
         let mut by_x: std::collections::BTreeMap<i64, (usize, usize, usize, usize, usize, usize)> = std::collections::BTreeMap::new();
         for &(x, rel, koff, pk, rises) in &sk.flicker {
@@ -7148,6 +7269,13 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
         let darks: Vec<i64> = sk.latch_lit.iter().filter_map(|x| x.1).collect();
         let open = sk.latch_lit.iter().filter(|x| x.1.is_none()).count();
         println!("the laid latch's PARK on the park rail (the standing start-of-tick frame; the rig's RLS-command frame is one tick earlier): lit from RLS + {}..{}, dark from RLS + {}..{} over {} visits (expected [RLS + 2, RLS + 26)); still lit at the visit's end {open}", lits.iter().min().unwrap(), lits.iter().max().unwrap(), darks.iter().min().map_or("-".to_string(), |v| v.to_string()), darks.iter().max().map_or("-".to_string(), |v| v.to_string()), sk.latch_lit.len());
+    }
+    // (ironspec 01:50b / 02:33 (2): the timing row's margin on the laid latch: PARK's dark tick
+    // against the cart's last tick on the park cell, the worst over every row (world-open phases))
+    if !sk.latch_margin.is_empty() {
+        let worst = sk.latch_margin.iter().min_by_key(|m| m.0).unwrap();
+        let best = sk.latch_margin.iter().max_by_key(|m| m.0).unwrap();
+        println!("the laid PARK's dark tick against the cart leaving the park cell (ironspec 01:50b, the timing row's margin; measured with any world open's frozen entity ticks inside it): {}..{} gt over {} visits; the worst at {}", worst.0, best.0, sk.latch_margin.len(), worst.1);
     }
     println!("bed stop bench: {tot} visits ({} rows), {clean} clean, seated {seated}; not out {not_out}; HOME lost {lost}; pickup speeds {:.3}..{:.3}; exit later than the night's (gt): min {:?}, median {:?}, p99 {:?}, max {:?}; after a restart, visits with a path off the pickup cell by direction {dirs:?}; after the wake in any row {dirs_wake:?}; lie-downs' reach to the bed head's centre {:.4}..{:.4} (SleepInBed's bar 2)", rows.len(), if min_pick == f64::MAX { 0.0 } else { min_pick }, max_pick, delays.first(), pct(0.5), pct(0.99), delays.last(), if lie_min == f64::MAX { 0.0 } else { lie_min }, lie_max);
     if max_step > 0.0 {
@@ -7328,6 +7456,9 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
     let mut failed: Vec<String> = Vec::new();
     if flicker_bad > 0 {
         failed.push(format!("the park string's flicker reached a consumer in {flicker_bad} visit(s) (G1 02:27 (3))"));
+    }
+    if stand_up_bad > 0 {
+        failed.push(format!("{stand_up_bad} measured stand-up position(s) missing from the header's stand-up: (vcompose 03:19)"));
     }
     // (the declared scope: G1's C7, only the named bars, validated at the start)
     let excluded = |bar: &str| base.scope_excludes.iter().any(|b| b == bar);
@@ -8264,10 +8395,19 @@ struct SkipTotals {
     /// (G1 02:27 (3)) per visit on the re-laid stop: the cart's rest x, the park string's re-check
     /// releases while parked, K's OFF edges, PARKED set, the park rail's lit edges after RLS
     flicker: Vec<(Option<f64>, usize, usize, bool, usize)>,
+    /// (G1 02:47) the empty cart's speeds crossing the siding's centre toward the park (speed, seed,
+    /// the visit's entry speed)
+    siding_speeds: Vec<(f64, u64, f64)>,
+    /// (vcompose 03:19) the exact stand-up feet positions over the visits, with counts
+    stand_ups: std::collections::BTreeMap<String, usize>,
+    /// (tick-exact 02:45) the park string's release / re-press ticks of a few low rests
+    flicker_ticks: Vec<String>,
     /// (G1's CHANGES 8 B1) the stand-in cells the runs wrote (the layout's own)
     ctl_cells: Vec<[i32; 3]>,
     /// (ironspec 01:17 (2)) the laid latch's PARK windows: (lit, dark) after RLS
     latch_lit: Vec<(i64, Option<i64>)>,
+    /// (ironspec 01:50b) the laid PARK's dark tick less the cart's park exit tick, with its row
+    latch_margin: Vec<(i64, String)>,
     /// (ironspec 02:16) row 39's record: each visit's planted empty cart and napper at the end
     planted: Vec<String>,
     /// (ironspec 23:00 (3)) the no-HOME row
@@ -8635,6 +8775,9 @@ mod tests {
         assert_eq!(decls.len(), 3, "{decls:?}");
         let speeds = parse_contact_speeds(&text, [0, 0, 0]).unwrap();
         assert_eq!(speeds.len(), 3);
-        assert!(text.contains("# build-order: the slime (2,0,3) first, then a TEMPORARY rail on it at (2,1,3)"));
+        assert!(text.contains("# build-order: park=2,0,3=minecraft:slime_block;~2,1,3=minecraft:rail[shape=north_south,waterlogged=false];1,0,3=minecraft:powered_rail[powered=false,shape=ascending_east,waterlogged=false];2,1,3=air"));
+        // (vcompose 03:28: the keep-clear holds no designed block; the hook at (-3,1,4) is outside it)
+        assert!(text.contains("\nkeep-clear: -3,2,4 -3,3,4"), "keep-clear");
+        assert_eq!(parse_stand_up(&text).len(), 2);
     }
 }
