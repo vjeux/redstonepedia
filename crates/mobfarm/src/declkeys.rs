@@ -33,6 +33,9 @@ pub const COMMENT_KEYS: &[&str] = &[
     "allow-powered",
     // (G1 Nov 14 07:59b, part 60) a source cell's meant update consumers, read by `mobfarm update-reach`
     "update-consumers",
+    // (vcompose, ironspec Nov 14 13:09p) a delta's base record and its md5, read by `mobfarm column --delta`
+    "base",
+    "base-md5",
 ];
 
 /// Keys read from a comment line or a header line alike (the push / water-spawn readers strip an optional

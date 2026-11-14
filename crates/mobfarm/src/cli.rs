@@ -15885,27 +15885,32 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let top = std::process::Command::new("git").args(["rev-parse", "--show-toplevel"]).output().ok().filter(|o| o.status.success()).map(|o| PathBuf::from(String::from_utf8_lossy(&o.stdout).trim()));
             let top = top.ok_or_else(|| anyhow::anyhow!("census: NOT JUDGED: no repository top (not in a git checkout) to read the parts from"))?;
             let c = crate::census::census(&text, &top).map_err(|e| anyhow::anyhow!("{}: {e}", design.display()))?;
+            let sec = |n: bool| if n { "Nether " } else { "" };
             println!(
-                "census {} (ironspec 12:26p / 12:28p (3): the load-order window touches only hoppers and random ticks): {} random-ticking block(s) (persistent leaves excepted), {} hopper(s) ({} under a rail), {} state(s) the block table doesn't hold (NOT JUDGED)",
+                "census {} (ironspec 12:26p / 12:28p (3), G1 13:46: the load-order window touches only hoppers and random ticks; the overworld section and the Nether section): {} random-ticking block(s) (persistent leaves excepted; {} in the Nether section), {} hopper(s) ({} under a rail), {} lava cell(s), {} state(s) whose random tick can't be told (NOT JUDGED)",
                 design.display(),
                 c.random.len(),
+                c.random.iter().filter(|r| r.nether).count(),
                 c.hoppers.len(),
                 c.hoppers.iter().filter(|(_, u)| *u).count(),
+                c.lava.len(),
                 c.unknown.len()
             );
             for (r, w) in c.random.iter().zip(&c.watchers) {
                 let watch = if w.is_empty() { "no observer watches it".to_string() } else { format!("WATCHED by the observer(s) at {}", w.iter().map(|q| format!("{},{},{}", q[0], q[1], q[2])).collect::<Vec<_>>().join(" ")) };
-                println!("  random tick ({},{},{}): {} (laid by {}; {watch})", r.cell[0], r.cell[1], r.cell[2], r.state.trim_start_matches("minecraft:"), r.owner);
+                println!("  {}random tick ({},{},{}): {} (laid by {}; {watch})", sec(r.nether), r.cell[0], r.cell[1], r.cell[2], r.state.trim_start_matches("minecraft:"), r.owner);
             }
             for (r, under) in &c.hoppers {
-                println!("  hopper ({},{},{}){}: {} (laid by {})", r.cell[0], r.cell[1], r.cell[2], if *under { ", UNDER A RAIL" } else { "" }, r.state.trim_start_matches("minecraft:"), r.owner);
+                println!("  {}hopper ({},{},{}){}: {} (laid by {})", sec(r.nether), r.cell[0], r.cell[1], r.cell[2], if *under { ", UNDER A RAIL" } else { "" }, r.state.trim_start_matches("minecraft:"), r.owner);
+            }
+            for r in &c.lava {
+                println!("  {}LAVA ({},{},{}): {} (laid by {}): its random tick sets fire to flammables within its reach", sec(r.nether), r.cell[0], r.cell[1], r.cell[2], r.state.trim_start_matches("minecraft:"), r.owner);
             }
             for r in &c.unknown {
-                println!("  NOT JUDGED ({},{},{}): {} (laid by {}): not in the block table, its random tick can't be told", r.cell[0], r.cell[1], r.cell[2], r.state.trim_start_matches("minecraft:"), r.owner);
+                println!("  {}NOT JUDGED ({},{},{}): {} (laid by {}): its random tick can't be told (not in the block table, or a state-dependent block's missing state)", sec(r.nether), r.cell[0], r.cell[1], r.cell[2], r.state.trim_start_matches("minecraft:"), r.owner);
             }
-            if !c.unknown.is_empty() {
-                std::process::exit(1);
-            }
+            // (G1 13:46, part 92: an Err, never `exit(1)`)
+            anyhow::ensure!(c.unknown.is_empty(), "census: NOT JUDGED: {} state(s) whose random tick can't be told", c.unknown.len());
         }
         MobfarmCmd::SettleCheck { file, files_from, changed_from, scope_file, owners, write, cap, day_time, allow_unchecked, all } => {
             // (farmopt / ironspec Nov 14 10:21a (2) / 10:29a (5) / 10:37a (3), part 72) a directory (every `.txt` design
