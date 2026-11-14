@@ -4824,7 +4824,7 @@ pub fn void_exposures(spec: &FarmSpec, biome: &'static str) -> Result<(Vec3, red
         redsim::entity::mob::site::villager_cells(&with)
     };
     let farm = circuit::mobfarm::hostile_farm(&w, spec, afk, &summoners);
-    let ex = redsim::entity::mob::hostile::check(&w, &farm, true);
+    let ex = redsim::entity::mob::hostile::check(&w, &farm, true)?;
     Ok((afk, farm, ex))
 }
 
