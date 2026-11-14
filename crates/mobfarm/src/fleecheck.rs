@@ -5179,7 +5179,31 @@ pub fn stamp_classes(places: &[Place], each: bool) -> Vec<String> {
                     }
                 })
                 .collect();
-            let mut row = format!("  STAMP {},{},{}{}: {class}{}; {} ({}){}", p.cell.x, p.cell.y, p.cell.z, if p.on_foot { " on foot" } else { "" }, if panicking { "" } else { " (day: classed on IDLE's sources; REST's HOME walks not modeled)" }, if panicking { "panicking" } else { "calm" }, detail.join("; "), if p.village { "; in a village" } else { "" });
+            let mut row = format!(
+                "  STAMP {},{},{}{}: {class}{}; {} ({}){}",
+                p.cell.x,
+                p.cell.y,
+                p.cell.z,
+                if p.on_foot { " on foot" } else { "" },
+                if panicking {
+                    ""
+                } else if p.home_reached.is_some() {
+                    " (day: classed on IDLE's sources)"
+                } else {
+                    " (day: classed on IDLE's sources; REST's HOME walks not modeled)"
+                },
+                if panicking { "panicking" } else { "calm" },
+                detail.join("; "),
+                if p.village { "; in a village" } else { "" }
+            );
+            // (G1 Nov 14 02:50 (2b), part 41: the night's class beside the day's: REST runs no stroll, so a
+            // resting rider's stamp clears only by its HOME walk completing; the day class is no evidence
+            // for a night halt)
+            match p.home_reached {
+                Some(true) => row.push_str("; NIGHT (REST's HOME walk to the bed): the bed reached, a HOME path completes: clears"),
+                Some(false) => row.push_str("; NIGHT (REST's HOME walk to the bed): the bed UNREACHED: a resting rider's stamp arms and nothing at night clears it (arms, never clears)"),
+                None => {}
+            }
             if !phys.is_empty() {
                 row.push_str(&format!("; PHYSICAL (counted as clearing: the pathfinder's completion clears the stamp; a walker may stick pressing there): {} reached target(s) whose found path enters a shape over the 0.6 step: {}", phys.len(), phys.join("; ")));
             }
@@ -5190,6 +5214,16 @@ pub fn stamp_classes(places: &[Place], each: bool) -> Vec<String> {
         "stamp-arming classes ({} places; a prediction for the bills, not a bar): arms and clears {ac}, arms, never clears {an}, never arms {na}",
         places.len()
     )];
+    // (part 41) the night's counts, when the design's bed is known
+    let homed: Vec<&Place> = places.iter().filter(|p| p.home_reached.is_some()).collect();
+    if !homed.is_empty() {
+        let reached = homed.iter().filter(|p| p.home_reached == Some(true)).count();
+        lines.push(format!(
+            "night classes (REST runs no stroll: a resting rider's stamp clears only by its HOME walk to the bed): the bed reached from {reached} of {} places (clears); UNREACHED from {} (arms, never clears at night): the day class is no evidence for a night halt",
+            homed.len(),
+            homed.len() - reached
+        ));
+    }
     lines.extend(rows);
     // (G1 Nov 14 01:16b (b), ironspec 01:21 (4), part 37: every top-half cap a walker can reach, panic
     // and stroll walkers included; not a bar)
@@ -5805,6 +5839,42 @@ fn may_source(w: &redsim::World, s: &redsim::block::Block) -> bool {
 /// power consumer is NOT JUDGED (H2: a typo'd cell on air never passes). `allow` names source cells the
 /// design means (the bar counts the rest); an allowed cell no cell's reach holds FAILS as stale (H3).
 /// Returns the lines and the count of sources outside `allow` plus stale allows.
+/// A powered or activator rail's run: the same-kind rails joined to `c` within 8 steps (26-neighbours
+/// without the horizontal diagonals, as the rail's line may climb), `c` itself left out; empty for any
+/// other block (power runs along such a run up to 8 rails from a powered one).
+fn rail_chain(w: &redsim::World, c: BlockPos) -> Vec<BlockPos> {
+    let kind = |q: BlockPos| match w.get(q) {
+        redsim::block::Block::Rail { activator, .. } => Some(activator),
+        _ => None,
+    };
+    let mut chain = Vec::new();
+    let Some(k) = kind(c) else { return chain };
+    let mut seen = vec![c];
+    let mut front = vec![c];
+    for _ in 0..8 {
+        let mut next = Vec::new();
+        for p in &front {
+            for dx in -1..=1 {
+                for dy in -1..=1 {
+                    for dz in -1..=1 {
+                        if (dx != 0 && dz != 0) || (dx == 0 && dy == 0 && dz == 0) {
+                            continue;
+                        }
+                        let q = BlockPos::new(p.x + dx, p.y + dy, p.z + dz);
+                        if !seen.contains(&q) && kind(q) == Some(k) {
+                            seen.push(q);
+                            next.push(q);
+                            chain.push(q);
+                        }
+                    }
+                }
+            }
+        }
+        front = next;
+    }
+    chain
+}
+
 pub fn power_into(spec: &FarmSpec, cells: &[BlockPos], no_qc: bool, allow: &[BlockPos]) -> Result<(Vec<String>, usize), String> {
     let w = settled_world_void(spec)?;
     let name = |q: BlockPos| w.get(q).to_string().trim_start_matches("minecraft:").to_string();
@@ -5828,37 +5898,8 @@ pub fn power_into(spec: &FarmSpec, cells: &[BlockPos], no_qc: bool, allow: &[Blo
         }
         // a powered / activator rail: the same-kind rails joined to it within 8 (26-neighbours, as the
         // rail's line may climb)
-        let kind = |q: BlockPos| match w.get(q) {
-            redsim::block::Block::Rail { activator, .. } => Some(activator),
-            _ => None,
-        };
-        let mut chain = Vec::new();
-        if let Some(k) = kind(*c) {
-            let mut seen = vec![*c];
-            let mut front = vec![*c];
-            for _ in 0..8 {
-                let mut next = Vec::new();
-                for p in &front {
-                    for dx in -1..=1 {
-                        for dy in -1..=1 {
-                            for dz in -1..=1 {
-                                if (dx != 0 && dz != 0) || (dx == 0 && dy == 0 && dz == 0) {
-                                    continue;
-                                }
-                                let q = BlockPos::new(p.x + dx, p.y + dy, p.z + dz);
-                                if !seen.contains(&q) && kind(q) == Some(k) {
-                                    seen.push(q);
-                                    next.push(q);
-                                    chain.push(q);
-                                }
-                            }
-                        }
-                    }
-                }
-                front = next;
-            }
-            into.extend(chain.iter().copied());
-        }
+        let chain = rail_chain(&w, *c);
+        into.extend(chain.iter().copied());
         let mut hits: Vec<(BlockPos, String)> = Vec::new();
         for s in &into {
             for q in n6(*s) {
@@ -6030,6 +6071,16 @@ pub fn power_out(spec: &FarmSpec, cells: &[BlockPos], allow: &[BlockPos]) -> Res
                     } else if power_consumer(&id(r)) && diode_reads(r, &rs, q, &w.get(q).to_string()) {
                         hits.push((r, format!("{} at {},{},{} through the conductor {} at {},{},{}", name(r), r.x, r.y, r.z, id(q), q.x, q.y, q.z)));
                     }
+                }
+            }
+        }
+        // (G1 Nov 14 02:50 (1), part 42) a powered or activator rail it reaches passes the power along its
+        // run: every same-kind rail joined to it within 8 is reached too, by propagation
+        let direct: Vec<BlockPos> = hits.iter().map(|(q, _)| *q).collect();
+        for q in &direct {
+            for r in rail_chain(&w, *q) {
+                if !hits.iter().any(|(x, _)| *x == r) {
+                    hits.push((r, format!("{} at {},{},{} by propagation along the rail run from {},{},{}", name(r), r.x, r.y, r.z, q.x, q.y, q.z)));
                 }
             }
         }
@@ -10375,6 +10426,17 @@ mod gate_tests {
         let places = super::check(&s, None, &[], &[]).unwrap();
         let rows = super::stamp_classes(&places, true);
         assert!(rows.iter().any(|r| r.contains("arms, never clears")), "{rows:?}");
+        assert!(rows.iter().all(|r| !r.contains("NIGHT")) && !rows.iter().any(|r| r.starts_with("night classes")), "no bed known: no night class: {rows:?}");
+        // (G1 Nov 14 02:50 (2b), part 41) with a bed no rider reaches: every row carries the NIGHT class
+        // "UNREACHED ... (arms, never clears)", the counts line names them, and the day tag no longer says
+        // REST is unmodeled
+        let homed = super::check(&s, Some(b(100, 1, 100)), &[], &[]).unwrap();
+        let rh = super::stamp_classes(&homed, true);
+        assert!(
+            rh.iter().filter(|r| r.starts_with("  STAMP")).all(|r| r.contains("; NIGHT (REST's HOME walk to the bed): the bed UNREACHED") && !r.contains("REST's HOME walks not modeled"))
+                && rh.iter().any(|r| r.starts_with("night classes") && r.contains("the bed reached from 0 of")),
+            "a bed no rider reaches: {rh:?}"
+        );
         assert!(rows.iter().any(|r| r.starts_with("physical hazards (G1 01:16b; not a bar): 0 place(s)") && r.ends_with("0 such node(s) (none)")), "no cap: {rows:?}");
         // (part 37) a reached target whose found path enters a cap: the place's row names it (counted as
         // clearing: the class is unchanged), the summary lists the cap with the place
@@ -11542,6 +11604,15 @@ mod gate_tests {
         let lock = p("minecraft:repeater[delay=1,facing=south,locked=false,powered=false]");
         let (ll, nl) = super::power_out(&mk(vec![(b(2, 1, 2), rep), (b(2, 1, 3), lock)]), &[b(2, 1, 3)], &[]).unwrap_or_else(|e| panic!("{e}"));
         assert!(nl == 1 && ll[0].contains("repeater[delay=1,facing=east") && ll[0].contains("at 2,1,2 beside it"), "a diode locking its side: {ll:?}");
+        // (G1 Nov 14 02:50 (1), part 42) a redstone block beside a powered rail: the two powered rails joined
+        // to it in its line are reached too, by propagation (3 consumers); a plain rail beyond stops the run
+        let pr = p("minecraft:powered_rail[powered=false,shape=north_south,waterlogged=false]");
+        let run = mk(vec![(b(2, 1, 0), p("minecraft:rail[shape=north_south,waterlogged=false]")), (b(2, 1, 1), pr), (b(2, 1, 2), pr), (b(2, 1, 3), pr), (b(3, 1, 1), p("minecraft:redstone_block"))]);
+        let (lp, np) = super::power_out(&run, &[b(3, 1, 1)], &[]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(
+            np == 3 && lp[0].contains("at 2,1,1 beside it") && lp[0].contains("at 2,1,2 by propagation along the rail run from 2,1,1") && lp[0].contains("at 2,1,3 by propagation along the rail run from 2,1,1") && !lp[0].contains("2,1,0"),
+            "a powered rail's run: {lp:?}"
+        );
         // (G1 23:06) --no-qc is read back: with no piston, dropper or dispenser among the cells it fails
         let (l8, n8) = super::power_into(&mk(vec![(b(2, 1, 2), act)]), &[b(2, 1, 2)], true, &[]).unwrap_or_else(|e| panic!("{e}"));
         assert!(n8 == 1 && l8.iter().any(|x| x.starts_with("--no-qc: no cell is a piston") && x.ends_with("a stale flag (FAIL)")), "a stale --no-qc: {l8:?}");
