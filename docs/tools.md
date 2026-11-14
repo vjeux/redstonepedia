@@ -370,7 +370,14 @@ line and the slope tap are stand-ins at their declared phases, the rest out of i
 "a pocket drive off its clock slot"; `--late-drive-control K,D` (pocket K's drive D gt late) must
 fail by it. `--t-hold-control` is the T-shape bar's negative row: the first station T's constant
 source (form (C): slime under the T, a lit torch under the slime, on glass) laid before the settle,
-the same lever switched on and off beside it: the T must not re-shape. Where a world has hold
+the same lever switched on and off beside it: the T must not re-shape. `--hold-repeater` (commit E)
+drives the holds' iron trapdoors through their built drive (the ring's north cell a slime block fed
+by a delay-1 repeater (x,16,-2) from a lever stand-in at the line end (x,16,-3)), the lever flipped
+`HOLD_DRIVE_LEAD_ITERATIONS` (1 bench iteration = 2 gt: the lever flips between ticks; tick-exact's
+hold-drive game row) before each declared open and shut, each trapdoor's open and shut checked against
+its declared tick ("a hold's trapdoor off its declared tick (the holds' built drive)"), redsim's
+chain printed tick by tick; `--hold-lead-control D` (D = -1 or 1) moves the lever D iterations and must
+fail by that bar; station-judge uses it whenever the station is built from its design. Where a world has hold
 strings (x,17,0) (the module rows' record7f12; the station file has none since day-1 21:21), their
 last release before the R line rises and first press after it print per lane, a diagnostic (the
 lead bar retired by name, ironspec 21:16: its consumer was G8c, not bought). ironfarm's C-fix rows:
