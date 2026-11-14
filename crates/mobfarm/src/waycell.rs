@@ -107,6 +107,9 @@ pub struct Opts {
     /// This run is the declarations' own `ref=` run: `contacts::reference_check` mismatches FAIL it
     /// (printed only otherwise).
     pub reference_run: bool,
+    /// (ironspec 18:39 (4)) the rail end's all-clear speed (the start-phase sweep's figure): the ride
+    /// rows' entry speed into (9,-15,-2) must be at least it + 10 % (None: printed only).
+    pub rail_end_least: Option<f64>,
 }
 
 /// `x,y,z=block;...` (a block state, `minecraft:` optional; a leading `!` on a cell replaces what
@@ -1258,21 +1261,54 @@ pub fn release_pulse_lines(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, puls
     }
     let lever = BlockPos::new(8, -14, -5);
     let ready_on = Block::parse("minecraft:lever[face=wall,facing=west,powered=true]").map_err(|e| e.to_string())?;
-    let mut out = vec![fluid_line, format!("(release pulse) the cart held 40 gt on the braked queue rail; per pulse k: the release (NOT-ready's lever {lever} OFF) at t 0 and the lever back ON at t k")];
+    // (ironspec 18:39 (4)) the departure detector (9,-15,-3) and the arrival detector (9,-13,-5) with the
+    // cart at rest on the queue: neither may be pressed (a departure detector pressed at rest resets
+    // RS_ready at once); the queue rail's power
+    let powered = |w: &redsim::world::World, p: BlockPos| w.get(p).to_string().contains("powered=true");
+    let (dep_cell, arr_cell, rail_cell) = (BlockPos::new(q[0], q[1] - 1, q[2] + 1), BlockPos::new(q[0], q[1] + 1, q[2] - 1), BlockPos::new(q[0], q[1], q[2]));
+    let at_rest = run.world.entities.list.iter().find(|e| e.id == cart && !e.removed).map(|e| (e.pos, e.delta_movement));
+    let mut out = vec![
+        fluid_line,
+        format!("(release pulse) the cart held 40 gt on the braked queue rail; per pulse k: the release (NOT-ready's lever {lever} OFF) at t 0 and the lever back ON at t k"),
+        format!(
+            "(release pulse) at rest before the release: the cart at {:?}; the departure detector {dep_cell} {} ({}), the arrival detector {arr_cell} {} ({}), the queue rail {rail_cell} {}: {}",
+            at_rest.map(|(p, v)| format!("({:.4}, {:.4}, {:.4}) moving {:.4}", p.x, p.y, p.z, (v.x * v.x + v.z * v.z).sqrt())),
+            run.world.get(dep_cell),
+            if powered(&run.world, dep_cell) { "PRESSED" } else { "not pressed" },
+            run.world.get(arr_cell),
+            if powered(&run.world, arr_cell) { "PRESSED" } else { "not pressed" },
+            if powered(&run.world, rail_cell) { "powered" } else { "unpowered (braking)" },
+            if powered(&run.world, dep_cell) || powered(&run.world, arr_cell) { "a detector pressed at rest: FAIL" } else { "neither pressed: PASSES" }
+        ),
+    ];
+    let rest_ok = !powered(&run.world, dep_cell) && !powered(&run.world, arr_cell);
     let mut reached: Vec<(u32, bool)> = Vec::new();
+    let mut holds: Vec<(u32, Option<u32>, u32, Option<f64>)> = Vec::new();
     for k in pulses.0..=pulses.1 {
         let mut r = run.clone();
         release(&mut r.world, o)?;
         let (mut left, mut shaft, mut at_entry) = (None::<u32>, None::<u32>, None::<u32>);
         let mut last: Option<([i32; 3], f64)> = None;
+        // the first departure-detector press, the queue rail's powered ticks, the speed entering the
+        // rail end (9,-15,-2) (the tick the cart's cell first becomes it: its horizontal speed)
+        let (mut dep_press, mut rail_on, mut rail_end_v) = (None::<u32>, 0u32, None::<f64>);
         for t in 0..ticks {
             if t == k {
                 r.world.set_block(lever, ready_on.clone(), redsim::world::flags::ALL);
             }
             r.tick();
+            if dep_press.is_none() && powered(&r.world, dep_cell) {
+                dep_press = Some(t);
+            }
+            if powered(&r.world, rail_cell) {
+                rail_on += 1;
+            }
             let Some(e) = r.world.entities.list.iter().find(|e| e.id == cart && !e.removed) else { break };
             let c = [e.pos.x.floor() as i32, e.pos.y.floor() as i32, e.pos.z.floor() as i32];
             last = Some((c, (e.delta_movement.x.powi(2) + e.delta_movement.z.powi(2)).sqrt()));
+            if rail_end_v.is_none() && c == [9, -15, -2] {
+                rail_end_v = Some((e.delta_movement.x.powi(2) + e.delta_movement.z.powi(2)).sqrt());
+            }
             if left.is_none() && c != q {
                 left = Some(t);
             }
@@ -1285,14 +1321,31 @@ pub fn release_pulse_lines(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, puls
             }
         }
         reached.push((k, at_entry.is_some()));
+        holds.push((k, dep_press, rail_on, rail_end_v));
         out.push(format!(
-            "(release pulse) k {k} gt: left the queue cell at t {left:?}, in the shaft at t {shaft:?}, at the stop's entry {entry:?} at t {at_entry:?}{}",
+            "(release pulse) k {k} gt: left the queue cell at t {left:?}, the departure detector {dep_cell} first pressed at t {dep_press:?}, the queue rail powered {rail_on} tick(s), entering the rail end (9,-15,-2) at {}, in the shaft at t {shaft:?}, at the stop's entry {entry:?} at t {at_entry:?}{}",
+            rail_end_v.map_or("- (never entered)".to_string(), |v| format!("{v:.4} b/t")),
             if at_entry.is_some() { String::new() } else { last.map_or("; the cart gone".to_string(), |(c, v)| format!("; it ENDS at {c:?} at {v:.4} b/t after {ticks} gt")) }
         ));
     }
     // the stated minimum: the least k from which every longer pulse of the sweep reaches the entry
     let min_k = (0..reached.len()).find(|&i| reached[i..].iter().all(|(_, ok)| *ok)).map(|i| reached[i].0);
-    let pass = min_k.is_some();
+    // (ironspec 18:39 (4)) the built gate's hold as wired: RS_ready resets at the cart's SENSED departure,
+    // so the hold ends 2 gt after the first departure-detector press (the reset's two repeater ticks):
+    // the hold = that press + 2, read from the longest pulse (an unbroken release)
+    let (_, first_press, _, _) = holds.last().copied().unwrap_or((0, None, 0, None));
+    let built_hold = first_press.map(|t| t + 2);
+    out.push(format!(
+        "(release pulse) the built gate's hold (RS_ready reset at the sensed departure, ironspec 18:39 (4)): the departure detector first pressed at t {first_press:?} after the release, so the hold ends at t {} (press + 2): {} the stated minimum{}",
+        built_hold.map_or("-".to_string(), |h| h.to_string()),
+        match (built_hold, min_k) {
+            (Some(h), Some(m)) if h >= m => format!("{} gt over", h - m),
+            (Some(h), Some(m)) => format!("{} gt SHORT of", m - h),
+            _ => "NOT JUDGED against".to_string(),
+        },
+        if rest_ok { "" } else { " (a detector pressed at rest: the reset would fire before the release)" }
+    ));
+    let pass = min_k.is_some() && rest_ok && matches!((built_hold, min_k), (Some(h), Some(m)) if h >= m);
     out.push(format!(
         "(release pulse) the stated minimum over k {}..{}: {}",
         pulses.0,
@@ -1305,12 +1358,13 @@ pub fn release_pulse_lines(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, puls
     Ok((override_lines.into_iter().chain(out).collect(), pass))
 }
 
-/// (G1 17:28: the design margin for the fault notes) The least speed at which a cart leaving the rail
-/// end (9,-15,-2) still clears into the shaft: per speed v, a cart (with a rider) set on the rail end's
-/// centre moving south at v, followed 60 gt: in the shaft (9,·,-1) below y -16, or held where (resting
-/// on the rail end's support, the cell's stored motion). The least v that clears, against the designed
-/// launch's 0.4000.
-pub fn launch_speed_lines(spec: &FarmSpec, o: &Opts, speeds: &[f64]) -> Result<(Vec<String>, bool), String> {
+/// (G1 17:28: the design margin for the fault notes; G1 18:40: the whole range at every phase) Whether a
+/// cart leaving the rail end (9,-15,-2) clears into the shaft: per start phase (the cart's z inside the
+/// rail end's cell) and per speed v, a cart (with a rider) set there moving south at v, followed 60 gt:
+/// in the shaft (9,·,-1) below y -16, or held (resting on the rail end's support). Per phase: the held
+/// bands and the least speed from which every faster speed clears; over the phases: the least speed
+/// from which every faster speed clears at EVERY phase, against the designed launch's 0.4000.
+pub fn launch_speed_lines(spec: &FarmSpec, o: &Opts, speeds: &[f64], phases: u32) -> Result<(Vec<String>, bool), String> {
     let ro = RunOpts { ai: true, ..RunOpts::steady(1, 120, WalkMode::Random) };
     let (mut run, _) = crate::placing::start(&widened(spec, o), &ro, crate::placing::Placement::Judge, &crate::placing::BuildPlan::default())?;
     let mut cells: Vec<(BlockPos, Block)> = Vec::new();
@@ -1322,43 +1376,83 @@ pub fn launch_speed_lines(spec: &FarmSpec, o: &Opts, speeds: &[f64]) -> Result<(
     if !run.world.get(end).to_string().contains("rail") {
         return Err(format!("--launch-speeds: no rail at the rail end {end}"));
     }
-    let mut out = vec![format!("(launch speed) a cart with a rider set on the rail end {end}'s centre moving south (+z) at each speed, followed 60 gt")];
-    let mut least_clear: Option<f64> = None;
-    let mut all_above_clear = true;
-    for &v in speeds {
-        let mut r = run.clone();
-        let cart = redsim::entity::spawn(&mut r.world, "minecraft:minecart", [9.5, -15.0, -1.5], Some(&format!("{{Motion:[0.0d,0.0d,{v:.6}d],Passengers:[{{id:\"minecraft:villager\",NoAI:1b}}]}}")))?;
-        let mut fell = None;
-        let mut last = None;
-        for t in 0..60u32 {
-            r.tick();
-            let Some(e) = r.world.entities.list.iter().find(|e| e.id == cart && !e.removed) else { break };
-            last = Some((e.pos, e.delta_movement));
-            if fell.is_none() && e.pos.y < -16.0 && e.pos.z.floor() as i32 == -1 {
-                fell = Some(t);
+    let mut out = vec![format!(
+        "(launch speed) a cart with a rider set on the rail end {end} at {} start phase(s) along it (z = -2 + (k + 0.5) / {phases}), moving south (+z) at each of {} speed(s) {:.4}..{:.4}, followed 60 gt (G1 18:40: the whole range at every phase)",
+        phases,
+        speeds.len(),
+        speeds.first().copied().unwrap_or(0.0),
+        speeds.last().copied().unwrap_or(0.0)
+    )];
+    let fmt_bands = |b: &[(f64, f64)]| if b.is_empty() { "none".to_string() } else { b.iter().map(|(a, z)| if a == z { format!("{a:.4}") } else { format!("{a:.4}..{z:.4}") }).collect::<Vec<_>>().join(", ") };
+    // per phase: the held bands (maximal runs of held speeds) and the least speed from which every faster
+    // speed swept clears
+    let mut worst_all_clear: Option<f64> = Some(0.0);
+    let mut held_union: Vec<(f64, f64, f64)> = Vec::new();
+    for k in 0..phases.max(1) {
+        let z0 = -2.0 + (k as f64 + 0.5) / phases.max(1) as f64;
+        let mut results: Vec<(f64, bool)> = Vec::new();
+        for &v in speeds {
+            let mut r = run.clone();
+            let cart = redsim::entity::spawn(&mut r.world, "minecraft:minecart", [9.5, -15.0, z0], Some(&format!("{{Motion:[0.0d,0.0d,{v:.6}d],Passengers:[{{id:\"minecraft:villager\",NoAI:1b}}]}}")))?;
+            let mut fell = None;
+            let mut last = None;
+            for t in 0..60u32 {
+                r.tick();
+                let Some(e) = r.world.entities.list.iter().find(|e| e.id == cart && !e.removed) else { break };
+                last = Some((e.pos, e.delta_movement));
+                if fell.is_none() && e.pos.y < -16.0 && e.pos.z.floor() as i32 == -1 {
+                    fell = Some(t);
+                }
+            }
+            results.push((v, fell.is_some()));
+            if phases <= 1 {
+                out.push(format!(
+                    "(launch speed) v {v:.4} b/t: {}",
+                    match (fell, last) {
+                        (Some(t), _) => format!("CLEARS into the shaft (below y -16 at t {t})"),
+                        (None, Some((p, dm))) => format!("HELD at ({:.4}, {:.4}, {:.4}), stored motion ({:.4}, {:.4}, {:.4}) after 60 gt", p.x, p.y, p.z, dm.x, dm.y, dm.z),
+                        (None, None) => "the cart gone".to_string(),
+                    }
+                ));
             }
         }
-        let clears = fell.is_some();
-        if clears && least_clear.is_none() {
-            least_clear = Some(v);
+        let mut bands: Vec<(f64, f64)> = Vec::new();
+        let mut prev_held = false;
+        for &(v, clears) in &results {
+            if !clears {
+                match bands.last_mut() {
+                    Some((_, z)) if prev_held => *z = v,
+                    _ => bands.push((v, v)),
+                }
+            }
+            prev_held = !clears;
         }
-        if least_clear.is_some() && !clears {
-            all_above_clear = false;
-        }
+        // the least speed from which every faster speed swept clears (None: the fastest is held)
+        let all_clear = match results.iter().rposition(|r| !r.1) {
+            None => results.first().map(|r| r.0),
+            Some(i) => results.get(i + 1).map(|r| r.0),
+        };
+        worst_all_clear = match (worst_all_clear, all_clear) {
+            (Some(w), Some(a)) => Some(w.max(a)),
+            _ => None,
+        };
+        held_union.extend(bands.iter().map(|&(a, b)| (z0, a, b)));
         out.push(format!(
-            "(launch speed) v {v:.4} b/t: {}",
-            match (fell, last) {
-                (Some(t), _) => format!("CLEARS into the shaft (below y -16 at t {t})"),
-                (None, Some((p, dm))) => format!("HELD at ({:.4}, {:.4}, {:.4}), stored motion ({:.4}, {:.4}, {:.4}) after 60 gt", p.x, p.y, p.z, dm.x, dm.y, dm.z),
-                (None, None) => "the cart gone".to_string(),
-            }
+            "(launch speed) start z {z0:.4}: every speed from {} up clears; held bands {}",
+            all_clear.map_or("NONE (the fastest swept is held)".to_string(), |a| format!("{a:.4}")),
+            fmt_bands(&bands)
         ));
     }
-    let pass = least_clear.is_some() && all_above_clear;
+    let pass = worst_all_clear.is_some();
+    let union_lo = held_union.iter().map(|b| b.1).fold(f64::INFINITY, f64::min);
     out.push(format!(
-        "(launch speed) the least speed that clears: {} (the designed launch 0.4000; every faster speed swept clears: {})",
-        least_clear.map_or("NONE in the sweep".to_string(), |v| format!("{v:.4} b/t, margin x{:.1}", 0.4 / v)),
-        if all_above_clear { "yes" } else { "NO" }
+        "(launch speed) over the {} phase(s): every speed from {} up clears at EVERY phase (the designed launch 0.4000{}); held speeds anywhere in {:.4}..{:.4} over the phases ({} held band(s) in all)",
+        phases.max(1),
+        worst_all_clear.map_or("NONE".to_string(), |w| format!("{w:.4}")),
+        worst_all_clear.filter(|w| *w > 0.0).map_or(String::new(), |w| format!(", margin x{:.2}", 0.4 / w)),
+        if union_lo.is_finite() { union_lo } else { 0.0 },
+        held_union.iter().map(|b| b.2).fold(0.0, f64::max),
+        held_union.len()
     ));
     Ok((override_lines.into_iter().chain(out).collect(), pass))
 }
@@ -1413,6 +1507,7 @@ pub fn ride_rows_core(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u
     let mut rows: Vec<(String, Option<u32>, Option<Vec3>, f32, bool, bool)> = Vec::new();
     // (G1 09:31 E2) each row's band-bench t0 (the entry cell's centre passed, post-tick), in the rows' order
     let mut centres: Vec<Option<(u32, f64)>> = Vec::new();
+    let mut rail_end_speeds: Vec<Option<f64>> = Vec::new();
     let mut specs: Vec<(String, u32, Option<(i64, crate::liveness::Restart)>, Option<(i64, i64)>)> = (0..phases).map(|k| (format!("phase +{k}"), k, None, None)).collect();
     for &t in restart_ticks {
         for how in crate::liveness::Restart::rows() {
@@ -1511,6 +1606,7 @@ pub fn ride_rows_core(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u
         let mut centre: Option<(u32, f64)> = None;
         let mut last_seen: Option<([i32; 3], f64)> = None;
         let (mut box_z_max, mut vz_max) = (f64::NEG_INFINITY, f64::NEG_INFINITY);
+        let mut rail_end_v: Option<f64> = None;
         let mut restart_cell: Option<P> = None;
         let mut eye_wet = 0u32;
         let mut contacts = 0u32;
@@ -1809,6 +1905,11 @@ pub fn ride_rows_core(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u
                     let _ = pz;
                 }
             }
+            // (ironspec 18:39 (4): the rail end's normal-operation bar) the cart's horizontal speed the
+            // tick its cell first becomes the rail end (9,-15,-2)
+            if rail_end_v.is_none() && c == [9, -15, -2] {
+                rail_end_v = Some((e.delta_movement.x.powi(2) + e.delta_movement.z.powi(2)).sqrt());
+            }
             // (ironspec 05:09: the R2 search's gate) the HOME path from the rider's ACTUAL state at every
             // descent tick of every row (its box and wasTouchingWater as the tick left them, so
             // getStart's water branch applies as in the game): partial or complete, cached by the
@@ -1866,6 +1967,10 @@ pub fn ride_rows_core(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u
             }
         }
         centres.push(centre);
+        // (ironspec 18:39 (4)) the rail end's entry speed of every bar row (a freeze row's prints apart)
+        if freeze.is_none() {
+            rail_end_speeds.push(rail_end_v);
+        }
         // (ironspec 10:42 / 10:58) the row's events per declared cell, for the per-row maximum
         if freeze.is_none() {
             for (c, n) in &row_events {
@@ -2128,9 +2233,29 @@ pub fn ride_rows_core(spec: &FarmSpec, o: &Opts, entry: P, ticks: u32, phases: u
             format!("MISMATCH {}", ref_mismatch.join("; "))
         }
     );
+    // (ironspec 18:39 (4): the rail end's normal-operation bar) every bar row's speed entering the rail
+    // end (9,-15,-2), against the start-phase sweep's all-clear figure + 10 % (--rail-end-least; without
+    // it, printed only)
+    let re: Vec<f64> = rail_end_speeds.iter().flatten().copied().collect();
+    let re_missing = rail_end_speeds.iter().filter(|v| v.is_none()).count();
+    let re_min = re.iter().copied().fold(f64::INFINITY, f64::min);
+    let re_ok = match o.rail_end_least {
+        Some(f) => re_missing == 0 && !re.is_empty() && re_min >= f * 1.1,
+        None => true,
+    };
+    out.push(format!(
+        "(ride) the speed entering the rail end (9,-15,-2) over the {} bar row(s): {}{}; {}",
+        rail_end_speeds.len(),
+        if re.is_empty() { "never entered".to_string() } else { format!("{re_min:.4}..{:.4} b/t", re.iter().copied().fold(0.0, f64::max)) },
+        if re_missing > 0 { format!(" ({re_missing} row(s) never entered it)") } else { String::new() },
+        match o.rail_end_least {
+            Some(f) => format!("the bar >= {:.4} (the all-clear figure {f:.4} + 10 %, ironspec 18:39 (4)): {}", f * 1.1, if re_ok { "PASSES" } else { "FAILS" }),
+            None => "no all-clear figure given (--rail-end-least): printed, not judged".to_string(),
+        }
+    ));
     // (G1 14:51 (4); ONE contact rule) the contact verdicts are main's bounded judge's (both axes): the
     // old horizontal-only stale count is printed as information and no longer gates the run
-    let pass = !vacuous && all_ok && td_ok && watch_ok && probe_ok && judge_ok && !(fence_min.is_finite() && fence_min <= 0.0);
+    let pass = !vacuous && all_ok && td_ok && watch_ok && probe_ok && judge_ok && re_ok && !(fence_min.is_finite() && fence_min <= 0.0);
     out.push(format!(
         "(ride) {} rows ({fluid_n} fluid cell(s) of the chunk given their tick; natural spawning OFF by construction: the bench's world has no natural spawner, mob.natural None, ironspec 14:57): the entry reached in {} of them at t {}..{} after the release, {:.4}..{:.4} b/t heading west (the bar [{}, {}], inherited: ironspec 21:25 from 58f770cc's A6 park sweep){centre_line}{stale_line}{judge_line}; 0 hurt, on rails, never back south; {}; {}; {}; the closest fence box (post and arms as laid) to the cart's box: {}; {td_line}{watch_line}{}: {}",
         bar.len(),
@@ -4706,6 +4831,7 @@ mod tests {
             declared_contacts: Vec::new(),
             declared_bounded: Vec::new(),
             reference_run: false,
+            rail_end_least: None,
         }
     }
 

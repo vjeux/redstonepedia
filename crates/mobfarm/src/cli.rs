@@ -1959,6 +1959,10 @@ pub enum MobfarmCmd {
         /// `contacts::reference_check` mismatches fail it (printed only without this flag)
         #[arg(long)]
         reference_run: bool,
+        /// (ironspec 18:39 (4)) the rail end's all-clear speed from the start-phase sweep (b/t): the ride
+        /// rows' speed entering (9,-15,-2) must be at least it + 10 % (without it: printed only)
+        #[arg(long)]
+        rail_end_least: Option<f64>,
         /// (ironspec 17:38: the boost-margin row) with --ride-to, --south, --r1-built: the release held
         /// for k gt, k in A..=B (NOT-ready's lever back ON at t k), each cart followed to the entry or
         /// its end; the stated minimum pulse
@@ -1968,6 +1972,10 @@ pub enum MobfarmCmd {
         /// followed 60 gt off the rail end (9,-15,-2): into the shaft, or held
         #[arg(long, value_delimiter = ',')]
         launch_speeds: Vec<f64>,
+        /// With --launch-speeds (G1 18:40): the start phases along the rail end's cell, z = -2 + (k + 0.5)
+        /// / N (1: its centre); every speed at every phase
+        #[arg(long, default_value_t = 1)]
+        launch_phases: u32,
         /// (tick-exact's forced holds) the visit's cart summoned at `--leg`'s position and held there:
         /// no leg, the rows start at once; a hold past the row's end never releases.
         #[arg(long)]
@@ -8371,7 +8379,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 std::process::exit(1);
             }
         }
-        MobfarmCmd::WayCell { design, positions, move_positions, s9, c_descent, brakes, queue, post, own, napper, keep_clear, chunk, pad, draws, write, rail, extra, ride_to, custom_post, wait, bed, leg, hold, south, deep, ride_ticks, release_phases, restart_at, stamp, follow, queue_glass, leg_day, release_sweep, visit, visit_holds, visit_no_post, path_probe, seat_at, restart_every, freeze_every, band, r1_built, visit_skip, bystander, watch_cells, visit_clear_stamp, visit_plant_stamp, visit_plant_erase, visit_start_held, visit_break_bed, report_only, reference_run, release_pulse, launch_speeds, visit_at_rest, probe_every_tick, freeze_lens, water_restart_row, water_scan, scan_box, water_search, search_rests, search_sweep } => {
+        MobfarmCmd::WayCell { design, positions, move_positions, s9, c_descent, brakes, queue, post, own, napper, keep_clear, chunk, pad, draws, write, rail, extra, ride_to, custom_post, wait, bed, leg, hold, south, deep, ride_ticks, release_phases, restart_at, stamp, follow, queue_glass, leg_day, release_sweep, visit, visit_holds, visit_no_post, path_probe, seat_at, restart_every, freeze_every, band, r1_built, visit_skip, bystander, watch_cells, visit_clear_stamp, visit_plant_stamp, visit_plant_erase, visit_start_held, visit_break_bed, report_only, reference_run, rail_end_least, release_pulse, launch_speeds, launch_phases, visit_at_rest, probe_every_tick, freeze_lens, water_restart_row, water_scan, scan_box, water_search, search_rests, search_sweep } => {
             if let [a, b] = water_restart_row[..] {
                 let ticks: Vec<i64> = (a..=b).collect();
                 for how in crate::liveness::Restart::rows() {
@@ -8469,6 +8477,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 // read strictly by main's bounded reader: a malformed one in scope is an error
                 declared_bounded: crate::waycell::bounded_in_scope(&std::fs::read_to_string(&design)?, crate::waycell::RIDE_SCOPE).map_err(|e| anyhow::anyhow!(e))?,
                 reference_run,
+                rail_end_least,
             };
             if let Some(n) = deep {
                 // the deep queue's leg, stop wall and climb (ironspec 11:52), every n-th slope powered
@@ -8619,7 +8628,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 anyhow::ensure!(a > 0.0 && a <= b && step > 0.0, "--launch-speeds A,B,STEP with 0 < A <= B and STEP > 0");
                 let n = ((b - a) / step).round() as usize;
                 let speeds: Vec<f64> = (0..=n).map(|i| a + step * i as f64).collect();
-                let (lines, pass) = crate::waycell::launch_speed_lines(&spec, &o, &speeds).map_err(|e| anyhow::anyhow!(e))?;
+                let (lines, pass) = crate::waycell::launch_speed_lines(&spec, &o, &speeds, launch_phases).map_err(|e| anyhow::anyhow!(e))?;
                 for l in lines {
                     println!("{l}");
                 }
