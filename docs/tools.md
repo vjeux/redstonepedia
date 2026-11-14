@@ -643,6 +643,28 @@ the lower y; from each Nether portal the overworld ones within 128 of its x 8 po
 candidate's distance, the chosen portal per target, the expected partner's least margin, and any
 empty search (a portal would be created there). An entity's centre is taken anywhere over a cell
 grown `--margin` on x and z (a golem: 0.7; an item: 0.125).
+A loader layout's links, as tick-exact's loader rows lay it (loaderlay, Nov 13): `mctas mobfarm
+loader-layout --module M --module-offsets "x,y,z;..." --loader L --loader-offset x,y,z
+[--module-nether-ybase 64] [--loader-nether-ybase 0] [--plant DIM:NAME=box]... [--plant-unframed
+DIM:NAME=box]...` (`mobfarm::loaderlayout`).
+It lays the parts as `mobai loader-long` does (each Nether part at its anchor's /8 image). The search
+is tick-exact's 26.3 pins: the exit block `BlockPos.containing(x·s, y, z·s)`; every lit portal cell
+within 16 into the Nether or 128 into the overworld, at any y; the least integer distSqr, then the
+lowest y. It prints:
+- every portal with its frame (a frame the built layout breaks fails, and the search skips it);
+- the cells two parts claim;
+- the loader's two legs, from its firing droppers' crossing box (one move, the code; the verdict
+  searches one and two), and where the items come out of the partner;
+- each pad's golem leg against its own twin;
+- ties at the same y and empty searches (FAIL);
+- each leg's exclusion zone;
+- the chunks with their levels from the loader's two PORTAL tickets (a chunk with a rail or an
+  entity at <= 31, any other at <= 32), and the control chunk;
+- the loader's portal cells and frames in the farm frame;
+- loader-long's command line.
+
+`--plant` / `--plant-unframed` are its controls: read back; the unframed one is skipped and its
+framed twin must move picks; one that moves nothing refuses.
 A run's tick-level timing view (the carousel's parts and assembly): `mctas mobfarm timeline
 <design> --seed S --days D [--terrain <sample> | --build K] [--tag '<tag>'...] [--from T --to T]
 [--out DIR]` replays `mobfarm run`'s run (its counters printed beside the judge's: the same run tick

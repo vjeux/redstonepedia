@@ -2046,6 +2046,45 @@ pub enum MobfarmCmd {
         #[arg(long, default_value_t = 0.7)]
         margin: f64,
     },
+    /// (loaderlay 2026-11-13; tick-exact's N = 1 / 2 / 4 loader rows, onechunk's linking rule, ironspec's
+    /// site record) A loader layout laid as `mobai loader-long` lays it (`mobfarm::loaderlayout`): every
+    /// portal with its frame, the cells two parts claim, the loader's forward and return legs from where
+    /// its firing droppers' items cross and every copy's pads from where a golem can be in them (each to
+    /// its own partner, margins, ties), the chunks with their levels from the loader's two PORTAL tickets,
+    /// the control chunk, the loader's portal cells and frames in the farm frame, loader-long's command
+    /// line; exit 1 on a FAIL. `--plant` adds a portal (read back; one that moves no pick refuses).
+    LoaderLayout {
+        /// The farm module (its overworld `nether_portal` cells are the pads; its Nether part the twin).
+        #[arg(long)]
+        module: PathBuf,
+        /// The copies' offsets, "x,y,z;x,y,z" (loader-long's --module-offsets).
+        #[arg(long, allow_hyphen_values = true)]
+        module_offsets: String,
+        /// The module's Nether part's y base (loader-long's --module-nether-ybase).
+        #[arg(long, default_value_t = 64)]
+        module_nether_ybase: i32,
+        /// The loader (one portal in each dimension, a dropper firing into each).
+        #[arg(long)]
+        loader: PathBuf,
+        /// The loader's offset, x,y,z (loader-long's --loader-offset).
+        #[arg(long, allow_hyphen_values = true)]
+        loader_offset: String,
+        /// The loader's Nether part's y base (loader-long's --loader-nether-ybase).
+        #[arg(long, default_value_t = 0)]
+        loader_nether_ybase: i32,
+        /// A planted portal DIM:NAME=x0,y0,z0,x1,y1,z1[;...] (DIM overworld or nether; one cell thick in x
+        /// or z), laid with its obsidian frame (the ring in its plane, corners left out), repeatable: the
+        /// layout judged with it beside the layout as written; one that moves no pick refuses.
+        #[arg(long, allow_hyphen_values = true)]
+        plant: Vec<String>,
+        /// The same, its portal cells alone (a frame the game breaks: the search skips it); with no framed
+        /// plant, its framed twin must move picks (the broken-frame skip's control).
+        #[arg(long, allow_hyphen_values = true)]
+        plant_unframed: Vec<String>,
+        /// A golem's centre anywhere over a pad cell grown this much on x and z.
+        #[arg(long, default_value_t = 0.7)]
+        golem_margin: f64,
+    },
     /// (onechunk 2026-11-11/12; farmopt 22:22, tick-exact's code reads, G1's CHANGES 4) L1‴, the
     /// item-loop loader, benched in redsim (`mobfarm::l1items`): a same-axis portal pair; on each
     /// side a firing dropper at y 12 or 13 (`--fire-y`) fed by up-facing droppers, the exit face's
@@ -8387,6 +8426,32 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 ex.insert(a.trim().to_string(), b.trim().to_string());
             }
             print!("{}", crate::portallinks::report(&ow, &nether, &ex, margin));
+        }
+        MobfarmCmd::LoaderLayout { module, module_offsets, module_nether_ybase, loader, loader_offset, loader_nether_ybase, plant, plant_unframed, golem_margin } => {
+            let i3 = |s: &str| -> Result<[i32; 3]> {
+                let v: Vec<i32> = s.split(',').map(|n| n.trim().parse()).collect::<std::result::Result<_, _>>()?;
+                anyhow::ensure!(v.len() == 3, "x,y,z, got {s}");
+                Ok([v[0], v[1], v[2]])
+            };
+            let m = mctas::design::Design::parse(&std::fs::read_to_string(&module)?)?;
+            let l = mctas::design::Design::parse(&std::fs::read_to_string(&loader)?)?;
+            let mut parts = Vec::new();
+            for (k, o) in module_offsets.split(';').enumerate() {
+                // (G1 00:46: an empty entry is refused, never dropped)
+                anyhow::ensure!(!o.trim().is_empty(), "--module-offsets \"{module_offsets}\": entry {} is empty", k + 1);
+                parts.push(crate::loaderlayout::lay(&format!("copy{}", k + 1), &module.display().to_string(), &m, i3(o)?, module_nether_ybase).map_err(|e| anyhow::anyhow!(e))?);
+            }
+            anyhow::ensure!(!parts.is_empty(), "--module-offsets names no copy");
+            parts.push(crate::loaderlayout::lay("loader", &loader.display().to_string(), &l, i3(&loader_offset)?, loader_nether_ybase).map_err(|e| anyhow::anyhow!(e))?);
+            let mut planted: Vec<crate::loaderlayout::Plant> = plant.iter().map(|s| crate::loaderlayout::parse_plant(s, true)).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!(e))?;
+            for s in &plant_unframed {
+                planted.push(crate::loaderlayout::parse_plant(s, false).map_err(|e| anyhow::anyhow!(e))?);
+            }
+            let (rep, ok) = crate::loaderlayout::report(&parts, &planted, golem_margin).map_err(|e| anyhow::anyhow!(e))?;
+            print!("{rep}");
+            if !ok {
+                std::process::exit(1);
+            }
         }
         MobfarmCmd::L1ItemBench { design_out, width, height, fire_y, far_rows, floor, items, ticks, seeds, freeze, login_each, login_before_arrival, stop, stop_every, restart_order, piglin, mob_jump, trace } => {
             let path = design_out.unwrap_or_else(|| std::env::temp_dir().join(format!("l1-item-bench-{}.txt", std::process::id())));

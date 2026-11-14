@@ -18,6 +18,7 @@ pub mod f1q2run;
 pub mod ticketcheck;
 pub mod holdcheck;
 pub mod portallinks;
+pub mod loaderlayout;
 pub mod comb;
 pub mod components;
 pub mod headperm;
