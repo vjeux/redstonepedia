@@ -809,6 +809,10 @@ pub struct SidingOpts {
     /// tick in FROM..=UNTIL that the cart has an entity (G1's D2: a lane cart can be parked, with no
     /// entity, at a fixed tick); no kill in the window is an error.
     pub remove_cart: Option<(usize, i64, i64)>,
+    /// The removed cart's ROLE as the interaction row names it (G1 CHANGES 4 (3), the plant rule:
+    /// "the LEADER of napper cart N" / "the NAPPER of leader cart M"), printed and asserted at the
+    /// planting tick.
+    pub remove_role: Option<String>,
     /// --plant-shift C,T,DX (G1's D2 control): lane cart C moved DX blocks in x at tick T, in this row alone.
     pub plant_shift: Option<(usize, i64, f64)>,
     /// ironspec Nov 13 23:04: the solo ride's DISPLACED form: `remove_cart`'s cart (and its rider, which
@@ -1597,6 +1601,10 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
     // (ironspec 23:04: the displaced cart held far (its id and world position) and the far dummy (its id,
     // world position, kill tick))
     let mut held_far: Option<(u32, [f64; 3])> = None;
+    // (G1 CHANGES 4 (3): the plants' entity / cell / role lines, printed at the run's end in order)
+    let mut plant_log: Vec<String> = Vec::new();
+    // (`plant_shift`'s pinned cart and its held position, G1 CHANGES 4)
+    let mut plant_pin: Option<(u32, [f64; 3])> = None;
     let mut held_drift = 0.0f64;
     let mut dummy: Option<(u32, [f64; 3])> = None;
     let mut dummy_killed_at: Option<i64> = None;
@@ -2631,7 +2639,7 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
             let d = hold(&mut run.world, hid, hp).ok_or_else(|| format!("--solo-displace: the displaced cart {hid} is gone at t {t}"))?;
             held_drift = held_drift.max(d);
         }
-        if let Some(dk) = so.dummy_kill
+        if so.dummy_kill.is_some()
             && dummy.is_none()
             && dummy_killed_at.is_none()
         {
@@ -2639,7 +2647,8 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
             let i = redsim::entity::index_of(&run.world, id).ok_or("--dummy-kill: the dummy didn't spawn")?;
             let q = run.world.entities.list[i].pos;
             dummy = Some((id, [q.x, q.y, q.z]));
-            let _ = dk;
+            // (G1 CHANGES 4 (3), the plant rule: the plant's entity, cell and ROLE at the planting tick)
+            plant_log.push(format!("t {t}: planted the far dummy (entity {id}) at {:.3},{:.3},{:.3} (ROLE: a riderless cart held 60 b above the lane's drop, no lane cart; {})", q.x, q.y, q.z, if so.dummy_kill == Some(i64::MAX) { "held, never killed: the killed dummy's twin" } else { "killed at its tick" }));
         }
         if let Some((did, dp)) = dummy {
             if Some(t) == so.dummy_kill {
@@ -2689,6 +2698,25 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
             && t <= rt1
             && let Some(id) = carts.get(rc).copied().flatten()
         {
+            // (G1 CHANGES 4 (3), the plant rule: the removed cart's entity, cell and ROLE at the planting
+            // tick, asserted: it must be a ridden lane cart (the pair's leader or napper))
+            {
+                let i = redsim::entity::index_of(&run.world, id).ok_or_else(|| format!("--remove-cart: lane cart {rc} has no entity at t {t}"))?;
+                let q = run.world.entities.list[i].pos;
+                let ridden = rider_index(&run.world, id).is_some();
+                plant_log.push(format!(
+                    "t {t}: {} lane cart {rc} (entity {id}) at {:.3},{:.3},{:.3} (ROLE: {}; {})",
+                    if so.solo_displace { "displaced" } else { "killed" },
+                    q.x,
+                    q.y,
+                    q.z,
+                    so.remove_role.clone().unwrap_or_else(|| "a lane cart of the pair".to_string()),
+                    if ridden { "ridden: asserted" } else { "RIDERLESS: the role is NOT met" }
+                ));
+                if !ridden {
+                    return Err(format!("--remove-cart {rc}: lane cart {rc} (entity {id}) has no rider at t {t}: its ROLE ({}) is not met (G1 CHANGES 4 (3))", so.remove_role.clone().unwrap_or_default()));
+                }
+            }
             if so.solo_displace {
                 // (ironspec 23:04: displaced, not killed: held 40 blocks over its cell (its rider follows
                 // its vehicle) to the run's end, its index cleared so the lane never uses it again)
@@ -2728,11 +2756,20 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
         {
             let id = carts.get(pc).copied().flatten().ok_or_else(|| format!("--plant-shift: lane cart {pc} has no entity at t {pt}"))?;
             let (x, y, z, _) = st(&run.world, id).ok_or_else(|| format!("--plant-shift: lane cart {pc} has no state at t {pt}"))?;
-            let v = redsim::entity::index_of(&run.world, id).map(|i| run.world.entities.list[i].delta_movement).ok_or_else(|| format!("--plant-shift: lane cart {pc} gone at t {pt}"))?;
-            if !teleport_cart(&mut run.world, id, [x + dx, y, z], [v.x, v.y, v.z]) {
+            // (G1 CHANGES 4 / ironspec 03:12: the control must move the REST by more than ε, so the cart is
+            // moved DX in x and PINNED there to the run's end: a one-tick shift washes out as the cart
+            // re-settles into the queue, and the rest is the HARM bar's reading)
+            if !teleport_cart(&mut run.world, id, [x + dx, y, z], [0.0, 0.0, 0.0]) {
                 return Err(format!("--plant-shift: lane cart {pc}'s move refused at t {pt}"));
             }
+            plant_pin = Some((id, [x + dx, y, z]));
+            plant_log.push(format!("t {t}: planted lane cart {pc} (entity {id}) moved {dx} b in x to {:.3},{y:.3},{z:.3} and PINNED (ROLE: the pair's napper, the HARM control's planted rest)", x + dx));
             planted_at = Some(t);
+        }
+        if let Some((pid, pp)) = plant_pin
+            && planted_at != Some(t)
+        {
+            hold(&mut run.world, pid, pp).ok_or_else(|| format!("--plant-shift: the pinned cart {pid} is gone at t {t}"))?;
         }
         let mut now: Vec<Option<(f64, f64, f64, f64)>> = carts.iter().map(|id| id.and_then(|id| st(&run.world, id))).collect();
         // (G1 12:32's edge control (G1 14:18 L1): at T, the lane's highest cart AT REST on the slopes (by
@@ -4233,9 +4270,12 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
         },
         backup_count.values().max().copied().unwrap_or(0)
     ));
+    // (G1 CHANGES 4 (3), the plant rule: every plant's entity, cell and ROLE at its planting tick)
+    lines.extend(plant_log.iter().cloned());
     if let Some(dk) = so.dummy_kill {
         match dummy_killed_at {
             Some(t) => lines.push(format!("killed the far dummy at t {t} (ironspec 23:04's control: a minecart held 60 blocks over the lip from the first tick)")),
+            None if dk == i64::MAX => lines.push("held the far dummy to the run's end, never killed (the killed dummy's single-change twin, G1 CHANGES 4 (2))".to_string()),
             None => return Err(format!("--dummy-kill {dk}: the far dummy was never killed (the run ended first)")),
         }
     }
@@ -6882,6 +6922,7 @@ mod official_row_tests {
             r2_powered: false,
             gb: false,
             remove_cart: None,
+            remove_role: None,
             plant_shift: None,
             solo_displace: false,
             dummy_kill: None,

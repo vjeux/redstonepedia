@@ -12306,7 +12306,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         anyhow::ensure!(0 <= a && a <= b, "--r-second {s}: 0 <= A <= B");
                         Some((a, b))
                     }
-                }, skip_release, r_offgap, r2_powered, gb, remove_cart: None, plant_shift: None, solo_displace: false, dummy_kill: None, state_at: None, d_slope: !flat_d, out: out.clone(), siding_dx, siding_dy, ns_merge, guard_det, guard_dz, drop_entry, no_top_support, side_real, side_ctl: side_ctl.clone() };
+                }, skip_release, r_offgap, r2_powered, gb, remove_cart: None, remove_role: None, plant_shift: None, solo_displace: false, dummy_kill: None, state_at: None, d_slope: !flat_d, out: out.clone(), siding_dx, siding_dy, ns_merge, guard_det, guard_dz, drop_entry, no_top_support, side_real, side_ctl: side_ctl.clone() };
                 // (G1 14:18 L13: a dependent flag without what it depends on is refused, never a silent
                 // no-op; G1 14:51 on e15a3f1f0: --seeds-matrix only in the siding matrix, and never with
                 // an explicit --seed other than the default)
@@ -12320,6 +12320,10 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 // (G1 17:00 B5: no silently ignored or pre-empted flag; ranges checked)
                 anyhow::ensure!(pos_offsets.is_none() || interaction_row.is_some() || refill_sweep.is_some(), "--pos-offsets needs --interaction-row or --refill-sweep (a single row takes --pos-offset)");
                 anyhow::ensure!(interaction_row.is_none() || (inject_sweep.is_none() && !siding_matrix), "--interaction-row runs alone: not with --inject-sweep or --siding-matrix");
+                // (G1 CHANGES 4 (4): the interaction row's own flags do nothing without it: refused by name)
+                anyhow::ensure!(interaction_row.is_some() || interaction_side_by_side == 0, "--interaction-side-by-side needs --interaction-row");
+                anyhow::ensure!(interaction_row.is_some() || interaction_kill_at == -60, "--interaction-kill-at needs --interaction-row");
+                anyhow::ensure!(interaction_row.is_some() || interaction_plant.is_none(), "--interaction-plant needs --interaction-row");
                 anyhow::ensure!(boost_window >= 0, "--boost-window {boost_window}: >= 0");
                 // (G1 17:57 N5: --start-i only means something with --nap-ai)
                 anyhow::ensure!(!start_i || so.ai, "--start-i sets the design start (i) of the AI riders: it needs --nap-ai");
@@ -12866,6 +12870,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     let path_of = |r: &crate::sidingbench::SidingRow, ta: i64, c: usize| r.lip_paths.iter().find(|p| p.0 == ta && p.1 == c).map(|p| p.2.clone());
                     let dep = |a: &[(i32, f64, f64, f64)], b: &[(i32, f64, f64, f64)]| crate::sidingbench::path_departure(a, b);
                     let mut verdict_fail: Vec<String> = Vec::new();
+                    // (THE HARM bar's measured spread over every judged pair: |Δ - the nearest of 0 or one
+                    // pitch|, the source the tolerance is cited from (G1 Nov 14 00:55 (a)))
+                    let mut harm_offs: Vec<f64> = Vec::new();
                     let (mut ld_passes, mut ld_b, mut ld_p, mut ld_d) = (0usize, 0usize, 0usize, 0.0f64);
                     // (ironspec 14:47 (a): each pair's carts against their SOLO rides. The largest-C-gap
                     // row is no solo ride (its napper leaves at another tick, with other dynamics: G1
@@ -12888,12 +12895,14 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             // it has an entity (G1's D2); a kill past the run's end is the no-op control)
                             sso.inject_release = Some(*t);
                             sso.remove_cart = Some((p.3, p.2 + interaction_kill_at, p.2));
+                            sso.remove_role = Some(format!("the LEADER of napper cart {} (its lip arrival t {})", p.1, p.0));
                         } else {
                             // (the leader's solo ride: the napper itself killed the same way before its
                             // own lip arrival (a held release did not keep it away: G1's D2, the run of
                             // Nov 13 21:48))
                             sso.inject_release = Some(*t);
                             sso.remove_cart = Some((p.1, p.0 + interaction_kill_at, p.0));
+                            sso.remove_role = Some(format!("the NAPPER of leader cart {} (its lip arrival t {})", p.3, p.2));
                         }
                         crate::sidingbench::siding_row(&o, &sso)
                     });
@@ -12911,7 +12920,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         // (four rides per row: 0 the paired ride again, 1 the leader killed, 2 the leader
                         // displaced, 3 the far dummy killed; each prints the shared state (ironspec 23:16 (4))
                         // at the napper's window start (its lip arrival - 10))
-                        let sbs_jobs: Vec<(usize, u8)> = sbs_rows.iter().flat_map(|&i| [(i, 0u8), (i, 1), (i, 2), (i, 3)]).collect();
+                        let sbs_jobs: Vec<(usize, u8)> = sbs_rows.iter().flat_map(|&i| [(i, 0u8), (i, 1), (i, 2), (i, 3), (i, 4)]).collect();
                         let sbs = crate::sidingbench::par_map(sbs_jobs.len(), jobs, |j| {
                             let (i, kind) = sbs_jobs[j];
                             let (key, t, r) = &rows[i];
@@ -12922,12 +12931,19 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             sso.inject_release = Some(*t);
                             sso.state_at = Some(p.0 - 10);
                             match kind {
-                                1 => sso.remove_cart = Some((p.3, p.2 + interaction_kill_at, p.2)),
+                                1 => {
+                                    sso.remove_cart = Some((p.3, p.2 + interaction_kill_at, p.2));
+                                    sso.remove_role = Some(format!("the LEADER of napper cart {} (its lip arrival t {})", p.1, p.0));
+                                }
                                 2 => {
                                     sso.remove_cart = Some((p.3, p.2 + interaction_kill_at, p.2));
+                                    sso.remove_role = Some(format!("the LEADER of napper cart {} (its lip arrival t {})", p.1, p.0));
                                     sso.solo_displace = true;
                                 }
                                 3 => sso.dummy_kill = Some(p.2 + interaction_kill_at),
+                                // (the far dummy's single-change twin (G1 CHANGES 4 (2)): spawned and held
+                                // the same way, never killed)
+                                4 => sso.dummy_kill = Some(i64::MAX),
                                 _ => {}
                             }
                             crate::sidingbench::siding_row(&o, &sso)
@@ -13025,6 +13041,46 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                                 p.0 - 10,
                                 st0.clone().unwrap_or_else(|| "-".to_string())
                             );
+                            // (G1 Nov 14 02:59 CHANGES 4 (2): the side-by-side's expectations are NAMED BARS: an
+                            // errored ride fails; the paired ride again must be the row (NOT DETERMINISTIC
+                            // otherwise); the KILLED and DISPLACED rides must agree (the leader's effect is
+                            // physical, not the entity list's); the far dummy, killed, must agree with its
+                            // single-change twin (the dummy held, never killed) and with the paired ride; each
+                            // kill must have fired (read back))
+                            let tag = format!("side by side seed {} position {:?} t {t}", key.0, key.1);
+                            let rest_of = |s: &crate::sidingbench::SidingRow, base_ta: i64| s.lip_rests.iter().filter(|e| e.1 == p.1).min_by_key(|e| (e.0 - base_ta).abs()).and_then(|e| e.2);
+                            let held = ride(4);
+                            for (name, rr) in [("the paired ride again", &pair), ("the leader KILLED", &kill), ("the leader DISPLACED", &disp), ("the far dummy killed", &dum), ("the far dummy held (its twin)", &held)] {
+                                if let Err(e) = rr {
+                                    verdict_fail.push(format!("{tag}: {name} ERRORED ({e})"));
+                                }
+                            }
+                            let rp = r.lip_rests.iter().find(|e| e.0 == p.0 && e.1 == p.1).and_then(|e| e.2);
+                            let same = |x: Option<(i64, (f64, f64, f64))>, y: Option<(i64, (f64, f64, f64))>| match (x, y) {
+                                (Some((ta, a)), Some((tb, b))) => ta == tb && (a.0 - b.0).abs() < 1e-9 && (a.1 - b.1).abs() < 1e-9 && (a.2 - b.2).abs() < 1e-9,
+                                _ => false,
+                            };
+                            if let Ok(s) = &pair
+                                && !same(rp, rest_of(s, p.0))
+                            {
+                                verdict_fail.push(format!("{tag}: NOT DETERMINISTIC (the paired ride again rests {:?}, the row {rp:?})", rest_of(s, p.0)));
+                            }
+                            if let (Ok(k), Ok(d)) = (&kill, &disp) {
+                                if k.solo_kill.is_none() || d.solo_kill.is_none() {
+                                    verdict_fail.push(format!("{tag}: the leader's kill never fired (killed {:?}, displaced {:?}): the solo rides are NOT JUDGED", k.solo_kill, d.solo_kill));
+                                } else if !same(rest_of(k, p.0), rest_of(d, p.0)) {
+                                    verdict_fail.push(format!("{tag}: KILLED != DISPLACED (rests {:?} vs {:?})", rest_of(k, p.0), rest_of(d, p.0)));
+                                }
+                            }
+                            if let (Ok(dk), Ok(dh)) = (&dum, &held) {
+                                if dk.dummy_killed.is_none() {
+                                    verdict_fail.push(format!("{tag}: the far dummy's kill never fired (the control failed)"));
+                                } else if !same(rest_of(dk, p.0), rest_of(dh, p.0)) {
+                                    verdict_fail.push(format!("{tag}: the far dummy KILLED != HELD (rests {:?} vs {:?})", rest_of(dk, p.0), rest_of(dh, p.0)));
+                                } else if !same(rest_of(dk, p.0), rp) {
+                                    verdict_fail.push(format!("{tag}: the far dummy != the paired ride (rests {:?} vs {rp:?})", rest_of(dk, p.0)));
+                                }
+                            }
                         }
                     }
                     // (G1's D2 control: --interaction-plant DX re-runs each judged row with the napper moved
@@ -13085,6 +13141,40 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     for key in &keys {
                         let (sd, pos) = (key.0, key.1);
                         let mut judged_at_least = 0usize;
+                        // (THE HARM, the bar G1 / ironspec adopted Nov 14 00:55-00:57, replacing ironspec Nov 13
+                        // 14:47 (a)'s "no departure from the solo rides" in code (ironspec 02:45 (3)): the napper
+                        // after the lip rests IN THE SLOTS (below the top slot, y < 22.2: never on C / D / J),
+                        // either at its solo ride's rest or exactly one slot pitch (0.790 b in y and in z, ±
+                        // HARM_TOL) above it, queued directly behind the leader it followed; the departure is
+                        // printed as a diagnostic only)
+                        const PITCH: f64 = 0.790;
+                        const HARM_TOL: f64 = 0.05;
+                        let harm_of = |i: usize, c: usize, ta: i64, r: &crate::sidingbench::SidingRow| -> Result<(f64, String), String> {
+                            let s = match solo.get(&(i, true)) {
+                                Some(Ok(s)) => s,
+                                Some(Err(e)) => return Err(format!("NOT JUDGED: the solo ride errored: {e}")),
+                                None => return Err("NOT JUDGED: no solo ride".to_string()),
+                            };
+                            if s.solo_kill.is_none() {
+                                return Err("NOT JUDGED: no kill read back in the solo ride (its kill never fired)".to_string());
+                            }
+                            // (the rest: the first 5 consecutive ticks moving < 1e-4 b within 400 gt of the lip
+                            // arrival (sidingbench's lip rest); none = NOT JUDGED, which fails)
+                            let pr = r.lip_rests.iter().find(|e| e.0 == ta && e.1 == c).and_then(|e| e.2).ok_or("NOT JUDGED: no rest within 400 gt in the paired ride")?;
+                            let sr = s.lip_rests.iter().filter(|e| e.1 == c).min_by_key(|e| (e.0 - ta).abs()).and_then(|e| e.2).ok_or("NOT JUDGED: no rest within 400 gt in the solo ride")?;
+                            let (dy, dz) = (pr.1.1 - sr.1.1, pr.1.2 - sr.1.2);
+                            let same = dy.abs() <= HARM_TOL && dz.abs() <= HARM_TOL;
+                            let pitch = (dy - PITCH).abs() <= HARM_TOL && (dz - PITCH).abs() <= HARM_TOL;
+                            let in_slots = pr.1.1 < 22.2;
+                            let off = if pitch { (dy - PITCH).abs().max((dz - PITCH).abs()) } else { dy.abs().max(dz.abs()) };
+                            let desc = format!(
+                                "the paired rest t {} at {:.3},{:.3},{:.3} vs the solo rest t {} at {:.3},{:.3},{:.3}: Δy {dy:+.3} Δz {dz:+.3} ({}{})",
+                                pr.0, pr.1.0, pr.1.1, pr.1.2, sr.0, sr.1.0, sr.1.1, sr.1.2,
+                                if same { "the same rest" } else if pitch { "one slot pitch above: queued behind the leader" } else { "OFF-PITCH" },
+                                if in_slots { ", in the slots" } else { ", NOT IN THE SLOTS" }
+                            );
+                            if (same || pitch) && in_slots { Ok((off, desc)) } else { Err(format!("HARM: {desc}")) }
+                        };
                         for (i, (k2, t, r)) in rows.iter().enumerate() {
                             if k2 != key {
                                 continue;
@@ -13116,11 +13206,22 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                                 p.1, p.0, p.3, p.2, p.4, p.4 + 1, p.5, p.6, fmt(&dn), fmt(&dl), p.7, kill_of(true), kill_of(false), p.0 + 30, p.2 + 30
                             );
                             let departed = dn.as_ref().map_or(true, |d| *d > 1e-6) || dl.as_ref().map_or(true, |d| *d > 1e-6);
+                            let _ = departed;
+                            // (the adopted HARM bar decides; the departure above is a diagnostic)
+                            let hn = harm_of(i, p.1, p.0, r);
+                            match &hn {
+                                Ok((off, d)) => {
+                                    harm_offs.push(*off);
+                                    println!("interaction seed {sd} position {pos:?} t {t}: THE HARM (bar): none: {d}");
+                                }
+                                Err(e) => println!("interaction seed {sd} position {pos:?} t {t}: THE HARM (bar): {e}"),
+                            }
+                            let harmed = hn.is_err();
                             // (G1's D10: a solo ride that errored fails whatever the C-gap; below
-                            // --pair-least a departure is printed, not judged)
+                            // --pair-least the harm is printed, not judged)
                             let errored = matches!(&dn, Err(e) if e.starts_with("the solo ride errored")) || matches!(&dl, Err(e) if e.starts_with("the solo ride errored"));
-                            if errored || (p.4 >= pair_least && (p.5 > 0 || p.6 > 0 || departed)) {
-                                verdict_fail.push(format!("seed {sd} position {pos:?} t {t}: C-gap {} contacts {}/{} departures {}/{}", p.4, p.5, p.6, fmt(&dn), fmt(&dl)));
+                            if errored || (p.4 >= pair_least && (p.5 > 0 || p.6 > 0 || harmed)) {
+                                verdict_fail.push(format!("seed {sd} position {pos:?} t {t}: C-gap {} contacts {}/{} {}", p.4, p.5, p.6, hn.as_ref().err().cloned().unwrap_or_else(|| "no harm".to_string())));
                             }
                             // (G1 17:57 B6: the row's own failing bars reach the verdict too (the up-slope
                             // events excepted: retired as a bar by ironspec Nov 13 19:21, printed as a
@@ -13137,7 +13238,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         }
                     }
                     println!(
-                        "the interaction row's verdict (ironspec Nov 13 14:47 (a): 0 box and push contacts and no departure from the solo rides, <= 1e-6, at every C-gap >= {pair_least}; the thresholds (G1 17:57 B8): --pair-least {pair_least} (default 23, the design's least C-gap on the bench: ironspec 14:47 (a)), 1e-6 b (float noise on identical rides: ironspec 14:47 (a)), the solo rides with the leader killed at its lip arrival - 60 and the napper held to the leader's arrival + 100 (this tool's choice), >= 3 build positions for a touching-contact bar (ironspec 15:05 / 15:10), the row's own bars as its failures list cites them; seeds {:?}, positions {:?}, forced releases {from}..={to}): {}; L-d (the passes with a napper resting on R, over every row): passes {ld_passes}, contacts box {ld_b} push {ld_p}, the resting napper's largest displacement {ld_d:.6}",
+                        "the interaction row's verdict (THE HARM, the bar G1 / ironspec adopted Nov 14 00:55-00:57, replacing ironspec Nov 13 14:47 (a)'s no-departure bar in code (ironspec Nov 14 02:45 (3)): 0 box and push contacts, and the napper after the lip resting in the slots at its solo rest or exactly one slot pitch (0.790 b in y and z, ± 0.05 b) above it, at every C-gap >= {pair_least}; the measured spread of |Δ - (0 or one pitch)| over the judged pairs {} (the tolerance's source); the departure from the solo rides printed as a diagnostic; the thresholds (G1 17:57 B8): --pair-least {pair_least} (default 23, the design's least C-gap on the bench: ironspec 14:47 (a)), the solo rides with the pair's other cart killed in the window [its lip arrival + D, its lip arrival] (D = --interaction-kill-at, default -60; the first tick it has an entity: G1's D2), its role printed and asserted at the planting tick (G1 CHANGES 4 (3)); the side-by-side's expectations named bars (paired again = the row, KILLED = DISPLACED, the far dummy killed = held = paired, every kill fired: G1 CHANGES 4 (2)); the rest window the first 5 consecutive ticks moving < 1e-4 b within 400 gt of the lip arrival (none: NOT JUDGED, failing), >= 3 build positions for a touching-contact bar (ironspec 15:05 / 15:10), the row's own bars as its failures list cites them; seeds {:?}, positions {:?}, forced releases {from}..={to}): {}; L-d (the passes with a napper resting on R, over every row): passes {ld_passes}, contacts box {ld_b} push {ld_p}, the resting napper's largest displacement {ld_d:.6}",
+                        if harm_offs.is_empty() { "- (none judged)".to_string() } else { format!("max {:.4} b over {} pairs", harm_offs.iter().cloned().fold(0.0, f64::max), harm_offs.len()) },
                         seeds,
                         positions,
                         if verdict_fail.is_empty() {
