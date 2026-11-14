@@ -700,9 +700,9 @@ pub(crate) fn recipe_part(file: &Path, offset: [i32; 3], nether_ybase: i32, no_p
 }
 
 /// (ironspec 16:48 (2), G1 16:47) A placed cell's file state against the game's after placement: SHAPE (the
-/// block changed, or a shape, facing, axis, face, half, type, hinge, attachment or connection property; a
-/// tripwire hook going attached=true -> false: a design finding) or STATE (power, triggered and the like); the
-/// changed properties described.
+/// block changed, or a shape, facing, axis, face, half, type, hinge, attachment or connection property; any
+/// tripwire block, a string or a hook, going attached=true -> false (ironspec 18:18 (a): a detached string is a
+/// broken sensor): a design finding) or STATE (power, triggered and the like); the changed properties described.
 pub(crate) fn settle_class(file: &str, game: &str) -> (bool, String) {
     let props = |s: &str| -> BTreeMap<String, String> {
         s.split_once('[').map(|(_, r)| r.trim_end_matches(']').split(',').filter_map(|kv| kv.split_once('=').map(|(k, v)| (k.to_string(), v.to_string()))).collect()).unwrap_or_default()
@@ -714,7 +714,7 @@ pub(crate) fn settle_class(file: &str, game: &str) -> (bool, String) {
     }
     let changed: Vec<(String, String, String)> = f.iter().filter(|(k, v)| g.get(*k) != Some(*v)).map(|(k, v)| (k.clone(), v.clone(), g.get(k).cloned().unwrap_or_else(|| "?".into()))).collect();
     let shape = changed.iter().any(|(k, _, _)| matches!(k.as_str(), "shape" | "facing" | "axis" | "face" | "half" | "north" | "south" | "east" | "west" | "up" | "down" | "attachment" | "hinge" | "type"))
-        || (file.contains("tripwire_hook") && f.get("attached").map(|v| v.as_str()) == Some("true") && g.get("attached").map(|v| v.as_str()) == Some("false"));
+        || (file.contains("tripwire") && f.get("attached").map(|v| v.as_str()) == Some("true") && g.get("attached").map(|v| v.as_str()) == Some("false"));
     (shape, format!("{} (file {file})", changed.iter().map(|(k, a, b)| format!("{k} {a} -> {b}")).collect::<Vec<_>>().join(", ")))
 }
 
@@ -1029,6 +1029,12 @@ mod tests {
         assert!(settle_class(rail, "minecraft:rail[shape=east_west,waterlogged=false]").0);
         assert!(settle_class("minecraft:powered_rail[powered=true,shape=ascending_east,waterlogged=false]", "minecraft:air").0);
         assert!(settle_class("minecraft:tripwire_hook[attached=true,facing=east,powered=false]", "minecraft:tripwire_hook[attached=false,facing=east,powered=false]").0);
+        // (ironspec 18:18 (a)) a STRING going attached true -> false is SHAPE too (a broken sensor)
+        let (string_shape, string_what) = settle_class(
+            "minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]",
+            "minecraft:tripwire[attached=false,disarmed=false,east=true,north=false,powered=false,south=false,west=true]",
+        );
+        assert!(string_shape, "a detached string must classify SHAPE: {string_what}");
         assert!(settle_class("minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]", "minecraft:tripwire[attached=true,disarmed=false,east=true,north=true,powered=false,south=false,west=true]").0);
         let (shape, what) = settle_class("minecraft:powered_rail[powered=true,shape=ascending_south,waterlogged=false]", "minecraft:powered_rail[powered=false,shape=ascending_south,waterlogged=false]");
         assert!(!shape);
