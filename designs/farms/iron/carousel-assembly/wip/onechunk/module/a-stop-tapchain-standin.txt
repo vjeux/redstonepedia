@@ -1,0 +1,13 @@
+# The (A) stop's slope tap chain as 58f770cc's bench lays it (bed-tier-fold-bench.txt at 1662bed98, local (1,-3,3) / (1,-3,4) glass and (1,-2,4) repeater, moved by (0,-27,-1)): DAY-1's tap cells' stand-in between the tap lever (1,-29,2) (laid by f1q2-run's init) and the slope hold's slime (1,-29,4) under the slope rail (1,-28,4); the record (the fold) carries only the slime (onechunk 16:47)
+name: a-stop-tapchain-standin
+circuit: mob-farm iron_ingot
+origin: 1 0 2
+palette:
+  G minecraft:glass
+  R minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+layer -30:
+  G
+  G
+layer -29:
+  .
+  R
