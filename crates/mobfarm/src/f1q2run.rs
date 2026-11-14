@@ -1486,7 +1486,8 @@ impl Ctl {
             if self.busy {
                 self.restarted_busy += 1;
             }
-            if self.rel_gate_armed && !j_armed {
+            // (day-1 18:22: the P-expiry start waits at F1 like the golem pulse's: rel_gated, not the bare flag)
+            if rel_gated && !j_armed {
                 if self.gated_since.is_none() {
                     self.gated_since = Some(now);
                 }
@@ -1495,12 +1496,14 @@ impl Ctl {
                 self.start(now + 2 + 4);
                 self.note(now, format!("B's expiry with P: REL at t {}", now + 6));
             }
-        } else if self.watchdog > 0 && now >= self.b_until && now - self.last_start.unwrap_or(0) >= self.watchdog && self.gated_since.is_none() {
+        } else if self.watchdog > 0 && !self.a_stop && now >= self.b_until && now - self.last_start.unwrap_or(0) >= self.watchdog && self.gated_since.is_none() {
+            // (day-1 18:22: the flywheel is the NOT-BOUGHT timed REL watchdog: never with the design
+            // controller; otherwise it waits at F1 too)
             self.watchdog_starts += 1;
             if self.busy {
                 self.restarted_busy += 1;
             }
-            if self.rel_gate_armed && !j_armed {
+            if rel_gated && !j_armed {
                 self.gated_since = Some(now);
                 self.note(now, "the flywheel: REL held by the gate (J(-1) not armed)".to_string());
             } else {
