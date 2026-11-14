@@ -609,11 +609,14 @@ fn cells_name(d: &Decl) -> String {
 }
 
 /// NO STALL's rule: after an event's last tick, within `window` ticks the cart moves more than
-/// `min_speed` b/t horizontally or falls (vy below -`min_speed`). `IRONSPEC_1042` is the ruled default
-/// (ironspec Nov 13 10:42 (3): "within 5 ticks of the event's end the cart moves > 0.003 b/t or is
-/// falling"); a caller ties it to the game's normal-pass envelope (G1 11:12 (a): tick-exact's normal
-/// lip passes sit up to 10-12 ticks off-rail on C's support top: a window from the envelope's longest
-/// still time plus a margin), stating its source.
+/// `min_speed` b/t horizontally, falls or RISES (|vy| over `min_speed`: b8949c96 Nov 13 20:06, a cart
+/// stopped over a bubble column and then lifted is moving, ironspec's (a)). `IRONSPEC_1042` is the ruled
+/// default (ironspec Nov 13 10:42 (3): "within 5 ticks of the event's end the cart moves > 0.003 b/t or
+/// is falling", a rise added 20:06); a caller ties it to the game's normal-pass envelope (G1 11:12 (a):
+/// tick-exact's normal lip passes sit up to 10-12 ticks off-rail on C's support top: a window from the
+/// envelope's longest still time plus a margin), stating its source. A cart bobbing at a column's top
+/// counts as moving under the rise, as falls already did (ironspec 20:12): the arrival bars, RETURN's
+/// timeout and the cadence catch a cart that never leaves a column top, not this rule.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct StallRule {
     pub window: i64,
@@ -668,7 +671,7 @@ pub fn judge(decls: &[Decl], hits: &[Hit], motion: &dyn Fn(u32, i64) -> Option<(
             None => v.undeclared.push(h.clone()),
         }
     }
-    let moving = |cart: u32, t: i64| motion(cart, t).is_some_and(|(sp, vy)| sp > stall.min_speed || vy < -stall.min_speed);
+    let moving = |cart: u32, t: i64| motion(cart, t).is_some_and(|(sp, vy)| sp > stall.min_speed || vy.abs() > stall.min_speed);
     let mut cart_events: std::collections::BTreeMap<(usize, u32), usize> = std::collections::BTreeMap::new();
     for ((di, cart, face), mut hs) in by {
         hs.sort_by_key(|h| h.tick);
@@ -700,7 +703,7 @@ pub fn judge(decls: &[Decl], hits: &[Hit], motion: &dyn Fn(u32, i64) -> Option<(
                 }
             }
             if !(t1 + 1..=t1 + stall.window).any(|t| moving(cart, t)) {
-                v.stalls.push(format!("{ev}: no move over {} b/t and no fall within {} ticks of the event's end", stall.min_speed, stall.window));
+                v.stalls.push(format!("{ev}: no move over {} b/t, no fall and no rise within {} ticks of the event's end", stall.min_speed, stall.window));
             }
             v.events[di] += 1;
             *cart_events.entry((di, cart)).or_default() += 1;
@@ -1157,6 +1160,14 @@ mod tests {
         assert!(judge(&d, &h, &fifth, r, None).stalls.is_empty());
         let falls = |_: u32, t: i64| Some((0.0, if t == 12 { -0.04 } else { 0.0 }));
         assert!(judge(&d, &h, &falls, r, None).stalls.is_empty());
+        // (b8949c96 20:06, ironspec's (a): a stopped cart then LIFTED at over 0.003 b/t is moving; one
+        // that stays put, or rises only 0.003, still stalls)
+        let lifted = |_: u32, t: i64| Some((0.0, if t == 13 { 0.0031 } else { 0.0 }));
+        assert!(judge(&d, &h, &lifted, r, None).stalls.is_empty(), "a lift is motion");
+        let barely = |_: u32, _: i64| Some((0.0, 0.003));
+        assert_eq!(judge(&d, &h, &barely, r, None).stalls.len(), 1, "a 0.003 rise is not over 0.003");
+        let lifted_late = |_: u32, t: i64| Some((0.0, if t == 16 { 0.05 } else { 0.0 }));
+        assert_eq!(judge(&d, &h, &lifted_late, r, None).stalls.len(), 1, "a lift at the 6th tick is too late");
         let creeps = |_: u32, _: i64| Some((0.003, 0.0));
         assert_eq!(judge(&d, &h, &creeps, r, None).stalls.len(), 1, "0.003 is not over 0.003");
         let unknown = |_: u32, _: i64| None;

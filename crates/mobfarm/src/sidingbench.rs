@@ -328,7 +328,7 @@ pub fn r1_chains(carts: &[(usize, (f64, f64, f64), [f64; 6], Option<[f64; 6]>)],
         hits(&a.2, b) || hits(&b.2, a)
     };
     let mut frontier: Vec<usize> = Vec::new();
-    for e in carts.iter().filter(|e| e.1 .2 > 1.0 && e.1 .2 < 2.0) {
+    for e in carts.iter().filter(|e| e.1 .2 >= 1.0 && e.1 .2 < 2.0) {
         out.insert(e.0, vec![e.0]);
         frontier.push(e.0);
     }
@@ -797,6 +797,13 @@ pub struct SidingOpts {
     /// --r-offgap (G1 18:52 (1)): with --r-evidence, R_1 powered for the timed launch window, OFF
     /// through the coast, ON again from the evidence (+ the reader delay) to + S.
     pub r_offgap: bool,
+    /// --r2-powered (dfb89499 19:34 V1): R_2 (x,18,2) a powered rail driven over the same span as R_1.
+    pub r2_powered: bool,
+    /// --gb (dfb89499 20:03): the brake moved up one slot: R_1 (x,17,1) a PLAIN rail ascending south
+    /// with no driver; R_2 (x,18,2) the powered rail, driven by the R line at (x+1,18,2).
+    pub gb: bool,
+    /// --remove-cart C@T (the interaction row's solo rides): lane cart C and its rider killed at tick T.
+    pub remove_cart: Option<(usize, i64)>,
     /// The module of record's branch (7b90c3f1's split row): D an ascending_south detector, the cells
     /// south of it solid (tick-exact's official S-bend row); default the bench's flat D.
     pub d_slope: bool,
@@ -927,12 +934,12 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
             put(lx, 17 + ns, 2 + ns, &glass);
         }
     }
-    put(lx, 17, 1, &pslope_s);
+    put(lx, 17, 1, if so.gb { &slope_s } else { &pslope_s });
     put(lx, 16, 1, &glass);
     for k in 0..ns {
         // (--top-flat: the top cell north_south, as a build without the official helper order
         // settles it (tick-exact's rail-slope control))
-        put(lx, 18 + k, 2 + k, if so.top_flat && k == ns - 1 { &flat_ns } else { &slope_s });
+        put(lx, 18 + k, 2 + k, if so.top_flat && k == ns - 1 { &flat_ns } else if (so.r2_powered || so.gb) && k == 0 { &pslope_s } else { &slope_s });
         put(lx, 17 + k, 2 + k, &glass);
     }
     // (the merge and the branch: flats at level m from z mz + 3 to mz; the merge's string over it; with
@@ -1565,6 +1572,8 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
     let mut skipped = 0usize;
     let mut next_open: Option<i64> = None;
     let mut cut_ticks: Vec<i64> = Vec::new();
+    // (ironspec 19:22: the trapdoor opens that found R_1 powered)
+    let mut open_r1_powered: Vec<i64> = Vec::new();
     // (G1 18:52 (1): the off-gap form's evidence window)
     let mut evid_window: Option<(i64, i64)> = None;
     // (G1 17:00 B3: the --inject-release napper's cart)
@@ -2208,6 +2217,10 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
         }
         if t >= warm && t < rel_end && ph == 0 && !skip_this {
             trap_until = t + o.drop_w;
+            // (ironspec 18:47 / 19:22: the source-led cut's bar: no trapdoor open with R_1 powered)
+            if r_is {
+                open_r1_powered.push(t);
+            }
             // (G8c, day-1 / ironspec 18:47: the source-led cut: under --r-evidence R_1 is cut at its
             // driver 2 gt before every trapdoor open and the latch resets; printed per refill)
             next_open = Some(t + o.period);
@@ -2291,8 +2304,9 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
             r_on_at.push(t);
             refill_pending = Some(t);
             refill_timing.push((t, None, None, None));
-            // (the carts at rest on R_1's cell (z 1..2) at the power, from the last tick's end: the
-            // next cart, whose first move the calibration times)
+            // (the carts still (moved under 1e-4 the last tick: `still_now`, not the 5-tick `at_rest`;
+            // G1 17:57 N10) on R_1's cell (z 1..2, 1.0 included) at the power, from the last tick's end:
+            // the next cart, whose first move the calibration times)
             refill_on_r1.push(
                 prev_now
                     .iter()
@@ -2304,7 +2318,16 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
         }
         if want_r != r_is {
             r_is = want_r;
-            overrides.set(&mut run.world, wp(BlockPos::new(lx + 1, 17, 1)), if want_r { &rblock } else { &air }, "R_1's switch (x+1,17,1)", false);
+            // (dfb89499 20:03 GB: the brake moved up one slot: R_1 a plain rail with no driver, R_2 the
+            // powered rail, its driver (x+1,18,2))
+            if !so.gb {
+                overrides.set(&mut run.world, wp(BlockPos::new(lx + 1, 17, 1)), if want_r { &rblock } else { &air }, "R_1's switch (x+1,17,1)", false);
+            }
+            // (dfb89499 19:34 V1: R_2 (x,18,2) a powered rail over the same span as R_1, its switch the
+            // repeater's place (x+1,18,2))
+            if so.r2_powered || so.gb {
+                overrides.set(&mut run.world, wp(BlockPos::new(lx + 1, 18, 2)), if want_r { &rblock } else { &air }, "R_2's switch (x+1,18,2) (V1 / GB)", false);
+            }
         }
         // (--hold-switch-off (G1 (2)'s control): the switch held off through the first napper release;
         // `nap_release_n` counts that release later in this iteration, hence the tick test)
@@ -2470,7 +2493,12 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
                 continue;
             }
             let zs = mz as f64 + 2.5;
-            if so.j_rail && parked[c].is_some() {
+            // (G1 17:57 N11: under --j-rail a due return with nothing parked is an error, never a fresh
+            // summoned cart)
+            if so.j_rail && parked[c].is_none() {
+                return Err(format!("--j-rail: t {t}: lane cart {c}'s return is due with no parked cart (G1 17:57 N11)"));
+            }
+            if so.j_rail {
                 // (--j-rail: the cart's own parked cart and rider set on J's west half (x+0.15, m+1,
                 // mz+2.5) moving east at v_in, through J's curve onto D, once J's cell is clear)
                 let jx = lx as f64 + 0.15;
@@ -2538,6 +2566,19 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
             redsim::entity::mob::mob_mut(&mut run.world, ri).last_damage = Some((run.world.time, redsim::entity::mob::Damage::Cramming));
         }
         run.tick();
+        // (the interaction row's solo rides (ironspec 14:47 (a); the parent Nov 13 19:21): --remove-cart
+        // C@T kills lane cart C and its rider at tick T, so another cart rides the lip alone)
+        if let Some((rc, rt)) = so.remove_cart
+            && t == rt
+            && let Some(id) = carts.get(rc).copied().flatten()
+        {
+            if let Some(ri) = rider_index(&run.world, id) {
+                let rid = run.world.entities.list[ri].id;
+                redsim::entity::kill(&mut run.world, rid)?;
+            }
+            redsim::entity::kill(&mut run.world, id)?;
+            carts[rc] = None;
+        }
         let mut now: Vec<Option<(f64, f64, f64, f64)>> = carts.iter().map(|id| id.and_then(|id| st(&run.world, id))).collect();
         // (G1 12:32's edge control (G1 14:18 L1): at T, the lane's highest cart AT REST on the slopes (by
         // the bar's own rest: 5 still ticks) is moved up-slope by exactly D ALONG THE RAIL (G1 15:17: z +
@@ -2802,7 +2843,12 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
                                 "t {t} lane cart {c} +{a:.4} (its move up began t {us}, {} gt from the chain's contact at t {tc} (contacts since the stop {}){}: lane carts {})",
                                 us - tc,
                                 ticks.len(),
-                                if r_from != i64::MIN && r_from <= *tc { format!(", {} gt after R_1 came on", tc - r_from) } else { ", before any shut".to_string() },
+                                if first_shut.is_some_and(|fs| fs <= *tc) {
+                                    // (G1 17:57 N8: from the first shut and the rail's own rise, not the drive's r_from)
+                                    refills.iter().rev().find(|r| r.0 <= *tc).map_or(", after the first shut".to_string(), |r| format!(", {} gt after R_1's rail rose at t {}", tc - r.0, r.0))
+                                } else {
+                                    ", before the first shut".to_string()
+                                },
                                 path.iter().map(|k| k.to_string()).collect::<Vec<_>>().join(" > ")
                             );
                             match cls {
@@ -4545,9 +4591,12 @@ pub fn siding_bench(o: &DropOpts, so: &SidingOpts) -> Result<String, String> {
             // (ironspec / G1 18:21-18:22: per refill, the cart's z < 2 entry tick beside the modelled
             // reader's tick: sensor (B)'s string rising edge and sensor (A)'s R_2 falling edge)
             lines.push(format!(
-                "the refill latch (G8c, ironspec 18:47; tick-exact 18:37): source-led cuts {} [{}]; the trapdoor open - the evidence end per refill [{}]; the slot offsets over slot 1 at R_1's rise + 60 (z_k - z_1 - (k-1) x 0.79; max (snapshots)) [{}]; releases skipped (--skip-release) {}; per rest (G1 18:52 (2): the depth beside the tail's z; only depth 6 / 7 feed V) [{}]",
+                "the refill latch (G8c, ironspec 18:47; tick-exact 18:37): source-led cuts {} [{}]; trapdoor opens with R_1 powered (ironspec 19:22, the bar: 0) {} [{}]; releases of 2 or more carts {}; the trapdoor open - the evidence end per refill [{}]; the slot offsets over slot 1 at R_1's rise + 60 (z_k - z_1 - (k-1) x 0.79; max (snapshots)) [{}]; releases skipped (--skip-release) {}; per rest (G1 18:52 (2): the depth beside the tail's z; only depth 6 / 7 feed V) [{}]",
                 cut_ticks.len(),
                 cut_ticks.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(", "),
+                open_r1_powered.len(),
+                open_r1_powered.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(", "),
+                per_release.iter().filter(|k| **k >= 2).count(),
                 evidence_ends.iter().map(|(e, no)| no.map_or("-".to_string(), |no| (no - e).to_string())).collect::<Vec<_>>().join(", "),
                 snap_offsets.iter().map(|(k, (m, c))| format!("slot {k} {m:+.3} ({c})")).collect::<Vec<_>>().join(", "),
                 skipped,
@@ -5623,6 +5672,13 @@ pub struct SidingRow {
     /// depth (min, max) at the refills' rests.
     pub refill_never: usize,
     pub refill_depth: (usize, usize),
+    /// The refills seen, and a row whose refills never had a new slot-1 cart (no arrival: NOT JUDGED).
+    pub refill_count: usize,
+    pub refill_no_arrival: bool,
+    /// ironspec 19:22: trapdoor opens that found R_1 powered (the source-led cut's bar: 0), and releases
+    /// of 2 or more carts (out of turn).
+    pub open_r1_powered: usize,
+    pub multi_releases: usize,
     /// The interaction row's napper pairs (ironspec Nov 13 14:47 (a)): (napper tick, napper cart,
     /// leader tick, leader cart, C-gap, box-contact ticks, push-contact ticks, the leader clear of the
     /// lip volume relative to the napper's arrival).
@@ -5974,14 +6030,27 @@ pub fn parse_siding_row(text: String, so: &SidingOpts) -> Result<SidingRow, Stri
             r.ld = (req(after, ": passes ")? as usize, req(after, "contacts box ")? as usize, req(after, " push ")? as usize, req(after, "largest displacement ")?);
         } else if l.starts_with("the forced release (G1 17:00 B3)") {
             r.injected_cart = if l.ends_with(": none") { None } else { Some(req(l, "napper cart ")? as usize) };
+        } else if l.starts_with("the refill latch (G8c, ironspec 18:47") {
+            r.open_r1_powered = req(l, "(ironspec 19:22, the bar: 0) ")? as usize;
+            r.multi_releases = req(l, "releases of 2 or more carts ")? as usize;
         } else if l.starts_with("the refills at R_1 (G1 Nov 13 17:44") {
-            // (strict: a refill sweep row needs both figures; "-" (no refill) parses as an error)
-            r.refill_margin = (req(l, "the margin min ")? as i64, req(l, "; the margin min ").and_then(|_| req(l.split_once("; the margin min ").map_or(l, |x| x.1), " max "))? as i64);
-            r.refill_rest = (req(l, "the rest z min ")?, req(l.split_once("the rest z min ").map_or(l, |x| x.1), " max ")?);
-            r.refill_tail = req(l.split_once("the highest lane cart on the slopes)").map_or(l, |x| x.1), " max ")?;
+            // (strict: a row with arrivals needs every figure; a row with NO new slot-1 cart in any refill
+            // (the evidence never arrived: an empty slope, a latch that never reset) is its own named state,
+            // NOT JUDGED, never a parse error (the parent, Nov 13 19:21))
+            r.refill_count = req(l, "not a bar): refills ")? as usize;
+            let with_cart = req(l, "(with a new slot-1 cart ")? as usize;
+            r.refill_no_arrival = with_cart == 0;
             r.refill_never = req(l.split_once("never entered (").map_or(l, |x| x.1), "fails) ")? as usize;
-            let dl = l.split_once("the queue depth at each rest (G1 18:21 (c)) ").map_or("", |x| x.1);
-            r.refill_depth = dl.split_once("..").and_then(|(a, b)| Some((a.trim().parse::<usize>().ok()?, b.split(';').next()?.trim().parse::<usize>().ok()?))).unwrap_or((0, 0));
+            if !r.refill_no_arrival {
+                r.refill_margin = (req(l, "the margin min ")? as i64, req(l.split_once("; the margin min ").map_or(l, |x| x.1), " max ")? as i64);
+                r.refill_rest = (req(l, "the rest z min ")?, req(l.split_once("the rest z min ").map_or(l, |x| x.1), " max ")?);
+                r.refill_tail = req(l.split_once("the highest lane cart on the slopes)").map_or(l, |x| x.1), " max ")?;
+                let dl = l.split_once("the queue depth at each rest (G1 18:21 (c)) ").map_or("", |x| x.1);
+                r.refill_depth = dl
+                    .split_once("..")
+                    .and_then(|(a, b)| Some((a.trim().parse::<usize>().ok()?, b.split(';').next()?.trim().parse::<usize>().ok()?)))
+                    .ok_or(format!("siding_row: no queue depth in: {l}"))?;
+            }
         } else if l.starts_with("the lip margin (ironspec 21:14 (2)") {
             let s = l.split("(stuck)): margins ").nth(1).ok_or(format!("siding_row: no lip margins in: {l}"))?;
             r.lip_min = if s.starts_with("- ") {
@@ -6501,6 +6570,9 @@ mod official_row_tests {
             r_second: None,
             skip_release: None,
             r_offgap: false,
+            r2_powered: false,
+            gb: false,
+            remove_cart: None,
             d_slope: true,
             out: None,
             no_walkway: false,
