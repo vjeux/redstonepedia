@@ -5098,28 +5098,42 @@ pub fn source_classes(spec: &FarmSpec) -> Vec<SourceClass> {
 /// `row:` / `rows:` part as its own token (at the reason's start or after "; ") naming a FILE (a word
 /// with a `.` or a `/`), a TICK RANGE (`t A..B` or `tA..B`, or `ticks A..B`) and a CART (`cart N`), as
 /// `row: record7f13t.txt t 120..180 cart 3`. Returns the cited part; a reason that only mentions
-/// "row:" (an "arrow:", or a part lacking one of the three) cites nothing.
+/// "row:" (an "arrow:", or a part lacking one of the three) cites nothing. G1 15:51: the citation
+/// must be DURABLE: a repo path (relative), or any file with an artifact id (`a/NNNN`) or an md5 (12+
+/// hex digits) beside it; an absolute path alone (`/tmp/…`, a box-local file no reviewer can open)
+/// is "(not durable)" and cites nothing ([`row_citation_why`] says why).
 pub fn row_citation(why: &str) -> Option<String> {
+    row_citation_why(why).ok()
+}
+
+/// [`row_citation`] with the reason a reason cites nothing: no `row:` part with all three pieces, or
+/// one whose file is not durable.
+pub fn row_citation_why(why: &str) -> Result<String, String> {
     let range = |w: &str| -> bool {
         let w = w.trim_end_matches([',', ';', ')']);
         w.split_once("..").is_some_and(|(a, b)| !a.is_empty() && !b.is_empty() && a.chars().all(|c| c.is_ascii_digit()) && b.chars().all(|c| c.is_ascii_digit()))
     };
+    let mut not_durable: Option<String> = None;
     for part in std::iter::once(why).chain(why.match_indices("; ").map(|(i, _)| &why[i + 2..])) {
         let part = part.trim_start();
         let Some(rest) = part.strip_prefix("rows:").or_else(|| part.strip_prefix("row:")) else { continue };
         let rest = rest.split("; ").next().unwrap_or("");
-        let words: Vec<&str> = rest.split_whitespace().collect();
-        let file = words.iter().any(|w| {
-            let w = w.trim_end_matches([',', ';']);
-            (w.contains('.') && !range(w) && w.chars().any(|c| c.is_alphabetic())) || w.contains('/')
-        });
+        let words: Vec<&str> = rest.split_whitespace().map(|w| w.trim_end_matches([',', ';', ')'])).collect();
+        let files: Vec<&str> = words.iter().copied().filter(|w| (w.contains('.') && !range(w) && w.chars().any(|c| c.is_alphabetic())) || w.contains('/')).collect();
         let ticks = words.windows(2).any(|p| (p[0] == "t" || p[0] == "ticks") && range(p[1])) || words.iter().any(|w| w.strip_prefix('t').is_some_and(&range));
-        let cart = words.windows(2).any(|p| p[0].trim_end_matches(',') == "cart" && !p[1].trim_end_matches([',', ';', ')']).is_empty());
-        if file && ticks && cart {
-            return Some(rest.trim().to_string());
+        let cart = words.windows(2).any(|p| p[0] == "cart" && !p[1].is_empty());
+        if files.is_empty() || !ticks || !cart {
+            continue;
         }
+        let artifact = words.iter().any(|w| w.split("a/").nth(1).is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit())));
+        let md5 = words.iter().any(|w| w.len() >= 12 && w.chars().all(|c| c.is_ascii_hexdigit()) && w.chars().any(|c| c.is_ascii_digit()));
+        let repo = files.iter().any(|f| !f.starts_with('/') && !f.starts_with('~'));
+        if repo || artifact || md5 {
+            return Ok(rest.trim().to_string());
+        }
+        not_durable = Some(format!("not durable: {} (a box-local path: add its artifact id or md5, or cite a repo path)", files.join(" ")));
     }
-    None
+    Err(not_durable.unwrap_or_else(|| "no `row:` part with a file, a tick range and a cart".to_string()))
 }
 
 /// (onechunk / farmopt Nov 13 13:54, ironspec 13:54) The `update-only:` sources checked against
@@ -6073,7 +6087,13 @@ impl<'a> Track<'a> {
             // (G1 Nov 13 13:56: a `travel` line confirms its moves only when it cites a composed row
             // (file, tick range, cart) as `row:` / `rows:` in its reason; an uncited one still orients
             // the walk but its moves stay unconfirmed, listed with the inferred links)
-            let cited = row_citation(why).is_some();
+            let cited = match row_citation_why(why) {
+                Ok(_) => true,
+                Err(e) => {
+                    warn.push(format!("--travel {}: UNCITED ({e})", path.iter().map(|c| format!("{},{},{}", c.x, c.y, c.z)).collect::<Vec<_>>().join(">")));
+                    false
+                }
+            };
             for w in path.windows(2) {
                 let (a, b) = (rail(&w[0]), rail(&w[1]));
                 if e.contains(&(a, b)) {
@@ -7437,8 +7457,13 @@ mod orient_tests {
         // token with a file, a tick range and a cart; a mere mention, an "arrow:", or a part missing
         // one of the three cites nothing)
         assert!(super::row_citation("row: record7f13t.txt t 120..180 cart 3").is_some());
-        // (7b90c3f1's emitter form, 14:41)
-        assert!(super::row_citation("a batch cart on the split row enters J(-1) from the west (onechunk's composed t14 night, 11b888a04256); row: /tmp/onechunk/t14/n-p0_0_0-d0-s1.txt t 2854..2855 cart 46").is_some());
+        // (7b90c3f1's emitter form, 14:41: a /tmp path alone is NOT DURABLE (G1 15:51), the md5 in the
+        // reason's first part not beside it; with its md5 or an artifact id in the row part, cited)
+        let tmp = "a batch cart on the split row enters J(-1) from the west (onechunk's composed t14 night, 11b888a04256); row: /tmp/onechunk/t14/n-p0_0_0-d0-s1.txt t 2854..2855 cart 46";
+        assert!(super::row_citation(tmp).is_none() && super::row_citation_why(tmp).unwrap_err().starts_with("not durable: /tmp/onechunk"), "{:?}", super::row_citation_why(tmp));
+        assert!(super::row_citation("a batch cart; row: /tmp/onechunk/t14/n-p0_0_0-d0-s1.txt md5 9af7084ecb19 t 2854..2855 cart 46").is_some());
+        assert!(super::row_citation("a batch cart; row: night n-p0 (a/2344002509732418) t 2854..2855 cart 46").is_some(), "an artifact id names the file durably");
+        assert!(super::row_citation("a batch cart; row: n-p0_0_0-d0-s1.txt https://artifacts.internalmeta.com/a/2344002509732418 t 2854..2855 cart 46").is_some());
         assert!(super::row_citation("the composed night; rows: onechunk/t14-n2.txt ticks 4400..4480, cart 7").is_some());
         assert!(super::row_citation("seen in row: record7f13t.txt t120..180 cart 3").is_none(), "not at a part's start");
         assert!(super::row_citation("the arrow: record7f13t.txt t 120..180 cart 3").is_none());
