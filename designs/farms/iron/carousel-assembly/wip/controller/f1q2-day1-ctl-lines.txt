@@ -1,0 +1,81 @@
+# day-1's controller DRIVE LINES, the first car: LINE A and LINE C's three ends (V rev 3.1, an owner part: loaderlay; day-1's
+# netlist a/1158558780016588, subsystem 4, and its slice of Nov 14 11:34 / 11:36 / 12:13; NORMAL operation only, ironspec
+# 11:20a). V's loop frame, no offset. A diode's `facing` names its INPUT side (26.3 DiodeBlock: it reads pos.relative(FACING)
+# and powers the opposite side).
+#
+# LINE A, the napper's row hold (9,0,8): powered = the hold releases the napper; a 12-gt pulse whose rise is AT THE HOLD RAIL
+# (9,0,8) at REL + 67. The port (2,-1,8) (the core's REL + 61 tap, dfb89499's core; a declared line-bench stand-in until the
+# core lands) -> repeater[facing=west,delay=1] (3,-1,8) -> dust (4,-1,8), (5,-1,8), (6,-1,8), each east-west only ->
+# repeater[facing=west,delay=1] (7,-1,8) -> LIFT's repeater[facing=west,delay=1] (8,-1,8) (NOT this part's: V rev 2.1's LIFT
+# part f1q2-lift-split-path-a.77b7a74af.txt, md5 8fc997abca1d) -> its strongly powered slime (9,-1,8) -> the hold rail (9,0,8)
+# above it: 6 gt from the port to the rail (line-bench), so the port's rise is due at REL + 61. On glass (3..7,-2,8). As V
+# holds them: (3..7,0,8) air above the line; (4..7,-1,7) glass and (3..7,-1,9) air beside it (nothing a dust connects to).
+# Never touched: the station's slime (3,-1,7) and its torch (3,-2,7) (the slime sits at the first repeater's SIDE, which a
+# repeater doesn't read), the station row's rails (4..8,0,7), everything of LIFT at x >= 8.
+#
+# LINE C, the station's slot releases, lanes x = -1 / 3 / 7: powered = release that lane's slot cart; a 12-gt pulse whose rise
+# is at R_1 (x,17,1) at REL + 0 / 17 / 27. Per lane (day-1 12:13: the same for all three lanes): the core's line arrives at
+# the port (x+2,17,-1) -> repeater[facing=north,delay=1] (x+2,17,0) on glass (x+2,16,0) -> the line END, dust (x+2,17,1)
+# connected north and west only (no east and no south side: it never points into (x+3,17,1) or the next lane's R_1), on
+# day-1's keep-block glass (x+2,16,1) -> the R_1 driver repeater[facing=east,delay=1] (x+1,17,1) (day-1 11:36 (2), vcompose
+# 11:38 (2): moved into this part, one owner; the station's copies become its stand-ins), on the station's glass (x+1,16,1)
+# -> R_1 (x,17,1): 4 gt from the port to R_1, so the port's rise is due at REL + k - 4. (A repeater end reading (x+3,17,1) was
+# dropped: lane 7's (10,17,1) is outside the module's x -6..9 box and lanes -1 / 3's (2,17,1) / (6,17,1) touch the next lane's
+# R_1.) Never touched: R_1 (x,17,1), the slot-1 presence strings over R_1 ((x-1..x+1,18,1) and their glass), the holds'
+# trapdoors (x,16,0).
+# THE PORTS' STAND-INS (G1 Nov 14 14:13 (2)[2], ironspec 14:46p (2): the `r-line:-1/3/7` roles are owned by LINES): until the
+# core's lines land, each port (x+2,17,-1) holds an `emulated:` floor lever (declared, not laid) on this part's glass
+# (x+2,16,-1), driving the arrival repeater (x+2,17,0) as the core's REL + k - 4 tap will; the glass stays for the core's line.
+# stand-in: 1,16,1 (day-1's keep-block glass under lane -1's line end, f1q2-day1-rline-supports: a sight collider); 5,16,1 (day-1's keep-block glass under lane 3's line end, f1q2-day1-rline-supports: a sight collider); 9,16,1 (day-1's keep-block glass under lane 7's line end, f1q2-day1-rline-supports: a sight collider); 0,16,1 (the station's glass under lane -1's R_1 driver, f1q2-station.txt); 4,16,1 (the station's glass under lane 3's R_1 driver, f1q2-station.txt); 8,16,1 (the station's glass under lane 7's R_1 driver, f1q2-station.txt)
+# update-consumers: intended 3,-1,8=4,-1,8 redstone_wire+5,-1,8 redstone_wire (line A: the first repeater's output dust and the next one, the line's own)
+# update-consumers: intended 7,-1,8=8,-1,8 repeater (line A: LIFT's repeater, the line's target)
+# update-consumers: intended 0,17,1=-1,17,1 powered_rail (line C: R_1 of lane -1, the driver's target)
+# update-consumers: by-code 0,17,1=-1,18,1 tripwire (26.3 BlockBehaviour.neighborChanged: the default, which does nothing, takes the update: TripWireBlock doesn't override it, its overrides affectNeighborsAfterRemoval, entityInside, onPlace, tick, updateShape per the game's own table crates/redsim/src/terrain/blocks.tsv)
+# update-consumers: intended 4,17,1=3,17,1 powered_rail (line C: R_1 of lane 3, the driver's target)
+# update-consumers: by-code 4,17,1=3,18,1 tripwire (26.3 BlockBehaviour.neighborChanged: the default, which does nothing, takes the update: TripWireBlock doesn't override it, its overrides affectNeighborsAfterRemoval, entityInside, onPlace, tick, updateShape per the game's own table crates/redsim/src/terrain/blocks.tsv)
+# update-consumers: intended 8,17,1=7,17,1 powered_rail (line C: R_1 of lane 7, the driver's target)
+# update-consumers: by-code 8,17,1=7,18,1 tripwire (26.3 BlockBehaviour.neighborChanged: the default, which does nothing, takes the update: TripWireBlock doesn't override it, its overrides affectNeighborsAfterRemoval, entityInside, onPlace, tick, updateShape per the game's own table crates/redsim/src/terrain/blocks.tsv)
+# update-consumers: intended 1,17,0=1,17,1 redstone_wire+0,17,1 repeater (line C: lane -1's line end dust, the arrival repeater's target, and the driver it feeds)
+# update-consumers: by-code 1,17,0=1,17,2 lantern (26.3 BlockBehaviour.neighborChanged: the default, which does nothing, takes the update: LanternBlock doesn't override it, its overrides canSurvive, updateShape per the game's own table crates/redsim/src/terrain/blocks.tsv)
+# update-consumers: intended 5,17,0=5,17,1 redstone_wire+4,17,1 repeater (line C: lane 3's line end dust, the arrival repeater's target, and the driver it feeds)
+# update-consumers: intended 9,17,0=9,17,1 redstone_wire+8,17,1 repeater (line C: lane 7's line end dust, the arrival repeater's target, and the driver it feeds)
+emulated: 1,17,-1=lever[face=floor,facing=north,powered=false] (support=1,16,-1; drive=r-line:-1; lane -1's slot-release port: the core's REL + 0 - 4 tap enters here into the arrival repeater (1,17,0); a stand-in until the core's line lands, owner LINES, ironspec 14:46p (2)); 5,17,-1=lever[face=floor,facing=north,powered=false] (support=5,16,-1; drive=r-line:3; lane 3's slot-release port: the core's REL + 17 - 4 tap, into the arrival repeater (5,17,0)); 9,17,-1=lever[face=floor,facing=north,powered=false] (support=9,16,-1; drive=r-line:7; lane 7's slot-release port: the core's REL + 27 - 4 tap, into the arrival repeater (9,17,0))
+name: f1q2-day1-ctl-lines
+origin: 0 -2 -1
+palette:
+  G minecraft:glass
+  R minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+  d minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
+  E minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+  N minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  w minecraft:redstone_wire[east=none,north=side,power=0,south=none,west=side]
+layer 0:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ...GGGGG
+layer 1:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ...RdddR
+layer 18:
+  .G...G...G
+  .G...G...G
+  GG..GG..GG
+layer 19:
+  .
+  .N...N...N
+  Ew..Ew..Ew
