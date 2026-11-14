@@ -237,8 +237,11 @@ pub fn cmd_test(version: &str, args: TestArgs) -> Result<()> {
         if !code.is_empty() {
             anyhow::bail!("{line}: the change touches code ({}) but selects no piece: every crate's file picks its crate's piece, so a rule or the --only filter left it out (testplan::RULES)", code.join(", "));
         }
-        println!("{line}: nothing to run for this change");
-        return Ok(());
+        // (G1 Nov 14 07:59 (4): an empty selection is NOT GREEN, with its count on the Tests line; it was
+        // "nothing to run" and exit 0, how f33583be5 / 77b7a74af went through with "0 pieces")
+        let why = testplan::not_green(0, &[]).expect("an empty selection is never green");
+        println!("{line}: {why}");
+        anyhow::bail!("mctas test {why}");
     }
     testplan::run(pieces, &testplan::RunOpts { cpu, jvms: jv, keep, fail_fast, version: version.to_string() }, &line)
 }

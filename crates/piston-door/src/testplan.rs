@@ -932,6 +932,12 @@ struct Slots {
 /// fit, one at a time when it alone is bigger than the machine) and report. Ok(()) iff every
 /// piece passed.
 pub fn run(pieces: Vec<Piece>, o: &RunOpts, commit_line: &str) -> Result<()> {
+    // (G1 Nov 14 07:59 (4), ironspec 07:50r (1): a selection that runs 0 pieces proves nothing: NOT GREEN,
+    // with the count on the Tests line, before anything else (f33583be5 / 77b7a74af "ran 0 pieces")
+    if let Some(why) = not_green(pieces.len(), &[]) {
+        println!("{commit_line}: {why}");
+        bail!("mctas test {why}");
+    }
     if !Path::new("designs/piston-door-3x3").is_dir() {
         bail!("run `mctas test` from the repository root (designs/piston-door-3x3 not found)");
     }
@@ -1084,7 +1090,13 @@ pub fn run(pieces: Vec<Piece>, o: &RunOpts, commit_line: &str) -> Result<()> {
     let line = summary(&res.iter().map(|r| (pieces[r.0].check.name.as_str(), r.1, r.2.as_str())).collect::<Vec<_>>());
     println!("mctas test: {line}{} in {total:.0} s; slowest: {}", if skipped > 0 { format!(", {skipped} not run (--fail-fast)") } else { String::new() }, slow.join(", "));
     if failed.is_empty() && skipped == 0 {
-        // a piece this box could not run is never folded into "passed" (ironspec 2026-11-12 20:35)
+        // a piece this box could not run is never folded into "passed" (ironspec 2026-11-12 20:35), and
+        // since ironspec Nov 14 07:50r (1) it makes the run NOT GREEN, by name, with a non-zero exit
+        let not_run: Vec<&str> = res.iter().filter(|r| r.1 && r.2.starts_with(NOT_RUN)).map(|r| pieces[r.0].check.name.as_str()).collect();
+        if let Some(why) = not_green(pieces.len(), &not_run) {
+            println!("{commit_line}: {line} in {total:.0} s; {why}");
+            bail!("mctas test {why} (outputs in {})", root.display());
+        }
         if line.contains("not run") || line.contains("clippy") || line.contains("no unit tests") {
             println!("{commit_line}: {line} in {total:.0} s");
         } else {
@@ -1113,6 +1125,19 @@ fn verdict(p: &Piece, outs: &[String], err: Option<String>) -> (bool, String) {
 /// The verdict a piece gives when this box cannot run it (a wasm-only crate with no wasm32 target):
 /// the piece shows SKIP and the summary counts it apart, never as passed.
 pub const NOT_RUN: &str = "NOT RUN: ";
+
+/// Why a run that failed nothing is still NOT GREEN, if it is (G1 Nov 14 07:59 (4), ironspec 07:50r (1)):
+/// a selection of 0 pieces proves nothing; a selected piece this box couldn't run leaves its part
+/// unproven. None: green.
+pub fn not_green(pieces: usize, not_run: &[&str]) -> Option<String> {
+    if pieces == 0 {
+        return Some("NOT GREEN: the selection runs 0 pieces (a change no piece covers proves nothing; G1 Nov 14 07:59)".to_string());
+    }
+    if !not_run.is_empty() {
+        return Some(format!("NOT GREEN: {} selected piece(s) couldn't run on this box: {} (run them where they can: ironspec Nov 14 07:50r (1))", not_run.len(), not_run.join(", ")));
+    }
+    None
+}
 
 /// The summary's counts over (name, ok, verdict): passed (and, as information, how many of them
 /// are crates with no unit tests, so "passed" never overstates: ironspec 2026-11-12 19:51 PT (4b)),
@@ -1325,6 +1350,19 @@ mod tests {
         assert_eq!(summary(&[("sim:x", true, "ok"), ("sim:y", false, "bad")]), "1 passed, 1 failed");
         // crates with no unit tests are counted apart, as information (ironspec 19:51 PT (4b))
         assert_eq!(summary(&[("unit:bud", true, "no unit tests in bud (it builds; 1 test binaries); clippy: 0 error(s) and 0 warning(s) in the crate, counted, not failing"), ("unit:site", true, "103 site tests pass (1 test binaries); clippy: 0 error(s) and 0 warning(s) in the crate, counted, not failing")]), "2 passed (1 of them crates with no unit tests, built only: bud), 0 failed");
+    }
+
+    /// G1 Nov 14 07:59 (4) / ironspec 07:50r (1): NOT GREEN, by name, on an empty selection (the planted
+    /// empty selection: `run` refuses it before anything else, wherever it runs) and on a selected piece
+    /// this box couldn't run; green otherwise.
+    #[test]
+    fn an_empty_selection_or_an_unrun_piece_is_not_green() {
+        assert!(not_green(0, &[]).is_some_and(|w| w.contains("NOT GREEN") && w.contains("0 pieces")));
+        assert!(not_green(3, &["unit:mcview-web"]).is_some_and(|w| w.contains("NOT GREEN") && w.contains("1 selected piece(s) couldn't run on this box: unit:mcview-web")));
+        assert_eq!(not_green(3, &[]), None);
+        let o = RunOpts { cpu: 1, jvms: 1, keep: false, fail_fast: false, version: "26.3".to_string() };
+        let e = run(Vec::new(), &o, "Tests: mctas test (0 pieces) on x vs y").expect_err("an empty selection is refused");
+        assert!(e.to_string().contains("NOT GREEN: the selection runs 0 pieces"), "{e}");
     }
 
     /// ironspec Nov 14 05:35, the selection fix: a changed file a crate `include_str!`s selects that

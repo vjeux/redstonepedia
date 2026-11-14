@@ -880,10 +880,17 @@ design, a record file a test compares against) also picks that crate's unit test
 test includes, and `mctas test` said "nothing to run"); the scan is the build inputs' own
 (`mctas::buildinputs`, the one definition the binary rule's provenance check uses too).
 
+**NOT GREEN** (G1 2026-11-14 07:59 (4), ironspec 07:50r (1)): a selection of 0 pieces is NOT GREEN, a
+non-zero exit with the count on its Tests line (it was "nothing to run" and exit 0, how two commits went
+through on "0 pieces"); and a selected piece this box can't run (a wasm-only crate here) makes the run
+NOT GREEN by name, never "passed, 1 not run": run that piece where it can run (`testplan::not_green`).
+
 **Builds before clocks, and the stamp** (ironspec 2026-11-14 05:35 / 05:40): before any piece's clock
 starts, the runner builds the tested tree's own `mctas` (the pieces that spawn mctas, such as
-`sim:recorded-mobai`'s `mobai replay`, run that binary) and every unit piece's test binaries in one
-`cargo test --release --no-run` (a piece's clock then times its own run: a piece no longer burns its
+`sim:recorded-mobai`'s `mobai replay`, run that binary) and every unit piece's test binaries, each
+with the piece's own `cargo test --release -p <crate> --all-targets --no-run` (one crate per command:
+cargo unifies features across one command's packages, so a combined build doesn't serve a single
+crate's; a piece's clock then times its own run: a piece no longer burns its
 time waiting on the shared build lock, and a genuinely slow piece still times out, by name); and every
 build is STAMPED with the tested tree's build tree (`MCTAS_SOURCE_TREE`, the binary rule's
 `mctas mobfarm source-tree`), so the evidence subcommands (mobfarm / mobai, default-deny) pass mctas's
