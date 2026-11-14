@@ -1515,6 +1515,57 @@ pub(crate) fn checks() -> Vec<Check> {
             Ok("cane-mc-8b and melon-mc-7b pass (every melon drop counted); the melon calibration fails on its lost slices".into())
         }),
     });
+    // (vcompose, ironspec Nov 14 07:50r (1), G1 07:41: the live coupling kept) V composed from the
+    // CURRENT station, lanes, sky and posts files and V rev 2's other parts, nothing written: a header
+    // line the composer can't carry (a new kind in a station or part edit) fails here by name, as do a
+    // clash, a stand-in's lost support and a string-class cell that isn't the declared string. The
+    // design paths in its arguments put it in the selection (`testplan::check_designs`): an edit to any
+    // of them picks it. (The column twin in mctas-cli pins V rev 2's inputs by md5; this one reads live.)
+    {
+        let r = "designs/farms/iron/carousel-assembly/wip/vcompose/parts";
+        let b = format!("{r}/f1q2-module-wayin-bplus.ec561e48d.txt");
+        let l = format!("{r}/f1q2-lift-split-path-a.77b7a74af.txt");
+        let s: Vec<String> = vec![
+            "mobfarm".into(),
+            "column".into(),
+            "--name=f1q2-module-v-live".into(),
+            "--part=STATION!=designs/farms/iron/carousel-assembly/wip/station/f1q2-station.txt".into(),
+            format!("--clear-part={r}/f1q2-station.main-6e05a4a72.txt@0,0,0"),
+            "--part=LANES=designs/farms/iron/carousel-assembly/wip/lanes/f1q2-lanes-sbend.txt".into(),
+            format!("--part=LIFT={l}"),
+            format!("--part=NAPFOOT!={l}@0,7,0#5,-29,3,7,-27,5"),
+            format!("--part=FOLD={r}/bed-tier-fold.bfa0c8098.txt@0,-20,-1"),
+            format!("--part=WAYLEG={b}#9,21,-6,9,25,9"),
+            format!("--part=WAYFALL={b}#9,-27,-6,9,20,-1"),
+            format!("--part=WAYGUARD={b}#8,14,-5,8,22,-5"),
+            format!("--part=QCART!={b}@0,4,0#9,-14,-4,9,-14,-4"),
+            "--part=SKY=designs/farms/iron/carousel-assembly/wip/onechunk/module/f1q2-sky.txt".into(),
+            "--part=POSTS=designs/farms/iron/carousel-assembly/wip/onechunk/module/f1q2-scarers-2post.txt".into(),
+            format!("--part=F3={r}/f1q2-scarer-f3.bc8a97b89.txt"),
+            format!("--part=R3={r}/f1q2-module-record7f13b.rev3.e8ed1e0fa.txt"),
+            "--stale=R3".into(),
+            format!("--delta=WAYIN={r}/f1q2-wayin-v.b8949c96.0f86b83e8.delta"),
+            format!("--delta=RTRIP={r}/return-tripwire-C.ironspec-2241.txt"),
+            format!("--delta=DROPS={r}/v-drops.rev2.b1876365f6f5.txt"),
+            "--precedence=9,25,9=WAYLEG:the way-in curve north_west of b8949c96s way-in file; the lift file holds a rail east_west there as its own bench stand-in (its stand-in line for 9,25,9)".into(),
+            "--clear=-6,-30,-6,9,-24,10".into(),
+            "--clear=5,-23,3,7,-20,5".into(),
+            "--port=output=-6,1,-6".into(),
+        ];
+        v.push(Check {
+            name: "farm:v-live-station".into(),
+            what: "`mobfarm column` composes V (rev 2's parts) from the CURRENT station, lanes, sky and posts files, nothing written: every header line carried (a kind the composer can't carry fails by name), no clash, every stand-in's support held, every string-class cell the declared string",
+            quick: true,
+            jvm: false,
+            steps: vec![s],
+            timeout: 120,
+            pred: Box::new(|o| {
+                has(&o[0], "clashes: none")?;
+                has(&o[0], "string-class cells (G1 Nov 14 07:41): ")?;
+                Ok("V composes from the current station and parts: no clash, every line carried, every string-class cell a string".into())
+            }),
+        });
+    }
     // redsim's shulker port: the real-game traces of the reference loader and unloader replayed
     // tick for tick (box placement, hoppers, comparators, the piston-broken drop as the bridge
     // seeds it, its pickup); since 2026-11-08 (`mctas test`) every exact shulker trace, the 8

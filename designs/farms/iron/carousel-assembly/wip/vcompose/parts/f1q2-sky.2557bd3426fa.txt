@@ -1,0 +1,39 @@
+# F1 + Q2 sky cells (onechunk, Nov 12 02:01; laid from b8949c96's cells as relayed by farmopt 01:32, with ironspec's 01:39 sensing change and 01:55 roof lift): loop frame. The roof: bottom slabs at y 28 over x -6..9, z -6..9, glass at (-5,28,3) over the clear sensing column x -5, z 3, y 16..27; the lightning rod on the roof at (-6,29,-6); the daylight detector on the controller's top at (-5,15,3) under that column. The RISE / EIGHT / DAY comparators (y 15) and day-1's inputs (-5,14,3..5) are day-1's cells, EMULATED in the runner until laid. b8949c96 places the torches from the assembled file. (Empty rows are written as "." so the parser keeps them.)
+name: f1q2-sky
+circuit: mob-farm iron_ingot
+origin: -6 0 -6
+palette:
+  s minecraft:smooth_stone_slab[type=bottom,waterlogged=false]
+  g minecraft:glass
+  r minecraft:lightning_rod[facing=up,powered=false,waterlogged=false]
+  d minecraft:daylight_detector[inverted=false,power=0]
+layer 15:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .d
+layer 28:
+  ssssssssssssssss
+  ssssssssssssssss
+  ssssssssssssssss
+  ssssssssssssssss
+  ssssssssssssssss
+  ssssssssssssssss
+  ssssssssssssssss
+  ssssssssssssssss
+  ssssssssssssssss
+  sgssssssssssssss
+  ssssssssssssssss
+  ssssssssssssssss
+  ssssssssssssssss
+  ssssssssssssssss
+  ssssssssssssssss
+  ssssssssssssssss
+layer 29:
+  r

@@ -315,6 +315,7 @@ pub const ROWS: &[(&str, Group, &str, usize, usize, u32)] = &[
     ("circuit:lift-verify", Group::Lift, "", 8, 16, 400),
     ("circuit:lift-", Group::Lift, "", 0, 1, 60),
     ("circuit:farm-run", Group::Farm, "", 1, 2, 300),
+    ("farm:v-live-station", Group::Farm, "", 0, 1, 120),
 ];
 
 /// A check's row (panics on a check without one: `every_check_has_a_row`).

@@ -181,7 +181,9 @@ fn tagged(text: &str, tag: &str) -> String {
 /// [`carried_declarations`] under a [`CarryFilter`]: see [`Carried`].
 pub fn carried_filtered(specs: &[PartSpec], shift: P, filt: &CarryFilter) -> Result<Carried, String> {
     const ENTRY_META: [&str; 7] = ["placement-order-ts", "update-only-ts", "emulated", "keep-block", "unreachable", "waker-places", "riderless"];
-    const ENTRY_HASH: [&str; 16] = ["shape", "switch", "switches", "update-only", "contacts", "travel", "always-on", "out-of-scope", "water", "single-occupant", "own-route-junctions", "one-way", "a6-pickup", "stand-in-guard", "candidate", "contact-speeds"];
+    // (vcompose, farmopt Nov 14 07:39 (a): E-prime's station declares its D-prime strings'
+    // `# string-class: x,y,z+x,y,z=CLASS (why)`, part 35's key string-audit reads)
+    const ENTRY_HASH: [&str; 17] = ["shape", "switch", "switches", "update-only", "contacts", "travel", "always-on", "out-of-scope", "water", "single-occupant", "own-route-junctions", "one-way", "a6-pickup", "stand-in-guard", "candidate", "contact-speeds", "string-class"];
     // (vcompose: the station's `# held: x,y,z state (why)` is a leading-cell line too)
     const LEAD_HASH: [&str; 2] = ["stand-in", "held"];
     // (vcompose: an `# integrity:` line is machine-read, `x,y,z=connections a+b; holds c=shape`,
@@ -313,7 +315,16 @@ pub fn carried_filtered(specs: &[PartSpec], shift: P, filt: &CarryFilter) -> Res
                     for (e, r) in entries.iter().zip(parsed) {
                         match r? {
                             Some(Ok(m)) => heads.push(format!("# {key}: {m}")),
+                            // (farmopt Nov 14 07:45, G1 07:41) an owner's string-class declaration whose
+                            // cell is cleared or overlapped FAILS by name (a string the record loses
+                            // can't keep its class); the stale part's is dropped as before
+                            Some(Err(w)) if key == "string-class" && !is_stale => {
+                                return Err(format!("part {} ({}): its `# string-class:` declaration {} names a cell that is {w}: a string-class cell dropped or overlapped fails by name (G1 Nov 14 07:41)", s.name, s.file.display(), short(e)));
+                            }
                             Some(Err(w)) => dropped.push(format!("{} `# {key}:` {}: {w}", s.name, short(e))),
+                            None if key == "string-class" && !is_stale => {
+                                return Err(format!("part {} ({}): its `# string-class:` declaration {} names a cell outside the part's kept box: a string-class cell dropped fails by name (G1 Nov 14 07:41)", s.name, s.file.display(), short(e)));
+                            }
                             None => {}
                         }
                     }
@@ -3062,6 +3073,34 @@ pub fn delta_inputs(delta: &[String], absent: &[String]) -> Result<(Vec<Clear>, 
     Ok((clears, parts, heads, absents))
 }
 
+/// (vcompose, farmopt Nov 14 07:45, G1 07:41) Every cell a carried `# string-class:` declaration
+/// names holds the declared string type, a `minecraft:tripwire` (a hook is not a string), in the
+/// composed record: a cell another part overlapped, or that the record leaves empty, fails the compose
+/// by name. `record`: the record's non-air cells in the written frame. Returns each cell checked.
+pub fn string_class_cells(heads: &[String], record: &BTreeMap<P, String>) -> Result<Vec<String>, String> {
+    let (mut ok, mut bad): (Vec<String>, Vec<String>) = (Vec::new(), Vec::new());
+    for h in heads.iter().filter_map(|h| h.strip_prefix("# string-class:")) {
+        let Some((cells, class)) = h.trim().split_once('=') else {
+            bad.push(format!("`# string-class:{h}`: not CELLS=CLASS"));
+            continue;
+        };
+        let class = class.split(" (").next().unwrap_or(class).trim();
+        for c in cells.split('+') {
+            let n: Vec<i32> = c.trim().split(',').filter_map(|t| t.trim().parse().ok()).collect();
+            let Some(p) = (n.len() == 3 && c.trim().split(',').count() == 3).then(|| [n[0], n[1], n[2]]) else {
+                bad.push(format!("`# string-class:` {c}: not a cell"));
+                continue;
+            };
+            match record.get(&p) {
+                Some(s) if s == "minecraft:tripwire" || s.starts_with("minecraft:tripwire[") => ok.push(format!("{},{},{} {class}", p[0], p[1], p[2])),
+                Some(s) => bad.push(format!("`# string-class:` cell {},{},{} ({class}) holds {s} in the composed record, not the declared string (minecraft:tripwire)", p[0], p[1], p[2])),
+                None => bad.push(format!("`# string-class:` cell {},{},{} ({class}) is empty in the composed record, not the declared string (minecraft:tripwire)", p[0], p[1], p[2])),
+            }
+        }
+    }
+    if bad.is_empty() { Ok(ok) } else { Err(format!("string-class cells (G1 Nov 14 07:41): {}", bad.join("; "))) }
+}
+
 /// (vcompose, ironspec Nov 14 00:34, G1 01:22) Every stand-in a composed record carries (its
 /// `# stand-in:` lines and `emulated:` entries) names its support cells, `support=x,y,z[+x,y,z]`, or
 /// `support=none` for a block that needs none (a free-standing redstone block): a named support the
@@ -3835,6 +3874,39 @@ mod traced_tests {
         assert!(l.reserve_clash.len() == 1 && l.reserve_clash[0].contains("resolved by F3 r4: the lanterns move") && rep.contains("NOT CITABLE"), "{rep}");
         let e = go(vec![([0, 0, 0], "F3 r4".into(), "x".into()), ([5, 5, 5], "F3 r4".into(), "y".into())]).unwrap_err();
         assert!(e.contains("--reserve-clash 5,5,5=F3 r4: no part holds a reserved cell there"), "{e}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_string_class_line_carries_its_cells_moved() {
+        // (farmopt Nov 14 07:39 (a) / 07:45, G1 07:41; part 35, E-prime's station)
+        // `# string-class: a+b+c=CLASS (why)`: every cell moves with the part and the class stays; a
+        // declaration naming a cell outside the part's kept box FAILS by name (as a cleared or overlapped
+        // cell does); in the composed record each cell must hold a tripwire, a hook or an empty cell
+        // failing by name; before, the compose refused the kind (16a's red twin)
+        let dir = std::env::temp_dir().join(format!("vc-sc-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let a = dir.join("a.txt");
+        std::fs::write(&a, "# string-class: 0,0,0+1,0,0=cart-keyed (a cart on R_1 presses it)\nname: a\ncircuit: mob-farm iron_ingot\nport output: 0 0 0\npalette:\n  T minecraft:tripwire\nlayer 0:\n  TT\n").unwrap();
+        let specs = vec![PartSpec::parse(&format!("STATION={}@0,-20,-1", a.display())).unwrap()];
+        let c = carried_filtered(&specs, [0; 3], &CarryFilter::default()).unwrap();
+        let line = c.heads.iter().find(|h| h.starts_with("# string-class:")).expect("carried");
+        assert!(line.starts_with("# string-class: 0,-20,-1+1,-20,-1=cart-keyed (a cart on R_1 presses it)"), "{line}");
+        let kept = vec![PartSpec::parse(&format!("STATION={}#0,0,0,0,0,0", a.display())).unwrap()];
+        let e = carried_filtered(&kept, [0; 3], &CarryFilter::default()).unwrap_err();
+        assert!(e.contains("`# string-class:`") && e.contains("0,0,0+1,0,0") && e.contains("outside the part's kept box"), "fails by name: {e}");
+        // the type check on the composed record
+        let heads = vec!["# string-class: 0,-20,-1+1,-20,-1=cart-keyed (a cart on R_1 presses it) (carried from part STATION, moved by 0,-20,-1)".to_string()];
+        let mut rec: BTreeMap<P, String> = BTreeMap::new();
+        rec.insert([0, -20, -1], "minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]".into());
+        rec.insert([1, -20, -1], "minecraft:tripwire".into());
+        assert_eq!(string_class_cells(&heads, &rec).unwrap().len(), 2);
+        rec.insert([1, -20, -1], "minecraft:tripwire_hook[attached=true,facing=west,powered=false]".into());
+        let e = string_class_cells(&heads, &rec).unwrap_err();
+        assert!(e.contains("cell 1,-20,-1 (cart-keyed) holds minecraft:tripwire_hook"), "a hook isn't the string: {e}");
+        rec.remove(&[1, -20, -1]);
+        let e = string_class_cells(&heads, &rec).unwrap_err();
+        assert!(e.contains("cell 1,-20,-1 (cart-keyed) is empty"), "{e}");
         std::fs::remove_dir_all(&dir).ok();
     }
 

@@ -141,14 +141,16 @@ fn v_rev_2s_command_fails_when_a_lever_stand_ins_support_is_cleared() {
     let dir = tmp("vrev2");
     let r = "designs/farms/iron/carousel-assembly/wip/vcompose";
     let p = format!("{r}/parts");
-    let o = "designs/farms/iron/carousel-assembly/wip/onechunk/module";
     let b = format!("{p}/f1q2-module-wayin-bplus.ec561e48d.txt");
     let l = format!("{p}/f1q2-lift-split-path-a.77b7a74af.txt");
     let mut args: Vec<String> = vec![
         "--name=f1q2-module-v-rev2".into(),
-        "--part=STATION!=designs/farms/iron/carousel-assembly/wip/station/f1q2-station.txt#-3,-9,-6,9,18,7".into(),
+        // (farmopt Nov 14 07:39 (b)) V rev 2's STATION pinned to the copy of the file it composed (main's
+        // C-double-prime, md5 4a3d19c1d059, as rev 2.1's header names it), so a later station edit (E-prime's
+        // header in 16a) can't change V rev 2's re-composition under this test
+        format!("--part=STATION!={p}/f1q2-station.main-4a3d19c1d059.txt#-3,-9,-6,9,18,7"),
         format!("--clear-part={p}/f1q2-station.main-6e05a4a72.txt@0,0,0"),
-        "--part=LANES=designs/farms/iron/carousel-assembly/wip/lanes/f1q2-lanes-sbend.txt".into(),
+        "--part=LANES=designs/farms/iron/carousel-assembly/wip/vcompose/parts/f1q2-lanes-sbend.852c0ec1e1f2.txt".into(),
         format!("--part=LIFT={l}"),
         format!("--part=NAPFOOT!={l}@0,7,0#5,-29,3,7,-27,5"),
         format!("--part=FOLD={p}/bed-tier-fold.bfa0c8098.txt@0,-20,-1"),
@@ -156,14 +158,14 @@ fn v_rev_2s_command_fails_when_a_lever_stand_ins_support_is_cleared() {
         format!("--part=WAYFALL={b}#9,-27,-6,9,20,-1"),
         format!("--part=WAYGUARD={b}#8,14,-5,8,22,-5"),
         format!("--part=QCART!={b}@0,4,0#9,-14,-4,9,-14,-4"),
-        format!("--part=SKY={o}/f1q2-sky.txt"),
-        format!("--part=POSTS={o}/f1q2-scarers-2post.txt"),
+        format!("--part=SKY={p}/f1q2-sky.2557bd3426fa.txt"),
+        format!("--part=POSTS={p}/f1q2-scarers-2post.1d4b49f5fa2d.txt"),
         format!("--part=F3={p}/f1q2-scarer-f3.bc8a97b89.txt"),
         format!("--part=R3={p}/f1q2-module-record7f13b.rev3.e8ed1e0fa.txt"),
         "--stale=R3".into(),
         format!("--delta=WAYIN={p}/f1q2-wayin-v.b8949c96.0f86b83e8.delta"),
         format!("--delta=RTRIP={p}/return-tripwire-C.ironspec-2241.txt"),
-        format!("--delta=DROPS={p}/v-drops.txt"),
+        format!("--delta=DROPS={p}/v-drops.rev2.b1876365f6f5.txt"),
         "--precedence=9,25,9=WAYLEG:the way-in curve north_west of b8949c96s way-in file; the lift file holds a rail east_west there as its own bench stand-in (its stand-in line for 9,25,9)".into(),
         "--clear=-6,-30,-6,9,-24,10".into(),
         "--clear=5,-23,3,7,-20,5".into(),
@@ -173,6 +175,20 @@ fn v_rev_2s_command_fails_when_a_lever_stand_ins_support_is_cleared() {
     let run = |extra: &[&str], args: &[String]| named(Command::new(env!("CARGO_BIN_EXE_mctas")).current_dir(&repo).arg("mobfarm").arg("column").args(args).args(extra).output().unwrap());
     let ok = run(&[], &args);
     assert_eq!(ok.status.code(), Some(0), "V rev 2's command composes: {}", text(&ok));
+    // (ironspec Nov 14 07:41r standing rule) every committed input of this re-composition is named by
+    // md5: each `# +` line of the composed record carries its file's md5, and each must be V rev 2's
+    let written = std::fs::read_to_string(dir.join("v.txt")).unwrap();
+    let want: [(&str, &str); 16] = [
+        ("STATION", "4a3d19c1d059"), ("LANES", "852c0ec1e1f2"), ("LIFT", "8fc997abca1d"), ("NAPFOOT", "8fc997abca1d"),
+        ("FOLD", "b8ef41210909"), ("WAYLEG", "5b2780772f41"), ("WAYFALL", "5b2780772f41"), ("WAYGUARD", "5b2780772f41"),
+        ("QCART", "5b2780772f41"), ("SKY", "2557bd3426fa"), ("POSTS", "1d4b49f5fa2d"), ("F3", "33489937639d"),
+        ("R3", "3d7ed77b4bf3"), ("WAYIN", "d983000a54bc"), ("RTRIP", "f1d7256c85a4"), ("DROPS", "b1876365f6f5"),
+    ];
+    for (name, md5) in want {
+        let line = written.lines().find(|l| l.starts_with(&format!("# + {name}: ")) || l.starts_with(&format!("# + {name} (delta): "))).unwrap_or_else(|| panic!("no `# + {name}` line"));
+        assert!(line.contains(&format!("(md5 {md5}")), "{name}'s input isn't V rev 2's (md5 {md5}): {line}");
+    }
+    assert_eq!(written.lines().filter(|l| l.starts_with("# + ")).count(), want.len(), "every input named");
     args.push("--clear=-1,27,9,-1,27,9".into());
     let bad = run(&[], &args);
     assert_ne!(bad.status.code(), Some(0), "{}", text(&bad));

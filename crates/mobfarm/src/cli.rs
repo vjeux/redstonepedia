@@ -9150,6 +9150,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             } else {
                 println!("stand-in supports (ironspec Nov 14 00:34, G1 01:22): {} stand-ins, each support named and held: {}", supports.len(), supports.join("; "));
             }
+            // (farmopt Nov 14 07:45, G1 07:41) every carried string-class cell holds the declared string
+            let strings = crate::column::string_class_cells(&carried.heads, &rec_written).map_err(|e| anyhow::anyhow!(e))?;
+            println!("string-class cells (G1 Nov 14 07:41): {} carried, each the declared string in the record{}{}", strings.len(), if strings.is_empty() { "" } else { ": " }, strings.join("; "));
             for (c, why) in &keep_stale_v {
                 anyhow::ensure!(!record.contains(c), "--keep-stale {},{},{}={why}: the record holds a block there (a no-op refuses by name)", c[0], c[1], c[2]);
                 let tok = format!("{},{},{}", c[0] + shift[0], c[1] + shift[1], c[2] + shift[2]);

@@ -1,0 +1,32 @@
+# F1 + Q2 summoner scarers, the 2-post line with S2 moved up (onechunk, Nov 12 09:08; ironspec 09:06, dfb89499's cells; adopted provisionally): loop frame. S1, a pillager seated in a boat at (-5,-1,-5), its post open east: a glass floor (-5,-2,-5) under the boat, a glass roof (-5,1,-5) two above it, two-high glass walls north, south and west. S2, a zombie seated in a boat at (-5,2,-5) ON S1's roof: its floor is S1's glass roof (-5,1,-5) (shared), two-high glass walls north (-5,2..3,-6), west (-6,2..3,-5) and east (-4,2..3,-5), a GLOWSTONE roof (-5,4,-5) (it blocks the sky light, so the zombie can't burn by day, and it's off the golem floor list), open SOUTH: (-5,2..3,-4) stay air (lane x -1's sight line runs through them). Replaces the old S2 post at (-5,-4,-2) (its floor (-5,-5,-2), its glowstone roof (-5,-2,-2), walls (-5,-4..-3,-3), (-5,-4..-3,-1), (-6,-4..-3,-2), its boat at (-4.5,-4,-1.5)): none of those cells is laid here. Glass everywhere else: no golem spawn on its top. 15 blocks, 2 boats.
+name: f1q2-scarers-2post
+circuit: mob-farm iron_ingot
+origin: -6 0 -6
+palette:
+  g minecraft:glass
+  l minecraft:glowstone
+entity: minecraft:oak_boat -4.5 -1 -4.5 {Passengers:[{id:"minecraft:pillager",PersistenceRequired:1b}]}
+entity: minecraft:oak_boat -4.5 2 -4.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
+layer -2:
+  .
+  .g
+layer -1:
+  .g
+  g
+  .g
+layer 0:
+  .g
+  g
+  .g
+layer 1:
+  .
+  .g
+layer 2:
+  .g
+  g.g
+layer 3:
+  .g
+  g.g
+layer 4:
+  .
+  .l
