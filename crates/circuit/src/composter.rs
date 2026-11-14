@@ -475,7 +475,8 @@ pub fn judge(sc: &Scenario, log: &RunLog) -> Outcome {
         let fed = log.fed.last().map(|x| x.1).unwrap_or(0);
         return fail(format!("{fed} of {} items left the input chest after {} gt: it jams", sc.stream.iter().map(|s| s.count as u64).sum::<u64>(), log.end), table);
     }
-    for (k, n) in &log.left {
+    // (mobviewer 11:38, clippy never_loop) the first item left in the input chest, in the map's order, fails the run
+    if let Some((k, n)) = log.left.iter().next() {
         return fail(format!("{} x{n} never left the input chest", clock::short(k)), table);
     }
     // the overflow: everything but the crops and the bone meal
@@ -748,4 +749,26 @@ pub fn compare_with(pool: Option<&Pool>, c: &Circuit, margin: i32, run: Run, des
         Ok(r.into_iter().next().ok_or_else(|| anyhow!("no run"))??.map(|(_, f)| f))
     };
     crate::recorded::gate("composter-run", design, &run.name(), margin, sim, game, mode)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// (mobviewer 11:38: clippy's never_loop, rewritten as a first-item check) a run with items left in the input chest
+    /// fails on the FIRST of them in the map's (key) order, as the old one-pass loop did; with none left it reaches the
+    /// later checks
+    #[test]
+    fn the_first_item_left_in_the_input_chest_fails_the_run() {
+        let sc = Scenario::new(Run::Base, 1, false);
+        let mut log = RunLog::default();
+        log.left.insert("minecraft:wheat_seeds".into(), 3);
+        log.left.insert("minecraft:kelp".into(), 2);
+        let o = judge(&sc, &log);
+        assert!(!o.pass);
+        assert_eq!(o.why, "kelp x2 never left the input chest");
+        log.left.clear();
+        let o = judge(&sc, &log);
+        assert!(!o.why.contains("never left the input chest"), "{}", o.why);
+    }
 }
