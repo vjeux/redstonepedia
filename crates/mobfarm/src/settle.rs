@@ -1122,7 +1122,7 @@ pub fn check_supersedes(scope: &Scope, top: &std::path::Path) -> Vec<String> {
         let as_part = scope.parts.iter().any(|r| r.part == *path);
         // (G1 12:12 non-blocking, part 78) the composed PATH compared EXACTLY (the `# + NAME: PATH` token), never as a
         // substring (a `.bak` or a longer name would count falsely)
-        let composed = scope.parts.iter().any(|r| std::fs::read_to_string(top.join(&r.record)).is_ok_and(|t| composed_moves(&t).iter().any(|(_, p, _)| p == path)));
+        let composed = scope.parts.iter().any(|r| std::fs::read_to_string(top.join(&r.record)).is_ok_and(|t| composed_moves(&t).is_ok_and(|m| m.iter().any(|(_, p, _)| p == path))));
         if !as_part && !composed {
             bad.push(format!("scope line {line}: supersede by {owner}: {path} is neither a judged part nor composed by a judged record of record: the line is never used"));
         }
@@ -1135,10 +1135,32 @@ pub fn check_supersedes(scope: &Scope, top: &std::path::Path) -> Vec<String> {
     records.sort();
     records.dedup();
     for rec in &records {
-        let Ok(text) = std::fs::read_to_string(top.join(rec)) else { continue };
-        let entries = composer_supersedes(&text);
-        let moves = composed_moves(&text);
-        let Ok(d) = mctas::design::Design::parse(&text) else { continue };
+        // (G1 12:17, part 79) an unreadable or unparseable composing record, a malformed `# supersede:` entry, a `# +`
+        // line with no readable "moved by", and an entry whose PART no `# +` line composes are each refused by name:
+        // none is skipped or defaulted (each could hide exactly the drift the cross-check exists to catch)
+        let text = match std::fs::read_to_string(top.join(rec)) {
+            Ok(t) => t,
+            Err(e) => {
+                bad.push(format!("{rec}: the composing record can't be read ({e})"));
+                continue;
+            }
+        };
+        let (entries, moves) = match (composer_supersedes(&text), composed_moves(&text)) {
+            (Ok(e), Ok(m)) => (e, m),
+            (e, m) => {
+                for x in [e.err(), m.err()].into_iter().flatten() {
+                    bad.push(format!("{rec}: {x}"));
+                }
+                continue;
+            }
+        };
+        let d = match mctas::design::Design::parse(&text) {
+            Ok(d) => d,
+            Err(e) => {
+                bad.push(format!("{rec}: the composing record doesn't parse ({e})"));
+                continue;
+            }
+        };
         for (path, cells, owner, line) in &scope.supersedes {
             let instances: Vec<&(String, String, [i32; 3])> = moves.iter().filter(|(_, p, _)| p == path).collect();
             if instances.is_empty() {
@@ -1158,7 +1180,10 @@ pub fn check_supersedes(scope: &Scope, top: &std::path::Path) -> Vec<String> {
             }
         }
         for e in &entries {
-            let off = moves.iter().find(|(name, p, _)| *name == e.part && *p == e.path).map(|m| m.2).unwrap_or([0, 0, 0]);
+            let Some(off) = moves.iter().find(|(name, p, _)| *name == e.part && *p == e.path).map(|m| m.2) else {
+                bad.push(format!("{rec}: `# supersede: {},{},{} by {} over {} ({})`: no `# + {}: {}` line composes that part (its frame offset unknown)", e.at[0], e.at[1], e.at[2], e.owner, e.part, e.path, e.part, e.path));
+                continue;
+            };
             let cell = [e.at[0] - off[0], e.at[1] - off[1], e.at[2] - off[2]];
             if !scope.supersedes.iter().any(|(p, cs, o, _)| *p == e.path && *o == e.owner && cs.contains(&cell)) {
                 bad.push(format!("{rec}: `# supersede: {},{},{} by {} over {} ({})` has no `supersede:` line in the scope file for {},{},{} (the two lists drifted)", e.at[0], e.at[1], e.at[2], e.owner, e.part, e.path, cell[0], cell[1], cell[2]));
@@ -1179,29 +1204,32 @@ pub struct ComposerSupersede {
     pub new_state: String,
 }
 
-/// The composer's `# supersede:` entries of a composed record (a line that doesn't read as one is not an entry).
-pub fn composer_supersedes(text: &str) -> Vec<ComposerSupersede> {
+/// The composer's `# supersede:` entries of a composed record; a `# supersede: ` line that doesn't read as one is refused
+/// by name (G1 12:17, part 79: never skipped).
+pub fn composer_supersedes(text: &str) -> Result<Vec<ComposerSupersede>, String> {
     let mut out = Vec::new();
     for l in text.lines() {
         let Some(r) = l.strip_prefix("# supersede: ") else { continue };
-        let Some((at, rest)) = r.split_once(" by ") else { continue };
-        let Some((owner, rest)) = rest.split_once(" over ") else { continue };
-        let Some((part, rest)) = rest.split_once(" (") else { continue };
-        let Some((path, rest)) = rest.split_once("): ") else { continue };
-        let Some((_, rest)) = rest.split_once(" -> ") else { continue };
+        let bad = || format!("{l:?}: no `# supersede: X,Y,Z by OWNER over PART (PATH): OLD -> NEW (WHY)` entry");
+        let (at, rest) = r.split_once(" by ").ok_or_else(bad)?;
+        let (owner, rest) = rest.split_once(" over ").ok_or_else(bad)?;
+        let (part, rest) = rest.split_once(" (").ok_or_else(bad)?;
+        let (path, rest) = rest.split_once("): ").ok_or_else(bad)?;
+        let (_, rest) = rest.split_once(" -> ").ok_or_else(bad)?;
         let new_state = rest.split(" (").next().unwrap_or("").trim().to_string();
-        let v: Vec<i32> = at.split(',').filter_map(|n| n.trim().parse::<i32>().ok()).collect();
-        if v.len() != 3 || new_state.is_empty() {
-            continue;
+        let v: Vec<i32> = at.split(',').map(|n| n.trim().parse::<i32>()).collect::<Result<_, _>>().map_err(|_| bad())?;
+        if v.len() != 3 || new_state.is_empty() || owner.trim().is_empty() || part.trim().is_empty() || path.trim().is_empty() {
+            return Err(bad());
         }
         out.push(ComposerSupersede { at: [v[0], v[1], v[2]], owner: owner.trim().to_string(), part: part.trim().to_string(), path: path.trim().to_string(), new_state });
     }
-    out
+    Ok(out)
 }
 
-/// A composed record's parts: each `# + NAME: PATH (md5 …) moved by a,b,c into the frame, then d,e,f into its tier`
-/// line's (NAME, PATH, the total move).
-pub fn composed_moves(text: &str) -> Vec<(String, String, [i32; 3])> {
+/// A composed record's parts: each `# + NAME: PATH (md5 …) moved by a,b,c into the frame[, then d,e,f into its tier]`
+/// line's (NAME, PATH, the total move); "moved by" is REQUIRED and must read (G1 12:17, part 79: never defaulted),
+/// "then …" optional but read when present.
+pub fn composed_moves(text: &str) -> Result<Vec<(String, String, [i32; 3])>, String> {
     let xyz = |s: &str| -> Option<[i32; 3]> {
         let v: Vec<i32> = s.split(',').map(|n| n.trim().parse::<i32>()).collect::<Result<_, _>>().ok()?;
         (v.len() == 3).then(|| [v[0], v[1], v[2]])
@@ -1209,13 +1237,26 @@ pub fn composed_moves(text: &str) -> Vec<(String, String, [i32; 3])> {
     let mut out = Vec::new();
     for l in text.lines() {
         let Some(r) = l.strip_prefix("# + ") else { continue };
-        let Some((name, rest)) = r.split_once(": ") else { continue };
+        let bad = |what: &str| format!("{l:?}: a `# + NAME: PATH … moved by a,b,c …` line {what}");
+        let (name, rest) = r.split_once(": ").ok_or_else(|| bad("with no `NAME: `"))?;
         let path = rest.split_whitespace().next().unwrap_or("").to_string();
-        let a = rest.split_once("moved by ").and_then(|(_, t)| xyz(t.split_whitespace().next().unwrap_or(""))).unwrap_or([0, 0, 0]);
-        let b = rest.split_once(", then ").and_then(|(_, t)| xyz(t.split_whitespace().next().unwrap_or(""))).unwrap_or([0, 0, 0]);
+        if name.trim().is_empty() || path.is_empty() {
+            return Err(bad("with no name or path"));
+        }
+        // (a DELTA part, `# + NAME (delta): PATH (md5 …): N cells added …`, is written in the record's own frame: its
+        // move is 0,0,0 by its form, not by default)
+        if let Some(n) = name.trim().strip_suffix(" (delta)") {
+            out.push((n.trim().to_string(), path, [0, 0, 0]));
+            continue;
+        }
+        let a = rest.split_once("moved by ").and_then(|(_, t)| xyz(t.split_whitespace().next().unwrap_or("").trim_end_matches(','))).ok_or_else(|| bad("with no readable \"moved by a,b,c\""))?;
+        let b = match rest.split_once(", then ") {
+            Some((_, t)) => xyz(t.split_whitespace().next().unwrap_or("")).ok_or_else(|| bad("whose \"then d,e,f\" doesn't read"))?,
+            None => [0, 0, 0],
+        };
         out.push((name.trim().to_string(), path, [a[0] + b[0], a[1] + b[1], a[2] + b[2]]));
     }
-    out
+    Ok(out)
 }
 
 
@@ -1579,8 +1620,25 @@ mod tests {
         std::fs::write(dir.join("d/rec2.txt"), rec2(entry, "minecraft:glass")).unwrap();
         let e = check_supersedes(&sc("part: d/other.txt in d/rec2.txt at 0,0,0 (a judged part)\n"), &dir);
         assert!(e.len() == 1 && e[0].contains("has no `supersede:` line in the scope file for 0,0,0 (the two lists drifted)"), "the reverse: {e:?}");
-        assert_eq!(composer_supersedes(entry), vec![ComposerSupersede { at: [1, 0, 0], owner: "CTL".into(), part: "LEG".into(), path: "d/copy.txt".into(), new_state: "minecraft:glass".into() }]);
-        assert_eq!(composed_moves("# + QCART: designs/x.txt (md5 5b) moved by 0,4,0 into the frame, then 1,0,0 into its tier\n"), vec![("QCART".to_string(), "designs/x.txt".to_string(), [1, 4, 0])]);
+        assert_eq!(composer_supersedes(entry), Ok(vec![ComposerSupersede { at: [1, 0, 0], owner: "CTL".into(), part: "LEG".into(), path: "d/copy.txt".into(), new_state: "minecraft:glass".into() }]));
+        assert_eq!(composed_moves("# + QCART: designs/x.txt (md5 5b) moved by 0,4,0 into the frame, then 1,0,0 into its tier\n"), Ok(vec![("QCART".to_string(), "designs/x.txt".to_string(), [1, 4, 0])]));
+        // (G1 12:17, part 79) ONE PLANTED TWIN per gap, each refused by name, never skipped or defaulted: (a) a malformed
+        // `# supersede:` entry; (b) a `# +` line with no readable "moved by"; (c) an entry whose PART no `# +` line
+        // composes; (d) an unreadable composing record, and one that doesn't parse
+        assert!(composer_supersedes("# supersede: 1,0 by CTL over LEG (d/copy.txt): a -> b (r)\n").is_err_and(|e| e.contains("no `# supersede: X,Y,Z by OWNER over PART")), "(a) a malformed entry refused");
+        assert!(composed_moves("# + LEG: d/copy.txt (md5 0) placed somewhere\n").is_err_and(|e| e.contains("no readable \"moved by a,b,c\"")), "(b) a missing move refused");
+        let rec3 = |entry: &str| format!("# + LEG: d/copy.txt (md5 0) moved by 1,0,0 into the frame, then 0,0,0 into its tier\n{entry}name: r\norigin: 0 0 0\npalette:\n  x minecraft:glass\nlayer 0:\n  .x\n");
+        std::fs::write(dir.join("d/rec2.txt"), rec3("# supersede: 1,0,0 by CTL over OTHER (d/copy.txt): minecraft:redstone_lamp[lit=true] -> minecraft:glass (r)\n")).unwrap();
+        let e = check_supersedes(&sc(line), &dir);
+        assert!(e.iter().any(|x| x.contains("no `# + OTHER: d/copy.txt` line composes that part")), "(c) an entry's part composed by no line: {e:?}");
+        std::fs::write(dir.join("d/rec2.txt"), rec3("# supersede: 1,0 by CTL over LEG (d/copy.txt): a -> b (r)\n")).unwrap();
+        let e = check_supersedes(&sc(line), &dir);
+        assert!(e.iter().any(|x| x.contains("d/rec2.txt:") && x.contains("no `# supersede:")), "(a) through the real path: {e:?}");
+        let e = check_supersedes(&sc("part: d/other.txt in d/nowhere.txt at 0,0,0 (a judged part)\n"), &dir);
+        assert!(e.iter().any(|x| x.contains("d/nowhere.txt: the composing record can't be read")), "(d) an unreadable record: {e:?}");
+        std::fs::write(dir.join("d/broken.txt"), "name: r\norigin: 0 0 0\npalette:\n  x minecraft:glass\nlayer 0:\n  x\n  not a row: (1)\nnot a key line\n").unwrap();
+        let e = check_supersedes(&sc("part: d/other.txt in d/broken.txt at 0,0,0 (a judged part)\n"), &dir);
+        assert!(e.iter().any(|x| x.contains("d/broken.txt: the composing record doesn't parse")), "(d) an unparseable record: {e:?}");
         let top = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."));
         let own = read_scope(&std::fs::read_to_string(top.join("designs/settle-scope.txt")).unwrap()).unwrap();
         assert_eq!(check_supersedes(&own, top), Vec::<String>::new(), "the repository's supersede lines stand");
