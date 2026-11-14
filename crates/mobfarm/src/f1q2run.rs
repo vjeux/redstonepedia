@@ -2125,8 +2125,15 @@ impl Ctl {
         // RS_ready set while rdet(now - 10) is high (its level, not its rise), reset at the queue's
         // departure; (ironspec 15:23 (3), 12:50 bought) RIDER-KEYED: R's press counts only with a
         // RIDDEN cart on R's detector, an empty cart never sets it
+        // (onechunk 16:50) a cart presses the detector when its box meets the sensing box (the cell's
+        // 0.2..0.8 in x / z, DetectorRailBlock): its centre within 0.79 of the cell's centre, not
+        // necessarily inside the cell (a rider pressing from (3,y,4) was read as an empty press)
+        let on_r = |e: &redsim::entity::Entity| -> bool {
+            let p = dpos(e.pos);
+            (p.x - 4.5).abs() < 0.8 && (p.z - 4.5).abs() < 0.8 && p.y >= (by - 1) as f64 - 0.1 && p.y < (by + 1) as f64
+        };
         let ridden_on_r = rdet
-            && w.entities.list.iter().any(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && !e.passengers.is_empty() && (cell(e.pos) == [4, by - 1, 4] || cell(e.pos) == [4, by, 4]));
+            && w.entities.list.iter().any(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && !e.passengers.is_empty() && on_r(e));
         if rdet && !ridden_on_r && !self.rdet_empty_prev {
             self.nap_events.push(format!("t {now}: R's detector pressed by an EMPTY cart: RS_ready not set (rider-keyed)"));
             self.rdet_empty_presses += 1;
@@ -2785,7 +2792,15 @@ impl Ctl {
         // reset, IN-STOP of the lane whose napper passed reset
         let rdet = powered(w, RDET);
         if rdet && !self.rdet_prev {
-            let rider = w.entities.list.iter().find(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && (cell(e.pos) == RDET || cell(e.pos) == [4, -27, 4])).and_then(|e| e.passengers.first().copied());
+            let rider = w
+                .entities
+                .list
+                .iter()
+                .filter(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && {
+                    let p = dpos(e.pos);
+                    (p.x - 4.5).abs() < 0.8 && (p.z - 4.5).abs() < 0.8 && p.y >= -28.1 && p.y < -26.0
+                })
+                .find_map(|e| e.passengers.first().copied());
             if w.get(dbp(PARK_IN[0], PARK_IN[1], PARK_IN[2])).to_string().contains("powered=true") {
                 lever_to(w, PARK_IN, false)?;
             }
@@ -2807,16 +2822,19 @@ impl Ctl {
         }
         // G4 the slope taps: lane l's train at REL + 43 / 41 / 33 AND IN-STOP_l (the AND's 2 gt: the
         // tap lever written at REL + phase + 2, DAY-1's slope repeater adds its own 2), held 10 gt;
-        // G12 RETURN_l set at a tap that launches (IN-STOP_l AND the tap)
+        // G12 RETURN_l set at a tap that LAUNCHES (IN-STOP_l AND the tap, with the napper's cart at rest
+        // on the slope hold (1,-28,4) to launch: onechunk 16:49's reading; a latch set at every tap
+        // made two lanes' bits overlap while the next napper slept, and G5 withheld the hold's pulse)
         if let Some(rel) = self.rel {
             for k in 0..3 {
                 if now == rel + [43, 41, 33][k] + 2 && self.in_stop[k] {
                     lever_to(w, TAP, true)?;
                     self.tap_off = Some(now + 10);
-                    if self.return_bits[k].is_none() {
+                    let launches = w.entities.list.iter().any(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && cell(e.pos) == [1, -28, 4] && !e.passengers.is_empty());
+                    if launches && self.return_bits[k].is_none() {
                         self.return_bits[k] = Some(now);
                     }
-                    self.nap_events.push(format!("t {now}: the slope tap, lane x {} (REL {rel} + {}): RETURN set", LANES[k], now - rel));
+                    self.nap_events.push(format!("t {now}: the slope tap, lane x {} (REL {rel} + {}){}", LANES[k], now - rel, if launches { ": it launches the napper's cart, RETURN set" } else { ": no cart on the slope hold (no launch, RETURN unchanged)" }));
                 }
             }
         }
