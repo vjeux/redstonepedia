@@ -552,11 +552,23 @@ fn pick_design_file(f: &str, p: &mut Picks, rec_deps: &BTreeMap<String, Vec<Stri
 /// `groups` and `designs`, or `everything` (`--all`). The plan's lines go to `out`. `stair_lint`:
 /// the capped-climb check on every changed wired layout (on by default; `--no-stair-lint`).
 pub fn plan(files: Option<&[String]>, groups: &[Group], designs: &[String], everything: bool, stair_lint: bool, out: &mut Vec<String>) -> Vec<Piece> {
-    plan_in(files, groups, designs, everything, stair_lint, out, &unit_crates)
+    plan_in(files, groups, designs, everything, stair_lint, out, &unit_crates, &include_targets())
 }
 
-/// [`plan`] with the workspace's crate list from `crates` (a test injects an unreadable one).
-fn plan_in(files: Option<&[String]>, groups: &[Group], designs: &[String], everything: bool, stair_lint: bool, out: &mut Vec<String>, crates: &dyn Fn() -> Result<Vec<String>, String>) -> Vec<Piece> {
+/// Every file a crate's source pulls in with a literal `include_str!("…")` / `include_bytes!("…")`, as
+/// a repository path, with the crates that include it (ironspec Nov 14 05:35: a changed include target
+/// selects its crate's unit tests; train 15's lift-travel cars changed a design file
+/// returnbench.rs's record test `include_str!`s and `mctas test` selected nothing). Found with `git
+/// grep` over crates/ (the provenance module's `build_inputs` scan); an unreadable tree gives an empty
+/// map (the backstop below still fails a code change that selects nothing).
+pub fn include_targets() -> BTreeMap<String, Vec<String>> {
+    mctas::buildinputs::include_lines(Path::new("."), None).map(|ls| mctas::buildinputs::include_map(ls.iter().map(|(f, t)| (f.as_str(), t.as_str())))).unwrap_or_default()
+}
+
+/// [`plan`] with the workspace's crate list from `crates` (a test injects an unreadable one) and the
+/// crates' include targets.
+#[allow(clippy::too_many_arguments)]
+fn plan_in(files: Option<&[String]>, groups: &[Group], designs: &[String], everything: bool, stair_lint: bool, out: &mut Vec<String>, crates: &dyn Fn() -> Result<Vec<String>, String>, includes: &BTreeMap<String, Vec<String>>) -> Vec<Piece> {
     let all = checks();
     let mut p = Picks { all: &all, why: BTreeMap::new() };
     if everything {
@@ -578,6 +590,15 @@ fn plan_in(files: Option<&[String]>, groups: &[Group], designs: &[String], every
     // every crate's own tests too: `--all`, "git cannot say", or a path every piece goes through
     let mut every_unit = everything || files.is_none();
     for f in files.unwrap_or(&[]) {
+        // (a file a crate's source includes (`include_str!` / `include_bytes!`): that crate's own unit
+        // tests, whatever else the file picks: ironspec Nov 14 05:35)
+        for k in includes.get(f).into_iter().flatten() {
+            if TESTS_RUN_BY.iter().any(|(c, _)| c == k) {
+                continue;
+            }
+            out.push(format!("  {f} -> unit:{k} (crates/{k} includes it: include_str! / include_bytes!)"));
+            units.entry(k.clone()).or_default().push(f.clone());
+        }
         if f.starts_with("designs/") {
             let line = pick_design_file(f, &mut p, &rec_deps, &mut designs, &mut lints);
             out.push(line);
@@ -790,10 +811,27 @@ fn clippy_diagnostics(c: &str) -> Vec<(bool, Option<String>, String)> {
     out
 }
 
-/// A unit piece's step timeout: the unit pieces share the target directory's build lock, so a
-/// full run builds their test binaries one after another and the last waits for the others
-/// (`--all` on 2026-11-12: unit:mobfarm finished 1,208 s after it started).
+/// A unit piece's step timeout: before the prebuild (ironspec Nov 14 05:35) the unit pieces built
+/// their test binaries one after another under the shared build lock, the last waiting for the others
+/// (`--all` on 2026-11-12: unit:mobfarm finished 1,208 s after it started); the prebuild builds them
+/// before any clock, so this bounds a piece's own run.
 const UNIT_TIMEOUT: u64 = 3600;
+
+/// The prebuild: one cargo command per unit piece, the piece's own `cargo test --release -p <crate>
+/// --all-targets` with `--no-run` (none: no prebuild). Per crate, not one combined `-p a -p b …` run:
+/// cargo unifies dependency features across the packages of ONE command, so a combined build's
+/// artifacts don't match a single crate's build and every piece rebuilt under its clock (the first run of
+/// this runner, Nov 14 06:33: unit:farmopt-iron recompiling mobfarm after the combined prebuild).
+fn prebuild_argvs(pieces: &[Piece]) -> Vec<Vec<String>> {
+    let mut ks: Vec<String> = Vec::new();
+    for p in pieces {
+        let Some(st) = p.check.steps.first() else { continue };
+        if st.len() >= 6 && st[0] == "?@cargo" && st[1] == "test" && st[2] == "--release" && st[3] == "-p" && st[5] == "--all-targets" && !ks.contains(&st[4]) {
+            ks.push(st[4].clone());
+        }
+    }
+    ks.into_iter().map(|k| ["test", "--release", "-p", &k, "--all-targets", "--no-run"].iter().map(|s| s.to_string()).collect()).collect()
+}
 
 /// Crates compiled only for wasm32, empty on native targets (no native test can run): their
 /// piece builds them for the browser as `mctas web bundle` does, where the toolchain has the
@@ -905,6 +943,61 @@ pub fn run(pieces: Vec<Piece>, o: &RunOpts, commit_line: &str) -> Result<()> {
         mctas::bridge::build(&o.version).context("building the bridge")?;
     }
     let cap = pool_cap();
+    // (ironspec Nov 14 05:40 (2)(ii): every binary the runner builds is STAMPED with the tested tree's
+    // build tree (the shared `mctas::buildinputs`), so a clean tested checkout passes mctas's provenance
+    // check and evidence subcommands keep their real exit codes; no switch turns the check off. Set
+    // here, before any thread starts, so every child (the prebuild, each piece's cargo and mctas steps)
+    // inherits it)
+    let stamp = mctas::buildinputs::worktree_build_tree(Path::new("."));
+    match &stamp {
+        Ok(s) => {
+            // SAFETY: no other thread runs yet (the pieces' threads start below)
+            unsafe { std::env::set_var("MCTAS_SOURCE_TREE", s) };
+            let clean = mctas::buildinputs::git_in(Path::new("."), None, &["status", "--porcelain"], None).is_ok_and(|o| o.is_empty());
+            println!(
+                "stamp: MCTAS_SOURCE_TREE={s} (the tested tree's build tree){}",
+                if clean { "" } else { "; the worktree is DIRTY: an evidence subcommand (mobfarm / mobai) refuses a dirty tree when no commit is cited, so commit before testing (sim:recorded-mobai replays through it)" }
+            );
+        }
+        Err(e) => println!("stamp: the tested tree's build tree is unreadable ({e}): binaries built unstamped; evidence subcommands will refuse"),
+    }
+    // (ironspec Nov 14 05:35, the cause of train 15's unit timeouts: the unit pieces share the target
+    // directory's build lock, so a piece's clock ran through the other pieces' builds; every unit
+    // piece's test binaries, and the tested tree's own mctas binary (the spawned-mctas pieces run it,
+    // stamped), are built HERE, before any piece's clock starts; a piece's clock then times its own run
+    // (a build failure still fails its piece, by name, when its `cargo test` rebuilds); a genuinely slow
+    // piece still times out)
+    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+    let mut exe = exe;
+    if stamp.is_ok() {
+        let tb = Instant::now();
+        let st = std::process::Command::new(&cargo).args(["build", "--release", "-p", "mctas-cli"]).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status();
+        let target = std::env::var_os("CARGO_TARGET_DIR").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("target"));
+        let fresh = target.join("release").join("mctas");
+        if st.as_ref().is_ok_and(|s| s.success()) && fresh.is_file() {
+            println!("prebuild: the tested tree's mctas, stamped, in {:.0} s: {} runs the spawned-mctas steps", tb.elapsed().as_secs_f64(), fresh.display());
+            exe = fresh.canonicalize().unwrap_or(fresh);
+        } else {
+            println!("prebuild: the tested tree's mctas did not build ({st:?}): the spawned-mctas steps run {}", exe.display());
+        }
+    }
+    let pre = prebuild_argvs(&pieces);
+    if !pre.is_empty() {
+        let tb = Instant::now();
+        let mut failed: Vec<String> = Vec::new();
+        for argv in &pre {
+            let st = std::process::Command::new(&cargo).args(argv).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status();
+            if !st.as_ref().is_ok_and(|s| s.success()) {
+                failed.push(argv[3].clone());
+            }
+        }
+        println!(
+            "prebuild: the test binaries of {} unit piece(s), each with its own `cargo test --release -p <crate> --all-targets --no-run`, in {:.0} s (before any piece's clock; ironspec Nov 14 05:35){}",
+            pre.len(),
+            tb.elapsed().as_secs_f64(),
+            if failed.is_empty() { String::new() } else { format!("; did not build: {} (each piece's own build reports its error)", failed.join(", ")) }
+        );
+    }
     let mut order: Vec<usize> = (0..pieces.len()).collect();
     order.sort_by(|a, b| pieces[*b].cost.cmp(&pieces[*a].cost).then(a.cmp(b)));
     let queue = Mutex::new(order);
@@ -1128,7 +1221,7 @@ mod tests {
         // an unreadable workspace is an error, never an empty list: a full run plans a
         // unit:workspace piece that the runner judges FAIL on no output
         assert!(unit_crates_in(Path::new("/")).is_err());
-        let p = plan_in(Some(&[]), &[], &[], true, true, &mut Vec::new(), &|| Err::<Vec<String>, String>("crates: unreadable".to_string()));
+        let p = plan_in(Some(&[]), &[], &[], true, true, &mut Vec::new(), &|| Err::<Vec<String>, String>("crates: unreadable".to_string()), &BTreeMap::new());
         let ws = p.iter().find(|p| p.name() == "unit:workspace").expect("unit:workspace planned");
         assert!(ws.check.steps.is_empty());
         assert_eq!(verdict(ws, &[], None), (false, "cannot list the workspace's crates: crates: unreadable".to_string()));
@@ -1137,8 +1230,8 @@ mod tests {
         assert_eq!(crate_of("crates/mobfarm/src/lib.rs"), Some("mobfarm"));
         // and a non-code one there picks nothing, like docs/ (ironspec 21:39 PT); a .rs or .toml
         // there keeps the no-rule → everything path (`#[path]` / `include!` could pull it in)
-        assert!(plan_in(Some(&["crates/README.md".to_string()]), &[], &[], false, true, &mut Vec::new(), &|| Ok(vec!["mobfarm".to_string()])).is_empty());
-        assert!(!plan_in(Some(&["crates/shared.rs".to_string()]), &[], &[], false, true, &mut Vec::new(), &|| Ok(vec!["mobfarm".to_string()])).is_empty());
+        assert!(plan_in(Some(&["crates/README.md".to_string()]), &[], &[], false, true, &mut Vec::new(), &|| Ok(vec!["mobfarm".to_string()]), &BTreeMap::new()).is_empty());
+        assert!(!plan_in(Some(&["crates/shared.rs".to_string()]), &[], &[], false, true, &mut Vec::new(), &|| Ok(vec!["mobfarm".to_string()]), &BTreeMap::new()).is_empty());
         let mut out = Vec::new();
         for p in [plan(Some(&[]), &[], &[], true, true, &mut out), plan(Some(&["crates/piston-door/src/testplan.rs".to_string()]), &[], &[], false, true, &mut out)] {
             let names: Vec<&str> = p.iter().map(|p| p.name()).collect();
@@ -1232,5 +1325,42 @@ mod tests {
         assert_eq!(summary(&[("sim:x", true, "ok"), ("sim:y", false, "bad")]), "1 passed, 1 failed");
         // crates with no unit tests are counted apart, as information (ironspec 19:51 PT (4b))
         assert_eq!(summary(&[("unit:bud", true, "no unit tests in bud (it builds; 1 test binaries); clippy: 0 error(s) and 0 warning(s) in the crate, counted, not failing"), ("unit:site", true, "103 site tests pass (1 test binaries); clippy: 0 error(s) and 0 warning(s) in the crate, counted, not failing")]), "2 passed (1 of them crates with no unit tests, built only: bud), 0 failed");
+    }
+
+    /// ironspec Nov 14 05:35, the selection fix: a changed file a crate `include_str!`s selects that
+    /// crate's unit tests (train 15: the lift-travel cars' design file selected nothing); the control:
+    /// the same file with no include map selects no unit piece.
+    #[test]
+    fn a_changed_include_target_selects_its_crates_unit_tests() {
+        let lines = [("crates/mobfarm/src/returnbench.rs", "        let committed = include_str!(\"../../../designs/farms/iron/carousel-assembly/wip/lift/f1q2-lift-split-path-a.txt\");")];
+        let m = mctas::buildinputs::include_map(lines.iter().map(|(f, t)| (*f, *t)));
+        assert_eq!(m.get("designs/farms/iron/carousel-assembly/wip/lift/f1q2-lift-split-path-a.txt"), Some(&vec!["mobfarm".to_string()]));
+        let f = "designs/farms/iron/carousel-assembly/wip/lift/f1q2-lift-split-path-a.txt".to_string();
+        let crates = || Ok(vec!["mobfarm".to_string()]);
+        let with: Vec<String> = plan_in(Some(std::slice::from_ref(&f)), &[], &[], false, false, &mut Vec::new(), &crates, &m).iter().map(|p| p.name().to_string()).collect();
+        assert!(with.iter().any(|n| n == "unit:mobfarm"), "the included design file selects unit:mobfarm: {with:?}");
+        let without: Vec<String> = plan_in(Some(std::slice::from_ref(&f)), &[], &[], false, false, &mut Vec::new(), &crates, &BTreeMap::new()).iter().map(|p| p.name().to_string()).collect();
+        assert!(!without.iter().any(|n| n == "unit:mobfarm"), "the control: no include map, no unit piece: {without:?}");
+        // the live tree: returnbench.rs's record test includes the lift file
+        let live = include_targets();
+        assert!(live.get("designs/farms/iron/carousel-assembly/wip/lift/f1q2-lift-split-path-a.txt").is_some_and(|ks| ks.iter().any(|k| k == "mobfarm")), "the live scan finds returnbench.rs's include");
+    }
+
+    /// ironspec Nov 14 05:35, the cause fix: the prebuild builds every unit piece's test binaries in one
+    /// cargo run before any clock (so a piece blocked on the build lock no longer burns its clock),
+    /// and a piece's own step still times out by name (the control: a planted slow step).
+    #[test]
+    fn the_prebuild_covers_every_unit_piece_and_a_slow_step_still_times_out() {
+        let ps = [unit_piece("mobfarm", &[]), unit_piece("circuit", &[]), unit_piece("mobfarm", &["crates/mobfarm/src/lib.rs".to_string()])];
+        let v = |k: &str| ["test", "--release", "-p", k, "--all-targets", "--no-run"].iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(prebuild_argvs(&ps), vec![v("mobfarm"), v("circuit")], "one command per crate, each the piece's own build");
+        assert!(prebuild_argvs(&[]).is_empty());
+        assert!(prebuild_argvs(&[broken_piece("unit:workspace", "x".into())]).is_empty());
+        // a genuinely slow step: `sleep 5` against a 1-s timeout fails by name
+        let tmp = std::env::temp_dir().join(format!("mctas-test-slow-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&tmp);
+        let r = crate::selftest::run_step(Path::new("/bin/sleep"), &["5".to_string()], &tmp, 0, Duration::from_secs(1), None);
+        let _ = std::fs::remove_dir_all(&tmp);
+        assert!(r.as_ref().is_err_and(|e| e.starts_with("timeout after 1 s")), "{r:?}");
     }
 }
