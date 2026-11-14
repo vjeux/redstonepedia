@@ -2819,9 +2819,10 @@ impl Ctl {
             if was_open {
                 self.a_shutter_writes.push((now + 2, true));
             }
-            self.release_at = Some(now + 2);
+            // (ironspec 17:35: PARK = RLS + p, p = 4 PROVISIONAL)
+            self.release_at = Some(now + 4);
             self.a_rls_log.push(format!("t {now}: RLS (P_STRING held since t {} through the pulse t {} + 12, PARKED)", self.a_press_start.unwrap_or(now), pulse_l.unwrap_or(now)));
-            self.nap_events.push(format!("t {now}: RLS (P_STRING continuous from the pulse t {} through + 12, PARKED){}: the park's release at t {}", pulse_l.unwrap_or(now), if was_open { format!(", OPEN reset, close at t {}", now + 2) } else { String::new() }, now + 2));
+            self.nap_events.push(format!("t {now}: RLS (P_STRING continuous from the pulse t {} through + 12, PARKED){}: the park's release at t {}", pulse_l.unwrap_or(now), if was_open { format!(", OPEN reset, close at t {}", now + 2) } else { String::new() }, now + 4));
         }
         self.a_rls_prev = rls;
         self.a_pstring_prev = pstring;
@@ -10650,7 +10651,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             g(ds, "G18 ARMED70: ARM + 70, its set gated by NOT released"),
             g(ds, "G19 OPEN: set by the edge of (ARMED70 AND SLEPT), reset at the release"),
             g(ds, "G20 the shutter = NOT OPEN (torch 2): close = OPEN's fall + 2; the park's release = OPEN's fall + 6"),
-            g(ds, "G21 the release (ironspec 16:00 / G1 16:02): P_STRING continuous from the latest observer pulse L through L + 12, with PARKED (ARM + 52), by L + 50; one-shot per visit; PARK = RLS + 2 (ironspec 17:28 platform (5): the trim stands); OPEN set = A70 AND SLEPT_ONCE AND NOT P_STRING, reset = RLS OR P_STRING"),
+            g(ds, "G21 the release (ironspec 16:00 / G1 16:02): P_STRING continuous from the latest observer pulse L through L + 12, with PARKED (ARM + 52), by L + 50; one-shot per visit; PARK = RLS + 4 (ironspec 17:35: p = 4 PROVISIONAL); OPEN set = A70 AND SLEPT_ONCE AND NOT P_STRING, reset = RLS OR P_STRING"),
             g(ds, "G22 P_STRING at (-2,-26,3): a villager on foot over P"),
         ];
         let missing = gates.iter().filter(|x| x.starts_with("MISSING")).count();
