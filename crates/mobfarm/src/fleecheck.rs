@@ -4942,8 +4942,32 @@ pub fn void_exposures(spec: &FarmSpec, biome: &'static str) -> Result<(Vec3, red
     w.mob.natural = Some(Natural { void_biome: Some(biome), ..Natural::new(vec![afk], Difficulty::Hard) });
     let summoners = redsim::entity::mob::site::villager_cells(&with_design_entities(&w, spec, "the void exposures")?);
     let farm = circuit::mobfarm::hostile_farm(&w, spec, afk, &summoners);
-    // (a light read that failed refuses the exposures: cc767b78's light series, ironspec 16:22's list)
-    let ex = redsim::entity::mob::hostile::check(&w, &farm, true)?;
+    // (G1 Nov 13 15:24 (1)(b) / option 1: with f2d55617c redsim reads land-less block light, so C1 on
+    // the settled world would be a light-aware read; C1 here stays the ALL-DARK COUNTERFACTUAL, a
+    // stated assumption: every light source of the design taken out of a copy of the settled world
+    // (each becomes air or a non-emitting block of its shape, G1 15:30); `exterior-spawn --lit` is the
+    // light-aware read, its LIGHT-DEPENDENT / PORTAL-LIT lines the light's conditions; f2d55617c's
+    // `hostile::check` refuses on a failed light read)
+    let mut dark = w.clone();
+    let mut shape_cache = HashMap::new();
+    let emission = |b: &redsim::block::Block| -> i32 {
+        let tid = match b {
+            redsim::block::Block::Terrain(id) => Some(*id),
+            _ => redsim::terrain::blocks::id_of(&b.to_string()),
+        };
+        redsim::entity::mob::sun::emission(b).max(tid.map_or(0, |id| redsim::terrain::blocks::props(id).emission as i32))
+    };
+    for (p, _) in &spec.blocks {
+        let b = w.get(*p);
+        if emission(&b) > 0 {
+            // (the light series' contract, cc767b78 / G1 18:08 (b): a light read that fails refuses the
+            // exposures: the dark copy drops every source, so the read is made here on the settled
+            // world, at the source, before it goes)
+            redsim::daylight::block_light_landless(&w, *p).map_err(|e| format!("the void exposures: NOT JUDGED: the block light at the {} at {},{},{} can't be read: {e}", b.to_string().trim_start_matches("minecraft:"), p.x, p.y, p.z))?;
+            dark.put(*p, dark_stand_in(&b, &emission, &mut shape_cache).0);
+        }
+    }
+    let ex = redsim::entity::mob::hostile::check(&dark, &farm, true)?;
     Ok((afk, farm, ex))
 }
 
@@ -6136,6 +6160,35 @@ pub fn exterior_spawns(spec: &FarmSpec, biome: &'static str) -> Result<(Vec<Stri
 /// light would HELP a hostile (none today) must not reuse this light as it stands. (An earlier
 /// "occluding emitter lights nothing" report was a fixture error, withdrawn: the output chest had
 /// overwritten the emitter; redsim's engine carries a floor emitter's light, cc767b78 12:50.)
+/// (G1 Nov 13 15:30) The all-dark copy's stand-in for a light source, keeping the cell's geometry:
+/// AIR when it has no collision; else the first non-emitting block of the game's table with
+/// exactly its collision boxes (stone for a full cube); else AIR (no block of its shape gives no
+/// light). Returns the block and how it was chosen, for the run's printed count.
+pub fn dark_stand_in(b: &redsim::block::Block, emission: &dyn Fn(&redsim::block::Block) -> i32, cache: &mut HashMap<Vec<redsim::behavior::Box16>, Option<(redsim::block::Block, String)>>) -> (redsim::block::Block, String) {
+    let boxes = redsim::behavior::collision_boxes(b);
+    if boxes.is_empty() {
+        return (redsim::block::Block::Air, "air (no collision)".to_string());
+    }
+    if boxes == vec![[0, 0, 0, 16, 16, 16]] {
+        return (redsim::block::Block::parse("minecraft:stone").expect("stone"), "stone (the same full cube)".to_string());
+    }
+    let found = cache
+        .entry(boxes.clone())
+        .or_insert_with(|| {
+            let t = redsim::terrain::blocks::table();
+            (0..t.props.len()).find_map(|i| {
+                let pr = &t.props[i];
+                if pr.air || pr.emission > 0 || pr.liquid {
+                    return None;
+                }
+                let cand = redsim::block::Block::parse(&pr.name).unwrap_or(redsim::block::Block::Terrain(i as u16));
+                (emission(&cand) == 0 && redsim::behavior::collision_boxes(&cand) == boxes).then(|| (cand, format!("{} (the same shape)", pr.name.trim_start_matches("minecraft:"))))
+            })
+        })
+        .clone();
+    found.unwrap_or((redsim::block::Block::Air, "air (no non-emitting block of its shape)".to_string()))
+}
+
 pub fn spawn_static(spec: &FarmSpec, biome: &'static str, lit: bool) -> Result<(Vec<String>, usize, usize), String> {
     if redsim::terrain::biome::biome(biome).is_none() {
         return Err(format!("the site biome {biome}: no such biome in redsim's table"));
@@ -6154,86 +6207,157 @@ pub fn spawn_static(spec: &FarmSpec, biome: &'static str, lit: bool) -> Result<(
     let interior: std::collections::HashSet<BlockPos> = farm.interior.iter().copied().collect();
     let design: std::collections::HashSet<BlockPos> = spec.blocks.iter().filter(|(_, b)| !matches!(b, redsim::block::Block::Air)).map(|(p, _)| *p).collect();
     let mut tops: Vec<BlockPos> = design.iter().map(|q| q.above()).filter(|p| !design.contains(p) && !interior.contains(p)).collect();
+    // (G1 Nov 13 15:24 (3): a portal's own cells are re-checked too: with the portal out its frame's
+    // bottom row on obsidian is a valid space)
+    tops.extend(spec.blocks.iter().filter(|(p, b)| !interior.contains(p) && b.to_string().starts_with("minecraft:nether_portal")).map(|(p, _)| *p));
     tops.sort_by_key(|p| (p.y, p.z, p.x));
     tops.dedup();
     let mut inner: Vec<BlockPos> = farm.interior.clone();
     inner.sort_by_key(|p| (p.y, p.z, p.x));
     inner.dedup();
-    let mut lit_off = 0usize;
-    let mut marginal: Vec<(BlockPos, i32)> = Vec::new();
-    let mut portal_lit: Vec<BlockPos> = Vec::new();
+    // (G1 Nov 13 23:17 B2: zero samples pass nothing: no cell to judge at all, or an empty interior in a
+    // design whose villagers summon, is NOT JUDGED (a wrong path, frame or box would read clean))
+    if inner.is_empty() && tops.is_empty() {
+        return Err("the spawn static: NOT JUDGED: no interior cell and no top surface to judge".to_string());
+    }
+    if inner.is_empty() && !summoners.is_empty() {
+        return Err(format!("the spawn static: NOT JUDGED: the design's {} villager cell(s) summon but no interior cell is judged", summoners.len()));
+    }
     let emit_cache: std::cell::RefCell<HashMap<redsim::block::Block, i32>> = std::cell::RefCell::new(HashMap::new());
-    let mut test = |cells: &[BlockPos]| -> Result<Vec<(BlockPos, Vec<&'static str>, i32)>, String> {
+    // (the light: the mob layer's emitters and each block's own luminance from the game's block
+    // table (the nether portal's 11, crying obsidian's 10), memoised per block state)
+    let emission = |b: &redsim::block::Block| -> i32 {
+        if let Some(e) = emit_cache.borrow().get(b) {
+            return *e;
+        }
+        let e = redsim::entity::mob::sun::emission(b);
+        let tid = match b {
+            redsim::block::Block::Terrain(id) => Some(*id),
+            _ => redsim::terrain::blocks::id_of(&b.to_string()),
+        };
+        let e = e.max(tid.map_or(0, |id| redsim::terrain::blocks::props(id).emission as i32));
+        emit_cache.borrow_mut().insert(*b, e);
+        e
+    };
+    let is_portal = |b: &redsim::block::Block| match b {
+        redsim::block::Block::Terrain(id) => redsim::terrain::blocks::props(*id).name.starts_with("minecraft:nether_portal"),
+        _ => false,
+    };
+    // (a copy of the settled world with some light sources taken out, so the spawn rules read the
+    // same cells with that light gone (cc767b78's f2d55617c lets redsim's own spawn rule read
+    // land-less block light: the copies keep the all-dark counterfactual and the portal question
+    // answerable); G1 15:30: each source becomes AIR or a NON-EMITTING BLOCK OF ITS SHAPE, the choice
+    // counted and printed)
+    let mut stand_ins: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+    let mut shape_cache: HashMap<Vec<redsim::behavior::Box16>, Option<(redsim::block::Block, String)>> = HashMap::new();
+    let mut without = |pred: &dyn Fn(&redsim::block::Block) -> bool, count: bool| -> redsim::World {
+        let mut c = w.clone();
+        for (p, _) in &spec.blocks {
+            let b = w.get(*p);
+            if pred(&b) {
+                let (r, how) = dark_stand_in(&b, &emission, &mut shape_cache);
+                if count {
+                    *stand_ins.entry(how).or_insert(0) += 1;
+                }
+                c.put(*p, r);
+            }
+        }
+        c
+    };
+    let dark = without(&|b| emission(b) > 0, true);
+    let portal_out = without(&is_portal, false);
+    let cands = |world: &redsim::World, cells: &[BlockPos]| -> Vec<(BlockPos, Vec<&'static str>)> {
         let mut hits = Vec::new();
         for p in cells {
+            // (the game's isValidEmptySpawnBlock refuses #prevent_mob_spawning_inside, the rails)
+            if redsim::rails::is_rail(&world.get(*p)) {
+                continue;
+            }
             let mut kinds: Vec<&'static str> = Vec::new();
-            for s in mobs_at(&w, Category::Monster, *p) {
+            for s in mobs_at(world, Category::Monster, *p) {
                 let Some(k) = kind_of(&s.ty) else { continue };
-                if redsim::entity::mob::hostile::can_spawn_at(&w, k, *p) && !kinds.contains(&k.id) {
+                if redsim::entity::mob::hostile::can_spawn_at(world, k, *p) && !kinds.contains(&k.id) {
                     kinds.push(k.id);
                 }
             }
-            if kinds.is_empty() {
+            if !kinds.is_empty() {
+                hits.push((*p, kinds));
+            }
+        }
+        hits
+    };
+    let mut lit_off = 0usize;
+    let mut marginal: Vec<(BlockPos, i32)> = Vec::new();
+    let mut portal_lit: Vec<BlockPos> = Vec::new();
+    let mut dependent: Vec<(BlockPos, i32, String)> = Vec::new();
+    // (G1 15:24 (1) option 1: each light-dependent cell with its light sources: every design
+    // emitter whose light can reach it (taxicab distance under its emission), by block name)
+    let emitters: Vec<(BlockPos, i32, String)> = spec
+        .blocks
+        .iter()
+        .map(|(p, _)| (*p, w.get(*p)))
+        .filter_map(|(p, b)| {
+            let e = emission(&b);
+            (e > 0).then(|| (p, e, b.to_string().trim_start_matches("minecraft:").split('[').next().unwrap_or("").to_string()))
+        })
+        .collect();
+    let sources_of = |p: BlockPos| -> String {
+        let mut names: Vec<String> = emitters.iter().filter(|(q, e, _)| (q.x - p.x).abs() + (q.y - p.y).abs() + (q.z - p.z).abs() < *e).map(|(_, _, n)| n.clone()).collect();
+        names.sort();
+        names.dedup();
+        if names.is_empty() { "none in reach".to_string() } else { names.join(" + ") }
+    };
+    let mut test = |cells: &[BlockPos]| -> Result<Vec<(BlockPos, Vec<&'static str>, i32)>, String> {
+        let dark_hits = cands(&dark, cells);
+        if !lit {
+            return Ok(dark_hits.into_iter().map(|(p, k)| (p, k, 0)).collect());
+        }
+        let real: std::collections::HashSet<BlockPos> = cands(&w, cells).into_iter().map(|(p, _)| p).collect();
+        let out: std::collections::HashSet<BlockPos> = cands(&portal_out, cells).into_iter().map(|(p, _)| p).collect();
+        let no_portal = |b: &redsim::block::Block| -> i32 { if is_portal(b) { 0 } else { emission(b) } };
+        let mut hits = Vec::new();
+        for (p, kinds) in dark_hits {
+            let light = redsim::daylight::block_light_from(&w, p, 1, &emission)?;
+            if real.contains(&p) && light == 0 {
+                hits.push((p, kinds, 0));
                 continue;
             }
-            // (the game's isValidEmptySpawnBlock also refuses a block in
-            // #prevent_mob_spawning_inside, the rails: redsim's empty test lacks it, so a rail cell
-            // is skipped here)
-            if redsim::rails::is_rail(&w.get(*p)) {
-                continue;
+            // (dark-spawnable, cleared by the design's own light)
+            lit_off += 1;
+            dependent.push((p, light, sources_of(p)));
+            // (ironspec 11:31: a cell cleared by block light 1 or 2 gets a game light read or is
+            // spawn-proofed anyway: listed as MARGINAL)
+            if (1..=2).contains(&light) {
+                marginal.push((p, light));
             }
-            // (the light: redsim's block-light engine with the mob layer's emitters and each block's
-            // own luminance from the game's block table (the nether portal's 11, crying obsidian's
-            // 10: the sun table lacks them), memoised per block state)
-            let emission = |b: &redsim::block::Block| -> i32 {
-                if let Some(e) = emit_cache.borrow().get(b) {
-                    return *e;
-                }
-                let e = redsim::entity::mob::sun::emission(b);
-                let tid = match b {
-                    redsim::block::Block::Terrain(id) => Some(*id),
-                    _ => redsim::terrain::blocks::id_of(&b.to_string()),
-                };
-                let e = e.max(tid.map_or(0, |id| redsim::terrain::blocks::props(id).emission as i32));
-                emit_cache.borrow_mut().insert(*b, e);
-                e
-            };
-            let light = if lit { redsim::daylight::block_light_from(&w, *p, 1, &emission)? } else { 0 };
-            if light > 0 {
-                lit_off += 1;
-                // (ironspec 11:31: a cell cleared by block light 1 or 2 gets a game light read or
-                // is spawn-proofed anyway: listed as MARGINAL)
-                if light <= 2 {
-                    marginal.push((*p, light));
-                }
-                // (G1 Nov 13 12:32 (b): a cell only the portals light is spawn-proof only while
-                // they burn: the same light without any nether portal's emission)
-                let no_portal = |b: &redsim::block::Block| -> i32 {
-                    let is_portal = match b {
-                        redsim::block::Block::Terrain(id) => redsim::terrain::blocks::props(*id).name.starts_with("minecraft:nether_portal"),
-                        _ => false,
-                    };
-                    if is_portal { 0 } else { emission(b) }
-                };
-                if redsim::daylight::block_light_from(&w, *p, 1, &no_portal)? == 0 {
-                    portal_lit.push(*p);
-                }
-                continue;
+            // (G1 Nov 13 12:32 (b): a cell only the portals light is spawn-proof only while they
+            // burn: it spawns in the world with every portal taken out, its light then 0)
+            if out.contains(&p) && redsim::daylight::block_light_from(&portal_out, p, 1, &no_portal)? == 0 {
+                portal_lit.push(p);
             }
-            hits.push((*p, kinds, light));
         }
         Ok(hits)
     };
     let in_hits = test(&inner)?;
     let out_hits = test(&tops)?;
+    // (G1 Nov 13 15:24 (1)(a): a light read that failed is no verdict: each world's pending light
+    // errors taken after the reads, counted, and the static refuses on any)
+    let light_errors: Vec<String> = [&w, &dark, &portal_out].iter().flat_map(|x| x.take_light_errors()).collect();
+    if !light_errors.is_empty() {
+        return Err(format!("the spawn static: {} light read(s) failed (G1 15:24 (1)(a): a failed read is no verdict): {}", light_errors.len(), light_errors.join("; ")));
+    }
     let mut lines = vec![format!(
-        "the spawn static (ironspec Nov 13 08:18 (e), G1 11:23 (a); the FLOATING site: void outside the box, the site biome {biome}, the darkest night sky; {}): {} interior cells, {} spawnable; {} top-surface cells outside the interior, {} spawnable{}{}",
-        if lit { "LIGHT-AWARE: the design's own block light (redsim's engine over its sources), a cell counts only at block light 0" } else { "ALL DARK: no block light modeled in the void, so no torch credited (a conservative bound)" },
+        "the spawn static (ironspec Nov 13 08:18 (e), G1 11:23 (a); the FLOATING site: void outside the box, the site biome {biome}, the darkest night sky; {}): {} interior cells, {} spawnable; {} top-surface cells outside the interior, {} spawnable{}{}; light reads failed: 0",
+        if lit {
+            "LIGHT-AWARE: the design's own block light, a cell counts only at block light 0 (spawn-proof WITH the design's lights)"
+        } else {
+            "the ALL-DARK COUNTERFACTUAL (a stated assumption, G1 15:24 option 1: every light source of the design taken out of a copy of the settled world, no torch, portal or lamp credited)"
+        },
         inner.len(),
         in_hits.len(),
         tops.len(),
         out_hits.len(),
-        if lit { format!("; {lit_off} cell(s) a dark run would list are lit (block light > 0)") } else { String::new() },
+        if lit { format!("; {lit_off} cell(s) the all-dark counterfactual lists are cleared by the design's light (each listed LIGHT-DEPENDENT with its sources)") } else { String::new() },
         if in_hits.is_empty() && out_hits.is_empty() { " (PASS: bars 0)" } else { " (FAIL: bars 0)" }
     )];
     for (what, hits) in [("INSIDE", &in_hits), ("OUTSIDE", &out_hits)] {
@@ -6242,14 +6366,30 @@ pub fn spawn_static(spec: &FarmSpec, biome: &'static str, lit: bool) -> Result<(
             lines.push(format!("  SPAWNABLE {what} {},{},{} on {}: {}", p.x, p.y, p.z, below.trim_start_matches("minecraft:"), kinds.iter().map(|k| k.trim_start_matches("minecraft:")).collect::<Vec<_>>().join(", ")));
         }
     }
+    lines.push(format!(
+        "  the all-dark copy's stand-ins (G1 15:30: each light source becomes air or a non-emitting block of its shape): {}",
+        if stand_ins.is_empty() { "none (no light source in the design)".to_string() } else { stand_ins.iter().map(|(how, n)| format!("{n} {how}")).collect::<Vec<_>>().join(", ") }
+    ));
+    for (p, light, src) in &dependent {
+        lines.push(format!("  LIGHT-DEPENDENT {},{},{}: block light {light}, from {src}", p.x, p.y, p.z));
+    }
     for (p, light) in &marginal {
         lines.push(format!("  MARGINAL {},{},{}: cleared by block light {light} only (ironspec 11:31: a game light read, or spawn-proof it)", p.x, p.y, p.z));
     }
     if !portal_lit.is_empty() {
+        // (G1 Nov 13 16:01 / 16:07, ironspec 16:07: split by remedy: the portal's INTERIOR BOTTOM
+        // cells (its own cells standing on the bottom obsidian: spawnable once it is out; no
+        // permanent remedy but relighting) and the cells its light alone keeps spawn-proof (a torch
+        // per cell))
+        let cell = |p: &BlockPos| format!("{},{},{}", p.x, p.y, p.z);
+        let (own, lit_by): (Vec<&BlockPos>, Vec<&BlockPos>) = portal_lit.iter().partition(|p| is_portal(&w.get(**p)));
         lines.push(format!(
-            "  PORTAL-LIT ({} cell(s)): spawn-proof by portal light 11 only; if a portal is out, spawnable (G1 12:32 (b): the build lights the portals first; a torch per cell is the permanent alternative): {}",
+            "  PORTAL-LIT ({} cell(s)): spawn-proof by portal light 11 only; if a portal goes out, spawnable until it is relit (G1 12:32 (b) / 16:07): {} of the portals' interior bottom cells (their own cells on the bottom obsidian: no permanent remedy but relighting){}; {} cell(s) the portals light (a torch in each makes it permanently spawn-proof){}",
             portal_lit.len(),
-            portal_lit.iter().map(|p| format!("{},{},{}", p.x, p.y, p.z)).collect::<Vec<_>>().join(" ")
+            own.len(),
+            if own.is_empty() { String::new() } else { format!(": {}", own.iter().map(|p| cell(p)).collect::<Vec<_>>().join(" ")) },
+            lit_by.len(),
+            if lit_by.is_empty() { String::new() } else { format!(": {}", lit_by.iter().map(|p| cell(p)).collect::<Vec<_>>().join(" ")) }
         ));
     }
     Ok((lines, in_hits.len(), out_hits.len()))
@@ -10553,9 +10693,35 @@ mod gate_tests {
         let mut glow = plat("minecraft:stone");
         glow.blocks.push((b(2, 1, 2), p("minecraft:glowstone")));
         let (l3, _, out3) = super::spawn_static(&glow, "minecraft:plains", true).unwrap_or_else(|e| panic!("{e}"));
-        assert!(out3 == 0 && l3[0].contains("LIGHT-AWARE") && l3[0].contains("are lit (block light > 0)"), "{l3:?}");
+        assert!(out3 == 0 && l3[0].contains("LIGHT-AWARE") && l3[0].contains("cleared by the design's light") && l3.iter().any(|x| x.starts_with("  LIGHT-DEPENDENT") && x.contains("from glowstone")), "{l3:?}");
         let (l4, _, out4) = super::spawn_static(&glow, "minecraft:plains", false).unwrap_or_else(|e| panic!("{e}"));
-        assert!(out4 > 0 && l4[0].contains("ALL DARK"), "{l4:?}");
+        assert!(out4 > 0 && l4[0].contains("ALL-DARK COUNTERFACTUAL"), "{l4:?}");
+        // (G1 15:24 (3): the portal counterfactual: every portal taken out at once, the portal's
+        // own cells re-checked: a lit portal in its obsidian frame clears its surroundings, and its
+        // frame's bottom row (the portal cells on obsidian) is PORTAL-LIT, as are the cells it lights)
+        let nether_portal = redsim::block::Block::Terrain(redsim::terrain::blocks::id_of("minecraft:nether_portal[axis=x]").expect("the portal in the block table"));
+        let mut portal = Vec::new();
+        for x in 0..=3 {
+            portal.push((b(x, 0, 0), p("minecraft:obsidian")));
+            portal.push((b(x, 4, 0), p("minecraft:obsidian")));
+        }
+        for y in 1..=3 {
+            portal.push((b(0, y, 0), p("minecraft:obsidian")));
+            portal.push((b(3, y, 0), p("minecraft:obsidian")));
+            for x in 1..=2 {
+                portal.push((b(x, y, 0), nether_portal));
+            }
+        }
+        let pspec = redsim::entity::mob::farm::FarmSpec { blocks: portal, entities: Vec::new(), output: b(6, 0, 3), lo: b(-3, -1, -3), hi: b(7, 6, 4), block_entities: Vec::new(), rock: false, nether: None, land: false };
+        let (lp, _, outp) = super::spawn_static(&pspec, "minecraft:plains", true).unwrap_or_else(|e| panic!("{e}"));
+        assert!(outp == 0 && lp.iter().any(|x| x.starts_with("  PORTAL-LIT") && x.contains("2 of the portals' interior bottom cells") && x.contains(": 1,1,0 2,1,0;")) && lp.iter().any(|x| x.starts_with("  LIGHT-DEPENDENT") && x.contains("nether_portal")), "{lp:?}");
+        // (G1 15:30: the all-dark copy keeps the geometry: a lantern on the platform becomes a
+        // non-emitting block of its shape (or air), never stone, so the cell above it (a lantern's
+        // top is no spawn floor) stays unspawnable in the counterfactual)
+        let mut lan = plat("minecraft:stone");
+        lan.blocks.push((b(2, 1, 1), p("minecraft:lantern[hanging=false,waterlogged=false]")));
+        let (ll, _, _) = super::spawn_static(&lan, "minecraft:plains", false).unwrap_or_else(|e| panic!("{e}"));
+        assert!(!ll.iter().any(|x| x.contains("SPAWNABLE OUTSIDE 2,2,1 ")) && ll.iter().any(|x| x.contains("the all-dark copy's stand-ins") && !x.contains("stone (the same full cube)")), "{ll:?}");
         // (a terrain-modeled emitter's own luminance counts (crying obsidian's 10, as the nether
         // portal's 11): the sun table alone would leave the platform dark)
         let mut cry = plat("minecraft:stone");
@@ -10588,11 +10754,30 @@ mod gate_tests {
         }
         let spec = |blocks: Vec<(redsim::pos::BlockPos, redsim::block::Block)>| redsim::entity::mob::farm::FarmSpec { blocks, entities: Vec::new(), output: b(2, 1, 2), lo: b(0, 0, 0), hi: b(4, 4, 4), block_entities: Vec::new(), rock: false, nether: None, land: false };
         assert!(super::void_exposures(&spec(blocks.clone()), "minecraft:plains").is_ok(), "the plain room reads");
+        // (G1 Nov 13 23:17 B1) the same room through spawn_static's light-aware read: the plain room has
+        // inside spawnable cells (no light in it)
+        let (_, inside, _) = super::spawn_static(&spec(blocks.clone()), "minecraft:plains", true).unwrap_or_else(|e| panic!("{e}"));
+        assert!(inside > 0, "the plain room's inside cells: {inside}");
         blocks.retain(|(q, _)| *q != b(1, 1, 1));
         blocks.push((b(1, 1, 1), p("minecraft:brewing_stand")));
+        let es = super::spawn_static(&spec(blocks.clone()), "minecraft:plains", true).err().unwrap_or_default();
+        assert!(es.contains("light"), "spawn_static refuses through the failed light read: {es}");
         match super::void_exposures(&spec(blocks), "minecraft:plains") {
             Ok((_, _, ex)) => panic!("a failed light read must refuse void_exposures, not give {} exposure(s)", ex.len()),
             Err(e) => assert!(e.contains("light"), "the refusal names the light read: {e}"),
+        }
+        // (G1 23:17 B1, the drain-only case) a brewing stand 15 cells (Chebyshev) from a dark hit the
+        // design's glowstone lights: outside the need-1 light read (radius 14) but inside the spawn rule's
+        // own read (radius 15): the final drain of the worlds' light errors refuses the static
+        let drain = vec![(b(0, 0, 0), p("minecraft:stone")), (b(-2, 1, 0), p("minecraft:glowstone")), (b(15, 1, 0), p("minecraft:brewing_stand"))];
+        let dspec = redsim::entity::mob::farm::FarmSpec { blocks: drain, entities: Vec::new(), output: b(0, -1, 0), lo: b(-3, -1, -1), hi: b(16, 3, 1), block_entities: Vec::new(), rock: false, nether: None, land: false };
+        let ed = super::spawn_static(&dspec, "minecraft:plains", true).err().unwrap_or_default();
+        assert!(ed.starts_with("the spawn static: ") && ed.contains("light read(s) failed"), "the drain-only failed read: {ed}");
+        // (G1 23:17 B2) zero samples: a design with nothing to judge is NOT JUDGED
+        let empty = redsim::entity::mob::farm::FarmSpec { blocks: Vec::new(), entities: Vec::new(), output: b(0, -1, 0), lo: b(-1, -1, -1), hi: b(1, 1, 1), block_entities: Vec::new(), rock: false, nether: None, land: false };
+        match super::spawn_static(&empty, "minecraft:plains", true) {
+            Ok((l0, i0, o0)) => panic!("nothing to judge must be NOT JUDGED, not {i0} / {o0}: {l0:?}"),
+            Err(e0) => assert!(e0.contains("NOT JUDGED: no interior cell and no top surface to judge"), "nothing to judge: {e0}"),
         }
     }
 
