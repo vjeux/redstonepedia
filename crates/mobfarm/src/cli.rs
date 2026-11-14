@@ -7063,10 +7063,11 @@ pub enum MobfarmCmd {
         /// napper can't stand on P.
         #[arg(long)]
         block_p_at_wake: bool,
-        /// (ironspec 17:35 / 17:39, the sensed park) X,Y,Z,DELAY: PARKED is latched from the cart's
-        /// first end-of-tick on X,Y,Z after ARM (+ DELAY gt; a named stand-in for a detector rail
-        /// there), ANDed with the COOL timer (the PARKED term); `none`: the timer alone (rev 17:30).
-        #[arg(long, default_value = "0,0,3,0")]
+        /// (ironspec 17:35 / 17:39 / 17:51 (c), the sensed park) X,Y,Z,DELAY: PARKED is latched from the
+        /// cart's first end-of-tick on X,Y,Z after ARM, through DELAY gt (a named stand-in for the
+        /// detector rail there and SENSED's delay d >= the worst press -> rest settle + 2: 26 + 2 on
+        /// 4caaec86f's band), ANDed with the COOL timer (the PARKED term); `none`: the timer alone.
+        #[arg(long, default_value = "0,0,3,28")]
         parked_sense: String,
         /// (G1 12:38: the merge row) A hurt this many gt after the lie-down (a reverse merge at <= 3).
         #[arg(long)]

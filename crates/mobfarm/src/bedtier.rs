@@ -1053,12 +1053,17 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
         // the napper boards again)
         b.d.meta.insert("riderless".into(), "-2,0,2+-2,0,3+-1,0,3+0,0,3+1,0,3+2,1,3+2,1,4+1,0,4+0,0,4+-1,0,4+-2,0,4=the stop's empty cart from E (the napper set down on the bed foot's top) round the loop and the U-turn to its park, then down the run-up to P (the napper seated again at P)".into());
     }
-    // (9fc3155f 17:21 / ironspec 17:26: the stop-level golem floors guarded: glass, which
-    // LEGACY_IRON_GOLEM never spawns on, filling each spawn cell: over E's east trapdoor, over the
-    // hand-off's east trapdoor, over the exit curve's cap (0,1,6) (its neighbours already carry lone
-    // guard rails), over Z1's shutter)
+    // (9fc3155f 17:21 / ironspec 17:26 / 18:30: the stop-level golem floors guarded with glass, which
+    // LEGACY_IRON_GOLEM never spawns on: over the hand-off's east trapdoor (-1,0,5), over the exit
+    // curve's cap (0,1,6) (its neighbours already carry lone guard rails), over Z1's shutter; E's east
+    // floor (-1,0,2) is itself glass, not a trapdoor with glass over it: glass in both (-1,1,2) and
+    // (-1,1,5) turned the woken napper's PANIC flee onto the bed top (-3,1,4), a partial path that
+    // armed CANT_REACH after the wake on 363 of 408 visits (either alone: none; a glass floor at
+    // (-1,0,2): none, and the cart's box, y 0.06..0.76 beside E, meets no new face there))
     if exit_south {
-        for c in [[-1, 1, 2], [-1, 1, 5], [0, 2, 6]] {
+        b.d.blocks.remove(&[-1, 0, 2]);
+        put(&mut b, [-1, 0, 2], "glass")?;
+        for c in [[-1, 1, 5], [0, 2, 6]] {
             put(&mut b, c, "glass")?;
         }
     }
