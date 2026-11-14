@@ -39,6 +39,7 @@ pub mod ctlchain;
 pub mod ctlpocket;
 pub mod ctlhigh;
 pub mod ctlcredit;
+pub mod ctlpick;
 pub mod ctlshutter;
 pub mod holdpulse;
 pub mod linebench;

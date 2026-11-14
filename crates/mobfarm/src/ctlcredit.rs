@@ -1605,5 +1605,7 @@ mod tests {
         for e in expected {
             assert_eq!(fails.iter().filter(|f| f.contains(e)).count(), 1, "ctl-credit-bench: the pinned miss \"{e}\" is not exactly once among {:#?}", fails);
         }
+        // (G1 on 60ada7ea8 B1: the verdict fails the run: no flag turns it into exit 0)
+        assert!(v.finish(false).is_err(), "ctl-credit-bench: the pinned verdict must fail the run");
     }
 }

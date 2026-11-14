@@ -1,0 +1,634 @@
+//! ctl-pick: the outbound PICK RULE at ring level (ironspec 22:41 / 22:49 / 23:06 (3) / 23:21 / 23:34 / 23:45 / 23:48 /
+//! 23:57 / 00:01, G1 22:40 / 23:18 / 23:22 / 23:37 / 23:45 / 23:58): each lane's carts circulate FIFO, one per REL; a
+//! pick sends the lane's REL cart (its villager) on the nap detour INSTEAD of its batch cart; the bar is on VILLAGERS:
+//! every villager naps every night (24 distinct) and every nap-to-nap interval < 24,000 gt - margin, robust to a late
+//! visit, a skipped pick, a missed REL, two consecutive late picks and the day length +-10 RELs.
+//!
+//! THE DESIGN (judged): THE POINTER FORM: every pick fires when the lane's front cart is at the pointer's ring position
+//! AND >= P = 11 REAL RELs have passed since the lane's last pick AND the lane's HELD is clear; the pointer then advances
+//! Delta = 5 ring positions (coprime with 7 / 8 / 9) and is HELD THROUGH THE DAY (each night continues last night's
+//! sequence: oldest nap first, independent of day length); the order-preserving merge rejoins a napper behind its
+//! predecessor at the FIRST predecessor entry after its return (the rejoin counted as evidence); THREE IN FLIGHT, ONE PER
+//! LANE, the stop a single server (the bed: arrival pick + 200 gt, 333 gt asleep); HELD's spans as measured (264 / 284 /
+//! 313 gt: [3, 3, 4] RELs). Printed beside: today's rule (the control), the positional rules, FRESH / NAPPED (the
+//! fallback), the second-entry rejoin, today's one-in-flight contract.
+//!
+//! The model: time in RELs (100 gt each), a day 240 RELs, the window the first 120 (REST, ~12,010 gt, tick-exact 23:38);
+//! a batch circuit 2 RELs; a napper's absence 9 RELs (lane 7 + 1, a late visit + 1: cc767b78 23:20's tap-quantized
+//! absences); the pointer uses the cart's identity for the ring position the circuit's counter must track (the counter's
+//! netlist is OWED: positions on the REL pulse, the absent register, the rejoin evidence, state in latches).
+
+use crate::verdict::Verdict;
+use std::collections::VecDeque;
+
+pub const DAY: i64 = 240;
+pub const CIRCUIT: i64 = 2;
+pub const N0: usize = 8;
+pub const MARGIN: i64 = 1_000;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Merge {
+    Back,
+    Order,
+    /// FRESH / NAPPED (ironspec 22:49 (3)): picks draw from FRESH; a returned napper parks in its lane's NAPPED queue;
+    /// the batch draws from FRESH, from NAPPED only when FRESH is empty; every batch return goes to FRESH; dawn merges
+    /// NAPPED behind FRESH. The mark lives in the SLOT (which queue a cart waits in).
+    TwoTrack,
+}
+
+#[derive(Clone, Debug)]
+pub struct Cfg {
+    pub name: String,
+    pub period: i64,
+    pub window: i64,
+    pub visit: i64,
+    pub merge: Merge,
+    pub repick: bool,
+    /// TwoTrack's dawn merge puts NAPPED ahead of FRESH (the night's first nappers lead the next night).
+    pub napped_first: bool,
+    /// The order-preserving merge's rejoin: at the predecessor's entry number `rejoin_at` after the pick (1: the first
+    /// chance; 2: ironspec 23:24 (3), always one rotation late).
+    pub rejoin_at: i64,
+    /// ironspec 23:34's lead (b): the PICK POINTER held through the day: the night's first pick waits for the cart Delta
+    /// = P + 2 ring positions after the last picked one (oldest nap first falls out); then every P RELs.
+    pub pointer: bool,
+    /// Per day: the day's length in RELs relative to DAY (golem-limited RELs: +-10).
+    pub day_jitter: Vec<i64>,
+    /// The station's ONE-IN-FLIGHT contract (HELD): after any pick, no lane picks for this many RELs (pick -> queue
+    /// departure ~320-360 gt: 4 RELs); a pointer pick due while HELD is DEFERRED (its target comes round again). 0: off.
+    pub held: i64,
+    /// HELD's capacity: how many picked nappers may be in flight at once (today's contract: 1).
+    pub held_cap: usize,
+    /// HELD's span per picking lane in RELs (cc767b78 23:59, r12's normal night: pick -> HELD clear 264 / 284 / 313 gt,
+    /// so a pick 300 gt later passes after lanes -1 / 3 and is blocked after lane 7: [3, 3, 4]); None: `held` for all.
+    pub held_lane: Option<[i64; 3]>,
+    /// The pointer's step in ring positions (D = 5).
+    pub ptr_step: usize,
+    /// The ONE BED modelled as a single server (arrival pick + 200 gt, 333 gt asleep); a wait lengthens the absence.
+    pub bed: bool,
+    /// (day, window index, length): a multi-REL HALT (no REL for `length` slots; G1 23:44 / ironspec 23:50 (2)).
+    pub halts: Vec<(i64, i64, i64)>,
+    /// (day, lane, positions): the lane's position counter SLIPS by that many ring positions at the day's start (a
+    /// counter miss: G1 23:37 (1) / ironspec 23:48 (2)(1)).
+    pub slip: Vec<(i64, usize, usize)>,
+    /// (day, lane, pick number in the night): that pick is a LATE visit (+ 1 REL); two consecutive ones plant G1's 23:26 (3).
+    pub late_picks: Vec<(i64, usize, usize)>,
+    pub days: i64,
+    /// (day, window index) a REL that doesn't happen.
+    pub missed: Vec<(i64, i64)>,
+    /// (day, lane) that lane's first pick of the day is a LATE visit (+ 8 RELs).
+    pub late: Vec<(i64, usize)>,
+    /// (day, lane) that lane's first pick of the day fails (no nap; the cart rides a normal circuit).
+    pub skipped: Vec<(i64, usize)>,
+    /// (day, from lane, to lane) one cart moved between lanes at the day's start (the compression fault).
+    pub moved: Vec<(i64, usize, usize)>,
+}
+
+impl Cfg {
+    pub fn new(name: &str, period: i64, window: i64, merge: Merge) -> Cfg {
+        Cfg { name: name.to_string(), period, window, visit: 9, merge, repick: true, napped_first: false, rejoin_at: 2, pointer: false, day_jitter: vec![], held: 0, held_cap: 1, held_lane: None, ptr_step: 5, bed: false, halts: vec![], slip: vec![], late_picks: vec![], days: 8, missed: vec![], late: vec![], skipped: vec![], moved: vec![] }
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct Out {
+    /// Per villager: its nap ticks (gt).
+    pub naps: Vec<Vec<i64>>,
+    /// Per villager: the day of each nap.
+    pub nap_day: Vec<Vec<i64>>,
+    /// Per day: the distinct villagers napped.
+    pub distinct: Vec<usize>,
+    pub stalls: usize,
+    /// The largest nap-to-nap interval (gt) from day 2 on, and its villager.
+    pub max_gap: (i64, usize),
+    /// Per lane: the measured s (the predecessor's pops between a pick and the napper's rejoin), as a set.
+    pub s_seen: [Vec<i64>; 3],
+    /// Per lane: the distinct villagers napped per night.
+    pub lane_distinct: Vec<[usize; 3]>,
+    /// Per lane: the least queue depth (carts waiting) at any REL (ironspec 23:24 (3)(d)).
+    pub min_depth: [usize; 3],
+    /// Per lane: the longest wait in R_l (RELs, from the napper's arrival to its rejoin).
+    pub max_wait: [i64; 3],
+    /// Per lane: the most carts away at once (picked, not yet rejoined).
+    pub max_away: [usize; 3],
+    /// Per night: the picks DEFERRED by HELD (due, but the station's one napper still in flight).
+    pub deferred: Vec<usize>,
+    /// Per lane: the latest first pick of a night (window RELs into REST: the first-pick wait).
+    pub first_wait: [i64; 3],
+    /// Per night: the picks made (all lanes).
+    pub picks: Vec<usize>,
+    /// The nights holding an interval >= 24,000 - MARGIN (the later nap's night).
+    pub bad_nights: Vec<i64>,
+    /// The longest wait at the bed (gt), with `bed`.
+    pub max_bed_wait: i64,
+    /// The most nappers WAITING for the bed at once (the queue depth, not in flight: ironspec 00:01), with `bed`.
+    pub max_queue: usize,
+}
+
+/// The lanes' offsets inside the period (interleaved picks, one bed).
+const OFFSET: [i64; 3] = [0, 4, 7];
+/// cc767b78 23:20 (r10, every night): the napper's ABSENCE is quantized to its lane's slope tap: 8.50 / 8.85 / 10.31 RELs
+/// (lanes -1 / 3 / 7), + exactly 1 REL on a late visit; the model's visit is 9 RELs, lane 7 + 1, a late visit + 1.
+const LANE_EXTRA: [i64; 3] = [0, 0, 1];
+
+pub fn run(cfg: &Cfg) -> Out {
+    let mut lanes: Vec<VecDeque<usize>> = (0..3).map(|l| (0..N0).map(|i| l * N0 + i).collect()).collect();
+    let mut napped: Vec<VecDeque<usize>> = vec![VecDeque::new(); 3];
+    let nv = 3 * N0;
+    let mut o = Out { naps: vec![Vec::new(); nv], nap_day: vec![Vec::new(); nv], min_depth: [usize::MAX; 3], ..Out::default() };
+    // (in transit: (back at REL, lane, cart, order-preserving predecessor if any))
+    let mut transit: Vec<(i64, usize, usize, Option<usize>)> = Vec::new();
+    // (waiting in R_l: (lane, cart, predecessor, arrival REL))
+    let mut siding: Vec<(usize, usize, Option<usize>, i64)> = Vec::new();
+    // (s's count: (lane, napper, predecessor, the predecessor's pops so far))
+    let mut away: Vec<(usize, usize, usize, i64, i64)> = Vec::new();
+    // (the ring's cyclic predecessor of each lane's first cart is its last one: the first napper rejoins in order too)
+    let mut last_pop: [Option<usize>; 3] = [Some(N0 - 1), Some(2 * N0 - 1), Some(3 * N0 - 1)];
+    let mut repick: [Option<usize>; 3] = [None; 3];
+    let offs = [0, cfg.period / 3, (2 * cfg.period) / 3];
+    let mut next_pick: [i64; 3] = offs;
+    let mut last_idx: [Option<usize>; 3] = [None; 3];
+    let mut target: [Option<usize>; 3] = [None; 3];
+    let mut last_pick_k: [i64; 3] = [-cfg.period; 3];
+    // (the spacing gate counts REAL RELs (pops) since the lane's last pick: a halt delays it (G1 23:44 (2)))
+    let mut since: [i64; 3] = [cfg.period; 3];
+    // (the picked nappers in flight: each one's HELD end (REL))
+    let mut in_flight: Vec<i64> = Vec::new();
+    let mut bed_free: i64 = i64::MIN;
+    let mut bed_waits: Vec<(i64, i64)> = Vec::new();
+    // (the pointer's step in RING positions: a design constant, D = 5 (coprime with 7 / 8 / 9: ironspec 23:45 (2)),
+    // independent of the rejoin rule)
+    let delta = cfg.ptr_step;
+    let mut gt: i64 = 0;
+    let mut t: i64 = 0;
+    for day in 0..cfg.days {
+        for &(d, l, by) in &cfg.slip {
+            if d == day {
+                if let Some(tg) = target[l] {
+                    target[l] = Some(l * N0 + (tg - l * N0 + by) % N0);
+                }
+            }
+        }
+        let mut deferred_today = 0usize;
+        let mut picks_today = 0usize;
+        let mut pick_no: [usize; 3] = [0; 3];
+        for &(d, a, b) in &cfg.moved {
+            if d == day {
+                if let Some(c) = lanes[a].pop_back() {
+                    lanes[b].push_back(c);
+                }
+            }
+        }
+        // (dawn, TwoTrack: NAPPED merges behind FRESH, or ahead of it with `napped_first`)
+        for l in 0..3 {
+            if cfg.napped_first {
+                while let Some(c) = napped[l].pop_back() {
+                    lanes[l].push_front(c);
+                }
+            } else {
+                while let Some(c) = napped[l].pop_front() {
+                    lanes[l].push_back(c);
+                }
+            }
+        }
+        let mut first: [bool; 3] = [true; 3];
+        let mut k_rel = 0i64;
+        let day_len = DAY + cfg.day_jitter.get(day as usize).copied().unwrap_or(0);
+        for k in 0..day_len {
+            gt += 100;
+            t += 1;
+            // returns: carts back from their circuit or detour (an order-preserving napper goes to its siding; a TwoTrack
+            // napper to NAPPED); the ORDER-PRESERVING merge (ironspec 23:21 (2)): a waiting napper rejoins only AT its
+            // predecessor's TAIL ENTRY (it enters right behind it, in the same move), and a chain behind it follows
+            let mut keep = Vec::new();
+            let mut arrived: Vec<(usize, usize)> = Vec::new();
+            for &(at, l, c, pred) in &transit {
+                if at <= t {
+                    match (cfg.merge, pred) {
+                        (Merge::Order, Some(p)) => siding.push((l, c, Some(p), t)),
+                        (Merge::TwoTrack, Some(_)) => napped[l].push_back(c),
+                        _ => {
+                            lanes[l].push_back(c);
+                            arrived.push((l, c));
+                        }
+                    }
+                } else {
+                    keep.push((at, l, c, pred));
+                }
+            }
+            transit = keep;
+            // (each tail entry of a predecessor counts for its waiting nappers; a napper rejoins behind it at the entry
+            // numbered `rejoin_at` (1: its first chance; 2: ironspec 23:24 (3), "always one rotation late") or the first
+            // entry after its own return if later)
+            while let Some((l, c)) = arrived.pop() {
+                // (an entry counts once the predecessor has popped again after the pick: its entry right after the pick
+                // (from the circuit it was already on) is not a chance)
+                for a in away.iter_mut().filter(|a| a.0 == l && a.2 == c && a.3 >= 1) {
+                    a.4 += 1;
+                }
+                let ready = away.iter().position(|a| a.0 == l && a.2 == c && a.4 >= cfg.rejoin_at && siding.iter().any(|s| s.0 == l && s.1 == a.1));
+                if let Some(j) = ready {
+                    let x = away[j].1;
+                    let s = away[j].3;
+                    if !o.s_seen[l].contains(&s) {
+                        o.s_seen[l].push(s);
+                    }
+                    away.remove(j);
+                    if let Some(i) = siding.iter().position(|s| s.0 == l && s.1 == x) {
+                        let wait = t - siding[i].3;
+                        o.max_wait[l] = o.max_wait[l].max(wait);
+                        siding.remove(i);
+                    }
+                    lanes[l].push_back(x);
+                    arrived.push((l, x));
+                }
+            }
+            for l in 0..3 {
+                o.min_depth[l] = o.min_depth[l].min(lanes[l].len() + napped[l].len());
+                o.max_away[l] = o.max_away[l].max(away.iter().filter(|a| a.0 == l).count());
+            }
+            // (a napper whose predecessor is itself away or waiting re-enters behind the predecessor's predecessor: the
+            // ideal keeps the ORDER; a lone napper whose predecessor is the lane's only other... falls back to the back)
+            let in_window = k < cfg.window;
+            let halted = cfg.halts.iter().any(|&(d, s, len)| d == day && k_rel >= s && k_rel < s + len);
+            let missed = (cfg.missed.contains(&(day, k_rel)) || halted) && in_window;
+            if (0..3).any(|l| lanes[l].is_empty() && napped[l].is_empty()) || missed {
+                o.stalls += 1;
+                if missed {
+                    k_rel += 1;
+                }
+                continue;
+            }
+            for l in 0..3 {
+                let c = match lanes[l].pop_front() {
+                    Some(c) => c,
+                    None => napped[l].pop_front().unwrap(),
+                };
+                let pred = last_pop[l];
+                for a in away.iter_mut().filter(|a| a.0 == l && a.2 == c) {
+                    a.3 += 1;
+                }
+                last_pop[l] = Some(c);
+                since[l] += 1;
+                let due_repick = cfg.repick && repick[l] == Some(c);
+                // (the full POINTER form: every pick fires when the lane's front cart is the pointer's target AND at least
+                // `period` REAL RELs have passed since the lane's last pick AND HELD is clear; the target then advances
+                // DELTA ring positions)
+                let spaced = since[l] >= cfg.period;
+                let by_target = cfg.pointer && target[l] == Some(c) && spaced;
+                let mut due = in_window && ((!cfg.pointer || target[l].is_none()) && k_rel == next_pick[l] || due_repick || by_target);
+                in_flight.retain(|&e| e > t);
+                if due && cfg.held > 0 && in_flight.len() >= cfg.held_cap {
+                    // (HELD: the station's one napper is still in flight: the pick is DEFERRED; a pointer's target comes
+                    // round again, a scheduled pick moves to the next period)
+                    deferred_today += 1;
+                    if !by_target && !due_repick {
+                        next_pick[l] += cfg.period;
+                    }
+                    due = false;
+                }
+                if due {
+                    let skip = first[l] && cfg.skipped.contains(&(day, l));
+                    pick_no[l] += 1;
+                    let late = (first[l] && cfg.late.contains(&(day, l))) || cfg.late_picks.contains(&(day, l, pick_no[l]));
+                    first[l] = false;
+                    if pick_no[l] == 1 {
+                        o.first_wait[l] = o.first_wait[l].max(k_rel);
+                    }
+                    if skip && !due_repick {
+                        // (the pick fails: a normal circuit; the re-pick fix waits for this cart's next pass)
+                        transit.push((t + CIRCUIT, l, c, None));
+                        if cfg.repick {
+                            repick[l] = Some(c);
+                        }
+                        next_pick[l] += cfg.period;
+                        continue;
+                    }
+                    if due_repick {
+                        repick[l] = None;
+                    } else if by_target {
+                        next_pick[l] = k_rel + cfg.period;
+                    } else {
+                        next_pick[l] += cfg.period;
+                    }
+                    if c >= l * N0 && c < (l + 1) * N0 {
+                        last_idx[l] = Some(c - l * N0);
+                        if cfg.pointer {
+                            target[l] = Some(l * N0 + (c - l * N0 + delta) % N0);
+                            last_pick_k[l] = k_rel;
+                        }
+                    }
+                    since[l] = 0;
+                    if cfg.held > 0 {
+                        in_flight.push(t + cfg.held_lane.map_or(cfg.held, |h| h[l]));
+                    }
+                    picks_today += 1;
+                    let mut v = cfg.visit + LANE_EXTRA[l] + if late { 1 } else { 0 };
+                    let mut nap_at = gt + v * 50;
+                    if cfg.bed {
+                        // (THE ONE BED as a single server: the napper reaches it 200 gt after the pick, waits while it
+                        // is taken, sleeps 333 gt; its wait lengthens its absence)
+                        let arrive = gt + 200;
+                        let start = arrive.max(bed_free);
+                        bed_free = start + 333;
+                        let wait = start - arrive;
+                        o.max_bed_wait = o.max_bed_wait.max(wait);
+                        if wait > 0 {
+                            bed_waits.push((arrive, start));
+                        }
+                        v += (wait + 99) / 100;
+                        nap_at = start;
+                    }
+                    o.naps[c].push(nap_at);
+                    o.nap_day[c].push(day);
+                    if let (Merge::Order, Some(p)) = (cfg.merge, pred) {
+                        away.push((l, c, p, 0, 0));
+                    }
+                    transit.push((t + v, l, c, match cfg.merge {
+                        Merge::Order => pred,
+                        Merge::TwoTrack => Some(usize::MAX),
+                        Merge::Back => None,
+                    }));
+                } else {
+                    transit.push((t + CIRCUIT, l, c, None));
+                }
+            }
+            if in_window {
+                k_rel += 1;
+            }
+        }
+        // (the window's schedule restarts each night: the first pick of each lane at its offset)
+        next_pick = offs;
+        if cfg.pointer {
+            // (the pointer persists through the day: tonight's first pick waits for its target; the spacing restarts)
+            last_pick_k = [-cfg.period; 3];
+        }
+        let napped_today = (0..nv).filter(|&v| o.nap_day[v].contains(&day)).count();
+        let mut per_lane = [0usize; 3];
+        for (l, pl) in per_lane.iter_mut().enumerate() {
+            *pl = (l * N0..(l + 1) * N0).filter(|&v| o.nap_day[v].contains(&day)).count();
+        }
+        o.lane_distinct.push(per_lane);
+        o.distinct.push(napped_today);
+        o.deferred.push(deferred_today);
+        o.picks.push(picks_today);
+    }
+    let mut mg = (0i64, 0usize);
+    for (v, ns) in o.naps.iter().enumerate() {
+        for (i, w) in ns.windows(2).enumerate() {
+            if w[0] >= DAY * 100 && w[1] - w[0] > mg.0 {
+                mg = (w[1] - w[0], v);
+            }
+            if w[0] >= DAY * 100 && w[1] - w[0] >= 24_000 - MARGIN {
+                let d = o.nap_day[v][i + 1];
+                if !o.bad_nights.contains(&d) {
+                    o.bad_nights.push(d);
+                }
+            }
+        }
+    }
+    o.bad_nights.sort();
+    // (the queue depth: the most [arrive, start) waits overlapping at one instant)
+    for &(a, _) in &bed_waits {
+        let depth = bed_waits.iter().filter(|&&(a2, s2)| a2 <= a && a < s2).count();
+        o.max_queue = o.max_queue.max(depth);
+    }
+    o.max_gap = mg;
+    o
+}
+
+fn line(cfg: &Cfg, o: &Out) -> String {
+    format!(
+        "{}: period {} RELs per lane, window {} RELs, merge {:?}{}: distinct per night {:?} (per lane, night 3: {:?}), s measured per lane {:?}, the largest interval {} gt (villager {}), stalls {}",
+        cfg.name,
+        cfg.period,
+        cfg.window,
+        cfg.merge,
+        if cfg.repick { ", re-pick" } else { "" },
+        o.distinct,
+        o.lane_distinct.get(3),
+        o.s_seen,
+        o.max_gap.0,
+        o.max_gap.1,
+        o.stalls
+    )
+}
+
+pub fn bench(v: &mut Verdict) -> Vec<String> {
+    let mut lines = vec![format!("ctl-pick (RING LEVEL: each lane's carts FIFO, one per REL; a batch circuit {CIRCUIT} RELs; a visit 9 RELs (lane 7 + 1, late + 1: cc767b78's measured absences); the day {DAY} RELs; picks interleaved at offsets {OFFSET:?}; the bar 24 distinct per night from night 2 and every interval < 24,000 - {MARGIN})")];
+    let ok = |o: &Out| o.distinct.iter().skip(1).all(|&d| d == 3 * N0) && o.max_gap.0 < 24_000 - MARGIN;
+    // (today's rule, as the control: period 10, the 80-REL window, the merge at the back)
+    let today = Cfg::new("TODAY (control)", 10, 80, Merge::Back);
+    let o = run(&today);
+    let c = v.control("ctl-pick CONTROL: today's rule (period 10, the 80-REL window, R_l merging at the lane's back) misses villagers or the interval bar", 1, !ok(&o)).to_string();
+    lines.push(format!("  {}: {c}", line(&today, &o)));
+    // (the robustness rows, each scheme: (A) positional, period 11, the whole REST, the order-preserving merge, re-pick;
+    // (B) FRESH / NAPPED (the mark in the slot), the whole REST, period 11; judged: (B); printed: (A), the evidence that a
+    // positional rule fails when the napper's absence s varies (lane 7's longer trip: G1 23:18))
+    let disturb = |name: &str, period: i64, merge: Merge| -> Vec<Cfg> {
+        let mut out = vec![Cfg::new(&format!("{name}, normal"), period, 120, merge)];
+        let mut c1 = Cfg::new(&format!("{name}, a missed REL (night 3, window REL 30)"), period, 120, merge);
+        c1.missed = vec![(3, 30)];
+        out.push(c1);
+        let mut c2 = Cfg::new(&format!("{name}, a late visit (night 3, lane 7's first pick)"), period, 120, merge);
+        c2.late = vec![(3, 2)];
+        out.push(c2);
+        let mut c3 = Cfg::new(&format!("{name}, a skipped pick (night 3, lane 3's first)"), period, 120, merge);
+        c3.skipped = vec![(3, 1)];
+        out.push(c3);
+        let mut c4 = Cfg::new(&format!("{name}, a cart moved from lane 7 to lane -1 on night 3 (n 9 / 7)"), period, 120, merge);
+        c4.moved = vec![(3, 2, 0)];
+        out.push(c4);
+        out
+    };
+    for cfg in disturb("PRINTED (B) FRESH / NAPPED", 11, Merge::TwoTrack) {
+        let o = run(&cfg);
+        lines.push(format!("  {} -> {}", line(&cfg, &o), if ok(&o) { "meets the bars" } else { "MISSES the bars" }));
+    }
+    for cfg in disturb("PRINTED (A) positional, period 11, order-preserving merge", 11, Merge::Order) {
+        let o = run(&cfg);
+        lines.push(format!("  {} -> {}", line(&cfg, &o), if ok(&o) { "meets the bars" } else { "MISSES the bars" }));
+    }
+    for (period, nf) in [(11, true), (10, false), (10, true), (9, false), (9, true), (8, false), (8, true)] {
+        let mut cfg = Cfg::new(&format!("PRINTED (B) FRESH / NAPPED, period {period}, the dawn merge {}", if nf { "NAPPED first" } else { "NAPPED last" }), period, 120, Merge::TwoTrack);
+        cfg.napped_first = nf;
+        let o = run(&cfg);
+        lines.push(format!("  {} -> {}", line(&cfg, &o), if ok(&o) { "meets the bars" } else { "MISSES the bars" }));
+    }
+    // (G1 23:22 / ironspec 23:21: s and the coverage per lane for P = 10, 11, 12, 13, 16 (the positional rule with the
+    // order-preserving merge, rejoining only at the predecessor's tail entry))
+    for period in [10, 11, 12, 13, 16] {
+        for rj in [1, 2] {
+            let mut cfg = Cfg::new(&format!("PRINTED (A) positional, period {period}, rejoin at the predecessor's entry {rj}"), period, 120, Merge::Order);
+            cfg.rejoin_at = rj;
+            let o = run(&cfg);
+            lines.push(format!("  {} -> {}; least queue depth per lane {:?}", line(&cfg, &o), if ok(&o) { "meets the bars" } else { "MISSES the bars" }, o.min_depth));
+        }
+    }
+    // (the interval: a search over the period (P + 2 coprime with 7 / 8 / 9: 9, 11) and the window, both schemes)
+    let mut srch = Vec::new();
+    for merge in [Merge::Order, Merge::TwoTrack] {
+        for period in [9, 11] {
+            for window in [100, 110, 120, 130, 140, 160] {
+                let mut cfg = Cfg::new("search", period, window, merge);
+                cfg.days = 10;
+                let o = run(&cfg);
+                let d = o.distinct.iter().skip(1).min().copied().unwrap_or(0);
+                srch.push(format!("{merge:?} P {period} W {window}: least distinct {d}, max interval {}", o.max_gap.0));
+            }
+        }
+    }
+    lines.push(format!("  THE INTERVAL SEARCH (printed): {}", srch.join(" | ")));
+    // (ironspec 23:34 / 23:45 / 23:48: THE POINTER FORM, every pick pointer-driven (the front at the target, >= P REAL
+    // RELs since the lane's last pick, HELD clear), Delta = P + 2 = 13 = 5 ring positions, the pointer held through the
+    // day; HELD 4 RELs; both REJOIN RULES (first predecessor entry after the napper is back / the second entry); the
+    // robustness rows, day length +-10, two consecutive late picks, multi-REL halts, a counter slip)
+    let mut prow = disturb("POINTER", 11, Merge::Order);
+    let mut dj = Cfg::new("POINTER, the day length +10 / -10 RELs alternating", 11, 120, Merge::Order);
+    dj.day_jitter = (0..10).map(|d| if d % 2 == 0 { 10 } else { -10 }).collect();
+    prow.push(dj);
+    let mut dj2 = Cfg::new("POINTER, the day length -10 RELs every day", 11, 120, Merge::Order);
+    dj2.day_jitter = vec![-10; 10];
+    prow.push(dj2);
+    let mut dj3 = Cfg::new("POINTER, the day length +10 RELs every day", 11, 120, Merge::Order);
+    dj3.day_jitter = vec![10; 10];
+    prow.push(dj3);
+    let mut l2 = Cfg::new("POINTER, two consecutive late picks (night 3, lane 7's first and second)", 11, 120, Merge::Order);
+    l2.late_picks = vec![(3, 2, 1), (3, 2, 2)];
+    prow.push(l2);
+    for len in [5, 10, 20] {
+        let mut h = Cfg::new(&format!("POINTER, a {len}-REL HALT mid-REST (night 3, window REL 40)"), 11, 120, Merge::Order);
+        h.halts = vec![(3, 40, len)];
+        prow.push(h);
+    }
+    let mut sl = Cfg::new("POINTER, a COUNTER SLIP (+1 ring position, lane 3, night 3's dawn)", 11, 120, Merge::Order);
+    sl.slip = vec![(3, 1, 1)];
+    prow.push(sl);
+    // (ironspec 23:57 / 00:01: THREE IN FLIGHT, ONE PER LANE (the stop a single server) and the FIRST-entry rejoin with
+    // the rejoin counted are the DESIGN, judged; HELD spans as measured (cc767b78 23:59: 264 / 284 / 313 gt -> [3, 3, 4]
+    // RELs); the bed modelled (one occupant); printed beside: today's ONE in flight on the measured spans (ironspec
+    // 23:59c) and the second-entry rejoin (modelled until the composed night measures the stamp))
+    for (cap, rj) in [(3usize, 1i64), (3, 2), (1, 1), (1, 2)] {
+        for base in &prow {
+            let mut cfg = base.clone();
+            cfg.name = format!(
+                "{} [{}; rejoin: {}]",
+                base.name,
+                match cap {
+                    1 => "ONE in flight (today's contract), HELD measured",
+                    _ => "THREE in flight, ONE PER LANE (ruled 23:57)",
+                },
+                if rj == 2 { "SECOND entry" } else { "FIRST entry after the return, counted" }
+            );
+            cfg.pointer = true;
+            cfg.days = 10;
+            cfg.held = 4;
+            cfg.held_lane = Some([3, 3, 4]);
+            cfg.held_cap = cap;
+            cfg.rejoin_at = rj;
+            cfg.bed = true;
+            let o = run(&cfg);
+            let wv = o.max_gap.1;
+            let fault = cfg.name.contains("moved") || cfg.name.contains("SLIP") || cfg.name.contains("HALT");
+            let design = cap == 3 && rj == 1;
+            let verdict = if fault {
+                format!(
+                    "PRINTED (a fault path: halts > 1 missed REL are fault class (ironspec 23:50); the slip's cause is a fault, a world-open slip is owed as a strict row): nights holding an interval >= 23,000: {:?} -> {}",
+                    o.bad_nights,
+                    if ok(&o) { "meets the bars" } else { "misses the bars" }
+                )
+            } else if design {
+                v.bar(&format!("ctl-pick: {}: 24 distinct every night from night 2, every interval < 24,000 - {MARGIN}, 0 picks deferred by HELD", cfg.name), ok(&o) && o.deferred.iter().all(|&d| d == 0)).to_string()
+            } else {
+                format!("PRINTED (beside the design) -> {}", if ok(&o) && o.deferred.iter().all(|&d| d == 0) { "meets the bars" } else { "MISSES the bars" })
+            };
+            let wait_gt: Vec<i64> = o.max_wait.iter().map(|w| w * 100).collect();
+            lines.push(format!(
+                "  {}: {verdict}; picks per night {:?}, deferred by HELD per night {:?}, the bed's longest wait {} gt, the most nappers WAITING for the bed at once {}, the longest R_l wait per lane {:?} gt (an additive bound on the stamp: r8's 530 + the wait = {:?}; the stamp arms at the first partial HOME path, ironspec 23:57 (3): cc767b78 measures), the most away per lane {:?}, the latest first pick per lane {:?} RELs into REST; the worst villager {wv}'s naps (gt) {:?}",
+                line(&cfg, &o),
+                o.picks,
+                o.deferred,
+                o.max_bed_wait,
+                o.max_queue,
+                wait_gt,
+                wait_gt.iter().map(|w| 530 + w).collect::<Vec<_>>(),
+                o.max_away,
+                o.first_wait,
+                o.naps[wv]
+            ));
+        }
+    }
+    lines.push("  OWED (before anything is laid, ironspec 23:48 (2)): the COUNTER's netlist (a ring-position counter of each lane's front, counting on the REL pulse in the same tick, the picked-not-rejoined positions in a per-lane register, the rejoin counted as evidence, state in latches; a world-open-mid-count row passing STRICTLY, value read back); the per-lane holds' MECHANISM (the waiting cell per lane; slot-1 supply, F1 and REL while held; each batch's make-up and credit; the gate = the previous napper's departure from the front (the RS_ready reset); the order arbiter releasing EXACTLY ONE, the OLDEST PICK, per departure event, with planted rows of two and three holds at once); the 219-row credit sweep under this schedule; cc767b78's composed night (each waiting napper's stamp age, the bed's busy fraction, golems lost)".into());
+    lines
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_grid_prints() {
+        // (the grid: rejoin x HELD x capacity x the pointer's step; one summary line each)
+        for rj in [2, 1] {
+            let mut cfg = Cfg::new("grid", 11, 120, Merge::Order);
+            cfg.pointer = true;
+            cfg.days = 10;
+            cfg.rejoin_at = rj;
+            cfg.held = 4;
+            cfg.held_lane = Some([3, 3, 4]);
+            for bed in [false, true] {
+                cfg.bed = bed;
+                let o = run(&cfg);
+                println!(
+                    "GRID-MEASURED rejoin {rj} ONE in flight, HELD [3,3,4] (264/284/313 gt) bed {bed}: distinct {:?}, max interval {} (v {}), picks {:?}, deferred {:?}, max bed wait {}",
+                    o.distinct, o.max_gap.0, o.max_gap.1, o.picks, o.deferred, o.max_bed_wait
+                );
+            }
+        }
+        for rj in [2, 1] {
+            for (held, cap, step) in [(0, 1, 5), (3, 1, 5), (4, 1, 5), (4, 2, 5), (4, 3, 5), (4, 1, 3), (4, 1, 7)] {
+                for bed in [false, true] {
+                let mut cfg = Cfg::new("grid", 11, 120, Merge::Order);
+                cfg.pointer = true;
+                cfg.days = 10;
+                cfg.rejoin_at = rj;
+                cfg.held = held;
+                cfg.held_cap = cap;
+                cfg.ptr_step = step;
+                cfg.bed = bed;
+                let o = run(&cfg);
+                println!(
+                    "GRID rejoin {rj} held {held} cap {cap} step {step} bed {bed}: distinct {:?}, max interval {} (v {}), picks {:?}, deferred {:?}, max wait {:?}, max away {:?}, max bed wait {}",
+                    o.distinct, o.max_gap.0, o.max_gap.1, o.picks, o.deferred, o.max_wait, o.max_away, o.max_bed_wait
+                );
+                }
+            }
+        }
+        let mut cfg = Cfg::new("dbg", 11, 120, Merge::Order);
+        cfg.pointer = true;
+        cfg.days = 4;
+        cfg.rejoin_at = 1;
+        let o = run(&cfg);
+        let mut ev: Vec<(i64, usize)> = Vec::new();
+        for v in 0..N0 {
+            for &g in &o.naps[v] {
+                ev.push((g, v));
+            }
+        }
+        ev.sort();
+        println!("lane 0 picks, first-entry rejoin (gt, villager): {:?}", ev);
+    }
+
+    #[test]
+    fn the_bench_prints() {
+        // (the pinned verdict: the ruled design (the pointer form, three in flight, the first-entry rejoin counted, the bed
+        // a single server) passes every judged row; today's rule's control bites; the CLI exits 0)
+        let mut v = Verdict::new("ctl-pick-test");
+        for l in bench(&mut v) {
+            println!("{l}");
+        }
+        println!("ctl-pick fails: {:?}", v.fails());
+        assert!(v.fails().is_empty(), "ctl-pick-bench: the pinned verdict changed: {:?}", v.fails());
+        assert!(v.finish(false).is_ok());
+    }
+}

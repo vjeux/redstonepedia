@@ -371,20 +371,18 @@ pub enum MobfarmCmd {
     /// (the release on sustained presence from the latest bed-head pulse, held D, within W, PARKED; OPEN set
     /// A70 AND SO AND NOT P_STRING, reset RLS OR P_STRING) as a delayed-logic model with designed gate delays:
     /// the normal sweep, every forced row, a world open at every tick, one control per gate.
-    CtlShutterBench {
-        /// Print the judged misses without failing the run (never for a cited result).
-        #[arg(long)]
-        report_only: bool,
-    },
+    CtlShutterBench {},
     /// ctl-credit, LOGIC LEVEL (`ctlcredit.rs`, gate list rev 20:00): G8 as (B') (the credit count in a counting
     /// hopper with a ballast, the four-dust read, SEEN3, the masks) with G10's REL-keyed ring reset and G11's picks:
     /// the normal run, the single-fault rows judged on the ring's same-phase recovery within 2 batches, the store's
     /// bars, a world open mid-batch, one control per gate.
-    CtlCreditBench {
-        /// Print the judged misses without failing the run (never for a cited result).
-        #[arg(long)]
-        report_only: bool,
-    },
+    /// (G1 on 60ada7ea8 B1: no `--report-only`: the pinned verdict is the result and the CLI exits non-zero on it.)
+    CtlCreditBench {},
+    /// ctl-pick, RING LEVEL (`ctlpick.rs`, ironspec 23:21 / 23:34 / 23:48 / 23:57): the outbound pick rule (the POINTER
+    /// form: every pick pointer-driven, Delta = 5 ring positions, the pointer held through the day; the first-entry rejoin
+    /// counted; three in flight, one per lane; the bed a single server): 24 / 24 every night and every nap-to-nap interval
+    /// < 23,000 under the plants; today's rule and the fallbacks printed beside it.
+    CtlPickBench {},
     /// The gate list's cell audit (ironspec 20:17 (3)): every cell the list names, read from a design file (the
     /// record): the block the file holds there against the block the list names (a substring of the block state; `air`
     /// for a cell that must stay empty): LAID (it matches), EMPTY (air: to lay), DIFFERENT (another block: to replace,
@@ -13993,12 +13991,12 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             v.finish(report_only).map_err(|e| anyhow::anyhow!(e))?;
         }
-        MobfarmCmd::CtlShutterBench { report_only } => {
+        MobfarmCmd::CtlShutterBench {} => {
             let mut v = crate::verdict::Verdict::new("ctl-shutter-bench");
             for l in crate::ctlshutter::bench(&mut v) {
                 println!("{l}");
             }
-            v.finish(report_only).map_err(|e| anyhow::anyhow!(e))?;
+            v.finish(false).map_err(|e| anyhow::anyhow!(e))?;
         }
         MobfarmCmd::CellAudit { design, cells } => {
             let d = mctas::design::Design::load(&design)?;
@@ -14034,12 +14032,19 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             println!("cell-audit: {laid} laid, {empty} empty (to lay), {diff} different (to replace, or a mismatch) in {}", design.display());
         }
-        MobfarmCmd::CtlCreditBench { report_only } => {
+        MobfarmCmd::CtlCreditBench {} => {
             let mut v = crate::verdict::Verdict::new("ctl-credit-bench");
             for l in crate::ctlcredit::bench(&mut v) {
                 println!("{l}");
             }
-            v.finish(report_only).map_err(|e| anyhow::anyhow!(e))?;
+            v.finish(false).map_err(|e| anyhow::anyhow!(e))?;
+        }
+        MobfarmCmd::CtlPickBench {} => {
+            let mut v = crate::verdict::Verdict::new("ctl-pick-bench");
+            for l in crate::ctlpick::bench(&mut v) {
+                println!("{l}");
+            }
+            v.finish(false).map_err(|e| anyhow::anyhow!(e))?;
         }
         MobfarmCmd::CtlHighBench { out, mirror_z, report_only } => {
             crate::mirror::set(mirror_z);

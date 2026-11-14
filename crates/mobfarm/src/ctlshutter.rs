@@ -425,6 +425,14 @@ pub struct Defects {
     /// (g)'s latch drive, the fallback (ironspec 21:51: only if no face of the slime takes a repeater): PARK = the latch's
     /// Q torch under the slime, [RLS + 4, RLS + 12) (run it with W 46: `w_delta: W_TORCH - W_LINE`).
     pub torch: bool,
+    /// RLS WITHOUT its output torch's scheduled-read filter (a 1- or 2-gt OR-block gap lights it): G1's 23:xx (7) twin
+    /// (tick-exact's AN rig, assert 5, shows a 2-gt pulse lighting Q: the filter is MODELLED until the AND rig on real
+    /// cells says otherwise).
+    pub rls_filter_off: bool,
+    /// SINCE's reset back to the LEVEL reset by NOT P (before ironspec 22:52 (1) gated it by the sample): its control.
+    pub since_reset_level: bool,
+    /// The reset chain's width (P_HOLD's PARK_W) overridden (0: the design's): G1's leave-park control (PARK_W 8).
+    pub park_w_override: i64,
 }
 
 /// What a row asserts about its outcome (G1 on 5f79952c2 B6).
@@ -652,7 +660,7 @@ pub fn run(row: &Row, def: Defects) -> Out {
     let mut park = vec![false; n];
     let mut p_hold = vec![false; n];
     // ((g)'s latch, or the plain drive's P_HOLD with the carried rulings; the old drive keeps its gate model)
-    let mut lsim = LatchSim::new(LatchOpts { branch: !def.no_branch, feedback: true, arm_reset: !def.no_arm_reset, b2_blocked: def.b2_blocked, power_up_set: row.power_up_set, pair_w: if def.torch { PARK_W_TORCH } else { PARK_W } });
+    let mut lsim = LatchSim::new(LatchOpts { branch: !def.no_branch, feedback: true, arm_reset: !def.no_arm_reset, b2_blocked: def.b2_blocked, power_up_set: row.power_up_set, pair_w: if def.park_w_override > 0 { def.park_w_override } else if def.torch { PARK_W_TORCH } else { PARK_W } });
     let mut tap = vec![false; n];
     let mut brh = vec![false; n];
     let mut park_in = vec![false; n];
@@ -729,6 +737,9 @@ pub fn run(row: &Row, def: Defects) -> Out {
             if board_cd > 0 {
                 board_cd -= 1;
             }
+            // (G1's C1 on 33e731660: `edge_no_read` removes the park's READ itself: the cart responds in the tick PARK rises
+            // (its launch dated PARK_READ earlier, the ride unchanged); the entity phase runs before this tick's blocks, so
+            // the rise is seen PARK_READ later and the launch is back-dated)
             let park_prev = at(&park, kb - PARK_READ, false);
             match cart {
                 C::Arriving if e >= row.arm + row.rest => {
@@ -736,10 +747,9 @@ pub fn run(row: &Row, def: Defects) -> Out {
                     o.rest_g = Some(g);
                 }
                 C::Rest if park_prev => {
-                    // (G1's C1: the park's read is a step of its own; `edge_no_read` removes it, the cart then moving a
-                    // tick earlier, for the closed form's twin)
-                    cart = C::ToP(e + CART_RESPONSE + row.board - if def.edge_no_read { PARK_READ } else { 0 } + def.late_launch);
-                    o.launched = Some(g);
+                    let back = if def.edge_no_read { PARK_READ } else { 0 };
+                    cart = C::ToP(e - back + CART_RESPONSE + row.board + def.late_launch);
+                    o.launched = Some(g - back);
                 }
                 C::ToP(t) if e >= t => {
                     o.cart_at_p = Some(g);
@@ -890,7 +900,11 @@ pub fn run(row: &Row, def: Defects) -> Out {
             let onset = def.no_onset || !at(&ps, u - TORCH - ONSET - 1, false);
             obs_s(u) && !notp(u) && onset
         };
-        let v_since = !def.no_since && latch(prev(&q_since), s_at(&since_s), r_at(&|t| notp(t - REP)));
+        // (SINCE's reset, ironspec 22:52 (1): NOT P through one repeater, GATED BY THE SAMPLE: suppressed while a sample
+        // stands within the set path's time + 2 (so a press arriving inside the onset window sets SINCE and keeps it);
+        // `since_reset_level` puts back the plain level reset as its control)
+        let since_r = |t: i64| notp(t - REP) && (def.since_reset_level || !(0..=sd + 2).any(|j| obs_s(t - j)));
+        let v_since = !def.no_since && latch(prev(&q_since), s_at(&since_s), r_at(&since_r));
         let d_eff = D_LINE - def.d_cut;
         let w_eff = W_LINE + def.w_delta;
         let v_win = latch(prev(&q_win), s_at(&|t| obs_at(t - d_eff)), r_at(&|t| obs_at(t) || obs_at(t - w_eff)));
@@ -905,12 +919,17 @@ pub fn run(row: &Row, def: Defects) -> Out {
         // whose changes land before the torches): an OR-block gap of 1 or 2 gt never lights it, a gap of u >= 3 gives an
         // RLS of u, at the same ticks as the plain delay model: THE STRUCTURAL RLS >= 3)
         let or_now = rls_block_at(kb - AND + TORCH);
-        if rls_due == Some(kb) {
-            rls_due = None;
-            rls_lit = !or_now;
-        }
-        if rls_due.is_none() && rls_lit == or_now {
-            rls_due = Some(kb + TORCH);
+        if def.rls_filter_off {
+            // (the twin: the plain delay model, no width filter: any OR-block gap lights RLS)
+            rls_lit = !rls_block_at(kb - AND);
+        } else {
+            if rls_due == Some(kb) {
+                rls_due = None;
+                rls_lit = !or_now;
+            }
+            if rls_due.is_none() && rls_lit == or_now {
+                rls_due = Some(kb + TORCH);
+            }
         }
         rls[k] = rls_lit;
         // (planted RLS shapes: the first RLS cut to a width, or held high: the RLS = 1 / 2 and long-RLS rows)
@@ -1175,10 +1194,16 @@ fn invariants(o: &Out) -> Vec<String> {
             bad.push(format!("the cart came to rest at {rg}, after PARK's rise at {p}"));
         }
     }
-    // (ironspec 21:20 (b): the cart's last tick on the park cell >= 2 gt before PARK's end)
+    // (ironspec 21:20 (b): the cart's last tick on the park cell >= 2 gt before PARK's end; G1 on 33e731660 (9): a PARK
+    // that rose and never launched the cart fails too)
     if let (Some(l), Some(&pe)) = (o.launched, o.park_end.first()) {
         if !o.rls.is_empty() && pe - (l + PARK_LEAVE) < 2 {
             bad.push(format!("the cart's last tick on the park ({}) within 2 gt of PARK's end ({pe})", l + PARK_LEAVE));
+        }
+    }
+    if let (Some(&p), None) = (o.park.first(), o.launched) {
+        if !o.rls.is_empty() && o.rest_g.is_some() {
+            bad.push(format!("PARK rose at {p} and the resting cart never launched (it never left the park)"));
         }
     }
     bad
@@ -1218,7 +1243,8 @@ fn normal_bars(o: &Out, late_lie: bool) -> Vec<String> {
     bad
 }
 
-/// The bars a row's kind asserts.
+/// The bars a row's kind asserts, EXCEPT the first-window bar (G1 on 33e731660 (2): C2 is pinned per row x band on its
+/// own, every other bar judged at 0 misses on the same runs).
 fn kind_bars(o: &Out, kind: Kind, late_lie: bool) -> Vec<String> {
     match kind {
         Kind::Normal => normal_bars(o, late_lie),
@@ -1230,33 +1256,12 @@ fn kind_bars(o: &Out, kind: Kind, late_lie: bool) -> Vec<String> {
             if o.departed.map(|d| !d.1).unwrap_or(true) {
                 b.push("the early-woken napper not aboard".into());
             }
-            // (G1's C2: ON ITS FIRST WINDOW: no lie-down between its first wake and its boarding, and the boarding
-            // within the first RLS's park + read + response + ride (+ a world open's idle and lag))
-            if let (Some(&w0), Some(bt)) = (o.wakes.first(), o.boarded_at) {
-                if o.lies.iter().any(|&l| l > w0 && l < bt) {
-                    b.push(format!("boarded at {bt} after a re-sleep, not on its first window"));
-                }
-            }
-            if let (Some(by), Some(bt)) = (o.first_window_by, o.boarded_at) {
-                if bt > by {
-                    b.push(format!("boarded at {bt}, past its first window's bound {by}"));
-                }
-            }
             b
         }
         Kind::Boards => {
-            // (a row whose first window depends on the band: it boards on the first window where the window allows,
-            // after its re-sleep otherwise; both safe, the split printed; G1's C2 on 2260db896: A FIRST-WINDOW RLS (one
-            // before any re-sleep) MUST BOARD BY THE FIRST WINDOW's BOUND)
             let mut b = invariants(o);
             if o.departed.map(|d| !d.1).unwrap_or(true) {
                 b.push("it never boards in the horizon".into());
-            }
-            if let (Some(&r0), Some(by)) = (o.rls.first(), o.first_window_by) {
-                let resleep = o.wakes.first().and_then(|&w0| o.lies.iter().find(|&&l| l > w0).copied());
-                if resleep.is_none_or(|l| r0 < l) && o.boarded_at.is_none_or(|bt| bt > by) {
-                    b.push(format!("its first RLS at {r0} came before any re-sleep, yet it boarded at {:?}, past the first window's bound {by}", o.boarded_at));
-                }
             }
             b
         }
@@ -1285,6 +1290,50 @@ fn kind_bars(o: &Out, kind: Kind, late_lie: bool) -> Vec<String> {
         Kind::Printed => invariants(o),
     }
 }
+
+/// G1's C2, the FIRST-WINDOW bar on its own (G1 on 33e731660 (2)): a BoardsEarly row boards on its first window (no
+/// lie-down between its first wake and its boarding, and within the first RLS's park + read + response + ride (+ a world
+/// open's idle and lag)); a Boards row whose first RLS came before any re-sleep boards by the first window's bound.
+/// Ironspec 22:58 (2): a FORCED wake (a hurt) also boards by wake + 90.
+fn first_window_miss(o: &Out, kind: Kind) -> Option<String> {
+    match kind {
+        Kind::BoardsEarly => {
+            if let (Some(&w0), Some(bt)) = (o.wakes.first(), o.boarded_at) {
+                if o.lies.iter().any(|&l| l > w0 && l < bt) {
+                    return Some(format!("boarded at {bt} after a re-sleep, not on its first window"));
+                }
+            }
+            if let (Some(by), Some(bt)) = (o.first_window_by, o.boarded_at) {
+                if bt > by {
+                    return Some(format!("boarded at {bt}, past its first window's bound {by}"));
+                }
+            }
+            if let (Some(&w0), Some(bt)) = (o.wakes.first(), o.boarded_at) {
+                if bt - w0 > FORCED_BOARD_BY {
+                    return Some(format!("a forced wake at {w0} boarded at {bt}, past wake + {FORCED_BOARD_BY}"));
+                }
+            }
+            None
+        }
+        Kind::Boards => {
+            if let (Some(&r0), Some(by)) = (o.rls.first(), o.first_window_by) {
+                let resleep = o.wakes.first().and_then(|&w0| o.lies.iter().find(|&&l| l > w0).copied());
+                if resleep.is_none_or(|l| r0 < l) && o.boarded_at.is_none_or(|bt| bt > by) {
+                    return Some(format!("its first RLS at {r0} came before any re-sleep, yet it boarded at {:?}, past the first window's bound {by}", o.boarded_at));
+                }
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
+/// Ironspec 22:58 (2): every pre-COOL wake is FORCED and boards on its first window AND by wake + 90.
+pub const FORCED_BOARD_BY: i64 = 90;
+
+/// Ironspec 23:55 (tick-exact's pin: every dismount sets the boarding cooldown 60, counted on the napper's own ticks, not
+/// saved): the pickup must come >= 5 gt after the cooldown's end on every visit (pickup - eject >= 65).
+pub const BOARD_CD_MARGIN: i64 = 5;
 
 fn compress(cells: &str) -> String {
     let mut out = String::new();
@@ -1590,10 +1639,12 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
         margin - 1,
         margin - 3
     ));
-    // (2) every forced row across its full band (band_variants)
+    // (2) every forced row across its full band (band_variants); G1 on 33e731660 (2): the first-window bar (C2) is its
+    // own bar per row, its misses counted per band; every other bar of the row's kind judged at 0 misses on the same runs
     for (row, kind, late) in forced_rows() {
         let mut nb = 0usize;
         let mut bad: Vec<String> = Vec::new();
+        let (mut c2n, mut c2ex) = (0usize, Vec::<String>::new());
         let mut boards: (i64, i64) = (i64::MAX, i64::MIN);
         let mut cool: (i64, i64) = (i64::MAX, i64::MIN);
         let (mut first_w, mut later_w) = (0usize, 0usize);
@@ -1603,6 +1654,12 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
             let b = kind_bars(&o, kind, late);
             if !b.is_empty() && bad.len() < 2 {
                 bad.push(format!("rest {} board {} pass -> rest {} lie {:?}: {}", rr.rest, rr.board, rr.pass_to_rest, rr.lie.first(), b.join("; ")));
+            }
+            if let Some(m) = first_window_miss(&o, kind) {
+                c2n += 1;
+                if c2ex.len() < 2 {
+                    c2ex.push(format!("rest {} board {} pass -> rest {}: {m}", rr.rest, rr.board, rr.pass_to_rest));
+                }
             }
             if let Some(bt) = o.boarded_at {
                 boards = (boards.0.min(bt), boards.1.max(bt));
@@ -1618,9 +1675,16 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
             }
         }
         let o = run(&row, fdef);
-        let mark = vv.bar_n(&format!("ctl-shutter [{form}] forced row ({kind:?}) across the bands: {}", row.name), nb, bad.is_empty());
+        let mark = vv.bar_n(&format!("ctl-shutter [{form}] forced row ({kind:?}) across the bands, every bar but the first window: {}", row.name), nb, bad.is_empty());
+        let c2 = if matches!(kind, Kind::BoardsEarly | Kind::Boards) {
+            let cls = if row.hurt.is_empty() { "NATURAL" } else { "FORCED" };
+            let m = vv.bar_n(&format!("ctl-shutter [{form}] C2, THE FIRST WINDOW ({cls} wake{}): {}", if row.hurt.is_empty() { "" } else { ", by wake + 90" }, row.name), nb, c2n == 0);
+            format!("; C2 (the first window): {c2n} of {nb} bands miss: {m}{}", if c2ex.is_empty() { String::new() } else { format!(" [{}]", c2ex.join(" | ")) })
+        } else {
+            String::new()
+        };
         lines.push(format!(
-            "  {} [{kind:?}, {nb} band runs: boarding {}..{} gt after ARM ({first_w} on the first window, {later_w} after a re-sleep), the cooldown margin at boarding {}..{}]: e.g. {}{}: {mark}{}",
+            "  {} [{kind:?}, {nb} band runs: boarding {}..{} gt after ARM ({first_w} on the first window, {later_w} after a re-sleep), the cooldown margin at boarding {}..{}]: e.g. {}{}: {mark}{}{c2}",
             row.name,
             if boards.0 == i64::MAX { "-".into() } else { boards.0.to_string() },
             if boards.1 == i64::MIN { "-".into() } else { boards.1.to_string() },
@@ -1671,21 +1735,26 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
     // pass -> rest x the lie band, as the forced sweep), every tick over the visit 0..300, idle 1 / 2, the entity domain
     // 1 / 3 behind; one thread a row)
     let rows_all = forced_rows();
-    // (per row: runs, the least cooldown margin, failures, and the prints the latch's rulings ask for: RLS's least width,
-    // the least rest-before-PARK margin, the least last-tick-on-the-park-before-PARK's-end margin, the longest visit
-    // (ARM -> boarding), and for the + 9 wake its first-window / re-sleep split and its longest extra time)
-    let results: Vec<(usize, i64, Vec<String>, [i64; 4], (usize, usize, i64))> = std::thread::scope(|s| {
+    // (per row: runs, the least cooldown margin and the run that holds it (G1 on 33e731660 (1): the C1 twin runs on the
+    // sweep's ARGMIN), failures of every bar but the first window, the first-window misses on their own (G1 (2)), and the
+    // prints the latch's rulings ask for: RLS's least width, the least rest-before-PARK margin, the least
+    // last-tick-on-the-park-before-PARK's-end margin, the longest visit (ARM -> boarding), and for the + 9 wake its
+    // first-window / re-sleep split, its longest extra time and its runs that never board (G1 (8)))
+    type OpenRes = (usize, i64, Vec<String>, [i64; 4], (usize, usize, i64, usize), (usize, Vec<String>), (Option<(i64, Row)>, Option<(i64, Row)>, usize, Option<(i64, Row)>, i64, usize));
+    let results: Vec<OpenRes> = std::thread::scope(|s| {
         let hs: Vec<_> = rows_all
             .iter()
             .map(|(row, kind, late)| {
                 s.spawn(move || {
                     let (mut n, mut least, mut bad) = (0usize, i64::MAX, Vec::new());
+                    let (mut c1_at, mut w_at, mut argmin_n): (Option<(i64, Row)>, Option<(i64, Row)>, usize) = (None, None, 0);
+                    let mut bcd_at: Option<(i64, Row)> = None;
+                    // (ironspec 23:55: THE BOARDING COOLDOWN's margin: pickup - (eject + 60) >= 5 on every visit)
+                    let (mut bcd_least, mut bcd_bad) = (i64::MAX, 0usize);
+                    let (mut c2n, mut c2ex) = (0usize, Vec::<String>::new());
                     let mut st = [i64::MAX, i64::MAX, i64::MAX, i64::MIN];
-                    let mut nine = (0usize, 0usize, i64::MIN);
+                    let mut nine = (0usize, 0usize, i64::MIN, 0usize);
                     let is_nine = row.name.contains("a hurt at ARM + 9)");
-                    // (under a world open an early-woken napper may miss its first window and recover through its
-                    // re-sleep instead: both safe, so the open sweep judges BoardsEarly rows as Boards)
-                    // (ironspec 22:06: the first window judged over every world-open tick: no BoardsEarly -> Boards relief)
                     let k = *kind;
                     for rr in band_variants(row) {
                         for &(idle, kj) in &OPENS {
@@ -1694,8 +1763,34 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
                                 r.open = Some((t0, idle, kj));
                                 let o = run(&r, fdef);
                                 n += 1;
+                                if let (Some(ap), Some(mb), Some(_)) = (o.cart_at_p, o.may_board_from, o.boarded_at) {
+                                    bcd_least = bcd_least.min(ap - mb);
+                                    if ap - mb < BOARD_CD_MARGIN {
+                                        bcd_bad += 1;
+                                    }
+                                }
                                 if let Some(m) = o.cooldown_margin {
-                                    least = least.min(m);
+                                    if m < least {
+                                        least = m;
+                                    }
+                                    // (the runs G1's C1 / W controls run on: the least-margin run where removing the park's
+                                    // read raises the margin by exactly one (the read is a term there), and the least-margin
+                                    // run where W + 4 makes a NEW named miss (the W term binds there); only runs within 3
+                                    // of the closed form's margin are tried)
+                                    if m <= COOLDOWN - fedge + 3 {
+                                        if c1_at.as_ref().is_none_or(|(bm, _)| m < *bm) && run(&r, Defects { edge_no_read: true, ..fdef }).cooldown_margin == Some(m + PARK_READ) {
+                                            c1_at = Some((m, r.clone()));
+                                        }
+                                        if w_at.as_ref().is_none_or(|(bm, _)| m < *bm) && kind_bars(&run(&r, Defects { w_delta: fdef.w_delta + 4, ..fdef }), k, *late).iter().any(|b| b.contains("cooldown")) {
+                                            w_at = Some((m, r.clone()));
+                                        }
+                                    }
+                                    if m == COOLDOWN - fedge {
+                                        argmin_n += 1;
+                                        if bcd_at.is_none() {
+                                            bcd_at = o.cart_at_p.zip(o.may_board_from).map(|(ap, mb)| (ap - mb, r.clone()));
+                                        }
+                                    }
                                 }
                                 if let Some(&w0) = o.rls_widths.first() {
                                     st[0] = st[0].min(w0);
@@ -1706,11 +1801,12 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
                                 if let (Some(l), Some(&pe)) = (o.launched, o.park_end.first()) {
                                     st[2] = st[2].min(pe - (l + PARK_LEAVE));
                                 }
+                                if is_nine && o.boarded_at.is_none() {
+                                    nine.3 += 1;
+                                }
                                 if let Some(bt) = o.boarded_at {
                                     if is_nine {
                                         st[3] = st[3].max(bt - r.arm);
-                                    }
-                                    if is_nine {
                                         if o.wakes.first().is_some_and(|&w0| o.lies.iter().any(|&l| l > w0 && l < bt)) {
                                             nine.1 += 1;
                                             if let Some(by) = o.first_window_by {
@@ -1725,10 +1821,16 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
                                 if !b.is_empty() && bad.len() < 2 {
                                     bad.push(format!("{} (rest {} board {} pass -> rest {} lie {:?}) open at {t0} idle {idle} kj {kj}: {}", row.name.chars().take(60).collect::<String>(), r.rest, r.board, r.pass_to_rest, r.lie.first(), b.join("; ")));
                                 }
+                                if let Some(m) = first_window_miss(&o, k) {
+                                    c2n += 1;
+                                    if c2ex.len() < 1 {
+                                        c2ex.push(format!("rest {} board {} pass -> rest {} open at {t0} idle {idle} kj {kj}: {m}", r.rest, r.board, r.pass_to_rest));
+                                    }
+                                }
                             }
                         }
                     }
-                    (n, least, bad, st, nine)
+                    (n, least, bad, st, nine, (c2n, c2ex), (c1_at, w_at, argmin_n, bcd_at, bcd_least, bcd_bad))
                 })
             })
             .collect();
@@ -1736,20 +1838,40 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
     });
     let n: usize = results.iter().map(|r| r.0).sum();
     let least_cool = results.iter().map(|r| r.1).min().unwrap_or(i64::MAX);
+    let c1_row: Option<(i64, Row)> = results.iter().filter_map(|r| r.6 .0.clone()).min_by_key(|(m, _)| *m);
+    let w_row: Option<(i64, Row)> = results.iter().filter_map(|r| r.6 .1.clone()).min_by_key(|(m, _)| *m);
+    let argmin_at: Option<(i64, Row)> = results.iter().find_map(|r| r.6 .3.clone());
+    let argmin_bcd: Option<i64> = argmin_at.as_ref().map(|(x, _)| *x);
+    let bcd_least: i64 = results.iter().map(|r| r.6 .4).min().unwrap_or(i64::MAX);
+    let bcd_bad: usize = results.iter().map(|r| r.6 .5).sum();
+    let wb = vv.bar_n(&format!("ctl-shutter [{form}]: THE BOARDING COOLDOWN's MARGIN over the open sweep (ironspec 23:55: every visit's pickup - (eject + {BOARD_COOLDOWN}) >= {BOARD_CD_MARGIN}; COOL and the release timing are load-bearing for it)"), n, bcd_bad == 0);
+    lines.push(format!("    THE BOARDING COOLDOWN's MARGIN over it (pickup - the cooldown's end, >= {BOARD_CD_MARGIN}): least {bcd_least}, {bcd_bad} runs below; at the cooldown edge's argmin it is {}: {wb}", argmin_bcd.map_or("-".to_string(), |x| x.to_string())));
+    let argmin_n: usize = results.iter().map(|r| r.6 .2).sum();
     let st_min = |i: usize| results.iter().map(|r| r.3[i]).min().unwrap_or(i64::MAX);
     let longest_visit = results.iter().map(|r| r.3[3]).max().unwrap_or(i64::MIN);
-    let nine = results.iter().fold((0usize, 0usize, i64::MIN), |a, r| (a.0 + r.4 .0, a.1 + r.4 .1, a.2.max(r.4 .2)));
+    let nine = results.iter().fold((0usize, 0usize, i64::MIN, 0usize), |a, r| (a.0 + r.4 .0, a.1 + r.4 .1, a.2.max(r.4 .2), a.3 + r.4 .3));
     let bad: Vec<String> = results.iter().flat_map(|r| r.2.iter().cloned()).take(4).collect();
-    let w = vv.bar_n(&format!("ctl-shutter [{form}]: a world open at every tick 0..300 on EVERY forced row across its full band (rest x park -> P x pass -> rest x the lie band), idle 1 / 2, the entity domain 1 / 3 behind: each row's kind bars"), n, bad.is_empty());
+    let w = vv.bar_n(&format!("ctl-shutter [{form}]: a world open at every tick 0..300 on EVERY forced row across its full band (rest x park -> P x pass -> rest x the lie band), idle 1 / 2, the entity domain 1 / 3 behind: every bar of each row's kind but the first window (0 misses required; G1 on 33e731660 (2))"), n, bad.is_empty());
     lines.push(format!("  a world open at every tick 0..300 on every forced row across its full band, idle 1 / 2, k + j 1 / 3, {n} runs (the least cooldown margin at boarding {least_cool}): {w}{}", if bad.is_empty() { String::new() } else { format!(" ({})", bad.join(" | ")) }));
+    // (C2 over the open sweep, per row: each row's first-window misses counted and pinned on their own)
+    for ((row, kind, _), res) in rows_all.iter().zip(results.iter()) {
+        if !matches!(kind, Kind::BoardsEarly | Kind::Boards) {
+            continue;
+        }
+        let (c2n, ex) = &res.5;
+        let m = vv.bar_n(&format!("ctl-shutter [{form}] C2 OVER THE OPEN SWEEP (the first window{}): {}", if row.hurt.is_empty() { "" } else { ", a FORCED wake by wake + 90" }, row.name), res.0, *c2n == 0);
+        lines.push(format!("    C2 over the open sweep, {}: {c2n} of {} runs miss: {m}{}", row.name.chars().take(90).collect::<String>(), res.0, if ex.is_empty() { String::new() } else { format!(" [{}]", ex.join(" | ")) }));
+    }
     // (the latch rulings' prints over that sweep: RLS's least width, the cart at rest before PARK, its last tick on the
     // park before PARK's end; the longest visit against the 1,200-gt HOME bound; the + 9 wake's split)
-    let wv = vv.bar(&format!("ctl-shutter [{form}]: THE HURT + 9 WAKE over the open sweep boards within 1,200 gt of its ARM, on its first window or after its re-sleep (the stamp's HOME bound: no HOME loss, no permanent hold; G1 21:11 (2))"), longest_visit < 1200);
+    let nine_runs = nine.0 + nine.1 + nine.3;
+    let wv = vv.bar_n(&format!("ctl-shutter [{form}]: THE HURT + 9 WAKE over the open sweep: EVERY run boards (a run that never boards fails), within 1,200 gt of its ARM, on its first window or after its re-sleep (the stamp's HOME bound: no HOME loss, no permanent hold; G1 21:11 (2), G1 on 33e731660 (8))"), nine_runs, longest_visit < 1200 && nine.3 == 0);
     lines.push(format!(
-        "    over it: RLS's least width {} gt (the logic model's AND passes a 1-gt overlap; the real AND's output torch turns a gap of 1 or 2 into no RLS at all: the latch-alone bars above); the cart at rest {} gt before PARK's rise at the least (the judged bar: >= 0); its last tick on the park {} gt before PARK's end at the least (the judged bar: >= 2); the + 9 wake's longest visit, ARM -> boarding, {longest_visit} gt (< 1,200): {wv}; THE HURT + 9 WAKE: {} runs board on their first window, {} after the re-sleep, the re-sleep's extra time at most {} gt past the first window's bound",
+        "    over it: RLS's least width {} gt (the logic model's AND passes a 1-gt overlap; the real AND's output torch turns a gap of 1 or 2 into no RLS at all: the latch-alone bars above); the cart at rest {} gt before PARK's rise at the least (the judged bar: >= 0); its last tick on the park {} gt before PARK's end at the least (the judged bar: >= 2); the + 9 wake's longest visit, ARM -> boarding, {longest_visit} gt (< 1,200), runs that never board {}: {wv}; THE HURT + 9 WAKE: {} runs board on their first window, {} after the re-sleep, the re-sleep's extra time at most {} gt past the first window's bound",
         st_min(0),
         st_min(1),
         st_min(2),
+        nine.3,
         nine.0,
         nine.1,
         if nine.2 == i64::MIN { "-".to_string() } else { nine.2.to_string() }
@@ -1761,19 +1883,45 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
     let eq = |cool_edge: i64| COOLDOWN - cool_edge == least_cool;
     let w = vv.bar(&format!("ctl-shutter [{form}]: the closed form is tight: the open sweep's least cooldown margin equals COOLDOWN - the closed form (a bound a run beats is not a bound)"), eq(fedge));
     lines.push(format!("    the sweep's least margin {least_cool} against the closed form's {edge_margin}: {w}"));
-    // (G1's C1 on 2260db896, a twin THROUGH `run`: the park's read removed (the cart moving a tick earlier) on G1's
-    // cooldown edge (46, 19, 16) with the open (80, 2, 3): its margin rises by one, so the tightness bar would fail)
+    // (G1 on 33e731660 (1): the C1 twin on the open sweep's ARGMIN run with the park's READ itself removed: the design's
+    // margin there equals the closed form's, the twin's is one higher, so the tightness bar fails BY NAME on the twin;
+    // G1 (2)'s control: W + 4 at the argmin makes a NEW named miss (the cooldown margin at boarding))
     {
-        let (mut er, _, _) = forced_rows().into_iter().find(|(r, _, _)| r.name.contains("lie-down at ARM + 5, a hurt at + 0")).expect("the cooldown-edge row");
-        er.rest = 46;
-        er.board = 19;
-        er.pass_to_rest = 16;
-        er.open = Some((80, OPEN_IDLE, OPEN_KJ));
-        let d = run(&er, fdef);
-        let x = run(&er, Defects { edge_no_read: true, ..fdef });
-        let bites = d.cooldown_margin.is_some() && x.cooldown_margin == d.cooldown_margin.map(|m| m + PARK_READ);
-        let c = vv.control(&format!("ctl-shutter CONTROL (G1's C1) [{form}]: the park's read removed from `run` (edge_no_read) on G1's cooldown edge: every boarding a tick earlier, the margin one higher"), 1, bites).to_string();
-        lines.push(format!("  CONTROL (the park's read removed, G1's cooldown edge (46, 19, 16), open (80, 2, 3)): the design's margin {:?}, without the read {:?}: {c}", d.cooldown_margin, x.cooldown_margin));
+        let desc = |r: &Row| format!("{}; rest {} board {} pass -> rest {} open {:?}", r.name.chars().take(70).collect::<String>(), r.rest, r.board, r.pass_to_rest, r.open);
+        // (C1: a run AT the closed form's margin where the read is a term: the design's margin = the closed form's, the
+        // twin's one higher, so the tightness bar fails by name on the twin)
+        let (c, l1) = match &c1_row {
+            Some((m1, ar)) => {
+                let d = run(ar, fdef);
+                let x = run(ar, Defects { edge_no_read: true, ..fdef });
+                let bites = d.cooldown_margin == Some(*m1) && x.cooldown_margin == Some(m1 + PARK_READ);
+                (vv.control(&format!("ctl-shutter CONTROL (G1's C1) [{form}]: the park's read removed (edge_no_read) at the least-margin run where the read is a term: the twin's margin one higher (the read is a real term of the latest boarding)"), 1, bites).to_string(), format!("{}: the design's margin {:?}, without the read {:?}", desc(ar), d.cooldown_margin, x.cooldown_margin))
+            }
+            None => (vv.control(&format!("ctl-shutter CONTROL (G1's C1) [{form}]: the park's read removed (edge_no_read) at the least-margin run where the read is a term: the twin's margin one higher (the read is a real term of the latest boarding)"), 1, false).to_string(), "no run within 3 of the closed form's margin where the read is a term".to_string()),
+        };
+        // (G1 (2)'s control: the least-margin run where W + 4 makes a NEW named miss; PRINTED when no run within 3 of the
+        // closed form's margin is W-bound (W + 4 can't move a run W doesn't bind: the W-from-above sweep (W 52) below is
+        // the control that bites))
+        let (c2, l2) = match &w_row {
+            Some((_, ar)) => {
+                let (ak, al) = rows_all.iter().find(|(r, _, _)| r.name == ar.name).map(|(_, k, l)| (*k, *l)).unwrap_or((Kind::Recovers, false));
+                let d = run(ar, fdef);
+                let xw = run(ar, Defects { w_delta: fdef.w_delta + 4, ..fdef });
+                let bw = kind_bars(&xw, ak, al);
+                (vv.control(&format!("ctl-shutter CONTROL (G1 on 33e731660 (2)) [{form}]: the W line + 4 at the least-margin run where W binds: a NEW named miss (the cooldown margin at boarding), the design passing there"), 1, kind_bars(&d, ak, al).is_empty() && bw.iter().any(|b| b.contains("cooldown"))).to_string(), format!("{}: the design's margin {:?}, with W + 4 {:?} [{}]", desc(ar), d.cooldown_margin, xw.cooldown_margin, bw.join("; ")))
+            }
+            None => ("PRINTED (no W-bound run within 3 of the closed form's margin: the W-from-above sweep is the control)".to_string(), "no run within 3 of the closed form's margin where W binds".to_string()),
+        };
+        lines.push(format!("  CONTROLS (G1's C1 / (2)): C1 on {l1}: {c}; W + 4 on {l2}: {c2}"));
+        // (THE FINDING the twins expose: the closed form's margin is MET (the sweep's least equals it), but at none of the
+        // runs that meet it is the read or W a binding term; the argmin run and its read-removed twin are printed)
+        let (am_d, am_x) = argmin_at.as_ref().map_or((String::new(), String::new()), |(_, ar)| (format!("{}: {}", desc(ar), describe(&run(ar, fdef))), describe(&run(ar, Defects { edge_no_read: true, ..fdef }))));
+        lines.push(format!(
+            "  FINDING (G1's C1, the closed form's terms): the sweep's least margin {least_cool} = the closed form's {edge_margin} at {argmin_n} runs; the park's read IS a term there (least margin where it is: {}), but W does NOT bind within 3 of it (least margin where W + 4 makes a miss: {}): at the argmin the latest RLS rises before the W bound and the closed form's W term is met by other terms' slack; the cart reaches P {} gt after the boarding cooldown's end there; the argmin run {am_d}; with the read removed: {am_x}",
+            c1_row.as_ref().map_or("none within 3".to_string(), |(m, _)| m.to_string()),
+            w_row.as_ref().map_or("none within 3".to_string(), |(m, _)| m.to_string()),
+            argmin_bcd.map_or("-".to_string(), |x| x.to_string())
+        ));
     }
     if fi == 1 {
         let f = vg.fails();
@@ -1878,14 +2026,40 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
             .join(", ")
     };
     lines.push(format!("  the D line's margin on the onset-allowance row (stepping onto P 1 gt before lying down from P: its string drops at pulse + 7, the latest drop an onset-passing press can have), the design: {}; with the old SINCE delay put back (the hold provided twice): {}", scan(false), scan(true)));
-    // (the D line's control is PRINTED, not judged: under the modelled AND filter (an RLS needs a 3-gt overlap) no cut of
-    // the D line releases to the sleeper on the onset-allowance row (the scan above): the hold's real margin waits on
-    // tick-exact's rig of RLS's AND; the twin returns as a judged control once the rig pins the filter)
-    {
+    // (G1 on 33e731660 (7): THE rls_filter_off TWIN: the filter (an RLS needs a 3-gt overlap) is MODELLED (tick-exact's AN
+    // rig, assert 5, shows a 2-gt pulse lighting Q); without it the closed form's margin is 11 and the open sweep's least
+    // on the cooldown-edge rows must equal it; and the D-line twin is JUDGED under it: the D line cut by 6 releases to the
+    // sleeper)
+    let filt = {
         let (r, kind, late) = find("stepping onto P and lying down within 1 gt");
-        let x = run(&r, Defects { d_cut: 8, ..Default::default() });
-        lines.push(format!("  PRINTED (the D line cut to nothing, P read at pulse + 4): {} [{}] (judged again once tick-exact's AND rig pins the 3-gt filter)", describe(&x), kind_bars(&x, kind, late).join("; ")));
-    }
+        let off = Defects { rls_filter_off: true, ..Default::default() };
+        let d = run(&r, off);
+        let x = run(&r, Defects { d_cut: 6, ..off });
+        let (db, xb) = (kind_bars(&d, kind, late), kind_bars(&x, kind, late));
+        let ctl_ok = db.is_empty() && xb.iter().any(|b| b.contains("RLS while the napper sleeps"));
+        let ctl_line = format!("  CONTROL (rls_filter_off, the D line cut by 6, on the onset-allowance row): the design {}; the cut: {} [{}]", if db.is_empty() { "passes".to_string() } else { format!("FAILS ({})", db.join("; ")) }, describe(&x), xb.join("; "));
+        let x8 = run(&r, Defects { d_cut: 8, ..Default::default() });
+        lines.push(format!("  PRINTED (the filter modelled: the D line cut to nothing, P read at pulse + 4): {} [{}]", describe(&x8), kind_bars(&x8, kind, late).join("; ")));
+        // (the closed form without the filter: an RLS of 1 gt counts, so the latest RLS rises 2 gt later)
+        let edge_off = COOL_EDGE + (RLS_MIN_W - 1);
+        let (mut least_off, mut n_off) = (i64::MAX, 0usize);
+        for key in ["lie-down at ARM + 4, a hurt at + 0", "lie-down at ARM + 5, a hurt at + 0", "a hurt at ARM + 9)"] {
+            let (row, _, _) = find(key);
+            for rr in band_variants(&row) {
+                for &(idle, kj) in &OPENS {
+                    for t0 in 0..=300 {
+                        let mut rr2 = rr.clone();
+                        rr2.open = Some((t0, idle, kj));
+                        n_off += 1;
+                        if let Some(m) = run(&rr2, off).cooldown_margin {
+                            least_off = least_off.min(m);
+                        }
+                    }
+                }
+            }
+        }
+        (ctl_ok, ctl_line, edge_off, least_off, n_off)
+    };
     lines.push("    (the latest drop, pulse + 7, rests on a modelling rule: a napper lying down in the tick it steps onto P never meets the string: tick-exact's pin, OWED)".into());
     // (W: G1's N1 cooldown edge, lie 5 merged at L + 0, the slowest rest with the shortest pass -> rest (SENSED binds RLS
     // at 68), the slowest ride, a world open of idle 2 with the entity domain 3 behind during the ride)
@@ -1899,6 +2073,13 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
     twin("COOL's resets removed: COOL still set after the next ARM's edge", "a stray press of the park-entry detector after RLS", None, None, Defects { no_cool_reset: true, ..Default::default() }, "next ARM", &mut lines);
     twin("SO's reset removed: SO still set after the next ARM's edge", "a stray press of the park-entry detector after RLS", None, None, Defects { no_so_reset: true, ..Default::default() }, "next ARM", &mut lines);
     twin("SENSED's ARM-edge reset removed: the stray park-entry press pre-sets SENSED at the next visit (G1 17:49 (a))", "a stray press of the park-entry detector after RLS", None, None, Defects { no_sensed_arm_reset: true, ..Default::default() }, "next ARM", &mut lines);
+    {
+        let (ctl_ok, ctl_line, edge_off, least_off, n_off) = filt;
+        let c = v.control("ctl-shutter CONTROL (the D line under rls_filter_off, G1 on 33e731660 (7)): the D line cut by 6 releases to the sleeper (the onset-allowance row)", 1, ctl_ok).to_string();
+        lines.push(format!("{ctl_line}: {c}"));
+        let w = v.bar(&format!("ctl-shutter: THE rls_filter_off TWIN: the closed form without the 3-gt filter (margin COOLDOWN - {edge_off} = {}) equals the open sweep's least margin on the cooldown-edge rows without it (a bound both ways)", COOLDOWN - edge_off), least_off == COOLDOWN - edge_off);
+        lines.push(format!("  THE rls_filter_off TWIN: the closed form's margin {} (>= {COOLDOWN_BAR}: {}), the open sweep's least without the filter {least_off} over {n_off} runs of the cooldown-edge rows: {w}", COOLDOWN - edge_off, if COOLDOWN - edge_off >= COOLDOWN_BAR { "passes" } else { "FAILS" }));
+    }
     // (W from below and BoardsEarly's bar, G1's B5 / C2: the + 9 wake's window is cut at the lie pulse + W + 11, so at
     // the COOL-limited band (SENSED early: rest 33, pass -> rest 26) it boards on its first window only with W >= 47;
     // W 44 sends it through its re-sleep (liveness, not safety); and judged as BoardsEarly at rest 46 / pass -> rest
@@ -1913,15 +2094,8 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
         let x = run(&r, Defects { w_delta: -4, ..Default::default() });
         let c = v.control("ctl-shutter CONTROL: the W line two steps shorter (W 44): the early wake at ARM + 9 at the COOL-limited band (rest 33, pass -> rest 26) misses its first window (W's lower bound: 47 for this row)", 1, first(&d) && !first(&x) && x.boarded_at.is_some()).to_string();
         lines.push(format!("  CONTROL (W 44 on the + 9 wake, rest 33 / pass -> rest 26): the design {}; W 44 {}: {c}", describe(&d), describe(&x)));
-        let (mut r2, _, _) = find("a hurt at ARM + 9)");
-        r2.rest = 46;
-        r2.board = 13;
-        r2.pass_to_rest = 16;
-        r2.lie = vec![4];
-        let o2 = run(&r2, Defects::default());
-        let b2 = kind_bars(&o2, Kind::BoardsEarly, false);
-        let c = v.control("ctl-shutter CONTROL (BoardsEarly's negative, G1's C2): the + 9 wake judged as BoardsEarly at rest 46 / pass -> rest 16 (SENSED past the cut window): the first-window bar fails", 1, b2.iter().any(|b| b.contains("first window"))).to_string();
-        lines.push(format!("  CONTROL (the + 9 wake judged BoardsEarly at rest 46 / pass -> rest 16): {} [{}]: {c}", describe(&o2), b2.join("; ")));
+        // (G1 on 33e731660 (4): the design-run "control" (the + 9 wake judged BoardsEarly at rest 46 / pass -> rest 16)
+        // counted the design's own C2 miss as a control biting: DELETED; the late-launch negative below is the real one)
     }
     // (W FROM ABOVE, a sweep (the twin's single row fails C2 at the late-SENSED band): W 52 over the cooldown-edge rows'
     // full band and every open tick 40..120 must break the cooldown bar somewhere: the closed form's W bound is real)
@@ -1971,24 +2145,34 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
     let (w20, p20, _, _) = latch_micro(20, None, d0, None);
     let win = |p: Option<(i64, i64)>| p.map_or("never".to_string(), |(a, b)| format!("[{a}, {b})"));
     let filtered = w1 == 0 && w2 == 0 && p1.is_none() && p2.is_none();
-    let w = v.bar("ctl-shutter: THE STRUCTURAL RLS >= 3: every input reaches RLS's OR block through its input repeater (a diode tick, before the torches), so RLS's output torch, reading its block at its own scheduled tick, turns a 1- or 2-gt gap into NO RLS at all (no B2, no PARK, nothing consumed) and a gap of 3 into an RLS of 3", filtered && w3 == 3);
+    let w = v.bar("ctl-shutter (MODELLED: LatchSim, pending the AND rig on real cells): THE STRUCTURAL RLS >= 3: every input reaches RLS's OR block through its input repeater (a diode tick, before the torches), so RLS's output torch, reading its block at its own scheduled tick, turns a 1- or 2-gt gap into NO RLS at all (no B2, no PARK, nothing consumed) and a gap of 3 into an RLS of 3", filtered && w3 == 3);
     lines.push(format!("  the latch alone: an OR-block gap of 1 gt: RLS {w1} gt, PARK {}; of 2: RLS {w2} gt, PARK {}; of 3: RLS {w3} gt, PARK {}, the tap {}, Q-bar checks reading B2 unpowered {:?}: {w}", win(p1), win(p2), win(p3), win(t3), dp3));
     let fixed = |p: Option<(i64, i64)>, r: i64| p == Some((r + PARK_TORCH, r + PARK_TORCH + PARK_W));
-    let w = v.bar(&format!("ctl-shutter: the latch's Q (P_HOLD) is the fixed window [RLS + 4, RLS + 4 + {PARK_W}) for a 3-gt RLS and a 20-gt RLS alike (the reset dominates at the base)"), fixed(p3, 12) && fixed(p20, 12));
+    let w = v.bar(&format!("ctl-shutter (MODELLED: LatchSim; form (b)'s game row agrees: Q [+3, +23) from the command for every width, tick-exact 23:47): the latch's Q (P_HOLD) is the fixed window [RLS + 4, RLS + 4 + {PARK_W}) for a 3-gt RLS and a 20-gt RLS alike (the reset dominates at the base)"), fixed(p3, 12) && fixed(p20, 12));
     lines.push(format!("    Q for a 3-gt RLS rising at 12: {}; for a 20-gt RLS: {} (design [{}, {})): {w}", win(p3), win(p20), 12 + PARK_TORCH, 12 + PARK_TORCH + PARK_W));
     let (f1, fp1, _, _) = latch_micro(0, Some(1), d0, None);
     let (f2, fp2, _, _) = latch_micro(0, Some(2), d0, None);
     let (_, fpn, _, _) = latch_micro(0, Some(2), LatchOpts { branch: false, ..d0 }, None);
-    let w = v.bar(&format!("ctl-shutter: the branch repeater covers B2 without a gap for an RLS line forced to 1 or 2 gt (a NORMAL-priority path as a stress): Q sets, the window [RLS + 4, RLS + 4 + {PARK_W})"), fixed(fp1, 12) && fixed(fp2, 12));
+    let w = v.bar(&format!("ctl-shutter (MODELLED: LatchSim; form (b)'s game row: the branch keeps the drive gapless): the branch repeater covers B2 without a gap for an RLS line forced to 1 or 2 gt (a NORMAL-priority path as a stress): Q sets, the window [RLS + 4, RLS + 4 + {PARK_W})"), fixed(fp1, 12) && fixed(fp2, 12));
     lines.push(format!("    an RLS line forced to {f1} gt: Q {}; to {f2} gt: Q {}: {w}", win(fp1), win(fp2)));
     let c = v.control("ctl-shutter CONTROL (the branch removed): an RLS line forced to 2 gt races Q-bar's check at RLS + 2 and the latch never sets (harmless under the tap-keyed consumers: nothing consumed, RLS retries)", 1, fpn.is_none()).to_string();
     lines.push(format!("  CONTROL (no branch, a forced 2-gt RLS line): Q {}: {c}", win(fpn)));
     let (_, pu_set, _, _) = latch_micro(0, None, LatchOpts { power_up_set: true, ..d0 }, Some(10));
     let (_, pu_noarm, _, _) = latch_micro(0, None, LatchOpts { power_up_set: true, arm_reset: false, ..d0 }, Some(10));
-    let w = v.bar("ctl-shutter: POWER-UP: a latch that comes up SET is cleared by ARM's edge through its diode (Q dark within 10 gt of the edge)", pu_set.is_some_and(|(_, b)| b <= 20));
+    let w = v.bar("ctl-shutter (MODELLED: LatchSim; tick-exact 23:47: ARM must hold >= 3 gt to clear Q): POWER-UP: a latch that comes up SET is cleared by ARM's edge through its diode (Q dark within 10 gt of the edge)", pu_set.is_some_and(|(_, b)| b <= 20));
     lines.push(format!("    power-up SET, ARM's edge at 10: Q lit until {}: {w}", pu_set.map_or("-".into(), |(_, b)| b.to_string())));
     let c = v.control("ctl-shutter CONTROL (the ARM-edge reset removed): a latch that came up SET stays SET (the park powered at rest)", 1, pu_noarm.is_some_and(|(_, b)| b == i64::MAX)).to_string();
     lines.push(format!("  CONTROL (power-up SET without the ARM-edge reset): Q lit until {}: {c}", pu_noarm.map_or("-".into(), |(_, b)| if b == i64::MAX { "never cleared".into() } else { b.to_string() })));
+    // (G1 on 33e731660 (6): THE LATCH FINDING, stated: the as-listed latch (58f770cc 22:07) does NOT hold in 26.3 (tick-
+    // exact's rig a/2239880473237753: its descending dust can't step down the glass staircase); FORM (b), the one-level
+    // two-torch NOR latch (ironspec 22:55 (2), day-1's list a/1902620467569082), LATCHES in 26.3 (tick-exact 23:47,
+    // a/1841767613704681: Q exactly [+3, +23) from the command for every RLS width 1..30; the drive [+1, +25) for widths
+    // <= 20; ARM clears Q only when held >= 3 gt); the LatchSim bars above are MODELLED on form (b); PARK's 24 gt, the tap
+    // consumers and the consistency / leave-park bars rest on them; the latch cites when its game row is on the cells AS
+    // LAID: an OWED miss until then)
+    lines.push("  THE LATCH FINDING: the as-listed latch does NOT hold in 26.3 (tick-exact a/2239880473237753); FORM (b), the one-level NOR latch, latches (tick-exact 23:47, a/1841767613704681: Q [+3, +23) for every RLS width 1..30, the drive [+1, +25) for widths <= 20, ARM clears only when held >= 3 gt); the LatchSim bars above are MODELLED on form (b)".into());
+    let w = v.bar("ctl-shutter OWED: the P_HOLD latch's game row on the cells AS LAID (form (b) transplanted one level down into the re-laid stop, tick-exact's commit with its plants, ARM's 3-gt stretcher asserted): the LatchSim bars cite only then", false);
+    lines.push(format!("  OWED (form (b)'s game row on the cells as laid): {w}"));
     // (THE VISIT WITH THE LATCH'S PLANTS, on the plain drive of record unless named; each row judged by its kind bars,
     // which carry the consistency bar both ways)
     let plant = |name: &str, key: &str, edit: &dyn Fn(&mut Row), def: Defects, kind: Kind, lines: &mut Vec<String>, v: &mut Verdict| {
@@ -2064,15 +2248,27 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
         let c = v.control("ctl-shutter CONTROL (g with B2 blocked, the consuming resets on RLS_S, ironspec 21:26's withdrawn form): the visit consumed with no PARK", 1, invariants(&xs).iter().any(|b| b.contains("without a PARK"))).to_string();
         lines.push(format!("  CONTROL (resets on RLS_S): {} [{}]: {c}", describe(&xs), invariants(&xs).join("; ")));
         let p = run(&r, Defects { b2_blocked: true, ..Default::default() });
-        lines.push(format!("  RESIDUAL, PRINTED (the plain drive of record with P_HOLD's set blocked): {}; consumed {}; what the bars say: [{}]", describe(&p), fmt_ticks(&p.consumed), invariants(&p).join("; ")));
+        lines.push(format!("  RESIDUAL, PRINTED (the plain drive of record with B2's set inputs blocked: no B2, so no PARK at all; what the run shows, not a claim): {}; consumed {}; what the bars say: [{}]", describe(&p), fmt_ticks(&p.consumed), invariants(&p).join("; ")));
+    }
+    // (G1 on 33e731660 (9)'s control: the reset chain cut to PARK_W 8 on the plain drive, under a 3-gt RLS (the structural
+    // minimum, planted): PARK ends before the resting cart leaves the park, and the leave-park bar fails by name)
+    {
+        let (mut r, kind, late) = find("the self-healing homeless napper");
+        r.rls_force_w = Some(3);
+        let d = run(&r, Defects::default());
+        let x = run(&r, Defects { park_w_override: 8, ..Default::default() });
+        let (db, xb) = (kind_bars(&d, kind, late), kind_bars(&x, kind, late));
+        let c = v.control("ctl-shutter CONTROL (G1 on 33e731660 (9)): PARK_W 8 on the plain drive under a 3-gt RLS: the cart can't leave the park inside PARK (the leave-park bar fails by name; the design passes)", 1, db.is_empty() && xb.iter().any(|b| b.contains("PARK's end") || b.contains("never launched"))).to_string();
+        lines.push(format!("  CONTROL (PARK_W 8, RLS planted 3 gt): the design {}; PARK_W 8: {} [{}]: {c}", if db.is_empty() { "passes".to_string() } else { format!("FAILS ({})", db.join("; ")) }, describe(&x), xb.join("; ")));
     }
     // (each kind's negative, G1 on a2186649e B6: the row's script with its defining event removed must fail its kind)
-    // (G1's B6: each negative must fail for its NAMED reason, not any)
+    // (G1's B6: each negative must fail for its NAMED reason, not any; every bar of the kind INCLUDING the first window)
     let mut neg = |name: &str, key: &str, edit: &dyn Fn(&mut Row), need: &str, lines: &mut Vec<String>| {
         let (mut r, kind, late) = find(key);
         edit(&mut r);
         let o = run(&r, Defects::default());
-        let b = kind_bars(&o, kind, late);
+        let mut b = kind_bars(&o, kind, late);
+        b.extend(first_window_miss(&o, kind));
         let c = v.control(&format!("ctl-shutter CONTROL (the kind's negative, failing on \"{need}\"): {name}"), 1, b.iter().any(|x| x.contains(need))).to_string();
         lines.push(format!("  CONTROL (the kind's negative: {name}; failing on \"{need}\"): {} [{}]: {c}", describe(&o), b.join("; ")));
     };
@@ -2087,9 +2283,12 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
         r.board = 13;
         r.pass_to_rest = 26;
         let o = run(&r, Defects { late_launch: 30, ..Default::default() });
-        let b = kind_bars(&o, kind, late);
-        let c = v.control("ctl-shutter CONTROL (the kind's negative, failing on \"first window\"): BoardsEarly: the + 9 row's launch delayed 30 gt boards past its first window's bound", 1, b.iter().any(|x| x.contains("first window"))).to_string();
-        lines.push(format!("  CONTROL (BoardsEarly's negative: the launch delayed 30 gt): {} [{}]: {c}", describe(&o), b.join("; ")));
+        let mut b = kind_bars(&o, kind, late);
+        b.extend(first_window_miss(&o, kind));
+        let d = run(&r, Defects::default());
+        let d_ok = kind_bars(&d, kind, late).is_empty() && first_window_miss(&d, kind).is_none();
+        let c = v.control("ctl-shutter CONTROL (the kind's negative, failing on \"first window\"): BoardsEarly: the + 9 row's launch delayed 30 gt boards past its first window's bound (the design passes at this point)", 1, d_ok && b.iter().any(|x| x.contains("first window"))).to_string();
+        lines.push(format!("  CONTROL (BoardsEarly's negative: the launch delayed 30 gt; the design at this point {}): {} [{}]: {c}", if d_ok { "passes" } else { "FAILS" }, describe(&o), b.join("; ")));
     }
     // (G1's N5 control: a planted box pressing P while the window is open (on the late lie-down's sleeper), with P
     // removed from OPEN's reset: the press never closes the window in time)
@@ -2140,17 +2339,24 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
     let px = run(&pr, Defects { old_drive: true, no_park_stretch: true, ..Default::default() });
     let c = v.control("ctl-shutter CONTROL: PARK without its pulse extender: the early wake's 3-gt RLS, a world open holding the entities 3 gt behind: the cart misses the whole PARK pulse and stays on the park (a permanent hold); with the extender it boards", 1, pd.departed.map(|d| d.1).unwrap_or(false) && px.departed.is_none()).to_string();
     lines.push(format!("  CONTROL (PARK's pulse extender, the early wake at ARM + 9 with a world open at 67, idle 1, k + j 3): the design {}; without the extender {}: {c}", describe(&pd), describe(&px)));
-    // (SINCE's old delay put back, PRINTED: ironspec 18:12 (d) removed it when no row changed; with C2 judged and the onset
-    // window [-1, +3], the rows it changes are listed with the direction, for ironspec)
+    // (SINCE's old delay put back, JUDGED (G1 on 33e731660 (3)): ironspec 18:12 (d) removed it when no row changed; with C2
+    // judged and the onset window [-1, +3] it changes rows: a judged miss naming each changed row and its direction, every
+    // bar of the row's kind INCLUDING the first window)
+    let all_bars = |o: &Out, kind: Kind, late: bool| {
+        let mut b = kind_bars(o, kind, late);
+        b.extend(first_window_miss(o, kind));
+        b
+    };
     let mut changed = Vec::new();
     for (row, kind, late) in forced_rows() {
-        let a = kind_bars(&run(&row, Defects::default()), kind, late).is_empty();
-        let b = kind_bars(&run(&row, Defects { since_delay_back: true, ..Default::default() }), kind, late).is_empty();
+        let a = all_bars(&run(&row, Defects::default()), kind, late).is_empty();
+        let b = all_bars(&run(&row, Defects { since_delay_back: true, ..Default::default() }), kind, late).is_empty();
         if a != b {
             changed.push(format!("{} ({})", row.name.chars().take(60).collect::<String>(), if b { "passes WITH the old delay" } else { "fails with the old delay" }));
         }
     }
-    lines.push(format!("  SINCE's old delay put back, PRINTED: {}", if changed.is_empty() { "no forced row's verdict changes".to_string() } else { format!("CHANGED on {}", changed.join(" | ")) }));
+    let w = v.bar("ctl-shutter: SINCE's old delay put back (4 gt more on SINCE's set path) changes no forced row's verdict (G1 on 33e731660 (3): judged; the rows it changes named)", changed.is_empty());
+    lines.push(format!("  SINCE's old delay put back: {}: {w}", if changed.is_empty() { "no forced row's verdict changes".to_string() } else { format!("CHANGED on {}", changed.join(" | ")) }));
     lines.push("  OWED (not in this logic bench): the golem cost and the rest of the farm during a halt (the counter / coverage halt row); the real napper's per-tick cell and the hold delta's (-2,0,5) entry (58f770cc's stop bench on this wiring); tick-exact's press / pulse row, from which the onset's allowance is set".into());
     lines
 }
@@ -2187,11 +2393,11 @@ mod tests {
 
     #[test]
     fn the_bench_prints() {
-        // (G1 on 2260db896 / G1 22:21 / ironspec 22:22 (3): the test asserts the bench's EXACT verdict: on today's
-        // superseded park geometry the C2 bar (first-window boarding) fails for exactly these rows, at the COOL- and
-        // SENSED-limited bands (SENSED's fixed d = 28, the window cut at the lie-down pulse + W + 9); every other bar
-        // passes and every control bites; the CLI exits non-zero on it; when the re-laid stop's band lands, this pin
-        // changes to "no misses" as a visible diff)
+        // (G1 on 2260db896 / G1 22:21 / ironspec 22:22 (3), G1 on 33e731660: the test asserts the bench's EXACT verdict:
+        // on today's superseded park geometry the C2 bar (first-window boarding) fails for exactly these rows, at the
+        // COOL- and SENSED-limited bands, over the band and over the open sweep; every other bar of every row passes;
+        // every control bites; the CLI exits non-zero on it; when the re-laid stop's band lands, this pin changes as a
+        // visible diff)
         let mut v = Verdict::new("ctl-shutter-test");
         for l in bench(&mut v) {
             println!("{l}");
@@ -2209,12 +2415,23 @@ mod tests {
             "the merged path from the bed (lie-down at ARM + 6, a hurt at + 2)",
             "the merged path from the bed (lie-down at ARM + 7, a hurt at + 3)",
         ];
-        let mut expected: Vec<String> = rows.iter().map(|r| format!("forced row (BoardsEarly) across the bands: {r}")).collect();
-        expected.push("a world open at every tick 0..300 on EVERY forced row across its full band".to_string());
-        assert_eq!(fails.len(), expected.len(), "ctl-shutter-bench: the pinned verdict changed ({} misses, {} pinned): {:?}", fails.len(), expected.len(), fails);
-        for e in &expected {
-            assert_eq!(fails.iter().filter(|f| f.contains(e.as_str()) && f.contains("the plain drive of record")).count(), 1, "ctl-shutter-bench: the pinned miss \"{e}\" is not exactly once among {:?}", fails);
+        // (G1 on 33e731660 (2): C2 pinned per row, over the band and over the open sweep, every other bar at 0 misses;
+        // (3) the old-delay bar judged (it passes now: SINCE's sample-gated reset made both delays equal on every row);
+        // (6) the latch's OWED game row; (7) the rls_filter_off twin's FINDING: the closed form without the filter (11) is
+        // one below the sweep's least without it (12): conservative by one)
+        let mut expected: Vec<(String, bool)> = Vec::new();
+        for r in rows {
+            expected.push((format!("C2, THE FIRST WINDOW (FORCED wake, by wake + 90): {r}"), true));
+            expected.push((format!("C2 OVER THE OPEN SWEEP (the first window, a FORCED wake by wake + 90): {r}"), true));
         }
+        expected.push(("THE rls_filter_off TWIN".to_string(), false));
+        expected.push(("ctl-shutter OWED: the P_HOLD latch's game row on the cells AS LAID".to_string(), false));
+        assert_eq!(fails.len(), expected.len(), "ctl-shutter-bench: the pinned verdict changed ({} misses, {} pinned): {:?}", fails.len(), expected.len(), fails);
+        for (e, per_form) in &expected {
+            assert_eq!(fails.iter().filter(|f| f.contains(e.as_str()) && (!per_form || f.contains("the plain drive of record"))).count(), 1, "ctl-shutter-bench: the pinned miss \"{e}\" is not exactly once among {:?}", fails);
+        }
+        // (G1 on 60ada7ea8 B1: the verdict fails the run: no flag turns it into exit 0)
+        assert!(v.finish(false).is_err(), "ctl-shutter-bench: the pinned verdict must fail the run");
     }
 
     #[test]
