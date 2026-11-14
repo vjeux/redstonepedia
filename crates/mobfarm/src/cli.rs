@@ -16128,7 +16128,15 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 let v: Vec<i32> = s.split(',').map(|x| x.trim().parse::<i32>()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("--fix-search {s}: {e}"))?;
                 anyhow::ensure!(v.len() == 3, "--fix-search x,y,z");
                 let at = redsim::pos::BlockPos::new(v[0], v[1], v[2]);
-                let fixes = crate::fleecheck::clearing_fixes(&spec, bed, &panic_boxes, &claims, at, &fix_block).map_err(|e| anyhow::anyhow!(e))?;
+                let mut fexcl = Vec::new();
+                for e in &scarer_exclude {
+                    let v: Vec<i32> = e.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(v.len() == 6, "--scarer-exclude x0,y0,z0,x1,y1,z1");
+                    fexcl.push(([v[0].min(v[3]), v[1].min(v[4]), v[2].min(v[5])], [v[0].max(v[3]), v[1].max(v[4]), v[2].max(v[5])]));
+                }
+                // (part 55: the --scarer-exclude boxes keep candidate floors out, as --clear-rate's; the target place
+                // classed alone per candidate, the full re-check only for a floor that lets an armed arrival clear)
+                let fixes = crate::fleecheck::clearing_fixes_in(&spec, bed, &panic_boxes, &claims, at, &fix_block, &fexcl).map_err(|e| anyhow::anyhow!(e))?;
                 let short = fix_block.trim_start_matches("minecraft:").to_string();
                 println!(
                     "clearing cells for {},{},{} (a {short} floor within 2 sideways and 2 up or down; the class it gives): {}",
