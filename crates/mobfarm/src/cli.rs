@@ -16038,26 +16038,27 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
             // (ironspec Nov 12 20:05 (2): THE T STATIC on every switched T; Nov 14 12:22p / 12:25p: the design's
-            // `always-on:` entries are its declared CONSTANT sources, each `x,y,z=REASON`, a malformed one refused)
+            // `always-on:` entries are its declared CONSTANT sources; G1 14:13 (3), ironspec 14:19c (2): read by the ONE
+            // reader `declkeys::always_on_entries` (a malformed entry refused by name, as settle and push-scan refuse it),
+            // each judged inside the T static by the one validator `fleecheck::always_on_valid`)
             let drivers: Vec<redsim::pos::BlockPos> = declared.iter().filter(|(_, k, _)| *k == "switch" || *k == "inert").map(|(p, _, _)| *p).collect();
-            let mut always_on: Vec<redsim::pos::BlockPos> = Vec::new();
-            for e in crate::pushscan::header_entries(&text, "always-on:") {
-                let (c, reason) = e.split_once('=').ok_or_else(|| anyhow::anyhow!("always-on {e}: x,y,z=REASON"))?;
-                let v: Vec<i32> = c.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>().map_err(|err| anyhow::anyhow!("always-on {e}: {err}"))?;
-                anyhow::ensure!(v.len() == 3 && !reason.trim().is_empty(), "always-on {e}: x,y,z=REASON");
-                always_on.push(redsim::pos::BlockPos::new(v[0], v[1], v[2]));
-            }
+            let always_on: Vec<redsim::pos::BlockPos> = crate::declkeys::always_on_entries(&text, &[])
+                .map_err(|e| anyhow::anyhow!("{}: {e}", design.display()))?
+                .iter()
+                .map(|a| redsim::pos::BlockPos::new(a.cell[0], a.cell[1], a.cell[2]))
+                .collect();
             let reaching: Vec<(redsim::pos::BlockPos, Vec<redsim::pos::BlockPos>)> = reach.iter().map(|(t, s, _)| (*t, s.clone())).collect();
             let (tsl, tfail) = crate::queue::t_static(&spec, &drivers, &always_on, &reaching).map_err(|e| anyhow::anyhow!(e))?;
+            let n_ts = tsl.iter().filter(|l| !l.starts_with("  REFUSED")).count();
             println!(
-                "the T static (ironspec Nov 12 20:05 (2): every switched T, one with a power path into it: (a) exactly 3 potential connections, (b) every power path from a declared driver (`switch:`) or a declared constant source (`always-on:`), (c) every source whose update reaches it finds it settled for its signal; Nov 14 12:20-12:25: a diode or observer only from its front): {} switched Ts, {}",
-                tsl.len(),
+                "the T static (ironspec Nov 12 20:05 (2): every switched T, one with a power path into it: (a) exactly 3 potential connections, (b) every power path from a declared driver (`switch:`) or a declared constant source (`always-on:`, each a redstone block or a lit torch on a block neither a conductor nor a signal source, else REFUSED by name and counted: G1 Nov 14 14:13 (3)), (c) every source whose update reaches it finds it settled for its signal; Nov 14 12:20-12:25: a diode or observer only from its front): {} switched Ts, {}",
+                n_ts,
                 if tfail == 0 { "PASS".to_string() } else { format!("FAIL at {tfail}") }
             );
             for l in &tsl {
                 println!("{l}");
             }
-            let (tv, tf) = scope.verdict("T-static", tsl.len(), "switched Ts", tfail);
+            let (tv, tf) = scope.verdict("T-static", n_ts, "switched Ts", tfail);
             println!("T-static verdict: {tv}");
             let (unused, unused_fail) = scope.unused();
             for l in &unused {

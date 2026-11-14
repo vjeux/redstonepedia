@@ -2143,7 +2143,10 @@ pub fn junction_gate(spec: &FarmSpec, design_text: &str) -> (String, bool) {
 /// state), checked for (a) exactly 3 potential connections (RailBlock.updateState re-shapes only at
 /// 3; any rail in a side's column at y - 1..y + 1 counts), (b) power reach: every path comes from a
 /// declared driver (`drivers`, the design's `switch:` sources) or a declared constant source (`always_on`, the
-/// design's `always-on:` entries, ironspec Nov 14 12:25p: a T with one is judged at its powered shape), (c) update
+/// design's `always-on:` entries, ironspec Nov 14 12:25p: a T with one is judged at its powered shape; G1 14:13 (3)[2],
+/// ironspec 14:19c (2): each entry must be a source that can't toggle, `fleecheck::always_on_valid` (a redstone block,
+/// or a lit torch on a block neither a conductor nor a signal source), the one validator settle and push-scan call; a
+/// refused entry is a `REFUSED` line counted as a failure, and gives no constant path), (c) update
 /// reach: every source
 /// whose update reaches it (`reaching`, push-scan's model) finds it in the shape the game settles
 /// for its signal (stored = settled), so each update leaves it as it is. Returns the lines and the
@@ -2160,6 +2163,19 @@ pub fn t_static(spec: &FarmSpec, drivers: &[BlockPos], always_on: &[BlockPos], r
     let mut cells: Vec<&BlockPos> = spec.blocks.iter().filter(|(_, b)| matches!(b, Block::PlainRail { .. })).map(|(p, _)| p).collect();
     cells.sort_by_key(|p| (p.y, p.z, p.x));
     let (mut lines, mut fails) = (Vec::new(), 0usize);
+    // (G1 Nov 14 14:13 (3)[2], ironspec 14:19c (2)) a declared constant source is one that can't toggle: each
+    // `always-on:` entry through 9fc3155f's `fleecheck::always_on_valid`; a refused one fails by name and holds nothing
+    let mut valid_on: Vec<BlockPos> = Vec::new();
+    for c in always_on {
+        match crate::fleecheck::always_on_valid(&w, *c) {
+            Ok(()) => valid_on.push(*c),
+            Err(e) => {
+                lines.push(format!("  REFUSED {e} (G1 Nov 14 14:13 (3)[2]: no constant path from it)"));
+                fails += 1;
+            }
+        }
+    }
+    let always_on: &[BlockPos] = &valid_on;
     for p in cells {
         let Some(j) = redsim::rails::junction_at(&w, *p) else { continue };
         // (b)'s paths: the source of each, and how it reaches the T. (G1 / ironspec Nov 14 12:20-12:24, the drive-lines
@@ -15253,6 +15269,11 @@ mod t_static_faces_tests {
 
     /// The same T with its stored shape and its declarations given: `drivers` (`switch:`) and `always_on`.
     fn static_of(source: &str, shape: &str, drivers: &[BlockPos], always_on: &[BlockPos]) -> Vec<String> {
+        static_full(source, shape, drivers, always_on, "minecraft:glass")
+    }
+
+    /// The same, with the joins' torch standing on `support` (glass in the station's joins).
+    fn static_full(source: &str, shape: &str, drivers: &[BlockPos], always_on: &[BlockPos], support: &str) -> Vec<String> {
         let b = BlockPos::new;
         let t = format!("minecraft:rail[shape={shape},waterlogged=false]");
         let cells: Vec<(BlockPos, &str)> = vec![
@@ -15264,7 +15285,7 @@ mod t_static_faces_tests {
             (b(1, 1, 0), "minecraft:rail[shape=east_west,waterlogged=false]"),
             (b(0, 0, -1), "minecraft:stone"),
             (b(0, 1, -1), "minecraft:rail[shape=north_south,waterlogged=false]"),
-            (b(0, -2, 0), "minecraft:glass"),
+            (b(0, -2, 0), support),
             (b(0, -1, 0), "minecraft:redstone_torch[lit=true]"),
             (b(0, -1, 1), "minecraft:stone"),
             (b(0, 0, 1), source),
@@ -15316,5 +15337,28 @@ mod t_static_faces_tests {
         assert!(bare.starts_with("  FAIL T 0,1,0:") && bare.contains("(FAIL: 1 not a declared driver"), "{bare}");
         let flat = t(static_of(side, "north_east", &[], &[b(0, -1, 0)]));
         assert!(flat.starts_with("  FAIL T 0,1,0:") && flat.contains("stored NorthEast, settled NorthWest") && flat.contains("(FAIL: an update re-settles it)"), "{flat}");
+    }
+
+    /// (G1 Nov 14 14:13 (3)[2], ironspec 14:19c (2): 9fc3155f's `fleecheck::always_on_valid`, the one validator) An
+    /// `always-on:` entry stands only for a source that can't toggle. The joins' torch on GLASS passes (above); the
+    /// PLANTED TWIN, the same torch on STONE (a conductor: power into it would turn the torch off), is REFUSED by name,
+    /// counted, and gives the T no constant path, so the T fails as undeclared; a redstone block declared always-on is
+    /// accepted (no refusal; the T passes on its declared torch); a repeater declared always-on is refused by name.
+    #[test]
+    fn an_always_on_entry_is_refused_unless_its_source_cannot_toggle() {
+        let b = BlockPos::new;
+        let side = "minecraft:repeater[delay=1,facing=west,locked=false,powered=false]";
+        let t = |l: &[String]| l.iter().find(|x| x.contains(" T 0,1,0:")).cloned().unwrap_or_default();
+        let refused = |l: &[String], at: &str| l.iter().find(|x| x.starts_with(&format!("  REFUSED always-on {at}:"))).cloned().unwrap_or_default();
+        let stone = static_full(side, "north_west", &[], &[b(0, -1, 0)], "minecraft:stone");
+        assert!(refused(&stone, "0,-1,0").contains("redstone conductor") && refused(&stone, "0,-1,0").contains("no constant path"), "{stone:?}");
+        assert!(t(&stone).starts_with("  FAIL T 0,1,0:") && t(&stone).contains("(FAIL: 1 not a declared driver"), "{stone:?}");
+        let glass = static_full(side, "north_west", &[], &[b(0, -1, 0)], "minecraft:glass");
+        assert!(!glass.iter().any(|x| x.contains("REFUSED")) && t(&glass).starts_with("  PASS T 0,1,0:"), "{glass:?}");
+        let block = static_full("minecraft:redstone_block", "north_west", &[b(0, -1, 0)], &[b(0, 0, 1)], "minecraft:glass");
+        assert!(!block.iter().any(|x| x.contains("REFUSED")) && t(&block).starts_with("  PASS T 0,1,0:"), "{block:?}");
+        let rep = static_full("minecraft:repeater[delay=1,facing=south,locked=false,powered=false]", "north_west", &[b(0, -1, 0)], &[b(0, 0, 1)], "minecraft:glass");
+        assert!(refused(&rep, "0,0,1").contains("a redstone block or a lit redstone torch"), "{rep:?}");
+        assert!(t(&rep).starts_with("  FAIL T 0,1,0:"), "a refused always-on gives no constant path: {rep:?}");
     }
 }
