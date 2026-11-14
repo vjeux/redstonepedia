@@ -33,10 +33,11 @@ pub const COMMENT_KEYS: &[&str] = &[
     "allow-powered",
     // (G1 Nov 14 07:59b, part 60) a source cell's meant update consumers, read by `mobfarm update-reach`
     "update-consumers",
-    // (58f770cc's bed stop: the declared rail shapes, judged every tick by bedtier-bench (G1's Q13))
-    "integrity",
     // (58f770cc's bed stop: a contact decided by the entry speed, judged per speed (G1's B3))
     "contact-speeds",
+    // (58f770cc's bed stop: the exact stand-up feet, checked by bedtier-bench and read by vcompose's
+    // flee static (vcompose 03:19))
+    "stand-up",
 ];
 
 /// Keys read from a comment line or a header line alike (the push / water-spawn readers strip an optional
