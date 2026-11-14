@@ -31,7 +31,7 @@ pub const COMMENT_KEYS: &[&str] = &[
 
 /// Keys read from a comment line or a header line alike (the push / water-spawn readers strip an optional
 /// `#`; f1q2-run's `a6-pickup:` the same).
-pub const EITHER_KEYS: &[&str] = &["push-pair", "switch", "switches", "update-only", "inert", "water-spawn", "a6-pickup"];
+pub const EITHER_KEYS: &[&str] = &["push-pair", "switch", "switches", "update-only", "inert", "water-spawn", "a6-pickup", "integrity"];
 
 /// Keys read only from a header line, `key: …` (`column::header_cells`, `header_cell_states`).
 pub const META_KEYS: &[&str] = &["riderless", "emulated", "waker-places", "placement-order-ts", "unreachable", "update-only-ts"];

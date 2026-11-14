@@ -169,6 +169,8 @@ pub struct Opts {
     pub delta7: i64,
     /// (G1 15:37) ticks at which every cart's position is printed.
     pub positions_at: Vec<i64>,
+    /// (G1 16:18 (2)) a fold file and its move whose `# integrity:` line is judged every tick.
+    pub integrity_from: Option<(std::path::PathBuf, [i32; 3])>,
     /// (G1 14:11's control) a pick moving nap_lane inside each napper's window.
     pub nap_lane_control: bool,
     /// (G1 14:21's control) the old defect restored: each K write's cell from nap_lane at fire time.
@@ -1205,6 +1207,57 @@ fn set(w: &mut redsim::world::World, p: [i32; 3], state: &str, flags: u32) -> Re
 thread_local! {
     /// (G1 16:18 (1)) every commanded lever write's attached-block update, counted for the gate print
     static LEVER_FULL_UPDATES: std::cell::RefCell<u64> = const { std::cell::RefCell::new(0) };
+}
+
+/// (G1 16:18 (2)) A fold's `# integrity:` line, moved: `x,y,z=connections a,b,c+d,e,f` (the rail at the
+/// cell must join those two neighbours: its flat shape from their directions) and `holds x,y,z=SHAPE`,
+/// entries separated by "; ". Each entry as (cell, the shape it must hold, the entry's text).
+fn parse_integrity(text: &str, mv: [i32; 3]) -> Result<Vec<([i32; 3], String, String)>, String> {
+    let p3 = |s: &str| -> Result<[i32; 3], String> {
+        let v: Vec<i32> = s.split(',').map(|t| t.trim().parse::<i32>().map_err(|e| format!("integrity cell {s}: {e}"))).collect::<Result<_, _>>()?;
+        if v.len() != 3 {
+            return Err(format!("integrity cell {s}: not x,y,z"));
+        }
+        Ok([v[0] + mv[0], v[1] + mv[1], v[2] + mv[2]])
+    };
+    let mut out = Vec::new();
+    for line in text.lines() {
+        let Some(rest) = line.strip_prefix("# integrity:").or_else(|| line.strip_prefix("integrity:")) else { continue };
+        for entry in rest.split("; ") {
+            let e = entry.trim();
+            if let Some(h) = e.strip_prefix("holds ") {
+                let (c, shape) = h.split_once('=').ok_or_else(|| format!("integrity entry {e}: no '='"))?;
+                out.push((p3(c)?, shape.trim().to_string(), e.to_string()));
+            } else if let Some((c, conn)) = e.split_once("=connections ") {
+                let cell = p3(c)?;
+                let (a, b) = conn.split_once('+').ok_or_else(|| format!("integrity entry {e}: connections A+B"))?;
+                let (a, b) = (p3(a)?, p3(b)?);
+                let dir = |n: [i32; 3]| -> Result<&'static str, String> {
+                    match (n[0] - cell[0], n[2] - cell[2]) {
+                        (0, -1) => Ok("north"),
+                        (0, 1) => Ok("south"),
+                        (1, 0) => Ok("east"),
+                        (-1, 0) => Ok("west"),
+                        _ => Err(format!("integrity entry {e}: ({},{},{}) not beside the cell", n[0], n[1], n[2])),
+                    }
+                };
+                let (da, db) = (dir(a)?, dir(b)?);
+                let shape = match (da, db) {
+                    ("north", "south") | ("south", "north") => "north_south",
+                    ("east", "west") | ("west", "east") => "east_west",
+                    ("south", "east") | ("east", "south") => "south_east",
+                    ("south", "west") | ("west", "south") => "south_west",
+                    ("north", "west") | ("west", "north") => "north_west",
+                    ("north", "east") | ("east", "north") => "north_east",
+                    _ => return Err(format!("integrity entry {e}: {da} + {db} is no rail shape")),
+                };
+                out.push((cell, shape.to_string(), e.to_string()));
+            } else if !e.is_empty() {
+                return Err(format!("integrity entry {e}: neither 'holds' nor 'connections'"));
+            }
+        }
+    }
+    Ok(out)
 }
 
 /// (G1's guard, ironspec 17:49) A controller line end's stand-in matching the built air in every
@@ -4272,6 +4325,16 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     let mut y12_entries: Vec<(i64, u32, &'static str, &'static str)> = Vec::new();
     // (G1 15:37) --positions-at: every cart's position at those ticks
     let mut positions_log: Vec<String> = Vec::new();
+    // (G1 16:18 (2)) the fold's `# integrity:` line from --integrity-from FILE@dx,dy,dz: (cell, the shape
+    // it must hold, the entry), and every tick a declared cell held another shape
+    let mut integrity_bad: Vec<String> = Vec::new();
+    let integrity: Vec<([i32; 3], String, String)> = match &o.integrity_from {
+        None => Vec::new(),
+        Some((path, mv)) => {
+            let text = std::fs::read_to_string(path).map_err(|e| format!("--integrity-from {}: {e}", path.display()))?;
+            parse_integrity(&text, *mv)?
+        }
+    };
     // (ironspec 15:17) each lipclass lip arrival's returning napper (its rider; None: a batch cart),
     // pushed with lipc_arrivals; each K window's napper (ctl.k_windows' twin: the napper's ridden cart
     // on the hold (9,0,8) at the H2 sample that keyed it)
@@ -7517,6 +7580,14 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                 }
             }
         }
+        // (G1 16:18 (2), ironspec 16:19 (b)) the fold's `# integrity:` declarations, read from the fold
+        // file at its move (--integrity-from): each declared cell's shape judged every tick
+        for (cell_i, want, name) in integrity.iter() {
+            let have = w.get(dbp(cell_i[0], cell_i[1], cell_i[2])).to_string();
+            if !have.contains(&format!("shape={want}")) {
+                integrity_bad.push(format!("t {rel}: ({},{},{}) {name}: wanted shape={want}, holds {have}", cell_i[0], cell_i[1], cell_i[2]));
+            }
+        }
         // (G1 10:14: the drop-lip disagreement) every cart's arrival at a lane's C (x,24,7): its tick,
         // its horizontal speed, its z phase (the position's fraction) and its rider's activity
         for e in w.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_))) {
@@ -10336,6 +10407,16 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
     if !positions_log.is_empty() {
         s.push_str(&format!("the carts' positions at --positions-at (G1 15:37, the lane queues' packing; design frame, 6 dp): {}\n", positions_log.join("; ")));
     }
+    if !integrity.is_empty() {
+        s.push_str(&format!(
+            "the fold's integrity (G1 16:18 (2): 58f770cc's `# integrity:` line read from --integrity-from at its move, each declared cell's shape judged every tick): {} cells ({}); {} ticks off their shape{} ({})\n",
+            integrity.len(),
+            integrity.iter().map(|(c, sh, _)| format!("({},{},{})={sh}", c[0], c[1], c[2])).collect::<Vec<_>>().join(", "),
+            integrity_bad.len(),
+            if integrity_bad.is_empty() { String::new() } else { format!(": {}", integrity_bad.iter().take(6).cloned().collect::<Vec<_>>().join(" | ")) },
+            if integrity_bad.is_empty() { "PASS" } else { "FAIL" }
+        ));
+    }
     s.push_str(&format!(
         "the queue tail's worst z (G1 15:55: the farthest-up z of any cart on each lane's slope cells (x, 17..22, 1..6) over the night, against V (x,22,6)'s far edge z 7.0): lane x -1 {:.4} (margin {:.4}), lane x 3 {:.4} (margin {:.4}), lane x 7 {:.4} (margin {:.4})\n",
         ctl.tail_worst[0],
@@ -12285,6 +12366,20 @@ mod counter_tests {
         let l = super::log_fail_line("run log", &log);
         assert!(l.contains(": 1 (FAIL)") && l.contains("line 230"), "{l}");
         assert_eq!(super::fail_lines("x: 3 (expected FAIL)\ny: unexpected FAIL\nz: PASS"), vec!["y: unexpected FAIL"]);
+    }
+
+    /// (onechunk 15:56, childA's finding) a bar's description "each writer justified or FAIL" is no
+    /// verdict; the fold's integrity line parses with its move (G1 16:18 (2))
+    #[test]
+    fn the_fold_integrity_line_parses_moved() {
+        let t = "# integrity: -2,0,4=connections -1,0,4+-2,0,5; holds -2,0,3=north_east; holds -1,0,3=east_west; holds -1,0,4=east_west\n";
+        let v = super::parse_integrity(t, [0, -27, -1]).unwrap();
+        assert_eq!(v.len(), 4);
+        assert_eq!(v[0].0, [-2, -27, 3]);
+        assert_eq!(v[0].1, "south_east");
+        assert_eq!(v[1].0, [-2, -27, 2]);
+        assert_eq!(v[1].1, "north_east");
+        assert!(super::parse_integrity("# integrity: 1,2,3=sideways\n", [0, 0, 0]).is_err());
     }
 
     /// (onechunk 14:26) a FAIL verdict is a whole-word FAIL, not a bar's description of what FAILS
