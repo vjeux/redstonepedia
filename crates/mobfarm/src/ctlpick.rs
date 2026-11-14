@@ -166,11 +166,35 @@ pub struct Cfg {
     pub max_picks_per_rel: usize,
     /// The lanes' leg times overridden (the napper's pick -> its leg arrival), e.g. b8949c96's measured 15-16 gt spacing.
     pub leg_override: Option<[i64; 3]>,
+    /// THE SENSED POINTER (the (i-b) item ring, ironspec 11:56a / the parent 11:55): the pick decision reads ONLY the
+    /// lane's ring state (the tap's slot, the target token T's slot, the absent markers X, the spacing latch), never a
+    /// cart's identity; the rejoin is the sensed rule (an entry carrying its pop's "the next slot was skipped" mark, AND
+    /// the siding holding a napper: its front napper released behind it; that X extracted at its next tap arrival).
+    pub sensed: bool,
+    /// The forced test (the parent 11:49): the carts' ids PERMUTED inside each lane at the start (slot i carries cart
+    /// l * N0 + (N0 - 1 - i)): a decision that reads a cart's id changes its result; the sensed form's must not.
+    pub relabel: bool,
+    /// The timing corner (ironspec 12:02p (1)): every circuit entry processed AFTER the same REL's pops instead of before
+    /// them (an entry shifted past a pop by any amount, 2 gt included): the mark FIFO, the sensed rejoin and the extract
+    /// flags must not depend on that order.
+    pub late_entries: bool,
+    /// G1 on 8e3d5f208 (2)'s control: the second hold's open condition WITHOUT its (9,22,3) term (the previous napper's
+    /// exit detector unpowered): a napper waiting at the hold passes before the RESET level falls, its SET lands inside it.
+    pub hold_no_exit: bool,
+    /// Whole-farm FREEZES (a reload / unload, normal: ironspec 11:20a): (day, the farm REL it starts at, its length in
+    /// RELs): game time runs on while nothing in the farm moves.
+    pub freeze: Vec<(i64, i64, i64)>,
+    /// THE ONE-PICK-PER-REL FORM (ironspec 12:12p / 12:14p): 0 = none (each REQ granted), 1 = the arbiter (the cap: a
+    /// refused lane's pointer keeps its target), 2 = ROTATION (one lane eligible per REL: -1, 3, 7 in turn), 3 = STATIC
+    /// PRIORITY (lane -1 over 3 over 7, stateless).
+    pub grant_form: u8,
+    /// The three rings' T tokens' starting slots (the build guide places them: the zero-cell cold-start fix).
+    pub t_start: [usize; 3],
 }
 
 impl Cfg {
     pub fn new(name: &str, period: i64, window: i64, merge: Merge) -> Cfg {
-        Cfg { name: name.to_string(), period, window, visit: 9, merge, repick: true, napped_first: false, rejoin_at: 2, pointer: false, day_jitter: vec![], held: 0, held_cap: 1, held_lane: None, ptr_step: 5, bed: false, halts: vec![], slip: vec![], late_picks: vec![], days: 8, missed: vec![], late: vec![], skipped: vec![], moved: vec![], ride_delay: vec![], skip_fix: true, lost_napper: vec![], resync: true, stop_stall: vec![], wayin_cap: 0, rs_extra: 0, bed_cycle: 333, missed_dep: vec![], extra_dep: vec![], gate_off: false, press_count: false, merge_picks: false, force_pick: vec![], max_picks_per_rel: 0, leg_override: None }
+        Cfg { name: name.to_string(), period, window, visit: 9, merge, repick: true, napped_first: false, rejoin_at: 2, pointer: false, day_jitter: vec![], held: 0, held_cap: 1, held_lane: None, ptr_step: 5, bed: false, halts: vec![], slip: vec![], late_picks: vec![], days: 8, missed: vec![], late: vec![], skipped: vec![], moved: vec![], ride_delay: vec![], skip_fix: true, lost_napper: vec![], resync: false, stop_stall: vec![], wayin_cap: 0, rs_extra: 0, bed_cycle: 333, missed_dep: vec![], extra_dep: vec![], gate_off: false, press_count: false, merge_picks: false, force_pick: vec![], max_picks_per_rel: 0, leg_override: None, sensed: false, relabel: false, late_entries: false, hold_no_exit: false, freeze: vec![], grant_form: 0, t_start: [0, 3, 6] }
     }
 }
 
@@ -233,6 +257,24 @@ pub struct Out {
     pub behind_hold: usize,
     /// Picks deferred by THE PICK-RATE RULE.
     pub rate_deferred: usize,
+    /// THE SENSED POINTER's own checks (the judge reads the carts' ids here, the controller never does): pops whose cart
+    /// is not the one the ring's tap predicted (sync lost); sensed rejoins that differ from the identity rule's; an X
+    /// needing a type both of whose markers are in the ring (a third napper of a lane away); T's ignored first passes;
+    /// the most X in one lane's ring at once.
+    pub ring_mismatch: usize,
+    pub rejoin_vs_ref: usize,
+    pub x_conflict: usize,
+    pub t_first_pass: usize,
+    pub max_x: usize,
+    /// Sensed rejoins whose X type (the toggle's, flipped per rejoin) differs from the mark's own type (the judge's check
+    /// that the nappers rejoin in pick order).
+    pub type_order_mismatch: usize,
+    /// The least gap between two consecutive nappers' arrivals at the second hold (gt; i64::MAX with fewer than two).
+    pub min_hold_gap: i64,
+    /// The one-pick-per-REL forms: per lane, the longest wait (RELs) from a refused REQ to its grant.
+    pub max_grant_wait: [i64; 3],
+    /// The most nappers picked and not yet back at their siding at once (the sensed ring's record-depth bound).
+    pub max_nappers_out: i64,
     /// The RELs at which the room term deferred a pick (gt).
     pub deferred_at: Vec<i64>,
     /// The most nappers WAITING for the bed at once (the queue depth, not in flight: ironspec 00:01), with `bed`.
@@ -288,10 +330,12 @@ const LANE_EXTRA: [i64; 3] = [0, 0, 1];
 pub fn run(cfg: &Cfg) -> Out {
     let n_rec_gt = n_rec();
     let d_occ_gt = d_occ();
-    let mut lanes: Vec<VecDeque<usize>> = (0..3).map(|l| (0..N0).map(|i| l * N0 + i).collect()).collect();
+    // (the ring's slots: slot i of lane l carries this cart at the start (the forced test permutes the ids))
+    let slot_cart: Vec<Vec<usize>> = (0..3).map(|l| (0..N0).map(|i| l * N0 + if cfg.relabel { N0 - 1 - i } else { i }).collect()).collect();
+    let mut lanes: Vec<VecDeque<usize>> = (0..3).map(|l| slot_cart[l].iter().copied().collect()).collect();
     let mut napped: Vec<VecDeque<usize>> = vec![VecDeque::new(); 3];
     let nv = 3 * N0;
-    let mut o = Out { naps: vec![Vec::new(); nv], nap_day: vec![Vec::new(); nv], min_depth: [usize::MAX; 3], ..Out::default() };
+    let mut o = Out { naps: vec![Vec::new(); nv], nap_day: vec![Vec::new(); nv], min_depth: [usize::MAX; 3], min_hold_gap: i64::MAX, ..Out::default() };
     // (in transit: (back at REL, lane, cart, order-preserving predecessor if any))
     let mut transit: Vec<(i64, usize, usize, Option<usize>)> = Vec::new();
     // (waiting in R_l: (lane, cart, predecessor, arrival REL))
@@ -299,7 +343,25 @@ pub fn run(cfg: &Cfg) -> Out {
     // (s's count: (lane, napper, predecessor, the predecessor's pops so far))
     let mut away: Vec<(usize, usize, usize, i64, i64)> = Vec::new();
     // (the ring's cyclic predecessor of each lane's first cart is its last one: the first napper rejoins in order too)
-    let mut last_pop: [Option<usize>; 3] = [Some(N0 - 1), Some(2 * N0 - 1), Some(3 * N0 - 1)];
+    let mut last_pop: [Option<usize>; 3] = [Some(slot_cart[0][N0 - 1]), Some(slot_cart[1][N0 - 1]), Some(slot_cart[2][N0 - 1])];
+    // (THE SENSED POINTER's state per lane, the item ring's: the tap's slot (the next to pop), T's slot, the X markers
+    // (slot, type a / b), the next X type, the "extract the next X of this type" flags (set by a sensed rejoin), the
+    // spacing latch (set at a grant, cleared at T's first pass), REQ armed (T at the tap, the latch clear), and the
+    // entry-mark FIFO (pushed per circuit pop: Some(type) when the slot after the popped one was a skipped X; popped per
+    // circuit entry, in order: carts never overtake))
+    let mut ring_next: [usize; 3] = [0; 3];
+    let mut t_slot: [usize; 3] = cfg.t_start;
+    let mut x_set: [Vec<(usize, usize)>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+    let mut x_type_next: [usize; 3] = [0; 3];
+    let mut x_extract: [[bool; 2]; 3] = [[false; 2]; 3];
+    let mut spacing_latch: [bool; 3] = [false; 3];
+    let mut req_armed: [bool; 3] = [cfg.t_start[0] == 0, cfg.t_start[1] == 0, cfg.t_start[2] == 0];
+    // (the one-pick-per-REL forms' waits: per lane, the farm REL of its first refused REQ still pending)
+    let mut refused_since: [Option<i64>; 3] = [None; 3];
+    let mut mark_fifo: [VecDeque<Option<usize>>; 3] = [VecDeque::new(), VecDeque::new(), VecDeque::new()];
+    // (the hardware form: the X type a rejoin flags comes from a per-lane toggle flipped per rejoin (the nappers rejoin in
+    // pick order, the X types alternate in pick order), not from reading the X: the mark's own type is the judge's check)
+    let mut rejoin_type_next: [usize; 3] = [0; 3];
     let mut repick: [Option<usize>; 3] = [None; 3];
     let offs = [0, cfg.period / 3, (2 * cfg.period) / 3];
     let mut next_pick: [i64; 3] = offs;
@@ -333,6 +395,8 @@ pub fn run(cfg: &Cfg) -> Out {
     let mut prev_clear: i64 = i64::MIN / 4;
     let mut prev2_clear: i64 = i64::MIN / 4;
     let mut prev_pass: i64 = i64::MIN / 4;
+    let mut nappers_out: i64 = 0;
+    let mut prev_arr: i64 = i64::MIN / 4;
     // (each processed napper's SENSED windows: (its SET, its latch's RESET + 1), (its front arrival press, the front's
     // arrival detector falling), (its bed start, RS_ready's set after its visit): the record's resync reads the levels)
     let mut sensed: Vec<(i64, i64, i64, i64, i64, i64)> = Vec::new();
@@ -356,6 +420,7 @@ pub fn run(cfg: &Cfg) -> Out {
     let delta = cfg.ptr_step;
     let mut gt: i64 = 0;
     let mut t: i64 = 0;
+    let mut frozen_gt: i64 = 0;
     for day in 0..cfg.days {
         for &(d, l, by) in &cfg.slip {
             if d == day {
@@ -388,8 +453,20 @@ pub fn run(cfg: &Cfg) -> Out {
         }
         let mut first: [bool; 3] = [true; 3];
         let mut k_rel = 0i64;
-        let day_len = DAY + cfg.day_jitter.get(day as usize).copied().unwrap_or(0);
+        // (A WHOLE-FARM FREEZE (a reload / unload: the chunk and everything in it stop while game time runs on): at the
+        // day's farm REL `start`, `len` RELs of game time pass with nothing in the farm moving: the day has `len` fewer
+        // farm RELs, the night window loses the frozen part of it, and every later game-time stamp (the naps) is `len`
+        // RELs later than the farm's clock)
+        let fz = cfg.freeze.iter().find(|f| f.0 == day).copied();
+        let day_len = DAY + cfg.day_jitter.get(day as usize).copied().unwrap_or(0) - fz.map_or(0, |f| f.2);
+        let win = match fz {
+            Some((_, s, len)) if s < cfg.window => cfg.window - len.min(cfg.window - s),
+            _ => cfg.window,
+        };
         for k in 0..day_len {
+            if fz.is_some_and(|f| f.1 == k) {
+                frozen_gt += fz.map_or(0, |f| f.2) * 100;
+            }
             gt += 100;
             t += 1;
             // (THE ROOM COUNT (ironspec 07:38r / 08:41a, the hardware-only rule 10:02a (2)): it counts DOWN on each TOKEN
@@ -459,21 +536,30 @@ pub fn run(cfg: &Cfg) -> Out {
                 // - FRONT CLEAR = the arrival detector unpowered;
                 // - P1's release pulse: the rising edge of TOKEN AND FRONT CLEAR AND OCCUPIED; START-UP: the token free, the
                 //   latch 0, so the first napper is released once it rests)
-                let hold_open = match prev_rel {
-                    None => i64::MIN / 4,
+                let (hold_open, exit_fall) = match prev_rel {
+                    None => (i64::MIN / 4, i64::MIN / 4),
                     Some(pr) => {
                         let reset = pr + P1_TO_EXIT;
                         let u_det = det_off(prev_set, pr + P1_LEAVE_DET);
                         let u_exit = det_off(reset, reset + 1);
-                        reset.max(u_det).max(u_exit)
+                        (if cfg.hold_no_exit { reset.max(u_det) } else { reset.max(u_det).max(u_exit) }, u_exit)
                     }
                 };
                 let pass = (leg + LEG_TO_HOLD).max(hold_open);
-                // (ironspec 10:18a (2) / G1: the lag from the previous napper's RESET to this napper's SET (> 0 at every
-                // phase: the SET never lands while the RESET level holds); and a napper reaching the hold while the
-                // previous one is still at it (it would wait BEHIND the hold, on the flat top (9,25,8)): counted)
-                if let Some(pr) = prev_rel {
-                    let lag = (pass + HOLD_TO_SET) - (pr + P1_TO_EXIT);
+                // (ironspec 12:11p (1): the least gap between two consecutive nappers' arrivals at the second hold, against
+                // b8949c96's misroute threshold, with and without the arbiter)
+                let arr = leg + LEG_TO_HOLD;
+                if prev_arr > i64::MIN / 4 {
+                    o.min_hold_gap = o.min_hold_gap.min(arr - prev_arr);
+                }
+                prev_arr = arr;
+                // (G1 on 8e3d5f208 (2): the lag from the FALL of the previous napper's RESET LEVEL ((9,22,3) unpowered at its
+                // 20-gt recheck after the cart left it) to this napper's SET edge: > 0 means the SET never lands while the
+                // reset-dominant RESET holds; its control (`hold_no_exit`) drops the hold's (9,22,3) term; and a napper
+                // reaching the hold while the previous one is still at it (it waits BEHIND the hold, on the flat top
+                // (9,25,8)): counted)
+                if prev_rel.is_some() {
+                    let lag = (pass + HOLD_TO_SET) - exit_fall;
                     o.reset_set_lag = Some(o.reset_set_lag.map_or(lag, |m: i64| m.min(lag)));
                 }
                 if leg + LEG_TO_HOLD < prev_pass {
@@ -558,7 +644,7 @@ pub fn run(cfg: &Cfg) -> Out {
                 }
                 v += (wait + 99) / 100;
                 // (the nap is the villager's in the cart now; a mismatch's pair swaps villagers after its second nap)
-                o.naps[who[c]].push(start);
+                o.naps[who[c]].push(start + frozen_gt);
                 o.nap_day[who[c]].push(pday);
                 let mut send = l;
                 if home != l {
@@ -591,13 +677,23 @@ pub fn run(cfg: &Cfg) -> Out {
             // predecessor's TAIL ENTRY (it enters right behind it, in the same move), and a chain behind it follows
             let mut keep = Vec::new();
             let mut arrived: Vec<(usize, usize)> = Vec::new();
+            let mut sensed_arr: Vec<(usize, usize, Option<usize>)> = Vec::new();
             for &(at, l, c, pred) in &transit {
-                if at <= t {
+                if at < t || (at == t && !(cfg.late_entries && pred.is_none())) {
                     match (cfg.merge, pred) {
-                        (Merge::Order, Some(p)) => siding.push((l, c, Some(p), t)),
+                        (Merge::Order, Some(p)) => {
+                            siding.push((l, c, Some(p), t));
+                            nappers_out -= 1;
+                        }
                         (Merge::TwoTrack, Some(_)) => napped[l].push_back(c),
                         _ => {
                             lanes[l].push_back(c);
+                            // (THE SENSED POINTER: a circuit entry pops its mark from the lane's FIFO, in order (carts never
+                            // overtake); the mark rides with this arrival event to the rejoin rule below)
+                            if cfg.sensed && pred.is_none() {
+                                let mk = mark_fifo[l].pop_front().flatten();
+                                sensed_arr.push((l, c, mk));
+                            }
                             arrived.push((l, c));
                         }
                     }
@@ -616,13 +712,35 @@ pub fn run(cfg: &Cfg) -> Out {
                     a.4 += 1;
                 }
                 let ready = away.iter().position(|a| a.0 == l && a.2 == c && a.4 >= cfg.rejoin_at && siding.iter().any(|s| s.0 == l && s.1 == a.1));
-                if let Some(j) = ready {
-                    let x = away[j].1;
-                    let s = away[j].3;
-                    if !o.s_seen[l].contains(&s) {
-                        o.s_seen[l].push(s);
+                // (THE SENSED REJOIN: this circuit entry's mark (its pop found the next slot's X skipped: this cart is an
+                // away napper's predecessor) AND a napper of this lane waiting in the siding (its R hold's presence): the
+                // siding's FRONT napper is released behind it, and the mark's X type is flagged for extraction at its
+                // next tap arrival; the identity rule (`ready`) is kept as the reference, its disagreements counted)
+                let rel: Option<(usize, usize)> = if cfg.sensed {
+                    let mk = sensed_arr.iter().position(|e| e.0 == l && e.1 == c).and_then(|i| sensed_arr.remove(i).2);
+                    let sx = mk.and_then(|ty| siding.iter().position(|s| s.0 == l).map(|i| (siding[i].1, ty)));
+                    if ready.map(|j| away[j].1) != sx.map(|x| x.0) {
+                        o.rejoin_vs_ref += 1;
                     }
-                    away.remove(j);
+                    sx
+                } else {
+                    ready.map(|j| (away[j].1, usize::MAX))
+                };
+                if let Some((x, ty)) = rel {
+                    if let Some(j) = away.iter().position(|a| a.0 == l && a.1 == x) {
+                        let s = away[j].3;
+                        if !o.s_seen[l].contains(&s) {
+                            o.s_seen[l].push(s);
+                        }
+                        away.remove(j);
+                    }
+                    if ty < 2 {
+                        if ty != rejoin_type_next[l] {
+                            o.type_order_mismatch += 1;
+                        }
+                        x_extract[l][rejoin_type_next[l]] = true;
+                        rejoin_type_next[l] ^= 1;
+                    }
                     if let Some(i) = siding.iter().position(|s| s.0 == l && s.1 == x) {
                         let wait = t - siding[i].3;
                         o.max_wait[l] = o.max_wait[l].max(wait);
@@ -638,7 +756,7 @@ pub fn run(cfg: &Cfg) -> Out {
             }
             // (a napper whose predecessor is itself away or waiting re-enters behind the predecessor's predecessor: the
             // ideal keeps the ORDER; a lone napper whose predecessor is the lane's only other... falls back to the back)
-            let in_window = k < cfg.window;
+            let in_window = k < win;
             let halted = cfg.halts.iter().any(|&(d, s, len)| d == day && k_rel >= s && k_rel < s + len);
             let missed = (cfg.missed.contains(&(day, k_rel)) || halted) && in_window;
             if (0..3).any(|l| lanes[l].is_empty() && napped[l].is_empty()) || missed {
@@ -662,6 +780,12 @@ pub fn run(cfg: &Cfg) -> Out {
                     None => napped[l].pop_front().unwrap(),
                 };
                 let pred = last_pop[l];
+                // (THE SENSED POINTER: the slot this pop takes is the ring tap's; the judge checks it against the cart
+                // actually popped (sync), the controller never reads `c`)
+                let popped_slot = ring_next[l];
+                if cfg.sensed && slot_cart[l][popped_slot] != c {
+                    o.ring_mismatch += 1;
+                }
                 for a in away.iter_mut().filter(|a| a.0 == l && a.2 == c) {
                     a.3 += 1;
                 }
@@ -673,18 +797,32 @@ pub fn run(cfg: &Cfg) -> Out {
                 // DELTA ring positions)
                 // (a lost cart's position is stepped over: the pointer counts the carts that are there)
                 while let Some(tg) = target[l] {
-                    if !gone[tg] {
+                    if cfg.sensed || !gone[tg] {
                         break;
                     }
                     target[l] = Some(l * N0 + (tg - l * N0 + delta) % N0);
                 }
                 let spaced = since[l] >= cfg.period;
-                let by_target = cfg.pointer && target[l] == Some(c) && spaced;
+                let by_target = if cfg.sensed { req_armed[l] } else { cfg.pointer && target[l] == Some(c) && spaced };
                 let forced = in_window && cfg.force_pick.contains(&(gt, l));
-                let mut due = forced || (in_window && ((!cfg.pointer || target[l].is_none()) && k_rel == next_pick[l] || due_repick || by_target));
+                let sched = !cfg.sensed && (!cfg.pointer || target[l].is_none()) && k_rel == next_pick[l];
+                let mut due = forced || (in_window && (sched || due_repick || by_target));
                 in_flight.retain(|&e| e > t);
                 let open = pending.len() + assigned.iter().filter(|a| a.1 > gt).count();
                 o.max_open = o.max_open.max(open);
+                if due && cfg.sensed && by_target && cfg.grant_form == 2 && k_rel.rem_euclid(3) != l as i64 {
+                    // (ROTATION: one lane eligible per REL, -1 / 3 / 7 in turn: a REQ off its turn is refused; the ring's T
+                    // comes round again)
+                    o.rate_deferred += 1;
+                    refused_since[l].get_or_insert(t);
+                    due = false;
+                }
+                if due && cfg.sensed && by_target && (cfg.grant_form == 1 || cfg.grant_form == 3) && picks_today - picks_before >= 1 {
+                    // (THE ARBITER / STATIC PRIORITY: one grant per REL, lane -1 over 3 over 7 (the lanes' order here))
+                    o.rate_deferred += 1;
+                    refused_since[l].get_or_insert(t);
+                    due = false;
+                }
                 if due && cfg.max_picks_per_rel > 0 && picks_today - picks_before >= cfg.max_picks_per_rel {
                     // (THE PICK-RATE RULE (priced for b8949c96 10:57 / G1 10:59, bunching at the second hold): at most this
                     // many picks per REL: a further due lane defers to the next REL (a pointer target comes round again; a
@@ -712,6 +850,70 @@ pub fn run(cfg: &Cfg) -> Out {
                         next_pick[l] += cfg.period;
                     }
                     due = false;
+                }
+                if cfg.sensed {
+                    // (THE ITEM RING's update at this pop, from its own state and the GRANT only: a grant moves T 5 slots on
+                    // (the sorter lifts T out of the tap and feeds it 5 droppers upstream), puts an X of the next type in
+                    // the picked slot and sets the spacing latch; then the ring steps: an X at the tap is skipped (one more
+                    // step), unless its type's extract flag is set (the napper is back: the X is lifted out, the slot
+                    // taken); T reaching the tap with the latch set clears the latch (its first pass ignored), with the
+                    // latch clear it arms REQ; the pop's mark = the slot after it was a skipped X (this cart is that away
+                    // napper's predecessor), pushed for a circuit pop (a cart not picked))
+                    req_armed[l] = false;
+                    if due {
+                        if let Some(s) = refused_since[l].take() {
+                            o.max_grant_wait[l] = o.max_grant_wait[l].max(t - s);
+                        }
+                        if x_set[l].iter().any(|x| x.1 == x_type_next[l]) {
+                            o.x_conflict += 1;
+                        }
+                        x_set[l].push((popped_slot, x_type_next[l]));
+                        x_type_next[l] ^= 1;
+                        // (the record's depth bound (cc767b78 12:21): nappers picked and not yet back at their siding, an
+                        // upper bound on picked-but-not-ARM3'd (ARM3 comes before the siding))
+                        nappers_out += 1;
+                        o.max_nappers_out = o.max_nappers_out.max(nappers_out);
+                        o.max_x = o.max_x.max(x_set[l].len());
+                        t_slot[l] = (popped_slot + delta) % N0;
+                        spacing_latch[l] = true;
+                    }
+                    let mut nx = (popped_slot + 1) % N0;
+                    let mut mark: Option<usize> = None;
+                    let mut steps = 0;
+                    loop {
+                        let Some(i) = x_set[l].iter().position(|x| x.0 == nx) else { break };
+                        let ty = x_set[l][i].1;
+                        if x_extract[l][ty] {
+                            x_set[l].remove(i);
+                            x_extract[l][ty] = false;
+                            break;
+                        }
+                        if steps == 0 {
+                            mark = Some(ty);
+                        }
+                        if nx == t_slot[l] && spacing_latch[l] {
+                            spacing_latch[l] = false;
+                            o.t_first_pass += 1;
+                        }
+                        nx = (nx + 1) % N0;
+                        steps += 1;
+                        if steps > N0 {
+                            o.x_conflict += 1;
+                            break;
+                        }
+                    }
+                    ring_next[l] = nx;
+                    if nx == t_slot[l] {
+                        if spacing_latch[l] {
+                            spacing_latch[l] = false;
+                            o.t_first_pass += 1;
+                        } else {
+                            req_armed[l] = true;
+                        }
+                    }
+                    if !due {
+                        mark_fifo[l].push_back(mark);
+                    }
                 }
                 if due {
                     let skip = first[l] && cfg.skipped.contains(&(day, l));
@@ -805,7 +1007,7 @@ pub fn run(cfg: &Cfg) -> Out {
                         pending.push((leg, l, c, t, v, pred, day));
                         continue;
                     }
-                    o.naps[c].push(nap_at);
+                    o.naps[c].push(nap_at + frozen_gt);
                     o.nap_day[c].push(day);
                     if let (Merge::Order, Some(p)) = (cfg.merge, pred) {
                         away.push((l, c, p, 0, 0));
@@ -1051,12 +1253,13 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
                 lines.push(format!("  CONTROL ({}): {} mismatches: {c}", cfg.name, o.record_mismatch.len()));
             }
             if design && cfg.name.contains("WITHOUT the record's resync") {
-                let c = v.control(&format!("ctl-pick CONTROL: {}: the record desyncs (mismatches appear without THE RESYNC)", cfg.name), 1, !o.record_mismatch.is_empty()).to_string();
-                lines.push(format!("  CONTROL ({}): {} mismatches, distinct {:?}: {c}", cfg.name, o.record_mismatch.len(), o.distinct.iter().max()));
+                // (G1 on 8e3d5f208 (1): the resync serves only lost-napper recovery (a player breaking a cart): OUT, dropped)
+                let sc = v.scope(&format!("ctl-pick: {}: the record's desync without THE RESYNC", cfg.name), crate::ctlcredit::OUT_WHY);
+                lines.push(format!("  OUT ({}): {} mismatches, distinct {:?}: {sc}", cfg.name, o.record_mismatch.len(), o.distinct.iter().max()));
             }
             if design && cfg.name.contains("THE RECORD's RESYNC") {
-                let w = v.bar(&format!("ctl-pick: {}: THE LANE RECORD EXACT after the loss (0 mismatches; the lost villager's lane one short: 23 distinct)", cfg.name), o.record_mismatch.is_empty() && o.resyncs >= 1);
-                lines.push(format!("  {}: {} mismatches, {} resyncs, distinct up to {:?}: {w}", cfg.name, o.record_mismatch.len(), o.resyncs, o.distinct.iter().max()));
+                let sc = v.scope(&format!("ctl-pick: {}: THE LANE RECORD after the loss", cfg.name), crate::ctlcredit::OUT_WHY);
+                lines.push(format!("  OUT ({}): {} mismatches, {} resyncs, distinct up to {:?}: {sc}", cfg.name, o.record_mismatch.len(), o.resyncs, o.distinct.iter().max()));
             }
             if design && cfg.name.contains("first napper-carrying intake (+100 gt, night 3)") {
                 lines.push(format!("  NOTE ({}): the single skip leaves 0 mismatches with or without the fix (inversion {}): it does not exercise the fix (the every-night row does)", cfg.name, o.max_inversion));
@@ -1132,8 +1335,8 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
         // room count; the pick-rate arbiter kept (ironspec 11:05a). Printed on the normal nights and over the no-hold
         // sweep: the distinct nappers per night and the worst interval)
         {
-            let timer = |name: &str, period: i64, cyc: i64, extra: i64| {
-                let mut c = Cfg::new(name, period, 120, Merge::Order);
+            let timer = |name: &str, period: i64, cyc: i64, extra: i64, merge: Merge| {
+                let mut c = Cfg::new(name, period, 120, merge);
                 c.pointer = false;
                 c.days = 10;
                 c.rejoin_at = 1;
@@ -1145,17 +1348,164 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
             };
             let mut pts = Vec::new();
             let mut all_ok = true;
-            for period in [11i64, 12, 13] {
-                for (cyc, extra) in [(333i64, 0i64), (197, 0), (197, 40), (168, 120)] {
-                    let o = run(&timer("the timer form", period, cyc, extra));
-                    if period == 13 {
-                        all_ok &= ok(&o);
+            for merge in [Merge::Order, Merge::Back] {
+                for period in [9i64, 11, 12, 13] {
+                    for (cyc, extra) in [(333i64, 0i64), (197, 40)] {
+                        let o = run(&timer("the timer form", period, cyc, extra, merge));
+                        if period == 13 && merge == Merge::Order {
+                            all_ok &= ok(&o);
+                        }
+                        pts.push(format!("{merge:?} period {period}, cycle {cyc} + {extra}: distinct per night {:?}, worst {} gt{}", o.distinct.iter().skip(1).copied().collect::<Vec<_>>(), o.max_gap.0, if ok(&o) { "" } else { " MISSES the nap bars" }));
                     }
-                    pts.push(format!("period {period}, cycle {cyc} + {extra}: distinct per night {:?}, worst {} gt{}", o.distinct.iter().skip(1).copied().collect::<Vec<_>>(), o.max_gap.0, if ok(&o) { "" } else { " MISSES the nap bars" }));
                 }
             }
             let sc = v.scope("ctl-pick: the normal-operation picks form (per-lane 13-REL timers)", &format!("priced for ironspec's ruling (the cells: three 13-REL counters + the arbiter + the record, vs three pointers + spacing + HELD + the room count); every point passes: {all_ok}"));
             lines.push(format!("  PRICED: THE NORMAL-OPERATION PICKS FORM (per-lane 13-REL timers, window-gated, staggered 0 / 4 / 8, the arbiter; no pointer / HELD / room count): {}: {sc}", pts.join("; ")));
+        }
+        // (THE SENSED POINTER, the (i-b) per-lane item ring (ironspec 11:56a / the parent 11:57): the decision reads only
+        // the ring's state and the grant; the rejoin is the sensed rule; HELD and the room count are OUT (they defer no pick
+        // on the normal nights), the pick-rate arbiter kept. Judged on the normal nights and the no-hold sweep (the bed
+        // cycle x (B)'s travel): 24 distinct per night, every interval < 24,000 - margin, the ring in sync with the carts
+        // actually popped (the judge's check), no X type conflict; the villager-gt past 24,000 per day printed (the golem
+        // loss proxy: 0 = every villager summon-eligible all day). THE FORCED TEST: the carts' ids permuted inside each lane
+        // (slot i carries id l * N0 + 7 - i): the sensed form's results are unchanged; its CONTROL: the identity pointer
+        // (target = id + 5) under the same permutation changes its picks)
+        {
+            let sensed_cfg = |name: &str, relabel: bool, cyc: i64, extra: i64| {
+                let mut c = design(name, 0, None);
+                c.pointer = false;
+                c.sensed = true;
+                c.relabel = relabel;
+                c.held = 0;
+                // ((b') STATIC PRIORITY, the smallest passing one-pick-per-REL form (the forms priced below on the same rows))
+                c.max_picks_per_rel = 0;
+                c.grant_form = 3;
+                c.bed_cycle = cyc;
+                c.rs_extra = extra;
+                c
+            };
+            let past = |o: &Out| -> i64 {
+                o.naps.iter().map(|n| n.windows(2).map(|w| (w[1] - w[0] - 24_000).max(0)).sum::<i64>()).sum::<i64>() / 10
+            };
+            let mut pts = Vec::new();
+            let mut all_ok = true;
+            let mut forced_ok = true;
+            for (cyc, extra) in [(333i64, 0i64), (197, 0), (197, 40), (197, 120), (168, 0), (168, 40), (168, 120)] {
+                let o = run(&sensed_cfg("the sensed ring", false, cyc, extra));
+                let p = run(&sensed_cfg("the sensed ring, ids permuted", true, cyc, extra));
+                let good = ok(&o) && o.ring_mismatch == 0 && o.x_conflict == 0 && o.type_order_mismatch == 0;
+                all_ok &= good;
+                let same = o.distinct == p.distinct && o.max_gap.0 == p.max_gap.0 && p.ring_mismatch == 0;
+                forced_ok &= same;
+                pts.push(format!("cycle {cyc} + {extra}: distinct per night {:?} (night 0, the cold start: {}), worst {} gt, villager-gt past 24,000 per day {} (golems lost per day {}), ring out of sync {}, rejoins unlike the identity rule's {}, rejoins out of pick order {}, X conflicts {}, the most X in a ring {}, T's ignored first passes {}, rate-deferred {}; permuted ids: distinct {:?}, worst {} gt ({}){}", o.distinct.iter().skip(1).copied().collect::<Vec<_>>(), o.distinct.first().copied().unwrap_or(0), o.max_gap.0, past(&o), if past(&o) == 0 { "0".to_string() } else { "> 0".to_string() }, o.ring_mismatch, o.rejoin_vs_ref, o.type_order_mismatch, o.x_conflict, o.max_x, o.t_first_pass, o.rate_deferred, p.distinct.iter().skip(1).copied().collect::<Vec<_>>(), p.max_gap.0, if same { "unchanged" } else { "CHANGED" }, if good { "" } else { " MISSES" }));
+            }
+            let w = v.bar("ctl-pick: THE SENSED POINTER (the (i-b) item ring: the decision reads the ring's state and the grant only) meets the nap bars on the normal nights and the no-hold sweep (24 distinct, every interval < 24,000 - margin), its ring in sync with the carts popped, no X type conflict", all_ok);
+            lines.push(format!("  THE SENSED POINTER (the (i-b) per-lane item ring; HELD and the room count OUT, the arbiter kept): {}: {w}", pts.join("; ")));
+            // (THE ONE-PICK-PER-REL FORMS (ironspec 12:12p / 12:14p / 12:16p; G1 12:15), each on the SAME rows: the seven
+            // sweep points (night 0 the cold start, the three T tokens at the build's staggered slots 0 / 3 / 6) and TRUE
+            // WHOLE-FARM FREEZES (G1 12:18 / ironspec 12:18p: a reload or unload stops the whole chunk, entities included,
+            // while game time runs on: the farm REL count stops, the night window loses the frozen part, the naps' game-time
+            // stamps move on) of 1 / 2 / 5 RELs at every 3rd farm REL of night 3 and at three daytime phases: (a) NONE (each
+            // REQ granted), (b) ROTATION (one lane eligible per REL, -1 / 3 / 7 in turn; a refused REQ's T comes round
+            // again), (b') STATIC PRIORITY (lane -1 over 3 over 7). Printed per form: the RELs carrying two grants, the least
+            // gap between two nappers' arrivals at the second hold against its 41-gt cycle (b8949c96's misroute basis: two
+            // nappers inside one hold cycle, the cycle = D 16 + 25, the interface's), the longest wait per lane from a
+            // refused REQ to its grant (RELs, gt), the worst interval, the golems lost per day, every row's nap bars and
+            // the ring's sync. (a) also over every starting offset of lanes 3 / 7's T against lane -1's (64 rows))
+            let mut freeze_rows: Vec<(i64, i64, i64)> = Vec::new();
+            for len in [1i64, 2, 5] {
+                for s in (0..120i64).step_by(3) {
+                    freeze_rows.push((3, s, len));
+                }
+                for s in [140i64, 180, 220] {
+                    freeze_rows.push((3, s, len));
+                }
+            }
+            let hold_cycle = d_occ() + 25;
+            let mut form_rows = Vec::new();
+            let mut a_ok = false;
+            let mut a_worst = 0i64;
+            for (form, fname) in [(0u8, "(a) NONE"), (2, "(b) ROTATION"), (3, "(b') STATIC PRIORITY")] {
+                let (mut multi, mut least_gap, mut wait, mut worst, mut rows, mut all, mut lost, mut out_max) = (0usize, i64::MAX, [0i64; 3], 0i64, 0usize, true, 0i64, 0i64);
+                let mut first_bad = String::new();
+                let mut eval = |o: &Out, what: &str| {
+                    rows += 1;
+                    multi += o.multi_pick.len();
+                    least_gap = least_gap.min(o.min_hold_gap);
+                    for l in 0..3 {
+                        wait[l] = wait[l].max(o.max_grant_wait[l]);
+                    }
+                    worst = worst.max(o.max_gap.0);
+                    out_max = out_max.max(o.max_nappers_out);
+                    lost += past(o);
+                    let good = ok(o) && o.ring_mismatch == 0 && o.x_conflict == 0 && past(o) == 0 && o.min_hold_gap > hold_cycle;
+                    if !good && first_bad.is_empty() {
+                        first_bad = format!("{what}: distinct {:?}, worst {} gt, sync {}, least hold gap {} gt", o.distinct.iter().skip(1).copied().collect::<Vec<_>>(), o.max_gap.0, o.ring_mismatch, o.min_hold_gap);
+                    }
+                    all &= good;
+                };
+                for (cyc, extra) in [(333i64, 0i64), (197, 0), (197, 40), (197, 120), (168, 0), (168, 40), (168, 120)] {
+                    let mut c = sensed_cfg("a one-pick-per-REL form", false, cyc, extra);
+                    c.grant_form = form;
+                    eval(&run(&c), &format!("cycle {cyc} + {extra}"));
+                }
+                for &fz in &freeze_rows {
+                    let mut c = sensed_cfg("a one-pick-per-REL form, a true freeze", false, 333, 0);
+                    c.grant_form = form;
+                    c.freeze = vec![fz];
+                    eval(&run(&c), &format!("a {}-REL freeze at farm REL {} of night {}", fz.2, fz.1, fz.0));
+                }
+                for o3 in 0..N0 {
+                    for o7 in 0..N0 {
+                        let mut c = sensed_cfg("a one-pick-per-REL form, the T offsets swept", false, 197, 40);
+                        c.grant_form = form;
+                        c.t_start = [0, o3, o7];
+                        eval(&run(&c), &format!("T at 0 / {o3} / {o7}"));
+                    }
+                }
+                if form == 3 {
+                    a_ok = all;
+                    a_worst = worst;
+                }
+                form_rows.push(format!("{fname} ({rows} rows): RELs carrying two grants {multi}, the least arrival gap at the second hold {least_gap} gt (its cycle {hold_cycle} gt), the longest wait per lane from a refused REQ to its grant {:?} RELs ({:?} gt; lane 7's {} RELs), the worst interval {worst} gt, villager-gt past 24,000 {lost} (golems lost per day {}), the most nappers picked and not back at their siding {out_max} (the record's depth bound), every row passing: {all}{}", wait, wait.map(|w| w * 100), wait[2], if lost == 0 { "0" } else { "> 0" }, if first_bad.is_empty() { String::new() } else { format!(" (first miss: {first_bad})") }));
+            }
+            let n_rows = 7 + freeze_rows.len() + (N0 * N0) as usize;
+            let w = v.bar_n("ctl-pick: THE SENSED POINTER under (b') STATIC PRIORITY (lane -1 over 3 over 7, stateless: the smallest passing one-pick-per-REL form) over the sweep, true whole-farm freezes at every 3rd REL of a night and every T starting offset: the nap bars, the ring in sync, 0 golems lost, never two nappers inside one second-hold cycle", n_rows, a_ok);
+            lines.push(format!("  THE ONE-PICK-PER-REL FORMS (the sensed ring; the same nap model, the same {n_rows} rows each): {}: (b')'s worst interval {a_worst} gt: {w}", form_rows.join("; ")));
+            let n_pts = freeze_rows.len();
+            // (THE TIMING CORNER (ironspec 12:02p (1)): every circuit entry processed after the same REL's pops (any shift of
+            // an entry past a pop, 2 gt included), at every point of the sweep: the results and the ring's sync)
+            let mut corner = Vec::new();
+            let mut corner_ok = true;
+            for (cyc, extra) in [(333i64, 0i64), (197, 0), (197, 120), (168, 0), (168, 120)] {
+                let mut c = sensed_cfg("the sensed ring, entries after the pops", false, cyc, extra);
+                c.late_entries = true;
+                let o = run(&c);
+                let good = ok(&o) && o.ring_mismatch == 0 && o.x_conflict == 0 && o.type_order_mismatch == 0;
+                corner_ok &= o.ring_mismatch == 0 && o.type_order_mismatch == 0 && o.x_conflict == 0;
+                corner.push(format!("cycle {cyc} + {extra}: distinct {:?}, worst {} gt, sync {}, type order {}, stalls {}, the shallowest lane {:?}{}", o.distinct.iter().skip(1).copied().collect::<Vec<_>>(), o.max_gap.0, o.ring_mismatch, o.type_order_mismatch, o.stalls, o.min_depth, if good { "" } else { " MISSES" }));
+                let mut r = design("the identity pointer, entries after the pops", 0, None);
+                r.held = 0;
+                r.max_picks_per_rel = 1;
+                r.bed_cycle = cyc;
+                r.rs_extra = extra;
+                r.late_entries = true;
+                let ro = run(&r);
+                corner.push(format!("  (the identity pointer there: distinct {:?}, worst {} gt)", ro.distinct.iter().skip(1).copied().collect::<Vec<_>>(), ro.max_gap.0));
+            }
+            let sc = v.scope("ctl-pick: the sensed pointer with EVERY circuit entry after the same REL's pops (a stress row, not the +-2 gt corner)", &format!("the entries (the S-bend D presses: slot l's J(l) arrival REL + {} / {} / {} + the branch) precede the same lane's next pop (REL + 200 / 217 / 227) by >= ~37 gt, so a +-2 gt shift never reorders them and the REL model's order stands; this row delays EVERY entry past those pops (every rejoin chance resolved late): both pointer forms then reach a worst interval of 24,000+ gt: the nap bar's margin depends on the rejoin race (a returning napper vs its predecessor's entry), the composed battery's gt-level corner (step b) judges it; all rows in sync: {corner_ok}", crate::ctlcredit::SLOT_T[0][0], crate::ctlcredit::SLOT_T[1][1], crate::ctlcredit::SLOT_T[2][2]));
+            lines.push(format!("  THE ENTRIES-AFTER-THE-POPS STRESS ROW (every rejoin chance resolved late; not the +-2 gt corner): {}: {sc}", corner.join("; ")));
+            let w = v.bar("ctl-pick: THE FORCED IDENTITY-PEEK TEST: the carts' ids permuted inside each lane leave the sensed pointer's results unchanged at every point", forced_ok);
+            lines.push(format!("  THE FORCED TEST (ids permuted, slot i carrying id l * 8 + 7 - i): every point unchanged: {w}"));
+            let mut idc = design("the identity pointer (control)", 0, None);
+            idc.held = 0;
+            idc.max_picks_per_rel = 1;
+            let a = run(&idc);
+            idc.relabel = true;
+            let b = run(&idc);
+            let bites = a.distinct != b.distinct || a.max_gap.0 != b.max_gap.0 || a.naps.iter().map(|n| n.len()).collect::<Vec<_>>() != b.naps.iter().map(|n| n.len()).collect::<Vec<_>>();
+            let c = v.control("ctl-pick CONTROL (the parent 11:49): THE IDENTITY POINTER (target = the picked cart's id + 5) under the same permutation CHANGES its picks by name", 1, bites).to_string();
+            lines.push(format!("  CONTROL (the identity pointer, ids permuted): distinct {:?} -> {:?}, worst {} -> {} gt: {c}", a.distinct.iter().skip(1).copied().collect::<Vec<_>>(), b.distinct.iter().skip(1).copied().collect::<Vec<_>>(), a.max_gap.0, b.max_gap.0));
         }
         let w = v.bar("ctl-pick: THE WAY-IN ROOM TERM never defers a pick on the normal nights (the design unchanged: 24 distinct, every interval < 24,000 - margin) and the way-in holds at most 3", ok(&on) && on.wayin_deferred == 0 && on.max_wayin <= 3);
         lines.push(format!("  THE WAY-IN on the normal nights (the room term on): at most {} nappers in the way-in at once (margin {} vs its 3 places: the front + P1 + the second hold (9,24,7)), the most dispatched-not-departed {}, picks deferred by it {}: {w}", on.max_wayin, 3i64 - on.max_wayin as i64, on.max_open, on.wayin_deferred));
@@ -1163,8 +1513,8 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
         // / OCCUPIED), the longest front wait; the hardware-only check: every room-count change applied at or after its
         // sensed event (a negative lag = a read of a future tick, failing by name))
         let lag_bad = on.event_lag.iter().filter(|(at, ev)| at < ev).count();
-        let w = v.bar_n("ctl-pick: THE HARDWARE-ONLY CHECK (ironspec 10:02a (2)): every room-count change on the normal nights applied at or after its sensed event's tick (no read of a future tick)", on.event_lag.len(), lag_bad == 0 && !on.event_lag.is_empty());
-        lines.push(format!("  THE WAY-IN under (B): the longest P1 wait past its earliest release {} gt, the longest front wait {} gt; room-count changes {} (applied before their event: {lag_bad}): {w}", on.max_hold_wait, on.max_front_wait, on.event_lag.len()));
+        let sc = v.scope("ctl-pick: the room count's hardware-only check (every room-count change at or after its sensed event)", "the room count is SUPERSEDED (ironspec 11:48a / the parent 11:57): no cells, no bar (G1 on 568bfd522 (2) dissolves with it)");
+        lines.push(format!("  THE WAY-IN under (B): the longest P1 wait past its earliest release {} gt, the longest front wait {} gt; (the superseded room count's changes {}, before their event: {lag_bad}): {sc}", on.max_hold_wait, on.max_front_wait, on.event_lag.len()));
         let night = 3 * DAY * 100;
         let (mut worst, mut worst_at, mut n, mut miss) = (0usize, String::new(), 0usize, Vec::new());
         let (mut worst_off, mut off_at) = (0usize, String::new());
@@ -1192,17 +1542,63 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
                 }
             }
         }
-        let w = v.bar_n("ctl-pick: THE STOP STALLED 2,000 / 6,000 gt at every phase of a night (every 250 gt): THE WAY-IN NEVER HOLDS A 4th NAPPER (the room term: dispatched-minus-departed < 3, the pick edges up, the front emptying down)", n, miss.is_empty() && worst <= 3);
-        lines.push(format!("  THE WAY-IN with the stop stalled ({n} rows): at most {worst} nappers in the way-in ({worst_at}){}: {w}", if miss.is_empty() { String::new() } else { format!(" ({})", miss.join(" | ")) }));
-        // ((B)'s two prints, judged (ironspec 10:18a (2) / (3), G1 10:11): THE RESET -> SET LAG (the next napper's SET after
-        // the previous one's RESET press, over the normal nights and every stall row, the queued napper let down at the
-        // hold's earliest opening): > 0 everywhere; A NAPPER WAITING BEHIND THE HOLD (reaching it while the previous one
-        // is still there, so resting on the flat top (9,25,8)): none, the room cap (the front + P1 + the hold) keeping a
-        // newly dispatched napper's arrival after P1's release has freed the hold)
-        let w = v.bar_n("ctl-pick: (B)'s RESET -> SET LAG over the normal nights and every stall row is > 0 (the SET pulse never lands while the RESET level holds) and NO NAPPER WAITS BEHIND THE HOLD", n + 1, least_lag.is_some_and(|l| l > 0) && behind == 0);
-        lines.push(format!("  (B): the least RESET -> SET lag {least_lag:?} gt; nappers waiting behind the hold {behind}: {w}"));
-        let c = v.control("ctl-pick CONTROL (ironspec 06:31 (1)): the way-in room term off, the stop stalled: A 4th NAPPER DISPATCHED INTO A FULL WAY-IN by name (b8949c96's spill)", 1, worst_off > 3).to_string();
-        lines.push(format!("  CONTROL (no room term): at most {worst_off} nappers in the way-in ({off_at}): {c}"));
+        let sc = v.scope("ctl-pick: the stop stalled 2,000 / 6,000 gt (a long pause) and the way-in's 4th napper", crate::ctlcredit::OUT_WHY);
+        lines.push(format!("  OUT (a long pause): THE WAY-IN with the stop stalled ({n} rows): at most {worst} nappers in the way-in ({worst_at}){}: {sc}", if miss.is_empty() { String::new() } else { format!(" ({})", miss.join(" | ")) }));
+        // ((B)'s two prints, judged on NORMAL rows (G1 on 8e3d5f208 (2); the stall rows are a long pause, OUT): THE RESET ->
+        // SET LAG from the FALL of the previous napper's RESET level to the next napper's SET, over the normal nights and the
+        // no-hold sweep (the bed cycle 197 / 168 gt x (B)'s travel + 0 / 40 / 120): > 0 everywhere; A NAPPER WAITING BEHIND
+        // THE HOLD (reaching it while the previous one is still there, resting on the flat top (9,25,8)): none. Its CONTROL:
+        // the hold's (9,22,3) term dropped (`hold_no_exit`) on the same rows: a SET inside the RESET level by name)
+        let _ = (least_lag, behind);
+        let (mut nl, mut nb, mut nrows) = (on.reset_set_lag, on.behind_hold, 1usize);
+        let mut cl: Option<i64> = {
+            let mut cc = design("normal, the hold without its (9,22,3) term", 0, None);
+            cc.hold_no_exit = true;
+            run(&cc).reset_set_lag
+        };
+        for cyc in [197i64, 168] {
+            for extra in [0i64, 40, 120] {
+                let mut c = design("the no-hold sweep", 0, None);
+                c.bed_cycle = cyc;
+                c.rs_extra = extra;
+                let o = run(&c);
+                nrows += 1;
+                if let Some(l) = o.reset_set_lag {
+                    nl = Some(nl.map_or(l, |m| m.min(l)));
+                }
+                nb += o.behind_hold;
+                c.hold_no_exit = true;
+                if let Some(l) = run(&c).reset_set_lag {
+                    cl = Some(cl.map_or(l, |m| m.min(l)));
+                }
+            }
+        }
+        // (the PLANTED row where the (9,22,3) term is load-bearing: three nappers picked in one REL on b8949c96's measured
+        // 16-gt spacing (the legs 132 / 148 / 164), so the second and third reach the hold while the one before is still at
+        // P1: the design holds each until the RESET level falls; the control lets it pass at the RESET press)
+        let mut lags_planted = Vec::new();
+        for g in [100i64, 500, 900] {
+            let mut c = design("planted: three picks in one REL, the measured spacing", 0, None);
+            c.force_pick = vec![(g, 0), (g, 1), (g, 2)];
+            c.leg_override = Some([132, 148, 164]);
+            let o = run(&c);
+            nrows += 1;
+            if let Some(l) = o.reset_set_lag {
+                nl = Some(nl.map_or(l, |m| m.min(l)));
+            }
+            c.hold_no_exit = true;
+            let oc = run(&c);
+            if let Some(l) = oc.reset_set_lag {
+                cl = Some(cl.map_or(l, |m| m.min(l)));
+            }
+            lags_planted.push(format!("at gt {g}: {:?} (control {:?})", o.reset_set_lag, oc.reset_set_lag));
+        }
+        let w = v.bar_n("ctl-pick: (B)'s RESET -> SET LAG (from the RESET level's FALL) over the normal nights, the no-hold sweep and the planted three-in-one-REL rows is > 0 (the SET never lands while the reset-dominant RESET holds) and NO NAPPER WAITS BEHIND THE HOLD on the normal rows", nrows, nl.is_some_and(|l| l > 0) && nb == 0);
+        lines.push(format!("  (B): the least lag from the RESET level's fall to the next SET {nl:?} gt over {nrows} rows (the planted rows {}); nappers waiting behind the hold on the normal rows {nb}: {w}", lags_planted.join(", ")));
+        let c = v.control("ctl-pick CONTROL (G1 on 8e3d5f208 (2)): the second hold WITHOUT its (9,22,3) term on the same rows: A SET INSIDE THE RESET LEVEL by name (a lag <= 0)", 1, cl.is_some_and(|l| l <= 0)).to_string();
+        lines.push(format!("  CONTROL (the hold without its (9,22,3) term): the least lag {cl:?} gt: {c}"));
+        let sc = v.scope("ctl-pick: the way-in room term's control (a 4th napper dispatched into a full way-in with the stop stalled)", "the room count is SUPERSEDED (ironspec 11:48a / the parent 11:57: it defers no pick on the normal nights); the stall is a long pause (OUT)");
+        lines.push(format!("  OUT (the room count superseded): no room term, the stop stalled: at most {worst_off} nappers in the way-in ({off_at}): {sc}"));
         // (G1 06:35's three rows on the room count (an ORDER MACHINE) under the token rule as ruled (the count goes down
         // once per TOKEN SET: the departure press while A_SEEN, or the recovery; no quiet resync, G1 07:39 (1)), MODELLED
         // FROM SENSED EDGES AND LEVELS (G1 on 16e8535f7 (4) / (5)): (a) A MISSED DEPARTURE PRESS: the token's RECOVERY
@@ -1329,10 +1725,13 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
                     }
                 }
             }
-            let w = v.bar_n("ctl-pick: BUNCHED PICKS (three planted in one REL with the way-in empty, the model's legs and b8949c96's measured 16-gt spacing) under THE PICK-RATE RULE (one pick per REL): NO NAPPER WAITS BEHIND THE SECOND HOLD, the way-in never holds a 4th", rows_b, behind_d == 0 && wayin_d <= 3);
-            lines.push(format!("  BUNCHED PICKS under one pick per REL ({rows_b} rows): nappers behind the hold {behind_d}, at most {wayin_d} in the way-in: {w}"));
-            let c = v.control("ctl-pick CONTROL (b8949c96 10:57): today's form (no pick-rate rule), three picks in one REL on the measured 16-gt spacing: A NAPPER BEHIND THE SECOND HOLD by name (b8949c96's redsim rest on lane 7's R hold)", 1, behind_c > 0).to_string();
-            lines.push(format!("  CONTROL (no pick-rate rule): {behind_c} nappers behind the hold: {c}"));
+            // (G1 on 10a359319 (3): this model FORGETS a planted pick the rule refuses (no deferral modelled), so these rows
+            // can't carry a fairness claim: cc767b78's arbiter car owns the deferral, its fairness and the priced sweep where
+            // the rule fires; printed here as design inputs)
+            let sc = v.scope("ctl-pick: bunched picks under one pick per REL", "the deferral and its fairness are cc767b78's arbiter car's (G1 on 10a359319 (3)); this model forgets a refused planted pick");
+            lines.push(format!("  PRINTED: BUNCHED PICKS under one pick per REL ({rows_b} rows, a refused planted pick forgotten): nappers behind the hold {behind_d}, at most {wayin_d} in the way-in: {sc}"));
+            let sc = v.scope("ctl-pick: today's form (no pick-rate rule), three picks in one REL on the measured 16-gt spacing", "b8949c96's redsim rest on lane 7's R hold is the evidence for the rule (ironspec 11:05a); printed");
+            lines.push(format!("  PRINTED (no pick-rate rule): {behind_c} nappers behind the hold: {sc}"));
             let o1 = run(&{
                 let mut c1 = design("normal, one pick per REL", 3, None);
                 c1.max_picks_per_rel = 1;
@@ -1358,8 +1757,8 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
                     pts.push(format!("{cyc} + {extra}: {} multi-pick RELs -> {} deferred, worst {} gt{}", o0.multi_pick.len(), o1.rate_deferred, o1.max_gap.0, if ok(&o1) { "" } else { " MISSES" }));
                 }
             }
-            let w = v.bar_n("ctl-pick: THE PICK-RATE RULE (one pick per REL) keeps the nap bars over the no-hold sweep (the cycle 197 / 168 gt, (B)'s travel + 0 / 20 / 40 / 60 / 80 / 120 gt)", 12, all_ok);
-            lines.push(format!("  THE PICK-RATE RULE over the no-hold sweep: {}: {w}", pts.join("; ")));
+            let sc = v.scope("ctl-pick: the pick-rate rule over the no-hold sweep", &format!("the rule never fires on these points (0 multi-pick RELs at each), so a bar here would be vacuous (G1 on 10a359319 (3)); cc767b78's arbiter car prices it where it fires; every point meets the nap bars: {all_ok}"));
+            lines.push(format!("  PRINTED: THE PICK-RATE RULE over the no-hold sweep ({} points): {}: {sc}", pts.len(), pts.join("; ")));
         }
         // (ironspec 06:28 (B), G1 06:29: RS_READY AT THE BALL EXIT (7,-3,4): its cost per visit (the previous rider's
         // travel from the R string (4,0,5) to the ball exit, 58f770cc measuring) against the nap margin: the design's

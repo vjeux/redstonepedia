@@ -73,6 +73,13 @@ File: `designs/farms/iron/carousel-assembly/wip/controller/f1q2-day1-ctl-wayin.t
   (7,23..25,6) or (8,23..25,7); (8,23,7) keep-empty; lane 7's merge C (7,24,7) is a 2-connection plain curve.
 - THE ARRIVAL READ: `detector_rail[ascending_south]` (9,23,6), read by dust (8,23,6) on glass (8,22,6) (a corner east +
   north), its line north along x 8 at y 23 on glass (8,22,5..3), ending at (8,23,3) (its pointing target (8,23,2): air).
+- KEPT AS NAMED (G1 11:43): (8,23,2) AIR or GLASS, never a conductor (booster 2's lit torch (8,22,2) strongly powers it,
+  and a conductor would hold the read's end dust (8,23,3) on: H2 never opening); (9,22,6) GLASS (the detector's support:
+  a pressed (9,23,6) strongly powers it; its power-out: (9,22,6) inert, (8,23,6) the read, (9,23,5) / (9,24,6) air, the
+  hold (9,24,7) diagonal); (9,25,8) H2's upper connection, a PLAIN rail (no powered rail there: one would be powered
+  whenever H2 is); (8,25,8) the drive dust's south pointing target: AIR; (2,-1,8) line A's input: KEPT FREE until the
+  core's port lands. Ownership in rev 3.1: the (B) cells (9,24,7) / (9,23,6) belong to vcompose's stand-in part (owner
+  day-1, then b8949c96's way-in car); b8949c96's delta and V's leg cede them by `# stand-in:` marks (G1's pick).
 - THE LATCH (P1 OCCUPIED): SET by the 4-gt edge of the read; RESET by P1's exit detector (9,22,3), a level,
   reset-dominant. OCCUPIED = the latch delayed D = 16 gt (two delay-4 repeaters). HOLD OPEN = NOT latch AND (9,23,6)
   unpowered AND (9,22,3) unpowered -> the x-8 drive.
@@ -103,12 +110,32 @@ File: `designs/farms/iron/carousel-assembly/wip/controller/f1q2-day1-ctl-lines.t
 - THE STATION's D LINES: lanes -1 / 3 from F′'s taps into (1,-1,5) / (5,-1,5) (a solid conductor read from below by dust,
   the line going north at y -2, off A4's glass and torch faces and the napper lift's water glass); lane 7 from (7,0,2).
   Pending dfb89499's original-station run (if A6 is stripped, the D lines read the original station's D).
-- THE STOP's LINES (V's loop frame: the (b+) way-in file's module-frame cells + (0,+7,0), V's stop sitting at local +
-  (0,-20,-1); vcompose confirms): the slope hold's `repeater[facing=north]` (1,-22,3) on glass (1,-23,3) into the slime
-  (1,-22,4) under the slope hold (1,-21,4); the park drive's input (3,-20,3) into the slime (2,-20,3); DAY's line end into
-  R1's repeater (5,-12,-2); NOT-ready (8,-14,-5).
+- THE STOP's INPUT CELLS (58f770cc 11:42 / 12:06, the re-lay car's latch-form stop, V = stop-local + (0,-20,-1); NO slope
+  hold (the exit hold removed 05:33 / 06:11): NO tap line into (1,-21..-23,3..4); NO PARK line (PARK is made inside the
+  stop file: the latch's Q -> the OR line -> its repeater -> the park slime): K's drive under K's slime V (-2,-22,2); the
+  shutter's drive V (-5,-21,6) (the shutter at V (-5,-21,7)); RLS_IN V (-1,-22,-3) and ARM_IN V (6,-22,-6) (the latch row
+  at V z -6): all subsystem 5's outputs, so line E carries no stop end. KEEP-FREE: V (1,-21,-1) and V (0,-21,0) (the OR
+  line's step-down links). DAY's line end into R1's repeater (5,-12,-2); NOT-ready (8,-14,-5).
 - Normal rows: each line's delay from its tap to its target printed against the interface's timing; world reloads at
   every phase of each pulse.
+
+## Subsystem 5: THE STOP's LOGIC (ctl-shutter's form of record) -> 58f770cc (the parent 11:45)
+
+File: `designs/farms/iron/carousel-assembly/wip/controller/f1q2-day1-ctl-stop.txt` (or inside 58f770cc's stop file).
+
+- From ctl-shutter (crates/mobfarm/src/ctlshutter.rs, its header): the release keys on sustained presence, anchored at the
+  bed-head pulse: SINCE (S = the pulse AND P_STRING's onset, R = NOT P_STRING), WIN (S = the pulse through the D line 8,
+  R = the pulse or the pulse through the W line 48), PARKED = SENSED AND COOL, RLS = P_STRING AND SINCE AND WIN AND SENSED
+  AND COOL (one pulse a visit); SO (slept once: S the pulse, R RLS); OPEN (S = PARKED AND SO AND NOT P_STRING; R = RLS OR
+  P_STRING), SHUT = NOT OPEN. SENSED (ironspec 11:57a, accepted): set by the PARK STRING's first press after ARM (V
+  (1,-19,2)), through d taken from the string's measured press -> rest band at +-2 gt (58f770cc prints it); reset at RLS
+  or ARM's edge. COOL: set by ARM's edge through the 52 tap, reset at RLS or ARM's edge. PARK is the stop file's own
+  (the latch form: [RLS + 2, RLS + 26)).
+- Inputs (V's frame, 58f770cc 11:55): the bed-head observer pulse V (-3,-21,3); P_STRING V (-2,-19,3) through its east
+  hook V (-1,-19,3); the park string V (1,-19,2).
+- Outputs: the shutter's drive V (-5,-21,6); K's drive V (-2,-22,2); RLS_IN V (-1,-22,-3); ARM_IN V (6,-22,-6). RLS also
+  feeds cc767b78's record (its FIFO shift).
+- Normal rows: ctl-shutter's normal rows (every phase of a visit, world opens), wired vs bench.
 
 ## ETAs (as each owner states them)
 

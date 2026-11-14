@@ -89,7 +89,7 @@ pub const NET_SRC: usize = usize::MAX - 1;
 /// THE SCOPE RESET (ironspec 11:20a, on vjeux's normal-operation rule of Nov 12 04:07Z): rows for OUT cases (fault
 /// injection, lost credits and their recovery, strays, jams, carts late beyond the +-2 gt of real timing variation) are
 /// not judged: each is declared scoped by name (the Verdict's scope list), its print kept.
-const OUT_WHY: &str = "OUT: not normal operation (ironspec 11:20a scope reset)";
+pub const OUT_WHY: &str = "OUT: not normal operation (ironspec 11:20a scope reset)";
 fn out_bar(v: &mut Verdict, name: &str, _ok: bool) -> String {
     v.scope(name, OUT_WHY)
 }
