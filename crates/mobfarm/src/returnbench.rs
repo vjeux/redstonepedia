@@ -2549,17 +2549,20 @@ fn write_design(o: &ReturnOpts, spec: &FarmSpec, w: &redsim::world::World, path:
             let verdict = if declared {
                 format!("switched by its declared lever (NW on, NE off; now {})", stored.name())
             } else if held {
-                // (ironspec 10:12 PT's `# shape:` form: "north_west; held: powered via the slime by the
-                // torch (x,-2,7) (CONSTANT: on glass); build: torch last; repair: re-place the torch")
+                // (ironspec 10:12 PT's `# shape:` form, in settle-check's grammar (vcompose 10:38: main's V rev 2.1
+                // failed settle-check by parse on the free form): `x,y,z=STATE (held: powered via the slime (x,-1,7)
+                // by the torch (x,-2,7), CONSTANT, on glass; build: the torch last; repair: re-place the torch)`, the
+                // STATE the stored block state in full (the parser reads it as a block), entries split on ';' outside
+                // parentheses)
                 let below = p.below();
                 let under = below.below();
                 let holder = if w.get(below).to_string() == "minecraft:slime_block" && w.get(under).to_string().starts_with("minecraft:redstone_torch") {
                     let base = w.get(under.below()).to_string();
-                    format!("powered via the slime {} by the torch {} (CONSTANT: on {})", cell(below), cell(under), base.trim_start_matches("minecraft:"))
+                    format!("powered via the slime {} by the torch {}, CONSTANT, on {}", cell(below), cell(under), base.trim_start_matches("minecraft:"))
                 } else {
                     format!("powered (its sources: {})", if m2.is_empty() { "none named".to_string() } else { m2.join(", ") })
                 };
-                shapes.push(format!("{} {}; held: {holder}; build: the torch last; repair: re-place the torch", cell(p), stored.name()));
+                shapes.push(format!("{},{},{}={} (held: {holder}; build: the torch last; repair: re-place the torch)", p.x, p.y, p.z, w.get(p).to_string().trim_start_matches("minecraft:")));
                 format!("held by its power: {holder}")
             } else if stored == j.unpowered && !j.signal {
                 "settled (unpowered)".to_string()
@@ -2581,7 +2584,7 @@ fn write_design(o: &ReturnOpts, spec: &FarmSpec, w: &redsim::world::World, path:
                 let mine: Vec<String> = stored.name().split('_').map(|s| s.to_string()).collect();
                 let third: Vec<String> = j.arms.iter().map(|a| a.name().to_string()).filter(|a| !mine.contains(a)).map(|a| at(&a)).collect();
                 if mine.len() == 2 {
-                    shapes.push(format!("{} rail {} (build step: lay it after its arms {} and {}, before {}; held by its build step alone: no source powers it, and no signal source's update reaches it ({}), so nothing re-settles it in operation; one that did would re-settle it {})", cell(p), stored.name(), at(&mine[0]), at(&mine[1]), third.join(" and "), if m2.is_empty() { "none in the bench's world".to_string() } else { m2.join(", ") }, j.unpowered.name()));
+                    shapes.push(format!("{},{},{}={} (a placement-order rail T; build step: lay it after its arms {} and {}, before {}; held by its build step alone: no source powers it, and no signal source's update reaches it ({}), so nothing re-settles it in operation; one that did would re-settle it {})", p.x, p.y, p.z, w.get(p).to_string().trim_start_matches("minecraft:"), at(&mine[0]), at(&mine[1]), third.join(" and "), if m2.is_empty() { "none in the bench's world".to_string() } else { m2.join(", ") }, j.unpowered.name()));
                 }
                 format!("placement order (settles {} unpowered): lay it after its two designed arms, before the third", j.unpowered.name())
             };
@@ -2871,7 +2874,10 @@ fn write_design(o: &ReturnOpts, spec: &FarmSpec, w: &redsim::world::World, path:
     }
     head.extend(ts.iter().map(|t| format!("# {t}")));
     head.push(format!("# placement-order cells (not Ts): {}", if place_order.is_empty() { "none".to_string() } else { place_order.join("; ") }));
-    head.push(format!("# shape: {}", if shapes.is_empty() { "none".to_string() } else { shapes.join("; ") }));
+    // (settle-check's grammar has no "none": the line is left out when no T is declared)
+    if !shapes.is_empty() {
+        head.push(format!("# shape: {}", shapes.join("; ")));
+    }
     let text = format!("{}\n{}", head.join("\n"), d.to_text());
     let back = mctas::design::Design::parse(&text).map_err(|e| format!("parse(write()): {e}"))?;
     if back.blocks != d.blocks {
