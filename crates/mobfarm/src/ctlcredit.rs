@@ -4275,15 +4275,13 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
         let wm = v.bar_n("ctl-credit: R6's swept train-16 runs: no batch cart and no napper misrouted", sw.runs, sw.misrouted == 0);
         lines.push(format!("    misrouted runs {} of {}{}: {wm}", sw.misrouted, sw.runs, sw.mis_label().map_or(String::new(), |e| format!(" (e.g. {e})"))));
         lines.push(format!("{PHYS_PIN}{}", sw.pin()));
-        // (a FINDING, PRINTED, not judged (K's halves are ironspec's to rule): a constraint short of its ruled slack, with
-        // the same rows re-run at K's late half raised by (ii)'s deficit, so the ruling has the measured alternative)
-        if let Some(l) = sw.least(1) {
-            let deficit = PHYS_C[1].1 + slack - l;
-            if deficit > 0 {
-                let kh2 = k_half() + deficit;
-                let wf = phys_sweep(Defects { k_half: Some(kh2), ..Default::default() }, &OPENS, &jits, &jits, true);
-                lines.push(format!("  FINDING (PRINTED, not judged: K's halves are ironspec's): (ii) is {deficit} gt short of its ruled slack; the same {} rows with K's late half {kh2} (the early half {}): (i) {} / (ii) {} / (iii) {} (the slacks {} / {} / {} against the ruled {slack}), misrouted runs {}", wf.runs, k_early(), wf.least(0).map_or("-".into(), |x| x.to_string()), wf.least(1).map_or("-".into(), |x| x.to_string()), wf.least(2).map_or("-".into(), |x| x.to_string()), wf.least(0).map_or("-".into(), |x| (x - PHYS_C[0].1).to_string()), wf.least(1).map_or("-".into(), |x| (x - PHYS_C[1].1).to_string()), wf.least(2).map_or("-".into(), |x| (x - PHYS_C[2].1).to_string()), wf.misrouted));
-            }
+        // (job 5 (d), K_HALF 11 ADOPTED ironspec 15:00r: THE SAME SWEEP at the superseded late half 10 (a literal model
+        // override, labelled), printed BESIDE the interface's value; not judged)
+        {
+            let old = 10i64;
+            let wf = phys_sweep(Defects { k_half: Some(old), ..Default::default() }, &OPENS, &jits, &jits, true);
+            let fig = |s: &PhysSweep| (0..3).map(|c| s.least(c).map_or("-".to_string(), |x| format!("{x} (slack {})", x - PHYS_C[c].1))).collect::<Vec<_>>().join(" / ");
+            lines.push(format!("  K_HALF SIDE BY SIDE (the same {} swept runs, the ruled slack {slack}; (i) / (ii) / (iii)): THE INTERFACE's {}: {}, misrouted runs {}; THE SUPERSEDED {old} (a literal model override): {}, misrouted runs {}", sw.runs, k_half(), fig(&sw), sw.misrouted, fig(&wf), wf.misrouted));
         }
         // (G1 on 40a74308f, non-blocking: K_WIDE derived from K_EARLY + the nominal clearance + 1, the derivation printed;
         // (i) has no J(7) term: J(7) never switches between slot 3 and the lane-7 napper, both branch)
