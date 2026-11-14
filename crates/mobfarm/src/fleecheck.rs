@@ -6831,7 +6831,7 @@ pub fn consumer_hits(w: &redsim::World, c: BlockPos, no_qc: bool) -> Result<(Vec
 /// it (`consumer_hits`, power-into's reach), each classed: NOTHING in the design powers it, only STAND-IN cells (the
 /// design's `# stand-in:` and `emulated:` cells), or real sources. Returns the lines, the unsourced count and the
 /// stand-in-only count.
-pub fn consumer_census(spec: &FarmSpec, standins: &[BlockPos]) -> Result<(Vec<String>, usize, usize), String> {
+pub fn consumer_census(spec: &FarmSpec, standins: &[BlockPos], passive: &[(BlockPos, String)]) -> Result<(Vec<String>, usize, usize), String> {
     let w = settled_world_void(spec)?;
     let name = |q: BlockPos| w.get(q).to_string().trim_start_matches("minecraft:").to_string();
     // (a plain rail takes power only at a junction (3 or more potential connections: a T, power-switched in 26.3); a
@@ -6847,8 +6847,22 @@ pub fn consumer_census(spec: &FarmSpec, standins: &[BlockPos]) -> Result<(Vec<St
     cells.sort_by_key(|p| (p.y, p.z, p.x));
     cells.dedup();
     let (mut lines, mut none, mut stand) = (Vec::new(), 0usize, 0usize);
+    let mut n_passive = 0usize;
     for c in &cells {
         let (hits, _, _, _) = consumer_hits(&w, *c, false)?;
+        // (ironspec Nov 14 14:36c / 14:43c: a consumer DECLARED PASSIVE, in the existing `update-only-ts:` key (a T
+        // state-stable, never switched), with its evidence row: read as passive when nothing powers it; one that a source
+        // CAN power is a wrong declaration, flagged)
+        if let Some((_, why)) = passive.iter().find(|(p, _)| p == c) {
+            if hits.is_empty() {
+                n_passive += 1;
+                lines.push(format!("  passive {},{},{} ({}): passive (declared in `update-only-ts:`, evidence: {why})", c.x, c.y, c.z, name(*c)));
+            } else {
+                none += 1;
+                lines.push(format!("  FLAG {},{},{} ({}): declared passive (`update-only-ts:`) but a source can power it: {}", c.x, c.y, c.z, name(*c), hits.iter().map(|(_, t)| t.clone()).collect::<Vec<_>>().join("; ")));
+            }
+            continue;
+        }
         let class = if hits.is_empty() {
             none += 1;
             "NOTHING in the design powers it"
@@ -6860,7 +6874,11 @@ pub fn consumer_census(spec: &FarmSpec, standins: &[BlockPos]) -> Result<(Vec<St
         };
         lines.push(format!("  {} {},{},{} ({}): {}", if class == "sourced" { "consumer" } else { "FLAG" }, c.x, c.y, c.z, name(*c), if hits.is_empty() { class.to_string() } else { format!("{class}: {}", hits.iter().map(|(q, t)| if standins.contains(q) { format!("{t} [STAND-IN]") } else { t.clone() }).collect::<Vec<_>>().join("; ")) }));
     }
-    lines.insert(0, format!("the consumer census (ironspec Nov 14 15:01p): {} powered consumer(s); {none} with NOTHING in the design powering it, {stand} powered only by STAND-IN cells ({} stand-in cell(s) declared)", cells.len(), standins.len()));
+    for (p, _) in passive.iter().filter(|(p, _)| !cells.contains(p)) {
+        none += 1;
+        lines.push(format!("  FLAG `update-only-ts:` {},{},{} names no powered consumer of the design (a stale passive declaration)", p.x, p.y, p.z));
+    }
+    lines.insert(0, format!("the consumer census (ironspec Nov 14 15:01p / 14:36c): {} powered consumer(s); {none} FLAGGED with NOTHING in the design powering it (or a wrong / stale passive declaration), {stand} powered only by STAND-IN cells ({} stand-in cell(s) declared), {n_passive} DECLARED PASSIVE with their evidence", cells.len(), standins.len()));
     Ok((lines, none, stand))
 }
 
@@ -12151,6 +12169,42 @@ mod gate_tests {
         assert!(l[zombie].contains("1 target(s) reached") && l[zombie + 1].starts_with("  REACHED 2,1,2 (rail"), "the planted opening lets the baby zombie in, by name: {l:?}");
         assert!(l.iter().any(|x| x.starts_with("(a) a spider") && x.contains("0 target(s) reached")), "the 1 x 1 opening stops the spider: {l:?}");
         assert!(l.iter().any(|x| x.starts_with("(c) creepers: NOT JUDGED")), "no AFK spot: creepers NOT JUDGED");
+    }
+
+    /// (ironspec Nov 14 15:01p / 14:36c, part 98) the consumer census: a rail T nothing powers is FLAGGED; DECLARED PASSIVE
+    /// (the `update-only-ts:` cells, with the evidence) it reads "passive (declared …, evidence: …)"; a powered rail fed
+    /// by a lever is sourced, or "only STAND-IN cells" when that lever is a stand-in; a passive declaration on a sourced
+    /// consumer, or on a cell holding no consumer, is FLAGGED
+    #[test]
+    fn the_consumer_census_reads_passive_and_stand_in_declarations() {
+        let b = |x: i32, y: i32, z: i32| BlockPos::new(x, y, z);
+        let p = |s: &str| redsim::block::Block::parse(s).unwrap();
+        let mut blocks = Vec::new();
+        for x in -1..=6 {
+            for z in -1..=3 {
+                blocks.push((b(x, -1, z), p("minecraft:stone")));
+            }
+        }
+        // (a T at 1,0,1: rails west, east and south of it)
+        blocks.extend([
+            (b(0, 0, 1), p("minecraft:rail[shape=east_west,waterlogged=false]")),
+            (b(2, 0, 1), p("minecraft:rail[shape=east_west,waterlogged=false]")),
+            (b(1, 0, 2), p("minecraft:rail[shape=north_south,waterlogged=false]")),
+            (b(1, 0, 1), p("minecraft:rail[shape=south_east,waterlogged=false]")),
+            // (a powered rail at 5,0,1 with a lever beside it at 5,0,0)
+            (b(5, 0, 1), p("minecraft:powered_rail[powered=false,shape=north_south,waterlogged=false]")),
+            (b(5, 0, 0), p("minecraft:lever[face=floor,facing=east,powered=false]")),
+        ]);
+        let spec = redsim::entity::mob::farm::FarmSpec { blocks, entities: Vec::new(), output: b(3, 0, 3), lo: b(-1, -1, -1), hi: b(6, 2, 3), block_entities: Vec::new(), rock: false, nether: None, land: false };
+        let (l, none, stand) = super::consumer_census(&spec, &[], &[]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(none == 1 && stand == 0 && l.iter().any(|x| x.starts_with("  FLAG 1,0,1 (rail") && x.contains("NOTHING")) && l.iter().any(|x| x.starts_with("  consumer 5,0,1 (powered_rail") && x.contains("lever")), "{l:?}");
+        let why = "c3, never switched (the record of record's row)".to_string();
+        let (l, none, _) = super::consumer_census(&spec, &[], &[(b(1, 0, 1), why.clone())]).unwrap();
+        assert!(none == 0 && l.iter().any(|x| x.starts_with("  passive 1,0,1") && x.contains("evidence: c3, never switched")), "declared passive: {l:?}");
+        let (l, _, stand) = super::consumer_census(&spec, &[b(5, 0, 0)], &[(b(1, 0, 1), why.clone())]).unwrap();
+        assert!(stand == 1 && l.iter().any(|x| x.starts_with("  FLAG 5,0,1") && x.contains("only STAND-IN cells") && x.contains("[STAND-IN]")), "a stand-in lever: {l:?}");
+        let (l, none, _) = super::consumer_census(&spec, &[], &[(b(1, 0, 1), why.clone()), (b(5, 0, 1), why.clone()), (b(3, 0, 3), why)]).unwrap();
+        assert!(none == 2 && l.iter().any(|x| x.starts_with("  FLAG 5,0,1") && x.contains("declared passive") && x.contains("a source can power it")) && l.iter().any(|x| x.contains("3,0,3 names no powered consumer")), "wrong and stale passive declarations: {l:?}");
     }
 
     #[test]

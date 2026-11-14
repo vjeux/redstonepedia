@@ -15887,7 +15887,21 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             standins.sort_by_key(|p| (p.y, p.z, p.x));
             standins.dedup();
-            let (lines, _, _) = crate::fleecheck::consumer_census(&spec, &standins).map_err(|e| anyhow::anyhow!(e))?;
+            // (ironspec Nov 14 14:36c: the consumers DECLARED PASSIVE, the existing `update-only-ts: T+T=REASON` meta line,
+            // each T with its reason (the evidence row))
+            let mut passive: Vec<(redsim::pos::BlockPos, String)> = Vec::new();
+            if let Some(v) = _c.clock.design.meta.get("update-only-ts") {
+                for e in crate::pushscan::header_entries(&format!("# update-only-ts: {v}"), "update-only-ts:") {
+                    let (cs, reason) = e.split_once('=').ok_or_else(|| anyhow::anyhow!("update-only-ts {e}: T+T=REASON"))?;
+                    anyhow::ensure!(!reason.trim().is_empty(), "update-only-ts {e}: T+T=REASON (an empty reason)");
+                    for c in cs.split('+') {
+                        let v: Vec<i32> = c.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>().map_err(|err| anyhow::anyhow!("update-only-ts {e}: {err}"))?;
+                        anyhow::ensure!(v.len() == 3, "update-only-ts {e}: x,y,z+x,y,z=REASON");
+                        passive.push((redsim::pos::BlockPos::new(v[0], v[1], v[2]), reason.trim().to_string()));
+                    }
+                }
+            }
+            let (lines, _, _) = crate::fleecheck::consumer_census(&spec, &standins, &passive).map_err(|e| anyhow::anyhow!(e))?;
             for l in &lines {
                 println!("{l}");
             }
