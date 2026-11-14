@@ -133,7 +133,7 @@ pub static TYPES: &[TypeDef] = &[
         width: 0.6,
         height: 1.95,
         eye: 1.74,
-        riding_offset: -0.7,
+        riding_offset: super::ZOMBIE_RIDING_OFFSET,
         max_health: 20.0,
         speed: 0.23f32 as f64,
         follow_range: 35.0,

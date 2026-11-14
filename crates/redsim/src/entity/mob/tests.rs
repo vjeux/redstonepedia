@@ -449,6 +449,74 @@ fn daylight_detector_follows_the_day() {
     assert!(matches!(w.get(BlockPos::new(0, 0, 0)), Block::DaylightDetector { power: 11, .. }), "midnight: {}", w.get(BlockPos::new(0, 0, 0)));
 }
 
+/// (G1 10:16 (2): 26.3's Entity.removePassenger 2587-2599 sets the passenger's boardingCooldown to 60 on any dismount;
+/// Entity.baseTick counts it down; canRide needs it at 0, and a minecart's pickup (pushAndPickupEntities' startRiding)
+/// isn't forced) a villager ejected from its cart can't be picked up by a moving empty cart over it until its cooldown
+/// has run out: it ticks before the cart, so the cart boards it on the 60th tick after the eject, not before
+#[test]
+fn an_ejected_villager_cant_be_reboarded_for_60_gt() {
+    let mut w = world(1);
+    for x in -3..=6 {
+        put(&mut w, x, -1, 0, "minecraft:stone");
+    }
+    let first = crate::entity::spawn(&mut w, "minecraft:minecart", [0.5, 0.0, 0.5], Some("{Passengers:[{id:\"minecraft:villager\"}]}")).expect("the cart");
+    let fi = crate::entity::index_of(&w, first).unwrap();
+    let v = w.entities.list[fi].passengers[0];
+    let vi = crate::entity::index_of(&w, v).unwrap();
+    crate::entity::stop_riding(&mut w, vi);
+    assert_eq!(w.entities.list[vi].boarding_cooldown, 60, "the eject's cooldown");
+    w.entities.list[fi].removed = true;
+    // the empty cart, spawned after the villager (it ticks after it), put over the villager moving 0.3 b/t every tick
+    let cart = crate::entity::spawn(&mut w, "minecraft:minecart", [3.5, 0.0, 0.5], None).expect("the empty cart");
+    let mut boarded = None;
+    for t in 1..=70 {
+        let vi = crate::entity::index_of(&w, v).unwrap();
+        let p = w.entities.list[vi].pos;
+        let ci = crate::entity::index_of(&w, cart).unwrap();
+        w.entities.set_pos(ci, p);
+        w.entities.list[ci].delta_movement = Vec3::new(0.3, 0.0, 0.0);
+        w.tick();
+        let vi = crate::entity::index_of(&w, v).unwrap();
+        if boarded.is_none() && w.entities.list[vi].vehicle == Some(cart) {
+            boarded = Some(t);
+        }
+    }
+    assert_eq!(boarded, Some(60), "boarded only once the cooldown ran out");
+}
+
+/// (ironspec 09:41a (3)(6), tick-exact's raw print a/1936197827787703) a zombie alone in an oak boat on stone rides at
+/// the boat's y + ZOMBIE_IN_BOAT_FEET_OFFSET every tick (at boat y 80.0: 79.48750001192093, the game's raw double), a
+/// villager at + VILLAGER_IN_BOAT_FEET_OFFSET (80.1875), over 40 ticks
+#[test]
+fn a_zombie_and_a_villager_ride_a_boat_at_the_games_offsets() {
+    let mut w = World::new(BlockPos::new(-8, 72, -8), [16, 16, 16]);
+    w.mob.seed(1, 6000);
+    for x in -6..6 {
+        for z in -6..6 {
+            put(&mut w, x, 79, z, "minecraft:stone");
+        }
+    }
+    let zb = crate::entity::spawn(&mut w, "minecraft:oak_boat", [0.5, 80.0, 0.5], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}")).expect("the zombie's boat");
+    let vb = crate::entity::spawn(&mut w, "minecraft:oak_boat", [4.5, 80.0, 0.5], Some("{Passengers:[{id:\"minecraft:villager\"}]}")).expect("the villager's boat");
+    let rider_minus_boat = |w: &World, b: u32| -> (f64, f64) {
+        let bi = crate::entity::index_of(w, b).unwrap();
+        let r = w.entities.list[bi].passengers[0];
+        let ri = crate::entity::index_of(w, r).unwrap();
+        (w.entities.list[ri].pos.y, w.entities.list[bi].pos.y)
+    };
+    for t in 1..=40 {
+        w.tick();
+        let (zy, zby) = rider_minus_boat(&w, zb);
+        assert_eq!(zy, (zby + 0.1875) + (-0.7f32) as f64, "t {t}: the zombie's feet, the game's order");
+        assert!((zy - zby - super::ZOMBIE_IN_BOAT_FEET_OFFSET).abs() < 1e-12, "t {t}: {} vs the constant", zy - zby);
+        if zby == 80.0 {
+            assert_eq!(zy.to_bits(), 79.48750001192093f64.to_bits(), "t {t}: the game's raw rider y at boat y 80");
+        }
+        let (vy, vby) = rider_minus_boat(&w, vb);
+        assert_eq!(vy - vby, super::VILLAGER_IN_BOAT_FEET_OFFSET, "t {t}: the villager's feet");
+    }
+}
+
 /// (9fc3155f, ironspec Nov 12 04:32) A pillager is modeled only seated: on its own its spawn is
 /// refused; seated in an oak boat it rides at the boat's y + 0.1875 (AbstractBoat's attachment,
 /// its height / 3) - 0.6 (its riding offset), with the namespaced id as a design writes it;

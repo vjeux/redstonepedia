@@ -1725,6 +1725,23 @@ pub fn air_drag() -> f64 {
     (1.0f32 - (1.0f32 - 0.98f32) * 1.0f32).clamp(0.0, 1.0) as f64
 }
 
+/// (ironspec 09:41a (3)(6): one constant, cited to a game print) A zombie alone in a wooden boat rides with its feet at
+/// the boat's y + the boat's passenger attachment ([`VILLAGER_IN_BOAT_FEET_OFFSET`], 0.1875) + its ridingOffset
+/// ([`ZOMBIE_RIDING_OFFSET`], -0.7F widened: -0.699999988079071), in that order: -0.512499988079071 (tick-exact's raw
+/// 26.3 print a/1936197827787703: boat y 80.0, rider y 79.48750001192093, over 40 reads; printed (+0, -0.512500, +0)).
+/// One passenger (a boat's second seat also shifts it along the boat). Read by 58f770cc's Z1 bench; [`rider_seat`]
+/// adds the same two parts.
+pub const ZOMBIE_IN_BOAT_FEET_OFFSET: f64 = VILLAGER_IN_BOAT_FEET_OFFSET + ZOMBIE_RIDING_OFFSET as f64;
+
+/// (ironspec 09:41a (3)) A villager alone in a wooden boat: its feet at the boat's y + 0.1875, the boat's passenger
+/// attachment (AbstractBoat: its height 0.5625 / 3, a float; a villager has no ridingOffset): tick-exact's raw print
+/// a/1936197827787703 (boat y 80.0, rider y 80.1875, over 40 reads). One passenger. [`rider_seat`] reads it as the
+/// boat's seat; the free seat's control reads it.
+pub const VILLAGER_IN_BOAT_FEET_OFFSET: f64 = (0.5625f32 / 3.0f32) as f64;
+
+/// The zombie's ridingOffset (`EntityTypes.ZOMBIE ... .ridingOffset(-0.7F)`): its type row reads it.
+pub const ZOMBIE_RIDING_OFFSET: f32 = -0.7;
+
 /// The y of a mob's seat on a vehicle of kind `v` above the vehicle's position: the vehicle's
 /// passenger attachment (a minecart's 0.1875; a wooden boat's `rideHeight` = height / 3 = 0.1875;
 /// rafts, whose seat is height x 0.8888889 = 0.5, are refused when mounting: `BoatState` does not
@@ -1745,7 +1762,7 @@ pub fn rider_seat(v: &EntityKind, rider: &MobState) -> Option<(f64, f64)> {
         // lowered, at the cart's own y (`LOWERED_PASSENGER_ATTACHMENT`, 0)
         EntityKind::Minecart(_) if matches!(rider.ty, MobType::Villager) => 0.0,
         EntityKind::Minecart(_) => 0.1875f32 as f64,
-        EntityKind::Boat(_) => (0.5625f32 / 3.0f32) as f64,
+        EntityKind::Boat(_) => VILLAGER_IN_BOAT_FEET_OFFSET,
         // a spider's passenger attachment (`passengerAttachments(0.765F)`: straight up, the same at
         // every yaw)
         EntityKind::Mob(m) if m.ty.def().id == "spider" => 0.765f32 as f64,

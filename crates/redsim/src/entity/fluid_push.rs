@@ -248,6 +248,27 @@ mod tests {
     use crate::pos::BlockPos;
     use crate::world::World;
 
+    /// (tick-exact 10:33, 26.3's eye-in-fluid test) the raw eye y (no offset) at the entity's own block x / z is inside a
+    /// fluid cell iff it lies in [y, y + getHeightForCamera] (inclusive): a level-1 water cell under glass is 7/9 high, so
+    /// an eye at 23.92 in it is DRY; a source under the glass counts 1.0 (a sturdy bottom face over it), so the same eye is
+    /// WET
+    #[test]
+    fn the_eye_in_a_level_1_cell_under_glass_is_dry_in_a_source_wet() {
+        let eye_wet = |water: &str| -> bool {
+            let mut w = World::new(BlockPos::new(-4, 18, -4), [8, 10, 8]);
+            w.set_block(BlockPos::new(0, 23, 0), Block::parse(water).unwrap(), crate::world::flags::RAW);
+            w.set_block(BlockPos::new(0, 24, 0), Block::parse("minecraft:glass").unwrap(), crate::world::flags::RAW);
+            let v = crate::entity::spawn(&mut w, "minecraft:villager", [0.5, 23.92 - 1.62f32 as f64, 0.5], None).expect("the villager");
+            let vi = crate::entity::index_of(&w, v).unwrap();
+            let mut e = w.entities.list[vi].clone();
+            assert!((e.pos.y + e.kind.eye_height() as f64 - 23.92).abs() < 1e-9, "the eye at 23.92");
+            super::update(&w, &mut e, false);
+            e.fluid.eye_in_water()
+        };
+        assert!(!eye_wet("minecraft:water[level=1]"), "level 1 under glass (top 23 + 7/9): the eye at 23.92 is dry");
+        assert!(eye_wet("minecraft:water[level=0]"), "a source under glass counts 1.0: the eye at 23.92 is wet");
+    }
+
     /// A stone floor with two blocks of still water over it (x / z -2..2), a minecart summoned in the water.
     fn pool(y: f64) -> (World, usize) {
         let mut w = World::new(BlockPos::new(-2, 0, -2), [5, 6, 5]);
