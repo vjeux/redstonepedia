@@ -926,6 +926,11 @@ pub enum MobaiCmd {
         #[arg(long)]
         both_branches: bool,
     },
+    /// (tickexact 2026-11-13, ironspec 21:42) A real P_STRING's release on a test rig: press vs the observer's pulse
+    StringRelease {
+        #[arg(long, default_value = "26.3")]
+        version: String,
+    },
     /// (tickexact 2026-11-13, G1 21:25 (2)) (g)'s w = 2 boundary: the abutting handover into a torch's read
     AbutLatch {
         #[arg(long, default_value = "26.3")]
@@ -2271,6 +2276,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
                 crate::waterrails::water_restarts(&version, slopes, flat, measure, &restarts, ticks, every_tick, both_branches)
             }
         }
+        MobaiCmd::StringRelease { version } => crate::stringrelease::string_release(&version),
         MobaiCmd::AbutLatch { version } => crate::abutlatch::abut_latch(&version),
         MobaiCmd::EString { version, record } => crate::estring::e_string(&version, &record),
         MobaiCmd::SlopeString { version } => crate::slopestring::slope_string(&version),
