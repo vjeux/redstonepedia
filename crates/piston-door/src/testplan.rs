@@ -552,17 +552,44 @@ fn pick_design_file(f: &str, p: &mut Picks, rec_deps: &BTreeMap<String, Vec<Stri
 /// `groups` and `designs`, or `everything` (`--all`). The plan's lines go to `out`. `stair_lint`:
 /// the capped-climb check on every changed wired layout (on by default; `--no-stair-lint`).
 pub fn plan(files: Option<&[String]>, groups: &[Group], designs: &[String], everything: bool, stair_lint: bool, out: &mut Vec<String>) -> Vec<Piece> {
-    plan_in(files, groups, designs, everything, stair_lint, out, &unit_crates, &include_targets())
+    // (G1 Nov 14 09:11 (4), ironspec 09:11a (4): the selection scan FAILS LOUD: an unreadable tree, an
+    // unresolvable include or an empty map is a broken piece that fails the run by name, never an empty map)
+    let targets = include_targets();
+    let mut pieces = plan_in(files, groups, designs, everything, stair_lint, out, &unit_crates, targets.as_ref().unwrap_or(&BTreeMap::new()));
+    if let Err(e) = targets {
+        out.push(format!("  the selection scan FAILED: {e}"));
+        pieces.push(broken_piece("scan:selection", format!("the selection scan (include targets and run-time reads) failed: {e}")));
+    }
+    pieces
 }
 
-/// Every file a crate's source pulls in with a literal `include_str!("…")` / `include_bytes!("…")`, as
-/// a repository path, with the crates that include it (ironspec Nov 14 05:35: a changed include target
-/// selects its crate's unit tests; train 15's lift-travel cars changed a design file
-/// returnbench.rs's record test `include_str!`s and `mctas test` selected nothing). Found with `git
-/// grep` over crates/ (the provenance module's `build_inputs` scan); an unreadable tree gives an empty
-/// map (the backstop below still fails a code change that selects nothing).
-pub fn include_targets() -> BTreeMap<String, Vec<String>> {
-    mctas::buildinputs::include_lines(Path::new("."), None).map(|ls| mctas::buildinputs::include_map(ls.iter().map(|(f, t)| (f.as_str(), t.as_str())))).unwrap_or_default()
+/// THE SELECTION TARGETS: every repository path a crate's code reads, with the crates reading it: the
+/// files its source pulls in with `include_str!` / `include_bytes!` (ironspec Nov 14 05:35: train 15's
+/// lift-travel cars changed a design file returnbench.rs's record test includes and `mctas test` selected
+/// nothing) AND the paths it reads at RUN time, named relative to its own directory (G1 Nov 14 09:11 (3):
+/// sitecheck.rs's carousel-v0a.txt, queue.rs's parts directory): `mctas::buildinputs`' scans, the one
+/// definition. A changed file at or under a target selects the reading crates' tests. FAILS LOUD (G1 09:11
+/// (4)): an unreadable tree, an unresolvable include, or an empty map is an error, never an empty map.
+pub fn include_targets() -> Result<BTreeMap<String, Vec<String>>, String> {
+    let ls = mctas::buildinputs::include_lines(Path::new("."), None)?;
+    let bad = mctas::buildinputs::unresolved_includes(ls.iter().map(|(f, t)| (f.as_str(), t.as_str())));
+    if !bad.is_empty() {
+        return Err(format!("{} include(s) the scan can't resolve: {}", bad.len(), bad.join("; ")));
+    }
+    let mut m = mctas::buildinputs::include_map(ls.iter().map(|(f, t)| (f.as_str(), t.as_str())));
+    let rl = mctas::buildinputs::runtime_lines(Path::new("."), None)?;
+    for (p, ks) in mctas::buildinputs::runtime_map(rl.iter().map(|(f, t)| (f.as_str(), t.as_str()))) {
+        let e = m.entry(p).or_default();
+        for k in ks {
+            if !e.contains(&k) {
+                e.push(k);
+            }
+        }
+    }
+    if m.is_empty() {
+        return Err("the scan found no include and no run-time read in crates/ (a tree the scan couldn't read)".to_string());
+    }
+    Ok(m)
 }
 
 /// [`plan`] with the workspace's crate list from `crates` (a test injects an unreadable one) and the
@@ -590,14 +617,20 @@ fn plan_in(files: Option<&[String]>, groups: &[Group], designs: &[String], every
     // every crate's own tests too: `--all`, "git cannot say", or a path every piece goes through
     let mut every_unit = everything || files.is_none();
     for f in files.unwrap_or(&[]) {
-        // (a file a crate's source includes (`include_str!` / `include_bytes!`): that crate's own unit
-        // tests, whatever else the file picks: ironspec Nov 14 05:35)
-        for k in includes.get(f).into_iter().flatten() {
-            if TESTS_RUN_BY.iter().any(|(c, _)| c == k) {
-                continue;
+        // (a file a crate reads (an `include_str!` / `include_bytes!` target, or a path it reads at run
+        // time, at or under the target): that crate's tests, whatever else the file picks (ironspec Nov 14
+        // 05:35, G1 09:11 (3)); a crate whose tests another piece runs (TESTS_RUN_BY: redsim's in
+        // sim:redsim-tests) selects THAT piece (G1 09:11 (5)), never nothing)
+        for (target, ks) in includes.iter().filter(|(t, _)| f == *t || f.starts_with(&format!("{t}/"))) {
+            for k in ks {
+                if let Some((_, by)) = TESTS_RUN_BY.iter().find(|(c, _)| c == k) {
+                    out.push(format!("  {f} -> {by} (crates/{k} reads {target}; its tests run in {by})"));
+                    p.add(by, &format!("{f}: crates/{k} reads {target}"));
+                    continue;
+                }
+                out.push(format!("  {f} -> unit:{k} (crates/{k} reads {target}: an include or a run-time read)"));
+                units.entry(k.clone()).or_default().push(f.clone());
             }
-            out.push(format!("  {f} -> unit:{k} (crates/{k} includes it: include_str! / include_bytes!)"));
-            units.entry(k.clone()).or_default().push(f.clone());
         }
         if f.starts_with("designs/") {
             let line = pick_design_file(f, &mut p, &rec_deps, &mut designs, &mut lints);
@@ -975,7 +1008,12 @@ pub fn run(pieces: Vec<Piece>, o: &RunOpts, commit_line: &str) -> Result<()> {
     // piece still times out)
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
     let mut exe = exe;
-    if stamp.is_ok() {
+    // (G1 Nov 14 09:11 (6), ironspec 09:11a (5): a prebuild failure is NOT GREEN, never a fallback to
+    // `current_exe` (another tree's binary would run the spawned-mctas steps))
+    let mut prebuild_failed: Option<String> = None;
+    if let Err(e) = &stamp {
+        prebuild_failed = Some(format!("the tested tree's build tree is unreadable ({e})"));
+    } else {
         let tb = Instant::now();
         let st = std::process::Command::new(&cargo).args(["build", "--release", "-p", "mctas-cli"]).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status();
         let target = std::env::var_os("CARGO_TARGET_DIR").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("target"));
@@ -984,9 +1022,15 @@ pub fn run(pieces: Vec<Piece>, o: &RunOpts, commit_line: &str) -> Result<()> {
             println!("prebuild: the tested tree's mctas, stamped, in {:.0} s: {} runs the spawned-mctas steps", tb.elapsed().as_secs_f64(), fresh.display());
             exe = fresh.canonicalize().unwrap_or(fresh);
         } else {
-            println!("prebuild: the tested tree's mctas did not build ({st:?}): the spawned-mctas steps run {}", exe.display());
+            prebuild_failed = Some(format!("the tested tree's mctas did not build ({st:?})"));
         }
     }
+    if let Some(p) = &prebuild_failed {
+        let why = not_green_all(pieces.len(), &[], &[], Some(p)).expect("a prebuild failure is never green");
+        println!("{commit_line}: {why}");
+        bail!("mctas test {why}");
+    }
+    let prebuild_failed: Option<String> = None;
     let pre = prebuild_argvs(&pieces);
     if !pre.is_empty() {
         let tb = Instant::now();
@@ -1093,7 +1137,8 @@ pub fn run(pieces: Vec<Piece>, o: &RunOpts, commit_line: &str) -> Result<()> {
         // a piece this box could not run is never folded into "passed" (ironspec 2026-11-12 20:35), and
         // since ironspec Nov 14 07:50r (1) it makes the run NOT GREEN, by name, with a non-zero exit
         let not_run: Vec<&str> = res.iter().filter(|r| r.1 && r.2.starts_with(NOT_RUN)).map(|r| pieces[r.0].check.name.as_str()).collect();
-        if let Some(why) = not_green(pieces.len(), &not_run) {
+        let lint_skipped: Vec<&str> = res.iter().filter(|r| r.1 && r.2.contains("clippy is not on this toolchain")).map(|r| pieces[r.0].check.name.as_str()).collect();
+        if let Some(why) = not_green_all(pieces.len(), &not_run, &lint_skipped, prebuild_failed.as_deref()) {
             println!("{commit_line}: {line} in {total:.0} s; {why}");
             bail!("mctas test {why} (outputs in {})", root.display());
         }
@@ -1130,13 +1175,27 @@ pub const NOT_RUN: &str = "NOT RUN: ";
 /// a selection of 0 pieces proves nothing; a selected piece this box couldn't run leaves its part
 /// unproven. None: green.
 pub fn not_green(pieces: usize, not_run: &[&str]) -> Option<String> {
+    not_green_all(pieces, not_run, &[], None)
+}
+
+/// [`not_green`] with the lint steps a selected piece skipped (ironspec Nov 14 09:11a (2): from 16b a skipped
+/// lint step is NOT GREEN, by name) and a prebuild failure (G1 09:11 (6): never a fallback to another tree's
+/// binary).
+pub fn not_green_all(pieces: usize, not_run: &[&str], lint_skipped: &[&str], prebuild: Option<&str>) -> Option<String> {
     if pieces == 0 {
         return Some("NOT GREEN: the selection runs 0 pieces (a change no piece covers proves nothing; G1 Nov 14 07:59)".to_string());
     }
-    if !not_run.is_empty() {
-        return Some(format!("NOT GREEN: {} selected piece(s) couldn't run on this box: {} (run them where they can: ironspec Nov 14 07:50r (1))", not_run.len(), not_run.join(", ")));
+    let mut why: Vec<String> = Vec::new();
+    if let Some(p) = prebuild {
+        why.push(format!("the prebuild failed ({p}): the steps would run another tree's binary (G1 Nov 14 09:11 (6))"));
     }
-    None
+    if !not_run.is_empty() {
+        why.push(format!("{} selected piece(s) couldn't run on this box: {} (run them where they can: ironspec Nov 14 07:50r (1))", not_run.len(), not_run.join(", ")));
+    }
+    if !lint_skipped.is_empty() {
+        why.push(format!("{} selected piece(s) skipped their lint step (clippy not on this toolchain): {} (ironspec Nov 14 09:11a (2))", lint_skipped.len(), lint_skipped.join(", ")));
+    }
+    if why.is_empty() { None } else { Some(format!("NOT GREEN: {}", why.join("; "))) }
 }
 
 /// The summary's counts over (name, ok, verdict): passed (and, as information, how many of them
@@ -1148,9 +1207,10 @@ fn summary(res: &[(&str, bool, &str)]) -> String {
     let not_run: Vec<String> = res.iter().filter(|r| r.1 && r.2.starts_with(NOT_RUN)).map(|r| format!("{} ({})", r.0, r.2.trim_start_matches(NOT_RUN))).collect();
     let no_tests: Vec<&str> = res.iter().filter(|r| r.1 && r.2.starts_with("no unit tests in ")).map(|r| r.0.trim_start_matches("unit:")).collect();
     let no_clippy = res.iter().filter(|r| r.1 && r.2.contains("clippy is not on this toolchain")).count();
-    let mut s = format!("{} passed", res.len() - failed - not_run.len());
+    // (G1 Nov 14 09:11 / ironspec 09:11a (2): a crate with no unit tests is BUILT, never counted as passed)
+    let mut s = format!("{} passed", res.len() - failed - not_run.len() - no_tests.len());
     if !no_tests.is_empty() {
-        s += &format!(" ({} of them crates with no unit tests, built only: {})", no_tests.len(), no_tests.join(", "));
+        s += &format!(", {} built only (crates with no unit tests, not counted as passed: {})", no_tests.len(), no_tests.join(", "));
     }
     s += &format!(", {failed} failed");
     if !not_run.is_empty() {
@@ -1181,9 +1241,12 @@ pub fn commit_line(pieces: &[Piece], base: &str, flags: &str) -> String {
     let git = |args: &[&str]| Command::new("git").args(args).output().ok().map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_default();
     let head = git(&["rev-parse", "--short", "HEAD"]);
     let dirty = if git(&["status", "--porcelain"]).is_empty() { "" } else { " + uncommitted changes" };
+    // (G1 Nov 14 09:11 (1), ironspec 09:11a (2): the Tests line names the commit AND the tested TREE (the
+    // worktree as it stands), which a message-only amend keeps)
+    let tree = mctas::buildinputs::worktree_tree(Path::new(".")).map(|t| t[..t.len().min(12)].to_string()).unwrap_or_else(|e| format!("unreadable: {e}"));
     let vs = if base.is_empty() { String::new() } else { format!(" vs {}", &base[..base.len().min(9)]) };
     let flags = if flags.is_empty() { String::new() } else { format!(" {flags}") };
-    format!("Tests: mctas test{flags} ({}; {} pieces) on {head}{dirty}{vs}", groups.join(", "), pieces.len())
+    format!("Tests: mctas test{flags} ({}; {} pieces) on {head}{dirty} (tree {tree}){vs}", groups.join(", "), pieces.len())
 }
 
 #[cfg(test)]
@@ -1348,8 +1411,8 @@ mod tests {
         let nr = format!("{NOT_RUN}mcview-web not built: no wasm32 target");
         assert_eq!(summary(&[("unit:site", true, "103 site tests pass (1 test binaries); clippy is not on this toolchain: not run"), ("unit:mcview-web", true, &nr), ("sim:x", true, "ok")]), "2 passed, 0 failed, 1 not run on this box: unit:mcview-web (mcview-web not built: no wasm32 target), clippy not run in 1 unit piece(s) (not on this toolchain)");
         assert_eq!(summary(&[("sim:x", true, "ok"), ("sim:y", false, "bad")]), "1 passed, 1 failed");
-        // crates with no unit tests are counted apart, as information (ironspec 19:51 PT (4b))
-        assert_eq!(summary(&[("unit:bud", true, "no unit tests in bud (it builds; 1 test binaries); clippy: 0 error(s) and 0 warning(s) in the crate, counted, not failing"), ("unit:site", true, "103 site tests pass (1 test binaries); clippy: 0 error(s) and 0 warning(s) in the crate, counted, not failing")]), "2 passed (1 of them crates with no unit tests, built only: bud), 0 failed");
+        // crates with no unit tests are BUILT, not counted as passed (G1 Nov 14 09:11, ironspec 09:11a (2))
+        assert_eq!(summary(&[("unit:bud", true, "no unit tests in bud (it builds; 1 test binaries); clippy: 0 error(s) and 0 warning(s) in the crate, counted, not failing"), ("unit:site", true, "103 site tests pass (1 test binaries); clippy: 0 error(s) and 0 warning(s) in the crate, counted, not failing")]), "1 passed, 1 built only (crates with no unit tests, not counted as passed: bud), 0 failed");
     }
 
     /// G1 Nov 14 07:59 (4) / ironspec 07:50r (1): NOT GREEN, by name, on an empty selection (the planted
@@ -1380,8 +1443,23 @@ mod tests {
         let without: Vec<String> = plan_in(Some(std::slice::from_ref(&f)), &[], &[], false, false, &mut Vec::new(), &crates, &BTreeMap::new()).iter().map(|p| p.name().to_string()).collect();
         assert!(!without.iter().any(|n| n == "unit:mobfarm"), "the control: no include map, no unit piece: {without:?}");
         // the live tree: returnbench.rs's record test includes the lift file
-        let live = include_targets();
+        let live = include_targets().expect("the live selection scan reads the tree");
         assert!(live.get("designs/farms/iron/carousel-assembly/wip/lift/f1q2-lift-split-path-a.txt").is_some_and(|ks| ks.iter().any(|k| k == "mobfarm")), "the live scan finds returnbench.rs's include");
+        // (G1 Nov 14 09:11 (3) / 09:12: the planted selections on the live tree: a run-time read selects its
+        // crate (sitecheck.rs reads carousel-v0a.txt; queue.rs joins the parts directory: a file UNDER it);
+        // a file redsim reads selects sim:redsim-tests; a design no crate reads selects no unit piece)
+        let pick = |f: &str| -> Vec<String> { plan_in(Some(&[f.to_string()]), &[], &[], false, false, &mut Vec::new(), &crates, &live).iter().map(|p| p.name().to_string()).collect() };
+        assert!(pick("designs/farms/iron/carousel-assembly/carousel-v0a.txt").iter().any(|n| n == "unit:mobfarm"), "carousel-v0a.txt -> unit:mobfarm");
+        assert!(pick("designs/farms/iron/parts/any-part.txt").iter().any(|n| n == "unit:mobfarm"), "a file under queue.rs's parts directory -> unit:mobfarm");
+        assert!(pick("designs/terrain/forest.mcterrain").iter().any(|n| n == "sim:redsim-tests"), "a file redsim reads -> sim:redsim-tests");
+        assert!(pick("designs/farms/iron/carousel-assembly/wip/lift/f1q2-lift-split-path-a.txt").iter().any(|n| n == "unit:mobfarm"), "the lift file -> unit:mobfarm");
+        // (a file no crate reads and no judge covers: 0 pieces, which the runner calls NOT GREEN)
+        let none = pick("designs/a-note-nobody-reads.md");
+        assert!(none.is_empty(), "a reader-less file selects nothing: {none:?}");
+        assert!(not_green(none.len(), &[]).is_some_and(|w| w.contains("0 pieces")));
+        for (t, _) in &live {
+            assert!(Path::new(t).exists() || Path::new("../..").join(t).exists(), "every mapped path exists: {t}");
+        }
     }
 
     /// ironspec Nov 14 05:35, the cause fix: the prebuild builds every unit piece's test binaries in one

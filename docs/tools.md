@@ -880,10 +880,21 @@ design, a record file a test compares against) also picks that crate's unit test
 test includes, and `mctas test` said "nothing to run"); the scan is the build inputs' own
 (`mctas::buildinputs`, the one definition the binary rule's provenance check uses too).
 
-**NOT GREEN** (G1 2026-11-14 07:59 (4), ironspec 07:50r (1)): a selection of 0 pieces is NOT GREEN, a
-non-zero exit with the count on its Tests line (it was "nothing to run" and exit 0, how two commits went
-through on "0 pieces"); and a selected piece this box can't run (a wasm-only crate here) makes the run
-NOT GREEN by name, never "passed, 1 not run": run that piece where it can run (`testplan::not_green`).
+**NOT GREEN** (G1 2026-11-14 07:59 (4) / 09:11, ironspec 07:50r (1) / 09:11a): a selection of 0 pieces is
+NOT GREEN, a non-zero exit with the count on its Tests line (it was "nothing to run" and exit 0, how two
+commits went through on "0 pieces"), on every path; and so is a selected piece this box can't run (a
+wasm-only crate here), a selected piece that skipped its lint step (clippy not on the toolchain), and a
+prebuild failure (the steps never fall back to another tree's binary): each named
+(`testplan::not_green_all`). A crate with no unit tests is reported BUILT, never counted as passed. The
+Tests line names the commit AND the tested tree (`(tree …)`, which a message-only amend keeps).
+
+**What a change selects, by what the code reads** (G1 2026-11-14 09:11 (3)-(5)): a changed file at or under a
+path a crate reads selects that crate's tests: an `include_str!` / `include_bytes!` target, or a path its
+code names at run time relative to its own directory (`"../../designs/…"`: sitecheck.rs's carousel-v0a.txt,
+queue.rs's parts directory, redsim's terrains); a crate whose tests another piece runs selects that piece
+(redsim's: sim:redsim-tests). One definition, `mctas::buildinputs` (`include_map`, `runtime_map`), shared
+with the binary rule's build inputs; the scan FAILS LOUD (an unreadable tree, an include it can't resolve,
+or an empty map fails the run as `scan:selection`, never an empty map).
 
 **Builds before clocks, and the stamp** (ironspec 2026-11-14 05:35 / 05:40): before any piece's clock
 starts, the runner builds the tested tree's own `mctas` (the pieces that spawn mctas, such as

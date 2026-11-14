@@ -159,9 +159,15 @@ pub fn include_map<'a>(lines: impl Iterator<Item = (&'a str, &'a str)>) -> BTree
     for (file, line) in lines {
         let Some(krate) = file.strip_prefix("crates/").and_then(|r| r.split_once('/')).map(|(k, _)| k).filter(|k| !k.is_empty()) else { continue };
         for mac in ["include_str!(", "include_bytes!("] {
-            let mut rest = line;
-            while let Some(i) = rest.find(mac) {
-                rest = &rest[i + mac.len()..];
+            let mut from = 0usize;
+            while let Some(off) = line[from..].find(mac) {
+                let i = from + off;
+                from = i + mac.len();
+                // (a mention inside a string literal isn't an include)
+                if in_string(line, i) {
+                    continue;
+                }
+                let rest = &line[from..];
                 // (a plain or raw string literal: `"…"`, `r"…"`, `r#"…"#`; anything else is
                 // `unresolved_includes`' to refuse)
                 let Some(lit) = literal_at(rest) else { continue };
@@ -212,17 +218,70 @@ pub fn build_script_violations<'a>(lines: impl Iterator<Item = (&'a str, &'a str
     bad
 }
 
-/// The crates' include lines of the worktree containing `dir` (`at` None) or of commit `at`, as
-/// `(file, text)` (git grep over `crates/*.rs`): every line naming an include-family macro or starting a
-/// `#[path]` attribute (the literal ones for [`include_map`], the rest for [`unresolved_includes`]).
-pub fn include_lines(dir: &Path, at: Option<&str>) -> Result<Vec<(String, String)>, String> {
-    let root = toplevel(dir)?;
-    let re = r#"include(_str|_bytes)?!|^[[:space:]]*#\[path"#;
-    let grep = match at {
-        None => git_in(&root, None, &["grep", "-n", "--untracked", "-E", re, "--", "crates/*.rs"], None),
-        Some(c) => git_in(&root, None, &["grep", "-n", "-E", re, c, "--", "crates/*.rs"], None),
+/// The repository's data roots a crate reads at run time (designs, recordings, terrains, textures, the
+/// bridge's resources): [`runtime_map`]'s scope.
+pub const RUNTIME_ROOTS: [&str; 4] = ["designs", "web", "bridge", "docs"];
+
+/// THE RUN-TIME READS (G1 Nov 14 09:11 (3)): the repository paths a crate's code names as string literals
+/// relative to its own directory (`"../../designs/…"`, `"../../web/…"`: a test or a tool reading a design,
+/// a recording, a terrain or a texture at run time, the working directory the crate's own), from
+/// `(file, line)` lines, with the crates naming them (path → crates); a comment line isn't a read.
+pub fn runtime_map<'a>(lines: impl Iterator<Item = (&'a str, &'a str)>) -> BTreeMap<String, Vec<String>> {
+    let mut m: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for (file, line) in lines {
+        let Some(krate) = file.strip_prefix("crates/").and_then(|r| r.split_once('/')).map(|(k, _)| k).filter(|k| !k.is_empty()) else { continue };
+        if line.trim_start().starts_with("//") {
+            continue;
+        }
+        let mut rest = line;
+        while let Some(i) = rest.find("\"../../") {
+            rest = &rest[i + 1..];
+            let Some(j) = rest.find('"') else { break };
+            let lit = &rest[..j];
+            rest = &rest[j..];
+            if let Some(p) = normalize(&format!("crates/{krate}/{lit}")) {
+                // (only a repository data root: a literal that resolves elsewhere is relative to something
+                // else (a source file's directory, an audit's base) and isn't a run-time read of the tree)
+                if !RUNTIME_ROOTS.iter().any(|r| p.starts_with(&format!("{r}/"))) {
+                    continue;
+                }
+                let ks = m.entry(p).or_default();
+                if !ks.iter().any(|k| k == krate) {
+                    ks.push(krate.to_string());
+                }
+            }
+        }
     }
-    .or_else(|e| if e.contains("failed: ") && !e.contains("fatal") { Ok(String::new()) } else { Err(e) })?;
+    m
+}
+
+/// The crates' run-time read lines (`"../../…"` literals) of the worktree containing `dir` (`at` None) or of
+/// commit `at`, as `(file, text)`.
+pub fn runtime_lines(dir: &Path, at: Option<&str>) -> Result<Vec<(String, String)>, String> {
+    grep_crates(dir, at, r#""\.\./\.\./"#, &["crates/*.rs"])
+}
+
+/// `git grep -n -E re` over `paths` in the worktree containing `dir` (`at` None, untracked files included)
+/// or in commit `at`, as `(file, text)`; no match is an empty list, any other failure an error (G1 Nov 14
+/// 09:11 (4): never a silent empty result).
+fn grep_crates(dir: &Path, at: Option<&str>, re: &str, paths: &[&str]) -> Result<Vec<(String, String)>, String> {
+    let root = toplevel(dir)?;
+    let mut args: Vec<&str> = vec!["grep", "-n"];
+    if at.is_none() {
+        args.push("--untracked");
+    }
+    args.extend(["-E", re]);
+    if let Some(c) = at {
+        args.push(c);
+    }
+    args.push("--");
+    args.extend(paths);
+    let grep = match git_in(&root, None, &args, None) {
+        Ok(s) => s,
+        // (`git grep` exits 1 with no output when nothing matches: the error's stderr part is empty)
+        Err(e) if e.ends_with("failed: ") => String::new(),
+        Err(e) => return Err(e),
+    };
     Ok(grep
         .lines()
         .filter_map(|l| {
@@ -235,6 +294,13 @@ pub fn include_lines(dir: &Path, at: Option<&str>) -> Result<Vec<(String, String
             Some((file.to_string(), text.to_string()))
         })
         .collect())
+}
+
+/// The crates' include lines of the worktree containing `dir` (`at` None) or of commit `at`, as
+/// `(file, text)` (git grep over `crates/*.rs`): every line naming an include-family macro or starting a
+/// `#[path]` attribute (the literal ones for [`include_map`], the rest for [`unresolved_includes`]).
+pub fn include_lines(dir: &Path, at: Option<&str>) -> Result<Vec<(String, String)>, String> {
+    grep_crates(dir, at, r#"include(_str|_bytes)?!|^[[:space:]]*#\[path"#, &["crates/*.rs"])
 }
 
 /// THE BUILD INPUTS of the worktree containing `dir` (`at` None) or of commit `at`: [`FIXED_INPUTS`]
@@ -258,23 +324,7 @@ pub fn build_inputs(dir: &Path, at: Option<&str>) -> Result<Vec<String>, String>
     }
     // ((A)(3): the build scripts' reads declared or denied)
     let re = r#"fs::read|read_dir\(|File::open\(|cargo:rerun-if-changed"#;
-    let scripts = match at {
-        None => git_in(&root, None, &["grep", "-n", "--untracked", "-E", re, "--", "crates/*/build.rs", "crates/*/src/build.rs"], None),
-        Some(c) => git_in(&root, None, &["grep", "-n", "-E", re, c, "--", "crates/*/build.rs", "crates/*/src/build.rs"], None),
-    }
-    .or_else(|e| if e.contains("failed: ") && !e.contains("fatal") { Ok(String::new()) } else { Err(e) })?;
-    let script_lines: Vec<(String, String)> = scripts
-        .lines()
-        .filter_map(|l| {
-            let l = match at {
-                Some(c) => l.strip_prefix(&format!("{c}:"))?,
-                None => l,
-            };
-            let (file, rest) = l.split_once(':')?;
-            let (_, text) = rest.split_once(':')?;
-            Some((file.to_string(), text.to_string()))
-        })
-        .collect();
+    let script_lines = grep_crates(&root, at, re, &["crates/*/build.rs", "crates/*/src/build.rs"])?;
     let sbad = build_script_violations(script_lines.iter().map(|(f, t)| (f.as_str(), t.as_str())));
     if !sbad.is_empty() {
         return Err(format!("the build scripts' reads aren't declared (G1 Nov 14 07:53 (A)(3)): {}", sbad.join("; ")));
