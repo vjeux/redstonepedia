@@ -420,7 +420,7 @@ The UNARMED route is the route of record: wear the crossbow out against a shield
 
 ### Fault notes added at next25 (build guide)
 
-SUPERSEDED Nov 14 by 'Scope and critical path', except the rail-end margin's normal-operation bar, which stays live: the cart's speed entering (9,−15,−2) ≥ the sweep's figure + 10 %, with the resting queue cart pressing neither (9,−15,−3) nor (9,−13,−5).
+SUPERSEDED Nov 14 by 'Scope and critical path', except the rail-end margin's normal-operation bar, which stays live (restated in V's loop frame, b8949c96's clause): the cart's speed entering (9,−11,−2) ≥ the sweep's figure + 10 %, with the resting front cart pressing (9,−9,−5) (inside the cover, z < −3.71) and NOT (9,−11,−3).
 
 - **The shutter fails open:** "If the shutter's drive fails (a lost torch or repeater), the window stays open, every napper is scared awake, and napping, and with it the golems, stops until it's repaired."
 - **Class B:** "A batch cart delayed after its release by a fault (a stall or a slowed cart) can misroute the returning napper: by ~18 gt or more for lanes −1 and 3, measured from the release; for lane 7, measured from its press at (5,0,7) [thresholds: the press-keyed re-run; ~18 gt provisional]. The misrouted napper's own lane then stops napping for good, and the other lane takes a 9th cart, which can stall that lane's drop. Repair: re-seat the napper in its own lane's siding, remove the extra cart, and reset that lane's AWAY latch."
