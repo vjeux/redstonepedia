@@ -4611,6 +4611,30 @@ pub fn post_drift(spec: &FarmSpec, cell: BlockPos, ticks: u32) -> Result<Vec<Str
     )])
 }
 
+/// (G1 Nov 13 22:10) A place's stroll candidates, every cell listed: its calm stroll (IDLE's 10 / 7)
+/// and its panic stroll (2 / 2), each cell with the chance one event picks it and whether a complete
+/// path reaches it, sorted by cell.
+pub fn stroll_cell_lines(p: &Place) -> (Vec<String>, usize) {
+    let list = |s: &Source| {
+        let mut v: Vec<(BlockPos, f64, bool)> = s.reached.iter().map(|(c, sh)| (*c, *sh, true)).chain(s.unreached.iter().map(|(c, sh)| (*c, *sh, false))).collect();
+        v.sort_by_key(|(c, _, _)| (c.y, c.z, c.x));
+        v.iter().map(|(c, sh, r)| format!("{},{},{} ({:.2}%, {})", c.x, c.y, c.z, sh * 100.0, if *r { "reached" } else { "unreached" })).collect::<Vec<_>>()
+    };
+    let (calm, panic) = (list(&p.stroll), list(&p.panic_stroll));
+    // (G1 Nov 13 23:06 D5: the listed and the counted totals compared: a list that doesn't hold every
+    // counted candidate fails)
+    let mismatch = usize::from(calm.len() != p.stroll.cells) + usize::from(panic.len() != p.panic_stroll.cells);
+    let say = |n: usize, k: usize| if n == k { String::new() } else { " (FAIL: the list and the count differ)".to_string() };
+    let who = if p.on_foot { " on foot" } else { "" };
+    (
+        vec![
+            format!("  STROLL CELLS {},{},{}{who} calm stroll: {} candidate(s) (counted {}){}: {}", p.cell.x, p.cell.y, p.cell.z, calm.len(), p.stroll.cells, say(calm.len(), p.stroll.cells), if calm.is_empty() { "none".to_string() } else { calm.join(" ") }),
+            format!("  STROLL CELLS {},{},{}{who} panic stroll: {} candidate(s) (counted {}){}: {}", p.cell.x, p.cell.y, p.cell.z, panic.len(), p.panic_stroll.cells, say(panic.len(), p.panic_stroll.cells), if panic.is_empty() { "none".to_string() } else { panic.join(" ") }),
+        ],
+        mismatch,
+    )
+}
+
 pub fn stamp_classes(places: &[Place], each: bool) -> Vec<String> {
     let mut rows = Vec::new();
     let (mut ac, mut an, mut na) = (0usize, 0usize, 0usize);
@@ -9194,6 +9218,25 @@ mod gate_tests {
 
     fn header(l: &[String], kind: &str) -> String {
         l.iter().find(|x| x.starts_with(kind)).cloned().unwrap_or_default()
+    }
+
+    /// (G1 Nov 13 23:06 D5) The stroll-cell print's single-change twin through the real path: on the glass
+    /// room the rail place (0,1,0)'s panic stroll lists no candidate; one stone floor cell planted 2 away
+    /// adds exactly that cell (2,1,1); each list holds its counted total.
+    #[test]
+    fn stroll_cell_lines_single_change_twin() {
+        let s = glass_room();
+        let places = super::check(&s, None, &[], &[]).unwrap();
+        let p0 = places.iter().find(|p| p.cell == b(0, 1, 0) && !p.on_foot).expect("the rail place 0,1,0");
+        let (l0, m0) = super::stroll_cell_lines(p0);
+        assert!(m0 == 0 && l0[1].contains("panic stroll: 0 candidate(s) (counted 0): none"), "the glass room: {l0:?}");
+        let mut planted = s.clone();
+        planted.blocks.retain(|(p, _)| *p != b(2, 0, 1));
+        planted.blocks.push((b(2, 0, 1), redsim::block::Block::parse("minecraft:stone").unwrap()));
+        let places2 = super::check(&planted, None, &[], &[]).unwrap();
+        let p1 = places2.iter().find(|p| p.cell == b(0, 1, 0) && !p.on_foot).expect("the rail place 0,1,0");
+        let (l1, m1) = super::stroll_cell_lines(p1);
+        assert!(m1 == 0 && l1[1].contains("panic stroll: 1 candidate(s) (counted 1): 2,1,1 ("), "the planted cell: {l1:?}");
     }
 
     /// (ironspec Nov 13 07:11 / 07:16 / 07:36, G1: P's stroll static and its positives) On a glass
