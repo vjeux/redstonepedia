@@ -5928,6 +5928,141 @@ pub fn route_golem_floors(spec: &FarmSpec, biome: &'static str) -> Result<(Vec<S
     Ok((lines, off.len(), cells))
 }
 
+/// (G1 Nov 14 07:59b, part 60) One allowed consumer of an update: for one source (`source`, a design's
+/// `# update-consumers:` declaration) or any (`--allow`), the block id it expects (`id`: a cell holding another block
+/// fails), and the declaration's reason.
+#[derive(Clone, Debug, PartialEq)]
+pub struct UpdateAllow {
+    pub source: Option<BlockPos>,
+    pub cell: BlockPos,
+    pub id: Option<String>,
+    pub why: String,
+}
+
+/// (G1 Nov 14 07:59b / 08:10, part 60) A design's `# update-consumers: CLASS SX,SY,SZ=CX,CY,CZ ID+CX,CY,CZ ID (why)`
+/// lines, strictly parsed (a line that doesn't parse fails naming it): each source cell's consumers, one state source
+/// for update-reach. A declaration is a design CLAIM the review reads, never a waiver: CLASS is `intended` (the design
+/// means the update to reach it: its reason says how) or `by-code` (the block's reaction is harmless by game code: its
+/// reason cites the 26.3 code, "26.3" named); a real interaction is fixed, never declared. The reason is required.
+pub fn update_consumer_decls(text: &str) -> Result<Vec<UpdateAllow>, String> {
+    let mut out = Vec::new();
+    let cell = |s: &str, line: &str| -> Result<BlockPos, String> {
+        let v: Vec<i32> = s.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>().map_err(|e| format!("`# update-consumers:` line {line:?}: {s:?} is no x,y,z ({e})"))?;
+        if v.len() != 3 {
+            return Err(format!("`# update-consumers:` line {line:?}: {s:?} is no x,y,z"));
+        }
+        Ok(BlockPos::new(v[0], v[1], v[2]))
+    };
+    for l in text.lines() {
+        let Some(rest) = l.strip_prefix("# update-consumers:") else { continue };
+        let rest = rest.trim();
+        let form = || format!("`# update-consumers:` line {l:?}: CLASS SOURCE=CELL ID[+CELL ID...] (why), CLASS intended or by-code");
+        let (class, rest) = rest.split_once(' ').ok_or_else(form)?;
+        if class != "intended" && class != "by-code" {
+            return Err(form());
+        }
+        let (body, why) = match rest.find(" (") {
+            Some(i) if rest.ends_with(')') => (&rest[..i], rest[i + 2..rest.len() - 1].trim().to_string()),
+            _ => return Err(format!("`# update-consumers:` line {l:?}: no reason in parentheses (a declaration is a claim the review reads)")),
+        };
+        if why.is_empty() {
+            return Err(format!("`# update-consumers:` line {l:?}: an empty reason"));
+        }
+        // (farmopt 08:24 / G1 08:54, parts 62 / 66) one source per line: the reason is ONE balanced parenthesised group
+        // closing at the line's end, and holds no `x,y,z=` (a second declaration, whatever separates it, would
+        // otherwise be read as part of the first one's reason, its consumers silently unread)
+        let mut depth = 0i32;
+        let balanced = why.chars().all(|ch| {
+            match ch {
+                '(' => depth += 1,
+                ')' => depth -= 1,
+                _ => {}
+            }
+            depth >= 0
+        }) && depth == 0;
+        if !balanced {
+            return Err(format!("`# update-consumers:` line {l:?}: unbalanced parentheses in the reason (one `(why)` closing the line)"));
+        }
+        if holds_cell_decl(&why) {
+            return Err(format!("`# update-consumers:` line {l:?}: more than one source on the line: its reason holds an `x,y,z=` declaration (one `CLASS SOURCE=...` declaration per line)"));
+        }
+        if class == "by-code" && !cites_263(&why) {
+            return Err(format!("`# update-consumers:` line {l:?}: a by-code declaration cites the 26.3 code as \"26.3 Class.method: ...\" (G1 08:52: a bare \"26.3\" is no citation)"));
+        }
+        let (s, list) = body.split_once('=').ok_or_else(form)?;
+        let source = cell(s.trim(), l)?;
+        for item in list.split('+') {
+            let mut it = item.split_whitespace();
+            let (Some(c), Some(id), None) = (it.next(), it.next(), it.next()) else {
+                return Err(format!("`# update-consumers:` line {l:?}: {item:?} is no \"x,y,z id\""));
+            };
+            let id = id.trim_start_matches("minecraft:").to_string();
+            out.push(UpdateAllow { source: Some(source), cell: cell(c, l)?, id: Some(id), why: format!("{class}: {why}") });
+        }
+    }
+    Ok(out)
+}
+
+/// (G1 Nov 14 08:54 / 09:41, parts 66 / 69) Whether a text holds an `x,y,z=` declaration anywhere, spaces allowed
+/// around its commas and before its `=` (`-?\d+ *, *-?\d+ *, *-?\d+ *=`).
+fn holds_cell_decl(t: &str) -> bool {
+    let b = t.as_bytes();
+    let skip_ws = |mut i: usize| {
+        while i < b.len() && b[i] == b' ' {
+            i += 1;
+        }
+        i
+    };
+    let num = |mut i: usize| -> Option<usize> {
+        if i < b.len() && b[i] == b'-' {
+            i += 1;
+        }
+        let s = i;
+        while i < b.len() && b[i].is_ascii_digit() {
+            i += 1;
+        }
+        (i > s).then_some(i)
+    };
+    (0..b.len()).any(|start| {
+        if start > 0 && (b[start - 1].is_ascii_digit() || b[start - 1] == b'-') {
+            return false;
+        }
+        let Some(i) = num(start) else { return false };
+        let i = skip_ws(i);
+        if i >= b.len() || b[i] != b',' {
+            return false;
+        }
+        let Some(j) = num(skip_ws(i + 1)) else { return false };
+        let j = skip_ws(j);
+        if j >= b.len() || b[j] != b',' {
+            return false;
+        }
+        let Some(k) = num(skip_ws(j + 1)) else { return false };
+        let k = skip_ws(k);
+        k < b.len() && b[k] == b'='
+    })
+}
+
+
+/// (G1 Nov 14 08:52, part 66) Whether a reason cites the 26.3 code as `26.3 Class.method:` (a class name starting with
+/// a capital, one `.`, a method name, then `:`), the form a by-code declaration needs; "(26.3)" or "126.3 ms" don't.
+fn cites_263(why: &str) -> bool {
+    why.match_indices("26.3 ").any(|(i, _)| {
+        let before_ok = why[..i].chars().last().is_none_or(|c| !c.is_ascii_digit() && c != '.');
+        let rest = &why[i + 5..];
+        let tok = rest.split(':').next().unwrap_or("");
+        let has_colon = rest.len() > tok.len();
+        let mut parts = tok.split('.');
+        let (Some(class), Some(method), None) = (parts.next(), parts.next(), parts.next()) else { return false };
+        before_ok
+            && has_colon
+            && class.chars().next().is_some_and(|c| c.is_ascii_uppercase())
+            && class.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+            && !method.is_empty()
+            && method.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    })
+}
+
 /// (ironspec Nov 13 19:11 / 19:13 / 19:45 (c), G1 20:02 E5 / E6) The components a cell's state change
 /// can trigger: every press or release of a string (a tripwire), a hook, a detector or a pressure plate
 /// updates the cells of its footprint, so an observer, a piston (sticky or not, or its head, which
@@ -10406,6 +10541,53 @@ mod orient_tests {
 
 /// (G1 Nov 13, N39 / ironspec 06:00 real, CONTROLS: each bar's positive control through its own
 /// path) A floor room with a three-cell rail and a standing zombie in sight of it.
+#[cfg(test)]
+mod parser_tests {
+    /// (G1 Nov 14 12:15, ironspec 12:16p: the PARSERS car) `update_consumer_decls`, byte-identical to the 16b chain's
+    /// (parts 60 / 66 / 69): a well-formed line read (source, consumers, ids, class and reason); each mis-form refused BY
+    /// ITS OWN NAME: no reason, no class, an unknown class, an uncited by-code reason (every bare or malformed citation),
+    /// a second source behind any separator (unbalanced parentheses, or an `x,y,z=` inside one balanced reason, spaces
+    /// allowed), an unclosed reason; a real citation passes; the `x,y,z=` scanner's forms
+    #[test]
+    fn update_consumer_decls_reads_and_refuses_by_name() {
+        let ok = super::update_consumer_decls("name: x\n# update-consumers: intended 2,1,2=2,1,4 iron_trapdoor+3,1,2 minecraft:slime_block (the slime powers the hatch)\n").unwrap();
+        assert_eq!(ok.len(), 2);
+        assert!(ok[0].source == Some(redsim::pos::BlockPos::new(2, 1, 2)) && ok[0].cell == redsim::pos::BlockPos::new(2, 1, 4) && ok[0].id.as_deref() == Some("iron_trapdoor") && ok[0].why == "intended: the slime powers the hatch", "{ok:?}");
+        assert!(ok[1].id.as_deref() == Some("slime_block"), "the `minecraft:` prefix dropped: {ok:?}");
+        let refused = |line: &str, why: &str| {
+            let r = super::update_consumer_decls(line);
+            assert!(r.as_ref().is_err_and(|e| e.contains("`# update-consumers:` line") && e.contains(why)), "{line:?} refused for {why:?}: {r:?}");
+        };
+        let class_form = "CLASS SOURCE=CELL ID[+CELL ID...] (why), CLASS intended or by-code";
+        refused("# update-consumers: intended 2,1,2=2,1,4\n", "no reason in parentheses");
+        refused("# update-consumers: 2,1,2=2,1,4 iron_trapdoor (no class)\n", class_form);
+        refused("# update-consumers: waived 2,1,2=2,1,4 iron_trapdoor (an unknown class)\n", class_form);
+        refused("# update-consumers: intended 2,1,2=2,1,4 iron_trapdoor\n", "no reason in parentheses");
+        refused("# update-consumers: by-code 2,1,2=2,1,4 iron_trapdoor (it is fine)\n", "a by-code declaration cites the 26.3 code");
+        refused("# update-consumers: -1,16,-2=-1,16,-1 slime_block+-1,16,0 iron_trapdoor (the hold drive; class (a), intended); 3,16,-2=3,16,-1 slime_block+3,16,0 iron_trapdoor (the same)\n", class_form);
+        refused("# update-consumers: intended -1,16,-2=-1,16,0 iron_trapdoor (the hold drive); 3,16,-2=3,16,0 iron_trapdoor (the same)\n", "unbalanced parentheses");
+        for cite in ["(26.3)", "(126.3 ms)", "(26.3 it is fine)", "(26.3 hopperBlock.tick: x)", "(26.3 HopperBlock: x)"] {
+            refused(&format!("# update-consumers: by-code 2,1,2=2,1,4 iron_trapdoor {cite}\n"), "a by-code declaration cites the 26.3 code as \"26.3 Class.method: ...\"");
+        }
+        assert!(super::update_consumer_decls("# update-consumers: by-code 2,1,2=2,1,4 iron_trapdoor (26.3 TrapDoorBlock.neighborChanged: re-reads its power)\n").is_ok(), "a real citation passes");
+        for (second, why) in [
+            ("(r); intended 3,1,2=3,1,4 iron_trapdoor (r2)", "unbalanced parentheses"),
+            ("(r), 3,1,2=3,1,4 iron_trapdoor (r2)", "unbalanced parentheses"),
+            ("(r) 3,1,2=3,1,4 iron_trapdoor (r2)", "unbalanced parentheses"),
+            ("(r; and 3,1,2=3,1,4 iron_trapdoor)", "more than one source on the line"),
+            ("(r; and 3, 1, 2 = 3,1,4 iron_trapdoor)", "more than one source on the line"),
+        ] {
+            refused(&format!("# update-consumers: intended 2,1,2=2,1,4 iron_trapdoor {second}\n"), why);
+        }
+        refused("# update-consumers: intended 2,1,2=2,1,4 iron_trapdoor (r (unclosed)\n", "unbalanced parentheses");
+        refused("# update-consumers: intended 2,1,2=2,1,4 iron trapdoor (an id in two words)\n", "is no \"x,y,z id\"");
+        assert!(
+            super::holds_cell_decl("x -3,1,-2=y") && super::holds_cell_decl("x 3, 1, 2=y") && super::holds_cell_decl("x 3,1,2 =y") && !super::holds_cell_decl("a 1,2,3 b") && !super::holds_cell_decl("26.3 A.b: 1,2=3"),
+            "the x,y,z= scanner, spaces allowed"
+        );
+    }
+}
+
 #[cfg(test)]
 mod gate_tests {
     use redsim::pos::BlockPos;
