@@ -4901,16 +4901,16 @@ pub enum MobfarmCmd {
     BuildOrder {
         /// The design the junction sits in (its own frame).
         design: PathBuf,
-        /// The junction's T, x,y,z.
+        /// The junction's T, x,y,z (not with --declared).
         #[arg(long, allow_hyphen_values = true)]
-        t: String,
+        t: Option<String>,
         /// A junction cell "x,y,z=STATE" (repeatable; the T among them; a cell the design holds is
         /// left out of the base and placed by the test).
         #[arg(long, allow_hyphen_values = true)]
         cell: Vec<String>,
-        /// The shape every build of the cells must end in.
-        #[arg(long, default_value = "north_west")]
-        want: String,
+        /// The shape every build of the cells must end in (default north_west; not with --declared).
+        #[arg(long)]
+        want: Option<String>,
         /// A named sequence "NAME|WANT|x,y,z=STATE;x,y,z=air;..." from the base without the cells
         /// (repeatable): a wrong order, a repair, a parity positive (WANT the shape it must end in).
         #[arg(long, allow_hyphen_values = true)]
@@ -4919,6 +4919,23 @@ pub enum MobfarmCmd {
         /// with it before another cell are outside the rule, counted apart and not built.
         #[arg(long, allow_hyphen_values = true)]
         last: Vec<String>,
+        /// (commit G, ironspec 02:43 (2) / 02:46 (5)) The declared-sequence mode: every `# build-order:
+        /// NAME=STEP;...` line of the design EXECUTED step by step (`~x,y,z=STATE` a temporary
+        /// placement, removed at the sequence's end unless a step removes it) and every cell it names
+        /// read back against the design; then the plain orders over every rail cell, a rail no plain
+        /// order reaches failing unless a declared sequence lays it (then printed as information).
+        #[arg(long)]
+        declared: bool,
+        /// (G′, ironspec 09:32a: "would reshape 0" over every design file) The global mode: the plain
+        /// orders over every rail and one global order of the whole design (its declared sequences, if
+        /// any, executed as with --declared), for a design that needs none: a rail the game reshapes or
+        /// pops in every order fails by name.
+        #[arg(long)]
+        global: bool,
+        /// (with --declared) A declared sequence left out: the positive control (the rail it lays
+        /// must then fail by name).
+        #[arg(long)]
+        without: Vec<String>,
         #[arg(long, default_value = "26.3")]
         version: String,
     },
@@ -11263,8 +11280,33 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::BuildOrder { design, t, cell, want, sequence, last, version } => {
+        MobfarmCmd::BuildOrder { design, t, cell, want, sequence, last, declared, global, without, version } => {
             let (_c, spec) = load(&version, &design)?;
+            // (commit G: the declared-sequence mode, the design's own `# build-order:` lines; G′: the
+            // global mode, the same orders for a design that needs no declared sequence)
+            if declared || global {
+                anyhow::ensure!(!(declared && global), "build-order: --declared or --global, not both");
+                anyhow::ensure!(t.is_none() && cell.is_empty() && sequence.is_empty() && last.is_empty() && want.is_none(), "build-order --declared / --global reads the design itself: no --t / --cell / --sequence / --last / --want");
+                anyhow::ensure!(!global || without.is_empty(), "build-order --without: with --declared");
+                let text = std::fs::read_to_string(&design)?;
+                let seqs = crate::buildorder::declared(&text).map_err(|e| anyhow::anyhow!(e))?;
+                println!(
+                    "build-order {} on {} (redsim's World::set_block flags 3 for each placement, the game's placement check (can_survive) before it; a game reference is a sequence's own: for 58f770cc's \"park\", tick-exact's car 7, `mobai park-string`): {} declared sequence(s){}",
+                    if global { "--global" } else { "--declared" },
+                    design.display(),
+                    seqs.len(),
+                    if without.is_empty() { String::new() } else { format!(", left out (the positive control): {}", without.join(", ")) }
+                );
+                let (lines, failing) = if global { crate::buildorder::run_global(&spec.blocks, &seqs) } else { crate::buildorder::run_declared(&spec.blocks, &seqs, &without) }.map_err(|e| anyhow::anyhow!(e))?;
+                for l in lines {
+                    println!("{l}");
+                }
+                anyhow::ensure!(failing == 0, "build-order: {failing} failing (a declared sequence off the design or refused, a rail no plain order nor declared sequence reaches, no global order, or nothing judged)");
+                return Ok(());
+            }
+            anyhow::ensure!(without.is_empty(), "build-order --without: with --declared");
+            let want = want.unwrap_or_else(|| "north_west".to_string());
+            let t = t.ok_or_else(|| anyhow::anyhow!("build-order: --t x,y,z (or --declared)"))?;
             let parse_pos = |s: &str| -> anyhow::Result<redsim::pos::BlockPos> {
                 let v: Vec<i32> = s.split(',').map(|x| x.trim().parse::<i32>()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("a cell x,y,z: {s}: {e}"))?;
                 anyhow::ensure!(v.len() == 3, "a cell x,y,z: {s}");

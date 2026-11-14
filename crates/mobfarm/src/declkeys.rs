@@ -31,6 +31,7 @@ pub const COMMENT_KEYS: &[&str] = &[
     "a6-pickup",
     "string-class",
     "allow-powered",
+    "build-order",
 ];
 
 /// Keys read from a comment line or a header line alike (the push / water-spawn readers strip an optional

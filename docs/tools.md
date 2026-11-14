@@ -425,7 +425,29 @@ cells, the build rule's, placed last), each rail in both placement facings (its 
 or east_west), each by the player's placement path (redsim's `World::set_block` in the game's order:
 onPlace, then the neighbour updates with the old block's kind), plus two pastes and named sequences
 (a wrong order, a repair, a parity positive); every build or sequence off its wanted shape fails,
-and so does a test that built no order.
+and so does a test that built no order. `mctas mobfarm build-order DESIGN --declared [--without
+NAME]...` (commit G; G′) reads the design's own `# build-order: NAME=STEP;STEP;...` lines (each
+step `x,y,z=STATE`, `air` a removal, or `~x,y,z=STATE` a TEMPORARY placement removed at the
+sequence's end unless a step removes it; every step inside the design's box, each sequence naming a
+design cell, a property the block lacks refused) and EXECUTES each one on the design with every
+cell it doesn't name laid first: each step through the game's placement check (`can_survive`; no
+rail near it may pop), then placed with its updates, its result checked against the step's state;
+then EVERY design cell and every step cell is read back against the design (off it fails by name).
+Then the plain orders over every rail cell (each rail with up to 4 rails of its 3x3x3 box, the rest
+of the design within 3 blocks laid raw: the window's assumption; reaching / total and one reaching
+order printed below N of N): a rail no plain order reaches fails unless a declared sequence lays it.
+Then ONE GLOBAL ORDER on the whole design (the guide's claim: the blocks that stand alone first, then
+the rest by a sweep, each rail facing its designed axis, the declared sequences last; four sweeps
+tried): none reproducing the design fails. Zero declared sequences or zero rails judge nothing (a
+failure). `--without NAME` leaves a sequence out, the positive control (58f770cc's re-laid stop
+without `park`: the park rail fails by name). `--global` (G′) runs the same plain and global orders
+for a design that needs no declared sequence (its `# build-order:` lines, if any, executed as with
+`--declared`; zero is no failure there): "would reshape 0" over a whole design file. A plain-rail T
+takes its powered curve when its neighbour signal is on (RailState.place with the powered flag:
+redsim's rails.rs `RailState::shape_for`, the T preference, last fit wins, powered SE, SW, NE, NW,
+unpowered NW, NE, SW, SE, tick-exact's quote of 26.3 RailState.place 331-343; the switch power
+modelled through the world's own blocks: record7f12's unpowered joins end north_east,
+record7f13b-rev2's, under LIFT's slime and torch, north_west).
 The portal-loop loaders, benched in redsim: `mctas mobfarm l1-bench [--ticks N] [--hold 320]
 [--pulse 20] [--stagger A1,B1,A2] [--freeze T,D[,ow|nether|both]]... [--piglin T]...
 [--design-out F]` (L1′, the cart loop: an overworld portal and its Nether twin, each side an exit
