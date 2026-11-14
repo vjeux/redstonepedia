@@ -2560,6 +2560,8 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
     let mut airborne: Option<f32> = None;
     let mut max_fall = 0f64;
     let mut stay: std::collections::HashMap<[i32; 3], i64> = std::collections::HashMap::new();
+    // (the activator's initial state, not an edge: the file may already hold it, so an unchanged
+    // write is expected here; every later edge is checked (G1's B4))
     set(&mut run.world, act_ctrl, if f.day_gate && day_state { "stone" } else { "redstone_block" });
     let mut trace_last_path = String::new();
     let mut prev_stamp: Option<i64> = None;
@@ -2792,7 +2794,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                         row.problems.push(format!("t {t}: the latch's release edge at ({},{},{}) wrote nothing (G1's Q12)", c[0], c[1], c[2]));
                     }
                 }
-                row.release_at = Some(t);
+                row.release_at = Some(t - 1);
                 // (day-1 13:22: the release resets SLEPT (and ARMED70) for the next visit)
                 latch_slept = false;
                 row.latch_lines.push(format!("t {t}: the park released (SLEPT reset)"));
@@ -2837,8 +2839,8 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
         let day = { let d = run.world.day_time().rem_euclid(24000); d >= f.day_on.unwrap_or(0) && d < f.day_off.unwrap_or(12_230) };
         if day != day_state {
             day_state = day;
-            if f.day_gate {
-                set(&mut run.world, act_ctrl, if day { "stone" } else { "redstone_block" });
+            if f.day_gate && !set(&mut run.world, act_ctrl, if day { "stone" } else { "redstone_block" }) {
+                row.problems.push(format!("t {t}: the day gate's edge at ({},{},{}) wrote nothing (G1's Q12 / B4)", act_ctrl[0], act_ctrl[1], act_ctrl[2]));
             }
             if day {
                 day_since = t;
@@ -2863,7 +2865,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                     row.problems.push(format!("t {t}: the abort's release edge at ({},{},{}) wrote nothing (G1's Q12)", c[0], c[1], c[2]));
                 }
             }
-            row.release_at = Some(t);
+            row.release_at = Some(t - 1);
             row.stamp_at_release = vill.and_then(|v| idx(&run.world, v)).filter(|&vi| redsim::entity::mob::ai::brain::has_exact(&run.world, vi)).map(|vi| redsim::entity::mob::ai::brain::ex(&run.world, vi).mem.cant_reach_since.map(|c| run.world.time - c));
         }
         // (the window shut on the wake edge: Z1's design does it as its normal operation (its
@@ -2877,7 +2879,8 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                 }
             }
             row.waker_lines.push(format!("t {t}: the window shut ({})", if z1_design { "Z1: F's line powers the shutter again on the wake edge, its normal operation" } else { "--hide-after-wake: the waker's controllers powered again" }));
-            row.close_at = Some(t);
+            // (G1's B2 on 1662bed98: a write before tick t is stamped t - 1, as open_at is)
+            row.close_at = Some(t - 1);
             hidden = true;
         }
         // (the release (ironspec 09:45, outcome (a)): `release_after` gt after the bed observer's
@@ -2913,7 +2916,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                     row.problems.push(format!("t {t}: the release edge at ({},{},{}) wrote nothing (G1's Q12)", c[0], c[1], c[2]));
                 }
             }
-            row.release_at = Some(t);
+            row.release_at = Some(t - 1);
             // (G1's note 1 on b36302af8, the pickup margin: the released cart set on the flat two
             // cells north of the pickup cell (-2,0,2) heading south at the forced speed)
             if let Some(v) = f.pickup_inject
@@ -2982,7 +2985,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                     row.problems.push(format!("t {t}: the tap's edge wrote nothing (G1's Q12)"));
                 }
                 tap_on = on;
-                row.tap_writes.push((t, on));
+                row.tap_writes.push((t - 1, on));
             }
         }
         // (ironspec 00:03 (2c): `--pulse-cell X,Y,Z@T=STATE`, a block set at tick T before the
@@ -4162,6 +4165,8 @@ pub fn two_visit_bench(spec: &FarmSpec, seed: u64, speed: f64, o: &TwoOpts) -> R
     // power and the abort's state; the queue's release gated on NOT DAY (the queue's gate))
     let day_fall = o.day_hold.map_or(o.day_off, |d| d.1);
     let mut day_state = { let d = run.world.day_time().rem_euclid(24000); d >= o.day_on && d < day_fall };
+    // (the activator's initial state, not an edge: the file may already hold it, so an unchanged
+    // write is expected here; every later edge is checked (G1's B4))
     set(&mut run.world, act_ctrl, if o.day_gate && day_state { "stone" } else { "redstone_block" });
     let mut abort_at: Option<i64> = None;
     let mut visit_slept = false;
@@ -4225,8 +4230,8 @@ pub fn two_visit_bench(spec: &FarmSpec, seed: u64, speed: f64, o: &TwoOpts) -> R
         let day = !night_now;
         if day != day_state {
             day_state = day;
-            if o.day_gate {
-                set(&mut run.world, act_ctrl, if day { "stone" } else { "redstone_block" });
+            if o.day_gate && !set(&mut run.world, act_ctrl, if day { "stone" } else { "redstone_block" }) {
+                row.problems.push(format!("t {t}: the day gate's edge at ({},{},{}) wrote nothing (G1's Q12 / B4)", act_ctrl[0], act_ctrl[1], act_ctrl[2]));
             }
         }
         // (the seated term (the day-gate control): the activator unpowered when the visit's cart
@@ -4250,14 +4255,19 @@ pub fn two_visit_bench(spec: &FarmSpec, seed: u64, speed: f64, o: &TwoOpts) -> R
             was_occ = occ;
             if !f_fired && f_live.is_some_and(|x| live >= x) {
                 f_fired = true;
-                set(&mut run.world, HATCH_CTRL, "stone");
-                set(&mut run.world, HATCH_CTRL_HI, "stone");
+                for c in [HATCH_CTRL, HATCH_CTRL_HI] {
+                    if !set(&mut run.world, c, "stone") {
+                        row.problems.push(format!("t {t}: F's hatch edge at ({},{},{}) wrote nothing (G1's Q12 / B4)", c[0], c[1], c[2]));
+                    }
+                }
             }
             // (the release 30 gt after the wake edge, whatever woke the napper)
             if !released && visit_woke.is_some_and(|wk| t >= wk + o.release_after) {
                 released = true;
                 for pc in PARK_CTRL {
-                    set(&mut run.world, pc, "redstone_block");
+                    if !set(&mut run.world, pc, "redstone_block") {
+                        row.problems.push(format!("t {t}: the release edge at ({},{},{}) wrote nothing (G1's Q12 / B4)", pc[0], pc[1], pc[2]));
+                    }
                 }
             }
             if o.day_gate && day && !visit_slept && !released && abort_at.is_none() {
@@ -4274,7 +4284,9 @@ pub fn two_visit_bench(spec: &FarmSpec, seed: u64, speed: f64, o: &TwoOpts) -> R
             if abort_at == Some(t) {
                 released = true;
                 for pc in PARK_CTRL {
-                    set(&mut run.world, pc, "redstone_block");
+                    if !set(&mut run.world, pc, "redstone_block") {
+                        row.problems.push(format!("t {t}: the abort's release edge at ({},{},{}) wrote nothing (G1's Q12 / B4)", pc[0], pc[1], pc[2]));
+                    }
                 }
             }
         }
@@ -4405,10 +4417,15 @@ pub fn two_visit_bench(spec: &FarmSpec, seed: u64, speed: f64, o: &TwoOpts) -> R
         if row.a_r.is_none() && past_r(w, cart1) {
             row.a_r = Some(t);
             for pc in PARK_CTRL {
-                set(&mut run.world, pc, "stone");
+                if !set(&mut run.world, pc, "stone") {
+                    row.problems.push(format!("t {t}: R's re-arm edge at ({},{},{}) wrote nothing (G1's Q12 / B4)", pc[0], pc[1], pc[2]));
+                }
             }
-            set(&mut run.world, HATCH_CTRL, "redstone_block");
-            set(&mut run.world, HATCH_CTRL_HI, "redstone_block");
+            for c in [HATCH_CTRL, HATCH_CTRL_HI] {
+                if !set(&mut run.world, c, "redstone_block") {
+                    row.problems.push(format!("t {t}: R's hatch edge at ({},{},{}) wrote nothing (G1's Q12 / B4)", c[0], c[1], c[2]));
+                }
+            }
             f_live = None;
             f_fired = false;
             released = false;
