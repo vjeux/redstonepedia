@@ -2350,6 +2350,12 @@ pub enum MobfarmCmd {
         /// line; one that keeps nothing refuses. Repeatable.
         #[arg(long = "keep-stale", allow_hyphen_values = true)]
         keep_stale: Vec<String>,
+        /// (vcompose, G1 Nov 14 01:22) A part's cell inside a `--reserve` box, acknowledged by name,
+        /// x,y,z=RULING:REASON (the ruling whose commit resolves it): a `# reserve-clash:` header
+        /// line keeps the record NOT CITABLE; one that matches no held reserved cell refuses.
+        /// Repeatable.
+        #[arg(long = "reserve-clash", allow_hyphen_values = true)]
+        reserve_clash: Vec<String>,
         /// (vcompose, G1 Nov 13 23:20 (2)) With --verify: a PLANTED TWIN, x,y,z=STATE (`air`
         /// removes the block) set in the verified file's copy the statics judge (the flee bar and
         /// its pathfinder world), each read back and a no-op refusing; the assembly and file
@@ -8609,7 +8615,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let o = crate::columnrun::Opts { cycles, warm, seed, close_at, slope_delay, g2_plus, hold_shut_delay, pulse, laps, trace };
             print!("{}", crate::columnrun::run(&spec, &c.clock.design.meta, &o).map_err(|e| anyhow::anyhow!(e))?);
         }
-        MobfarmCmd::Column { parts, reserves, reserves_from, reserve_skip, ports, tracks, carts, posts, clears, clear_parts, column, chunk_phase, plan, name, assert_aligned, no_settle, settle, stale, ledger_out, precedence, delta, absent, outside_portals, keep_stale, plant, ground, out_shift, no_riders, positions_out, path, notes, bed, bed_exempt, sentinel, sections, summon_box, golem_box, run_gate, run_cell, run_controller, notes_file, pockets, block, wait_box, out, verify, keep_clear, sight_path } => {
+        MobfarmCmd::Column { parts, reserves, reserves_from, reserve_skip, ports, tracks, carts, posts, clears, clear_parts, column, chunk_phase, plan, name, assert_aligned, no_settle, settle, stale, ledger_out, precedence, delta, absent, outside_portals, keep_stale, reserve_clash, plant, ground, out_shift, no_riders, positions_out, path, notes, bed, bed_exempt, sentinel, sections, summon_box, golem_box, run_gate, run_cell, run_controller, notes_file, pockets, block, wait_box, out, verify, keep_clear, sight_path } => {
             let _ = no_settle;
             let mut notes = notes;
             if let Some(nf) = &notes_file {
@@ -8732,7 +8738,17 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             };
             let mut sketch = column_sketch(&tracks, &carts, &posts)?;
             sketch.extend(extra_parts);
-            let trace = crate::column::Trace { stale: stale.clone(), precedence: prec.clone() };
+            // (vcompose, G1 Nov 14 01:22) --reserve-clash x,y,z=RULING:REASON
+            let rclash: Vec<([i32; 3], String, String)> = reserve_clash
+                .iter()
+                .map(|s| {
+                    let (c, rest) = s.split_once('=').ok_or_else(|| anyhow::anyhow!("--reserve-clash {s}: x,y,z=RULING:REASON"))?;
+                    let (ruling, why) = rest.split_once(':').ok_or_else(|| anyhow::anyhow!("--reserve-clash {s}: x,y,z=RULING:REASON (the ruling that resolves it, and why)"))?;
+                    anyhow::ensure!(!ruling.trim().is_empty() && !why.trim().is_empty(), "--reserve-clash {s}: name the ruling and the reason");
+                    Ok((p3(c)?, ruling.trim().to_string(), why.trim().to_string()))
+                })
+                .collect::<Result<_>>()?;
+            let trace = crate::column::Trace { stale: stale.clone(), precedence: prec.clone(), reserve_clash: rclash };
             let (text, d, bed_ok, ledger) = crate::column::run_traced(&specs, sketch, &tclears, &reserves, &given, &f, &name, plan, bed_cell.map(|b| (b, bed_exempt.as_slice())), sentinel_box, shift_w, golem_b.map(|g| (summoners.as_slice(), g)), &trace).map_err(|e| anyhow::anyhow!(e))?;
             print!("{text}");
             let paths: Vec<(String, Vec<[i32; 3]>)> = path.iter().map(|p| crate::column::path_cells(p)).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!(e))?;
@@ -8821,7 +8837,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     // (58f770cc 13:59, G1's CHANGES 2: the file's own `keep-clear:` cells hold no
                     // block, its `keep-block:` cells hold their block)
                     for (k, c) in crate::column::header_keep_clear(&committed_text).iter().enumerate() {
-                        keep.push(crate::column::Reserve { name: format!("header-keep-clear-{k}"), b: (*c, *c) });
+                        keep.push(crate::column::Reserve { name: format!("header-keep-clear-{k}"), b: (*c, *c), ..Default::default() });
                     }
                     let keep: Vec<(String, [i32; 3], [i32; 3])> = keep.iter().map(|r| (r.name.clone(), r.b.0, r.b.1)).collect();
                     let (rep, ok) = crate::column::assembly_check(&d, &committed, &keep);
@@ -8950,6 +8966,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let record: std::collections::BTreeSet<[i32; 3]> = d.blocks.iter().filter(|(_, s)| s.as_str() != "minecraft:air").map(|(c, _)| *c).collect();
             let filt = crate::column::CarryFilter { clear: tclears.iter().map(|c| c.b).collect(), stale: stale.clone(), held: ledger.held.clone(), lost: ledger.lost.clone(), deltas: delta_specs, record: stale.as_ref().map(|_| record.clone()), keep_stale: keep_stale_v.clone() };
             let carried = crate::column::carried_filtered(&specs, shift, &filt).map_err(|e| anyhow::anyhow!(e))?;
+            // (vcompose, ironspec Nov 14 00:34, G1 01:22) every carried stand-in names its support
+            // cells; a named support the record leaves empty, or none named, fails by name
+            let rec_written: std::collections::BTreeSet<[i32; 3]> = record.iter().map(|c| [c[0] + shift[0], c[1] + shift[1], c[2] + shift[2]]).collect();
+            let supports = crate::column::stand_in_supports(&carried.heads, &carried.metas, &rec_written).map_err(|e| anyhow::anyhow!(e))?;
+            println!("stand-in supports (ironspec Nov 14 00:34, G1 01:22): {} stand-ins, each support named and held{}", supports.len(), if supports.is_empty() { String::new() } else { format!(": {}", supports.join("; ")) });
             for (c, why) in &keep_stale_v {
                 anyhow::ensure!(!record.contains(c), "--keep-stale {},{},{}={why}: the record holds a block there (a no-op refuses by name)", c[0], c[1], c[2]);
                 let tok = format!("{},{},{}", c[0] + shift[0], c[1] + shift[1], c[2] + shift[2]);
@@ -8980,6 +9001,10 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 t.extend(carried.stale_kept.iter().map(|l| format!("{l}\n")));
                 t.push_str(&format!("## declarations dropped ({} lines)\n", carried.dropped.len()));
                 t.extend(carried.dropped.iter().map(|l| format!("{l}\n")));
+                t.push_str(&format!("## reserve clashes acknowledged ({} lines)\n", ledger.reserve_clash.len()));
+                t.extend(ledger.reserve_clash.iter().map(|l| format!("{l}\n")));
+                t.push_str(&format!("## stand-in supports ({} lines)\n", supports.len()));
+                t.extend(supports.iter().map(|l| format!("{l}\n")));
                 if verify.is_some() {
                     if plant.is_empty() {
                         // (G1 Nov 13 23:21 D4) verify compares, never writes
@@ -9037,7 +9062,13 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     println!("outside-portals {nm}: {} portal cells from {file}", cells.len());
                 }
                 head.extend(tracks.iter().map(|t| format!("# sketch track (plain rails, no control; a lane's cells replace it): {t}\n")));
-                head.extend(reserves.iter().map(|r| format!("# reserved (no blocks): {} x {}..{} y {}..{} z {}..{}\n", r.name, r.b.0[0], r.b.1[0], r.b.0[1], r.b.1[1], r.b.0[2], r.b.1[2])));
+                head.extend(reserves.iter().map(|r| format!("# reserved (no blocks): {} x {}..{} y {}..{} z {}..{}{}\n", r.name, r.b.0[0], r.b.1[0], r.b.0[1], r.b.1[1], r.b.0[2], r.b.1[2], match (&r.owner, &r.item) {
+                    (Some(o), Some(i)) => format!(" (for {o} until {i})"),
+                    _ => String::new(),
+                })));
+                for l in &ledger.reserve_clash {
+                    head.push_str(&format!("# reserve-clash: {l}: this record is NOT CITABLE until the ruling composes in (G1 Nov 14 01:22)\n"));
+                }
                 if !carried.dropped.is_empty() {
                     head.push_str(&format!("# declarations dropped by the compose (a cleared cell, the stale part's naming an owner's cell or a cell the record leaves empty): {}, each listed in {ledger_name}\n", carried.dropped.len()));
                 }

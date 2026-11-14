@@ -226,6 +226,14 @@ assembly check: each part file's md5 against the one its `# +` line names, the N
 whole file text (every header line) and the ledger text against a scratch re-compose (nothing is
 written), and the flee bar; `--plant x,y,z=STATE` (with `--verify`) judges the statics on a planted
 twin of FILE instead (each planted cell read back, a no-op refusing).
+Every stand-in a composed record carries (`# stand-in:` lines, `emulated:` entries) names its support
+cells, `support=x,y,z[+x,y,z]` or `support=none`: a named support the record leaves empty, or a stand-in
+naming none, fails the compose by name (ironspec Nov 14 00:34, G1 01:22). `--reserve NAME=BOX:OWNER:ITEM`
+holds a ruled but unlanded element's cells for its owner until ITEM lands (a `# reserved (no blocks):`
+line naming both); a part's cell inside a reserved box fails by name unless `--reserve-clash
+x,y,z=RULING:REASON` acknowledges it with the ruling that resolves it (a `# reserve-clash:` line: the
+record is not citable until that ruling composes in; an unused one refuses). A line carried through
+several composes names each part it came from once, in order.
 The golem chance per summon from a file: `mctas mobfarm summon-chance <design> --pad BOX --stand
 x,y,z...` runs the game's summon search (redsim's port of SpawnUtil's LEGACY_IRON_GOLEM scan, 289
 columns, floors y+5..y-7, `checkSpawnObstruction` with the file's carts placed) from each villager
