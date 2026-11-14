@@ -2240,9 +2240,10 @@ impl Ctl {
                 if let Some(v) = w.entities.list.iter().find(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && cell(e.pos) == dep).and_then(|e| e.passengers.first().copied()) {
                     self.dep_log.push((now, v));
                 }
-                if !self.a_stop {
-                    self.q_rs_ready = false;
-                }
+                // (rev 17:30, ff7fc645c) RS_ready resets at the queue's SENSED departure with the design
+                // controller too (the built gate holds it to here); t23's smoke: the old a_stop guard left it
+                // set for good, and the built gate released the next napper into an occupied stop
+                self.q_rs_ready = false;
                 // first departure, before its napper passes R: the next release must fail the bar
                 if self.rs_early && !self.rs_early_done {
                     self.q_rs_ready = true;
