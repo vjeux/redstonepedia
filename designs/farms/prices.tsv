@@ -35,6 +35,7 @@ slime_block	-	135	18	nine slime balls (the slime_ball row) crafted into one bloc
 blaze_rod	-	20	3	a Nether fortress
 end_rod	-	-	1	a blaze rod and a popped chorus fruit make four; the chorus fruit grows only in the End, so late only: (the blaze_rod row 3 + about 1 for the chorus fruit picked and smelted) / 4
 water	1	1	1	placing a source from a bucket refilled at any water (an infinite source): one refill per placed source
+lantern	27.8	9.2	1.9	eight iron nuggets (8/9 of the iron_ingot row) around a torch (the torch row), crafted: day-1 8/9 x 30 + 1.1, middle 8/9 x 10 + 0.3, late 8/9 x 2 + 0.15; light 15, not solid-render: it replaces an end rod wherever it passes the same checks (9fc3155f's F3 r3 trial, ironspec 23:02 (1))
 bubble_column	1	1	1	a bubble column's water: a source placed from a bucket over its base, as the water row (the column forms only over its base: soul sand pushes up, a magma block pulls down; the base is priced in its own row, so a day-1 build has no column)
 lava_trip	120	60	30	one trip to lava and back, per realistic action: day 1 a surface or cave lava pool; middle the Nether by its portal or a cave lake; late a Nether hub or a dripstone lava farm
 lava_fill	5	3	2	filling one bucket at the lava and placing the source in the farm
