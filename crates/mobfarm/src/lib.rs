@@ -38,6 +38,7 @@ pub mod ctlfeed;
 pub mod ctlchain;
 pub mod ctlpocket;
 pub mod ctlhigh;
+pub mod ctlshutter;
 pub mod holdpulse;
 pub mod linebench;
 pub mod mirror;

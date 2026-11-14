@@ -2211,7 +2211,7 @@ const H_STATED_LIMIT: (i64, i64) = (500, 1_750);
 /// deferred picks, the post-skip night's naps), the back-pressure against a no-back-pressure control,
 /// and restarts. (The chain fix) every bar and control through `v`.
 fn release_report(base: &CounterOpts, scen: &[(&str, Vec<(i64, Ev)>)], v: &mut crate::verdict::Verdict) -> Vec<String> {
-    let mut lines = Vec::new();
+    let mut lines = vec!["  (stop model before the 15:37 timeout removal: the stale branch and the skip classes a / b hold the stop by the older logic; the adopted stop (no T_nolie / T_fault / T_open, the release on sustained presence, rider-keyed RS_ready holding the next napper at R1) is ctl-shutter's, and this model moves to it next (ironspec on f6e715e50 (a)))".to_string()];
     let o = CounterOpts { variant: Variant::Ff, ..base.clone() };
     // (G1's Z5 on 10bcdf661: the new bars' controls, each a planted defect through the same model run: a DAY line whose
     // level the curve never reaches leaves a skip's DAY rise pending to the run's end (skip_unresolved); a drawn

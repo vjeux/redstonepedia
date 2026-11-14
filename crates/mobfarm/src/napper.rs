@@ -923,6 +923,9 @@ pub struct LaneOpts {
     pub gated_tap: bool,
     /// (ironspec 09:51 PT, d_RS) RS_ready set this many gt after R: the stop is free only then.
     pub rs_delay: i64,
+    /// (ironspec 16:28 (4)(2) (ii), information since 16:35) A pick waits for the stop to be free (no napper between its
+    /// pick and its stop-free tick): no napper is ever held at the queue seat through a stop halt.
+    pub pick_only_free: bool,
 }
 #[derive(Clone, Debug, Default)]
 pub struct LaneStats {
@@ -1027,7 +1030,7 @@ impl LaneOpts {
             outlier: None, post: 10, foot: 2, r_leg: 40, window: (55, 99), det: 2, lie: 80, start_dt: 12_431,
             rephase_lag: 0, truncate_after_skip: None, hold_at: None, rule2: false, windows2: false, late_latch: false, log_releases: false,
             siding_window: true, ret: 175, lock_gt: 600, remark: 0.0,
-            queue_leg: None, queue_hold: 0, to_entry: 0, held_at_divert: false, held_at_pick: false, trip_hist: None, pick_window: None, no_quota: false, ret_hist: None, ret_hist_lane: [None, None, None], pick_offsets: None, skip_pick: None, late_sleep: None, post_lane: None, t_d: None, post_spread: 0, t_d_spread: 0, siding_any: false, clock_exit: None, exit_phase: None, exit_pickup: (0, 0), hold_lead: 0, gated_tap: false, rs_delay: 0,
+            queue_leg: None, queue_hold: 0, to_entry: 0, held_at_divert: false, held_at_pick: false, trip_hist: None, pick_window: None, no_quota: false, ret_hist: None, ret_hist_lane: [None, None, None], pick_offsets: None, skip_pick: None, late_sleep: None, post_lane: None, t_d: None, post_spread: 0, t_d_spread: 0, siding_any: false, clock_exit: None, exit_phase: None, exit_pickup: (0, 0), hold_lead: 0, gated_tap: false, rs_delay: 0, pick_only_free: false,
         }
     }
 }
@@ -1290,7 +1293,9 @@ pub fn simulate_lanes_scored(o: &LaneOpts) -> (String, LaneStats) {
                 let truncated = lag_day == Some(day) && o.truncate_after_skip.is_some_and(|n| c - night_c0 >= n);
                 // ((i): HELD sampled at the divert: a napper held at the queue keeps this cart in its lane;
                 // (b), ironspec 22:05 PT: HELD set at the pick, from another napper's pick to its release)
-                let held_now = (o.held_at_divert && queue_busy.iter().any(|&(a, r)| a <= t && t < r)) || (o.held_at_pick && held_busy.iter().any(|&(p, r)| p <= t - 60 && t - 60 < r));
+                let held_now = (o.held_at_divert && queue_busy.iter().any(|&(a, r)| a <= t && t < r))
+                    || (o.held_at_pick && held_busy.iter().any(|&(p, r)| p <= t - 60 && t - 60 < r))
+                    || (o.pick_only_free && t - 60 < bed_free_at);
                 // (ironspec 00:12 PT (2): one forced skipped pick, as if the lane's napper were away; ironspec 04:07 PT: only
                 // an opportunity whose pick would have been made takes it, so the override always changes its target)
                 let would_pick = opp && (o.no_quota || lane_picks[l] < o.per_lane) && !truncated && lane_free && !held_now;
@@ -1793,6 +1798,11 @@ pub struct CovExtra {
     /// taken together (2 for an edge whose redstone and cart sit in different chunks; 1 within one chunk); unset: the old
     /// uncalibrated 7 ([`WORLD_OPEN_SHIFT`]), labelled.
     pub world_open_shift: Option<i64>,
+    /// (ironspec on f6e715e50 (c)) The wait margin is measured (the D-press spread + push); unset: the wait bar's label
+    /// calls `--wait-margin` a PLACEHOLDER.
+    pub wait_margin_measured: bool,
+    /// (ironspec 16:28 (4)(2) (ii)) A pick waits for the stop to be free: no held napper through a stop halt.
+    pub pick_only_free: bool,
 }
 
 /// (G1 07:05 PT) b8949c96's per-row files: every "asleep at +N gt" in them, as a histogram (a file without one is an
@@ -2387,6 +2397,7 @@ pub fn coverage_bench(holds: &[i64], operating_hold: i64, leg: (i64, i64), to_en
         hold_lead: x.hold_lead,
         gated_tap: x.gated_tap,
         rs_delay: x.rs_delay,
+        pick_only_free: x.pick_only_free,
         late_sleep: x.late_sleep.clone(),
         // (the batch's lanes launch s 12 apart: each lane's divert 12 gt after the one before)
         spacing: 12,
@@ -2474,7 +2485,7 @@ pub fn coverage_bench(holds: &[i64], operating_hold: i64, leg: (i64, i64), to_en
     // (G1 on 7897f4ba7 (a): the no-queue row is a reference, not a design configuration: with the stop's entry 60 gt after
     // the divert every napper is back a cycle or more before its predecessor's D press, so under the design of record's
     // D-and-PRESENT release every rejoin is early and m has no on-time sample there)
-    lines.push(row(&format!("TODAY'S RETURN (lanes s 12 apart; the stop's entry -> R {}..{}; R -> merge hold 89, the napper's pulse at REL + {slot} with k_lock, -> PRESENT {}/{}/{}, the deadline at the predecessor's D pass + {}/{}/{}), no queue (the stop's entry 60 gt after the divert; a reference row, not judged: without the queue's legs every napper is back a cycle early, so under D-and-PRESENT every rejoin is early and m has no on-time sample)", trip.0, trip.1, post[0], post[1], post[2], t_d[0], t_d[1], t_d[2]), &|seed| today(seed, None, 0, false)).0);
+    lines.push(row(&format!("TODAY'S RETURN (lanes s 12 apart; the stop's entry -> R {}..{}; R -> merge hold 89, the napper's pulse at REL + {slot} with k_lock, -> PRESENT {}/{}/{}, the deadline at the predecessor's D pass + {}/{}/{}: the post-lane / t_d inputs from onechunk's record7d composed nights, today's controller as emulated (t9-t17)), no queue (the stop's entry 60 gt after the divert; a reference row, not judged: without the queue's legs every napper is back a cycle early, so under D-and-PRESENT every rejoin is early and m has no on-time sample)", trip.0, trip.1, post[0], post[1], post[2], t_d[0], t_d[1], t_d[2]), &|seed| today(seed, None, 0, false)).0);
     for &h in holds {
         let op = h == h_op;
         let (text, st) = row(&format!("TODAY'S RETURN with the real legs ({}..{} gt to the arrival detector), the queue's hold {h} gt, the release -> entry {to_entry} gt, HELD set at the pick (reset at the release); the cap assumes the A6 fix (entry -> R <= {}: record7e's official approach stalls break it, ironspec 01:00 PT){}", leg.0, leg.1, x.trip_hist.as_ref().map_or(trip.1, |h| hist_range(h).1), if op { "; THE OPERATING POINT (--operating-hold), judged" } else { "; the cap matrix, not judged" }), &|seed| today(seed, Some(leg), h, true));
@@ -2582,7 +2593,7 @@ pub fn coverage_bench(holds: &[i64], operating_hold: i64, leg: (i64, i64), to_en
                     "  => the per-lane taps (ironspec 10:42 PT (1)): the wait at the hold per lane {} against < 100 - the margin {margin} (the world-open shift {shift} + {} ({})): {w}",
                     per.join(", "),
                     x.wait_margin.unwrap_or(0),
-                    if x.wait_margin.is_some() { "--wait-margin: the measured D-press spread + push shift" } else { "the D-press spread and the push shift not measured" }
+                    if x.wait_margin.is_some() { if x.wait_margin_measured { "--wait-margin: the measured D-press spread + push shift" } else { "--wait-margin: a PLACEHOLDER until the D-press spread and push are measured" } } else { "the D-press spread and the push shift not measured" }
                 ));
             }
         }
