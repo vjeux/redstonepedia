@@ -5101,6 +5101,292 @@ pub fn update_reach_components(spec: &FarmSpec, cells: &[BlockPos]) -> Result<(V
     Ok((lines, n))
 }
 
+/// Whether a block can ever be a redstone signal source, whatever its state (a wire counts: redsim's
+/// `is_signal_source` reads a global wire toggle).
+fn may_source(w: &redsim::World, s: &redsim::block::Block) -> bool {
+    matches!(s, redsim::block::Block::Wire { .. }) || redsim::behavior::is_signal_source(w, s)
+}
+
+/// (ironspec Nov 13 19:20 / 19:29, G1 19:19) Every block that powers, or could ever power, a cell: each
+/// signal source among its six neighbours (direct), and each source beside a redstone conductor among
+/// them (power through the block), whatever their state, so "nothing that could BECOME a source there"
+/// is checked too. With `qc`, the cell above as well (a piston, dropper or dispenser's quasi-
+/// connectivity); a powered or activator rail also takes every same-kind rail joined to it within 8
+/// (power passes along them). `allow` names source cells the design means (the bar counts the rest).
+/// Returns the lines and the count of sources outside `allow`.
+pub fn power_into(spec: &FarmSpec, cells: &[BlockPos], qc: bool, allow: &[BlockPos]) -> Result<(Vec<String>, usize), String> {
+    let w = settled_world_void(spec)?;
+    let name = |q: BlockPos| w.get(q).to_string().trim_start_matches("minecraft:").to_string();
+    let n6 = |p: BlockPos| [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)].map(|(dx, dy, dz)| BlockPos::new(p.x + dx, p.y + dy, p.z + dz));
+    let mut lines = Vec::new();
+    let mut bad = 0usize;
+    for c in cells {
+        let mut into = vec![*c];
+        if qc {
+            into.push(c.above());
+        }
+        // a powered / activator rail: the same-kind rails joined to it within 8 (26-neighbours, as the
+        // rail's line may climb)
+        let kind = |q: BlockPos| match w.get(q) {
+            redsim::block::Block::Rail { activator, .. } => Some(activator),
+            _ => None,
+        };
+        let mut chain = Vec::new();
+        if let Some(k) = kind(*c) {
+            let mut seen = vec![*c];
+            let mut front = vec![*c];
+            for _ in 0..8 {
+                let mut next = Vec::new();
+                for p in &front {
+                    for dx in -1..=1 {
+                        for dy in -1..=1 {
+                            for dz in -1..=1 {
+                                if (dx != 0 && dz != 0) || (dx == 0 && dy == 0 && dz == 0) {
+                                    continue;
+                                }
+                                let q = BlockPos::new(p.x + dx, p.y + dy, p.z + dz);
+                                if !seen.contains(&q) && kind(q) == Some(k) {
+                                    seen.push(q);
+                                    next.push(q);
+                                    chain.push(q);
+                                }
+                            }
+                        }
+                    }
+                }
+                front = next;
+            }
+            into.extend(chain.iter().copied());
+        }
+        let mut hits: Vec<(BlockPos, String)> = Vec::new();
+        for s in &into {
+            for q in n6(*s) {
+                let b = w.get(q);
+                if may_source(&w, &b) {
+                    hits.push((q, format!("{} at {},{},{} beside {},{},{}", name(q), q.x, q.y, q.z, s.x, s.y, s.z)));
+                } else if redsim::behavior::is_conductor(&w, &b, q) {
+                    for r in n6(q) {
+                        if r != *s && may_source(&w, &w.get(r)) {
+                            hits.push((r, format!("{} at {},{},{} through the conductor {} at {},{},{} beside {},{},{}", name(r), r.x, r.y, r.z, name(q), q.x, q.y, q.z, s.x, s.y, s.z)));
+                        }
+                    }
+                }
+            }
+        }
+        hits.sort_by_key(|(q, t)| (q.y, q.z, q.x, t.clone()));
+        hits.dedup_by(|a, b| a.1 == b.1);
+        let outside: Vec<&String> = hits.iter().filter(|(q, _)| !allow.contains(q)).map(|(_, t)| t).collect();
+        let allowed: Vec<&String> = hits.iter().filter(|(q, _)| allow.contains(q)).map(|(_, t)| t).collect();
+        bad += outside.len();
+        lines.push(format!(
+            "power into {},{},{} ({}){}{}: {} source(s) in reach outside the allowed{}{}",
+            c.x,
+            c.y,
+            c.z,
+            name(*c),
+            if qc { format!(", with the cell above {},{},{} ({}, quasi-connectivity)", c.x, c.y + 1, c.z, name(c.above())) } else { String::new() },
+            if chain.is_empty() { String::new() } else { format!(", with {} joined same-kind rail(s) {}", chain.len(), chain.iter().map(|q| format!("{},{},{}", q.x, q.y, q.z)).collect::<Vec<_>>().join(" ")) },
+            outside.len(),
+            if outside.is_empty() { " (PASS)".to_string() } else { format!(": {} (FAIL)", outside.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("; ")) },
+            if allowed.is_empty() { String::new() } else { format!("; allowed: {}", allowed.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("; ")) }
+        ));
+    }
+    Ok((lines, bad))
+}
+
+/// Whether a block responds to redstone power (a consumer): a rail of any kind (a plain T is power-
+/// switched in 26.3), dust, a diode, a piston, a dropper, a dispenser, a hopper, a door, trapdoor or
+/// gate, a lamp, a note block, TNT, a bell, a crafter, a copper bulb, a command block.
+fn power_consumer(id: &str) -> bool {
+    id.contains("rail") || ["redstone_wire", "repeater", "comparator", "piston", "dropper", "dispenser", "hopper", "_door", "_trapdoor", "fence_gate", "redstone_lamp", "note_block", "tnt", "bell", "crafter", "copper_bulb", "command_block"].iter().any(|k| id.contains(k))
+}
+
+/// (ironspec Nov 13 19:46 (iii), ironfarm 19:50) Where a source's power can go: each power consumer
+/// among its six neighbours (its weak power, whatever its facing), and each consumer beside a redstone
+/// conductor among them (strong power through the block; a hook's or a lever's support, a plate's or a
+/// detector rail's floor). The design's meant consumers named by `allow`. Returns the lines and the
+/// count outside `allow`.
+pub fn power_out(spec: &FarmSpec, cells: &[BlockPos], allow: &[BlockPos]) -> Result<(Vec<String>, usize), String> {
+    let w = settled_world_void(spec)?;
+    let name = |q: BlockPos| w.get(q).to_string().trim_start_matches("minecraft:").to_string();
+    let id = |q: BlockPos| name(q).split('[').next().unwrap_or("").to_string();
+    let n6 = |p: BlockPos| [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)].map(|(dx, dy, dz)| BlockPos::new(p.x + dx, p.y + dy, p.z + dz));
+    let mut lines = Vec::new();
+    let mut bad = 0usize;
+    for c in cells {
+        let mut hits: Vec<(BlockPos, String)> = Vec::new();
+        let mut through = Vec::new();
+        for q in n6(*c) {
+            if power_consumer(&id(q)) {
+                hits.push((q, format!("{} at {},{},{} beside it", name(q), q.x, q.y, q.z)));
+            } else if redsim::behavior::is_conductor(&w, &w.get(q), q) {
+                through.push(format!("{} at {},{},{}", id(q), q.x, q.y, q.z));
+                for r in n6(q) {
+                    if r != *c && power_consumer(&id(r)) {
+                        hits.push((r, format!("{} at {},{},{} through the conductor {} at {},{},{}", name(r), r.x, r.y, r.z, id(q), q.x, q.y, q.z)));
+                    }
+                }
+            }
+        }
+        hits.sort_by_key(|(q, t)| (q.y, q.z, q.x, t.clone()));
+        hits.dedup_by(|a, b| a.1 == b.1);
+        let outside: Vec<&String> = hits.iter().filter(|(q, _)| !allow.contains(q)).map(|(_, t)| t).collect();
+        let allowed: Vec<&String> = hits.iter().filter(|(q, _)| allow.contains(q)).map(|(_, t)| t).collect();
+        bad += outside.len();
+        lines.push(format!(
+            "power out of {},{},{} ({}): conductors beside it: {}; {} consumer(s) in reach outside the allowed{}{}",
+            c.x,
+            c.y,
+            c.z,
+            name(*c),
+            if through.is_empty() { "none (its strong power goes nowhere)".to_string() } else { through.join(", ") },
+            outside.len(),
+            if outside.is_empty() { " (PASS)".to_string() } else { format!(": {} (FAIL)", outside.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("; ")) },
+            if allowed.is_empty() { String::new() } else { format!("; allowed: {}", allowed.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("; ")) }
+        ));
+    }
+    Ok((lines, bad))
+}
+
+/// (ironspec Nov 13 19:11, with day-1) The riderless-source statics: what could take a rider out of its
+/// cart, or kill it, on the route (each rail place's three points, `scarer_points`).
+/// - (a) every activator rail with every block that powers or could power it (`power_into`; the
+///   design's own emptying rail named by `allow`);
+/// - (c) every seated zombie whose attack box (`Mob.getAttackBoundingBox`: its box and its vehicle's
+///   unioned horizontally, inflated by sqrt(2.04) - 0.6 in x and z) meets a rider's box at a route
+///   point, and whether it sees the rider (`Sensing.hasLineOfSight`: the collider, eye to eye): a
+///   strike needs both;
+/// - (d) every nether portal block a rider's box (deflated 1e-5) meets;
+/// - (e) every free fall off a rail end with its drop and whether water breaks it (a passenger takes
+///   its cart's fall, `propagateFallToPassengers`: ceil(d - 3) damage; 20 kills a villager).
+/// (b) in-wall damage is the eye check (`eye_check`). Returns the lines and the count of failures (an
+/// unallowed activator source, a strike, a portal met, a fatal fall).
+pub fn riderless_statics(spec: &FarmSpec, allow_activators: &[BlockPos]) -> Result<(Vec<String>, usize), String> {
+    let w = settled_world_void(spec)?;
+    let mut lines = Vec::new();
+    let mut bad = 0usize;
+    // (a)
+    let acts: Vec<BlockPos> = spec.blocks.iter().map(|(p, _)| *p).filter(|p| matches!(w.get(*p), redsim::block::Block::Rail { activator: true, .. })).collect();
+    if acts.is_empty() {
+        lines.push("(a) activator rails: none".to_string());
+    } else {
+        let (al, an) = power_into(spec, &acts, false, allow_activators)?;
+        lines.push(format!("(a) activator rails: {} ({} source(s) outside the allowed)", acts.len(), an));
+        lines.extend(al.into_iter().map(|l| format!("  {l}")));
+        bad += an;
+    }
+    let pts = scarer_points(spec, &[]);
+    let vd = redsim::entity::mob::types::MobType::Villager.def();
+    let (hw, h) = (vd.width as f64 / 2.0, vd.height as f64);
+    let rider_box = |f: Vec3| redsim::entity::Aabb { min_x: f.x - hw, min_y: f.y, min_z: f.z - hw, max_x: f.x + hw, max_y: f.y + h, max_z: f.z + hw };
+    // (c)
+    let mut with = w.clone();
+    for (k, p, n) in &spec.entities {
+        redsim::entity::spawn(&mut with, k, *p, n.as_deref()).map_err(|e| format!("riderless: the design's {k} at {:?} did not spawn: {e}", p))?;
+    }
+    let reach = ((2.04f32) as f64).sqrt() - (0.6f32 as f64);
+    let mut zombies = 0usize;
+    for e in with.entities.list.iter() {
+        let redsim::entity::EntityKind::Mob(m) = &e.kind else { continue };
+        if m.ty != redsim::entity::mob::types::MobType::Zombie {
+            continue;
+        }
+        zombies += 1;
+        let mut bx = e.bb;
+        let mut vname = "on foot".to_string();
+        if let Some(v) = e.vehicle.and_then(|v| redsim::entity::index_of(&with, v)) {
+            let vb = with.entities.list[v].bb;
+            bx = redsim::entity::Aabb { min_x: bx.min_x.min(vb.min_x), min_y: bx.min_y, min_z: bx.min_z.min(vb.min_z), max_x: bx.max_x.max(vb.max_x), max_y: bx.max_y, max_z: bx.max_z.max(vb.max_z) };
+            vname = "seated".to_string();
+        }
+        let ab = redsim::entity::Aabb { min_x: bx.min_x - reach, min_y: bx.min_y, min_z: bx.min_z - reach, max_x: bx.max_x + reach, max_y: bx.max_y, max_z: bx.max_z + reach };
+        let zeye_at = Vec3::new(e.pos.x, e.pos.y + zeye(), e.pos.z);
+        let mut met = Vec::new();
+        let mut strikes = 0usize;
+        for (lab, f) in &pts {
+            let r = rider_box(*f);
+            if ab.min_x < r.max_x && ab.max_x > r.min_x && ab.min_y < r.max_y && ab.max_y > r.min_y && ab.min_z < r.max_z && ab.max_z > r.min_z {
+                let seen = ray_pair(&w, Vec3::new(f.x, f.y + veye(), f.z), zeye_at).1;
+                if seen {
+                    strikes += 1;
+                }
+                met.push(format!("{lab} ({:.2},{:.2},{:.2}): sight {}", f.x, f.y, f.z, if seen { "CLEAR: it can strike" } else { "blocked" }));
+            }
+        }
+        bad += strikes;
+        lines.push(format!(
+            "(c) the zombie at {:.2},{:.2},{:.2} ({vname}; attack box x {:.2}..{:.2} y {:.2}..{:.2} z {:.2}..{:.2}): {} route point(s) in reach, {} it can strike{}",
+            e.pos.x,
+            e.pos.y,
+            e.pos.z,
+            ab.min_x,
+            ab.max_x,
+            ab.min_y,
+            ab.max_y,
+            ab.min_z,
+            ab.max_z,
+            met.len(),
+            strikes,
+            if met.is_empty() { " (PASS)".to_string() } else { format!(": {}{}", met.join("; "), if strikes > 0 { " (FAIL)" } else { " (PASS: no sight)" }) }
+        ));
+    }
+    if zombies == 0 {
+        lines.push("(c) seated zombies: none".to_string());
+    }
+    // (d)
+    let mut portal_hits: Vec<String> = Vec::new();
+    for (lab, f) in &pts {
+        let r = rider_box(*f);
+        let e = 1e-5;
+        for x in (r.min_x + e).floor() as i32..=(r.max_x - e).floor() as i32 {
+            for y in (r.min_y + e).floor() as i32..=(r.max_y - e).floor() as i32 {
+                for z in (r.min_z + e).floor() as i32..=(r.max_z - e).floor() as i32 {
+                    if w.get(BlockPos::new(x, y, z)).to_string().contains("nether_portal") {
+                        portal_hits.push(format!("{lab} meets the portal block {x},{y},{z}"));
+                    }
+                }
+            }
+        }
+    }
+    portal_hits.sort();
+    portal_hits.dedup();
+    bad += portal_hits.len();
+    lines.push(format!("(d) portal blocks a rider's box meets: {}{}", portal_hits.len(), if portal_hits.is_empty() { " (PASS)".to_string() } else { format!(": {} (FAIL)", portal_hits.join("; ")) }));
+    // (e)
+    let (_, why) = auto_columns(spec, &[]);
+    let nums = |s: &str| -> Vec<i32> { s.split(|c: char| !(c.is_ascii_digit() || c == '-')).filter_map(|t| t.parse::<i32>().ok()).collect() };
+    let mut falls = 0usize;
+    for l in why.iter().filter(|l| l.contains("a free fall off the rail end")) {
+        falls += 1;
+        let (Some(i), Some(j)) = (l.find(" into "), l.find(" down ")) else {
+            lines.push(format!("(e) {}: NOT JUDGED here (no drop on the line)", l.trim_start_matches("auto column: ")));
+            continue;
+        };
+        let m = nums(&l[i + 6..]);
+        let d = nums(&l[j + 6..]);
+        let (Some(&mx), Some(&my), Some(&mz), Some(&drop)) = (m.first(), m.get(1), m.get(2), d.first()) else { continue };
+        let ly = my - drop - 1;
+        let wet = (ly + 1..=my).any(|y| {
+            let s = w.get(BlockPos::new(mx, y, mz)).to_string();
+            s.contains("water") || s.contains("bubble_column") || s.contains("waterlogged=true")
+        });
+        let dmg = if wet { 0 } else { (drop - 3).max(0) };
+        let fatal = !wet && dmg >= 20;
+        if fatal {
+            bad += 1;
+        }
+        lines.push(format!(
+            "(e) {}: {}",
+            l.trim_start_matches("auto column: "),
+            if wet { "water in the fall's column breaks it: no damage".to_string() } else if dmg == 0 { "a drop of 3 or less: no damage".to_string() } else { format!("a passenger takes {dmg} damage{}", if fatal { ": FATAL to a villager (20) (FAIL)" } else { "" }) }
+        ));
+    }
+    if falls == 0 {
+        lines.push("(e) free falls off rail ends: none".to_string());
+    }
+    lines.push("(b) in-wall damage: the eye check (flee-check's eye positions against suffocating blocks)".to_string());
+    Ok((lines, bad))
+}
 /// (G1 Nov 13 18:37, B2 / B7) Whether an iron golem standing at `cell` (its box `MobType::IronGolem`'s
 /// width and height around the cell's centre, deflated by 1e-5 as `Entity.checkInsideBlocks` takes
 /// it) meets a nether portal block: a pad golem, which crosses at once.
@@ -8735,6 +9021,113 @@ mod gate_tests {
         // a cell holding none of them
         let e = super::update_reach_components(&mk(Vec::new()), &[b(2, 1, 2)]).err().unwrap_or_default();
         assert!(e.contains("NOT JUDGED") && e.contains("2,1,2"), "air: {e}");
+    }
+
+    /// (ironspec Nov 13 19:11, with day-1) The riderless statics, each both ways: a zombie seated in a
+    /// boat beside a rail line strikes a rider (reach and sight), one two cells further reaches none;
+    /// a rider's box meeting a framed lit portal fails; a rail end over a 29-block drop kills a
+    /// villager passenger, water at the bottom breaks the fall.
+    #[test]
+    fn riderless_zombie_reach_portal_and_fatal_fall_both_ways() {
+        let p = |s: &str| redsim::block::Block::parse(s).unwrap_or_else(|_| redsim::block::Block::Terrain(redsim::terrain::blocks::id_of(s).unwrap_or_else(|| panic!("{s}"))));
+        let mut base = Vec::new();
+        for x in 0..=7 {
+            for z in 0..=6 {
+                base.push((b(x, 0, z), p("minecraft:stone")));
+            }
+        }
+        for z in 1..=5 {
+            base.push((b(3, 1, z), p("minecraft:rail[shape=north_south,waterlogged=false]")));
+        }
+        let mk = |blocks: Vec<(redsim::pos::BlockPos, redsim::block::Block)>, ents: Vec<(String, [f64; 3], Option<String>)>| redsim::entity::mob::farm::FarmSpec { blocks, entities: ents, output: b(0, -1, 0), lo: b(0, -1, 0), hi: b(7, 32, 6), block_entities: Vec::new(), rock: false, nether: None, land: false };
+        let zb = |x: f64| ("minecraft:oak_boat".to_string(), [x, 1.0, 3.5], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}".to_string()));
+        let (l1, n1) = super::riderless_statics(&mk(base.clone(), vec![zb(4.5)]), &[]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(n1 > 0 && l1.iter().any(|l| l.starts_with("(c) the zombie at") && l.contains("it can strike") && l.ends_with("(FAIL)")), "beside: {l1:?}");
+        let (l2, n2) = super::riderless_statics(&mk(base.clone(), vec![zb(6.5)]), &[]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(n2 == 0 && l2.iter().any(|l| l.starts_with("(c) the zombie at") && l.contains(": 0 route point(s) in reach") && l.ends_with("(PASS)")), "further: {l2:?}");
+        // a framed lit portal the rail's end runs into
+        let mut pb = base.clone();
+        pb.retain(|(q, _)| q.x != 3 || q.y != 1);
+        for (x, y) in [(0, 1), (1, 1), (2, 1), (3, 1), (0, 5), (1, 5), (2, 5), (3, 5), (0, 2), (0, 3), (0, 4), (3, 2), (3, 3), (3, 4)] {
+            pb.push((b(x, y, 6), p("minecraft:obsidian")));
+        }
+        for x in 1..=2 {
+            for y in 2..=4 {
+                pb.push((b(x, y, 6), p("minecraft:nether_portal[axis=x]")));
+            }
+        }
+        pb.push((b(1, 1, 5), p("minecraft:stone")));
+        pb.push((b(1, 2, 5), p("minecraft:rail[shape=north_south,waterlogged=false]")));
+        let (l3, n3) = super::riderless_statics(&mk(pb, Vec::new()), &[]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(n3 > 0 && l3.iter().any(|l| l.starts_with("(d) portal blocks a rider's box meets: ") && l.contains("meets the portal block 1,2,6") && l.ends_with("(FAIL)")), "the portal: {l3:?}");
+        // a rail end 29 blocks over the floor, then water at the bottom
+        let mut fb = base.clone();
+        fb.push((b(3, 29, 3), p("minecraft:stone")));
+        fb.push((b(3, 30, 3), p("minecraft:rail[shape=east_west,waterlogged=false]")));
+        fb.push((b(2, 30, 3), p("minecraft:stone")));
+        let (l4, n4) = super::riderless_statics(&mk(fb.clone(), Vec::new()), &[]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(n4 > 0 && l4.iter().any(|l| l.starts_with("(e) a free fall off the rail end 3,30,3 into 4,30,3") && l.contains("down 29 blocks") && l.contains("26 damage: FATAL to a villager (20) (FAIL)")), "the fall: {l4:?}");
+        let mut wb = fb;
+        wb.push((b(4, 1, 3), p("minecraft:water[level=0]")));
+        for (x, z) in [(5, 3), (4, 2), (4, 4)] {
+            wb.push((b(x, 1, z), p("minecraft:stone")));
+        }
+        let (l5, _) = super::riderless_statics(&mk(wb, Vec::new()), &[]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(l5.iter().any(|l| l.starts_with("(e) a free fall off the rail end 3,30,3 into 4,30,3") && l.contains("water in the fall's column breaks it")), "water: {l5:?}");
+    }
+
+    /// (ironspec Nov 13 19:20 / 19:29, G1 19:19) The power-into static: a lone activator rail on stone
+    /// has no source in reach; a lever on the stone under it powers it through the conductor (FAIL,
+    /// PASS when allowed); a lever beside a joined activator rail reaches it along the line; a dropper's
+    /// quasi-connected cell above is read only with `qc`. And power-out of a hook (ironspec 19:46 (iii)).
+    #[test]
+    fn power_into_lone_activator_conductor_lever_chain_and_qc() {
+        let p = |s: &str| redsim::block::Block::parse(s).unwrap();
+        let mut base = Vec::new();
+        for x in 0..=4 {
+            for z in 0..=4 {
+                base.push((b(x, 0, z), p("minecraft:stone")));
+            }
+        }
+        let mk = |extra: Vec<(redsim::pos::BlockPos, redsim::block::Block)>| {
+            let mut blocks = base.clone();
+            blocks.extend(extra);
+            redsim::entity::mob::farm::FarmSpec { blocks, entities: Vec::new(), output: b(0, -1, 0), lo: b(0, -1, 0), hi: b(4, 3, 4), block_entities: Vec::new(), rock: false, nether: None, land: false }
+        };
+        let act = p("minecraft:activator_rail[powered=false,shape=north_south,waterlogged=false]");
+        let (l0, n0) = super::power_into(&mk(vec![(b(2, 1, 2), act)]), &[b(2, 1, 2)], false, &[]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(n0 == 0 && l0[0].ends_with("(PASS)"), "a lone activator: {l0:?}");
+        // a lever on the stone's east face under the rail: through the conductor
+        let lever = p("minecraft:lever[face=wall,facing=east,powered=false]");
+        let sp = mk(vec![(b(2, 1, 2), act), (b(3, 0, 2), lever)]);
+        let mut sp2 = sp.clone();
+        sp2.blocks.retain(|(q, _)| *q != b(3, 0, 2));
+        sp2.blocks.push((b(3, 0, 2), lever));
+        let (l1, n1) = super::power_into(&sp2, &[b(2, 1, 2)], false, &[]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(n1 == 1 && l1[0].contains("lever") && l1[0].contains("through the conductor stone at 2,0,2") && l1[0].contains("(FAIL)"), "a lever under: {l1:?}");
+        let (l2, n2) = super::power_into(&sp2, &[b(2, 1, 2)], false, &[b(3, 0, 2)]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(n2 == 0 && l2[0].contains("(PASS)") && l2[0].contains("allowed: lever"), "allowed: {l2:?}");
+        // a lever beside a joined activator: along the line
+        let chain = mk(vec![(b(2, 1, 1), act), (b(2, 1, 2), act), (b(1, 1, 1), p("minecraft:lever[face=floor,facing=north,powered=false]"))]);
+        let (l3, n3) = super::power_into(&chain, &[b(2, 1, 2)], false, &[]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(n3 >= 1 && l3[0].contains("joined same-kind rail(s) 2,1,1") && l3[0].contains("lever[") && l3[0].contains("at 1,1,1 beside 2,1,1"), "the chain: {l3:?}");
+        // a dropper: the redstone block beside the cell above reaches it only by quasi-connectivity
+        let qc = mk(vec![(b(0, 1, 4), p("minecraft:dropper[facing=up,triggered=false]")), (b(1, 2, 4), p("minecraft:redstone_block"))]);
+        let (l4, n4) = super::power_into(&qc, &[b(0, 1, 4)], false, &[]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(n4 == 0, "without qc: {l4:?}");
+        let (l5, n5) = super::power_into(&qc, &[b(0, 1, 4)], true, &[]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(n5 == 1 && l5[0].contains("redstone_block at 1,2,4 beside 0,2,4"), "with qc: {l5:?}");
+        // (ironspec 19:46 (iii)) power out of a hook: on glass alone nothing; a powered rail beside it
+        // fails; on stone, a powered rail beside the stone fails through the conductor
+        let hook = "minecraft:tripwire_hook[attached=false,facing=west,powered=false]";
+        let hk = redsim::block::Block::parse(hook).unwrap_or_else(|_| redsim::block::Block::Terrain(redsim::terrain::blocks::id_of(hook).expect("the hook")));
+        let pr = p("minecraft:powered_rail[powered=false,shape=north_south,waterlogged=false]");
+        let (o1, m1) = super::power_out(&mk(vec![(b(1, 1, 2), hk), (b(2, 1, 2), p("minecraft:glass"))]), &[b(1, 1, 2)], &[]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(m1 == 0 && o1[0].contains("conductors beside it: stone at 1,0,2") && o1[0].ends_with("(PASS)"), "a hook on glass: {o1:?}");
+        let (o2, m2) = super::power_out(&mk(vec![(b(1, 1, 2), hk), (b(2, 1, 2), p("minecraft:glass")), (b(1, 1, 3), pr)]), &[b(1, 1, 2)], &[]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(m2 >= 1 && o2[0].contains("powered_rail[") && o2[0].contains("at 1,1,3 beside it") && o2[0].contains("(FAIL)"), "a powered rail beside: {o2:?}");
+        let (o3, m3) = super::power_out(&mk(vec![(b(1, 1, 2), hk), (b(2, 1, 2), p("minecraft:stone")), (b(3, 1, 2), pr)]), &[b(1, 1, 2)], &[]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(m3 >= 1 && o3[0].contains("at 3,1,2 through the conductor stone at 2,1,2"), "through the support: {o3:?}");
     }
 
     /// (G1 N28 / N39: the seated start rule on a slope) A seated rider near a slope's high end

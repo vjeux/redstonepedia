@@ -3276,6 +3276,44 @@ pub enum MobfarmCmd {
         #[arg(long, allow_hyphen_values = true)]
         shell_box: Vec<String>,
     },
+    /// (ironspec Nov 13 19:46 (iii), ironfarm 19:50) Where a source's power can go: every power
+    /// consumer among each --cell's six neighbours and beside a conductor among them; --allow names the
+    /// design's meant consumers; fails on any other.
+    PowerOut {
+        design: PathBuf,
+        /// A source cell x,y,z (repeatable).
+        #[arg(long, allow_hyphen_values = true)]
+        cell: Vec<String>,
+        /// A consumer cell x,y,z the design means (repeatable).
+        #[arg(long, allow_hyphen_values = true)]
+        allow: Vec<String>,
+    },
+    /// (ironspec Nov 13 19:11, with day-1) The riderless-source statics on the route: (a) activator
+    /// rails and every block that powers or could power them (--allow-activator names the design's
+    /// own emptying rail's sources), (c) seated zombies whose attack box meets a rider with sight,
+    /// (d) portal blocks a rider's box meets, (e) free falls with their damage; fails on any.
+    Riderless {
+        design: PathBuf,
+        /// A source cell x,y,z the design means to power an activator rail (repeatable).
+        #[arg(long, allow_hyphen_values = true)]
+        allow_activator: Vec<String>,
+    },
+    /// (ironspec Nov 13 19:20 / 19:29, G1 19:19) Every block that powers, or could ever power, a cell:
+    /// signal sources among its six neighbours and beside a conductor among them, whatever their state;
+    /// --qc adds the cell above (quasi-connectivity); a powered / activator rail takes its joined
+    /// same-kind rails within 8; --allow names the source cells the design means; fails on any other.
+    PowerInto {
+        design: PathBuf,
+        /// A cell x,y,z (repeatable).
+        #[arg(long, allow_hyphen_values = true)]
+        cell: Vec<String>,
+        /// Also the cell above (a piston, dropper or dispenser's quasi-connectivity).
+        #[arg(long)]
+        qc: bool,
+        /// A source cell x,y,z the design means (repeatable).
+        #[arg(long, allow_hyphen_values = true)]
+        allow: Vec<String>,
+    },
     /// (ironspec Nov 13 19:11 / 19:13) The components a cell's state change can trigger: each --cell's
     /// six neighbours in the settled design, every observer, piston, dropper or dispenser among them
     /// listed; fails on any (bar 0).
@@ -9367,6 +9405,52 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let hostile = redsim::entity::Vec3::new(f[0], f[1], f[2]);
             let heye = eye.unwrap_or_else(|| crate::fleecheck::eye_of(redsim::entity::mob::types::MobType::Zombie));
             p_static_run(&design, &spec_file, &at, &cart, &exit_at, &set, &hold, &column_of, &surround, pocket.as_deref(), Some((hostile, heye)), &[])?;
+        }
+        MobfarmCmd::PowerOut { design, cell, allow } => {
+            let (_c, spec) = load(version, &design)?;
+            let parse = |p: &String| -> anyhow::Result<redsim::pos::BlockPos> {
+                let v: Vec<i32> = p.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("{p}: {e}"))?;
+                anyhow::ensure!(v.len() == 3, "{p}: x,y,z");
+                Ok(redsim::pos::BlockPos::new(v[0], v[1], v[2]))
+            };
+            let cells = cell.iter().map(parse).collect::<anyhow::Result<Vec<_>>>()?;
+            let allow = allow.iter().map(parse).collect::<anyhow::Result<Vec<_>>>()?;
+            anyhow::ensure!(!cells.is_empty(), "power-out: NOT JUDGED: no --cell");
+            let (lines, n) = crate::fleecheck::power_out(&spec, &cells, &allow).map_err(|e| anyhow::anyhow!(e))?;
+            for l in &lines {
+                println!("{l}");
+            }
+            anyhow::ensure!(n == 0, "power out: {n} consumer(s) outside the allowed (bar 0)");
+        }
+        MobfarmCmd::Riderless { design, allow_activator } => {
+            let (_c, spec) = load(version, &design)?;
+            let mut allow = Vec::new();
+            for p in &allow_activator {
+                let v: Vec<i32> = p.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("--allow-activator {p}: {e}"))?;
+                anyhow::ensure!(v.len() == 3, "--allow-activator {p}: x,y,z");
+                allow.push(redsim::pos::BlockPos::new(v[0], v[1], v[2]));
+            }
+            let (lines, n) = crate::fleecheck::riderless_statics(&spec, &allow).map_err(|e| anyhow::anyhow!(e))?;
+            for l in &lines {
+                println!("{l}");
+            }
+            anyhow::ensure!(n == 0, "riderless sources: {n} failure(s)");
+        }
+        MobfarmCmd::PowerInto { design, cell, qc, allow } => {
+            let (_c, spec) = load(version, &design)?;
+            let parse = |p: &String| -> anyhow::Result<redsim::pos::BlockPos> {
+                let v: Vec<i32> = p.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("{p}: {e}"))?;
+                anyhow::ensure!(v.len() == 3, "{p}: x,y,z");
+                Ok(redsim::pos::BlockPos::new(v[0], v[1], v[2]))
+            };
+            let cells = cell.iter().map(parse).collect::<anyhow::Result<Vec<_>>>()?;
+            let allow = allow.iter().map(parse).collect::<anyhow::Result<Vec<_>>>()?;
+            anyhow::ensure!(!cells.is_empty(), "power-into: NOT JUDGED: no --cell");
+            let (lines, n) = crate::fleecheck::power_into(&spec, &cells, qc, &allow).map_err(|e| anyhow::anyhow!(e))?;
+            for l in &lines {
+                println!("{l}");
+            }
+            anyhow::ensure!(n == 0, "power into: {n} source(s) outside the allowed (bar 0)");
         }
         MobfarmCmd::UpdateReach { design, cell } => {
             let (_c, spec) = load(version, &design)?;
