@@ -5011,38 +5011,51 @@ pub fn route_golem_floors(spec: &FarmSpec, biome: &'static str) -> Result<(Vec<S
     if cells.is_empty() && refused.is_empty() {
         return Err(format!("the route's golem floors: NOT JUDGED: the {} caller cell(s)' golem searches reach no floor", callers.len()));
     }
-    // (ironspec 18:35 / G1 18:37: FRAGILE and STATE by the blocks' kinds, never by a term's wording)
+    // (ironspec 18:35 / G1 18:37: FRAGILE and STATE by the blocks' kinds, never by a term's wording;
+    // ironspec 21:06: a cell refused only by the pad's portal blocks is PAD FUNCTION, classed apart with
+    // one fault note: blow the portal out and the pad's bottom row becomes golem floor)
+    let portal_only = |t: &Vec<GolemTerm>| !t.is_empty() && t.iter().all(|x| x.block.to_string().contains("nether_portal"));
+    let is_fragile = |t: &Vec<GolemTerm>| !t.is_empty() && !portal_only(t) && t.iter().all(|x| x.removable(&w));
     let mut by_term: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
-    let (mut fragile, mut state) = (Vec::new(), Vec::new());
+    let (mut fragile, mut state, mut pad) = (Vec::new(), Vec::new(), Vec::new());
     for ((y, z, x), t) in &refused {
         for term in t {
             *by_term.entry(term.key()).or_default() += 1;
         }
         let labels = || t.iter().map(|x| x.label()).collect::<Vec<_>>().join(", ");
-        if !t.is_empty() && t.iter().all(|x| x.removable(&w)) {
+        if portal_only(t) {
+            pad.push(format!("{x},{y},{z}"));
+        } else if is_fragile(t) {
             fragile.push(format!("{x},{y},{z} ({})", labels()));
         } else if !t.is_empty() && t.iter().all(|x| x.stateful(&w)) {
             state.push(format!("{x},{y},{z} ({})", labels()));
         }
     }
     lines.push(format!(
-        "  refused stop cells: {} (by term: {}); FRAGILE (only a removable rail, signal source or collision-free guard such as a string refuses it): {}{}; STATE (only a changeable state refuses it: keep that state permanent): {}{}",
+        "  refused stop cells: {} (by term: {}); FRAGILE (only a removable rail, signal source or collision-free guard such as a string refuses it): {}{}; STATE (only a changeable state refuses it: keep that state permanent): {}{}; PAD FUNCTION (the portal): {} cell(s){}",
         refused.len(),
         by_term.iter().map(|(k, n)| format!("{k} {n}")).collect::<Vec<_>>().join(", "),
         fragile.len(),
         if fragile.is_empty() { String::new() } else { format!(": {}", fragile.join("; ")) },
         state.len(),
-        if state.is_empty() { String::new() } else { format!(": {}", state.join("; ")) }
+        if state.is_empty() { String::new() } else { format!(": {}", state.join("; ")) },
+        pad.len(),
+        if pad.is_empty() { String::new() } else { format!(": {}", pad.join(" ")) }
     ));
-    // (ironspec 18:20 / 19:13: one fault-note line per FRAGILE cell)
-    for ((y, z, x), t) in refused.iter().filter(|(_, t)| !t.is_empty() && t.iter().all(|x| x.removable(&w))) {
+    // (ironspec 18:20 / 19:13: one fault-note line per FRAGILE cell; 21:06: one for the pad's portal)
+    for ((y, z, x), t) in refused.iter().filter(|(_, t)| is_fragile(t)) {
         let what: Vec<String> = t.iter().map(|g| format!("the {} at {},{},{}", g.block.to_string().trim_start_matches("minecraft:").split('[').next().unwrap_or(""), g.pos.x, g.pos.y, g.pos.z)).collect::<std::collections::BTreeSet<_>>().into_iter().collect();
         lines.push(format!("  FAULT NOTE {x},{y},{z}: removing {} makes this cell a golem floor; replace what you remove", what.join(" and ")));
+    }
+    if !pad.is_empty() {
+        lines.push(format!("  FAULT NOTE (PAD FUNCTION, {} cell(s)): If the pad's portal goes out, its bottom row becomes golem floor and golems stay on the pad instead of leaving: the farm stops producing iron until the portal is relit.", pad.len()));
     }
     // (ironspec 19:15 (3): every other non-full-block kind found refusing a cell, its class stated)
     let mut kinds: std::collections::BTreeMap<String, (usize, &'static str)> = std::collections::BTreeMap::new();
     for t in refused.values() {
-        let class = if !t.is_empty() && t.iter().all(|x| x.removable(&w)) {
+        let class = if portal_only(t) {
+            "PAD FUNCTION"
+        } else if is_fragile(t) {
             "FRAGILE"
         } else if !t.is_empty() && t.iter().all(|x| x.stateful(&w)) {
             "STATE"
@@ -10266,6 +10279,9 @@ mod gate_tests {
             assert!(super::golem_box_meets_portal(&w, b(1, 0, 6)) && !super::golem_box_meets_portal(&w, b(1, -1, 6)), "the height edge");
             let (gl, off, cells) = super::route_golem_floors(&spec, "minecraft:plains").unwrap_or_else(|e| panic!("{e}"));
             assert!(off == 0 && !cells.is_empty() && cells.contains(&b(1, 2, 6)) && gl[0].contains(", 0 OFF THE PAD (bar 0)"), "every floor on the pad: {gl:?}");
+            // (ironspec 21:06: the portal's bottom row, refused only by the portal blocks, is PAD FUNCTION
+            // with its one fault note, never FRAGILE)
+            assert!(gl.iter().any(|l| l.contains("PAD FUNCTION (the portal): 2 cell(s): 1,2,5 2,2,5")) && gl.iter().any(|l| l.contains("FAULT NOTE (PAD FUNCTION, 2 cell(s)): If the pad's portal goes out, its bottom row becomes golem floor")) && !gl.iter().any(|l| l.contains("FAULT NOTE 1,2,5") || l.contains("FAULT NOTE 2,2,5")), "the pad's function: {gl:?}");
         }
         let plat = |s: &str| {
             let mut blocks = Vec::new();
