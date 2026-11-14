@@ -134,7 +134,16 @@ pub fn release_pulse() -> i64 {
 /// The napper's hold-rail release offset before NAPPER_SHIFT (REL + 63; with the shift REL + 65): one state source for
 /// the K / OFF windows' release tick (G1 CHANGES 8 on 5184136c2 (8)).
 pub const NAPPER_REL: i64 = 63;
-pub const NAPPER_T: [i64; 3] = [160 + NAPPER_SHIFT, 175 + NAPPER_SHIFT, 191 + NAPPER_SHIFT];
+/// Slot 3's BOX-CLEAR tick at each J (REL-relative; its box past the J cell's east face by its half-width 0.49), measured
+/// by ironfarm on record7f13b-rev2 at the 12-gt pulse, train 16's offsets (farmopt 08:38 (3)): J(-1), J(3), J(7).
+pub const SLOT3_BOX_CLEAR: [i64; 3] = [153, 169, 184];
+pub const NAPPER_T: [i64; 3] = [160 + NAPPER_SHIFT + R6_SHIFT, 175 + NAPPER_SHIFT + R6_SHIFT, 191 + NAPPER_SHIFT + R6_SHIFT];
+/// R6 = 15 (bought, ironspec 09:00a (3) / 09:04a (1)): the napper's release from its lane's R hold (the R-line end) 5 gt
+/// later than R6 = 10's, so K(-1) / K(3)'s early edges clear slot 3's box at J(-1) / J(3) with margin (a train-16 value
+/// change, no blocks; the station row's (9,0,8) hold stays at REL + 67). HELD AT 0 in this commit: the shift moves every
+/// napper press and its K window, and its re-derivation (the K masks' gaps, the true-lost rows, the controls built on
+/// R6 = 10) lands in its own commit; until then R6's physical bar fails by name (pinned).
+pub const R6_SHIFT: i64 = 0;
 pub const LANES: [i32; 3] = [-1, 3, 7];
 /// The power-up: the hopper's items (the ballast + 2 credits) and the dropper's stock.
 pub const HOPPER0: i64 = 3;
@@ -195,6 +204,8 @@ pub struct Row {
     /// is accepted (it can answer a claim early), and the cap refuses only at a drain (a legitimate credit then): it bounds
     /// nothing in running. A variant, off by default.
     pub store_cap: bool,
+    /// THE STORE GUARD (bought): REL also needs the controller's logic count of stored credits >= 1.
+    pub store_guard: bool,
     /// THE LANES MODEL (the (b') positive control): each lane's carts (None: off); a cart comes back to its lane's queue
     /// LANE_CYCLE - `lane_slack` gt after its batch's release; REL needs every lane's slot-1 cart.
     pub lane_carts: Option<[i64; 3]>,
@@ -245,7 +256,7 @@ pub struct Row {
 
 impl Row {
     pub fn normal(name: &str) -> Row {
-        Row { name: name.to_string(), hopper0: HOPPER0, dropper0: DROPPER0, t_max: 3000, missing: vec![], napper: vec![], stray: vec![], holds_empty: vec![], late: vec![], open: None, pick: vec![], bypass: false, credit_dm1: true, ring_x: RING_X, ring: false, ring_resync: false, ring_reset_x: false, s3old_tap: Some(S3OLD_TAP), dm1_block7: DM1_BLOCK7, resync_net: true, claims_cap: true, store_cap: false, lane_carts: None, lane_slack: 50, rebalance: false, over_q: 2, slot_shift: [0; 3], napper_shift: 0, pick_dep: false, fast: true, dm1_old: true, dm1_done: false, dm1_store: false, dm1_owed: false, jam: None, occ_gate: false, f1_dip: vec![], unlock_on_request: true, napper_jitter: vec![] }
+        Row { name: name.to_string(), hopper0: HOPPER0, dropper0: DROPPER0, t_max: 3000, missing: vec![], napper: vec![], stray: vec![], holds_empty: vec![], late: vec![], open: None, pick: vec![], bypass: false, credit_dm1: true, ring_x: RING_X, ring: false, ring_resync: false, ring_reset_x: false, s3old_tap: Some(S3OLD_TAP), dm1_block7: DM1_BLOCK7, resync_net: true, claims_cap: true, store_cap: false, store_guard: true, lane_carts: None, lane_slack: 50, rebalance: false, over_q: 2, slot_shift: [0; 3], napper_shift: 0, pick_dep: false, fast: true, dm1_old: true, dm1_done: false, dm1_store: false, dm1_owed: false, jam: None, occ_gate: false, f1_dip: vec![], unlock_on_request: true, napper_jitter: vec![] }
     }
 }
 
@@ -303,6 +314,10 @@ pub struct Defects {
     pub quiet_reset: bool,
     /// The OLD mint latch (cleared whenever the credit wait ends, a hold's flicker included): the flicker row's control.
     pub old_mint_latch: bool,
+    /// A loader crash DOUBLING THE BALLAST (the hopper one item over the logic count from the start).
+    pub ballast_doubled: bool,
+    /// A loader crash DOUBLING A CREDIT in the hopper at this tick (one item more, the logic count unchanged).
+    pub credit_doubled_at: Option<i64>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -331,6 +346,8 @@ pub struct Out {
     /// The item count at the run's end, and its least value over the run (G1 08:26 (8) / (10)).
     pub flight_end: i64,
     pub flight_min: i64,
+    /// REL refusals by THE STORE GUARD (the hopper's read lit, the logic count of stored credits 0): their ticks.
+    pub guard_refused: Vec<i64>,
     /// Every D(7) credit's gap after the last D(-1) completion (G1 02:34 (2): the guard's margin to legitimate credits).
     pub d7_gap_after_completion: Vec<i64>,
     /// Every napper press's margin inside its own K window (lane, margin; negative = outside), ironspec 02:43 (1).
@@ -506,6 +523,12 @@ pub fn run(row: &Row, def: Defects) -> Out {
     let mut o = Out { items_min: i64::MAX, dropper_min: i64::MAX, ..Out::default() };
     let mut items_hist = vec![0i64; n];
     let mut items = row.hopper0;
+    // (THE STORE GUARD's logic count: the stored credits as the controller counts them (the ballast excluded))
+    let mut logic_store: i64 = row.hopper0 - 1;
+    if def.ballast_doubled {
+        // (a loader crash doubling the ballast: the hopper holds one item more, the logic count unchanged)
+        items += 1;
+    }
     let mut dropper = row.dropper0;
     let mut cool_until = 0i64;
     let mut unlock: Option<(i64, i64, usize)> = None;
@@ -673,6 +696,10 @@ pub fn run(row: &Row, def: Defects) -> Out {
             }
         }
         // the dropper dispenses (one item into the hopper, or nothing if dry)
+        if def.credit_doubled_at == Some(t) {
+            // (a loader crash doubling a credit item in the hopper: the logic count unchanged)
+            items += 1;
+        }
         for &(at, b, src) in &dispense {
             if at == t {
                 if (def.drop_credit == Some(b) || def.drop_credit2 == Some(b)) && !o.dropped.contains(&b) {
@@ -693,6 +720,7 @@ pub fn run(row: &Row, def: Defects) -> Out {
                         cool_until = t + INSERT_COOLDOWN;
                     }
                     items += 1;
+                    logic_store += 1;
                     if def.single_latch {
                         items = items.min(1);
                     }
@@ -890,7 +918,16 @@ pub fn run(row: &Row, def: Defects) -> Out {
         if armed || flight != flight_at_mint || (def.old_mint_latch && !due) {
             net_fired = false;
         }
-        if pending && t >= pulse_at + REL_LAT && b_ok && holds && armed {
+        // (THE STORE GUARD (bought, ironspec 08:23a (1), G1 08:24): a logic count of the stored credits (power-up credits,
+        // + 1 per credit landed, - 1 per REL) gates REL beside the hopper's read: a doubled ballast or a doubled credit in
+        // the hopper reads one more than the count holds, so the read alone can't release a batch (the doubled item stays
+        // in the hopper, never pushed); a missed increment stalls (the safe direction))
+        let in_disp = dispense.iter().filter(|d| d.0 > t).count() as i64;
+        let guard_ok = !row.store_guard || logic_store + in_disp >= 1;
+        if pending && t >= pulse_at + REL_LAT && b_ok && holds && armed && !guard_ok {
+            o.guard_refused.push(t);
+        }
+        if pending && t >= pulse_at + REL_LAT && b_ok && holds && armed && guard_ok {
             pending = false;
             had_wait = false;
             let last_rel_prev = last_rel;
@@ -898,6 +935,7 @@ pub fn run(row: &Row, def: Defects) -> Out {
             in_flight = false;
             o.rels.push(t);
             claims += 1;
+            logic_store -= 1;
             flight += 3;
             if row.lane_carts.is_some() {
                 o.rel_depth.push(lane_q);
@@ -2961,6 +2999,39 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
         let w = v.bar("ctl-credit: THE STORE's PLANTED ROWS: the ballast alone (0 credits): REL unlocks nothing (no REL fires, no transfer); the ballast + one credit: the first REL moves EXACTLY ONE item", o0.rels.is_empty() && o0.transfers.iter().all(|&x| x == 0) && o1.transfers.first() == Some(&1));
         lines.push(format!("    the planted store rows: the ballast alone: RELs {:?}, transfers {:?}; the ballast + one credit: the first REL's transfers {:?}: {w}", o0.rels, o0.transfers, o1.transfers.first()));
     }
+    // (THE STORE GUARD (bought: ironspec 08:23a (1), G1 08:24): a loader crash DOUBLING the ballast or a credit puts one
+    // item in the hopper that no credit put there: the read alone would release a batch early (a doubled ballast reads lit
+    // at 0 credits and the unlock would push a credit-type item that isn't one). The guard: REL also needs the logic
+    // count of stored credits >= 1. Rows: the doubled ballast and a doubled credit (t 700): the RELs exactly the normal
+    // run's, the extra item never pushed; the controls (the guard off): an extra / early REL by name)
+    {
+        // (a row where REL WAITS for a credit (batch 5's lane-7 cart 60 late), so an item no credit put in the hopper would
+        // show as an early REL)
+        let mut rn = Row::normal("store guard, a late cart");
+        rn.late = vec![(5, 2, 60)];
+        let on = run(&rn, Defects::default());
+        let mut rows_g = Vec::new();
+        let mut bad_g = Vec::new();
+        for (name, d) in [("a DOUBLED BALLAST", Defects { ballast_doubled: true, ..Default::default() }), ("a DOUBLED CREDIT at t 700", Defects { credit_doubled_at: Some(700), ..Default::default() })] {
+            let og = run(&rn, d);
+            // (the guard's bar: NO REL EARLIER than the clean run's beyond the arming latency (1 gt: the clean run arms on the
+            // in-flight credit a tick after its press, the guarded run counts the press itself) and the same count)
+            let early_g = og.rels.len() != on.rels.len() || og.rels.iter().zip(on.rels.iter()).any(|(a, b)| *a < *b - 1);
+            if early_g {
+                let diff = og.rels.iter().zip(on.rels.iter()).find(|(a, b)| a != b).map(|(a, b)| format!("first difference REL at {a} vs {b}")).unwrap_or_default();
+                bad_g.push(format!("{name}: a REL earlier than the clean run's ({} vs {} RELs; {diff})", og.rels.len(), on.rels.len()));
+            }
+            let mut rg0 = rn.clone();
+            rg0.store_guard = false;
+            let oc = run(&rg0, d);
+            let early = oc.rels.len() > on.rels.len() || oc.rels.iter().zip(on.rels.iter()).any(|(a, b)| a < b);
+            rows_g.push(format!("{name}: with the guard {} RELs (normal {}), the guard refused at {:?}; the guard off: {} RELs{}", og.rels.len(), on.rels.len(), og.guard_refused.iter().take(3).collect::<Vec<_>>(), oc.rels.len(), if early { " (AN EARLY / EXTRA REL)" } else { "" }));
+            let c = v.control(&format!("ctl-credit CONTROL (the store guard): {name} with the guard OFF: AN EARLY / EXTRA REL by name"), 1, early).to_string();
+            rows_g.push(format!("    control: {c}"));
+        }
+        let w = v.bar_n("ctl-credit: THE STORE GUARD: a doubled ballast and a doubled credit (a loader crash) release no batch early: no REL earlier than the clean run's, the same count (the extra item stays in the hopper, never pushed)", 2, bad_g.is_empty());
+        lines.push(format!("  THE STORE GUARD (the logic count of stored credits, with the credits in flight, gating REL): {}{}: {w}", rows_g.join("; "), if bad_g.is_empty() { String::new() } else { format!(" (FAILED: {})", bad_g.join(" | ")) }));
+    }
     // (1) the normal run with returning nappers in every lane and outbound picks of every lane
     let mut row = Row::normal("normal");
     row.napper = vec![(2, 0, 0), (4, 1, 0), (6, 2, 0), (8, 0, 20), (10, 1, 20), (12, 2, 20)];
@@ -3600,6 +3671,25 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
         }
         let w = v.bar("ctl-credit: THE K WINDOWS' SIX MARGINS (G1 05:19 (5): the cart ahead of each napper against its window's early edge, the next batch's cart behind against the late edge, each after a kj = 3 shift toward the window, train 15 and train 16) stay >= 2 (the jitter)", least >= 2);
         lines.push(format!("  THE K WINDOWS' SIX MARGINS (K_EARLY {K_EARLY}, K_HALF {K_HALF}): {}; least {least}: {w}", six.join("; ")));
+        // (ironspec 08:18a (3) / 08:35a (1), G1 08:39 (2): R6's PHYSICAL BAR, JUDGED, on ironfarm's reference
+        // (record7f13b-rev2, the 12-gt pulse, train 16's 0 / 17 / 27 + napper 7; REL = t 100): at the J where K SWITCHES
+        // (J(-1) for the lane -1 napper, J(3) for lane 3's: slot 3 passes those straight through, then K(l) switches J(l) to
+        // branch) K(l)'s EARLY EDGE must come after slot 3's BOX CLEARS J(l)'s rail cell + 1 gt + the world open's kj 3;
+        // J(7) never switches between slot 3 and the lane-7 napper (both branch): cart-on-cart only. The box-clear ticks
+        // are ironfarm's (the box past the cell's east face by its half-width 0.49): J(-1) REL + 153, J(3) REL + 169, J(7)
+        // REL + 184. The control: the early half back at 10 (the old symmetric window) fails by name)
+        {
+            let clear = SLOT3_BOX_CLEAR;
+            let nt16: [i64; 3] = std::array::from_fn(|j| NAPPER_T[j] + 2);
+            let r6 = |k_early: i64| -> Vec<(usize, i64)> { (0..2usize).map(|l| (l, (nt16[l] - k_early) - (clear[l] + 1) - 3)).collect() };
+            let m = r6(K_EARLY);
+            let least_r6 = m.iter().map(|x| x.1).min().unwrap_or(i64::MIN);
+            let w = v.bar_n(&format!("ctl-credit: R6's PHYSICAL BAR at the switching J's (train 16 on ironfarm's reference, R6 = 15): K(l)'s early edge after slot 3's box clears J(l) + 1 gt + kj 3, at J(-1) and J(3) (box clear REL + {} / {}): every margin >= 3 (ironspec 09:00a (3))", clear[0], clear[1]), 2, least_r6 >= 3);
+            lines.push(format!("  R6's PHYSICAL BAR (ironfarm's box-clear ticks, train 16): {}; J(7): no switch (cart-on-cart only, slot 3's box clear at REL + {} vs the lane-7 napper at REL + {}): {w}", m.iter().map(|(l, x)| format!("K({}) early edge REL + {} vs slot 3's box clear REL + {} + 1 + kj 3: margin {x}", LANES[*l], nt16[*l] - K_EARLY, clear[*l])).collect::<Vec<_>>().join("; "), clear[2], nt16[2]));
+            let mc = r6(K_HALF);
+            let c = v.control("ctl-credit CONTROL (ironspec 08:18a (3)): R6's bar with K's early half back at 10 (the old symmetric window): a margin under the bar's 3 BY NAME", 1, mc.iter().any(|x| x.1 < 3)).to_string();
+            lines.push(format!("  CONTROL (K's early half 10): margins {:?}: {c}", mc.iter().map(|x| x.1).collect::<Vec<_>>()));
+        }
         // (ironspec 05:18 (3): THE OLD SYMMETRIC WINDOW AS A PLANTED MISROUTE failing by name: a kj 3 world open between the
         // lane -1 napper's release and its batch's slot 3 reaching J(-1), the early half back at 10)
         let mut hits = Vec::new();
@@ -3875,14 +3965,22 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
         }
         line(v, &format!("a REL delayed {d} gt (the holds not full over t 700..{}): the cadence back to P = 100 within 2 batches, the store's bars", 700 + d), &bad, &o, &r, &mut lines);
         if d == 150 {
-            let oc = run(&r, Defects { single_latch: true, ..Default::default() });
+            // (the G8-form control predates the store guard, whose logic count would mask the latch form: the control and
+            // its clean baseline both run with the guard off, one change between them)
+            let mut rg = r.clone();
+            rg.store_guard = false;
+            let og = run(&rg, Defects::default());
+            let oc = run(&rg, Defects { single_latch: true, ..Default::default() });
             let after: Vec<i64> = oc.rels.iter().copied().filter(|&x| x >= 850).collect();
-            control(v, "G8 as (A) (one latch reset at every REL), a REL delayed 150: the farm locks at half rate", after.windows(2).skip(2).any(|w| w[1] - w[0] != PERIOD), &oc, &r, &mut lines);
+            let base_ok = store_bars(&og).is_empty();
+            control(v, "G8 as (A) (one latch reset at every REL), a REL delayed 150 (the store guard off on the control and its clean baseline): the farm locks at half rate", base_ok && after.windows(2).skip(2).any(|w| w[1] - w[0] != PERIOD), &oc, &rg, &mut lines);
         }
     }
     let mut r = Row::normal("no ballast");
     r.hopper0 = 2;
     r.late = vec![(5, 2, 20)];
+    // (the no-ballast control predates the store guard: both rows run with it off)
+    r.store_guard = false;
     let oc = run(&r, Defects { no_ballast: true, ..Default::default() });
     let od = run(&Row { hopper0: HOPPER0, ..r.clone() }, Defects::default());
     control(v, "no ballast (2 items, RE_ARMED = >= 1 item), batch 5's lane-7 cart 20 late: REL fires on the in-flight credit with the hopper EMPTY, the credit lands in an empty hopper (its insert cooldown 7) inside the unlock window, and that REL moves no item (the count gains one); with the ballast the same row keeps every store bar", od.at_rel.iter().all(|r| r.2.is_some()) && store_bars(&od).is_empty() && oc.at_rel.iter().any(|r| r.2.is_none()), &oc, &r, &mut lines);
@@ -4659,6 +4757,7 @@ mod tests {
         }
         let fails = v.fails();
         let expected = [
+            ("R6's PHYSICAL BAR at the switching J's (train 16 on ironfarm's reference, R6 = 15)", ""),
             ("the override (b')'s through-branch stand-in missed (no swap row nor ordered pair exercises a J(Y)-first stand-in) leaves its target unchanged", ""),
             ("THE ITEM FORM (G1 CHANGES 5 (A)): a cart lost before its D press (batch 5's lane -1 slot missing) then a LATER lost credit (batch 12's dropped): the net recovers the later loss: THE LATER LOSS NEVER ANSWERED, THE COUNT STUCK AT +", ""),
             ("THE ITEM FORM (G1 CHANGES 5 (B)): TWO STRAY D presses 30 gt apart (the count driven to -2) never mint falsely (a mint whose net-off twin keeps the store correct): A FALSE MINT, THE COUNT DRIVEN TO -", ""),
