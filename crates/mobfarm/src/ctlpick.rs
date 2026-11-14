@@ -25,6 +25,10 @@ pub const DAY: i64 = 240;
 pub const CIRCUIT: i64 = 2;
 pub const N0: usize = 8;
 pub const MARGIN: i64 = 1_000;
+/// The token's recovery delay (ironspec 07:38r): the front empty continuously for N_REC gt (>= the detector's 20-gt hold
+/// + a departing napper's time to clear every landing position + margin: 40, to be re-derived from b8949c96's clearing
+/// times) before a missed departure's token SET (and the room count's down-count).
+pub const N_REC: i64 = 40;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Merge {
@@ -161,7 +165,8 @@ pub struct Out {
     /// resyncs (at the record's quiet point: the stop free, no pick for 3 RELs), and the RELs carrying two or more picks
     /// (gt, the count before, after).
     pub max_room: i64,
-    pub room_resyncs: usize,
+    pub room_recoveries: usize,
+    pub extra_ignored: usize,
     pub multi_pick: Vec<(i64, i64, i64)>,
     /// The RELs at which the room term deferred a pick (gt).
     pub deferred_at: Vec<i64>,
@@ -252,6 +257,8 @@ pub fn run(cfg: &Cfg) -> Out {
     let mut room: i64 = 0;
     let mut deps: Vec<i64> = Vec::new();
     let mut dep_no = 0usize;
+    // (missed departures awaiting the token's recovery)
+    let mut recov: Vec<i64> = Vec::new();
     // (THE 3-DEEP LANE RECORD, ironspec 01:05 (2): lanes written at each pick; with the skip fix a gate-G-skipped lane-7
     // entry is held and written behind the next REL's entries: (lane, the REL t it was picked at))
     let mut record: VecDeque<usize> = VecDeque::new();
@@ -308,24 +315,32 @@ pub fn run(cfg: &Cfg) -> Out {
         for k in 0..day_len {
             gt += 100;
             t += 1;
-            // (THE ROOM COUNT: the departure presses since the last REL count down (a planted miss does not), a planted
-            // extra press counts down once more; clamped at >= 0)
+            // (THE ROOM COUNT (ironspec 07:38r's token rule): it counts DOWN on each TOKEN SET, i.e. once per napper's
+            // departure: the departure press WHILE ARRIVED (the released napper's arrival edge seen), or, when that
+            // press is missed, the token's RECOVERY (front empty for N AND a napper at P1); a departure press OUTSIDE
+            // ARRIVED (a late press after the recovery, a player's empty leaving) is ignored. No quiet-point resync (G1
+            // 07:39 (1): for a room term an over-count is the safe direction; a quiet resync would zero nappers held by a
+            // halt and pick past the room))
             deps.sort();
             while deps.first().is_some_and(|&d| d <= gt) {
-                deps.remove(0);
+                let d = deps.remove(0);
                 dep_no += 1;
-                if !cfg.missed_dep.contains(&dep_no) {
+                if cfg.missed_dep.contains(&dep_no) {
+                    recov.push(d);
+                } else {
                     room -= 1;
                 }
             }
-            room -= cfg.extra_dep.iter().filter(|&&x| x > gt - 100 && x <= gt).count() as i64;
-            room = room.max(0);
-            // (its RESYNC on evidence at the record's quiet point: the stop free (the bed's last visit over, no napper
-            // waiting) and no pick for 3 RELs: nothing is dispatched and not departed, so the count reads 0)
-            if cfg.resync && pending.is_empty() && gt >= bed_free && t - last_pick_t >= 3 && room != 0 {
-                o.room_resyncs += 1;
-                room = 0;
+            // (the recovery: a missed departure's down-count lands once the front has read empty for N_REC and a napper
+            // waits at P1 (arrived at the leg + 15 and not yet in the bed))
+            let at_p1 = pending.iter().any(|p| p.0 + 15 <= gt) || assigned.iter().any(|a| a.0 + 15 <= gt && a.1 > gt);
+            while recov.first().is_some_and(|&d| d + N_REC <= gt) && at_p1 {
+                recov.remove(0);
+                room -= 1;
+                o.room_recoveries += 1;
             }
+            o.extra_ignored += cfg.extra_dep.iter().filter(|&&x| x > gt - 100 && x <= gt).count();
+            room = room.max(0);
             // (THE RECORD's RESYNC, ironspec 01:05 (2)(b): no napper in flight (none pending, the stop free: the last
             // napper's visit over) and >= 3 RELs since the last pick: the record must be empty; any entry left is cleared)
             if cfg.resync && pending.is_empty() && gt >= bed_free && t - last_pick_t >= 3 && (!record.is_empty() || !rec_hold.is_empty()) {
@@ -960,32 +975,35 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
         lines.push(format!("  THE WAY-IN with the stop stalled ({n} rows): at most {worst} nappers in the way-in ({worst_at}){}: {w}", if miss.is_empty() { String::new() } else { format!(" ({})", miss.join(" | ")) }));
         let c = v.control("ctl-pick CONTROL (ironspec 06:31 (1)): the way-in room term off, the stop stalled: A 4th NAPPER DISPATCHED INTO A FULL WAY-IN by name (b8949c96's spill)", 1, worst_off > 3).to_string();
         lines.push(format!("  CONTROL (no room term): at most {worst_off} nappers in the way-in ({off_at}): {c}"));
-        // (G1 06:35's three rows on the room count (an ORDER MACHINE, ironspec 06:43 (1): its resync on evidence at the
-        // record's quiet point): (a) A MISSED DEPARTURE PRESS: the count reads one high, picks defer early (safe), the
-        // resync puts it back: the way-in still <= 3, the nights still meet the bars, the count's resyncs printed;
-        // (b) AN EXTRA DEPARTURE PRESS while the count is full (a rollback over (9,-11,-3), which b8949c96's no-return
-        // rows show can't happen; or THE EMPTY-AT-FRONT CHAIN: a player's empty departing on R1): the count reads one low
-        // (clamped >= 0), so ONE napper too many can be dispatched: the overflow printed (the R_1 guard (7,19,1) turns it
-        // into a stall held dry); (c) TWO PICKS IN ONE REL count two (the count before / after printed))
+        // (G1 06:35's three rows on the room count (an ORDER MACHINE) under ironspec 07:38r's token rule (the count goes
+        // down once per TOKEN SET: the departure press while ARRIVED, or the recovery; no quiet resync, G1 07:39 (1)):
+        // (a) A MISSED DEPARTURE PRESS: the count reads one high, picks defer (safe), the token's RECOVERY counts it down
+        // once a napper waits at P1 and the front has been empty N_REC: the way-in still <= 3, the nights still meet the
+        // bars; (b) AN EXTRA DEPARTURE PRESS while the count is full (a rollback over (9,-11,-3); a player's empty
+        // departing on R1): OUTSIDE ARRIVED it is ignored: no extra pick (the way-in <= 3); (c) TWO PICKS IN ONE REL count
+        // two (the count before / after printed); and G1 07:39 (1)'s HALT ROW: the stop stalled far longer than any quiet
+        // window with nappers dispatched and not departed: no extra pick (the stall rows above))
         let base = run(&design("room count, normal", 3, None));
         let mut ra = design("room count, the 30th departure press missed", 3, None);
         ra.missed_dep = vec![30];
         let oa = run(&ra);
-        let wa = v.bar("ctl-pick: THE ROOM COUNT with a MISSED departure press (the 30th): the way-in still <= 3, the nights still meet the bars (24 distinct, every interval < 24,000 - margin), the count resynced at a quiet point", oa.max_wayin <= 3 && ok(&oa) && oa.room_resyncs >= 1);
-        lines.push(format!("  THE ROOM COUNT, a MISSED departure press (the 30th): picks deferred {} (normal {}), the count's resyncs {} (normal {}), the most in the way-in {}, the worst interval {}: {wa}", oa.wayin_deferred, base.wayin_deferred, oa.room_resyncs, base.room_resyncs, oa.max_wayin, oa.max_gap.0));
+        let wa = v.bar("ctl-pick: THE ROOM COUNT with a MISSED departure press (the 30th): the token's recovery counts it down (once), the way-in still <= 3, the nights still meet the bars (24 distinct, every interval < 24,000 - margin)", oa.max_wayin <= 3 && ok(&oa) && oa.room_recoveries == 1);
+        lines.push(format!("  THE ROOM COUNT, a MISSED departure press (the 30th): the recovery's down-counts {} (N_REC {N_REC} gt after the front empties, a napper at P1), picks deferred {} (normal {}), the most in the way-in {}, the worst interval {}: {wa}", oa.room_recoveries, oa.wayin_deferred, base.wayin_deferred, oa.max_wayin, oa.max_gap.0));
         // (b): the extra press planted at each REL of night 3's window while the stop is stalled (the count full)
         let night3 = 3 * DAY * 100;
-        let (mut over, mut over_at) = (0usize, String::new());
+        let (mut over, mut over_at, mut ign) = (0usize, String::new(), 0usize);
         for ph in (0..6_000).step_by(500) {
             let mut rb = design("room count, an extra departure press", 3, Some((night3 + ph, 2_000)));
             rb.extra_dep = vec![night3 + ph + 1_000];
             let ob = run(&rb);
+            ign += ob.extra_ignored;
             if ob.max_wayin > over {
                 over = ob.max_wayin;
                 over_at = format!("the stop stalled 2,000 gt at night 3 + {ph}, the extra press 1,000 gt in");
             }
         }
-        lines.push(format!("  THE ROOM COUNT, an EXTRA departure press while full (a rollback over (9,-11,-3): b8949c96's no-return rows; or a player's empty departing on R1: the empty-at-front chain): the count clamped at >= 0, the most in the way-in {over} ({over_at}){}", if over > 3 { ": ONE TOO MANY: the R_1 guard (7,19,1) (dfb89499, priced) turns the overflow into a stall held dry" } else { "" }));
+        let wb = v.bar("ctl-pick: THE ROOM COUNT with an EXTRA departure press while full (a rollback over (9,-11,-3); a player's empty departing on R1): OUTSIDE ARRIVED it is ignored (ironspec 07:38r): the way-in never holds a 4th", over <= 3 && ign >= 1);
+        lines.push(format!("  THE ROOM COUNT, an EXTRA departure press while full: ignored outside ARRIVED ({ign} ignored over 12 rows), the most in the way-in {over} ({over_at}): {wb}"));
         // (c)
         let two: Vec<String> = base.multi_pick.iter().take(4).map(|(g, b, a)| format!("gt {g}: {b} -> {a}")).collect();
         let w2 = v.bar("ctl-pick: TWO PICKS IN ONE REL count TWO on the room count (every such REL: after = before + the picks)", base.multi_pick.iter().all(|(_, b, a)| a - b >= 2) && !base.multi_pick.is_empty());

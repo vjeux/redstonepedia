@@ -33,11 +33,25 @@ ctlpick.rs (the logic benches, `mctas mobfarm ctl-credit-bench` / `ctl-pick-benc
 ## Release terms
 
 - P1 release (the next napper rolls to the front) = TOKEN AND FRONT CLEAR (the arrival detector unpowered).
-- The token's recovery (a missed departure press) = ARRIVED (an arrival press since the token's last clear) AND the front
-  clear for N AND a napper waiting at P1. A napper still in transit to the front has made no arrival press, so the
-  recovery can't fire under it (b8949c96 07:35); a napper lost before the front leaves a stall (safe).
+- THE TOKEN (ironspec 07:38r, G1 07:39): set ONLY by evidence from the napper released LAST.
+  - Each release pulse CLEARS the token and A_SEEN (ARRIVED).
+  - The arrival detector's rising edge after the release SETS A_SEEN; a release and an arrival in the same tick resolve
+    to NOT SEEN (A_SEEN's reset dominates).
+  - Token SET = (the departure press's rising edge OR THE RECOVERY) AND A_SEEN; the set clears A_SEEN. THE RECOVERY = the
+    front empty continuously for N gt AND a napper waiting at P1, N >= the detector's 20-gt hold + a departing napper's
+    time to clear every landing position + margin (40 gt in the logic bench, re-derived from b8949c96's clearing times,
+    printed).
+  - Any departure press or recovery condition OUTSIDE A_SEEN is ignored (a late press after a recovery's release can't
+    re-set the token; a player's empty leaving the front can't either).
+  - The arrival must be the released napper's own: no other cart enters the detector's cover between a release and that
+    napper's arrival (b8949c96's plant).
+  - Failure directions: A_SEEN stuck LOW (lost, or cleared by a world open) = a safe stall (priced, repair in the guide);
+    A_SEEN stuck HIGH or a spurious set = the deadly form: shown absent on a world open at every phase of a transit.
 - The stop's release = RS_ready AND the queue hold AND REST AND NOT DAY AND RETURN ROOM (a dry place on the napper's
   return row for it and every napper in transit).
-- A pick (G11) = the pointer AND the spacing AND HELD AND WAY-IN ROOM (dispatched minus departed < 3: up per pick edge,
-  down per departure press, clamped >= 0, resynced at the record's quiet point).
+- A pick (G11) = the pointer AND the spacing AND HELD AND WAY-IN ROOM. The room count goes up per pick edge and down
+  once per TOKEN SET (a napper's departure: the press while A_SEEN, or the recovery); no quiet-point resync (an
+  over-count stalls, the safe direction).
+- A held D (a cart parked on a lane's departure detector) gives no rising edge: the token / room count / hold STALL (the
+  safe direction) and no other lane's release reads the stuck-high D as anything.
 - REL (G8) = the store armed (the read lit) AND the holds AND (if bought) LIFT CLEAR (ironfarm's foot-gate evidence).
