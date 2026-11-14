@@ -69,17 +69,29 @@ impl Guard {
     }
 }
 
+/// (tick-exact Nov 14 10:13, G1 10:16 (1)(a), part 71) 26.3's golem FLOOR, block-intrinsic: `s` is no refused
+/// below-block (redsim's `golem_excluded`, the one list: SpawnUtil 79-95), `isSolid()` or powder snow, the cell `over`
+/// it air or a liquid (`SpawnUtil.Strategy.LEGACY_IRON_GOLEM.canSpawnOn`, redsim's `legacy_golem_can_spawn_on`), and
+/// its top face full (`IronGolem.checkSpawnObstruction`'s `entityCanStandOn`, redsim's `face_up_full` on its collision
+/// boxes).
+pub fn golem_floor(s: &Block, over: &Block) -> bool {
+    redsim::entity::mob::blocks::legacy_golem_can_spawn_on(s, over) && redsim::entity::mob::blocks::face_up_full(&redsim::behavior::collision_boxes(s))
+}
+
 /// THE shared implementation of the stand-in guard's block-intrinsic properties (ironspec 22:37: one
 /// definition, owned by cc767b78; 58f770cc's bench guard, onechunk's f1q2-run guard and the record-match
 /// helper all call it): `standin` passes each property exactly when it answers it as the `built` block
 /// does, `above` and `below` being the built cells over and under it.
-/// - golem, both roles: the cell as a FLOOR (`legacy_golem_can_spawn_on(cell, above)`: not an excluded
-///   floor, solid, air or a liquid over it), and as a golem's SPAWN SPACE over the built cell below: its
-///   feet cell (`legacy_golem_can_spawn_on(below, cell)`: air or a liquid over a solid floor), each of its
-///   cells a valid empty spawn block (`NaturalSpawner.isValidEmptySpawnBlock`, which
-///   `IronGolem.checkSpawnObstruction` checks for its feet and the two cells above: no full collision, not
-///   a signal source, no fluid, no rail (`PREVENT_MOB_SPAWNING_INSIDE`), not dangerous to it (fire, lava,
-///   magma, cactus, powder snow: redsim's path types for them)) and its box clear (no collision box);
+/// - golem, both roles, 26.3's rule exactly (tick-exact Nov 14 10:13, G1 10:16 (1)(a), part 71; [`golem_floor`]):
+///   the cell as a FLOOR (not one of `SpawnUtil.Strategy.LEGACY_IRON_GOLEM`'s refused below-blocks, redsim's
+///   `golem_excluded`, SpawnUtil 79-95; `isSolid()` (calculateSolid's mean-side bar) or powder snow; its TOP FACE
+///   FULL, `IronGolem.checkSpawnObstruction`'s `entityCanStandOn`; the cell over it air or a liquid), and as a golem's
+///   SPAWN CELL over the built cell below (the built cell a floor by the same rule, this one over it), a valid empty
+///   spawn block with its fluid ignored (`checkSpawnObstruction` passes `Fluids.EMPTY` for it), and as one of the two
+///   cells ABOVE a spawn cell, a valid empty spawn block (`NaturalSpawner.isValidEmptySpawnBlock`: no full collision,
+///   not a signal source, no fluid, no rail (`PREVENT_MOB_SPAWNING_INSIDE`), not dangerous to it (fire, lava, magma,
+///   cactus, powder snow: redsim's path types for them)); 26.3 tests no golem box against blocks (only entities), so no
+///   box term;
 /// - path: the full PathType classification (`WalkNodeEvaluator.getPathTypeFromState`, redsim's
 ///   `path_type::from_state`, `isPathfindable(LAND)` inside it), which a neighbouring node's evaluation
 ///   reads too (its floor, its fire-or-damaging neighbours), with full collision and solid render (a walk
@@ -103,13 +115,18 @@ pub fn guard_intrinsics(standin: &Block, built: &Block, above: &Block, below: &B
         let pt = path_type::from_state(s);
         !full(s) && !signal(s) && redsim::fluid::fluid_state_of(s).is_empty() && pt != PathType::Rail && !matches!(pt, PathType::Fire | PathType::Lava | PathType::Damaging | PathType::PowderSnow)
     };
+    // (tick-exact Nov 14 10:13, part 71) the spawn cell itself is checked with `Fluids.EMPTY` (its fluid ignored)
+    let valid_empty_fluid_ignored = |s: &Block| {
+        let pt = path_type::from_state(s);
+        !full(s) && !signal(s) && pt != PathType::Rail && !matches!(pt, PathType::Fire | PathType::Lava | PathType::Damaging | PathType::PowderSnow)
+    };
     let golem = |s: &Block| {
         format!(
-            "floor {} / spawn space: feet {}, a valid empty spawn block {}, its box clear {}",
-            redsim::entity::mob::blocks::legacy_golem_can_spawn_on(s, above),
-            redsim::entity::mob::blocks::legacy_golem_can_spawn_on(below, s),
-            valid_empty(s),
-            boxes(s).is_empty()
+            "floor {} / spawn cell over the built floor {}, a valid empty spawn block with its fluid ignored {} / a cell above a spawn cell: a valid empty spawn block {}",
+            golem_floor(s, above),
+            golem_floor(below, s),
+            valid_empty_fluid_ignored(s),
+            valid_empty(s)
         )
     };
     let path = |s: &Block| format!("type {:?} / pathfindable {} / full collision {} / solid render {}", path_type::from_state(s), path_type::pathfindable_land(s), full(s), render(s));
@@ -913,24 +930,38 @@ mod tests {
         assert_eq!(m8.counts(), Counts::Module, "{}", m8.line());
     }
 
-    /// The golem property's two roles (ironspec 22:37), each with its positive control: a lever standing in
-    /// for air over a solid floor FAILS the spawn-space role (no air over the floor, and a signal source);
-    /// air standing in for a stone floor under air FAILS the floor role; a button, a rail or water for air
-    /// over air each fail the spawn-space role through the valid-empty-block test (a signal source, a rail,
-    /// a fluid); glass for air fails it through its box; smooth stone for stone passes.
+    /// The golem property's roles (ironspec 22:37; 26.3's rule exactly, tick-exact Nov 14 10:13, part 71), each with
+    /// its positive control: a lever standing in for air over a solid floor FAILS the spawn-cell role (not air over the
+    /// floor, and a signal source); air standing in for a stone floor under air FAILS the floor role; a button, a rail
+    /// or water for air over air each fail the above-a-spawn-cell role through the valid-empty-block test (a signal
+    /// source, a rail, a fluid); glass for air fails through its full collision; smooth stone for stone passes; and the
+    /// floor rule's planted cases (glowstone, glass, a closed and an open top-half trapdoor).
     #[test]
     fn golem_roles() {
         let v = |s: &str, b: &str, above: &str, below: &str| intrinsic(s, b, above, below)[0].clone().unwrap();
         let lever = "minecraft:lever[face=floor,facing=north,powered=false]";
         let e = v(lever, "air", "air", "stone").unwrap_err();
-        assert!(e.contains("feet false, a valid empty spawn block false"), "a lever for air over a solid floor fails the spawn-space role: {e}");
+        assert!(e.contains("spawn cell over the built floor false, a valid empty spawn block with its fluid ignored false"), "a lever for air over a solid floor fails the spawn-cell role: {e}");
         assert!(v("air", "stone", "air", "stone").unwrap_err().contains("floor false"), "air for a stone floor fails the floor role");
         for s in ["minecraft:stone_button[face=floor,facing=north,powered=false]", "minecraft:rail[shape=north_south,waterlogged=false]", "minecraft:water[level=0]"] {
             let e = v(s, "air", "air", "air").unwrap_err();
-            assert!(e.contains("a valid empty spawn block false"), "{s} for air: {e}");
+            assert!(e.contains("a cell above a spawn cell: a valid empty spawn block false"), "{s} for air: {e}");
         }
-        assert!(v("glass", "air", "air", "air").unwrap_err().contains("its box clear false"), "glass for air: its box in a golem's cells");
+        // (part 71: 26.3 tests no golem box against blocks; glass for air fails through its full collision)
+        assert!(v("glass", "air", "air", "air").unwrap_err().contains("a valid empty spawn block with its fluid ignored false"), "glass for air: a full collision in a golem's cells");
         assert!(v("smooth_stone", "stone", "air", "stone").is_ok());
+        // (tick-exact Nov 14 10:13, G1 10:16 (1)(a), part 71) PLANTED: 26.3's floor rule on its four cases and a stone
+        // control: a glowstone top and a glass top are no floor (the refused list); a closed top-half trapdoor is one
+        // (solid by the mean-side bar, its top face full); an open one is none (its top face a 3/16 strip)
+        let b = |s: &str| redsim::block::Block::parse(s).unwrap_or_else(|e| panic!("{s}: {e}"));
+        let air = b("minecraft:air");
+        assert!(super::golem_floor(&b("minecraft:stone"), &air), "stone: a floor");
+        assert!(!super::golem_floor(&b("minecraft:glowstone"), &air), "glowstone: no floor");
+        assert!(!super::golem_floor(&b("minecraft:glass"), &air), "glass: no floor");
+        assert!(super::golem_floor(&b("minecraft:iron_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]"), &air), "a closed top-half trapdoor: a floor");
+        assert!(!super::golem_floor(&b("minecraft:iron_trapdoor[facing=north,half=top,open=true,powered=true,waterlogged=false]"), &air), "an open top-half trapdoor: no floor");
+        assert!(!super::golem_floor(&b("minecraft:stone"), &b("minecraft:stone")), "a floor under a block: none");
+        assert!(v("minecraft:iron_trapdoor[facing=north,half=top,open=true,powered=true,waterlogged=false]", "minecraft:iron_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]", "air", "air").unwrap_err().contains("floor false"), "an open trapdoor for a closed one fails the floor role");
         // (nothing silently dropped (ironspec 23:13 (2b)): an unparsable state fails every intrinsic verdict,
         // so two unparsable cells never pass)
         let bad = intrinsic("minecraft:no_such_block[x=1]", "minecraft:no_such_block[x=1]", "air", "stone");
