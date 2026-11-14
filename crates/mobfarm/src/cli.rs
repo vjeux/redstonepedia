@@ -16813,10 +16813,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 ("adopted", None) => Some(match &adopted_terms {
                     None => crate::bedtier::Adopted::default(),
                     Some(s) => {
-                        let v: Vec<i64> = s.split(',').map(|x| x.trim().parse::<i64>()).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!("--adopted-terms {s}: A70,D,W,OPEN_SET,OPEN_RESET,TORCH,RLS,PARK,LAG ({e})"))?;
+                        let v: Vec<i64> = s.split(',').map(|x| x.trim().parse::<i64>()).collect::<std::result::Result<_, _>>().map_err(|e| anyhow::anyhow!("--adopted-terms {s}: A70,D,W,OPEN_SET,OPEN_RESET,TORCH,RLS,PARK,LAG[,RLS_GATE] ({e})"))?;
                         match v.as_slice() {
-                            &[a70, d, w, open_set, open_reset, torch, rls, park, lag] if v.iter().all(|&x| x >= 0) => crate::bedtier::Adopted { a70, d, w, open_set, open_reset, torch, rls, park, lag },
-                            _ => anyhow::bail!("--adopted-terms {s}: nine terms A70,D,W,OPEN_SET,OPEN_RESET,TORCH,RLS,PARK,LAG, none negative"),
+                            &[a70, d, w, open_set, open_reset, torch, rls, park, lag] if v.iter().all(|&x| x >= 0) => crate::bedtier::Adopted { a70, d, w, open_set, open_reset, torch, rls, park, lag, rls_gate: 0 },
+                            &[a70, d, w, open_set, open_reset, torch, rls, park, lag, rls_gate] if v.iter().all(|&x| x >= 0) => crate::bedtier::Adopted { a70, d, w, open_set, open_reset, torch, rls, park, lag, rls_gate },
+                            _ => anyhow::bail!("--adopted-terms {s}: nine or ten terms A70,D,W,OPEN_SET,OPEN_RESET,TORCH,RLS,PARK,LAG[,RLS_GATE], none negative"),
                         }
                     }
                 }),

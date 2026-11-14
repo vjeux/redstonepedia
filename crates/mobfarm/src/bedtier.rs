@@ -1997,11 +1997,14 @@ pub struct Adopted {
     pub rls: i64,
     pub park: i64,
     pub lag: i64,
+    /// RLS also waits for ARM's edge + this (0: no such gate; the 16:00 form has none): the
+    /// boarding-cooldown gate proposed for the merged path (58f770cc 17:27).
+    pub rls_gate: i64,
 }
 
 impl Default for Adopted {
     fn default() -> Self {
-        Adopted { a70: 70, d: 12, w: 50, open_set: 6, open_reset: 6, torch: 2, rls: 10, park: 8, lag: 10 }
+        Adopted { a70: 70, d: 12, w: 50, open_set: 6, open_reset: 6, torch: 2, rls: 10, park: 8, lag: 10, rls_gate: 0 }
     }
 }
 
@@ -3020,6 +3023,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                 && ad_rls_due.is_none()
                 && p_on
                 && parked
+                && row.armed_at.is_some_and(|a| t - 1 >= a + ad.rls_gate)
                 && let (Some(l), Some(ps)) = (ad_pulse, p_press)
                 && ps <= l + ad.w
                 && t - 1 >= l.max(ps) + ad.d
