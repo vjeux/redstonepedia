@@ -339,7 +339,7 @@ pub fn standing_path_probe(spec: &FarmSpec, from: Vec3, to: BlockPos, bounds: Na
     settle_full(&mut run)?;
     let i = land_probe_villager(&mut run.world, from, bounds)?;
     let w = &mut run.world;
-    let (path, r, max_len, used) = probe_path(w, i, to, bounds);
+    let (path, r, max_len, used, _) = probe_path(w, i, to, bounds);
     let mut lines = vec![format!("path probe ({}: max path length {max_len}, node budget {used})", bounds.say())];
     let class = match r {
         Reach::Reached { .. } => "REACHED".to_string(),
@@ -427,8 +427,10 @@ impl NavBounds {
 
 /// One request from the villager `i` to `to` (`create_path_pos`, reach 0) under `bounds` (the mob's follow
 /// range and the navigation's required path length set to the range, its node budget replaced), classed
-/// (`Reach`). Returns the path, the outcome, the max path length and the node budget used.
-fn probe_path(w: &mut redsim::World, i: usize, to: BlockPos, bounds: NavBounds) -> (Option<redsim::entity::mob::ai::path::path::Path>, Reach, f32, i32) {
+/// (`Reach`). Returns the path, the outcome, the max path length, the node budget used, and (ironspec Nov
+/// 14 01:25 (a), part 36) when the search exhausted (PROVED UNREACHABLE) every node it closed: the
+/// pathfinder's whole reach from the villager, box-independent.
+fn probe_path(w: &mut redsim::World, i: usize, to: BlockPos, bounds: NavBounds) -> (Option<redsim::entity::mob::ai::path::path::Path>, Reach, f32, i32, Vec<BlockPos>) {
     redsim::entity::mob::ai::with_nav(w, i, |w, nm, nav, arena| {
         let mut copy = nav.clone();
         if let Some(r) = bounds.follow_range {
@@ -453,7 +455,8 @@ fn probe_path(w: &mut redsim::World, i: usize, to: BlockPos, bounds: NavBounds) 
             }
             None => Reach::Undetermined { budget: false, range: false },
         };
-        (path, r, max_len, used)
+        let closed = if r == Reach::Unreachable { arena.nodes.iter().filter(|n| n.closed).map(|n| BlockPos::new(n.x, n.y, n.z)).collect() } else { Vec::new() };
+        (path, r, max_len, used, closed)
     })
 }
 
@@ -493,10 +496,11 @@ pub enum Reach {
 }
 
 /// One request from the villager `i` to `to` under `bounds`, classed (`Reach`): `probe_path` without the
-/// path. Returns the outcome, the max path length and the node budget used.
-fn probe_reach(w: &mut redsim::World, i: usize, to: BlockPos, bounds: NavBounds) -> (Reach, f32, i32) {
-    let (_, r, max_len, used) = probe_path(w, i, to, bounds);
-    (r, max_len, used)
+/// path. Returns the outcome, the max path length, the node budget used and an exhausted search's closed
+/// nodes.
+fn probe_reach(w: &mut redsim::World, i: usize, to: BlockPos, bounds: NavBounds) -> (Reach, f32, i32, Vec<BlockPos>) {
+    let (_, r, max_len, used, closed) = probe_path(w, i, to, bounds);
+    (r, max_len, used, closed)
 }
 
 /// The feet height a villager stands at in `c`: the top of the cell's own collision shape when it has
@@ -531,6 +535,12 @@ pub struct ReachSweep {
     /// NOT JUDGED for --alone), and each forbid / require cell's probe count (0: unjudged, never a pass).
     pub targets: usize,
     pub probes: Vec<usize>,
+    /// (ironspec Nov 14 01:25 (a), G1 01:29, part 36) The union of every member's exhausted searches'
+    /// closed nodes (every node the pathfinder expanded from a member: its reach, box-independent), the
+    /// ones outside the box, and the members that ran no exhausted search (their reach unknown).
+    pub closed: Vec<BlockPos>,
+    pub closed_outside: Vec<BlockPos>,
+    pub unexhausted: Vec<BlockPos>,
 }
 
 /// (ironspec Nov 13 23:50 / 23:52, G1 23:45 / 23:59) From each `from` (a villager placed at its feet and
@@ -573,6 +583,7 @@ pub fn reach_sweep(spec: &FarmSpec, froms: &[Vec3], lo: BlockPos, hi: BlockPos, 
     let mut queue: std::collections::VecDeque<(Vec3, bool)> = froms.iter().map(|f| (*f, true)).collect();
     let mut reached_all: std::collections::HashSet<BlockPos> = std::collections::HashSet::new();
     let mut queued: std::collections::HashSet<BlockPos> = froms.iter().map(|f| BlockPos::new(f.x.floor() as i32, f.y.floor() as i32, f.z.floor() as i32)).collect();
+    let mut closed_all: std::collections::BTreeSet<BlockPos> = std::collections::BTreeSet::new();
     while let Some((from, original)) = queue.pop_front() {
         let mut w = base.clone();
         let fc = BlockPos::new(from.x.floor() as i32, from.y.floor() as i32, from.z.floor() as i32);
@@ -586,6 +597,7 @@ pub fn reach_sweep(spec: &FarmSpec, froms: &[Vec3], lo: BlockPos, hi: BlockPos, 
         };
         out.members.push(fc);
         let mut direct = Vec::new();
+        let mut exhausted = false;
         // (a start probes every cell not yet reached, and every forbid / require cell not yet REACHED)
         let mut probe: Vec<BlockPos> = targets.iter().filter(|c| original || !reached_all.contains(c)).copied().collect();
         for (c, v, _) in &out.verdicts {
@@ -594,9 +606,13 @@ pub fn reach_sweep(spec: &FarmSpec, froms: &[Vec3], lo: BlockPos, hi: BlockPos, 
             }
         }
         for to in probe {
-            let (r, max_len, used) = probe_reach(&mut w, i, to, bounds);
+            let (r, max_len, used, closed) = probe_reach(&mut w, i, to, bounds);
             out.max_len = max_len;
             out.budget = used;
+            if r == Reach::Unreachable {
+                exhausted = true;
+                closed_all.extend(closed);
+            }
             // (G1 Nov 14 00:40b: a verdict starts unjudged and passes only on a probe that proved it: REACHED
             // from any member wins, else UNDETERMINED from any, else PROVED UNREACHABLE once probed)
             if let Some(k) = out.verdicts.iter().position(|(c, _, _)| *c == to) {
@@ -635,9 +651,16 @@ pub fn reach_sweep(spec: &FarmSpec, froms: &[Vec3], lo: BlockPos, hi: BlockPos, 
             direct.dedup_by_key(|(c, _)| *c);
             out.starts.push((from, direct));
         }
+        if !exhausted {
+            out.unexhausted.push(fc);
+        }
     }
     out.undetermined.retain(|(c, _, _)| !reached_all.contains(c));
     out.reached.sort_by_key(|(c, _, _)| (c.y, c.z, c.x));
+    let mut closed: Vec<BlockPos> = closed_all.into_iter().collect();
+    closed.sort_by_key(|c| (c.y, c.z, c.x));
+    out.closed_outside = closed.iter().filter(|c| !in_box(c)).copied().collect();
+    out.closed = closed;
     Ok(out)
 }
 
@@ -682,6 +705,26 @@ pub fn reach_sweep_lines(s: &ReachSweep, forbid: &[BlockPos], require: &[BlockPo
         ));
     }
     lines.push(format!("  closure members: {}", s.members.iter().map(|c| format!("{},{},{}", c.x, c.y, c.z)).collect::<Vec<_>>().join(" ")));
+    // (ironspec Nov 14 01:25 (a), G1 01:29, part 36) the pathfinder's own reach, box-independent: the union
+    // of every member's exhausted searches' closed nodes; a closed node outside the box means the searches
+    // left it, so the box's PASS verdicts are NOT JUDGED (a path through non-candidate nodes, a trapdoor
+    // cell, would otherwise go unseen)
+    let list = |v: &[BlockPos]| -> String {
+        if v.is_empty() {
+            return "none".to_string();
+        }
+        let mut t = v.iter().take(40).map(|c| format!("{},{},{}", c.x, c.y, c.z)).collect::<Vec<_>>().join(" ");
+        if v.len() > 40 {
+            t.push_str(&format!(" ... and {} more", v.len() - 40));
+        }
+        t
+    };
+    lines.push(format!("  closed nodes (the union of every member's exhausted searches: every node the pathfinder expanded from a member, box-independent): {} node(s): {}", s.closed.len(), list(&s.closed)));
+    lines.push(format!("  closed nodes outside the box: {}{}", list(&s.closed_outside), if s.closed_outside.is_empty() { "" } else { " (the searches left the box: its PASS verdicts are NOT JUDGED)" }));
+    if !s.unexhausted.is_empty() {
+        lines.push(format!("  member(s) with no exhausted search (every probe reached its cell or was cut: its closed nodes unknown): {}", list(&s.unexhausted)));
+    }
+    let escaped = (!s.closed_outside.is_empty()).then(|| format!("the searches expanded {} node(s) outside the box ({})", s.closed_outside.len(), list(&s.closed_outside)));
     let say = |c: &BlockPos, r: &Reach, m: &Option<BlockPos>| {
         let m = m.map(|m| format!("{},{},{}", m.x, m.y, m.z)).unwrap_or_else(|| "-".to_string());
         match r {
@@ -709,7 +752,7 @@ pub fn reach_sweep_lines(s: &ReachSweep, forbid: &[BlockPos], require: &[BlockPo
             Reach::Reached { .. } => ("(FAIL)".to_string(), false),
             _ if unjudged => ("(NOT JUDGED: FAIL: never probed)".to_string(), false),
             Reach::Undetermined { .. } => ("(NOT JUDGED: FAIL)".to_string(), false),
-            Reach::Unreachable => match &incomplete {
+            Reach::Unreachable => match incomplete.as_ref().or(escaped.as_ref()) {
                 Some(why) => (format!("(NOT JUDGED: FAIL: {why})"), false),
                 None => ("(PASS)".to_string(), true),
             },
@@ -748,8 +791,32 @@ pub fn reach_sweep_lines(s: &ReachSweep, forbid: &[BlockPos], require: &[BlockPo
         if judged == 0 {
             bad += 1;
             lines.push("  alone: no candidate standing cell of the box besides the start(s) to judge: NOT JUDGED (FAIL)".to_string());
-        } else if others.is_empty() && s.undetermined.is_empty() {
-            lines.push(format!("  alone: none of the box's {judged} other candidate standing cell(s) reached from the start(s) {}, every search exhausted inside the range and budget (PASS)", own.iter().map(|c| format!("{},{},{}", c.x, c.y, c.z)).collect::<Vec<_>>().join(" ")));
+        } else {
+            // (part 36) box-independent: every node an exhausted search expanded must be a start's own cell
+            let named: Vec<BlockPos> = others.iter().map(|(c, _, _)| *c).collect();
+            let strays: Vec<BlockPos> = s.closed.iter().filter(|c| !own.contains(c) && !named.contains(c)).copied().collect();
+            for c in strays.iter().take(40) {
+                lines.push(format!("  alone: the pathfinder expanded {},{},{} from the start(s) (a closed node of an exhausted search, not a start's own cell: a villager paths there) (FAIL)", c.x, c.y, c.z));
+            }
+            if strays.len() > 40 {
+                lines.push(format!("  alone: ... and {} more closed node(s) not a start's own cell (FAIL)", strays.len() - 40));
+            }
+            bad += strays.len();
+            if let Some(why) = &escaped {
+                bad += 1;
+                lines.push(format!("  alone: NOT JUDGED (FAIL): {why}: the box's verdicts cover only the box"));
+            }
+            if others.is_empty() && !s.unexhausted.is_empty() {
+                bad += 1;
+                lines.push(format!("  alone: NOT JUDGED (FAIL): the start(s) {} ran no exhausted search: their closed nodes are unknown", list(&s.unexhausted)));
+            }
+            if others.is_empty() && s.undetermined.is_empty() && strays.is_empty() && escaped.is_none() && s.unexhausted.is_empty() {
+                lines.push(format!(
+                    "  alone: none of the box's {judged} other candidate standing cell(s) reached from the start(s) {}, every search exhausted inside the range and budget, and every exhausted search closed only the start(s)' own cell(s) ({} closed node(s), none outside the box) (PASS)",
+                    own.iter().map(|c| format!("{},{},{}", c.x, c.y, c.z)).collect::<Vec<_>>().join(" "),
+                    s.closed.len()
+                ));
+            }
         }
     }
     lines.push(format!("reach sweep: {} forbidden cell(s), {} required cell(s){}: {bad} failure(s){}", forbid.len(), require.len(), if alone { ", the closure alone" } else { "" }, if bad == 0 { " (PASS)" } else { " (FAIL)" }));
@@ -10532,6 +10599,55 @@ mod gate_tests {
         assert!(no2 >= 1 && lo2.iter().any(|l| l.starts_with("  alone: the standing cell 1,1,2 REACHED from 2,1,2")), "the open glass twin: {lo2:?}");
         let (lh2, nh2) = super::reach_sweep_lines(&sh, &[], &[], true).unwrap_or_else(|e| panic!("{e}"));
         assert!(nh2 >= 1 && lh2.iter().any(|l| l.starts_with("  alone: the standing cell 3,1,2 REACHED")), "the hook twin: {lh2:?}");
+        assert!(la.iter().any(|l| l.contains("every exhausted search closed only the start(s)' own cell(s) (1 closed node(s), none outside the box) (PASS)")) && sa.closed == vec![b(2, 1, 2)], "shut in: its closed nodes: {la:?}");
+        // (ironspec Nov 14 01:25 (a), G1 01:29, part 36) a path out of the box through a non-candidate node:
+        // the start (1,1,1) walled in three high on three sides, a closed top-half trapdoor east of it at
+        // (2,1,1) (the pathfinder's TRAPDOOR type passes it; no candidate: its shape reaches its top), the
+        // corridor beyond outside the box, a sealed pocket (1,1,-1) in the box: no candidate besides the
+        // start's is reached (part 30' passed --alone); the trapdoor cell is a closed node, not the start's
+        // own (FAIL by name), and the corridor's closed nodes outside the box make it NOT JUDGED, the
+        // pocket's forbid too; the glass twin (glass two high in the trapdoor's place) passes both
+        let esc = |door: &[&str]| {
+            let mut blocks = Vec::new();
+            for x in 0..=7 {
+                for z in -2..=2 {
+                    blocks.push((b(x, 0, z), p("minecraft:stone")));
+                }
+                for y in 1..=3 {
+                    blocks.push((b(x, y, 0), p("minecraft:glass")));
+                    blocks.push((b(x, y, 2), p("minecraft:glass")));
+                }
+            }
+            for y in 1..=3 {
+                for q in [b(0, y, 1), b(7, y, 1), b(0, y, -1), b(2, y, -1), b(1, y, -2)] {
+                    blocks.push((q, p("minecraft:glass")));
+                }
+            }
+            for (k, s) in door.iter().enumerate() {
+                blocks.push((b(2, 1 + k as i32, 1), p(s)));
+            }
+            redsim::entity::mob::farm::FarmSpec { blocks, entities: Vec::new(), output: b(0, -1, -3), lo: b(0, -1, -3), hi: b(7, 5, 2), block_entities: Vec::new(), rock: false, nether: None, land: false }
+        };
+        let pocket = b(1, 1, -1);
+        let trap = esc(&["minecraft:iron_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]"]);
+        let se = super::reach_sweep(&trap, &[v(1.5, 1.0, 1.5)], b(0, 1, -2), b(2, 1, 2), &[pocket], super::NavBounds::default(), true).unwrap_or_else(|e| panic!("{e}"));
+        assert!(se.reached.iter().all(|(c, _, _)| *c == b(1, 1, 1)) && se.closed.contains(&b(2, 1, 1)) && se.closed_outside.contains(&b(3, 1, 1)), "out through the trapdoor: {se:?}");
+        let (le, ne) = super::reach_sweep_lines(&se, &[pocket], &[], true).unwrap_or_else(|e| panic!("{e}"));
+        assert!(
+            ne >= 3
+                && le.iter().any(|l| l.starts_with("  alone: the pathfinder expanded 2,1,1 from the start(s)") && l.ends_with("(FAIL)"))
+                && le.iter().any(|l| l.starts_with("  alone: NOT JUDGED (FAIL): the searches expanded") && l.contains("3,1,1"))
+                && le.iter().any(|l| l.starts_with("  forbid 1,1,-1 PROVED UNREACHABLE") && l.contains("(NOT JUDGED: FAIL: the searches expanded"))
+                && !le.iter().any(|l| l.starts_with("  alone: none of the box")),
+            "out through the trapdoor: {le:?}"
+        );
+        let wall = esc(&["minecraft:glass", "minecraft:glass"]);
+        let sw = super::reach_sweep(&wall, &[v(1.5, 1.0, 1.5)], b(0, 1, -2), b(2, 1, 2), &[pocket], super::NavBounds::default(), true).unwrap_or_else(|e| panic!("{e}"));
+        let (lw, nw) = super::reach_sweep_lines(&sw, &[pocket], &[], true).unwrap_or_else(|e| panic!("{e}"));
+        assert!(
+            nw == 0 && sw.closed == vec![b(1, 1, 1)] && lw.iter().any(|l| l == "  closed nodes outside the box: none") && lw.iter().any(|l| l.starts_with("  forbid 1,1,-1 PROVED UNREACHABLE") && l.ends_with("(PASS)")),
+            "the glass twin: {lw:?}"
+        );
         // (G1 Nov 14 00:40b B3) a box holding only the start's own cell: zero samples, NOT JUDGED
         let s0 = super::reach_sweep(&shut, &[v(2.5, 1.0, 2.5)], b(2, 1, 2), b(2, 1, 2), &[], super::NavBounds::default(), true).unwrap_or_else(|e| panic!("{e}"));
         let (l0, n0) = super::reach_sweep_lines(&s0, &[], &[], true).unwrap_or_else(|e| panic!("{e}"));
