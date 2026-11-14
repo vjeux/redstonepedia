@@ -25,7 +25,7 @@ Nothing is added for an out-of-scope case: no blocks, latches, alarms, holds, te
 
 A requirement counts as normal only when a normal-operation run shows the problem happening: reload and unload at every phase, ±2 gt corners, weather and lightning.
 
-Vjeux's Nov 12 rule on size also binds: three lanes are fine, but no massive redstone structure is built three times.
+Vjeux's Nov 12 rule on size also binds: three lanes are fine, but no massive redstone structure is built three times. Between passing forms, the smallest total cell count wins.
 
 ### Superseded
 
@@ -41,6 +41,7 @@ These go in the next brief pass:
 - the queue-seat deadline;
 - the empty-cart catch;
 - restart after a halt;
+- the room count and its counter (0 deferred picks on normal nights; the night window gates the grants);
 - the station's A-series (A, A4, A6, A6b) and its timing regression: dropped Nov 14, because the original landing showed 0 rollbacks over 1,500 runs at REL 3–7 with ±2 gt corners and a world open at every phase;
 - the station hold's bounce guard (the string-AND, rulings row 37): dropped Nov 14, because 1,800 normal runs without it showed 0 bounces.
 
@@ -48,7 +49,8 @@ These go in the next brief pass:
 
 - The original station (D at (x,0,2), boosters (x,0,3..6)) with the release offsets 0 / 17 / 27.
 - The pick-rate rule: at most one pick per REL, with fair deferral. A cold start bunches nappers.
-- The picks read a SENSED pointer, never cart identity; day-1's forced test fails if the model reads cart identity. Its form is the smallest that passes the nap bars (24 distinct per night, every interval < 23,000 gt, golems lost per day printed), priced among: one shared pointer machine time-shared across the lanes' staggered pops, with only the per-lane state registers per lane; a scheme with no per-lane pointer; and, only if both fail, three per-lane machines.
+- The picks read a SENSED pointer, never cart identity: day-1's per-lane ITEM RING (an 8-dropper ring holding the target token and up to two absent markers; ~60 cells a lane, ~190 in all). It is the smallest passing form: one shared compare / increment block with per-lane registers prices at ~400 cells, per-lane latch registers at ~520, and no scheme without a per-lane pointer passes the nap bars. Conditions: day-1's model counts every cell of the ring, reads sensed inputs only, and fails its forced identity-peek test; the ring's state survives a reload at every phase; the nap bars pass (24 distinct per night, every interval < 23,000 gt, golems lost per day printed); all three rings fit inside the chunk's controller volume.
+- The picks' arbiter, lane record and night window are one compact block laid once (cc767b78). The arbiter reads only the lanes' REQUEST lines and REL.
 - R6 = 14 / K_HALF = 10, stated once in day-1's interface file.
 - (B)'s P1 sensor (the hold at (9,24,7), its latch and detector), with its normal RESET / SET timing.
 - Z1 lowered 2 blocks (waker 6.0986 against 6, zero boat play), subject to 58f770cc's spread-tracked runs.
@@ -62,7 +64,7 @@ These go in the next brief pass:
 
 | Step | What | Owner |
 |---|---|---|
-| a | V rev 3.1 composed fully inside the chunk, with 58f770cc's sleep stop and the pick-rate rule. Every part runs on its own wiring: the controller is laid in the design file, and no model reads simulator truth. | vcompose (composition, as each part lands); 58f770cc (the stop, and subsystem 5: the stop's logic); day-1 (the controller netlist, the picks' pricing and model, and their laying split with 9fc3155f and the first free lane); cc767b78 (the picks' arbiter, the lane record and the night window); b8949c96 (the way-in: (B)'s latch, hold and read, the token, the P1 trigger); dfb89499 (the REL / store / credit core and the K windows); loaderlay (the drive lines) |
+| a | V rev 3.1 composed fully inside the chunk, with 58f770cc's sleep stop and the pick-rate rule. Every part runs on its own wiring: the controller is laid in the design file, and no model reads simulator truth. | vcompose (composition, as each part lands); 58f770cc (the stop, and subsystem 5: the stop's logic); day-1 (the controller netlist, the item-ring model, and the rings' laying split with 9fc3155f and the first free lane); cc767b78 (the picks' arbiter, the lane record and the night window); b8949c96 (the way-in: (B)'s latch, hold and read, the token, the P1 trigger); dfb89499 (the REL / store / credit core and the K windows); loaderlay (the drive lines) |
 | b | Normal battery in redsim: full nights at 4 positions, with a world reload and unload at every phase, weather and lightning. 0 lost beds; golems per night printed; wired vs bench stated per part. | ironfarm (dry run on V rev 2 now) |
 | c | The whole farm in the real game on its own wiring: at least one full day and night, including a reload. | tick-exact (dry run now on V rev 2 with the scripted controller, disclosed as bench-driven; the real run on V rev 3.1) |
 | d | Mobviewer renders it. | mobviewer |
