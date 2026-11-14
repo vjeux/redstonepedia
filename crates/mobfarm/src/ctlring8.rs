@@ -96,12 +96,15 @@ pub const P3_OUT: P = [3, 0, -3];
 /// The up-fire: from the box's south row at x 5 (the logic's UP input; the bench's stand-in a redstone block behind the
 /// repeater UP_IN_REP) north along two dusts (on the filler path's two last hoppers), west through a repeater under P4,
 /// a dust under the ring's hopper (3,0,0), a repeater under P5 into the up-dropper.
-pub const UP_IN_REP: P = [5, -1, 2];
-pub const UP_IN_DUST: [P; 2] = [[5, -1, 1], [5, -1, 0]];
+pub const UP_IN_REP: P = [4, -1, 2];
+pub const UP_IN_DUST: [P; 3] = [[5, -1, 2], [5, -1, 1], [5, -1, 0]];
 pub const UP_REP1: P = [4, -1, 0];
 pub const UP_DUST: P = [3, -1, 0];
 pub const UP_REP2: P = [2, -1, 0];
-pub const UP_DRIVE: P = [5, -1, 3];
+/// The up-fire is UNGATED: the core's REL + 67 (lane -1) / + 80 (lanes 3, 7) tap fires the up-dropper every REL (it is
+/// empty except after a grant, and an empty dropper's fire moves nothing); the bench's stand-in a redstone block behind
+/// the repeater.
+pub const UP_DRIVE: P = [3, -1, 2];
 /// T's ride: none (the extractor pushes T straight into the up-dropper).
 pub const T_RIDE: [P; 0] = [];
 
@@ -119,6 +122,9 @@ pub const G_IN: P = [-6, 0, 1];
 pub const C_E: P = [-5, 1, -1];
 pub const C_W: P = [-4, -1, -1];
 pub const SKIP_IN: P = [-3, 1, -2];
+/// The filler's window comparator and its tap's stand-in cell (behind its rear repeater).
+pub const C_F: P = [-3, -1, 2];
+pub const TAPF_IN: P = [-4, -1, 2];
 /// POP's width (a detector rail stays pressed >= 20 gt: its 20-gt recheck), the step's lag after the pop (the edge
 /// comparator 2 gt + the step repeater 8 gt), T's window's opening after the pop (the window comparator, two dusts, a
 /// repeater, the lock comparator).
@@ -210,10 +216,12 @@ pub fn design(t_start: usize) -> Design {
     put(P3_CMP, "minecraft:comparator[facing=south,mode=compare,powered=true]");
     put([P3_CMP[0], -1, P3_CMP[2]], "minecraft:glass");
     // (the up-fire chain and the stock-fire repeater, on glass)
-    put(UP_IN_REP, "minecraft:repeater[delay=1,facing=south,locked=false,powered=false]");
+    put(UP_IN_REP, "minecraft:repeater[delay=1,facing=west,locked=false,powered=false]");
     put([UP_IN_REP[0], -2, UP_IN_REP[2]], "minecraft:glass");
-    put(UP_IN_DUST[0], "minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]");
-    put(UP_IN_DUST[1], "minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=side]");
+    put(UP_IN_DUST[0], "minecraft:redstone_wire[east=none,north=side,power=0,south=none,west=side]");
+    put([UP_IN_DUST[0][0], -2, UP_IN_DUST[0][2]], "minecraft:glass");
+    put(UP_IN_DUST[1], "minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]");
+    put(UP_IN_DUST[2], "minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=side]");
     put(UP_REP1, "minecraft:repeater[delay=1,facing=east,locked=false,powered=false]");
     put(UP_DUST, "minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]");
     put(UP_REP2, "minecraft:repeater[delay=1,facing=east,locked=false,powered=false]");
@@ -255,6 +263,14 @@ pub fn design(t_start: usize) -> Design {
     on_glass(&mut d, [-5, 0, 1], &wire(false, false, false, true));
     d.blocks.insert([-4, -1, 1], "minecraft:redstone_wall_torch[facing=east,lit=true]".to_string());
     on_glass(&mut d, [-4, -1, 0], "minecraft:repeater[delay=1,facing=south,locked=false,powered=false]");
+    // (THE FILLER's WINDOW = TAPF AND G: a subtract comparator (rear the lane's REL + 40 / 57 / 67 tap's line end, north
+    // side NOT G: the dust beside the same torch) through a repeater into a stone behind the filler-unlock repeater)
+    // (the comparator's rear is the tap's line end itself (15) and its north side the dust right beside the torch (15):
+    // a side one dust further would read 14 and leave 15 - 14 = 1 through)
+    on_glass(&mut d, C_F, "minecraft:comparator[facing=west,mode=subtract,powered=false]");
+    on_glass(&mut d, [-3, -1, 1], &wire(false, false, true, true));
+    on_glass(&mut d, [-2, -1, 2], "minecraft:repeater[delay=1,facing=west,locked=false,powered=false]");
+    d.blocks.insert(F_UNLOCK_AT, "minecraft:stone".to_string());
     // (the window's path east under the ring's north row into the T lock comparator's south side)
     on_glass(&mut d, [-3, -1, -1], &wire(true, false, false, true));
     on_glass(&mut d, [-2, -1, -1], &wire(true, false, false, true));
@@ -433,11 +449,12 @@ pub fn run_plan(spec: &FarmSpec, plan: &Plan) -> Result<Read, String> {
             }
         }
         for &u in &plan.f_unlock {
+            // (the core's filler tap: a 10-gt pulse; the logic gates it with G)
             if t == u {
-                run.world.set_block(crate::mirror::at(F_UNLOCK_AT), rb.clone(), all);
+                run.world.set_block(crate::mirror::at(TAPF_IN), rb.clone(), all);
             }
             if t == u + F_WINDOW {
-                run.world.set_block(crate::mirror::at(F_UNLOCK_AT), air.clone(), all);
+                run.world.set_block(crate::mirror::at(TAPF_IN), air.clone(), all);
             }
         }
         for &u in &plan.up_fire {
@@ -546,6 +563,10 @@ pub fn reference(n: usize, f_at: i64, up_at: i64, no_release: bool) -> (Plan, Ve
     while k < n {
         let pop = t - STEP_AFTER_POP;
         plan.pops.push(pop);
+        // (the core's taps fire every REL: the filler's (the logic gates it with G) and the up-fire (ungated: the
+        // up-dropper is empty except after a grant))
+        plan.f_unlock.push(pop + f_at);
+        plan.up_fire.push(pop + up_at);
         if !granted && e[TAP] == Tok::T {
             // (THE GRANT at this pop: G high around it; T lifted out before the step (the read at the step sees the tap
             // already empty); P6's filler (the slot picked + 5, after the step) lifted out after it; T into P6 by the
@@ -556,9 +577,7 @@ pub fn reference(n: usize, f_at: i64, up_at: i64, no_release: bool) -> (Plan, Ve
             before.push(e);
             plan.steps.push(t);
             e = rotate(e);
-            plan.f_unlock.push(pop + f_at);
             e[T_INTO] = Tok::T;
-            plan.up_fire.push(pop + up_at);
             granted = true;
         } else {
             before.push(e);
@@ -610,7 +629,8 @@ pub fn bench(v: &mut crate::verdict::Verdict) -> Result<Vec<String>, String> {
     let t_out = r.t_out.first().copied().unwrap_or(i64::MAX) - plan.t_unlock[0];
     let t_up = r.t_up.first().copied().unwrap_or(i64::MAX);
     let t_in = r.t_in.first().copied().unwrap_or(i64::MAX);
-    let up_fire = plan.up_fire[0];
+    // (the up-fire that moves T: the first after the grant's step; the others fire the empty dropper)
+    let up_fire = plan.up_fire.iter().copied().find(|&u| u > g_step).unwrap_or(i64::MAX);
     let next_step = plan.steps.iter().copied().filter(|&s| s > g_step).min().unwrap_or(i64::MAX);
     let f_st = r.f_stock.first().copied().unwrap_or(i64::MAX);
     let w = v.bar("ctl-ring8: THE GRANT's TIMES: T out of the tap before the grant's step, T in the up-dropper before the up-fire, T in D0 before the next step, the filler in the stock before the release's fire", g_step > plan.t_unlock[0] + t_out && t_up < up_fire && t_in < next_step && plan.stock_fire.first().is_none_or(|&s| f_st < s));
