@@ -283,6 +283,19 @@ fn loop_items(l: &Laid) -> (BTreeSet<String>, u32) {
     (kinds, n)
 }
 
+/// The loop's items laid on each side: [overworld, Nether] (the droppers' `nbt:` / `nether nbt:` lines).
+fn loop_items_sides(l: &Laid) -> [u32; 2] {
+    let mut out = [0u32; 2];
+    for (k, (cells, bes)) in [(&l.blocks, &l.block_entities), (&l.nether, &l.nether_block_entities)].into_iter().enumerate() {
+        for (c, s) in bes {
+            if cells.get(c).is_some_and(|b| b.starts_with("minecraft:dropper")) {
+                out[k] += snbt_items(s).iter().map(|(_, n)| n).sum::<u32>();
+            }
+        }
+    }
+    out
+}
+
 /// The skeleton's spec.
 fn spec_of(parts: &[Laid]) -> Result<FarmSpec, String> {
     let ps = portals(parts, &[])?;
@@ -357,18 +370,63 @@ fn refusal(mut s: String, seed: i64, why: &str) -> Result<(String, Verdict), Str
     Ok((s, Verdict::Refused))
 }
 
+/// The items bar (G1 08:37 N / 09:47 (3), ironspec 09:47a (3)): the loop's items kept at every tick, less
+/// only what the settle's refused dropper spits explain, each spit matched to its own shortfall: one item
+/// at its own side (a dropper spits one item, redstone/container.rs 1319), read back side by side
+/// right after `Run::start` (`laid` and `at_start`: [overworld, Nether]; the settle's spits are the
+/// Nether part's). Any shortfall no spit explains, on either side, and any surplus, FAILS by name:
+/// (pass, line).
+fn items_bar(laid: [u32; 2], at_start: [u32; 2], spit_items: u32, items_end: u32, min_items: u32) -> (bool, String) {
+    let items0 = laid[0] + laid[1];
+    let lost = [laid[0].saturating_sub(at_start[0]), laid[1].saturating_sub(at_start[1])];
+    let surplus = at_start[0].saturating_sub(laid[0]) + at_start[1].saturating_sub(laid[1]);
+    let excused = lost[1].min(spit_items);
+    let unexplained = lost[0] + lost[1] - excused;
+    let want = items0 - excused;
+    let kept = unexplained == 0 && surplus == 0 && items_end == want && min_items == want;
+    let mut why = String::new();
+    if excused > 0 {
+        why.push_str(&format!(
+            ", {excused} lost to {excused} refused dropper spit(s) while Run::start settled the Nether part (one item each, matched on the Nether side: {} laid there, {} right after the start; a named model limit, below)",
+            laid[1], at_start[1]
+        ));
+    }
+    if unexplained > 0 {
+        why.push_str(&format!(
+            ", {unexplained} more missing right after the start than the refused spits explain (overworld {} laid, {} after; Nether {} laid, {} after; not excused)",
+            laid[0], at_start[0], laid[1], at_start[1]
+        ));
+    }
+    if surplus > 0 {
+        why.push_str(&format!(", {surplus} more right after the start than laid (not excused)"));
+    }
+    (kept, format!("  the items: {items0} laid{why}, {items_end} at the end, at least {min_items} at every tick: {}\n", if kept { "PASS" } else { "FAIL" }))
+}
+
 /// One seed's run; (text, verdict).
 pub fn run(parts: &[Laid], o: &Opts) -> Result<(String, Verdict), String> {
-    let ps = portals(parts, &[])?;
-    let li = parts.iter().position(|p| p.name == "loader").ok_or("no loader part")?;
-    let (lo_ow, lo_n) = (ps.iter().find(|p| p.part == li && !p.nether).ok_or("no loader overworld portal")?, ps.iter().find(|p| p.part == li && p.nether).ok_or("no loader Nether portal")?);
+    // (G1 08:37 (3), 09:47 (2): whatever stops the run before its first tick is a refusal, exit 4,
+    // never the FAIL code)
+    let mut s = String::new();
+    macro_rules! pre {
+        ($e:expr) => {
+            match $e {
+                Ok(v) => v,
+                Err(e) => return refusal(s, o.seed, &format!("before the run's first tick: {e}")),
+            }
+        };
+    }
+    let ps = pre!(portals(parts, &[]));
+    let li = pre!(parts.iter().position(|p| p.name == "loader").ok_or("no loader part"));
+    let lo_ow = pre!(ps.iter().find(|p| p.part == li && !p.nether).ok_or("no loader overworld portal"));
+    let lo_n = pre!(ps.iter().find(|p| p.part == li && p.nether).ok_or("no loader Nether portal"));
     let n_ps: Vec<&Portal> = ps.iter().filter(|p| p.nether).collect();
-    let spec = spec_of(parts)?;
+    let spec = pre!(spec_of(parts));
     let (kinds, items0) = loop_items(&parts[li]);
     if items0 == 0 {
-        return Err("the loader's droppers hold no item (the loop's items are what its droppers hold): nothing to follow, refused".into());
+        return refusal(s, o.seed, "the loader's droppers hold no item (the loop's items are what its droppers hold): nothing to follow");
     }
-    let mut s = format!(
+    s.push_str(&format!(
         "redsim run (seed {}, {} gt; bench, tool unreviewed): the portal skeleton ({} overworld cells: the loader's and each copy's portal cells with their frame obsidian; {} Nether cells); the loop's items (its droppers'): {items0} ({}){}\n",
         o.seed,
         o.ticks,
@@ -376,18 +434,18 @@ pub fn run(parts: &[Laid], o: &Opts) -> Result<(String, Verdict), String> {
         spec.nether.as_ref().map_or(0, |n| n.blocks.len()),
         kinds.iter().cloned().collect::<Vec<_>>().join(", "),
         o.control.map_or(String::new(), |c| format!("; CONTROL {}, planted to fail {} (not evidence for the layout)", c.name(), c.target()))
-    );
+    ));
     let ro = RunOpts::steady(o.seed, (o.ticks + 200) as u32, WalkMode::Random);
-    let mut run = Run::start(&spec, &ro)?;
+    let mut run = pre!(Run::start(&spec, &ro));
     // (the spits redsim refused while Run::start settled the Nether part: the second named model limit;
     // the loop's items read back right after the start: what those spits lost, G1 08:37 N)
     let settle_spits: Vec<String> = run.world.nether.as_deref().map(|n| n.errors.iter().filter(|e| e.contains("spits an item into the world")).cloned().collect()).unwrap_or_default();
-    let at_start = loop_items_both(&run, &kinds);
+    let at_start = [loop_items_in(&run.world, &kinds), run.world.nether.as_deref().map_or(0, |n| loop_items_in(n, &kinds))];
     // (each world's level random and drop seed, set before the overworld's settle: a clock that starts as
     // it is built (a hopper clock) fires its droppers while the layout settles, and a dropper's spit draws
     // from them)
     for wi in 0..2 {
-        let w = side(&mut run, wi)?;
+        let w = pre!(side(&mut run, wi));
         let k = if wi == 0 { 0 } else { 0x4e45 };
         w.level_random = Some(redsim::rng::LegacyRandom::new(o.seed ^ k));
         w.drop_seed = Some(o.seed ^ k);
@@ -395,7 +453,7 @@ pub fn run(parts: &[Laid], o: &Opts) -> Result<(String, Verdict), String> {
     while run.settle_tick() {}
     // (the clocks' start, as the build starts an observer pair: each side's observer farther from its
     // portal taken out and put back, read back; a side with no observer pair (a hopper clock) needs none)
-    let air = Block::parse("minecraft:air")?;
+    let air = pre!(Block::parse("minecraft:air"));
     let raw = redsim::world::flags::RAW;
     let mut stall_pair: Option<(C, C)> = None;
     for (wi, cells, portal) in [(0usize, &parts[li].blocks, lo_ow), (1usize, &parts[li].nether, lo_n)] {
@@ -403,16 +461,16 @@ pub fn run(parts: &[Laid], o: &Opts) -> Result<(String, Verdict), String> {
         let targeted = matches!((o.control, wi), (Some(Control::StopNetherClock), 1) | (Some(Control::StallOverworldClock), 0));
         let pairs = observer_pairs(cells);
         let (a, b) = match pairs.as_slice() {
-            [] if targeted => return refusal(s, o.seed, &format!("control {}: the {side_name} clock has no observer pair to take out: a no-op", o.control.map_or("", |c| c.name()))),
+            [] if targeted => return refusal(s, o.seed, &format!("control {}: the {side_name} clock has no observer pair to take out: control planted nothing", o.control.map_or("", |c| c.name()))),
             [] => {
                 s.push_str(&format!("  the {side_name} clock: no observer pair (nothing taken out: a clock that starts as it is built)\n"));
                 continue;
             }
             [(a, b)] => (*a, *b),
-            _ => return Err(format!("the loader's {side_name} side: {} observer pairs (its clock: at most one)", pairs.len())),
+            _ => return refusal(s, o.seed, &format!("before the run's first tick: the loader's {side_name} side has {} observer pairs (its clock: at most one)", pairs.len())),
         };
         if o.control == Some(Control::StopNetherClock) && wi == 1 {
-            let w = side(&mut run, 1)?;
+            let w = pre!(side(&mut run, 1));
             for c in [a, b] {
                 w.set_block(bp(c), air.clone(), raw);
             }
@@ -437,21 +495,21 @@ pub fn run(parts: &[Laid], o: &Opts) -> Result<(String, Verdict), String> {
         }
         let plane = |c: &C| if portal.axis == 'x' { (c[2] - portal.cells[0][2]).abs() } else { (c[0] - portal.cells[0][0]).abs() };
         let o2 = if plane(&a) >= plane(&b) { a } else { b };
-        let w = side(&mut run, wi)?;
+        let w = pre!(side(&mut run, wi));
         let st = w.get(bp(o2)).clone();
         w.set_block(bp(o2), air.clone(), redsim::world::flags::ALL);
         w.set_block(bp(o2), st.clone(), redsim::world::flags::ALL);
         let back = w.get(bp(o2)).clone();
-        s.push_str(&format!("  the {side_name} clock's start: O2 ({},{},{}) taken out and put back; read back: {back}{}\n", o2[0], o2[1], o2[2], if back == st { "" } else { " (CHANGED: refused)" }));
+        s.push_str(&format!("  the {side_name} clock's start: O2 ({},{},{}) taken out and put back; read back: {back}{}\n", o2[0], o2[1], o2[2], if back == st { "" } else { " (CHANGED)" }));
         if back != st {
-            return Err("the clock's O2 did not read back".into());
+            return refusal(s, o.seed, &format!("before the run's first tick: the {side_name} clock's O2 did not read back"));
         }
     }
     // (the divert control's planted portal: on the return's exit blocks (one move, the code's crossing)
     // that lie one plane off the loader's overworld portal, 3 high and at least 2 wide, framed)
     let mut plant: Option<Portal> = None;
     if o.control == Some(Control::DivertReturn) {
-        let fire = crate::loaderlayout::firing_droppers(&parts[li].nether, &lo_n.cells)?;
+        let fire = pre!(crate::loaderlayout::firing_droppers(&parts[li].nether, &lo_n.cells));
         let [(p, d)] = fire[..] else { return refusal(s, o.seed, &format!("control divert-return: {} droppers fire into the loader's Nether portal (one expected)", fire.len())) };
         let (l1, h1) = crate::loaderlayout::crossing_box(p, d, 1);
         let exits = crate::loaderlayout::exits_of_box(l1, h1, 8.0);
@@ -481,8 +539,8 @@ pub fn run(parts: &[Laid], o: &Opts) -> Result<(String, Verdict), String> {
             let held = run.world.get(bp(*c)).to_string();
             return refusal(s, o.seed, &format!("control divert-return: the planted portal's cell ({},{},{}) holds {held}", c[0], c[1], c[2]));
         }
-        let portal_block = redsim::terrain::land::block_of(&format!("minecraft:nether_portal[axis={axis}]"))?;
-        let obsidian = Block::parse("minecraft:obsidian")?;
+        let portal_block = pre!(redsim::terrain::land::block_of(&format!("minecraft:nether_portal[axis={axis}]")));
+        let obsidian = pre!(Block::parse("minecraft:obsidian"));
         for c in &frame {
             run.world.set_block(bp(*c), obsidian.clone(), raw);
         }
@@ -509,8 +567,8 @@ pub fn run(parts: &[Laid], o: &Opts) -> Result<(String, Verdict), String> {
     }
     // (the put-out-twin control: the first copy's Nether twin put out before the run)
     if o.control == Some(Control::PutOutTwin) {
-        let Some(twin) = ps.iter().find(|p| p.nether && p.part != li) else { return refusal(s, o.seed, "control put-out-twin: no copy twin: a no-op") };
-        let w = side(&mut run, 1)?;
+        let Some(twin) = ps.iter().find(|p| p.nether && p.part != li) else { return refusal(s, o.seed, "control put-out-twin: no copy twin: control planted nothing") };
+        let w = pre!(side(&mut run, 1));
         for c in &twin.cells {
             w.set_block(bp(*c), air.clone(), raw);
         }
@@ -539,7 +597,7 @@ pub fn run(parts: &[Laid], o: &Opts) -> Result<(String, Verdict), String> {
     let mut fired = false;
     let quarter = o.ticks / 4;
     for _ in 0..o.ticks {
-        let rel = run.world.time - start;
+        let mut rel = run.world.time - start;
         if rel >= o.world_open && opened.is_none() {
             // (ironspec 01:50b: the gap bar spans a world open; the overworld's entities come back under
             // new ids, so its items then are not launches)
@@ -560,6 +618,8 @@ pub fn run(parts: &[Laid], o: &Opts) -> Result<(String, Verdict), String> {
             for e in run.world.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, EntityKind::Item(_))) {
                 known[0].insert(e.id);
             }
+            // (G1 09:47 N: the open's idle ticks moved game time on; what follows in this tick is logged at it)
+            rel = run.world.time - start;
         }
         if rel >= o.golem_at && golems_at.is_none() {
             golems_at = Some(rel);
@@ -579,7 +639,7 @@ pub fn run(parts: &[Laid], o: &Opts) -> Result<(String, Verdict), String> {
         if rel >= quarter && !fired {
             match o.control {
                 Some(Control::StallOverworldClock) => {
-                    let (a, b) = stall_pair.ok_or("control stall-overworld-clock: no overworld observer pair")?;
+                    let Some((a, b)) = stall_pair else { return refusal(s, o.seed, "control stall-overworld-clock: no overworld observer pair: control planted nothing") };
                     for c in [a, b] {
                         run.world.set_block(bp(c), air.clone(), raw);
                     }
@@ -614,7 +674,9 @@ pub fn run(parts: &[Laid], o: &Opts) -> Result<(String, Verdict), String> {
                     }
                     if let Some((wi, id, k)) = pick {
                         let before = loop_items_both(&run, &kinds);
-                        redsim::entity::kill(side(&mut run, wi)?, id)?;
+                        if let Err(e) = side(&mut run, wi).and_then(|w| redsim::entity::kill(w, id)) {
+                            return refusal(s, o.seed, &format!("control steal-item: the item could not be killed ({e}): control planted nothing"));
+                        }
                         let after = loop_items_both(&run, &kinds);
                         s.push_str(&format!(
                             "  CONTROL steal-item: at t {rel} a loop item in flight on the {} side (entity {id}, {k}) killed; read back: the loop's items {before} -> {after}\n",
@@ -627,18 +689,22 @@ pub fn run(parts: &[Laid], o: &Opts) -> Result<(String, Verdict), String> {
                     }
                 }
                 Some(Control::DoubleItem) => {
-                    let fire = crate::loaderlayout::firing_droppers(&parts[li].blocks, &lo_ow.cells)?;
-                    let [(p, _)] = fire[..] else { return refusal(s, o.seed, &format!("control double-item: {} droppers fire into the loader's overworld portal (one expected)", fire.len())) };
-                    let kind = kinds.iter().next().cloned().ok_or("control double-item: no loop item kind")?;
-                    let id = redsim::redstone::container::item_id(&kind).ok_or_else(|| format!("control double-item: no item id for {kind}"))?;
+                    // (G1 09:47 (1): every way this control can't plant is a refusal, never the FAIL code)
+                    let fire = match crate::loaderlayout::firing_droppers(&parts[li].blocks, &lo_ow.cells) {
+                        Ok(f) => f,
+                        Err(e) => return refusal(s, o.seed, &format!("control double-item: {e}: control planted nothing")),
+                    };
+                    let [(p, _)] = fire[..] else { return refusal(s, o.seed, &format!("control double-item: {} droppers fire into the loader's overworld portal (one expected): control planted nothing", fire.len())) };
+                    let Some(kind) = kinds.iter().next().cloned() else { return refusal(s, o.seed, "control double-item: no loop item kind: control planted nothing") };
+                    let Some(id) = redsim::redstone::container::item_id(&kind) else { return refusal(s, o.seed, &format!("control double-item: no item id for {kind}: control planted nothing")) };
                     let before = loop_items_both(&run, &kinds);
-                    let c = run.world.containers.map.get_mut(&bp(p)).ok_or("control double-item: the firing dropper has no inventory")?;
+                    let Some(c) = run.world.containers.map.get_mut(&bp(p)) else { return refusal(s, o.seed, "control double-item: the firing dropper has no inventory: control planted nothing") };
                     if let Some(st) = c.slots.iter_mut().flatten().find(|st| st.item == id) {
                         st.count += 1;
                     } else if let Some(slot) = c.slots.iter_mut().find(|st| st.is_none()) {
                         *slot = Some(redsim::redstone::container::Stack::new(id, 1));
                     } else {
-                        return refusal(s, o.seed, "control double-item: the firing dropper is full: a no-op");
+                        return refusal(s, o.seed, "control double-item: the firing dropper is full: control planted nothing");
                     }
                     let after = loop_items_both(&run, &kinds);
                     s.push_str(&format!("  CONTROL double-item: at t {rel} one {kind} more put into the overworld side's firing dropper ({},{},{}); read back: the loop's items {before} -> {after}\n", p[0], p[1], p[2]));
@@ -732,11 +798,24 @@ pub fn run(parts: &[Laid], o: &Opts) -> Result<(String, Verdict), String> {
             None => unnamed.push(format!("{w}: {e}")),
         }
     }
-    // (the items the settle's refused spits lost: read back as the start's shortfall, excused only when
-    // such spits are recorded and matched)
-    let matched_spits = settle_spits.len() - spits.len();
-    let lost_at_settle = items0.saturating_sub(at_start);
-    let excused = if matched_spits > 0 { lost_at_settle } else { 0 };
+    // (the items the settle's refused spits lost: G1 09:47 (3), each matched spit at a loader dropper
+    // explains one item (a dropper spits one: redstone/container.rs 1319, `spawn_dispensed(.., 1, ..)`),
+    // read back against the shortfall right after the start; any more missing FAILS by name)
+    let mut remaining = spits.clone();
+    let mut spit_items = 0u32;
+    for sp in &settle_spits {
+        if let Some(k) = remaining.iter().position(|r| r == sp) {
+            remaining.remove(k);
+            continue;
+        }
+        let at = sp.strip_prefix("dropper at (").and_then(|r| r.split(')').next()).and_then(|t| {
+            let v: Vec<i32> = t.split(',').filter_map(|n| n.trim().parse().ok()).collect();
+            (v.len() == 3).then(|| [v[0], v[1], v[2]])
+        });
+        if at.is_some_and(|c| parts[li].nether.get(&c).is_some_and(|b| b.starts_with("minecraft:dropper"))) {
+            spit_items += 1;
+        }
+    }
     let mut ok = true;
     // (the world-open row: the open must have happened inside the run)
     match opened {
@@ -786,20 +865,9 @@ pub fn run(parts: &[Laid], o: &Opts) -> Result<(String, Verdict), String> {
         first_launch[1].map_or("never".into(), |t| t.to_string()),
         if launched { "PASS" } else { "FAIL" }
     ));
-    let want = items0 - excused;
-    let kept = items_end == want && min_items == want;
+    let (kept, items_line) = items_bar(loop_items_sides(&parts[li]), at_start, spit_items, items_end, min_items);
     ok &= kept;
-    s.push_str(&format!(
-        "  the items: {items0} laid{}, {items_end} at the end, at least {min_items} at every tick: {}\n",
-        if excused > 0 {
-            format!(", {excused} lost to the {matched_spits} spit(s) redsim refused while Run::start settled the Nether part (read back: {at_start} right after the start; a named model limit, below)")
-        } else if lost_at_settle > 0 {
-            format!(", {lost_at_settle} missing right after the start with no refused spit recorded (not excused)")
-        } else {
-            String::new()
-        },
-        if kept { "PASS" } else { "FAIL" }
-    ));
+    s.push_str(&items_line);
     let mut per_pad: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut gfail = 0;
     let crossed: BTreeSet<&String> = golem_out.iter().map(|g| &g.0).collect();
@@ -845,7 +913,7 @@ pub fn run(parts: &[Laid], o: &Opts) -> Result<(String, Verdict), String> {
             Control::StallOverworldClock => worst_gaps.iter().any(|g| *g > 300),
             Control::StopNetherClock => !launched,
             Control::StealItem | Control::DoubleItem => !kept,
-            Control::DivertReturn => elsewhere_n[0] > 0,
+            Control::DivertReturn => arrivals[0].get("planted.divert").copied().unwrap_or(0) > 0 && elsewhere_n[0] > 0,
             Control::PutOutTwin => gfail > 0,
             Control::DropCopy => !missing.is_empty(),
             Control::UnseedDrops => !unnamed.is_empty(),
@@ -1022,14 +1090,44 @@ mod tests {
 
     #[test]
     fn a_skipped_tick_never_drops_a_control_or_the_golems_and_a_control_that_fails_nothing_is_refused() {
-        // (G1 08:37 (1): a world open at t 298 advances game time 2, so t 300 (a quarter of 1200) is
-        // skipped: the stall fires at the first tick after it, and golems due at t 299 are still placed)
+        // (G1 08:37 (1), 09:47 N: a world open at t 298 advances game time 2 within its tick, so t 299
+        // and t 300 (a quarter of 1200) are never ticks; the golems due at t 299 and the stall due at t
+        // 300 fire in that same tick, logged at the game time they land at, t 300)
         let parts = layout_x8(&[[6, 80, 6]]);
         let (t, v) = run(&parts, &Opts { world_open: 298, golem_at: 299, ..opts(Some(Control::StallOverworldClock)) }).unwrap();
-        assert!(v == Verdict::Fail && line(&t, "CONTROL stall-overworld-clock:").contains("at t 301") && line(&t, "golems:").contains("6 placed at t 301"), "{t}");
+        assert!(v == Verdict::Fail && line(&t, "CONTROL stall-overworld-clock:").contains("at t 300") && line(&t, "golems:").contains("6 placed at t 300") && line(&t, "the world open at t 298").contains("game time t 300 after it"), "{t}");
         // (a stall too late for its gap to pass 300 gt: its own bar doesn't fail, so it is refused)
         let (t, v) = run(&parts, &Opts { ticks: 360, world_open: 180, golem_at: 30, ..opts(Some(Control::StallOverworldClock)) }).unwrap();
         assert!(v == Verdict::Refused && line(&t, "REFUSED:").contains("its own bar (the arrivals' worst gap) did not fail"), "{t}");
+        // (G1 09:47 (2): a run that can't start is refused, never the FAIL code: a loader whose droppers
+        // hold no item)
+        let mut empty = layout_x8(&[[6, 80, 6]]);
+        let l = empty.len() - 1;
+        empty[l].block_entities.clear();
+        empty[l].nether_block_entities.clear();
+        let (t, v) = run(&empty, &opts(None)).unwrap();
+        assert!(v == Verdict::Refused && line(&t, "REFUSED:").contains("droppers hold no item"), "{t}");
+    }
+
+    #[test]
+    fn the_items_bar_excuses_only_what_the_refused_spits_explain() {
+        // (G1 09:47 (3), ironspec 09:47a (3): each refused Nether dropper spit matched to one item of the
+        // Nether side's shortfall; any loss beyond, on either side, or any surplus, FAILS by name)
+        let (ok, l) = items_bar([3, 3], [3, 2], 1, 5, 5);
+        assert!(ok && l.contains("1 lost to 1 refused dropper spit(s)") && l.contains("3 laid there, 2 right after the start") && l.ends_with("PASS\n"), "{l}");
+        // (one more item gone on the Nether side than its one spit explains)
+        let (ok, l) = items_bar([3, 3], [3, 1], 1, 4, 4);
+        assert!(!ok && l.contains("1 lost to 1 refused dropper spit(s)") && l.contains("1 more missing right after the start than the refused spits explain") && l.ends_with("FAIL\n"), "{l}");
+        // (a Nether spit never explains an overworld loss)
+        let (ok, l) = items_bar([3, 3], [2, 3], 1, 5, 5);
+        assert!(!ok && !l.contains("lost to") && l.contains("1 more missing"), "{l}");
+        // (no spit recorded: a shortfall is never excused)
+        let (ok, l) = items_bar([3, 3], [3, 2], 0, 5, 5);
+        assert!(!ok && l.contains("1 more missing") && !l.contains("lost to"), "{l}");
+        let (ok, l) = items_bar([3, 3], [3, 4], 0, 7, 7);
+        assert!(!ok && l.contains("1 more right after the start than laid"), "{l}");
+        let (ok, l) = items_bar([2, 2], [2, 2], 0, 4, 4);
+        assert!(ok && l == "  the items: 4 laid, 4 at the end, at least 4 at every tick: PASS\n", "{l}");
     }
 
     #[test]
@@ -1040,7 +1138,7 @@ mod tests {
         let parts = layout_of("loader-clock-x8.txt", [10, 85, -14], &[[6, 80, 6], [38, 80, 6], [6, 80, 38], [38, 80, 38]]);
         let o = Opts { ticks: 1200, seed: 1, golem_at: 100, world_open: 600, control: None };
         let (t, v) = run(&parts, &o).unwrap();
-        assert!(v == Verdict::NotModeled && line(&t, "the items:").contains("lost to the 1 spit(s) redsim refused") && line(&t, "other world errors:").ends_with("none"), "{t}");
+        assert!(v == Verdict::NotModeled && line(&t, "the items:").contains("1 lost to 1 refused dropper spit(s)") && line(&t, "the items:").ends_with("PASS") && line(&t, "other world errors:").ends_with("none"), "{t}");
         let (t, v) = run(&parts, &Opts { control: Some(Control::StealItem), ..o }).unwrap();
         assert!(v == Verdict::Fail && line(&t, "the items:").ends_with("FAIL"), "{t}");
         let (t, v) = run(&parts, &Opts { control: Some(Control::StopNetherClock), ..o }).unwrap();

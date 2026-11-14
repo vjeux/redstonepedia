@@ -219,13 +219,15 @@ pub fn rods_text(parts: &[Laid], portal: Option<[i32; 2]>) -> Result<(String, bo
         Some(pc) => topping.iter().filter(|c| level_of(c, pc) > 33).collect(),
         None => Vec::new(),
     };
-    let load_pass = portal.is_some() && unloaded.is_empty();
+    let load_pass = portal.is_some() && !topping.is_empty() && unloaded.is_empty();
     ok &= load_pass;
     s.push_str(&format!(
         "  (d) every credited rod's chunk loaded by the loader (level <= 33; the POI search reads loaded sections only, G1 05:26 (b)): {}\n",
         match portal {
             None => "NOT JUDGED (no loader PORTAL chunk: a loader leg fails): FAIL".to_string(),
-            Some(_) if unloaded.is_empty() => "PASS".to_string(),
+            // (G1 09:47 N: no credited rod judges nothing)
+            Some(_) if topping.is_empty() => "no credited rod: NOT JUDGED: FAIL".to_string(),
+            Some(_) if unloaded.is_empty() => format!("{} credited rods, every one loaded: PASS", topping.len()),
             Some(_) => format!("{} credited rods in chunks the loader doesn't load: FAIL", unloaded.len()),
         }
     ));
@@ -470,9 +472,9 @@ mod tests {
         c.blocks.insert([10, 65, 0], "minecraft:lightning_rod[facing=up,powered=false,waterlogged=false]".into());
         let (t, ok) = rods_text(&with_loader(vec![c]), Some([0, 0])).unwrap();
         assert!(!ok && t.contains("copy1's (10,65,0) does NOT top its column"), "{t}");
-        // (no rod at all)
+        // (no rod at all: (a) fails, and (d) judges nothing)
         let (t, ok) = rods_text(&with_loader(vec![part("copy1", 0, 0, false)]), Some([0, 0])).unwrap();
-        assert!(!ok && t.contains("loader's overworld PORTAL ticket): none\n"), "{t}");
+        assert!(!ok && t.contains("loader's overworld PORTAL ticket): none\n") && bar(&t, "(d)").contains("no credited rod: NOT JUDGED: FAIL"), "{t}");
         // (copies on different grounds refuse without --ground-y)
         let mut c2 = part("copy2", 40, 0, false);
         c2.ground = 60;

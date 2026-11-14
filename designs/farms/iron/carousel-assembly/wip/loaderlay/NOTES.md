@@ -256,7 +256,8 @@ fires: https://artifacts.internalmeta.com/a/4260158720941388 (md5 fc591dee3a67).
 the file's empty columns sat at the world's bottom, so "every column to a rod" is claimed only with
 the ground materialized (G1 05:51); this tool now materializes it itself (the ground plane above).
 `--write-layout FILE --lightning-ready` writes the same layout with its three model layers declared in
-the file's head: portal cells as air, cart and boat passengers dropped, and the ground plane. It loads
+the file's head: portal cells as air, the carts' and boats' Passengers lists dropped (their other tags
+kept; at N = 4, 48 passengers from 48 vehicles), and the ground plane. It loads
 in mctas without stand-ins and gives every strike column a top.
 
 The two tables join copy by copy: the module check judges one copy alone, and this one adds the
@@ -334,7 +335,11 @@ back:
 - golems due past the run (none placed) and the world open past the run (never reached).
 
 A control that planted nothing, or whose own bar didn't fail, is REFUSED by name ("control planted
-nothing", exit 4: never a pass; ironspec 08:37a's standing rule).
+nothing", exit 4: never a pass; ironspec 08:37a's standing rule). So is every way a control can't
+plant, and every run that can't start (no item in the loader's droppers, an O2 that doesn't read back,
+two observer pairs on one side, a part or portal missing): exit 4 by name, never the FAIL code (G1
+09:47 (1) / (2)). Unit tests may not spawn the binary, so the CLI's exit 4 for a refused run is shown
+by the evidence runs (the refused stall control and the refusal runs).
 
 The row says how it differs from the reference timing row (ironfarm's flags: ±2 gt per clocked event
 and a world open at every phase): one world open, no event shift. The game's 01:20 restart rows
@@ -343,8 +348,10 @@ official game row (tick-exact 01:20) is its evidence. Two redsim model limits ca
 are the only world errors the runner names:
 - its self-starting hopper clock fires in the Nether while `Run::start` settles the Nether part,
   before any caller can seed that world's dropper random. The spit is refused and its item lost; the
-  runner counts only the spits recorded right after the start, and the items bar excuses the items
-  read back missing right after the start, by name, only when such a spit is recorded;
+  runner counts only the spits recorded right after the start, and the items bar matches each such
+  spit at a loader dropper to one item of the Nether side's shortfall (a dropper spits one item,
+  redsim's redstone/container.rs 1319), read back side by side right after the start. Any loss no
+  spit explains, on either side, or any surplus, FAILS by name (G1 09:47 (3), ironspec 09:47a (3));
 - redsim's light model lacks the extended sticky piston and the piston head.
 
 A failed bar always FAILS (exit 1, by name). A run whose bars all pass with only those named limits
@@ -428,14 +435,17 @@ loader-x8 (4 leather, the loop's only items; design frame):
 - the clocks' observers hold no item.
 
 What one item does, wherever it is torn:
-- LOST: the loop runs on 3. The redsim control `steal-item` shows it: 4 -> 3 at t 600, then every
-  arrival at the loader's own portals, worst gap 48 gt (252 left of 300), launches on both sides; the
-  loading holds. Each further loss leaves fewer; at zero the loading lapses (class X).
+- LOST: the loop runs on 3. The redsim control `steal-item` shows it (loader-x8 at N = 1, 2,400 gt,
+  the run citing 8ba23e466: https://artifacts.internalmeta.com/a/29314562368156393): 4 -> 3 at t 600,
+  then 95 arrivals each way, all at the loader's own portals, worst gap 48 gt (252 left of 300), 95
+  launches on each side; the loading holds. Each further loss leaves fewer; at zero the loading lapses
+  (class X).
 - DOUBLED: the loop runs on 5. The loader's items do nothing but cross: no attempt follows from an
   item, and nothing leaves the loop; leather stacks to 64 in a dropper and a hopper has 5 slots, so 5
   fit without a jam. A doubled item gives only an extra crossing (an extra PORTAL ticket renewal), so
-  NO GUARD is required. The redsim control `double-item` shows it: 4 -> 5, the items bar fails on the
-  count, and the arrivals, gaps and launches still pass.
+  NO GUARD is required. The redsim control `double-item` shows it (the same run conditions, citing
+  8ba23e466: https://artifacts.internalmeta.com/a/1862112958260255): 4 -> 5 at t 600, the items bar
+  fails on the count, and 136 arrivals each way (worst gap 48 gt) and 136 launches on each side pass.
 
 loader-clock-x8 (6 cobblestone in the loop, and 13 stone in each side's hopper clock):
 - the loop's components as above (its droppers (16,4,34) 2 and (16,5,34) 1 overworld, (3,9,-1) 2 and

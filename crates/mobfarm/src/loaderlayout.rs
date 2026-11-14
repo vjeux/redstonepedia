@@ -148,8 +148,8 @@ pub fn lay(name: &str, file: &str, d: &Design, offset: C, ybase: i32) -> Result<
 /// (9fc3155f 05:46 (3) / (4), G1 05:51, ironspec 05:52: the lightning-ready variant, `--lightning-ready`)
 /// Three declared model layers, so the file loads in mctas and every strike column has a top: every
 /// nether-portal cell set to air (a portal without its Nether part; a portal neither blocks motion nor
-/// sits over a rod, so it is lightning-neutral); every cart's and boat's passenger dropped (no `port
-/// home`; the riders come from `--rails`); and the ground plane of the lightning print
+/// sits over a rod, so it is lightning-neutral); every cart's and boat's Passengers list dropped, its
+/// other tags kept (no `port home`; the riders come from `--rails`); and the ground plane of the lightning print
 /// (`loaderrods::ground_plane`: `minecraft:stone` at the ground's y in every column of the strike area
 /// that holds no layout cell at or above it). Returned with the comment lines that declare them.
 pub fn compose(parts: &[Laid], lightning_ready: bool) -> Result<(Design, Vec<String>), String> {
@@ -173,11 +173,13 @@ pub fn compose(parts: &[Laid], lightning_ready: bool) -> Result<(Design, Vec<Str
         for c in &portals {
             d.blocks.remove(c);
         }
-        let mut riders = 0;
+        let (mut vehicles, mut riders) = (0, 0);
         for e in d.entities.iter_mut() {
-            if e.nbt.as_deref().is_some_and(|n| n.contains("Passengers:[")) {
-                e.nbt = None;
-                riders += 1;
+            // (G1 09:47 N: only the Passengers list goes; every other tag, Rotation included, stays)
+            if let Some((rest, k)) = e.nbt.as_deref().and_then(strip_passengers) {
+                e.nbt = if rest.trim() == "{}" { None } else { Some(rest) };
+                vehicles += 1;
+                riders += k;
             }
         }
         let g = first.ground;
@@ -187,12 +189,83 @@ pub fn compose(parts: &[Laid], lightning_ready: bool) -> Result<(Design, Vec<Str
         }
         let (x0, x1, z0, z1) = crate::loaderrods::strike_area(parts);
         notes.push(format!(
-            "# (lightning-ready, a model for the lightning check only: {} nether-portal cells set to air, a portal without its Nether part; {riders} cart and boat passengers dropped, the riders come from --rails; the ground plane, minecraft:stone at y {g} under {} columns of the strike area x {x0}..{x1} z {z0}..{z1} that hold no layout cell at or above it)",
+            "# (lightning-ready, a model for the lightning check only: {} nether-portal cells set to air, a portal without its Nether part; {riders} passengers dropped from {vehicles} carts and boats (only their Passengers lists; every other tag kept), the riders come from --rails; the ground plane, minecraft:stone at y {g} under {} columns of the strike area x {x0}..{x1} z {z0}..{z1} that hold no layout cell at or above it)",
             portals.len(),
             plane.len()
         ));
     }
     Ok((d, notes))
+}
+
+/// (G1 09:47 N) An entity's SNBT without its top-level `Passengers:[...]` (every other tag kept, Rotation
+/// included) and how many passengers the list held; None when it has no Passengers list.
+fn strip_passengers(nbt: &str) -> Option<(String, usize)> {
+    let b = nbt.as_bytes();
+    let (mut depth, mut in_str, mut i) = (0i32, false, 0usize);
+    while i < b.len() {
+        let c = b[i];
+        if in_str {
+            if c == b'\\' {
+                i += 2;
+                continue;
+            }
+            if c == b'"' {
+                in_str = false;
+            }
+            i += 1;
+            continue;
+        }
+        match c {
+            b'"' => in_str = true,
+            b'{' | b'[' => depth += 1,
+            b'}' | b']' => depth -= 1,
+            _ if depth == 1 && nbt[i..].starts_with("Passengers:[") && matches!(b[i - 1], b'{' | b',') => {
+                let open = i + "Passengers:".len();
+                let (mut d, mut j, mut s2, mut n) = (0i32, open, false, 0usize);
+                while j < b.len() {
+                    let cj = b[j];
+                    if s2 {
+                        if cj == b'\\' {
+                            j += 2;
+                            continue;
+                        }
+                        if cj == b'"' {
+                            s2 = false;
+                        }
+                        j += 1;
+                        continue;
+                    }
+                    match cj {
+                        b'"' => s2 = true,
+                        b'[' | b'{' => {
+                            if d == 1 && cj == b'{' {
+                                n += 1;
+                            }
+                            d += 1;
+                        }
+                        b']' | b'}' => {
+                            d -= 1;
+                            if d == 0 {
+                                break;
+                            }
+                        }
+                        _ => {}
+                    }
+                    j += 1;
+                }
+                let (mut a, mut z) = (i, (j + 1).min(b.len()));
+                if z < b.len() && b[z] == b',' {
+                    z += 1;
+                } else if b[a - 1] == b',' {
+                    a -= 1;
+                }
+                return Some((format!("{}{}", &nbt[..a], &nbt[z..]), n));
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
 }
 
 /// The binary rule's global flags as mctas's dispatch parsed them (`--cite <commit>` / `--cite=<commit>`,
@@ -1347,23 +1420,36 @@ mod tests {
         assert!(notes.is_empty() && parts.iter().all(|p| p.blocks.keys().all(|c| d.blocks.contains_key(c))));
         let back = Design::parse(&d.to_text()).unwrap();
         assert_eq!(back.blocks, d.blocks);
-        // (the lightning-ready variant: no portal cell, no passenger, the ground plane in every strike
-        // column with no cell at or above the ground, declared in its notes; it reads back whole)
+        // (the lightning-ready variant: no portal cell, no passenger (only the Passengers list goes, the
+        // vehicle's other tags stay), the ground plane in every strike column with no cell at or above the
+        // ground, declared in its notes; it reads back whole)
         let mut parts = parts;
-        parts[0].entity_nbt.push(Some("{Passengers:[{id:\"minecraft:villager\"}]}".into()));
+        parts[0].entity_nbt.push(Some("{Rotation:[90.0f,0.0f],Passengers:[{id:\"minecraft:villager\"},{id:\"minecraft:pillager\"}]}".into()));
         parts[0].entities.push(("minecraft:minecart".into(), [39.5, 92.0, 25.5]));
         let (r, notes) = compose(&parts, true).unwrap();
         assert!(!r.blocks.values().any(|s| s.starts_with("minecraft:nether_portal")));
         assert!(r.entities.iter().all(|e| e.nbt.as_deref().is_none_or(|n| !n.contains("Passengers"))));
+        assert!(r.entities.iter().any(|e| e.nbt.as_deref() == Some("{Rotation:[90.0f,0.0f]}")), "{:?}", r.entities);
         let g = parts[0].ground;
         let (x0, x1, z0, z1) = crate::loaderrods::strike_area(&parts);
         assert_eq!(r.blocks.get(&[x0, g, z0]).map(String::as_str), Some("minecraft:stone"));
         assert_eq!(r.blocks.get(&[x1, g, z1]).map(String::as_str), Some("minecraft:stone"));
-        assert!(notes.len() == 1 && notes[0].contains("nether-portal cells set to air") && notes[0].contains("1 cart and boat passengers dropped") && notes[0].contains(&format!("minecraft:stone at y {g}")), "{notes:?}");
+        assert!(notes.len() == 1 && notes[0].contains("nether-portal cells set to air") && notes[0].contains("2 passengers dropped from 1 carts and boats") && notes[0].contains(&format!("minecraft:stone at y {g}")), "{notes:?}");
         let mut text = notes.iter().map(|n| format!("{n}\n")).collect::<String>();
         text.push_str(&r.to_text());
         let back = Design::parse(&text).unwrap();
         assert!(back.blocks == r.blocks && back.entities == r.entities && back.block_entities == r.block_entities && back.meta.get("ground") == r.meta.get("ground"));
+    }
+
+    #[test]
+    fn only_the_passengers_list_is_stripped_and_its_passengers_counted() {
+        // (G1 09:47 N: the top-level list only, nested lists and quoted brackets aside)
+        assert_eq!(strip_passengers("{Passengers:[{id:\"minecraft:villager\"}]}"), Some(("{}".to_string(), 1)));
+        assert_eq!(
+            strip_passengers("{Rotation:[90.0f,0.0f],Passengers:[{id:\"a\",Passengers:[{id:\"b\"}]},{id:\"c\",CustomName:'\"[x]\"'}],Invulnerable:1b}"),
+            Some(("{Rotation:[90.0f,0.0f],Invulnerable:1b}".to_string(), 2))
+        );
+        assert_eq!(strip_passengers("{Rotation:[90.0f,0.0f]}"), None);
     }
 
     #[test]

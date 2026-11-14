@@ -684,7 +684,8 @@ lowest y. It prints:
     entities, entities, ports, ground) and its places beside it, so `lightning-check` can run on all
     its rods; with `--lightning-ready` (refused without `--write-layout`), its three model layers,
     declared in the file's head, make it load in mctas and give every strike column a top: portal
-    cells as air, cart and boat passengers dropped, and the lightning print's ground plane;
+    cells as air, the carts' and boats' Passengers lists dropped (their other tags kept, the passengers
+    counted), and the lightning print's ground plane;
 - the loader's portal cells and frames in the farm frame;
 - loader-long's command line.
 
@@ -694,23 +695,26 @@ redsim: every crossing by portal, a golem in each pad (the runner's, at the firs
 `--golem-at`), the items kept, the gaps against the 300-gt ticket across a world open
 (`liveness::restart` at `--world-open-at`, default half the run; the row says how it differs from the
 reference timing row). Every bar FAILS by name: arrivals at the loader's own portal with the worst gap
-within 300 gt, launches on both sides, the items kept (less the items read back lost to the settle's
-refused spits), golems placed (none placed fails) and crossing to their twins, the world open inside
-the run, no crossing's copy missing, and no world error other than the two redsim model limits NOTES
-names for loader-clock-x8 (the light model's extended sticky piston and piston head; a spit refused
-while `Run::start` settles the Nether part). A failed bar exits 1; a run whose bars all pass with only
-those named limits met judges nothing and exits 2 NOT MODELED. Every bar has a failing control through
-the runner, `--redsim-control NAME`: `stall-overworld-clock` (the gap), `stop-nether-clock` (the
-launches), `steal-item` and `double-item` (the items), `divert-return` (arrivals elsewhere),
-`put-out-twin` (a golem at another portal), `drop-copy` (a missing copy), `unseed-drops` (another world
-error); each is read back and fires at the first tick at or after its time (a world open's idle ticks
-skip game times), and one that planted nothing or whose own bar didn't fail exits 4 REFUSED by name
-("control planted nothing": never a pass).
+within 300 gt, launches on both sides, the items kept (less one item per spit redsim refused at a
+loader dropper while `Run::start` settled the Nether part, each matched to the Nether side's shortfall
+read back right after the start; any other loss fails), golems placed (none placed fails) and crossing
+to their twins, the world open inside the run, no crossing's copy missing, and no world error other
+than the two redsim model limits NOTES names for loader-clock-x8 (the light model's extended sticky
+piston and piston head; a spit refused while `Run::start` settles the Nether part). A failed bar exits
+1; a run whose bars all pass with only those named limits met judges nothing and exits 2 NOT MODELED.
+Every bar has a failing control through the runner, `--redsim-control NAME`: `stall-overworld-clock`
+(the gap), `stop-nether-clock` (the launches), `steal-item` and `double-item` (the items),
+`divert-return` (returns arriving in the planted portal), `put-out-twin` (a golem at another portal),
+`drop-copy` (a missing copy), `unseed-drops` (another world error); each is read back and fires at the
+first tick at or after its time (a world open's idle ticks skip game times; what follows a world open
+in its tick is logged at the game time it lands at), and one that can't plant, planted nothing or whose
+own bar didn't fail exits 4 REFUSED by name ("control planted nothing": never a pass).
 Every refusal before a run exits 4 REFUSED by name: `--seeds` (every seed parsed before the first
 run), `--golem-at`, `--world-open-at`, `--redsim-control` or `--lightning-ready` without what they
 need, `--golem-at` / `--world-open-at` outside the run, `--redsim` with a plant, a bad offset,
-positions file, design, plant or margin, a plant that moves nothing, and an input off the cited
-commit.
+positions file, design, plant or margin, a plant that moves nothing, an input off the cited commit,
+and a redsim run that can't start (no item in the loader's droppers, a clock's O2 that doesn't read
+back, two observer pairs on one side, a part or portal missing).
 It is an evidence subcommand (`provenance::is_evidence`): the shared provenance check runs first, and
 every design file it reads (`--module`, `--loader`, `--positions`) must lie in the worktree and be the
 cited commit's blob at its path (`--cite`, HEAD by default), else the run refuses (exit 4 REFUSED:

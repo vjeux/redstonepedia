@@ -2117,8 +2117,8 @@ pub enum MobfarmCmd {
         /// block entities and entities; no Nether part), for `lightning-check` on all its rods.
         #[arg(long)]
         write_layout: Option<PathBuf>,
-        /// With --write-layout: the lightning-ready variant (portal cells as air, cart and boat
-        /// passengers dropped, the ground plane over the strike area), each layer declared in the
+        /// With --write-layout: the lightning-ready variant (portal cells as air, the carts' and boats'
+        /// Passengers lists dropped, the ground plane over the strike area), each layer declared in the
         /// file's head (9fc3155f / G1 / ironspec Nov 14 05:46-05:52); refused without --write-layout.
         #[arg(long)]
         lightning_ready: bool,
@@ -8651,9 +8651,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         crate::loaderrun::Verdict::Pass => {}
                         crate::loaderrun::Verdict::Fail => ok = false,
                         crate::loaderrun::Verdict::NotModeled => not_modeled += 1,
-                        // (G1 08:37 (1), ironspec 08:37a: a control that planted nothing, or whose own bar
-                        // didn't fail, is not a pass: REFUSED by name, its own code)
-                        crate::loaderrun::Verdict::Refused => refused(&format!("redsim seed {seed}: the control planted nothing (named above)")),
+                        // (G1 08:37 (1), ironspec 08:37a: a refused run, a control that planted nothing or whose
+                        // own bar didn't fail, or a run that couldn't start, is not a pass: REFUSED by name)
+                        crate::loaderrun::Verdict::Refused => refused(&format!("redsim seed {seed}: the run was refused (its REFUSED line above names why)")),
                     }
                 }
             }
