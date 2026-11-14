@@ -100,6 +100,11 @@ pub fn emulated_entries(text: &str) -> Result<(Vec<Emulated>, usize), String> {
             let bad = || format!("emulated entry {e:?}: CELLS=STATE (why)");
             let (cs, rest) = e.split_once('=').ok_or_else(bad)?;
             let state = rest.split(" (").next().unwrap_or("").trim();
+            // (ironspec Nov 14 12:47p (1) / 12:50p (1)) the OLD form, `x,y,z=STATE support=… (why)` (a tag outside the
+            // parentheses), refused by name: the state alone stands before " ("
+            if let Some((st, extra)) = state.split_once(char::is_whitespace) {
+                return Err(format!("emulated entry {e:?}: the state {st:?} is followed by {:?} outside the parentheses (the old form: the ruled form is `x,y,z=STATE (support=X,Y,Z; drive=ROLE; why)`)", extra.trim()));
+            }
             if state.is_empty() || cs.trim().is_empty() || cs.chars().any(|c| !(c.is_ascii_digit() || c == ',' || c == '-' || c == '+' || c == ' ')) {
                 return Err(bad());
             }
@@ -264,6 +269,7 @@ mod tests {
             ("emulated: 1,0,0=glass (support=1,1; r)\n", "`support=1,1` is no x,y,z"),
             ("emulated: 1,0,0+2,0,0=glass (drive=hold:-1; r)\n", "1 `drive=` role(s) for 2 cell(s)"),
             ("emulated: 1,0,0=glass (drive=a,,b; r)\n", "an empty `drive=` role"),
+            ("emulated: 7,-2,8=lever[face=floor,facing=north,powered=true] support=7,-3,8 (the old form)\n", "is followed by \"support=7,-3,8\" outside the parentheses (the old form"),
         ] {
             let r = emulated_entries(bad);
             assert!(r.as_ref().is_err_and(|e| e.contains(why)), "{bad:?} refused for {why:?}: {r:?}");
