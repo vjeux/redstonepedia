@@ -28,3 +28,9 @@ part: designs/farms/iron/carousel-assembly/wip/vcompose/parts/f1q2-lift-split-pa
 part: designs/farms/iron/carousel-assembly/wip/vcompose/parts/f1q2-lift-split-path-a.77b7a74af.txt in designs/farms/iron/carousel-assembly/wip/vcompose/f1q2-module-v.txt md5 ea985422495c at 0,7,0 only 5,-29,3..7,-27,5 (main's V rev 2.1: NAPFOOT, the same file's napper-lift foot, only its cells 5,-29,3..7,-27,5 placed: the stop's raise)
 # the LIVE station (wip/station/f1q2-station.txt) is composed by no record of record today (vcompose 11:07): E''s standalone
 # judgment applies until rev 3.1's `part:` line arrives from vcompose
+
+# supersede: PATH x,y,z[+x,y,z...] by OWNER (why)   cells of a frozen copy another part re-lays in the composition (the
+#                       composer's `--supersede` line); a part judged in context skips them (they are the other part's)
+# the frozen (b+) leg copy's two cells, re-laid in V by the controller part CTL (owner day-1, later b8949c96's way-in
+# car): H2 (9,24,7) as a braked powered_rail[ascending_south], the detector (9,23,6) as detector_rail[ascending_south]
+supersede: designs/farms/iron/carousel-assembly/wip/vcompose/parts/f1q2-module-wayin-bplus.ec561e48d.txt 9,24,7+9,23,6 by CTL (ironspec 11:51a (2): the controller part re-lays H2 and the arrival detector via the composer's --supersede line)

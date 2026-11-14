@@ -15864,6 +15864,12 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
                 let rtext = String::from_utf8_lossy(&rbytes).to_string();
                 let diffs = crate::settle::part_in_context(&text, &rtext, rule.offset, rule.only, day_time, cap).map_err(|e| anyhow::anyhow!("{}: in its composed context: {e}", file.display()))?;
+                // (ironspec 11:51a (2), part 76) the part's superseded cells (another part re-lays them) are skipped
+                let sup: Vec<[i32; 3]> = scope.supersedes.iter().filter(|(p, ..)| is(&file, p)).flat_map(|(_, cs, owner, line)| {
+                    println!("  superseded by {owner} (scope line {line}): {}", cs.iter().map(|c| format!("{},{},{}", c[0], c[1], c[2])).collect::<Vec<_>>().join(" "));
+                    cs.clone()
+                }).collect();
+                let diffs: Vec<_> = diffs.into_iter().filter(|(q, _, _)| !sup.contains(&[q.x, q.y, q.z])).collect();
                 println!(
                     "settle-check {} in its composed context ({}{} at {},{},{}{}, scope line {}): {}",
                     file.display(),

@@ -985,6 +985,10 @@ pub fn exempt_cells(s: &mut Settle, cells: &[BlockPos]) -> usize {
 pub struct Scope {
     pub fixtures: Vec<(String, usize)>,
     pub parts: Vec<PartRule>,
+    /// (ironspec Nov 14 11:51a (2), part 76) `supersede: PATH x,y,z[+x,y,z...] by OWNER (why)`: cells of a frozen copy
+    /// another part re-lays in the composition (the composer's `--supersede` line): (path, cells, owner, line). A part
+    /// judged in its composed context skips its superseded cells (they are the other part's).
+    pub supersedes: Vec<(String, Vec<[i32; 3]>, String, usize)>,
 }
 
 /// One `part:` line of [`Scope`]: `part: PART in RECORD [md5 HEX] at dx,dy,dz [only x,y,z..x,y,z] [standalone] (why)`
@@ -1022,6 +1026,22 @@ pub fn read_scope(text: &str) -> Result<Scope, String> {
                 return Err(format!("settle scope line {}: {raw:?}: `fixture: PATH (why)`, one file per line", i + 1));
             }
             s.fixtures.push((p, i + 1));
+        } else if let Some(r) = l.strip_prefix("supersede:") {
+            let (p, why) = body(r)?;
+            let w: Vec<&str> = p.split_whitespace().collect();
+            let bad = || format!("settle scope line {}: {raw:?}: `supersede: PATH x,y,z[+x,y,z...] by OWNER (why)`", i + 1);
+            if w.len() != 4 || w[2] != "by" || why.is_empty() {
+                return Err(bad());
+            }
+            let cells = w[1]
+                .split('+')
+                .map(|c| {
+                    let v: Vec<i32> = c.split(',').map(|n| n.trim().parse::<i32>()).collect::<Result<_, _>>().ok()?;
+                    (v.len() == 3).then(|| [v[0], v[1], v[2]])
+                })
+                .collect::<Option<Vec<_>>>()
+                .ok_or_else(bad)?;
+            s.supersedes.push((w[0].to_string(), cells, w[3].to_string(), i + 1));
         } else if let Some(r) = l.strip_prefix("part:") {
             let (p, _why) = body(r)?;
             let w: Vec<&str> = p.split_whitespace().collect();
@@ -1065,7 +1085,7 @@ pub fn read_scope(text: &str) -> Result<Scope, String> {
             }
             s.parts.push(PartRule { part, record, md5, offset, only, standalone, line: i + 1 });
         } else {
-            return Err(format!("settle scope line {}: {raw:?}: `fixture:` or `part:`", i + 1));
+            return Err(format!("settle scope line {}: {raw:?}: `fixture:`, `part:` or `supersede:`", i + 1));
         }
     }
     Ok(s)
@@ -1376,7 +1396,13 @@ mod tests {
         assert!(whole.len() == 1 && whole[0].0 == BlockPos::new(2, 0, 0), "the whole part: its far lamp, unlit by the lever, changes: {whole:?}");
         let own = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../designs/settle-scope.txt")).unwrap();
         let own = read_scope(&own).unwrap();
-        assert!(own.fixtures.len() >= 8 && own.parts.len() >= 2, "the repository's scope file reads: {} fixtures, {} parts", own.fixtures.len(), own.parts.len());
+        assert!(own.fixtures.len() >= 8 && own.parts.len() >= 2 && !own.supersedes.is_empty(), "the repository's scope file reads: {} fixtures, {} parts, {} supersedes", own.fixtures.len(), own.parts.len(), own.supersedes.len());
+        // (ironspec 11:51a (2), part 76) `supersede:` lines: a frozen copy's cells another part re-lays
+        let sup = read_scope("supersede: designs/b.txt 9,24,7+9,23,6 by CTL (the controller re-lays them)\n").unwrap();
+        assert_eq!(sup.supersedes, vec![("designs/b.txt".to_string(), vec![[9, 24, 7], [9, 23, 6]], "CTL".to_string(), 1)]);
+        for bad in ["supersede: designs/b.txt 9,24,7 (no owner)\n", "supersede: designs/b.txt 9,24 by CTL (a bad cell)\n", "supersede: designs/b.txt 9,24,7 by CTL\n"] {
+            assert!(read_scope(bad).is_err(), "{bad:?} refused");
+        }
     }
 
     /// The floor under a layout: stone at y = -1 over x 0..n, z -1..1.
