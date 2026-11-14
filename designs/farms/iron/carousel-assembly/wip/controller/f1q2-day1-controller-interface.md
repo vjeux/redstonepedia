@@ -16,7 +16,8 @@ station generator and F′'s benches read them from here, and F′'s test links 
   7; the station header's 0 / 14 / 24 is stale); controller timing, stated once here.
 - DM1_BLOCK7 = 35 gt: the one-credit-per-batch guard (opened by every credit), centred in the measured 5..65 gt.
 - SEEN3_OLD's tap = REL + 80 gt, PROVISIONAL (the window 78..82 on train 15's offsets; train 16 re-sweeps it).
-- K windows: the early half 5 gt, the late half 10 gt, riding each napper's release.
+- K windows: K_EARLY = 5 gt (the early half), K_HALF = 10 gt (the late half), riding each napper's release (with R6 =
+  14, ironspec 11:24a).
 - The claim cap is in the design (a credit with no open claim is refused).
 - The token's recovery delay N = 30 gt (ironspec 09:00a (1): one N, read by both benches): counted from the arrival
   detector going UNPOWERED (after its 20-gt recheck hold); N >= a departing napper's clear time (its box out of the
@@ -28,12 +29,14 @@ station generator and F′'s benches read them from here, and F′'s test links 
   redsim runs); in hardware a repeater chain from the latch into the trigger's AND. The second hold's cycle (a napper's
   pass -> the hold open again) = the SET 2 + D + P1 -> its exit 3 + the exit detector's 20-gt recheck = 41 gt.
 - The napper's row hold (9,0,8) releases at REL + 67 gt (judged at the hold rail).
-- R6 = 15 (bought, ironspec 09:00a (3)): each lane's napper leaves its R hold (x-2,24,7) (lane x) at delay(x) = REL' +
-  165 + 5 - travel(x), REL' the release cycle that TAKES the napper (it reaches its R brake after its own batch's R
-  release, so the next cycle's); cc767b78's D-keyed form (R = D_l + 34) names the same event; travel(x) = R(x) -> J(x)
-  from ironfarm's trace (owed; read by a test from the `# travel:` lines once printed); the station row's (9,0,8) hold
-  stays at REL + 67. (The logic bench still runs R6 = 10 until the shift's re-derivation lands; R6's physical bar is
-  pinned failing by name meanwhile.)
+- R6 = 14 gt (ADOPTED ironspec 11:24a, the >= 2-gt form; R6 = 15 withdrawn 10:52a; 12 / 8 superseded), with K's late half
+  10: each lane's napper
+  leaves its R hold (x-2,24,7) (lane x) at delay(x) = REL' + 165 + 4 - travel(x), REL' the release cycle that TAKES the
+  napper (it reaches its R brake after its own batch's R release, so the next cycle's); cc767b78's D-keyed form (R = D_l
+  + 34) names the same event; travel(x) = R(x) -> J(x) from ironfarm's trace (owed; read by a test from the `# travel:`
+  lines once printed); the station row's (9,0,8) hold stays at REL + 67. Its physical constraints (K's switch after slot
+  3's box clear + 1; the napper's own D inside its window; a batch D outside the windows by >= 1) are judged over the
+  swept train-16 runs in ctl-credit (world opens applied in each run); ironfarm's clean() reads R6 and K_HALF here.
 
 ## Readers (detector -> reader)
 
