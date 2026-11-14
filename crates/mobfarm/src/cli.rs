@@ -1375,6 +1375,12 @@ pub enum MobfarmCmd {
     /// (ironspec Nov 14 12:26p, part 80) The load-order census of a composed record: every block whose random tick can
     /// change its state (persistent leaves excepted) and every hopper, each with its cell and the part that lays it
     /// (from the record's `# +` lines)
+    /// (farmopt / G1 Nov 14 13:19, part 88) The portal FRAME check over every nether portal plane of each design:
+    /// obsidian under every bottom cell, above every top cell, in both side columns (26.3 `PortalShape`'s `FRAME`;
+    /// corners not needed), the interior a full rectangle 2..21 wide and 3..21 high; exit 1 on any failure
+    PortalFrames {
+        designs: Vec<PathBuf>,
+    },
     Census {
         design: PathBuf,
     },
@@ -15822,6 +15828,27 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             // (G1 12:19 (1): a mismatch, an uncompared row, a failed expect or a vacuous counterfactual exits non-zero)
             anyhow::ensure!(r.failures.is_empty(), "drive-replay: {} failure(s), the first: {}", r.failures.len(), r.failures[0]);
+        }
+        MobfarmCmd::PortalFrames { designs } => {
+            let mut bad = 0usize;
+            for f in &designs {
+                let text = std::fs::read_to_string(f)?;
+                let d = mctas::design::Design::parse(&text).map_err(|e| anyhow::anyhow!("{}: {e}", f.display()))?;
+                let planes = crate::portalframe::portal_planes(&d.blocks);
+                println!("portal frames {}: {} plane(s), {} failing", f.display(), planes.len(), planes.iter().filter(|p| !p.failures.is_empty()).count());
+                for p in &planes {
+                    let span = format!("axis {} interior {},{},{}..{},{},{}", p.axis, p.lo[0], p.lo[1], p.lo[2], p.hi[0], p.hi[1], p.hi[2]);
+                    if p.failures.is_empty() {
+                        println!("  stands: {span}");
+                    } else {
+                        bad += 1;
+                        println!("  FAILS: {span}: {}", p.failures.join("; "));
+                    }
+                }
+            }
+            if bad > 0 {
+                std::process::exit(1);
+            }
         }
         MobfarmCmd::Census { design } => {
             let text = std::fs::read_to_string(&design)?;
