@@ -15834,10 +15834,12 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             for f in &designs {
                 let text = std::fs::read_to_string(f)?;
                 let d = mctas::design::Design::parse(&text).map_err(|e| anyhow::anyhow!("{}: {e}", f.display()))?;
-                let planes = crate::portalframe::portal_planes(&d.blocks);
-                println!("portal frames {}: {} plane(s), {} failing", f.display(), planes.len(), planes.iter().filter(|p| !p.failures.is_empty()).count());
-                for p in &planes {
-                    let span = format!("axis {} interior {},{},{}..{},{},{}", p.axis, p.lo[0], p.lo[1], p.lo[2], p.hi[0], p.hi[1], p.hi[2]);
+                // (farmopt 13:25, part 89: the overworld's planes and the Nether part's, each in its own coordinates)
+                let mut planes: Vec<(&str, crate::portalframe::Plane)> = crate::portalframe::portal_planes(&d.blocks).into_iter().map(|p| ("overworld", p)).collect();
+                planes.extend(crate::portalframe::portal_planes(&d.nether_blocks).into_iter().map(|p| ("Nether", p)));
+                println!("portal frames {}: {} plane(s) ({} in the Nether part), {} failing", f.display(), planes.len(), planes.iter().filter(|(w, _)| *w == "Nether").count(), planes.iter().filter(|(_, p)| !p.failures.is_empty()).count());
+                for (world, p) in &planes {
+                    let span = format!("{world} axis {} interior {},{},{}..{},{},{}", p.axis, p.lo[0], p.lo[1], p.lo[2], p.hi[0], p.hi[1], p.hi[2]);
                     if p.failures.is_empty() {
                         println!("  stands: {span}");
                     } else {
