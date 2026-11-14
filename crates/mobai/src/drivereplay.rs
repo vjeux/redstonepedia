@@ -40,6 +40,28 @@ struct Act {
     expect: Option<String>,
 }
 
+/// (G1 17:00, checklist 4) The run's day start: the drive's own `# day0` (exactly one line), or
+/// `--day-start`; both given and disagreeing, or neither given, is refused (a silent default moved every
+/// rider's REST boundary once: 11200 against the recording's 10778).
+pub(crate) fn resolve_day_start(text: &str, flag: Option<i64>) -> Result<i64> {
+    let mut day0 = None;
+    for (i, l) in text.lines().enumerate() {
+        if let Some(v) = l.trim().strip_prefix("# day0 ") {
+            anyhow::ensure!(day0.is_none(), "line {}: a second `# day0` line", i + 1);
+            day0 = Some(v.trim().parse::<i64>().map_err(|e| anyhow::anyhow!("line {}: unparsable `# day0` ({e}): {l}", i + 1))?);
+        }
+    }
+    match (day0, flag) {
+        (Some(d), Some(f)) => {
+            anyhow::ensure!(d == f, "--day-start {f} disagrees with the drive's `# day0 {d}`");
+            Ok(d)
+        }
+        (Some(d), None) => Ok(d),
+        (None, Some(f)) => Ok(f),
+        (None, None) => anyhow::bail!("the drive has no `# day0` line and no --day-start was given: the day start is never assumed"),
+    }
+}
+
 /// The drive file: its t0 and its acts, sorted by t (stable: file order within a tick).
 fn parse_drive(path: &Path) -> Result<(u32, Vec<Act>)> {
     let text = std::fs::read_to_string(path)?;
@@ -633,6 +655,15 @@ struct V {
     rest_complete: u32,
     rest_entries: Vec<String>,
     stamps_armed: Vec<String>,
+    /// (ironspec 16:24) the latest WALK_TARGET set (tick, call site), kept after its erase
+    wt_last: Option<String>,
+    /// (ironspec 16:45 (2)) the open PANIC period (start tick, stamp age then, place) and its attempts:
+    /// complete, partial, null-or-reached; (G1 16:47) the hostile sensor's scan phase (tick mod 20)
+    panic_open: Option<(u32, Option<i64>, String)>,
+    att: [u32; 3],
+    phase: Option<u32>,
+    /// (G1 17:04) the tick it was first seen below the farm's lowest floor
+    below: Option<u32>,
     /// (ironspec 16:11) each clear of the CANT_REACH stamp: tick, the clearing call site, the activity, its age
     stamp_clears: Vec<String>,
     home_lost: Vec<String>,
@@ -641,7 +672,8 @@ struct V {
     least_occupied: Option<(f64, u32)>,
 }
 
-pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_start: i64, bed: [i32; 3], loads: &[u32]) -> Result<()> {
+pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_start: Option<i64>, bed: [i32; 3], loads: &[u32]) -> Result<()> {
+    let day_start = resolve_day_start(&std::fs::read_to_string(drive)?, day_start)?;
     let (t0, acts) = parse_drive(drive)?;
     println!(
         "== drive-replay on the official {version} server: the scene {} (+{DY} y), the drive {} ({} acts, t0 {t0}) OPEN LOOP, the day time {day_start} at t 0, {ticks} gt (past the drive's last act the controller is idle), weather clear; the bed head ({},{},{}); world opens (save, stop, start) before t {loads:?}",
@@ -689,6 +721,8 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
         ..Default::default()
     };
     let mut srv = VanillaServer::start(&opts(None))?;
+    // (G1 17:04) the scene's lowest block (frame y): a villager two below it has left the farm
+    let d_lowest = mctas::design::Design::load(scene)?.bounds().map(|(lo, _)| lo[1]).unwrap_or(-64);
     // (G1 12:10: the far position) the forceload area follows the scene's own bounds (a shifted scene,
     // e.g. x / z + 16,384, is loaded where it is)
     let forceload = match mctas::design::Design::load(scene)?.bounds() {
@@ -1144,6 +1178,9 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
         println!("  names: scene index -> the drive's eN: {}", names.iter().map(|(a, b)| format!("{a}->{b}")).collect::<Vec<_>>().join(" "));
     }
     let mut stamp_rows: Option<Vec<String>> = std::env::var("MCTAS_REPLAY_STAMP_FILE").ok().map(|_| Vec::new());
+    // (ironspec 16:45 (2)) MCTAS_REPLAY_EVENTS_FILE=<path>: every hostile set / clear, every stamp clear with
+    // its place and lane, every PANIC period's attempts, each villager's sensor phase
+    let mut night_log: Option<Vec<String>> = std::env::var("MCTAS_REPLAY_EVENTS_FILE").ok().map(|_| Vec::new());
     for t in 0..=ticks {
         // (ironspec 07:05 / 08:02: the lift-top fault rows) MCTAS_REPLAY_SWAP="x,y,z;STATE;t0;t1": the cell
         // set to STATE before tick t0 and its own state restored before t1 (each write must change it);
@@ -1363,6 +1400,11 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
                 println!("  t0 assert ({},{},{}) {pred}: {}", c[0], c[1], c[2], if ok { "HELD" } else { "FAILED" });
                 anyhow::ensure!(ok, "t0: ({},{},{}) is not {pred}", c[0], c[1], c[2]);
             }
+            // (G1 17:00) the server's own day time at t0 against the run's day start
+            let dt = srv.cmd_long("time query daytime")?;
+            let got: Option<i64> = dt.split_whitespace().filter_map(|w| w.trim_end_matches(|c: char| !c.is_ascii_digit()).parse().ok()).last();
+            anyhow::ensure!(got == Some(day_start.rem_euclid(24000)), "t0: the server's day time ({}) is not the run's day start {day_start}", dt.trim());
+            println!("  t0: the server's day time {} = the day start {day_start} (from {})", got.unwrap_or(-1), if std::fs::read_to_string(drive)?.lines().any(|l| l.trim().starts_with("# day0 ")) { "the drive's `# day0`" } else { "--day-start" });
             println!(
                 "  t0: the run's start day {day_start} (scene {} md5 {}, drive {} md5 {}{}); HOME written and read back for {home_set_t0} villager(s), LAST_SLEPT for {slept_set_t0}, of {}; tickets taken during the setup: {taken} (start state (i): the ticket free){}",
                 scene.display(),
@@ -1494,11 +1536,53 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
                     v.spell = Some(Spell { start: t, at: fmt_pos(at), hostile: v.hostile, wt_at_entry: v.wt.clone(), ..Default::default() });
                 }
                 events.push(format!("t{t}: {tag} activity {act}"));
+                // (ironspec 16:45 (2)) a PANIC period opens and closes with the activity: its attempts by
+                // outcome, the stamp at both ends, the rider's place at both ends (MCTAS_REPLAY_EVENTS_FILE)
+                if night_log.is_some() {
+                    if act == "panic" && vs[vi].activity != "panic" {
+                        let at = pos_of(&mut srv, &format!("@e[tag={tag},limit=1]"))?;
+                        let v = &mut vs[vi];
+                        // (G1 16:53) the period's trigger: the NEAREST_HOSTILE the sensor holds (its entity, place and
+                        // distance from the rider; the sensor sets it only when it judged it visible and close), or
+                        // the latest damage taken (HURT_BY)
+                        let trig = if v.hostile {
+                            let num = |k: &str| v.hostile_what.split(&format!("{k}=")).nth(1).and_then(|s| s.split([',', ']']).next()).and_then(|s| s.trim().parse::<f64>().ok());
+                            let d = match (at, num("x"), num("y"), num("z")) {
+                                (Some(p), Some(x), Some(y), Some(z)) => format!("{:.2}", ((p[0] - x).powi(2) + (p[1] + DY as f64 - y).powi(2) + (p[2] - z).powi(2)).sqrt()),
+                                _ => "?".into(),
+                            };
+                            format!("NEAREST_HOSTILE {} (distance {d})", v.hostile_what)
+                        } else {
+                            format!("no NEAREST_HOSTILE held; latest damage {}", v.last_hurt.as_deref().unwrap_or("none"))
+                        };
+                        v.panic_open = Some((t, v.stamp.map(|s| now - s), format!("{} (scan phase {}; trigger {trig})", fmt_pos(at), v.phase.map(|p| p.to_string()).unwrap_or_else(|| "?".into()))));
+                        v.att = [0; 3];
+                    } else if act != "panic" && vs[vi].activity == "panic" {
+                        let at = pos_of(&mut srv, &format!("@e[tag={tag},limit=1]"))?;
+                        let v = &mut vs[vi];
+                        if let Some((t0p, age0, at0)) = v.panic_open.take() {
+                            let line = format!(
+                                "t{t0p}..t{t} {tag} PANIC period ({} gt) from {at0} to {}: attempts complete {}, partial {}, null-or-reached {}; stamp age at start {}, at end {}",
+                                t - t0p,
+                                fmt_pos(at),
+                                v.att[0],
+                                v.att[1],
+                                v.att[2],
+                                age0.map(|a| a.to_string()).unwrap_or_else(|| "none".into()),
+                                v.stamp.map(|s| (now - s).to_string()).unwrap_or_else(|| "none".into())
+                            );
+                            if let Some(log) = night_log.as_mut() {
+                                log.push(line);
+                            }
+                        }
+                    }
+                }
                 vs[vi].activity = act;
             } else if l.starts_with("set minecraft:walk_target") {
                 let by = body.split(" by ").nth(1).unwrap_or("?").to_string();
                 let v = &mut vs[vi];
                 v.wt = Some(by.clone());
+                v.wt_last = Some(format!("t{t} {by}"));
                 if by.starts_with("SetWalkTargetFromBlockMemory") {
                     // (ironspec 09:42 (R2)) EVERY run of SetWalkTargetFromBlockMemory is judged on the
                     // age it saw, not only a spell's first (a later run after a stale sink stops)
@@ -1516,6 +1600,10 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
                 let v = &mut vs[vi];
                 v.wt = None;
                 v.home_path = None;
+                // (ironspec 16:45 (2)) the sink's start test erasing the target is a null path or a reach
+                if v.activity == "panic" && by.starts_with("MoveToTargetSink.checkExtraStartConditions") {
+                    v.att[2] += 1;
+                }
                 if by.starts_with("MoveToTargetSink.stop")
                     && let Some(sp) = v.spell.as_mut()
                     && sp.sink_stop.is_none()
@@ -1523,12 +1611,37 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
                     sp.sink_stop = Some(t);
                 }
             } else if l.starts_with("set minecraft:nearest_hostile") {
+                // (G1 16:47) the hostile sensor's scan phase (its set / erase lines come from its doTick)
+                if vs[vi].phase.is_none() {
+                    vs[vi].phase = Some(t % 20);
+                }
+                if night_log.is_some() && !vs[vi].hostile {
+                    let at = pos_of(&mut srv, &format!("@e[tag={tag},limit=1]"))?;
+                    let what = body.split(" = ").nth(1).unwrap_or(&body).split(" by ").next().unwrap_or("").to_string();
+                    if let Some(log) = night_log.as_mut() {
+                        log.push(format!("t{t} {tag} HOSTILE set ({what}) at {} in {} (scan phase {})", fmt_pos(at), vs[vi].activity, t % 20));
+                    }
+                }
                 vs[vi].hostile = true;
                 vs[vi].hostile_what = body.split(" = ").nth(1).unwrap_or(&body).split(" by ").next().unwrap_or("").to_string();
             } else if l.starts_with("erase minecraft:nearest_hostile") {
+                if vs[vi].phase.is_none() {
+                    vs[vi].phase = Some(t % 20);
+                }
+                if night_log.is_some() && vs[vi].hostile {
+                    let at = pos_of(&mut srv, &format!("@e[tag={tag},limit=1]"))?;
+                    if let Some(log) = night_log.as_mut() {
+                        log.push(format!("t{t} {tag} HOSTILE clear at {} in {}", fmt_pos(at), vs[vi].activity));
+                    }
+                }
                 vs[vi].hostile = false;
                 vs[vi].hostile_what.clear();
             } else if l.starts_with("set minecraft:path = path to") {
+                // (ironspec 16:45 (2)) every computed path is one attempt: complete (it reaches) or partial
+                if vs[vi].activity == "panic" {
+                    let k = if l.contains("reach true") { 0 } else { 1 };
+                    vs[vi].att[k] += 1;
+                }
                 if l.contains(&home_target) {
                     let complete = l.contains("reach true");
                     let start = l.split(" start ").nth(1).and_then(|s| s.split(" end").next()).unwrap_or("?").to_string();
@@ -1566,9 +1679,21 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
                     // path, SleepInBed's lie-down) and the activity it ran in (rest: an own HOME path; panic: a
                     // flee path)
                     let by = body.split(" by ").nth(1).unwrap_or("?").to_string();
+                    let at = if night_log.is_some() { pos_of(&mut srv, &format!("@e[tag={tag},limit=1]"))? } else { None };
                     let v = &mut vs[vi];
                     let age = v.stamp.map(|s| (now - s).to_string()).unwrap_or_else(|| "?".into());
-                    v.stamp_clears.push(format!("t{t} by {by} in {} (age {age})", v.activity.trim_start_matches("minecraft:")));
+                    let line = format!(
+                        "t{t} by {by} in {} (age {age}; the walk target {}; its last set {})",
+                        v.activity.trim_start_matches("minecraft:"),
+                        if v.wt.is_some() { "present" } else { "absent" },
+                        v.wt_last.as_deref().unwrap_or("never")
+                    );
+                    if let Some(log) = night_log.as_mut() {
+                        // the lane from the rider's x in the record frame (lanes at x -1, 3, 7)
+                        let lane = at.map(|p| [-1, 3, 7].into_iter().min_by(|a, b| ((p[0] - *a as f64).abs()).total_cmp(&(p[0] - *b as f64).abs())).unwrap_or(0));
+                        log.push(format!("{tag} CLEAR {line} at {} (lane by x: {})", fmt_pos(at), lane.map(|l| l.to_string()).unwrap_or_else(|| "?".into())));
+                    }
+                    v.stamp_clears.push(line);
                     vs[vi].stamp = None;
                 }
             } else if l.starts_with("erase minecraft:home") {
@@ -1747,9 +1872,29 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
                 activity_rows.push(format!("day {day}: in REST {}", rest.join(" ")));
             }
         }
-        // (ironspec 16:11) MCTAS_REPLAY_STAMP_FILE=<path>: every villager's CANT_REACH stamp age after every tick
+        // (ironspec 16:11 / 16:28) MCTAS_REPLAY_STAMP_FILE=<path>: every villager's CANT_REACH stamp age after
+        // every tick with its activity's first letter (r rest, p panic, i idle, w work, m meet, ? unknown); every
+        // 20 gt also each villager's position (frame y), so its lap class can be read beside its stamp
         if let Some(rows) = stamp_rows.as_mut() {
-            rows.push(format!("t{t}: {}", vs.iter().map(|v| format!("{}={}", v.tag, v.stamp.map(|s| (now - s).to_string()).unwrap_or_else(|| "-".into()))).collect::<Vec<_>>().join(" ")));
+            let mut row = format!(
+                "t{t}: {}",
+                vs.iter()
+                    .map(|v| format!("{}={}{}", v.tag, v.stamp.map(|s| (now - s).to_string()).unwrap_or_else(|| "-".into()), v.activity.trim_start_matches("minecraft:").chars().next().unwrap_or('?')))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            );
+            if t % 20 == 0 {
+                let mut at = Vec::new();
+                for v in vs.iter() {
+                    if v.gone.is_none()
+                        && let Some(p) = pos_of(&mut srv, &format!("@e[tag={},limit=1]", v.tag))?
+                    {
+                        at.push(format!("{}@{:.2},{:.2},{:.2}", v.tag, p[0], p[1], p[2]));
+                    }
+                }
+                row.push_str(&format!(" | {}", at.join(" ")));
+            }
+            rows.push(row);
         }
         for v in vs.iter_mut() {
             if let Some(s) = v.stamp {
@@ -1829,6 +1974,25 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
             }
         }
         if t % 20 == 0 {
+            // (G1 17:04) a villager below the farm's lowest floor is a failure: its place and tick named
+            if night_log.is_some() {
+                let floor = d_lowest - 2;
+                for v in vs.iter_mut() {
+                    if v.gone.is_some() || v.below.is_some() {
+                        continue;
+                    }
+                    if let Some(p) = pos_of(&mut srv, &format!("@e[tag={},limit=1]", v.tag))?
+                        && (p[1] as i32) < floor
+                    {
+                        v.below = Some(t);
+                        let line = format!("t{t} {} BELOW THE FARM's LOWEST FLOOR (frame y {floor}) at {} (activity {}; its last walk target {})", v.tag, fmt_pos(Some(p)), v.activity, v.wt_last.as_deref().unwrap_or("never"));
+                        events.push(line.clone());
+                        if let Some(log) = night_log.as_mut() {
+                            log.push(line);
+                        }
+                    }
+                }
+            }
             // (a rider lost) every villager's presence and air supply; a disappearance with the
             // server log's death line
             for v in vs.iter_mut() {
@@ -1974,6 +2138,13 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
         std::fs::write(&path, rows.join("\n") + "\n")?;
         println!("  every villager's stamp age after every tick: {} rows -> {path}", rows.len());
     }
+    if let (Some(log), Ok(path)) = (night_log.as_mut(), std::env::var("MCTAS_REPLAY_EVENTS_FILE")) {
+        for v in &vs {
+            log.push(format!("{} sensor phase (the first hostile-sensor line's tick mod 20): {}", v.tag, v.phase.map(|p| p.to_string()).unwrap_or_else(|| "- (no sensor line)".into())));
+        }
+        std::fs::write(&path, log.join("\n") + "\n")?;
+        println!("  hostile sets / clears, stamp clears with places, PANIC periods' attempts, sensor phases: {} lines -> {path}", log.len());
+    }
     if let Some((a, b)) = probe_window {
         println!("  block probes t{a}..t{b} (each predicate after every tick; transitions):");
         for (k, (c, pred)) in probes.iter().enumerate() {
@@ -2084,7 +2255,10 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
         if at_entry_n == 0 { " (NOT JUDGED: 0 samples)".to_string() } else if at_entry_bad.is_empty() { " (HELD)".to_string() } else { format!(" (FAILED: {})", at_entry_bad.join("; ")) },
         first_div.map(|f| format!("; {at_entry_after} spell(s) from t{f} on NOT JUDGED (after the first divergence)")).unwrap_or_default()
     );
-    let gone: Vec<String> = vs.iter().filter_map(|v| v.gone.as_ref().map(|g| format!("{} {g}", v.tag))).collect();
+    let gone: Vec<String> = vs
+        .iter()
+        .filter_map(|v| v.gone.as_ref().map(|g| format!("{} {g}", v.tag)).or_else(|| v.below.map(|bt| format!("{} t{bt}: below the farm's lowest floor (G1 17:04: a failure)", v.tag))))
+        .collect();
     println!("  villagers lost: {} {:?}", gone.len(), gone);
     let drowning: Vec<String> = vs.iter().flat_map(|v| v.hurts.iter().filter(|h| h.contains("hurt drown")).map(move |h| format!("{} {h}", v.tag))).collect();
     println!(
@@ -2172,7 +2346,22 @@ pub fn drive_replay(version: &str, scene: &Path, drive: &Path, ticks: u32, day_s
 
 #[cfg(test)]
 mod tests {
-    use super::{shift_meta_value, shift_scene, tagged};
+    use super::{resolve_day_start, shift_meta_value, shift_scene, tagged};
+
+    /// (G1 17:00, the controls) the drive's `# day0` is the day start with no flag; a flag agreeing passes; a
+    /// flag disagreeing is refused; neither is refused; a second or unparsable `# day0` is refused
+    #[test]
+    fn day_start_from_the_drive_or_refused() {
+        let with = "# t0 200\n# day0 10778\nact 0 home e0.p0 -3 -27 3\n";
+        let without = "# t0 200\nact 0 home e0.p0 -3 -27 3\n";
+        assert_eq!(resolve_day_start(with, None).unwrap(), 10778);
+        assert_eq!(resolve_day_start(with, Some(10778)).unwrap(), 10778);
+        assert!(resolve_day_start(with, Some(11200)).unwrap_err().to_string().contains("disagrees"));
+        assert!(resolve_day_start(without, None).unwrap_err().to_string().contains("never assumed"));
+        assert_eq!(resolve_day_start(without, Some(11200)).unwrap(), 11200);
+        assert!(resolve_day_start("# day0 1\n# day0 2\n", None).unwrap_err().to_string().contains("second"));
+        assert!(resolve_day_start("# day0 dusk\n", None).unwrap_err().to_string().contains("unparsable"));
+    }
 
     #[test]
     fn tags_vehicle_and_passengers() {

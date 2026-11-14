@@ -613,9 +613,10 @@ pub enum MobaiCmd {
         drive: std::path::PathBuf,
         #[arg(long, default_value_t = 14200)]
         ticks: u32,
-        /// The day time at the drive's t = 0
-        #[arg(long, default_value_t = 11200)]
-        day_start: i64,
+        /// The day time at the drive's t = 0: the drive's own `# day0`, or this; both disagreeing or neither
+        /// given is refused (G1 17:00: no silent default)
+        #[arg(long)]
+        day_start: Option<i64>,
         /// The bed head, x,y,z (frame)
         #[arg(long, default_value = "-3,-27,3", allow_hyphen_values = true)]
         bed: String,
@@ -1523,10 +1524,29 @@ pub enum MobaiCmd {
         version: String,
         /// the world-frame design: overworld cells at their world coordinates, its Nether part at the Nether's
         #[arg(long)]
-        world: std::path::PathBuf,
+        world: Option<std::path::PathBuf>,
         /// a second world-frame file whose cells are the Nether's (when the Nether part is a file of its own)
         #[arg(long)]
         nether: Option<std::path::PathBuf>,
+        /// (onechunk 16:18, instead of --world) the farm module laid at each --module-offsets
+        #[arg(long)]
+        module: Option<std::path::PathBuf>,
+        /// the module copies' offsets, "x,y,z;x,y,z" (world = cell + offset; its entities' HOME too)
+        #[arg(long, allow_hyphen_values = true, default_value = "")]
+        module_offsets: String,
+        /// the module's Nether part's y base (its cells at the Nether image of its anchor, y less this)
+        #[arg(long, default_value_t = 64)]
+        module_nether_ybase: i32,
+        /// (onechunk 16:42) the module copies' overworld pad portal blocks left out (freeze_rows' `no_pads`)
+        #[arg(long)]
+        module_no_pads: bool,
+        /// (onechunk 16:18) the loader, laid at --loader-offset
+        #[arg(long)]
+        loader: Option<std::path::PathBuf>,
+        #[arg(long, allow_hyphen_values = true, default_value = "6,80,-10")]
+        loader_offset: String,
+        #[arg(long, default_value_t = 0)]
+        loader_nether_ybase: i32,
         /// the overworld route chunks the bar holds, "cx,cz;cx,cz"
         #[arg(long, allow_hyphen_values = true)]
         chunks: String,
@@ -2556,7 +2576,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         MobaiCmd::JunctionProbe { version, mirror } => crate::junction::junction_probe(&version, mirror),
         MobaiCmd::DayJump { version, at, until } => crate::dayjump::day_jump(&version, at, until),
         MobaiCmd::HaltBridge { version, rows, ticks } => crate::haltbridge::halt_bridge(&version, &rows, ticks),
-        MobaiCmd::LoaderLong { version, world, nether, chunks, nchunks, portal, nportal, ticks, restart_at, farm_afk, nether_afk, watch } => {
+        MobaiCmd::LoaderLong { version, world, nether, module, module_offsets, module_nether_ybase, module_no_pads, loader, loader_offset, loader_nether_ybase, chunks, nchunks, portal, nportal, ticks, restart_at, farm_afk, nether_afk, watch } => {
             let pairs = |s: &str| -> anyhow::Result<Vec<(i32, i32)>> {
                 s.split(';')
                     .filter(|p| !p.trim().is_empty())
@@ -2572,10 +2592,29 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
                 anyhow::ensure!(v.len() == 3, "x,y,z, got {s}");
                 Ok([v[0], v[1], v[2]])
             };
+            let i3 = |s: &str| -> anyhow::Result<[i32; 3]> {
+                let v: Vec<i32> = s.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(v.len() == 3, "x,y,z, got {s}");
+                Ok([v[0], v[1], v[2]])
+            };
             let w: Vec<i32> = watch.split(',').map(|n| n.trim().parse()).collect::<Result<_, _>>()?;
             anyhow::ensure!(w.len() == 4, "--watch x0,z0,x1,z1");
             let one = |s: &str| -> anyhow::Result<(i32, i32)> { pairs(s)?.first().copied().ok_or_else(|| anyhow::anyhow!("cx,cz, got {s}")) };
-            crate::freeze::loader_long(&version, &world, nether.as_deref(), &pairs(&chunks)?, &pairs(&nchunks)?, one(&portal)?, one(&nportal)?, ticks, restart_at, f3(&farm_afk)?, f3(&nether_afk)?, [w[0], w[1], w[2], w[3]])
+            let parts = match (world, module, loader) {
+                (Some(w), None, None) => vec![crate::freeze::world_part(&w, nether.as_deref())?],
+                (None, Some(m), Some(l)) => {
+                    anyhow::ensure!(nether.is_none(), "--nether goes with --world");
+                    let mut v = Vec::new();
+                    for o in module_offsets.split(';').filter(|s| !s.trim().is_empty()) {
+                        v.push(crate::freeze::recipe_part(&m, i3(o)?, module_nether_ybase, module_no_pads)?);
+                    }
+                    anyhow::ensure!(!v.is_empty(), "--module-offsets names no copy");
+                    v.push(crate::freeze::recipe_part(&l, i3(&loader_offset)?, loader_nether_ybase, false)?);
+                    v
+                }
+                _ => anyhow::bail!("give either --world (world-frame files) or --module with --module-offsets and --loader"),
+            };
+            crate::freeze::loader_long(&version, &parts, &pairs(&chunks)?, &pairs(&nchunks)?, one(&portal)?, one(&nportal)?, ticks, restart_at, f3(&farm_afk)?, f3(&nether_afk)?, [w[0], w[1], w[2], w[3]])
         }
         MobaiCmd::FreezeRows { version, loader, module, modules, place, ticks, group, mirrored, pocket } => crate::freeze::freeze_rows(&version, &loader, &module, modules, &place, ticks, group.as_deref(), mirrored.as_deref(), pocket),
         MobaiCmd::QueueFill { version, module, ridden } => crate::seatclear::queue_fill(&version, &module, ridden),

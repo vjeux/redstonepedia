@@ -187,7 +187,11 @@ fn portal_ticks_left(log: &str) -> Vec<(i64, i64)> {
 
 /// `dim`'s PORTAL ticket on chunk `c` at each printed line: (game time, ticks left).
 fn portal_ticks_left_at(log: &str, dim: &str, c: (i32, i32)) -> Vec<(i64, i64)> {
-    let key = format!("{},{} ", c.0, c.1);
+    portal_left_by_line(log, dim).into_iter().filter_map(|(gt, m)| m.get(&c).map(|l| (gt, *l))).collect()
+}
+
+/// (ironspec 16:48 (1)) every printed ticket line of `dim`: its game time and each chunk's PORTAL ticks left.
+fn portal_left_by_line(log: &str, dim: &str) -> Vec<(i64, BTreeMap<(i32, i32), i64>)> {
     let mut out = Vec::new();
     for l in log.lines() {
         let Some(rest) = l.split("mctas-tickets ").nth(1) else { continue };
@@ -195,18 +199,19 @@ fn portal_ticks_left_at(log: &str, dim: &str, c: (i32, i32)) -> Vec<(i64, i64)> 
             continue;
         }
         let Some(gt) = rest.split(" | ").next().and_then(|h| h.rsplit(' ').next()).and_then(|v| v.parse::<i64>().ok()) else { continue };
+        let mut m = BTreeMap::new();
         for p in rest.split(" | ").skip(1) {
-            if !p.starts_with(&key) {
-                continue;
-            }
+            let Some((cx, cz)) = p.split_whitespace().next().and_then(|c| c.split_once(',')) else { continue };
+            let (Ok(cx), Ok(cz)) = (cx.parse::<i32>(), cz.parse::<i32>()) else { continue };
             for t in p.split("Ticket[").skip(1) {
-                if t.starts_with("minecraft:portal ") {
-                    if let Some(left) = t.split("] with ").nth(1).and_then(|s| s.split(' ').next()).and_then(|v| v.parse::<i64>().ok()) {
-                        out.push((gt, left));
-                    }
+                if t.starts_with("minecraft:portal ")
+                    && let Some(left) = t.split("] with ").nth(1).and_then(|s| s.split(' ').next()).and_then(|v| v.parse::<i64>().ok())
+                {
+                    m.insert((cx, cz), left);
                 }
             }
         }
+        out.push((gt, m));
     }
     out
 }
@@ -627,6 +632,73 @@ pub fn freeze_rows(version: &str, loader: &Path, module: &Path, n: u32, place: &
     Ok(())
 }
 
+/// (onechunk 16:18) One part of the composed farm, every cell at its world coordinate.
+#[derive(Default)]
+pub struct Part {
+    pub name: String,
+    pub blocks: BTreeMap<[i32; 3], String>,
+    pub block_entities: BTreeMap<[i32; 3], String>,
+    pub entities: Vec<mctas::design::EntitySpec>,
+    pub nether_blocks: BTreeMap<[i32; 3], String>,
+    pub nether_block_entities: BTreeMap<[i32; 3], String>,
+}
+
+/// A world-frame file as one part: its overworld cells as they are; its Nether part (`nether layer`s, or
+/// the `nether` file's own cells) as they are.
+pub(crate) fn world_part(world: &Path, nether: Option<&Path>) -> Result<Part> {
+    let d = mctas::design::Design::load(world)?;
+    let (nb, nbe) = match nether {
+        Some(p) => {
+            let n = mctas::design::Design::load(p)?;
+            (n.blocks, n.block_entities)
+        }
+        None => (d.nether_blocks.clone(), d.nether_block_entities.clone()),
+    };
+    Ok(Part { name: world.display().to_string(), blocks: d.blocks, block_entities: d.block_entities, entities: d.entities, nether_blocks: nb, nether_block_entities: nbe })
+}
+
+/// (onechunk 16:18) A design laid by onechunk's transform: its overworld cells, entities (their NBT HOME
+/// too) and block entities moved by `offset`; its Nether part relative to the Nether image of its own
+/// `port nether-anchor` (anchor + offset; x and z floored by 8, y kept): each Nether cell at image + cell,
+/// its y less `nether_ybase` (the module's bench placeholder sits at nether layers 64..68: 64; the
+/// loader's twin: 0).
+pub(crate) fn recipe_part(file: &Path, offset: [i32; 3], nether_ybase: i32, no_pads: bool) -> Result<Part> {
+    let d = mctas::design::Design::load(file)?;
+    let anchor = *d.ports.get("nether-anchor").ok_or_else(|| anyhow::anyhow!("{}: no `port nether-anchor`", file.display()))?;
+    let mut o = d.clone();
+    o.meta.clear();
+    o.nether_blocks.clear();
+    o.nether_block_entities.clear();
+    o.nether_ports.clear();
+    // (onechunk 16:42, freeze_rows' `no_pads`) the copy's overworld pad portal blocks left out
+    let pads = if no_pads { o.blocks.iter().filter(|(_, s)| s.contains("nether_portal")).count() } else { 0 };
+    if no_pads {
+        o.blocks.retain(|_, s| !s.contains("nether_portal"));
+    }
+    crate::drivereplay::shift_design(&mut o, offset)?;
+    let a = [anchor[0] + offset[0], anchor[1] + offset[1], anchor[2] + offset[2]];
+    let image = [a[0].div_euclid(8), a[1], a[2].div_euclid(8)];
+    let n = |p: &[i32; 3]| [image[0] + p[0], image[1] + p[1] - nether_ybase, image[2] + p[2]];
+    Ok(Part {
+        name: format!(
+            "{} + ({},{},{}) (Nether image ({},{},{}), y base {nether_ybase}){}",
+            file.display(),
+            offset[0],
+            offset[1],
+            offset[2],
+            image[0],
+            image[1],
+            image[2],
+            if no_pads { format!(", its {pads} overworld portal block(s) left out") } else { String::new() }
+        ),
+        blocks: o.blocks,
+        block_entities: o.block_entities,
+        entities: o.entities,
+        nether_blocks: d.nether_blocks.iter().map(|(p, s)| (n(p), s.clone())).collect(),
+        nether_block_entities: d.nether_block_entities.iter().map(|(p, s)| (n(p), s.clone())).collect(),
+    })
+}
+
 /// (G1 15:31, ironspec 14:33 / 14:35 / 14:42: the loader check) `mctas mobai loader-long`: the composed
 /// farm as onechunk lays it, from WORLD-FRAME design files (`world`: its overworld cells at their world
 /// coordinates, its Nether part (`nether layer`s) at its Nether world coordinates; `nether`: optional, a
@@ -645,8 +717,7 @@ pub fn freeze_rows(version: &str, loader: &Path, module: &Path, n: u32, place: &
 #[allow(clippy::too_many_arguments)]
 pub fn loader_long(
     version: &str,
-    world: &Path,
-    nether: Option<&Path>,
+    parts: &[Part],
     chunks: &[(i32, i32)],
     nchunks: &[(i32, i32)],
     portal: (i32, i32),
@@ -658,19 +729,15 @@ pub fn loader_long(
     watch: [i32; 4],
 ) -> Result<()> {
     anyhow::ensure!(restart_at > 0 && restart_at < ticks, "--restart-at inside 1..--ticks");
-    let wd = mctas::design::Design::load(world)?;
-    let nd = match nether {
-        Some(p) => Some(mctas::design::Design::load(p)?),
-        None => None,
-    };
+    anyhow::ensure!(!parts.is_empty(), "no part to lay");
     let jar = mctas::bridge::load_agent(version)?;
-    let agent = PathBuf::from(format!("{}=watch={},{},{},{};ticks={};tickets=1;running=1", jar.display(), watch[0], watch[1], watch[2], watch[3], ticks + 2000));
+    // (G1 on X #2) the agent prints both levels' tickets every tick for its first `ticks` level ticks (a
+    // fresh count after a restart): every phase's tick has its line, so a lapse can't hide between lines
+    let agent = PathBuf::from(format!("{}=watch={},{},{},{};ticks={};tickets=1;running=1", jar.display(), watch[0], watch[1], watch[2], watch[3], ticks + 4000));
     let ctl = (portal.0 + 2, portal.1 + 2);
     println!(
-        "== loader-long on the official {version} server (pause-when-empty-seconds=0, simulation and view distance 10): {} (md5 {}){}; route chunks {chunks:?}, Nether chunks {nchunks:?}; PORTAL tickets watched at overworld {portal:?} and Nether {nportal:?}; the control chunk {ctl:?} (Chebyshev 2 from the portal chunk); the player at the farm {farm_afk:?} 600 gt, in the Nether at {nether_afk:?} 600 gt, logged out for {ticks} gt with a restart after {restart_at}, then logging in 600 gt",
-        world.display(),
-        crate::md5::md5_hex(&std::fs::read(world)?),
-        nether.map(|p| format!(" + {}", p.display())).unwrap_or_default()
+        "== loader-long on the official {version} server (pause-when-empty-seconds=0, simulation and view distance 10): {}; route chunks {chunks:?}, Nether chunks {nchunks:?}; PORTAL tickets watched at overworld {portal:?} and Nether {nportal:?}; the control chunk {ctl:?} (Chebyshev 2 from the portal chunk); the player at the farm {farm_afk:?} 600 gt, in the Nether at {nether_afk:?} 600 gt, logged out for {ticks} gt with a restart after {restart_at}, then logging in 600 gt",
+        parts.iter().map(|p| p.name.clone()).collect::<Vec<_>>().join("; ")
     );
     let opts = |w: Option<PathBuf>| VanillaOptions {
         version: version.to_string(),
@@ -690,63 +757,112 @@ pub fn loader_long(
     srv.cmd_ok("gamerule advance_time false")?;
     srv.cmd_ok("time set 18000")?;
     let nc = |c: String| format!("execute in minecraft:the_nether run {c}");
-    // the build force-loaded: every overworld and Nether chunk of the files (and the watch box)
-    let span = |b: &BTreeMap<[i32; 3], String>| -> Option<[i32; 4]> {
-        b.keys().fold(None, |acc: Option<[i32; 4]>, p| {
-            let a = acc.unwrap_or([p[0], p[2], p[0], p[2]]);
-            Some([a[0].min(p[0]), a[1].min(p[2]), a[2].max(p[0]), a[3].max(p[2])])
+    // the build force-loaded: every overworld and Nether chunk of the parts
+    let span = |b: &mut dyn Iterator<Item = [i32; 3]>| -> Option<[i32; 6]> {
+        b.fold(None, |acc: Option<[i32; 6]>, p| {
+            let a = acc.unwrap_or([p[0], p[1], p[2], p[0], p[1], p[2]]);
+            Some([a[0].min(p[0]), a[1].min(p[1]), a[2].min(p[2]), a[3].max(p[0]), a[4].max(p[1]), a[5].max(p[2])])
         })
     };
-    let ow = span(&wd.blocks).ok_or_else(|| anyhow::anyhow!("{}: no overworld cells", world.display()))?;
-    let nblocks: BTreeMap<[i32; 3], String> = match &nd {
-        Some(d) => d.blocks.clone(),
-        None => wd.nether_blocks.clone(),
-    };
-    let nbe: BTreeMap<[i32; 3], String> = match &nd {
-        Some(d) => d.block_entities.clone(),
-        None => wd.nether_block_entities.clone(),
-    };
-    srv.cmd_ok(&format!("forceload add {} {} {} {}", ow[0], ow[1], ow[2], ow[3]))?;
-    if let Some(ns) = span(&nblocks) {
-        srv.cmd_ok(&nc(format!("forceload add {} {} {} {}", ns[0], ns[1], ns[2], ns[3])))?;
+    let ow = span(&mut parts.iter().flat_map(|p| p.blocks.keys().copied())).ok_or_else(|| anyhow::anyhow!("no overworld cells"))?;
+    let ns = span(&mut parts.iter().flat_map(|p| p.nether_blocks.keys().copied()));
+    srv.cmd_ok(&format!("forceload add {} {} {} {}", ow[0], ow[2], ow[3], ow[5]))?;
+    if let Some(n) = ns {
+        srv.cmd_ok(&nc(format!("forceload add {} {} {} {}", n[0], n[2], n[3], n[5])))?;
     }
     srv.step(20)?;
-    for (blocks, in_nether) in [(&wd.blocks, false), (&nblocks, true)] {
-        for pass in 0..3 {
-            for (p, s) in blocks {
-                let k = if s.contains("obsidian") { 0 } else if s.contains("nether_portal") { 1 } else { 2 };
-                if k != pass {
-                    continue;
+    // the Nether's own terrain cleared around the parts (and the player's spot) before they are laid
+    if let Some(n) = ns {
+        let lo = [n[0].min(nether_afk[0].floor() as i32) - 3, n[1].min(nether_afk[1].floor() as i32) - 3, n[2].min(nether_afk[2].floor() as i32) - 3];
+        let hi = [n[3].max(nether_afk[0].floor() as i32) + 3, (n[4].max(nether_afk[1].floor() as i32) + 4).min(126), n[5].max(nether_afk[2].floor() as i32) + 3];
+        srv.cmd_ok(&nc(format!("fill {} {} {} {} {} {} minecraft:air", lo[0], lo[1], lo[2], hi[0], hi[1], hi[2])))?;
+    }
+    let (mut ncells, mut ocells, mut nent) = (0usize, 0usize, 0usize);
+    let mut differ: Vec<String> = Vec::new();
+    for part in parts {
+        for (blocks, in_nether) in [(&part.blocks, false), (&part.nether_blocks, true)] {
+            for pass in 0..3 {
+                for (p, s) in blocks {
+                    let k = if s.contains("obsidian") { 0 } else if s.contains("nether_portal") { 1 } else { 2 };
+                    if k != pass {
+                        continue;
+                    }
+                    let mode = if s.contains("rail") { " strict" } else { "" };
+                    let c = format!("setblock {} {} {} {s}{mode}", p[0], p[1], p[2]);
+                    srv.cmd_ok(&if in_nether { nc(c) } else { c })?;
                 }
-                let mode = if s.contains("rail") { " strict" } else { "" };
-                let c = format!("setblock {} {} {} {s}{mode}", p[0], p[1], p[2]);
-                srv.cmd_ok(&if in_nether { nc(c) } else { c })?;
+            }
+        }
+        for (p, nbt) in &part.block_entities {
+            srv.cmd_ok(&format!("data merge block {} {} {} {nbt}", p[0], p[1], p[2]))?;
+        }
+        for (p, nbt) in &part.nether_block_entities {
+            srv.cmd_ok(&nc(format!("data merge block {} {} {} {nbt}", p[0], p[1], p[2])))?;
+        }
+        for e in &part.entities {
+            srv.cmd_ok(&format!("summon {} {} {} {} {}", e.kind, e.pos[0], e.pos[1], e.pos[2], e.nbt.clone().unwrap_or_default()))?;
+        }
+        ocells += part.blocks.len();
+        ncells += part.nether_blocks.len();
+        nent += part.entities.len();
+    }
+    for part in parts {
+        for (p, s) in &part.blocks {
+            if !srv.cmd_long(&format!("execute if block {} {} {} {s}", p[0], p[1], p[2])).map(|o| o.contains("passed")).unwrap_or(false) {
+                differ.push(format!("({},{},{}) {s}", p[0], p[1], p[2]));
+            }
+        }
+        for (p, s) in &part.nether_blocks {
+            if !srv.cmd_long(&nc(format!("execute if block {} {} {} {s}", p[0], p[1], p[2]))).map(|o| o.contains("passed")).unwrap_or(false) {
+                differ.push(format!("Nether ({},{},{}) {s}", p[0], p[1], p[2]));
             }
         }
     }
-    for (p, nbt) in &wd.block_entities {
-        srv.cmd_ok(&format!("data merge block {} {} {} {nbt}", p[0], p[1], p[2]))?;
-    }
-    for (p, nbt) in &nbe {
-        srv.cmd_ok(&nc(format!("data merge block {} {} {} {nbt}", p[0], p[1], p[2])))?;
-    }
-    for e in &wd.entities {
-        srv.cmd_ok(&format!("summon {} {} {} {} {}", e.kind, e.pos[0], e.pos[1], e.pos[2], e.nbt.clone().unwrap_or_default()))?;
-    }
-    let differ: Vec<String> = wd.blocks.iter().filter(|(p, s)| !srv.cmd_long(&format!("execute if block {} {} {} {s}", p[0], p[1], p[2])).map(|o| o.contains("passed")).unwrap_or(false)).map(|(p, s)| format!("({},{},{}) {s}", p[0], p[1], p[2])).collect();
-    println!("  built: {} overworld cells ({} differ{}), {} Nether cells, {} entities", wd.blocks.len(), differ.len(), if differ.is_empty() { String::new() } else { format!(": {}", differ.iter().take(8).cloned().collect::<Vec<_>>().join("; ")) }, nblocks.len(), wd.entities.len());
-    srv.step(400)?;
-    srv.cmd_ok(&format!("forceload remove {} {} {} {}", ow[0], ow[1], ow[2], ow[3]))?;
-    if let Some(ns) = span(&nblocks) {
-        srv.cmd_ok(&nc(format!("forceload remove {} {} {} {}", ns[0], ns[1], ns[2], ns[3])))?;
-    }
-    let side = |log: &str, from: i64, to: i64| -> String {
-        let mut parts = Vec::new();
-        for (dim, c) in [("overworld", portal), ("nether", nportal)] {
-            let v: Vec<(i64, i64)> = portal_ticks_left_at(log, dim, c).into_iter().filter(|(gt, _)| *gt >= from && *gt <= to).collect();
-            parts.push(format!("{dim} PORTAL at {c:?}: {} lines, least ticks left {}", v.len(), v.iter().map(|x| x.1).min().map(|m| m.to_string()).unwrap_or_else(|| "- (no ticket)".into())));
+    // (ironspec 16:48 (2), G1 16:47) every overworld cell whose state differs after placement, the file's state
+    // against the game's, classified: SHAPE (a shape, facing, axis, face, half or connection property: a design
+    // finding; a tripwire hook going attached=true -> false too) or STATE (power, triggered and the like)
+    let props = |s: &str| -> BTreeMap<String, String> {
+        s.split_once('[').map(|(_, r)| r.trim_end_matches(']').split(',').filter_map(|kv| kv.split_once('=').map(|(k, v)| (k.to_string(), v.to_string()))).collect()).unwrap_or_default()
+    };
+    let mut shape_n = 0usize;
+    for part in parts {
+        for (p, s) in &part.blocks {
+            if !differ.iter().any(|d| d.starts_with(&format!("({},{},{}) ", p[0], p[1], p[2]))) {
+                continue;
+            }
+            let snap = srv.snapshot(*p, *p)?;
+            let game = snap.region.get(*p).unwrap_or("?").to_string();
+            let (f, g) = (props(s), props(&game));
+            let changed: Vec<String> = f.iter().filter(|(k, v)| g.get(*k) != Some(*v)).map(|(k, v)| format!("{k} {v} -> {}", g.get(k).map(|x| x.as_str()).unwrap_or("?"))).collect();
+            let same_block = s.split('[').next() == game.split('[').next();
+            let shape = !same_block
+                || f.iter().any(|(k, v)| g.get(k) != Some(v) && matches!(k.as_str(), "shape" | "facing" | "axis" | "face" | "half" | "north" | "south" | "east" | "west" | "up" | "down" | "attachment" | "hinge" | "type"))
+                || (s.contains("tripwire") && f.get("attached").map(|v| v.as_str()) == Some("true") && g.get("attached").map(|v| v.as_str()) == Some("false"));
+            if shape {
+                shape_n += 1;
+            }
+            println!("    differs ({},{},{}) {}: {}{}", p[0], p[1], p[2], if shape { "SHAPE" } else { "STATE" }, if same_block { changed.join(", ") } else { format!("{s} -> {game}") }, if same_block { format!(" (file {s})") } else { String::new() });
         }
-        parts.join("; ")
+    }
+    println!("  update-stability: {} cell(s) differ after placement, {shape_n} of the SHAPE class (a design finding), {} of the STATE class", differ.len(), differ.len().saturating_sub(shape_n));
+    println!("  built: {ocells} overworld cells, {ncells} Nether cells, {nent} entities; {} cells differ after the build{}", differ.len(), if differ.is_empty() { String::new() } else { format!(": {}", differ.iter().take(8).cloned().collect::<Vec<_>>().join("; ")) });
+    srv.step(400)?;
+    srv.cmd_ok(&format!("forceload remove {} {} {} {}", ow[0], ow[2], ow[3], ow[5]))?;
+    if let Some(n) = ns {
+        srv.cmd_ok(&nc(format!("forceload remove {} {} {} {}", n[0], n[2], n[3], n[5])))?;
+    }
+    // (G1 on X #2) per side over a phase's ticks (p0, p1]: the ticks with a printed ticket line, the ticks
+    // whose line holds the PORTAL ticket with ticks left > 0, and its least ticks left
+    let portal_bar = |log: &str, p0: i64, p1: i64| -> Vec<(&'static str, (i32, i32), usize, usize, Option<i64>)> {
+        [("overworld", portal), ("nether", nportal)]
+            .into_iter()
+            .map(|(dim, c)| {
+                let lines: std::collections::BTreeSet<i64> = ticket_lines(log, dim).into_iter().map(|(gt, _)| gt).filter(|gt| *gt > p0 && *gt <= p1).collect();
+                let v: Vec<(i64, i64)> = portal_ticks_left_at(log, dim, c).into_iter().filter(|(gt, _)| *gt > p0 && *gt <= p1).collect();
+                let with: std::collections::BTreeSet<i64> = v.iter().filter(|x| x.1 > 0).map(|x| x.0).collect();
+                (dim, c, lines.len(), with.len(), v.iter().map(|x| x.1).min())
+            })
+            .collect()
     };
     let nreport = |log: &str, from: i64, to: i64| -> Vec<((i32, i32), i32)> {
         let tk = ticket_lines(log, "nether");
@@ -765,49 +881,83 @@ pub fn loader_long(
     };
     pad(&mut srv, farm_afk, false)?;
     srv.teleport_bot(farm_afk[0], farm_afk[1], farm_afk[2])?;
-    let l1 = srv.game_time()? + 2;
-    srv.step(600)?;
-    let log = std::fs::read_to_string(&srv.log)?;
-    report(&log, chunks, l1, "(L1) 600 gt with the player standing at the farm");
-    println!("    (L1) {}", side(&log, l1, i64::MAX));
-    pad(&mut srv, nether_afk, true)?;
-    srv.cmd_ok(&format!("execute in minecraft:the_nether run tp {bot} {} {} {}", nether_afk[0], nether_afk[1], nether_afk[2]))?;
-    let l2 = srv.game_time()? + 2;
-    srv.step(600)?;
-    let log = std::fs::read_to_string(&srv.log)?;
-    report(&log, chunks, l2, "(L2) 600 gt with the player in the Nether at the twin");
-    println!("    (L2) {}; Nether chunks' worst levels {:?}", side(&log, l2, i64::MAX), nreport(&log, l2, i64::MAX));
-    // the logout, (a)
-    srv.bot = None;
-    srv.step(20)?;
-    println!("  the player logged out: `list` says {}", srv.cmd("list")?.trim());
-    let a0 = srv.game_time()?;
-    srv.step(restart_at)?;
-    let log = std::fs::read_to_string(&srv.log)?;
-    let a1 = srv.game_time()?;
     let mut bad: Vec<String> = Vec::new();
-    let mut judge = |log: &str, from: i64, to: i64, label: &str, bad: &mut Vec<String>| {
-        let st = report(log, chunks, from, label);
+    // (G1 on X #1 / #2) every phase judged over its ticks (p0, p1], from the tick after its move: every
+    // route chunk entity-ticking at every printed tick with a load line at every tick, frozen 0; every
+    // Nether chunk at level <= 31; each side's PORTAL ticket on every tick's ticket line with ticks left
+    // > 0, a ticket line at every tick; returned: the control chunk seen leaving entity-ticking
+    let judge = |log: &str, p0: i64, p1: i64, label: &str, bad: &mut Vec<String>| -> bool {
+        let want = (p1 - p0).max(0) as usize;
+        let st = report(log, chunks, p0 + 1, label);
         for (c, et, frozen, n) in &st {
-            if *n == 0 || (*et as usize) < *n || *frozen > 0 {
-                bad.push(format!("{label}: chunk ({},{}) entity-ticking {et} of {n}, frozen {frozen}", c.0, c.1));
+            if *n < want || (*et as usize) < *n || *frozen > 0 {
+                bad.push(format!("{label}: chunk ({},{}) entity-ticking {et} of {n} printed ticks (of {want}), frozen {frozen}", c.0, c.1));
             }
         }
-        for (c, lv) in nreport(log, from, to) {
-            if lv > 31 {
+        let nr = nreport(log, p0 + 1, p1);
+        for (c, lv) in &nr {
+            if *lv > 31 {
                 bad.push(format!("{label}: Nether chunk ({},{}) reached level {lv}", c.0, c.1));
             }
         }
-        for (dim, c) in [("overworld", portal), ("nether", nportal)] {
-            let v: Vec<(i64, i64)> = portal_ticks_left_at(log, dim, c).into_iter().filter(|(gt, _)| *gt >= from && *gt <= to).collect();
-            if v.is_empty() || v.iter().any(|x| x.1 <= 0) {
-                bad.push(format!("{label}: the {dim} PORTAL ticket at {c:?} lapsed or never printed"));
+        let mut sides = Vec::new();
+        for (dim, c, lines, with, least) in portal_bar(log, p0, p1) {
+            if lines < want || with < want || least.is_none_or(|m| m <= 0) {
+                bad.push(format!("{label}: the {dim} PORTAL ticket at {c:?} on {with} of {lines} ticket lines ({lines} of {want} ticks printed), least ticks left {least:?}"));
+            }
+            sides.push(format!("{dim} PORTAL at {c:?} on {with} of {lines} ticket lines ({lines} of {want} ticks printed), least ticks left {}", least.map(|m| m.to_string()).unwrap_or_else(|| "- (no ticket)".into())));
+        }
+        println!("    {label}: {}; Nether chunks' worst levels {nr:?}", sides.join("; "));
+        // (ironspec 16:48 (1)) each arrival's portal: a PORTAL ticket appearing or its ticks left rising
+        // on a chunk (a renewal) is an arrival there; any chunk but the loader's / the twin's is a capture
+        for dim in ["overworld", "nether"] {
+            let want_c = if dim == "overworld" { portal } else { nportal };
+            let mut prev: BTreeMap<(i32, i32), i64> = BTreeMap::new();
+            let mut arrivals: BTreeMap<(i32, i32), Vec<i64>> = BTreeMap::new();
+            for (gt, m) in portal_left_by_line(log, dim) {
+                if gt <= p0 || gt > p1 {
+                    continue;
+                }
+                for (c, left) in m {
+                    if prev.get(&c).is_none_or(|p| left > *p) {
+                        arrivals.entry(c).or_default().push(gt);
+                    }
+                    prev.insert(c, left);
+                }
+            }
+            let caps: Vec<String> = arrivals.iter().filter(|(c, _)| **c != want_c).map(|(c, v)| format!("({},{}) {} arrival(s) from gt {}", c.0, c.1, v.len(), v[0])).collect();
+            println!(
+                "    {label}: {dim} arrivals by portal chunk: {}{}",
+                arrivals.iter().map(|(c, v)| format!("({},{}) {}", c.0, c.1, v.len())).collect::<Vec<_>>().join(", "),
+                if caps.is_empty() { String::new() } else { format!("; CAPTURED away from {want_c:?}: {}", caps.join("; ")) }
+            );
+            for c in caps {
+                bad.push(format!("{label}: {dim} arrivals captured at {c}"));
             }
         }
-        println!("    {label}: {}; Nether chunks' worst levels {:?}", side(log, from, to), nreport(log, from, to));
-        let ctl_st = report(log, &[ctl], from, &format!("{label}: the control chunk {ctl:?}"));
+        let ctl_st = report(log, &[ctl], p0 + 1, &format!("{label}: the control chunk {ctl:?}"));
         ctl_st.iter().all(|(_, et, _, n)| *n > 0 && (*et as usize) < *n)
     };
+    // (L1) the player at the farm
+    let l10 = srv.game_time()?;
+    srv.step(600)?;
+    let log = std::fs::read_to_string(&srv.log)?;
+    judge(&log, l10, srv.game_time()?, "(L1) 600 gt with the player standing at the farm", &mut bad);
+    // (L2) the player in the Nether at the twin
+    pad(&mut srv, nether_afk, true)?;
+    srv.cmd_ok(&format!("execute in minecraft:the_nether run tp {bot} {} {} {}", nether_afk[0], nether_afk[1], nether_afk[2]))?;
+    let l20 = srv.game_time()?;
+    srv.step(600)?;
+    let log = std::fs::read_to_string(&srv.log)?;
+    judge(&log, l20, srv.game_time()?, "(L2) 600 gt with the player in the Nether at the twin", &mut bad);
+    // the logout, (a)
+    srv.bot = None;
+    let a0 = srv.game_time()?;
+    srv.step(20)?;
+    println!("  the player logged out: `list` says {}", srv.cmd("list")?.trim());
+    srv.step(restart_at - 20)?;
+    let log = std::fs::read_to_string(&srv.log)?;
+    let a1 = srv.game_time()?;
     let caught_a = judge(&log, a0, a1, &format!("(a) {restart_at} gt logged out"), &mut bad);
     // a save, stop and start (the player stays logged out), (b)
     srv.cmd_ok("save-on")?;
@@ -826,15 +976,15 @@ pub fn loader_long(
     let caught_b = judge(&log, b0, b1, &format!("(b) after the restart, {} gt logged out", ticks - restart_at), &mut bad);
     // (c) the player logs in again
     srv.bot = Some(mctas::vanilla::bot::Bot::connect(srv.game_port(), &bot)?);
-    let c0 = srv.game_time()? + 2;
+    let c0 = srv.game_time()?;
     srv.step(600)?;
     let log = std::fs::read_to_string(&srv.log)?;
-    report(&log, chunks, c0, "(c) 600 gt after the player logged in again");
-    println!("    (c) {}; the player at {}", side(&log, c0, i64::MAX), srv.cmd_long(&format!("data get entity {bot} Pos"))?.split("entity data: ").nth(1).unwrap_or("-").trim());
+    judge(&log, c0, srv.game_time()?, "(c) 600 gt after the player logged in again", &mut bad);
+    println!("    (c): the player at {}", srv.cmd_long(&format!("data get entity {bot} Pos"))?.split("entity data: ").nth(1).unwrap_or("-").trim());
     srv.bot = None;
     let _ = std::fs::remove_dir_all(&srv.dir);
     println!(
-        "  the loader bars ((a) and (b): every route chunk entity-ticking every tick, frozen 0; every Nether chunk at level <= 31; both PORTAL tickets present, ticks left > 0): {}; the control {ctl:?} caught in (a) {caught_a}, (b) {caught_b}",
+        "  the loader bars (every phase, L1, L2, (a), (b), (c): every route chunk entity-ticking at every tick, frozen 0; every Nether chunk at level <= 31; both PORTAL tickets on every tick's line, ticks left > 0): {}; the control {ctl:?} caught in (a) {caught_a}, (b) {caught_b}",
         if bad.is_empty() { "HELD".to_string() } else { format!("FAILED: {}", bad.join("; ")) }
     );
     anyhow::ensure!(caught_a && caught_b, "the control chunk {ctl:?} was not seen leaving entity-ticking: the count can't see a drop: the run fails");
