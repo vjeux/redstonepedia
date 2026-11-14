@@ -8539,11 +8539,17 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
         }
         MobfarmCmd::ExteriorSpawn { design, biome, lit } => {
             let (_c, spec) = load(version, &design)?;
-            let (lines, inside, outside) = crate::fleecheck::spawn_static(&spec, Box::leak(biome.into_boxed_str()), lit).map_err(|e| anyhow::anyhow!(e))?;
+            let biome: &'static str = Box::leak(biome.into_boxed_str());
+            let (lines, inside, outside) = crate::fleecheck::spawn_static(&spec, biome, lit).map_err(|e| anyhow::anyhow!(e))?;
             for l in &lines {
                 println!("{l}");
             }
-            anyhow::ensure!(inside == 0 && outside == 0, "the spawn static: {inside} spawnable cell(s) inside, {outside} on the build's outside (bars 0)");
+            // (ironspec Nov 13 17:26: the route's golem floors, standing beside the spawn static)
+            let (glines, off, _) = crate::fleecheck::route_golem_floors(&spec, biome).map_err(|e| anyhow::anyhow!(e))?;
+            for l in &glines {
+                println!("{l}");
+            }
+            anyhow::ensure!(inside == 0 && outside == 0 && off == 0, "the spawn static: {inside} spawnable cell(s) inside, {outside} on the build's outside, {off} golem floor(s) off the pad (bars 0)");
         }
         MobfarmCmd::TExposure { design } => {
             let (c, spec_file) = load(version, &design)?;
@@ -15454,6 +15460,10 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
                 if cells {
                     println!("(--cells: the exposure lines above carry their cells)");
+                    // (ironspec Nov 13 17:10 (1): the golem spots its summoners can reach, listed)
+                    let mut g = farm.golem_cells.clone();
+                    g.sort_by_key(|p| (p.y, p.z, p.x));
+                    println!("golem cells ({}): {}", g.len(), g.iter().map(|p| format!("{},{},{}", p.x, p.y, p.z)).collect::<Vec<_>>().join(" "));
                 }
                 return Ok(());
             }
