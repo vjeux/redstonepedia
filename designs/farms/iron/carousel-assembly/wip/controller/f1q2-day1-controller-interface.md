@@ -39,8 +39,19 @@ station generator and F′'s benches read them from here, and F′'s test links 
   (cc767b78); the ring's T token starts at slots 0 / 3 / 6 (lanes -1 / 3 / 7: a build step).
 - THE RECORD (cc767b78's (a') compacting registers): written from G at REL + 102; SHIFTED at REL + 61 only in a REL whose
   ARM3 fired (the napper being taken; RLS is not read); HOME_l = its head (S1), read (latched) by the core at REL' + 57.
-  Its depth: at most 4 nappers picked and not yet ARM3'd over ctl-pick's (b') rows (ARM3 stamped in the REL that takes
-  the napper, conservatively).
+  Its depth: at most 3 entries alive at once, measured per tick over ctl-pick's (b'+w) rows (the seven points and the
+  true freezes, each at the 27 leg corners) at the measured stop -> (9,0,8) trip, 113..126 gt (58f770cc's pickup -> the
+  stop's out 35..48 + ironfarm's stop R -> (9,0,8) seated 78 on V's depth), each end +-2: 3 stages.
+- ONE PICK PER REL (ironspec 12:52p): STATIC PRIORITY (lane -1 over 3 over 7) PLUS THE WIDENING: lane -1 refused in the REL
+  right after a lane-7 grant.
+- THE H2 GAP (the battery's and the game run's print): napper k's ARRIVAL at the second hold H2 (the first tick its cart's
+  box enters (9,24,7)) to napper k+1's ARRIVAL there, k and k+1 consecutive in pick order (= arrival order); judged > the
+  second hold's cycle, 41 gt (the line above: SET 2 + D 16 + P1 -> exit 3 + the exit detector's 20-gt recheck). Priced
+  push-free in ctl-pick (leg arithmetic, no rider AI): >= 64 gt at the +-2 gt corners under the widening.
+- THE MODEL's REFERENCE GOLEMS: ctl-pick does not model the summon; it assumes one summon per REL period (100 gt): 120 per
+  night (the 120-REL window), 240 per day, scaling with the unfrozen fraction (a freeze of f gt removes f / 100 summons);
+  "golems lost" = summons while a villager is past 24,000 gt since its last sleep: 0 on every normal row. Its seed-to-seed
+  spread: 0 (the model is deterministic): MODEL-ANCHORED, UNVALIDATED until step c's game night.
 - R6 = 14 gt (ADOPTED ironspec 11:24a, the >= 2-gt form; R6 = 15 withdrawn 10:52a; 12 / 8 superseded), with K's late half
   10: each lane's napper
   leaves its R hold (x-2,24,7) (lane x) at delay(x) = REL' + 165 + 4 - travel(x), REL' the release cycle that TAKES the
