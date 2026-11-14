@@ -5125,13 +5125,31 @@ pub fn row_citation_why(why: &str) -> Result<String, String> {
         if files.is_empty() || !ticks || !cart {
             continue;
         }
-        let artifact = words.iter().any(|w| w.split("a/").nth(1).is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit())));
-        let md5 = words.iter().any(|w| w.len() >= 12 && w.chars().all(|c| c.is_ascii_hexdigit()) && w.chars().any(|c| c.is_ascii_digit()));
-        let repo = files.iter().any(|f| !f.starts_with('/') && !f.starts_with('~'));
+        // (G1 16:36 (notes): an artifact id anchored at the word's start or after "/" (`a/NNNN`,
+        // `(a/NNNN)`, `…/a/NNNN`), not inside a word ("data/123"); an md5 either named (`md5 <hex>`)
+        // or exactly 12 or 32 hex digits)
+        let artifact = words.iter().any(|w| {
+            let w = w.trim_start_matches('(');
+            let id = w.strip_prefix("a/").or_else(|| w.rsplit_once("/a/").map(|(_, n)| n));
+            id.is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
+        });
+        let hex = |w: &str| w.chars().all(|c| c.is_ascii_hexdigit()) && w.chars().any(|c| c.is_ascii_digit());
+        let md5 = words.windows(2).any(|p| p[0] == "md5" && p[1].len() >= 12 && hex(p[1])) || words.iter().any(|w| (w.len() == 12 || w.len() == 32) && hex(w));
+        // (G1 16:36, CHANGES 1: a relative path is durable only when the file is in the repo: resolved
+        // against the repository root this tool was built from (and the working directory, where the
+        // tool reads designs from), it must exist)
+        let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let in_repo = |f: &str| !f.starts_with('/') && !f.starts_with('~') && !f.split('/').any(|c| c == "..") && repo_root.join(f).is_file();
+        let repo = files.iter().any(|f| in_repo(f));
         if repo || artifact || md5 {
             return Ok(rest.trim().to_string());
         }
-        not_durable = Some(format!("not durable: {} (a box-local path: add its artifact id or md5, or cite a repo path)", files.join(" ")));
+        let local: Vec<&&str> = files.iter().filter(|f| f.starts_with('/') || f.starts_with('~')).collect();
+        not_durable = Some(if local.is_empty() {
+            format!("not durable: {} (not in the repo: cite a repo path, or add its artifact id or md5)", files.join(" "))
+        } else {
+            format!("not durable: {} (a box-local path: add its artifact id or md5, or cite a repo path)", files.join(" "))
+        });
     }
     Err(not_durable.unwrap_or_else(|| "no `row:` part with a file, a tick range and a cart".to_string()))
 }
@@ -7447,7 +7465,7 @@ mod orient_tests {
         // `travel` declaration of the same move confirms it: no inferred link stands)
         assert!(t.inferred_links.iter().any(|l| l.starts_with("0,0,2 > 1,0,2")) && lines.iter().any(|l| l.starts_with("  INFERRED LINK 0,0,2 > 1,0,2") && l.contains("unconfirmed")), "{lines:?}");
         let mut tc = Track::from_parts(rails(), &cols, &rests, Vec::new(), Default::default());
-        let lc = tc.orient(&[(vec![BlockPos::new(0, 0, 2), BlockPos::new(1, 0, 2)], "the composed run shows it; row: record7f13s.txt t 120..180 cart 3".into())], &[], false);
+        let lc = tc.orient(&[(vec![BlockPos::new(0, 0, 2), BlockPos::new(1, 0, 2)], "the composed run shows it; row: designs/farms/iron/carousel-assembly/carousel-v0a.txt t 120..180 cart 3".into())], &[], false);
         assert!(!tc.inferred_links.iter().any(|l| l.starts_with("0,0,2 > 1,0,2")), "a declared move citing its row is confirmed: {lc:?}");
         // (G1 13:56: a `travel` line citing no composed row orients the walk but confirms nothing)
         let mut tu = Track::from_parts(rails(), &cols, &rests, Vec::new(), Default::default());
@@ -7456,7 +7474,10 @@ mod orient_tests {
         // (G1 14:36 (ii), ironspec 14:37 (1): the citation is parsed, `row:` / `rows:` as their own
         // token with a file, a tick range and a cart; a mere mention, an "arrow:", or a part missing
         // one of the three cites nothing)
-        assert!(super::row_citation("row: record7f13t.txt t 120..180 cart 3").is_some());
+        // (G1 16:36, CHANGES 1: a relative path cites only when the file is in the repo)
+        assert!(super::row_citation("row: designs/farms/iron/carousel-assembly/carousel-v0a.txt t 120..180 cart 3").is_some(), "a committed design file");
+        assert!(super::row_citation_why("row: record7f13t.txt t 120..180 cart 3").unwrap_err().contains("(not in the repo"), "a file not in the repo");
+        assert!(super::row_citation_why("row: onechunk/t14-n2.txt t 1..2 cart 3").unwrap_err().contains("(not in the repo"), "G1's control");
         // (7b90c3f1's emitter form, 14:41: a /tmp path alone is NOT DURABLE (G1 15:51), the md5 in the
         // reason's first part not beside it; with its md5 or an artifact id in the row part, cited)
         let tmp = "a batch cart on the split row enters J(-1) from the west (onechunk's composed t14 night, 11b888a04256); row: /tmp/onechunk/t14/n-p0_0_0-d0-s1.txt t 2854..2855 cart 46";
@@ -7464,7 +7485,11 @@ mod orient_tests {
         assert!(super::row_citation("a batch cart; row: /tmp/onechunk/t14/n-p0_0_0-d0-s1.txt md5 9af7084ecb19 t 2854..2855 cart 46").is_some());
         assert!(super::row_citation("a batch cart; row: night n-p0 (a/2344002509732418) t 2854..2855 cart 46").is_some(), "an artifact id names the file durably");
         assert!(super::row_citation("a batch cart; row: n-p0_0_0-d0-s1.txt https://artifacts.internalmeta.com/a/2344002509732418 t 2854..2855 cart 46").is_some());
-        assert!(super::row_citation("the composed night; rows: onechunk/t14-n2.txt ticks 4400..4480, cart 7").is_some());
+        assert!(super::row_citation("the composed night; rows: onechunk/t14-n2.txt ticks 4400..4480, cart 7").is_none(), "a box-relative file, not in the repo");
+        // (G1 16:36 notes: an md5 named or exactly 12 / 32 hex; an artifact id anchored, not inside a word)
+        assert!(super::row_citation("row: n2.txt md5 9af7084ecb19aa t 1..2 cart 3").is_some(), "a named md5");
+        assert!(super::row_citation("row: n2.txt 123456789012345 t 1..2 cart 3").is_none(), "a long number is no md5");
+        assert!(super::row_citation("row: data/123 t 1..2 cart 3").is_none(), "\"data/123\" is no artifact id");
         assert!(super::row_citation("seen in row: record7f13t.txt t120..180 cart 3").is_none(), "not at a part's start");
         assert!(super::row_citation("the arrow: record7f13t.txt t 120..180 cart 3").is_none());
         assert!(super::row_citation("row: record7f13t.txt cart 3").is_none(), "no tick range");
