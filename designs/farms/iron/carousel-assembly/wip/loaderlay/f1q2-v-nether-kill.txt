@@ -1,0 +1,154 @@
+# (loaderlay, Nov 14 2026; ironspec 13:16p / 13:19p / 13:24p / 13:40p (5) / 14:32p (1) / 14:53c (1), G1 13:33 / 14:03 / 14:06 /
+# 14:37: the golems' NETHER-SIDE EXIT KILL AND COLLECTION, owner loaderlay) DRAFT v3 for tick-exact's game night (the real game judges it: ironspec 14:53r), NOT LAID. V's Nether frame (V rev
+# 2.1's Nether part: nether-origin 0 0 0). THIS PART OWNS V'S NETHER TWIN (ironspec 14:53c (1): one owner holds the whole Nether
+# part, judged together): the 2 x 3 x-axis portal (1..2,65..67,0) in its obsidian frame without corners ((0,65..67,0),
+# (3,65..67,0), (1..2,64,0), (1..2,68,0)), 16 cells, laid here as real cells (portal-frames on this Nether section; the link to
+# V's pads is the composed record's). The arrival floor is the frame's bottom row (1..2,64,0), top y 65.
+# - THE ARRIVAL, as the game showed it (tick-exact's Nether-pasted control, Nov 14 14:27: 40 of 40 golems): at (1.70..2.30,
+#   65.22, 0.50), every one AT the twin.
+# - THE PUSH OUT OF THE PLANE: a golem (1.4 x 2.7) arrives at y 65 with its centre z anywhere in -0.7..1.7 (26.3 PortalShape.
+#   getRelativePosition keeps the depth offset unclamped; whole-cell contact), x 1.7..2.3. On the -z face two pistons (1..2,65,-2)
+#   facing south, each driven by an observer pair behind it (a clock), put the golem's back at z 0.0 + 0.01 (centre >= 0.71)
+#   within one clock period (26.3 PistonMovingBlockEntity.moveCollidedEntities: the head moves a box it sweeps, up to clearing it,
+#   + 0.01). A golem whose centre is above 0.3 already touches the +z stream.
+# - THE STREAM: lava at y 65 on the +z face, 6 cells x 1..2 z 1..3 (sources at z 1, flowing z 2..3, all flowing +z), held up by
+#   crimson wall signs at y 64: 26.3 Blocks.CRIMSON_WALL_SIGN (4869-4878) `noCollision()` (nothing stands on one) and no
+#   `ignitedByLava()`; lava can't enter a sign's cell (SignBlock is a SimpleWaterloggedBlock: canPlaceLiquid (20-22) accepts only
+#   WATER; FlowingFluid 330 / 417-419) (tick-exact 14:27). Its flow pushes the golem +z at 0.007 a tick (26.3 fast_lava;
+#   steady ~0.007 b/t under travelInLava's halving: tick-exact 14:05 (1)): from centre 0.71 to 1.7, about 140 gt.
+# - THE DROP (G1 14:03 (2)'s walk-back): the floor beyond the frame is 2 blocks lower (the hopper floor's top at y 63). The golem
+#   stands on the frame while any of its box is over it, and FALLS exactly when its box clears the frame's edge (min z >= 1.0),
+#   which is when it clears the portal cell (z 0..1). It cannot come back: a golem steps 1.0 and jumps about 1.25 (tick-exact 14:05
+#   (3)), and the pen's north wall is the frame's obsidian (1..2,64,0) over cobblestone (1..2,63,0), so its body can't reach z < 1.
+# - THE KILL: in the pen its feet are at y 63 and its head (to 65.7) in the lava at y 65: lava's 4.0 lands every 10 gt, dead
+#   about 240 gt after its first contact (tick-exact 13:36 (b)). Its drops spawn at its feet (y 63; Entity.spawnAtLocation(level,
+#   stack, 0.0F), 2290-2307) with an initial motion (nextDouble*0.2 - 0.1, +0.2, nextDouble*0.2 - 0.1) (ItemEntity 62-66), each
+#   air tick gravity -0.04, the move, then x 0.98 (137, 114-116, 152-160): PEAK about +0.384 above the feet at tick 4, so an item
+#   never reaches the lava's bottom 2 above it (tick-exact 14:38); they land on the hopper floor (1..2,62,1..3), which feeds the
+#   hopper (2,62,4) under the end wall and the CHEST (2,61,4): the farm's output, outside the lava's footprint and below it (lava's
+#   fire climbs, it doesn't descend: tick-exact 13:49 (4)).
+# - THROUGHPUT: the pen is 3 deep, room for two golems at once; piglins take the same path (fire-immune: pushed, not burned, and
+#   trapped by the same 2-block drop: a zombified piglin jumps about 1.25) and the golems in the pen kill them (26.3 IronGolem
+#   targets Enemy; ZombifiedPiglin extends Zombie), cramming at 24 the backstop; their drops land at y 63 like the golems'. The
+#   twin itself never spawns piglins (the Nether's nether_portal_spawns_piglin is false: tick-exact 14:48).
+# - CHUNKS: the pen in Nether chunk (0,0) (level 30), the pistons and the clock in (0,-1) (31), both from the loader's Nether
+#   ticket every tick (the arrivals' own 300-gt tickets aside).
+# - THE CASING: cobblestone walls (blast resistance 6 against ghast fireballs), cobblestone bottom slabs on top and under the -z
+#   cell: no valid spawn floor inside for Nether mobs; nothing enderman-holdable; nothing flammable within lava's fire reach.
+# - THE MOVER'S TIMING, as prose until part 100's `nether:` clock declarations board (ironspec 15:15r (1); measured by
+#   settle-check on the mover laid alone in the overworld, the tool laying the overworld only; tools16b 44a96a1ad's binary): the
+#   two observer pairs (1..2,65,-4) / (1..2,65,-3) and the pistons' head cells (1..2,65,-1) recur every 6 gt; the piston cells
+#   (1..2,65,-2) themselves read 4 gt by settle's period rule (the commonest interval between a change and the one two after it:
+#   a piston changes 4 times in its 6-gt cycle). BUILD STEP: each pair starts its cycle when it is placed, as built (placing an
+#   observer facing another fires the first); the game night judges the cycle. The pistons' quasi-connected positions (their
+#   blocks above, (1..2,66,-2)) are casing nothing powers.
+name: f1q2-v-nether-kill
+circuit: mob-farm iron_ingot
+port output: 2 61 4
+origin: 0 0 0
+palette:
+  C minecraft:cobblestone
+  s minecraft:cobblestone_slab[type=bottom,waterlogged=false]
+  L minecraft:lava[level=0]
+  l minecraft:lava[level=1]
+  m minecraft:lava[level=2]
+  E minecraft:crimson_wall_sign[facing=east,waterlogged=false]
+  W minecraft:crimson_wall_sign[facing=west,waterlogged=false]
+  e minecraft:hopper[enabled=true,facing=east]
+  t minecraft:hopper[enabled=true,facing=south]
+  d minecraft:hopper[enabled=true,facing=down]
+  K minecraft:chest[facing=north,type=single,waterlogged=false]
+  p minecraft:piston[extended=false,facing=south]
+  O minecraft:observer[facing=north,powered=false]
+  o minecraft:observer[facing=south,powered=false]
+  P minecraft:obsidian
+  N minecraft:nether_portal[axis=x]
+nether-origin: 0 0 -5
+nether layer 61:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ..K
+nether layer 62:
+  .
+  .
+  .
+  .
+  .
+  .
+  .et
+  .et
+  .et
+  ..d
+nether layer 63:
+  .
+  .
+  .
+  .
+  .
+  .CC
+  C..C
+  C..C
+  C..C
+  .CC
+nether layer 64:
+  .
+  .
+  .
+  .
+  CssC
+  .PP
+  CEWC
+  CEWC
+  CEWC
+  .CC
+nether layer 65:
+  .CC
+  CooC
+  COOC
+  CppC
+  C..C
+  PNNP
+  CLLC
+  CllC
+  CmmC
+  .CC
+nether layer 66:
+  .
+  .CC
+  .CC
+  .CC
+  C..C
+  PNNP
+  C..C
+  C..C
+  C..C
+  .CC
+nether layer 67:
+  .
+  .
+  .
+  .CC
+  C..C
+  PNNP
+  C..C
+  C..C
+  C..C
+  .CC
+nether layer 68:
+  .
+  .
+  .
+  .
+  .ss
+  .PP
+  .ss
+  .ss
+  .ss
+  .
