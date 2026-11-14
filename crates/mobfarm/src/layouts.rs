@@ -542,6 +542,337 @@ pub fn keep_comments(orig: &str, new: &str) -> (String, usize, usize) {
     (s, kept, moved)
 }
 
+/// (ironspec / G1 Nov 14 07:31r, part 58) A design text's palette, in its file order: (char, state) from the
+/// `palette:` block's indented lines.
+fn palette_of(text: &str) -> Vec<(char, String)> {
+    let mut out = Vec::new();
+    let mut inp = false;
+    for l in text.lines() {
+        if l.trim_end() == "palette:" {
+            inp = true;
+            continue;
+        }
+        if inp {
+            if !l.starts_with("  ") || l.trim().is_empty() {
+                break;
+            }
+            let mut it = l[2..].chars();
+            if let Some(c) = it.next() {
+                let state = it.as_str().trim().to_string();
+                if !state.is_empty() {
+                    out.push((c, state));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// (ironspec / G1 Nov 14 07:31r, part 58) The re-serialized text `generated` with the ORIGINAL file's palette
+/// characters kept: each state the original names keeps its character (in the original's order), a new state takes
+/// a character the original doesn't use, and every layer row is re-lettered to match, so an edit leaves every row of
+/// a layer it doesn't touch byte for byte as it was (the plain re-serialization re-letters the whole palette).
+pub fn stable_palette(original: &str, generated: &str) -> String {
+    let orig = palette_of(original);
+    let gen_p = palette_of(generated);
+    let orig_by_state: BTreeMap<&str, char> = orig.iter().map(|(c, s)| (s.as_str(), *c)).collect();
+    let mut used: std::collections::BTreeSet<char> = orig.iter().map(|(c, _)| *c).collect();
+    let pool: Vec<char> = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789@$%&*+=?!<>^~/\\|;,'`\"(){}"
+        .chars()
+        .chain(('À'..='ÿ').filter(|c| c.is_alphabetic()))
+        .chain(('Α'..='ω').filter(|c| c.is_alphabetic()))
+        .chain(('Ѐ'..='ӿ').filter(|c| c.is_alphabetic()))
+        .collect();
+    let mut remap: BTreeMap<char, char> = BTreeMap::new();
+    for (gc, s) in &gen_p {
+        let to = match orig_by_state.get(s.as_str()) {
+            Some(c) => *c,
+            None => {
+                let c = pool.iter().copied().find(|c| !used.contains(c)).unwrap_or(*gc);
+                used.insert(c);
+                c
+            }
+        };
+        remap.insert(*gc, to);
+    }
+    // (the palette block: the original's order for the states still used, then the new ones)
+    let gen_states: std::collections::BTreeSet<&str> = gen_p.iter().map(|(_, s)| s.as_str()).collect();
+    let mut pal_lines: Vec<String> = orig.iter().filter(|(_, s)| gen_states.contains(s.as_str())).map(|(c, s)| format!("  {c} {s}")).collect();
+    for (gc, s) in &gen_p {
+        if !orig_by_state.contains_key(s.as_str()) {
+            pal_lines.push(format!("  {} {s}", remap[gc]));
+        }
+    }
+    let mut out = String::new();
+    let mut in_pal = false;
+    let mut in_layer = false;
+    let mut pal_done = false;
+    // (b8949c96 07:49, part 58) the head (every line before `origin:` / `palette:`: name, meta, ports, entities) in the
+    // ORIGINAL file's order: the re-serialization sorts the meta; a line the original didn't hold goes after
+    let head_end = |t: &str| t.lines().position(|l| l.starts_with("origin:") || l.trim_end() == "palette:").unwrap_or(0);
+    let orig_head: Vec<&str> = original.lines().take(head_end(original)).filter(|l| !l.starts_with('#')).collect();
+    let gen_head: Vec<&str> = generated.lines().take(head_end(generated)).collect();
+    let mut ordered: Vec<&str> = Vec::new();
+    let mut pending: Vec<&str> = gen_head.clone();
+    for l in &orig_head {
+        if let Some(i) = pending.iter().position(|g| g == l) {
+            ordered.push(pending.remove(i));
+        }
+    }
+    ordered.extend(pending);
+    for l in &ordered {
+        out.push_str(l);
+        out.push('\n');
+    }
+    for l in generated.lines().skip(gen_head.len()) {
+        let t = l.trim_end();
+        if t == "palette:" {
+            in_pal = true;
+            out.push_str(l);
+            out.push('\n');
+            continue;
+        }
+        if in_pal {
+            if l.starts_with("  ") && !l.trim().is_empty() {
+                if !pal_done {
+                    for p in &pal_lines {
+                        out.push_str(p);
+                        out.push('\n');
+                    }
+                    pal_done = true;
+                }
+                continue;
+            }
+            in_pal = false;
+        }
+        if !l.starts_with(' ') && !l.trim().is_empty() {
+            in_layer = (t.starts_with("layer ") || t.starts_with("nether layer ")) && t.ends_with(':');
+            out.push_str(l);
+            out.push('\n');
+            continue;
+        }
+        if in_layer && l.starts_with("  ") {
+            out.push_str("  ");
+            out.extend(l[2..].chars().map(|c| *remap.get(&c).unwrap_or(&c)));
+            out.push('\n');
+            continue;
+        }
+        out.push_str(l);
+        out.push('\n');
+    }
+    if !generated.ends_with('\n') && out.ends_with('\n') {
+        out.pop();
+    }
+    out
+}
+
+/// (ironspec 08:00r, part 58) The head lines (before `origin:` / `palette:`, `#` lines aside) of `original` that `out`
+/// still holds but in another order: a gratuitous re-ordering (the re-serializer sorts the meta) fails by name.
+pub fn reordered_head(original: &str, out: &str) -> Vec<String> {
+    let head = |t: &str| -> Vec<String> {
+        let end = t.lines().position(|l| l.starts_with("origin:") || l.trim_end() == "palette:").unwrap_or(0);
+        t.lines().take(end).filter(|l| !l.starts_with('#')).map(|l| l.to_string()).collect()
+    };
+    let (a, b) = (head(original), head(out));
+    let kept: Vec<&String> = a.iter().filter(|l| b.contains(l)).collect();
+    let in_out: Vec<&String> = b.iter().filter(|l| a.contains(l)).collect();
+    if kept == in_out {
+        Vec::new()
+    } else {
+        kept.iter().zip(in_out.iter()).filter(|(x, y)| x != y).map(|(x, _)| (*x).clone()).collect()
+    }
+}
+
+/// (ironspec / G1 Nov 14 07:31r, part 58) `mobfarm edit --set`'s text edit, as one function the CLI and the tests
+/// share: each `x,y,z=state` applied (an edit that leaves its cell as it was is refused, ironspec Nov 13 04:07), the
+/// design re-serialized with the ORIGINAL palette letters kept ([`stable_palette`]), every `#` line put back after the
+/// line it followed ([`keep_comments`]), and two guards that FAIL the edit by name: the `#` lines' count, and every
+/// other line the edit doesn't touch kept byte for byte ([`lost_lines`]). Returns the new text and the lines to print.
+pub fn edit_set_text(original: &str, sets: &[String]) -> anyhow::Result<(String, Vec<String>)> {
+    let mut d = Design::parse(original)?;
+    let mut log = Vec::new();
+    let mut ys: Vec<i32> = Vec::new();
+    for s in sets {
+        let (c, state) = s.split_once('=').ok_or_else(|| anyhow::anyhow!("--set x,y,z=state, not {s:?}"))?;
+        let v: Vec<i32> = c.split(',').map(|p| p.trim().parse()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("--set {s}: {e}"))?;
+        anyhow::ensure!(v.len() == 3, "--set x,y,z=state, not {s:?}");
+        let state = state.trim();
+        let full = if state.contains(':') { state.to_string() } else { format!("minecraft:{state}") };
+        let before = d.blocks.get(&[v[0], v[1], v[2]]).cloned().unwrap_or_else(|| "minecraft:air".to_string());
+        anyhow::ensure!(before != full, "NO-OP --set {},{},{}: the design already holds {before} (an override that doesn't change its cell fails, ironspec Nov 13 04:07)", v[0], v[1], v[2]);
+        log.push(format!("set {},{},{}: {} -> {}", v[0], v[1], v[2], before.trim_start_matches("minecraft:"), full.trim_start_matches("minecraft:")));
+        if full == "minecraft:air" {
+            d.blocks.remove(&[v[0], v[1], v[2]]);
+        } else {
+            d.blocks.insert([v[0], v[1], v[2]], full);
+        }
+        ys.push(v[1]);
+    }
+    let stable = stable_palette(original, &d.to_text());
+    let (out, kept, moved) = keep_comments(original, &stable);
+    let before = original.lines().filter(|l| l.starts_with('#')).count();
+    anyhow::ensure!(kept + moved == before, "edit: {before} `#` lines read, {} written", kept + moved);
+    log.push(format!("header: {before} `#` lines before, {} after ({kept} each after the line it followed, {moved} moved up: the line before them changed)", out.lines().filter(|l| l.starts_with('#')).count()));
+    let lost = lost_lines(original, &out, &ys);
+    anyhow::ensure!(lost.is_empty(), "edit: {} line(s) the edit doesn't change would not be carried (nothing silently dropped, ironspec Nov 14 07:31r): {}", lost.len(), lost.iter().map(|l| format!("{l:?}")).collect::<Vec<_>>().join("; "));
+    let re = reordered_head(original, &out);
+    anyhow::ensure!(re.is_empty(), "edit: {} head line(s) re-ordered (an edit changes only the lines its cells require, ironspec Nov 14 08:00r): {}", re.len(), re.iter().map(|l| format!("{l:?}")).collect::<Vec<_>>().join("; "));
+    let changed = {
+        let mut have: BTreeMap<&str, usize> = BTreeMap::new();
+        for l in original.lines() {
+            *have.entry(l).or_insert(0) += 1;
+        }
+        out.lines()
+            .filter(|l| match have.get_mut(l) {
+                Some(n) if *n > 0 => {
+                    *n -= 1;
+                    false
+                }
+                _ => true,
+            })
+            .count()
+    };
+    log.push(format!("lines written that the file didn't hold: {changed} (the palette's new entries and the rows of the layers the cells sit in); every other line kept byte for byte"));
+    Ok((out, log))
+}
+
+/// (ironspec / G1 Nov 14 07:31r, part 58) The `#` lines of `original` that `out` no longer holds (a multiset), but the
+/// declaration lines a part swap rewrites (`# <key>:` for a key of [`crate::declkeys::COMMENT_KEYS`]): the meta and
+/// swap paths' guard.
+pub fn lost_comment_lines(original: &str, out: &str, allow_declarations: bool) -> Vec<String> {
+    let mut have: BTreeMap<&str, usize> = BTreeMap::new();
+    for l in out.lines().filter(|l| l.starts_with('#')) {
+        *have.entry(l).or_insert(0) += 1;
+    }
+    let decl = |l: &str| {
+        let k = l.trim_start_matches('#').trim_start();
+        crate::declkeys::COMMENT_KEYS.iter().any(|key| k.starts_with(&format!("{key}:")))
+    };
+    original
+        .lines()
+        .filter(|l| l.starts_with('#'))
+        .filter(|l| match have.get_mut(*l) {
+            Some(n) if *n > 0 => {
+                *n -= 1;
+                false
+            }
+            _ => !(allow_declarations && decl(l)),
+        })
+        .map(|l| l.to_string())
+        .collect()
+}
+
+#[cfg(test)]
+mod edit_integrity_tests {
+    /// (ironspec / G1 Nov 14 07:31r, part 58) A canonical file with a `#` line of every kind (before the first line,
+    /// between meta lines, a declaration, the day-time line, before the palette, between layers, at the end): a
+    /// `--set` keeps every `#` line byte for byte and every line of the layers it doesn't touch; setting the cell back
+    /// round-trips the file BYTE FOR BYTE; a lost line fails by name; the meta path keeps every `#` line.
+    #[test]
+    fn edit_round_trips_byte_for_byte() {
+        let mut d = mctas::design::Design::parse("name: t\norigin: 0 0 0\npalette:\n  A minecraft:stone\n  B minecraft:glass\nlayer 0:\n  AAA\n  ABA\nlayer 1:\n  B\n").unwrap();
+        d.meta.insert("circuit".to_string(), "mob-farm iron_ingot".to_string());
+        d.meta.insert("zeta".to_string(), "last".to_string());
+        let canon = d.to_text();
+        let mut lines: Vec<String> = canon.lines().map(|l| l.to_string()).collect();
+        // (b8949c96 07:49) the meta out of the re-serializer's sorted order: "zeta" before "circuit"
+        let zi = lines.iter().position(|l| l.starts_with("zeta:")).unwrap();
+        let zl = lines.remove(zi);
+        let ci = lines.iter().position(|l| l.starts_with("circuit:")).unwrap();
+        lines.insert(ci, zl);
+        let at = |lines: &Vec<String>, p: &str| lines.iter().position(|l| l.starts_with(p)).unwrap();
+        let i = at(&lines, "palette:");
+        lines.insert(i, "# before the palette".to_string());
+        let j = at(&lines, "layer 1:");
+        lines.insert(j, "# between layers".to_string());
+        lines.insert(1, "# shape: 0,1,0=north_south (a declaration)".to_string());
+        lines.insert(1, "# day-time: 18000 (the save's day time)".to_string());
+        lines.insert(0, "# the file's first line".to_string());
+        lines.push("# the last line".to_string());
+        let original = lines.join("\n") + "\n";
+        let (out, log) = super::edit_set_text(&original, &["1,1,0=minecraft:redstone_block".to_string()]).unwrap();
+        let hashes = |t: &str| t.lines().filter(|l| l.starts_with('#')).map(|l| l.to_string()).collect::<Vec<_>>();
+        assert_eq!(hashes(&out), hashes(&original), "every `#` line kept, in order: {out}");
+        let rows_of = |t: &str, y: &str| -> Vec<String> {
+            let mut on = false;
+            let mut v = Vec::new();
+            for l in t.lines() {
+                if !l.starts_with(' ') && !l.trim().is_empty() {
+                    on = l.trim_end() == format!("layer {y}:");
+                } else if on && l.starts_with("  ") {
+                    v.push(l.to_string());
+                }
+            }
+            v
+        };
+        assert!(!rows_of(&original, "0").is_empty() && rows_of(&out, "0") == rows_of(&original, "0"), "layer 0 untouched byte for byte: {out}");
+        assert!(log.iter().any(|l| l.starts_with("lines written that the file didn't hold: ")), "{log:?}");
+        let (back, _) = super::edit_set_text(&out, &["1,1,0=minecraft:air".to_string()]).unwrap();
+        assert_eq!(back, original, "set and set back: byte for byte");
+        // a line the edit doesn't touch, missing from an output, is named
+        let missing = out.replacen("circuit: mob-farm iron_ingot\n", "", 1);
+        let lost = super::lost_lines(&original, &missing, &[1]);
+        assert!(lost == vec!["circuit: mob-farm iron_ingot".to_string()], "{lost:?}");
+        // the meta path keeps every `#` line
+        let meta = super::edit_meta(&original, false, None, &["note=x".to_string()]).unwrap();
+        assert!(super::lost_comment_lines(&original, &meta, false).is_empty(), "the meta path: {meta}");
+        // the plain re-serialization (the ctl27 path) is caught naming its 6 dropped `#` lines
+        let dropped = super::lost_comment_lines(&original, &d.to_text(), false);
+        assert!(dropped.len() == 6 && dropped.iter().any(|l| l.starts_with("# day-time:")), "{dropped:?}");
+        // (ironspec 08:00r) gratuitous changes fail by name: the plain re-serialization re-orders the head ("zeta" back
+        // after "circuit") and re-letters the palette when the letters differ
+        let plain = super::keep_comments(&original, &d.to_text()).0;
+        let re = super::reordered_head(&original, &plain);
+        assert!(!re.is_empty() && re.iter().any(|l| l.starts_with("zeta:") || l.starts_with("circuit:")), "a sorted head: {re:?} in {plain}");
+        let relettered = original.replace("  G minecraft:glass", "  Q minecraft:glass");
+        let lost_pal = super::lost_lines(&original, &relettered, &[]);
+        assert!(lost_pal == vec!["  G minecraft:glass".to_string()], "a re-lettered palette line: {lost_pal:?}");
+    }
+}
+/// holds (as a multiset), but those it may change: the palette block's lines, the rows and headers of the layers
+/// at `layers` (the y's its cells touch), and, when the edit moves the design's origin, every layer row. An empty
+/// result: every other line kept byte for byte.
+pub fn lost_lines(original: &str, out: &str, layers: &[i32]) -> Vec<String> {
+    let origin = |t: &str| t.lines().find(|l| l.starts_with("origin:")).map(|l| l.to_string());
+    let moved = origin(original) != origin(out);
+    // (ironspec 08:00r, part 58) a palette line may change only when its state leaves the design: a state the output
+    // still holds keeps its line byte for byte (a re-encoded palette fails by name)
+    let out_states: std::collections::BTreeSet<String> = palette_of(out).into_iter().map(|(_, s)| s).collect();
+    let mut have: BTreeMap<&str, usize> = BTreeMap::new();
+    for l in out.lines() {
+        *have.entry(l).or_insert(0) += 1;
+    }
+    let mut lost = Vec::new();
+    let mut in_pal = false;
+    let mut layer: Option<i32> = None;
+    for l in original.lines() {
+        let t = l.trim_end();
+        let mut may_change = false;
+        if t == "palette:" {
+            in_pal = true;
+        } else if in_pal && l.starts_with("  ") && !l.trim().is_empty() {
+            let state: String = l[2..].chars().skip(1).collect::<String>().trim().to_string();
+            may_change = !out_states.contains(&state);
+        } else if !l.starts_with(' ') && !l.trim().is_empty() {
+            in_pal = false;
+            layer = t.strip_prefix("layer ").or_else(|| t.strip_prefix("nether layer ")).and_then(|r| r.strip_suffix(':')).and_then(|y| y.trim().parse::<i32>().ok());
+            if layer.is_some_and(|y| layers.contains(&y)) || (moved && t.starts_with("origin:")) {
+                may_change = true;
+            }
+        } else if layer.is_some() && (l.starts_with("  ") || l.trim().is_empty()) && (moved || layer.is_some_and(|y| layers.contains(&y))) {
+            may_change = true;
+        }
+        if may_change {
+            continue;
+        }
+        match have.get_mut(l) {
+            Some(n) if *n > 0 => *n -= 1,
+            _ => lost.push(l.to_string()),
+        }
+    }
+    lost
+}
+
 #[cfg(test)]
 mod keep_comments_tests {
     /// (ironspec Nov 13 01:08) An edit round-trip keeps every `#` line byte for byte, the leading
