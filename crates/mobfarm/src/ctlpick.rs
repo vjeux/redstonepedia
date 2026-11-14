@@ -162,11 +162,15 @@ pub struct Cfg {
     pub merge_picks: bool,
     /// Planted picks: (the REL's gt, lane): the lane picks at that REL (still under the room term and HELD).
     pub force_pick: Vec<(i64, usize)>,
+    /// THE PICK-RATE RULE: at most this many picks per REL (0: no limit).
+    pub max_picks_per_rel: usize,
+    /// The lanes' leg times overridden (the napper's pick -> its leg arrival), e.g. b8949c96's measured 15-16 gt spacing.
+    pub leg_override: Option<[i64; 3]>,
 }
 
 impl Cfg {
     pub fn new(name: &str, period: i64, window: i64, merge: Merge) -> Cfg {
-        Cfg { name: name.to_string(), period, window, visit: 9, merge, repick: true, napped_first: false, rejoin_at: 2, pointer: false, day_jitter: vec![], held: 0, held_cap: 1, held_lane: None, ptr_step: 5, bed: false, halts: vec![], slip: vec![], late_picks: vec![], days: 8, missed: vec![], late: vec![], skipped: vec![], moved: vec![], ride_delay: vec![], skip_fix: true, lost_napper: vec![], resync: true, stop_stall: vec![], wayin_cap: 0, rs_extra: 0, bed_cycle: 333, missed_dep: vec![], extra_dep: vec![], gate_off: false, press_count: false, merge_picks: false, force_pick: vec![] }
+        Cfg { name: name.to_string(), period, window, visit: 9, merge, repick: true, napped_first: false, rejoin_at: 2, pointer: false, day_jitter: vec![], held: 0, held_cap: 1, held_lane: None, ptr_step: 5, bed: false, halts: vec![], slip: vec![], late_picks: vec![], days: 8, missed: vec![], late: vec![], skipped: vec![], moved: vec![], ride_delay: vec![], skip_fix: true, lost_napper: vec![], resync: true, stop_stall: vec![], wayin_cap: 0, rs_extra: 0, bed_cycle: 333, missed_dep: vec![], extra_dep: vec![], gate_off: false, press_count: false, merge_picks: false, force_pick: vec![], max_picks_per_rel: 0, leg_override: None }
     }
 }
 
@@ -227,6 +231,8 @@ pub struct Out {
     /// hold while the previous one was still at it (waiting behind the hold, on the flat top).
     pub reset_set_lag: Option<i64>,
     pub behind_hold: usize,
+    /// Picks deferred by THE PICK-RATE RULE.
+    pub rate_deferred: usize,
     /// The RELs at which the room term deferred a pick (gt).
     pub deferred_at: Vec<i64>,
     /// The most nappers WAITING for the bed at once (the queue depth, not in flight: ironspec 00:01), with `bed`.
@@ -679,6 +685,16 @@ pub fn run(cfg: &Cfg) -> Out {
                 in_flight.retain(|&e| e > t);
                 let open = pending.len() + assigned.iter().filter(|a| a.1 > gt).count();
                 o.max_open = o.max_open.max(open);
+                if due && cfg.max_picks_per_rel > 0 && picks_today - picks_before >= cfg.max_picks_per_rel {
+                    // (THE PICK-RATE RULE (priced for b8949c96 10:57 / G1 10:59, bunching at the second hold): at most this
+                    // many picks per REL: a further due lane defers to the next REL (a pointer target comes round again; a
+                    // scheduled pick moves one period))
+                    o.rate_deferred += 1;
+                    if !by_target && !due_repick {
+                        next_pick[l] += cfg.period;
+                    }
+                    due = false;
+                }
                 if due && cfg.wayin_cap > 0 && room >= cfg.wayin_cap as i64 {
                     // (THE WAY-IN ROOM TERM: the way-in's dry places are all spoken for: the pick is DEFERRED like HELD's)
                     o.wayin_deferred += 1;
@@ -749,9 +765,10 @@ pub fn run(cfg: &Cfg) -> Out {
                         // (`ride_delay`: a gate-G skip of the lane-7 intake + 100, a planted stall; a SHARED delay (after
                         // the merge) holds the same batch's later nappers behind it: carts never overtake)
                         let dly = cfg.ride_delay.iter().find(|r| r.0 == day && r.1 == l && r.2 == pick_no[l]).copied();
-                        let mut leg = gt + LEG[l] + dly.map_or(0, |r| r.3);
+                        let leg_t = cfg.leg_override.unwrap_or(LEG);
+                        let mut leg = gt + leg_t[l] + dly.map_or(0, |r| r.3);
                         if let Some((fl, fl_l)) = shared_floor {
-                            leg = leg.max(fl + LEG[l] - LEG[fl_l]);
+                            leg = leg.max(fl + leg_t[l] - leg_t[fl_l]);
                         }
                         // (G1 CHANGES 6 B5: each planted delay read back: the napper's leg arrival against its normal one)
                         if let Some(r) = dly {
@@ -1251,6 +1268,66 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
             lines.push(format!("  TWO PICKS PLANTED IN ONE REL: {n_two} RELs took both, {counted_two} counted two, at most {worst_d} in the way-in: {w}"));
             let c = v.control("ctl-pick CONTROL (G1 08:26 (7)): the planted two picks in one REL MERGED into one count, the stop stalled 6,000 gt at every phase: A 4th NAPPER IN THE WAY-IN by name", 1, worst_m > 3).to_string();
             lines.push(format!("  CONTROL (two picks merged into one count): at most {worst_m} nappers in the way-in: {c}"));
+        }
+        // (BUNCHING AT THE SECOND HOLD (b8949c96 10:57, G1 10:59): three nappers arriving 15-16 gt apart (three picks in one
+        // REL with an empty way-in: the cold start, or any REL where all three lanes' pointer targets come due) put the
+        // third behind the hold while the second waits at it: b8949c96's redsim run rests it on LANE 7's R HOLD (5,24,7), a
+        // cross-lane rest. THE PICK-RATE RULE (day-1's pick, priced): AT MOST ONE PICK PER REL (a further due lane defers to
+        // the next REL), so two nappers arrive >= 100 - the largest leg difference apart (46 gt on the model's legs) and the
+        // second finds the hold open or waits alone at it. Rows: three picks planted in each of the first 10 RELs of the run
+        // (the way-in empty), on the model's legs and on b8949c96's measured 16-gt spacing: no napper behind the hold; the
+        // control (today's form, no rate limit, the measured spacing): A NAPPER BEHIND THE HOLD by name; its nap cost)
+        {
+            let (mut behind_d, mut behind_c, mut rows_b, mut wayin_d) = (0usize, 0usize, 0usize, 0usize);
+            for legs in [None, Some([132i64, 148, 164])] {
+                for k in 1..=10i64 {
+                    let g = k * 100;
+                    let mut cb = design("bunched picks, one pick per REL", 3, None);
+                    cb.force_pick = vec![(g, 0), (g, 1), (g, 2)];
+                    cb.leg_override = legs;
+                    cb.max_picks_per_rel = 1;
+                    let ob = run(&cb);
+                    rows_b += 1;
+                    behind_d += ob.behind_hold;
+                    wayin_d = wayin_d.max(ob.max_wayin);
+                    if legs.is_some() {
+                        let mut cc = cb.clone();
+                        cc.max_picks_per_rel = 0;
+                        behind_c += run(&cc).behind_hold;
+                    }
+                }
+            }
+            let w = v.bar_n("ctl-pick: BUNCHED PICKS (three planted in one REL with the way-in empty, the model's legs and b8949c96's measured 16-gt spacing) under THE PICK-RATE RULE (one pick per REL): NO NAPPER WAITS BEHIND THE SECOND HOLD, the way-in never holds a 4th", rows_b, behind_d == 0 && wayin_d <= 3);
+            lines.push(format!("  BUNCHED PICKS under one pick per REL ({rows_b} rows): nappers behind the hold {behind_d}, at most {wayin_d} in the way-in: {w}"));
+            let c = v.control("ctl-pick CONTROL (b8949c96 10:57): today's form (no pick-rate rule), three picks in one REL on the measured 16-gt spacing: A NAPPER BEHIND THE SECOND HOLD by name (b8949c96's redsim rest on lane 7's R hold)", 1, behind_c > 0).to_string();
+            lines.push(format!("  CONTROL (no pick-rate rule): {behind_c} nappers behind the hold: {c}"));
+            let o1 = run(&{
+                let mut c1 = design("normal, one pick per REL", 3, None);
+                c1.max_picks_per_rel = 1;
+                c1
+            });
+            let sc = v.scope("ctl-pick: the pick-rate rule's nap cost", "priced for ironspec's ruling on the bunching fix");
+            lines.push(format!("  PRICED: ONE PICK PER REL on the normal nights: picks deferred by it {}, the worst nap interval {} gt{} (without it: {} gt): {sc}", o1.rate_deferred, o1.max_gap.0, if ok(&o1) { "" } else { " MISSES the nap bars" }, base.max_gap.0));
+            // (the multi-pick RELs are timing-sensitive (ctl-pick before the sensed-edge re-model printed 54 in 10 nights;
+            // the re-model's departure timing gives 0): the rule priced over the no-hold sweep's timings too, each point's
+            // multi-pick RELs without the rule, its deferrals and worst interval with it)
+            let mut pts = Vec::new();
+            let mut all_ok = true;
+            for cyc in [197i64, 168] {
+                for extra in [0i64, 20, 40, 60, 80, 120] {
+                    let mut c0 = design("sweep, no rate rule", 3, None);
+                    c0.bed_cycle = cyc;
+                    c0.rs_extra = extra;
+                    let o0 = run(&c0);
+                    let mut c1 = c0.clone();
+                    c1.max_picks_per_rel = 1;
+                    let o1 = run(&c1);
+                    all_ok &= ok(&o1);
+                    pts.push(format!("{cyc} + {extra}: {} multi-pick RELs -> {} deferred, worst {} gt{}", o0.multi_pick.len(), o1.rate_deferred, o1.max_gap.0, if ok(&o1) { "" } else { " MISSES" }));
+                }
+            }
+            let w = v.bar_n("ctl-pick: THE PICK-RATE RULE (one pick per REL) keeps the nap bars over the no-hold sweep (the cycle 197 / 168 gt, (B)'s travel + 0 / 20 / 40 / 60 / 80 / 120 gt)", 12, all_ok);
+            lines.push(format!("  THE PICK-RATE RULE over the no-hold sweep: {}: {w}", pts.join("; ")));
         }
         // (ironspec 06:28 (B), G1 06:29: RS_READY AT THE BALL EXIT (7,-3,4): its cost per visit (the previous rider's
         // travel from the R string (4,0,5) to the ball exit, 58f770cc measuring) against the nap margin: the design's
