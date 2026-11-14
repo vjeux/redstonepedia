@@ -20,10 +20,16 @@ pub struct Planted {
     pub label: String,
 }
 
-/// `X,Y,Z` or `X,Y,Z,VX,VY,VZ` (spaces allowed; a unicode minus read as '-'): strict, every value finite
-/// (G1's B8 on R4: "nan" is no coordinate). The cart carries the --rider passenger when one is given.
+/// `X,Y,Z` or `X,Y,Z,VX,VY,VZ`, optionally followed by `,rider` / `,none` (58f770cc's cart-states files:
+/// whether the cart carries the --rider passenger; without the field it does); spaces allowed, a unicode
+/// minus read as '-': strict, every value finite (G1's B8 on R4: "nan" is no coordinate).
 pub fn parse_planted(s: &str) -> Result<Planted, String> {
-    let v: Vec<f64> = s
+    let (nums, rider) = match s.rsplit_once(',') {
+        Some((head, last)) if last.trim() == "rider" => (head, true),
+        Some((head, last)) if last.trim() == "none" => (head, false),
+        _ => (s, true),
+    };
+    let v: Vec<f64> = nums
         .split(',')
         .map(|t| {
             let x = t.trim().replace('\u{2212}', "-").parse::<f64>().map_err(|e| format!("planted cart {s:?}: {t:?}: {e}"))?;
@@ -31,9 +37,9 @@ pub fn parse_planted(s: &str) -> Result<Planted, String> {
         })
         .collect::<Result<_, _>>()?;
     match v[..] {
-        [x, y, z] => Ok(Planted { pos: [x, y, z], motion: [0.0; 3], rider: true, label: format!("planted {s}") }),
-        [x, y, z, vx, vy, vz] => Ok(Planted { pos: [x, y, z], motion: [vx, vy, vz], rider: true, label: format!("planted {s}") }),
-        _ => Err(format!("planted cart {s:?}: X,Y,Z or X,Y,Z,VX,VY,VZ")),
+        [x, y, z] => Ok(Planted { pos: [x, y, z], motion: [0.0; 3], rider, label: format!("planted {s}") }),
+        [x, y, z, vx, vy, vz] => Ok(Planted { pos: [x, y, z], motion: [vx, vy, vz], rider, label: format!("planted {s}") }),
+        _ => Err(format!("planted cart {s:?}: X,Y,Z or X,Y,Z,VX,VY,VZ[,rider|,none]")),
     }
 }
 
@@ -431,6 +437,11 @@ mod tests {
         // (G1's B8) a non-finite value is no coordinate
         assert!(parse_planted("nan,16,0").unwrap_err().contains("finite"));
         assert!(parse_planted("1,inf,0").is_err());
+        // (58f770cc's cart-states files) a trailing rider / none field
+        let p = parse_planted("0.971788,1.034288,-3.5,-0.414735,-0.0,0.0,rider").unwrap();
+        assert!(p.rider && p.motion[0] == -0.414735);
+        assert!(!parse_planted("0.5,1.0,-3.5,0,0,0,none").unwrap().rider);
+        assert!(parse_planted("0.5,1.0,-3.5,0,0,0,maybe").is_err());
         let (f, notes) = parse_carts_file("# rests\n1.5,16.1875,0.49\n\n2.5,16.9775,1.28 # slot 2\n").unwrap();
         assert_eq!(f.len(), 2);
         assert_eq!(notes, vec!["rests".to_string(), "slot 2".to_string()]);
