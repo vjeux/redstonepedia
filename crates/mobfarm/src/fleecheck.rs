@@ -5626,14 +5626,17 @@ pub fn rail_positions_in(spec: &FarmSpec, lo: [i32; 3], hi: [i32; 3]) -> Vec<Vec
 /// (ironspec Nov 13 08:26, day-1's fail-safe answer) Every rider position within `radius` of a
 /// cell's centre (the bed head: a REST villager within 16 of an occupied bed is the exposure bar's
 /// subject): each rail cell every 0.1 along it (a slope's 0.97 too) and each `column` every 0.25,
-/// the rider's feet, grouped by cell with the least and greatest distance.
+/// the rider's feet, grouped by cell with the least and greatest distance. (ironspec Nov 14 07:25r, from
+/// tick-exact's 26.3 quote, part 56) The metric is the game's: distToCenterSqr(feet) < radius², STRICT, from
+/// the bed HEAD block's centre to the entity's exact FEET position (no eye, no bed-foot centre).
 pub fn near_positions(spec: &FarmSpec, columns: &[[f64; 4]], center: BlockPos, radius: f64) -> Vec<String> {
     let c = Vec3::new(center.x as f64 + 0.5, center.y as f64 + 0.5, center.z as f64 + 0.5);
-    let d = |p: &Vec3| ((p.x - c.x).powi(2) + (p.y - c.y).powi(2) + (p.z - c.z).powi(2)).sqrt();
+    let d2 = |p: &Vec3| (p.x - c.x).powi(2) + (p.y - c.y).powi(2) + (p.z - c.z).powi(2);
+    let inside = |p: &Vec3| d2(p) < radius * radius;
     let mut by: std::collections::BTreeMap<(i32, i32, i32), (String, usize, f64, f64)> = std::collections::BTreeMap::new();
     for (cell, _, p) in rider_positions(spec) {
-        let dd = d(&p);
-        if dd <= radius {
+        let dd = d2(&p).sqrt();
+        if inside(&p) {
             let e = by.entry((cell.x, cell.y, cell.z)).or_insert(("rail".into(), 0, f64::INFINITY, 0.0));
             e.1 += 1;
             e.2 = e.2.min(dd);
@@ -5645,8 +5648,8 @@ pub fn near_positions(spec: &FarmSpec, columns: &[[f64; 4]], center: BlockPos, r
         for i in 0..=n {
             let y = col[1] + if col[3] >= col[1] { 1.0 } else { -1.0 } * i as f64 * 0.25;
             let p = Vec3::new(col[0], y, col[2]);
-            let dd = d(&p);
-            if dd <= radius {
+            let dd = d2(&p).sqrt();
+            if inside(&p) {
                 let e = by.entry((p.x.floor() as i32, p.y.floor() as i32, p.z.floor() as i32)).or_insert(("column".into(), 0, f64::INFINITY, 0.0));
                 e.1 += 1;
                 e.2 = e.2.min(dd);
@@ -5656,10 +5659,14 @@ pub fn near_positions(spec: &FarmSpec, columns: &[[f64; 4]], center: BlockPos, r
     }
     let total: usize = by.values().map(|v| v.1).sum();
     let mut lines = vec![format!(
-        "rider positions within {radius} of {},{},{}'s centre (ironspec Nov 13 08:26: the exposure bar's subject; each rail cell every 0.1, each column every 0.25, the rider's feet): {total} positions in {} cells",
+        "rider positions with distToCenterSqr(feet) < {:.0} (strict, radius {radius}) from the bed head block {},{},{}'s centre {:.1},{:.1},{:.1} (ironspec Nov 13 08:26 / Nov 14 07:25r: the ball bar, 26.3's metric, the rider's exact FEET; each rail cell every 0.1, each column every 0.25): {total} positions in {} cells",
+        radius * radius,
         center.x,
         center.y,
         center.z,
+        c.x,
+        c.y,
+        c.z,
         by.len()
     )];
     for ((x, y, z), (kind, n, lo, hi)) in &by {
@@ -5937,9 +5944,15 @@ pub fn route_golem_floors(spec: &FarmSpec, biome: &'static str) -> Result<(Vec<S
 /// the block under it's, an ascending detector's above too), a hookless string's its six faces. A cell
 /// holding none of those is NOT JUDGED. The bar: 0. Returns the lines and the count.
 pub fn update_reach_components(spec: &FarmSpec, cells: &[BlockPos]) -> Result<(Vec<String>, usize), String> {
+    update_reach_components_allow(spec, cells, &[])
+}
+
+/// [`update_reach_components`] with the consumer cells the design means its updates to reach (`allow`; part 56).
+pub fn update_reach_components_allow(spec: &FarmSpec, cells: &[BlockPos], allow: &[BlockPos]) -> Result<(Vec<String>, usize), String> {
     let w = settled_world_void(spec)?;
     let mut lines = Vec::new();
     let mut n = 0usize;
+    let mut matched: Vec<BlockPos> = Vec::new();
     let n6 = |p: BlockPos| [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)].map(|(dx, dy, dz)| BlockPos::new(p.x + dx, p.y + dy, p.z + dz)).to_vec();
     for c in cells {
         let b = w.get(*c);
@@ -6015,26 +6028,100 @@ pub fn update_reach_components(spec: &FarmSpec, cells: &[BlockPos]) -> Result<(V
             return Err(format!("update reach: NOT JUDGED: {},{},{} holds {} (no string, hook, plate, detector or diode)", c.x, c.y, c.z, here.trim_start_matches("minecraft:")));
         };
         let mut hits = Vec::new();
-        for q in footprint.into_iter().filter(|q| q != c) {
+        let mut allowed_here = Vec::new();
+        // (G1 Nov 14 07:14, part 56) the source's own structure is no consumer of its update: an attached string's
+        // line (its strings and both hooks), a hook's own line likewise
+        let mut own: Vec<BlockPos> = vec![*c];
+        if id == "tripwire" || id == "tripwire_hook" {
+            for (dx, dz) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                let mut q = *c;
+                let mut line = Vec::new();
+                for _ in 0..41 {
+                    q = BlockPos::new(q.x + dx, q.y, q.z + dz);
+                    let st = w.get(q).to_string();
+                    if st.contains("tripwire_hook[") {
+                        line.push(q);
+                        own.extend(line.iter().copied());
+                        break;
+                    }
+                    if !st.contains("tripwire[") {
+                        break;
+                    }
+                    line.push(q);
+                }
+            }
+        }
+        // (G1 07:14 (2)) a diode sets its own state with flag 2, so the neighbours' shapes update: an observer
+        // WATCHING the diode (facing it) fires on every toggle: the diode's own six neighbours read for that
+        let mut fp: Vec<BlockPos> = footprint;
+        if matches!(id.as_str(), "repeater" | "comparator" | "observer") {
+            for q in n6(*c) {
+                let s = w.get(q).to_string();
+                if s.starts_with("minecraft:observer[") {
+                    let f = s.split_once("facing=").map(|(_, r)| r.split([',', ']']).next().unwrap_or("").to_string()).unwrap_or_default();
+                    let watched = match f.as_str() {
+                        "north" => BlockPos::new(q.x, q.y, q.z - 1),
+                        "south" => BlockPos::new(q.x, q.y, q.z + 1),
+                        "east" => BlockPos::new(q.x + 1, q.y, q.z),
+                        "west" => BlockPos::new(q.x - 1, q.y, q.z),
+                        "up" => BlockPos::new(q.x, q.y + 1, q.z),
+                        _ => BlockPos::new(q.x, q.y - 1, q.z),
+                    };
+                    if watched == *c && !fp.contains(&q) {
+                        fp.push(q);
+                    }
+                }
+            }
+        }
+        for q in fp.into_iter().filter(|q| !own.contains(q)) {
             let s = w.get(q).to_string();
             let qid = s.trim_start_matches("minecraft:").split('[').next().unwrap_or("").to_string();
+            // (G1 Nov 14 07:14 (1), part 56: DEFAULT-DENY) every block the update reaches that isn't inert to
+            // neighbour updates (doors, trapdoors, fence gates, hoppers, note blocks, bells, lamps, TNT, copper
+            // bulbs, crafters, rails of every kind, diodes, observers, pistons, droppers, dispensers, dust, any
+            // unknown id) is a consumer, failing by name unless its cell is allowed (`--allow`, read back)
+            if update_inert(&qid) {
+                continue;
+            }
             let hit = format!("{} at {},{},{}", s.trim_start_matches("minecraft:"), q.x, q.y, q.z);
-            if matches!(qid.as_str(), "observer" | "piston" | "sticky_piston" | "piston_head" | "moving_piston" | "dropper" | "dispenser") && !hits.contains(&hit) {
+            if allow.contains(&q) {
+                if !allowed_here.contains(&hit) {
+                    allowed_here.push(hit);
+                }
+                matched.push(q);
+            } else if !hits.contains(&hit) {
                 hits.push(hit);
             }
         }
         n += hits.len();
         lines.push(format!(
-            "update reach of {},{},{} ({}; {what}): {} observer / piston / dropper / dispenser{}",
+            "update reach of {},{},{} ({}; {what}): {} consumer(s) outside the allowed{}{}",
             c.x,
             c.y,
             c.z,
             here.trim_start_matches("minecraft:"),
             hits.len(),
-            if hits.is_empty() { " (PASS)".to_string() } else { format!(": {} (FAIL)", hits.join("; ")) }
+            if hits.is_empty() { " (PASS)".to_string() } else { format!(": {} (FAIL)", hits.join("; ")) },
+            if allowed_here.is_empty() { String::new() } else { format!("; allowed: {}", allowed_here.join("; ")) }
         ));
     }
+    // (G1 07:14 (1): an allow no cell's update reaches is stale and fails)
+    for a in allow.iter().filter(|a| !matched.contains(a)) {
+        n += 1;
+        lines.push(format!("allow {},{},{} ({}): no cell's update reaches it: a stale allow (FAIL)", a.x, a.y, a.z, w.get(*a).to_string().trim_start_matches("minecraft:")));
+    }
     Ok((lines, n))
+}
+
+/// (G1 Nov 14 07:14 (1), part 56) Blocks inert to a neighbour update: air, full plain blocks (stone and its kin,
+/// glass and panes, glowstone, slime, honey, obsidian, ores' storage blocks, wool, concrete, terracotta, planks,
+/// logs, wood, bricks), slabs. Anything else update-reach lists as a consumer (default-deny); falling blocks
+/// (sand, gravel), soul sand and magma (bubble columns), ice and every redstone part included.
+pub fn update_inert(id: &str) -> bool {
+    matches!(
+        id,
+        "air" | "cave_air" | "void_air" | "glass" | "tinted_glass" | "glass_pane" | "stone" | "cobblestone" | "smooth_stone" | "glowstone" | "slime_block" | "honey_block" | "obsidian" | "crying_obsidian" | "iron_block" | "gold_block" | "diamond_block" | "emerald_block" | "netherite_block" | "quartz_block" | "smooth_quartz" | "netherrack" | "end_stone" | "sea_lantern" | "cobweb" | "snow_block" | "dirt" | "deepslate" | "cobbled_deepslate" | "terracotta" | "andesite" | "diorite" | "granite" | "polished_andesite" | "polished_diorite" | "polished_granite" | "sandstone" | "smooth_sandstone" | "cut_sandstone" | "red_sandstone" | "calcite" | "tuff" | "blackstone" | "basalt" | "smooth_basalt" | "purpur_block" | "prismarine" | "packed_mud" | "bricks"
+    ) || ["_stained_glass", "_stained_glass_pane", "_slab", "_planks", "_log", "_wood", "_wool", "_concrete", "_terracotta", "_bricks"].iter().any(|s| id.ends_with(s))
 }
 
 /// Whether a block can ever be a redstone signal source, whatever its state (a wire counts: redsim's
@@ -11201,6 +11288,30 @@ mod gate_tests {
         assert!(dn == 1 && dl[0].contains("a diode: the cell its output faces 2,1,3") && dl[0].contains("2,1,4 observer[") && dl[0].contains("observer[facing=up,powered=false] at 2,1,4") && dl[0].ends_with("(FAIL)"), "an observer in a repeater's update set: {dl:?}");
         let (dl2, dn2) = super::update_reach_components(&mk(vec![(b(2, 1, 2), rep), (b(2, 1, 1), obs)]), &[b(2, 1, 2)]).unwrap_or_else(|e| panic!("{e}"));
         assert!(dn2 == 0 && !dl2[0].contains("2,1,1") && dl2[0].contains("2,0,3 stone") && dl2[0].ends_with("(PASS)"), "an observer behind the repeater: {dl2:?}");
+        // (G1 Nov 14 07:14, part 56) an observer WATCHING the repeater (behind it, facing it) fires on the diode's
+        // own state change: it fails by name
+        let watch = p("minecraft:observer[facing=south,powered=false]");
+        let (dw, nw) = super::update_reach_components(&mk(vec![(b(2, 1, 2), rep), (b(2, 1, 1), watch)]), &[b(2, 1, 2)]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(nw == 1 && dw[0].contains("observer[facing=south,powered=false] at 2,1,1") && dw[0].ends_with("(FAIL)"), "an observer watching the repeater: {dw:?}");
+        // DEFAULT-DENY: a comparator whose output faces a lamp: the lamp (no observer, piston, dropper or dispenser)
+        // fails by name; allowed, it passes and is named; an allow nothing reaches is stale and fails
+        let cmp = p("minecraft:comparator[facing=north,mode=compare,powered=false]");
+        let lamp = p("minecraft:redstone_lamp[lit=false]");
+        let cl = mk(vec![(b(2, 1, 2), cmp), (b(2, 1, 3), lamp)]);
+        let (c1, n1) = super::update_reach_components(&cl, &[b(2, 1, 2)]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(n1 == 1 && c1[0].contains("redstone_lamp[lit=false] at 2,1,3") && c1[0].ends_with("(FAIL)"), "a lamp in a comparator's front: {c1:?}");
+        let (c2, n2) = super::update_reach_components_allow(&cl, &[b(2, 1, 2)], &[b(2, 1, 3)]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(n2 == 0 && c2[0].contains("(PASS); allowed: redstone_lamp[lit=false] at 2,1,3"), "the lamp allowed: {c2:?}");
+        let (c3, n3) = super::update_reach_components_allow(&cl, &[b(2, 1, 2)], &[b(2, 1, 3), b(4, 1, 4)]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(n3 == 1 && c3.iter().any(|l| l.starts_with("allow 4,1,4") && l.ends_with("a stale allow (FAIL)")), "a stale allow: {c3:?}");
+        // an observer as the source: its output (behind it) faces a hopper: the hopper fails by name
+        let obs_src = p("minecraft:observer[facing=north,powered=false]");
+        let (o1, no1) = super::update_reach_components(&mk(vec![(b(2, 1, 2), obs_src), (b(2, 1, 3), p("minecraft:hopper[enabled=true,facing=down]"))]), &[b(2, 1, 2)]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(no1 == 1 && o1[0].contains("a diode: the cell its output faces 2,1,3") && o1[0].contains("hopper[") && o1[0].ends_with("(FAIL)"), "a hopper behind an observer: {o1:?}");
+        // (ironspec 07:25r, part 56) the ball metric: distToCenterSqr(feet) < radius², strict, from the bed head
+        // block's centre: a column point exactly 16 off is outside, one 15.75 off inside
+        let np = super::near_positions(&mk(Vec::new()), &[[0.5, 16.25, 0.5, 16.5]], b(0, 0, 0), 16.0);
+        assert!(np[0].contains("distToCenterSqr(feet) < 256 (strict") && np[0].ends_with("1 positions in 1 cells") && np.iter().any(|l| l.contains("column 0,16,0: 1 positions, 15.75..15.75")), "the strict ball: {np:?}");
     }
 
     /// (ironspec Nov 13 21:39, G1 21:39: the napper's path probe) A villager standing on a rail paths onto
