@@ -5495,6 +5495,127 @@ pub fn power_out(spec: &FarmSpec, cells: &[BlockPos], allow: &[BlockPos]) -> Res
     Ok((lines, bad))
 }
 
+/// (tick-exact Nov 13 22:48, a/2239880473237753: 26.3's `RedstoneWireEvaluator.getIncomingWireSignal`
+/// 29-47) Every dust step: a wire U and a wire L one cell over and one DOWN. The game reads a wire
+/// diagonally ABOVE a horizontal neighbour only when that neighbour is a conductor (and the cell over
+/// the reading wire isn't), else the wire diagonally BELOW it. So power passes DOWN the step (U to L)
+/// only when the block under U is a conductor and the block over L isn't; it passes UP (L to U) only when
+/// the block over L isn't a conductor. Each step listed with both directions; a step whose downward
+/// flow is blocked fails unless `allow` names it as a meant one-way step (U then L). Returns the lines and
+/// the count of failures. (G1 Nov 13 23:00 (a)) A design with no dust step is NOT JUDGED (a wrong path or
+/// frame would read clean) unless `allow_empty`. (G1 23:00 (b), ironspec's weak-power check) A conductor
+/// under an upper wire is powered whenever that wire is lit (dust powers the block it stands on), and a
+/// mechanism beside it reads that: each such conductor clears power-out: every rail, piston, lamp, door
+/// or trapdoor, diode or other consumer beside it (dust ignores a weakly powered block) and every torch
+/// on it fails unless `allow_powered` names it (a stale one fails).
+pub fn dust_steps(spec: &FarmSpec, allow: &[(BlockPos, BlockPos)], allow_empty: bool, allow_powered: &[BlockPos]) -> Result<(Vec<String>, usize), String> {
+    let w = settled_world_void(spec)?;
+    let wire = |q: BlockPos| matches!(w.get(q), redsim::block::Block::Wire { .. });
+    let cond = |q: BlockPos| redsim::behavior::is_conductor(&w, &w.get(q), q);
+    let short = |q: BlockPos| w.get(q).to_string().trim_start_matches("minecraft:").split('[').next().unwrap_or("").to_string();
+    let mut wires: Vec<BlockPos> = spec.blocks.iter().map(|(p, _)| *p).filter(|p| wire(*p)).collect();
+    wires.sort_by_key(|p| (p.y, p.z, p.x));
+    let mut lines = Vec::new();
+    let mut bad = 0usize;
+    let mut steps = 0usize;
+    let mut conductors: Vec<(BlockPos, BlockPos)> = Vec::new();
+    for u in &wires {
+        for (dx, dz) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+            let l = BlockPos::new(u.x + dx, u.y - 1, u.z + dz);
+            if !wire(l) {
+                continue;
+            }
+            steps += 1;
+            let (under_u, over_l) = (u.below(), BlockPos::new(u.x + dx, u.y, u.z + dz));
+            if cond(under_u) && !conductors.iter().any(|(c, _)| *c == under_u) {
+                conductors.push((under_u, *u));
+            }
+            let down = cond(under_u) && !cond(over_l);
+            let up = !cond(over_l);
+            let meant = allow.contains(&(*u, l));
+            let why_down = if down {
+                "carries".to_string()
+            } else if !cond(under_u) {
+                format!("BLOCKED (the {} under the upper wire at {},{},{} is no conductor)", short(under_u), under_u.x, under_u.y, under_u.z)
+            } else {
+                format!("BLOCKED (the {} over the lower wire at {},{},{} is a conductor)", short(over_l), over_l.x, over_l.y, over_l.z)
+            };
+            let why_up = if up { "carries".to_string() } else { format!("BLOCKED (the {} over the lower wire is a conductor)", short(over_l)) };
+            if !down && !meant {
+                bad += 1;
+            }
+            lines.push(format!(
+                "dust step {},{},{} -> {},{},{} (one down): down {why_down}; up {why_up}{}",
+                u.x,
+                u.y,
+                u.z,
+                l.x,
+                l.y,
+                l.z,
+                if down {
+                    String::new()
+                } else if meant {
+                    ": a declared one-way step (allowed)".to_string()
+                } else {
+                    " (FAIL: power can't pass down this step)".to_string()
+                }
+            ));
+        }
+    }
+    if steps == 0 && !allow_empty {
+        return Err(format!("dust steps: NOT JUDGED: the design has no dust step ({} wire(s)): a wrong path or frame would read clean (--allow-empty for a design meant to have none)", wires.len()));
+    }
+    // (G1 23:00 (b): each conductor under an upper wire clears power-out: the wire powers it whenever it is
+    // lit, and every mechanism beside it reads a weakly powered block; dust ignores one)
+    let n6 = |p: BlockPos| [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)].map(|(dx, dy, dz)| BlockPos::new(p.x + dx, p.y + dy, p.z + dz));
+    let mut powered_seen: Vec<BlockPos> = Vec::new();
+    for (c, u) in &conductors {
+        let mut hits: Vec<(BlockPos, String)> = Vec::new();
+        for q in n6(*c) {
+            if wire(q) {
+                continue;
+            }
+            let qs = w.get(q).to_string();
+            let qid = short(q);
+            if torch_support(q, &qs) == Some(*c) {
+                hits.push((q, format!("the {qid} at {},{},{} on it (it turns off when its support is powered)", q.x, q.y, q.z)));
+            } else if power_consumer(&qid) {
+                hits.push((q, format!("the {qid} at {},{},{} beside it", q.x, q.y, q.z)));
+            }
+        }
+        powered_seen.extend(hits.iter().map(|(q, _)| *q));
+        let outside: Vec<&String> = hits.iter().filter(|(q, _)| !allow_powered.contains(q)).map(|(_, t)| t).collect();
+        bad += outside.len();
+        lines.push(format!(
+            "conductor {},{},{} ({}) under the upper wire {},{},{}: powered whenever it is lit: {}",
+            c.x,
+            c.y,
+            c.z,
+            short(*c),
+            u.x,
+            u.y,
+            u.z,
+            if hits.is_empty() {
+                "no consumer beside it (PASS)".to_string()
+            } else if outside.is_empty() {
+                format!("{} (allowed) (PASS)", hits.iter().map(|(_, t)| t.as_str()).collect::<Vec<_>>().join("; "))
+            } else {
+                format!("{} (FAIL)", outside.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("; "))
+            }
+        ));
+    }
+    for (u, l) in allow.iter().filter(|(u, l)| !wires.contains(u) || !wire(*l)) {
+        bad += 1;
+        lines.push(format!("allow {},{},{}>{},{},{}: no such dust step: a stale allow (FAIL)", u.x, u.y, u.z, l.x, l.y, l.z));
+    }
+    for a in allow_powered.iter().filter(|a| !powered_seen.contains(a)) {
+        bad += 1;
+        lines.push(format!("allow-powered {},{},{}: no conductor under an upper wire powers it: a stale allow (FAIL)", a.x, a.y, a.z));
+    }
+    lines.insert(0, format!("dust steps (tick-exact 22:48, RedstoneWireEvaluator 29-47): {} wire(s), {steps} one-down step(s), {} conductor(s) under an upper wire checked for power-out, {bad} failing", wires.len(), conductors.len()));
+    Ok((lines, bad))
+}
+
 /// (G1 Nov 13 21:30, ironspec 21:32: component-bound cells, kind and facing asserted) Each expectation
 /// `x,y,z=ID[key=value,...]` against the settled design: the cell's block id must be ID and every listed
 /// property must hold (a repeater facing B2, a torch, a diode's facing). Returns the lines and the count
@@ -9853,6 +9974,64 @@ mod gate_tests {
         assert!(rb && lb[0].contains("REACHED"), "the bed-top step-up: {lb:?}");
         let (lg, rg) = super::standing_path_probe(&bed(true), v(2.5, 1.0, 2.5), b(3, 1, 2)).unwrap_or_else(|e| panic!("{e}"));
         assert!(!rg && lg[0].contains("unreached"), "a full block two above the head: {lg:?}");
+    }
+
+    /// (tick-exact Nov 13 22:48) Dust steps: dust on stone stepping down onto dust beside it carries
+    /// down (a conductor under the upper wire); the same on glass is blocked down and still carries up;
+    /// a conductor over the lower wire blocks both; a declared one-way step passes; a stale allow fails.
+    #[test]
+    fn dust_steps_down_through_conductors_only() {
+        let p = |s: &str| redsim::block::Block::parse(s).unwrap_or_else(|_| redsim::block::Block::Terrain(redsim::terrain::blocks::id_of(s).unwrap_or_else(|| panic!("{s}"))));
+        let dust = "minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]";
+        let mk = |support: &str, over_lower: &str| {
+            let mut blocks = Vec::new();
+            for x in 0..=4 {
+                for z in 0..=2 {
+                    blocks.push((b(x, 0, z), p("minecraft:stone")));
+                }
+            }
+            // the upper wire at (1,2,1) on a block at (1,1,1); the lower one at (2,1,1) on the floor
+            blocks.push((b(1, 1, 1), p(support)));
+            blocks.push((b(1, 2, 1), p(dust)));
+            blocks.push((b(2, 1, 1), p(dust)));
+            if !over_lower.is_empty() {
+                blocks.push((b(2, 2, 1), p(over_lower)));
+            }
+            redsim::entity::mob::farm::FarmSpec { blocks, entities: Vec::new(), output: b(0, -1, 0), lo: b(0, -1, 0), hi: b(4, 4, 2), block_entities: Vec::new(), rock: false, nether: None, land: false }
+        };
+        let (l, n) = super::dust_steps(&mk("minecraft:stone", ""), &[], false, &[]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(n == 0 && l.iter().any(|x| x.starts_with("dust step 1,2,1 -> 2,1,1 (one down): down carries; up carries")), "on stone: {l:?}");
+        let (lg, ng) = super::dust_steps(&mk("minecraft:glass", ""), &[], false, &[]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(ng == 1 && lg.iter().any(|x| x.starts_with("dust step 1,2,1 -> 2,1,1") && x.contains("down BLOCKED (the glass under the upper wire") && x.contains("up carries") && x.ends_with("(FAIL: power can't pass down this step)")), "on glass: {lg:?}");
+        let (la, na) = super::dust_steps(&mk("minecraft:glass", ""), &[(b(1, 2, 1), b(2, 1, 1))], false, &[]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(na == 0 && la.iter().any(|x| x.ends_with("a declared one-way step (allowed)")), "allowed: {la:?}");
+        let (lc, nc) = super::dust_steps(&mk("minecraft:stone", "minecraft:stone"), &[], false, &[]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(nc == 1 && lc.iter().any(|x| x.contains("down BLOCKED (the stone over the lower wire at 2,2,1 is a conductor)") && x.contains("up BLOCKED")), "a conductor over the lower wire: {lc:?}");
+        let (ls, ns) = super::dust_steps(&mk("minecraft:stone", ""), &[(b(3, 2, 1), b(4, 1, 1))], false, &[]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(ns == 1 && ls.iter().any(|x| x.starts_with("allow 3,2,1>4,1,1: no such dust step")), "a stale allow: {ls:?}");
+        // (G1 23:00 (a)) no dust step at all: NOT JUDGED, unless allowed empty
+        let mut nd = mk("minecraft:stone", "");
+        nd.blocks.retain(|(_, s)| !s.to_string().contains("redstone_wire"));
+        let e0 = super::dust_steps(&nd, &[], false, &[]).err().unwrap_or_default();
+        assert!(e0.contains("NOT JUDGED") && e0.contains("no dust step"), "no dust: {e0}");
+        let (l0, n0) = super::dust_steps(&nd, &[], true, &[]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(n0 == 0 && l0[0].contains("0 one-down step(s)"), "allowed empty: {l0:?}");
+        // (G1 23:00 (b)) the stone under the upper wire is powered whenever the wire is lit: with nothing
+        // beside it it passes; a trapdoor beside it fails by name and passes allowed; a wall torch on it
+        // fails; a stale allow-powered fails
+        assert!(l.iter().any(|x| x.starts_with("conductor 1,1,1 (stone) under the upper wire 1,2,1") && x.ends_with("no consumer beside it (PASS)")), "the plain stone step: {l:?}");
+        let mut td = mk("minecraft:stone", "");
+        td.blocks.push((b(1, 1, 0), p("minecraft:oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]")));
+        let (lt, nt) = super::dust_steps(&td, &[], false, &[]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(nt == 1 && lt.iter().any(|x| x.starts_with("conductor 1,1,1 (stone) under the upper wire 1,2,1") && x.contains("the oak_trapdoor at 1,1,0 beside it") && x.ends_with("(FAIL)")), "a trapdoor beside the conductor: {lt:?}");
+        let (lta, nta) = super::dust_steps(&td, &[], false, &[b(1, 1, 0)]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(nta == 0 && lta.iter().any(|x| x.ends_with("(allowed) (PASS)")), "allowed: {lta:?}");
+        let mut tt = mk("minecraft:stone", "");
+        tt.blocks.push((b(1, 1, 0), p("minecraft:redstone_wall_torch[facing=north,lit=true]")));
+        let (ltt, ntt) = super::dust_steps(&tt, &[], false, &[]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(ntt == 1 && ltt.iter().any(|x| x.contains("the redstone_wall_torch at 1,1,0 on it")), "a torch on the conductor: {ltt:?}");
+        let (lsp, nsp) = super::dust_steps(&mk("minecraft:stone", ""), &[], false, &[b(4, 1, 1)]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(nsp == 1 && lsp.iter().any(|x| x.starts_with("allow-powered 4,1,1")), "a stale allow-powered: {lsp:?}");
     }
 
     /// (G1 Nov 13 21:30, ironspec 21:32) Component-bound cells, kind and facing asserted: a repeater

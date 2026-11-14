@@ -3327,6 +3327,24 @@ pub enum MobfarmCmd {
         #[arg(long)]
         expect: Option<String>,
     },
+    /// (tick-exact Nov 13 22:48, G1 23:00) Every dust step (a wire and a wire one over and one down): power
+    /// passes down only with a conductor under the upper wire and none over the lower one (26.3's
+    /// RedstoneWireEvaluator); each listed both ways; a blocked downward step fails unless --allow-one-way
+    /// U>L names it; each conductor under an upper wire clears power-out (a consumer beside it or a torch
+    /// on it fails unless --allow-powered names it); no dust step at all is NOT JUDGED unless --allow-empty.
+    DustSteps {
+        design: PathBuf,
+        /// A meant one-way step x,y,z>x,y,z (the upper wire, then the lower; repeatable).
+        #[arg(long, allow_hyphen_values = true)]
+        allow_one_way: Vec<String>,
+        /// A design meant to have no dust step (else 0 steps is NOT JUDGED).
+        #[arg(long)]
+        allow_empty: bool,
+        /// A consumer cell x,y,z beside a conductor under an upper wire that the design means to power
+        /// (repeatable; a stale one fails).
+        #[arg(long, allow_hyphen_values = true)]
+        allow_powered: Vec<String>,
+    },
     /// (G1 Nov 13 21:30, ironspec 21:32) Component-bound cells, kind and facing asserted: each --expect
     /// x,y,z=ID[key=value,...] against the settled design; fails on any cell that doesn't hold it.
     AssertBlocks {
@@ -9477,6 +9495,25 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
             anyhow::ensure!(n == 0, "power out: {n} consumer(s) outside the allowed (bar 0)");
+        }
+        MobfarmCmd::DustSteps { design, allow_one_way, allow_empty, allow_powered } => {
+            let (_c, spec) = load(version, &design)?;
+            let cell = |s: &str| -> anyhow::Result<redsim::pos::BlockPos> {
+                let v: Vec<i32> = s.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("{s}: {e}"))?;
+                anyhow::ensure!(v.len() == 3, "{s}: x,y,z");
+                Ok(redsim::pos::BlockPos::new(v[0], v[1], v[2]))
+            };
+            let mut allow = Vec::new();
+            for a in &allow_one_way {
+                let (u, l) = a.split_once('>').ok_or_else(|| anyhow::anyhow!("--allow-one-way {a}: x,y,z>x,y,z"))?;
+                allow.push((cell(u)?, cell(l)?));
+            }
+            let powered = allow_powered.iter().map(|s| cell(s)).collect::<anyhow::Result<Vec<_>>>()?;
+            let (lines, n) = crate::fleecheck::dust_steps(&spec, &allow, allow_empty, &powered).map_err(|e| anyhow::anyhow!(e))?;
+            for l in &lines {
+                println!("{l}");
+            }
+            anyhow::ensure!(n == 0, "dust steps: {n} failing");
         }
         MobfarmCmd::AssertBlocks { design, expect } => {
             let (_c, spec) = load(version, &design)?;
