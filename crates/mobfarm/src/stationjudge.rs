@@ -219,6 +219,10 @@ pub fn fails(s: &DropStats, launch_min: i64, edge: i64) -> Vec<&'static str> {
     if s.drive_off_control > 0 {
         v.push("the lever-off control's pocket drive never fired");
     }
+    // (commit E: the holds' built drive: each trapdoor open and shut at its declared iteration)
+    if s.hold_drive_off > 0 {
+        v.push("a hold's trapdoor off its declared tick (the holds' built drive)");
+    }
     // (ironfarm's C-fix rows, ironspec 10:29 (2) / 10:56: no cart leaves a watched cell westward;
     // no cart rests off its rails at the lip; G1 on 407a29682 (N1): a check that saw no cart is
     // NOT JUDGED, a failure)
