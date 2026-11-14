@@ -685,7 +685,8 @@ lowest y. It prints:
     its rods; with `--lightning-ready` (refused without `--write-layout`), its three model layers,
     declared in the file's head, make it load in mctas and give every strike column a top: portal
     cells as air, the carts' and boats' Passengers lists dropped (their other tags kept, the passengers
-    counted), and the lightning print's ground plane;
+    counted), and the lightning print's ground plane; an entity SNBT it doesn't read (a single-quoted
+    string, an unclosed string or list) is refused by name (exit 4), never skimmed;
 - the loader's portal cells and frames in the farm frame;
 - loader-long's command line.
 
@@ -697,7 +698,8 @@ redsim: every crossing by portal, a golem in each pad (the runner's, at the firs
 reference timing row). Every bar FAILS by name: arrivals at the loader's own portal with the worst gap
 within 300 gt, launches on both sides, the items kept (less one item per spit redsim refused at a
 loader dropper while `Run::start` settled the Nether part, each matched to the Nether side's shortfall
-read back right after the start; any other loss fails), golems placed (none placed fails) and crossing
+read back right after the start; any other loss fails, and a refused spit whose message the runner
+can't read, or at no loader dropper, fails by name and explains no item), golems placed (none placed fails) and crossing
 to their twins, the world open inside the run, no crossing's copy missing, and no world error other
 than the two redsim model limits NOTES names for loader-clock-x8 (the light model's extended sticky
 piston and piston head; a spit refused while `Run::start` settles the Nether part). A failed bar exits

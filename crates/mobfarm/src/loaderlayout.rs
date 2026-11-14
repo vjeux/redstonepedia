@@ -175,8 +175,11 @@ pub fn compose(parts: &[Laid], lightning_ready: bool) -> Result<(Design, Vec<Str
         }
         let (mut vehicles, mut riders) = (0, 0);
         for e in d.entities.iter_mut() {
-            // (G1 09:47 N: only the Passengers list goes; every other tag, Rotation included, stays)
-            if let Some((rest, k)) = e.nbt.as_deref().and_then(strip_passengers) {
+            // (G1 09:47 N: only the Passengers list goes; every other tag, Rotation included, stays; an
+            // SNBT the stripper doesn't read is refused by name, ironspec 10:35a (4) (2))
+            let Some(n) = e.nbt.as_deref() else { continue };
+            let stripped = strip_passengers(n).map_err(|why| format!("--lightning-ready: the {} at ({:.2},{:.2},{:.2}): {why}", e.kind, e.pos[0], e.pos[1], e.pos[2]))?;
+            if let Some((rest, k)) = stripped {
                 e.nbt = if rest.trim() == "{}" { None } else { Some(rest) };
                 vehicles += 1;
                 riders += k;
@@ -197,11 +200,14 @@ pub fn compose(parts: &[Laid], lightning_ready: bool) -> Result<(Design, Vec<Str
     Ok((d, notes))
 }
 
-/// (G1 09:47 N) An entity's SNBT without its top-level `Passengers:[...]` (every other tag kept, Rotation
-/// included) and how many passengers the list held; None when it has no Passengers list.
-fn strip_passengers(nbt: &str) -> Option<(String, usize)> {
-    let b = nbt.as_bytes();
-    let (mut depth, mut in_str, mut i) = (0i32, false, 0usize);
+/// The structural bytes of an SNBT text, with their indices: every byte outside its double-quoted strings
+/// (a backslash escaping the next byte inside one). A single-quoted string (SNBT allows one) is not read:
+/// REFUSED by name, as is an unclosed double-quoted string (ironspec 10:35a (4) (2), G1 10:35).
+fn snbt_structure(s: &str) -> Result<Vec<(usize, u8)>, String> {
+    let b = s.as_bytes();
+    let mut out = Vec::new();
+    let mut in_str = false;
+    let mut i = 0;
     while i < b.len() {
         let c = b[i];
         if in_str {
@@ -212,31 +218,38 @@ fn strip_passengers(nbt: &str) -> Option<(String, usize)> {
             if c == b'"' {
                 in_str = false;
             }
-            i += 1;
-            continue;
+        } else if c == b'"' {
+            in_str = true;
+        } else if c == b'\'' {
+            return Err(format!("a single-quoted SNBT string at byte {i} of {s:?}: not read, refused"));
+        } else {
+            out.push((i, c));
         }
+        i += 1;
+    }
+    if in_str {
+        return Err(format!("an unclosed string in {s:?}: not read, refused"));
+    }
+    Ok(out)
+}
+
+/// (G1 09:47 N, 10:35; ironspec 10:35a (4) (2)) An entity's SNBT without its top-level `Passengers:[...]`
+/// (every other tag kept, Rotation included; brackets inside a double-quoted string are text) and how
+/// many passengers the list held: Ok(None) when it has no Passengers list; an SNBT this doesn't read (a
+/// single-quoted string, an unclosed string or list) is refused by name.
+fn strip_passengers(nbt: &str) -> Result<Option<(String, usize)>, String> {
+    let b = nbt.as_bytes();
+    let st = snbt_structure(nbt)?;
+    let mut depth = 0i32;
+    for (k, &(i, c)) in st.iter().enumerate() {
         match c {
-            b'"' => in_str = true,
             b'{' | b'[' => depth += 1,
             b'}' | b']' => depth -= 1,
-            _ if depth == 1 && nbt[i..].starts_with("Passengers:[") && matches!(b[i - 1], b'{' | b',') => {
+            b'P' if depth == 1 && i > 0 && nbt[i..].starts_with("Passengers:[") && matches!(b[i - 1], b'{' | b',') => {
                 let open = i + "Passengers:".len();
-                let (mut d, mut j, mut s2, mut n) = (0i32, open, false, 0usize);
-                while j < b.len() {
-                    let cj = b[j];
-                    if s2 {
-                        if cj == b'\\' {
-                            j += 2;
-                            continue;
-                        }
-                        if cj == b'"' {
-                            s2 = false;
-                        }
-                        j += 1;
-                        continue;
-                    }
+                let (mut d, mut n, mut close) = (0i32, 0usize, None);
+                for &(j, cj) in st[k..].iter().filter(|(j, _)| *j >= open) {
                     match cj {
-                        b'"' => s2 = true,
                         b'[' | b'{' => {
                             if d == 1 && cj == b'{' {
                                 n += 1;
@@ -246,26 +259,26 @@ fn strip_passengers(nbt: &str) -> Option<(String, usize)> {
                         b']' | b'}' => {
                             d -= 1;
                             if d == 0 {
+                                close = Some(j);
                                 break;
                             }
                         }
                         _ => {}
                     }
-                    j += 1;
                 }
-                let (mut a, mut z) = (i, (j + 1).min(b.len()));
+                let Some(close) = close else { return Err(format!("an unclosed Passengers list in {nbt:?}: not read, refused")) };
+                let (mut a, mut z) = (i, close + 1);
                 if z < b.len() && b[z] == b',' {
                     z += 1;
                 } else if b[a - 1] == b',' {
                     a -= 1;
                 }
-                return Some((format!("{}{}", &nbt[..a], &nbt[z..]), n));
+                return Ok(Some((format!("{}{}", &nbt[..a], &nbt[z..]), n)));
             }
             _ => {}
         }
-        i += 1;
     }
-    None
+    Ok(None)
 }
 
 /// The binary rule's global flags as mctas's dispatch parsed them (`--cite <commit>` / `--cite=<commit>`,
@@ -1443,13 +1456,36 @@ mod tests {
 
     #[test]
     fn only_the_passengers_list_is_stripped_and_its_passengers_counted() {
-        // (G1 09:47 N: the top-level list only, nested lists and quoted brackets aside)
-        assert_eq!(strip_passengers("{Passengers:[{id:\"minecraft:villager\"}]}"), Some(("{}".to_string(), 1)));
+        // (G1 09:47 N: the top-level list only, nested lists and double-quoted brackets aside)
+        assert_eq!(strip_passengers("{Passengers:[{id:\"minecraft:villager\"}]}"), Ok(Some(("{}".to_string(), 1))));
         assert_eq!(
-            strip_passengers("{Rotation:[90.0f,0.0f],Passengers:[{id:\"a\",Passengers:[{id:\"b\"}]},{id:\"c\",CustomName:'\"[x]\"'}],Invulnerable:1b}"),
-            Some(("{Rotation:[90.0f,0.0f],Invulnerable:1b}".to_string(), 2))
+            strip_passengers("{Rotation:[90.0f,0.0f],Passengers:[{id:\"a\",Passengers:[{id:\"b\"}]},{id:\"c\",CustomName:\"[x\"}],Invulnerable:1b}"),
+            Ok(Some(("{Rotation:[90.0f,0.0f],Invulnerable:1b}".to_string(), 2)))
         );
-        assert_eq!(strip_passengers("{Rotation:[90.0f,0.0f]}"), None);
+        assert_eq!(strip_passengers("{Rotation:[90.0f,0.0f]}"), Ok(None));
+        // (a key inside a double-quoted string is no key; an apostrophe inside one is text)
+        assert_eq!(strip_passengers("{CustomName:\"{Passengers:[{id:x}]} it's\",Rotation:[0f,0f]}"), Ok(None));
+        // (ironspec 10:35a (4) (2): a single-quoted SNBT string is refused by name, never skimmed: before,
+        // inside and after the list)
+        for s in ["{CustomName:'[x',Passengers:[{id:\"a\"}]}", "{Passengers:[{id:\"a\",CustomName:'{\"text\":\"]\"}'}]}", "{Passengers:[{id:\"a\"}],CustomName:'x'}"] {
+            let e = strip_passengers(s).unwrap_err();
+            assert!(e.contains("a single-quoted SNBT string at byte") && e.ends_with("not read, refused"), "{s}: {e}");
+        }
+        // (an unclosed string or list is refused by name too)
+        assert!(strip_passengers("{CustomName:\"x,Passengers:[]}").unwrap_err().contains("an unclosed string"));
+        assert!(strip_passengers("{Passengers:[{id:\"a\"}").unwrap_err().contains("an unclosed Passengers list"));
+    }
+
+    #[test]
+    fn a_lightning_ready_write_refuses_an_snbt_it_doesnt_read() {
+        // (ironspec 10:35a (4) (2): compose names the entity; the plain write keeps the SNBT verbatim)
+        let mut parts = layout(-24, [25, 80, 19], &[[38, 92, 24], [70, 92, 24]]);
+        parts[0].entities.push(("minecraft:oak_boat".into(), [39.5, 92.0, 25.5]));
+        parts[0].entity_nbt.push(Some("{CustomName:'scarer',Passengers:[{id:\"minecraft:pillager\"}]}".into()));
+        let e = compose(&parts, true).unwrap_err();
+        assert!(e.contains("--lightning-ready: the minecraft:oak_boat at (39.50,92.00,25.50): a single-quoted SNBT string"), "{e}");
+        let (d, _) = compose(&parts, false).unwrap();
+        assert!(d.entities.iter().any(|x| x.nbt.as_deref() == Some("{CustomName:'scarer',Passengers:[{id:\"minecraft:pillager\"}]}")));
     }
 
     #[test]

@@ -370,6 +370,36 @@ fn refusal(mut s: String, seed: i64, why: &str) -> Result<(String, Verdict), Str
     Ok((s, Verdict::Refused))
 }
 
+/// The dropper position a refused-spit message names (redsim's `World::spawn_dispensed`: "dropper at
+/// (x,y,z) spits an item into the world: ..."), or None when the message doesn't read so.
+fn spit_position(msg: &str) -> Option<C> {
+    let t = msg.strip_prefix("dropper at (")?.split_once(") spits an item into the world")?.0;
+    let v: Vec<i32> = t.split(',').map(|n| n.trim().parse().ok()).collect::<Option<Vec<i32>>>()?;
+    (v.len() == 3).then(|| [v[0], v[1], v[2]])
+}
+
+/// (ironspec 10:35a (4) (3)) The settle's refused spits that came back as world errors (every recorded
+/// settle spit not left in `unmatched`), each read for its dropper: (the items they explain, one per
+/// spit at a dropper of the loader's Nether part; every matched spit the runner can't credit, by name:
+/// a message it can't read, or a position that is no loader dropper). An uncredited spit explains no
+/// item, so its loss surfaces as unexplained in the items bar, beside its own FAIL.
+fn settle_spit_items(settle_spits: &[String], unmatched: &[String], nether: &BTreeMap<C, String>) -> (u32, Vec<String>) {
+    let mut remaining = unmatched.to_vec();
+    let (mut items, mut unread) = (0u32, Vec::new());
+    for sp in settle_spits {
+        if let Some(k) = remaining.iter().position(|r| r == sp) {
+            remaining.remove(k);
+            continue;
+        }
+        match spit_position(sp) {
+            Some(c) if nether.get(&c).is_some_and(|b| b.starts_with("minecraft:dropper")) => items += 1,
+            Some(c) => unread.push(format!("a refused spit at ({},{},{}), no dropper of the loader's Nether part", c[0], c[1], c[2])),
+            None => unread.push(format!("a refused spit whose message the runner can't read (no dropper position in it): {sp:?}")),
+        }
+    }
+    (items, unread)
+}
+
 /// The items bar (G1 08:37 N / 09:47 (3), ironspec 09:47a (3)): the loop's items kept at every tick, less
 /// only what the settle's refused dropper spits explain, each spit matched to its own shortfall: one item
 /// at its own side (a dropper spits one item, redstone/container.rs 1319), read back side by side
@@ -577,6 +607,14 @@ pub fn run(parts: &[Laid], o: &Opts) -> Result<(String, Verdict), String> {
         if !out {
             return refusal(s, o.seed, "control put-out-twin: the twin's cells did not read back as air");
         }
+    }
+    // (G1 10:35, ironspec 10:35a (4): the run starts here, so no refusal may follow; `pre!` is shadowed by
+    // a compile error from this line on, so a use in the tick loop or after it fails to build)
+    #[allow(unused_macros)]
+    macro_rules! pre {
+        ($e:expr) => {
+            compile_error!("pre! after the run's start: a refusal there would hide a run that happened; fail a bar or return the error instead")
+        };
     }
     let ow_ps: Vec<&Portal> = plant.iter().chain(ps.iter().filter(|p| !p.nether)).collect();
     let start = run.world.time;
@@ -800,23 +838,15 @@ pub fn run(parts: &[Laid], o: &Opts) -> Result<(String, Verdict), String> {
     }
     // (the items the settle's refused spits lost: G1 09:47 (3), each matched spit at a loader dropper
     // explains one item (a dropper spits one: redstone/container.rs 1319, `spawn_dispensed(.., 1, ..)`),
-    // read back against the shortfall right after the start; any more missing FAILS by name)
-    let mut remaining = spits.clone();
-    let mut spit_items = 0u32;
-    for sp in &settle_spits {
-        if let Some(k) = remaining.iter().position(|r| r == sp) {
-            remaining.remove(k);
-            continue;
-        }
-        let at = sp.strip_prefix("dropper at (").and_then(|r| r.split(')').next()).and_then(|t| {
-            let v: Vec<i32> = t.split(',').filter_map(|n| n.trim().parse().ok()).collect();
-            (v.len() == 3).then(|| [v[0], v[1], v[2]])
-        });
-        if at.is_some_and(|c| parts[li].nether.get(&c).is_some_and(|b| b.starts_with("minecraft:dropper"))) {
-            spit_items += 1;
-        }
-    }
+    // read back against the shortfall right after the start; any more missing FAILS by name; a matched
+    // spit whose message the runner can't read, or at no loader dropper, FAILS by name and explains no
+    // item, so its loss surfaces as unexplained too: ironspec 10:35a (4) (3))
+    let (spit_items, unread) = settle_spit_items(&settle_spits, &spits, &parts[li].nether);
     let mut ok = true;
+    if !unread.is_empty() {
+        ok = false;
+        s.push_str(&format!("  the settle's refused spits the runner can't credit: {}: FAIL\n", unread.join("; ")));
+    }
     // (the world-open row: the open must have happened inside the run)
     match opened {
         Some(true) => {}
@@ -1107,6 +1137,26 @@ mod tests {
         empty[l].nether_block_entities.clear();
         let (t, v) = run(&empty, &opts(None)).unwrap();
         assert!(v == Verdict::Refused && line(&t, "REFUSED:").contains("droppers hold no item"), "{t}");
+    }
+
+    #[test]
+    fn an_unreadable_settle_spit_fails_by_name_and_explains_no_item() {
+        // (ironspec 10:35a (4) (3): the planted case: a refused spit whose message the runner can't read
+        // is named, credits nothing, and its lost item surfaces as an unexplained loss)
+        let mut nether: BTreeMap<C, String> = BTreeMap::new();
+        nether.insert([3, 90, 1], "minecraft:dropper[facing=south,triggered=false]".into());
+        let good = "dropper at (3,90,1) spits an item into the world: its motion draws from the level random".to_string();
+        assert_eq!(settle_spit_items(&[good.clone()], &[], &nether), (1, Vec::<String>::new()));
+        let garbled = "dropper at (3;90;1) spits an item into the world: its motion draws from the level random".to_string();
+        let (items, unread) = settle_spit_items(&[garbled], &[], &nether);
+        assert!(items == 0 && unread.len() == 1 && unread[0].contains("can't read") && unread[0].contains("(3;90;1)"), "{unread:?}");
+        let (ok, l) = items_bar([3, 3], [3, 2], items, 5, 5);
+        assert!(!ok && l.contains("1 more missing right after the start than the refused spits explain") && !l.contains("lost to"), "{l}");
+        // (a readable spit at no loader dropper credits nothing either)
+        let (items, unread) = settle_spit_items(&["dropper at (9,90,1) spits an item into the world: x".to_string()], &[], &nether);
+        assert!(items == 0 && unread[0].contains("no dropper of the loader's Nether part"), "{unread:?}");
+        // (a recorded spit whose error never came back is not counted at all)
+        assert_eq!(settle_spit_items(&[good.clone()], &[good], &nether), (0, Vec::<String>::new()));
     }
 
     #[test]

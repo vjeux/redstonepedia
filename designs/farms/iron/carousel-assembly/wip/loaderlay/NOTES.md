@@ -257,7 +257,9 @@ the file's empty columns sat at the world's bottom, so "every column to a rod" i
 the ground materialized (G1 05:51); this tool now materializes it itself (the ground plane above).
 `--write-layout FILE --lightning-ready` writes the same layout with its three model layers declared in
 the file's head: portal cells as air, the carts' and boats' Passengers lists dropped (their other tags
-kept; at N = 4, 48 passengers from 48 vehicles), and the ground plane. It loads
+kept; at N = 4, 48 passengers from 48 vehicles), and the ground plane. An entity SNBT the stripper
+doesn't read (a single-quoted string, an unclosed string or list) refuses the write by name (exit 4;
+no input of record has one). It loads
 in mctas without stand-ins and gives every strike column a top.
 
 The two tables join copy by copy: the module check judges one copy alone, and this one adds the
@@ -351,7 +353,10 @@ are the only world errors the runner names:
   runner counts only the spits recorded right after the start, and the items bar matches each such
   spit at a loader dropper to one item of the Nether side's shortfall (a dropper spits one item,
   redsim's redstone/container.rs 1319), read back side by side right after the start. Any loss no
-  spit explains, on either side, or any surplus, FAILS by name (G1 09:47 (3), ironspec 09:47a (3));
+  spit explains, on either side, or any surplus, FAILS by name (G1 09:47 (3), ironspec 09:47a (3)). A
+  matched spit whose message the runner can't read (no dropper position in it), or at no loader
+  dropper, FAILS by name and explains no item, so its loss surfaces as unexplained too (ironspec 10:35a
+  (4) (3); the planted case is a unit test);
 - redsim's light model lacks the extended sticky piston and the piston head.
 
 A failed bar always FAILS (exit 1, by name). A run whose bars all pass with only those named limits
