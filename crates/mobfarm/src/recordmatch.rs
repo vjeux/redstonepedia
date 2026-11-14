@@ -191,6 +191,27 @@ pub struct StandIn {
     pub guard: Guard,
 }
 
+/// (ironspec Nov 14 08:41a (2), part 65) Each `# stand-in-guard:` verdict a bench declares, with the evidence its note
+/// cites: a resolvable reference (an artifact a/<digits>, a test <fn name>, a recording <path> md5 <hex>), or why not.
+/// Returns (line, resolvable) pairs; record-match fails the unresolved ones under `--require-evidence`.
+pub fn guard_evidence(d: &Declared) -> Vec<(String, bool)> {
+    let mut out = Vec::new();
+    for (c, si) in &d.standins {
+        for (p, v) in PROPERTIES.iter().zip(si.guard.0.iter()) {
+            let Some(v) = v else { continue };
+            let (verdict, note) = match v {
+                Ok(n) => ("ok", n.as_str()),
+                Err(n) => ("fail", n.as_str()),
+            };
+            match crate::fleecheck::evidence_ref(note) {
+                Ok(kind) => out.push((format!("stand-in-guard ({},{},{}) {p}={verdict}: evidence {note:?} ({kind})", c[0], c[1], c[2]), true)),
+                Err(why) => out.push((format!("stand-in-guard ({},{},{}) {p}={verdict}: evidence {why}", c[0], c[1], c[2]), false)),
+            }
+        }
+    }
+    out
+}
+
 /// One entity of a bench or a record: its type (`minecraft:zombie`), position, and the types of its
 /// passengers (sorted; a passenger is compared as part of its vehicle, never as an entity of its own:
 /// ironspec 03:29).
@@ -1067,6 +1088,18 @@ mod tests {
         assert_eq!(d.bench_entities[0], (Ent { kind: "minecraft:minecart".into(), pos: [1.5, 0.0625, 0.5], passengers: Vec::new() }, "the batch cart".to_string()));
         assert_eq!(world_box_from_header(t), Some(([-10, -30, -12], [20, 10, 12])));
         assert!(declared_from_header("# stand-in-guard: 1,2,3: colour=ok\n").is_err());
+        // (ironspec Nov 14 08:41a (2), part 65) each declared guard verdict's evidence read back: a note citing an
+        // artifact or a recording with its md5 resolves; prose and the bare "declared by its bench" don't
+        let ev = guard_evidence(&declared_from_header("# stand-in: 1,2,3 (glass)\n# stand-in-guard: 1,2,3: update reach=ok (a/1458936443005840), power reach=ok (glass carries no power), survival=ok (recording designs/x/run.trace md5 0123456789abcdef), sight=ok\n").unwrap());
+        assert_eq!(
+            ev,
+            vec![
+                ("stand-in-guard (1,2,3) update reach=ok: evidence \"a/1458936443005840\" (an artifact)".to_string(), true),
+                ("stand-in-guard (1,2,3) power reach=ok: evidence NOT RESOLVABLE \"glass carries no power\" (name an artifact a/<digits>, a test <fn name>, or a recording <path> md5 <hex>)".to_string(), false),
+                ("stand-in-guard (1,2,3) survival=ok: evidence \"recording designs/x/run.trace md5 0123456789abcdef\" (a recording with its md5)".to_string(), true),
+                ("stand-in-guard (1,2,3) sight=ok: evidence NOT RESOLVABLE \"declared by its bench\" (name an artifact a/<digits>, a test <fn name>, or a recording <path> md5 <hex>)".to_string(), false),
+            ]
+        );
         assert!(declared_from_header("# bench-entity: minecraft:zombie 1 2\n").is_err());
         assert_eq!(canon("cave_air"), "minecraft:air");
         assert_eq!(canon("minecraft:rail[waterlogged=false,shape=east_west]"), canon("minecraft:rail[shape=east_west,waterlogged=false]"));

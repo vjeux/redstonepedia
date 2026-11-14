@@ -6418,7 +6418,7 @@ pub fn power_into(spec: &FarmSpec, cells: &[BlockPos], no_qc: bool, allow: &[Blo
             if outside.is_empty() { " (PASS)".to_string() } else { format!(": {} (FAIL)", outside.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("; ")) },
             if allowed.is_empty() { String::new() } else { format!("; allowed: {}", allowed.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("; ")) }
         ) + &if locks.is_empty() { String::new() } else { format!("; LOCKED (not power) by {}", locks.join("; ")) }
-            + &if cid == "comparator" { comparator_analog_back(&w, *c, &cstate).map(|a| format!("; its ANALOG back input: {a}")).unwrap_or_else(|| "; its analog back input: none".to_string()) } else { String::new() });
+            + &if cid == "comparator" { comparator_analog_back(&w, *c, &cstate).map(|a| format!("; its ANALOG back input: {a}")).unwrap_or_else(|| "; its analog back input: no block with an analog output (an item frame there, an entity, is NOT MODELED)".to_string()) } else { String::new() });
     }
     // (G1 Nov 13 23:06: --no-qc is read back: with no piston, dropper or dispenser among the cells it is a
     // stale flag and fails)
@@ -6542,12 +6542,21 @@ pub fn comparator_analog_back(w: &redsim::World, q: BlockPos, qs: &str) -> Optio
     if analog(&s1.to_string()) {
         return Some(format!("{} at {},{},{}", s1.to_string().trim_start_matches("minecraft:"), b1.x, b1.y, b1.z));
     }
+    // (ironspec Nov 14 08:39a (1)(a), part 65) a block behind it whose analog output isn't modelled here (a copper bulb,
+    // a sculk sensor, a command block, or any other non-inert, non-conducting block) is NOT MODELED, never "none"
+    let trivial = |s: &redsim::block::Block| s.is_air() || update_inert(s.to_string().trim_start_matches("minecraft:").split('[').next().unwrap_or(""));
+    let unmodelled = |s: &redsim::block::Block, at: BlockPos, via: &str| format!("analog output NOT MODELED: {} at {},{},{}{via} (redsim reads no comparator output from it)", s.to_string().trim_start_matches("minecraft:"), at.x, at.y, at.z);
     if redsim::behavior::is_conductor(w, &s1, b1) {
         let b2 = BlockPos::new(b1.x + dx, b1.y, b1.z + dz);
         let s2 = w.get(b2);
         if analog(&s2.to_string()) {
             return Some(format!("{} at {},{},{} through the conductor {} at {},{},{}", s2.to_string().trim_start_matches("minecraft:"), b2.x, b2.y, b2.z, s1.to_string().trim_start_matches("minecraft:"), b1.x, b1.y, b1.z));
         }
+        if !trivial(&s2) && !redsim::behavior::is_conductor(w, &s2, b2) {
+            return Some(unmodelled(&s2, b2, &format!(" through the conductor {} at {},{},{}", s1.to_string().trim_start_matches("minecraft:"), b1.x, b1.y, b1.z)));
+        }
+    } else if !trivial(&s1) {
+        return Some(unmodelled(&s1, b1, ""));
     }
     None
 }
@@ -7002,8 +7011,9 @@ pub fn evidence_gate(gaps: usize, require: bool) -> Result<(), String> {
     Ok(())
 }
 
-/// (G1 08:32, part 63) Whether an `evidence:` field names a resolvable reference: the kind it names, or why not.
-fn evidence_ref(ev: &str) -> Result<&'static str, String> {
+/// (G1 08:32, part 63; ironspec 08:41a (2), part 65) Whether an `evidence:` field (or a stand-in guard verdict's note)
+/// names a resolvable reference: the kind it names, or why not.
+pub(crate) fn evidence_ref(ev: &str) -> Result<&'static str, String> {
     let words: Vec<&str> = ev.split(|c: char| c.is_whitespace() || c == ',').filter(|w| !w.is_empty()).collect();
     if ev.is_empty() || words.iter().any(|w| ["todo", "tbd", "pending", "fixme", "xxx", "?", "tba"].contains(&w.trim_matches(|c: char| !c.is_alphanumeric() && c != '?').to_ascii_lowercase().as_str())) {
         return Err(format!("PLACEHOLDER {ev:?} (a placeholder is no evidence)"));
@@ -12696,7 +12706,13 @@ mod gate_tests {
         let (ca2, _) = reads(vec![(b(3, 1, 2), p("minecraft:stone")), (b(4, 1, 2), p("minecraft:chest[facing=north,type=single,waterlogged=false]"))]);
         assert!(ca2[0].contains("its ANALOG back input: chest[") && ca2[0].contains("through the conductor stone at 3,1,2"), "a chest behind a stone: {ca2:?}");
         let (ca3, _) = reads(Vec::new());
-        assert!(ca3[0].contains("its analog back input: none"), "no analog input: {ca3:?}");
+        assert!(ca3[0].contains("its analog back input: no block with an analog output (an item frame there, an entity, is NOT MODELED)"), "no analog input: {ca3:?}");
+        // (ironspec Nov 14 08:39a (1)(a), part 65) a block behind it whose analog output isn't modelled is NOT MODELED,
+        // never "none": a copper bulb behind it, a sculk sensor behind a stone behind it
+        let (ca4, _) = reads(vec![(b(3, 1, 2), p("minecraft:copper_bulb[lit=false,powered=false]"))]);
+        assert!(ca4[0].contains("its ANALOG back input: analog output NOT MODELED: copper_bulb[") && ca4[0].contains("at 3,1,2 (redsim reads no comparator output from it)"), "a copper bulb behind: {ca4:?}");
+        let (ca5, _) = reads(vec![(b(3, 1, 2), p("minecraft:stone")), (b(4, 1, 2), p("minecraft:sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false]"))]);
+        assert!(ca5[0].contains("analog output NOT MODELED: sculk_sensor[") && ca5[0].contains("at 4,1,2 through the conductor stone at 3,1,2"), "a sculk sensor behind a stone: {ca5:?}");
         // (G1 Nov 14 05:38, part 49) a source's power goes out only by its real faces: a repeater facing west
         // (input west, front east) powers the lamp at its front (3,1,2), not the lamp at its side (2,1,1), and
         // not through the stone under it (no strong output down: the lamp at (1,0,2) beside that stone stays

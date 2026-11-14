@@ -486,8 +486,15 @@ impl Run {
                     bad.push(format!("{p} {b} (popped at placement)"));
                 } else if !crate::behavior::can_survive(&w, &now, *p) || crate::rails::would_pop(&w, *p) {
                     // (G1 on 5ff842746: an ascending rail without its high-side block, as
-                    // `rails::would_pop` reads `BaseRailBlock.shouldBeRemoved`)
-                    bad.push(format!("{p} {now} (no support: it pops at its first update)"));
+                    // `rails::would_pop` reads `BaseRailBlock.shouldBeRemoved`); (G1 / ironspec Nov 14 08:41a, part 65) a
+                    // sign or wall banner names the block its rule reads
+                    let support = match now {
+                        Block::Sign { wall: true, facing, .. } | Block::WallBanner { facing } => Some((p.rel(facing.opposite()), "its wall")),
+                        Block::Sign { wall: false, .. } => Some((p.below(), "the block below it")),
+                        _ => None,
+                    };
+                    let named = support.map(|(q, what)| format!(", {what} {q} holds {}, not solid", w.get(q))).unwrap_or_default();
+                    bad.push(format!("{p} {now} (no support: it pops at its first update{named})"));
                 } else if let Some(rule) = crate::behavior::survival_not_modeled(&now) {
                     // (ironspec / farmopt Nov 14 08:36a / 08:40) a kind the game pops without its support whose
                     // rule redsim doesn't model: refused by name until modelled, never kept silently
@@ -1581,7 +1588,7 @@ mod start_refusal_tests {
         let o = RunOpts::steady(1, 0, WalkMode::Random);
         // the sign faces south: its wall is the block north of it, (0,1,-1)
         let e = Run::start(&spec(vec![(BlockPos::new(0, 1, 0), sign.clone())]), &o).err().unwrap_or_else(|| panic!("a wall sign on nothing built"));
-        assert!(e.contains("design cells the game can't hold") && e.contains("oak_wall_sign") && (e.contains("no support") || e.contains("popped at placement")), "{e}");
+        assert!(e.contains("design cells the game can't hold") && e.contains("oak_wall_sign") && e.contains("no support: it pops at its first update, its wall (0,1,-1) holds minecraft:air, not solid"), "{e}");
         let ok = Run::start(&spec(vec![(BlockPos::new(0, 1, 0), sign.clone()), (BlockPos::new(0, 1, -1), stone.clone())]), &o).unwrap_or_else(|e| panic!("a wall sign on its wall refused: {e}"));
         assert!(ok.survival_check.starts_with("applied"), "{}", ok.survival_check);
         let ladder = parse("minecraft:ladder[facing=south,waterlogged=false]");
