@@ -1,0 +1,12 @@
+# V's DROPS: rev-3 cells V leaves out, one per line (`x,y,z` alone = a cell removed; `mctas mobfarm column --delta`: each must take a cell out, or the compose refuses), each with the ruling that drops it.
+# rev 0: (C'') no post: the post's glass (2,-12,-6) and the boat seated on it (2.5,-12,-5.5) (ironspec 21:54). (The old post's corner glass (4,-10,-6), (5,-11,-6): b8949c96's WAYIN rev 1 removes them.)
+2,-12,-6
+# rev 1 (9fc3155f 22:57: no golem floor opens, 0 spawnable, 0 of 519 rider-scarer and 5,384 rider-rider rays changed; ironspec 22:44 / 22:57 / 23:01): the unowned end rods; the stale pre-path-(a) lane-7 booster torch and its glass (ironfarm, dfb89499 22:46); the unowned glass.
+-1,21,9
+0,21,9
+4,21,9
+6,0,5
+6,-1,5
+3,24,-5
+3,-2,-5
+-3,0,-5

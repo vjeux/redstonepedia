@@ -1,0 +1,152 @@
+# V's way-in, seat and R1 re-route (b8949c96, Nov 13 2026; ironspec 20:35 (2) (c), day-1 20:40)
+# Frame: the module (loop) frame, as the (b+) file de143a70 and record7f13b. V's stop = 58f770cc's fold bfa0c8098 at loop = local + (0,-20,-1)
+# (bed head (-3,-20,3), ENTRY (3,-18,-5), its torch (3,-18,-6) on glass (3,-19,-6): 58f770cc's cells, not listed here).
+# Rule: today's way-in raised 4 above the drop (the queue (9,-14,-4) -> (9,-10,-4): the seat 17.154 from the head's centre, 9fc3155f's
+# convention), the drop and the roll raised 7 (the roll at y -18 into ENTRY), R1's N group re-routed down to y -10 (day-1 20:40), the
+# (C') hatch branch and the post dropped (day-1 20:40).
+#
+# REV 2 (Nov 14 00:01): the designed falls say what stops each one horizontally, with the drop's footprint (ironspec 23:12, G1 23:06).
+# REV 1 (Nov 13 23:05; rev 0 = a/1704449704371119, md5 0ba23333d45d, vcompose's part WAYIN): + glass (4,25,-2), the leg's
+# sight guard (claimed 22:58, F3's withdrawn 23:02); - glass (4,-10,-6) and (5,-11,-6) (dropped 22:35); + the drop stop's two
+# bounded contacts at their V cells (ironspec 21:57 (2): the same pair 4 higher); + the designed falls named (ironspec 22:33).
+#
+# The way-in's bounded contacts at V (the (b+) bounded copy's two lines moved up 4 with their cells; their figures are V's own
+# ride rows on bplus3 + this delta laid over it, 1,640 rows, Nov 13 21:55: the same pair, the same depths and speeds):
+# contacts: 9,-11,0=the way-in's drop stop at V: the launched cart meets the glass's north face off the rail end (9,-11,-2) and falls down the shaft (9,·,-1) on the next tick (one build position: a touching-contact bar, the set owed) | class=design | face=north | ticks<=1+eps=0 why=one tick a row (a second tick is the cart held at the glass) | events<=1+eps=0 why=one event a row | depth<=0.2057+eps=0.001 why=by the spread (0 over the reference's rows) | speed_in=0.4000+eps=0.001..0.4000+eps=0.001 why=the off-rail cap | speed_out>=0.1943+eps=0.001 why=by the spread | rate=1640/1640 rows | ref=b8949c96 V ride rows (bplus3 + this delta, 1da1826a0's reference command, 1,640 rows, Nov 13 21:55)
+# contacts: 9,-12,-2=the rail end's support at V (glass): the launched cart, off the rail end the tick it meets the glass (9,-11,0) (the same move), rests its box flush on this block's top for that tick, its requested gravity step 0.0400 clipped to 0, then falls clear into the shaft (ironspec 15:52: REAL and DESIGNED; one build position: a touching-contact bar, the set owed) | class=design | face=up | ticks<=1+eps=0 why=one tick a row | events<=1+eps=0 why=one event a row | depth<=0.0400+eps=0.001 why=one gravity step, by the spread (0) | speed_in=0.4000+eps=0.001..0.4000+eps=0.001 why=the off-rail cap | speed_out>=0.1943+eps=0.001 why=by the spread | rate=1640/1640 rows | ref=b8949c96 V ride rows (bplus3 + this delta, 1da1826a0's reference command, 1,640 rows, Nov 13 21:55)
+#
+# The designed falls (ironspec 17:02's form; tick-exact 22:29's pin: a cart landing in a rail cell never hurts its rider;
+# ironspec 22:33: the arrival detector (9,-9,-5) is LOAD-BEARING (fragile), the cell above it (9,-8,-5) stays air; ironspec
+# 23:12 / G1 23:06: each fall says what stops it horizontally):
+#   the leg's column: the x-9 line's end at y 22 (9,22,-4) > (9,22,-5): the STOP WALL (9,22,-6) stops the cart's horizontal
+#   motion (vz -> 0), so it falls the confined column at z -5 onto the arrival detector (9,-9,-5) (31 blocks, a rail landing;
+#   AL's case, tick-exact's game row: 20 / 20 seated);
+#   the drop: the rail end (9,-11,-2) > (9,-11,-1): every launch that clears meets the DROP STOP (9,-11,0) before it drops below
+#   it (its horizontal motion stopped), so it falls the 1x1 shaft (9,-12..-16,-1) onto the landing booster (9,-17,-1) on
+#   slime (9,-18,-1) (6 blocks, a rail landing over slime); its footprint one cell at every speed: R6's start-phase sweep
+#   (687ade4a2), 0.001..0.450 x 10 phases: every speed from 0.2470 up clears, all 2,406 falls land in (9,-17,-1)'s rail cell,
+#   the rider's least health 20.0 (a/1805815673978755); slower launches are held on the support and never fall;
+#   the arrival slope's high side: (9,-9,-5) > (9,-8,-6) (air; clear of the pad): a fault path only (a cart going up the
+#   arrival slope), not a normal-operation fall.
+# ADD (x,y,z block): the cells V holds that today's file doesn't hold at these positions
+## the arrival, the seat, the departure, the rail end, the drop stop (today's x-9 cells raised 4)
+9,-9,-6 minecraft:glass
+9,-9,-5 minecraft:detector_rail[powered=false,shape=ascending_north,waterlogged=false]
+9,-10,-5 minecraft:glass
+9,-10,-4 minecraft:powered_rail[powered=false,shape=ascending_north,waterlogged=false]
+9,-11,-4 minecraft:glowstone
+9,-11,-3 minecraft:detector_rail[powered=false,shape=ascending_north,waterlogged=false]
+9,-12,-3 minecraft:glass
+9,-11,-2 minecraft:rail[shape=north_south,waterlogged=false]
+9,-12,-2 minecraft:glass
+9,-11,0 minecraft:glass
+## R1's line at y -10 (day-1's cells raised 4, unchanged): the rail's repeater, R1's comparator, the latch's dust, the N line's repeater and dust
+8,-11,-4 minecraft:glass
+8,-10,-4 minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+7,-11,-4 minecraft:glass
+7,-10,-4 minecraft:comparator[facing=west,mode=subtract,powered=false]
+7,-11,-5 minecraft:glass
+7,-10,-5 minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+6,-11,-4 minecraft:glass
+6,-10,-4 minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+5,-11,-4 minecraft:glass
+5,-10,-4 minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
+## N's comparator re-routed down (day-1 20:40): rear REST_l (west), side DAY through one repeater (south), output east into (5,-10,-4)
+4,-11,-4 minecraft:glass
+4,-10,-4 minecraft:comparator[facing=west,mode=subtract,powered=false]
+4,-11,-3 minecraft:glass
+4,-10,-3 minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+## the drop and the roll (today's raised 7): the shaft (9,-12..-16,-1) open, the landing booster on slime with its torch, the roll west at y -18 to ENTRY
+9,-17,0 minecraft:glass
+9,-17,-1 minecraft:powered_rail[powered=true,shape=ascending_south,waterlogged=false]
+9,-18,-1 minecraft:slime_block
+9,-19,-1 minecraft:redstone_torch[lit=true]
+9,-20,-1 minecraft:glass
+9,-17,-2 minecraft:rail[shape=north_south,waterlogged=false]
+9,-18,-2 minecraft:glass
+9,-18,-3 minecraft:rail[shape=ascending_south,waterlogged=false]
+9,-19,-3 minecraft:glass
+9,-18,-4 minecraft:rail[shape=north_south,waterlogged=false]
+9,-19,-4 minecraft:glass
+9,-18,-5 minecraft:rail[shape=south_west,waterlogged=false]
+9,-19,-5 minecraft:glass
+8,-18,-5 minecraft:rail[shape=east_west,waterlogged=false]
+8,-19,-5 minecraft:glass
+7,-18,-5 minecraft:rail[shape=east_west,waterlogged=false]
+7,-19,-5 minecraft:glass
+6,-18,-5 minecraft:rail[shape=east_west,waterlogged=false]
+6,-19,-5 minecraft:glass
+5,-18,-5 minecraft:rail[shape=east_west,waterlogged=false]
+5,-19,-5 minecraft:glass
+4,-18,-5 minecraft:rail[shape=east_west,waterlogged=false]
+4,-19,-5 minecraft:glass
+## (rev 1) the leg's sight guard: the way-in leg's riders at (9,22,3..5) / (9,23,6) hidden from F3's pillager (1.5,25,-4.5);
+## its check: 9fc3155f's sight-diff, 10 rays it blocks (Nov 13 22:57); one owner (G1 23:02: F3 cites it, it is not in F3's file)
+4,25,-2 minecraft:glass
+#
+# REMOVE (x,y,z): today's way-in cells V doesn't keep (moved above, or dropped)
+## the old seat, arrival, departure, rail end, drop stop (moved up 4)
+9,-13,-6
+9,-13,-5
+9,-14,-5
+9,-14,-4
+9,-15,-4
+9,-15,-3
+9,-16,-3
+9,-15,-2
+9,-16,-2
+9,-15,0
+## R1's old line and its N group, step-down dust and hatch branch (moved up 4 / re-routed / dropped)
+8,-15,-4
+8,-14,-4
+7,-15,-4
+7,-14,-4
+7,-15,-5
+7,-14,-5
+6,-15,-4
+6,-14,-4
+5,-15,-4
+5,-14,-4
+5,-14,-3
+5,-13,-3
+6,-13,-3
+6,-12,-3
+6,-13,-4
+6,-12,-4
+6,-12,-5
+6,-13,-2
+6,-12,-2
+5,-13,-2
+5,-12,-2
+## the post (dropped): its boat-and-zombie entity at (2.5,-12,-5.5) and its glass
+2,-13,-6
+## (rev 1) the old queue post's corner glass (V has no post; no cell of V's way-in, seat or R1 needs them; b8949c96 22:35)
+4,-10,-6
+5,-11,-6
+## the old drop, booster and roll (moved up 7); ENTRY's old cells at x 2..3 are the old stop's (58f770cc's fold moves)
+9,-24,0
+9,-24,-1
+9,-25,-1
+9,-26,-1
+9,-27,-1
+9,-24,-2
+9,-25,-2
+9,-25,-3
+9,-26,-3
+9,-25,-4
+9,-26,-4
+9,-25,-5
+9,-26,-5
+8,-25,-5
+8,-26,-5
+7,-25,-5
+7,-26,-5
+6,-25,-5
+6,-26,-5
+5,-25,-5
+5,-26,-5
+4,-25,-5
+4,-26,-5
+#
+# BENCH STAND-INS (not in the design; the line-bench inputs, as R1_BUILT's): REST_l a floor lever ON at (3,-10,-4) on glass (3,-11,-4);
+# DAY a floor lever OFF at (4,-10,-2) on glass (4,-11,-2); NOT-ready onechunk's wall lever ON at (8,-10,-5) on the arrival's support (9,-10,-5).

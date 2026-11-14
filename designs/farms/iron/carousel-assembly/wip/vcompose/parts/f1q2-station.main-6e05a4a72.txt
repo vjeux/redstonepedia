@@ -1,0 +1,484 @@
+# The F1 + Q2 station (dfb89499), in the loop frame: written by `mctas mobfarm drop-bench --layout station ... --write-design` (the bench's own file sits at loop + (6,0,6)); NOTES: designs/farms/iron/carousel-assembly/wip/station/NOTES.md.
+# The lead: --l1 --open-delay 4; the build: --slab-stop (each hold's north stop a bottom slab), no zombie post (9fc3155f's summoner-only scarers); the trapdoor pulse 12; the re-brake 16; offsets 0,14,24 (lanes x -1/3/7; the stand's summon bar: >= 1 caller at every summon over all 400 sensor phase pairs, margin 2 (the 20-gt rest bar retired): NOTES).
+# Cells: pockets P0..2 at (x,0,0), x -1/3/7, north_south powered rails on glass (x,-1,0) (V15: no golem floor; the drive from the side, M16bw: day-1's repeater (x-1,0,0), facing west on glass (x-1,-1,0), into the rail, laid here as a stand-in until day-1's file; its input (x-2,0,0) is day-1's riser, a lever stand-in in the bench; nothing is written in the support cell); the launcher's slime (x,0,-1) (V16s: a conductor for the kick; tick-exact's official kick row) under an unattached string (x,1,-1); the pocket strings (x,1,0); departure (x,0,1) plain, the exit detector D_k (x,0,2); lanes x -1 and x 3: (x,0,3) plain (lane x 3's a booster, path (a)'s (1), powered through z 4's chain), boosters (x,0,4..6) on glass powered by an always-on redstone torch (x-1,0,5) on glass (x-1,-1,5), the chain the other two (V15): the merge row at z 7; lane x 7 (path (a)'s (2c), ironspec 14:11/14:16/16:46): four ascending powered rails (7,0..3,3..6) on glass (a redstone torch (6,1,4) on glass (6,0,4) powers the chain), the curve (7,4,7) on glass, nine ascending rails west (6..-2,4..12,7) on glass, the first two powered (a redstone torch (6,4,6) on glass (6,3,6)) and the other seven plain (the cart crests at a crawl and rests near the slope's top), the crest (-3,13,7) on the lift's glass (-3,12,7) (7b90c3f1's), then the lift's braked slope (-4,12,7): 7b90c3f1's record lift file wip/lift/f1q2-lift-split-path-a.txt (explore/farmopt-v15-patha 83878113f). R_1's high side (x,17,2) glass.
+# Holds H0..2 at (x,16,0): bottom-half trapdoors (open: the drop), the ring's glass, the north stop a bottom slab (x,17,-1), the hold string (x,17,0); R_1 (x,17,1) a powered rail ascending south, driven by its built repeater (x+1,17,1) (delay 1, facing west into R_1, on glass (x+1,16,1)), fed from the controller's cell (x+2,17,1). The pad: portals x -2..7 rows z -5 and -2, golem feet -6 (PAD0..PAD1).
+# Events (L1, game ticks, every drive EMULATED until the circuit is laid, each from a lever stand-in at its line end; T the summon tick): 1. pocket k's rail powered through day-1's repeater (x-1,0,0) at REL + offset k (its input lever (x-2,0,0) on at REL + offset k - 1), unpowered 16 gt later (the re-brake). 2. pocket k's gate: D_k rises after REL + offset k, or pocket k's string is off then (the cold start); trapdoor k opens 4 gt after, not before T+3. 3. trapdoor k shuts pulse gt after it opens. 4. all three shut: + 2 gt, every R_1 repeater's input powered for 10 gt (the next batch rolls into the holds; R_1's threshold 5 gt with the built drive, NOTES).
+# Carts: the batch in the pockets and the next in the holds (riders), the hold carts where the lane leaves them (0.49 into the cell, against the ring's north glass: tickexact's lane-handoff ca3cdb2ed); the lanes' carts (R_1 on) and R_2 are the lanes' file's. The pad's seal: cobblestone at y -8 under the floor rows, x -2..7 (40 blocks).
+# The Nether part is the bench's PLACEHOLDER, not the build: the shared kill room's portal at the pads' y replaces it.
+# Read path: the hold strings' hook supports (x+-2,17,0) are glowstone (golem-proof, lit, a solid-render stroll destination, a sturdy hook face); glowstone conducts no power, so each hold string is read from its hooks directly (dust or a repeater beside the hook), never through the support.
+# R_1's power cell (x+1,17,1) sits face-adjacent (south) to the hold string's hook (x+1,17,0): the built driver is a repeater facing west into R_1, its input from the east (x+2,17,1), which no hook can drive (never dust, nor a repeater or comparator reading from the north); this file lays it (repeater[delay=1,facing=east] on glass at (x+1,16,1)); its input cell (x+2,17,1) is the controller's line end (the bench: a lever stand-in on glass there, on for the R line's pulse). R_1's high side (x,17,2) is glass in this file (9fc3155f's rail-floor scan, ironspec 20:31: R_1 stands on it without the lanes' file).
+# held: -4,12,7 powered=true (driver: day-1's repeater (-4,12,6) from its line end (-4,12,5), the lane-7 tap's line; phase REL + 96 .. REL + 113, the module rows' --hold-release 95 --hold-width 18: the module bench holds the braked slope's rail, 7b90c3f1's lift cell, with the edge updates the build makes, and no stand-in at the line end; ironspec 01:07, G1 on 82f9546f; the phase is drop::HELD_SLOPE, which the hold check reads, G1 on 834d6329d)
+# contacts: -1,16,-1+3,16,-1+7,16,-1=the holds' designed rest against the ring's north glass (evidence: tick-exact's lane-handoff ca3cdb2ed, the cart 0.49 into its cell; ironspec 02:41 (b)); no other station cell is a declared contact: no drop-bench row meets one (each arriving cart falls straight from its hold into its pocket, G1 08:18's staleness check)
+# Placement order (bottom-up, each rail placed facing its own axis): in this file alone: (-1,17,1) stored minecraft:powered_rail[powered=false,shape=ascending_south,waterlogged=false], placement gives minecraft:powered_rail[powered=false,shape=north_south,waterlogged=false]; (3,17,1) stored minecraft:powered_rail[powered=false,shape=ascending_south,waterlogged=false], placement gives minecraft:powered_rail[powered=false,shape=north_south,waterlogged=false]; (7,17,1) stored minecraft:powered_rail[powered=false,shape=ascending_south,waterlogged=false], placement gives minecraft:powered_rail[powered=false,shape=north_south,waterlogged=false]; with the lanes' R_2 rails (x,18,2) laid in the same order (the module): (-1,18,2) stored minecraft:rail[shape=ascending_south,waterlogged=false], placement gives minecraft:rail[shape=north_south,waterlogged=false]; (3,18,2) stored minecraft:rail[shape=ascending_south,waterlogged=false], placement gives minecraft:rail[shape=north_south,waterlogged=false]; (7,18,2) stored minecraft:rail[shape=ascending_south,waterlogged=false], placement gives minecraft:rail[shape=north_south,waterlogged=false]
+# The detector rule (no rail with 3 potential connections within a detector's reach: the 6 neighbours of its cell and of the cell below, and of the cell above for a sloped one): the rails within reach and their potential connections: (-1,0,3) 2, (-1,0,1) 2, (3,0,3) 2, (3,0,1) 2, (7,0,3) 2, (7,0,1) 2
+name: f1q2-station-launcher
+circuit: mob-farm iron_ingot
+positions: -1,0,0 -1,16,0 3,0,0 3,16,0 7,0,0 7,16,0
+run-cells: P0 -1,0,0; D0 -1,0,2; H0 -1,16,0; P1 3,0,0; D1 3,0,2; H1 3,16,0; P2 7,0,0; D2 7,0,2; H2 7,16,0; PAD0 -3,-6,-6; PAD1 8,-6,-1
+port nether-anchor: -6 0 -6
+port nether-axis: -5 0 -6
+port output: -6 1 -6
+entity: minecraft:minecart -0.5 0.0625 0.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart 3.5 0.0625 0.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart 7.5 0.0625 0.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -0.5 16.1875 0.4900000000000002 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart 3.5 16.1875 0.4900000000000002 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart 7.5 16.1875 0.4900000000000002 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+origin: -3 0 -6
+palette:
+  A minecraft:powered_rail[powered=true,shape=ascending_south,waterlogged=false]
+  B minecraft:powered_rail[powered=true,shape=ascending_west,waterlogged=false]
+  C minecraft:cobblestone
+  D minecraft:detector_rail[powered=false,shape=north_south,waterlogged=false]
+  E minecraft:powered_rail[powered=true,shape=north_south,waterlogged=false]
+  F minecraft:rail[shape=north_south,waterlogged=false]
+  G minecraft:glass
+  H minecraft:rail[shape=north_west,waterlogged=false]
+  I minecraft:redstone_torch[lit=true]
+  J minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+  K minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+  L minecraft:tripwire_hook[attached=true,facing=east,powered=false]
+  M minecraft:tripwire_hook[attached=true,facing=west,powered=false]
+  N minecraft:nether_portal[axis=x]
+  O minecraft:oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]
+  P minecraft:powered_rail[powered=false,shape=ascending_south,waterlogged=false]
+  R minecraft:rail[shape=ascending_west,waterlogged=false]
+  S minecraft:slime_block
+  T minecraft:tripwire[attached=false,disarmed=false,east=false,north=false,powered=false,south=false,west=false]
+  g minecraft:glowstone
+  o minecraft:obsidian
+  p minecraft:powered_rail[powered=false,shape=north_south,waterlogged=false]
+  r minecraft:rail[shape=east_west,waterlogged=false]
+  s minecraft:smooth_stone_slab[type=bottom,waterlogged=false]
+  t minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]
+layer -9:
+  .
+  .oooooooooo
+  .
+  .
+  .oooooooooo
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer -8:
+  .CCCCCCCCCC
+  oNNNNNNNNNNo
+  .CCCCCCCCCC
+  .CCCCCCCCCC
+  oNNNNNNNNNNo
+  .CCCCCCCCCC
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer -7:
+  CCCCCCCCCCCC
+  oNNNNNNNNNNo
+  CCCCCCCCCCCC
+  CCCCCCCCCCCC
+  oNNNNNNNNNNo
+  CCCCCCCCCCCC
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer -6:
+  .
+  oNNNNNNNNNNo
+  .
+  .
+  oNNNNNNNNNNo
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer -5:
+  .
+  oooooooooooo
+  .
+  .
+  oooooooooooo
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer -4:
+  .
+  GGGGGGGGGGGG
+  .
+  .
+  GGGGGGGGGGGG
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer -3:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer -2:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer -1:
+  .
+  .
+  .
+  .
+  .
+  .
+  .GG..GG..GG
+  ..G...G...G
+  ..G...G...G
+  ..G...G...G
+  ..G...G...G
+  .GG..GG...G
+  ..G...G...G
+  .
+layer 0:
+  .
+  .
+  .
+  .
+  .
+  ..S...S...S
+  .Kp..Kp..Kp
+  ..F...F...F
+  ..D...D...D
+  ..F...E...A
+  ..E...E..GG
+  .IE..IE...G
+  ..E...E...G
+  .
+layer 1:
+  .
+  .
+  .
+  .
+  .
+  ..T...T...T
+  GLtMGLtMGLtMG
+  .
+  .
+  .
+  .........IA
+  ..........G
+  .
+  .
+layer 2:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ..........A
+  ..........G
+  .
+layer 3:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .........GA
+  .........GG
+layer 4:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .........I
+  ........GBH
+layer 5:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .......GB
+layer 6:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ......GR
+layer 7:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .....GR
+layer 8:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ....GR
+layer 9:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ...GR
+layer 10:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ..GR
+layer 11:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .GR
+layer 12:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .R
+layer 13:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  r
+layer 14:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 15:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 16:
+  .
+  .
+  .
+  .
+  .
+  ..G...G...G
+  .GOG.GOG.GOG
+  ..GG..GG..GG
+  .
+  .
+  .
+  .
+  .
+  .
+layer 17:
+  .
+  .
+  .
+  .
+  .
+  ..s...s...s
+  gLtMgLtMgLtMg
+  ..PJ..PJ..PJ
+  ..G...G...G
+  .
+  .
+  .
+  .
+  .
+layer 18:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ...G...G...G
+  .
+  .
+  .
+  .
+  .
+  .
+nether-origin: 0 0 0
+nether layer 64:
+  .oo
+nether layer 65:
+  oNNo
+nether layer 66:
+  oNNo
+nether layer 67:
+  oNNo
+nether layer 68:
+  .oo

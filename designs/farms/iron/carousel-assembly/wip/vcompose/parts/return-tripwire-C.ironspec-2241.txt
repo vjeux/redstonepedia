@@ -1,0 +1,8 @@
+# (C) THE RETURN TRIPWIRE at E, as ironspec 22:41 BOUGHT it (day-1's gate list G15, the empty-cart containment "form (i) at E"): a one-direction rider string over E's detector rail (7,-3,4), read by H2's AND at E + 2.
+# Cells laid from that spec by vcompose for V's rev 1 (no owner file holds them yet): the string (7,-2,4) north-south between its hooks, the hooks at (7,-2,3) facing south and (7,-2,5) facing north, each on its glass support behind it, (7,-2,2) and (7,-2,6). All five were air in rev 0; nothing else changes. The rows it owes (the second-fault row, the press timing at every position incl. world opens, the statics on these cells) are its owners', not this file's.
+# Form: `x,y,z STATE` lines are added cells (mctas mobfarm column --delta).
+7,-2,2 minecraft:glass
+7,-2,3 minecraft:tripwire_hook[attached=true,facing=south,powered=false]
+7,-2,4 minecraft:tripwire[attached=true,disarmed=false,east=false,north=true,powered=false,south=true,west=false]
+7,-2,5 minecraft:tripwire_hook[attached=true,facing=north,powered=false]
+7,-2,6 minecraft:glass

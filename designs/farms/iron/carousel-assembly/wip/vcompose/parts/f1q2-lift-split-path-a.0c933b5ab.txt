@@ -1,0 +1,530 @@
+# The return for F1 + Q2 at 24 (7b90c3f1; bench, tool unreviewed): loop frame, paste with no move. Made by `mctas mobfarm return-bench --out` from the bench's own world; every coordinate in this header is generated from the same options.
+# run line: mctas mobfarm return-bench --z7 --row9 --k-relay --napper-lane 3 --day1-taps --reverse --boosters --game-ticks --offsets 0,12,24 --napper-delay 12 --napper-lift --release-pulse 12 --pulse-gate 42 --path-a --lane7-rel 95 --station-lag 11 --lane7-pulse 18 --kset-shift 4 --driver-latency --arm-rel 51 --light-fix
+# frames: the run line's `--offsets 0,12,24 --station-lag 11` is the emulated station, a calibration: at offsets 0,12,24 / lag 11 it reproduces dfb89499's real station at its offsets 0 / 14 / 24 (lane 3's y-12 at REL + 76 both ways); rows that count toward a bar run with `--station-part` (dfb89499's f1q2-station.txt, 3939d2012) at `--offsets 0,14,24`. Ticks after REL as a tick's end shows them: L7 = REL + 95 (= REL + 96 in day-1's frame, read at the next tick's start), the napper's hold rail REL + 63 (64).
+# - merge row along z 7 (path (a)): lane 7 off it (its own ramp and climb, dfb89499's), so (7,0,7) a plain rail east_west joining the hold's line (8,0,7) to the row; Ts (3,0,7) and (-1,0,7) north_west; the main line (x,0,7) x -1..6 on glass ((5,0,7) a plain rail: ARM3 := REL + c, day-1); the west end ramped (2b): (-2,0,7) and (-3,1,7) ascending_west on glass (-2,-1,7), (-3,0,7), the entry (-4,2,7) east_west on glass (-4,1,7) into the lift at y 2 (the old intake cell (-4,0,7) left to the record: no purpose of this file's); the station's tracks and boosters (z 1..6) are dfb89499's, not here (the bench's station torches (x-1,0,5) on glass (x-1,-1,5), x -1/3/7, are EMULATED: dfb89499's cells).
+# - shared lift: soul sand (-5,1,7) on glass (-5,0,7), the bubble column (-5,2..22,7), glass walls (-6,y,7), (-5,y,6) for y 2..22, (-5,y,8) for y 2..22 and (-4,y,7) for y 3..22 but y 12 (the entry (-4,2,7) on glass (-4,1,7), the merge row's); the intake (2c): the braked powered slope (-4,12,7) ascending_east (off) on the wall's glass (-4,11,7), lane 7's rest, released at REL + 95 by day-1's drive at (-4,12,6) (not here; dfb89499's climb tops at (-3,13,7)), the cell over it an oak wall sign (-4,13,7) facing south on glass (-4,13,6) (no collision box; it keeps the column's water in); the top cell (-5,23,7) with glass over it (-5,24,7) and beside it (-6,23,7), (-4,23,7); the current's source (-5,23,6) boxed by glass (-5,23,5), (-6,23,6), (-4,23,6), (-5,24,6).
+# - exit and split (in the chunk; K re-lay): the booster, a powered slope (-5,23,8) ascending_south (on) on the shaft wall's glass (-5,22,8), powered from its west side by the redstone torch (-6,23,8) on glass (-6,22,8) (V15) (3 from lane -1's seat); the curve (-5,24,9) north_east on glass; the slope (-4,24,9) ascending_east on glass into K(-3) (lay each slope after the rail at its high end); every rail within 2 of lane -1's seat (-3,24,7) on glass; the row along z 9 at y 25, x -3..6 on glass at y 24: K(-3) (-3,25,9), J(-1) (-1,25,9), K(1) (1,25,9), J(3) (3,25,9), K(5) (5,25,9), J(7) (7,25,9), the 4th route (8,25,9), (9,25,9); each K's feed F (x-2,25,8) north_south on glass (x-2,24,8) (ironfarm's S-bend beyond, not here); each lane's branch the detector slope D (x,24,8) ascending_south on glass (x,23,8), into ironfarm's merge cell (x,24,7) (not here); a lever over every J and K (x,26,9) with glass (x,27,9); (x-1,24,9) glass only; nothing of this file in (x-2..x-1, 22..23, 9) or at (x,23,9) (ironfarm's R feed path and the switched cell).
+# - napper (c), re-laid for the z 7 hold: from R (4,-28,4) (58f770cc's, not here) the entry (5,-28,4) east_west on glass; soul sand (6,-29,4), the bubble column (6,-28..-4,4), glass walls (7,y,4), (6,y,3), (6,y,5) for y -29..-4 and (5,y,4) for y -27..-4; the top cell (6,-3,4) (glass beside it (6,-3,3), (6,-3,5), over it (6,-2,4)), the source (5,-3,4) boxed by glass (4,-3,4), (5,-3,3), (5,-3,5), (5,-2,4); the exit (7,-3,4) a detector rail east_west on the lift wall's glass (7,-4,4) (day-1's approach detector: the waiting bit's source, read from its side; no T within its update reach); a powered slope (8,-3,4) ascending_east on the redstone block (8,-4,4); the curve (9,-2,4) south_west on glass; powered slopes (9,-2,5) and (9,-1,6) ascending_south on glass (9,-3,5), (9,-2,6), powered by the redstone torch (8,-2,5) on glass (8,-3,5) beside (9,-2,5) (the chain carries it to (9,-1,6)); the T (9,0,7) south_west on glass (arms N, S, W: from the north on south, from the south west); the hold (9,0,8), a powered rail north_south, off, on slime (9,-1,8) (a conductor), driven by the repeater (8,-1,8) facing west on glass (8,-2,8) (its input (7,-1,8), day-1's chain: the hold rail powered from ARM3 + D for the release pulse (--release-pulse, 8 gt by default) in each cycle whose pulse fires (with --pulse-gate X, day-1's gate: only when the napper's waiting bit, set on the approach detector (7,-3,4) (a detector rail east_west on glass (7,-4,4), read from its side) and sampled X gt late at E's rise (ARM3 + 2), is high, so a napper not yet at rest waits for the next cycle's pulse and every departure is a scheduled one; without it, every cycle); EMULATED, a redstone block at (7,-1,8) for the pulse), the napper stopped against the slime block (9,0,9) (a conductor, so the launch's kick pushes off it; not solid-render) with glass over it (9,1,9); the hold's line (8,0,7) a powered rail (on) on slime (8,-1,7), strongly powered by the redstone torch (8,-2,7) on glass (8,-3,7) under it into lane 7's curve (7,0,7); declared (push-scan's two pairs at the hold): the staircase, the T (9,0,7), the hold (9,0,8) and the hold's line (8,0,7) are the napper's own route, no batch cart enters it (lane 7's merge T (7,0,7) joins north and west only, its east arm is the hold's line), one napper at a time (the next leaves the bed stop >= 312 gt later, day-1's model figure; the single-occupant line below), so no two carts meet there; the arming detector ARM3 := REL + 51 (day-1 14:41: no detector; (5,0,7) a plain rail).
+# - declared: each D (x,24,8)'s high end is its junction J (x,25,9) (3 potential connections) and J is a face of the cell over D; J is power-forced by its declared switch in both states, so D's press and release re-settle J to the settle shape of its power, a no-op: tick-exact's official D-J probe passes (J at its driver's settle, NE off / NW on, 2 gt after the lever; D ascending_south through every press, release, toggle while pressed and restart in each state; module-check 0 of 14 blocks differ; https://artifacts.internalmeta.com/a/1169573292176966).
+# - switches EMULATED: a lever over each junction (face ceiling, glass over it) is the latch's output (`drive_j` only toggles the lever, flags ALL; redsim settles the junction); the latches: J(-1) on at idle; lane -1's branch rise turns it off and J(3) on; lane 3's turns J(3) off; the third cart's rise at the row's second detector turns J(-1) on, or opens the napper window (J(7) off on lane 7's branch rise; J(-1) on at the napper's own first rise at the row's first detector).
+# - OPEN: day-1's drivers (K set, K reset and J(-1)'s re-arm at day-1's taps after the napper's own ARM3, EMULATED here as the levers at those ticks; the hold's pulse into (7,-1,8)); lane -1's seat (-3,24,7): no rail of mine on a solid-render block within 2 of it (the booster's side source sits at (-6,23,8), beside the booster (-5,23,8), 3 from the seat), 9fc3155f to confirm with --clear-rate.
+# always-on: 8,-2,7=the hold's line booster (8,0,7)'s torch on glass (8,-3,7), under the slime (8,-1,7); 8,-2,5=the napper climb's torch on glass (8,-3,5), beside (9,-2,5) (the chain to (9,-1,6)); 8,-4,4=the napper climb's first booster (8,-3,4)'s redstone block; -6,23,8=the lift exit's torch on glass (-6,22,8), beside the booster (-5,23,8)
+# contacts: -6,2,7=the foot entry's back wall: a cart off the merge row slides west into it and stops over the column (bench only, the official row pending: the bench prints its speed change per row); -4,3,7=the foot entry's lintel: the box's east part, still under it when the column starts lifting, is held until the cart is in (bench only, the official row pending: the bench prints its speed change per row); -5,24,7=the lift's cap: the riser stops under it (y 23.3) and drifts south onto the exit (tick-exact's official lift-pair rows (`mctas mobai lift-pair --module path-a`, 3a5d5cdc6): redsim's cart and rider boxes equal tick for tick); -4,23,7=the lift top's east wall: the riser's 0.98-wide box in the 1-wide top cell meets the east wall when it sits at x -4.49 (the west wall at -4.51) while it drifts onto the exit (onechunk's default-start night on record7f: 435 ticks over the night) (bench only, the official row pending: the bench prints its speed change per row); -5,22,8=the lift top after a world open: the riser's dry first move (26.3's AbstractMinecart.tick) lands it low on the exit side, its box on the south wall at y 22, no speed change (tick-exact's official world-open rows (https://artifacts.internalmeta.com/a/1494079099301341, ironspec 03:34 PT): a loaded cart's first move is dry in 26.3); -6,22,7+-6,22,8=the lift top after a world open: the riser's box on the west wall and its corner with the south wall at y 22 (game LOAD rows: met; redsim: never met over 33,000 restart rows on 9a213943f: fidelity gap open for cc767b78) (tick-exact's official world-open rows (https://artifacts.internalmeta.com/a/1494079099301341, ironspec 03:34 PT): a loaded cart's first move is dry in 26.3); -3,24,9=the exit slope's crest under K(-1)'s T (-3,25,9) after a world open: a cart whose exit the load shifted crosses the crest stepping down and meets the T's support glass from above for one tick (-0.0234 b/gt); every margin of the world-open rows above its bar (bench only, the official row pending: the bench prints its speed change per row); -6,12,7+-6,13,7=lane 7's side entry's back wall: its cart rolls off the slope (-4,12,7) west into it and stops over the column (tick-exact's official side-slope row: rest feet 12.7767, column entry at release + 6, as redsim; the lift-pair rows enter here); 9,0,9=the hold's slime stop: the napper rolls onto the hold rail (9,0,8) against it and rests (tick-exact's official rail-kick row (`mctas mobai rail-kick`)); 7,-28,4=the napper lift's foot entry back wall: the napper off the bed stop's R slides east into it and stops over its column (tick-exact's official napper-ride rows (`mctas mobai napper-ride`, every tick from the summon: R_max 36, the pulse -> y-12 63 gt = the bench's 62 + 1)); 6,-2,4=the napper lift's cap: the napper rises under it and drifts east onto the exit detector (7,-3,4) (tick-exact's official napper-ride rows (`mctas mobai napper-ride`, every tick from the summon: R_max 36, the pulse -> y-12 63 gt = the bench's 62 + 1)); 5,-27,4+6,-28,3+6,-28,5+6,-27,3+6,-27,5=the napper climb's foot side walls: the napper's 0.98-wide box in the 1-wide shaft meets them as it stops over the column and starts to rise (onechunk's default-start night on record7f: 19 ticks each) (bench only, the official row pending: the bench prints its speed change per row); 6,-3,3+6,-3,5=the napper climb's top side walls: the box meets them under the cap while the current carries it east (onechunk's default-start night on record7f: 19 ticks each) (bench only, the official row pending: the bench prints its speed change per row); 7,-4,4=the napper climb's top east wall after a world open: the napper's dry first move presses it east into the wall (a 37 % speed loss, the detector (7,-3,4) reached at 0.0785 vs 0.1204), carried through the downstream margins by the world-open rows (tick-exact's official world-open rows (https://artifacts.internalmeta.com/a/1494079099301341, ironspec 03:34 PT): a loaded cart's first move is dry in 26.3)
+# water: -5,23,7=designed current (saved settled at level 1: the shared lift's top-drift current, fed by the source north of the exit cell, carrying each riser south onto the exit booster, bounded by the glass round it, the cap over it and the booster's rail; evidence: tick-exact's water-settle row on record7e, one cell then still, and the bench's traces, the riser's z speed 0.027 -> 0.104 in the cell, on the booster 8 gt after the top); 6,-3,4=designed current (saved settled at level 1: the napper climb's top-drift current, fed by the source at 5,-3,4, carrying the napper east onto the exit detector at 7,-3,4, bounded by the glass round it and the detector's rail; evidence: tick-exact's water-settle row on record7e)
+# update-only: -1,24,8=J(-1)'s branch detector D, its own north arm's sensor: its change re-settles the T (-1,25,9) (tick-exact 14:04, the game row and 26.3's source, redsim matching: the ascending D's flip runs BaseRailBlock's after-removal on D.above(), whose neighbours include J; a no-op at J's lever settle; `LevelChunk.setBlockState` 317-318, `BaseRailBlock.affectNeighborsAfterRemoval` 117-127); J is switched by its lever (-1,26,9) (`# switches:`); 3,24,8=J(3)'s branch detector D, its own north arm's sensor: its change re-settles the T (3,25,9) (tick-exact 14:04, the game row and 26.3's source, redsim matching: the ascending D's flip runs BaseRailBlock's after-removal on D.above(), whose neighbours include J; a no-op at J's lever settle; `LevelChunk.setBlockState` 317-318, `BaseRailBlock.affectNeighborsAfterRemoval` 117-127); J is switched by its lever (3,26,9) (`# switches:`); 7,24,8=J(7)'s branch detector D, its own north arm's sensor: its change re-settles the T (7,25,9) (tick-exact 14:04, the game row and 26.3's source, redsim matching: the ascending D's flip runs BaseRailBlock's after-removal on D.above(), whose neighbours include J; a no-op at J's lever settle; `LevelChunk.setBlockState` 317-318, `BaseRailBlock.affectNeighborsAfterRemoval` 117-127); J is switched by its lever (7,26,9) (`# switches:`); 7,-3,4=the napper climb's exit detector (flat, east_west), day-1's approach detector E (the waiting bit's source): its game footprint reaches no T (a flat straight rail: `affectNeighborsAfterRemoval` updates n6(pos) and n6(pos.below()), no pos.above(); plus `updatePowerToConnected`'s connections, the water cell (6,-3,4) and the powered slope (8,-3,4), which only recomputes; the file's Ts are the six J / K at y 25 and (-1,0,7), (3,0,7), (9,0,7), none among them); the powered rail (8,-3,4) is held on by its redstone block (8,-4,4)
+# switches: -1,25,9=J(-1): the lever (-1,26,9) (day-1's latch output; a ceiling lever under glass (-1,27,9)), on -> north_west, off -> north_east; -3,25,9=K(-1): the lever (-3,26,9) (day-1's timed taps; a ceiling lever under glass (-3,27,9)), on -> north_west, off -> north_east; 3,25,9=J(3): the lever (3,26,9) (day-1's latch output; a ceiling lever under glass (3,27,9)), on -> north_west, off -> north_east; 1,25,9=K(3): the lever (1,26,9) (day-1's timed taps; a ceiling lever under glass (1,27,9)), on -> north_west, off -> north_east; 7,25,9=J(7): the lever (7,26,9) (day-1's latch output; a ceiling lever under glass (7,27,9)), on -> north_west, off -> north_east; 5,25,9=K(7): the lever (5,26,9) (day-1's timed taps; a ceiling lever under glass (5,27,9)), on -> north_west, off -> north_east
+# travel: -2,25,9>-1,25,9=a batch cart on the split row enters J(-1) from the west (onechunk's composed t14 night on 11b888a04256's cells, today's controller as emulated: t9-t17; the ticks from its `--cart-trace 46` re-run of the same night); row: n-p0_0_0-d0-s1.txt md5 1e0b55e056da a/1959344121713839 t 2854..2855 cart 46
+# travel: 0,25,9>1,25,9=a batch cart on the split row enters K(3) from the west (onechunk's composed t14 night on 11b888a04256's cells, today's controller as emulated: t9-t17; the ticks from its `--cart-trace 46` re-run of the same night); row: n-p0_0_0-d0-s1.txt md5 1e0b55e056da a/1959344121713839 t 2861..2862 cart 46
+# travel: 2,25,9>3,25,9=a batch cart on the split row enters J(3) from the west (onechunk's composed t14 night on 11b888a04256's cells, today's controller as emulated: t9-t17; the ticks from its `--cart-trace 46` re-run of the same night); row: n-p0_0_0-d0-s1.txt md5 1e0b55e056da a/1959344121713839 t 2869..2870 cart 46
+# travel: 4,25,9>5,25,9=a batch cart on the split row enters K(7) from the west (onechunk's composed t14 night on 11b888a04256's cells, today's controller as emulated: t9-t17; the ticks from its `--cart-trace 46` re-run of the same night); row: n-p0_0_0-d0-s1.txt md5 1e0b55e056da a/1959344121713839 t 2877..2878 cart 46
+# travel: 6,25,9>7,25,9=a batch cart on the split row enters J(7) from the west (onechunk's composed t14 night on 11b888a04256's cells, today's controller as emulated: t9-t17; the ticks from its `--cart-trace 46` re-run of the same night); row: n-p0_0_0-d0-s1.txt md5 1e0b55e056da a/1959344121713839 t 2885..2886 cart 46
+# stand-in: 9,25,9 (the way-in's curve: north_west in record7, b8949c96's file; here a rail east_west, the shape a rail with only its west neighbour settles to; this bench ends the napper's route at its K(x) and the batch carts' at their J, so no cart of the bench reaches it)
+# stand-in: -1,26,9 (J(-1)'s lever, a ceiling lever under the glass (-1,27,9): it stands in for day-1's latch output (ironspec 03:22 / 03:26 PT: no lever ships in the built farm; day-1's line replaces it))
+# stand-in: 3,26,9 (J(3)'s lever, a ceiling lever under the glass (3,27,9): it stands in for day-1's latch output (ironspec 03:22 / 03:26 PT: no lever ships in the built farm; day-1's line replaces it))
+# stand-in: 7,26,9 (J(7)'s lever, a ceiling lever under the glass (7,27,9): it stands in for day-1's latch output (ironspec 03:22 / 03:26 PT: no lever ships in the built farm; day-1's line replaces it))
+# stand-in: -3,26,9 (K(-1)'s lever, a ceiling lever under the glass (-3,27,9): it stands in for day-1's timed taps (ironspec 03:22 / 03:26 PT: no lever ships in the built farm; day-1's line replaces it))
+# stand-in: 1,26,9 (K(3)'s lever, a ceiling lever under the glass (1,27,9): it stands in for day-1's timed taps (ironspec 03:22 / 03:26 PT: no lever ships in the built farm; day-1's line replaces it))
+# stand-in: 5,26,9 (K(7)'s lever, a ceiling lever under the glass (5,27,9): it stands in for day-1's timed taps (ironspec 03:22 / 03:26 PT: no lever ships in the built farm; day-1's line replaces it))
+# stand-in-guard: 9,25,9: golem=ok (rail for rail), path=ok (rail for rail), late-path=ok (rail for rail: no collision box), update reach=ok (a plain rail that never switches in the run: it updates nothing the curve doesn't), power reach=ok (a plain rail emits no power), survival=ok (on its glass (9,24,9)), sight=ok (rail for rail: no collider)
+# lightning (26.3's ServerLevel.findLightningTargetAround and LightningBolt, redsim's model: a roll's target is the nearest lightning rod within 128 blocks, else a living entity seeing the sky at its block (sky light 15) in the column's box inflated by 3, else the column's MOTION_BLOCKING top; a bolt falls only where it rains at the target; it hits every living entity in x +- 3, y - 3 .. y + 9, z +- 3 of it, through roofs; ironspec 22:56 / 22:59 PT, 07:52 / 07:59 PT): per rider position, this file's tops only (a floating site's clear-air envelope adds none): (1) the lift's top cells (-5,20..22,7), risers' feet >= 20.05 under the cap glass (-5,24,7) (top y 25): in water (sky light <= 14) so never the pick, and hit by a bolt on any column top within 3 sideways at y <= 28.25 (the cap's own top does): EXPOSED; (2) the exit and the split row (x -5..9, y 25, z 9), feet 23.1..25.06, heads <= 27.01, under the glass (x,27,9) (top y 28): sky light 15 through the glass, so a rider inside a roll's inflated box is the pick and the bolt falls dry (no rain under glass); its pick also shields a lift-top riser in the same box; (3) every rider below y 20 (the column below, the merge row, the pockets, the napper's climb and hold): >= 4 under the module's tops, unstrikable. Without a rod: about 0.003..0.015 rider strikes per thunderstorm (arithmetic on the model: 3,600..15,600 gt, 1/100,000 a gt a chunk, 49 columns, a riser in the top cells ~0.45 of the time), each a witch and a destroyed cart. The cover (ironspec 07:52 PT, ADOPTED): ONE lightning rod per copy at the farm's highest point, the top block of its column, its bolt box free of every rider (>= 4 sideways, or its top >= 31 within 3 of the split row), no flammable block in it, its struck pulse reaching no component; the positive: the bench's `--thunder SEED` (forced seeded rolls) strikes riders without the rod and none with `--rod X,Y,Z`.
+# light (redsim's light engine on the bench's world: this file's cells and its stand-ins; the site and the module around them add their own; 9fc3155f's wet-spawn static): (-5,23,6): 1 cells, sky light 14..14, block light 4..4 (the raw brightness at night, max(sky - 11, block), at least 4; in a thunderstorm, max(sky - 10, block), at least 4); (5,-3,4): 1 cells, sky light 14..14, block light 2..2 (the raw brightness at night, max(sky - 11, block), at least 3; in a thunderstorm, max(sky - 10, block), at least 4); the napper climb's column (6,y,4): 26 cells, sky light 14..14, block light 2..14 (the raw brightness at night, max(sky - 11, block), at least 3; in a thunderstorm, max(sky - 10, block), at least 4); the shared lift's column (-5,y,7): 22 cells, sky light 14..14, block light 2..14 (the raw brightness at night, max(sky - 11, block), at least 3; in a thunderstorm, max(sky - 10, block), at least 4). Spawn rules (26.3): a drowned needs block light 0 and dark enough (raw brightness <= 0..7) and, outside river biomes, y < sea level - 5 = 58 (1 in 40; rivers 1 in 15 at any y); a glow squid y <= sea level - 33 = 30 and raw brightness 0; guardians only in monuments. So these water cells are spawn-proof wherever each sits at y >= 58 outside river biomes; lower, or in a river biome, a cell with block light 0 needs light (ironspec 22:54 PT: (b) the site rule, or (c) `--light-fix`: two glowstone blocks in place of wall glass (-6,8,7) and (5,-16,4), block light >= 1 in every cell).
+# single-occupant: 9,0,8+9,0,7+8,0,7=one napper released per nap trip, on a fired pulse only (the gate); every arm of the T (9,0,7) carries only that napper's route (in from the staircase, rest on the hold (9,0,8) against the slime stop (9,0,9), out west on (8,0,7)); (7,0,7) is a plain rail joining the hold's line to the row (path (a): lane 7 off the merge row), so no batch cart enters (return-bench: 0 batch carts on the hold's route over its late, jitter, restart and arrival-phase sweeps); consecutive nappers leave the bed stop >= 312 gt apart (day-1) and the stop -> hold trip spreads by <= 4 gt (88..92, return-bench), against the hold's longest wait 142 + the 12-gt pulse + clear: 161, a margin of 151 gt (printed only: ironspec 19:07 PT (5) retired the inherited + 20 and measures the occupancy directly, the 0 batch carts above)
+# emulated (ironspec 17:46 / 17:49; the bench's writes outside this file, each to be checked against its owner's built cell with the statics run there): dfb89499's station z 1..6 (each lane's rails, its exit detector and boosters on glass, the torches (x-1,0,5) on glass (x-1,-1,5)); dfb89499's climb top (-3,13,7) a rail; the bed stop's R (4,-28,4) a rail on glass (4,-29,4) (58f770cc's); ironfarm's merge cells (x,24,7) rails on glass (x,23,7), x -1/3/7; day-1's hold input (7,-1,8) (a conforming stand-in: a floor lever on glass (7,-2,8), toggled for the pulse; a wall lever on (7,-1,7) would update V15's T (7,0,7)); day-1's lane 7 drive at (-4,12,6) (a conforming stand-in, onechunk's record7: a ceiling lever hung from the sign's glass (-4,13,6), no new support, toggled for the pulse in place of day-1's repeater (-4,12,6) and its input (-4,12,5)). The bench's blocks: rails, the detector, levers and the repeater non-solid with no full top face; glass solid with a full top face and full-block collision, not solid-render, and refused by LEGACY_IRON_GOLEM spawning; the two inputs are non-solid line ends in the build (ironspec 18:24): the hold's a floor lever on glass, lane 7's a ceiling lever under existing glass, the same rise ticks as the redstone blocks they replace. In this file but standing in for day-1's drive: the levers over each J and K (x,26,9) (the latches' outputs, declared switches at each T).
+# T (-3,25,9): arms north/west/east, designed north_east, unpowered north_east, powered north_west; sources at its faces: lever[face=ceiling,facing=north,powered=false] (-3,26,9); signal-source updates reaching it: lever (-3,26,9); switched by its declared lever (NW on, NE off; now north_east)
+# T (-1,0,7): arms north/west/east, designed north_west, unpowered north_east, powered north_west; sources at its faces: none; signal-source updates reaching it: redstone_torch (-1,-2,7); held by its power: powered via the slime (-1,-1,7) by the torch (-1,-2,7) (CONSTANT: on glass)
+# T (-1,25,9): arms north/west/east, designed north_east, unpowered north_east, powered north_west; sources at its faces: lever[face=ceiling,facing=north,powered=false] (-1,26,9); signal-source updates reaching it: lever (-1,26,9), detector_rail (-1,24,8); switched by its declared lever (NW on, NE off; now north_east)
+# T (1,25,9): arms north/west/east, designed north_east, unpowered north_east, powered north_west; sources at its faces: lever[face=ceiling,facing=north,powered=false] (1,26,9); signal-source updates reaching it: lever (1,26,9); switched by its declared lever (NW on, NE off; now north_east)
+# T (3,0,7): arms north/west/east, designed north_west, unpowered north_east, powered north_west; sources at its faces: none; signal-source updates reaching it: redstone_torch (3,-2,7); held by its power: powered via the slime (3,-1,7) by the torch (3,-2,7) (CONSTANT: on glass)
+# T (3,25,9): arms north/west/east, designed north_east, unpowered north_east, powered north_west; sources at its faces: lever[face=ceiling,facing=north,powered=false] (3,26,9); signal-source updates reaching it: lever (3,26,9), detector_rail (3,24,8); switched by its declared lever (NW on, NE off; now north_east)
+# T (5,25,9): arms north/west/east, designed north_east, unpowered north_east, powered north_west; sources at its faces: lever[face=ceiling,facing=north,powered=false] (5,26,9); signal-source updates reaching it: lever (5,26,9); switched by its declared lever (NW on, NE off; now north_east)
+# T (7,25,9): arms north/west/east, designed north_west, unpowered north_east, powered north_west; sources at its faces: lever[face=ceiling,facing=north,powered=true] (7,26,9); signal-source updates reaching it: lever (7,26,9), detector_rail (7,24,8); switched by its declared lever (NW on, NE off; now north_west)
+# T (9,0,7): arms north/south/west, designed south_west, unpowered south_west, powered north_west; sources at its faces: none; signal-source updates reaching it: none; settled (unpowered)
+# placement-order cells (not Ts): none
+# shape: (-1,0,7) north_west; held: powered via the slime (-1,-1,7) by the torch (-1,-2,7) (CONSTANT: on glass); build: the torch last; repair: re-place the torch; (3,0,7) north_west; held: powered via the slime (3,-1,7) by the torch (3,-2,7) (CONSTANT: on glass); build: the torch last; repair: re-place the torch
+name: f1q2-lift-split
+circuit: mob-farm iron_ingot
+origin: -6 0 3
+palette:
+  A minecraft:powered_rail[powered=true,shape=ascending_east,waterlogged=false]
+  B minecraft:bubble_column[drag=false]
+  C minecraft:powered_rail[powered=true,shape=ascending_south,waterlogged=false]
+  D minecraft:detector_rail[powered=false,shape=ascending_south,waterlogged=false]
+  E minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]
+  F minecraft:rail[shape=east_west,waterlogged=false]
+  G minecraft:glass
+  H minecraft:rail[shape=north_east,waterlogged=false]
+  I minecraft:rail[shape=north_south,waterlogged=false]
+  J minecraft:rail[shape=north_west,waterlogged=false]
+  K minecraft:rail[shape=south_west,waterlogged=false]
+  L minecraft:lever[face=ceiling,facing=north,powered=false]
+  M minecraft:redstone_block
+  N minecraft:redstone_torch[lit=true]
+  O minecraft:oak_wall_sign[facing=south,waterlogged=false]
+  P minecraft:powered_rail[powered=false,shape=ascending_east,waterlogged=false]
+  Q minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+  R minecraft:rail[shape=ascending_east,waterlogged=false]
+  S minecraft:slime_block
+  W minecraft:water[level=0]
+  d minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]
+  g minecraft:glowstone
+  l minecraft:lever[face=ceiling,facing=north,powered=true]
+  p minecraft:powered_rail[powered=false,shape=north_south,waterlogged=false]
+  r minecraft:rail[shape=ascending_west,waterlogged=false]
+  s minecraft:soul_sand
+  w minecraft:water[level=1]
+layer -29:
+  ............G
+  ...........GsG
+  ............G
+  .
+  .
+  .
+  .
+layer -28:
+  ............G
+  ...........FBG
+  ............G
+  .
+  .
+  .
+  .
+layer -27:
+  ............G
+  ...........GBG
+  ............G
+  .
+  .
+  .
+  .
+layer -26:
+  ............G
+  ...........GBG
+  ............G
+  .
+  .
+  .
+  .
+layer -25:
+  ............G
+  ...........GBG
+  ............G
+  .
+  .
+  .
+  .
+layer -24:
+  ............G
+  ...........GBG
+  ............G
+  .
+  .
+  .
+  .
+layer -23:
+  ............G
+  ...........GBG
+  ............G
+  .
+  .
+  .
+  .
+layer -22:
+  ............G
+  ...........GBG
+  ............G
+  .
+  .
+  .
+  .
+layer -21:
+  ............G
+  ...........GBG
+  ............G
+  .
+  .
+  .
+  .
+layer -20:
+  ............G
+  ...........GBG
+  ............G
+  .
+  .
+  .
+  .
+layer -19:
+  ............G
+  ...........GBG
+  ............G
+  .
+  .
+  .
+  .
+layer -18:
+  ............G
+  ...........GBG
+  ............G
+  .
+  .
+  .
+  .
+layer -17:
+  ............G
+  ...........GBG
+  ............G
+  .
+  .
+  .
+  .
+layer -16:
+  ............G
+  ...........gBG
+  ............G
+  .
+  .
+  .
+  .
+layer -15:
+  ............G
+  ...........GBG
+  ............G
+  .
+  .
+  .
+  .
+layer -14:
+  ............G
+  ...........GBG
+  ............G
+  .
+  .
+  .
+  .
+layer -13:
+  ............G
+  ...........GBG
+  ............G
+  .
+  .
+  .
+  .
+layer -12:
+  ............G
+  ...........GBG
+  ............G
+  .
+  .
+  .
+  .
+layer -11:
+  ............G
+  ...........GBG
+  ............G
+  .
+  .
+  .
+  .
+layer -10:
+  ............G
+  ...........GBG
+  ............G
+  .
+  .
+  .
+  .
+layer -9:
+  ............G
+  ...........GBG
+  ............G
+  .
+  .
+  .
+  .
+layer -8:
+  ............G
+  ...........GBG
+  ............G
+  .
+  .
+  .
+  .
+layer -7:
+  ............G
+  ...........GBG
+  ............G
+  .
+  .
+  .
+  .
+layer -6:
+  ............G
+  ...........GBG
+  ............G
+  .
+  .
+  .
+  .
+layer -5:
+  ............G
+  ...........GBG
+  ............G
+  .
+  .
+  .
+  .
+layer -4:
+  ............G
+  ...........GBGM
+  ............G
+  .
+  .
+  .
+  .
+layer -3:
+  ...........GG
+  ..........GWwdAG
+  ...........GG.GG
+  .
+  .....G...G....G
+  .
+  .
+layer -2:
+  .
+  ...........GG..K
+  ..............NC
+  ...............G
+  .....N...N....N
+  ..............G
+  .
+layer -1:
+  .
+  .
+  .
+  ...............C
+  ....GSGGGSGGGGSG
+  ..............QS
+  .
+layer 0:
+  .
+  .
+  .
+  .
+  .G.GrJFFFJFFFFEK
+  ...............p
+  ...............S
+layer 1:
+  .
+  .
+  .
+  .
+  .sGr
+  .
+  ...............G
+layer 2:
+  .
+  .
+  .
+  .G
+  GBF
+  .G
+  .
+layer 3:
+  .
+  .
+  .
+  .G
+  GBG
+  .G
+  .
+layer 4:
+  .
+  .
+  .
+  .G
+  GBG
+  .G
+  .
+layer 5:
+  .
+  .
+  .
+  .G
+  GBG
+  .G
+  .
+layer 6:
+  .
+  .
+  .
+  .G
+  GBG
+  .G
+  .
+layer 7:
+  .
+  .
+  .
+  .G
+  GBG
+  .G
+  .
+layer 8:
+  .
+  .
+  .
+  .G
+  gBG
+  .G
+  .
+layer 9:
+  .
+  .
+  .
+  .G
+  GBG
+  .G
+  .
+layer 10:
+  .
+  .
+  .
+  .G
+  GBG
+  .G
+  .
+layer 11:
+  .
+  .
+  .
+  .G
+  GBG
+  .G
+  .
+layer 12:
+  .
+  .
+  .
+  .G
+  GBPG
+  .G
+  .
+layer 13:
+  .
+  .
+  .
+  .GG
+  GBO
+  .G
+  .
+layer 14:
+  .
+  .
+  .
+  .G
+  GBG
+  .G
+  .
+layer 15:
+  .
+  .
+  .
+  .G
+  GBG
+  .G
+  .
+layer 16:
+  .
+  .
+  .
+  .G
+  GBG
+  .G
+  .
+layer 17:
+  .
+  .
+  .
+  .G
+  GBG
+  .G
+  .
+layer 18:
+  .
+  .
+  .
+  .G
+  GBG
+  .G
+  .
+layer 19:
+  .
+  .
+  .
+  .G
+  GBG
+  .G
+  .
+layer 20:
+  .
+  .
+  .
+  .G
+  GBG
+  .G
+  .
+layer 21:
+  .
+  .
+  .
+  .G
+  GBG
+  .G
+  .
+layer 22:
+  .
+  .
+  .
+  .G
+  GBG
+  GG
+  .
+layer 23:
+  .
+  .
+  .G
+  GWG
+  GwG
+  NC...G...G...G
+  .GG
+layer 24:
+  .
+  .
+  .
+  .G
+  .G
+  ...G.D.G.D.G.D
+  .HRGGGGGGGGGGGGG
+layer 25:
+  .
+  .
+  .
+  .
+  .
+  ...I...I...I
+  ...HFHFHFHFHFJFF
+layer 26:
+  .
+  .
+  .
+  .
+  .
+  .
+  ...L.L.L.L.L.l
+layer 27:
+  .
+  .
+  .
+  .
+  .
+  .
+  ...G.G.G.G.G.G
