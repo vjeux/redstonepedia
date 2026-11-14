@@ -6210,6 +6210,68 @@ fn diode_reads(q: BlockPos, qs: &str, from: BlockPos, from_s: &str) -> bool {
     side && from_diode && dir(from_s).is_some_and(|(fx, fz)| BlockPos::new(from.x - fx, from.y, from.z - fz) == q)
 }
 
+/// (G1 Nov 14 05:38, part 49) A signal source's two outputs toward its neighbour `q`: (weak, strong) — the
+/// weak signal (`getSignal`) a component beside it reads, the strong one (`getDirectSignal`) that powers a
+/// conductor block so it passes the power on. 26.3: a repeater, comparator or observer outputs only from its
+/// front (a diode's `facing` names its input; an observer's its watched face), both; a detector rail or
+/// pressure plate: weak to all six, strong only into the block below; a redstone torch: weak to all but its
+/// support, strong only into the block above; a lever or button: weak to all, strong into the block it hangs
+/// on (face floor: below, ceiling: above, wall: behind its `facing`); a tripwire hook: weak to all, strong
+/// into the block behind it; a redstone block and dust: weak only. Any other source: both, every face (the
+/// conservative reading).
+pub fn source_faces(c: BlockPos, s: &str) -> impl Fn(BlockPos) -> (bool, bool) + use<> {
+    let id = s.trim_start_matches("minecraft:").split('[').next().unwrap_or("").to_string();
+    let prop = |k: &str| s.split_once(&format!("{k}=")).map(|(_, r)| r.split([',', ']']).next().unwrap_or("").to_string()).unwrap_or_default();
+    let v = |d: &str| -> Option<(i32, i32, i32)> {
+        match d {
+            "north" => Some((0, 0, -1)),
+            "south" => Some((0, 0, 1)),
+            "east" => Some((1, 0, 0)),
+            "west" => Some((-1, 0, 0)),
+            "up" => Some((0, 1, 0)),
+            "down" => Some((0, -1, 0)),
+            _ => None,
+        }
+    };
+    let at = |d: (i32, i32, i32)| BlockPos::new(c.x + d.0, c.y + d.1, c.z + d.2);
+    let back = |d: (i32, i32, i32)| BlockPos::new(c.x - d.0, c.y - d.1, c.z - d.2);
+    let facing = v(&prop("facing"));
+    // (only: the one face both outputs go to; strong_only: the one face the strong output goes to, the weak
+    // one going to every face but `skip`)
+    let (only, strong_only, skip): (Option<BlockPos>, Option<BlockPos>, Option<BlockPos>) = match id.as_str() {
+        "repeater" | "comparator" | "observer" => (facing.map(back), None, None),
+        "detector_rail" => (None, Some(at((0, -1, 0))), None),
+        x if x.ends_with("pressure_plate") => (None, Some(at((0, -1, 0))), None),
+        "redstone_torch" => (None, Some(at((0, 1, 0))), Some(at((0, -1, 0)))),
+        "redstone_wall_torch" => (None, Some(at((0, 1, 0))), facing.map(back)),
+        x if x == "lever" || x.ends_with("_button") => {
+            let attached = match prop("face").as_str() {
+                "floor" => Some(at((0, -1, 0))),
+                "ceiling" => Some(at((0, 1, 0))),
+                _ => facing.map(back),
+            };
+            (None, attached, None)
+        }
+        "tripwire_hook" => (None, facing.map(back), None),
+        "redstone_block" | "redstone_wire" => (None, Some(BlockPos::new(i32::MIN, i32::MIN, i32::MIN)), None),
+        _ => (None, None, None),
+    };
+    move |q: BlockPos| {
+        if let Some(o) = only {
+            return (q == o, q == o);
+        }
+        if let Some(sk) = skip
+            && q == sk
+        {
+            return (false, false);
+        }
+        match strong_only {
+            Some(so) => (true, q == so),
+            None => (true, true),
+        }
+    }
+}
+
 pub fn power_out(spec: &FarmSpec, cells: &[BlockPos], allow: &[BlockPos]) -> Result<(Vec<String>, usize), String> {
     let w = settled_world_void(spec)?;
     let name = |q: BlockPos| w.get(q).to_string().trim_start_matches("minecraft:").to_string();
@@ -6229,22 +6291,29 @@ pub fn power_out(spec: &FarmSpec, cells: &[BlockPos], allow: &[BlockPos]) -> Res
         let mut through = Vec::new();
         // (a torch never powers its own support)
         let own_support = torch_support(*c, &here.to_string());
+        let faces = source_faces(*c, &here.to_string());
         for q in n6(*c) {
             if Some(q) == own_support {
                 continue;
             }
+            // (G1 Nov 14 05:38 / ironspec, part 49) which of the source's faces carry power: its WEAK signal
+            // (`getSignal`) feeds an adjacent component; only its STRONG signal (`getDirectSignal`) powers
+            // an adjacent conductor block so that block passes it on (a diode: its front only; a detector
+            // rail or plate: strong into the block below; a torch: strong into the block above; a lever,
+            // button or hook: strong into its attached block; a redstone block or dust: never strong)
+            let (weak, strong) = if source { faces(q) } else { (true, true) };
             let qs = w.get(q).to_string();
             if torch_support(q, &qs) == Some(*c) {
                 hits.push((q, format!("{} at {},{},{} on it (its support: it turns off when powered)", name(q), q.x, q.y, q.z)));
                 continue;
             }
-            if power_consumer(&id(q)) && diode_reads(q, &qs, *c, &here.to_string()) {
+            if weak && power_consumer(&id(q)) && diode_reads(q, &qs, *c, &here.to_string()) {
                 let dust = conductor && id(q) == "redstone_wire";
                 hits.push((q, format!("{} at {},{},{} beside it{}", name(q), q.x, q.y, q.z, if dust { " (dust: only if the block is STRONGLY powered)" } else { "" })));
             }
             // (G1 Nov 13 23:06: a consumer that also conducts (a lamp, a note block, a dropper) passes the
             // source's strong power on to its own neighbours: walked like any conductor)
-            if source && redsim::behavior::is_conductor(&w, &w.get(q), q) {
+            if source && strong && redsim::behavior::is_conductor(&w, &w.get(q), q) {
                 through.push(format!("{} at {},{},{}", id(q), q.x, q.y, q.z));
                 for r in n6(q) {
                     if r == *c {
@@ -11889,7 +11958,9 @@ mod gate_tests {
         let hk = redsim::block::Block::parse(hook).unwrap_or_else(|_| redsim::block::Block::Terrain(redsim::terrain::blocks::id_of(hook).expect("the hook")));
         let pr = p("minecraft:powered_rail[powered=false,shape=north_south,waterlogged=false]");
         let (o1, m1) = super::power_out(&mk(vec![(b(1, 1, 2), hk), (b(2, 1, 2), p("minecraft:glass"))]), &[b(1, 1, 2)], &[]).unwrap_or_else(|e| panic!("{e}"));
-        assert!(m1 == 0 && o1[0].contains("conductors beside it: stone at 1,0,2") && o1[0].ends_with("(PASS)"), "a hook on glass: {o1:?}");
+        // (part 49) a hook's strong output goes only into the block it hangs on (here glass, no conductor): the
+        // stone under it gets only its weak signal and passes nothing on
+        assert!(m1 == 0 && o1[0].contains("conductors beside it: none") && o1[0].ends_with("(PASS)"), "a hook on glass: {o1:?}");
         let (o2, m2) = super::power_out(&mk(vec![(b(1, 1, 2), hk), (b(2, 1, 2), p("minecraft:glass")), (b(1, 1, 3), pr)]), &[b(1, 1, 2)], &[]).unwrap_or_else(|e| panic!("{e}"));
         assert!(m2 >= 1 && o2[0].contains("powered_rail[") && o2[0].contains("at 1,1,3 beside it") && o2[0].contains("(FAIL)"), "a powered rail beside: {o2:?}");
         let (o3, m3) = super::power_out(&mk(vec![(b(1, 1, 2), hk), (b(2, 1, 2), p("minecraft:stone")), (b(3, 1, 2), pr)]), &[b(1, 1, 2)], &[]).unwrap_or_else(|e| panic!("{e}"));
@@ -11930,6 +12001,30 @@ mod gate_tests {
         let lock = p("minecraft:repeater[delay=1,facing=south,locked=false,powered=false]");
         let (ll, nl) = super::power_out(&mk(vec![(b(2, 1, 2), rep), (b(2, 1, 3), lock)]), &[b(2, 1, 3)], &[]).unwrap_or_else(|e| panic!("{e}"));
         assert!(nl == 1 && ll[0].contains("repeater[delay=1,facing=east") && ll[0].contains("at 2,1,2 beside it"), "a diode locking its side: {ll:?}");
+        // (G1 Nov 14 05:38, part 49) a source's power goes out only by its real faces: a repeater facing west
+        // (input west, front east) powers the lamp at its front (3,1,2), not the lamp at its side (2,1,1), and
+        // not through the stone under it (no strong output down: the lamp at (1,0,2) beside that stone stays
+        // dark); its front stone (3,1,2) swapped in passes its strong power to the lamp beyond (4,1,2)
+        let lamp_b = p("minecraft:redstone_lamp[lit=false]");
+        let rw = p("minecraft:repeater[delay=1,facing=west,locked=false,powered=false]");
+        let sp = mk(vec![(b(2, 1, 2), rw), (b(3, 1, 2), lamp_b), (b(2, 1, 1), lamp_b), (b(1, 0, 2), lamp_b)]);
+        let (lf, nf) = super::power_out(&sp, &[b(2, 1, 2)], &[]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(nf == 1 && lf[0].contains("redstone_lamp[lit=false] at 3,1,2 beside it") && !lf[0].contains("2,1,1") && !lf[0].contains("1,0,2") && lf[0].contains("conductors beside it: redstone_lamp at 3,1,2"), "a repeater's front only: {lf:?}");
+        let sp2 = mk(vec![(b(2, 1, 2), rw), (b(3, 1, 2), p("minecraft:stone")), (b(4, 1, 2), lamp_b)]);
+        let (lf2, nf2) = super::power_out(&sp2, &[b(2, 1, 2)], &[]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(nf2 == 1 && lf2[0].contains("at 4,1,2 through the conductor stone at 3,1,2"), "through its front: {lf2:?}");
+        // a detector rail on stone: the dropper A beside it fires (its weak signal), the dropper B beside A
+        // doesn't (A, a conductor, gets no strong power from the rail's side); the rail's strong output goes into
+        // the stone below, so the lamp beside that stone (2,0,1) is reached through it
+        let det = p("minecraft:detector_rail[powered=false,shape=north_south,waterlogged=false]");
+        let da = p("minecraft:dropper[facing=east,triggered=false]");
+        let db = p("minecraft:dropper[facing=west,triggered=false]");
+        let sd = mk(vec![(b(2, 1, 2), det), (b(3, 1, 2), da), (b(4, 1, 2), db), (b(2, 0, 1), lamp_b)]);
+        let (ld, nd) = super::power_out(&sd, &[b(2, 1, 2)], &[]).unwrap_or_else(|e| panic!("{e}"));
+        assert!(
+            nd == 2 && ld[0].contains("dropper[facing=east,triggered=false] at 3,1,2 beside it") && !ld[0].contains("4,1,2") && ld[0].contains("at 2,0,1 through the conductor stone at 2,0,2"),
+            "a detector rail's faces: {ld:?}"
+        );
         // (G1 Nov 14 02:50 (1), part 42) a redstone block beside a powered rail: the two powered rails joined
         // to it in its line are reached too, by propagation (3 consumers); a plain rail beyond stops the run
         let pr = p("minecraft:powered_rail[powered=false,shape=north_south,waterlogged=false]");
