@@ -4941,9 +4941,6 @@ pub fn route_golem_floors(spec: &FarmSpec, biome: &'static str) -> Result<(Vec<S
         }
     }
     let cells: Vec<BlockPos> = by.keys().map(|(y, z, x)| BlockPos::new(*x, *y, *z)).collect();
-    if cells.is_empty() {
-        return Err(format!("the route's golem floors: NOT JUDGED: the {} caller cell(s)' golem searches reach no floor", callers.len()));
-    }
     let off: Vec<BlockPos> = cells.iter().copied().filter(|c| !golem_box_meets_portal(&w, *c)).collect();
     let mut lines = vec![format!(
         "GOLEM FLOORS from every route rider's cell as a caller ({} caller cell(s) on {} rail cell(s), {guards} golem guard(s) excluded, {nv} villager cell(s) of the design added; ironspec 17:26, standing): {} golem cell(s), {} on the pad (a golem there meets a nether portal), {} OFF THE PAD{} (bar 0)",
@@ -5000,6 +4997,12 @@ pub fn route_golem_floors(spec: &FarmSpec, biome: &'static str) -> Result<(Vec<S
                 }
             }
         }
+    }
+    // (G1 18:37 B3, refined Nov 13 20:52: zero samples pass nothing: NOT JUDGED only when the callers'
+    // searches examined no floor at all, neither a golem cell nor a refused one; a route whose every
+    // examined floor is refused is judged: 0 golem cells, each refusal listed with its terms)
+    if cells.is_empty() && refused.is_empty() {
+        return Err(format!("the route's golem floors: NOT JUDGED: the {} caller cell(s)' golem searches reach no floor", callers.len()));
     }
     // (ironspec 18:35 / G1 18:37: FRAGILE and STATE by the blocks' kinds, never by a term's wording)
     let mut by_term: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
@@ -5270,31 +5273,38 @@ pub fn string_audit(spec: &FarmSpec) -> Result<(Vec<String>, usize), String> {
         let attached = matches!(w.get(*s), redsim::block::Block::Tripwire { attached: true, .. });
         let (lo, hi) = if attached { (1.0 / 16.0, 2.5 / 16.0) } else { (0.0, 0.5) };
         let band = [s.x as f64, s.x as f64 + 1.0, s.y as f64 + lo, s.y as f64 + hi, s.z as f64, s.z as f64 + 1.0];
-        let (mut empty, mut raised, mut rider): (Option<String>, Option<String>, Option<String>) = (None, None, None);
+        let (mut empty, mut raised, mut rider): (Vec<String>, Vec<String>, Vec<String>) = (Vec::new(), Vec::new(), Vec::new());
         for (r, shape) in rails.iter().filter(|(r, _)| (r.x - s.x).abs() <= 1 && (r.z - s.z).abs() <= 1 && r.y <= s.y && r.y >= s.y - 3) {
-            for i in 0..20 {
-                let t = i as f64 * 0.05;
+            // (each box's run of samples along the rail that meets the band: where the cart must be)
+            let mut runs: [Vec<(f64, Vec3)>; 3] = Default::default();
+            for i in 0..=20 {
+                let t = (i as f64 * 0.05).min(0.999);
                 let p = along_rail(*r, shape, t);
-                let at = || format!("the rail {},{},{} at {:.2},{:.2},{:.2}", r.x, r.y, r.z, p.x, p.y, p.z);
-                if empty.is_none() && meets([p.x - 0.49, p.x + 0.49, p.y, p.y + 0.7, p.z - 0.49, p.z + 0.49], band) {
-                    empty = Some(at());
+                if meets([p.x - 0.49, p.x + 0.49, p.y, p.y + 0.7, p.z - 0.49, p.z + 0.49], band) {
+                    runs[0].push((t, p));
                 }
-                if raised.is_none() && shape.contains("ascending") && meets([p.x - 0.49, p.x + 0.49, r.y as f64 + 1.0, r.y as f64 + 1.7, p.z - 0.49, p.z + 0.49], band) {
-                    raised = Some(at());
+                if shape.contains("ascending") && meets([p.x - 0.49, p.x + 0.49, r.y as f64 + 1.0, r.y as f64 + 1.7, p.z - 0.49, p.z + 0.49], band) {
+                    runs[1].push((t, p));
                 }
-                if rider.is_none() && meets([p.x - 0.3, p.x + 0.3, p.y, p.y + 1.95, p.z - 0.3, p.z + 0.3], band) {
-                    rider = Some(at());
+                if meets([p.x - 0.3, p.x + 0.3, p.y, p.y + 1.95, p.z - 0.3, p.z + 0.3], band) {
+                    runs[2].push((t, p));
+                }
+            }
+            for (k, out) in [&mut empty, &mut raised, &mut rider].into_iter().enumerate() {
+                if let (Some((t0, p0)), Some((t1, p1))) = (runs[k].first(), runs[k].last()) {
+                    out.push(format!("on the rail {},{},{} t {t0:.2}..{t1:.2} ({:.2},{:.2},{:.2} .. {:.2},{:.2},{:.2}; {} of 21 samples)", r.x, r.y, r.z, p0.x, p0.y, p0.z, p1.x, p1.y, p1.z, runs[k].len()));
                 }
             }
         }
-        let class = if empty.is_some() || raised.is_some() {
+        let class = if !empty.is_empty() || !raised.is_empty() {
             cart_keyed += 1;
             "CART-KEYED"
-        } else if rider.is_some() {
+        } else if !rider.is_empty() {
             "rider-keyed"
         } else {
             "never pressed"
         };
+        let say = |v: &Vec<String>| if v.is_empty() { "never meets it".to_string() } else { format!("meets it {}", v.join(", ")) };
         lines.push(format!(
             "string {},{},{} ({}, band y {:.4}..{:.4}): {class}: an empty cart's box {}; its raised box on a slope {}; a rider's box {}",
             s.x,
@@ -5303,9 +5313,9 @@ pub fn string_audit(spec: &FarmSpec) -> Result<(Vec<String>, usize), String> {
             if attached { "attached" } else { "loose" },
             band[2],
             band[3],
-            empty.as_deref().map_or("never meets it".to_string(), |a| format!("meets it at {a}")),
-            raised.as_deref().map_or("never meets it".to_string(), |a| format!("meets it at {a}")),
-            rider.as_deref().map_or("never meets it".to_string(), |a| format!("meets it at {a}"))
+            say(&empty),
+            say(&raised),
+            say(&rider)
         ));
     }
     if strings.is_empty() {
@@ -9598,12 +9608,25 @@ mod gate_tests {
             let tw = super::settled_world_void(&tspec).unwrap_or_else(|e| panic!("{e}"));
             let r = super::route_golem_floors(&tspec, "minecraft:plains");
             assert!(r.as_ref().is_err_and(|e| e.contains("NOT JUDGED: no caller (1 rail cell(s), 1 golem guard(s) excluded)")), "a lone guard ({} on {}): {r:?}", tw.get(b(2, 1, 2)), tw.get(b(2, 0, 2)));
+            // (B3 refined 20:52) a glass pillar: no floor examined at all: NOT JUDGED; the stone pillar
+            // twin: its one floor examined and refused (the rail in its feet cell): judged, 0 golem
+            // cells, the refusal listed FRAGILE (the output chest far below, out of every search)
             let pillar = redsim::entity::mob::farm::FarmSpec {
-                blocks: vec![(b(2, 0, 2), p("minecraft:stone")), (b(2, 1, 2), p("minecraft:rail[shape=north_south,waterlogged=false]"))],
-                ..spec
+                blocks: vec![(b(2, 0, 2), p("minecraft:glass")), (b(2, 1, 2), p("minecraft:rail[shape=north_south,waterlogged=false]"))],
+                output: b(2, -8, 2),
+                lo: b(0, -8, 0),
+                ..spec.clone()
             };
             let r2 = super::route_golem_floors(&pillar, "minecraft:plains");
-            assert!(r2.as_ref().is_err_and(|e| e.contains("NOT JUDGED: the 1 caller cell(s)' golem searches reach no floor")), "a pillar: {r2:?}");
+            assert!(r2.as_ref().is_err_and(|e| e.contains("NOT JUDGED: the 1 caller cell(s)' golem searches reach no floor")), "a glass pillar: {r2:?}");
+            let stone = redsim::entity::mob::farm::FarmSpec {
+                blocks: vec![(b(2, 0, 2), p("minecraft:stone")), (b(2, 1, 2), p("minecraft:rail[shape=north_south,waterlogged=false]"))],
+                output: b(2, -8, 2),
+                lo: b(0, -8, 0),
+                ..spec
+            };
+            let (sl, soff, scells) = super::route_golem_floors(&stone, "minecraft:plains").unwrap_or_else(|e| panic!("the stone pillar is judged: {e}"));
+            assert!(soff == 0 && scells.is_empty() && sl.iter().any(|l| l.contains("refused stop cells: 1 ") && l.contains("2,1,2 (feet not air or liquid (rail[")), "the stone pillar: {sl:?}");
         }
         // (G1 18:37, B2 / B7: the pad test controlled) a framed, lit portal the settle keeps (its portal
         // blocks asserted after the settle); a golem one cell beside the portal meets it, one further
