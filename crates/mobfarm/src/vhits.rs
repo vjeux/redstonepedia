@@ -115,6 +115,80 @@ pub struct Opts<'a> {
     pub rider: Option<&'a str>,
     /// with --judge: the in-scope declarations and the scope's printed line
     pub judge: Option<(&'a [crate::contacts::Decl], String)>,
+    /// (G1's D6 on R4b) the world edits made at a tick of the run (the hold's release: its trapdoors
+    /// opened), each read back; an edit that changes nothing refuses
+    pub edits: &'a [Edit],
+}
+
+/// (G1's D6 on R4b) One world edit at tick `at` of the run (counted from the run's first tick, 0-based):
+/// a cell set to a whole block state, or one property of the block it holds changed (`prop=value`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Edit {
+    pub at: u32,
+    pub cell: redsim::pos::BlockPos,
+    pub to: EditTo,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum EditTo {
+    State(String),
+    Prop(String, String),
+}
+
+/// `T:X,Y,Z=STATE` or `T:X,Y,Z:PROP=VALUE`, several joined by `;` (each with its own T, or the first's).
+pub fn parse_edits(s: &str) -> Result<Vec<Edit>, String> {
+    let mut out = Vec::new();
+    let mut last_t: Option<u32> = None;
+    for part in s.split(';').map(str::trim).filter(|p| !p.is_empty()) {
+        let (t, rest) = match part.split_once(':') {
+            Some((t, r)) if t.trim().parse::<u32>().is_ok() && r.contains(',') => (t.trim().parse::<u32>().map_err(|e| e.to_string())?, r),
+            _ => (last_t.ok_or_else(|| format!("--edit-at {part:?}: T:X,Y,Z=STATE or T:X,Y,Z:PROP=VALUE"))?, part),
+        };
+        last_t = Some(t);
+        // the cell ends at the first '=' (a whole state, which may hold a namespace's ':') or ':' (a property)
+        let cut = rest.find(['=', ':']).ok_or_else(|| format!("--edit-at {part:?}: X,Y,Z=STATE or X,Y,Z:PROP=VALUE"))?;
+        let (cell, to) = if rest.as_bytes()[cut] == b':' {
+            let (c, kv) = (&rest[..cut], &rest[cut + 1..]);
+            let (k, v) = kv.split_once('=').ok_or_else(|| format!("--edit-at {part:?}: PROP=VALUE"))?;
+            (c, EditTo::Prop(k.trim().to_string(), v.trim().to_string()))
+        } else {
+            let (c, b) = (&rest[..cut], rest[cut + 1..].trim());
+            redsim::block::Block::parse(b).map_err(|e| format!("--edit-at {part:?}: {e}"))?;
+            (c, EditTo::State(b.to_string()))
+        };
+        let v: Vec<i32> = cell.split(',').map(|x| x.trim().replace('\u{2212}', "-").parse::<i32>().map_err(|e| format!("--edit-at {part:?}: {x:?}: {e}"))).collect::<Result<_, _>>()?;
+        let [x, y, z] = v[..] else { return Err(format!("--edit-at {part:?}: X,Y,Z")) };
+        out.push(Edit { at: t, cell: redsim::pos::BlockPos::new(x, y, z), to });
+    }
+    Ok(out)
+}
+
+/// Apply the edits due at run tick `k` (with the world's updates), each read back: the line printed,
+/// an edit that changes nothing or isn't held as made fails by name.
+fn apply_edits(w: &mut redsim::world::World, edits: &[Edit], k: u32, lines: &mut Vec<String>) -> Result<(), String> {
+    for e in edits.iter().filter(|e| e.at == k) {
+        let before = w.get(e.cell);
+        let after = match &e.to {
+            EditTo::State(s) => redsim::block::Block::parse(s)?,
+            EditTo::Prop(p, v) => {
+                let s = before.to_string();
+                let key = format!("{p}=");
+                let i = s.find(&format!("[{key}")).map(|i| i + 1).or_else(|| s.find(&format!(",{key}")).map(|i| i + 1)).ok_or_else(|| format!("--edit-at {}: {s} has no property {p}", e.cell))?;
+                let end = s[i..].find([',', ']']).map_or(s.len(), |j| i + j);
+                redsim::block::Block::parse(&format!("{}{key}{v}{}", &s[..i], &s[end..]))?
+            }
+        };
+        if after == before {
+            return Err(format!("--edit-at {}:{}: changes nothing ({before}): a no-op edit refuses", e.at, e.cell));
+        }
+        w.set_block(e.cell, after.clone(), redsim::world::flags::ALL);
+        let read = w.get(e.cell);
+        if read != after {
+            return Err(format!("--edit-at {}:{}: set {after}, read back {read}", e.at, e.cell));
+        }
+        lines.push(format!("(vhits) edit at run tick {k} (game time {}): {} {before} -> {after} (read back as made)", w.time, e.cell));
+    }
+    Ok(())
 }
 
 /// (G1's D1 on R4 v2; one helper, G1 03:13) The legacy declarations among `decls`, each as its cells
@@ -225,7 +299,9 @@ pub fn vhits_lines(spec: &FarmSpec, carts: &[Planted], o: &Opts) -> Result<(Vec<
         }
         // (ironspec 14:52: classify before declaring) each cart's first contact tick printed with its moves
         let mut evidenced: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
-        for _ in 0..o.ticks {
+        for k in 0..o.ticks {
+            // (G1's D6 on R4b) the edits due this run tick, made before its tick
+            apply_edits(&mut run.world, o.edits, k, &mut lines)?;
             run.tick();
             let t = run.world.time;
             for &(id, key) in &ids {
@@ -398,5 +474,29 @@ mod tests {
         assert!(plant_matches(&p, 1, [9.5, -14.0, 0.5], [0.0, 0.0, 0.434], false).unwrap_err().contains("did not mount"));
         let empty = Planted { rider: false, ..p };
         assert!(plant_matches(&empty, 2, [9.5, -14.0, 0.5], [0.0, 0.0, 0.434], true).unwrap_err().contains("mounted (asked: none)"));
+    }
+
+    /// (G1's D6 on R4b) the world edits: a whole state or one property, several joined (each with its
+    /// own tick or the first's), malformed ones refused; a property edit flips only that property and a
+    /// no-op edit refuses
+    #[test]
+    fn world_edits_parse_and_apply_strictly() {
+        let e = parse_edits("20:3,16,0:open=true;-1,16,0:open=true;25:7,16,0=minecraft:air").unwrap();
+        assert_eq!(e.len(), 3);
+        assert_eq!((e[0].at, e[0].cell, &e[0].to), (20, redsim::pos::BlockPos::new(3, 16, 0), &EditTo::Prop("open".into(), "true".into())));
+        assert_eq!((e[1].at, e[1].cell), (20, redsim::pos::BlockPos::new(-1, 16, 0)));
+        assert_eq!((e[2].at, &e[2].to), (25, &EditTo::State("minecraft:air".into())));
+        for bad in ["3,16,0:open=true", "20:3,16:open=true", "20:3,16,0=minecraft:not_a_block", "20:3,16,0:open"] {
+            assert!(parse_edits(bad).is_err(), "{bad}");
+        }
+        let mut w = redsim::world::World::new(redsim::pos::BlockPos::new(0, 0, 0), [4, 4, 4]);
+        let p = redsim::pos::BlockPos::new(1, 1, 1);
+        w.set_block(p, redsim::block::Block::parse("minecraft:oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]").unwrap(), redsim::world::flags::ALL);
+        let mut lines = Vec::new();
+        apply_edits(&mut w, &[Edit { at: 0, cell: p, to: EditTo::Prop("open".into(), "true".into()) }], 0, &mut lines).unwrap();
+        assert_eq!(w.get(p).to_string(), "minecraft:oak_trapdoor[facing=north,half=bottom,open=true,powered=false,waterlogged=false]");
+        assert!(lines[0].contains("read back as made"), "{lines:?}");
+        assert!(apply_edits(&mut w, &[Edit { at: 0, cell: p, to: EditTo::Prop("open".into(), "true".into()) }], 0, &mut lines).unwrap_err().contains("no-op"));
+        assert!(apply_edits(&mut w, &[Edit { at: 0, cell: p, to: EditTo::Prop("lit".into(), "true".into()) }], 0, &mut lines).unwrap_err().contains("no property lit"));
     }
 }
