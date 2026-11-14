@@ -7775,7 +7775,7 @@ pub fn string_audit(spec: &FarmSpec, ranges: &[(BlockPos, f64, f64)], expect: &[
             say(&rider)
         ));
     }
-    for (c, _) in expect.iter().filter(|(c, _)| !strings.contains(c)) {
+    if let Some((c, _)) = expect.iter().find(|(c, _)| !strings.contains(c)) {
         return Err(format!("string audit: NOT JUDGED: the declared {},{},{} is no string of the design", c.x, c.y, c.z));
     }
     // (G1 23:06: no string at all is NOT JUDGED, a wrong path or frame reads clean, unless allowed empty;
