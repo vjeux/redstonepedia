@@ -287,9 +287,6 @@ pub struct Defects {
     pub k_symmetric: bool,
     /// (b')'s through-branch sensor MISSED ONCE: the first J(Y)-first move's stand-in D(Y) never lands (G1 04:19 (5)(b)).
     pub reb_standin_missed: bool,
-    /// The net's trigger WITH a quiet-route condition (a variant: it never fires on the reduced-rate store, whose route
-    /// never goes quiet for ITEMS_QUIET; printed, not the design).
-    pub net_quiet: bool,
     /// The REMOVED count reset (zeroing the in-flight count on a quiet route): the long-halt rows' control.
     pub quiet_reset: bool,
 }
@@ -508,6 +505,8 @@ pub fn run(row: &Row, def: Defects) -> Out {
     let mut flight: i64 = 0;
     let mut last_route_ev: i64 = 0;
     let mut net_fired = false;
+    // (the item count at the last mint: the mint's latch clears when the count moves)
+    let mut flight_at_mint: i64 = 0;
     // (THE CLAIM CAP's count: RELs issued minus credits made)
     let mut claims: i64 = 0;
     // (THE LANES MODEL: each lane's station queue (carts at slot 1 and up the R line) and the carts on their way back)
@@ -825,9 +824,8 @@ pub fn run(row: &Row, def: Defects) -> Out {
         // of carts alive but STOPPED (a jam just short of any sensor reads "no cart") and minted REL into the jam; the count
         // now stays exact through halts and jams (a stopped cart keeps its item, so the net can't fire past it). A missed
         // press (a LOST cart) leaves an item for good: the net stays off (the fail-safe direction: the store's shortfall
-        // persists, visible) until the lost cart's repair resets the count (the player act its own root needs: the lane is
-        // a cart short). A quiet-route condition on the trigger was tried and dropped: the reduced-rate store's route never
-        // goes quiet for ITEMS_QUIET (a batch lands every ~190 gt), so the net never fired on the true-lost rows (`net_quiet`)
+        // persists, visible) until a resync on the route EMPTY BY EVIDENCE (G1 CHANGES 5 on eef084284 (A): owed) or the
+        // lost cart's repair resets the count.
         let route_quiet = t - last_route_ev >= ITEMS_QUIET;
         // (the REMOVED count reset, kept only as the long-halt rows' control: zeroing the count on a quiet route)
         if def.quiet_reset && route_quiet && flight > 0 {
@@ -838,17 +836,21 @@ pub fn run(row: &Row, def: Defects) -> Out {
         // from the model's plant lists: the in-flight ITEMS (REL adds 3; each lane-entry D press removes one, gated by the
         // same K masks as every other D(l) output; a cart passing every J, at the resolver's through branch, removes one);
         // REL waiting for a credit (no halt: `due` needs the holds) with NO item in flight (items <= 0) can never be
-        // answered: ONE credit is minted per such wait (a missed press leaves an item: the net stays off, the fail-safe
-        // direction; an extra press removes one: the net fires one wait early, the store's physical cap refusing any
-        // surplus; the route-quiet condition only in the `net_quiet` variant)
-        if row.resync_net && rel_waiting && !net_fired && flight <= 0 && (!def.net_quiet || route_quiet) && (!row.claims_cap || claims > 0) {
+        // answered: ONE credit is minted per such wait, under the claim cap (a missed press leaves an item: the net stays
+        // off, the fail-safe direction; an extra press removes one: the net fires one wait early, needing an open claim)
+        if row.resync_net && rel_waiting && !net_fired && flight <= 0 && (!row.claims_cap || claims > 0) {
             dispense.push((t + NET_LAT, NET_SRC, NET_SRC));
             o.net_fires.push(t);
             net_fired = true;
+            flight_at_mint = flight;
             claims -= 1;
         }
         if !due || armed {
             rel_waiting = false;
+        }
+        // (G1 CHANGES 5 on eef084284 (C): ONE MINT PER STALL: the mint's latch clears only on a credit (the store armed) or a
+        // change of the item count (a cart event that moves it), never on a hold's flicker ending the wait)
+        if armed || flight != flight_at_mint {
             net_fired = false;
         }
         if pending && t >= pulse_at + REL_LAT && b_ok && holds && armed {
@@ -1643,6 +1645,8 @@ struct GuardRec {
     masked: usize,
     legit: Vec<String>,
     classified: Vec<String>,
+    /// Credits on the guard-off twins whose pressing cart's batch differs from SEEN3's (printed with the sources).
+    mixed: usize,
 }
 
 impl GuardRec {
@@ -1652,7 +1656,10 @@ impl GuardRec {
     fn take_sources(&mut self, off: &Out, label: &str) {
         let mut seen: std::collections::HashSet<usize> = std::collections::HashSet::new();
         let mut last: Option<i64> = None;
-        let mut order: Vec<(i64, usize)> = off.credits.iter().zip(off.credit_src.iter()).filter(|(_, s)| s.1 != NET_SRC).map(|(c, s)| (c.0, s.1)).collect();
+        // (G1 CHANGES 5 on eef084284 (8): keyed on the PRESSING CART's batch (s.0), as the per-batch ledger and its controls
+        // judge; credits whose SEEN3 batch differs (s.0 != s.1: the stall gain's shape) are counted and printed)
+        self.mixed += off.credit_src.iter().filter(|s| s.0 != NET_SRC && s.0 != s.1).count();
+        let mut order: Vec<(i64, usize)> = off.credits.iter().zip(off.credit_src.iter()).filter(|(_, s)| s.0 != NET_SRC).map(|(c, s)| (c.0, s.0)).collect();
         order.sort();
         for (t, b) in order {
             if let Some(lt) = last {
@@ -2084,12 +2091,20 @@ fn credit_fix_block(v: &mut Verdict, lines: &mut Vec<String>) {
         let lmin = gs.least.as_ref().map(|x| x.0);
         let ok = dmax.is_some_and(|d| d <= DM1_BLOCK7) && lmin.is_some_and(|l| l > DM1_BLOCK7);
         let w = v.bar_n(&format!("ctl-credit: THE GUARD ({DM1_BLOCK7} gt) FROM THE CREDITS' SOURCES (G1 CHANGES 7 on 8d3c3c190 (3), the guard and the claim cap off): every second credit of a batch lands within the window after the previous credit, every first credit after it"), gs.runs, ok);
-        lines.push(format!("  THE GUARD FROM THE CREDITS' SOURCES (guard and cap off; {} runs): the latest duplicate (a batch's second credit) {:?} gt after the previous credit ({}), the least first credit {:?} gt after one ({}); the window {DM1_BLOCK7}: margins {:?} / {:?}: {w}", gs.runs, dmax, gs.dup_max.as_ref().map_or("-".to_string(), |x| x.1.clone()), lmin, gs.least.as_ref().map_or("-".to_string(), |x| x.1.clone()), dmax.map(|d| DM1_BLOCK7 - d), lmin.map(|l| l - DM1_BLOCK7)));
+        lines.push(format!("  THE GUARD FROM THE CREDITS' SOURCES (guard and cap off; {} runs; keyed on the pressing cart's batch; {} credits with SEEN3's batch differing): the latest duplicate (a batch's second credit) {:?} gt after the previous credit ({}), the least first credit {:?} gt after one ({}); the window {DM1_BLOCK7}: margins {:?} / {:?}: {w}", gs.runs, gs.mixed, dmax, gs.dup_max.as_ref().map_or("-".to_string(), |x| x.1.clone()), lmin, gs.least.as_ref().map_or("-".to_string(), |x| x.1.clone()), dmax.map(|d| DM1_BLOCK7 - d), lmin.map(|l| l - DM1_BLOCK7)));
         // (the controls: the window at the duplicates' max - 1 lets a batch be credited twice; at the least first credit it
         // blocks a legitimate one (a batch never credited))
         if let (Some(d), Some(l)) = (dmax, lmin) {
-            let (mut twice, mut never) = (Vec::new(), Vec::new());
+            // (G1 CHANGES 5 on eef084284 (9): ONE change per control against a baseline JUDGED CLEAN on the same check: a
+            // row counts only when its design run passes that check; the second control keeps the net (one change: the
+            // window))
+            let (mut twice, mut never, mut base_dirty) = (Vec::new(), Vec::new(), 0usize);
             for (name, r) in &guard_rows {
+                let lb0 = ledger_bars(&run(r, Defects::default()));
+                if lb0.iter().any(|b| b.contains("CREDITED TWICE") || b.contains("NEVER CREDITED")) {
+                    base_dirty += 1;
+                    continue;
+                }
                 let mut ra = r.clone();
                 ra.dm1_block7 = (d - 1).max(0);
                 if ledger_bars(&run(&ra, Defects::default())).iter().any(|b| b.contains("CREDITED TWICE")) {
@@ -2097,35 +2112,23 @@ fn credit_fix_block(v: &mut Verdict, lines: &mut Vec<String>) {
                 }
                 let mut rb = r.clone();
                 rb.dm1_block7 = l;
-                rb.resync_net = false;
                 if ledger_bars(&run(&rb, Defects::default())).iter().any(|b| b.contains("NEVER CREDITED")) {
                     never.push(name.clone());
                 }
             }
+            lines.push(format!("  (the guard controls' baselines: {} of {} rows clean on the ledger's CREDITED TWICE / NEVER CREDITED, {base_dirty} skipped)", guard_rows.len() - base_dirty, guard_rows.len()));
             let c = v.control(&format!("ctl-credit CONTROL (G1 CHANGES 7 on 8d3c3c190 (3)): the guard at the duplicates' max - 1 ({} gt): A BATCH CREDITED TWICE by name", (d - 1).max(0)), 1, !twice.is_empty()).to_string();
             lines.push(format!("  CONTROL (the guard at {} gt): A BATCH CREDITED TWICE on {} rows (e.g. {}): {c}", (d - 1).max(0), twice.len(), twice.first().cloned().unwrap_or_default()));
-            let c = v.control(&format!("ctl-credit CONTROL (G1 CHANGES 7 on 8d3c3c190 (3)): the guard at the least first-credit gap ({l} gt), the net off: A BATCH NEVER CREDITED by name"), 1, !never.is_empty()).to_string();
-            lines.push(format!("  CONTROL (the guard at {l} gt, the net off): A BATCH NEVER CREDITED on {} rows (e.g. {}): {c}", never.len(), never.first().cloned().unwrap_or_default()));
+            let c = v.control(&format!("ctl-credit CONTROL (G1 CHANGES 7 on 8d3c3c190 (3)): the guard at the least first-credit gap ({l} gt): A BATCH NEVER CREDITED by name"), 1, !never.is_empty()).to_string();
+            lines.push(format!("  CONTROL (the guard at {l} gt): A BATCH NEVER CREDITED on {} rows (e.g. {}): {c}", never.len(), never.first().cloned().unwrap_or_default()));
         }
     }
     let least = g.least.as_ref().map(|x| x.0);
     let dup_max = g.dup_max.as_ref().map(|x| x.0);
     let w = v.bar(&format!("ctl-credit: THE ONE-CREDIT-PER-BATCH GUARD ({DM1_BLOCK7} gt) BLOCKS NO LEGITIMATE CREDIT (every blocked press judged, by name) AND COVERS EVERY WOULD-BE DUPLICATE (its gap after the last credit on the guard-off twin <= the window: A DUPLICATE OUTSIDE THE GUARD by name) (G1 CHANGES 7 C4 / CHANGES 6 on 1207053e2 C4; ironspec 04:30 (1): the reference timing row with the nappers' D presses in it, the late sweep 0..60 on every slot, the napper batches)"), g.legit.is_empty() && dup_max.is_some_and(|d| d <= DM1_BLOCK7));
     lines.push(format!("  THE GUARD, EVERY BLOCKED PRESS JUDGED: {} runs; {} blocked presses: {} duplicates of a batch already credited, {} with no credit pending (SEEN3 reset), {} napper / masked presses, {} LEGITIMATE CREDITS BLOCKED{}; THE WOULD-BE DUPLICATES on the guard-off twins: the latest {:?} gt after its credit ({}: margin {:?} inside the window){}; {} legitimate D(7) credits after a credit, the least gap {:?} gt ({}: margin {:?} over the window's end {DM1_BLOCK7}); the passing range {:?}..{:?}: {w}", g.runs, g.blocked, g.dups, g.nopend, g.masked, g.legit.len(), if g.legit.is_empty() { String::new() } else { format!(" ({})", g.legit.iter().take(3).cloned().collect::<Vec<_>>().join(" | ")) }, dup_max, g.dup_max.as_ref().map_or("-".to_string(), |x| x.1.clone()), dup_max.map(|d| DM1_BLOCK7 - d), if dup_max.is_some_and(|d| d > DM1_BLOCK7) { " A DUPLICATE OUTSIDE THE GUARD" } else { "" }, g.gaps, least, g.least.as_ref().map_or("-".to_string(), |x| x.1.clone()), least.map(|x| x - DM1_BLOCK7), dup_max, least.map(|x| x - 1)));
-    // (C4's late-edge control: the window at 3 gt leaves a would-be duplicate outside it, by name)
-    {
-        let mut gc = GuardRec::default();
-        for (name, r) in &guard_rows {
-            let mut r3 = r.clone();
-            r3.dm1_block7 = 3;
-            let mut r0 = r.clone();
-            r0.dm1_block7 = 0;
-            gc.take2(&run(&r3, Defects::default()), Some(&run(&r0, Defects::default())), name);
-        }
-        let d = gc.dup_max.as_ref().map(|x| x.0);
-        let c = v.control("ctl-credit CONTROL (G1 CHANGES 6 on 1207053e2 C4): the guard's window at 3 gt: A DUPLICATE OUTSIDE THE GUARD by name (the late edge)", 1, d.is_some_and(|d| d > 3)).to_string();
-        lines.push(format!("  CONTROL (the guard at 3 gt): the latest would-be duplicate {:?} gt after its credit ({}): {c}", d, gc.dup_max.as_ref().map_or("-".to_string(), |x| x.1.clone())));
-    }
+    // (the 3-gt late-edge control is gone (G1 CHANGES 5 on eef084284 (1): it read the guard-off twin only, so it could
+    // never fail); the late edge's control is the guard at the duplicates' max - 1 above (A BATCH CREDITED TWICE))
     // (C4's control: the window at 90 gt blocks the next batch's own D(7) (66..80 gt after the previous credit): A
     // LEGITIMATE CREDIT BLOCKED by name)
     {
@@ -2243,7 +2246,7 @@ fn credit_fix_block(v: &mut Verdict, lines: &mut Vec<String>) {
             let o = run(r, *d);
             let prem: Vec<String> = o.wait_inflight.iter().take(4).map(|(t, n)| format!("t{t}:{n}")).collect();
             let items: Vec<String> = o.wait_flight.iter().take(4).map(|(t, n)| format!("t{t}:{n}")).collect();
-            fire_lines.push(format!("{name}: credit waits (tick: batches in flight, a MODEL PRINT) [{}..], (tick: THE ITEM COUNT the net reads) [{}..], quiet resets {:?}, the net fires at {:?}, the store [{}]", prem.join(" "), items.join(" "), o.flight_resets, o.net_fires, store_correct_bars(&o).join("; ")));
+            fire_lines.push(format!("{name}: credit waits (tick: batches in flight, a MODEL PRINT) [{}..], (tick: THE ITEM COUNT the net reads) [{}..], the net fires at {:?}, the store [{}]", prem.join(" "), items.join(" "), o.net_fires, store_correct_bars(&o).join("; ")));
             if o.net_fires.len() != 1 || !store_correct_bars(&o).is_empty() {
                 fire_bad.push(name.clone());
             }
@@ -2346,8 +2349,10 @@ fn credit_fix_block(v: &mut Verdict, lines: &mut Vec<String>) {
             // (NO EARLY REL: every REL answered by a real credit or still open (a held claim); a jam past J(3) leaves lanes
             // -1 / 3 running and their batches credit by the completion: REL goes on, lane 7's carts pile (the degraded
             // case, printed), the store stays correct; a jam the whole route backs into stops REL (the fail-stop))
-            if !planted || !o.net_fires.is_empty() || gained || !o.flight_resets.is_empty() {
-                halt_bad.push(format!("lane {} jam in segment {seg}: planted {planted}, mints {:?}, count resets {:?}, the store [{}]", LANES[s], o.net_fires, o.flight_resets, sb.join("; ")));
+            // (G1 CHANGES 5 on eef084284 (2): THE JAM HELD: on a fail-stop row REL waits with items > 0 to the run's end)
+            let held = !stopped || o.wait_flight.last().is_some_and(|w| w.1 > 0);
+            if !planted || !o.net_fires.is_empty() || gained || !o.flight_resets.is_empty() || !held {
+                halt_bad.push(format!("lane {} jam in segment {seg}: planted {planted}, held {held}, mints {:?}, count resets {:?}, the store [{}]", LANES[s], o.net_fires, o.flight_resets, sb.join("; ")));
             }
             if stopped {
                 n_stop += 1;
@@ -2362,6 +2367,51 @@ fn credit_fix_block(v: &mut Verdict, lines: &mut Vec<String>) {
         lines.push(format!("  THE LONG-HALT ROWS: {}{}: {wh}", halt_lines.join(" | "), if halt_bad.is_empty() { String::new() } else { format!(" (FAILED: {})", halt_bad.join(" | ")) }));
         let c = v.control("ctl-credit CONTROL (G1 CHANGES 4 on bb9bba0c9 (4)): the REMOVED quiet count reset restored: the net MINTS INTO THE JAM by name on every fail-stop row", 1, !ctl_mints.is_empty() && ctl_mints.len() == n_stop).to_string();
         lines.push(format!("  CONTROL (the quiet count reset restored): {}: {c}", if ctl_mints.is_empty() { "no mint".to_string() } else { ctl_mints.join(" | ") }));
+        // (G1 CHANGES 5 on eef084284 (A)(B)(C): THE ITEM FORM's OPEN EDGES, each a row by name: (A) a cart lost BEFORE its D
+        // press (a missing slot) leaves the count at +1 for good, so a LATER true loss (a dropped credit) is never recovered
+        // (the 01:28 rule: a resync keyed on the route EMPTY BY EVIDENCE is owed); (B) TWO strays drive the count to -2: a
+        // mint with carts in flight would be a false fire; (C) one mint per STALL: the holds flickering through a stall
+        // mint at most once (the latch clears only on a credit or a cart event))
+        {
+            let mut ra = Row::normal("net (A)");
+            ra.missing = vec![(5, 0)];
+            ra.t_max = 4000;
+            let oa = run(&ra, Defects { drop_credit: Some(12), ..Default::default() });
+            let sa = store_correct_bars(&oa);
+            let wa = v.bar(&format!("ctl-credit: THE ITEM FORM (G1 CHANGES 5 (A)): a cart lost before its D press (batch 5's lane -1 slot missing) then a LATER lost credit (batch 12's dropped): the net recovers the later loss (the count's +1 from the first loss must not disable it){}", if sa.is_empty() { "" } else { ": THE COUNT's PERMANENT +1 DISABLES THE NET (a resync on the route EMPTY by evidence is owed)" }), sa.is_empty());
+            lines.push(format!("  THE ITEM FORM (A): batch 5's slot missing, then batch 12's credit dropped: the net fires at {:?}, the item count at the last waits {:?}, the store [{}]: {wa}", oa.net_fires, oa.wait_flight.iter().rev().take(3).collect::<Vec<_>>(), sa.join("; ")));
+            let (mut nb, mut false_b) = (0usize, Vec::new());
+            for (l1, l2) in [(-1i32, -1i32), (-1, 3), (3, 7), (7, 7), (-1, 7)] {
+                for d in (66..=120).step_by(9) {
+                    let mut rb = Row::normal("net (B)");
+                    rb.stray = vec![(606 + d, l1), (606 + d + 30, l2)];
+                    let ob = run(&rb, Defects::default());
+                    nb += 1;
+                    if !ob.net_fires.is_empty() {
+                        let mut r0 = rb.clone();
+                        r0.resync_net = false;
+                        if store_correct_bars(&run(&r0, Defects::default())).is_empty() && false_b.len() < 3 {
+                            false_b.push(format!("D({l1}) at REL_6 + {d} and D({l2}) 30 gt later: a false mint at {:?} (the count {:?})", ob.net_fires, ob.wait_flight.iter().find(|w| ob.net_fires.contains(&w.0))));
+                        }
+                    }
+                }
+            }
+            let wb = v.bar_n("ctl-credit: THE ITEM FORM (G1 CHANGES 5 (B)): TWO STRAY D presses 30 gt apart (the count driven to -2) never mint falsely (a mint whose net-off twin keeps the store correct)", nb, false_b.is_empty());
+            lines.push(format!("  THE ITEM FORM (B): two strays, {nb} rows: {}: {wb}", if false_b.is_empty() { "no false mint".to_string() } else { false_b.join(" | ") }));
+            // (the true loss the net answers: residual (ii)'s twin (K(3) without the J(3) reset), its mint at ~t 899; the
+            // holds flickering 12 times from just before the wait)
+            let mut rc = Row::normal("net (C)");
+            rc.late = vec![(5, 2, 25)];
+            rc.napper = vec![(5, 1, 25)];
+            let mut rc0 = rc.clone();
+            rc0.name = "net (C) no flicker".into();
+            rc.holds_empty = (0..12).map(|k| (860 + k * 30, 860 + k * 30 + 10)).collect();
+            let dc = Defects { k3_j3_unmasked: true, ..Default::default() };
+            let oc = run(&rc, dc);
+            let oc0 = run(&rc0, dc);
+            let wc = v.bar("ctl-credit: THE ITEM FORM (G1 CHANGES 5 (C)): ONE MINT PER STALL: residual (ii)'s twin (a true loss the net answers) with the holds flickering 12 times through the stall: exactly one mint (the latch clears only on a credit or a move of the item count)", oc.net_fires.len() == 1);
+            lines.push(format!("  THE ITEM FORM (C): residual (ii)'s twin, the holds flickering 12 times: mints at {:?} (without the flicker: {:?}; the item count at its waits {:?}): {wc}", oc.net_fires, oc0.net_fires, oc.wait_flight.iter().take(6).collect::<Vec<_>>()));
+        }
         // (G1 CHANGES 6 on 1207053e2 C1(e): THE EXPECTED TRUE RECOVERIES PINNED: exactly the stray D(-1) at t 677..679 (a stray
         // misrouting all of batch 6: a real loss), one fire each; a new true loss in a clean row fails by name)
         let pinned: Vec<String> = (677..=679).map(|st| format!("A STRAY D(-1) at t {st} (an extra press: the item count one short) at [847]")).collect();
@@ -3856,7 +3906,7 @@ mod tests {
                 ("c24 + the guard generalized", 79, false, false, false, 20),
                 ("c24 + the net (item form)", 79, true, false, true, 20),
                 ("c24 + the claim cap", 79, false, true, true, 20),
-                ("today (tap 80, net, cap, generalized, 42)", 80, true, true, false, 42),
+                ("today (tap 80, net, claim cap, generalized, 35)", 80, true, true, false, DM1_BLOCK7),
             ] {
                 let mut least: Option<(i64, String)> = None;
                 let mut legit = Vec::new();
@@ -4383,9 +4433,9 @@ mod tests {
         // ADOPTED bars only (a superseded bar is removed in code): the normal nights per batch (0 LOST, 0 GAIN, 0 credit
         // from no batch, nothing in flight at the end) and NO CART MISROUTED; the single-fault rows on THE STORE CORRECT
         // (the FIFO ledger, the resync net restoring it), slips printed as cost. With SEEN3_OLD's own tap at REL + 80, THE
-        // ONE-CREDIT-PER-BATCH GUARD (50 gt, opened by every credit, every blocked press judged), every K(l) masking ALL of
+        // ONE-CREDIT-PER-BATCH GUARD (DM1_BLOCK7 = 35 gt, opened by every credit, every blocked press judged), every K(l) masking ALL of
         // D(l)'s outputs (K(3) over the J(3) reset, K(7) by order; the windows' early half 5), THE CLAIM CAP and THE RESYNC
-        // NET (its item form, read from cart events), every late, missing, stray and late-napper row keeps the store correct.
+        // NET (its item form, read from cart events), every late, missing and late-napper row keeps the store correct.
         // THE OPEN FAILURES (adopted bars, by name): a batch cart into the way-in leg under a stray D(-1) / D(3) with batch 6
         // carrying a picked napper (T's leg entries: the stray guard priced); a picked cart diverted (G1 CHANGES 7 C7: now
         // judged in the stray sweep: a stray D(-1) at REL_6 + 109..120 with lane 3's pick; and T behind a cart late past
@@ -4396,6 +4446,8 @@ mod tests {
         }
         let fails = v.fails();
         let expected = [
+            ("THE ITEM FORM (G1 CHANGES 5 (A)): a cart lost before its D press (batch 5's lane -1 slot missing) then a LATER lost credit (batch 12's dropped): the net recovers the later loss", ""),
+            ("THE ITEM FORM (G1 CHANGES 5 (B)): TWO STRAY D presses 30 gt apart (the count driven to -2) never mint falsely", ""),
             ("A STRAY D(-1) at every tick of REL_6 + 66..120 with batch 6 carrying lane 3's picked napper: the fault path's adopted bars: kind LEG-ENTRY at REL_6 + 71..73", ""),
             ("A STRAY D(-1) at every tick of REL_6 + 66..120 with batch 6 carrying lane 3's picked napper: the fault path's adopted bars: kind PICK-DIVERTED at REL_6 + 109..120", ""),
             ("A STRAY D(-1) at every tick of REL_6 + 66..120 with batch 6 carrying lane 7's picked napper: the fault path's adopted bars: kind LEG-ENTRY at REL_6 + 71..93", ""),
