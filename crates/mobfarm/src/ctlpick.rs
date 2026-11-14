@@ -123,6 +123,14 @@ pub struct Out {
     pub max_bed_wait: i64,
     /// The most nappers WAITING for the bed at once (the queue depth, not in flight: ironspec 00:01), with `bed`.
     pub max_queue: usize,
+    /// With `bed`: the longest wait on a lane's branch hold and at the front (gt), and the bed's busy fraction over the
+    /// windows (per mille).
+    pub max_hold_wait: i64,
+    pub max_front_wait: i64,
+    pub bed_busy_permille: i64,
+    /// RELs whose batch carried two / three nappers (two or three lanes picking in the same REL: ironspec 01:00 (3)).
+    pub rels_two: usize,
+    pub rels_three: usize,
 }
 
 /// The lanes' offsets inside the period (interleaved picks, one bed).
@@ -156,6 +164,8 @@ pub fn run(cfg: &Cfg) -> Out {
     let mut in_flight: Vec<i64> = Vec::new();
     let mut bed_free: i64 = i64::MIN;
     let mut bed_waits: Vec<(i64, i64)> = Vec::new();
+    let mut prev_start: i64 = i64::MIN;
+    let mut bed_busy: i64 = 0;
     // (the pointer's step in RING positions: a design constant, D = 5 (coprime with 7 / 8 / 9: ironspec 23:45 (2)),
     // independent of the rejoin rule)
     let delta = cfg.ptr_step;
@@ -259,6 +269,7 @@ pub fn run(cfg: &Cfg) -> Out {
                 }
                 continue;
             }
+            let picks_before = picks_today;
             for l in 0..3 {
                 let c = match lanes[l].pop_front() {
                     Some(c) => c,
@@ -328,8 +339,25 @@ pub fn run(cfg: &Cfg) -> Out {
                     if cfg.bed {
                         // (THE ONE BED as a single server: the napper reaches it 200 gt after the pick, waits while it
                         // is taken, sleeps 333 gt; its wait lengthens its absence)
-                        let arrive = gt + 200;
+                        // (G1 00:50 / ironfarm 00:57: the FIFO releases in ARRIVAL order; the outbound napper rides WITH ITS
+                        // BATCH (gate list G11: pocket -> lift -> the split row in PASS shape -> (8,25,9) -> the leg); its
+                        // MEASURED route to the way-in leg (9,25,9): REL + 132 / 154 / 186 by lane (ironfarm, bench, the
+                        // last stretch extrapolated), then ~60 gt down the leg, the line and the column to the front
+                        // (assumed); a 54-gt spread inside the 100-gt REL spacing: arrival order = (REL, slot) = pick
+                        // order unless one napper's ride is delayed > 46 gt (a gate-G skip of the lane-7 intake: + 100)
+                        const LEG: [i64; 3] = [132, 154, 186];
+                        let arrive = gt + LEG[l] + 60;
                         let start = arrive.max(bed_free);
+                        // (ironspec 00:10 (3) / 00:11: the per-lane hold's gate: a napper reaches its lane's branch
+                        // hold 50 gt after its pick and is released by the PREVIOUS napper's departure from the front
+                        // (its bed start), then reaches the front 150 gt later and waits there for the stop (R1 /
+                        // RS_ready); the bed's start is unchanged by the gate while hold -> front (150) < a visit (333))
+                        let release = (gt + LEG[l] + 15).max(prev_start);
+                        let at_front = arrive.max(release + 45);
+                        o.max_hold_wait = o.max_hold_wait.max(release - (gt + LEG[l] + 15));
+                        o.max_front_wait = o.max_front_wait.max(start - at_front);
+                        prev_start = start;
+                        bed_busy += 333;
                         bed_free = start + 333;
                         let wait = start - arrive;
                         o.max_bed_wait = o.max_bed_wait.max(wait);
@@ -352,6 +380,11 @@ pub fn run(cfg: &Cfg) -> Out {
                 } else {
                     transit.push((t + CIRCUIT, l, c, None));
                 }
+            }
+            match picks_today - picks_before {
+                2 => o.rels_two += 1,
+                3 => o.rels_three += 1,
+                _ => {}
             }
             if in_window {
                 k_rel += 1;
@@ -388,6 +421,7 @@ pub fn run(cfg: &Cfg) -> Out {
         }
     }
     o.bad_nights.sort();
+    o.bed_busy_permille = bed_busy * 1000 / (cfg.window * 100 * cfg.days).max(1);
     // (the queue depth: the most [arrive, start) waits overlapping at one instant)
     for &(a, _) in &bed_waits {
         let depth = bed_waits.iter().filter(|&&(a2, s2)| a2 <= a && a < s2).count();
@@ -544,12 +578,17 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
             };
             let wait_gt: Vec<i64> = o.max_wait.iter().map(|w| w * 100).collect();
             lines.push(format!(
-                "  {}: {verdict}; picks per night {:?}, deferred by HELD per night {:?}, the bed's longest wait {} gt, the most nappers WAITING for the bed at once {}, the longest R_l wait per lane {:?} gt (an additive bound on the stamp: r8's 530 + the wait = {:?}; the stamp arms at the first partial HOME path, ironspec 23:57 (3): cc767b78 measures), the most away per lane {:?}, the latest first pick per lane {:?} RELs into REST; the worst villager {wv}'s naps (gt) {:?}",
+                "  {}: {verdict}; picks per night {:?}, deferred by HELD per night {:?}, the bed's longest wait {} gt, the most nappers WAITING for the bed at once {}, under the FIFO's gate (P1 (9,22,-3) released at the previous napper's front departure; arrival in (REL, slot) order): the longest wait at P1 {} gt and at the front {} gt, the bed busy {} per mille of the windows; batches carrying two nappers {} and three {} (two or three lanes picking in one REL: every napper's D press G11-emulated, their arrival order the slot order); the longest R_l wait per lane {:?} gt (an additive bound on the stamp: r8's 530 + the wait = {:?}; the stamp arms at the first partial HOME path, ironspec 23:57 (3): cc767b78 measures), the most away per lane {:?}, the latest first pick per lane {:?} RELs into REST; the worst villager {wv}'s naps (gt) {:?}",
                 line(&cfg, &o),
                 o.picks,
                 o.deferred,
                 o.max_bed_wait,
                 o.max_queue,
+                o.max_hold_wait,
+                o.max_front_wait,
+                o.bed_busy_permille,
+                o.rels_two,
+                o.rels_three,
                 wait_gt,
                 wait_gt.iter().map(|w| 530 + w).collect::<Vec<_>>(),
                 o.max_away,
