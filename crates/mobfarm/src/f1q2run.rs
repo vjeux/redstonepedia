@@ -2115,10 +2115,16 @@ impl Ctl {
             self.rdet_rises.push(now);
             // (G1 X21) the rise attributed to the rider on R's detector cell (or the cell above the
             // rail's floor), so D2 can require the PREVIOUS napper's own pass
-            let who = w.entities.list.iter().find(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && {
-                let c = cell(e.pos);
-                c == [4, by - 1, 4] || c == [4, by, 4]
-            }).and_then(|e| e.passengers.first().copied());
+            let who = w
+                .entities
+                .list
+                .iter()
+                .filter(|e| !e.removed && matches!(e.kind, EntityKind::Minecart(_)) && {
+                    // (onechunk 17:24) the detector's sensing box, as the rider-keyed press reads it
+                    let p = dpos(e.pos);
+                    (p.x - 4.5).abs() < 0.8 && (p.z - 4.5).abs() < 0.8 && p.y >= (by - 1) as f64 - 0.1 && p.y < (by + 1) as f64
+                })
+                .find_map(|e| e.passengers.first().copied());
             self.rdet_riders.push((now, who));
         }
         self.rdet_prev = rdet;
@@ -2327,10 +2333,11 @@ impl Ctl {
                             self.nap_events.push(format!("t {now}: IN-STOP set, lane x {} (#{v} released into the stop)", LANES[k]));
                         }
                     }
-                    // (day-1's G1, the built gate too) RS_ready reset 2 gt after the queue release
-                    if self.a_stop {
-                        self.rs_reset_due = Some(now + 2);
-                    }
+                    // (day-1's G1 resets RS_ready at the queue release + 2; the record's BUILT gate is the
+                    // level N AND RS_ready into the queue rail, so a reset 2 gt after the release cut the
+                    // queue rail's boost after 2 gt and the napper's cart crawled off the way-in's rail end
+                    // and stopped short of the shaft (t22's smoke, #51 at (9.5,-15,-0.59)): with the built
+                    // gate RS_ready resets at the queue's departure, as the built line holds it; onechunk 17:24)
                     self.nap_events.push(format!("t {now}: the queue rail powered with a napper on it, through R1 (the built gate: N and RS_ready); the hatch (6,{},-5) {}", by + 15, if w.get(dbp(6, by + 15, -5)).to_string().contains("open=true") { "open" } else { "closed" }));
                 }
                 self.q_rail_prev = live;
