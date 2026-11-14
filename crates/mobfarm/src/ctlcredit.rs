@@ -69,6 +69,15 @@ pub const RETURN: i64 = 8;
 pub const PRESS_W: i64 = 4;
 /// THE RING RESET (G10, ironspec 19:45 (1)): REL + 75, a 4-gt pulse.
 pub const RING_X: i64 = 72;
+/// ironspec 02:16 (3), ACCEPTED (day-1 02:15's cause fix): SEEN3_OLD samples SEEN3 at its OWN tap REL + 79 (the window
+/// + 76..+ 82 removes every late and missing loss under a world open (idle 2, the carts 3 behind) at every tick of the
+/// batch (+ 74..+ 82 with no open); re-centred from + 78 by the timing rule; X = + 72 sampled just before a faulted
+/// batch's late D(3) set SEEN3).
+pub const S3OLD_TAP: i64 = 79;
+/// ironspec 02:16 (3): THE ONE-CREDIT-PER-BATCH GUARD (day-1's candidate, priced ~4 blocks: a 20-gt extender on the
+/// completion pulse inhibiting D(7)'s credit line): a late slot 3's D(7) landing 1..7 gt after the D(-1) completion of
+/// its own batch (inside SEEN3's reset delay) is not credited twice; the next batch's own D(7) comes ~80 gt later.
+pub const DM1_BLOCK7: i64 = 20;
 /// The lift's exit detector (-4,24,9) -> J(-1) (-1,25,9): the cart's ride (gt; ironfarm's split-row trace, ~3 cells).
 pub const EXIT_TO_JM1: i64 = 10;
 /// The D-press ring's resync: the row read empty this long before the batch-start state is forced (gt).
@@ -137,6 +146,12 @@ pub struct Row {
     /// The D-press ring keeping the REL-keyed batch-start reset at X as its batch-boundary resync (J(-1) armed, J(3) and
     /// J(7) disarmed at REL + X): the hybrid.
     pub ring_reset_x: bool,
+    /// SEEN3_OLD's sample at its OWN tap REL + n instead of the ring reset's X (ironspec 02:06's cause trace: the X
+    /// sample misses a faulted batch's late D(3) by the latch's set delay).
+    pub s3old_tap: Option<i64>,
+    /// THE ONE-CREDIT-PER-BATCH GUARD (ironspec 02:16 (3)): a D(-1) completion blocks D(7)'s credit for this many gt (0:
+    /// off).
+    pub dm1_block7: i64,
     /// The pick-dependent reset (ironspec 19:56 (4)): on a lane -1 pick the reset leaves J(-1) off and arms J(3)
     /// directly (no emulated D(-1)).
     pub pick_dep: bool,
@@ -175,7 +190,7 @@ pub struct Row {
 
 impl Row {
     pub fn normal(name: &str) -> Row {
-        Row { name: name.to_string(), hopper0: HOPPER0, dropper0: DROPPER0, t_max: 3000, missing: vec![], napper: vec![], stray: vec![], holds_empty: vec![], late: vec![], open: None, pick: vec![], bypass: false, credit_dm1: true, ring_x: RING_X, ring: false, ring_resync: false, ring_reset_x: false, pick_dep: false, fast: true, dm1_old: true, dm1_done: false, dm1_store: false, dm1_owed: false, jam: None, occ_gate: false, f1_dip: vec![], unlock_on_request: true, napper_jitter: vec![] }
+        Row { name: name.to_string(), hopper0: HOPPER0, dropper0: DROPPER0, t_max: 3000, missing: vec![], napper: vec![], stray: vec![], holds_empty: vec![], late: vec![], open: None, pick: vec![], bypass: false, credit_dm1: true, ring_x: RING_X, ring: false, ring_resync: false, ring_reset_x: false, s3old_tap: Some(S3OLD_TAP), dm1_block7: DM1_BLOCK7, pick_dep: false, fast: true, dm1_old: true, dm1_done: false, dm1_store: false, dm1_owed: false, jam: None, occ_gate: false, f1_dip: vec![], unlock_on_request: true, napper_jitter: vec![] }
     }
 }
 
@@ -183,6 +198,10 @@ impl Row {
 #[derive(Clone, Copy, Default, Debug)]
 pub struct Defects {
     pub no_k3_mask: bool,
+    /// K(3)'s mask NOT covering D(3)'s J(3)-reset output (the twin of residual (ii)'s cause fix).
+    pub k3_j3_unmasked: bool,
+    /// K(7) masking NONE of D(7)'s outputs (the twin of ironspec 02:43 (1)'s K(7)).
+    pub k7_unmasked: bool,
     /// K(-1)'s mask removed from all three of D(-1)'s outputs (J(-1) off, J(3) armed, the credit input).
     pub no_km1_mask: bool,
     /// K(-1)'s mask removed from ONE output each (G1 item 9: separate twins).
@@ -218,6 +237,15 @@ pub struct Out {
     pub rel_inflight: Vec<bool>,
     /// Per REL: the hopper's items read by F1, after its unlock window, and the unlock's transfer tick (None: no transfer).
     pub at_rel: Vec<(i64, i64, Option<i64>)>,
+    /// Per credit: the hopper's items just before it lands (ironspec 02:16 (3): the store's level at both credits of a
+    /// GAIN row; a cap refuses only at full).
+    pub credit_level: Vec<i64>,
+    /// D(7) presses whose credit THE ONE-CREDIT-PER-BATCH GUARD blocked (their ticks).
+    pub d7_blocked: Vec<i64>,
+    /// Every D(7) credit's gap after the last D(-1) completion (G1 02:34 (2): the guard's margin to legitimate credits).
+    pub d7_gap_after_completion: Vec<i64>,
+    /// Every napper press's margin inside its own K window (lane, margin; negative = outside), ironspec 02:43 (1).
+    pub napper_k_margin: Vec<(i32, i64)>,
     pub items_max: i64,
     pub items_min: i64,
     pub dropper_min: i64,
@@ -376,6 +404,7 @@ pub fn run(row: &Row, def: Defects) -> Out {
     // (THE D-PRESS RING's J(7) latch: armed by D(3), disarmed by D(7); without `ring` J(7) is on by default)
     let (mut j7_set, mut j7_rst): (Vec<(i64, i64)>, Vec<(i64, i64)>) = (Vec::new(), Vec::new());
     let mut j7 = false;
+    let mut last_completion: Option<i64> = None;
     let mut quiet: i64 = 0;
     let mut last_div_at: [Option<i64>; 3] = [None; 3];
     let (mut s3_set, mut s3_rst): (Vec<(i64, i64)>, Vec<(i64, i64)>) = (Vec::new(), Vec::new());
@@ -383,11 +412,17 @@ pub fn run(row: &Row, def: Defects) -> Out {
     let mut if_set: Vec<i64> = Vec::new();
     let (mut jm1, mut j3, mut seen3, mut in_flight) = (true, false, false, false);
     let mut resets: Vec<i64> = Vec::new();
+    // (SEEN3_OLD's own sample ticks REL + tap (ironspec 02:16 (3)): a redstone delay line from REL, so a world open moves
+    // the pending ones with the block domain, like X's taps)
+    let mut s3old_at: Vec<i64> = Vec::new();
     let mut pending = false;
     let mut last_rel: Option<i64> = None;
     let mut pulse_at = 0i64;
     let mut presses: Vec<Press> = Vec::new();
     let mut k_windows: Vec<(i64, i64, usize)> = Vec::new();
+    // (each K window's napper batch, and the batches already credited: K(7) masks by ORDER, day-1 02:51)
+    let mut k_win_batch: Vec<usize> = Vec::new();
+    let mut credited_b: std::collections::HashSet<usize> = std::collections::HashSet::new();
     let mut carts: Vec<Cart> = Vec::new();
     let shift = |t: i64| if t >= t_open { t + idle } else { t };
     let mut rel_of: Vec<i64> = Vec::new();
@@ -414,6 +449,10 @@ pub fn run(row: &Row, def: Defects) -> Out {
                 x.0 += idle;
             }
             for x in if_set.iter_mut().filter(|x| **x >= t_open) {
+                *x += idle;
+            }
+            // (X's taps and SEEN3_OLD's sample ticks are redstone delays from REL: they move with the block domain)
+            for x in resets.iter_mut().chain(s3old_at.iter_mut()).filter(|x| **x >= t_open) {
                 *x += idle;
             }
             for x in k_windows.iter_mut() {
@@ -486,6 +525,7 @@ pub fn run(row: &Row, def: Defects) -> Out {
                 }
                 if dropper > 0 {
                     dropper -= 1;
+                    o.credit_level.push(items);
                     if items == 0 {
                         cool_until = t + INSERT_COOLDOWN;
                     }
@@ -561,7 +601,7 @@ pub fn run(row: &Row, def: Defects) -> Out {
         seen3 = latch(seen3, &s3_set, &s3_rst);
         // (SEEN3_OLD, ironspec 22:52 (2) / 22:55 (2): SET at the ring reset tap (REL + 72) if SEEN3 is set, RESET by every
         // credit; the sample also reads NOT IN_FLIGHT, so a credit whose SEEN3 reset is still landing is never re-captured)
-        if resets.contains(&t) && seen3 && !in_flight {
+        if (if row.s3old_tap.is_some() { s3old_at.contains(&t) } else { resets.contains(&t) }) && seen3 && !in_flight {
             seen3_old = true;
         }
         // (DONE, day-1 22:56: RESET at the same tap (REL + 72), SET by every credit: at batch b+1's slot 1 D(-1)
@@ -647,6 +687,7 @@ pub fn run(row: &Row, def: Defects) -> Out {
                     // (K(lane) and the OFF windows of the J's west of it ride the napper's nominal timing; its ride may be
                     // jittered past them (item 4's control))
                     k_windows.push((nt[lane] - k_half, nt[lane] + k_half, lane));
+                    k_win_batch.push(b);
                     for (ji, &ntj) in nt.iter().enumerate().take(lane) {
                         off_windows.push((ntj - k_half, ntj + k_half, ji));
                     }
@@ -655,6 +696,9 @@ pub fn run(row: &Row, def: Defects) -> Out {
                 }
             }
             let x = t + row.ring_x;
+            if let Some(tap) = row.s3old_tap {
+                s3old_at.push(t + tap);
+            }
             let dep = row.pick_dep && pick == Some(0);
             if !def.and_rearm {
                 resets.push(x);
@@ -790,6 +834,14 @@ pub fn run(row: &Row, def: Defects) -> Out {
             if p.batch < o.presses.len() {
                 o.presses[p.batch].push((t, p.lane, p.slot.map(|s| LANES[s])));
             }
+            // (ironspec 02:43 (1)'s condition: every napper press's margin inside its own K window (negative = outside))
+            if p.napper && !p.emulated {
+                let li = match p.lane { -1 => 0, 3 => 1, _ => 2 };
+                let m = k_windows.iter().filter(|w| w.2 == li).map(|&(a, b2, _)| (t - a).min(b2 - t)).max();
+                if let Some(m) = m {
+                    o.napper_k_margin.push((p.lane, m));
+                }
+            }
             let pick = row.pick.iter().find(|q| q.0 == p.batch).map(|q| q.1);
             match p.lane {
                 -1 => {
@@ -846,10 +898,18 @@ pub fn run(row: &Row, def: Defects) -> Out {
                         done = true;
                         comp = true;
                         o.dm1_credits += 1;
+                        last_completion = Some(t);
+                        credited_b.insert(seen3_by);
                     }
                 }
                 3 => {
-                    j3_rst.push((t + RETURN, t + RETURN + PRESS_W));
+                    // (K(3)'s mask covers ALL of D(3)'s outputs, as K(-1)'s covers D(-1)'s (day-1 02:40, residual (ii)'s cause
+                    // fix): a lane-3 napper's own D(3) landing after batch b+1's D(-1) armed J(3) would turn that J(3) off
+                    // under b+1's slot 2 (a misroute into lane 7 and batch b+1's credit lost for good); `k3_j3_unmasked` is
+                    // the twin without it)
+                    if def.no_k3_mask || def.k3_j3_unmasked || !in_k(1) {
+                        j3_rst.push((t + RETURN, t + RETURN + PRESS_W));
+                    }
                     // (the D-press ring: D(3) arms J(7); K(3)'s mask covers it, as it covers SEEN3's set)
                     if row.ring && (def.no_k3_mask || !in_k(1)) {
                         j7_set.push((t + SWITCH, t + SWITCH + PRESS_W));
@@ -866,9 +926,18 @@ pub fn run(row: &Row, def: Defects) -> Out {
                     }
                 }
                 _ => {
+                    // (ironspec 02:43 (1) / G1 02:44b (2): K(7) MASKS ALL OF D(7)'s OUTPUTS (the credit line, SEEN3's reset, the
+                    // ring form's J(-1) arm and J(7) reset), as K(-1) / K(3) mask D(-1)'s / D(3)'s: a lane-7 napper's own D(7)
+                    // landing in the next batch's SEEN3 would credit that batch early or clear its SEEN3 (the probe: a lane 7
+                    // napper 50..90 gt late changed the store without it); `k7_unmasked` is the twin)
+                    // (K(7) by ORDER (day-1 02:51): the lane-7 napper rides R6 = 10 behind its batch's lane-7 cart, the D(7)
+                    // presser, so a plain +-K window around the napper masks the batch's OWN credit; K(7) masks only
+                    // INSIDE the napper's window AND AFTER its batch's own D(7) credit (the latch `k7_after` set by that
+                    // credit, cleared at the window's end): the napper's late D(7) can't credit or reset the next batch)
+                    let masked7 = !def.k7_unmasked && k_windows.iter().zip(k_win_batch.iter()).any(|(&(a, b2, kl), &wb)| kl == 2 && t >= a && t <= b2 && credited_b.contains(&wb));
                     // (the D-press ring: D(7) arms J(-1) and disarms J(7): the wrap, safe by construction since D(7)
                     // fires after its cart has passed J(-1) and J(3))
-                    if row.ring {
+                    if row.ring && !masked7 {
                         jm1_set.push((t + SWITCH, t + SWITCH + PRESS_W));
                         j7_rst.push((t + RETURN, t + RETURN + PRESS_W));
                     }
@@ -877,13 +946,26 @@ pub fn run(row: &Row, def: Defects) -> Out {
                     // the REL-keyed "owed" count IS the store, owed 2 = no stored credit)
                     let store_empty = !(read >= need || in_flight);
                     let owed_ok = !(read > need || in_flight);
-                    if seen3 && !(row.dm1_done && comp) && !(row.dm1_store && !store_empty) && !(row.dm1_owed && !owed_ok) {
+                    // (ironspec 02:16 (3): THE ONE-CREDIT-PER-BATCH GUARD (`dm1_block7`): a D(-1) completion blocks D(7)'s credit
+                    // for that many gt (a late slot 3 of the batch it just completed, its D(7) landing inside SEEN3's reset
+                    // delay, is not credited twice; the next batch's own D(7) comes ~80 gt after the completion))
+                    let blocked = row.dm1_block7 > 0 && last_completion.is_some_and(|lc| t - lc <= row.dm1_block7);
+                    if blocked {
+                        o.d7_blocked.push(t);
+                    }
+                    if !masked7 && seen3 && !blocked && !(row.dm1_done && comp) && !(row.dm1_store && !store_empty) && !(row.dm1_owed && !owed_ok) {
+                        // (G1 02:34 (2): every D(7) credit's gap after the last D(-1) completion (the guard's window must end
+                        // before every legitimate one: the least margin printed both ways))
+                        if let Some(lc) = last_completion {
+                            o.d7_gap_after_completion.push(t - lc);
+                        }
                         o.credit_press.push(t);
                         if p.napper {
                             o.napper_effects.push(format!("t {t}: the lane-7 napper's D(7) made a credit"));
                         }
                         let lat = if row.fast { FAST } else { AND };
                         dispense.push((t + lat + DROPPER, p.batch, seen3_by));
+                        credited_b.insert(seen3_by);
                         // (the batch's own credit resets SEEN3_OLD (ironspec 22:52 (2): "reset by every credit") and sets DONE)
                         seen3_old = false;
                         done = true;
@@ -905,7 +987,7 @@ pub fn run(row: &Row, def: Defects) -> Out {
                             jm1_set.push((t + AND + SWITCH, t + AND + SWITCH + PRESS_W));
                         }
                     }
-                    if !def.single_latch {
+                    if !def.single_latch && !masked7 {
                         s3_rst.push((t + RESET, t + RESET + PRESS_W));
                     }
                 }
@@ -1124,6 +1206,213 @@ fn ledger_bars(o: &Out) -> Vec<String> {
     bad
 }
 
+/// Consecutive values as ranges ("9..31, 49..60"; "none" when empty).
+fn ranges_of(xs: &[i64]) -> String {
+    let mut out: Vec<String> = Vec::new();
+    let mut i = 0;
+    while i < xs.len() {
+        let mut j = i;
+        while j + 1 < xs.len() && xs[j + 1] == xs[j] + 1 {
+            j += 1;
+        }
+        out.push(if i == j { xs[i].to_string() } else { format!("{}..{}", xs[i], xs[j]) });
+        i = j + 1;
+    }
+    if out.is_empty() { "none".into() } else { out.join(", ") }
+}
+
+/// The credit's cause fix and its guard (ironspec 02:16 (3) / G1 02:17 (2) / 02:34 (2)): SEEN3_OLD's own tap judged under a
+/// world open at every tick (the window's edges printed), the one-credit-per-batch guard's margin to every legitimate D(7)
+/// credit, and the five gain rows without the guard (the store's level at both credits).
+fn credit_fix_block(v: &mut Verdict, lines: &mut Vec<String>) {
+    let mut rows: Vec<(String, Row)> = Vec::new();
+    for (s, lates) in [(0usize, vec![9i64, 12, 15, 18, 21, 24, 27, 31, 49, 53, 57, 60]), (1, vec![29, 32, 35, 38, 40, 57, 60]), (2, vec![21, 23, 25, 27])] {
+        for late in lates {
+            let mut r = Row::normal("tap");
+            r.late = vec![(5, s, late)];
+            rows.push((format!("lane {} late {late}", LANES[s]), r));
+        }
+    }
+    for s in 0..3 {
+        let mut r = Row::normal("tap");
+        r.missing = vec![(5, s)];
+        rows.push((format!("lane {} missing", LANES[s]), r));
+    }
+    rows.push(("the normal run".to_string(), Row::normal("tap")));
+    // (the timing rule: a world open (the block domain frozen 2 gt, the carts 3 behind) at every tick of REL_6 + 0..114)
+    let sweep = |tap: i64, gaps: &mut Vec<i64>| -> (usize, usize, Vec<String>) {
+        let (mut n, mut bad) = (0usize, 0usize);
+        let mut ex = Vec::new();
+        for (name, r0) in &rows {
+            for t0 in 606..=720 {
+                let mut r = r0.clone();
+                r.s3old_tap = Some(tap);
+                r.open = Some((t0, 2, 3));
+                let o = run(&r, Defects::default());
+                n += 1;
+                gaps.extend(o.d7_gap_after_completion.iter().copied());
+                let lb = ledger_bars(&o);
+                if !lb.is_empty() {
+                    bad += 1;
+                    if ex.len() < 2 {
+                        ex.push(format!("{name}, open at REL_6 + {}: {}", t0 - 606, lb.join("; ")));
+                    }
+                }
+            }
+        }
+        (n, bad, ex)
+    };
+    let mut gaps: Vec<i64> = Vec::new();
+    let (n, bad, ex) = sweep(S3OLD_TAP, &mut gaps);
+    let mut edges = Vec::new();
+    for tap in [S3OLD_TAP - 4, S3OLD_TAP - 3, S3OLD_TAP + 3, S3OLD_TAP + 4] {
+        let (_, b, _) = sweep(tap, &mut Vec::new());
+        edges.push(format!("+ {tap}: {b} runs changing the store"));
+    }
+    let w = v.bar_n(&format!("ctl-credit: SEEN3_OLD's OWN TAP at REL + {S3OLD_TAP} (the credit's cause fix, ironspec 02:16 (3)) keeps the store exact (per batch, the FIFO ledger) on every formerly-losing late row, the missing rows, the gain rows and the normal run under a world open (idle 2, the carts 3 behind) at every tick of REL_6 + 0..114 (the timing rule)"), n, bad == 0);
+    lines.push(format!("  THE CREDIT's CAUSE FIX, SEEN3_OLD's tap REL + {S3OLD_TAP}, under a world open at every tick: {n} runs, {bad} changing the store{}; the window's edges: {}: {w}", if ex.is_empty() { String::new() } else { format!(" ({})", ex.join(" | ")) }, edges.join(", ")));
+    // (G1 02:34 (2): THE GUARD's MARGIN both ways: every D(7) credit after a completion lands after the window's end;
+    // the lateness sweep 0..60 on every slot, the napper batches and the world-open rows above)
+    for s in 0..3 {
+        for late in 0..=60 {
+            let mut r = Row::normal("guard");
+            r.late = vec![(5, s, late)];
+            gaps.extend(run(&r, Defects::default()).d7_gap_after_completion.iter().copied());
+        }
+    }
+    for lane in [0usize, 1, 2] {
+        for late in 0..=30 {
+            let mut r = Row::normal("guard napper");
+            r.late = vec![(5, 2, late)];
+            r.napper = vec![(5, lane, late)];
+            gaps.extend(run(&r, Defects::default()).d7_gap_after_completion.iter().copied());
+        }
+    }
+    let least = gaps.iter().copied().min();
+    let w = v.bar(&format!("ctl-credit: THE ONE-CREDIT-PER-BATCH GUARD ({DM1_BLOCK7} gt) ends before every legitimate D(7) credit after a completion (G1 02:34 (2): a mask on a credit path; the late sweep 0..60 on every slot, the napper batches, the world-open rows)"), least.is_none_or(|g| g > DM1_BLOCK7));
+    lines.push(format!("  THE GUARD's MARGIN: {} D(7) credits after a completion, the least gap {:?} gt (the window {DM1_BLOCK7}: margin {:?}; the duplicate it blocks lands 1..7 gt after): {w}", gaps.len(), least, least.map(|g| g - DM1_BLOCK7)));
+    // (the five gain rows WITHOUT the guard: the store's level at both credits (a cap refuses only at full, 3 items);
+    // the control: the guard removed, the rows gain by name)
+    let mut levels = Vec::new();
+    let mut gained = 0usize;
+    for late in 21..=25 {
+        let mut r = Row::normal("no guard");
+        r.late = vec![(5, 2, late)];
+        r.dm1_block7 = 0;
+        let o = run(&r, Defects::default());
+        if ledger_bars(&o).iter().any(|b| b.contains("A BATCH CREDITED TWICE")) {
+            gained += 1;
+        }
+        for b in 0..o.rels.len() {
+            let idx: Vec<usize> = o.credit_src.iter().enumerate().filter(|(_, s)| s.0 == b).map(|(i, _)| i).collect();
+            if idx.len() >= 2 {
+                levels.push(format!("late {late}: batch {b} credited at {:?} with the store at {:?} items", idx.iter().map(|&i| o.credits[i].0).collect::<Vec<_>>(), idx.iter().map(|&i| o.credit_level.get(i).copied().unwrap_or(-1)).collect::<Vec<_>>()));
+            }
+        }
+    }
+    let c = v.control("ctl-credit CONTROL: THE ONE-CREDIT-PER-BATCH GUARD removed: the lane 7 cart 21..25 gt late is credited twice (A BATCH CREDITED TWICE by name on all 5 rows), the store below full at both credits (no cap catches it)", 1, gained == 5).to_string();
+    lines.push(format!("  CONTROL (the guard removed): {gained} of 5 rows credited twice: {}: {c}", levels.join(" | ")));
+    // (residual (ii)'s cause fix, day-1 02:40: K(3)'s mask covers ALL of D(3)'s outputs (the J(3) reset too); the control:
+    // the twin without it (the late lane-3 napper's D(3) turns batch 6's freshly armed J(3) off: batch 6's lane 3 cart
+    // into lane 7, batch 6's credit lost by name); the design's row judged clean)
+    {
+        let mut r = Row::normal("a lane 3 napper behind batch 5's slot 3, both 25 gt late");
+        r.late = vec![(5, 2, 25)];
+        r.napper = vec![(5, 1, 25)];
+        let od = run(&r, Defects::default());
+        let ot = run(&r, Defects { k3_j3_unmasked: true, ..Default::default() });
+        let bd = ledger_bars(&od);
+        let bt = ledger_bars(&ot);
+        let w = v.bar("ctl-credit: K(3)'s mask covers ALL of D(3)'s outputs (day-1 02:40): a lane 3 napper behind batch 5's slot 3, both 25 gt late, leaves the store exact and no cart misrouted", bd.is_empty() && od.misroutes.is_empty() && od.lane_delta == [0; 3]);
+        lines.push(format!("  K(3) OVER ALL OF D(3)'s OUTPUTS: the late lane 3 napper's row: misroutes {:?}, the lanes' counts {:?}, the ledger [{}]: {w}", od.misroutes, od.lane_delta, bd.join("; ")));
+        let c = v.control("ctl-credit CONTROL: K(3)'s mask NOT covering D(3)'s J(3) reset: the late lane 3 napper's D(3) turns batch 6's armed J(3) off: batch 6's lane 3 cart into lane 7 and A BATCH NEVER CREDITED by name", 1, bt.iter().any(|b| b.contains("A BATCH NEVER CREDITED")) && !ot.misroutes.is_empty()).to_string();
+        lines.push(format!("  CONTROL (K(3) without the J(3) reset): misroutes {:?}, the lanes' counts {:?}, the ledger [{}]: {c}", ot.misroutes, ot.lane_delta, bt.join("; ")));
+    }
+    // (ironspec 02:43 (1) / 02:46 (2), G1 02:44b (2): THE K MASKS AS A STATIC MATRIX: each D(l)'s outputs against K(l)'s
+    // gated lines for all three lanes, as the press handlers implement them; every entry has a planted control leaving
+    // that output unmasked (the per-output twins), so a missing gate fails by name)
+    lines.push("  THE K MASKS' MATRIX (each K(l) masks ALL of D(l)'s outputs; the twin leaving one output unmasked, with its control):".to_string());
+    for (l, out, gate, twin) in [
+        (-1, "J(-1)'s reset", "K(-1)", "no_km1_jm1 (control: the napper 20 late turns batch 6's armed J(-1) off)"),
+        (-1, "J(3)'s arm", "K(-1)", "no_km1_j3 (control: the napper's D(-1) arms J(3))"),
+        (-1, "the D(-1) completion's credit input", "K(-1)", "no_km1_credit (control: the napper's D(-1) inside SEEN3 makes a credit)"),
+        (3, "J(3)'s reset", "K(3) (day-1 02:40)", "k3_j3_unmasked (control: the late lane 3 napper turns batch 6's J(3) off, batch 6's credit lost)"),
+        (3, "SEEN3's set", "K(3)", "no_k3_mask (control: the napper's D(3) sets SEEN3)"),
+        (3, "J(7)'s arm (the ring form only)", "K(3)", "no_k3_mask (the ring rows)"),
+        (7, "the D(7) credit line", "K(7) (ironspec 02:43 (1))", "k7_unmasked (control below: a late lane 7 napper credits the next batch early)"),
+        (7, "SEEN3's reset", "K(7)", "k7_unmasked (control below)"),
+        (7, "J(-1)'s arm and J(7)'s reset (the ring form only)", "K(7)", "k7_unmasked (the ring rows)"),
+    ] {
+        lines.push(format!("    D({l}) -> {out}: gated by {gate}; twin {twin}"));
+    }
+    {
+        // (K(7)'s rows: a lane 7 napper alone (its batch on time), released 0..120 gt late. THE MATRIX's bar: its D(7) changes
+        // no state at any lateness (no napper effect: no credit, no SEEN3 reset); the twin without K(7) credits the next
+        // batch by name. Separately, a napper released 30..60 gt late meets batch 6 at the J's (its OFF windows and K(7)'s
+        // branch force), a ROUTING fault judged on the fault path's bars (`recovery_bars`, the store per batch))
+        let (mut eff_d, mut eff_t, mut route_bad) = (Vec::new(), Vec::new(), Vec::new());
+        let mut route_ex = String::new();
+        for extra in (0..=120).step_by(5) {
+            let mut r = Row::normal("k7");
+            r.napper = vec![(5, 2, extra)];
+            let od = run(&r, Defects::default());
+            if !od.napper_effects.is_empty() {
+                eff_d.push(extra);
+            }
+            let rb = recovery_bars(&od, &r, 6);
+            if !rb.is_empty() {
+                route_bad.push(extra);
+                if route_ex.is_empty() {
+                    route_ex = format!("released {extra} late: misroutes {:?}; {}", od.misroutes, rb.join("; "));
+                }
+            }
+            if !run(&r, Defects { k7_unmasked: true, ..Default::default() }).napper_effects.is_empty() {
+                eff_t.push(extra);
+            }
+        }
+        let w = v.bar_n("ctl-credit: K(7) MASKS ALL OF D(7)'s OUTPUTS: a lane 7 napper's D(7) at every release lateness 0..120 changes no state (no credit, no SEEN3 reset)", 25, eff_d.is_empty());
+        lines.push(format!("  K(7)'s MATRIX ROW, a lane 7 napper released 0..120 gt late: its D(7) changes state at {}: {w}", ranges_of(&eff_d)));
+        let c = v.control("ctl-credit CONTROL: K(7) masking none of D(7)'s outputs: a late lane 7 napper's D(7) credits the next batch by name (its D(7) inside that batch's SEEN3)", 1, !eff_t.is_empty()).to_string();
+        lines.push(format!("  CONTROL (no K(7)): the napper's D(7) changes state at lateness {}: {c}", ranges_of(&eff_t)));
+        let w = if route_bad.is_empty() {
+            v.bar_n("ctl-credit: A LANE 7 NAPPER RELEASED 0..120 gt LATE: the fault path's adopted bars (recovery within 2 batches, the store per batch)", 25, true).to_string()
+        } else {
+            v.bar(&format!("ctl-credit: A LANE 7 NAPPER RELEASED 0..120 gt LATE: the fault path's adopted bars fail at release lateness {} (its J windows meet batch 6's carts)", ranges_of(&route_bad)), false).to_string()
+        };
+        lines.push(format!("  A LATE LANE 7 NAPPER's ROUTING (its OFF windows / K(7)'s branch force meeting batch 6): fails at {}{}: {w}", ranges_of(&route_bad), if route_ex.is_empty() { String::new() } else { format!(" (e.g. {route_ex})") }));
+    }
+    // (ironspec 02:43 (1)'s condition: the margin from each napper's press to its own K window's edges, worst over the
+    // delayed-napper sweep (a lane l napper behind its batch's late slot 3, both 0..60 late, every lane) and a world open
+    // (block domain running, the carts 3 behind) at every tick of the napper batch; a press OUTSIDE its window fails by
+    // name. MODEL NOTE: a napper bunched behind a late cart is modelled as released with it (its K window riding its
+    // release); a napper slowed AFTER its release by a cart ahead is not modelled (no cart collisions): owed to the game)
+    {
+        let mut ms: Vec<(i32, i64, String)> = Vec::new();
+        for lane in [0usize, 1, 2] {
+            for late in 0..=60 {
+                let mut r = Row::normal("k margin");
+                r.late = vec![(5, 2, late)];
+                r.napper = vec![(5, lane, late)];
+                for &(l, m) in &run(&r, Defects::default()).napper_k_margin {
+                    ms.push((l, m, format!("lane {} napper behind slot 3, both {late} late", LANES[lane])));
+                }
+            }
+            for t0 in 506..=720 {
+                let mut r = Row::normal("k margin open");
+                r.napper = vec![(5, lane, 0)];
+                r.open = Some((t0, 0, 3));
+                for &(l, m) in &run(&r, Defects::default()).napper_k_margin {
+                    ms.push((l, m, format!("lane {} napper, a world open at t {t0}", LANES[lane])));
+                }
+            }
+        }
+        let least = ms.iter().min_by_key(|x| x.1).cloned();
+        let outside: Vec<&(i32, i64, String)> = ms.iter().filter(|x| x.1 < 0).collect();
+        let w = v.bar_n("ctl-credit: EVERY NAPPER PRESS INSIDE ITS OWN K WINDOW (ironspec 02:43 (1)'s condition: the delayed-napper sweep 0..60 on every lane and a world open at every tick of the napper batch)", ms.len(), outside.is_empty());
+        lines.push(format!("  THE NAPPER PRESSES vs THEIR K WINDOWS (+- {K_HALF}): {} presses, the least margin {:?}{}: {w}", ms.len(), least.map(|x| format!("{} gt (lane {}, {})", x.1, x.0, x.2)), if outside.is_empty() { String::new() } else { format!("; OUTSIDE: {}", outside.iter().take(3).map(|x| x.2.clone()).collect::<Vec<_>>().join(" | ")) }));
+    }
+}
+
 /// The design's bars on an unfaulted run: the store, P = 100, every batch in phase, no misroute, no picked cart
 /// diverted, every napper press neutral.
 fn design_bars(o: &Out, row: &Row, n_min: usize) -> Vec<String> {
@@ -1296,6 +1585,7 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
     control(v, &format!("the LAST released batch's credit (batch {last_b}) DROPPED: A BATCH NEVER CREDITED fails by name (no last-claim exclusion hides it)"), ledger_bars(&odl).iter().any(|b| b.contains("A BATCH NEVER CREDITED")), &odl, &row, &mut lines);
     // (G1 CHANGES 4 C2's control: ONE GAIN AND ONE LOSS in the same row (batch 5 credited twice, batch 9's credit
     // dropped): both fail by name, they never cancel)
+    credit_fix_block(v, &mut lines);
     let ogl = run(&row, Defects { double_dispense: true, drop_credit: Some(9), ..Default::default() });
     let bgl = ledger_bars(&ogl);
     control(v, "one GAIN and one LOSS in one row (batch 5 credited twice, batch 9's credit dropped): A BATCH CREDITED TWICE and A BATCH NEVER CREDITED both fail by name (they never cancel)", bgl.iter().any(|b| b.contains("A BATCH CREDITED TWICE")) && bgl.iter().any(|b| b.contains("A BATCH NEVER CREDITED")), &ogl, &row, &mut lines);
@@ -1413,22 +1703,11 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
     // (the tolerances, per slot, lateness 0..60 at 1 gt: where a cart moves between sidings (the compression misroute:
     // a cart reaching a J inside the switching time of the cart ahead, or slot 3 reaching J(-1) after the next ring
     // reset armed it), and where the ruled form (the credit on D(7) alone) loses a credit for good)
-    let ranges = |xs: &[i64]| -> String {
-        let mut out: Vec<String> = Vec::new();
-        let mut i = 0;
-        while i < xs.len() {
-            let mut j = i;
-            while j + 1 < xs.len() && xs[j + 1] == xs[j] + 1 {
-                j += 1;
-            }
-            out.push(if i == j { xs[i].to_string() } else { format!("{}..{}", xs[i], xs[j]) });
-            i = j + 1;
-        }
-        if out.is_empty() { "none".into() } else { out.join(", ") }
-    };
+    let ranges = |xs: &[i64]| -> String { ranges_of(xs) };
     for s in 0..3 {
         let (mut moved, mut lost, mut lost_c, mut failing) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
         let mut by_kind: std::collections::BTreeMap<String, Vec<i64>> = std::collections::BTreeMap::new();
+        let mut gain_levels: Vec<String> = Vec::new();
         for late in 0..=60 {
             let mut r = Row::normal("tol");
             r.late = vec![(bf, s, late)];
@@ -1452,6 +1731,18 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
                     by_kind.entry(k.to_string()).or_default().push(late);
                 }
             }
+            // (ironspec 02:16 (3): on every row with a batch credited twice, the store's level at both of its credits
+            // (the cap refuses only at full: 3 items, the ballast + 2))
+            for b in 0..o.rels.len() {
+                let idx: Vec<usize> = o.credit_src.iter().enumerate().filter(|(_, s)| s.0 == b).map(|(i, _)| i).collect();
+                if idx.len() >= 2 {
+                    gain_levels.push(format!("late {late}: batch {b}'s credits at {:?} with the store at {:?} items", idx.iter().map(|&i| o.credits[i].0).collect::<Vec<_>>(), idx.iter().map(|&i| o.credit_level.get(i).copied().unwrap_or(-1)).collect::<Vec<_>>()));
+                }
+            }
+        }
+        if !gain_levels.is_empty() {
+            lines.push(format!("  THE GAIN ROWS' STORE LEVELS (lane {}; ironspec 02:16 (3): a cap refuses only a credit landing on a FULL store, 3 items): {}", LANES[s], gain_levels.join(" | ")));
+            gain_levels.clear();
         }
         // (G1 item 6 / on 60ada7ea8 B3: every one of the 61 lateness values JUDGED on the recovery bars, PINNED PER KIND:
         // one bar per failing kind naming its lateness values; the moved cart is the documented compression fault, printed)
@@ -1532,9 +1823,16 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
     let mut n_plants = 0usize;
     for pick in [None, Some(0usize), Some(1), Some(2)] {
         for lane in [-1i32, 3, 7] {
-            let mut by_kind: std::collections::BTreeMap<&str, Vec<i64>> = std::collections::BTreeMap::new();
+            let mut by_kind: std::collections::BTreeMap<String, Vec<i64>> = std::collections::BTreeMap::new();
+            let mut documented: Vec<i64> = Vec::new();
             let mut ex = String::new();
-            for d in 80..=120 {
+            // (G1 02:17 (2)(b): the sweep brackets the new SEEN3_OLD tap (REL + 79): REL_6 + 66..120. ironspec 02:45 (3): judged
+            // on the ADOPTED bars only: a stray is a fault (the stray guard PRICED: no single non-player root), so each
+            // row is judged on the fault path's bars (`recovery_bars`: the ring and the cadence back within 2 batches, no
+            // misroute after them, no napper misrouted, the store PER BATCH by the ledger) and on NO BATCH CART ENTERING
+            // THE WAY-IN LEG (every row, ironspec 01:40 (c)); a cart moved between sidings inside the two batches is T's
+            // documented compression fault (printed with its repair note, not a failing bar))
+            for d in 66..=120 {
                 let mut r = Row::normal("stray sweep");
                 r.stray = vec![(rel6 + d, lane)];
                 if let Some(pl) = pick {
@@ -1545,11 +1843,18 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
                 if !o.strays_landed.iter().any(|s| s.0 == rel6 + d && s.1 == lane) && plant_bad.len() < 3 {
                     plant_bad.push(format!("the stray D({lane}) at REL_6 + {d} did not land ({:?})", o.strays_landed));
                 }
-                for k in kinds_route(&o) {
-                    by_kind.entry(k).or_default().push(d);
+                let mut bad = recovery_bars(&o, &r, 6);
+                if !o.leg_entries.is_empty() {
+                    bad.push(format!("A BATCH CART ENTERED THE WAY-IN LEG (LEG-ENTRY): {}", o.leg_entries.join("; ")));
                 }
-                if ex.is_empty() && !kinds_route(&o).is_empty() {
-                    ex = format!("at REL_6 + {d}: {}{}", o.misroutes.join("; "), if o.lane_delta != [0; 3] { format!(" (the lanes' counts {:?})", o.lane_delta) } else { String::new() });
+                for k in kinds_of(&bad).split(", ").filter(|k| !k.is_empty()) {
+                    by_kind.entry(if k == "OTHER" && bad.iter().any(|b| b.contains("LEG-ENTRY")) { "LEG-ENTRY" } else { k }.to_string()).or_default().push(d);
+                }
+                if o.lane_delta != [0; 3] || !o.misroutes.is_empty() {
+                    documented.push(d);
+                }
+                if ex.is_empty() && !bad.is_empty() {
+                    ex = format!("at REL_6 + {d}: {}", bad.join("; "));
                 }
             }
             let batch = match pick {
@@ -1558,12 +1863,13 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
             };
             let mut marks = Vec::new();
             if by_kind.is_empty() {
-                marks.push(v.bar_n(&format!("ctl-credit: NO CART MISROUTED under a stray D({lane}) at every tick of REL_6 + 80..120{batch} (G1 00:35: never switch a T under a car; every kind clear)"), 41, true).to_string());
+                marks.push(v.bar_n(&format!("ctl-credit: A STRAY D({lane}) at every tick of REL_6 + 66..120{batch}: the fault path's adopted bars (recovery within 2 batches, the store per batch, no batch cart into the way-in leg; every kind clear)"), 55, true).to_string());
             }
             for (k, ds) in &by_kind {
-                marks.push(format!("{k} at + {}: {}", ranges(ds), v.bar(&format!("ctl-credit: NO CART MISROUTED under a stray D({lane}) at every tick of REL_6 + 80..120{batch}: kind {k} at REL_6 + {}", ranges(ds)), false)));
+                marks.push(format!("{k} at + {}: {}", ranges(ds), v.bar(&format!("ctl-credit: A STRAY D({lane}) at every tick of REL_6 + 66..120{batch}: the fault path's adopted bars: kind {k} at REL_6 + {}", ranges(ds)), false)));
             }
-            lines.push(format!("  THE STRAY SWEEP, D({lane}) at REL_6 + 80..120{batch}: {}{}", marks.join("; "), if ex.is_empty() { String::new() } else { format!(" (e.g. {ex})") }));
+            lines.push(format!("  THE STRAY SWEEP, D({lane}) at REL_6 + 66..120{batch}: {}; T's documented compression fault (carts moved inside the two batches, repair \"rebalance\") at + {}{}", marks.join("; "), ranges(&documented), if ex.is_empty() { String::new() } else { format!(" (e.g. {ex})") }));
+            documented.clear();
         }
     }
     // (C3's control: a NAPPER MISROUTE planted at ticks that already fail (K's half-width cut, so a lane-7 napper behind
@@ -1587,8 +1893,13 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
     // KIND (r14's chain: J routes by arrival order, so a reorder misroutes); λ_pass per slot = the first misrouting
     // lateness, the last passing beside it; each late cart read back (its J(-1) arrival = its normal one + the lateness))
     let o_norm = run(&Row::normal("norm"), Defects::default());
+    // (ironspec 02:45 (3): the delayed-cart sweep judged on the ADOPTED bars: a misroute past λ_pass is T's compression
+    // fault (a fault path: bounded, repair "rebalance"; its recovery bars are judged in the lateness sweep above), so the
+    // adopted bars here are NO NORMAL EVENT REACHES λ_pass (a normal cart's lateness <= the world open's k + j 3 + the
+    // jitter 2 = 5 gt) and NO BATCH CART INTO THE WAY-IN LEG at any lateness)
+    const NORMAL_LATE: i64 = 5;
     for s in 0..3 {
-        let mut by_kind: std::collections::BTreeMap<&str, Vec<i64>> = std::collections::BTreeMap::new();
+        let mut leg: Vec<i64> = Vec::new();
         let mut first_bad: Option<i64> = None;
         let mut counts_at: Vec<String> = Vec::new();
         for late in 1..=60 {
@@ -1606,19 +1917,18 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
                 first_bad = Some(late);
                 counts_at.push(format!("{:?}", o.lane_delta));
             }
-            for k in ks {
-                by_kind.entry(k).or_default().push(late);
+            if !o.leg_entries.is_empty() {
+                leg.push(late);
             }
         }
         let lam = first_bad.map_or("none in 1..60".to_string(), |f| format!("{f} gt (the last passing {} gt; the lanes' counts there {})", f - 1, counts_at.join(" ")));
-        let mut marks = Vec::new();
-        if by_kind.is_empty() {
-            marks.push(v.bar_n(&format!("ctl-credit: NO CART MISROUTED with batch 5's lane {} cart late by each of 1..60 gt (every kind clear)", LANES[s]), 60, true).to_string());
-        }
-        for (k, ls) in &by_kind {
-            marks.push(format!("{k} at {}: {}", ranges(ls), v.bar(&format!("ctl-credit: NO CART MISROUTED with batch 5's lane {} cart late by each of 1..60 gt (G1 01:00, r14's chain): kind {k} at lateness {}", LANES[s], ranges(ls)), false)));
-        }
-        lines.push(format!("  THE DELAYED-CART SWEEP, lane {} late 1..60: λ_pass (the first misrouting lateness) {lam}; {}", LANES[s], marks.join("; ")));
+        let w = v.bar(&format!("ctl-credit: NO NORMAL EVENT REACHES λ_pass for batch 5's lane {} cart (λ_pass {} vs a normal cart's lateness <= {NORMAL_LATE} gt: the world open's k + j 3 + the jitter 2)", LANES[s], first_bad.map_or("> 60".to_string(), |f| f.to_string())), first_bad.is_none_or(|f| f > NORMAL_LATE));
+        let wl = if leg.is_empty() {
+            v.bar_n(&format!("ctl-credit: NO BATCH CART INTO THE WAY-IN LEG with batch 5's lane {} cart late by each of 1..60 gt", LANES[s]), 60, true).to_string()
+        } else {
+            v.bar(&format!("ctl-credit: NO BATCH CART INTO THE WAY-IN LEG with batch 5's lane {} cart late by each of 1..60 gt: LEG-ENTRY at lateness {}", LANES[s], ranges(&leg)), false).to_string()
+        };
+        lines.push(format!("  THE DELAYED-CART SWEEP, lane {} late 1..60: λ_pass (the first misrouting lateness) {lam}, margin over a normal cart's lateness {}: {w}; the way-in leg: {wl}", LANES[s], first_bad.map_or("> 55".to_string(), |f| (f - 1 - NORMAL_LATE).to_string())));
     }
     let w = v.bar_n("ctl-credit: EVERY PLANT READ BACK WITH ITS ROLE (ironspec 01:35's standing rule): each sweep stray landed at REL_6 + d on its lane (REL_6 read from the run), each late cart reached J(-1) exactly its lateness after its normal tick", n_plants, plant_bad.is_empty());
     lines.push(format!("  THE PLANTS' READ-BACK ({n_plants} plants, REL_6 = t {rel6}): {}: {w}", if plant_bad.is_empty() { "every plant landed in its role".to_string() } else { plant_bad.join(" | ") }));
@@ -2049,6 +2359,190 @@ mod tests {
     use super::*;
 
     #[test]
+    fn trace_the_lost_credit() {
+        // (ironspec 02:06: WHY a late lane -1 cart loses a credit for good: the presses, the credits and their sources,
+        // per batch, for lateness 0 / 10 / 20)
+        for late in [0i64, 10, 20] {
+            let mut r = Row::normal("trace");
+            r.late = vec![(5, 0, late)];
+            let o = run(&r, Defects::default());
+            println!("TRACE late {late}: RELs {:?}", &o.rels[..o.rels.len().min(12)]);
+            for b in 4..9.min(o.presses.len()) {
+                println!("TRACE late {late}: batch {b} entered {:?} presses {:?}", o.entered[b], o.presses[b]);
+            }
+            println!("TRACE late {late}: credits (tick, batch) {:?}", &o.credits[..o.credits.len().min(12)]);
+            println!("TRACE late {late}: credit_src (completing batch, SEEN3's batch) {:?}", &o.credit_src[..o.credit_src.len().min(12)]);
+            println!("TRACE late {late}: credit presses {:?}; dm1 credits {}; misroutes {:?}; lane delta {:?}", &o.credit_press[..o.credit_press.len().min(12)], o.dm1_credits, o.misroutes, o.lane_delta);
+        }
+        // (the lane-7 GAIN rows: slot 3 late 23)
+        {
+            // (G1 02:44b (2): K(7) by the same matrix: a lane 7 napper alone (its batch on time) late 0..120: where does
+            // its D(7) land, and does it change the store?)
+            let mut fx = Vec::new();
+            for extra in (0..=120).step_by(10) {
+                let mut r = Row::normal("k7");
+                r.napper = vec![(5, 2, extra)];
+                let o = run(&r, Defects::default());
+                let lb = ledger_bars(&o);
+                fx.push(format!("{extra}: {} {:?} misroutes {:?}{}", if lb.is_empty() { "clean" } else { "CHANGED" }, o.napper_effects, o.misroutes, if lb.is_empty() { String::new() } else { format!(" [{}]", lb.join("; ")) }));
+            }
+            println!("K7PROBE a lane 7 napper alone, late: {}", fx.join(" | "));
+        }
+        {
+            let mut r = Row::normal("trace3n");
+            r.late = vec![(5, 2, 25)];
+            r.napper = vec![(5, 1, 25)];
+            let o = run(&r, Defects::default());
+            for b in 4..8.min(o.presses.len()) {
+                println!("TRACE3N: batch {b} entered {:?} presses {:?}", o.entered[b], o.presses[b]);
+            }
+            println!("TRACE3N: RELs {:?}", &o.rels[..o.rels.len().min(10)]);
+            println!("TRACE3N: credits (tick, batch) {:?}; src {:?}; credit presses {:?}; dm1 credits {}; blocked {:?}; napper effects {:?}; ledger {:?}", &o.credits[..o.credits.len().min(10)], &o.credit_src[..o.credit_src.len().min(10)], &o.credit_press[..o.credit_press.len().min(10)], o.dm1_credits, o.d7_blocked, o.napper_effects, ledger_bars(&o));
+            println!("TRACE3N: misroutes {:?}; napper misroutes {:?}; lane delta {:?}", o.misroutes, o.napper_misroutes, o.lane_delta);
+            let mut r0 = r.clone();
+            r0.napper = vec![];
+            let o0 = run(&r0, Defects::default());
+            println!("TRACE3N without the napper: credits {:?}; src {:?}; presses b5 {:?}; ledger {:?}", &o0.credits[..o0.credits.len().min(10)], &o0.credit_src[..o0.credit_src.len().min(10)], o0.presses.get(5), ledger_bars(&o0));
+        }
+        {
+            let mut r = Row::normal("trace7");
+            r.late = vec![(5, 2, 23)];
+            let o = run(&r, Defects::default());
+            for b in 4..8.min(o.presses.len()) {
+                println!("TRACE7 late 23: batch {b} entered {:?} presses {:?}", o.entered[b], o.presses[b]);
+            }
+            println!("TRACE7 late 23: credits (tick, batch) {:?}; src {:?}; credit presses {:?}; dm1 credits {}; ledger {:?}", &o.credits[..o.credits.len().min(10)], &o.credit_src[..o.credit_src.len().min(10)], &o.credit_press[..o.credit_press.len().min(10)], o.dm1_credits, ledger_bars(&o));
+        }
+        // (the cause fix candidate: SEEN3_OLD sampled at its own tap REL + n; the late / missing sweeps' rows that still
+        // LOSE or GAIN a credit, per tap)
+        // (the one-credit-per-batch guard on top of the tap at REL + 78: the window swept; every late row (each slot
+        // 0..60), the missing rows, the delayed nappers (lane 3 / 7 behind a late slot 3, 0..30) and the stray D(7) at
+        // REL_6 + 66..120: rows losing / gaining a credit)
+        for blk in [0i64, 10, 20, 30, 40, 60] {
+            let (mut lost, mut gain) = (Vec::new(), Vec::new());
+            let mut chk = |name: String, r: Row| {
+                let mut r = r;
+                r.dm1_block7 = blk;
+                let o = run(&r, Defects::default());
+                let lb = ledger_bars(&o);
+                if lb.iter().any(|b| b.contains("NEVER")) {
+                    lost.push(name.clone());
+                }
+                if lb.iter().any(|b| b.contains("GAIN") || b.contains("TWICE") || b.contains("NO BATCH")) {
+                    gain.push(name);
+                }
+            };
+            for s in 0..3 {
+                for late in 0..=60 {
+                    let mut r = Row::normal("g");
+                    r.late = vec![(5, s, late)];
+                    chk(format!("lane {} late {late}", LANES[s]), r);
+                }
+                let mut r = Row::normal("g");
+                r.missing = vec![(5, s)];
+                chk(format!("lane {} missing", LANES[s]), r);
+            }
+            for lane in [1usize, 2] {
+                for late in (0..=30).step_by(5) {
+                    let mut r = Row::normal("g");
+                    r.late = vec![(5, 2, late)];
+                    r.napper = vec![(5, lane, late)];
+                    chk(format!("lane {} napper {late}", LANES[lane]), r);
+                }
+            }
+            for d in 66..=120 {
+                let mut r = Row::normal("g");
+                r.stray = vec![(606 + d, 7)];
+                chk(format!("stray D(7) + {d}"), r);
+            }
+            let mut rn = Row::normal("g");
+            rn.dm1_block7 = blk;
+            let on = run(&rn, Defects::default());
+            println!("GUARDSWEEP tap 78, D(7) blocked {blk} gt after a completion: losing {} {:?}; gaining {} {:?}; normal {} RELs / {} credits {:?}", lost.len(), lost.iter().take(5).collect::<Vec<_>>(), gain.len(), gain.iter().take(6).collect::<Vec<_>>(), on.rels.len(), on.credits.len(), ledger_bars(&on));
+        }
+        // (G1 02:17 (2)(a) / the timing rule: the tap window under a world open (idle 2, the carts 3 behind) at every tick
+        // of REL_6 + 0..114 (t 606..720) on the formerly-losing late rows, the missing rows and the gain rows)
+        if std::env::var("CC_TAP_OPEN").is_ok() {
+            let mut rows: Vec<(String, Row)> = Vec::new();
+            for (s, lates) in [(0usize, vec![9i64, 12, 15, 18, 21, 24, 27, 31, 49, 53, 57, 60]), (1, vec![29, 32, 35, 38, 40, 57, 60]), (2, vec![21, 23, 25, 27])] {
+                for late in lates {
+                    let mut r = Row::normal("g");
+                    r.late = vec![(5, s, late)];
+                    rows.push((format!("lane {} late {late}", LANES[s]), r));
+                }
+            }
+            for s in 0..3 {
+                let mut r = Row::normal("g");
+                r.missing = vec![(5, s)];
+                rows.push((format!("lane {} missing", LANES[s]), r));
+            }
+            rows.push(("normal".to_string(), Row::normal("g")));
+            for tap in [70i64, 72, 74, 76, 78, 80, 82, 84] {
+                let (mut lost, mut gain, mut n) = (0usize, 0usize, 0usize);
+                let mut ex: Vec<String> = Vec::new();
+                for (name, r0) in &rows {
+                    for t0 in 606..=720 {
+                        let mut r = r0.clone();
+                        r.s3old_tap = Some(tap);
+                        r.open = Some((t0, 2, 3));
+                        let o = run(&r, Defects::default());
+                        n += 1;
+                        let lb = ledger_bars(&o);
+                        let l = lb.iter().any(|b| b.contains("NEVER"));
+                        let g = lb.iter().any(|b| b.contains("A CREDIT GAINED") || b.contains("TWICE") || b.contains("NO BATCH"));
+                        lost += l as usize;
+                        gain += g as usize;
+                        if (l || g) && ex.len() < 4 {
+                            ex.push(format!("{name} open at REL_6 + {}", t0 - 606));
+                        }
+                    }
+                }
+                println!("TAPOPEN tap REL + {tap}: {n} runs, losing {lost}, gaining {gain} {ex:?}");
+            }
+        }
+        for (fname, f) in [("SEEN3 AND SEEN3_OLD (ruled)", 0u8), ("+ DONE", 1), ("+ STORE", 2), ("+ OWED", 3)] {
+        for tap in [None, Some(76), Some(78), Some(80)] {
+            let (mut lost, mut gain, mut other) = (Vec::new(), Vec::new(), 0usize);
+            for s in 0..3 {
+                for late in 0..=60 {
+                    let mut r = Row::normal("tap");
+                    r.late = vec![(5, s, late)];
+                    r.s3old_tap = tap;
+                    r.dm1_done = f == 1;
+                    r.dm1_store = f == 2;
+                    r.dm1_owed = f == 3;
+                    let o = run(&r, Defects::default());
+                    let lb = ledger_bars(&o);
+                    if lb.iter().any(|b| b.contains("NEVER")) {
+                        lost.push((LANES[s], late));
+                    }
+                    if lb.iter().any(|b| b.contains("GAIN") || b.contains("TWICE") || b.contains("NO BATCH")) {
+                        gain.push((LANES[s], late));
+                    }
+                }
+                let mut r = Row::normal("tap missing");
+                r.missing = vec![(5, s)];
+                r.s3old_tap = tap;
+                r.dm1_done = f == 1;
+                r.dm1_store = f == 2;
+                r.dm1_owed = f == 3;
+                let o = run(&r, Defects::default());
+                if ledger_bars(&o).iter().any(|b| b.contains("NEVER")) {
+                    other += 1;
+                }
+            }
+            let mut rn = Row::normal("tap normal");
+            rn.s3old_tap = tap;
+            rn.dm1_done = f == 1;
+            rn.dm1_store = f == 2;
+            rn.dm1_owed = f == 3;
+            let on = run(&rn, Defects::default());
+            println!("TAPSWEEP {fname}, SEEN3_OLD tap {tap:?}: rows losing a credit {} {:?}; gaining {} {:?}; missing rows losing {other}; normal: {} RELs / {} credits, ledger {:?}", lost.len(), lost.iter().take(6).collect::<Vec<_>>(), gain.len(), gain.iter().take(6).collect::<Vec<_>>(), on.rels.len(), on.credits.len(), ledger_bars(&on));
+        }
+        }
+    }
+
+    #[test]
     fn the_normal_run_keeps_the_cadence_and_the_phase() {
         let r = Row::normal("t");
         let o = run(&r, Defects::default());
@@ -2074,69 +2568,55 @@ mod tests {
 
     #[test]
     fn the_bench_prints() {
-        // (G1 / ironspec 23:06 (3) / 00:32, G1 on 60ada7ea8 B2 / B3, G1 CHANGES 4 on 76d5435d8, ironspec 01:57 (4): the test
-        // asserts the bench's EXACT verdict PER (row, kind): the ledger judges EVERY REL (the last claim exempt only when its
-        // batch is still pending, printed) and PER BATCH (exactly one credit per batch's evidence; a gain and a loss never
-        // cancel): on the ruled D(-1) completion (SEEN3 AND SEEN3_OLD) a late lane -1 / 3 cart (lane -1 at 9..31 and
-        // 49..60 gt, lane 3 at 29..40 and 57..60; the missing rows, TIER 2, too) LOSES A CREDIT FOR GOOD (LOST + UNANSWERED,
-        // with the REL slips: CADENCE): the half rate; a lane-7 cart 21..25 gt late, or a napper behind a slot 3 25 gt late,
-        // makes a DOUBLE CREDIT (GAIN); the stray D(7) at t 560 takes batch 5's credit (GAIN from no batch + batch 5 LOST);
-        // the stray and delayed-cart sweeps per kind; every other bar passes and every control bites; the CLI exits
-        // non-zero; the pin flips when the credit FIFO's resync on evidence lands)
+        // (G1 / ironspec 23:06 (3) / 00:32, G1 on 60ada7ea8 B2 / B3, G1 CHANGES 4 on 76d5435d8, ironspec 01:57 (4) /
+        // 02:16 (3) / 02:43 (1) / 02:45 (3): the test asserts the bench's EXACT verdict PER (row, kind), on the ADOPTED bars
+        // only (a superseded bar is removed in code): the ledger judges EVERY REL and PER BATCH; with SEEN3_OLD's own tap at
+        // REL + 79, THE ONE-CREDIT-PER-BATCH GUARD (20 gt) and every K(l) masking ALL of D(l)'s outputs (K(3) over the
+        // J(3) reset, K(7) by order), every late (each slot 0..60) and missing row keeps the store exact, the ruled form's
+        // 219 rows pass, λ_pass clears a normal cart's lateness on every slot and no late cart enters the way-in leg. THE
+        // OPEN FAILURES (each an adopted bar, by name): the strays (a fault path, the stray guard priced) that still change
+        // the store per batch or put a batch cart into the way-in leg; the stray D(7) at t 560 taking batch 5's credit early;
+        // a lane 7 napper released 50..65 gt late whose J windows meet batch 6's carts (a credit lost): the resync on
+        // evidence is the net for these; every other bar passes and every control bites; the CLI exits 1 by name)
         let mut v = Verdict::new("ctl-credit-test");
         for l in bench(&mut v) {
             println!("{l}");
         }
         let fails = v.fails();
-        let ls = "[kinds: CADENCE, LOST, UNANSWERED]";
         let expected = [
-            ("FAULT ROW batch 5's lane -1 cart 10 gt late", ls),
-            ("FAULT ROW batch 5's lane -1 cart 20 gt late", ls),
-            ("FAULT ROW batch 5's lane -1 cart 30 gt late", ls),
-            ("FAULT ROW batch 5's lane -1 cart 50 gt late", ls),
-            ("FAULT ROW batch 5's lane -1 cart 60 gt late", ls),
-            ("FAULT ROW batch 5's lane 3 cart 30 gt late", ls),
-            ("FAULT ROW batch 5's lane 3 cart 40 gt late", ls),
-            ("FAULT ROW batch 5's lane 3 cart 60 gt late", ls),
-            ("FAULT ROW batch 5's lane -1 cart missing (TIER 2", ls),
-            ("FAULT ROW batch 5's lane 3 cart missing (TIER 2", ls),
+            ("A LANE 7 NAPPER RELEASED 0..120 gt LATE: the fault path's adopted bars fail at release lateness 50, 55, 60, 65 (its J windows meet batch 6's carts)", ""),
             ("FAULT ROW a stray D(7) press at t 560", "[kinds: GAIN, LOST]"),
-            ("batch 5's lane -1 cart late by each of 0..60 gt: kind CADENCE at lateness 9..31, 49..60", ""),
-            ("batch 5's lane -1 cart late by each of 0..60 gt: kind LOST at lateness 9..31, 49..60", ""),
-            ("batch 5's lane -1 cart late by each of 0..60 gt: kind UNANSWERED at lateness 9..31, 49..60", ""),
-            ("batch 5's lane 3 cart late by each of 0..60 gt: kind CADENCE at lateness 29..40, 57..60", ""),
-            ("batch 5's lane 3 cart late by each of 0..60 gt: kind LOST at lateness 29..40, 57..60", ""),
-            ("batch 5's lane 3 cart late by each of 0..60 gt: kind UNANSWERED at lateness 29..40, 57..60", ""),
-            ("batch 5's lane 7 cart late by each of 0..60 gt: kind GAIN at lateness 21..25", ""),
-            ("batch 5's lane 7 cart late by each of 0..60 gt: kind STORE at lateness 21..25", ""),
-            ("a lane 3 napper behind batch 5's late slot 3 (both 0..30 gt late): kind GAIN at lateness 25", ""),
-            ("a lane 3 napper behind batch 5's late slot 3 (both 0..30 gt late): kind LOST at lateness 25", ""),
-            ("a lane 7 napper behind batch 5's late slot 3 (both 0..30 gt late): kind GAIN at lateness 25", ""),
-            ("a lane 7 napper behind batch 5's late slot 3 (both 0..30 gt late): kind STORE at lateness 25", ""),
-            ("the ruled form (SEEN3 AND SEEN3_OLD): kind CADENCE on lane -1 late 9..31, 49..60; lane 3 late 29..40, 57..60; lane -1 / 3 missing", ""),
-            ("the ruled form (SEEN3 AND SEEN3_OLD): kind GAIN on lane 7 late 21..25", ""),
-            ("the ruled form (SEEN3 AND SEEN3_OLD): kind LOST on lane -1 late 9..31, 49..60; lane 3 late 29..40, 57..60; lane -1 / 3 missing", ""),
-            ("the ruled form (SEEN3 AND SEEN3_OLD): kind STORE on lane 7 late 21..25", ""),
-            ("the ruled form (SEEN3 AND SEEN3_OLD): kind UNANSWERED on lane -1 late 9..31, 49..60; lane 3 late 29..40, 57..60; lane -1 / 3 missing", ""),
-            ("a stray D(-1) at every tick of REL_6 + 80..120: kind BATCH-MISROUTE at REL_6 + 80..93", ""),
-            ("a stray D(-1) at every tick of REL_6 + 80..120: kind COUNTS at REL_6 + 80..93", ""),
-            ("a stray D(3) at every tick of REL_6 + 80..120: kind BATCH-MISROUTE at REL_6 + 104..120", ""),
-            ("a stray D(3) at every tick of REL_6 + 80..120: kind COUNTS at REL_6 + 104..120", ""),
-            ("a stray D(3) at every tick of REL_6 + 80..120 with batch 6 carrying lane -1's picked napper: kind BATCH-MISROUTE at REL_6 + 80..120", ""),
-            ("a stray D(3) at every tick of REL_6 + 80..120 with batch 6 carrying lane -1's picked napper: kind COUNTS at REL_6 + 80..120", ""),
-            ("a stray D(-1) at every tick of REL_6 + 80..120 with batch 6 carrying lane 3's picked napper: kind BATCH-MISROUTE at REL_6 + 80..93", ""),
-            ("a stray D(-1) at every tick of REL_6 + 80..120 with batch 6 carrying lane 3's picked napper: kind COUNTS at REL_6 + 80..93", ""),
-            ("a stray D(-1) at every tick of REL_6 + 80..120 with batch 6 carrying lane 7's picked napper: kind BATCH-MISROUTE at REL_6 + 80..93", ""),
-            ("a stray D(-1) at every tick of REL_6 + 80..120 with batch 6 carrying lane 7's picked napper: kind COUNTS at REL_6 + 80..93", ""),
-            ("a stray D(-1) at every tick of REL_6 + 80..120 with batch 6 carrying lane 7's picked napper: kind LEG-ENTRY at REL_6 + 80..93", ""),
-            ("a stray D(3) at every tick of REL_6 + 80..120 with batch 6 carrying lane 7's picked napper: kind COUNTS at REL_6 + 104..120", ""),
-            ("a stray D(3) at every tick of REL_6 + 80..120 with batch 6 carrying lane 7's picked napper: kind LEG-ENTRY at REL_6 + 104..120", ""),
-            ("batch 5's lane -1 cart late by each of 1..60 gt (G1 01:00, r14's chain): kind BATCH-MISROUTE at lateness 9..60", ""),
-            ("batch 5's lane -1 cart late by each of 1..60 gt (G1 01:00, r14's chain): kind COUNTS at lateness 9..31, 38..60", ""),
-            ("batch 5's lane 3 cart late by each of 1..60 gt (G1 01:00, r14's chain): kind BATCH-MISROUTE at lateness 18..60", ""),
-            ("batch 5's lane 3 cart late by each of 1..60 gt (G1 01:00, r14's chain): kind COUNTS at lateness 18..40", ""),
-            ("batch 5's lane 7 cart late by each of 1..60 gt (G1 01:00, r14's chain): kind BATCH-MISROUTE at lateness 28..60", ""),
-            ("batch 5's lane 7 cart late by each of 1..60 gt (G1 01:00, r14's chain): kind COUNTS at lateness 40..60", ""),
+            ("A STRAY D(-1) at every tick of REL_6 + 66..120: the fault path's adopted bars: kind CADENCE at REL_6 + 71..73", ""),
+            ("A STRAY D(-1) at every tick of REL_6 + 66..120: the fault path's adopted bars: kind LOST at REL_6 + 71..73", ""),
+            ("A STRAY D(-1) at every tick of REL_6 + 66..120: the fault path's adopted bars: kind UNANSWERED at REL_6 + 71..73", ""),
+            ("A STRAY D(7) at every tick of REL_6 + 66..120: the fault path's adopted bars: kind GAIN at REL_6 + 66..90", ""),
+            ("A STRAY D(7) at every tick of REL_6 + 66..120: the fault path's adopted bars: kind LOST at REL_6 + 66..79", ""),
+            ("A STRAY D(7) at every tick of REL_6 + 66..120: the fault path's adopted bars: kind STORE at REL_6 + 80..90", ""),
+            ("A STRAY D(3) at every tick of REL_6 + 66..120 with batch 6 carrying lane -1's picked napper: the fault path's adopted bars: kind CADENCE at REL_6 + 77..86", ""),
+            ("A STRAY D(3) at every tick of REL_6 + 66..120 with batch 6 carrying lane -1's picked napper: the fault path's adopted bars: kind LOST at REL_6 + 77..86", ""),
+            ("A STRAY D(3) at every tick of REL_6 + 66..120 with batch 6 carrying lane -1's picked napper: the fault path's adopted bars: kind UNANSWERED at REL_6 + 77..86", ""),
+            ("A STRAY D(7) at every tick of REL_6 + 66..120 with batch 6 carrying lane -1's picked napper: the fault path's adopted bars: kind GAIN at REL_6 + 66..90", ""),
+            ("A STRAY D(7) at every tick of REL_6 + 66..120 with batch 6 carrying lane -1's picked napper: the fault path's adopted bars: kind LOST at REL_6 + 66..79", ""),
+            ("A STRAY D(7) at every tick of REL_6 + 66..120 with batch 6 carrying lane -1's picked napper: the fault path's adopted bars: kind STORE at REL_6 + 80..90", ""),
+            ("A STRAY D(-1) at every tick of REL_6 + 66..120 with batch 6 carrying lane 3's picked napper: the fault path's adopted bars: kind CADENCE at REL_6 + 71..73", ""),
+            ("A STRAY D(-1) at every tick of REL_6 + 66..120 with batch 6 carrying lane 3's picked napper: the fault path's adopted bars: kind LEG-ENTRY at REL_6 + 71..73", ""),
+            ("A STRAY D(-1) at every tick of REL_6 + 66..120 with batch 6 carrying lane 3's picked napper: the fault path's adopted bars: kind LOST at REL_6 + 71..73", ""),
+            ("A STRAY D(-1) at every tick of REL_6 + 66..120 with batch 6 carrying lane 3's picked napper: the fault path's adopted bars: kind UNANSWERED at REL_6 + 71..73", ""),
+            ("A STRAY D(7) at every tick of REL_6 + 66..120 with batch 6 carrying lane 3's picked napper: the fault path's adopted bars: kind CADENCE at REL_6 + 106..110", ""),
+            ("A STRAY D(7) at every tick of REL_6 + 66..120 with batch 6 carrying lane 3's picked napper: the fault path's adopted bars: kind GAIN at REL_6 + 66..90, 111..120", ""),
+            ("A STRAY D(7) at every tick of REL_6 + 66..120 with batch 6 carrying lane 3's picked napper: the fault path's adopted bars: kind LOST at REL_6 + 66..79, 106..120", ""),
+            ("A STRAY D(7) at every tick of REL_6 + 66..120 with batch 6 carrying lane 3's picked napper: the fault path's adopted bars: kind STORE at REL_6 + 80..90", ""),
+            ("A STRAY D(7) at every tick of REL_6 + 66..120 with batch 6 carrying lane 3's picked napper: the fault path's adopted bars: kind UNANSWERED at REL_6 + 106..110", ""),
+            ("A STRAY D(-1) at every tick of REL_6 + 66..120 with batch 6 carrying lane 7's picked napper: the fault path's adopted bars: kind CADENCE at REL_6 + 71..73", ""),
+            ("A STRAY D(-1) at every tick of REL_6 + 66..120 with batch 6 carrying lane 7's picked napper: the fault path's adopted bars: kind LEG-ENTRY at REL_6 + 71..93", ""),
+            ("A STRAY D(-1) at every tick of REL_6 + 66..120 with batch 6 carrying lane 7's picked napper: the fault path's adopted bars: kind LOST at REL_6 + 71..73", ""),
+            ("A STRAY D(-1) at every tick of REL_6 + 66..120 with batch 6 carrying lane 7's picked napper: the fault path's adopted bars: kind UNANSWERED at REL_6 + 71..73", ""),
+            ("A STRAY D(3) at every tick of REL_6 + 66..120 with batch 6 carrying lane 7's picked napper: the fault path's adopted bars: kind GAIN at REL_6 + 104..120", ""),
+            ("A STRAY D(3) at every tick of REL_6 + 66..120 with batch 6 carrying lane 7's picked napper: the fault path's adopted bars: kind LEG-ENTRY at REL_6 + 104..120", ""),
+            ("A STRAY D(3) at every tick of REL_6 + 66..120 with batch 6 carrying lane 7's picked napper: the fault path's adopted bars: kind LOST at REL_6 + 104..120", ""),
+            ("A STRAY D(7) at every tick of REL_6 + 66..120 with batch 6 carrying lane 7's picked napper: the fault path's adopted bars: kind GAIN at REL_6 + 66..90", ""),
+            ("A STRAY D(7) at every tick of REL_6 + 66..120 with batch 6 carrying lane 7's picked napper: the fault path's adopted bars: kind LOST at REL_6 + 66..79", ""),
+            ("A STRAY D(7) at every tick of REL_6 + 66..120 with batch 6 carrying lane 7's picked napper: the fault path's adopted bars: kind STORE at REL_6 + 80..90", ""),
         ];
         assert_eq!(fails.len(), expected.len(), "ctl-credit-bench: the pinned verdict changed ({} misses, {} pinned): {:#?}", fails.len(), expected.len(), fails);
         for (e, k) in expected {
