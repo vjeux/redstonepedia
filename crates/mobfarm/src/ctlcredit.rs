@@ -122,6 +122,12 @@ pub const SLOT_T: [[i64; 3]; 3] = [[101, 116, 146], [121, 136, 166], [150, 165, 
 /// NAPPER_SHIFT: ARM3 at (4,6,7)'s press (REL + 57) through the + 8 chain puts the hold rail at REL + 65 (ironspec 20:58
 /// a: the tent's middle): the napper 2 gt later than the stand-in's.
 pub const NAPPER_SHIFT: i64 = 2;
+/// day-1's controller interface value (f1q2-day1-controller-interface.md): the batch release pulse out of dfb89499's
+/// limiter, in gt (ironspec 07:29r (1), G1 07:27 (1)).
+pub const RELEASE_PULSE: i64 = 12;
+/// The napper's hold-rail release offset before NAPPER_SHIFT (REL + 63; with the shift REL + 65): one state source for
+/// the K / OFF windows' release tick (G1 CHANGES 8 on 5184136c2 (8)).
+pub const NAPPER_REL: i64 = 63;
 pub const NAPPER_T: [i64; 3] = [160 + NAPPER_SHIFT, 175 + NAPPER_SHIFT, 191 + NAPPER_SHIFT];
 pub const LANES: [i32; 3] = [-1, 3, 7];
 /// The power-up: the hopper's items (the ballast + 2 credits) and the dropper's stock.
@@ -934,7 +940,7 @@ pub fn run(row: &Row, def: Defects) -> Out {
                     let nt = [t + napper_t[0] + extra + lag, t + napper_t[1] + extra + lag, t + napper_t[2] + extra + lag];
                     // (the napper's RELEASE tick: ARM3's press (REL + 57, slot 3's offset with it) through its chain: the
                     // hold rail at REL + 65 (+ the train's napper shift); its K / OFF windows ride it)
-                    let rel_tick = t + 65 + row.napper_shift + extra + lag;
+                    let rel_tick = t + NAPPER_REL + NAPPER_SHIFT + row.napper_shift + extra + lag;
                     // (K(lane) and the OFF windows of the J's west of it ride the napper's nominal timing; its ride may be
                     // jittered past them (item 4's control))
                     let k_early = if def.k_symmetric { k_half } else { k_half.min(K_EARLY) };
@@ -3455,14 +3461,35 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
     // on every run whose open lands inside a cooldown (counted: at least one must))
     let mut n_open = 0usize;
     let mut bad_open = Vec::new();
+    let mut n_bad_open = 0usize;
+    let mut sym_bad: Vec<String> = Vec::new();
+    let mut n_jit = 0usize;
     let (mut in_cool, mut cool_bad) = (0usize, Vec::new());
+    // (G1 CHANGES 8 on 5184136c2 (5): the opens start at t 400, so the lane-7 napper's batch 4 (REL_4 ~406, released at
+    // REL_4 + 65) gets opens BETWEEN ITS REL AND ITS RELEASE too; idle 0 / 1 / 2; every failing row counted. (6) THE
+    // SYMMETRIC WINDOW's CONTROL runs THESE rows with k_symmetric (A CART MISROUTED by name). (7)(d) the napper's -2 jitter
+    // under the opens: every row again with each napper 2 gt early)
     for (idle, kj) in [(0, 3), (1, 1), (2, 1), (1, 3), (2, 3)] {
-        for t0 in 500..720 {
+        for t0 in 400..720 {
             let mut r = Row::normal("open");
             r.open = Some((t0, idle, kj));
             r.napper = vec![(4, 2, 0), (5, 0, 0), (6, 1, 0)];
             let o = run(&r, Defects::default());
             n_open += 1;
+            let os = run(&r, Defects { k_symmetric: true, ..Default::default() });
+            if !os.misroutes.is_empty() && sym_bad.len() < 1_000 {
+                sym_bad.push(format!("open at {t0} idle {idle} kj {kj}: {}", os.misroutes.join("; ")));
+            }
+            let mut rj = r.clone();
+            rj.napper_jitter = vec![(4, -2), (5, -2), (6, -2)];
+            let oj = run(&rj, Defects::default());
+            n_jit += 1;
+            if !oj.misroutes.is_empty() || !oj.napper_misroutes.is_empty() {
+                n_bad_open += 1;
+                if bad_open.len() < 2 {
+                    bad_open.push(format!("open at {t0} idle {idle} kj {kj}, the nappers 2 gt early: {} {}", oj.misroutes.join("; "), oj.napper_misroutes.join("; ")));
+                }
+            }
             if let Some((a, b)) = o.open_cooldown {
                 if a > 0 {
                     in_cool += 1;
@@ -3479,13 +3506,18 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
             if !o.misroutes.is_empty() {
                 bad.push(format!("A CART MISROUTED under a world open: {}", o.misroutes.join("; ")));
             }
-            if !bad.is_empty() && bad_open.len() < 2 {
-                bad_open.push(format!("open at {t0} idle {idle} kj {kj}: {}; {}", bad.join("; "), describe(&o, &r)));
+            if !bad.is_empty() {
+                n_bad_open += 1;
+                if bad_open.len() < 2 {
+                    bad_open.push(format!("open at {t0} idle {idle} kj {kj}: {}; {}", bad.join("; "), describe(&o, &r)));
+                }
             }
         }
     }
-    let w = v.bar_n("ctl-credit: A WORLD OPEN at every tick of batch 5's span (t 500..719; idle 1 / 2, the carts 1 / 3 behind the redstone; returning nappers in lanes 7 (batch 4), -1 (batch 5) and 3 (batch 6), so an open lands between REL and each napper's release; a NORMAL event: G1 CHANGES 7 also NO CART MISROUTED in any batch): the ring in its same phase within 2 batches, THE STORE CORRECT healed within 4 RELs, no napper misrouted, no batch cart misrouted, the hopper's items kept and its cooldown SAVED (left after = left before) on every open inside a cooldown", n_open, bad_open.is_empty() && cool_bad.is_empty() && in_cool > 0);
-    lines.push(format!("  A WORLD OPEN mid-batch, {n_open} runs ({in_cool} of them inside a hopper cooldown): {w}{}{}", if bad_open.is_empty() { String::new() } else { format!(" ({})", bad_open.join(" | ")) }, if cool_bad.is_empty() { String::new() } else { format!(" [the cooldown: {}]", cool_bad.join(" | ")) }));
+    let w = v.bar_n("ctl-credit: A WORLD OPEN at every tick of t 400..719 (batches 4..6: idle 0 / 1 / 2, the carts 1 / 3 behind the redstone; returning nappers in lanes 7 (batch 4), -1 (batch 5) and 3 (batch 6), so an open lands between REL and EACH napper's release (G1 CHANGES 8 (5)); every row again with the nappers 2 gt early (CHANGES 8 (7)(d)); a NORMAL event: NO CART MISROUTED in any batch): the ring in its same phase within 2 batches, THE STORE CORRECT healed within 4 RELs, no napper misrouted, no batch cart misrouted, the hopper's items kept and its cooldown SAVED (left after = left before) on every open inside a cooldown", n_open + n_jit, bad_open.is_empty() && cool_bad.is_empty() && in_cool > 0);
+    lines.push(format!("  A WORLD OPEN at every tick of t 400..719, {n_open} runs + {n_jit} with the nappers 2 gt early ({in_cool} inside a hopper cooldown), failing rows {n_bad_open}: {w}{}{}", if bad_open.is_empty() { String::new() } else { format!(" ({})", bad_open.join(" | ")) }, if cool_bad.is_empty() { String::new() } else { format!(" [the cooldown: {}]", cool_bad.join(" | ")) }));
+    let c = v.control("ctl-credit CONTROL (G1 CHANGES 8 on 5184136c2 (6)): THE OLD SYMMETRIC K WINDOW (early half 10) on THE WORLD-OPEN ROWS THEMSELVES: A CART MISROUTED by name", 1, !sym_bad.is_empty()).to_string();
+    lines.push(format!("  CONTROL (the symmetric K window on the world-open rows): {} rows misroute (e.g. {}): {c}", sym_bad.len(), sym_bad.first().cloned().unwrap_or_default()));
     // (G1 05:19 (5): THE K WINDOWS' SIX MARGINS (each napper lane: the batch cart AHEAD of the napper at its J against the
     // window's early edge, the next batch's first cart BEHIND it at that J against the late edge), at train 15 and train
     // 16, each under a kj = 3 shift in BOTH directions (the cart ahead 3 later, the cart behind 3 earlier); the early half
@@ -3504,10 +3536,12 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
                 let behind = PERIOD + st[l][l];
                 let early = nt[l] - K_EARLY;
                 let late = nt[l] + K_HALF;
-                let m_ahead = early - ahead - 3;
-                let m_behind = behind - 3 - late;
-                let m_jit = K_EARLY - 2;
-                least = least.min(m_ahead).min(m_behind);
+                // (G1 CHANGES 8 (7)(a): each side under a kj 3 shift in BOTH directions (the cart 3 later or 3 earlier
+                // than the window), the worse kept; (d) the early half over the napper's -2 jitter enters `least`)
+                let m_ahead = (early - (ahead + 3)).min(early - (ahead - 3));
+                let m_behind = ((behind - 3) - late).min((behind + 3) - late);
+                let m_jit = (nt[l] - 2) - early;
+                least = least.min(m_ahead).min(m_behind).min(m_jit);
                 six.push(format!("{tn} {name}: the cart ahead (REL + {ahead}) {m_ahead} gt before the early edge (REL + {early}) after a kj 3 shift; the next batch's cart behind (REL + {behind}) {m_behind} gt after the late edge (REL + {late}) after a kj 3 shift; the early half over the napper's -2 jitter {m_jit}"));
             }
         }
@@ -3807,6 +3841,30 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
     r4.hopper0 = 4;
     let o4 = run(&r4, Defects::default());
     control(v, "the power-up with 4 items (three credits): the hopper holds 4 (credits > 2 FAILS by name)", o4.items_max > HOPPER0, &o4, &r4, &mut lines);
+    // (ironspec 07:03 (2) / 07:30r (3): THE NAPPER-vs-DEPARTING-LANE MERGE at the station row's joins, in NORMAL running,
+    // from dfb89499's F' WIP row travel times (08:06, candidate A): lane -1's departure at its join (-1,0,7) REL + 32; lane
+    // 3's at (3,0,7) REL + 46, then at (-1,0,7) REL + 55; the napper (its own clock: from (9,0,7) + 17 to (3,0,7), + 27 to
+    // (-1,0,7)). The napper returns from the stop on the STOP's cycle, not REL's, so it reaches the row at ANY phase: a
+    // napper passing (9,0,7) at REL + phi conflicts at a join when it passes within the clearance C of a lane cart there.
+    // Printed: the forbidden phases and the allowed window for C = 8 gt, i.e. the release phase a REL-keyed hold at
+    // (9,0,8) would give the napper (the hold and its line are NEW controller cells, to price))
+    {
+        let c = 8i64;
+        let lane_at: [(i64, i64); 3] = [(27, 32), (17, 46), (27, 55)];
+        let allowed: Vec<i64> = (0..100).filter(|&phi| lane_at.iter().all(|&(off, t)| (0..=1).all(|k| (phi + off - (t + 100 * k)).abs() >= c && (phi + off + 100 - (t + 100 * k)).abs() >= c))).collect();
+        let runs = {
+            let mut v: Vec<(i64, i64)> = Vec::new();
+            for &p in &allowed {
+                match v.last_mut() {
+                    Some(l) if l.1 + 1 == p => l.1 = p,
+                    _ => v.push((p, p)),
+                }
+            }
+            v
+        };
+        let best = runs.iter().max_by_key(|r| r.1 - r.0).copied();
+        lines.push(format!("  THE JOIN MERGE (normal running; dfb89499's F' row times, candidate A; clearance {c} gt): a napper passing (9,0,7) at REL + phi conflicts at a join unless phi is in {}; the widest window {:?} (centre {:?}, margin {:?} each side): the napper's phase is the STOP's, not REL's, so without a REL-keyed hold at (9,0,8) it lands in a forbidden phase on some visits: A REQUIRED FIX (the hold + its REL-phase release line: new controller cells, to price)", runs.iter().map(|r| format!("{}..{}", r.0, r.1)).collect::<Vec<_>>().join(", "), best, best.map(|b| (b.0 + b.1) / 2), best.map(|b| (b.1 - b.0) / 2)));
+    }
     lines.push("  OWED: the cells on the station's placement with their measured delays (the dropper, the hopper's unlock, the comparator and its four dust, SEEN3, the masks, the ring reset's tap off the R line); D(7)'s normal spread from cc767b78's composed nights (every margin here is before it); the coverage slack row (the least planted total REL slip at which 24 / 24 first breaks: the credit-slip bar's final figure is half of it)".into());
     lines
 }
@@ -3814,6 +3872,22 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// G1 08:05 (1)(c): ONE STATE SOURCE: the controller interface file (read at compile time from the tree) states each
+    /// value the code holds; a mismatch fails here by name.
+    #[test]
+    fn the_interface_file_matches_the_code() {
+        let f = include_str!("../../../designs/farms/iron/carousel-assembly/wip/controller/f1q2-day1-controller-interface.md");
+        for (what, needle) in [
+            ("the release pulse", format!("release pulse = {RELEASE_PULSE} gt")),
+            ("the guard", format!("DM1_BLOCK7 = {DM1_BLOCK7} gt")),
+            ("SEEN3_OLD's tap", format!("SEEN3_OLD's tap = REL + {S3OLD_TAP} gt")),
+            ("the tap's window", format!("the window {}..{}", S3OLD_WIN.0, S3OLD_WIN.1)),
+            ("the K windows", format!("the early half {K_EARLY} gt, the late half {K_HALF} gt")),
+        ] {
+            assert!(f.contains(&needle), "the controller interface file does not state {what} as the code holds it: \"{needle}\"");
+        }
+    }
 
     #[test]
     fn trace_the_lost_credit() {
