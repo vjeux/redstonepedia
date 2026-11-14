@@ -3290,6 +3290,24 @@ pub enum MobfarmCmd {
         #[arg(long, allow_hyphen_values = true)]
         allow: Vec<String>,
     },
+    /// (ironspec Nov 13 20:39 / 20:43, G1 20:42 / 21:38) The band-contact audit of every string: each
+    /// one's band against the empty cart's box (end of tick, and raised on a slope: the swept test) and
+    /// a rider's along every rail and lift / drop column within reach; each classed rider-keyed,
+    /// CART-KEYED or never pressed, and held to its declared class (an undeclared string fails).
+    StringAudit {
+        design: PathBuf,
+        /// A string's declared class x,y,z=rider-keyed|cart-keyed|never-pressed (repeatable; every string
+        /// of the design needs one).
+        #[arg(long, allow_hyphen_values = true)]
+        expect: Vec<String>,
+        /// A rail's travelled range x,y,z=T0..T1 (repeatable): where the runs show its cart never
+        /// travels the whole cell (a cart at rest on a slot), only that range is sampled.
+        #[arg(long, allow_hyphen_values = true)]
+        rail_range: Vec<String>,
+        /// A design meant to have no string (else no string is NOT JUDGED).
+        #[arg(long)]
+        allow_empty: bool,
+    },
     /// (ironspec Nov 13 19:11, with day-1; G1 21:38 / 21:41) The riderless-source statics on every route
     /// position (each rail at 1/20, each lift / drop column every 0.1): (a) activator rails and every
     /// block that powers or could power them (--allow-activator names the design's own emptying rail's
@@ -9431,6 +9449,33 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
             anyhow::ensure!(n == 0, "power out: {n} consumer(s) outside the allowed (bar 0)");
+        }
+        MobfarmCmd::StringAudit { design, expect, rail_range, allow_empty } => {
+            let (_c, spec) = load(version, &design)?;
+            let cell = |s: &str| -> anyhow::Result<redsim::pos::BlockPos> {
+                let v: Vec<i32> = s.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("{s}: {e}"))?;
+                anyhow::ensure!(v.len() == 3, "{s}: x,y,z");
+                Ok(redsim::pos::BlockPos::new(v[0], v[1], v[2]))
+            };
+            let mut ex = Vec::new();
+            for e in &expect {
+                let (c, k) = e.split_once('=').ok_or_else(|| anyhow::anyhow!("--expect {e}: x,y,z=rider-keyed|cart-keyed|never-pressed"))?;
+                ex.push((cell(c)?, k.trim().to_string()));
+            }
+            let mut ranges = Vec::new();
+            for r in &rail_range {
+                let (c, t) = r.split_once('=').ok_or_else(|| anyhow::anyhow!("--rail-range {r}: x,y,z=T0..T1"))?;
+                let (a, b) = t.split_once("..").ok_or_else(|| anyhow::anyhow!("--rail-range {r}: x,y,z=T0..T1"))?;
+                let (a, b) = (a.trim().parse::<f64>().map_err(|e| anyhow::anyhow!("--rail-range {r}: {e}"))?, b.trim().parse::<f64>().map_err(|e| anyhow::anyhow!("--rail-range {r}: {e}"))?);
+                anyhow::ensure!((0.0..=1.0).contains(&a) && (0.0..=1.0).contains(&b) && a <= b, "--rail-range {r}: 0 <= T0 <= T1 <= 1");
+                ranges.push((cell(c)?, a, b));
+            }
+            let (lines, n, bad) = crate::fleecheck::string_audit(&spec, &ranges, &ex, allow_empty).map_err(|e| anyhow::anyhow!(e))?;
+            for l in &lines {
+                println!("{l}");
+            }
+            println!("string audit: {} string(s), {n} CART-KEYED, {bad} failing its declared class", lines.iter().filter(|l| l.starts_with("string ")).count());
+            anyhow::ensure!(bad == 0, "string audit: {bad} string(s) not as declared (or undeclared)");
         }
         MobfarmCmd::Riderless { design, allow_activator } => {
             let (_c, spec) = load(version, &design)?;
