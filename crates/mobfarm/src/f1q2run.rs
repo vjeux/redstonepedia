@@ -3103,6 +3103,8 @@ struct Rec {
     foot_passes: u32,
     /// (G1 16:47) VILLAGER_HOSTILES' scan phase mod 20
     hostile_phase: Option<i64>,
+    /// (tick-exact 17:03 (iii)) NEAREST_LIVING_ENTITIES' scan phase mod 20 (the sight list's)
+    living_phase: Option<i64>,
     calm_rest_ticks: i64,
     over_1000: i64,
     clears: Vec<String>,
@@ -7100,6 +7102,8 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             if r.hostile_phase.is_none() {
                 let b = redsim::entity::mob::ai::brain::brain(w, i);
                 r.hostile_phase = Some((now + b.sensors[5]).rem_euclid(20));
+                // (tick-exact 17:03 (iii)) the sight list's own scan phase: NEAREST_LIVING_ENTITIES (index 0)
+                r.living_phase = Some((now + b.sensors[0]).rem_euclid(20));
             }
             // (G1 16:37 (2)) the lift foot (-4,2,7): each pass of a rider through the cell counted
             if c == [-4, 2, 7] && r.prev_cell != Some(c) {
@@ -7140,11 +7144,16 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
                     let b = redsim::entity::mob::ai::brain::brain(w, i);
                     match (b.nearest_hostile, b.hurt_by) {
                         (Some(h), _) => {
-                            let d = w.entities.list.iter().find(|e| e.id == h).map(|e| {
+                            let info = w.entities.list.iter().find(|e| e.id == h).map(|e| {
                                 let (p, q) = (dpos(e.pos), dpos(w.entities.list[i].pos));
-                                ((p.x - q.x).powi(2) + (p.y - q.y).powi(2) + (p.z - q.z).powi(2)).sqrt()
+                                let d = ((p.x - q.x).powi(2) + (p.y - q.y).powi(2) + (p.z - q.z).powi(2)).sqrt();
+                                let ty = match &e.kind {
+                                    EntityKind::Mob(m) => format!("{:?}", m.ty).to_lowercase(),
+                                    _ => "?".to_string(),
+                                };
+                                format!(" ({ty} at ({:.1},{:.1},{:.1}), {d:.1} away)", p.x, p.y, p.z)
                             });
-                            format!(" [panic trigger: NEAREST_HOSTILE #{h}{}]", d.map_or(String::new(), |d| format!(" at {d:.1}")))
+                            format!(" [panic trigger: NEAREST_HOSTILE #{h}{}]", info.unwrap_or_default())
                         }
                         (None, Some(t)) => format!(" [panic trigger: HURT_BY {} gt ago]", now - t),
                         _ => " [panic trigger: none held]".to_string(),
@@ -10207,7 +10216,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         let (mut foot_passes, mut foot_clears_flee, mut foot_clears_own, mut foot_clears_other) = (0u32, 0u32, 0u32, 0u32);
         for (id, r) in recs.iter() {
             let ln = lane_of(r);
-            phases.entry(ln.clone()).or_default().push(format!("#{id} {}", r.hostile_phase.map_or("-".to_string(), |p| p.to_string())));
+            phases.entry(ln.clone()).or_default().push(format!("#{id} {}/{}", r.hostile_phase.map_or("-".to_string(), |p| p.to_string()), r.living_phase.map_or("-".to_string(), |p| p.to_string())));
             let tg = triggers.entry(ln.clone()).or_insert([0; 3]);
             for c in &r.clears {
                 if c.contains("[panic trigger: NEAREST_HOSTILE") {
@@ -10271,7 +10280,7 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
             if foot_passes == 0 { "-".to_string() } else { format!("{:.3}", foot_clears_own as f64 / foot_passes as f64) }
         ));
         s.push_str(&format!(
-            "the panic clears' triggers per lane (7b90c3f1 / G1 16:51: NEAREST_HOSTILE held, HURT_BY held, none) and each villager's VILLAGER_HOSTILES scan phase mod 20 (G1 16:47, ironspec 16:50 (3)): {}\n",
+            "the panic clears' triggers per lane (7b90c3f1 / G1 16:51: NEAREST_HOSTILE held, HURT_BY held, none) and each villager's scan phases mod 20, VILLAGER_HOSTILES / NEAREST_LIVING_ENTITIES (G1 16:47, ironspec 16:50 (3), tick-exact 17:03 (iii)): {}\n",
             triggers
                 .iter()
                 .map(|(l, t)| format!("{l}: NEAREST_HOSTILE {}, HURT_BY {}, none {}; phases {}", t[0], t[1], t[2], phases.get(l).map_or(String::new(), |v| v.join(" "))))
