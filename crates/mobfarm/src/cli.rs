@@ -2217,6 +2217,12 @@ pub enum MobfarmCmd {
         /// Repeatable.
         #[arg(long, allow_hyphen_values = true)]
         declare: Vec<String>,
+        /// (G1's D6 on R4b) A world edit at a run tick (0-based from the run's first tick):
+        /// `T:X,Y,Z=STATE` (a whole state) or `T:X,Y,Z:PROP=VALUE` (one property of the block there:
+        /// a hold's trapdoor opened by `open=true`), several joined by `;`; each made with the
+        /// world's updates before that tick and read back; a no-op edit refuses. Repeatable.
+        #[arg(long, allow_hyphen_values = true)]
+        edit_at: Vec<String>,
     },
     /// (b8949c96 2026-11-12, the way-in line; ironspec's loop-frame acceptance and G1's five
     /// points on 78d4acf34) The queue cell in the loop frame against a module file
@@ -8778,7 +8784,12 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             );
             print!("{}", crate::killguard::bench(&spec, &c, &o).map_err(|e| anyhow::anyhow!(e))?);
         }
-        MobfarmCmd::Vhits { design, cart, carts_file, crest_file, crest_row, y_offset, separately, rider, own_carts, ticks, seed, report_only, source, port_output, judge, scope, declare } => {
+        MobfarmCmd::Vhits { design, cart, carts_file, crest_file, crest_row, y_offset, separately, rider, own_carts, ticks, seed, report_only, source, port_output, judge, scope, declare, edit_at } => {
+            let mut edits: Vec<crate::vhits::Edit> = Vec::new();
+            for s in &edit_at {
+                edits.extend(crate::vhits::parse_edits(s).map_err(|e| anyhow::anyhow!(e))?);
+            }
+            anyhow::ensure!(edits.iter().all(|e| e.at < ticks), "--edit-at: every edit's tick must fall inside the run's {ticks} tick(s)");
             // (a part file with no output port) the judge's air cell added to a copy of the file
             let (_c, spec) = match port_output[..] {
                 [] => load(version, &design)?,
@@ -8864,6 +8875,23 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             } else {
                 None
             };
+            // (G1's N1 on R4b, the plant-role rule) every edit releases a declared rest's hold: a PROPERTY edit
+            // on a cell of an in-scope class=rest line (so --judge); a whole-state edit, or a cell no such
+            // line holds, refuses (an edit that removes or swaps the block under test can't turn a failure
+            // into a pass)
+            let mut edit_roles: Vec<String> = Vec::new();
+            if !edits.is_empty() {
+                let Some((decls, _)) = judge_with.as_ref() else { anyhow::bail!("--edit-at needs --judge: an edit releases an in-scope class=rest line's hold") };
+                for e in &edits {
+                    let crate::vhits::EditTo::Prop(k, v) = &e.to else {
+                        anyhow::bail!("--edit-at {}:{}: a whole-state edit refuses: an edit may only change a property of a cell of an in-scope class=rest line", e.at, e.cell)
+                    };
+                    let Some(d) = decls.iter().find(|d| d.class == crate::contacts::Class::Rest && d.cells.contains(&e.cell)) else {
+                        anyhow::bail!("--edit-at {}:{}: names no cell of an in-scope class=rest line (an edit may only release a declared rest's hold)", e.at, e.cell)
+                    };
+                    edit_roles.push(format!("run tick {} ({},{},{}) {k}={v} releasing the class=rest line {}", e.at, e.cell.x, e.cell.y, e.cell.z, d.cells.iter().map(|c| format!("({},{},{})", c.x, c.y, c.z)).collect::<Vec<_>>().join("+")));
+                }
+            }
             let o = crate::vhits::Opts {
                 ticks,
                 own_carts,
@@ -8871,6 +8899,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 separately: separately || crest_file.is_some(),
                 rider: rider.as_deref(),
                 judge: judge_with.as_ref().map(|(d, l)| (d.as_slice(), l.clone())),
+                edits: &edits,
             };
             let (lines, n, not_judged) = crate::vhits::vhits_lines(&spec, &carts, &o).map_err(|e| anyhow::anyhow!(e))?;
             println!("{}: {} planted cart(s){}; the set's source: {}", design.display(), carts.len(), if own_carts { " and the design's own" } else { "" }, source.as_deref().unwrap_or_default());
@@ -8881,9 +8910,10 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
             // (G1's B4 on R4) a failing or unjudged set exits 1 unless --report-only (labelled); (G1 03:13)
-            // the verdict from vhits_lines' own NOT JUDGED flag, never from the printed text
+            // the verdict from vhits_lines' own NOT JUDGED flag, never from the printed text; (G1's N1) the
+            // verdict names the edits the run made
             println!(
-                "vhits: {}{}",
+                "vhits: {}{}{}",
                 if n == 0 {
                     if judge { "PASSES (0 judge failures)" } else { "PASSES (0 hits)" }
                 } else if not_judged {
@@ -8893,6 +8923,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 } else {
                     "FAILS (hits)"
                 },
+                if edit_roles.is_empty() { String::new() } else { format!(" with {} edit(s): {}", edit_roles.len(), edit_roles.join("; ")) },
                 if n > 0 { if report_only { " (--report-only: exit 0)" } else { " (exit 1)" } } else { "" }
             );
             if n > 0 && !report_only {
