@@ -1,0 +1,417 @@
+# V's CONTROLLER STAND-INS (vcompose for day-1; farmopt Nov 14 11:34 (1), ironspec 11:29a (2) / 11:36a (1) / 11:44a / 12:12p / 12:15p;
+# day-1 11:41 confirmed; G1 11:43 pre-review): OWNER day-1, composed as part CTL. Day-1's controller cells laid as declared
+# stand-ins (`emulated:` entries) until its subsystem cars land (core + K, picks, the way-in, the drive lines), each then taking its cells out
+# of this part; cells from day-1's netlist a/1158558780016588 and interface d44c9f19d; V's loop frame.
+# THE HARNESS THROWS FIVE LEVERS, each tagged `drive=<role>` in its `emulated:` entry (ironspec 12:12p / 12:15p; roles provisional
+# until day-1 names them): the three STATION-HOLD drives `hold:-1` / `hold:3` / `hold:7` (a floor lever at day-1's line end
+# (x,16,-3) on day-1's glass (x,15,-3); the design's own repeater (x,16,-2) and slime (x,16,-1) open the iron hold trapdoor
+# (x,16,0): nothing writes the trapdoor), `b-hold-open` ((B)'s H2 released while it is on) and `napper-hold` (the napper hold
+# (9,0,8)'s REL + 67 pulse, thrown for 12 gt). The read point: (B)'s arrival read line's end (8,23,3), its power read each tick.
+# OWNERSHIP (ironspec 11:44a): in rev 3.1 this part OWNS H2 (9,24,7) and the arrival detector (9,23,6) (passing to b8949c96's
+# way-in car); V's leg's plain rails there are superseded by this part in the compose (`--supersede`, both states printed).
+# KEPT EMPTY, no block of any part, at (7,24,6) (merge C's free north side); (8,23,7) (the stone (8,24,7)'s free face below);
+# (8,23,2) (the read line's end (8,23,3) points north into it, and booster 2's lit torch (8,22,2) strongly powers it: a
+# conductor there would hold the read line on); (8,25,8) (the drive dust (8,25,7)'s stored shape points south into it).
+# The REL + 67 line's head is a west-input REPEATER, not dust, because (3,-1,7) beside it is LIFT's always-powered slime (the
+# station row's merge T's switch power).
+# NAMED NEIGHBOURS (G1 11:43 (3)(4)): (9,22,6) glass, the detector's support: a pressed (9,23,6) strongly powers it (glass:
+# nothing) and weakly powers (8,23,6) (the read dust, intended), (9,23,7) glass (H2's support), (9,24,6) / (9,23,5) air
+# (rider passage); (9,25,8) `rail[north_south]`, H2's upper connection, a plain rail that takes no power; (9,23,7) glass, H2's
+# support; (8,24,8) air. Each lever's six neighbours are listed in its entry.
+# update-consumers: intended 8,25,7=8,24,7 stone+9,24,7 powered_rail (the hold-open drive: the dust on the stone conductor (8,24,7) gives it the direct signal, and the stone powers H2 beside it)
+# update-consumers: by-code 8,25,7=7,24,7 rail+8,23,7 air+8,24,6 glass+8,24,8 air+8,25,8 air (26.3 RailBlock.updateState: merge C (7,24,7) is a plain rail with 2 potential connections, re-shaping only at 3; glass and air take no power and keep no state)
+# update-consumers: intended 9,23,6=8,23,6 redstone_wire (the arrival detector powers the read line's corner beside it)
+# update-consumers: by-code 9,23,6=9,22,6 glass+9,23,7 glass+9,24,6 air+9,23,5 air (26.3 DetectorRailBlock.updatePowerToConnected: glass and air take no power and keep no state; H2 (9,24,7) is diagonal, no face neighbour)
+# update-consumers: by-code 8,23,3=8,23,2 air+8,22,3 glass+7,23,3 air+9,23,3 air (26.3 RedStoneWireBlock.updatePowerStrength: the read line's end; glass and air take no power and keep no state)
+# update-consumers: intended 3,-1,8=4,-1,8 redstone_wire (the REL + 67 line's head repeater drives the line east)
+# update-consumers: intended 7,-1,8=8,-1,8 repeater (the line's last repeater drives LIFT's west-input repeater, the hold (9,0,8)'s actuator)
+# update-consumers: by-code 5,-1,8=5,-1,7 glass+5,-1,9 air+5,-2,8 glass (26.3 RedStoneWireBlock.updatePowerStrength: an east-west dust line points at neither side; glass and air take no power and keep no state)
+# update-consumers: intended 2,-1,8=3,-1,8 repeater (the napper-hold lever drives the line's head repeater from behind)
+# update-consumers: by-code 2,-1,8=1,-1,8 air+2,0,8 air+2,-1,7 glass+2,-1,9 air+2,-2,8 glass (26.3 LeverBlock.updateNeighbours: glass and air take no power and keep no state)
+# update-consumers: intended 8,25,5=8,25,6 redstone_wire (the b-hold-open lever drives the drive line's stub)
+# update-consumers: by-code 8,25,5=7,25,5 air+9,25,5 air+8,26,5 air+8,25,4 air+8,24,5 glass (26.3 LeverBlock.updateNeighbours: glass and air take no power and keep no state)
+# update-consumers: intended -1,16,-3=-1,16,-2 repeater (lane -1's hold lever drives the hold repeater from behind)
+# update-consumers: by-code -1,16,-3=-1,17,-3 air+-1,16,-4 air+-2,16,-3 air+0,16,-3 air+-1,15,-3 glass (26.3 LeverBlock.updateNeighbours: glass and air take no power and keep no state)
+# update-consumers: intended 3,16,-3=3,16,-2 repeater (lane 3's hold lever drives the hold repeater from behind)
+# update-consumers: by-code 3,16,-3=3,17,-3 air+3,16,-4 air+2,16,-3 air+4,16,-3 air+3,15,-3 glass (26.3 LeverBlock.updateNeighbours: glass and air take no power and keep no state)
+# update-consumers: intended 7,16,-3=7,16,-2 repeater (lane 7's hold lever drives the hold repeater from behind)
+# update-consumers: by-code 7,16,-3=7,17,-3 air+7,16,-4 air+6,16,-3 air+8,16,-3 air+7,15,-3 glass (26.3 LeverBlock.updateNeighbours: glass and air take no power and keep no state)
+name: v-ctl-standins
+circuit: mob-farm iron_ingot
+port output: 0 0 0
+emulated: -1,16,-3=minecraft:lever[face=floor,facing=north,powered=false] (support=-1,15,-3; drive=hold:-1; lane -1's station-hold drive at day-1's line end, on day-1's glass; neighbours (-1,17,-3) air, (-1,16,-4) air, (-2,16,-3) air, (0,16,-3) air, (-1,16,-2) the hold repeater (intended), (-1,15,-3) its glass; owner day-1, the drive lines car); 3,16,-3=minecraft:lever[face=floor,facing=north,powered=false] (support=3,15,-3; drive=hold:3; lane 3's station-hold drive; neighbours (3,17,-3) air, (3,16,-4) air, (2,16,-3) air, (4,16,-3) air, (3,16,-2) the hold repeater (intended), (3,15,-3) its glass; owner day-1, the drive lines car); 7,16,-3=minecraft:lever[face=floor,facing=north,powered=false] (support=7,15,-3; drive=hold:7; lane 7's station-hold drive; neighbours (7,17,-3) air, (7,16,-4) air, (6,16,-3) air, (8,16,-3) air, (7,16,-2) the hold repeater (intended), (7,15,-3) its glass; owner day-1, the drive lines car); 8,25,5=minecraft:lever[face=floor,facing=north,powered=false] (support=8,24,5; drive=b-hold-open; (B)'s hold-open drive, H2 released while on; neighbours (7,25,5) air, (9,25,5) air, (8,26,5) air, (8,25,4) air, (8,25,6) the stub (intended), (8,24,5) its glass; owner day-1, the way-in car); 2,-1,8=minecraft:lever[face=floor,facing=north,powered=false] (support=2,-2,8; drive=napper-hold; the napper hold (9,0,8)'s REL + 67 pulse, 12 gt; neighbours (1,-1,8) air, (2,0,8) air, (2,-1,7) LIFT's glass, (2,-1,9) air, (3,-1,8) the head repeater (intended), (2,-2,8) its glass; owner day-1, the drive lines car); 9,24,7=minecraft:powered_rail[powered=false,shape=ascending_south,waterlogged=false] (support=9,23,7; H2, (B)'s braked hold over the climb, ironspec 09:50a; owner day-1, the way-in car); 9,23,6=minecraft:detector_rail[powered=false,shape=ascending_south,waterlogged=false] (support=9,22,6; the arrival detector, (B)'s count input; owner day-1, the way-in car); 8,25,7=minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none] (support=8,24,7; the hold-open drive's end on the stone conductor (8,24,7); owner day-1, the way-in car); 8,25,6=minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none] (support=8,24,6; the drive line's stub, fed by the b-hold-open lever (8,25,5)); 8,23,6=minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=none] (support=8,22,6; the read line's corner beside the detector (9,23,6), powered by it; owner day-1, the way-in car); 8,23,5=minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none] (support=8,22,5; the read line north along x 8 at y 23); 8,23,4=minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none] (support=8,22,4; the read line); 8,23,3=minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none] (support=8,22,3; the read line's end at z 3, the harness's read point); 3,-1,8=minecraft:repeater[delay=1,facing=west,locked=false,powered=false] (support=3,-2,8; the REL + 67 line's head, fed by the napper-hold lever (2,-1,8); owner day-1, the drive lines car); 4,-1,8=minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side] (support=4,-2,8; the line east along z 8 at y -1); 5,-1,8=minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side] (support=5,-2,8; the line); 6,-1,8=minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side] (support=6,-2,8; the line); 7,-1,8=minecraft:repeater[delay=1,facing=west,locked=false,powered=false] (support=7,-2,8; the line's last link into LIFT's west-input repeater (8,-1,8), the hold (9,0,8)'s actuator)
+origin: -1 0 -3
+palette:
+  A minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=none]
+  B minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+  D minecraft:detector_rail[powered=false,shape=ascending_south,waterlogged=false]
+  G minecraft:glass
+  L minecraft:lever[face=floor,facing=north,powered=false]
+  P minecraft:powered_rail[powered=false,shape=ascending_south,waterlogged=false]
+  R minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+  S minecraft:stone
+  r minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
+layer -2:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ...GGGGGG
+layer -1:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ...LBrrrB
+layer 0:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 1:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 2:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 3:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 4:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 5:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 6:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 7:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 8:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 9:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 10:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 11:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 12:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 13:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 14:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 15:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 16:
+  L...L...L
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 17:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 18:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 19:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 20:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 21:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 22:
+  .
+  .
+  .
+  .
+  .
+  .
+  .........G
+  .........G
+  .........G
+  .........G
+  .
+  .
+layer 23:
+  .
+  .
+  .
+  .
+  .
+  .
+  .........R
+  .........R
+  .........R
+  .........AD
+  .
+  .
+layer 24:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .........G
+  .........G
+  .........SP
+  .
+layer 25:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .........L
+  .........R
+  .........R
+  .
