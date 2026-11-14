@@ -3449,6 +3449,11 @@ pub enum MobfarmCmd {
         /// A cell x,y,z whose state changes (a string, a detector, a plate; repeatable).
         #[arg(long, allow_hyphen_values = true)]
         cell: Vec<String>,
+        /// (G1 Nov 14 07:14, part 56) A consumer cell x,y,z the design means a cell's update to reach
+        /// (repeatable; every other non-inert block in reach fails by name; an allow nothing reaches is stale and
+        /// fails).
+        #[arg(long, allow_hyphen_values = true)]
+        allow: Vec<String>,
     },
     /// (farmopt / tick-exact Nov 13 00:16) The hostile sensor at a villager's position: every hostile
     /// the design holds, its sensor range, the feet-to-feet distance and the eye-to-eye sight ray;
@@ -9771,7 +9776,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             anyhow::ensure!(n == 0, "power into: {n} source(s) outside the allowed (bar 0)");
         }
-        MobfarmCmd::UpdateReach { design, cell } => {
+        MobfarmCmd::UpdateReach { design, cell, allow } => {
             let (_c, spec) = load(version, &design)?;
             let mut cells = Vec::new();
             for p in &cell {
@@ -9780,11 +9785,12 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 cells.push(redsim::pos::BlockPos::new(v[0], v[1], v[2]));
             }
             anyhow::ensure!(!cells.is_empty(), "update-reach: NOT JUDGED: no --cell");
-            let (lines, n) = crate::fleecheck::update_reach_components(&spec, &cells).map_err(|e| anyhow::anyhow!(e))?;
+            let allow = cells_of(&allow, "--allow")?;
+            let (lines, n) = crate::fleecheck::update_reach_components_allow(&spec, &cells, &allow).map_err(|e| anyhow::anyhow!(e))?;
             for l in &lines {
                 println!("{l}");
             }
-            anyhow::ensure!(n == 0, "the update reach: {n} observer / piston / dropper / dispenser(s) (bar 0)");
+            anyhow::ensure!(n == 0, "the update reach: {n} consumer(s) outside the allowed or stale allow(s) (bar 0)");
         }
         MobfarmCmd::SensorAt { design, at, feet, exclude, set, hold, through } => {
             let (_c, spec) = load(version, &design)?;
