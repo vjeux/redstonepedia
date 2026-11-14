@@ -329,40 +329,28 @@ pub fn reach_control() -> Result<Vec<(&'static str, bool, usize, bool)>, String>
 }
 
 /// (ironspec Nov 13 21:39, G1 21:39: the napper's path probe) A villager placed standing at `from` (its
-/// feet, on the ground) in the settled design (with the stand-ins laid by the caller), its navigation
-/// asked for a path to `to` (`create_path_pos`, reach 0): whether it reaches, and every node (cell and
-/// the path type the evaluator gave it). Returns the lines and whether the path reached.
-pub fn standing_path_probe(spec: &FarmSpec, from: Vec3, to: BlockPos) -> Result<(Vec<String>, bool), String> {
+/// feet) in the settled design (with the stand-ins laid by the caller), its navigation (bounded as
+/// `bounds`) asked for a path to `to` (`create_path_pos`, reach 0): REACHED, PROVED UNREACHABLE or
+/// UNDETERMINED (`Reach`), and every node (cell and the path type the evaluator gave it). Returns the
+/// lines and the outcome.
+pub fn standing_path_probe(spec: &FarmSpec, from: Vec3, to: BlockPos, bounds: NavBounds) -> Result<(Vec<String>, Reach), String> {
     let o = RunOpts { ai: true, ..RunOpts::steady(1, 0, WalkMode::Random) };
     let mut run = Run::start(spec, &o)?;
     settle_full(&mut run)?;
-    let vid = redsim::entity::spawn(&mut run.world, "minecraft:villager", [from.x, from.y, from.z], Some("{PersistenceRequired:1b}"))?;
-    // (G1 Nov 13 23:06 D4: the villager lands on its own, ticked with its AI off, never set on the ground
-    // by hand: a --from it can't stand at is NOT JUDGED)
-    let ai_on = run.world.mob.ai.on;
-    run.world.mob.ai.on = false;
-    for _ in 0..4 {
-        run.world.tick();
-    }
-    run.world.mob.ai.on = ai_on;
+    let i = land_probe_villager(&mut run.world, from, bounds)?;
     let w = &mut run.world;
-    let i = redsim::entity::index_of(w, vid).ok_or("the probe's villager did not spawn")?;
-    let (stands, at) = (w.entities.list[i].on_ground, w.entities.list[i].pos);
-    let want = BlockPos::new(from.x.floor() as i32, from.y.floor() as i32, from.z.floor() as i32);
-    if !stands || BlockPos::new(at.x.floor() as i32, at.y.floor() as i32, at.z.floor() as i32) != want {
-        return Err(format!("path probe: NOT JUDGED: the villager placed at {:.2},{:.2},{:.2} doesn't stand there (after 4 ticks: on the ground {stands}, at {:.4},{:.4},{:.4})", from.x, from.y, from.z, at.x, at.y, at.z));
-    }
-    let path = redsim::entity::mob::ai::with_nav(w, i, |w, nm, nav, arena| {
-        let mut copy = nav.clone();
-        copy.create_path_pos(w, nm, to, 0, arena)
-    });
-    let mut lines = Vec::new();
-    let reached = path.as_ref().is_some_and(|p| p.reached);
+    let (path, r, max_len, used) = probe_path(w, i, to, bounds);
+    let mut lines = vec![format!("path probe ({}: max path length {max_len}, node budget {used})", bounds.say())];
+    let class = match r {
+        Reach::Reached { .. } => "REACHED".to_string(),
+        Reach::Unreachable => "PROVED UNREACHABLE (the search exhausted inside the range and budget)".to_string(),
+        Reach::Undetermined { budget, range } => format!("UNDETERMINED (the search cut by {})", if budget && range { "the node budget and the follow range" } else if budget { "the node budget" } else if range { "the follow range" } else { "no path at all" }),
+    };
     match &path {
-        None => lines.push(format!("path probe: the villager at {:.2},{:.2},{:.2} to {},{},{}: no path at all (unreached)", from.x, from.y, from.z, to.x, to.y, to.z)),
+        None => lines.push(format!("path probe: the villager at {:.2},{:.2},{:.2} to {},{},{}: no path at all: {class}", from.x, from.y, from.z, to.x, to.y, to.z)),
         Some(p) => {
             lines.push(format!(
-                "path probe: the villager at {:.2},{:.2},{:.2} (its block {},{},{}) to {},{},{}: {} ({} node(s)): {}",
+                "path probe: the villager at {:.2},{:.2},{:.2} (its block {},{},{}) to {},{},{}: {class} ({} node(s)): {}",
                 from.x,
                 from.y,
                 from.z,
@@ -372,13 +360,390 @@ pub fn standing_path_probe(spec: &FarmSpec, from: Vec3, to: BlockPos) -> Result<
                 to.x,
                 to.y,
                 to.z,
-                if p.reached { "REACHED" } else { "unreached" },
                 p.nodes.len(),
                 p.nodes.iter().map(|n| format!("{},{},{} {:?}", n.x, n.y, n.z, n.ty)).collect::<Vec<_>>().join(" -> ")
             ));
+            // (ironspec Nov 14 00:48: each step's height between the nodes' floors (a node's floor: the top of
+            // its own cell's shape under 1, else the top of the shape below it), the largest rise and drop,
+            // and the last step: a final drop over 1.125 no walker climbs back)
+            let floor_of = |n: &redsim::entity::mob::ai::path::path::PathNode| -> f64 {
+                let c = BlockPos::new(n.x, n.y, n.z);
+                let own = redsim::behavior::collision_boxes(&w.get(c)).iter().map(|b| b[3]).max().unwrap_or(0);
+                if own > 0 && own < 16 {
+                    return n.y as f64 + own as f64 / 16.0;
+                }
+                let below = redsim::behavior::collision_boxes(&w.get(c.below())).iter().map(|b| b[3]).max().unwrap_or(16);
+                (n.y - 1) as f64 + below as f64 / 16.0
+            };
+            let floors: Vec<f64> = p.nodes.iter().map(floor_of).collect();
+            let steps: Vec<f64> = floors.windows(2).map(|f| f[1] - f[0]).collect();
+            if !steps.is_empty() {
+                let rise = steps.iter().copied().fold(f64::MIN, f64::max);
+                let drop = steps.iter().copied().fold(f64::MAX, f64::min);
+                let last = steps[steps.len() - 1];
+                lines.push(format!(
+                    "  steps (floor to floor): {}; the largest rise {rise:+.4}, the largest drop {drop:+.4}; the last step {last:+.4}{}",
+                    steps.iter().map(|s| format!("{s:+.4}")).collect::<Vec<_>>().join(" "),
+                    if -last > 1.125 { " (a drop over 1.125: no walker climbs back)" } else { "" }
+                ));
+            }
         }
     }
-    Ok((lines, reached))
+    Ok((lines, r))
+}
+
+/// (tick-exact Nov 14 00:21 / cc767b78 00:23, contested: a 26.3 villager's path search bounded by its
+/// FOLLOW_RANGE 16 (14.16..17.84 spawned or bred) with floor(range x 16) nodes, or by Villager's
+/// constructor's `setRequiredPathLength(48)`, max(FOLLOW_RANGE, 48) = 48 with 768 nodes, as redsim models
+/// it) The bounds a probe's villager searches with: none given, redsim's own navigation as modeled
+/// (48 / 768 for a villager); a follow range given sets the mob's follow range and the navigation's
+/// required path length to it (the max path length) with floor(range x 16) nodes unless a budget is given;
+/// a budget given replaces the node budget (a control's tiny one).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct NavBounds {
+    pub follow_range: Option<f64>,
+    pub budget: Option<i32>,
+}
+
+impl NavBounds {
+    pub fn say(&self) -> String {
+        match (self.follow_range, self.budget) {
+            (None, None) => "redsim's villager navigation (the mob's FOLLOW_RANGE and the navigation's requiredPathLength, 48 from Villager's constructor: ironspec Nov 14 00:26)".to_string(),
+            (Some(r), b) => format!("follow range overridden to {r}, node budget {}", b.map(|b| b.to_string()).unwrap_or_else(|| format!("floor({r} x 16)"))),
+            (None, Some(b)) => format!("redsim's follow range, node budget overridden to {b}"),
+        }
+    }
+}
+
+/// One request from the villager `i` to `to` (`create_path_pos`, reach 0) under `bounds` (the mob's follow
+/// range and the navigation's required path length set to the range, its node budget replaced), classed
+/// (`Reach`). Returns the path, the outcome, the max path length and the node budget used.
+fn probe_path(w: &mut redsim::World, i: usize, to: BlockPos, bounds: NavBounds) -> (Option<redsim::entity::mob::ai::path::path::Path>, Reach, f32, i32) {
+    redsim::entity::mob::ai::with_nav(w, i, |w, nm, nav, arena| {
+        let mut copy = nav.clone();
+        if let Some(r) = bounds.follow_range {
+            copy.required_path_length = r as f32;
+            copy.max_visited_nodes = ((r as f32) * 16.0).floor() as i32;
+            copy.max_visited_nodes_multiplier = 1.0;
+        }
+        if let Some(b) = bounds.budget {
+            copy.max_visited_nodes = b;
+            copy.max_visited_nodes_multiplier = 1.0;
+        }
+        let max_len = (nm.follow_range as f32).max(copy.required_path_length);
+        let used = (copy.max_visited_nodes as f32 * copy.max_visited_nodes_multiplier) as i32;
+        let path = copy.create_path_pos(w, nm, to, 0, arena);
+        let r = match &path {
+            Some(p) if p.reached => Reach::Reached { end: p.nodes.last().map(|n| BlockPos::new(n.x, n.y, n.z)).unwrap_or(to), nodes: p.nodes.len() },
+            Some(p) => {
+                let s = p.nodes.first().map(|n| (n.x, n.y, n.z)).unwrap_or((to.x, to.y, to.z));
+                let budget_hit = arena.nodes.iter().any(|n| n.in_open_set());
+                let range_cut = arena.nodes.iter().any(|n| n.walked_distance >= max_len || (n.closed && n.distance_to(s.0, s.1, s.2) >= max_len));
+                if budget_hit || range_cut { Reach::Undetermined { budget: budget_hit, range: range_cut } } else { Reach::Unreachable }
+            }
+            None => Reach::Undetermined { budget: false, range: false },
+        };
+        (path, r, max_len, used)
+    })
+}
+
+/// (G1 Nov 13 23:06 D4) The probe's villager placed at `from` (its feet) lands on its own: ticked 4 times
+/// with the AI off, never set on the ground by hand; a `from` it can't stand at is NOT JUDGED; its follow
+/// range set to `bounds`'. Returns its entity index.
+fn land_probe_villager(w: &mut redsim::World, from: Vec3, bounds: NavBounds) -> Result<usize, String> {
+    let vid = redsim::entity::spawn(w, "minecraft:villager", [from.x, from.y, from.z], Some("{PersistenceRequired:1b}"))?;
+    if let (Some(r), Some(k)) = (bounds.follow_range, redsim::entity::index_of(w, vid)) {
+        redsim::entity::mob::mob_mut(w, k).follow_range = r;
+    }
+    let ai_on = w.mob.ai.on;
+    w.mob.ai.on = false;
+    for _ in 0..4 {
+        w.tick();
+    }
+    w.mob.ai.on = ai_on;
+    let i = redsim::entity::index_of(w, vid).ok_or("the probe's villager did not spawn")?;
+    let (stands, at) = (w.entities.list[i].on_ground, w.entities.list[i].pos);
+    let want = BlockPos::new(from.x.floor() as i32, from.y.floor() as i32, from.z.floor() as i32);
+    if !stands || BlockPos::new(at.x.floor() as i32, at.y.floor() as i32, at.z.floor() as i32) != want {
+        return Err(format!("path probe: NOT JUDGED: the villager placed at {:.2},{:.2},{:.2} doesn't stand there (after 4 ticks: on the ground {stands}, at {:.4},{:.4},{:.4})", from.x, from.y, from.z, at.x, at.y, at.z));
+    }
+    Ok(i)
+}
+
+/// (ironspec Nov 13 23:50 / 23:52, G1 23:45 / 23:59: the napper's reach over the WHOLE stop) One path
+/// request's outcome: REACHED (the path's end node and its node count), PROVED UNREACHABLE (the search's
+/// open set exhausted with no node cut by the follow range) or UNDETERMINED (the node budget left nodes
+/// in the open set, or the follow range cut a node: a node walked to at or beyond the range, or a closed
+/// node at or beyond it from the start, not expanded).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Reach {
+    Reached { end: BlockPos, nodes: usize },
+    Unreachable,
+    Undetermined { budget: bool, range: bool },
+}
+
+/// One request from the villager `i` to `to` under `bounds`, classed (`Reach`): `probe_path` without the
+/// path. Returns the outcome, the max path length and the node budget used.
+fn probe_reach(w: &mut redsim::World, i: usize, to: BlockPos, bounds: NavBounds) -> (Reach, f32, i32) {
+    let (_, r, max_len, used) = probe_path(w, i, to, bounds);
+    (r, max_len, used)
+}
+
+/// The feet height a villager stands at in `c`: the top of the cell's own collision shape when it has
+/// one under 1 (a bed 0.5625, a slab 0.5, a carpet), else the cell's floor.
+fn stand_y(w: &redsim::World, c: BlockPos) -> f64 {
+    let top = redsim::behavior::collision_boxes(&w.get(c)).iter().map(|b| b[3]).max().unwrap_or(0);
+    c.y as f64 + if top < 16 { top as f64 / 16.0 } else { 0.0 }
+}
+
+/// The reach sweep's result (`reach_sweep`).
+#[derive(Debug, Default)]
+pub struct ReachSweep {
+    /// The bounds asked for, the follow range's max path length and the node budget used.
+    pub bounds: NavBounds,
+    pub max_len: f32,
+    pub budget: i32,
+    /// Per start: its feet, the cells it reaches directly (each request's end node in the box, with the
+    /// node count) and its farthest one.
+    pub starts: Vec<(Vec3, Vec<(BlockPos, usize)>)>,
+    /// Every closure member (a start, or a reached standing cell in the box placed and landed as a
+    /// start), and the reached cells a villager couldn't be landed at (skipped).
+    pub members: Vec<BlockPos>,
+    pub unlandable: Vec<BlockPos>,
+    /// Per forbid / require cell: its outcome over the closure (REACHED from a member, else UNDETERMINED
+    /// from one, else PROVED UNREACHABLE from all) and the member it names.
+    pub verdicts: Vec<(BlockPos, Reach, Option<BlockPos>)>,
+    /// Every standing cell of the box reached from any closure member (the cell, the member, the node
+    /// count), and every box cell a member's search left UNDETERMINED that no member reached.
+    pub reached: Vec<(BlockPos, BlockPos, usize)>,
+    pub undetermined: Vec<(BlockPos, BlockPos, Reach)>,
+    /// The box's candidate standing cells probed (G1 Nov 14 00:40b B3: none besides the starts' own is
+    /// NOT JUDGED for --alone), and each forbid / require cell's probe count (0: unjudged, never a pass).
+    pub targets: usize,
+    pub probes: Vec<usize>,
+}
+
+/// (ironspec Nov 13 23:50 / 23:52, G1 23:45 / 23:59) From each `from` (a villager placed at its feet and
+/// landed on its own, as `standing_path_probe`'s, each start in its own copy of the settled world), every
+/// standing cell of the box `lo..=hi` its navigation reaches (`create_path_pos`, reach 0: redsim's model of
+/// 26.3's WalkNodeEvaluator, climb max(1.125, maxUpStep), falls up to the mob's max fall, the rail rule
+/// for a mob on or off the rails, the follow range and the node budget); with `closure`, every reached
+/// standing cell in the box becomes a start in turn (a villager reaches places in stages), to a
+/// fixpoint. Each `cells` entry (the forbid and require cells) is classed over the closure: REACHED from a
+/// member, else UNDETERMINED (a member's search cut by the budget or the range), else PROVED UNREACHABLE.
+pub fn reach_sweep(spec: &FarmSpec, froms: &[Vec3], lo: BlockPos, hi: BlockPos, cells: &[BlockPos], bounds: NavBounds, closure: bool) -> Result<ReachSweep, String> {
+    let o = RunOpts { ai: true, ..RunOpts::steady(1, 0, WalkMode::Random) };
+    let mut run = Run::start(spec, &o)?;
+    settle_full(&mut run)?;
+    let base = run.world;
+    // (the candidate standing cells of the box: no full collider in the cell, and a floor under it or a
+    // shape of its own under 1)
+    let mut targets = Vec::new();
+    for y in lo.y..=hi.y {
+        for z in lo.z..=hi.z {
+            for x in lo.x..=hi.x {
+                let c = BlockPos::new(x, y, z);
+                let own = redsim::behavior::collision_boxes(&base.get(c));
+                let own_top = own.iter().map(|b| b[3]).max().unwrap_or(0);
+                let floor = redsim::behavior::collision_boxes(&base.get(c.below())).iter().any(|b| b[3] >= 16);
+                if own_top < 16 && (floor || !own.is_empty()) {
+                    targets.push(c);
+                }
+            }
+        }
+    }
+    let mut out = ReachSweep {
+        bounds,
+        targets: targets.len(),
+        verdicts: cells.iter().map(|c| (*c, Reach::Undetermined { budget: false, range: false }, None)).collect(),
+        probes: vec![0; cells.len()],
+        ..Default::default()
+    };
+    let in_box = |c: &BlockPos| (lo.x..=hi.x).contains(&c.x) && (lo.y..=hi.y).contains(&c.y) && (lo.z..=hi.z).contains(&c.z);
+    let mut queue: std::collections::VecDeque<(Vec3, bool)> = froms.iter().map(|f| (*f, true)).collect();
+    let mut reached_all: std::collections::HashSet<BlockPos> = std::collections::HashSet::new();
+    let mut queued: std::collections::HashSet<BlockPos> = froms.iter().map(|f| BlockPos::new(f.x.floor() as i32, f.y.floor() as i32, f.z.floor() as i32)).collect();
+    while let Some((from, original)) = queue.pop_front() {
+        let mut w = base.clone();
+        let fc = BlockPos::new(from.x.floor() as i32, from.y.floor() as i32, from.z.floor() as i32);
+        let i = match land_probe_villager(&mut w, from, bounds) {
+            Ok(i) => i,
+            Err(e) if original => return Err(e),
+            Err(_) => {
+                out.unlandable.push(fc);
+                continue;
+            }
+        };
+        out.members.push(fc);
+        let mut direct = Vec::new();
+        // (a start probes every cell not yet reached, and every forbid / require cell not yet REACHED)
+        let mut probe: Vec<BlockPos> = targets.iter().filter(|c| original || !reached_all.contains(c)).copied().collect();
+        for (c, v, _) in &out.verdicts {
+            if !matches!(v, Reach::Reached { .. }) && !probe.contains(c) {
+                probe.push(*c);
+            }
+        }
+        for to in probe {
+            let (r, max_len, used) = probe_reach(&mut w, i, to, bounds);
+            out.max_len = max_len;
+            out.budget = used;
+            // (G1 Nov 14 00:40b: a verdict starts unjudged and passes only on a probe that proved it: REACHED
+            // from any member wins, else UNDETERMINED from any, else PROVED UNREACHABLE once probed)
+            if let Some(k) = out.verdicts.iter().position(|(c, _, _)| *c == to) {
+                out.probes[k] += 1;
+                let cur = out.verdicts[k].1;
+                match r {
+                    Reach::Reached { .. } => out.verdicts[k] = (to, r, Some(fc)),
+                    Reach::Undetermined { .. } if !matches!(cur, Reach::Reached { .. }) && (out.probes[k] == 1 || cur == Reach::Unreachable) => out.verdicts[k] = (to, r, Some(fc)),
+                    Reach::Unreachable if out.probes[k] == 1 => out.verdicts[k] = (to, r, None),
+                    _ => {}
+                }
+            }
+            // (G1 Nov 14 00:40b B1: REACHED keys on the requested cell, never the path's end: a target on a
+            // solid partial block (a bed, a slab, soul sand) is lifted a cell by the surface search, so the
+            // end stands a cell above the cell the villager stands in)
+            if let Reach::Reached { nodes, .. } = r
+                && in_box(&to)
+            {
+                if original {
+                    direct.push((to, nodes));
+                }
+                if !out.reached.iter().any(|(c, _, _)| *c == to) {
+                    out.reached.push((to, fc, nodes));
+                }
+                reached_all.insert(to);
+                if closure && queued.insert(to) {
+                    queue.push_back((Vec3::new(to.x as f64 + 0.5, stand_y(&base, to), to.z as f64 + 0.5), false));
+                }
+            }
+            if matches!(r, Reach::Undetermined { .. }) && !out.undetermined.iter().any(|(c, _, _)| *c == to) {
+                out.undetermined.push((to, fc, r));
+            }
+        }
+        if original {
+            direct.sort_by_key(|(c, _)| (c.y, c.z, c.x));
+            direct.dedup_by_key(|(c, _)| *c);
+            out.starts.push((from, direct));
+        }
+    }
+    out.undetermined.retain(|(c, _, _)| !reached_all.contains(c));
+    out.reached.sort_by_key(|(c, _, _)| (c.y, c.z, c.x));
+    Ok(out)
+}
+
+/// `reach_sweep`'s bar: a --forbid cell REACHED from any closure member fails by name, UNDETERMINED is NOT
+/// JUDGED (a failure: a truncated search proves nothing), only PROVED UNREACHABLE passes; a --require cell
+/// must be REACHED (the run's own positive control); `alone` (ironspec Nov 14 00:08: the closure from P
+/// must be P alone): every standing cell reached other than a start's own fails by name, and every box
+/// cell a search left UNDETERMINED is NOT JUDGED; with no bar the sweep is NOT JUDGED. Returns the lines
+/// and the failures.
+pub fn reach_sweep_lines(s: &ReachSweep, forbid: &[BlockPos], require: &[BlockPos], alone: bool) -> Result<(Vec<String>, usize), String> {
+    if forbid.is_empty() && require.is_empty() && !alone {
+        return Err("reach sweep: NOT JUDGED: no --forbid, no --require and no --alone".to_string());
+    }
+    let mut lines = vec![format!(
+        "reach sweep ({}: max path length {} (max of the mob's FOLLOW_RANGE and the navigation's requiredPathLength), node budget {}; the closure to a fixpoint inside the box): {} candidate standing cell(s) of the box judged, {} start(s), {} closure member(s), {} reached cell(s) skipped (no villager lands there{})",
+        s.bounds.say(),
+        s.max_len,
+        s.budget,
+        s.targets,
+        s.starts.len(),
+        s.members.len(),
+        s.unlandable.len(),
+        if s.unlandable.is_empty() { String::new() } else { format!(": {}", s.unlandable.iter().map(|c| format!("{},{},{}", c.x, c.y, c.z)).collect::<Vec<_>>().join(" ")) }
+    )];
+    // (G1 Nov 14 00:40b B2: a reached cell no villager lands at leaves the closure incomplete: nothing it
+    // could reach was searched, so no forbid cell can be PROVED UNREACHABLE)
+    let incomplete = (!s.unlandable.is_empty()).then(|| format!("the closure is incomplete: {} reached cell(s) no villager lands at ({})", s.unlandable.len(), s.unlandable.iter().map(|c| format!("{},{},{}", c.x, c.y, c.z)).collect::<Vec<_>>().join(" ")));
+    let mut bad = 0usize;
+    for (from, reached) in &s.starts {
+        let far = reached.iter().max_by(|a, b| {
+            let d = |c: &BlockPos| ((c.x as f64 + 0.5 - from.x).powi(2) + (c.y as f64 - from.y).powi(2) + (c.z as f64 + 0.5 - from.z).powi(2)).sqrt();
+            d(&a.0).total_cmp(&d(&b.0))
+        });
+        lines.push(format!(
+            "  from {:.2},{:.2},{:.2}: {} cell(s) of the box reached directly{}: {}",
+            from.x,
+            from.y,
+            from.z,
+            reached.len(),
+            far.map(|(c, n)| format!(" (farthest {},{},{}, {n} nodes)", c.x, c.y, c.z)).unwrap_or_default(),
+            if reached.is_empty() { "none".to_string() } else { reached.iter().map(|(c, n)| format!("{},{},{} ({n})", c.x, c.y, c.z)).collect::<Vec<_>>().join(" ") }
+        ));
+    }
+    lines.push(format!("  closure members: {}", s.members.iter().map(|c| format!("{},{},{}", c.x, c.y, c.z)).collect::<Vec<_>>().join(" ")));
+    let say = |c: &BlockPos, r: &Reach, m: &Option<BlockPos>| {
+        let m = m.map(|m| format!("{},{},{}", m.x, m.y, m.z)).unwrap_or_else(|| "-".to_string());
+        match r {
+            Reach::Reached { end, nodes } => format!("{},{},{} REACHED from {m} ({nodes} nodes, ending {},{},{})", c.x, c.y, c.z, end.x, end.y, end.z),
+            Reach::Undetermined { budget, range } => format!(
+                "{},{},{} UNDETERMINED from {m} (the search cut by {})",
+                c.x,
+                c.y,
+                c.z,
+                match (budget, range) {
+                    (true, true) => "the node budget and the follow range",
+                    (true, false) => "the node budget",
+                    (false, true) => "the follow range",
+                    (false, false) => "no path at all",
+                }
+            ),
+            Reach::Unreachable => format!("{},{},{} PROVED UNREACHABLE from all {} closure member(s) (each search exhausted inside the range and budget)", c.x, c.y, c.z, s.members.len()),
+        }
+    };
+    let probes_of = |c: &BlockPos| s.verdicts.iter().position(|(q, _, _)| q == c).and_then(|k| s.probes.get(k).copied()).unwrap_or(0);
+    for c in forbid {
+        let (_, r, m) = s.verdicts.iter().find(|(q, _, _)| q == c).cloned().unwrap_or((*c, Reach::Undetermined { budget: false, range: false }, None));
+        let unjudged = probes_of(c) == 0;
+        let (verdict, pass) = match r {
+            Reach::Reached { .. } => ("(FAIL)".to_string(), false),
+            _ if unjudged => ("(NOT JUDGED: FAIL: never probed)".to_string(), false),
+            Reach::Undetermined { .. } => ("(NOT JUDGED: FAIL)".to_string(), false),
+            Reach::Unreachable => match &incomplete {
+                Some(why) => (format!("(NOT JUDGED: FAIL: {why})"), false),
+                None => ("(PASS)".to_string(), true),
+            },
+        };
+        if !pass {
+            bad += 1;
+        }
+        lines.push(format!("  forbid {} {verdict}", say(c, &r, &m)));
+    }
+    for c in require {
+        let (_, r, m) = s.verdicts.iter().find(|(q, _, _)| q == c).cloned().unwrap_or((*c, Reach::Undetermined { budget: false, range: false }, None));
+        let ok = matches!(r, Reach::Reached { .. });
+        if !ok {
+            bad += 1;
+        }
+        let verdict = match r {
+            Reach::Reached { .. } => "(PASS)",
+            Reach::Undetermined { .. } => "(NOT JUDGED: FAIL)",
+            Reach::Unreachable => "(FAIL)",
+        };
+        lines.push(format!("  require {} {verdict}", say(c, &r, &m)));
+    }
+    if alone {
+        let own: Vec<BlockPos> = s.starts.iter().map(|(f, _)| BlockPos::new(f.x.floor() as i32, f.y.floor() as i32, f.z.floor() as i32)).collect();
+        let others: Vec<&(BlockPos, BlockPos, usize)> = s.reached.iter().filter(|(c, _, _)| !own.contains(c)).collect();
+        for (c, m, n) in &others {
+            bad += 1;
+            lines.push(format!("  alone: the standing cell {},{},{} REACHED from {},{},{} ({n} nodes) (FAIL)", c.x, c.y, c.z, m.x, m.y, m.z));
+        }
+        for (c, m, r) in &s.undetermined {
+            bad += 1;
+            lines.push(format!("  alone: {} (NOT JUDGED: FAIL)", say(c, r, &Some(*m))));
+        }
+        // (G1 Nov 14 00:40b B3: no candidate cell besides the starts' own is zero samples: NOT JUDGED)
+        let judged = s.targets.saturating_sub(own.len());
+        if judged == 0 {
+            bad += 1;
+            lines.push("  alone: no candidate standing cell of the box besides the start(s) to judge: NOT JUDGED (FAIL)".to_string());
+        } else if others.is_empty() && s.undetermined.is_empty() {
+            lines.push(format!("  alone: none of the box's {judged} other candidate standing cell(s) reached from the start(s) {}, every search exhausted inside the range and budget (PASS)", own.iter().map(|c| format!("{},{},{}", c.x, c.y, c.z)).collect::<Vec<_>>().join(" ")));
+        }
+    }
+    lines.push(format!("reach sweep: {} forbidden cell(s), {} required cell(s){}: {bad} failure(s){}", forbid.len(), require.len(), if alone { ", the closure alone" } else { "" }, if bad == 0 { " (PASS)" } else { " (FAIL)" }));
+    Ok((lines, bad))
 }
 /// the rider seated at three points along it, its eye box (`Entity.isInWall`'s: width x 0.8 around
 /// the eye, 1e-6 tall) against every suffocating block, and its eye point against every other
@@ -9957,15 +10322,16 @@ mod gate_tests {
         // (G1 23:06 D4: the clear twin holds a hook in the head cell, as the static is for)
         let clear = mk("minecraft:tripwire_hook[attached=false,facing=west,powered=false]");
         let v = |x: f64, y: f64, z: f64| redsim::entity::Vec3::new(x, y, z);
-        let (l, reached) = super::standing_path_probe(&clear, v(2.5, 1.0, 2.5), b(3, 1, 2)).unwrap_or_else(|e| panic!("{e}"));
-        assert!(reached && l[0].contains("REACHED") && l[0].contains("3,1,2 Rail"), "rail to rail, a hook in the head cell: {l:?}");
+        let d = super::NavBounds::default();
+        let (l, reached) = super::standing_path_probe(&clear, v(2.5, 1.0, 2.5), b(3, 1, 2), d).unwrap_or_else(|e| panic!("{e}"));
+        assert!(matches!(reached, super::Reach::Reached { .. }) && l[1].contains("REACHED") && l[1].contains("3,1,2 Rail"), "rail to rail, a hook in the head cell: {l:?}");
         let glass = mk("minecraft:glass");
-        let (l2, r2) = super::standing_path_probe(&glass, v(2.5, 1.0, 2.5), b(3, 1, 2)).unwrap_or_else(|e| panic!("{e}"));
-        assert!(!r2 && l2[0].contains("unreached"), "glass in the head cell: {l2:?}");
-        let (l3, r3) = super::standing_path_probe(&clear, v(1.5, 1.0, 2.5), b(3, 1, 2)).unwrap_or_else(|e| panic!("{e}"));
-        assert!(!r3 && l3[0].contains("unreached"), "from stone beside the rails: {l3:?}");
+        let (l2, r2) = super::standing_path_probe(&glass, v(2.5, 1.0, 2.5), b(3, 1, 2), d).unwrap_or_else(|e| panic!("{e}"));
+        assert!(r2 == super::Reach::Unreachable && l2[1].contains("PROVED UNREACHABLE"), "glass in the head cell: {l2:?}");
+        let (l3, r3) = super::standing_path_probe(&clear, v(1.5, 1.0, 2.5), b(3, 1, 2), d).unwrap_or_else(|e| panic!("{e}"));
+        assert!(r3 == super::Reach::Unreachable && l3[1].contains("PROVED UNREACHABLE"), "from stone beside the rails: {l3:?}");
         // (G1 23:06 D4) the villager must stand at --from: one placed in mid-air is NOT JUDGED
-        let ea = super::standing_path_probe(&clear, v(2.5, 3.5, 2.5), b(3, 1, 2)).err().unwrap_or_default();
+        let ea = super::standing_path_probe(&clear, v(2.5, 3.5, 2.5), b(3, 1, 2), d).err().unwrap_or_default();
         assert!(ea.contains("NOT JUDGED") && ea.contains("doesn't stand there"), "in mid-air: {ea}");
         // (G1 23:06 D4, tick-exact 22:07's AK row: the bed-top step-up) a villager on the rail beside a
         // bed head paths onto the head's top (a 0.5625 rise), and not with a full block two above the head
@@ -9984,10 +10350,125 @@ mod gate_tests {
             }
             redsim::entity::mob::farm::FarmSpec { blocks, entities: Vec::new(), output: b(0, -1, 0), lo: b(0, -1, 0), hi: b(6, 5, 4), block_entities: Vec::new(), rock: false, nether: None, land: false }
         };
-        let (lb, rb) = super::standing_path_probe(&bed(false), v(2.5, 1.0, 2.5), b(3, 1, 2)).unwrap_or_else(|e| panic!("{e}"));
-        assert!(rb && lb[0].contains("REACHED"), "the bed-top step-up: {lb:?}");
-        let (lg, rg) = super::standing_path_probe(&bed(true), v(2.5, 1.0, 2.5), b(3, 1, 2)).unwrap_or_else(|e| panic!("{e}"));
-        assert!(!rg && lg[0].contains("unreached"), "a full block two above the head: {lg:?}");
+        let (lb, rb) = super::standing_path_probe(&bed(false), v(2.5, 1.0, 2.5), b(3, 1, 2), d).unwrap_or_else(|e| panic!("{e}"));
+        assert!(matches!(rb, super::Reach::Reached { .. }) && lb[1].contains("REACHED"), "the bed-top step-up: {lb:?}");
+        assert!(lb.iter().any(|l| l.starts_with("  steps (floor to floor):") && l.contains("the largest rise +0.5625")), "the step's height: {lb:?}");
+        let (lg, rg) = super::standing_path_probe(&bed(true), v(2.5, 1.0, 2.5), b(3, 1, 2), d).unwrap_or_else(|e| panic!("{e}"));
+        assert!(rg == super::Reach::Unreachable && lg[1].contains("PROVED UNREACHABLE"), "a full block two above the head: {lg:?}");
+        // (tick-exact Nov 14 00:21: the bounds overridden) the step-up under follow range 16 / 256 too, the
+        // header naming them
+        let (l16, r16) = super::standing_path_probe(&bed(false), v(2.5, 1.0, 2.5), b(3, 1, 2), super::NavBounds { follow_range: Some(16.0), budget: None }).unwrap_or_else(|e| panic!("{e}"));
+        assert!(matches!(r16, super::Reach::Reached { .. }) && l16[0].contains("max path length 16, node budget 256"), "16 / 256: {l16:?}");
+    }
+
+    /// (ironspec Nov 13 23:50 / 23:52, G1 23:45) The reach sweep on path-probe's corridor (walls all round
+    /// at y 1..2 but the corridor z 2, x 1..5; rails at (2,1,2) and (3,1,2)): from the rail with a hook in
+    /// the next rail's head cell, (3,1,2) is reached; with glass there it isn't; from the stone beside the
+    /// rails neither rail is; the bar: a forbidden cell reached fails by name, a required one unreached
+    /// fails, neither given is NOT JUDGED.
+    #[test]
+    fn reach_sweep_corridor_forbid_require() {
+        let p = |s: &str| redsim::block::Block::parse(s).unwrap();
+        let mk = |head: &str| {
+            let mut blocks = Vec::new();
+            for x in 0..=6 {
+                for z in 0..=4 {
+                    blocks.push((b(x, 0, z), p("minecraft:stone")));
+                    if !(z == 2 && (1..=5).contains(&x)) {
+                        blocks.push((b(x, 1, z), p("minecraft:stone")));
+                        blocks.push((b(x, 2, z), p("minecraft:stone")));
+                    }
+                }
+            }
+            blocks.push((b(2, 1, 2), p("minecraft:rail[shape=east_west,waterlogged=false]")));
+            blocks.push((b(3, 1, 2), p("minecraft:rail[shape=east_west,waterlogged=false]")));
+            blocks.push((b(3, 2, 2), p(head)));
+            blocks.push((b(4, 2, 2), p("minecraft:stone")));
+            redsim::entity::mob::farm::FarmSpec { blocks, entities: Vec::new(), output: b(0, -1, 0), lo: b(0, -1, 0), hi: b(6, 4, 4), block_entities: Vec::new(), rock: false, nether: None, land: false }
+        };
+        let v = |x: f64, y: f64, z: f64| redsim::entity::Vec3::new(x, y, z);
+        let (lo, hi) = (b(1, 1, 2), b(5, 1, 2));
+        let hook = mk("minecraft:tripwire_hook[attached=false,facing=west,powered=false]");
+        let glass = mk("minecraft:glass");
+        let next = b(3, 1, 2);
+        let sh = super::reach_sweep(&hook, &[v(2.5, 1.0, 2.5)], lo, hi, &[next], super::NavBounds::default(), true).unwrap_or_else(|e| panic!("{e}"));
+        assert!(sh.starts[0].1.iter().any(|(c, _)| *c == next) && matches!(sh.verdicts[0].1, super::Reach::Reached { .. }), "the hook twin reaches the next rail: {sh:?}");
+        let sg = super::reach_sweep(&glass, &[v(2.5, 1.0, 2.5)], lo, hi, &[next], super::NavBounds::default(), true).unwrap_or_else(|e| panic!("{e}"));
+        assert!(sg.verdicts[0].1 == super::Reach::Unreachable, "glass in the head cell: PROVED UNREACHABLE over the closure: {sg:?}");
+        let ss = super::reach_sweep(&glass, &[v(1.5, 1.0, 2.5)], lo, hi, &[b(2, 1, 2), next], super::NavBounds::default(), true).unwrap_or_else(|e| panic!("{e}"));
+        assert!(ss.verdicts.iter().all(|(_, r, _)| *r == super::Reach::Unreachable), "from the stone beside the rails: {ss:?}");
+        let (lh, nh) = super::reach_sweep_lines(&sh, &[next], &[], false).unwrap_or_else(|e| panic!("{e}"));
+        assert!(nh == 1 && lh.iter().any(|l| l.starts_with("  forbid 3,1,2 REACHED from 2,1,2") && l.ends_with("(FAIL)")), "a forbidden cell reached: {lh:?}");
+        let (lg, ng) = super::reach_sweep_lines(&sg, &[next], &[next], false).unwrap_or_else(|e| panic!("{e}"));
+        assert!(ng == 1 && lg.iter().any(|l| l.starts_with("  forbid 3,1,2 PROVED UNREACHABLE") && l.ends_with("(PASS)")) && lg.iter().any(|l| l.starts_with("  require 3,1,2 PROVED UNREACHABLE") && l.ends_with("(FAIL)")), "the glass twin: forbidden passes, required fails: {lg:?}");
+        assert!(lg[0].contains("max path length 48") && lg[0].contains("node budget 768"), "the range and budget named: {lg:?}");
+        assert!(super::reach_sweep_lines(&sh, &[], &[], false).is_err(), "no bar: NOT JUDGED");
+        // (ironspec Nov 14 00:08: the closure from a start must be the start alone) the glass twin with a
+        // two-high glass wall in (1,1,2) / (1,2,2) too (one high would be a step onto the walls): the rail
+        // start reaches no other standing cell (PASS); the open glass twin reaches the floor cell (1,1,2) off
+        // the rail (FAIL by name); the hook twin reaches the next rail
+        let mut shut = glass.clone();
+        shut.blocks.push((b(1, 1, 2), p("minecraft:glass")));
+        shut.blocks.push((b(1, 2, 2), p("minecraft:glass")));
+        let sa = super::reach_sweep(&shut, &[v(2.5, 1.0, 2.5)], lo, hi, &[], super::NavBounds::default(), true).unwrap_or_else(|e| panic!("{e}"));
+        let (la, na) = super::reach_sweep_lines(&sa, &[], &[], true).unwrap_or_else(|e| panic!("{e}"));
+        assert!(na == 0 && la.iter().any(|l| l.starts_with("  alone: none of the box's 3 other candidate standing cell(s) reached from the start(s) 2,1,2")), "shut in: {la:?}");
+        let (lo2, no2) = super::reach_sweep_lines(&sg, &[], &[], true).unwrap_or_else(|e| panic!("{e}"));
+        assert!(no2 >= 1 && lo2.iter().any(|l| l.starts_with("  alone: the standing cell 1,1,2 REACHED from 2,1,2")), "the open glass twin: {lo2:?}");
+        let (lh2, nh2) = super::reach_sweep_lines(&sh, &[], &[], true).unwrap_or_else(|e| panic!("{e}"));
+        assert!(nh2 >= 1 && lh2.iter().any(|l| l.starts_with("  alone: the standing cell 3,1,2 REACHED")), "the hook twin: {lh2:?}");
+        // (G1 Nov 14 00:40b B3) a box holding only the start's own cell: zero samples, NOT JUDGED
+        let s0 = super::reach_sweep(&shut, &[v(2.5, 1.0, 2.5)], b(2, 1, 2), b(2, 1, 2), &[], super::NavBounds::default(), true).unwrap_or_else(|e| panic!("{e}"));
+        let (l0, n0) = super::reach_sweep_lines(&s0, &[], &[], true).unwrap_or_else(|e| panic!("{e}"));
+        assert!(n0 == 1 && l0.iter().any(|l| l.contains("no candidate standing cell of the box besides the start(s) to judge: NOT JUDGED (FAIL)")), "zero samples: {l0:?}");
+        // (G1 Nov 14 00:40b B1) on an open floor, a bed beside the start: the surface search lifts the bed's
+        // target a cell, and REACHED keys on the requested cell: a feet-layer box's --alone FAILS NAMING
+        // THE BED; a bottom slab likewise; a slab top a cell up, reachable only through the bed (1.5 over
+        // the floor, 0.94 over the bed), is REACHED
+        let floor = |extra: &[(redsim::pos::BlockPos, &str)]| {
+            let mut blocks = Vec::new();
+            for x in 0..=6 {
+                for z in 0..=4 {
+                    blocks.push((b(x, 0, z), p("minecraft:stone")));
+                }
+            }
+            for (q, s) in extra {
+                blocks.push((*q, p(s)));
+            }
+            redsim::entity::mob::farm::FarmSpec { blocks, entities: Vec::new(), output: b(0, -1, 0), lo: b(0, -1, 0), hi: b(6, 5, 4), block_entities: Vec::new(), rock: false, nether: None, land: false }
+        };
+        let bed = floor(&[(b(3, 1, 2), "minecraft:red_bed[facing=west,occupied=false,part=head]"), (b(4, 1, 2), "minecraft:red_bed[facing=west,occupied=false,part=foot]")]);
+        let sb = super::reach_sweep(&bed, &[v(1.5, 1.0, 2.5)], b(0, 1, 0), b(6, 1, 4), &[], super::NavBounds::default(), true).unwrap_or_else(|e| panic!("{e}"));
+        let (lb, nb) = super::reach_sweep_lines(&sb, &[], &[], true).unwrap_or_else(|e| panic!("{e}"));
+        assert!(nb >= 1 && lb.iter().any(|l| l.starts_with("  alone: the standing cell 3,1,2 REACHED")) && sb.unlandable.is_empty(), "the bed named: {lb:?}");
+        let slab = floor(&[(b(3, 1, 2), "minecraft:stone_slab[type=bottom,waterlogged=false]")]);
+        let ss2 = super::reach_sweep(&slab, &[v(1.5, 1.0, 2.5)], b(0, 1, 0), b(6, 1, 4), &[], super::NavBounds::default(), true).unwrap_or_else(|e| panic!("{e}"));
+        let (ls2, ns2) = super::reach_sweep_lines(&ss2, &[], &[], true).unwrap_or_else(|e| panic!("{e}"));
+        assert!(ns2 >= 1 && ls2.iter().any(|l| l.starts_with("  alone: the standing cell 3,1,2 REACHED")) && ss2.unlandable.is_empty(), "the slab named: {ls2:?}");
+        let up = floor(&[(b(3, 1, 2), "minecraft:red_bed[facing=west,occupied=false,part=head]"), (b(4, 1, 2), "minecraft:red_bed[facing=west,occupied=false,part=foot]"), (b(2, 2, 2), "minecraft:stone_slab[type=bottom,waterlogged=false]")]);
+        let su = super::reach_sweep(&up, &[v(1.5, 1.0, 1.5)], b(0, 1, 0), b(6, 2, 4), &[b(2, 2, 2)], super::NavBounds::default(), true).unwrap_or_else(|e| panic!("{e}"));
+        let (lu, nu) = super::reach_sweep_lines(&su, &[], &[b(2, 2, 2)], false).unwrap_or_else(|e| panic!("{e}"));
+        assert!(nu == 0 && lu.iter().any(|l| l.starts_with("  require 2,2,2 REACHED")), "the slab top through the bed: {lu:?}");
+        // (G1 23:59 (1)) a tiny node budget leaves the search truncated: UNDETERMINED, NOT JUDGED (not a pass)
+        let st = super::reach_sweep(&glass, &[v(2.5, 1.0, 2.5)], lo, hi, &[next], super::NavBounds { follow_range: None, budget: Some(2) }, true).unwrap_or_else(|e| panic!("{e}"));
+        let (lt, nt) = super::reach_sweep_lines(&st, &[next], &[], false).unwrap_or_else(|e| panic!("{e}"));
+        assert!(nt == 1 && lt.iter().any(|l| l.contains("UNDETERMINED") && l.contains("the node budget") && l.ends_with("(NOT JUDGED: FAIL)")), "a tiny budget: {lt:?}");
+        // (G1 23:59 (1) / (2)) a one-wide floor 67 long: the cell 59 away is beyond the follow range from the
+        // start: with the box holding only that cell, UNDETERMINED by the range (NOT JUDGED); with the whole
+        // floor in the box and no closure, still not reached; with the closure, REACHED from a reached cell
+        let mut line = Vec::new();
+        for x in 0..=66 {
+            line.push((b(x, 0, 2), p("minecraft:stone")));
+        }
+        let long = redsim::entity::mob::farm::FarmSpec { blocks: line, entities: Vec::new(), output: b(0, -1, 0), lo: b(0, -1, 0), hi: b(67, 4, 4), block_entities: Vec::new(), rock: false, nether: None, land: false };
+        let far = b(60, 1, 2);
+        let sf = super::reach_sweep(&long, &[v(1.5, 1.0, 2.5)], far, far, &[far], super::NavBounds::default(), true).unwrap_or_else(|e| panic!("{e}"));
+        assert!(matches!(sf.verdicts[0].1, super::Reach::Undetermined { range: true, .. }), "beyond the follow range: {sf:?}");
+        let sn = super::reach_sweep(&long, &[v(1.5, 1.0, 2.5)], b(0, 1, 2), b(66, 1, 2), &[far], super::NavBounds::default(), false).unwrap_or_else(|e| panic!("{e}"));
+        assert!(!matches!(sn.verdicts[0].1, super::Reach::Reached { .. }), "no closure: the far cell is not reached: {sn:?}");
+        let sc = super::reach_sweep(&long, &[v(1.5, 1.0, 2.5)], b(0, 1, 2), b(66, 1, 2), &[far], super::NavBounds::default(), true).unwrap_or_else(|e| panic!("{e}"));
+        let (lc, nc) = super::reach_sweep_lines(&sc, &[far], &[], false).unwrap_or_else(|e| panic!("{e}"));
+        assert!(nc == 1 && lc.iter().any(|l| l.starts_with("  forbid 60,1,2 REACHED from ") && l.ends_with("(FAIL)")), "the closure reaches it in stages: {lc:?}");
     }
 
     /// (tick-exact Nov 13 22:48) Dust steps: dust on stone stepping down onto dust beside it carries
