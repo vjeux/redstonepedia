@@ -10058,6 +10058,47 @@ fn run_inner(spec: &FarmSpec, o: &Opts) -> Result<(String, Option<(String, i64)>
         wg.map(|((g, a, b), l)| format!("{g} gt ({l}, t {a}..{b})")).unwrap_or("-".to_string()),
         wn.map(|((g, a, b), l)| format!("{g} gt ({l}, t {a}..{b})")).unwrap_or("-".to_string())
     ));
+    // (G1 16:36, ironspec 16:35) a scarer outage's time-to-lock: each rider's stamp recomputed WITHOUT the
+    // flee-path clears (a clear through "a flee point" dropped): from dusk (t 1000, the stamp armed) it
+    // resets only at its own-path clears; the tick it first passes 1,200; the second such rider's tick
+    // is the outage's time-to-lock (the farm absorbs one HOME loss)
+    {
+        let mut crosses: Vec<(i64, u32)> = Vec::new();
+        let mut own_by_rider: Vec<(u32, usize)> = Vec::new();
+        for (id, r) in recs.iter() {
+            let mut resets: Vec<i64> = r
+                .clears
+                .iter()
+                .filter(|c| !c.contains("a flee point") && !c.contains("a reload"))
+                .filter_map(|c| c.strip_prefix("t ").and_then(|x| x.split(' ').next()).and_then(|t| t.parse::<i64>().ok()))
+                .filter(|t| *t >= 1000)
+                .collect();
+            resets.sort();
+            own_by_rider.push((*id, resets.len()));
+            let mut last = 1000i64;
+            let mut cross: Option<i64> = None;
+            for t in resets.iter().copied().chain(std::iter::once(i64::MAX)) {
+                if t.saturating_sub(last) > 1200 {
+                    cross = Some(last + 1200);
+                    break;
+                }
+                last = t;
+            }
+            if let Some(c) = cross
+                && c <= o.ticks as i64
+            {
+                crosses.push((c, *id));
+            }
+        }
+        crosses.sort();
+        s.push_str(&format!(
+            "the scarer outage's time-to-lock (G1 16:36: every rider's stamp recomputed without its flee-path clears, from dusk t 1000; the farm absorbs one HOME loss, the second locks napping): {} riders pass 1,200 gt; the first {}; the second (the time-to-lock) {}; riders with no own-path clear at night: {}\n",
+            crosses.len(),
+            crosses.first().map_or("never".to_string(), |(t, v)| format!("#{v} at t {t}")),
+            crosses.get(1).map_or("never".to_string(), |(t, v)| format!("#{v} at t {t} ({} gt after dusk)", t - 1000)),
+            own_by_rider.iter().filter(|(_, n)| *n == 0).count()
+        ));
+    }
     // (ironspec 16:08, G1 16:05) the longest continuous pathless dwell at night by position class: per
     // class, the stamp's oldest age at any REST tick over the villagers, against the 1,200 release
     {
