@@ -285,11 +285,11 @@ pub fn declared_contacts_bounded(text: &str) -> Result<Vec<Decl>, String> {
             }
             let mut cs = Vec::new();
             for cell in cells.split('+') {
-                let v: Vec<i32> = cell.trim().trim_matches(|c| c == '(' || c == ')').split(',').map(|t| t.trim().replace('\u{2212}', "-").parse::<i32>()).collect::<Result<_, _>>().map_err(|e| format!("# {key} {entry}: cell {cell:?}: {e}"))?;
-                if v.len() != 3 {
+                // (G1 16:18: the shared cell grammar, `pushscan::parse_cell_group`)
+                let Some((x, y, z)) = crate::pushscan::parse_cell_group(cell) else {
                     return Err(format!("# {key} {entry}: cell {cell:?} is not x,y,z"));
-                }
-                cs.push(BlockPos::new(v[0], v[1], v[2]));
+                };
+                cs.push(BlockPos::new(x, y, z));
             }
             let mut d = Decl { cells: cs, reason, class: Class::Legacy, face: None, ticks: None, events: None, depth: None, speed_in: Vec::new(), speed_out: Vec::new(), reference: None, rate: None };
             let mut class: Option<Class> = None;
@@ -831,11 +831,11 @@ pub fn declared_contacts_strict(text: &str) -> Result<Vec<(BlockPos, String)>, S
                 return Err(format!("# {key} {entry}: an empty REASON (x,y,z[+x,y,z…]=REASON)"));
             }
             for cell in cells.split('+') {
-                let v: Vec<i32> = cell.trim().trim_matches(|c| c == '(' || c == ')').split(',').map(|t| t.trim().replace('\u{2212}', "-").parse::<i32>()).collect::<Result<_, _>>().map_err(|e| format!("# {key} {entry}: cell {cell:?}: {e}"))?;
-                if v.len() != 3 {
+                // (G1 16:18: the shared cell grammar, `pushscan::parse_cell_group`)
+                let Some((x, y, z)) = crate::pushscan::parse_cell_group(cell) else {
                     return Err(format!("# {key} {entry}: cell {cell:?} is not x,y,z"));
-                }
-                out.push((BlockPos::new(v[0], v[1], v[2]), reason.trim().to_string()));
+                };
+                out.push((BlockPos::new(x, y, z), reason.trim().to_string()));
             }
         }
     }

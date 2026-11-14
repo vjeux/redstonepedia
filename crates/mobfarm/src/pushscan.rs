@@ -692,7 +692,26 @@ pub fn header_entries(text: &str, key: &str) -> Vec<String> {
     v
 }
 
-/// A header line's body without its leading attribution in parentheses, if any.
+/// (G1 Nov 13 16:18, train 11's car 25) One cell `x,y,z` as the contacts / stops readers take it:
+/// three comma-separated integers, the ASCII '-' or the unicode minus U+2212, spaces allowed, with or
+/// without one pair of parentheses around it. Shared by [`strip_attribution`] (a leading group that
+/// is a cell is never taken for an attribution) and the readers that accept that form
+/// (`drop::declared_contacts`, `contacts::declared_contacts_bounded` / `declared_contacts_strict`),
+/// so the two can't drift apart.
+pub fn parse_cell_group(s: &str) -> Option<(i32, i32, i32)> {
+    let t = s.trim();
+    let t = t.strip_prefix('(').and_then(|u| u.strip_suffix(')')).unwrap_or(t);
+    let v: Vec<i32> = t.split(',').map(|c| c.trim().replace('\u{2212}', "-").parse::<i32>().ok()).collect::<Option<_>>()?;
+    (v.len() == 3).then(|| (v[0], v[1], v[2]))
+}
+
+/// Whether `s` is one cell in [`parse_cell_group`]'s grammar.
+pub fn is_cell_group(s: &str) -> bool {
+    parse_cell_group(s).is_some()
+}
+
+/// A header line's body without its leading attribution in parentheses, if any; a leading group that
+/// is a cell (`(x,y,z)`, [`is_cell_group`]) is no attribution and stays.
 fn strip_attribution(body: &str) -> &str {
     let t = body.trim_start();
     if !t.starts_with('(') {
@@ -705,6 +724,9 @@ fn strip_attribution(body: &str) -> &str {
             ')' => {
                 depth -= 1;
                 if depth == 0 {
+                    if is_cell_group(&t[..=i]) {
+                        return body;
+                    }
                     return &t[i + 1..];
                 }
             }
@@ -1600,6 +1622,27 @@ pub fn switched_full(spec: &FarmSpec, switches: &[BlockPos], always_on: &[(Block
     }
     out.push(format!("  detectors' raw connections with 3 potential connections: {raw3}"));
     (out, undeclared + raw3)
+}
+
+#[cfg(test)]
+mod header_entry_tests {
+    use super::{header_entries, is_cell_group, parse_cell_group};
+
+    /// (G1 Nov 13 16:18, train 11's car 25) A leading parenthesized group that is a cell is kept (the
+    /// ASCII '-' and the unicode minus U+2212 both); a leading attribution is stripped; a note before a
+    /// leading cell is stripped and the cell kept; dfb89499's `# stops:` fixture keeps both cells.
+    #[test]
+    fn a_leading_cell_is_no_attribution() {
+        assert_eq!(header_entries("# stops: (1,2,3) (4,5,6)=w\n", "stops:"), vec!["(1,2,3) (4,5,6)=w".to_string()]);
+        assert_eq!(header_entries("# stops: (\u{2212}6,12,7) (3,4,5)=w\n", "stops:"), vec!["(\u{2212}6,12,7) (3,4,5)=w".to_string()]);
+        assert_eq!(header_entries("# contacts: (ironspec 21:25) -1,2,3=w\n", "contacts:"), vec!["-1,2,3=w".to_string()]);
+        assert_eq!(header_entries("# contacts: (a note) (1,2,3) (4,5,6)=w\n", "contacts:"), vec!["(1,2,3) (4,5,6)=w".to_string()]);
+        assert_eq!(header_entries("# stops: (-6,12,7) (\u{2212}6,13,7)=walls\n", "stops:"), vec!["(-6,12,7) (\u{2212}6,13,7)=walls".to_string()]);
+        // (the shared grammar: three integers, either minus, spaces, one pair of parentheses)
+        assert_eq!(parse_cell_group(" ( \u{2212}6 , 12, 7 ) "), Some((-6, 12, 7)));
+        assert_eq!(parse_cell_group("1,2,3"), Some((1, 2, 3)));
+        assert!(!is_cell_group("(1,2)") && !is_cell_group("(1,2,x)") && !is_cell_group("(ironspec 21:25)") && !is_cell_group("1,2,3,4"));
+    }
 }
 
 #[cfg(test)]

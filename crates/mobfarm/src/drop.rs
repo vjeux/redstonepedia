@@ -571,13 +571,12 @@ pub fn declared_contacts(text: &str) -> Result<Vec<((i32, i32, i32), bool)>, Str
             // (the checklist audit (9): every cell token parses as x,y,z (the documented forms:
             // '+' or spaces between cells, parentheses around one), else the header is refused)
             for cell in cells.split(|c: char| c == '+' || c.is_whitespace()).filter(|t| !t.trim().is_empty()) {
-                let cell = cell.trim_matches(|c: char| c == '(' || c == ')');
-                let v: Vec<Result<i32, _>> = cell.split(',').map(|t| t.trim().replace('\u{2212}', "-").parse::<i32>()).collect();
-                if v.len() != 3 || v.iter().any(|r| r.is_err()) {
+                // (G1 16:18: the shared cell grammar, `pushscan::parse_cell_group`, the one
+                // `strip_attribution` keeps a leading cell by)
+                let Some((x, y, z)) = crate::pushscan::parse_cell_group(cell) else {
                     return Err(format!("`# {key}` entry {entry:?}: the cell {cell:?} is not x,y,z (the checklist audit (9): parsed strictly)"));
-                }
-                let v: Vec<i32> = v.into_iter().map(|r| r.unwrap()).collect();
-                out.push(((v[0], v[1], v[2]), provisional));
+                };
+                out.push(((x, y, z), provisional));
             }
         }
     }
