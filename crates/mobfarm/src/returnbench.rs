@@ -264,6 +264,8 @@ pub struct ReturnOpts {
     pub late_arrival: Option<(usize, i64)>,
     pub swap_carts: Option<usize>,
     pub extra_cart: Option<(i64, i32)>,
+    /// `--extra-empty`: the `--extra-cart` riderless (b8949c96's empty-arrival row).
+    pub extra_empty: bool,
     pub park_cart: Option<(i32, i32, i32)>,
     /// The H13 check's positive control (G1 on 0a8663a30): a world-open row's world-open contacts
     /// judged as a plain row's (undeclared); set only by `controls()`.
@@ -2165,7 +2167,7 @@ fn verdict(v: &[(String, Result<Summary, String>)]) -> String {
             if v.is_empty() { "-".to_string() } else { format!("{}..{} ({} rows)", v.iter().min().copied().unwrap_or(0), v.iter().max().copied().unwrap_or(0), v.len()) }
         };
         let win = format!(
-            "; the returning napper's passage from its departure off the hold (day-1 11:39, F4(a)): J(-1) {}, J(3) {}, its K {}; the nearest batch carts around it, gt before / after: J(-1) {} / {}, J(3) {} / {}, its K {} / {}; the lift mouth's least gap (ironspec 12:58 (3), bar >= 16): batch -> batch {}, batch -> napper {}, napper -> batch {}",
+            "; the returning napper's passage from its departure off the hold (day-1 11:39, F4(a)): J(-1) {}, J(3) {}, its K {}; the nearest batch carts around it, gt before / after: J(-1) {} / {}, J(3) {} / {}, its K {} / {}; the lift mouth's least gap (G1's C5 bars, 0c933b5ab: batch -> batch >= 13, the lift pair's clean gap; both napper classes >= 23): batch -> batch {}, batch -> napper {}, napper -> batch {}",
             rg(&|s| s.win.tau[0]),
             rg(&|s| s.win.tau[1]),
             rg(&|s| s.win.tau[2]),
@@ -4659,6 +4661,8 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
     let mut toggled: Vec<String> = Vec::new();
     // (the forced rows: the extra cart and the parked cart, their ids, the extra's lane and tick)
     let mut extra_id: Option<u32> = None;
+    let mut extra_at_8259: Option<(i64, f64, (f64, f64, f64))> = None;
+    let mut extra_split_least: Option<(i64, f64, (i32, i32, i32))> = None;
     let mut extra_lane: Option<(i32, i64)> = None;
     let mut park_id: Option<u32> = None;
     let mut dj_prev: [Option<(bool, String, bool)>; 3] = [None, None, None];
@@ -4789,7 +4793,11 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
         // batch carts are; `--park-cart X,Y,Z`: a ridden cart at rest at that cell from the start)
         if o.extra_cart.is_some_and(|(et, _)| et == t) && extra_id.is_none() {
             let x = o.extra_cart.map_or(0, |(_, x)| x);
-            let nbt = format!("{{Motion:[0.0d,0.0d,{:.4}d],Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b}}]}}", if o.mirror_z { -o.speed } else { o.speed });
+            let nbt = if o.extra_empty {
+                format!("{{Motion:[0.0d,0.0d,{:.4}d]}}", if o.mirror_z { -o.speed } else { o.speed })
+            } else {
+                format!("{{Motion:[0.0d,0.0d,{:.4}d],Passengers:[{{id:\"minecraft:villager\",PersistenceRequired:1b}}]}}", if o.mirror_z { -o.speed } else { o.speed })
+            };
             extra_id = Some(redsim::entity::spawn(&mut run.world, "minecraft:minecart", [x as f64 + 0.5, 0.0625, if o.mirror_z { 2.5 } else { 1.5 }], Some(&nbt))?);
         }
         if t == 0 && park_id.is_none()
@@ -6393,7 +6401,25 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
                 }
             }
         }
-        // (`--extra-cart`: the extra cart's lane where it reaches a sink cell, as a batch cart's)
+        // (`--extra-cart`: the extra cart's lane where it reaches a sink cell, as a batch cart's; and
+        // (b8949c96 / ironspec Nov 14 05:03 (13), 05:17) its speed on arrival at (8,25,9) and its least
+        // speed on the split row (y 25), for `--extra-empty`'s riderless cart (an empty decelerates by
+        // 0.96 a tick, a ridden cart 0.997: the stranding speed on (9,25,8) is ~0.10 b/t))
+        if let Some(eid) = extra_id
+            && extra_lane.is_none()
+            && let Some(i) = redsim::entity::index_of(&run.world, eid)
+        {
+            let pp = run.world.entities.list[i].pos;
+            let dm = run.world.entities.list[i].delta_movement;
+            let sp = (dm.x * dm.x + dm.z * dm.z).sqrt();
+            let (fx, fy, fz) = (pp.x.floor() as i32, pp.y.floor() as i32, zf(pp.z.floor() as i32));
+            if (fx, fy, fz) == (8, 25, 9) && extra_at_8259.is_none() {
+                extra_at_8259 = Some((t, sp, (pp.x, pp.y, pp.z)));
+            }
+            if fy == 25 && extra_split_least.is_none_or(|(_, s, _)| sp < s) {
+                extra_split_least = Some((t, sp, (fx, fy, fz)));
+            }
+        }
         if let Some(eid) = extra_id
             && extra_lane.is_none()
             && let Some(i) = redsim::entity::index_of(&run.world, eid)
@@ -6821,9 +6847,16 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
             }),
             o.swap_carts.map_or(String::new(), |k| format!("; carts {k} and {} swapped their release ticks", k + 1)),
             match (o.extra_cart, extra_lane) {
-                (Some((et, x)), Some((l, at))) => format!("; the extra cart (entering moving at --speed {:.2} at lane {x}'s pocket exit at t {et}, not through the station's drive) at lane {l} at t {at}", o.speed),
-                (Some((et, x)), None) => format!("; the extra cart (entering moving at --speed {:.2} at lane {x}'s pocket exit at t {et}, not through the station's drive) at no lane", o.speed),
+                (Some((et, x)), Some((l, at))) => format!("; the extra cart ({}entering moving at --speed {:.2} at lane {x}'s pocket exit at t {et}, not through the station's drive) at lane {l} at t {at}", if o.extra_empty { "EMPTY, " } else { "" }, o.speed),
+                (Some((et, x)), None) => format!("; the extra cart ({}entering moving at --speed {:.2} at lane {x}'s pocket exit at t {et}, not through the station's drive) at no lane", if o.extra_empty { "EMPTY, " } else { "" }, o.speed),
                 _ => String::new(),
+            } + &match o.extra_cart {
+                Some(_) => format!(
+                    "; the extra cart at (8,25,9) (b8949c96 05:17: an empty stranding on (9,25,8) needs <= ~0.10 b/t): {}; its least speed on the split row (y 25) {}",
+                    extra_at_8259.map_or("never".to_string(), |(t, s, p)| format!("t {t} at {:.3},{:.3},{:.3}, speed {s:.4} b/t", p.0, p.1, p.2)),
+                    extra_split_least.map_or("- (never on y 25)".to_string(), |(t, s, c)| format!("{s:.4} b/t at ({},{},{}) t {t}", c.0, c.1, c.2))
+                ),
+                None => String::new(),
             } + &match (o.park_cart, park_id) {
                 (Some((x, y, z)), Some(pid)) => {
                     let at = redsim::entity::index_of(&run.world, pid).map(|i| run.world.entities.list[i].pos);
@@ -7152,7 +7185,7 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
         None
     };
     let hold_line = format!(
-        "hold release: pulses fired {} (while the napper rested: {}), skipped {}; the napper's departure {}; creeps {} (the napper off the hold with no pulse); FIFO pops without a departure {}; fired pulses without that cycle's departure {}{}; the napper's second ARM3 rise {}; presence samples at E's rise: {}",
+        "hold release: pulses fired {} (while the napper rested: {}), skipped {}; the napper's departure {}; creeps {} (the napper off the hold with no pulse); FIFO pops without a departure {}; fired pulses without that cycle's departure {}{}; the napper's second ARM3 rise {}; presence samples at E's rise: {}; the release pulses per batch (G1 Nov 14 05:05 (d): the ARM3 interlock fires one per batch, dfb89499's limiter makes it one {}-gt pulse): {}",
         pulses.len(),
         if rested.is_empty() { "none".to_string() } else { rested.iter().map(|i| format!("#{i}")).collect::<Vec<_>>().join(", ") },
         skipped_pulses,
@@ -7166,7 +7199,9 @@ fn return_run(o: &ReturnOpts) -> Result<(String, Summary), String> {
         pops_list.len(),
         if pops_list.is_empty() { String::new() } else { format!(" (rising at t {})", pops_list.join(", ")) },
         nap_rise_s,
-        if samples.is_empty() { "none".to_string() } else { samples.join("; ") }
+        if samples.is_empty() { "none".to_string() } else { samples.join("; ") },
+        o.release_pulse,
+        if pulses.is_empty() { "none".to_string() } else { pulses.iter().map(|p| format!("t {p}..{} ({} gt)", p + o.release_pulse - 1, o.release_pulse)).collect::<Vec<_>>().join(", ") }
     );
     // (ironspec 14:41 (2) / 18:01: every E rise (ARM3 + 2), every fired pulse's E rise (the reset of
     // the waiting bit) and its rail rise, and the E rises in (reset, reset + k], k the gate's
