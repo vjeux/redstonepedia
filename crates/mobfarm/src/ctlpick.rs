@@ -284,11 +284,14 @@ pub struct Cfg {
     /// The bed-occupied bar's control (day-1's addendum, ironspec 13:34p): the stop's bed-free wait dropped (a napper
     /// departs the front as soon as it is there: start = its front arrival).
     pub no_bed_wait: bool,
+    /// Day-1's job 4 (does normal running NEED the ring's SPACING latch?): the latch dropped, the only change: REQ_l = T at
+    /// the tap, so T's first pass after a grant (5 pops on) can request.
+    pub no_spacing: bool,
 }
 
 impl Cfg {
     pub fn new(name: &str, period: i64, window: i64, merge: Merge) -> Cfg {
-        Cfg { name: name.to_string(), period, window, visit: 9, merge, repick: true, napped_first: false, rejoin_at: 2, pointer: false, day_jitter: vec![], held: 0, held_cap: 1, held_lane: None, ptr_step: 5, bed: false, halts: vec![], slip: vec![], late_picks: vec![], days: 8, missed: vec![], late: vec![], skipped: vec![], moved: vec![], ride_delay: vec![], skip_fix: true, lost_napper: vec![], resync: false, stop_stall: vec![], wayin_cap: 0, rs_extra: 0, bed_cycle: 333, missed_dep: vec![], extra_dep: vec![], gate_off: false, press_count: false, merge_picks: false, force_pick: vec![], max_picks_per_rel: 0, leg_override: None, sensed: false, relabel: false, late_entries: false, hold_no_exit: false, freeze: vec![], grant_form: 0, t_start: [0, 3, 6], positional_release: false, leg_shift: [0; 3], arm3_trip: 80, stamp_reached_freezes: false, peek_id: false, no_bed_wait: false }
+        Cfg { name: name.to_string(), period, window, visit: 9, merge, repick: true, napped_first: false, rejoin_at: 2, pointer: false, day_jitter: vec![], held: 0, held_cap: 1, held_lane: None, ptr_step: 5, bed: false, halts: vec![], slip: vec![], late_picks: vec![], days: 8, missed: vec![], late: vec![], skipped: vec![], moved: vec![], ride_delay: vec![], skip_fix: true, lost_napper: vec![], resync: false, stop_stall: vec![], wayin_cap: 0, rs_extra: 0, bed_cycle: 333, missed_dep: vec![], extra_dep: vec![], gate_off: false, press_count: false, merge_picks: false, force_pick: vec![], max_picks_per_rel: 0, leg_override: None, sensed: false, relabel: false, late_entries: false, hold_no_exit: false, freeze: vec![], grant_form: 0, t_start: [0, 3, 6], positional_release: false, leg_shift: [0; 3], arm3_trip: 80, stamp_reached_freezes: false, peek_id: false, no_bed_wait: false, no_spacing: false }
     }
 }
 
@@ -359,6 +362,9 @@ pub struct Out {
     pub rejoin_vs_ref: usize,
     pub x_conflict: usize,
     pub t_first_pass: usize,
+    /// Grants whose REQ came from T's FIRST pass after the lane's previous grant (the pass the spacing latch ignores: only
+    /// with `no_spacing`).
+    pub first_pass_grants: usize,
     pub max_x: usize,
     /// Sensed rejoins whose X type (the toggle's, flipped per rejoin) differs from the mark's own type (the judge's check
     /// that the nappers rejoin in pick order).
@@ -523,6 +529,8 @@ pub fn run(cfg: &Cfg) -> Out {
     let mut x_type_next: [usize; 3] = [0; 3];
     let mut x_extract: [[bool; 2]; 3] = [[false; 2]; 3];
     let mut spacing_latch: [bool; 3] = [false; 3];
+    // (job 4: T's first pass after a grant still to come, and a REQ armed by that first pass)
+    let (mut first_pass_due, mut req_first): ([bool; 3], [bool; 3]) = ([false; 3], [false; 3]);
     let mut req_armed: [bool; 3] = [cfg.t_start[0] == 0, cfg.t_start[1] == 0, cfg.t_start[2] == 0];
     // (the one-pick-per-REL forms' waits: per lane, the farm REL of its first refused REQ still pending)
     let mut refused_since: [Option<i64>; 3] = [None; 3];
@@ -1128,8 +1136,13 @@ pub fn run(cfg: &Cfg) -> Out {
                     // taken); T reaching the tap with the latch set clears the latch (its first pass ignored), with the
                     // latch clear it arms REQ; the pop's mark = the slot after it was a skipped X (this cart is that away
                     // napper's predecessor), pushed for a circuit pop (a cart not picked))
+                    let from_first = req_first[l];
+                    req_first[l] = false;
                     req_armed[l] = false;
                     if due {
+                        if from_first && by_target {
+                            o.first_pass_grants += 1;
+                        }
                         peek_req[l] = None;
                         if let Some(s) = refused_since[l].take() {
                             o.max_grant_wait[l] = o.max_grant_wait[l].max(t - s);
@@ -1154,7 +1167,8 @@ pub fn run(cfg: &Cfg) -> Out {
                         }
                         o.max_x = o.max_x.max(x_set[l].len());
                         t_slot[l] = (popped_slot + delta) % N0;
-                        spacing_latch[l] = true;
+                        spacing_latch[l] = !cfg.no_spacing;
+                        first_pass_due[l] = true;
                     }
                     let mut nx = (popped_slot + 1) % N0;
                     let mut mark: Option<usize> = None;
@@ -1170,6 +1184,9 @@ pub fn run(cfg: &Cfg) -> Out {
                         if steps == 0 {
                             mark = Some(ty);
                         }
+                        if nx == t_slot[l] {
+                            first_pass_due[l] = false;
+                        }
                         if nx == t_slot[l] && spacing_latch[l] {
                             spacing_latch[l] = false;
                             o.t_first_pass += 1;
@@ -1183,11 +1200,13 @@ pub fn run(cfg: &Cfg) -> Out {
                     }
                     ring_next[l] = nx;
                     if nx == t_slot[l] {
+                        let first = std::mem::take(&mut first_pass_due[l]);
                         if spacing_latch[l] {
                             spacing_latch[l] = false;
                             o.t_first_pass += 1;
                         } else {
                             req_armed[l] = true;
+                            req_first[l] = first;
                             // (the peek names the cart id T's slot held at the build)
                             peek_req[l] = Some(l * N0 + t_slot[l]);
                         }
@@ -1471,6 +1490,8 @@ struct FormRec {
     arm3_n: usize,
     arm3_near: usize,
     arm3_after_shift: usize,
+    first_pass_grants: usize,
+    distinct_min: usize,
     least_gap: i64,
     wait: [i64; 3],
     worst: i64,
@@ -1495,7 +1516,7 @@ struct FormRec {
 
 impl FormRec {
     fn new(hc: i64) -> FormRec {
-        FormRec { hc, rows: 0, multi: 0, w7_pairs: 0, arm3_n: 0, arm3_near: 0, arm3_after_shift: 0, least_gap: i64::MAX, wait: [0; 3], worst: 0, worst_at: String::new(), corner_gap: i64::MAX, corner_worst: 0, lost: 0, out_max: 0, arm3_max: 0, depth_max: 0, vs_ref: 0, behind: 0, wayin_max: 0, lag_min: None, spacing: [None; 3], bed_occ: [0; 3], bed_margin: [None; 3], bed_pairs: 0, term_fails: Default::default(), first_bad: String::new() }
+        FormRec { hc, rows: 0, multi: 0, w7_pairs: 0, arm3_n: 0, arm3_near: 0, arm3_after_shift: 0, first_pass_grants: 0, distinct_min: usize::MAX, least_gap: i64::MAX, wait: [0; 3], worst: 0, worst_at: String::new(), corner_gap: i64::MAX, corner_worst: 0, lost: 0, out_max: 0, arm3_max: 0, depth_max: 0, vs_ref: 0, behind: 0, wayin_max: 0, lag_min: None, spacing: [None; 3], bed_occ: [0; 3], bed_margin: [None; 3], bed_pairs: 0, term_fails: Default::default(), first_bad: String::new() }
     }
 
     fn take(&mut self, o: &Out, what: &str, corner: bool) {
@@ -1505,6 +1526,8 @@ impl FormRec {
         self.arm3_n += o.arm3_arrivals;
         self.arm3_near += o.arm3_near_home_shift;
         self.arm3_after_shift += o.arm3_after_shift;
+        self.first_pass_grants += o.first_pass_grants;
+        self.distinct_min = self.distinct_min.min(o.distinct.iter().skip(1).copied().min().unwrap_or(0));
         self.least_gap = self.least_gap.min(o.min_hold_gap);
         for l in 0..3 {
             self.wait[l] = self.wait[l].max(o.max_grant_wait[l]);
@@ -2041,6 +2064,28 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
                 lines.push(format!("  (B)'s LAG, the adopted form + three picks in one REL ({n_pl} rows): the least lag {lag_d:?} gt: {w}"));
                 let c = v.control("ctl-pick CONTROL (G1's B2 on 239acc610): the second hold without its (9,22,3) term (hold_no_exit) on the same planted rows, the only change: the LAG term FAILS by name (a SET inside the RESET level)", n_pl, pl_named > 0).to_string();
                 lines.push(format!("  CONTROL (hold_no_exit, the same planted rows): the LAG term failing on {pl_named} of {n_pl} rows, the least lag {lag_c:?} gt: {c}"));
+            }
+            // (day-1's job 4, A FINDING (printed, not a bar): DOES NORMAL RUNNING NEED THE RING's SPACING LATCH? `no_spacing`
+            // (REQ_l = T at the tap, no latch: T's first pass after a grant can request), the only change, on (b'+w)'s own
+            // rows (the seven points, the true freezes, every T offset, both releases, the 27 leg corners) through the same
+            // terms; the grants on a T first pass counted. THE LATCH IS LOAD-BEARING exactly when a functional term fails
+            // without it (SPACING, the netlist's ">= 11-pop" rule, is the latch's own definition: its measured least printed,
+            // excluded from the call))
+            {
+                let (mut ra, mut rp) = (FormRec::new(hc), FormRec::new(hc));
+                for (c, label, corner) in &rows4 {
+                    let mut c = c.clone();
+                    c.no_spacing = true;
+                    let o = run(&c);
+                    if c.positional_release {
+                        rp.take(&o, label, *corner);
+                    }
+                    ra.take(&o, label, *corner);
+                }
+                let functional: Vec<String> = ra.term_fails.iter().filter(|(t, _)| **t != "SPACING").map(|(t, n)| format!("{t} on {n} rows")).collect();
+                let bearing = !functional.is_empty();
+                let rec_line = |r: &FormRec| format!("{} rows: grants on a T first pass {}, failing terms {}, the fewest pops between a lane's grants {:?}, the fewest distinct villagers in a night (from night 2) {}, the worst interval {} gt ({}), the least H2 gap {} gt (cycle {}), behind the hold {}, two-grant RELs {}, W7 pairs {}, the way-in at most {}, the least lag {:?} gt, the depth at most {}, the longest refused-REQ wait per lane {:?} RELs", r.rows, r.first_pass_grants, r.fails(), r.spacing, r.distinct_min, r.worst, r.worst_at, r.least_gap, r.hc, r.behind, r.multi, r.w7_pairs, r.wayin_max, r.lag_min, r.depth_max, r.wait);
+                lines.push(format!("  FINDING (day-1's job 4: does normal running NEED the ring's SPACING latch?): `no_spacing` (REQ = T at the tap, no latch), the only change, on (b'+w)'s own rows: ALL {}; THE POSITIONAL RELEASE's {}; with the latch: the fewest pops between a lane's grants {:?}, the worst interval {} gt, grants on a T first pass {}; THE LATCH IS LOAD-BEARING: {} ({})", rec_line(&ra), rec_line(&rp), rec4.spacing, rec4.worst, rec4.first_pass_grants, if bearing { "YES" } else { "NO" }, if bearing { format!("without it: {}", functional.join(", ")) } else { "no functional term fails without it; SPACING, the latch's own rule, is the only term it changes".to_string() }));
             }
             // (day-1's addendum (G1 / ironspec 13:34p): NEVER DELIVER A NAPPER TO AN OCCUPIED BED, a normal-operation invariant
             // judged on (b'+w)'s rows on 58f770cc's MEASURED wake band (13:37, 408 visits): the previous napper's bed empty from
