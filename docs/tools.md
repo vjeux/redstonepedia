@@ -299,7 +299,9 @@ station-judge takes `--record` (its sight
 reference) and `--sight-control` (its verdict: the sight failure in every lead run, every other
 failure of those runs its declared collateral), and exits 1 when
 its lead's rows fail. With `--record` on the
-station layout, the design of record is the sight check's reference (no record-match there). The
+station layout, the design of record with this binary's station cells laid over it (ironspec 21:30:
+the station synced before a static cites it; the cells that differ from the record print) is the
+sight check's reference (no record-match there). The
 station riders' activities are read every tick and each REST entry is printed with its stamp (a
 count, not judged, until b8949c96's hook lands); `--day-time D` sets the runs' day time (a night
 value samples the REST entries). Every
@@ -333,8 +335,13 @@ the same lever switched on and off beside it: the T must not re-shape. Where a w
 strings (x,17,0) (the module rows' record7f12; the station file has none since day-1 21:21), their
 last release before the R line rises and first press after it print per lane, a diagnostic (the
 lead bar retired by name, ironspec 21:16: its consumer was G8c, not bought). ironfarm's C-fix rows:
-`--plant-cart x,y,z@k` (a ridden cart planted at T + k, its rider and position read back),
-`--plant-block x,y,z=STATE@k` (read back; a no-op refuses), `--watch-west x,y,z` (a cart leaving
+`--plant-cart x,y,z@k` (a ridden cart planted at T + k, its rider and position read back;
+`empty:x,y,z@k` an empty one), `--plant-shift FROM,TO,STEP` (one run per shift of every plant's k:
+the refill phases), the slot-1 strings over R_1 (x,18,1) printed per tick on each change (every
+cart over the cell, its end-of-tick box against the band and redsim's own press, which models the
+raised press) and the planted empty carts' ends (a diagnostic: ironspec 22:28's slot-1 rest bar
+retired by name, ironspec 23:34, (C) bought), `--plant-block x,y,z=STATE@k` (read back; a no-op refuses),
+`--watch-west x,y,z` (a cart leaving
 that cell westward fails; each cell's carts and exit faces are counted, and a cell no cart entered
 is NOT JUDGED, a failure), `--offrail-y Y` (a cart at or above Y at rest by ironspec 10:42's stall
 rule, frozen ticks not counted, with no rail in its cell nor, as the game's minecart checks, in the

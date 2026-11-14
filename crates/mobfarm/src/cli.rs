@@ -4510,12 +4510,17 @@ pub enum MobfarmCmd {
         #[arg(long, default_value_t = 0)]
         drive_slack: i64,
         /// (ironfarm 11:56, ironspec's forced-V row) A ridden cart (a villager in it) planted at
-        /// T + k: "x,y,z@k", the cart's position in the bench frame (repeatable).
+        /// T + k: "x,y,z@k", the cart's position in the bench frame (repeatable); "empty:x,y,z@k"
+        /// plants an empty cart (ironspec 20:31 / 20:41: the slot-1 string's empty-cart row).
         #[arg(long, allow_hyphen_values = true)]
         plant_cart: Vec<String>,
         /// (ironfarm 11:56) A block planted at T + k with its updates: "x,y,z=STATE@k" (repeatable).
         #[arg(long, allow_hyphen_values = true)]
         plant_block: Vec<String>,
+        /// (ironspec 22:28 (2): the refill phases) One run per shift d of "FROM,TO,STEP": every
+        /// planted cart's and block's k moved by d (each shifted k must lie in the run).
+        #[arg(long, allow_hyphen_values = true)]
+        plant_shift: Option<String>,
         /// (ironfarm's C-fix rows) A cell no cart may leave westward, x,y,z (each lane's C;
         /// repeatable): a crossing fails; each cell's carts and exit faces are counted, and a cell no
         /// cart entered is NOT JUDGED, a failure.
@@ -10518,9 +10523,17 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             anyhow::ensure!(world.is_some() || (hold_drive_v.is_none() && hold_rail_v.is_none() && napper_release.is_none()), "--hold-drive, --hold-rail and --napper-release run with --world (the composed module)");
             // (G1 on a3b306a05 (6): station-judge's sight check runs, against the design of record
             // given with --record, else the station as written (with --world: the world file's own
-            // cells, so no stand-in differs from it); --sight-control must make it exit 1)
+            // cells, so no stand-in differs from it); --sight-control must make it exit 1; ironspec
+            // 21:30: with --record and no --world, this binary's station cells laid over the record,
+            // drop::synced_reference, as drop-bench does)
             let judge_ref = std::sync::Arc::new(match (&record, &world) {
-                (Some(p), _) => crate::drop::record_reference(&std::fs::read_to_string(p).map_err(|e| anyhow::anyhow!("--record {}: {e}", p.display()))?).map_err(|e| anyhow::anyhow!(e))?,
+                (Some(p), None) => {
+                    let rt = std::fs::read_to_string(p).map_err(|e| anyhow::anyhow!("--record {}: {e}", p.display()))?;
+                    let (r, n, differ) = crate::drop::synced_reference(&rt, &crate::drop::design_extra(lo, hold_y, [true; 3], [true; 3], true, true, &ex), lo, hold_y).map_err(|e| anyhow::anyhow!(e))?;
+                    println!("the sight reference: the design of record with this binary's station cells laid over it (ironspec 21:30; {} station cells, {} differ from the record): {}", n, differ.len(), if differ.is_empty() { "none".to_string() } else { differ.join("; ") });
+                    r
+                }
+                (Some(p), Some(_)) => crate::drop::record_reference(&std::fs::read_to_string(p).map_err(|e| anyhow::anyhow!("--record {}: {e}", p.display()))?).map_err(|e| anyhow::anyhow!(e))?,
                 (None, Some(_)) => spec.blocks.iter().map(|(p, b)| ([p.x, p.y, p.z], b.clone())).collect(),
                 (None, None) => crate::drop::station_reference(&crate::drop::design_extra(lo, hold_y, [true; 3], [true; 3], true, true, &ex), lo, hold_y).map_err(|e| anyhow::anyhow!(e))?,
             });
@@ -10609,7 +10622,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             // rows fail (the threshold rows are a passing-range report))
             anyhow::ensure!(fails == 0, "station-judge: {fails} failing runs in the lead's rows");
         }
-        MobfarmCmd::DropBench { layout, login, hold_y, rel, stagger, rebrake, release, pulse, occupancy, exit_gate, release_world, pad, rebrake_each, scarers, block, posts, slab_stop, open_delay, l1, restart, restart_sweep, write_design, panic_post, part, follow_range, panic_search, r_repeater, box_short, module, hold_drive, hold_rail, hold_release, hold_width, path_a, napper_release, summon_check, remove_rider, lever_off, sight_control, hold_poke, pocket_lever, napper_held, record, declare, rail_t_control, rail_t_negative, contact_control, missing_control, rate_control, push_control, watch_control, foreign_caller_control, reseat_control, fluid_control, t_control, activity_control, t_hold_control, late_drive_control, drive_slack, plant_cart, plant_block, watch_west, offrail_y, day_time, watch_cell, refill, dep_riders, arr_riders, freezes, freeze_sweep, ticks, seed, seeds, summary, out, trace } => {
+        MobfarmCmd::DropBench { layout, login, hold_y, rel, stagger, rebrake, release, pulse, occupancy, exit_gate, release_world, pad, rebrake_each, scarers, block, posts, slab_stop, open_delay, l1, restart, restart_sweep, write_design, panic_post, part, follow_range, panic_search, r_repeater, box_short, module, hold_drive, hold_rail, hold_release, hold_width, path_a, napper_release, summon_check, remove_rider, lever_off, sight_control, hold_poke, pocket_lever, napper_held, record, declare, rail_t_control, rail_t_negative, contact_control, missing_control, rate_control, push_control, watch_control, foreign_caller_control, reseat_control, fluid_control, t_control, activity_control, t_hold_control, late_drive_control, drive_slack, plant_cart, plant_block, plant_shift, watch_west, offrail_y, day_time, watch_cell, refill, dep_riders, arr_riders, freezes, freeze_sweep, ticks, seed, seeds, summary, out, trace } => {
             let posts_v: Vec<(i32, i32, i32)> = posts
                 .iter()
                 .map(|s| -> anyhow::Result<(i32, i32, i32)> {
@@ -10682,13 +10695,29 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 anyhow::ensure!(k >= 0, "{s}: @k >= 0");
                 Ok((a.to_string(), k))
             };
-            let mut plant_carts_v: Vec<([f64; 3], i64)> = Vec::new();
+            let mut plant_carts_v: Vec<([f64; 3], i64, bool)> = Vec::new();
             for s in &plant_cart {
-                let (a, k) = split_at(s)?;
-                let v: Vec<f64> = a.split(',').map(|x| x.trim().parse::<f64>()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("--plant-cart x,y,z@k: {s}: {e}"))?;
-                anyhow::ensure!(v.len() == 3 && v.iter().all(|x| x.is_finite()), "--plant-cart x,y,z@k: {s} (three finite numbers)");
-                plant_carts_v.push(([v[0], v[1], v[2]], k));
+                // ("empty:x,y,z@k" plants an empty cart, ironspec 20:31 / 20:41: the slot-1 string's
+                // empty-cart row; otherwise a ridden one)
+                let (ridden, body) = match s.strip_prefix("empty:") {
+                    Some(b) => (false, b),
+                    None => (true, s.as_str()),
+                };
+                let (a, k) = split_at(body)?;
+                let v: Vec<f64> = a.split(',').map(|x| x.trim().parse::<f64>()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("--plant-cart [empty:]x,y,z@k: {s}: {e}"))?;
+                anyhow::ensure!(v.len() == 3 && v.iter().all(|x| x.is_finite()), "--plant-cart [empty:]x,y,z@k: {s} (three finite numbers)");
+                plant_carts_v.push(([v[0], v[1], v[2]], k, ridden));
             }
+            // (ironspec 22:28 (2): the refill phases, one run per plant shift)
+            let plant_shifts: Vec<i64> = match &plant_shift {
+                None => vec![0],
+                Some(s) => {
+                    let v: Vec<i64> = s.split(',').map(|x| x.trim().parse::<i64>()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("--plant-shift FROM,TO,STEP: {s}: {e}"))?;
+                    anyhow::ensure!(v.len() == 3 && v[2] > 0 && v[0] <= v[1], "--plant-shift FROM,TO,STEP: {s} (FROM <= TO, STEP > 0)");
+                    anyhow::ensure!(!plant_cart.is_empty() || !plant_block.is_empty(), "--plant-shift: no --plant-cart or --plant-block to shift");
+                    (v[0]..=v[1]).step_by(v[2] as usize).collect()
+                }
+            };
             let mut plant_blocks_v: Vec<(redsim::pos::BlockPos, redsim::block::Block, i64)> = Vec::new();
             for s in &plant_block {
                 let (a, k) = split_at(s)?;
@@ -11026,7 +11055,18 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             // their glass), the --block entries back to the station's cells)
                             let base_text = crate::drop::design_extra(lo, *h as i32, dep, arr, pad, refill_v.is_some(), &base_ex);
                             sight_ref_v = Some(std::sync::Arc::new(match &record_text {
-                                Some(rt) => crate::drop::record_reference(rt).map_err(|e| anyhow::anyhow!(e))?,
+                                Some(rt) => {
+                                    // (ironspec 21:30: the station synced before a static cites it:
+                                    // drop::synced_reference)
+                                    let (r, n, differ) = crate::drop::synced_reference(rt, &base_text, lo, *h as i32).map_err(|e| anyhow::anyhow!(e))?;
+                                    println!(
+                                        "the sight reference: the design of record with this binary's station cells laid over it (ironspec 21:30: the station synced before a static cites it; {} station cells, {} differ from the record): {}",
+                                        n,
+                                        differ.len(),
+                                        if differ.is_empty() { "none".to_string() } else { differ.join("; ") }
+                                    );
+                                    r
+                                }
                                 None => crate::drop::station_reference(&base_text, lo, *h as i32).map_err(|e| anyhow::anyhow!(e))?,
                             }));
                             t
@@ -11050,7 +11090,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             "Carts: the batch in the pockets and the next in the holds (riders), the hold carts where the lane leaves them (0.49 into the cell, against the ring's north glass: tickexact's lane-handoff ca3cdb2ed); the lanes' carts (R_1 on) and R_2 are the lanes' file's. The pad's seal: cobblestone at y -8 under the floor rows, x -2..7 (40 blocks).".into(),
                             "The Nether part is the bench's PLACEHOLDER, not the build: the shared kill room's portal at the pads' y replaces it.".into(),
                             "Read path: the holds' trapdoors (x,16,0) are iron (redstone-only: no villager, golem or zombie opens one). The hold strings (x,17,0), their hooks (x+-1,17,0) and their GLOWSTONE supports (x+-2,17,0) (ironspec 02:59's, on main; the 05:23 glass ruling never reached main) are gone (day-1 21:21, ironspec 21:22 / 22:12: no gate of day-1's list (rev 20:00) read them, no part rests on or is supported by the supports; the hold-string lead bar retired by name, ironspec 21:16: its consumer was G8c, not bought at 20:24): four light-15 sources leave with them. Ironspec 02:59's reasons for the glowstone, each with its check: lit: 9fc3155f's light-aware spawn static on V rev 0 with F3's record end rods and glass (ironspec 22:44 / 22:47 / 22:52; `exterior-spawn --lit`; a/2372781836828254, md5 6c0cbc4cbfaf4b3690012fe2b2c3cba8): 0 cells spawnable with or without the four (interior 878 / 878, tops 588 -> 584, LIGHT-DEPENDENT 73 -> 69: the 4 dropped are the tops themselves), so no cell needs them; it holds with F3's end rods (endgame); golem-proof: the golem rule identical (9fc3155f 22:07); a solid-render stroll destination: that reason is WITHDRAWN (ironspec 23:01): the tops were unreachable idle-stroll candidates arming CANT_REACH (9fc3155f's 05:18 statics: an unreached idle-stroll STAMP class), so the removal IMPROVES the stamp: 9fc3155f's stroll-cell print on V (the same artifact; `flee-check --auto-columns --start-state free --stroll-cells=-4,12,7`): (-4,12,7)'s calm stroll has 3 candidates with the glowstone tops (-3|1|5,18,0) and 0 without; the next composed night's per-rider max stamp age against r8's <= 530 / 1,200 is a confirmation, not a gate (ironspec 22:12 / 23:01); a sturdy hook face: moot without the hooks.".into(),
-                            format!("R_1's power cell (x+1,17,1): the built driver is a repeater facing west into R_1, its input from the east (x+2,17,1) (never dust, nor a repeater or comparator reading from the north); {}. R_1's high side (x,17,2) is glass in this file (9fc3155f's rail-floor scan, ironspec 20:31: R_1 stands on it without the lanes' file).", if r_repeater { "this file lays it (repeater[delay=1,facing=east] on glass at (x+1,16,1)); its input cell (x+2,17,1) is the controller's line end (the bench: a lever stand-in on glass there, on for the R line's pulse)" } else { "this file holds glass there, the bench's emulation (a redstone block while the R line is on)" }),
+                            "The slot-1 presence strings over R_1 (F1's input, day-1's G8: REL = the three strings pressed AND RE_ARMED; ironspec 11:46's form): the string (x,18,1), its hooks (x-1,18,1) facing east and (x+1,18,1) facing west, their supports glass at (x+-2,18,1) (shared at x 1 and 5); a cart on R_1 presses it, ridden or empty (ironspec 14:26 / 14:29: F1 needs a cart in each R_1; a riderless cart is a counted fault in the fault note); an empty cart at slot 1's measured rest (z 1.79..1.89) presses it on its end box, and at the drawn 1.28 only through the raised check (tick-exact AI / AH); (C) bought at 22:41, so the slot-1 empty-cart rest bar is retired by name (ironspec 23:34), its dependency recorded (the next arrival pushes an empty slot-1 cart to z 1.2590 / 1.2800, F1 then held by slot 2's rider); read from the hooks by day-1's controller.".into(),
+                            format!("R_1's power cell (x+1,17,1): the built driver is a repeater facing west into R_1, its input from the east (x+2,17,1) (never dust, nor a repeater or comparator reading from the north), the slot-1 string's east hook over it at (x+1,18,1); {}. R_1's high side (x,17,2) is glass in this file (9fc3155f's rail-floor scan, ironspec 20:31: R_1 stands on it without the lanes' file).", if r_repeater { "this file lays it (repeater[delay=1,facing=east] on glass at (x+1,16,1)); its input cell (x+2,17,1) is the controller's line end (the bench: a lever stand-in on glass there, on for the R line's pulse)" } else { "this file holds glass there, the bench's emulation (a redstone block while the R line is on)" }),
                             format!("held: -4,12,7 powered=true (driver: day-1's repeater (-4,12,6) from its line end (-4,12,5), the lane-7 tap's line; phase REL + {} .. REL + {}, the module rows' --hold-release {} --hold-width {}: the module bench holds the braked slope's rail, 7b90c3f1's lift cell, with the edge updates the build makes, and no stand-in at the line end; ironspec 01:07, G1 on 82f9546f; the phase is drop::HELD_SLOPE, which the hold check reads, G1 on 834d6329d)", crate::drop::HELD_SLOPE.0, crate::drop::HELD_SLOPE.1, crate::drop::HELD_SLOPE.0 - 1, crate::drop::HELD_SLOPE.1 - crate::drop::HELD_SLOPE.0 + 1),
                             format!(
                                 "contacts: -1,{h},-1+3,{h},-1+7,{h},-1=the holds' designed rest against the ring's north glass (evidence: tick-exact's lane-handoff ca3cdb2ed, the cart 0.49 into its cell; ironspec 02:41 (b)); no other station cell is a declared contact: no drop-bench row meets one (each arriving cart falls straight from its hold into its pocket, G1 08:18's staleness check)"
@@ -11078,8 +11119,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         for r in &rels {
                             for rb in &rebrakes {
                                 for rl in &releases {
+                                    for d in &plant_shifts {
                                     for s in seed..seed + seeds {
-                                        let o = crate::drop::DropOpts { layout: lo, hold_y: *h as i32, rel: *r, stagger: [st[0], st[1], st[2]], rebrake: *rb, release: *rl, pulse, occupancy, exit_gate, open_delay, l1, dep_absent: dep_x, restarts: rset.clone(), panic_posts: panic_v.clone(), follow_range, panic_search, r_repeater, box_short, track_lift: module.is_some(), hold_drive: hold_drive_v, hold_rail: hold_rail_v, hold_release, hold_width, napper: napper_release, watch: watch_v.clone(), summon_check, remove_rider, stops: crate::drop::station_stops(lo, *h as i32).into_iter().chain(part_contacts.iter().copied()).collect(), provisional: provisional_contacts.clone(), lever_off, sight_control, hold_poke, pocket_levers: pocket_levers_o, napper_held: napper_held_v, sight_ref: sight_ref_v.clone(), remove_departing: missing_control, rate_control, foreign_caller: foreign_caller_control, reseat: reseat_control, fluid_control, t_control, activity_control, t_hold: t_hold_control, late_drive: late_drive_v, drive_slack, plant_carts: plant_carts_v.clone(), plant_blocks: plant_blocks_v.clone(), watch_west: watch_west_v.clone(), offrail_y, day0: day_time, release_world, rebrake_each, scarers: scarers_v.clone(), refill: refill_v, ticks, seed: s, freeze: *f, logins: logins_v.clone(), trace };
+                                        let plant_carts_d: Vec<([f64; 3], i64, bool)> = plant_carts_v.iter().map(|(p, k, rd)| (*p, k + d, *rd)).collect();
+                                        let plant_blocks_d: Vec<(redsim::pos::BlockPos, redsim::block::Block, i64)> = plant_blocks_v.iter().map(|(c, b, k)| (*c, b.clone(), k + d)).collect();
+                                        let o = crate::drop::DropOpts { layout: lo, hold_y: *h as i32, rel: *r, stagger: [st[0], st[1], st[2]], rebrake: *rb, release: *rl, pulse, occupancy, exit_gate, open_delay, l1, dep_absent: dep_x, restarts: rset.clone(), panic_posts: panic_v.clone(), follow_range, panic_search, r_repeater, box_short, track_lift: module.is_some(), hold_drive: hold_drive_v, hold_rail: hold_rail_v, hold_release, hold_width, napper: napper_release, watch: watch_v.clone(), summon_check, remove_rider, stops: crate::drop::station_stops(lo, *h as i32).into_iter().chain(part_contacts.iter().copied()).collect(), provisional: provisional_contacts.clone(), lever_off, sight_control, hold_poke, pocket_levers: pocket_levers_o, napper_held: napper_held_v, sight_ref: sight_ref_v.clone(), remove_departing: missing_control, rate_control, foreign_caller: foreign_caller_control, reseat: reseat_control, fluid_control, t_control, activity_control, t_hold: t_hold_control, late_drive: late_drive_v, drive_slack, plant_carts: plant_carts_d, plant_blocks: plant_blocks_d, watch_west: watch_west_v.clone(), offrail_y, day0: day_time, release_world, rebrake_each, scarers: scarers_v.clone(), refill: refill_v, ticks, seed: s, freeze: *f, logins: logins_v.clone(), trace };
                                         // (G1 on 834d6329d (T1): the rail-T check's positive control
                                         // bites through the failure list: the run stops at the edge
                                         // with "a held rail's driver edge reaching a rail T")
@@ -11087,11 +11131,12 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                                         by_rel.entry(*r).or_default().push(stats.clone());
                                         runs.push(stats);
                                         if !summary {
-                                            println!("== freeze {}{}, REL T+{r}, re-brake REL+{rb}, trapdoors T+{rl}, seed {s}", f.map_or("-".to_string(), |(a, b)| format!("T+{a}..T+{}", a + b)), if rset.is_empty() { String::new() } else { format!(", restart {}", rset.iter().map(|(t, h)| format!("T+{t} {}", h.label())).collect::<Vec<_>>().join(",")) });
+                                            println!("== freeze {}{}, REL T+{r}, re-brake REL+{rb}, trapdoors T+{rl}, seed {s}{}", f.map_or("-".to_string(), |(a, b)| format!("T+{a}..T+{}", a + b)), if rset.is_empty() { String::new() } else { format!(", restart {}", rset.iter().map(|(t, h)| format!("T+{t} {}", h.label())).collect::<Vec<_>>().join(",")) }, if plant_shift.is_some() { format!(", the plants shifted {d:+}") } else { String::new() });
                                             for l in lines {
                                                 println!("{l}");
                                             }
                                         }
+                                    }
                                     }
                                 }
                             }
