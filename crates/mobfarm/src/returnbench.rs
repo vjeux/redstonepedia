@@ -2796,13 +2796,25 @@ fn write_design(o: &ReturnOpts, spec: &FarmSpec, w: &redsim::world::World, path:
         // record ships them. Written in record-match's header format (`declared_from_header`):
         // `x,y,z (why); …`, the owner-checked verdicts on `# stand-in-guard:`)
         if o.row9 && o.k_relay && o.napper_delay.is_some() && !o.mirror_z {
+            // (the split row's travel lines (7b90c3f1's, from 0c933b5ab's composed night; G1 Nov 13 21:58 and
+            // the lift-travel cars f33583be5 / 77b7a74af): every cart on the row enters each T from the west;
+            // emitted here so the record lift file stays this emission, byte for byte (train 15's gate))
+            if o.path_a {
+                for (x0, t, ta) in [(-2, "J(-1)", 2854), (0, "K(3)", 2861), (2, "J(3)", 2869), (4, "K(7)", 2877), (6, "J(7)", 2885)] {
+                    head.push(format!(
+                        "# travel: {x0},25,9>{},25,9=a batch cart on the split row enters {t} from the west (onechunk's composed t14 night on 11b888a04256's cells, today's controller as emulated: t9-t17; the ticks from its `--cart-trace 46` re-run of the same night; every cart on the split row (a batch cart, the returning lane-7 napper, the outbound picked cart) comes off the lift's top at the row's west end and runs east, so each enters this T from the west: G1 Nov 13 21:58); row: n-p0_0_0-d0-s1.txt md5 1e0b55e056da a/1959344121713839 t {ta}..{} cart 46",
+                        x0 + 1,
+                        ta + 1
+                    ));
+                }
+            }
             let mut si: Vec<String> = vec!["9,25,9 (the way-in's curve: north_west in record7, b8949c96's file; here a rail east_west, the shape a rail with only its west neighbour settles to; this bench ends the napper's route at its K(x) and the batch carts' at their J, so no cart of the bench reaches it)".to_string()];
             if o.path_a {
                 for x in [-1, 3, 7] {
-                    si.push(format!("{x},26,9 (J({x})'s lever, a ceiling lever under the glass ({x},27,9): it stands in for day-1's latch output (ironspec 03:22 / 03:26 PT: no lever ships in the built farm; day-1's line replaces it))"));
+                    si.push(format!("{x},26,9 support={x},27,9 (J({x})'s lever, a ceiling lever under the glass ({x},27,9): it stands in for day-1's latch output (ironspec 03:22 / 03:26 PT: no lever ships in the built farm; day-1's line replaces it))"));
                 }
                 for x in [-1, 3, 7] {
-                    si.push(format!("{},26,9 (K({x})'s lever, a ceiling lever under the glass ({},27,9): it stands in for day-1's timed taps (ironspec 03:22 / 03:26 PT: no lever ships in the built farm; day-1's line replaces it))", x - 2, x - 2));
+                    si.push(format!("{},26,9 support={},27,9 (K({x})'s lever, a ceiling lever under the glass ({},27,9): it stands in for day-1's timed taps (ironspec 03:22 / 03:26 PT: no lever ships in the built farm; day-1's line replaces it))", x - 2, x - 2, x - 2));
                 }
             }
             head.extend(si.iter().map(|e| format!("# stand-in: {e}")));
