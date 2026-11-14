@@ -1,0 +1,152 @@
+# (loaderlay, Nov 14 2026; ironspec 12:22p / 12:31p (2): the loader is part of normal operation for leaving and coming back, V's
+# loader layout a critical-path deliverable) THE LOADER PART FOR V, ON V REV 2.1 (main's f1q2-module-v.txt, md5 ea985422495c),
+# placed by the whole-farm file and the build guide. It is the loader of record, wip/loaderlay/loader-x8.txt (md5
+# 15fa75750894: every cell, block entity, item and its Nether part exactly as there), moved by (19,0,13) into V's loop frame:
+# the farm frame, copy 1's V at world (6,80,6) with its anchor (-6,0,-6) on a world chunk corner (0,80,0); the Nether image
+# depends on world x / z mod 8, so the farm is placed so.
+# - Overworld portal cells (this frame): x 19..23, y 10..14, z 13 (world 25..29, 90..94, 19), in world chunk (1,1). Its
+#   obsidian frame: (19..23,9,13), (19..23,15,13), (18,10..14,13), (24,10..14,13), no corners.
+# - Nether portal cells: x 0..4, y 90..94, z 2 in the Nether's own coordinates for the farm placed so (the Nether image of
+#   the anchor (-5,0,13), world (1,80,19), is (0,80,2)); its frame (0..4,89,2), (0..4,95,2), (-1,90..94,2), (5,90..94,2).
+# - V's chunk (0,0) and (0,1) (V rev 2.1 holds 2 glass cells at world (1,60..61,16)) sit at Chebyshev 1 from the loader's
+#   overworld PORTAL chunk (1,1): level 31, entity-ticking, from the loader's ticket alone; the loader's Nether ticket keeps
+#   its own chunks at <= 31.
+# - No portal cross-link with V's golem portal: the loader's legs land on their partners (forward: the Nether twin, distance
+#   0; return: the overworld portal, margin 26.50 over V's pads), V's pads (copy1.pad1 / pad2) land on V's own Nether twin
+#   (margin 9.05 over the loader's Nether portal). Exclusion zones (no other lit portal there, at any y): the Nether around
+#   the forward exit x -13..19, z -14..18; the overworld around the return's exits x -102..157, z -110..151; the Nether
+#   around V's pad exits x -16..17, z -16..16 (all in the frames the layout tool prints).
+# - Lightning: V's rod (0,109,0) (copy 1's, world (6,109,6)) takes every strike-area column (1600 of 1600) and every one of
+#   V's 247 places (rail cells, its entities, wip/loaderlay/v-nonrail.positions.txt: 9fc3155f's non-rail villager places)
+#   is clear of its bolt box (least 3.31); the bolt box meets none of the loader's 145 cells.
+# (the evidence: `mctas mobfarm loader-layout --module <V rev 2.1> --positions wip/loaderlay/v-nonrail.positions.txt
+# --module-offsets 6,80,6 --loader <this file> --loader-offset 6,80,6`, the same layout as loader-x8.txt at --loader-offset
+# 25,80,19; wip/loaderlay/NOTES.md. Re-judged on V rev 3.1 when it composes, with the difference printed.)
+# THE CLOCK (ironspec 12:44p (4)): placing an observer in front of another fires the first, so the build starts the pair;
+# settle kicks it, then runs at least 2 declared periods: the pair (20,13,15) / (20,13,16) and the droppers it fires
+# (20,12,14) / (20,13,14) / (20,14,14) recur every 6 gt (tools16b's settle-check, Nov 14), every other cell holds its stored
+# state; stored as placed, the build's initial state.
+# clock: 20,12,14; 20,13,14; 20,13,15; 20,13,16; 20,14,14 = period=6; start: the pair's placement, as built
+name: f1q2-v-loader
+circuit: mob-farm iron_ingot
+port nether-anchor: -5 0 13
+port nether-axis: -4 0 13
+port output: 30 10 21
+nbt: 20 12 14 {Items:[{Slot:0b,id:"minecraft:leather",count:1}]}
+nbt: 20 14 14 {Items:[{Slot:0b,id:"minecraft:leather",count:1}]}
+nether nbt: 3 12 -1 {Items:[{Slot:0b,id:"minecraft:leather",count:1}]}
+nether nbt: 3 14 -1 {Items:[{Slot:0b,id:"minecraft:leather",count:1}]}
+origin: 18 0 12
+palette:
+  A minecraft:dropper[facing=up,triggered=false]
+  B minecraft:hopper[enabled=true,facing=south]
+  C minecraft:cobblestone
+  D minecraft:dropper[facing=north,triggered=false]
+  E minecraft:hopper[enabled=true,facing=west]
+  F minecraft:obsidian
+  G minecraft:glass
+  H minecraft:hopper[enabled=true,facing=east]
+  N minecraft:nether_portal[axis=x]
+  O minecraft:observer[facing=north,powered=false]
+  d minecraft:dropper[facing=south,triggered=false]
+  h minecraft:hopper[enabled=true,facing=north]
+  o minecraft:observer[facing=south,powered=false]
+layer 9:
+  .
+  .FFFFF
+  .
+  .
+  .
+  .
+layer 10:
+  .GGGGG
+  FNNNNNF
+  GGGGGGG
+  G.....G
+  G.....G
+  .
+layer 11:
+  .GGGGG
+  FNNNNNF
+  GGGGGGG
+  G.....G
+  G.....G
+  .
+layer 12:
+  .
+  FNNNNNF
+  GGAEEEG
+  GGGhhhG
+  G.G...G
+  .
+layer 13:
+  .
+  FNNNNNF
+  GGA...G
+  GGo...G
+  GGOGGGG
+  ..G
+layer 14:
+  .
+  FNNNNNF
+  GGD...G
+  G.G...G
+  GGGGGGG
+  .
+layer 15:
+  .
+  .FFFFF
+  GGGGGGG
+  GGGGGGG
+  GGGGGGG
+  .
+nether-origin: -1 0 -4
+nether layer 9:
+  .
+  .
+  .
+  CCCCCCC
+  CFFFFFC
+  CCCCCCC
+nether layer 10:
+  .
+  C.....C
+  C.....C
+  CCCCCCC
+  FNNNNNF
+  CCCCCCC
+nether layer 11:
+  .
+  C.....C
+  C..CCCC
+  CCCCCCC
+  FNNNNNF
+  CCCCCCC
+nether layer 12:
+  ...CCC
+  CCCCCCC
+  CBBBCCC
+  CHHHAGC
+  FNNNNNF
+  CCCCCCC
+nether layer 13:
+  ...CCC
+  CCCCoCC
+  C...OGC
+  C...AGC
+  FNNNNNF
+  CCCCCCC
+nether layer 14:
+  ...CCC
+  CCCCCCC
+  C...G.C
+  C...dGC
+  FNNNNNF
+  CCCCCCC
+nether layer 15:
+  .
+  CCCCCCC
+  CCCCCCC
+  CCCCCCC
+  CFFFFFC
+  CCCCCCC
