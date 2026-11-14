@@ -11,13 +11,13 @@
 //!     ironspec 18:12 (d): under the onset its twin failed no row, and it doubled the hold WIN's D line gives.)
 //!   - WIN: S = the pulse through the D line (8; with WIN's set 2, its NOT-Q 4 and the AND 4, RLS reads P_STRING at
 //!     pulse + 12, the ruled hold); R = the pulse itself (a new pulse restarts the window) OR the pulse through the W
-//!     line (50: RLS no later than pulse + 61).
+//!     line (48, one tick under the ruled 50 for G1's N1: RLS no later than pulse + 59).
 //!   - PARKED = SENSED AND COOL (ironspec 17:35 (2) / 17:39 (3), the sensed park bought): SENSED, a latch set by the
 //!     park-entry detector rail (0,-27,2) as the arriving cart passes it, through d = 28 (>= the measured pass -> rest
 //!     16..26 + 2, 58f770cc 18:35), reset at RLS or ARM's edge (a press after RLS
 //!     can't pre-set the next visit, G1 17:49 (a)); COOL, the boarding-cooldown bound, a latch set by ARM's edge through
 //!     the line's 52 tap (C = the eject's latest tick ARM + 3 + the 60-gt boarding cooldown + the world-open term 2 - p
-//!     - the fastest park -> P ride 13 = ARM + 48 <= 52), reset at RLS or ARM's edge.
+//!     - the fastest park -> P ride 13 = ARM + 50 <= 52), reset at RLS or ARM's edge.
 //!   - RLS = P_STRING AND SINCE AND WIN AND SENSED AND COOL; one pulse a visit (COOL's and SENSED's resets end it).
 //!     PARK = RLS through a delay-1 repeater (p = 2: tick-exact 17:52 put NEAREST_HOSTILE's clear at the close + 19).
 //! - SO (slept once): S = a pulse, R = RLS (one repeater: SO feeds OPEN only; the list's old "+ 8" had no job left).
@@ -59,22 +59,34 @@ pub const RESET: i64 = 6;
 /// The latch's internal set (to Q's block) and reset (to Q's block's fall).
 const SET_IN: i64 = SET - REP;
 const RESET_IN: i64 = RESET - REP;
-/// ARM to COOL's edge comparator: the line's tap (6 x delay 4 + 1 x delay 2).
+/// ARM to COOL's edge comparator: the line's tap (6 x delay 4 + 1 x delay 2). COOL's bound (ironspec 17:32 (3) /
+/// 17:41): the eject's latest tick ARM + 3 + the 60-gt boarding cooldown + the world-open term 2 - p 2 - the fastest
+/// park -> P ride 13 = ARM + 50: the tap at 52 keeps it with 2 gt to spare.
 pub const COOL_LINE: i64 = 52;
-/// An edge comparator's pulse width (its side path against its rear: a delay-2 repeater).
+/// An edge comparator's pulse width: its side path (a delay-2 repeater, 4 gt) against its rear.
 pub const EDGE_W: i64 = 4;
-/// A comparator.
+/// A comparator's delay (2 gt).
 pub const CMP: i64 = 2;
-/// An AND as NOT-OR-NOT: an input repeater into the OR block + the block's torch.
+/// An AND as NOT-OR-NOT: an input repeater (2) into the OR block, the block's torch (2).
 pub const AND: i64 = 4;
-/// RLS to the park's powered rail, p (ironspec 17:35 (3) / tick-exact 17:52: one delay-1 repeater).
+/// RLS to the park's powered rail, p (ironspec 17:35 (3) / 17:53 (1): one delay-1 repeater, 2 gt).
 pub const PARK: i64 = 2;
-/// WIN's end: the pulse through 7 repeaters (6 x delay 4 + 1 x delay 1).
-pub const W_LINE: i64 = 50;
-/// WIN's start, the D line: two delay-2 repeaters. RLS reads P_STRING at pulse + D_LINE + 4 = pulse + HOLD.
+/// The park's minimum powered width (found by the world-open sweep on every forced row, day-1 19:35): RLS can be as
+/// narrow as 3 gt when a previous pulse's W line closes WIN just after PARKED releases, and a world open's entity lag
+/// (3) then swallows the whole PARK pulse: the cart stays on the park with RLS spent (a permanent hold). PARK = RLS
+/// stretched to >= PARK_W gt by a pulse extender (RLS and RLS through an 8-gt repeater pair, ORed into the rail's
+/// drive: ~3 blocks).
+pub const PARK_W: i64 = 8;
+/// WIN's end: the pulse through the W line (6 x delay 4 + 1 x delay 4 - 4 = 48: ironspec on G1's N1, day-1 19:25,
+/// one repeater tick shorter than the ruled 50): the latest RLS lands at pulse + W_LINE + W_SLACK = pulse + 59, so
+/// the cooldown edge keeps its >= 10 at boarding with every term (see `COOL_EDGE`).
+pub const W_LINE: i64 = 48;
+/// WIN's start, the D line: two delay-2 repeaters (8 gt).
 pub const D_LINE: i64 = 8;
-/// The ruled hold (ironspec 16:00): P_STRING held continuously from the pulse through pulse + 12.
-pub const HOLD: i64 = 12;
+/// The hold RLS reads (ironspec 16:00: P_STRING held from the pulse through pulse + 12): WIN's set reaches Q's block
+/// SET_IN after the D line and its NOT-Q output REP + TORCH later, and the AND reads P_STRING's torch AND after that,
+/// so P is read at pulse + D_LINE + SET_IN + REP (one source: the D line).
+pub const HOLD: i64 = D_LINE + SET_IN + REP;
 /// SINCE's sample through one delay-2 repeater (a new pulse's restart closes WIN before SINCE can pass).
 pub const SINCE_DELAY: i64 = 0;
 /// SINCE's old delay-2 repeater (4 gt), kept only for the control that puts it back.
@@ -95,8 +107,11 @@ pub const PARK_ENTRY_BEFORE: i64 = 26;
 /// The detector to SENSED's set: a delay >= the press -> rest settle + 2 (ironspec 17:51; on 58f770cc's measured
 /// pass -> rest 16..26: 28, seven delay-4 repeaters), so SENSED never rises before the cart rests.
 pub const SENSE_D: i64 = 28;
-/// The cart leaves P's cell this long after it reaches P (a boarded rider presses the string until then).
+/// The cart leaves P's cell this long after it reaches P (a boarded rider presses the string until then; 58f770cc's
+/// stop bench: the boarded cart's exit from P's cell 2 gt after its entry).
 pub const LEAVE: i64 = 2;
+/// The park's powered rail -> the cart's first move (1 gt: the rail's power is read in the cart's next tick).
+pub const CART_RESPONSE: i64 = 1;
 /// The napper's eject from its riding cart (58f770cc: ARM + 2..3) and the boarding cooldown (Entity.removePassenger:
 /// boardingCooldown = 60, decremented by the villager's own base tick; tick-exact 17:39).
 pub const EJECT: i64 = 3;
@@ -108,6 +123,14 @@ pub const COOLDOWN_BAR: i64 = 10;
 /// The latest RLS rise a pulse's window allows, after the pulse + W_LINE: WIN's reset (4 to Q's block), its NOT-Q
 /// output (4), the AND (4), less the first blocked tick.
 pub const W_SLACK: i64 = RESET_IN + TORCH + REP + AND - 1;
+/// The board band's slowest park -> P ride and the world-open terms (idle 2, the entity domain 3 behind).
+pub const BOARD_MAX: i64 = 19;
+pub const OPEN_IDLE: i64 = 2;
+pub const OPEN_KJ: i64 = 3;
+/// G1's N1: the cooldown edge's closed form, every term: the latest boarding after the wake = the pulse's rise
+/// (OBS_RISE) + the latest RLS (W_LINE + W_SLACK) + PARK + the cart's response + the slowest ride + a world open's idle +
+/// the entity domain's lag; the margin COOLDOWN - that >= COOLDOWN_BAR.
+pub const COOL_EDGE: i64 = OBS_RISE + W_LINE + W_SLACK + PARK + CART_RESPONSE + BOARD_MAX + OPEN_IDLE + OPEN_KJ;
 /// The tripwire's release bound after the napper's box leaves: a lie-down's string drops by its pulse + 8.
 pub const STRING_DROP: i64 = RECHECK - OBS_RISE;
 /// NEAREST_HOSTILE's clear after the shutter's first closed tick C (tick-exact 17:52: C + 19): the cart's first entry
@@ -136,8 +159,10 @@ pub struct Defects {
     pub d_cut: i64,
     /// SINCE's old delay-2 repeater put back (the design before ironspec 18:12 (d)).
     pub since_delay_back: bool,
-    /// The W line lengthened by one repeater tick.
-    pub w_plus: bool,
+    /// The W line lengthened (+) or shortened (-) by this many gt (a repeater tick = 2).
+    pub w_delta: i64,
+    /// PARK without its pulse extender (RLS's own width).
+    pub no_park_stretch: bool,
 }
 
 /// What a row asserts about its outcome (G1 on 5f79952c2 B6).
@@ -145,11 +170,13 @@ pub struct Defects {
 pub enum Kind {
     /// One RLS, the napper aboard, every normal-visit bar.
     Normal,
-    /// No release to a sleeper, then the napper boards within the horizon.
+    /// An early wake that boards on its first window: one RLS, aboard, the invariants (G1 on a2186649e B6 (1c)).
+    BoardsEarly,
+    /// No release to a sleeper, then the napper boards within the horizon (after a re-sleep).
     Recovers,
     /// An EMPTY departure (the permanent halt the fault note names).
     PermanentHalt,
-    /// No departure until the scripted later lie-down, then boarding.
+    /// No departure until the scripted later lie-down, then boarding after it.
     SelfEnding,
     /// The invariants only, the outcome printed (the false-SO path).
     Printed,
@@ -194,6 +221,8 @@ pub struct Row {
     /// The next visit's ARM: its edge resets the latches, read 12 gt after it.
     pub next_arm: i64,
     pub horizon: i64,
+    /// (SelfEnding rows) the scripted later lie-down the boarding must follow (entity tick).
+    pub self_end_lie: Option<i64>,
 }
 
 impl Row {
@@ -219,6 +248,7 @@ impl Row {
             open: None,
             next_arm: 600,
             horizon: 700,
+            self_end_lie: None,
         }
     }
 
@@ -273,6 +303,9 @@ pub struct Out {
     pub open_on_p: Vec<i64>,
     /// Ticks an awake napper off P stood with the window open (Z1 in view).
     pub exposed: i64,
+    /// The longest run of ticks the awake napper stood ON P with the window open (a hurt-woken press racing OPEN's set
+    /// read flashes the window for at most OPEN's reset latency; longer is a design failure).
+    pub exposed_on_p: i64,
     pub window: Vec<(i64, i64)>,
     /// (SO, SENSED, COOL, OPEN, SINCE, WIN) 12 gt after the next ARM's edge.
     pub latches_at_next: [bool; 6],
@@ -297,6 +330,8 @@ pub struct Out {
     /// The close bar for this run: CLOSE_BAR + a world open's idle (the block domain frozen between the press and the
     /// close delays the close by that much).
     pub close_allow: i64,
+    /// (SelfEnding rows) the game tick of the scripted later lie-down.
+    pub self_end_lie: Option<i64>,
 }
 
 fn at(v: &[bool], t: i64, d: bool) -> bool {
@@ -339,6 +374,8 @@ pub fn run(row: &Row, def: Defects) -> Out {
     let mut cells = String::new();
     let mut shut_prev = true;
     let mut pending_press_close: Option<i64> = None;
+    let mut on_p_run = 0i64;
+    let mut pulses_kb: Vec<i64> = Vec::new();
     for g in 0..t_max {
         let gi = g as usize;
         let blk = !(g >= t_open && g < t_open + idle);
@@ -445,6 +482,9 @@ pub fn run(row: &Row, def: Defects) -> Out {
                 }
                 nap = N::Bed;
                 o.lies.push(g);
+                if row.self_end_lie == Some(e) {
+                    o.self_end_lie = Some(g);
+                }
                 head_changes += 1;
             }
             if nap == N::Bed {
@@ -458,6 +498,12 @@ pub fn run(row: &Row, def: Defects) -> Out {
                 }
             } else {
                 win_open_for = 0;
+            }
+            if nap == N::OnP && win {
+                on_p_run += 1;
+                o.exposed_on_p = o.exposed_on_p.max(on_p_run);
+            } else {
+                on_p_run = 0;
             }
             if nap == N::Off && win {
                 o.exposed += 1;
@@ -473,13 +519,15 @@ pub fn run(row: &Row, def: Defects) -> Out {
                 pressed = true;
                 press_tick_g = g;
                 next_check = kb + RECHECK;
-                if !o.wakes.is_empty() && o.wakes.last() == Some(&g) {
+                // (G1's N5: every press while the window is open, the wake's or any other, must close it)
+                if win || (!o.wakes.is_empty() && o.wakes.last() == Some(&g)) {
                     pending_press_close = Some(g);
                 }
             }
             if head_changes > 0 && ob.is_none() {
                 ob = Some((true, kb + OBS_RISE));
                 o.pulses.push(g + OBS_RISE);
+                pulses_kb.push(kb + OBS_RISE);
                 if pressed {
                     o.press_minus_change.push((g, press_tick_g - g));
                 }
@@ -516,7 +564,7 @@ pub fn run(row: &Row, def: Defects) -> Out {
         };
         let v_since = !def.no_since && latch(prev(&q_since), s_at(&since_s), r_at(&|t| notp(t - REP)));
         let d_eff = D_LINE - def.d_cut;
-        let w_eff = W_LINE + if def.w_plus { 2 } else { 0 };
+        let w_eff = W_LINE + def.w_delta;
         let v_win = latch(prev(&q_win), s_at(&|t| obs_at(t - d_eff)), r_at(&|t| obs_at(t) || obs_at(t - w_eff)));
         let parked_block = |t: i64| (!def.no_sensed && nqv(&q_sen, t)) || (!def.no_cool && nqv(&q_cool, t));
         let open_s = |t: i64| !(parked_block(t - AND) || nqv(&q_so, t - AND) || (!def.no_notp_in_open && p_at(t - AND)));
@@ -526,7 +574,7 @@ pub fn run(row: &Row, def: Defects) -> Out {
         q_open[k] = v_open;
         let rls_block = notp(kb - AND) || (!def.no_since && nqv(&q_since, kb - AND)) || nqv(&q_win, kb - AND) || (!def.no_parked_in_rls && parked_block(kb - AND));
         rls[k] = !rls_block;
-        park[k] = at(&rls, kb - PARK, false);
+        park[k] = if def.no_park_stretch { at(&rls, kb - PARK, false) } else { (0..PARK_W).any(|i| at(&rls, kb - PARK - i, false)) };
         let shut_now = !at(&q_open, kb - TORCH, false);
         // ---- records (game ticks)
         let rise = |v: &Vec<bool>| v[k] && (k == 0 || !v[k - 1]);
@@ -538,8 +586,9 @@ pub fn run(row: &Row, def: Defects) -> Out {
             if bed_g[gi] {
                 o.rls_asleep.push(g);
             }
-            if let Some(&pl) = o.pulses.iter().filter(|&&x| x <= g).last() {
-                o.rls_after_pulse.push(g - pl);
+            // (in block time: W bounds the redstone's own window, a world open's frozen ticks excluded)
+            if let Some(&pl) = pulses_kb.iter().filter(|&&x| x <= kb).last() {
+                o.rls_after_pulse.push(kb - pl);
             }
         }
         if rise(&park) {
@@ -671,13 +720,16 @@ fn invariants(o: &Out) -> Vec<String> {
         }
     }
     if o.close_after_press.iter().any(|&c| c > o.close_allow) {
-        bad.push(format!("the shutter closed {:?} gt after the wake's press (bar <= {CLOSE_BAR} + a world open's idle = {})", o.close_after_press, o.close_allow));
+        bad.push(format!("the shutter closed {:?} gt after a press on P (bar <= {CLOSE_BAR} + a world open's idle = {})", o.close_after_press, o.close_allow));
     }
     if o.parked_after_rls {
         bad.push("PARKED (SENSED AND COOL) rose again after RLS within the visit".into());
     }
     if !o.open_after_rls.is_empty() {
         bad.push(format!("the window re-opened after RLS within the visit at {}", fmt_ticks(&o.open_after_rls)));
+    }
+    if o.exposed_on_p > CLOSE_BAR + 1 {
+        bad.push(format!("the window stood open on the napper standing on P for {} gt (> the close bar {CLOSE_BAR} + the press's own tick: longer than OPEN's reset on P takes)", o.exposed_on_p));
     }
     bad
 }
@@ -720,6 +772,16 @@ fn normal_bars(o: &Out, late_lie: bool) -> Vec<String> {
 fn kind_bars(o: &Out, kind: Kind, late_lie: bool) -> Vec<String> {
     match kind {
         Kind::Normal => normal_bars(o, late_lie),
+        Kind::BoardsEarly => {
+            let mut b = invariants(o);
+            if o.rls.len() != 1 {
+                b.push(format!("RLS rose {} times", o.rls.len()));
+            }
+            if o.departed.map(|d| !d.1).unwrap_or(true) {
+                b.push("the early-woken napper not aboard on its first window".into());
+            }
+            b
+        }
         Kind::Recovers => {
             let mut b = invariants(o);
             if o.departed.map(|d| !d.1).unwrap_or(true) {
@@ -736,11 +798,9 @@ fn kind_bars(o: &Out, kind: Kind, late_lie: bool) -> Vec<String> {
         }
         Kind::SelfEnding => {
             let mut b = invariants(o);
-            if o.departed.map(|d| !d.1).unwrap_or(true) {
-                b.push("it never boards after its later lie-down (a self-ending row)".into());
-            }
-            if o.lies.len() < 2 {
-                b.push("no later lie-down in the script".into());
+            match (o.boarded_at, o.self_end_lie) {
+                (Some(bt), Some(l)) if bt > l => {}
+                (bt, l) => b.push(format!("not boarded after its scripted later lie-down (boarded {bt:?}, the later lie-down {l:?})")),
             }
             b
         }
@@ -770,9 +830,14 @@ fn forced_rows() -> Vec<(Row, Kind, bool)> {
     for h in [7, 8, 9, 30, 60] {
         let mut r = Row::normal(&format!("an early wake from the bed (a hurt at ARM + {h})"), 5, 10, 40, 16).long(900);
         r.hurt = vec![h];
-        f.push((r, Kind::Recovers, false));
+        // (a wake at + 7 / + 8 falls inside the lie-down's own pulse and is absorbed: no fresh pulse, so it recovers
+        // through its re-sleep; from + 9 the wake has its own pulse and boards on its first window: G1 B6 (1c))
+        f.push((r, if h <= 8 { Kind::Recovers } else { Kind::BoardsEarly }, false));
     }
-    for (lie, d) in [(4, 0), (7, 0), (6, 1), (6, 2), (7, 3), (218, 0), (218, 2)] {
+    let mut r = Row::normal("an early wake (a hurt at ARM + 30) with a later park (the cart rests at ARM + 70, past COOL's bound): the sensed park holds RLS for the rest", 5, 10, 70, 16).long(900);
+    r.hurt = vec![30];
+    f.push((r, Kind::BoardsEarly, false));
+    for (lie, d) in [(4, 0), (5, 0), (7, 0), (6, 1), (6, 2), (7, 3), (218, 0), (218, 2)] {
         let mut r = Row::normal(&format!("the merged path from the bed (lie-down at ARM + {lie}, a hurt at + {d})"), lie, 10, 40, 16).long(900);
         r.hurt = vec![lie + d];
         f.push((r, Kind::Recovers, lie > 100));
@@ -811,6 +876,13 @@ fn forced_rows() -> Vec<(Row, Kind, bool)> {
     r.lie = vec![5, 160];
     r.resleep = None;
     f.push((r, Kind::Recovers, true));
+    let mut r = Row::normal("a lie-down from P at ARM + 160 (back on P at + 150), then a box on the string from + 175 to + 260 (SINCE's twin row)", 5, 10, 40, 16).long(2000);
+    r.hurt = vec![8];
+    r.off = vec![(20, 150)];
+    r.lie = vec![5, 160];
+    r.planted = vec![(175, 260)];
+    r.resleep = None;
+    f.push((r, Kind::Recovers, true));
     let mut r = Row::normal("the window on a wanderer, CROSSING P: G1's awake napper (merged from the bed at ARM + 6 + 1) off P at ARM + 40, back across P at ARM + 300, calm re-sleep past its cooldown", 6, 10, 40, 16).long(2000);
     r.hurt = vec![7];
     r.off = vec![(40, 300)];
@@ -821,6 +893,7 @@ fn forced_rows() -> Vec<(Row, Kind, bool)> {
     r.off = vec![(40, 2999)];
     r.lie = vec![6, 3000];
     r.resleep = None;
+    r.self_end_lie = Some(3000);
     f.push((r, Kind::SelfEnding, true));
     let mut r = Row::normal("Z1 removed: no wake until dawn (ARM + 6000), the napper standing up on P", 5, 10, 40, 16).long(9000);
     r.z1 = false;
@@ -863,6 +936,7 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
         "  delays (designed, gt): torch {TORCH}, repeater {REP} a tick, comparator {CMP}, latch set {SET} / reset {RESET} (ctl-junction), COOL's tap {COOL_LINE}, WIN's D line {D_LINE} (P read at pulse + {HOLD}), W line {W_LINE} (RLS by pulse + {}), SINCE's delay {SINCE_DELAY}, the onset {ONSET} gt, the AND {AND}, PARK {PARK}, the string's re-check {RECHECK}, the observer +{OBS_RISE} x {OBS_W}, the eject ARM + {EJECT} and its boarding cooldown {BOARD_COOLDOWN}; the cooldown at boarding: the latest wake + {COOLDOWN} - boarding >= {COOLDOWN_BAR}",
         W_LINE + W_SLACK
     ));
+    lines.push("  the napper's and the cart's bands: 58f770cc's stop bench (bed-tier-min, explore/bedtier-stop 2af606b9d, b48 NOTES.md: ARM -> lie-down 4..5, the window -> wake 1..20, the cart at rest 33..46, the park -> P 13..19; physical timings of the bench) and its real-cell pass -> rest 16..26 (58f770cc 18:35, the band at 4caaec86f; its real rest band 25..38 lies inside the swept 33..46 at the late end only, so the sweep is conservative)".to_string());
     // (1) the normal sweep
     let mut n = 0usize;
     let mut bad: Vec<String> = Vec::new();
@@ -929,24 +1003,35 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
         let mut bad: Vec<String> = Vec::new();
         let mut boards: (i64, i64) = (i64::MAX, i64::MIN);
         let mut cool: (i64, i64) = (i64::MAX, i64::MIN);
+        // (G1 on a2186649e B1: the lie band and the pass -> rest swept on every row; a row's own scripted lie-down
+        // kept unless it is the band's 5 with no hurt tied to it)
+        let lies: Vec<i64> = if row.lie.first() == Some(&5) && row.hurt.iter().all(|&h| h > 8) { vec![4, 5] } else { vec![row.lie.first().copied().unwrap_or(0)] };
         for rest in [33, 40, 46] {
             for board in [13, 16, 19] {
-                let mut rr = row.clone();
-                if row.rest <= 46 {
-                    rr.rest = rest;
-                }
-                rr.board = board;
-                let o = run(&rr, Defects::default());
-                nb += 1;
-                let b = kind_bars(&o, kind, late);
-                if !b.is_empty() && bad.len() < 2 {
-                    bad.push(format!("rest {} board {board}: {}", rr.rest, b.join("; ")));
-                }
-                if let Some(bt) = o.boarded_at {
-                    boards = (boards.0.min(bt), boards.1.max(bt));
-                }
-                if let Some(m) = o.cooldown_margin {
-                    cool = (cool.0.min(m), cool.1.max(m));
+                for ptr in [16, 26] {
+                    for &lie in &lies {
+                        let mut rr = row.clone();
+                        if row.rest <= 46 {
+                            rr.rest = rest;
+                        }
+                        rr.board = board;
+                        rr.pass_to_rest = ptr;
+                        if lies.len() > 1 {
+                            rr.lie[0] = lie;
+                        }
+                        let o = run(&rr, Defects::default());
+                        nb += 1;
+                        let b = kind_bars(&o, kind, late);
+                        if !b.is_empty() && bad.len() < 2 {
+                            bad.push(format!("rest {} board {board} pass -> rest {ptr} lie {lie}: {}", rr.rest, b.join("; ")));
+                        }
+                        if let Some(bt) = o.boarded_at {
+                            boards = (boards.0.min(bt), boards.1.max(bt));
+                        }
+                        if let Some(m) = o.cooldown_margin {
+                            cool = (cool.0.min(m), cool.1.max(m));
+                        }
+                    }
                 }
             }
         }
@@ -1000,6 +1085,46 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
     }
     let w = v.bar_n("ctl-shutter: a world open at every tick 0..700 (idle 1 / 2, the entity domain 1 / 3 ticks behind the block domain), on the normal visit at three band corners and on G1's cooldown edge (lie 4, merged L + 0, rest 33, board 19): each row's bars", n, bad.is_empty());
     lines.push(format!("  a world open at every tick 0..700, idle 1 / 2, k + j 1 / 3, {n} runs (G1's cooldown edge's least margin at boarding {edge_cool}; the woken napper's press - its head change {}..{} gt, against the onset's allowance -{ONSET}): {w}{}", offs.0, offs.1, if bad.is_empty() { String::new() } else { format!(" ({})", bad.join(" | ")) }));
+    // (G1 on a2186649e B1: the open sweep on EVERY forced row, at its own band and at the cooldown-edge corner (rest
+    // 46, park -> P 19, pass -> rest 16), every tick over the visit 0..300)
+    let mut n = 0usize;
+    let mut bad = Vec::new();
+    let mut least_cool = i64::MAX;
+    for (row, kind, late) in forced_rows() {
+        for corner in [false, true] {
+            for (idle, kj) in [(1, 1), (2, 1), (1, 3), (2, 3)] {
+                for t0 in 0..=300 {
+                    let mut r = row.clone();
+                    if corner {
+                        if r.rest <= 46 {
+                            r.rest = 46;
+                        }
+                        r.board = 19;
+                        r.pass_to_rest = 16;
+                    }
+                    r.open = Some((t0, idle, kj));
+                    let o = run(&r, Defects::default());
+                    n += 1;
+                    if let Some(m) = o.cooldown_margin {
+                        least_cool = least_cool.min(m);
+                    }
+                    // (under a world open an early-woken napper may miss its first window and recover through its
+                    // re-sleep instead: both safe, so the open sweep judges BoardsEarly rows as Recovers)
+                    let k = if kind == Kind::BoardsEarly { Kind::Recovers } else { kind };
+                    let b = kind_bars(&o, k, late);
+                    if !b.is_empty() && bad.len() < 3 {
+                        bad.push(format!("{} (corner {corner}) open at {t0} idle {idle} kj {kj}: {}", row.name.chars().take(70).collect::<String>(), b.join("; ")));
+                    }
+                }
+            }
+        }
+    }
+    let w = v.bar_n("ctl-shutter: a world open at every tick 0..300 on EVERY forced row (its own band, and the cooldown-edge corner rest 46 / park -> P 19 / pass -> rest 16), idle 1 / 2, the entity domain 1 / 3 behind: each row's kind bars", n, bad.is_empty());
+    lines.push(format!("  a world open at every tick 0..300 on every forced row at two corners, idle 1 / 2, k + j 1 / 3, {n} runs (the least cooldown margin at boarding {least_cool}): {w}{}", if bad.is_empty() { String::new() } else { format!(" ({})", bad.join(" | ")) }));
+    // (G1's N1: the cooldown edge's closed form, every term, against the bar)
+    let edge_margin = COOLDOWN - COOL_EDGE;
+    let w = v.bar("ctl-shutter: the cooldown edge's closed form (the wake's pulse 2 + the latest RLS W_LINE + W_SLACK + PARK + the cart's response + the slowest ride 19 + a world open's idle 2 + the entity lag 3) keeps COOLDOWN - it >= 10", edge_margin >= COOLDOWN_BAR);
+    lines.push(format!("  the cooldown edge, every term (G1's N1): the latest boarding = the wake + {OBS_RISE} (pulse) + {} (the latest RLS: W {W_LINE} + {W_SLACK}) + {PARK} (PARK) + {CART_RESPONSE} (the cart's response) + {BOARD_MAX} (the slowest ride) + {OPEN_IDLE} (an open's idle) + {OPEN_KJ} (the entity lag) = the wake + {COOL_EDGE}: margin {edge_margin} (>= {COOLDOWN_BAR}): {w}", W_LINE + W_SLACK));
     // (the onset's +-1-gt edge, G1 18:16 (2): a press 1 gt before the change sets SINCE, 2 gt before doesn't)
     let edge_row = |kk: i64| {
         let mut r = Row::normal("onset edge", 5, 10, 40, 16).long(2000);
@@ -1018,79 +1143,102 @@ pub fn bench(v: &mut Verdict) -> Vec<String> {
     let w1 = v.bar("ctl-shutter: the onset's edge, a press beginning 1 gt before the head change (inside the allowance) sets SINCE, and the D line's hold refuses the release", ok1);
     let w2 = v.bar("ctl-shutter: the onset's edge, a press beginning 2 gt before the head change (outside the allowance) never sets SINCE", ok2);
     lines.push(format!("  the onset's edge: a napper stepping onto P 1 gt before lying down from P: SINCE {} at its lie-down's pulse (press - change {:?}), no release to the sleeper: {w1}; 2 gt before: SINCE {} (press - change {:?}): {w2}", if since_after(&e1, 151) { "set" } else { "NOT set" }, off_at(&e1, 151), if since_after(&e2, 152) { "SET" } else { "not set" }, off_at(&e2, 152)));
-    // (4) the controls: one planted single change each, on the row it must break
-    let mut ctl = |name: &str, row: &Row, def: Defects, check: &dyn Fn(&Out) -> bool, lines: &mut Vec<String>| {
-        let o = run(row, def);
-        let c = v.control(&format!("ctl-shutter CONTROL: {name}"), 1, check(&o)).to_string();
-        lines.push(format!("  CONTROL ({name}): {}: {c}", describe(&o)));
+    // (G1's N4: the onset's late edge: a press beginning 1 gt after the head change is still at the pulse's sample and
+    // sets SINCE; 2 gt after misses it)
+    let late_edge = |kk: i64| {
+        let mut r = Row::normal("late edge", 5000, 10, 40, 16).long(900);
+        r.lie = vec![];
+        r.resleep = None;
+        r.head_only = vec![100];
+        r.planted = vec![(100 + kk, 400)];
+        run(&r, Defects::default())
     };
-    let mut early = Row::normal("early", 5, 10, 46, 16);
-    early.hurt = vec![9];
-    ctl("PARKED (SENSED AND COOL) removed from RLS, an early wake at ARM + 9 with the slowest rest (46): the park released before the cart's rest", &early, Defects { no_parked_in_rls: true, ..Default::default() }, &|o| !o.park_before_rest.is_empty(), &mut lines);
-    let mut early_late = Row::normal("later park", 5, 10, 70, 16);
-    early_late.hurt = vec![30];
-    ctl("SENSED removed (COOL alone), a later park (the cart rests at ARM + 70, past COOL's bound) with an early wake: the park pulses before the cart's rest (the permanent hold the sensed park buys out)", &early_late, Defects { no_sensed: true, ..Default::default() }, &|o| !o.park_before_rest.is_empty(), &mut lines);
-    let mut cool_row = Row::normal("cool", 4, 10, 33, 13).long(900);
-    cool_row.hurt = vec![4];
-    ctl("COOL removed (SENSED alone), the merged path at ARM + 4 with the fastest park: the cart reaches P inside the napper's boarding cooldown", &cool_row, Defects { no_cool: true, ..Default::default() }, &|o| !invariants(o).is_empty(), &mut lines);
-    let mut b2 = Row::normal("b2", 218, 10, 40, 16).long(2000);
-    b2.planted = vec![(208, 240)];
-    ctl("the onset removed, G1's B2 box (from lie - 10 through pulse + 20): a release to the sleeper", &b2, Defects { no_onset: true, ..Default::default() }, &|o| !o.rls_asleep.is_empty(), &mut lines);
+    let (l1, l2) = (late_edge(1), late_edge(2));
+    let set_in = |o: &Out| o.since_rises.iter().any(|&s| (100..=100 + HOLD).contains(&s));
+    let w1 = v.bar("ctl-shutter: the onset's late edge, a press beginning 1 gt after the head change sets SINCE (inside the pulse's sample)", set_in(&l1));
+    let w2 = v.bar("ctl-shutter: the onset's late edge, a press beginning 2 gt after the head change never sets SINCE", !set_in(&l2));
+    lines.push(format!("  the onset's late edge (G1's N4): a press 1 gt after a head change at ARM + 100: SINCE {}: {w1}; 2 gt after: SINCE {}: {w2}", if set_in(&l1) { "set" } else { "NOT set" }, if set_in(&l2) { "SET" } else { "not set" }));
+    // (4) the controls (G1 on a2186649e N3): each a planted single change run on a forced row's own script (a band
+    // picked where the row needs one), judged only by that row's kind bars; a control bites when the design passes the
+    // row and the defect fails it
+    let rows = forced_rows();
+    let find = |key: &str| -> (Row, Kind, bool) { rows.iter().find(|(r, _, _)| r.name.contains(key)).cloned().unwrap_or_else(|| panic!("ctl-shutter: no forced row named {key:?}")) };
+    let mut twin = |name: &str, key: &str, band: Option<(i64, i64, i64)>, open: Option<(i64, i64, i64)>, def: Defects, lines: &mut Vec<String>| {
+        let (mut r, kind, late) = find(key);
+        if let Some((rest, board, ptr)) = band {
+            if r.rest <= 46 {
+                r.rest = rest;
+            }
+            r.board = board;
+            r.pass_to_rest = ptr;
+        }
+        r.open = open;
+        let d = run(&r, Defects::default());
+        let x = run(&r, def);
+        let (db, xb) = (kind_bars(&d, kind, late), kind_bars(&x, kind, late));
+        let c = v.control(&format!("ctl-shutter CONTROL: {name}"), 1, db.is_empty() && !xb.is_empty()).to_string();
+        lines.push(format!("  CONTROL ({name}; on the forced row \"{}\" [{kind:?}]): the design {}; the defect: {} [{}]: {c}", key, if db.is_empty() { "passes".to_string() } else { format!("FAILS ({})", db.join("; ")) }, describe(&x), xb.join("; ")));
+    };
+    twin("PARKED (SENSED AND COOL) removed from RLS: the park released before the cart's rest", "a hurt at ARM + 9)", Some((46, 16, 26)), None, Defects { no_parked_in_rls: true, ..Default::default() }, &mut lines);
+    twin("SENSED removed (COOL alone): the park pulses before the later park's rest (the permanent hold the sensed park buys out)", "an early wake (a hurt at ARM + 30) with a later park", None, None, Defects { no_sensed: true, ..Default::default() }, &mut lines);
+    twin("COOL removed (SENSED alone): the merged path's cart reaches P inside the napper's boarding cooldown", "lie-down at ARM + 4, a hurt at + 0", Some((33, 13, 16)), None, Defects { no_cool: true, ..Default::default() }, &mut lines);
+    twin("the onset removed: G1's B2 box releases to the sleeper", "G1's B2 box", None, None, Defects { no_onset: true, ..Default::default() }, &mut lines);
     // (the D line: the hold covers the onset's allowance: a napper stepping onto P 1 gt before it lies down FROM P
-    // passes the onset, and its string drops at the first re-check, press + 10 = pulse + 7; the design reads P at pulse
-    // + 12 through WIN's D line, its only provider since SINCE's delay went (ironspec 18:12 (d)))
-    let mut d_row = Row::normal("d-edge", 5, 10, 40, 16).long(2000);
-    d_row.hurt = vec![8];
-    d_row.off = vec![(20, 150)];
-    d_row.lie = vec![5, 151];
-    d_row.resleep = None;
+    // passes the onset, and its string drops at the first re-check, press + 10 = pulse + 7, the latest an onset-passing
+    // press can drop: a press beginning in the change's own tick would be a napper lying down in the tick it steps onto
+    // P, which never meets the string; the design reads P at pulse + HOLD through WIN's D line, its only provider)
+    let (d_row, d_kind, d_late) = find("stepping onto P and lying down within 1 gt");
     let scan = |back: bool| -> String {
         [0, 2, 4, 6]
             .iter()
             .map(|&cut| {
                 let o = run(&d_row, Defects { d_cut: cut, since_delay_back: back, ..Default::default() });
-                format!("D line {} (P read at pulse + {}) {}", D_LINE - cut, HOLD - cut, if o.rls_asleep.is_empty() { "holds" } else { "RELEASES to the sleeper" })
+                format!("D line {} (P read at pulse + {}) {}", D_LINE - cut, HOLD - cut, if kind_bars(&o, d_kind, d_late).is_empty() { "holds" } else { "FAILS (a release to the sleeper)" })
             })
             .collect::<Vec<_>>()
             .join(", ")
     };
-    lines.push(format!("  the D line's margin on the onset-allowance row (stepping onto P 1 gt before lying down from P: its string drops at pulse + 7), the design (SINCE's delay removed): {}; for the record, with the old delay put back (the hold provided twice): {}", scan(false), scan(true)));
-    ctl("the D line three steps shorter (2 gt: P read at pulse + 6), the onset-allowance row: a release to the sleeper", &d_row, Defects { d_cut: 6, ..Default::default() }, &|o| !o.rls_asleep.is_empty(), &mut lines);
-    let mut never = Row::normal("never", 5000, 10, 40, 16).long(900);
-    never.lie = vec![];
-    never.start_on_p = true;
-    never.head_only = vec![2];
-    never.resleep = None;
-    let mut wedge = Row::normal("w-edge", 5000, 10, 40, 16).long(900);
-    wedge.lie = vec![];
-    wedge.head_only = vec![0];
-    wedge.planted = vec![(0, 200)];
-    wedge.resleep = None;
-    ctl("the W line one step longer, a press beginning at a head change at ARM + 0 and held past COOL's bound (the design's window closes 1 gt before COOL's; the longer line lets RLS land 62 gt after its pulse): RLS past W of its pulse", &wedge, Defects { w_plus: true, ..Default::default() }, &|o| o.rls_after_pulse.iter().any(|&x| x > W_LINE + W_SLACK), &mut lines);
-    let wd = run(&wedge, Defects::default());
-    lines.push(format!("    (the same row under the design: RLS {}: {})", fmt_ticks(&wd.rls), if wd.rls.is_empty() { "the window closes first: held" } else { "RELEASED inside W" }));
-    let mut awake = Row::normal("awake", 6, 10, 40, 16).long(2000);
-    awake.hurt = vec![7];
-    awake.off = vec![(40, 300)];
-    awake.resleep = Some(400);
-    ctl("P_STRING removed from OPEN's reset, G1's awake napper off P crossing P at ARM + 300: the shutter doesn't close at its press (the close bar)", &awake, Defects { no_p_in_open_reset: true, ..Default::default() }, &|o| !invariants(o).is_empty() || o.window.iter().any(|&(a, b)| b == i64::MAX || b - a > 300), &mut lines);
-    ctl("NOT P_STRING removed from OPEN's set, the false-SO napper standing on P: the window opens on the napper on P", &never, Defects { no_notp_in_open: true, ..Default::default() }, &|o| !o.open_on_p.is_empty(), &mut lines);
-    let mut cross = Row::normal("cross", 5, 10, 40, 16).long(2000);
-    cross.hurt = vec![8];
-    cross.off = vec![(20, 150)];
-    cross.lie = vec![5, 160];
-    cross.planted = vec![(175, 260)];
-    cross.resleep = None;
-    ctl("SINCE removed, a lie-down from P at ARM + 160 and a box on the string from + 175: a release to the sleeper", &cross, Defects { no_since: true, ..Default::default() }, &|o| !o.rls_asleep.is_empty(), &mut lines);
-    let normal = Row::normal("normal", 5, 10, 40, 16);
-    ctl("COOL's resets removed: COOL still set after the next ARM's edge (its next early release would skip the boarding bound)", &normal, Defects { no_cool_reset: true, ..Default::default() }, &|o| o.latches_at_next[2], &mut lines);
-    ctl("SO's reset removed: SO still set after the next ARM's edge (its window would open before its napper sleeps)", &normal, Defects { no_so_reset: true, ..Default::default() }, &|o| o.latches_at_next[0], &mut lines);
-    let mut stray = Row::normal("stray", 5, 10, 40, 16);
-    stray.park_stray = vec![200];
-    ctl("SENSED's ARM-edge reset removed, a stray park-entry press after RLS: SENSED pre-set at the next visit (G1 17:49 (a))", &stray, Defects { no_sensed_arm_reset: true, ..Default::default() }, &|o| o.latches_at_next[1], &mut lines);
-    let mut off = Row::normal("off", 5, 10, 40, 16);
-    off.step_off = Some(5);
-    ctl("the step-off line's positive control: a forced displacement off P 5 gt after RLS shows on the cell line and fails the normal visit's bars", &off, Defects::default(), &|o| o.cells.contains('x') && !normal_bars(o, false).is_empty(), &mut lines);
+    lines.push(format!("  the D line's margin on the onset-allowance row (stepping onto P 1 gt before lying down from P: its string drops at pulse + 7, the latest drop an onset-passing press can have), the design: {}; with the old SINCE delay put back (the hold provided twice): {}", scan(false), scan(true)));
+    twin("the D line three steps shorter (2 gt: P read at pulse + 6, before the string's drop at + 7): a release to the sleeper", "stepping onto P and lying down within 1 gt", None, None, Defects { d_cut: 6, ..Default::default() }, &mut lines);
+    // (W: G1's N1 cooldown edge, lie 5 merged at L + 0, the slowest rest with the shortest pass -> rest (SENSED binds RLS
+    // at 68), the slowest ride, a world open of idle 2 with the entity domain 3 behind during the ride)
+    let edge = Some((46, 19, 16));
+    let edge_open = Some((80, OPEN_IDLE, OPEN_KJ));
+    twin("the W line one step longer (W 50, the ruled figure before N1): on G1's cooldown edge the merged release lands at pulse + 61 and boards 9 gt inside the cooldown bar", "lie-down at ARM + 5, a hurt at + 0", edge, edge_open, Defects { w_delta: 2, ..Default::default() }, &mut lines);
+    let (wr, wk, wl) = find("lie-down at ARM + 5, a hurt at + 0");
+    let mut wr = wr;
+    wr.rest = 46;
+    wr.board = 19;
+    wr.pass_to_rest = 16;
+    let wm = run(&wr, Defects { w_delta: -2, ..Default::default() });
+    let wd = run(&wr, Defects::default());
+    lines.push(format!("    W one step shorter (46), printed (no safety bar binds W from below: it only trades the merged path's first-window release for its re-sleep): the design {}; W 46 {}", if wd.boarded_at.is_some() { format!("boards at {:?}", wd.boarded_at) } else { "recovers later".into() }, if kind_bars(&wm, wk, wl).is_empty() { format!("passes (boards at {:?})", wm.boarded_at) } else { "fails".into() }));
+    twin("P_STRING removed from OPEN's reset: G1's awake napper re-crossing P at ARM + 300 doesn't close the shutter (the close bar on every press)", "CROSSING P", None, None, Defects { no_p_in_open_reset: true, ..Default::default() }, &mut lines);
+    twin("NOT P_STRING removed from OPEN's set: the window opens on the false-SO napper standing on P", "the false-SO path", None, None, Defects { no_notp_in_open: true, ..Default::default() }, &mut lines);
+    twin("SINCE removed: the box on the string after the lie-down from P releases to the sleeper", "SINCE's twin row", None, None, Defects { no_since: true, ..Default::default() }, &mut lines);
+    twin("COOL's resets removed: COOL still set after the next ARM's edge", "a stray press of the park-entry detector after RLS", None, None, Defects { no_cool_reset: true, ..Default::default() }, &mut lines);
+    twin("SO's reset removed: SO still set after the next ARM's edge", "a stray press of the park-entry detector after RLS", None, None, Defects { no_so_reset: true, ..Default::default() }, &mut lines);
+    twin("SENSED's ARM-edge reset removed: the stray park-entry press pre-sets SENSED at the next visit (G1 17:49 (a))", "a stray press of the park-entry detector after RLS", None, None, Defects { no_sensed_arm_reset: true, ..Default::default() }, &mut lines);
+    // (each kind's negative, G1 on a2186649e B6: the row's script with its defining event removed must fail its kind)
+    let mut neg = |name: &str, key: &str, edit: &dyn Fn(&mut Row), lines: &mut Vec<String>| {
+        let (mut r, kind, late) = find(key);
+        edit(&mut r);
+        let o = run(&r, Defects::default());
+        let b = kind_bars(&o, kind, late);
+        let c = v.control(&format!("ctl-shutter CONTROL (the kind's negative): {name}"), 1, !b.is_empty()).to_string();
+        lines.push(format!("  CONTROL (the kind's negative: {name}): {} [{}]: {c}", describe(&o), b.join("; ")));
+    };
+    neg("PermanentHalt: the step-off row without its step-off has no empty departure", "the step-off (a forced displacement", &|r| r.step_off = None, &mut lines);
+    neg("SelfEnding: the self-ending row without its later lie-down never boards after it", "self-ending at that lie-down", &|r| r.lie = vec![6], &mut lines);
+    neg("Normal: the normal-kind self-heal row with a step-off fails the step-off line", "the self-healing homeless napper", &|r| r.step_off = Some(5), &mut lines);
+    // (the park's pulse extender: the early wake at ARM + 9, whose RLS is 3 gt wide (the lie-down pulse's W line closes
+    // WIN just after PARKED), with a world open at 67 holding the entities 3 gt behind the blocks)
+    let (mut pr, _, _) = find("a hurt at ARM + 9)");
+    pr.open = Some((67, 1, 3));
+    let pd = run(&pr, Defects::default());
+    let px = run(&pr, Defects { no_park_stretch: true, ..Default::default() });
+    let c = v.control("ctl-shutter CONTROL: PARK without its pulse extender: the early wake's 3-gt RLS, a world open holding the entities 3 gt behind: the cart misses the whole PARK pulse and stays on the park (a permanent hold); with the extender it boards", 1, pd.departed.map(|d| d.1).unwrap_or(false) && px.departed.is_none()).to_string();
+    lines.push(format!("  CONTROL (PARK's pulse extender, the early wake at ARM + 9 with a world open at 67, idle 1, k + j 3): the design {}; without the extender {}: {c}", describe(&pd), describe(&px)));
     // (SINCE's old delay put back: every forced row must keep its outcome, the removal changes no row)
     let mut changed = Vec::new();
     for (row, kind, late) in forced_rows() {
