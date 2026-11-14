@@ -200,9 +200,23 @@ pub struct Layout {
 /// (a zombie in a boat, its feet 6.73 from P's, 6.43 from the sleeper's), its shutter (an iron
 /// trapdoor, open (powered) its plate cuts every line out of the post; shut (F) the sleeper's line
 /// passes under its slab) and the shutter's lever (the bench's controller, day-1's F line end).
-pub const WAKER_POST_S: [i32; 3] = [-5, 0, 10];
-pub const WAKER_SHUT: [i32; 3] = [-5, 1, 9];
-pub const WAKER_CTRL: [i32; 3] = [-5, 1, 8];
+/// (ironspec 08:09a (c) / 08:12a / 08:58a (2)(3): the cage one cell north, Z1 at z 9, so its south
+/// wall (z 10) and its boat's box (to z 10.19, loop 9.19) lie inside the column bound (loop z -6..9);
+/// and two blocks down (y -2), so the woken napper on P stays 6 or more from Z1's feet (3-D, feet to
+/// feet: SetWalkTargetAwayFrom's `closerThan(6)`), the sleeper within the zombie's 8)
+pub const WAKER_POST_S: [i32; 3] = [-5, -2, 9];
+pub const WAKER_SHUT: [i32; 3] = [-5, -1, 8];
+pub const WAKER_CTRL: [i32; 3] = [-5, -1, 7];
+/// (the fold's Z1 cage, unchanged: the record7f13b family composes the fold verbatim)
+pub const FOLD_WAKER_POST_S: [i32; 3] = [-5, 0, 10];
+pub const FOLD_WAKER_SHUT: [i32; 3] = [-5, 1, 9];
+pub const FOLD_WAKER_CTRL: [i32; 3] = [-5, 1, 8];
+
+/// Which Z1 cage a design lays: the re-laid stop's (one north, two down) or the fold's, told by the
+/// iron trapdoor at its shutter cell; (post, shutter, the shutter's drive cell).
+pub fn waker_cells(get: impl Fn([i32; 3]) -> String) -> ([i32; 3], [i32; 3], [i32; 3]) {
+    if get(WAKER_SHUT).contains("iron_trapdoor") { (WAKER_POST_S, WAKER_SHUT, WAKER_CTRL) } else { (FOLD_WAKER_POST_S, FOLD_WAKER_SHUT, FOLD_WAKER_CTRL) }
+}
 
 pub fn layout(w: &World) -> Layout {
     layout_at(w, [0, 0, 0])
@@ -214,7 +228,7 @@ pub fn layout_at(w: &World, off: [i32; 3]) -> Layout {
     let at = |c: [i32; 3]| format!("{}", w.get(BlockPos::new(c[0] + off[0], c[1] + off[1], c[2] + off[2])));
     let hatch = vec![HATCH_CTRL, HATCH_CTRL_HI];
     if at(E_A2).contains("activator_rail") {
-        let hatch_ctrl = if at(WAKER_SHUT).contains("iron_trapdoor") { vec![WAKER_CTRL] } else { hatch };
+        let hatch_ctrl = if at(WAKER_SHUT).contains("iron_trapdoor") { vec![WAKER_CTRL] } else if at(FOLD_WAKER_SHUT).contains("iron_trapdoor") { vec![FOLD_WAKER_CTRL] } else { hatch };
         // (the re-laid stop: P straight; the park the braked ascending rail on the siding z 3)
         if at(SWEPT[0]).contains("north_south")
             && let Some(px) = (1..=3).find(|&x| at([x, 0, 3]).contains("powered_rail") && at([x, 0, 3]).contains("ascending_east"))
@@ -1023,29 +1037,31 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
         // (-3,0,5), (-3..-4,0,6), (-4,1,6..9)); the screens (-3,1,6), (-3,1,7), (-2,1,7), (-1,1,7)
         // cut the lines to the exit's rider positions within 6 (on (-2,0,5), (-2,0,6), (-1,0,6));
         // the bed head's west side glass where A6's hatch was)
-        let p = WAKER_POST_S;
-        put(&mut b, [p[0], -1, p[2]], "glass")?;
-        put(&mut b, [p[0], 2, p[2]], "glass")?;
-        put(&mut b, [p[0], 3, p[2]], "oak_leaves[distance=7,persistent=true,waterlogged=false]")?;
-        for y in 0..=1 {
+        let (p, wshut, wctrl) = if relaid.is_some() { (WAKER_POST_S, WAKER_SHUT, WAKER_CTRL) } else { (FOLD_WAKER_POST_S, FOLD_WAKER_SHUT, FOLD_WAKER_CTRL) };
+        // (the cage relative to the post: its floor under the boat, its roof over the zombie's
+        // head cell, the leaves over the roof, its walls around both body cells)
+        put(&mut b, [p[0], p[1] - 1, p[2]], "glass")?;
+        put(&mut b, [p[0], p[1] + 2, p[2]], "glass")?;
+        put(&mut b, [p[0], p[1] + 3, p[2]], "oak_leaves[distance=7,persistent=true,waterlogged=false]")?;
+        for y in p[1]..=p[1] + 1 {
             put(&mut b, [p[0] - 1, y, p[2]], "glass")?;
             put(&mut b, [p[0] + 1, y, p[2]], "glass")?;
             put(&mut b, [p[0], y, p[2] + 1], "glass")?;
         }
-        put(&mut b, [p[0], 0, p[2] - 1], "glass")?;
+        put(&mut b, [p[0], p[1], p[2] - 1], "glass")?;
         // (the shutter: in the bench's file powered by its stand-in lever's night state (the
         // window shut); in the record stored UNPOWERED, its one stable state with no drive (G1's
         // Q16: a stored powered state with no source would change at its first update), F's built
         // line (DAY-1's) holding it powered except during the open window)
-        put(&mut b, WAKER_SHUT, if bench { "iron_trapdoor[facing=north,half=top,open=true,powered=true,waterlogged=false]" } else { "iron_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]" })?;
+        put(&mut b, wshut, if bench { "iron_trapdoor[facing=north,half=top,open=true,powered=true,waterlogged=false]" } else { "iron_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]" })?;
         // (the shutter's drive (G1 11:52: a redstone block can't be switched off, so in the record it
         // would be a stand-in, which one-key-one-meaning forbids): the bench's file holds its
         // stand-in lever, a declared bench override; the record leaves (-5,1,8) EMPTY for F's built
         // line's output (DAY-1's cells) and stores the shutter in the night state that line holds)
         if bench {
-            put(&mut b, WAKER_CTRL, &ctl_block(WAKER_CTRL, "redstone_block"))?;
+            put(&mut b, wctrl, &ctl_block(wctrl, "redstone_block"))?;
         }
-        put(&mut b, [WAKER_CTRL[0], 0, WAKER_CTRL[2]], "glass")?;
+        put(&mut b, [wctrl[0], wctrl[1] - 1, wctrl[2]], "glass")?;
         b.entity("oak_boat", [p[0] as f64 + 0.5, p[1] as f64, p[2] as f64 + 0.5], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}"));
         for c in [[-3, 1, 6], [-3, 1, 7], [-2, 1, 7], [-1, 1, 7]] {
             put(&mut b, c, "glass")?;
@@ -1098,7 +1114,8 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
     }
     b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
     if waker_south {
-        b.d.meta.insert("keep-block".into(), "-5,3,10=oak_leaves[distance=7,persistent=true] (Z1's cover over its glass roof (-5,2,10): its eye cell (-5,1,10) at sky light 14, no burning by day)".into());
+        let p = if relaid.is_some() { WAKER_POST_S } else { FOLD_WAKER_POST_S };
+        b.d.meta.insert("keep-block".into(), format!("{},{},{}=oak_leaves[distance=7,persistent=true] (Z1's cover over its glass roof ({},{},{}): its eye cell ({},{},{}) at sky light 14, no burning by day)", p[0], p[1] + 3, p[2], p[0], p[1] + 2, p[2], p[0], p[1] + 1, p[2]));
         // (the waker's in-sight places, declared: every place a napper has Z1 in sight within 8
         // once F opens the window: the sleeper only (58f770cc's ray at F on every visit; 9fc3155f's
         // x20 sight: P and the exit screened); none with the window shut)
@@ -1133,7 +1150,9 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
         b.d.meta.insert("unreachable".into(), "-1,1,2=E's east trapdoor top under its guard string: E's cell (-2,0,2) under the cap (-2,1,2) leaves 1.75 of headroom, (-1,0,1) is ARM's glass and (-1,0,3) a rail cell with no standable approach (the stop's only stand-up cell is P); -1,1,5=the hand-off's east trapdoor top under its guard string: diagonal to P, (-1,0,4) unstandable under the glass (-1,1,4), (-2,0,5) under the cap (-2,1,5) leaves 1.75, (0,1,5) is the curve's cap".into());
     }
     if waker_south {
-        put(&mut b, [-5, 2, 9], "glass")?;
+        // (the glass over Z1's shutter, the re-laid stop's or the fold's)
+        let ws = if relaid.is_some() { WAKER_SHUT } else { FOLD_WAKER_SHUT };
+        put(&mut b, [ws[0], ws[1] + 1, ws[2]], "glass")?;
     }
     b.d.ports.insert("output".into(), [12, 0, 6]);
     b.d.ports.insert("home".into(), BED_HEAD);
@@ -1149,6 +1168,14 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
         format!("always-on: 3,2,-5=the entry booster's redstone torch, on glass (3,1,-5): it never toggles; -3,0,2=the activator's redstone torch, on glass (-3,-1,2): it never toggles (ironspec 03:22: no lever a wind burst can flip); {}{}", if loop_booster { "0,0,2=the loop booster's redstone torch, on glass (0,-1,2): it never toggles; " } else { "" }, if exit_south { "-1,0,7=the exit booster's redstone torch, on glass (-1,-1,7): it never toggles" } else { "-1,0,6=the exit booster's redstone torch, on glass (-1,-1,6): it never toggles" }) + if exit_boost { "; -2,-2,5=the hand-off booster's redstone torch, on glass (-2,-3,5), under its slime support (-2,-1,5): it never toggles" } else { "" },
         "a6-pickup: -2,0,4=the pickup cell (the napper's only stand-up cell); stranded bound: no cart at it by the wake edge + 60 gt fails (the physical event it stands for: the woken napper waiting on P re-sleeps at the wake + ~100, LAST_WOKEN's cooldown, and once re-asleep the visit is stranded; 60 keeps 40 gt before that; the longest wake -> boarding on DAY-1's controller is 42 gt over 408 visits; the merged lie-down + wake path is a fault path judged by boarding before the re-sleep, ironspec 19:09)".to_string(),
     ];
+    // (G1 10:16 (1) / tick-exact 10:13: the lone guard strings are load-bearing golem-floor covers)
+    if exit_south {
+        lines.push("Load-bearing (G1 10:16, tick-exact 10:13): the lone guard strings (-1,1,2) and (-1,1,5) stay UNATTACHED (no hook in line within range: attached=false, never a signal); each fills the golem cell over its trapdoor top (26.3's LEGACY_IRON_GOLEM needs the spawn cell itself air or liquid), so neither top is a golem floor; fault: a string lost (its trapdoor top a golem floor again); repair: the string replaced, unattached.".to_string());
+    }
+    // (ironspec 10:37a (2): the fold keeps its own Z1 cage: a placeholder, never built)
+    if waker_south && relaid.is_none() {
+        lines.push("Fold placeholder, not for build (ironspec 10:37a): its Z1 cage (-5,0,10) lies outside V's column bound; no waker figure cites from it (the waker bars cite from the re-laid file); records composing it label its Z1 / cage cells so.".to_string());
+    }
     if wake_sensor {
         lines.push("The wake sensor (G1 12:04 / day-1 12:03): (-3,-1,4) an observer facing up at the bed head (-3,0,4), in the glass's place under it: the head's OCCUPIED set (SleepInBed's start) and cleared (the wake) each give a pulse out of its bottom face into (-3,-2,4), where DAY-1's controller (SO and SINCE set by its pulses) and its release (RLS = P_STRING and SINCE and WIN and PARKED; the park at RLS + p: the first (-2,0,5) entry clears C + 19 (NEAREST_HOSTILE's worst clear after the shutter's flip C, tick-exact 17:52) by >= 1 after k + j, ironspec 17:53) start; the bench prints its pulses against the napper's own edges.".to_string());
     }
@@ -1250,9 +1277,9 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
                 // RLS -> B2's west face
                 [0, -2, -2], [1, -2, -2],
                 // RLS -> the branch and the reset chain's feed
-                [-1, -2, -3], [-1, -2, -4], [0, -2, -4], [1, -2, -4], [2, -2, -4], [-1, -2, -5], [-1, -2, -6],
+                [-1, -2, -3], [-1, -2, -4], [0, -2, -4], [1, -2, -4], [2, -2, -4], [-1, -2, -5],
                 // the reset chain's tail into the RESET repeater (ARM_IN joins at (5,-2,-5))
-                [5, -2, -6], [5, -2, -5], [5, -2, -4],
+                [5, -2, -5], [5, -2, -4],
                 // QBAR -> BASE's west face
                 [4, -2, -2],
                 // Q's feedback into B2's south face
@@ -1275,7 +1302,12 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
             comps.insert([2, -2, -3], ("repeater", "north"));
             comps.insert([5, -2, -3], ("repeater", "north"));
             for x in 0..=4 {
-                comps.insert([x, -2, -6], ("repeater", "west"));
+                // (ironspec 08:09a (c) / 08:12a: the reset chain's delay line pulled in from z -6 to
+                // z -5, inside the column bound (z -5 lands at loop z -6): the same five delay-2
+                // repeaters, (-1,-2,-5) feeding the first's input (a diode's `facing` names its input
+                // side), the last's output into (5,-2,-5); the dust row (0..2,-2,-4) beside them is
+                // off their axis: no new connection)
+                comps.insert([x, -2, -5], ("repeater", "west"));
             }
             if hold_slope {
                 comps.insert(TAP_REP, ("repeater", "north"));
@@ -1328,7 +1360,7 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
             }
             for (&c, &(kind, facing)) in &comps {
                 if kind == "repeater" && c != [2, 0, 2] {
-                    let delay = if c[2] == -6 && (0..=4).contains(&c[0]) { 2 } else { 1 };
+                    let delay = if c[2] == -5 && (0..=4).contains(&c[0]) { 2 } else { 1 };
                     over(&mut b, c, &format!("repeater[delay={delay},facing={facing},locked=false,powered=false]"));
                     over(&mut b, [c[0], c[1] - 1, c[2]], "glass");
                 }
@@ -1353,6 +1385,8 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
             // (9fc3155f 06:19, part 51: the OR line's climb into the drive repeater steps UP over
             // glass, never down: declared one-way by its upper dust, the direction named)
             lines.push("one-way: 2,0,1=the OR line's climb into the drive repeater (2,0,2): the latch's signal (RLS / Q on y -2) flows UP over glass into the drive, never down (the PARK window lit [RLS + 2, RLS + 26) on every bench visit carries it end to end); 1,-1,1=the same climb's first up-step, from (0,-2,1) and (1,-2,0) below it".to_string());
+            // (vcompose 10:10 / 9fc3155f 05:00: the glass over the latch's two stones is load-bearing)
+            lines.push("Load-bearing (9fc3155f 05:00, vcompose 10:10): the glass (2,-1,-2) and (5,-1,-2) covers the latch's stones (2,-2,-2) / (5,-2,-2), which hold the wall torches (3,-2,-2) / (6,-2,-2); without it each stone's top is an off-pad golem floor and an unreachable stroll target; fault: a cover glass lost; repair: the glass replaced.".to_string());
         }
         // (K, the driven T: stored north_east (the arrival's shape); its drive's conductor a slime
         // under it, which powers only K; the bench's stand-in a ceiling lever under the slime)
@@ -1396,10 +1430,14 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
         lines.retain(|l| !(l.starts_with("integrity:") || l.starts_with("update-only: 0,0,3") || l.starts_with("switches: 1,0,3") || l.starts_with("The sensed park") || l.starts_with("contacts:") || l.starts_with("contact-speeds:")));
         // (G1 04:08a "also": the re-laid variant's own prose, not the fold's (its park (1,0,4), the
         // run-up along z 4, the P_HOLD torch (2,-1,4)))
-        lines.retain(|l| !(l.starts_with("The bed stop (A) with the run-up") || l.starts_with("E sets the rider down on the bed foot's top") || l.starts_with("The drives, no lever and no stand-in in this file")));
+        lines.retain(|l| !(l.starts_with("The bed stop (A) with the run-up") || l.starts_with("E sets the rider down on the bed foot's top") || l.starts_with("The drives, no lever and no stand-in in this file") || l.starts_with("The bench file lays the stand-in levers")));
         lines.insert(0, format!("The bed stop (A), re-laid (ironspec 21:42 -> 00:08; local frame; loop = local + (0,-27,-1); the bed's head at (-3,0,4)): A6's arrival (the entry booster, the slope down, the capped flat, the curve south, the flats), the arming detector ARM (-2,0,1), the activator E (-2,0,2) (always on: its torch (-3,0,2) on glass), K (-2,0,3) the driven T (north_east for the arrival onto the siding, south_east for the return to P), the siding (-1,0,3) / (0,0,3) out and back, the park ({px},0,3) a braked powered rail ascending east on its slime ({},0,3) under glass ({},3,3), its drive a plain repeater ({},0,2) facing north, the pickup cell P (-2,0,4) straight north_south, A6's exit (the cap (-2,1,5), the curve, the capped booster, the slope (1,-1,5) a plain rail (no exit hold: lane 7's braked R holds outside the bed's 16-ball, ironspec 05:33 / 06:04), R (4,-1,5) a plain rail (RS_ready's evidence is V's ball-exit detector (7,-3,4), outside the 16-ball: ironspec 07:30), the napper lift's foot (6,-1,5) two cells on).", px + 1, px + 1, px + 1));
         lines.insert(1, "E sets the rider down on the bed head's top (the landing in `stand-up:`): SleepInBed fires at once. The empty cart runs E -> K -> the siding and brakes on the park; DAY-1's controller (rev 20:00) opens the window once the napper sleeps; the zombie wakes it; it stands up on P (its only stand-up cell) and presses P_STRING; RLS releases the park (PARK [RLS + 2, RLS + 26) by day-1's form-(b) latch in the -latch file, the bench's named stand-in in the plain file); the cart runs back through K (south_east) into P, seats the napper and runs on through R to the napper lift (RS_ready is V's: the ball-exit detector (7,-3,4)). One cart per visit, the park released once per visit.".to_string());
-        lines.insert(2, "The drives: K's (its slime (-2,-1,3)), the park's (the repeater (2,0,2)'s input (2,0,1)) and the window's (-5,1,8) are DAY-1's cells, empty in the plain file; the -latch file lays day-1's form-(b) P_HOLD latch one level down (rig (x,0,z) -> stop (x+2,-2,z-2)), Q driving only the park (no tap line: no exit hold), its inputs RLS_IN (-1,-2,-2) and ARM_IN (6,-2,-5) empty; a bench lays its stand-in levers there as declared overrides.".to_string());
+        lines.insert(2, format!("The drives: K's (its slime (-2,-1,3)), the park's (the repeater (2,0,2)'s input (2,0,1)) and the window's ({},{},{}) are DAY-1's cells, empty in the plain file; the -latch file lays day-1's form-(b) P_HOLD latch one level down (rig (x,0,z) -> stop (x+2,-2,z-2)), Q driving only the park (no tap line: no exit hold), its inputs RLS_IN (-1,-2,-2) and ARM_IN (6,-2,-5) empty; a bench lays its stand-in levers there as declared overrides.", WAKER_CTRL[0], WAKER_CTRL[1], WAKER_CTRL[2]));
+        // (the re-laid bench file's own stand-ins, not the fold's (its park drive (2,-1,4)))
+        if bench {
+            lines.insert(3, format!("The bench file lays the stand-in levers (bench overrides, never in the record): ({},{},{}) the shutter's drive (the controller unpowers it to open the window and powers it to shut it); (-2,-2,3) K's drive (a ceiling lever under K's slime (-2,-1,3)); {}", WAKER_CTRL[0], WAKER_CTRL[1], WAKER_CTRL[2], if latch_b { "RLS_IN (-1,-2,-2) and ARM_IN (6,-2,-5), floor levers on glass (the latch's inputs; ARM_IN follows ARM's detector power)." } else { "(2,0,1) the park's drive (a floor lever on glass into the repeater (2,0,2))." }));
+        }
         // (the re-laid stop's cart contacts, re-declared from its reference run (the 408 band on the
         // re-laid bench, 58f770cc Nov 14 02:05): the siding's flush run along the sealed glass
         // (-1,0,4), and the cart in P flush with the bed's east faces (foot and head, one clip on both
@@ -1444,7 +1482,7 @@ pub fn design_a2(bench: bool, loop_booster: bool, head_open: bool, exit_south: b
         }
         lines.push(format!("integrity: {}", integ.join("; ")));
         lines.push("switches: -2,0,3=K, a driven T (ironspec 21:51 (5)): north_east powered (the arrival from E), south_east unpowered (the return into P); its drive the slime (-2,-1,3) under it, which powers only K (the bench's stand-in a ceiling lever at (-2,-2,3); DAY-1's K drive in the build: SET by ARM's edge, RESET by the park string's press)".to_string());
-        lines.push("Load-bearing, FRAGILE (ironspec 23:08 (5)): the four screens (-3,1,6), (-3,1,7), (-2,1,7), (-1,1,7) cut every line from Z1 (the stop's own waker at (-5,0,10), inside the stop's footprint to z 11) to the exit's rider positions within 6 ((-2,0,5), (-2,0,6), (-1,0,6)); fault: a screen lost lets a rider see Z1 (NEAREST_HOSTILE armed on the hold and the exit); repair: the glass replaced.".to_string());
+        lines.push(format!("Load-bearing, FRAGILE (ironspec 23:08 (5)): the four screens (-3,1,6), (-3,1,7), (-2,1,7), (-1,1,7) cut every line from Z1 (the stop's own waker at ({},{},{}), its cage inside the stop's footprint to z {}) to the exit's rider positions within 6; fault: a screen lost lets a rider see Z1 (NEAREST_HOSTILE armed on the exit); repair: the glass replaced.", WAKER_POST_S[0], WAKER_POST_S[1], WAKER_POST_S[2], WAKER_POST_S[2] + 1));
         lines.push(format!("The re-laid stop (ironspec 21:42 / 21:51 / 22:58, 58f770cc 21:44 / 22:32): P (-2,0,4) straight north_south and dry, reached from the north through K; the empty cart's out-and-back siding along z 3, all dry (ironspec 23:40 (1): no water at the stop): K, (-1,0,3) .. ({},0,3) plain, the park ({px},0,3) a braked powered rail ascending east; its drive the slime ({},0,3) by the repeater ({},0,2) from its input ({},0,1) (DAY-1's PARK line; the bench's stand-in a redstone block there); SENSED a tripwire over the park cell ({px},1,3), hooks ({px},1,2) / ({px},1,4) on glass ({px},1,1) / ({px},1,5): pressed while the cart rests on the slope (its box's top past 1.0625), released when it leaves; P_STRING east-west at (-2,1,4), hooks (-3,1,4) on (-4,1,4) and (-1,1,4) on (0,1,4); (-1,0,4) and (-1,2,4) glass; no head-top guard (ironspec 23:40 (3)(a)); the bed column's keep-clear (-3,2,4) (-3,3,4) guards the riders' HOME route's final drop onto the head node (-3,1,4), which holds P_STRING's west hook by design (no collision box: the route completes onto it, 9fc3155f 01:01; vcompose 03:28 / ironspec 03:30 (3)).", px - 1, px + 1, px + 1, px + 1));
     }
     let refs: Vec<&str> = lines.iter().map(|s| s.as_str()).collect();
@@ -1755,6 +1793,26 @@ pub struct Row {
     /// passenger's box, on the ticks their boxes enter the glass's column
     pub glass_gap_cart: Option<f64>,
     pub glass_gap_rider: Option<f64>,
+    /// (ironspec 08:16a / G1 08:18) the post-eject empty pass's least boarding margin while the cart
+    /// moves >= 0.1 b/t: (margin, tick, speed, the napper asleep, the y gap); and the least while
+    /// slower (the stated margin)
+    pub board_margin: Option<(f64, i64, f64, bool, f64)>,
+    pub board_margin_asleep: Option<(f64, i64, f64, bool, f64)>,
+    pub board_margin_slow: Option<f64>,
+    /// the napper's least boarding cooldown remaining over the pass's moving ticks
+    pub board_cd_min: Option<i64>,
+    /// (ironspec 08:16a (c)) the tick the napper was boarded between its eject landing and the release
+    pub boarded_early: Option<i64>,
+    /// (ironspec 08:14a / G1 08:16) Z1's boat: its stop-local centre (x,y,z) and box (min x, max x,
+    /// min z, max z) at the first tick; the napper's least separation from its 0.2-inflated box
+    pub boat_box: Option<[f64; 7]>,
+    /// (ironspec 08:58a (3)) Z1's feet (x,y,z) and eye y, stop-local
+    pub z1_feet_eye: Option<[f64; 4]>,
+    /// (ironspec 09:22a (3)) Z1's feet range over the visit (min/max x, y, z, stop-local) and the
+    /// least distance from them to the nearest feet P's box allows
+    pub z1_range: Option<[f64; 6]>,
+    pub z1_p_worst: Option<f64>,
+    pub boat_margin: Option<f64>,
     /// (G1 04:08a item 4) the laid latch's park lightings before RLS (bar 0)
     pub park_rises_before_rls: usize,
     /// (G1 02:47) the empty cart's speed crossing the siding's centre x -0.5 eastward, toward the park
@@ -2224,6 +2282,9 @@ pub struct Faults {
     /// (ironspec 02:16, row 39's fault record) an EMPTY cart planted at this stop-local position at
     /// the visit's start (a cart left on the siding, the stop blocked); the visit runs 14,000 gt
     pub plant_empty: Option<[f64; 3]>,
+    /// (ironspec 08:16a (c)) the boarding control: the napper moved to these stop-local feet the
+    /// tick after its eject landing
+    pub plant_napper_at: Option<[f64; 3]>,
     /// (vcompose 03:19) the header's `stand-up:` feet positions (stop-local, exact)
     pub stand_up_decl: Option<Vec<[f64; 3]>>,
     /// ((A), ironspec 00:37 (2b)) F waits for the arming detector's edge + this many gt (the
@@ -2905,7 +2966,7 @@ pub fn ctl_block(c: [i32; 3], st: &str) -> String {
         "stone" => false,
         other => return other.to_string(),
     };
-    if !([HATCH_CTRL, HATCH_CTRL_HI, ACT_CTRL, ACT_CTRL_T5B, ACT_CTRL_A, PARK_CTRL_A, WAKER_CTRL, TAP_CTRL].contains(&c) || PARK_CTRL.contains(&c)) {
+    if !([HATCH_CTRL, HATCH_CTRL_HI, ACT_CTRL, ACT_CTRL_T5B, ACT_CTRL_A, PARK_CTRL_A, WAKER_CTRL, FOLD_WAKER_CTRL, TAP_CTRL].contains(&c) || PARK_CTRL.contains(&c)) {
         // ((A) with the run-up: the activator's lever hung from the glass over E, the park's on
         // the glass south of it)
         if c == ACT_CTRL_A2 {
@@ -3031,8 +3092,9 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
     } else {
         Vec::new()
     };
-    // (Z1's design: the waker's shutter at WAKER_SHUT (an iron trapdoor))
-    let z1_design = format!("{}", run.world.get(wc(WAKER_SHUT))).contains("iron_trapdoor");
+    // (Z1's design: the waker's shutter (an iron trapdoor) at the re-laid stop's cell or the fold's)
+    let (_z1_post, z1_shut, _z1_ctrl) = waker_cells(|c| format!("{}", run.world.get(wc(c))));
+    let z1_design = format!("{}", run.world.get(wc(z1_shut))).contains("iron_trapdoor");
     // (G1's Q12: no silent no-op: Z1 shuts its window on the wake edge as its normal operation)
     if f.hide_after_wake && z1_design {
         return Err("--hide-after-wake on Z1's design is a no-op (Z1 shuts the window on the wake edge as its normal operation; G1's Q12)".into());
@@ -3128,7 +3190,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
         let ze = Vec3::new(z.pos.x, z.pos.y + z.kind.eye_height() as f64, z.pos.z);
         let eh = w.entities.list[vi].kind.eye_height() as f64;
         let mut open_w = w.clone();
-        let sh = wc(WAKER_SHUT);
+        let sh = wc(z1_shut);
         let open_state = format!("{}", open_w.get(sh)).replace("open=true", "open=false").replace("powered=true", "powered=false");
         open_w.set_block(sh, block(open_state.trim_start_matches("minecraft:"))?, 0);
         let shut_w = {
@@ -3836,6 +3898,20 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             row.park_off_at = Some(t);
             row.latch_lines.push(format!("t {}: PARK's stretch ends: the park drive OFF", t - 1));
         }
+        // (ironspec 08:16a (c) / 09:00: the boarding rule's positive control: the napper moved, the
+        // tick after it lies down (a sleeper is immobile), into the post-eject empty pass's reach,
+        // `--plant-napper-at X,Y,Z`)
+        if let Some(p) = f.plant_napper_at
+            && row.slept_at.is_some_and(|s| s + 1 == t)
+            && let Some(vi) = vill.and_then(|v| idx(&run.world, v))
+        {
+            run.world.entities.set_pos(vi, Vec3::new(p[0] + off[0] as f64, p[1] + off[1] as f64, p[2] + off[2] as f64));
+            // (the eject's 60-gt boarding cooldown (Entity.removeVehicle) would refuse any seat this
+            // soon after the dismount: the control clears it, so the cart's reach alone decides)
+            let cd = run.world.entities.list[vi].boarding_cooldown;
+            run.world.entities.list[vi].boarding_cooldown = 0;
+            row.latch_lines.push(format!("t {t}: the napper planted at ({:.3},{:.3},{:.3}), its boarding cooldown {cd} cleared to 0 (the boarding rule's control)", p[0], p[1], p[2]));
+        }
         // (`--latch-b`: the laid latch's inputs: RLS_IN off after its width; ironspec 05:59 (1): ARM_IN
         // follows ARM's real detector power each tick (the build's wire from the detector rail:
         // its press one tick late and its 20-gt recheck hold included), not a 3-gt pulse at its edge
@@ -4481,7 +4557,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                     let dist = ((v.pos.x - z.pos.x).powi(2) + (v.pos.y - z.pos.y).powi(2) + (v.pos.z - z.pos.z).powi(2)).sqrt();
                     let shut = redsim::entity::mob::los::first_hit(w, ve, ze);
                     let mut w2 = w.clone();
-                    let sh = wc(WAKER_SHUT);
+                    let sh = wc(z1_shut);
                     let open_state = format!("{}", w2.get(sh)).replace("open=true", "open=false").replace("powered=true", "powered=false");
                     w2.set_block(sh, block(open_state.trim_start_matches("minecraft:"))?, 0);
                     let open = redsim::entity::mob::los::first_hit(&w2, ve, ze);
@@ -4680,6 +4756,11 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
             }
             // (G1 16:00: the boarded rider's ride away from the bed: its distance to the bed head's
             // centre (-2.5,0.5,4.5) per tick after the pickup)
+            // (ironspec 08:16a (c): the napper boarded by the empty cart between its eject landing
+            // and the release: the boarding rule's failure, by name)
+            if riding && row.dismount_at.is_some() && row.release_at.is_none() && row.boarded_early.is_none() {
+                row.boarded_early = Some(t);
+            }
             if riding && row.pickup.is_some() {
                 let dd = ((vp.x + 2.5).powi(2) + (vp.y - 0.5).powi(2) + (vp.z - 4.5).powi(2)).sqrt();
                 if row.r_real_at.is_some() && row.ride_dist_at_r.is_none() {
@@ -5320,6 +5401,87 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
                 row.siding_speed = Some(c.delta_movement.horizontal_distance_sqr().sqrt());
             }
         }
+        // (ironspec 08:16a / G1 08:18 / tick-exact 08:21, the boarding rule: an empty cart moving
+        // >= 0.1 b/t boards a villager whose box meets the cart's box inflated 0.2 in x / z, standing
+        // or asleep: the post-eject empty pass E -> K -> the siding -> the park, per tick from the
+        // eject until the release, the cart carrying nobody; the margin is the boxes' separation
+        // (the largest per-axis gap, > 0 apart), with the napper's pose (standing 0.6 x 1.95 until
+        // SleepInBed starts, then 0.2 x 0.2), the cart's speed and the y gap)
+        if lay.park_string.is_some()
+            && row.dismount_at.is_some()
+            && row.release_at.is_none()
+            && c.passengers.is_empty()
+            && let Some(vi) = vill.and_then(|v| idx(w, v))
+            && !w.entities.list[vi].removed
+        {
+            let vb = w.entities.list[vi].bb;
+            let gx = (vb.min_x - (cpos.x + 0.49 + 0.2)).max((cpos.x - 0.49 - 0.2) - vb.max_x);
+            let gz = (vb.min_z - (cpos.z + 0.49 + 0.2)).max((cpos.z - 0.49 - 0.2) - vb.max_z);
+            let gy = (vb.min_y - (cpos.y + 0.7)).max(cpos.y - vb.max_y);
+            let m = gx.max(gz).max(gy);
+            let asleep_now = redsim::entity::mob::mob(w, vi).sleeping_pos.is_some();
+            let speed = c.delta_movement.horizontal_distance_sqr().sqrt();
+            // (the eject's 60-gt boarding cooldown: while it runs Entity.canRide refuses every seat,
+            // whatever the margin: its least remaining over the pass's moving ticks)
+            if speed >= 0.1 {
+                let cd = w.entities.list[vi].boarding_cooldown as i64;
+                row.board_cd_min = Some(row.board_cd_min.map_or(cd, |b: i64| b.min(cd)));
+            }
+            if speed >= 0.1 && !asleep_now && row.board_margin.is_none_or(|b: (f64, i64, f64, bool, f64)| m < b.0) {
+                row.board_margin = Some((m, t, speed, asleep_now, gy));
+            }
+            // (tick-exact 08:21: the sleeping box (0.2 x 0.2 at the bed head's centre) from the tick
+            // SleepInBed starts: the asleep ticks' least margin kept apart)
+            if speed >= 0.1 && asleep_now && row.board_margin_asleep.is_none_or(|b: (f64, i64, f64, bool, f64)| m < b.0) {
+                row.board_margin_asleep = Some((m, t, speed, asleep_now, gy));
+            }
+            if speed < 0.1 && row.board_margin_slow.is_none_or(|b: f64| m < b) {
+                row.board_margin_slow = Some(m);
+            }
+        }
+        // (ironspec 08:14a / G1 08:16: Z1's boat has a free seat: a boat no player controls picks
+        // up any living non-player entity touching its box inflated 0.2: the napper's box against it
+        // per tick, and the boat's composed centre and box (printed in both frames))
+        if lay.park_string.is_some()
+            && let (Some(zi), Some(vi)) = (zid.and_then(|z| idx(w, z)), vill.and_then(|v| idx(w, v)))
+            && let Some(bi) = w.entities.list[zi].vehicle.and_then(|b| idx(w, b))
+        {
+            let bb = w.entities.list[bi].bb;
+            if row.boat_box.is_none() {
+                let bp = w.entities.list[bi].pos;
+                row.boat_box = Some([bp.x - off[0] as f64, bp.y - off[1] as f64, bp.z - off[2] as f64, bb.min_x - off[0] as f64, bb.max_x - off[0] as f64, bb.min_z - off[2] as f64, bb.max_z - off[2] as f64]);
+                // (ironspec 08:58a (3)(a)(b): Z1's feet and eye, stop-local, for the waker statics)
+                let zp = w.entities.list[zi].pos;
+                let ze = zp.y + w.entities.list[zi].kind.eye_height() as f64;
+                row.z1_feet_eye = Some([zp.x - off[0] as f64, zp.y - off[1] as f64, zp.z - off[2] as f64, ze - off[1] as f64]);
+            }
+            let vb = w.entities.list[vi].bb;
+            // (ironspec 09:22a (3): Z1's own spread folded in: its feet per tick (the boat's play
+            // and its seat), the least distance from them to the nearest feet P's box allows)
+            {
+                let zp = w.entities.list[zi].pos;
+                let zl = [zp.x - off[0] as f64, zp.y - off[1] as f64, zp.z - off[2] as f64];
+                let r = row.z1_range.get_or_insert([zl[0], zl[0], zl[1], zl[1], zl[2], zl[2]]);
+                r[0] = r[0].min(zl[0]);
+                r[1] = r[1].max(zl[0]);
+                r[2] = r[2].min(zl[1]);
+                r[3] = r[3].max(zl[1]);
+                r[4] = r[4].min(zl[2]);
+                r[5] = r[5].max(zl[2]);
+                let mut worst = f64::INFINITY;
+                for x in [-1.7, -1.5, -1.3] {
+                    for zz in [4.3, 4.5, 4.7] {
+                        worst = worst.min(((x - zl[0]).powi(2) + zl[1].powi(2) + (zz - zl[2]).powi(2)).sqrt());
+                    }
+                }
+                row.z1_p_worst = Some(row.z1_p_worst.map_or(worst, |b: f64| b.min(worst)));
+            }
+            let gx = (vb.min_x - (bb.max_x + 0.2)).max((bb.min_x - 0.2) - vb.max_x);
+            let gz = (vb.min_z - (bb.max_z + 0.2)).max((bb.min_z - 0.2) - vb.max_z);
+            let gy = (vb.min_y - bb.max_y).max(bb.min_y - vb.max_y);
+            let m = gx.max(gz).max(gy);
+            row.boat_margin = Some(row.boat_margin.map_or(m, |b: f64| b.min(m)));
+        }
         // (G1 05:15 (2) / 05:17b: the golem glass over the park slime, a box-clearance bar per tick
         // by role: the cart, and each passenger, whose box enters the glass's column (x 2..3, z 3..4
         // stop-local) measured against the glass's bottom face (y 3); fails at <= 0)
@@ -5412,7 +5574,7 @@ pub fn bench(spec: &FarmSpec, seed: u64, speed: f64, release_after: i64, day: bo
         // (the shutter's state read each end-of-tick: its first open and first shut after the window
         // opened, printed beside the writes' stamps (C = the closing write's t - 1, ironspec 20:55))
         if z1_design {
-            let shut = format!("{}", w.get(wc(WAKER_SHUT))).contains("open=true");
+            let shut = format!("{}", w.get(wc(z1_shut))).contains("open=true");
             // (rev 20:00 G20 / G1's N5: the longest run of end-of-ticks with the window open while
             // the napper stands awake on P, bar <= 9)
             let on_p_awake = vill.and_then(|v| idx(w, v)).is_some_and(|vi| {
@@ -6250,8 +6412,10 @@ pub fn zombie_post_lines(spec: &FarmSpec) -> Result<Vec<String>, String> {
         for _ in 0..t {
             run.tick();
         }
-        // (the post: A6's, or the moved waker's when the design holds its shutter)
-        let post = if run.world.get(BlockPos::new(WAKER_SHUT[0], WAKER_SHUT[1], WAKER_SHUT[2])).kind() == redsim::block::Kind::Trapdoor(true) { WAKER_POST_S } else { ZOMBIE_POST };
+        // (the post: A6's, or the moved waker's when the design holds its shutter (the re-laid
+        // stop's cage or the fold's))
+        let (wpost, wshut, _) = waker_cells(|c| format!("{}", run.world.get(BlockPos::new(c[0], c[1], c[2]))));
+        let post = if run.world.get(BlockPos::new(wshut[0], wshut[1], wshut[2])).kind() == redsim::block::Kind::Trapdoor(true) { wpost } else { ZOMBIE_POST };
         for e in run.world.entities.list.iter().filter(|e| !e.removed && e.id >= first) {
             let inside = e.pos.x >= post[0] as f64 && e.pos.x <= post[0] as f64 + 1.0 && e.pos.z >= post[2] as f64 && e.pos.z <= post[2] as f64 + 1.0;
             let name = match &e.kind {
@@ -6927,6 +7091,52 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
                         // before the arriving cart's first tick in K; south_east after its last tick in
                         // K and before the released cart's first tick in K)
                         if r.relaid {
+                            // (ironspec 08:16a / G1 08:18: the post-eject empty pass's boarding margin)
+                            // (tick-exact 08:21: the napper's awake ticks between its dismount and
+                            // SleepInBed's start: their count per visit, the standing box's window)
+                            if let (Some(dm), Some(sl)) = (r.dismount_at, r.slept_at) {
+                                let k = sl - dm;
+                                sk.awake_after_eject_max = sk.awake_after_eject_max.max(k);
+                                sk.awake_after_eject_zero += (k <= 0) as usize;
+                                sk.awake_after_eject_n += 1;
+                            }
+                            if let Some((m, tt, sp, asl, gy)) = r.board_margin {
+                                sk.board_n += 1;
+                                if sk.board_min.as_ref().is_none_or(|b| m < b.0) {
+                                    sk.board_min = Some((m, format!("{name}: seed {seed} speed {v} t {tt}"), sp, asl, gy));
+                                }
+                            }
+                            if let Some((m, tt, sp, asl, gy)) = r.board_margin_asleep
+                                && sk.board_min_asleep.as_ref().is_none_or(|b| m < b.0)
+                            {
+                                sk.board_min_asleep = Some((m, format!("{name}: seed {seed} speed {v} t {tt}"), sp, asl, gy));
+                            }
+                            if let Some(m) = r.board_margin_slow {
+                                sk.board_slow_min = Some(sk.board_slow_min.map_or(m, |b: f64| b.min(m)));
+                            }
+                            if let Some(cd) = r.board_cd_min {
+                                sk.board_cd_min = Some(sk.board_cd_min.map_or(cd, |b: i64| b.min(cd)));
+                            }
+                            if let Some(tb) = r.boarded_early {
+                                sk.boarded_early.push(format!("{name}: seed {seed} speed {v} t {tb}"));
+                            }
+                            if sk.boat_box.is_none() {
+                                sk.boat_box = r.boat_box;
+                                sk.z1_feet_eye = r.z1_feet_eye;
+                            }
+                            if let Some(zr) = r.z1_range {
+                                let s = sk.z1_range.get_or_insert(zr);
+                                for i in 0..3 {
+                                    s[2 * i] = s[2 * i].min(zr[2 * i]);
+                                    s[2 * i + 1] = s[2 * i + 1].max(zr[2 * i + 1]);
+                                }
+                            }
+                            if let Some(pw) = r.z1_p_worst {
+                                sk.z1_p_worst = Some(sk.z1_p_worst.map_or(pw, |b: f64| b.min(pw)));
+                            }
+                            if let Some(m) = r.boat_margin {
+                                sk.boat_margin = Some(sk.boat_margin.map_or(m, |b: f64| b.min(m)));
+                            }
                             // (ironspec 04:40 (1): the cycle terms, every re-laid visit (R keyed on
                             // the string's press where laid, else on the cart crossing R's centre))
                             if let Some(s) = r.slept_at {
@@ -7634,6 +7844,90 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
     // (G1 07:04 / 07:05 (1): each napper's CANT_REACH stamp at its lie-down, every row: a pre-sleep
     // stamp still erases HOME 1,200 gt later in the sleep (tick-exact); printed with the oldest)
     let mut stamp_lie_fail: Option<String> = None;
+    // (ironspec 08:16a / G1 08:18 / tick-exact 08:21, the boarding rule on the post-eject empty pass:
+    // judged > 0 while the cart moves >= 0.1 b/t; the slower ticks' least printed as the stated
+    // margin)
+    let mut board_fail: Option<String> = None;
+    if sk.relaid_park.is_some() {
+        // (tick-exact 08:21: awake, the standing box until SleepInBed starts; asleep, the 0.2 box)
+        for (pose, bm) in [("AWAKE (standing 0.6 x 1.95, before the lie-down)", &sk.board_min), ("ASLEEP (0.2 x 0.2 at the bed head's centre)", &sk.board_min_asleep)] {
+            match bm {
+                Some((m, at, sp, _, gy)) => {
+                    println!("the post-eject empty pass E -> K -> the siding -> the park, the napper {pose} (the boarding rule: an empty cart moving >= 0.1 b/t boards a villager its box inflated 0.2 in x / z meets): the least margin {m:.4} at {at} (the cart at {sp:.4} b/t, the y gap {gy:.4})", );
+                    if *m <= 0.0 {
+                        board_fail = Some(format!("the post-eject empty pass met the napper's box ({pose}) within the boarding reach (margin {m:.4} at {at}): a design defect (ironspec 08:16a)"));
+                    }
+                }
+                None => println!("the post-eject empty pass, the napper {pose}: no tick with the empty cart at >= 0.1 b/t"),
+            }
+        }
+        println!("  while the cart is slower than 0.1 b/t the least margin {} (the stated margin); visits sampled {}", sk.board_slow_min.map_or("none".to_string(), |s| format!("{s:.4}")), sk.board_n);
+        println!("  the napper's awake ticks between its dismount and SleepInBed's start (the standing box's whole window): none (the lie-down on the dismount tick) in {} of {} visits, the most {}", sk.awake_after_eject_zero, sk.awake_after_eject_n, sk.awake_after_eject_max);
+        println!("  the napper's boarding cooldown (Entity.removeVehicle's 60 gt from the eject; Entity.canRide refuses every seat while it runs) over the pass's moving ticks: least {} gt remaining (a second protection beside the margin)", sk.board_cd_min.map_or("none".to_string(), |c| c.to_string()));
+        // (ironspec 08:37a: a control whose bar didn't fail is no pass: `--plant-napper-at` must board)
+        if base.plant_napper_at.is_some() && sk.boarded_early.is_empty() {
+            board_fail = Some("the boarding control planted nothing: the napper planted toward the track was not boarded (ironspec 08:37a)".into());
+        }
+        if !sk.boarded_early.is_empty() {
+            board_fail = Some(format!("the napper BOARDED by the empty cart between its eject landing and the release in {} visit(s) ({}): the boarding rule (ironspec 08:16a)", sk.boarded_early.len(), sk.boarded_early.iter().take(3).cloned().collect::<Vec<_>>().join("; ")));
+        }
+        // (ironspec 08:14a / G1 08:16: Z1's boat, its composed centre and box (stop-local; the loop
+        // frame adds (0,-20,-1)) and the napper's least separation from its 0.2-inflated box)
+        if let Some(b) = sk.boat_box {
+            println!("Z1's boat (ironspec 08:14a, G1 08:16): centre stop-local ({:.4},{:.4},{:.4}) = loop ({:.4},{:.4},{:.4}); its box x {:.4}..{:.4}, z {:.4}..{:.4} (loop z {:.4}..{:.4}: inside the column bound z -6..9 by {:.4}); the napper's least separation from the box inflated 0.2 (its free seat's reach) {} (bar > 0)", b[0], b[1], b[2], b[0], b[1] - 20.0, b[2] - 1.0, b[3], b[4], b[5], b[6], b[5] - 1.0, b[6] - 1.0, 10.0 - (b[6] - 1.0), sk.boat_margin.map_or("none".to_string(), |m| format!("{m:.4}")));
+            if sk.boat_margin.is_some_and(|m| m <= 0.0) {
+                board_fail = Some(format!("the napper within Z1's boat's free-seat reach (separation {:?})", sk.boat_margin));
+            }
+        }
+        // (ironspec 08:58a (3)(a)(b): the waker statics from Z1's measured feet and eye: (a) the
+        // woken napper on P against SetWalkTargetAwayFrom's `closerThan(6)` (3-D, feet to feet),
+        // its feet anywhere its box fits on P (x -1.7..-1.3, z 4.3..4.7, y 0); (b) the sleeper (feet at
+        // the bed head's centre, y 0.6875, eye + 0.2) within the zombie's 8 (VillagerHostilesSensor,
+        // feet to feet) and its eye-to-eye line)
+        if let Some(z) = sk.z1_feet_eye {
+            let d = |a: [f64; 3], b: [f64; 3]| ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt();
+            let zf = [z[0], z[1], z[2]];
+            let mut worst = f64::INFINITY;
+            for x in [-1.7, -1.5, -1.3] {
+                for zz in [4.3, 4.5, 4.7] {
+                    worst = worst.min(d([x, 0.0, zz], zf));
+                }
+            }
+            let sleeper = d([-2.5, 0.6875, 4.5], zf);
+            let eyes = d([-2.5, 0.8875, 4.5], [z[0], z[3], z[2]]);
+            let standup = d([-1.5, 0.0, 4.5], zf);
+            println!("the waker statics (ironspec 08:58a (3)): Z1's feet ({:.4},{:.4},{:.4}), eye y {:.4}; (a) the woken napper on P: feet at the stand-up (-1.5,0,4.5) {standup:.4} from Z1's, the nearest its box allows on P {worst:.4} (bar >= 6, closerThan's strict 6: margin {:.4}); (b) the sleeper's feet {sleeper:.4} from Z1's (the zombie's 8: margin {:.4}), eye to eye {eyes:.4}", z[0], z[1], z[2], z[3], worst - 6.0, 8.0 - sleeper);
+            if worst < 6.0 {
+                board_fail = Some(format!("the woken napper on P can stand {worst:.4} from Z1's feet (SetWalkTargetAwayFrom's 6): a flee from a closure of {{P}} (ironspec 08:58a (1))"));
+            }
+            // (ironspec 09:22a (3): Z1's own spread over every tick of every row, the boat's play and
+            // its seat folded in)
+            if let (Some(zr), Some(pw)) = (sk.z1_range, sk.z1_p_worst) {
+                // (G1 09:28: 26.3's exact metrics: SetWalkTargetAwayFrom tests
+                // `mob.position().closerThan(hostile.position(), 6)`, feet to feet, strict (< 6);
+                // VillagerHostilesSensor.isClose tests `hostile.distanceToSqr(villager) <= 8 * 8` for a
+                // zombie, feet to feet, inclusive; the sleeper's farthest over Z1's range below)
+                let mut far = 0.0f64;
+                for x in [zr[0], zr[1]] {
+                    for y in [zr[2], zr[3]] {
+                        for z in [zr[4], zr[5]] {
+                            far = far.max(((x + 2.5).powi(2) + (y - 0.6875).powi(2) + (z - 4.5).powi(2)).sqrt());
+                        }
+                    }
+                }
+                println!("  Z1's feet over every tick of every row (the boat's play in its cage and its seat): x {:.4}..{:.4}, y {:.4}..{:.4}, z {:.4}..{:.4}; the least distance from them to the nearest feet P's box allows {pw:.4} (SetWalkTargetAwayFrom's `position().closerThan(hostile.position(), 6)`: feet to feet, strict; bar >= 6, margin {:.4}); the sleeper's feet at the farthest Z1 feet {far:.4} (VillagerHostilesSensor's `distanceToSqr <= 8 * 8`: feet to feet, inclusive; margin {:.4})", zr[0], zr[1], zr[2], zr[3], zr[4], zr[5], pw - 6.0, 8.0 - far);
+                if pw < 6.0 {
+                    board_fail = Some(format!("with Z1's own play the woken napper on P can stand {pw:.4} from Z1's feet (ironspec 09:22a (3))"));
+                }
+                if far > 8.0 {
+                    board_fail = Some(format!("with Z1's own play the sleeper can be {far:.4} from Z1's feet: beyond the zombie's 8"));
+                }
+            }
+            if sleeper > 8.0 {
+                board_fail = Some(format!("the sleeper {sleeper:.4} from Z1's feet: beyond the zombie's 8, no wake"));
+            }
+        }
+    }
     if !sk.stamp_at_lie.is_empty() {
         let before: Vec<&((Option<i64>, Option<i64>), String)> = sk.stamp_at_lie.iter().filter(|s| s.0.0.is_some()).collect();
         let at: usize = sk.stamp_at_lie.iter().filter(|s| s.0.1.is_some()).count();
@@ -7988,6 +8282,9 @@ pub fn bench_cmd(spec: &FarmSpec, from: u64, to: u64, speeds: &str, after_sleep:
         failed.push(e);
     }
     if let Some(e) = stamp_lie_fail.take() {
+        failed.push(e);
+    }
+    if let Some(e) = board_fail.take() {
         failed.push(e);
     }
     // (the declared scope: G1's C7, only the named bars, validated at the start)
@@ -9007,6 +9304,26 @@ struct SkipTotals {
     /// (G1 07:04 / 07:05 (1)) the napper's stamp age the tick before its lie-down and at it, per
     /// visit, with the visit
     stamp_at_lie: Vec<((Option<i64>, Option<i64>), String)>,
+    /// (ironspec 08:16a / G1 08:18) the post-eject empty pass: the least boarding margin while the
+    /// cart moves >= 0.1 b/t, with its visit, speed, pose and y gap; the least while slower; visits
+    board_min: Option<(f64, String, f64, bool, f64)>,
+    board_min_asleep: Option<(f64, String, f64, bool, f64)>,
+    board_slow_min: Option<f64>,
+    board_cd_min: Option<i64>,
+    board_n: usize,
+    /// (tick-exact 08:21) the awake ticks between the dismount and the lie-down: the most, the
+    /// visits with none, the visits counted
+    awake_after_eject_max: i64,
+    awake_after_eject_zero: usize,
+    awake_after_eject_n: usize,
+    /// (ironspec 08:16a (c)) the visits whose napper was boarded between its landing and the release
+    boarded_early: Vec<String>,
+    /// (ironspec 08:14a / G1 08:16) Z1's boat's centre and box, and the napper's least separation
+    boat_box: Option<[f64; 7]>,
+    z1_feet_eye: Option<[f64; 4]>,
+    z1_range: Option<[f64; 6]>,
+    z1_p_worst: Option<f64>,
+    boat_margin: Option<f64>,
     /// (tick-exact 02:45) the park string's release / re-press ticks of a few low rests
     flicker_ticks: Vec<String>,
     /// (G1 05:15 (4)) the park string's released-to-released intervals over every flickering visit
@@ -9413,6 +9730,18 @@ mod tests {
             let r = design_a2(bench, false, true, true, true, true, false, true, false, true, Some(1), false, false, latch, true);
             assert!(r.is_ok(), "bench {bench} latch {latch}: {:?}", r.err());
         }
+    }
+
+    /// (G1 10:16 / vcompose: the fold is composed verbatim by the record7f13b family: the generator
+    /// regenerates it identical to its committed file but for the guard strings' load-bearing line)
+    #[test]
+    fn the_fold_regenerates_unchanged() {
+        let text = design_a2(false, false, true, true, true, true, true, true, true, true, None, false, false, false, false).unwrap();
+        let committed = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../designs/farms/iron/parts/bed-tier-min/bed-tier-fold.txt")).unwrap();
+        let strip = |t: &str| t.lines().filter(|l| !l.starts_with("# Load-bearing (G1 10:16, tick-exact 10:13)") && !l.starts_with("# Fold placeholder, not for build")).collect::<Vec<_>>().join("\n");
+        assert_eq!(strip(&text), strip(&committed), "the fold changed beyond the strings' and the placeholder's lines");
+        assert!(text.contains("# Load-bearing (G1 10:16, tick-exact 10:13): the lone guard strings"));
+        assert!(text.contains("# Fold placeholder, not for build (ironspec 10:37a)"));
     }
 
     /// (the re-laid header's contact declarations and their speed sets parse with the judge's own
