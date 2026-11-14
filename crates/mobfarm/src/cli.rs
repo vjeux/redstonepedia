@@ -2154,6 +2154,70 @@ pub enum MobfarmCmd {
         #[arg(long)]
         design_out: Option<PathBuf>,
     },
+    /// (G1 Nov 13 15:29 / 15:37, ironspec 15:37; G1's CHANGES 5 on R4) The vertical contact judge's
+    /// normal-operation negative (`mobfarm::vhits`): plant carts in a design (positions and stored
+    /// motion, a crest file's rows, or the design's own), tick, and judge every cart each tick through
+    /// the ONE contact rule (`contacts::cart_hits` and `contacts::cart_vertical_hits`); every hit printed
+    /// with its class, face and depth, and counted. The set FAILS, exit 1, on any hit (or, with
+    /// --judge, any judge failure) and when it judged no cart-tick; --report-only prints and exits 0.
+    Vhits {
+        design: PathBuf,
+        /// A planted cart: X,Y,Z or X,Y,Z,VX,VY,VZ (the stored motion at the summon); repeatable.
+        #[arg(long = "cart", allow_hyphen_values = true)]
+        cart: Vec<String>,
+        /// A file of planted carts, one `x,y,z[,vx,vy,vz]` a line (`#` comments, printed with the set).
+        #[arg(long)]
+        carts_file: Option<PathBuf>,
+        /// (tick-exact 18:17) A crest file (`crest <cart> t<tick> | <tag> |t<tick>: … pos [..] motion
+        /// [..] rider ..`): each crest's --crest-row row planted alone (--separately implied).
+        #[arg(long)]
+        crest_file: Option<PathBuf>,
+        /// With --crest-file: the row planted (e.g. crest-3).
+        #[arg(long, default_value = "crest-3")]
+        crest_row: String,
+        /// With --crest-file: added to each row's y (the file's world y to the design's frame, e.g. -80).
+        #[arg(long, allow_hyphen_values = true)]
+        y_offset: Option<f64>,
+        /// Each planted cart alone in its own copy of the world (carts from different ticks).
+        #[arg(long)]
+        separately: bool,
+        /// The planted carts' passenger NBT (e.g. `{id:"minecraft:villager",NoAI:1b}`): needed when a
+        /// planted cart carries a rider (every --cart / carts-file cart; a crest row with one).
+        #[arg(long)]
+        rider: Option<String>,
+        /// Also judge the design's own carts (its laid minecart entities).
+        #[arg(long)]
+        own_carts: bool,
+        #[arg(long, default_value_t = 20)]
+        ticks: u32,
+        #[arg(long, default_value_t = 1)]
+        seed: i64,
+        /// (G1's B4 on R4) print the verdict and exit 0 (labelled), instead of exit 1 on a failing set.
+        #[arg(long)]
+        report_only: bool,
+        /// (G1 15:47 (2)) the set's source, printed with it: the design file's own carts, or summoned from
+        /// a trace tick (which bench, tip, tick), and whether the run replays the approach.
+        #[arg(long)]
+        source: Option<String>,
+        /// A part file with no `port output:` (a lanes file): the judge's air cell given here, the line
+        /// added to a copy of the file (printed), the file itself untouched.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        port_output: Vec<i32>,
+        /// (G1 16:47; G1's B3 on R4) Judge the hits with main's ONE judge against the design's bounded
+        /// `# contacts:` / `# stops:` declarations inside --scope (read strictly; the count printed in
+        /// and out): the count is the judge's failures (undeclared, exceeded, stalls, stale, wiring).
+        #[arg(long)]
+        judge: bool,
+        /// With --judge (required): the box X0,Y0,Z0,X1,Y1,Z1 whose declarations the set is judged
+        /// against; a declaration with cells on both sides is an error.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        scope: Vec<i32>,
+        /// With --judge: an extra BOUNDED declaration entry `CELLS=REASON | fields`, judged as if the
+        /// design declared it (a planted control; the file untouched; a legacy plant is refused).
+        /// Repeatable.
+        #[arg(long, allow_hyphen_values = true)]
+        declare: Vec<String>,
+    },
     /// (b8949c96 2026-11-12, the way-in line; ironspec's loop-frame acceptance and G1's five
     /// points on 78d4acf34) The queue cell in the loop frame against a module file
     /// (`mobfarm::waycell`): (a) the queue rider's summon box holds no other villager's position
@@ -2335,6 +2399,10 @@ pub enum MobfarmCmd {
         /// is NOT JUDGED); with --report-only the run exits 0 and says so.
         #[arg(long)]
         report_only: bool,
+        /// (ironspec 10:58) this run is the in-scope bounded declarations' own `ref=` run: their
+        /// `contacts::reference_check` mismatches fail it (printed only without this flag)
+        #[arg(long)]
+        reference_run: bool,
         /// (tick-exact's forced holds) the visit's cart summoned at `--leg`'s position and held there:
         /// no leg, the rows start at once; a hold past the row's end never releases.
         #[arg(long)]
@@ -8710,7 +8778,128 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             );
             print!("{}", crate::killguard::bench(&spec, &c, &o).map_err(|e| anyhow::anyhow!(e))?);
         }
-        MobfarmCmd::WayCell { design, positions, move_positions, s9, c_descent, brakes, queue, post, own, napper, keep_clear, chunk, pad, draws, write, rail, extra, ride_to, custom_post, wait, bed, leg, hold, south, deep, ride_ticks, release_phases, restart_at, stamp, follow, queue_glass, leg_day, release_sweep, visit, visit_holds, visit_no_post, path_probe, seat_at, restart_every, freeze_every, band, r1_built, visit_skip, bystander, watch_cells, visit_clear_stamp, visit_plant_stamp, visit_plant_erase, visit_start_held, visit_break_bed, report_only, visit_at_rest, probe_every_tick, freeze_lens, water_restart_row, water_scan, scan_box, water_search, search_rests, search_sweep } => {
+        MobfarmCmd::Vhits { design, cart, carts_file, crest_file, crest_row, y_offset, separately, rider, own_carts, ticks, seed, report_only, source, port_output, judge, scope, declare } => {
+            // (a part file with no output port) the judge's air cell added to a copy of the file
+            let (_c, spec) = match port_output[..] {
+                [] => load(version, &design)?,
+                [x, y, z] => {
+                    let text = std::fs::read_to_string(&design)?;
+                    anyhow::ensure!(!text.lines().any(|l| l.starts_with("port output:")), "--port-output: {} already has a `port output:` line", design.display());
+                    let copy = std::env::temp_dir().join(format!("vhits-{}-{}", std::process::id(), design.file_name().and_then(|n| n.to_str()).unwrap_or("design.txt")));
+                    std::fs::write(&copy, format!("{}\nport output: {x} {y} {z}\n", text.trim_end()))?;
+                    println!("(port output {x},{y},{z} added to a copy of {}: {})", design.display(), copy.display());
+                    load(version, &copy)?
+                }
+                _ => anyhow::bail!("--port-output X,Y,Z"),
+            };
+            let mut carts: Vec<crate::vhits::Planted> = cart.iter().map(|s| crate::vhits::parse_planted(s)).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!(e))?;
+            let mut notes: Vec<String> = Vec::new();
+            if let Some(f) = &carts_file {
+                let (c, n) = crate::vhits::parse_carts_file(&std::fs::read_to_string(f)?).map_err(|e| anyhow::anyhow!(e))?;
+                carts.extend(c);
+                notes.extend(n.into_iter().map(|n| format!("{}: {n}", f.display())));
+            }
+            if let Some(f) = &crest_file {
+                let dy = y_offset.ok_or_else(|| anyhow::anyhow!("--crest-file needs --y-offset (the file's world y to the design's frame; 0 when they agree)"))?;
+                let c = crate::vhits::parse_crest_file(&std::fs::read_to_string(f)?, &crest_row, dy).map_err(|e| anyhow::anyhow!("{}: {e}", f.display()))?;
+                notes.push(format!("{}: {} crest(s), each crest's {crest_row} row planted alone, y {dy:+}", f.display(), c.len()));
+                carts.extend(c);
+            } else {
+                anyhow::ensure!(y_offset.is_none(), "--y-offset belongs to --crest-file");
+            }
+            anyhow::ensure!(ticks > 0, "--ticks 0 judges nothing");
+            anyhow::ensure!(source.as_deref().is_some_and(|s| !s.trim().is_empty()), "--source: the set's source (the design's own carts, or summoned from which trace tick) is required (G1 15:47 (2))");
+            anyhow::ensure!(judge || declare.is_empty(), "--declare needs --judge");
+            anyhow::ensure!(judge || scope.is_empty(), "--scope needs --judge");
+            // (G1 16:47; G1's B3 / condition (6) / 18:34 (3) on R4) with --judge: the declarations inside the
+            // required scope, read strictly by main's bounded reader (the design's plus the planted
+            // --declare entries, each of which must be bounded), the count in and out printed
+            let judge_with = if judge {
+                let [x0, y0, z0, x1, y1, z1] = scope[..] else { anyhow::bail!("--judge needs --scope X0,Y0,Z0,X1,Y1,Z1: the box whose declarations the set is judged against") };
+                let (lo, hi) = ([x0.min(x1), y0.min(y1), z0.min(z1)], [x0.max(x1), y0.max(y1), z0.max(z1)]);
+                for d in &declare {
+                    let one = crate::contacts::declared_contacts_bounded(&format!("# contacts: {d}\n")).map_err(|e| anyhow::anyhow!("--declare {d:?}: {e}"))?;
+                    anyhow::ensure!(one.iter().all(|x| x.class != crate::contacts::Class::Legacy), "--declare {d:?}: a planted declaration must be bounded (a class=); a legacy entry judges nothing");
+                }
+                let mut text = std::fs::read_to_string(&design)?;
+                for d in &declare {
+                    text.push_str(&format!("\n# contacts: {d}\n"));
+                }
+                let (decls, outside) = crate::waycell::bounded_scope_split(&text, (lo, hi)).map_err(|e| anyhow::anyhow!("--judge: the declarations: {e}"))?;
+                // (G1's D3 on R4 v2) a planted declaration must lie inside the scope (never dropped
+                // silently), and the label counts the planted ones among those inside
+                let inside = |c: &redsim::pos::BlockPos| (lo[0]..=hi[0]).contains(&c.x) && (lo[1]..=hi[1]).contains(&c.y) && (lo[2]..=hi[2]).contains(&c.z);
+                let mut planted_inside = 0usize;
+                for d in &declare {
+                    let one = crate::contacts::declared_contacts_bounded(&format!("# contacts: {d}\n")).map_err(|e| anyhow::anyhow!("--declare {d:?}: {e}"))?;
+                    anyhow::ensure!(one.iter().all(|x| x.cells.iter().all(inside)), "--declare {d:?}: its cells lie outside --scope {lo:?}..{hi:?}: a planted declaration is judged inside the scope or refused");
+                    planted_inside += one.len();
+                }
+                let line = format!(
+                    "(vhits) the judge's scope {lo:?}..{hi:?}: {} declaration(s) inside, {planted_inside} of them planted by --declare (inside: {}), {} outside, left to their benches{}",
+                    decls.len(),
+                    if decls.is_empty() { "none".to_string() } else { decls.iter().map(|d| format!("{} {:?}", d.cells.iter().map(|c| format!("({},{},{})", c.x, c.y, c.z)).collect::<Vec<_>>().join("+"), d.class)).collect::<Vec<_>>().join(", ") },
+                    outside.len(),
+                    if outside.is_empty() { String::new() } else { format!(": {}", outside.join(", ")) }
+                );
+                // a scope holding no declaration judges nothing (a scope silently excluding the line under
+                // test passes nothing): NOT JUDGED, a failure; (G1's D1 on R4 v2) a LEGACY declaration in the
+                // scope matches a face-less line on any face with no bound (main's judge: legacy lines are
+                // judged for STALE and stalls only), so it would excuse the hits it covers: NOT JUDGED, a
+                // failure, until the line is bounded
+                let legacy: Vec<String> = crate::vhits::legacy_lines(&decls);
+                if decls.is_empty() || !legacy.is_empty() {
+                    println!("{line}");
+                    println!(
+                        "vhits: NOT JUDGED ({}){}",
+                        if decls.is_empty() { "no declaration inside the scope".to_string() } else { format!("a legacy declaration in the scope judges no bound: {}; bound it (class=…) first", legacy.join(", ")) },
+                        if report_only { " (--report-only: exit 0)" } else { " (exit 1)" }
+                    );
+                    if !report_only {
+                        std::process::exit(1);
+                    }
+                    return Ok(());
+                }
+                Some((decls, line))
+            } else {
+                None
+            };
+            let o = crate::vhits::Opts {
+                ticks,
+                own_carts,
+                seed,
+                separately: separately || crest_file.is_some(),
+                rider: rider.as_deref(),
+                judge: judge_with.as_ref().map(|(d, l)| (d.as_slice(), l.clone())),
+            };
+            let (lines, n, not_judged) = crate::vhits::vhits_lines(&spec, &carts, &o).map_err(|e| anyhow::anyhow!(e))?;
+            println!("{}: {} planted cart(s){}; the set's source: {}", design.display(), carts.len(), if own_carts { " and the design's own" } else { "" }, source.as_deref().unwrap_or_default());
+            for n in &notes {
+                println!("(vhits) the set: {n}");
+            }
+            for l in &lines {
+                println!("{l}");
+            }
+            // (G1's B4 on R4) a failing or unjudged set exits 1 unless --report-only (labelled); (G1 03:13)
+            // the verdict from vhits_lines' own NOT JUDGED flag, never from the printed text
+            println!(
+                "vhits: {}{}",
+                if n == 0 {
+                    if judge { "PASSES (0 judge failures)" } else { "PASSES (0 hits)" }
+                } else if not_judged {
+                    "FAILS (NOT JUDGED: a cart with no judged tick)"
+                } else if judge {
+                    "FAILS (judge failures)"
+                } else {
+                    "FAILS (hits)"
+                },
+                if n > 0 { if report_only { " (--report-only: exit 0)" } else { " (exit 1)" } } else { "" }
+            );
+            if n > 0 && !report_only {
+                std::process::exit(1);
+            }
+        }
+        MobfarmCmd::WayCell { design, positions, move_positions, s9, c_descent, brakes, queue, post, own, napper, keep_clear, chunk, pad, draws, write, rail, extra, ride_to, custom_post, wait, bed, leg, hold, south, deep, ride_ticks, release_phases, restart_at, stamp, follow, queue_glass, leg_day, release_sweep, visit, visit_holds, visit_no_post, path_probe, seat_at, restart_every, freeze_every, band, r1_built, visit_skip, bystander, watch_cells, visit_clear_stamp, visit_plant_stamp, visit_plant_erase, visit_start_held, visit_break_bed, report_only, reference_run, visit_at_rest, probe_every_tick, freeze_lens, water_restart_row, water_scan, scan_box, water_search, search_rests, search_sweep } => {
             if let [a, b] = water_restart_row[..] {
                 let ticks: Vec<i64> = (a..=b).collect();
                 for how in crate::liveness::Restart::rows() {
@@ -8804,6 +8993,10 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     .into_iter()
                     .map(|(p, _)| [p.x, p.y, p.z])
                     .collect(),
+                // (ironspec 10:42 / 10:58; G1 14:51 (4)) the bounded declarations in the ride's scope,
+                // read strictly by main's bounded reader: a malformed one in scope is an error
+                declared_bounded: crate::waycell::bounded_in_scope(&std::fs::read_to_string(&design)?, crate::waycell::RIDE_SCOPE).map_err(|e| anyhow::anyhow!(e))?,
+                reference_run,
             };
             if let Some(n) = deep {
                 // the deep queue's leg, stop wall and climb (ironspec 11:52), every n-th slope powered
