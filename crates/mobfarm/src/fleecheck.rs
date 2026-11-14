@@ -6021,6 +6021,8 @@ pub fn auto_columns(spec: &FarmSpec, declared: &[[f64; 4]]) -> (Vec<[f64; 4]>, V
         }
     }
     // (the free falls)
+    // (the settled world, read only when a rail end opens into a column's side: G1 18:41)
+    let mut settled: Option<Result<redsim::World, String>> = None;
     let mut rails: Vec<(BlockPos, String)> = spec.blocks.iter().filter(|(_, b)| b.to_string().contains("rail")).map(|(p, b)| (*p, b.to_string())).collect();
     rails.sort_by_key(|(p, _)| (p.y, p.z, p.x));
     for (c, _) in rails.iter().filter(|(c, _)| golem_guard(&blk, *c)) {
@@ -6035,6 +6037,43 @@ pub fn auto_columns(spec: &FarmSpec, declared: &[[f64; 4]]) -> (Vec<[f64; 4]>, V
             let m = BlockPos::new(c.x + dx, c.y + dy, c.z + dz);
             if rail(m) || rail(m.below()) || !open(m) || !open(m.below()) {
                 continue;
+            }
+            // (ironspec Nov 13 18:31: a rail end opening into a column's side, inside its y range, is
+            // the column's side entry, not a fall; G1 18:41: only where the SETTLED world holds a
+            // bubble column at that cell, its direction and its y range read there (soul sand lifts,
+            // magma pulls down); a declared column with no bubble block there carries by declaration)
+            if let Some(k) = declared.iter().chain(out.iter()).find(|k| k[0].floor() as i32 == m.x && k[2].floor() as i32 == m.z && k[1].min(k[3]) <= m.y as f64 && m.y as f64 <= k[1].max(k[3])) {
+                if settled.is_none() {
+                    settled = Some(settled_world_void(spec));
+                }
+                let how = match settled.as_ref() {
+                    Some(Ok(sw)) => {
+                        let bubble = |y: i32| {
+                            let s = sw.get(BlockPos::new(m.x, y, m.z)).to_string();
+                            s.contains("bubble_column").then(|| s.contains("drag=true"))
+                        };
+                        match bubble(m.y) {
+                            Some(down) => {
+                                let (mut lo, mut hi) = (m.y, m.y);
+                                while bubble(lo - 1) == Some(down) {
+                                    lo -= 1;
+                                }
+                                while bubble(hi + 1) == Some(down) {
+                                    hi += 1;
+                                }
+                                Some(format!("the settled world's bubble column y {lo}..{hi} there {}", if down { "pulls it DOWN (magma)" } else { "LIFTS it (soul sand)" }))
+                            }
+                            None if declared.iter().any(|d| d == k) => Some("the declared column carries it (no bubble block there in the settled world)".to_string()),
+                            None => None,
+                        }
+                    }
+                    Some(Err(e)) => Some(format!("the stored column carries it (the settle failed: {e})")),
+                    None => None,
+                };
+                if let Some(how) = how {
+                    lines.push(format!("auto column: the rail end {},{},{} into {},{},{} enters the column x {:.1} z {:.1} y {:.1}..{:.1} from its side: {how}; no fall of its own", c.x, c.y, c.z, m.x, m.y, m.z, k[0], k[2], k[1], k[3]));
+                    continue;
+                }
             }
             if let Some(k) = declared.iter().chain(out.iter()).find(|k| near(first(k), *c) || near(last(k), *c)) {
                 // (G1 Nov 13, N15: listed, never skipped silently)
@@ -8310,9 +8349,28 @@ mod gate_tests {
         let mut f = gspec.blocks.clone();
         f.push((b(0, 8, 0), p("minecraft:stone")));
         f.push((b(0, 9, 0), p("minecraft:rail[shape=north_south,waterlogged=false]")));
-        let fspec = redsim::entity::mob::farm::FarmSpec { blocks: f, hi: b(8, 10, 3), ..spec };
+        let fspec = redsim::entity::mob::farm::FarmSpec { blocks: f, hi: b(8, 10, 3), ..spec.clone() };
         let (_, fl) = super::auto_columns(&fspec, &[]);
         assert!(fl.iter().any(|l| l.contains("lands on the golem guard 0,6,1") && l.contains("UNLANDED")), "{fl:?}");
+        // (ironspec 18:31: a rail end opening into the bubble column's side, inside its y range, is
+        // carried by the column: no fall, no track end)
+        let mut s = spec.blocks.clone();
+        s.push((b(6, 2, 0), p("minecraft:stone")));
+        s.push((b(6, 3, 0), p("minecraft:rail[shape=east_west,waterlogged=false]")));
+        let sspec = redsim::entity::mob::farm::FarmSpec { blocks: s.clone(), ..spec.clone() };
+        let (_, sl) = super::auto_columns(&sspec, &[]);
+        assert!(sl.iter().any(|l| l.contains("the rail end 6,3,0 into 5,3,0 enters the column x 5.5 z 0.5") && l.contains("LIFTS it (soul sand)") && l.contains("no fall of its own")), "{sl:?}");
+        assert!(!sl.iter().any(|l| l.contains("off the rail end 6,3,0 into 5,3,0")), "{sl:?}");
+        // (G1 18:41: the same side entry over MAGMA: the settled world's column pulls the cart down)
+        let mut dn = s;
+        dn.retain(|(q, _)| q.x != 5 || q.z != 0);
+        dn.push((b(5, 0, 0), p("minecraft:magma_block")));
+        for y in 1..=4 {
+            dn.push((b(5, y, 0), p("minecraft:bubble_column[drag=true]")));
+        }
+        let dspec = redsim::entity::mob::farm::FarmSpec { blocks: dn, ..spec };
+        let (_, dl) = super::auto_columns(&dspec, &[]);
+        assert!(dl.iter().any(|l| l.contains("the rail end 6,3,0 into 5,3,0 enters the column") && l.contains("pulls it DOWN (magma)")), "{dl:?}");
     }
 
     /// (tick-exact 18:13, ironspec 18:15 (a) / (5), G1 18:15 / 18:19) The golem floor rule pinned
